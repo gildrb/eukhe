@@ -670,6 +670,45 @@ law semver_ffi_exact_fits:
   exs q: FSv.Req
   {s == spell_req(q) : String} & {req_fits(q) == True{} : Bool}
 
+# a request spelled by the grammar, then rest (spell_req is it before
+# nothing)
+def spell_req_then(q: FSv.Req, rest: String) -> String:
+  match q:
+    case FSv.QRelease{c, ts}:
+      Wr.put_nat(0n, Wr.put_str(c, spell_tags(ts, rest)))
+    case FSv.QSeries{w, r}:
+      Wr.put_nat(1n, Wr.put_str(w, Wr.put_str(r, rest)))
+
+# LAW semver_ffi_left_over_spelled: a spelled request that fits, followed by any more input,
+# answers exactly the error form "semver: input left after the request"
+# (before the 7-digit check: a long request with input left over gets this
+# text too)
+# EXCLUDES: trailing input ignored or read as part of the request, the
+#   left-over error reworded or swapped with another error text
+law semver_ffi_left_over_spelled:
+  for +q: FSv.Req
+  for fit: {req_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FSv.ffi(spell_req_then(q, SCon{c, t})) == Wr.err("semver: input left after the request") : String}
+
+# LAW semver_ffi_malformed_unless_request: every answer but the error form "semver: malformed
+# request" comes from an input that begins with a spelled request that fits
+# EXCLUDES: the left-over or 7-digit error (or any answer) for input that
+#   does not begin with a request, the malformed error reworded
+law semver_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FSv.ffi(s), Wr.err("semver: malformed request")) == False{} : Bool}
+  exs q: FSv.Req
+  exs rest: String
+  {(s, req_fits(q)) == (spell_req_then(q, rest), True{}) : String & Bool}
+
+# LAW semver_ffi_errors_example: anchor: the error texts Rust reads: an unknown tag is
+# malformed, a request with input left over is refused as such
+# EXCLUDES: the two texts swapped or reworded
+law semver_ffi_errors_example:
+  {[FSv.ffi("2,"), FSv.ffi("0,6,0.10.00,x")] == [Wr.err("semver: malformed request"), Wr.err("semver: input left after the request")] : List<&2, String>}
+
 # LAW semver_ffi_release_example: anchor: the exact bytes Rust sends for 0.10.0 with the tags eukhe-v0.10.3 and v1.2.3, and the release 0.10.4
 # EXCLUDES: another spelling of the request or of the release
 law semver_ffi_release_example:

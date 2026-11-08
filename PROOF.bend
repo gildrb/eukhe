@@ -763,6 +763,9 @@ import ./proof/semver/semver_ffi_why_example.bend as PSemverFfiWhyExample
 import ./proof/semver/semver_ffi_series_example.bend as PSemverFfiSeriesExample
 import ./proof/semver/semver_ffi_long_example.bend as PSemverFfiLongExample
 import ./proof/semver/semver_ffi_malformed_example.bend as PSemverFfiMalformedExample
+import ./proof/semver/semver_ffi_left_over_spelled.bend as PSemverFfiLeftOverSpelled
+import ./proof/semver/semver_ffi_malformed_unless_request.bend as PSemverFfiMalformedUnlessRequest
+import ./proof/semver/semver_ffi_errors_example.bend as PSemverFfiErrorsExample
 import ./proof/semver/replace_rank_in_range.bend as PReplaceRankInRange
 import ./proof/auth_flight/base.bend as LAAuthFlight
 import ./proof/auth_flight/flight_one_fetch.bend as PFlightOneFetch
