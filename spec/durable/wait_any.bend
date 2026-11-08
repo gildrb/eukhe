@@ -1,7 +1,7 @@
 # wait_any (spec): the agent's one blocking wait on its own work
 # (`jobs.wait`), restated without the code (bend/wait_any.bend). The laws
-# of area wait_any (laws/wait_any.bend) state that the code refines it. A
-# spec: the shipped code never calls it.
+# of area wait_any (laws/wait_any.bend) state the code's answers as
+# properties of these terms. A spec: the shipped code never calls it.
 #
 # S1: a wait ends with the settled target of the lowest position. A ready
 #     target (settled, its result undelivered) is settled; a gone one
@@ -29,9 +29,11 @@
 import Base
 import ../../bend/wait_any.bend as M
 
-# S1: the settled target of the lowest position
-# ---------------------------------------------
+# S1: which targets count as settled
+# ----------------------------------
 
+# a target counts as settled (S1): a running one never, a ready one
+# always, a gone one only for a wait that named its targets
 def counts(+named: Bool, t: M.Tgt) -> Bool:
   match t:
     case M.Runs{}:
@@ -41,73 +43,33 @@ def counts(+named: Bool, t: M.Tgt) -> Bool:
     case M.Read{}:
       named
 
-def later(m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match m:
-    case None{}:
-      None{}
-    case Some{i}:
-      Some{1n+i}
-
-def pos.at(here: Bool, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match here:
-    case True{}:
-      Some{0n}
-    case False{}:
-      later(rest)
-
-# the position of the first target of ts that counts as settled
-def pos(ts: List<&2, M.Tgt>, +named: Bool) -> Maybe<&2, Nat>:
+# no target of ts counts as settled
+def none_settled(+named: Bool, ts: List<&2, M.Tgt>) -> Bool:
   match ts:
     case Nil{}:
-      None{}
+      True{}
     case Con{t, rest}:
-      pos.at(counts(named, t), pos(rest, named))
+      Bool.and(Bool.not(counts(named, t)), none_settled(named, rest))
 
 # S2: the running targets
 # -----------------------
 
-def runs(t: M.Tgt) -> Nat:
+def is_runs(t: M.Tgt) -> Bool:
   match t:
     case M.Runs{}:
-      1n
+      True{}
     case M.Unread{}:
-      0n
+      False{}
     case M.Read{}:
-      0n
+      False{}
 
-# how many targets of ts run
-def running(ts: List<&2, M.Tgt>) -> Nat:
+# some target of ts runs
+def some_runs(ts: List<&2, M.Tgt>) -> Bool:
   match ts:
     case Nil{}:
-      0n
+      False{}
     case Con{t, rest}:
-      Nat.add(runs(t), running(rest))
-
-def poll.rest(idle: Bool, cancel: Bool, late: Bool) -> M.Pick:
-  match idle:
-    case True{}:
-      M.NoWork{}
-    case False{}:
-      match cancel:
-        case True{}:
-          M.Stopped{}
-        case False{}:
-          match late:
-            case True{}:
-              M.Capped{}
-            case False{}:
-              M.Waits{}
-
-def poll.of(m: Maybe<&2, Nat>, idle: Bool, cancel: Bool, late: Bool) -> M.Pick:
-  match m:
-    case Some{i}:
-      M.Takes{i}
-    case None{}:
-      poll.rest(idle, cancel, late)
-
-# S1, S2: one poll
-def poll(+named: Bool, cancel: Bool, late: Bool, +ts: List<&2, M.Tgt>) -> M.Pick:
-  poll.of(pos(ts, named), Nat.is_eq(running(ts), 0n), cancel, late)
+      Bool.or(is_runs(t), some_runs(rest))
 
 # S3: the route
 # -------------
@@ -142,66 +104,40 @@ def timeout(asked: Maybe<&2, Nat>) -> Nat:
     case Some{+t}:
       timeout.of(Nat.is_le(t, cap()), t)
 
-# S5: one job's delivery
-# ----------------------
+# S5: one job's delivery, read from a step's answer
+# -------------------------------------------------
 
-# a wait watches a job of w watchers when it has one
-def watching(+w: Nat) -> Bool:
-  Nat.is_gt(w, 0n)
+# the deliveries of a step's answer
+def out_k(o: M.Out) -> Nat:
+  match o:
+    case M.Out{d, k}:
+      k
 
-# a job before any event: no watcher, running
-def fresh() -> M.D:
-  M.D{0n, M.Live{}}
+# the state after a step's answer
+def out_d(o: M.Out) -> M.D:
+  match o:
+    case M.Out{d, k}:
+      d
 
-# the watchers after event e
-def watchers(+w: Nat, e: M.Ev) -> Nat:
-  match e:
-    case M.Watch{}:
-      1n+w
-    case M.Unwatch{}:
-      Nat.sub(w, 1n)
-    case M.Settles{}:
-      w
-    case M.Taken{}:
+# the watchers of a delivery state
+def d_watchers(d: M.D) -> Nat:
+  match d:
+    case M.D{w, p}:
       w
 
-# the phase of a result placed by the route r
-def placed(r: M.Route) -> M.Phase:
-  match r:
-    case M.ToNotice{}:
-      M.Sent{}
-    case M.ToWaiter{}:
-      M.Kept{}
-
-# the phase after event e, from phase p, with w watchers after the event
-def next(+wake: Bool, +w: Nat, e: M.Ev, p: M.Phase) -> M.Phase:
-  match e:
-    case M.Watch{}:
+# the phase of a delivery state
+def d_phase(d: M.D) -> M.Phase:
+  match d:
+    case M.D{w, p}:
       p
-    case M.Unwatch{}:
-      match p:
-        case M.Live{}:
-          M.Live{}
-        case M.Kept{}:
-          placed(route(watching(w), wake))
-        case M.Sent{}:
-          M.Sent{}
-    case M.Settles{}:
-      match p:
-        case M.Live{}:
-          placed(route(watching(w), wake))
-        case M.Kept{}:
-          M.Kept{}
-        case M.Sent{}:
-          M.Sent{}
-    case M.Taken{}:
-      match p:
-        case M.Live{}:
-          M.Live{}
-        case M.Kept{}:
-          M.Sent{}
-        case M.Sent{}:
-          M.Sent{}
+
+# the watchers after a step
+def out_watchers(o: M.Out) -> Nat:
+  d_watchers(out_d(o))
+
+# the phase after a step
+def out_phase(o: M.Out) -> M.Phase:
+  d_phase(out_d(o))
 
 def is_sent(p: M.Phase) -> Bool:
   match p:
@@ -223,39 +159,3 @@ def moved.of(b: Bool) -> Nat:
 # moves from not sent to sent
 def moved(+a: M.Phase, +b: M.Phase) -> Nat:
   moved.of(Bool.and(Bool.not(is_sent(a)), is_sent(b)))
-
-# a running job's result placed by the route r, with w watchers
-def deliver(r: M.Route, +w: Nat) -> M.Out:
-  +p = placed(r)
-  M.Out{M.D{w, p}, moved(M.Live{}, p)}
-
-def step.at(+wake: Bool, +w: Nat, +p: M.Phase, +e: M.Ev) -> M.Out:
-  +p2 = next(wake, w, e, p)
-  M.Out{M.D{w, p2}, moved(p, p2)}
-
-# one event: the job's delivery state after it, and the deliveries it made
-def step(+wake: Bool, d: M.D, +e: M.Ev) -> M.Out:
-  match d:
-    case M.D{+w, +p}:
-      step.at(wake, watchers(w, e), p, e)
-
-# the deliveries of a step's answer
-def out_k(o: M.Out) -> Nat:
-  match o:
-    case M.Out{d, k}:
-      k
-
-# the state after a step's answer
-def out_d(o: M.Out) -> M.D:
-  match o:
-    case M.Out{d, k}:
-      d
-
-# every delivery the events es make from d
-def deliveries(es: List<&2, M.Ev>, +wake: Bool, d: M.D) -> Nat:
-  match es:
-    case Nil{}:
-      0n
-    case Con{e, rest}:
-      +o = step(wake, d, e)
-      Nat.add(out_k(o), deliveries(rest, wake, out_d(o)))

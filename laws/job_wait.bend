@@ -5,18 +5,39 @@ import ../bend/ffi_job_wait.bend as FJw
 import ../bend/job.bend as Jb
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
-import ./job.bend as Job
 
 # (S2) A blocking wait on a job, event by event
 # ---------------------------------------------
-# docs/runtime.md S2, the model `wait` in bend/job.bend. The Rust wait
-# (crates/eukhe-core/src/durable/jobs/mod.rs `wait_until`) opens the
-# stepper bend/ffi_job_wait.bend with its budget in ticks and sends each
-# event in the order it arrives: a tick (the deadline timer fired) or the
-# job's end; it settles, detaches or waits on as the reply says. These
-# laws pin every reply for every budget and every order of events: the
-# model's answer, the end standing for every exit and for the kill. The
-# grammar is restated from the entry's header, never from its code:
+# The Rust wait (crates/eukhe-core/src/durable/jobs/mod.rs `wait_until`)
+# opens the stepper bend/ffi_job_wait.bend with its budget in ticks and
+# sends each event in the order it arrives: a tick (the deadline timer
+# fired) or the job's end; it settles, detaches or waits on as the reply
+# says. The requirement is stated here (no other document states it; the
+# model `wait` of bend/job.bend is pinned by the laws of area job):
+#
+# S2: the stepper opened with any budget b answers, after any events in
+#     any order, the model's wait on those events with budget b, the end
+#     standing for every exit and for the kill: an end before b ticks
+#     settles, b ticks with no end detach, a settled or detached call
+#     stays so, and no call both settles and detaches.
+#     Laws: job_wait_step_is_model, job_wait_final_is_final,
+#     job_wait_never_settles_and_detaches, job_wait_end_in_time_settles,
+#     job_wait_budget_spent_detaches.
+# A1: an open is exactly one Nat that fits the wire (the budget); any
+#     other open answers `E job_wait: malformed open`, and the refused
+#     stepper answers every later input with `E job_wait: the open was
+#     refused`.
+#     Laws: job_wait_open_exact, job_wait_refused_open.
+# A2: an event is exactly the tag 0 (a tick) or 1 (the end); any other
+#     input (an unknown tag, a bad number, input left over) answers `E
+#     job_wait: malformed event` and keeps the wait.
+#     Laws: job_wait_step_exact, job_wait_step_refuses,
+#     job_wait_entry_unknown_tag.
+# (omp's wait tool, packages/coding-agent/src/tools/wait.ts, races the
+# job's promise against a timer: the job settling or the time running
+# out ends the call, the same two ends as S2.)
+#
+# The grammar is restated from the entry's header, never from its code:
 #
 #   open    budget: Nat                 reply: Turn
 #   step    Ev                          reply: Turn
@@ -134,86 +155,18 @@ def jw_has_end(es: List<&2, Maybe<&2, Jb.End>>) -> Bool:
         case Some{x}:
           True{}
 
-# the ticks of budget left after an event, from l: a tick spends one (none
-# below zero), the end none
-def jw_left(ready: Bool, l: Nat) -> Nat:
-  match ready:
-    case True{}:
-      l
-    case False{}:
-      match l:
-        case 0n:
-          0n
-        case 1n+p:
-          p
+# the reply of a stepper's answer
+def jw_reply(r: FJw.St & String) -> String:
+  (st, out) = r
+  out
 
-# the stepper after the turn t, with left ticks of budget: a wait keeps
-# waiting, a settle or a detach is final
-def jw_after(left: Nat, +t: Jb.Turn) -> FJw.St & String:
-  match t:
-    case Jb.Waits{}:
-      (FJw.Open{FJw.Waiting{left}}, Job.wt_spell_turn(Jb.Waits{}))
-    case Jb.Settles{}:
-      (FJw.Open{FJw.Final{Jb.Settles{}}}, Job.wt_spell_turn(Jb.Settles{}))
-    case Jb.Detaches{}:
-      (FJw.Open{FJw.Final{Jb.Detaches{}}}, Job.wt_spell_turn(Jb.Detaches{}))
-
-# one event (the end when ready) in the wait w: waiting, the poll with
-# the deadline due when no tick of budget is left after the event and the
-# end ready when it is the end; final, the same final turn
-def jw_step(w: FJw.Wt, +ready: Bool) -> FJw.St & String:
-  match w:
-    case FJw.Waiting{l}:
-      +left = jw_left(ready, l)
-      jw_after(left, Job.wt_poll_spec(Nat.is_eq(left, 0n), ready))
-    case FJw.Final{+t}:
-      (FJw.Open{FJw.Final{t}}, Job.wt_spell_turn(t))
-
-# the budget s spells, when s is exactly one Nat
-def jw_read_open.end(whole: Bool, b: Nat) -> Maybe<&2, Nat>:
-  match whole:
-    case True{}:
-      Some{b}
-    case False{}:
-      None{}
-
-def jw_read_open.go(r: Wr.Dec<Nat>) -> Maybe<&2, Nat>:
-  match r:
-    case Wr.Got{b, s}:
-      jw_read_open.end(Wr.end(s), b)
-    case Wr.Bad{}:
-      None{}
-
-def jw_read_open(s: String) -> Maybe<&2, Nat>:
-  jw_read_open.go(Wr.get_nat(s))
-
-# the event s spells (True: the end, False: a tick), when s is exactly
-# one tag 0 or 1
-def jw_read_ev.tag(t: Nat) -> Maybe<&2, Bool>:
-  match t:
-    case 0n:
-      Some{False{}}
-    case 1n:
-      Some{True{}}
-    case 2n+p:
-      None{}
-
-def jw_read_ev.end(whole: Bool, t: Nat) -> Maybe<&2, Bool>:
-  match whole:
-    case True{}:
-      jw_read_ev.tag(t)
-    case False{}:
-      None{}
-
-def jw_read_ev.go(r: Wr.Dec<Nat>) -> Maybe<&2, Bool>:
-  match r:
-    case Wr.Got{t, s}:
-      jw_read_ev.end(Wr.end(s), t)
-    case Wr.Bad{}:
-      None{}
-
-def jw_read_ev(s: String) -> Maybe<&2, Bool>:
-  jw_read_ev.go(Wr.get_nat(s))
+# one refusal of a refused open per input of ins
+def jw_refusals(ins: List<&2, String>) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case i <> t:
+      SCon{'E', SCon{' ', "job_wait: the open was refused"}} <> jw_refusals(t)
 
 # Laws
 # ----
@@ -275,73 +228,51 @@ law job_wait_budget_spent_detaches:
   for spent: {Nat.is_le(b, jw_ticks(es)) == True{} : Bool}
   {jw_run(b, es) == Wr.put_nat(2n, "") : String}
 
-# LAW job_wait_entry_open: an open with a budget b (spelled from the
-# wire's primitives) is the poll at rest: it detaches with no budget,
-# else it waits with b ticks left
-# EXCLUDES: a budget misread or off by one, an open that settles
-law job_wait_entry_open:
-  for +b: Nat
-  for fits: {LawsBase.wire_fits(b) == True{} : Bool}
-  {FJw.open(Wr.put_nat(b, "")) == jw_after(b, Job.wt_poll_spec(Nat.is_eq(b, 0n), False{})) : FJw.St & String}
-
-# LAW job_wait_entry_open_reads: an open input the laws' reader reads as
-# exactly one Nat b opens as the budget b
-# EXCLUDES: an open input read otherwise than by the wire's grammar
-law job_wait_entry_open_reads:
+# LAW job_wait_open_exact (A1): every open the stepper answers other than
+# with the error form is exactly one Nat that fits the wire, with nothing
+# after it (the budget job_wait_step_is_model reads)
+# EXCLUDES: a budget guessed from garbage, a leading zero or a sign read,
+#   input left over after the budget ignored, an open with no budget
+#   answered as a wait
+law job_wait_open_exact:
   for +i: String
-  for +b: Nat
-  for got: {jw_read_open(i) == Some{b} : Maybe<&2, Nat>}
-  {FJw.open(i) == jw_after(b, Job.wt_poll_spec(Nat.is_eq(b, 0n), False{})) : FJw.St & String}
+  for ok: {LawsBase.wire_opens_err(jw_reply(FJw.open(i))) == False{} : Bool}
+  exs b: Nat
+  {i == Wr.put_nat(b, "") : String} & {LawsBase.wire_fits(b) == True{} : Bool}
 
-# LAW job_wait_entry_open_malformed_exact: an open input that is not
-# exactly one Nat opens the refused state and answers exactly the error
-# form 'E ' + "job_wait: malformed open"
-# EXCLUDES: a guessed budget, another error text, a live state from
-# garbage
-law job_wait_entry_open_malformed_exact:
+# LAW job_wait_refused_open (A1): an open the stepper answers with the
+# error form answers exactly 'E ' + "job_wait: malformed open", and the
+# stepper then answers every later input, whatever it is, with exactly
+# 'E ' + "job_wait: the open was refused"
+# EXCLUDES: another error text, a refused stepper that later settles,
+#   detaches or waits (a live state from garbage)
+law job_wait_refused_open:
   for +i: String
-  for no: {jw_read_open(i) == None{} : Maybe<&2, Nat>}
-  {FJw.open(i) == (FJw.Shut{}, SCon{'E', SCon{' ', "job_wait: malformed open"}}) : FJw.St & String}
+  for bad: {LawsBase.wire_opens_err(jw_reply(FJw.open(i))) == True{} : Bool}
+  for ins: List<&2, String>
+  {jw_feed_raw(ins, FJw.open(i)) == SCon{'E', SCon{' ', "job_wait: malformed open"}} <> jw_refusals(ins) : List<&2, String>}
 
-# LAW job_wait_entry_shut: a refused open answers every step with exactly
-# the error form 'E ' + "job_wait: the open was refused"
-# EXCLUDES: a refused stepper that settles, detaches or waits
-law job_wait_entry_shut:
-  for +i: String
-  {FJw.step(FJw.Shut{}, i) == (FJw.Shut{}, SCon{'E', SCon{' ', "job_wait: the open was refused"}}) : FJw.St & String}
-
-# LAW job_wait_entry_answers: in any wait, each host event (spelled from
-# the wire's primitives) answers the poll: a passed deadline (no tick of
-# budget left after the event) detaches, else the end settles, else the
-# call waits with the event's tick spent; a settled or detached wait
-# answers its final turn and stays final
-# EXCLUDES: a tick or an end read as the other, a settle after a detach,
-# a final turn that changes, a tick that spends no budget or the end one
-law job_wait_entry_answers:
-  for +w: FJw.Wt
-  for +e: Maybe<&2, Jb.End>
-  {FJw.step(FJw.Open{w}, jw_spell_ev(e)) == jw_step(w, Maybe.is_some(&2, Jb.End, e)) : FJw.St & String}
-
-# LAW job_wait_entry_reads: in any wait, an input the laws' reader reads
-# as exactly one event steps as that event
-# EXCLUDES: an input read otherwise by the entry than by the wire's
-# grammar (a third tag accepted, a tag misread)
-law job_wait_entry_reads:
+# LAW job_wait_step_exact (A2): in any wait, every input the stepper
+# answers other than with the error form is exactly one tag below 2 (0 a
+# tick, 1 the end), with nothing after it
+# EXCLUDES: an event guessed from garbage (a third tag, a bad number, no
+#   input), input left over after the tag ignored
+law job_wait_step_exact:
   for +w: FJw.Wt
   for +i: String
-  for +ready: Bool
-  for got: {jw_read_ev(i) == Some{ready} : Maybe<&2, Bool>}
-  {FJw.step(FJw.Open{w}, i) == jw_step(w, ready) : FJw.St & String}
+  for ok: {LawsBase.wire_opens_err(jw_reply(FJw.step(FJw.Open{w}, i))) == False{} : Bool}
+  exs t: Nat
+  {i == Wr.put_nat(t, "") : String} & {Nat.is_lt(t, 2n) == True{} : Bool}
 
-# LAW job_wait_entry_malformed_exact: in any wait, an input that is not
-# exactly one event (an unknown tag, a bad number, input left over, no
-# input) keeps the wait and answers exactly the error form 'E ' +
+# LAW job_wait_step_refuses (A2): in any wait, an input the stepper
+# answers with the error form keeps the wait and answers exactly 'E ' +
 # "job_wait: malformed event"
-# EXCLUDES: a guessed event, a wait changed by garbage, another error text
-law job_wait_entry_malformed_exact:
+# EXCLUDES: a wait changed (budget spent, turn changed) by garbage,
+#   another error text
+law job_wait_step_refuses:
   for +w: FJw.Wt
   for +i: String
-  for no: {jw_read_ev(i) == None{} : Maybe<&2, Bool>}
+  for bad: {LawsBase.wire_opens_err(jw_reply(FJw.step(FJw.Open{w}, i))) == True{} : Bool}
   {FJw.step(FJw.Open{w}, i) == (FJw.Open{w}, SCon{'E', SCon{' ', "job_wait: malformed event"}}) : FJw.St & String}
 
 # LAW job_wait_entry_unknown_tag: in any wait, a tag past 1 (any number
@@ -366,6 +297,6 @@ law job_wait_entry_example:
   {jw_feed_raw(["1,"], FJw.open("0,")) == ["2,", "2,"] : List<&2, String>} &
   {jw_feed_raw(["2,", "0,x", "", "0,"], FJw.open("2,")) == ["0,", "E job_wait: malformed event", "E job_wait: malformed event", "E job_wait: malformed event", "0,"] : List<&2, String>} &
   {jw_feed_raw(["0,"], FJw.open("1")) == ["E job_wait: malformed open", "E job_wait: the open was refused"] : List<&2, String>} &
-  {[jw_read_open("01,"), jw_read_open("1,x")] == [None{}, None{}] : List<&2, Maybe<&2, Nat>>} &
-  {[jw_read_ev("2,"), jw_read_ev("1,1,")] == [None{}, None{}] : List<&2, Maybe<&2, Bool>>} &
+  {[LawsBase.wire_opens_err(jw_reply(FJw.open("01,"))), LawsBase.wire_opens_err(jw_reply(FJw.open("1,x"))), LawsBase.wire_opens_err(jw_reply(FJw.open("1,")))] == [True{}, True{}, False{}] : List<&2, Bool>} &
+  {[LawsBase.wire_opens_err(jw_reply(FJw.step(FJw.Open{FJw.Waiting{1n}}, "2,"))), LawsBase.wire_opens_err(jw_reply(FJw.step(FJw.Open{FJw.Waiting{1n}}, "1,1,"))), LawsBase.wire_opens_err(jw_reply(FJw.step(FJw.Open{FJw.Waiting{1n}}, "0,")))] == [True{}, True{}, False{}] : List<&2, Bool>} &
   {[LawsBase.wire_fits(1n), Nat.is_lt(jw_ticks([None{}]), 2n), jw_has_end([None{}]), Nat.is_le(1n, jw_ticks([None{}])), String.eq(jw_run(1n, [None{}]), "0,")] == [True{}, True{}, False{}, True{}, False{}] : List<&2, Bool>}
