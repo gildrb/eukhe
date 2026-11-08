@@ -264,6 +264,17 @@ law launcher_ffi_malformed:
   for no: {read_ask(s) == None{} : Maybe<&2, La.Ask>}
   {LawsBase.wire_opens_err(FLa.ffi(s)) == True{} : Bool}
 
+# LAW launcher_ffi_reads: every input that is exactly one request (as the wire primitives read
+# it) gets the answer to that request (with launcher_ffi_malformed_exact: the
+# entry's reply to every input is the spec's)
+# EXCLUDES: a reply on another reading of the input (a non-canonical
+#   spelling answered as another request), a request answered as another
+law launcher_ffi_reads:
+  for +s: String
+  for +a: La.Ask
+  for got: {read_ask(s) == Some{a} : Maybe<&2, La.Ask>}
+  {FLa.ffi(s) == spell_answer(a) : String}
+
 # LAW launcher_ffi_example: anchor: the strings Rust sends: a run start at a closed gate, a quiesce of a busy worker at an open gate, a commit with one busy answer, the adoption of a worker of another build and of the supervisor's; input left over is refused
 law launcher_ffi_example:
   {FLa.ffi("0,T") == "F" : String} &
@@ -390,6 +401,42 @@ law launcher_step_exact:
 # LAW launcher_closed_gate_waits_example: anchor: an idle worker quiesced, then prompted, does not start the run
 law launcher_closed_gate_waits_example:
   {La.run([False{}], [La.Quiesce{0n}, La.Prompt{0n}]) == La.St{[La.Wk{False{}, True{}}], 0n, False{}} : La.St}
+
+# workers with these runs, every gate open
+def open_spec(bs: List<&2, Bool>) -> List<&2, La.Wk>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case b <> t:
+      La.Wk{b, False{}} <> open_spec(t)
+
+# the replacement after ops from s: every operation, in order, each a
+# step_spec
+def run_spec(ops: List<&2, La.Op>, s: La.St) -> La.St:
+  match ops:
+    case Nil{}:
+      s
+    case op <> rest:
+      run_spec(rest, step_spec(s, op))
+
+# LAW launcher_go_exact (D1): from every state, the simulation of a list of operations is the rule's step taken for each operation in order, none dropped, repeated or reordered
+# EXCLUDES: a run that stops at a commit (returns the state before it and
+#   drops it and the operations after), a run that skips, repeats or
+#   reorders operations, a run that ignores the state it starts from
+law launcher_go_exact:
+  for ops: List<&2, La.Op>
+  for +s: La.St
+  {La.go(ops, s) == run_spec(ops, s) : La.St}
+
+# LAW launcher_run_exact (D1): the replacement started on workers with these runs, every gate open, no run aborted and the daemon serving, then fed any operations, ends as the rule's steps from that start (so idle_shutdown_never_aborts is about the rule's whole run)
+# EXCLUDES: a run that stops at a commit (drops it and the operations
+#   after), a start with a gate closed, a run lost or invented, workers
+#   dropped, added or reordered, an aborted count or a stopped daemon at
+#   the start
+law launcher_run_exact:
+  for +bs: List<&2, Bool>
+  for ops: List<&2, La.Op>
+  {La.run(bs, ops) == run_spec(ops, La.St{open_spec(bs), 0n, False{}}) : La.St}
 
 # LAW launcher_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "launcher: malformed request" (the text Rust's Reader reports)
 law launcher_ffi_malformed_exact:

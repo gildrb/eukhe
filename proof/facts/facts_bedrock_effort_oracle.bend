@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 import ../base/logic/logic.bend as LLogicLogic
 import ../base/logic/nat.bend as LLogicNat
 

@@ -47,14 +47,26 @@ fn tmux_clipboard_setting_blocks(output: &[u8]) -> bool {
     )
 }
 
-pub(crate) const TMUX_CLIPBOARD_BLOCKED: &str =
-    "tmux cannot forward this copy to a clipboard. Check its attached client's Ms capability and each outer tmux hop.";
 pub(crate) const CLIPBOARD_REQUESTED: &str =
     "Clipboard request sent; paste in the local terminal to verify delivery";
-/// The oversized remote fallback's report: the helper wrote the machine
-/// the TUI runs on, not the user's local clipboard.
-const OVERSIZED_REMOTE_COPIED: &str =
-    "Payload too large for terminal forwarding; copied to the remote machine's clipboard instead";
+
+/// Why a copy did not reach the user's clipboard.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ClipboardError {
+    /// The oversized remote fallback: the helper wrote the machine the TUI
+    /// runs on, not the user's local clipboard.
+    #[error("Payload too large for terminal forwarding; copied to the remote machine's clipboard instead")]
+    CopiedToRemote,
+    /// The containing tmux rejects application OSC 52 and could not
+    /// forward its own buffer.
+    #[error("tmux cannot forward this copy to a clipboard. Check its attached client's Ms capability and each outer tmux hop.")]
+    TmuxBlocked,
+    #[error("Failed to write clipboard request: {0}")]
+    Write(#[source] std::io::Error),
+    /// No helper ran and OSC 52 cannot carry the payload.
+    #[error("Failed to copy to clipboard")]
+    Unavailable,
+}
 
 fn tmux_output(args: &[&str]) -> Option<String> {
     let mut child = Command::new("tmux")
@@ -345,28 +357,34 @@ enum Carriage {
 /// A platform helper's success: a local helper wrote the user's own
 /// clipboard; a remote helper wrote the machine the TUI runs on, which the
 /// user's terminal cannot paste from, so the copy reports where it landed.
-fn helper_outcome(session: Session) -> Result<CopyOutcome, String> {
+fn helper_outcome(session: Session) -> Result<CopyOutcome, ClipboardError> {
     match session {
         Session::Local => Ok(CopyOutcome::Confirmed),
-        Session::Remote => Err(OVERSIZED_REMOTE_COPIED.to_string()),
+        Session::Remote => Err(ClipboardError::CopiedToRemote),
     }
 }
 
-pub(crate) fn copy_to_clipboard(text: &str, sink: &mut OscSink) -> Result<CopyOutcome, String> {
+pub(crate) fn copy_to_clipboard(
+    text: &str,
+    sink: &mut OscSink,
+) -> Result<CopyOutcome, ClipboardError> {
     copy_with_env(text, sink, &Env::process())
 }
 
 /// The containing tmux's rejected-OSC 52 explanation, only for payloads
 /// OSC 52 could carry: an oversized payload never reaches the terminal
 /// channel, so it must not blame tmux.
-fn tmux_clipboard_blocked(carriage: Carriage, blocks: impl FnOnce() -> bool) -> Option<String> {
+fn tmux_clipboard_blocked(
+    carriage: Carriage,
+    blocks: impl FnOnce() -> bool,
+) -> Option<ClipboardError> {
     match carriage {
-        Carriage::Fits => blocks().then(|| TMUX_CLIPBOARD_BLOCKED.to_string()),
+        Carriage::Fits => blocks().then_some(ClipboardError::TmuxBlocked),
         Carriage::Oversized => None,
     }
 }
 
-fn copy_with_env(text: &str, sink: &mut OscSink, env: &Env) -> Result<CopyOutcome, String> {
+fn copy_with_env(text: &str, sink: &mut OscSink, env: &Env) -> Result<CopyOutcome, ClipboardError> {
     let session = if is_remote_session(env) {
         Session::Remote
     } else {
@@ -405,10 +423,10 @@ fn copy_with_env(text: &str, sink: &mut OscSink, env: &Env) -> Result<CopyOutcom
     }
     if let Some(sequence) = crate::osc52::sequence(text) {
         sink.write_sequence(&sequence)
-            .map_err(|error| format!("Failed to write clipboard request: {error}"))?;
+            .map_err(ClipboardError::Write)?;
         return Ok(CopyOutcome::Requested);
     }
-    Err("Failed to copy to clipboard".to_string())
+    Err(ClipboardError::Unavailable)
 }
 
 #[cfg(test)]
@@ -439,7 +457,10 @@ mod tests {
         let mut sink = OscSink::Buffer(Vec::new());
         let big = "a".repeat(200_001);
         let result = copy_with_env(&big, &mut sink, &plain_env());
-        assert_eq!(result, Err("Failed to copy to clipboard".to_string()));
+        assert_eq!(
+            result.map_err(|error| error.to_string()),
+            Err("Failed to copy to clipboard".to_string())
+        );
         assert!(matches!(sink, OscSink::Buffer(buffer) if buffer.is_empty()));
     }
 
@@ -447,7 +468,8 @@ mod tests {
     fn a_small_text_without_tools_emits_osc52() {
         let mut sink = OscSink::Buffer(Vec::new());
         assert_eq!(
-            copy_with_env("parity text", &mut sink, &plain_env()),
+            copy_with_env("parity text", &mut sink, &plain_env())
+                .map_err(|error| error.to_string()),
             Ok(CopyOutcome::Requested)
         );
         match sink {
@@ -489,25 +511,34 @@ mod tests {
 
     #[test]
     fn an_oversized_payload_never_blames_tmux_capability() {
+        let shown = |carriage, blocks| {
+            tmux_clipboard_blocked(carriage, || blocks).map(|error| error.to_string())
+        };
         assert_eq!(
-            tmux_clipboard_blocked(Carriage::Oversized, || true),
+            shown(Carriage::Oversized, true),
             None,
             "an oversized payload cannot ride the terminal channel at all"
         );
         assert_eq!(
-            tmux_clipboard_blocked(Carriage::Fits, || true),
-            Some(TMUX_CLIPBOARD_BLOCKED.to_string())
+            shown(Carriage::Fits, true),
+            Some(
+                "tmux cannot forward this copy to a clipboard. Check its attached client's Ms capability and each outer tmux hop."
+                    .to_string()
+            )
         );
-        assert_eq!(tmux_clipboard_blocked(Carriage::Fits, || false), None);
+        assert_eq!(shown(Carriage::Fits, false), None);
     }
 
     #[test]
     fn a_remote_helper_success_never_confirms_local_delivery() {
         assert_eq!(
-            helper_outcome(Session::Remote),
-            Err(OVERSIZED_REMOTE_COPIED.to_string())
+            helper_outcome(Session::Remote).map_err(|error| error.to_string()),
+            Err("Payload too large for terminal forwarding; copied to the remote machine's clipboard instead".to_string())
         );
-        assert_eq!(helper_outcome(Session::Local), Ok(CopyOutcome::Confirmed));
+        assert_eq!(
+            helper_outcome(Session::Local).map_err(|error| error.to_string()),
+            Ok(CopyOutcome::Confirmed)
+        );
     }
 
     #[test]
@@ -527,7 +558,7 @@ mod tests {
         ]);
         let big = "a".repeat(200_001);
         assert_eq!(
-            copy_with_env(&big, &mut sink, &env),
+            copy_with_env(&big, &mut sink, &env).map_err(|error| error.to_string()),
             Err("Failed to copy to clipboard".to_string())
         );
         assert!(matches!(sink, OscSink::Buffer(buffer) if buffer.is_empty()));

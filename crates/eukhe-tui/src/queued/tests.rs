@@ -25,7 +25,8 @@ fn heartbeat(text: &str) -> QueuedItem {
 
 fn agent_mail(text: &str) -> QueuedItem {
     let report = Report::AgentMessage {
-        sender: "child:research".to_owned(),
+        from: eukhe_types::input_origin::Kin::Child,
+        name: "research".to_owned(),
     };
     internal(text, InputOrigin::Report { report })
 }

@@ -1,6 +1,6 @@
 //! The `rlm.*` kernel host requests over the durable children registry:
 //! `rlm.run` (`rlm.spawn`),
-//! `rlm.create_session`, `rlm.find_models`, `rlm.list_subagents`,
+//! `rlm.find_models`, `rlm.list_subagents`,
 //! `rlm.delete_subagent`, `rlm.collect`, `rlm.answer`, and
 //! `rlm.progress.note`
 //! (`rlm.rename` lives in [`super::rename`]).
@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail};
 use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_bend::rules::family;
 use eukhe_bend::rules::worker::GateKind;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
@@ -26,10 +27,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
 
 use super::depth::read_max_depth_override;
-use super::host::{
-    ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmCreateSessionRequest,
-    RlmSubagentHost,
-};
+use super::host::{ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmSubagentHost};
 use super::notice::{rlm_child_label, DELETED_BY_PARENT};
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
 use super::registry::{
@@ -55,8 +53,8 @@ const NO_SPAWN_RUNTIME: &str =
     "rlm.spawn requires a daemon-backed session: this session has no RLM child runtime";
 
 /// Register every `rlm.*` handler of `children` onto `registry`. A spawn
-/// (`rlm.run`, `rlm.run_batch`, `rlm.create_session`) first asks at the
-/// run pause's gate: a paused session starts none until it runs again.
+/// (`rlm.run`, `rlm.run_batch`) first asks at the run pause's gate: a
+/// paused session starts none until it runs again.
 pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>) {
     macro_rules! handler {
         ($request_type:literal, $function:path) => {{
@@ -91,7 +89,6 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     handler!("rlm.progress.note", progress_note);
     spawning!("rlm.run", run);
     spawning!("rlm.run_batch", run_batch);
-    spawning!("rlm.create_session", create_session);
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
@@ -235,6 +232,9 @@ async fn progress_note(children: Arc<Children>, call: HostCall) -> anyhow::Resul
 
 /// Validated `rlm.spawn` kwargs.
 pub(super) struct SpawnKwargs {
+    /// The reason the spawn names (`why`); the compiled core decides
+    /// whether it is allowed (`eukhe_bend::rules::family`).
+    pub(super) why: Option<String>,
     pub(super) name: Option<String>,
     pub(super) model: Option<String>,
     pub(super) thinking: Option<String>,
@@ -256,6 +256,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         &kwargs,
         OPERATION,
         &[
+            "why",
             "name",
             "model",
             "thinking",
@@ -265,6 +266,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
             "report",
         ],
     )?;
+    let why = optional_string_kwarg(&kwargs, "why", OPERATION)?.map(str::to_owned);
     let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
     let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
     if let Some(name) = &name {
@@ -295,6 +297,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
     };
     Ok(SpawnKwargs {
+        why,
         name,
         model,
         thinking,
@@ -340,11 +343,6 @@ fn spawn_spec(data: &Value) -> anyhow::Result<SpawnSpec> {
     })
 }
 
-/// The spawn-cap refusal (omp2 `SpawnError::Concurrency`).
-pub(super) fn concurrency_limit_full(maximum: u32) -> String {
-    format!("subagent concurrency limit {maximum} is already full")
-}
-
 /// `rlm.spawn`: admit one `eukhe.rlm.child` task (see [`admit_spawns`]).
 async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let spec = spawn_spec(&call.data)?;
@@ -383,14 +381,16 @@ type Admitted = (
 
 /// Admit `specs` as `eukhe.rlm.child` tasks in the calling tool's commit,
 /// together with their registry rows, then wait for each task's `spawn`
-/// phase to create its child. The name checks, the spawn cap, and the rows
+/// phase to create its child. The compiled core decides admission
+/// (`eukhe_bend::rules::family`, entry 431): first on the reasons and the
+/// depth (no family count yet, no cap), then inside the commit on the
+/// family's running or starting subagents (the host's view unioned with
+/// this session's not-yet-visible children) against
+/// `subagentMaxConcurrency`. The name checks, that decision, and the rows
 /// land atomically, so parallel same-name spawns cannot both admit and a
-/// batch is all-or-nothing: the cap counts the family's running or
-/// starting subagents (the host's view unioned with this session's
-/// not-yet-visible children) and refuses the whole batch when it would
-/// exceed `subagentMaxConcurrency`. `forward_cursor` (main's
-/// `worker_assign`): the user messages the task carries are handed over in
-/// the same commit ([`super::worker`]).
+/// batch is all-or-nothing. `forward_cursor` (main's `worker_assign`): the
+/// user messages the task carries are handed over in the same commit
+/// ([`super::worker`]).
 pub(super) async fn admit_spawns(
     children: &Arc<Children>,
     call: &HostCall,
@@ -413,9 +413,21 @@ pub(super) async fn admit_spawns(
     };
     let depth = children.services.rlm_depth;
     let max_depth = depth_override.unwrap_or(children.services.rlm_max_depth);
-    if depth >= max_depth {
-        bail!("RLM recursion depth limit reached (RLM_DEPTH={depth}, RLM_MAX_DEPTH={max_depth})");
-    }
+    let whys: Vec<Option<String>> = specs.iter().map(|spec| spec.kwargs.why.clone()).collect();
+    let decide = move |running: u32, cap: u32| {
+        let whys: Vec<Option<&str>> = whys.iter().map(Option::as_deref).collect();
+        family::admit(&family::Batch {
+            depth,
+            max_depth,
+            running,
+            cap,
+            whys: &whys,
+        })
+    };
+    let child_depth = match decide(0, 0) {
+        family::Admission::Admit { child_depth } => child_depth,
+        family::Admission::Refuse(text) => bail!("{text}"),
+    };
     let Some(api) = call.call.clone() else {
         bail!("rlm.spawn must run inside a tool call");
     };
@@ -463,25 +475,21 @@ pub(super) async fn admit_spawns(
         .commit(
             move |tx| async move {
                 let state = tx_children(&tx, conversation_id).await?;
-                if capacity.max_concurrency != 0 {
-                    let mut active: std::collections::HashSet<&str> = capacity
-                        .active_session_ids
-                        .iter()
-                        .map(String::as_str)
-                        .collect();
-                    active.extend(
-                        state
-                            .children
-                            .values()
-                            .filter(|row| !row.is_deleted() && !row.status.is_terminal())
-                            .map(|row| row.session_id.as_str()),
-                    );
-                    let limit = usize::try_from(capacity.max_concurrency).unwrap_or(usize::MAX);
-                    if active.len().saturating_add(admitted.len()) > limit {
-                        return Err(SessionError::error(concurrency_limit_full(
-                            capacity.max_concurrency,
-                        )));
-                    }
+                let mut active: std::collections::HashSet<&str> = capacity
+                    .active_session_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect();
+                active.extend(
+                    state
+                        .children
+                        .values()
+                        .filter(|row| !row.is_deleted() && !row.status.is_terminal())
+                        .map(|row| row.session_id.as_str()),
+                );
+                let running = u32::try_from(active.len()).unwrap_or(u32::MAX);
+                if let family::Admission::Refuse(text) = decide(running, capacity.max_concurrency) {
+                    return Err(SessionError::error(text));
                 }
                 let mut batch_names: Vec<&str> = Vec::new();
                 for name in admitted.iter().filter_map(|(name, ..)| name.as_deref()) {
@@ -491,7 +499,10 @@ pub(super) async fn admit_spawns(
                             .values()
                             .any(|row| !row.is_deleted() && row.session_name == name);
                     if taken {
-                        return Err(SessionError::error(spawn_name_unavailable(name, depth + 1)));
+                        return Err(SessionError::error(spawn_name_unavailable(
+                            name,
+                            child_depth,
+                        )));
                     }
                     batch_names.push(name);
                 }
@@ -533,6 +544,8 @@ pub(super) async fn admit_spawns(
                         replied_since_task: false,
                         deletion: None,
                         settled: false,
+                        read: false,
+                        report_submission: None,
                         usage: None,
                         progress: None,
                         reporter: None,
@@ -636,56 +649,6 @@ async fn wait_for_admission(
 }
 
 // ---------------------------------------------------------------------------
-// rlm.create_session
-// ---------------------------------------------------------------------------
-
-async fn create_session(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
-    const OPERATION: &str = "rlm.create_session";
-    let data = &call.data;
-    let Some(prompt) = data.get("prompt").and_then(Value::as_str) else {
-        bail!("rlm.create_session prompt must be a string");
-    };
-    if prompt.trim().is_empty() {
-        bail!("rlm.create_session prompt must not be empty");
-    }
-    let kwargs = kwargs_from_payload(data);
-    reject_unsupported_kwargs(&kwargs, OPERATION, &["name", "model", "thinking", "cwd"])?;
-    let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
-    let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
-    if let Some(name) = &name {
-        assert_direct_agent_message_target(name)?;
-    }
-    let model = optional_string_kwarg(&kwargs, "model", OPERATION)?;
-    let model = normalize_requested_rlm_subagent_model(model, OPERATION)?;
-    let thinking = optional_string_kwarg(&kwargs, "thinking", OPERATION)?;
-    let thinking =
-        normalize_requested_rlm_subagent_thinking_level(thinking, OPERATION)?.map(String::from);
-    let cwd = match kwargs.get("cwd") {
-        None => None,
-        Some(Value::String(cwd)) if !cwd.trim().is_empty() => Some(cwd.trim().to_owned()),
-        Some(_) => bail!("rlm.create_session cwd must be a non-empty string"),
-    };
-    if children.has_runtime && children.services.rlm_depth != 0 {
-        bail!("rlm.create_session is available only from a depth-0 session");
-    }
-    // One resident session per request: the key names this request only.
-    let origin = call
-        .call
-        .as_ref()
-        .map_or_else(|| "host".to_owned(), |api| api.task_id().to_string());
-    let request = RlmCreateSessionRequest {
-        idempotency_key: format!("rlm:create_session:{origin}:{}", uuid::Uuid::now_v7()),
-        prompt: prompt.to_owned(),
-        name,
-        model,
-        thinking,
-        cwd,
-    };
-    let handle = children.services.host.create_session(request).await?;
-    Ok(serde_json::to_value(&handle)?)
-}
-
-// ---------------------------------------------------------------------------
 // rlm.list_subagents / rlm.delete_subagent / rlm.collect
 // ---------------------------------------------------------------------------
 
@@ -726,6 +689,9 @@ pub(super) fn entry(
     }
 }
 
+/// `rlm.list_subagents`: the roster. A listing is no read ([`mark_read`]):
+/// it shows a settled child's compacted answer preview, never its full
+/// answer, so the child's report still reaches the parent.
 async fn list_subagents(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let harness = children.harness.require().map_err(session_error)?;
     let state = read_children(&harness, conversation_of(&call), &cx())
@@ -908,9 +874,10 @@ fn collect_targets(data: &Value) -> anyhow::Result<Vec<String>> {
 }
 
 /// `rlm.collect`: typed fan-in. Running children are awaited inside one
-/// shared wait, `timeout_ms` clamped to the runtime's blocking budget (a
-/// longer wait would hold the cell past it); a timeout returns current
-/// snapshots, never an error.
+/// shared wait, `timeout_ms` clamped to the cap of every wait on the
+/// agent's work (30 minutes, the compiled core's `wait_any` timeout; the
+/// kernel keeps a cell inside it from detaching at its blocking budget);
+/// a timeout returns current snapshots, never an error.
 async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let targets = collect_targets(&call.data)?;
     let requested = match call.data.get("timeout_ms") {
@@ -921,13 +888,9 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
                 .ok_or_else(|| anyhow!("rlm.collect timeout_ms must be a non-negative integer"))?,
         ),
     };
-    let timeout = requested.min(
-        children
-            .services
-            .settings
-            .manager()
-            .get_tool_blocking_budget(),
-    );
+    let timeout = requested.min(Duration::from_secs(
+        eukhe_bend::rules::wait_any::timeout_secs(None),
+    ));
     let harness = children.harness.require().map_err(session_error)?;
     let conversation_id = conversation_of(&call);
     let state = read_children(&harness, conversation_id, &cx())
@@ -976,6 +939,14 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
     let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
+    mark_read(
+        &harness,
+        conversation_id,
+        &call,
+        live.iter()
+            .filter_map(|task_id| state.children.get(&task_id.to_string())),
+    )
+    .await?;
     let now = now_ms();
     let results: Vec<RlmChildResult> = live
         .iter()
@@ -984,6 +955,47 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         .map(|row| collect_result(row, now))
         .collect();
     Ok(json!({ "results": results }))
+}
+
+/// The parent read the outcome of each settled child of `rows` through a
+/// cell of its own tool call (`call`): its report reached the parent. Each
+/// unread one turns read and its queued report is withdrawn (`Collect` in
+/// `bend/child.bend`), so its report phase ends without waking the parent
+/// for a turn that restates what it read. A request outside a tool call (a
+/// detached job's) reads for nobody.
+async fn mark_read<'a>(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    call: &HostCall,
+    rows: impl IntoIterator<Item = &'a ChildRow>,
+) -> anyhow::Result<()> {
+    if call.call.is_none() {
+        return Ok(());
+    }
+    let task_ids: Vec<TaskId> = rows
+        .into_iter()
+        .filter(|row| row.status.is_terminal() && !row.read)
+        .map(ChildRow::task_id)
+        .collect();
+    if task_ids.is_empty() {
+        return Ok(());
+    }
+    let queued = commit(harness, conversation_id, move |tx| async move {
+        let mut queued = Vec::new();
+        for task_id in task_ids {
+            let row = tx_update_row(&tx, conversation_id, task_id, |row| row.read = true).await?;
+            queued.extend(row.report_submission);
+        }
+        Ok(queued)
+    })
+    .await?;
+    for submission in queued {
+        harness
+            .abort_submission(submission, Some(conversation_id), &cx())
+            .await
+            .map_err(session_error)?;
+    }
+    Ok(())
 }
 
 /// Wait until every child of `task_ids` reached its verdict (its row left
@@ -1070,10 +1082,12 @@ async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value
         bail!("rlm.answer target must be a non-empty string");
     };
     let harness = children.harness.require().map_err(session_error)?;
-    let state = read_children(&harness, conversation_of(&call), &cx())
+    let conversation_id = conversation_of(&call);
+    let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
     let row = resolve_live(state.children.values(), target, "child")?;
+    mark_read(&harness, conversation_id, &call, [row]).await?;
     Ok(json!({
         "status": row.status.collect_status(),
         "settled": row.status.is_terminal(),

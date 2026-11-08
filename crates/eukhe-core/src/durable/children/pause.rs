@@ -1,7 +1,7 @@
 //! The pause of a worker tree inside one session's run (docs/usage.md,
 //! main and worker): `pause_workers` / `resume_workers` with `ownRun`
 //! pause or resume this session's own run. Every rule is the compiled
-//! core's pause model (`eukhe_bend::rules::worker::pause_step`, entry 430,
+//! core's pause model (`eukhe_bend::rules::worker::pause_step`, entry 453,
 //! laws `laws/worker.bend`); this module only feeds it the run's events
 //! and waits where it says `Hold`:
 //!

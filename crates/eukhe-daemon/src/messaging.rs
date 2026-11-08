@@ -3,13 +3,13 @@
 //! Port of the `send_message` block in `modes/daemon/daemon-supervisor.ts`:
 //! resolve the source and target workers, refuse self-targeting, then route
 //! `worker_deliver_message` to the target with sender info from the source
-//! session (agent origin) or the sending client (CLI origin). A target that
-//! is not resident is woken from the saved-session catalog: the selector
-//! resolves to a session file (`session_catalog.rs`), a resident worker
-//! hosting the file is reused, and otherwise a new worker spawns over it
-//! (the headless resume machinery). The TS family-reach assertion needs the
-//! session family catalog, which the thin supervisor does not keep yet; it
-//! stays deferred with it.
+//! session (agent origin) or the sending client (CLI origin). An agent
+//! reaches only its parent and its own children: the kin check
+//! ([`crate::kin_gate`]) runs before any delivery and before a wake. A
+//! target that is not resident is woken from the saved-session catalog:
+//! the selector resolves to a session file (`session_catalog.rs`), a
+//! resident worker hosting the file is reused, and otherwise a new worker
+//! spawns over it (the headless resume machinery).
 
 use std::sync::Arc;
 
@@ -18,6 +18,7 @@ use eukhe_types::daemon::{DaemonCommand, DaemonWorkerCommand};
 use serde_json::{json, Map, Value};
 
 use crate::backpressure::RouteAdmission;
+use crate::headless_parent::HeadlessTarget;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::registry::ResidentWorker;
 use crate::supervisor::Supervisor;
@@ -29,10 +30,19 @@ use crate::supervisor::Supervisor;
 /// for the 24 h turn budget of `routing::WORKER_REQUEST_TIMEOUT_MS`.
 const MESSAGE_ROUTE_TIMEOUT_MS: u64 = 30_000;
 
+/// Where one `send_message` delivers.
+enum Route {
+    /// A session worker (resident, or woken from its saved session).
+    Worker(Arc<ResidentWorker>),
+    /// A registered headless parent, over its client connection.
+    Headless(HeadlessTarget),
+}
+
 impl Supervisor {
-    /// `send_message`: route to the target worker as `worker_deliver_message`.
-    /// An unknown target is not final: the supervisor wakes the saved session
-    /// the selector names (catalog resolve + worker reuse) before giving up
+    /// `send_message`: route to the target worker as `worker_deliver_message`,
+    /// or to the registered headless parent the target names. An unknown
+    /// target is not final: the supervisor wakes the saved session the
+    /// selector names (catalog resolve + worker reuse) before giving up
     /// with the TS unknown-session error.
     pub(crate) async fn handle_send_message(
         self: &Arc<Self>,
@@ -52,64 +62,117 @@ impl Supervisor {
         };
         let fail = |error: String| response_failure(Some(command_id), "send_message", &error, None);
         // Source first, like the TS supervisor: an unknown source answers
-        // with the same unknown-session error as an unknown target.
-        let source = match from_active_session_id {
+        // with the same unknown-session error as an unknown target. A
+        // registered headless parent sends as itself (its children reach
+        // it the same way).
+        let (source, headless_source) = match from_active_session_id {
             Some(source) => match self.registry.resolve(source).await {
-                Ok(resident) => Some(resident),
-                Err(_) => return fail(format!("Unknown active session: {source}")),
+                Ok(resident) => (Some(resident), None),
+                Err(_) => match self.headless_parents.sender(source) {
+                    Some(parent) => (None, Some(parent)),
+                    None => return fail(format!("Unknown active session: {source}")),
+                },
             },
-            None => None,
+            None => (None, None),
+        };
+        // The kin view of an agent sender: every target it reaches is its
+        // parent or one of its children (a CLI-origin send is a user's).
+        let kin = match (&source, &headless_source) {
+            (Some(source), _) => match self.kin_view(source).await {
+                Ok(view) => Some(view),
+                Err(error) => return fail(format!("{error:#}")),
+            },
+            (None, Some(parent)) => match self
+                .kin_view_of(parent.session_file.as_deref(), &parent.session_id)
+                .await
+            {
+                Ok(view) => Some(view),
+                Err(error) => return fail(format!("{error:#}")),
+            },
+            (None, None) => None,
         };
         // The source summary, once read (the wake reads it for its scope;
         // the sender endpoint reuses it).
         let mut source_summary: Option<Value> = None;
-        let target = match self.registry.resolve(target_active_session_id).await {
-            Ok(resident) => resident,
-            Err(error) => {
-                // The wake scope needs the source summary (its cwd filters
-                // the catalog's local pass, TS `source?.summary.cwd`); a
-                // wake is the only path that reads it before the
-                // self-target guard, and a woken target is never the
-                // source, so the guard's error precedence is unchanged.
-                let wake_source = match &source {
-                    Some(source) => match self.source_worker_summary(source).await {
-                        Ok(summary) => Some((Arc::clone(source), summary)),
-                        Err(error) => return fail(format!("{error:#}")),
-                    },
-                    None => None,
-                };
-                let woken_summary = wake_source.as_ref().map(|(_, summary)| summary.clone());
-                match self
-                    .wake_saved_target(
-                        &error,
-                        target_active_session_id,
-                        wake_source
-                            .as_ref()
-                            .map(|(resident, summary)| (resident, summary)),
-                    )
-                    .await
-                {
-                    WakeOutcome::Woken(resident) => {
-                        source_summary = woken_summary;
-                        resident
+        // A registered headless parent first: it runs in its client, and
+        // a wake must never launch a worker over its leased storage.
+        let target = if let Some(parent) = self.headless_parents.target(target_active_session_id) {
+            Route::Headless(parent)
+        } else {
+            match self.registry.resolve(target_active_session_id).await {
+                Ok(resident) => Route::Worker(resident),
+                Err(error) => {
+                    // The wake scope needs the source summary (its cwd
+                    // filters the catalog's local pass, TS
+                    // `source?.summary.cwd`); a wake is the only path that
+                    // reads it before the self-target guard, and a woken
+                    // target is never the source, so the guard's error
+                    // precedence is unchanged.
+                    let wake_source = match &source {
+                        Some(source) => match self.source_worker_summary(source).await {
+                            Ok(summary) => Some((Arc::clone(source), summary)),
+                            Err(error) => return fail(format!("{error:#}")),
+                        },
+                        None => None,
+                    };
+                    let woken_summary = wake_source.as_ref().map(|(_, summary)| summary.clone());
+                    match self
+                        .wake_saved_target(
+                            &error,
+                            target_active_session_id,
+                            wake_source
+                                .as_ref()
+                                .map(|(resident, summary)| (resident, summary)),
+                            kin.as_ref(),
+                        )
+                        .await
+                    {
+                        WakeOutcome::Woken(resident) => {
+                            source_summary = woken_summary;
+                            Route::Worker(resident)
+                        }
+                        WakeOutcome::Unknown => {
+                            return fail(format!(
+                                "Unknown active session: {target_active_session_id}"
+                            ))
+                        }
+                        WakeOutcome::Failed(error) => return fail(error),
                     }
-                    WakeOutcome::Unknown => {
-                        return fail(format!(
-                            "Unknown active session: {target_active_session_id}"
-                        ))
-                    }
-                    WakeOutcome::Failed(error) => return fail(error),
                 }
             }
         };
-        if source
-            .as_ref()
-            .is_some_and(|source| Arc::ptr_eq(source, &target))
-        {
-            return fail("Agent messaging cannot target the sending session".to_string());
+        if let (Some(source), Route::Worker(target)) = (&source, &target) {
+            if Arc::ptr_eq(source, target) {
+                return fail("Agent messaging cannot target the sending session".to_string());
+            }
         }
-        let sender = match &source {
-            Some(source) => {
+        if let (Some(parent), Route::Headless(target)) = (&headless_source, &target) {
+            if parent.session_id == target.session_id {
+                return fail("Agent messaging cannot target the sending session".to_string());
+            }
+        }
+        if let Some(kin) = &kin {
+            let admitted = match &target {
+                Route::Worker(resident) => {
+                    let file = resident.descriptor.lock().await.session_file.clone();
+                    kin.admit(
+                        file.as_deref().map(std::path::Path::new),
+                        &resident.worker_id,
+                        target_active_session_id,
+                    )
+                }
+                Route::Headless(parent) => kin.admit(
+                    parent.session_file.as_deref(),
+                    &parent.session_id,
+                    target_active_session_id,
+                ),
+            };
+            if let Err(refusal) = admitted {
+                return fail(refusal);
+            }
+        }
+        let sender = match (&source, &headless_source) {
+            (Some(source), _) => {
                 // The wake already read the summary for its scope; every
                 // other path reads it here (the TS sender endpoint comes
                 // from the roster summary).
@@ -122,13 +185,18 @@ impl Supervisor {
                 };
                 sender_endpoint_from_summary(&summary, client_id)
             }
+            // A headless parent's endpoint is its registered roster row.
+            (None, Some(parent)) => sender_endpoint_from_summary(&parent.summary, client_id),
             // CLI origin: the TS worker attributes client-sent messages to
             // the client id (`createAgentSessionMessageSender`).
-            None => json!({ "clientId": client_id }),
+            (None, None) => json!({ "clientId": client_id }),
         };
         let delivery = DaemonWorkerCommand::WorkerDeliverMessage {
             id: None,
-            target_active_session_id: target.worker_id.clone(),
+            target_active_session_id: match &target {
+                Route::Worker(resident) => resident.worker_id.clone(),
+                Route::Headless(parent) => parent.session_id.clone(),
+            },
             message: message.clone(),
             sender,
             delivery_mode: delivery_mode.clone(),
@@ -137,6 +205,24 @@ impl Supervisor {
         let payload = match serde_json::to_value(&delivery) {
             Ok(payload) => payload,
             Err(error) => return fail(format!("invalid delivery command: {error}")),
+        };
+        let target = match target {
+            Route::Worker(target) => target,
+            Route::Headless(parent) => {
+                return match self
+                    .deliver_to_headless_parent(
+                        &parent,
+                        payload,
+                        std::time::Duration::from_millis(MESSAGE_ROUTE_TIMEOUT_MS),
+                    )
+                    .await
+                {
+                    Ok(receipt) => {
+                        response_success(Some(command_id), "send_message", Some(receipt))
+                    }
+                    Err(error) => fail(error.to_string()),
+                };
+            }
         };
         let response = self
             .route_command_typed(
@@ -191,12 +277,15 @@ impl Supervisor {
     /// resident worker that already hosts the file, or spawn one over it.
     /// `Unknown` keeps the caller's unknown-session error; `Failed` carries
     /// the wake's own error (a catalog ambiguity outranks the miss, like
-    /// the TS `Ambiguous session selector` propagation).
+    /// the TS `Ambiguous session selector` propagation). An agent sender's
+    /// `kin` view refuses a session that is not its parent or child before
+    /// anything wakes.
     pub(crate) async fn wake_saved_target(
         self: &Arc<Self>,
         resolve_error: &anyhow::Error,
         selector: &str,
         source: Option<(&Arc<ResidentWorker>, &Value)>,
+        kin: Option<&crate::kin_gate::KinView>,
     ) -> WakeOutcome {
         let rendered = resolve_error.to_string();
         if !rendered.starts_with("Unknown active session:") {
@@ -249,14 +338,24 @@ impl Supervisor {
             // child selector falls back to its live edges (child id,
             // session id, or name) and wakes the child's own file.
             Ok(None) => {
-                return match self.wake_ledger_child(selector).await {
+                return match self.wake_ledger_child(selector, kin).await {
                     Some(outcome) => outcome,
                     None => WakeOutcome::Unknown,
                 }
             }
             Err(error) => return WakeOutcome::Failed(error.to_string()),
         };
+        if let Some(Err(refusal)) = kin.map(|kin| kin.admit(Some(&info.path), selector, selector)) {
+            return WakeOutcome::Failed(refusal);
+        }
         let session_path = info.path.to_string_lossy().to_string();
+        // A registered headless parent's storage is leased by its client
+        // process: it is reached over its registration, never woken.
+        if self.headless_parents.hosts_file(&info.path) {
+            return WakeOutcome::Failed(format!(
+                "Session {selector} runs in a headless client, not in this daemon"
+            ));
+        }
         // Reuse before spawning (TS `createOrReuseWorker`): a resident
         // worker already hosting the file serves the wake.
         if let Some(resident) = self.registry.find_by_session_file(&session_path).await {
@@ -335,8 +434,14 @@ impl Supervisor {
     /// admission appends to (TS `rlmSpawnLedger()`). `None` keeps the
     /// caller's unknown-session error; `Some(Failed)` carries the wake's
     /// own error (an ambiguous selector outranks the miss, like the
-    /// catalog's).
-    async fn wake_ledger_child(self: &Arc<Self>, selector: &str) -> Option<WakeOutcome> {
+    /// catalog's). An agent sender's `kin` view keeps only its own
+    /// children (and parent) among the matches, and refuses when every
+    /// match is outside them.
+    async fn wake_ledger_child(
+        self: &Arc<Self>,
+        selector: &str,
+        kin: Option<&crate::kin_gate::KinView>,
+    ) -> Option<WakeOutcome> {
         let ledger = match self.rlm_spawn_ledger_for(None).await {
             Ok(ledger) => ledger,
             Err(error) => return Some(WakeOutcome::Failed(error.to_string())),
@@ -349,6 +454,21 @@ impl Supervisor {
             .iter()
             .filter(|edge| ledger_edge_matches(edge, selector))
             .collect();
+        if let Some(kin) = kin {
+            let mut refusal = None;
+            matches.retain(|edge| {
+                match kin.admit(Some(std::path::Path::new(&edge.child)), selector, selector) {
+                    Ok(()) => true,
+                    Err(refused) => {
+                        refusal.get_or_insert(refused);
+                        false
+                    }
+                }
+            });
+            if let (true, Some(refusal)) = (matches.is_empty(), refusal) {
+                return Some(WakeOutcome::Failed(refusal));
+            }
+        }
         match matches.len() {
             0 => None,
             1 => {

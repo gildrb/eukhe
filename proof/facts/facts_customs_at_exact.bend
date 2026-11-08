@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 
 def Facts.facts_customs_at_exact(c, l):
   match c:

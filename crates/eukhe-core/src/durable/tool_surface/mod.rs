@@ -1,4 +1,4 @@
-//! The tool surface (docs/tools.md S7): the session's roster of tools is
+//! The tool surface: the session's roster of tools is
 //! fixed when it opens ([`eukhe_durable::harness::registry::Registry::fix_roster`]);
 //! a tool that comes later (an MCP server's tool, a host tool that joins)
 //! is reached through the one roster tool `dyn`, which lists the dynamic
@@ -53,13 +53,11 @@ const MCP_PREFIX: &str = "mcp/";
 /// How long one server may take to list or run a tool.
 const MCP_TIMEOUT_MS: u64 = 30_000;
 
-const DYN_DESCRIPTION: &str = "Reach the tools that are not in your tool list: \
-the tools of the MCP servers the user configured (`mcp/<server>/<tool>`), tools \
-that joined the session after it started, and `report_issue`. Call with no \
-`name` to list them with their descriptions; call with `name` and `arguments` \
-(an object) to run one. When a tool fails or does not do what its description \
-says, call `report_issue` with arguments `tool` (its name) and `description` \
-(what went wrong): the user sees the report.";
+const DYN_DESCRIPTION: &str = "Call tools not in your tool list: MCP tools \
+(`mcp/<server>/<tool>`), tools that joined after the session started, and \
+`report_issue`. No `name`: list them with descriptions; `name` + `arguments`: \
+run one. When a tool fails or misbehaves, call `report_issue` with `tool` and \
+`description`; the user sees it.";
 
 const REPORT_ISSUE_DESCRIPTION: &str = "Report a problem with a tool: it failed, \
 or it did not do what its description says. Arguments: `tool` (the tool's name), \
@@ -162,6 +160,25 @@ fn text_result(text: String, details: Value, outcome: Outcome) -> ToolExecutionR
     }
 }
 
+/// Why the calling conversation's kernel manager is unavailable
+/// ([`kernel_manager`]).
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum KernelAccessError {
+    /// The session's kernel pool is gone.
+    #[error("the session has no kernel")]
+    NoKernel,
+    /// The calling conversation's agent did not resolve.
+    #[error(transparent)]
+    Agent(SessionError),
+    /// The pool has no kernel for the conversation (the session closed,
+    /// or its snapshot directory cannot be created).
+    #[error("{0:#}")]
+    Kernel(#[source] anyhow::Error),
+    /// The kernel did not boot.
+    #[error("{0:#}")]
+    Boot(#[source] anyhow::Error),
+}
+
 /// The booted kernel manager of the calling conversation (booting it): the
 /// session's MCP client runs in the kernel.
 #[tracing::instrument(name = "dyn.kernel", skip_all)]
@@ -169,27 +186,27 @@ pub(crate) async fn kernel_manager(
     deps: &HostDeps,
     api: &dyn ToolExecutionApi,
     cx: &Context,
-) -> Result<ReplKernelManager, String> {
+) -> Result<ReplKernelManager, KernelAccessError> {
     let pool = deps
         .rlm_kernels
         .get()
         .and_then(Weak::upgrade)
-        .ok_or_else(|| "the session has no kernel".to_owned())?;
+        .ok_or(KernelAccessError::NoKernel)?;
     let cwd = api
         .agent(cx)
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(KernelAccessError::Agent)?
         .cwd
         .clone()
         .map_or_else(|| deps.cwd.clone(), PathBuf::from);
     let kernel = pool
         .kernel(api.conversation_id(), cwd)
-        .map_err(|error| format!("{error:#}"))?;
+        .map_err(KernelAccessError::Kernel)?;
     kernel
         .provisioner
         .ensure(None, None)
         .await
-        .map_err(|error| format!("{error:#}"))
+        .map_err(KernelAccessError::Boot)
 }
 
 /// One `dyn` call: list the dynamic tools, or run the one named.
@@ -310,18 +327,19 @@ async fn call(
                 Outcome::Failed,
             ));
         };
-        let called = match kernel_manager(&deps, &*api, &cx).await {
-            Ok(manager) => {
-                manager
-                    .mcp_tool_call(server, tool, &Value::Object(arguments), MCP_TIMEOUT_MS)
-                    .await
-            }
-            Err(error) => Err(error),
+        let failed = |error: &dyn std::fmt::Display, details| {
+            text_result(format!("{name} failed: {error}"), details, Outcome::Failed)
         };
-        return Ok(match called {
-            Ok(Value::String(text)) => text_result(text, details, Outcome::Done),
-            Ok(value) => text_result(value.to_string(), details, Outcome::Done),
-            Err(error) => text_result(format!("{name} failed: {error}"), details, Outcome::Failed),
+        return Ok(match kernel_manager(&deps, &*api, &cx).await {
+            Err(error) => failed(&error, details),
+            Ok(manager) => match manager
+                .mcp_tool_call(server, tool, &Value::Object(arguments), MCP_TIMEOUT_MS)
+                .await
+            {
+                Ok(Value::String(text)) => text_result(text, details, Outcome::Done),
+                Ok(value) => text_result(value.to_string(), details, Outcome::Done),
+                Err(error) => failed(&error, details),
+            },
         });
     }
     let Some(tool) = deps.tool_surface.tool(name) else {
@@ -363,20 +381,12 @@ pub(crate) fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         tool_contract::parameters(
             1,
             [
-                (
-                    "name",
-                    Type::optional(Type::string_with(
-                        Options::new()
-                            .set("description", "The dynamic tool to run; omit to list them."),
-                    )),
-                ),
+                ("name", Type::optional(Type::string())),
                 (
                     "arguments",
                     Type::optional(Type::object_with(
                         std::iter::empty::<(&str, TSchema)>(),
-                        Options::new()
-                            .set("additionalProperties", true)
-                            .set("description", "The tool's arguments."),
+                        Options::new().set("additionalProperties", true),
                     )),
                 ),
             ],

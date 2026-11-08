@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../laws/screen.bend as Screen
+import ../../laws/screen/interface.bend as Screen
 import ../base/logic/logic.bend as LLogicLogic
 
 # Committed blocks are inert

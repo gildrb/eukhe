@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/depth.bend as Effort
 import ./base.bend as LA
 
 def pe.effort_clamp_keeps(+m: Ef.Mdl, +l: Ef.Lv, in: {Ef.has(Ef.offered(m), l) == True{} : Bool}) -> {Ef.clamp(m, l) == l : Ef.Lv}:

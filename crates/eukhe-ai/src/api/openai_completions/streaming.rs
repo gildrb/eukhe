@@ -4,12 +4,14 @@
 use std::collections::HashMap;
 
 use crate::types::IndexMap;
+use eukhe_bend::rules::model_facts;
 
 use super::convert::{append_openai_reasoning_detail, is_openai_reasoning_detail, js_truthy};
 use crate::api::constrained_sampling::{
     append_grammar_tool_input_json_delta, GrammarInputClose, GrammarToolInputJsonBuffer,
 };
 use crate::models::calculate_cost;
+use crate::quirks::Quirks;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonObject, JsonValue, Model,
     Partial, PromptProgress, StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
@@ -501,7 +503,10 @@ impl<'a> StreamState<'a> {
                     .map(|value| (field, value))
             });
         if let Some((field, reasoning_delta)) = reasoning {
-            let thinking_signature = if self.model.provider == "opencode-go" && field == "reasoning"
+            // A host that signs `reasoning` as `reasoning_content` (rulebook
+            // `reasoning_content_signature`).
+            let thinking_signature = if field == "reasoning"
+                && model_facts::flag(Quirks::of(self.model).reasoning_content_signature(), false)
             {
                 "reasoning_content"
             } else {

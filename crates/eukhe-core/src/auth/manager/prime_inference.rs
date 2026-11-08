@@ -64,7 +64,7 @@ impl AuthStorage {
             Ok(((), content))
         });
         if let Err(error) = result {
-            self.errors.push(error.to_string());
+            self.errors.push(AuthStorageError::PrimeWrite(error));
             return false;
         }
         self.reload();
@@ -85,9 +85,7 @@ impl AuthStorage {
                 .chars()
                 .any(|ch| ch.is_whitespace() || ch.is_control())
         {
-            self.errors.push(
-                "Refusing to store the Prime API key: it must be a non-empty token without a leading '!', whitespace, or control characters".to_string(),
-            );
+            self.errors.push(AuthStorageError::InvalidPrimeKey);
             return;
         }
         let api_key = api_key.to_string();

@@ -4,8 +4,8 @@
 # check sees the char left: the left-over error form.
 
 import Base
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/ladder.bend as EffortLadder
 import ./core_effort_answers_spelled/spell.bend as ES
 
-def Effort.core_effort_left_over_spelled(q, fits, c, t):
+def EffortLadder.core_effort_left_over_spelled(q, fits, c, t):
   ES.es.run(q, SCon{c, t}, fits)

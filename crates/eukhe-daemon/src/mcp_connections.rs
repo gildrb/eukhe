@@ -117,7 +117,7 @@ impl Worker {
         };
         let install = match inputs {
             Ok(inputs) => eukhe_core::mcp::install_static_token(inputs, token).await,
-            Err(message) => Err(message),
+            Err(error) => Err(error),
         };
         match install {
             Ok(outcome) => response_success(
@@ -131,7 +131,7 @@ impl Worker {
                     "error": outcome.error,
                 })),
             ),
-            Err(message) => response_failure(None, "set_mcp_static_token", &message, None),
+            Err(error) => response_failure(None, "set_mcp_static_token", &error.to_string(), None),
         }
     }
 
@@ -161,7 +161,7 @@ impl Worker {
                 "remove_mcp_connection",
                 Some(json!({ "server": server })),
             ),
-            Err(message) => response_failure(None, "remove_mcp_connection", &message, None),
+            Err(error) => response_failure(None, "remove_mcp_connection", &error.to_string(), None),
         }
     }
 }

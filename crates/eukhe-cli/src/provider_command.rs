@@ -1,4 +1,4 @@
-//! `eukhe provider`: the provider capability surface (docs/inference.md S6.1).
+//! `eukhe provider`: the provider capability surface.
 //!
 //! `caps` prints what each provider's API offers besides chat streaming,
 //! read from the quirks rulebook through `Models::provider_capabilities`; it
@@ -40,22 +40,48 @@ enum ProviderCommand {
     },
 }
 
-/// Parse the subcommand and its flags; `Err` carries a usage hint (empty
-/// for a missing subcommand).
-fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, String> {
+/// Why the `provider` arguments do not parse.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum ProviderUsageError {
+    /// No subcommand.
+    #[error("Missing provider command.")]
+    Missing,
+    #[error(
+        "Unknown provider command: {subcommand}{}",
+        .suggestion.as_ref().map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))
+    )]
+    Unknown {
+        subcommand: String,
+        suggestion: Option<String>,
+    },
+    #[error("unknown option: {0}")]
+    UnknownOption(String),
+    #[error("Usage: eukhe provider caps [<provider>] [--json]")]
+    CapsUsage,
+    #[error("Usage: eukhe provider models <provider> [--json]")]
+    ModelsUsage,
+}
+
+/// A provider id no chat model of the collection names.
+#[derive(Debug, thiserror::Error)]
+#[error("Couldn't find provider {0} in the catalog. The providers with chat models:\n    eukhe provider caps")]
+struct UnknownProvider(String);
+
+/// Parse the subcommand and its flags.
+fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, ProviderUsageError> {
     let children: Vec<&str> = crate::command_registry::get_child_command_specs(&["provider"])
         .into_iter()
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
     let Some(subcommand) = args.first() else {
-        return Err(String::new());
+        return Err(ProviderUsageError::Missing);
     };
     if !children.contains(&subcommand.as_str()) {
-        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
-        return Err(format!(
-            "Unknown provider command: {subcommand}{}",
-            suggestion.map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))
-        ));
+        return Err(ProviderUsageError::Unknown {
+            subcommand: subcommand.clone(),
+            suggestion: eukhe_bend::rules::slash::suggestion(subcommand, &children)
+                .map(str::to_owned),
+        });
     }
     let mut output = Output::Table;
     let mut operands: Vec<String> = Vec::new();
@@ -63,7 +89,7 @@ fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, String> {
         match arg.as_str() {
             "--json" => output = Output::Json,
             other if other.starts_with('-') => {
-                return Err(format!("unknown option {other:?}"));
+                return Err(ProviderUsageError::UnknownOption(other.to_owned()));
             }
             other => operands.push(other.to_string()),
         }
@@ -71,7 +97,7 @@ fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, String> {
     match subcommand.as_str() {
         "caps" => {
             if operands.len() > 1 {
-                return Err("Usage: eukhe provider caps [<provider>] [--json]".to_string());
+                return Err(ProviderUsageError::CapsUsage);
             }
             Ok(ProviderCommand::Caps {
                 selection: operands.pop().map_or(Selection::Every, Selection::Named),
@@ -80,14 +106,14 @@ fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, String> {
         }
         "models" => {
             if operands.len() != 1 {
-                return Err("Usage: eukhe provider models <provider> [--json]".to_string());
+                return Err(ProviderUsageError::ModelsUsage);
             }
             Ok(ProviderCommand::Models {
                 provider: operands.remove(0),
                 output,
             })
         }
-        _ => Err(String::new()),
+        _ => Err(ProviderUsageError::Missing),
     }
 }
 
@@ -95,18 +121,13 @@ fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, String> {
 pub fn run_provider_command(args: &[String]) -> i32 {
     let command = match parse_provider_command(args) {
         Ok(command) => command,
-        Err(empty_hint) if empty_hint.is_empty() => {
-            eprintln!("Missing provider command.");
+        Err(error) => {
+            eprintln!("Error: {error}");
             eprintln!(
                 "Run \"{} help provider\" for usage.",
                 crate::config::APP_NAME
             );
-            return 1;
-        }
-        Err(error) => {
-            eprintln!("Error: {error}");
-            eprintln!("Run `{} help provider` for usage.", crate::config::APP_NAME);
-            return 1;
+            return 2;
         }
     };
     let loaded = eukhe_core::durable::create_models(&crate::config::get_agent_dir());
@@ -125,12 +146,15 @@ pub fn run_provider_command(args: &[String]) -> i32 {
 
 /// The capability rows of the selected providers; every provider with
 /// chat models is sorted by provider id. Sends nothing.
-fn capability_rows(models: &Models, selection: &Selection) -> Result<Vec<Capabilities>, String> {
+fn capability_rows(
+    models: &Models,
+    selection: &Selection,
+) -> Result<Vec<Capabilities>, UnknownProvider> {
     match selection {
         Selection::Named(id) => {
             let rows = models.provider_capabilities(id);
             if rows.is_empty() {
-                return Err(format!("Unknown provider: {id}"));
+                return Err(UnknownProvider(id.clone()));
             }
             Ok(rows)
         }
@@ -199,7 +223,7 @@ fn render_capabilities(rows: &[Capabilities]) -> String {
 fn run_models(models: &Models, provider: &str, output: Output) -> i32 {
     let chat_models = models.get_models(Some(provider));
     if chat_models.is_empty() {
-        eprintln!("Error: Unknown provider: {provider}");
+        eprintln!("Error: {}", UnknownProvider(provider.to_owned()));
         return 1;
     }
     let Some(model) = chat_models.into_iter().find(|model| {
@@ -208,7 +232,7 @@ fn run_models(models: &Models, provider: &str, output: Output) -> i32 {
             Support::Native { .. }
         )
     }) else {
-        eprintln!("provider {provider} does not support list_models");
+        eprintln!("Error: Provider {provider} does not offer model listing (list_models).");
         return 1;
     };
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -236,8 +260,17 @@ fn run_models(models: &Models, provider: &str, output: Output) -> i32 {
 }
 
 /// The listing table: `id  name  context  max-out`, `-` for a value the
-/// provider does not give, columns padded to their widest cell.
+/// provider does not give, columns padded to their widest cell. Piped
+/// stdout keeps the header and separates the columns with one tab.
 fn render_listing(listed: &[ListedModel]) -> String {
+    render_listing_layout(
+        listed,
+        !std::io::IsTerminal::is_terminal(&std::io::stdout()),
+    )
+}
+
+/// The listing table in a fixed layout (`tab`: the piped form).
+fn render_listing_layout(listed: &[ListedModel], tab: bool) -> String {
     const HEADERS: [&str; 4] = ["id", "name", "context", "max-out"];
     let tokens = |count: Option<u64>| count.map_or_else(|| "-".to_string(), format_token_count);
     let rows: Vec<[String; 4]> = listed
@@ -251,6 +284,11 @@ fn render_listing(listed: &[ListedModel]) -> String {
             ]
         })
         .collect();
+    if tab {
+        let mut lines = vec![HEADERS.join("\t")];
+        lines.extend(rows.iter().map(|row| row.join("\t")));
+        return lines.join("\n");
+    }
     let mut widths = HEADERS.map(|header| header.chars().count());
     for row in &rows {
         for (width, cell) in widths.iter_mut().zip(row) {
@@ -276,13 +314,11 @@ fn render_listing(listed: &[ListedModel]) -> String {
         .join("\n")
 }
 
-/// Print `value` as pretty JSON; returns the exit code.
+/// Print `value` as the JSON contract's document (pretty on a terminal,
+/// compact when piped); returns the exit code.
 fn print_json<T: serde::Serialize>(value: &T) -> i32 {
-    match serde_json::to_string_pretty(value) {
-        Ok(text) => {
-            println!("{text}");
-            0
-        }
+    match crate::json_out::print_json_document(value) {
+        Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error}");
             1
@@ -334,22 +370,25 @@ mod tests {
 
     #[test]
     fn rejects_missing_and_unknown_arguments() {
-        assert_eq!(parse_provider_command(&arg(&[])), Err(String::new()));
         assert_eq!(
-            parse_provider_command(&arg(&["model"])),
+            parse_provider_command(&arg(&[])),
+            Err(ProviderUsageError::Missing)
+        );
+        assert_eq!(
+            parse_provider_command(&arg(&["model"])).map_err(|error| error.to_string()),
             Err("Unknown provider command: model (did you mean \"models\"?)".to_string())
         );
         assert_eq!(
-            parse_provider_command(&arg(&["models"])),
+            parse_provider_command(&arg(&["models"])).map_err(|error| error.to_string()),
             Err("Usage: eukhe provider models <provider> [--json]".to_string())
         );
         assert_eq!(
-            parse_provider_command(&arg(&["caps", "a", "b"])),
+            parse_provider_command(&arg(&["caps", "a", "b"])).map_err(|error| error.to_string()),
             Err("Usage: eukhe provider caps [<provider>] [--json]".to_string())
         );
         assert_eq!(
             parse_provider_command(&arg(&["caps", "--yaml"])),
-            Err("unknown option \"--yaml\"".to_string())
+            Err(ProviderUsageError::UnknownOption("--yaml".to_string()))
         );
     }
 
@@ -421,7 +460,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            render_listing(&listed),
+            render_listing_layout(&listed, false),
             "id                 name               context  max-out\n\
              claude-sonnet-4-5  Claude Sonnet 4.5  200K     64K\n\
              qwen3-8b           -                  -        -"

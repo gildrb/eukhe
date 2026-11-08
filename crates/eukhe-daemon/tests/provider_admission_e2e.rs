@@ -7,9 +7,8 @@
 //! session's roster summary reads `admission: queued` while it waits, then
 //! `generating` once its request holds the slot.
 //!
-//! The two sessions are subagents of one idle root: root sessions of one
-//! agent dir share the chat's root-turn lease, so two root turns never
-//! overlap and could not race for a provider slot.
+//! The two sessions are subagents of one idle root, so neither runs a chat
+//! memory of its own.
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};

@@ -56,11 +56,6 @@ const RULE_GLOB: GlobOptions = GlobOptions {
     case_insensitive: true,
 };
 
-fn compile_pattern(pattern: &str) -> Result<(), String> {
-    expect_core(Entry::Glob, glob::check(pattern))
-        .map_err(|error| format!("pattern {pattern:?}: {error}"))
-}
-
 fn parse_layer(toml_text: &str, source: &str) -> (Vec<ParsedRule>, Vec<String>) {
     let doc = match toml::from_str::<ModelPromptsDoc>(toml_text) {
         Ok(doc) => doc,
@@ -71,9 +66,10 @@ fn parse_layer(toml_text: &str, source: &str) -> (Vec<ParsedRule>, Vec<String>) 
     for rule in doc.rule {
         let mut patterns = Vec::new();
         for pattern in rule.r#match {
-            match compile_pattern(&pattern) {
+            // The layer's diagnostic renders the core's refusal once.
+            match expect_core(Entry::Glob, glob::check(&pattern)) {
                 Ok(()) => patterns.push(pattern),
-                Err(error) => errors.push(format!("{source}: {error}")),
+                Err(error) => errors.push(format!("{source}: pattern {pattern:?}: {error}")),
             }
         }
         let mut files = Vec::new();

@@ -2,9 +2,16 @@
 //! live only here, and each test compares them with the new answers over
 //! the compiled catalog and crafted ids.
 
-use eukhe_types::pi_ai::{Model, ModelThinkingLevel, ProviderEnv, ThinkingBudgets, ThinkingLevel};
+use eukhe_types::pi_ai::{
+    JsonValue, Model, ModelThinkingLevel, ProviderEnv, ThinkingBudgets, ThinkingLevel,
+};
+use serde_json::json;
 
-use super::{map_thinking_level_to_effort, supports_prompt_caching};
+use super::{
+    build_additional_model_request_fields, is_anthropic_claude_model, map_thinking_level_to_effort,
+    supports_prompt_caching,
+};
+use crate::api::bedrock_converse_stream::BedrockOptions;
 use crate::api::simple_options::{clamp_reasoning, thinking_budget_for_level};
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::quirks::{match_candidates, Quirks};
@@ -246,6 +253,111 @@ fn the_budget_is_the_one_budget_table() {
             old_budget(*level, *custom) != thinking_budget_for_level(*level, *custom)
         })
         .map(|(level, custom)| format!("{level:?} {custom:?}"))
+        .collect();
+    assert_eq!(differences, Vec::<String>::new());
+}
+
+/// The old Claude check (TS `isAnthropicClaudeModel`): the id and the name.
+fn old_is_claude(model: &Model) -> bool {
+    let id = model.id.to_lowercase();
+    let name = model.name.to_lowercase();
+    id.contains("anthropic.claude")
+        || id.contains("anthropic/claude")
+        || name.contains("anthropic.claude")
+        || name.contains("anthropic/claude")
+        || name.contains("claude")
+}
+
+/// The old non-Claude tail of TS `buildAdditionalModelRequestFields`.
+fn old_openai_fields(model: &Model, reasoning: ThinkingLevel) -> Option<JsonValue> {
+    if any_candidate(model, &["gpt-oss"]) {
+        let effort = match reasoning {
+            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
+            ThinkingLevel::Medium => "medium",
+            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
+        };
+        return Some(json!({ "reasoning_effort": effort }));
+    }
+    if any_candidate(model, &["gpt-"]) {
+        let mapped = thinking_level_map(model)
+            .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
+            .and_then(Option::as_ref);
+        let effort = mapped.map_or_else(
+            || {
+                match reasoning {
+                    ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
+                    ThinkingLevel::Medium => "medium",
+                    ThinkingLevel::High => "high",
+                    ThinkingLevel::Xhigh => "xhigh",
+                    ThinkingLevel::Max => "max",
+                }
+                .to_owned()
+            },
+            Clone::clone,
+        );
+        return Some(json!({ "reasoning": { "effort": effort } }));
+    }
+    None
+}
+
+/// Every model of the compiled catalog (served over Bedrock as a
+/// reasoning model) and crafted ids, at every level: the rulebook's
+/// `bedrock_reasoning` gives the Claude check and the non-Claude reasoning
+/// fields of the old name checks.
+#[test]
+fn the_reasoning_shape_is_the_rulebook_answer_of_the_old_name_checks() {
+    let template = bedrock().remove(0);
+    let mut crafted = renamed(
+        &template,
+        &[
+            "openai.gpt-oss-120b-1:0",
+            "us-gov.openai.gpt-oss-20b-1:0",
+            "openai.gpt-5.4",
+            "global.openai.gpt-6-astra",
+            "gpt-5.5",
+            "anthropic.claude-sonnet-4-5",
+            "amazon.nova-pro-v1:0",
+            "deepseek.r1-v1:0",
+        ],
+    );
+    crafted.push(Model {
+        id: "arn:aws:bedrock:us-east-1:1:application-inference-profile/abc".to_owned(),
+        name: "Claude Sonnet 4.5".to_owned(),
+        ..template.clone()
+    });
+    crafted.push(Model {
+        id: "arn:aws:bedrock:us-east-1:1:application-inference-profile/def".to_owned(),
+        name: "gpt-oss-120b".to_owned(),
+        ..template
+    });
+    let differences: Vec<String> = catalog()
+        .into_iter()
+        .chain(crafted)
+        .map(|model| Model {
+            reasoning: true,
+            ..model
+        })
+        .flat_map(|model| LEVELS.map(|level| (model.clone(), level)))
+        .filter(|(model, level)| {
+            let old = (
+                old_is_claude(model),
+                (!old_is_claude(model))
+                    .then(|| old_openai_fields(model, *level))
+                    .flatten(),
+            );
+            let options = BedrockOptions {
+                reasoning: Some(*level),
+                ..BedrockOptions::default()
+            };
+            let new = (
+                is_anthropic_claude_model(model),
+                (!is_anthropic_claude_model(model))
+                    .then(|| build_additional_model_request_fields(model, &options))
+                    .flatten(),
+            );
+            old != new
+        })
+        .map(|(model, level)| format!("{}/{} {level:?}", model.provider, model.id))
         .collect();
     assert_eq!(differences, Vec::<String>::new());
 }

@@ -1,4 +1,4 @@
-//! The run's decisions (docs/harness.md H4), one per phase transition:
+//! The run's decisions (LAWS.bend H4), one per phase transition:
 //! what preparation does before its request ([`before_request`]), whether
 //! it goes on after the compaction it waited for ([`after_compaction`]),
 //! what a recovery does with a stuck reply ([`recover`], H4.8), what
@@ -10,18 +10,15 @@
 //! returns.
 //! The Bend model `bend/run/` makes the same decisions; `laws/run/model.bend`
 //! (H4) proves that every run ends under them, that a retry never
-//! resends a request it cut and that every recovery stops at its cap, and
-//! the bridge test (`bridge.rs`) runs both on the same scenarios.
+//! resends a request it cut and that every recovery stops at its cap.
 
 use std::num::NonZeroU32;
 
-use eukhe_bend::rules::infer_threshold::{self, whole, Over};
 use eukhe_bend::wire::Writer;
 use serde::{Deserialize, Serialize};
 
 use super::entry::{self, Ask};
 use super::note::{NoteCause, Recovery, RetryNote};
-use crate::harness::types::CompactionPolicy;
 
 /// Noted retries of one generation before a noted reply fails the run
 /// (H4.7, H4.8): their own budget, apart from `retry.maxRetries`. It
@@ -66,19 +63,37 @@ pub(crate) const CAPS: Caps = Caps {
     repeat: REPEAT_CALLS,
 };
 
-/// What a stuck reply holds, as a recovery reads it (H4.8).
+/// What a stuck reply holds, as a recovery reads it (H4.8; the stop
+/// Directors of [`super::stop`] pick the ones with no tool call).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stuck {
-    /// A length stop with no text and no tool call: the model still
-    /// reasoned when it hit the output limit.
+    /// A length stop with text and no tool call (`LengthStop`): the model
+    /// hit the output limit in the middle of its text.
     Length,
     /// Tool-call markup in the text and no tool call, and the harness
-    /// could not rebuild every leaked call.
+    /// could not rebuild every leaked call (`MarkupStop`).
     Leak,
     /// Tool calls (made as tool calls, or rebuilt from leaked markup) that
     /// would make `rounds` rounds in a row with the same calls (they count
     /// themselves, so at least 1).
     Calls { rounds: NonZeroU32 },
+    /// No text and no tool call (`EmptyStop`): a thinking-only reply.
+    Empty,
+    /// A length stop with no text and no tool call (`LengthStop`): the
+    /// model hit the output limit while it still reasoned. Its ladder reads
+    /// whether the window ran out (the model's context window, 0 when
+    /// unknown, and catalog max output; the reply's prompt and output
+    /// tokens), whether a compaction can run (`cuttable`: compaction on, a
+    /// cut, the generation has not compacted) and whether a thinking level
+    /// below the agent's exists (`lower`).
+    Thought {
+        window: u64,
+        catalog: u64,
+        prompt: u64,
+        output: u64,
+        cuttable: bool,
+        lower: bool,
+    },
 }
 
 /// What a recovery does with a stuck reply.
@@ -89,20 +104,28 @@ pub(crate) enum Act {
     /// A noted error, retried with a note: the `row`th note of the
     /// recovery in a row.
     Redo { row: u32 },
-    /// The reply answers as text.
-    Stand,
     /// The recovery reached its cap: the run fails on the model.
     Quit,
+    /// The context is compacted (an overflow's compaction), then the
+    /// request goes again.
+    Compact,
+    /// A noted retry with the `row`th note of the recovery in a row, its
+    /// one request one thinking level lower.
+    Lower { row: u32 },
 }
 
 /// What a recovery does with a stuck reply (H4.8), given the recovery and
 /// the row of notes in a row that the request's note counts (`note`,
-/// [`NoteCause::recovery`]): a length stop is redone under its cap, then
-/// quits; leaked calls are redone under their cap, then stand as text;
-/// calls run below the repeat cap, else are redone under the redirect
-/// cap, then quit. A recovery does not read the retry policy: its note is
-/// a new request, not a transient error. The decision is `decide.recover`
-/// of `bend/run/decision.bend` (law `rec_recover_is_the_rust_rule`).
+/// [`NoteCause::recovery`]): a length stop with text is redone under its
+/// cap, then quits; a length stop with no text climbs its ladder (compact
+/// when the window ran out and a compaction can run, else a note under the
+/// cap, else once a note one thinking level lower, else quit); leaked calls
+/// are redone under their cap, then quit; calls run below the repeat cap,
+/// else are redone under the redirect cap, then quit; an empty reply is
+/// redone under its cap, then quits. A recovery does not read the retry
+/// policy: its note is a new request, not a transient error. The decision
+/// is `decide.recover` of `bend/run/decision.bend` (laws
+/// `rec_recover_is_the_rust_rule`, `stop_*` of `laws/stop.bend`).
 pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
     entry::ask(
         Ask::Recover,
@@ -115,24 +138,43 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                 Stuck::Length => w.tag(0),
                 Stuck::Leak => w.tag(1),
                 Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
+                Stuck::Empty => w.tag(3),
+                Stuck::Thought {
+                    window,
+                    catalog,
+                    prompt,
+                    output,
+                    cuttable,
+                    lower,
+                } => w
+                    .tag(4)
+                    .nat(entry::saturated(window))
+                    .nat(entry::saturated(catalog))
+                    .nat(entry::saturated(prompt))
+                    .nat(entry::saturated(output))
+                    .bool(cuttable)
+                    .bool(lower),
             };
             match note {
                 None => w.tag(0).nat(0),
                 Some((Recovery::Length, row)) => w.tag(1).nat(u64::from(row)),
                 Some((Recovery::Leak, row)) => w.tag(2).nat(u64::from(row)),
                 Some((Recovery::Redirect, row)) => w.tag(3).nat(u64::from(row)),
+                Some((Recovery::Empty, row)) => w.tag(4).nat(u64::from(row)),
             };
         },
-        |r| match r.tag_of(4, "a recovery's act")? {
-            0 => Ok(Act::Run),
-            1 => {
-                let row = r.nat()?;
-                let row = u32::try_from(row).map_err(|_| entry::mismatch("a u32 row"))?;
-                Ok(Act::Redo { row })
+        |r| {
+            let row = |r: &mut eukhe_bend::wire::Reader<'_>| {
+                u32::try_from(r.nat()?).map_err(|_| entry::mismatch("a u32 row"))
+            };
+            match r.tag_of(5, "a recovery's act")? {
+                0 => Ok(Act::Run),
+                1 => Ok(Act::Redo { row: row(r)? }),
+                2 => Ok(Act::Quit),
+                3 => Ok(Act::Compact),
+                4 => Ok(Act::Lower { row: row(r)? }),
+                5..=u32::MAX => Err(entry::mismatch("a recovery's act")),
             }
-            2 => Ok(Act::Stand),
-            3 => Ok(Act::Quit),
-            4..=u32::MAX => Err(entry::mismatch("a recovery's act")),
         },
     )
 }
@@ -336,39 +378,6 @@ pub(crate) enum Threshold {
     Blocking,
     /// Above the background threshold: it runs beside the request.
     Background,
-}
-
-/// Which threshold compaction a context of `tokens` is over (spec §8.3):
-/// [`Threshold::Blocking`] when `tokens > contextWindow - reserveTokens`,
-/// [`Threshold::Background`] when `tokens > blocking - margin` with a
-/// positive margin ([`BackgroundMargin`](crate::harness::types::BackgroundMargin)).
-/// None when the policy is disabled or the window is unknown (`0`). Whether
-/// a cut exists is the caller's. The compiled core decides
-/// (`eukhe_bend::rules::infer_threshold`, law `infer_threshold_over_exact`)
-/// on the reserve and the margin in tokens rounded up ([`whole`]): a whole
-/// token count is compared strictly, so that is exact for a whole reserve
-/// (every setting eukhe writes) and any margin; a fractional reserve with a
-/// fractional margin may start background compaction one token early.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "a percentage margin is a share of the window in f64 tokens"
-)]
-pub(crate) fn threshold_for(
-    tokens: u64,
-    context_window: u64,
-    policy: &CompactionPolicy,
-) -> Option<Threshold> {
-    let compaction = infer_threshold::Compaction {
-        enabled: policy.enabled,
-        window: context_window,
-        reserve: whole(policy.reserve_tokens),
-        margin: whole(policy.background.tokens(context_window as f64)),
-    };
-    match compaction.over(tokens) {
-        Over::Under => None,
-        Over::Background => Some(Threshold::Background),
-        Over::Blocking => Some(Threshold::Blocking),
-    }
 }
 
 /// What preparation does with its request.

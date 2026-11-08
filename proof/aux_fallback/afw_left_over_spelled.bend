@@ -4,8 +4,8 @@
 # sees the char left and answers the error form.
 
 import Base
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/wire.bend as AuxFallbackWire
 import ./base.bend as LA
 
-def AuxFallback.afw_left_over_spelled(x, fits, c, t):
+def AuxFallbackWire.afw_left_over_spelled(x, fits, c, t):
   LA.pfs.run(x, SCon{c, t}, fits)

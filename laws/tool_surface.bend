@@ -230,3 +230,143 @@ law tool_surface_ffi_example:
   {FTs.ffi("3,1,4,4,") == "T" : String} &
   {FTs.ffi("3,0,4,") == "F" : String} &
   {FTs.ffi("4,") == malformed() : String}
+
+# ---- tool_surface: the decision, pinned to the requirement ----
+
+# LAWS (S7, the decision): the decision the entry answers, stated with
+# spec functions written from the requirement (bend/tools.bend sections 1
+# and 2), never the model's own, so R1's "the model's decision" is itself
+# pinned.
+#
+# R3: the schema the harness sends holds the declared parameters, in
+#     order, preceded by the intent parameter (0) when they do not hold it;
+#     its version is the declared one, or 1 when that is 0.
+# R4: a tool that joins goes in front of the dynamic tools (newest first);
+#     the others stay, in order.
+# R5: a tool that quits leaves the dynamic tools: every copy of it goes,
+#     the others stay, in order.
+# R6: a call through `dyn` reaches a tool exactly when it is among the
+#     dynamic tools.
+
+# Spec functions
+# --------------
+
+# R5, R6: x is an item of xs
+def ts_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), ts_has(rest, x))
+
+def ts_params.pick(has: Bool, ps: List<&2, Nat>) -> List<&2, Nat>:
+  match has:
+    case True{}:
+      ps
+    case False{}:
+      0n <> ps
+
+# R3: the parameters the harness sends
+def ts_params(+ps: List<&2, Nat>) -> List<&2, Nat>:
+  ts_params.pick(ts_has(ps, 0n), ps)
+
+# R3: the version the harness sends
+def ts_version(v: Nat) -> Nat:
+  match v:
+    case 0n:
+      1n
+    case 1n+w:
+      {1n+w : Nat}
+
+def ts_without.keep(gone: Bool, y: Nat, r: List<&2, Nat>) -> List<&2, Nat>:
+  match gone:
+    case True{}:
+      r
+    case False{}:
+      y <> r
+
+# R5: xs without every copy of t
+def ts_without(xs: List<&2, Nat>, +t: Nat) -> List<&2, Nat>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +y <> rest:
+      ts_without.keep(Nat.is_eq(y, t), y, ts_without(rest, t))
+
+# the reply R3-R6 give a request
+def ts_reply(q: FTs.Req) -> String:
+  match q:
+    case FTs.QBuild{ps, v}:
+      spell_ns(ts_params(ps), Wr.put_nat(ts_version(v), ""))
+    case FTs.QJoin{d, t}:
+      spell_ns(t <> d, "")
+    case FTs.QQuit{d, t}:
+      spell_ns(ts_without(d, t), "")
+    case FTs.QReach{d, t}:
+      Wr.put_bool(ts_has(d, t), "")
+
+def ts_spec.end(whole: Bool, q: FTs.Req) -> String:
+  match whole:
+    case True{}:
+      ts_reply(q)
+    case False{}:
+      malformed()
+
+def ts_spec.run(r: Wr.Dec<FTs.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      ts_spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply R1-R6 give the input s: the reply to the request s is exactly,
+# else the error form
+def ts_spec(s: String) -> String:
+  ts_spec.run(read_req(s))
+
+# Laws
+# ----
+
+# LAW tool_surface_build_spec: the schema the harness sends is the declared parameters, preceded by the intent when they lack it, at the declared version or 1 when that is 0
+# EXCLUDES: the intent added twice or lost, a parameter lost, added or
+#   moved, a version changed other than 0 to 1
+law tool_surface_build_spec:
+  for +ps: List<&2, Nat>
+  for +v: Nat
+  {Tl.build(Tl.Schema{ps, v}) == Tl.Schema{ts_params(ps), ts_version(v)} : Tl.Schema}
+
+# LAW tool_surface_join_spec: a tool that joins goes in front of the dynamic tools, which stay
+# EXCLUDES: a joined tool put elsewhere or lost, a dynamic tool lost or
+#   moved by a join
+law tool_surface_join_spec:
+  for r: List<&2, Nat>
+  for d: List<&2, Nat>
+  for x: List<&2, List<&2, Nat>>
+  for t: Nat
+  {Tl.Sess.dyn(Tl.step(Tl.Sess{r, d, x}, Tl.Join{t})) == t <> d : List<&2, Nat>}
+
+# LAW tool_surface_quit_spec: a tool that quits leaves the dynamic tools, every copy of it, the others in order
+# EXCLUDES: a copy of the quitting tool kept, another tool dropped or moved
+law tool_surface_quit_spec:
+  for r: List<&2, Nat>
+  for +d: List<&2, Nat>
+  for x: List<&2, List<&2, Nat>>
+  for +t: Nat
+  {Tl.Sess.dyn(Tl.step(Tl.Sess{r, d, x}, Tl.Quit{t})) == ts_without(d, t) : List<&2, Nat>}
+
+# LAW tool_surface_reach_spec: a call through `dyn` reaches a tool exactly when it is among the dynamic tools
+# EXCLUDES: an absent tool reached, a present one missed
+law tool_surface_reach_spec:
+  for r: List<&2, Nat>
+  for +d: List<&2, Nat>
+  for x: List<&2, List<&2, Nat>>
+  for +t: Nat
+  {Tl.dyn_call(Tl.Sess{r, d, x}, t) == ts_has(d, t) : Bool}
+
+# LAW tool_surface_ffi_spec: on every input the entry answers the reply R3-R6 give the request the input is exactly, and the error form on any other input
+# EXCLUDES: a decision the model computes wrong (a schema without the
+#   intent or at version 0, a joined tool lost, a quit tool kept, a wrong
+#   reach), a default for malformed input, input left over ignored
+law tool_surface_ffi_spec:
+  for +s: String
+  {FTs.ffi(s) == ts_spec(s) : String}

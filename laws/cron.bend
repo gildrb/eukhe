@@ -3,6 +3,8 @@
 import Base
 import ../bend/cron.bend as Cr
 import ../bend/cron_store.bend as CS
+import ../bend/cron_beats.bend as CB
+import ../bend/ffi_cron.bend as FC
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 import ./cron_store.bend as CronStore
@@ -15,7 +17,7 @@ import ./cron_store.bend as CronStore
 
 # (D2) Cron
 # ---------
-# docs/state.md D2. The cron jobs file `cron-jobs.json` (bend/cron.bend),
+# The cron jobs file `cron-jobs.json` (bend/cron.bend),
 # shared by any number of processes. Every input is free: any events of
 # any processes in any order (make a job, claim the due jobs, recover
 # claims, finish a run good, failed or skipped, unwind a pass, die), any
@@ -74,18 +76,23 @@ law cron_backoff_bounded:
   for +nx: Maybe<&2, Nat>
   (Cr.StopsAll(Cr.S.recs(Cr.run(evs))) & (({Cr.Ev.is_user(e) == False{} : Bool} -> Cr.StaysPaused(i, s, Cr.step(s, e))) & ({Nat.is_le(Cr.delay(k), Cr.delay(1n+k)) == True{} : Bool} & {Nat.is_le(Nat.add(c, Cr.delay(k)), Cr.later(nx, Nat.add(c, Cr.delay(k)))) == True{} : Bool})))
 
-# (D2.2) The per-job decisions, and their spelling
-# ------------------------------------------------
-# Every update of the jobs file runs as the stepper
-# bend/ffi_cron_serve.bend (laws/cron_serve/), which decides each job with
-# bend/cron_store.bend on the store's clock (ms). The spec
-# (laws/cron_store.bend) states each decision on a clock of any unit u,
-# and pins the code to it; the spellers and the reader below are the wire
-# grammar of a job's facts and of each decision, written with the wire
-# primitives alone (laws/wire.bend proves their round trips); they never
-# call the entry's codec. The `cron_*_refines` laws tie each decision, on
-# every clock unit (the store's: a minute is 60000 ms), to the model's step
-# of bend/cron.bend that the laws above speak of.
+# (D2.2) The per-job decisions, and the entry Rust calls
+# ------------------------------------------------------
+# crates/eukhe-core/src/cron/store/ (jobs.rs `cancel`, the resumes,
+# pauses, stops, deletes, edits and new jobs of jobs.rs, heartbeat.rs and
+# rlm_heartbeat.rs, state.rs on a corrupt file, cron/mod.rs `is_due_job`)
+# gathers one job's facts and calls the entry bend/ffi_cron.bend, which
+# runs bend/cron_store.bend on the store's clock (ms); its passes over a
+# whole file (state.rs, jobs.rs `record_dispatch_result`) call
+# bend/ffi_cron_file.bend (laws/cron_file.bend), which runs these same
+# decisions per record. The spec (laws/cron_store.bend) states each
+# decision on a clock of any unit u, and pins the code to it; the spellers
+# and the reader are the entry's wire grammar written with the
+# wire primitives alone (laws/wire.bend proves their round trips); they
+# never call the entry's codec. The `cron_*_refines` laws (here and in
+# laws/cron_user.bend) tie each decision, on every clock unit (the
+# store's: a minute is 60000 ms), to the model's step of bend/cron.bend
+# that the laws above speak of.
 
 # Terms
 # -----
@@ -94,7 +101,7 @@ law cron_backoff_bounded:
 def minute_spec() -> Nat:
   60000n
 
-# Spellers: a job's facts
+# Spellers: the request
 
 def spell_status(st: Cr.Status, rest: String) -> String:
   match st:
@@ -128,6 +135,46 @@ def spell_fact(f: CS.Fact, rest: String) -> String:
     case CS.Fact{st, p, nx, k}:
       spell_status(st, spell_plan(p, spell_mnat(nx, Wr.put_nat(k, rest))))
 
+def spell_who(w: CS.Who, rest: String) -> String:
+  match w:
+    case CS.Mine{b}:
+      Wr.put_nat(0n, Wr.put_bool(b, rest))
+    case CS.Theirs{b}:
+      Wr.put_nat(1n, Wr.put_bool(b, rest))
+
+def spell_how(h: CS.Halt, rest: String) -> String:
+  match h:
+    case CS.HPause{}:
+      Wr.put_nat(0n, rest)
+    case CS.HStop{}:
+      Wr.put_nat(1n, rest)
+    case CS.HDelete{}:
+      Wr.put_nat(2n, rest)
+
+# the request Rust writes for a
+def spell_ask(a: CS.Ask) -> String:
+  match a:
+    case CS.AskTake{f, c, d, n}:
+      Wr.put_nat(0n, spell_fact(f, Wr.put_bool(c, Wr.put_nat(d, Wr.put_nat(n, "")))))
+    case CS.AskClear{w}:
+      Wr.put_nat(1n, spell_who(w, ""))
+    case CS.AskRecover{f, c}:
+      Wr.put_nat(2n, spell_fact(f, Wr.put_bool(c, "")))
+    case CS.AskFinish{f, r, b, n}:
+      Wr.put_nat(3n, spell_fact(f, Wr.put_bool(r, Wr.put_bool(b, Wr.put_nat(n, "")))))
+    case CS.AskCancel{f}:
+      Wr.put_nat(4n, spell_fact(f, ""))
+    case CS.AskResume{f, n}:
+      Wr.put_nat(5n, spell_fact(f, Wr.put_nat(n, "")))
+    case CS.AskHalt{f, h}:
+      Wr.put_nat(6n, spell_fact(f, spell_how(h, "")))
+    case CS.AskEdit{f, m}:
+      Wr.put_nat(7n, spell_fact(f, spell_mnat(m, "")))
+    case CS.AskMake{n}:
+      Wr.put_nat(8n, Wr.put_nat(n, ""))
+    case CS.AskOpen{b}:
+      Wr.put_nat(9n, Wr.put_bool(b, ""))
+
 def plan_fits(p: CS.Plan) -> Bool:
   match p:
     case CS.POnce{}:
@@ -142,7 +189,31 @@ def fact_fits(f: CS.Fact) -> Bool:
     case CS.Fact{st, p, nx, k}:
       Bool.and(plan_fits(p), Bool.and(LawsBase.core_mfits(nx), LawsBase.wire_fits(k)))
 
-# Spellers: the decisions
+# every number of a fits the wire
+def ask_fits(a: CS.Ask) -> Bool:
+  match a:
+    case CS.AskTake{f, c, d, n}:
+      Bool.and(fact_fits(f), Bool.and(LawsBase.wire_fits(d), LawsBase.wire_fits(n)))
+    case CS.AskClear{w}:
+      True{}
+    case CS.AskRecover{f, c}:
+      fact_fits(f)
+    case CS.AskFinish{f, r, b, n}:
+      Bool.and(fact_fits(f), LawsBase.wire_fits(n))
+    case CS.AskCancel{f}:
+      fact_fits(f)
+    case CS.AskResume{f, n}:
+      Bool.and(fact_fits(f), LawsBase.wire_fits(n))
+    case CS.AskHalt{f, h}:
+      fact_fits(f)
+    case CS.AskEdit{f, m}:
+      Bool.and(fact_fits(f), LawsBase.core_mfits(m))
+    case CS.AskMake{n}:
+      LawsBase.wire_fits(n)
+    case CS.AskOpen{b}:
+      True{}
+
+# Spellers: the reply
 
 def spell_next(n: CS.Next, rest: String) -> String:
   match n:
@@ -194,7 +265,43 @@ def spell_again(x: CS.Again, rest: String) -> String:
     case CS.NotRecurring{}:
       Wr.put_nat(2n, rest)
 
-# Reader: a job's facts, read with the wire primitives
+def spell_edit(x: CS.Edit, rest: String) -> String:
+  match x:
+    case CS.Locked{}:
+      Wr.put_nat(0n, rest)
+    case CS.Edited{st, m}:
+      Wr.put_nat(1n, spell_status(st, spell_mnat(m, rest)))
+
+def spell_made(x: CS.Made, rest: String) -> String:
+  match x:
+    case CS.Made{st, n, k}:
+      spell_status(st, Wr.put_nat(n, Wr.put_nat(k, rest)))
+
+# the reply to a: the decision of the spec, on the store's clock
+def spell_answer(a: CS.Ask) -> String:
+  match a:
+    case CS.AskTake{f, c, d, n}:
+      spell_took(CronStore.take_spec(f, c, d, n), "")
+    case CS.AskClear{w}:
+      Wr.put_bool(CronStore.clear_spec(w), "")
+    case CS.AskRecover{f, c}:
+      spell_back(CronStore.recover_spec(f, c), "")
+    case CS.AskFinish{f, r, b, n}:
+      spell_fin(CronStore.finish_spec(minute_spec(), f, r, b, n), "")
+    case CS.AskCancel{f}:
+      spell_cut(CronStore.cancel_spec(f), "")
+    case CS.AskResume{f, n}:
+      spell_again(CronStore.resume_spec(f, n), "")
+    case CS.AskHalt{f, h}:
+      spell_cut(CronStore.halt_spec(f, h), "")
+    case CS.AskEdit{f, m}:
+      spell_edit(CronStore.edit_spec(f, m), "")
+    case CS.AskMake{n}:
+      spell_made(CronStore.make_spec(n), "")
+    case CS.AskOpen{b}:
+      Wr.put_bool(CronStore.open_spec(b), "")
+
+# Reader: the requests the entry accepts, read with the wire primitives
 
 def read_status.tag(t: Nat, s: String) -> Wr.Dec<Cr.Status>:
   match t:
@@ -294,6 +401,237 @@ def read_fact.status(r: Wr.Dec<Cr.Status>) -> Wr.Dec<CS.Fact>:
 
 def read_fact(s: String) -> Wr.Dec<CS.Fact>:
   read_fact.status(read_status(Wr.get_nat(s)))
+
+def read_take.now(f: CS.Fact, c: Bool, d: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{CS.AskTake{f, c, d, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_take.due(f: CS.Fact, c: Bool, r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{d, s}:
+      read_take.now(f, c, d, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_take.claimed(f: CS.Fact, r: Wr.Dec<Bool>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{c, s}:
+      read_take.due(f, c, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_take(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_take.claimed(f, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_who.mine(r: Wr.Dec<Bool>) -> Wr.Dec<CS.Who>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{CS.Mine{b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_who.theirs(r: Wr.Dec<Bool>) -> Wr.Dec<CS.Who>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{CS.Theirs{b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_who.tag(t: Nat, s: String) -> Wr.Dec<CS.Who>:
+  match t:
+    case 0n:
+      read_who.mine(Wr.get_bool(s))
+    case 1n:
+      read_who.theirs(Wr.get_bool(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def read_who(r: Wr.Dec<Nat>) -> Wr.Dec<CS.Who>:
+  match r:
+    case Wr.Got{t, s}:
+      read_who.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_clear(r: Wr.Dec<CS.Who>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{w, s}:
+      Wr.Got{CS.AskClear{w}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_recover.cleared(f: CS.Fact, r: Wr.Dec<Bool>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{c, s}:
+      Wr.Got{CS.AskRecover{f, c}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_recover(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_recover.cleared(f, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_finish.now(f: CS.Fact, a: Bool, b: Bool, r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{CS.AskFinish{f, a, b, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_finish.failed(f: CS.Fact, a: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{b, s}:
+      read_finish.now(f, a, b, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_finish.ran(f: CS.Fact, r: Wr.Dec<Bool>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{a, s}:
+      read_finish.failed(f, a, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_finish(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_finish.ran(f, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_cancel(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      Wr.Got{CS.AskCancel{f}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_resume.now(f: CS.Fact, r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{CS.AskResume{f, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_resume(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_resume.now(f, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_halt.how(f: CS.Fact, t: Nat, s: String) -> Wr.Dec<CS.Ask>:
+  match t:
+    case 0n:
+      Wr.Got{CS.AskHalt{f, CS.HPause{}}, s}
+    case 1n:
+      Wr.Got{CS.AskHalt{f, CS.HStop{}}, s}
+    case 2n:
+      Wr.Got{CS.AskHalt{f, CS.HDelete{}}, s}
+    case 3n+p:
+      Wr.Bad{}
+
+def read_halt.tag(f: CS.Fact, r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{t, s}:
+      read_halt.how(f, t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_halt(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_halt.tag(f, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_edit.at(f: CS.Fact, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{m, s}:
+      Wr.Got{CS.AskEdit{f, m}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_edit(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_edit.at(f, read_mnat(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_make(r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{CS.AskMake{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_open(r: Wr.Dec<Bool>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{CS.AskOpen{b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.tag(t: Nat, s: String) -> Wr.Dec<CS.Ask>:
+  match t:
+    case 0n:
+      read_take(read_fact(s))
+    case 1n:
+      read_clear(read_who(Wr.get_nat(s)))
+    case 2n:
+      read_recover(read_fact(s))
+    case 3n:
+      read_finish(read_fact(s))
+    case 4n:
+      read_cancel(read_fact(s))
+    case 5n:
+      read_resume(read_fact(s))
+    case 6n:
+      read_halt(read_fact(s))
+    case 7n:
+      read_edit(read_fact(s))
+    case 8n:
+      read_make(Wr.get_nat(s))
+    case 9n:
+      read_open(Wr.get_bool(s))
+    case 10n+p:
+      Wr.Bad{}
+
+def read_ask.go(r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{t, s}:
+      read_ask.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.end(whole: Bool, a: CS.Ask) -> Maybe<&2, CS.Ask>:
+  match whole:
+    case True{}:
+      Some{a}
+    case False{}:
+      None{}
+
+def read_ask.whole(r: Wr.Dec<CS.Ask>) -> Maybe<&2, CS.Ask>:
+  match r:
+    case Wr.Got{a, s}:
+      read_ask.end(Wr.end(s), a)
+    case Wr.Bad{}:
+      None{}
+
+# the request s is, when s is exactly one request
+def read_ask(s: String) -> Maybe<&2, CS.Ask>:
+  read_ask.whole(read_ask.go(Wr.get_nat(s)))
 
 # The model's job as the store keeps it
 # -------------------------------------
@@ -472,6 +810,54 @@ def runs_of(j: Cr.Job) -> List<&2, Nat>:
 # Laws
 # ----
 
+# LAW cron_entry_answers: on every request Rust writes whose numbers fit the wire, the entry answers the spec's decision on the store's clock (a minute is 60000 ms): a claim pass, a claim's verdict, a recovery, a finish step, a cancel or a resume
+law cron_entry_answers:
+  for +a: CS.Ask
+  for fits: {ask_fits(a) == True{} : Bool}
+  {FC.ffi(spell_ask(a)) == spell_answer(a) : String}
+
+# LAW cron_entry_malformed_exact: every input that is not exactly one request (input left over after it included) gets exactly the error form 'E ', then "cron: malformed request"
+law cron_entry_malformed_exact:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, CS.Ask>}
+  {FC.ffi(s) == SCon{'E', SCon{' ', "cron: malformed request"}} : String}
+
+# LAW cron_entry_example: anchor: the strings Rust sends, with small times (the proven kernel unfolds numbers one by one, so no anchor here runs the failure pause, a count of minutes times 60000 ms: cron_finish_exact pins it for every unit, cron_entry_answers at the entry's minute): a due unclaimed interval job is claimed, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is finished, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
+law cron_entry_example:
+  {FC.ffi("0,0,1,6,1,10,0,F10,10,") == "2,1,16," : String} &
+  {FC.ffi("3,0,1,6,1,10,7,TT50,") == "1,1,0,8," : String} &
+  {FC.ffi("1,0,F") == "T" : String} &
+  {FC.ffi("2,0,0,1,5,0,T") == "1,2,0," : String} &
+  {FC.ffi("3,0,1,6,1,10,0,FF50,") == "2,0,1,56,0," : String} &
+  {FC.ffi("4,3,0,0,0,") == "0," : String} &
+  {FC.ffi("5,0,0,0,0,9,") == "2," : String} &
+  {FC.ffi("5,1,2,0,7,9,") == "0,0,2,0," : String} &
+  {read_ask("0,0,1,6,1,10,0,F10,10,x") == None{} : Maybe<&2, CS.Ask>} &
+  {FC.ffi("0,0,1,6,1,10,0,F10,10,x") == "E cron: malformed request" : String}
+
+# LAW cron_entry_fits_example: anchor: a request whose numbers fit the wire exists, so cron_entry_answers speaks of something
+law cron_entry_fits_example:
+  exs a: CS.Ask
+  {ask_fits(a) == True{} : Bool}
+
+# the reply to input s: the spec's decision on the request s is (read with
+# the wire primitives), or the error form when s is not exactly one request
+def entry_spec.go(m: Maybe<&2, CS.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "cron: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def entry_spec(s: String) -> String:
+  entry_spec.go(read_ask(s))
+
+# LAW cron_entry_exact: every input gets exactly the spec's reply: the spec's decision (laws/cron_store.bend, on the store's clock) on the request it is when it is exactly one request read with the wire primitives, else the error form 'E ', then "cron: malformed request"
+# EXCLUDES: any answer, on any input, other than the spec's decision on the request read or the exact error text
+law cron_entry_exact:
+  for +s: String
+  {FC.ffi(s) == entry_spec(s) : String}
+
 # LAW cron_take_refines: on a clock of any unit u, a claim pass of p, applied to a model job (its facts as Rust reads them, due by and at the clock), is the model's claim step of p (Cr.take): the same status, next run, failures in a row and claim on record
 law cron_take_refines:
   for +v: Nat
@@ -513,3 +899,57 @@ law cron_resume_refines:
   for +c: Nat
   for +j: Cr.Job
   {again_view(CronStore.resume_spec(fact_of(j, 1n+v), Nat.mul(c, 1n+v)), j, 1n+v) == view(Cr.resume(c, j), 1n+v) : View()}
+
+# (D2.3) One heartbeat per session
+# --------------------------------
+# The store's actions on its records (bend/cron_beats.bend): a new
+# heartbeat (heartbeat.rs `create_heartbeat`), a new job of another source,
+# every per-job decision on any record, a rebind of a live session to a
+# session file (jobs.rs `rebind_session_jobs`, after every session
+# replacement), a corrupt file. The `/heartbeat` job is one per session
+# (`heartbeat_get` reads one): it fires the session's heartbeat prompt.
+
+# a status that still fires or may resume: active or paused
+def live_spec(st: Cr.Status) -> Bool:
+  match st:
+    case Cr.Active{}:
+      True{}
+    case Cr.Paused{}:
+      True{}
+    case Cr.Finished{}:
+      False{}
+    case Cr.Cancelled{}:
+      False{}
+
+def live_fact_spec(f: CS.Fact) -> Bool:
+  match f:
+    case CS.Fact{st, p, nx, k}:
+      live_spec(st)
+
+# a live heartbeat of session s: its `/heartbeat` job, active or paused
+def beat_spec(+s: Nat, r: CB.Row) -> Bool:
+  match r:
+    case CB.Row{s2, fl, hb, f}:
+      Bool.and(Nat.is_eq(s2, s), Bool.and(hb, live_fact_spec(f)))
+
+# no live heartbeat of session s in rs
+def no_beat_spec(+s: Nat, rs: List<&2, CB.Row>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> t:
+      Bool.and(Bool.not(beat_spec(s, r)), no_beat_spec(s, t))
+
+# at most one live heartbeat of session s in rs: none after a live one
+def one_beat_spec(+s: Nat, rs: List<&2, CB.Row>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> +t:
+      Bool.and(Bool.or(Bool.not(beat_spec(s, r)), no_beat_spec(s, t)), one_beat_spec(s, t))
+
+# LAW cron_heartbeat_unique: after any store actions (new heartbeats, new jobs of other sources, any per-job decision on any record, rebinds of live sessions to session files, a corrupt file), every session has at most one active-or-paused `/heartbeat` job
+law cron_heartbeat_unique:
+  for +s: Nat
+  for +acts: List<&2, CB.Act>
+  {one_beat_spec(s, CB.run(acts)) == True{} : Bool}

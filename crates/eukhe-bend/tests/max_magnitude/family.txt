@@ -1,0 +1,15 @@
+# depth, bound, running, cap at their largest: the depth refusal names them
+call {MAX},{MAX},{MAX},{MAX},1,8,parallel
+# the cap full: the running count plus the batch (largest + 1)
+call 0,{MAX},{MAX},{MAX},1,8,parallel
+# one below the bound, the cap at its largest: admitted, the child at the
+# largest depth; then the cap full by the running count plus the batch
+call 99999999999998,{MAX},0,{MAX},2,8,parallel4,user
+call 99999999999998,{MAX},99999999999998,{MAX},2,8,parallel4,user
+# no cap: the running count at its largest plus the batch
+call 0,{MAX},{MAX},0,3,8,parallel7,isolate5,tools
+# a missing why at the largest values
+call {MAX},{MAX},{MAX},{MAX},2,8,parallel0,
+call {MAX},{MAX},{MAX},{MAX},0,
+refuse {LONG},2,0,0,0,
+refuse 0,2,0,0,{LONG},

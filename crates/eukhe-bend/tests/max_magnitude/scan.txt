@@ -1,0 +1,12 @@
+# no number but tags: every tag at its largest, each answer
+call 0,2,1,2,3,1,
+call 0,2,1,2,1,1,
+call 0,1,1,2,2,0,
+call 0,2,1,1,0,1,
+call 0,2,0,1,
+call 1,1,2,
+call 1,1,1,
+call 1,0,
+refuse 0,{LONG},0,0,
+refuse 1,1,{LONG},
+refuse {LONG},

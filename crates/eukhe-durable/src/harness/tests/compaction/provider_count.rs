@@ -1,6 +1,7 @@
-//! "provider token count": with [`ThresholdTokens::Provider`] the threshold
+//! "provider token count": with [`ThresholdTokens::Provider`] the window
 //! check uses the provider's own count of the request; without it, or when
-//! the provider has no counter, the local estimate.
+//! the provider has no counter, the local estimate. (The thresholds read
+//! the provider's count of the last turn either way.)
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -24,11 +25,12 @@ use crate::harness::types::{
 };
 use crate::storage::MemoryStorage;
 
-/// The window of the test model: [`BLOCKING`] blocks above 1700 tokens.
+/// The window of the test model: a request blocks past 2000 tokens; the
+/// last turn of [`history`] stays under the thresholds of [`BLOCKING`].
 const WINDOW: u64 = 2000;
 
-/// The count the mock `llama-server` reports: above the blocking threshold.
-const PROVIDER_COUNT: usize = 1800;
+/// The count the mock `llama-server` reports: past the window.
+const PROVIDER_COUNT: usize = 2100;
 
 /// The prompt the mock renders from any chat template request.
 const RENDERED: &str = "<|user|>rendered";
@@ -220,7 +222,7 @@ fn requests(log: &Log) -> Vec<Received> {
 }
 
 #[tokio::test]
-async fn blocks_on_the_provider_count_when_the_local_estimate_is_below_the_threshold() {
+async fn blocks_on_the_provider_count_when_the_local_estimate_is_within_the_window() {
     let log = Log::default();
     let chat = llama_chat(
         &llama_server(Arc::clone(&log), Serve::Open).await,
@@ -280,8 +282,8 @@ async fn sends_no_count_request_when_the_setting_is_off() {
 }
 
 /// The count request sends the headers of the stream settings: the mock
-/// answers only with them, so its count (above the threshold) blocks.
-/// Without them it answers 401 and the estimate (below) does not.
+/// answers only with them, so its count (past the window) blocks. Without
+/// them it answers 401 and the estimate (within) does not.
 #[tokio::test]
 async fn the_count_request_sends_the_stream_headers() {
     let log = Log::default();
@@ -314,8 +316,8 @@ async fn the_count_request_sends_the_stream_headers() {
 }
 
 /// A count endpoint that never answers fails at the stream settings'
-/// `timeoutMs`: the turn goes on with the local estimate (below the
-/// threshold, so no compaction) instead of waiting forever. The outer
+/// `timeoutMs`: the turn goes on with the local estimate (within the
+/// window, so no compaction) instead of waiting forever. The outer
 /// timeout only turns a hang into a failure.
 #[tokio::test]
 async fn a_stalled_count_request_times_out_at_the_stream_timeout() {
@@ -349,7 +351,7 @@ async fn a_stalled_count_request_times_out_at_the_stream_timeout() {
 }
 
 /// The faux provider has no token counter: the check logs it and uses the
-/// local estimate, which is above the threshold here.
+/// local estimate, which is past the window here.
 #[tokio::test]
 async fn uses_the_local_estimate_when_the_provider_has_no_counter() {
     let chat = open(OpenOptions {
@@ -363,7 +365,7 @@ async fn uses_the_local_estimate_when_the_provider_has_no_counter() {
         ..BLOCKING
     });
     chat.faux.summary(summary("SUMMARY"));
-    turn(&chat, &text("u4", 1200), "a4").await;
+    turn(&chat, &text("u4", 1500), "a4").await;
     assert_eq!(chat.faux.summary_requests().len(), 1);
     assert_eq!(compactions(&chat).await, 1);
     chat.harness.close(context()).await.unwrap();

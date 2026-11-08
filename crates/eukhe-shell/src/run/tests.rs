@@ -420,7 +420,9 @@ async fn a_refused_command_runs_none_of_its_pipeline() {
 /// Regression (audit H4, H2, M4): a step had one effect, so a write
 /// redirection of a `Net` or `Exec` step, a write outside the workspace
 /// or to a protected place, and a read of a secret ran with the auto set
-/// of its main effect. The widest auto set still stops at the secret.
+/// of its main effect. Every effect gates the same way: the widest auto
+/// set runs the whole script, a narrow one asks for each effect it
+/// lacks.
 #[tokio::test]
 async fn every_effect_of_a_step_must_be_allowed() {
     let bench = Bench::new();
@@ -435,18 +437,7 @@ async fn every_effect_of_a_step_must_be_allowed() {
             &Record::default(),
         )
         .await;
-    assert_eq!(
-        (got.steps.len(), got.end),
-        (
-            3,
-            End::Refused {
-                step: 3,
-                command: "cat ../keys/id".to_string(),
-                effects: ShellEffects::of(&[Read, Secret]),
-                refusal: Refusal::Unanswered,
-            }
-        )
-    );
+    assert_eq!((got.steps.len(), got.end), (5, End::Finished { status: 0 }));
     let asked = Scripted::new([Answer::Approve; 4]);
     let got = bench
         .shell()
@@ -481,9 +472,10 @@ async fn every_effect_of_a_step_must_be_allowed() {
 
 /// Regression: every step run in a working directory that held a secret
 /// (the home dir) had `Secret`, so `echo hi`, `date` and `git -C repo
-/// log` there always asked. Only a step that reads the directory because
-/// it names no path of its own (`ls`, `rg x`, `grep -r x`, `find -name
-/// x`, `du`) reads the secret in it.
+/// log` there always asked. Only a step that reads the directory
+/// because it names no path of its own and descends into it (`rg x`,
+/// `grep -r x`, `find -name x`, `du`) reads the secret in it; a shallow
+/// `ls` names the entries and reads nothing below them.
 #[tokio::test]
 async fn only_a_step_that_reads_its_working_directory_reads_a_secret_in_it() {
     let bench = Bench::new();
@@ -507,10 +499,45 @@ async fn only_a_step_that_reads_its_working_directory_reads_a_secret_in_it() {
     assert_eq!(
         (asked, got.steps.len()),
         (
-            (5..10)
+            (6..10)
                 .map(|step| (step, ShellEffects::of(&[Read, Secret])))
                 .collect(),
             10
+        )
+    );
+}
+
+/// A shallow `ls` of a directory that only holds a secret below it (the
+/// bench dir over `keys`) names the entries and reads no secret: no
+/// ask. A recursive `ls -R` of it, `find` and `rg` over it, a listing
+/// of the secret itself and a read inside it still ask.
+#[tokio::test]
+async fn a_shallow_ls_of_a_secret_holding_directory_reads_no_secret() {
+    let bench = Bench::new();
+    let asked = Scripted::new([Answer::Approve; 5]);
+    let got = bench
+        .shell_at(bench.dir.path().to_path_buf())
+        .run(
+            "ls .; ls keys; ls -R .; find .; rg x .; cat keys/id",
+            AutoSet::new([Read]),
+            &bench.paths(),
+            &asked,
+            &Record::default(),
+        )
+        .await;
+    let asked: Vec<(u64, ShellEffects)> = asked
+        .asked
+        .lock()
+        .iter()
+        .map(|ask| (ask.step, ask.effects))
+        .collect();
+    assert_eq!(
+        (asked, got.steps.len()),
+        (
+            (1..6)
+                .map(|step| (step, ShellEffects::of(&[Read, Secret])))
+                .collect(),
+            6
         )
     );
 }

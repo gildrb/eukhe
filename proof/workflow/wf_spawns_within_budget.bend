@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./base.bend as LA
 
 def pw.spawns(+k: Nat, +rs: List<&2, W.Row>, t: Nat, l: Nat, miss: {Workflow.wf_first(rs, k) == None{} : Maybe<&2, Nat>}) -> {W.admit(None{}, k, rs, W.Pool{t, 1n+l}) == (W.Spawn{}, W.Pool{1n+t, l}) : W.Admit & W.Pool}:

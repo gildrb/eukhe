@@ -1,10 +1,11 @@
 //! The model facts a wire API decides from the quirks rulebook's answers
 //! (`bend/facts.bend` sections 1, 3 and 4, entry
-//! `bend/ffi_model_facts.bend`; `laws/model_facts.bend`, docs/inference.md
-//! S6.10): a flag directive's decision, adaptive thinking, the Bedrock
-//! effort of a level and the service tier row that prices a request. The
-//! caller gathers the facts (the rulebook's answers, the model's compat
-//! flag and thinking-level map, the price rows); the compiled core decides.
+//! `bend/ffi_model_facts.bend`; `laws/model_facts.bend`): a flag
+//! directive's decision, adaptive thinking, the Bedrock
+//! effort of a level, the Bedrock reasoning fields and the service tier
+//! row that prices a request. The caller gathers the facts (the
+//! rulebook's answers, the model's compat flag and thinking-level map, the
+//! price rows); the compiled core decides.
 
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, expect_core, Entry, Error};
@@ -95,25 +96,34 @@ pub fn effort(map: [MapEntry; 6], level: Level) -> Effort {
     expect_core(Entry::ModelFacts, effort_call(map, level))
 }
 
-fn effort_call(map: [MapEntry; 6], level: Level) -> Result<Effort, Error> {
-    let mut request = Writer::new();
-    request.tag(2);
-    for entry in map {
-        match entry {
-            MapEntry::Missing => request.tag(0),
-            // The map's string is the code 0: the defaults are 2..4.
-            MapEntry::Null => request.tag(1).tag(0),
-            MapEntry::Wire => request.tag(1).tag(1).nat(0),
-        };
-    }
-    request.tag(match level {
+/// A map entry as the entry reads it: the map's string is the code 0 (the
+/// defaults are 2 and up).
+fn put_entry(request: &mut Writer, entry: MapEntry) {
+    match entry {
+        MapEntry::Missing => request.tag(0),
+        MapEntry::Null => request.tag(1).tag(0),
+        MapEntry::Wire => request.tag(1).tag(1).nat(0),
+    };
+}
+
+const fn level_tag(level: Level) -> u32 {
+    match level {
         Level::Minimal => 0,
         Level::Low => 1,
         Level::Medium => 2,
         Level::High => 3,
         Level::Xhigh => 4,
         Level::Max => 5,
-    });
+    }
+}
+
+fn effort_call(map: [MapEntry; 6], level: Level) -> Result<Effort, Error> {
+    let mut request = Writer::new();
+    request.tag(2);
+    for entry in map {
+        put_entry(&mut request, entry);
+    }
+    request.tag(level_tag(level));
     let reply = call(Entry::ModelFacts, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let effort = match reader.nat()? {
@@ -131,6 +141,101 @@ fn effort_call(map: [MapEntry; 6], level: Level) -> Result<Effort, Error> {
     };
     reader.end()?;
     Ok(effort)
+}
+
+/// The Bedrock request shape the rulebook's `bedrock_reasoning` names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    /// Claude's thinking fields (adaptive or budget thinking).
+    Claude,
+    /// `OpenAI` GPT: a nested `reasoning.effort`.
+    Gpt,
+    /// gpt-oss: a flat `reasoning_effort` of low, medium or high.
+    GptOss,
+}
+
+/// An effort the GPT reasoning fields send.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GptEffort {
+    /// The map's own wire string for the level.
+    Mapped,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+/// The reasoning fields of a Bedrock request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReasoningFields {
+    /// No reasoning field.
+    None,
+    /// Claude's thinking fields (the caller builds them).
+    Claude,
+    /// `reasoning: { effort }`.
+    Nested(GptEffort),
+    /// `reasoning_effort`.
+    Flat(GptEffort),
+}
+
+/// The reasoning fields of a Bedrock request at `level` for a model of
+/// rulebook shape `shape` (`None`: no rule applies) whose thinking-level
+/// map has `entry` at the level.
+#[must_use]
+pub fn reasoning(shape: Option<Shape>, entry: MapEntry, level: Level) -> ReasoningFields {
+    expect_core(Entry::ModelFacts, reasoning_call(shape, entry, level))
+}
+
+fn reasoning_call(
+    shape: Option<Shape>,
+    entry: MapEntry,
+    level: Level,
+) -> Result<ReasoningFields, Error> {
+    let mut request = Writer::new();
+    request.tag(4).tag(match shape {
+        None => 0,
+        Some(Shape::Claude) => 1,
+        Some(Shape::Gpt) => 2,
+        Some(Shape::GptOss) => 3,
+    });
+    put_entry(&mut request, entry);
+    request.tag(level_tag(level));
+    let reply = call(Entry::ModelFacts, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let fields = match reader.nat()? {
+        0 => ReasoningFields::None,
+        1 => ReasoningFields::Claude,
+        2 => ReasoningFields::Nested(gpt_effort(reader.nat()?)?),
+        3 => ReasoningFields::Flat(gpt_effort(reader.nat()?)?),
+        _ => {
+            return Err(WireError::Malformed {
+                at: 0,
+                expected: "Bedrock reasoning fields",
+            }
+            .into())
+        }
+    };
+    reader.end()?;
+    Ok(fields)
+}
+
+fn gpt_effort(code: u64) -> Result<GptEffort, Error> {
+    Ok(match code {
+        0 => GptEffort::Mapped,
+        2 => GptEffort::Low,
+        3 => GptEffort::Medium,
+        4 => GptEffort::High,
+        5 => GptEffort::Xhigh,
+        6 => GptEffort::Max,
+        _ => {
+            return Err(WireError::Malformed {
+                at: 0,
+                expected: "a GPT effort",
+            }
+            .into())
+        }
+    })
 }
 
 /// One service tier price row of the model's provider and wire API, as
@@ -185,6 +290,31 @@ fn tier_row_call(rows: &[TierRow]) -> Result<Option<usize>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reasoning fields of each shape come from the compiled core:
+    /// GPT's map string first, its own xhigh; gpt-oss capped at high.
+    #[test]
+    fn the_bedrock_reasoning_fields_come_from_the_compiled_core() {
+        use MapEntry::{Missing, Null, Wire};
+        assert_eq!(
+            [
+                reasoning(None, Wire, Level::High),
+                reasoning(Some(Shape::Claude), Missing, Level::Max),
+                reasoning(Some(Shape::Gpt), Wire, Level::Minimal),
+                reasoning(Some(Shape::Gpt), Null, Level::Xhigh),
+                reasoning(Some(Shape::GptOss), Wire, Level::Max),
+                reasoning(Some(Shape::GptOss), Missing, Level::Minimal),
+            ],
+            [
+                ReasoningFields::None,
+                ReasoningFields::Claude,
+                ReasoningFields::Nested(GptEffort::Mapped),
+                ReasoningFields::Nested(GptEffort::Xhigh),
+                ReasoningFields::Flat(GptEffort::High),
+                ReasoningFields::Flat(GptEffort::Low),
+            ]
+        );
+    }
 
     /// Each decision comes from the compiled core.
     #[test]

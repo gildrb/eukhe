@@ -167,27 +167,9 @@ async fn open_submit_answers_and_commits_entries() {
     assert!(session.deps().harness.get().is_some());
     ask(&session, "hello").await;
     let entries = entries(&session).await;
-    // The delivered harness digest row persists between the prompt and the
-    // answer (the `[harness-digest]` row).
-    let digest_rows = transcript(&entries)
-        .into_iter()
-        .filter(|(kind, text)| {
-            kind == "eukhe.custom"
-                && text
-                    .as_deref()
-                    .is_some_and(|text| text.starts_with("[harness-digest]"))
-        })
-        .count();
-    assert_eq!(digest_rows, 1);
     let messages: Vec<_> = transcript(&entries)
         .into_iter()
-        .filter(|(kind, text)| {
-            kind != "pi.system"
-                && !(kind == "eukhe.custom"
-                    && text
-                        .as_deref()
-                        .is_some_and(|text| text.starts_with("[harness-digest]")))
-        })
+        .filter(|(kind, _)| kind != "pi.system")
         .collect();
     assert_eq!(
         messages,
@@ -232,29 +214,10 @@ async fn reopening_the_storage_keeps_the_root_and_its_entries() {
     ask(&session, "second").await;
     let texts: Vec<_> = transcript(&entries(&session).await)
         .into_iter()
-        .filter(|(kind, text)| {
-            kind != "pi.system"
-                && !(kind == "eukhe.custom"
-                    && text
-                        .as_deref()
-                        .is_some_and(|text| text.starts_with("[harness-digest]")))
-        })
+        .filter(|(kind, _)| kind != "pi.system")
         .filter_map(|(_, text)| text)
         .collect();
     assert_eq!(texts, ["first", "first answer", "second", "second answer"]);
-    // The reopen delivered no second digest: the state did not change.
-    assert_eq!(
-        transcript(&entries(&session).await)
-            .into_iter()
-            .filter(|(kind, text)| {
-                kind == "eukhe.custom"
-                    && text
-                        .as_deref()
-                        .is_some_and(|text| text.starts_with("[harness-digest]"))
-            })
-            .count(),
-        1
-    );
     session.close(cx()).await.expect("close");
 }
 
@@ -439,6 +402,131 @@ async fn a_model_reads_then_edits_through_the_wire_tools() {
     assert_eq!(
         std::fs::read_to_string(&file).expect("file"),
         "alpha\nBETA\ngamma\n"
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// Regression (a remote session corrupted a stylesheet): the scrubber of a
+/// remote model's requests (`privacy.anonymizeRemote`) read `::before` as
+/// an IPv6 and hashed it one way, so the model read `.cardIP_<hash>` and
+/// its edit wrote that into the file. Now the model reads the stylesheet
+/// as it is (only the address in its comment becomes a token), its edit
+/// names that token, and the file on disk is the edit applied to the real
+/// bytes.
+#[tokio::test]
+async fn a_remote_model_edits_a_stylesheet_through_the_scrub_without_corrupting_it() {
+    let fixture = fixture();
+    std::fs::write(
+        fixture.agent_dir.join("settings.json"),
+        serde_json::json!({ "privacy": { "anonymizeRemote": true } }).to_string(),
+    )
+    .expect("settings");
+    // The faux model behind a remote endpoint.
+    let mut provider = fixture.faux.provider.clone();
+    let mut remote = fixture.faux.get_model();
+    remote.base_url = "https://api.example.com/v1".to_owned();
+    let listed: Arc<[eukhe_types::pi_ai::AnyModel]> =
+        Arc::new([eukhe_types::pi_ai::AnyModel::Chat(remote)]);
+    provider.get_models = Arc::new(move || Ok(Arc::clone(&listed)));
+    fixture.models.set_provider(provider);
+    let file = fixture.cwd.join("style.css");
+    let css = "/* origin 203.0.113.7 */\n.card::before { content: \"\"; }\nli::marker { color: #ffcc00; }\n";
+    std::fs::write(&file, css).expect("file");
+    let reads: Arc<Mutex<Vec<String>>> = Arc::default();
+    let recorded = Arc::clone(&reads);
+    let edit = FauxResponseStep::factory(
+        move |context: &eukhe_types::pi_ai::TranscriptContext,
+              _options: Option<&eukhe_ai::types::SimpleStreamOptions>,
+              _state: &eukhe_ai::providers::faux::FauxProviderState,
+              _model: &eukhe_types::pi_ai::Model| {
+            // The model edits rows 1 and 2 as it read them.
+            let read = context
+                .messages()
+                .iter()
+                .rev()
+                .find_map(|message| match message {
+                    Message::ToolResult(result) => {
+                        result.content.iter().find_map(|block| match block {
+                            UserContentBlock::Text(text) => Some(text.text.clone()),
+                            UserContentBlock::Image(_) => None,
+                        })
+                    }
+                    Message::System(_) | Message::User(_) | Message::Assistant(_) => None,
+                })
+                .unwrap_or_default();
+            recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(read.clone());
+            let header = read.lines().next().unwrap_or_default();
+            let row = |number: usize| {
+                read.lines()
+                    .find_map(|line| line.strip_prefix(&format!("{number}:")))
+                    .unwrap_or_default()
+            };
+            let serde_json::Value::Object(arguments) = serde_json::json!({
+                "i": "Marking the origin",
+                "input": format!(
+                    "{header}\nPUT 1.=2:\n+{}\n+{}",
+                    row(1).replace(" */", ", staging */"),
+                    row(2).replace("\"\"", "\"\\2192\""),
+                ),
+            }) else {
+                unreachable!("an object literal");
+            };
+            Ok(faux_assistant_message(
+                faux_tool_call("edit", arguments, Some("call-edit".to_owned())),
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(StopReason::ToolUse),
+                    ..FauxAssistantMessageOptions::default()
+                },
+            ))
+        },
+    );
+    fixture.faux.set_responses(vec![
+        tool_call(
+            "read",
+            serde_json::json!({"i": "Reading the stylesheet", "path": "style.css"}),
+            "call-read",
+        ),
+        edit,
+        answer("done"),
+    ]);
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.model = Some(fixture.model().into());
+    let session = open_session(config, cx()).await.expect("open");
+    // A caller-supplied collection stays unwrapped at open; the session's
+    // own collection gets the provider runtime, whose dispatch scrubs a
+    // remote model's requests and restores its answers.
+    let _runtime = ProviderRuntime::install(&session.deps().models, session.deps());
+    ask(
+        &session,
+        "mark the origin as staging and give the card an arrow",
+    )
+    .await;
+    let read = reads.lock().unwrap_or_else(PoisonError::into_inner)[0].clone();
+    let rows: Vec<&str> = read.lines().skip(1).take(3).collect();
+    assert!(
+        rows[0].starts_with("1:/* origin IP_") && rows[0].ends_with(" */"),
+        "the address became a token: {read}"
+    );
+    assert_eq!(
+        rows[1..],
+        [
+            "2:.card::before { content: \"\"; }",
+            "3:li::marker { color: #ffcc00; }"
+        ],
+        "the code reads as it is: {read}"
+    );
+    let results = tool_results(&entries(&session).await);
+    assert_eq!(
+        (results[1].0.as_str(), results[1].1),
+        ("edit", false),
+        "{results:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("file"),
+        "/* origin 203.0.113.7, staging */\n.card::before { content: \"\\2192\"; }\nli::marker { color: #ffcc00; }\n"
     );
     session.close(cx()).await.expect("close");
 }
@@ -670,16 +758,19 @@ async fn settings_changes_reach_the_open_session() {
     config.model = Some(fixture.model().into());
     let session = open_session(config, cx()).await.expect("open");
     let settings = &session.deps().settings;
-    assert_eq!(settings.manager().get_default_model(), None);
+    let default_model = || {
+        settings
+            .manager()
+            .cvars()
+            .optional_text(&crate::settings::cvar::table::DEFAULT_MODEL)
+    };
+    assert_eq!(default_model(), None);
     std::fs::write(
         fixture.agent_dir.join("settings.json"),
         r#"{"defaultModel":"other","retry":{"maxRetries":9}}"#,
     )
     .expect("settings");
-    assert_eq!(
-        settings.manager().get_default_model(),
-        Some("other".to_string())
-    );
+    assert_eq!(default_model(), Some("other".to_string()));
     let resolved = eukhe_durable::harness::agent::resolve_settings(Some(&settings.harness()));
     assert_eq!(resolved.retry.max_retries, 9);
     session.close(cx()).await.expect("close");
@@ -726,7 +817,9 @@ async fn a_fork_made_main_in_its_creating_commit_is_main_after_reopen() {
 }
 
 /// The system prompt the provider receives is `build_system_prompt`'s
-/// output for the same inputs, followed by the `codemode` section.
+/// output for the same inputs, with the `codemode` section just before its
+/// closing `<critical>` block, which the project's instructions and the
+/// environment follow.
 #[tokio::test]
 async fn prompt_sections_join_to_the_old_system_prompt() {
     let fixture = fixture();
@@ -791,10 +884,6 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
         prompt_guidelines: Some(deps.prompt.guidelines.clone()),
         append_system_prompt: deps.resources.append_system_prompt.clone(),
         cwd: fixture.cwd.display().to_string(),
-        messages_path: deps
-            .storage_dir
-            .as_ref()
-            .map(|dir| dir.display().to_string()),
         context_files: deps
             .resources
             .agents_files
@@ -814,24 +903,127 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     assert!(expected.contains("Project instructions."));
     assert!(expected.contains("Appended."));
     assert!(expected.contains("Model guidance."));
-    assert!(expected.contains("Subagents and completion notifications are unavailable"));
-    // The `codemode` section, which the old builder lacks, follows it: the
-    // tools scripts can call.
+    assert!(expected.contains("Subagents are unavailable in this session"));
+    let critical = crate::prompts::closing_block(None).expect("the layered prompt closes");
+    let (head, tail) = expected
+        .split_once(&format!("\n\n{critical}\n\n"))
+        .unwrap_or_else(|| panic!("the old prompt holds the critical block:\n{expected}"));
+    // The `codemode` section, which the old builder lacks, sits between the
+    // install-stable sections and the critical block when scripts can call
+    // tools the model lacks; it is absent otherwise.
     let codemode = actual
-        .strip_prefix(expected.as_str())
-        .unwrap_or_else(|| panic!("the old prompt starts the system prompt:\n{actual}"));
+        .strip_prefix(head)
+        .and_then(|rest| rest.strip_suffix(tail))
+        .and_then(|rest| rest.strip_suffix(&format!("{critical}\n\n")))
+        .unwrap_or_else(|| panic!("the old prompt wraps the system prompt:\n{actual}"))
+        .trim();
     assert!(
-        codemode
-            .trim_start()
-            .starts_with("<codemode>\nTools scripts can call (`await tools.<name>(args)`):")
-            && codemode.ends_with("</codemode>"),
+        codemode.is_empty()
+            || (codemode.starts_with("<codemode>\n") && codemode.ends_with("</codemode>")),
         "{codemode}"
     );
     session.close(cx()).await.expect("close");
 }
 
+/// The Anthropic Messages body an OAuth client sends for a request the
+/// faux provider captured: the payload hook keeps it and fails the request
+/// before anything goes out.
+pub(crate) async fn anthropic_body(
+    context: &eukhe_types::pi_ai::TranscriptContext,
+    options: &eukhe_ai::types::SimpleStreamOptions,
+) -> serde_json::Value {
+    let model = eukhe_ai::providers::all::get_builtin_model("anthropic", "claude-opus-5-5")
+        .expect("catalog model");
+    let payload: Arc<Mutex<Option<serde_json::Value>>> = Arc::default();
+    let sink = Arc::clone(&payload);
+    let mut options = options.clone();
+    options.stream.request.api_key = Some("sk-ant-oat-test".to_owned());
+    options.stream.request.on_payload = Some(Arc::new(move |body, _model| {
+        *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(body);
+        Box::pin(async {
+            Err(
+                eukhe_ai::utils::diagnostics::ErrorObject::named("PayloadCaptured", "captured")
+                    .thrown(),
+            )
+        })
+    }));
+    let _ = eukhe_ai::api::anthropic_messages::stream_simple(&model, context, &options)
+        .result()
+        .await;
+    let body = payload
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    body.expect("the payload was captured")
+}
+
+/// Sessions in two projects (other working directory, other AGENTS.md)
+/// send the shared prefix of the system prompt as the same cache-marked
+/// block at the same position, so the second session reads it from the
+/// provider's cache; each project's values follow in a block of their own.
+#[tokio::test]
+async fn sessions_in_two_projects_send_one_marked_prompt_prefix() {
+    let fixture = fixture();
+    let mut systems = Vec::new();
+    for (project, id) in [
+        ("alpha", "0192a000-0000-7000-8000-0000000000a1"),
+        ("beta", "0192a000-0000-7000-8000-0000000000b1"),
+    ] {
+        let cwd = fixture.cwd.join(project);
+        std::fs::create_dir_all(&cwd).expect("cwd");
+        std::fs::write(cwd.join("AGENTS.md"), format!("Rules of {project}.\n")).expect("agents");
+        let captured = Arc::new(Mutex::new(None));
+        let capture = Arc::clone(&captured);
+        fixture.faux.set_responses(vec![FauxResponseStep::factory(
+            move |context, options, _, _| {
+                *capture.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some((context.clone(), options.cloned().unwrap_or_default()));
+                Ok(faux_assistant_message(
+                    "ok",
+                    FauxAssistantMessageOptions::default(),
+                ))
+            },
+        )]);
+        let mut config = SessionConfig::new(&fixture.agent_dir, &cwd, id, SessionStorage::Memory);
+        config.models = Some(fixture.models.clone());
+        config.model = Some(fixture.model().into());
+        let session = open_session(config, cx()).await.expect("open");
+        ask(&session, "hi").await;
+        let (context, options) = captured
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .expect("the request was captured");
+        let body = anthropic_body(&context, &options).await;
+        session.close(cx()).await.expect("close");
+        let system = body["system"].as_array().expect("system blocks").clone();
+        systems.push((project, cwd, system));
+    }
+    let [(_, _, alpha), (_, _, beta)] = &systems[..] else {
+        panic!("two sessions");
+    };
+    // Billing, identity, the shared prefix, the project's tail: the prefix
+    // is byte for byte the same block, marked at the same position.
+    assert_eq!(alpha[2], beta[2]);
+    for (project, cwd, system) in &systems {
+        let marked: Vec<usize> = system
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| block.get("cache_control").is_some())
+            .map(|(at, _)| at)
+            .collect();
+        assert_eq!(marked, vec![2, 3], "{project}: {system:?}");
+        let text = |at: usize| system[at]["text"].as_str().expect("text").to_owned();
+        let cwd = cwd.display().to_string();
+        assert!(!text(2).contains("Rules of") && !text(2).contains(&cwd));
+        assert!(text(3).contains(&format!("Rules of {project}.")) && text(3).contains(&cwd));
+    }
+}
+
 /// Every segment the old builder can produce has a section, in the same
-/// order, for each memory side and for a replaced prompt.
+/// order, for each memory side and for a replaced prompt; the closing
+/// `<critical>` block is in a layered prompt only. The shared sections are
+/// exactly the static segments, the breakdown's cached prefix.
 #[test]
 fn section_keys_follow_the_breakdown_order() {
     let skills = Vec::new();
@@ -841,6 +1033,7 @@ fn section_keys_follow_the_breakdown_order() {
             text: "Custom.".to_owned(),
         };
         for custom_prompt in [None, Some(custom)] {
+            let replaced = custom_prompt.is_some();
             let breakdown = system_prompt_breakdown(&BuildSystemPromptOptions {
                 custom_prompt,
                 model_prompt_extras: Some("Model guidance."),
@@ -852,7 +1045,6 @@ fn section_keys_follow_the_breakdown_order() {
                     text: "Appended.".to_owned(),
                 }],
                 cwd: "/work".to_owned(),
-                messages_path: Some("/log".to_owned()),
                 context_files: vec![("/work/AGENTS.md".to_owned(), "Context.".to_owned())],
                 skills: skills.clone(),
                 allow_recursion: None,
@@ -863,7 +1055,18 @@ fn section_keys_follow_the_breakdown_order() {
                 memory,
                 shape_role: crate::prompts::ShapeRole::Alone,
             });
-            let keys = crate::durable::section_keys(memory);
+            let keys: Vec<&str> = crate::durable::SECTION_KEYS
+                .into_iter()
+                .chain(crate::durable::CLOSING_KEYS)
+                .collect();
+            assert_eq!(
+                breakdown
+                    .segments
+                    .iter()
+                    .any(|segment| segment.name == crate::prompts::CLOSING_SEGMENT),
+                !replaced,
+                "the closing block is in a layered prompt only: {memory:?}"
+            );
             let mut positions = breakdown.segments.iter().map(|segment| {
                 keys.iter()
                     .position(|key| *key == segment.name)
@@ -873,6 +1076,15 @@ fn section_keys_follow_the_breakdown_order() {
             for position in positions {
                 assert!(position > previous, "segment order differs: {memory:?}");
                 previous = position;
+            }
+            for segment in &breakdown.segments {
+                let at = keys.iter().position(|key| *key == segment.name);
+                assert_eq!(
+                    at.is_some_and(|at| at < crate::durable::SHARED_SECTIONS),
+                    segment.kind == crate::prompts::SegmentKind::Static,
+                    "segment {} is shared exactly when static: {memory:?}",
+                    segment.name
+                );
             }
             assert!(breakdown
                 .segments
@@ -976,9 +1188,10 @@ async fn jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orpha
         .unwrap_or_else(PoisonError::into_inner)
         .take()
         .expect("the request was captured");
+    // Last: it comes and goes, after every stable section.
     assert!(
-        system.contains(
-            "\n\n<running-jobs>\n2 background jobs run: bash-kept, bash-orphan.\n</running-jobs>\n\n"
+        system.ends_with(
+            "\n\n<running-jobs>\n2 background jobs run: bash-kept, bash-orphan.\n</running-jobs>"
         ),
         "{system}"
     );
@@ -1117,7 +1330,7 @@ impl crate::memory::Summarizer for NoSummarizer {
     }
 }
 
-/// The wire `read` tool serves the internal URLs (docs/tools.md S7):
+/// The wire `read` tool serves the internal URLs:
 /// a chat-memory message, a subagent's chat, a skill's `SKILL.md` and a
 /// workspace file; a `..` above `repo://` is rejected even though the file
 /// it names exists, never clamped to the root.
@@ -1205,6 +1418,8 @@ async fn the_read_tool_serves_internal_urls() {
         replied_since_task: false,
         deletion: None,
         settled: true,
+        read: false,
+        report_submission: None,
         usage: None,
         progress: None,
         reporter: None,
@@ -1374,6 +1589,107 @@ async fn open_makes_an_existing_session_dir_private() {
     assert_eq!(
         crate::platform::perms::file_mode(&dir),
         Some(eukhe_types::platform::access::PRIVATE_DIR_MODE)
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// A root session with chat memory and its subagent (depth 1, no chat
+/// memory, the daemon's subagent cvar agent), otherwise configured alike.
+async fn root_and_subagent_configs(fixture: &Fixture) -> (SessionConfig, SessionConfig) {
+    use crate::durable::cvar_agent::CvarAgent;
+    use crate::durable::deps::{ParentLink, SessionRole};
+    use crate::memory::Memory;
+    let memory = Memory::open(fixture.agent_dir.join("chat"), Arc::new(NoSummarizer))
+        .await
+        .expect("memory");
+    let mut root = fixture.config(SessionStorage::Memory);
+    root.model = Some(fixture.model().into());
+    root.role.rlm_max_depth = 2;
+    let mut child = root.clone();
+    root.memory = Some(memory);
+    child.session_id = "0192a000-0000-7000-8000-0000000000c1".to_owned();
+    child.role = SessionRole {
+        rlm_depth: 1,
+        rlm_max_depth: 2,
+        parent: Some(ParentLink {
+            session_id: root.session_id.clone(),
+            task_id: Some("task-1".to_owned()),
+            agent_name: Some("main".to_owned()),
+            spawned_by_request_id: None,
+        }),
+        worker: false,
+    };
+    child.cvar_agent = CvarAgent::Subagent {
+        inherited: Vec::new(),
+        name: Some("scout".to_owned()),
+    };
+    (root, child)
+}
+
+/// A subagent's first request offers exactly its parent's tools (names,
+/// descriptions, parameters, order), so it reads the tools prefix the
+/// parent wrote to the provider's prompt cache: a session without chat
+/// memory still offers `zoom` and `date`.
+#[tokio::test]
+async fn a_subagent_offers_the_same_tools_as_its_root_with_chat_memory() {
+    let fixture = fixture();
+    let (root, child) = root_and_subagent_configs(&fixture).await;
+    let mut offered = Vec::new();
+    for config in [root, child] {
+        let captured: Arc<Mutex<Option<Vec<eukhe_types::pi_ai::Tool>>>> = Arc::default();
+        let capture = Arc::clone(&captured);
+        fixture
+            .faux
+            .set_responses(vec![FauxResponseStep::factory(move |context, _, _, _| {
+                *capture.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(get_current_tools(context.messages()));
+                Ok(faux_assistant_message(
+                    "ok",
+                    FauxAssistantMessageOptions::default(),
+                ))
+            })]);
+        let session = open_session(config, cx()).await.expect("open");
+        ask(&session, "hi").await;
+        session.close(cx()).await.expect("close");
+        offered.push(
+            captured
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+                .expect("the request was captured"),
+        );
+    }
+    let names: Vec<&str> = offered[0].iter().map(|tool| tool.name.as_str()).collect();
+    assert!(
+        names.contains(&"zoom") && names.contains(&"date"),
+        "{names:?}"
+    );
+    assert_eq!(offered[1], offered[0]);
+}
+
+/// In a session without chat memory, `zoom` on a line and `date` refuse
+/// with a tool error; `zoom("Name")` reads the subagent registry, which
+/// needs no chat memory.
+#[tokio::test]
+async fn without_chat_memory_zoom_on_a_line_and_date_refuse() {
+    let fixture = fixture();
+    let (_root, child) = root_and_subagent_configs(&fixture).await;
+    fixture.faux.set_responses(vec![
+        tool_call("zoom", serde_json::json!({ "id": 0, "n": 1 }), "call-1"),
+        tool_call("date", serde_json::json!({ "id": 0 }), "call-2"),
+        tool_call("zoom", serde_json::json!({ "id": "scout" }), "call-3"),
+        answer("done"),
+    ]);
+    let session = open_session(child, cx()).await.expect("open");
+    ask(&session, "look back").await;
+    let refusal = "<harness>\n[error] This session has no chat memory: zoom on a line and date read the chat view, which only a session with chat memory has.\n</harness>";
+    assert_eq!(
+        tool_results(&entries(&session).await),
+        vec![
+            ("zoom".to_owned(), true, refusal.to_owned()),
+            ("date".to_owned(), true, refusal.to_owned()),
+            ("zoom".to_owned(), false, "No agent scout.".to_owned()),
+        ]
     );
     session.close(cx()).await.expect("close");
 }

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 
 def pf.facts_cache_write_1h_own_rate(+input: Nat, +write: Nat) -> {Fx.rate_1h(None{}, input, write) == write : Nat}:
   {==}

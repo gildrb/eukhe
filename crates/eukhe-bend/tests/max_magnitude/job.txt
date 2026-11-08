@@ -1,0 +1,8 @@
+# one event of a job: the bound, the cap, the counts and the output at their largest
+call {MAX},1,{MAX},0,{MAX},{MAX},0,{MAX},
+call {MAX},0,0,0,0,0,{MAX},
+call {MAX},1,{MAX},0,99999999999998,0,0,{MAX},
+call {MAX},1,{MAX},0,{MAX},{MAX},1,{U32MAX},{U32MAX},
+call {MAX},1,{MAX},1,{MAX},{MAX},0,{U32MAX},{U32MAX},1,{U32MAX},{U32MAX},
+call {MAX},0,0,{MAX},0,2,
+refuse {LONG},0,0,0,0,3,

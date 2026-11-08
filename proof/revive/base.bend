@@ -5,6 +5,7 @@ import ../../bend/ffi_revive.bend as FR
 import ../../bend/revive.bend as Rv
 import ../../bend/wire.bend as Wr
 import ../../laws/revive.bend as Revive
+import ../base/nat.bend as LNat
 
 # Impossible cases
 # ----------------
@@ -206,3 +207,74 @@ def rvb.reply(f: Rv.Facts) -> {FR.put_veto(Rv.veto(f)) == Revive.rv_reply(f) : S
                   {==}
                 case None{}:
                   rvb.busy_reply(b, n, m, k)
+
+# The age of the busy evidence
+# ----------------------------
+
+# r is never r + k + 1
+def rvb.ne_more(r: Nat, -k: Nat) -> {Nat.is_eq(r, 1n+Nat.add(r, k)) == False{} : Bool}:
+  match r:
+    case 0n:
+      {==}
+    case 1n+q:
+      rvb.ne_more(q, k)
+
+# one more ms of a run is one more tick at its end
+def rvb.since_snoc(c: Nat, +h: Nat, r: Nat) -> {Rv.since(1n+c, h, r) == Rv.tick(h, Rv.since(c, h, r)) : Nat}:
+  match c:
+    case 0n:
+      {==}
+    case 1n+p:
+      rvb.since_snoc(p, h, Rv.tick(h, r))
+
+# with no refresh (h = 0) a run only counts on
+def rvb.since_zero(c: Nat, +r: Nat) -> {Nat.add(c, r) == Rv.since(c, 0n, r) : Nat}:
+  match c:
+    case 0n:
+      {==}
+    case 1n++p:
+      %LNat.wn_add_succ_r(p, r) : {_ == Rv.since(p, 0n, 1n+r) : Nat}
+      rvb.since_zero(p, 1n+r)
+
+# the remainder loop of Nat.mod, r counted and m left before its wrap, runs
+# as a run with a refresh every r + m + 1 ms
+def rvb.go_since(n: Nat, m: Nat, -d: Nat, +r: Nat) -> {Pair.snd(Nat, Nat, Nat.divmod.go(n, m, d, r)) == Rv.since(n, 1n+Nat.add(r, m), r) : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+np:
+      match m:
+        case 0n:
+          %Equal.sym(Nat, Nat.add(r, 0n), r, LNat.wn_add_zero_r(r)) : {Pair.snd(Nat, Nat, Nat.divmod.go(1n+np, 0n, d, r)) == Rv.since(1n+np, 1n+_, r) : Nat}
+          %Equal.sym(Bool, Nat.is_eq(r, r), True{}, LNat.child.pc.eq_refl(r)) : {Pair.snd(Nat, Nat, Nat.divmod.go(np, r, 1n+d, 0n)) == Rv.since(np, 1n+r, Rv.tick.put(_, r)) : Nat}
+          rvb.go_since(np, r, 1n+d, 0n)
+        case 1n+mp:
+          %Equal.sym(Nat, Nat.add(r, 1n+mp), 1n+Nat.add(r, mp), LNat.wn_add_succ_r(r, mp)) : {Pair.snd(Nat, Nat, Nat.divmod.go(1n+np, 1n+mp, d, r)) == Rv.since(1n+np, 1n+_, r) : Nat}
+          %Equal.sym(Bool, Nat.is_eq(r, 1n+Nat.add(r, mp)), False{}, rvb.ne_more(r, mp)) : {Pair.snd(Nat, Nat, Nat.divmod.go(np, mp, d, 1n+r)) == Rv.since(np, 2n+Nat.add(r, mp), Rv.tick.put(_, r)) : Nat}
+          rvb.go_since(np, mp, d, 1n+r)
+
+# c mod h is the time since the last record of a run c ms from its start
+def rvb.mod_since(+c: Nat, +h: Nat) -> {Nat.mod(c, h) == Rv.since(c, h, 0n) : Nat}:
+  match h:
+    case 0n:
+      %LNat.wn_add_zero_r(c) : {_ == Rv.since(c, 0n, 0n) : Nat}
+      rvb.since_zero(c, 0n)
+    case 1n+bp:
+      rvb.go_since(c, bp, 0n, 0n)
+
+# a tick takes c mod h to (c + 1) mod h
+def rvb.mod_step(+c: Nat, +h: Nat) -> {Nat.mod(1n+c, h) == Rv.tick(h, Nat.mod(c, h)) : Nat}:
+  %Equal.sym(Nat, Nat.mod(1n+c, h), Rv.since(1n+c, h, 0n), rvb.mod_since(1n+c, h)) : {_ == Rv.tick(h, Nat.mod(c, h)) : Nat}
+  %Equal.sym(Nat, Nat.mod(c, h), Rv.since(c, h, 0n), rvb.mod_since(c, h)) : {Rv.since(1n+c, h, 0n) == Rv.tick(h, _) : Nat}
+  rvb.since_snoc(c, h, 0n)
+
+# c more ms from x mod h leave (x + c) mod h
+def rvb.since_mod(c: Nat, +h: Nat, +x: Nat) -> {Rv.since(c, h, Nat.mod(x, h)) == Nat.mod(Nat.add(x, c), h) : Nat}:
+  match c:
+    case 0n:
+      %Equal.sym(Nat, Nat.add(x, 0n), x, LNat.wn_add_zero_r(x)) : {Nat.mod(x, h) == Nat.mod(_, h) : Nat}
+      {==}
+    case 1n+p:
+      %rvb.mod_step(x, h) : {Rv.since(p, h, _) == Nat.mod(Nat.add(x, 1n+p), h) : Nat}
+      %Equal.sym(Nat, Nat.add(x, 1n+p), 1n+Nat.add(x, p), LNat.wn_add_succ_r(x, p)) : {Rv.since(p, h, Nat.mod(1n+x, h)) == Nat.mod(_, h) : Nat}
+      rvb.since_mod(p, h, 1n+x)

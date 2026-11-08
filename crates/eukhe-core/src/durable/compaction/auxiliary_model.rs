@@ -1,12 +1,14 @@
 //! Auxiliary-model routing for background summarizer passes (TS #2411's
 //! `_resolveAuxiliaryModel`): compaction and branch summaries resolve
-//! their model through the `auxiliaryModel` setting, so their one-off
-//! prompts run off the session model and the session's provider
-//! prompt-cache prefix stays intact. An unset or equal selector keeps the
-//! session model. A set, different selector that cannot be used falls back
-//! to the session model, and the session shows why ([`AuxiliaryNotices`]):
-//! the fallback changes cost, prompt cache and maybe provider, so the user
-//! must see it (TS only writes a `console.warn`).
+//! their model through the auxiliary role's model
+//! ([`crate::models::roles`]: `auxiliaryModel`, else `modelRoles.all`), so
+//! their one-off prompts run off the session model and the session's
+//! provider prompt-cache prefix stays intact. An unset or equal selector
+//! keeps the session model. A set, different selector that cannot be used
+//! falls back to the session model, and the session shows why
+//! ([`AuxiliaryNotices`]): the fallback changes cost, prompt cache and
+//! maybe provider, so the user must see it (TS only writes a
+//! `console.warn`).
 //!
 //! [`decide_auxiliary_route`] is the one decision both resolvers use (this
 //! one and the daemon's branch summary); its Bend model is
@@ -22,23 +24,26 @@ use eukhe_bend::{expect_core, Entry, WireError};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
 use eukhe_durable::harness::Conversation;
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::Model;
 
+use crate::models::roles::{role_model, RoleSource};
+
 /// The custom type of the row that tells why a summarizer pass did not use
-/// the `auxiliaryModel` setting (display-only: the user sees it, the model
-/// does not).
+/// the auxiliary role's model (`auxiliaryModel`, or `modelRoles.all`;
+/// display-only: the user sees it, the model does not).
 pub const AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE: &str = "eukhe.auxiliary_model";
 
 /// The routing context: the working directory and agent directory the
-/// settings (`auxiliaryModel`, `allowedModels`) and the model registry
-/// (`models.json`, auth storage) resolve against.
+/// settings (`auxiliaryModel`, `modelRoles.all`, `allowedModels`) and the
+/// model registry (`models.json`, auth storage) resolve against.
 #[derive(Debug, Clone)]
 pub struct AuxiliaryModelContext {
     pub cwd: PathBuf,
     pub agent_dir: PathBuf,
 }
 
-/// What the `auxiliaryModel` setting names, next to the session model.
+/// What the auxiliary role's model names, next to the session model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuxiliarySelector {
     /// Unset, blank, or malformed (TS `getAuxiliaryModel`).
@@ -294,14 +299,16 @@ impl AuxiliaryNotices {
     /// The notice text of `route` for `purpose` (e.g. "compaction summary")
     /// when it is a fallback this session has not shown yet; `None`
     /// otherwise. `session_model` is the `provider/model-id` that ran the
-    /// pass. The text names the selector and the reason, never auth
-    /// details: those can hold credential material (TS `CodeQL`
-    /// `js/clear-text-logging`).
+    /// pass; `source` is where the auxiliary role's selector came from
+    /// (`auxiliaryModel`, or `modelRoles.all`), which the text names. The
+    /// text names the selector and the reason, never auth details: those
+    /// can hold credential material (TS `CodeQL` `js/clear-text-logging`).
     pub fn take<T>(
         &self,
         purpose: &str,
         route: &AuxiliaryRoute<T>,
         session_model: &str,
+        source: RoleSource,
     ) -> Option<String> {
         let (selector, reason) = match route {
             AuxiliaryRoute::Session | AuxiliaryRoute::Routed(_) => return None,
@@ -323,8 +330,16 @@ impl AuxiliaryNotices {
             FallbackReason::NotInSession => "the session's model list does not include it",
             FallbackReason::WindowTooSmall => "its context window is too small for the request",
         };
+        // A fallback needs a selector, so `Default` (no selector) never
+        // reaches here; it reads as the role's own setting.
+        let named = match source {
+            RoleSource::All => format!("The all-roles model \"{selector}\" (modelRoles.all)"),
+            RoleSource::Own | RoleSource::Default => {
+                format!("The auxiliaryModel setting \"{selector}\"")
+            }
+        };
         Some(format!(
-            "The auxiliaryModel setting \"{selector}\" was not used for the {purpose}: {why}. The session model {session_model} ran it."
+            "{named} was not used for the {purpose}: {why}. The session model {session_model} ran it."
         ))
     }
 }
@@ -380,8 +395,8 @@ pub struct AuxiliaryResolution {
     pub notice: Option<String>,
 }
 
-/// Resolve a compaction summary's model through the `auxiliaryModel`
-/// setting (TS #2411's `_resolveAuxiliaryModel`), with the lookups in
+/// Resolve a compaction summary's model through the auxiliary role's model
+/// (TS #2411's `_resolveAuxiliaryModel`), with the lookups in
 /// order: the authenticated catalog (TS `_authenticatedRlmModels`, the
 /// registry's searchable set), the model's key, and the session's model
 /// collection `models` (which owns provider overrides).
@@ -401,8 +416,9 @@ pub fn resolve_auxiliary_model(
     required_context_tokens: Option<u64>,
 ) -> AuxiliaryResolution {
     let settings = crate::settings::SettingsManager::create(&context.cwd, &context.agent_dir);
+    let role = role_model(settings.cvars(), ModelRole::Auxiliary);
     let selector = AuxiliarySelector::of(
-        settings.get_auxiliary_model().as_deref(),
+        role.selector.as_deref(),
         &session_model.provider,
         &session_model.id,
     );
@@ -437,6 +453,7 @@ pub fn resolve_auxiliary_model(
         purpose,
         &route,
         &format!("{}/{}", session_model.provider, session_model.id),
+        role.source,
     );
     match route {
         AuxiliaryRoute::Routed((model, api_key, headers)) => AuxiliaryResolution {

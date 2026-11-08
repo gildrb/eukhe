@@ -270,6 +270,37 @@ async fn injects_cache_points_when_model_name_identifies_a_supported_claude_mode
     assert!(last.get("cachePoint").is_some());
 }
 
+/// eukhe addition: with a cache breakpoint the shared prefix and the
+/// session's tail are system blocks of their own, each with a cache point.
+#[tokio::test]
+async fn a_cache_breakpoint_gives_the_shared_prefix_its_own_cache_point() {
+    let model = profile_model("Claude Sonnet 4.6", "global.anthropic.claude-opus-4-6-v1");
+    let system: eukhe_types::pi_ai::Message = serde_json::from_value(json!({
+        "role": "system",
+        "content": "",
+        "sections": { "core": "Core.", "cwd": "Working directory: /a" },
+        "timestamp": 0,
+    }))
+    .expect("system message");
+    let context = Context {
+        system_prompt: None,
+        messages: vec![system, user("Hello")],
+        tools: None,
+    };
+    let mut options = ProviderStreamOptions::default();
+    options.stream.system_cache_breakpoint = Some("core".into());
+    let payload = capture(&model, context, options).await;
+    assert_eq!(
+        payload["system"],
+        json!([
+            { "text": "Core." },
+            { "cachePoint": { "type": "default" } },
+            { "text": "Working directory: /a" },
+            { "cachePoint": { "type": "default" } },
+        ])
+    );
+}
+
 #[tokio::test]
 async fn falls_back_to_fixed_budget_thinking_for_non_adaptive_claude_via_model_name() {
     let model = profile_model(

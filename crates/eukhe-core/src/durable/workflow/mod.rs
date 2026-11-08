@@ -131,26 +131,24 @@ fn parameters() -> TSchema {
     let fields: Vec<(&str, TSchema)> = vec![
         (
             "script",
-            Type::string_with(described(
-                "The workflow script: `export const meta = {...}` first, then an async function body.",
-            )),
+            Type::string_with(described("Workflow script; meta first.")),
         ),
         (
             "args",
             Type::optional(Type::string_with(described(
-                "The user's request; the script reads it as `args`.",
+                "The user's request, read as `args`.",
             ))),
         ),
         (
             "size",
             Type::optional(Type::string_with(described(
-                "small, medium, or large; default: the workflow.size setting.",
+                "`small`|`medium`|`large`; default: `workflow.size` setting.",
             ))),
         ),
         (
             "resume",
             Type::optional(Type::string_with(described(
-                "The run id of an earlier run whose finished agents this run reuses.",
+                "Earlier run id; unchanged agents reuse their answers.",
             ))),
         ),
     ];
@@ -209,7 +207,7 @@ fn source(record: &RunRecord, request: &str, body: &str) -> String {
 /// What the tool answers once the run of `run_id` started.
 fn started(run_id: &str, record: &RunRecord) -> SessionResult<ToolExecutionResult> {
     let text = format!(
-        "workflow run {run_id} ({name}): started in the background. Watch it with /workflows. Its result arrives as a [job-settled job:workflow-{run_id} ...] message that starts a new turn: do not poll and do not wait; continue with other work or end your turn.",
+        "workflow run {run_id} ({name}): started in the background. Watch it with /workflows. Its result arrives as a [job-settled job:workflow-{run_id} ...] message that starts a new turn. Do not poll for it: do the other work first; when only this result remains, tell the user the run started and end your turn, then resume the task when the result arrives.",
         name = record.meta.name
     );
     let details = serde_json::json!({ "status": "detached", "run": run_id });
@@ -246,7 +244,9 @@ async fn execute(
     let resume = optional_text(args, "resume")?
         .map(|run| run.trim().to_owned())
         .filter(|run| !run.is_empty());
-    let parsed = parse_script(&script).map_err(SessionError::type_error)?;
+    // The script sees the meta error as a TypeError message.
+    let parsed =
+        parse_script(&script).map_err(|error| SessionError::type_error(error.to_string()))?;
     let limits = effective_limits(
         size,
         shared.settings.manager().get_subagent_max_concurrency(),

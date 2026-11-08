@@ -1,7 +1,11 @@
 //! The `zoom` and `date` tools (§5, §6) over the chat memory: `zoom(id, n)`
 //! opens a line, `zoom(id, 1)` gives a message whole with its images, and
 //! `zoom("Name")` gives an agent's whole chat (its own log, out of the
-//! chat).
+//! chat). Every session offers both tools with the same schemas, chat
+//! memory or not: a subagent's tool list then equals its parent's, so its
+//! first request reads the parent's cached tools prefix. Without chat
+//! memory, a line `zoom` and `date` refuse at call time; `zoom("Name")`
+//! needs no memory.
 
 use std::sync::Arc;
 
@@ -23,6 +27,9 @@ use crate::memory::{Memory, Zoomed, DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION
 /// agent's name as `id` and returns a message's images.
 const ZOOM_VERSION: &str = "zoom@2";
 const DATE_VERSION: &str = "date@1";
+
+/// What a line `zoom` or a `date` answers in a session without chat memory.
+const NO_MEMORY: &str = "This session has no chat memory: zoom on a line and date read the chat view, which only a session with chat memory has.";
 
 /// The prefix a subagent's name carries in its `[Name]` reports.
 const CHILD_PREFIX: &str = "child:";
@@ -48,8 +55,9 @@ impl Target {
     }
 }
 
-/// `zoom(id, n)`, `zoom("Name")` and `date(id)`.
-pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
+/// `zoom(id, n)`, `zoom("Name")` and `date(id)` over the session's chat
+/// memory, `None` in a session without one.
+pub(crate) fn memory_tools(memory: Option<Memory>) -> Vec<Arc<ToolRegistration>> {
     let zoom_memory = memory.clone();
     let zoom = ToolRegistration::new(
         "zoom",
@@ -75,6 +83,8 @@ pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
             async move {
                 let zoomed = match Target::parse(&params)? {
                     Target::Line { id, count } => memory
+                        .as_ref()
+                        .ok_or_else(|| SessionError::error(NO_MEMORY))?
                         .zoom(id, count)
                         .await
                         .map_err(|error| memory_error(&error))?,
@@ -87,7 +97,7 @@ pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
             }
         },
     );
-    let date_memory = memory.clone();
+    let date_memory = memory;
     let date = ToolRegistration::new(
         "date",
         DATE_TOOL_DESCRIPTION,
@@ -100,6 +110,8 @@ pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
             async move {
                 let id = integer_argument(&params, "id")?;
                 let text = memory
+                    .as_ref()
+                    .ok_or_else(|| SessionError::error(NO_MEMORY))?
                     .date(id)
                     .await
                     .map_err(|error| memory_error(&error))?;

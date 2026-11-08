@@ -1,32 +1,34 @@
-//! The request of a call (§3.3, §6). A root conversation's call is its
-//! run: on the run's first request the call takes the chat's root-turn
-//! lease, waits until everything before the run is in the chat log,
-//! renders the settled view, and pins it in `eukhe.optchat.call`; every
-//! request of the run then sends the pinned view, so the prompt-cache
-//! prefix holds across tool rounds and across a crash. The view's cache
-//! mark sits on its last whole block of lines, and one more on the end of
-//! the call's first message. A newly pinned root call also hands its
-//! system prompt and tools to the compactor, which reuses them (§4). A
-//! subagent pins one view for its whole conversation and logs nothing.
+//! The request of a call (§3.3, §6). Each session is its own thread: a
+//! root conversation's request is its own transcript, verbatim (the
+//! assistant's text, tool calls, tool results, images), compacted by the
+//! session's compaction only when its context fills. When the transcript
+//! has no pinned view yet, or a new head (a compaction or a reset ran),
+//! the call waits until everything the log may hold is in the session's
+//! chat log, renders the settled view, keeps only its lines of the history
+//! that scrolled out of the transcript, and pins them in
+//! `eukhe.optchat.call` under that head. Every request then sends the
+//! pinned lines ahead of the transcript, across tool rounds, runs and a
+//! crash, until the next head: between two compactions the request only
+//! grows at its end, so its prompt-cache prefix holds. A subagent pins one
+//! view for its whole conversation and logs nothing.
 
 use std::sync::Arc;
 
-use eukhe_ai::utils::text::get_system_message_text;
-use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
+use eukhe_ai::utils::transcript::get_current_system_message;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{HookApi, HookResult, RequestMessages};
 use eukhe_durable::harness::{Harness, LiveRun, LiveState, LIVE_DOC};
 use eukhe_durable::session::SessionResult;
-use eukhe_durable::types::{ConversationId, EntryId};
+use eukhe_durable::types::{ConversationId, EntryId, EntryRecord};
 use eukhe_types::pi_ai::{
     CacheBreakpoint, Message, TextContent, UserContent, UserContentBlock, UserMessage,
 };
 
-use super::docs::{decode, write, CallState, CALL_DOC};
-use super::lines::{lead_of, Lead};
+use super::docs::{decode, write, CallState, LoggedState, CALL_DOC, LOGGED_DOC};
+use super::lines::{entry_lines, lead_of, Lead};
 use super::tools::memory_error;
 use super::OptChat;
-use crate::memory::{CompactionPrompt, MemoryRole, TURN_TASK};
+use crate::memory::MemoryRole;
 
 /// The `before_request` transform of one request.
 pub(super) async fn transform(
@@ -35,83 +37,162 @@ pub(super) async fn transform(
     api: HookApi,
     cx: Context,
 ) -> HookResult<RequestMessages> {
-    let harness = chat.harness.require()?;
-    let conversation = api.conversation_id();
-    let (call, start, pinned_root) = match chat.role {
-        MemoryRole::Root => {
-            if !is_root_conversation(&harness, conversation, &cx).await? {
-                return Ok(None);
-            }
-            let Some(run) = live_run(&harness, conversation, &cx).await? else {
-                return Ok(None);
-            };
-            let key = run_key(&run);
-            let (call, pinned) = match call_state(&harness, conversation, &cx).await? {
-                Some(call) if call.run_key.as_deref() == Some(key.as_str()) => (call, false),
-                Some(_) | None => {
-                    // Everything before the run is in the log before the
-                    // view renders: the view covers it, the request drops it.
-                    chat.flush().await?;
-                    let call = pin(&chat, &harness, conversation, Some(key), &cx).await?;
-                    chat.wake();
-                    (call, true)
-                }
-            };
-            (call, run_start(&harness, &run, &cx).await?, pinned)
-        }
-        MemoryRole::Subagent => {
-            let call = match call_state(&harness, conversation, &cx).await? {
-                Some(call) => call,
-                None => pin(&chat, &harness, conversation, None, &cx).await?,
-            };
-            (call, None, false)
-        }
-    };
-    let Some(handle) = harness.conversation(conversation, &cx).await? else {
-        return Ok(None);
-    };
-    let view = handle
-        .context(
-            &cx,
-            eukhe_durable::harness::types::ContextOptions::default(),
-        )
-        .await?;
-    let mut start_message = None;
-    let mut state_rows: Vec<Message> = Vec::new();
-    for (entry, contributed) in view.entries.iter().zip(&view.contributions) {
-        if Some(entry.id) == start {
-            start_message = contributed.first().cloned();
-        }
-        if lead_of(entry) == Lead::State {
-            state_rows.extend(contributed.iter().cloned());
-        }
-    }
-    let messages = request.messages;
-    let start_at = start_message
-        .and_then(|first| messages.iter().rposition(|message| *message == first))
-        .unwrap_or(0);
-    let messages = request_messages(&call, chat.role, messages, start_at, |message| {
-        state_rows.contains(message)
-    });
-    if pinned_root {
-        chat.memory
-            .set_compaction_prompt(compaction_prompt(&messages))
-            .await
-            .map_err(|error| memory_error(&error))?;
-    }
+    let messages = shape(
+        &chat,
+        api.conversation_id(),
+        request.messages,
+        Caller::Turn,
+        &cx,
+    )
+    .await?;
     Ok(Some(RequestMessages {
         messages,
         force_tool: request.force_tool,
     }))
 }
 
-/// The system prompt and tools a request sends, as compactions reuse them.
-fn compaction_prompt(messages: &[Message]) -> CompactionPrompt {
-    CompactionPrompt {
-        system: get_current_system_message(messages)
-            .map(|system| get_system_message_text(&system))
-            .unwrap_or_default(),
-        tools: get_current_tools(messages),
+/// The run key a side request pins a root's view under while no run is
+/// live: the next run takes the view over, as a run takes over the view of
+/// the run before it.
+const IDLE_KEY: &str = "idle";
+
+/// Which request the messages are shaped for.
+#[derive(Clone, Copy)]
+enum Caller {
+    /// A generation's request: a root conversation's only while its run
+    /// is live.
+    Turn,
+    /// A side request that continues the conversation's next turn
+    /// ([`OptChat::side_request`]).
+    Side,
+}
+
+impl OptChat {
+    /// The messages of a side request that continues the next turn of
+    /// `conversation` (`messages`: its committed context): the shape that
+    /// turn's request gets. An idle root conversation pins its view under
+    /// its current head as a run would; the next run takes it over, so the
+    /// side request and the turn lead with the same view.
+    ///
+    /// # Errors
+    ///
+    /// Session reads and commits; the chat memory's render.
+    pub(crate) async fn side_request(
+        &self,
+        conversation: ConversationId,
+        messages: Vec<Message>,
+        cx: &Context,
+    ) -> SessionResult<Vec<Message>> {
+        shape(self, conversation, messages, Caller::Side, cx).await
+    }
+}
+
+/// The request messages of `conversation` for `caller`: `messages` as they
+/// are, or led by the pinned view.
+async fn shape(
+    chat: &OptChat,
+    conversation: ConversationId,
+    messages: Vec<Message>,
+    caller: Caller,
+    cx: &Context,
+) -> SessionResult<Vec<Message>> {
+    let harness = chat.harness.require()?;
+    let root = match chat.role {
+        MemoryRole::Root => {
+            if !is_root_conversation(&harness, conversation, cx).await? {
+                return Ok(messages);
+            }
+            let run = live_run(&harness, conversation, cx).await?;
+            match (run, caller) {
+                (Some(run), Caller::Turn | Caller::Side) => Some(run_key(&run)),
+                (None, Caller::Side) => Some(IDLE_KEY.to_owned()),
+                (None, Caller::Turn) => return Ok(messages),
+            }
+        }
+        MemoryRole::Subagent => None,
+    };
+    let Some(handle) = harness.conversation(conversation, cx).await? else {
+        return Ok(messages);
+    };
+    let view = handle
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .await?;
+    let Some(key) = root else {
+        let call = match call_state(&harness, conversation, cx).await? {
+            Some(call) => call,
+            None => pin(chat, &harness, conversation, Pinned::Subagent, cx).await?,
+        };
+        let mut state_rows: Vec<Message> = Vec::new();
+        for (entry, contributed) in view.entries.iter().zip(&view.contributions) {
+            if lead_of(entry) == Lead::State {
+                state_rows.extend(contributed.iter().cloned());
+            }
+        }
+        return Ok(request_messages(&call, messages, 0, |message| {
+            state_rows.contains(message)
+        }));
+    };
+    let head = view.head.as_ref().map(|head| head.id);
+    let call = match call_state(&harness, conversation, cx).await? {
+        // The transcript has the head the view was rendered under: nothing
+        // more scrolled out of it, so the view stays byte-identical and
+        // the request only grows at its end. A new run takes it over.
+        Some(call) if call.run_key.is_some() && call.head == head => {
+            if call.run_key.as_deref() == Some(key.as_str()) {
+                call
+            } else {
+                let call = CallState {
+                    run_key: Some(key),
+                    ..call
+                };
+                commit_call(&harness, conversation, &call, cx).await?;
+                chat.wake();
+                call
+            }
+        }
+        Some(_) | None => {
+            // Everything the log may hold is in it before the view
+            // renders; the view keeps only what the transcript no longer
+            // holds verbatim.
+            chat.flush().await?;
+            let logged = logged_through(&harness, conversation, cx).await?;
+            let verbatim = verbatim_lines(&view.entries, logged)?;
+            let pinned = Pinned::Root {
+                run_key: key,
+                head,
+                verbatim,
+            };
+            let call = pin(chat, &harness, conversation, pinned, cx).await?;
+            chat.wake();
+            call
+        }
+    };
+    Ok(root_request(&call, messages))
+}
+
+/// The chat log lines the transcript still holds verbatim: those of its
+/// context entries the log holds (through the logger's cursor `logged`;
+/// before a run pins, the logger holds the run's own entries back). The
+/// view keeps only the lines before these.
+fn verbatim_lines(entries: &[EntryRecord], logged: Option<EntryId>) -> SessionResult<u64> {
+    let mut lines = 0u64;
+    for entry in entries {
+        if logged.is_some_and(|through| entry.id <= through) {
+            lines += entry_lines(entry)?.len() as u64;
+        }
+    }
+    Ok(lines)
+}
+
+/// The last entry of `conversation` the chat log holds, if any.
+async fn logged_through(
+    harness: &Harness,
+    conversation: ConversationId,
+    cx: &Context,
+) -> SessionResult<Option<EntryId>> {
+    match harness.snapshot(&LOGGED_DOC, conversation, cx).await? {
+        Some(value) => Ok(decode::<LoggedState>(&value)?.through),
+        None => Ok(None),
     }
 }
 
@@ -180,53 +261,141 @@ pub(super) async fn run_start(
     Ok(record.and_then(|record| record.state.entry()))
 }
 
-/// Render the settled view (§6) and pin it as the call of `conversation`.
+/// Whom a pinned view is for.
+enum Pinned {
+    /// A subagent: the whole view, once for its conversation.
+    Subagent,
+    /// A root run: only the lines of the history that scrolled out of its
+    /// transcript (headed by `head`), the lines before the last `verbatim`
+    /// messages of the log.
+    Root {
+        run_key: String,
+        head: Option<EntryId>,
+        verbatim: u64,
+    },
+}
+
+/// Render the settled view of what the call shows (§6) and pin it as the
+/// call of `conversation`: a subagent's is the whole view; a root's only
+/// the history that scrolled out of its transcript. The chat summarizes
+/// those lines now if it has not yet (the due mark): nothing is summarized
+/// before a call shows it.
 async fn pin(
     chat: &OptChat,
     harness: &Harness,
     conversation: ConversationId,
-    run_key: Option<String>,
+    pinned: Pinned,
     cx: &Context,
 ) -> SessionResult<CallState> {
     let within = chat.settings.manager().get_memory_settle_timeout();
+    let (run_key, head, verbatim) = match pinned {
+        Pinned::Subagent => (None, None, 0),
+        Pinned::Root {
+            run_key,
+            head,
+            verbatim,
+        } => (Some(run_key), head, verbatim),
+    };
     let rendered = chat
         .memory
-        .settled_render(within)
+        .settled_history(within, verbatim)
         .await
         .map_err(|error| memory_error(&error))?;
+    let pieces = if rendered.text.is_empty() {
+        Vec::new()
+    } else {
+        rendered.pieces()
+    };
     let call = CallState {
         run_key,
-        pieces: rendered.pieces(),
+        head,
+        pieces,
         through: rendered.messages,
         timestamp: now_millis(),
     };
+    commit_call(harness, conversation, &call, cx).await?;
+    Ok(call)
+}
+
+/// Commit `call` as the call of `conversation`.
+async fn commit_call(
+    harness: &Harness,
+    conversation: ConversationId,
+    call: &CallState,
+    cx: &Context,
+) -> SessionResult<()> {
     let pinned = call.clone();
     harness
         .commit(
             move |tx| async move {
                 let draft = tx.doc(&CALL_DOC, conversation).await?;
-                write(&draft, &pinned, &["runKey"])
+                write(&draft, &pinned, &["runKey", "head"])
             },
             cx,
         )
         .await?;
-    Ok(call)
+    Ok(())
 }
 
-/// The request of a call (§3.3, §6): the system messages before the
-/// call's leading user rows replayed into ONE system message; then ONE user
-/// message holding the view pieces (the first marked at the view's last
-/// whole block) and ONE text block with the call's leading user texts (the
-/// user's words, reports, nudges) joined by a blank line, their images
-/// after it, its last text block marked as the request's end; then any
-/// harness state among those leading rows; then the rest of the call.
-/// A root call's text block starts with the [`TURN_TASK`] line, so the
-/// model tells a turn from a compaction by a mark, not by a missing one; a
-/// subagent's block is its task alone. Messages before `start` (the call's
-/// first message) are in the chat log and dropped.
+/// A root call's request: the session's own transcript as the harness
+/// built it (every turn verbatim, its images too, after the session's
+/// compaction when one ran), with the pinned view of the older history
+/// leading its first user message, marked at its end. Without such
+/// history the transcript goes unchanged.
+pub(crate) fn root_request(call: &CallState, mut messages: Vec<Message>) -> Vec<Message> {
+    if call.pieces.is_empty() {
+        return messages;
+    }
+    let last = call.pieces.len() - 1;
+    let mut view: Vec<UserContentBlock> = call
+        .pieces
+        .iter()
+        .enumerate()
+        .map(|(at, text)| {
+            UserContentBlock::Text(TextContent {
+                text: text.clone(),
+                text_signature: None,
+                cache_breakpoint: (at == last).then_some(CacheBreakpoint::Ephemeral),
+            })
+        })
+        .collect();
+    let first_user = messages
+        .iter()
+        .position(|message| matches!(message, Message::User(_)));
+    if let Some(Message::User(user)) = first_user.map(|at| &mut messages[at]) {
+        let content = std::mem::replace(&mut user.content, UserContent::Text(String::new()));
+        match content {
+            UserContent::Text(text) => {
+                view.push(UserContentBlock::Text(TextContent::new(text)));
+            }
+            UserContent::Blocks(blocks) => view.extend(blocks),
+        }
+        user.content = UserContent::Blocks(view);
+    } else {
+        let at = messages
+            .iter()
+            .take_while(|message| matches!(message, Message::System(_)))
+            .count();
+        messages.insert(
+            at,
+            Message::User(UserMessage {
+                content: UserContent::Blocks(view),
+                timestamp: call.timestamp,
+            }),
+        );
+    }
+    messages
+}
+
+/// A subagent's request (§6): the system messages before its leading user
+/// rows replayed into ONE system message; then ONE user message holding the
+/// view pieces (the first marked at the view's last whole block) and ONE
+/// text block with its leading user texts (its task, reports) joined by a
+/// blank line, their images after it, its last text block marked as the
+/// request's end; then any harness state among those leading rows; then
+/// the rest of the conversation. Messages before `start` are dropped.
 pub(crate) fn request_messages(
     call: &CallState,
-    role: MemoryRole,
     mut messages: Vec<Message>,
     start: usize,
     is_state: impl Fn(&Message) -> bool,
@@ -290,11 +459,7 @@ pub(crate) fn request_messages(
         .collect();
     texts.retain(|text| !text.is_empty());
     let joined = texts.join("\n\n");
-    let text = match role {
-        MemoryRole::Root if joined.is_empty() => TURN_TASK.to_string(),
-        MemoryRole::Root => format!("{TURN_TASK}\n{joined}"),
-        MemoryRole::Subagent => joined,
-    };
+    let text = joined;
     if !text.is_empty() {
         parts.push(UserContentBlock::Text(TextContent::new(text)));
     }

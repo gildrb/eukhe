@@ -44,9 +44,8 @@ pub(crate) struct FamilyIdentity {
     pub parent_session_id: Option<String>,
     /// The parent's session-file path (subagent sessions and seeded rows).
     pub parent_session_path: Option<String>,
-    /// This session's RLM depth (roots at 0): the family depth rule reads
-    /// it — a child sits exactly one level down, a sibling at the same
-    /// depth (TS `selectAgentFamily`).
+    /// This session's RLM depth (roots at 0): the parent rule reads it —
+    /// a child sits exactly one level down (TS `selectAgentFamily`).
     pub rlm_depth: u64,
     /// This session's name (the `parent/child` path of its children).
     pub session_name: Option<String>,
@@ -156,48 +155,6 @@ fn row_is_parent(row: &Value, identity: &FamilyIdentity) -> bool {
                 .get("rlmDepth")
                 .and_then(Value::as_u64)
                 .is_none_or(|depth| depth + 1 == identity.rlm_depth)
-        {
-            return true;
-        }
-    }
-    false
-}
-
-/// Whether `row` is a sibling of the session `identity` describes: for a
-/// subagent, the row's durable parent edge points at the same parent
-/// (persisted id, live id, or session-file alias ([`parent_binding`]);
-/// a file-bound row must also sit at this session's depth (TS
-/// `selectAgentFamily`)); for a top-level session, the row is another
-/// parentless top-level session (root sessions are each other's
-/// family). A resumed subagent file re-opened as a top-level runtime
-/// keeps its parent edge and is not a root sibling.
-fn row_is_sibling(row: &Value, identity: &FamilyIdentity) -> bool {
-    if identity.is_top_level() {
-        // A root session's siblings are the other root sessions: no
-        // recorded parent edge in any form, and not a subagent runtime
-        // (an orphaned subagent row has no durable family at all; a
-        // resumed subagent file re-opened top-level keeps its parent
-        // path and is not a root either). A root fork's depth-0
-        // binding is no parent edge, so it is a root too.
-        let subagent_runtime = row_str(row, "runtimeKind").is_some_and(|kind| kind == "subagent");
-        return !subagent_runtime
-            && row_str(row, "parentSessionId").is_none()
-            && row_str(row, "parentActiveSessionId").is_none()
-            && parent_binding(row).is_none();
-    }
-    if let Some(parent_id) = identity.parent_session_id.as_deref() {
-        if row_str(row, "parentSessionId") == Some(parent_id) {
-            return true;
-        }
-    }
-    if let Some(parent_active) = identity.parent_active_session_id.as_deref() {
-        if row_str(row, "parentActiveSessionId") == Some(parent_active) {
-            return true;
-        }
-    }
-    if let Some(parent_path) = identity.parent_session_path.as_deref() {
-        if parent_binding(row).is_some_and(|path| same_session_file(path, parent_path))
-            && row_depth(row) == identity.rlm_depth
         {
             return true;
         }

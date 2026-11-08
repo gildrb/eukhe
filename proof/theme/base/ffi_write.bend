@@ -1,5 +1,5 @@
 # eukhe: lemmas of the theme entry's proofs: the entry's reply writers
-# write what the laws' spellers (spec/theme_wire.bend) write, and each
+# write what the laws' spellers (spec/theme/wire.bend) write, and each
 # token paints the color the laws state
 
 import Base
@@ -10,7 +10,7 @@ import ../../../bend/theme/token.bend as TToken
 import ../../../bend/theme/palette.bend as TPalette
 import ../../../bend/theme/choice.bend as TChoice
 import ../../../bend/ffi_theme.bend as FTh
-import ../../../spec/theme_wire.bend as Tw
+import ../../../spec/theme/wire.bend as Tw
 
 # Colors and values
 # -----------------

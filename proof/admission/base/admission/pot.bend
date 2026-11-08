@@ -38,6 +38,13 @@ def aw.pot_pre(t: List<&2, Ad.Tk>, +w: Nat) -> {Ad.pot(Ad.preempt(t), w) == Ad.p
       %Equal.sym(Nat, Ad.pot(Ad.preempt(r), p), Ad.pot(r, p), aw.pot_pre(r, p)) : {Ad.bit(Bool.or(hh, hw), _) == rhs : Nat}
       {==}
 
+def aw.pot_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, +w: Nat) -> {Ad.pot(Ad.preempt.on(l, t), w) == Ad.pot(t, w) : Nat}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      aw.pot_pre(t, w)
+
 # a new ticket comes after w
 def aw.pot_app(t: List<&2, Ad.Tk>, +x: Ad.Tk, +w: Nat, ws: {Ad.waits.ia(Ad.get(t, w)) == True{} : Bool}) -> {Ad.pot(List.append(&2, Ad.Tk, t, [x]), w) == Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), Ad.pot(t, w)) : Nat}:
   match t w:

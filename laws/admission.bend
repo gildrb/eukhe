@@ -8,15 +8,30 @@ import ./base.bend as LawsBase
 
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------
-# docs/harness.md H3, the model in bend/admission.bend: one provider's
+# LAWS.bend H3, the model in bend/admission.bend: one provider's
 # admission (crates/eukhe-core/src/admission.rs), ticket by ticket. Every
 # op is free: admits of either class, polls, drops of permits and of
 # waiters, new limits, in any order, on any state.
 
-# LAW admission_preempts: an interactive admit leaves no background slot held (H3.1)
+# LAW admission_preempts: on a capped provider an interactive admit leaves no background slot held (H3.1)
+# EXCLUDES: an interactive request that waits behind background work on a
+#   provider that serves only so many requests at once
 law admission_preempts:
-  for +s: Ad.St
-  {Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.St.ts(Ad.step(s, Ad.Admit{Ad.Ia{}}))) == 0n : Nat}
+  for p: Nat
+  for q: Nat
+  for +ts: List<&2, Ad.Tk>
+  {Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.St.ts(Ad.step(Ad.St{Ad.Cap{p}, q, ts}, Ad.Admit{Ad.Ia{}}))) == 0n : Nat}
+
+# LAW admission_unlimited_keeps_background: on an unlimited provider an interactive admit changes no ticket admitted before it: a background request keeps its slot, granted or collected (H3.1)
+# EXCLUDES: a background request preempted (stopped and sent again) where
+#   no interactive request could wait for its slot, a ticket an admit
+#   changes, drops or reorders
+law admission_unlimited_keeps_background:
+  for q: Nat
+  for +ts: List<&2, Ad.Tk>
+  for +k: Nat
+  for live: {Maybe.is_some(&2, Ad.Tk, Ad.get(ts, k)) == True{} : Bool}
+  {Ad.get(Ad.St.ts(Ad.step(Ad.St{Ad.Unl{}, q, ts}, Ad.Admit{Ad.Ia{}})), k) == Ad.get(ts, k) : Maybe<&2, Ad.Tk>}
 
 # LAW admission_capacity: an op grants only into free slots: after it the slots held are
 # within the limit, or no more than before less the slots the op freed
@@ -36,7 +51,10 @@ law admission_no_lost_wakeup:
   {Ad.grantable(Ad.run(os, Ad.St.new(l, q))) == False{} : Bool}
 
 # LAW admission_background_yields: after any history a background slot is held only while no
-# interactive request holds a slot or waits (H3.1)
+# interactive request waits: a user's request never waits behind background work (H3.1)
+# EXCLUDES: an interactive request queued while a background request holds
+#   a slot (a capped provider preempts them; an unlimited one has a slot
+#   for every interactive request)
 law admission_background_yields:
   for +l: Ad.Lim
   for +q: Nat
@@ -156,6 +174,325 @@ law admission_live_run:
 # EXCLUDES: an ended ticket kept, tickets renumbered when one leaves
 law admission_live_example:
   {Ad.Live.run([Ad.Admit{Ad.Ia{}}, Ad.Admit{Ad.Ia{}}, Ad.Release{0n}], Ad.Live.new(Ad.Cap{0n}, 1n)) == Ad.Live{Ad.Cap{0n}, 1n, [Ad.Lv{1n, Ad.Ia{}, Ad.Granted{}}], 2n} : Ad.Live}
+
+# The controller, whole
+# ---------------------
+# Written from the requirement (H3, M2: crates/eukhe-core/src/admission.rs
+# `ControllerState`), never calling the model: the laws above pin
+# properties of Ad.step; admission_step_exact pins its every answer. The
+# grant is stated as two passes over the waiters (interactive ones first,
+# then background ones only while no interactive request holds a slot or
+# waits), each oldest first while a slot is free, not as the model's
+# one-waiter-at-a-time loop.
+
+def ads_same(a: Ad.Cls, b: Ad.Cls) -> Bool:
+  match a b:
+    case Ad.Ia{} Ad.Ia{}:
+      True{}
+    case Ad.Ia{} Ad.Bg{}:
+      False{}
+    case Ad.Bg{} Ad.Ia{}:
+      False{}
+    case Ad.Bg{} Ad.Bg{}:
+      True{}
+
+# a status that holds a slot: granted (not collected yet) or collected; a
+# preempted permit's slot was freed by the preemption
+def ads_holding(s: Ad.Sts) -> Bool:
+  match s:
+    case Ad.Queued{}:
+      False{}
+    case Ad.Granted{}:
+      True{}
+    case Ad.Held{}:
+      True{}
+    case Ad.Preempted{}:
+      False{}
+    case Ad.Ended{}:
+      False{}
+
+def ads_waiting(s: Ad.Sts) -> Bool:
+  match s:
+    case Ad.Queued{}:
+      True{}
+    case Ad.Granted{}:
+      False{}
+    case Ad.Held{}:
+      False{}
+    case Ad.Preempted{}:
+      False{}
+    case Ad.Ended{}:
+      False{}
+
+# ticket t of class c holds a slot / waits
+def ads_holds(+c: Ad.Cls, t: Ad.Tk) -> Bool:
+  match t:
+    case Ad.Tk{tc, s}:
+      Bool.and(ads_holding(s), ads_same(c, tc))
+
+def ads_waits(+c: Ad.Cls, t: Ad.Tk) -> Bool:
+  match t:
+    case Ad.Tk{tc, s}:
+      Bool.and(ads_waiting(s), ads_same(c, tc))
+
+def ads_one(b: Bool, n: Nat) -> Nat:
+  match b:
+    case True{}:
+      1n+n
+    case False{}:
+      n
+
+# the slots class c holds / the waiters of class c
+def ads_held(+c: Ad.Cls, ts: List<&2, Ad.Tk>) -> Nat:
+  match ts:
+    case Nil{}:
+      0n
+    case h <> r:
+      ads_one(ads_holds(c, h), ads_held(c, r))
+
+def ads_queued(+c: Ad.Cls, ts: List<&2, Ad.Tk>) -> Nat:
+  match ts:
+    case Nil{}:
+      0n
+    case h <> r:
+      ads_one(ads_waits(c, h), ads_queued(c, r))
+
+# the slots held by both classes
+def ads_busy(+ts: List<&2, Ad.Tk>) -> Nat:
+  Nat.add(ads_held(Ad.Ia{}, ts), ads_held(Ad.Bg{}, ts))
+
+# a slot is free with n held: no limit, or n below 1 + p
+def ads_room(l: Ad.Lim, n: Nat) -> Bool:
+  match l:
+    case Ad.Unl{}:
+      True{}
+    case Ad.Cap{p}:
+      Nat.is_le(n, p)
+
+# a less n, or 0 when n is more
+def ads_left(a: Nat, n: Nat) -> Nat:
+  match a n:
+    case 0n _:
+      0n
+    case 1n+b 0n:
+      1n+b
+    case 1n+b 1n+m:
+      ads_left(b, m)
+
+# the free slots with n held: none for no limit (no bound), else 1 + p
+# less n
+def ads_free(l: Ad.Lim, n: Nat) -> Maybe<&2, Nat>:
+  match l:
+    case Ad.Unl{}:
+      None{}
+    case Ad.Cap{p}:
+      Some{ads_left(1n+p, n)}
+
+# a ticket after the grant pass reaches it: a waiter of the pass's class
+# c (w) is granted while a slot is free (f), else it stays
+def ads_head(w: Bool, f: Maybe<&2, Nat>, c: Ad.Cls, h: Ad.Tk) -> Ad.Tk:
+  match w:
+    case False{}:
+      h
+    case True{}:
+      match f:
+        case None{}:
+          Ad.Tk{c, Ad.Granted{}}
+        case Some{n}:
+          match n:
+            case 0n:
+              h
+            case 1n+k:
+              Ad.Tk{c, Ad.Granted{}}
+
+# the free slots after the pass reaches a ticket: a grant takes one
+def ads_next(w: Bool, f: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match w:
+    case False{}:
+      f
+    case True{}:
+      match f:
+        case None{}:
+          None{}
+        case Some{n}:
+          match n:
+            case 0n:
+              Some{0n}
+            case 1n+k:
+              Some{k}
+
+# a grant pass of class c: its waiters, oldest first, each granted while
+# a slot is free
+def ads_take(+c: Ad.Cls, ts: List<&2, Ad.Tk>, +f: Maybe<&2, Nat>) -> List<&2, Ad.Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case +h <> r:
+      +w = ads_waits(c, h)
+      ads_head(w, f, c, h) <> ads_take(c, r, ads_next(w, f))
+
+def ads_grant.then(idle: Bool, f: Maybe<&2, Nat>, t: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  match idle:
+    case True{}:
+      ads_take(Ad.Bg{}, t, f)
+    case False{}:
+      t
+
+# the free slots go to the interactive waiters, oldest first; then, while
+# no interactive request holds a slot or waits, to the background waiters,
+# oldest first
+def ads_grant(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  +f = ads_free(l, ads_busy(ts))
+  +t1 = ads_take(Ad.Ia{}, ts, f)
+  ads_grant.then(Bool.and(Nat.is_eq(ads_held(Ad.Ia{}, t1), 0n), Nat.is_eq(ads_queued(Ad.Ia{}, t1), 0n)), f, t1)
+
+# an interactive request frees every background slot: a granted waiter
+# waits again, a collected permit is preempted
+def ads_preempt1(t: Ad.Tk) -> Ad.Tk:
+  match t:
+    case Ad.Tk{c, s}:
+      match c:
+        case Ad.Ia{}:
+          Ad.Tk{Ad.Ia{}, s}
+        case Ad.Bg{}:
+          match s:
+            case Ad.Queued{}:
+              Ad.Tk{Ad.Bg{}, Ad.Queued{}}
+            case Ad.Granted{}:
+              Ad.Tk{Ad.Bg{}, Ad.Queued{}}
+            case Ad.Held{}:
+              Ad.Tk{Ad.Bg{}, Ad.Preempted{}}
+            case Ad.Preempted{}:
+              Ad.Tk{Ad.Bg{}, Ad.Preempted{}}
+            case Ad.Ended{}:
+              Ad.Tk{Ad.Bg{}, Ad.Ended{}}
+
+def ads_preempt(ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case h <> r:
+      ads_preempt1(h) <> ads_preempt(r)
+
+# what an interactive request does to the tickets before it: on a capped
+# provider it frees every background slot; on an unlimited one, which has
+# a slot for every request, it leaves them
+def ads_yield(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  match l:
+    case Ad.Unl{}:
+      ts
+    case Ad.Cap{p}:
+      ads_preempt(ts)
+
+# a new interactive request: a slot when one is free for it (the
+# interactive slots below the limit) and no interactive request waits;
+# else rejected (ended) once q interactive requests wait; else it waits
+def ads_ia_status(free: Bool, full: Bool) -> Ad.Sts:
+  match free:
+    case True{}:
+      Ad.Held{}
+    case False{}:
+      match full:
+        case True{}:
+          Ad.Ended{}
+        case False{}:
+          Ad.Queued{}
+
+def ads_admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  +wi = ads_queued(Ad.Ia{}, ts)
+  List.append(&2, Ad.Tk, ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, ads_ia_status(Bool.and(Nat.is_eq(wi, 0n), ads_room(l, ads_held(Ad.Ia{}, ts))), Nat.is_le(q, wi))}])
+
+def ads_bg_status(free: Bool) -> Ad.Sts:
+  match free:
+    case True{}:
+      Ad.Held{}
+    case False{}:
+      Ad.Queued{}
+
+# a new background request: a slot when no interactive request holds one
+# or waits, no request waits and a slot is free; else it waits (never
+# rejected)
+def ads_admit_bg(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  List.append(&2, Ad.Tk, ts, [Ad.Tk{Ad.Bg{}, ads_bg_status(Bool.and(Nat.is_eq(ads_held(Ad.Ia{}, ts), 0n), Bool.and(Nat.is_eq(ads_queued(Ad.Ia{}, ts), 0n), Bool.and(Nat.is_eq(ads_queued(Ad.Bg{}, ts), 0n), ads_room(l, ads_busy(ts))))))}])
+
+# ticket k gets status x (no ticket k: nothing changes)
+def ads_set(ts: List<&2, Ad.Tk>, k: Nat, x: Ad.Sts) -> List<&2, Ad.Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Ad.Tk{c, s} <> r:
+      match k:
+        case 0n:
+          Ad.Tk{c, x} <> r
+        case 1n+j:
+          Ad.Tk{c, s} <> ads_set(r, j, x)
+
+# a waiter polls: a granted permit is collected; nothing else changes
+def ads_collect(m: Maybe<&2, Ad.Tk>, l: Ad.Lim, q: Nat, ts: List<&2, Ad.Tk>, k: Nat) -> Ad.St:
+  match m:
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      Ad.St{l, q, ads_set(ts, k, Ad.Held{})}
+    case _:
+      Ad.St{l, q, ts}
+
+# a collected permit drops: it ends and its slot goes to the waiters; a
+# preempted one ends (its slot was freed); nothing else changes
+def ads_release(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, q: Nat, ts: List<&2, Ad.Tk>, k: Nat) -> Ad.St:
+  match m:
+    case Some{Ad.Tk{c, Ad.Held{}}}:
+      Ad.St{l, q, ads_grant(l, ads_set(ts, k, Ad.Ended{}))}
+    case Some{Ad.Tk{c, Ad.Preempted{}}}:
+      Ad.St{l, q, ads_set(ts, k, Ad.Ended{})}
+    case _:
+      Ad.St{l, q, ts}
+
+# a waiter drops (granted or not): it ends and a slot it was granted goes
+# to the waiters; nothing else changes
+def ads_leave(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, q: Nat, ts: List<&2, Ad.Tk>, k: Nat) -> Ad.St:
+  match m:
+    case Some{Ad.Tk{c, Ad.Queued{}}}:
+      Ad.St{l, q, ads_grant(l, ads_set(ts, k, Ad.Ended{}))}
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      Ad.St{l, q, ads_grant(l, ads_set(ts, k, Ad.Ended{}))}
+    case _:
+      Ad.St{l, q, ts}
+
+# one op on the controller (ticket k is the k-th admitted, oldest 0)
+def ads_step(s: Ad.St, o: Ad.Op) -> Ad.St:
+  match s:
+    case Ad.St{+l, +q, +ts}:
+      match o:
+        case Ad.Admit{c}:
+          match c:
+            case Ad.Ia{}:
+              Ad.St{l, q, ads_admit_ia(l, q, ts)}
+            case Ad.Bg{}:
+              Ad.St{l, q, ads_admit_bg(l, ts)}
+        case Ad.Collect{+k}:
+          ads_collect(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
+        case Ad.Release{+k}:
+          ads_release(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
+        case Ad.Leave{+k}:
+          ads_leave(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
+        case Ad.Limit{+l2, q2}:
+          Ad.St{l2, q2, ads_grant(l2, ts)}
+
+# LAW admission_step_exact: every op on every state of the model is the spec's: an interactive admit on a capped provider preempts every background slot (on an unlimited one it changes no ticket) and holds a slot when one is free for it and no interactive request waits, is rejected once q of them wait, else waits; a background admit holds a slot only when no interactive request holds or waits, none waits and a slot is free, else waits; a collect takes a granted permit; a release ends a collected or preempted permit, and a collected one's slot is granted; a leave ends a waiter and its grant is granted; new limits take effect; each grant gives the free slots to the interactive waiters oldest first, then, while no interactive request holds or waits, to the background waiters oldest first
+# EXCLUDES: a wrong grant, preemption, rejection or status, a slot left
+#   free while a waiter may take it, a ticket other than the op's changed
+law admission_step_exact:
+  for +s: Ad.St
+  for +o: Ad.Op
+  {Ad.step(s, o) == ads_step(s, o) : Ad.St}
+
+# LAW admission_spec_example (anchor): at one slot, an interactive request holds it, a second waits, a background one waits; the release grants the interactive waiter; at unlimited slots with no interactive request, two background waiters are granted at once; a full queue rejects; an interactive request preempts the background slots of a capped provider and leaves those of an unlimited one
+# EXCLUDES: a vacuous admission_step_exact (a spec whose grant never runs)
+law admission_spec_example:
+  {ads_step(Ad.St{Ad.Cap{0n}, 5n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}]}, Ad.Release{0n}) == Ad.St{Ad.Cap{0n}, 5n, [Ad.Tk{Ad.Ia{}, Ad.Ended{}}, Ad.Tk{Ad.Ia{}, Ad.Granted{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}]} : Ad.St} &
+  {ads_step(Ad.St{Ad.Cap{0n}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Queued{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}]}, Ad.Limit{Ad.Unl{}, 5n}) == Ad.St{Ad.Unl{}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Granted{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}]} : Ad.St} &
+  {ads_step(Ad.St{Ad.Cap{0n}, 1n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Cap{0n}, 1n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}, Ad.Tk{Ad.Ia{}, Ad.Ended{}}]} : Ad.St} &
+  {ads_step(Ad.St{Ad.Cap{1n}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Held{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Cap{1n}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Preempted{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}, Ad.Tk{Ad.Ia{}, Ad.Held{}}]} : Ad.St} &
+  {ads_step(Ad.St{Ad.Unl{}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Held{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Unl{}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Held{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}, Ad.Tk{Ad.Ia{}, Ad.Held{}}]} : Ad.St}
 
 # ---- admission_wire ----
 

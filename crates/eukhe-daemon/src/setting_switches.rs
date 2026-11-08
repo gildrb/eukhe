@@ -3,8 +3,7 @@
 //! `set_scoped_models`, `cycle_thinking_level`, `set_service_tier`,
 //! `set_transport`, `set_steering_mode`, `set_follow_up_mode`,
 //! `set_auto_compaction`, `set_auto_retry`, `abort_retry` (TS daemon-mode
-//! cases) — and the cvar commands (`cvar`, `cvar_save`, docs/control.md
-//! S4). The wire contracts are TS-verbatim. Model and thinking switches
+//! cases) — and the cvar commands (`cvar`, `cvar_save`). The wire contracts are TS-verbatim. Model and thinking switches
 //! configure the main conversation (`model_switch`); every other switch is
 //! a set of a Local cvar in this session's own layer (the same path as
 //! `cvar`, committed with the main conversation), never a settings.json
@@ -26,7 +25,7 @@ use eukhe_types::daemon::{CvarFailureData, CvarFailureKind, CycleDirection, Sess
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
-use crate::model_switch::{apply_model, THINKING_LEVELS};
+use crate::model_switch::{apply_model, ModelSave, THINKING_LEVELS};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::suspended::WithdrawnInput;
 use crate::worker::{model_metadata, Worker};
@@ -36,7 +35,7 @@ const QUEUE_MODES: &[&str] = &["all", "one-at-a-time"];
 
 /// TS `supportsServiceTier` over the shown model's wire metadata
 /// (provider, api, id, name) against the quirks rulebook's service tiers
-/// (docs/inference.md S6.8). A session without a resolved catalog model
+/// A session without a resolved catalog model
 /// supports only the `default` tier, exactly like the TS `model == null`
 /// arm.
 pub(crate) fn model_supports_service_tier(model: Option<&Value>, tier: ServiceTier) -> bool {
@@ -172,10 +171,11 @@ impl Worker {
         }
         // A scoped entry may pin the level for the switched-to model (TS
         // `_getThinkingLevelForModelSwitch(next.thinkingLevel)`).
-        let thinking_level = match apply_model(&hosted, next_model, *scoped_thinking).await {
-            Ok(level) => level,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
-        };
+        let thinking_level =
+            match apply_model(&hosted, next_model, *scoped_thinking, ModelSave::Chat).await {
+                Ok(level) => level,
+                Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+            };
         // The clamp runs BEFORE the roster flush so the published snapshot
         // carries the clamped tier with the switched-to model.
         self.clamp_service_tier_for_model();
@@ -297,7 +297,7 @@ impl Worker {
     /// `cycle_thinking_level { direction? }` (TS
     /// `session.cycleThinkingLevel`): one step through the levels the
     /// model offers, forward unless `direction` is `backward`, wrapping at
-    /// the ends (`cycle_thinking_level`, docs/inference.md S10). A ladder
+    /// the ends (`cycle_thinking_level`). A ladder
     /// of fewer than two levels (no model, no reasoning, an `off`-only
     /// map) answers success with `null` data: nothing changes. Else the
     /// step applies through the `set_thinking_level` flow.
@@ -601,15 +601,15 @@ impl Worker {
         let Some(withdrawn) = withdrawn else {
             return response_success(None, COMMAND, None);
         };
-        let aborted = match hosted.main() {
-            Ok(main) => main
+        let aborted = async {
+            hosted
+                .main()?
                 .abort(ConversationAbortOptions::default(), &BACKGROUND_CONTEXT)
                 .await
-                .map_err(|error| error.to_string()),
-            Err(error) => Err(error.to_string()),
-        };
+        }
+        .await;
         if let Err(error) = aborted {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
         if let Err(error) =
             crate::worker::mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
@@ -620,7 +620,7 @@ impl Worker {
             })
             .await
         {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
         self.emit_action_update();
         hosted.events_delivered().await;
@@ -650,6 +650,7 @@ fn cvar_failure(command: &str, error: &CvarLineError) -> DaemonResponse {
                 CvarError::Global { id } => (CvarFailureKind::Global, Some(id)),
                 CvarError::NotBool { id } => (CvarFailureKind::NotBool, Some(id)),
                 CvarError::Action { id } => (CvarFailureKind::Action, Some(id)),
+                CvarError::Document { id } => (CvarFailureKind::Document, Some(id)),
             };
             Some(CvarFailureData {
                 kind,

@@ -4,7 +4,10 @@
 
 use eukhe_types::pi_ai::{Model, ThinkingBudgets};
 
-use super::{google_thinking_budget, uses_google_thinking_level, ResolvedGoogleThinkingLevel};
+use super::{
+    google_thinking_budget, requires_tool_call_id, supports_multimodal_function_response,
+    uses_google_thinking_level, ResolvedGoogleThinkingLevel,
+};
 
 const LEVELS: [ResolvedGoogleThinkingLevel; 4] = [
     ResolvedGoogleThinkingLevel::Minimal,
@@ -211,4 +214,75 @@ fn a_custom_budget_stays_inside_the_range_of_the_model() {
         (budgets(&lite), budgets(&other)),
         ([512, 4096, 8192, 24576], [64, 4096, -1, 100_000])
     );
+}
+
+/// The old `Number.parseInt` of the leading `gemini[-live]-<digits>`
+/// (`gemini-live-` or `gemini-`, then a run of ASCII digits).
+fn old_gemini_major(model: &Model) -> Option<u64> {
+    let lowered = model.id.to_lowercase();
+    let digits = ["gemini-live-", "gemini-"].into_iter().find_map(|head| {
+        let rest = lowered.strip_prefix(head)?;
+        let end = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        (end > 0).then_some(&rest[..end])
+    })?;
+    Some(digits.parse::<u64>().unwrap_or(u64::MAX))
+}
+
+/// The old id rule of the tool-call id: Claude, gpt-oss, Gemini 3 and later.
+fn old_tool_call_id(model: &Model) -> bool {
+    model.id.starts_with("claude-")
+        || model.id.starts_with("gpt-oss-")
+        || old_gemini_major(model).is_some_and(|major| major >= 3)
+}
+
+/// The old multimodal function response rule: every model but Gemini < 3.
+fn old_multimodal(model: &Model) -> bool {
+    old_gemini_major(model).is_none_or(|major| major >= 3)
+}
+
+/// Every Google model of the compiled catalog and crafted ids: the
+/// rulebook's `google_tool_call_ids` and
+/// `google_multimodal_function_response` answer as the old id rules did.
+#[test]
+fn the_tool_call_id_and_image_routing_are_the_rulebook_answers_of_the_old_rules() {
+    let catalog = catalog();
+    let crafted = renamed(
+        &catalog[0],
+        &[
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+            "gemini-live-2.5-flash-preview",
+            "gemini-02-flash",
+            "gemini-3.6-flash",
+            "gemini-live-3-flash",
+            "gemini-10-pro",
+            "gemini-012-pro",
+            "gemini-flash-latest",
+            "gemma-4-31b-it",
+            "claude-sonnet-4-5",
+            "claude-opus-4-7",
+            "gpt-oss-120b",
+            "learnlm-2.0-flash",
+        ],
+    );
+    let differences: Vec<(String, bool, bool)> = catalog
+        .iter()
+        .chain(&crafted)
+        .filter(|model| {
+            (old_tool_call_id(model), old_multimodal(model))
+                != (
+                    requires_tool_call_id(model),
+                    supports_multimodal_function_response(model),
+                )
+        })
+        .map(|model| {
+            (
+                model.id.clone(),
+                requires_tool_call_id(model),
+                supports_multimodal_function_response(model),
+            )
+        })
+        .collect();
+    assert_eq!(differences, Vec::new());
 }

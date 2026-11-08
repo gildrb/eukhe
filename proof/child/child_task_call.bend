@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 
 # The task's decisions: the call on a poll is the watch's verdict as the
 # mode acts on it, for any verdict.

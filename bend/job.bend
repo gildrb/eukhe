@@ -1,5 +1,5 @@
 # job: the model of one job, one blocking call on it, and the job table
-# at a rewind (docs/runtime.md, S2). A tool call's journal is
+# at a rewind. A tool call's journal is
 # bend/tool_call.bend.
 #
 # A job is anything that runs long: a shell, a cell, a subagent, a call
@@ -13,8 +13,9 @@
 # The Rust jobs (crates/eukhe-core/src/durable/jobs/) run `feed` and
 # `kills` as the compiled Bend core (ffi_job, ffi_job_rewind); a blocking
 # wait runs as the stepper ffi_job_wait, which answers each event the Rust
-# wait sends, in the order it arrives, with `poll`. No bridge:
-# laws/job_wait.bend ties the stepper to `wait` for every order of events.
+# wait sends, in the order it arrives, with `poll`; no Rust copy of a rule
+# remains. laws/job_wait.bend ties the stepper to `wait` for every order of
+# events.
 
 import Base
 

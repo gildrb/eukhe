@@ -4,7 +4,7 @@ import Base
 import ../../bend/ffi_workflow.bend as FW
 import ../../bend/wire.bend as Wr
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ../base/logic/bool.bend as LLogicBool
 import ./base.bend as LA
 import ./wfw_admit_round_trip.bend as PWfwAdmitRoundTrip

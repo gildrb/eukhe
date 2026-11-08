@@ -50,6 +50,26 @@ fn the_socket_dir_check_reads_the_dir_it_judges() {
     }
 }
 
+/// The rule is the write bit, not any group bit: a 0750 socket dir (group
+/// may read and search) is used; a 0770 one (group may write) is refused.
+#[test]
+fn a_group_readable_socket_dir_is_used_and_a_group_writable_one_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = |name: &str, mode: u32| {
+        let path = home.path().join(name);
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        path.join("daemon.sock")
+    };
+    let readable = dir("readable", 0o750);
+    let writable = dir("writable", 0o770);
+    assert!(crate::platform::check_daemon_socket_dir(&readable).is_ok());
+    assert!(crate::platform::check_daemon_socket_dir(&writable)
+        .unwrap_err()
+        .to_string()
+        .contains("has mode 0770"));
+}
+
 /// The cwd check on real paths: none, an empty one, a missing path, a
 /// file and a dir.
 #[test]

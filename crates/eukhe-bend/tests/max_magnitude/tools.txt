@@ -1,0 +1,7 @@
+# a path's segment codes, every number at its largest: names at the
+# largest index, `..` and `.` between them, a path above its root
+call 3,{MAX},{MAX},{MAX},
+call 5,{MAX},0,{MAX},1,{MAX},
+call 2,0,{MAX},
+call 0,
+refuse 1,{LONG},

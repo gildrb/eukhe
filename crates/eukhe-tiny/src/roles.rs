@@ -1,5 +1,4 @@
-//! Role-based model selection (docs/inference.md S9, `pick` in
-//! bend/tiny.bend). A role names a chain of candidates: the role's primary
+//! Role-based model selection (`pick` in bend/tiny.bend). A role names a chain of candidates: the role's primary
 //! model (`modelRoles.<role>`), then its fallback chain
 //! (`retry.fallbackChains.<role>`): an explicit list, where `[]` keeps the
 //! role on its primary only, or, when unset, the built-in priority (the
@@ -158,7 +157,7 @@ fn decide<'a, T: PartialEq>(chain: &'a [T], up: &[T]) -> Result<Pick<&'a T>, Err
 }
 
 /// The catalog model the `translate` role's built-in priority takes first:
-/// on the S9 translation eval (docs/inference.md) LFM2.5-230M scores well
+/// on the S9 translation eval LFM2.5-230M scores well
 /// below LFM2.5-350M.
 const TRANSLATE_FIRST: &str = "lfm2.5-350m";
 

@@ -64,6 +64,10 @@ impl TurnPhase {
 /// own at `resume_at`.
 pub use eukhe_types::daemon::QuotaPark;
 
+/// The work a session waits on between turns (the session summary's
+/// `waitingOn`): each one's end wakes the session into another turn.
+pub use eukhe_types::daemon::WaitingOn;
+
 /// What one agent is doing at a glance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentActivity {
@@ -72,6 +76,9 @@ pub enum AgentActivity {
     Working { phase: TurnPhase, since: Instant },
     /// No turn runs: the session waits for its provider's usage reset.
     Parked(QuotaPark),
+    /// No turn runs, but the session waits on work whose end wakes it
+    /// (its jobs, its subagents, its workflow runs): it is not done.
+    Waiting(WaitingOn),
     /// No turn runs, but `tasks` background tasks do (subagents, workflow
     /// runs, shells, factory runs).
     Background { tasks: usize },
@@ -105,6 +112,10 @@ impl AgentActivity {
             Self::Parked(park) => Some(Indicator {
                 text: park_label(park, now_ms),
                 busy: false,
+            }),
+            Self::Waiting(waiting) => Some(Indicator {
+                text: waiting.label(SEP),
+                busy: true,
             }),
             Self::Background { tasks } => Some(Indicator {
                 text: format!(
@@ -185,8 +196,9 @@ mod tests {
     }
 
     /// Between turns: a park names its wake time, its countdown, and its
-    /// provider and never reads as idle; background work counts; an idle
-    /// agent shows nothing.
+    /// provider and never reads as idle; the work a session waits on is
+    /// named in the agreed wording (ASCII separator); background work
+    /// counts; an idle agent shows nothing.
     #[test]
     fn between_turns_the_indicator_names_parks_and_background_work() {
         let now = Instant::now();
@@ -203,6 +215,20 @@ mod tests {
                 Some(Indicator {
                     text: "Parked until 2026-10-23 14:05 UTC (in 2d): anthropic usage limit -- resumes automatically; /model switches models now".to_string(),
                     busy: false,
+                }),
+            ),
+            (
+                AgentActivity::Waiting(WaitingOn {
+                    jobs: vec![eukhe_types::daemon::WaitingJob {
+                        id: eukhe_types::job::JobId::new("j1").expect("a job id"),
+                        label: "sleep 45".to_string(),
+                    }],
+                    subagents: 2,
+                    ..WaitingOn::default()
+                }),
+                Some(Indicator {
+                    text: "waiting on job j1 - 2 subagents".to_string(),
+                    busy: true,
                 }),
             ),
             (
@@ -225,6 +251,7 @@ mod tests {
             match &activity {
                 AgentActivity::Working { .. } => unreachable!("covered by the phase table"),
                 AgentActivity::Parked(_)
+                | AgentActivity::Waiting(_)
                 | AgentActivity::Background { .. }
                 | AgentActivity::Idle => {}
             }

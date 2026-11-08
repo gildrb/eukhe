@@ -384,6 +384,153 @@ def pc.pick_resume(b: Bool, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogi
     case False{}:
       g
 
+def pc.ends_paused(+s: Cr.Sched, -rs: List<&2, Nat>) -> Cr.EndsOf(s, Cr.Paused{}, rs):
+  match s:
+    case Cr.Once{d}:
+      Unit{}
+    case Cr.Every{q}:
+      Unit{}
+
+def pc.g_pause(+c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.pause(j)):
+  match j:
+    case Cr.Job{+i, +s, +st, +nx, +k, +cl, +rs, +ss, +h}:
+      match st:
+        case Cr.Active{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (LANat.pc.cnt_down(Cr.Paused{}, k, h, h6), pc.ends_paused(s, rs)))))))
+        case Cr.Paused{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (h6, pc.ends_paused(s, rs)))))))
+        case Cr.Finished{}:
+          g
+        case Cr.Cancelled{}:
+          g
+
+def pc.pick_pause(b: Bool, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.job.pick(b, Cr.pause(j), j)):
+  match b:
+    case True{}:
+      pc.g_pause(c, dead, j, g)
+    case False{}:
+      g
+
+def pc.g_stop(+c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.stop(j)):
+  match j:
+    case Cr.Job{+i, +s, +st, +nx, +k, +cl, +rs, +ss, +h}:
+      match st:
+        case Cr.Active{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (LANat.pc.cnt_down(Cr.Cancelled{}, k, h, h6), pc.ends_cancel(s, rs)))))))
+        case Cr.Paused{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
+        case Cr.Finished{}:
+          g
+        case Cr.Cancelled{}:
+          g
+
+def pc.pick_stop(b: Bool, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.job.pick(b, Cr.stop(j), j)):
+  match b:
+    case True{}:
+      pc.g_stop(c, dead, j, g)
+    case False{}:
+      g
+
+def pc.g_delete(+c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.delete(j)):
+  match j:
+    case Cr.Job{+i, +s, +st, +nx, +k, +cl, +rs, +ss, +h}:
+      match st:
+        case Cr.Active{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (LANat.pc.cnt_down(Cr.Cancelled{}, k, h, h6), pc.ends_cancel(s, rs)))))))
+        case Cr.Paused{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
+        case Cr.Finished{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
+        case Cr.Cancelled{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
+
+def pc.pick_delete(b: Bool, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.job.pick(b, Cr.delete(j), j)):
+  match b:
+    case True{}:
+      pc.g_delete(c, dead, j, g)
+    case False{}:
+      g
+
+def pc.g_edit(+c: Nat, +q: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.edit(c, q, j)):
+  match j:
+    case Cr.Job{+i, +s, +st, +nx, +k, +cl, +rs, +ss, +h}:
+      match st:
+        case Cr.Active{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (pc.top_adv(ss, Cr.Every{q}, c, nx, h4), (Unit{}, (h6, Unit{}))))))
+        case Cr.Paused{}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (h1, (h2, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (Unit{}, (h6, Unit{}))))))
+        case Cr.Finished{}:
+          g
+        case Cr.Cancelled{}:
+          g
+
+def pc.pick_edit(b: Bool, +c: Nat, +q: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> LALogic.pc.G(c, dead, Cr.job.pick(b, Cr.edit(c, q, j), j)):
+  match b:
+    case True{}:
+      pc.g_edit(c, q, dead, j, g)
+    case False{}:
+      g
+
 def pc.abort_one(b: Bool, +w: Nat, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +s: Cr.Sched, +st: Cr.Status, +nx: Maybe<&2, Nat>, +k: Nat, +cl: Maybe<&2, Cr.Claim>, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, g: LALogic.pc.G(c, dead, Cr.Job{i, s, st, nx, k, cl, [w], ss, h})) -> LALogic.pc.G(c, dead, Cr.Job{i, s, st, nx, k, cl, Cr.drop.put(b, w, Nil{}), ss, h}):
   match b:
     case True{}:
@@ -459,6 +606,14 @@ def pc.g_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, +al: LALogic.
       pc.pick_cancel(Nat.is_eq(Cr.Job.id(j), i), c, dead, j, g)
     case Cr.Resume{+p, +i}:
       pc.pick_resume(Nat.is_eq(Cr.Job.id(j), i), c, dead, j, g)
+    case Cr.Pause{+p, +i}:
+      pc.pick_pause(Nat.is_eq(Cr.Job.id(j), i), c, dead, j, g)
+    case Cr.Stop{+p, +i}:
+      pc.pick_stop(Nat.is_eq(Cr.Job.id(j), i), c, dead, j, g)
+    case Cr.Delete{+p, +i}:
+      pc.pick_delete(Nat.is_eq(Cr.Job.id(j), i), c, dead, j, g)
+    case Cr.Edit{+p, +i, +q}:
+      pc.pick_edit(Nat.is_eq(Cr.Job.id(j), i), c, q, dead, j, g)
     case Cr.Create{p, s}:
       g
     case Cr.Tick{d}:
@@ -541,6 +696,14 @@ def pc.inv_step(s: Cr.S, +e: Cr.Ev, inv: LALogic.pc.Inv(s)) -> LALogic.pc.Inv(Cr
           pc.alive_recs(Cr.has(p, dead), Cr.Cancel{p, i}, c, dead, rs, bad, rd, n, aside, bad, rd, n, aside, Unit{}, {==}, inv)
         case Cr.Resume{+p, +i}:
           pc.alive_recs(Cr.has(p, dead), Cr.Resume{p, i}, c, dead, rs, bad, rd, n, aside, bad, rd, n, aside, Unit{}, {==}, inv)
+        case Cr.Pause{+p, +i}:
+          pc.alive_recs(Cr.has(p, dead), Cr.Pause{p, i}, c, dead, rs, bad, rd, n, aside, bad, rd, n, aside, Unit{}, {==}, inv)
+        case Cr.Stop{+p, +i}:
+          pc.alive_recs(Cr.has(p, dead), Cr.Stop{p, i}, c, dead, rs, bad, rd, n, aside, bad, rd, n, aside, Unit{}, {==}, inv)
+        case Cr.Delete{+p, +i}:
+          pc.alive_recs(Cr.has(p, dead), Cr.Delete{p, i}, c, dead, rs, bad, rd, n, aside, bad, rd, n, aside, Unit{}, {==}, inv)
+        case Cr.Edit{+p, +i, +q}:
+          pc.alive_recs(Cr.has(p, dead), Cr.Edit{p, i, q}, c, dead, rs, bad, rd, n, aside, bad, rd, n, aside, Unit{}, {==}, inv)
         case Cr.Tick{+d}:
           LANat.pc.all_tick(c, d, dead, rs, inv)
         case Cr.RawJob{+t}:
@@ -709,6 +872,50 @@ def pc.id_unrun(+p: Nat, j: Cr.Job) -> {Cr.Job.id(Cr.unrun(p, j)) == Cr.Job.id(j
     case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
       {==}
 
+def pc.id_pause(j: Cr.Job) -> {Cr.Job.id(Cr.pause(j)) == Cr.Job.id(j) : Nat}:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+      match st:
+        case Cr.Active{}:
+          {==}
+        case Cr.Paused{}:
+          {==}
+        case Cr.Finished{}:
+          {==}
+        case Cr.Cancelled{}:
+          {==}
+
+def pc.id_stop(j: Cr.Job) -> {Cr.Job.id(Cr.stop(j)) == Cr.Job.id(j) : Nat}:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+      match st:
+        case Cr.Active{}:
+          {==}
+        case Cr.Paused{}:
+          {==}
+        case Cr.Finished{}:
+          {==}
+        case Cr.Cancelled{}:
+          {==}
+
+def pc.id_delete(j: Cr.Job) -> {Cr.Job.id(Cr.delete(j)) == Cr.Job.id(j) : Nat}:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+      {==}
+
+def pc.id_edit(+c: Nat, +q: Nat, j: Cr.Job) -> {Cr.Job.id(Cr.edit(c, q, j)) == Cr.Job.id(j) : Nat}:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+      match st:
+        case Cr.Active{}:
+          {==}
+        case Cr.Paused{}:
+          {==}
+        case Cr.Finished{}:
+          {==}
+        case Cr.Cancelled{}:
+          {==}
+
 def pc.id_pick(b: Bool, a: Cr.Job, +j: Cr.Job, ea: {Cr.Job.id(a) == Cr.Job.id(j) : Nat}) -> {Cr.Job.id(Cr.job.pick(b, a, j)) == Cr.Job.id(j) : Nat}:
   match b:
     case True{}:
@@ -732,6 +939,14 @@ def pc.id_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job) -> {Cr.Job.i
       pc.id_pick(Nat.is_eq(Cr.Job.id(j), i), Cr.cancel(j), j, pc.id_cancel(j))
     case Cr.Resume{+p, +i}:
       pc.id_pick(Nat.is_eq(Cr.Job.id(j), i), Cr.resume(c, j), j, pc.id_resume(c, j))
+    case Cr.Pause{+p, +i}:
+      pc.id_pick(Nat.is_eq(Cr.Job.id(j), i), Cr.pause(j), j, pc.id_pause(j))
+    case Cr.Stop{+p, +i}:
+      pc.id_pick(Nat.is_eq(Cr.Job.id(j), i), Cr.stop(j), j, pc.id_stop(j))
+    case Cr.Delete{+p, +i}:
+      pc.id_pick(Nat.is_eq(Cr.Job.id(j), i), Cr.delete(j), j, pc.id_delete(j))
+    case Cr.Edit{+p, +i, +q}:
+      pc.id_pick(Nat.is_eq(Cr.Job.id(j), i), Cr.edit(c, q, j), j, pc.id_edit(c, q, j))
     case Cr.Create{p, s}:
       {==}
     case Cr.Tick{d}:

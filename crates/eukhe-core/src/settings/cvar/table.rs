@@ -1,4 +1,4 @@
-//! The declaration of every cvar (docs/control.md S4): each setting of
+//! The declaration of every cvar : each setting of
 //! `settings.json` once, by the dotted path of its key.
 //!
 //! Global: one value for the whole family, read from the global config
@@ -209,6 +209,39 @@ pub const SUBAGENT_STALL_MS: Decl = Decl {
     init: Init::Nat(600_000),
 };
 
+/// The `provider/id` an `rlm.query` without a `model` asks; `""`:
+/// `modelRoles.all`, else the calling session's model.
+pub const RLM_QUERY_MODEL: Decl = Decl {
+    id: "rlm.queryModel",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text(""),
+};
+
+/// `rlm.query` calls of one session in flight at once; `0` takes the
+/// default (the code mode `models.*` cap, 4).
+pub const RLM_QUERY_CONCURRENCY: Decl = Decl {
+    id: "rlm.queryConcurrency",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(4),
+};
+
+/// Input bytes (prompts and contexts) one session's `rlm.query` calls may
+/// send in all; `0`: no budget.
+pub const RLM_QUERY_BUDGET_BYTES: Decl = Decl {
+    id: "rlm.queryBudgetBytes",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(0),
+};
+
 /// `0` takes the default.
 pub const TOOL_BLOCKING_BUDGET_MS: Decl = Decl {
     id: "toolBlockingBudgetMs",
@@ -319,10 +352,10 @@ pub const COMPACTION_RESERVE_TOKENS: Decl = Decl {
 };
 
 /// Twice the Harness's `DEFAULT_COMPACTION_POLICY.keep_recent_tokens`
-/// (20,000): the keep window counts system entries, and eukhe's system
-/// prompt alone is near 20,000 tokens, so the kept tail would hold almost
-/// no conversation. The Harness caps it per model at half the size where
-/// compaction starts (`CompactionPolicy::keep_window`).
+/// (20,000), in tokens as the provider counts them. A compaction keeps at
+/// most this much of the newest conversation, and with a known window at
+/// most what leaves the context within half the size where compaction
+/// starts (`compaction::select_cut`, law `infer_threshold_cut_within_target`).
 pub const COMPACTION_KEEP_RECENT_TOKENS: Decl = Decl {
     id: "compaction.keepRecentTokens",
     ty: CvarType::Nat,
@@ -343,7 +376,9 @@ pub const COMPACTION_AGENT_CALLABLE: Decl = Decl {
 
 /// When on, the Harness asks the provider's own token counter
 /// (`count_tokens`) for the input tokens of each request before the
-/// compaction threshold check. This adds one request to the provider per
+/// compaction window check (a request past the window waits for its
+/// compaction; the thresholds read the provider's count of the last turn
+/// either way). This adds one request to the provider per
 /// generation. A provider without a counter, or a failed count, uses the
 /// local estimate, and the Harness logs it.
 pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {
@@ -355,7 +390,20 @@ pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {
     init: Init::Bool(false),
 };
 
-/// `provider/model-id`; unset falls back to `auxiliaryModel`.
+/// Chat memory for root sessions: each session logs to its own chat and
+/// carries the older history that scrolled out of its transcript as the
+/// view; `false` sends the plain transcript, compacted when it fills.
+pub const MEMORY_CHAT: Decl = Decl {
+    id: "memory.chat",
+    ty: CvarType::Bool,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Bool(true),
+};
+
+/// `provider/model-id`; unset falls back to `modelRoles.all`, then
+/// `auxiliaryModel`.
 pub const MEMORY_MODEL: Decl = Decl {
     id: "memory.model",
     ty: CvarType::Text,
@@ -829,6 +877,28 @@ pub const TERMINAL_SHOW_SPEED: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// Scrub outbound request text for a remote provider (harness/privacy;
+/// opt-in, default off).
+pub const PRIVACY_ANONYMIZE_REMOTE: Decl = Decl {
+    id: "privacy.anonymizeRemote",
+    ty: CvarType::Bool,
+    scope: CvarScope::Global,
+    persist: true,
+    replicate: true,
+    init: Init::Bool(false),
+};
+
+/// Phrases a remote provider must not see (`PERSON_<n>` tokens;
+/// harness/privacy).
+pub const PRIVACY_TERMS: Decl = Decl {
+    id: "privacy.terms",
+    ty: CvarType::List,
+    scope: CvarScope::Global,
+    persist: true,
+    replicate: true,
+    init: Init::EmptyList,
+};
+
 pub const TERMINAL_FULLSCREEN: Decl = Decl {
     id: "terminal.fullscreen",
     ty: CvarType::Bool,
@@ -1109,6 +1179,17 @@ pub const GATEWAY_SIGNAL_MODEL: Decl = Decl {
     init: Init::Text(""),
 };
 
+/// `gateway.rootHeartbeat`: the heartbeat schedule of the gateway's root
+/// session (a `/heartbeat` schedule); empty is off.
+pub const GATEWAY_ROOT_HEARTBEAT: Decl = Decl {
+    id: "gateway.rootHeartbeat",
+    ty: CvarType::Text,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Text(""),
+};
+
 /// Where the session's kernel runs (S3); parsed by
 /// `kernel::transport::KernelTransportSettings`. Routes code execution,
 /// so an untrusted project may not set it and an agent never saves it.
@@ -1121,13 +1202,20 @@ pub const KERNEL_TRANSPORT: Decl = Decl {
     init: Init::Null,
 };
 
-pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net", "outside", "protected"];
+pub(crate) const SHELL_EFFECTS: &[&str] = &[
+    "read",
+    "write",
+    "exec",
+    "net",
+    "outside",
+    "protected",
+    "secret",
+];
 
-/// The effects a shell command may have without asking; by default every
-/// grantable effect (docs/tools.md S7 item 8, law `default_auto_is_grantable`):
-/// only a read or write of a secret asks, and no value can make it run
-/// unasked. An execution gate: an untrusted project may not set it and an
-/// agent never saves it.
+/// The effects a shell command may have without asking; by default all
+/// seven effects (law `default_auto_is_grantable`): every effect is
+/// grantable, and a read or write of a secret never asks. An execution
+/// gate: an untrusted project may not set it and an agent never saves it.
 pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     id: "shell.autoEffects",
     ty: CvarType::ChoiceList(SHELL_EFFECTS),
@@ -1137,7 +1225,7 @@ pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     init: Init::List(SHELL_EFFECTS),
 };
 
-/// The hosts an `ssh://` read may reach (docs/tools.md S7.5): new
+/// The hosts an `ssh://` read may reach : new
 /// outbound traffic, so a project may not set it and an agent never
 /// saves it. Empty: every `ssh://` read is rejected.
 pub const SSH_HOSTS: Decl = Decl {
@@ -1150,7 +1238,10 @@ pub const SSH_HOSTS: Decl = Decl {
 };
 
 /// `modelRoles.<role>`: the primary model of an S9 role (`local/<id>` or
-/// `provider/model`); `""`: unset (`eukhe_tiny::chain`).
+/// `provider/model`); `""`: unset (`eukhe_tiny::chain`). `modelRoles.all`:
+/// the `provider/model` every role but speech and dictation uses when its
+/// own setting is unset. A role's model: its own setting, else
+/// `modelRoles.all`, else its default (`crate::models::roles`).
 const fn model_role(id: &'static str) -> Decl {
     Decl {
         id,
@@ -1162,6 +1253,7 @@ const fn model_role(id: &'static str) -> Decl {
     }
 }
 
+pub const MODEL_ROLE_ALL: Decl = model_role("modelRoles.all");
 pub const MODEL_ROLE_TINY: Decl = model_role("modelRoles.tiny");
 pub const MODEL_ROLE_JUDGE: Decl = model_role("modelRoles.judge");
 pub const MODEL_ROLE_TRANSLATE: Decl = model_role("modelRoles.translate");
@@ -1249,6 +1341,24 @@ pub const STT_ENABLED: Decl = Decl {
     init: Init::Bool(false),
 };
 
+/// The settings eukhe edits as documents: each scope's `settings.json` is
+/// their one store (the package and resource commands, the MCP registry,
+/// the model switch's recent list, the onboarding flag write it, and their
+/// readers read it). No cfg file and no `/set` sets them. Every other
+/// setting a user sets is saved in the global `config.cfg`
+/// (`SettingsManager::save_global`).
+pub const DOCUMENTS: &[&Decl] = &[
+    &ONBOARDING_SHOWN,
+    &ONBOARDING_COMPLETED,
+    &RECENT_MODELS,
+    &MCP_SERVERS,
+    &PACKAGES,
+    &SKILLS,
+    &PROMPTS,
+    &THEMES,
+    &FACTORY_ENABLED,
+];
+
 pub const DECLS: &[Decl] = &[
     ONBOARDING_SHOWN,
     ONBOARDING_COMPLETED,
@@ -1266,6 +1376,9 @@ pub const DECLS: &[Decl] = &[
     PROVIDER_MAX_QUEUED,
     SUBAGENT_MAX_CONCURRENCY,
     SUBAGENT_STALL_MS,
+    RLM_QUERY_MODEL,
+    RLM_QUERY_CONCURRENCY,
+    RLM_QUERY_BUDGET_BYTES,
     TOOL_BLOCKING_BUDGET_MS,
     MAX_TOOL_ROUNDS,
     IDLE_EVICTION_MINUTES,
@@ -1280,6 +1393,7 @@ pub const DECLS: &[Decl] = &[
     COMPACTION_KEEP_RECENT_TOKENS,
     COMPACTION_AGENT_CALLABLE,
     COMPACTION_PROVIDER_TOKEN_COUNT,
+    MEMORY_CHAT,
     MEMORY_MODEL,
     MEMORY_THINKING,
     MEMORY_SETTLE_TIMEOUT_MS,
@@ -1329,6 +1443,8 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_CLEAR_ON_SHRINK,
     TERMINAL_SHOW_TERMINAL_PROGRESS,
     TERMINAL_SHOW_SPEED,
+    PRIVACY_ANONYMIZE_REMOTE,
+    PRIVACY_TERMS,
     TERMINAL_FULLSCREEN,
     TERMINAL_PINNED_AGENTS,
     TERMINAL_STUCK_AFTER_SECS,
@@ -1359,9 +1475,11 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_CLI_PATH,
     GATEWAY_SIGNAL_CWD,
     GATEWAY_SIGNAL_MODEL,
+    GATEWAY_ROOT_HEARTBEAT,
     KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
     SSH_HOSTS,
+    MODEL_ROLE_ALL,
     MODEL_ROLE_TINY,
     MODEL_ROLE_JUDGE,
     MODEL_ROLE_TRANSLATE,

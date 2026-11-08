@@ -33,7 +33,22 @@ fn usage() -> String {
     )
 }
 
-fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
+/// Why the `dashboard` arguments do not parse; printed before the usage.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum DashboardUsageError {
+    /// A flag that takes a value came last.
+    #[error("{0} requires a value")]
+    MissingValue(String),
+    #[error("--port takes a port number (1-65535), not {0}")]
+    Port(String),
+    #[error("--allow-host takes a host name such as box.tail1234.ts.net, not {0}")]
+    Host(String),
+    #[error("unknown argument: {0}")]
+    UnknownArgument(String),
+}
+
+fn parse_args(args: &[String]) -> Result<Args<'_>, DashboardUsageError> {
+    let missing = |flag: &str| DashboardUsageError::MissingValue(flag.to_owned());
     let mut parsed = Args {
         daemon_socket: None,
         port: eukhe_dashboard::Port::Free,
@@ -47,18 +62,16 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
             "--no-open" => parsed.browser = Browser::Skip,
             "--rotate-token" => parsed.rotation = eukhe_dashboard::Rotation::Rotate,
             "--port" => {
-                let value = rest.next().ok_or("--port requires a value")?;
+                let value = rest.next().ok_or_else(|| missing("--port"))?;
                 let port = value
                     .parse::<u16>()
                     .ok()
                     .filter(|port| *port != 0)
-                    .ok_or_else(|| {
-                        format!("--port takes a port number (1-65535), not {value:?}")
-                    })?;
+                    .ok_or_else(|| DashboardUsageError::Port(value.clone()))?;
                 parsed.port = eukhe_dashboard::Port::Fixed(port);
             }
             "--allow-host" => {
-                let value = rest.next().ok_or("--allow-host requires a value")?;
+                let value = rest.next().ok_or_else(|| missing("--allow-host"))?;
                 // A bare host name: no scheme, port, path, or brackets
                 // (the port does not matter; the Origin check pins it).
                 let valid = !value.is_empty()
@@ -66,19 +79,24 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
                         .chars()
                         .all(|char| char.is_ascii_alphanumeric() || matches!(char, '.' | '-'));
                 if !valid {
-                    return Err(format!(
-                        "--allow-host takes a host name such as box.tail1234.ts.net, not {value:?}"
-                    ));
+                    return Err(DashboardUsageError::Host(value.clone()));
                 }
                 parsed.allowed_hosts.push(value.to_ascii_lowercase());
             }
             "--daemon-socket" | "--socket" => {
-                parsed.daemon_socket = Some(rest.next().ok_or(format!("{arg} requires a value"))?);
+                parsed.daemon_socket = Some(rest.next().ok_or_else(|| missing(arg))?);
             }
-            other => return Err(format!("unknown argument {other:?}")),
+            other => return Err(DashboardUsageError::UnknownArgument(other.to_owned())),
         }
     }
     Ok(parsed)
+}
+
+/// How the dashboard's foreground run ended: the server stopped on its
+/// own, or the user's Ctrl+C canceled the wait.
+enum DashboardStop {
+    Served,
+    Canceled,
 }
 
 /// Run the `dashboard` command; returns the process exit code.
@@ -88,7 +106,7 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
         Err(error) => {
             eprintln!("Error: {error}");
             eprintln!("{}", usage());
-            return 1;
+            return 2;
         }
     };
     let config = match dashboard_config(args.daemon_socket, args.allowed_hosts) {
@@ -136,13 +154,15 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
         let listener = eukhe_dashboard::bind(args.port).await?;
         let fragment = format!("#token={}", token.secret_hex());
         let url = format!("http://{}/{fragment}", listener.local_addr()?);
-        println!("eukhe dashboard: {url}");
-        println!("Serving on loopback only. Press Ctrl+C to stop.");
-        println!(
-            "The {fragment} part pairs a browser: keep it private. Through a forwarder (poros, tailscale serve), add it to the forwarder's URL. `--rotate-token` replaces it."
+        // stdout carries the one value a script captures: the URL. The
+        // guidance around it is context and goes to stderr.
+        println!("{url}");
+        eprintln!("Serving on loopback only. Press Ctrl+C to stop.");
+        eprintln!(
+            "The {fragment} part pairs a browser: keep it private. Through a forwarder (porthmeus, tailscale serve), add it to the forwarder's URL. `--rotate-token` replaces it."
         );
         for host in &config.allowed_hosts {
-            println!("Also answering to {host} (through your forwarder): https://{host}/{fragment}");
+            eprintln!("Also answering to {host} (through your forwarder): https://{host}/{fragment}");
         }
         if args.browser == Browser::Open {
             // The browser gets a private page that redirects to the URL:
@@ -152,12 +172,20 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
             eukhe_core::platform::browser::open_in_browser(&opener.display().to_string());
         }
         tokio::select! {
-            served = eukhe_dashboard::serve(listener, config, launcher) => served,
-            signal = tokio::signal::ctrl_c() => signal.context("wait for Ctrl+C"),
+            served = eukhe_dashboard::serve(listener, config, launcher) => {
+                served.map(|()| DashboardStop::Served)
+            }
+            signal = tokio::signal::ctrl_c() => {
+                signal.context("wait for Ctrl+C").map(|()| DashboardStop::Canceled)
+            }
         }
     });
     match served {
-        Ok(()) => 0,
+        // A Ctrl+C stop is a cancel: exit 130, the terminal contract for
+        // an interrupted foreground process. The server stopping on its
+        // own was a clean run.
+        Ok(DashboardStop::Canceled) => 130,
+        Ok(DashboardStop::Served) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");
             1
@@ -269,18 +297,23 @@ mod tests {
             strings(&["--allow-host", "box.ts.net:443"]),
         ]
         .iter()
-        .map(|args| parse_args(args).err().unwrap_or_default())
+        .map(|args| {
+            parse_args(args)
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_default()
+        })
         .collect();
         assert_eq!(
             errors,
             [
                 "--port requires a value",
-                "--port takes a port number (1-65535), not \"0\"",
-                "--port takes a port number (1-65535), not \"http\"",
-                "unknown argument \"--open\"",
+                "--port takes a port number (1-65535), not 0",
+                "--port takes a port number (1-65535), not http",
+                "unknown argument: --open",
                 "--allow-host requires a value",
-                "--allow-host takes a host name such as box.tail1234.ts.net, not \"https://box.ts.net\"",
-                "--allow-host takes a host name such as box.tail1234.ts.net, not \"box.ts.net:443\"",
+                "--allow-host takes a host name such as box.tail1234.ts.net, not https://box.ts.net",
+                "--allow-host takes a host name such as box.tail1234.ts.net, not box.ts.net:443",
             ]
         );
     }

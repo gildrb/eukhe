@@ -9,17 +9,127 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
+use eukhe_ai::providers::faux_script::{
+    create_faux_script_models, parse_faux_script, FauxScriptError,
+};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
     fork_session, most_recent_session_for_cwd, open_session, read_session_cwd, resolve_session,
-    EukheSession, ForkPoint, ModelRequest, PromptConfig, ResolvedListing, SessionConfig,
-    SessionLocation, SessionRole, SessionStorage,
+    EukheSession, ForkError, ForkPoint, ImportError, ModelRequest, OpenError, PromptConfig,
+    ResolvedListing, SessionConfig, SessionLocation, SessionRole, SessionStorage,
 };
-use eukhe_daemon::lease::SessionLease;
+use eukhe_core::session::discovery::SessionSelectorError;
+use eukhe_daemon::hold_refusal::{refusal_message, HoldIdentity};
+use eukhe_daemon::job_notices::HeadlessWakes;
+use eukhe_daemon::lease::{SessionAlreadyActiveError, SessionLease};
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
+use eukhe_durable::session::SessionError;
+use eukhe_tui::session_open_error::{already_active_error, SessionHolder};
 
 use crate::mode::RunOptions;
+
+/// Why a headless session did not open. The `Display` is the `Error:` text
+/// the CLI prints (and the RPC replacement's wire error).
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HeadlessSessionError {
+    /// A `--fork` / `--resume` selector matched no session or several
+    /// (main.ts formatting: the message plus the browse hint).
+    #[error(
+        "{}.{}\nOpen eukhe and press left-arrow to browse sessions.",
+        .0.message(),
+        .0.suggestion().unwrap_or_default()
+    )]
+    Selector(#[source] SessionSelectorError),
+    /// `--resume` named another project's session (headless modes have no
+    /// fork prompt).
+    #[error(
+        "session {selector} belongs to a different project ({cwd}). Pass --fork {selector} to use it here, or run from that project's directory."
+    )]
+    OtherProject { selector: String, cwd: String },
+    /// The selected session path has no absolute form.
+    #[error("{0}")]
+    AbsolutePath(#[source] std::io::Error),
+    /// The session's stored working directory is gone (main.ts
+    /// `getMissingSessionCwdIssue`).
+    #[error(
+        "Stored session working directory does not exist: {}\nSession file: {}\nCurrent working directory: {}",
+        .session_cwd.display(),
+        .session_file.display(),
+        .fallback_cwd.display()
+    )]
+    MissingCwd {
+        session_cwd: PathBuf,
+        session_file: PathBuf,
+        fallback_cwd: PathBuf,
+    },
+    #[error("Cannot fork: source session file is not a regular file: {}", .0.display())]
+    ForkSourceNotRegular(PathBuf),
+    #[error("Cannot fork: source session file is empty or invalid: {}", .0.display())]
+    ForkSourceInvalid(PathBuf),
+    #[error("{0:#}")]
+    Fork(#[source] ForkError),
+    /// A fresh storage's lease failed (environmental: its uuid is new).
+    #[error("could not lease the fresh session {}: {source:#}", .dir.display())]
+    FreshLease {
+        dir: PathBuf,
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("failed to import legacy session {}: {source}", .file.display())]
+    ImportLegacy {
+        file: PathBuf,
+        #[source]
+        source: ImportError,
+    },
+    #[error("{0:#}")]
+    Open(#[source] OpenError),
+    #[error("invalid EUKHE_FAUX_SCRIPT: {0}")]
+    FauxScript(#[source] FauxScriptError),
+    #[error("cannot open the chat memory: {0:#}")]
+    ChatMemory(#[source] anyhow::Error),
+    #[error("MCP manager construction failed: {0}")]
+    McpManager(#[source] tokio::task::JoinError),
+    /// Reading or reconfiguring the main conversation's agent failed.
+    #[error("{0:#}")]
+    Agent(#[source] SessionError),
+    #[error("{0:#}")]
+    Model(#[source] eukhe_core::durable::ModelsError),
+    /// The daemon roster probe failed.
+    #[error("Could not check active sessions: {0:#}")]
+    ActiveSessionsCheck(#[source] anyhow::Error),
+    /// A live daemon session hosts the session (its roster row).
+    #[error("{}", already_active_error(.holder, .session_path))]
+    HeldByDaemonSession {
+        holder: SessionHolder,
+        session_path: PathBuf,
+    },
+    /// A live daemon row hosts the session but names no holder.
+    #[error("Session is already active in {active_session_id}: {}", .session_path.display())]
+    ListedActive {
+        active_session_id: String,
+        session_path: PathBuf,
+    },
+    /// Another live process holds the session's runtime lease.
+    #[error("{}", hold_refusal(.source, .session_path))]
+    Held {
+        #[source]
+        source: SessionAlreadyActiveError,
+        session_path: PathBuf,
+    },
+    #[error("could not verify the session file is not held: {0:#}")]
+    LeaseCheck(#[source] anyhow::Error),
+}
+
+/// The co-existence refusal for a session another process leases.
+fn hold_refusal(active: &SessionAlreadyActiveError, session_path: &Path) -> String {
+    refusal_message(
+        &HoldIdentity {
+            pid: active.holder_pid,
+            active_session_id: active.active_session_id.clone(),
+        },
+        Some(session_path),
+    )
+}
 
 /// One opened headless session and the runtime lease guarding its storage
 /// (`None` for memory sessions and for an open that reuses the caller's
@@ -31,6 +141,9 @@ pub(crate) struct HeadlessSession {
     pub cwd: PathBuf,
     /// The fork source, when the session was forked from another one.
     pub parent_session: Option<PathBuf>,
+    /// The session's job-settled wake (its in-flight notices count toward
+    /// quiescence).
+    pub wakes: HeadlessWakes,
 }
 
 /// Which session to open.
@@ -87,7 +200,7 @@ pub(crate) async fn open_headless_session(
     options: &RunOptions,
     target: HeadlessTarget,
     cx: &Context,
-) -> Result<HeadlessSession, String> {
+) -> Result<HeadlessSession, HeadlessSessionError> {
     let selection = match target {
         HeadlessTarget::Selected => select(options, cx).await?,
         HeadlessTarget::New { cwd } => Selection::Fresh {
@@ -107,47 +220,48 @@ pub(crate) async fn open_headless_session(
     match selection {
         Selection::Memory => {
             let session_id = new_session_id();
-            let config = session_config(
+            let (session, wakes) = open(
                 options,
                 &options.config.cwd,
                 &session_id,
                 SessionStorage::Memory,
+                cx,
             )
             .await?;
-            let session = open(config, cx).await?;
             Ok(HeadlessSession {
                 session,
                 lease: None,
                 session_id,
                 cwd: options.config.cwd.clone(),
                 parent_session: None,
+                wakes,
             })
         }
         Selection::Fresh { cwd } => {
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
             let lease = lease_fresh(&dir, agent_dir)?;
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
-            let session = open(config, cx).await?;
+            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             Ok(HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: None,
+                wakes,
             })
         }
         Selection::Fork { source } => {
             let cwd = options.config.cwd.clone();
             let (session_id, dir, lease) = fork_into_fresh(options, &source, &cwd, cx).await?;
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
-            let session = open(config, cx).await?;
+            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             Ok(HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: Some(source.path().to_path_buf()),
+                wakes,
             })
         }
         Selection::Open {
@@ -174,16 +288,13 @@ pub(crate) async fn open_headless_session(
                 if !dir.exists() {
                     eukhe_core::durable::import_legacy_session(file, &dir, cx)
                         .await
-                        .map_err(|error| {
-                            format!(
-                                "failed to import legacy session {}: {error}",
-                                file.display()
-                            )
+                        .map_err(|source| HeadlessSessionError::ImportLegacy {
+                            file: file.clone(),
+                            source,
                         })?;
                 }
             }
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
-            let session = open(config, cx).await?;
+            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             if cwd_override.is_some() {
                 set_main_cwd(&session, &cwd, cx).await?;
             }
@@ -194,6 +305,7 @@ pub(crate) async fn open_headless_session(
                 session_id,
                 cwd,
                 parent_session: None,
+                wakes,
             })
         }
     }
@@ -213,7 +325,7 @@ pub(crate) async fn fork_into_fresh(
     source: &SessionLocation,
     cwd: &Path,
     cx: &Context,
-) -> Result<(String, PathBuf, SessionLease), String> {
+) -> Result<(String, PathBuf, SessionLease), HeadlessSessionError> {
     if let SessionLocation::Legacy(file) = source {
         // A FIFO (or any other non-regular file) blocks the header read
         // forever; a missing file falls through to the empty-or-invalid
@@ -222,16 +334,10 @@ pub(crate) async fn fork_into_fresh(
             .await
             .is_ok_and(|metadata| !metadata.is_file());
         if non_regular {
-            return Err(format!(
-                "Cannot fork: source session file is not a regular file: {}",
-                file.display()
-            ));
+            return Err(HeadlessSessionError::ForkSourceNotRegular(file.clone()));
         }
         if eukhe_core::session::manager::read_session_header(file).is_none() {
-            return Err(format!(
-                "Cannot fork: source session file is empty or invalid: {}",
-                file.display()
-            ));
+            return Err(HeadlessSessionError::ForkSourceInvalid(file.clone()));
         }
     }
     let session_id = new_session_id();
@@ -239,7 +345,7 @@ pub(crate) async fn fork_into_fresh(
     let lease = lease_fresh(&dir, &options.config.agent_dir)?;
     fork_session(source, ForkPoint::Latest, Some(cwd), &dir, cx)
         .await
-        .map_err(|error| format!("{error:#}"))?;
+        .map_err(HeadlessSessionError::Fork)?;
     Ok((session_id, dir, lease))
 }
 
@@ -255,12 +361,12 @@ pub(crate) async fn resolve_fork_source(
     options: &RunOptions,
     selector: &str,
     cx: &Context,
-) -> Result<SessionLocation, String> {
+) -> Result<SessionLocation, HeadlessSessionError> {
     let expanded = crate::config::expand_tilde_path(selector);
     let selector = expanded.to_string_lossy();
     let resolved = resolve_session(&selector, &options.config.cwd, &sessions_dir(options), cx)
         .await
-        .map_err(|error| crate::print_runtime::render_selector_error(&error))?;
+        .map_err(HeadlessSessionError::Selector)?;
     Ok(match resolved {
         ResolvedListing::Path(location) => location,
         ResolvedListing::Local(listing) | ResolvedListing::Global(listing) => listing.location,
@@ -274,7 +380,10 @@ pub(crate) async fn resolve_fork_source(
 ///
 /// The selector error (with the browse hint), or the different-project
 /// refusal of `--resume`.
-pub(crate) async fn select(options: &RunOptions, cx: &Context) -> Result<Selection, String> {
+pub(crate) async fn select(
+    options: &RunOptions,
+    cx: &Context,
+) -> Result<Selection, HeadlessSessionError> {
     if options.session.no_session {
         return Ok(Selection::Memory);
     }
@@ -290,7 +399,7 @@ pub(crate) async fn select(options: &RunOptions, cx: &Context) -> Result<Selecti
     if let Some(selector) = &options.session.resume {
         let resolved = resolve_session(selector, cwd, &sessions_dir, cx)
             .await
-            .map_err(|error| crate::print_runtime::render_selector_error(&error))?;
+            .map_err(HeadlessSessionError::Selector)?;
         return match resolved {
             ResolvedListing::Path(location) => Ok(Selection::Open {
                 location: absolute_location(location)?,
@@ -303,10 +412,10 @@ pub(crate) async fn select(options: &RunOptions, cx: &Context) -> Result<Selecti
                 cwd_override,
             }),
             // Headless modes have no fork prompt; mirror the TS non-TTY path.
-            ResolvedListing::Global(listing) => Err(format!(
-                "session {selector} belongs to a different project ({}). Pass --fork {selector} to use it here, or run from that project's directory.",
-                listing.cwd
-            )),
+            ResolvedListing::Global(listing) => Err(HeadlessSessionError::OtherProject {
+                selector: selector.clone(),
+                cwd: listing.cwd,
+            }),
         };
     }
     if options.session.continue_recent {
@@ -321,8 +430,9 @@ pub(crate) async fn select(options: &RunOptions, cx: &Context) -> Result<Selecti
     Ok(Selection::Fresh { cwd: cwd.clone() })
 }
 
-fn absolute_location(location: SessionLocation) -> Result<SessionLocation, String> {
-    let absolute = |path: PathBuf| std::path::absolute(&path).map_err(|error| error.to_string());
+fn absolute_location(location: SessionLocation) -> Result<SessionLocation, HeadlessSessionError> {
+    let absolute =
+        |path: PathBuf| std::path::absolute(path).map_err(HeadlessSessionError::AbsolutePath);
     Ok(match location {
         SessionLocation::Durable(dir) => SessionLocation::Durable(absolute(dir)?),
         SessionLocation::Legacy(file) => SessionLocation::Legacy(absolute(file)?),
@@ -338,7 +448,7 @@ pub(crate) async fn stored_cwd(
     fallback_cwd: &Path,
     explicit_cwd_override: Option<&Path>,
     cx: &Context,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, HeadlessSessionError> {
     let session_cwd = match explicit_cwd_override {
         Some(cwd) => cwd.to_path_buf(),
         None => read_session_cwd(location, cx)
@@ -347,12 +457,11 @@ pub(crate) async fn stored_cwd(
             .map_or_else(|| fallback_cwd.to_path_buf(), PathBuf::from),
     };
     if !session_cwd.exists() {
-        return Err(format!(
-            "Stored session working directory does not exist: {}\nSession file: {}\nCurrent working directory: {}",
-            session_cwd.display(),
-            location.path().display(),
-            fallback_cwd.display()
-        ));
+        return Err(HeadlessSessionError::MissingCwd {
+            session_cwd,
+            session_file: location.path().to_path_buf(),
+            fallback_cwd: fallback_cwd.to_path_buf(),
+        });
     }
     Ok(session_cwd)
 }
@@ -368,11 +477,43 @@ fn jsonl(dir: &Path) -> SessionStorage {
     }
 }
 
-async fn open(config: SessionConfig, cx: &Context) -> Result<Arc<EukheSession>, String> {
-    open_session(config, cx)
+/// Open a session with the CLI inputs ([`session_config`]), its
+/// job-settled wake, and its subagent runtime, like a daemon worker's: a
+/// settled background job or kernel command, or a child's report, wakes
+/// the session into its next turn. Children run as daemon child sessions
+/// ([`crate::headless_children`]; the supervisor starts on the first
+/// spawn).
+async fn open(
+    options: &RunOptions,
+    cwd: &Path,
+    session_id: &str,
+    storage: SessionStorage,
+    cx: &Context,
+) -> Result<(Arc<EukheSession>, HeadlessWakes), HeadlessSessionError> {
+    let session_file = match &storage {
+        SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
+        SessionStorage::Memory => None,
+    };
+    let mut config = session_config(options, cwd, session_id, storage).await?;
+    let children = crate::headless_children::HeadlessChildren::new(
+        options,
+        session_id,
+        cwd,
+        session_file.as_deref(),
+        config.role.rlm_depth,
+        config.role.rlm_max_depth,
+    );
+    config.children = Some(children.host());
+    children.register_agent_messaging(&mut config);
+    let wakes = HeadlessWakes::default();
+    wakes.wire(&mut config);
+    let session = open_session(config, cx)
         .await
         .map(Arc::new)
-        .map_err(|error| format!("{error:#}"))
+        .map_err(HeadlessSessionError::Open)?;
+    wakes.bind(&session);
+    children.bind(&session);
+    Ok((session, wakes))
 }
 
 /// The open inputs from the CLI flags: model and thinking (a new root's
@@ -382,7 +523,7 @@ async fn session_config(
     cwd: &Path,
     session_id: &str,
     storage: SessionStorage,
-) -> Result<SessionConfig, String> {
+) -> Result<SessionConfig, HeadlessSessionError> {
     let config = &options.config;
     let mut session = SessionConfig::new(&config.agent_dir, cwd, session_id, storage);
     session.role = SessionRole {
@@ -392,6 +533,7 @@ async fn session_config(
         worker: false,
     };
     session.thinking = config.thinking.map(thinking_level);
+    session.host = options.app_mode.session_host();
     session.prompt = PromptConfig {
         custom_system_prompt: config.system_prompt.clone(),
         append_system_prompt: config.append_system_prompt.clone(),
@@ -408,8 +550,7 @@ async fn session_config(
         ..PromptConfig::default()
     };
     if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {
-        let script = parse_faux_script(&script)
-            .map_err(|error| format!("invalid EUKHE_FAUX_SCRIPT: {error}"))?;
+        let script = parse_faux_script(&script).map_err(HeadlessSessionError::FauxScript)?;
         session.model = Some(ModelRequest {
             provider: Some("faux".to_owned()),
             pattern: script.model.id.clone(),
@@ -420,17 +561,22 @@ async fn session_config(
         // (its scripts assert carried context; no chat memory offline).
     } else {
         session.model = flag_model(options);
-        // The chat memory: this process owns it when no daemon (or
-        // other process) does, else it is the owner's client.
-        let memory = eukhe_core::memory::Memory::open(
-            eukhe_core::memory::chat_dir(&config.agent_dir),
-            Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
-                config.agent_dir.clone(),
-            )),
-        )
-        .await
-        .map_err(|error| format!("cannot open the chat memory: {error:#}"))?;
-        session.memory = Some(memory);
+        // The chat memory (`memory.chat`, on by default): the session's own
+        // chat, which this process owns when no daemon (or other process)
+        // does, else it is the owner's client.
+        let chat_memory =
+            eukhe_core::settings::SettingsManager::create(cwd, &config.agent_dir).get_memory_chat();
+        if chat_memory {
+            let memory = eukhe_core::memory::Memory::open(
+                eukhe_core::memory::session_chat_dir(&config.agent_dir, session_id),
+                Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
+                    config.agent_dir.clone(),
+                )),
+            )
+            .await
+            .map_err(HeadlessSessionError::ChatMemory)?;
+            session.memory = Some(memory);
+        }
         // TS `createAgentSessionServices` builds every CLI session on a
         // manager whose settings closures re-read settings on each
         // resolution; auth construction blocks, so it runs off the
@@ -440,7 +586,7 @@ async fn session_config(
             crate::mcp_login::cli_mcp_manager(&cwd, &agent_dir)
         })
         .await
-        .map_err(|error| format!("MCP manager construction failed: {error}"))?;
+        .map_err(HeadlessSessionError::McpManager)?;
         session.mcp = Some(Arc::new(std::sync::Mutex::new(manager)));
     }
     Ok(session)
@@ -463,12 +609,12 @@ async fn apply_flag_model(
     options: &RunOptions,
     session: &EukheSession,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), HeadlessSessionError> {
     let main = session.main();
     let current = main
         .agent(cx)
         .await
-        .map_err(|error| format!("{error:#}"))?
+        .map_err(HeadlessSessionError::Agent)?
         .model;
     let flagged = options.config.model.is_some() || options.config.thinking.is_some();
     if !flagged && current.is_some() {
@@ -494,7 +640,7 @@ async fn apply_flag_model(
         cx,
     )
     .await
-    .map_err(|error| format!("{error:#}"))?;
+    .map_err(HeadlessSessionError::Model)?;
     let Some(resolved) = resolved else {
         return Ok(());
     };
@@ -507,7 +653,7 @@ async fn apply_flag_model(
         cx,
     )
     .await
-    .map_err(|error| format!("{error:#}"))
+    .map_err(HeadlessSessionError::Agent)
 }
 
 /// The CLI `--thinking` level in the pi-ai vocabulary.
@@ -528,7 +674,11 @@ fn thinking_level(
 }
 
 /// Point the main conversation's agent at `cwd`.
-async fn set_main_cwd(session: &EukheSession, cwd: &Path, cx: &Context) -> Result<(), String> {
+async fn set_main_cwd(
+    session: &EukheSession,
+    cwd: &Path,
+    cx: &Context,
+) -> Result<(), HeadlessSessionError> {
     session
         .main()
         .configure(
@@ -539,19 +689,19 @@ async fn set_main_cwd(session: &EukheSession, cwd: &Path, cx: &Context) -> Resul
             cx,
         )
         .await
-        .map_err(|error| format!("{error:#}"))
+        .map_err(HeadlessSessionError::Agent)
 }
 
 /// Lease a fresh storage before anything writes it. A fresh storage's lease
 /// cannot be contended (its uuid is new), so an acquire failure is
 /// environmental (the lease directory); the session fails closed rather
 /// than run unguarded.
-fn lease_fresh(dir: &Path, agent_dir: &Path) -> Result<SessionLease, String> {
-    eukhe_daemon::lease::acquire_runtime_session_lease(dir, agent_dir).map_err(|error| {
-        format!(
-            "could not lease the fresh session {}: {error:#}",
-            dir.display()
-        )
+fn lease_fresh(dir: &Path, agent_dir: &Path) -> Result<SessionLease, HeadlessSessionError> {
+    eukhe_daemon::lease::acquire_runtime_session_lease(dir, agent_dir).map_err(|source| {
+        HeadlessSessionError::FreshLease {
+            dir: dir.to_path_buf(),
+            source,
+        }
     })
 }
 
@@ -562,9 +712,8 @@ fn lease_fresh(dir: &Path, agent_dir: &Path) -> Result<SessionLease, String> {
 pub(crate) async fn session_open_guard(
     socket_path: Option<&str>,
     session_path: &Path,
-) -> Result<SessionLease, String> {
+) -> Result<SessionLease, HeadlessSessionError> {
     let socket = crate::interactive_mode::resolve_socket_path(socket_path);
-    let checked = |error: anyhow::Error| format!("Could not check active sessions: {error:#}");
     let connection = match eukhe_client::daemon_client::DaemonClient::connect_probe(
         &socket,
         crate::daemon_command::HELLO_TIMEOUT_MS,
@@ -575,9 +724,9 @@ pub(crate) async fn session_open_guard(
         // No daemon: the lease below is the whole guard.
         Err(error) if eukhe_client::daemon_client::is_connect_failure(&error) => None,
         Err(error) => {
-            return Err(checked(crate::daemon_command::connect_error(
-                error, &socket,
-            )))
+            return Err(HeadlessSessionError::ActiveSessionsCheck(
+                crate::daemon_command::connect_error(error, &socket),
+            ))
         }
     };
     if let Some((client, mut events)) = connection {
@@ -596,7 +745,7 @@ pub(crate) async fn session_open_guard(
             eukhe_client::daemon_client::DEFAULT_REQUEST_TIMEOUT_MS,
         )
         .await
-        .map_err(checked)?;
+        .map_err(HeadlessSessionError::ActiveSessionsCheck)?;
         if list.success {
             let target = eukhe_daemon::lease::canonical_session_path(session_path);
             for row in list
@@ -616,19 +765,21 @@ pub(crate) async fn session_open_guard(
                     .or_else(|| row.get("id"))
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or_default();
-                let message = match eukhe_tui::session_open_error::holder_from_roster(
-                    std::slice::from_ref(&row),
-                    &target,
-                ) {
-                    Some(holder) => {
-                        eukhe_tui::session_open_error::already_active_error(&holder, &target)
-                    }
-                    None => format!(
-                        "Session is already active in {active_session_id}: {}",
-                        target.display()
-                    ),
-                };
-                return Err(message);
+                return Err(
+                    match eukhe_tui::session_open_error::holder_from_roster(
+                        std::slice::from_ref(&row),
+                        &target,
+                    ) {
+                        Some(holder) => HeadlessSessionError::HeldByDaemonSession {
+                            holder,
+                            session_path: target,
+                        },
+                        None => HeadlessSessionError::ListedActive {
+                            active_session_id: active_session_id.to_owned(),
+                            session_path: target,
+                        },
+                    },
+                );
             }
         }
     }
@@ -638,22 +789,13 @@ pub(crate) async fn session_open_guard(
     let agent_dir = crate::config::get_agent_dir();
     match eukhe_daemon::lease::acquire_runtime_session_lease(session_path, &agent_dir) {
         Ok(lease) => Ok(lease),
-        Err(error) => {
-            let Some(active) =
-                error.downcast_ref::<eukhe_daemon::lease::SessionAlreadyActiveError>()
-            else {
-                return Err(format!(
-                    "could not verify the session file is not held: {error:#}"
-                ));
-            };
-            Err(eukhe_daemon::hold_refusal::refusal_message(
-                &eukhe_daemon::hold_refusal::HoldIdentity {
-                    pid: active.holder_pid,
-                    active_session_id: active.active_session_id.clone(),
-                },
-                Some(session_path),
-            ))
-        }
+        Err(error) => match error.downcast::<SessionAlreadyActiveError>() {
+            Ok(source) => Err(HeadlessSessionError::Held {
+                source,
+                session_path: session_path.to_path_buf(),
+            }),
+            Err(error) => Err(HeadlessSessionError::LeaseCheck(error)),
+        },
     }
 }
 

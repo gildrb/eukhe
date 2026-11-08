@@ -13,9 +13,9 @@
 //! report twice, held until it reaches the parent's transcript and
 //! submitted again under the next id when the inbox withdraws it), then
 //! terminal. Abort cancels the child's run and delivers the report a
-//! delete owes. `bend/child.bend` models the phases (docs/harness.md H5);
-//! the bridge test runs their decisions ([`watched_next`],
-//! [`report_step`], [`owed_on_abort`]) against its `step`.
+//! delete owes. `bend/child.bend` models the phases (LAWS.bend H5); their
+//! decisions ([`watched_next`], [`report_step`], [`owed_on_abort`]) are
+//! the compiled core's (entry `child`).
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -25,7 +25,7 @@ use eukhe_bend::Entry;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::harness::types::{
-    ConversationHandle, InputSubmissionDraft, Submission, WhenBusy,
+    ConversationHandle, InputSubmissionDraft, Submission, SubmissionAbort, WhenBusy,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::tasks::{
@@ -139,8 +139,8 @@ pub(crate) struct ChildTaskInput {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) user_entries: Vec<u64>,
     /// The child is a worker of a main session (`sessionShape`
-    /// `main-worker`): it gets the chat view and the worker doctrine, and
-    /// main's worker tools reach it.
+    /// `main-worker`): it keeps a chat of its own and gets the worker
+    /// doctrine, and main's worker tools reach it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) worker: bool,
 }
@@ -245,6 +245,9 @@ pub(crate) enum Fate<S> {
     Queued(S),
     Withdrawn,
     Placed,
+    /// The parent read the report itself (`rlm.collect`, `rlm.answer`):
+    /// a queued submission was withdrawn for the read, or none was made.
+    Read,
 }
 
 impl<S> Fate<S> {
@@ -340,6 +343,10 @@ pub(crate) fn report_step<S>(
         }
         Some(Fate::Placed) => {
             request.some().tag(2);
+            None
+        }
+        Some(Fate::Read) => {
+            request.some().tag(3);
             None
         }
     };
@@ -1150,7 +1157,9 @@ async fn submit_report(
 /// aborted run is over (an input queued behind a run that ends by abort
 /// waits for the next run). When the abort is a close's (a daemon
 /// shutdown, a session switch), the closing parent admits no submission
-/// and the reopened session delivers the report.
+/// and the reopened session delivers the report. A report the parent
+/// read itself (the row's `read`, set by `rlm.collect` / `rlm.answer`)
+/// reached it: a queued submission is withdrawn and none is made.
 async fn report(
     services: Arc<ChildrenServices>,
     task: Running,
@@ -1169,6 +1178,32 @@ async fn report(
     let signal = runtime.signal();
     let mut fate: Option<Fate<Arc<dyn Submission>>> = None;
     let again = loop {
+        // Read before each move: a read committed after the last look (it
+        // may have raced the submission, before the row named it) is seen
+        // here. The read report's fate (`Fate.read` in `bend/child.bend`):
+        // a queued submission is withdrawn for the read, one already placed
+        // stays placed (the read lost the race), any other is read.
+        let read = read_children(&runtime.hook_api(), conversation_id, &cx)
+            .await?
+            .children
+            .get(&task_id.to_string())
+            .is_some_and(|row| row.read);
+        if read {
+            fate = Some(match fate {
+                None | Some(Fate::Withdrawn | Fate::Read) => Fate::Read,
+                Some(Fate::Placed) => Fate::Placed,
+                Some(Fate::Queued(submission)) => match submission.abort(&cx).await? {
+                    SubmissionAbort::Aborted => Fate::Read,
+                    SubmissionAbort::AlreadyPlaced => Fate::Placed,
+                    SubmissionAbort::Settled => {
+                        match Fate::of(&submission.status(&cx).await?.state, ()) {
+                            Fate::Placed => Fate::Placed,
+                            Fate::Queued(()) | Fate::Withdrawn | Fate::Read => Fate::Read,
+                        }
+                    }
+                },
+            });
+        }
         fate = Some(match report_step(withdrawn, fate)? {
             ReportStep::Submit(ordinal) => {
                 if withdrawn > 0 {
@@ -1180,11 +1215,15 @@ async fn report(
                 }
                 let submission =
                     submit_report(&services, &runtime, &task, &report, ordinal, &cx).await?;
+                let id = submission.id();
                 runtime
                     .commit(
                         move |tx, _current| async move {
-                            tx_update_row(&tx, conversation_id, task_id, |row| row.settled = true)
-                                .await?;
+                            tx_update_row(&tx, conversation_id, task_id, |row| {
+                                row.settled = true;
+                                row.report_submission = Some(id);
+                            })
+                            .await?;
                             Ok(None)
                         },
                         &cx,
@@ -1211,11 +1250,13 @@ async fn report(
                         checkpoint: ChildCheckpoint::Report { report, withdrawn },
                     }));
                 }
-                let row = tx_row(&tx, conversation_id, task_id)
-                    .await?
-                    .ok_or_else(|| {
-                        SessionError::error(format!("RLM child task {task_id} has no registry row"))
-                    })?;
+                // A report read before its first submission settles the
+                // child here.
+                let row = tx_update_row(&tx, conversation_id, task_id, |row| {
+                    row.settled = true;
+                    row.report_submission = None;
+                })
+                .await?;
                 Ok(Some(NextTaskState::Terminal {
                     outcome: TaskOutcome::Completed { result: row.status },
                 }))

@@ -213,7 +213,7 @@ def tree.pt.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # ---- job ----
 
-# proof_job: the S2 laws (docs/runtime.md) of the job model in
+# proof_job: the S2 laws of the job model in
 # bend/job.bend: output caps and drops, one end per job, ended jobs stay
 # ended, a blocking call never outlives its budget, a tool call's stream
 # journals one final record carrying everything, and a rewind stops
@@ -236,7 +236,7 @@ def pj.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # ---- cvar ----
 
-# proof_cvar: the S4 laws (docs/control.md) of the cvar model in
+# proof_cvar: the S4 laws of the cvar model in
 # bend/cvar.bend.
 #
 # A layer of sets is read one set at a time (`pv.layer_cons`), so a set
@@ -341,7 +341,7 @@ def pq.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # ---- tools ----
 
-# proof_tools: the S7 laws (docs/tools.md) of the tool surface model in
+# proof_tools: the S7 laws of the tool surface model in
 # bend/tools.bend. An event never touches the roster, and a turn sends
 # the session's roster (`pl.sent_go`, by induction on the events). A join
 # puts the tool in front of `dyn`; a quit drops every copy (`pl.drop_go`, with the head
@@ -368,7 +368,7 @@ def tools.pl.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # ---- screen ----
 
-# proof_screen: the S8 laws (docs/interface.md) of the interface model in
+# proof_screen: the S8 laws of the interface model in
 # bend/screen.bend: the scrollback has no gap and only grows, a resize and
 # a flush keep it in order, the pacer never runs ahead nor back and drains
 # a backlog, only checked frames reach the terminal, and a vertical stack
@@ -452,7 +452,7 @@ def pf.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
 
 # ---- themes ----
 
-# proof_themes: the T1 laws (docs/interface.md Themes) of the theme model
+# proof_themes: the T1 laws of the theme model
 # in bend/theme.bend.
 #
 # Resolution scans the candidates in order: a candidate that does not
@@ -554,7 +554,7 @@ def supervisor.ps.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # ---- tui_color ----
 
-# proof_tui_color: the T3 laws (docs/interface.md "Terminal colors") of
+# proof_tui_color: the T3 laws of
 # the model in bend/tui_color.bend.
 #
 # Nat.divmod adds one to q * n + r per step and keeps r below n, so n

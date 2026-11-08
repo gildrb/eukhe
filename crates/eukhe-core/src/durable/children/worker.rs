@@ -1,11 +1,11 @@
-//! Main's workers (`sessionShape` `main-worker`, docs/usage.md): main talks
+//! Main's workers (`sessionShape` `main-worker`): main talks
 //! to the user; a persistent worker child does the work. Main reaches its
 //! workers through three tools, and the route of each user message is the
 //! model's choice of tool (no code picks it):
 //!
 //! - `worker_assign {note?, worker?, fresh?}`: a new task. The first one
-//!   creates the worker (`worker`, shared workspace, report `inbox`, the
-//!   chat view); later ones re-task it ([`super::assign`]) when it is idle.
+//!   creates the worker (`worker`, shared workspace, report `inbox`, a
+//!   chat of its own); later ones re-task it ([`super::assign`]) when it is idle.
 //!   `fresh` starts another worker (`worker-2`, ...) for unrelated work.
 //! - `worker_forward {kind, note?, worker?}`: the user's words for the
 //!   running work, as `context` (fold it in) or `redirect` (re-plan), placed
@@ -643,6 +643,9 @@ async fn assign_call(
             let spec = SpawnSpec {
                 prompt: handed.body.clone(),
                 kwargs: SpawnKwargs {
+                    // Main's roster holds only read tools and the worker
+                    // tools; the worker needs the full tool set.
+                    why: Some("tools".to_owned()),
                     name: Some(name.clone()),
                     model: children.services.settings.manager().get_worker_model(),
                     thinking: None,

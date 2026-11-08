@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/depth.bend as Effort
 import ./base.bend as LA
 
 def pe.effort_cycle_wrap(+m: Ef.Mdl, +h: Ef.Lv, +pre: List<&2, Ef.Lv>, +z: Ef.Lv, +split: {Ef.offered(m) == List.append(&2, Ef.Lv, h <> pre, [z]) : List<&2, Ef.Lv>}) -> {Ef.cycle(m, z, Ef.Forward{}) == Some{h} : Maybe<&2, Ef.Lv>}:

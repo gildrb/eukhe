@@ -1,13 +1,11 @@
-//! `eukhe.shell`: the `bash` tool (`bash@1`, docs/tools.md S7). It runs
+//! `eukhe.shell`: the `bash` tool (`bash@1`). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
 //! directory. A step whose effects are all in the auto set (the
-//! `shell.autoEffects` setting, default every grantable effect: all but
-//! `secret`) runs unasked; every other step runs only when the user
-//! approves it through the session's [`ShellApprovalSink`] (the daemon
-//! asks the attached client). A read or write of a secret (the session's
-//! [`PathPolicy`](eukhe_types::path_policy::PathPolicy)) always asks. A
-//! denial, no answer, or the refusal of a session that runs only from the
-//! phone gateway (docs/tools.md G5) stops the script at that step, and the
+//! `shell.autoEffects` setting, default every effect) runs unasked; every
+//! other step runs only when the user approves it through the session's
+//! [`ShellApprovalSink`] (the daemon asks the attached client). A denial,
+//! no answer, or the refusal of a session that runs only from the phone
+//! gateway stops the script at that step, and the
 //! model reads it as a [`RefusalText`].
 //!
 //! The tool obeys the S2 limits. Its output streams through one
@@ -41,13 +39,13 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_shell::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, Stream};
-use eukhe_types::job::{CellStatus, JobId, JobSettled};
+use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::shell::{AutoSet, ShellAnswer, ShellApprovalRequest, ShellEffect};
 
 use super::bounded_output::BoundedOutput;
 use super::deps::ShellApprovalSink;
-use super::jobs::{self, Job, JobEvent, JobKind, JobSpec, Wait};
+use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
 use super::HostDeps;
 use crate::kernel::manager::local_env;
@@ -61,25 +59,22 @@ const NAME: &str = "bash";
 /// The tool's durable identity, in each result's details.
 const VERSION: &str = "bash@1";
 
-const DESCRIPTION: &str = "Run a bash script in the working directory. Steps are simple commands \
-joined by `;`, newlines, `&&`, `||`, `|`, with redirections; the commands of a pipeline run \
-together. A step that reads, writes files in the workspace, runs another program, or uses the \
-network runs at once, unless the user narrowed the kinds of step that do: then it runs only after \
-the user approves it, and a denial stops the script there. A write outside the workspace or to \
-eukhe's own settings, and a read of a secret (ssh keys, credential stores), always need approval. \
-`git` commands that can run a repository's programs (status, diff of the work tree, commit, ...) \
-count as running a program. Common commands (cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
-touch, cp, mv, grep) run in process; a script with control flow, functions, subshells or command \
-substitution runs whole in bash as one step that runs a program. The environment holds no API keys \
-or tokens. The result \
-lists every step that ran with its exit status; the output is bounded. A script that outlives the \
-blocking budget goes on as a job, and its end reaches the session as a [job-settled] message.";
+const DESCRIPTION: &str = "Run a bash script in the cwd. Steps: simple commands joined by `;`, \
+newlines, `&&`, `||`, `|`, with redirections. Each step's effects (read, write, exec, net, \
+outside, protected, secret) gate on the user's `shell.autoEffects`: allowed ones run at once, \
+others wait for approval; a denial stops the script. `git` commands that can run repo programs \
+(status, diff, commit, ...) count as exec. cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
+touch, cp, mv, grep run in process; control flow, functions, subshells or `$(...)` run the whole \
+script in bash as one exec step. A file you will edit: `read` it, since `edit` needs the \
+`[path#TAG]` header `cat` does not print. No API keys or tokens in the environment. The result \
+lists each step's exit status; output is bounded. A script outliving the blocking budget \
+continues as a job; its end arrives as a `[job-settled]` message.";
 
 /// Asks through the session's sink; each question's id is the tool
-/// call's id and the step.
-struct SinkApprover {
-    sink: Option<ShellApprovalSink>,
-    call: String,
+/// call's id (or a host request's) and the step.
+pub(crate) struct SinkApprover {
+    pub(crate) sink: Option<ShellApprovalSink>,
+    pub(crate) call: String,
 }
 
 impl Approver for SinkApprover {
@@ -124,12 +119,12 @@ impl RefusalText {
                 what: "it needs the user's approval, and no client answered",
                 next:
                     "Ask the user to attach a client, or to allow its effect in shell.autoEffects \
-if that is not secret; or use read-only steps",
+if that is read, write, exec, net, outside, protected or secret; or use read-only steps",
             },
             Refusal::GatewayRefused => Self {
                 what: "the session runs only from the phone gateway, and from there a step that \
-writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) or \
-reads or writes a secret never runs",
+writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) \
+never runs when the user's auto set does not already run it",
                 next: "Ask the user to run it from the eukhe TUI or the dashboard",
             },
         }
@@ -259,15 +254,8 @@ impl Drop for AbortUnlessDetached {
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let deps = Arc::clone(deps);
-    let schema = super::tool_contract::parameters(
-        1,
-        [(
-            "script",
-            eukhe_ai::typebox::Type::string_with(
-                eukhe_ai::typebox::Options::new().set("description", "The bash script to run"),
-            ),
-        )],
-    );
+    let schema =
+        super::tool_contract::parameters(1, [("script", eukhe_ai::typebox::Type::string())]);
     let mut registration = ToolRegistration::new(
         NAME,
         DESCRIPTION,
@@ -307,6 +295,7 @@ pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {
                 "net" => Some(ShellEffect::Net),
                 "outside" => Some(ShellEffect::Outside),
                 "protected" => Some(ShellEffect::Protected),
+                "secret" => Some(ShellEffect::Secret),
                 unknown => {
                     tracing::warn!(unknown, "shell.autoEffects holds an unknown effect");
                     None
@@ -407,14 +396,10 @@ async fn execute(
                 let (text, bounded) = transcript.projection();
                 let output = with_diagnostics(text, bounded.as_slice());
                 tracing::debug!(job = %settled_id, status = status.label(), "detached script settled");
+                // The result goes to a watching wait or the notice before
+                // the job reads ended.
+                job.settle(JobResult { status, output }, sink.as_ref());
                 job.record(event);
-                if let Some(sink) = sink {
-                    sink(JobSettled::Shell {
-                        job: settled_id,
-                        status,
-                        output,
-                    });
-                }
             });
             return Ok(detached_result(&id, budget, partial, bounded));
         }
@@ -514,9 +499,10 @@ fn detached_result(
         code: Some("detached".to_owned()),
         message: format!(
             "The script outlived the {budget_ms} ms blocking budget, so this call settled as job {job}; \
-             the script keeps running, and a step that needs approval still asks the user. Its end \
-             reaches this session as a [job-settled job:{job}] message with its output, waking the \
-             session if idle."
+             the script keeps running, and a step that needs approval still asks the user. Keep \
+             working; when the next step needs its result, wait for it in this turn with \
+             `await jobs.wait(\"{job}\")` (up to 30 min) — never sleep-poll and never end the turn on \
+             it. Otherwise its end arrives as a [job-settled job:{job}] message."
         ),
         omitted: None,
         artifact: None,

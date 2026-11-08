@@ -1,0 +1,14 @@
+# hosts with the largest ports, past u16 and past the wire's numbers
+call 0,15,localhost:655351,3,box
+call 0,24,localhost:{MAX}0,
+call 0,25,localhost:{LONG}0,
+call 0,50,localhost:99999999999999999999999999999999999999991,9,localhost
+call 0,20,[::1]:{MAX}0,
+call 0,14,box:{U32MAX}3,3,box1,a1,b
+call 0,12,localhost:9𝄞0,
+# origins with the largest ports
+call 1,31,http://localhost:{MAX}24,localhost:{MAX}
+call 1,33,https://localhost:{LONG}25,localhost:{LONG}
+call 1,57,http://localhost:999999999999999999999999999999999999999950,localhost:9999999999999999999999999999999999999999
+call 1,18,http://[::1]:6553511,[::1]:65535
+refuse 0,{LONG},localhost0,

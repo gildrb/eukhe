@@ -1,0 +1,18 @@
+# every request kind; the fit's window, lengths and walk bounds at {MAX} (sums of
+# several of them: reserve + prompt, low + high); {LONG} numbers refused
+call 0,6,1,0,1,1,1,1,m1,1,TT0,0,FFT1,0,1,2,0,1,11,Skill TitleT1,1,6,python1,1,a0,1,1,c0,1,2,0,FFT1,0,1,4,1,1,f1,1,FT0,1,0,2,FFT1,1,1,1,1,1,m1,1,TT0,0,TTT1,2,1,1,1,1,m0,F0,0,TFT0,0,0,0,F0,0,FFF
+call 1,TT6,1,0,1,1,1,1,m1,1,TT0,0,FFT1,0,1,2,0,1,11,Skill TitleT1,1,6,python1,1,a0,1,1,c0,1,2,0,FFT1,0,1,4,1,1,f1,1,FT0,1,0,2,FFT1,1,1,1,1,1,m1,1,TT0,0,TTT1,2,1,1,1,1,m0,F0,0,TFT0,0,0,0,F0,0,FFF
+call 1,FF6,1,0,1,1,1,1,m1,1,TT0,0,FFT1,0,1,2,0,1,11,Skill TitleT1,1,6,python1,1,a0,1,1,c0,1,2,0,FFT1,0,1,4,1,1,f1,1,FT0,1,0,2,FFT1,1,1,1,1,1,m1,1,TT0,0,TTT1,2,1,1,1,1,m0,F0,0,TFT0,0,0,0,F0,0,FFF
+call 2,2,r15,TFTTTTTTFTFFFFF
+call 3,1,1,s0,1,1,o
+call 4,15,{"a":[{"b":"c\\"
+call 5,{MAX},{MAX},{MAX},{MAX},{MAX},0,{MAX},
+call 5,{MAX},{MAX},{MAX},{MAX},{MAX},0,0,
+call 5,{MAX},{MAX},{MAX},{MAX},{MAX},1,{MAX},{MAX},{MAX},{MAX},
+call 5,{MAX},{MAX},{MAX},{MAX},{MAX},1,0,{MAX},{MAX},0,
+call 5,{MAX},{MAX},{MAX},{MAX},{MAX},2,{MAX},
+call 5,{MAX},1,1,0,0,2,0,
+call 5,0,{MAX},{MAX},{MAX},{MAX},0,{MAX},
+refuse 5,{LONG},1,1,1,1,0,0,
+refuse 2,2,r1{MAX},TFT
+refuse 0,{LONG},

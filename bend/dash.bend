@@ -1,5 +1,5 @@
-# dash: the dashboard's pairing gate (laws/dash.bend, laws/dash_conn.bend,
-# docs/dashboard.md "Pairing"), run as the compiled core
+# dash: the dashboard's pairing gate (laws/dash.bend, laws/dash_conn.bend),
+# run as the compiled core
 # (bend/ffi_dash.bend). crates/eukhe-dashboard/src/pairing.rs, http.rs and
 # bridge.rs are its host: an event loop that reads frames and the token
 # file, compares two decoded tokens in constant time, and does what the

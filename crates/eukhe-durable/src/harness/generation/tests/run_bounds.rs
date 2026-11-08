@@ -1,4 +1,4 @@
-//! docs/harness.md H4: every run ends. A model that keeps calling tools
+//! LAWS.bend H4: every run ends. A model that keeps calling tools
 //! stops at the round cap; the same calls whose results change keep
 //! running (the same calls with the same results get the repeat recovery
 //! of H4.8, `recoveries.rs`); an abort ends a run stuck in a

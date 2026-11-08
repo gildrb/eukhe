@@ -1,5 +1,5 @@
 //! eukhe addition: the wire of the quirks rulebook's host settings
-//! (docs/inference.md S6.2). A model names one host: the provider's host
+//! A model names one host: the provider's host
 //! wins over a host its base URL names, and the two do not combine.
 
 use serde_json::json;

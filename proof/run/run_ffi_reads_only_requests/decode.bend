@@ -312,6 +312,55 @@ def dk.stuck.c2.f0(+s: String, +s0: String, pre: {s == Wr.put_nat(2n, s0) : Stri
     case Wr.Bad{}:
       Unit{}
 
+def dk.and22(-a: Bool, -b: Bool, -c: Bool, -d: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}, hc: {c == True{} : Bool}, hd: {d == True{} : Bool}) -> {Bool.and(Bool.and(a, b), Bool.and(c, d)) == True{} : Bool}:
+  LAWireSpell.ws_and_tt(Bool.and(a, b), Bool.and(c, d), LAWireSpell.ws_and_tt(a, b, ha, hb), LAWireSpell.ws_and_tt(c, d, hc, hd))
+
+def dk.stuck.c4.f5(+s: String, +w: Nat, +c: Nat, +p: Nat, +o: Nat, +cu: Bool, +s5: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, Wr.put_nat(o, Wr.put_bool(cu, s5)))))) : String}, fw: {LawsBase.wire_fits(w) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, fp: {LawsBase.wire_fits(p) == True{} : Bool}, fo: {LawsBase.wire_fits(o) == True{} : Bool}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s5) == d : Wr.Dec<Bool>}) -> dk.Stuck(s, FRn.get_stuck.c4.f5(w, c, p, o, cu, d)):
+  match d:
+    case Wr.Got{+lo, +s6}:
+      (dk.step(z => Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, Wr.put_nat(o, Wr.put_bool(cu, z)))))), s, s5, Wr.put_bool(lo, s6), pre, Wire.wire_bool_exact(s5, lo, s6, ed)), dk.and22(LawsBase.wire_fits(w), LawsBase.wire_fits(c), LawsBase.wire_fits(p), LawsBase.wire_fits(o), fw, fc, fp, fo))
+    case Wr.Bad{}:
+      Unit{}
+
+def dk.stuck.c4.f4(+s: String, +w: Nat, +c: Nat, +p: Nat, +o: Nat, +s4: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, Wr.put_nat(o, s4))))) : String}, fw: {LawsBase.wire_fits(w) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, fp: {LawsBase.wire_fits(p) == True{} : Bool}, fo: {LawsBase.wire_fits(o) == True{} : Bool}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s4) == d : Wr.Dec<Bool>}) -> dk.Stuck(s, FRn.get_stuck.c4.f4(w, c, p, o, d)):
+  match d:
+    case Wr.Got{+cu, +s5}:
+      dk.stuck.c4.f5(s, w, c, p, o, cu, s5, dk.step(z => Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, Wr.put_nat(o, z))))), s, s4, Wr.put_bool(cu, s5), pre, Wire.wire_bool_exact(s4, cu, s5, ed)), fw, fc, fp, fo, Wr.get_bool(s5), {==})
+    case Wr.Bad{}:
+      Unit{}
+
+def dk.stuck.c4.f3(+s: String, +w: Nat, +c: Nat, +p: Nat, +s3: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, s3)))) : String}, fw: {LawsBase.wire_fits(w) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, fp: {LawsBase.wire_fits(p) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s3) == d : Wr.Dec<Nat>}) -> dk.Stuck(s, FRn.get_stuck.c4.f3(w, c, p, d)):
+  match d:
+    case Wr.Got{+o, +s4}:
+      +ee = ed
+      dk.stuck.c4.f4(s, w, c, p, o, s4, dk.step(z => Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, z)))), s, s3, Wr.put_nat(o, s4), pre, Wire.wire_nat_exact(s3, o, s4, ee)), fw, fc, fp, Wire.wire_nat_decoded_fits(s3, o, s4, ee), Wr.get_bool(s4), {==})
+    case Wr.Bad{}:
+      Unit{}
+
+def dk.stuck.c4.f2(+s: String, +w: Nat, +c: Nat, +s2: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, s2))) : String}, fw: {LawsBase.wire_fits(w) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s2) == d : Wr.Dec<Nat>}) -> dk.Stuck(s, FRn.get_stuck.c4.f2(w, c, d)):
+  match d:
+    case Wr.Got{+p, +s3}:
+      +ee = ed
+      dk.stuck.c4.f3(s, w, c, p, s3, dk.step(z => Wr.put_nat(4n, Wr.put_nat(w, Wr.put_nat(c, z))), s, s2, Wr.put_nat(p, s3), pre, Wire.wire_nat_exact(s2, p, s3, ee)), fw, fc, Wire.wire_nat_decoded_fits(s2, p, s3, ee), Wr.get_nat(s3), {==})
+    case Wr.Bad{}:
+      Unit{}
+
+def dk.stuck.c4.f1(+s: String, +w: Nat, +s1: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(w, s1)) : String}, fw: {LawsBase.wire_fits(w) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s1) == d : Wr.Dec<Nat>}) -> dk.Stuck(s, FRn.get_stuck.c4.f1(w, d)):
+  match d:
+    case Wr.Got{+c, +s2}:
+      +ee = ed
+      dk.stuck.c4.f2(s, w, c, s2, dk.step(z => Wr.put_nat(4n, Wr.put_nat(w, z)), s, s1, Wr.put_nat(c, s2), pre, Wire.wire_nat_exact(s1, c, s2, ee)), fw, Wire.wire_nat_decoded_fits(s1, c, s2, ee), Wr.get_nat(s2), {==})
+    case Wr.Bad{}:
+      Unit{}
+
+def dk.stuck.c4.f0(+s: String, +s0: String, pre: {s == Wr.put_nat(4n, s0) : String}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s0) == d : Wr.Dec<Nat>}) -> dk.Stuck(s, FRn.get_stuck.c4.f0(d)):
+  match d:
+    case Wr.Got{+w, +s1}:
+      +ee = ed
+      dk.stuck.c4.f1(s, w, s1, dk.step(z => Wr.put_nat(4n, z), s, s0, Wr.put_nat(w, s1), pre, Wire.wire_nat_exact(s0, w, s1, ee)), Wire.wire_nat_decoded_fits(s0, w, s1, ee), Wr.get_nat(s1), {==})
+    case Wr.Bad{}:
+      Unit{}
+
 def dk.stuck.go(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> dk.Stuck(s, FRn.get_stuck.tag(d)):
   match d:
     case Wr.Got{+t, +s0}:
@@ -322,7 +371,11 @@ def dk.stuck.go(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat
           (Wire.wire_nat_exact(s, 1n, s0, ed), {==})
         case 2n:
           dk.stuck.c2.f0(s, s0, Wire.wire_nat_exact(s, 2n, s0, ed), Wr.get_nat(s0), {==})
-        case 3n+k:
+        case 3n:
+          (Wire.wire_nat_exact(s, 3n, s0, ed), {==})
+        case 4n:
+          dk.stuck.c4.f0(s, s0, Wire.wire_nat_exact(s, 4n, s0, ed), Wr.get_nat(s0), {==})
+        case 5n+k:
           Unit{}
     case Wr.Bad{}:
       Unit{}
@@ -349,7 +402,9 @@ def dk.rk.go(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>})
           Wire.wire_nat_exact(s, 2n, s0, ed)
         case 3n:
           Wire.wire_nat_exact(s, 3n, s0, ed)
-        case 4n+k:
+        case 4n:
+          Wire.wire_nat_exact(s, 4n, s0, ed)
+        case 5n+k:
           Unit{}
     case Wr.Bad{}:
       Unit{}

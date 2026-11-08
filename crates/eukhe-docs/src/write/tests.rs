@@ -14,15 +14,20 @@ struct Recorder {
     checks: Mutex<Vec<(Access, PathBuf, String)>>,
 }
 
+/// The refusal of [`Recorder`].
+#[derive(Debug, thiserror::Error)]
+#[error("the user denied it")]
+struct Denied;
+
 impl AccessGate for Recorder {
-    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), String> {
+    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), AccessRefusal> {
         let real = real.path();
         self.checks
             .lock()
             .unwrap()
             .push((access, real.to_path_buf(), display.to_owned()));
         if real.starts_with(&self.refused) {
-            Err("the user denied it".to_owned())
+            Err(AccessRefusal::new(Denied))
         } else {
             Ok(())
         }
@@ -346,13 +351,16 @@ fn path_lock_serializes_read_modify_write() {
             scope.spawn(|| {
                 for _ in 0..rounds {
                     let _lock = lock(&locks, &target).unwrap();
-                    let value: u32 = std::fs::read_to_string(&target).unwrap().parse().unwrap();
+                    let read = std::fs::read_to_string(&target).unwrap();
+                    let value: u32 = read.parse().unwrap();
                     std::thread::yield_now();
                     publish(
                         &target,
                         (value + 1).to_string().as_bytes(),
                         None,
-                        Publish::Replace,
+                        Publish::Replace {
+                            base: read.as_bytes(),
+                        },
                         &NoFaults,
                     )
                     .unwrap();
@@ -391,6 +399,135 @@ fn a_conflict_on_any_file_writes_no_file() {
                 .to_owned(),
             Some("a\n".to_owned()),
             Some("changed by another program\n".to_owned())
+        )
+    );
+}
+
+/// Another program with no path lock (a stamper): just before each rename
+/// of `name`, for its first `times` publishes, it inserts `# stamp <n>`
+/// as the second line of the file, as a read-modify-rename.
+struct Stamper {
+    name: &'static str,
+    times: u32,
+    stamps: Mutex<u32>,
+}
+
+impl Faults for Stamper {
+    fn inject(&self, target: &Path, stage: Stage) -> std::io::Result<()> {
+        if stage != Stage::BeforeRename
+            || target.file_name() != Some(std::ffi::OsStr::new(self.name))
+        {
+            return Ok(());
+        }
+        let mut stamps = self.stamps.lock().unwrap();
+        if *stamps == self.times {
+            return Ok(());
+        }
+        *stamps += 1;
+        let text = std::fs::read_to_string(target)?;
+        let (first, rest) = text.split_at(text.find('\n').map_or(text.len(), |at| at + 1));
+        let other = target.with_extension("stamp-tmp");
+        std::fs::write(&other, format!("{first}# stamp {stamps}\n{rest}"))?;
+        std::fs::rename(other, target)
+    }
+}
+
+/// A file another program changes after the check of a multi-file edit,
+/// while its new bytes are written: the edit is rebased onto that
+/// program's bytes, never renamed over them (the lost `# stamp` lines of
+/// the bench task `stale`). The program's line is not seen.
+#[test]
+fn a_publish_never_replaces_bytes_another_program_wrote_meanwhile() {
+    let fixture = Fixture::new();
+    for name in ["a.txt", "b.txt"] {
+        std::fs::write(fixture.path(name), "one\ntwo\nthree\nfour\n").unwrap();
+    }
+    let payload = ["a.txt", "b.txt"]
+        .map(|name| format!("{}\nPUT 4.=4:\n+FOUR", fixture.header(name)))
+        .join("\n");
+    let stamper = Stamper {
+        name: "b.txt",
+        times: 1,
+        stamps: Mutex::new(0),
+    };
+    let outcome = fixture.edit(&payload, &stamper, &[]).unwrap();
+    let both = "one\n# stamp 1\ntwo\nthree\nFOUR\n";
+    assert_eq!(
+        (
+            changes(&outcome),
+            outcome.files[1].warnings.clone(),
+            outcome.files[1].tag.clone(),
+            [fixture.read("a.txt"), fixture.read("b.txt")]
+        ),
+        (
+            vec![
+                ("a.txt".to_owned(), FileChange::Updated),
+                ("b.txt".to_owned(), FileChange::Updated)
+            ],
+            vec![
+                "b.txt was changed by another program while this change was being written; the \
+                 change was rebased onto its new bytes, which it keeps. Re-read b.txt before you \
+                 edit the lines that program wrote."
+                    .to_owned()
+            ],
+            Some(crate::file_hash(both)),
+            [
+                Some("one\ntwo\nthree\nFOUR\n".to_owned()),
+                Some(both.to_owned())
+            ]
+        )
+    );
+    let stamp_line = format!(
+        "[b.txt#{}]\nPUT 2.=2:\n+# gone",
+        outcome.files[1].tag.clone().unwrap()
+    );
+    assert!(fixture.edit(&stamp_line, &NoFaults, &[]).is_err());
+    assert_eq!(fixture.read("b.txt"), Some(both.to_owned()));
+}
+
+/// A file another program changes again before every rename is refused
+/// once the rebases ran out: it keeps every change of that program; the
+/// files before it landed.
+#[test]
+fn a_publish_refuses_a_file_that_keeps_changing() {
+    let fixture = Fixture::new();
+    for name in ["a.txt", "b.txt"] {
+        std::fs::write(fixture.path(name), "one\ntwo\nthree\nfour\n").unwrap();
+    }
+    let payload = ["a.txt", "b.txt"]
+        .map(|name| format!("{}\nPUT 4.=4:\n+FOUR", fixture.header(name)))
+        .join("\n");
+    let stamper = Stamper {
+        name: "b.txt",
+        times: u32::MAX,
+        stamps: Mutex::new(0),
+    };
+    let outcome = fixture.edit(&payload, &stamper, &[]).unwrap();
+    assert_eq!(
+        (
+            changes(&outcome),
+            [fixture.read("a.txt"), fixture.read("b.txt")]
+        ),
+        (
+            vec![
+                ("a.txt".to_owned(), FileChange::Updated),
+                (
+                    "b.txt".to_owned(),
+                    FileChange::NotWritten {
+                        reason: "Edit not applied to b.txt: another program changed it while the \
+                                 edit was being written, and the edit could not be rebased onto \
+                                 its new bytes. b.txt keeps them; re-read it and retry."
+                            .to_owned()
+                    }
+                ),
+            ],
+            [
+                Some("one\ntwo\nthree\nFOUR\n".to_owned()),
+                Some(
+                    "one\n# stamp 4\n# stamp 3\n# stamp 2\n# stamp 1\ntwo\nthree\nfour\n"
+                        .to_owned()
+                )
+            ]
         )
     );
 }
@@ -548,6 +685,9 @@ fn a_create_publish_never_replaces() {
     let target = fixture.path("b.txt");
     std::fs::write(&target, "theirs\n").unwrap();
     let error = publish(&target, b"mine\n", None, Publish::Create, &NoFaults).unwrap_err();
+    let PublishError::Io(error) = error else {
+        panic!("a create never meets other bytes: {error}");
+    };
     assert_eq!(
         (error.kind(), fixture.read("b.txt")),
         (

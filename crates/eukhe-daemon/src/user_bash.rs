@@ -11,8 +11,7 @@
 //! wrapper (the already-running guard, the
 //! identity echoed on start/end, transient rows staying unrecorded).
 //!
-//! Every run is a job of the session (`eukhe_core::durable::jobs`,
-//! docs/runtime.md S2): its process leads its own process group, and its
+//! Every run is a job of the session (`eukhe_core::durable::jobs`): its process leads its own process group, and its
 //! kill (`abort_bash`, a rewind) kills the group. `execute_bash_and_wait`
 //! blocks at most the session's blocking budget: past it the call answers
 //! detached with the output so far, the run goes on in the background, and
@@ -325,7 +324,7 @@ impl Worker {
                     output: end.output,
                     omitted: end.omitted,
                     artifact: end.artifact,
-                    error_message: end.error_message,
+                    error_message: end.error.as_ref().map(ToString::to_string),
                     run,
                 },
             );
@@ -417,7 +416,7 @@ impl Worker {
                                 .await
                                 .map(drop)
                         }
-                        Err(error) => Err(format!("the bash run failed: {error}")),
+                        Err(error) => Err(AwaitedBashError::Join(error)),
                     };
                     if let Err(error) = settled {
                         eprintln!("eukhe-daemon worker: a detached bash run: {error}");
@@ -447,7 +446,7 @@ impl Worker {
                 return response_failure(
                     None,
                     "execute_bash_and_wait",
-                    &format!("the bash run failed: {error}"),
+                    &AwaitedBashError::Join(error).to_string(),
                     None,
                 )
             }
@@ -458,7 +457,7 @@ impl Worker {
                 "execute_bash_and_wait",
                 Some(serde_json::to_value(&result).unwrap_or(Value::Null)),
             ),
-            Err(error) => response_failure(None, "execute_bash_and_wait", &error, None),
+            Err(error) => response_failure(None, "execute_bash_and_wait", &error.to_string(), None),
         }
     }
 
@@ -529,6 +528,35 @@ struct DetachedRun {
     budget_ms: u64,
 }
 
+/// Why a user bash could not run its command.
+#[derive(Debug, thiserror::Error)]
+enum BashSpawnError {
+    /// TS local operations reject before spawning.
+    #[error("Working directory does not exist: {cwd}\nCannot execute bash commands.")]
+    MissingCwd { cwd: String },
+    /// The configured shell does not resolve.
+    #[error("{source}")]
+    Shell {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error(transparent)]
+    Spawn(#[from] std::io::Error),
+}
+
+/// Why an awaited user bash answers no result.
+#[derive(Debug, thiserror::Error)]
+enum AwaitedBashError {
+    #[error(transparent)]
+    Spawn(#[from] BashSpawnError),
+    /// The run's task panicked or was cancelled.
+    #[error("the bash run failed: {0}")]
+    Join(#[source] tokio::task::JoinError),
+    /// The durable row did not record.
+    #[error("{0:#}")]
+    Record(anyhow::Error),
+}
+
 /// The settled user-bash run (TS `UserBashEndDetails` plus the output it
 /// carries for the durable row).
 struct BashEnd {
@@ -537,7 +565,7 @@ struct BashEnd {
     cancelled: bool,
     omitted: Option<OmittedOutput>,
     artifact: Option<String>,
-    error_message: Option<String>,
+    error: Option<BashSpawnError>,
 }
 
 /// One process run (TS `executeBashWithOperations` over the local bash
@@ -617,13 +645,13 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         cancel,
         stream,
     } = run;
-    let spawn_failure = |message: String| BashEnd {
+    let spawn_failure = |error: BashSpawnError| BashEnd {
         output: String::new(),
         exit_code: None,
         cancelled: false,
         omitted: None,
         artifact: None,
-        error_message: Some(message),
+        error: Some(error),
     };
     let end = 'run: {
         let resolved = match prefix.filter(|prefix| !prefix.is_empty()) {
@@ -632,13 +660,13 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         };
         if !Path::new(cwd).exists() {
             // TS local operations reject before spawning.
-            break 'run spawn_failure(format!(
-                "Working directory does not exist: {cwd}\nCannot execute bash commands."
-            ));
+            break 'run spawn_failure(BashSpawnError::MissingCwd {
+                cwd: cwd.to_owned(),
+            });
         }
         let shell = match eukhe_core::platform::shell::get_shell_config(shell_path) {
             Ok(shell) => shell,
-            Err(error) => break 'run spawn_failure(error.to_string()),
+            Err(source) => break 'run spawn_failure(BashSpawnError::Shell { source }),
         };
         let mut process = tokio::process::Command::new(&shell.shell);
         process
@@ -652,7 +680,7 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         eukhe_core::platform::process::set_new_process_group(process.as_std_mut());
         let mut child = match process.spawn() {
             Ok(child) => child,
-            Err(error) => break 'run spawn_failure(error.to_string()),
+            Err(error) => break 'run spawn_failure(error.into()),
         };
         let group = child.id().and_then(|pid| i32::try_from(pid).ok());
         // A late abort that arrived before the process spawned kills it
@@ -733,10 +761,10 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
             cancelled,
             omitted,
             artifact,
-            error_message: None,
+            error: None,
         }
     };
-    job.record(match (&end.error_message, end.exit_code) {
+    job.record(match (&end.error, end.exit_code) {
         (Some(_), _) => JobEvent::Exited(127),
         (None, Some(code)) => JobEvent::Exited(code),
         (None, None) => JobEvent::Killed,
@@ -795,10 +823,10 @@ async fn settle_awaited_run(
     command: &str,
     request_id: String,
     end: BashEnd,
-) -> Result<BashResult, String> {
+) -> Result<BashResult, AwaitedBashError> {
     roster_pushes.push();
-    if let Some(error) = end.error_message {
-        return Err(error);
+    if let Some(error) = end.error {
+        return Err(error.into());
     }
     let result = BashResult {
         output: end.output,
@@ -816,7 +844,7 @@ async fn settle_awaited_run(
     };
     record_bash_result(hosted, row)
         .await
-        .map_err(|error| format!("{error:#}"))?;
+        .map_err(AwaitedBashError::Record)?;
     Ok(result)
 }
 

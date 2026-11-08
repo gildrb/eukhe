@@ -103,11 +103,16 @@ pub struct BranchSummarySettings {
     pub skip_prompt: Option<bool>,
 }
 
-/// The chat memory's compactor (`memory`): the cheap model that builds the
-/// summary tree, its reasoning effort, and how long a turn waits for it.
+/// The chat memory (`memory`): whether a root session keeps one, the
+/// cheap model that builds the summary tree, its reasoning effort, and how
+/// long a turn waits for it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemorySettings {
+    /// Whether a root session keeps chat memory (its own chat, the view of
+    /// its older history); `false` sends the plain transcript, compacted
+    /// when it fills. Unset means on.
+    pub chat: Option<bool>,
     /// `provider/model-id`; unset falls back to `auxiliaryModel`, then to
     /// the default model.
     pub model: Option<String>,
@@ -116,6 +121,25 @@ pub struct MemorySettings {
     /// How long a turn waits for the view's lines to be summarized before
     /// it goes on with the view as it is; unset or `0` means 20 s.
     pub settle_timeout_ms: Option<u64>,
+}
+
+/// `rlm`: the sub-model calls of the kernel's `rlm.query`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields spell the settings keys `rlm.queryModel`, `rlm.queryConcurrency`, `rlm.queryBudgetBytes`"
+)]
+pub struct RlmSettings {
+    /// `provider/model-id` of a query that names no model; unset asks the
+    /// calling session's model.
+    pub query_model: Option<String>,
+    /// Queries of one session in flight at once (default 4; `0` or unset
+    /// takes the default).
+    pub query_concurrency: Option<u64>,
+    /// Input bytes one session's queries may send in all (`0` or unset: no
+    /// budget).
+    pub query_budget_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -203,6 +227,9 @@ pub struct FallbackChainsSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelRolesSettings {
+    /// The `provider/model` of every role (speech and dictation excepted)
+    /// whose own setting is unset (`crate::models::roles`).
+    pub all: Option<String>,
     /// Session titles.
     pub tiny: Option<String>,
     /// Typed judgments (classification).
@@ -248,8 +275,24 @@ pub struct TtsSettings {
     pub local_voice: Option<String>,
 }
 
+/// `privacy`: what leaves for a remote provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacySettings {
+    /// Scrub the outbound request text of a remote (non-loopback)
+    /// provider (opt-in, default false): your terms, emails, phone numbers, IP
+    /// addresses and IDs become tokens mapped back in the model's answer;
+    /// credentials (API keys, private keys, cards, IBANs) are hashed one
+    /// way. Paths and domains pass.
+    pub anonymize_remote: Option<bool>,
+    /// Phrases a remote provider must not see: free-text names (a person,
+    /// a company, a project) become `PERSON_<n>` tokens at word
+    /// boundaries. Add your own name, your hostname, your username.
+    pub terms: Option<Vec<String>>,
+}
+
 /// `stt`: speech to text (dictation into the editor draft).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SttSettings {
     /// Turn on the dictation keys (default false).
@@ -312,7 +355,7 @@ pub struct AutonomousSettings {
     pub timeout_ms: Option<AutonomousLimitSetting>,
 }
 
-/// The Director stack (docs/control.md S5).
+/// The Director stack.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirectorSettings {
@@ -388,6 +431,12 @@ pub struct SshSettings {
 #[serde(rename_all = "camelCase")]
 pub struct GatewaySettings {
     pub signal: Option<SignalGatewaySettings>,
+    /// The heartbeat schedule of the gateway's root session (the
+    /// `/heartbeat` schedule forms: `every 30 minutes`, a cron
+    /// expression). Set, `eukhe gateway` routes the phone to the
+    /// persistent session named `root` and creates or replaces its
+    /// heartbeat at start. Absent means off.
+    pub root_heartbeat: Option<String>,
 }
 
 /// `gateway.signal`: the Signal gateway (a `signal-cli` child).
@@ -403,9 +452,10 @@ pub struct SignalGatewaySettings {
     pub cli_path: Option<String>,
     /// The working directory of new sessions. Absent means `$HOME`.
     pub cwd: Option<String>,
-    /// The model (`provider/model-id`) that Signal messages run on. The
-    /// gateway switches the session to it before each message. Absent
-    /// means the session keeps its model.
+    /// The model (`provider/model-id`) that Signal messages run on: the
+    /// gateway role's own setting. The gateway switches the session to
+    /// it before each message. Absent means `modelRoles.all`, else the
+    /// session keeps its model (`crate::models::roles`).
     pub model: Option<String>,
 }
 
@@ -431,8 +481,9 @@ pub struct Settings {
     /// process of this agent dir (`{providerId: n}`); an absent provider
     /// (or `0`) is unlimited. The chat-memory compactor's requests count
     /// too, but come last: they wait while a session's request to the
-    /// provider runs or waits, and the next one preempts them. Read from
-    /// the global settings only.
+    /// provider runs or waits, and on a limited provider the next one
+    /// preempts them (an unlimited one lets them finish). Read from the
+    /// global settings only.
     pub provider_max_in_flight: Option<std::collections::BTreeMap<String, u32>>,
     /// How many sessions' requests may wait for a limited provider before
     /// the next one fails at once (default 64; the compactor's waiting
@@ -448,8 +499,8 @@ pub struct Settings {
     /// The longest a tool call may block its turn, in ms (default
     /// 30 000). A call that runs longer settles `detached` with a job
     /// reference and keeps running; its completion wakes the session
-    /// (ADR 0010). Waits a cell makes on the host (`rlm.collect`,
-    /// `jobs.wait`) are clamped to it.
+    /// (ADR 0010). A cell inside a blocking wait on the agent's work
+    /// (`jobs.wait`, `rlm.collect`, capped at 30 minutes) does not detach.
     pub tool_blocking_budget_ms: Option<u64>,
     /// Tool rounds one turn may make before it ends as failed (default
     /// 250; `0` or unset takes the default).
@@ -471,6 +522,7 @@ pub struct Settings {
     pub theme: Option<String>,
     pub compaction: Option<CompactionSettings>,
     pub memory: Option<MemorySettings>,
+    pub rlm: Option<RlmSettings>,
     pub auto_refine: Option<AutoRefineSettings>,
     pub factory: Option<FactorySettings>,
     pub branch_summary: Option<BranchSummarySettings>,
@@ -551,6 +603,8 @@ pub struct Settings {
     pub tts: Option<TtsSettings>,
     /// `stt`: speech to text.
     pub stt: Option<SttSettings>,
+    /// `privacy`: outbound anonymization.
+    pub privacy: Option<PrivacySettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

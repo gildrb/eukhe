@@ -1,5 +1,5 @@
 //! The host's check of every path a document tool reads or writes (the
-//! path policy, docs/tools.md S7, `laws/path_policy/` (G1)).
+//! path policy, `laws/path_policy/` (G1)).
 
 use eukhe_types::path_policy::RealPath;
 
@@ -25,8 +25,9 @@ pub enum Access {
 /// [`eukhe_types::path_policy::resolve`] gives it): the access then
 /// happens on its real path. An implementation decides on that value as
 /// it is (it does not resolve the real path again: that would lose a
-/// loop) and may block until the user answers. It returns `Err` with the
-/// reason, for the model, when the access must not happen.
+/// loop) and may block until the user answers. It returns
+/// [`AccessRefusal`], whose text is for the model, when the access must
+/// not happen.
 pub trait AccessGate: Sync {
     /// Let `access` to `real` happen, or refuse it with the reason.
     /// `display` names the path as the model wrote it.
@@ -35,7 +36,20 @@ pub trait AccessGate: Sync {
     ///
     /// The reason the access did not happen (the policy refused it, the
     /// user denied it, or no one answered).
-    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), String>;
+    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), AccessRefusal>;
+}
+
+/// Why the host's gate refused an access: the host's own error, whose
+/// `Display` is the reason the model reads.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct AccessRefusal(Box<dyn std::error::Error + Send + Sync>);
+
+impl AccessRefusal {
+    /// The refusal of the host's `reason`.
+    pub fn new(reason: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(reason))
+    }
 }
 
 /// The gate of the tests whose subject is not the gate: it lets every
@@ -45,7 +59,12 @@ pub(crate) struct Open;
 
 #[cfg(test)]
 impl AccessGate for Open {
-    fn check(&self, _access: Access, _real: &RealPath, _display: &str) -> Result<(), String> {
+    fn check(
+        &self,
+        _access: Access,
+        _real: &RealPath,
+        _display: &str,
+    ) -> Result<(), AccessRefusal> {
         Ok(())
     }
 }

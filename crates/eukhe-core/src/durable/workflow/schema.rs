@@ -36,12 +36,73 @@ pub(crate) fn extract_json(answer: &str) -> Option<Value> {
         .flatten()
 }
 
+/// The first place a value does not match a schema: its path (`$`,
+/// `$.key`, `$[0]`, ...) and why.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("{path}: {reason}")]
+pub(crate) struct SchemaMismatch {
+    pub(crate) path: String,
+    pub(crate) reason: MismatchReason,
+}
+
+/// Why a value does not match its schema.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub(crate) enum MismatchReason {
+    /// `type` names one type; the value has another.
+    #[error("expected {expected}, got {got}")]
+    Type { expected: String, got: &'static str },
+    /// `type` lists types; the value has none of them.
+    #[error("expected one of {}, got {got}", JsonList(.expected))]
+    AnyType {
+        expected: Vec<Value>,
+        got: &'static str,
+    },
+    /// The value is not one of `enum`.
+    #[error("{value} is not one of {}", JsonList(.options))]
+    NotInEnum {
+        value: Box<Value>,
+        options: Vec<Value>,
+    },
+    /// The value is not `const`.
+    #[error("expected {expected}")]
+    NotConst { expected: Box<Value> },
+    /// An object lacks a `required` property.
+    #[error("missing required property {key}")]
+    MissingRequired { key: String },
+    /// An object has a property `properties` does not name, under
+    /// `additionalProperties: false`.
+    #[error("unexpected property {key}")]
+    UnexpectedProperty { key: String },
+    /// An array is shorter than `minItems`.
+    #[error("expected at least {min} items")]
+    TooFewItems { min: u64 },
+    /// An array is longer than `maxItems`.
+    #[error("expected at most {max} items")]
+    TooManyItems { max: u64 },
+}
+
+/// Values shown as one compact JSON array.
+struct JsonList<'a>(&'a [Value]);
+
+impl std::fmt::Display for JsonList<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[")?;
+        for (index, item) in self.0.iter().enumerate() {
+            if index > 0 {
+                f.write_str(",")?;
+            }
+            write!(f, "{item}")?;
+        }
+        f.write_str("]")
+    }
+}
+
 /// Check `value` against `schema`; the first mismatch, with its path.
 ///
 /// # Errors
 ///
-/// The first mismatch, as `<path>: <reason>`.
-pub(crate) fn validate(value: &Value, schema: &Value) -> Result<(), String> {
+/// The first mismatch.
+pub(crate) fn validate(value: &Value, schema: &Value) -> Result<(), SchemaMismatch> {
     check(value, schema, "$")
 }
 
@@ -63,13 +124,22 @@ fn has_type(value: &Value, name: &str) -> bool {
     }
 }
 
-fn check(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
+fn check(value: &Value, schema: &Value, path: &str) -> Result<(), SchemaMismatch> {
     let Value::Object(schema) = schema else {
         return Ok(());
     };
+    let mismatch = |reason| {
+        Err(SchemaMismatch {
+            path: path.to_owned(),
+            reason,
+        })
+    };
     match schema.get("type") {
         Some(Value::String(name)) if !has_type(value, name) => {
-            return Err(format!("{path}: expected {name}, got {}", type_name(value)));
+            return mismatch(MismatchReason::Type {
+                expected: name.clone(),
+                got: type_name(value),
+            });
         }
         Some(Value::Array(names))
             if !names
@@ -77,25 +147,26 @@ fn check(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
                 .filter_map(Value::as_str)
                 .any(|name| has_type(value, name)) =>
         {
-            return Err(format!(
-                "{path}: expected one of {}, got {}",
-                Value::Array(names.clone()),
-                type_name(value)
-            ));
+            return mismatch(MismatchReason::AnyType {
+                expected: names.clone(),
+                got: type_name(value),
+            });
         }
         Some(_) | None => {}
     }
     if let Some(Value::Array(options)) = schema.get("enum") {
         if !options.contains(value) {
-            return Err(format!(
-                "{path}: {value} is not one of {}",
-                Value::Array(options.clone())
-            ));
+            return mismatch(MismatchReason::NotInEnum {
+                value: Box::new(value.clone()),
+                options: options.clone(),
+            });
         }
     }
     if let Some(expected) = schema.get("const") {
         if expected != value {
-            return Err(format!("{path}: expected {expected}"));
+            return mismatch(MismatchReason::NotConst {
+                expected: Box::new(expected.clone()),
+            });
         }
     }
     match value {
@@ -103,7 +174,9 @@ fn check(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
             if let Some(Value::Array(required)) = schema.get("required") {
                 for key in required.iter().filter_map(Value::as_str) {
                     if !object.contains_key(key) {
-                        return Err(format!("{path}: missing required property {key}"));
+                        return mismatch(MismatchReason::MissingRequired {
+                            key: key.to_owned(),
+                        });
                     }
                 }
             }
@@ -113,7 +186,9 @@ fn check(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
                     Some(property) => check(item, property, &format!("{path}.{key}"))?,
                     None => {
                         if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
-                            return Err(format!("{path}: unexpected property {key}"));
+                            return mismatch(MismatchReason::UnexpectedProperty {
+                                key: key.clone(),
+                            });
                         }
                     }
                 }
@@ -123,12 +198,12 @@ fn check(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
             let length = items.len() as u64;
             if let Some(min) = schema.get("minItems").and_then(Value::as_u64) {
                 if length < min {
-                    return Err(format!("{path}: expected at least {min} items"));
+                    return mismatch(MismatchReason::TooFewItems { min });
                 }
             }
             if let Some(max) = schema.get("maxItems").and_then(Value::as_u64) {
                 if length > max {
-                    return Err(format!("{path}: expected at most {max} items"));
+                    return mismatch(MismatchReason::TooManyItems { max });
                 }
             }
             if let Some(item_schema) = schema.get("items") {
@@ -175,15 +250,17 @@ mod tests {
             }
         });
         assert_eq!(
-            validate(&json!({"findings": [{"severity": "high"}]}), &schema),
+            validate(&json!({"findings": [{"severity": "high"}]}), &schema)
+                .map_err(|e| e.to_string()),
             Ok(())
         );
         assert_eq!(
-            validate(&json!({"findings": [{"severity": "mid"}]}), &schema),
+            validate(&json!({"findings": [{"severity": "mid"}]}), &schema)
+                .map_err(|e| e.to_string()),
             Err("$.findings[0].severity: \"mid\" is not one of [\"high\",\"low\"]".to_owned())
         );
         assert_eq!(
-            validate(&json!({}), &schema),
+            validate(&json!({}), &schema).map_err(|e| e.to_string()),
             Err("$: missing required property findings".to_owned())
         );
     }

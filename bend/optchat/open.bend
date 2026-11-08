@@ -44,7 +44,7 @@ def open.at(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +view: List
 def open.batch(r: List<&2, ONode.Node> & List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, ready: List<&2, ONode.Node>) -> OState.St & Maybe<&2, List<&2, ONode.Node>>:
   (merged, view0) = r
   +view = view0
-  (open.at(cfg, t, info, view, Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, view), OState.Cfg.floor(cfg)), ready), Some{merged})
+  (open.at(cfg, t, info, view, OFit.over(OState.Cfg.ph(cfg), info, view, OState.Cfg.floor(cfg)), ready), Some{merged})
 
 def open.go(missed: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +view: List<&2, ONode.Node>, shrink: Bool, ready: List<&2, ONode.Node>) -> OState.St & Maybe<&2, List<&2, ONode.Node>>:
   match missed:

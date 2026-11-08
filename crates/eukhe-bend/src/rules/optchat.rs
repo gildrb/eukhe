@@ -1,4 +1,4 @@
-//! The chat memory's planner (docs/memory.md, gist §3-§4): the model
+//! The chat memory's planner (spec/README.md M1, gist §3-§4): the model
 //! `bend/optchat/`, stepper entry `bend/ffi_optchat.bend`.
 //!
 //! The planner lives in the compiled core: which lines the view and the
@@ -6,9 +6,10 @@
 //! compactor starts. The chat opens it from its loaded log, sends each
 //! event as it happens (a message, a node built, a call started or freed,
 //! a turn that starts to wait) and each query it needs (the nodes to
-//! start, a compaction's view, how many calls run), and does what each
-//! reply says (`optchat_step_is_model` in `laws/optchat.bend`). The chat
-//! keeps the texts and tells the planner only their sizes.
+//! start under the due mark, a compaction's view, how many calls run), and
+//! does what each reply says (`optchat_step_is_model` in
+//! `laws/optchat.bend`). The chat keeps the texts and tells the planner
+//! only their sizes.
 
 use crate::wire::{Reader, WireError, Writer, NAT_MAX};
 use crate::{expect_core, Entry, Stepper};
@@ -148,13 +149,15 @@ impl Planner {
     }
 
     /// The nodes to start now, within the free job slots, in order (§4
-    /// "The order").
-    pub fn candidates(&mut self, demand: Demand) -> Vec<Node> {
+    /// "The order"), under the due mark `due`: only view lines and ready
+    /// merges that start before message `due` (the largest end a request
+    /// asked to see summarized; `laws/optchat.bend` H4).
+    pub fn candidates(&mut self, demand: Demand, due: u64) -> Vec<Node> {
         let tag = match demand {
             Demand::Background => 5,
             Demand::Turn => 6,
         };
-        let reply = self.step(Writer::new().tag(tag));
+        let reply = self.step(Writer::new().tag(tag).nat(due.min(NAT_MAX)));
         expect_core(Entry::Optchat, read_nodes(&reply))
     }
 
@@ -287,10 +290,13 @@ mod tests {
         );
         assert_eq!(planner.message(), None);
         assert_eq!(
-            planner.candidates(Demand::Background),
+            planner.candidates(Demand::Background, 4),
             [node(0, 3), node(1, 0)]
         );
-        assert_eq!(planner.candidates(Demand::Turn), [node(0, 3)]);
+        assert_eq!(planner.candidates(Demand::Turn, 4), [node(0, 3)]);
+        // Under a mark of 3 nothing past message 2 starts; under 0, nothing.
+        assert_eq!(planner.candidates(Demand::Background, 3), [node(1, 0)]);
+        assert_eq!(planner.candidates(Demand::Turn, 0), []);
         planner.started(node(1, 0));
         assert_eq!(planner.busy_count(), 1);
         assert_eq!(planner.hold(), [node(1, 0)]);

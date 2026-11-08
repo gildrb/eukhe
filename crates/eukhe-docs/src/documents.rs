@@ -3,6 +3,7 @@
 //! host's [`AccessGate`]: each path access happens only after it let it.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::error::EditError;
 use crate::gate::AccessGate;
@@ -10,6 +11,7 @@ use crate::glob::{GlobError, GlobOutput, GlobRequest};
 use crate::grep::{GrepError, GrepOutput, GrepRequest};
 use crate::hashline::{apply_hashline, HashlineOptions, HashlineOutcome};
 use crate::read::{self, ReadError, ReadView};
+use crate::seen_log::SeenJournal;
 use crate::store::EditStore;
 use crate::url::{Located, Url};
 use crate::write::{self, LockedWriter, WriteError, WriteOutcome};
@@ -29,6 +31,22 @@ impl Documents {
     pub fn new(lock_dir: PathBuf, home: Option<PathBuf>) -> Self {
         Self {
             store: EditStore::new(),
+            lock_dir,
+            home,
+        }
+    }
+
+    /// [`Documents::new`] with the seen lines kept in `journal`: an edit
+    /// anchors to the lines an earlier process of the session saw of the
+    /// text the file still holds ([`EditStore::restore`]).
+    #[must_use]
+    pub fn journaled(
+        lock_dir: PathBuf,
+        home: Option<PathBuf>,
+        journal: Arc<dyn SeenJournal>,
+    ) -> Self {
+        Self {
+            store: EditStore::journaled(journal),
             lock_dir,
             home,
         }
@@ -375,12 +393,8 @@ mod tests {
         let created = docs
             .write(&cwd, "b.txt", "new\n", &Open)
             .map(|outcome| outcome.disposition);
-        let refusal = "Cannot write a.txt: it changed since you last read it, or you never read \
-                       it. Nothing was written; read it, then write again.";
         assert_eq!(
             (
-                never_read.as_str(),
-                changed_after_read.as_str(),
                 kept.as_str(),
                 after_read.unwrap(),
                 again.unwrap(),
@@ -388,8 +402,6 @@ mod tests {
                 std::fs::read_to_string(&path).unwrap()
             ),
             (
-                refusal,
-                refusal,
                 "theirs again\n",
                 WriteDisposition::Overwrote,
                 WriteDisposition::Overwrote,
@@ -397,6 +409,10 @@ mod tests {
                 "mine 2\n".to_owned()
             )
         );
+        // Each refusal names the one-step fix: read this path, then retry.
+        for refusal in [never_read, changed_after_read] {
+            assert!(refusal.contains(r#"read("a.txt")"#), "{refusal}");
+        }
     }
 
     /// Sessions editing one file at once never lose an update: a write

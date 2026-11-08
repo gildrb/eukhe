@@ -10,5 +10,5 @@ pub(crate) use executable::worker_image;
 
 #[cfg(test)]
 pub(crate) use paths::SocketDir;
+pub use paths::{check_daemon_socket_dir, socket_identity, worker_socket_path, SocketIdentity};
 pub(crate) use paths::{prepare_socket_dir, worker_socket_prefix};
-pub use paths::{socket_identity, worker_socket_path, SocketIdentity};

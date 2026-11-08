@@ -11,7 +11,7 @@ import Base
 import ../../bend/child.bend as Ch
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../wire/wire_nat_exact.bend as PWireNatExact
@@ -272,7 +272,7 @@ def cx.fate.go(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>
         case 2n:
           Wire.wire_nat_exact(s, 2n, s0, ed)
         case 3n:
-          Unit{}
+          Wire.wire_nat_exact(s, 3n, s0, ed)
         case 4n:
           Unit{}
         case 5n+k:

@@ -51,6 +51,34 @@ pub fn is_daemon_rejection(error: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<RequestRejected>().is_some())
 }
 
+/// A daemon command the agents view or an `@name` delivery sent that did
+/// not go through: the daemon's refusal (its message, when it gave one),
+/// or the request's own failure (the connection, a timeout).
+#[derive(Debug, thiserror::Error)]
+pub enum CommandFailed {
+    #[error("{}", message.as_deref().unwrap_or("the command failed"))]
+    Refused { message: Option<String> },
+    #[error("{0:#}")]
+    Request(#[source] anyhow::Error),
+}
+
+impl CommandFailed {
+    /// A settled request: its successful response, or why it failed.
+    ///
+    /// # Errors
+    ///
+    /// The daemon refused the command, or the request itself failed.
+    pub fn check(settled: Result<DaemonResponse>) -> Result<DaemonResponse, Self> {
+        match settled {
+            Ok(response) if response.success => Ok(response),
+            Ok(response) => Err(Self::Refused {
+                message: response.error,
+            }),
+            Err(error) => Err(Self::Request(error)),
+        }
+    }
+}
+
 /// Something accepted the daemon socket's connection but did not greet as
 /// this product's daemon: its hello names another protocol (a pre-rename
 /// `prime-agent.daemon` build), or its first line is not a parseable
@@ -106,16 +134,19 @@ pub fn is_foreign_daemon(error: &anyhow::Error) -> bool {
 /// connection (as opposed to a handshake failure on a live listener).
 /// Displays the operator-facing connect message; a transport error stays
 /// in the chain beneath it.
-#[derive(Debug)]
-pub(super) struct DaemonConnectFailed(pub(super) String);
-
-impl std::fmt::Display for DaemonConnectFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
+#[derive(Debug, thiserror::Error)]
+pub(super) enum DaemonConnectFailed {
+    #[error(
+        "Timed out after {timeout_ms}ms connecting to the Eukhe daemon. Socket: {}.",
+        socket_path.display()
+    )]
+    TimedOut {
+        timeout_ms: u64,
+        socket_path: std::path::PathBuf,
+    },
+    #[error("Failed to connect to the Eukhe daemon. Socket: {}.", socket_path.display())]
+    Refused { socket_path: std::path::PathBuf },
 }
-
-impl std::error::Error for DaemonConnectFailed {}
 
 /// Whether a connect failed before anything accepted the connection
 /// (transport connect error or connect timeout), as opposed to a

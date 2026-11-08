@@ -6,8 +6,8 @@ use super::sse::{sse_json_stream, LineDecoder, SseDecoder};
 use super::{api_error_message, status_error};
 use crate::utils::diagnostics::{ErrorObject, SdkValue};
 
-fn body(chunks: &[&str]) -> futures::stream::BoxStream<'static, Result<Vec<u8>, String>> {
-    let chunks: Vec<Result<Vec<u8>, String>> = chunks
+fn body(chunks: &[&str]) -> futures::stream::BoxStream<'static, Result<Vec<u8>, reqwest::Error>> {
+    let chunks: Vec<Result<Vec<u8>, reqwest::Error>> = chunks
         .iter()
         .map(|chunk| Ok(chunk.as_bytes().to_vec()))
         .collect();
@@ -78,7 +78,7 @@ async fn a_utf8_sequence_split_across_chunks_survives() {
         .position(|&byte| byte >= 0x80)
         .expect("multibyte")
         + 1;
-    let chunks: Vec<Result<Vec<u8>, String>> =
+    let chunks: Vec<Result<Vec<u8>, reqwest::Error>> =
         vec![Ok(bytes[..split].to_vec()), Ok(bytes[split..].to_vec())];
     let events: Vec<_> = sse_json_stream(
         futures::stream::iter(chunks).boxed(),

@@ -10,13 +10,13 @@ import ../base.bend as LawsBase
 
 # LAWS (G5): a child's question reaches its root's user, a session that
 # runs only from the phone gateway never waits, and the default auto set
-# runs every step but the never-auto ones. Each law is an open claim about
+# runs every step. Each law is an open claim about
 # the model in bend/approvals.bend; PROOF.bend proves them (as Approvals.<law>)
 # with the lemmas of proof/approvals/.
 
 # (G5) A child's question reaches its root's user
 # ------------------------------------------------
-# docs/tools.md G5, the model in bend/approvals.bend. A chain lists the
+# the model in bend/approvals.bend. A chain lists the
 # sessions from the one that asks (a subagent, or a root) up to its root.
 # The desks of a chain of sessions, as the compiled core runs them
 # (laws/approvals/desk.bend, approvals_desk_is_route), route a question
@@ -57,7 +57,8 @@ law quiet_is_unanswered:
 # -----------------------------------------------------------------
 # The phone gateway shows no question. A step is guarded when it writes a
 # protected path (effect 5: eukhe's own config and credentials, a .git or
-# .eukhe dir, a PATH dir) or reads or writes a secret (effect 6).
+# .eukhe dir, a PATH dir); the rule refuses it when the auto set does not
+# already run it.
 
 # LAW gateway_never_waits: a step of a session whose only clients are the phone gateway never
 # waits: no client gets a frame, the question does not go up the chain,

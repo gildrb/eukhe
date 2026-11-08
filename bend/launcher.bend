@@ -1,4 +1,4 @@
-# launcher: a daemon replacement (docs/daemon.md D1): the idle shutdown
+# launcher: a daemon replacement : the idle shutdown
 # and the adoption of live workers. The decisions the Rust code makes run
 # as this code (entry bend/ffi_launcher.bend): a run start at a worker's
 # gate, a worker's quiesce, the supervisor's commit of an idle shutdown

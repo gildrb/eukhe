@@ -6,8 +6,8 @@ use super::{assistant_value_to_entries, ChatEntry};
 use eukhe_types::ai::{AssistantMessage, ServiceTier, StopReason, UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::daemon::{
-    AgentRelayEvent, BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover,
-    MemoryUpdate, SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
+    BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover, MemoryUpdate,
+    SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
 use eukhe_types::goal::GoalState;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
@@ -110,10 +110,6 @@ pub enum TurnUpdate {
     /// merged the view. Moves the status line's `mem` gauge only; never
     /// a transcript row.
     MemoryUpdate(MemoryUpdate),
-    /// `agent_relay`: two non-root agents of this session's family
-    /// exchanged a message. A display-only transcript row; never sent to
-    /// a model.
-    AgentRelay(AgentRelayEvent),
     /// `goal_update`: the session goal state changed (the session view
     /// owns announcement and tray rendering).
     GoalUpdate(GoalState),
@@ -348,7 +344,6 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         }
         SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
-        SessionEvent::AgentRelay(relay) => TurnUpdate::AgentRelay(relay.clone()),
         SessionEvent::BashStart {
             command,
             exclude_from_context,

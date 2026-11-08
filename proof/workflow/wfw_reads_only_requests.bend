@@ -11,7 +11,7 @@ import Base
 import ../../bend/ffi_workflow.bend as FW
 import ../../bend/workflow.bend as W
 import ../../bend/wire.bend as Wr
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../wire/wire_nat_exact.bend as PWireNatExact

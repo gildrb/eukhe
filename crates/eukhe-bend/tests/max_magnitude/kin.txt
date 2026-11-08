@@ -1,0 +1,11 @@
+# tag 0: sender, target, children, parents; tag 1: the state (0..2):
+# every request; a state, a string length and a list count at the wire's
+# largest (short input: refused); a 15-digit tag and length
+call 0,1,a1,r2,1,a1,b2,1,r1,r
+call 0,1,a1,a0,0,
+call 1,2,
+refuse 1,{MAX},
+refuse 0,{MAX},a1,r0,0,
+refuse 0,1,a1,r{MAX},1,a0,
+refuse {LONG},
+refuse 0,{LONG},a1,r0,0,

@@ -91,6 +91,7 @@ pub mod openrouter_images;
 pub mod pi_messages;
 pub mod simple_options;
 pub(crate) mod system_one_shared;
+pub(crate) mod tool_result_content;
 pub mod transform_messages;
 pub mod typesafe_system_one;
 

@@ -1441,3 +1441,30 @@ fn settled_rows_survive_a_cache_roundtrip() {
         "a fresh view renders the same rows (the cards' sub-millisecond clocks round to 0ms)"
     );
 }
+
+/// A session whose turn ended while work it started still runs reads as
+/// waiting, never as done: the row above the composer names the work
+/// (ASCII only, like every frame), and nothing renders once it settled.
+#[test]
+fn an_idle_session_waiting_on_work_names_it_above_the_composer() {
+    let mut view = view();
+    view.waiting_on = Some(crate::activity::WaitingOn {
+        jobs: vec![eukhe_types::daemon::WaitingJob {
+            id: eukhe_types::job::JobId::new("j1").expect("a job id"),
+            label: "sleep 45".to_string(),
+        }],
+        subagents: 2,
+        ..crate::activity::WaitingOn::default()
+    });
+    let rows: Vec<String> = view
+        .render_transcript_tail(80)
+        .iter()
+        .map(|line| text_of(line).trim_end().to_string())
+        .collect();
+    assert_eq!(
+        rows,
+        ["", " ~ waiting on job j1 - 2 subagents"].map(str::to_string)
+    );
+    view.waiting_on = None;
+    assert_eq!(view.render_transcript_tail(80), Vec::<Line>::new());
+}

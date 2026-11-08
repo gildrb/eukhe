@@ -10,7 +10,7 @@ use crate::glyphs::WARN;
 /// Kernel-bash channel frames: list snapshots refresh the dock and the
 /// open bash view, a landed tail feeds the open view's detail row, and
 /// background action surfaces as an error row.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub(crate) enum BashActivityUpdate {
     /// `epoch` identifies the list request the response answers; only the
     /// latest issued request's response may land.
@@ -33,7 +33,7 @@ pub(crate) enum BashActivityUpdate {
     Refresh { session: String },
     Error {
         session: String,
-        message: String,
+        error: BashActionError,
         /// The activity the failed request was about (a tail or kill for
         /// one row): a late failure lands only on that row's open detail
         /// pane, never on whichever row the user switched to.
@@ -47,6 +47,17 @@ pub(crate) enum BashActivityUpdate {
         /// (a kill owns no generation and stays `None`).
         generation: Option<u64>,
     },
+}
+
+/// Why a bash view request failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BashActionError {
+    /// The detail pane's tail fetch.
+    #[error("Bash output: {0:#}")]
+    Output(#[source] anyhow::Error),
+    /// A kill.
+    #[error("Could not kill bash command: {0:#}")]
+    Kill(#[source] anyhow::Error),
 }
 
 /// The attached snapshot's bash slot state, captured by `attach_session`
@@ -310,7 +321,7 @@ impl SessionUi {
                 }
             }
             BashActivityUpdate::Error {
-                message,
+                error,
                 activity_id,
                 fetch,
                 generation,
@@ -327,10 +338,10 @@ impl SessionUi {
                 };
                 if view.bash_view.is_some() && detail_matches {
                     if let Some(bash_view) = view.bash_view.as_mut() {
-                        bash_view.set_error(message, fetch, generation);
+                        bash_view.set_error(error.to_string(), fetch, generation);
                     }
                 } else {
-                    self.error_row(&message, view);
+                    self.error_row(&error.to_string(), view);
                 }
             }
             BashActivityUpdate::Refresh { .. } => {
@@ -392,7 +403,7 @@ impl SessionUi {
                 Err(error) => {
                     let _ = tx.send(BashActivityUpdate::Error {
                         session,
-                        message: format!("Bash output: {error:#}"),
+                        error: BashActionError::Output(error),
                         activity_id: Some(response_id),
                         fetch: true,
                         generation: Some(generation),
@@ -473,7 +484,7 @@ impl SessionUi {
                         Err(error) => {
                             let _ = tx.send(BashActivityUpdate::Error {
                                 session,
-                                message: format!("Could not kill bash command: {error:#}"),
+                                error: BashActionError::Kill(error),
                                 activity_id: Some(error_id),
                                 fetch: false,
                                 generation: None,
@@ -723,7 +734,7 @@ impl SessionUi {
                 })
                 .await
             {
-                let _ = notes.send(format!("the bash abort failed: {error:#}"));
+                let _ = notes.send(super::AbortFailed::Bash(error));
             }
         });
     }

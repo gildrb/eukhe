@@ -8,14 +8,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eukhe_core::agent_log::{AgentLog, AgentLogLevel};
+use eukhe_core::models::roles::{all_roles_overrides, role_model, RoleSource};
 use eukhe_core::resources::ThemePathOptions;
 use eukhe_core::settings::cvar::{table, Decl};
-use eukhe_core::settings::SettingsScope;
+use eukhe_core::settings::{SettingsManager, SettingsScope};
 use eukhe_core::tiny::{Candidate, Pick};
 use eukhe_theme::ThemeSources;
 use eukhe_tiny::LOCAL_PREFIX;
 use eukhe_tui::client_settings::{
-    ClientSettings, LocalRoleChoices, LocalRoleModel, ModelRoleSource, ModelRoleValue,
+    AllRolesOverride, ClientSettings, LocalRoleChoices, LocalRoleModel, ModelRoleSource,
+    ModelRoleValue,
 };
 use eukhe_types::cvar::Command;
 use eukhe_types::model_roles::ModelRole;
@@ -53,8 +55,8 @@ impl CliClientSettings {
         })
     }
 
-    fn manager(&self) -> eukhe_core::settings::SettingsManager {
-        eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
+    fn manager(&self) -> SettingsManager {
+        SettingsManager::create(&self.cwd, &self.agent_dir)
     }
 }
 
@@ -92,7 +94,7 @@ enum RoleTarget {
     Local(eukhe_core::tiny::Role, &'static Decl),
 }
 
-/// The setting of `role` (docs/settings.md, the `/model` hub).
+/// The setting of `role` (the `/model` hub).
 fn role_target(role: ModelRole) -> RoleTarget {
     use eukhe_core::tiny::Role;
     match role {
@@ -103,11 +105,22 @@ fn role_target(role: ModelRole) -> RoleTarget {
         ModelRole::Subagent => RoleTarget::Remote(&table::SUBAGENT_DEFAULT_MODEL),
         ModelRole::Worker => RoleTarget::Remote(&table::WORKER_MODEL),
         ModelRole::Gateway => RoleTarget::Remote(&table::GATEWAY_SIGNAL_MODEL),
+        ModelRole::Query => RoleTarget::Remote(&table::RLM_QUERY_MODEL),
         ModelRole::Titles => RoleTarget::Local(Role::Tiny, &table::MODEL_ROLE_TINY),
         ModelRole::Judge => RoleTarget::Local(Role::Judge, &table::MODEL_ROLE_JUDGE),
         ModelRole::Translate => RoleTarget::Local(Role::Translate, &table::MODEL_ROLE_TRANSLATE),
         ModelRole::Speech => RoleTarget::Local(Role::Speech, &table::MODEL_ROLE_SPEECH),
         ModelRole::Dictation => RoleTarget::Local(Role::Dictation, &table::MODEL_ROLE_DICTATION),
+    }
+}
+
+/// Where the config layer takes setting `decl` from (the hub's source
+/// column): no file, the global files, or the project's.
+fn config_source(manager: &SettingsManager, decl: &Decl) -> ModelRoleSource {
+    match manager.config_scope(decl) {
+        None => ModelRoleSource::Unset,
+        Some(SettingsScope::Global) => ModelRoleSource::Global,
+        Some(SettingsScope::Project) => ModelRoleSource::Project,
     }
 }
 
@@ -225,16 +238,11 @@ impl ClientSettings for CliClientSettings {
     );
 
     fn image_model(&self) -> Option<String> {
-        self.manager().get_image_model()
+        role_model(self.manager().cvars(), ModelRole::Image).selector
     }
 
     fn model_role(&self, role: ModelRole, session_model: &str) -> Option<ModelRoleValue> {
         let manager = self.manager();
-        let source = |decl: &Decl| match manager.config_scope(decl) {
-            None => ModelRoleSource::Unset,
-            Some(SettingsScope::Global) => ModelRoleSource::Global,
-            Some(SettingsScope::Project) => ModelRoleSource::Project,
-        };
         let session = || {
             if session_model.is_empty() {
                 "the session model".to_owned()
@@ -242,24 +250,26 @@ impl ClientSettings for CliClientSettings {
                 session_model.to_owned()
             }
         };
-        let (selector, source, fallback) = match role_target(role) {
+        // The role's own setting, else the all-roles model, else its
+        // default (`role_model`, the compiled core's rule).
+        let resolved = role_model(manager.cvars(), role);
+        let (decl, fallback) = match role_target(role) {
             RoleTarget::Chat => (
-                manager
-                    .get_default_provider()
-                    .zip(manager.get_default_model())
-                    .map(|(provider, model)| format!("{provider}/{model}")),
-                source(&table::DEFAULT_MODEL),
+                &table::DEFAULT_MODEL,
                 "the built-in default model".to_owned(),
             ),
             RoleTarget::Remote(decl) => {
                 let fallback = match role {
-                    ModelRole::Memory => manager
-                        .get_auxiliary_model()
-                        .map(|model| model.trim().to_owned())
-                        .filter(|model| !model.is_empty())
+                    // The memory default: the auxiliary model's own
+                    // setting, else the session model (it applies only
+                    // while the all-roles model is unset, so the
+                    // auxiliary role is its own or its default).
+                    ModelRole::Memory => role_model(manager.cvars(), ModelRole::Auxiliary)
+                        .selector
                         .unwrap_or_else(session),
                     ModelRole::Subagent => "the parent's model".to_owned(),
                     ModelRole::Gateway => "the gateway session's model".to_owned(),
+                    ModelRole::Query => "the calling session's model".to_owned(),
                     ModelRole::Chat
                     | ModelRole::Auxiliary
                     | ModelRole::Image
@@ -270,7 +280,7 @@ impl ClientSettings for CliClientSettings {
                     | ModelRole::Speech
                     | ModelRole::Dictation => session(),
                 };
-                (manager.cvars().optional_text(decl), source(decl), fallback)
+                (decl, fallback)
             }
             RoleTarget::Local(tiny, decl) => {
                 // What runs once the primary is unset: the role's chain
@@ -286,8 +296,13 @@ impl ClientSettings for CliClientSettings {
                         Pick::Use(Candidate::Remote(selector)) => selector,
                         Pick::Unavailable => "no model available".to_owned(),
                     };
-                (manager.cvars().optional_text(decl), source(decl), fallback)
+                (decl, fallback)
             }
+        };
+        let source = match resolved.source {
+            RoleSource::Own => config_source(&manager, decl),
+            RoleSource::All => ModelRoleSource::AllRoles,
+            RoleSource::Default => ModelRoleSource::Unset,
         };
         let thinking = match role {
             ModelRole::Memory => Some(manager.get_memory_thinking().model_level()),
@@ -297,6 +312,7 @@ impl ClientSettings for CliClientSettings {
             | ModelRole::Subagent
             | ModelRole::Worker
             | ModelRole::Gateway
+            | ModelRole::Query
             | ModelRole::Titles
             | ModelRole::Judge
             | ModelRole::Translate
@@ -304,11 +320,37 @@ impl ClientSettings for CliClientSettings {
             | ModelRole::Dictation => None,
         };
         Some(ModelRoleValue {
-            selector,
+            selector: resolved.selector,
             source,
             fallback,
             thinking,
         })
+    }
+
+    fn all_roles_model(&self) -> Option<ModelRoleValue> {
+        let manager = self.manager();
+        Some(ModelRoleValue {
+            selector: manager.get_all_roles_model(),
+            source: config_source(&manager, &table::MODEL_ROLE_ALL),
+            fallback: "each role's default".to_owned(),
+            thinking: None,
+        })
+    }
+
+    fn clear_all_roles_model(&self) -> Result<()> {
+        self.manager().clear_global(&[&table::MODEL_ROLE_ALL])
+    }
+
+    fn all_roles_overrides(&self, selector: &str) -> Vec<AllRolesOverride> {
+        all_roles_overrides(&self.manager(), selector)
+            .into_iter()
+            .map(|kept| AllRolesOverride {
+                role: kept.role,
+                selector: kept.selector,
+                setting: kept.setting.to_owned(),
+                file: kept.file,
+            })
+            .collect()
     }
 
     fn set_model_role(
@@ -340,6 +382,7 @@ impl ClientSettings for CliClientSettings {
                 | ModelRole::Subagent
                 | ModelRole::Worker
                 | ModelRole::Gateway
+                | ModelRole::Query
                 | ModelRole::Titles
                 | ModelRole::Judge
                 | ModelRole::Translate
@@ -535,21 +578,17 @@ mod tests {
         assert!(!settings.show_images());
         assert!(!settings.fullscreen());
 
-        // The persisted file the real consumers read.
-        let content =
-            std::fs::read_to_string(agent_dir.join("settings.json")).expect("settings file");
-        let value: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(value["theme"], "dark");
-        assert_eq!(value["idleEvictionMinutes"], "off");
-        assert_eq!(value["treeFilterMode"], "all");
-        assert_eq!(value["terminal"]["showImages"], false);
-        assert_eq!(value["terminal"]["fullscreen"], false);
+        // The persisted file the real consumers read: the global config.cfg.
+        assert_eq!(
+            std::fs::read_to_string(agent_dir.join("config.cfg")).expect("config.cfg"),
+            "set theme dark\nset idleEvictionMinutes off\nset treeFilterMode all\n\
+             set terminal.showImages false\nset terminal.fullscreen false\n"
+        );
 
         // The factory's opt-in gate (`/factory on|off|status`): unset reads
         // as disabled (the default off), and the write persists the exact
-        // nested-camelCase key the kernel's gate and the daemon's lane
-        // advertisement read -- over the same document, leaving the other
-        // keys alone.
+        // nested-camelCase key of settings.json the kernel's gate and the
+        // daemon's lane advertisement read.
         assert!(!settings.factory_enabled());
         settings.set_factory_enabled(true).expect("factory enabled");
         assert!(settings.factory_enabled());
@@ -557,7 +596,6 @@ mod tests {
             std::fs::read_to_string(agent_dir.join("settings.json")).expect("settings file");
         let value: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(value["factory"]["enabled"], true);
-        assert_eq!(value["theme"], "dark", "the write leaves the other keys");
         settings
             .set_factory_enabled(false)
             .expect("factory disabled");
@@ -569,13 +607,14 @@ mod tests {
     }
 
     /// Every non-chat role's global key, in `ModelRole::ALL` order.
-    const ROLE_KEYS: [(ModelRole, &str); 11] = [
+    const ROLE_KEYS: [(ModelRole, &str); 12] = [
         (ModelRole::Memory, "memory.model"),
         (ModelRole::Auxiliary, "auxiliaryModel"),
         (ModelRole::Image, "imageModel"),
         (ModelRole::Subagent, "subagentDefaultModel"),
         (ModelRole::Worker, "workerModel"),
         (ModelRole::Gateway, "gateway.signal.model"),
+        (ModelRole::Query, "rlm.queryModel"),
         (ModelRole::Titles, "modelRoles.tiny"),
         (ModelRole::Judge, "modelRoles.judge"),
         (ModelRole::Translate, "modelRoles.translate"),
@@ -726,29 +765,115 @@ mod tests {
         assert!(settings.clear_model_role(ModelRole::Chat).is_err());
     }
 
-    /// Regression (audit M2): a theme pick that the global config.cfg
-    /// shadows was saved and then reverted at the next start with no
-    /// word. The setter now says which file sets it.
+    /// With the all-roles model set, the hub reads every role's source:
+    /// its own model where it has one, the all-roles model for the others
+    /// that take it, the default for speech and dictation; clearing the
+    /// all-roles model returns them to their defaults.
     #[test]
-    fn a_setting_a_cfg_file_shadows_says_so() {
+    fn roles_without_their_own_model_read_the_all_roles_model() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let settings = role_settings(dir.path());
+        std::fs::write(
+            dir.path().join("agent").join("config.cfg"),
+            "set modelRoles.all p/all\nset memory.model p/own\n",
+        )
+        .expect("config.cfg");
+        let sources: Vec<(ModelRole, Option<String>, ModelRoleSource)> = ModelRole::ALL
+            .into_iter()
+            .map(|role| {
+                let value = settings.model_role(role, "p/session").expect("store");
+                (role, value.selector, value.source)
+            })
+            .collect();
+        let all = |role| (role, Some("p/all".to_owned()), ModelRoleSource::AllRoles);
+        assert_eq!(
+            sources,
+            [
+                all(ModelRole::Chat),
+                (
+                    ModelRole::Memory,
+                    Some("p/own".to_owned()),
+                    ModelRoleSource::Global
+                ),
+                all(ModelRole::Auxiliary),
+                all(ModelRole::Image),
+                all(ModelRole::Subagent),
+                all(ModelRole::Worker),
+                all(ModelRole::Gateway),
+                all(ModelRole::Query),
+                all(ModelRole::Titles),
+                all(ModelRole::Judge),
+                all(ModelRole::Translate),
+                (ModelRole::Speech, None, ModelRoleSource::Unset),
+                (ModelRole::Dictation, None, ModelRoleSource::Unset),
+            ]
+        );
+        assert_eq!(
+            settings.all_roles_model(),
+            Some(ModelRoleValue {
+                selector: Some("p/all".to_owned()),
+                source: ModelRoleSource::Global,
+                fallback: "each role's default".to_owned(),
+                thinking: None,
+            })
+        );
+        assert_eq!(settings.image_model().as_deref(), Some("p/all"));
+        settings.clear_all_roles_model().expect("clear");
+        assert_eq!(
+            (
+                settings.all_roles_model().map(|value| value.selector),
+                settings
+                    .model_role(ModelRole::Auxiliary, "p/session")
+                    .map(|value| (value.selector, value.source)),
+            ),
+            (Some(None), Some((None, ModelRoleSource::Unset)))
+        );
+    }
+
+    /// Regression (audit M2, then v0.10.61): a theme pick while the global
+    /// config.cfg sets the theme was saved to settings.json, where the cfg
+    /// line shadowed it. The pick replaces the cfg line and applies; only a
+    /// project's config.cfg sets over it, and the setter says so.
+    #[test]
+    fn a_setting_picked_in_the_ui_sticks_and_a_project_override_says_so() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let agent_dir = dir.path().join("agent");
+        let project_cfg = dir.path().join("project").join(".eukhe").join("config.cfg");
         std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::create_dir_all(project_cfg.parent().expect("project dir")).expect("project");
         std::fs::write(agent_dir.join("config.cfg"), "set theme light\n").expect("config.cfg");
+        std::fs::write(&project_cfg, "set theme mono\n").expect("project config.cfg");
         let settings = CliClientSettings::new(
             dir.path().to_path_buf(),
             agent_dir.clone(),
             CliThemeFlags::default(),
         );
-        let error = settings.set_theme("dark").expect_err("shadowed");
+        let in_project = CliClientSettings::new(
+            dir.path().join("project"),
+            agent_dir.clone(),
+            CliThemeFlags::default(),
+        );
+        settings.set_theme("dark").expect("applies");
+        let error = in_project
+            .set_theme("dusk")
+            .expect_err("the project sets it");
         assert_eq!(
-            error.to_string(),
-            format!(
-                "`theme` is saved, but {} also sets it, so that value applies",
-                agent_dir.join("config.cfg").display()
+            (
+                settings.theme(),
+                std::fs::read_to_string(agent_dir.join("config.cfg")).expect("config.cfg"),
+                error.to_string(),
+                in_project.theme(),
+            ),
+            (
+                Some("dusk".to_owned()),
+                "set theme dusk\n".to_owned(),
+                format!(
+                    "`theme` is saved, but {} sets it for this project, so that value applies here",
+                    project_cfg.display()
+                ),
+                Some("mono".to_owned()),
             )
         );
-        assert_eq!(settings.theme().as_deref(), Some("light"));
     }
 
     /// The registered themes are the resource system's (here an

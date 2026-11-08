@@ -11,18 +11,48 @@ use std::path::Path;
 
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::clamp_thinking_level;
+use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{default_thinking_level, HostDeps};
+use eukhe_core::models::roles::{all_roles_reach, own_decl};
 use eukhe_core::models::SetModelSelectionError;
 use eukhe_core::settings::{
     Persisted, SettingsError, SettingsManager, SettingsScope, ThinkingLevelSetting,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
+use eukhe_durable::session::SessionResult;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::Value;
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::{HostedSession, Worker};
+
+/// The setting a model switch saves the model in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModelSave {
+    /// The chat's default (`defaultProvider`/`defaultModel`): the next
+    /// session starts on it (TS `session.setModel`).
+    Chat,
+    /// The phone gateway's model (`gateway.signal.model`): the gateway
+    /// runs its sessions on it (its `/model N`).
+    Gateway,
+    /// None: the switch follows a setting that already names the model
+    /// (the gateway's switch to its own model).
+    Nothing,
+}
+
+impl ModelSave {
+    /// The `save` field of a `set_model` payload: absent or `chat`,
+    /// `gateway`, `none`.
+    fn of(payload: &Value) -> Option<Self> {
+        match payload.get("save").map(Value::as_str) {
+            None | Some(Some("chat")) => Some(ModelSave::Chat),
+            Some(Some("gateway")) => Some(ModelSave::Gateway),
+            Some(Some("none")) => Some(ModelSave::Nothing),
+            Some(_) => None,
+        }
+    }
+}
 
 /// The wire levels a thinking switch accepts (TS `ThinkingLevel`).
 pub(crate) const THINKING_LEVELS: &[&str] =
@@ -35,7 +65,7 @@ pub(crate) enum ModelResolutionError {
     /// model is available.
     Selection(SetModelSelectionError),
     /// The credential store or a provider catalog could not be read.
-    Models(String),
+    Models(Thrown),
 }
 
 impl ModelResolutionError {
@@ -54,20 +84,23 @@ impl ModelResolutionError {
                     }
                 }),
             ),
-            Self::Models(message) => response_failure(None, command, message, None),
+            Self::Models(error) => response_failure(None, command, &error.to_string(), None),
         }
     }
 }
 
 impl Worker {
-    /// `set_model { provider, modelId }`: resolve the model in the
-    /// session's available catalog, enforce the daemon model allowlist
-    /// (settings `allowedModels`: a model outside the allowlist fails
-    /// loudly, never a fallback), switch the main conversation (the
-    /// thinking level clamps to the new model), and persist the settings
-    /// default (TS `session.setModel`). Unknown models fail with the TS
-    /// message; a model whose provider is not signed in fails with the
-    /// typed sign-in refusal.
+    /// `set_model { provider, modelId, save?, allRoles? }`: resolve the
+    /// model in the session's available catalog, enforce the daemon model
+    /// allowlist (settings `allowedModels`: a model outside the allowlist
+    /// fails loudly, never a fallback), switch the main conversation (the
+    /// thinking level clamps to the new model), and save the model where
+    /// `save` says ([`ModelSave`]; the chat default by default, TS
+    /// `session.setModel`). With `allRoles: true` the model also becomes
+    /// the all-roles model (`modelRoles.all`) and every role it reaches
+    /// loses its own setting in the global scope, so every LLM role runs
+    /// on it. Unknown models fail with the TS message; a model whose
+    /// provider is not signed in fails with the typed sign-in refusal.
     pub(crate) async fn handle_set_model(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "set_model";
         let hosted = match self.hosted(COMMAND) {
@@ -84,6 +117,14 @@ impl Worker {
         let Some(model_id) = payload.get("modelId").and_then(Value::as_str) else {
             return response_failure(None, COMMAND, "set_model requires a modelId", None);
         };
+        let Some(save) = ModelSave::of(payload) else {
+            return response_failure(
+                None,
+                COMMAND,
+                "set_model save must be chat, gateway or none",
+                None,
+            );
+        };
         let model = match resolve_available_model(&hosted, provider, model_id).await {
             Ok(model) => model,
             Err(error) => return error.response(COMMAND),
@@ -91,8 +132,21 @@ impl Worker {
         if let Some(refusal) = self.model_allowlist_refusal(COMMAND, &model) {
             return refusal;
         }
-        if let Err(error) = apply_model(&hosted, &model, None).await {
-            return response_failure(None, COMMAND, &error, None);
+        if let Err(error) = apply_model(&hosted, &model, None, save).await {
+            return response_failure(None, COMMAND, &error.to_string(), None);
+        }
+        if payload.get("allRoles").and_then(Value::as_bool) == Some(true) {
+            // The switch landed; an all-roles model that is not saved is
+            // a row of the session, like the default model. The roles it
+            // reaches lose their own global setting (the chat's own is the
+            // switch's save); a project's own setting still wins, which
+            // the client names.
+            let deps = hosted.deps();
+            let cleared: Vec<_> = all_roles_reach().into_iter().filter_map(own_decl).collect();
+            let saved = SettingsManager::create(&deps.cwd, &deps.agent_dir)
+                .save_all_roles_model(&format!("{}/{}", model.provider, model.id), &cleared)
+                .map(|()| Persisted::Applies);
+            report_saved(deps, "the all-roles model", saved);
         }
         // TS `session.setModel` re-clamps the tier for the switched model
         // (`_clampServiceTierForModel`): a preference the new model does
@@ -148,7 +202,7 @@ impl Worker {
                 }
                 response_success(None, COMMAND, None)
             }
-            Err(error) => response_failure(None, COMMAND, &error, None),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
 
@@ -188,7 +242,7 @@ pub(crate) async fn resolve_available_model(
     let available = models
         .get_available(Some(provider), AuthOperationOptions::default())
         .await
-        .map_err(|error| ModelResolutionError::Models(error.to_string()))?;
+        .map_err(ModelResolutionError::Models)?;
     if let Some(model) = available.into_iter().find(|model| model.id == model_id) {
         return Ok(model);
     }
@@ -204,7 +258,7 @@ pub(crate) async fn resolve_available_model(
     let auth = models
         .check_auth(provider, AuthOperationOptions::default())
         .await
-        .map_err(|error| ModelResolutionError::Models(error.to_string()))?;
+        .map_err(ModelResolutionError::Models)?;
     match auth {
         None => Err(ModelResolutionError::Selection(
             SetModelSelectionError::ProviderUnauthenticated {
@@ -222,21 +276,23 @@ pub(crate) async fn resolve_available_model(
 /// `_getThinkingLevelForModelSwitch`: `thinking` when given; else, leaving
 /// a model that cannot think, the settings default level (else `medium`),
 /// so switching back restores the level saved while a reasoning model was
-/// active; else the current level). Then the settings default model (TS
-/// `session.setModel` persists it so the next session starts here).
-/// Returns the applied level once the event mirror shows the switch.
+/// active; else the current level). Then the model is saved where `save`
+/// says (the chat default: TS `session.setModel` persists it so the next
+/// session starts here). Returns the applied level once the event mirror
+/// shows the switch.
 pub(crate) async fn apply_model(
     hosted: &HostedSession,
     model: &Model,
     thinking: Option<ModelThinkingLevel>,
-) -> Result<ModelThinkingLevel, String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
+    save: ModelSave,
+) -> SessionResult<ModelThinkingLevel> {
+    let main = hosted.main()?;
     let cx = &BACKGROUND_CONTEXT;
     let deps = hosted.deps();
     let current = if let Some(level) = thinking {
         level
     } else {
-        let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
+        let agent = main.agent(cx).await?;
         let current_thinks = agent
             .model
             .as_ref()
@@ -260,16 +316,25 @@ pub(crate) async fn apply_model(
         },
         cx,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await?;
     // The tier re-clamp and the roster push read the mirror.
     hosted.events_delivered().await;
-    // The switch itself landed; a default that is not saved, or that a
-    // higher layer shadows, is a row of the session.
-    let saved = SettingsManager::create(&deps.cwd, &deps.agent_dir)
-        .set_default_model_and_provider(&model.provider, &model.id)
-        .and_then(Persisted::applied);
-    report_unsaved(deps, "the default model", saved);
+    // The switch itself landed; a model that is not saved, or that the
+    // project sets over, is a row of the session.
+    let mut settings = SettingsManager::create(&deps.cwd, &deps.agent_dir);
+    match save {
+        ModelSave::Chat => report_saved(
+            deps,
+            "the default model",
+            settings.set_default_model_and_provider(&model.provider, &model.id),
+        ),
+        ModelSave::Gateway => report_saved(
+            deps,
+            "the gateway model",
+            settings.set_gateway_model(&format!("{}/{}", model.provider, model.id)),
+        ),
+        ModelSave::Nothing => {}
+    }
     Ok(level)
 }
 
@@ -281,10 +346,10 @@ pub(crate) async fn apply_model(
 pub(crate) async fn apply_thinking_level(
     hosted: &HostedSession,
     requested: ModelThinkingLevel,
-) -> Result<bool, String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
+) -> SessionResult<bool> {
+    let main = hosted.main()?;
     let cx = &BACKGROUND_CONTEXT;
-    let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
+    let agent = main.agent(cx).await?;
     let deps = hosted.deps();
     let model = agent
         .model
@@ -303,28 +368,29 @@ pub(crate) async fn apply_thinking_level(
         },
         cx,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await?;
     hosted.events_delivered().await;
     if model.as_ref().is_some_and(|model| model.reasoning) || effective != ModelThinkingLevel::Off {
         let saved = SettingsManager::create(&deps.cwd, &deps.agent_dir)
-            .set_default_thinking_level(thinking_level_setting(effective))
-            .and_then(Persisted::applied);
-        report_unsaved(deps, "the default thinking level", saved);
+            .set_default_thinking_level(thinking_level_setting(effective));
+        report_saved(deps, "the default thinking level", saved);
     }
     Ok(true)
 }
 
-/// Show a persist of `what` that failed or that a higher layer shadows as
-/// a settings-error row of the session (the client sees it; the worker's
-/// stderr reaches no one).
-fn report_unsaved(deps: &HostDeps, what: &str, saved: anyhow::Result<()>) {
-    if let Err(error) = saved {
-        deps.settings.report([SettingsError {
-            scope: SettingsScope::Global,
-            message: format!("{what} is not saved as the default: {error:#}"),
-        }]);
-    }
+/// Show a save of `what` that failed, or that the project sets over, as a
+/// settings row of the session (the client sees it; the worker's stderr
+/// reaches no one). A save that applies shows nothing.
+fn report_saved(deps: &HostDeps, what: &str, saved: anyhow::Result<Persisted>) {
+    let message = match saved {
+        Ok(Persisted::Applies) => return,
+        Ok(shadowed @ Persisted::Shadowed(_)) => shadowed.to_string(),
+        Err(error) => format!("{what} is not saved as the default: {error:#}"),
+    };
+    deps.settings.report([SettingsError {
+        scope: SettingsScope::Global,
+        message,
+    }]);
 }
 
 /// The settings vocabulary of a thinking level.

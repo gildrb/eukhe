@@ -1,16 +1,24 @@
-//! `eukhe.prompt`: eukhe's system prompt as durable sections. Each segment
-//! of [`system_prompt_breakdown`] is one untagged section, in the same
-//! order, so the provider sees exactly eukhe's system prompt: durable
-//! joins section texts with `"\n\n"` and drops empty ones, as the breakdown
-//! joins its (never empty) segments. One more section follows them:
-//! `running-jobs`, the running jobs of the session state tree, present only
-//! while a job runs ([`super::jobs::running_jobs_section`]).
+//! `eukhe.prompt` and `eukhe.closing`: eukhe's system prompt as durable
+//! sections, one per segment of [`system_prompt_breakdown`], in the same
+//! order, so the provider sees exactly eukhe's system prompt: durable joins
+//! section texts with `"\n\n"` and drops empty ones, as the breakdown joins
+//! its (never empty) segments. The order follows how often a part changes:
+//! `eukhe.prompt` holds the install-stable sections ([`section_keys`]);
+//! the other extensions' sections (such as `codemode`) follow; then
+//! `eukhe.closing`, installed last, holds the closing `<critical>` block,
+//! the project's instructions and the environment ([`CLOSING_KEYS`]), and
+//! last `running-jobs`, present only while a job runs
+//! ([`super::jobs::running_jobs_section`]). Nothing varies per session, so
+//! a second session in a project reuses the provider's cached prompt. The
+//! leading static sections ([`SHARED_SECTIONS`]) are the same in every
+//! project too: requests send them as a cache-marked block of their own,
+//! which a session in another project, or a child, reads from the cache.
 //!
-//! Inputs fixed for the session (resources, guidelines, role, memory, log
-//! path, daemon availability) are captured at construction; the model
-//! selector, vision capability, offered tools, working directory, and date
-//! come from each request's agent. The breakdown is cached per distinct
-//! request input; a cache miss re-resolves the per-model additions
+//! Inputs fixed for the session (resources, guidelines, role, memory,
+//! daemon availability) are captured at construction; the model selector,
+//! vision capability, offered tools, working directory, and date come from
+//! each request's agent. The breakdown is cached per distinct request
+//! input; a cache miss re-resolves the per-model additions
 //! (`model-prompts.toml`) for the request's model. At open, a broken rule
 //! map is reported once as a display-only `model_prompt_error` row.
 
@@ -18,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::Models;
-use eukhe_durable::harness::define::{define_extension, section};
+use eukhe_durable::harness::define::{define_extension, section, shared_section};
 use eukhe_durable::harness::types::{
     Extension, PromptInput, SubmissionDraft, WriteSubmissionDraft,
 };
@@ -33,43 +41,44 @@ use crate::prompts::model_prompts::{
 };
 use crate::prompts::system_prompt::{
     system_prompt_breakdown, today, BuildSystemPromptOptions, ShapeRole, SourcedPrompt,
-    SystemPromptBreakdown,
+    SystemPromptBreakdown, CLOSING_SEGMENT,
 };
 use crate::skills::Skill;
 
 /// The extension name.
 pub const PROMPT_EXTENSION: &str = "eukhe.prompt";
+/// The closing extension's name.
+pub const CLOSING_EXTENSION: &str = "eukhe.closing";
 
-/// Section keys (the breakdown's segment names) in prompt order. The project
-/// context closes the prompt of a chat-memory session and follows the
-/// packages otherwise.
-#[must_use]
-pub fn section_keys(memory: Option<MemoryRole>) -> Vec<&'static str> {
-    let mut keys = vec![
-        "memory",
-        "custom",
-        "core",
-        "usage",
-        "opinionated",
-        "model-prompts",
-        "packages",
-    ];
-    if memory.is_none() {
-        keys.push("project-context");
-    }
-    keys.extend([
-        "skills-inventory",
-        "mcp-servers",
-        "environment",
-        "session-role",
-        "additional-guidance",
-        "appended-prompt",
-    ]);
-    if memory.is_some() {
-        keys.push("project-context");
-    }
-    keys
-}
+/// Section keys of `eukhe.prompt` (the breakdown's segment names) in prompt
+/// order: the install-stable part before the closing block. The first
+/// [`SHARED_SECTIONS`] are shared.
+pub const SECTION_KEYS: [&str; 12] = [
+    "memory",
+    "custom",
+    "core",
+    "usage",
+    "opinionated",
+    "model-prompts",
+    "packages",
+    "skills-inventory",
+    "mcp-servers",
+    "session-role",
+    "additional-guidance",
+    "appended-prompt",
+];
+
+/// How many of [`SECTION_KEYS`] lead the prompt as its shared prefix
+/// ([`PromptSection::shared`](eukhe_durable::harness::types::PromptSection)):
+/// the breakdown's static segments, the same in every session of an
+/// install for one memory side and model. Requests mark the prefix's end,
+/// so a session in another project, or a child, reads it from the
+/// provider's cache.
+pub const SHARED_SECTIONS: usize = 6;
+
+/// Section keys of `eukhe.closing` from the breakdown, in prompt order: the
+/// closing block, then what is stable for a project.
+pub const CLOSING_KEYS: [&str; 3] = [CLOSING_SEGMENT, "project-context", "environment"];
 
 /// The prompt inputs fixed for the session.
 struct SessionPrompt {
@@ -81,13 +90,11 @@ struct SessionPrompt {
     allow_recursion: Option<bool>,
     rlm_depth: u32,
     parent_agent: Option<String>,
-    /// No daemon child host: `rlm.spawn` errors and nothing wakes the
-    /// session after its turn.
+    /// No child host: `rlm.spawn` errors.
     daemonless: bool,
     generic_mcp_servers: Vec<String>,
     memory: Option<MemoryRole>,
     shape_role: ShapeRole,
-    messages_path: Option<String>,
     session_cwd: String,
     models: Models,
     /// Where `model-prompts.toml` and its files live.
@@ -165,7 +172,6 @@ impl PromptBuilder {
             prompt_guidelines: Some(session.guidelines.clone()),
             append_system_prompt: session.append_system_prompt.clone(),
             cwd: request.cwd.clone(),
-            messages_path: session.messages_path.clone(),
             context_files: session.context_files.clone(),
             skills: session.skills.clone(),
             allow_recursion: session.allow_recursion,
@@ -189,19 +195,14 @@ impl PromptBuilder {
     }
 }
 
-/// The `eukhe.prompt` extension of a session.
+/// The session's two prompt extensions sharing one breakdown: `eukhe.prompt`
+/// ([`SECTION_KEYS`]), which the registry installs first, and
+/// `eukhe.closing` ([`CLOSING_KEYS`], then `running-jobs`), which it
+/// installs last, after every other extension's sections. A user prompt
+/// that replaces the layered defaults drops the closing block: its section
+/// is then empty.
 #[must_use]
-pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
-    let memory = deps.memory.as_ref().map(|_| deps.role.memory_role());
-    let messages_path = match &deps.memory {
-        Some(memory) => Some(memory.dir().display().to_string()),
-        None => deps
-            .prompt
-            .conversation_log_path
-            .as_ref()
-            .or(deps.storage_dir.as_ref())
-            .map(|path| path.display().to_string()),
-    };
+pub fn extensions(deps: &Arc<HostDeps>) -> [Arc<Extension>; 2] {
     let builder = Arc::new(PromptBuilder {
         session: SessionPrompt {
             custom_prompt: deps.resources.system_prompt.clone(),
@@ -223,7 +224,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
                 .and_then(|parent| parent.agent_name.clone()),
             daemonless: deps.children.is_none(),
             generic_mcp_servers: deps.generic_mcp_servers.clone(),
-            memory,
+            memory: deps.memory.as_ref().map(|_| deps.role.memory_role()),
             shape_role: if deps.shape == super::deps::SessionShape::Main {
                 ShapeRole::Main
             } else if deps.role.worker {
@@ -231,7 +232,6 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
             } else {
                 ShapeRole::Alone
             },
-            messages_path,
             session_cwd: deps.cwd.display().to_string(),
             models: deps.models.clone(),
             agent_dir: deps.agent_dir.clone(),
@@ -239,26 +239,36 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         cache: Mutex::new(None),
     });
     report_model_prompt_errors(deps);
-    let mut sections: Vec<_> = section_keys(memory)
-        .into_iter()
-        .map(|key| {
-            let builder = Arc::clone(&builder);
-            section(
-                key,
-                move |input: &PromptInput, _cx| {
+    let sections = |keys: &[&'static str], shared: usize| -> Vec<_> {
+        keys.iter()
+            .enumerate()
+            .map(|(at, &key)| {
+                let builder = Arc::clone(&builder);
+                let render = move |input: &PromptInput, _cx: &eukhe_chord::context::Context| {
                     futures::future::ready(Ok(builder.segment(input, key))).boxed()
-                },
-                Some(false),
-            )
-        })
-        .collect();
-    // Last: it comes and goes with the jobs, after the stable sections.
-    sections.push(super::jobs::running_jobs_section(deps));
-    define_extension(Extension {
+                };
+                if at < shared {
+                    shared_section(key, render)
+                } else {
+                    section(key, render, Some(false))
+                }
+            })
+            .collect()
+    };
+    let prompt = define_extension(Extension {
         name: PROMPT_EXTENSION.to_owned(),
-        sections,
+        sections: sections(&SECTION_KEYS, SHARED_SECTIONS),
         ..Extension::default()
-    })
+    });
+    let mut closing = sections(&CLOSING_KEYS, 0);
+    // Last: it comes and goes with the jobs, after the stable sections.
+    closing.push(super::jobs::running_jobs_section(deps));
+    let closing = define_extension(Extension {
+        name: CLOSING_EXTENSION.to_owned(),
+        sections: closing,
+        ..Extension::default()
+    });
+    [prompt, closing]
 }
 
 /// Report a broken model-prompts rule map once per open: a display-only
@@ -305,3 +315,6 @@ fn report_model_prompt_errors(deps: &Arc<HostDeps>) {
         .boxed()
     }));
 }
+
+#[cfg(test)]
+mod budget_tests;

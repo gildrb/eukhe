@@ -1,0 +1,66 @@
+{
+  "autoRefine": {
+    "enabled": true
+  },
+  "chatDetail": "details",
+  "compaction": {
+    "agentCallable": false,
+    "enabled": true,
+    "keepRecentTokens": 20000,
+    "reserveTokens": 16384
+  },
+  "enableSkillCommands": true,
+  "followUpMode": "one-at-a-time",
+  "gateway": {
+    "signal": {
+      "model": "local/qwen3.8-27b"
+    }
+  },
+  "images": {
+    "autoResize": true,
+    "blockImages": false
+  },
+  "markdown": {
+    "mermaid": "final"
+  },
+  "memory": {
+    "model": "anthropic/claude-sonnet-5-5",
+    "thinking": "medium"
+  },
+  "onboardingShown": true,
+  "providerMaxInFlight": {
+    "local": 4
+  },
+  "quietStartup": true,
+  "retry": {
+    "baseDelayMs": 1500,
+    "enabled": true,
+    "maxRetries": 3,
+    "provider": {
+      "maxRetryDelayMs": 15000
+    }
+  },
+  "rlmMaxDepth": 2,
+  "showHardwareCursor": true,
+  "steeringMode": "one-at-a-time",
+  "terminal": {
+    "clearOnShrink": true,
+    "fullscreen": true,
+    "showImages": true
+  },
+  "theme": "dark",
+  "trustedProjects": [
+    "/home/user/project"
+  ],
+  "warnings": {
+    "anthropicExtraUsage": false
+  },
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-fable-5",
+  "recentModels": [
+    "anthropic/claude-fable-5",
+    "anthropic/claude-opus-5-5",
+    "local/qwen3.8-27b"
+  ],
+  "defaultThinkingLevel": "low"
+}

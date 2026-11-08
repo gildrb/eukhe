@@ -13,9 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::children::unsettled_child_tasks;
-use eukhe_core::durable::rlm::kernel_background_jobs;
-use eukhe_core::durable::workflow::unsettled_run_tasks;
+use eukhe_core::durable::pending::pending_work;
 use tokio::sync::Notify;
 
 use super::durable_host::bridge::inbox_previews;
@@ -193,11 +191,12 @@ impl Worker {
     }
 }
 
-/// The work the core does not show: unsettled child tasks and workflow
-/// runs, a queued inbox input, a kernel background job, or a running user
-/// bash. A withdrawn (paused or held) input is not work: it waits for its
-/// release. A durable read that fails counts as work (unknown never reads
-/// idle); a worker with no hosted session holds none.
+/// The work the core does not show: the work a turn's end leaves running
+/// ([`pending_work`]: running session jobs, kernel background jobs,
+/// unsettled children and workflow runs), a queued inbox input, or a
+/// running user bash. A withdrawn (paused or held) input is not work: it
+/// waits for its release. A durable read that fails counts as work
+/// (unknown never reads idle); a worker with no hosted session holds none.
 pub(crate) async fn background_work(
     session: &super::durable_host::SessionSlot,
     user_bash: &crate::user_bash::UserBash,
@@ -212,13 +211,10 @@ pub(crate) async fn background_work(
         return Work::Idle;
     };
     let cx = &BACKGROUND_CONTEXT;
-    let children = unsettled_child_tasks(hosted.harness(), main.id(), cx).await;
-    let runs = unsettled_run_tasks(hosted.harness(), main.id(), cx).await;
+    let pending = pending_work(hosted.deps(), hosted.harness(), main.id(), cx).await;
     let inbox = inbox_previews(hosted.harness(), main.id(), cx).await;
-    let idle = children.is_ok_and(|children| children.is_empty())
-        && runs.is_ok_and(|runs| runs.is_empty())
-        && inbox.is_ok_and(|inbox| inbox.is_empty())
-        && kernel_background_jobs(hosted.deps(), main.id()) == 0;
+    let idle =
+        pending.is_ok_and(|pending| pending.is_none()) && inbox.is_ok_and(|inbox| inbox.is_empty());
     if idle {
         Work::Idle
     } else {

@@ -1,4 +1,4 @@
-//! The approval gate (docs/tools.md G5): the model `bend/approvals.bend`,
+//! The approval gate (G5): the model `bend/approvals.bend`,
 //! entry `bend/ffi_approvals.bend`, laws `laws/approvals/`.
 //!
 //! The call answers the default auto set. The stepper is one session's
@@ -229,13 +229,13 @@ mod tests {
     #[test]
     fn the_desk_runs_in_the_core() {
         let write = ShellEffects::of(&[ShellEffect::Write]);
-        let secret = ShellEffects::of(&[ShellEffect::Read, ShellEffect::Secret]);
+        let protected = ShellEffects::of(&[ShellEffect::Write, ShellEffect::Protected]);
         let mut desk = Desk::open();
         let shown = desk
             .ask("call-1:0", write, Here::Clients, Parent::Above)
             .unwrap();
         let ruled = desk
-            .ask("call-2:0", secret, Here::GatewayOnly, Parent::Root)
+            .ask("call-2:0", protected, Here::GatewayOnly, Parent::Root)
             .unwrap();
         let relayed = desk
             .ask("call-3:0", write, Here::Nobody, Parent::Above)
@@ -269,9 +269,6 @@ mod tests {
                 vec![],
             )
         );
-        assert_eq!(
-            default_auto(),
-            AutoSet::new(ShellEffect::ALL.into_iter().take(6))
-        );
+        assert_eq!(default_auto(), AutoSet::new(ShellEffect::ALL));
     }
 }

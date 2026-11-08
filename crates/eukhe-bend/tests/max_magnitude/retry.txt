@@ -1,0 +1,24 @@
+# the classifier with a status at its largest
+call 0,FF1,{MAX},1,13,T
+call 0,TT1,{MAX},0,F
+# the wait: every number at its largest, the doubling to the cap, a
+# server wait above the cap, the attempt at u32::MAX (Rust's attempt)
+call 1,{MAX},{MAX},{MAX},{MAX},1,{MAX},
+call 1,1,{MAX},{MAX},{MAX},1,{MAX},
+call 1,1,{U32MAX},{MAX},{MAX},0,
+call 1,{MAX},{MAX},0,{MAX},1,{MAX},
+call 1,{MAX},{MAX},1,{MAX},1,{MAX},
+# the failover walk over a chain of the largest length (no list of its
+# providers is built), providers and waits at their largest
+call 2,{MAX},3,{MAX},1,{MAX},0,0,99999999999998,1,{MAX},{MAX},{MAX},{MAX},
+call 2,{MAX},1,0,0,{MAX},{MAX},{MAX},
+call 2,{MAX},2,{MAX},0,0,0,{MAX},{MAX},{MAX},
+# every provider tried: returns with the base doubled to max
+call 2,2,6,0,1,{MAX},1,1,{MAX},0,1,{MAX},1,1,{MAX},0,1,{MAX},1,1,{MAX},{MAX},1,{MAX},
+call 2,2,6,0,1,{MAX},1,1,{MAX},0,1,{MAX},1,1,{MAX},0,1,{MAX},1,1,{MAX},{MAX},{MAX},{MAX},
+# the stall: Rust saturates the deadline at half the largest Nat; twice
+# the largest still answers
+call 3,49999999999999,
+call 3,{MAX},
+refuse 3,{LONG},
+refuse 2,{LONG},1,0,0,1,1,1,

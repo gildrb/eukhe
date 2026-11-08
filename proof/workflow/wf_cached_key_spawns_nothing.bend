@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 
 def pw.cached(+k: Nat, cache: List<&2, Nat>, hit: {W.member(k, cache) == True{} : Bool}) -> {W.cost(k, cache) == 0n : Nat}:
   %Equal.sym(Bool, W.member(k, cache), True{}, hit) : {W.cost.go(_) == 0n : Nat}

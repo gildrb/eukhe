@@ -110,6 +110,7 @@ pub(crate) fn setup() -> Setup {
             Arc::clone(&gates) as Arc<dyn GateCommandRunner>,
             Arc::new(move || *read.lock().unwrap_or_else(PoisonError::into_inner)),
             &requests,
+            Vec::new(),
         ))
         .expect("the goal extension installs");
     registry
@@ -389,7 +390,7 @@ async fn a_goal_continues_with_its_context_until_completed() {
     );
     let goal = stored_goal(&harness, &root).await;
     assert_eq!(goal.status, GoalStatus::Complete);
-    assert!(!goal.active);
+    assert!(!goal.is_active());
     assert_eq!(goal.continuations_used, 2);
     assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
     // Every response while the goal was active spent its budget; the final
@@ -833,11 +834,11 @@ async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
     harness.close(cx()).await.expect("close");
 }
 
-/// An empty reply is no answer (docs/harness.md H4.7): the harness retries
-/// it with a harness note while notes are left (`MAX_NOTES` of
-/// eukhe-durable's `generation::decide`, 8: the first request and 8 noted
-/// retries) and then fails the run with the model error, which fails the
-/// goal; it never reaches the goal's continuation mint.
+/// An empty reply is no answer (LAWS.bend H4.7): the `EmptyStop` Director
+/// retries it with a harness note under its cap (3 empty notes in a row,
+/// law `stop_empty_gives_up`: the first request and 3 noted retries) and
+/// then fails the run with the model error, which fails the goal; it
+/// never reaches the goal's continuation mint.
 #[tokio::test(start_paused = true)]
 async fn empty_replies_are_retried_and_then_fail_the_goal() {
     let setup = setup();
@@ -853,7 +854,7 @@ async fn empty_replies_are_retried_and_then_fail_the_goal() {
         .expect("goal stamped");
     // Every request of the run gives no answer, so the run fails at its
     // last note; a run that answered would mint a goal continuation.
-    let mut responses: Vec<FauxResponseStep> = (1..=9)
+    let mut responses: Vec<FauxResponseStep> = (1..=4)
         .map(|request| answer_at("", updated_at + request * 1_000))
         .collect();
     responses.extend([answer("recovered"), answer("unused")]);
@@ -876,7 +877,10 @@ async fn empty_replies_are_retried_and_then_fail_the_goal() {
         ),
         (
             GoalStatus::Error,
-            Some("The model gave no answer: its reply (stop reason stop) has no text and no tool call"),
+            Some(
+                "The model gave no answer: its reply (stop reason stop) has no text and no tool \
+                 call, again after every empty note the harness sends in a row"
+            ),
             0
         )
     );

@@ -3,13 +3,13 @@
 //! each token paints, light or dark.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::color::{Mode, Rgb};
-use crate::rules::{RawTheme, RawValue, ThemeRules};
+use crate::rules::{RawTheme, RawValue, ThemeLoadError, ThemeRules};
 use crate::token::Token;
 
 /// The theme an empty name and every failed lookup resolve to.
@@ -51,13 +51,52 @@ pub enum ExportSurface {
     Info,
 }
 
+/// Why theme text is not a theme object: bad JSON, a wrong shape or an
+/// unknown key (the decoder's message).
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ThemeDecodeError(#[from] serde_json::Error);
+
 /// Why theme text did not become a palette.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum ThemeError {
-    /// Not a theme object: bad JSON, a wrong shape or an unknown key.
-    Parse(String),
+    /// Not a theme object.
+    #[error(transparent)]
+    Parse(#[from] ThemeDecodeError),
     /// A theme object named `name` whose colors are not valid.
-    Invalid { name: String, reason: String },
+    #[error("Invalid theme {name}: {source}")]
+    Invalid {
+        name: String,
+        #[source]
+        source: ThemeLoadError,
+    },
+}
+
+/// Why the theme file at `path` did not load; the text names the file.
+#[derive(Debug, thiserror::Error)]
+pub enum ThemeFileError {
+    /// The file could not be read.
+    #[error("Failed to read theme {}: {source}", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The file is not a theme object.
+    #[error("Failed to parse theme {}: {source}", path.display())]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: ThemeDecodeError,
+    },
+    /// A theme object advertising `name` whose colors are not valid.
+    #[error("Invalid theme {}: {source}", path.display())]
+    Invalid {
+        path: PathBuf,
+        name: String,
+        #[source]
+        source: ThemeLoadError,
+    },
 }
 
 /// A theme file (the `theme-schema.json` shape); `$schema` rides along.
@@ -91,10 +130,10 @@ impl RawTheme {
     ///
     /// # Errors
     ///
-    /// The decoder's message when the text is not a theme object (bad
-    /// JSON, a wrong shape, an unknown top-level or export key).
-    pub fn decode(raw: &str) -> Result<RawTheme, String> {
-        let file: ThemeFile = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    /// [`ThemeDecodeError`] when the text is not a theme object (bad JSON,
+    /// a wrong shape, an unknown top-level or export key).
+    pub fn decode(raw: &str) -> Result<RawTheme, ThemeDecodeError> {
+        let file: ThemeFile = serde_json::from_str(raw)?;
         let names: Vec<&str> = file.vars.keys().map(String::as_str).collect();
         let value = |value: &Value| match value {
             Value::String(text) => RawValue::Str {
@@ -183,10 +222,10 @@ impl Palette {
     /// [`ThemeError::Parse`] when the text is not a theme object;
     /// [`ThemeError::Invalid`] when the rules find its colors invalid.
     pub fn parse(raw: &str, rules: ThemeRules) -> Result<Palette, ThemeError> {
-        let theme = RawTheme::decode(raw).map_err(ThemeError::Parse)?;
-        (rules.load)(&theme).map_err(|reason| ThemeError::Invalid {
+        let theme = RawTheme::decode(raw)?;
+        (rules.load)(&theme).map_err(|source| ThemeError::Invalid {
             name: theme.name,
-            reason,
+            source,
         })
     }
 
@@ -194,14 +233,24 @@ impl Palette {
     ///
     /// # Errors
     ///
-    /// A [`LoadFailure`] naming the path and, when the file is a theme
+    /// A [`ThemeFileError`] naming the path and, when the file is a theme
     /// object, the name it advertises.
-    pub fn load(path: &Path, rules: ThemeRules) -> Result<Palette, LoadFailure> {
-        let raw = std::fs::read_to_string(path).map_err(|error| LoadFailure {
-            name: None,
-            message: format!("Failed to read theme {}: {error}", path.display()),
+    pub fn load(path: &Path, rules: ThemeRules) -> Result<Palette, ThemeFileError> {
+        let raw = std::fs::read_to_string(path).map_err(|source| ThemeFileError::Read {
+            path: path.to_path_buf(),
+            source,
         })?;
-        Palette::parse(&raw, rules).map_err(|error| LoadFailure::of(path, error))
+        Palette::parse(&raw, rules).map_err(|error| match error {
+            ThemeError::Parse(source) => ThemeFileError::Parse {
+                path: path.to_path_buf(),
+                source,
+            },
+            ThemeError::Invalid { name, source } => ThemeFileError::Invalid {
+                path: path.to_path_buf(),
+                name,
+                source,
+            },
+        })
     }
 
     /// The builtin theme `name` ([`BUILTIN_THEME_NAMES`]).
@@ -265,40 +314,5 @@ impl Palette {
     #[must_use]
     pub fn export_surface(&self, surface: ExportSurface) -> Option<Rgb> {
         self.export[surface as usize]
-    }
-}
-
-/// A theme file that did not load.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoadFailure {
-    /// The name the file advertises, when it is a theme object.
-    pub name: Option<String>,
-    /// The reason, naming the file.
-    pub message: String,
-}
-
-impl LoadFailure {
-    fn of(path: &Path, error: ThemeError) -> LoadFailure {
-        match error {
-            ThemeError::Parse(reason) => LoadFailure {
-                name: None,
-                message: format!("Failed to parse theme {}: {reason}", path.display()),
-            },
-            ThemeError::Invalid { name, reason } => LoadFailure {
-                name: Some(name),
-                message: format!("Invalid theme {}: {reason}", path.display()),
-            },
-        }
-    }
-
-    /// An invalid theme object at `path`.
-    pub(crate) fn invalid(path: &Path, name: &str, reason: &str) -> LoadFailure {
-        LoadFailure::of(
-            path,
-            ThemeError::Invalid {
-                name: name.to_string(),
-                reason: reason.to_string(),
-            },
-        )
     }
 }

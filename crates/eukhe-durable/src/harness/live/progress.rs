@@ -1,4 +1,4 @@
-//! The ephemeral progress of running tool calls (docs/runtime.md S2).
+//! The ephemeral progress of running tool calls.
 //!
 //! What a running call reports (its output window and dropped counts, its
 //! details, diagnostics, and usage) reaches the live observers of its

@@ -59,6 +59,12 @@ pub struct PromptSection {
     pub render: SectionRender,
     /// Default true: wrap the text as `<key>\n...\n</key>`.
     pub tag: Option<bool>,
+    /// eukhe addition: the text is the same in every session (no
+    /// per-session values). The leading run of such sections in the system
+    /// prompt is its shared prefix: each request names its last section as
+    /// the prompt's cache breakpoint
+    /// (`eukhe_ai::types::StreamOptions::system_cache_breakpoint`).
+    pub shared: bool,
 }
 
 impl fmt::Debug for PromptSection {
@@ -67,6 +73,7 @@ impl fmt::Debug for PromptSection {
             .debug_struct("PromptSection")
             .field("key", &self.key)
             .field("tag", &self.tag)
+            .field("shared", &self.shared)
             .finish_non_exhaustive()
     }
 }

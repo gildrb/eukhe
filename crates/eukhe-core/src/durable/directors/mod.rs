@@ -1,4 +1,4 @@
-//! The Director stack (docs/control.md S5, the model `bend/director.bend`):
+//! The Director stack (the model `bend/director.bend`):
 //! after each final answer the agent loop asks a stack of Directors what to
 //! do. The goal, the autonomous run, a reminder, and a forced tool call
 //! are layers ([`LayerKind`]); the top layer decides first, and the loop of
@@ -10,6 +10,7 @@
 //! from the stack as of its fork entry. The goal extension's `on_yield`
 //! hook runs the steps (`goals/hooks.rs`).
 
+mod pending;
 mod stack;
 
 #[cfg(test)]
@@ -23,6 +24,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader, RewindableFork, SubmissionId};
 use serde::{Deserialize, Serialize};
 
+pub(crate) use pending::pending_work_hook;
 pub use stack::{End, Layer, LayerKind, Loop, Verdict};
 
 use super::goals::{conversation_of, open_doc, read_doc, write_doc};

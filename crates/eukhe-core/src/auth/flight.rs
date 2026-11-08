@@ -5,15 +5,20 @@
 //! Every decision is the compiled Bend core's: one stepper per auth
 //! document, the desk (`bend/ffi_auth_flight.bend` over
 //! `bend/auth_flight.bend` section The desk the Rust runs; laws
-//! `laws/auth_flight/`). This module is the event loop around it, with no
+//! `laws/auth_flight/`), and what each read of the auth document means
+//! (`bend/ffi_auth_read.bend` over section The reads the Rust judges; laws
+//! `auth_read_*`, `laws/auth_read.bend`): whether a stored credential is
+//! fresh, whether a refresh can start, whether a peer's credential stands
+//! at the store. This module is the event loop around them, with no
 //! policy: each caller's thread sends the desk its caller's events in the
-//! order they come (it arrives; its read, fetch or write found something;
-//! it unwinds) under one mutex, delivers every (caller, act) pair of the
-//! reply to that caller's mailbox, and takes its own next act from its own
-//! mailbox. The reads, the fetch and the write run with no lock held. An
-//! act that serves or stores a credential means the payload of the event
-//! it answers, which the reporting thread holds: the desk never sees a
-//! credential, and this module keeps none.
+//! order they come (it arrives; its read, judged by the core, its fetch or
+//! its write found something; it unwinds) under one mutex, delivers every
+//! (caller, act) pair of the reply to that caller's mailbox, and takes its
+//! own next act from its own mailbox. The reads, the fetch and the write
+//! run with no lock held. An act that serves or stores a credential means
+//! the payload of the event it answers, which the reporting thread holds:
+//! the desk never sees a credential, and this module keeps none. No Rust
+//! copy of a rule remains.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Sender};
@@ -21,34 +26,168 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::Condvar;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{Entry, Stepper};
 
+use super::refresh_error::{AuthFileError, RefreshError};
 use super::types::AuthCredential;
+
+#[cfg(test)]
+mod tests;
 
 /// What a refresh gives its caller: the credential to serve, or why there
 /// is none.
-pub(crate) type Outcome = Result<AuthCredential, String>;
+pub(crate) type Outcome = Result<AuthCredential, RefreshError>;
+
+/// What a read of the auth document found under the provider.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "a read lives for one step; boxing the credential would allocate on every read"
+)]
+pub(crate) enum Stored {
+    /// The document could not be read or parsed: why.
+    Unreadable(AuthFileError),
+    /// No credential under the provider.
+    Missing,
+    /// The provider's credential.
+    Credential(AuthCredential),
+}
+
+/// One read of the auth document: what it found, and the clock (ms since
+/// the epoch) when it read it.
+pub(crate) struct Read {
+    pub(crate) found: Stored,
+    pub(crate) at: i64,
+}
 
 /// The reads, the fetch and the write of a refresh. The auth manager
-/// implements it over the auth document and the OAuth integration.
+/// implements it over the auth document and the OAuth integration; the
+/// tests over a scripted document. The core judges what each read found.
 pub(crate) trait RefreshIo {
-    /// The stored credential when it is fresh, `None` when it expired, or
-    /// why no refresh can start (no stored OAuth credential, an unreadable
-    /// document).
-    fn load(&mut self) -> Result<Option<AuthCredential>, String>;
+    /// Read the provider's stored credential before the refresh boards.
+    fn load(&mut self) -> Read;
 
-    /// The stored credential when it is fresh now; `None` when it expired
-    /// or the document cannot be read.
-    fn check(&mut self) -> Option<AuthCredential>;
+    /// Read the provider's stored credential again, as the leader of a
+    /// flight, before it fetches.
+    fn check(&mut self) -> Read;
 
     /// A new credential from the token endpoint, or why none came back.
     fn fetch(&mut self) -> Outcome;
 
-    /// Store `credential`, unless the stored credential is fresh (a peer
-    /// process refreshed meanwhile): the stored credential after the
-    /// write, or why the write failed.
-    fn store(&mut self, credential: AuthCredential) -> Outcome;
+    /// Under the document's lock, read the provider's stored credential
+    /// and ask `stands` whether it stands (a peer process refreshed
+    /// meanwhile): if it does, write nothing and give it back; else write
+    /// `credential` and give it back. `Err` when the write failed.
+    fn store(&mut self, credential: AuthCredential, stands: &dyn Fn(&Read) -> bool) -> Outcome;
+}
+
+/// What a read is for (the core's `Ask`).
+#[derive(Clone, Copy)]
+enum Ask {
+    Load,
+    Check,
+    Store,
+}
+
+/// The core's judgment of a read (its `Verdict`).
+enum Verdict {
+    /// The read credential is fresh: serve it, or land the flight on it.
+    Serve,
+    /// The read credential is not fresh: board, or fetch.
+    Refresh,
+    /// No refresh can start.
+    Refuse,
+    /// A peer's credential stands: the store writes nothing.
+    KeepPeer,
+    /// The store writes the fetched credential.
+    Write,
+}
+
+/// What a read found, as the core reads it.
+#[derive(Clone, Copy)]
+enum Seen<'a> {
+    Unreadable,
+    Missing,
+    Credential(&'a AuthCredential),
+}
+
+impl Read {
+    fn seen(&self) -> Seen<'_> {
+        match &self.found {
+            Stored::Unreadable(_) => Seen::Unreadable,
+            Stored::Missing => Seen::Missing,
+            Stored::Credential(credential) => Seen::Credential(credential),
+        }
+    }
+}
+
+/// A clock or an expiry as the wire carries it: an instant before the
+/// epoch as 0, one past the wire's largest Nat (the year 5138) as that
+/// Nat. For every clock below it, `clock < expiry` reads the same.
+fn wire_ms(ms: i64) -> u64 {
+    u64::try_from(ms).unwrap_or(0).min(NAT_MAX)
+}
+
+/// The core's judgment, for `ask`, of what a read at `at` (ms since the
+/// epoch) found.
+fn judge(ask: Ask, at: i64, found: Seen<'_>) -> Result<Verdict, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    request
+        .tag(match ask {
+            Ask::Load => 0,
+            Ask::Check => 1,
+            Ask::Store => 2,
+        })
+        .nat(wire_ms(at));
+    match found {
+        Seen::Unreadable => request.tag(0),
+        Seen::Missing => request.tag(1),
+        Seen::Credential(AuthCredential::ApiKey { .. } | AuthCredential::McpStaticToken { .. }) => {
+            request.tag(2)
+        }
+        Seen::Credential(AuthCredential::Oauth { expires, .. }) => {
+            request.tag(3).nat(wire_ms(*expires))
+        }
+    };
+    let reply = eukhe_bend::call(Entry::AuthRead, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let verdict = match reader.tag_of(5, "a verdict on a read")? {
+        0 => Verdict::Serve,
+        1 => Verdict::Refresh,
+        2 => Verdict::Refuse,
+        3 => Verdict::KeepPeer,
+        // `tag_of` answers a tag below 5: this is 4.
+        _ => Verdict::Write,
+    };
+    reader.end()?;
+    Ok(verdict)
+}
+
+/// Whether the stored credential `read` found stands against the fetched
+/// one at the store: the core's judgment.
+fn peer_stands(read: &Read) -> bool {
+    let stands = judge(Ask::Store, read.at, read.seen()).and_then(|verdict| match verdict {
+        Verdict::KeepPeer => Ok(true),
+        Verdict::Write => Ok(false),
+        Verdict::Serve | Verdict::Refresh | Verdict::Refuse => {
+            Err(inconsistent("a kept peer or a write"))
+        }
+    });
+    eukhe_bend::expect_core(Entry::AuthRead, stands)
+}
+
+/// Whether `credential` is fresh at `now` (ms since the epoch): the core's
+/// judgment of a stored credential the auth lookup read.
+pub(crate) fn fresh(credential: &AuthCredential, now: i64) -> bool {
+    let fresh =
+        judge(Ask::Check, now, Seen::Credential(credential)).and_then(|verdict| match verdict {
+            Verdict::Serve => Ok(true),
+            Verdict::Refresh => Ok(false),
+            Verdict::Refuse | Verdict::KeepPeer | Verdict::Write => {
+                Err(inconsistent("a serve or a refresh"))
+            }
+        });
+    eukhe_bend::expect_core(Entry::AuthRead, fresh)
 }
 
 /// What a caller's read, fetch or write found (the desk's `Fd`), with the
@@ -56,11 +195,11 @@ pub(crate) trait RefreshIo {
 enum Found {
     LoadFresh(AuthCredential),
     LoadExpired,
-    LoadFailed(String),
+    LoadFailed(RefreshError),
     CheckFresh(AuthCredential),
     CheckExpired,
     FetchOk(AuthCredential),
-    FetchFailed(String),
+    FetchFailed(RefreshError),
     Stored(Outcome),
 }
 
@@ -77,6 +216,44 @@ impl Found {
             Found::FetchFailed(cause) => (6, Some(Err(cause))),
             Found::Stored(outcome) => (7, Some(outcome)),
         }
+    }
+
+    /// What the load of a caller of `provider` found: the core's verdict
+    /// on the read.
+    fn load(provider: &str, read: Read) -> Found {
+        let verdict = judge(Ask::Load, read.at, read.seen());
+        let found = verdict.and_then(|verdict| match (verdict, read.found) {
+            (Verdict::Serve, Stored::Credential(credential)) => Ok(Found::LoadFresh(credential)),
+            (Verdict::Refresh, _) => Ok(Found::LoadExpired),
+            (Verdict::Refuse, Stored::Unreadable(cause)) => Ok(Found::LoadFailed(cause.into())),
+            (Verdict::Refuse, Stored::Missing) => Ok(Found::LoadFailed(RefreshError::NotStored {
+                provider: provider.to_string(),
+            })),
+            (Verdict::Refuse, Stored::Credential(_)) => {
+                Ok(Found::LoadFailed(RefreshError::NotOAuth {
+                    provider: provider.to_string(),
+                }))
+            }
+            (Verdict::Serve, Stored::Unreadable(_) | Stored::Missing)
+            | (Verdict::KeepPeer | Verdict::Write, _) => {
+                Err(inconsistent("a load's serve, refresh or refusal"))
+            }
+        });
+        eukhe_bend::expect_core(Entry::AuthRead, found)
+    }
+
+    /// What the leader's check found: the core's verdict on the read.
+    fn check(read: Read) -> Found {
+        let verdict = judge(Ask::Check, read.at, read.seen());
+        let found = verdict.and_then(|verdict| match (verdict, read.found) {
+            (Verdict::Serve, Stored::Credential(credential)) => Ok(Found::CheckFresh(credential)),
+            (Verdict::Refresh, _) => Ok(Found::CheckExpired),
+            (Verdict::Serve, Stored::Unreadable(_) | Stored::Missing)
+            | (Verdict::Refuse | Verdict::KeepPeer | Verdict::Write, _) => {
+                Err(inconsistent("a check's serve or refresh"))
+            }
+        });
+        eukhe_bend::expect_core(Entry::AuthRead, found)
     }
 }
 
@@ -99,11 +276,39 @@ enum Order {
     Store(AuthCredential),
     Wait,
     Done(Outcome),
+    /// The flight this caller waited on ended without an outcome (its
+    /// leader unwound): the core's text of the failure.
+    Unlanded(String),
+}
+
+/// What a caller's order leads to: an event to report, a wait for its next
+/// order, or the outcome of its refresh.
+enum Next {
+    Report(Found),
+    Wait,
+    Over(Outcome),
 }
 
 /// A reply of the core that the request cannot give: an inconsistent build.
 fn inconsistent(expected: &'static str) -> eukhe_bend::Error {
     WireError::Malformed { at: 0, expected }.into()
+}
+
+/// The failure of a flight of `provider` whose leader unwound before it
+/// landed: the core's `text` (`gone` in `bend/auth_flight.bend`), typed.
+fn unlanded(provider: &str, text: &str) -> RefreshError {
+    let cause = RefreshError::Unlanded {
+        provider: provider.to_string(),
+    };
+    let typed = if cause.to_string() == text {
+        Ok(())
+    } else {
+        Err(inconsistent(
+            "the failure of a flight that ended without an outcome",
+        ))
+    };
+    eukhe_bend::expect_core(Entry::AuthFlight, typed);
+    cause
 }
 
 impl Act {
@@ -123,8 +328,29 @@ impl Act {
                     .cloned()
                     .ok_or_else(|| inconsistent("a done with what an event found"))?,
             ),
-            Act::Fail(cause) => Order::Done(Err(cause)),
+            Act::Fail(cause) => Order::Unlanded(cause),
         })
+    }
+}
+
+impl Order {
+    /// Do this order for a caller of `provider`: the read (judged by the
+    /// core), fetch or write it asks for.
+    fn take(self, provider: &str, io: &mut impl RefreshIo) -> Next {
+        match self {
+            Order::Load => Next::Report(Found::load(provider, io.load())),
+            Order::Check => Next::Report(Found::check(io.check())),
+            Order::Fetch => Next::Report(match io.fetch() {
+                Ok(credential) => Found::FetchOk(credential),
+                Err(cause) => Found::FetchFailed(cause),
+            }),
+            Order::Store(credential) => {
+                Next::Report(Found::Stored(io.store(credential, &peer_stands)))
+            }
+            Order::Wait => Next::Wait,
+            Order::Done(outcome) => Next::Over(outcome),
+            Order::Unlanded(text) => Next::Over(Err(unlanded(provider, &text))),
+        }
     }
 }
 
@@ -179,7 +405,7 @@ impl Desk {
     ) -> Result<(), eukhe_bend::Error> {
         for (caller, act) in pairs {
             let order = act.order(payload)?;
-            let ends = matches!(order, Order::Done(_));
+            let ends = matches!(order, Order::Done(_) | Order::Unlanded(_));
             self.mailboxes
                 .get(&caller)
                 .ok_or_else(|| inconsistent("an act for a live caller"))?
@@ -278,7 +504,7 @@ impl RefreshFlights {
 
     /// Run one caller's refresh of `provider` to its outcome: arrive, then
     /// do each act the desk sends to this caller's mailbox, and report what
-    /// each read, fetch or write found.
+    /// each read (as the core judges it), fetch or write found.
     pub(crate) fn refresh(&self, provider: &str, io: &mut impl RefreshIo) -> Outcome {
         let (sender, mailbox) = mpsc::channel();
         let mut caller = Caller {
@@ -293,28 +519,14 @@ impl RefreshFlights {
                     .recv()
                     .map_err(|_| inconsistent("an act for a live caller")),
             );
-            let found = match order {
-                Order::Load => match io.load() {
-                    Ok(Some(credential)) => Found::LoadFresh(credential),
-                    Ok(None) => Found::LoadExpired,
-                    Err(cause) => Found::LoadFailed(cause),
-                },
-                Order::Check => match io.check() {
-                    Some(credential) => Found::CheckFresh(credential),
-                    None => Found::CheckExpired,
-                },
-                Order::Fetch => match io.fetch() {
-                    Ok(credential) => Found::FetchOk(credential),
-                    Err(cause) => Found::FetchFailed(cause),
-                },
-                Order::Store(credential) => Found::Stored(io.store(credential)),
-                Order::Wait => continue,
-                Order::Done(outcome) => {
+            match order.take(provider, io) {
+                Next::Report(found) => self.event(|desk| desk.found(caller.id, found)),
+                Next::Wait => {}
+                Next::Over(outcome) => {
                     caller.done = true;
                     return outcome;
                 }
-            };
-            self.event(|desk| desk.found(caller.id, found));
+            }
         }
     }
 }

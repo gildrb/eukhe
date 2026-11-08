@@ -269,6 +269,9 @@ class BashHandle:
         self._callbacks: list[Callable[[], None]] = []
         self._reap_callback: Callable[[], None] | None = None
         self._result_consumed = False
+        # The host admitted this handle's completion notice: the notice
+        # delivers its result, so a `jobs.wait()` on all work skips it.
+        self._noticed = False
         # Who asked this command to stop before it settled ("agent": the
         # handle's kill(); "user": the bash view's kill; "interrupt": a
         # cancelled one-shot await). A nonzero exit after a stop request is
@@ -689,6 +692,7 @@ class BashHandle:
             reply = await repl.host_request(completion)
             if isinstance(reply, dict) and reply.get("status") == "ok":
                 # Notice accepted by the host; later reads must ask it to withdraw.
+                self._noticed = True
                 self._arm_consumed_notice(command)
             else:
                 sys.stderr.write(

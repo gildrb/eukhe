@@ -4,10 +4,11 @@ import Base
 import ../../bend/optchat/fit.bend as OFit
 import ../../bend/optchat/info.bend as OInfo
 import ../../bend/optchat/node.bend as ONode
-import ../../bend/spec.bend as S
+import ../../spec/memory/optchat.bend as S
 import ../../laws/optchat.bend as Optchat
 import ../base/logic/logic.bend as LLogicLogic
 import ./base/step.bend as LA
+import ./base/over.bend as LOv
 
 # a type picked by a Maybe: a rewrite through it refutes Some == None
 def pf.NoneT(m: Maybe<&2, ONode.Node>, A: Type) -> Type:
@@ -170,7 +171,7 @@ def pf.fit_reach(fuel: Nat, c: Maybe<&2, ONode.Node>, +m: OFit.Age, +t: List<&2,
     case 0n _:
       pf.reach.zero(v, ph, info, budget, le)
     case 1n+f None{}:
-      pf.none_goal(Nat.is_gt(OFit.view_size(ph, info, v), budget), m, t, budget, ph, info, v, {==}, eq)
+      pf.none_goal(OFit.over(ph, info, v, budget), m, t, budget, ph, info, v, LOv.ov.over(ph, info, v, budget), eq)
     case 1n++f Some{+a}:
       %LA.pf.snd_cons(ONode.Node.parent(a), OFit.fit.go(f, OFit.choose(m, t, budget, ph, info, OFit.merge(info, v, a)), m, t, budget, ph, info, OFit.merge(info, v, a))) : pf.Goal(ph, info, budget, _)
       pf.fit_reach(f, OFit.choose(m, t, budget, ph, info, OFit.merge(info, v, a)), m, t, budget, ph, info, OFit.merge(info, v, a), pf.reach.le(info, v, a, f, le, pf.reach.cand(m, t, budget, ph, info, v, a, eq)), {==})

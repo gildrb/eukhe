@@ -11,7 +11,7 @@
 //! The provider row that runs the request may hold the clock
 //! ([`StreamClock::hold`]) while the request waits for something that is
 //! not the provider, such as an admission slot: a queue is not a stall
-//! (`docs/harness.md` H6.3).
+//! (`LAWS.bend` H6.3).
 
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::Duration;
 
+use super::prime_error::{PrimeCheckError, PrimeHttpError, PrimeTeamsError};
 use super::types::PrimeTeamCredential;
 
 /// TS `DEFAULT_PRIME_API_BASE_URL`: the Prime API the login talks to.
@@ -97,14 +98,14 @@ pub struct PrimeHttpResponse {
 
 /// The login's HTTP transport (TS's injectable `fetchFn`; the production
 /// default is reqwest). The timeout surfaces as
-/// `Prime Inference request timed out`.
+/// [`PrimeHttpError::TimedOut`].
 pub trait PrimeHttp: Send + Sync {
     fn get(
         &self,
         url: &str,
         api_key: &str,
         timeout_ms: u64,
-    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send>>;
 
     /// One POST of a JSON body (TS the browser challenge's generate and
     /// status requests over `fetchPrimeAuth`): the bearer carries the
@@ -115,7 +116,20 @@ pub trait PrimeHttp: Send + Sync {
         body: &'a str,
         bearer: Option<&'a str>,
         timeout_ms: u64,
-    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send + 'a>>;
+}
+
+/// The transport failure of a sent request: a timeout or the transport's
+/// own error.
+fn send_failure(error: reqwest::Error, timeout_ms: u64) -> PrimeHttpError {
+    if error.is_timeout() {
+        PrimeHttpError::TimedOut {
+            timeout_ms,
+            source: error,
+        }
+    } else {
+        PrimeHttpError::Transport(error)
+    }
 }
 
 /// The production transport (reqwest over rustls).
@@ -127,29 +141,23 @@ impl PrimeHttp for ReqwestPrimeHttp {
         url: &str,
         api_key: &str,
         timeout_ms: u64,
-    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send>> {
         let url = url.to_string();
         let api_key = api_key.to_string();
         Box::pin(async move {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_millis(timeout_ms))
                 .build()
-                .map_err(|error| error.to_string())?;
+                .map_err(PrimeHttpError::Client)?;
             let response = client
                 .get(url)
                 .header("authorization", format!("Bearer {api_key}"))
                 .header("accept", "application/json")
                 .send()
                 .await
-                .map_err(|error| {
-                    if error.is_timeout() {
-                        format!("Prime Inference request timed out after {timeout_ms} ms")
-                    } else {
-                        crate::auth::failure_text::transport_failure(&error)
-                    }
-                })?;
+                .map_err(|error| send_failure(error, timeout_ms))?;
             let status = response.status().as_u16();
-            let body = response.text().await.map_err(|error| error.to_string())?;
+            let body = response.text().await.map_err(PrimeHttpError::Body)?;
             Ok(PrimeHttpResponse { status, body })
         })
     }
@@ -160,12 +168,12 @@ impl PrimeHttp for ReqwestPrimeHttp {
         body: &'a str,
         bearer: Option<&'a str>,
         timeout_ms: u64,
-    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send + 'a>> {
         Box::pin(async move {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_millis(timeout_ms))
                 .build()
-                .map_err(|error| error.to_string())?;
+                .map_err(PrimeHttpError::Client)?;
             let mut request = client
                 .post(url)
                 .header("content-type", "application/json")
@@ -174,15 +182,12 @@ impl PrimeHttp for ReqwestPrimeHttp {
             if let Some(bearer) = bearer {
                 request = request.header("authorization", format!("Bearer {bearer}"));
             }
-            let response = request.send().await.map_err(|error| {
-                if error.is_timeout() {
-                    format!("Prime Inference request timed out after {timeout_ms} ms")
-                } else {
-                    crate::auth::failure_text::transport_failure(&error)
-                }
-            })?;
+            let response = request
+                .send()
+                .await
+                .map_err(|error| send_failure(error, timeout_ms))?;
             let status = response.status().as_u16();
-            let body = response.text().await.map_err(|error| error.to_string())?;
+            let body = response.text().await.map_err(PrimeHttpError::Body)?;
             Ok(PrimeHttpResponse { status, body })
         })
     }
@@ -264,12 +269,22 @@ impl PrimeAccessFailure {
 
 /// The access check's error (TS: the `ok: false` result vs the thrown
 /// transport/parse errors).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum PrimeAccessError {
     /// The API denied the key (TS `{ ok: false, status?, message }`).
     Denied(PrimeAccessFailure),
     /// The check could not run (TS's thrown errors).
-    Failed(String),
+    Failed(PrimeCheckError),
+}
+
+/// The body of a 2xx Prime answer as a JSON object, or why it is none
+/// (`source` is the parse error; `None` when it parsed to a non-object).
+pub(super) fn object_body(body: &str) -> Result<serde_json::Value, Option<serde_json::Error>> {
+    match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(data) if data.is_object() => Ok(data),
+        Ok(_) => Err(None),
+        Err(error) => Err(Some(error)),
+    }
 }
 
 /// TS `parsePrimeTeam`: one team of the teams response.
@@ -298,23 +313,23 @@ pub(super) async fn check_prime_scope_access(
     let response = http
         .get(&url, api_key, timeout_ms)
         .await
-        .map_err(PrimeAccessError::Failed)?;
+        .map_err(|error| PrimeAccessError::Failed(error.into()))?;
     if !(200..300).contains(&response.status) {
         return Err(PrimeAccessError::Denied(PrimeAccessFailure {
             status: Some(response.status),
             message: read_response_message(response.status, &response.body),
         }));
     }
-    let invalid = || {
-        PrimeAccessError::Failed(format!(
-            "Prime whoami returned an invalid response (HTTP {}): {}",
-            response.status,
-            crate::auth::failure_text::response_snippet(&response.body)
-        ))
+    let data = match object_body(&response.body) {
+        Ok(data) => data,
+        Err(source) => {
+            return Err(PrimeAccessError::Failed(PrimeCheckError::Invalid {
+                status: response.status,
+                body: response.body,
+                source,
+            }))
+        }
     };
-    let data: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|_| invalid())
-        .and_then(|data: serde_json::Value| data.is_object().then_some(data).ok_or_else(invalid))?;
     let Some(user) = data.get("data").filter(|user| user.is_object()) else {
         return Err(PrimeAccessError::Denied(PrimeAccessFailure {
             status: None,
@@ -372,15 +387,15 @@ pub async fn check_prime_inference_access(
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when a team-list request fails,
-/// the API responds with a non-2xx status, or the response body cannot be
-/// parsed as a team list.
+/// Returns [`PrimeTeamsError`] when a team-list request fails, the API
+/// responds with a non-2xx status, or the response body cannot be parsed
+/// as a team list.
 pub async fn fetch_prime_teams(
     http: &dyn PrimeHttp,
     base_url: &str,
     api_key: &str,
     timeout_ms: u64,
-) -> Result<Vec<PrimeTeamCredential>, String> {
+) -> Result<Vec<PrimeTeamCredential>, PrimeTeamsError> {
     let base_url = normalize_base_url(Some(base_url));
     let mut teams = Vec::new();
     let mut offset: u64 = 0;
@@ -388,26 +403,23 @@ pub async fn fetch_prime_teams(
         let url = format!("{base_url}/api/v1/user/teams?offset={offset}&limit=100");
         let response = http.get(&url, api_key, timeout_ms).await?;
         if !(200..300).contains(&response.status) {
-            return Err(format!(
-                "Failed to fetch Prime teams (HTTP {}): {}",
-                response.status,
-                read_response_message(response.status, &response.body)
-            ));
+            return Err(PrimeTeamsError::Status {
+                status: response.status,
+                body: response.body,
+            });
         }
-        let invalid = || {
-            format!(
-                "Prime teams returned an invalid response (HTTP {}): {}",
-                response.status,
-                crate::auth::failure_text::response_snippet(&response.body)
-            )
+        let data = match object_body(&response.body) {
+            Ok(data) => data,
+            Err(source) => {
+                return Err(PrimeTeamsError::Invalid {
+                    status: response.status,
+                    body: response.body,
+                    source,
+                })
+            }
         };
-        let data: serde_json::Value = serde_json::from_str(&response.body)
-            .map_err(|_| invalid())
-            .and_then(|data: serde_json::Value| {
-                data.is_object().then_some(data).ok_or_else(invalid)
-            })?;
         let Some(batch) = data.get("data").and_then(|data| data.as_array()) else {
-            return Err("Prime teams response missing team data".to_string());
+            return Err(PrimeTeamsError::MissingTeams);
         };
         for item in batch {
             if let Some(team) = parse_prime_team(item) {
@@ -482,7 +494,8 @@ mod tests {
             url: &str,
             _api_key: &str,
             _timeout_ms: u64,
-        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send>>
+        {
             let url = url.to_string();
             let entry = self.0.lock().unwrap().pop_front();
             Box::pin(async move {
@@ -502,7 +515,8 @@ mod tests {
             _body: &'a str,
             _bearer: Option<&'a str>,
             _timeout_ms: u64,
-        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send + 'a>> {
+        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send + 'a>>
+        {
             let url = url.to_string();
             let entry = self.0.lock().unwrap().pop_front();
             Box::pin(async move {
@@ -532,6 +546,17 @@ mod tests {
                 })
                 .collect(),
         ))
+    }
+
+    /// The access check against `api.example`: a denial as its failure, a
+    /// check that could not run as its text.
+    async fn access(http: &ScriptedHttp) -> Result<(), Result<PrimeAccessFailure, String>> {
+        check_prime_inference_access(http, "https://api.example", "sk", 1)
+            .await
+            .map_err(|error| match error {
+                PrimeAccessError::Denied(failure) => Ok(failure),
+                PrimeAccessError::Failed(error) => Err(error.to_string()),
+            })
     }
 
     #[test]
@@ -586,8 +611,8 @@ mod tests {
             r#"{"error":{"message":"not allowed"}}"#,
         )]);
         assert_eq!(
-            check_prime_inference_access(&http, "https://api.example", "sk", 1).await,
-            Err(PrimeAccessError::Denied(PrimeAccessFailure {
+            access(&http).await,
+            Err(Ok(PrimeAccessFailure {
                 status: Some(403),
                 message: "not allowed".to_string(),
             }))
@@ -599,8 +624,8 @@ mod tests {
             r#"{"data":{}}"#,
         )]);
         assert_eq!(
-            check_prime_inference_access(&http, "https://api.example", "sk", 1).await,
-            Err(PrimeAccessError::Denied(PrimeAccessFailure {
+            access(&http).await,
+            Err(Ok(PrimeAccessFailure {
                 status: None,
                 message: "Prime token is missing permission scope data".to_string(),
             }))
@@ -612,8 +637,8 @@ mod tests {
             r#"{"data":{"scope":{"inference":{"write":false}}}}"#,
         )]);
         assert_eq!(
-            check_prime_inference_access(&http, "https://api.example", "sk", 1).await,
-            Err(PrimeAccessError::Denied(PrimeAccessFailure {
+            access(&http).await,
+            Err(Ok(PrimeAccessFailure {
                 status: None,
                 message: "Prime token does not have inference write permission".to_string(),
             }))
@@ -625,8 +650,8 @@ mod tests {
             "[1,2]",
         )]);
         assert_eq!(
-            check_prime_inference_access(&http, "https://api.example", "sk", 1).await,
-            Err(PrimeAccessError::Failed(
+            access(&http).await,
+            Err(Err(
                 "Prime whoami returned an invalid response (HTTP 200): [1,2]".to_string()
             ))
         );
@@ -681,7 +706,9 @@ mod tests {
             "boom",
         )]);
         assert_eq!(
-            fetch_prime_teams(&http, "https://api.example", "sk", 1).await,
+            fetch_prime_teams(&http, "https://api.example", "sk", 1)
+                .await
+                .map_err(|error| error.to_string()),
             Err("Failed to fetch Prime teams (HTTP 500): boom".to_string())
         );
         let http = scripted(vec![(
@@ -690,7 +717,9 @@ mod tests {
             r#"{"data":{}}"#,
         )]);
         assert_eq!(
-            fetch_prime_teams(&http, "https://api.example", "sk", 1).await,
+            fetch_prime_teams(&http, "https://api.example", "sk", 1)
+                .await
+                .map_err(|error| error.to_string()),
             Err("Prime teams response missing team data".to_string())
         );
     }

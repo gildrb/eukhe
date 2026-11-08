@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW core_facts_reply_example
 
 import Base
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 
-def Facts.core_facts_reply_example():
+def FactsBudgets.core_facts_reply_example():
   ({==}, {==})

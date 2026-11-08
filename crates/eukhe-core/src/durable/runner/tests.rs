@@ -26,7 +26,7 @@ const DENIED: &str =
 /// What an unanswered cell's call says.
 const UNANSWERED: &str = "ipython did not run (exec): it needs the user's approval, and no client \
 answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is \
-not secret; or use read-only steps.";
+read, write, exec, net, outside, protected or secret; or use read-only steps.";
 
 /// Who answers a call's question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,8 +73,9 @@ impl Summarizer for NoModel {
 }
 
 /// The real registry of a session without and with chat memory is the
-/// compiled core's (`registry`, whose laws `gate_covers_every_runner` and
-/// `ipython_gated_each_call` pin it).
+/// compiled core's one registry (`registry`, whose laws
+/// `gate_covers_every_runner` and `ipython_gated_each_call` pin it): chat
+/// memory adds no tool, so a subagent offers its parent's tool list.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_registry_is_its_model() {
     let fixture = Fixture::new();
@@ -86,16 +87,11 @@ async fn the_registry_is_its_model() {
     let chat = fixture
         .open_configured(move |config| config.memory = Some(memory))
         .await;
-    let model = |chat| {
-        runners::registry(chat)
-            .into_iter()
-            .map(|tool| (tool.name, tool.caps, tool.gate))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        (dump(&classic), dump(&chat)),
-        (model(ChatMemory::Off), model(ChatMemory::On))
-    );
+    let model: Vec<_> = runners::registry()
+        .into_iter()
+        .map(|tool| (tool.name, tool.caps, tool.gate))
+        .collect();
+    assert_eq!((dump(&classic), dump(&chat)), (model.clone(), model));
 }
 
 /// The roster of a session opened under `settings` (`settings.json`) as
@@ -158,8 +154,8 @@ async fn the_tool_surface_follows_role_and_shape() {
         (
             model(runners::main_roster(ChatMemory::On)),
             model(runners::main_roster(ChatMemory::Off)),
-            model(runners::registry(ChatMemory::On)),
-            model(runners::registry(ChatMemory::Off)),
+            model(runners::registry()),
+            model(runners::registry()),
         )
     );
 }

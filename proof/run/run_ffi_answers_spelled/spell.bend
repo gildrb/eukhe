@@ -73,6 +73,10 @@ def sp.stuck(x: RnDecision.Stuck, +r: String) -> {FRn.put_stuck(x, r) == Run.run
       {==}
     case RnDecision.Repeats{before}:
       {==}
+    case RnDecision.Emptied{}:
+      {==}
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+      {==}
 
 def sp.rk(x: RnRecovery.Rk, +r: String) -> {FRn.put_rk(x, r) == Run.run_spell_rk(x, r) : String}:
   match x:
@@ -83,6 +87,8 @@ def sp.rk(x: RnRecovery.Rk, +r: String) -> {FRn.put_rk(x, r) == Run.run_spell_rk
     case RnRecovery.Leaks{}:
       {==}
     case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
       {==}
 
 # the entry's encoder writes the grammar's spelling of every request
@@ -159,9 +165,11 @@ def sp.help(x: RnDecision.Help, +r: String) -> {FRn.put_help(x, r) == Run.run_sp
       {==}
     case RnDecision.Redoes{row}:
       {==}
-    case RnDecision.Stands{}:
-      {==}
     case RnDecision.Quits{}:
+      {==}
+    case RnDecision.Compacts{}:
+      {==}
+    case RnDecision.Lowers{row}:
       {==}
 
 # the entry's answer to a request is the spelled value of its decision

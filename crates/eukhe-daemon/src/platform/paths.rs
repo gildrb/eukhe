@@ -70,6 +70,21 @@ pub(crate) fn prepare_socket_dir(dir: &Path) -> Result<SocketDir> {
     }
 }
 
+/// The socket-dir check a supervisor runs before it binds `socket_path`
+/// ([`prepare_socket_dir`] on its parent), for a launcher to run before
+/// it spawns one: the spawned supervisor's stderr goes nowhere, so a
+/// refused dir would otherwise surface only as a startup timeout.
+///
+/// # Errors
+///
+/// The refusal [`prepare_socket_dir`] gives the supervisor.
+pub fn check_daemon_socket_dir(socket_path: &Path) -> Result<()> {
+    match socket_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => prepare_socket_dir(parent).map(|_| ()),
+        Some(_) | None => Ok(()),
+    }
+}
+
 /// The core's verdict on what `symlink_metadata` found (`None`: nothing).
 fn verdict(found: Option<&std::fs::Metadata>) -> DirVerdict {
     let own_uid = current_uid();

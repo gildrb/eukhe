@@ -1,0 +1,11 @@
+# the release and series questions with every version number at its largest
+# (6 digits: a 7th is refused before the unary model runs); string lengths
+# and tag counts are what the texts need
+call 0,15,999999.999999.01,27,eukhe-v999999.999999.999999
+call 0,15,999999.999999.02,27,eukhe-v999999.999999.99999821,v999999.999999.999999
+call 0,15,999999.999999.01,27,eukhe-v999999.999998.999999
+call 0,20,999999.999999.9999990,
+call 1,15,999999.999999.020,999999.999999.999999
+refuse 0,{LONG},999999.999999.0
+refuse 0,15,999999.999999.0{LONG},
+refuse 1,11,1000000.0.05,1.0.0

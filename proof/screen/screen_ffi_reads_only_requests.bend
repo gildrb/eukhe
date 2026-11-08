@@ -9,7 +9,7 @@ import Base
 import ../../bend/ffi_screen.bend as FSc
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ../../laws/screen.bend as Screen
+import ../../laws/screen/interface.bend as Screen
 import ../wire/base/spell.bend as LAWireSpell
 import ./screen_ffi_answers_spelled/spell.bend as SP
 import ./screen_ffi_reads_only_requests/exact.bend as SX

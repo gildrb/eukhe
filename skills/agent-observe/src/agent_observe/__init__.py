@@ -13,7 +13,7 @@ from rlm import host_request
 
 
 async def list_agents() -> dict[str, Any]:
-    """List the full nuclear family: parent, siblings, children, active or not."""
+    """List this agent, its parent and its own children, active or not."""
     return await host_request("agent_observe.list")
 
 

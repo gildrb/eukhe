@@ -539,13 +539,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     );
     let storages = session_dirs(&session_dir);
     assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
-    // The harness digest rides as a user-role custom row; only the chat
-    // rows matter here.
-    let texts: Vec<String> = read_transcript(&storages[0])
-        .chat_texts()
-        .into_iter()
-        .filter(|text| !text.starts_with("[harness-digest]"))
-        .collect();
+    let texts: Vec<String> = read_transcript(&storages[0]).chat_texts();
     assert_eq!(
         texts,
         [

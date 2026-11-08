@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/depth.bend as Effort
 import ./base.bend as LA
 
 def pe.fix_shown(t: Ef.Sess, f: LA.pe.Fixed(t)) -> {Ef.shown(t) == Ef.Level{Ef.sent(t)} : Ef.Shown}:

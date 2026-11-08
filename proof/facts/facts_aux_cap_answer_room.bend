@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 
 def pf.sub_zero(+a: Nat) -> {Nat.sub(a, 0n) == a : Nat}:
   match a:

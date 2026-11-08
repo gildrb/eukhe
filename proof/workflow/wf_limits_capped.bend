@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 
 def pw.capped_succ(b: Bool, a: Nat, c: Nat) -> {W.capped(b, 1n+a, 1n+c) == 1n+W.capped(b, a, c) : Nat}:
   match b:

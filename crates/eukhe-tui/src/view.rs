@@ -66,6 +66,10 @@ pub struct AgentView {
     /// runs, and the row above the composer names the wake time instead of
     /// reading as idle.
     pub quota_park: Option<crate::activity::QuotaPark>,
+    /// What the session waits on between turns (its roster summary's
+    /// `waitingOn`): the row above the composer names it instead of
+    /// reading as done.
+    pub waiting_on: Option<crate::activity::WaitingOn>,
     /// The pinned agents block's content (the family's running agents and
     /// the session's running jobs), rebuilt on every roster, shell, and
     /// workflow update; frames only render it.
@@ -192,7 +196,7 @@ pub struct AgentView {
     /// it (its clock stops there), gone once all the text shows
     /// (`advance_paces`). The indicator is on while the reply streams,
     /// and to the user the reply streams until its last character is on
-    /// screen (docs/interface.md S8 pacing, "Turn visibility").
+    /// screen ("Turn visibility").
     loader_held_by_pace: Option<WorkingState>,
     /// Per-streaming-assistant-entry render state (`streaming`): the
     /// markdown block cache (TS `Markdown.blockCache`, one per component
@@ -338,6 +342,7 @@ impl AgentView {
             working_since: None,
             retry: None,
             quota_park: None,
+            waiting_on: None,
             agents_panel: crate::agents_panel::AgentsPanel::default(),
             pinned_agents: crate::agents_panel::PinnedAgents::default(),
             stuck_after_secs: crate::agents_panel::DEFAULT_STUCK_AFTER_SECS,

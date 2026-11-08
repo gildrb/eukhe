@@ -1,0 +1,4 @@
+# the kills of a rewind: the target and every job's commit at their largest
+call 1,{MAX},3,T1,{MAX},T0,F1,99999999999998,
+call 0,2,T1,{MAX},T0,
+refuse 1,{LONG},0,

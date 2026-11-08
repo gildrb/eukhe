@@ -9,6 +9,7 @@ description = "Theme files, their decoding, the palette and theme name resolutio
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

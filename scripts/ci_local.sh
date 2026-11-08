@@ -1,45 +1,67 @@
 #!/usr/bin/env bash
-# The CI gates of eukhe (docs/develop.md). They run only here: GitHub runs
+# The CI gates of eukhe. They run only here: GitHub runs
 # no gate. prek runs fast and pre-push as git hooks
 # (.pre-commit-config.yaml; `make hooks` installs them); the nightly run
 # (scripts/ci_nightly.sh) runs full and releases only when it passes.
 #
-#   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate:
-#                                 rustfmt, the crate layering
+#   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate
+#                                 (< 1 min): rustfmt, the crate layering
 #                                 (scripts/check_crate_layers.py), the
 #                                 secrets scan of the staged diff, and
 #                                 clippy on the crates the staged change
 #                                 touches.
-#   scripts/ci_local.sh pre-push  the pre-push gate, on the pushed commits
-#                                 (PRE_COMMIT_FROM_REF..PRE_COMMIT_TO_REF,
-#                                 from prek), in this worktree: rustfmt,
-#                                 their secrets scan, clippy and `cargo
-#                                 test` on the crates they touch, and `bend
-#                                 PROOF.bend` when a Bend input changed. No
-#                                 lock: every worktree pushes at any time.
-#   scripts/ci_local.sh full      `make ci-local`: the full gate, on the
-#                                 current tree.
+#   scripts/ci_local.sh pre-push  the pre-push gate (< 5 min), on the pushed
+#                                 commits (PRE_COMMIT_FROM_REF..
+#                                 PRE_COMMIT_TO_REF, from prek), in this
+#                                 worktree: rustfmt, their secrets scan,
+#                                 clippy and the unit tests (nextest profile
+#                                 pre-push: no e2e suite) of the crates they
+#                                 touch, the proofs their Bend change can
+#                                 reach (scripts/bend_proofs.py), and the
+#                                 laws against LAWS.lock. No lock: every
+#                                 worktree pushes at any time.
+#   scripts/ci_local.sh full      `make ci-local`, the nightly gate
+#                                 (< 30 min): everything, on the current
+#                                 tree: every test (nextest profile
+#                                 nightly, and the doctests), `bend
+#                                 PROOF.bend --verdict`.
+#   scripts/ci_local.sh lock      `make lock`: re-lock the laws in seconds.
+#                                 The proofs the change since origin/main
+#                                 can reach, then LAWS.lock written.
 #
 # Each gate prints its name; a failed gate prints `ci-<mode>: gate <name>
 # FAILED` and the script stops with its exit code. The full gate runs the
-# Rust lane (check, clippy, tests) and the other lane (secrets, deny, laws,
+# Rust lane (clippy, tests) and the other lane (secrets, deny, laws,
 # runtime tests, dashboard UI) at the same time; the second lane's log
 # prints when it ends.
+#
+# A failed test runs once more (.config/nextest.toml, retries = 1): a pass
+# then is flaky, named as `  flaky: <test>`, and does not fail the gate (the
+# nightly summary keeps the names, so the timing bug gets fixed); a second
+# failure fails it.
+#
+# The tools and the build environment (cargo-nextest, sccache) come
+# from mise.toml: the script trusts, installs and loads it.
 #
 # CI_LOCAL_SECRETS_RANGE: the `git log` range that full and pre-push scan
 # for secrets. Default: origin/main..HEAD.
 set -euo pipefail
-unset RUSTUP_TOOLCHAIN
 cd "$(dirname "$0")/.."
-mode="${1:?usage: scripts/ci_local.sh fast|full|pre-push}"
+mode="${1:?usage: scripts/ci_local.sh fast|pre-push|full|lock}"
+if [[ -f mise.toml ]] && command -v mise >/dev/null 2>&1; then
+  mise trust --quiet mise.toml
+  mise install --quiet
+  eval "$(mise env --shell bash)"
+fi
+unset RUSTUP_TOOLCHAIN
 export BEND_NO_TELEMETRY=1
 # BEND_VERSION and LEAN_VERSION.
 # shellcheck source=scripts/toolchain.env
 source scripts/toolchain.env
 # The pinned Bend (scripts/pinned_bend.sh) leads PATH, and BEND_BIN names
-# it for scripts/bend_core.py (a mise python3 shim rewrites PATH), so every
-# gate and the tests' EUKHE_REQUIRE_BEND builds run it whatever a version
-# manager's default is. check_bend fails, naming the version, without it.
+# it for scripts/bend_core.py and scripts/bend_proofs.py (a mise python3
+# shim rewrites PATH), so every gate runs it whatever a version manager's
+# default is. check_bend fails, naming the version, without it.
 if BEND_BIN="$(scripts/pinned_bend.sh 2>/dev/null)"; then
   PATH="$(dirname "${BEND_BIN}"):${PATH}"
   export PATH BEND_BIN
@@ -81,7 +103,7 @@ check_tools() {
   for tool in "$@"; do
     command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
   done
-  [[ ${#missing[@]} -eq 0 ]] || { echo "not installed: ${missing[*]} (nix develop has them)"; return 1; }
+  [[ ${#missing[@]} -eq 0 ]] || { echo "not installed: ${missing[*]} (mise.toml and nix develop have them)"; return 1; }
 }
 
 # A change as ci_pr_crates.py rows: `<path>` TAB `<old path>`, from `git
@@ -107,11 +129,12 @@ docs_only() {
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
 # files, the agent rules, docs/, and the laws and proofs (the proofs gate
-# checks them; the bridge drivers import only bend/). (scripts/release/ and
+# checks them). (scripts/release/ and
 # README.md stay code: eukhe-cli's packaging tests run and copy them.)
 outside_crates() {
   case "$1" in
     "" | .github/* | nix/* | docs/* | scripts/ci_* | scripts/test_ci_* | \
+      scripts/bend_proofs.py | scripts/test_bend_proofs.py | .config/nextest.toml | mise.toml | \
       .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | Makefile | flake.nix | flake.lock | \
       LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/*) return 0 ;;
     *) return 1 ;;
@@ -125,7 +148,7 @@ bend_touched() {
   while IFS=$'\t' read -r path old; do
     for p in "${path}" "${old}"; do
       case "${p}" in
-        *.bend | bend/* | crates/eukhe-bend/* | scripts/bend_core.py | \
+        *.bend | bend/* | crates/eukhe-bend/* | scripts/bend_core.py | scripts/bend_proofs.py | \
           scripts/check_laws_wired.py | scripts/pinned_bend.sh | scripts/toolchain.env) return 0 ;;
       esac
     done
@@ -174,35 +197,57 @@ clippy_touched() {
   cargo clippy "${SELECTED[@]}" --all-targets --locked -- -D warnings
 }
 
-tests_touched() {
-  select_crates "$1"
-  [[ ${#SELECTED[@]} -eq 0 ]] && { echo "tests skipped"; return 0; }
-  # The e2e tests run the other workspace binaries from target/debug, which
-  # `cargo test -p` does not rebuild: a stale one tests old code.
-  clean_env cargo build --workspace --bins --locked
-  clean_env cargo test "${SELECTED[@]}" --locked --no-fail-fast
+# The cargo target arguments of the unit tests of the packages SELECTED
+# names: --lib, --bins, and --test for each integration test target that
+# is not an e2e suite (named *_e2e, .config/nextest.toml). The e2e binaries
+# that pre-push does not run are not built either.
+unit_targets() {
+  local crates=() arg
+  for arg in "${SELECTED[@]}"; do
+    [[ "${arg}" == -p || "${arg}" == --workspace ]] || crates+=("${arg}")
+  done
+  printf '%s\n' --lib --bins
+  cargo metadata --no-deps --format-version 1 --locked | python3 -c '
+import json, sys
+want = set(sys.argv[1:])
+for p in json.load(sys.stdin)["packages"]:
+    if want and p["name"] not in want:
+        continue
+    for t in p["targets"]:
+        if "test" in t["kind"] and t.get("test", True) and not t["name"].endswith("_e2e"):
+            print("--test")
+            print(t["name"])
+' "${crates[@]}"
 }
 
+tests_touched() {
+  local out targets
+  select_crates "$1"
+  [[ ${#SELECTED[@]} -eq 0 ]] && { echo "tests skipped"; return 0; }
+  out="$(unit_targets)"
+  mapfile -t targets <<<"${out}"
+  clean_env cargo nextest run "${SELECTED[@]}" "${targets[@]}" --locked --profile pre-push --no-tests=pass
+}
+
+# The proofs a Bend change can reach (scripts/bend_proofs.py: the proof
+# files whose import closure holds a changed file), from the commit $2.
 proofs() {
-  local out
   if ! bend_touched "$1"; then
     echo "proofs skipped: no Bend input changed"
     return 0
   fi
-  out="$(mktemp)"
   python3 scripts/check_laws_wired.py .
   python3 scripts/bend_core.py check
-  bend PROOF.bend | tee "${out}"
-  grep -qx 'ALL PROOFS CHECK' "${out}"
-  rm -f "${out}"
+  python3 scripts/bend_proofs.py --base "$2"
 }
 
 # The laws against the committed LAWS.lock (the bend skill's `gate.py
 # --lock-only`, seconds), when a law, a spec helper or the lock changed: a
 # law changed without the user's re-lock fails here. BEND_SKILL: the skill
 # directory (default ~/.agents/skills/bend).
+BEND_SKILL="${BEND_SKILL:-${HOME}/.agents/skills/bend}"
 laws_lock() {
-  local skill="${BEND_SKILL:-${HOME}/.agents/skills/bend}" path old p hit=1
+  local path old p hit=1
   while IFS=$'\t' read -r path old; do
     for p in "${path}" "${old}"; do
       case "${p}" in
@@ -214,7 +259,17 @@ laws_lock() {
     echo "lock skipped: no law or lock changed"
     return 0
   fi
-  python3 "${skill}/scripts/gate.py" . --lock-only
+  python3 "${BEND_SKILL}/scripts/gate.py" . --lock-only
+}
+
+# `make lock`: the proofs the change since origin/main can reach
+# (scripts/bend_proofs.py), then LAWS.lock written from the laws (`gate.py
+# --lock-only --lock`: no checker run). The nightly gate proves everything
+# and runs --verdict.
+relock() {
+  python3 scripts/check_laws_wired.py .
+  python3 scripts/bend_proofs.py --base "$(git merge-base HEAD origin/main)"
+  python3 "${BEND_SKILL}/scripts/gate.py" . --lock-only --lock
 }
 
 secrets_staged() {
@@ -245,70 +300,44 @@ laws() {
 }
 
 dashboard_ui() {
-  EUKHE_REQUIRE_BEND=1 make --no-print-directory dashboard-ui
+  make --no-print-directory dashboard-ui
   git diff --exit-code --stat -- crates/eukhe-dashboard/web
   test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
 }
 
-# The online cores: `nproc` (GNU coreutils), else POSIX `getconf`, else the
-# macOS/BSD sysctl.
-cores() {
-  nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu
-}
-
-# `cargo test --workspace`, split: the test units go to TEST_SHARDS shards
-# (scripts/ci_test_shard.py, a stable assignment), all shards run at the
-# same time on one build, then scripts/ci_test_shard_summary.py audits that
-# the shards ran every unit exactly once. The environment is the clean one
-# of AGENTS.md: inherited EUKHE_* variables would point test daemons at
-# real state. Each shard's test binaries get an equal share of the cores
-# (RUST_TEST_THREADS = cores / TEST_SHARDS, at least 1): with the default
-# (one thread per core in every shard) 8 shards ran 8x the cores, and the
-# tests with a real-time window (the kitty answer, the teardown bound)
-# missed it under that load.
-TEST_SHARDS=8
-TEST_THREADS_PER_SHARD=$(( $(cores) / TEST_SHARDS ))
-if (( TEST_THREADS_PER_SHARD < 1 )); then
-  TEST_THREADS_PER_SHARD=1
-fi
-
-# The test environment is clean, except for the build settings that select
-# which build the tests reuse (set by `full`, or by the caller).
+# The test environment is clean (AGENTS.md: inherited EUKHE_* variables
+# would point test daemons at real state), except for the build settings
+# (cargo's, rustup's, sccache's; mise.toml), so the tests reuse the build
+# the other gates made.
 clean_env() {
-  local keep=()
-  if [[ -n ${CARGO_INCREMENTAL:-} ]]; then
-    keep+=("CARGO_INCREMENTAL=${CARGO_INCREMENTAL}")
-  fi
-  if [[ -n ${CARGO_PROFILE_DEV_DEBUG:-} ]]; then
-    keep+=("CARGO_PROFILE_DEV_DEBUG=${CARGO_PROFILE_DEV_DEBUG}")
-  fi
+  local keep=() name
+  for name in $(compgen -e); do
+    case "${name}" in
+      CARGO_* | RUSTUP_* | RUSTFLAGS | RUSTDOCFLAGS | RUSTC_WRAPPER | SCCACHE_*) keep+=("${name}=${!name}") ;;
+    esac
+  done
   env -i HOME="${HOME}" PATH="${PATH}" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" \
-    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 "${keep[@]}" "$@"
+    BEND_NO_TELEMETRY=1 "${keep[@]}" "$@"
 }
 
+# Every test: nextest profile nightly (every binary at once on one build;
+# the e2e suites and the self-serializing tests in their test groups,
+# .config/nextest.toml), then the doctests, which nextest does not run.
+# The flaky tests (a failure, then a pass on the retry) are named from the
+# JUnit report.
 workspace_tests() {
-  local total="${TEST_SHARDS}" dir shard pids=() failed=0
-  dir="$(mktemp -d)"
-  # The JSON lines name each test executable: the shards run them, never
-  # `cargo test -p`, which would relink the shared binaries under them.
-  clean_env cargo test --workspace --locked --no-run --message-format=json-render-diagnostics >"${dir}/artifacts.jsonl"
-  clean_env cargo build --workspace --bins --locked
-  echo "running ${total} test shards at the same time (logs: ${dir})"
-  for shard in $(seq 1 "${total}"); do
-    (trap - INT; clean_env RUST_TEST_THREADS="${TEST_THREADS_PER_SHARD}" python3 scripts/ci_test_shard.py --shard "${shard}" --total "${total}" \
-      --artifacts "${dir}/artifacts.jsonl" --manifest "${dir}/shard-manifest-${shard}.json") </dev/null >"${dir}/shard-${shard}.log" 2>&1 &
-    pids+=("$!")
-  done
-  for shard in $(seq 1 "${total}"); do
-    if ! wait "${pids[shard - 1]}"; then
-      failed=1
-      echo "==> test shard ${shard}/${total} failed; its log:"
-      cat "${dir}/shard-${shard}.log"
-    fi
-  done
-  python3 scripts/ci_test_shard_summary.py --total "${total}" --dir "${dir}"
-  [[ ${failed} -eq 0 ]]
-  rm -rf "${dir}"
+  local rc=0
+  clean_env cargo nextest run --workspace --locked --profile nightly || rc=$?
+  [[ -f target/nextest/nightly/junit.xml ]] && python3 - target/nextest/nightly/junit.xml <<'EOF'
+import sys
+import xml.etree.ElementTree as ET
+
+for case in ET.parse(sys.argv[1]).iter("testcase"):
+    if case.find("flakyFailure") is not None or case.find("flakyError") is not None:
+        print(f"  flaky: {case.get('classname')} {case.get('name')}")
+EOF
+  (( rc == 0 )) || return "${rc}"
+  clean_env cargo test --workspace --doc --locked
 }
 
 side_lane() {
@@ -316,6 +345,7 @@ side_lane() {
   gate deny make --no-print-directory deny
   gate laws laws
   gate runtime-test make --no-print-directory runtime-test
+  gate nix-test make --no-print-directory nix-test
   gate dashboard-ui dashboard_ui
 }
 
@@ -329,11 +359,11 @@ case "${mode}" in
     ;;
   full)
     # The full gate builds the workspace once: incremental files only add
-    # size, and line tables keep file:line in a failed test's backtrace at a
-    # fraction of full debug info. clean_env passes both to the test build.
-    export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only
+    # size, and a non-incremental build is one sccache keeps (the nightly
+    # worktree's path is the same every night). clean_env passes it on.
+    export CARGO_INCREMENTAL=0
     start=${SECONDS}
-    gate tools check_tools cargo uv npm python3 cargo-deny
+    gate tools check_tools cargo cargo-nextest uv npm python3 cargo-deny jq
     gate "bend version" check_bend
     gate "lean version" check_lean
     gate fmt cargo fmt --all --check
@@ -349,7 +379,6 @@ case "${mode}" in
     set +e
     (
       set -e
-      gate check cargo check --workspace --all-targets --locked
       gate clippy cargo clippy --workspace --all-targets --locked -- -D warnings
       gate test workspace_tests
     )
@@ -357,7 +386,7 @@ case "${mode}" in
     wait "${side}"
     side_rc=$?
     set -e
-    echo "==> ci-full: secrets, deny, laws, runtime-test, dashboard-ui log"
+    echo "==> ci-full: secrets, deny, laws, runtime-test, nix-test, dashboard-ui log"
     cat "${log}"
     rm -f "${log}"
     echo "ci-full: $((SECONDS - start))s"
@@ -393,12 +422,16 @@ case "${mode}" in
       exit 0
     fi
     gate "clippy (touched crates)" clippy_touched "${rows}"
-    gate proofs proofs "${rows}"
+    gate proofs proofs "${rows}" "${base}"
     gate "laws lock" laws_lock "${rows}"
     gate "tests (touched crates)" tests_touched "${rows}"
     ;;
+  lock)
+    gate "bend version" check_bend
+    gate relock relock
+    ;;
   *)
-    echo "usage: scripts/ci_local.sh fast|full|pre-push" >&2
+    echo "usage: scripts/ci_local.sh fast|pre-push|full|lock" >&2
     exit 2
     ;;
 esac

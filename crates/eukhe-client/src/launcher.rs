@@ -5,7 +5,8 @@
 //! `<path>/eukhe-daemon supervisor --socket <p> --agent-dir <d>` for a host
 //! that bundles the engine) and the socket that supervisor binds. A start
 //! probes the socket, keeps or replaces the daemon it finds (the verdict of
-//! [`crate::daemon_build`]), spawns the command detached when no daemon
+//! [`crate::daemon_build`]), spawns the command detached (or tied to the
+//! caller's life: [`ProcessLauncher::tied_to_caller`]) when no daemon
 //! serves, and waits until the new daemon greets.
 //!
 //! Only an interactive start ([`ProcessLauncher::ensure_interactive`]) frees
@@ -16,7 +17,7 @@
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -160,12 +161,35 @@ enum IdleStop {
     Busy,
 }
 
+/// A check run on the socket path right before a spawn
+/// ([`ProcessLauncher::with_spawn_check`]).
+type SpawnCheck = Box<dyn Fn(&Path) -> Result<()> + Send + Sync>;
+
+/// What a start left on the socket, and the supervisor it spawned when that
+/// supervisor is the one that serves ([`ProcessLauncher::launch_background`],
+/// [`ProcessLauncher::launch_interactive`]).
+#[derive(Debug)]
+pub struct Launched {
+    /// The daemon that serves the socket.
+    pub ready: DaemonReady,
+    /// The supervisor this start spawned, when it greets on the socket;
+    /// `None` when a daemon was there already or another launcher's won
+    /// the socket (the process this start spawned then exits on its own).
+    /// For a [`ProcessLauncher::tied_to_caller`] launcher the handle holds
+    /// the write end of the supervisor's stdin: dropping it ends the
+    /// supervisor's life.
+    pub spawned: Option<Child>,
+}
+
 /// Starts one supervisor command on one socket.
 pub struct ProcessLauncher {
-    /// The supervisor command, ready to spawn (its stdio is null).
+    /// The supervisor command, ready to spawn (its stdout and stderr are
+    /// null; its stdin is null, or a pipe when tied to the caller).
     command: Mutex<Command>,
     socket_path: PathBuf,
     stop_hint: String,
+    /// Run on the socket path before a spawn; its error fails the start.
+    spawn_check: Option<SpawnCheck>,
 }
 
 impl ProcessLauncher {
@@ -191,7 +215,36 @@ impl ProcessLauncher {
             command: Mutex::new(command),
             socket_path: socket_path.into(),
             stop_hint: stop_hint.into(),
+            spawn_check: None,
         }
+    }
+
+    /// This launcher, running `check` on the socket path before it spawns:
+    /// a supervisor's stderr goes nowhere, so a refusal the supervisor
+    /// would only print (its socket dir, say) surfaces as `check`'s error
+    /// instead of a startup timeout. The error fails the start unchanged.
+    #[must_use]
+    pub fn with_spawn_check(
+        mut self,
+        check: impl Fn(&Path) -> Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.spawn_check = Some(Box::new(check));
+        self
+    }
+
+    /// This launcher, spawning its supervisor with a stdin pipe whose only
+    /// write end is [`Launched::spawned`]'s handle (std pipes are
+    /// close-on-exec, so no other child of this process inherits it): a
+    /// supervisor command that drains when its stdin reaches end of file
+    /// then lives exactly as long as the caller holds that handle, however
+    /// the caller ends.
+    #[must_use]
+    pub fn tied_to_caller(mut self) -> Self {
+        self.command
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .stdin(Stdio::piped());
+        self
     }
 
     /// The socket the supervisor binds.
@@ -208,9 +261,22 @@ impl ProcessLauncher {
     /// # Errors
     ///
     /// The daemon on the socket is incompatible, something that is not this
-    /// product's daemon holds the socket, the supervisor cannot be spawned,
-    /// or no daemon greets before the startup timeout.
+    /// product's daemon holds the socket, the spawn check refuses, the
+    /// supervisor cannot be spawned, or no daemon greets before the startup
+    /// timeout.
     pub async fn ensure_background(&self, client: Build<'_>) -> Result<DaemonReady> {
+        self.launch_background(client)
+            .await
+            .map(|launched| launched.ready)
+    }
+
+    /// [`ProcessLauncher::ensure_background`], also handing back the
+    /// supervisor this start spawned ([`Launched::spawned`]).
+    ///
+    /// # Errors
+    ///
+    /// See [`ProcessLauncher::ensure_background`].
+    pub async fn launch_background(&self, client: Build<'_>) -> Result<Launched> {
         self.ensure(client, Start::<NoTakeover>::Background).await
     }
 
@@ -223,13 +289,30 @@ impl ProcessLauncher {
     /// # Errors
     ///
     /// An incompatible daemon is kept (newer than the client, or busy), the
-    /// socket's holder could not be stopped, the supervisor cannot be
-    /// spawned, or no daemon greets before the startup timeout.
+    /// socket's holder could not be stopped, the spawn check refuses, the
+    /// supervisor cannot be spawned, or no daemon greets before the startup
+    /// timeout.
     pub async fn ensure_interactive(
         &self,
         client: Build<'_>,
         takeover: &impl SocketTakeover,
     ) -> Result<DaemonReady> {
+        self.launch_interactive(client, takeover)
+            .await
+            .map(|launched| launched.ready)
+    }
+
+    /// [`ProcessLauncher::ensure_interactive`], also handing back the
+    /// supervisor this start spawned ([`Launched::spawned`]).
+    ///
+    /// # Errors
+    ///
+    /// See [`ProcessLauncher::ensure_interactive`].
+    pub async fn launch_interactive(
+        &self,
+        client: Build<'_>,
+        takeover: &impl SocketTakeover,
+    ) -> Result<Launched> {
         self.ensure(client, Start::Interactive(takeover)).await
     }
 
@@ -237,7 +320,7 @@ impl ProcessLauncher {
         &self,
         client: Build<'_>,
         start: Start<'_, T>,
-    ) -> Result<DaemonReady> {
+    ) -> Result<Launched> {
         let socket_path = self.socket_path.as_path();
         let caller = match start {
             Start::Background => Caller::Background,
@@ -283,7 +366,7 @@ impl ProcessLauncher {
                         ) => Err(self.incompatible("it is not replaced by this start")),
                     };
                     daemon_client.close();
-                    return outcome;
+                    return outcome.map(Launched::found);
                 };
                 match (
                     self.stop_daemon_if_idle(&daemon_client, takeover).await?,
@@ -291,7 +374,7 @@ impl ProcessLauncher {
                 ) {
                     (IdleStop::Stopped, Protocol::Compatible | Protocol::Incompatible) => {}
                     (IdleStop::Busy, Protocol::Compatible) => {
-                        return Ok(DaemonReady::using(client, daemon));
+                        return Ok(Launched::found(DaemonReady::using(client, daemon)));
                     }
                     (IdleStop::Busy, Protocol::Incompatible) => {
                         return Err(self.incompatible("the running daemon has active work"));
@@ -299,7 +382,17 @@ impl ProcessLauncher {
                 }
             }
         }
-        self.spawn_detached()?;
+        if let Some(check) = &self.spawn_check {
+            check(socket_path)?;
+        }
+        let supervisor = self.spawn()?;
+        self.await_spawned(client, supervisor).await
+    }
+
+    /// Waits for the daemon the `supervisor` this start spawned to serve
+    /// the socket, or for a concurrent launcher's daemon that won it.
+    async fn await_spawned(&self, client: Build<'_>, supervisor: Child) -> Result<Launched> {
+        let socket_path = self.socket_path.as_path();
         let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
         loop {
             match probe_daemon(socket_path).await {
@@ -308,10 +401,22 @@ impl ProcessLauncher {
                     protocol: Protocol::Compatible,
                 } => {
                     // A concurrent launcher of another build may have won the
-                    // socket: it serves, so use it (the notice names it).
+                    // socket: it serves, so use it (the notice names it). Only
+                    // the supervisor this start spawned is the caller's own.
                     let ready = DaemonReady::using(client, daemon_client.daemon_build());
+                    let ours = daemon_client
+                        .hello()
+                        .get("supervisorPid")
+                        .and_then(serde_json::Value::as_u64)
+                        == Some(u64::from(supervisor.id()));
                     daemon_client.close();
-                    return Ok(ready);
+                    return Ok(Launched {
+                        ready,
+                        // The spawned process lost the socket and exits on
+                        // its own (its stdin pipe, if any, closes with the
+                        // handle).
+                        spawned: ours.then_some(supervisor),
+                    });
                 }
                 DaemonProbe::Answered {
                     client: daemon_client,
@@ -399,16 +504,27 @@ impl ProcessLauncher {
         Ok(IdleStop::Stopped)
     }
 
-    /// Spawn the supervisor command; the child outlives this process.
-    fn spawn_detached(&self) -> Result<()> {
+    /// Spawn the supervisor command. A detached one outlives this process; a
+    /// tied one ([`ProcessLauncher::tied_to_caller`]) lives while the
+    /// returned handle holds its stdin pipe.
+    fn spawn(&self) -> Result<Child> {
         let mut command = self
             .command
             .lock()
             .map_err(|_| anyhow!("the supervisor command's lock is poisoned"))?;
         command
             .spawn()
-            .with_context(|| format!("spawn the Eukhe daemon on {}", self.socket_path.display()))?;
-        Ok(())
+            .with_context(|| format!("spawn the Eukhe daemon on {}", self.socket_path.display()))
+    }
+}
+
+impl Launched {
+    /// A start that found `ready` serving and spawned nothing.
+    fn found(ready: DaemonReady) -> Self {
+        Self {
+            ready,
+            spawned: None,
+        }
     }
 }
 

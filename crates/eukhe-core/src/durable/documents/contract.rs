@@ -17,32 +17,23 @@ const GREP_CONTEXT_BEFORE: u32 = 1;
 const GREP_CONTEXT_AFTER: u32 = 3;
 
 /// How a relative path resolves, the same for every function.
-const PATH_RULE: &str = "Relative paths resolve against the session's working directory; the Python functions of the same name resolve against the REPL's current directory (`os.getcwd()`).";
+const PATH_RULE: &str = "Relative paths resolve against the session's cwd; the same-named Python functions use `os.getcwd()`.";
 
 const PATH_ALIASES: &[&str] = &["file_path", "filepath", "file", "filename"];
 
-const READ_DESCRIPTION: &str = "Read a file or directory.
+const READ_DESCRIPTION: &str = "Read a file or directory. Line ranges go in `path`, never in separate offset/limit parameters (`notes.txt:450-455`); repeat the selector on every ranged call.
+Selectors: `:50`/`:50-` from line 50; `:50-200` inclusive; `:50+150` 150 lines; commas join ranges or lines (`:5-16,960-973`, `:19,59`). One non-raw range also shows 1 line before and 3 after. `:raw` verbatim without prefixes (`:2-4:raw` exactly those lines).
+A file prints as a `[path#TAG]` header, then `N:TEXT` rows; `edit` copies that header verbatim. A directory lists its root; child listings cap at 12 (`… N more`): read the child.
+URLs: `repo://<path>` (workspace root); `skill://<name>/<path>` (bare: its SKILL.md); `agent://<name|id>` (subagent chat); `memory://` (chat view), `memory://<id>` (message whole), `memory://<id>/<n>` (line id+n); `mcp://<server>` (resource list), `mcp://<server>/<uri>`; `ssh://<host>/<path>` (remote text file, `/~/` = remote home, `ssh.hosts` only). `..` never leaves a URL's root.";
 
-Put line ranges in `path`, never a separate range/offset/limit parameter: `{\"path\":\"notes.txt:450-455\"}` reads lines 450-455. Include the selector on every ranged call; repeating a bare path does not advance through the file.
+const GREP_DESCRIPTION: &str = "Regex search, Rust syntax; case-sensitive and gitignore-respecting by default. `path`: `;`-separated files/dirs/globs or a `file:50-100` selector; default `.`. Bare glob `*.ts` matches any depth; `dir/*.ts` only direct children (`dir/**/*.ts` recurses). Literal `\\n` enables cross-line matches. `skip` pages by file.
+Hits print as `[path#TAG]` then `*N:TEXT` (match) and ` N:TEXT` (context) rows: `edit` anchors under that header. A file printed without a tag must be read before an edit.";
 
-Path suffixes: :50 or :50- starts at line 50; :50-200 inclusive; :50+150 counts lines; commas join ranges (:5-16,960-973) or individual lines (:19,59). A single non-raw range also shows 1 line before and 3 after (e.g. :50-80 shows 49-83). :raw verbatim without anchors/prefixes; combine :2-4:raw or :raw:2-4 for exactly those lines.
+const GLOB_DESCRIPTION: &str = "Glob files/dirs: `;`-separated patterns or paths; default `.`. `hidden` and `gitignore` default true (ignored dotfiles need `gitignore: false`). Newest first by directory; dirs end `/`; `skip` pages past the first `limit` paths.";
 
-Sources:
-- File: `[foo.ts#1A2B]` snapshot, then `N:TEXT` lines. Copy `[FILENAME#TAG]` for anchored edits; NEVER invent tag.
-- Directory: complete root; child listings cap at 12 (`… N more`), read child.
-- Internal URLs: `repo://<path>` under the workspace root; `skill://<name>/<path>` under a skill's directory (bare `skill://<name>`: its SKILL.md); `agent://<name|id>` a subagent's chat; `memory://` the chat view, `memory://<id>` message id whole, `memory://<id>/<n>` line id+n; `mcp://<server>` an MCP server's resources, `mcp://<server>/<uri>` one resource; `ssh://<host>/<path>` one remote text file (`/<path>` from the remote root, `/~/<path>` under the remote home; only hosts in the user's `ssh.hosts`). `..` never leaves a URL's root: a path above it, or a symlink out of it, is rejected.";
+const WRITE_DESCRIPTION: &str = "Create or overwrite a whole file atomically; parent directories are created; BOM, line endings and mode are kept. An existing file is replaced only if you read or wrote it and it has not changed since. Prefer `edit` for existing files.";
 
-const GREP_DESCRIPTION: &str = "Regex: Rust syntax. `path`: `;`-separated file/dir/glob; default `.`. Default case-sensitive, gitignore respected; `skip` paginates files.
-File-only selector: `src/foo.ts:50-100`. Literal `\\n`/`\\\\n` enables cross-line.
-Bare glob `*.ts` matches any depth; `dir/*.ts` only `dir`'s direct children (`dir/**/*.ts` recurses).
-Hits print as `[path#TAG]` groups of `*N:TEXT` (match) and ` N:TEXT` (context) rows; the rows of a file with a tag are `edit` anchors. A notice names each file that has no tag, and each file or match that was skipped or cut.";
-
-const GLOB_DESCRIPTION: &str = "Glob files/dirs: `;`-separated paths; default `.`.
-`gitignore` and `hidden` default true; ignored dotfiles need `gitignore: false`. Newest-first by directory; dirs end `/`; `skip` pages past the first `limit` paths.";
-
-const WRITE_DESCRIPTION: &str = "Create or overwrite a file atomically. Parent directories are created; a replaced file keeps its BOM, line endings, and mode. An existing file is replaced only if you read it (or wrote it) and nobody changed it since: read it first. Prefer `edit` for changes to an existing file.";
-
-const EXACT_STRING_HINT: &str = "edit takes a hashline patch, not old/new strings. read or grep the file, then send '[path#TAG]\\nPUT 12.=14:\\n+new line' with the header and line numbers they printed.";
+const EXACT_STRING_HINT: &str = "edit takes a hashline patch, not old/new strings: read or grep the file, then send the `[path#TAG]` header it printed, copied verbatim, with line ops, e.g. `[src/a.rs#3F9A]\\nPUT 12.=14:\\n+new line`.";
 
 /// A documents function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,22 +45,12 @@ pub(super) enum Function {
     Glob,
 }
 
-fn described(description: &str) -> Options {
-    Options::new().set("description", description)
+fn optional_boolean() -> TSchema {
+    Type::optional(Type::boolean())
 }
 
-fn optional_string(description: &str) -> TSchema {
-    Type::optional(Type::string_with(described(description)))
-}
-
-fn optional_boolean(description: &str) -> TSchema {
-    Type::optional(Type::boolean_with(described(description)))
-}
-
-fn optional_integer(description: &str, minimum: u32) -> TSchema {
-    Type::optional(Type::integer_with(
-        described(description).set("minimum", minimum),
-    ))
+fn optional_integer(minimum: u32) -> TSchema {
+    Type::optional(Type::integer_with(Options::new().set("minimum", minimum)))
 }
 
 impl Function {
@@ -121,55 +102,22 @@ impl Function {
     /// arguments; closed.
     pub(super) fn parameters(self) -> TSchema {
         let own: Vec<(&str, TSchema)> = match self {
-            Self::Read => vec![(
-                "path",
-                Type::string_with(described(
-                    "File or directory path; inline selectors (`:50-200`, `:raw`) are supported.",
-                )),
-            )],
-            Self::Write => vec![
-                ("path", Type::string_with(described("File path"))),
-                ("content", Type::string_with(described("The whole new file text"))),
-            ],
-            Self::Edit => vec![(
-                "input",
-                Type::string_with(described("One or more [PATH#TAG] sections")),
-            )],
+            Self::Read => vec![("path", Type::string())],
+            Self::Write => vec![("path", Type::string()), ("content", Type::string())],
+            Self::Edit => vec![("input", Type::string())],
             Self::Grep => vec![
-                ("pattern", Type::string_with(described("regex pattern"))),
-                (
-                    "path",
-                    optional_string(
-                        "file, directory, glob, or \"<file>:<lines>\" selector to search; pass several as a semicolon-delimited list (\"src; tests\"). Omitted -> searches \".\"",
-                    ),
-                ),
-                ("case", optional_boolean("case-sensitive search (default true)")),
-                ("gitignore", optional_boolean("respect gitignore (default true)")),
-                (
-                    "skip",
-                    optional_integer(
-                        "files to skip before collecting results — use to paginate when the prior call hit the file limit",
-                        0,
-                    ),
-                ),
+                ("pattern", Type::string()),
+                ("path", Type::optional(Type::string())),
+                ("case", optional_boolean()),
+                ("gitignore", optional_boolean()),
+                ("skip", optional_integer(0)),
             ],
             Self::Glob => vec![
-                (
-                    "path",
-                    optional_string(
-                        "glob, file, or directory to search — a single path or a semicolon-delimited list (\"src/**/*.ts; test/**/*.ts\"). Omitted -> searches \".\"",
-                    ),
-                ),
-                ("hidden", optional_boolean("include hidden files (default true)")),
-                ("gitignore", optional_boolean("respect gitignore (default true)")),
-                ("limit", optional_integer("max results", 1)),
-                (
-                    "skip",
-                    optional_integer(
-                        "ranked paths to skip before collecting results — use the `skip` of the prior call's continuation to get the next paths",
-                        0,
-                    ),
-                ),
+                ("path", Type::optional(Type::string())),
+                ("hidden", optional_boolean()),
+                ("gitignore", optional_boolean()),
+                ("limit", optional_integer(1)),
+                ("skip", optional_integer(0)),
             ],
         };
         crate::durable::tool_contract::parameters(1, own)

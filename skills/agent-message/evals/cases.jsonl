@@ -1,0 +1,8 @@
+{"prompt": "Ask the explorer agent which file defines the retry policy.", "expect_skill": "agent-message", "expect": "Calls agent_message.send(..., receiver_name=\"explorer\")."}
+{"prompt": "Tell my parent the migration is done and where the summary is.", "expect_skill": "agent-message", "expect": "Calls agent_message.send(..., receiver_role=\"parent\") with the path."}
+{"prompt": "Two of my children are called tester; message the second one.", "expect_skill": "agent-message", "expect": "Resends with receiver_name set to one id from the ambiguity error."}
+{"prompt": "Broadcast to all my children that the API changed.", "expect_skill": "agent-message", "expect": "Calls agent_message.send(\"all\", message) and reads the receipts."}
+{"prompt": "Steer the running child 'indexer' to skip vendored code.", "expect_skill": "agent-message", "expect": "Sends a steering message to the child; does not delete or respawn it."}
+{"prompt": "Which agents are running right now?", "expect_skill": "agent-observe", "expect": "Lists self, parent and children; sends nothing."}
+{"prompt": "Start a new agent to research caching.", "expect_skill": "subagents", "expect": "Spawning, not messaging."}
+{"prompt": "Tell my sibling agent reviewer the tests pass.", "expect_skill": "agent-message", "expect": "Does not message the sibling; tells the parent with receiver_role=\"parent\" so it can relay."}

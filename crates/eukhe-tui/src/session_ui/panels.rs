@@ -103,19 +103,26 @@ impl SessionUi {
         // The title's spend is the family rollup the agents view bills
         // the session's row, refreshed on every roster push.
         view.chrome.cost_usd = crate::subagents::family_cost(&self.roster, &identity);
-        // The session's own roster row carries its quota park: the row
-        // above the composer names the wake time while it lasts.
-        view.quota_park = self
+        // The session's own roster row carries its quota park and what it
+        // waits on: the row above the composer names the wake time, or
+        // the work, while it lasts.
+        let own = self
             .roster
             .iter()
             .filter_map(|row| row.get("summary"))
             .find(|summary| {
                 summary.get("activeSessionId").and_then(Value::as_str)
                     == Some(self.active_session_id.as_str())
-            })
+            });
+        view.quota_park = own
             .and_then(|summary| summary.get("quotaPark"))
             .and_then(|park| {
                 <crate::activity::QuotaPark as serde::Deserialize>::deserialize(park).ok()
+            });
+        view.waiting_on = own
+            .and_then(|summary| summary.get("waitingOn"))
+            .and_then(|waiting| {
+                <crate::activity::WaitingOn as serde::Deserialize>::deserialize(waiting).ok()
             });
         // The pinned agents block reads the same feeds the dock counts;
         // it is rebuilt here, on the update, so a frame only renders it.

@@ -397,9 +397,9 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
         }) {
             last_child = child;
         }
-        // The kickoff turn: the parent's `[task from parent]` input entry,
-        // the harness digest, and the child's answer.
-        if last_child["isStreaming"] == false && last_child["messageCount"] == 3 {
+        // The kickoff turn: the parent's `[task from parent]` input entry
+        // and the child's answer.
+        if last_child["isStreaming"] == false && last_child["messageCount"] == 2 {
             if let Some(active_id) = last_child["activeSessionId"].as_str() {
                 break active_id.to_string();
             }

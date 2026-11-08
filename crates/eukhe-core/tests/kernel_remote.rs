@@ -10,7 +10,7 @@
     clippy::cast_precision_loss
 )]
 
-//! `@remote` on the real runtime (docs/runtime.md S3): a decorated
+//! `@remote` on the real runtime: a decorated
 //! function registers with the host (name, schema from its type hints,
 //! docstring); the host's `call` request runs it and gets its result; a
 //! function that raises, is unknown, or hangs past the bound answers a
@@ -176,12 +176,14 @@ async fn a_remote_function_registers_answers_calls_and_fails_typed() {
         ]
     );
 
+    // The errors compare by their rendered text (they carry no `PartialEq`).
     let call = |function: &'static str, args: Value, timeout_ms: u64| {
         let manager = manager.clone();
         async move {
             manager
                 .remote_call("__main__", function, &args, timeout_ms)
                 .await
+                .map_err(|error| error.to_string())
         }
     };
     assert_eq!(
@@ -200,28 +202,35 @@ async fn a_remote_function_registers_answers_calls_and_fails_typed() {
             Err(RemoteCallError::Failed {
                 function: "boom".to_owned(),
                 message: "ValueError: no fuel".to_owned(),
-            }),
+            }
+            .to_string()),
             Err(RemoteCallError::Failed {
                 function: "add".to_owned(),
                 message: "TypeError: add() got an unexpected keyword argument 'c'".to_owned(),
-            }),
+            }
+            .to_string()),
             Err(RemoteCallError::Unknown {
                 function: "missing".to_owned(),
-            }),
+            }
+            .to_string()),
             Err(RemoteCallError::Timeout {
                 function: "hang".to_owned(),
                 timeout_ms: 300,
-            }),
+            }
+            .to_string()),
             Err(RemoteCallError::Timeout {
                 function: "hang_async".to_owned(),
                 timeout_ms: 300,
-            }),
+            }
+            .to_string()),
         )
     );
 
     // A NaN result and wrong arguments to an async function answer typed
     // errors with their text; the kernel is not replaced.
-    let nan = call("not_a_number", json!({}), 10_000).await;
+    let nan = manager
+        .remote_call("__main__", "not_a_number", &json!({}), 10_000)
+        .await;
     assert!(
         matches!(
             &nan,
@@ -236,7 +245,8 @@ async fn a_remote_function_registers_answers_calls_and_fails_typed() {
         Err(RemoteCallError::Failed {
             function: "twice".to_owned(),
             message: "TypeError: twice() got an unexpected keyword argument 'b'".to_owned(),
-        })
+        }
+        .to_string())
     );
 
     // The hung function holds only its own thread: cells and calls go on.
@@ -252,8 +262,8 @@ async fn a_remote_function_registers_answers_calls_and_fails_typed() {
         .expect("shutdown");
 }
 
-/// A kernel that exits during a call answers `Unreachable` at once, not a
-/// timeout at the end of the call's bound.
+/// A kernel that exits during a call answers `Stopped` (the kernel is
+/// unreachable) at once, not a timeout at the end of the call's bound.
 #[tokio::test]
 async fn a_remote_call_whose_kernel_exits_is_unreachable_not_a_timeout() {
     let mut handlers = HostRequestHandlers::new();
@@ -290,16 +300,14 @@ async fn a_remote_call_whose_kernel_exits_is_unreachable_not_a_timeout() {
     let called = manager
         .remote_call("__main__", "die", &json!({}), 60_000)
         .await;
-    assert_eq!(
-        (
-            called,
-            started.elapsed() < std::time::Duration::from_secs(30)
-        ),
-        (
-            Err(RemoteCallError::Unreachable(
-                "the kernel stopped before it replied".to_owned()
-            )),
-            true,
-        )
+    let elapsed = started.elapsed();
+    assert!(
+        matches!(called, Err(RemoteCallError::Stopped)),
+        "{called:?}"
     );
+    assert_eq!(
+        called.unwrap_err().to_string(),
+        "the call could not reach the kernel: the kernel stopped before it replied"
+    );
+    assert!(elapsed < std::time::Duration::from_secs(30), "{elapsed:?}");
 }

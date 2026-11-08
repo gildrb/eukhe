@@ -292,6 +292,14 @@ pub struct StreamOptions {
     pub transport: Option<Transport>,
     /// Prompt cache retention preference. Default: short.
     pub cache_retention: Option<CacheRetention>,
+    /// eukhe addition: the key of the last section of the leading system
+    /// message's shared prefix. Its content and the sections up to and
+    /// including this one read the same in every session, so the APIs with
+    /// explicit cache marks send them as a marked block of their own and
+    /// the session's sections after it
+    /// ([`crate::utils::text::split_system_message_text`]). `None`, or no
+    /// such section: the prompt is one block.
+    pub system_cache_breakpoint: Option<String>,
     /// Session identifier for providers with session-based caching or routing.
     pub session_id: Option<String>,
     /// WebSocket connect (handshake) timeout in milliseconds.
@@ -319,6 +327,7 @@ impl fmt::Debug for StreamOptions {
             .field("max_tokens", &self.max_tokens)
             .field("transport", &self.transport)
             .field("cache_retention", &self.cache_retention)
+            .field("system_cache_breakpoint", &self.system_cache_breakpoint)
             .field("session_id", &self.session_id)
             .field(
                 "websocket_connect_timeout_ms",

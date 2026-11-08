@@ -43,6 +43,10 @@ def run.stuck_fits(s: RnDecision.Stuck) -> Bool:
       True{}
     case RnDecision.Repeats{before}:
       LawsBase.wire_fits(before)
+    case RnDecision.Emptied{}:
+      True{}
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+      Bool.and(Bool.and(LawsBase.wire_fits(window), LawsBase.wire_fits(catalog)), Bool.and(LawsBase.wire_fits(prompt), LawsBase.wire_fits(out)))
 
 def run.ask_fits(a: FRn.Ask) -> Bool:
   match a:
@@ -79,10 +83,12 @@ def run.help_fits(h: RnDecision.Help) -> Bool:
       True{}
     case RnDecision.Redoes{row}:
       LawsBase.wire_fits(row)
-    case RnDecision.Stands{}:
-      True{}
     case RnDecision.Quits{}:
       True{}
+    case RnDecision.Compacts{}:
+      True{}
+    case RnDecision.Lowers{row}:
+      LawsBase.wire_fits(row)
 
 # LAW run_ffi_ask_round_trip: every request whose Nats fit the wire reads back as itself, and its
 # reading consumes exactly its encoding
@@ -238,7 +244,9 @@ def run_spell_rcfg(c: RnRecovery.RCfg, rest: String) -> String:
     case RnRecovery.RCfg{long, leak, redirect, repeat}:
       Wr.put_nat(long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest))))
 
-# the stuck reply: length 0, leak 1, calls 2 then the rounds before
+# the stuck reply: length 0, leak 1, calls 2 then the rounds before, empty
+# 3, thinking only 4 then the window, the catalog, the prompt, the output,
+# whether it can be cut, whether it can be lowered
 def run_spell_stuck(x: RnDecision.Stuck, rest: String) -> String:
   match x:
     case RnDecision.Truncated{}:
@@ -247,8 +255,12 @@ def run_spell_stuck(x: RnDecision.Stuck, rest: String) -> String:
       Wr.put_nat(1n, rest)
     case RnDecision.Repeats{before}:
       Wr.put_nat(2n, Wr.put_nat(before, rest))
+    case RnDecision.Emptied{}:
+      Wr.put_nat(3n, rest)
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+      Wr.put_nat(4n, Wr.put_nat(window, Wr.put_nat(catalog, Wr.put_nat(prompt, Wr.put_nat(out, Wr.put_bool(cuttable, Wr.put_bool(lower, rest)))))))
 
-# the recovery of the note: none 0, length 1, leak 2, redirect 3
+# the recovery of the note: none 0, length 1, leak 2, redirect 3, empty 4
 def run_spell_rk(x: RnRecovery.Rk, rest: String) -> String:
   match x:
     case RnRecovery.Free{}:
@@ -259,6 +271,8 @@ def run_spell_rk(x: RnRecovery.Rk, rest: String) -> String:
       Wr.put_nat(2n, rest)
     case RnRecovery.Loops{}:
       Wr.put_nat(3n, rest)
+    case RnRecovery.Empties{}:
+      Wr.put_nat(4n, rest)
 
 # a request: the tag of the decision (Rust's `Ask`: reply 0, ended 1,
 # prepare 2, compact 3, round 4, recover 5, poll 6), then its inputs
@@ -322,18 +336,20 @@ def run_spell_end(x: RnDecision.End, rest: String) -> String:
     case RnDecision.EndNext{count}:
       Wr.put_nat(3n, Wr.put_nat(count, rest))
 
-# what a recovery does (Rust's `Act`): run 0, redo 1 then the row, stand
-# 2, quit 3
+# what a recovery does (Rust's `Act`): run 0, redo 1 then the row, quit
+# 2, compact 3, lower 4 then the row
 def run_spell_help(x: RnDecision.Help, rest: String) -> String:
   match x:
     case RnDecision.Runs{}:
       Wr.put_nat(0n, rest)
     case RnDecision.Redoes{row}:
       Wr.put_nat(1n, Wr.put_nat(row, rest))
-    case RnDecision.Stands{}:
-      Wr.put_nat(2n, rest)
     case RnDecision.Quits{}:
+      Wr.put_nat(2n, rest)
+    case RnDecision.Compacts{}:
       Wr.put_nat(3n, rest)
+    case RnDecision.Lowers{row}:
+      Wr.put_nat(4n, Wr.put_nat(row, rest))
 
 # the spelled answer to request a: the value of its decision in the model
 # (bend/run/decision.bend, bend/run/state.bend), which the laws of
@@ -427,19 +443,19 @@ law run_ffi_malformed_unless_request:
 # threshold one after nothing (T), not after a failure (F). A round after
 # 0 of 2 goes on with 1 (3,1,), after 1 is capped (2,), a control stops
 # (0,), a reset resets (1,). Caps 2, 2, 2, 5: a length stop is redone
-# (1,1,), a leak at its cap stands (2,), a first repeat runs (0,), a
-# length stop at its cap quits (3,). A retryable failed poll with 0 of 1
+# (1,1,), a leak at its cap quits (2,), a first repeat runs (0,), a
+# length stop at its cap quits (2,). A retryable failed poll with 0 of 1
 # failures repolls (T), with 1 does not (F)
 # EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
 #   does not, a reversed flag, a field read in another order
 law run_ffi_tags_example:
-  {[FRn.ffi("0,2,5,1,1,1,0,0,F0,"), FRn.ffi("0,2,5,1,1,1,0,0,F1,"), FRn.ffi("0,2,5,1,1,1,0,0,F2,"), FRn.ffi("0,2,5,1,1,1,0,0,F3,TF"), FRn.ffi("0,2,5,1,1,1,0,0,F3,FT"), FRn.ffi("0,2,5,1,1,1,0,0,F4,T"), FRn.ffi("0,2,5,1,1,1,0,0,F4,F"), FRn.ffi("0,2,5,1,1,1,0,5,F2,"), FRn.ffi("1,TF"), FRn.ffi("1,FT"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("2,F1,"), FRn.ffi("2,T2,"), FRn.ffi("3,T0,"), FRn.ffi("3,T1,"), FRn.ffi("3,F1,"), FRn.ffi("3,F2,"), FRn.ffi("4,2,5,1,1,0,FF"), FRn.ffi("4,2,5,1,1,1,FF"), FRn.ffi("4,2,5,1,1,0,TF"), FRn.ffi("4,2,5,1,1,0,FT"), FRn.ffi("5,2,2,2,5,0,0,0,"), FRn.ffi("5,2,2,2,5,1,2,2,"), FRn.ffi("5,2,2,2,5,2,0,0,0,"), FRn.ffi("5,2,2,2,5,0,1,2,"), FRn.ffi("6,T0,1,"), FRn.ffi("6,T1,1,")] == ["0,", "1,", "2,", "3,", "4,", "5,", "6,", "7,", "0,", "1,", "3,FT", "0,", "1,T", "1,F", "T", "F", "T", "F", "3,1,", "2,", "0,", "1,", "1,1,", "2,", "0,", "3,", "T", "F"] : List<&2, String>}
+  {[FRn.ffi("0,2,5,1,1,1,0,0,F0,"), FRn.ffi("0,2,5,1,1,1,0,0,F1,"), FRn.ffi("0,2,5,1,1,1,0,0,F2,"), FRn.ffi("0,2,5,1,1,1,0,0,F3,TF"), FRn.ffi("0,2,5,1,1,1,0,0,F3,FT"), FRn.ffi("0,2,5,1,1,1,0,0,F4,T"), FRn.ffi("0,2,5,1,1,1,0,0,F4,F"), FRn.ffi("0,2,5,1,1,1,0,5,F2,"), FRn.ffi("1,TF"), FRn.ffi("1,FT"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("2,F1,"), FRn.ffi("2,T2,"), FRn.ffi("3,T0,"), FRn.ffi("3,T1,"), FRn.ffi("3,F1,"), FRn.ffi("3,F2,"), FRn.ffi("4,2,5,1,1,0,FF"), FRn.ffi("4,2,5,1,1,1,FF"), FRn.ffi("4,2,5,1,1,0,TF"), FRn.ffi("4,2,5,1,1,0,FT"), FRn.ffi("5,2,2,2,5,0,0,0,"), FRn.ffi("5,2,2,2,5,1,2,2,"), FRn.ffi("5,2,2,2,5,2,0,0,0,"), FRn.ffi("5,2,2,2,5,0,1,2,"), FRn.ffi("6,T0,1,"), FRn.ffi("6,T1,1,")] == ["0,", "1,", "2,", "3,", "4,", "5,", "6,", "7,", "0,", "1,", "3,FT", "0,", "1,T", "1,F", "T", "F", "T", "F", "3,1,", "2,", "0,", "1,", "1,1,", "2,", "0,", "2,", "T", "F"] : List<&2, String>}
 
 # LAW run_ffi_errors_example: anchor: the error bytes Rust reads: an unknown request (7),
-# reply (5), threshold (3), compaction (3), stuck reply (3) or recovery
-# (4) tag is malformed, as is no input; a request with input left over is
+# reply (5), threshold (3), compaction (3), stuck reply (5) or recovery
+# (5) tag is malformed, as is no input; a request with input left over is
 # refused as such
 # EXCLUDES: an unknown tag read as a known one, the two error texts
 #   swapped or reworded
 law run_ffi_errors_example:
-  {[FRn.ffi("7,"), FRn.ffi("0,2,5,1,1,1,0,0,F5,"), FRn.ffi("2,F3,"), FRn.ffi("3,T3,"), FRn.ffi("5,2,2,2,5,3,"), FRn.ffi("5,2,2,2,5,0,4,0,"), FRn.ffi(""), FRn.ffi("6,T0,1,x")] == [Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: input left over after the request")] : List<&2, String>}
+  {[FRn.ffi("7,"), FRn.ffi("0,2,5,1,1,1,0,0,F5,"), FRn.ffi("2,F3,"), FRn.ffi("3,T3,"), FRn.ffi("5,2,2,2,5,5,"), FRn.ffi("5,2,2,2,5,0,5,0,"), FRn.ffi(""), FRn.ffi("6,T0,1,x")] == [Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: input left over after the request")] : List<&2, String>}

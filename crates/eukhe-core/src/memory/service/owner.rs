@@ -11,7 +11,7 @@ use eukhe_types::platform::transport::{TransportListener, TransportStream};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::oneshot;
 
-use super::actor::Actor;
+use super::actor::{Actor, MemoryCommitError};
 use super::client::write_lines;
 use super::{ClientFrame, Outcome, Reply, ReplyFrame, Request, Summarizer};
 use crate::memory::view::Part;
@@ -76,7 +76,7 @@ pub(super) enum Command {
         part: Part,
         generation: u64,
     },
-    Persisted(Result<(), String>),
+    Persisted(Result<(), MemoryCommitError>),
     Shutdown,
 }
 

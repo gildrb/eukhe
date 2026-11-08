@@ -57,17 +57,6 @@ def pp.demote_inside(c: Pp.Cls, looped: Bool, h: {Pp.demote(c, looped) == Pp.Ins
 def pp.yes_clash(-A: Type, ans: Pp.Ans, ran: {Pp.Ans.yes(ans) == True{} : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}) -> A:
   LLogicLogic.pp.absurd(A, Equal.trans(Bool, True{}, Pp.Ans.yes(ans), False{}, Equal.sym(Bool, Pp.Ans.yes(ans), True{}, ran), no))
 
-def pp.gate_write_auto_never_secret(c: Pp.Cls, +auto: List<&2, Nat>, +ans: Pp.Ans, ran: {Pp.runs(c, Pp.Wr{}, auto, ans) == True{} : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}) -> {Pp.Cls.secret(c) == False{} : Bool}:
-  match c:
-    case Pp.Inside{}:
-      {==}
-    case Pp.Outside{}:
-      {==}
-    case Pp.Protected{}:
-      {==}
-    case Pp.Secret{}:
-      pp.yes_clash({True{} == False{} : Bool}, ans, ran, no)
-
 # 5. The spec
 # -----------
 
@@ -138,7 +127,7 @@ def pp.pick_secret(s: Bool, p: Bool, i: Bool) -> {Pp.Cls.secret(Pp.cls.pick(s, p
 # the class of a real path is a secret exactly when a secret entry of the
 # policy is at or above it
 def pp.class_of_secret(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +at: List<&2, Nat>) -> {Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, at)) == PathPolicy.pp_under_any(se, at) : Bool}:
-  Equal.trans(Bool, Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, at)), Pp.any_under(se, at), PathPolicy.pp_under_any(se, at), pp.pick_secret(Pp.any_under(se, at), Pp.protects(Pp.Pol{ro, ru, se}, at), Maybe.is_some(&2, List<&2, Nat>, Pp.root.of(ro, at))), pp.any_under_spec(se, at))
+  Equal.trans(Bool, Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, at)), Pp.any_under(se, at), PathPolicy.pp_under_any(se, at), pp.pick_secret(Pp.any_under(se, at), Pp.protects(Pp.Pol{ro, ru, se}, at), Pp.any_under(ro, at)), pp.any_under_spec(se, at))
 
 # 6. The entry, spelled
 # ---------------------

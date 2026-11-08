@@ -1,14 +1,16 @@
 # The CI gates as git hooks, run by prek (https://github.com/j178/prek,
-# pinned in docs/develop.md). GitHub runs no gate. `make hooks` installs
+# pinned there). GitHub runs no gate. `make hooks` installs
 # them. Both run at low CPU priority (nice -n 10).
 #
-# pre-commit: `make ci-fast` (rustfmt, the secrets scan of the staged diff,
-# clippy on the crates the staged change touches).
-# pre-push: scripts/ci_local.sh pre-push, on the pushed commits in this
-# worktree: rustfmt, their secrets scan, clippy and tests on the crates
-# they touch, the compiled Bend core up to date (scripts/bend_core.py
-# check), `bend PROOF.bend`. No lock: every worktree pushes at any
-# time. The full gate runs nightly (scripts/ci_nightly.sh).
+# pre-commit (< 1 min): `make ci-fast` (rustfmt, the secrets scan of the
+# staged diff, clippy on the crates the staged change touches).
+# pre-push (< 5 min): scripts/ci_local.sh pre-push, on the pushed commits
+# in this worktree: rustfmt, their secrets scan, clippy and the unit tests
+# (no e2e suite) of the crates they touch, the compiled Bend core up to
+# date (scripts/bend_core.py check), the proofs the Bend change can reach
+# (scripts/bend_proofs.py), the laws against LAWS.lock. No lock: every
+# worktree pushes at any time. The full gate runs nightly
+# (scripts/ci_nightly.sh).
 # Skip rule: a push that changes only Markdown files in docs/ or at the
 # repository root does not run the gate (the `exclude` below).
 default_install_hook_types: [pre-commit, pre-push]
@@ -23,7 +25,7 @@ repos:
         always_run: true
         stages: [pre-commit]
       - id: ci-push
-        name: ci-push (fmt, secrets, clippy and tests on the touched crates, bend core check, bend PROOF.bend)
+        name: ci-push (fmt, secrets, clippy and unit tests on the touched crates, bend core check, the reached proofs, laws lock)
         entry: nice -n 10 scripts/ci_local.sh pre-push
         language: system
         pass_filenames: false

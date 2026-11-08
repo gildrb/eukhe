@@ -5,13 +5,15 @@
 use super::{
     create_session, effort_picker, info_commands, terminal_columns, AgentView, AuthSelectorKind,
     ChatEntry, CommandCatalogUpdate, DaemonCommand, DockFold, Duration, InfoContent, Map,
-    RebuildKind, Result, SessionUi, SlashCommandExecution, SlashCommandRegistry, StatusKind,
-    SubmitBehavior, Value, UI_REQUEST_TIMEOUT_MS,
+    ModelSelectionApplied, RebuildKind, Result, SessionUi, SetModelOutcome, SlashCommandExecution,
+    SlashCommandRegistry, StatusKind, SubmitBehavior, SwitchScope, Value, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::command_paths::{PathRow, Resolution};
 use crate::glyphs::WARN;
+use crate::model_hub::HubTarget;
 use crate::workflow_size_picker;
 use eukhe_types::model_roles::ModelRole;
+use eukhe_types::slash_commands::MODEL_ALL_ROLES_SUBCOMMAND;
 use eukhe_types::workflow::WorkflowSize;
 
 impl SessionUi {
@@ -292,16 +294,54 @@ impl SessionUi {
             }
             // `/model` opens the role hub; `/model <role>` opens it at that
             // role (the command paths list the roles: an unknown word never
-            // reaches here).
+            // reaches here). `/model --all <provider/model>` switches the
+            // session to the model and saves it as the all-roles model;
+            // `/model --all` alone opens the hub at the all-roles picker.
             "model" => {
-                if !resolved.args.trim().is_empty() {
-                    view.editor.set_text(text);
+                let selector = resolved.args.trim();
+                let target = match sub.first().map(String::as_str) {
+                    Some(MODEL_ALL_ROLES_SUBCOMMAND) => Some(HubTarget::AllRoles),
+                    Some(id) => ModelRole::from_id(id).map(HubTarget::Role),
+                    None => None,
+                };
+                // Only the all-roles path takes text: `provider/model`.
+                let all_roles = match target {
+                    Some(HubTarget::AllRoles) => {
+                        selector.split_once('/').filter(|(provider, model_id)| {
+                            !provider.is_empty() && !model_id.is_empty()
+                        })
+                    }
+                    Some(HubTarget::Role(_)) | None => None,
+                };
+                if selector.is_empty() {
+                    self.open_model_hub(view, target).await?;
+                } else if let Some((provider, model_id)) = all_roles {
+                    match self
+                        .try_set_model(provider, model_id, SwitchScope::AllRoles, view)
+                        .await
+                    {
+                        SetModelOutcome::Switched | SetModelOutcome::Failed => {}
+                        SetModelOutcome::NeedsSignIn => {
+                            let applied = ModelSelectionApplied {
+                                provider: provider.to_owned(),
+                                model_id: model_id.to_owned(),
+                                effort: None,
+                            };
+                            self.begin_model_sign_in(&applied, SwitchScope::AllRoles, view)
+                                .await;
+                        }
+                    }
+                } else {
                     let roles: Vec<&str> = ModelRole::ALL.iter().map(|role| role.id()).collect();
-                    self.error_row(&format!("Usage: /model [{}]", roles.join("|")), view);
-                    return Ok(());
+                    view.editor.set_text(text);
+                    self.error_row(
+                        &format!(
+                            "Usage: /model [{}|{MODEL_ALL_ROLES_SUBCOMMAND} [provider/model]]",
+                            roles.join("|")
+                        ),
+                        view,
+                    );
                 }
-                let role = sub.first().and_then(|id| ModelRole::from_id(id));
-                self.open_model_hub(view, role).await?;
             }
             // `/effort [level]` (TS `handleEffortCommand`): the
             // session's thinking levels drive the outcome -- a model
@@ -761,7 +801,8 @@ impl SessionUi {
             "memory" => {
                 if sub.first().is_some_and(|word| word == "model") {
                     if resolved.args.trim().is_empty() {
-                        self.open_model_hub(view, Some(ModelRole::Memory)).await?;
+                        self.open_model_hub(view, Some(HubTarget::Role(ModelRole::Memory)))
+                            .await?;
                     } else {
                         view.editor.set_text(text);
                         self.error_row("Usage: /memory model", view);
@@ -892,7 +933,7 @@ impl SessionUi {
                 self.handle_rlm_max_depth_command(view, &resolved.args)
                     .await;
             }
-            // `/set`, `/toggle`, `/alias`, `/cvar` (docs/control.md S4):
+            // `/set`, `/toggle`, `/alias`, `/cvar`:
             // console variables, sent to the session's daemon as `cvar`.
             "set" | "toggle" | "alias" | "cvar" => {
                 self.handle_cvar_command(resolved.name, &resolved.args, view)

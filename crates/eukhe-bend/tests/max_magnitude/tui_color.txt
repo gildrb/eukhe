@@ -1,0 +1,17 @@
+# ramps at the widest channel and the most rungs the entry draws
+call 0,255,255,255,0,0,0,255,
+call 0,0,0,0,255,255,255,255,
+call 0,0,255,0,255,0,255,255,
+# every number at its largest: the range error, never a ramp computed
+refuse 0,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},
+refuse 0,0,0,0,0,0,0,{MAX},
+# bands: the largest token count and window, alone and together
+call 1,{MAX},{MAX},
+call 1,{MAX},1,
+call 1,1,{MAX},
+call 1,0,{MAX},
+call 1,99999999999998,{MAX},
+call 1,49999999999999,{MAX},
+call 1,89999999999999,{MAX},
+call 2,
+refuse 1,{LONG},1,

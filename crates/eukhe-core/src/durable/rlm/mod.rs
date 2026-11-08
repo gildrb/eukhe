@@ -1,8 +1,9 @@
 //! The `eukhe.rlm` extension: the `ipython` tool backed by one Python kernel
 //! per conversation, and the kernel host requests the session answers
-//! (`rlm_heartbeat.*`, `mcp.*`, `model.info`, `compact.*`, `refine.*`, plus
-//! the embedding's extra handlers). `rlm.*` (children) and `goal.*` (goals)
-//! register from their own extensions into the same
+//! (`rlm_heartbeat.*`, `mcp.*`, `model.info`, `compact.*`, `refine.*`,
+//! `rlm.query_batch`, `history.*`, `chat.*`, plus the embedding's extra
+//! handlers). `rlm.*` (children) and `goal.*` (goals) register from their
+//! own extensions into the same
 //! [`HostRequestRegistry`](super::HostRequestRegistry).
 //!
 //! Every kernel host request reaches its handler with the durable tool
@@ -11,15 +12,18 @@
 mod activity;
 mod boundary;
 pub mod factory;
+mod history;
 mod host;
 mod jobs;
 mod kernels;
 pub(crate) use self::kernels::submit_notice;
+mod query;
 pub(crate) mod refine;
 mod remote;
 pub mod skills_unavailable_notice;
 pub mod state_restore_notice;
 mod tool;
+mod wait;
 
 pub(crate) use kernels::session_env;
 pub(crate) use tool::{aborted, call_aborted, with_diagnostics};
@@ -122,6 +126,10 @@ pub(crate) fn now_millis() -> u64 {
 pub(crate) struct RlmRuntime {
     pub(crate) deps: Arc<HostDeps>,
     pub(crate) kernels: Arc<KernelPool>,
+    /// The session's `rlm.query` slots and bytes ([`query`]).
+    queries: query::QueryLedger,
+    /// The `jobs.wait`s in flight the kernel named ([`wait`]).
+    waits: wait::Waits,
 }
 
 impl RlmRuntime {
@@ -168,6 +176,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let runtime = Arc::new(RlmRuntime {
         deps: Arc::clone(deps),
         kernels: Arc::new(KernelPool::new(deps)),
+        queries: query::QueryLedger::default(),
+        waits: wait::Waits::default(),
     });
     // The daemon's out-of-band kernel lanes reach the pool through the deps
     // (weakly: the runtime owns the pool and holds the deps).
@@ -175,6 +185,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     host::register(&runtime);
     jobs::register(&runtime);
     remote::register(&runtime);
+    query::register(&runtime);
+    history::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
     deps.add_service(Box::new(move |opened: OpenedSession| {

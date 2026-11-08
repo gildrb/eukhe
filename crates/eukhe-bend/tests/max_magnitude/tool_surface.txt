@@ -1,0 +1,7 @@
+# a schema of the largest parameters at the largest version; the dynamic tools and a tool at the largest
+call 0,3,{MAX},0,{MAX},{MAX},
+call 0,1,{MAX},0,
+call 1,2,{MAX},{MAX},{MAX},
+call 2,3,{MAX},1,{MAX},{MAX},
+call 3,2,1,{MAX},{MAX},
+refuse 3,1,{LONG},1,

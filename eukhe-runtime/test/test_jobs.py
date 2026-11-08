@@ -3,51 +3,91 @@ from __future__ import annotations
 import asyncio
 import importlib
 import unittest
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 
 rlm_module = importlib.import_module("rlm")
+bash_module = importlib.import_module("rlm.bash")
 
 
-def _running(job_id: str = "cell-1") -> dict[str, object]:
-    return {"id": job_id, "kind": "cell", "state": "running", "elapsed_ms": 1200}
+def _settled(job_id: str = "shell-1") -> dict[str, object]:
+    return {"id": job_id, "kind": "shell", "state": "ok", "elapsed_ms": 45_000, "output": "BUILD-OK\n"}
+
+
+def _host(replies: dict[str, Any]) -> AsyncMock:
+    """A host that answers each request type with its reply."""
+
+    async def answer(request_type: str, payload: dict[str, Any] | None = None) -> Any:
+        return replies[request_type]
+
+    return AsyncMock(side_effect=answer)
 
 
 class JobsApiTest(unittest.TestCase):
-    def test_lists_the_session_jobs(self) -> None:
-        settled = {"id": "cell-0", "kind": "cell", "state": "ok", "elapsed_ms": 90, "output": "42"}
-        host_request = AsyncMock(return_value={"jobs": [settled, _running()]})
+    def setUp(self) -> None:
+        # This kernel's bash() handles of other tests are no work of these.
+        handles = patch.dict(bash_module._activity_handles, clear=True)
+        handles.start()
+        self.addCleanup(handles.stop)
+
+    def test_lists_the_session_jobs_and_the_subagents(self) -> None:
+        running = {"id": "cell-1", "kind": "cell", "state": "running", "elapsed_ms": 1200}
+        child = {
+            "rlm_child_id": "child-1",
+            "session_name": "worker",
+            "session_dir": "/tmp/worker",
+            "status": "running",
+        }
+        host_request = _host({"jobs.list": {"jobs": [_settled(), running]}, "rlm.list_subagents": {"subagents": [child]}})
 
         with patch.object(rlm_module, "host_request", host_request):
             listed = asyncio.run(rlm_module.jobs.list())
 
-        host_request.assert_awaited_once_with("jobs.list")
-        self.assertEqual([job.id for job in listed], ["cell-0", "cell-1"])
-        self.assertTrue(listed[0].settled)
-        self.assertEqual(listed[0].output, "42")
-        self.assertFalse(listed[1].settled)
+        self.assertEqual(
+            [(job.id, job.kind, job.state) for job in listed],
+            [("shell-1", "shell", "ok"), ("cell-1", "cell", "running"), ("child-1", "child", "running")],
+        )
+        self.assertEqual(listed[0].output, "BUILD-OK\n")
         self.assertIsNone(listed[1].output)
 
-    def test_wait_forwards_the_timeout_and_reports_a_job_still_running(self) -> None:
-        host_request = AsyncMock(return_value=_running())
+    def test_wait_on_all_work_returns_the_first_settled_job(self) -> None:
+        host_request = _host({"jobs.wait": {"end": "job", "job": _settled()}})
 
         with patch.object(rlm_module, "host_request", host_request):
-            job = asyncio.run(rlm_module.jobs.wait("cell-1", timeout_ms=500))
+            job = asyncio.run(rlm_module.jobs.wait())
 
-        host_request.assert_awaited_once_with("jobs.wait", {"job": "cell-1", "timeout_ms": 500})
-        self.assertEqual(job.state, "running")
+        request_type, payload = host_request.await_args.args
+        self.assertEqual(request_type, "jobs.wait")
+        self.assertEqual(
+            {key: value for key, value in payload.items() if key != "wait_id"},
+            {"targets": None, "local": [], "timeout_s": None},
+        )
+        self.assertEqual(job, rlm_module.Job("shell-1", "shell", "ok", 45_000, "BUILD-OK\n"))
 
-    def test_wait_without_a_timeout_leaves_the_bound_to_the_host_budget(self) -> None:
-        host_request = AsyncMock(return_value=_running())
+    def test_wait_names_its_targets_and_rounds_the_timeout_up(self) -> None:
+        host_request = _host({"jobs.wait": {"end": "timeout"}})
 
         with patch.object(rlm_module, "host_request", host_request):
-            asyncio.run(rlm_module.jobs.wait(rlm_module.Job("cell-1", "cell", "running", 0)))
+            job = asyncio.run(
+                rlm_module.jobs.wait(["cell-1", rlm_module.Job("shell-2", "shell", "running", 0)], timeout_s=1.5)
+            )
 
-        host_request.assert_awaited_once_with("jobs.wait", {"job": "cell-1"})
+        payload = host_request.await_args.args[1]
+        self.assertEqual((payload["targets"], payload["timeout_s"]), (["cell-1", "shell-2"], 2))
+        self.assertIsNone(job)
+
+    def test_a_queued_message_ends_the_wait(self) -> None:
+        host_request = _host({"jobs.wait": {"end": "message"}})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            job = asyncio.run(rlm_module.jobs.wait())
+
+        self.assertEqual((job.kind, job.output), ("message", "A message arrived for this session; it follows this result."))
 
     def test_cancel_returns_the_settled_job(self) -> None:
         killed = {"id": "cell-1", "kind": "cell", "state": "killed", "elapsed_ms": 3000, "output": ""}
-        host_request = AsyncMock(return_value=killed)
+        host_request = _host({"jobs.cancel": killed})
 
         with patch.object(rlm_module, "host_request", host_request):
             job = asyncio.run(rlm_module.jobs.cancel("cell-1"))
@@ -56,10 +96,12 @@ class JobsApiTest(unittest.TestCase):
         self.assertEqual(job.state, "killed")
 
     def test_rejects_bad_arguments_and_bad_replies(self) -> None:
-        host_request = AsyncMock(return_value={"id": "cell-1", "state": "lost"})
+        host_request = _host({"jobs.wait": {"end": "lost"}})
         with patch.object(rlm_module, "host_request", host_request):
             with self.assertRaises(TypeError):
-                asyncio.run(rlm_module.jobs.wait("cell-1", timeout_ms=-1))
+                asyncio.run(rlm_module.jobs.wait("cell-1", timeout_s=-1))
+            with self.assertRaises(ValueError):
+                asyncio.run(rlm_module.jobs.wait([]))
             with self.assertRaises(TypeError):
                 asyncio.run(rlm_module.jobs.cancel(""))
             with self.assertRaises(RuntimeError):

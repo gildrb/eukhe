@@ -26,14 +26,14 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
             "--daemon-socket" | "--socket" => {
                 let Some(value) = rest.next() else {
                     eprintln!("Error: {arg} requires a value");
-                    return 1;
+                    return 2;
                 };
                 daemon_socket = Some(value);
             }
             other => {
-                eprintln!("Error: unknown argument {other:?}");
+                eprintln!("Error: unknown argument: {other}");
                 eprintln!("Usage: {app} gateway [--daemon-socket <path>]");
-                return 1;
+                return 2;
             }
         }
     }
@@ -49,6 +49,18 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
             return 1;
         }
     };
+    // `/model` and the Signal model read the settings the gateway's
+    // sessions run with; a gateway model that names no provider stops the
+    // start (each message reads it again).
+    let settings = crate::client_settings::CliClientSettings::new(
+        config.new_session_cwd.clone(),
+        crate::config::get_agent_dir(),
+        crate::client_settings::CliThemeFlags::default(),
+    );
+    if let Err(error) = eukhe_gateway::signal_model(settings.as_ref()) {
+        eprintln!("Error: {error:#}");
+        return 1;
+    }
     if caller == Caller::Terminal && eukhe_gateway::service_installed() {
         return match eukhe_gateway::restart_service() {
             Ok(()) => {
@@ -93,7 +105,7 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
                 return 1;
             }
         };
-    match runtime.block_on(eukhe_gateway::run(config, launcher)) {
+    match runtime.block_on(eukhe_gateway::run(config, launcher, settings)) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");
@@ -133,34 +145,18 @@ fn gateway_config(
         .as_deref()
         .map_or_else(|| home.clone(), crate::config::expand_tilde_path);
     let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
-    // `provider/model-id`: a provider name has no `/`, a model id may.
-    let model = match signal.model.as_deref().map(str::trim) {
-        None => None,
-        Some(model) => match model.split_once('/') {
-            Some((provider, model_id)) if !provider.is_empty() && !model_id.is_empty() => {
-                Some(eukhe_gateway::SignalModel {
-                    provider: provider.to_string(),
-                    model_id: model_id.to_string(),
-                })
-            }
-            Some(_) | None => anyhow::bail!(
-                "gateway.signal.model in {} is {model:?}; set it to provider/model-id (see eukhe model list) or remove it",
-                global_path.display()
-            ),
-        },
-    };
     Ok(eukhe_gateway::GatewayConfig {
         socket_path: eukhe_client::paths::resolve_daemon_socket_path(
             daemon_socket.map(std::path::Path::new),
         ),
         session_dir,
         new_session_cwd,
-        model,
         signal: eukhe_gateway::SignalConfig {
             cli_path,
             account,
             allow: signal.allow.unwrap_or_default(),
         },
+        root_heartbeat: settings.get_gateway_root_heartbeat(),
     })
 }
 

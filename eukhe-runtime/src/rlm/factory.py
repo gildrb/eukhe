@@ -2604,8 +2604,14 @@ class FactoryExecutor:
         instance.attempt += 1
         child_name = _spawn_label(state.name, run.run_id, state.state_id, instance.index, instance.attempt)
         try:
+            # A factory state's work stays out of the orchestrator's context:
+            # only its compact result comes back.
             handle = await spawn(
-                instance.prompt, name=child_name, model=state.model, thinking=state.thinking
+                instance.prompt,
+                name=child_name,
+                why="isolate",
+                model=state.model,
+                thinking=state.thinking,
             )
         except RuntimeError as exc:
             last_error = str(exc)

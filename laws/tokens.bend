@@ -14,7 +14,7 @@ import ../bend/wire.bend as Wr
 
 # (T2) Dashboard tokens
 # ---------------------
-# docs/dashboard.md "Tokens", the model in bend/tokens.bend. The compiled
+# The model in bend/tokens.bend. The compiled
 # core writes its tables into the marked blocks of
 # crates/eukhe-dashboard/ui/src/tokens.stylex.ts (entry bend/ffi_tokens.bend,
 # laws below).
@@ -111,6 +111,11 @@ def spec.z(xs: List<&2, Tk.Step>) -> List<&2, String>:
     case Tk.Step{n, v} <> rest:
       spec.key(n, U32.show(v)) <> spec.z(rest)
 
+# a block's lines: the line count, then each line as a string. spec.palette
+# writes each tone's key with Tk.Tone.name, which tokens_names_exact pins to
+# name_spec for every tone; the values are the model's tables, which the
+# laws below pin (every tone once, in order; channels, alphas and scales in
+# range; the scales ascending; the pairs legible).
 def spell_lines(ls: List<&2, String>, rest: String) -> String:
   Wr.put_list(~String, ~Wr.put_str, ls, rest)
 
@@ -151,6 +156,23 @@ law tokens_ffi_example:
   {String.take(FT.ffi("0,"), 86n) == "5,12,lightPalette17,16,  bg: \"#ffffff\",21,  sidebar: \"#f9f9f9\",20,  raised: \"#ffffff\"," : String} &
   {FT.ffi("1,") == SCon{'E', SCon{' ', "tokens: malformed request"}} : String} &
   {FT.ffi("0,0,") == SCon{'E', SCon{' ', "tokens: malformed request"}} : String}
+
+# the answer to an input: the token tables when it is exactly the one
+# request, else the error form
+def spec_entry.of(whole: Bool) -> String:
+  match whole:
+    case True{}:
+      spell_blocks()
+    case False{}:
+      SCon{'E', SCon{' ', "tokens: malformed request"}}
+
+# LAW tokens_ffi_spec: every input is answered from the spec alone: exactly the one request (tag 0, then nothing) gets the token tables as spell_blocks writes them, every other input exactly the error form 'E ', then "tokens: malformed request"
+# EXCLUDES: an input other than the one request answered with the tables
+#   (a second spelling of tag 0, input left over), a reply that depends on
+#   anything but the input
+law tokens_ffi_spec:
+  for +s: String
+  {FT.ffi(s) == spec_entry.of(read_req(s)) : String}
 
 # the tones of a palette, in order
 def palette_tones(es: List<&2, Tk.Entry>) -> List<&2, Tk.Tone>:

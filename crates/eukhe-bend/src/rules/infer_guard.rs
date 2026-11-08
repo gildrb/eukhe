@@ -1,6 +1,6 @@
 //! The repetition guard of one stream (`bend/infer_guard.bend`, stepper
-//! `bend/ffi_infer_guard.bend`; `laws/infer_guard.bend`, docs/inference.md
-//! S6.5): the guard stays in the Bend heap, the caller sends one id per
+//! `bend/ffi_infer_guard.bend`; `laws/infer_guard.bend`): the guard stays
+//! in the Bend heap, the caller sends one id per
 //! chunk (equal chunks, equal ids) and reads whether it cut the stream.
 
 use crate::wire::{Reader, Writer};
@@ -82,5 +82,19 @@ mod tests {
             period: 2,
         });
         assert_eq!(fed, [None, None, None, None, None, None, None, cut, cut]);
+    }
+
+    /// The largest window Rust writes (`stream_repeat_limit` is a u32):
+    /// the core used to check every one of its 2^30 periods on each chunk
+    /// and stopped the process; no window is complete here, so no chunk
+    /// cuts.
+    #[test]
+    fn the_largest_window_reads_chunks() {
+        let mut guard = Guard::new(u32::MAX);
+        let fed: Vec<Option<Cut>> = [7, 7, 7, 7, 7]
+            .into_iter()
+            .map(|chunk| guard.feed(chunk))
+            .collect();
+        assert_eq!(fed, [None; 5]);
     }
 }

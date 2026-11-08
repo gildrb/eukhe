@@ -39,6 +39,14 @@ def ct.ev_by(e: Cr.Ev) -> {Cr.Ev.by(e) == CronTerms.by_spec(e) : Maybe<&2, Nat>}
       {==}
     case Cr.Corrupt{t}:
       {==}
+    case Cr.Pause{p, i}:
+      {==}
+    case Cr.Stop{p, i}:
+      {==}
+    case Cr.Delete{p, i}:
+      {==}
+    case Cr.Edit{p, i, k}:
+      {==}
 
 def ct.ev_corrupt(e: Cr.Ev) -> {Cr.Ev.is_corrupt(e) == CronTerms.corrupt_spec(e) : Bool}:
   match e:
@@ -66,6 +74,14 @@ def ct.ev_corrupt(e: Cr.Ev) -> {Cr.Ev.is_corrupt(e) == CronTerms.corrupt_spec(e)
       {==}
     case Cr.Corrupt{t}:
       {==}
+    case Cr.Pause{p, i}:
+      {==}
+    case Cr.Stop{p, i}:
+      {==}
+    case Cr.Delete{p, i}:
+      {==}
+    case Cr.Edit{p, i, k}:
+      {==}
 
 def ct.ev_user(e: Cr.Ev) -> {Cr.Ev.is_user(e) == CronTerms.user_spec(e) : Bool}:
   match e:
@@ -92,6 +108,14 @@ def ct.ev_user(e: Cr.Ev) -> {Cr.Ev.is_user(e) == CronTerms.user_spec(e) : Bool}:
     case Cr.RawClaim{t}:
       {==}
     case Cr.Corrupt{t}:
+      {==}
+    case Cr.Pause{p, i}:
+      {==}
+    case Cr.Stop{p, i}:
+      {==}
+    case Cr.Delete{p, i}:
+      {==}
+    case Cr.Edit{p, i, k}:
       {==}
 
 def ct.pick(b: Bool, cl: Maybe<&2, Cr.Claim>, rest: Maybe<&2, Cr.Claim>) -> {CronTerms.claim_spec.pick(b, cl, rest) == Cr.claim_of.pick(b, cl, rest) : Maybe<&2, Cr.Claim>}:

@@ -1,4 +1,4 @@
-# optchat: the work queue: which nodes start now, and what a waiting turn keeps
+# optchat: the work queue: which nodes start now, under the due mark, and what a waiting turn keeps
 
 import Base
 import ./bits.bend as OBits
@@ -56,9 +56,57 @@ def cands(+cfg: OState.Cfg, +s: OState.St) -> List<&2, ONode.Node>:
   cands.with(s, room, cand.view(OState.St.view(s), OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), 0n, room))
 
 # the nodes to start while a turn waits for the view: the view's unbuilt
-# lines only, oldest first; the ready merges wait (docs/harness.md H2.1)
+# lines only, oldest first; the ready merges wait (LAWS.bend H2.1)
 def cands.need(+cfg: OState.Cfg, +s: OState.St) -> List<&2, ONode.Node>:
   cand.view(OState.St.view(s), OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), 0n, Nat.sub(OState.Cfg.jobs(cfg), List.length(&2, ONode.Node, OState.St.busy(s))))
+
+# The due mark
+# ------------
+# A line is built once a request may show it, never before: a root turn's
+# request shows the view lines that start before end = T - V (the history
+# that scrolled out of its transcript, bend/thread.bend), a subagent's the
+# whole view. The chat keeps the largest end a request asked for, its due
+# mark, and the queue reads the chat cut to it: the view's leading lines
+# that start before the mark and the ready merges that start before it.
+# While everything still fits in the transcript, the mark stays 0 and no
+# call runs.
+
+def lines.keep(go: Bool, +h: ONode.Node, rec: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
+  match go:
+    case False{}:
+      Nil{}
+    case True{}:
+      h <> rec
+
+# the leading lines of v that start before due
+def lines.before(+due: Nat, v: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
+  match v:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      lines.keep(Nat.is_lt(ONode.Node.start(h), due), h, lines.before(due, rest))
+
+# the nodes of ns that start before due, in their order
+def nodes.before(+due: Nat, ns: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      ONode.Nodes.keep(Nat.is_lt(ONode.Node.start(h), due), h, nodes.before(due, rest))
+
+# the chat as the queue reads it under the due mark
+def St.due(+due: Nat, s: OState.St) -> OState.St:
+  match s:
+    case OState.St{t, info, view, shrink, cview, ready, busy}:
+      OState.St{t, info, lines.before(due, view), shrink, cview, nodes.before(due, ready), busy}
+
+# the nodes to start now under the due mark
+def cands.due(+cfg: OState.Cfg, +s: OState.St, +due: Nat) -> List<&2, ONode.Node>:
+  cands(cfg, St.due(due, s))
+
+# the nodes to start while a turn waits, under the due mark
+def cands.need.due(+cfg: OState.Cfg, +s: OState.St, +due: Nat) -> List<&2, ONode.Node>:
+  cands.need(cfg, St.due(due, s))
 
 # the busy nodes that are view lines still unbuilt
 def busy.need(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
@@ -69,7 +117,7 @@ def busy.need(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.No
       ONode.Nodes.keep(Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b))), b, busy.need(info, v, rest))
 
 # a turn starts to wait: every call of a node it does not need stops, and
-# the node goes back to the queue (docs/harness.md H2.1)
+# the node goes back to the queue (LAWS.bend H2.1)
 def St.wait(s: OState.St) -> OState.St:
   match s:
     case OState.St{t, +info, +view, shrink, cview, ready, busy}:

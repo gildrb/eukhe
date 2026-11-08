@@ -1,4 +1,4 @@
-//! The path policy of a session (docs/tools.md S7, `laws/path_policy/` (G1)) and
+//! The path policy of a session (`laws/path_policy/` (G1)) and
 //! the gate the document tools pass every path access through.
 //!
 //! [`session_policy`] builds the one [`PathPolicy`] the `bash` tool and
@@ -20,17 +20,17 @@
 //! The secret set holds `auth.json`, the Prime CLI config and the
 //! credential stores other programs keep in the home dir.
 //!
-//! [`DocumentsGate`] is the gate of one document tool call: a read or
-//! write of a secret, and every access the user's auto set
-//! (`shell.autoEffects`) does not allow, ask the user through the
-//! session's approval sink, as a `bash` step does.
+//! [`DocumentsGate`] is the gate of one document tool call: every access
+//! the user's auto set (`shell.autoEffects`) does not allow asks the user
+//! through the session's approval sink, as a `bash` step does (a secret
+//! access gates like any other).
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eukhe_bend::rules::shell::Gate;
-use eukhe_docs::{Access, AccessGate};
+use eukhe_docs::{Access, AccessGate, AccessRefusal};
 use eukhe_shell::Refusal;
 use eukhe_types::path_policy::{PathClass, PathPolicy, PathRule, RealPath};
 use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffects};
@@ -122,7 +122,15 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
             .filter(|value| !value.is_empty())
             .map(|value| workspace.join(value)),
     );
-    PathPolicy::new(vec![workspace.to_path_buf()], protected, secret)
+    // The OS temp dir is scratch: every session writes its probe
+    // scripts and files there, and a write outside the workspace would
+    // ask for each. Its writes run without asking.
+    let mut roots = vec![workspace.to_path_buf()];
+    let temp = std::env::temp_dir();
+    if temp != workspace {
+        roots.push(temp);
+    }
+    PathPolicy::new(roots, protected, secret)
 }
 
 /// The path policy of a call of a session (its agent dir and settings)
@@ -174,15 +182,24 @@ pub(crate) struct DocumentsGate {
     pub(crate) runtime: tokio::runtime::Handle,
 }
 
+/// Why a [`DocumentsGate`] refused an access. The effects open the
+/// refusal, as a `bash` step's stop line names them: the model learns
+/// which effect needs the user's approval.
+#[derive(Debug, thiserror::Error)]
+#[error("({}) {refusal}", effects.names())]
+pub(crate) struct DocumentsRefusal {
+    effects: ShellEffects,
+    refusal: RefusalText,
+}
+
 impl AccessGate for DocumentsGate {
-    fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), String> {
+    fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), AccessRefusal> {
         let effects = effects(&self.policy, access, real);
         if eukhe_bend::rules::shell::allows(self.auto, effects) == Gate::Unasked {
             return Ok(());
         }
-        // The effects open the refusal, as a `bash` step's stop line names
-        // them: the model learns which effect needs the user's approval.
-        let refused = |refusal: RefusalText| Err(format!("({}) {refusal}", effects.names()));
+        let refused =
+            |refusal: RefusalText| Err(AccessRefusal::new(DocumentsRefusal { effects, refusal }));
         let Some(sink) = &self.sink else {
             return refused(RefusalText::of(Refusal::Unanswered));
         };

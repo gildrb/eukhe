@@ -218,9 +218,10 @@ fn check_parse(call: &Value) -> Result<(), String> {
                 ))
             }
         }
-        (Err(error), Some(expected)) if error == legacy_error(expected) => Ok(()),
+        (Err(error), Some(expected)) if error.to_string() == legacy_error(expected) => Ok(()),
         (Err(error), expected) => Err(format!(
-            "parse {input:?}\n  expected error {expected:?}\n  actual error   {error:?}"
+            "parse {input:?}\n  expected error {expected:?}\n  actual error   {:?}",
+            error.to_string()
         )),
         (Ok(parsed), Some(expected)) => Err(format!(
             "parse {input:?}\n  expected error {expected:?}, got {} edits",

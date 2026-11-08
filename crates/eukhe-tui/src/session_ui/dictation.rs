@@ -1,5 +1,5 @@
 //! The dictation keys (`app.stt.pushToTalk`, `app.stt.toggle`) and the
-//! fold of a take's steps (docs/inference.md S9): a take records, then
+//! fold of a take's steps: a take records, then
 //! transcribes; its text goes into the editor draft at the cursor. The
 //! status line shows the phase; Esc cancels the take.
 

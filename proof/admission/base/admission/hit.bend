@@ -35,6 +35,15 @@ def ad.pre_ia(+m: Ad.Mode, t: List<&2, Ad.Tk>) -> {Ad.cnt(m, Ad.Ia{}, Ad.preempt
       %Equal.sym(Nat, Ad.cnt(m, Ad.Ia{}, Ad.preempt(r)), Ad.cnt(m, Ad.Ia{}, r), ad.pre_ia(m, r)) : {Ad.bit(Ad.hit(m, Ad.Ia{}, h), _) == Ad.bit(Ad.hit(m, Ad.Ia{}, h), Ad.cnt(m, Ad.Ia{}, r)) : Nat}
       {==}
 
+# an interactive admit's preemption, on either limit, keeps the
+# interactive counts
+def ad.pre_ia_on(+m: Ad.Mode, l: Ad.Lim, t: List<&2, Ad.Tk>) -> {Ad.cnt(m, Ad.Ia{}, Ad.preempt.on(l, t)) == Ad.cnt(m, Ad.Ia{}, t) : Nat}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      ad.pre_ia(m, t)
+
 # it leaves no background slot held
 def ad.hb_pre(t: Ad.Tk) -> {Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk.preempt(t)) == False{} : Bool}:
   match t:

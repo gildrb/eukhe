@@ -18,7 +18,7 @@ pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
 mod agent_reply;
 mod input;
-pub(crate) use input::{parse_prompt_images, submit_input, InputRequest};
+pub(crate) use input::{parse_prompt_images, submit_input, InputRequest, InputRowError};
 mod harness_end;
 mod lifecycle;
 mod memory_updates;
@@ -174,9 +174,10 @@ pub struct Worker {
     /// Renames are one serialized critical section: the previous-name read,
     /// the name write, and its `session_renamed` notice stay together.
     pub(crate) rename_gate: tokio::sync::Mutex<()>,
-    /// The chat memory root sessions share (`<agent-dir>/chat`), opened at
-    /// the first root create.
-    chat_memory: tokio::sync::OnceCell<eukhe_core::memory::Memory>,
+    /// The chat memory of the root session this worker hosts (its own
+    /// chat, `<agent-dir>/chat/sessions/<session>`), with its directory:
+    /// a create of the same session reuses it.
+    chat_memory: tokio::sync::Mutex<Option<(std::path::PathBuf, eukhe_core::memory::Memory)>>,
     /// The installed session's `memory_update` forwarder (see
     /// `memory_updates`); aborted when the session closes or is replaced.
     memory_updates: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -194,6 +195,9 @@ pub struct Worker {
     /// read it (the sender identity block and the family edges),
     /// published at every create and rename.
     pub(crate) own_summary: Arc<Mutex<Option<Value>>>,
+    /// The job-settled seam of the session this worker opened last: the
+    /// idle barrier reads its in-flight notices.
+    pub(crate) job_notices: Mutex<Option<crate::job_notices::JobNotices>>,
     /// The user's `@name` replies this session owes (see `agent_reply`).
     agent_replies: Arc<agent_reply::AgentReplies>,
     /// Set once the hosted session's durable Harness failed (see
@@ -205,42 +209,6 @@ pub struct Worker {
     this: std::sync::OnceLock<std::sync::Weak<Worker>>,
     /// Set once this worker started a session title (`title`).
     title_started: std::sync::atomic::AtomicBool,
-}
-
-/// Whether a delivery's sender is one of THIS session's children, by the
-/// sender's recorded durable parent edge: the persisted session id first,
-/// then the live active id, then the session-storage alias.
-fn sender_is_child_of(sender: &Value, core: &SessionCore) -> bool {
-    sender_parent_edge_is(
-        sender,
-        (!core.session_id.is_empty()).then_some(core.session_id.as_str()),
-        &core.active_session_id,
-        core.session_dir.as_deref(),
-    )
-}
-
-/// The edge test behind [`sender_is_child_of`], pure over the recipient's
-/// durable identity: the sender block's parent edge (persisted id, live
-/// id, or session path) must point back at this session.
-fn sender_parent_edge_is(
-    sender: &Value,
-    own_session_id: Option<&str>,
-    own_active_session_id: &str,
-    own_session_file: Option<&std::path::Path>,
-) -> bool {
-    let text = |key: &str| sender.get(key).and_then(Value::as_str);
-    if let (Some(parent), Some(own)) = (text("parentSessionId"), own_session_id) {
-        if parent == own {
-            return true;
-        }
-    }
-    if text("parentActiveSessionId") == Some(own_active_session_id) {
-        return true;
-    }
-    match (text("parentSessionPath"), own_session_file) {
-        (Some(parent), Some(own)) => std::path::Path::new(parent) == own,
-        _ => false,
-    }
 }
 
 impl Worker {
@@ -376,12 +344,13 @@ impl Worker {
             park_notify,
             replacement_gate: tokio::sync::Mutex::new(()),
             rename_gate: tokio::sync::Mutex::new(()),
-            chat_memory: tokio::sync::OnceCell::new(),
+            chat_memory: tokio::sync::Mutex::new(None),
             memory_updates: std::sync::Mutex::new(None),
             state_tree_updates: std::sync::Mutex::new(None),
             scripted_models: std::sync::OnceLock::new(),
             rlm_children: std::sync::OnceLock::new(),
             own_summary: Arc::new(Mutex::new(None)),
+            job_notices: Mutex::new(None),
             agent_replies: Arc::new(agent_reply::AgentReplies::new(
                 std::env::var_os(WORKER_SUPERVISOR_SOCKET_ENV)
                     .map(std::path::PathBuf::from)

@@ -16,6 +16,8 @@ eukhe-build-info = { path = "../eukhe-build-info" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
+# Typed errors: the connect failure and a command that did not go through.
+thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time", "io-util", "net"] }
 # The launcher's start span and its kept-daemon notice.
 tracing = { workspace = true }

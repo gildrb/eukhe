@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{AgentRelayEvent, MemoryUpdate, SessionActionSnapshot};
+use super::{MemoryUpdate, SessionActionSnapshot};
 use crate::ai::{ServiceTier, UserContentBlock};
 use crate::goal::GoalState;
 use crate::output::OmittedOutput;
@@ -142,8 +142,6 @@ pub enum SessionEvent {
     MemoryUpdate {
         update: MemoryUpdate,
     },
-    /// Two non-root agents of this session's family exchanged a message.
-    AgentRelay(AgentRelayEvent),
     /// A user shell command (`!command`) started.
     BashStart {
         command: String,
@@ -209,7 +207,6 @@ impl SessionEvent {
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
             | Self::MemoryUpdate { .. }
-            | Self::AgentRelay(_)
             | Self::BashStart { .. }
             | Self::BashOutput { .. }
             | Self::BashEnd { .. }

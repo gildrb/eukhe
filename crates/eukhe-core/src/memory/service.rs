@@ -9,10 +9,12 @@
 //! ownership over.
 //!
 //! A turn's view comes from one owner step: the owner answers
-//! [`Memory::settled_render`] in the same step that sees every view line
-//! built, so no append can slip a placeholder in between (§6). Many
-//! windows are one chat, and its root turns run one at a time: the owner
-//! hands out the root-turn lease ([`turn`]).
+//! [`Memory::settled_history`] in the same step that sees every line it
+//! keeps built, so no append can slip a placeholder in between (§6). The
+//! compactor builds a line only once such a request asks for it (the due
+//! mark, `laws/optchat.bend` H4). Many windows are one chat, and its root
+//! turns run one at a time: the owner hands out the root-turn lease
+//! ([`turn`]).
 //!
 //! The owner handles one connection's requests in the order they arrive.
 //! A client that stops waiting for a reply says so, and the owner drops
@@ -40,7 +42,6 @@ use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::Mutex;
 
 use super::compactor::Summarizer;
-use super::saved::CompactionPrompt;
 use super::view::pieces;
 use super::{AppendKey, Kind};
 use client::{claim, Claim, Client, Disconnected, Subscription};
@@ -137,12 +138,17 @@ enum Request {
     Import {
         items: Vec<ImportItem>,
     },
-    /// Wait until every line of the view is a summary, then render it in
-    /// the same owner step; after `within_ms`, render it as it is, each
-    /// line not built yet as its input cut to [`super::NODE`] bytes (H2.3).
+    /// The view of the history that scrolled out of a transcript still
+    /// holding the chat's last `verbatim` messages (all of it for 0): wait
+    /// until every line it keeps is a summary, then render those lines in
+    /// the same owner step; after `within_ms`, render them as they are,
+    /// each line not built yet as its input cut to [`super::NODE`] bytes
+    /// (H2.3). The request raises the due mark to the lines it keeps.
     SettledRender {
         #[serde(default = "default_settle_ms")]
         within_ms: u64,
+        #[serde(default)]
+        verbatim: u64,
     },
     /// The view as it is now, placeholders included.
     Render,
@@ -162,10 +168,11 @@ enum Request {
     Status,
     Persist,
     Parts,
-    /// Compactions reuse this system prompt and these tools from now on
-    /// (a root turn reports its own, §4).
-    SetPrompt {
-        prompt: CompactionPrompt,
+    /// The session closes: start no compactor call from now on (until a
+    /// turn waits for the view again) and answer once the running calls
+    /// have ended, or once `within_ms` passes.
+    Close {
+        within_ms: u64,
     },
     /// Stream every update on this connection, as `Update` replies under
     /// the request's id, until it closes.
@@ -207,10 +214,11 @@ enum Reply {
         level: eukhe_types::daemon::MemoryTreeLevel,
     },
     Persisting,
+    /// The running compactor calls ended, or the close's wait passed.
+    Closed,
     Parts {
         parts: Vec<(u32, u64)>,
     },
-    PromptSet,
     /// A subscription is registered: every update from here on reaches
     /// it, and so does the effect of any request sent after this reply.
     Subscribed,
@@ -372,28 +380,47 @@ impl Memory {
         }
     }
 
-    /// The view once every line of it is a summary (§6), rendered in the
-    /// same owner step that sees it so, so no append slips a placeholder in
-    /// between. Once `within` passes, the view as it is: each line not
-    /// built yet shows its input cut to [`super::NODE`] bytes, never a
-    /// placeholder (H2.3). Dropping the future cancels the wait, across
-    /// processes too.
+    /// The view of the history that scrolled out of a transcript still
+    /// holding the chat's last `verbatim` messages (`verbatim` 0: the whole
+    /// view): its leading lines that start before `end = T - verbatim`
+    /// (a line reaching past it stays whole; the compiled core decides,
+    /// `laws/thread.bend`), framed as the view is, `messages` = `end`. A
+    /// view with no such line is empty: no lines, no frame.
+    ///
+    /// The compactor builds a line only once a request like this one asks
+    /// for it (the due mark, `laws/optchat.bend` H4): nothing runs while
+    /// everything still fits in the transcript. The answer comes once each
+    /// kept line is a summary (§6), rendered in the same owner step that
+    /// sees it so, so no append slips a placeholder in between. Once
+    /// `within` passes, the lines as they are: each one not built yet shows
+    /// its input cut to [`super::NODE`] bytes, never a placeholder (H2.3).
+    /// Dropping the future cancels the wait, across processes too.
     ///
     /// # Errors
     ///
     /// Returns an error when the owner cannot be reached or cannot read
     /// the log.
-    #[tracing::instrument(name = "chat_memory.settled_render", skip_all)]
-    pub async fn settled_render(&self, within: Duration) -> anyhow::Result<RenderedView> {
+    #[tracing::instrument(name = "chat_memory.settled_history", skip_all)]
+    pub async fn settled_history(
+        &self,
+        within: Duration,
+        verbatim: u64,
+    ) -> anyhow::Result<RenderedView> {
         let within_ms = u64::try_from(within.as_millis()).unwrap_or(u64::MAX);
-        match self.request(Request::SettledRender { within_ms }).await? {
+        match self
+            .request(Request::SettledRender {
+                within_ms,
+                verbatim,
+            })
+            .await?
+        {
             Reply::Rendered { view } => Ok(view),
             other => Err(unexpected(&other)),
         }
     }
 
     /// The view as it is now: a line not summarized yet shows the
-    /// placeholder. A turn reads [`Memory::settled_render`] instead.
+    /// placeholder. A turn reads [`Memory::settled_history`] instead.
     ///
     /// # Errors
     ///
@@ -475,17 +502,22 @@ impl Memory {
         }
     }
 
-    /// Compactions reuse `prompt` from now on (§4): the system prompt and
-    /// tools of the root turns, so each compaction reads them from the
-    /// turns' cache entry. Saved, so a restarted owner keeps it.
+    /// The session closes: the owner in this process starts no compactor
+    /// call from now on and lets the running ones finish, up to `within`,
+    /// so their lines are kept rather than asked again by the next process.
+    /// Without an owner here, nothing to do: the owning process goes on.
     ///
     /// # Errors
     ///
-    /// Returns an error when the prompt cannot be saved or the owner
-    /// cannot be reached.
-    pub async fn set_compaction_prompt(&self, prompt: CompactionPrompt) -> anyhow::Result<()> {
-        match self.request(Request::SetPrompt { prompt }).await? {
-            Reply::PromptSet => Ok(()),
+    /// Returns an error when the owner has stopped.
+    pub async fn finish_calls(&self, within: Duration) -> anyhow::Result<()> {
+        let owner = match &*self.inner.link.lock().await {
+            Some(Link::Owner(owner)) => Arc::clone(owner),
+            Some(Link::Client(_)) | None => return Ok(()),
+        };
+        let within_ms = u64::try_from(within.as_millis()).unwrap_or(u64::MAX);
+        match owner.request(Request::Close { within_ms }).await? {
+            Reply::Closed => Ok(()),
             other => Err(unexpected(&other)),
         }
     }
@@ -556,8 +588,8 @@ impl Memory {
                             | Request::Tree { .. }
                             | Request::Status
                             | Request::Persist
-                            | Request::Parts
-                            | Request::SetPrompt { .. } => {}
+                            | Request::Close { .. }
+                            | Request::Parts => {}
                         }
                     }
                 },
@@ -689,7 +721,7 @@ impl Request {
     /// view and of [`IMPORT_ITEM_DEADLINE`] per item for an import.
     fn reply_deadline(&self) -> Duration {
         match self {
-            Request::SettledRender { within_ms } => {
+            Request::SettledRender { within_ms, .. } | Request::Close { within_ms } => {
                 Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE)
             }
             Request::Import { items } => {
@@ -704,7 +736,6 @@ impl Request {
             | Request::Status
             | Request::Persist
             | Request::Parts
-            | Request::SetPrompt { .. }
             | Request::Subscribe => REPLY_DEADLINE,
         }
     }

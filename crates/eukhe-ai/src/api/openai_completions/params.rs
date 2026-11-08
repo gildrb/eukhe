@@ -100,6 +100,7 @@ pub(crate) fn build_params(
         &ConvertCompletionsMessagesOptions {
             grammar_tool_input_properties: Some(grammar_tool_input_properties),
             cache_control: cache_control.as_ref(),
+            system_cache_breakpoint: stream_options.system_cache_breakpoint.as_deref(),
         },
     )?;
 
@@ -219,7 +220,7 @@ pub(crate) fn build_params(
     }
 
     // eukhe addition: a provider with a service tier table entry for this
-    // wire API (the quirks rulebook, docs/inference.md S6.8) gets the
+    // wire API (the quirks rulebook) gets the
     // top-level service_tier when it honors the tier. Other
     // OpenAI-compatible gateways may reject unknown fields, so they never
     // receive it.
@@ -586,8 +587,10 @@ pub(crate) fn get_compat_cache_control(
 ///
 /// eukhe addition: the end mark is placed first and the system and tool
 /// marks only take the slots `eukhe_bend::rules::cache_marks::grant` leaves after the
-/// explicitly marked user blocks. Without marked blocks every mark fits and
-/// the result equals the TS output.
+/// explicitly marked text blocks. Without marked blocks every mark fits and
+/// the result equals the TS output. A system prompt sent as its shared
+/// prefix and the session's tail (two text parts) marks the prefix first,
+/// then the tool, then the tail.
 fn apply_anthropic_cache_control(
     messages: &mut [JsonValue],
     tools: Option<&mut Vec<JsonValue>>,
@@ -598,11 +601,31 @@ fn apply_anthropic_cache_control(
     let system = messages
         .iter_mut()
         .find(|message| matches!(role(message), Some("system" | "developer")));
+    let split = system
+        .as_ref()
+        .and_then(|system| system.get("content"))
+        .and_then(JsonValue::as_array)
+        .is_some_and(|parts| parts.len() > 1);
     let last_tool = tools.and_then(|tools| tools.last_mut());
-    let [system_mark, tool_mark] =
-        eukhe_bend::rules::cache_marks::grant(placed, [system.is_some(), last_tool.is_some()]);
-    if let Some(system) = system.filter(|_| system_mark) {
-        add_cache_control_to_text_content(system, cache_control);
+    let [system_mark, tool_mark, tail_mark] = eukhe_bend::rules::cache_marks::grant(
+        placed,
+        [system.is_some(), last_tool.is_some(), split],
+    );
+    if let Some(system) = system {
+        match system.get_mut("content").and_then(JsonValue::as_array_mut) {
+            Some(parts) if split => {
+                let len = parts.len();
+                for (at, marked) in [(0, system_mark), (len - 1, tail_mark)] {
+                    if let Some(part) = parts[at].as_object_mut().filter(|_| marked) {
+                        part.insert("cache_control".into(), cache_control.clone());
+                    }
+                }
+            }
+            _ if system_mark => {
+                add_cache_control_to_text_content(system, cache_control);
+            }
+            _ => {}
+        }
     }
     if let Some(last_tool) = last_tool
         .filter(|_| tool_mark)

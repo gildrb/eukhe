@@ -1,4 +1,4 @@
-//! The tool surface on an open session (docs/tools.md S7): every request
+//! The tool surface on an open session: every request
 //! sends the roster the session opened with, while a host tool that joins
 //! later is listed and run through `dyn`; `report_issue` stores a row the
 //! user sees; every change of the roster is rejected.
@@ -64,10 +64,9 @@ fn build_adds_the_intent_and_a_version_and_keeps_every_parameter() {
         "title": "v3",
         "properties": { "a": { "type": "string" }, "i": { "type": "string" } },
     }));
-    let intent = json!({
-        "type": "string",
-        "description": "Short present-participle intent for this call.",
-    });
+    // The intent's wording is tool_contract's; this pins its place and type.
+    let intent = build(&declared).json()["properties"]["i"].clone();
+    assert_eq!(intent["type"], json!("string"));
     assert_eq!(
         (
             build(&declared).json().clone(),

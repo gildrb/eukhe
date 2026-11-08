@@ -84,6 +84,44 @@ law skill_in_later_example:
   exs i: Sk.In(Sk.Cand{1n, Sk.Unreadable{}}, [Sk.Cand{0n, Sk.Good{}}, Sk.Cand{1n, Sk.Unreadable{}}])
   {Sk.Cand.path(Sk.Cand{1n, Sk.Unreadable{}}) == 1n : Nat}
 
+# an outcome's tag: good 0, unreadable 1, malformed 2, incomplete 3
+def outcome_tag(o: Sk.Outcome) -> Nat:
+  match o:
+    case Sk.Good{}:
+      0n
+    case Sk.Unreadable{}:
+      1n
+    case Sk.Malformed{}:
+      2n
+    case Sk.Incomplete{}:
+      3n
+
+# a and b are the same candidate: the same path and the same outcome
+def same_cand(a: Sk.Cand, b: Sk.Cand) -> Bool:
+  match a:
+    case Sk.Cand{p, o}:
+      match b:
+        case Sk.Cand{q, u}:
+          Bool.and(Nat.is_eq(p, q), Nat.is_eq(outcome_tag(o), outcome_tag(u)))
+
+# c is one of cs, at any position
+def mem_spec(+c: Sk.Cand, cs: List<&2, Sk.Cand>) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(same_cand(c, x), mem_spec(c, rest))
+
+# LAW skill_in_exact (L5): the membership skill_failure_reported quantifies over holds exactly when c is one of cs (the same path and outcome), at any position
+# EXCLUDES: an `In` that holds only at the first positions (say 0 and 1)
+#   or never, so skill_failure_reported says nothing of later candidates
+#   while its witnesses still pass; an `In` that holds for a candidate
+#   not in the list
+law skill_in_exact:
+  for +c: Sk.Cand
+  for +cs: List<&2, Sk.Cand>
+  (Sk.In(c, cs) -> {mem_spec(c, cs) == True{} : Bool}) & ({mem_spec(c, cs) == True{} : Bool} -> Sk.In(c, cs))
+
 # (L5) The checks of a skill file and a template, and the entry Rust calls
 # -----------------------------------------------------------------------
 # crates/eukhe-core/src/skills: `load_skill_from_file` (the skill's name,
@@ -453,3 +491,24 @@ law skill_ffi_malformed_exact:
   for +s: String
   for no: {read_ask(s) == None{} : Maybe<&2, Sk.Ask>}
   {FSk.ffi(s) == SCon{'E', SCon{' ', "skill_load: malformed request"}} : String}
+
+# the reply to the input s: when s is exactly one request (read_ask), the
+# spelled answer to it (spell_answer); else the error form 'E ', then
+# "skill_load: malformed request"
+def ffi_spec.read(m: Maybe<&2, Sk.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "skill_load: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def ffi_spec(s: String) -> String:
+  ffi_spec.read(read_ask(s))
+
+# LAW skill_ffi_exact: the entry's reply to every input string is the spec's: to exactly one request, the skill file's verdict, name and messages or the template's description, spelled from the specs alone; to any other input, exactly the error form
+# EXCLUDES: a reply that the specs do not determine for some input (a
+#   request read by a reader the laws do not fix, a value answered to
+#   malformed input, an error form with another text)
+law skill_ffi_exact:
+  for +s: String
+  {FSk.ffi(s) == ffi_spec(s) : String}

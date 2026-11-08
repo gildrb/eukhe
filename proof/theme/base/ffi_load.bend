@@ -1,6 +1,6 @@
 # eukhe: lemmas of the theme entry's proofs: one load of the model
 # (bend/theme/resolve.bend) is the load the laws state
-# (spec/theme_wire.bend): the files as the pick sees them, how each file
+# (spec/theme/wire.bend): the files as the pick sees them, how each file
 # read, the file at an index, the same-palette test, the clashes that warn
 # and the picked file; and the entry spells that load as the laws do
 
@@ -13,7 +13,7 @@ import ../../../bend/theme/choice.bend as TChoice
 import ../../../bend/theme/name.bend as TName
 import ../../../bend/theme/resolve.bend as TResolve
 import ../../../bend/ffi_theme.bend as FTh
-import ../../../spec/theme_wire.bend as Tw
+import ../../../spec/theme/wire.bend as Tw
 import ./ffi_write.bend as LTWrite
 
 # The files as the pick sees them

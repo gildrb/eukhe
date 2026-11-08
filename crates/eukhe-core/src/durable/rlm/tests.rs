@@ -46,6 +46,8 @@ pub(crate) const WAIT_MS: u64 = 90_000;
 
 use super::kernel_test_lock;
 
+mod query;
+
 /// Directories, models, and the faux provider of one session that survive a
 /// reopen, like a worker host's own objects.
 pub(crate) struct Fixture {
@@ -210,7 +212,7 @@ async fn first_slot(session: &EukheSession) -> Option<ToolSlot> {
     live.tools.and_then(|tools| tools.into_iter().next())
 }
 
-async fn wait_for<F, Fut>(what: &str, mut check: F)
+pub(crate) async fn wait_for<F, Fut>(what: &str, mut check: F)
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = bool>,
@@ -561,10 +563,9 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     assert_eq!(results[2].tool_call_id, "c3");
     assert_eq!(result_text(&results[2]), "42\n");
 
-    // The model learns the kernel restarted and what came back.
-    let notice = all
-        .iter()
-        .position(|entry| {
+    // `x` revived in full: nothing was lost, so the model is told nothing.
+    assert!(
+        !all.iter().any(|entry| {
             entry.kind == "eukhe.custom"
                 && entry
                     .data
@@ -572,29 +573,9 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
                     .and_then(|data| data.get("customType"))
                     .and_then(JsonValue::as_str)
                     == Some("ipython_state_restored")
-        })
-        .expect("an ipython_state_restored row");
-    let Some(Message::User(message)) = all[notice].model.as_ref().and_then(|model| model.first())
-    else {
-        panic!("the notice reaches the model: {:?}", all[notice]);
-    };
-    let UserContent::Blocks(blocks) = &message.content else {
-        panic!("block content: {message:?}");
-    };
-    let UserContentBlock::Text(notice_text) = &blocks[0] else {
-        panic!("a text block: {blocks:?}");
-    };
-    assert!(
-        notice_text.text.starts_with("[python-state-restored]"),
-        "{}",
-        notice_text.text
+        }),
+        "a full revival stores no ipython_state_restored row"
     );
-    assert!(notice_text.text.contains('x'), "{}", notice_text.text);
-    // The reopen prewarms the kernel (its snapshot exists) or c3 boots it.
-    // Which side of the interrupted call the notice lands on depends on
-    // whether the harness teardown or the explicit kill reaped the dying
-    // kernel first: the prewarmed notice may precede the recovered answer.
-    // Both rows exist and reach the model either way (asserted above).
     session.close(cx()).await.expect("close");
 }
 
@@ -697,12 +678,9 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
         .filter(|entry| entry.kind.starts_with("eukhe."))
         .map(|entry| (entry.kind.clone(), custom_type(entry)))
         .collect();
-    // The harness digest rows ride the cold boundaries: the first request
-    // and the request after the refinement updated the harness state.
     assert_eq!(
         rows,
         vec![
-            ("eukhe.custom".to_owned(), Some("harness_digest".to_owned())),
             (
                 "eukhe.custom-state".to_owned(),
                 Some("eukhe.refinement".to_owned())
@@ -715,7 +693,6 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
                 "eukhe.custom".to_owned(),
                 Some("refinement_notice".to_owned())
             ),
-            ("eukhe.custom".to_owned(), Some("harness_digest".to_owned())),
         ]
     );
     // The rows land between the requesting round and the final answer.
@@ -1142,15 +1119,82 @@ async fn a_cell_past_the_blocking_budget_detaches_and_its_end_settles_the_job() 
             output: "started\nfinished\n42".to_owned(),
         }
     );
-    let waited = job_request(&session, "jobs.wait", json!({ "job": job })).await;
-    assert_eq!(waited["state"], "ok");
-    assert_eq!(waited["output"], "started\nfinished\n42");
+    // A wait that names the job takes it even though its notice was sent.
+    let waited = job_request(&session, "jobs.wait", json!({ "targets": [job] })).await;
+    assert_eq!(waited["end"], "job", "{waited}");
+    assert_eq!(waited["job"]["state"], "ok");
+    assert_eq!(waited["job"]["output"], "started\nfinished\n42");
+    session.close(cx()).await.expect("close");
+}
+
+/// A `jobs.wait` that watches a detached cell when it ends takes its
+/// result: the session's job-settled notice is not sent as well. Before,
+/// the wait was clamped to the blocking budget and every result also
+/// reached the session as a notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_waited_job_is_delivered_by_the_wait_alone() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let gate = fixture.dir.path().join("gate");
+    fixture.faux.set_responses(vec![
+        ipython("c1", &gated_cell(&gate, "print('finished')")),
+        text("the cell runs on as a job"),
+    ]);
+    let (session, mut settled) = open_with_budget(&fixture).await;
+    let id = submit(&session, "go").await;
+    settle_within(&session, id, Duration::from_millis(WAIT_MS)).await;
+    let handler = session
+        .deps()
+        .host_requests
+        .get("jobs.wait")
+        .expect("the jobs.wait handler");
+    let mut waiting = tokio::spawn(handler(HostCall {
+        data: json!({}),
+        cell_source_code: None,
+        call: None,
+    }));
+    // The wait outlives the blocking budget: it is no longer clamped to it.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(TEST_BUDGET_MS + 500), &mut waiting)
+            .await
+            .is_err(),
+        "the wait ended before the job did"
+    );
+    std::fs::write(&gate, "").expect("open the gate");
+    let waited = tokio::time::timeout(Duration::from_millis(WAIT_MS), waiting)
+        .await
+        .expect("the wait ends when the job does")
+        .expect("the wait task")
+        .expect("the wait");
+    assert_eq!(waited["end"], "job", "{waited}");
+    assert_eq!(waited["job"]["output"], "started\nfinished\n");
+    assert!(
+        settled.try_recv().is_err(),
+        "the result the wait took was also sent as a notice"
+    );
+    assert!(!session.deps().jobs.pending_work());
+    let nothing = session
+        .deps()
+        .host_requests
+        .get("jobs.wait")
+        .expect("the jobs.wait handler")(HostCall {
+        data: json!({}),
+        cell_source_code: None,
+        call: None,
+    })
+    .await
+    .expect_err("nothing runs");
+    assert_eq!(
+        nothing.to_string(),
+        "Nothing to wait for: no job, bash() handle, subagent or message of this session is pending"
+    );
     session.close(cx()).await.expect("close");
 }
 
 /// A call that finds the kernel held by a detached cell waits for it only
 /// within its own budget, then reports the job without running its code;
-/// `jobs.cancel` stops the job through the kernel's abort and the kernel
+/// `jobs.cancel` stops the job through the kernel's abort, its reply
+/// carries the end (the agent's own stop sends no notice), and the kernel
 /// serves the next cell.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the_job() {
@@ -1183,17 +1227,7 @@ async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the
 
     let cancelled = job_request(&session, "jobs.cancel", json!({ "job": job })).await;
     assert_eq!(cancelled["state"], "aborted", "{cancelled}");
-    let settled = settled.recv().await.expect("the cancelled job settles");
-    assert!(
-        matches!(
-            settled,
-            JobSettled::Cell {
-                status: CellStatus::Aborted,
-                ..
-            }
-        ),
-        "{settled:?}"
-    );
+    assert_eq!(settled.try_recv().ok(), None::<JobSettled>);
 
     fixture
         .faux

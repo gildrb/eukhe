@@ -1,28 +1,31 @@
-//! eukhe addition: explicit prompt-cache breakpoints on user text blocks
-//! ([`TextContent::cache_breakpoint`](eukhe_types::pi_ai::TextContent)) and
+//! eukhe addition: explicit prompt-cache breakpoints on user and assistant
+//! text blocks ([`TextContent::cache_breakpoint`](eukhe_types::pi_ai::TextContent)) and
 //! the mark budget of the APIs that cap one request at four cache marks:
 //! Anthropic Messages (`cache_control`), the Anthropic-format marks of
 //! OpenAI-compatible proxies, and Bedrock Converse (`cachePoint`).
 //!
 //! The budget rule runs as the compiled core
 //! (`eukhe_bend::rules::cache_marks`, `laws/cache_marks.bend`). A request
-//! with no marked block keeps its upstream marks byte for byte. A request
 //! with marked blocks keeps the end-of-request mark (on the last block of
 //! the last conversation message) and one mark per marked block; a marked
 //! block that also ends the request counts once. The provider's optional
-//! marks (system prompt, tools, the OAuth identity block) then take the
-//! slots left, in the provider's priority order. Too many marked blocks is
-//! a caller bug: the request fails before it is sent, never with a
-//! silently dropped mark. This module gathers the counts the core decides
-//! on.
+//! marks then take the slots left, in the provider's priority order: the
+//! system prompt's shared prefix (the whole prompt when it is not split,
+//! `StreamOptions::system_cache_breakpoint`), the last tool, then the end
+//! of the prompt's per-session tail. The OAuth identity block, too short to
+//! cache, takes none. Too many marked blocks is a caller bug: the request
+//! fails before it is sent, never with a silently dropped mark. This module
+//! gathers the counts the core decides on.
 //!
-//! Only the text blocks of user messages carry marks; tool-result content
-//! never does.
+//! The text blocks of user and assistant messages carry marks (a marked
+//! assistant text block lets a request end a cache entry at a replayed
+//! answer); tool-result content never does. `OpenAI` Responses sends marks
+//! only on user `input_text` items.
 
 use eukhe_bend::rules::cache_marks;
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, ErrorReason, JsonValue, Message, Model, StopReason,
-    Usage, UserContent, UserContentBlock,
+    AssistantContentBlock, AssistantMessage, AssistantMessageEvent, ErrorReason, JsonValue,
+    Message, Model, StopReason, Usage, UserContent, UserContentBlock,
 };
 
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -38,7 +41,17 @@ pub fn has_cache_breakpoint(block: &UserContentBlock) -> bool {
     }
 }
 
-/// Number of marked user text blocks in `messages`.
+/// Whether an assistant content block carries an explicit cache breakpoint.
+/// Only text blocks can carry one.
+#[must_use]
+pub fn has_assistant_cache_breakpoint(block: &AssistantContentBlock) -> bool {
+    match block {
+        AssistantContentBlock::Text(text) => text.cache_breakpoint.is_some(),
+        AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
+    }
+}
+
+/// Number of marked user and assistant text blocks in `messages`.
 #[must_use]
 pub fn count_cache_breakpoints(messages: &[Message]) -> usize {
     messages
@@ -51,12 +64,17 @@ pub fn count_cache_breakpoints(messages: &[Message]) -> usize {
                     .count(),
                 UserContent::Text(_) => 0,
             },
-            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => 0,
+            Message::Assistant(assistant) => assistant
+                .content
+                .iter()
+                .filter(|block| has_assistant_cache_breakpoint(block))
+                .count(),
+            Message::System(_) | Message::ToolResult(_) => 0,
         })
         .sum()
 }
 
-/// The early error stream for a transcript that marks more user text blocks
+/// The early error stream for a transcript that marks more text blocks
 /// than one request may carry; `None` when the count fits. Providers with a
 /// capped mark budget call it before they build the request.
 #[must_use]
@@ -138,6 +156,26 @@ mod tests {
             count_cache_breakpoints(&[marked_user(2), marked_user(1)]),
             3
         );
+    }
+
+    #[test]
+    fn counts_marked_assistant_text_blocks() {
+        let assistant: Message = serde_json::from_value(json!({
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text": "draft" },
+                { "type": "toolCall", "id": "call", "name": "read", "arguments": {} },
+                { "type": "text", "text": "answer", "cacheBreakpoint": "ephemeral" },
+            ],
+            "api": "anthropic-messages",
+            "provider": "anthropic",
+            "model": "claude",
+            "usage": Usage::default(),
+            "stopReason": "stop",
+            "timestamp": 0,
+        }))
+        .expect("assistant message");
+        assert_eq!(count_cache_breakpoints(&[marked_user(1), assistant]), 2);
     }
 
     #[test]

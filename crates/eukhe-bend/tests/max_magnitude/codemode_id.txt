@@ -1,0 +1,9 @@
+# the identifier and the test of names Rust may write (any chars, any length); no number but the tag
+call 0,17,mcp__docs__search
+call 0,44,1st.tool-with-a-much-longer-name.and.more$_9
+call 0,0,
+call 1,4,$x_1
+call 1,1,é
+refuse 0,{LONG},x
+refuse 1,{LONG},x
+refuse {LONG},0,

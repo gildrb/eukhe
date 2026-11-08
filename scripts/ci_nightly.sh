@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The nightly gate and release of eukhe (docs/develop.md). A systemd user
+# The nightly gate and release of eukhe. A systemd user
 # timer runs it once a night.
 #
 #   scripts/ci_nightly.sh run     the full gate (`make ci-local`) on
@@ -72,12 +72,19 @@ case "${mode}" in
     if [[ ${rc} -ne 0 ]]; then
       {
         echo "${stamp} ${sha:0:12} FAILED after ${minutes} min: no release (full output: ${last})"
-        { grep -E "gate '.*' FAILED|FAILED UNITS|^test .* FAILED$" "${last}" || true; } | sed 's/^/  /' | sort -u
+        { grep -E "gate '.*' FAILED|^ +(TRY 2 )?FAIL \[|^test .* FAILED$|^  flaky: " "${last}" || true; } | sed 's/^ */  /' | sort -u
       } | tee -a "${summary}"
       exit 1
     fi
-    gh workflow run eukhe-release.yml --ref main -f sha="${sha}"
-    echo "${stamp} ${sha:0:12} passed in ${minutes} min: release started" | tee -a "${summary}"
+    # The release runs on GitHub (remote `github`); `origin` is the Forgejo
+    # workspace. gh prefers an `upstream` remote over the others, so name the
+    # GitHub repo explicitly.
+    repo="$(git remote get-url github | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+    gh workflow run eukhe-release.yml --repo "${repo}" --ref main -f sha="${sha}"
+    {
+      echo "${stamp} ${sha:0:12} passed in ${minutes} min: release started"
+      { grep -E "^  flaky: " "${last}" || true; } | sort -u
+    } | tee -a "${summary}"
     ;;
   *)
     echo "usage: scripts/ci_nightly.sh run|status" >&2

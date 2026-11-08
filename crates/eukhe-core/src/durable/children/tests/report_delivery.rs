@@ -1,26 +1,32 @@
 //! A child's task prompt and report delivery around a busy spawning call:
 //! a call that spawns and then waits on the child sees it run, a queued
 //! report an abort withdraws is delivered again, once, and one a close's
-//! abort withdraws is left to the reopened session.
+//! abort withdraws is left to the reopened session; a report the parent
+//! read itself never wakes it.
 
 use eukhe_chord::json::from_json;
 
 use super::super::notice::ChildReport;
-use super::super::task::ChildCheckpoint;
+use super::super::task::{report_step, ChildCheckpoint, Fate, ReportStep};
 use super::*;
 
-/// The `spawn_collect_hold` tool's shared state: what its `rlm.collect`
-/// returned, and the gate that ends its call.
+/// The `spawn_collect_hold` tool's shared state: what its waits returned,
+/// the cue for its call to read the child, and the gate that ends its
+/// call.
 #[derive(Default)]
 pub(super) struct HeldSpawn {
     collected: Mutex<Option<Value>>,
+    read_back: Mutex<Option<Value>>,
+    read: tokio::sync::Notify,
     gate: tokio::sync::Notify,
 }
 
 /// A tool whose single call spawns a child, waits for it to settle
-/// (`rlm.collect` with a timeout, as one kernel cell does), records the
+/// (`rlm.collect` with a timeout, as a detached job of its cell does: that
+/// wait reads for nobody, so the child's report stays owed), records the
 /// result, then holds the parent's turn until the gate opens or the call
-/// is aborted.
+/// is aborted. On the read cue the call itself collects the child (the
+/// parent reads its outcome).
 pub(super) fn spawn_collect_hold_tool(
     requests: HostRequestRegistry,
     held: Arc<HeldSpawn>,
@@ -35,16 +41,21 @@ pub(super) fn spawn_collect_hold_tool(
             let collect = requests.get("rlm.collect").expect("rlm.collect");
             let held = Arc::clone(&held);
             async move {
-                let call = |data: Value| HostCall {
-                    data,
+                let handle = spawn(HostCall {
+                    data: json!({ "prompt": PROMPT, "kwargs": { "why": "isolate" } }),
                     cell_source_code: None,
                     call: Some(api.clone()),
-                };
-                let handle = spawn(call(json!({ "prompt": PROMPT }))).await.unwrap();
-                let target = handle["rlm_child_id"].clone();
-                let collected = collect(call(json!({ "targets": [target], "timeout_ms": 30_000 })))
-                    .await
-                    .unwrap();
+                })
+                .await
+                .unwrap();
+                let targets = json!({ "targets": [handle["rlm_child_id"]], "timeout_ms": 30_000 });
+                let collected = collect(HostCall {
+                    data: targets.clone(),
+                    cell_source_code: None,
+                    call: None,
+                })
+                .await
+                .unwrap();
                 *lock(&held.collected) = Some(collected);
                 let aborted = async {
                     match cx.abort_signal() {
@@ -54,9 +65,22 @@ pub(super) fn spawn_collect_hold_tool(
                         None => std::future::pending().await,
                     }
                 };
-                tokio::select! {
-                    () = held.gate.notified() => {}
-                    () = aborted => {}
+                tokio::pin!(aborted);
+                loop {
+                    tokio::select! {
+                        () = held.gate.notified() => break,
+                        () = &mut aborted => break,
+                        () = held.read.notified() => {
+                            let read = collect(HostCall {
+                                data: targets.clone(),
+                                cell_source_code: None,
+                                call: Some(api.clone()),
+                            })
+                            .await
+                            .unwrap();
+                            *lock(&held.read_back) = Some(read);
+                        }
+                    }
                 }
                 Ok(ToolExecutionResult::default())
             }
@@ -145,7 +169,7 @@ async fn a_call_that_spawns_then_waits_sees_the_child_settle() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );
@@ -209,12 +233,99 @@ async fn a_withdrawn_report_is_delivered_again_once() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );
     assert!(lock(&setup.reports).is_empty());
     opened.harness.close(cx()).await.unwrap();
+}
+
+/// Regression (bench `fanout`, eukhe run 4): a parent that read its
+/// settled child's outcome in its own turn (`rlm.collect` in a cell of
+/// its tool call) still had the no-reply notice queued behind that turn.
+/// The notice woke it after it had answered, and that extra turn's answer
+/// ("the results were already in my last reply") replaced the real one.
+/// The read withdraws the queued notice: the turn's answer stays the last
+/// and no notice turn runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_report_the_parent_read_never_wakes_it() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let storage = Arc::new(MemoryStorage::new());
+    let opened = open(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    setup
+        .faux
+        .append_responses(vec![call_spawn_collect_hold(), answer("held")]);
+    submit_input(&opened, "go").await;
+    let row = spawned_and_collected(&opened, &host).await;
+    let task = TaskId::from_number(row.task_id);
+    let notice = || {
+        let storage = Arc::clone(&storage);
+        async move {
+            storage
+                .submission_by_request(ROOT_CONVERSATION_ID, &report_request_id(task, 1), cx())
+                .await
+                .unwrap()
+        }
+    };
+    // The notice waits behind the busy turn.
+    eventually(|| async {
+        notice()
+            .await
+            .is_some_and(|notice| notice.state.status() == SubmissionStatus::Queued)
+    })
+    .await;
+
+    opened.held.read.notify_one();
+    eventually(|| async { lock(&opened.held.read_back).is_some() }).await;
+    let withdrawn = notice().await.unwrap();
+    assert_eq!(withdrawn.state.status(), SubmissionStatus::Unanswered);
+    assert_eq!(withdrawn.state.entry(), None);
+
+    opened.held.gate.notify_one();
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(row.task_id), cx())
+        .await
+        .unwrap();
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        user_texts(&opened.root, "[child-exited").await,
+        Vec::<String>::new()
+    );
+    assert!(storage
+        .submission_by_request(ROOT_CONVERSATION_ID, &report_request_id(task, 2), cx())
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        row_of(&opened.harness, row.task_id).await.unwrap(),
+        ChildRow {
+            status: ChildStatus::Done,
+            answer_preview: Some("found it".to_owned()),
+            settled: true,
+            read: true,
+            ..row.clone()
+        }
+    );
+    assert!(lock(&setup.reports).is_empty());
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// The compiled core's report rule ends a report the parent read, under
+/// any id (`ChildMove`, law `child_report_move`).
+#[test]
+fn a_read_report_ends_the_report_phase() {
+    assert_eq!(
+        report_step::<()>(2, Some(Fate::Read)).unwrap(),
+        ReportStep::Done
+    );
 }
 
 /// Regression (H5, found by `bend/child.bend`): a stop of the parent with
@@ -291,7 +402,7 @@ async fn a_report_withdrawn_as_its_task_aborts_is_delivered_once() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );
@@ -384,7 +495,7 @@ async fn a_report_the_close_withdraws_is_delivered_by_the_reopened_session() {
     assert_eq!(
         user_texts(&reopened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );

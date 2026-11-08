@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/aux_fallback.bend as Af
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/model.bend as AuxFallback
 
 # LAW fallback_quiet_when_same: a selector that names the session model
 # keeps the session model

@@ -1,5 +1,5 @@
 //! Application-owned registry of extensions (`harness/registry.ts`), and
-//! the fixed tool roster of docs/tools.md S7.
+//! the fixed tool roster.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -39,7 +39,7 @@ impl fmt::Display for RosterChange {
     }
 }
 
-/// A change of a fixed roster, rejected (docs/tools.md S7). It reaches
+/// A change of a fixed roster, rejected. It reaches
 /// callers as [`SessionError::Other`]; downcast to read the change.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
@@ -389,7 +389,7 @@ impl Registry {
     }
 
     /// Fix the model-facing roster at the tools the installed extensions
-    /// offer the model (docs/tools.md S7). From then on every request
+    /// offer the model. From then on every request
     /// sends that roster: an install or uninstall that would change it fails
     /// with [`RosterFixed`], and so do a conversation's `configure` of its
     /// tools or extensions and a tool round's `add_tools`. A tool that comes

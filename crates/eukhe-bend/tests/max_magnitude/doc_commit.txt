@@ -1,0 +1,10 @@
+# every request; digests and temporary names spelled with the largest numbers
+call 0,3,FFFTTF
+call 1,2,1,TF
+call 2,4,0,1,0,0,1,1,2,
+call 3,0,1,14,{MAX}1,14,{MAX}T
+call 3,1,1,14,{MAX}F
+call 4,14,{MAX}2,14,{MAX}1,a
+call 5,14,{MAX}
+call 6,4,beef2,45,.eukhe-tmp-beef-{MAX}-{MAX}F45,.eukhe-tmp-beef-{MAX}-{MAX}T
+refuse 5,{LONG},beef

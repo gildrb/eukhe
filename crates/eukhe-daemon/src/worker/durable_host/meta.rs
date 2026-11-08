@@ -36,7 +36,7 @@ pub(crate) struct SessionMeta {
     pub(crate) rlm_depth: Option<u32>,
     /// Main's worker (`runtimeMetadata.worker` at its spawn): a later open
     /// that names no lineage (a stopped worker woken by a message) keeps
-    /// the worker's chat view and doctrine.
+    /// the worker's own chat and doctrine.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) worker: bool,
 }

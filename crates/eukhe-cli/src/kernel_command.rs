@@ -17,8 +17,9 @@ pub fn run_kernel_command(args: &[String]) -> i32 {
         ["install"] => install(),
         ["install", "--check"] => check(),
         _ => {
-            eprintln!("Usage: {APP_NAME} kernel install [--check]");
-            1
+            eprintln!("Error: Usage: {APP_NAME} kernel install [--check]");
+            eprintln!("Run \"eukhe help kernel\" for usage.");
+            2
         }
     }
 }

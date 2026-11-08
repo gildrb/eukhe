@@ -125,20 +125,20 @@ impl AuthPanel {
             // drop. The URL shows whole, never truncated: a cut link is a
             // broken link once copied or opened on another machine. It
             // renders as a soft-wrapped block, one logical line the
-            // terminal selects, copies, and detects as a URL across the
-            // wrap; with hyperlinks on every piece links the full URL.
+            // terminal selects and copies across the wrap, and every piece
+            // is an OSC 8 hyperlink to the full URL whatever the
+            // capability gate says: a terminal's own URL detection can stop
+            // at the row end (seen over SSH: a Cmd-clicked Anthropic link
+            // ended before `redirect_uri`, and the authorize page refused
+            // it as "Missing redirect_uri parameter").
+            // The link text is the URL itself, so a terminal that ignores
+            // OSC 8 still shows it whole.
             let safe = scrub_controls(url).replace('\n', "");
-            let link = if crate::hyperlinks::hyperlinks_enabled() {
-                crate::soft_wrap::Link::Hyperlink
-            } else {
-                crate::soft_wrap::Link::Plain
-            };
             lines.extend(crate::soft_wrap::rows(
                 " ",
                 &safe,
                 theme.fg_style(ThemeColor::Text),
                 width,
-                link,
             ));
             // TS `addSectionSpacer`: the browser-step text reads apart
             // from the URL.

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../../spec/config_rules.bend as CR
+import ../../spec/settings/config_rules.bend as CR
 
 def po.at(+j: Nat, c: Cf.Class, +k: Nat) -> {Cf.guarded_at(j, c, k) == Bool.not(Bool.and(CR.cr_pref(c), Nat.is_eq(j, k))) : Bool}:
   match c:

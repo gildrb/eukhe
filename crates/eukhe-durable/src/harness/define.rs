@@ -24,7 +24,8 @@ pub fn define_tool(tool: ToolRegistration) -> Arc<ToolRegistration> {
     Arc::new(tool)
 }
 
-/// A prompt section; tagged unless `tag` is `Some(false)`.
+/// A prompt section; tagged unless `tag` is `Some(false)`. Not shared:
+/// [`shared_section`] makes one of the prompt's shared prefix.
 pub fn section<F>(key: impl Into<String>, render: F, tag: Option<bool>) -> Arc<PromptSection>
 where
     F: Fn(&PromptInput, &Context) -> BoxFuture<'static, SessionResult<Option<String>>>
@@ -36,6 +37,24 @@ where
         key: key.into(),
         render: Arc::new(render),
         tag,
+        shared: false,
+    })
+}
+
+/// eukhe addition: an untagged section whose text is the same in every
+/// session ([`PromptSection::shared`]).
+pub fn shared_section<F>(key: impl Into<String>, render: F) -> Arc<PromptSection>
+where
+    F: Fn(&PromptInput, &Context) -> BoxFuture<'static, SessionResult<Option<String>>>
+        + Send
+        + Sync
+        + 'static,
+{
+    Arc::new(PromptSection {
+        key: key.into(),
+        render: Arc::new(render),
+        tag: Some(false),
+        shared: true,
     })
 }
 

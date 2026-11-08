@@ -1,5 +1,4 @@
-# orphan: the model of a worker whose supervisor is lost (docs/daemon.md
-# D1). It runs compiled as the Rust rule: `work_gate::orphan_decision`
+# orphan: the model of a worker whose supervisor is lost . It runs compiled as the Rust rule: `work_gate::orphan_decision`
 # (crates/eukhe-daemon/src) calls `exit_due.at` and `orphan_exit` through
 # bend/ffi_orphan.bend. The event machine below (`step`, `run`) is the
 # law `orphan_never_aborts_resumable`'s history.

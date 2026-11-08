@@ -164,6 +164,12 @@ pub type OnYieldHook = Arc<
 /// After every tool of the round is terminal: `(assistant, results)`.
 pub type AfterToolsHook =
     Arc<dyn Fn(EntryId, &[EntryId], &HookApi, &Context) -> HookDone + Send + Sync>;
+/// At a candidate stop (a reply with no tool call): whether the session
+/// owns running work (jobs, children, workflow runs) whose end wakes it.
+/// `true` makes the stop a pause (the `PendingWork` Director); an error fails
+/// the generation. Implementations read the session's state, never wait.
+pub type PendingWorkHook =
+    Arc<dyn Fn(&HookApi, &Context) -> BoxFuture<'static, SessionResult<bool>> + Send + Sync>;
 
 /// Hooks of the built-in generation task.
 #[derive(Clone, Default)]
@@ -183,6 +189,9 @@ pub struct GenerationHooks {
     /// After every tool of the round is terminal; `results` are the round's
     /// result entries in call order.
     pub after_tools: Option<AfterToolsHook>,
+    /// At a candidate stop: whether the session owns running work whose
+    /// end wakes it; any `true` makes the stop a pause.
+    pub pending_work: Option<PendingWorkHook>,
 }
 
 impl fmt::Debug for GenerationHooks {
@@ -194,6 +203,7 @@ impl fmt::Debug for GenerationHooks {
             .field("after_response", &self.after_response.is_some())
             .field("on_yield", &self.on_yield.is_some())
             .field("after_tools", &self.after_tools.is_some())
+            .field("pending_work", &self.pending_work.is_some())
             .finish()
     }
 }

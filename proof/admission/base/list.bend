@@ -51,6 +51,13 @@ def al.len_pre(ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.preempt(ts)) =
     case h <> r:
       Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, Ad.preempt(r)), List.length(&2, Ad.Tk, r), al.len_pre(r))
 
+def al.len_pre_on(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)) == List.length(&2, Ad.Tk, ts) : Nat}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      al.len_pre(ts)
+
 def al.len_app1(a: List<&2, Ad.Tk>, -x: Ad.Tk) -> {List.length(&2, Ad.Tk, List.append(&2, Ad.Tk, a, [x])) == 1n+List.length(&2, Ad.Tk, a) : Nat}:
   match a:
     case Nil{}:
@@ -74,4 +81,4 @@ def al.keep_app(s: Ad.Sts, +k: Nat, +c: Ad.Cls, a: List<&2, Ad.Lv>, b: List<&2, 
 # Lengths of an admit
 def al.len_admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.admit.ia(l, q, ts)) == 1n+List.length(&2, Ad.Tk, ts) : Nat}:
   +x = {Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))} : Ad.Tk}
-  Equal.trans(Nat, List.length(&2, Ad.Tk, List.append(&2, Ad.Tk, Ad.preempt(ts), [x])), 1n+List.length(&2, Ad.Tk, Ad.preempt(ts)), 1n+List.length(&2, Ad.Tk, ts), al.len_app1(Ad.preempt(ts), x), Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, Ad.preempt(ts)), List.length(&2, Ad.Tk, ts), al.len_pre(ts)))
+  Equal.trans(Nat, List.length(&2, Ad.Tk, List.append(&2, Ad.Tk, Ad.preempt.on(l, ts), [x])), 1n+List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)), 1n+List.length(&2, Ad.Tk, ts), al.len_app1(Ad.preempt.on(l, ts), x), Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)), List.length(&2, Ad.Tk, ts), al.len_pre_on(l, ts)))

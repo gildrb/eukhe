@@ -17,7 +17,9 @@ use super::types::{
     CodemodeCallStatus, CodemodeEnding, CodemodeError, CodemodeErrorKind, CodemodeNestedCall,
     CodemodeOutputItem, CodemodeResult, TextOrigin,
 };
+use crate::env::FileError;
 use crate::harness::OutputLimits;
+use crate::session::SessionError;
 
 /// Lines of the result besides the script's text: the header, markers,
 /// notes.
@@ -36,12 +38,36 @@ const ATOB: GeneralPurpose = GeneralPurpose::new(
         .with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
 
+/// Why a file of the result could not be written; its Display is the
+/// reason the tool result shows.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum OutputWriteError {
+    /// The run has no execution environment to write to.
+    #[error("no execution environment")]
+    NoEnvironment,
+    /// Reading or recording the run's output directory failed.
+    #[error("{source}")]
+    Directory {
+        #[source]
+        source: SessionError,
+    },
+    /// Creating the directory or writing the file failed.
+    #[error("{source}")]
+    File {
+        #[source]
+        source: FileError,
+    },
+}
+
 /// Writes one file of the result under a fixed name (the run's output
-/// directory); resolves to its path, or an error message.
+/// directory); resolves to its path.
 pub(crate) trait OutputFiles: Send + Sync {
     /// Write `data` as `name`.
-    fn write(&self, name: &str, data: &[u8])
-        -> impl Future<Output = Result<String, String>> + Send;
+    fn write(
+        &self,
+        name: &str,
+        data: &[u8],
+    ) -> impl Future<Output = Result<String, OutputWriteError>> + Send;
 }
 
 /// What [`format_result`] needs besides the result.
@@ -501,6 +527,7 @@ mod tests {
 
     use super::*;
     use crate::codemode::types::CodemodeStoreWrites;
+    use crate::env::FileErrorCode;
     use crate::harness::types::OutputRetain;
 
     /// Whether the fake's writes succeed.
@@ -536,14 +563,16 @@ mod tests {
             &self,
             name: &str,
             data: &[u8],
-        ) -> impl Future<Output = Result<String, String>> + Send {
+        ) -> impl Future<Output = Result<String, OutputWriteError>> + Send {
             self.writes
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push((name.to_owned(), data.to_vec()));
             let result = match self.outcome {
                 Writes::Succeed => Ok(format!("/tmp/out/{name}")),
-                Writes::Fail => Err("disk full".to_owned()),
+                Writes::Fail => Err(OutputWriteError::File {
+                    source: FileError::new(FileErrorCode::Unknown, "disk full", None),
+                }),
             };
             std::future::ready(result)
         }

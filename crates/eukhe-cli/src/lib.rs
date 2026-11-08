@@ -22,6 +22,8 @@
 //! `packages/coding-agent/src/main.ts` and `src/cli/*.ts`. Runtime execution
 //! lives behind the [`mode::Runtime`] boundary.
 
+use std::path::{Path, PathBuf};
+
 // Internal ported modules are crate-private: the only public API is the
 // runtime boundary below.
 pub(crate) mod args;
@@ -40,11 +42,14 @@ pub(crate) mod file_processor;
 pub(crate) mod gateway_command;
 pub(crate) mod global_flags;
 pub(crate) mod headless_autonomous;
+pub(crate) mod headless_children;
 pub(crate) mod headless_session;
 pub(crate) mod headless_terminal;
+pub(crate) mod headless_wait;
 pub(crate) mod incident;
 pub(crate) mod initial_message;
 pub(crate) mod interactive_mode;
+pub(crate) mod json_out;
 pub(crate) mod kernel_command;
 pub(crate) mod list_models;
 pub(crate) mod mcp_command;
@@ -56,6 +61,7 @@ pub(crate) mod prompt_command;
 pub(crate) mod provider_command;
 pub(crate) mod provider_login;
 pub(crate) mod public_command;
+pub(crate) mod sanitize;
 pub(crate) mod session_export;
 pub(crate) mod sessions_table_format;
 pub(crate) mod styling;
@@ -84,12 +90,81 @@ pub fn main_with_runtime(args: &[String], runtime: &dyn mode::Runtime) -> i32 {
         Ok(code) => code,
         Err(error) => {
             eprintln!("Error: {error}");
-            1
+            error.exit_code()
         }
     }
 }
 
-fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String> {
+/// Why the CLI stopped before (or instead of) a mode runner; printed once
+/// as `Error: <error>` with exit 1.
+#[derive(Debug, thiserror::Error)]
+enum CliError {
+    #[error("attach requires an interactive terminal")]
+    AttachNeedsTerminal,
+    #[error("agents requires an interactive terminal; `eukhe list` prints the agents")]
+    AgentsNeedsTerminal,
+    #[error("--resume without a session selector requires an interactive terminal")]
+    BareResumeNeedsTerminal,
+    #[error("reading the working directory: {0}")]
+    ExportCwd(#[source] std::io::Error),
+    #[error(transparent)]
+    Export(#[from] session_export::SessionExportError),
+    #[error("@file arguments are not supported in RPC, daemon, or ACP mode")]
+    FileArgsInProtocolMode,
+    #[error("--fork cannot be combined with {}", .0.join(", "))]
+    ForkConflict(Vec<&'static str>),
+    /// The process working directory cannot be read.
+    #[error("{0}")]
+    CurrentDir(#[source] std::io::Error),
+    /// `--cwd` names a directory the process cannot enter (the Node.js
+    /// `chdir` message of the TS product).
+    #[error("Cannot use cwd {}: {}", .to.display(), node_style_error(.source, "chdir", .from, .to))]
+    Chdir {
+        from: PathBuf,
+        to: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("EUKHE_STARTUP_BENCHMARK only supports interactive mode")]
+    StartupBenchmarkMode,
+    #[error("{0:#}")]
+    SessionDir(#[source] anyhow::Error),
+    #[error(transparent)]
+    PromptFile(#[from] mode::PromptFileError),
+    #[error("this invocation needs {}, which is not linked into the binary yet", .0.subsystem_name())]
+    Missing(#[source] mode::MissingSubsystem),
+    /// The daemon worker's tokio runtime did not start.
+    #[error("{0}")]
+    WorkerRuntime(#[source] std::io::Error),
+    #[error("{0:#}")]
+    Worker(#[source] anyhow::Error),
+}
+
+impl CliError {
+    /// The exit class: the terminal refusals, flag-shape and cwd errors are
+    /// usage or missing-input failures (2); everything else is operational.
+    fn exit_code(&self) -> i32 {
+        match self {
+            Self::AttachNeedsTerminal
+            | Self::AgentsNeedsTerminal
+            | Self::BareResumeNeedsTerminal
+            | Self::FileArgsInProtocolMode
+            | Self::ForkConflict(_)
+            | Self::Chdir { .. }
+            | Self::StartupBenchmarkMode
+            | Self::PromptFile(_) => 2,
+            Self::ExportCwd(_)
+            | Self::Export(_)
+            | Self::CurrentDir(_)
+            | Self::SessionDir(_)
+            | Self::Missing(_)
+            | Self::WorkerRuntime(_)
+            | Self::Worker(_) => 1,
+        }
+    }
+}
+
+fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliError> {
     use std::io::IsTerminal;
 
     let offline_mode = args.iter().any(|arg| arg == "--offline")
@@ -119,6 +194,17 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     }
 
     let parsed = args::parse_args(&args);
+    // Help is recognized before any other validation: a `--help` anywhere
+    // prints help and exits 0, even next to invalid options. `--version`
+    // comes next; only then do the parse diagnostics fail the run.
+    if parsed.help {
+        println!("{}", command_registry::format_top_level_help());
+        return Ok(0);
+    }
+    if parsed.version {
+        println!("{}", crate::config::version());
+        return Ok(0);
+    }
     if !parsed.diagnostics.is_empty() {
         for diagnostic in &parsed.diagnostics {
             let label = if diagnostic.is_error {
@@ -129,42 +215,32 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
             eprintln!("{label}: {}", diagnostic.message);
         }
         if parsed.diagnostics.iter().any(|d| d.is_error) {
-            return Ok(1);
+            return Ok(2);
         }
     }
 
     let app_mode = mode::AppMode::resolve(&parsed, std::io::stdin().is_terminal());
 
     if public_command.attach_agent.is_some() && app_mode != mode::AppMode::Interactive {
-        return Err("attach requires an interactive terminal".to_string());
+        return Err(CliError::AttachNeedsTerminal);
     }
     if public_command.explicit_agents_view && app_mode != mode::AppMode::Interactive {
-        return Err(
-            "agents requires an interactive terminal; `eukhe list` prints the agents".to_string(),
-        );
+        return Err(CliError::AgentsNeedsTerminal);
     }
     if parsed.resume_bare && app_mode != mode::AppMode::Interactive {
-        return Err(
-            "--resume without a session selector requires an interactive terminal".to_string(),
-        );
-    }
-
-    if parsed.version {
-        println!("{}", crate::config::version());
-        return Ok(0);
-    }
-    if parsed.help {
-        println!("{}", command_registry::format_top_level_help());
-        return Ok(0);
+        return Err(CliError::BareResumeNeedsTerminal);
     }
 
     if parsed.export.is_some() {
         // The TS product only reaches the export subsystem through the
         // `session export <file> [output]` rewrite; a standalone `--export`
         // already exited as a removed-flag diagnostic above.
-        let cwd = std::env::current_dir()
-            .map_err(|error| format!("reading the working directory: {error}"))?;
-        return session_export::run(&parsed, &cwd, &crate::config::get_agent_dir());
+        let cwd = std::env::current_dir().map_err(CliError::ExportCwd)?;
+        return Ok(session_export::run(
+            &parsed,
+            &cwd,
+            &crate::config::get_agent_dir(),
+        )?);
     }
 
     if matches!(
@@ -172,7 +248,7 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         Some(args::Mode::Rpc | args::Mode::Daemon | args::Mode::Acp)
     ) && !parsed.file_args.is_empty()
     {
-        return Err("@file arguments are not supported in RPC, daemon, or ACP mode".to_string());
+        return Err(CliError::FileArgsInProtocolMode);
     }
 
     // Daemon worker processes start with the worker role env var set (TS
@@ -200,10 +276,7 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
             conflicting_flags.push("--no-session");
         }
         if !conflicting_flags.is_empty() {
-            return Err(format!(
-                "--fork cannot be combined with {}",
-                conflicting_flags.join(", ")
-            ));
+            return Err(CliError::ForkConflict(conflicting_flags));
         }
         let _ = fork;
     }
@@ -212,22 +285,17 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     let cwd = match &parsed.cwd {
         Some(cwd) => {
             let cwd = crate::config::expand_tilde_path(cwd);
-            let from = std::env::current_dir().map_err(|e| e.to_string())?;
-            if let Err(error) = std::env::set_current_dir(&cwd) {
-                return Err(format!(
-                    "Cannot use cwd {}: {}",
-                    cwd.display(),
-                    node_style_error(
-                        &error,
-                        "chdir",
-                        &from.display().to_string(),
-                        &cwd.display().to_string()
-                    )
-                ));
+            let from = std::env::current_dir().map_err(CliError::CurrentDir)?;
+            if let Err(source) = std::env::set_current_dir(&cwd) {
+                return Err(CliError::Chdir {
+                    from,
+                    to: cwd,
+                    source,
+                });
             }
-            std::env::current_dir().map_err(|e| e.to_string())?
+            std::env::current_dir().map_err(CliError::CurrentDir)?
         }
-        None => std::env::current_dir().map_err(|e| e.to_string())?,
+        None => std::env::current_dir().map_err(CliError::CurrentDir)?,
     };
 
     if crate::config::is_truthy_env_flag(
@@ -236,7 +304,7 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
             .as_deref(),
     ) && app_mode != mode::AppMode::Interactive
     {
-        return Err("EUKHE_STARTUP_BENCHMARK only supports interactive mode".to_string());
+        return Err(CliError::StartupBenchmarkMode);
     }
 
     let agent_dir = crate::config::get_agent_dir();
@@ -248,7 +316,7 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         &eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir),
         &agent_dir,
     )
-    .map_err(|error| format!("{error:#}"))?;
+    .map_err(CliError::SessionDir)?;
     let session_dir = (session_dir.source != eukhe_core::settings::SessionDirSource::Default)
         .then_some(session_dir.path);
 
@@ -291,15 +359,22 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         stdin_content.as_deref(),
     )
     .initial_message;
+    let config = match mode::runtime_config_from_args(
+        &parsed,
+        cwd,
+        agent_dir,
+        session_dir.clone(),
+        app_mode,
+    ) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return Ok(2);
+        }
+    };
     let options = mode::RunOptions {
         app_mode,
-        config: mode::runtime_config_from_args(
-            &parsed,
-            cwd,
-            agent_dir,
-            session_dir.clone(),
-            app_mode,
-        )?,
+        config,
         session: mode::SessionOptions {
             continue_recent: parsed.continue_,
             resume_bare: parsed.resume_bare,
@@ -321,28 +396,26 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         attach_agent: public_command.attach_agent,
     };
 
-    match runtime.run(&options) {
-        Ok(exit_code) => Ok(exit_code),
-        Err(missing) => Err(missing.error_message()),
-    }
+    runtime.run(&options).map_err(CliError::Missing)
 }
 
 /// Run the daemon session-worker runtime (the process the supervisor spawns
 /// for each live session).
-fn run_worker_mode() -> Result<i32, String> {
+fn run_worker_mode() -> Result<i32, CliError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(|error| error.to_string())?;
-    match runtime.block_on(eukhe_daemon::worker::run_worker()) {
-        Ok(()) => Ok(0),
-        Err(error) => Err(format!("{error:#}")),
-    }
+        .map_err(CliError::WorkerRuntime)?;
+    runtime
+        .block_on(eukhe_daemon::worker::run_worker())
+        .map_err(CliError::Worker)?;
+    Ok(0)
 }
 
 /// Format an io error the way Node.js prints it for the same syscall, so the
 /// `Error: Cannot use cwd <dir>: <message>` text matches the TS product.
-fn node_style_error(error: &std::io::Error, syscall: &str, from: &str, to: &str) -> String {
+fn node_style_error(error: &std::io::Error, syscall: &str, from: &Path, to: &Path) -> String {
+    let (from, to) = (from.display(), to.display());
     match error.kind() {
         std::io::ErrorKind::NotFound => {
             format!("ENOENT: no such file or directory, {syscall} '{from}' -> '{to}'")

@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # (D1) The timeouts' entry of the compiled core
 # ---------------------------------------------
-# docs/daemon.md D1: every timeout of the supervisor, its workers and its
+# Every timeout of the supervisor, its workers and its
 # clients derives from the timeouts it must exceed (law timeouts_ordered,
 # laws/supervise.bend, on the model bend/supervise.bend section Timeouts).
 # Rust `eukhe_daemon::timeouts::derived` writes the 19 base values and
@@ -17,7 +17,7 @@ import ./base.bend as LawsBase
 #
 # The spec below spells the request and the reply with the wire
 # primitives (bend/wire.bend), never with the entry's own codec, and
-# derives each value from the base values as docs/daemon.md states it.
+# derives each value from the base values.
 
 # Spec
 # ----

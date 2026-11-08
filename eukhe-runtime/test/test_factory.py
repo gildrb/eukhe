@@ -3233,8 +3233,8 @@ class FactoryExecutorTest(_ExecutorTestCase):
         status = await self.settle(result)
         self.assertEqual(status["state"], "done")
         self.assertEqual(
-            [p["kwargs"]["name"] for p in self.host.calls_of("rlm.run")],
-            ["reviewer"],
+            [(p["kwargs"]["name"], p["kwargs"]["why"]) for p in self.host.calls_of("rlm.run")],
+            [("reviewer", "isolate")],
         )
         self.assertEqual(
             [event["name"] for event in self.all_events_of(result, "spawned")],

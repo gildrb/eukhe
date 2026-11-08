@@ -10,6 +10,7 @@ use eukhe_types::daemon::DaemonCommand;
 use serde_json::{json, Map, Value};
 use tokio::sync::Mutex;
 
+use super::error::DaemonCommandError;
 use super::{
     clear_connection_servers, fetch_rlm_children, jsonrpc, producer, CancelOrder, CancelStop,
     DaemonAcpState, DaemonBinding, DaemonLink,
@@ -53,12 +54,14 @@ pub(super) fn arm_cancel_locked(session_id: &str, guard: &mut DaemonAcpState) ->
     let (done_tx, done_rx) = tokio::sync::watch::channel(false);
     hosted.cancel_task = Some(done_rx);
     hosted.cancelling = true;
-    CancelOrder::Armed(CancelStop {
+    let stop = CancelStop {
         acp_session_id: hosted.acp_session_id.clone(),
         daemon_session_id: hosted.daemon_active_session_id.clone(),
         admission_id,
         done: done_tx,
-    })
+    };
+    guard.turn_lost.notify_waiters();
+    CancelOrder::Armed(stop)
 }
 
 pub(super) async fn wait_for_session_close(state: &Arc<Mutex<DaemonAcpState>>) {
@@ -87,7 +90,8 @@ pub(super) async fn run_cancel_stop(
             }
         }
         Err(error) => Err(error),
-    };
+    }
+    .map_err(Arc::new);
     {
         let mut guard = state.lock().await;
         let released_closed = matches!(
@@ -111,7 +115,7 @@ pub(super) async fn run_cancel_stop(
                     }
                     hosted.stop_failure = None;
                 }
-                Err(error) => hosted.stop_failure = Some(error.to_string()),
+                Err(error) => hosted.stop_failure = Some(Arc::clone(error)),
             }
         }
         if released_closed {
@@ -129,7 +133,7 @@ async fn stop_session_work(
     link: &Arc<DaemonLink>,
     daemon_session_id: &str,
     admission_id: Option<&str>,
-) -> anyhow::Result<()> {
+) -> Result<(), DaemonCommandError> {
     link.request_ok(DaemonCommand::AbortAndClearQueue {
         id: None,
         active_session_id: daemon_session_id.to_string(),
@@ -157,7 +161,7 @@ async fn stop_session_work(
 async fn cancel_outstanding_rlm_children(
     link: &Arc<DaemonLink>,
     daemon_session_id: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), DaemonCommandError> {
     let children = fetch_rlm_children(link, daemon_session_id).await?;
     let mut failure = None;
     for child in children {
@@ -208,7 +212,7 @@ async fn acquire_stop_input_pause(
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
     acp_session_id: &str,
-) -> anyhow::Result<InputPauseLease> {
+) -> Result<InputPauseLease, DaemonCommandError> {
     let (daemon_session_id, lease_key) = {
         let mut guard = state.lock().await;
         let Some(hosted) = guard
@@ -216,7 +220,9 @@ async fn acquire_stop_input_pause(
             .as_mut()
             .filter(|hosted| hosted.acp_session_id == acp_session_id)
         else {
-            anyhow::bail!("Unknown ACP session: {acp_session_id}");
+            return Err(DaemonCommandError::UnknownSession {
+                session_id: acp_session_id.to_string(),
+            });
         };
         let lease_key = hosted
             .input_pause_key
@@ -234,9 +240,9 @@ async fn acquire_stop_input_pause(
         })
         .await?;
     if !response.success {
-        anyhow::bail!(response
-            .error
-            .unwrap_or_else(|| "unknown error".to_string()));
+        return Err(DaemonCommandError::Refused {
+            message: response.error,
+        });
     }
     let pause_id = response
         .data
@@ -244,7 +250,7 @@ async fn acquire_stop_input_pause(
         .get("pauseId")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .ok_or_else(|| anyhow::anyhow!("the daemon returned no session input pause id"))?;
+        .ok_or(DaemonCommandError::NoPauseId)?;
     {
         let mut guard = state.lock().await;
         if let Some(hosted) = guard
@@ -265,7 +271,7 @@ pub(super) async fn release_session_input_pause(
     link: &Arc<DaemonLink>,
     daemon_session_id: &str,
     pause_id: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), DaemonCommandError> {
     link.request_ok(DaemonCommand::ReleaseSessionInputPause {
         id: None,
         active_session_id: daemon_session_id.to_string(),
@@ -317,13 +323,15 @@ pub(super) async fn handle_session_close(
             turn.cancelled = true;
         }
         let admission_id = hosted.turn.as_ref().map(|turn| turn.admission_id.clone());
-        (
+        let closing = (
             hosted.acp_session_id.clone(),
             hosted.daemon_active_session_id.clone(),
             Arc::clone(&hosted.config),
             Arc::clone(&hosted.producer),
             admission_id,
-        )
+        );
+        guard.turn_lost.notify_waiters();
+        closing
     };
     let close_result = match acquire_stop_input_pause(link, state, &acp_session_id).await {
         Ok(lease) => {
@@ -360,7 +368,8 @@ pub(super) async fn handle_session_close(
             }
         }
         Err(error) => Err(error),
-    };
+    }
+    .map_err(Arc::new);
     {
         let mut guard = state.lock().await;
         if let Some(hosted) = guard
@@ -370,7 +379,7 @@ pub(super) async fn handle_session_close(
         {
             hosted.cancelling = false;
             if let Err(error) = &close_result {
-                hosted.stop_failure = Some(error.to_string());
+                hosted.stop_failure = Some(Arc::clone(error));
             }
         }
         guard.session_close_done = None;
@@ -396,7 +405,11 @@ pub(super) async fn teardown(
     state: &Arc<Mutex<DaemonAcpState>>,
     binding: &DaemonBinding,
 ) {
-    let hosted = state.lock().await.session.take();
+    let hosted = {
+        let mut guard = state.lock().await;
+        guard.turn_lost.notify_waiters();
+        guard.session.take()
+    };
     if let Some(hosted) = hosted.as_ref() {
         if let Some(turn) = hosted.turn.as_ref() {
             cancel_owned_admission(link, &binding.active_session_id, &turn.admission_id).await;

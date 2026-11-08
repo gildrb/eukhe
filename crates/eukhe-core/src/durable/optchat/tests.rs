@@ -13,8 +13,9 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{
-    AgentChange, Extension, FieldChange, HarnessOptions, InputSubmissionDraft, ModelRef,
-    ToolExecutionResult, ToolRegistration,
+    AgentChange, Extension, FieldChange, HarnessOptions, HarnessSettingsSource,
+    InputSubmissionDraft, LiveSettings, ModelRef, PartialCompactionPolicy, ToolExecutionResult,
+    ToolRegistration,
 };
 use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::session::SessionError;
@@ -32,12 +33,12 @@ use tokio::sync::Notify;
 use super::docs::{decode, write, CallState, LoggedState, LOGGED_DOC};
 use super::lines::LogLine;
 use super::logger::LoggerHandle;
-use super::request::request_messages;
+use super::request::{request_messages, root_request};
 use super::OptChat;
 use crate::durable::HarnessCell;
 use crate::memory::{
-    AppendKey, CompactionPrompt, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP,
-    DATE_TOOL_DESCRIPTION, TURN_TASK, ZOOM_TOOL_DESCRIPTION,
+    AppendKey, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP, DATE_TOOL_DESCRIPTION,
+    ZOOM_TOOL_DESCRIPTION,
 };
 
 fn cx() -> &'static Context {
@@ -198,6 +199,8 @@ struct Setup {
     release: Arc<Notify>,
     /// What the Harness reported.
     reports: Arc<Mutex<Vec<String>>>,
+    /// The Harness settings (its compaction policy).
+    settings: Arc<LiveSettings>,
 }
 
 impl Setup {
@@ -241,6 +244,7 @@ impl Setup {
             started,
             release,
             reports: Arc::default(),
+            settings: Arc::default(),
         }
     }
 
@@ -274,6 +278,7 @@ impl Setup {
     /// model, and (root role) the logger, then resume scheduling.
     async fn open(&self, storage: Arc<dyn Storage>, logger: Logging) -> Session {
         let mut options = HarnessOptions::new(self.models.clone(), Arc::new(self.registry.clone()));
+        options.settings = Some(Arc::clone(&self.settings) as Arc<dyn HarnessSettingsSource>);
         let reports = Arc::clone(&self.reports);
         options.on_report = Some(Arc::new(move |error| {
             lock(&reports).push(error.to_string());
@@ -428,7 +433,7 @@ fn hold_tool(started: Arc<Notify>, release: Arc<Notify>) -> Arc<ToolRegistration
     ))
 }
 
-/// The view as the call's first message describes it: its pieces, the
+/// The view as a subagent's first message describes it: its pieces, the
 /// first marked at the view's last whole block of lines.
 async fn view_text(memory: &Memory) -> String {
     let pieces = memory.render().await.unwrap().pieces();
@@ -447,8 +452,32 @@ async fn view_text(memory: &Memory) -> String {
         .join("|")
 }
 
+/// The view of the history before the chat's last `verbatim` messages as
+/// a root call's first message describes it: its pieces, the last marked
+/// at the view's end.
+async fn history_text(memory: &Memory, verbatim: u64) -> String {
+    let pieces = memory
+        .settled_history(crate::memory::SETTLE_TIMEOUT, verbatim)
+        .await
+        .unwrap()
+        .pieces();
+    let last = pieces.len() - 1;
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(at, piece)| {
+            if at == last {
+                format!("{piece}[cache]")
+            } else {
+                piece.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[tokio::test]
-async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
+async fn a_run_sends_its_thread_verbatim_after_the_older_history_and_logs_it() {
     let setup = Setup::new(MemoryRole::Root).await;
     setup.memory.append(Kind::User, "earlier").await.unwrap();
     let requests = Requests::default();
@@ -460,15 +489,17 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     let session = setup
         .open(Arc::new(MemoryStorage::new()), Logging::On)
         .await;
-    let first_view = view_text(&setup.memory).await;
+    // "earlier" is history the transcript never held: the view keeps it.
+    let history = history_text(&setup.memory, 0).await;
     session.run(&setup.chat, "hello").await;
     let zoomed = setup.memory.zoom(0, 1).await.unwrap().text;
     let after_first = chat_lines(&setup.chat_dir());
-    let second_view = view_text(&setup.memory).await;
     session.run(&setup.chat, "again").await;
-    // The end of the call's first message carries the request's end mark.
-    // The turn line goes to the model only; the chat logs the words alone.
-    let first_user = format!("user:{first_view}|{TURN_TASK}\nhello[cache]");
+    // The view of the older history leads the first message, marked at
+    // its end; the user's words follow as they were sent. The second run
+    // sees the first verbatim (its tool call and result too), and its view
+    // still holds only what the transcript does not.
+    let first_user = format!("user:{history}|hello");
     assert_eq!(
         (requests.described(), after_first,),
         (
@@ -476,13 +507,17 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
                 vec!["system".to_string(), first_user.clone()],
                 vec![
                     "system".to_string(),
-                    first_user,
+                    first_user.clone(),
                     "assistant:call zoom".to_string(),
                     format!("toolResult:{zoomed}"),
                 ],
                 vec![
                     "system".to_string(),
-                    format!("user:{second_view}|{TURN_TASK}\nagain[cache]"),
+                    first_user,
+                    "assistant:call zoom".to_string(),
+                    format!("toolResult:{zoomed}"),
+                    "assistant:done".to_string(),
+                    "user:again".to_string(),
                 ],
             ],
             vec![
@@ -497,22 +532,6 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     // The first message of a run is byte-identical across its requests.
     let all = requests.all();
     assert_eq!(all[0][1], all[1][1]);
-    // The run handed its system prompt and tools to the compactor, saved
-    // for a restarted owner too: compactions reuse the turns' prefix.
-    let Message::System(system) = &all[0][0] else {
-        panic!("a system message leads the request");
-    };
-    let saved: CompactionPrompt = serde_json::from_str(
-        &std::fs::read_to_string(setup.chat_dir().join("prompt.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        saved,
-        CompactionPrompt {
-            system: eukhe_ai::utils::text::get_system_message_text(system),
-            tools: eukhe_ai::utils::transcript::get_current_tools(&all[0]),
-        }
-    );
     session.close(&setup).await;
 }
 
@@ -524,7 +543,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
         .append(Kind::User, "remember me")
         .await
         .unwrap();
-    let tools = super::tools::memory_tools(&setup.memory);
+    let tools = super::tools::memory_tools(Some(setup.memory.clone()));
     let declared: Vec<_> = tools
         .iter()
         .map(|tool| {
@@ -535,6 +554,9 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
             )
         })
         .collect();
+    // The shared intent parameter is tool_contract's; this test pins only
+    // zoom's and date's own arguments.
+    let intent = declared[0].2["properties"]["i"].clone();
     assert_eq!(
         declared,
         vec![
@@ -545,10 +567,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                     "type": "object",
                     "required": ["id"],
                     "properties": {
-                        "i": {
-                            "type": "string",
-                            "description": "Short present-participle intent for this call."
-                        },
+                        "i": intent,
                         "id": {
                             "anyOf": [
                                 { "type": "integer", "minimum": 0 },
@@ -568,10 +587,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                     "type": "object",
                     "required": ["id"],
                     "properties": {
-                        "i": {
-                            "type": "string",
-                            "description": "Short present-participle intent for this call."
-                        },
+                        "i": intent,
                         "id": { "type": "integer", "minimum": 0 }
                     },
                     "additionalProperties": false,
@@ -661,6 +677,188 @@ async fn the_pinned_view_survives_a_reopen_mid_run() {
     session.close(&setup).await;
 }
 
+/// Between two calls a root's request only grows at its end unless a
+/// compaction ran between them (LAW `thread_request_prefix_kept`). A
+/// compaction in the middle of a run moves the view at once (the history
+/// it cut scrolls into it); the next run sends that view byte-identical,
+/// the request before it as its prefix.
+#[tokio::test]
+async fn a_root_request_grows_only_at_its_end_until_a_compaction() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    setup.settings.update(|settings| {
+        settings.compaction = Some(PartialCompactionPolicy {
+            keep_recent_tokens: Some(1.0),
+            ..PartialCompactionPolicy::default()
+        });
+    });
+    // The summarizer is answered `SUMMARY`; the agent from its script.
+    let script = Arc::new(Mutex::new(std::collections::VecDeque::from([
+        answer("done"),
+        call("hold", serde_json::json!({})),
+        answer("released"),
+        answer("ok"),
+    ])));
+    let requests = Requests::default();
+    setup.faux.set_responses(
+        (0..8)
+            .map(|_| {
+                let (script, requests) = (Arc::clone(&script), Arc::clone(&requests.0));
+                FauxResponseStep::factory(move |request, _, _, _| {
+                    let messages = request.messages();
+                    let summarizer = matches!(
+                        messages.first(),
+                        Some(Message::System(SystemMessage { content: SystemContent::Text(text), .. }))
+                            if text.starts_with("You are a context summarization assistant")
+                    );
+                    if summarizer {
+                        return Ok(answer("SUMMARY"));
+                    }
+                    lock(&requests).push(messages.to_vec());
+                    Ok(lock(&script).pop_front().expect("a scripted answer"))
+                })
+            })
+            .collect(),
+    );
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::On)
+        .await;
+    session.run(&setup.chat, "hello").await;
+    let started = setup.started.notified();
+    session.submit("again").await;
+    started.await;
+    // Compact while the tool runs: the summary lands at the next boundary.
+    let compaction = session.root.compact(None, cx()).await.unwrap();
+    session
+        .harness
+        .wait_for_task(compaction, cx())
+        .await
+        .unwrap();
+    setup.release.notify_one();
+    session.root.wait_for_idle(cx()).await.unwrap();
+    setup.chat.flush().await.unwrap();
+    session.run(&setup.chat, "more").await;
+    let all = requests.all();
+    let grows = |at: usize| all[at + 1].starts_with(&all[at]);
+    // The compaction cut the first run and the start of the second: the
+    // view takes those lines at once and leads the summary, marked at its
+    // end, in this call and the next run's. The system prompt still leads
+    // the request, ahead of them.
+    let compacted = vec![
+        "system".to_string(),
+        "user:<chat>\n0+1|user: hello\n1+1|eukhe: done\n2+1|user: again\n</chat>[cache]|The conversation history before this point was compacted into the following summary:\n\n<summary>\nSUMMARY\n</summary>".to_string(),
+        "assistant:call hold".to_string(),
+        "toolResult:held".to_string(),
+    ];
+    let mut next = compacted.clone();
+    next.extend(["assistant:released".to_string(), "user:more".to_string()]);
+    assert_eq!(
+        (requests.described(), grows(0), grows(1), grows(2)),
+        (
+            vec![
+                vec!["system".to_string(), "user:hello".to_string()],
+                vec![
+                    "system".to_string(),
+                    "user:hello".to_string(),
+                    "assistant:done".to_string(),
+                    "user:again".to_string(),
+                ],
+                compacted,
+                next,
+            ],
+            true,
+            false,
+            true
+        )
+    );
+    session.close(&setup).await;
+}
+
+/// A side request that continues an idle root after a compaction (the
+/// auto-refine review) pins the view under the new head as a run would;
+/// the next run takes that view over instead of rendering another, so the
+/// side request's messages are the run's request up to its input, even
+/// when the chat grew in between.
+#[tokio::test]
+async fn a_side_request_pins_the_view_the_next_run_sends() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    setup.settings.update(|settings| {
+        settings.compaction = Some(PartialCompactionPolicy {
+            keep_recent_tokens: Some(1.0),
+            ..PartialCompactionPolicy::default()
+        });
+    });
+    let script = Arc::new(Mutex::new(std::collections::VecDeque::from([
+        answer("done"),
+        answer("ok"),
+    ])));
+    let requests = Requests::default();
+    setup.faux.set_responses(
+        (0..4)
+            .map(|_| {
+                let (script, requests) = (Arc::clone(&script), Arc::clone(&requests.0));
+                FauxResponseStep::factory(move |request, _, _, _| {
+                    let messages = request.messages();
+                    let summarizer = matches!(
+                        messages.first(),
+                        Some(Message::System(SystemMessage { content: SystemContent::Text(text), .. }))
+                            if text.starts_with("You are a context summarization assistant")
+                    );
+                    if summarizer {
+                        return Ok(answer("SUMMARY"));
+                    }
+                    lock(&requests).push(messages.to_vec());
+                    Ok(lock(&script).pop_front().expect("a scripted answer"))
+                })
+            })
+            .collect(),
+    );
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::On)
+        .await;
+    session.run(&setup.chat, "hello").await;
+    let compaction = session.root.compact(None, cx()).await.unwrap();
+    session
+        .harness
+        .wait_for_task(compaction, cx())
+        .await
+        .unwrap();
+    session.root.wait_for_idle(cx()).await.unwrap();
+    setup.chat.flush().await.unwrap();
+
+    let continuation = session
+        .root
+        .continuation(cx())
+        .await
+        .unwrap()
+        .expect("the root has a model");
+    let side = setup
+        .chat
+        .side_request(session.root.id(), continuation.messages, cx())
+        .await
+        .unwrap();
+    // A rendered view would hold this line; the pinned one does not.
+    setup
+        .memory
+        .append(Kind::User, "logged later")
+        .await
+        .unwrap();
+    session.run(&setup.chat, "more").await;
+
+    let all = requests.all();
+    let next = all.last().expect("the run's request");
+    assert_eq!(
+        (next[..side.len()].to_vec(), next.len()),
+        (side.clone(), side.len() + 1)
+    );
+    // The view the side request pinned: the history before the kept
+    // answer, without the line logged after it.
+    assert_eq!(
+        describe(&side[1]),
+        "user:<chat>\n0+1|user: hello\n</chat>[cache]|The conversation history before this point was compacted into the following summary:\n\n<summary>\nSUMMARY\n</summary>"
+    );
+    session.close(&setup).await;
+}
+
 #[tokio::test]
 async fn a_crash_between_append_and_cursor_logs_no_line_twice() {
     let setup = Setup::new(MemoryRole::Root).await;
@@ -713,8 +911,10 @@ async fn a_subagent_pins_one_view_for_its_conversation_and_logs_nothing() {
     let session = setup
         .open(Arc::new(MemoryStorage::new()), Logging::Off)
         .await;
-    let view = view_text(&setup.memory).await;
     session.run(&setup.chat, "task").await;
+    // The pin built the view's lines (nothing is summarized before a call
+    // shows it): the view as the subagent saw it.
+    let view = view_text(&setup.memory).await;
     setup.memory.append(Kind::User, "later").await.unwrap();
     session.run(&setup.chat, "next").await;
     assert_eq!(
@@ -755,16 +955,15 @@ fn system(text: &str, timestamp: u64) -> Message {
     })
 }
 
-/// The request shape: systems before the call's first non-user message
-/// replayed into one; the view pieces (all but the last cache-marked), the
-/// leading user texts joined, their images after; harness state after the
-/// first message; earlier messages dropped. A root call marks its texts
-/// as a turn (a bare message once read as a compaction input); a
-/// subagent's texts are its task alone.
+/// A subagent's request shape: systems before the call's first non-user
+/// message replayed into one; the view pieces (all but the last
+/// cache-marked), the leading user texts joined, their images after;
+/// harness state after the first message; earlier messages dropped.
 #[test]
-fn a_request_joins_the_leading_user_texts_behind_the_view() {
+fn a_subagent_request_joins_the_leading_user_texts_behind_the_view() {
     let call = CallState {
-        run_key: Some("input:1".to_string()),
+        run_key: None,
+        head: None,
         pieces: vec!["<chat>\n0+1|a\n".to_string(), "1+1|b\n</chat>".to_string()],
         through: 2,
         timestamp: 7,
@@ -782,23 +981,14 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         Message::User(UserMessage {
             content: UserContent::Blocks(vec![
                 UserContentBlock::Text(TextContent::new("second")),
-                image.clone(),
+                image,
             ]),
             timestamp: 4,
         }),
         state.clone(),
         Message::Assistant(answer("reply")),
     ];
-    let subagent = request_messages(
-        &call,
-        MemoryRole::Subagent,
-        messages.clone(),
-        2,
-        |message| *message == state,
-    );
-    let request = request_messages(&call, MemoryRole::Root, messages, 2, |message| {
-        *message == state
-    });
+    let request = request_messages(&call, messages, 2, |message| *message == state);
     let Message::System(system) = &request[0] else {
         panic!("a system message leads");
     };
@@ -806,35 +996,75 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         (
             system.content.clone(),
             request[1..].iter().map(describe).collect::<Vec<_>>(),
-            request[1].clone(),
-            describe(&subagent[1]),
         ),
         (
             SystemContent::Text("base\n\npatch".to_string()),
             vec![
-                format!("user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|{TURN_TASK}\nfirst\n\nsecond[cache]|[image image/png]"),
+                "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
+                    .to_string(),
                 "user:[state] kernel restored".to_string(),
                 "assistant:reply".to_string(),
             ],
-            Message::User(UserMessage {
-                content: UserContent::Blocks(vec![
-                    UserContentBlock::Text(TextContent {
-                        text: "<chat>\n0+1|a\n".to_string(),
-                        text_signature: None,
-                        cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
-                    }),
-                    UserContentBlock::Text(TextContent::new("1+1|b\n</chat>")),
-                    UserContentBlock::Text(TextContent {
-                        text: format!("{TURN_TASK}\nfirst\n\nsecond"),
-                        text_signature: None,
-                        cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
-                    }),
-                    image,
-                ]),
-                timestamp: 7,
-            }),
-            "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
-                .to_string(),
+        )
+    );
+}
+
+/// A root call's request is its own transcript verbatim: every earlier
+/// turn with its tool calls, results and images stays as the harness built
+/// it. The view of the older history leads the first user message, marked
+/// at its end; with no older history the transcript goes unchanged.
+#[test]
+fn a_root_request_keeps_its_thread_verbatim_behind_the_older_history() {
+    let image = UserContentBlock::Image(ImageContent {
+        data: "AA==".to_string(),
+        mime_type: "image/png".to_string(),
+    });
+    let shot = Message::ToolResult(eukhe_types::pi_ai::ToolResultMessage {
+        tool_call_id: "c1".to_string(),
+        tool_name: "shot".to_string(),
+        content: vec![UserContentBlock::Text(TextContent::new("1440x900")), image],
+        details: None,
+        usage: None,
+        nested_calls: None,
+        is_error: false,
+        timestamp: 4,
+        duration_ms: None,
+    });
+    let messages = vec![
+        system("base", 1),
+        user("make the page", 2),
+        Message::Assistant(call("shot", serde_json::json!({}))),
+        shot,
+        Message::Assistant(answer("done")),
+        user("the button is still wrong", 5),
+    ];
+    let call = |pieces: Vec<String>| CallState {
+        run_key: Some("input:2".to_string()),
+        head: None,
+        pieces,
+        through: 9,
+        timestamp: 7,
+    };
+    let plain = root_request(&call(Vec::new()), messages.clone());
+    let request = root_request(
+        &call(vec![
+            "<chat>\n0+1|a\n".to_string(),
+            "1+1|b\n</chat>".to_string(),
+        ]),
+        messages.clone(),
+    );
+    assert_eq!(
+        (plain, request.iter().map(describe).collect::<Vec<_>>()),
+        (
+            messages,
+            vec![
+                "system".to_string(),
+                "user:<chat>\n0+1|a\n|1+1|b\n</chat>[cache]|make the page".to_string(),
+                "assistant:call shot".to_string(),
+                "toolResult:1440x900|[image image/png]".to_string(),
+                "assistant:done".to_string(),
+                "user:the button is still wrong".to_string(),
+            ],
         )
     );
 }
@@ -886,7 +1116,8 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
         }),
     };
     let message = Report::AgentMessage {
-        sender: "child:x".to_owned(),
+        from: eukhe_types::input_origin::Kin::Child,
+        name: "x".to_owned(),
     };
     let entries = [
         user_entry(
@@ -940,7 +1171,8 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
 fn input_entries_are_logged_by_their_origin() {
     use eukhe_durable::types::{EntryId, EntryRecord};
     let message = Report::AgentMessage {
-        sender: "child:x".to_owned(),
+        from: eukhe_types::input_origin::Kin::Child,
+        name: "x".to_owned(),
     };
     let input = |text: &str, origin: InputOrigin| {
         let entry = crate::durable::input_entry(
@@ -1298,6 +1530,8 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         replied_since_task: false,
         deletion: None,
         settled: true,
+        read: false,
+        report_submission: None,
         usage: None,
         progress: None,
         reporter: None,

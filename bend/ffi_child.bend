@@ -8,9 +8,9 @@ import ./child.bend as M
 #     Obs (Busy 0 (Maybe<Nat>) | Lost 1 | Answered 2 (Bool) | Broke 3 |
 #     Gone 4), Mode (Inbox 0 | Silent 1); reply: the Call (Watches 0 (W) |
 #     Reports 1 (Report) | Settles 2 (Maybe<Report>))
-#   1 move: the fate (Maybe of Queued 0 | Withdrawn 1 | Placed 2), the id
-#     n; reply: the Move (Submit 0 (n) | Await 1 | Resubmit 2 (n) |
-#     Delivered 3)
+#   1 move: the fate (Maybe of Queued 0 | Withdrawn 1 | Placed 2 | Read
+#     3), the id n; reply: the Move (Submit 0 (n) | Await 1 | Resubmit 2
+#     (n) | Delivered 3)
 #   2 abort: the Ph (Watching 0 (W) | Owing 1 (Report, n) | Ended 2), the
 #     delete flag; reply: the Ph
 # Report: Completed 0 | Failed 1 | Cancelled 2 | Stalled 3 | Unreachable 4.
@@ -89,6 +89,8 @@ def put_fate(f: M.Fate, rest: String) -> String:
       W.put_nat(1n, rest)
     case M.Placed{}:
       W.put_nat(2n, rest)
+    case M.Read{}:
+      W.put_nat(3n, rest)
 
 def put_mfate(f: Maybe<&2, M.Fate>, rest: String) -> String:
   match f:
@@ -338,7 +340,7 @@ def get_fate.tag(t: Tag, s: String) -> W.Dec<M.Fate>:
     case T2{}:
       W.Got{M.Placed{}, s}
     case T3{}:
-      W.Bad{}
+      W.Got{M.Read{}, s}
     case T4{}:
       W.Bad{}
     case TBad{}:

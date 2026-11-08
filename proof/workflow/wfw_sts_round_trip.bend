@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 
 def Workflow.wfw_sts_round_trip(s, rest):
   match s:

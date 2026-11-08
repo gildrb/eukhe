@@ -1,0 +1,7 @@
+# the last wait at its largest (doubled: 2 * NAT_MAX, past the cap), none,
+# the cap itself
+call 1,{MAX},
+call 0,
+call 1,5000,
+call 1,0,
+refuse 1,{LONG},

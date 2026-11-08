@@ -10,10 +10,22 @@ use serde_json::Value;
 
 use super::cvar::{table, Decl, Init};
 use super::manager::{IdleEviction, SessionArchivePolicy, SettingsManager};
-use super::types::{
-    AutoRefineSettings, QueueModeSetting, SignalGatewaySettings, ThinkingLevelSetting,
-    TransportSetting,
-};
+use super::types::{AutoRefineSettings, QueueModeSetting, ThinkingLevelSetting, TransportSetting};
+
+/// The Signal gateway's launch settings (`gateway.signal`, but its model:
+/// the gateway role's, read through `crate::models::roles`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalGateway {
+    /// The `signal-cli` account (`+<country><number>`); a set empty one
+    /// stays.
+    pub account: Option<String>,
+    /// Senders besides Note to Self that may drive the session.
+    pub allow: Option<Vec<String>>,
+    /// The `signal-cli` executable.
+    pub cli_path: Option<String>,
+    /// The working directory of new sessions.
+    pub cwd: Option<String>,
+}
 
 /// The declared default of a Nat cvar or of a Json cvar whose default is
 /// a number.
@@ -220,34 +232,28 @@ impl SettingsManager {
         self.cvars().bool(&table::COMPACTION_AGENT_CALLABLE)
     }
 
-    /// `compaction.providerTokenCount`: whether the compaction threshold
+    /// `compaction.providerTokenCount`: whether the compaction window
     /// check asks the provider's own token counter for each request.
     #[must_use]
     pub fn get_compaction_provider_token_count(&self) -> bool {
         self.cvars().bool(&table::COMPACTION_PROVIDER_TOKEN_COUNT)
     }
 
+    /// `modelRoles.all`: the `provider/model` every role but speech and
+    /// dictation uses when its own setting is unset (whitespace reads as
+    /// unset; `crate::models::roles`).
     #[must_use]
-    pub fn get_default_provider(&self) -> Option<String> {
-        self.raw_text(&table::DEFAULT_PROVIDER)
+    pub fn get_all_roles_model(&self) -> Option<String> {
+        self.cvars().optional_text(&table::MODEL_ROLE_ALL)
     }
 
-    #[must_use]
-    pub fn get_default_model(&self) -> Option<String> {
-        self.raw_text(&table::DEFAULT_MODEL)
-    }
-
-    /// Model for `rlm.spawn` without a pinned model; unset inherits parent.
-    #[must_use]
-    pub fn get_subagent_default_model(&self) -> Option<String> {
-        self.cvars().optional_text(&table::SUBAGENT_DEFAULT_MODEL)
-    }
-
-    /// `workerModel`: the worker's model (`sessionShape` `main-worker`);
-    /// unset: main's model.
+    /// The worker's model (`sessionShape` `main-worker`): `workerModel`,
+    /// else `modelRoles.all` ([`crate::models::roles`]); `None`: main's
+    /// model.
     #[must_use]
     pub fn get_worker_model(&self) -> Option<String> {
-        self.cvars().optional_text(&table::WORKER_MODEL)
+        crate::models::roles::role_model(self.cvars(), eukhe_types::model_roles::ModelRole::Worker)
+            .selector
     }
 
     /// `sessionShape` is `main-worker`: a root session talks and hands its
@@ -255,18 +261,6 @@ impl SettingsManager {
     #[must_use]
     pub fn is_main_worker_shape(&self) -> bool {
         self.cvars().text(&table::SESSION_SHAPE) == "main-worker"
-    }
-
-    #[must_use]
-    pub fn get_auxiliary_model(&self) -> Option<String> {
-        self.raw_text(&table::AUXILIARY_MODEL)
-    }
-
-    /// `memory.model`: the chat memory compactor's `provider/model-id`
-    /// (whitespace-only reads as unset).
-    #[must_use]
-    pub fn get_memory_model(&self) -> Option<String> {
-        self.cvars().optional_text(&table::MEMORY_MODEL)
     }
 
     /// `memory.thinking`: the compactor's reasoning effort.
@@ -288,6 +282,14 @@ impl SettingsManager {
         (budgets != eukhe_types::pi_ai::ThinkingBudgets::default()).then_some(budgets)
     }
 
+    /// `memory.chat`: whether a root session keeps chat memory (its own
+    /// chat, the view of its older history); off, it sends the plain
+    /// transcript, compacted when it fills.
+    #[must_use]
+    pub fn get_memory_chat(&self) -> bool {
+        self.cvars().bool(&table::MEMORY_CHAT)
+    }
+
     /// `memory.settleTimeoutMs`: how long a turn waits for the view's
     /// lines to be summarized; then it goes on with the view as it is,
     /// each line not summarized yet as its input cut to 512 bytes. `0`
@@ -296,14 +298,6 @@ impl SettingsManager {
     #[must_use]
     pub fn get_memory_settle_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.nonzero_nat(&table::MEMORY_SETTLE_TIMEOUT_MS))
-    }
-
-    /// TS `getImageModel`: the "provider/model-id" (or bare id) reference
-    /// that serves turns attaching images on session models without image
-    /// input; whitespace behaves as unset.
-    #[must_use]
-    pub fn get_image_model(&self) -> Option<String> {
-        self.cvars().optional_text(&table::IMAGE_MODEL)
     }
 
     /// The daemon-level model allowlist (`allowedModels`, Global): model
@@ -363,12 +357,12 @@ impl SettingsManager {
         self.json_u64(&table::RLM_MAX_DEPTH)
     }
 
-    /// `gateway.signal`: the Signal gateway settings (Global: a gateway
-    /// routes a remote party into code execution on this machine). An
-    /// empty field is absent.
+    /// `gateway.signal`: the Signal gateway's launch settings (Global: a
+    /// gateway routes a remote party into code execution on this
+    /// machine). An empty field is absent.
     #[must_use]
-    pub fn get_signal_gateway(&self) -> SignalGatewaySettings {
-        SignalGatewaySettings {
+    pub fn get_signal_gateway(&self) -> SignalGateway {
+        SignalGateway {
             // A set account, even empty, stays: the gateway reports an
             // empty one instead of falling back to the linked account.
             account: self
@@ -378,8 +372,15 @@ impl SettingsManager {
             allow: self.nonempty_list(&table::GATEWAY_SIGNAL_ALLOW),
             cli_path: self.raw_text(&table::GATEWAY_SIGNAL_CLI_PATH),
             cwd: self.raw_text(&table::GATEWAY_SIGNAL_CWD),
-            model: self.raw_text(&table::GATEWAY_SIGNAL_MODEL),
         }
+    }
+
+    /// `gateway.rootHeartbeat`: the heartbeat schedule of the gateway's
+    /// root session (Global, like every `gateway` setting); `None` (absent
+    /// or empty) is off.
+    #[must_use]
+    pub fn get_gateway_root_heartbeat(&self) -> Option<String> {
+        self.raw_text(&table::GATEWAY_ROOT_HEARTBEAT)
     }
 
     /// `subagentMaxConcurrency`: how many subagents may run at once (`0`
@@ -394,6 +395,20 @@ impl SettingsManager {
     #[must_use]
     pub fn get_subagent_stall(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.nonzero_nat(&table::SUBAGENT_STALL_MS))
+    }
+
+    /// `rlm.queryConcurrency`: `rlm.query` calls of one session in flight
+    /// at once (`0` takes the default).
+    #[must_use]
+    pub fn get_rlm_query_concurrency(&self) -> u64 {
+        self.nonzero_nat(&table::RLM_QUERY_CONCURRENCY)
+    }
+
+    /// `rlm.queryBudgetBytes`: input bytes one session's `rlm.query` calls
+    /// may send in all (`0`: no budget).
+    #[must_use]
+    pub fn get_rlm_query_budget_bytes(&self) -> u64 {
+        self.cvars().nat(&table::RLM_QUERY_BUDGET_BYTES)
     }
 
     /// `toolBlockingBudgetMs`: the runtime's one blocking budget for a
@@ -645,6 +660,20 @@ impl SettingsManager {
     #[must_use]
     pub fn get_shell_auto_effects(&self) -> Vec<String> {
         self.cvars().list(&table::SHELL_AUTO_EFFECTS)
+    }
+
+    /// `privacy.anonymizeRemote`: scrub outbound request text of a remote
+    /// provider (opt-in, default false).
+    #[must_use]
+    pub fn get_privacy_anonymize_remote(&self) -> bool {
+        self.cvars().bool(&table::PRIVACY_ANONYMIZE_REMOTE)
+    }
+
+    /// `privacy.terms`: phrases a remote provider must not see (empty by
+    /// default).
+    #[must_use]
+    pub fn get_privacy_terms(&self) -> Vec<String> {
+        self.cvars().list(&table::PRIVACY_TERMS)
     }
 
     /// `ssh.hosts`: the hosts an `ssh://` read may reach (Global: new

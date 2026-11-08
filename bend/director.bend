@@ -1,4 +1,4 @@
-# director: the model of the Director stack (docs/control.md, S5), the
+# director: the model of the Director stack (S5), the
 # rule the Rust code runs (crates/eukhe-core/src/durable/directors). The
 # agent loop asks the stack what to do after each model turn. A Director
 # is one layer: a goal, an autonomous run, a reminder, a forced tool call.

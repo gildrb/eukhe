@@ -420,10 +420,8 @@ fn rpc_prompt_streams_events_after_the_response() {
         "the prompt response precedes every turn event: {before:?}"
     );
     // The turn's frames arrive after the response, in the loop's order.
-    // The first-turn harness digest rides ahead as its own custom row
-    // (the port's in-context digest), so the first `message_start` may
-    // be the digest row's: the reply's start is the first ASSISTANT
-    // one.
+    // A harness notice may ride ahead as its own custom row, so the
+    // reply's start is the first ASSISTANT one.
     let deadline = Instant::now() + TIMEOUT;
     loop {
         let frame = client.wait_event("message_start", TIMEOUT);

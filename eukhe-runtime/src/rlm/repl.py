@@ -56,7 +56,7 @@ _RESULT_TRUNCATION_MARKER = f"\n[... error text truncated at {_RESULT_TEXT_CAP} 
 _PAYLOAD_CAP = 16 * 1024 * 1024
 
 # Names the session bootstrap re-creates on every start; never snapshotted.
-_ALWAYS_SKIP = {"rlm", "mcp", "bash", "jobs", "read", "write", "edit", "grep", "glob", "asyncio", "In", "Out", "get_ipython", "exit", "quit", "open"}
+_ALWAYS_SKIP = {"rlm", "mcp", "bash", "jobs", "chat", "history", "read", "write", "edit", "grep", "glob", "asyncio", "In", "Out", "get_ipython", "exit", "quit", "open"}
 # IPython-injected names that may appear in a snapshot payload; never restored.
 _RESTORE_SKIP = {"In", "Out", "get_ipython"}
 # Where the bootstrap records the further names it binds on every start (its

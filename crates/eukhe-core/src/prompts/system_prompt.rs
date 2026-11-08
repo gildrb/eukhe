@@ -1,5 +1,8 @@
-//! Layered system-prompt assembly: static layer files first (cacheable),
-//! every session-specific value last. See the parent module docs.
+//! Layered system-prompt assembly, ordered by how often a segment changes:
+//! the static layer files first, then what is stable for an install (tools,
+//! skills, the closing `<critical>` block), then what is stable for a
+//! project (its instructions files, the environment). Two sessions in the
+//! same project send byte-identical prompts. See the parent module docs.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -121,8 +124,6 @@ pub struct BuildSystemPromptOptions<'a> {
     pub append_system_prompt: Vec<SourcedPrompt>,
     /// Working directory.
     pub cwd: String,
-    /// Conversation log path.
-    pub messages_path: Option<String>,
     /// Pre-loaded context files (path, content).
     pub context_files: Vec<(String, String)>,
     /// Pre-loaded skills.
@@ -147,7 +148,7 @@ pub struct BuildSystemPromptOptions<'a> {
     pub shape_role: ShapeRole,
 }
 
-/// A session's part in the `main-worker` shape (docs/usage.md).
+/// A session's part in the `main-worker` shape.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShapeRole {
     /// Not part of it: a `single` session, or any other child.
@@ -173,8 +174,8 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         None => crate::refinement::HarnessMemory::Harness,
     };
 
-    // The chat memory layer leads (`OptChat` §5: one system prompt for
-    // turns and compactions, the user's instructions after it). It is
+    // The chat memory layer leads (`OptChat` §5, the user's instructions
+    // after it). It is
     // static and survives a replaced prompt: the model must know how to
     // read the view either way.
     if let Some(role) = options.memory {
@@ -185,15 +186,13 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
                 (crate::memory::MemoryRole::Root, ShapeRole::Main) => {
                     crate::memory::main_system_layer()
                 }
-                (crate::memory::MemoryRole::Root, ShapeRole::Alone | ShapeRole::Worker) => {
+                (crate::memory::MemoryRole::Root, ShapeRole::Alone) => {
                     crate::memory::memory_system_layer()
                 }
-                (crate::memory::MemoryRole::Subagent, ShapeRole::Worker) => {
+                (crate::memory::MemoryRole::Root, ShapeRole::Worker) => {
                     crate::memory::worker_system_layer()
                 }
-                (crate::memory::MemoryRole::Subagent, ShapeRole::Alone | ShapeRole::Main) => {
-                    crate::memory::subagent_system_layer()
-                }
+                (crate::memory::MemoryRole::Subagent, _) => crate::memory::subagent_system_layer(),
             },
         ));
     }
@@ -231,12 +230,12 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         .sum::<usize>()
         + 2 * segments.len().saturating_sub(1);
 
-    // The dynamic tail, in fixed order: packages -> project context ->
-    // skills inventory -> MCP servers -> environment -> session role ->
-    // additional guidance -> appended prompt. A chat-memory session moves
-    // the project context (the user's instructions files) to the very end:
-    // its memory layer points the model at "the user's instructions at the
-    // end of this prompt".
+    // The dynamic tail, by how often each part changes: packages -> skills
+    // inventory -> MCP servers -> session role -> additional guidance ->
+    // appended prompt -> the closing `<critical>` block (stable for an
+    // install), then project context -> environment (stable for a
+    // project). Nothing in the prompt changes per session, so a second
+    // session of a project reads the whole prompt from the provider's cache.
     let tools: Vec<&str> = options
         .selected_tools
         .clone()
@@ -249,15 +248,6 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         "kernel bootstrap defaults",
         packages_section(),
     ));
-
-    let context = context_files_section(&options.context_files);
-    let context_segment = (!context.is_empty())
-        .then(|| PromptSegment::dynamic_segment("project-context", "AGENTS.md discovery", context));
-    let (context_in_order, context_last) = match harness_memory {
-        crate::refinement::HarnessMemory::Harness => (context_segment, None),
-        crate::refinement::HarnessMemory::Chat => (None, context_segment),
-    };
-    segments.extend(context_in_order);
 
     let visible_skills: Vec<&Skill> = options
         .skills
@@ -283,12 +273,6 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
             ));
         }
     }
-
-    segments.push(PromptSegment::dynamic_segment(
-        "environment",
-        "session configuration",
-        environment_section(options),
-    ));
 
     let role = session_role_section(options, has_ipython);
     if !role.is_empty() {
@@ -332,7 +316,26 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
                 .join("\n\n"),
         ));
     }
-    segments.extend(context_last);
+    if let Some(critical) = closing_block(options.custom_prompt.as_ref()) {
+        segments.push(PromptSegment::dynamic_segment(
+            CLOSING_SEGMENT,
+            layers::layer_source(CLOSING_SEGMENT).unwrap_or_default(),
+            critical.to_string(),
+        ));
+    }
+    let context = context_files_section(&options.context_files);
+    if !context.is_empty() {
+        segments.push(PromptSegment::dynamic_segment(
+            "project-context",
+            "AGENTS.md discovery",
+            context,
+        ));
+    }
+    segments.push(PromptSegment::dynamic_segment(
+        "environment",
+        "session configuration",
+        environment_section(options),
+    ));
 
     let assembled = segments
         .iter()
@@ -346,16 +349,28 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     }
 }
 
+/// The name of the segment the closing `<critical>` block forms.
+pub const CLOSING_SEGMENT: &str = "critical";
+
+/// The `<critical>` block (`layers/critical.md`) that closes the
+/// install-stable part of the prompt, absent when the user's prompt
+/// replaces the layered defaults. Only the project's instructions and the
+/// environment follow it.
+#[must_use]
+pub fn closing_block(custom_prompt: Option<&SourcedPrompt>) -> Option<&'static str> {
+    custom_prompt
+        .is_none_or(|custom| custom.text.is_empty())
+        .then(|| layers::CRITICAL_LAYER.trim())
+}
+
 fn packages_section() -> String {
     use crate::kernel::bootstrap::default_rlm_extra_import_labels;
     let mut lines = vec![format!(
         "Pre-installed Python packages: {}.",
         default_rlm_extra_import_labels().join(", ")
     )];
-    lines.push(
-        "Install additional packages with `uv pip install <pkg>` (this is a uv-managed venv with no pip module)."
-            .to_string(),
-    );
+    lines
+        .push("Install more with `uv pip install <pkg>` (the venv has no pip module).".to_string());
     lines.join("\n")
 }
 
@@ -377,11 +392,6 @@ fn context_files_section(context_files: &[(String, String)]) -> String {
 
 fn environment_section(options: &BuildSystemPromptOptions) -> String {
     let cwd = options.cwd.replace('\\', "/");
-    let messages_path = options
-        .messages_path
-        .clone()
-        .unwrap_or_else(|| "not persisted".to_string())
-        .replace('\\', "/");
     // A chat-memory session keeps volatile content out of the cached prompt
     // (the date changes daily); `date(id)` gives the time of any message.
     let mut lines = Vec::new();
@@ -389,21 +399,13 @@ fn environment_section(options: &BuildSystemPromptOptions) -> String {
         lines.push(format!("Current date: {}", today()));
     }
     lines.push(format!("Working directory: {cwd}"));
-    // A chat-memory session names the chat log, the same in every session
-    // (a per-session path would break the cached prefix across sessions).
-    if options.memory.is_some() {
-        lines.push(format!("Chat log: {messages_path}"));
-    } else {
-        lines.push(format!("Conversation log: {messages_path}"));
-    }
     match options.vision_capable {
         Some(true) => lines.push(
-            "Image input: this model can see images; `attach_image` loads them into context."
+            "Images: `read` shows a PNG or JPEG; `await attach_image.run(path)` in `ipython` resizes a larger one. \
+             An image stays in context for the rest of the session: measure layout in code, and look at one screenshot per check, clipped to the part it checks."
                 .to_string(),
         ),
-        Some(false) => lines.push(
-            "Image input: this model cannot see images; `attach_image` errors for it.".to_string(),
-        ),
+        Some(false) => lines.push("This model cannot see images.".to_string()),
         None => {}
     }
     lines.join("\n")
@@ -417,7 +419,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
     )];
     if options.daemonless {
         lines.push(
-            "Subagents and completion notifications are unavailable in this session (no daemon): rlm.spawn will error, and nothing wakes you after your turn ends, so await background commands before ending it. Plan to do all work yourself."
+            "Subagents are unavailable in this session (no child runtime): rlm.spawn will error. Plan to do all work yourself."
                 .to_string(),
         );
     }
@@ -437,7 +439,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
         ));
         if has_ipython {
             lines.push(
-                "When a task calls for an answer, reply explicitly with `await agent_message.send(message, receiver_role=\"parent\")`. Not every message or task needs a reply; continue cleanup after sending and go idle normally.".to_string(),
+                "When a task calls for an answer, send it with `await agent_message.send(message, receiver_role=\"parent\")`: that message is your hand-back; not every message or task needs a reply. Keep going until the task is closed, every acceptance criterion met; if truly blocked, the reply names what you tried and the exact blocker. A plan, a promise of further work, or a question tools can answer never ends your turn.".to_string(),
             );
             lines.push(
                 "For long-running work, report brief progress with `await rlm.progress_note('...')` (at most 512 characters, throttled to about one note per 10 seconds); the parent sees notes without needing a reply.".to_string(),
@@ -541,7 +543,6 @@ mod tests {
     fn base_options() -> BuildSystemPromptOptions<'static> {
         BuildSystemPromptOptions {
             cwd: "/w".to_string(),
-            messages_path: Some("/log.jsonl".to_string()),
             skills: vec![
                 skill("compact", Some("compact")),
                 skill("refine", Some("refine")),
@@ -577,18 +578,18 @@ mod tests {
         // Dynamic values live strictly after the prefix.
         let tail = &prompt[breakdown.cached_prefix_len..];
         assert!(tail.contains("Working directory: /w"));
-        assert!(tail.contains("Conversation log: /log.jsonl"));
-        assert!(tail.contains("<available_skills>"));
+        assert!(tail.contains("<skills>\n"));
         assert!(tail.contains("Recursive agent depth: 0 (root)"));
         assert!(tail.contains("Pre-installed Python packages: requests, httpx,"));
     }
 
     /// A chat-memory session's prompt (`OptChat` §3.3, §5): the memory layer
     /// first, then the harness layers rendered for chat memory, then the
-    /// dynamic tail, and the user's instructions files last; no date, so
-    /// every call of the session sends the same bytes.
+    /// install-stable tail closed by the `<critical>` block, and the user's
+    /// instructions files and the environment last; no date, so every call
+    /// of the session sends the same bytes.
     #[test]
-    fn chat_memory_prompt_leads_with_memory_and_ends_with_the_user_instructions() {
+    fn chat_memory_prompt_leads_with_memory_and_ends_with_the_project() {
         let mut options = base_options();
         options.memory = Some(crate::memory::MemoryRole::Root);
         options.context_files = vec![("AGENTS.md".to_string(), "Rule one.".to_string())];
@@ -611,15 +612,19 @@ mod tests {
                 "opinionated",
                 "packages",
                 "skills-inventory",
-                "environment",
                 "session-role",
                 "appended-prompt",
+                "critical",
                 "project-context",
+                "environment",
             ]
         );
         let prompt = &breakdown.assembled;
         assert!(prompt.starts_with(&crate::memory::memory_system_layer()));
-        assert!(prompt.ends_with("## AGENTS.md\n\nRule one."));
+        assert!(prompt.ends_with(&format!(
+            "{}\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n## AGENTS.md\n\nRule one.\n\nWorking directory: /w",
+            layers::CRITICAL_LAYER.trim()
+        )));
         assert_eq!(
             &prompt[..breakdown.cached_prefix_len],
             format!(
@@ -636,7 +641,6 @@ mod tests {
     fn dynamic_tail_isolates_the_cached_prefix() {
         let mut other = base_options();
         other.cwd = "/somewhere/else".to_string();
-        other.messages_path = None;
         other.rlm_depth = Some(2);
         other.rlm_parent_agent = Some("the lead");
         other.generic_mcp_servers = vec!["slack".to_string()];
@@ -672,9 +676,10 @@ mod tests {
         assert!(prompt.contains("## AGENTS.md\n\nRule one."));
         assert!(prompt.contains("Working directory: /w"));
         assert!(prompt.contains("Current date: "));
-        // The layered defaults are gone.
+        // The layered defaults are gone, the closing block with them.
         assert!(!prompt.contains("# eukhe harness"));
         assert!(!prompt.contains("Tier-2 guidance."));
+        assert!(!prompt.contains("<critical>"));
     }
 
     /// The user prompt segments name their origin: the file path, or the
@@ -762,8 +767,8 @@ mod tests {
     }
 
     #[test]
-    fn daemonless_sessions_are_told_subagents_and_wake_ups_are_unavailable() {
-        let notice = "Subagents and completion notifications are unavailable in this session";
+    fn daemonless_sessions_are_told_subagents_are_unavailable() {
+        let notice = "Subagents are unavailable in this session";
         let breakdown = system_prompt_breakdown(&base_options());
         assert!(!breakdown.assembled.contains(notice));
         let mut options = base_options();
@@ -771,5 +776,25 @@ mod tests {
         let breakdown = system_prompt_breakdown(&options);
         let tail = &breakdown.assembled[breakdown.cached_prefix_len..];
         assert!(tail.contains(notice));
+    }
+
+    /// The persistence rules close the install-stable part of a layered
+    /// prompt: after the user's appended prompt, before the project's
+    /// instructions and the environment.
+    #[test]
+    fn the_critical_block_closes_the_install_stable_part() {
+        let mut options = base_options();
+        options.append_system_prompt = vec![SourcedPrompt {
+            origin: PromptOrigin::Flag("--append-system-prompt"),
+            text: "Appended.".to_string(),
+        }];
+        let breakdown = system_prompt_breakdown(&options);
+        let critical = layers::CRITICAL_LAYER.trim();
+        assert!(critical.starts_with("<critical>") && critical.ends_with("</critical>"));
+        let names: Vec<&str> = breakdown.segments.iter().map(|s| s.name).collect();
+        assert_eq!(names[names.len() - 2..], [CLOSING_SEGMENT, "environment"]);
+        assert!(breakdown
+            .assembled
+            .contains(&format!("Appended.\n\n{critical}\n\n")));
     }
 }

@@ -18,7 +18,7 @@
 //!
 //! A move or fork takes the session back to an earlier point of its
 //! history: it stops every running job that the session state tree at that
-//! point does not hold (docs/runtime.md S2), and the response names them:
+//! point does not hold, and the response names them:
 //! `stoppedJobs` ended within the wait, `stoppingJobs` got the kill and
 //! had not ended yet.
 
@@ -50,7 +50,7 @@ use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::session_navigation::PreparedReplacement;
 use crate::worker::durable_host::bridge::{QueuedInput, QueuedMode};
 use crate::worker::{HostedSession, SessionSlot, Worker};
-use summary::{SummaryOutcome, SummaryRequest};
+use summary::{SummaryError, SummaryOutcome, SummaryRequest};
 use tree::{custom_entry_text, is_custom_entry, user_entry_text, SessionTree};
 
 /// The tree surface the dispatch table reaches directly: the getters, the
@@ -428,7 +428,7 @@ impl Worker {
         let request = NavigateRequest::parse(payload);
         match self.navigate(&hosted, &request, &BACKGROUND_CONTEXT).await {
             Ok(data) => response_success(None, COMMAND, Some(data)),
-            Err(error) => response_failure(None, COMMAND, &error, None),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
 
@@ -437,16 +437,15 @@ impl Worker {
         hosted: &HostedSession,
         request: &NavigateRequest,
         cx: &Context,
-    ) -> Result<Value, String> {
-        let text = text_of;
+    ) -> Result<Value, NavigateError> {
         let harness = hosted.harness();
-        let main = hosted.main().map_err(text)?;
-        let tree = SessionTree::load(harness, main.id(), cx)
-            .await
-            .map_err(text)?;
+        let main = hosted.main()?;
+        let tree = SessionTree::load(harness, main.id(), cx).await?;
         let target_id = request.target_id.as_str();
         let Some(target) = parse_entry_id(target_id).and_then(|id| tree.entry(id)) else {
-            return Err(format!("Entry {target_id} not found"));
+            return Err(NavigateError::EntryNotFound {
+                target_id: target_id.to_owned(),
+            });
         };
         let target = target.record.clone();
         // No-op when already at the target.
@@ -455,22 +454,18 @@ impl Worker {
         }
         let (point, editor_text) = if let Some(user_text) = user_entry_text(&target) {
             (
-                MovePoint::before(harness, &target, cx)
-                    .await
-                    .map_err(text)?,
+                MovePoint::before(harness, &target, cx).await?,
                 Some(user_text),
             )
         } else if is_custom_entry(&target) {
             (
-                MovePoint::before(harness, &target, cx)
-                    .await
-                    .map_err(text)?,
+                MovePoint::before(harness, &target, cx).await?,
                 custom_entry_text(&target),
             )
         } else {
             (MovePoint::at(&target), None)
         };
-        let withdrawn = self.interrupt_main(&main, cx).await.map_err(text)?;
+        let withdrawn = self.interrupt_main(&main, cx).await?;
 
         // The abandoned-branch summary (TS `generateBranchSummary` over
         // `collectEntriesForBranchSummary`).
@@ -509,32 +504,28 @@ impl Worker {
                         if let Some(notice) = summarized.notice {
                             show_auxiliary_notice(&main, notice, cx).await;
                         }
-                        resubmit(&main, withdrawn, cx).await.map_err(text)?;
+                        resubmit(&main, withdrawn, cx).await?;
                         return Ok(json!({ "cancelled": true, "aborted": true }));
                     }
                     SummaryOutcome::Failed(error) => {
                         if let Some(notice) = summarized.notice {
                             show_auxiliary_notice(&main, notice, cx).await;
                         }
-                        resubmit(&main, withdrawn, cx).await.map_err(text)?;
-                        return Err(error);
+                        resubmit(&main, withdrawn, cx).await?;
+                        return Err(error.into());
                     }
                 }
             }
         }
 
-        let moved = move_main(hosted, &tree, main.id(), point, cx)
-            .await
-            .map_err(text)?;
+        let moved = move_main(hosted, &tree, main.id(), point, cx).await?;
         // A tree move is no replacement: the session's kernel follows the
         // main conversation, warm (TS `navigateTree` keeps it).
         transfer_kernel(hosted.deps(), main.id(), moved.id()).await;
         let orphans = stop_orphan_jobs(hosted, point).await;
         let summary_entry = match branch_summary {
             Some(branch_summary) => Some(
-                summary::write_summary(&moved, point.summary_from_id(), branch_summary, cx)
-                    .await
-                    .map_err(text)?,
+                summary::write_summary(&moved, point.summary_from_id(), branch_summary, cx).await?,
             ),
             None => None,
         };
@@ -544,12 +535,10 @@ impl Worker {
         // A created summary takes the label; a plain move labels the target.
         if let Some(label) = &request.label {
             let labeled = summary_entry.unwrap_or(target.id).to_string();
-            labels::set_label(harness, labeled, Some(label.clone()), cx)
-                .await
-                .map_err(text)?;
+            labels::set_label(harness, labeled, Some(label.clone()), cx).await?;
         }
-        self.show_conversation(hosted, &moved).await.map_err(text)?;
-        resubmit(&moved, withdrawn, cx).await.map_err(text)?;
+        self.show_conversation(hosted, &moved).await?;
+        resubmit(&moved, withdrawn, cx).await?;
         self.push_roster_delta();
         let mut data = json!({ "cancelled": false });
         if let Some(editor_text) = editor_text {
@@ -557,9 +546,7 @@ impl Worker {
         }
         name_orphans(&mut data, orphans);
         if let Some(summary_entry) = summary_entry {
-            let tree = SessionTree::load(harness, moved.id(), cx)
-                .await
-                .map_err(text)?;
+            let tree = SessionTree::load(harness, moved.id(), cx).await?;
             if let Some(entry) = tree.entry_json(summary_entry) {
                 data["summaryEntry"] = entry;
             }
@@ -592,7 +579,7 @@ impl Worker {
         let cx = &BACKGROUND_CONTEXT;
         let (point, selected_text) = match fork_point(&hosted, payload, cx).await {
             Ok(resolved) => resolved,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         let mut orphans = Orphans::default();
         let mut response = match hosted.storage_dir() {
@@ -613,7 +600,7 @@ impl Worker {
                     orphans = stop_orphan_jobs(&hosted, point).await;
                     response_success(None, COMMAND, Some(json!({ "cancelled": false })))
                 }
-                Err(error) => response_failure(None, COMMAND, &error, None),
+                Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
             },
         };
         if let (true, Some(data)) = (response.success, response.data.as_mut()) {
@@ -640,10 +627,10 @@ impl Worker {
     ) -> Result<PreparedReplacement, DaemonResponse> {
         const COMMAND: &str = "fork";
         let fail = |error: String| response_failure(None, COMMAND, &error, None);
-        let main = hosted.main().map_err(|error| fail(text_of(error)))?;
+        let main = hosted.main().map_err(|error| fail(error.to_string()))?;
         self.interrupt_main(&main, cx)
             .await
-            .map_err(|error| fail(text_of(error)))?;
+            .map_err(|error| fail(error.to_string()))?;
         let sessions_dir = storage_dir.parent().ok_or_else(|| {
             fail(format!(
                 "Session storage {} has no parent",
@@ -672,14 +659,12 @@ impl Worker {
         hosted: &HostedSession,
         point: MovePoint,
         cx: &Context,
-    ) -> Result<(), String> {
-        let main = hosted.main().map_err(text_of)?;
-        self.interrupt_main(&main, cx).await.map_err(text_of)?;
-        let forked = fork_main(hosted, point, cx).await.map_err(text_of)?;
+    ) -> SessionResult<()> {
+        let main = hosted.main()?;
+        self.interrupt_main(&main, cx).await?;
+        let forked = fork_main(hosted, point, cx).await?;
         release_settled_kernel(hosted.deps(), main.id()).await;
-        self.show_conversation(hosted, &forked)
-            .await
-            .map_err(text_of)?;
+        self.show_conversation(hosted, &forked).await?;
         self.push_roster_delta();
         Ok(())
     }
@@ -692,33 +677,45 @@ async fn fork_point(
     hosted: &HostedSession,
     payload: &Value,
     cx: &Context,
-) -> Result<(MovePoint, Option<String>), String> {
-    const INVALID: &str = "Invalid entry ID for forking";
+) -> Result<(MovePoint, Option<String>), ForkPointError> {
     let entry_id = payload
         .get("entryId")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let at = payload.get("position").and_then(Value::as_str) == Some("at");
     let harness = hosted.harness();
-    let main = hosted.main().map_err(text_of)?;
-    let tree = SessionTree::load(harness, main.id(), cx)
-        .await
-        .map_err(text_of)?;
+    let main = hosted.main()?;
+    let tree = SessionTree::load(harness, main.id(), cx).await?;
     let Some(target) = parse_entry_id(entry_id).and_then(|id| tree.entry(id)) else {
-        return Err(INVALID.to_owned());
+        return Err(ForkPointError::InvalidEntry);
     };
     if at {
         return Ok((MovePoint::at(&target.record), None));
     }
-    let text = user_entry_text(&target.record).ok_or_else(|| INVALID.to_owned())?;
-    let point = MovePoint::before(harness, &target.record, cx)
-        .await
-        .map_err(text_of)?;
+    let text = user_entry_text(&target.record).ok_or(ForkPointError::InvalidEntry)?;
+    let point = MovePoint::before(harness, &target.record, cx).await?;
     Ok((point, Some(text)))
 }
 
-// A `map_err` adapter: the error is consumed by the conversion.
-#[allow(clippy::needless_pass_by_value)]
-fn text_of(error: SessionError) -> String {
-    error.to_string()
+/// Why a `navigate_tree` did not move the leaf.
+#[derive(Debug, thiserror::Error)]
+enum NavigateError {
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    #[error("Entry {target_id} not found")]
+    EntryNotFound { target_id: String },
+    /// The abandoned-branch summary failed; the move did not happen.
+    #[error(transparent)]
+    Summary(#[from] SummaryError),
+}
+
+/// Why a `fork` payload names no fork target.
+#[derive(Debug, thiserror::Error)]
+enum ForkPointError {
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    /// A missing entry, or a `before` fork of a non-user entry (the TS
+    /// invalid-entry error).
+    #[error("Invalid entry ID for forking")]
+    InvalidEntry,
 }

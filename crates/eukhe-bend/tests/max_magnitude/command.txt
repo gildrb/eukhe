@@ -1,0 +1,13 @@
+# slash command paths: the example table (memory with view and model, goal
+# with text), then each question; a selected row at the largest place the
+# wire carries ({MAX}, past the table: no row), and a table whose name is
+# 14 digit chars; a 15-digit length, count or place is refused
+call 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT0,12,memory model
+call 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT1,7,memory 
+call 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT2,3,mem1,{MAX},0,
+call 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT2,7,memory 1,{MAX},1,
+call 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT2,12,memory model1,99999999999998,1,
+call 1,1,14,999999999999991,1,MTTT0,29,99999999999999 99999999999999
+refuse 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT0,{LONG},memory
+refuse {LONG},
+refuse 4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT2,3,mem1,{LONG},0,

@@ -5,11 +5,15 @@ import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
+import ./ffi_arg_repair.bend as ffi_arg_repair
 import ./ffi_auth_flight.bend as ffi_auth_flight
+import ./ffi_auth_read.bend as ffi_auth_read
+import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_aws_text.bend as ffi_aws_text
 import ./ffi_bound.bend as ffi_bound
 import ./ffi_cache_marks.bend as ffi_cache_marks
+import ./ffi_call_lift.bend as ffi_call_lift
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
@@ -18,7 +22,8 @@ import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_config.bend as ffi_config
-import ./ffi_cron_serve.bend as ffi_cron_serve
+import ./ffi_cron.bend as ffi_cron
+import ./ffi_cron_file.bend as ffi_cron_file
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_dash.bend as ffi_dash
@@ -30,6 +35,7 @@ import ./ffi_doc_commit.bend as ffi_doc_commit
 import ./ffi_doc_glob.bend as ffi_doc_glob
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_plan.bend as ffi_doc_plan
+import ./ffi_doc_publish.bend as ffi_doc_publish
 import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_search.bend as ffi_doc_search
 import ./ffi_doc_seen.bend as ffi_doc_seen
@@ -39,6 +45,7 @@ import ./ffi_effort.bend as ffi_effort
 import ./ffi_err_text.bend as ffi_err_text
 import ./ffi_error_body.bend as ffi_error_body
 import ./ffi_facts.bend as ffi_facts
+import ./ffi_family.bend as ffi_family
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
@@ -47,27 +54,34 @@ import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_glob.bend as ffi_glob
 import ./ffi_goal_text.bend as ffi_goal_text
+import ./ffi_headless_exit.bend as ffi_headless_exit
+import ./ffi_headless_settle.bend as ffi_headless_settle
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
 import ./ffi_infer_threshold.bend as ffi_infer_threshold
 import ./ffi_job.bend as ffi_job
+import ./ffi_job_notice.bend as ffi_job_notice
 import ./ffi_job_rewind.bend as ffi_job_rewind
 import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
+import ./ffi_kin.bend as ffi_kin
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_model_name.bend as ffi_model_name
+import ./ffi_model_roles.bend as ffi_model_roles
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
 import ./ffi_package_source.bend as ffi_package_source
 import ./ffi_path_policy.bend as ffi_path_policy
+import ./ffi_privacy.bend as ffi_privacy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
+import ./ffi_rebase.bend as ffi_rebase
 import ./ffi_redirect_input.bend as ffi_redirect_input
 import ./ffi_refine_plan.bend as ffi_refine_plan
 import ./ffi_replace.bend as ffi_replace
@@ -75,6 +89,7 @@ import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_retry_note.bend as ffi_retry_note
 import ./ffi_revive.bend as ffi_revive
+import ./ffi_rlm_query.bend as ffi_rlm_query
 import ./ffi_run.bend as ffi_run
 import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
@@ -88,19 +103,24 @@ import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_slash_args.bend as ffi_slash_args
 import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
+import ./ffi_stop.bend as ffi_stop
 import ./ffi_stream_failure.bend as ffi_stream_failure
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_task_life.bend as ffi_task_life
 import ./ffi_theme.bend as ffi_theme
+import ./ffi_thread.bend as ffi_thread
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_run.bend as ffi_tiny_run
 import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tool_call.bend as ffi_tool_call
+import ./ffi_tool_result.bend as ffi_tool_result
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
@@ -227,12 +247,18 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tokens.ffi(input)
     case 80:
       ffi_job_rewind.ffi(input)
+    case 82:
+      ffi_cron.ffi(input)
     case 83:
       ffi_work.ffi(input)
+    case 85:
+      ffi_cron_file.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
       ffi_revive.ffi(input)
+    case 93:
+      ffi_auth_read.ffi(input)
     case 101:
       ffi_dash.ffi(input)
     case 102:
@@ -293,9 +319,43 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_ai_text.ffi(input)
     case 385:
       ffi_shape.ffi(input)
-    case 410:
-      ffi_cron_serve.ffi(input)
-    case 430:
+    case 421:
+      ffi_tool_call.ffi(input)
+    case 431:
+      ffi_family.ffi(input)
+    case 432:
+      ffi_task_life.ffi(input)
+    case 433:
+      ffi_rlm_query.ffi(input)
+    case 434:
+      ffi_arg_repair.ffi(input)
+    case 435:
+      ffi_call_lift.ffi(input)
+    case 436:
+      ffi_rebase.ffi(input)
+    case 437:
+      ffi_wait_any.ffi(input)
+    case 438:
+      ffi_headless_settle.ffi(input)
+    case 439:
+      ffi_headless_exit.ffi(input)
+    case 440:
+      ffi_stop.ffi(input)
+    case 441:
+      ffi_model_roles.ffi(input)
+    case 442:
+      ffi_kin.ffi(input)
+    case 443:
+      ffi_thread.ffi(input)
+    case 444:
+      ffi_doc_publish.ffi(input)
+    case 450:
+      ffi_job_notice.ffi(input)
+    case 451:
+      ffi_privacy.ffi(input)
+    case 452:
+      ffi_tool_result.ffi(input)
+    case 453:
       ffi_worker.ffi(input)
     case _:
       W.err("unknown entry")
@@ -326,10 +386,11 @@ type State is Type:
   AuthFlight{s: ffi_auth_flight.St}
   Dash{s: ffi_dash.St}
   TinyRun{s: ffi_tiny_run.St}
-  CronServe{s: ffi_cron_serve.St}
   WaitRace{s: ffi_wait_race.St}
   ToolCall{s: ffi_tool_call.St}
   Optchat{s: ffi_optchat.St}
+  Autoresearch{s: ffi_autoresearch.St}
+  Privacy{s: ffi_privacy.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -427,11 +488,6 @@ def open.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
     case (s, reply):
       (TinyRun{s}, reply)
 
-def open.cron_serve(r: ffi_cron_serve.St & String) -> State & String:
-  match r:
-    case (s, reply):
-      (CronServe{s}, reply)
-
 def open.wait_race(r: ffi_wait_race.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -446,6 +502,16 @@ def open.optchat(r: ffi_optchat.St & String) -> State & String:
   match r:
     case (s, reply):
       (Optchat{s}, reply)
+
+def open.autoresearch(r: ffi_autoresearch.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Autoresearch{s}, reply)
+
+def open.privacy(r: ffi_privacy.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Privacy{s}, reply)
 
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
@@ -487,14 +553,16 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.dash(ffi_dash.open(input))
     case 400:
       open.tiny_run(ffi_tiny_run.open(input))
-    case 410:
-      open.cron_serve(ffi_cron_serve.open(input))
     case 420:
       open.wait_race(ffi_wait_race.open(input))
     case 421:
       open.tool_call(ffi_tool_call.open(input))
     case 422:
       open.optchat(ffi_optchat.open(input))
+    case 430:
+      open.autoresearch(ffi_autoresearch.open(input))
+    case 451:
+      open.privacy(ffi_privacy.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -598,11 +666,6 @@ def step.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
     case (s, reply):
       (TinyRun{s}, reply)
 
-def step.cron_serve(r: ffi_cron_serve.St & String) -> State & String:
-  match r:
-    case (s, reply):
-      (CronServe{s}, reply)
-
 def step.wait_race(r: ffi_wait_race.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -617,6 +680,16 @@ def step.optchat(r: ffi_optchat.St & String) -> State & String:
   match r:
     case (s, reply):
       (Optchat{s}, reply)
+
+def step.autoresearch(r: ffi_autoresearch.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Autoresearch{s}, reply)
+
+def step.privacy(r: ffi_privacy.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Privacy{s}, reply)
 
 def step.go(state: State, input: String) -> State & String:
   match state:
@@ -658,14 +731,16 @@ def step.go(state: State, input: String) -> State & String:
       step.dash(ffi_dash.step(s, input))
     case TinyRun{s}:
       step.tiny_run(ffi_tiny_run.step(s, input))
-    case CronServe{s}:
-      step.cron_serve(ffi_cron_serve.step(s, input))
     case WaitRace{s}:
       step.wait_race(ffi_wait_race.step(s, input))
     case ToolCall{s}:
       step.tool_call(ffi_tool_call.step(s, input))
     case Optchat{s}:
       step.optchat(ffi_optchat.step(s, input))
+    case Autoresearch{s}:
+      step.autoresearch(ffi_autoresearch.step(s, input))
+    case Privacy{s}:
+      step.privacy(ffi_privacy.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -714,13 +789,15 @@ def close.go(state: State) -> Unit:
       Unit{}
     case TinyRun{s}:
       Unit{}
-    case CronServe{s}:
-      Unit{}
     case WaitRace{s}:
       Unit{}
     case ToolCall{s}:
       Unit{}
     case Optchat{s}:
+      Unit{}
+    case Autoresearch{s}:
+      Unit{}
+    case Privacy{s}:
       Unit{}
     case Unknown{}:
       Unit{}

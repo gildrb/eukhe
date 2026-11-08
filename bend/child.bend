@@ -1,5 +1,5 @@
 # child: the life of one subagent as its parent's durable task sees it
-# (docs/harness.md H5). The Rust code is the `eukhe.rlm.child` task
+# (LAWS.bend H5). The Rust code is the `eukhe.rlm.child` task
 # (crates/eukhe-core/src/durable/children/task.rs) and its watch verdict
 # (children/watch.rs).
 #
@@ -17,6 +17,11 @@
 #   withdrawal that loses the race to a placement leaves it placed). The
 #   task reads its submission's fate: placed ends it, withdrawn has it
 #   submit again under n + 1. A closing parent admits no submission.
+# - The parent may read the settled child's outcome itself (`rlm.collect`,
+#   `rlm.answer`): the report reached it, so the read withdraws the queued
+#   submission (one already placed stays placed) and the task ends without
+#   submitting again. A parent that already answered is never woken by a
+#   notice it read.
 # - An abort of the task (`Cut`) submits nothing: the report it owes (a
 #   delete owes a cancelled report) goes on under the same rule.
 #
@@ -208,11 +213,14 @@ def hush(hs: List<&2, Hush>, +cfg: Cfg, x: Next) -> Next:
 # The task
 # --------
 
-# a submission's fate in the parent's inbox
+# a submission's fate in the parent's inbox: queued, withdrawn, placed in
+# its transcript, or read (the parent read the report itself: the
+# submission, if one was queued, was withdrawn for it)
 type Fate is Data:
   Queued{}
   Withdrawn{}
   Placed{}
+  Read{}
 
 # one submission of the report: its id (1, 2, ...) and fate
 type Sub is Data:
@@ -301,6 +309,8 @@ def Fate.act(a: Act, +i: Nat, f: Fate) -> Fate:
       Withdrawn{}
     case Placed{}:
       Placed{}
+    case Read{}:
+      Read{}
 
 def act(inbox: List<&2, Sub>, +a: Act) -> List<&2, Sub>:
   match inbox:
@@ -332,7 +342,7 @@ def fate(inbox: List<&2, Sub>, +n: Nat) -> Maybe<&2, Fate>:
 # The one report rule, on the fate of submission n of report k: none yet,
 # submit it (a closing parent admits none: the task waits); queued, wait;
 # withdrawn, owe the report under n + 1 (the Rust report phase commits the
-# next id, and its next invocation submits it); placed, end.
+# next id, and its next invocation submits it); placed or read, end.
 def owe.new(open: Bool, k: Report, +n: Nat, inbox: List<&2, Sub>) -> St:
   match open:
     case True{}:
@@ -352,6 +362,56 @@ def owe(f: Maybe<&2, Fate>, k: Report, +n: Nat, open: Bool, inbox: List<&2, Sub>
           St{Owing{k, 1n+n}, None{}, open, inbox}
         case Placed{}:
           St{Ended{}, None{}, open, inbox}
+        case Read{}:
+          St{Ended{}, None{}, open, inbox}
+
+# The parent's read of the report
+# -------------------------------
+# The read reaches the report the task owes under n: its submission n,
+# queued or withdrawn, is read (the read withdraws a queued one); one
+# placed stays placed (the read lost the race to the placement); with no
+# submission n yet, a read one stands for it. A watched child has no
+# report yet (the parent reads only a settled child) and an ended task has
+# none left: the read changes nothing.
+
+def Fate.read(f: Fate) -> Fate:
+  match f:
+    case Queued{}:
+      Read{}
+    case Withdrawn{}:
+      Read{}
+    case Placed{}:
+      Placed{}
+    case Read{}:
+      Read{}
+
+def read.at(same: Bool, +n: Nat, s: Sub, rest: List<&2, Sub>) -> List<&2, Sub>:
+  match same:
+    case True{}:
+      match s:
+        case Sub{i, f}:
+          Sub{i, Fate.read(f)} <> rest
+    case False{}:
+      Sub{n, Read{}} <> s <> rest
+
+# the inbox after the parent read report n (the newest submission first)
+def read.sub(inbox: List<&2, Sub>, +n: Nat) -> List<&2, Sub>:
+  match inbox:
+    case Nil{}:
+      [Sub{n, Read{}}]
+    case s <> rest:
+      match s:
+        case Sub{+i, f}:
+          read.at(Nat.is_eq(i, n), n, Sub{i, f}, rest)
+
+def read(ph: Ph, +inbox: List<&2, Sub>) -> List<&2, Sub>:
+  match ph:
+    case Watching{w}:
+      inbox
+    case Owing{k, +n}:
+      read.sub(inbox, n)
+    case Ended{}:
+      inbox
 
 # The abort submits nothing: an owed report (a delete owes a cancelled
 # one) goes on to a new task in the report phase under the same ids,
@@ -409,7 +469,8 @@ def mark(cut: Maybe<&2, Bool>, del: Bool) -> Maybe<&2, Bool>:
       Some{Bool.or(d, del)}
 
 # the parent's events, and the task's next step (a poll that reads o in
-# the watch phase)
+# the watch phase); Collect: the parent read the settled child's outcome
+# itself (`rlm.collect`, `rlm.answer`)
 type Ev is Data:
   Poll{dt: Nat, o: Obs}
   Deliver{m: Nat}
@@ -418,10 +479,11 @@ type Ev is Data:
   Shut{}
   Reopen{}
   Cut{del: Bool}
+  Collect{}
 
 def step(+cfg: Cfg, s: St, e: Ev) -> St:
   match s:
-    case St{ph, cut, open, +inbox}:
+    case St{+ph, cut, open, +inbox}:
       match e:
         case Poll{dt, o}:
           task(cfg, ph, cut, open, inbox, dt, o)
@@ -437,6 +499,8 @@ def step(+cfg: Cfg, s: St, e: Ev) -> St:
           St{ph, cut, True{}, inbox}
         case Cut{del}:
           St{ph, mark(cut, del), open, inbox}
+        case Collect{}:
+          St{ph, cut, open, read(ph, inbox)}
 
 def run(evs: List<&2, Ev>, +cfg: Cfg, s: St) -> St:
   match evs:
@@ -456,6 +520,8 @@ def Fate.placed(f: Fate) -> Nat:
       0n
     case Placed{}:
       1n
+    case Read{}:
+      0n
 
 def Fate.live(f: Fate) -> Nat:
   match f:
@@ -464,6 +530,30 @@ def Fate.live(f: Fate) -> Nat:
     case Withdrawn{}:
       0n
     case Placed{}:
+      1n
+    case Read{}:
+      0n
+
+def Fate.queued(f: Fate) -> Nat:
+  match f:
+    case Queued{}:
+      1n
+    case Withdrawn{}:
+      0n
+    case Placed{}:
+      0n
+    case Read{}:
+      0n
+
+def Fate.read_n(f: Fate) -> Nat:
+  match f:
+    case Queued{}:
+      0n
+    case Withdrawn{}:
+      0n
+    case Placed{}:
+      0n
+    case Read{}:
       1n
 
 # the report's entries in the parent's transcript: its placed submissions
@@ -486,8 +576,40 @@ def live(inbox: List<&2, Sub>) -> Nat:
         case Sub{i, f}:
           Nat.add(Fate.live(f), live(rest))
 
+# the submissions still queued: each wakes the parent when its run places
+# it
+def queued(inbox: List<&2, Sub>) -> Nat:
+  match inbox:
+    case Nil{}:
+      0n
+    case s <> rest:
+      match s:
+        case Sub{i, f}:
+          Nat.add(Fate.queued(f), queued(rest))
+
+# the reads of the report by the parent
+def reads(inbox: List<&2, Sub>) -> Nat:
+  match inbox:
+    case Nil{}:
+      0n
+    case s <> rest:
+      match s:
+        case Sub{i, f}:
+          Nat.add(Fate.read_n(f), reads(rest))
+
 def St.placed(s: St) -> Nat:
   placed(St.inbox(s))
+
+def St.queued(s: St) -> Nat:
+  queued(St.inbox(s))
+
+def St.read(s: St) -> Nat:
+  reads(St.inbox(s))
+
+# the times the report reached the parent: placed in its transcript, or
+# read by the parent itself
+def St.reached(+s: St) -> Nat:
+  Nat.add(St.placed(s), St.read(s))
 
 def Ev.cut(e: Ev) -> Nat:
   match e:
@@ -504,6 +626,8 @@ def Ev.cut(e: Ev) -> Nat:
     case Reopen{}:
       0n
     case Cut{d}:
+      0n
+    case Collect{}:
       0n
 
 # the parent's withdrawals: aborts, closes, withdrawals of one input
@@ -597,9 +721,11 @@ def owe.next.fate(x: Fate, +n: Nat) -> Move:
       Resubmit{1n+n}
     case Placed{}:
       Delivered{}
+    case Read{}:
+      Delivered{}
 
 # none yet: submit it under n; queued: wait; withdrawn: owe it under
-# n + 1; placed: end
+# n + 1; placed or read: end
 def owe.next(f: Maybe<&2, Fate>, +n: Nat) -> Move:
   match f:
     case None{}:

@@ -10,10 +10,10 @@
     clippy::cast_precision_loss
 )]
 
-//! The kernel transport (docs/runtime.md S3) on the real runtime: a fake
-//! wrapper ([`SESSION_WRAPPER`], so the stub runs in a session of its own,
-//! like a process behind `docker exec` or `ssh`) runs the unchanged stub in
-//! a sandbox directory that maps to a different host directory. The stub
+//! The kernel transport on the real runtime: a fake wrapper
+//! ([`SESSION_WRAPPER`], so the stub runs in a session of its own, like a
+//! process behind `docker exec` or `ssh`) runs the unchanged stub in a
+//! sandbox directory that maps to a different host directory. The stub
 //! starts and serves cells there; an `fs.*` host request reaches the host
 //! handler with host paths and its reply's paths come back as the
 //! sandbox's; a path outside every mount is refused with the typed

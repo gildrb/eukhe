@@ -70,9 +70,8 @@ pub fn goal_update_dedupe_projection(state: &GoalState) -> GoalState {
     projected
 }
 
-/// Clamp counters and derive `active` from the status. Backfills
-/// `created_at` for goals persisted before the creation-based timer
-/// contract (operator ruling 2026-09-28): a goal without `created_at`
+/// Backfills `created_at` for goals persisted before the creation-based
+/// timer contract (operator ruling 2026-09-28): a goal without `created_at`
 /// adopts its `updated_at` as the creation time, so rows persisted
 /// before the contract read a sane age instead of no age. The empty
 /// state (no goal id, no objective) never fabricates a creation time.
@@ -84,14 +83,7 @@ pub fn normalize_goal_state(goal: GoalState) -> GoalState {
             .then_some(goal.updated_at)
             .flatten(),
     };
-    GoalState {
-        active: goal.status == GoalStatus::Active,
-        tokens_used: goal.tokens_used,
-        time_used_seconds: goal.time_used_seconds,
-        continuations_used: goal.continuations_used,
-        created_at,
-        ..goal
-    }
+    GoalState { created_at, ..goal }
 }
 
 /// Validate and normalize a goal objective: the compiled core's verdict
@@ -213,18 +205,13 @@ fn wire_terminal_provider_failure(message: &eukhe_types::ai::AssistantMessage) -
 }
 
 /// Whether a JSON value round-trips as a well-formed persisted goal state.
+#[must_use]
 pub fn is_persisted_goal_state(value: &serde_json::Value) -> bool {
     let Ok(record) =
         serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(value.clone())
     else {
         return false;
     };
-    if !record
-        .get("active")
-        .is_some_and(serde_json::Value::is_boolean)
-    {
-        return false;
-    }
     let status_ok = matches!(
         record.get("status").and_then(|value| value.as_str()),
         Some("idle" | "active" | "paused" | "budget_limited" | "complete" | "error")
@@ -321,7 +308,6 @@ mod tests {
 
     fn active_goal() -> GoalState {
         GoalState {
-            active: true,
             status: GoalStatus::Active,
             goal_id: Some("g1".to_string()),
             objective: Some("ship the feature".to_string()),
@@ -334,16 +320,6 @@ mod tests {
             last_reason: None,
             last_error: None,
         }
-    }
-
-    #[test]
-    fn normalize_derives_active_from_status() {
-        let mut goal = active_goal();
-        goal.status = GoalStatus::Paused;
-        goal.active = true;
-        let normalized = normalize_goal_state(goal);
-        assert!(!normalized.active);
-        assert_eq!(normalized.status, GoalStatus::Paused);
     }
 
     #[test]
@@ -377,11 +353,11 @@ mod tests {
         assert!(is_persisted_goal_state(&value));
         assert!(!is_persisted_goal_state(&serde_json::json!({})));
         assert!(!is_persisted_goal_state(&serde_json::json!({
-            "active": true, "status": "nonsense",
+            "status": "nonsense",
             "tokensUsed": 0, "timeUsedSeconds": 0, "continuationsUsed": 0
         })));
         assert!(!is_persisted_goal_state(&serde_json::json!({
-            "active": true, "status": "active", "tokensUsed": "many"
+            "status": "active", "tokensUsed": "many"
         })));
     }
 
@@ -528,7 +504,6 @@ mod tests {
         let active = goal_state_entry(&active_goal());
         let mut finished = active_goal();
         finished.status = GoalStatus::Error;
-        finished.active = false;
         let finished = goal_state_entry(&finished);
         let failure = error_turn_entry("invalid_request", Some(402), "402 Insufficient balance");
         let rate_limited =

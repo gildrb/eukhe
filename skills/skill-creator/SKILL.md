@@ -1,81 +1,38 @@
 ---
 name: skill-creator
-description: Create, validate, and install Eukhe skills - both markdown skills and Python-backed skills callable from the Python kernel. Use when the user asks to create a skill, turn a workflow, script, or prompt into a reusable skill, add a Python skill the agent can call, or asks how to write a SKILL.md and where skills live.
+description: Create, review, trim or install an eukhe skill (markdown, or Python-backed and callable from the kernel). Use when the user asks for a new skill, wants a workflow, script or prompt turned into a reusable skill, asks how to write a SKILL.md or where skills live, or asks whether something should be a skill, a tool or a subagent.
 ---
 
 # Skill Creator
 
-A skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown instructions). At startup Eukhe reads only each skill's name and description into the system prompt; the full file loads on demand when a task matches. Eukhe follows the [Agent Skills standard](https://agentskills.io/specification) and extends it with Python-backed skills.
+Skills teach how; tools do; subagents give a separate context. One agent with one context runs the loop and loads skills on demand.
 
-| Kind | What it is | When to use |
+## 1. Decide what to build
+
+| The need | Build | Why |
 |---|---|---|
-| markdown | `SKILL.md` plus optional scripts, references, and assets | Workflows, CLI recipes, domain knowledge, multi-step instructions |
-| python | A markdown skill that also ships a Python package installed into the agent's persistent Python kernel | Capabilities that are naturally one Python call: API wrappers, fetchers, converters, computations |
+| steps, rules, judgment calls, domain know-how | a markdown skill | costs only its description until a task needs it |
+| an action, live data, a fixed-shape result, a hard limit or precondition | a tool: a Python skill function (or an MCP server) that refuses with a message the model can act on | a limit in code holds; a limit in prose is a hope |
+| parallel work, context bloat, conflicting tools or instructions | a subagent spec, plus a skill that says when to spawn it | divide by context; only a compact result comes back |
 
-Before writing a Python-backed skill, read [references/python-skills.md](references/python-skills.md) for the package contract.
+Default to a skill. Facts every turn needs belong in the prompt, not a skill.
 
-## Creating a Skill
+## 2. Keep three levels apart
 
-1. **Pick the kind.** Default to markdown. Go Python only when the agent should *call* the capability (`await my_skill(...)`) instead of following instructions.
-2. **Pick the location.** Ask the user when it is not obvious from context:
-   - Project skill, shared via the repo: `.eukhe/skills/<name>/`
-   - Personal global skill: `~/.eukhe/skills/<name>/`
-   - Shipped with an npm package: a `skills/` directory in the package, or `pi.skills` paths in its `package.json`
-3. **Scaffold and write** the directory using the layout and frontmatter rules below.
-4. **Verify** the skill loads (see Verification).
+1. `name` + `description`: always in the prompt, every turn, for every skill. Make it a trigger: what it achieves and "Use when ..." with the words a request contains. At most 1024 bytes.
+2. `SKILL.md` body: loads when the task matches. Procedure and judgment only (numbered steps, rules, failure handling), about 2 KB.
+3. `references/`, `scripts/`, `assets/`: load only when the body links them. Signatures, field lists, long examples.
 
-On a name collision the first skill found wins. Precedence: explicit `--skill` paths and `skills` settings entries, then project, then global, then package, then built-in skills.
+## 3. Write
 
-## Layout
+1. Check the skill list: no two descriptions may trigger on the same request. Overlap: sharpen both, or extend the existing skill.
+2. Pick the location (ask when unclear): project `.eukhe/skills/<name>/`, personal `~/.eukhe/skills/<name>/`, or a package's `skills/`.
+3. Write `SKILL.md`; move anything the body only looks up into `references/`.
+4. Add `evals/cases.jsonl`: about 10 golden cases, one JSON object per line, `{"prompt": ..., "expect_skill": ..., "expect": ...}`. Include near misses whose `expect_skill` is another skill or `null`.
+5. Verify it loads (format reference). A description with an unquoted `: ` breaks the YAML and the skill does not load.
 
-```
-my-skill/
-├── SKILL.md              # Required: frontmatter + instructions
-├── scripts/              # Optional helper scripts the instructions reference
-├── references/           # Optional detailed docs, loaded only when needed
-└── assets/               # Optional templates and data files
-```
+## 4. Prune
 
-Everything except `SKILL.md` is freeform. Reference files with paths relative to the skill directory; the agent resolves them against the directory containing `SKILL.md`.
+Delete what the model does right without the skill, text the system prompt or another skill already carries, and steps no eval needs. A smaller skill triggers more precisely and costs less.
 
-## Frontmatter
-
-```markdown
----
-name: my-skill
-description: What this skill does and when to use it. Be specific.
----
-```
-
-| Field | Required | Rules |
-|---|---|---|
-| `name` | Yes | Max 64 chars. Lowercase a-z, 0-9, hyphens. No leading/trailing/consecutive hyphens. Must match the parent directory name. |
-| `description` | Yes | Max 1024 chars. A skill with a missing or empty description is **silently not loaded**. |
-| `disable-model-invocation` | No | `true` hides the skill from the system prompt; only explicit `/skill:<name>` invokes it. |
-| `license` | No | License name or reference to a bundled file. |
-| `compatibility` | No | Max 500 chars. Environment requirements. |
-| `metadata` | No | Arbitrary key-value mapping. |
-| `allowed-tools` | No | Space-delimited pre-approved tools (experimental). |
-
-Unknown fields are ignored. Name violations produce warnings but the skill still loads.
-
-### Write the description for routing
-
-The description is the only thing the model sees before deciding to load the skill. State what the skill does *and* the trigger conditions ("Use when ..."), naming the concrete tasks, tools, and phrases a request would contain.
-
-Good: `Extracts text and tables from PDF files, fills PDF forms, and merges PDFs. Use when working with PDF documents.`
-Poor: `Helps with PDFs.`
-
-### Write the body for progressive disclosure
-
-Keep `SKILL.md` short: the decision flow, the common commands, the contract. Push exhaustive detail (API schemas, full option lists, long examples) into `references/*.md` and link them, so they only enter context when actually needed. State setup steps (installs, env vars, credentials) explicitly and early.
-
-## Verification
-
-After writing the skill:
-
-1. Re-read the frontmatter and check every rule in the table above, especially that `name` matches the directory name and the description is non-empty.
-2. In an interactive session, `/reload` picks up new skills without a restart; other sessions pick them up on start. Loading problems (bad name, missing description, name collisions) surface as warnings — ask the user to check, or check diagnostics yourself if you can.
-3. A loaded skill is also invocable as `/skill:<name>`, which the user can try directly.
-
-For Python-backed skills, also run the checks in [references/python-skills.md](references/python-skills.md).
+Format, frontmatter and checks: [references/format.md](references/format.md). Python-backed skills: [references/python-skills.md](references/python-skills.md).

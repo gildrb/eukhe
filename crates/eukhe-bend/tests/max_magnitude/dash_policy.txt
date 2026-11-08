@@ -1,0 +1,5 @@
+# a session command, a catalog one, a refused one
+call 9,get_state
+call 9,cron_list
+call 6,create
+refuse {LONG},get_state

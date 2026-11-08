@@ -1,5 +1,5 @@
 # tui_color: the colors that the terminal UI computes from a theme;
-# laws in laws/tui_color.bend (T3), docs/interface.md "Terminal colors".
+# laws in laws/tui_color.bend (T3).
 # This model is the code that runs: the entry bend/ffi_tui_color.bend
 # serves the ramp, the band and the roles to crates/eukhe-tui (theme.rs,
 # status_line.rs), which paints them.

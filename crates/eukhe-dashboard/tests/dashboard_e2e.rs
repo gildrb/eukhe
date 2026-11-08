@@ -1,7 +1,7 @@
 //! The dashboard end to end against a scripted daemon socket: the server
 //! answers the app's files and its WebSocket only to loopback (or allowed)
 //! hosts and to its own origin (or the public origin a forwarder such as
-//! poros declares); a tab's socket pairs with the current token (else it
+//! porthmeus declares); a tab's socket pairs with the current token (else it
 //! hears `unpaired` and nothing runs), greets with `hello`, opens
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
@@ -611,12 +611,12 @@ async fn the_socket_and_files_answer_only_their_own_origin_and_hosts() {
     assert_eq!(bridges.load(Ordering::SeqCst), 2);
 }
 
-/// What poros sends: `Host` rewritten to the local address, the browser's
+/// What porthmeus sends: `Host` rewritten to the local address, the browser's
 /// `Origin` (the public HTTPS authority), and that authority in
 /// `X-Forwarded-Host`. The page behind it connects with no `--allow-host`;
 /// another site's page behind it does not.
 #[tokio::test]
-async fn a_socket_behind_poros_answers_only_the_declared_public_origin() {
+async fn a_socket_behind_porthmeus_answers_only_the_declared_public_origin() {
     let dir = tempfile::tempdir().expect("tempdir");
     let bridges = Arc::new(AtomicUsize::new(0));
     let port = serve(config(dir.path(), Vec::new()), Down(Arc::clone(&bridges))).await;

@@ -1,0 +1,22 @@
+# run: the blocks (id, state, length), next id, width, then the events
+# (0 Open, 1 Grow id n, 2 Fin id, 3 Flush, 4 Resize w): every id, length,
+# width and growth at its largest, growths that add up past 2^48-1 (each
+# stops at 2^32-1; a length already past it stays), an Open at the largest
+# next id
+call 0,2,{MAX},0,0,99999999999998,1,{MAX},{MAX},{MAX},7,0,1,{MAX},{MAX},1,{MAX},{MAX},1,{MAX},{MAX},2,{MAX},3,4,{MAX},
+call 0,2,{MAX},0,{MAX},99999999999998,0,4294967295,{MAX},{MAX},3,1,99999999999998,{MAX},1,{MAX},{MAX},1,{MAX},{MAX},
+call 0,1,{MAX},0,0,{MAX},{MAX},4,0,2,{MAX},3,4,{MAX},
+# pace: minimum, lag, received, shown, then the characters that arrive
+call 1,{MAX},{MAX},{MAX},{MAX},0,
+call 1,{MAX},{MAX},0,0,{MAX},
+call 1,0,0,{MAX},0,0,
+call 1,{MAX},0,{MAX},0,{MAX},
+# stack: the heights as Rust writes them (each cut at the rows left above
+# it, so they add up to at most the rows), the start row 0, the rows
+call 2,3,{MAX},0,0,0,{MAX},
+call 2,3,5,99999999999994,0,0,{MAX},
+# paint: the checks run so far; a fourth is refused
+call 3,3,FFF
+call 3,0,
+refuse 3,4,FFFT
+refuse 1,{LONG},0,0,0,0,

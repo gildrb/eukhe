@@ -382,9 +382,9 @@ fn entry_bears_message(entry: &SessionEntry) -> bool {
 fn compaction_summary_message(entry: &SessionEntry, retained_count: usize) -> Value {
     let timestamp = crate::util::iso_to_unix_ms(&entry.timestamp).unwrap_or(0);
     // TS `createCompactionSummaryMessage` key order: role, summary,
-    // tokensBefore, retainedMessageCount, customInstructions?,
-    // harnessDigest?, timestamp. The JSON map preserves insertion order,
-    // so the optional keys insert before `timestamp`.
+    // tokensBefore, retainedMessageCount, customInstructions?, timestamp.
+    // The JSON map preserves insertion order, so the optional key inserts
+    // before `timestamp`.
     let mut message = json!({
         "role": "compactionSummary",
         "summary": entry.fields.get("summary").cloned().unwrap_or_default(),
@@ -393,12 +393,6 @@ fn compaction_summary_message(entry: &SessionEntry, retained_count: usize) -> Va
     });
     if let Some(custom_instructions) = entry.fields.get("customInstructions") {
         message["customInstructions"] = custom_instructions.clone();
-    }
-    if let Some(harness_digest) = entry.fields.get("harnessDigest") {
-        message["harnessDigest"] = harness_digest.clone();
-        if let Some(harness_state_fingerprint) = entry.fields.get("harnessStateFingerprint") {
-            message["harnessStateFingerprint"] = harness_state_fingerprint.clone();
-        }
     }
     message["timestamp"] = json!(timestamp);
     message

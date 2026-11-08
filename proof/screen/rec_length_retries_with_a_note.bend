@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/recovery.bend as RnRecovery
-import ../../laws/screen.bend as Screen
+import ../../laws/screen/interface.bend as Screen
 
 # The one-step laws
 # -----------------

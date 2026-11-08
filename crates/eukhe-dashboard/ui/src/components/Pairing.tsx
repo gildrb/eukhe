@@ -32,7 +32,7 @@ export function Pairing() {
         <h1 {...stylex.props(ui.title)}>Pairing needed</h1>
         <p {...stylex.props(ui.secondary)}>
           Open the link that <code {...stylex.props(ui.mono)}>eukhe dashboard</code> prints on the
-          computer that runs it. Behind a forwarder (poros, tailscale serve), add its{" "}
+          computer that runs it. Behind a forwarder (porthmeus, tailscale serve), add its{" "}
           <code {...stylex.props(ui.mono)}>#token=…</code> part to the forwarder's link. Or paste
           the link here.
         </p>

@@ -1,6 +1,6 @@
 //! The steps of a forced tool call (`bend/infer_force.bend`, entry
-//! `bend/ffi_infer_force.bend`; `laws/infer_force.bend`, docs/inference.md
-//! S6.2): the native flag of each request, and what follows each reply.
+//! `bend/ffi_infer_force.bend`; `laws/infer_force.bend`): the native flag
+//! of each request, and what follows each reply.
 //! The caller counts the requests it made (from 0); each function encodes
 //! the request, calls [`Entry::InferForce`] and decodes the decision.
 

@@ -1,5 +1,5 @@
 # revive: the model of the busy evidence of a long run and of the boot
-# revival's vetoes (docs/daemon.md D1). The busy refresh is the worker's
+# revival's vetoes. The busy refresh is the worker's
 # (crates/eukhe-daemon/src/worker.rs, every `timeouts::BUSY_REFRESH_MS`);
 # the veto runs compiled as the Rust rule: `revival_gate::revival_veto`
 # gathers the facts and calls `veto` through bend/ffi_revive.bend.

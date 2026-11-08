@@ -4,9 +4,9 @@ import Base
 import ../../bend/facts.bend as Fx
 import ../../bend/ffi_facts.bend as FFx
 import ../../bend/wire.bend as Wr
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 import ./base.bend as LA
 
-def Facts.core_facts_aux(c, d, a, top, h):
+def FactsBudgets.core_facts_aux(c, d, a, top, h):
   %LA.pc.f_req(FFx.Aux{c, d, a, top}, "", h) : {FFx.ffi.go(_) == Wr.put_nat(Fx.aux(c, d, a, top), "") : String}
   {==}

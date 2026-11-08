@@ -4,11 +4,14 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::bound::StreamError;
+use eukhe_bend::wire::NAT_MAX;
 use futures::future::FutureExt;
 use tokio::time::{Duration, Instant};
 
 use super::{
-    bound_output, sanitize_output, BoundedOutput, OutputBuffer, OutputLimits, Progress, Truncation,
+    bound_output, sanitize_output, BoundedOutput, OutputBuffer, OutputLimits, Progress, PushError,
+    Truncation,
 };
 use crate::env::ShellOutputSkip;
 use crate::harness::types::{OutputRetain, ToolOutputChunk};
@@ -242,7 +245,7 @@ fn drops_a_byte_order_mark_only_at_the_start_of_the_output() {
     push_text(&mut buffer, "b");
     // A U+FEFF after a string chunk is text.
     push_bytes(&mut buffer, &[0xef, 0xbb, 0xbf, 0x63]);
-    buffer.end();
+    buffer.end().expect("within the bounder's count");
     assert_eq!(buffer.snapshot().text, "ab\u{feff}c");
 }
 
@@ -253,7 +256,7 @@ fn flushes_an_incomplete_character_before_a_string_chunk_and_at_the_end() {
     push_bytes(&mut buffer, &euro[..1]);
     push_text(&mut buffer, "x");
     push_bytes(&mut buffer, &euro[..2]);
-    buffer.end();
+    buffer.end().expect("within the bounder's count");
     assert_eq!(buffer.snapshot().text, "\u{fffd}x\u{fffd}");
 }
 
@@ -590,8 +593,8 @@ fn check_seed(seed: u32) {
         }
     }
     flush(&mut next, &mut pending, &mut full, &mut skipping);
-    full.end();
-    skipping.end();
+    full.end().expect("within the bounder's count");
+    skipping.end().expect("within the bounder's count");
     assert_eq!(skipping.snapshot(), full.snapshot(), "seed {seed}");
 }
 
@@ -655,4 +658,26 @@ fn refuses_skips_for_head_retention() {
         .push(ToolOutputChunk::Text("x\ny\nz\n"), Some(&skip))
         .expect_err("head retention refuses skips");
     assert!(error.to_string().contains("tail retention"));
+}
+
+/// The bounder counts the whole output in the compiled core, which stops
+/// the process past 2^48 - 1: output past `NAT_MAX` bytes is refused
+/// before the core is asked, and the buffer keeps what it held.
+#[test]
+fn refuses_output_past_what_the_bounder_counts() {
+    let mut buffer = OutputBuffer::new(Truncation::On(tail(2, 10)));
+    let skip = ShellOutputSkip {
+        bytes: NAT_MAX - 2,
+        newlines: 0,
+        ends_with_newline: true,
+    };
+    buffer
+        .push(ToolOutputChunk::Text("a\n"), Some(&skip))
+        .expect("NAT_MAX bytes in all");
+    let error = buffer
+        .push(ToolOutputChunk::Text("b\n"), None)
+        .expect_err("one byte past NAT_MAX");
+    assert_eq!(error, PushError::TooLarge(StreamError::TooLarge));
+    let max = usize::try_from(NAT_MAX).expect("a 64-bit usize");
+    assert_eq!(buffer.snapshot(), bounded("a\n", max - 2, 0));
 }

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/aux_fallback.bend as Af
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/model.bend as AuxFallback
 import ../base/bool.bend as LBool
 import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/logic.bend as LLogicLogic

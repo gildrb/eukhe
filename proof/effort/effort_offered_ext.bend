@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/depth.bend as Effort
 import ./base.bend as LA
 
 def pe.not_t(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:

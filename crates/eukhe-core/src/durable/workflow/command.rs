@@ -2,9 +2,16 @@
 
 use eukhe_types::workflow::WorkflowSize;
 
-/// The usage line of `/dynamic-workflow`.
-pub(crate) const DYNAMIC_WORKFLOW_USAGE: &str =
-    "Usage: /dynamic-workflow [--size small|medium|large] <request>";
+/// Why `/dynamic-workflow` arguments did not parse.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DynamicWorkflowArgsError {
+    /// No size after `--size`, or no request.
+    #[error("Usage: /dynamic-workflow [--size small|medium|large] <request>")]
+    Usage,
+    /// A size that is not `small`, `medium` or `large`.
+    #[error("Unknown workflow size: {name} (small, medium, or large)")]
+    UnknownSize { name: String },
+}
 
 /// Parsed `/dynamic-workflow` arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,23 +27,27 @@ pub(crate) struct DynamicWorkflowArgs {
 /// # Errors
 ///
 /// A missing or unknown size, or an empty request.
-pub(crate) fn parse_dynamic_workflow_args(args: &str) -> Result<DynamicWorkflowArgs, String> {
+pub(crate) fn parse_dynamic_workflow_args(
+    args: &str,
+) -> Result<DynamicWorkflowArgs, DynamicWorkflowArgsError> {
     let rest = args.trim();
     let (size, request) = if let Some(after) = rest.strip_prefix("--size") {
         let after = after.strip_prefix('=').unwrap_or(after).trim_start();
         let end = after.find(char::is_whitespace).unwrap_or(after.len());
         let name = &after[..end];
         if name.is_empty() {
-            return Err(DYNAMIC_WORKFLOW_USAGE.to_owned());
+            return Err(DynamicWorkflowArgsError::Usage);
         }
-        let size = WorkflowSize::parse(name)
-            .ok_or_else(|| format!("Unknown workflow size: {name} (small, medium, or large)"))?;
+        let size =
+            WorkflowSize::parse(name).ok_or_else(|| DynamicWorkflowArgsError::UnknownSize {
+                name: name.to_owned(),
+            })?;
         (Some(size), after[end..].trim())
     } else {
         (None, rest)
     };
     if request.is_empty() {
-        return Err(DYNAMIC_WORKFLOW_USAGE.to_owned());
+        return Err(DynamicWorkflowArgsError::Usage);
     }
     Ok(DynamicWorkflowArgs {
         size,
@@ -75,17 +86,19 @@ mod tests {
 
     #[test]
     fn rejects_an_unknown_size_and_an_empty_request() {
+        let usage = "Usage: /dynamic-workflow [--size small|medium|large] <request>";
+        let text = |args| parse_dynamic_workflow_args(args).map_err(|error| error.to_string());
         assert_eq!(
-            parse_dynamic_workflow_args("--size huge do it"),
-            Err("Unknown workflow size: huge (small, medium, or large)".to_owned())
-        );
-        assert_eq!(
-            parse_dynamic_workflow_args("--size medium"),
-            Err(DYNAMIC_WORKFLOW_USAGE.to_owned())
-        );
-        assert_eq!(
-            parse_dynamic_workflow_args("   "),
-            Err(DYNAMIC_WORKFLOW_USAGE.to_owned())
+            [
+                text("--size huge do it"),
+                text("--size medium"),
+                text("   ")
+            ],
+            [
+                Err("Unknown workflow size: huge (small, medium, or large)".to_owned()),
+                Err(usage.to_owned()),
+                Err(usage.to_owned()),
+            ]
         );
     }
 }

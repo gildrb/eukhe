@@ -440,7 +440,8 @@ pub(crate) fn read_pi_manifest(
     package_root: &Path,
 ) -> Result<Option<super::PiManifest>, Box<ResourceDiagnostic>> {
     let package_json = package_root.join("package.json");
-    let broken = |reason: String| {
+    // The diagnostic renders the reason once.
+    let broken = |reason: PiManifestError| {
         Box::new(ResourceDiagnostic::Error {
             message: format!("package manifest not used, so the package loads nothing: {reason}"),
             path: Some(package_json.display().to_string()),
@@ -449,18 +450,18 @@ pub(crate) fn read_pi_manifest(
     let content = match std::fs::read_to_string(&package_json) {
         Ok(content) => content,
         Err(error) if is_missing(&package_json, &error) => return Ok(None),
-        Err(error) => return Err(broken(error.to_string())),
+        Err(error) => return Err(broken(PiManifestError::Read(error))),
     };
     let value: serde_json::Value =
-        serde_json::from_str(&content).map_err(|error| broken(error.to_string()))?;
+        serde_json::from_str(&content).map_err(|error| broken(PiManifestError::Json(error)))?;
     let Some(package) = value.as_object() else {
-        return Err(broken("package.json is not a JSON object".to_string()));
+        return Err(broken(PiManifestError::NotAnObject));
     };
     let Some(pi) = package.get("pi") else {
         return Ok(None);
     };
     let Some(pi) = pi.as_object() else {
-        return Err(broken("\"pi\" is not an object".to_string()));
+        return Err(broken(PiManifestError::PiNotAnObject));
     };
     Ok(Some(super::PiManifest {
         skills: string_array(pi, "skills").map_err(&broken)?,
@@ -469,17 +470,34 @@ pub(crate) fn read_pi_manifest(
     }))
 }
 
+/// Why a package's `package.json` gives no `pi` manifest.
+#[derive(Debug, thiserror::Error)]
+enum PiManifestError {
+    #[error("{0}")]
+    Read(#[source] std::io::Error),
+    #[error("{0}")]
+    Json(#[source] serde_json::Error),
+    #[error("package.json is not a JSON object")]
+    NotAnObject,
+    #[error("\"pi\" is not an object")]
+    PiNotAnObject,
+    #[error("\"pi.{key}\" is not a list")]
+    NotAList { key: &'static str },
+    #[error("\"pi.{key}\" has an entry that is not a string")]
+    NotAString { key: &'static str },
+}
+
 /// The list of strings at `pi.<key>`. A missing key gives `None`. A value
 /// that is not a list of strings gives the reason as an error.
 fn string_array(
     pi: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Result<Option<Vec<String>>, String> {
+    key: &'static str,
+) -> Result<Option<Vec<String>>, PiManifestError> {
     let Some(value) = pi.get(key) else {
         return Ok(None);
     };
     let serde_json::Value::Array(entries) = value else {
-        return Err(format!("\"pi.{key}\" is not a list"));
+        return Err(PiManifestError::NotAList { key });
     };
     entries
         .iter()
@@ -487,9 +505,9 @@ fn string_array(
             entry
                 .as_str()
                 .map(str::to_string)
-                .ok_or_else(|| format!("\"pi.{key}\" has an entry that is not a string"))
+                .ok_or(PiManifestError::NotAString { key })
         })
-        .collect::<Result<Vec<String>, String>>()
+        .collect::<Result<Vec<String>, PiManifestError>>()
         .map(Some)
 }
 

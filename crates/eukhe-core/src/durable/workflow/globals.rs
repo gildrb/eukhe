@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use super::run_doc::{tx_put_run, tx_run, AgentRow, RunRecord};
-use super::schema::{extract_json, validate};
+use super::schema::{extract_json, validate, SchemaMismatch};
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 
 /// What the globals need from the session.
@@ -30,9 +30,9 @@ pub(super) struct WorkflowServices {
     pub(super) host_requests: HostRequestRegistry,
 }
 
-/// The longest one `rlm.collect` wait asks for; the runtime clamps it to
-/// its blocking budget.
-const COLLECT_WAIT_MS: u64 = 60_000;
+/// The longest one `rlm.collect` wait asks for (the runtime caps it at 30
+/// minutes); the run checks its abort between two.
+const COLLECT_WAIT_MS: u64 = 30_000;
 /// The pause before a spawn refused by the family's concurrency cap is
 /// tried again, and how many times it is.
 const SPAWN_RETRY_PAUSE: Duration = Duration::from_secs(2);
@@ -139,42 +139,53 @@ pub(super) struct AgentOptions {
     pub(super) isolated: bool,
 }
 
+/// Why `agent(prompt, opts)`'s `opts` are refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(super) enum WorkflowOptionError {
+    #[error("agent(prompt, opts): opts must be an object")]
+    NotObject,
+    #[error(
+        "agent(prompt, opts): unknown option {key} (label, phase, schema, model, effort, isolation)"
+    )]
+    UnknownOption { key: String },
+    #[error("agent(prompt, opts): {key} must be a non-empty string")]
+    NotNonEmptyString { key: &'static str },
+    #[error("agent(prompt, opts): schema must be a JSON Schema object")]
+    SchemaNotObject,
+    #[error("agent(prompt, opts): isolation must be \"worktree\" or \"shared\", not {other}")]
+    Isolation { other: String },
+}
+
 /// Validate `agent(prompt, opts)`'s `opts`.
 ///
 /// # Errors
 ///
 /// An unknown key or a value of the wrong type.
-pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, String> {
+pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, WorkflowOptionError> {
     const KEYS: [&str; 6] = ["label", "phase", "schema", "model", "effort", "isolation"];
     let Value::Object(object) = options else {
-        return Err("agent(prompt, opts): opts must be an object".to_owned());
+        return Err(WorkflowOptionError::NotObject);
     };
     if let Some(key) = object.keys().find(|key| !KEYS.contains(&key.as_str())) {
-        return Err(format!(
-            "agent(prompt, opts): unknown option {key} (label, phase, schema, model, effort, isolation)"
-        ));
+        return Err(WorkflowOptionError::UnknownOption { key: key.clone() });
     }
-    let text = |key: &str| match object.get(key) {
+    let text = |key: &'static str| match object.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) if !text.trim().is_empty() => Ok(Some(text.trim().to_owned())),
-        Some(_) => Err(format!(
-            "agent(prompt, opts): {key} must be a non-empty string"
-        )),
+        Some(_) => Err(WorkflowOptionError::NotNonEmptyString { key }),
     };
     let schema = match object.get("schema") {
         None | Some(Value::Null) => None,
         Some(schema @ Value::Object(_)) => Some(schema.clone()),
-        Some(_) => {
-            return Err("agent(prompt, opts): schema must be a JSON Schema object".to_owned())
-        }
+        Some(_) => return Err(WorkflowOptionError::SchemaNotObject),
     };
     let isolated = match text("isolation")?.as_deref() {
         None | Some("shared") => false,
         Some("worktree" | "isolated") => true,
         Some(other) => {
-            return Err(format!(
-                "agent(prompt, opts): isolation must be \"worktree\" or \"shared\", not {other}"
-            ))
+            return Err(WorkflowOptionError::Isolation {
+                other: other.to_owned(),
+            })
         }
     };
     Ok(AgentOptions {
@@ -404,7 +415,9 @@ async fn agent(
         .ok_or_else(|| SessionError::type_error("wf.agent: occurrence must be a whole number"))?;
     let prompt = string_field_of(&args, "prompt")?;
     let raw_options = args.get("options").cloned().unwrap_or_else(|| json!({}));
-    let options = agent_options(&raw_options).map_err(SessionError::type_error)?;
+    // The script sees the option error as a TypeError message.
+    let options =
+        agent_options(&raw_options).map_err(|error| SessionError::type_error(error.to_string()))?;
     let run_id = api.task_id().to_string();
     let conversation_id = api.conversation_id();
     let fresh = AgentRow {
@@ -533,9 +546,7 @@ async fn run_agent(
                     answer_of(services, api, cx, &retry_name, &retry, options, ordinal)
                         .await?
                         .and_then(|second| {
-                            checked(&second, schema).map_err(|mismatch| {
-                                format!("schema mismatch after a retry: {mismatch}")
-                            })
+                            checked(&second, schema).map_err(AgentFailure::MismatchAfterRetry)
                         })
                 }
             },
@@ -550,7 +561,12 @@ async fn run_agent(
             };
             (WorkflowAgentStatus::Done, Some(value), note)
         }
-        Err(error) => (WorkflowAgentStatus::Failed, None, note_of(&error)),
+        // The row's note is where the failure becomes text.
+        Err(error) => (
+            WorkflowAgentStatus::Failed,
+            None,
+            note_of(&error.to_string()),
+        ),
     };
     let stored = result.clone();
     update_run(api, cx, move |run| {
@@ -593,7 +609,7 @@ async fn answer_of(
     prompt: &str,
     options: &AgentOptions,
     ordinal: u32,
-) -> SessionResult<Result<String, String>> {
+) -> SessionResult<Result<String, AgentFailure>> {
     let interrupted = match settle_child(services, api, cx, name, prompt, options, ordinal).await? {
         ChildEnd::Answered(answer) => return Ok(Ok(answer)),
         ChildEnd::Failed(error) => return Ok(Err(error)),
@@ -605,17 +621,57 @@ async fn answer_of(
         match settle_child(services, api, cx, &restart, prompt, options, ordinal).await? {
             ChildEnd::Answered(answer) => Ok(answer),
             ChildEnd::Failed(error) => Err(error),
-            ChildEnd::Interrupted(again) => Err(format!(
-                "the agent was interrupted twice: {interrupted}; then: {again}"
-            )),
+            ChildEnd::Interrupted(again) => Err(AgentFailure::InterruptedTwice {
+                first: Box::new(interrupted),
+                again: Box::new(again),
+            }),
         },
     )
 }
 
-fn checked(answer: &str, schema: &Value) -> Result<Value, String> {
-    let value = extract_json(answer).ok_or_else(|| "the answer holds no JSON value".to_owned())?;
+fn checked(answer: &str, schema: &Value) -> Result<Value, AnswerCheckError> {
+    let value = extract_json(answer).ok_or(AnswerCheckError::NoJson)?;
     validate(&value, schema)?;
     Ok(value)
+}
+
+/// Why an answer does not serve an `agent()` call with a schema.
+#[derive(Debug, thiserror::Error)]
+enum AnswerCheckError {
+    #[error("the answer holds no JSON value")]
+    NoJson,
+    #[error(transparent)]
+    Mismatch(#[from] SchemaMismatch),
+}
+
+/// Why an agent gave no answer the script can use.
+#[derive(Debug, thiserror::Error)]
+enum AgentFailure {
+    /// A host request (`rlm.run`, `rlm.collect`, `rlm.answer`) failed.
+    #[error("{0:#}")]
+    Host(#[source] anyhow::Error),
+    /// `rlm.answer` settled the child without a status.
+    #[error("rlm.answer gave no status for agent {name}")]
+    NoStatus { name: String },
+    /// The child finished without an answer.
+    #[error("the agent ended without an answer")]
+    NoAnswer,
+    /// The child ended with this error text from `rlm.answer`.
+    #[error("{error}")]
+    Reported { error: String },
+    /// The child ended with this status and no error text.
+    #[error("the agent ended {status}")]
+    Ended { status: String },
+    /// The child and its restart were both interrupted.
+    #[error("the agent was interrupted twice: {first}; then: {again}")]
+    InterruptedTwice {
+        first: Box<AgentFailure>,
+        #[source]
+        again: Box<AgentFailure>,
+    },
+    /// The retry's answer did not serve the schema either.
+    #[error("schema mismatch after a retry: {0}")]
+    MismatchAfterRetry(#[source] AnswerCheckError),
 }
 
 /// How a child ended.
@@ -624,8 +680,8 @@ enum ChildEnd {
     /// The child never got its task, or it stopped mid-run for a reason
     /// outside its own work (its parent's worker crashed, or its own
     /// worker died): running it again can succeed.
-    Interrupted(String),
-    Failed(String),
+    Interrupted(AgentFailure),
+    Failed(AgentFailure),
 }
 
 async fn host_call(
@@ -667,10 +723,13 @@ async fn settle_child(
     let found = match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
         Ok(found) => found,
         Err(error) if !format!("{error:#}").starts_with(NO_SUCH_CHILD) => {
-            return Ok(ChildEnd::Failed(format!("{error:#}")));
+            return Ok(ChildEnd::Failed(AgentFailure::Host(error)));
         }
         Err(_) => {
+            // A workflow's agents run at once: the spawn's reason is
+            // `parallel` (laws/family.bend).
             let kwargs = json!({
+                "why": "parallel",
                 "name": name,
                 "label": options.label,
                 "phase": options.phase,
@@ -700,12 +759,12 @@ async fn settle_child(
                         }
                         tokio::time::sleep(SPAWN_RETRY_PAUSE).await;
                     }
-                    Err(error) => return Ok(ChildEnd::Failed(format!("{error:#}"))),
+                    Err(error) => return Ok(ChildEnd::Failed(AgentFailure::Host(error))),
                 }
             }
             match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
                 Ok(found) => found,
-                Err(error) => return Ok(ChildEnd::Failed(format!("{error:#}"))),
+                Err(error) => return Ok(ChildEnd::Failed(AgentFailure::Host(error))),
             }
         }
     };
@@ -739,14 +798,14 @@ async fn settle_child(
         )
         .await
         {
-            return Ok(ChildEnd::Failed(format!("{error:#}")));
+            return Ok(ChildEnd::Failed(AgentFailure::Host(error)));
         }
         state = match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
             Ok(state) => state,
-            Err(error) => return Ok(ChildEnd::Failed(format!("{error:#}"))),
+            Err(error) => return Ok(ChildEnd::Failed(AgentFailure::Host(error))),
         };
-        // A runtime with no blocking budget answers at once: pace the
-        // polls.
+        // A collect that answers at once (its row settled, the answer not
+        // yet kept): pace the polls.
         if started.elapsed() < Duration::from_millis(500)
             && state.get("settled") != Some(&Value::Bool(true))
         {
@@ -754,19 +813,21 @@ async fn settle_child(
         }
     }
     let Some(status) = state.get("status").and_then(Value::as_str) else {
-        return Ok(ChildEnd::Failed(format!(
-            "rlm.answer gave no status for agent {name}"
-        )));
+        return Ok(ChildEnd::Failed(AgentFailure::NoStatus {
+            name: name.to_owned(),
+        }));
     };
     let answer = state
         .get("answer")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let error = |other: &str| {
-        state
-            .get("error")
-            .and_then(Value::as_str)
-            .map_or_else(|| format!("the agent ended {other}"), str::to_owned)
+    let error = |other: &str| match state.get("error").and_then(Value::as_str) {
+        Some(error) => AgentFailure::Reported {
+            error: error.to_owned(),
+        },
+        None => AgentFailure::Ended {
+            status: other.to_owned(),
+        },
     };
     let failure = match state.get("failure") {
         None | Some(Value::Null) => None,
@@ -777,7 +838,7 @@ async fn settle_child(
     };
     Ok(match (status, answer, failure) {
         ("done", Some(answer), _) => ChildEnd::Answered(answer),
-        ("done", None, _) => ChildEnd::Failed("the agent ended without an answer".to_owned()),
+        ("done", None, _) => ChildEnd::Failed(AgentFailure::NoAnswer),
         (
             other,
             _,

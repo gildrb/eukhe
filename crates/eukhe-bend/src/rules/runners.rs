@@ -55,13 +55,6 @@ pub struct Tool {
     pub gate: Covered,
 }
 
-/// Whether the session has chat memory (its tools join the registry).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChatMemory {
-    On,
-    Off,
-}
-
 /// Whether a call of a tool with `caps` runs unasked under `auto`
 /// (`Ru.within`).
 #[must_use]
@@ -120,24 +113,37 @@ fn cell_call(auto: AutoSet, caps: ShellEffects, asker: Asker) -> Result<Ended, E
 /// Every tool a session installs, in install order (`Ru.registry`): a
 /// `single` session's, every child's.
 #[must_use]
-pub fn registry(chat: ChatMemory) -> Vec<Tool> {
-    expect_core(Entry::Runners, roster_call(REGISTRY, chat))
+pub fn registry() -> Vec<Tool> {
+    expect_core(Entry::Runners, roster_call(Roster::Registry))
+}
+
+/// Whether main has chat memory (the chat memory's tools join its roster).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatMemory {
+    On,
+    Off,
 }
 
 /// Main's roster in the `main-worker` shape, in install order
 /// (`Ru.main_roster`): read-only tools and the worker tools.
 #[must_use]
 pub fn main_roster(chat: ChatMemory) -> Vec<Tool> {
-    expect_core(Entry::Runners, roster_call(MAIN_ROSTER, chat))
+    expect_core(Entry::Runners, roster_call(Roster::Main(chat)))
 }
 
-/// The request tags of the two rosters.
-const REGISTRY: u32 = 2;
-const MAIN_ROSTER: u32 = 3;
+/// The roster a request asks for: tag 2 the registry, tag 3 main's.
+#[derive(Clone, Copy)]
+enum Roster {
+    Registry,
+    Main(ChatMemory),
+}
 
-fn roster_call(tag: u32, chat: ChatMemory) -> Result<Vec<Tool>, Error> {
+fn roster_call(roster: Roster) -> Result<Vec<Tool>, Error> {
     let mut request = Writer::new();
-    request.tag(tag).bool(chat == ChatMemory::On);
+    match roster {
+        Roster::Registry => request.tag(2),
+        Roster::Main(chat) => request.tag(3).bool(chat == ChatMemory::On),
+    };
     let reply = call(Entry::Runners, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let count = reader.count()?;

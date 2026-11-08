@@ -172,6 +172,66 @@ def pc.cl_resume(b: Bool, +c: Nat, j: Cr.Job, +x: Nat, +o: Nat, hc: {Cr.Job.clai
                 case Cr.Cancelled{}:
                   hc
 
+def pc.cl_pause(b: Bool, j: Cr.Job, +x: Nat, +o: Nat, hc: {Cr.Job.claim(j) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}) -> {Cr.Job.claim(Cr.job.pick(b, Cr.pause(j), j)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}:
+  match b:
+    case False{}:
+      hc
+    case True{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          match st:
+            case Cr.Active{}:
+              hc
+            case Cr.Paused{}:
+              hc
+            case Cr.Finished{}:
+              hc
+            case Cr.Cancelled{}:
+              hc
+
+def pc.cl_stop(b: Bool, j: Cr.Job, +x: Nat, +o: Nat, hc: {Cr.Job.claim(j) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}) -> {Cr.Job.claim(Cr.job.pick(b, Cr.stop(j), j)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}:
+  match b:
+    case False{}:
+      hc
+    case True{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          match st:
+            case Cr.Active{}:
+              hc
+            case Cr.Paused{}:
+              hc
+            case Cr.Finished{}:
+              hc
+            case Cr.Cancelled{}:
+              hc
+
+def pc.cl_delete(b: Bool, j: Cr.Job, +x: Nat, +o: Nat, hc: {Cr.Job.claim(j) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}) -> {Cr.Job.claim(Cr.job.pick(b, Cr.delete(j), j)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}:
+  match b:
+    case False{}:
+      hc
+    case True{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          hc
+
+def pc.cl_edit(b: Bool, +c: Nat, +q: Nat, j: Cr.Job, +x: Nat, +o: Nat, hc: {Cr.Job.claim(j) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}) -> {Cr.Job.claim(Cr.job.pick(b, Cr.edit(c, q, j), j)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}:
+  match b:
+    case False{}:
+      hc
+    case True{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          match st:
+            case Cr.Active{}:
+              hc
+            case Cr.Paused{}:
+              hc
+            case Cr.Finished{}:
+              hc
+            case Cr.Cancelled{}:
+              hc
+
 def pc.cl_unrun(+p: Nat, j: Cr.Job, +x: Nat, +o: Nat, hc: {Cr.Job.claim(j) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}) -> {Cr.Job.claim(Cr.unrun(p, j)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}:
   match j:
     case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
@@ -193,6 +253,14 @@ def pc.claim_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, +x: Nat, 
       Inl{pc.cl_cancel(Nat.is_eq(Cr.Job.id(j), ji), j, x, o, hc)}
     case Cr.Resume{+p, +ji}:
       Inl{pc.cl_resume(Nat.is_eq(Cr.Job.id(j), ji), c, j, x, o, hc)}
+    case Cr.Pause{+p, +ji}:
+      Inl{pc.cl_pause(Nat.is_eq(Cr.Job.id(j), ji), j, x, o, hc)}
+    case Cr.Stop{+p, +ji}:
+      Inl{pc.cl_stop(Nat.is_eq(Cr.Job.id(j), ji), j, x, o, hc)}
+    case Cr.Delete{+p, +ji}:
+      Inl{pc.cl_delete(Nat.is_eq(Cr.Job.id(j), ji), j, x, o, hc)}
+    case Cr.Edit{+p, +ji, +q}:
+      Inl{pc.cl_edit(Nat.is_eq(Cr.Job.id(j), ji), c, q, j, x, o, hc)}
     case Cr.Create{p, s}:
       Inl{hc}
     case Cr.Tick{d}:
@@ -291,6 +359,14 @@ def pc.claim_owned(s: Cr.S, +e: Cr.Ev, +i: Nat, +x: Nat, +o: Nat, nc: {Cr.Ev.is_
         case Cr.Cancel{+p, +ji}:
           pc.co_alive(Cr.has(p, dead), Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, e, i, x, o, h, pc.claim_rec(e, c, dead, rs, i, x, o, h))
         case Cr.Resume{+p, +ji}:
+          pc.co_alive(Cr.has(p, dead), Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, e, i, x, o, h, pc.claim_rec(e, c, dead, rs, i, x, o, h))
+        case Cr.Pause{+p, +ji}:
+          pc.co_alive(Cr.has(p, dead), Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, e, i, x, o, h, pc.claim_rec(e, c, dead, rs, i, x, o, h))
+        case Cr.Stop{+p, +ji}:
+          pc.co_alive(Cr.has(p, dead), Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, e, i, x, o, h, pc.claim_rec(e, c, dead, rs, i, x, o, h))
+        case Cr.Delete{+p, +ji}:
+          pc.co_alive(Cr.has(p, dead), Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, e, i, x, o, h, pc.claim_rec(e, c, dead, rs, i, x, o, h))
+        case Cr.Edit{+p, +ji, +q}:
           pc.co_alive(Cr.has(p, dead), Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, e, i, x, o, h, pc.claim_rec(e, c, dead, rs, i, x, o, h))
         case Cr.Tick{+d}:
           Inl{h}

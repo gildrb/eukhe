@@ -1,12 +1,15 @@
 //! Worker-to-worker peer messaging e2e (thin-supervisor stage 3).
 //!
 //! Three verifiers over real spawned worker processes and real supervisor
-//! processes:
+//! processes. Agents message only their parent and their own children
+//! (the kin check, `kin_gate.rs`), so the pair is a root session B and its
+//! RLM child A, spawned through a `SupervisorChildSessions` registry bound
+//! to B (the spawn ledger records the edge the kin check reads):
 //!
-//! 1. A kernel `agent_message.send` in worker A resolves the target through
-//!    the supervisor roster, mints a single-use `worker` ticket, burns it on
-//!    worker B's own socket, and delivers the message with the TS sender
-//!    identity block; B runs the rendered prompt exactly once.
+//! 1. A kernel `agent_message.send` in worker A to its parent passes the
+//!    kin check, mints a single-use `worker` ticket, burns it on worker
+//!    B's own socket, and delivers the message with the TS sender identity
+//!    block; B runs the rendered prompt exactly once.
 //! 2. The previously-hanging client-to-client shape (two attached clients,
 //!    a message from A's kernel into session B) completes: the receipt is
 //!    observed, the prompt renders once in B, and the supervisor's route
@@ -17,14 +20,22 @@
 //!
 //! The sessions run the real agent engine over the scripted faux provider
 //! (`engine: "faux"`), so the kernel host request, the supervisor link, the
-//! peer ticket, and the direct socket delivery are all exercised for real.
+//! kin check, the peer ticket, and the direct socket delivery are all
+//! exercised for real.
 //!
 //! Exercises `AF_UNIX` sockets and process-group kills.
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use eukhe_core::durable::children::{
+    RlmChildIdentity, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
+    RlmChildWaitRequest, RlmSubagentHost,
+};
+use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
+use eukhe_daemon::supervisor_link::SupervisorLink;
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
@@ -129,12 +140,13 @@ fn write_faux_script(dir: &Path, name: &str, responses: &Value) -> PathBuf {
     path
 }
 
-/// The kernel cell that sends one agent message and records the receipt
-/// (or the failure) on disk for the test to read. The kernel's `rlm` name is
-/// the namespace object; `host_request` imports from the runtime module.
-fn send_cell(message: &str, receiver_name: &str, receipt_path: &Path) -> String {
+/// The kernel cell that sends one agent message to the sender's parent and
+/// records the receipt (or the failure) on disk for the test to read. The
+/// kernel's `rlm` name is the namespace object; `host_request` imports
+/// from the runtime module.
+fn send_cell(message: &str, receipt_path: &Path) -> String {
     format!(
-        "from rlm import host_request\nimport json, traceback\ntry:\n    receipt = await host_request(\"agent_message.send\", {{\"message\": {message:?}, \"receiver_role\": \"sibling\", \"receiver_name\": {receiver_name:?}}})\n    open({receipt_path:?}, \"w\").write(json.dumps(receipt))\nexcept Exception:\n    open({error_path:?}, \"w\").write(traceback.format_exc())",
+        "from rlm import host_request\nimport json, traceback\ntry:\n    receipt = await host_request(\"agent_message.send\", {{\"message\": {message:?}, \"receiver_role\": \"parent\"}})\n    open({receipt_path:?}, \"w\").write(json.dumps(receipt))\nexcept Exception:\n    open({error_path:?}, \"w\").write(traceback.format_exc())",
         receipt_path = receipt_path.display().to_string(),
         error_path = receipt_path.with_extension("error").display().to_string(),
     )
@@ -145,17 +157,17 @@ struct Session {
     session_id: String,
 }
 
-/// Create one named faux-engine session through the supervisor.
-fn create_session(
+/// Create the named faux-engine root session through the supervisor; its
+/// session file is the parent edge's key.
+fn create_root_session(
     client: &mut Client,
-    id: &str,
     name: &str,
     script: &Path,
     dir: &Path,
     sessions_dir: &Path,
-) -> Session {
+) -> (Session, String) {
     client.send_command(
-        id,
+        "create",
         &json!({
             "type": "create",
             "name": name,
@@ -166,19 +178,108 @@ fn create_session(
             },
         }),
     );
-    let response = client.read_response(id);
+    let response = client.read_response("create");
     assert_eq!(
         response["success"], true,
         "create {name} failed: {response}"
     );
     let data = &response["data"];
-    Session {
+    let session = Session {
         active_session_id: data["activeSessionId"]
             .as_str()
             .or_else(|| data["id"].as_str())
             .expect("active session id")
             .to_string(),
         session_id: data["sessionId"].as_str().unwrap_or_default().to_string(),
+    };
+    let session_file = data["sessionFile"]
+        .as_str()
+        .expect("session file")
+        .to_string();
+    (session, session_file)
+}
+
+/// Spawn the named RLM child of `parent` through a child registry bound
+/// to it (the construction the parent's worker performs), and wait until
+/// the child's spawn turn answered.
+async fn spawn_child(
+    socket: &Path,
+    agent_dir: &Path,
+    dir: &Path,
+    parent: &Session,
+    parent_session_file: String,
+    name: &str,
+    script: &Path,
+) -> Session {
+    let children = SupervisorChildSessions::new(
+        Arc::new(SupervisorLink::new(socket.to_path_buf())),
+        agent_dir.to_path_buf(),
+        parent.active_session_id.clone(),
+    );
+    children.set_identity(ParentIdentity {
+        rlm_depth: 0,
+        rlm_max_depth: 1,
+        model: Some("faux/faux-1".to_string()),
+        cwd: Some(dir.to_string_lossy().to_string()),
+        session_id: Some(parent.session_id.clone()),
+        session_file: Some(parent_session_file),
+        thinking: None,
+        child_script: Some(script.to_string_lossy().to_string()),
+    });
+    let rlm_child_id = "sub-00000001".to_string();
+    let child = children
+        .spawn(RlmChildSpawnRequest {
+            idempotency_key: "rlm:1:spawn".to_string(),
+            child: RlmChildIdentity {
+                rlm_child_id: rlm_child_id.clone(),
+                session_id: "01000000-0000-4000-8000-000000000001".to_string(),
+            },
+            name: name.to_string(),
+            prompt: "start".to_string(),
+            model: None,
+            thinking: None,
+            depth: 1,
+            max_depth: 1,
+            spawned_by_request_id: None,
+            parent_task_id: "1".to_string(),
+            workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
+        })
+        .await
+        .expect("spawn the child");
+    children
+        .prompt(RlmChildPromptRequest::task(
+            "rlm:1:prompt".to_string(),
+            child.session_id.clone(),
+            rlm_child_id.clone(),
+            "start".to_string(),
+        ))
+        .await
+        .expect("prompt the child");
+    let deadline = Instant::now() + Duration::from_mins(1);
+    loop {
+        let observation = children
+            .wait_settled(RlmChildWaitRequest {
+                session_id: child.session_id.clone(),
+                rlm_child_id: rlm_child_id.clone(),
+                timeout_ms: 2_000,
+            })
+            .await
+            .expect("wait for the child");
+        match observation.state {
+            RlmChildRunState::Answered { .. } => break,
+            RlmChildRunState::Failed { failure, error } => {
+                panic!("child {name} spawn turn failed ({failure}): {error}")
+            }
+            RlmChildRunState::Running | RlmChildRunState::Idle { .. } => assert!(
+                Instant::now() < deadline,
+                "child {name} spawn turn never settled"
+            ),
+        }
+    }
+    Session {
+        active_session_id: child.active_session_id,
+        session_id: child.session_id,
     }
 }
 
@@ -214,7 +315,8 @@ fn messages(client: &mut Client, id: &str, active_session_id: &str) -> String {
     serde_json::to_string(&response["data"]).expect("messages json")
 }
 
-/// A proof harness: supervisor, two faux sessions, a client.
+/// A proof harness: supervisor, the faux root B and its faux child A, a
+/// client.
 struct Messaging {
     dir: tempfile::TempDir,
     daemon: Daemon,
@@ -246,27 +348,23 @@ fn read_receipt(messaging: &Messaging, index: usize) -> Value {
     }
 }
 
-/// The alpha script: one tool-call turn that sends a message (recording
-/// its receipt at `receipts/0.json`), followed by a closing text turn. The
-/// worker's faux engine re-registers the response queue per turn, so every
-/// prompted turn replays this pair.
-/// Two full turns of alpha script (a send tool call plus the closing text
-/// each): the faux provider queues its responses across the whole session,
-/// so the second post-restart turn consumes the second pair.
+/// The alpha script: the spawn turn's answer, then two full turns (a send
+/// tool call plus the closing text each): the faux provider queues its
+/// responses across the whole session, so the second post-restart turn
+/// consumes the second pair. Each send records its receipt at
+/// `receipts/0.json`.
 fn alpha_responses(receipts_dir: &Path) -> Value {
     let receipt_path = receipts_dir.join("0.json");
+    let send = json!({ "content": [
+        { "type": "toolCall", "name": "ipython", "arguments": {
+            "code": send_cell("hello from alpha", &receipt_path),
+        } },
+    ] });
     json!([
-        { "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": {
-                "code": send_cell("hello from alpha", "beta", &receipt_path),
-            } },
-        ] },
+        { "text": "alpha spawned" },
+        send,
         { "text": "alpha turn done" },
-        { "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": {
-                "code": send_cell("hello from alpha", "beta", &receipt_path),
-            } },
-        ] },
+        send,
         { "text": "alpha turn done" },
     ])
 }
@@ -291,22 +389,19 @@ fn setup_messaging() -> Messaging {
     let receipts = receipts_dir;
     let daemon = spawn_supervisor(&socket, &agent_dir);
     let (mut client, _hello) = Client::connect(&socket);
-    let alpha = create_session(
-        &mut client,
-        "create-a",
-        "alpha",
-        &alpha_path,
-        dir.path(),
-        &sessions_dir,
-    );
-    let beta = create_session(
-        &mut client,
-        "create-b",
-        "beta",
-        &beta_path,
-        dir.path(),
-        &sessions_dir,
-    );
+    let (beta, beta_session_file) =
+        create_root_session(&mut client, "beta", &beta_path, dir.path(), &sessions_dir);
+    let alpha = tokio::runtime::Runtime::new()
+        .expect("tokio runtime")
+        .block_on(spawn_child(
+            &socket,
+            &agent_dir,
+            dir.path(),
+            &beta,
+            beta_session_file,
+            "alpha",
+            &alpha_path,
+        ));
     Messaging {
         dir,
         daemon,
@@ -317,8 +412,8 @@ fn setup_messaging() -> Messaging {
     }
 }
 
-/// Verifier 1: a kernel send in worker A delivers straight through the
-/// peer transport into worker B, with the TS sender identity.
+/// Verifier 1: a kernel send in child A to its parent delivers straight
+/// through the peer transport into worker B, with the TS sender identity.
 #[test]
 fn worker_to_worker_kernel_send_delivers_over_the_peer_transport() {
     let messaging = setup_messaging();
@@ -333,7 +428,7 @@ fn worker_to_worker_kernel_send_delivers_over_the_peer_transport() {
         &mut client,
         "p1",
         &alpha.active_session_id,
-        "introduce yourself to beta",
+        "report to your parent",
     );
     wait_idle(&mut client, "w1", &alpha.active_session_id);
     // B runs the delivered prompt.
@@ -357,9 +452,9 @@ fn worker_to_worker_kernel_send_delivers_over_the_peer_transport() {
     );
 
     // B rendered the agent-message prompt exactly once, from the TS sender
-    // identity (the sending session's name).
+    // identity (the sending session's name, labeled as B's child).
     let beta_messages = messages(&mut client, "gm2", &beta.active_session_id);
-    let prompt = "[agent-message from alpha]\\n\\nhello from alpha";
+    let prompt = "[agent-message from child:alpha]\\n\\nhello from alpha";
     assert_eq!(
         beta_messages.matches(prompt).count(),
         1,
@@ -390,7 +485,7 @@ fn worker_to_worker_kernel_send_delivers_over_the_peer_transport() {
     assert_eq!(delivered["role"], "custom");
     assert_eq!(
         delivered["content"],
-        "[agent-message from alpha]\n\nhello from alpha"
+        "[agent-message from child:alpha]\n\nhello from alpha"
     );
     assert_eq!(delivered["display"], true);
     assert_eq!(delivered["details"]["message"], "hello from alpha");
@@ -461,7 +556,9 @@ fn attached_client_to_client_send_completes_without_route_starvation() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(
-        beta_messages.matches("[agent-message from alpha]").count(),
+        beta_messages
+            .matches("[agent-message from child:alpha]")
+            .count(),
         1,
         "prompt rendered once in B: {beta_messages}"
     );
@@ -518,7 +615,9 @@ fn supervisor_death_mid_conversation_still_delivers_after_re_registration() {
     wait_idle(&mut client, "w2", &beta_id);
     let beta_messages = messages(&mut client, "gm1", &beta_id);
     assert_eq!(
-        beta_messages.matches("[agent-message from alpha]").count(),
+        beta_messages
+            .matches("[agent-message from child:alpha]")
+            .count(),
         1
     );
 
@@ -574,7 +673,9 @@ fn supervisor_death_mid_conversation_still_delivers_after_re_registration() {
     );
     let beta_messages = messages(&mut client, "gm3", &beta_id);
     assert_eq!(
-        beta_messages.matches("[agent-message from alpha]").count(),
+        beta_messages
+            .matches("[agent-message from child:alpha]")
+            .count(),
         2,
         "both delivered prompts rendered in B: {beta_messages}"
     );

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 
 def pw.empty(keys: List<&2, Nat>) -> {W.resumed([], keys) == List.length(&2, Nat, keys) : Nat}:
   match keys:

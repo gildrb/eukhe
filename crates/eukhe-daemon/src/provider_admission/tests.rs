@@ -383,14 +383,15 @@ async fn a_workers_request_preempts_the_supervisors_compactor_at_a_limit_of_one(
 }
 
 /// A worker that owns the chat runs its compactor's requests as background
-/// slots over its link: on an unlimited provider they wait while another
-/// worker's request runs, and the next one preempts them through the link.
+/// slots over its link: on a limited provider they wait while another
+/// worker's request runs (even with a slot to spare), and the next one
+/// preempts them through the link.
 #[tokio::test]
 async fn a_workers_background_slot_is_preempted_over_its_link() {
-    let harness = harness(&json!({}), &["a", "b"]).await;
+    let harness = harness(&json!({ "providerMaxInFlight": { "p": 2 } }), &["a", "b"]).await;
     let running = within(harness.worker("b").acquire(watched(Interactive).0))
         .await
-        .expect("an unlimited provider admits at once");
+        .expect("a free slot");
     let compactor = harness.worker("a");
     let (request, waited) = watched(Background);
     let waiting = tokio::spawn(async move { compactor.acquire(request).await });

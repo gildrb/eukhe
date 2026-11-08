@@ -7,23 +7,70 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::headless::{ExitCause, ExitFacts, Primary, RunEnd};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
-use eukhe_core::durable::{classify_session_command, execute_session_command, EukheSession};
-use eukhe_core::session::discovery::SessionSelectorError;
+use eukhe_core::durable::pending::PendingWork;
+use eukhe_core::durable::{
+    classify_session_command, execute_session_command, EukheSession, SessionCommandError,
+};
+use eukhe_daemon::rpc::error::RpcModeError;
+use eukhe_daemon::rpc::session::RpcEngineError;
 use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
+use eukhe_durable::session::SessionError;
+use eukhe_types::daemon::{SessionEvent, StreamUpdate};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
 use futures::FutureExt;
 
 use crate::headless_autonomous::{autonomous_exit_stderr, autonomous_runtime_config};
 use crate::headless_session::{
-    open_headless_session, sessions_dir, HeadlessSession, HeadlessTarget, Selection,
+    open_headless_session, sessions_dir, HeadlessSession, HeadlessSessionError, HeadlessTarget,
+    Selection,
 };
 use crate::headless_terminal::{select_terminal_result, RunFailure};
+use crate::headless_wait::{still_running, wait_quiescent, HeadlessWaitError, RunWatch, Settled};
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
+
+/// Why a headless mode (print/json, ACP, RPC) failed before it could
+/// answer; [`PrintRuntime`] prints it as `Error: <error>` and exits 1.
+#[derive(Debug, thiserror::Error)]
+enum HeadlessModeError {
+    /// The mode's tokio runtime did not start.
+    #[error("{0}")]
+    Runtime(#[source] std::io::Error),
+    #[error(transparent)]
+    Session(#[from] HeadlessSessionError),
+    /// A durable session operation failed (the event watch, the
+    /// autonomous and goal setup, a submission, the transcript read, the
+    /// close).
+    #[error("{0:#}")]
+    Durable(#[from] SessionError),
+    #[error("{0}")]
+    Wait(#[from] HeadlessWaitError),
+    /// The compiled core refused the exit facts (an inconsistent build).
+    #[error("{0}")]
+    Exit(#[source] eukhe_bend::Error),
+    /// No daemon supervisor could be reached or spawned for ACP.
+    #[error("{0:#}")]
+    Daemon(#[source] anyhow::Error),
+    /// The ACP transport over the daemon session failed.
+    #[error("{0:#}")]
+    Acp(#[source] anyhow::Error),
+    #[error("{0}")]
+    Rpc(#[from] RpcModeError),
+    #[error("system prompt input: {0}")]
+    SystemPrompt(#[source] serde_json::Error),
+    #[error("appended system prompt input: {0}")]
+    AppendedSystemPrompt(#[source] serde_json::Error),
+    /// The session resolved no model: a run with prompts must fail loudly.
+    #[error(
+        "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
+    )]
+    NoModel,
+}
 
 /// The runtime: print/json, rpc, acp, daemon, and interactive dispatch.
 pub struct PrintRuntime;
@@ -42,8 +89,8 @@ impl crate::mode::Runtime for PrintRuntime {
             // MissingSubsystem channel stays reserved for unwired subsystems.
             AppMode::Print | AppMode::Json => match run_print_mode(options) {
                 Ok(code) => Ok(code),
-                Err(message) => {
-                    eprintln!("Error: {message}");
+                Err(error) => {
+                    eprintln!("Error: {error}");
                     Ok(1)
                 }
             },
@@ -88,11 +135,13 @@ impl crate::mode::Runtime for PrintRuntime {
     }
 }
 
-fn run_on_runtime(future: impl Future<Output = Result<i32, String>>) -> Result<i32, String> {
+fn run_on_runtime(
+    future: impl Future<Output = Result<i32, HeadlessModeError>>,
+) -> Result<i32, HeadlessModeError> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(|error| error.to_string())?
+        .map_err(HeadlessModeError::Runtime)?
         .block_on(future)
 }
 
@@ -101,7 +150,7 @@ fn run_on_runtime(future: impl Future<Output = Result<i32, String>>) -> Result<i
 /// session the CLI session flags select, and serve the ACP surface over it
 /// until the client disconnects. Any startup failure is an `Error:` exit 1
 /// before the first ACP frame.
-async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
+async fn acp_mode_main(options: &RunOptions) -> Result<i32, HeadlessModeError> {
     // Flag > env > default: the same `EUKHE_DAEMON_SOCKET` contract as
     // every other mode.
     let socket_path = eukhe_client::paths::resolve_daemon_socket_path(
@@ -115,7 +164,7 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
         eukhe_client::daemon_build::Caller::Background,
     )
     .await
-    .map_err(|error| format!("{error:#}"))?;
+    .map_err(HeadlessModeError::Daemon)?;
     // ACP speaks JSON-RPC on stdout; the notice goes to the client's stderr.
     if let Some(notice) = ready.notice() {
         eprintln!("{notice}");
@@ -130,7 +179,7 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
         },
     )
     .await
-    .map_err(|error| format!("{error:#}"))
+    .map_err(HeadlessModeError::Acp)
 }
 
 /// The ACP daemon session's create (TS main.ts `defaultSessionConfig` +
@@ -141,7 +190,7 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
 async fn daemon_acp_create(
     options: &RunOptions,
     cx: &Context,
-) -> Result<(PathBuf, eukhe_types::daemon::DaemonCommand), String> {
+) -> Result<(PathBuf, eukhe_types::daemon::DaemonCommand), HeadlessModeError> {
     use eukhe_types::daemon::DaemonSessionLifecycle;
     let config = &options.config;
     let (cwd, session_path, lifecycle) = match crate::headless_session::select(options, cx).await? {
@@ -195,12 +244,12 @@ async fn daemon_acp_create(
     }
     // A string is prompt text; `{"file": "<path>"}` is a file to read.
     if let Some(system_prompt) = &config.system_prompt {
-        create_config["systemPrompt"] = serde_json::to_value(system_prompt)
-            .map_err(|error| format!("system prompt input: {error}"))?;
+        create_config["systemPrompt"] =
+            serde_json::to_value(system_prompt).map_err(HeadlessModeError::SystemPrompt)?;
     }
     if !config.append_system_prompt.is_empty() {
         create_config["appendSystemPrompt"] = serde_json::to_value(&config.append_system_prompt)
-            .map_err(|error| format!("appended system prompt input: {error}"))?;
+            .map_err(HeadlessModeError::AppendedSystemPrompt)?;
     }
     for (key, paths) in [
         ("skills", &config.skills),
@@ -246,7 +295,7 @@ async fn daemon_acp_create(
 
 /// The RPC headless mode: the TS `modes/rpc` JSONL command surface over
 /// stdio, on durable sessions this module's factory opens.
-async fn rpc_mode_main(options: &RunOptions) -> Result<i32, String> {
+async fn rpc_mode_main(options: &RunOptions) -> Result<i32, HeadlessModeError> {
     let config = &options.config;
     eukhe_daemon::rpc::run_rpc_mode(eukhe_daemon::rpc::RpcOptions {
         engine_factory: rpc_engine_factory(options),
@@ -257,7 +306,7 @@ async fn rpc_mode_main(options: &RunOptions) -> Result<i32, String> {
             .map(|goal| (goal.objective.clone(), goal.token_budget.map(u64::from))),
     })
     .await
-    .map_err(|error| format!("{error:#}"))
+    .map_err(HeadlessModeError::Rpc)
 }
 
 /// The session factory the RPC mode drives: the startup selection (the CLI
@@ -281,7 +330,9 @@ fn rpc_engine_factory(options: &RunOptions) -> eukhe_daemon::rpc::session::RpcEn
                     reuse_lease,
                 },
             };
-            let opened = open_headless_session(&options, target, &BACKGROUND_CONTEXT).await?;
+            let opened = open_headless_session(&options, target, &BACKGROUND_CONTEXT)
+                .await
+                .map_err(RpcEngineError::new)?;
             Ok(eukhe_daemon::rpc::session::RpcEngineHandle {
                 session: opened.session,
                 session_lease: opened.lease,
@@ -291,18 +342,8 @@ fn rpc_engine_factory(options: &RunOptions) -> eukhe_daemon::rpc::session::RpcEn
     })
 }
 
-/// Render a selector failure with the main.ts formatting: the error message
-/// plus the browse hint.
-pub(crate) fn render_selector_error(error: &SessionSelectorError) -> String {
-    format!(
-        "{}.{}\nOpen eukhe and press left-arrow to browse sessions.",
-        error.message(),
-        error.suggestion().unwrap_or_default()
-    )
-}
-
 /// Print/json mode on its own runtime, the session lease owned outside it.
-fn run_print_mode(options: &RunOptions) -> Result<i32, String> {
+fn run_print_mode(options: &RunOptions) -> Result<i32, HeadlessModeError> {
     with_print_runtime(options, |options, lease| {
         Box::pin(print_mode_main(options, lease))
     })
@@ -319,15 +360,17 @@ fn with_print_runtime<Ctx>(
     run: impl for<'a> FnOnce(
         &'a Ctx,
         &'a mut Option<eukhe_daemon::lease::SessionLease>,
-    ) -> std::pin::Pin<Box<dyn Future<Output = Result<i32, String>> + 'a>>,
-) -> Result<i32, String> {
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = Result<i32, HeadlessModeError>> + 'a>,
+    >,
+) -> Result<i32, HeadlessModeError> {
     // Declared before the runtime so unwinding also drops the runtime (and
     // stops its tasks) before the lease releases.
     let mut lease = None;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(HeadlessModeError::Runtime)?;
     let result = runtime.block_on(run(context, &mut lease));
     drop(runtime);
     drop(lease);
@@ -340,7 +383,7 @@ fn with_print_runtime<Ctx>(
 async fn print_mode_main(
     options: &RunOptions,
     lease: &mut Option<eukhe_daemon::lease::SessionLease>,
-) -> Result<i32, String> {
+) -> Result<i32, HeadlessModeError> {
     let cx = &*BACKGROUND_CONTEXT;
     let mut opened = open_headless_session(options, HeadlessTarget::Selected, cx).await?;
     *lease = opened.lease.take();
@@ -348,10 +391,7 @@ async fn print_mode_main(
     let HeadlessSession { session, .. } = opened;
     // Every other holder (the event stream, the prompt loop) is gone.
     if let Ok(session) = Arc::try_unwrap(session) {
-        session
-            .close(cx)
-            .await
-            .map_err(|error| format!("{error:#}"))?;
+        session.close(cx).await?;
     }
     result
 }
@@ -382,21 +422,53 @@ fn user_content(prompt: &str, images: Vec<ImageContent>) -> UserContent {
     UserContent::Blocks(blocks)
 }
 
+/// How the prompt loop ended.
+enum PromptsEnd {
+    /// Every prompt ran and the session went quiescent after each.
+    Completed,
+    /// A session command failed (its raw error); later prompts did not run.
+    CommandFailed(SessionCommandError),
+    /// The wait limit elapsed while this still ran; later prompts did not
+    /// run.
+    GaveUp(PendingWork),
+}
+
 /// Run the prompts, stream json events when requested, and decide the exit
 /// code: session commands run through the durable executor (a failure
-/// prints its raw error and exits 1 without later prompts, TS print-mode's
-/// catch); every other prompt is submitted and waited for, then the
-/// conversation runs idle (goal and autonomous continuations, compaction).
-/// Text mode prints the terminal result; both modes apply the autonomous
-/// exit contract.
+/// prints its raw error, TS print-mode's catch); every other prompt is
+/// submitted and waited for, then the session runs until it is quiescent
+/// (goal and autonomous continuations, compaction, and every turn a
+/// settled job or subagent wakes) or the wait limit elapses. Text mode
+/// prints the terminal result; both modes print failures to stderr. The
+/// compiled Bend core decides the exit code (`headless_exit`): 0 only for
+/// a run that answered.
 async fn run_prompts(
     opened: &HeadlessSession,
     options: &RunOptions,
     cx: &Context,
-) -> Result<i32, String> {
+) -> Result<i32, HeadlessModeError> {
     let session = &opened.session;
     let json_mode = options.app_mode == AppMode::Json;
     let conversation = session.main();
+    // A run with prompts needs a model: a session that resolved none must
+    // fail loudly (exit 1), never idle through every prompt in silence.
+    if prompts(options).next().is_some() {
+        let agent = conversation
+            .agent(cx)
+            .await
+            .map_err(HeadlessModeError::Durable)?;
+        if agent.model.is_none() {
+            if json_mode {
+                crate::json_out::print_json_error(
+                    "error",
+                    "login_required",
+                    "No model is available for this run.",
+                );
+                return Ok(1);
+            }
+            return Err(HeadlessModeError::NoModel);
+        }
+    }
     let harness = session.harness();
     let events = if json_mode {
         println!("{}", session_header(opened));
@@ -404,65 +476,114 @@ async fn run_prompts(
     } else {
         None
     };
-    let failure = drive_prompts(session, &conversation, options, cx).await;
+    let watch = RunWatch::start(opened, &conversation, cx).await?;
+    let ended = drive_prompts(opened, &conversation, &watch, options, cx).await;
     // The run's disclosure rows (a reported overflow outcome) commit from
     // the compaction observer after the run settles: both modes report them.
     session.deps().observers_settled().await;
     if let Some(events) = events {
         events.finish().await;
     }
-    let failure = failure?;
-    // The rejected prompt wait (TS print-mode's catch): the raw command
-    // error on stderr, exit 1, no terminal selection.
-    if let Some(error) = failure {
-        eprintln!("{error}");
-        return Ok(1);
+    let mut facts = ExitFacts {
+        command_failed: false,
+        gave_up: false,
+        run: RunEnd::NoRun,
+        primary: Primary::Nothing,
+        compaction_failed: false,
+        autonomous_failed: false,
+    };
+    match ended? {
+        PromptsEnd::Completed => {}
+        // The rejected prompt wait (TS print-mode's catch): the raw command
+        // error on stderr, no terminal selection.
+        PromptsEnd::CommandFailed(error) => {
+            eprintln!("{error}");
+            facts.command_failed = true;
+        }
+        PromptsEnd::GaveUp(work) => {
+            eprintln!(
+                "eukhe: stopped waiting after {} ms (--wait-limit-ms); still running: {}",
+                options.config.wait_limit.as_millis(),
+                still_running(&work)
+            );
+            facts.gave_up = true;
+        }
     }
-    let mut exit_code = 0;
-    // The TS print-mode exit contract: json mode never derives the exit
-    // code from the terminal selection (the event stream carries
-    // everything); text mode prints the primary (an error primary to
-    // stderr with exit 1, a settled answer to stdout) and the trailing
-    // compaction outcomes to stderr.
-    if !json_mode {
+    let mut run_detail = None;
+    let mut primary_message = None;
+    if !facts.command_failed {
+        (facts.run, run_detail) = watch.last_run(opened, cx).await?;
+        // Text mode prints the primary (a settled answer to stdout) and the
+        // trailing compaction outcomes to stderr; a failed primary's text
+        // goes to stderr in both modes.
         let result = select_terminal_result(&conversation, cx).await?;
-        if let Some(primary) = result.primary {
+        if let Some(primary) = &result.primary {
+            facts.primary = primary.kind();
             match primary.failure() {
                 Some(RunFailure::Message(stderr)) => {
-                    exit_code = 1;
                     eprintln!("{stderr}");
+                    primary_message = Some(stderr);
                 }
-                Some(RunFailure::Silent) => exit_code = 1,
-                None => println!("{}", primary.stdout_text()),
+                Some(RunFailure::Silent) => {}
+                None if json_mode => {}
+                // The answer is the model's text: remote data, never
+                // terminal instructions, so the escapes and controls come
+                // out before it reaches stdout (JSON keeps the raw bytes).
+                None => println!("{}", crate::sanitize::text(&primary.stdout_text())),
             }
         }
         for outcome in result.compaction_outcomes {
-            eprintln!("{}", outcome.content);
+            if !json_mode {
+                eprintln!("{}", outcome.content);
+            }
             if outcome.outcome == "failed" {
-                exit_code = 1;
+                facts.compaction_failed = true;
             }
         }
+        // The TS print-mode autonomous contract applies to both output
+        // modes.
+        let autonomous = autonomous_state(harness, conversation.id(), cx).await?;
+        if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
+            eprintln!("{stderr}");
+            facts.autonomous_failed = true;
+        }
     }
-    // The TS print-mode autonomous contract applies to both output modes.
-    let autonomous = autonomous_state(harness, conversation.id(), cx)
-        .await
-        .map_err(|error| format!("{error:#}"))?;
-    if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
-        eprintln!("{stderr}");
-        exit_code = 1;
+    watch.finish().await;
+    let exit = eukhe_bend::rules::headless::exit(&facts).map_err(HeadlessModeError::Exit)?;
+    match exit.cause {
+        // The run's failure text, unless the failed primary already
+        // printed it.
+        ExitCause::RunFailed(_) if run_detail.is_some() && run_detail == primary_message => {}
+        ExitCause::RunFailed(_) => eprintln!(
+            "eukhe: the run ended without an answer: {}",
+            run_detail.as_deref().unwrap_or("no reason recorded")
+        ),
+        ExitCause::Unfinished => eprintln!("eukhe: the run ended without a final answer"),
+        ExitCause::CompactionFailed if json_mode => eprintln!("eukhe: compaction failed"),
+        ExitCause::Answered
+        | ExitCause::CommandFailed
+        | ExitCause::GaveUp
+        | ExitCause::ProviderError
+        | ExitCause::Aborted
+        | ExitCause::SlashFailed
+        | ExitCause::CompactionFailed
+        | ExitCause::AutonomousFailed => {}
     }
-    Ok(exit_code)
+    Ok(i32::from(exit.code))
 }
 
-/// The prompt loop. `Ok(Some(error))` is a failed session command.
+/// The prompt loop: each prompt, then the wait for quiescence.
 async fn drive_prompts(
-    session: &EukheSession,
+    opened: &HeadlessSession,
     conversation: &Conversation,
+    watch: &RunWatch,
     options: &RunOptions,
     cx: &Context,
-) -> Result<Option<String>, String> {
+) -> Result<PromptsEnd, HeadlessModeError> {
+    let session = &opened.session;
     let harness = session.harness();
     let config = &options.config;
+    let quiescent = || wait_quiescent(opened, watch, config.wait_limit, cx);
     // The CLI autonomous flags enable the run on the main conversation (no
     // status row, as TS `createAgentSession({ autonomous })`); a run without
     // flags keeps the session's state (`/autonomous` rewrites it live).
@@ -473,8 +594,7 @@ async fn drive_prompts(
             autonomous_runtime_config(autonomous),
             cx,
         )
-        .await
-        .map_err(|error| format!("{error:#}"))?;
+        .await?;
     }
     // The CLI `--goal` seed: a fresh conversation starts the goal and
     // queues its continuation; a resumed or already-seeded one keeps its
@@ -487,9 +607,10 @@ async fn drive_prompts(
             goal.token_budget.map(u64::from),
             cx,
         )
-        .await
-        .map_err(|error| format!("{error:#}"))?;
-        idle(conversation, cx).await?;
+        .await?;
+        if let Settled::GaveUp(work) = quiescent().await? {
+            return Ok(PromptsEnd::GaveUp(work));
+        }
     }
     let resources = &session.deps().resources;
     for (prompt, images) in prompts(options) {
@@ -502,7 +623,7 @@ async fn drive_prompts(
         if let Some(command) = classify_session_command(&prompt) {
             let outcome = execute_session_command(session, conversation, &command, cx).await;
             if let Some(error) = outcome.error {
-                return Ok(Some(error));
+                return Ok(PromptsEnd::CommandFailed(error));
             }
         } else {
             let submission = conversation
@@ -516,25 +637,17 @@ async fn drive_prompts(
                     },
                     cx,
                 )
-                .await
-                .map_err(|error| format!("{error:#}"))?;
-            submission
-                .wait(cx)
-                .await
-                .map_err(|error| format!("{error:#}"))?;
+                .await?;
+            submission.wait(cx).await?;
         }
-        // Continuations (goal, autonomous), queued input, and compaction
-        // run before the next prompt.
-        idle(conversation, cx).await?;
+        // Continuations (goal, autonomous), queued input, compaction, and
+        // the turns settled jobs and subagents wake run before the next
+        // prompt.
+        if let Settled::GaveUp(work) = quiescent().await? {
+            return Ok(PromptsEnd::GaveUp(work));
+        }
     }
-    Ok(None)
-}
-
-async fn idle(conversation: &Conversation, cx: &Context) -> Result<(), String> {
-    conversation
-        .wait_for_idle(cx)
-        .await
-        .map_err(|error| format!("{error:#}"))
+    Ok(PromptsEnd::Completed)
 }
 
 /// The json stream's leading identity line (the TS session header shape and
@@ -567,7 +680,8 @@ fn header_for(
 }
 
 /// The json mode's event stream: the main conversation's durable events in
-/// today's wire shapes (the daemon worker's translator), one line each.
+/// today's wire shapes (the daemon worker's translator), one line each,
+/// `message_update` reduced to its change ([`json_line`]).
 struct JsonEvents {
     stream: AgentEventStream,
     translator: Arc<Mutex<EventTranslator>>,
@@ -578,27 +692,23 @@ impl JsonEvents {
         session: &EukheSession,
         conversation: &Conversation,
         cx: &Context,
-    ) -> Result<Self, String> {
-        let stream = watch_events(session.harness(), conversation.id(), cx)
-            .await
-            .map_err(|error| format!("{error:#}"))?;
+    ) -> Result<Self, SessionError> {
+        let stream = watch_events(session.harness(), conversation.id(), cx).await?;
         let translator = Arc::new(Mutex::new(EventTranslator::new(
             stream.snapshot(),
             CoalesceMode::Immediate,
         )));
         let listener_translator = Arc::clone(&translator);
-        stream
-            .start(Arc::new(move |batch, _cx| {
-                let frames = listener_translator
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .translate_batch(&batch);
-                for frame in &frames {
-                    print_event(frame);
-                }
-                futures::future::ready(Ok(())).boxed()
-            }))
-            .map_err(|error| format!("{error:#}"))?;
+        stream.start(Arc::new(move |batch, _cx| {
+            let frames = listener_translator
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .translate_batch(&batch);
+            for frame in &frames {
+                print_event(frame);
+            }
+            futures::future::ready(Ok(())).boxed()
+        }))?;
         Ok(Self { stream, translator })
     }
 
@@ -619,11 +729,51 @@ impl JsonEvents {
 }
 
 /// Print one session event as its JSON line.
-fn print_event(event: &eukhe_types::daemon::SessionEvent) {
-    match serde_json::to_string(event) {
+fn print_event(event: &SessionEvent) {
+    match json_line(event) {
         Ok(line) => println!("{line}"),
         Err(error) => eprintln!("a session event does not serialize: {error}"),
     }
+}
+
+/// One session event's json-mode line (omp `printableEvent`): a
+/// `message_update` carries only its change. The accumulated partial it
+/// holds would re-serialize the whole in-flight message per frame (a long
+/// turn's stream grows quadratically); the settled message follows whole
+/// in `message_end`. A whole-message replacement keeps its message: that
+/// message is its change.
+fn json_line(event: &SessionEvent) -> serde_json::Result<String> {
+    if let SessionEvent::MessageUpdate {
+        assistant_message_event: update,
+        ..
+    } = event
+    {
+        match update {
+            StreamUpdate::Start
+            | StreamUpdate::TextStart
+            | StreamUpdate::TextDelta { .. }
+            | StreamUpdate::TextEnd
+            | StreamUpdate::ThinkingStart
+            | StreamUpdate::ThinkingDelta { .. }
+            | StreamUpdate::ThinkingEnd
+            | StreamUpdate::ToolcallStart
+            | StreamUpdate::ToolcallDelta { .. }
+            | StreamUpdate::ToolcallEnd => {
+                return serde_json::to_string(&UpdateLine {
+                    assistant_message_event: update,
+                });
+            }
+            StreamUpdate::Message => {}
+        }
+    }
+    serde_json::to_string(event)
+}
+
+/// A json-mode `message_update`: `type`, then the change.
+#[derive(serde::Serialize)]
+#[serde(tag = "type", rename = "message_update", rename_all = "camelCase")]
+struct UpdateLine<'a> {
+    assistant_message_event: &'a StreamUpdate,
 }
 
 #[cfg(test)]

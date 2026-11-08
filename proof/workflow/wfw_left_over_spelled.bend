@@ -4,7 +4,7 @@
 # sees the char left and answers the error form.
 
 import Base
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./wfw_answers_spelled/spell.bend as SP
 
 def Workflow.wfw_left_over_spelled(q, fits, c, rest):

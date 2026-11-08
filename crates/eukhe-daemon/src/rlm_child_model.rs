@@ -8,7 +8,9 @@ use std::path::Path;
 use anyhow::{anyhow, bail, Result};
 use eukhe_ai::models::registry_thinking_levels;
 use eukhe_core::kernel::rlm_runtime::{find_rlm_model_matches, RlmModelInfo};
+use eukhe_core::models::roles::role_model;
 use eukhe_types::ai::ModelThinkingLevel;
+use eukhe_types::model_roles::ModelRole;
 
 /// Close matches listed in model-resolution errors (TS suggestion limit).
 const MODEL_ERROR_SUGGESTION_LIMIT: usize = 3;
@@ -40,9 +42,8 @@ pub fn catalog_models(agent_dir: &Path) -> Vec<RlmModelInfo> {
 /// Resolve the child model reference, then enforce the daemon
 /// `allowedModels` allowlist on the resolved selector (an inherited parent
 /// model included): a model outside the allowlist fails loudly with the
-/// typed refusal — never a fallback — so both `rlm.spawn` and
-/// `rlm.create_session` refuse instead of landing a child on a model the
-/// daemon may not resolve to.
+/// typed refusal — never a fallback — so `rlm.spawn` refuses instead of
+/// landing a child on a model the daemon may not resolve to.
 ///
 /// # Errors
 ///
@@ -62,21 +63,22 @@ pub fn resolve_child_model(
     Ok(model)
 }
 
-/// What a child created without a `model` reference runs on.
+/// What a child spawned without a `model` reference runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnpinnedChildModel {
-    /// `rlm.spawn`: the `subagentDefaultModel` setting when set, else the
-    /// parent's model.
+    /// A subagent: the subagent role's model (`subagentDefaultModel`, else
+    /// `modelRoles.all`) when set, else the parent's model.
     SubagentDefault,
-    /// `rlm.create_session`: the parent's model.
+    /// Main's worker (`workerModel` unset): the parent's model.
     Parent,
 }
 
 /// [`resolve_child_model`] with the settings document of `cwd` read once:
 /// the `allowedModels` gate, and for [`UnpinnedChildModel::SubagentDefault`]
-/// the `subagentDefaultModel` reference a spawn without `model` resolves.
-/// The settings read is a synchronous file read (callers on an async path
-/// run it on the blocking pool).
+/// the subagent role's reference (`subagentDefaultModel`, else
+/// `modelRoles.all`) a spawn without `model` resolves, else the parent's
+/// model. The settings read is a synchronous file read (callers on an
+/// async path run it on the blocking pool).
 ///
 /// # Errors
 ///
@@ -93,11 +95,12 @@ pub fn resolve_child_model_from_settings(
 ) -> Result<String> {
     let settings = eukhe_core::settings::SettingsManager::create(cwd, agent_dir);
     let allowlist = crate::model_allowlist::from_settings(&settings);
-    let default_reference = match unpinned {
-        UnpinnedChildModel::SubagentDefault => settings.get_subagent_default_model(),
+    let reference = reference.map(str::to_string).or_else(|| match unpinned {
+        UnpinnedChildModel::SubagentDefault => {
+            role_model(settings.cvars(), ModelRole::Subagent).selector
+        }
         UnpinnedChildModel::Parent => None,
-    };
-    let reference = reference.map(str::to_string).or(default_reference);
+    });
     resolve_child_model(
         agent_dir,
         reference.as_deref(),
@@ -442,7 +445,7 @@ mod tests {
 
     /// Regression: `subagentDefaultModel` was never read. A spawn without
     /// `model` now runs on the configured default, an explicit reference
-    /// still wins, and `rlm.create_session` keeps inheriting the parent.
+    /// still wins, and main's worker keeps inheriting the parent.
     #[test]
     fn a_spawn_without_a_model_uses_the_subagent_default_setting() {
         let dir = tempfile::TempDir::new().unwrap();

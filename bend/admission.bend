@@ -1,19 +1,19 @@
 # admission: the pure model of one provider's admission controller
 # (crates/eukhe-core/src/admission.rs, `ControllerState`), rule H3 of
-# docs/harness.md.
+# LAWS.bend.
 #
 # - The state is the limit, the queue limit, and one entry per ticket, in
 #   ticket order: its class and its status. Ticket k is entry k.
 # - A status is `Queued` (waits), `Granted` (holds a slot, its waiter has
 #   not collected it), `Held` (a collected permit), `Preempted` (a
 #   collected background permit an interactive request took the slot
-#   from), or `Ended` (released, left, or rejected).
+#   from, on a capped provider), or `Ended` (released, left, or
+#   rejected).
 # - The Rust queues are the queued entries of a class, in ticket order;
 #   its counters are the counts below.
 #
 # LAWS.bend states what must hold; PROOF.bend proves it (with
-# proof/admission/). bridge/bridge_admission.bend runs this model
-# on the scenarios of the Rust bridge test (admission/bridge.rs).
+# proof/admission/).
 
 import Base
 
@@ -226,8 +226,7 @@ def grant(+l: Lim, +ts: List<&2, Tk>) -> List<&2, Tk>:
 # ---------
 
 # an interactive request frees every background slot: a granted waiter
-# waits again, a collected permit is preempted (Rust
-# `preempt_background`)
+# waits again, a collected permit is preempted
 def Tk.preempt(t: Tk) -> Tk:
   match t:
     case Tk{Ia{}, s}:
@@ -250,6 +249,16 @@ def preempt(ts: List<&2, Tk>) -> List<&2, Tk>:
     case h <> r:
       Tk.preempt(h) <> preempt(r)
 
+# what an interactive admit does to the tickets before it: on a capped
+# provider it preempts every background slot; an unlimited one has a slot
+# for every request, so its background requests keep theirs
+def preempt.on(l: Lim, ts: List<&2, Tk>) -> List<&2, Tk>:
+  match l:
+    case Unl{}:
+      ts
+    case Cap{p}:
+      preempt(ts)
+
 # a new interactive ticket: a slot if one is free and no interactive
 # request waits, else rejected once q of them wait, else it waits
 def admit.ia.st(free: Bool, full: Bool) -> Sts:
@@ -261,10 +270,11 @@ def admit.ia.st(free: Bool, full: Bool) -> Sts:
     case False{} False{}:
       Queued{}
 
-# after the preemption only interactive slots are held, so the counts of
-# ts decide
+# the interactive counts of ts decide: a preemption changes none, and
+# the background slots it leaves held (on an unlimited provider) take no
+# slot an interactive request lacks
 def admit.ia(+l: Lim, +q: Nat, +ts: List<&2, Tk>) -> List<&2, Tk>:
-  List.append(&2, Tk, preempt(ts), [Tk{Ia{}, admit.ia.st(Bool.and(isz(cnt(Waiting{}, Ia{}, ts)), room(l, cnt(Holding{}, Ia{}, ts))), le(q, cnt(Waiting{}, Ia{}, ts)))}])
+  List.append(&2, Tk, preempt.on(l, ts), [Tk{Ia{}, admit.ia.st(Bool.and(isz(cnt(Waiting{}, Ia{}, ts)), room(l, cnt(Holding{}, Ia{}, ts))), le(q, cnt(Waiting{}, Ia{}, ts)))}])
 
 def admit.bg.st(free: Bool) -> Sts:
   match free:
@@ -461,6 +471,13 @@ def lv.preempt(ts: List<&2, Lv>) -> List<&2, Lv>:
     case h <> r:
       lv.preempt.one(h) <> lv.preempt(r)
 
+def lv.preempt.on(l: Lim, ts: List<&2, Lv>) -> List<&2, Lv>:
+  match l:
+    case Unl{}:
+      ts
+    case Cap{p}:
+      lv.preempt(ts)
+
 # the new ticket k of class c with status s: it stays only when live
 def lv.fresh(s: Sts, k: Nat, c: Cls) -> List<&2, Lv>:
   match s:
@@ -476,7 +493,7 @@ def lv.fresh(s: Sts, k: Nat, c: Cls) -> List<&2, Lv>:
       Nil{}
 
 def lv.admit.ia(+l: Lim, +q: Nat, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
-  List.append(&2, Lv, lv.preempt(ts), lv.fresh(admit.ia.st(Bool.and(isz(lv.cnt(Waiting{}, Ia{}, ts)), room(l, lv.cnt(Holding{}, Ia{}, ts))), le(q, lv.cnt(Waiting{}, Ia{}, ts))), k, Ia{}))
+  List.append(&2, Lv, lv.preempt.on(l, ts), lv.fresh(admit.ia.st(Bool.and(isz(lv.cnt(Waiting{}, Ia{}, ts)), room(l, lv.cnt(Holding{}, Ia{}, ts))), le(q, lv.cnt(Waiting{}, Ia{}, ts))), k, Ia{}))
 
 def lv.admit.bg(+l: Lim, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
   List.append(&2, Lv, ts, lv.fresh(admit.bg.st(Bool.and(isz(lv.cnt(Holding{}, Ia{}, ts)), Bool.and(isz(lv.cnt(Waiting{}, Ia{}, ts)), Bool.and(isz(lv.cnt(Waiting{}, Bg{}, ts)), room(l, lv.held(ts)))))), k, Bg{}))
@@ -610,16 +627,20 @@ def grantable(+s: St) -> Bool:
     case St{+l, q, +ts}:
       Maybe.is_some(&2, Cls, pick(l, ts))
 
-# a background slot is held only while no interactive request holds a
-# slot or waits
-def calm.n(hi: Nat, wi: Nat, hb: Nat) -> Bool:
-  Bool.or(isz(hb), Bool.and(isz(hi), isz(wi)))
+# a background slot is held only while no interactive request waits (on
+# a capped provider an interactive admit preempts every background slot,
+# and a background request takes one only while no interactive request
+# holds or waits; an unlimited provider has a slot for every
+# interactive request, so none waits)
+def calm.n(wi: Nat, hb: Nat) -> Bool:
+  Bool.or(isz(hb), isz(wi))
 
 def calm(+ts: List<&2, Tk>) -> Bool:
-  calm.n(cnt(Holding{}, Ia{}, ts), cnt(Waiting{}, Ia{}, ts), cnt(Holding{}, Bg{}, ts))
+  calm.n(cnt(Waiting{}, Ia{}, ts), cnt(Holding{}, Bg{}, ts))
 
 # the slots an op frees itself, before any grant: a release or a granted
-# waiter that leaves, one; an interactive admit, every background slot
+# waiter that leaves, one; an interactive admit on a capped provider,
+# every background slot
 def freed.at(m: Maybe<&2, Tk>, rel: Bool) -> Nat:
   match m rel:
     case Some{Tk{c, Held{}}} True{}:
@@ -629,10 +650,17 @@ def freed.at(m: Maybe<&2, Tk>, rel: Bool) -> Nat:
     case _ _:
       0n
 
+def freed.ia(l: Lim, n: Nat) -> Nat:
+  match l:
+    case Unl{}:
+      0n
+    case Cap{p}:
+      n
+
 def freed(+s: St, o: Op) -> Nat:
   match o:
     case Admit{Ia{}}:
-      cnt(Holding{}, Bg{}, St.ts(s))
+      freed.ia(St.lim(s), cnt(Holding{}, Bg{}, St.ts(s)))
     case Admit{Bg{}}:
       0n
     case Collect{k}:

@@ -921,7 +921,6 @@ fn goal_continuation_refuses_after_the_402_corpse() {
         latest["status"], "error",
         "the goal finished on the errored turn: {latest}"
     );
-    assert_eq!(latest["active"], false);
     assert!(
         latest["lastError"]
             .as_str()

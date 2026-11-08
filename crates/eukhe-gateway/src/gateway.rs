@@ -3,14 +3,17 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use eukhe_client::daemon_build::{relation, Build, Relation};
 use eukhe_client::daemon_client::DaemonClientEvent;
+use eukhe_tui::client_settings::{all_roles_note, ClientSettings};
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::daemon::{
     DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
+    WaitingOn,
 };
 use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
@@ -20,7 +23,9 @@ use tokio::sync::{mpsc, watch};
 use crate::answer::{answer, Answer};
 use crate::commands::{Parsed, PhoneCommand};
 use crate::link::{reconnect_delay, Binding, Link, Opened, Reconnect};
-use crate::sessions::{Route, SavedSession, SessionRef, LISTED_SESSIONS};
+use crate::sessions::{
+    home_route, root_session, Route, SavedSession, SessionRef, LISTED_SESSIONS, ROOT_SESSION_NAME,
+};
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
 use crate::style::{self, StyledText};
 use crate::GatewayConfig;
@@ -39,10 +44,22 @@ const SENT_PROMPTS_KEPT: usize = 16;
 /// How long the shutdown cleanup (typing stop, detach) may take.
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
+/// The instruction of the root session's heartbeat (`gateway.rootHeartbeat`).
+const ROOT_HEARTBEAT_PROMPT: &str = "Heartbeat: check on your children and the work you wait on, and act on what is due. Stay quiet when nothing needs the user.";
+
 /// The typing indicator the gateway shows.
 struct TypingShown {
     peer: Peer,
     since: Instant,
+}
+
+/// What `/model N` switches: the session and the gateway's model
+/// (`gateway.signal.model`), or every LLM role (`/model all N`: the daemon
+/// saves `modelRoles.all` and clears each role's own global model).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelSwitch {
+    Session,
+    AllRoles,
 }
 
 /// The daemon connection's state.
@@ -62,6 +79,8 @@ enum DaemonState {
 
 pub(crate) struct Gateway<L> {
     config: GatewayConfig,
+    /// The settings the `/model` reply reads (the all-roles model).
+    settings: Arc<dyn ClientSettings>,
     signal: SignalCli,
     inbound: mpsc::Receiver<Inbound>,
     link: Link<L>,
@@ -88,14 +107,20 @@ pub(crate) struct Gateway<L> {
 
 impl<L: DaemonLauncher> Gateway<L> {
     /// Install the signal handlers, connect to the daemon, and start
-    /// `signal-cli`.
+    /// `signal-cli`. With `gateway.rootHeartbeat` set, open the root
+    /// session (made when missing) and create or replace its heartbeat.
     ///
     /// # Errors
     ///
-    /// A handler cannot install, the first daemon connection fails, or
-    /// `signal-cli` cannot start.
+    /// A handler cannot install, the first daemon connection fails,
+    /// `signal-cli` cannot start, or the root session or its heartbeat
+    /// cannot be set up (a schedule the daemon refuses).
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn start(config: GatewayConfig, launcher: L) -> anyhow::Result<Self> {
+    pub(crate) async fn start(
+        config: GatewayConfig,
+        launcher: L,
+        settings: Arc<dyn ClientSettings>,
+    ) -> anyhow::Result<Self> {
         let mut interrupt =
             signal(SignalKind::interrupt()).context("install the SIGINT handler")?;
         let mut terminate =
@@ -115,15 +140,16 @@ impl<L: DaemonLauncher> Gateway<L> {
         let (signal, inbound) = SignalCli::spawn(&config.signal)
             .await
             .context("start signal-cli")?;
-        tracing::info!("the gateway runs");
-        Ok(Self {
+        let route = home_route(config.root_heartbeat.as_deref());
+        let mut gateway = Self {
             config,
+            settings,
             signal,
             inbound,
             link,
             shutdown,
             daemon: DaemonState::Up,
-            route: Route::Follow,
+            route,
             binding: None,
             floor: None,
             running: false,
@@ -131,7 +157,29 @@ impl<L: DaemonLauncher> Gateway<L> {
             stop_pending: None,
             sent_prompts: VecDeque::new(),
             listings: HashMap::new(),
-        })
+        };
+        if let Some(schedule) = gateway.config.root_heartbeat.clone() {
+            let binding = gateway.routed_binding().await?;
+            gateway
+                .link
+                .client
+                .request_ok(root_heartbeat(&binding.active_session_id, &schedule))
+                .await
+                .with_context(|| {
+                    format!("set the root session's heartbeat (gateway.rootHeartbeat {schedule:?})")
+                })?;
+            tracing::info!(%schedule, session = %binding.session.path, "the root session's heartbeat runs");
+        }
+        tracing::info!("the gateway runs");
+        Ok(gateway)
+    }
+
+    /// The reply line that names where `/latest` sends messages.
+    fn latest_hint(&self) -> &'static str {
+        match home_route(self.config.root_heartbeat.as_deref()) {
+            Route::Root => "Send /latest to use the root session.",
+            Route::Follow | Route::Pinned(_) => "Send /latest to use the newest session.",
+        }
     }
 
     /// Serve until shutdown: inbound messages strictly in arrival order,
@@ -375,19 +423,25 @@ impl<L: DaemonLauncher> Gateway<L> {
                 self.route = Route::Pinned(SessionRef::from(&saved));
                 let title = saved.title.as_deref().unwrap_or("(no title)");
                 Ok(format!(
-                    "Using session {number}: {title}\nSend /latest to use the newest session."
+                    "Using session {number}: {title}\n{}",
+                    self.latest_hint()
                 ))
             }
             PhoneCommand::Latest => {
-                self.route = Route::Follow;
-                Ok("Messages go to the newest session.".to_string())
+                self.route = home_route(self.config.root_heartbeat.as_deref());
+                Ok(match self.route {
+                    Route::Root => "Messages go to the root session.",
+                    Route::Follow | Route::Pinned(_) => "Messages go to the newest session.",
+                }
+                .to_string())
             }
             PhoneCommand::New => {
                 let binding = self.open(None, None).await?;
                 self.route = Route::Pinned(binding.session);
                 Ok(format!(
-                    "New session in {}.\nSend /latest to use the newest session.",
-                    self.config.new_session_cwd.display()
+                    "New session in {}.\n{}",
+                    self.config.new_session_cwd.display(),
+                    self.latest_hint()
                 ))
             }
             PhoneCommand::Stop => {
@@ -410,6 +464,9 @@ impl<L: DaemonLauncher> Gateway<L> {
             }
             PhoneCommand::Status => self.status().await,
             PhoneCommand::Memory => self.memory().await,
+            PhoneCommand::Model(number) => self.model(number, ModelSwitch::Session).await,
+            PhoneCommand::Reasoning(level) => self.reasoning(level).await,
+            PhoneCommand::ModelAll(number) => self.model(number, ModelSwitch::AllRoles).await,
         }
     }
 
@@ -434,7 +491,8 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// The `/status` reply: the bound session's name, folder, and run
-    /// state, and the routing mode.
+    /// state (what it waits on when its turn ended while work runs), and
+    /// the routing mode.
     ///
     /// # Errors
     ///
@@ -445,6 +503,7 @@ impl<L: DaemonLauncher> Gateway<L> {
         let mode = match &self.route {
             Route::Follow => "follow (newest session)",
             Route::Pinned(_) => "pinned",
+            Route::Root => "root (the root session)",
         };
         let Some(binding) = &self.binding else {
             return Ok(format!(
@@ -479,7 +538,15 @@ impl<L: DaemonLauncher> Gateway<L> {
             .get("isStreaming")
             .and_then(Value::as_bool)
             .context("the session state has no isStreaming")?;
-        let busy = if busy { "yes" } else { "no" };
+        let busy = match (busy, waiting_on(&state)?) {
+            (true, _) => "yes".to_string(),
+            (false, Some(waiting)) => waiting.to_string(),
+            (false, None) => "no".to_string(),
+        };
+        let thinking = state
+            .get("thinkingLevel")
+            .and_then(Value::as_str)
+            .unwrap_or("off");
         // `get_state` leaves `model` out when the session has none.
         let model = match state.get("model") {
             None => "none".to_string(),
@@ -494,13 +561,12 @@ impl<L: DaemonLauncher> Gateway<L> {
             }
         };
         Ok(format!(
-            "Session: {name}\nFolder: {cwd}\nModel: {model}\nMode: {mode}\nBusy: {busy}"
+            "Session: {name}\nFolder: {cwd}\nModel: {model}\nThinking: {thinking}\nMode: {mode}\nBusy: {busy}"
         ))
     }
 
-    /// The `/memory` reply: the chat memory's size and compactor state.
-    /// Every root session shares the one chat memory, so this opens the
-    /// routed session when none is bound.
+    /// The `/memory` reply: the routed session's own chat memory, its size
+    /// and compactor state; opens the routed session when none is bound.
     ///
     /// # Errors
     ///
@@ -539,6 +605,197 @@ impl<L: DaemonLauncher> Gateway<L> {
             lines.push(format!("Last error: {error}"));
         }
         Ok(lines.join("\n"))
+    }
+
+    /// The routed session's connection state: the same JSON the model
+    /// pickers read (`model`, `thinkingLevel`,
+    /// `availableThinkingLevels`).
+    ///
+    /// # Errors
+    ///
+    /// The daemon cannot report the session state.
+    async fn connection_state(&self, active_session_id: &str) -> anyhow::Result<Value> {
+        self.link
+            .client
+            .request_ok(DaemonCommand::GetState {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                rest: Map::default(),
+            })
+            .await
+            .context("read the session state")
+    }
+
+    /// The `/model` reply: the current model, the all-roles model when one
+    /// is set, and the discovered models; `/model N` switches to the Nth
+    /// one, `/model all N` also makes it the all-roles model.
+    ///
+    /// # Errors
+    ///
+    /// No session state, no model discovery, or the switch failed.
+    #[tracing::instrument(skip_all)]
+    async fn model(&self, number: Option<String>, switch: ModelSwitch) -> anyhow::Result<String> {
+        let Some(binding) = &self.binding else {
+            return Ok("Session: none open. The next message opens one.".to_string());
+        };
+        let state = self.connection_state(&binding.active_session_id).await?;
+        let current = state.get("model").and_then(|model| {
+            Some(format!(
+                "{}/{}",
+                model.get("provider")?.as_str()?,
+                model.get("id")?.as_str()?
+            ))
+        });
+        let Some(number) = number else {
+            let models = self.available_models(&binding.active_session_id).await?;
+            let mut lines = vec![format!("Model: {}", current.as_deref().unwrap_or("none"))];
+            if let Some(all) = self
+                .settings
+                .all_roles_model()
+                .and_then(|value| value.selector)
+            {
+                lines.push(format!("All roles: {all}"));
+            }
+            for (index, entry) in models.iter().enumerate() {
+                lines.push(format!(
+                    "{}. {}/{} - {}",
+                    index + 1,
+                    entry["provider"].as_str().unwrap_or("?"),
+                    entry["id"].as_str().unwrap_or("?"),
+                    entry["name"].as_str().unwrap_or(""),
+                ));
+            }
+            if models.is_empty() {
+                lines.push("No other model is configured.".to_string());
+            }
+            lines.push(
+                match switch {
+                    ModelSwitch::Session => {
+                        "Send /model N to switch, /model all N to use it for every role."
+                    }
+                    ModelSwitch::AllRoles => "Send /model all N to use it for every role.",
+                }
+                .to_string(),
+            );
+            return Ok(lines.join("\n"));
+        };
+        let list = match switch {
+            ModelSwitch::Session => "/model",
+            ModelSwitch::AllRoles => "/model all",
+        };
+        let models = self.available_models(&binding.active_session_id).await?;
+        let index: usize = number
+            .parse()
+            .map_err(|_| anyhow::anyhow!("No model {number}. Send {list} for the list."))?;
+        let entry = models
+            .get(index.wrapping_sub(1))
+            .ok_or_else(|| anyhow::anyhow!("No model {number}. Send {list} for the list."))?;
+        let provider = entry
+            .get("provider")
+            .and_then(Value::as_str)
+            .context("the model has no provider")?;
+        let model_id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .context("the model has no id")?;
+        let selector = format!("{provider}/{model_id}");
+        let rest = match switch {
+            // The phone's model is the gateway role's: the next message
+            // (and the next session) runs on it too.
+            ModelSwitch::Session => Map::from_iter([("save".to_string(), Value::from("gateway"))]),
+            ModelSwitch::AllRoles => Map::from_iter([("allRoles".to_string(), Value::Bool(true))]),
+        };
+        self.link
+            .client
+            .request_ok(DaemonCommand::SetModel {
+                id: None,
+                active_session_id: binding.active_session_id.clone(),
+                provider: provider.to_string(),
+                model_id: model_id.to_string(),
+                rest,
+            })
+            .await?;
+        Ok(match switch {
+            ModelSwitch::Session => format!("Model set to {selector}."),
+            ModelSwitch::AllRoles => {
+                all_roles_note(&selector, &self.settings.all_roles_overrides(&selector))
+            }
+        })
+    }
+
+    /// The session's discovered models (`get_available_models`).
+    ///
+    /// # Errors
+    ///
+    /// The daemon cannot list the models.
+    async fn available_models(&self, active_session_id: &str) -> anyhow::Result<Vec<Value>> {
+        let data = self
+            .link
+            .client
+            .request_ok(DaemonCommand::GetAvailableModels {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                rest: Map::default(),
+            })
+            .await
+            .context("list the models")?;
+        Ok(data
+            .get("models")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    /// The `/reasoning` reply: the current thinking level and the levels
+    /// the model offers; `/reasoning <level>` sets it.
+    ///
+    /// # Errors
+    ///
+    /// No session state, or the switch failed.
+    #[tracing::instrument(skip_all)]
+    async fn reasoning(&self, level: Option<String>) -> anyhow::Result<String> {
+        let Some(binding) = &self.binding else {
+            return Ok("Session: none open. The next message opens one.".to_string());
+        };
+        let state = self.connection_state(&binding.active_session_id).await?;
+        let current = state
+            .get("thinkingLevel")
+            .and_then(Value::as_str)
+            .unwrap_or("off")
+            .to_string();
+        let levels: Vec<String> = state
+            .get("availableThinkingLevels")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+        let Some(given) = level else {
+            if levels.is_empty() {
+                return Ok(format!(
+                    "Thinking: {current}. This model offers no other level."
+                ));
+            }
+            return Ok(format!(
+                "Thinking: {current}\nLevels: {}\nSend /reasoning <level> to set it.",
+                levels.join(", ")
+            ));
+        };
+        if levels.is_empty() {
+            return Ok("This model offers no other thinking level.".to_string());
+        }
+        let found = levels
+            .iter()
+            .find(|offered| offered.eq_ignore_ascii_case(&given))
+            .ok_or_else(|| anyhow::anyhow!("No level {given}. Levels: {}.", levels.join(", ")))?;
+        self.link
+            .client
+            .request_ok(DaemonCommand::SetThinkingLevel {
+                id: None,
+                active_session_id: binding.active_session_id.clone(),
+                level: found.clone(),
+                rest: Map::default(),
+            })
+            .await
+            .map(|_| format!("Thinking set to {found}."))
     }
 
     /// Send one message to the agent; on success Signal holds the floor.
@@ -640,17 +897,19 @@ impl<L: DaemonLauncher> Gateway<L> {
         Ok(())
     }
 
-    /// Switch the session to the Signal model (`gateway.signal.model`)
-    /// when it runs another model. Without the setting the session keeps
-    /// its model.
+    /// Switch the session to the Signal model ([`crate::signal_model`],
+    /// read now) when it runs another model; the switch saves nothing (the
+    /// setting already names the model). Without the setting the session
+    /// keeps its model.
     ///
     /// # Errors
     ///
-    /// The daemon cannot report the session state, or refuses the switch
-    /// (an unknown model, a provider without credentials).
+    /// The setting is not `provider/model-id`, the daemon cannot report
+    /// the session state, or it refuses the switch (an unknown model, a
+    /// provider without credentials).
     #[tracing::instrument(skip(self))]
     async fn select_model(&self, active_session_id: &str) -> anyhow::Result<()> {
-        let Some(model) = &self.config.model else {
+        let Some(model) = crate::signal_model(self.settings.as_ref())? else {
             return Ok(());
         };
         let state = self
@@ -681,7 +940,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 active_session_id: active_session_id.to_string(),
                 provider: model.provider.clone(),
                 model_id: model.model_id.clone(),
-                rest: Map::default(),
+                rest: Map::from_iter([("save".to_string(), Value::from("none"))]),
             })
             .await
             .with_context(|| format!("switch the session to {model} (gateway.signal.model)"))?;
@@ -690,8 +949,9 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// The binding the route selects now, opened when it changed: the
-    /// pinned session, or the newest root session (the bound one when
-    /// none is saved yet; a new one when nothing exists).
+    /// pinned session, the newest root session (the bound one when none
+    /// is saved yet; a new one when nothing exists), or the session named
+    /// [`ROOT_SESSION_NAME`] (made and named when missing).
     #[tracing::instrument(skip_all)]
     async fn routed_binding(&mut self) -> anyhow::Result<Binding> {
         if self.link.is_dead() {
@@ -713,6 +973,29 @@ impl<L: DaemonLauncher> Gateway<L> {
                     Some(saved) => (Some(SessionRef::from(&saved)), Some(saved.cwd)),
                     None => (None, None),
                 }
+            }
+            Route::Root => {
+                let sessions = self
+                    .link
+                    .root_sessions(&self.config.session_dir, &self.config.new_session_cwd)
+                    .await?;
+                let Some(saved) = root_session(&sessions) else {
+                    let binding = self.open(None, None).await?;
+                    self.link
+                        .client
+                        .request_ok(DaemonCommand::Rename {
+                            id: None,
+                            active_session_id: binding.active_session_id.clone(),
+                            name: ROOT_SESSION_NAME.to_string(),
+                            renamed_by: None,
+                            rest: Map::default(),
+                        })
+                        .await
+                        .context("name the root session")?;
+                    tracing::info!(session = %binding.session.path, "made the root session");
+                    return Ok(binding);
+                };
+                (Some(SessionRef::from(saved)), Some(saved.cwd.clone()))
             }
         };
         match (target, &self.binding) {
@@ -897,7 +1180,6 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
-            | SessionEvent::AgentRelay(_)
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }
             | SessionEvent::BashEnd { .. }
@@ -907,6 +1189,23 @@ impl<L: DaemonLauncher> Gateway<L> {
         }
         if let Some(answer) = answer(event) {
             self.relay_answer(answer).await;
+        }
+        // A turn that ended while work it started still runs is waiting,
+        // not done: the peer holding the floor hears what it waits on.
+        if let (SessionEvent::AgentEnd { .. }, Some(peer), Some(binding)) =
+            (event, self.floor.clone(), self.binding.as_ref())
+        {
+            let waiting = self
+                .connection_state(&binding.active_session_id)
+                .await
+                .and_then(|state| waiting_on(&state));
+            match waiting {
+                Ok(Some(waiting)) => self.reply(&peer, waiting.to_string()).await,
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "the turn end's state read failed");
+                }
+            }
         }
     }
 
@@ -991,6 +1290,22 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 }
 
+/// The `heartbeat_set` that creates or replaces the root session's
+/// heartbeat: `schedule` (`gateway.rootHeartbeat`) with the root
+/// instruction, the daemon's default delivery (a fire waits while the
+/// session is busy).
+fn root_heartbeat(active_session_id: &str, schedule: &str) -> DaemonCommand {
+    DaemonCommand::HeartbeatSet {
+        id: None,
+        active_session_id: active_session_id.to_string(),
+        schedule: schedule.to_string(),
+        prompt: ROOT_HEARTBEAT_PROMPT.to_string(),
+        delivery_mode: None,
+        promote_owned_session: None,
+        rest: Map::default(),
+    }
+}
+
 /// The text of a user message: its text blocks, blank-line separated.
 fn user_text(content: &UserContent) -> String {
     match content {
@@ -1003,5 +1318,65 @@ fn user_text(content: &UserContent) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n\n"),
+    }
+}
+
+/// What the session state (`get_state`) says the session waits on: its
+/// `waitingOn`, absent when nothing runs.
+///
+/// # Errors
+///
+/// The state carries a malformed `waitingOn`.
+fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
+    state
+        .get("waitingOn")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .context("the session state has a malformed waitingOn")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `gateway.rootHeartbeat` arms the root session's heartbeat with one
+    /// `heartbeat_set`: the setting's schedule, the root instruction, the
+    /// daemon's default delivery.
+    #[test]
+    fn the_root_heartbeat_is_one_heartbeat_set() {
+        assert_eq!(
+            serde_json::to_value(root_heartbeat("live-root", "every 30 minutes"))
+                .expect("a command serializes"),
+            json!({
+                "type": "heartbeat_set",
+                "activeSessionId": "live-root",
+                "schedule": "every 30 minutes",
+                "prompt": ROOT_HEARTBEAT_PROMPT,
+            })
+        );
+    }
+
+    /// A turn end and `/status` name what the session waits on, in the
+    /// agreed wording; a session with nothing running waits on nothing.
+    #[test]
+    fn the_session_state_names_what_the_session_waits_on() {
+        let state = json!({
+            "isStreaming": false,
+            "waitingOn": {
+                "jobs": [{ "id": "j1", "label": "sleep 45" }],
+                "kernelJobs": 0,
+                "subagents": 2,
+                "workflowRuns": 0,
+            },
+        });
+        let shown = waiting_on(&state)
+            .expect("a well-formed state")
+            .map(|waiting| waiting.to_string());
+        assert_eq!(shown.as_deref(), Some("waiting on job j1 · 2 subagents"));
+        assert_eq!(
+            waiting_on(&json!({ "isStreaming": false })).expect("a well-formed state"),
+            None
+        );
     }
 }

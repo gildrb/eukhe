@@ -1,7 +1,8 @@
 //! The one job-settled wake (ADR 0010): every job a session started that
 //! settles after its call stopped blocking the turn — a background kernel
 //! `bash()` command, a detached `ipython` cell — wakes the session through
-//! [`JobNotices::deliver`].
+//! [`JobNotices::deliver`]; the end of a `bash()` command the agent itself
+//! stopped (`handle.kill()`) is dropped, never a wake.
 //!
 //! Bash commands are the port of the TS async-bash-completion wake
 //! (agent-session.ts `_createKernelHostHandlers`' `bash.completed`/
@@ -23,16 +24,24 @@
 //! it for the next boundary and an idle one wakes into the turn; the
 //! Harness inbox makes the admission durable. A `bash.consumed` withdraws
 //! the front-most still-queued notice for the same pid and command.
+//!
+//! A headless (print/json/RPC) session gets the same wake through
+//! [`HeadlessWakes`]: its notices admit straight into the in-process
+//! session's main conversation.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
+use eukhe_bend::rules::job_notice::{self, Notice, Stopper};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::messages::create_job_settled_message;
-use eukhe_core::durable::{SessionConfig, SessionStorage};
+use eukhe_core::durable::{EukheSession, SessionConfig, SessionStorage};
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::job::{BashStopper, JobSettled};
 use serde_json::Value;
+use tokio::sync::futures::Notified;
+use tokio::sync::Notify;
 
 use eukhe_core::kernel::shared::{host_handler, HostRequestHandlers};
 
@@ -55,28 +64,100 @@ struct PendingNotice {
     command: String,
 }
 
-/// The job-settled seam of one durable session: the worker's session slot
-/// it admits into, the closed-session gate, and the bash notices admitted
-/// so far (process memory: the kernel that sends the withdrawals dies with
-/// the worker).
+/// Where one session's settle notices are admitted.
+#[derive(Clone)]
+enum WakeTarget {
+    /// A daemon worker's hosted session, admitted through its run gate;
+    /// a closed or closing session refuses notices silently.
+    Worker {
+        session: SessionSlot,
+        core: Arc<Mutex<SessionCore>>,
+    },
+    /// A headless (print/json/RPC) session of this process, bound once it
+    /// opened ([`HeadlessWakes::bind`]); a dropped session refuses notices
+    /// silently.
+    Headless(Arc<OnceLock<Weak<EukheSession>>>),
+}
+
+/// The settle notices being admitted right now, shared by every clone of
+/// one [`JobNotices`]: a job reads ended only after its notice entered
+/// this count, so a quiescence check that reads the running jobs, then
+/// this count, then the conversation's idleness never misses a wake.
+#[derive(Default)]
+struct InFlight {
+    count: AtomicUsize,
+    changed: Notify,
+}
+
+/// One notice being admitted; dropping it leaves the count.
+struct Admitting(Arc<InFlight>);
+
+impl Admitting {
+    fn start(in_flight: &Arc<InFlight>) -> Self {
+        in_flight.count.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::clone(in_flight))
+    }
+}
+
+impl Drop for Admitting {
+    fn drop(&mut self) {
+        self.0.count.fetch_sub(1, Ordering::SeqCst);
+        self.0.changed.notify_waiters();
+    }
+}
+
+/// The job-settled seam of one durable session: where it admits, the bash
+/// notices admitted so far (process memory: the kernel that sends the
+/// withdrawals dies with the process), and the notices in flight.
 #[derive(Clone)]
 pub(crate) struct JobNotices {
-    session: SessionSlot,
-    core: Arc<Mutex<SessionCore>>,
+    target: WakeTarget,
     pending: Arc<Mutex<Vec<PendingNotice>>>,
+    in_flight: Arc<InFlight>,
 }
 
 impl JobNotices {
     pub(crate) fn new(session: SessionSlot, core: Arc<Mutex<SessionCore>>) -> Self {
+        Self::with_target(WakeTarget::Worker { session, core })
+    }
+
+    fn with_target(target: WakeTarget) -> Self {
         Self {
-            session,
-            core,
+            target,
             pending: Arc::default(),
+            in_flight: Arc::default(),
         }
     }
 
     fn pending(&self) -> std::sync::MutexGuard<'_, Vec<PendingNotice>> {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The settle notices being admitted right now.
+    pub(crate) fn in_flight(&self) -> usize {
+        self.in_flight.count.load(Ordering::SeqCst)
+    }
+
+    /// Resolves after the in-flight count next drops. Enable it before a
+    /// check so a drop racing the check still wakes the waiter.
+    pub(crate) fn changed(&self) -> Notified<'_> {
+        self.in_flight.changed.notified()
+    }
+
+    /// The `job_settled` sink: the notice counts as in flight from the
+    /// call (before the job reads ended) until its admission is done.
+    fn sink(&self) -> eukhe_core::durable::JobSettledSink {
+        let notices = self.clone();
+        Arc::new(move |settled: JobSettled| {
+            let admitting = Admitting::start(&notices.in_flight);
+            let notices = notices.clone();
+            tokio::spawn(async move {
+                if let Err(error) = notices.deliver(settled).await {
+                    eprintln!("eukhe settled job not delivered: {error:#}");
+                }
+                drop(admitting);
+            });
+        })
     }
 
     /// Register the validated `bash.completed`/`bash.consumed` handlers
@@ -90,7 +171,10 @@ impl JobNotices {
                 let notices = completion.clone();
                 async move {
                     let settled = validate_completion(&payload.data)?;
+                    // The kernel keeps the command active until this reply.
+                    let admitting = Admitting::start(&notices.in_flight);
                     notices.deliver(settled).await?;
+                    drop(admitting);
                     Ok(serde_json::json!({}))
                 }
             }),
@@ -112,18 +196,18 @@ impl JobNotices {
     /// Admit one settled job (TS `bash.completed` ->
     /// `_promptInjectedMessage(message, { streamingBehavior: "steer",
     /// queueIfBusy: true, resumeIfIdle: true })`). A closed or closing
-    /// session refuses it silently, like TS `_disposed`.
+    /// session refuses it silently, like TS `_disposed`. Whether the end
+    /// wakes is the compiled core's (`bend/ffi_job_notice.bend`): a
+    /// `bash()` command the agent itself stopped (`handle.kill()`) is
+    /// dropped, its end no news to the agent, so it neither wakes the
+    /// session nor steers its turn. A notice holds a result no call took.
     async fn deliver(&self, settled: JobSettled) -> anyhow::Result<()> {
-        {
-            let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
-            if !core.created || core.shutdown_requested {
-                return Ok(());
-            }
+        match job_notice::notice(stopper_of(&settled), false) {
+            Notice::Drop => return Ok(()),
+            Notice::Wake => {}
         }
-        let Some(hosted) = self.session.get() else {
-            return Ok(());
-        };
         let row = create_job_settled_message(&settled, crate::util::now_ms());
+        let report = settled.report();
         let request_id = format!("job-settled:{}", uuid::Uuid::new_v4());
         let request = InputRequest {
             text: row.content.text(),
@@ -131,13 +215,33 @@ impl JobNotices {
             custom_row: Some(crate::session_custom::custom_row_value(&row)),
             when_busy: WhenBusy::Steer,
             request_id: Some(request_id.clone()),
-            origin: InputOrigin::Report {
-                report: settled.report(),
-            },
+            origin: InputOrigin::Report { report },
         };
-        let admission = RunAdmission::enter(&self.core).await;
-        submit_input(&hosted.main()?, &request, &admission, &BACKGROUND_CONTEXT).await?;
-        drop(admission);
+        match &self.target {
+            WakeTarget::Worker { session, core } => {
+                {
+                    let core = core.lock().unwrap_or_else(PoisonError::into_inner);
+                    if !core.created || core.shutdown_requested {
+                        return Ok(());
+                    }
+                }
+                let Some(hosted) = session.get() else {
+                    return Ok(());
+                };
+                let admission = RunAdmission::enter(core).await;
+                submit_input(&hosted.main()?, &request, &admission, &BACKGROUND_CONTEXT).await?;
+                drop(admission);
+            }
+            WakeTarget::Headless(slot) => {
+                let Some(session) = slot.get().and_then(Weak::upgrade) else {
+                    return Ok(());
+                };
+                session
+                    .main()
+                    .submit(request.draft()?, &BACKGROUND_CONTEXT)
+                    .await?;
+            }
+        }
         match settled {
             JobSettled::Bash { pid, command, .. } => self.pending().push(PendingNotice {
                 request_id,
@@ -157,8 +261,19 @@ impl JobNotices {
     /// one notice — the front-most still-queued one for this pid and
     /// command (pids are reused across handles).
     async fn withdraw(&self, notice: &BashConsumedNotice) -> anyhow::Result<()> {
-        let Some(hosted) = self.session.get() else {
-            return Ok(());
+        let (harness, main) = match &self.target {
+            WakeTarget::Worker { session, .. } => {
+                let Some(hosted) = session.get() else {
+                    return Ok(());
+                };
+                (hosted.harness().clone(), hosted.main()?)
+            }
+            WakeTarget::Headless(slot) => {
+                let Some(session) = slot.get().and_then(Weak::upgrade) else {
+                    return Ok(());
+                };
+                (session.harness().clone(), session.main())
+            }
         };
         let candidates: Vec<String> = self
             .pending()
@@ -170,7 +285,7 @@ impl JobNotices {
             // A notice queued before inputs carried their row as their entry
             // may still have its row queued as a separate `:row` write.
             let row_id = format!("{request_id}:row");
-            let withdrawn = withdraw_queued(&hosted, |queued| {
+            let withdrawn = withdraw_queued(&harness, &main, |queued| {
                 queued == request_id.as_str() || queued == row_id.as_str()
             })
             .await?;
@@ -193,8 +308,9 @@ impl Worker {
     /// scheduled-jobs cron wiring (`rlm_heartbeat.*`), the job-settled wake
     /// (`bash.completed`/`bash.consumed` and the detached-cell sink), and
     /// the agent messaging bridges (`agent_message.*`/`agent_observe.*`),
-    /// merged into the config's extra host handlers.
-    pub(crate) fn wire_session_host(&self, config: &mut SessionConfig) {
+    /// merged into the config's extra host handlers. Returns the session's
+    /// notices (their in-flight count is part of its quiescence).
+    pub(crate) fn wire_session_host(&self, config: &mut SessionConfig) -> JobNotices {
         let storage_dir = match &config.storage {
             SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
             SessionStorage::Memory => None,
@@ -210,14 +326,76 @@ impl Worker {
             .get_or_insert_with(HostRequestHandlers::default);
         notices.register(handlers);
         self.register_agent_messaging(handlers);
-        config.job_settled = Some(Arc::new(move |settled: JobSettled| {
-            let notices = notices.clone();
-            tokio::spawn(async move {
-                if let Err(error) = notices.deliver(settled).await {
-                    eprintln!("eukhe-daemon settled job not delivered: {error:#}");
-                }
-            });
-        }));
+        config.job_settled = Some(notices.sink());
+        notices
+    }
+}
+
+/// The job-settled wake of one headless (print/json/RPC) session: the
+/// same notices a daemon worker admits (a settled detached cell or `bash`
+/// tool script, a finished background kernel `bash()` command), admitted
+/// straight into the session's main conversation, so an idle session
+/// wakes into the turn and a busy one takes the notice at its next
+/// boundary.
+#[derive(Clone)]
+pub struct HeadlessWakes {
+    session: Arc<OnceLock<Weak<EukheSession>>>,
+    notices: JobNotices,
+}
+
+impl Default for HeadlessWakes {
+    fn default() -> Self {
+        let session = Arc::new(OnceLock::new());
+        Self {
+            notices: JobNotices::with_target(WakeTarget::Headless(Arc::clone(&session))),
+            session,
+        }
+    }
+}
+
+impl HeadlessWakes {
+    /// Wire the wake into a session about to open: the `job_settled` sink
+    /// and the `bash.completed`/`bash.consumed` host handlers.
+    pub fn wire(&self, config: &mut SessionConfig) {
+        let handlers = config
+            .extra_host_handlers
+            .get_or_insert_with(HostRequestHandlers::default);
+        self.notices.register(handlers);
+        config.job_settled = Some(self.notices.sink());
+    }
+
+    /// Admit into `session` from now on (a notice before the bind, or
+    /// after the session dropped, is refused silently).
+    pub fn bind(&self, session: &Arc<EukheSession>) {
+        // A second bind of the same wake keeps the first session: one
+        // wake belongs to one open.
+        let _first_bind_wins = self.session.set(Arc::downgrade(session));
+    }
+
+    /// The settle notices being admitted right now.
+    #[must_use]
+    pub fn in_flight(&self) -> usize {
+        self.notices.in_flight()
+    }
+
+    /// Resolves after the in-flight count next drops (see
+    /// [`HeadlessWakes::in_flight`]); enable it before a check.
+    pub fn changed(&self) -> Notified<'_> {
+        self.notices.changed()
+    }
+}
+
+/// Who stopped a settled job, as the compiled core's notice reads it: a
+/// `bash()` command's `stopped_by`; a detached cell or a `bash` tool
+/// script carries no stopper.
+fn stopper_of(settled: &JobSettled) -> Option<Stopper> {
+    match settled {
+        JobSettled::Bash { stopped_by, .. } => stopped_by.map(|by| match by {
+            BashStopper::Agent => Stopper::Agent,
+            BashStopper::User => Stopper::User,
+            BashStopper::Interrupt => Stopper::Interrupt,
+        }),
+        JobSettled::Cell { .. } | JobSettled::Shell { .. } => None,
     }
 }
 
@@ -272,7 +450,8 @@ mod tests {
     use serde_json::json;
 
     const SESSION: &str = "notice-session";
-    const NOTICE: &str = "[bash-done pid:4321 exit:0]\n\nCommand: \"sleep 1\"";
+    const NOTICE: &str =
+        "[bash-done pid:4321 exit:0]\n\nResume your work using the result below.\n\nCommand: \"sleep 1\"";
 
     fn completion() -> JobSettled {
         JobSettled::Bash {
@@ -343,11 +522,8 @@ mod tests {
             .await;
         assert!(waited.success, "{waited:?}");
         let rows = worker_rows(&worker, "eukhe.custom").await;
-        // The harness-digest row rides the turn's first request (the rows
-        // scan oldest-first: the notice row precedes it).
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["customType"], json!("async_bash_completion"));
-        assert_eq!(rows[1]["customType"], json!("harness_digest"));
         assert_eq!(
             rows[0]["details"],
             json!({ "pid": 4321, "command": "sleep 1", "exitCode": 0 })
@@ -356,6 +532,112 @@ mod tests {
         assert_eq!(users.len(), 0, "the notice row is the input's entry");
         let answers = worker_rows(&worker, "pi.assistant").await;
         assert_eq!(answers.len(), 1);
+    }
+
+    /// The drill's dev server, stopped by the agent's own `kill()` after
+    /// its final answer: an idle session stays idle, with no row; no turn
+    /// repeats the answer.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_stopped_command_does_not_wake_an_idle_session() {
+        let (_dir, worker) = created_worker(SESSION, json!(["repeated report"])).await;
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        notices
+            .deliver(JobSettled::Bash {
+                pid: 4321,
+                command: "npm run dev".to_owned(),
+                exit_code: -15,
+                stopped_by: Some(BashStopper::Agent),
+            })
+            .await
+            .expect("notice");
+        let waited = worker
+            .dispatch("wait_for_idle", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(waited.success, "{waited:?}");
+        assert_eq!(
+            (
+                worker_rows(&worker, "eukhe.custom").await,
+                worker_rows(&worker, "pi.assistant").await,
+                worker_inbox(&worker).await,
+            ),
+            (Vec::new(), Vec::new(), Vec::new())
+        );
+    }
+
+    /// A busy session gets nothing queued for the agent's own stop: no
+    /// steer into its turn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_stopped_command_never_steers_a_busy_turn() {
+        let (_dir, worker) =
+            created_worker(SESSION, json!([{ "text": "held", "delayMs": 600_000 }])).await;
+        let prompt = worker
+            .dispatch(
+                "prompt",
+                &json!({ "activeSessionId": SESSION, "message": "work" }),
+            )
+            .await;
+        assert!(prompt.success, "{prompt:?}");
+        wait_busy(&worker, true).await;
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        notices
+            .deliver(JobSettled::Bash {
+                pid: 4321,
+                command: "npm run dev".to_owned(),
+                exit_code: -15,
+                stopped_by: Some(BashStopper::Agent),
+            })
+            .await
+            .expect("notice");
+        assert_eq!(worker_inbox(&worker).await, Vec::new());
+        let aborted = worker
+            .dispatch("abort", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(aborted.success, "{aborted:?}");
+    }
+
+    /// A command the user stopped from the bash view, or an interrupt
+    /// stopped, is news to the agent: each notice queues as a steer into
+    /// the busy turn (a natural end wakes too: the tests above).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_externally_stopped_command_steers_a_busy_turn() {
+        let (_dir, worker) =
+            created_worker(SESSION, json!([{ "text": "held", "delayMs": 600_000 }])).await;
+        let prompt = worker
+            .dispatch(
+                "prompt",
+                &json!({ "activeSessionId": SESSION, "message": "work" }),
+            )
+            .await;
+        assert!(prompt.success, "{prompt:?}");
+        wait_busy(&worker, true).await;
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        for stopper in [BashStopper::User, BashStopper::Interrupt] {
+            notices
+                .deliver(JobSettled::Bash {
+                    pid: 4321,
+                    command: "npm run dev".to_owned(),
+                    exit_code: -15,
+                    stopped_by: Some(stopper),
+                })
+                .await
+                .expect("notice");
+        }
+        let steer = |by: &str| {
+            (
+                "steer".to_owned(),
+                format!(
+                    "[bash-done pid:4321 exit:-15 stopped-by:{by}]\n\nResume your work using the result below.\n\nCommand: \"npm run dev\""
+                ),
+            )
+        };
+        assert_eq!(
+            worker_inbox(&worker).await,
+            vec![steer("user"), steer("interrupt")]
+        );
+        let aborted = worker
+            .dispatch("abort", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(aborted.success, "{aborted:?}");
     }
 
     #[test]

@@ -7,6 +7,7 @@ use serde_json::Value;
 use super::{AgentsViewMode, Composer, DaemonClient, UiInput};
 use crate::agents_view_forest::RowKind;
 use crate::editor::{Editor, EditorEvent};
+use eukhe_client::daemon_client::CommandFailed;
 use eukhe_types::daemon::DaemonCommand;
 use tokio::sync::mpsc;
 
@@ -147,7 +148,7 @@ impl AgentsViewMode {
     /// row patches its name in place (the delete precedent -- saved rows
     /// get no push; a live row's roster flush rides the rename's
     /// `session_info_changed` broadcast).
-    pub(super) fn rename_result(&mut self, rename: Rename, outcome: Result<(), String>) {
+    pub(super) fn rename_result(&mut self, rename: Rename, outcome: Result<(), CommandFailed>) {
         // The reply composer's `/name` view command (TS
         // `runAgentsViewCommand`'s name arm): the in-flight draft marks
         // the composer that dispatched the rename (TS's
@@ -221,13 +222,7 @@ pub(super) fn spawn_rename_dispatch(
                 rest: serde_json::Map::default(),
             },
         };
-        let outcome = match client.request(request).await {
-            Ok(response) if response.success => Ok(()),
-            Ok(response) => Err(response
-                .error
-                .unwrap_or_else(|| "the command failed".into())),
-            Err(error) => Err(format!("{error:#}")),
-        };
+        let outcome = CommandFailed::check(client.request(request).await).map(drop);
         let _ = ui_tx.send(UiInput::RenameResult { rename, outcome });
     })
 }

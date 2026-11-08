@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S2) Jobs and limits
 # --------------------
-# docs/runtime.md S2, the model in bend/job.bend. Every event is free:
+# the model in bend/job.bend. Every event is free:
 # any output size, exit, kill or tick, in any order; any output cap or
 # the opt-out; any budget; any job table. A tool call's journal: laws/tool_call.bend.
 
@@ -273,7 +273,15 @@ def job_spell_ends(es: List<&2, Jb.End>, rest: String) -> String:
       job_spell_end(x, job_spell_ends(t, rest))
 
 # the reply: the job after the event (`feed`), then the ends the event
-# reported: their count, then each
+# reported: their count, then each. `feed` and `ends.of` are fixed for
+# every input by laws that read no other code: job_feed_ended,
+# job_feed_no_output, job_feed_fits, job_feed_past_bound, and
+# job_feed_is_a_step with job_feed_fills (output across t: the step on
+# exactly the bytes up to t); the step they reach by job_step_exit_exact,
+# job_kill_ends_now, job_step_tick_exact, job_step_ended_exact and, on
+# output, job_step_out_stays_live, job_step_out_counts and the kept bytes
+# of job_step_optout_keeps, job_step_out_fits, job_step_out_fills and
+# job_step_out_full (with job_terms_exact); `ends.of` by job_ends_of_exact
 def job_spell_answer(+t: Nat, +cap: Maybe<&2, Nat>, +j: Jb.J, +e: Jb.JEv) -> String:
   +es = Jb.ends.of(j, e)
   job_spell_job(Jb.feed(t, cap, j, e), Wr.put_nat(List.length(&2, Jb.End, es), job_spell_ends(es, "")))

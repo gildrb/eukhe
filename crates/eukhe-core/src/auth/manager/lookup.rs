@@ -4,12 +4,15 @@
 //! staleness gate, the OAuth expiry refresh through the document's
 //! refresh flights, and the passthrough `get_api_key` (TS getApiKey).
 
+use std::sync::Arc;
+
 use super::{
     config, edit_storage_data, now_epoch_ms, parse_storage_data, resolve_config_value,
     resolve_config_value_uncached, AuthApiKeyResult, AuthCredential, AuthStorage,
     AuthStorageBackend, AuthStorageData, OAuthIntegration, PRIME_INFERENCE_PROVIDER_ID,
 };
-use crate::auth::flight::RefreshIo;
+use crate::auth::flight::{fresh, Read, RefreshIo, Stored};
+use crate::auth::refresh_error::{AuthFileError, RefreshError, RefreshFailed};
 
 impl AuthStorage {
     pub fn get_api_key_with_source_token(
@@ -68,8 +71,8 @@ impl AuthStorage {
                                 refresh_error: None,
                             };
                         }
-                        AuthCredential::Oauth { expires, .. } => {
-                            if now_epoch_ms() < *expires {
+                        AuthCredential::Oauth { .. } => {
+                            if fresh(&credential, now_epoch_ms()) {
                                 return AuthApiKeyResult {
                                     api_key: self.oauth.api_key_for(provider_id, &credential),
                                     source_token: Self::token_for(provider_id, &candidate),
@@ -88,22 +91,21 @@ impl AuthStorage {
                                         refresh_error: None,
                                     };
                                 }
-                                Err(cause) => format!(
-                                    "OAuth token refresh failed for \"{provider_id}\": {cause}"
-                                ),
+                                Err(cause) => RefreshFailed {
+                                    provider: provider_id.to_string(),
+                                    cause,
+                                },
                             };
                             // The reason rides the result, not `errors`: that
                             // channel reports the caller's own writes (login
                             // and remove flows drain it after a `set`). A
                             // peer may have refreshed meanwhile: reload first.
                             self.reload();
-                            let fresh = self.data.credential(provider_id).filter(|credential| {
-                                matches!(
-                                    credential,
-                                    AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
-                                )
-                            });
-                            if let Some(fresh) = fresh {
+                            let peer = self
+                                .data
+                                .credential(provider_id)
+                                .filter(|credential| fresh(credential, now_epoch_ms()));
+                            if let Some(fresh) = peer {
                                 let candidate = self.stored_candidate(provider_id);
                                 return AuthApiKeyResult {
                                     api_key: self.oauth.api_key_for(provider_id, &fresh),
@@ -206,7 +208,7 @@ impl AuthStorage {
     ///    peer's.
     /// 6. LAND: the flight ends, after the store, so a caller that loads
     ///    after the end reads the stored credential.
-    fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, String> {
+    fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, RefreshError> {
         let outcome = self.storage.flights().refresh(
             provider_id,
             &mut DocumentRefresh {
@@ -226,9 +228,32 @@ impl AuthStorage {
     }
 }
 
-/// An OAuth credential that has not expired.
-fn fresh(credential: &AuthCredential) -> bool {
-    matches!(credential, AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires)
+/// What a read of the auth document found under `provider`, at the clock
+/// of the read.
+fn read_of(
+    provider: &str,
+    content: Result<Option<String>, AuthFileError>,
+) -> (Read, AuthStorageData) {
+    let at = now_epoch_ms();
+    let parsed = content.and_then(|content| {
+        parse_storage_data(content.as_deref())
+            .map_err(|error| AuthFileError::Parse(Arc::new(error)))
+    });
+    match parsed {
+        Ok(data) => {
+            let found = data
+                .credential(provider)
+                .map_or(Stored::Missing, Stored::Credential);
+            (Read { found, at }, data)
+        }
+        Err(cause) => (
+            Read {
+                found: Stored::Unreadable(cause),
+                at,
+            },
+            AuthStorageData::default(),
+        ),
+    }
 }
 
 /// The reads, the fetch and the write of one OAuth refresh: the auth
@@ -243,54 +268,55 @@ struct DocumentRefresh<'a> {
 }
 
 impl RefreshIo for DocumentRefresh<'_> {
-    fn load(&mut self) -> Result<Option<AuthCredential>, String> {
+    fn load(&mut self) -> Read {
         let content = self
             .storage
             .read()
-            .map_err(|error| format!("could not read the auth file: {error:#}"))?;
-        let data = parse_storage_data(content.as_deref())
-            .map_err(|error| format!("could not parse the auth file: {error:#}"))?;
-        let Some(credential) = data.credential(self.provider) else {
-            return Err(format!("no stored credential for {}", self.provider));
-        };
-        if !matches!(credential, AuthCredential::Oauth { .. }) {
-            return Err(format!(
-                "the stored credential for {} is not OAuth",
-                self.provider
-            ));
-        }
-        if fresh(&credential) {
-            return Ok(Some(credential));
-        }
+            .map_err(|error| AuthFileError::Read(Arc::new(error)));
+        let (read, data) = read_of(self.provider, content);
         self.loaded = data;
-        Ok(None)
+        read
     }
 
-    fn check(&mut self) -> Option<AuthCredential> {
-        // An unreadable document here fetches from the loaded one.
-        let content = self.storage.read().unwrap_or_default();
-        parse_storage_data(content.as_deref())
-            .ok()
-            .and_then(|data| data.credential(self.provider))
-            .filter(fresh)
+    fn check(&mut self) -> Read {
+        let content = self
+            .storage
+            .read()
+            .map_err(|error| AuthFileError::Read(Arc::new(error)));
+        read_of(self.provider, content).0
     }
 
-    fn fetch(&mut self) -> Result<AuthCredential, String> {
-        self.oauth.refresh(self.provider, &self.loaded)
+    fn fetch(&mut self) -> Result<AuthCredential, RefreshError> {
+        self.oauth
+            .refresh(self.provider, &self.loaded)
+            .map_err(|error| RefreshError::Fetch(Arc::new(error)))
     }
 
-    fn store(&mut self, credential: AuthCredential) -> Result<AuthCredential, String> {
+    fn store(
+        &mut self,
+        credential: AuthCredential,
+        stands: &dyn Fn(&Read) -> bool,
+    ) -> Result<AuthCredential, RefreshError> {
         let provider = self.provider;
         let mut stored = credential.clone();
         self.storage
             .with_lock(&mut |current| {
                 let mut entry = Some(serde_json::to_value(&credential)?);
                 let data = edit_storage_data(current.as_deref(), |data| {
-                    if let Some(peer) = data.credential(provider).filter(fresh) {
-                        // A peer refreshed while this fetch ran: its fresher
-                        // credential stands and this attempt writes nothing.
-                        stored = peer;
-                        return None;
+                    let peer = Read {
+                        found: data
+                            .credential(provider)
+                            .map_or(Stored::Missing, Stored::Credential),
+                        at: now_epoch_ms(),
+                    };
+                    if stands(&peer) {
+                        if let Stored::Credential(peer) = peer.found {
+                            // A peer refreshed while this fetch ran: its
+                            // fresher credential stands and this attempt
+                            // writes nothing.
+                            stored = peer;
+                            return None;
+                        }
                     }
                     entry
                         .take()
@@ -301,7 +327,7 @@ impl RefreshIo for DocumentRefresh<'_> {
                     .transpose()?;
                 Ok(((), content))
             })
-            .map_err(|error| format!("could not save the refreshed credential: {error:#}"))?;
+            .map_err(|error| RefreshError::Save(Arc::new(error)))?;
         Ok(stored)
     }
 }

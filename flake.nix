@@ -1,5 +1,5 @@
 {
-  description = "eukhe: a coding agent with one endless chat as its memory";
+  description = "eukhe: coding agent with a memory of all things";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -59,6 +59,7 @@
             pkgs.rustfmt
             pkgs.uv
             pkgs.git
+            pkgs.jq
             pkgs.onnxruntime
           ];
           env.ORT_DYLIB_PATH = "${lib.getLib pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";

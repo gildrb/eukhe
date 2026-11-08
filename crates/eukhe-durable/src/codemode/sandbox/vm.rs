@@ -145,11 +145,69 @@ pub(super) fn run_vm(
     let counters = Arc::new(Counters::default());
     match start_vm(data, post, stop, &counters) {
         Ok(vm) => serve(&vm, post, commands, stop, &counters),
-        Err(message) => {
-            let _ = post.send(VmMessage::Crash { message });
+        Err(error) => {
+            let _ = post.send(VmMessage::Crash {
+                message: error.to_string(),
+            });
             wait_for_stop(commands);
         }
     }
+}
+
+/// Why the run crashed; its Display is the crash message.
+#[derive(Debug, thiserror::Error)]
+enum VmError {
+    /// `QuickJS` itself failed.
+    #[error("{0}")]
+    QuickJs(#[from] rquickjs::Error),
+    /// The glue or the prelude threw while starting; `thrown` is the
+    /// thrown value's text.
+    #[error("The sandbox failed to start: {thrown}")]
+    StartThrew { thrown: String },
+    /// An API call threw (the VM's own failure); `thrown` is the thrown
+    /// value's text.
+    #[error("{thrown}")]
+    ApiThrew { thrown: String },
+    /// `stop` interrupted the script.
+    #[error("Execution interrupted")]
+    Interrupted,
+    /// A promise job failed (only uncatchable errors do).
+    #[error("Promise job failed")]
+    PromiseJob,
+    /// The bridge got a message the prelude never sends.
+    #[error(
+        "Sandbox bridge broken: {source}. The script may have modified built-ins such as a prototype's toJSON."
+    )]
+    Bridge {
+        #[source]
+        source: BridgeDecodeError,
+    },
+    /// The host delivered result `id` with a sequence number already seen
+    /// or passed.
+    #[error("Result {id} has sequence number {seq}, expected {expected} or later, once")]
+    OutOfOrder { id: u64, seq: u64, expected: u64 },
+}
+
+/// Why a bridge message does not decode.
+#[derive(Debug, thiserror::Error)]
+enum BridgeDecodeError {
+    #[error("bridge message is not valid JSON")]
+    NotJson {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("bridge message is not four values")]
+    NotFourValues,
+    #[error("bridge message has a malformed field")]
+    MalformedField,
+    #[error("a call has no numeric id")]
+    NoCallId,
+    #[error("unknown output kind")]
+    UnknownOutputKind,
+    #[error("done has no ok flag")]
+    NoOkFlag,
+    #[error("unknown message kind")]
+    UnknownKind,
 }
 
 /// What the bridge counts while the script runs.
@@ -169,24 +227,20 @@ struct Vm {
     runtime: Runtime,
 }
 
-fn crash(error: &rquickjs::Error) -> String {
-    format!("{error}")
-}
-
 fn start_vm(
     data: VmData,
     post: &UnboundedSender<VmMessage>,
     stop: &Arc<AtomicBool>,
     counters: &Arc<Counters>,
-) -> Result<Vm, String> {
-    let runtime = Runtime::new().map_err(|error| crash(&error))?;
+) -> Result<Vm, VmError> {
+    let runtime = Runtime::new()?;
     if let Some(limit) = data.memory_limit_bytes {
         runtime.set_memory_limit(limit);
     }
     runtime.set_max_stack_size(data.max_stack_bytes);
     let interrupt = Arc::clone(stop);
     runtime.set_interrupt_handler(Some(Box::new(move || interrupt.load(Ordering::SeqCst))));
-    let context = Context::custom::<Intrinsics>(&runtime).map_err(|error| crash(&error))?;
+    let context = Context::custom::<Intrinsics>(&runtime)?;
     let api = context.with(|ctx| setup(&ctx, &data, post, counters))?;
     let _ = post.send(VmMessage::Started {
         fingerprint: data.fingerprint,
@@ -196,7 +250,7 @@ fn start_vm(
         context,
         runtime,
     };
-    let compiled = vm.context.with(|ctx| -> Result<bool, String> {
+    let compiled = vm.context.with(|ctx| -> Result<bool, VmError> {
         let api = restore(&ctx, &vm.api)?;
         let mut options = EvalOptions::default();
         options.strict = false;
@@ -218,7 +272,7 @@ fn start_vm(
                 }));
                 Ok(false)
             }
-            Err(error) => Err(crash(&error)),
+            Err(error) => Err(VmError::from(error)),
         }
     })?;
     if compiled {
@@ -238,7 +292,7 @@ fn setup(
     data: &VmData,
     post: &UnboundedSender<VmMessage>,
     counters: &Arc<Counters>,
-) -> Result<Persistent<Object<'static>>, String> {
+) -> Result<Persistent<Object<'static>>, VmError> {
     let result = (|| -> rquickjs::Result<Persistent<Object<'static>>> {
         let mut options = EvalOptions::default();
         options.filename = Some("codemode-prelude.js".to_owned());
@@ -265,11 +319,10 @@ fn setup(
         Ok(Persistent::save(ctx, api))
     })();
     result.map_err(|error| match error {
-        rquickjs::Error::Exception => {
-            let thrown = ctx.catch();
-            format!("The sandbox failed to start: {}", thrown_text(&thrown))
-        }
-        other => crash(&other),
+        rquickjs::Error::Exception => VmError::StartThrew {
+            thrown: thrown_text(&ctx.catch()),
+        },
+        other => VmError::QuickJs(other),
     })
 }
 
@@ -290,28 +343,30 @@ fn thrown_text(value: &Value<'_>) -> String {
         .unwrap_or_else(|| "unknown error".to_owned())
 }
 
-fn restore<'js>(ctx: &Ctx<'js>, api: &Persistent<Object<'static>>) -> Result<Object<'js>, String> {
-    api.clone().restore(ctx).map_err(|error| crash(&error))
+fn restore<'js>(ctx: &Ctx<'js>, api: &Persistent<Object<'static>>) -> Result<Object<'js>, VmError> {
+    Ok(api.clone().restore(ctx)?)
 }
 
 /// Call `api[name](args)`. An exception here is uncatchable (an interrupt)
 /// or the VM's own failure: the run crashes.
-fn call_api<'js, A, R>(ctx: &Ctx<'js>, api: &Object<'js>, name: &str, args: A) -> Result<R, String>
+fn call_api<'js, A, R>(ctx: &Ctx<'js>, api: &Object<'js>, name: &str, args: A) -> Result<R, VmError>
 where
     A: rquickjs::function::IntoArgs<'js>,
     R: rquickjs::FromJs<'js>,
 {
-    let function: Function = api.get(name).map_err(|error| crash(&error))?;
+    let function: Function = api.get(name)?;
     function.call(args).map_err(|error| match error {
         rquickjs::Error::Exception => {
             let thrown = ctx.catch();
             if thrown.is_null() || thrown.is_undefined() {
-                "Execution interrupted".to_owned()
+                VmError::Interrupted
             } else {
-                thrown_text(&thrown)
+                VmError::ApiThrew {
+                    thrown: thrown_text(&thrown),
+                }
             }
         }
-        other => crash(&other),
+        other => VmError::QuickJs(other),
     })
 }
 
@@ -319,26 +374,24 @@ where
 /// The prelude only calls the bridge with the shapes below; anything else
 /// is a broken bridge and crashes the run.
 fn bridge(text: &str, post: &UnboundedSender<VmMessage>, counters: &Counters) {
-    let message = decode_bridge(text, counters).unwrap_or_else(|problem| VmMessage::Crash {
-        message: format!(
-            "Sandbox bridge broken: {problem}. The script may have modified built-ins such as a prototype's toJSON."
-        ),
+    let message = decode_bridge(text, counters).unwrap_or_else(|source| VmMessage::Crash {
+        message: VmError::Bridge { source }.to_string(),
     });
     let _ = post.send(message);
 }
 
-fn decode_bridge(text: &str, counters: &Counters) -> Result<VmMessage, String> {
+fn decode_bridge(text: &str, counters: &Counters) -> Result<VmMessage, BridgeDecodeError> {
     let parts: Vec<serde_json::Value> =
-        serde_json::from_str(text).map_err(|_| "bridge message is not valid JSON".to_owned())?;
-    let [kind, a, b, c] = <[serde_json::Value; 4]>::try_from(parts)
-        .map_err(|_| "bridge message is not four values".to_owned())?;
-    let text_of = |value: &serde_json::Value| -> Result<String, String> {
+        serde_json::from_str(text).map_err(|source| BridgeDecodeError::NotJson { source })?;
+    let [kind, a, b, c] =
+        <[serde_json::Value; 4]>::try_from(parts).map_err(|_| BridgeDecodeError::NotFourValues)?;
+    let text_of = |value: &serde_json::Value| -> Result<String, BridgeDecodeError> {
         value
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| "bridge message has a malformed field".to_owned())
+            .ok_or(BridgeDecodeError::MalformedField)
     };
-    let optional_text = |value: &serde_json::Value| -> Result<Option<String>, String> {
+    let optional_text = |value: &serde_json::Value| -> Result<Option<String>, BridgeDecodeError> {
         match value {
             serde_json::Value::Null => Ok(None),
             other => text_of(other).map(Some),
@@ -346,9 +399,7 @@ fn decode_bridge(text: &str, counters: &Counters) -> Result<VmMessage, String> {
     };
     match kind.as_str() {
         Some(kind @ ("call" | "global")) => {
-            let id = a
-                .as_u64()
-                .ok_or_else(|| "a call has no numeric id".to_owned())?;
+            let id = a.as_u64().ok_or(BridgeDecodeError::NoCallId)?;
             counters.issued.fetch_add(1, Ordering::SeqCst);
             Ok(VmMessage::Call {
                 id,
@@ -375,7 +426,7 @@ fn decode_bridge(text: &str, counters: &Counters) -> Result<VmMessage, String> {
                     text: text_of(&b)?,
                     origin: TextOrigin::Script,
                 },
-                _ => return Err("unknown output kind".to_owned()),
+                _ => return Err(BridgeDecodeError::UnknownOutputKind),
             };
             Ok(VmMessage::Output(item))
         }
@@ -392,26 +443,26 @@ fn decode_bridge(text: &str, counters: &Counters) -> Result<VmMessage, String> {
                 Some(false) => VmDoneOutcome::Failed {
                     error: text_of(&b)?,
                 },
-                None => return Err("done has no ok flag".to_owned()),
+                None => return Err(BridgeDecodeError::NoOkFlag),
             };
             Ok(VmMessage::Done(VmDone { outcome, during }))
         }
-        _ => Err("unknown message kind".to_owned()),
+        _ => Err(BridgeDecodeError::UnknownKind),
     }
 }
 
 /// Run queued jobs, then fail a script that waits on nothing that can ever
 /// resume it.
-fn drain(vm: &Vm, stop: &AtomicBool) -> Result<(), String> {
+fn drain(vm: &Vm, stop: &AtomicBool) -> Result<(), VmError> {
     let mut jobs: u64 = 0;
     while vm.runtime.is_job_pending() {
         // A job only fails for uncatchable errors, such as an interrupt.
         vm.runtime
             .execute_pending_job()
-            .map_err(|_| "Promise job failed".to_owned())?;
+            .map_err(|_| VmError::PromiseJob)?;
         jobs += 1;
         if jobs.is_multiple_of(JOBS_PER_POLL) && stop.load(Ordering::SeqCst) {
-            return Err("Execution interrupted".to_owned());
+            return Err(VmError::Interrupted);
         }
     }
     vm.context.with(|ctx| {
@@ -421,7 +472,7 @@ fn drain(vm: &Vm, stop: &AtomicBool) -> Result<(), String> {
 }
 
 /// Apply one result: the clock, the settlement, and the jobs it unblocks.
-fn apply(vm: &Vm, delivery: VmDelivery, stop: &AtomicBool) -> Result<(), String> {
+fn apply(vm: &Vm, delivery: VmDelivery, stop: &AtomicBool) -> Result<(), VmError> {
     vm.context.with(|ctx| {
         let api = restore(&ctx, &vm.api)?;
         call_api::<_, Value>(&ctx, &api, "setNow", (delivery.now,))?;
@@ -466,10 +517,12 @@ fn serve(
         }
         if delivery.seq < next_seq || early.contains_key(&delivery.seq) {
             let _ = post.send(VmMessage::Crash {
-                message: format!(
-                    "Result {} has sequence number {}, expected {next_seq} or later, once",
-                    delivery.id, delivery.seq
-                ),
+                message: VmError::OutOfOrder {
+                    id: delivery.id,
+                    seq: delivery.seq,
+                    expected: next_seq,
+                }
+                .to_string(),
             });
             failed = true;
             continue;
@@ -477,8 +530,10 @@ fn serve(
         early.insert(delivery.seq, delivery);
         while let Some(next) = early.remove(&next_seq) {
             counters.current.store(next_seq, Ordering::SeqCst);
-            if let Err(message) = apply(vm, next, stop) {
-                let _ = post.send(VmMessage::Crash { message });
+            if let Err(error) = apply(vm, next, stop) {
+                let _ = post.send(VmMessage::Crash {
+                    message: error.to_string(),
+                });
                 failed = true;
                 break;
             }

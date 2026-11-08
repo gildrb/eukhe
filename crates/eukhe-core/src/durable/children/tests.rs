@@ -50,8 +50,8 @@ use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildCommandRequest,
     RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildListing, RlmChildObservation,
     RlmChildPauseRequest, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RunPause,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
+    RlmSpawnCapacity, RlmSubagentHost, RunPause,
 };
 use crate::child_workspace::Handback;
 use crate::durable::deps::{
@@ -171,21 +171,6 @@ impl RlmSubagentHost for FakeHost {
         };
         lock(&self.state).spawns.push(request);
         Box::pin(async move { Ok(session) })
-    }
-
-    fn create_session(
-        &self,
-        request: RlmCreateSessionRequest,
-    ) -> RlmHostFuture<'_, RlmCreateSessionHandle> {
-        Box::pin(async move {
-            Ok(RlmCreateSessionHandle {
-                active_session_id: "resident".to_owned(),
-                session_id: "resident".to_owned(),
-                name: request.name.unwrap_or_else(|| "resident".to_owned()),
-                session_file: String::new(),
-                model: "faux/faux-1".to_owned(),
-            })
-        })
     }
 
     fn prompt(&self, request: RlmChildPromptRequest) -> RlmHostFuture<'_, ()> {
@@ -575,7 +560,7 @@ fn spawn_tool(requests: HostRequestRegistry) -> Arc<Extension> {
             let handler = requests.get("rlm.run").expect("rlm.run is registered");
             async move {
                 let reply = handler(HostCall {
-                    data: json!({ "prompt": PROMPT }),
+                    data: json!({ "prompt": PROMPT, "kwargs": { "why": "parallel" } }),
                     cell_source_code: None,
                     call: Some(api),
                 })
@@ -835,7 +820,7 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
         "{failed}"
     );
     let report = format!(
-        "[child-exited: no-reply child:{}]\n\nLast assistant text: the flake is a race",
+        "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: the flake is a race",
         row.session_name
     );
     first.harness.close(cx()).await.unwrap();
@@ -1309,7 +1294,7 @@ async fn a_child_run_ended_by_a_provider_error_reports_a_typed_failure() {
     assert_eq!(
         user_texts(&opened.root, "[child-").await,
         vec![format!(
-            "[child-failed: provider-rate_limit child:{}]\n\n{error}",
+            "[child-failed: provider-rate_limit child:{}]\n\nResume your work using the result below.\n\n{error}",
             row.session_name
         )]
     );
@@ -1336,16 +1321,30 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
-    let error = handler(HostCall {
-        data: json!({ "prompt": PROMPT }),
-        cell_source_code: None,
-        call: None,
-    })
-    .await
-    .unwrap_err();
+    let spawn = |kwargs: Value| {
+        handler(HostCall {
+            data: json!({ "prompt": PROMPT, "kwargs": kwargs }),
+            cell_source_code: None,
+            call: None,
+        })
+    };
+    // The compiled core (entry 431) refuses at the bound; a spawn without
+    // an allowed reason is refused first, naming the rule.
+    let at_bound = spawn(json!({ "why": "parallel" })).await.unwrap_err();
+    let no_why = spawn(json!({})).await.unwrap_err();
+    let other_why = spawn(json!({ "why": "curious" })).await.unwrap_err();
+    let rule = "rlm.spawn task 0 has no allowed why: why must be \"parallel\" (independent tasks run at once), \"isolate\" (the work would bloat this context; only a compact result comes back), \"tools\" (the task needs a tool set or instructions that conflict with this agent's) or \"user\" (the user asked for a subagent); otherwise do the work in this loop";
     assert_eq!(
-        error.to_string(),
-        "RLM recursion depth limit reached (RLM_DEPTH=2, RLM_MAX_DEPTH=2)"
+        [
+            at_bound.to_string(),
+            no_why.to_string(),
+            other_why.to_string()
+        ],
+        [
+            "RLM recursion depth limit reached (RLM_DEPTH=2, RLM_MAX_DEPTH=2)".to_owned(),
+            rule.to_owned(),
+            rule.to_owned(),
+        ]
     );
 
     let requests = HostRequestRegistry::default();
@@ -1789,7 +1788,7 @@ async fn a_spawn_batch_over_the_concurrency_cap_admits_nothing() {
         active_session_ids: vec!["cousin-session".to_owned()],
     });
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let task = |name: &str| json!({ "prompt": format!("do {name}"), "kwargs": { "name": name } });
+    let task = |name: &str| json!({ "prompt": format!("do {name}"), "kwargs": { "name": name, "why": "parallel" } });
     let rows = || async {
         let mut rows: Vec<(String, ChildStatus)> =
             read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())

@@ -1,5 +1,5 @@
 //! The provider capability surface: the typed operations a provider's own
-//! API offers besides chat streaming (docs/inference.md S6.1).
+//! API offers besides chat streaming.
 //!
 //! Each [`Capability`] is one operation: count the input tokens of a
 //! request, list the provider's models, embed text, generate an image,

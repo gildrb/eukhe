@@ -1,0 +1,16 @@
+# a deadline of the largest timeout and the largest us, then every event
+# at the largest time: a life, a hold, a held fire, its end, fires
+open FF{MAX},T{MAX},
+step 0,{MAX},
+step 1,
+step 3,{MAX},
+step 2,{MAX},
+step 3,{MAX},
+step 3,0,
+refuse-step 0,{LONG},
+step 3,{MAX},
+# a deadline of 1 us stalls at the largest time
+open FF{MAX},F1,
+step 3,{MAX},
+step 3,{MAX},
+refuse-open FF{LONG},F1,

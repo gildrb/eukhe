@@ -24,6 +24,57 @@ use super::durable_host::{self, meta, HostRequest, HostedSession};
 use super::{emit_worker_event_with, paths, response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
 
+/// Why a `create` payload was refused; the Display is the wire message.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CreatePayloadError {
+    /// `sessionPath` or `sessionDir` names a `~` path with no home.
+    #[error("{source}")]
+    ExpandTilde {
+        #[source]
+        source: anyhow::Error,
+    },
+    /// No `sessionDir`, and the agent's sessions directory cannot be
+    /// resolved.
+    #[error("{source}")]
+    SessionsDir {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Session cannot be both no-session and session-pathed")]
+    NoSessionWithPath,
+    #[error(
+        "Invalid thinking level \"{level}\". Valid values: off, minimal, low, medium, high, xhigh, max"
+    )]
+    ThinkingLevel { level: String },
+    #[error("Invalid thinking level: expected a string")]
+    ThinkingNotString,
+    /// `rlmDepth` or `rlmMaxDepth` is not a u32.
+    #[error("create {key} must be a non-negative integer")]
+    RlmDepth { key: &'static str },
+    #[error(transparent)]
+    Cwd(#[from] crate::session_cwd::CwdError),
+    /// A typed field (`skills`, `systemPrompt`, ...) does not decode.
+    #[error("Invalid {key}: {source}")]
+    Field {
+        key: &'static str,
+        #[source]
+        source: serde_json::Error,
+    },
+}
+
+/// Why a just-imported legacy session's name was not adopted.
+#[derive(Debug, thiserror::Error)]
+enum LegacyNameError {
+    #[error("read {}: {source}", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(transparent)]
+    Commit(#[from] eukhe_durable::session::SessionError),
+}
+
 /// The parsed `create` command.
 pub(crate) struct CreateParams {
     pub(crate) session_path: Option<PathBuf>,
@@ -67,9 +118,11 @@ impl CreateParams {
     ///
     /// # Errors
     ///
-    /// The wire message of an invalid field.
-    pub(crate) fn parse(payload: &Value, agent_dir: &Path) -> Result<Self, String> {
-        let expand = |path: &str| paths::expand_tilde(path).map_err(|error| error.to_string());
+    /// The invalid field.
+    pub(crate) fn parse(payload: &Value, agent_dir: &Path) -> Result<Self, CreatePayloadError> {
+        let expand = |path: &str| {
+            paths::expand_tilde(path).map_err(|source| CreatePayloadError::ExpandTilde { source })
+        };
         let session_path = payload
             .get("sessionPath")
             .and_then(Value::as_str)
@@ -80,14 +133,18 @@ impl CreateParams {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         if session_path.is_some() && no_session {
-            return Err("Session cannot be both no-session and session-pathed".to_string());
+            return Err(CreatePayloadError::NoSessionWithPath);
         }
         let thinking = match payload.get("thinking") {
             None | Some(Value::Null) => None,
-            Some(Value::String(level)) => Some(ModelThinkingLevel::parse(level).ok_or_else(|| {
-                format!("Invalid thinking level \"{level}\". Valid values: off, minimal, low, medium, high, xhigh, max")
-            })?),
-            Some(_) => return Err("Invalid thinking level: expected a string".to_string()),
+            Some(Value::String(level)) => {
+                Some(ModelThinkingLevel::parse(level).ok_or_else(|| {
+                    CreatePayloadError::ThinkingLevel {
+                        level: level.clone(),
+                    }
+                })?)
+            }
+            Some(_) => return Err(CreatePayloadError::ThinkingNotString),
         };
         let model = payload
             .get("model")
@@ -101,13 +158,13 @@ impl CreateParams {
             });
         let session_dir = match payload.get("sessionDir").and_then(Value::as_str) {
             Some(dir) => expand(dir)?,
-            None => paths::sessions_dir(agent_dir).map_err(|error| error.to_string())?,
+            None => paths::sessions_dir(agent_dir)
+                .map_err(|source| CreatePayloadError::SessionsDir { source })?,
         };
         let (rlm_depth, rlm_max_depth) = create_payload_rlm_depth(payload)?;
         // The supervisor resolved and checked the cwd; a gone cwd (deleted
         // since, or a respawn) is refused here too, never replaced by `/`.
-        let cwd = crate::session_cwd::session_cwd(payload.get("cwd").and_then(Value::as_str))
-            .map_err(|error| error.to_string())?
+        let cwd = crate::session_cwd::session_cwd(payload.get("cwd").and_then(Value::as_str))?
             .to_string_lossy()
             .into_owned();
         let metadata = payload
@@ -119,25 +176,20 @@ impl CreateParams {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         };
-        let strings = |key: &str| -> Result<Vec<String>, String> {
+        let strings = |key: &'static str| -> Result<Vec<String>, CreatePayloadError> {
             match payload.get(key) {
                 None | Some(Value::Null) => Ok(Vec::new()),
-                Some(value) => serde_json::from_value(value.clone())
-                    .map_err(|error| format!("Invalid {key}: {error}")),
+                Some(value) => field(key, value),
             }
         };
         // A string is prompt text; `{"file": "<path>"}` is a file to read.
         let custom_system_prompt = match payload.get("systemPrompt") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(
-                serde_json::from_value(value.clone())
-                    .map_err(|error| format!("Invalid systemPrompt: {error}"))?,
-            ),
+            Some(value) => Some(field("systemPrompt", value)?),
         };
         let append_system_prompt = match payload.get("appendSystemPrompt") {
             None | Some(Value::Null) => Vec::new(),
-            Some(value) => serde_json::from_value(value.clone())
-                .map_err(|error| format!("Invalid appendSystemPrompt: {error}"))?,
+            Some(value) => field("appendSystemPrompt", value)?,
         };
         let prompt = PromptConfig {
             custom_system_prompt,
@@ -148,17 +200,11 @@ impl CreateParams {
         };
         let autonomous = match payload.get("autonomous") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(
-                serde_json::from_value(value.clone())
-                    .map_err(|error| format!("Invalid autonomous: {error}"))?,
-            ),
+            Some(value) => Some(field("autonomous", value)?),
         };
         let cvar_family = match payload.get("cvarFamily") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(
-                serde_json::from_value(value.clone())
-                    .map_err(|error| format!("Invalid cvarFamily: {error}"))?,
-            ),
+            Some(value) => Some(field("cvarFamily", value)?),
         };
         Ok(Self {
             session_path,
@@ -309,10 +355,14 @@ async fn adopt_legacy_session_name(
     hosted: &HostedSession,
     legacy: &Path,
     cx: &Context,
-) -> Result<(), String> {
-    let content = tokio::fs::read_to_string(legacy)
-        .await
-        .map_err(|error| format!("read {}: {error}", legacy.display()))?;
+) -> Result<(), LegacyNameError> {
+    let content =
+        tokio::fs::read_to_string(legacy)
+            .await
+            .map_err(|source| LegacyNameError::Read {
+                path: legacy.to_path_buf(),
+                source,
+            })?;
     let name = eukhe_core::session::parse_session_entries(&content)
         .into_iter()
         .rev()
@@ -326,9 +376,8 @@ async fn adopt_legacy_session_name(
     let Some(name) = name else {
         return Ok(());
     };
-    meta::set_session_name(hosted.harness(), Some(name), cx)
-        .await
-        .map_err(|error| error.to_string())
+    meta::set_session_name(hosted.harness(), Some(name), cx).await?;
+    Ok(())
 }
 
 impl Worker {
@@ -354,7 +403,7 @@ impl Worker {
         }
         let mut params = match CreateParams::parse(payload, &self.config.agent_dir) {
             Ok(params) => params,
-            Err(error) => return response_failure(None, "create", &error, None),
+            Err(error) => return response_failure(None, "create", &error.to_string(), None),
         };
         let cx = BACKGROUND_CONTEXT.clone();
         params.fill_stored_lineage(&cx).await;
@@ -509,16 +558,21 @@ impl Worker {
         }
         // A faux script keeps its sessions without the chat memory unless
         // it opts in (`"chatMemory": true`, a verification seam): then its
-        // root sessions share the memory, compacted on the script.
+        // root sessions keep it, compacted on the script. Any other root
+        // session keeps it while `memory.chat` is on.
         let scripted = self
             .scripted_models()
             .map_err(|error| anyhow::anyhow!("invalid create script: {error}"))?;
         let memory_summarizer = match &scripted {
-            None => Some(None),
+            None => {
+                eukhe_core::settings::SettingsManager::create(&params.cwd, &self.config.agent_dir)
+                    .get_memory_chat()
+                    .then_some(None)
+            }
             Some(scripted) => scripted.chat_memory_summarizer().map(Some),
         };
         if let (Some(summarizer), true) = (memory_summarizer, config.role.has_chat_memory()) {
-            config.memory = Some(self.chat_memory(summarizer).await?);
+            config.memory = Some(self.chat_memory(&config.session_id, summarizer).await?);
         }
         let summary_core = Arc::clone(&self.core);
         let summary_events = Arc::clone(&self.events);
@@ -591,8 +645,13 @@ impl Worker {
             http: Arc::new(eukhe_core::mcp::ReqwestOAuthHttp::new()),
         });
         // The kernel host seams: scheduled-jobs cron wiring, bash notices,
-        // agent messaging (after `children`: it joins that registry).
-        self.wire_session_host(&mut config);
+        // agent messaging (after `children`: it joins that registry). The
+        // notices' in-flight count is part of the idle barrier.
+        let notices = self.wire_session_host(&mut config);
+        *self
+            .job_notices
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(notices);
         Ok(config)
     }
 
@@ -609,32 +668,37 @@ impl Worker {
         })
     }
 
-    /// The chat memory every root session of this worker shares (opened
-    /// once). When this worker owns the chat, its compactor takes the
-    /// supervisor's background slots; a faux script that opts into the
-    /// memory brings its own compactor (`scripted`).
+    /// The chat memory of session `session_id` (a root session, or main's
+    /// worker, which keeps its own chat and never reads main's): its own
+    /// chat, opened once per session. When this worker owns the chat, its
+    /// compactor takes the supervisor's background slots; a faux script
+    /// that opts into the memory brings its own compactor (`scripted`).
     async fn chat_memory(
         &self,
+        session_id: &str,
         scripted: Option<durable_host::ScriptedSummarizer>,
     ) -> anyhow::Result<eukhe_core::memory::Memory> {
-        self.chat_memory
-            .get_or_try_init(|| {
-                let agent_dir = self.config.agent_dir.clone();
-                let chat = eukhe_core::memory::chat_dir(&agent_dir);
-                let summarizer: Arc<dyn eukhe_core::memory::Summarizer> =
-                    match (scripted, self.supervisor_admission()) {
-                        (Some(scripted), _) => Arc::new(scripted),
-                        (None, Some(admission)) => Arc::new(
-                            eukhe_core::memory::SettingsSummarizer::new(agent_dir, admission),
-                        ),
-                        (None, None) => Arc::new(
-                            eukhe_core::memory::SettingsSummarizer::in_process(agent_dir),
-                        ),
-                    };
-                eukhe_core::memory::Memory::open(chat, summarizer)
-            })
-            .await
-            .cloned()
+        let agent_dir = self.config.agent_dir.clone();
+        let chat = eukhe_core::memory::session_chat_dir(&agent_dir, session_id);
+        let mut opened = self.chat_memory.lock().await;
+        if let Some((dir, memory)) = opened.as_ref() {
+            if *dir == chat {
+                return Ok(memory.clone());
+            }
+        }
+        let summarizer: Arc<dyn eukhe_core::memory::Summarizer> =
+            match (scripted, self.supervisor_admission()) {
+                (Some(scripted), _) => Arc::new(scripted),
+                (None, Some(admission)) => Arc::new(eukhe_core::memory::SettingsSummarizer::new(
+                    agent_dir, admission,
+                )),
+                (None, None) => Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
+                    agent_dir,
+                )),
+            };
+        let memory = eukhe_core::memory::Memory::open(chat.clone(), summarizer).await?;
+        *opened = Some((chat, memory.clone()));
+        Ok(memory)
     }
 
     /// The worker's faux script models (`None` without a create script),
@@ -690,7 +754,7 @@ impl Worker {
         if let Some(legacy) = &imported_legacy {
             if let Err(error) = adopt_legacy_session_name(&hosted, legacy, cx).await {
                 let _ = hosted.close(cx).await;
-                return Err(fail(error));
+                return Err(fail(error.to_string()));
             }
         }
         // A scripted worker's open already put the script's model in place
@@ -985,20 +1049,31 @@ pub(super) fn worker_server_capabilities(agent_dir: &std::path::Path) -> Vec<Str
 
 /// RLM depth fields of a create payload: `(depth, max_depth)`. Values must
 /// be non-negative integers that fit a u32.
-fn create_payload_rlm_depth(payload: &Value) -> Result<(Option<u32>, Option<u32>), String> {
-    fn parse(payload: &Value, key: &str) -> Result<Option<u32>, String> {
+fn create_payload_rlm_depth(
+    payload: &Value,
+) -> Result<(Option<u32>, Option<u32>), CreatePayloadError> {
+    fn parse(payload: &Value, key: &'static str) -> Result<Option<u32>, CreatePayloadError> {
         match payload.get(key) {
             None | Some(Value::Null) => Ok(None),
             Some(value) => value
                 .as_u64()
                 .and_then(|value| u32::try_from(value).ok())
                 .map(Some)
-                .ok_or_else(|| format!("create {key} must be a non-negative integer")),
+                .ok_or(CreatePayloadError::RlmDepth { key }),
         }
     }
     let depth = parse(payload, "rlmDepth")?;
     let max_depth = parse(payload, "rlmMaxDepth")?;
     Ok((depth, max_depth))
+}
+
+/// The create payload field `key`, decoded from `value`.
+fn field<T: serde::de::DeserializeOwned>(
+    key: &'static str,
+    value: &Value,
+) -> Result<T, CreatePayloadError> {
+    serde_json::from_value(value.clone())
+        .map_err(|source| CreatePayloadError::Field { key, source })
 }
 
 #[cfg(test)]
@@ -1040,6 +1115,7 @@ mod tests {
         let Err(error) = CreateParams::parse(&bad, agent_dir.path()) else {
             panic!("a number is not a system prompt input");
         };
+        let error = error.to_string();
         assert!(error.starts_with("Invalid systemPrompt: "), "{error}");
     }
 

@@ -1,4 +1,4 @@
-//! The ONNX engine of the tiny-model worker (docs/inference.md S9): text
+//! The ONNX engine of the tiny-model worker: text
 //! generation for the catalog's text models, Whisper speech to text,
 //! Kokoro text to speech. ONNX Runtime is loaded at run time
 //! ([`EngineOptions::runtime_library`]); nothing is downloaded or linked

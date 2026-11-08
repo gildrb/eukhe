@@ -10,10 +10,19 @@ let
   cfg = config.programs.eukhe;
   json = pkgs.formats.json { };
   stateDir = "${config.home.homeDirectory}/.eukhe";
+  # The declared settings over the file eukhe also writes (merge-settings.sh).
+  mergeSettings = pkgs.writeShellApplication {
+    name = "eukhe-merge-settings";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.jq
+    ];
+    text = builtins.readFile ./merge-settings.sh;
+  };
 in
 {
   options.programs.eukhe = {
-    enable = lib.mkEnableOption "eukhe, a coding agent with one endless chat as its memory";
+    enable = lib.mkEnableOption "eukhe, a coding agent with a memory of all things";
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
@@ -35,9 +44,15 @@ in
         }
       '';
       description = ''
-        Written to ~/.eukhe/settings.json at activation. eukhe also writes
-        this file (model choices), so it is copied, not linked: the declared
-        settings win at every activation.
+        Merged into ~/.eukhe/settings.json at activation. eukhe also writes
+        this file (`recentModels`, `onboardingShown`, packages, MCP servers),
+        so it is neither linked nor replaced: every declared key wins at every
+        activation, and every key eukhe wrote that the declaration does not
+        name stays. A file that is not a JSON object is left as it is (the
+        activation says so). A setting chosen in eukhe (the model, a role's
+        model, the thinking level, `/set --global`) is saved in
+        ~/.eukhe/config.cfg, which sets over this file: a declared key is the
+        default until it is chosen in eukhe.
       '';
     };
 
@@ -119,8 +134,8 @@ in
 
     home.activation.eukheSettings = lib.mkIf (cfg.settings != { }) (
       lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-        run ${pkgs.coreutils}/bin/install -D -m 0600 \
-          ${json.generate "eukhe-settings.json" cfg.settings} ${lib.escapeShellArg "${stateDir}/settings.json"}
+        run ${lib.getExe mergeSettings} ${lib.escapeShellArg "${stateDir}/settings.json"} \
+          ${json.generate "eukhe-settings.json" cfg.settings}
       ''
     );
 

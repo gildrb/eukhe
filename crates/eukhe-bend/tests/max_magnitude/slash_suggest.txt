@@ -1,0 +1,8 @@
+# the numbers are lengths and counts: a near miss among several names, no
+# names, a far miss, a name of 4-byte chars
+call 5,modle3,3,new5,model4,help
+call 0,0,
+call 6,zzzzzz1,5,model
+call 2,😀😀1,2,ab
+refuse {LONG},x0,
+refuse 1,x{LONG},

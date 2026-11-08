@@ -4,7 +4,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 
 def pfe.pk(x: Bool, y: Bool, -want: Maybe<&2, Nat>, -rt: Nat, -k: Nat, -later: Maybe<&2, Nat>) -> {Fx.price.pick(Bool.and(x, y), Fx.PRow{want, rt, k}, later) == Facts.price_spec.pick(Bool.and(y, x), k, later) : Maybe<&2, Nat>}:
   match x:

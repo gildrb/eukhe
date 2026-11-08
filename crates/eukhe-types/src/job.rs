@@ -200,7 +200,7 @@ mod tests {
         };
         assert_eq!(
             settled.report().render("partial"),
-            "[job-settled job:cell-1a2b status:killed]\n\npartial"
+            "[job-settled job:cell-1a2b status:killed]\n\nResume your work using the result below.\n\npartial"
         );
         assert_eq!(
             serde_json::to_value(&settled).expect("encodes"),

@@ -10,12 +10,18 @@ use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::Entry;
 
 use crate::models::clamp_thinking_level;
-use crate::quirks::{LevelBudgets, Rulebook};
+use crate::quirks::{LevelBudgets, Quirks, Rulebook};
 use crate::types::{SimpleStreamOptions, StreamOptions};
 use crate::utils::estimate::estimate_context_tokens;
 
-const CONTEXT_SAFETY_TOKENS: i128 = 4096;
+/// Tokens left free under the context window for the estimate's error
+/// when the output cap is shrunk to fit it.
+const CONTEXT_SAFETY_TOKENS: u64 = 4096;
+/// The smallest output cap a window shrink leaves.
 const MIN_MAX_TOKENS: u64 = 1;
+/// Tokens a request's thinking budget always leaves the answer under its
+/// response ceiling (omp `OUTPUT_FALLBACK_BUFFER`).
+pub const OUTPUT_FALLBACK_BUFFER: u64 = 4000;
 
 /// eukhe addition: whether a `streamSimple` request of `model` with
 /// `reasoning` sends a forced [`ToolChoice`](crate::types::ToolChoice)
@@ -45,22 +51,18 @@ pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) 
     }
 }
 
-/// Cap `max_tokens` to what fits in the context window after the estimated
-/// prompt and a safety margin (never below 1).
-#[must_use]
-pub fn clamp_max_tokens_to_context(
-    model: &Model,
-    context: &TranscriptContext,
-    max_tokens: u64,
-) -> u64 {
-    if model.context_window == 0 {
-        return max_tokens.max(MIN_MAX_TOKENS);
-    }
-    let available = i128::from(model.context_window)
-        - i128::from(estimate_context_tokens(context.messages()).tokens)
-        - CONTEXT_SAFETY_TOKENS;
-    let available = u64::try_from(available.max(i128::from(MIN_MAX_TOKENS))).unwrap_or(u64::MAX);
-    max_tokens.min(available)
+/// The window facts of a request on the wire (model `Fx.Win`): the context
+/// window (0: unknown), the estimated prompt, the safety margin, the floor
+/// of a shrunk cap, and whether the provider ends the model's output at the
+/// window itself (the rulebook's `stops_output_at_window`).
+fn write_window(writer: &mut Writer, model: &Model, context: &TranscriptContext) {
+    let prompt = estimate_context_tokens(context.messages()).tokens;
+    writer
+        .nat(saturated(model.context_window))
+        .nat(saturated(prompt))
+        .nat(CONTEXT_SAFETY_TOKENS)
+        .nat(MIN_MAX_TOKENS)
+        .bool(Quirks::of(model).stops_output_at_window().unwrap_or(false));
 }
 
 /// Merge model, thinking-level, and request sampling params (later wins per
@@ -94,8 +96,17 @@ pub fn resolve_sampling_params(
 }
 
 /// TS `buildBaseOptions`: the shared stream options of a `streamSimple`
-/// call, with resolved sampling params, context-clamped `max_tokens`, and
-/// `api_key` taking precedence when non-empty.
+/// call, with resolved sampling params, the output cap, and `api_key`
+/// taking precedence when non-empty.
+///
+/// The output cap is one compiled decision (model `Fx.cap`,
+/// `laws/facts.bend` `facts_cap_*`): the caller's cap, else the catalog's
+/// max, shrunk only when the prompt and the cap would pass the context
+/// window (never for a model the provider stops at the window); `None`
+/// (the field omitted: the provider's own max applies) only without a
+/// caller's cap, for a wire API that does not require the field (all but
+/// Anthropic Messages and Claude on Bedrock), when the catalog's max is not
+/// below the window (the max is unknown).
 ///
 /// Every other field is copied from `options.stream`; this includes the
 /// eukhe addition `service_tier`.
@@ -113,18 +124,51 @@ pub fn build_base_options(
         .and_then(|options| options.reasoning)
         .map_or(ModelThinkingLevel::Off, ModelThinkingLevel::from);
     base.sampling_params = resolve_sampling_params(model, reasoning, base.sampling_params.as_ref());
-    base.max_tokens = Some(clamp_max_tokens_to_context(
-        model,
-        context,
-        base.max_tokens.unwrap_or(model.max_tokens),
-    ));
+    let required = match KnownApi::parse(&model.api) {
+        Some(KnownApi::AnthropicMessages) => true,
+        Some(KnownApi::BedrockConverseStream) => {
+            crate::api::bedrock_converse_stream::convert::is_anthropic_claude_model(model)
+        }
+        Some(
+            KnownApi::OpenAICompletions
+            | KnownApi::MistralConversations
+            | KnownApi::OpenAIResponses
+            | KnownApi::AzureOpenAIResponses
+            | KnownApi::OpenAICodexResponses
+            | KnownApi::GoogleGenerativeAI
+            | KnownApi::GoogleVertex
+            | KnownApi::PiMessages,
+        )
+        | None => false,
+    };
+    let cap = budgets_call(
+        5,
+        |writer| {
+            match base.max_tokens {
+                None => writer.none(),
+                Some(cap) => writer.some().nat(saturated(cap)),
+            };
+            writer.nat(saturated(model.max_tokens)).bool(required);
+            write_window(writer, model, context);
+        },
+        |reader| {
+            if reader.maybe()? {
+                reader.nat().map(Some)
+            } else {
+                Ok(None)
+            }
+        },
+    );
+    base.max_tokens = eukhe_bend::expect_core(Entry::Facts, cap);
     if let Some(api_key) = api_key.filter(|key| !key.is_empty()) {
         base.request.api_key = Some(api_key.to_owned());
     }
     base
 }
 
-/// Tokens always left for the answer when a thinking budget shares the response ceiling.
+/// Tokens left for the answer when a thinking budget shares the response
+/// ceiling of a capped side call (the `openai-completions` thinking budget
+/// field, the compactor's cap).
 pub const MIN_ANSWER_TOKENS: u64 = 1024;
 
 /// Map `xhigh`/`max` to `high`; other levels unchanged.
@@ -245,13 +289,19 @@ pub struct ThinkingTokens {
     pub thinking_budget: u64,
 }
 
-/// Fit a thinking budget inside the response ceiling (model `Fx.adjust`,
-/// `laws/facts.bend` `facts_fit_*`). `base_max_tokens` `None` means no explicit
-/// caller cap: use the model cap and fit thinking inside it.
+/// The output cap and thinking budget of a budget-mode thinking request
+/// (Anthropic Messages, Claude on Bedrock; model `Fx.adjust`,
+/// `laws/facts.bend` `facts_fit_*`): thinking on top of the answer cap
+/// (the caller's `base_max_tokens` plus the level's budget, at most the
+/// catalog's max; without a caller's cap the catalog's max), through the
+/// one output cap rule of [`build_base_options`], then the budget capped
+/// so that [`OUTPUT_FALLBACK_BUFFER`] tokens stay for the answer (0: no
+/// room to think).
 #[must_use]
 pub fn adjust_max_tokens_for_thinking(
+    model: &Model,
+    context: &TranscriptContext,
     base_max_tokens: Option<u64>,
-    model_max_tokens: u64,
     reasoning_level: ThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> ThinkingTokens {
@@ -264,11 +314,12 @@ pub fn adjust_max_tokens_for_thinking(
                 Some(base) => writer.some().nat(saturated(base)),
             };
             writer
-                .nat(saturated(model_max_tokens))
+                .nat(saturated(model.max_tokens))
                 .tag(level_tag(reasoning_level));
             write_customs(writer, custom_budgets);
             write_budgets(writer, &defaults);
-            writer.nat(MIN_ANSWER_TOKENS);
+            writer.nat(OUTPUT_FALLBACK_BUFFER);
+            write_window(writer, model, context);
         },
         |reader| {
             Ok(ThinkingTokens {

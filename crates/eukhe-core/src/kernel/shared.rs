@@ -179,7 +179,6 @@ pub enum SentDeliveryStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverRole {
     Parent,
-    Sibling,
     Child,
 }
 
@@ -188,7 +187,6 @@ impl ReceiverRole {
     pub fn as_str(self) -> &'static str {
         match self {
             ReceiverRole::Parent => "parent",
-            ReceiverRole::Sibling => "sibling",
             ReceiverRole::Child => "child",
         }
     }
@@ -601,7 +599,6 @@ pub fn parse_sent_agent_message(payload: &Value) -> Option<KernelSentAgentMessag
     let session_id = target.get("sessionId")?.as_str()?;
     let receiver_role = match obj.get("receiverRole").and_then(Value::as_str) {
         Some("parent") => Some(ReceiverRole::Parent),
-        Some("sibling") => Some(ReceiverRole::Sibling),
         Some("child") => Some(ReceiverRole::Child),
         _ => None,
     };

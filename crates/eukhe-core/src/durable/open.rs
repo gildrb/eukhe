@@ -653,7 +653,7 @@ async fn open_root(
 
 /// Settle the main conversation's model and thinking level at open, so the
 /// level the session shows is the level its requests send
-/// (docs/inference.md S10). A main conversation without a model (a legacy
+/// A main conversation without a model (a legacy
 /// file that never recorded one) takes the session model a new root would
 /// start with (TS resume: a session without a saved model falls back to
 /// the startup model); a model that does not resolve stays unset
@@ -738,4 +738,4 @@ pub fn session_artifact_dir_for_log(log: &std::path::Path) -> Option<std::path::
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

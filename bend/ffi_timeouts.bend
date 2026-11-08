@@ -185,17 +185,96 @@ def digits(n: Nat) -> Nat:
 def fits(n: Nat) -> Bool:
   Nat.is_le(digits(n), 14n)
 
-# the derived values, in reply order
-def derived(+t: Su.Tm) -> List<&2, Nat>:
-  [Su.Tm.teardown(t), Su.Tm.stop_grace(t), Su.Tm.drain(t), Su.Tm.launcher_wait(t), Su.Tm.child_kill(t), Su.Tm.lost(t), Su.Tm.max_age(t), Su.Tm.quiesce_hold(t), Su.Tm.window(t)]
+# A derived value is computed as a Maybe: the value when Rust can read it
+# back, None once it is past the wire. Every sum adds two values that fit
+# (each below 10^14, the sum below 2^48 - 1), and the product doubles or
+# adds a value that fits, so no step passes the runtime's Nat range,
+# whatever the base values (the laws' derivation, Su.Tm, sums them whole).
 
-# every value of xs fits
-def all_fit(xs: List<&2, Nat>) -> Bool:
-  match xs:
+def fit.put(ok: Bool, n: Nat) -> Maybe<&2, Nat>:
+  match ok:
+    case True{}:
+      Some{n}
+    case False{}:
+      None{}
+
+# n, when Rust reads it back; else None
+def fit(+n: Nat) -> Maybe<&2, Nat>:
+  fit.put(fits(n), n)
+
+def plus.some(x: Nat, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match b:
+    case None{}:
+      None{}
+    case Some{y}:
+      fit(Nat.add(x, y))
+
+# a + b, None when either or the sum is past the wire
+def plus(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match a:
+    case None{}:
+      None{}
+    case Some{x}:
+      plus.some(x, b)
+
+# twice h, plus y when the bit r is 1
+def times.bit(r: Nat, +h: Maybe<&2, Nat>, y: Nat) -> Maybe<&2, Nat>:
+  match r:
+    case 0n:
+      plus(h, h)
+    case 1n+q:
+      plus(plus(h, h), Some{y})
+
+# x * y for a y that fits, None when past the wire: the product of half x
+# (rounded down), doubled, plus y when x is odd (the fuel f >= x)
+def times.go(f: Nat, x: Nat, +y: Nat) -> Maybe<&2, Nat>:
+  match f:
+    case 0n:
+      Some{0n}
+    case 1n+g:
+      match x:
+        case 0n:
+          Some{0n}
+        case 1n+p:
+          +x1 = {1n+p : Nat}
+          times.bit(Nat.mod(x1, 2n), times.go(g, Nat.div(x1, 2n), y), y)
+
+# x * b, None when b or the product is past the wire (x is at least 1)
+def times(+x: Nat, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match b:
+    case None{}:
+      None{}
+    case Some{y}:
+      times.go(x, x, y)
+
+# the derived values, in reply order (the order of Su.Tm's derivation)
+def derived(t: Su.Tm) -> List<&2, Maybe<&2, Nat>>:
+  match t:
+    case Su.Tm{snap, host, +kstep, kterm, kverify, harness, wterm, wverify, +margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
+      +ks = fit(kstep)
+      +td = plus(plus(plus(plus(fit(snap), fit(host)), plus(ks, plus(ks, plus(ks, fit(0n))))), fit(kterm)), fit(kverify))
+      +sg = plus(td, fit(harness))
+      +dr = plus(plus(sg, fit(wterm)), fit(wverify))
+      [td, sg, dr, plus(dr, fit(margin)), plus(plus(sg, dr), fit(margin)), plus(plus(plus(fit(relaunch), fit(startup)), fit(check)), fit(slack)), plus(fit(refresh), fit(boot)), plus(fit(qanswer), sg), times(1n+k, plus(fit(bmax), fit(loop)))]
+
+def every.cons(x: Nat, m: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
+  match m:
+    case None{}:
+      None{}
+    case Some{xs}:
+      Some{x <> xs}
+
+# every value, when none is past the wire
+def every(ms: List<&2, Maybe<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
+  match ms:
     case Nil{}:
-      True{}
-    case x <> t:
-      Bool.and(fits(x), all_fit(t))
+      Some{Nil{}}
+    case m <> t:
+      match m:
+        case None{}:
+          None{}
+        case Some{x}:
+          every.cons(x, every(t))
 
 # the values of xs, one after the other, then rest
 def put_nats(xs: List<&2, Nat>, rest: String) -> String:
@@ -205,17 +284,16 @@ def put_nats(xs: List<&2, Nat>, rest: String) -> String:
     case x <> t:
       W.put_nat(x, put_nats(t, rest))
 
-def answer.put(ok: Bool, xs: List<&2, Nat>) -> String:
-  match ok:
-    case True{}:
+def answer.of(m: Maybe<&2, List<&2, Nat>>) -> String:
+  match m:
+    case Some{xs}:
       put_nats(xs, "")
-    case False{}:
+    case None{}:
       W.err("timeouts: a value past the wire")
 
 # the reply to the base values t
-def answer(+t: Su.Tm) -> String:
-  +xs = derived(t)
-  answer.put(all_fit(xs), xs)
+def answer(t: Su.Tm) -> String:
+  answer.of(every(derived(t)))
 
 # The entry
 # ---------

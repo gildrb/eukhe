@@ -16,12 +16,19 @@ pub struct PackageCommandOutcome {
 const HANDLED_OK: PackageCommandOutcome = PackageCommandOutcome { exit_code: None };
 
 fn fail(message: &str, hint: Option<&str>) -> PackageCommandOutcome {
-    // handlePackageCommand prints its errors without the "Error: " prefix.
-    eprintln!("{message}");
+    eprintln!("Error: {message}");
     if let Some(hint) = hint {
         eprintln!("{hint}");
     }
     PackageCommandOutcome { exit_code: Some(1) }
+}
+
+/// A usage failure (unknown option, unexpected argument, missing source):
+/// exit `2`.
+fn fail_usage(message: &str, hint: Option<&str>) -> PackageCommandOutcome {
+    let mut outcome = fail(message, hint);
+    outcome.exit_code = Some(2);
+    outcome
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,9 +149,9 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
         if invalid_option == "-l"
             && matches!(command, PackageCommand::Install | PackageCommand::Remove)
         {
-            return fail("Option -l was removed. Use \"--local\".", None);
+            return fail_usage("Option -l was removed. Use \"--local\".", None);
         }
-        return fail(
+        return fail_usage(
             &format!("Unknown option {invalid_option} for \"{command_name}\"."),
             Some(&format!(
                 "Use \"{APP_NAME} --help\" or \"{}\".",
@@ -153,7 +160,7 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
         );
     }
     if let Some(invalid_argument) = &options.invalid_argument {
-        return fail(
+        return fail_usage(
             &format!("Unexpected argument {invalid_argument}."),
             Some(&format!("Usage: {}", command.usage())),
         );
@@ -161,7 +168,7 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
     let source_missing = matches!(command, PackageCommand::Install | PackageCommand::Remove)
         && options.source.is_none();
     if source_missing {
-        return fail(
+        return fail_usage(
             &format!("Missing {command_name} source."),
             Some(&format!("Usage: {}", command.usage())),
         );
@@ -176,8 +183,9 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
     let mut manager = PackageManager::new(cwd, agent_dir, settings);
     manager.set_progress_callback(Box::new(|event: &ProgressEvent| {
         if event.kind == ProgressEventKind::Start {
+            // Progress belongs on stderr; stdout is the result's stream.
             if let Some(message) = &event.message {
-                println!("{message}");
+                eprintln!("{message}");
             }
         }
     }));
@@ -198,7 +206,7 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
                     println!("Installed {source}");
                     HANDLED_OK
                 }
-                Err(error) => fail(&format!("Error: {error}"), None),
+                Err(error) => fail(&error.to_string(), None),
             }
         }
         PackageCommand::Remove => {
@@ -209,10 +217,18 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
                     HANDLED_OK
                 }
                 Ok(false) => {
-                    eprintln!("No matching package found for {source}");
-                    PackageCommandOutcome { exit_code: Some(1) }
+                    let scope_word = match scope {
+                        UserOrProject::Project => "project",
+                        UserOrProject::User => "user",
+                    };
+                    fail(
+                        &format!("Couldn't find package {source} in the {scope_word} settings."),
+                        Some(&format!(
+                            "See what is installed:\n    {APP_NAME} package list"
+                        )),
+                    )
                 }
-                Err(error) => fail(&format!("Error: {error}"), None),
+                Err(error) => fail(&error.to_string(), None),
             }
         }
         PackageCommand::List => {
@@ -222,7 +238,7 @@ pub fn handle_package_command(args: &[String]) -> PackageCommandOutcome {
         PackageCommand::Update => {
             let source = options.source.as_deref();
             if let Err(error) = manager.update(source) {
-                return fail(&format!("Error: {error}"), None);
+                return fail(&error.to_string(), None);
             }
             match source {
                 Some(source) => println!("Updated {source}"),

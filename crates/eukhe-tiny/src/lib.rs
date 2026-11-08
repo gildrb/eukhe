@@ -1,4 +1,4 @@
-//! Local tiny models (docs/inference.md S9; the model is bend/tiny.bend):
+//! Local tiny models (the model is bend/tiny.bend):
 //! the pinned catalog, the explicit user-run download, one shared worker
 //! process per model and backend with its election (start, join, replace),
 //! the client, and role-based model selection.

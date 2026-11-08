@@ -140,7 +140,7 @@ mod tests {
         };
         assert_eq!(
             report.text(),
-            "[child-exited: no-reply child:f20-worker]\n\nLast assistant text: done with the task"
+            "[child-exited: no-reply child:f20-worker]\n\nResume your work using the result below.\n\nLast assistant text: done with the task"
         );
     }
 
@@ -179,7 +179,7 @@ mod tests {
         };
         assert_eq!(
             report.text(),
-            "[child-failed: provider-rate_limit child:lane]\n\n429 usage limit"
+            "[child-failed: provider-rate_limit child:lane]\n\nResume your work using the result below.\n\n429 usage limit"
         );
         assert_eq!(
             report.origin(),
@@ -200,7 +200,10 @@ mod tests {
             "kind": "failed", "sessionName": "lane", "error": "boom",
         }))
         .expect("a checkpoint from before typed failures loads");
-        assert_eq!(report.text(), "[child-failed child:lane]\n\nboom");
+        assert_eq!(
+            report.text(),
+            "[child-failed child:lane]\n\nResume your work using the result below.\n\nboom"
+        );
     }
 
     #[test]

@@ -30,7 +30,8 @@ fn agents_without_a_terminal_refuses_instead_of_running_print_mode() {
             String::from_utf8_lossy(&output.stderr).into_owned(),
         ),
         (
-            Some(1),
+            // Missing input in non-interactive mode: usage class, exit 2.
+            Some(2),
             String::new(),
             "Error: agents requires an interactive terminal; `eukhe list` prints the agents\n"
                 .to_string(),

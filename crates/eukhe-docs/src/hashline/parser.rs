@@ -14,12 +14,11 @@ use super::{
     input::Parsed,
     messages::{
         self, AbsoluteRangeOp, BARE_BODY_AUTO_PIPED_WARNING, BARE_RANGE_AUTO_PUT_WARNING,
-        COLONLESS_PUT_TAKES_NO_BODY, COLONLESS_SPAN_PUT, COLON_ON_REGISTER_PUT,
-        CUT_COLON_IGNORED_WARNING, CUT_TAKES_NO_BODY, DIFF_OLD_ROWS_IGNORED_WARNING, EMPTY_INSERT,
-        EMPTY_PUT_AUTO_CUT_WARNING, MINUS_BULLET_AUTO_PIPED_WARNING, MINUS_ROW_REJECTED,
-        MOVE_TAKES_NO_BODY, READ_METADATA_IGNORED_WARNING, REGISTER_PUT_TAKES_NO_BODY,
-        REM_TAKES_NO_BODY, REPLACE_PAIR_COALESCED_WARNING, SNAPSHOT_ROWS_AUTO_PUT_WARNING,
+        CUT_COLON_IGNORED_WARNING, DIFF_OLD_ROWS_IGNORED_WARNING, EMPTY_PUT_AUTO_CUT_WARNING,
+        MINUS_BULLET_AUTO_PIPED_WARNING, READ_METADATA_IGNORED_WARNING,
+        REPLACE_PAIR_COALESCED_WARNING, SNAPSHOT_ROWS_AUTO_PUT_WARNING,
     },
+    parse_error::{Fault, HashlineParseError, ParseFailure},
     prefixes::{is_read_metadata_line, strip_one_leading_hashline_prefix},
     tokenizer::{is_hunk_header_text, tokenize, BlockTarget, Token},
     types::{Anchor, Cursor, Edit, FileOp, ParsedRange, PasteTarget},
@@ -65,7 +64,7 @@ impl Executor {
         }
     }
 
-    fn consume_comments(&mut self) -> Result<(), String> {
+    fn consume_comments(&mut self) -> Result<(), ParseFailure> {
         let comments = std::mem::take(&mut self.skippable_comments);
         for (line_num, text) in comments {
             self.handle_raw(&text, line_num)?;
@@ -73,7 +72,7 @@ impl Executor {
         Ok(())
     }
 
-    fn feed(&mut self, token: Token) -> Result<(), String> {
+    fn feed(&mut self, token: Token) -> Result<(), ParseFailure> {
         if self.terminated {
             return Ok(());
         }
@@ -138,7 +137,7 @@ impl Executor {
                     && !matches!(target, BlockTarget::Rem | BlockTarget::Move { .. })
                     && target.register().is_some()
                 {
-                    return fail_at(line_num, COLON_ON_REGISTER_PUT);
+                    return fail_at(line_num, Fault::ColonOnRegisterPut);
                 }
                 match target {
                     BlockTarget::Rem => {
@@ -165,13 +164,11 @@ impl Executor {
         }
     }
 
-    fn finish(mut self) -> Result<Parsed, String> {
+    fn finish(mut self) -> Result<Parsed, ParseFailure> {
         self.consume_comments()?;
         self.flush_pending()?;
         if matches!(self.file_op, Some(FileOp::Rem)) && !self.edits.is_empty() {
-            return Err(
-                "`REM` deletes the whole file and cannot be combined with line ops.".into(),
-            );
+            return Err(ParseFailure::RemWithLineOps);
         }
         self.normalize_overlaps()?;
         Ok(Parsed {
@@ -181,35 +178,31 @@ impl Executor {
         })
     }
 
-    fn set_file_op(&mut self, op: FileOp, line_num: u32) -> Result<(), String> {
+    fn set_file_op(&mut self, op: FileOp, line_num: u32) -> Result<(), ParseFailure> {
         if self.file_op.is_some() {
-            return fail_at(
-                line_num,
-                "only one file-level op (`REM` or `MV`) per section. Merge them under one header.",
-            );
+            return fail_at(line_num, Fault::SecondFileOp);
         }
         if matches!(op, FileOp::Rem) && !self.edits.is_empty() {
-            return fail_at(line_num, REM_TAKES_NO_BODY);
+            return fail_at(line_num, Fault::RemTakesNoBody);
         }
         self.file_op = Some(op);
         Ok(())
     }
 
-    fn handle_literal(&mut self, text: &str, line_num: u32) -> Result<(), String> {
+    fn handle_literal(&mut self, text: &str, line_num: u32) -> Result<(), ParseFailure> {
         let Some(pending) = self.pending.as_ref() else {
             if self.file_op.is_some() {
-                return fail_at(line_num, MOVE_TAKES_NO_BODY);
+                return fail_at(line_num, Fault::MoveTakesNoBody);
             }
             return fail_at(
                 line_num,
-                &format!(
-                    "payload line has no preceding hunk header. Got {}.",
-                    messages::json_quote(&format!("+{text}"))
-                ),
+                Fault::OrphanLiteral {
+                    text: text.to_owned(),
+                },
             );
         };
-        if let Some(message) = bodyless_message(&pending.target, pending.had_colon) {
-            return fail_at(line_num, message);
+        if let Some(fault) = bodyless_fault(&pending.target, pending.had_colon) {
+            return fail_at(line_num, fault);
         }
         let pending = self.pending.as_mut().expect("checked");
         pending.payloads.append(&mut pending.deferred_blanks);
@@ -226,24 +219,24 @@ impl Executor {
         Ok(())
     }
 
-    fn handle_raw(&mut self, text: &str, line_num: u32) -> Result<(), String> {
+    fn handle_raw(&mut self, text: &str, line_num: u32) -> Result<(), ParseFailure> {
         if self.pending.is_none() && is_read_metadata_line(text) {
             self.warn_once(READ_METADATA_IGNORED_WARNING);
             return Ok(());
         }
-        if let Some(message) = contamination_message(text) {
-            return fail_at(line_num, &message);
+        if let Some(fault) = contamination_fault(text) {
+            return fail_at(line_num, fault);
         }
         if self.file_op.is_some() {
-            return fail_at(line_num, MOVE_TAKES_NO_BODY);
+            return fail_at(line_num, Fault::MoveTakesNoBody);
         }
         if let Some(pending) = self.pending.as_ref() {
             if text.trim().is_empty() {
                 self.handle_blank(text, line_num);
                 return Ok(());
             }
-            if let Some(message) = bodyless_message(&pending.target, pending.had_colon) {
-                return fail_at(line_num, message);
+            if let Some(fault) = bodyless_fault(&pending.target, pending.had_colon) {
+                return fail_at(line_num, fault);
             }
             let minus = text.trim_start().starts_with('-');
             if !minus {
@@ -279,7 +272,7 @@ impl Executor {
         }
         if let Some((line, value)) = parse_snapshot_row(text) {
             if !self.recovered_snapshot_lines.insert(line) {
-                return fail_at(line_num, &messages::repeated_snapshot_row_message(line));
+                return fail_at(line_num, Fault::RepeatedSnapshotRow { line });
             }
             let range = ParsedRange {
                 start: Anchor { line },
@@ -292,11 +285,9 @@ impl Executor {
         }
         fail_at(
             line_num,
-            &format!(
-                "payload line has no preceding hunk header. Use `PUT N.=M:`, `CUT N.=M`, or `PUT \
-                 <N:`/`PUT >N:` above the body. Got {}.",
-                messages::json_quote(text)
-            ),
+            Fault::OrphanRow {
+                text: text.to_owned(),
+            },
         )
     }
 
@@ -304,7 +295,7 @@ impl Executor {
         let Some(pending) = self.pending.as_mut() else {
             return;
         };
-        if bodyless_message(&pending.target, pending.had_colon).is_some()
+        if bodyless_fault(&pending.target, pending.had_colon).is_some()
             || pending.payloads.is_empty()
         {
             return;
@@ -321,7 +312,7 @@ impl Executor {
         clippy::too_many_lines,
         reason = "one arm per header target, ported as one function from omp"
     )]
-    fn flush_pending(&mut self) -> Result<(), String> {
+    fn flush_pending(&mut self) -> Result<(), ParseFailure> {
         let Some(mut pending) = self.pending.take() else {
             return Ok(());
         };
@@ -337,7 +328,7 @@ impl Executor {
                     self.push_paste(PasteTarget::Span { range }, register, line);
                 } else if pending.payloads.is_empty() {
                     if !pending.had_colon {
-                        return fail_at(line, COLONLESS_SPAN_PUT);
+                        return fail_at(line, Fault::ColonlessSpanPut);
                     }
                     self.push_delete_range(range, line);
                     self.warn_once(EMPTY_PUT_AUTO_CUT_WARNING);
@@ -351,7 +342,7 @@ impl Executor {
             BlockTarget::Block { anchor, register } => {
                 if register.is_none() && pending.payloads.is_empty() {
                     if !pending.had_colon {
-                        return fail_at(line, COLONLESS_SPAN_PUT);
+                        return fail_at(line, Fault::ColonlessSpanPut);
                     }
                     self.warn_once(EMPTY_PUT_AUTO_CUT_WARNING);
                 }
@@ -360,7 +351,7 @@ impl Executor {
             BlockTarget::InsertBeforeBlock { anchor, register }
             | BlockTarget::InsertAfterBlock { anchor, register } => {
                 if register.is_none() && pending.had_colon && pending.payloads.is_empty() {
-                    return fail_at(line, EMPTY_INSERT);
+                    return fail_at(line, Fault::EmptyInsert);
                 }
                 self.push_block(anchor, line);
             }
@@ -413,11 +404,11 @@ impl Executor {
         had_colon: bool,
         payloads: Vec<PayloadRow>,
         line: u32,
-    ) -> Result<(), String> {
+    ) -> Result<(), ParseFailure> {
         if register.is_some() || (!had_colon && payloads.is_empty()) {
             self.push_paste(PasteTarget::Gap { cursor }, register, line);
         } else if payloads.is_empty() {
-            return fail_at(line, EMPTY_INSERT);
+            return fail_at(line, Fault::EmptyInsert);
         } else {
             for row in payloads {
                 self.push_insert(cursor, row.text, line, false);
@@ -426,7 +417,7 @@ impl Executor {
         Ok(())
     }
 
-    fn resolve_minus_rows(&mut self, rows: &mut Vec<PayloadRow>) -> Result<(), String> {
+    fn resolve_minus_rows(&mut self, rows: &mut Vec<PayloadRow>) -> Result<(), ParseFailure> {
         let minus: Vec<_> = rows.iter().filter(|row| row.minus).collect();
         if minus.is_empty() {
             return Ok(());
@@ -444,7 +435,7 @@ impl Executor {
             self.warn_once(DIFF_OLD_ROWS_IGNORED_WARNING);
             return Ok(());
         }
-        fail_at(minus[0].line_num, MINUS_ROW_REJECTED)
+        fail_at(minus[0].line_num, Fault::MinusRow)
     }
 
     const fn next_index(&mut self) -> u32 {
@@ -504,7 +495,7 @@ impl Executor {
         self.edits.push(Edit::Block { anchor, line_num });
     }
 
-    fn normalize_overlaps(&mut self) -> Result<(), String> {
+    fn normalize_overlaps(&mut self) -> Result<(), ParseFailure> {
         #[derive(Default)]
         struct Hunk {
             lines: BTreeSet<u32>,
@@ -581,14 +572,12 @@ impl Executor {
                 .find(|line| owner.contains_key(line))
                 .copied()
                 .unwrap_or(0);
-            let prior = previous.map_or_else(|| "an earlier line".into(), |line| line.to_string());
             return fail_at(
                 line_num,
-                &format!(
-                    "anchor line {first} is already targeted by another hunk on line {prior}. Issue \
-                     ONE hunk per range; payload is only the final desired content, never a \
-                     before/after pair."
-                ),
+                Fault::Overlap {
+                    first,
+                    prior: previous,
+                },
             );
         }
         if !dropped.is_empty() {
@@ -604,43 +593,44 @@ fn validate_range(
     line_num: u32,
     op: AbsoluteRangeOp,
     register: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), ParseFailure> {
     if range.end.line < range.start.line {
-        return Err(messages::invalid_absolute_range_message(
-            line_num,
-            range.start.line,
-            range.end.line,
+        return Err(ParseFailure::InvertedRange {
+            line: line_num,
+            start: range.start.line,
+            end: range.end.line,
             op,
-            register,
-        ));
+            register: register.map(str::to_owned),
+        });
     }
     let span = range.end.line - range.start.line + 1;
     if span > MAX_EXPANDED_RANGE_LINES {
         return fail_at(
             line_num,
-            &format!(
-                "{op} range spans {span} lines; the maximum is {MAX_EXPANDED_RANGE_LINES}. Split it \
-                 into smaller hunks."
-            ),
+            Fault::RangeTooLong {
+                op,
+                span,
+                max: MAX_EXPANDED_RANGE_LINES,
+            },
         );
     }
     Ok(())
 }
-fn fail_at<T>(line: u32, message: &str) -> Result<T, String> {
-    Err(format!("line {line}: {message}"))
+fn fail_at<T>(line: u32, fault: Fault) -> Result<T, ParseFailure> {
+    Err(ParseFailure::At { line, fault })
 }
-fn bodyless_message(target: &BlockTarget, had_colon: bool) -> Option<&'static str> {
+fn bodyless_fault(target: &BlockTarget, had_colon: bool) -> Option<Fault> {
     if matches!(
         target,
         BlockTarget::Cut { .. } | BlockTarget::CutBlock { .. }
     ) {
-        Some(CUT_TAKES_NO_BODY)
+        Some(Fault::CutTakesNoBody)
     } else if matches!(target, BlockTarget::Rem | BlockTarget::Move { .. }) {
         None
     } else if target.register().is_some() {
-        Some(REGISTER_PUT_TAKES_NO_BODY)
+        Some(Fault::RegisterPutTakesNoBody)
     } else if !had_colon {
-        Some(COLONLESS_PUT_TAKES_NO_BODY)
+        Some(Fault::ColonlessPutTakesNoBody)
     } else {
         None
     }
@@ -678,7 +668,15 @@ fn parse_bare_range(text: &str) -> Option<ParsedRange> {
         end: Anchor { line: end },
     })
 }
-fn contamination_message(text: &str) -> Option<String> {
+/// The clipped row a contamination fault quotes.
+fn preview(trimmed: &str) -> String {
+    if trimmed.chars().count() > 48 {
+        format!("{}…", trimmed.chars().take(48).collect::<String>())
+    } else {
+        trimmed.into()
+    }
+}
+fn contamination_fault(text: &str) -> Option<Fault> {
     let trimmed = text.trim_start();
     if [
         "*** Update File:",
@@ -689,36 +687,17 @@ fn contamination_message(text: &str) -> Option<String> {
     .iter()
     .any(|prefix| trimmed.starts_with(prefix))
     {
-        let preview = if trimmed.chars().count() > 48 {
-            format!("{}…", trimmed.chars().take(48).collect::<String>())
-        } else {
-            trimmed.into()
-        };
-        return Some(format!(
-            "apply_patch sentinel {} is not valid in hashline. File sections start with \
-             `[path#HASH]` (no `Update File:` / `Add File:` keyword). Use `PUT N.=M:`, `CUT N.=M`, \
-             or `PUT <N:`/`PUT >N:` ops.",
-            messages::json_quote(&preview)
-        ));
+        return Some(Fault::ApplyPatchSentinel {
+            preview: preview(trimmed),
+        });
     }
     if trimmed.starts_with("@@") {
         if UNIFIED_HUNK_RE.is_match(trimmed) {
-            return Some(
-                "unified-diff hunk header (`@@ -N,M +N,M @@`) is not valid in hashline. Use `PUT \
-                 N.=M:`, `CUT N.=M`, or `PUT <N:`/`PUT >N:` ops."
-                    .to_string(),
-            );
+            return Some(Fault::UnifiedHunkHeader);
         }
-        let preview = if trimmed.chars().count() > 48 {
-            format!("{}…", trimmed.chars().take(48).collect::<String>())
-        } else {
-            trimmed.into()
-        };
-        return Some(format!(
-            "`@@`-bracketed hunk header {} is not valid in hashline. Drop the `@@ ... @@` brackets \
-             and write a header such as `PUT N.=M:`.",
-            messages::json_quote(&preview)
-        ));
+        return Some(Fault::BracketedHunkHeader {
+            preview: preview(trimmed),
+        });
     }
     if !trimmed.is_empty()
         && trimmed
@@ -726,11 +705,9 @@ fn contamination_message(text: &str) -> Option<String> {
             .all(|byte| byte.is_ascii_digit() || byte.is_ascii_whitespace())
         && trimmed.split_whitespace().count() == 1
     {
-        return Some(format!(
-            "hunk headers need a verb and both endpoints. Use `PUT {0}.={0}:` to replace, or `CUT \
-             {0}.={0}` to delete.",
-            trimmed.trim()
-        ));
+        return Some(Fault::BareLineNumber {
+            line: trimmed.trim().to_owned(),
+        });
     }
     let pieces: Vec<_> = trimmed.trim_end_matches(':').split_whitespace().collect();
     if pieces.len() == 2
@@ -738,11 +715,9 @@ fn contamination_message(text: &str) -> Option<String> {
             .iter()
             .all(|piece| piece.bytes().all(|b| b.is_ascii_digit()))
     {
-        return Some(format!(
-            "bare range hunk header {} is not valid. Hunk headers need a verb: use `PUT N.=M:` or \
-             `CUT N.=M`.",
-            messages::json_quote(trimmed)
-        ));
+        return Some(Fault::BareRange {
+            text: trimmed.to_owned(),
+        });
     }
     None
 }
@@ -779,10 +754,10 @@ fn literal_value(text: &str) -> bool {
 }
 
 /// Parse a complete hashline section body.
-pub(crate) fn parse_patch(diff: &str) -> Result<Parsed, String> {
+pub(crate) fn parse_patch(diff: &str) -> Result<Parsed, HashlineParseError> {
     let mut executor = Executor::default();
     for token in tokenize(diff) {
         executor.feed(token)?;
     }
-    executor.finish()
+    Ok(executor.finish()?)
 }

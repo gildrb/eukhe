@@ -11,8 +11,8 @@ import ../../laws/infer_threshold.bend as InferThreshold
 
 def gtm.ask(q: FT.Req) -> InferThreshold.Ask:
   match q:
-    case FT.Req{on, t, w, r, m}:
-      InferThreshold.Ask{on, t, w, r, m}
+    case FT.Req{on, t, last, w, r, m, keep, full, xs, cuts}:
+      InferThreshold.Ask{on, t, last, w, r, m, keep, full, xs, cuts}
 
 def gtm.dec(d: Wr.Dec<FT.Req>) -> Wr.Dec<InferThreshold.Ask>:
   match d:
@@ -54,33 +54,68 @@ def gtm.z(d: Wr.Dec<Nat>) -> {InferThreshold.read_z(d) == FT.get_z(d) : Wr.Dec<M
     case Wr.Bad{}:
       {==}
 
-def gtm.margin(on: Bool, t: Nat, w: Nat, r: M.Z, d: Wr.Dec<M.Z>) -> {InferThreshold.read_ask.margin(on, t, w, r, d) == gtm.dec(FT.get_req.margin(on, t, w, r, d)) : Wr.Dec<InferThreshold.Ask>}:
+def gtm.cuts(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, d: Wr.Dec<List<&2, Nat>>) -> {InferThreshold.read_ask.cuts(on, t, last, w, r, m, keep, full, xs, d) == gtm.dec(FT.get_req.cuts(on, t, last, w, r, m, keep, full, xs, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{cuts, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def gtm.sizes(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, d: Wr.Dec<List<&2, Nat>>) -> {InferThreshold.read_ask.sizes(on, t, last, w, r, m, keep, full, d) == gtm.dec(FT.get_req.sizes(on, t, last, w, r, m, keep, full, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{xs, s}:
+      gtm.cuts(on, t, last, w, r, m, keep, full, xs, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      {==}
+
+def gtm.full(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.full(on, t, last, w, r, m, keep, d) == gtm.dec(FT.get_req.full(on, t, last, w, r, m, keep, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{full, s}:
+      gtm.sizes(on, t, last, w, r, m, keep, full, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      {==}
+
+def gtm.keep(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.keep(on, t, last, w, r, m, d) == gtm.dec(FT.get_req.keep(on, t, last, w, r, m, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{keep, s}:
+      gtm.full(on, t, last, w, r, m, keep, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def gtm.margin(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, d: Wr.Dec<M.Z>) -> {InferThreshold.read_ask.margin(on, t, last, w, r, d) == gtm.dec(FT.get_req.margin(on, t, last, w, r, d)) : Wr.Dec<InferThreshold.Ask>}:
   match d:
     case Wr.Got{m, s}:
-      {==}
+      gtm.keep(on, t, last, w, r, m, Wr.get_nat(s))
     case Wr.Bad{}:
       {==}
 
-def gtm.reserve(+on: Bool, +t: Nat, +w: Nat, d: Wr.Dec<M.Z>) -> {InferThreshold.read_ask.reserve(on, t, w, d) == gtm.dec(FT.get_req.reserve(on, t, w, d)) : Wr.Dec<InferThreshold.Ask>}:
+def gtm.reserve(+on: Bool, +t: Nat, +last: Nat, +w: Nat, d: Wr.Dec<M.Z>) -> {InferThreshold.read_ask.reserve(on, t, last, w, d) == gtm.dec(FT.get_req.reserve(on, t, last, w, d)) : Wr.Dec<InferThreshold.Ask>}:
   match d:
     case Wr.Got{+r, +s}:
-      %gtm.z(Wr.get_nat(s)) : {InferThreshold.read_ask.margin(on, t, w, r, InferThreshold.read_z(Wr.get_nat(s))) == gtm.dec(FT.get_req.margin(on, t, w, r, _)) : Wr.Dec<InferThreshold.Ask>}
-      gtm.margin(on, t, w, r, InferThreshold.read_z(Wr.get_nat(s)))
+      %gtm.z(Wr.get_nat(s)) : {InferThreshold.read_ask.margin(on, t, last, w, r, InferThreshold.read_z(Wr.get_nat(s))) == gtm.dec(FT.get_req.margin(on, t, last, w, r, _)) : Wr.Dec<InferThreshold.Ask>}
+      gtm.margin(on, t, last, w, r, InferThreshold.read_z(Wr.get_nat(s)))
     case Wr.Bad{}:
       {==}
 
-def gtm.window(+on: Bool, +t: Nat, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.window(on, t, d) == gtm.dec(FT.get_req.window(on, t, d)) : Wr.Dec<InferThreshold.Ask>}:
+def gtm.window(+on: Bool, +t: Nat, +last: Nat, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.window(on, t, last, d) == gtm.dec(FT.get_req.window(on, t, last, d)) : Wr.Dec<InferThreshold.Ask>}:
   match d:
     case Wr.Got{+w, +s}:
-      %gtm.z(Wr.get_nat(s)) : {InferThreshold.read_ask.reserve(on, t, w, InferThreshold.read_z(Wr.get_nat(s))) == gtm.dec(FT.get_req.reserve(on, t, w, _)) : Wr.Dec<InferThreshold.Ask>}
-      gtm.reserve(on, t, w, InferThreshold.read_z(Wr.get_nat(s)))
+      %gtm.z(Wr.get_nat(s)) : {InferThreshold.read_ask.reserve(on, t, last, w, InferThreshold.read_z(Wr.get_nat(s))) == gtm.dec(FT.get_req.reserve(on, t, last, w, _)) : Wr.Dec<InferThreshold.Ask>}
+      gtm.reserve(on, t, last, w, InferThreshold.read_z(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      {==}
+
+def gtm.last(on: Bool, t: Nat, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.last(on, t, d) == gtm.dec(FT.get_req.last(on, t, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{last, s}:
+      gtm.window(on, t, last, Wr.get_nat(s))
     case Wr.Bad{}:
       {==}
 
 def gtm.tokens(on: Bool, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.tokens(on, d) == gtm.dec(FT.get_req.tokens(on, d)) : Wr.Dec<InferThreshold.Ask>}:
   match d:
     case Wr.Got{t, s}:
-      gtm.window(on, t, Wr.get_nat(s))
+      gtm.last(on, t, Wr.get_nat(s))
     case Wr.Bad{}:
       {==}
 

@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # (H6) Every other wait has an exit
 # ---------------------------------
-# docs/harness.md H6. A wait (bend/wait.bend) sees, one at a time and in
+# LAWS.bend H6. A wait (bend/wait.bend) sees, one at a time and in
 # any order, its event, ticks of time, and the cancel; dl is its deadline
 # in ticks (None: none). The root-turn lease (bend/lease.bend) takes any
 # sequence of asks, releases, stops and crashes.
@@ -291,7 +291,7 @@ law wait_poll_refines:
 # when it had reported nothing before; else nothing
 # EXCLUDES: an end reported twice or at a later poll, an end lost, an
 # end other than the model's, a stepper whose state drifts from the
-# model's wait (the bridge's transcript, restated over every order)
+# model's wait after some order of events
 law wait_step_is_model:
   for +dl: Maybe<&2, Nat>
   for +pre: List<&2, Wt.Polled>

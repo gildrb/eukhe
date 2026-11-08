@@ -1,0 +1,9 @@
+# a plan (runs: an origin's ending, then a count of lines; then the carry),
+# a load (`L`, a projection: BOM, lines of a length and an own ending) and
+# a write (`W`, two projections): every count and length at its largest
+call 3,1,1,{MAX},0,{MAX},1,0,{MAX},0,
+call LF2,{MAX},1,1,{MAX},0,
+call WT2,{MAX},0,{MAX},1,0,F1,{MAX},1,1,
+call 0,1,
+refuse 1,1,0,{LONG},0,
+refuse LF1,{LONG},0,

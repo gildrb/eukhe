@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::{
     compile, Answer, Directive, FamilyOverlap, Layer, Lookup, Query, Quirks, QuirksError, RawRule,
-    Rulebook, Value, ValueKind,
+    RevisionRangeError, Rulebook, Value, ValueKind,
 };
 use crate::capabilities::{Capability, Dialect};
 use crate::types::{MaxTokensField, Model, SessionAffinityFormat, ThinkingFormat};
@@ -578,6 +578,45 @@ fn the_shipped_family_and_api_rules_give_the_former_checks() {
     );
 }
 
+/// `stops_output_at_window` holds for Claude 4.5 and later on the Claude
+/// API only: not for older Claude there, not for the same model on
+/// Bedrock, and not on a gateway that shares the Claude API's model ids.
+#[test]
+fn claude_4_5_and_later_stop_at_the_window_on_the_claude_api_only() {
+    let stops = |api: &str, provider: &str, id: &str, url: &str| {
+        Quirks::of(&model(api, provider, id, url)).stops_output_at_window()
+    };
+    assert_eq!(
+        [
+            stops(
+                "anthropic-messages",
+                "anthropic",
+                "claude-sonnet-4-5",
+                "https://api.anthropic.com"
+            ),
+            stops(
+                "anthropic-messages",
+                "anthropic",
+                "claude-opus-4-1",
+                "https://api.anthropic.com"
+            ),
+            stops(
+                "bedrock-converse-stream",
+                "amazon-bedrock",
+                "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "",
+            ),
+            stops(
+                "anthropic-messages",
+                "opencode",
+                "claude-sonnet-4-5",
+                "https://opencode.ai/zen"
+            ),
+        ],
+        [Some(true), None, None, Some(false)]
+    );
+}
+
 /// The shipped Qwen families split at the revision 3.8 (omp's class
 /// `qwen`, `revision ">=3.8"`): the revision follows `qwen` in the bare
 /// name; a size (`8b`) is not a revision, and an id with no revision is
@@ -632,7 +671,9 @@ fn a_bad_revision_range_an_undefined_tier_family_and_a_bad_ladder_do_not_compile
         vec![
             QuirksError::BadRevision {
                 family: "a".to_owned(),
-                reason: "`3.8` has no comparison".to_owned(),
+                source: RevisionRangeError::NoComparison {
+                    term: "3.8".to_owned(),
+                },
             },
             QuirksError::BadValue {
                 layer: Layer::Model,
@@ -643,6 +684,125 @@ fn a_bad_revision_range_an_undefined_tier_family_and_a_bad_ladder_do_not_compile
             },
             QuirksError::UndefinedTierFamily {
                 family: "b".to_owned(),
+            },
+        ]
+    );
+}
+
+/// The provider-id checks the host rules replaced, kept here only as their
+/// oracle: every model of the compiled catalog gets the old answer (the
+/// compound tool-call ids over the three Responses APIs, the lists of
+/// which depended on the API).
+#[test]
+fn the_shipped_host_rules_give_the_former_provider_checks() {
+    let flag = eukhe_bend::rules::model_facts::flag;
+    let differences: Vec<(String, String, &str)> = crate::models_generated::MODELS
+        .values()
+        .flat_map(|models| models.values())
+        .flat_map(|model| {
+            let quirks = Quirks::of(model);
+            let provider = model.provider.as_str();
+            let compound = match model.api.as_str() {
+                "openai-responses" | "openai-codex-responses" => {
+                    Some(matches!(provider, "openai" | "openai-codex" | "opencode"))
+                }
+                "azure-openai-responses" => Some(matches!(
+                    provider,
+                    "openai" | "openai-codex" | "opencode" | "azure"
+                )),
+                _ => None,
+            };
+            [
+                (
+                    "compound_tool_call_ids",
+                    compound.is_none_or(|old| old == flag(quirks.compound_tool_call_ids(), false)),
+                ),
+                (
+                    "tool_call_id_limit",
+                    (provider == "openai").then_some(40) == quirks.tool_call_id_limit(),
+                ),
+                (
+                    "service_tier_field",
+                    (provider != "github-copilot") == flag(quirks.service_tier_field(), true),
+                ),
+                (
+                    "reasoning_off_field",
+                    (provider != "github-copilot") == flag(quirks.reasoning_off_field(), true),
+                ),
+                (
+                    "encrypted_reasoning",
+                    (provider == "xai") == flag(quirks.encrypted_reasoning(), false),
+                ),
+                (
+                    "reasoning_content_signature",
+                    (provider == "opencode-go")
+                        == flag(quirks.reasoning_content_signature(), false),
+                ),
+            ]
+            .into_iter()
+            .filter(|(_, same)| !same)
+            .map(|(directive, _)| (model.provider.clone(), model.id.clone(), directive))
+        })
+        .collect();
+    assert_eq!(differences, Vec::new());
+}
+
+/// A family takes what the families it is outside leave: a model one of
+/// them matches is theirs alone; an `outside` naming no family, or a
+/// family that is itself outside others, does not compile.
+#[test]
+fn a_family_outside_others_takes_only_what_they_leave() {
+    let book = Rulebook::from_json(
+        r#"{
+          "families": [
+            { "id": "gpt", "on": "names", "match": [{ "contains": ["gpt-"] }], "outside": ["gpt-5", "gpt-oss"] },
+            { "id": "gpt-5", "on": "id", "match": [{ "starts": ["gpt-5"] }] },
+            { "id": "gpt-oss", "on": "names", "match": [{ "contains": ["gpt-oss"] }] }
+          ],
+          "hosts": [],
+          "rules": []
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        [
+            "openai.gpt-5.4",
+            "gpt-5.4",
+            "openai.gpt-oss-20b",
+            "gpt-4o",
+            "o3"
+        ]
+        .map(|id| book.family(id, "").unwrap()),
+        [
+            Some("gpt"),
+            Some("gpt-5"),
+            Some("gpt-oss"),
+            Some("gpt"),
+            None
+        ]
+    );
+    let errors = Rulebook::from_json(
+        r#"{
+          "families": [
+            { "id": "a", "on": "id", "match": [{ "starts": ["a"] }], "outside": ["b", "z"] },
+            { "id": "b", "on": "id", "match": [{ "starts": ["b"] }], "outside": ["c"] },
+            { "id": "c", "on": "id", "match": [{ "starts": ["c"] }] }
+          ],
+          "hosts": [],
+          "rules": []
+        }"#,
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        vec![
+            QuirksError::NestedOutside {
+                family: "a".to_owned(),
+                outside: "b".to_owned(),
+            },
+            QuirksError::UndefinedOutside {
+                family: "a".to_owned(),
+                outside: "z".to_owned(),
             },
         ]
     );

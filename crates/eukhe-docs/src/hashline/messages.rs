@@ -1,6 +1,8 @@
 //! Model-facing hashline errors and warnings (omp
 //! `modes/hashline/messages.rs`). Models are trained on these strings: keep
-//! them byte-identical to omp and change one only with a tool revision bump.
+//! them close to omp's. eukhe's tag guidance differs: every rejection of a
+//! missing, unknown or stale tag says where the real header comes from
+//! ([`tag_source_hint`]), never a placeholder header to copy.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -8,8 +10,10 @@ use crate::{store::MAX_SNAPSHOT_FILE_BYTES, text::format_bytes};
 
 /// Number of hexadecimal characters in a snapshot tag.
 pub(crate) const HL_FILE_HASH_LENGTH: usize = 4;
-/// Representative snapshot tags used in diagnostics.
-pub(crate) const HL_FILE_HASH_EXAMPLES: [&str; 3] = ["1A2B", "3C4D", "9F3E"];
+/// What a section header is, for the parse errors: the file's header line
+/// from a read, with a made-up example that never reads as a real file's tag.
+pub(crate) const HL_HEADER_RULE: &str = "the file's header line, copied verbatim from the latest \
+                                         `read`/`grep` output (e.g. `[src/a.rs#3F9A]`)";
 const HL_FILE_PREFIX: &str = "[";
 const HL_FILE_SUFFIX: &str = "]";
 const HL_PAYLOAD_REPLACE: &str = "+";
@@ -553,11 +557,20 @@ pub(crate) fn missing_snapshot_tag_message(section_path: &str, size: Option<u64>
             format_bytes(MAX_SNAPSHOT_FILE_BYTES)
         ),
         Some(_) | None => format!(
-            "Missing hashline snapshot tag for {section_path}; use \
-             `{HL_FILE_PREFIX}{section_path}{HL_FILE_HASH_SEP}tag{HL_FILE_SUFFIX}` from your latest \
-             read/search output. To create a new file, use the write tool."
+            "Section [{section_path}] has no tag: {} New files: `write`.",
+            tag_source_hint(section_path)
         ),
     }
+}
+
+/// Where the tag of `path` comes from; ends every rejection of a missing,
+/// unknown or stale tag.
+pub(crate) fn tag_source_hint(path: &str) -> String {
+    format!(
+        "`read` or `grep` {path} and copy the header line it prints verbatim \
+         (`{HL_FILE_PREFIX}{path}{HL_FILE_HASH_SEP}` + its 4-hex tag + `{HL_FILE_SUFFIX}`); never \
+         invent a tag."
+    )
 }
 
 /// A retry of a section that already changed the file: the live text is
@@ -584,8 +597,8 @@ pub(crate) fn path_recovered_from_tag_message(
 ) -> String {
     format!(
         "Path \"{authored_path}\" does not exist; matched its filename and snapshot tag \
-         {HL_FILE_HASH_SEP}{tag} to {resolved_path} (read earlier this session). Anchor future \
-         edits on {HL_FILE_PREFIX}{resolved_path}{HL_FILE_HASH_SEP}TAG{HL_FILE_SUFFIX}."
+         {HL_FILE_HASH_SEP}{tag} to {resolved_path} (read earlier this session). Use \
+         {resolved_path} in future headers."
     )
 }
 
@@ -686,8 +699,8 @@ pub(crate) fn unseen_lines_message(
     format!(
         "{header} Actual file content at those lines:\n{preview}\nVerify the content matches what \
          you intend to touch, then re-issue the edit with the same \
-         {HL_FILE_PREFIX}path{HL_FILE_HASH_SEP}tag{HL_FILE_SUFFIX} header — a straight retry now \
-         succeeds without a re-read. If the content does NOT match, fix your line numbers."
+         {HL_FILE_PREFIX}{section_path}{HL_FILE_HASH_SEP}{tag}{HL_FILE_SUFFIX} header — a straight \
+         retry now succeeds without a re-read. If the content does NOT match, fix your line numbers."
     )
 }
 
@@ -794,8 +807,8 @@ mod tests {
             "This edit anchors to lines 5 of src/foo.ts that [src/foo.ts#AB12] never displayed (it \
              showed a partial range, a search hit, or a folded summary). Actual file content at \
              those lines:\n  5:let x = 1;\nVerify the content matches what you intend to touch, then \
-             re-issue the edit with the same [path#tag] header — a straight retry now succeeds \
-             without a re-read. If the content does NOT match, fix your line numbers."
+             re-issue the edit with the same [src/foo.ts#AB12] header — a straight retry now \
+             succeeds without a re-read. If the content does NOT match, fix your line numbers."
         );
 
         // Truncated reveal

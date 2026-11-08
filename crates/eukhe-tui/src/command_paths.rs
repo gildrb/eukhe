@@ -1,4 +1,4 @@
-//! The paths of the slash commands (docs/interface.md, "Slash commands"):
+//! The paths of the slash commands ("Slash commands"):
 //! the path a typed line names, the menu below its last word, and what Tab
 //! and Enter do to the line. The rules run as the Bend model
 //! `bend/command.bend`, one call of the compiled core each

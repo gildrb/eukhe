@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use crate::model_roles::ModelRole;
 
 /// Session-executed commands (their behavior lives in the session engine).
-pub const SESSION_SLASH_COMMAND_NAMES: [&str; 7] = [
+pub const SESSION_SLASH_COMMAND_NAMES: [&str; 8] = [
     "compact",
     "refine",
     "goal",
@@ -22,6 +22,7 @@ pub const SESSION_SLASH_COMMAND_NAMES: [&str; 7] = [
     "remind",
     "force",
     "dynamic-workflow",
+    "autoresearch",
 ];
 
 /// Durable row custom types (TS core/messages.ts): the command echo and its
@@ -90,13 +91,18 @@ const MEMORY_SUBCOMMANDS: &[Subcommand] = &[
     },
 ];
 
-/// `/model <role>`: one subcommand per model role, in hub order.
-const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len()] = {
+/// The `/model` subcommand that sets the all-roles model (`modelRoles.all`).
+pub const MODEL_ALL_ROLES_SUBCOMMAND: &str = "--all";
+
+/// `/model <role>`: one subcommand per model role, in hub order, then
+/// `/model --all [provider/model]` (the all-roles model, the hub's last
+/// row).
+const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len() + 1] = {
     let mut out = [Subcommand {
         name: "",
         description: "",
         usage: None,
-    }; ModelRole::ALL.len()];
+    }; ModelRole::ALL.len() + 1];
     let mut i = 0;
     while i < ModelRole::ALL.len() {
         let role = ModelRole::ALL[i];
@@ -107,6 +113,11 @@ const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len()] = {
         };
         i += 1;
     }
+    out[i] = Subcommand {
+        name: MODEL_ALL_ROLES_SUBCOMMAND,
+        description: "The model of every role without its own: switches the session to it and saves it (no model: opens the picker)",
+        usage: Some("[provider/model]"),
+    };
     out
 };
 
@@ -122,9 +133,27 @@ const DYNAMIC_WORKFLOW_SUBCOMMANDS: &[Subcommand] = &[Subcommand {
     usage: Some("<small|medium|large> <request>"),
 }];
 
+const AUTORESEARCH_SUBCOMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "status",
+        description: "Show the autoresearch session of this branch",
+        usage: None,
+    },
+    Subcommand {
+        name: "off",
+        description: "Turn autoresearch mode and its loop off",
+        usage: None,
+    },
+    Subcommand {
+        name: "clear",
+        description: "Turn autoresearch off and close the session of this branch",
+        usage: None,
+    },
+];
+
 const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "settings", description: "Open settings menu", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
-    BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
+    BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role; /model --all <provider/model> sets the model of every role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role|--all]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "memory", description: "Browse the chat memory as a dated, expandable tree", execution: SlashCommandExecution::Client, argument_hint: Some("[view|model]"), aliases: &[], takes_argument: false, subcommands: MEMORY_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "effort", description: "Select reasoning/thinking level (opens selector UI)", execution: SlashCommandExecution::Client, argument_hint: Some("[level]"), aliases: &["thinking"], takes_argument: false, subcommands: &[], subcommand_optional: true },
     BuiltinSlashCommand { name: "fast", description: "Toggle OpenAI Fast mode", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
@@ -155,6 +184,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "remind", description: "Put a reminder on the Director stack; its text leads the next continuation", execution: SlashCommandExecution::Session, argument_hint: Some("<text>"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "force", description: "Force the next requests to call a tool until the model calls it", execution: SlashCommandExecution::Session, argument_hint: Some("<tool> [--tries <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "dynamic-workflow", description: "Plan and run a multi-agent workflow script for a request", execution: SlashCommandExecution::Session, argument_hint: Some("[--size small|medium|large] <request>"), aliases: &["workflow"], takes_argument: true, subcommands: DYNAMIC_WORKFLOW_SUBCOMMANDS, subcommand_optional: true },
+    BuiltinSlashCommand { name: "autoresearch", description: "Run an autonomous experiment loop toward a goal: benchmark, keep only improvements", execution: SlashCommandExecution::Session, argument_hint: Some("<goal>|off|status|clear"), aliases: &[], takes_argument: true, subcommands: AUTORESEARCH_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "workflows", description: "Show this session's dynamic workflow runs: phases, agents, logs", execution: SlashCommandExecution::Client, argument_hint: Some("[size]"), aliases: &[], takes_argument: false, subcommands: WORKFLOWS_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "rlm-max-depth", description: "Set/view the per-chat persistent RLM max depth immediately; never interrupts or queues the running turn", execution: SlashCommandExecution::Client, argument_hint: Some("[<int> [--global]]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "set", description: "Set a console variable for this session (--global: in the global config.cfg)", execution: SlashCommandExecution::Client, argument_hint: Some("[--global] <id> <value>"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },

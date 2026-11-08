@@ -10,7 +10,7 @@ import ./base.bend as LawsBase
 
 # (S7) The tool surface
 # ---------------------
-# docs/tools.md S7, the model in bend/tools.bend. Every input is free:
+# the model in bend/tools.bend. Every input is free:
 # any tools that join and quit, any schemas, any paths, any scripts, any
 # auto set, any answers of the user.
 
@@ -38,6 +38,73 @@ law dyn_drops_quit:
   for +s: Tl.Sess
   for +t: Nat
   {Tl.dyn_call(Tl.step(s, Tl.Quit{t}), t) == False{} : Bool}
+
+# (S7, 1) The roster, against a spec
+# ----------------------------------
+# A session's roster never changes. A tool that joins goes in front of
+# the dynamic tools; a tool that quits leaves them (every copy of it; the
+# others stay, in order); a request sends the roster, recorded in front of
+# the rosters sent so far. Every input is free: any session, any events.
+
+# ys, with y in front unless y is the tool that quits (hit)
+def tr_keep(hit: Bool, y: Nat, ys: List<&2, Nat>) -> List<&2, Nat>:
+  match hit:
+    case True{}:
+      ys
+    case False{}:
+      y <> ys
+
+# the dynamic tools ds without tool t
+def tr_drop(ds: List<&2, Nat>, +t: Nat) -> List<&2, Nat>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case +y <> rest:
+      tr_keep(Nat.is_eq(y, t), y, tr_drop(rest, t))
+
+# the session after event e
+def tr_step(s: Tl.Sess, e: Tl.Ev) -> Tl.Sess:
+  match s:
+    case Tl.Sess{+r, d, x}:
+      match e:
+        case Tl.Join{t}:
+          Tl.Sess{r, t <> d, x}
+        case Tl.Quit{t}:
+          Tl.Sess{r, tr_drop(d, t), x}
+        case Tl.Turn{}:
+          Tl.Sess{r, d, r <> x}
+
+# the session after the events es from s: one step at a time, in order
+def tr_run(es: List<&2, Tl.Ev>, s: Tl.Sess) -> Tl.Sess:
+  match es:
+    case Nil{}:
+      s
+    case e <> rest:
+      tr_run(rest, tr_step(s, e))
+
+# LAW roster_step_spec (A1): every event moves a session exactly as the
+# spec states: a join puts the tool in front of the dynamic tools, a quit
+# removes every copy of it and keeps the others in order, a request
+# records the roster in front of the rosters sent; the roster never
+# changes
+# EXCLUDES: a join that adds nothing, another tool or a copy too many; a
+#   quit that keeps a copy, drops another tool too (or every tool) or
+#   reorders the rest; a request that records another roster or none; a
+#   step that changes the roster
+law roster_step_spec:
+  for +s: Tl.Sess
+  for +e: Tl.Ev
+  {Tl.step(s, e) == tr_step(s, e) : Tl.Sess}
+
+# LAW roster_run_spec (A1): a session after events is the spec's step
+# taken once per event, in order, from where the session started
+# EXCLUDES: a run that ignores its events (`run(es, s) = s`, which
+#   roster_fixed and roster_sent_fixed let pass), skips, repeats or
+#   reorders them, or steps another way than the step
+law roster_run_spec:
+  for +es: List<&2, Tl.Ev>
+  for +s: Tl.Sess
+  {Tl.run(es, s) == tr_run(es, s) : Tl.Sess}
 
 # LAW schema_has_intent: every schema the harness sends has the intent parameter
 law schema_has_intent:
@@ -254,6 +321,158 @@ law tools_ffi_malformed_unless_request:
 law tools_ffi_tags_example:
   {[FTl.ffi("3,2,0,4,"), FTl.ffi("1,0,"), FTl.ffi("1,1,"), FTl.ffi("0,"), FTl.ffi("2,2,3,"), FTl.ffi("3,2,0,0,"), FTl.ffi("2,2,"), FTl.ffi(""), FTl.ffi("1,1,x")] == ["1,1,2,", "0,", "1,0,", "1,0,", "1,2,1,0,", "0,", Wr.err("tools: malformed request"), Wr.err("tools: malformed request"), Wr.err("tools: input left over")] : List<&2, String>}
 
+# (S7, 3) The path entry, against a spec
+# --------------------------------------
+# An internal URL's path is a list of segments under the root of its
+# scheme: a name goes one level down, `.` (or an empty segment) stays,
+# `..` goes one level up; a path that goes above its root is rejected,
+# never clamped. Read from its end, each `..` cancels the nearest name
+# before it that no other `..` cancels; the names left are the names the
+# path reaches; a `..` that no name before it is left to cancel goes above
+# the root. Every input is free: any segments, any text.
+
+# a name met with u uncancelled `..` after it: it cancels one of them
+def tp_ups.name(u: Nat) -> Nat:
+  match u:
+    case 0n:
+      0n
+    case 1n+v:
+      v
+
+# the `..` of segs that no name of segs cancels
+def tp_ups(segs: List<&2, Tl.Seg>) -> Nat:
+  match segs:
+    case Nil{}:
+      0n
+    case g <> rest:
+      match g:
+        case Tl.Name{n}:
+          tp_ups.name(tp_ups(rest))
+        case Tl.Up{}:
+          1n+tp_ups(rest)
+        case Tl.Here{}:
+          tp_ups(rest)
+
+# the name n before the names ns that stay, with u uncancelled `..` after
+# it: it stays (the shallowest, last) when no `..` is left to cancel it
+def tp_names.name(n: Nat, u: Nat, ns: List<&2, Nat>) -> List<&2, Nat>:
+  match u:
+    case 0n:
+      List.append(&2, Nat, ns, [n])
+    case 1n+v:
+      ns
+
+# the names of segs that no `..` cancels, deepest (last) first
+def tp_names(segs: List<&2, Tl.Seg>) -> List<&2, Nat>:
+  match segs:
+    case Nil{}:
+      Nil{}
+    case g <> +rest:
+      match g:
+        case Tl.Name{n}:
+          tp_names.name(n, tp_ups(rest), tp_names(rest))
+        case Tl.Up{}:
+          tp_names(rest)
+        case Tl.Here{}:
+          tp_names(rest)
+
+def tp_resolve.at(u: Nat, ns: List<&2, Nat>) -> Maybe<&2, List<&2, Nat>>:
+  match u:
+    case 0n:
+      Some{ns}
+    case 1n+v:
+      None{}
+
+# the names the path reaches, deepest first; None when a `..` goes above
+# the root
+def tp_resolve(+segs: List<&2, Tl.Seg>) -> Maybe<&2, List<&2, Nat>>:
+  tp_resolve.at(tp_ups(segs), tp_names(segs))
+
+# the segment a request code names (the grammar of bend/ffi_tools.bend):
+# 0 `..`, 1 `.`, 2 + n the name n
+def tp_seg(c: Nat) -> Tl.Seg:
+  match c:
+    case 0n:
+      Tl.Up{}
+    case 1n:
+      Tl.Here{}
+    case 2n+n:
+      Tl.Name{n}
+
+def tp_segs(cs: List<&2, Nat>) -> List<&2, Tl.Seg>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> rest:
+      tp_seg(c) <> tp_segs(rest)
+
+# the reply: 0 (above the root), or 1 then the names
+def tp_reply(m: Maybe<&2, List<&2, Nat>>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{ns}:
+      Wr.put_nat(1n, Wr.put_list(~Nat, ~Wr.put_nat, ns, ""))
+
+# the error form of an input that is no request
+def tp_malformed() -> String:
+  SCon{'E', SCon{' ', "tools: malformed request"}}
+
+# the error form of a request followed by more input
+def tp_left_over() -> String:
+  SCon{'E', SCon{' ', "tools: input left over"}}
+
+def tp_entry.end(whole: Bool, cs: List<&2, Nat>) -> String:
+  match whole:
+    case True{}:
+      tp_reply(tp_resolve(tp_segs(cs)))
+    case False{}:
+      tp_left_over()
+
+def tp_entry.read(r: Wr.Dec<List<&2, Nat>>) -> String:
+  match r:
+    case Wr.Got{cs, s}:
+      tp_entry.end(Wr.end(s), cs)
+    case Wr.Bad{}:
+      tp_malformed()
+
+# the reply of the path entry to the input s: the request is a list of
+# codes read with the wire primitives
+def tp_entry(s: String) -> String:
+  tp_entry.read(Wr.get_list(~Nat, ~Wr.get_nat, s))
+
+# LAW path_resolve_spec (A1, S7 3): every path resolves as the spec reads
+# it: each `..` cancels the nearest name before it left to cancel; the
+# names no `..` cancels are the names reached, deepest first; a `..` with
+# no name left to cancel goes above the root, and the path is rejected
+# EXCLUDES: a path clamped at its root, a `..` that cancels another name
+#   or none, names reordered, dropped, repeated or invented, `.` taken as
+#   a name or as `..`
+law path_resolve_spec:
+  for +segs: List<&2, Tl.Seg>
+  {Tl.resolve(segs) == tp_resolve(segs) : Maybe<&2, List<&2, Nat>>}
+
+# LAW tools_ffi_exact (compiled core): on every input the path entry
+# answers exactly the spec's reply: a whole request (a list of codes read
+# with the wire's reader, nothing left) gets 0 when its path goes above
+# its root, else 1 then the names it reaches; a request followed by more
+# input gets exactly the error form "tools: input left over"; any other
+# input exactly the error form "tools: malformed request"
+# EXCLUDES: a code read as another segment, a reply in another spelling,
+#   input left over ignored, a default for malformed input, another error
+#   text
+law tools_ffi_exact:
+  for +s: String
+  {FTl.ffi(s) == tp_entry(s) : String}
+
+# LAW tools_ffi_example (compiled core): anchor: the bytes of requests and
+# their replies: names 0 and 1, `..`, name 2 reach 2 under 0; `..` at the
+# root is rejected; the empty path reaches the root; input left over; a
+# list shorter than its count
+# EXCLUDES: another spelling of a request or a reply
+law tools_ffi_example:
+  {[FTl.ffi("4,2,3,0,4,"), FTl.ffi("2,0,2,"), FTl.ffi("0,"), FTl.ffi("1,1,x"), FTl.ffi("1,")] == ["1,2,2,0,", "0,", "1,0,", tp_left_over(), tp_malformed()] : List<&2, String>}
+
 # LAW gate_prefix: the steps that ran are the script's first steps, in order
 law gate_prefix:
   for +ss: List<&2, Tl.Step>
@@ -288,6 +507,100 @@ law gate_finish_runs_all:
   for fin: {Tl.End.finished(Tl.Ran.end(Tl.exec(ss, auto, ans))) == True{} : Bool}
   {Tl.Ran.steps(Tl.exec(ss, auto, ans)) == ss : List<&2, Tl.Step>}
 
+# (G2, 4) The gate, against a spec
+# --------------------------------
+# A script runs step by step. A step runs unasked when each of its
+# effects is one an auto set may hold (codes 0 to 6: every effect) and is
+# in the auto set; any other step asks the user and takes the next
+# answer: a yes runs it, a no denies it, and with no answer left it is
+# denied. A step that runs unasked takes no answer. A denial stops the
+# script: the denied step and every later step do not run, and the script
+# ends denied at that step's id; a script whose every step ran finished.
+# Every input is free: any steps, any auto set, any answers.
+
+# c is in xs
+def tg_in(xs: List<&2, Nat>, +c: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, c), tg_in(rest, c))
+
+# each effect of effs is one an auto set may hold (0 to 6) and is in auto
+def tg_unasked(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match effs:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(Nat.is_lt(c, 7n), tg_in(auto, c)), tg_unasked(rest, auto))
+
+# step s runs unasked
+def tg_free(s: Tl.Step, +auto: List<&2, Nat>) -> Bool:
+  match s:
+    case Tl.Step{i, f}:
+      tg_unasked(f, auto)
+
+# step s ran, then the rest ran as r
+def tg_ran(s: Tl.Step, r: Tl.Ran) -> Tl.Ran:
+  match r:
+    case Tl.Ran{ss, e}:
+      Tl.Ran{s <> ss, e}
+
+# step s is denied: nothing more runs, the script ends denied at its id
+def tg_denied(s: Tl.Step) -> Tl.Ran:
+  match s:
+    case Tl.Step{i, f}:
+      Tl.Ran{Nil{}, Tl.Denied{i}}
+
+# the user answers a to step s; after a yes the rest runs as r
+def tg_answer(a: Bool, s: Tl.Step, r: Tl.Ran) -> Tl.Ran:
+  match a:
+    case True{}:
+      tg_ran(s, r)
+    case False{}:
+      tg_denied(s)
+
+# a step that runs unasked (u) goes as run, an asked one as ask
+def tg_pick(u: Bool, run: Tl.Ran, ask: Tl.Ran) -> Tl.Ran:
+  match u:
+    case True{}:
+      run
+    case False{}:
+      ask
+
+# how the script ss runs with the auto set auto and the user's answers
+# ans (to the asked steps, in order)
+def tg_exec(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>) -> Tl.Ran:
+  match ss:
+    case Nil{}:
+      Tl.Ran{Nil{}, Tl.Finished{}}
+    case +s <> +rest:
+      match ans:
+        case Nil{}:
+          tg_pick(tg_free(s, auto), tg_ran(s, tg_exec(rest, auto, Nil{})), tg_denied(s))
+        case +a <> +more:
+          tg_pick(tg_free(s, auto), tg_ran(s, tg_exec(rest, auto, a <> more)), tg_answer(a, s, tg_exec(rest, auto, more)))
+
+# LAW gate_exec_spec (G2): every script runs, with every auto set and
+# every answers of the user, exactly as the spec states: a step whose
+# effects are all ones an auto set may hold and in the auto set runs
+# without an answer; any other step takes the next answer and runs on a
+# yes, and a no or no answer left denies it, stopping the script there,
+# ended denied at its id; a script whose every step ran finished
+# EXCLUDES: a yes taken as a denial (which gate_prefix, gate_needs_yes,
+#   gate_deny_stops and gate_finish_runs_all let pass); a no or a missing
+#   answer taken as a yes; an answer taken by a step that runs unasked, or
+#   answers used out of order; a denial that runs a step, keeps the steps
+#   before it out of the result or ends at another id; a script that
+#   stops early or ends finished after a denial; a step run unasked with
+#   an effect the auto set lacks or no auto set may hold, or asked when
+#   all its effects are in it
+law gate_exec_spec:
+  for +ss: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for +ans: List<&2, Bool>
+  {Tl.exec(ss, auto, ans) == tg_exec(ss, auto, ans) : Tl.Ran}
+
 # ---- path_policy ----
 
 # LAWS (G1): the path policy. Each law is an open claim about the model
@@ -296,7 +609,7 @@ law gate_finish_runs_all:
 
 # (G1) Path policy
 # ----------------
-# docs/tools.md S7: one policy for the `bash` tool and the document
+# One policy for the `bash` tool and the document
 # tools (crates/eukhe-types/src/path_policy.rs). A path is a list of
 # segments from `/`; the symlinks are free (any location, any target,
 # from `/` or from the link's directory, loops included); the policy is
@@ -320,7 +633,7 @@ law gate_inside_write_runs:
 
 # (G2) Shell classification
 # -------------------------
-# docs/tools.md S7, the gate model of bend/tools.bend part 4. A step has a
+# the gate model of bend/tools.bend part 4. A step has a
 # set of effects (codes: 0 read, 1 write, 2 exec, 3 net, 4 outside, 5
 # protected, 6 secret): every effect of every part of it (its command,
 # each redirection, each path it names; every command an external script
@@ -366,17 +679,6 @@ law auto_needs_every_effect:
   for out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}
   {Tl.auto.at(auto, s) == False{} : Bool}
 
-# LAW auto_never_sensitive (changed 2026-10-23 by the user: no prompts, like omp): a read or a
-# write of a secret (6) never runs without a question, whatever the auto
-# set holds
-law auto_never_sensitive:
-  for +s: Tl.Step
-  for +auto: List<&2, Nat>
-  for +c: Nat
-  for has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}
-  for held: {Nat.is_le(6n, c) == True{} : Bool}
-  {Tl.auto.at(auto, s) == False{} : Bool}
-
 # LAW composed_needs_every_part: a step made of parts runs without a question only when every effect
 # of every part is within the auto set
 law composed_needs_every_part:
@@ -413,7 +715,8 @@ law held_needs_a_yes:
 # -----------------------------------------------------------------
 # The phone gateway shows no question. A step is guarded when it writes a
 # protected path (effect 5: eukhe's own config and credentials, a .git or
-# .eukhe dir, a PATH dir) or reads or writes a secret (effect 6).
+# .eukhe dir, a PATH dir); the rule refuses it when the auto set does not
+# already run it.
 
 # LAW gateway_refuses_protected: the gateway rule refuses a step that writes a protected path
 law gateway_refuses_protected:
@@ -422,15 +725,8 @@ law gateway_refuses_protected:
   for +above: List<&2, Am.Desk>
   {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}
 
-# LAW gateway_refuses_secret: the gateway rule refuses a step that reads or writes a secret
-law gateway_refuses_secret:
-  for +es: List<&2, Nat>
-  for secret: {Tl.elem(es, 6n) == True{} : Bool}
-  for +above: List<&2, Am.Desk>
-  {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}
-
 # LAW gateway_runs_the_rest: the gateway rule runs every other step unasked (a write, a run of
-# a program, the network, a write outside the workspace)
+# a program, the network, a write outside the workspace, a secret access)
 law gateway_runs_the_rest:
   for +es: List<&2, Nat>
   for not_protected: {Tl.elem(es, 5n) == False{} : Bool}
@@ -438,7 +734,7 @@ law gateway_runs_the_rest:
   for +above: List<&2, Am.Desk>
   {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.Runs{} : Am.Fate}
 
-# (G5) The default auto set; the never-auto effects
+# (G5) The default auto set
 # --------------------------------------------------
 # A step runs unasked when its effects are within the auto set
 # (`shell.autoEffects`, bend/tools.bend `within`). The test
@@ -447,37 +743,12 @@ law gateway_runs_the_rest:
 # session with no settings and compares it with the core's
 # `default_auto` (the call of bend/ffi_approvals.bend).
 
-# LAW default_auto_is_grantable (changed 2026-10-23 by the user: no prompts, like omp): the auto
-# set of a session whose user sets none holds exactly the grantable
-# effects: every effect but secret
+# LAW default_auto_is_grantable (changed 2026-10-27 by the user: secrets
+# never ask again): the auto set of a session whose user sets none holds
+# exactly the grantable effects: every effect
 law default_auto_is_grantable:
   for +c: Nat
   {Tl.elem(Am.default_auto(), c) == Tl.grantable(c) : Bool}
-
-# LAW never_auto_is_routed (changed 2026-10-23 by the user: no prompts, like omp): a step with a
-# secret (6), which no auto set may hold, never runs unasked through the
-# auto set, in any session: its question goes its route
-law never_auto_is_routed:
-  for +auto: List<&2, Nat>
-  for +es: List<&2, Nat>
-  for +c: Nat
-  for has: {Tl.elem(es, c) == True{} : Bool}
-  for held: {Nat.is_le(6n, c) == True{} : Bool}
-  for +ds: List<&2, Am.Desk>
-  {Am.gate(auto, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}
-
-# LAW never_auto_asks_the_client (changed 2026-10-23 by the user: no prompts, like omp): so in a
-# session whose client answers (the TUI, the dashboard), such a step asks
-# that client, and its answer decides
-law never_auto_asks_the_client:
-  for +auto: List<&2, Nat>
-  for +es: List<&2, Nat>
-  for +c: Nat
-  for has: {Tl.elem(es, c) == True{} : Bool}
-  for held: {Nat.is_le(6n, c) == True{} : Bool}
-  for +yes: Bool
-  for +above: List<&2, Am.Desk>
-  {Am.gate(auto, es, Am.Says{yes} <> above) == Am.Routed{Am.Out{[0n], Am.Answered{0n, yes}}, Am.yes.fate(yes)} : Am.Gated}
 
 # LAW outside_runs_only_by_the_gateway (changed 2026-10-23 by the user: no prompts, like omp): in a
 # session whose only clients are the phone gateway and whose auto set
@@ -493,11 +764,13 @@ law outside_runs_only_by_the_gateway:
   for +above: List<&2, Am.Desk>
   {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.Runs{}} : Am.Gated}
 
-# LAW guarded_refused_from_the_phone (changed 2026-10-23 by the user: no prompts, like omp): and
-# there a step with a secret is refused at once, whatever the auto set
+# LAW guarded_refused_from_the_phone (changed 2026-10-27 by the user:
+# secrets never ask again): and there a step that writes a protected path
+# (effect 5) is refused at once, when the auto set does not already run it
 law guarded_refused_from_the_phone:
   for +auto: List<&2, Nat>
   for +es: List<&2, Nat>
-  for secret: {Tl.elem(es, 6n) == True{} : Bool}
+  for protected: {Tl.elem(es, 5n) == True{} : Bool}
+  for off: {Tl.elem(auto, 5n) == False{} : Bool}
   for +above: List<&2, Am.Desk>
   {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.GatewayRefused{}} : Am.Gated}

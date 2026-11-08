@@ -1,13 +1,19 @@
 //! Static system-prompt layers: human-editable markdown files assembled into
 //! the cache-stable prefix of the prompt. The layers are, in order:
 //!
-//! 1. `core.md` — the harness description and the full programmatic-tool API
-//!    surface (one tool: `ipython`; everything else lives in the REPL).
+//! 1. `core.md` — the harness description, the core tools (`bash`, `jobs`,
+//!    the file functions, `rlm.harness`), the one-loop subagent policy, and
+//!    how skills load; every other programmatic tool's API lives in the
+//!    skill that owns it (`skills/*/`), never here.
 //! 2. `usage.md` — mandatory usage rules.
 //! 3. `opinionated.md` — style and engineering guidelines users may override.
 //!
 //! Per-model additions follow them as one more cached segment, resolved from
 //! the TOML rule map in [`super::model_prompts`].
+//!
+//! `critical.md` is no prefix layer: its `<critical>` block closes the
+//! install-stable tail, after every extension's section; only the project's
+//! instructions and the environment follow (`durable::prompt::extensions`).
 //!
 //! Layer files must never contain session-specific values: the cached
 //! prefix ends where the dynamic tail (`system_prompt.rs`) begins, and the
@@ -30,6 +36,8 @@ pub const CORE_LAYER: &str = include_str!("layers/core.md");
 pub const USAGE_LAYER: &str = include_str!("layers/usage.md");
 /// The opinionated guidelines layer (file `layers/opinionated.md`).
 pub const OPINIONATED_LAYER: &str = include_str!("layers/opinionated.md");
+/// The closing `<critical>` block (file `layers/critical.md`).
+pub const CRITICAL_LAYER: &str = include_str!("layers/critical.md");
 
 const HARNESS_MEMORY_OPEN: &str = "<!-- eukhe:harness-memory -->";
 const HARNESS_MEMORY_CLOSE: &str = "<!-- /eukhe:harness-memory -->";
@@ -77,6 +85,7 @@ pub fn layer_source(name: &str) -> Option<&'static str> {
         "core" => Some("prompts/layers/core.md"),
         "usage" => Some("prompts/layers/usage.md"),
         "opinionated" => Some("prompts/layers/opinionated.md"),
+        "critical" => Some("prompts/layers/critical.md"),
         "model-prompts" => Some("prompts/layers/model_prompts.toml"),
         _ => None,
     }
@@ -102,9 +111,6 @@ mod tests {
     #[test]
     fn static_prefix_is_layer_composition() {
         let prefix = static_prefix(HarnessMemory::Harness);
-        assert!(prefix.starts_with("# eukhe harness"));
-        assert!(prefix.contains("The following are mandatory rules"));
-        assert!(prefix.contains("guidelines to agents have been shown"));
         // Exact composition: the three constant layers.
         assert_eq!(
             prefix,
@@ -127,50 +133,25 @@ mod tests {
         assert_eq!(render_layer(layer, HarnessMemory::Chat), "a\nb\nc1\nz\n");
     }
 
-    /// The chat-memory session's layers carry no continual-harness memory
-    /// surface and no push toward proactive delegation (the chat is the
-    /// only memory; subagents run when the user asks). The one exception
-    /// is main in the `main-worker` shape (the user's approved design):
-    /// its turns route each message to its worker by tool choice instead
-    /// of doing the work; every other root keeps "subagents only when the
-    /// user asks".
+    /// No marker line reaches a rendered layer, whatever the memory.
     #[test]
-    fn chat_memory_layers_drop_harness_memory_and_delegation() {
-        let chat = static_prefix(HarnessMemory::Chat);
-        let harness = static_prefix(HarnessMemory::Harness);
-        for rendered in [&chat, &harness] {
+    fn rendered_layers_carry_no_marker_lines() {
+        for memory in [HarnessMemory::Chat, HarnessMemory::Harness] {
+            let rendered = static_prefix(memory);
             assert!(!rendered.contains("<!-- eukhe:"), "a marker line leaked");
             assert!(!rendered.contains("<!-- /eukhe:"), "a marker line leaked");
         }
-        for harness_only in [
-            "rlm.harness.create_memory",
-            "rlm.harness.update_memory",
-            "rlm.harness.delete_memory",
-            "_prompt_note",
-            "rlm.get_harness_state",
-            "persistent memories",
-            "Memories must be kept lean",
-            "into memories",
-            "assigns independent substantive tasks to separate workers",
-            "Delegate parallel context-heavy research",
-            "Write wrappers around `rlm.spawn`",
-        ] {
-            assert!(harness.contains(harness_only), "{harness_only:?}");
-            assert!(!chat.contains(harness_only), "{harness_only:?}");
-        }
-        // The tools stay: subagents, skills, and subagent specs.
-        for tool in [
-            "rlm.spawn(",
-            "rlm.harness.create_skill(",
-            "rlm.harness.create_subagent(",
-            "refine.run(",
-        ] {
-            assert!(chat.contains(tool), "{tool:?}");
-        }
+    }
+
+    /// Main in the `main-worker` shape (the user's approved design) routes
+    /// each message to its worker by tool choice instead of doing the work;
+    /// every other root does the user's tasks itself.
+    #[test]
+    fn main_routes_each_message_to_its_worker() {
         let root = crate::memory::memory_system_layer();
         let main = crate::memory::main_system_layer();
-        assert!(root.contains("Use subagents only when the user asks for them."));
-        assert!(!main.contains("Use subagents only when the user asks"));
+        assert!(root.contains("Do the user's tasks yourself"));
+        assert!(!main.contains("Do the user's tasks yourself"));
         for route in [
             "worker_status",
             "worker_forward with\n  kind \"context\"",
@@ -181,5 +162,20 @@ mod tests {
             assert!(main.contains(route), "{route:?}");
             assert!(!root.contains(route), "{route:?}");
         }
+    }
+
+    /// Main's worker runs on a chat of its own, as a top-level session
+    /// does: its layer opens as a session's own chat, never as a subagent
+    /// handed main's view, and carries the worker doctrine.
+    #[test]
+    fn the_worker_layer_is_its_own_chat_with_the_doctrine() {
+        let root = crate::memory::memory_system_layer();
+        let worker = crate::memory::worker_system_layer();
+        let opening = root.split("\n\n").next().expect("an opening");
+        assert!(worker.starts_with(opening));
+        assert!(!worker.contains("You are a subagent"));
+        assert!(!worker.contains("Your first message holds the view"));
+        assert!(worker.contains("You are the worker: main talks with the user"));
+        assert!(!root.contains("You are the worker"));
     }
 }

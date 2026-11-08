@@ -308,22 +308,32 @@ def decide.round(+l: Lim, +count: Nat, stops: Bool, reset: Bool) -> End:
   +fin = fin.of(stops, reset)
   End.ph(fin, count, RnState.St.ph(RnStep.tools(Lim.cfg(l), fin, Lim.r(l, count), 0n, 0n, 0n, 0n)))
 
-# a stuck reply as `recover` reads it (`Stuck`): a length stop with no
-# answer, leaked calls that the harness could not rebuild, or calls that
-# would make 1 + before rounds in a row with the same calls and results
+# a stuck reply as `recover` reads it (`Stuck`): a length stop with text
+# (the stop walk's LengthStop), leaked calls that the harness could not
+# rebuild (MarkupStop), calls that would make 1 + before rounds in a row
+# with the same calls and results, no text (EmptyStop), a length stop
+# with no text (LengthStop: the model still reasoned) with the facts its
+# ladder reads: the model's context window (0: unknown) and catalog max
+# output, the reply's prompt and output tokens, whether a compaction can
+# run (compaction on, a cut, the generation has not compacted) and
+# whether a thinking level below the agent's exists
 type Stuck is Data:
   Truncated{}
   Leaked{}
   Repeats{before: Nat}
+  Emptied{}
+  Thought{window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, lower: Bool}
 
 # what a recovery does with it (`Act`): the calls run, a retry with the
-# row-th note of the recovery in a row, the reply answers as text, or the
-# run fails on the model
+# row-th note of the recovery in a row, the run fails on the model, the
+# context is compacted and the request goes again, or a retry one
+# thinking level lower with the row-th note
 type Help is Data:
   Runs{}
   Redoes{row: Nat}
-  Stands{}
   Quits{}
+  Compacts{}
+  Lowers{row: Nat}
 
 def Rec.row(r: RnRecovery.Rec) -> Nat:
   match r:
@@ -336,12 +346,14 @@ def Help.act(a: RnRecovery.Act, row: Nat) -> Help:
       Runs{}
     case RnRecovery.Redo{}:
       Redoes{row}
-    case RnRecovery.Stand{}:
-      Stands{}
     case RnRecovery.Quit{}:
       Quits{}
     case RnRecovery.Pass{}:
       Quits{}
+    case RnRecovery.Shrink{}:
+      Compacts{}
+    case RnRecovery.Lower{}:
+      Lowers{row}
 
 def Help.of(d: RnRecovery.Dec) -> Help:
   match d:
@@ -358,6 +370,10 @@ def Stuck.out(s: Stuck) -> RnRecovery.Out:
       RnRecovery.Leak{False{}, 0n, False{}}
     case Repeats{before}:
       RnRecovery.Ran{0n, True{}}
+    case Emptied{}:
+      RnRecovery.Empty{}
+    case Thought{+window, +catalog, +prompt, +out, cuttable, lower}:
+      RnRecovery.Think{Bool.and(cuttable, RnRecovery.bound(window, catalog, prompt, out)), lower}
 
 def Stuck.same(s: Stuck) -> Nat:
   match s:
@@ -367,6 +383,10 @@ def Stuck.same(s: Stuck) -> Nat:
       0n
     case Repeats{before}:
       before
+    case Emptied{}:
+      0n
+    case Thought{window, catalog, prompt, out, cuttable, lower}:
+      0n
 
 # what a recovery does with a stuck reply, after the request whose note
 # counts row notes of the recovery k in a row (`recover`)

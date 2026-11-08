@@ -1,4 +1,4 @@
-# compactor: the decisions that make a compactor call end (docs/harness.md
+# compactor: the decisions that make a compactor call end (LAWS.bend
 # H1) and the wait for a settled view end (H2), against any model reply.
 #
 # - A line (H1): at most `tries` calls; an empty or thinking-only reply is

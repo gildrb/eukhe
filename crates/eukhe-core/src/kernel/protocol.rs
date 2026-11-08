@@ -180,6 +180,30 @@ impl Event {
     }
 }
 
+/// Why a protocol line is not a valid event; each variant carries the line,
+/// clipped to its first 200 characters.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProtocolLineError {
+    /// The line is not JSON.
+    #[error("unparseable protocol line: {line}")]
+    Unparseable { line: String },
+    /// The line is JSON but not an object.
+    #[error("non-object protocol line: {line}")]
+    NonObject { line: String },
+    /// The line names no event, or one the protocol does not have.
+    #[error("unknown protocol event: {line}")]
+    UnknownEvent { line: String },
+    /// A `result` frame without a string id.
+    #[error("result frame without id: {line}")]
+    ResultWithoutId { line: String },
+    /// A `host_request` frame without a string id.
+    #[error("host_request frame without id: {line}")]
+    HostRequestWithoutId { line: String },
+    /// A `done` frame without a string id.
+    #[error("done frame without id: {line}")]
+    DoneWithoutId { line: String },
+}
+
 /// Parse one protocol line into an event, or explain why the frame is invalid.
 ///
 /// `done` and `host_request` route strictly by non-empty string id (the
@@ -188,12 +212,13 @@ impl Event {
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when the line is not valid JSON,
-/// is not a JSON object, names an unknown protocol event, or frames an
-/// id-less `done`, `result`, or `host_request`.
-pub fn parse_event(line: &str) -> Result<Event, String> {
+/// [`ProtocolLineError`] when the line is not valid JSON, is not a JSON
+/// object, names an unknown protocol event, or frames an id-less `done`,
+/// `result`, or `host_request`.
+pub fn parse_event(line: &str) -> Result<Event, ProtocolLineError> {
+    let clipped = || clip(line).to_owned();
     let mut value: Value = serde_json::from_str(line)
-        .map_err(|_| format!("unparseable protocol line: {}", clip(line)))?;
+        .map_err(|_| ProtocolLineError::Unparseable { line: clipped() })?;
     // `display` and `host_request` carry bulk `data` payloads (attachments,
     // agent messages); move the field out of the parsed map instead of
     // deep-cloning it out of `value` below. Other kinds and non-object lines
@@ -211,17 +236,17 @@ pub fn parse_event(line: &str) -> Result<Event, String> {
     };
     let obj = value
         .as_object()
-        .ok_or_else(|| format!("non-object protocol line: {}", clip(line)))?;
+        .ok_or_else(|| ProtocolLineError::NonObject { line: clipped() })?;
     let kind = obj
         .get("event")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("unknown protocol event: {}", clip(line)))?;
+        .ok_or_else(|| ProtocolLineError::UnknownEvent { line: clipped() })?;
     let known = matches!(
         kind,
         "ready" | "stdout" | "stderr" | "result" | "display" | "host_request" | "error" | "done"
     );
     if !known {
-        return Err(format!("unknown protocol event: {}", clip(line)));
+        return Err(ProtocolLineError::UnknownEvent { line: clipped() });
     }
     let id =
         |key: &str| -> Option<String> { obj.get(key).and_then(Value::as_str).map(str::to_string) };
@@ -243,7 +268,8 @@ pub fn parse_event(line: &str) -> Result<Event, String> {
             })
         }
         "result" => {
-            let id = id("id").ok_or_else(|| format!("result frame without id: {}", clip(line)))?;
+            let id =
+                id("id").ok_or_else(|| ProtocolLineError::ResultWithoutId { line: clipped() })?;
             let text = obj
                 .get("text")
                 .and_then(Value::as_str)
@@ -253,8 +279,8 @@ pub fn parse_event(line: &str) -> Result<Event, String> {
         }
         "display" => Ok(Event::Display { id: id("id"), data }),
         "host_request" => {
-            let rid =
-                id("id").ok_or_else(|| format!("host_request frame without id: {}", clip(line)))?;
+            let rid = id("id")
+                .ok_or_else(|| ProtocolLineError::HostRequestWithoutId { line: clipped() })?;
             Ok(Event::HostRequest { id: rid, data })
         }
         "error" => Ok(Event::Error {
@@ -281,7 +307,8 @@ pub fn parse_event(line: &str) -> Result<Event, String> {
                 .unwrap_or_default(),
         }),
         "done" => {
-            let id = id("id").ok_or_else(|| format!("done frame without id: {}", clip(line)))?;
+            let id =
+                id("id").ok_or_else(|| ProtocolLineError::DoneWithoutId { line: clipped() })?;
             Ok(Event::Done { id, fields: value })
         }
         _ => unreachable!("kind validated above"),
@@ -527,27 +554,35 @@ mod tests {
     #[test]
     fn invalid_frames_report_exact_reasons() {
         assert_eq!(
-            parse_event("not json").unwrap_err(),
+            parse_event("not json").unwrap_err().to_string(),
             "unparseable protocol line: not json"
         );
         assert_eq!(
-            parse_event("[1,2,3]").unwrap_err(),
+            parse_event("[1,2,3]").unwrap_err().to_string(),
             "non-object protocol line: [1,2,3]"
         );
         assert_eq!(
-            parse_event(r#"{"event":"mystery"}"#).unwrap_err(),
+            parse_event(r#"{"event":"mystery"}"#)
+                .unwrap_err()
+                .to_string(),
             r#"unknown protocol event: {"event":"mystery"}"#
         );
         assert_eq!(
-            parse_event(r#"{"event":"result"}"#).unwrap_err(),
+            parse_event(r#"{"event":"result"}"#)
+                .unwrap_err()
+                .to_string(),
             r#"result frame without id: {"event":"result"}"#
         );
         assert_eq!(
-            parse_event(r#"{"event":"host_request","data":{}}"#).unwrap_err(),
+            parse_event(r#"{"event":"host_request","data":{}}"#)
+                .unwrap_err()
+                .to_string(),
             r#"host_request frame without id: {"event":"host_request","data":{}}"#
         );
         assert_eq!(
-            parse_event(r#"{"event":"done","status":"ok"}"#).unwrap_err(),
+            parse_event(r#"{"event":"done","status":"ok"}"#)
+                .unwrap_err()
+                .to_string(),
             r#"done frame without id: {"event":"done","status":"ok"}"#
         );
     }

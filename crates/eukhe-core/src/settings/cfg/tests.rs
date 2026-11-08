@@ -4,7 +4,9 @@ use eukhe_types::cvar::parse_list;
 use serde_json::{json, Value};
 
 use crate::settings::cvar::{CvarError, CvarWriteError, Set, Sets};
-use crate::settings::storage::{InMemorySettingsStorage, SettingsScope, SettingsStorage};
+use crate::settings::storage::{
+    FileSettingsStorage, InMemorySettingsStorage, SettingsScope, SettingsStorage,
+};
 use crate::settings::{SettingsManager, TransportSetting};
 
 fn set(id: &str, value: Value) -> Set {
@@ -312,8 +314,8 @@ fn write_agent_cfg_round_trips_through_read_profile() {
 
 /// Regression: a setter used to write the whole global document even when
 /// `settings.json` had failed to parse, replacing the user's file with the
-/// defaults plus one field. The broken file now stays byte-identical and
-/// the setter fails.
+/// defaults plus one field. The broken file now stays byte-identical: a
+/// document setter fails, and a setting saves in config.cfg alone.
 #[test]
 fn a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -323,7 +325,11 @@ fn a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse() {
     let broken = "{ \"theme\": \"dark\", oops }\n";
     std::fs::write(&path, broken).expect("write");
     let mut manager = SettingsManager::create(dir.path().join("cwd"), &agent_dir);
-    assert!(manager.set_theme("light".to_string()).is_err());
+    assert!(manager.set_onboarding_shown(true).is_err());
+    assert_eq!(
+        manager.set_theme("light".to_string()).expect("saved"),
+        crate::settings::Persisted::Applies
+    );
     assert_eq!(std::fs::read_to_string(&path).expect("read"), broken);
 }
 
@@ -379,13 +385,19 @@ fn clear_global_unsets_the_cvar_in_both_global_files() {
         )],
     );
     let mut manager = SettingsManager::from_storage(Arc::clone(&store));
-    assert_eq!(manager.get_memory_model().as_deref(), Some("c/d"));
+    assert_eq!(
+        manager
+            .cvars()
+            .optional_text(&table::MEMORY_MODEL)
+            .as_deref(),
+        Some("c/d")
+    );
     manager
         .clear_global(&[&table::MEMORY_MODEL])
         .expect("clear");
     assert_eq!(
         (
-            manager.get_memory_model(),
+            manager.cvars().optional_text(&table::MEMORY_MODEL),
             manager.config_scope(&table::MEMORY_MODEL),
             store
                 .read_cfg(SettingsScope::Global, "config.cfg")
@@ -396,5 +408,45 @@ fn clear_global_unsets_the_cvar_in_both_global_files() {
     assert_eq!(
         manager.get_memory_thinking(),
         crate::settings::ThinkingLevelSetting::High
+    );
+}
+
+/// A session run from the agent dir's parent (`eukhe` launched in the
+/// home directory) resolves the project `config.cfg` to the global one:
+/// the global sets apply once, and the global file's own Global cvars
+/// raise no project error.
+#[test]
+fn a_session_in_the_agent_dirs_parent_reads_its_config_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".eukhe")).expect("agent dir");
+    let storage: Arc<dyn SettingsStorage> =
+        Arc::new(FileSettingsStorage::new(&home, home.join(".eukhe")));
+    storage
+        .with_lock(SettingsScope::Global, &mut |_| Some("{}".to_string()))
+        .expect("settings.json");
+    storage
+        .with_cfg_lock(SettingsScope::Global, "config.cfg", &mut |_| {
+            Some("set memory.model zai/glm-5.3-flash\nset memory.thinking low\n".to_string())
+        })
+        .expect("cfg");
+    let manager = SettingsManager::from_storage(Arc::clone(&storage));
+    assert!(
+        errors(&manager).is_empty(),
+        "the global config.cfg must not error as the project one: {:?}",
+        errors(&manager)
+    );
+    assert_eq!(
+        (
+            manager
+                .cvars()
+                .optional_text(&crate::settings::cvar::table::MEMORY_MODEL)
+                .as_deref(),
+            manager.get_memory_thinking()
+        ),
+        (
+            Some("zai/glm-5.3-flash"),
+            crate::settings::ThinkingLevelSetting::Low
+        )
     );
 }

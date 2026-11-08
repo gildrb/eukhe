@@ -1,0 +1,9 @@
+# the policy and a resolved path with every name id at its largest: a flat
+# list carries 1 + id, so its items reach {MAX}; the path itself carries
+# ids up to {MAX}; counts are what the lists need
+call 3,{MAX},{MAX},0,3,3,{MAX},0,3,{MAX},{MAX},0,3,99999999999998,99999999999998,99999999999998,F
+call 5,{MAX},0,{MAX},{MAX},0,6,1,{MAX},0,2,{MAX},0,3,{MAX},{MAX},0,4,{MAX},{MAX},{MAX},{MAX},T
+call 3,{MAX},{MAX},0,0,0,3,{MAX},99999999999998,99999999999998,F
+call 0,0,0,3,{MAX},{MAX},{MAX},F
+refuse 1,{LONG},0,0,0,F
+refuse 0,0,0,3,{LONG},1,1,F

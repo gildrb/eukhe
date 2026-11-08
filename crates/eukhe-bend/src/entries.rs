@@ -132,16 +132,22 @@ pub enum Entry {
     JobRewind = 80,
     /// `bend/ffi_job_wait.bend`: a stepper.
     JobWait = 81,
+    /// `bend/ffi_cron.bend`: a call.
+    Cron = 82,
     /// `bend/ffi_work.bend`: a call and a stepper.
     Work = 83,
     /// `bend/ffi_retry_idle.bend`: a stepper.
     RetryIdle = 84,
+    /// `bend/ffi_cron_file.bend`: a call.
+    CronFile = 85,
     /// `bend/ffi_timeouts.bend`: a call.
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
     Revive = 91,
     /// `bend/ffi_auth_flight.bend`: a stepper.
     AuthFlight = 92,
+    /// `bend/ffi_auth_read.bend`: a call.
+    AuthRead = 93,
     /// `bend/ffi_dash.bend`: a call and a stepper.
     Dash = 101,
     /// `bend/ffi_doc_tags.bend`: a call.
@@ -204,16 +210,50 @@ pub enum Entry {
     Shape = 385,
     /// `bend/ffi_tiny_run.bend`: a stepper.
     TinyRun = 400,
-    /// `bend/ffi_cron_serve.bend`: a call and a stepper.
-    CronServe = 410,
     /// `bend/ffi_wait_race.bend`: a stepper.
     WaitRace = 420,
-    /// `bend/ffi_tool_call.bend`: a stepper.
+    /// `bend/ffi_tool_call.bend`: a call and a stepper.
     ToolCall = 421,
     /// `bend/ffi_optchat.bend`: a stepper.
     Optchat = 422,
+    /// `bend/ffi_autoresearch.bend`: a stepper.
+    Autoresearch = 430,
+    /// `bend/ffi_family.bend`: a call.
+    Family = 431,
+    /// `bend/ffi_task_life.bend`: a call.
+    TaskLife = 432,
+    /// `bend/ffi_rlm_query.bend`: a call.
+    RlmQuery = 433,
+    /// `bend/ffi_arg_repair.bend`: a call.
+    ArgRepair = 434,
+    /// `bend/ffi_call_lift.bend`: a call.
+    CallLift = 435,
+    /// `bend/ffi_rebase.bend`: a call.
+    Rebase = 436,
+    /// `bend/ffi_wait_any.bend`: a call.
+    WaitAny = 437,
+    /// `bend/ffi_headless_settle.bend`: a call.
+    HeadlessSettle = 438,
+    /// `bend/ffi_headless_exit.bend`: a call.
+    HeadlessExit = 439,
+    /// `bend/ffi_stop.bend`: a call.
+    Stop = 440,
+    /// `bend/ffi_model_roles.bend`: a call.
+    ModelRoles = 441,
+    /// `bend/ffi_kin.bend`: a call.
+    Kin = 442,
+    /// `bend/ffi_thread.bend`: a call.
+    Thread = 443,
+    /// `bend/ffi_doc_publish.bend`: a call.
+    DocPublish = 444,
+    /// `bend/ffi_job_notice.bend`: a call.
+    JobNotice = 450,
+    /// `bend/ffi_privacy.bend`: a call and a stepper.
+    Privacy = 451,
+    /// `bend/ffi_tool_result.bend`: a call.
+    ToolResult = 452,
     /// `bend/ffi_worker.bend`: a call.
-    Worker = 430,
+    Worker = 453,
 }
 
 impl Entry {
@@ -282,11 +322,14 @@ impl Entry {
         Entry::Tokens,
         Entry::JobRewind,
         Entry::JobWait,
+        Entry::Cron,
         Entry::Work,
         Entry::RetryIdle,
+        Entry::CronFile,
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,
+        Entry::AuthRead,
         Entry::Dash,
         Entry::DocTags,
         Entry::DocCommit,
@@ -318,10 +361,27 @@ impl Entry {
         Entry::AiText,
         Entry::Shape,
         Entry::TinyRun,
-        Entry::CronServe,
         Entry::WaitRace,
         Entry::ToolCall,
         Entry::Optchat,
+        Entry::Autoresearch,
+        Entry::Family,
+        Entry::TaskLife,
+        Entry::RlmQuery,
+        Entry::ArgRepair,
+        Entry::CallLift,
+        Entry::Rebase,
+        Entry::WaitAny,
+        Entry::HeadlessSettle,
+        Entry::HeadlessExit,
+        Entry::Stop,
+        Entry::ModelRoles,
+        Entry::Kin,
+        Entry::Thread,
+        Entry::DocPublish,
+        Entry::JobNotice,
+        Entry::Privacy,
+        Entry::ToolResult,
         Entry::Worker,
     ];
 

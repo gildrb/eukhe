@@ -10,7 +10,7 @@ import ./base.bend as LawsBase
 
 # (S6) The inference layer
 # ------------------------
-# docs/inference.md S6, the model in bend/infer.bend. Every input is free:
+# the model in bend/infer.bend. Every input is free:
 # any rulebook, query and directive; any replies of the model; any
 # provider support; any tools; any stream; any context sizes.
 
@@ -246,7 +246,7 @@ law compact_starts_early:
 
 # (S6.9) The thinking ladder
 # --------------------------
-# docs/inference.md S6.9 and S10 (the ladder 0), the model in
+# the model in
 # bend/infer.bend section 6. Every input is free: any explicit map, any
 # rulebook ladder, any default ladders, any level.
 
@@ -507,6 +507,200 @@ law core_infer_malformed_unless_request:
 #   does not, an unknown cap tag read as a known one
 law core_infer_tags_example:
   {[FIn.ffi("1,1,2,7,3,9,0,1,9,"), FIn.ffi("1,1,2,7,3,9,0,1,7,"), FIn.ffi("0,2,7,3,9,0,0,"), FIn.ffi("1,0,2,7,3,9,0,0,")] == ["1,9,", "0,1,9,", "0,0,", "0,2,7,9,"] : List<&2, String>} & {[FIn.ffi("2,0,0,"), FIn.ffi("0,1,7,"), FIn.ffi("0,0,1,"), FIn.ffi("0,0,0,x")] == [Wr.err("strict plan request: malformed"), Wr.err("strict plan request: malformed"), Wr.err("strict plan request: malformed"), Wr.err("strict plan request: input left over")] : List<&2, String>}
+
+# The entry, independently of bend/ffi_infer.bend and of the model's
+# functions: a reader of the request grammar (the header of
+# bend/ffi_infer.bend) built from the wire primitives, the plan as
+# bend/infer.bend's header (section 3) states it, and a speller of the
+# reply from the wire primitives.
+
+# a Maybe<Nat>: 0 none | 1, then the Nat
+def ir.mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Some{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ir.mnat.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      ir.mnat.some(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def ir.mnat(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      ir.mnat.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a tool: its id, then its priority
+def ir.tool.p(i: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<If.Tool>:
+  match r:
+    case Wr.Got{p, s}:
+      Wr.Got{If.Tool{i, p}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ir.tool.i(r: Wr.Dec<Nat>) -> Wr.Dec<If.Tool>:
+  match r:
+    case Wr.Got{i, s}:
+      ir.tool.p(i, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ir.tool(s: String) -> Wr.Dec<If.Tool>:
+  ir.tool.i(Wr.get_nat(s))
+
+# a request: the cap, the tools (a list), the needed ids (a list)
+def ir.req.need(cap: Maybe<&2, Nat>, ts: List<&2, If.Tool>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FIn.Req>:
+  match r:
+    case Wr.Got{need, s}:
+      Wr.Got{FIn.Req{cap, ts, need}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ir.req.ts(cap: Maybe<&2, Nat>, r: Wr.Dec<List<&2, If.Tool>>) -> Wr.Dec<FIn.Req>:
+  match r:
+    case Wr.Got{ts, s}:
+      ir.req.need(cap, ts, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ir.req.cap(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<FIn.Req>:
+  match r:
+    case Wr.Got{cap, s}:
+      ir.req.ts(cap, Wr.get_list(~If.Tool, ~ir.tool, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s starts with, and what follows it
+def ir.read(s: String) -> Wr.Dec<FIn.Req>:
+  ir.req.cap(ir.mnat(Wr.get_nat(s)))
+
+# b ? t : e
+def is.if(-A: Data, b: Bool, t: A, e: A) -> A:
+  match b:
+    case True{}:
+      t
+    case False{}:
+      e
+
+def is.id(t: If.Tool) -> Nat:
+  match t:
+    case If.Tool{i, p}:
+      i
+
+def is.prio(t: If.Tool) -> Nat:
+  match t:
+    case If.Tool{i, p}:
+      p
+
+# x put into ys (highest priority first) before the first tool of
+# priority at most x's: x goes before the tools it ties with
+def is.ins(+x: If.Tool, ys: List<&2, If.Tool>) -> List<&2, If.Tool>:
+  match ys:
+    case Nil{}:
+      [x]
+    case +y <> +yt:
+      is.if(List<&2, If.Tool>, Nat.is_le(is.prio(y), is.prio(x)), x <> y <> yt, y <> is.ins(x, yt))
+
+# the tools by priority, highest first; among equal priorities the earlier
+# tool comes first (a stable sort)
+def is.sort(ts: List<&2, If.Tool>) -> List<&2, If.Tool>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> rest:
+      is.ins(t, is.sort(rest))
+
+# the loose tools: with no cap none; with a cap c the tools past the c
+# highest
+def is.loose(cap: Maybe<&2, Nat>, ts: List<&2, If.Tool>) -> List<&2, If.Tool>:
+  match cap:
+    case None{}:
+      Nil{}
+    case Some{c}:
+      List.drop(&2, If.Tool, is.sort(ts), c)
+
+# xs lists x
+def is.elem(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), is.elem(rest, x))
+
+# the id of the first tool of ls that requires a strict schema
+def is.needed(ls: List<&2, If.Tool>, +need: List<&2, Nat>) -> Maybe<&2, Nat>:
+  match ls:
+    case Nil{}:
+      None{}
+    case +t <> rest:
+      is.if(Maybe<&2, Nat>, is.elem(need, is.id(t)), Some{is.id(t)}, is.needed(rest, need))
+
+def is.ids(ts: List<&2, If.Tool>) -> List<&2, Nat>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> rest:
+      is.id(t) <> is.ids(rest)
+
+def is.plan.of(m: Maybe<&2, Nat>, loose: List<&2, If.Tool>) -> If.Plan:
+  match m:
+    case Some{i}:
+      If.Over{i}
+    case None{}:
+      If.Fits{is.ids(loose)}
+
+# the plan: the first loose tool (highest priority first) that requires a
+# strict schema is refused; else every tool fits, with the loose ids
+def is.plan(cap: Maybe<&2, Nat>, ts: List<&2, If.Tool>, +need: List<&2, Nat>) -> If.Plan:
+  +loose = is.loose(cap, ts)
+  is.plan.of(is.needed(loose, need), loose)
+
+# the reply: 0 then the loose ids | 1 then the refused tool's id
+def is.put_plan(p: If.Plan) -> String:
+  match p:
+    case If.Fits{ls}:
+      Wr.put_nat(0n, Wr.put_list(~Nat, ~Wr.put_nat, ls, ""))
+    case If.Over{i}:
+      Wr.put_nat(1n, Wr.put_nat(i, ""))
+
+def is.end(whole: Bool, q: FIn.Req) -> String:
+  match whole:
+    case True{}:
+      match q:
+        case FIn.Req{cap, ts, need}:
+          is.put_plan(is.plan(cap, ts, need))
+    case False{}:
+      Wr.err("strict plan request: input left over")
+
+def is.run(r: Wr.Dec<FIn.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      is.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      Wr.err("strict plan request: malformed")
+
+# the reply to the input s
+def is.spec(s: String) -> String:
+  is.run(ir.read(s))
+
+# LAW core_infer_ffi_exact (R1-R3): on every input the entry answers the plan of the request the input starts with (the tools ranked by priority, highest first, an earlier tool first among equals; with a cap c the tools past the c highest are loose, with no cap none; the first loose tool, in that order, that requires a strict schema is refused by its id, else the loose ids, in that order), spelled as the Rust reader reads it, when nothing follows the request; "strict plan request: input left over" when something does; "strict plan request: malformed" when the input starts with no request
+# EXCLUDES: a ranking that breaks a tie by the later tool or by id, loose
+#   ids in another order, another refused tool than the first loose needed
+#   one, a needed tool sent loose; a reply in another spelling; a value for
+#   an input that is no request (an unknown cap tag, a list cut short, a
+#   15-digit number) or for a request with input left over; another error
+#   text
+law core_infer_ffi_exact:
+  for +s: String
+  {FIn.ffi(s) == is.spec(s) : String}
 
 # ---- model_facts ----
 

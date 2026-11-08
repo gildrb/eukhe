@@ -20,9 +20,63 @@ law revive_after_refresh:
   for soon: {Nat.is_le(d, b) == True{} : Bool}
   {Rv.fresh(Nat.add(h, b), Rv.age(h, c, d)) == True{} : Bool}
 
+# The age of the busy evidence, exactly
+# --------------------------------------
+# The spec below states the age on its own, from the rule in the header of
+# bend/revive.bend: the run's start and every h ms after it are records, so
+# c ms into the run the last record is c mod h ms old.
+
+# the ms since the last record c ms into a run with a refresh every h ms:
+# c mod h; with h = 0 no refresh is ever due and the start stays the last
+# record: c (Nat.mod(c, 0n) is c)
+def rv_since(c: Nat, h: Nat) -> Nat:
+  Nat.mod(c, h)
+
+# the evidence's age at a boot d ms after a crash c ms into a run with a
+# refresh every h ms: the ms since the last record, plus d
+def rv_age(h: Nat, c: Nat, d: Nat) -> Nat:
+  Nat.add(rv_since(c, h), d)
+
+# LAW revive_age_exact: the evidence's age at a boot d ms after a crash c ms into a run with a
+# refresh every h ms is exactly c mod h (c when h = 0) plus d
+# EXCLUDES: an age that forgets the run (since(c, h, r) = r: every boot
+#   looks d ms old, and revive_after_refresh still holds), an age counted
+#   from the run's start (c + d) or from a refresh off by one, an age that
+#   drops or doubles d
+law revive_age_exact:
+  for +h: Nat
+  for +c: Nat
+  for +d: Nat
+  {Rv.age(h, c, d) == rv_age(h, c, d) : Nat}
+
+# LAW revive_since_exact: from any time r since the last record a run can be at (r is its own
+# rv_since: below h, any r when h = 0), c ms more of the run leave exactly
+# rv_since(r + c, h) ms since the last record. The premise: Rv.since counts
+# on without a reset from r >= h > 0, but no run is there: a run starts at
+# 0 and every tick keeps the time below h (revive_tick_exact)
+# EXCLUDES: since(c, h, r) = r, a run that never resets or resets one ms
+#   early or late, a since that drops r
+law revive_since_exact:
+  for +h: Nat
+  for +r: Nat
+  for +c: Nat
+  for at: {rv_since(r, h) == r : Nat}
+  {Rv.since(c, h, r) == rv_since(Nat.add(r, c), h) : Nat}
+
+# LAW revive_tick_exact: one ms of the run from any time r since the last record a run can be
+# at (as in revive_since_exact) leaves exactly rv_since(r + 1, h): r + 1,
+# or 0 when the refresh is due
+# EXCLUDES: a tick that never resets, resets at r = h or at r + 2 = h,
+#   or stays at r
+law revive_tick_exact:
+  for +h: Nat
+  for +r: Nat
+  for at: {rv_since(r, h) == r : Nat}
+  {Rv.tick(h, r) == rv_since(1n+r, h) : Nat}
+
 # (D1) The revival veto's entry of the compiled core
 # --------------------------------------------------
-# docs/daemon.md D1: a supervisor boot relaunches a dead worker only when
+# A supervisor boot relaunches a dead worker only when
 # the journal proves interrupted live work this boot must heal. Rust
 # `revival_gate::revival_veto` gathers the facts (the descriptor's
 # lifecycle, the session file's archived belt, the live lease holder, the

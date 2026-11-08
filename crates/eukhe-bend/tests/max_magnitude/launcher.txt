@@ -1,0 +1,9 @@
+# the adoption of a worker of the largest build number; a commit's count
+# at its largest with too few answers is refused, never a stop
+call 0,T
+call 1,TF
+call 2,3,TTT
+call 3,1,{MAX},
+call 3,0,
+refuse 3,1,{LONG},
+refuse 2,{MAX},TT

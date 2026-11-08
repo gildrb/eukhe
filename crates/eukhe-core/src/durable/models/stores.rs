@@ -30,28 +30,76 @@ pub(super) fn thrown(message: String) -> Thrown {
     ErrorObject::new(message).thrown()
 }
 
+/// Why the `auth.json` document could not be read or updated.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum AuthDocumentError {
+    /// The document could not be read (the whole cause chain renders).
+    #[error("Failed to read {0:#}")]
+    Read(#[source] anyhow::Error),
+    /// The document is not a JSON object document.
+    #[error("Failed to parse the document: {0:#}")]
+    Parse(#[source] anyhow::Error),
+    /// The locked read-modify-write failed.
+    #[error("{0:#}")]
+    Update(#[source] anyhow::Error),
+    /// The lock ran without running the update.
+    #[error("the locked update did not run")]
+    UpdateNotRun,
+}
+
+/// Why the `auth.json` credential store failed. pi-ai's store contract
+/// throws a JS-shaped error: the [`Thrown`] conversion renders this text
+/// once, as the error object's message.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum AuthJsonError {
+    #[error("auth.json: {0}")]
+    Document(#[from] AuthDocumentError),
+    /// A stored entry does not have the credential shape.
+    #[error("Invalid auth.json credential for provider \"{provider}\"")]
+    InvalidCredential { provider: String },
+    /// A stored entry's field does not decode.
+    #[error("Invalid auth.json credential for provider \"{provider}\": {source}")]
+    InvalidCredentialField {
+        provider: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A credential did not serialize into its entry.
+    #[error("{0}")]
+    Serialize(#[source] serde_json::Error),
+    /// The blocking file task was cancelled.
+    #[error("file access task stopped: {0}")]
+    TaskStopped(#[source] tokio::task::JoinError),
+}
+
+impl From<AuthJsonError> for Thrown {
+    fn from(error: AuthJsonError) -> Self {
+        thrown(error.to_string())
+    }
+}
+
 /// Runs eukhe's synchronous file protocol (and `!command` key resolution)
 /// off the async workers.
 pub(super) async fn blocking<T, F>(task: F) -> Result<T, Thrown>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, AuthJsonError> + Send + 'static,
 {
     match tokio::task::spawn_blocking(task).await {
-        Ok(result) => result.map_err(thrown),
+        Ok(result) => result.map_err(Thrown::from),
         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-        Err(error) => Err(thrown(format!("file access task stopped: {error}"))),
+        Err(error) => Err(AuthJsonError::TaskStopped(error).into()),
     }
 }
 
 /// The parsed JSON object document behind `backend` (`{}` when empty).
-fn read_document(backend: &FileAuthStorageBackend) -> Result<Map<String, Value>, String> {
-    let content = backend
-        .read()
-        .map_err(|error| format!("Failed to read {error:#}"))?;
+fn read_document(
+    backend: &FileAuthStorageBackend,
+) -> Result<Map<String, Value>, AuthDocumentError> {
+    let content = backend.read().map_err(AuthDocumentError::Read)?;
     parse_storage_data(content.as_deref())
         .map(|data| data.0)
-        .map_err(|error| format!("Failed to parse the document: {error:#}"))
+        .map_err(AuthDocumentError::Parse)
 }
 
 /// Locked read-modify-write of the document. `update` sees the parsed
@@ -60,34 +108,23 @@ fn read_document(backend: &FileAuthStorageBackend) -> Result<Map<String, Value>,
 /// decides what to write ([`edit_storage_data`]).
 fn update_document<T>(
     backend: &FileAuthStorageBackend,
-    mut update: impl FnMut(
-        &Map<String, Value>,
-    ) -> Result<(Option<config::Edit<String, Value>>, T), String>,
-) -> Result<T, String> {
+    mut update: impl FnMut(&Map<String, Value>) -> (Option<config::Edit<String, Value>>, T),
+) -> Result<T, AuthDocumentError> {
     let mut outcome = None;
     backend
         .with_lock(&mut |current| {
-            let mut failure = None;
-            let data = edit_storage_data(current.as_deref(), |data| match update(&data.0) {
-                Ok((edit, value)) => {
-                    outcome = Some(value);
-                    edit
-                }
-                Err(error) => {
-                    failure = Some(error);
-                    None
-                }
+            let data = edit_storage_data(current.as_deref(), |data| {
+                let (edit, value) = update(&data.0);
+                outcome = Some(value);
+                edit
             })?;
-            if let Some(error) = failure {
-                anyhow::bail!(error);
-            }
             let content = data
                 .map(|data| serde_json::to_string_pretty(&data.0))
                 .transpose()?;
             Ok(((), content))
         })
-        .map_err(|error| format!("{error:#}"))?;
-    outcome.ok_or_else(|| "the locked update did not run".to_owned())
+        .map_err(AuthDocumentError::Update)?;
+    outcome.ok_or(AuthDocumentError::UpdateNotRun)
 }
 
 /// pi-ai [`CredentialStore`] over eukhe's `auth.json`. Writes are
@@ -118,13 +155,14 @@ impl AuthJsonCredentialStore {
 
     async fn document(&self) -> Result<Map<String, Value>, Thrown> {
         let backend = Arc::clone(&self.backend);
-        blocking(move || read_document(&backend).map_err(|error| format!("auth.json: {error}")))
-            .await
+        blocking(move || Ok(read_document(&backend)?)).await
     }
 }
 
-fn invalid_credential(provider_id: &str) -> String {
-    format!("Invalid auth.json credential for provider \"{provider_id}\"")
+fn invalid_credential(provider_id: &str) -> AuthJsonError {
+    AuthJsonError::InvalidCredential {
+        provider: provider_id.to_owned(),
+    }
 }
 
 fn non_empty_env(name: &str) -> bool {
@@ -133,7 +171,10 @@ fn non_empty_env(name: &str) -> bool {
 
 /// An auth.json entry as a pi-ai credential (format mapping only). `None`
 /// for eukhe-only credential types.
-fn stored_credential(provider_id: &str, value: &Value) -> Result<Option<Credential>, String> {
+fn stored_credential(
+    provider_id: &str,
+    value: &Value,
+) -> Result<Option<Credential>, AuthJsonError> {
     let Some(object) = value.as_object() else {
         return Err(invalid_credential(provider_id));
     };
@@ -162,8 +203,13 @@ fn stored_credential(provider_id: &str, value: &Value) -> Result<Option<Credenti
             match object.get("primeTeam") {
                 None | Some(Value::Null) => {}
                 Some(team) => {
-                    let team: PrimeTeamCredential = serde_json::from_value(team.clone())
-                        .map_err(|error| format!("{}: {error}", invalid_credential(provider_id)))?;
+                    let team: PrimeTeamCredential =
+                        serde_json::from_value(team.clone()).map_err(|source| {
+                            AuthJsonError::InvalidCredentialField {
+                                provider: provider_id.to_owned(),
+                                source,
+                            }
+                        })?;
                     env.get_or_insert_with(ProviderEnv::new)
                         .insert(PRIME_TEAM_ID_ENV.to_owned(), team.team_id);
                 }
@@ -176,7 +222,10 @@ fn stored_credential(provider_id: &str, value: &Value) -> Result<Option<Credenti
         }
         Some("oauth") => serde_json::from_value::<OAuthCredential>(value.clone())
             .map(|credential| Some(Credential::OAuth(credential)))
-            .map_err(|error| format!("{}: {error}", invalid_credential(provider_id))),
+            .map_err(|source| AuthJsonError::InvalidCredentialField {
+                provider: provider_id.to_owned(),
+                source,
+            }),
         _ => Ok(None),
     }
 }
@@ -205,10 +254,13 @@ fn resolve_stored_credential(provider_id: &str, credential: Credential) -> Crede
 }
 
 /// A pi-ai credential as the auth.json entry replacing `previous`.
-fn credential_entry(credential: &Credential, previous: Option<&Value>) -> Result<Value, String> {
+fn credential_entry(
+    credential: &Credential,
+    previous: Option<&Value>,
+) -> Result<Value, AuthJsonError> {
     match credential {
         Credential::OAuth(credential) => {
-            serde_json::to_value(credential).map_err(|error| error.to_string())
+            serde_json::to_value(credential).map_err(AuthJsonError::Serialize)
         }
         Credential::ApiKey(credential) => {
             let mut entry = Map::new();
@@ -235,7 +287,7 @@ fn credential_entry(credential: &Credential, previous: Option<&Value>) -> Result
             if !env.is_empty() {
                 entry.insert(
                     "env".to_owned(),
-                    serde_json::to_value(&env).map_err(|error| error.to_string())?,
+                    serde_json::to_value(&env).map_err(AuthJsonError::Serialize)?,
                 );
             }
             Ok(Value::Object(entry))
@@ -260,7 +312,7 @@ impl CredentialStore for AuthJsonCredentialStore {
             let Some(entry) = document.get(provider_id) else {
                 return Ok(None);
             };
-            let Some(credential) = stored_credential(provider_id, entry).map_err(thrown)? else {
+            let Some(credential) = stored_credential(provider_id, entry)? else {
                 return Ok(None);
             };
             let provider_id = provider_id.to_owned();
@@ -313,13 +365,10 @@ impl CredentialStore for AuthJsonCredentialStore {
             let _turn = chain.lock_owned().await;
             task_signal.throw_if_aborted()?;
             let read_backend = Arc::clone(&backend);
-            let document = blocking(move || {
-                read_document(&read_backend).map_err(|error| format!("auth.json: {error}"))
-            })
-            .await?;
+            let document = blocking(move || Ok(read_document(&read_backend)?)).await?;
             let previous = document.get(&id).cloned();
             let current = match &previous {
-                Some(entry) => stored_credential(&id, entry).map_err(thrown)?,
+                Some(entry) => stored_credential(&id, entry)?,
                 None => None,
             };
             // `f` (an OAuth refresh: a network round trip) runs outside the
@@ -328,27 +377,26 @@ impl CredentialStore for AuthJsonCredentialStore {
                 return Ok(current);
             };
             task_signal.throw_if_aborted()?;
-            let entry = credential_entry(&next, previous.as_ref()).map_err(thrown)?;
+            let entry = credential_entry(&next, previous.as_ref())?;
             let write_id = id.clone();
             let concurrent = blocking(move || {
-                update_document(&backend, |document| {
+                Ok(update_document(&backend, |document| {
                     if document.get(&write_id) != previous.as_ref() {
                         // Another writer changed the entry while `f` ran
                         // (a peer's refresh): its newer credential stands.
-                        return Ok((None, Some(document.get(&write_id).cloned())));
+                        return (None, Some(document.get(&write_id).cloned()));
                     }
-                    Ok((
+                    (
                         Some(config::Edit::Set(write_id.clone(), entry.clone())),
                         None,
-                    ))
-                })
-                .map_err(|error| format!("auth.json: {error}"))
+                    )
+                })?)
             })
             .await?;
             match concurrent {
                 None => Ok(Some(next)),
                 Some(None) => Ok(None),
-                Some(Some(entry)) => stored_credential(&id, &entry).map_err(thrown),
+                Some(Some(entry)) => Ok(stored_credential(&id, &entry)?),
             }
         };
         Box::pin(async move { race_with_abort_signal(task, &signal).await })
@@ -368,13 +416,12 @@ impl CredentialStore for AuthJsonCredentialStore {
             let _turn = chain.lock_owned().await;
             task_signal.throw_if_aborted()?;
             blocking(move || {
-                update_document(&backend, |document| {
+                Ok(update_document(&backend, |document| {
                     let edit = document
                         .contains_key(&id)
                         .then(|| config::Edit::Delete(id.clone()));
-                    Ok((edit, ()))
-                })
-                .map_err(|error| format!("auth.json: {error}"))
+                    (edit, ())
+                })?)
             })
             .await
         };
@@ -580,7 +627,7 @@ mod tests {
                         "type": "oauth", "access": "peer-access", "refresh": "peer-refresh",
                         "expires": 1_900_000_000_000_u64
                     });
-                    Ok((Some(config::Edit::Set("anthropic".to_owned(), peer)), ()))
+                    (Some(config::Edit::Set("anthropic".to_owned(), peer)), ())
                 })
                 .unwrap();
                 Ok(Some(Credential::OAuth(OAuthCredential::new(
@@ -629,7 +676,7 @@ mod tests {
         let backend = FileAuthStorageBackend::new(&path);
         let add_b = |_: &Map<String, Value>| {
             let entry = json!({ "type": "api_key", "key": "kb" });
-            Ok((Some(config::Edit::Set("b".to_owned(), entry)), ()))
+            (Some(config::Edit::Set("b".to_owned(), entry)), ())
         };
         // Invalid JSON: refused, the file is unchanged.
         let broken = r#"{ "a": { "type": "api_key", "key": "ka" },"#;
@@ -650,7 +697,7 @@ mod tests {
             eprintln!("skipped: this user (root) can read a 000 file");
             return;
         };
-        let result = update_document(&backend, add_b);
+        let result = update_document(&backend, add_b).map_err(|error| error.to_string());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(
             (result, std::fs::read_to_string(&path).unwrap()),

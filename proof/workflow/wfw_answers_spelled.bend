@@ -6,7 +6,7 @@
 
 import Base
 import ../../bend/ffi_workflow.bend as FW
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./wfw_answers_spelled/spell.bend as SP
 
 def Workflow.wfw_answers_spelled(q, fits):

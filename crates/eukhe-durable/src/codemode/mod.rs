@@ -70,7 +70,8 @@ pub use docs::{
     StartNamespace, StartTool, CODEMODE_JOURNAL_DOC, CODEMODE_RUN_DOC, CODEMODE_STORE_DOC,
 };
 pub use models::{
-    create_model_tools, ClassifierDefault, ClassifierResolver, CODEMODE_INTERNAL_PREFIX,
+    create_model_tools, ClassifierDefault, ClassifierResolveError, ClassifierResolver,
+    CODEMODE_INTERNAL_PREFIX,
 };
 pub use output::DEFAULT_MAX_OUTPUT_TOKENS;
 pub use task::run_codemode_task;

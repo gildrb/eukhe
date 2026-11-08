@@ -137,6 +137,7 @@ pub fn is_display_only_custom_type(custom_type: &str) -> bool {
             | COMPACTION_OUTCOME_CUSTOM_TYPE
             | REFINEMENT_OUTCOME_CUSTOM_TYPE
             | PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
+            | crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE
             | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
             | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE
             | crate::durable::tool_surface::TOOL_ISSUE_CUSTOM_TYPE

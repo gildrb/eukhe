@@ -27,6 +27,7 @@ use crate::daemon_session_list::{
     format_session_list_table, get_session_summaries, live_session_summary,
     matches_session_id_suffix,
 };
+use crate::public_command::{exit_code_for, usage_error, UsageError};
 
 /// Parsed arguments for one daemon client command.
 #[derive(Debug)]
@@ -40,13 +41,66 @@ struct ParsedDaemonCommand {
     help: bool,
 }
 
+/// A failure whose JSON error document the daemon command already printed
+/// on stderr: the router must not print a second, human error line. The
+/// value is the exit code the class decided.
+#[derive(Debug)]
+pub(crate) struct JsonErrorPrinted(pub i32);
+
+impl std::fmt::Display for JsonErrorPrinted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the error document was printed")
+    }
+}
+
+impl std::error::Error for JsonErrorPrinted {}
+
+/// The machine error class for one daemon-command failure: a stable
+/// reason for the JSON error document.
+fn json_error_reason(error: &anyhow::Error) -> (&'static str, &'static str) {
+    if error.downcast_ref::<UsageError>().is_some() {
+        let message = error.to_string();
+        let reason = if message.starts_with("Unknown") {
+            "unknown_command"
+        } else {
+            "invalid_arguments"
+        };
+        return ("error", reason);
+    }
+    if error.to_string().starts_with("Timed out") {
+        return ("error", "timeout");
+    }
+    if error.to_string().starts_with("Failed to connect")
+        || error
+            .to_string()
+            .starts_with("Connection to the Eukhe daemon closed")
+    {
+        return ("error", "network_error");
+    }
+    ("error", "api_error")
+}
+
 /// Run one internal daemon command. Errors are printed by the public command
-/// router exactly like the `handleDaemonCommand` catch in the TS CLI.
+/// router exactly like the `handleDaemonCommand` catch in the TS CLI —
+/// except a `--json` run, which prints the one-line JSON error document
+/// itself (stderr only, stdout untouched) and reports it printed.
 pub(crate) fn run_daemon_command(command: &str, args: &[String]) -> Result<()> {
     let parsed = parse_daemon_command(command, args)?;
     if parsed.help {
         return Ok(());
     }
+    let result = run_daemon_command_parsed(command, &parsed);
+    if let Err(error) = &result {
+        if parsed.json {
+            let (status, reason) = json_error_reason(error);
+            crate::json_out::print_json_error(status, reason, &error.to_string());
+            return Err(anyhow::Error::new(JsonErrorPrinted(exit_code_for(error))));
+        }
+    }
+    result
+}
+
+fn run_daemon_command_parsed(command: &str, parsed: &ParsedDaemonCommand) -> Result<()> {
     let mut client = Daemon::connect(&parsed.socket_path)?;
     match command {
         "list" => run_list(&mut client, &parsed.positionals, parsed.json),
@@ -116,7 +170,7 @@ pub(crate) fn connect_error(error: anyhow::Error, socket_path: &Path) -> anyhow:
                 |io_error| node_connect_error(io_error, socket_path),
             );
         return anyhow!(
-            "Failed to connect to the Eukhe daemon: {detail}. {}",
+            "Failed to connect to the Eukhe daemon: {detail}. {}\n\nStart a session so a daemon is running, or point --daemon-socket at the running one:\n    eukhe",
             endpoint_details(socket_path)
         );
     }
@@ -152,7 +206,8 @@ pub(crate) async fn request(
         .map_err(|error| {
             if is_daemon_timeout(&error) {
                 anyhow!(
-                    "Timed out after {timeout_ms}ms waiting for the Eukhe daemon response to \"{command_type}\". {}",
+                    "Timed out after {} waiting for the Eukhe daemon response to \"{command_type}\". {}\n\nCheck the daemon:\n    eukhe status",
+                    crate::util_time::compact_duration(timeout_ms),
                     endpoint_details(socket_path)
                 )
             } else if *client.reader_dead().borrow() {
@@ -242,7 +297,7 @@ fn parse_daemon_command(command: &str, args: &[String]) -> Result<ParsedDaemonCo
         if arg == "--socket" || arg == "--daemon-socket" {
             let value = args
                 .get(index)
-                .ok_or_else(|| anyhow!("{arg} requires a value"))?;
+                .ok_or_else(|| usage_error(format!("{arg} requires a value")))?;
             index += 1;
             socket_path = normalize_socket_path(value);
             continue;
@@ -285,18 +340,15 @@ fn require_success(response: DaemonResponse) -> Result<Option<Value>> {
     Ok(response.data)
 }
 
-fn print_json(value: &Value) {
-    match serde_json::to_string_pretty(value) {
-        Ok(text) => println!("{text}"),
-        Err(error) => eprintln!("Error: {error}"),
-    }
+fn print_json(value: &Value) -> Result<()> {
+    crate::json_out::print_json_document(value).map_err(anyhow::Error::msg)
 }
 
 /// `requireActiveSessionId`: the first operand.
 fn require_active_session_id(args: &[String]) -> Result<String> {
     args.first()
         .cloned()
-        .ok_or_else(|| anyhow!("Missing agent id or name"))
+        .ok_or_else(|| usage_error("Missing agent id or name"))
 }
 
 // ---------------------------------------------------------------------------
@@ -310,16 +362,16 @@ fn run_list(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
             all = true;
             continue;
         }
-        bail!("Unknown list option: {arg}");
+        return Err(usage_error(format!("Unknown list option: {arg}")));
     }
     let response = client.request(list_command(all))?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     let Some(sessions) = get_session_summaries(&data) else {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     };
     if sessions.is_empty() {
@@ -361,16 +413,16 @@ fn run_sessions(client: &mut Daemon, args: &[String], json: bool) -> Result<()> 
             all = true;
             continue;
         }
-        bail!("Unknown sessions option: {arg}");
+        return Err(usage_error(format!("Unknown sessions option: {arg}")));
     }
     let response = client.request(list_command(all))?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     let Some(sessions) = crate::daemon_session_list::validated_session_values(&data) else {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     };
     if sessions.is_empty() {
@@ -473,7 +525,7 @@ fn print_response_data(response: &eukhe_types::daemon::DaemonResponse, json: boo
     let data = require_success(response.clone())?;
     if json || data.is_some() {
         let value = data.unwrap_or_else(|| response_value(response));
-        print_json(&value);
+        print_json(&value)?;
         return Ok(());
     }
     println!("ok");
@@ -509,7 +561,7 @@ fn run_rename(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let active_session_id = require_active_session_id(args)?;
     let name = args[1..].join(" ").trim().to_string();
     if name.is_empty() {
-        bail!("Usage: eukhe rename <agent> <name>");
+        return Err(usage_error("Usage: eukhe rename <agent> <name>"));
     }
     let response = client.request(DaemonCommand::Rename {
         id: None,
@@ -520,7 +572,7 @@ fn run_rename(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     })?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     match live_session_summary(&data) {
@@ -532,10 +584,10 @@ fn run_rename(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
                     .get("activeSessionId")
                     .and_then(Value::as_str)
                     .unwrap_or_default(),
-                summary_name.unwrap_or(&name)
+                crate::sanitize::line(summary_name.unwrap_or(&name))
             );
         }
-        None => print_json(&data),
+        None => print_json(&data)?,
     }
     Ok(())
 }
@@ -551,10 +603,10 @@ fn run_state(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
         Some((first, rest)) if first == "rewind-plan" => {
             let (cursor, rest) = rest
                 .split_first()
-                .ok_or_else(|| anyhow!("Usage: eukhe state rewind-plan <cursor> [<agent>]"))?;
+                .ok_or_else(|| usage_error("Usage: eukhe state rewind-plan <cursor> [<agent>]"))?;
             let cursor: u64 = cursor
                 .parse()
-                .with_context(|| format!("invalid cursor: {cursor}"))?;
+                .map_err(|_| usage_error(format!("invalid cursor: {cursor}")))?;
             (Some(cursor), rest)
         }
         Some(_) | None => (None, args),
@@ -569,13 +621,11 @@ fn run_state(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
         if operand == "--since" && rewind_target.is_none() {
             let value = operands
                 .get(index)
-                .ok_or_else(|| anyhow!("--since requires a cursor"))?;
+                .ok_or_else(|| usage_error("--since requires a cursor"))?;
             index += 1;
-            since = Some(
-                value
-                    .parse()
-                    .with_context(|| format!("invalid cursor: {value}"))?,
-            );
+            since = Some(value.parse().map_err(|_| {
+                usage_error(format!("invalid cursor: {value} (--since takes a number)"))
+            })?);
             continue;
         }
         if operand == "--follow" && rewind_target.is_none() {
@@ -583,7 +633,7 @@ fn run_state(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
             continue;
         }
         if selector.is_some() || operand.starts_with("--") {
-            bail!("Unknown state operand: {operand}");
+            return Err(usage_error(format!("Unknown state operand: {operand}")));
         }
         selector = Some(operand);
     }
@@ -614,7 +664,7 @@ fn run_state(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let data = require_success(client.request(command)?)?.unwrap_or(Value::Null);
     if rewind_target.is_some() {
         if json {
-            print_json(&data);
+            print_json(&data)?;
             return Ok(());
         }
         let plan: StateRewindPlanReply =
@@ -632,7 +682,7 @@ fn run_state(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
         return Ok(());
     }
     if json {
-        print_json(&data);
+        print_json(&data)?;
     }
     let reply: StateTreeReply = serde_json::from_value(data).context("malformed state tree")?;
     let cursor = match &reply {
@@ -677,17 +727,17 @@ fn follow_state_tree(
                     continue;
                 }
                 if update.from > have {
-                    bail!(
-                        "missed the state tree records {have}..{}; run the command again",
+                    return Err(anyhow!(
+                        "Missed the state tree records {have}..{}.\n\nRe-read them:\n    eukhe state --since {have} {active_session_id}",
                         update.from
-                    );
+                    ));
                 }
                 let skip = usize::try_from(have - update.from)?;
                 let records = update.records.get(skip..).unwrap_or_default();
                 if json {
                     print_json(
                         &json!({ "from": have, "cursor": update.cursor, "records": records }),
-                    );
+                    )?;
                 } else {
                     println!(
                         "{}",
@@ -813,6 +863,9 @@ struct ParsedSendArgs {
     target_active_session_id: String,
     from_active_session_id: Option<String>,
     message: String,
+    /// The advertised delivery lane: steering (default when the agent is
+    /// busy) or a queued follow-up.
+    delivery_mode: Option<&'static str>,
 }
 
 fn run_send(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
@@ -823,12 +876,12 @@ fn run_send(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
         message: parsed.message,
         from_active_session_id: parsed.from_active_session_id,
         agent_origin: None,
-        delivery_mode: None,
+        delivery_mode: parsed.delivery_mode.map(serde_json::Value::from),
         rest: serde_json::Map::new(),
     })?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     // `isAgentMessageReceipt`: a target block with a routable active id.
@@ -868,6 +921,7 @@ fn parse_send_args(args: &[String]) -> Result<ParsedSendArgs> {
     let mut target_active_session_id: Option<String> = None;
     let mut explicit_message: Option<String> = None;
     let mut message_parts: Vec<String> = Vec::new();
+    let mut delivery_mode: Option<&'static str> = None;
     let mut parse_options = true;
     let mut index = 0;
     while index < args.len() {
@@ -877,28 +931,43 @@ fn parse_send_args(args: &[String]) -> Result<ParsedSendArgs> {
             parse_options = false;
             continue;
         }
+        if parse_options && (arg == "--steer" || arg == "--follow-up") {
+            if delivery_mode.is_some() {
+                return Err(usage_error("--steer and --follow-up cannot be combined."));
+            }
+            delivery_mode = Some(if arg == "--steer" {
+                "steer"
+            } else {
+                "follow_up"
+            });
+            continue;
+        }
         if parse_options && arg == "--from" {
             let value = args
                 .get(index)
-                .ok_or_else(|| anyhow!("--from requires a session id or name"))?;
+                .ok_or_else(|| usage_error("--from requires a session id or name"))?;
             index += 1;
             from_active_session_id = Some(value.clone());
             continue;
         }
         if parse_options && arg == "--message" {
             if target_active_session_id.is_none() {
-                bail!("--message must appear after the target session");
+                return Err(usage_error(
+                    "--message must appear after the target session",
+                ));
             }
             let value = args
                 .get(index)
-                .ok_or_else(|| anyhow!("--message requires message text"))?;
+                .ok_or_else(|| usage_error("--message requires message text"))?;
             index += 1;
             explicit_message = Some(value.clone());
             parse_options = false;
             continue;
         }
         if parse_options && arg.starts_with("--") {
-            bail!("Unknown option for send: {arg} (use -- before message text starting with --)");
+            return Err(usage_error(format!(
+                "Unknown option for send: {arg} (use -- before message text starting with --)"
+            )));
         }
         if target_active_session_id.is_none() {
             target_active_session_id = Some(arg.to_string());
@@ -907,19 +976,24 @@ fn parse_send_args(args: &[String]) -> Result<ParsedSendArgs> {
         message_parts.push(arg.to_string());
     }
     if explicit_message.is_some() && !message_parts.is_empty() {
-        bail!("Usage: eukhe send [--from <agent>] <agent> [--message <message>|<message>]");
+        return Err(usage_error(
+            "Usage: eukhe send [--from <agent>] <agent> [--message <message>|<message>]",
+        ));
     }
     let message = explicit_message
         .unwrap_or_else(|| message_parts.join(" "))
         .trim()
         .to_string();
     if target_active_session_id.is_none() || message.is_empty() {
-        bail!("Usage: eukhe send [--from <agent>] <agent> [--message <message>|<message>]");
+        return Err(usage_error(
+            "Usage: eukhe send [--from <agent>] <agent> [--message <message>|<message>]",
+        ));
     }
     Ok(ParsedSendArgs {
         target_active_session_id: target_active_session_id.expect("checked above"),
         from_active_session_id,
         message,
+        delivery_mode,
     })
 }
 
@@ -933,7 +1007,7 @@ fn run_cron(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
         "list" => run_cron_list(client, args, json),
         "add" | "schedule" => run_cron_add(client, args, json),
         "cancel" | "delete" | "remove" => run_cron_cancel(client, args, json),
-        other => bail!("Unknown schedule command: {other}"),
+        other => Err(usage_error(format!("Unknown schedule command: {other}"))),
     }
 }
 
@@ -955,11 +1029,11 @@ fn run_cron_list(client: &mut Daemon, args: &[String], json: bool) -> Result<()>
     })?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     let Some(jobs) = data.get("jobs").and_then(Value::as_array) else {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     };
     if jobs.is_empty() {
@@ -977,17 +1051,17 @@ fn run_cron_add(client: &mut Daemon, args: &[String], json: bool) -> Result<()> 
     let separator = args
         .iter()
         .position(|arg| arg == "--")
-        .ok_or_else(|| anyhow!("{usage}"))?;
+        .ok_or_else(|| usage_error(usage))?;
     let Some(active_session_id) = args.get(1) else {
-        bail!("{usage}");
+        return Err(usage_error(usage));
     };
     if separator < 2 {
-        bail!("{usage}");
+        return Err(usage_error(usage));
     }
     let schedule = args[2..separator].join(" ").trim().to_string();
     let message = args[separator + 1..].join(" ").trim().to_string();
     if schedule.is_empty() || message.is_empty() {
-        bail!("{usage}");
+        return Err(usage_error(usage));
     }
     let response = client.request(DaemonCommand::CronAdd {
         id: None,
@@ -999,7 +1073,7 @@ fn run_cron_add(client: &mut Daemon, args: &[String], json: bool) -> Result<()> 
     })?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     match cron_job_id_and_next_run(&data) {
@@ -1011,7 +1085,7 @@ fn run_cron_add(client: &mut Daemon, args: &[String], json: bool) -> Result<()> 
 
 fn run_cron_cancel(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let Some(job_id) = args.get(1) else {
-        bail!("Usage: eukhe schedule cancel <job-id>");
+        return Err(usage_error("Usage: eukhe schedule cancel <job>"));
     };
     let response = client.request(DaemonCommand::CronCancel {
         id: None,
@@ -1021,7 +1095,7 @@ fn run_cron_cancel(client: &mut Daemon, args: &[String], json: bool) -> Result<(
     })?;
     let data = require_success(response)?.unwrap_or(Value::Null);
     if json {
-        print_json(&data);
+        print_json(&data)?;
         return Ok(());
     }
     match cron_job_id_and_next_run(&data) {
@@ -1042,7 +1116,9 @@ fn cron_job_id_and_next_run(data: &Value) -> Option<(String, String)> {
     Some((id, next_run))
 }
 
-/// `formatAgentCronJob`: the one-line schedule list entry.
+/// `formatAgentCronJob`: the one-line schedule list entry. The label,
+/// prompt, expression, and last error are model- or user-authored text, so
+/// they render through the remote-text sanitizer.
 fn format_agent_cron_job(job: &Value) -> String {
     let id = job.get("id").and_then(Value::as_str).unwrap_or_default();
     let status = job
@@ -1052,7 +1128,7 @@ fn format_agent_cron_job(job: &Value) -> String {
     let label = job
         .get("label")
         .and_then(Value::as_str)
-        .map(|label| format!(" label=\"{label}\""))
+        .map(|label| format!(" label=\"{}\"", crate::sanitize::line(label)))
         .unwrap_or_default();
     let next = cron_datetime(job.get("nextRunAt"));
     let last = cron_datetime(job.get("lastRunAt"));
@@ -1064,23 +1140,25 @@ fn format_agent_cron_job(job: &Value) -> String {
         .get("runCount")
         .and_then(Value::as_f64)
         .unwrap_or_default();
-    let expression = job
-        .get("schedule")
-        .and_then(|schedule| schedule.get("expression"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let prompt: String = job
-        .get("prompt")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let expression = crate::sanitize::line(
+        job.get("schedule")
+            .and_then(|schedule| schedule.get("expression"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    );
+    let prompt: String = crate::sanitize::line(
+        job.get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ");
     let preview: String = prompt.chars().take(80).collect();
     let error = job
         .get("lastError")
         .and_then(Value::as_str)
-        .map(|error| format!(" error={error}"))
+        .map(|error| format!(" error={}", crate::sanitize::line(error)))
         .unwrap_or_default();
     format!(
         "{id} {status}{label} next={next} last={last}{skipped} runs={run_count} schedule=\"{expression}\" prompt=\"{preview}\"{error}"
@@ -1231,7 +1309,7 @@ mod tests {
         assert_eq!(
             error.to_string(),
             format!(
-                "Failed to connect to the Eukhe daemon: connect ENOENT {}. {}",
+                "Failed to connect to the Eukhe daemon: connect ENOENT {}. {}\n\nStart a session so a daemon is running, or point --daemon-socket at the running one:\n    eukhe",
                 socket.display(),
                 endpoint_details(&socket)
             )

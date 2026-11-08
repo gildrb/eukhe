@@ -2,7 +2,7 @@
 #
 # PROOF: the model's effects are pp_effs (gate_effs_exact); its auto
 # test is pp_auto_holds item by item (ppg.allows: grantable is the bound
-# 6, Tl.elem is pp_has_name, the conjuncts reordered); its answer test is
+# 7, Tl.elem is pp_has_name, the conjuncts reordered); its answer test is
 # pp_yes (ppg.yes).
 
 import Base
@@ -44,9 +44,9 @@ def ppg.allows(+auto: List<&2, Nat>, es: List<&2, Nat>) -> {Pp.allows(auto, es) 
     case Nil{}:
       {==}
     case +e <> +rest:
-      %ppg.allows(auto, rest) : {Pp.allows(auto, e <> rest) == Bool.and(Bool.and(Nat.is_lt(e, 6n), PathPolicy.pp_has_name(auto, e)), _) : Bool}
-      %ppg.elem(auto, e) : {Pp.allows(auto, e <> rest) == Bool.and(Bool.and(Nat.is_lt(e, 6n), _), Pp.allows(auto, rest)) : Bool}
-      ppg.and3(Nat.is_lt(e, 6n), Pp.allows(auto, rest), Tl.elem(auto, e))
+      %ppg.allows(auto, rest) : {Pp.allows(auto, e <> rest) == Bool.and(Bool.and(Nat.is_lt(e, 7n), PathPolicy.pp_has_name(auto, e)), _) : Bool}
+      %ppg.elem(auto, e) : {Pp.allows(auto, e <> rest) == Bool.and(Bool.and(Nat.is_lt(e, 7n), _), Pp.allows(auto, rest)) : Bool}
+      ppg.and3(Nat.is_lt(e, 7n), Pp.allows(auto, rest), Tl.elem(auto, e))
 
 def ppg.yes(a: Pp.Ans) -> {Pp.Ans.yes(a) == PathPolicyGate.pp_yes(a) : Bool}:
   match a:

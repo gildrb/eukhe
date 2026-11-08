@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../laws/screen.bend as Screen
+import ../../laws/screen/interface.bend as Screen
 
 # 3. Off-screen verification
 # --------------------------

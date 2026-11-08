@@ -628,6 +628,28 @@ law kernel_ffi_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, KL.Ask>}
   {FKL.ffi(s) == SCon{'E', SCon{' ', "kernel_local: malformed request"}} : String}
 
+# the reply to the input s: when s is exactly one request (read_ask), the
+# spelled answer to it (spell_answer: plan_spec, keep_spec, judge_spec);
+# else the error form 'E ', then "kernel_local: malformed request"
+def ffi_spec.read(m: Maybe<&2, KL.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "kernel_local: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def ffi_spec(s: String) -> String:
+  ffi_spec.read(read_ask(s))
+
+# LAW kernel_ffi_exact: the entry's reply to every input string is the spec's: to exactly one request, the plan, the sweep's verdict on each file in order, or the attempt's end, spelled from the specs alone; to any other input, exactly the error form
+# EXCLUDES: a reply that the specs do not determine for some input (a
+#   request read by a reader the laws do not fix, a model function pinned
+#   only through the entry, a value answered to malformed input, an error
+#   form with another text)
+law kernel_ffi_exact:
+  for +s: String
+  {FKL.ffi(s) == ffi_spec(s) : String}
+
 # The model's own terms, pinned
 # -----------------------------
 # The laws of K1.1-K1.3 read the model's own predicates and counters

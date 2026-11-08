@@ -1,0 +1,18 @@
+# the call: no Nat of a request is free (a count of strings, then each
+# string's length): candidates around the largest octets and groups, an
+# assignment; a count or a length one digit past the wire is refused
+call 2,7,host = 11,203.0.113.9
+call 8,0,38,2001:db8:ffff:ffff:ffff:ffff:ffff:ffff1,@15,254.255.255.2554,ver 7,1.2.3.412,server_ip = 16,10.255.255.254 x
+refuse {LONG},
+refuse 2,{LONG},x
+# the stepper: a scrub, then a restore at the largest index and at the
+# largest index Rust writes (a U32), then a class code and an index one
+# digit past the wire, and a class code no class has
+open 
+step 0,3,3,0,5,3,11,203.0.113.95,alice6,sk-abc
+step 1,3,3,3,0,3,1,{MAX},{U32MAX},
+step 1,2,0,5,2,{MAX},1,
+refuse-step 1,1,{LONG},1,1,
+refuse-step 1,1,3,1,{LONG},
+refuse-step 1,1,{MAX},1,1,
+refuse-step 0,1,{MAX},1,1,x

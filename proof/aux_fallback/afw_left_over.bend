@@ -3,9 +3,9 @@
 import Base
 import ../../bend/ffi_aux_fallback.bend as FAf
 import ../../bend/wire.bend as Wr
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/wire.bend as AuxFallbackWire
 import ./base.bend as LA
 
-def AuxFallback.afw_left_over(x, c, rest, h):
+def AuxFallbackWire.afw_left_over(x, c, rest, h):
   %LA.pfw.req(x, SCon{c, rest}, h) : {FAf.ffi.go(_) == Wr.err("aux_fallback: input left over") : String}
   {==}

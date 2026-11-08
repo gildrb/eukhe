@@ -2,6 +2,7 @@
 //! `buildParams`, `convertMessages`, `insertThinkingLevelMessages`,
 //! `convertTools`, and the content/tool helpers they use.
 
+use std::borrow::Borrow;
 use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
@@ -12,21 +13,24 @@ use eukhe_types::pi_ai::{
 use serde_json::json;
 
 use super::{
-    get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
-    CLAUDE_CODE_SYSTEM_PROMPT,
+    billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
+    CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
-use crate::api::cache_breakpoints::{has_cache_breakpoint, placed_marks};
+use crate::api::cache_breakpoints::{
+    has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
+};
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::simple_options::thinking_budget_for_level;
+use crate::api::tool_result_content::sent_blocks;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use crate::utils::text::{get_system_message_text, render_system_message_update};
+use crate::utils::text::{render_system_message_update, split_system_prompt};
 use crate::utils::transcript::{get_current_tools, get_initial_system_message};
 
 const FINE_GRAINED_TOOL_STREAMING_BETA: &str = "fine-grained-tool-streaming-2025-05-14";
@@ -144,14 +148,14 @@ fn image_block(data: &str, mime_type: &str) -> JsonValue {
 }
 
 /// TS `convertContentBlocks`.
-fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
+fn convert_content_blocks<B: Borrow<UserContentBlock>>(content: &[B]) -> JsonValue {
     let has_images = content
         .iter()
-        .any(|block| matches!(block, UserContentBlock::Image(_)));
+        .any(|block| matches!(block.borrow(), UserContentBlock::Image(_)));
     if !has_images {
         let text: Vec<&str> = content
             .iter()
-            .map(|block| match block {
+            .map(|block| match block.borrow() {
                 UserContentBlock::Text(text) => text.text.as_str(),
                 UserContentBlock::Image(_) => "",
             })
@@ -160,7 +164,7 @@ fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
     }
     let mut blocks: Vec<JsonValue> = content
         .iter()
-        .map(|block| match block {
+        .map(|block| match block.borrow() {
             UserContentBlock::Text(text) => {
                 json!({ "type": "text", "text": sanitize_surrogates(&text.text) })
             }
@@ -169,19 +173,23 @@ fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
         .collect();
     let has_text = content
         .iter()
-        .any(|block| matches!(block, UserContentBlock::Text(_)));
+        .any(|block| matches!(block.borrow(), UserContentBlock::Text(_)));
     if !has_text {
         blocks.insert(0, json!({ "type": "text", "text": "(see attached image)" }));
     }
     JsonValue::Array(blocks)
 }
 
-/// TS `convertToolResult`.
+/// TS `convertToolResult`. eukhe addition: the blocks sent are the
+/// compiled core's ([`sent_blocks`]): an error result's images go as text
+/// lines, as Anthropic takes only text in a `tool_result` marked
+/// `is_error` (a 400 otherwise, and the result stays in the transcript for
+/// every later request).
 fn convert_tool_result(message: &ToolResultMessage) -> JsonValue {
     json!({
         "type": "tool_result",
         "tool_use_id": message.tool_call_id,
-        "content": convert_content_blocks(&message.content),
+        "content": convert_content_blocks(&sent_blocks(&message.content, message.is_error)),
         "is_error": message.is_error,
     })
 }
@@ -218,8 +226,8 @@ fn is_blank(text: &str) -> bool {
 }
 
 #[allow(clippy::too_many_lines)] // 1:1 port of the TS `convertMessages` body.
-/// TS `convertMessages`. eukhe addition: user text blocks with a
-/// `cache_breakpoint` carry the request's `cache_control` mark.
+/// TS `convertMessages`. eukhe addition: user and assistant text blocks with
+/// a `cache_breakpoint` carry the request's `cache_control` mark.
 fn convert_messages(
     transformed: &[Message],
     settings: &ConvertSettings<'_>,
@@ -315,9 +323,15 @@ fn convert_messages(
                             if is_blank(&text.text) {
                                 continue;
                             }
-                            blocks.push(
-                                json!({ "type": "text", "text": sanitize_surrogates(&text.text) }),
-                            );
+                            let mut text_block =
+                                json!({ "type": "text", "text": sanitize_surrogates(&text.text) });
+                            if let Some(cache_control) = settings
+                                .cache_control
+                                .filter(|_| has_assistant_cache_breakpoint(block))
+                            {
+                                text_block["cache_control"] = cache_control.clone();
+                            }
+                            blocks.push(text_block);
                         }
                         AssistantContentBlock::Thinking(thinking) => {
                             if thinking.redacted == Some(true) {
@@ -650,8 +664,11 @@ fn get_beta_features(
 /// TS `buildParams`.
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
-/// optional system, last-tool, and OAuth identity marks take the slots left,
-/// in that order (`eukhe_bend::rules::cache_marks::grant`).
+/// optional marks take the slots left, in this order
+/// (`eukhe_bend::rules::cache_marks::grant`): the system prompt's shared
+/// prefix (the whole prompt without a
+/// [`StreamOptions::system_cache_breakpoint`](crate::types::StreamOptions)),
+/// the last tool, and the end of the session's tail of the prompt.
 #[allow(clippy::too_many_lines)] // 1:1 port of the TS `buildParams` body.
 pub(crate) fn build_params(
     model: &Model,
@@ -669,9 +686,13 @@ pub(crate) fn build_params(
     let mid_convo_effort =
         model_compat.and_then(|compat| compat.supports_mid_convo_effort) == Some(true);
     let initial_system = get_initial_system_message(messages);
-    let initial_system_text = initial_system
-        .map(get_system_message_text)
-        .unwrap_or_default();
+    // eukhe addition: the shared prefix of the prompt and the session's tail
+    // go as blocks of their own, so the prefix's mark is the same in every
+    // session.
+    let (system_prefix, system_tail) = split_system_prompt(
+        initial_system,
+        options.stream.system_cache_breakpoint.as_deref(),
+    );
     let normalize =
         |id: &str, _: &Model, _: &eukhe_types::pi_ai::AssistantMessage| normalize_tool_call_id(id);
     let transformed = transform_messages(messages, model, Some(&normalize));
@@ -737,12 +758,12 @@ pub(crate) fn build_params(
     let tool_cache_control = cache_control
         .as_ref()
         .filter(|_| compat.supports_cache_control_on_tools);
-    let [system_mark, tools_mark, identity_mark] = eukhe_bend::rules::cache_marks::grant(
+    let [prefix_mark, tools_mark, tail_mark] = eukhe_bend::rules::cache_marks::grant(
         placed_marks(&wire_messages, "cache_control"),
         [
-            cache_control.is_some() && !initial_system_text.is_empty(),
+            cache_control.is_some() && !system_prefix.is_empty(),
             tool_cache_control.is_some() && !request_tools.is_empty(),
-            cache_control.is_some() && is_oauth_token,
+            cache_control.is_some() && !system_tail.is_empty(),
         ],
     );
 
@@ -765,23 +786,28 @@ pub(crate) fn build_params(
         }
         block
     };
+    let mut system = Vec::new();
     if is_oauth_token {
-        let mut system = vec![system_block(CLAUDE_CODE_SYSTEM_PROMPT, identity_mark)];
-        if !initial_system_text.is_empty() {
-            system.push(system_block(
-                &sanitize_surrogates(&initial_system_text),
-                system_mark,
-            ));
+        // Claude Code's billing attribution opens `system`, uncached; the
+        // client patches its `cch` into the serialized body. The identity
+        // block after it is too short to be worth a mark.
+        let first_user_text = params
+            .get("messages")
+            .and_then(JsonValue::as_array)
+            .map_or("", |messages| billing::first_user_text(messages));
+        system.push(json!({
+            "type": "text",
+            "text": billing::billing_header(first_user_text, CLAUDE_CODE_VERSION),
+        }));
+        system.push(json!({ "type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT }));
+    }
+    for (text, marked) in [(&system_prefix, prefix_mark), (&system_tail, tail_mark)] {
+        if !text.is_empty() {
+            system.push(system_block(&sanitize_surrogates(text), marked));
         }
+    }
+    if !system.is_empty() {
         params.insert("system".into(), JsonValue::Array(system));
-    } else if !initial_system_text.is_empty() {
-        params.insert(
-            "system".into(),
-            json!([system_block(
-                &sanitize_surrogates(&initial_system_text),
-                system_mark
-            )]),
-        );
     }
 
     if let Some(temperature) = options.stream.temperature {
@@ -906,6 +932,62 @@ pub(crate) fn build_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::pi_ai::TextContent;
+
+    fn tool_result(is_error: bool) -> ToolResultMessage {
+        ToolResultMessage {
+            tool_call_id: "c1".to_string(),
+            tool_name: "shot".to_string(),
+            content: vec![
+                UserContentBlock::Text(TextContent::new("failed")),
+                UserContentBlock::Image(eukhe_types::pi_ai::ImageContent {
+                    data: "AA==".to_string(),
+                    mime_type: "image/png".to_string(),
+                }),
+            ],
+            details: None,
+            usage: None,
+            nested_calls: None,
+            is_error,
+            timestamp: 1,
+            duration_ms: None,
+        }
+    }
+
+    /// Regression: an error tool result that carried an image was sent
+    /// with the image block, which Anthropic refuses ("all content must be
+    /// type `text` if `is_error` is true"); every later request of the
+    /// session failed the same way. Its images now go as text lines; a
+    /// successful result keeps them.
+    #[test]
+    fn an_error_tool_result_sends_text_only() {
+        assert_eq!(
+            (
+                convert_tool_result(&tool_result(true)),
+                convert_tool_result(&tool_result(false)),
+            ),
+            (
+                json!({
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": "failed\n[image omitted: error result]",
+                    "is_error": true,
+                }),
+                json!({
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": [
+                        { "type": "text", "text": "failed" },
+                        {
+                            "type": "image",
+                            "source": { "type": "base64", "media_type": "image/png", "data": "AA==" },
+                        },
+                    ],
+                    "is_error": false,
+                }),
+            )
+        );
+    }
 
     #[test]
     fn normalizes_tool_call_ids() {

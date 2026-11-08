@@ -12,6 +12,7 @@ pub mod model_catalog;
 pub mod models;
 pub mod models_generated;
 pub mod models_store;
+pub mod privacy;
 pub mod providers;
 pub mod quirks;
 pub mod session_resources;

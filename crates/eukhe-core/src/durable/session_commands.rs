@@ -1,6 +1,6 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, `/autonomous`, `/remind`, `/force`, and `/dynamic-workflow`, including the
-//! `/refine` and `/force` argument parsing.
+//! `/goal`, `/autonomous`, `/remind`, `/force`, `/dynamic-workflow`, and
+//! `/autoresearch`, including the `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //! On main (`sessionShape` `main-worker`) `/goal` and `/autonomous` run on
 //! its worker, where the work runs.
@@ -12,8 +12,10 @@
 //! `Command failed: <e>` result row and reports the raw error.
 
 use eukhe_chord::context::Context;
+use eukhe_chord::json::JsonError;
 use eukhe_durable::harness::types::CompactionResult;
 use eukhe_durable::harness::Conversation;
+use eukhe_durable::session::SessionError;
 use eukhe_durable::types::{EntryDraft, TaskId};
 use eukhe_types::pi_ai::UserContent;
 use eukhe_types::slash_commands::SlashCommandRegistry;
@@ -31,14 +33,15 @@ use super::messages::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
 use super::rlm::{refine_now, RefineRequest};
-use super::workflow::command::parse_dynamic_workflow_args;
+use super::workflow::command::{parse_dynamic_workflow_args, DynamicWorkflowArgsError};
 use super::workflow::effective_limits;
 use super::EukheSession;
 use crate::autonomous::{now_millis, AgentAutonomousStatus, AUTONOMOUS_STATUS_CUSTOM_TYPE};
+use crate::autoresearch::AutoresearchCommandError;
 use crate::goals::{GoalState, GoalStatus};
 use crate::slash_command_args::{
     format_autonomous_status, parse_autonomous_command, parse_goal_command, AutonomousCommand,
-    GoalCommand,
+    GoalCommand, SlashArgsRefusal,
 };
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_types::input_origin::InputOrigin;
@@ -46,6 +49,57 @@ use eukhe_types::workflow::WorkflowSize;
 
 #[cfg(test)]
 mod tests;
+
+/// Why a session command failed. `Display` is the raw failure: the `<e>`
+/// of its `Command failed: <e>` row.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionCommandError {
+    /// `/refine rollback` without a refinement id.
+    #[error("Usage: /refine rollback <refinement-id>")]
+    RefineUsage,
+    /// `/remind` without text.
+    #[error("Usage: /remind <text>")]
+    RemindUsage,
+    /// `/force` without a tool, or a `--tries` that is no count.
+    #[error("Usage: /force <tool> [--tries <n>]")]
+    ForceUsage,
+    /// The compiled core refused `/goal` or `/autonomous` arguments.
+    #[error(transparent)]
+    SlashArgs(#[from] SlashArgsRefusal),
+    /// `/dynamic-workflow` arguments did not parse.
+    #[error(transparent)]
+    DynamicWorkflowArgs(#[from] DynamicWorkflowArgsError),
+    /// The `/refine` run failed (TS `refine_failed`).
+    #[error("{0:#}")]
+    Refine(#[source] anyhow::Error),
+    /// `/autoresearch` failed.
+    #[error(transparent)]
+    Autoresearch(#[from] AutoresearchCommandError),
+    /// `/goal` or `/autonomous` on main before main created its worker.
+    #[error("No worker yet: /{name} applies to the worker, which main creates with the first work you give it")]
+    NoWorker { name: String },
+    /// Main could not hand the command to its worker.
+    #[error("{0:#}")]
+    Worker(#[source] anyhow::Error),
+    /// A command row is not strict JSON.
+    #[error(transparent)]
+    Row(#[from] JsonError),
+    /// The autonomous status did not serialize.
+    #[error(transparent)]
+    Status(#[from] serde_json::Error),
+    /// The session failed to read or commit.
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    /// The command failed with `failure`, and its `Command failed` row
+    /// then failed to commit with `commit`; the reported text is the
+    /// commit's.
+    #[error("{commit}")]
+    Unrecorded {
+        failure: Box<SessionCommandError>,
+        #[source]
+        commit: Box<SessionCommandError>,
+    },
+}
 
 /// Parsed `/refine` options.
 #[derive(Debug, Default, PartialEq)]
@@ -59,9 +113,11 @@ pub(crate) struct RefineCommandOptions {
 ///
 /// # Errors
 ///
-/// Returns a usage-error string when `rollback` is given without a
+/// [`SessionCommandError::RefineUsage`] when `rollback` is given without a
 /// refinement id.
-pub(crate) fn parse_refine_command_options(args: &str) -> Result<RefineCommandOptions, String> {
+pub(crate) fn parse_refine_command_options(
+    args: &str,
+) -> Result<RefineCommandOptions, SessionCommandError> {
     let mut rest = args.trim();
     let mut global = false;
     if rest.starts_with("--global") && matches!(rest.as_bytes().get(8), None | Some(b' ' | b'\t')) {
@@ -69,20 +125,20 @@ pub(crate) fn parse_refine_command_options(args: &str) -> Result<RefineCommandOp
         rest = rest["--global".len()..].trim();
     }
     if rest == "rollback" {
-        return Err("Usage: /refine rollback <refinement-id>".to_string());
+        return Err(SessionCommandError::RefineUsage);
     }
     if let Some(tail) = rest.strip_prefix("rollback") {
         if tail.starts_with('\t') || tail.starts_with(' ') {
             let mut rollback_id = rest["rollback".len()..].trim().to_string();
             if rollback_id == "--global" {
-                return Err("Usage: /refine rollback <refinement-id>".to_string());
+                return Err(SessionCommandError::RefineUsage);
             }
             if rollback_id.ends_with(" --global") {
                 global = true;
                 rollback_id = rollback_id.trim_end_matches(" --global").trim().to_string();
             }
             if rollback_id.is_empty() {
-                return Err("Usage: /refine rollback <refinement-id>".to_string());
+                return Err(SessionCommandError::RefineUsage);
             }
             return Ok(RefineCommandOptions {
                 instructions: None,
@@ -108,11 +164,12 @@ pub enum SessionCommandName {
     Remind,
     Force,
     DynamicWorkflow,
+    Autoresearch,
 }
 
 impl SessionCommandName {
     /// The command's name as typed (`compact`, `refine`, `goal`,
-    /// `autonomous`, `remind`, `force`).
+    /// `autonomous`, `remind`, `force`, `dynamic-workflow`, `autoresearch`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -123,6 +180,7 @@ impl SessionCommandName {
             Self::Remind => "remind",
             Self::Force => "force",
             Self::DynamicWorkflow => "dynamic-workflow",
+            Self::Autoresearch => "autoresearch",
         }
     }
 
@@ -137,6 +195,7 @@ impl SessionCommandName {
             "remind" => Some(Self::Remind),
             "force" => Some(Self::Force),
             "dynamic-workflow" => Some(Self::DynamicWorkflow),
+            "autoresearch" => Some(Self::Autoresearch),
             _ => None,
         }
     }
@@ -156,7 +215,7 @@ pub struct SessionCommand {
 #[derive(Debug, Default)]
 pub struct SessionCommandOutcome {
     /// The raw failure (the `Command failed: ...` row is already committed).
-    pub error: Option<String>,
+    pub error: Option<SessionCommandError>,
     /// `/compact`: the admitted compaction task (it emits its own events).
     pub compaction: Option<TaskId<CompactionResult>>,
     /// `/goal`: the resulting goal.
@@ -165,9 +224,19 @@ pub struct SessionCommandOutcome {
     pub autonomous: Option<AgentAutonomousStatus>,
     /// `/dynamic-workflow`: the size of the workflow it asked for.
     pub dynamic_workflow: Option<WorkflowSize>,
-    /// `/refine`: the refinement run's own failure (TS `refine_failed`;
-    /// a usage error never ran a refinement and leaves it `None`).
-    pub refinement_failed: Option<String>,
+}
+
+impl SessionCommandOutcome {
+    /// `/refine`: the refinement run's own failure (TS `refine_failed`);
+    /// a usage error never ran a refinement and answers `None`.
+    #[must_use]
+    pub fn refinement_failed(&self) -> Option<&SessionCommandError> {
+        let failure = match self.error.as_ref()? {
+            SessionCommandError::Unrecorded { failure, .. } => &**failure,
+            error => error,
+        };
+        matches!(failure, SessionCommandError::Refine(_)).then_some(failure)
+    }
 }
 
 /// Classify `text` as a session command through the builtin slash-command
@@ -208,9 +277,7 @@ pub async fn execute_session_command(
         SessionCommandName::Compact => {
             execute_compact(conversation, command, &mut outcome, cx).await
         }
-        SessionCommandName::Refine => {
-            execute_refine(session, conversation, command, &mut outcome, cx).await
-        }
+        SessionCommandName::Refine => execute_refine(session, conversation, command, cx).await,
         SessionCommandName::Goal => {
             execute_goal(session, conversation, command, &mut outcome, cx).await
         }
@@ -218,7 +285,7 @@ pub async fn execute_session_command(
             execute_autonomous(session, conversation, command, &mut outcome, cx).await
         }
         SessionCommandName::Remind => match command.args.trim() {
-            "" => Err("Usage: /remind <text>".to_owned()),
+            "" => Err(SessionCommandError::RemindUsage),
             text => {
                 let layer = Layer::reminder(text.to_owned());
                 let report = "Reminder added: it leads the next continuation.".to_owned();
@@ -236,10 +303,36 @@ pub async fn execute_session_command(
         SessionCommandName::DynamicWorkflow => {
             execute_dynamic_workflow(session, conversation, command, &mut outcome, cx).await
         }
+        SessionCommandName::Autoresearch => {
+            match crate::autoresearch::execute_command(session, conversation, &command.args, cx)
+                .await
+            {
+                Ok(text) => {
+                    append_rows(
+                        conversation,
+                        vec![result_row(command, text, Visibility::Shown)],
+                        cx,
+                    )
+                    .await
+                }
+                Err(error) => Err(error.into()),
+            }
+        }
     };
-    if let Err(message) = result {
-        let committed = append_rows(conversation, vec![failure_row(command, &message)], cx).await;
-        outcome.error = Some(committed.err().unwrap_or(message));
+    if let Err(failure) = result {
+        let committed = append_rows(
+            conversation,
+            vec![failure_row(command, &failure.to_string())],
+            cx,
+        )
+        .await;
+        outcome.error = Some(match committed {
+            Ok(()) => failure,
+            Err(commit) => SessionCommandError::Unrecorded {
+                failure: Box::new(failure),
+                commit: Box::new(commit),
+            },
+        });
     }
     outcome
 }
@@ -256,7 +349,7 @@ pub async fn commit_session_command_echo(
     conversation: &Conversation,
     command: &SessionCommand,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     append_rows(conversation, vec![echo_row(command)], cx).await
 }
 
@@ -271,7 +364,7 @@ pub async fn commit_session_command_failure(
     command: &SessionCommand,
     error: &str,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     append_rows(conversation, vec![failure_row(command, error)], cx).await
 }
 
@@ -343,7 +436,7 @@ async fn append_rows(
     conversation: &Conversation,
     rows: Vec<Row>,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let timestamp = now_millis();
     let drafts = rows
         .into_iter()
@@ -356,8 +449,7 @@ async fn append_rows(
                 timestamp,
             )
         })
-        .collect::<Result<Vec<EntryDraft>, _>>()
-        .map_err(|error| error.to_string())?;
+        .collect::<Result<Vec<EntryDraft>, _>>()?;
     let conversation_id = conversation.id();
     conversation
         .commit(
@@ -369,8 +461,8 @@ async fn append_rows(
             },
             cx,
         )
-        .await
-        .map_err(|error| error.to_string())
+        .await?;
+    Ok(())
 }
 
 /// `/goal` and `/autonomous` on main (`sessionShape` `main-worker`): the
@@ -382,10 +474,10 @@ async fn execute_on_worker(
     conversation: &Conversation,
     command: &SessionCommand,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let name = command.name.as_str();
-    let no_worker = || {
-        format!("No worker yet: /{name} applies to the worker, which main creates with the first work you give it")
+    let no_worker = || SessionCommandError::NoWorker {
+        name: name.to_owned(),
     };
     let Some(host) = session.deps().children.as_ref() else {
         return Err(no_worker());
@@ -409,7 +501,7 @@ async fn execute_on_worker(
             .await
         }
         Ok(None) => Err(no_worker()),
-        Err(error) => Err(format!("{error:#}")),
+        Err(error) => Err(SessionCommandError::Worker(error)),
     }
 }
 
@@ -420,12 +512,9 @@ async fn execute_compact(
     command: &SessionCommand,
     outcome: &mut SessionCommandOutcome,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let instructions = (!command.args.is_empty()).then(|| command.args.clone());
-    let task = conversation
-        .compact(instructions, cx)
-        .await
-        .map_err(|error| error.to_string())?;
+    let task = conversation.compact(instructions, cx).await?;
     outcome.compaction = Some(task);
     Ok(())
 }
@@ -437,23 +526,17 @@ async fn execute_refine(
     session: &EukheSession,
     conversation: &Conversation,
     command: &SessionCommand,
-    outcome: &mut SessionCommandOutcome,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let options = parse_refine_command_options(&command.args)?;
     let request = RefineRequest {
         instructions: options.instructions,
         global: options.global,
         rollback_id: options.rollback_id,
     };
-    let result = match refine_now(session.deps(), conversation, request, cx).await {
-        Ok(result) => result,
-        Err(error) => {
-            let message = format!("{error:#}");
-            outcome.refinement_failed = Some(message.clone());
-            return Err(message);
-        }
-    };
+    let result = refine_now(session.deps(), conversation, request, cx)
+        .await
+        .map_err(SessionCommandError::Refine)?;
     let applied = result
         .applied_edits
         .iter()
@@ -489,22 +572,21 @@ async fn execute_goal(
     command: &SessionCommand,
     outcome: &mut SessionCommandOutcome,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let goal = parse_goal_command(&command.args)?;
     let harness = session.harness();
     let id = conversation.id();
-    let failed = |error: eukhe_durable::session::SessionError| error.to_string();
     let (state, text) = match goal {
         GoalCommand::Status => {
-            let state = goal_state(harness, id, cx).await.map_err(failed)?;
+            let state = goal_state(harness, id, cx).await?;
             let text = goal_status_text(&state);
             (state, text)
         }
         GoalCommand::Clear => {
             // A clear that removed a goal says so; with nothing to clear
             // it answers the plain status.
-            let cleared = clear_goal(harness, id, cx).await.map_err(failed)?;
-            let state = goal_state(harness, id, cx).await.map_err(failed)?;
+            let cleared = clear_goal(harness, id, cx).await?;
+            let state = goal_state(harness, id, cx).await?;
             let text = if cleared {
                 "Goal cleared.".to_owned()
             } else {
@@ -513,12 +595,12 @@ async fn execute_goal(
             (state, text)
         }
         GoalCommand::Pause => {
-            let state = pause_goal(harness, id, cx).await.map_err(failed)?;
+            let state = pause_goal(harness, id, cx).await?;
             let text = goal_status_text(&state);
             (state, text)
         }
         GoalCommand::Resume => {
-            let state = resume_goal(harness, id, cx).await.map_err(failed)?;
+            let state = resume_goal(harness, id, cx).await?;
             let text = goal_status_text(&state);
             (state, text)
         }
@@ -526,9 +608,7 @@ async fn execute_goal(
             objective,
             token_budget,
         } => {
-            let state = start_goal(harness, id, &objective, token_budget, cx)
-                .await
-                .map_err(failed)?;
+            let state = start_goal(harness, id, &objective, token_budget, cx).await?;
             let text = goal_status_text(&state);
             (state, text)
         }
@@ -550,7 +630,7 @@ async fn execute_autonomous(
     command: &SessionCommand,
     outcome: &mut SessionCommandOutcome,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let parsed = parse_autonomous_command(&command.args)?;
     let harness = session.harness();
     let id = conversation.id();
@@ -558,11 +638,8 @@ async fn execute_autonomous(
         AutonomousCommand::On { config } => AutonomousChange::On(config),
         AutonomousCommand::Off => AutonomousChange::Off,
         AutonomousCommand::Status => {
-            let status = autonomous_state(harness, id, cx)
-                .await
-                .map_err(|error| error.to_string())?
-                .status();
-            let details = serde_json::to_value(&status).map_err(|error| error.to_string())?;
+            let status = autonomous_state(harness, id, cx).await?.status();
+            let details = serde_json::to_value(&status)?;
             let row = Row {
                 custom_type: AUTONOMOUS_STATUS_CUSTOM_TYPE,
                 text: format_autonomous_status(&status),
@@ -573,9 +650,7 @@ async fn execute_autonomous(
             return append_rows(conversation, vec![row], cx).await;
         }
     };
-    let status = set_autonomous(harness, id, change, cx)
-        .await
-        .map_err(|error| error.to_string())?;
+    let status = set_autonomous(harness, id, change, cx).await?;
     outcome.autonomous = Some(status);
     Ok(())
 }
@@ -585,18 +660,19 @@ async fn execute_autonomous(
 ///
 /// # Errors
 ///
-/// A usage-error string when the tool is missing or `--tries` has no
-/// non-negative integer.
-fn parse_force_command(args: &str) -> Result<(String, u32), String> {
-    const USAGE: &str = "Usage: /force <tool> [--tries <n>]";
+/// [`SessionCommandError::ForceUsage`] when the tool is missing or
+/// `--tries` has no non-negative integer.
+fn parse_force_command(args: &str) -> Result<(String, u32), SessionCommandError> {
     let mut words = args.split_whitespace();
     let Some(tool) = words.next().filter(|tool| !tool.starts_with("--")) else {
-        return Err(USAGE.to_owned());
+        return Err(SessionCommandError::ForceUsage);
     };
     let tries = match (words.next(), words.next(), words.next()) {
         (None, None, None) => 1,
-        (Some("--tries"), Some(tries), None) => tries.parse().map_err(|_| USAGE.to_owned())?,
-        _ => return Err(USAGE.to_owned()),
+        (Some("--tries"), Some(tries), None) => {
+            tries.parse().map_err(|_| SessionCommandError::ForceUsage)?
+        }
+        _ => return Err(SessionCommandError::ForceUsage),
     };
     Ok((tool.to_owned(), tries))
 }
@@ -610,7 +686,7 @@ async fn execute_dynamic_workflow(
     command: &SessionCommand,
     outcome: &mut SessionCommandOutcome,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let parsed = parse_dynamic_workflow_args(&command.args)?;
     let manager = session.deps().settings.manager();
     let size = parsed.size.unwrap_or_else(|| manager.get_workflow_size());
@@ -634,8 +710,7 @@ async fn execute_dynamic_workflow(
             },
             cx,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     outcome.dynamic_workflow = Some(size);
     Ok(())
 }
@@ -650,11 +725,9 @@ async fn push_layer(
     layer: Layer,
     text: String,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), SessionCommandError> {
     let limits = DirectorLimits::of(session.deps().settings.manager().settings());
-    push_director(session.harness(), conversation.id(), layer, limits, cx)
-        .await
-        .map_err(|error| error.to_string())?;
+    push_director(session.harness(), conversation.id(), layer, limits, cx).await?;
     append_rows(
         conversation,
         vec![result_row(command, text, Visibility::Shown)],

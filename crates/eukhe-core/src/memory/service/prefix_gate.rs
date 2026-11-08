@@ -16,9 +16,9 @@ use crate::memory::view::{pieces, Part};
 /// How many recently written prefixes count as warm.
 const WARM: usize = 64;
 
-/// The cache prefix of a compaction: the prompt in force (by generation)
-/// and the marked piece of its view, if the view has one.
-pub(super) fn prefix_key(prompt_generation: u64, request: &NodeRequest) -> u64 {
+/// The cache prefix of a compaction: the marked piece of its view, if the
+/// view has one (the compactor's system prompt is the same in every call).
+pub(super) fn prefix_key(request: &NodeRequest) -> u64 {
     let pieces = pieces(&request.context);
     let marked = if pieces.len() > 1 {
         pieces[0].as_str()
@@ -26,7 +26,6 @@ pub(super) fn prefix_key(prompt_generation: u64, request: &NodeRequest) -> u64 {
         ""
     };
     let mut hasher = DefaultHasher::new();
-    prompt_generation.hash(&mut hasher);
     marked.hash(&mut hasher);
     hasher.finish()
 }
@@ -143,7 +142,7 @@ mod tests {
     #[test]
     fn one_call_writes_a_new_prefix_and_the_others_wait_for_it() {
         let mut gate = PrefixGate::default();
-        let key = prefix_key(1, &request("t0"));
+        let key = prefix_key(&request("t0"));
         let admitted = [
             gate.admit(key, part(0), request("t0")),
             gate.admit(key, part(1), request("t1")),
@@ -163,10 +162,10 @@ mod tests {
         );
     }
 
-    /// The key is the prompt in force and the view's marked piece: a task
-    /// or an unmarked tail does not change it.
+    /// The key is the view's marked piece: a task or an unmarked tail does
+    /// not change it.
     #[test]
-    fn the_key_follows_the_prompt_and_the_marked_piece() {
+    fn the_key_follows_the_marked_piece() {
         let base = request("a");
         let other_tail = NodeRequest {
             context: "<chat>\n0+1|a\n1+1|b\n2+1|c\n3+1|d\n4+1|e\n</chat>".to_string(),
@@ -178,14 +177,13 @@ mod tests {
             task: "a".to_string(),
             input: String::new(),
         };
-        let key = prefix_key(1, &base);
+        let key = prefix_key(&base);
         assert_eq!(
             [
-                prefix_key(1, &other_tail) == key,
-                prefix_key(2, &base) == key,
-                prefix_key(1, &other_block) == key,
+                prefix_key(&other_tail) == key,
+                prefix_key(&other_block) == key,
             ],
-            [true, false, false]
+            [true, false]
         );
     }
 }

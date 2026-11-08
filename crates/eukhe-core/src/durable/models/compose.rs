@@ -18,7 +18,9 @@ use eukhe_types::pi_ai::{AnyModel, Model, ProviderHeaders};
 use futures::future::BoxFuture;
 
 use super::stores::{blocking, thrown};
-use crate::models::custom::{provider_diagnostic, ModelsConfig, ModelsJsonLoad, ProviderConfig};
+use crate::models::custom::{
+    ModelBuildError, ModelsConfig, ModelsJsonError, ModelsJsonLoad, ProviderConfig, ProviderError,
+};
 
 /// The built-in providers with `models_json` composed over them, plus the
 /// custom providers it defines, and the models.json diagnostics. A missing
@@ -83,7 +85,8 @@ fn with_map_addressed_reasoning(mut provider: Provider) -> Provider {
     provider
 }
 
-/// [`compose_providers`] before the capability rule.
+/// [`compose_providers`] before the capability rule. The diagnostics leave
+/// rendered: they are the session's user-facing text.
 fn compose_layers(builtins: Vec<Provider>, models_json: &Path) -> (Vec<Provider>, Vec<String>) {
     let has_models = |provider: &Provider| (provider.get_models)().is_ok_and(|m| !m.is_empty());
     let ModelsJsonLoad {
@@ -102,8 +105,8 @@ fn compose_layers(builtins: Vec<Provider>, models_json: &Path) -> (Vec<Provider>
                 let id = base.id.clone();
                 match compose_provider(&id, Some(base.clone()), provider_config) {
                     Ok(provider) => providers.push(provider),
-                    Err(error) => {
-                        diagnostics.push(provider_diagnostic(&id, &error));
+                    Err(source) => {
+                        diagnostics.push(ModelsJsonError::Provider { id, source });
                         providers.push(base);
                     }
                 }
@@ -120,15 +123,16 @@ fn compose_layers(builtins: Vec<Provider>, models_json: &Path) -> (Vec<Provider>
         {
             match compose_provider(&id, None, provider_config) {
                 Ok(provider) => providers.push(provider),
-                Err(error) => diagnostics.push(provider_diagnostic(&id, &error)),
+                Err(source) => diagnostics.push(ModelsJsonError::Provider { id, source }),
             }
         }
     }
+    let diagnostics = diagnostics.iter().map(ToString::to_string).collect();
     (providers, diagnostics)
 }
 
 /// A built-in chat model under the provider's `models.json` rewrites.
-fn rewrite(config: &ProviderConfig, model: &Model) -> Result<Model, String> {
+fn rewrite(config: &ProviderConfig, model: &Model) -> Result<Model, ModelBuildError> {
     if config.rewrites(&model.id) {
         config.rewrite_built_in(model)
     } else {
@@ -151,7 +155,7 @@ fn composed_models(
         };
         let base_models = base_models.as_deref().unwrap_or_default();
         let mut chat = chat_models(base_models)
-            .map(|model| rewrite(&config, model).map_err(thrown))
+            .map(|model| rewrite(&config, model).map_err(|error| thrown(error.to_string())))
             .collect::<Result<Vec<_>, _>>()?;
         for model in custom.iter() {
             match chat.iter().position(|entry| entry.id == model.id) {
@@ -172,11 +176,11 @@ fn compose_provider(
     id: &str,
     base: Option<Provider>,
     config: ProviderConfig,
-) -> Result<Provider, String> {
+) -> Result<Provider, ProviderError> {
     let base = base.map(Arc::new);
     let config = Arc::new(config);
     let base_models = match &base {
-        Some(base) => (base.get_models)().map_err(|error| error.to_string())?,
+        Some(base) => (base.get_models)().map_err(ProviderError::BaseModels)?,
         None => Arc::from([]),
     };
     let defaults = chat_models(&base_models)
@@ -278,7 +282,7 @@ fn with_configured_headers(
 ) -> Result<ModelAuth, Thrown> {
     let bearer = config
         .bearer_header(provider_id, auth.api_key.as_deref())
-        .map_err(thrown)?;
+        .map_err(|error| thrown(error.to_string()))?;
     let configured = config
         .headers
         .iter()

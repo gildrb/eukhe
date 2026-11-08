@@ -139,6 +139,33 @@ fn non_utf8_file_is_named_with_its_encoding() {
         .contains(&crate::store::digest(b"caf\xE9\n")));
 }
 
+/// A PNG read without a selector is an image with its header's size; with
+/// `:raw` it is its bytes.
+#[test]
+fn png_without_a_selector_reads_as_an_image() {
+    let (dir, store) = setup("x");
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+    png.extend_from_slice(&1440u32.to_be_bytes());
+    png.extend_from_slice(&900u32.to_be_bytes());
+    png.extend_from_slice(&[8, 6, 0, 0, 0]);
+    std::fs::write(dir.path().join("shot.png"), &png).unwrap();
+    let view = read(&store, dir.path(), None, "shot.png").unwrap();
+    assert_eq!(
+        (view.rendered.as_str(), view.content),
+        (
+            "[shot.png: 1440x900 PNG image, 29B]",
+            ReadContent::Image(ImageView {
+                format: ImageFormat::Png,
+                width: 1440,
+                height: 900,
+                bytes: png,
+            })
+        )
+    );
+    let raw = read(&store, dir.path(), None, "shot.png:raw").unwrap();
+    assert!(matches!(raw.content, ReadContent::File(_)));
+}
+
 #[test]
 fn range_selector_adds_context_lines() {
     let (dir, store) = setup(&numbered_file(20));

@@ -17,7 +17,7 @@ use eukhe_types::ai::{CompatKind, Model, ModelCompat, ModelThinkingLevel, OpenAi
 use crate::auth::manager::AuthStorage;
 use crate::auth::types::AuthCredential;
 
-use super::custom::{provider_diagnostic, ModelsConfig, ModelsJsonLoad, ProviderConfig};
+use super::custom::{ModelsConfig, ModelsJsonError, ModelsJsonLoad, ProviderConfig, ProviderError};
 use super::prime_inference::{is_private_prime_inference_model, private_prime_inference_models};
 
 /// The process-wide built-in catalog: the union of the packaged bundled
@@ -335,7 +335,7 @@ impl ModelRegistry {
             headers.extend(configured.flatten().map(|(k, v)| (k.clone(), v.clone())));
             match config.bearer_header(&model.provider, api_key.as_deref()) {
                 Ok(bearer) => headers.extend(bearer),
-                Err(error) => return failure(error),
+                Err(error) => return failure(error.to_string()),
             }
         }
         if let Some(model_headers) = &model.headers {
@@ -364,13 +364,14 @@ fn built_in_models() -> Vec<Cow<'static, Model>> {
 
 /// One custom provider's layer over the catalog: the built-in slots it
 /// rewrites (by index) and the models it adds, or why it does not load.
-type ProviderLayer = Result<(Vec<(usize, Model)>, Vec<Model>), String>;
+type ProviderLayer = Result<(Vec<(usize, Model)>, Vec<Model>), ProviderError>;
 
 /// `models_json` composed over [`built_in_models`] (TS `loadModels`): the
 /// provider and model overrides rewrite the catalog's built-in models, then
 /// the custom models land, winning on provider+id conflicts. A provider
 /// entry that does not load or compose is dropped (its built-in models
-/// stay as the catalog has them), and a diagnostic names it.
+/// stay as the catalog has them), and a diagnostic names it. The
+/// diagnostics leave rendered: they are the registry's user-facing text.
 fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<String>) {
     let compiled = eukhe_models::transports::compiled_models();
     let ModelsJsonLoad {
@@ -387,10 +388,11 @@ fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<S
             let mut rewritten = Vec::new();
             for (index, slot) in models[..built_in_count].iter().enumerate() {
                 if slot.provider == *provider_id && provider.rewrites(&slot.id) {
-                    match provider
+                    let view = provider
                         .rewrite_built_in(slot.as_ref())
-                        .and_then(|model| registry_view(&model, provider))
-                    {
+                        .map_err(ProviderError::from)
+                        .and_then(|model| registry_view(&model, provider));
+                    match view {
                         Ok(model) => rewritten.push((index, model)),
                         Err(error) => break 'layer Err(error),
                     }
@@ -401,6 +403,7 @@ fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<S
                 .map(|model| (model.api.as_str(), model.base_url.as_str()));
             provider
                 .custom_models(provider_id, defaults)
+                .map_err(ProviderError::from)
                 .and_then(|custom| {
                     custom
                         .iter()
@@ -411,8 +414,11 @@ fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<S
         };
         let (rewritten, custom) = match layer {
             Ok(layer) => layer,
-            Err(error) => {
-                diagnostics.push(provider_diagnostic(provider_id, &error));
+            Err(source) => {
+                diagnostics.push(ModelsJsonError::Provider {
+                    id: provider_id.clone(),
+                    source,
+                });
                 dropped.push(provider_id.clone());
                 continue;
             }
@@ -432,6 +438,7 @@ fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<S
     for provider_id in dropped {
         config.providers.remove(&provider_id);
     }
+    let diagnostics = diagnostics.iter().map(ToString::to_string).collect();
     (config, models, diagnostics)
 }
 
@@ -440,9 +447,8 @@ fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<S
 fn registry_view(
     model: &eukhe_types::pi_ai::Model,
     provider: &ProviderConfig,
-) -> Result<Model, String> {
-    let mut view =
-        eukhe_models::pi_ai_model::registry_model(model).map_err(|error| error.to_string())?;
+) -> Result<Model, ProviderError> {
+    let mut view = eukhe_models::pi_ai_model::registry_model(model)?;
     view.max_tokens_explicit = provider.configures_max_tokens(&model.id);
     Ok(view)
 }

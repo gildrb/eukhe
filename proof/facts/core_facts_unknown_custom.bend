@@ -8,7 +8,7 @@ import Base
 import ../../bend/facts.bend as Fx
 import ../../bend/ffi_facts.bend as FFx
 import ../../bend/wire.bend as Wr
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 import ../../laws/base.bend as LawsBase
 import ../wire/base/spell.bend as LAWireSpell
 
@@ -24,5 +24,5 @@ def fuk.main(+n: Nat, +rest: String) -> {FFx.ffi(Wr.put_nat(4n, Wr.put_nat(2n+n,
   %fuk.bad(LawsBase.wire_fits(2n+n), n, rest) : {FFx.ffi.go(FFx.get_aux.of(FFx.seq(~FFx.P2<FFx.P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~Wr.get_nat, FFx.seq(~FFx.P2<Fx.Customs, Fx.Budgets>, ~Nat, ~Wr.get_nat, FFx.seq(~Fx.Customs, ~Fx.Budgets, ~FFx.get_budgets, FFx.get_customs.of(FFx.seq(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.seq(~FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.seq(~Maybe<&2, Nat>, ~Maybe<&2, Nat>, ~FFx.get_mnat, _))))))))) == Wr.err("budget request: malformed") : String}
   {==}
 
-def Facts.core_facts_unknown_custom(n, rest):
+def FactsBudgets.core_facts_unknown_custom(n, rest):
   fuk.main(n, rest)

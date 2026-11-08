@@ -13,11 +13,15 @@ description = "This build's identity: the product version and the source commit 
 eukhe-bend.workspace = true
 # `eukhe-next-version` reads the workspace version of Cargo.toml.
 toml.workspace = true
+# The typed errors of `src/identity.rs` and `eukhe-next-version`.
+thiserror.workspace = true
 
 [build-dependencies]
 # build.rs checks EUKHE_RELEASE_VERSION against the workspace series with
 # the same rule (`src/identity.rs`).
 eukhe-bend.workspace = true
+# `src/identity.rs`'s typed release-version error.
+thiserror.workspace = true
 
 [lints]
 workspace = true

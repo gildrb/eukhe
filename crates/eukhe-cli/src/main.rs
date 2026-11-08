@@ -6,6 +6,25 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() {
+    // A closed stdout (`eukhe list | head -1`) must end the run quietly
+    // with exit 0, not a panic report (exit 101): every print macro panics
+    // on the broken pipe, so the hook recognizes it and exits before any
+    // error output. Everything else keeps the default report.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let broken_pipe = info
+            .payload()
+            .downcast_ref::<String>()
+            .is_some_and(|message| message.contains("Broken pipe"))
+            || info
+                .payload()
+                .downcast_ref::<&str>()
+                .is_some_and(|message| message.contains("Broken pipe"));
+        if broken_pipe {
+            std::process::exit(0);
+        }
+        default_hook(info);
+    }));
     // A launcher that asked for a detached session (the daemon spawn)
     // gets it before anything else runs, while the process is still
     // single-threaded.

@@ -14,7 +14,7 @@ import ../../bend/cron.bend as Cr
 import ../../bend/cron_store.bend as CS
 import ../../laws/cron.bend as Cron
 import ../../laws/cron_store.bend as CronStore
-import ./base/delay.bend as LAn
+import ./base/answer.bend as LAn
 import ./base/scale.bend as LSc
 
 def crf.eq_refl(p: Nat) -> {True{} == Nat.is_eq(p, p) : Bool}:

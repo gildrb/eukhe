@@ -16,42 +16,61 @@ struct PromptCommandArgs {
     json: bool,
 }
 
-fn parse_args(args: &[String]) -> Result<PromptCommandArgs, String> {
+/// What the `prompt` arguments ask for.
+#[derive(Debug, PartialEq, Eq)]
+enum PromptRequest {
+    /// `--help` / `-h`: the usage (the help surface prints it).
+    Help,
+    Run(PromptCommandArgs),
+}
+
+/// Why the `prompt` arguments do not parse.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum PromptUsageError {
+    #[error("{0} requires a value")]
+    MissingValue(&'static str),
+    #[error("unknown option: {0}")]
+    UnknownOption(String),
+}
+
+fn parse_args(args: &[String]) -> Result<PromptRequest, PromptUsageError> {
     let mut parsed = PromptCommandArgs::default();
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--json" => parsed.json = true,
             "--model" => {
-                let Some(value) = rest.next() else {
-                    return Err("--model requires a value".to_string());
-                };
+                let value = rest
+                    .next()
+                    .ok_or(PromptUsageError::MissingValue("--model"))?;
                 parsed.model = Some(value.clone());
             }
             "--cwd" => {
-                let Some(value) = rest.next() else {
-                    return Err("--cwd requires a value".to_string());
-                };
+                let value = rest.next().ok_or(PromptUsageError::MissingValue("--cwd"))?;
                 parsed.cwd = Some(value.clone());
             }
-            "--help" | "-h" => {
-                return Err(String::new());
-            }
-            other => return Err(format!("unknown option {other:?}")),
+            "--help" | "-h" => return Ok(PromptRequest::Help),
+            other => return Err(PromptUsageError::UnknownOption(other.to_owned())),
         }
     }
-    Ok(parsed)
+    Ok(PromptRequest::Run(parsed))
 }
 
 /// Run the `prompt` command; returns the process exit code.
 pub fn run_prompt_command(args: &[String]) -> i32 {
     let parsed = match parse_args(args) {
-        Ok(parsed) => parsed,
-        Err(help_request) if help_request.is_empty() => return 0,
+        Ok(PromptRequest::Run(parsed)) => parsed,
+        Ok(PromptRequest::Help) => {
+            match crate::command_registry::format_command_help(&["prompt"]) {
+                Some(help) => println!("{help}"),
+                None => eprintln!("Error: the prompt help entry is missing from the registry"),
+            }
+            return 0;
+        }
         Err(error) => {
             eprintln!("Error: {error}");
-            eprintln!("Run `eukhe help prompt` for usage.");
-            return 1;
+            eprintln!("Run \"eukhe help prompt\" for usage.");
+            return 2;
         }
     };
     let cwd = parsed
@@ -65,10 +84,9 @@ pub fn run_prompt_command(args: &[String]) -> i32 {
                 eprintln!("Error: {error}");
             }
             if parsed.json {
-                print_json(&breakdown);
-            } else {
-                print_text(&breakdown);
+                return print_json(&breakdown);
             }
+            print_text(&breakdown);
             0
         }
         Err(error) => {
@@ -84,10 +102,6 @@ fn assemble_breakdown(
 ) -> anyhow::Result<(eukhe_core::prompts::SystemPromptBreakdown, Vec<String>)> {
     let agent_dir = get_agent_dir();
     let model_prompts = eukhe_core::prompts::model_prompts::load_model_prompts(model, &agent_dir);
-    // Every chat-memory session names the chat log (one path for all).
-    let chat_log = eukhe_core::memory::chat_dir(&agent_dir)
-        .display()
-        .to_string();
     let settings = SettingsManager::create(cwd, &agent_dir);
     // MCP gating: auth-gated built-in integrations drop their skills;
     // enabled persistent generic servers add the prompt MCP guidance.
@@ -103,7 +117,6 @@ fn assemble_breakdown(
     let breakdown = eukhe_core::prompts::system_prompt::system_prompt_breakdown(
         &eukhe_core::prompts::BuildSystemPromptOptions {
             cwd: cwd.display().to_string(),
-            messages_path: Some(chat_log),
             model_prompt_extras: model_prompts.extras.as_deref(),
             custom_prompt: resources.system_prompt.clone(),
             append_system_prompt: resources.append_system_prompt.clone(),
@@ -139,7 +152,7 @@ fn print_text(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
             print_segment(segment);
         }
     }
-    println!("dynamic tail (session-specific, appended after the cached prefix):");
+    println!("dynamic tail (install-, then project-specific, after the cached prefix):");
     for segment in &breakdown.segments {
         if segment.kind == eukhe_core::prompts::SegmentKind::Dynamic {
             print_segment(segment);
@@ -164,7 +177,9 @@ fn print_segment(segment: &eukhe_core::prompts::PromptSegment) {
     );
 }
 
-fn print_json(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
+/// Print the document through the JSON contract; `1` when it cannot
+/// serialize (a contract bug, reported on stderr).
+fn print_json(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) -> i32 {
     let segments = breakdown
         .segments
         .iter()
@@ -177,14 +192,17 @@ fn print_json(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
             })
         })
         .collect::<Vec<_>>();
-    println!(
-        "{}",
-        serde_json::json!({
-            "segments": segments,
-            "cachedPrefixLen": breakdown.cached_prefix_len,
-            "prompt": breakdown.assembled,
-        })
-    );
+    match crate::json_out::print_json_document(&serde_json::json!({
+        "segments": segments,
+        "cachedPrefixLen": breakdown.cached_prefix_len,
+        "prompt": breakdown.assembled,
+    })) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            1
+        }
+    }
 }
 
 #[cfg(test)]
@@ -193,23 +211,24 @@ mod tests {
 
     #[test]
     fn parses_flags() {
-        let parsed = parse_args(&[
+        let Ok(PromptRequest::Run(parsed)) = parse_args(&[
             "--model".to_string(),
             "mock/mock-1".to_string(),
             "--json".to_string(),
             "--cwd".to_string(),
             "/w".to_string(),
-        ])
-        .unwrap();
+        ]) else {
+            panic!("the flags parse");
+        };
         assert_eq!(parsed.model.as_deref(), Some("mock/mock-1"));
         assert_eq!(parsed.cwd.as_deref(), Some("/w"));
         assert!(parsed.json);
         assert_eq!(
             parse_args(&["--bogus".to_string()]),
-            Err("unknown option \"--bogus\"".to_string())
+            Err(PromptUsageError::UnknownOption("--bogus".to_string()))
         );
         assert_eq!(
-            parse_args(&["--model".to_string()]),
+            parse_args(&["--model".to_string()]).map_err(|error| error.to_string()),
             Err("--model requires a value".to_string())
         );
     }
@@ -232,10 +251,9 @@ mod tests {
         assert!(breakdown
             .assembled
             .contains("Recursive agent depth: 0 (root)"));
-        assert!(breakdown.assembled.contains(&format!(
-            "Chat log: {}",
-            eukhe_core::memory::chat_dir(&get_agent_dir()).display()
-        )));
+        assert!(breakdown
+            .assembled
+            .ends_with(&format!("Working directory: {}", dir.path().display())));
         // Every static segment sits inside the cached prefix.
         for segment in &breakdown.segments {
             let inside = breakdown

@@ -8,7 +8,7 @@ import Base
 import ../../../bend/ffi_workflow.bend as FW
 import ../../../bend/wire.bend as Wr
 import ../../../bend/workflow.bend as W
-import ../../../laws/workflow.bend as Workflow
+import ../../../laws/workflow/model.bend as Workflow
 import ../base.bend as LA
 
 def sp.sts(s: W.Sts, -rest: String) -> {Workflow.wfw_spell_sts(s, rest) == FW.put_sts(s, rest) : String}:

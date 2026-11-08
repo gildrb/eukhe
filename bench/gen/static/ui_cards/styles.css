@@ -1,0 +1,12 @@
+@import url("tokens.css");
+
+body { margin: 0; font-family: system-ui, sans-serif; color: var(--ink); }
+.site-header { padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.site-header h1 { margin: 0; font-size: 22px; }
+main { padding: 20px; }
+.cards { display: flex; }
+.card { flex: 0 0 300px; border: 1px solid var(--line); border-radius: 6px; }
+.card h3 { margin: 0 0 6px; font-size: 18px; }
+.card p { margin: 0; line-height: 1.4; }
+.badge { display: inline-block; white-space: nowrap; font-size: 12px; background: #eef2fa; border-radius: 3px; }
+.site-footer { border-top: 1px solid var(--line); font-size: 14px; }

@@ -326,6 +326,7 @@ fn agent_row(
     let current: Option<CurrentTool> = typed(summary, "currentTool");
     let retry: Option<RetryWait> = typed(summary, "retry");
     let park: Option<QuotaPark> = typed(summary, "quotaPark");
+    let waiting: Option<crate::activity::WaitingOn> = typed(summary, "waitingOn");
     let created_ms = time(summary.get("created"));
     let tool = current.map(|tool| ToolRun {
         started_ms: tool.started_at.as_deref().and_then(wall_ms),
@@ -341,14 +342,14 @@ fn agent_row(
     .flatten()
     .max();
     let flag = |name: &str| summary.get(name).and_then(Value::as_bool) == Some(true);
-    let activity = match park {
-        Some(park) => AgentActivity::Parked(park),
-        None if flag("hasRunningSubagents") && !flag("isStreaming") && !flag("isCompacting") => {
-            AgentActivity::Background {
-                tasks: children.max(1),
-            }
-        }
-        None => AgentActivity::Working {
+    let between_turns = !flag("isStreaming") && !flag("isCompacting");
+    let activity = match (park, waiting) {
+        (Some(park), _) => AgentActivity::Parked(park),
+        (None, Some(waiting)) if between_turns => AgentActivity::Waiting(waiting),
+        (None, _) if flag("hasRunningSubagents") && between_turns => AgentActivity::Background {
+            tasks: children.max(1),
+        },
+        (None, _) => AgentActivity::Working {
             phase: phase(entry, retry.is_some(), tool.is_some()),
             since: created_ms.map_or(anchor, |created| instant_at(anchor, anchor_ms, created)),
         },
@@ -409,9 +410,10 @@ impl AgentRow {
                 let quiet = now_ms.saturating_sub(self.heard_ms?) / 1_000;
                 (quiet >= stuck_after_secs).then_some(quiet)
             }
-            AgentActivity::Parked(_) | AgentActivity::Background { .. } | AgentActivity::Idle => {
-                None
-            }
+            AgentActivity::Parked(_)
+            | AgentActivity::Waiting(_)
+            | AgentActivity::Background { .. }
+            | AgentActivity::Idle => None,
         }
     }
 }

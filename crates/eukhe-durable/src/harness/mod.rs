@@ -21,6 +21,7 @@ pub(crate) mod context;
 )]
 mod harness;
 pub(crate) mod inbox;
+pub(crate) mod lift;
 pub(crate) mod live;
 pub(crate) mod output;
 pub(crate) mod prompt;
@@ -29,7 +30,7 @@ pub(crate) mod submissions;
 pub mod tool;
 
 pub use context::{derive_view, order_tool_results};
-pub use harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
+pub use harness::{Continuation, Conversation, ConversationEntryQuery, Harness, RootOptions};
 pub use inbox::{InboxItem, InboxState, INBOX_DOC};
 pub use live::{
     CompactionInput, CompactionStatus, LiveDeferred, LiveGeneration, LiveRetry, LiveRun, LiveState,

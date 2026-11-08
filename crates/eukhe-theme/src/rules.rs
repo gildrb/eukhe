@@ -63,8 +63,16 @@ pub enum Cause {
 pub enum Outcome {
     Loaded,
     /// A theme object that is not valid, and why.
-    Invalid(String),
+    Invalid(ThemeLoadError),
     NoTheme,
+}
+
+/// Why the rules find a theme object invalid: the compiled core's reason,
+/// tokens by their names.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{reason}")]
+pub struct ThemeLoadError {
+    pub reason: String,
 }
 
 /// What a name resolves to over the sources.
@@ -87,7 +95,7 @@ pub struct Picked {
 #[derive(Debug, Clone, Copy)]
 pub struct ThemeRules {
     /// The palette a theme object completes to, or why it is invalid.
-    pub load: fn(&RawTheme) -> Result<Palette, String>,
+    pub load: fn(&RawTheme) -> Result<Palette, ThemeLoadError>,
     /// What a name (empty: the default theme) resolves to over the
     /// sources, in load order.
     pub resolve: fn(&str, &[RawSource<'_>]) -> Picked,

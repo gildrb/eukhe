@@ -754,7 +754,7 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
     );
 }
 
-/// docs/harness.md H4.4: a provider that answers "deferred" forever is
+/// LAWS.bend H4.4: a provider that answers "deferred" forever is
 /// polled until its job's deadline. The reopened run's job is at its
 /// deadline when its next poll is still deferred: the run cancels the job,
 /// then fails.
@@ -849,7 +849,7 @@ async fn fails_a_response_still_deferred_after_its_last_poll() {
     opened.harness.close(context()).await.unwrap();
 }
 
-/// docs/harness.md H4.2: the rounds a run made survive a restart (each
+/// LAWS.bend H4.2: the rounds a run made survive a restart (each
 /// generation's input carries them), so the reopened run makes only the
 /// rounds its cap leaves.
 #[tokio::test(flavor = "multi_thread")]

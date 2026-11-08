@@ -511,7 +511,7 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
     ),
     (
         "provider_admission_acquire",
-        r#"{"type": "provider_admission_acquire", "workerToken": "token", "providerId": "elpis-fast"}"#,
+        r#"{"type": "provider_admission_acquire", "workerToken": "token", "providerId": "local"}"#,
     ),
     (
         "get_worker_peer_transport",
@@ -554,10 +554,6 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "get_state_rewind_plan", "activeSessionId": "sess", "cursor": 0}"#,
     ),
     (
-        "agent_relay",
-        r#"{"type": "agent_relay", "activeSessionId": "sess", "from": "scout", "to": "builder", "text": "hi"}"#,
-    ),
-    (
         "agent_reply",
         r#"{"type": "agent_reply", "activeSessionId": "sess", "from": "alpha", "text": "42", "replyId": "r1"}"#,
     ),
@@ -576,6 +572,14 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
     (
         "relay_shell_approval",
         r#"{"type": "relay_shell_approval", "activeSessionId": "sess", "request": {"requestId": "r1", "step": 0, "command": "touch a", "effects": ["write"]}, "agent": "scout"}"#,
+    ),
+    (
+        "register_headless_parent",
+        r#"{"type": "register_headless_parent", "sessionId": "s1", "sessionName": "lead", "cwd": "/repo"}"#,
+    ),
+    (
+        "headless_parent_receipt",
+        r#"{"type": "headless_parent_receipt", "deliveryId": "d1", "receipt": {"id": "m1"}}"#,
     ),
 ];
 
@@ -614,12 +618,13 @@ fn known_command_types_match_the_ts_list() {
                     | "subscribe_state_tree"
                     | "unsubscribe_state_tree"
                     | "get_state_rewind_plan"
-                    | "agent_relay"
                     | "agent_reply"
                     | "get_run_outcome"
                     | "get_worker_liveness"
                     | "cvar"
                     | "cvar_save"
+                    | "register_headless_parent"
+                    | "headless_parent_receipt"
             ),
             "unexpected non-TS command type: {extra}"
         );

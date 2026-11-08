@@ -61,7 +61,7 @@ fn roster() -> Vec<Value> {
             "s1",
             &json!({
                 "created": at("09:58:00"),
-                "model": { "id": "elpis/qwen3.8-27b" },
+                "model": { "id": "local/qwen3.8-27b" },
                 "thinkingLevel": "high",
                 "isStreaming": true,
                 "isRunningTools": true,

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/depth.bend as Effort
 import ./base.bend as LA
 
 def pe.effort_offered_null(+map: Ef.LvMap, +l: Ef.Lv, null: {Ef.entry(l, map) == Ef.Null{} : Ef.Ent}) -> {Ef.has(Ef.offered(Ef.Mdl{True{}, map}), l) == False{} : Bool}:

@@ -4,16 +4,18 @@ import Base
 import ../../bend/effort.bend as Ef
 import ../../bend/ffi_effort.bend as FEf
 import ../../bend/wire.bend as Wr
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/ladder.bend as EffortLadder
+import ../../laws/effort/entry.bend as EffortEntry
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
+import ./core_effort_ffi_exact.bend as PFE
 
 # ---- effort ----
 
-# proof_effort: the S10 laws (docs/inference.md) of the reasoning-depth
+# proof_effort: the S10 laws of the reasoning-depth
 # model in bend/effort.bend.
 #
 # The offered levels are a filter of the ladder: a level that the filter
@@ -777,11 +779,11 @@ def pc.e_lvs(+xs: List<&2, Ef.Lv>, +rest: String, h: {LawsBase.wire_fits(List.le
       Equal.sym(Wr.Dec<List<&2, Ef.Lv>>, Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, List.length(&2, Ef.Lv, t), FEf.get_lv(FEf.put_lv(x, pc.e_lv_items(t, r)))), Wr.Got{x <> t, r}, pc.e_lv_go_rt(t, x, r))
 
 # the facts that fit read back
-def pc.e_facts(+f: FEf.Facts, +rest: String, h: {Effort.core_facts_fit(f) == True{} : Bool}) -> {Wr.Got{f, rest} == FEf.get_facts(FEf.put_facts(f, rest)) : Wr.Dec<FEf.Facts>}:
+def pc.e_facts(+f: FEf.Facts, +rest: String, h: {EffortLadder.core_facts_fit(f) == True{} : Bool}) -> {Wr.Got{f, rest} == FEf.get_facts(FEf.put_facts(f, rest)) : Wr.Dec<FEf.Facts>}:
   match f:
     case FEf.Facts{+flag, +by_map, +explicit, +rule, +reasoning, +plain}:
       +hhh = h
-      +hh0 = LLogicBool.wr_and_r(Effort.core_lvs_fit(reasoning), Effort.core_lvs_fit(plain), hhh)
+      +hh0 = LLogicBool.wr_and_r(EffortLadder.core_lvs_fit(reasoning), EffortLadder.core_lvs_fit(plain), hhh)
       +r5 = FEf.put_lvs(plain, rest)
       +r4 = FEf.put_lvs(reasoning, r5)
       +r3 = FEf.put_mmap(rule, r4)
@@ -797,14 +799,14 @@ def pc.e_facts(+f: FEf.Facts, +rest: String, h: {Effort.core_facts_fit(f) == Tru
       +d3 = FEf.seq(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, d2)
       +e3 = pc.seqFEf(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, FEf.P2{FEf.P2{flag, by_map}, explicit}, r3, rule, r4, d2, e2, pc.e_mmap(rule, r4))
       +d4 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, d3)
-      +e4 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, r4, reasoning, r5, d3, e3, pc.e_lvs(reasoning, r5, LLogicBool.wr_and_l(Effort.core_lvs_fit(reasoning), Effort.core_lvs_fit(plain), hhh)))
+      +e4 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, r4, reasoning, r5, d3, e3, pc.e_lvs(reasoning, r5, LLogicBool.wr_and_l(EffortLadder.core_lvs_fit(reasoning), EffortLadder.core_lvs_fit(plain), hhh)))
       +d5 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, d4)
       +e5 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, reasoning}, r5, plain, rest, d4, e4, pc.e_lvs(plain, rest, hh0))
       %e5 : {Wr.Got{FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}, rest} == FEf.get_facts.of(_) : Wr.Dec<FEf.Facts>}
       {==}
 
 # a ladder request that fits reads back
-def pc.e_req(+q: FEf.Req, +rest: String, h: {Effort.core_effort_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FEf.get_req(FEf.put_req(q, rest)) : Wr.Dec<FEf.Req>}:
+def pc.e_req(+q: FEf.Req, +rest: String, h: {EffortLadder.core_effort_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FEf.get_req(FEf.put_req(q, rest)) : Wr.Dec<FEf.Req>}:
   match q:
     case FEf.Offered{+f}:
       %pc.e_facts(f, rest, h) : {Wr.Got{FEf.Offered{f}, rest} == FEf.get_offered.of(_) : Wr.Dec<FEf.Req>}
@@ -832,3 +834,153 @@ def pc.e_req(+q: FEf.Req, +rest: String, h: {Effort.core_effort_fits(q) == True{
       +e2 = pc.seqFEf(~FEf.P2<FEf.Facts, Ef.Lv>, ~Ef.Dir, ~FEf.get_dir, FEf.P2{f, l}, r2, d, rest, d1, e1, pc.e_dir(d, rest))
       %e2 : {Wr.Got{FEf.Cycle{f, l, d}, rest} == FEf.get_cycle.of(_) : Wr.Dec<FEf.Req>}
       {==}
+
+# The session, pinned
+# -------------------
+# The model's offer is `es.offer` with the default ladders of §1 (a
+# missing entry keeps exactly the levels below xhigh), so its clamp and
+# cycle are the laws' (core_effort_ffi_exact's ee.clamp, ee.cycle), and
+# each session function is its spec, case by case.
+
+def ps.or(st: Maybe<&2, Ef.Lv>, d: Ef.Lv) -> {Maybe.default(&2, Ef.Lv, st, d) == EffortEntry.es.or(st, d) : Ef.Lv}:
+  match st:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def ps.keep_e(e: Ef.Ent, +l: Ef.Lv) -> {Ef.keep.e(l, e) == EffortEntry.es.keep.e(e, EffortEntry.es.thinks(), l) : Bool}:
+  match e:
+    case Ef.Missing{}:
+      match l:
+        case Ef.Off{}:
+          {==}
+        case Ef.Minimal{}:
+          {==}
+        case Ef.Low{}:
+          {==}
+        case Ef.Medium{}:
+          {==}
+        case Ef.High{}:
+          {==}
+        case Ef.Xhigh{}:
+          {==}
+        case Ef.Max{}:
+          {==}
+    case Ef.Null{}:
+      {==}
+    case Ef.Wire{}:
+      {==}
+
+def ps.keep(l: Ef.Lv, map: Ef.LvMap) -> {Ef.keep(map, l) == EffortEntry.es.keep(True{}, map, EffortEntry.es.thinks(), [Ef.Off{}], l) : Bool}:
+  match l:
+    case Ef.Off{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(o, Ef.Off{})
+    case Ef.Minimal{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(mi, Ef.Minimal{})
+    case Ef.Low{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(lo, Ef.Low{})
+    case Ef.Medium{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(me, Ef.Medium{})
+    case Ef.High{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(hi, Ef.High{})
+    case Ef.Xhigh{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(xh, Ef.Xhigh{})
+    case Ef.Max{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(mx, Ef.Max{})
+
+def ps.offer(+map: Ef.LvMap, xs: List<&2, Ef.Lv>) -> {Ef.offer(map, xs) == EffortEntry.es.offer(xs, True{}, map, EffortEntry.es.thinks(), [Ef.Off{}]) : List<&2, Ef.Lv>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %ps.offer(map, rest) : {Ef.offer(map, x <> rest) == EffortEntry.es.if(List<&2, Ef.Lv>, EffortEntry.es.keep(True{}, map, EffortEntry.es.thinks(), [Ef.Off{}], x), x <> _, _) : List<&2, Ef.Lv>}
+      %ps.keep(x, map) : {Ef.offer(map, x <> rest) == EffortEntry.es.if(List<&2, Ef.Lv>, _, x <> Ef.offer(map, rest), Ef.offer(map, rest)) : List<&2, Ef.Lv>}
+      PFE.ee.cons_if(Ef.keep(map, x), x, Ef.offer(map, rest))
+
+# the levels a model offers are es.lad's
+def ps.offered(m: Ef.Mdl) -> {Ef.offered(m) == EffortEntry.es.lad(m) : List<&2, Ef.Lv>}:
+  match m:
+    case Ef.Mdl{r, +map}:
+      match r:
+        case True{}:
+          ps.offer(map, Ef.ladder())
+        case False{}:
+          {==}
+
+def ps.clamp(+m: Ef.Mdl, +l: Ef.Lv) -> {Ef.clamp(m, l) == EffortEntry.es.clamp(EffortEntry.es.lad(m), l) : Ef.Lv}:
+  %ps.offered(m) : {Ef.clamp(m, l) == EffortEntry.es.clamp(_, l) : Ef.Lv}
+  PFE.ee.clamp(Ef.offered(m), l)
+
+def ps.cycle(+m: Ef.Mdl, +l: Ef.Lv, +d: Ef.Dir) -> {Ef.cycle(m, l, d) == EffortEntry.es.cycle(EffortEntry.es.lad(m), l, d) : Maybe<&2, Ef.Lv>}:
+  %ps.offered(m) : {Ef.cycle(m, l, d) == EffortEntry.es.cycle(_, l, d) : Maybe<&2, Ef.Lv>}
+  PFE.ee.cycle(Ef.offered(m), l, d)
+
+def ps.fit(mo: Maybe<&2, Ef.Mdl>, +l: Ef.Lv) -> {Ef.fit(mo, l) == EffortEntry.es.fit(mo, l) : Ef.Lv}:
+  match mo:
+    case None{}:
+      {==}
+    case Some{+m}:
+      ps.clamp(m, l)
+
+def ps.stepto(+m: Ef.Mdl, r: Maybe<&2, Ef.Lv>, l: Ef.Lv) -> {Ef.step.set(m, r, l) == EffortEntry.es.stepped.to(EffortEntry.es.lad(m), r, l) : Ef.Lv}:
+  match r:
+    case None{}:
+      {==}
+    case Some{+k}:
+      ps.clamp(m, k)
+
+def ps.act(a: Ef.Act, s: Ef.Sess) -> {Ef.act(a, s) == EffortEntry.es.act(a, s) : Ef.Sess}:
+  match a:
+    case Ef.Switch{+m}:
+      match s:
+        case Ef.Sess{mo, st}:
+          match st:
+            case None{}:
+              {==}
+            case Some{+l}:
+              %ps.clamp(m, l) : {Ef.Sess{Some{m}, Some{Ef.clamp(m, l)}} == Ef.Sess{Some{m}, Some{_}} : Ef.Sess}
+              {==}
+    case Ef.SetLevel{+k}:
+      match s:
+        case Ef.Sess{+mo, st}:
+          match st:
+            case None{}:
+              %ps.fit(mo, k) : {Ef.Sess{mo, Some{Ef.fit(mo, k)}} == Ef.Sess{mo, Some{_}} : Ef.Sess}
+              {==}
+            case Some{l}:
+              %ps.fit(mo, k) : {Ef.Sess{mo, Some{Ef.fit(mo, k)}} == Ef.Sess{mo, Some{_}} : Ef.Sess}
+              {==}
+    case Ef.Step{+d}:
+      match s:
+        case Ef.Sess{mo, st}:
+          match mo:
+            case None{}:
+              match st:
+                case None{}:
+                  {==}
+                case Some{l}:
+                  {==}
+            case Some{+m}:
+              match st:
+                case None{}:
+                  {==}
+                case Some{+l}:
+                  +c = Ef.cycle(m, l, d)
+                  %ps.cycle(m, l, d) : {Ef.Sess{Some{m}, Some{Ef.step.set(m, c, l)}} == Ef.Sess{Some{m}, Some{EffortEntry.es.stepped.to(EffortEntry.es.lad(m), _, l)}} : Ef.Sess}
+                  %ps.stepto(m, c, l) : {Ef.Sess{Some{m}, Some{Ef.step.set(m, c, l)}} == Ef.Sess{Some{m}, Some{_}} : Ef.Sess}
+                  {==}

@@ -286,7 +286,6 @@ fn a_user_message_reply_returns_once_to_the_users_session() {
         vec![
             ("custom", Some("agent_reply_owed"), Some(false)),
             ("user", None, None),
-            ("custom", Some("harness_digest"), Some(false)),
             ("assistant", None, None),
         ]
     );
@@ -302,7 +301,7 @@ fn report_cell(receipt: &Path) -> String {
 
 /// The kernel cell of the parent's spawn turn.
 fn spawn_cell() -> &'static str {
-    "handle = await rlm.spawn(\"find the number\", name=\"kid\")\nprint(handle.rlm_child_id)"
+    "handle = await rlm.spawn(\"find the number\", name=\"kid\", why=\"isolate\")\nprint(handle.rlm_child_id)"
 }
 
 /// A child that reported to its parent (an agent message) exits passively:
@@ -387,7 +386,7 @@ fn a_child_that_reported_exits_without_waking_its_parent() {
         rows.iter()
             .filter_map(|message| message["customType"].as_str())
             .collect::<Vec<_>>(),
-        vec!["harness_digest", "agent_message"],
+        vec!["agent_message"],
         "the report is the only delivered row (no notice): {rows:?}"
     );
 }

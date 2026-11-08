@@ -1,4 +1,4 @@
-//! The bounded kernel-to-host protocol (docs/runtime.md S3; model
+//! The bounded kernel-to-host protocol (model
 //! `bend/sandbox.bend`, `serve`): the host decides, the kernel executes.
 //!
 //! The stdout reader cuts the kernel's byte stream into frames
@@ -27,7 +27,7 @@ use std::ops::ControlFlow;
 use eukhe_bend::rules::frames::{self, Id, Length, Typed, Verdict};
 use serde_json::Value;
 
-use crate::kernel::protocol::{parse_event, Event};
+use crate::kernel::protocol::{parse_event, Event, ProtocolLineError};
 
 /// The largest protocol line. The largest legit frame is an attachment
 /// display event, base64 capped at `MAX_ATTACHMENT_DATA_CHARS`, and the
@@ -177,8 +177,8 @@ pub(crate) enum ProtocolFault {
     Oversize { kind: String, max: usize },
     #[error("protocol line is not UTF-8")]
     NotUtf8,
-    #[error("{0}")]
-    Malformed(String),
+    #[error(transparent)]
+    Malformed(#[from] ProtocolLineError),
 }
 
 /// The gate's decision on one frame.

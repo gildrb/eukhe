@@ -81,6 +81,13 @@ impl Diagnostic {
             message: message.into(),
         }
     }
+
+    fn warning(message: impl Into<String>) -> Self {
+        Diagnostic {
+            is_error: false,
+            message: message.into(),
+        }
+    }
 }
 
 /// Autonomous gate options, mirroring `runtimeAutonomousConfigFromArgs`.
@@ -178,6 +185,9 @@ pub struct Args {
     pub autonomous_max_turns: Option<u32>,
     pub autonomous_max_tokens: Option<u64>,
     pub autonomous_timeout_ms: Option<u64>,
+    /// `--wait-limit-ms`: how long print/json mode waits on background
+    /// jobs and subagents after a turn ends.
+    pub wait_limit_ms: Option<u64>,
     pub goal: Option<String>,
     pub goal_token_budget: Option<u32>,
     /// The `--list-models` flag's tri-state (None = absent,
@@ -228,6 +238,68 @@ fn parse_positive_u64(value: &str, flag: &str, diagnostics: &mut Vec<Diagnostic>
             None
         }
     }
+}
+
+/// The known long options, for the close-match suggestion an unknown
+/// option names (the parser rejects any option not handled above).
+const KNOWN_LONG_OPTIONS: &[&str] = &[
+    "help",
+    "version",
+    "mode",
+    "daemon-socket",
+    "continue",
+    "resume",
+    "provider",
+    "model",
+    "api-key",
+    "cwd",
+    "system-prompt",
+    "system-prompt-file",
+    "append-system-prompt",
+    "append-system-prompt-file",
+    "no-session",
+    "fork",
+    "session-dir",
+    "models",
+    "thinking",
+    "print",
+    "export",
+    "skill",
+    "prompt-template",
+    "theme",
+    "no-skills",
+    "no-prompt-templates",
+    "no-themes",
+    "no-context-files",
+    "autonomous",
+    "autonomous-gate",
+    "autonomous-gate-retries",
+    "autonomous-gate-timeout-ms",
+    "autonomous-max-continuations",
+    "autonomous-max-turns",
+    "autonomous-max-tokens",
+    "autonomous-timeout-ms",
+    "goal",
+    "goal-token-budget",
+    "list-models",
+    "verbose",
+    "offline",
+];
+
+/// The unknown-option diagnostic: names the option, offers at most one
+/// close alternative, and points at the help that lists the rest.
+fn unknown_option_diagnostic(arg: &str) -> Diagnostic {
+    let bare = arg.trim_start_matches('-');
+    let mut message = format!("Unknown option: {arg}.");
+    if let Some(suggestion) =
+        crate::command_registry::find_command_suggestion(bare, KNOWN_LONG_OPTIONS)
+    {
+        message.push_str(" Did you mean --");
+        message.push_str(suggestion);
+        message.push('?');
+    }
+    message.push_str(" Run \"eukhe help\" for the options.");
+    Diagnostic::error(message)
 }
 
 /// Parse the CLI arguments the same way `parseArgs` in `cli/args.ts` does.
@@ -387,10 +459,28 @@ pub fn parse_args(args: &[String]) -> Args {
                 let value = require_value!(arg);
                 result.themes.push(value);
             }
-            "--no-skills" | "-ns" => result.no_skills = true,
-            "--no-prompt-templates" | "-np" => result.no_prompt_templates = true,
+            "--no-skills" => result.no_skills = true,
+            "-ns" => {
+                result.no_skills = true;
+                result
+                    .diagnostics
+                    .push(Diagnostic::warning("-ns is deprecated. Use --no-skills."));
+            }
+            "--no-prompt-templates" => result.no_prompt_templates = true,
+            "-np" => {
+                result.no_prompt_templates = true;
+                result.diagnostics.push(Diagnostic::warning(
+                    "-np is deprecated. Use --no-prompt-templates.",
+                ));
+            }
             "--no-themes" => result.no_themes = true,
-            "--no-context-files" | "-nc" => result.no_context_files = true,
+            "--no-context-files" => result.no_context_files = true,
+            "-nc" => {
+                result.no_context_files = true;
+                result.diagnostics.push(Diagnostic::warning(
+                    "-nc is deprecated. Use --no-context-files.",
+                ));
+            }
             "--autonomous" => result.autonomous = true,
             "--autonomous-gate" => {
                 result.autonomous = true;
@@ -435,6 +525,10 @@ pub fn parse_args(args: &[String]) -> Args {
                 let value = require_value!(arg);
                 result.autonomous_timeout_ms =
                     parse_positive_u64(&value, arg, &mut result.diagnostics);
+            }
+            "--wait-limit-ms" => {
+                let value = require_value!(arg);
+                result.wait_limit_ms = parse_positive_u64(&value, arg, &mut result.diagnostics);
             }
             "--goal" => {
                 let value = require_value!(arg);
@@ -492,9 +586,7 @@ pub fn parse_args(args: &[String]) -> Args {
                 result.file_args.push(arg[1..].to_string());
             }
             _ if arg.starts_with('-') => {
-                result
-                    .diagnostics
-                    .push(Diagnostic::error(format!("Unknown option: {arg}")));
+                result.diagnostics.push(unknown_option_diagnostic(arg));
             }
             _ => result.messages.push(arg.to_string()),
         }
@@ -555,15 +647,44 @@ mod tests {
     #[test]
     fn unknown_short_option_is_an_error() {
         let parsed = parse(&["-x"]);
-        assert_eq!(last_error(&parsed), "Unknown option: -x");
+        assert_eq!(
+            last_error(&parsed),
+            "Unknown option: -x. Run \"eukhe help\" for the options."
+        );
     }
 
     #[test]
     fn unknown_long_flag_is_an_error() {
         let parsed = parse(&["--bogus-flag"]);
-        assert_eq!(last_error(&parsed), "Unknown option: --bogus-flag");
+        assert_eq!(
+            last_error(&parsed),
+            "Unknown option: --bogus-flag. Run \"eukhe help\" for the options."
+        );
         let parsed = parse(&["--bogus-flag", "value"]);
-        assert_eq!(last_error(&parsed), "Unknown option: --bogus-flag");
+        assert_eq!(
+            last_error(&parsed),
+            "Unknown option: --bogus-flag. Run \"eukhe help\" for the options."
+        );
+    }
+
+    #[test]
+    fn a_close_option_typo_suggests_the_real_one() {
+        let parsed = parse(&["--providr"]);
+        assert_eq!(
+            last_error(&parsed),
+            "Unknown option: --providr. Did you mean --provider? Run \"eukhe help\" for the options."
+        );
+    }
+
+    #[test]
+    fn deprecated_multi_letter_shorts_warn_and_apply() {
+        let parsed = parse(&["-ns"]);
+        assert!(parsed.no_skills);
+        assert!(!parsed.diagnostics.iter().any(|d| d.is_error));
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .any(|d| !d.is_error && d.message.contains("--no-skills")));
     }
 
     #[test]

@@ -1,0 +1,17 @@
+# a glob skipping {MAX} paths with a limit of {MAX} (page 200): paths at
+# the largest time, sent whole, then the page
+open {MAX},1,{MAX},
+step 0,{MAX},
+step 1,{MAX},3,abc
+step 0,{MAX},
+step 1,{MAX},3,abd
+step 0,{MAX},
+step 2,
+refuse-step 0,{LONG},
+step 2,
+# no limit: the page of 200 after {MAX}
+open {MAX},0,
+step 0,{MAX},
+step 1,{MAX},3,abc
+step 2,
+refuse-open {LONG},0,

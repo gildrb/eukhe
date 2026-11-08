@@ -1,4 +1,4 @@
-# fsmode: who reaches eukhe's own state (docs/runtime.md "Local access").
+# fsmode: who reaches eukhe's own state ("Local access").
 # Four small decisions, each as one function, run as this code (entry
 # bend/ffi_fsmode.bend):
 #
@@ -107,10 +107,6 @@ def socket_dir(d: Seen) -> Verdict:
         case Other{}:
           Refuse{}
 
-# what the daemon finds after it creates a dir with mode m
-def made(m: Mode) -> Seen:
-  Seen{Dir{}, True{}, Mode.loose(m)}
-
 # Socket peers
 # ------------
 
@@ -176,6 +172,17 @@ def open(c: Cwd) -> Open:
 # the bit of weight w (a power of two) is set in the permission bits m
 def bit(+m: Nat, w: Nat) -> Bool:
   Nat.is_eq(Nat.mod(Nat.div(m, w), 2n), 1n)
+
+# a group or other user may write in a dir of mode m: the write bit
+# (weight 2) of its group or other digit is set
+def Mode.writable(m: Mode) -> Bool:
+  match m:
+    case Mode{u, g, o}:
+      Bool.or(bit(g, 2n), bit(o, 2n))
+
+# what the daemon finds after it creates a dir with mode m
+def made(m: Mode) -> Seen:
+  Seen{Dir{}, True{}, Mode.writable(m)}
 
 # the socket dir as Rust finds it: what symlink_metadata found, the uid
 # that owns it, this process's uid and its permission bits (mode & 0o7777;

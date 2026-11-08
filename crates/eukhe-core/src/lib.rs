@@ -29,6 +29,7 @@ pub mod agent_messaging;
 pub mod agent_log;
 pub mod auth;
 pub mod autonomous;
+pub(crate) mod autoresearch;
 pub mod child_workspace;
 pub mod cron;
 pub mod durable;

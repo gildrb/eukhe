@@ -1,0 +1,11 @@
+# every attempt, count, row, cap and ms at its largest, for each cause
+call {MAX},0,{MAX},3,"a"
+call {MAX},0,1,3,"a"
+call {MAX},1,
+call {MAX},2,{MAX},{MAX},{MAX},
+call {MAX},2,0,{MAX},{MAX},
+call {MAX},3,4,DSML2,no{MAX},{MAX},
+call {MAX},4,2,4,read2,{}2,ls2,{}{MAX},{MAX},{MAX},
+call {MAX},5,{MAX},
+refuse {LONG},1,
+refuse {MAX},4,{LONG},{MAX},{MAX},{MAX},

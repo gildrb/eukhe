@@ -150,9 +150,18 @@ impl View {
             .map_or(total, |part| part.start())
     }
 
-    /// Whether every line of the view is a summary.
-    pub(crate) fn settled(&self, tree: &impl NodeTexts) -> bool {
-        self.parts
+    /// The leading lines a request that shows the history before message
+    /// `end` keeps: those that start before it, a line that straddles it
+    /// whole (the compiled core decides, `laws/thread.bend`).
+    pub(crate) fn kept(&self, end: u64) -> &[Part] {
+        let starts: Vec<u64> = self.parts.iter().map(|part| part.start()).collect();
+        let kept = eukhe_bend::rules::thread::history_lines(end, 0, &starts);
+        &self.parts[..kept.min(self.parts.len())]
+    }
+
+    /// Whether every line [`View::kept`] keeps for `end` is a summary.
+    pub(crate) fn settled(&self, end: u64, tree: &impl NodeTexts) -> bool {
+        self.kept(end)
             .iter()
             .all(|part| tree.node_text(*part).is_some())
     }
@@ -258,13 +267,15 @@ mod tests {
         assert_eq!(
             (
                 view.size(),
-                view.settled(&tree),
+                view.settled(1, &tree),
+                view.settled(0, &tree),
                 view.first_unbuilt(1, &tree),
                 view.render(&tree)
             ),
             (
                 PLACEHOLDER.len(),
                 false,
+                true,
                 0,
                 format!("<chat>\n0+1|{PLACEHOLDER}\n</chat>")
             )
@@ -274,10 +285,42 @@ mod tests {
         assert_eq!(
             (
                 view.size(),
-                view.settled(&tree),
+                view.settled(1, &tree),
                 view.first_unbuilt(1, &tree)
             ),
             ("user: hi".len(), true, 1)
+        );
+    }
+
+    /// A request keeps the lines that start before its end, a line that
+    /// straddles the end whole; settled asks only about those.
+    #[test]
+    fn a_request_keeps_and_waits_for_the_lines_before_its_end() {
+        let mut tree = Tree::default();
+        tree.build(2, 0, "user: first four".to_string());
+        let view = View::of(
+            vec![
+                Part { l: 2, i: 0 },
+                Part { l: 0, i: 4 },
+                Part { l: 0, i: 5 },
+            ],
+            &tree,
+        );
+        assert_eq!(
+            (
+                view.kept(0),
+                view.kept(3),
+                view.kept(5),
+                view.settled(4, &tree),
+                view.settled(5, &tree)
+            ),
+            (
+                &[][..],
+                &[Part { l: 2, i: 0 }][..],
+                &[Part { l: 2, i: 0 }, Part { l: 0, i: 4 }][..],
+                true,
+                false
+            )
         );
     }
 

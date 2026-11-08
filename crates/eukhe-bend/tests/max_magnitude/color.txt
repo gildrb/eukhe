@@ -1,0 +1,10 @@
+# quantize and light-test several colors with every channel at its largest
+# (255, the grammar's bound) and the counts the colors make, then the
+# palette; a count is the number of colors that follow, so it cannot reach
+# {MAX}. Refused: a 15-digit count, a channel past 255 (u32::MAX, 256)
+call 0,3,255,255,255,0,0,0,128,128,128,
+call 1,3,255,255,255,0,0,0,255,165,0,
+call 2,
+refuse 0,{LONG},255,0,0,
+refuse 0,1,{U32MAX},0,0,
+refuse 1,1,256,0,0,

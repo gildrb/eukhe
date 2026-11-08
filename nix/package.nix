@@ -60,7 +60,7 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "A coding agent with one endless chat as its memory (prebuilt)";
+    description = "Coding agent with a memory of all things (prebuilt)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";

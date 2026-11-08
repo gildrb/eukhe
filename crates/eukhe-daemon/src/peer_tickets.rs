@@ -107,8 +107,9 @@ impl Supervisor {
     /// for a single-use `worker`-purpose grant on a target worker's direct
     /// socket, so agent-message delivery bypasses the supervisor's route
     /// plane. The requester authenticates with its worker token (the TS
-    /// `list_agent_peers` lookup) and the target resolves through the
-    /// roster with the same errors as the `send_message` arm.
+    /// `list_agent_peers` lookup), the target resolves through the roster
+    /// with the same errors as the `send_message` arm, and the kin check
+    /// ([`crate::kin_gate`]) admits only the requester's parent or child.
     async fn issue_worker_peer_transport(
         self: &std::sync::Arc<Self>,
         worker_token: &str,
@@ -123,6 +124,9 @@ impl Supervisor {
         if Arc::ptr_eq(&requester, &target) {
             return Err(anyhow!("Agent messaging cannot target the sending session"));
         }
+        self.admit_kin_resident(&requester, &target, target_active_session_id)
+            .await
+            .map_err(|refusal| anyhow!(refusal))?;
         self.mint_peer_transport_ticket(&target, PeerGrantPurpose::Worker)
             .await
     }
@@ -300,19 +304,53 @@ mod tests {
         );
     }
 
-    fn worker_ticket_supervisor() -> Arc<Supervisor> {
+    /// A supervisor over a fresh agent dir (kept alive by the returned
+    /// dir) whose spawn ledger records `bbb222` and `ccc333` as children
+    /// of `aaa111`; `ddd444` is another root. Each worker's session file
+    /// is `<sessions>/<worker id>.jsonl`.
+    async fn worker_ticket_supervisor() -> (tempfile::TempDir, Arc<Supervisor>) {
         let dir = tempfile::TempDir::new().unwrap();
-        Arc::new(
+        let agent_dir = dir.path().join("agent");
+        let sessions_dir = agent_dir.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let supervisor = Arc::new(
             Supervisor::new(crate::supervisor::SupervisorOptions {
                 socket_path: dir.path().join("s.sock"),
-                agent_dir: dir.path().join("agent"),
+                agent_dir,
             })
             .unwrap(),
-        )
+        );
+        for id in ["aaa111", "bbb222", "ccc333", "ddd444"] {
+            std::fs::write(
+                sessions_dir.join(format!("{id}.jsonl")),
+                format!("{{\"type\":\"session\",\"id\":\"{id}\"}}\n"),
+            )
+            .unwrap();
+        }
+        let ledger = supervisor.rlm_spawn_ledger_for(None).await.unwrap();
+        for child in ["bbb222", "ccc333"] {
+            ledger
+                .append_spawn(&crate::rlm_ledger::RlmSpawnInput {
+                    child_id: format!("sub-{child}"),
+                    parent: sessions_dir
+                        .join("aaa111.jsonl")
+                        .to_string_lossy()
+                        .into_owned(),
+                    child: sessions_dir
+                        .join(format!("{child}.jsonl"))
+                        .to_string_lossy()
+                        .into_owned(),
+                    depth: 1,
+                    name: child.to_string(),
+                })
+                .unwrap();
+        }
+        (dir, supervisor)
     }
 
-    /// The worker-peer ticket arm authenticates by worker token and refuses
-    /// self-targeting with the TS `send_message` string.
+    /// The worker-peer ticket arm authenticates by worker token, refuses
+    /// self-targeting with the TS `send_message` string, and mints only
+    /// for the requester's parent or children (the kin check).
     #[tokio::test]
     async fn worker_peer_ticket_auth_and_self_target() {
         use crate::registry::ResidentWorker;
@@ -320,6 +358,8 @@ mod tests {
             DaemonWorkerDescriptor, DaemonWorkerLifecycle, DurableDaemonCreateCommand,
         };
 
+        let (dir, supervisor) = worker_ticket_supervisor().await;
+        let sessions_dir = dir.path().join("agent").join("sessions");
         let tokenized = |worker_id: &str, token: &str| {
             ResidentWorker::new(
                 worker_id.to_string(),
@@ -337,7 +377,12 @@ mod tests {
                     root_active_session_id: worker_id.to_string(),
                     owner_client_id: None,
                     root_session_id: None,
-                    session_file: Some("/sessions/some-session.jsonl".to_string()),
+                    session_file: Some(
+                        sessions_dir
+                            .join(format!("{worker_id}.jsonl"))
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
                     session_dir: None,
                     created_at: "t".to_string(),
                     updated_at: "t".to_string(),
@@ -357,7 +402,6 @@ mod tests {
                 std::path::PathBuf::from("/d.json"),
             )
         };
-        let supervisor = worker_ticket_supervisor();
         // An unknown token answers with the TS auth error.
         let rejected = supervisor
             .handle_get_worker_peer_transport("t1", "get_worker_peer_transport", "nope", "aaa111")
@@ -428,6 +472,19 @@ mod tests {
         assert_eq!(
             starting.error.as_deref(),
             Some("Session worker is starting")
+        );
+        // Another root is no kin of the requester: refused before any mint.
+        supervisor
+            .registry
+            .insert(tokenized("ddd444", "tok-d"))
+            .await;
+        let stranger = supervisor
+            .handle_get_worker_peer_transport("t6", "get_worker_peer_transport", "tok-a", "ddd444")
+            .await;
+        assert!(!stranger.success, "{stranger:?}");
+        assert_eq!(
+            stranger.error.as_deref(),
+            Some("Cannot message ddd444: agents message only their parent and their own children")
         );
     }
 

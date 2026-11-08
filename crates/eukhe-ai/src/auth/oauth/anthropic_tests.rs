@@ -41,6 +41,50 @@ fn call_count(calls: &Calls) -> usize {
     calls.lock().unwrap_or_else(PoisonError::into_inner).len()
 }
 
+/// The authorize URL carries every parameter Claude's authorize page
+/// requires, in Claude Code's order, with a `state` of its own: the PKCE
+/// verifier never rides the browser URL.
+#[test]
+fn the_authorize_url_pins_claude_codes_parameters() {
+    let pkce = crate::auth::oauth::pkce::generate_pkce().expect("pkce");
+    let state = super::generate_state().expect("state");
+    assert_ne!(state, pkce.verifier);
+    assert_eq!(state.len(), 43, "32 random bytes, base64url");
+    let url = super::authorize_url(&pkce.challenge, &state, "http://localhost:53692/callback");
+    let parsed = url::Url::parse(&url).expect("url");
+    assert_eq!(
+        format!(
+            "{}://{}{}",
+            parsed.scheme(),
+            parsed.host_str().unwrap_or_default(),
+            parsed.path()
+        ),
+        "https://claude.ai/oauth/authorize"
+    );
+    let pairs: Vec<(String, String)> = parsed.query_pairs().into_owned().collect();
+    let expected = [
+        ("code", "true"),
+        ("client_id", "9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
+        ("response_type", "code"),
+        ("redirect_uri", "http://localhost:53692/callback"),
+        (
+            "scope",
+            "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
+        ),
+        ("code_challenge", pkce.challenge.as_str()),
+        ("code_challenge_method", "S256"),
+        ("state", state.as_str()),
+    ];
+    assert_eq!(
+        pairs,
+        expected
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect::<Vec<_>>()
+    );
+    assert!(!url.contains(&pkce.verifier), "the verifier stays local");
+}
+
 #[tokio::test]
 async fn keeps_the_localhost_redirect_uri_for_manual_callback_login() {
     let (_guard, calls) = token_mock(

@@ -1,0 +1,8 @@
+# a window and an absence at their largest, with and without work; no
+# window (past the wire's range) with the largest absence
+call 1,{MAX},{MAX},1,
+call 1,{MAX},{MAX},0,
+call 1,{MAX},0,1,
+call 0,{MAX},1,
+refuse 1,{LONG},0,1,
+refuse 1,{MAX},{LONG},0,

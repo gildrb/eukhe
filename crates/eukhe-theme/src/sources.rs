@@ -10,7 +10,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::palette::{LoadFailure, Palette, BUILTIN_THEME_NAMES, DEFAULT_THEME_NAME};
+use crate::palette::{Palette, ThemeFileError, BUILTIN_THEME_NAMES, DEFAULT_THEME_NAME};
 use crate::rules::{Cause, Choice, Outcome, Picked, RawSource, RawTheme, ThemeRules};
 
 /// Where theme names resolve. The composition root fills it from the
@@ -41,7 +41,7 @@ struct Load {
     /// From the custom directory (else registered).
     custom: bool,
     /// Its theme object, or why it is none (naming the file).
-    theme: Result<RawTheme, String>,
+    theme: Result<RawTheme, ThemeFileError>,
 }
 
 /// Every theme file the sources reach, in load order (the registered
@@ -67,14 +67,17 @@ impl Catalog {
         (rules.resolve)(name, &sources)
     }
 
-    /// Why the file at `at` did not load, naming it.
+    /// Why the file at `at` did not load, naming it: a warning's text.
     fn failure(&self, at: usize, outcomes: &[Outcome]) -> String {
         let load = &self.loads[at];
         match (&load.theme, outcomes.get(at)) {
-            (Err(message), _) => message.clone(),
-            (Ok(theme), Some(Outcome::Invalid(reason))) => {
-                LoadFailure::invalid(&load.path, &theme.name, reason).message
+            (Err(error), _) => error.to_string(),
+            (Ok(theme), Some(Outcome::Invalid(reason))) => ThemeFileError::Invalid {
+                path: load.path.clone(),
+                name: theme.name.clone(),
+                source: reason.clone(),
             }
+            .to_string(),
             (Ok(_), Some(Outcome::Loaded | Outcome::NoTheme) | None) => {
                 panic!("the rules name {} as failed", load.path.display())
             }
@@ -211,11 +214,15 @@ impl ThemeSources {
 const MAX_THEME_FILES: usize = 4096;
 
 /// The theme object of the file at `path`, or why it is none.
-fn read_theme(path: &Path) -> Result<RawTheme, String> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|error| format!("Failed to read theme {}: {error}", path.display()))?;
-    RawTheme::decode(&raw)
-        .map_err(|reason| format!("Failed to parse theme {}: {reason}", path.display()))
+fn read_theme(path: &Path) -> Result<RawTheme, ThemeFileError> {
+    let raw = std::fs::read_to_string(path).map_err(|source| ThemeFileError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    RawTheme::decode(&raw).map_err(|source| ThemeFileError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// The paths `files` that `seen` does not hold yet (by canonical path).

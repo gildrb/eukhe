@@ -225,11 +225,10 @@ pub fn custom_message_entries(
             let field = |key: &str| details.get(key).and_then(Value::as_str);
             match (field("from"), field("message")) {
                 (Some(from), Some(text)) => vec![ChatEntry::Swarm(Box::new(
-                    crate::swarm_block::SwarmRow::Relay(eukhe_types::daemon::AgentRelayEvent {
+                    crate::swarm_block::SwarmRow::Reply {
                         from: from.to_string(),
-                        to: "you".to_string(),
                         text: text.to_string(),
-                    }),
+                    },
                 ))],
                 (None, _) | (_, None) => vec![generic_panel_entry(custom_type, content)],
             }
@@ -498,11 +497,10 @@ mod tests {
         assert_eq!(
             decoded(&message),
             vec![ChatEntry::Swarm(Box::new(
-                crate::swarm_block::SwarmRow::Relay(eukhe_types::daemon::AgentRelayEvent {
+                crate::swarm_block::SwarmRow::Reply {
                     from: "alpha".to_string(),
-                    to: "you".to_string(),
                     text: "I reported 42.".to_string(),
-                })
+                }
             ))]
         );
     }

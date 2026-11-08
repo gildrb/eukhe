@@ -53,8 +53,7 @@ pub(crate) struct SessionCore {
     pub(crate) attached_client_ids: Vec<String>,
     /// The attached clients that attached as the phone gateway
     /// (`clientKind` `gateway`; a subset of `attached_client_ids`). A
-    /// session whose attached clients are all gateways asks no one
-    /// (docs/tools.md G5).
+    /// session whose attached clients are all gateways asks no one.
     pub(crate) gateway_client_ids: Vec<String>,
     pub(crate) shutdown_requested: bool,
     /// The wall-clock ms of this session's last activity (run end);
@@ -97,6 +96,9 @@ pub(crate) struct SessionCore {
     /// admission limit (summary `admission`); set by the session's
     /// admission sink.
     pub(crate) model_admission: Option<eukhe_types::daemon::agent_roster::ModelAdmission>,
+    /// The work the session waits on (summary `waitingOn`), as the last
+    /// read of it found it ([`super::summary::read_waiting_on`]).
+    pub(crate) waiting_on: Option<eukhe_types::daemon::WaitingOn>,
     /// The run-start gate an idle shutdown quiesces.
     pub(crate) run_gate: super::run_gate::RunGate,
 }
@@ -140,7 +142,24 @@ impl SessionCore {
             progress_note: None,
             work_ledger: eukhe_core::durable::children::WorkLedger::default(),
             model_admission: None,
+            waiting_on: None,
             run_gate: super::run_gate::RunGate::default(),
+        }
+    }
+
+    /// Keep one read of what the session waits on
+    /// ([`super::summary::read_waiting_on`]); a failed read keeps the last
+    /// one the summary showed.
+    pub(crate) fn note_waiting_on(
+        &mut self,
+        read: Result<
+            Option<eukhe_types::daemon::WaitingOn>,
+            eukhe_core::durable::pending::PendingWorkError,
+        >,
+    ) {
+        match read {
+            Ok(waiting_on) => self.waiting_on = waiting_on,
+            Err(error) => tracing::warn!(%error, "the summary keeps its last waitingOn"),
         }
     }
 

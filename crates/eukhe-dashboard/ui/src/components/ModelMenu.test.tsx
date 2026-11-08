@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 const qwen: AgentState = {
-  model: { provider: "elpis", id: "qwen3.8", name: "qwen3.8" },
+  model: { provider: "local", id: "qwen3.8", name: "qwen3.8" },
   thinkingLevel: "xhigh",
   availableThinkingLevels: ["off", "low", "medium", "xhigh"],
 };

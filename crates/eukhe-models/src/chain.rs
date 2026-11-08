@@ -100,7 +100,7 @@ impl ModelCatalog {
             let loaded = match self.bundled.read_models() {
                 Ok(None) => return Resolution::Compiled,
                 Ok(Some(asset)) => load_bundled_models(&asset, &PinnedTemplates::from_compiled()),
-                Err(error) => Err(BundledModelsDefect::Unreadable(error.to_string())),
+                Err(error) => Err(BundledModelsDefect::Unreadable(error)),
             };
             match loaded {
                 Ok(bundled) => {
@@ -205,11 +205,14 @@ mod tests {
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
         assert_eq!(catalog.models(), transports::compiled_models());
         assert_eq!(
-            catalog.bundled_fallback(),
-            Some(&BundledCatalogFallback {
-                path,
-                defect: BundledModelsDefect::InvalidJson(json_error.to_string()),
-            })
+            catalog.bundled_fallback().map(ToString::to_string),
+            Some(
+                BundledCatalogFallback {
+                    path,
+                    defect: BundledModelsDefect::InvalidJson(json_error),
+                }
+                .to_string()
+            )
         );
     }
 
@@ -218,7 +221,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
         assert_eq!(catalog.models(), transports::compiled_models());
-        assert_eq!(catalog.bundled_fallback(), None);
+        assert!(catalog.bundled_fallback().is_none());
     }
 
     #[test]
@@ -230,6 +233,6 @@ mod tests {
         )
         .unwrap();
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
-        assert_eq!(catalog.bundled_fallback(), None);
+        assert!(catalog.bundled_fallback().is_none());
     }
 }

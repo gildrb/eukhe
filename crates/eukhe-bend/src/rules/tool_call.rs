@@ -1,5 +1,6 @@
-//! One tool call's journal (docs/runtime.md S2, call 1-3): the model
-//! `bend/tool_call.bend`, stepper entry `bend/ffi_tool_call.bend`.
+//! One tool call's journal (call 1-3) and its effect gate: the model
+//! `bend/tool_call.bend`, entry `bend/ffi_tool_call.bend` (a stepper and a
+//! call).
 //!
 //! The call lives in the compiled core. The Harness opens it where it
 //! journals the call's start, sends each report the tool makes and the end
@@ -8,9 +9,17 @@
 //! a report is stored only before the end (`stream_settle_carries_all`);
 //! the end settles the call once (`stream_settles_once`), as finished,
 //! failed or cancelled. The Harness keeps what was reported.
+//!
+//! The gate (speculation, then effect): each handler of a tool task asks
+//! it before anything of the call happens ([`enter`], [`recover`],
+//! [`stop`]), with the call a committed entry holds (or none) and the tool
+//! offered now (or none). A call runs only when a committed entry holds it
+//! (`execute_after_committed`, `uncommitted_drop_inert`), and runs again
+//! after a restart only when its policy is safe (`effect_once`); the
+//! answers are the spec's (`tool_call_gate_is_spec`).
 
 use crate::wire::{Reader, WireError, Writer};
-use crate::{expect_core, Entry, Stepper};
+use crate::{call, expect_core, Entry, Stepper};
 
 /// Which attempt of a call opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,9 +165,234 @@ fn ending<T, E>(how: How, executed: Result<T, E>) -> Result<Ending<T, E>, WireEr
     }
 }
 
+/// A tool's replay policy: whether a run a restart interrupted may run
+/// again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Replay {
+    /// It may run again.
+    Safe,
+    /// It may have changed state: it never runs twice.
+    Unsafe,
+}
+
+/// Why the abort handler runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbortCause {
+    /// An abort was asked for.
+    Requested,
+    /// A restart abandoned the task.
+    Restart,
+}
+
+/// Whether the call's intent was recorded before the abort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    /// Not recorded: the call never started.
+    Unrecorded,
+    /// Recorded: the call may have run.
+    Recorded,
+}
+
+/// What the call phase does.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Enter<C, T> {
+    /// Record the intent, then execute.
+    Run { call: C, tool: T },
+    /// Settle `tool_unavailable`: the tool is no longer offered; nothing ran.
+    Unavailable(C),
+    /// No committed entry holds the call: nothing runs, nothing settles.
+    Missing,
+}
+
+/// What the execute phase does after a restart.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Recover<C, T> {
+    /// Execute again.
+    Rerun { call: C, tool: T },
+    /// Settle `interrupted`: the call may have partially run; it does not
+    /// run again. The tool, when still offered, says how it keeps output.
+    Interrupted { call: C, tool: Option<T> },
+    /// No committed entry holds the call: nothing runs, nothing settles.
+    Missing,
+}
+
+/// How the abort handler settles.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Stop<C> {
+    /// `aborted`.
+    Aborted(C),
+    /// `interrupted`: a restart after the intent; the call may have run.
+    Interrupted(C),
+    /// `abandoned`: a restart before the intent; the call never started.
+    Abandoned(C),
+    /// No committed entry holds the call: nothing settles.
+    Missing,
+}
+
+/// The gate's answer: 0 run, 1 missing, 2 unavailable, 3 rerun,
+/// 4 interrupted, 5 aborted, 6 abandoned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Go {
+    Run,
+    Missing,
+    Unavailable,
+    Rerun,
+    Interrupted,
+    Aborted,
+    Abandoned,
+}
+
+/// The call phase of `call` (the call a committed entry holds, if any),
+/// with `tool` (the tool offered now and its policy, if any).
+#[must_use]
+pub fn enter<C, T>(call: Option<C>, tool: Option<(T, Replay)>) -> Enter<C, T> {
+    let mut request = Writer::new();
+    request.tag(0).bool(call.is_some());
+    put_now(&mut request, tool.as_ref().map(|(_, replay)| *replay));
+    let go = ask(&mut request);
+    expect_core(
+        Entry::ToolCall,
+        match (go, call, tool) {
+            (Go::Run, Some(call), Some((tool, _))) => Ok(Enter::Run { call, tool }),
+            (Go::Unavailable, Some(call), None) => Ok(Enter::Unavailable(call)),
+            (Go::Missing, None, _) => Ok(Enter::Missing),
+            (
+                Go::Run
+                | Go::Unavailable
+                | Go::Missing
+                | Go::Rerun
+                | Go::Interrupted
+                | Go::Aborted
+                | Go::Abandoned,
+                _,
+                _,
+            ) => Err(WireError::Malformed {
+                at: 0,
+                expected: "an enter's answer: run a found call of an offered tool, \
+                           unavailable without the tool, missing without the call",
+            }),
+        },
+    )
+}
+
+/// The execute phase of `call` after a restart: its intent recorded
+/// `stored`; `tool` is the tool offered now and its policy, if any.
+#[must_use]
+pub fn recover<C, T>(call: Option<C>, stored: Replay, tool: Option<(T, Replay)>) -> Recover<C, T> {
+    let mut request = Writer::new();
+    request.tag(1).bool(call.is_some());
+    put_replay(&mut request, stored);
+    put_now(&mut request, tool.as_ref().map(|(_, replay)| *replay));
+    let go = ask(&mut request);
+    let tool = tool.map(|(tool, _)| tool);
+    expect_core(
+        Entry::ToolCall,
+        match (go, call, tool) {
+            (Go::Rerun, Some(call), Some(tool)) => Ok(Recover::Rerun { call, tool }),
+            (Go::Interrupted, Some(call), tool) => Ok(Recover::Interrupted { call, tool }),
+            (Go::Missing, None, _) => Ok(Recover::Missing),
+            (
+                Go::Run
+                | Go::Unavailable
+                | Go::Missing
+                | Go::Rerun
+                | Go::Interrupted
+                | Go::Aborted
+                | Go::Abandoned,
+                _,
+                _,
+            ) => Err(WireError::Malformed {
+                at: 0,
+                expected: "a recovery's answer: rerun a found call of an offered tool, \
+                           interrupted for a found call, missing without the call",
+            }),
+        },
+    )
+}
+
+/// The abort handler of `call` (the call a committed entry holds, if any).
+#[must_use]
+pub fn stop<C>(call: Option<C>, cause: AbortCause, intent: Intent) -> Stop<C> {
+    let mut request = Writer::new();
+    request
+        .tag(2)
+        .bool(call.is_some())
+        .bool(cause == AbortCause::Restart)
+        .bool(intent == Intent::Recorded);
+    let go = ask(&mut request);
+    expect_core(
+        Entry::ToolCall,
+        match (go, call) {
+            (Go::Aborted, Some(call)) => Ok(Stop::Aborted(call)),
+            (Go::Interrupted, Some(call)) => Ok(Stop::Interrupted(call)),
+            (Go::Abandoned, Some(call)) => Ok(Stop::Abandoned(call)),
+            (Go::Missing, None) => Ok(Stop::Missing),
+            (
+                Go::Run
+                | Go::Unavailable
+                | Go::Missing
+                | Go::Rerun
+                | Go::Interrupted
+                | Go::Aborted
+                | Go::Abandoned,
+                _,
+            ) => Err(WireError::Malformed {
+                at: 0,
+                expected: "an abort's answer: a settle for a found call, missing without it",
+            }),
+        },
+    )
+}
+
+fn put_replay(request: &mut Writer, replay: Replay) {
+    request.tag(match replay {
+        Replay::Safe => 0,
+        Replay::Unsafe => 1,
+    });
+}
+
+/// The tool as resolved now: 0 gone, 1 offered (its policy follows).
+fn put_now(request: &mut Writer, tool: Option<Replay>) {
+    match tool {
+        None => {
+            request.tag(0);
+        }
+        Some(replay) => {
+            request.tag(1);
+            put_replay(request, replay);
+        }
+    }
+}
+
+/// The gate's answer to the question `request` spells.
+fn ask(request: &mut Writer) -> Go {
+    let request = expect_core(Entry::ToolCall, request.finish());
+    let reply = expect_core(Entry::ToolCall, call(Entry::ToolCall, &request));
+    expect_core(Entry::ToolCall, read_go(&reply))
+}
+
+fn read_go(reply: &str) -> Result<Go, WireError> {
+    let mut r = Reader::reply(reply)?;
+    let go = match r.tag_of(7, "a gate's answer")? {
+        0 => Go::Run,
+        1 => Go::Missing,
+        2 => Go::Unavailable,
+        3 => Go::Rerun,
+        4 => Go::Interrupted,
+        5 => Go::Aborted,
+        // `tag_of` answers a tag below 7: this is 6.
+        _ => Go::Abandoned,
+    };
+    r.end()?;
+    Ok(go)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Attempt, Begin, CallJournal, Ending};
+    use super::{
+        enter, recover, stop, AbortCause, Attempt, Begin, CallJournal, Ending, Enter, Intent,
+        Recover, Replay, Stop,
+    };
 
     /// The compiled core is reached: opens, reports before and after the
     /// end, each ending, a late end (the rule itself is pinned by
@@ -187,5 +421,68 @@ mod tests {
                 Some(Ending::Cancelled(3))
             )
         ));
+    }
+
+    /// The gate is reached in the compiled core, each answer once (the
+    /// rule itself is pinned by `laws/tool_call.bend`): the Rust tests'
+    /// cases of `tool_call_gate_example`.
+    #[test]
+    fn the_effect_gate_runs_in_the_core() {
+        let entered = [
+            enter(Some('c'), Some(('t', Replay::Unsafe))),
+            enter(Some('c'), None),
+            enter(None, Some(('t', Replay::Safe))),
+        ];
+        let recovered = [
+            recover(Some('c'), Replay::Safe, Some(('t', Replay::Safe))),
+            recover(Some('c'), Replay::Safe, Some(('t', Replay::Unsafe))),
+            recover(Some('c'), Replay::Unsafe, Some(('t', Replay::Safe))),
+            recover(Some('c'), Replay::Safe, None),
+            recover(None, Replay::Safe, Some(('t', Replay::Safe))),
+        ];
+        let stopped = [
+            stop(Some('c'), AbortCause::Requested, Intent::Recorded),
+            stop(Some('c'), AbortCause::Restart, Intent::Recorded),
+            stop(Some('c'), AbortCause::Restart, Intent::Unrecorded),
+            stop(None, AbortCause::Requested, Intent::Unrecorded),
+        ];
+        assert_eq!(
+            (entered, recovered, stopped),
+            (
+                [
+                    Enter::Run {
+                        call: 'c',
+                        tool: 't'
+                    },
+                    Enter::Unavailable('c'),
+                    Enter::Missing
+                ],
+                [
+                    Recover::Rerun {
+                        call: 'c',
+                        tool: 't'
+                    },
+                    Recover::Interrupted {
+                        call: 'c',
+                        tool: Some('t')
+                    },
+                    Recover::Interrupted {
+                        call: 'c',
+                        tool: Some('t')
+                    },
+                    Recover::Interrupted {
+                        call: 'c',
+                        tool: None
+                    },
+                    Recover::Missing
+                ],
+                [
+                    Stop::Aborted('c'),
+                    Stop::Interrupted('c'),
+                    Stop::Abandoned('c'),
+                    Stop::Missing
+                ]
+            )
+        );
     }
 }

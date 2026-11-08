@@ -2,14 +2,17 @@
 //! `convertTools`), plus the `reasoning_details` replay helpers.
 
 use crate::types::IndexMap;
+use eukhe_bend::rules::model_facts;
 use serde_json::json;
 
 use super::compat::ResolvedCompat;
+use crate::api::cache_breakpoints::has_assistant_cache_breakpoint;
 use crate::api::constrained_sampling::{
     get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
     ConstrainedSamplingError, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::transform_messages::transform_messages;
+use crate::quirks::Quirks;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, Modality, Model,
     ThinkingContent, Tool, ToolCall, TranscriptContext, UserContent, UserContentBlock,
@@ -18,7 +21,7 @@ use crate::utils::diagnostics::Thrown;
 use crate::utils::hash::short_hash;
 use crate::utils::js::{js_trim, json_stringify, utf16_len, utf16_prefix};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use crate::utils::text::{get_system_message_text, render_system_message_update};
+use crate::utils::text::{render_system_message_update, split_system_prompt};
 use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools, TranscriptTools};
 
 /// TS `ConvertCompletionsMessagesOptions`.
@@ -27,9 +30,15 @@ pub struct ConvertCompletionsMessagesOptions<'a> {
     /// Tool name → grammar input property of tools sent as `OpenAI` custom tools.
     pub grammar_tool_input_properties: Option<&'a IndexMap<String, String>>,
     /// eukhe addition: the Anthropic-format `cache_control` mark of this
-    /// request. When set, user text blocks carrying a `cache_breakpoint` get
-    /// it as an explicit prompt-cache breakpoint.
+    /// request. When set, user and assistant text blocks carrying a
+    /// `cache_breakpoint` get it as an explicit prompt-cache breakpoint; an
+    /// assistant message with a marked block sends its text as text parts.
     pub cache_control: Option<&'a JsonValue>,
+    /// eukhe addition: [`crate::types::StreamOptions::system_cache_breakpoint`].
+    /// With `cache_control` set, a split leading prompt goes as two text
+    /// parts, its shared prefix and the session's tail, each marked
+    /// separately.
+    pub system_cache_breakpoint: Option<&'a str>,
 }
 
 /// The reasoning fields an assistant replay can carry, in TS declaration order.
@@ -201,8 +210,13 @@ fn normalize_tool_call_id(model: &Model, id: &str) -> String {
         let prefix: String = call_id.chars().take(prefix_len).collect();
         return format!("{prefix}_{hash}");
     }
-    if model.provider == "openai" && utf16_len(id) > 40 {
-        return utf16_prefix(id, 40).to_owned();
+    // The host's longest tool-call id (rulebook `tool_call_id_limit`).
+    if let Some(limit) = Quirks::of(model)
+        .tool_call_id_limit()
+        .and_then(|limit| usize::try_from(limit).ok())
+        .filter(|limit| utf16_len(id) > *limit)
+    {
+        return utf16_prefix(id, limit).to_owned();
     }
     id.to_owned()
 }
@@ -276,16 +290,27 @@ pub(crate) fn convert_messages(
                         "tools": convert_tools(added_tools, compat, &strict_plan)?,
                     }));
                 }
-                let text = if i == 0 {
-                    get_system_message_text(system)
+                // eukhe addition: with cache marks, a split leading prompt
+                // sends its shared prefix as a text part of its own.
+                let (text, tail) = if i == 0 {
+                    split_system_prompt(
+                        Some(system),
+                        options.cache_control.and(options.system_cache_breakpoint),
+                    )
                 } else {
-                    render_system_message_update(system)
+                    (render_system_message_update(system), String::new())
                 };
-                if !text.is_empty() {
-                    params.push(json!({
-                        "role": instruction_role,
-                        "content": sanitize_surrogates(&text),
-                    }));
+                let instruction = match (text.is_empty(), tail.is_empty()) {
+                    (true, true) => None,
+                    (false, true) => Some(json!(sanitize_surrogates(&text))),
+                    (true, false) => Some(json!(sanitize_surrogates(&tail))),
+                    (false, false) => Some(json!([
+                        { "type": "text", "text": sanitize_surrogates(&text) },
+                        { "type": "text", "text": sanitize_surrogates(&tail) },
+                    ])),
+                };
+                if let Some(content) = instruction {
+                    params.push(json!({ "role": instruction_role, "content": content }));
                 }
             }
             Message::User(user) => match &user.content {
@@ -431,19 +456,42 @@ fn convert_assistant(
         },
     );
 
-    let assistant_text_parts: Vec<String> = msg
+    // eukhe addition: each sent text part with the mark of its block.
+    let assistant_text_parts: Vec<(String, Option<&JsonValue>)> = msg
         .content
         .iter()
         .filter_map(|block| match block {
-            AssistantContentBlock::Text(text) if !js_trim(&text.text).is_empty() => {
-                Some(sanitize_surrogates(&text.text).into_owned())
-            }
+            AssistantContentBlock::Text(text) if !js_trim(&text.text).is_empty() => Some((
+                sanitize_surrogates(&text.text).into_owned(),
+                options
+                    .cache_control
+                    .filter(|_| has_assistant_cache_breakpoint(block)),
+            )),
             AssistantContentBlock::Text(_)
             | AssistantContentBlock::Thinking(_)
             | AssistantContentBlock::ToolCall(_) => None,
         })
         .collect();
-    let assistant_text = assistant_text_parts.concat();
+    let assistant_text: String = assistant_text_parts
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect();
+    let text_part = |(text, mark): &(String, Option<&JsonValue>)| {
+        let mut part = json!({ "type": "text", "text": text });
+        if let Some(mark) = *mark {
+            part["cache_control"] = mark.clone();
+        }
+        part
+    };
+    // eukhe addition: a marked text block ends a cacheable prefix, and its
+    // mark needs the text as parts; unmarked text stays one string.
+    let text_content = || {
+        if assistant_text_parts.iter().any(|(_, mark)| mark.is_some()) {
+            JsonValue::Array(assistant_text_parts.iter().map(text_part).collect())
+        } else {
+            json!(assistant_text)
+        }
+    };
 
     let thinking_blocks: Vec<&ThinkingContent> = msg
         .content
@@ -487,23 +535,23 @@ fn convert_assistant(
                 .collect::<Vec<_>>()
                 .join("\n\n");
             let mut content = vec![json!({ "type": "text", "text": thinking_text })];
-            content.extend(
-                assistant_text_parts
-                    .iter()
-                    .map(|text| json!({ "type": "text", "text": text })),
-            );
+            content.extend(assistant_text_parts.iter().map(text_part));
             assistant_msg.insert("content".into(), JsonValue::Array(content));
         } else {
             // Always send assistant content as a plain string (the Chat
             // Completions standard); arrays make some models mirror the block
-            // structure literally.
+            // structure literally. eukhe addition: a marked block needs parts.
             if !assistant_text.is_empty() {
-                assistant_msg.insert("content".into(), json!(assistant_text));
+                assistant_msg.insert("content".into(), text_content());
             }
             // reasoning_details is the structured alternative to a raw reasoning field.
             if preserved_reasoning_details.is_none() {
                 let mut signature = first_thinking.thinking_signature.as_deref();
-                if model.provider == "opencode-go" && signature == Some("reasoning") {
+                // A host that signs `reasoning` as `reasoning_content`
+                // (rulebook `reasoning_content_signature`) replays it so.
+                if signature == Some("reasoning")
+                    && model_facts::flag(Quirks::of(model).reasoning_content_signature(), false)
+                {
                     signature = Some("reasoning_content");
                 }
                 if let Some(field) =
@@ -519,7 +567,7 @@ fn convert_assistant(
             }
         }
     } else if !assistant_text.is_empty() {
-        assistant_msg.insert("content".into(), json!(assistant_text));
+        assistant_msg.insert("content".into(), text_content());
     }
 
     if !tool_calls.is_empty() {

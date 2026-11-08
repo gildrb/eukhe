@@ -1,0 +1,10 @@
+{
+  "name": "ledger",
+  "port": 7005,
+  "replicas": 0,
+  "owner": "lena@example.org",
+  "healthcheck": {
+    "path": "/healthz",
+    "interval_s": 20
+  }
+}

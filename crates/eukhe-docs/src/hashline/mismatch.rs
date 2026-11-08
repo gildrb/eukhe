@@ -1,6 +1,6 @@
 //! Snapshot-tag mismatch diagnostics (omp `modes/hashline/mismatch.rs`).
 
-use super::messages::format_anchored_context;
+use super::messages::{format_anchored_context, tag_source_hint};
 use crate::error::EditError;
 
 /// Context needed to explain a stale or unrecognized snapshot tag.
@@ -14,33 +14,29 @@ pub(crate) struct MismatchDetails {
     pub(crate) hash_recognized: bool,
 }
 
-/// The model-facing stale or unknown snapshot tag rejection.
+/// The model-facing stale or unknown snapshot tag rejection. It names the
+/// live text's header: the caller records that snapshot with the printed
+/// context lines seen, so a retry on those lines works without a read.
 pub(crate) fn mismatch_error(details: &MismatchDetails) -> EditError {
-    let path = format!(" for {}", details.path);
-    let mut lines = if details.hash_recognized {
-        vec![
-            format!("Edit rejected{path}: file changed between read and edit."),
-            format!(
-                "Section is bound to #{}, but the current file hashes to #{}. If a prior edit in this \
-                 session modified this file, copy the [path#newhash] header from that edit's \
-                 response; otherwise re-read the file with `read` to refresh the tag before retrying.",
-                details.expected_file_hash, details.actual_file_hash
-            ),
-        ]
+    let path = &details.path;
+    let tag = &details.expected_file_hash;
+    let first = if details.hash_recognized {
+        format!("Edit rejected for {path}: file changed between read and edit (#{tag} is stale).")
     } else {
-        vec![
-            format!(
-                "Edit rejected{path}: tag #{} is not among the versions of this file that this \
-                 worker holds (an older read, or one from before a restart).",
-                details.expected_file_hash
-            ),
-            format!(
-                "The current file hashes to #{}. Re-read the file with `read` and use the \
-                 [path#tag] header it gives. Do not invent a tag.",
-                details.actual_file_hash
-            ),
-        ]
+        format!(
+            "Edit rejected for {path}: #{tag} is not a tag this session holds for this file (an \
+             invented tag, or an old read, e.g. from before a restart)."
+        )
     };
+    let mut lines = vec![
+        first,
+        format!(
+            "The current header is [{path}#{}]: copy it verbatim to edit the lines shown below; \
+             for other lines, {}",
+            details.actual_file_hash,
+            tag_source_hint(path)
+        ),
+    ];
     let context = format_anchored_context(&details.anchor_lines, &details.file_lines);
     if !context.is_empty() {
         lines.push(String::new());

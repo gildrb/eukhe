@@ -4,7 +4,7 @@ import Base
 import ../../bend/child.bend as Ch
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ../base/wire.bend as LWire
 
 def pw6.fate(f: Ch.Fate, +rest: String) -> {Wr.Got{f, rest} == FCh.get_fate(FCh.put_fate(f, rest)) : Wr.Dec<Ch.Fate>}:
@@ -17,6 +17,9 @@ def pw6.fate(f: Ch.Fate, +rest: String) -> {Wr.Got{f, rest} == FCh.get_fate(FCh.
       {==}
     case Ch.Placed{}:
       %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Placed{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+    case Ch.Read{}:
+      %LWire.pw6.nat(3n, rest, {==}) : {Wr.Got{Ch.Read{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
       {==}
 
 def pw6.mfate(f: Maybe<&2, Ch.Fate>, +rest: String) -> {Wr.Got{f, rest} == FCh.get_mfate(FCh.put_mfate(f, rest)) : Wr.Dec<Maybe<&2, Ch.Fate>>}:

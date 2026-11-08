@@ -1,15 +1,16 @@
 //! The extension registry of an eukhe session, installed in prompt order:
-//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`, `eukhe.digest`,
+//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
 //! `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
-//! `eukhe.dyn`, `codemode`. Every tool
+//! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
+//! block ends the system prompt. Every tool
 //! schema is built with the intent `i` and a version
 //! (`tool_contract::build`), and the roster is fixed once every extension
-//! is installed (docs/tools.md S7): a tool that comes later goes behind
-//! `dyn`. Main (a root in the `main-worker` shape, [`SessionShape::Main`])
-//! offers only the compiled core's main roster
-//! (`eukhe_bend::rules::runners::main_roster`): read-only tools and the
-//! worker tools; every other session offers no worker tool.
+//! is installed: a tool that comes later goes behind `dyn`. Main (a root
+//! in the `main-worker` shape, [`SessionShape::Main`]) offers only the
+//! compiled core's main roster (`eukhe_bend::rules::runners::main_roster`):
+//! read-only tools and the worker tools; every other session offers no
+//! worker tool.
 
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use eukhe_durable::session::SessionResult;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
-    children, codemode, compaction, digest, documents, goals, optchat, prompt, retry_outcome, rlm,
+    children, codemode, compaction, documents, goals, optchat, prompt, retry_outcome, rlm,
     settings, shell, tool_contract, tool_surface, workflow,
 };
 
@@ -37,8 +38,8 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     let offered: Option<Vec<String>> = match deps.shape {
         SessionShape::Single => None,
         SessionShape::Main => {
-            // `eukhe.optchat` installs exactly when the session has chat
-            // memory.
+            // `eukhe.optchat` installs in every session; main's roster
+            // takes its tools when main has chat memory.
             let chat = if deps.memory.is_some() {
                 ChatMemory::On
             } else {
@@ -73,15 +74,13 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
             ..(*extension).clone()
         }))
     };
-    install(prompt::extension(deps))?;
+    let [prompt_extension, closing_extension] = prompt::extensions(deps);
+    install(prompt_extension)?;
     install(settings::extension(deps))?;
     install(rlm::extension(deps))?;
-    install(digest::extension(deps))?;
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;
-    if let Some(extension) = optchat::extension(deps) {
-        install(extension)?;
-    }
+    install(optchat::extension(deps))?;
     install(goals::extension(deps))?;
     install(children::extension(deps))?;
     install(workflow::extension(deps))?;
@@ -89,6 +88,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(shell::extension(deps))?;
     install(tool_surface::extension(deps))?;
     install(codemode::extension(deps))?;
+    install(closing_extension)?;
     registry.fix_roster();
     Ok(registry)
 }

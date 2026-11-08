@@ -695,9 +695,18 @@ pub fn search_plugin_views(
     matches
 }
 
+/// A page cursor that is not a decimal index (`source`: the overflowing
+/// parse; `None` for a non-digit cursor).
+#[derive(Debug, thiserror::Error)]
+#[error("mcp.list_plugins received an invalid cursor")]
+pub struct InvalidPluginCursor {
+    #[source]
+    source: Option<std::num::ParseIntError>,
+}
+
 /// Decode one page cursor (TS `decodePluginCursor`): digits only, `None`
 /// for the first page.
-pub fn decode_plugin_cursor(cursor: Option<&str>) -> Result<usize, String> {
+pub fn decode_plugin_cursor(cursor: Option<&str>) -> Result<usize, InvalidPluginCursor> {
     let Some(cursor) = cursor else {
         return Ok(0);
     };
@@ -705,11 +714,13 @@ pub fn decode_plugin_cursor(cursor: Option<&str>) -> Result<usize, String> {
         return Ok(0);
     }
     if !cursor.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err("mcp.list_plugins received an invalid cursor".to_string());
+        return Err(InvalidPluginCursor { source: None });
     }
     cursor
         .parse::<usize>()
-        .map_err(|_| "mcp.list_plugins received an invalid cursor".to_string())
+        .map_err(|source| InvalidPluginCursor {
+            source: Some(source),
+        })
 }
 
 /// Slice one bounded page out of the plugin cards (TS `pagePluginViews`).

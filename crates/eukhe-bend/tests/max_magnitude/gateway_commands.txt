@@ -1,0 +1,12 @@
+# the numbers are lengths and counts: a command, /use with its argument, a
+# session command, a usage answer, a near miss, a far miss, a prompt
+call 5,/help0,
+call 6,/use 30,
+call 8,/compact1,7,compact
+call 10,/model 2 30,
+call 5,/hlep0,
+call 4,/xyz0,
+call 12,/model all 32,1,a1,b
+call 2,hi0,
+refuse {LONG},x0,
+refuse 5,/help{LONG},

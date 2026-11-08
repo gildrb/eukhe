@@ -50,15 +50,15 @@ pub struct SessionRole {
     pub rlm_max_depth: u32,
     /// The spawning session; `None` for top-level sessions.
     pub parent: Option<ParentLink>,
-    /// Main's worker (`sessionShape` `main-worker`): a child that gets
-    /// the chat view as a subagent (pinned view, logs nothing, no
-    /// root-turn lease) and the worker doctrine.
+    /// Main's worker (`sessionShape` `main-worker`): a child with a chat of
+    /// its own, kept as a top-level session keeps its chat (it never reads
+    /// main's), and the worker doctrine.
     pub worker: bool,
 }
 
 impl SessionRole {
-    /// Whether this session has the chat memory: every top-level session,
-    /// and main's worker (as a subagent).
+    /// Whether this session has the chat memory (its own chat): every
+    /// top-level session, and main's worker.
     #[must_use]
     pub fn has_chat_memory(&self) -> bool {
         self.is_root() || self.worker
@@ -70,11 +70,12 @@ impl SessionRole {
         self.rlm_depth == 0
     }
 
-    /// The chat-memory side of this session: a root logs and renders the
-    /// settled view, a subagent renders once and logs nothing.
+    /// The chat-memory side of this session: a session with its own chat
+    /// (a top-level session, main's worker) logs and renders the settled
+    /// view; any other subagent renders once and logs nothing.
     #[must_use]
     pub fn memory_role(&self) -> MemoryRole {
-        if self.is_root() {
+        if self.has_chat_memory() {
             MemoryRole::Root
         } else {
             MemoryRole::Subagent
@@ -107,6 +108,20 @@ impl SessionShape {
     }
 }
 
+/// How long the session's host keeps it open: whether the session may
+/// start model work of its own once its runs settle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionHost {
+    /// The host keeps the session open between runs (the daemon worker,
+    /// rpc mode): the compact-trigger auto-refine review runs once the
+    /// conversation is idle.
+    Resident,
+    /// The host closes the session once its runs settle (print and json
+    /// mode): the session starts no model request at an idle boundary,
+    /// since the exit right after the answer would abandon it after its
+    /// prompt was paid for.
+    EndsWithRuns,
+}
 /// Where a session's durable records live.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionStorage {
@@ -144,9 +159,6 @@ pub struct PromptConfig {
     pub additional_prompt_paths: Vec<String>,
     /// Force-exclude patterns for built-in skills.
     pub extra_builtin_skill_overrides: Vec<String>,
-    /// Conversation-log path shown in the prompt when the session has no chat
-    /// memory; defaults to the durable storage directory.
-    pub conversation_log_path: Option<PathBuf>,
 }
 
 /// A requested model as the CLI takes it: `--provider` (optional) and
@@ -190,7 +202,7 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
 
 /// Asks the user whether one gated step of a `bash` tool script may run
-/// (docs/tools.md S7, G5): the daemon worker asks its attached clients and
+/// (G5): the daemon worker asks its attached clients and
 /// waits for the first answer, or answers by the gateway rule when its
 /// only clients are the phone gateway, or hands the question to its
 /// parent session when no client is attached.
@@ -285,6 +297,8 @@ pub struct SessionConfig {
     /// override or the auto-bootstrapped `~/.eukhe` kernel venv. Tests set
     /// this checkout's runtime so no test touches the user's home.
     pub kernel_python: Option<PathBuf>,
+    /// How long the host keeps the session open.
+    pub host: SessionHost,
 }
 
 impl SessionConfig {
@@ -322,6 +336,7 @@ impl SessionConfig {
             job_settled: None,
             shell_approval: None,
             prewarm_kernel: false,
+            host: SessionHost::Resident,
             #[cfg(test)]
             kernel_python: Some(kernel_runtime::kernel_python()),
             #[cfg(not(test))]
@@ -380,7 +395,9 @@ impl HarnessCell {
 /// queued inputs; an input admitted after it would start a run on the
 /// closing session that outlives the abort. A child's report therefore
 /// admits through [`SessionClosing::admit`], and once the close began it
-/// stays owed to the reopened session.
+/// stays owed to the reopened session. The compact-trigger auto-refine
+/// round admits through it too: a close waits for the round's model
+/// requests instead of abandoning them, and a closing session starts none.
 #[derive(Clone, Default)]
 pub(crate) struct SessionClosing {
     closing: Arc<tokio::sync::RwLock<bool>>,
@@ -509,6 +526,8 @@ pub struct HostDeps {
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
     pub kernel_python: Option<PathBuf>,
+    /// [`SessionConfig::host`].
+    pub host: SessionHost,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
     services: Mutex<Vec<ServiceStart>>,
@@ -524,17 +543,20 @@ pub struct HostDeps {
     /// The `eukhe.rlm` kernel pool, set when the extension installs (the
     /// daemon's out-of-band kernel lanes, [`super::rlm::kernel_bash_activity`]).
     pub(crate) rlm_kernels: OnceLock<Weak<super::rlm::KernelPool>>,
+    /// The session's chat memory, set when the `eukhe.optchat` extension
+    /// installs with a memory: a side request shapes its messages as the
+    /// chat memory's `before_request` hook shapes a turn's.
+    pub(crate) optchat: OnceLock<Weak<super::optchat::OptChat>>,
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
-    /// The jobs of the session (docs/runtime.md S2).
+    /// The jobs of the session.
     pub jobs: super::jobs::JobTable,
     /// The session's live state tree, set when the session opens.
     pub(crate) state_tree: OnceLock<Weak<super::LiveStateTree>>,
     /// The closing gate of the session's background parent submissions.
     pub(crate) closing: SessionClosing,
-    /// The session's dynamic tools, reached through `dyn` (docs/tools.md
-    /// S7): a host tool that comes after the roster was fixed joins here.
+    /// The session's dynamic tools, reached through `dyn`: a host tool that comes after the roster was fixed joins here.
     pub tool_surface: super::tool_surface::ToolSurface,
     /// The auxiliary-model fallbacks this session has shown
     /// (`auxiliaryModel`; each cause shows once per session).
@@ -588,12 +610,14 @@ impl HostDeps {
             job_settled: config.job_settled.clone(),
             shell_approval: config.shell_approval.clone(),
             prewarm_kernel: config.prewarm_kernel,
+            host: config.host,
             kernel_python: config.kernel_python.clone(),
             harness,
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),
             rlm_kernels: OnceLock::new(),
+            optchat: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
             jobs: super::jobs::JobTable::default(),

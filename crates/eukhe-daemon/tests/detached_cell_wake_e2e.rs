@@ -55,6 +55,7 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon
 
 /// The sequential mock provider: the cell's tool call, the reply that
 /// ends the turn, then the woken turn's reply for every later request.
+/// The chat memory's requests (no tools) get a line of their own.
 fn spawn_mock(next: &'static AtomicUsize) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock");
     let url = format!(
@@ -119,8 +120,21 @@ fn serve(mut stream: TcpStream, next: &AtomicUsize) -> std::io::Result<()> {
     }
     let mut body = vec![0u8; content_length];
     reader.read_exact(&mut body)?;
-    let data = match next.fetch_add(1, Ordering::SeqCst) {
-        0 => [
+    // The session's chat memory writes its lines through the same
+    // provider, in the background and without tools; those requests take
+    // no step of the session's script.
+    let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let session_turn = request["tools"]
+        .as_array()
+        .is_some_and(|tools| !tools.is_empty());
+    let step = if session_turn {
+        Some(next.fetch_add(1, Ordering::SeqCst))
+    } else {
+        None
+    };
+    let data = match step {
+        None => reply("the cell ran past its budget"),
+        Some(0) => [
             chunk(
                 &json!({
                     "role": "assistant",
@@ -139,8 +153,8 @@ fn serve(mut stream: TcpStream, next: &AtomicUsize) -> std::io::Result<()> {
             ),
             chunk(&json!({}), Some("tool_calls")),
         ],
-        1 => reply("the cell runs on as a job"),
-        _ => reply("woken by the settled job"),
+        Some(1) => reply("the cell runs on as a job"),
+        Some(_) => reply("woken by the settled job"),
     };
     let mut payload = String::new();
     for data in data {
@@ -329,6 +343,10 @@ fn a_cell_past_the_blocking_budget_ends_the_turn_and_its_end_wakes_the_session()
     assert!(
         woken.contains("[job-settled job:cell-") && woken.contains("status:ok"),
         "the job-settled report never landed: {woken}"
+    );
+    assert!(
+        woken.contains("Resume your work using the result below."),
+        "the report does not tell the woken turn to resume the task: {woken}"
     );
     assert!(
         woken.contains("CELL_DONE"),

@@ -7,13 +7,14 @@
 //!
 //! eukhe additions on top of v1.0.4:
 //! - explicit prompt-cache breakpoints (`TextContent::cache_breakpoint`):
-//!   marked user text blocks carry `cache_control`, the optional marks share
-//!   the four-mark budget, and over-marked transcripts fail before sending
-//!   (see [`crate::api::cache_breakpoints`]);
+//!   marked user and assistant text blocks carry `cache_control`, the
+//!   optional marks share the four-mark budget, and over-marked transcripts
+//!   fail before sending (see [`crate::api::cache_breakpoints`]);
 //! - provider stream-failure diagnostics: failed streams carry a
 //!   `provider_stream_failure` diagnostic
 //!   ([`crate::utils::stream_failure::record_stream_failure`]).
 
+mod billing;
 mod client;
 mod events;
 mod federation;
@@ -35,9 +36,7 @@ use self::federation::{get_anthropic_federation, has_request_auth, AnthropicFede
 use super::ProviderStreams;
 use crate::api::cache_breakpoints::excess_breakpoints_error;
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
-use crate::api::simple_options::{
-    adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
-};
+use crate::api::simple_options::{adjust_max_tokens_for_thinking, build_base_options};
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::types::{FetchFunction, ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
@@ -47,8 +46,9 @@ use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_current_tools, resolve_transcript};
 
-/// Stealth mode: the Claude Code version mimicked with OAuth tokens.
-const CLAUDE_CODE_VERSION: &str = "2.1.280";
+/// Stealth mode: the Claude Code version mimicked with OAuth tokens (the
+/// version omp mimics on the same subscription).
+pub(crate) const CLAUDE_CODE_VERSION: &str = "2.1.280";
 
 /// The Claude Code identity system block required with OAuth tokens.
 const CLAUDE_CODE_SYSTEM_PROMPT: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -361,9 +361,15 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
         let mut identity = browser_headers();
         identity.insert(
             "user-agent".into(),
-            Some(format!("claude-cli/{CLAUDE_CODE_VERSION}")),
+            Some(format!("claude-cli/{CLAUDE_CODE_VERSION} (external, cli)")),
         );
         identity.insert("x-app".into(), Some("cli".into()));
+        if let Some(session_id) = inputs.session_id.filter(|id| !id.is_empty()) {
+            identity.insert(
+                "x-claude-code-session-id".into(),
+                Some(session_id.to_owned()),
+            );
+        }
         let client = SdkClient {
             base_url: model.base_url.clone(),
             auth: ClientAuth::Static {
@@ -744,26 +750,26 @@ pub fn stream_simple(
         );
     }
 
+    // Thinking on top of the caller's answer cap (`None`: the catalog's
+    // max), through the one output cap rule, the answer's room kept; no
+    // room to think leaves thinking off.
     let adjusted = adjust_max_tokens_for_thinking(
-        base.max_tokens,
-        model.max_tokens,
+        model,
+        context,
+        options.stream.max_tokens,
         reasoning,
         options.thinking_budgets.as_ref(),
     );
-    let max_tokens = clamp_max_tokens_to_context(model, context, adjusted.max_tokens);
-    let thinking_budget = adjusted
-        .thinking_budget
-        .min(max_tokens.saturating_sub(1024));
     stream_anthropic(
         model,
         context,
         AnthropicOptions {
             stream: StreamOptions {
-                max_tokens: Some(max_tokens),
+                max_tokens: Some(adjusted.max_tokens),
                 ..base
             },
-            thinking_enabled: Some(true),
-            thinking_budget_tokens: Some(thinking_budget),
+            thinking_enabled: Some(adjusted.thinking_budget > 0),
+            thinking_budget_tokens: Some(adjusted.thinking_budget),
             tool_choice,
             ..AnthropicOptions::default()
         },

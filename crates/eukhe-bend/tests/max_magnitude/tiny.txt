@@ -1,0 +1,6 @@
+# the chain and the available models (interned ids): every id at its
+# largest, the pick found late in the chain, none available, both empty
+call 3,{MAX},99999999999998,0,2,0,{MAX},
+call 2,{MAX},{MAX},1,99999999999998,
+call 0,0,
+refuse 1,{LONG},0,

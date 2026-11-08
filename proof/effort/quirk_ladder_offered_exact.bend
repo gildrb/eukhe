@@ -3,7 +3,7 @@
 import Base
 import ../../bend/effort.bend as Ef
 import ../../bend/infer.bend as If
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/ladder.bend as EffortLadder
 import ../base/effort.bend as LEffort
 import ../base/fsmode.bend as LFsmode
 import ./base.bend as LA
@@ -14,5 +14,5 @@ def pq.quirk_ladder_offered_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&
   +F = If.lad.fill(C, D)
   Equal.trans(Bool, Ef.has(Ef.offer(F, Ef.ladder()), l), Ef.keep(F, l), If.lad.keep(l, Ef.entry(l, C), D), LA.pq.lad_has_keep(F, l), LEffort.pq.lad_fill_keep(C, D, l))
 
-def Effort.quirk_ladder_offered_exact(LFsmode.explicit, rule, d, l):
+def EffortLadder.quirk_ladder_offered_exact(LFsmode.explicit, rule, d, l):
   pq.quirk_ladder_offered_exact(LFsmode.explicit, rule, d, l)

@@ -1,0 +1,20 @@
+# Rust writes a glyph's width from crate::width::grapheme_width (at most
+# 3, a tab), so a row's columns stay within 3 times its glyphs; every
+# other number at its largest: three presses at row and column {MAX} and
+# time {MAX} (a word, then the row), drags to the largest cells, releases
+# over wrapped rows of the widest glyphs, Esc, a wheel notch
+open 
+step 0,{MAX},{MAX},{MAX},4,3,0,2,3,
+step 0,{MAX},{MAX},{MAX},4,3,0,2,3,
+step 0,{MAX},{MAX},{MAX},4,3,0,2,3,
+step 1,{MAX},{MAX},{MAX},{MAX},
+step 1,0,{MAX},{MAX},{MAX},
+step 2,2,1,4,3,0,2,3,2,2,3,3,
+step 0,0,0,{MAX},2,3,3,
+step 1,{MAX},{MAX},0,{MAX},
+step 2,2,1,2,3,3,2,2,3,0,
+refuse-step 1,{LONG},0,0,0,
+step 4,
+step 0,0,{MAX},0,0,
+step 1,{MAX},0,0,{MAX},
+step 5,

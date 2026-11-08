@@ -3,7 +3,7 @@
 import Base
 import ../../bend/ffi_workflow.bend as FW
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./base.bend as LA
 
 def Workflow.wfw_answers_admit(prior, k, rows, p, h):

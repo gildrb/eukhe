@@ -45,7 +45,7 @@ fn worker(running: bool) -> Value {
         "rlmDepth": 1,
         "parentActiveSessionId": "s1",
         "parentSessionId": "sess-1",
-        "model": { "id": "elpis/qwen3.8-27b" },
+        "model": { "id": "local/qwen3.8-27b" },
         "thinkingLevel": "high",
         "usage": { "cost": 0.25 },
         "contextUsage": { "tokens": 64_000, "contextWindow": 128_000, "percent": 50.0 },

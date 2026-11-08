@@ -15,6 +15,7 @@ mod leak;
 mod note;
 mod repeat;
 mod round;
+mod stop;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -23,7 +24,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::capabilities::CapabilityOptions;
-use eukhe_ai::models::ModelsCapabilityOptions;
+use eukhe_ai::models::{get_supported_thinking_levels, ModelsCapabilityOptions};
 use eukhe_ai::types::{
     DeferredCancelOptions, DeferredFetchOptions, DeferredRequest, DeferredWindow,
     ProviderRequestOptions,
@@ -36,6 +37,7 @@ use eukhe_ai::utils::retry::{
 use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_bend::rules::infer_force::{self, Offer, Reply as ForceReply, Step as ForceStep};
+use eukhe_bend::rules::infer_threshold::Over;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
@@ -45,21 +47,24 @@ use eukhe_types::pi_ai::{
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
-    after_compaction, after_reply, before_request, recover, retry_note, threshold_for, Act,
-    Compacted, Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck,
-    Threshold, CAPS, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
+    after_compaction, after_reply, before_request, recover, retry_note, Act, Compacted, Compaction,
+    Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck, Threshold, CAPS,
+    LEAK_NOTES, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
 };
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, Forcing};
-use self::leak::{scan, Leak};
-use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
+use self::leak::{scan, Leak, LeakParseError};
+use self::note::{NoteCause, Recovery, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{
     answer, finish_tool_round, queue_modes, read_calls, start_next_call, start_tool_round,
 };
+use self::stop::Facts;
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
-use crate::harness::compaction::{estimate_context, select_cut};
+use crate::harness::compaction::{
+    estimate_calibrated, estimate_context, last_turn_tokens, plan, select_cut, Calibration,
+};
 use crate::harness::inbox::{
     apply_boundary, has_queued_reset, has_queued_summary, prepare_boundary, BoundaryAt, INBOX_DOC,
 };
@@ -69,7 +74,9 @@ use crate::harness::live::run::{
 use crate::harness::live::{
     end_run, run_task_id, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC,
 };
-use crate::harness::prompt::{plan_system_entries, render_sections, replay_sections, SystemDraft};
+use crate::harness::prompt::{
+    next_system_entries, replay_sections, system_cache_breakpoint, SystemDraft,
+};
 use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
 use crate::harness::types::{
@@ -293,7 +300,7 @@ fn phase_mismatch(expected: &str) -> SessionError {
 }
 
 /// pi-ai `reasoning` of a pinned thinking level; `off` sends none.
-fn reasoning(level: ModelThinkingLevel) -> Option<ThinkingLevel> {
+pub(crate) fn reasoning(level: ModelThinkingLevel) -> Option<ThinkingLevel> {
     match level {
         ModelThinkingLevel::Off => None,
         ModelThinkingLevel::Minimal => Some(ThinkingLevel::Minimal),
@@ -412,7 +419,12 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let (Some(model), Some(resolved)) = (reference.clone(), resolved) else {
         return fail_no_model(&runtime, reference.as_ref(), &cx).await;
     };
-    let thinking_level = agent.thinking_level;
+    // The length ladder's last rung lowers the level of this one request
+    // (its note's); every other request thinks at the agent's level.
+    let thinking_level = note
+        .as_ref()
+        .and_then(RetryNote::lowered)
+        .unwrap_or(agent.thinking_level);
     // The compaction this preparation waited for, if it resumes after one.
     let waited = match (compacted, &overflow) {
         (Some(child), Some(_)) => Some((child, Compaction::Overflow)),
@@ -451,12 +463,11 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         conversation_id,
         agent: Arc::clone(&agent),
         env,
-        shown: shown.clone(),
+        shown,
         read: Arc::new(runtime.clone()),
     };
-    let desired = render_sections(&agent.sections, &input, &shown, &report, &cx).await?;
-    let tools: Vec<_> = agent.tools.iter().map(|tool| tool.tool()).collect();
-    let entries = plan_system_entries(&view, &desired, &tools, timestamp(runtime.now()?)?);
+    let entries =
+        next_system_entries(&input, &view, &report, timestamp(runtime.now()?)?, &cx).await?;
     let at = Counts {
         attempt,
         notes: note.as_ref().map_or(0, |note| note.spent),
@@ -467,7 +478,8 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     // A generation that compacted reads no threshold (law
     // `run_prepare_compacted_reads_no_threshold`), so its context is not
     // measured. The provider's count costs one request, so it runs only
-    // when the threshold check runs.
+    // when the threshold check runs (the count guards the window; the
+    // thresholds read the last turn's count).
     let checks = !at.compacted && policy.enabled && resolved.context_window != 0;
     let counted = match policy.token_count {
         ThresholdTokens::Provider if checks => {
@@ -478,9 +490,28 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let threshold = if at.compacted {
         None
     } else {
-        threshold_compaction(&view, resolved.context_window, policy, || {
-            counted.unwrap_or_else(|| estimate_context(&view, &planned_messages(&entries)))
-        })
+        let calibration = Calibration::of(&view);
+        // The thresholds read the context the previous turn reached, at the
+        // first request of a run (as omp compacts after a turn ends); the
+        // later requests of a run only have to stay within the window, so
+        // a turn never rewrites the cache it is still building.
+        let last = if task.input.rounds.is_first() {
+            last_turn_tokens(&view)
+        } else {
+            0
+        };
+        threshold_compaction(
+            &view,
+            resolved.context_window,
+            policy,
+            calibration,
+            last,
+            || {
+                counted.unwrap_or_else(|| {
+                    estimate_calibrated(&view, &planned_messages(&entries), calibration)
+                })
+            },
+        )
     };
     let prepared = before_request(at, threshold);
     let compaction = runtime.registry().builtins().compaction.clone();
@@ -673,11 +704,20 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     options.stream.request.signal = Some(runtime.signal());
     options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
     options.reasoning = reasoning(thinking_level);
-    // The note of a retry after a noted reply (H4.7), then a forced call's
-    // soft prompt, end the request; the native flag follows the
+    // eukhe addition: the leading prompt's shared prefix ends a cache mark
+    // of its own, the same in every session.
+    options.stream.system_cache_breakpoint =
+        system_cache_breakpoint(&runtime.agent(&cx).await?.sections, &messages);
+    // The note of a retry after a noted reply (H4.7), the rounds left once
+    // few remain (the round cap, `stop::rounds_note`), then a forced
+    // call's soft prompt, end the request; the native flag follows the
     // escalation. None of them is committed to the transcript.
     let force = force_tool.map(|option| Forcing::of(option, &model, options.reasoning));
-    let ends = note.iter().map(RetryNote::text);
+    let rounds = stop::rounds_note(
+        runtime.settings().max_tool_rounds.get(),
+        task.input.rounds.count,
+    );
+    let ends = note.iter().map(RetryNote::text).chain(rounds);
     for text in ends.chain(force.iter().map(|force| soft_prompt(&force.forced.tool))) {
         messages.push(Message::User(UserMessage {
             content: UserContent::Text(text),
@@ -721,6 +761,9 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         DeferredWindow::Hours24 => 24.0 * 60.0 * 60_000.0,
     };
     let sent_at = runtime.now()?;
+    // A remote provider sees tokens, not the memory's text, and its answer
+    // comes back restored: the provider runtime scrubs every stream request
+    // and restores its terminal message (`privacy.anonymizeRemote`).
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,
@@ -950,22 +993,29 @@ fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted
 }
 
 /// Which threshold compaction preparation starts before its request (spec
-/// §8.3): [`threshold_for`] the request's input `tokens`, and only when
-/// range selection finds a cut. `tokens` runs only when the policy and the
-/// window let the check run (else no context is over a threshold, law
-/// `infer_threshold_over_exact`). The caller starts a background one only
-/// while no compaction is listed.
+/// §8.3): the plan's ([`plan`]): a compaction runs once the context the
+/// last turn reached (`last` tokens) is over a threshold, or when the
+/// request's input `tokens` would pass the window; only with a cut, and
+/// the background one only when its cut brings the context down to the
+/// target. `tokens` runs only when the policy and the window let the check
+/// run (else nothing compacts, law `infer_threshold_plan_exact`). The
+/// caller starts a background one only while no compaction is listed.
 fn threshold_compaction(
     view: &ContextView,
     context_window: u64,
     policy: &CompactionPolicy,
+    calibration: Calibration,
+    last: u64,
     tokens: impl FnOnce() -> u64,
 ) -> Option<Threshold> {
     if !policy.enabled || context_window == 0 {
         return None;
     }
-    threshold_for(tokens(), context_window, policy)
-        .filter(|_| select_cut(view, policy.keep_window(context_window)).is_some())
+    match plan(view, policy, context_window, tokens(), last, calibration).over {
+        Over::Under => None,
+        Over::Background => Some(Threshold::Background),
+        Over::Blocking => Some(Threshold::Blocking),
+    }
 }
 
 /// The model messages of the system entries preparation plans to append.
@@ -994,6 +1044,14 @@ async fn provider_tokens(
 ) -> u64 {
     let extra = planned_messages(planned);
     let messages = view.messages.iter().chain(&extra).cloned().collect();
+    // The count request reaches the provider: it reads pseudonyms too.
+    let messages = if runtime.settings().privacy_anonymize_remote
+        && !eukhe_ai::privacy::is_local(&model.base_url)
+    {
+        eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms).scrub_messages(messages)
+    } else {
+        messages
+    };
     let mut request = stream.simple_stream_options().stream.request;
     request.signal = Some(runtime.signal());
     let options = ModelsCapabilityOptions::from(CapabilityOptions { request });
@@ -1124,7 +1182,7 @@ fn ms_f64(ms: u64) -> f64 {
 }
 
 /// Classify a terminal provider message and commit the step it leads to
-/// ([`after_reply`], docs/harness.md H4), clearing the partial.
+/// ([`after_reply`], LAWS.bend H4), clearing the partial.
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function, kept whole to read against it"
@@ -1211,6 +1269,8 @@ async fn classify(
             repoll_wait.map(|_| poll.handle.clone())
         }
     };
+    // The overflow text a compaction of the length ladder fails with.
+    let mut shrink = None;
     let (reply, cause) = if let Some(handle) = &deferred {
         (Reply::Deferred(handle), None)
     } else if cancelled {
@@ -1270,7 +1330,14 @@ async fn classify(
                 calls
                     .iter()
                     .find(|call| !offered.contains(&call.name))
-                    .map(|call| (*markup, format!("it names no offered tool {:?}", call.name)))
+                    .map(|call| {
+                        (
+                            *markup,
+                            LeakParseError::UnknownTool {
+                                name: call.name.clone(),
+                            },
+                        )
+                    })
             });
             if unknown.is_some() {
                 broken = unknown;
@@ -1302,23 +1369,81 @@ async fn classify(
                 message.stop_reason = StopReason::ToolUse;
             }
         }
+        let text = message.content.iter().any(|content| match content {
+            AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
+            AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
+        });
         let reply = Ended {
-            text: message.content.iter().any(|content| match content {
-                AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
-                AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
-            }),
+            text,
             calls: !calls.is_empty(),
         }
         .reply();
         // A stuck reply gets its recovery (H4.8): the note of the request
-        // counts the notes of each recovery in a row.
+        // counts the notes of each recovery in a row. A reply with no tool
+        // call is a candidate stop: the stop Directors pick the recovery
+        // that continues the run, or let the stop stand (`stop::walk`).
         let stuck = match reply {
             Reply::Calls => Some(Stuck::Calls {
                 rounds: rounds_in_a_row(context, &calls),
             }),
-            Reply::Error { .. } if message.stop_reason == StopReason::Length => Some(Stuck::Length),
-            Reply::Text => broken.is_some().then_some(Stuck::Leak),
-            Reply::Error { .. } | Reply::Deferred(_) | Reply::Overflow { .. } => None,
+            Reply::Text | Reply::Error { .. } => stop::walk(Facts {
+                cut: message.stop_reason == StopReason::Length,
+                text,
+                broken: broken.is_some(),
+                pending: stop::pending(runtime, cx).await?,
+            }),
+            Reply::Deferred(_) | Reply::Overflow { .. } => None,
+        };
+        // A length stop with no text: the model still reasoned. Its ladder
+        // (`Stuck::Thought`) reads whether the window ran out, whether a
+        // compaction can run, and the level one below the agent's in the
+        // model's ladder.
+        let mut lower_level = None;
+        let stuck = match stuck {
+            Some(Stuck::Length) if !text => {
+                let model = runtime
+                    .models()
+                    .get_model(&request.model.provider, &request.model.model_id);
+                let (window, catalog) = model
+                    .as_ref()
+                    .map_or((0, 0), |model| (model.context_window, model.max_tokens));
+                let cuttable = compacted.is_none()
+                    && settings.compaction.enabled
+                    && select_cut(
+                        &runtime
+                            .context(
+                                conversation_id,
+                                cx,
+                                ContextOptions {
+                                    at: Some(request.cutoff),
+                                },
+                            )
+                            .await?,
+                        &settings.compaction,
+                        window,
+                    )
+                    .is_some();
+                let level = runtime.agent(cx).await?.thinking_level;
+                lower_level = model.as_ref().and_then(|model| {
+                    let levels = get_supported_thinking_levels(model);
+                    let at = levels.iter().position(|supported| *supported == level)?;
+                    at.checked_sub(1)
+                        .and_then(|below| levels.get(below).copied())
+                });
+                let usage = &message.usage;
+                Some(Stuck::Thought {
+                    window,
+                    catalog,
+                    prompt: usage
+                        .input
+                        .saturating_add(usage.cache_read)
+                        .saturating_add(usage.cache_write),
+                    output: usage.output,
+                    cuttable,
+                    lower: lower_level.is_some(),
+                })
+            }
+            other => other,
         };
         let thinking: usize = message
             .content
@@ -1341,8 +1466,15 @@ async fn classify(
         // and a retry leaves it out of the next request's context and ends
         // that request with a note (H4.7).
         let (reply, cause, error) = match stuck {
+            // The walk never lets a reply with no text stand (law
+            // `stop_empty_continues`). A stop that stands with text is the
+            // answer: no note, no cause, no further request (laws
+            // `stop_stand_answers_once`, `stop_stand_sends_no_request`;
+            // `stop_reply` in laws/stop.bend models this match).
             None => match reply {
-                Reply::Error { .. } => (reply, Some(NoteCause::NoAnswer), Some(no_answer)),
+                Reply::Error { .. } => {
+                    (reply, Some(NoteCause::NoAnswer { row: 0 }), Some(no_answer))
+                }
                 Reply::Text | Reply::Calls | Reply::Deferred(_) | Reply::Overflow { .. } => {
                     (reply, None, None)
                 }
@@ -1401,17 +1533,83 @@ async fn classify(
                         (quit, None, Some(error))
                     }
                     (Stuck::Length, Act::Redo { row }) => {
-                        let cause = NoteCause::Length {
-                            tokens: message.usage.output,
-                            row,
-                        };
-                        (redo, Some(cause), Some(no_answer))
+                        let tokens = message.usage.output;
+                        let error = "The model hit the output limit before it finished its \
+                                     answer; the harness did not take the cut text as the answer"
+                            .to_owned();
+                        (redo, Some(NoteCause::Cut { tokens, row }), Some(error))
                     }
                     (Stuck::Length, Act::Quit) => {
                         let error = format!(
-                            "{no_answer}. The model hit the output limit while it was still \
-                             reasoning after {LENGTH_NOTES} length notes in a row: use a \
-                             different model or raise the model's max output tokens"
+                            "The model hit the output limit before it finished its answer, after \
+                             {LENGTH_NOTES} length notes in a row: use a different model or \
+                             raise the model's max output tokens"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    // The ladder of a length stop with no text: each rung is
+                    // a quiet note (no error on the reply, which the next
+                    // request leaves out); only the last rung's end fails.
+                    (Stuck::Thought { .. }, Act::Compact) => {
+                        shrink = Some(
+                            "The model ran out of the context window while it was still \
+                             reasoning, and compaction could not make room"
+                                .to_owned(),
+                        );
+                        (Reply::Overflow { cut: true }, None, None)
+                    }
+                    (Stuck::Thought { lower, .. }, Act::Redo { row }) => {
+                        let cause = NoteCause::Length {
+                            tokens: message.usage.output,
+                            row,
+                            cap: LENGTH_NOTES + u32::from(lower),
+                            lowered: None,
+                        };
+                        (redo, Some(cause), None)
+                    }
+                    (Stuck::Thought { .. }, Act::Lower { row }) => {
+                        let cause = NoteCause::Length {
+                            tokens: message.usage.output,
+                            row,
+                            cap: row,
+                            lowered: lower_level,
+                        };
+                        (redo, Some(cause), None)
+                    }
+                    (Stuck::Thought { .. }, Act::Quit) => {
+                        let lowered = request.note.as_ref().and_then(RetryNote::lowered);
+                        let rows = match note {
+                            Some((Recovery::Length, row)) => row,
+                            Some(_) | None => 0,
+                        };
+                        let notes = rows.saturating_sub(u32::from(lowered.is_some()));
+                        let mut tried = Vec::new();
+                        if compacted.is_some() {
+                            tried.push("compacting the context".to_owned());
+                        }
+                        if notes > 0 {
+                            tried.push(format!(
+                                "{notes} retries with a note to reason only about the next step"
+                            ));
+                        }
+                        if let Some(level) = lowered {
+                            tried.push(format!(
+                                "a retry at the lower thinking level {}",
+                                level.as_str()
+                            ));
+                        }
+                        let limit = match message.usage.output {
+                            0 => "the output limit".to_owned(),
+                            tokens => format!("the {tokens}-token output limit"),
+                        };
+                        let after = if tried.is_empty() {
+                            String::new()
+                        } else {
+                            format!(", again after {}", tried.join(", then "))
+                        };
+                        let error = format!(
+                            "{no_answer}. It hit {limit} while it was still reasoning{after}: \
+                             use a different model or raise the model's max output tokens"
                         );
                         (quit, None, Some(error))
                     }
@@ -1424,23 +1622,53 @@ async fn classify(
                             );
                             let cause = NoteCause::Leaked {
                                 markup: markup.as_str().to_owned(),
-                                reason,
+                                reason: reason.to_string(),
                                 row,
                             };
                             (redo, Some(cause), Some(error))
                         }
                         None => (reply, None, None),
                     },
-                    // At its cap, a leak answers as text.
-                    (Stuck::Leak, Act::Stand | Act::Quit) => (Reply::Text, None, None),
-                    (Stuck::Length | Stuck::Leak, Act::Run)
-                    | (Stuck::Length | Stuck::Calls { .. }, Act::Stand) => (reply, None, None),
+                    // At its cap a leak fails the run: markup is never an
+                    // answer (law `rec_leak_gives_up`).
+                    (Stuck::Leak, Act::Quit) => {
+                        let error = format!(
+                            "The model kept writing tool calls as markup in its text after \
+                             {LEAK_NOTES} leak notes in a row, and the harness could not read \
+                             them"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    (Stuck::Empty, Act::Redo { row }) => {
+                        (redo, Some(NoteCause::NoAnswer { row }), Some(no_answer))
+                    }
+                    (Stuck::Empty, Act::Quit) => {
+                        let error = format!(
+                            "{no_answer}, again after every empty note the harness sends in a row"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    (
+                        Stuck::Length | Stuck::Leak | Stuck::Empty | Stuck::Thought { .. },
+                        Act::Run,
+                    )
+                    | (
+                        Stuck::Length | Stuck::Leak | Stuck::Calls { .. } | Stuck::Empty,
+                        Act::Compact | Act::Lower { .. },
+                    ) => (reply, None, None),
                 }
             }
         };
+        // A run that fails at the length cap ended on the output limit: its
+        // last message keeps the stop reason length (ACP reports
+        // `max_tokens`); every other failed reply is an error.
+        let at_limit =
+            matches!(stuck, Some(Stuck::Length | Stuck::Thought { .. })) && cause.is_none();
         if let Some(error) = error {
             message.error_message = Some(error);
-            message.stop_reason = StopReason::Error;
+            if !at_limit {
+                message.stop_reason = StopReason::Error;
+            }
         }
         (reply, cause)
     } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {
@@ -1458,12 +1686,11 @@ async fn classify(
                         },
                     )
                     .await?,
-                settings.compaction.keep_window(
-                    runtime
-                        .models()
-                        .get_model(&request.model.provider, &request.model.model_id)
-                        .map_or(0, |model| model.context_window),
-                ),
+                &settings.compaction,
+                runtime
+                    .models()
+                    .get_model(&request.model.provider, &request.model.model_id)
+                    .map_or(0, |model| model.context_window),
             )
             .is_some();
         (Reply::Overflow { cut }, None)
@@ -1641,9 +1868,8 @@ async fn classify(
         Step::Tools => start_tool_round(runtime, request, message, calls, cx).await,
         Step::Answer => answer(runtime, message, cx).await,
         Step::Compact => {
-            let text = message
-                .error_message
-                .clone()
+            let text = shrink
+                .or_else(|| message.error_message.clone())
                 .unwrap_or_else(|| "Context overflow".to_owned());
             let compaction = runtime.registry().builtins().compaction.clone();
             let note = request.note;

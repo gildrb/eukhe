@@ -1,5 +1,4 @@
-//! End-to-end: a subagent's gated step asks the user of its root session
-//! (docs/tools.md G5). A subagent session has no client of its own; its
+//! End-to-end: a subagent's gated step asks the user of its root session. A subagent session has no client of its own; its
 //! `bash` step that writes (outside the user's auto set, narrowed here to
 //! `read`) hands the question up to its root through the supervisor, the
 //! root's attached client gets the `shell_approval` frame naming the
@@ -14,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use eukhe_core::durable::children::{
     RlmChildIdentity, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmCreateSessionRequest, RlmSubagentHost,
+    RlmChildWaitRequest, RlmSubagentHost,
 };
 use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
@@ -135,56 +134,49 @@ async fn a_subagent_step_runs_when_the_root_client_approves() {
     );
     let link = Arc::new(SupervisorLink::new(socket.clone()));
 
-    // The root: a resident depth-0 session the user's client attaches to.
-    let launcher =
-        SupervisorChildSessions::new(Arc::clone(&link), agent_dir.clone(), "launcher".to_string());
-    launcher.set_identity(ParentIdentity {
-        rlm_depth: 0,
-        rlm_max_depth: 2,
-        model: Some("scripted/faux-1".to_string()),
-        cwd: Some(work.to_string_lossy().into_owned()),
-        session_id: Some("launcher-session".to_string()),
-        session_file: Some(
-            agent_dir
-                .join("launcher.jsonl")
-                .to_string_lossy()
-                .into_owned(),
-        ),
-        thinking: None,
-        child_script: Some(script(&dir.path().join("root.json"), &json!(["root here"]))),
-    });
-    let root = launcher
-        .create_session(RlmCreateSessionRequest {
-            idempotency_key: "rlm.create_session:call-1:0".to_string(),
-            prompt: "wait for your subagent".to_string(),
-            name: Some("root".to_string()),
-            model: None,
-            thinking: None,
-            cwd: Some(work.to_string_lossy().into_owned()),
-        })
-        .await
-        .expect("create the root session");
+    // The root: a top-level session the user's client attaches to.
+    let sessions_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
     let mut user = Client::connect(&socket);
+    let created = user.request(
+        "c1",
+        &json!({
+            "type": "create",
+            "name": "root",
+            "config": {
+                "cwd": work.to_string_lossy(),
+                "sessionDir": sessions_dir.to_string_lossy(),
+                "script": script(&dir.path().join("root.json"), &json!(["root here"])),
+            },
+        }),
+    );
+    assert_eq!(created["success"], true, "create: {created}");
+    let field = |key: &str| {
+        created["data"][key]
+            .as_str()
+            .unwrap_or_else(|| panic!("create answers {key}: {created}"))
+            .to_string()
+    };
+    let root_id = field("activeSessionId");
+    let root_session_id = field("sessionId");
+    let root_session_file = field("sessionFile");
     let attached = user.request(
         "a1",
-        &json!({ "type": "attach", "activeSessionId": root.active_session_id }),
+        &json!({ "type": "attach", "activeSessionId": root_id }),
     );
     assert_eq!(attached["success"], true, "attach: {attached}");
 
     // The root's subagent `scout`: its model runs one bash step that
     // writes, then answers.
-    let children = SupervisorChildSessions::new(
-        Arc::clone(&link),
-        agent_dir.clone(),
-        root.active_session_id.clone(),
-    );
+    let children =
+        SupervisorChildSessions::new(Arc::clone(&link), agent_dir.clone(), root_id.clone());
     children.set_identity(ParentIdentity {
         rlm_depth: 0,
         rlm_max_depth: 2,
         model: Some("scripted/faux-1".to_string()),
         cwd: Some(work.to_string_lossy().into_owned()),
-        session_id: Some(root.session_id.clone()),
-        session_file: Some(root.session_file.clone()),
+        session_id: Some(root_session_id),
+        session_file: Some(root_session_file),
         thinking: None,
         child_script: Some(script(
             &dir.path().join("child.json"),
@@ -240,7 +232,7 @@ async fn a_subagent_step_runs_when_the_root_client_approves() {
         question,
         json!({
             "type": "shell_approval",
-            "activeSessionId": root.active_session_id,
+            "activeSessionId": root_id,
             "request": {
                 "requestId": null,
                 "step": 0,
@@ -254,7 +246,7 @@ async fn a_subagent_step_runs_when_the_root_client_approves() {
         "y1",
         &json!({
             "type": "answer_shell_approval",
-            "activeSessionId": root.active_session_id,
+            "activeSessionId": root_id,
             "requestId": request_id,
             "verdict": "approve",
         }),

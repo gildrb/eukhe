@@ -19,7 +19,7 @@ import ./base.bend as LawsBase
 # LAW notice_shown_once: an attach never shows a kernel restore notice again. After any
 # restores, live notices and attaches (reconnects, worker restarts), in
 # any order, each stored notice showed at most once (bend/notice.bend;
-# the bridge is crates/eukhe-tui/src/restore_notices.rs)
+# the host is crates/eukhe-tui/src/restore_notices.rs)
 law notice_shown_once:
   for +evs: List<&2, No.Ev>
   {No.once(No.run(evs)) == True{} : Bool}
@@ -34,7 +34,7 @@ law notice_per_restore:
 #
 # LAWS: the kernel restore notices a TUI view shows
 # (crates/eukhe-tui/src/restore_notices.rs `RestoreNotices` keeps the
-# compiled stepper of bend/ffi_notice.bend; docs/daemon.md D1). A message
+# compiled stepper of bend/ffi_notice.bend). A message
 # is another role or a custom message (its kind and its stamp, as text);
 # the view asks whether a message of a session shows, and records the
 # messages of a session it shows. Every input is free: any session ids,
@@ -488,6 +488,23 @@ law notice_real_per_restore:
 law notice_once_exact:
   for +ns: List<&2, No.N>
   {No.once(ns) == nt_once(nt_shown(ns)) : Bool}
+
+# LAW notice_total_exact (R6): the model's `total` is the sum of how many times each stored
+# notice showed
+# EXCLUDES: a No.total that counts the stored notices (List.length) or
+#   any other input-ignoring count (notice_per_restore would then say
+#   nothing about how many restore rows showed)
+law notice_total_exact:
+  for +ns: List<&2, No.N>
+  {No.total(ns) == nt_sum(nt_shown(ns)) : Nat}
+
+# LAW notice_restores_exact (R6): the model's `restores` counts the restores among the events
+# EXCLUDES: a No.restores that counts every event, or the live events or
+#   attaches (notice_per_restore would then pin the shown rows to
+#   another count)
+law notice_restores_exact:
+  for +evs: List<&2, No.Ev>
+  {No.restores(evs) == nt_restores(evs) : Nat}
 
 # Laws: the entry
 # ---------------

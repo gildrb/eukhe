@@ -19,8 +19,8 @@
 
 //! Binary-level e2e: a settings-configured package provides a skill that
 //! appears in a created session's skill list. The scripted faux provider
-//! answers with the request's system prompt (the `<available_skills>`
-//! inventory), so the full pipeline is exercised: CLI parse -> settings
+//! answers with the request's system prompt (the `<skills>` inventory), so
+//! the full pipeline is exercised: CLI parse -> settings
 //! load -> package resolution -> resource loading -> system-prompt assembly
 //! -> provider request -> event emission.
 
@@ -120,13 +120,8 @@ fn package_provided_skill_appears_in_created_session_skill_list() {
     assert_eq!(code, 0, "stderr: {stderr}");
     let text = assistant_text(&stdout);
     assert!(
-        text.contains("<name>e-greeting</name>"),
+        text.contains("- e-greeting: Greets from a package"),
         "system prompt lists the package skill:\n{text}"
-    );
-    assert!(text.contains("<description>Greets from a package</description>"));
-    assert!(
-        text.contains("fixture-pkg/skills/e-greeting/SKILL.md"),
-        "location points into the package"
     );
 
     // An explicit empty skills filter disables the package's skills.
@@ -140,7 +135,7 @@ fn package_provided_skill_appears_in_created_session_skill_list() {
     assert_eq!(code, 0, "stderr: {stderr}");
     let text = assistant_text(&stdout);
     assert!(
-        !text.contains("<name>e-greeting</name>"),
+        !text.contains("- e-greeting:"),
         "empty skills filter disables the skill"
     );
 }

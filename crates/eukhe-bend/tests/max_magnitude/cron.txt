@@ -1,0 +1,21 @@
+# the per-job decisions, every time, interval, next run and count at its
+# largest (an interval roll and a failure pause add to the clock: at most
+# 2 * MAX, below 2^48-1; Rust caps every time at NAT_MAX / 2 so the reply fits)
+call 0,0,1,{MAX},1,{MAX},{MAX},F{MAX},{MAX},
+call 0,0,1,{MAX},1,{MAX},{MAX},T{MAX},{MAX},
+call 1,0,F
+call 1,1,T
+call 2,0,1,{MAX},1,{MAX},{MAX},T
+call 3,0,1,{MAX},1,{MAX},0,TT{MAX},
+call 3,0,1,{MAX},1,{MAX},5,TT{MAX},
+call 3,0,1,{MAX},0,{MAX},TT{MAX},
+call 3,0,1,{MAX},1,{MAX},{MAX},FF{MAX},
+call 3,0,1,{MAX},1,{MAX},{MAX},TF{MAX},
+call 4,0,1,{MAX},1,{MAX},{MAX},
+call 5,1,1,{MAX},1,{MAX},{MAX},{MAX},
+call 6,0,1,{MAX},1,{MAX},{MAX},1,
+call 7,0,1,{MAX},1,{MAX},{MAX},1,{MAX},
+call 8,{MAX},
+call 9,T
+refuse 8,{LONG},
+refuse 0,0,1,{LONG},1,{MAX},{MAX},F{MAX},{MAX},

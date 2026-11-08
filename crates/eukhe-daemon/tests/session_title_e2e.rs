@@ -1,4 +1,4 @@
-//! The generated session title (docs/inference.md S9, the `tiny` role)
+//! The generated session title (the `tiny` role)
 //! through the real daemon: the first prompt of a new top-level session
 //! starts the worker's background title (`worker/title.rs`), the title
 //! lands as the session name (`session_info_changed`, the `list`

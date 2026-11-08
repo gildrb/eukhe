@@ -6,7 +6,7 @@
 
 import Base
 import ../../bend/ffi_child.bend as FCh
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ./base.bend as LA
 
 def Child.child_entry_answers_spelled(r, fits):

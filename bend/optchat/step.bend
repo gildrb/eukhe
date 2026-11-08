@@ -16,7 +16,7 @@ def fitc.if(over: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info,
       OFit.fit.view(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, cv)
 
 def fitc(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  fitc.if(Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, cv), OState.Cfg.cceil(cfg)), cfg, t, info, cv)
+  fitc.if(OFit.over(OState.Cfg.ph(cfg), info, cv, OState.Cfg.cceil(cfg)), cfg, t, info, cv)
 
 # A message
 # ---------
@@ -34,7 +34,7 @@ def msg.cview(merged: List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>
       OFit.fit.view(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, view)
 
 def msg.after(+merged: List<&2, ONode.Node>, +view: List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, ready: List<&2, ONode.Node>, busy: List<&2, ONode.Node>) -> OState.St & List<&2, ONode.Node>:
-  (OState.St{t, info, view, Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, view), OState.Cfg.floor(cfg)), msg.cview(merged, cfg, t, info, view, cv), ready, busy}, merged)
+  (OState.St{t, info, view, OFit.over(OState.Cfg.ph(cfg), info, view, OState.Cfg.floor(cfg)), msg.cview(merged, cfg, t, info, view, cv), ready, busy}, merged)
 
 def msg.batch(r: List<&2, ONode.Node> & List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, ready: List<&2, ONode.Node>, busy: List<&2, ONode.Node>) -> OState.St & List<&2, ONode.Node>:
   (merged, view) = r
@@ -53,7 +53,7 @@ def St.grown(+s: OState.St) -> List<&2, ONode.Node>:
 
 # a batch runs (or goes on) at this message
 def St.batch(+cfg: OState.Cfg, +s: OState.St) -> Bool:
-  Bool.or(OState.St.shrink(s), Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), OState.St.info(s), St.grown(s)), OState.Cfg.ceil(cfg)))
+  Bool.or(OState.St.shrink(s), OFit.over(OState.Cfg.ph(cfg), OState.St.info(s), St.grown(s), OState.Cfg.ceil(cfg)))
 
 # message T arrives: the state after it, and the batch it set off (the
 # merged parents, in order; empty when none)

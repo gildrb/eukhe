@@ -8,7 +8,7 @@ import Base
 import ../../bend/facts.bend as Fx
 import ../../bend/ffi_facts.bend as FFx
 import ../../bend/wire.bend as Wr
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 import ../../laws/base.bend as LawsBase
 import ../wire/base/spell.bend as LAWireSpell
 
@@ -24,5 +24,5 @@ def ful.main(+n: Nat, +rest: String) -> {FFx.ffi(Wr.put_nat(0n, Wr.put_nat(6n+n,
   %ful.bad(LawsBase.wire_fits(6n+n), n, rest) : {FFx.ffi.go(FFx.get_level.of(FFx.seq(~FFx.P2<Fx.ELv, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, FFx.seq(~Fx.ELv, ~Fx.Customs, ~FFx.get_customs, _)))) == Wr.err("budget request: malformed") : String}
   {==}
 
-def Facts.core_facts_unknown_level(n, rest):
+def FactsBudgets.core_facts_unknown_level(n, rest):
   ful.main(n, rest)

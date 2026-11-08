@@ -1,0 +1,17 @@
+# the facts of a file of the largest length: its last newline just before the end, at the start, past the end, none
+call {MAX},1,99999999999998,
+call {MAX},1,0,
+call {MAX},1,{MAX},
+call {MAX},0,
+call 0,0,
+refuse {LONG},0,
+refuse {MAX},1,{LONG},
+# the stepper: an fsync open, commits with sidecars (the indexes count up), a commit without fsync
+open T
+step 0,
+step 3,TFT
+step 5,FFFFF
+refuse-step {LONG},T
+step 1,T
+open F
+step 2,TT

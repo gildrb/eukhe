@@ -81,8 +81,6 @@ use sse::{process_sse, SseRequest};
 /// The API id.
 const API: &str = "openai-codex-responses";
 const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
-/// Providers whose tool-call ids Codex accepts as-is.
-const CODEX_TOOL_CALL_PROVIDERS: &[&str] = &["openai", "openai-codex", "opencode"];
 
 /// `Date.now()` as a JS number (with the test clock offset, TS
 /// `vi.setSystemTime`).

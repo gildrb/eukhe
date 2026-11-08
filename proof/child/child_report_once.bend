@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 import ./base.bend as LA
 
 def pc.le1_placed(f: Ch.Fate) -> {Nat.is_le(Nat.add(Ch.Fate.placed(f), 0n), 1n) == True{} : Bool}:
@@ -12,6 +12,8 @@ def pc.le1_placed(f: Ch.Fate) -> {Nat.is_le(Nat.add(Ch.Fate.placed(f), 0n), 1n) 
     case Ch.Withdrawn{}:
       {==}
     case Ch.Placed{}:
+      {==}
+    case Ch.Read{}:
       {==}
 
 def pc.placed_le(inbox: List<&2, Ch.Sub>, kin: {LA.pc.Kin(inbox) == True{} : Bool}) -> {Nat.is_le(Ch.placed(inbox), 1n) == True{} : Bool}:

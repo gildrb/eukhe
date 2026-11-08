@@ -27,7 +27,7 @@
 # "auth_flight: malformed event" and keeps the desk; an open that is not
 # empty answers "auth_flight: malformed open" and the refused stepper
 # answers every step "auth_flight: the open was refused".
-# laws/auth_flight.bend pins the entry. Pure: no IO, no @unsafe.
+# laws/auth_flight/entry.bend pins the entry. Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W

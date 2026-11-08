@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of area log share
 
 import Base
-import ../../spec/log.bend as Lg
+import ../../spec/durable/log.bend as Lg
 import ../../bend/log.bend as Lr
 import ../../laws/log.bend as Log
 import ../../bend/wire.bend as Wr

@@ -9,10 +9,7 @@ use eukhe_types::pi_ai::{AssistantContentBlock, Message};
 use eukhe_types::session::AgentMessage;
 
 use super::utils::format_file_operations;
-use crate::durable::messages::{
-    COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX, HARNESS_DIGEST_PREFIX,
-    HARNESS_DIGEST_SUFFIX,
-};
+use crate::durable::messages::{COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX};
 
 /// The summary as transcripts show it: the summarizer's text, then the
 /// file-list blocks.
@@ -25,21 +22,14 @@ pub fn summary_body(summary: &CompactionSummary) -> String {
     )
 }
 
-/// The model text of a summary: the harness-digest block when a digest
-/// rendered, then the `[compaction-summary]`-wrapped [`summary_body`].
+/// The model text of a summary: the `[compaction-summary]`-wrapped
+/// [`summary_body`].
 #[must_use]
 pub fn rendered_summary(summary: &CompactionSummary) -> String {
-    let wrapped = format!(
+    format!(
         "{COMPACTION_SUMMARY_PREFIX}{}{COMPACTION_SUMMARY_SUFFIX}",
         summary_body(summary)
-    );
-    match &summary.digest {
-        Some(digest) => format!(
-            "{HARNESS_DIGEST_PREFIX}{}{HARNESS_DIGEST_SUFFIX}\n\n{wrapped}",
-            digest.digest
-        ),
-        None => wrapped,
-    }
+    )
 }
 
 /// The summary text of a `pi.compaction` entry as transcripts show it: the
@@ -179,25 +169,19 @@ pub fn agent_messages(messages: &[&Message]) -> anyhow::Result<Vec<AgentMessage>
 
 #[cfg(test)]
 mod tests {
-    use eukhe_durable::entries::HarnessDigest;
-
     use super::*;
 
     #[test]
-    fn rendered_summary_leads_with_the_digest_and_carries_the_file_lists() {
+    fn rendered_summary_wraps_the_text_and_the_file_lists() {
         let summary = CompactionSummary {
             summary: "The story so far.".to_owned(),
             read_files: vec!["/a.rs".to_owned()],
             modified_files: Vec::new(),
-            digest: Some(HarnessDigest {
-                digest: "d".to_owned(),
-                state_fingerprint: "f".to_owned(),
-            }),
         };
         assert_eq!(
             rendered_summary(&summary),
             format!(
-                "{HARNESS_DIGEST_PREFIX}d{HARNESS_DIGEST_SUFFIX}\n\n{COMPACTION_SUMMARY_PREFIX}The story so far.\n\n<read-files>\n/a.rs\n</read-files>{COMPACTION_SUMMARY_SUFFIX}"
+                "{COMPACTION_SUMMARY_PREFIX}The story so far.\n\n<read-files>\n/a.rs\n</read-files>{COMPACTION_SUMMARY_SUFFIX}"
             )
         );
     }

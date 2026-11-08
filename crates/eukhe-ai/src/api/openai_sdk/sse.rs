@@ -161,7 +161,7 @@ fn handle_event(sse: &ServerSentEvent, headers: &HeaderMap) -> Result<Option<Jso
 }
 
 struct SseState {
-    bytes: BoxStream<'static, Result<Vec<u8>, String>>,
+    bytes: BoxStream<'static, Result<Vec<u8>, reqwest::Error>>,
     lines: LineDecoder,
     decoder: SseDecoder,
     pending: VecDeque<ServerSentEvent>,
@@ -185,7 +185,7 @@ impl SseState {
     }
 
     /// Next chunk of the body, or `None` at its end or on abort.
-    async fn next_chunk(&mut self) -> Option<Result<Vec<u8>, String>> {
+    async fn next_chunk(&mut self) -> Option<Result<Vec<u8>, reqwest::Error>> {
         match self.signal.clone() {
             Some(signal) => tokio::select! {
                 _ = signal.cancelled() => None,
@@ -246,7 +246,7 @@ impl SseState {
 
 /// Decode a streamed body into the SDK's SSE item stream.
 pub(crate) fn sse_json_stream(
-    bytes: BoxStream<'static, Result<Vec<u8>, String>>,
+    bytes: BoxStream<'static, Result<Vec<u8>, reqwest::Error>>,
     headers: HeaderMap,
     signal: Option<AbortSignal>,
 ) -> SseEventStream {

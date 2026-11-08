@@ -20,16 +20,16 @@ pub const DEFAULT_CODEMODE_INLINE_BUDGET: usize = 3000;
 /// Characters per token when estimating the cost of a tool section.
 const CHARS_PER_TOKEN: usize = 4;
 
-const DESCRIPTION_INTRO: &str = "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.
-- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.
-- The script survives a restart: it resumes where it was, without running finished calls again.
+const DESCRIPTION_INTRO: &str = "Run JavaScript that calls other tools. `code` is raw JavaScript (not JSON, no fence), an async function body in a QuickJS sandbox: top-level `await`/`return` work; no Node, file system, network or timers.
+- `await tools.<name>({ ...args })` resolves to a string, or to the object its declaration returns (also on failure: check its fields); otherwise a failure rejects with an Error. Calls still running at script end are cancelled.
+- A restart resumes the script without rerunning finished calls.
 - Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`";
 
 const GLOBALS: [&str; 4] = [
     "Globals:",
-    "- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.",
-    "- `store(key, value)` and `load(key)` keep JSON values across codemode calls.",
-    "- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find tools the `codemode` section does not list.",
+    "- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, `return` add output; `exit()` ends the script. `image()` also saves the image to a temp file and names its path.",
+    "- `store(key, value)`/`load(key)`: JSON values kept across calls.",
+    "- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: tools the `codemode` section omits.",
 ];
 
 /// Whether scripts get the `models.*` globals.
@@ -74,7 +74,7 @@ pub fn codemode_description(models: CodemodeModels, classifier: &ClassifierDefau
         sections.push(section);
     }
     sections.push(
-        "The `codemode` section of the system prompt lists the tools scripts can call, by namespace, as far as space allows.",
+        "Your own tools keep their names and arguments; the system prompt's `codemode` section lists the others as space allows.",
     );
     sections.join("\n\n")
 }
@@ -190,9 +190,9 @@ fn select_catalog<'g>(groups: &'g [Group<'_>], budget: usize) -> HashSet<&'g str
     shown
 }
 
-/// The `codemode` section: the tools scripts can call, grouped by
-/// namespace, with their declarations as far as the budget (tokens)
-/// allows. `None` without callable tools.
+/// The `codemode` section: `tools` (the callable tools the model does not
+/// have as its own), grouped by namespace, with their declarations as far
+/// as the budget (tokens) allows. `None` without such tools.
 #[must_use]
 pub fn codemode_section(
     tools: &[Arc<ToolRegistration>],
@@ -232,7 +232,8 @@ pub fn codemode_section(
         (Some(a), Some(b)) => locale_compare(&a.name, &b.name),
     });
     let shown = select_catalog(&ordered, budget);
-    let mut tool_sections = vec!["Tools scripts can call (`await tools.<name>(args)`):".to_owned()];
+    let mut tool_sections =
+        vec!["Tools scripts can call besides yours (`await tools.<name>(args)`):".to_owned()];
     for Group { namespace, entries } in &ordered {
         if entries.is_empty() {
             continue;
@@ -314,7 +315,7 @@ mod tests {
         let without = codemode_description(CodemodeModels::Excluded, &ClassifierDefault::Unset);
         let with = codemode_description(CodemodeModels::Included, &ClassifierDefault::Unset);
         let resolver: crate::codemode::ClassifierResolver =
-            Arc::new(|_, _| Box::pin(async { Err("none".to_owned()) }));
+            Arc::new(|_, _| Box::pin(async { Err("none".into()) }));
         let with_default = codemode_description(
             CodemodeModels::Included,
             &ClassifierDefault::Resolver(resolver),
@@ -373,7 +374,7 @@ mod tests {
         assert_eq!(
             codemode_section(&tools(), &namespaces(), DEFAULT_CODEMODE_INLINE_BUDGET).as_deref(),
             Some(concat!(
-                "Tools scripts can call (`await tools.<name>(args)`):\n\n",
+                "Tools scripts can call besides yours (`await tools.<name>(args)`):\n\n",
                 "### `read`\nRead a file.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: { [key: string]: unknown; }): Promise<string>; };\n```\n\n",
                 "## alpha\nAlpha tools\n\n",
                 "### `ab_x` (`ab-x`)\ncodemode tool declaration:\n```ts\ndeclare const tools: { ab_x(args: { [key: string]: unknown; }): Promise<string>; };\n```\n\n",
@@ -388,7 +389,7 @@ mod tests {
         assert_eq!(
             codemode_section(&tools(), &namespaces(), 0).as_deref(),
             Some(concat!(
-                "Tools scripts can call (`await tools.<name>(args)`):\n\n",
+                "Tools scripts can call besides yours (`await tools.<name>(args)`):\n\n",
                 "Some tools are not listed: find them with `searchTools()`.\n\n",
                 "## alpha (tools not listed)\nAlpha tools\n\n",
                 "## GitHub (tools not listed)\nGitHub tools.",
@@ -438,7 +439,7 @@ mod tests {
         let section = codemode_section(&tools, &namespaces, 40).expect("section");
         assert_eq!(
             section,
-            "Tools scripts can call (`await tools.<name>(args)`):\n\n## GitHub (some tools not listed)\n\n### `gh_a` (`gh-a`)\nA\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { gh_a(args: { [key: string]: unknown; }): Promise<string>; };\n```"
+            "Tools scripts can call besides yours (`await tools.<name>(args)`):\n\n## GitHub (some tools not listed)\n\n### `gh_a` (`gh-a`)\nA\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { gh_a(args: { [key: string]: unknown; }): Promise<string>; };\n```"
         );
     }
 }

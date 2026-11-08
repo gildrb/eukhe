@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW child_stalls_in_time
 
 import Base
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 import ../base/child.bend as LChild
 
 # (H5) Every subagent reports back exactly once

@@ -10,11 +10,13 @@ use eukhe_types::pi_ai::{
 use futures::future::{ready, BoxFuture};
 use futures::FutureExt;
 
-use super::{plan_system_entries, render_sections, replay_sections, SystemDraft};
+use super::{
+    plan_system_entries, render_sections, replay_sections, system_cache_breakpoint, SystemDraft,
+};
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::agent::{resolve_agent, resolve_settings};
-use crate::harness::define::{define_extension, section, wrap_section};
+use crate::harness::define::{define_extension, section, shared_section, wrap_section};
 use crate::harness::tests::support::{
     add_section, context, create_registry, empty_object_schema, open_harness, user,
     OpenHarnessOptions,
@@ -360,6 +362,43 @@ fn replays_sections_in_place_deletes_on_null_and_appends_re_additions() {
         system(&[("a", Some("10"))]),
     ]);
     assert_eq!(shown, desired_map(&[("b", "20"), ("c", "3"), ("a", "10")]));
+}
+
+/// eukhe addition: the breakpoint is the last of the leading shared
+/// sections of the leading system message.
+#[test]
+fn the_cache_breakpoint_ends_the_leading_shared_sections() {
+    let text = |_: &PromptInput, _: &Context| ready(Ok(Some("t".to_owned()))).boxed();
+    let sections = [
+        shared_section("a", text),
+        shared_section("b", text),
+        section("c", text, None),
+        shared_section("d", text),
+    ];
+    let system = |content: &str, keys: &[&str]| {
+        Message::System(SystemMessage {
+            content: SystemContent::from(content),
+            sections: Some(patch(
+                &keys.iter().map(|key| (*key, Some("t"))).collect::<Vec<_>>(),
+            )),
+            tools_added: None,
+            tools_removed: None,
+            timestamp: 1,
+        })
+    };
+    let breakpoint = |messages: &[Message]| system_cache_breakpoint(&sections, messages);
+    assert_eq!(
+        breakpoint(&[system("", &["a", "b", "c", "d"]), user("x").into()]),
+        Some("b".to_owned())
+    );
+    // A shared section after a per-session one stays after the mark.
+    assert_eq!(
+        breakpoint(&[system("", &["b", "d", "c"])]),
+        Some("d".to_owned())
+    );
+    assert_eq!(breakpoint(&[system("", &["c", "a"])]), None);
+    assert_eq!(breakpoint(&[system("Base.", &["a", "b"])]), None);
+    assert_eq!(breakpoint(&[user("x").into()]), None);
 }
 
 #[tokio::test]

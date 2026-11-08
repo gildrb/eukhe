@@ -1,13 +1,11 @@
-# runners: the model of the tools that run code (docs/tools.md, S7;
-# crates/eukhe-core/src/durable/runner.rs).
+# runners: the model of the tools that run code (crates/eukhe-core/src/durable/runner.rs).
 #
 # 1. The registry. A tool has a name, its caps (the effects the code it
 #    runs may have, as effect codes) and how the approval gate covers that
 #    code. `registry` is every tool a session installs, in install order,
-#    as crates/eukhe-core/src/durable/registry.rs installs them; the
-#    registry bridge test dumps the real one and compares. `main_roster`
-#    is the roster of main (a root session in the `main-worker` shape):
-#    read-only tools and the worker tools only.
+#    as crates/eukhe-core/src/durable/registry.rs installs them.
+#    `main_roster` is the roster of main (a root session in the
+#    `main-worker` shape): read-only tools and the worker tools only.
 # 2. The cell gate. A tool the gate covers at each call (`ipython`) runs
 #    its code unasked only when its caps are within the auto set. Else it
 #    asks the attached client, and runs only when the user approves.
@@ -76,26 +74,21 @@ def gated(+t: Tool) -> Bool:
 def plain(name: String) -> Tool:
   Tool{name, Nil{}, Ungated{}}
 
-# the tools of the chat memory (`eukhe.optchat`): only a session that has
-# chat memory installs them
-def chat.tools(chat: Bool) -> List<&2, Tool>:
-  match chat:
-    case True{}:
-      [plain("zoom"), plain("date")]
-    case False{}:
-      []
-
 # every tool a session installs, in install order (crates/eukhe-core/src/
-# durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` when chat holds,
-# `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`, `eukhe.dyn`,
-# `codemode` (its script runs no program itself: each tool it calls runs
-# through that tool's gate; its model tools `classify` and
-# `generateImages` call a model). The `workflow` script runs no program
-# either: its agents are child sessions with their own gates. A session
-# outside the `main-worker` shape's main (a `single` session, every child)
-# has no worker tool.
-def registry(chat: Bool) -> List<&2, Tool>:
-  Tool{"ipython", [exec()], EachCall{}} <> List.append(&2, Tool, chat.tools(chat), [
+# durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` (`zoom` and `date`,
+# with or without chat memory: a subagent offers its parent's tool list;
+# without chat memory they refuse at call time), `eukhe.workflow`,
+# `eukhe.documents`, `eukhe.shell`, `eukhe.dyn`, `codemode` (its script
+# runs no program itself: each tool it calls runs through that tool's
+# gate; its model tools `classify` and `generateImages` call a model).
+# The `workflow` script runs no program either: its agents are child
+# sessions with their own gates. A session outside the `main-worker`
+# shape's main (a `single` session, every child) has no worker tool.
+def registry() -> List<&2, Tool>:
+  [
+    Tool{"ipython", [exec()], EachCall{}},
+    plain("zoom"),
+    plain("date"),
     plain("workflow"),
     plain("read"),
     plain("edit"),
@@ -106,7 +99,7 @@ def registry(chat: Bool) -> List<&2, Tool>:
     plain("codemode"),
     plain("pi.codemode.models.classify"),
     plain("pi.codemode.models.generateImages"),
-  ])
+  ]
 
 # the worker tools (`eukhe.children`): main's hand-overs to its workers
 def worker.tools() -> List<&2, Tool>:
@@ -115,6 +108,15 @@ def worker.tools() -> List<&2, Tool>:
 # the read-only tools of `eukhe.documents`, in install order
 def read.tools() -> List<&2, Tool>:
   [plain("read"), plain("grep"), plain("glob")]
+
+# the tools of the chat memory (`eukhe.optchat`) on main's roster: main
+# offers them only when it has chat memory
+def chat.tools(chat: Bool) -> List<&2, Tool>:
+  match chat:
+    case True{}:
+      [plain("zoom"), plain("date")]
+    case False{}:
+      []
 
 # main's roster (a root session in the `main-worker` shape), in install
 # order: the chat memory's tools when chat holds, the worker tools, the

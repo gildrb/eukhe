@@ -10,6 +10,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/skill_load.bend as SkillLoad
 import ../../laws/wire.bend as Wire
+import ../base/terms.bend as LT
 
 # Logic
 # -----
@@ -382,3 +383,79 @@ def sl.text_rt(m: Maybe<&2, String>, +rest: String, h: {SkillLoad.text_fits(m) =
     case Some{+x}:
       %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, rest)), Wr.Got{x, rest}, Wire.wire_str_round_trip(x, rest, h)) : {Wr.Got{Some{x}, rest} == FSk.get_text.some(_) : Wr.Dec<Maybe<&2, String>>}
       {==}
+
+# Membership
+# ----------
+
+def sl.same_refl(c: Sk.Cand) -> {True{} == SkillLoad.same_cand(c, c) : Bool}:
+  match c:
+    case Sk.Cand{+p, +o}:
+      %LT.lt.eq_refl(p) : {True{} == Bool.and(_, Nat.is_eq(SkillLoad.outcome_tag(o), SkillLoad.outcome_tag(o))) : Bool}
+      LT.lt.eq_refl(SkillLoad.outcome_tag(o))
+
+def sl.tag_true(o: Sk.Outcome, u: Sk.Outcome, h: {Nat.is_eq(SkillLoad.outcome_tag(o), SkillLoad.outcome_tag(u)) == True{} : Bool}) -> {o == u : Sk.Outcome}:
+  match o u:
+    case Sk.Good{} Sk.Good{}:
+      {==}
+    case Sk.Good{} Sk.Unreadable{}:
+      LT.lt.absurd({Sk.Good{} == Sk.Unreadable{} : Sk.Outcome}, h)
+    case Sk.Good{} Sk.Malformed{}:
+      LT.lt.absurd({Sk.Good{} == Sk.Malformed{} : Sk.Outcome}, h)
+    case Sk.Good{} Sk.Incomplete{}:
+      LT.lt.absurd({Sk.Good{} == Sk.Incomplete{} : Sk.Outcome}, h)
+    case Sk.Unreadable{} Sk.Good{}:
+      LT.lt.absurd({Sk.Unreadable{} == Sk.Good{} : Sk.Outcome}, h)
+    case Sk.Unreadable{} Sk.Unreadable{}:
+      {==}
+    case Sk.Unreadable{} Sk.Malformed{}:
+      LT.lt.absurd({Sk.Unreadable{} == Sk.Malformed{} : Sk.Outcome}, h)
+    case Sk.Unreadable{} Sk.Incomplete{}:
+      LT.lt.absurd({Sk.Unreadable{} == Sk.Incomplete{} : Sk.Outcome}, h)
+    case Sk.Malformed{} Sk.Good{}:
+      LT.lt.absurd({Sk.Malformed{} == Sk.Good{} : Sk.Outcome}, h)
+    case Sk.Malformed{} Sk.Unreadable{}:
+      LT.lt.absurd({Sk.Malformed{} == Sk.Unreadable{} : Sk.Outcome}, h)
+    case Sk.Malformed{} Sk.Malformed{}:
+      {==}
+    case Sk.Malformed{} Sk.Incomplete{}:
+      LT.lt.absurd({Sk.Malformed{} == Sk.Incomplete{} : Sk.Outcome}, h)
+    case Sk.Incomplete{} Sk.Good{}:
+      LT.lt.absurd({Sk.Incomplete{} == Sk.Good{} : Sk.Outcome}, h)
+    case Sk.Incomplete{} Sk.Unreadable{}:
+      LT.lt.absurd({Sk.Incomplete{} == Sk.Unreadable{} : Sk.Outcome}, h)
+    case Sk.Incomplete{} Sk.Malformed{}:
+      LT.lt.absurd({Sk.Incomplete{} == Sk.Malformed{} : Sk.Outcome}, h)
+    case Sk.Incomplete{} Sk.Incomplete{}:
+      {==}
+
+def sl.same_true(a: Sk.Cand, b: Sk.Cand, +h: {SkillLoad.same_cand(a, b) == True{} : Bool}) -> {a == b : Sk.Cand}:
+  match a:
+    case Sk.Cand{+p, +o}:
+      match b:
+        case Sk.Cand{+q, +u}:
+          +tags = Nat.is_eq(SkillLoad.outcome_tag(o), SkillLoad.outcome_tag(u))
+          %LT.lt.eq_true(p, q, LT.lt.and_l(Nat.is_eq(p, q), tags, h)) : {Sk.Cand{p, o} == Sk.Cand{_, u} : Sk.Cand}
+          %sl.tag_true(o, u, LT.lt.and_r(Nat.is_eq(p, q), tags, h)) : {Sk.Cand{p, o} == Sk.Cand{p, _} : Sk.Cand}
+          {==}
+
+# c in cs makes mem_spec true
+def sl.in_sound(+c: Sk.Cand, cs: List<&2, Sk.Cand>, i: Sk.In(c, cs)) -> {SkillLoad.mem_spec(c, cs) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      Empty.absurd({SkillLoad.mem_spec(c, Nil{}) == True{} : Bool}, i)
+    case +x <> rest:
+      match i:
+        case Inl{eq}:
+          %eq : {Bool.or(SkillLoad.same_cand(c, _), SkillLoad.mem_spec(c, rest)) == True{} : Bool}
+          %sl.same_refl(c) : {Bool.or(_, SkillLoad.mem_spec(c, rest)) == True{} : Bool}
+          {==}
+        case Inr{it}:
+          LT.lt.or_r(SkillLoad.same_cand(c, x), SkillLoad.mem_spec(c, rest), sl.in_sound(c, rest, it))
+
+# mem_spec true makes c in cs
+def sl.in_complete(+c: Sk.Cand, cs: List<&2, Sk.Cand>, h: {SkillLoad.mem_spec(c, cs) == True{} : Bool}) -> Sk.In(c, cs):
+  match cs:
+    case Nil{}:
+      LT.lt.absurd(Sk.In(c, Nil{}), h)
+    case +x <> rest:
+      LT.lt.or_elim({SkillLoad.same_cand(c, x) == True{} : Bool}, {SkillLoad.mem_spec(c, rest) == True{} : Bool}, Sk.In(c, x <> rest), LT.lt.or_cases(SkillLoad.same_cand(c, x), SkillLoad.mem_spec(c, rest), h), e => Inl{sl.same_true(c, x, e)}, r => Inr{sl.in_complete(c, rest, r)})

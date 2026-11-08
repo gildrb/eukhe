@@ -1,0 +1,7 @@
+# every role's own setting, then the all-roles setting (0 | 1, n): every
+# selector at its largest; a 15-digit selector
+call 1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},
+call 0,0,0,0,0,0,0,0,0,0,1,{MAX},1,{MAX},1,{MAX},
+call 0,0,0,0,0,0,0,0,0,0,0,0,1,{MAX},
+refuse 1,{LONG},0,0,0,0,0,0,0,0,0,0,0,0,
+refuse {MAX},

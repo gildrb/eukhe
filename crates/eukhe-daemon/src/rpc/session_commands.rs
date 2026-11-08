@@ -17,6 +17,7 @@ use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
 use serde_json::{json, Value};
 
 use super::commands::RpcState;
+use super::error::RpcCommandError;
 use super::protocol::ResponseData;
 use super::reads::{
     agent_model, context_messages, history_entries, last_assistant_text, main_agent, rpc_context,
@@ -27,30 +28,17 @@ use crate::state_getters::context_usage;
 use crate::worker::durable_host::meta::set_session_name as persist_session_name;
 use crate::worker::durable_host::wire_messages::transcript_messages;
 
-/// The TS in-process error texts for the daemon-mode surfaces
-/// (`InProcessAgentConnection`'s throws, verbatim).
-const CRON_REQUIRES_DAEMON: &str = "Cron jobs require daemon mode";
-const HEARTBEATS_REQUIRE_DAEMON: &str = "Heartbeats require daemon mode";
-const AGENT_MESSAGING_REQUIRES_DAEMON: &str = "Agent messaging requires daemon mode";
-/// The in-process bash executor is not ported to the Rust session engine
-/// yet (TS `AgentSession.executeBash`); the daemon-attached transport
-/// serves the command over the worker's bash slot.
-const BASH_BACKEND_GAP: &str = "Bash execution requires the session bash executor, which is not linked into the in-process RPC transport yet; the daemon-attached RPC transport serves it";
-/// The fork refusal for an entry that is not a user message of the
-/// session (TS `runtimeHost.fork`).
-const INVALID_FORK_ENTRY: &str = "Invalid entry ID for forking";
-
 /// Handle one session-level command.
 ///
 /// # Errors
 ///
 /// Returns the TS in-process error text for the daemon-mode surfaces and
 /// the session-level handlers' own errors.
-pub async fn handle(
+pub(crate) async fn handle(
     state: &Arc<RpcState>,
     name: &str,
     payload: &Value,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     match name {
         "switch_session" => switch_session(state, payload).await,
         "fork" => fork(state, payload).await,
@@ -68,15 +56,15 @@ pub async fn handle(
         "list_schedules" => Ok(ResponseData::Present(json!({ "jobs": [] }))),
         "list_heartbeats" => Ok(ResponseData::Present(json!({ "heartbeats": [] }))),
         "get_heartbeat" => Ok(ResponseData::Present(json!({ "heartbeat": Value::Null }))),
-        "add_schedule" | "cancel_schedule" => Err(CRON_REQUIRES_DAEMON.to_string()),
+        "add_schedule" | "cancel_schedule" => Err(RpcCommandError::CronRequiresDaemon),
         "set_heartbeat" | "update_heartbeat" | "manage_heartbeat" => {
-            Err(HEARTBEATS_REQUIRE_DAEMON.to_string())
+            Err(RpcCommandError::HeartbeatsRequireDaemon)
         }
         "send_message"
         | "agent_messages_status"
         | "agent_messages_pause"
         | "agent_messages_resume"
-        | "agent_messages_clear" => Err(AGENT_MESSAGING_REQUIRES_DAEMON.to_string()),
+        | "agent_messages_clear" => Err(RpcCommandError::AgentMessagingRequiresDaemon),
         // The in-process session hosts no family, so no active session
         // is observable: the TS `watchSession` miss for an unknown child
         // id is the exact answer here.
@@ -85,25 +73,30 @@ pub async fn handle(
                 .get("activeSessionId")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            Err(format!("Unknown active session: {id}"))
+            Err(RpcCommandError::UnknownActiveSession { id: id.to_string() })
         }
         // TS `stopObservation` of a session this connection never
         // observed: a no-op success; `abort_bash` aborts nothing
         // in-process (no bash slot exists) and answers the same.
         "unobserve" | "abort_bash" => Ok(ResponseData::Absent),
-        "bash" => Err(BASH_BACKEND_GAP.to_string()),
-        unknown => Err(format!("Unknown command: {unknown}")),
+        "bash" => Err(RpcCommandError::BashBackendGap),
+        unknown => Err(RpcCommandError::UnknownCommand {
+            command: unknown.to_string(),
+        }),
     }
 }
 
 /// `switch_session` (TS `runtimeHost.switchSession`): open the session (a
 /// durable storage directory or a legacy file) as the connection's
 /// replacement session.
-async fn switch_session(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn switch_session(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
     let session_path = payload
         .get("sessionPath")
         .and_then(Value::as_str)
-        .ok_or_else(|| "switch_session requires a sessionPath".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("switch_session", "a sessionPath"))?;
     state
         .session
         .replace(RpcEngineRequest::Open {
@@ -152,11 +145,11 @@ fn user_entry_text(entry: &EntryRecord) -> Option<String> {
 /// entry): fork the main conversation just before the user entry (at its
 /// predecessor, or empty when it is the first entry) and move the
 /// connection onto the fork; the selected text rides the response.
-async fn fork(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn fork(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, RpcCommandError> {
     let entry_id = payload
         .get("entryId")
         .and_then(parse_entry_id)
-        .ok_or_else(|| "fork requires an entryId".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("fork", "an entryId"))?;
     // One replacement lease across the history read AND the fork: a
     // switch_session or new_session landing between them would fork the
     // retired session at the entry validated on the live one.
@@ -165,8 +158,8 @@ async fn fork(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, St
     let index = history
         .iter()
         .position(|entry| entry.id == entry_id)
-        .ok_or_else(|| INVALID_FORK_ENTRY.to_string())?;
-    let text = user_entry_text(&history[index]).ok_or_else(|| INVALID_FORK_ENTRY.to_string())?;
+        .ok_or(RpcCommandError::InvalidForkEntry)?;
+    let text = user_entry_text(&history[index]).ok_or(RpcCommandError::InvalidForkEntry)?;
     let point = match index.checked_sub(1) {
         Some(previous) => ForkPoint::Entry(history[previous].id),
         None => ForkPoint::Start,
@@ -181,11 +174,11 @@ async fn fork(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, St
 /// `clone` (TS `connection.clone` -> `fork(leafId, { position: "at" })`):
 /// fork at the latest entry; a session without entries answers the TS
 /// error.
-async fn clone(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn clone(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let lease = state.session.replacement_lease().await;
     let history = history_entries(&state.session.session().await.main(), &rpc_context()).await?;
     if history.is_empty() {
-        return Err("Cannot clone session: no current entry selected".to_string());
+        return Err(RpcCommandError::CloneWithoutEntries);
     }
     fork_at(state, ForkPoint::Latest).await?;
     drop(lease);
@@ -197,27 +190,23 @@ async fn clone(state: &Arc<RpcState>) -> Result<ResponseData, String> {
 /// directory the connection switches onto (TS forks into a new session
 /// file); an in-memory session forks its main conversation in place and
 /// the pump follows the new main.
-async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), String> {
+async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), RpcCommandError> {
     let cx = rpc_context();
     let session = state.session.session().await;
     let main = session.main();
-    main.wait_for_idle(&cx)
-        .await
-        .map_err(|error| error.to_string())?;
+    main.wait_for_idle(&cx).await?;
     let Some(storage_dir) = session.deps().storage_dir.clone() else {
         let _ops = state.session_ops.lock().await;
-        fork_main_conversation(session.harness(), &main, point, None, &cx)
-            .await
-            .map_err(|error| error.to_string())?;
-        session
-            .reload_main(&cx)
-            .await
-            .map_err(|error| error.to_string())?;
-        return state.session.reattach_pump(&session).await;
+        fork_main_conversation(session.harness(), &main, point, None, &cx).await?;
+        session.reload_main(&cx).await?;
+        return Ok(state.session.reattach_pump(&session).await?);
     };
-    let sessions_dir = storage_dir
-        .parent()
-        .ok_or_else(|| format!("Session storage {} has no parent", storage_dir.display()))?;
+    let sessions_dir =
+        storage_dir
+            .parent()
+            .ok_or_else(|| RpcCommandError::StorageWithoutParent {
+                dir: storage_dir.clone(),
+            })?;
     let forked_dir = sessions_dir.join(uuid::Uuid::now_v7().to_string());
     fork_session(
         &SessionLocation::Durable(storage_dir.clone()),
@@ -226,21 +215,20 @@ async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), String> 
         &forked_dir,
         &cx,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await?;
     drop(session);
-    state
+    Ok(state
         .session
         .replace_locked(RpcEngineRequest::Open {
             session_path: forked_dir,
             reuse_lease: false,
         })
-        .await
+        .await?)
 }
 
 /// `get_fork_messages` (TS `getUserMessagesForForking`): the user
 /// messages with text, oldest first.
-async fn get_fork_messages(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn get_fork_messages(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let history = history_entries(&state.session.session().await.main(), &rpc_context()).await?;
     let messages: Vec<Value> = history
         .iter()
@@ -254,7 +242,7 @@ async fn get_fork_messages(state: &Arc<RpcState>) -> Result<ResponseData, String
 
 /// `get_last_assistant_text` (TS `getLastAssistantText`): the last
 /// assistant message's concatenated text.
-async fn get_last_assistant_text(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn get_last_assistant_text(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let messages = context_messages(&state.session.session().await.main(), &rpc_context()).await?;
     Ok(ResponseData::Present(
         json!({ "text": last_assistant_text(&messages) }),
@@ -263,23 +251,24 @@ async fn get_last_assistant_text(state: &Arc<RpcState>) -> Result<ResponseData, 
 
 /// `set_session_name` (TS `session.setSessionName`): the durable session
 /// name plus the `session_info_changed` event.
-async fn set_session_name(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn set_session_name(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
     let name = payload
         .get("name")
         .and_then(Value::as_str)
         .map(str::trim)
-        .ok_or_else(|| "set_session_name requires a name".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("set_session_name", "a name"))?;
     if name.is_empty() {
-        return Err("Session name cannot be empty".to_string());
+        return Err(RpcCommandError::EmptySessionName);
     }
     // Serialize the rename with any whole-session replacement: a switch
     // between the write and the event would publish the retired
     // session's name as the live session's.
     let _lease = state.session.replacement_lease().await;
     let session = state.session.session().await;
-    persist_session_name(session.harness(), Some(name.to_string()), &rpc_context())
-        .await
-        .map_err(|error| error.to_string())?;
+    persist_session_name(session.harness(), Some(name.to_string()), &rpc_context()).await?;
     state
         .session
         .outputs()
@@ -291,7 +280,7 @@ async fn set_session_name(state: &Arc<RpcState>, payload: &Value) -> Result<Resp
 
 /// `get_messages` (TS `session.state.messages`): the main conversation's
 /// active context.
-async fn get_messages(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn get_messages(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let messages = context_messages(&state.session.session().await.main(), &rpc_context()).await?;
     Ok(ResponseData::Present(json!({ "messages": messages })))
 }
@@ -299,13 +288,16 @@ async fn get_messages(state: &Arc<RpcState>) -> Result<ResponseData, String> {
 /// `export_html` (TS `session.exportToHtml`): the standalone viewer file
 /// over the main conversation; the response carries the written path. A
 /// relative output path lands under the SESSION's project.
-async fn export_html(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn export_html(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
     let output_path = payload.get("outputPath").and_then(Value::as_str);
     let handle = state.session.handle().await;
     let session = &handle.session;
     let deps = session.deps();
     if deps.storage_dir.is_none() {
-        return Err("Cannot export an in-memory session".to_string());
+        return Err(RpcCommandError::ExportInMemory);
     }
     let output_path = output_path.map(|path| {
         let path = Path::new(path);
@@ -323,7 +315,7 @@ async fn export_html(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseD
         &rpc_context(),
     )
     .await
-    .map_err(|error| format!("{error:#}"))?;
+    .map_err(|source| RpcCommandError::Export { source })?;
     Ok(ResponseData::Present(json!({ "path": path })))
 }
 
@@ -390,7 +382,7 @@ fn message_stats(messages: &[Value]) -> Value {
 }
 
 /// `get_session_stats` (TS `getSessionStats` over `state.messages`).
-async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let handle = state.session.handle().await;
     let session = &handle.session;
     let deps = session.deps();
@@ -398,8 +390,7 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
     let view = session
         .main()
         .context(&cx, ContextOptions::default())
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     let messages = transcript_messages(&view.entries);
     let agent = main_agent(session, &cx).await?;
     let mut session_stats = json!({
@@ -423,7 +414,7 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
 
 /// `get_commands` (TS `createAgentConnectionCommands`): prompt
 /// templates, then skills.
-async fn get_commands(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn get_commands(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let session = state.session.session().await;
     let resources = &session.deps().resources;
     let mut commands: Vec<Value> = Vec::new();

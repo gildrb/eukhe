@@ -5,9 +5,11 @@
 //!   and opinionated guidelines, then the per-model additions from the
 //!   model-prompts TOML rule map ([`model_prompts`]). It never varies per
 //!   session for one model, so providers can cache it.
-//! - the **dynamic tail** carries everything session-specific (packages,
-//!   project context, skills inventory, MCP servers, environment, role) and
-//!   is appended after the static prefix, in that order.
+//! - the **dynamic tail** follows, by how often each part changes: what is
+//!   stable for an install (packages, skills inventory, MCP servers, role),
+//!   closed by the **`<critical>` block** (`layers/critical.md`), then what
+//!   is stable for a project (its instructions files, the environment).
+//!   Nothing varies per session, so a project's sessions share one cache.
 //!
 //! `system_prompt_breakdown` exposes the per-layer segments so the CLI can
 //! dump exactly what the model sees; the cache-safety and tool-surface guard
@@ -20,6 +22,7 @@ pub mod model_prompts;
 pub mod system_prompt;
 
 pub use system_prompt::{
-    build_system_prompt, system_prompt_breakdown, BuildSystemPromptOptions, PromptOrigin,
-    PromptSegment, SegmentKind, ShapeRole, SourcedPrompt, SystemPromptBreakdown, REFINE_SKILL_NAME,
+    build_system_prompt, closing_block, system_prompt_breakdown, BuildSystemPromptOptions,
+    PromptOrigin, PromptSegment, SegmentKind, ShapeRole, SourcedPrompt, SystemPromptBreakdown,
+    CLOSING_SEGMENT, REFINE_SKILL_NAME,
 };

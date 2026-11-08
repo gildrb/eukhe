@@ -7,7 +7,7 @@
 import Base
 import ../../bend/ffi_screen.bend as FSc
 import ../../bend/wire.bend as Wr
-import ../../laws/screen.bend as Screen
+import ../../laws/screen/interface.bend as Screen
 import ./screen_ffi_answers_spelled/spell.bend as SP
 
 def Screen.screen_ffi_answers_spelled(q, fits):

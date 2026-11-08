@@ -36,7 +36,9 @@ use super::models::{
     catalog_call, model_call_tool, CATALOG_GLOBALS, CODEMODE_INTERNAL_PREFIX, GENERATE_IMAGES_TOOL,
     MAX_CONCURRENT_MODEL_CALLS, MODEL_CALL_GLOBALS,
 };
-use super::output::{format_result, FormatOptions, OutputFiles, DEFAULT_MAX_OUTPUT_TOKENS};
+use super::output::{
+    format_result, FormatOptions, OutputFiles, OutputWriteError, DEFAULT_MAX_OUTPUT_TOKENS,
+};
 use super::sandbox::{CodemodeRun, CodemodeRunEvent, CodemodeRunHandle, CodemodeRunOptions};
 use super::source::parse_codemode_source;
 use super::tool::{CodemodeToolOptions, CODEMODE_MODULE_VERSION, OUTPUT_LIMITS};
@@ -1192,13 +1194,20 @@ impl CodemodeCall {
             .tools
             .iter()
             .any(|tool| tool.name == name && tool.structured);
-        let args: Result<PiJsonObject, String> = match &call.args {
+        let args: Result<PiJsonObject, NestedArgumentsError> = match &call.args {
             None => Ok(PiJsonObject::new()),
             Some(JsonValue::Object(_)) => match serde_json::to_value(call.args.as_ref()) {
                 Ok(serde_json::Value::Object(object)) => Ok(object),
-                Ok(_) | Err(_) => Err(format!("Tool {name} arguments are not a JSON object")),
+                Ok(_) => Err(NestedArgumentsError::NotJsonObject {
+                    name: name.clone(),
+                    source: None,
+                }),
+                Err(source) => Err(NestedArgumentsError::NotJsonObject {
+                    name: name.clone(),
+                    source: Some(source),
+                }),
             },
-            Some(_) => Err(format!("Tool {name} arguments must be an object")),
+            Some(_) => Err(NestedArgumentsError::NotAnObject { name: name.clone() }),
         };
         let model = name.starts_with(CODEMODE_INTERNAL_PREFIX);
         let (api, cx) = (Arc::clone(&self.api), self.cx.clone());
@@ -1211,10 +1220,10 @@ impl CodemodeCall {
                 Ok(args) => args,
                 // Validation would reject arguments that are not an object;
                 // nothing is called.
-                Err(message) => {
+                Err(error) => {
                     return Ok(ToolDone {
                         outcome: CodemodeOutcome::Err {
-                            message,
+                            message: error.to_string(),
                             properties: None,
                         },
                         result: None,
@@ -1222,10 +1231,7 @@ impl CodemodeCall {
                 }
             };
             let _slot = if model {
-                let permit = slots
-                    .acquire_owned()
-                    .await
-                    .map_err(|error| SessionError::error(error.to_string()))?;
+                let permit = slots.acquire_owned().await.map_err(SessionError::other)?;
                 // The call may have stopped while this one waited: a finished
                 // script admits no new paid call.
                 if stopped.load(Ordering::SeqCst)
@@ -1262,8 +1268,8 @@ impl CodemodeCall {
         if DISCOVERY_GLOBALS.contains(&name.as_str()) {
             let outcome = match discover(&self.start, &name, args.as_ref()) {
                 Ok(value) => CodemodeOutcome::Ok { value },
-                Err(message) => CodemodeOutcome::Err {
-                    message,
+                Err(error) => CodemodeOutcome::Err {
+                    message: error.to_string(),
                     properties: None,
                 },
             };
@@ -1274,7 +1280,7 @@ impl CodemodeCall {
             return async move {
                 match catalog_call(&name, args.as_ref(), &models, &cx).await {
                     Ok(value) => Ok(CodemodeOutcome::Ok { value }),
-                    Err(message) => abort_or(&cx, message),
+                    Err(error) => abort_or(&cx, error.to_string()),
                 }
             }
             .boxed();
@@ -1507,6 +1513,20 @@ impl CodemodeCall {
     }
 }
 
+/// Why a script's tool call has no arguments object; nothing is called.
+#[derive(Debug, thiserror::Error)]
+enum NestedArgumentsError {
+    /// The object did not convert to JSON object arguments.
+    #[error("Tool {name} arguments are not a JSON object")]
+    NotJsonObject {
+        name: String,
+        #[source]
+        source: Option<serde_json::Error>,
+    },
+    #[error("Tool {name} arguments must be an object")]
+    NotAnObject { name: String },
+}
+
 /// `{ ok: false, message }`, unless `cx` was aborted: then the abort.
 fn abort_or(cx: &Context, message: String) -> SessionResult<CodemodeOutcome> {
     match cx
@@ -1564,7 +1584,7 @@ struct RunFiles {
 impl RunFiles {
     /// The run's output directory: the recorded one, else a new temp
     /// directory, recorded before any file is written.
-    async fn directory(&self, env: &Arc<dyn ExecutionEnv>) -> Result<String, String> {
+    async fn directory(&self, env: &Arc<dyn ExecutionEnv>) -> Result<String, OutputWriteError> {
         let task_id = self.api.task_id();
         let recorded = self
             .api
@@ -1580,14 +1600,14 @@ impl RunFiles {
                 &self.cx,
             )
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|source| OutputWriteError::Directory { source })?;
         if let Some(recorded) = recorded {
             return Ok(recorded);
         }
         let created = env
             .create_temp_dir(Some("pi-codemode-"), &self.cx)
             .await
-            .map_err(|error| error.message)?;
+            .map_err(|source| OutputWriteError::File { source })?;
         self.api
             .commit(
                 move |tx| async move {
@@ -1605,14 +1625,14 @@ impl RunFiles {
                 &self.cx,
             )
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|source| OutputWriteError::Directory { source })
     }
 }
 
 impl OutputFiles for RunFiles {
-    async fn write(&self, name: &str, data: &[u8]) -> Result<String, String> {
+    async fn write(&self, name: &str, data: &[u8]) -> Result<String, OutputWriteError> {
         let Some(env) = &self.env else {
-            return Err("no execution environment".to_owned());
+            return Err(OutputWriteError::NoEnvironment);
         };
         let directory = self
             .directory
@@ -1621,7 +1641,7 @@ impl OutputFiles for RunFiles {
         let path = format!("{directory}/{name}");
         env.write_file(&path, data, &self.cx)
             .await
-            .map_err(|error| error.message)?;
+            .map_err(|source| OutputWriteError::File { source })?;
         Ok(path)
     }
 }

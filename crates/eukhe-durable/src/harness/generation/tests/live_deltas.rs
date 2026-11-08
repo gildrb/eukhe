@@ -1,5 +1,5 @@
 //! Port of `test/harness-live-deltas.test.ts`. A running tool's progress
-//! reaches the live observers and never storage (docs/runtime.md S2), so
+//! reaches the live observers and never storage, so
 //! the tool steps below check the change each publication delivers and
 //! that no commit carried it.
 
@@ -256,8 +256,16 @@ async fn drive(truncation: Truncation) -> Drive {
     );
     let submission = root.submit(input("go"), context()).await.unwrap();
     let conversation = root.id();
+    // The call runs once its intent commit was RECORDED: the commit
+    // listener runs after the commit is readable, so a wait on the
+    // snapshot's status could return before the listener counted that
+    // commit, and a step's "progress commits nothing" would count it.
+    let running = json(r#"["s",["tools",0,"status"],"running"]"#);
     wait_for(
-        || async { live(&harness, conversation).await["tools"][0]["status"] == "running" },
+        || {
+            let recorded = lock(&commits).iter().any(|ops| ops.contains(&running));
+            async move { recorded }
+        },
         WAIT_MS,
     )
     .await;
@@ -607,7 +615,7 @@ async fn publishes_details_and_diagnostics_and_settles_them_with_one_commit() {
 
 /// The journal of a long streaming call: its start (the `running` slot,
 /// before the steps) and its settle; none of its many publications
-/// reaches storage (docs/runtime.md S2).
+/// reaches storage.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_streaming_call_commits_nothing_between_its_start_and_its_settle() {
     let run = drive(Truncation::default()).await;

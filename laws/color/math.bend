@@ -3,7 +3,7 @@
 import Base
 import ../../bend/color.bend as Co
 import ../../bend/ffi_color.bend as FCo
-import ../../spec/color_model.bend as Cm
+import ../../spec/theme/color.bend as Cm
 
 # The linear channel, light or dark, the xterm-256 palette
 # --------------------------------------------------------
@@ -381,7 +381,7 @@ law color_eq_spec:
   {Co.eq(a, b) == th.eq3(a, b) : Bool}
 
 # LAW color_lin_spec: the linear channel of every U32 is the table entry of its low eight
-# bits (spec/color_model.bend)
+# bits (spec/theme/color.bend)
 # EXCLUDES: a channel past 255 linearized otherwise than its low byte
 law color_lin_spec:
   for +c: U32

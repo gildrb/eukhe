@@ -3,7 +3,7 @@
 import Base
 import ../../bend/theme/file.bend as TFile
 import ../../bend/theme/palette.bend as TPalette
-import ../../spec/theme_model.bend as Tm
+import ../../spec/theme/model.bend as Tm
 import ../../laws/theme_model.bend as ThemeModel
 
 def ThemeModel.theme_fill_map_spec(cols, bg, ts):

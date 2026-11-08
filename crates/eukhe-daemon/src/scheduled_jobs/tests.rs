@@ -110,10 +110,7 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
 
     let rows = worker_rows(&worker, "eukhe.custom").await;
     let types: Vec<&Value> = rows.iter().map(|row| &row["customType"]).collect();
-    assert_eq!(
-        types,
-        [&json!("heartbeat_prompt"), &json!("harness_digest")]
-    );
+    assert_eq!(types, [&json!("heartbeat_prompt")]);
     assert_eq!(rows[0]["content"], json!(HEARTBEAT_TEXT));
     assert_eq!(rows[0]["details"]["jobId"], json!("hb-1"));
     assert_eq!(rows[0]["details"]["runCount"], json!(0));
@@ -123,7 +120,7 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
         .map(|entry| entry.kind)
         .filter(|kind| kind != "pi.system")
         .collect();
-    assert_eq!(kinds, ["eukhe.custom", "eukhe.custom", "pi.assistant"]);
+    assert_eq!(kinds, ["eukhe.custom", "pi.assistant"]);
 }
 
 /// A fire repeated for the same run (a crash before the store recorded

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/aux_fallback.bend as Af
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/model.bend as AuxFallback
 
 def paf.noted(b: Bool, k: Af.Key, t: List<&2, Af.Ev>) -> {Af.noted(b, k, t) == List.append(&2, Af.Ev, Af.noted(b, k, Nil{}), t) : List<&2, Af.Ev>}:
   match b:

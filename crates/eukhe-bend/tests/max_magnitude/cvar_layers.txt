@@ -1,0 +1,8 @@
+# every cvar id and Nat value at its largest, a request of each kind
+call 0,2,{MAX},0,1,TT0,{MAX},{MAX},0,1,TT0,{MAX},
+call 1,1,{MAX},0,1,TT0,{MAX},1,{MAX},0,{MAX},1,1,{MAX},0,{MAX},1,{MAX},0,{MAX},
+call 2,1,{MAX},1,1,TT1,F0,0,1,{MAX},
+call 3,1,{MAX},0,1,TT0,{MAX},1,{MAX},0,{MAX},
+call 4,1,{MAX},0,1,TT0,{MAX},1,{MAX},0,{MAX},0,
+call 5,1,{MAX},0,1,TT0,{MAX},1,{MAX},0,{MAX},1,{MAX},0,{MAX},
+refuse 3,0,0,{LONG},0,0,

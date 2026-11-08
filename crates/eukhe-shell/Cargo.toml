@@ -13,6 +13,8 @@ eukhe-bend.workspace = true
 # External steps run as child processes; the approval wait is async.
 tokio = { workspace = true }
 tracing.workspace = true
+# Typed step-wiring errors (pipe and redirection failures).
+thiserror.workspace = true
 # A kill reaches every process an external step starts: its own process
 # group, killed through a safe `killpg` (already in the graph). MIT.
 nix = { version = "0.29", features = ["signal"] }

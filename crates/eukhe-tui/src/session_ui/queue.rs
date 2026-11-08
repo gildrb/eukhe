@@ -5,8 +5,8 @@
 //! 2026-09-28: internal prompts render read-only -- the system owns
 //! them); see [`crate::queued::QueueSelectionItem::internal`].
 use super::{
-    anyhow, AgentView, DaemonCommand, Duration, Map, QueueBrowseDirection, QueueLane, Result,
-    SessionUi, Value, UI_REQUEST_TIMEOUT_MS,
+    AgentView, DaemonCommand, Duration, Map, QueueBrowseDirection, QueueLane, Result, SessionUi,
+    Value, UI_REQUEST_TIMEOUT_MS,
 };
 
 impl SessionUi {
@@ -56,8 +56,7 @@ impl SessionUi {
                     rest: Map::default(),
                 },
             )
-            .await
-            .map_err(|error| anyhow!("{error:#}"))?;
+            .await?;
         Ok(data
             .get("status")
             .and_then(Value::as_str)

@@ -139,17 +139,6 @@ pub struct CompactionSummary {
     pub read_files: Vec<String>,
     /// Files modified up to the compaction point.
     pub modified_files: Vec<String>,
-    /// The harness digest the summary leads with, when one rendered.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub digest: Option<HarnessDigest>,
-}
-
-/// A harness digest and the state fingerprint that produced it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HarnessDigest {
-    pub digest: String,
-    pub state_fingerprint: String,
 }
 
 /// Data of a [`USER_ENTRY`]: who produced the input. The user's own input

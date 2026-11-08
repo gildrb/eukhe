@@ -18,31 +18,30 @@ use eukhe_types::pi_ai;
 use crate::Model;
 
 /// Why a pi-ai model has no registry form.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConversionError {
-    /// The compatibility block did not serialize to a JSON object.
-    Compat { model: String, detail: String },
+    /// The compatibility block serialized to a JSON value other than an
+    /// object.
+    #[error("the compat block of {model} has no registry form: expected an object, got {value}")]
+    CompatNotAnObject {
+        model: String,
+        value: serde_json::Value,
+    },
+    /// The compatibility block did not serialize.
+    #[error("the compat block of {model} has no registry form: {source}")]
+    CompatUnserializable {
+        model: String,
+        #[source]
+        source: serde_json::Error,
+    },
 }
-
-impl std::fmt::Display for ConversionError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConversionError::Compat { model, detail } => write!(
-                formatter,
-                "the compat block of {model} has no registry form: {detail}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ConversionError {}
 
 /// The registry form of one pi-ai catalog model.
 ///
 /// # Errors
 ///
-/// Returns [`ConversionError::Compat`] when the compatibility block does
-/// not serialize to a JSON object (the registry keeps it as the raw map).
+/// Fails when the compatibility block does not serialize to a JSON object
+/// (the registry keeps it as the raw map).
 pub fn registry_model(model: &pi_ai::Model) -> Result<Model, ConversionError> {
     Ok(Model {
         id: model.id.clone(),
@@ -111,13 +110,13 @@ fn thinking_level_map(map: &pi_ai::ThinkingLevelMap) -> ThinkingLevelMap {
 fn registry_compat(id: &str, compat: &pi_ai::ModelCompat) -> Result<ModelCompat, ConversionError> {
     match serde_json::to_value(compat) {
         Ok(serde_json::Value::Object(raw)) => Ok(ModelCompat { raw }),
-        Ok(other) => Err(ConversionError::Compat {
+        Ok(value) => Err(ConversionError::CompatNotAnObject {
             model: id.to_string(),
-            detail: format!("expected an object, got {other}"),
+            value,
         }),
-        Err(error) => Err(ConversionError::Compat {
+        Err(source) => Err(ConversionError::CompatUnserializable {
             model: id.to_string(),
-            detail: error.to_string(),
+            source,
         }),
     }
 }

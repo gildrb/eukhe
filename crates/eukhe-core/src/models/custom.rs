@@ -12,11 +12,13 @@
 //! takes its view of the result.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use eukhe_ai::utils::diagnostics::Thrown;
+use eukhe_models::pi_ai_model::ConversionError;
 use eukhe_types::pi_ai::Model;
 
 use crate::auth::resolve_config_value::resolve_config_value;
@@ -85,15 +87,15 @@ pub(crate) struct ModelsConfig {
 /// and one diagnostic for each bad entry. A bad entry drops only that
 /// provider. A file that cannot be read or parsed is one diagnostic and
 /// no providers. A missing file is the empty document.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct ModelsJsonLoad {
     pub config: ModelsConfig,
-    pub diagnostics: Vec<String>,
+    pub diagnostics: Vec<ModelsJsonError>,
 }
 
 impl ModelsJsonLoad {
     /// The load of a file that gives no providers, for `diagnostic`.
-    fn failed(diagnostic: String) -> Self {
+    fn failed(diagnostic: ModelsJsonError) -> Self {
         Self {
             config: ModelsConfig::default(),
             diagnostics: vec![diagnostic],
@@ -101,9 +103,99 @@ impl ModelsJsonLoad {
     }
 }
 
-/// The diagnostic of the bad models.json entry `providers.<id>`.
-pub(crate) fn provider_diagnostic(id: &str, error: &str) -> String {
-    format!("models.json providers.{id}: {error}")
+/// A models.json diagnostic: the file gives no providers, or one
+/// `providers.<id>` entry is dropped.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ModelsJsonError {
+    /// The file is there, but it cannot be read.
+    #[error("models.json could not be read ({}): {source}", path.display())]
+    Unreadable {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The file (comments and trailing commas stripped) is not JSON.
+    #[error("models.json is not valid JSON: {0}")]
+    InvalidJson(#[source] serde_json::Error),
+    /// The document is not a JSON object.
+    #[error("models.json is not a JSON object")]
+    NotAnObject,
+    /// The document's `providers` is not a JSON object.
+    #[error("models.json \"providers\" is not a JSON object")]
+    ProvidersNotAnObject,
+    /// The entry `providers.<id>` is dropped.
+    #[error("models.json providers.{id}: {source}")]
+    Provider {
+        id: String,
+        #[source]
+        source: ProviderError,
+    },
+}
+
+/// Why one models.json `providers.<id>` entry does not load or compose.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ProviderError {
+    /// The entry does not match the provider schema.
+    #[error("{0}")]
+    Schema(#[source] serde_json::Error),
+    /// The entry configures nothing.
+    #[error(
+        "must specify \"baseUrl\", \"headers\", \"compat\", \"modelOverrides\", or \"models\"."
+    )]
+    NothingConfigured,
+    /// A custom provider defines models without `baseUrl`.
+    #[error("\"baseUrl\" is required when defining custom models.")]
+    MissingBaseUrl,
+    /// A custom provider defines models without `apiKey`.
+    #[error("\"apiKey\" is required when defining custom models.")]
+    MissingApiKey,
+    /// A custom provider's model has no `api` at either level.
+    #[error("model {model}: no \"api\" specified. Set at provider or model level.")]
+    MissingApi { model: String },
+    /// A model definition has an empty `id`.
+    #[error("model missing \"id\"")]
+    MissingModelId,
+    /// A model definition sets `contextWindow` to 0.
+    #[error("model {model}: invalid contextWindow")]
+    InvalidContextWindow { model: String },
+    /// A model definition sets `maxTokens` to 0.
+    #[error("model {model}: invalid maxTokens")]
+    InvalidMaxTokens { model: String },
+    /// A composed model is not a valid model.
+    #[error(transparent)]
+    Model(#[from] ModelBuildError),
+    /// A composed model has no registry form.
+    #[error(transparent)]
+    RegistryForm(#[from] ConversionError),
+    /// The built-in provider's models could not be listed.
+    #[error(transparent)]
+    BaseModels(Thrown),
+}
+
+/// Why composing a model from models.json fails.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ModelBuildError {
+    /// A built-in model did not serialize.
+    #[error("{0}")]
+    BuiltInUnserializable(#[source] serde_json::Error),
+    /// A built-in model serialized to a JSON value other than an object.
+    #[error("a built-in model did not serialize to an object")]
+    BuiltInNotAnObject,
+    /// The composed wire JSON is not a valid model.
+    #[error("Provider {provider}, model {id}: {source}")]
+    InvalidModel {
+        provider: String,
+        id: String,
+        #[source]
+        source: serde_json::Error,
+    },
+}
+
+/// `authHeader` is set, and no API key resolved for the provider.
+#[derive(Debug, thiserror::Error)]
+#[error("No API key found for \"{provider}\"")]
+pub(crate) struct MissingBearerKey {
+    pub provider: String,
 }
 
 impl ModelsConfig {
@@ -114,10 +206,10 @@ impl ModelsConfig {
         match std::fs::read_to_string(path) {
             Ok(content) => Self::parse(&content, is_built_in),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => ModelsJsonLoad::default(),
-            Err(error) => ModelsJsonLoad::failed(format!(
-                "models.json could not be read ({}): {error}",
-                path.display()
-            )),
+            Err(source) => ModelsJsonLoad::failed(ModelsJsonError::Unreadable {
+                path: path.to_path_buf(),
+                source,
+            }),
         }
     }
 
@@ -125,21 +217,15 @@ impl ModelsConfig {
     fn parse(content: &str, is_built_in: &dyn Fn(&str) -> bool) -> ModelsJsonLoad {
         let document: Value = match serde_json::from_str(&strip_json_comments(content)) {
             Ok(document) => document,
-            Err(error) => {
-                return ModelsJsonLoad::failed(format!("models.json is not valid JSON: {error}"))
-            }
+            Err(error) => return ModelsJsonLoad::failed(ModelsJsonError::InvalidJson(error)),
         };
         let Value::Object(mut document) = document else {
-            return ModelsJsonLoad::failed("models.json is not a JSON object".to_owned());
+            return ModelsJsonLoad::failed(ModelsJsonError::NotAnObject);
         };
         let entries = match document.remove("providers") {
             None => return ModelsJsonLoad::default(),
             Some(Value::Object(entries)) => entries,
-            Some(_) => {
-                return ModelsJsonLoad::failed(
-                    "models.json \"providers\" is not a JSON object".to_owned(),
-                )
-            }
+            Some(_) => return ModelsJsonLoad::failed(ModelsJsonError::ProvidersNotAnObject),
         };
         let mut load = ModelsJsonLoad::default();
         for (id, entry) in entries {
@@ -149,7 +235,7 @@ impl ModelsConfig {
                 ProviderOrigin::Custom
             };
             let checked = serde_json::from_value::<ProviderConfig>(entry)
-                .map_err(|error| error.to_string())
+                .map_err(ProviderError::Schema)
                 .and_then(|provider| {
                     provider.validate(origin)?;
                     Ok(provider)
@@ -158,7 +244,9 @@ impl ModelsConfig {
                 Ok(provider) => {
                     load.config.providers.insert(id, provider);
                 }
-                Err(error) => load.diagnostics.push(provider_diagnostic(&id, &error)),
+                Err(source) => load
+                    .diagnostics
+                    .push(ModelsJsonError::Provider { id, source }),
             }
         }
         load
@@ -176,7 +264,7 @@ enum ProviderOrigin {
 impl ProviderConfig {
     /// TS `validateConfig` for one provider entry: the semantic checks
     /// beyond the schema.
-    fn validate(&self, origin: ProviderOrigin) -> Result<(), String> {
+    fn validate(&self, origin: ProviderOrigin) -> Result<(), ProviderError> {
         let models = self.models.as_deref().unwrap_or_default();
         let has_model_overrides = self
             .model_overrides
@@ -188,34 +276,34 @@ impl ProviderConfig {
                 && self.compat.is_none()
                 && !has_model_overrides
             {
-                return Err(
-                    "must specify \"baseUrl\", \"headers\", \"compat\", \"modelOverrides\", or \"models\"."
-                        .to_owned(),
-                );
+                return Err(ProviderError::NothingConfigured);
             }
         } else if origin == ProviderOrigin::Custom {
             if self.base_url.is_none() {
-                return Err("\"baseUrl\" is required when defining custom models.".to_owned());
+                return Err(ProviderError::MissingBaseUrl);
             }
             if self.api_key.is_none() {
-                return Err("\"apiKey\" is required when defining custom models.".to_owned());
+                return Err(ProviderError::MissingApiKey);
             }
         }
         for model in models {
             if self.api.is_none() && model.api.is_none() && origin == ProviderOrigin::Custom {
-                return Err(format!(
-                    "model {}: no \"api\" specified. Set at provider or model level.",
-                    model.id
-                ));
+                return Err(ProviderError::MissingApi {
+                    model: model.id.clone(),
+                });
             }
             if model.id.is_empty() {
-                return Err("model missing \"id\"".to_owned());
+                return Err(ProviderError::MissingModelId);
             }
             if model.context_window == Some(0) {
-                return Err(format!("model {}: invalid contextWindow", model.id));
+                return Err(ProviderError::InvalidContextWindow {
+                    model: model.id.clone(),
+                });
             }
             if model.max_tokens == Some(0) {
-                return Err(format!("model {}: invalid maxTokens", model.id));
+                return Err(ProviderError::InvalidMaxTokens {
+                    model: model.id.clone(),
+                });
             }
         }
         Ok(())
@@ -258,10 +346,14 @@ impl ProviderConfig {
     /// # Errors
     ///
     /// The rewritten model is not a valid model.
-    pub(crate) fn rewrite_built_in(&self, model: &impl Serialize) -> Result<Model, String> {
-        let Value::Object(mut object) = serde_json::to_value(model).map_err(|e| e.to_string())?
+    pub(crate) fn rewrite_built_in(
+        &self,
+        model: &impl Serialize,
+    ) -> Result<Model, ModelBuildError> {
+        let Value::Object(mut object) =
+            serde_json::to_value(model).map_err(ModelBuildError::BuiltInUnserializable)?
         else {
-            return Err("a built-in model did not serialize to an object".to_owned());
+            return Err(ModelBuildError::BuiltInNotAnObject);
         };
         if let Some(base_url) = &self.base_url {
             object.insert("baseUrl".to_owned(), json!(base_url));
@@ -287,7 +379,7 @@ impl ProviderConfig {
         &self,
         provider_id: &str,
         defaults: Option<(&str, &str)>,
-    ) -> Result<Vec<Model>, String> {
+    ) -> Result<Vec<Model>, ModelBuildError> {
         let mut models: Vec<Model> = Vec::new();
         for definition in self.models.iter().flatten() {
             let api = (definition.api.as_deref())
@@ -326,13 +418,14 @@ impl ProviderConfig {
                     "cacheWrite": cost.cache_write.unwrap_or(0.0),
                 }),
             );
-            object.insert(
-                "contextWindow".to_owned(),
-                json!(definition.context_window.unwrap_or(128_000)),
-            );
+            // Without `maxTokens` the window is the model's only known
+            // limit: the output cap rule then omits the field and the
+            // provider's own max applies (no made-up cap).
+            let context_window = definition.context_window.unwrap_or(128_000);
+            object.insert("contextWindow".to_owned(), json!(context_window));
             object.insert(
                 "maxTokens".to_owned(),
-                json!(definition.max_tokens.unwrap_or(16_384)),
+                json!(definition.max_tokens.unwrap_or(context_window)),
             );
             if let Some(headers) = definition.headers.as_ref().filter(|h| !h.is_empty()) {
                 object.insert("headers".to_owned(), json!(headers));
@@ -379,12 +472,14 @@ impl ProviderConfig {
         &self,
         provider_id: &str,
         api_key: Option<&str>,
-    ) -> Result<Option<(String, String)>, String> {
+    ) -> Result<Option<(String, String)>, MissingBearerKey> {
         if !self.auth_header.unwrap_or(false) {
             return Ok(None);
         }
         let Some(api_key) = api_key else {
-            return Err(format!("No API key found for \"{provider_id}\""));
+            return Err(MissingBearerKey {
+                provider: provider_id.to_owned(),
+            });
         };
         Ok(Some((
             "Authorization".to_owned(),
@@ -506,7 +601,7 @@ fn inputs(values: Option<&Vec<String>>) -> Value {
     )
 }
 
-fn model_from(object: Map<String, Value>) -> Result<Model, String> {
+fn model_from(object: Map<String, Value>) -> Result<Model, ModelBuildError> {
     let label = |key: &str| {
         object
             .get(key)
@@ -515,8 +610,11 @@ fn model_from(object: Map<String, Value>) -> Result<Model, String> {
             .to_owned()
     };
     let (provider, id) = (label("provider"), label("id"));
-    serde_json::from_value(Value::Object(object))
-        .map_err(|error| format!("Provider {provider}, model {id}: {error}"))
+    serde_json::from_value(Value::Object(object)).map_err(|source| ModelBuildError::InvalidModel {
+        provider,
+        id,
+        source,
+    })
 }
 
 /// Strip `//` line comments and trailing commas, leaving strings intact.
@@ -571,15 +669,19 @@ mod tests {
 
     fn provider(document: &str) -> ProviderConfig {
         let load = ModelsConfig::parse(document, &|_| false);
-        assert_eq!(load.diagnostics, Vec::<String>::new());
+        assert_eq!(rendered(&load.diagnostics), Vec::<String>::new());
         load.config.providers.into_values().next().unwrap()
+    }
+
+    fn rendered(diagnostics: &[ModelsJsonError]) -> Vec<String> {
+        diagnostics.iter().map(ToString::to_string).collect()
     }
 
     /// The provider ids a load keeps, and its diagnostics.
     fn kept(load: ModelsJsonLoad) -> (Vec<String>, Vec<String>) {
         (
             load.config.providers.into_keys().collect(),
-            load.diagnostics,
+            rendered(&load.diagnostics),
         )
     }
 
@@ -673,9 +775,10 @@ mod tests {
         assert_eq!(models[0].id, "llama3");
         assert_eq!(models[0].base_url, "http://localhost:11434");
         assert_eq!(models[0].context_window, 128_000);
-        // A custom model that omits `maxTokens` defaults to 16384 and stays
-        // catalog-like: only a configured value is explicit.
-        assert_eq!(models[1].max_tokens, 16_384);
+        // A custom model that omits `maxTokens` takes its context window
+        // (the only limit it declares) and stays catalog-like: only a
+        // configured value is explicit.
+        assert_eq!(models[1].max_tokens, 128_000);
         assert!(!config.configures_max_tokens("bare"));
     }
 
@@ -711,7 +814,10 @@ mod tests {
                 "models": [ { "id": "m", "thinkingLevelMap": { "ultra": "u" } } ]
             } } }"#,
         );
-        let error = config.custom_models("battery", None).unwrap_err();
+        let error = config
+            .custom_models("battery", None)
+            .unwrap_err()
+            .to_string();
         assert!(error.starts_with("Provider battery, model m: "), "{error}");
     }
 
@@ -801,7 +907,7 @@ mod tests {
         // `authHeader` needs a key: headers alone do not authenticate.
         assert!(!bearer.has_request_auth());
         assert_eq!(
-            bearer.bearer_header("p", None).unwrap_err(),
+            bearer.bearer_header("p", None).unwrap_err().to_string(),
             "No API key found for \"p\""
         );
         assert_eq!(

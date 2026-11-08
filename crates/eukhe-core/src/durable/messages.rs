@@ -14,8 +14,6 @@ pub const COMPACTION_SUMMARY_PREFIX: &str = "[compaction-summary]\n\nThe convers
 pub const COMPACTION_SUMMARY_SUFFIX: &str = "\n</summary>";
 pub const BRANCH_SUMMARY_PREFIX: &str = "[branch-summary]\n\nThe following is a summary of a branch that this conversation came back from:\n\n<summary>\n";
 pub const BRANCH_SUMMARY_SUFFIX: &str = "\n</summary>";
-pub const HARNESS_DIGEST_PREFIX: &str = "[harness-digest]\n\nThe persistent memories produced across this session so far:\n\n<harness_state>\n";
-pub const HARNESS_DIGEST_SUFFIX: &str = "\n</harness_state>";
 
 pub use eukhe_types::slash_commands::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
@@ -25,8 +23,8 @@ pub const REFINEMENT_OUTCOME_CUSTOM_TYPE: &str = "refinement_outcome";
 pub const REFINEMENT_NOTICE_CUSTOM_TYPE: &str = "refinement_notice";
 /// Audit entry type recording each applied refinement.
 pub const REFINEMENT_AUDIT_CUSTOM_TYPE: &str = "eukhe.refinement";
-/// The custom type of the harness-digest row (the model-facing digest of
-/// the continual-harness state).
+/// The custom type of the harness-digest rows older sessions carry; they
+/// never reach the model.
 pub const HARNESS_DIGEST_CUSTOM_TYPE: &str = "harness_digest";
 /// The durable single-row disclosure of one provider-retry episode
 /// (SANCTIONED DIVERGENCE from TS, operator ruling 2026-09-23: the TS chat
@@ -402,6 +400,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                         | COMPACTION_OUTCOME_CUSTOM_TYPE
                         | REFINEMENT_OUTCOME_CUSTOM_TYPE
                         | PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
+                        | HARNESS_DIGEST_CUSTOM_TYPE
                         | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
                         | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE
                         | crate::durable::compaction::auxiliary_model::AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE
@@ -430,23 +429,14 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                 timestamp: summary.timestamp,
                 rest: serde_json::Map::default(),
             }),
-            AgentMessage::CompactionSummary(summary) => {
-                let digest_block = summary
-                    .harness_digest
-                    .as_deref()
-                    .map(|digest| {
-                        format!("{HARNESS_DIGEST_PREFIX}{digest}{HARNESS_DIGEST_SUFFIX}\n\n")
-                    })
-                    .unwrap_or_default();
-                AgentMessage::User(UserMessage {
-                    content: UserContent::Blocks(vec![text_block(format!(
-                        "{digest_block}{COMPACTION_SUMMARY_PREFIX}{}{COMPACTION_SUMMARY_SUFFIX}",
-                        summary.summary
-                    ))]),
-                    timestamp: summary.timestamp,
-                    rest: serde_json::Map::default(),
-                })
-            }
+            AgentMessage::CompactionSummary(summary) => AgentMessage::User(UserMessage {
+                content: UserContent::Blocks(vec![text_block(format!(
+                    "{COMPACTION_SUMMARY_PREFIX}{}{COMPACTION_SUMMARY_SUFFIX}",
+                    summary.summary
+                ))]),
+                timestamp: summary.timestamp,
+                rest: serde_json::Map::default(),
+            }),
             AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_) => {
                 message.clone()
             }
@@ -563,8 +553,6 @@ mod tests {
                 tokens_before: 1,
                 retained_message_count: None,
                 custom_instructions: None,
-                harness_digest: Some("digest".to_string()),
-                harness_state_fingerprint: None,
                 timestamp: 0,
             }),
         ];
@@ -587,8 +575,6 @@ mod tests {
             AgentMessage::User(user) => user.content.text(),
             _ => panic!("expected user"),
         };
-        assert!(compaction.contains("[harness-digest]"));
-        assert!(compaction.contains("<harness_state>\ndigest\n</harness_state>"));
         assert!(compaction.contains("[compaction-summary]"));
         assert!(compaction.contains("the story"));
     }
@@ -685,7 +671,7 @@ mod tests {
         assert_eq!(
             message.content,
             UserContent::Text(
-                "[bash-done pid:4321 exit:0]\n\nCommand: \"sleep 12; echo RW_WAKE_DONE\""
+                "[bash-done pid:4321 exit:0]\n\nResume your work using the result below.\n\nCommand: \"sleep 12; echo RW_WAKE_DONE\""
                     .to_string()
             )
         );
@@ -697,7 +683,7 @@ mod tests {
         let message = create_job_settled_message(&bash(11, "echo \"done\" && exit 2", 2), 2_000);
         assert_eq!(message.timestamp, 2_000);
         assert!(matches!(message.content, UserContent::Text(text)
-            if text.starts_with("[bash-done pid:11 exit:2]\n\nCommand: \"echo \\\"done\\\" && exit 2\"")));
+            if text.starts_with("[bash-done pid:11 exit:2]\n\nResume your work using the result below.\n\nCommand: \"echo \\\"done\\\" && exit 2\"")));
         let details = message.details.unwrap();
         assert_eq!(details["exitCode"], 2);
     }
@@ -717,7 +703,7 @@ mod tests {
             (message.content, message.details),
             (
                 UserContent::Text(
-                    "[bash-done pid:77 exit:-15 stopped-by:agent]\n\nCommand: \"python -m http.server 8774\""
+                    "[bash-done pid:77 exit:-15 stopped-by:agent]\n\nResume your work using the result below.\n\nCommand: \"python -m http.server 8774\""
                         .to_string()
                 ),
                 Some(serde_json::json!({
@@ -741,7 +727,7 @@ mod tests {
         assert_eq!(message.custom_type, JOB_SETTLED_CUSTOM_TYPE);
         assert_eq!(
             message.content,
-            UserContent::Text("[job-settled job:cell-1 status:ok]\n\nslept\n42".to_owned())
+            UserContent::Text("[job-settled job:cell-1 status:ok]\n\nResume your work using the result below.\n\nslept\n42".to_owned())
         );
         assert_eq!(
             message.details,

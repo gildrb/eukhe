@@ -433,7 +433,7 @@ impl PackageManager {
             UserOrProject::User => crate::settings::SettingsScope::Global,
             UserOrProject::Project => crate::settings::SettingsScope::Project,
         };
-        self.settings.set_scope_packages(scope, packages)?.applied()
+        self.settings.set_scope_packages(scope, packages)
     }
 
     pub(super) fn base_dir_for_scope(&self, scope: SourceScope) -> PathBuf {

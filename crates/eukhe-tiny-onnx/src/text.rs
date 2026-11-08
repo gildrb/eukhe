@@ -411,7 +411,7 @@ impl Model {
                 Feed::State(_) => cache
                     .next()
                     .and_then(Option::take)
-                    .ok_or_else(|| "no cache value".to_owned()),
+                    .ok_or(FeedError::NoCache),
             }
             .map_err(|error| inference(format!("{name}: {error}")))?;
             feeds.push((Cow::Borrowed(name.as_str()), SessionInputValue::from(value)));
@@ -462,13 +462,33 @@ impl Model {
     }
 }
 
+/// Why a graph input could not be fed.
+#[derive(Debug, thiserror::Error)]
+enum FeedError {
+    /// A value does not fit the input's 32-bit integer type.
+    #[error("{source}")]
+    Narrow {
+        #[source]
+        source: std::num::TryFromIntError,
+    },
+    /// ONNX Runtime refused the tensor.
+    #[error("{source}")]
+    Tensor {
+        #[source]
+        source: ort::Error,
+    },
+    /// The cache has no value left for a state input.
+    #[error("no cache value")]
+    NoCache,
+}
+
 /// An integer tensor of `kind` (the values fit: token ids, positions and
 /// lengths of a prompt).
 fn int_tensor(
     kind: IntKind,
     shape: Vec<usize>,
     values: impl Iterator<Item = i64>,
-) -> Result<DynValue, String> {
+) -> Result<DynValue, FeedError> {
     match kind {
         IntKind::I64 => {
             Tensor::from_array((shape, values.collect::<Vec<i64>>())).map(Tensor::into_dyn)
@@ -477,11 +497,11 @@ fn int_tensor(
             let values = values
                 .map(i32::try_from)
                 .collect::<Result<Vec<i32>, _>>()
-                .map_err(|error| error.to_string())?;
+                .map_err(|source| FeedError::Narrow { source })?;
             Tensor::from_array((shape, values)).map(Tensor::into_dyn)
         }
     }
-    .map_err(|error| error.to_string())
+    .map_err(|source| FeedError::Tensor { source })
 }
 
 #[cfg(test)]

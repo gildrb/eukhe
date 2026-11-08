@@ -20,7 +20,7 @@
 //! with no release prints why on stderr and exits 1; bad usage exits 2.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use eukhe_bend::rules::semver::{release, Release};
@@ -34,36 +34,88 @@ fn main() -> ExitCode {
             print!("{lines}");
             ExitCode::SUCCESS
         }
-        Err(Failure::Usage(message)) => {
-            eprintln!("usage: eukhe-next-version [--workspace-version X.Y.Z] < tags\n{message}");
+        Err(error @ Failure::Usage(_)) => {
+            eprintln!("usage: eukhe-next-version [--workspace-version X.Y.Z] < tags\n{error}");
             ExitCode::from(2)
         }
-        Err(Failure::NoRelease(message)) => {
-            eprintln!("error: {message}");
+        Err(
+            error @ (Failure::Workspace(_)
+            | Failure::Stdin(_)
+            | Failure::NoVersion(_)
+            | Failure::NoSeriesStart(_)
+            | Failure::Behind { .. }
+            | Failure::Rule { .. }),
+        ) => {
+            eprintln!("error: {error}");
             ExitCode::from(1)
         }
     }
 }
 
+/// Why no release version prints: bad usage (exit 2), or no release (exit 1).
+#[derive(Debug, thiserror::Error)]
 enum Failure {
-    Usage(String),
-    NoRelease(String),
+    #[error("unexpected arguments {0:?}")]
+    Usage(Vec<String>),
+    #[error(transparent)]
+    Workspace(#[from] WorkspaceVersionError),
+    #[error("cannot read the tags on stdin: {0}")]
+    Stdin(#[source] std::io::Error),
+    #[error("the workspace version {0:?} is not major.minor.patch")]
+    NoVersion(String),
+    #[error(
+        "the workspace version {0} names no series start: it must be X.Y.0 (each release takes the next patch)"
+    )]
+    NoSeriesStart(String),
+    #[error(
+        "the next release {next} is not newer than the tag(s) {}: move the workspace version to a newer series",
+        .newer.join(", ")
+    )]
+    Behind { next: String, newer: Vec<String> },
+    #[error(
+        "the release-version rule refused the workspace version {workspace:?} and the tags: {source}"
+    )]
+    Rule {
+        workspace: String,
+        #[source]
+        source: eukhe_bend::Error,
+    },
+}
+
+/// Why the manifest names no workspace version.
+#[derive(Debug, thiserror::Error)]
+enum WorkspaceVersionError {
+    #[error("cannot read {}: {source}", .manifest.display())]
+    Read {
+        manifest: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{} is not TOML: {source}", .manifest.display())]
+    Parse {
+        manifest: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+    #[error("{} has no [workspace.package] version", .manifest.display())]
+    Missing { manifest: PathBuf },
 }
 
 fn run() -> Result<String, Failure> {
     let mut args = std::env::args().skip(1);
     let workspace = match (args.next(), args.next(), args.next()) {
-        (None, None, None) => workspace_version(Path::new(MANIFEST)).map_err(Failure::NoRelease)?,
+        (None, None, None) => workspace_version(Path::new(MANIFEST))?,
         (Some(flag), Some(version), None) if flag == "--workspace-version" => version,
         (first, second, third) => {
-            let given: Vec<String> = [first, second, third].into_iter().flatten().collect();
-            return Err(Failure::Usage(format!("unexpected arguments {given:?}")));
+            return Err(Failure::Usage(
+                [first, second, third].into_iter().flatten().collect(),
+            ));
         }
     };
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
-        .map_err(|error| Failure::NoRelease(format!("cannot read the tags on stdin: {error}")))?;
+        .map_err(Failure::Stdin)?;
     let tags: Vec<&str> = input.split('\n').filter(|line| !line.is_empty()).collect();
     match release(&workspace, &tags) {
         Ok(Release::Ready {
@@ -71,36 +123,34 @@ fn run() -> Result<String, Failure> {
             tag,
             title,
         }) => Ok(format!("version={version}\ntag={tag}\ntitle={title}\n")),
-        Ok(Release::NoVersion) => Err(Failure::NoRelease(format!(
-            "the workspace version {workspace:?} is not major.minor.patch"
-        ))),
-        Ok(Release::NoSeriesStart) => Err(Failure::NoRelease(format!(
-            "the workspace version {workspace} names no series start: it must be X.Y.0 (each release takes the next patch)"
-        ))),
-        Ok(Release::Behind { next, newer }) => Err(Failure::NoRelease(format!(
-            "the next release {next} is not newer than the tag(s) {}: move the workspace version to a newer series",
-            newer.join(", ")
-        ))),
-        Err(error) => Err(Failure::NoRelease(format!(
-            "the release-version rule refused the workspace version {workspace:?} and the tags: {error}"
-        ))),
+        Ok(Release::NoVersion) => Err(Failure::NoVersion(workspace)),
+        Ok(Release::NoSeriesStart) => Err(Failure::NoSeriesStart(workspace)),
+        Ok(Release::Behind { next, newer }) => Err(Failure::Behind { next, newer }),
+        Err(source) => Err(Failure::Rule { workspace, source }),
     }
 }
 
 /// `[workspace.package] version` of the manifest at `manifest`.
-fn workspace_version(manifest: &Path) -> Result<String, String> {
-    let text = std::fs::read_to_string(manifest)
-        .map_err(|error| format!("cannot read {}: {error}", manifest.display()))?;
+fn workspace_version(manifest: &Path) -> Result<String, WorkspaceVersionError> {
+    let text = std::fs::read_to_string(manifest).map_err(|source| WorkspaceVersionError::Read {
+        manifest: manifest.to_path_buf(),
+        source,
+    })?;
     let value: toml::Table = text
         .parse()
-        .map_err(|error| format!("{} is not TOML: {error}", manifest.display()))?;
+        .map_err(|source| WorkspaceVersionError::Parse {
+            manifest: manifest.to_path_buf(),
+            source,
+        })?;
     value
         .get("workspace")
         .and_then(|workspace| workspace.get("package"))
         .and_then(|package| package.get("version"))
         .and_then(toml::Value::as_str)
         .map(str::to_string)
-        .ok_or_else(|| format!("{} has no [workspace.package] version", manifest.display()))
+        .ok_or_else(|| WorkspaceVersionError::Missing {
+            manifest: manifest.to_path_buf(),
+        })
 }
 
 #[cfg(test)]
@@ -119,6 +169,9 @@ mod tests {
         .unwrap();
         let read = workspace_version(&manifest);
         std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(read, Ok("0.10.0".to_string()));
+        assert_eq!(
+            read.map_err(|error| error.to_string()),
+            Ok("0.10.0".to_string())
+        );
     }
 }

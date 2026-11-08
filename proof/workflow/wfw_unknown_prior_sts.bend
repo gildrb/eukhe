@@ -7,7 +7,7 @@
 import Base
 import ../../bend/ffi_workflow.bend as FW
 import ../../bend/wire.bend as Wr
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ../../laws/base.bend as LawsBase
 import ../wire/base/spell.bend as LAWireSpell
 import ./base.bend as LA

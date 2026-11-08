@@ -1,7 +1,9 @@
-//! Soft-wrapped blocks: one logical line laid out over several rows that
-//! the inline terminal writes back to back with autowrap on, so the
-//! terminal records the wrap itself. Selecting, copying, and URL
-//! detection then see one unbroken line (a sign-in link stays whole).
+//! Soft-wrapped link blocks: one logical line laid out over several rows
+//! that the inline terminal writes back to back with autowrap on, so the
+//! terminal records the wrap itself and selecting or copying sees one
+//! unbroken line. Every row's piece is also an OSC 8 hyperlink to the
+//! whole text, so a click opens it whole even where the terminal's own
+//! URL detection stops at the row end (a sign-in link stays whole).
 //!
 //! A block's rows carry a zero-width marker span at their head; the
 //! inline writer reads it and strips it before output, and the plain-text
@@ -29,21 +31,14 @@ pub(crate) enum RowWrap {
     Continuation,
 }
 
-/// Whether a block's text is an OSC 8 hyperlink to the whole text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Link {
-    Plain,
-    Hyperlink,
-}
-
 /// Lay `text` (plain, control-free) out as a block at `width`: `indent`
-/// unstyled, then the text in `style`. Each row is filled the way the
+/// unstyled, then the text in `style`, each row's piece an OSC 8
+/// hyperlink to the whole text. Each row is filled the way the
 /// terminal's autowrap fills it -- to the last column, or one short when
 /// a wide grapheme would straddle the edge -- so the rows the terminal
 /// shows are exactly the rows returned. Text that fits one row is a
-/// plain single row. A hyperlinked block links every row's piece to the
-/// whole text.
-pub(crate) fn rows(indent: &str, text: &str, style: Style, width: usize, link: Link) -> Vec<Line> {
+/// single row.
+pub(crate) fn rows(indent: &str, text: &str, style: Style, width: usize) -> Vec<Line> {
     let width = width.max(1);
     let mut pieces: Vec<String> = Vec::new();
     let mut piece = String::new();
@@ -58,16 +53,12 @@ pub(crate) fn rows(indent: &str, text: &str, style: Style, width: usize, link: L
         used += cells;
     }
     pieces.push(piece);
-    let styled = |piece: String| match link {
-        Link::Plain => Span::styled(piece, style),
-        Link::Hyperlink => Span::styled(
-            format!(
-                "{}{piece}{}",
-                crate::hyperlinks::osc8_open(text),
-                crate::hyperlinks::OSC8_CLOSE
-            ),
+    let open = crate::hyperlinks::osc8_open(text);
+    let styled = |piece: String| {
+        Span::styled(
+            format!("{open}{piece}{}", crate::hyperlinks::OSC8_CLOSE),
             style,
-        ),
+        )
     };
     let single = pieces.len() == 1;
     pieces
@@ -123,7 +114,7 @@ mod tests {
 
     #[test]
     fn a_long_text_fills_every_row_but_the_last() {
-        let rows = rows(" ", "abcdefghij", Style::default(), 4, Link::Plain);
+        let rows = rows(" ", "abcdefghij", Style::default(), 4);
         assert_eq!(plain(&rows), [" abc", "defg", "hij"]);
         assert_eq!(
             rows.iter().map(|row| row_wrap(row)).collect::<Vec<_>>(),
@@ -134,7 +125,7 @@ mod tests {
 
     #[test]
     fn a_text_that_fits_is_one_plain_row() {
-        let rows = rows(" ", "abc", Style::default(), 4, Link::Plain);
+        let rows = rows(" ", "abc", Style::default(), 4);
         assert_eq!(plain(&rows), [" abc"]);
         assert_eq!(row_wrap(&rows[0]), RowWrap::Single);
     }
@@ -143,13 +134,13 @@ mod tests {
     /// where the terminal's autowrap puts it.
     #[test]
     fn a_wide_grapheme_never_straddles_the_edge() {
-        let rows = rows("", "ab\u{4e16}c", Style::default(), 3, Link::Plain);
+        let rows = rows("", "ab\u{4e16}c", Style::default(), 3);
         assert_eq!(plain(&rows), ["ab", "\u{4e16}c"]);
     }
 
     #[test]
-    fn every_hyperlinked_piece_links_the_whole_text() {
-        let rows = rows("", "abcdef", Style::default(), 3, Link::Hyperlink);
+    fn every_piece_links_the_whole_text() {
+        let rows = rows("", "abcdef", Style::default(), 3);
         let open = crate::hyperlinks::osc8_open("abcdef");
         assert_eq!(
             content(&rows[0])[1].content,

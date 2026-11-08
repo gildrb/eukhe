@@ -16,7 +16,7 @@ import ../base.bend as LawsBase
 
 # (G1) Path policy
 # ----------------
-# docs/tools.md S7: one policy for the `bash` tool and the document
+# One policy for the `bash` tool and the document
 # tools (crates/eukhe-types/src/path_policy.rs). A path is a list of
 # segments from `/`; the symlinks are free (any location, any target,
 # from `/` or from the link's directory, loops included); the policy is
@@ -80,19 +80,6 @@ law path_judge_holds:
   for +pol: Pp.Pol
   for +r: Pp.Res
   {Pp.Judged.holds(Pp.judge(pol, r)) == Bool.or(Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(r)), Pp.any_ancestor(Pp.Pol.secret(pol), Pp.Res.at(r))) : Bool}
-
-# LAW secrets_need_yes (changed 2026-10-23 by the user: no prompts, like omp): no sequence of
-# agent writes through any paths, each judged by the gate on its real
-# path and landing there, without a yes of the user, changes a secret:
-# the secrets stay as they were, whatever the auto set holds
-law secrets_need_yes:
-  for es: List<&2, Pp.Put>
-  for +pol: Pp.Pol
-  for +ls: List<&2, Pp.Link>
-  for +auto: List<&2, Nat>
-  for +cs: List<&2, Pp.Cell>
-  for no: {Pp.any_yes(es) == False{} : Bool}
-  {Pp.secrets(Pp.run(es, pol, ls, auto, cs), pol) == Pp.secrets(cs, pol) : List<&2, Pp.Cell>}
 
 # LAW path_policy_ffi_request_round_trip (compiled core): the path judgment entry (bend/ffi_path_policy.bend) reads back
 # a policy and a resolved path as Rust writes it, and leaves what follows untouched
@@ -338,31 +325,15 @@ law path_judge_guards_secret_ancestor:
   for anc: {pp_above_any(se, at) == True{} : Bool}
   {Pp.Cls.guarded(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}))) == True{} : Bool}
 
-# LAW secrets_kept_without_yes: any sequence of agent writes through any paths and any links,
-# none with the user's yes, whatever the auto set holds, leaves the content
-# at every location at or under a secret entry of the policy as it was (the
-# first cell there, or none)
-# EXCLUDES: a write without a yes that lands on a secret, because the model
-#   forgot or misread the secret entries, or the gate, the resolution or
-#   the store lets one through
-law secrets_kept_without_yes:
-  for es: List<&2, Pp.Put>
-  for +ro: List<&2, List<&2, Nat>>
-  for +ru: List<&2, Pp.Rule>
-  for +se: List<&2, List<&2, Nat>>
-  for +ls: List<&2, Pp.Link>
-  for +auto: List<&2, Nat>
-  for +cs: List<&2, Pp.Cell>
-  for +at: List<&2, Nat>
-  for sec: {pp_under_any(se, at) == True{} : Bool}
-  for no: {pp_no_yes(es) == True{} : Bool}
-  {pp_cell(Pp.run(es, Pp.Pol{ro, ru, se}, ls, auto, cs), at) == pp_cell(cs, at) : Maybe<&2, Nat>}
+# (changed 2026-10-27 by the user: secrets never ask again) the store law
+# secrets_kept_without_yes (no write without a yes lands on a secret,
+# whatever the auto set holds) is gone with secrets_need_yes: an auto set
+# may hold the secret effect; store_run_exact pins the whole store.
 
-# LAW secrets_are_secret_cells: the cells the store counts as secrets (the ones secrets_need_yes
-# keeps) are exactly the cells at a location at or under a secret entry of
-# the policy, in order
+# LAW secrets_are_secret_cells: the cells the store counts as secrets are exactly the cells at a
+# location at or under a secret entry of the policy, in order
 # EXCLUDES: a secrets view that drops or invents cells or reads other
-#   entries than the policy's secret ones (a vacuous secrets_need_yes)
+#   entries than the policy's secret ones
 law secrets_are_secret_cells:
   for +ro: List<&2, List<&2, Nat>>
   for +ru: List<&2, Pp.Rule>
@@ -373,17 +344,19 @@ law secrets_are_secret_cells:
 # LAW path_judge_secret_example: anchor and witness: with the secret /3/5, /3/5 is Secret and
 # holds a secret, its parent /3 is Protected and holds one, its sibling /3/7
 # is Outside and holds none; the spec helpers agree, and a write without a
-# yes exists (the premises of the laws above are satisfiable)
-# EXCLUDES: vacuous path_judge_guards_secret_ancestor or
-#   secrets_kept_without_yes, a judgment that forgets the secret entries
+# yes exists
+# EXCLUDES: a vacuous path_judge_guards_secret_ancestor, a judgment that
+#   forgets the secret entries
 law path_judge_secret_example:
   {[Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[5n, 3n], False{}}), Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[3n], False{}}), Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[7n, 3n], False{}})] == [Pp.Judged{Pp.Secret{}, True{}}, Pp.Judged{Pp.Protected{}, True{}}, Pp.Judged{Pp.Outside{}, False{}}] : List<&2, Pp.Judged>} & {[pp_under_any([[5n, 3n]], [5n, 3n]), pp_above_any([[5n, 3n]], [3n]), pp_under_any([[5n, 3n]], [7n, 3n]), pp_above_any([[5n, 3n]], [7n, 3n]), pp_no_yes([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}])] == [True{}, True{}, False{}, False{}, True{}] : List<&2, Bool>}
 
 # LAW secrets_kept_example: anchor: under roots [/3] and the secret /3/5, with write in the auto
-# set, a write of 1 to /3/5 without a yes leaves its 0, the same write with
-# a yes lands, a write of 2 to /3/7 without a yes lands, and the store's
-# secrets of /3/5 and /3/7 are the /3/5 cell
-# EXCLUDES: a vacuous secrets_kept_without_yes (no write runs at all), a
+# set, a write of 1 to /3/5 without a yes leaves its 0 (the auto set lacks
+# the secret effect), the same write with a yes lands, a write of 2 to /3/7
+# without a yes lands, and the store's secrets of /3/5 and /3/7 are the
+# /3/5 cell
+# EXCLUDES: a write to a secret that lands while the auto set lacks the
+#   secret effect and no yes came, a store where no write runs at all, a
 #   gate that ignores the user's yes
 law secrets_kept_example:
   {[pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.Yes{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{7n}], 2n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], Nil{}), [7n, 3n])] == [Some{0n}, Some{1n}, Some{2n}] : List<&2, Maybe<&2, Nat>>} & {Pp.secrets([Pp.Cell{[5n, 3n], 0n}, Pp.Cell{[7n, 3n], 1n}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}) == [Pp.Cell{[5n, 3n], 0n}] : List<&2, Pp.Cell>}
@@ -540,10 +513,10 @@ law path_policy_ffi_tags_example:
 # (G1) The class, against an independent spec
 # -------------------------------------------
 # path_secret_wins, path_ancestor_guarded and path_inside_is_safe read the
-# model's own entries, root choice and rule tests (Pp.entries, Pp.root.of,
+# model's own entries, root test and rule tests (Pp.entries, Pp.below,
 # Pp.protects): a model that drops a rule's entry, or picks another root
 # for a Named rule, passes them. The law below pins the whole class of a
-# resolved path to docs/tools.md G1.2 and G1.3, spelled here: the first
+# resolved path to (G1), spelled here: the first
 # class that applies wins (Secret, Protected, Inside, Outside), a loop
 # never leaves a path Inside, and a Named rule looks at the names of the
 # path strictly below its deepest workspace root (all of them when no root

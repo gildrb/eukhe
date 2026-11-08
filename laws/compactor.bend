@@ -12,7 +12,7 @@ import ../bend/optchat/state.bend as OState
 
 # (H1) A compactor call always ends with a line that fits
 # -------------------------------------------------------
-# docs/harness.md H1, the model in bend/compactor.bend. A reply is free:
+# LAWS.bend H1, the model in bend/compactor.bend. A reply is free:
 # any text, empty, thinking only, an error, missing.
 
 # LAW line_calls_at_most_tries: a line makes at most `tries` model calls
@@ -81,7 +81,7 @@ law fail_cap_builds:
 
 # (H2) A turn never waits forever for the memory
 # ----------------------------------------------
-# docs/harness.md H2: the need-first queue of bend/optchat/queue.bend, the settle
+# LAWS.bend H2: the need-first queue of bend/optchat/queue.bend, the settle
 # of bend/compactor.bend.
 
 # LAW need_first: while a turn waits, every node the queue starts is a line of the
@@ -90,6 +90,16 @@ law need_first:
   for +cfg: OState.Cfg
   for +s: OState.St
   {C.needed(OState.St.info(s), OState.St.view(s), OQueue.cands.need(cfg, s)) == True{} : Bool}
+
+# LAW need_first_due: under the due mark too (OQueue.cands.need.due):
+# every node a waiting turn's queue starts is a line of the whole view
+# that is not built
+# EXCLUDES: a merge or a non-view node started while a turn waits
+law need_first_due:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  for +due: Nat
+  {C.needed(OState.St.info(s), OState.St.view(s), OQueue.cands.need.due(cfg, s, due)) == True{} : Bool}
 
 # LAW need_first_running: when a turn starts to wait, every call it does not need stops
 # (O.St.wait): then every running call and every call the queue starts
@@ -407,6 +417,101 @@ law pend_after_exact:
   for o: C.Outcome
   {C.Pend.after(p, o) == after_spec(p, o) : C.Pend}
 
+# The folds the H1 and H2 laws read, whole: a line after the outcomes of
+# its calls, in order (each after_spec); the view's lines after the
+# outcomes of their calls, in the order they end (a call of line k is
+# after_spec on line k; a call of no line of the view changes none); and
+# how many of those outcomes counted (a saved line or a failed call of a
+# line pending when it ended)
+def pend_run_spec(os: List<&2, C.Outcome>, p: C.Pend) -> C.Pend:
+  match os:
+    case Nil{}:
+      p
+    case o <> rest:
+      pend_run_spec(rest, after_spec(p, o))
+
+def hit_spec(ps: List<&2, C.Pend>, k: Nat, o: C.Outcome) -> List<&2, C.Pend>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      match k:
+        case 0n:
+          after_spec(p, o) <> rest
+        case 1n+j:
+          p <> hit_spec(rest, j, o)
+
+def settle_spec(es: List<&2, C.End>, ps: List<&2, C.Pend>) -> List<&2, C.Pend>:
+  match es:
+    case Nil{}:
+      ps
+    case C.End{k, o} <> rest:
+      settle_spec(rest, hit_spec(ps, k, o))
+
+# line k of ps is pending
+def pending_at_spec(ps: List<&2, C.Pend>, k: Nat) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> rest:
+      match k:
+        case 0n:
+          pending_spec(p)
+        case 1n+j:
+          pending_at_spec(rest, j)
+
+# 1 for an outcome that counts: its line was pending, and a line was
+# saved or the call failed; else 0
+def counts_spec(due: Bool, o: C.Outcome) -> Nat:
+  match due:
+    case False{}:
+      0n
+    case True{}:
+      match o:
+        case C.Built{}:
+          1n
+        case C.Failed{}:
+          1n
+        case C.Disk{}:
+          0n
+        case C.Stopped{}:
+          0n
+
+def hits_spec(es: List<&2, C.End>, +ps: List<&2, C.Pend>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case C.End{+k, +o} <> rest:
+      Nat.add(counts_spec(pending_at_spec(ps, k), o), hits_spec(rest, hit_spec(ps, k, o)))
+
+# LAW pend_run_exact (H2): a line after the outcomes of its calls is exactly after_spec of each outcome, in order, from the line as it was
+# EXCLUDES: a Pend.run that answers Made{} for every input (fail_cap_builds
+#   reads it only past the cap), one that keeps the line as it was, skips,
+#   reorders or repeats an outcome, or counts a disk error or a stop
+law pend_run_exact:
+  for os: List<&2, C.Outcome>
+  for p: C.Pend
+  {C.Pend.run(os, p) == pend_run_spec(os, p) : C.Pend}
+
+# LAW settle_run_exact (H2): the view's lines after the outcomes of their calls are exactly: each outcome, in the order the calls end, is after_spec on the line its call is for, and a call of no line of the view changes none
+# EXCLUDES: a settle run that keeps the lines as they were (`run(es, ps) =
+#   ps`, with hits 0, passes settle_bounded and settle_reached), one that
+#   hits another line, drops or reorders an outcome, or adds or drops a line
+law settle_run_exact:
+  for es: List<&2, C.End>
+  for ps: List<&2, C.Pend>
+  {C.run(es, ps) == settle_spec(es, ps) : List<&2, C.Pend>}
+
+# LAW settle_hits_exact (H2): the outcomes that counted are exactly those of a call of a line pending when it ended that saved a line or failed
+# EXCLUDES: hits that answer 0 for every input (with `run(es, ps) = ps`,
+#   settle_bounded and settle_reached hold), hits that count a disk error,
+#   a stop, a built line or a call of no line, or read the lines before
+#   the outcomes before it
+law settle_hits_exact:
+  for es: List<&2, C.End>
+  for +ps: List<&2, C.Pend>
+  {C.hits(es, ps) == hits_spec(es, ps) : Nat}
+
 # a line's shortest reply so far: 0 none | 1 and its length
 def spell_best(b: Maybe<&2, List<&2, C.W>>, bl: Nat, rest: String) -> String:
   match b:
@@ -710,3 +815,84 @@ law compactor_ffi_example:
   {FC.ffi("2,1,2,2,") == "1,2," : String} &
   {FC.ffi("3,") == SCon{'E', SCon{' ', "compactor: malformed request"}} : String} &
   {FC.ffi("0,5,x") == SCon{'E', SCon{' ', "compactor: malformed request"}} : String}
+
+# Every input, from the spec alone
+# ---------------------------------
+# The laws above pin the answer to each request Rust spells; this one pins
+# the answer to every input, read with the reader above (the wire
+# primitives) and decided by the independent specs open_spec, step_spec
+# and after_spec, never by bend/compactor.bend. Rust keeps the texts: a
+# length read stands for a text of that many one-byte characters (the
+# decision reads only lengths, the reply only tags and numbers).
+
+# a text of n bytes, one-byte characters
+def ones(n: Nat) -> List<&2, C.W>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      C.W1{} <> ones(k)
+
+# the shortest reply so far as read: 0 none | 1 a text of that length
+def ask_best(b: Maybe<&2, Nat>) -> Maybe<&2, List<&2, C.W>>:
+  match b:
+    case None{}:
+      None{}
+    case Some{k}:
+      Some{ones(k)}
+
+def ask_bl(b: Maybe<&2, Nat>) -> Nat:
+  match b:
+    case None{}:
+      0n
+    case Some{k}:
+      k
+
+# the reply as read: 0 a provider error | 1 a text of that length
+def ask_reply(x: Maybe<&2, Nat>) -> C.Reply:
+  match x:
+    case None{}:
+      C.Erred{}
+    case Some{k}:
+      C.Says{ones(k)}
+
+# how a call ended as read: 0 saved, 1 failed, 2 the disk, 3 stopped (the
+# reader reads no other tag)
+def ask_outcome(o: Nat) -> C.Outcome:
+  match o:
+    case 0n:
+      C.Built{}
+    case 1n:
+      C.Failed{}
+    case 2n:
+      C.Disk{}
+    case 3n+q:
+      C.Stopped{}
+
+# the answer to a request read: a line opens (open_spec), a reply to a
+# line (step_spec, the line's input left out: Rust keeps it), a call of a
+# pending line ended (after_spec)
+def spec_answer(a: Ask) -> String:
+  match a:
+    case AOpen{t}:
+      spell_next(open_spec(t, 0n, Nil{}))
+    case AStep{l, m, n, +b, x}:
+      spell_next(step_spec(C.Lst{l, m, n, ask_best(b), ask_bl(b), Nil{}}, ask_reply(x)))
+    case AAfter{p, o}:
+      spell_pend(after_spec(p, ask_outcome(o)), "")
+
+# the answer to an input: no whole request, the error form
+def spec_entry(m: Maybe<&2, Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "compactor: malformed request"}}
+    case Some{a}:
+      spec_answer(a)
+
+# LAW compactor_ffi_spec: every input is answered from the spec alone: exactly one request (read_ask) gets the decision open_spec, step_spec or after_spec takes on the numbers it carries, every other input exactly the error form 'E ', then "compactor: malformed request"
+# EXCLUDES: an input other than one whole request answered with a value (a
+#   second spelling, input left over), a decision on a read request that
+#   is not the spec's, a reply that depends on anything but the input
+law compactor_ffi_spec:
+  for +s: String
+  {FC.ffi(s) == spec_entry(read_ask(s)) : String}

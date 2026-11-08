@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 
 def pc.silent(x: Ch.Next) -> {Ch.Call.reports(Ch.call.of(x, Ch.Silent{})) == False{} : Bool}:
   match x:

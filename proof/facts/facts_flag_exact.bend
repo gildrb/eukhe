@@ -3,7 +3,7 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../bend/infer.bend as If
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 
 def Facts.facts_flag_exact(a, d):
   match a:

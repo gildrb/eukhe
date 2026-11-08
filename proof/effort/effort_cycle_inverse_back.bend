@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/depth.bend as Effort
 import ./base.bend as LA
 
 def pe.app_snoc(xs: List<&2, Ef.Lv>, +a: Ef.Lv, +ys: List<&2, Ef.Lv>) -> {List.append(&2, Ef.Lv, List.append(&2, Ef.Lv, xs, [a]), ys) == List.append(&2, Ef.Lv, xs, a <> ys) : List<&2, Ef.Lv>}:

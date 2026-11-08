@@ -1,4 +1,4 @@
-//! The cfg files of the settings (docs/control.md S4): command scripts in
+//! The cfg files of the settings: command scripts in
 //! the cvar language (`eukhe_types::cvar`) beside `settings.json`.
 //!
 //! - `config.cfg` (global `<agentDir>/config.cfg`, then the project's
@@ -166,49 +166,52 @@ pub(super) fn config_layer(
         document,
         global_cfg: cvars.config().0.len(),
     };
-    if let Some(text) = read(SettingsScope::Project, &mut errors) {
-        let mut scratch = cvars.clone();
-        let mut project_aliases = aliases.clone();
-        errors.extend(run_script(
-            &mut scratch,
-            Target::Config,
-            &text,
-            &mut project_aliases,
-            SettingsScope::Project,
-            CONFIG_CFG,
-        ));
-        let mut config = cvars.config().clone();
-        for set in &scratch.config().0[config.0.len()..] {
-            match project_set(set, trust) {
-                ProjectSet::Applies => config.0.push(set.clone()),
-                ProjectSet::Global => errors.push(SettingsError {
-                    scope: SettingsScope::Project,
-                    message: format!(
+    // A project scope that is the global one applied above, once.
+    if !storage.project_is_global() {
+        if let Some(text) = read(SettingsScope::Project, &mut errors) {
+            let mut scratch = cvars.clone();
+            let mut project_aliases = aliases.clone();
+            errors.extend(run_script(
+                &mut scratch,
+                Target::Config,
+                &text,
+                &mut project_aliases,
+                SettingsScope::Project,
+                CONFIG_CFG,
+            ));
+            let mut config = cvars.config().clone();
+            for set in &scratch.config().0[config.0.len()..] {
+                match project_set(set, trust) {
+                    ProjectSet::Applies => config.0.push(set.clone()),
+                    ProjectSet::Global => errors.push(SettingsError {
+                        scope: SettingsScope::Project,
+                        message: format!(
                         "{CONFIG_CFG}: `{}` is a Global cvar: only the global {CONFIG_CFG} sets it",
                         set.id
                     ),
-                }),
-                ProjectSet::Withheld(key) => {
-                    if !withheld.contains(&key) {
-                        withheld.push(key);
+                    }),
+                    ProjectSet::Withheld(key) => {
+                        if !withheld.contains(&key) {
+                            withheld.push(key);
+                        }
                     }
+                    ProjectSet::Unfit => errors.push(SettingsError {
+                        scope: SettingsScope::Project,
+                        message: format!(
+                            "{CONFIG_CFG}: `{} {}` is not a value settings.json holds",
+                            set.id,
+                            value_text(&set.value)
+                        ),
+                    }),
                 }
-                ProjectSet::Unfit => errors.push(SettingsError {
-                    scope: SettingsScope::Project,
-                    message: format!(
-                        "{CONFIG_CFG}: `{} {}` is not a value settings.json holds",
-                        set.id,
-                        value_text(&set.value)
-                    ),
-                }),
             }
-        }
-        cvars = Cvars::new(registry, config);
-        match trust {
-            TrustLevel::Trusted => aliases = project_aliases,
-            TrustLevel::Untrusted => {
-                if project_aliases != aliases {
-                    withheld.push(format!("{CONFIG_CFG} aliases"));
+            cvars = Cvars::new(registry, config);
+            match trust {
+                TrustLevel::Trusted => aliases = project_aliases,
+                TrustLevel::Untrusted => {
+                    if project_aliases != aliases {
+                        withheld.push(format!("{CONFIG_CFG} aliases"));
+                    }
                 }
             }
         }

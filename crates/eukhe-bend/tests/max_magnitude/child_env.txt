@@ -1,0 +1,4 @@
+# values with numbers at their largest; no number of a request but its
+# counts and lengths
+call 1,14,OPENAI_API_KEY1,12,GITHUB_TOKEN2,4,PATH14,{MAX}12,GITHUB_TOKEN1,x1,4,HOME14,{MAX}
+refuse {LONG},

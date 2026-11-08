@@ -31,6 +31,13 @@ def aw.wait_pre(t: List<&2, Ad.Tk>, w: Nat) -> {Ad.waits.ia(Ad.get(Ad.preempt(t)
     case +h <> +r 1n+p:
       aw.wait_pre(r, p)
 
+def aw.wait_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, w: Nat) -> {Ad.waits.ia(Ad.get(Ad.preempt.on(l, t), w)) == Ad.waits.ia(Ad.get(t, w)) : Bool}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      aw.wait_pre(t, w)
+
 # a grant never makes a ticket wait
 def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get(Ad.mark(c, t), w)) == True{} : Bool}) -> {Ad.waits.ia(Ad.get(t, w)) == True{} : Bool}:
   match t:
@@ -111,11 +118,11 @@ def aw.st_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +w: Nat, +ws: {Ad.waits.
   +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
   +st = Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))
   +x = {Ad.Tk{Ad.Ia{}, st} : Ad.Tk}
-  +t1 = Ad.preempt(ts)
+  +t1 = Ad.preempt.on(l, ts)
   +p = Ad.pot(ts, w)
-  +ws1 = Equal.trans(Bool, Ad.waits.ia(Ad.get(t1, w)), Ad.waits.ia(Ad.get(ts, w)), True{}, aw.wait_pre(ts, w), ws)
+  +ws1 = Equal.trans(Bool, Ad.waits.ia(Ad.get(t1, w)), Ad.waits.ia(Ad.get(ts, w)), True{}, aw.wait_pre_on(l, ts, w), ws)
   %Equal.sym(Nat, Ad.pot(List.append(&2, Ad.Tk, t1, [x]), w), Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), Ad.pot(t1, w)), LAAdmissionPot.aw.pot_app(t1, x, w, ws1)) : {Ad.le(_, p) == True{} : Bool}
-  %Equal.sym(Nat, Ad.pot(t1, w), p, LAAdmissionPot.aw.pot_pre(ts, w)) : {Ad.le(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), _), p) == True{} : Bool}
+  %Equal.sym(Nat, Ad.pot(t1, w), p, LAAdmissionPot.aw.pot_pre_on(l, ts, w)) : {Ad.le(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), _), p) == True{} : Bool}
   %Equal.sym(Bool, Ad.isz(wi), False{}, LAAdmissionIsz.aw.wait_cnt(ts, w, ws)) : {Ad.le(Ad.bit(Bool.and(Ad.Mode.of(Ad.Holding{}, Ad.admit.ia.st(Bool.and(_, Ad.room(l, hi)), Ad.le(q, wi))), True{}), p), p) == True{} : Bool}
   LAAdmissionLe.aw.ia_new(Ad.room(l, hi), Ad.le(q, wi), p)
 

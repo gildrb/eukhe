@@ -1,4 +1,4 @@
-//! The text roles' prompts and output parsing (docs/inference.md S9): the
+//! The text roles' prompts and output parsing: the
 //! session title (`tiny`), a labeled judgment (`judge`), and a translation
 //! (`translate`). A request is a [`ChatRequest`] any worker (or, through
 //! [`remote_reply_text`], a provider model) serves; the parsing reads the
@@ -219,8 +219,7 @@ pub fn language_name(language: &str) -> &str {
 }
 
 /// A translation request: `text` into `language` (a code or a name). The
-/// recipe won a fixed eval (10 short sentences into de/fr/es/pt,
-/// docs/inference.md S9) over a system-only instruction, the language code,
+/// recipe won a fixed eval (10 short sentences into de/fr/es/pt) over a system-only instruction, the language code,
 /// an example pair and a generic user instruction: one user turn
 /// `Translate from English to <Language>.\nEnglish: <text>`, the
 /// assistant turn prefilled with `<Language>:`. A single-line text stops

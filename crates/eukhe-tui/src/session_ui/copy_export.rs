@@ -41,7 +41,7 @@ impl SessionUi {
             Ok(crate::clipboard::CopyOutcome::Requested) => {
                 self.toast(crate::clipboard::CLIPBOARD_REQUESTED, view);
             }
-            Err(message) => self.error_row(&message, view),
+            Err(error) => self.error_row(&error.to_string(), view),
         }
         Ok(())
     }
@@ -57,7 +57,7 @@ impl SessionUi {
             Ok(crate::clipboard::CopyOutcome::Requested) => {
                 self.toast(crate::clipboard::CLIPBOARD_REQUESTED, view);
             }
-            Err(message) => self.error_row(&message, view),
+            Err(error) => self.error_row(&error.to_string(), view),
         }
     }
 

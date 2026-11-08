@@ -7,9 +7,10 @@
 //!   holds without writing), and the cursor `eukhe.optchat.logged {through,
 //!   lines}` is committed after each batch. A crash between the append and
 //!   the cursor re-sends the batch with the same keys.
-//! - A run's own entries wait until its call has pinned its view: the view
-//!   covers everything before the run and nothing of it (§6). A call waits
-//!   for the entries before its run ([`OptChat::flush`]) before rendering.
+//! - A run's own entries wait until its call has pinned its view or taken
+//!   the pinned one over: a view rendered for the run covers everything
+//!   before the run and nothing of it (§6). A call waits for the entries
+//!   the log may hold ([`OptChat::flush`]) before rendering.
 //! - Every append happens under the chat's root-turn lease. When every root
 //!   conversation of the session is idle and logged, the chat is persisted
 //!   (git) and the lease goes back to the owner; also when the session
@@ -35,7 +36,7 @@ use super::lines::entry_lines;
 use super::request::{call_state, live_run, run_key, run_start};
 use super::tools::memory_error;
 use super::OptChat;
-use crate::memory::{AppendKey, RETRY};
+use crate::memory::{AppendKey, CLOSE_TIMEOUT, RETRY};
 
 const SCAN_PAGE_SIZE: usize = 256;
 
@@ -51,7 +52,7 @@ enum Command {
     Wake,
     /// A root conversation was created.
     Follow(ConversationId),
-    Request(LoggerRequest, oneshot::Sender<Result<(), String>>),
+    Request(LoggerRequest, oneshot::Sender<SessionResult<()>>),
     /// Log what is held under a lease this session already has, give the
     /// lease back, and stop.
     Stop(oneshot::Sender<()>),
@@ -74,10 +75,7 @@ impl LoggerLink {
         self.commands
             .send(Command::Request(request, reply))
             .map_err(|_| stopped())?;
-        answer
-            .await
-            .map_err(|_| stopped())?
-            .map_err(SessionError::error)
+        answer.await.map_err(|_| stopped())?
     }
 }
 
@@ -240,7 +238,7 @@ impl Logger {
             }
             if let Some(done) = stop {
                 for waiter in waiters {
-                    let _ = waiter.send(Err("the chat logger has stopped".to_string()));
+                    let _ = waiter.send(Err(stopped()));
                 }
                 self.close().await;
                 let _ = done.send(());
@@ -254,17 +252,21 @@ impl Logger {
                     Some(tokio::time::Instant::now() + RETRY)
                 }
             };
-            let answer = passed.map_err(|error| error.to_string());
             for waiter in waiters {
                 // The asking call may have been aborted meanwhile.
-                let _ = waiter.send(answer.clone());
+                let _ = waiter.send(passed.clone());
             }
         }
         self.close().await;
     }
 
-    /// Log what there is to log, persist, and stop.
+    /// Let the compactor calls already running finish (none starts from
+    /// here: stopped, the next process would send them again), log what
+    /// there is to log, persist, and stop.
     async fn close(&mut self) {
+        if let Err(error) = self.chat.memory.finish_calls(CLOSE_TIMEOUT).await {
+            tracing::warn!(target: "chat_memory", "cannot finish the chat's summaries at close: {error:#}");
+        }
         if let Err(error) = self.pass(PassMode::Closing).await {
             tracing::warn!(target: "chat_memory", "cannot log to the chat at close: {error}");
         }

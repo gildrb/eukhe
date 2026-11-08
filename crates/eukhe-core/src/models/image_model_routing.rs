@@ -34,21 +34,24 @@ fn takes_image_input(model: &Model) -> bool {
     model.input.contains(&ModelInput::Image)
 }
 
-/// TS `formatImageModelRequiredMessage`: the session model cannot serve the
-/// attached images and no image model is configured. Name the model, the
-/// setting, and the alternatives so the user can act immediately.
-fn format_image_model_required_message(session_model_id: &str) -> String {
-    format!(
-        "This turn attaches images, but the selected model ({session_model_id}) does not accept image input.\n\nPick one:\n- Switch the session model to an image-capable one with /model, or\n- Set imageModel in settings.json to an image-capable model (\"provider/model-id\" or a bare id), e.g. \"anthropic/claude-sonnet-4-5\"\n\nThen resend the message. Without it the request would silently drop the images."
-    )
-}
-
-/// TS `formatImageModelUnusableMessage`: the configured `imageModel` could
-/// not be resolved to an available, image-capable, authenticated model.
-fn format_image_model_unusable_message(reference: &str) -> String {
-    format!(
+/// Why an image-attaching turn cannot be served honestly (TS
+/// `formatImageModelRequiredMessage`, `formatImageModelUnusableMessage`).
+/// Each message names the model, the setting, and the alternatives so the
+/// user can act immediately.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ImageModelRoutingError {
+    /// The session model cannot serve the attached images and no image
+    /// model is configured. `session_model` is `provider/model-id`.
+    #[error(
+        "This turn attaches images, but the selected model ({session_model}) does not accept image input.\n\nPick one:\n- Switch the session model to an image-capable one with /model, or\n- Set imageModel in settings.json to an image-capable model (\"provider/model-id\" or a bare id), e.g. \"anthropic/claude-sonnet-4-5\"\n\nThen resend the message. Without it the request would silently drop the images."
+    )]
+    ImageModelRequired { session_model: String },
+    /// The configured `imageModel` could not be resolved to an available,
+    /// image-capable, authenticated model.
+    #[error(
         "imageModel \"{reference}\" could not be resolved to an available, image-capable, authenticated model.\n\nFix the imageModel setting (settings.json) or authenticate the provider, then resend the message."
-    )
+    )]
+    ImageModelUnusable { reference: String },
 }
 
 /// Session state the routing decision needs when a turn batch commits (TS
@@ -82,26 +85,28 @@ pub struct ImageModelRoutingInputs<'a> {
 ///
 /// # Errors
 ///
-/// Returns the actionable refusal message when the turn cannot be served
-/// honestly (a text-only session model with no usable image model).
+/// Returns the actionable refusal when the turn cannot be served honestly
+/// (a text-only session model with no usable image model).
 pub fn resolve_image_model_override(
     inputs: &ImageModelRoutingInputs<'_>,
-) -> Result<Option<ResolvedImageModel>, String> {
+) -> Result<Option<ResolvedImageModel>, ImageModelRoutingError> {
     let session_model = inputs.session_model;
     if takes_image_input(session_model) || inputs.block_images {
         return Ok(None);
     }
     let Some(reference) = inputs.image_model_reference else {
-        return Err(format_image_model_required_message(&format!(
-            "{}/{}",
-            session_model.provider, session_model.id
-        )));
+        return Err(ImageModelRoutingError::ImageModelRequired {
+            session_model: format!("{}/{}", session_model.provider, session_model.id),
+        });
+    };
+    let unusable = || ImageModelRoutingError::ImageModelUnusable {
+        reference: reference.to_owned(),
     };
     let image_model = find_exact_model_reference_match(reference, inputs.available_models)
-        .ok_or_else(|| format_image_model_unusable_message(reference))?;
+        .ok_or_else(unusable)?;
     let usable = takes_image_input(image_model) && (inputs.has_configured_auth)(image_model);
     if !usable {
-        return Err(format_image_model_unusable_message(reference));
+        return Err(unusable());
     }
     Ok(Some(ResolvedImageModel {
         model: image_model.clone(),
@@ -204,7 +209,9 @@ mod tests {
         let session = model("claude-opus-4-7-text-only", false);
         let available = vec![session.clone()];
         let inputs = inputs(&session, None, &available, false);
-        let error = resolve_image_model_override(&inputs).unwrap_err();
+        let error = resolve_image_model_override(&inputs)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("does not accept image input"), "{error}");
         assert!(error.contains("Set imageModel in settings.json"), "{error}");
     }
@@ -214,7 +221,9 @@ mod tests {
         let session = model("claude-opus-4-7-text-only", false);
         let available = vec![session.clone()];
         let inputs = inputs(&session, Some("openai/gpt-5.4"), &available, false);
-        let error = resolve_image_model_override(&inputs).unwrap_err();
+        let error = resolve_image_model_override(&inputs)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("could not be resolved"), "{error}");
     }
 
@@ -229,7 +238,9 @@ mod tests {
             &available,
             false,
         );
-        let error = resolve_image_model_override(&inputs).unwrap_err();
+        let error = resolve_image_model_override(&inputs)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("could not be resolved"), "{error}");
     }
 
@@ -240,7 +251,9 @@ mod tests {
         let available = vec![session.clone(), image_model];
         let mut inputs = inputs(&session, Some("claude-haiku-4-5"), &available, false);
         inputs.has_configured_auth = &|model| model.id != "claude-haiku-4-5";
-        let error = resolve_image_model_override(&inputs).unwrap_err();
+        let error = resolve_image_model_override(&inputs)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("could not be resolved"), "{error}");
     }
 

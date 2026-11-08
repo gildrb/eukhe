@@ -144,6 +144,13 @@ def al.preempt(ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.preempt(Admission.adl_liv
             case Ad.Ended{}:
               al.preempt(r, 1n+j)
 
+def al.preempt_on(l: Ad.Lim, ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.preempt.on(l, Admission.adl_lives(ts, j)) == Admission.adl_lives(Ad.preempt.on(l, ts), j) : List<&2, Ad.Lv>}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      al.preempt(ts, j)
+
 # Admitting
 # ---------
 
@@ -174,12 +181,12 @@ def al.app(a: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Ad.Sts, +j: Nat) -> {Admission.ad
 
 def al.admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Ad.lv.admit.ia(l, q, Admission.adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}:
   +st = {Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts))) : Ad.Sts}
-  %al.cnt_s(Ad.Waiting{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Ad.lv.preempt(Admission.adl_lives(ts, 0n)), Ad.lv.fresh(Ad.admit.ia.st(Bool.and(Ad.isz(_), Ad.room(l, Ad.lv.cnt(Ad.Holding{}, Ad.Ia{}, Admission.adl_lives(ts, 0n)))), Ad.le(q, _)), List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
-  %al.cnt_s(Ad.Holding{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Ad.lv.preempt(Admission.adl_lives(ts, 0n)), Ad.lv.fresh(Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, _)), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts))), List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
-  %Equal.sym(List<&2, Ad.Lv>, Ad.lv.preempt(Admission.adl_lives(ts, 0n)), Admission.adl_lives(Ad.preempt(ts), 0n), al.preempt(ts, 0n)) : {List.append(&2, Ad.Lv, _, Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
-  %Equal.sym(List<&2, Ad.Lv>, Admission.adl_lives(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, st}]), 0n), List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, Nat.add(List.length(&2, Ad.Tk, Ad.preempt(ts)), 0n), Ad.Ia{})), al.app(Ad.preempt(ts), Ad.Ia{}, st, 0n)) : {List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == _ : List<&2, Ad.Lv>}
-  %Equal.sym(Nat, Nat.add(List.length(&2, Ad.Tk, Ad.preempt(ts)), 0n), List.length(&2, Ad.Tk, Ad.preempt(ts)), LANat.al.add_zero(List.length(&2, Ad.Tk, Ad.preempt(ts)))) : {List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, _, Ad.Ia{})) : List<&2, Ad.Lv>}
-  %LAList.al.len_pre(ts) : {List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, _, Ad.Ia{})) == List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, Ad.preempt(ts)), Ad.Ia{})) : List<&2, Ad.Lv>}
+  %al.cnt_s(Ad.Waiting{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Ad.lv.preempt.on(l, Admission.adl_lives(ts, 0n)), Ad.lv.fresh(Ad.admit.ia.st(Bool.and(Ad.isz(_), Ad.room(l, Ad.lv.cnt(Ad.Holding{}, Ad.Ia{}, Admission.adl_lives(ts, 0n)))), Ad.le(q, _)), List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
+  %al.cnt_s(Ad.Holding{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Ad.lv.preempt.on(l, Admission.adl_lives(ts, 0n)), Ad.lv.fresh(Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, _)), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts))), List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
+  %Equal.sym(List<&2, Ad.Lv>, Ad.lv.preempt.on(l, Admission.adl_lives(ts, 0n)), Admission.adl_lives(Ad.preempt.on(l, ts), 0n), al.preempt_on(l, ts, 0n)) : {List.append(&2, Ad.Lv, _, Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Admission.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
+  %Equal.sym(List<&2, Ad.Lv>, Admission.adl_lives(List.append(&2, Ad.Tk, Ad.preempt.on(l, ts), [Ad.Tk{Ad.Ia{}, st}]), 0n), List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt.on(l, ts), 0n), Ad.lv.fresh(st, Nat.add(List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)), 0n), Ad.Ia{})), al.app(Ad.preempt.on(l, ts), Ad.Ia{}, st, 0n)) : {List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt.on(l, ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == _ : List<&2, Ad.Lv>}
+  %Equal.sym(Nat, Nat.add(List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)), 0n), List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)), LANat.al.add_zero(List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)))) : {List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt.on(l, ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt.on(l, ts), 0n), Ad.lv.fresh(st, _, Ad.Ia{})) : List<&2, Ad.Lv>}
+  %LAList.al.len_pre_on(l, ts) : {List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt.on(l, ts), 0n), Ad.lv.fresh(st, _, Ad.Ia{})) == List.append(&2, Ad.Lv, Admission.adl_lives(Ad.preempt.on(l, ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, Ad.preempt.on(l, ts)), Ad.Ia{})) : List<&2, Ad.Lv>}
   {==}
 
 def al.admit_bg(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> {Ad.lv.admit.bg(l, Admission.adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)) == Admission.adl_lives(Ad.admit.bg(l, ts), 0n) : List<&2, Ad.Lv>}:

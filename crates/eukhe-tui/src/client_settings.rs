@@ -17,6 +17,9 @@ pub enum ModelRoleSource {
     Global,
     /// The project's settings (they win over the global ones).
     Project,
+    /// The role has no setting of its own: it runs on the all-roles model
+    /// (`modelRoles.all`).
+    AllRoles,
 }
 
 /// A model role's value as the settings resolve it.
@@ -49,6 +52,55 @@ pub struct LocalRoleModel {
 pub struct LocalRoleChoices {
     pub models: Vec<LocalRoleModel>,
     pub takes_remote: bool,
+}
+
+/// A role the all-roles model does not run after `/model --all`: a
+/// setting the global write does not clear (a project's) names another
+/// model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllRolesOverride {
+    pub role: ModelRole,
+    /// The model the role runs on.
+    pub selector: String,
+    /// The setting that names it.
+    pub setting: String,
+    /// The file that sets it.
+    pub file: String,
+}
+
+/// The note of `/model --all selector` (the TUI and the phone gateway):
+/// `All roles: <selector>`, then one line when a setting still runs a
+/// role on another model, with the edit that clears each.
+#[must_use]
+pub fn all_roles_note(selector: &str, overrides: &[AllRolesOverride]) -> String {
+    let note = format!("All roles: {selector}");
+    if overrides.is_empty() {
+        return note;
+    }
+    let roles: Vec<String> = overrides
+        .iter()
+        .map(|kept| format!("{} ({})", kept.role.label(), kept.selector))
+        .collect();
+    let mut files: Vec<(&str, Vec<&str>)> = Vec::new();
+    for kept in overrides {
+        match files.iter_mut().find(|(file, _)| *file == kept.file) {
+            Some((_, settings)) => {
+                if !settings.contains(&kept.setting.as_str()) {
+                    settings.push(&kept.setting);
+                }
+            }
+            None => files.push((&kept.file, vec![&kept.setting])),
+        }
+    }
+    let edits: Vec<String> = files
+        .iter()
+        .map(|(file, settings)| format!("remove {} from {file}", settings.join(", ")))
+        .collect();
+    format!(
+        "{note}\nStill set by the project: {}; {} to use {selector} there too",
+        roles.join(", "),
+        edits.join("; ")
+    )
 }
 
 pub trait ClientSettings: Send + Sync {
@@ -140,15 +192,39 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_block_images(&self, blocked: bool) -> Result<()>;
-    /// `imageModel` (TS `getImageModel`: "provider/model-id" or a bare id;
-    /// unset by default). Read-only for the paste-time hint that names the
-    /// setting when the session model lacks image input.
+    /// The model the image role runs on (`imageModel`, else the all-roles
+    /// model; `provider/model-id` or a bare id; unset by default).
+    /// Read-only for the paste-time hint that names the setting when the
+    /// session model lacks image input.
     fn image_model(&self) -> Option<String>;
     /// The value of model role `role` as the settings resolve it;
     /// `session_model` (`provider/id`, empty: none) is the session's model
     /// the role's fallback may name. `None` without a settings store.
     fn model_role(&self, _role: ModelRole, _session_model: &str) -> Option<ModelRoleValue> {
         None
+    }
+    /// The all-roles model (`modelRoles.all`: the model of every role
+    /// without its own) as the settings resolve it, its source `Global`,
+    /// `Project` or `Unset`. `None` without a settings store. It is set
+    /// through the session (`set_model` with `allRoles`), never here.
+    fn all_roles_model(&self) -> Option<ModelRoleValue> {
+        None
+    }
+    /// Unsets the all-roles model in the global settings (the
+    /// `/set --global` path): every role without its own setting falls
+    /// back to its default.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when opening or persisting the settings store fails.
+    fn clear_all_roles_model(&self) -> Result<()> {
+        anyhow::bail!("Model role settings are unavailable")
+    }
+    /// The roles the all-roles model reaches that do not run on
+    /// `selector` (a setting a project keeps names another model), in
+    /// role order. Nothing without a settings store.
+    fn all_roles_overrides(&self, _selector: &str) -> Vec<AllRolesOverride> {
+        Vec::new()
     }
     /// Persists `selector` (`provider/id`, or `local/<id>` for a local
     /// role) as model role `role` globally (the `/set --global` path),
@@ -323,4 +399,62 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_warnings_anthropic_extra_usage(&self, enabled: bool) -> Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kept(role: ModelRole, selector: &str, setting: &str, file: &str) -> AllRolesOverride {
+        AllRolesOverride {
+            role,
+            selector: selector.to_owned(),
+            setting: setting.to_owned(),
+            file: file.to_owned(),
+        }
+    }
+
+    /// The `/model --all` note: the model alone when every LLM role runs
+    /// on it; else one more line naming what the project keeps and the
+    /// edit of each file that clears it.
+    #[test]
+    fn the_all_roles_note_names_only_what_still_overrides() {
+        assert_eq!(
+            [
+                all_roles_note("anthropic/claude-fable-5", &[]),
+                all_roles_note(
+                    "anthropic/claude-fable-5",
+                    &[
+                        kept(
+                            ModelRole::Memory,
+                            "a/m",
+                            "memory.model",
+                            "/p/.eukhe/config.cfg"
+                        ),
+                        kept(
+                            ModelRole::Auxiliary,
+                            "a/m",
+                            "auxiliaryModel",
+                            "/p/.eukhe/settings.json"
+                        ),
+                        kept(
+                            ModelRole::Titles,
+                            "zai/glm-5.3-flash",
+                            "modelRoles.tiny",
+                            "/p/.eukhe/config.cfg"
+                        ),
+                    ],
+                ),
+            ],
+            [
+                "All roles: anthropic/claude-fable-5".to_owned(),
+                "All roles: anthropic/claude-fable-5\n\
+                 Still set by the project: Memory compactor (a/m), Compaction and summaries (a/m), \
+                 Titles (zai/glm-5.3-flash); remove memory.model, modelRoles.tiny from \
+                 /p/.eukhe/config.cfg; remove auxiliaryModel from /p/.eukhe/settings.json to use \
+                 anthropic/claude-fable-5 there too"
+                    .to_owned(),
+            ]
+        );
+    }
 }

@@ -4,7 +4,7 @@
 
 import Base
 import ../../bend/ffi_theme.bend as FTh
-import ../../spec/theme_read.bend as Tr
+import ../../spec/theme/read.bend as Tr
 import ../../laws/theme.bend as Theme
 import ./base/ffi_trip.bend as LTTrip
 

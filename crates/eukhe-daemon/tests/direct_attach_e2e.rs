@@ -493,13 +493,12 @@ fn direct_attach_ticket_streams_across_supervisor_kill9() {
         }),
     );
     assert_eq!(attach2["success"], true, "reattach failed: {attach2}");
-    // user, harness digest (pi-durable commits it after the prompt's user
-    // entry), assistant.
+    // user, assistant.
     assert_eq!(
         attach2["data"]["snapshot"]["messages"]
             .as_array()
             .map(Vec::len),
-        Some(3),
+        Some(2),
         "the snapshot carries the persisted first turn: {attach2}"
     );
 

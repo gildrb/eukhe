@@ -13,7 +13,7 @@ import Base
 import ../../../bend/effort.bend as Ef
 import ../../../bend/ffi_effort.bend as FEf
 import ../../../bend/wire.bend as Wr
-import ../../../laws/effort.bend as Effort
+import ../../../laws/effort/ladder.bend as EffortLadder
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../wire/wire_nat_exact.bend as PWireNatExact
@@ -31,7 +31,7 @@ def ex.step(-F: String -> String, -s: String, -a: String, -b: String, pre: {s ==
 def ex.Lv(s: String, d: Wr.Dec<Ef.Lv>) -> Type:
   match d:
     case Wr.Got{l, r}:
-      {s == Effort.core_effort_spell_lv(l, r) : String}
+      {s == EffortLadder.core_effort_spell_lv(l, r) : String}
     case Wr.Bad{}:
       Unit
 
@@ -67,7 +67,7 @@ def ex.lv(+s: String) -> ex.Lv(s, FEf.get_lv(s)):
 def ex.Ent(s: String, d: Wr.Dec<Ef.Ent>) -> Type:
   match d:
     case Wr.Got{e, r}:
-      {s == Effort.core_effort_spell_ent(e, r) : String}
+      {s == EffortLadder.core_effort_spell_ent(e, r) : String}
     case Wr.Bad{}:
       Unit
 
@@ -95,7 +95,7 @@ def ex.ent(+s: String) -> ex.Ent(s, FEf.get_ent(s)):
 def ex.Dir(s: String, d: Wr.Dec<Ef.Dir>) -> Type:
   match d:
     case Wr.Got{x, r}:
-      {s == Effort.core_effort_spell_dir(x, r) : String}
+      {s == EffortLadder.core_effort_spell_dir(x, r) : String}
     case Wr.Bad{}:
       Unit
 
@@ -141,32 +141,32 @@ def ex.bool(+s: String) -> ex.Bool(s, Wr.get_bool(s)):
 def ex.m2(q: FEf.P2<Ef.Ent, Ef.Ent>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      Effort.core_effort_spell_ent(a, Effort.core_effort_spell_ent(b, r))
+      EffortLadder.core_effort_spell_ent(a, EffortLadder.core_effort_spell_ent(b, r))
 
 def ex.m3(q: FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.m2(a, Effort.core_effort_spell_ent(b, r))
+      ex.m2(a, EffortLadder.core_effort_spell_ent(b, r))
 
 def ex.m4(q: FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.m3(a, Effort.core_effort_spell_ent(b, r))
+      ex.m3(a, EffortLadder.core_effort_spell_ent(b, r))
 
 def ex.m5(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.m4(a, Effort.core_effort_spell_ent(b, r))
+      ex.m4(a, EffortLadder.core_effort_spell_ent(b, r))
 
 def ex.m6(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.m5(a, Effort.core_effort_spell_ent(b, r))
+      ex.m5(a, EffortLadder.core_effort_spell_ent(b, r))
 
 def ex.m7(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.m6(a, Effort.core_effort_spell_ent(b, r))
+      ex.m6(a, EffortLadder.core_effort_spell_ent(b, r))
 
 def ex.M2(s: String, d: Wr.Dec<FEf.P2<Ef.Ent, Ef.Ent>>) -> Type:
   match d:
@@ -210,10 +210,10 @@ def ex.M7(s: String, d: Wr.Dec<FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent,
     case Wr.Bad{}:
       Unit
 
-def ex.mf2(-s: String, +a: Ef.Ent, -r: String, pre: {s == Effort.core_effort_spell_ent(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M2(s, FEf.seq.fin(~Ef.Ent, ~Ef.Ent, a, e)):
+def ex.mf2(-s: String, +a: Ef.Ent, -r: String, pre: {s == EffortLadder.core_effort_spell_ent(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M2(s, FEf.seq.fin(~Ef.Ent, ~Ef.Ent, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => Effort.core_effort_spell_ent(a, z), s, r, Effort.core_effort_spell_ent(b, r2), pre, inv)
+      ex.step(z => EffortLadder.core_effort_spell_ent(a, z), s, r, EffortLadder.core_effort_spell_ent(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -227,7 +227,7 @@ def ex.ms2(-s: String, d: Wr.Dec<Ef.Ent>, inv: ex.Ent(s, d)) -> ex.M2(s, FEf.seq
 def ex.mf3(-s: String, +a: FEf.P2<Ef.Ent, Ef.Ent>, -r: String, pre: {s == ex.m2(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M3(s, FEf.seq.fin(~FEf.P2<Ef.Ent, Ef.Ent>, ~Ef.Ent, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.m2(a, z), s, r, Effort.core_effort_spell_ent(b, r2), pre, inv)
+      ex.step(z => ex.m2(a, z), s, r, EffortLadder.core_effort_spell_ent(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -241,7 +241,7 @@ def ex.ms3(-s: String, d: Wr.Dec<FEf.P2<Ef.Ent, Ef.Ent>>, inv: ex.M2(s, d)) -> e
 def ex.mf4(-s: String, +a: FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, -r: String, pre: {s == ex.m3(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M4(s, FEf.seq.fin(~FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, ~Ef.Ent, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.m3(a, z), s, r, Effort.core_effort_spell_ent(b, r2), pre, inv)
+      ex.step(z => ex.m3(a, z), s, r, EffortLadder.core_effort_spell_ent(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -255,7 +255,7 @@ def ex.ms4(-s: String, d: Wr.Dec<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>>, inv: e
 def ex.mf5(-s: String, +a: FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, -r: String, pre: {s == ex.m4(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M5(s, FEf.seq.fin(~FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.m4(a, z), s, r, Effort.core_effort_spell_ent(b, r2), pre, inv)
+      ex.step(z => ex.m4(a, z), s, r, EffortLadder.core_effort_spell_ent(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -269,7 +269,7 @@ def ex.ms5(-s: String, d: Wr.Dec<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, 
 def ex.mf6(-s: String, +a: FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, -r: String, pre: {s == ex.m5(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M6(s, FEf.seq.fin(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.m5(a, z), s, r, Effort.core_effort_spell_ent(b, r2), pre, inv)
+      ex.step(z => ex.m5(a, z), s, r, EffortLadder.core_effort_spell_ent(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -283,7 +283,7 @@ def ex.ms6(-s: String, d: Wr.Dec<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef
 def ex.mf7(-s: String, +a: FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, -r: String, pre: {s == ex.m6(a, r) : String}, e: Wr.Dec<Ef.Ent>, inv: ex.Ent(r, e)) -> ex.M7(s, FEf.seq.fin(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.m6(a, z), s, r, Effort.core_effort_spell_ent(b, r2), pre, inv)
+      ex.step(z => ex.m6(a, z), s, r, EffortLadder.core_effort_spell_ent(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -297,7 +297,7 @@ def ex.ms7(-s: String, d: Wr.Dec<FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.E
 def ex.Map(s: String, d: Wr.Dec<Ef.LvMap>) -> Type:
   match d:
     case Wr.Got{m, r}:
-      {s == Effort.core_effort_spell_map(m, r) : String}
+      {s == EffortLadder.core_effort_spell_map(m, r) : String}
     case Wr.Bad{}:
       Unit
 
@@ -333,14 +333,14 @@ def ex.map(+s: String) -> ex.Map(s, FEf.get_map(s)):
 def ex.MMap(s: String, d: Wr.Dec<Maybe<&2, Ef.LvMap>>) -> Type:
   match d:
     case Wr.Got{m, r}:
-      {s == Effort.core_effort_spell_mmap(m, r) : String}
+      {s == EffortLadder.core_effort_spell_mmap(m, r) : String}
     case Wr.Bad{}:
       Unit
 
 def ex.mmap.some(-s: String, -s0: String, pre: {s == Wr.put_nat(1n, s0) : String}, d: Wr.Dec<Ef.LvMap>, inv: ex.Map(s0, d)) -> ex.MMap(s, FEf.get_mmap.some(d)):
   match d:
     case Wr.Got{+m, +r}:
-      ex.step(z => Wr.put_nat(1n, z), s, s0, Effort.core_effort_spell_map(m, r), pre, inv)
+      ex.step(z => Wr.put_nat(1n, z), s, s0, EffortLadder.core_effort_spell_map(m, r), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -370,7 +370,7 @@ def ex.mmap(+s: String) -> ex.MMap(s, FEf.get_mmap(s)):
 def ex.Tl(s: String, m: Nat, d: Wr.Dec<List<&2, Ef.Lv>>) -> Type:
   match d:
     case Wr.Got{t, r}:
-      {s == Effort.core_effort_spell_lvs.items(t, r) : String} & {List.length(&2, Ef.Lv, t) == 1n+m : Nat}
+      {s == EffortLadder.core_effort_spell_lvs.items(t, r) : String} & {List.length(&2, Ef.Lv, t) == 1n+m : Nat}
     case Wr.Bad{}:
       Unit
 
@@ -378,12 +378,12 @@ def ex.tl.at(+s: String, -d: Wr.Dec<Ef.Lv>, er: {FEf.get_lv(s) == d : Wr.Dec<Ef.
   %er : ex.Lv(s, _)
   ex.lv(s)
 
-def ex.tl.step(-s: String, +x: Ef.Lv, +s3: String, -k: Nat, ea: {s == Effort.core_effort_spell_lv(x, s3) : String},
+def ex.tl.step(-s: String, +x: Ef.Lv, +s3: String, -k: Nat, ea: {s == EffortLadder.core_effort_spell_lv(x, s3) : String},
   d: Wr.Dec<List<&2, Ef.Lv>>, ih: ex.Tl(s3, k, d)) -> ex.Tl(s, 1n+k, Wr.get_list.cons(Ef.Lv, x, d)):
   match d:
     case Wr.Got{+ys, +r}:
       (e1, e2) = ih
-      (ex.step(z => Effort.core_effort_spell_lv(x, z), s, s3, Effort.core_effort_spell_lvs.items(ys, r), ea, e1),
+      (ex.step(z => EffortLadder.core_effort_spell_lv(x, z), s, s3, EffortLadder.core_effort_spell_lvs.items(ys, r), ea, e1),
         Equal.cong(Nat, Nat, k2 => 1n+k2, List.length(&2, Ef.Lv, ys), 1n+k, e2))
     case Wr.Bad{}:
       Unit{}
@@ -406,17 +406,17 @@ def ex.tl(m: Nat, cur: Wr.Dec<Ef.Lv>, +s: String, er: {FEf.get_lv(s) == cur : Wr
 def ex.Lvs(s: String, d: Wr.Dec<List<&2, Ef.Lv>>) -> Type:
   match d:
     case Wr.Got{t, r}:
-      {s == Effort.core_effort_spell_lvs(t, r) : String} & {Effort.core_lvs_fit(t) == True{} : Bool}
+      {s == EffortLadder.core_effort_spell_lvs(t, r) : String} & {EffortLadder.core_lvs_fit(t) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
 def ex.lvs.eq(-s: String, -s2: String, -m: Nat, en: {s == Wr.put_nat(1n+m, s2) : String}, +t: List<&2, Ef.Lv>, -r: String,
-  e1: {s2 == Effort.core_effort_spell_lvs.items(t, r) : String}, e2: {List.length(&2, Ef.Lv, t) == 1n+m : Nat}) -> {s == Effort.core_effort_spell_lvs(t, r) : String}:
-  %Equal.sym(Nat, List.length(&2, Ef.Lv, t), 1n+m, e2) : {s == Wr.put_nat(_, Effort.core_effort_spell_lvs.items(t, r)) : String}
+  e1: {s2 == EffortLadder.core_effort_spell_lvs.items(t, r) : String}, e2: {List.length(&2, Ef.Lv, t) == 1n+m : Nat}) -> {s == EffortLadder.core_effort_spell_lvs(t, r) : String}:
+  %Equal.sym(Nat, List.length(&2, Ef.Lv, t), 1n+m, e2) : {s == Wr.put_nat(_, EffortLadder.core_effort_spell_lvs.items(t, r)) : String}
   %e1 : {s == Wr.put_nat(1n+m, _) : String}
   en
 
-def ex.lvs.fit(-m: Nat, hn: {LawsBase.wire_fits(1n+m) == True{} : Bool}, +t: List<&2, Ef.Lv>, e2: {List.length(&2, Ef.Lv, t) == 1n+m : Nat}) -> {Effort.core_lvs_fit(t) == True{} : Bool}:
+def ex.lvs.fit(-m: Nat, hn: {LawsBase.wire_fits(1n+m) == True{} : Bool}, +t: List<&2, Ef.Lv>, e2: {List.length(&2, Ef.Lv, t) == 1n+m : Nat}) -> {EffortLadder.core_lvs_fit(t) == True{} : Bool}:
   %Equal.sym(Nat, List.length(&2, Ef.Lv, t), 1n+m, e2) : {LawsBase.wire_fits(_) == True{} : Bool}
   hn
 
@@ -462,32 +462,32 @@ def ex.f2(q: FEf.P2<Bool, Bool>, r: String) -> String:
 def ex.f3(q: FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.f2(a, Effort.core_effort_spell_mmap(b, r))
+      ex.f2(a, EffortLadder.core_effort_spell_mmap(b, r))
 
 def ex.f4(q: FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.f3(a, Effort.core_effort_spell_mmap(b, r))
+      ex.f3(a, EffortLadder.core_effort_spell_mmap(b, r))
 
 def ex.f5(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.f4(a, Effort.core_effort_spell_lvs(b, r))
+      ex.f4(a, EffortLadder.core_effort_spell_lvs(b, r))
 
 def ex.f6(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, List<&2, Ef.Lv>>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.f5(a, Effort.core_effort_spell_lvs(b, r))
+      ex.f5(a, EffortLadder.core_effort_spell_lvs(b, r))
 
 def ex.g5(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>) -> Bool:
   match q:
     case FEf.P2{a, b}:
-      Effort.core_lvs_fit(b)
+      EffortLadder.core_lvs_fit(b)
 
 def ex.g6(q: FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, List<&2, Ef.Lv>>) -> Bool:
   match q:
     case FEf.P2{a, b}:
-      Bool.and(ex.g5(a), Effort.core_lvs_fit(b))
+      Bool.and(ex.g5(a), EffortLadder.core_lvs_fit(b))
 
 def ex.F2(s: String, d: Wr.Dec<FEf.P2<Bool, Bool>>) -> Type:
   match d:
@@ -541,7 +541,7 @@ def ex.fs2(-s: String, d: Wr.Dec<Bool>, inv: ex.Bool(s, d)) -> ex.F2(s, FEf.seq(
 def ex.ff3(-s: String, +a: FEf.P2<Bool, Bool>, -r: String, pre: {s == ex.f2(a, r) : String}, e: Wr.Dec<Maybe<&2, Ef.LvMap>>, inv: ex.MMap(r, e)) -> ex.F3(s, FEf.seq.fin(~FEf.P2<Bool, Bool>, ~Maybe<&2, Ef.LvMap>, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.f2(a, z), s, r, Effort.core_effort_spell_mmap(b, r2), pre, inv)
+      ex.step(z => ex.f2(a, z), s, r, EffortLadder.core_effort_spell_mmap(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -555,7 +555,7 @@ def ex.fs3(-s: String, d: Wr.Dec<FEf.P2<Bool, Bool>>, inv: ex.F2(s, d)) -> ex.F3
 def ex.ff4(-s: String, +a: FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, -r: String, pre: {s == ex.f3(a, r) : String}, e: Wr.Dec<Maybe<&2, Ef.LvMap>>, inv: ex.MMap(r, e)) -> ex.F4(s, FEf.seq.fin(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      ex.step(z => ex.f3(a, z), s, r, Effort.core_effort_spell_mmap(b, r2), pre, inv)
+      ex.step(z => ex.f3(a, z), s, r, EffortLadder.core_effort_spell_mmap(b, r2), pre, inv)
     case Wr.Bad{}:
       Unit{}
 
@@ -570,7 +570,7 @@ def ex.ff5(-s: String, +a: FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>
   match e:
     case Wr.Got{+b, +r2}:
       (e1, fb) = inv
-      (ex.step(z => ex.f4(a, z), s, r, Effort.core_effort_spell_lvs(b, r2), pre, e1), fb)
+      (ex.step(z => ex.f4(a, z), s, r, EffortLadder.core_effort_spell_lvs(b, r2), pre, e1), fb)
     case Wr.Bad{}:
       Unit{}
 
@@ -585,7 +585,7 @@ def ex.ff6(-s: String, +a: FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef
   match e:
     case Wr.Got{+b, +r2}:
       (e1, fb) = inv
-      (ex.step(z => ex.f5(a, z), s, r, Effort.core_effort_spell_lvs(b, r2), pre, e1), LAWireSpell.ws_and_tt(ex.g5(a), Effort.core_lvs_fit(b), ga, fb))
+      (ex.step(z => ex.f5(a, z), s, r, EffortLadder.core_effort_spell_lvs(b, r2), pre, e1), LAWireSpell.ws_and_tt(ex.g5(a), EffortLadder.core_lvs_fit(b), ga, fb))
     case Wr.Bad{}:
       Unit{}
 
@@ -600,7 +600,7 @@ def ex.fs6(-s: String, d: Wr.Dec<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<
 def ex.Facts(s: String, d: Wr.Dec<FEf.Facts>) -> Type:
   match d:
     case Wr.Got{f, r}:
-      {s == Effort.core_effort_spell_facts(f, r) : String} & {Effort.core_facts_fit(f) == True{} : Bool}
+      {s == EffortLadder.core_effort_spell_facts(f, r) : String} & {EffortLadder.core_facts_fit(f) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -637,17 +637,17 @@ def ex.facts(+s: String) -> ex.Facts(s, FEf.get_facts(s)):
 def ex.c2(q: FEf.P2<FEf.Facts, Ef.Lv>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      Effort.core_effort_spell_facts(a, Effort.core_effort_spell_lv(b, r))
+      EffortLadder.core_effort_spell_facts(a, EffortLadder.core_effort_spell_lv(b, r))
 
 def ex.cg2(q: FEf.P2<FEf.Facts, Ef.Lv>) -> Bool:
   match q:
     case FEf.P2{a, b}:
-      Effort.core_facts_fit(a)
+      EffortLadder.core_facts_fit(a)
 
 def ex.c3(q: FEf.P2<FEf.P2<FEf.Facts, Ef.Lv>, Ef.Dir>, r: String) -> String:
   match q:
     case FEf.P2{a, b}:
-      ex.c2(a, Effort.core_effort_spell_dir(b, r))
+      ex.c2(a, EffortLadder.core_effort_spell_dir(b, r))
 
 def ex.cg3(q: FEf.P2<FEf.P2<FEf.Facts, Ef.Lv>, Ef.Dir>) -> Bool:
   match q:
@@ -668,10 +668,10 @@ def ex.C3(s: String, d: Wr.Dec<FEf.P2<FEf.P2<FEf.Facts, Ef.Lv>, Ef.Dir>>) -> Typ
     case Wr.Bad{}:
       Unit
 
-def ex.cf2(-s: String, +a: FEf.Facts, -r: String, pre: {s == Effort.core_effort_spell_facts(a, r) : String}, ga: {Effort.core_facts_fit(a) == True{} : Bool}, e: Wr.Dec<Ef.Lv>, inv: ex.Lv(r, e)) -> ex.C2(s, FEf.seq.fin(~FEf.Facts, ~Ef.Lv, a, e)):
+def ex.cf2(-s: String, +a: FEf.Facts, -r: String, pre: {s == EffortLadder.core_effort_spell_facts(a, r) : String}, ga: {EffortLadder.core_facts_fit(a) == True{} : Bool}, e: Wr.Dec<Ef.Lv>, inv: ex.Lv(r, e)) -> ex.C2(s, FEf.seq.fin(~FEf.Facts, ~Ef.Lv, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      (ex.step(z => Effort.core_effort_spell_facts(a, z), s, r, Effort.core_effort_spell_lv(b, r2), pre, inv), ga)
+      (ex.step(z => EffortLadder.core_effort_spell_facts(a, z), s, r, EffortLadder.core_effort_spell_lv(b, r2), pre, inv), ga)
     case Wr.Bad{}:
       Unit{}
 
@@ -686,7 +686,7 @@ def ex.cs2(-s: String, d: Wr.Dec<FEf.Facts>, inv: ex.Facts(s, d)) -> ex.C2(s, FE
 def ex.cf3(-s: String, +a: FEf.P2<FEf.Facts, Ef.Lv>, -r: String, pre: {s == ex.c2(a, r) : String}, ga: {ex.cg2(a) == True{} : Bool}, e: Wr.Dec<Ef.Dir>, inv: ex.Dir(r, e)) -> ex.C3(s, FEf.seq.fin(~FEf.P2<FEf.Facts, Ef.Lv>, ~Ef.Dir, a, e)):
   match e:
     case Wr.Got{+b, +r2}:
-      (ex.step(z => ex.c2(a, z), s, r, Effort.core_effort_spell_dir(b, r2), pre, inv), ga)
+      (ex.step(z => ex.c2(a, z), s, r, EffortLadder.core_effort_spell_dir(b, r2), pre, inv), ga)
     case Wr.Bad{}:
       Unit{}
 
@@ -702,7 +702,7 @@ def ex.cs3(-s: String, d: Wr.Dec<FEf.P2<FEf.Facts, Ef.Lv>>, inv: ex.C2(s, d)) ->
 def ex.Req(s: String, d: Wr.Dec<FEf.Req>) -> Type:
   match d:
     case Wr.Got{q, r}:
-      {s == Effort.core_effort_spell_req(q, r) : String} & {Effort.core_effort_fits(q) == True{} : Bool}
+      {s == EffortLadder.core_effort_spell_req(q, r) : String} & {EffortLadder.core_effort_fits(q) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -710,7 +710,7 @@ def ex.req.off(-s: String, -s0: String, en: {s == Wr.put_nat(0n, s0) : String}, 
   match d:
     case Wr.Got{+f, +r}:
       (e1, ff) = inv
-      (ex.step(z => Wr.put_nat(0n, z), s, s0, Effort.core_effort_spell_facts(f, r), en, e1), ff)
+      (ex.step(z => Wr.put_nat(0n, z), s, s0, EffortLadder.core_effort_spell_facts(f, r), en, e1), ff)
     case Wr.Bad{}:
       Unit{}
 
@@ -720,7 +720,7 @@ def ex.req.clamp(-s: String, -s0: String, en: {s == Wr.put_nat(1n, s0) : String}
       match q:
         case FEf.P2{+f, +l}:
           (e1, ff) = inv
-          (ex.step(z => Wr.put_nat(1n, z), s, s0, Effort.core_effort_spell_facts(f, Effort.core_effort_spell_lv(l, r)), en, e1), ff)
+          (ex.step(z => Wr.put_nat(1n, z), s, s0, EffortLadder.core_effort_spell_facts(f, EffortLadder.core_effort_spell_lv(l, r)), en, e1), ff)
     case Wr.Bad{}:
       Unit{}
 
@@ -732,7 +732,7 @@ def ex.req.cycle(-s: String, -s0: String, en: {s == Wr.put_nat(2n, s0) : String}
           match q2:
             case FEf.P2{+f, +l}:
               (e1, ff) = inv
-              (ex.step(z => Wr.put_nat(2n, z), s, s0, Effort.core_effort_spell_facts(f, Effort.core_effort_spell_lv(l, Effort.core_effort_spell_dir(x, r))), en, e1), ff)
+              (ex.step(z => Wr.put_nat(2n, z), s, s0, EffortLadder.core_effort_spell_facts(f, EffortLadder.core_effort_spell_lv(l, EffortLadder.core_effort_spell_dir(x, r))), en, e1), ff)
     case Wr.Bad{}:
       Unit{}
 

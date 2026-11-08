@@ -6,16 +6,16 @@ import ../../bend/tools.bend as Tl
 import ../../laws/tools.bend as Tools
 import ../base/logic/logic.bend as LLogicLogic
 
-# the guard refuses when its first part holds
-def pa.guard_first(b1: Bool, b2: Bool, h: {b1 == True{} : Bool}) -> {Am.guard(Bool.or(b1, b2)) == Am.GatewayRefused{} : Am.Fate}:
-  match b1:
+# the guard refuses when the protected code is present
+def pa.guard_true(b: Bool, h: {b == True{} : Bool}) -> {Am.guard(b) == Am.GatewayRefused{} : Am.Fate}:
+  match b:
     case True{}:
       {==}
     case False{}:
-      LLogicLogic.approvals.pa.absurdF({Am.guard(Bool.or(False{}, b2)) == Am.GatewayRefused{} : Am.Fate}, h)
+      LLogicLogic.approvals.pa.absurdF({Am.guard(False{}) == Am.GatewayRefused{} : Am.Fate}, h)
 
 def pa.refuses_protected(+es: List<&2, Nat>, protected: {Tl.elem(es, 5n) == True{} : Bool}, +above: List<&2, Am.Desk>) -> {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}:
-  pa.guard_first(Tl.elem(es, 5n), Tl.elem(es, 6n), protected)
+  pa.guard_true(Tl.elem(es, 5n), protected)
 
 def Tools.gateway_refuses_protected(es, protected, above):
   pa.refuses_protected(es, protected, above)

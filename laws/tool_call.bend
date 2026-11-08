@@ -4,10 +4,11 @@ import Base
 import ../bend/tool_call.bend as Tc
 import ../bend/ffi_tool_call.bend as FTc
 import ../bend/wire.bend as Wr
+import ../spec/harness/effect.bend as Sp
 
 # (S2) A tool call journals its start and its settle
 # --------------------------------------------------
-# docs/runtime.md S2, call 1-3. The Harness opens the stepper
+# Call 1-3. The Harness opens the stepper
 # bend/ffi_tool_call.bend where it journals a call's start (a first
 # attempt) or clears it (a rerun), sends it every report the tool makes
 # (output, a diagnostic, usage, details, a read of its output, a nested
@@ -193,8 +194,7 @@ def tc_before_end(es: List<&2, Tc.Ev>, +ended: Bool) -> List<&2, Bool>:
 # EXCLUDES: a report lost or refused while the call runs, a report stored
 # after the settle, a second settle, a settle before the end, a settle as
 # another ending (an abort settled as a failure, a throw as finished), a
-# stepper whose state drifts (the bridge's transcript, restated over every
-# order)
+# stepper whose state drifts after some order of events
 law tool_call_step_is_model:
   for +first: Bool
   for +es: List<&2, Tc.Ev>
@@ -361,3 +361,393 @@ law tool_call_entry_shut:
 # EXCLUDES: an entry that answers other bytes than the grammar's
 law tool_call_entry_example:
   {[tc_reply(FTc.open("T")), tc_reply(FTc.open("F")), tc_reply(FTc.open("x"))] == ["0,", "1,", SCon{'E', SCon{' ', "tool_call: malformed open"}}] : List<&2, String>} & {[tc_reply(FTc.step(tc_opened(True{}), "0,")), tc_reply(FTc.step(tc_opened(True{}), "1,FF")), tc_reply(FTc.step(tc_opened(True{}), "1,TF")), tc_reply(FTc.step(tc_opened(True{}), "1,TT")), tc_reply(FTc.step(tc_opened(True{}), "2,")), tc_reply(FTc.step(tc_opened(True{}), "1,T")), tc_reply(FTc.step(tc_opened(True{}), "0,0,"))] == ["0,", "2,0,", "2,1,", "2,2,", SCon{'E', SCon{' ', "tool_call: malformed event"}}, SCon{'E', SCon{' ', "tool_call: malformed event"}}, SCon{'E', SCon{' ', "tool_call: malformed event"}}] : List<&2, String>} & {tc_replies([Tc.End{False{}, False{}}, Tc.Report{}, Tc.End{True{}, True{}}], tc_opened(False{})) == ["2,0,", "1,", "3,"] : List<&2, String>}
+
+# (S3) Speculation, then effect
+# -----------------------------
+# A tool's effects run only once the assistant entry that made the call is
+# durable (omp2 PHILOSOPHY: speculation, then effect). The Harness
+# appends the assistant entry and creates each call's tool task in one
+# commit (harness/generation/round.rs); the streamed reply before it is
+# speculation, which runs nothing. Each handler of a tool task
+# (harness/tool.rs: the call phase, the execute phase after a restart,
+# abort) asks the gate, the call `ffi` of bend/ffi_tool_call.bend, and
+# does what it answers. spec/harness/effect.bend restates the gate
+# (E1-E4) and the world of one call (E5): the laws below run the shipped
+# gate (Tc.gate, the one the entry spells) in every history of that
+# world, any order of chunks, commits, runs, crashes, ends and aborts,
+# with the tool resolved anew at each run. Not pinned here: what a run
+# does (the journal, S2), which calls a round admits (round.rs refuses a
+# truncated reply's calls and calls to tools not offered before it
+# creates their tasks).
+
+# Spellers: the bytes the Harness sends and reads, from the wire's
+# primitives
+
+def tc_spell_replay(p: Tc.Replay, rest: String) -> String:
+  match p:
+    case Tc.Safe{}:
+      Wr.put_nat(0n, rest)
+    case Tc.Unsafe{}:
+      Wr.put_nat(1n, rest)
+
+def tc_spell_now(t: Tc.Now, rest: String) -> String:
+  match t:
+    case Tc.Gone{}:
+      Wr.put_nat(0n, rest)
+    case Tc.Offered{p}:
+      Wr.put_nat(1n, tc_spell_replay(p, rest))
+
+# a gate question as the Harness writes it
+def tc_spell_gate(q: Tc.Gate) -> String:
+  match q:
+    case Tc.Enter{f, t}:
+      Wr.put_nat(0n, Wr.put_bool(f, tc_spell_now(t, "")))
+    case Tc.Recover{f, p, t}:
+      Wr.put_nat(1n, Wr.put_bool(f, tc_spell_replay(p, tc_spell_now(t, ""))))
+    case Tc.Stop{f, x, i}:
+      Wr.put_nat(2n, Wr.put_bool(f, Wr.put_bool(x, Wr.put_bool(i, ""))))
+
+# an answer as the Harness reads it: 0 run, 1 missing, 2 unavailable,
+# 3 rerun, 4 interrupted, 5 aborted, 6 abandoned
+def tc_spell_go(g: Tc.Go) -> String:
+  match g:
+    case Tc.Run{}:
+      "0,"
+    case Tc.Missing{}:
+      "1,"
+    case Tc.Unavailable{}:
+      "2,"
+    case Tc.Rerun{}:
+      "3,"
+    case Tc.Interrupted{}:
+      "4,"
+    case Tc.Aborted{}:
+      "5,"
+    case Tc.Abandoned{}:
+      "6,"
+
+# The laws' reader of a gate question, from the wire's primitives
+
+def tc_rg_replay.tag(n: Nat, s: String) -> Wr.Dec<Tc.Replay>:
+  match n:
+    case 0n:
+      Wr.Got{Tc.Safe{}, s}
+    case 1n:
+      Wr.Got{Tc.Unsafe{}, s}
+    case 2n+p:
+      Wr.Bad{}
+
+def tc_rg_replay.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Replay>:
+  match r:
+    case Wr.Got{n, s}:
+      tc_rg_replay.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg_replay(s: String) -> Wr.Dec<Tc.Replay>:
+  tc_rg_replay.go(Wr.get_nat(s))
+
+def tc_rg_now.offered(r: Wr.Dec<Tc.Replay>) -> Wr.Dec<Tc.Now>:
+  match r:
+    case Wr.Got{p, s}:
+      Wr.Got{Tc.Offered{p}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg_now.tag(n: Nat, s: String) -> Wr.Dec<Tc.Now>:
+  match n:
+    case 0n:
+      Wr.Got{Tc.Gone{}, s}
+    case 1n:
+      tc_rg_now.offered(tc_rg_replay(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def tc_rg_now.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Now>:
+  match r:
+    case Wr.Got{n, s}:
+      tc_rg_now.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg_now(s: String) -> Wr.Dec<Tc.Now>:
+  tc_rg_now.go(Wr.get_nat(s))
+
+def tc_rg.enter(f: Bool, r: Wr.Dec<Tc.Now>) -> Wr.Dec<Tc.Gate>:
+  match r:
+    case Wr.Got{t, s}:
+      Wr.Got{Tc.Enter{f, t}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg.recover(f: Bool, p: Tc.Replay, r: Wr.Dec<Tc.Now>) -> Wr.Dec<Tc.Gate>:
+  match r:
+    case Wr.Got{t, s}:
+      Wr.Got{Tc.Recover{f, p, t}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg.stored(f: Bool, r: Wr.Dec<Tc.Replay>) -> Wr.Dec<Tc.Gate>:
+  match r:
+    case Wr.Got{p, s}:
+      tc_rg.recover(f, p, tc_rg_now(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg.intent(f: Bool, x: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Gate>:
+  match r:
+    case Wr.Got{i, s}:
+      Wr.Got{Tc.Stop{f, x, i}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg.restart(f: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Gate>:
+  match r:
+    case Wr.Got{x, s}:
+      tc_rg.intent(f, x, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg.found(n: Nat, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Gate>:
+  match n:
+    case 0n:
+      match r:
+        case Wr.Got{f, s}:
+          tc_rg.enter(f, tc_rg_now(s))
+        case Wr.Bad{}:
+          Wr.Bad{}
+    case 1n:
+      match r:
+        case Wr.Got{f, s}:
+          tc_rg.stored(f, tc_rg_replay(s))
+        case Wr.Bad{}:
+          Wr.Bad{}
+    case 2n:
+      match r:
+        case Wr.Got{f, s}:
+          tc_rg.restart(f, Wr.get_bool(s))
+        case Wr.Bad{}:
+          Wr.Bad{}
+    case 3n+p:
+      Wr.Bad{}
+
+def tc_rg.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Gate>:
+  match r:
+    case Wr.Got{n, s}:
+      tc_rg.found(n, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tc_rg.end(whole: Bool, q: Tc.Gate) -> Maybe<&2, Tc.Gate>:
+  match whole:
+    case True{}:
+      Some{q}
+    case False{}:
+      None{}
+
+def tc_rg.whole(d: Wr.Dec<Tc.Gate>) -> Maybe<&2, Tc.Gate>:
+  match d:
+    case Wr.Got{q, s}:
+      tc_rg.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      None{}
+
+# the gate question s is, when s is exactly one
+def tc_read_gate(s: String) -> Maybe<&2, Tc.Gate>:
+  tc_rg.whole(tc_rg.go(Wr.get_nat(s)))
+
+# The world of one call, run with the shipped gate (E5)
+
+# the world after the gate answers g to the task at phase ph (c: the
+# entry committed; r: running; n effects, s settles, x early runs; p: the
+# policy a run's intent records)
+def ef_answer(g: Tc.Go, +c: Bool, ph: Sp.Phase, r: Bool, n: Nat, s: Nat, x: Nat, p: Tc.Replay) -> Sp.World:
+  match g:
+    case Tc.Run{}:
+      Sp.Wd{c, Sp.AtExecute{p}, True{}, 1n+n, s, Sp.early_add(c, x)}
+    case Tc.Missing{}:
+      Sp.Wd{c, ph, r, n, s, x}
+    case Tc.Unavailable{}:
+      Sp.Wd{c, Sp.Settled{Sp.intent_of(ph)}, False{}, n, 1n+s, x}
+    case Tc.Rerun{}:
+      Sp.Wd{c, ph, True{}, 1n+n, s, Sp.early_add(c, x)}
+    case Tc.Interrupted{}:
+      Sp.Wd{c, Sp.Settled{Sp.intent_of(ph)}, False{}, n, 1n+s, x}
+    case Tc.Aborted{}:
+      Sp.Wd{c, Sp.Settled{Sp.intent_of(ph)}, False{}, n, 1n+s, x}
+    case Tc.Abandoned{}:
+      Sp.Wd{c, Sp.Settled{Sp.intent_of(ph)}, False{}, n, 1n+s, x}
+
+# the scheduler runs the task's current phase, the tool resolved as t
+def ef_start(ph: Sp.Phase, +c: Bool, n: Nat, s: Nat, x: Nat, +t: Tc.Now) -> Sp.World:
+  match ph:
+    case Sp.NoTask{}:
+      ef_answer(Tc.gate(Tc.Enter{c, t}), c, Sp.NoTask{}, False{}, n, s, x, Sp.policy(t))
+    case Sp.AtCall{}:
+      ef_answer(Tc.gate(Tc.Enter{c, t}), c, Sp.AtCall{}, False{}, n, s, x, Sp.policy(t))
+    case Sp.AtExecute{+q}:
+      ef_answer(Tc.gate(Tc.Recover{c, q, t}), c, Sp.AtExecute{q}, False{}, n, s, x, q)
+    case Sp.Settled{q}:
+      Sp.Wd{c, Sp.Settled{q}, False{}, n, s, x}
+
+# a run: never of a running task
+def ef_go(r: Bool, ph: Sp.Phase, c: Bool, n: Nat, s: Nat, x: Nat, t: Tc.Now) -> Sp.World:
+  match r:
+    case True{}:
+      Sp.Wd{c, ph, True{}, n, s, x}
+    case False{}:
+      ef_start(ph, c, n, s, x, t)
+
+# the commit of the entry and the task: once
+def ef_commit(ph: Sp.Phase, c: Bool, r: Bool, n: Nat, s: Nat, x: Nat) -> Sp.World:
+  match ph:
+    case Sp.NoTask{}:
+      Sp.Wd{True{}, Sp.AtCall{}, r, n, s, x}
+    case Sp.AtCall{}:
+      Sp.Wd{c, Sp.AtCall{}, r, n, s, x}
+    case Sp.AtExecute{q}:
+      Sp.Wd{c, Sp.AtExecute{q}, r, n, s, x}
+    case Sp.Settled{q}:
+      Sp.Wd{c, Sp.Settled{q}, r, n, s, x}
+
+# the end of the execute settles a running call
+def ef_finish(r: Bool, c: Bool, ph: Sp.Phase, n: Nat, s: Nat, x: Nat) -> Sp.World:
+  match r:
+    case True{}:
+      Sp.Wd{c, Sp.Settled{Sp.intent_of(ph)}, False{}, n, 1n+s, x}
+    case False{}:
+      Sp.Wd{c, ph, False{}, n, s, x}
+
+# the abort handler of a task not settled asks the gate
+def ef_abort(ph: Sp.Phase, +c: Bool, r: Bool, n: Nat, s: Nat, x: Nat, k: Bool) -> Sp.World:
+  match ph:
+    case Sp.NoTask{}:
+      ef_answer(Tc.gate(Tc.Stop{c, k, False{}}), c, Sp.NoTask{}, r, n, s, x, Tc.Unsafe{})
+    case Sp.AtCall{}:
+      ef_answer(Tc.gate(Tc.Stop{c, k, False{}}), c, Sp.AtCall{}, r, n, s, x, Tc.Unsafe{})
+    case Sp.AtExecute{q}:
+      ef_answer(Tc.gate(Tc.Stop{c, k, True{}}), c, Sp.AtExecute{q}, r, n, s, x, Tc.Unsafe{})
+    case Sp.Settled{q}:
+      Sp.Wd{c, Sp.Settled{q}, r, n, s, x}
+
+# the world after one event
+def ef_step(w: Sp.World, e: Sp.Ev) -> Sp.World:
+  match w:
+    case Sp.Wd{c, ph, r, n, s, x}:
+      match e:
+        case Sp.Delta{}:
+          Sp.Wd{c, ph, r, n, s, x}
+        case Sp.Commit{}:
+          ef_commit(ph, c, r, n, s, x)
+        case Sp.Start{t}:
+          ef_go(r, ph, c, n, s, x, t)
+        case Sp.Finish{}:
+          ef_finish(r, c, ph, n, s, x)
+        case Sp.Crash{}:
+          Sp.Wd{c, ph, False{}, n, s, x}
+        case Sp.Abort{k}:
+          ef_abort(ph, c, r, n, s, x, k)
+
+# the world after the events es, in order, from w
+def ef_run(es: List<&2, Sp.Ev>, w: Sp.World) -> Sp.World:
+  match es:
+    case Nil{}:
+      w
+    case e <> rest:
+      ef_run(rest, ef_step(w, e))
+
+# LAW tool_call_gate_is_spec (E1-E4): the entry answers every gate
+# question the Harness spells with the spec's answer, spelled as Rust
+# reads it
+# EXCLUDES: a run without a committed entry or without an offered tool, a
+# rerun of an unsafe call (stored or current policy unsafe, the tool gone),
+# a safe call not rerun, a settle for a call no entry holds, an abort
+# answered with another code, a field misread, a reply spelled otherwise
+law tool_call_gate_is_spec:
+  for +q: Tc.Gate
+  {FTc.ffi(tc_spell_gate(q)) == tc_spell_go(Sp.gate_spec(q)) : String}
+
+# LAW tool_call_gate_spelled_reads: the laws' reader reads every spelled
+# gate question back whole, so tool_call_gate_malformed_exact refuses only
+# what Rust never writes
+# EXCLUDES: a reader (and so an entry) that refuses a question Rust writes
+law tool_call_gate_spelled_reads:
+  for +q: Tc.Gate
+  {tc_read_gate(tc_spell_gate(q)) == Some{q} : Maybe<&2, Tc.Gate>}
+
+# LAW tool_call_gate_reads: an input the laws' reader reads as exactly one
+# gate question is answered as that question spelled
+# EXCLUDES: an input read otherwise by the entry than by the wire's grammar
+law tool_call_gate_reads:
+  for +i: String
+  for +q: Tc.Gate
+  for got: {tc_read_gate(i) == Some{q} : Maybe<&2, Tc.Gate>}
+  {FTc.ffi(i) == FTc.ffi(tc_spell_gate(q)) : String}
+
+# LAW tool_call_gate_malformed_exact: an input the laws' reader does not
+# read as exactly one gate question (a bad tag, a short or bad field,
+# input left over) answers exactly the error form 'E ' + "tool_call:
+# malformed gate"
+# EXCLUDES: a guessed question (garbage that runs or settles a call),
+# another error text
+law tool_call_gate_malformed_exact:
+  for +i: String
+  for no: {tc_read_gate(i) == None{} : Maybe<&2, Tc.Gate>}
+  {FTc.ffi(i) == SCon{'E', SCon{' ', "tool_call: malformed gate"}} : String}
+
+# LAW execute_after_committed (E1, E5): in every history of a call, its
+# effect runs (a run, or a rerun) only while a committed assistant entry
+# holds the call
+# EXCLUDES: a call run from its streamed arguments (a dry run of the
+# speculation), a run before the commit of its entry, a task created or
+# started before that commit
+law execute_after_committed:
+  for +es: List<&2, Sp.Ev>
+  {Sp.early(ef_run(es, Sp.w0())) == 0n : Nat}
+
+# LAW uncommitted_drop_inert (E4, E5): a history in which the call's
+# entry never commits (the stream dropped, aborted or crashed before the
+# commit) leaves the world as it was: no run, no intent, no settle
+# EXCLUDES: an effect, an intent or a result of a call nobody committed,
+# an abort that settles a call that never existed
+law uncommitted_drop_inert:
+  for +es: List<&2, Sp.Ev>
+  for no: {Sp.commits(es) == False{} : Bool}
+  {ef_run(es, Sp.w0()) == Sp.w0() : Sp.World}
+
+# LAW effect_once (E2, E5): across every crash and resume, a committed
+# call's effect runs at most once, unless the policy its intent recorded
+# is safe
+# EXCLUDES: an unsafe call (bash) run again after a restart, a call run
+# again once its result settled, a running call started a second time, a
+# call run again by its abort
+law effect_once:
+  for +es: List<&2, Sp.Ev>
+  {Bool.or(Sp.safe_intent(ef_run(es, Sp.w0())), Nat.is_le(Sp.effects(ef_run(es, Sp.w0())), 1n)) == True{} : Bool}
+
+# LAW effect_settles_once (E1-E5): across every crash, resume and abort, a
+# call settles at most once
+# EXCLUDES: a second result for one call (a rerun after the settle, an
+# abort after the end, an interrupted answer after a finished one)
+law effect_settles_once:
+  for +es: List<&2, Sp.Ev>
+  {Nat.is_le(Sp.settles(ef_run(es, Sp.w0())), 1n) == True{} : Bool}
+
+# LAW tool_call_gate_example: anchor: the bytes the Harness sends and the
+# replies (the Rust tests' cases: a first run, a tool no longer offered,
+# a call no entry holds; a rerun only when the stored and the current
+# policy are both safe, a deselected tool; an abort, one by a restart
+# after and before the intent); garbage: a short stop, input left over,
+# an unknown tag
+# EXCLUDES: an entry that answers other bytes than the grammar's
+law tool_call_gate_example:
+  {[FTc.ffi("0,T1,1,"), FTc.ffi("0,T0,"), FTc.ffi("0,F1,0,"), FTc.ffi("1,T0,1,0,"), FTc.ffi("1,T0,1,1,"), FTc.ffi("1,T1,1,0,"), FTc.ffi("1,T0,0,"), FTc.ffi("2,TFT"), FTc.ffi("2,TTT"), FTc.ffi("2,TTF")] == ["0,", "2,", "1,", "3,", "4,", "4,", "4,", "5,", "4,", "6,"] : List<&2, String>} & {[FTc.ffi("2,TT"), FTc.ffi("0,T0,x"), FTc.ffi("3,T")] == [SCon{'E', SCon{' ', "tool_call: malformed gate"}}, SCon{'E', SCon{' ', "tool_call: malformed gate"}}, SCon{'E', SCon{' ', "tool_call: malformed gate"}}] : List<&2, String>}
+
+# LAW effect_example: anchor: the histories of the Rust tests: a crash
+# between the stream's end and the commit (nothing ran, nothing
+# settled); an unsafe bash call resumed after a crash mid-run (settled
+# interrupted, run once); a safe call resumed (run again, settled once);
+# a task abandoned by a restart before it started
+# EXCLUDES: a world that drifts from the Rust it models
+law effect_example:
+  {ef_run([Sp.Delta{}, Sp.Delta{}, Sp.Crash{}], Sp.w0()) == Sp.w0() : Sp.World} & {ef_run([Sp.Delta{}, Sp.Commit{}, Sp.Start{Tc.Offered{Tc.Unsafe{}}}, Sp.Crash{}, Sp.Start{Tc.Offered{Tc.Unsafe{}}}], Sp.w0()) == Sp.Wd{True{}, Sp.Settled{Some{Tc.Unsafe{}}}, False{}, 1n, 1n, 0n} : Sp.World} & {ef_run([Sp.Commit{}, Sp.Start{Tc.Offered{Tc.Safe{}}}, Sp.Crash{}, Sp.Start{Tc.Offered{Tc.Safe{}}}, Sp.Finish{}], Sp.w0()) == Sp.Wd{True{}, Sp.Settled{Some{Tc.Safe{}}}, False{}, 2n, 1n, 0n} : Sp.World} & {ef_run([Sp.Commit{}, Sp.Abort{True{}}], Sp.w0()) == Sp.Wd{True{}, Sp.Settled{None{}}, False{}, 0n, 1n, 0n} : Sp.World}

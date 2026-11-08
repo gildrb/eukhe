@@ -1,0 +1,9 @@
+# every number at its largest: a flag, adaptive thinking, an effort, a price
+# (rows of this model and of every model), the reasoning fields (nested, flat)
+call 0,0,{MAX},T
+call 1,0,0,{MAX},
+call 2,1,1,{MAX},1,1,{MAX},1,1,{MAX},1,1,{MAX},1,1,{MAX},1,1,{MAX},5,
+call 3,3,1,{MAX},{MAX},{MAX},0,{MAX},{MAX},1,99999999999998,0,1,{MAX},{MAX},
+call 4,2,1,1,{MAX},5,
+call 4,3,1,1,{MAX},5,
+refuse 0,0,{LONG},T

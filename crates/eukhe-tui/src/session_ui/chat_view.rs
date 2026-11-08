@@ -17,16 +17,31 @@ use super::{
 };
 use eukhe_client::daemon_client::DaemonClient;
 
+/// Why a bounded UI fetch failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum UiFetchError {
+    #[error("{name} did not answer within {UI_REQUEST_TIMEOUT_MS} ms")]
+    Timeout { name: &'static str },
+    #[error("malformed {name} reply: {source}")]
+    Malformed {
+        name: &'static str,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{0:#}")]
+    Daemon(#[source] anyhow::Error),
+}
+
 /// A landed open-time fetch. A response from an older fetch (a rebind
 /// raced it) never applies -- the epoch drops it.
 pub(crate) struct ChatViewUpdate {
     pub epoch: u64,
     /// The view (`Ok(None)`: the session keeps no chat memory), or why the
     /// fetch failed; `None` when the daemon lacks the `chat_view` lane.
-    pub view: Option<Result<Option<ChatViewSnapshot>, String>>,
+    pub view: Option<Result<Option<ChatViewSnapshot>, UiFetchError>>,
     /// The memory's status (`Ok(None)`: no chat memory), or why the fetch
     /// failed; `None` when the daemon lacks the `memory` lane.
-    pub memory: Option<Result<Option<MemoryStatusSnapshot>, String>>,
+    pub memory: Option<Result<Option<MemoryStatusSnapshot>, UiFetchError>>,
 }
 
 /// One bounded daemon request decoded as `T` (the open-time fetch and the
@@ -34,8 +49,8 @@ pub(crate) struct ChatViewUpdate {
 pub(super) async fn fetch<T: serde::de::DeserializeOwned>(
     client: &DaemonClient,
     request: DaemonCommand,
-    name: &str,
-) -> Result<T, String> {
+    name: &'static str,
+) -> Result<T, UiFetchError> {
     let fetched = tokio::time::timeout(
         Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
         client.request_ok(request),
@@ -43,11 +58,9 @@ pub(super) async fn fetch<T: serde::de::DeserializeOwned>(
     .await;
     match fetched {
         Ok(Ok(data)) => serde_json::from_value::<T>(data)
-            .map_err(|error| format!("malformed {name} reply: {error}")),
-        Ok(Err(error)) => Err(format!("{error:#}")),
-        Err(_) => Err(format!(
-            "{name} did not answer within {UI_REQUEST_TIMEOUT_MS} ms"
-        )),
+            .map_err(|source| UiFetchError::Malformed { name, source }),
+        Ok(Err(error)) => Err(UiFetchError::Daemon(error)),
+        Err(_) => Err(UiFetchError::Timeout { name }),
     }
 }
 

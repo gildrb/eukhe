@@ -1,0 +1,12 @@
+# publish, meet, scan: no number but tags, counts and lengths
+call 0,T
+call 1,2,0,43,.s1.import-0123456789abcdef0123456789abcdef0,F0,9,session-10,F
+call 3,2,0,9,durable-10,T0,14,legacy-1.jsonl1,
+# judge: every time at its largest (now plus a day passes the largest Nat of the wire)
+call 2,0,1,{MAX},{MAX},{MAX},{MAX},2,{MAX},{MAX},{MAX},{MAX},
+call 2,0,1,{MAX},{MAX},0,0,1,0,0,
+call 2,1,1,{MAX},{MAX},99999999999998,{MAX},0,
+# rows: every time at its largest, several entries of the same newest time
+call 4,3,0,1,a0,T1,2,/p2,{MAX},{MAX},{MAX},0,0,1,b0,T1,2,/q1,{MAX},{MAX},0,14,legacy-1.jsonl1,1,1,/1,{MAX},{MAX},
+refuse 2,0,1,{LONG},0,0,0,0,
+refuse 4,{LONG},

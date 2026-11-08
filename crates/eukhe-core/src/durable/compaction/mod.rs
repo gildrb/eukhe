@@ -2,8 +2,8 @@
 //! durable Harness:
 //!
 //! - `before_compact` supplies eukhe's own summary (eukhe's prompts,
-//!   serializer, auxiliary model, update mode, recent-state anchor,
-//!   harness-digest block, and `[compaction-summary]` wrapper) and streams
+//!   serializer, auxiliary model, update mode, recent-state anchor, and
+//!   `[compaction-summary]` wrapper) and streams
 //!   its text deltas to the session's [`SummaryDeltaSink`]; chat-memory
 //!   roots decline (`summary`).
 //! - The post-commit observer (`observer`) records `compaction_outcome`
@@ -26,7 +26,6 @@ pub mod utils;
 
 use std::sync::Arc;
 
-use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::{define_extension, hook};
 use eukhe_durable::harness::types::{CompactionHooks, Extension};
 use eukhe_durable::harness::COMPACTION_TASK;
@@ -66,30 +65,4 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         )],
         ..Extension::named(COMPACTION_EXTENSION)
     })
-}
-
-/// The fresh harness digest render (body plus state fingerprint) of a
-/// conversation, when its state renders a non-empty digest.
-pub(crate) async fn digest_render_of(
-    deps: &HostDeps,
-    conversation: &eukhe_durable::harness::Conversation,
-    cx: &Context,
-) -> eukhe_durable::session::SessionResult<Option<crate::durable::digest::HarnessDigestRender>> {
-    let render = super::digest::conversation_digest(deps, conversation, cx)
-        .await
-        .map_err(eukhe_durable::session::SessionError::other)?;
-    Ok((!render.digest.is_empty()).then_some(render))
-}
-
-/// Whether `conversation` is a chat-memory root (the compaction surfaces
-/// decline or skip for it).
-/// # Errors
-///
-/// The conversation record cannot be read.
-pub async fn chat_memory_root(
-    deps: &HostDeps,
-    conversation: eukhe_durable::types::ConversationId,
-    cx: &Context,
-) -> eukhe_durable::session::SessionResult<bool> {
-    summary::chat_memory_root_of(deps, conversation, cx).await
 }

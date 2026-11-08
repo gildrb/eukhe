@@ -729,8 +729,7 @@ law tiny_seat_under_lock:
 # need's own tag; with no worker the ping meets no socket. The run uses
 # exactly what the worker model's need gets
 # EXCLUDES: an election whose run drifts from the worker model of
-#   tiny_same_tag_joins and tiny_worker_current (the transcript the
-#   Rust bridge compared, restated over the stepper)
+#   tiny_same_tag_joins and tiny_worker_current, over the stepper
 law tiny_run_is_model:
   for +o: Nat
   for +t: Nat

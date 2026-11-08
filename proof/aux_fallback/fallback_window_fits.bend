@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/aux_fallback.bend as Af
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/model.bend as AuxFallback
 
 # not (a < b) is b <= a
 def paf.nlt_le(a: Nat, b: Nat) -> {Bool.not(Nat.is_lt(a, b)) == Nat.is_le(b, a) : Bool}:

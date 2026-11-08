@@ -6,7 +6,7 @@ import ../../laws/base.bend as LawsBase
 
 # ---- tiny ----
 
-# proof_tiny: the S9 laws (docs/inference.md) of the tiny-model model in
+# proof_tiny: the S9 laws of the tiny-model model in
 # bend/tiny.bend.
 #
 # A pick scans its chain with the test of the head as a parameter: a hit

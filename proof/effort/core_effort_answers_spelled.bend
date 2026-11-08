@@ -6,8 +6,8 @@
 
 import Base
 import ../../bend/ffi_effort.bend as FEf
-import ../../laws/effort.bend as Effort
+import ../../laws/effort/ladder.bend as EffortLadder
 import ./core_effort_answers_spelled/spell.bend as ES
 
-def Effort.core_effort_answers_spelled(q, fits):
-  Equal.trans(String, FEf.ffi(Effort.core_effort_spell_req(q, "")), FEf.answer(q), Effort.core_effort_spell_answer(q), ES.es.run(q, "", fits), ES.es.answer(q))
+def EffortLadder.core_effort_answers_spelled(q, fits):
+  Equal.trans(String, FEf.ffi(EffortLadder.core_effort_spell_req(q, "")), FEf.answer(q), EffortLadder.core_effort_spell_answer(q), ES.es.run(q, "", fits), ES.es.answer(q))

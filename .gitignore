@@ -3,6 +3,8 @@
 /bin/
 __pycache__/
 steer-queue-runs/
+# the proofs of one change (scripts/bend_proofs.py)
+/PROOF_CHANGED.bend
 
 # local gate logs (driver downloads)
 clippy-*.log

@@ -10,7 +10,7 @@ import ../../bend/replace.bend as Rp
 import ../../laws/replace.bend as Replace
 import ./replace_verdict_exact.bend as PReplaceVerdictExact
 
-def rre.put(v: Rp.Verdict) -> {Rp.replaces.put(v) == Replace.rp_count(v) : Nat}:
+def rre.put(v: Rp.Verdict) -> {Rp.replaces.put(v) == Replace.rp_verdict_count(v) : Nat}:
   match v:
     case Rp.Replace{}:
       {==}
@@ -24,5 +24,5 @@ def Replace.replace_replaces_exact(s, d):
         case None{}:
           {==}
         case Some{+b}:
-          %Replace.replace_verdict_exact(c, b, k) : {Rp.replaces.put(Rp.verdict(c, b, k)) == Replace.rp_count(_) : Nat}
+          %Replace.replace_verdict_exact(c, b, k) : {Rp.replaces.put(Rp.verdict(c, b, k)) == Replace.rp_verdict_count(_) : Nat}
           rre.put(Rp.verdict(c, b, k))

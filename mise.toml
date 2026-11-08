@@ -1,0 +1,18 @@
+# The per-project tools of the gates and the dev build (AGENTS.md, CI).
+# scripts/ci_local.sh trusts, installs and loads this file itself; a shell
+# with `mise activate` loads it in the repository.
+[tools]
+"github:nextest-rs/nextest" = { version = "0.9.150", version_prefix = "cargo-nextest-" }
+"aqua:mozilla/sccache" = "0.19.0"
+
+[env]
+# rustup takes the toolchain of rust-toolchain.toml, not the global mise
+# rust's: a build with another rustc rebuilds the whole workspace.
+RUSTUP_TOOLCHAIN = false
+# Every rustc call goes through sccache: one cache for every worktree and
+# for the nightly gate's clean build (measured: a clean eukhe-cli build
+# 161 s cold, 97 s warm, against 152 s without). The linker stays rustc's
+# bundled LLD (mold measured slower on incremental links here).
+RUSTC_WRAPPER = "sccache"
+SCCACHE_DIR = "{{env.HOME}}/.cache/sccache"
+SCCACHE_CACHE_SIZE = "60G"

@@ -88,12 +88,14 @@ async fn a_classification_without_a_model_takes_the_first_available_judge_model(
             "acme/sorter".to_owned(),
         ]),
     );
+    let rendered =
+        |result: Result<ClassifierModel, JudgeClassifierError>| result.map_err(|e| e.to_string());
     assert_eq!(
         (
-            judge_classifier(&models, &unset, SESSION, only_350m).await,
-            judge_classifier(&models, &acme_first, SESSION, only_350m).await,
-            judge_classifier(&models, &missing_first, SESSION, only_350m).await,
-            judge_classifier(&models, &missing_first, SESSION, |_| false).await,
+            rendered(judge_classifier(&models, &unset, SESSION, only_350m).await),
+            rendered(judge_classifier(&models, &acme_first, SESSION, only_350m).await),
+            rendered(judge_classifier(&models, &missing_first, SESSION, only_350m).await),
+            rendered(judge_classifier(&models, &missing_first, SESSION, |_| false).await),
         ),
         (
             Ok(local("lfm2.5-350m")),
@@ -115,17 +117,21 @@ async fn a_classification_without_an_available_judge_model_is_unavailable() {
         |_| false,
     )
     .await;
+    let unavailable = match &result {
+        Err(JudgeClassifierError::Unavailable(unavailable)) => Some(unavailable.clone()),
+        Ok(_) | Err(JudgeClassifierError::Provider { .. }) => None,
+    };
     assert_eq!(
-        (result.clone(), result.map_err(|error| error.to_string())),
+        (unavailable, result.map_err(|error| error.to_string())),
         (
-            Err(JudgeClassifierError::Unavailable(RoleUnavailable {
+            Some(RoleUnavailable {
                 role: Role::Judge,
                 chain: vec![
                     Candidate::Local("lfm2.5-230m".to_owned()),
                     Candidate::Local("lfm2.5-350m".to_owned()),
                     Candidate::Remote(SESSION.to_owned()),
                 ],
-            })),
+            }),
             Err(
                 "no model of the judge role is available (chain: local/lfm2.5-230m, \
                  local/lfm2.5-350m, acme/chat-1); install one with \

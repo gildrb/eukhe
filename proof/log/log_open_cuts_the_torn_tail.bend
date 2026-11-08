@@ -6,7 +6,7 @@
 # (pl.tail_p).
 
 import Base
-import ../../spec/log.bend as Lg
+import ../../spec/durable/log.bend as Lg
 import ../../bend/log.bend as Lr
 import ../../laws/log.bend as Log
 import ./base.bend as LA

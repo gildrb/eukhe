@@ -1,5 +1,5 @@
-# eukhe: the laws of the bounder of a tool's output (docs/runtime.md S2,
-# limits 1 and 2; the model bend/bound.bend, the entry bend/ffi_bound.bend)
+# eukhe: the laws of the bounder of a tool's output (limits 1 and 2; the
+# model bend/bound.bend, the entry bend/ffi_bound.bend)
 
 import Base
 import ../bend/bound.bend as Bd

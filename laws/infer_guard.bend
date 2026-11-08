@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S6.5) The repetition guard, one chunk at a time
 # ------------------------------------------------
-# docs/inference.md S6.5, the model `guard` in bend/infer.bend section 4;
+# The model `guard` in bend/infer.bend section 4;
 # a stream's lines go to a stepper of the compiled core
 # (bend/ffi_infer_guard.bend) one id per line. Every input is free: any
 # window, any chunks read before, any chunk.
@@ -213,6 +213,58 @@ law infer_guard_ffi_ended:
 law infer_guard_ffi_shut:
   for s: String
   {FG.step(FG.Shut{}, s) == (FG.Shut{}, SCon{'E', SCon{' ', "infer_guard: the open was refused"}}) : FG.St & String}
+
+# The stepper, whole: what open and step answer to every input, from
+# every state the stepper can hold, by the spec step (feed_spec) and the
+# spec reader (read_nat) only, never the entry's codec or the model `feed`
+
+def open_spec.of(m: Maybe<&2, Nat>) -> FG.St & String:
+  match m:
+    case None{}:
+      (FG.Shut{}, SCon{'E', SCon{' ', "infer_guard: malformed window"}})
+    case Some{k}:
+      (FG.Live{M.St{k, Nil{}, 0n}}, "")
+
+# the open of the input s: a guard of the window s is that read no chunk,
+# else the refused state
+def open_spec(s: String) -> FG.St & String:
+  open_spec.of(read_nat(s))
+
+def step_spec.chunk(g: M.St, m: Maybe<&2, Nat>) -> FG.St & String:
+  match m:
+    case None{}:
+      (FG.Live{g}, SCon{'E', SCon{' ', "infer_guard: malformed chunk"}})
+    case Some{x}:
+      spell_next(feed_spec(g, x))
+
+# the step of the state st on the input s: a guard reads the chunk s is
+# (the spec's feed), else keeps itself; a cut stream answers its cut; a
+# refused open answers the error form
+def step_spec(st: FG.St, s: String) -> FG.St & String:
+  match st:
+    case FG.Live{g}:
+      step_spec.chunk(g, read_nat(s))
+    case FG.Ended{+at, +p}:
+      (FG.Ended{at, p}, spell_cut(at, p))
+    case FG.Shut{}:
+      (FG.Shut{}, SCon{'E', SCon{' ', "infer_guard: the open was refused"}})
+
+# LAW infer_guard_ffi_open_spec: for every input, the open is exactly the spec's: a fresh guard of the window when the input is exactly one Nat, with an empty reply, else the refused state and the error form 'E ', then "infer_guard: malformed window"
+# EXCLUDES: a guard opened on input that is not exactly a window (input
+#   left over, a malformed or too long number), a guard that starts with
+#   chunks or a count, another window
+law infer_guard_ffi_open_spec:
+  for +s: String
+  {FG.open(s) == open_spec(s) : FG.St & String}
+
+# LAW infer_guard_ffi_step_spec: for every state and every input, the step is exactly the spec's: a guard reads the chunk the input is exactly (feed_spec: kept, or the cut with its chunks read and period), else keeps itself and answers the error form 'E ', then "infer_guard: malformed chunk"; a cut stream answers its cut; the refused state answers the error form 'E ', then "infer_guard: the open was refused"
+# EXCLUDES: a chunk read from input that is not exactly a chunk, a cut or
+#   a kept chunk other than the spec's, a cut stream that reopens, a
+#   refused open that runs a guard
+law infer_guard_ffi_step_spec:
+  for +st: FG.St
+  for +s: String
+  {FG.step(st, s) == step_spec(st, s) : FG.St & String}
 
 # the reply r, then the replies of the stepper fed the inputs ins, one
 # step each from the state of r

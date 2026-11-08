@@ -18,8 +18,7 @@ impl eukhe_tui::interactive::OnboardingSink for FreshHomeOnboardingSink {
 
     fn mark_onboarding_complete(&self) -> anyhow::Result<()> {
         eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
-            .set_onboarding_shown(true)?
-            .applied()
+            .set_onboarding_shown(true)
     }
 }
 

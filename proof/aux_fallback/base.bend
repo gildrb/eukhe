@@ -4,7 +4,7 @@ import Base
 import ../../bend/aux_fallback.bend as Af
 import ../../bend/ffi_aux_fallback.bend as FAf
 import ../../bend/wire.bend as Wr
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/wire.bend as AuxFallbackWire
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
@@ -24,7 +24,7 @@ def pfw.nat(+n: Nat, +rest: String, h: {LawsBase.wire_fits(n) == True{} : Bool})
 def pfw.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
   Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Wire.wire_bool_round_trip(b, rest))
 
-def AuxFallback.afw_key_round_trip(k, rest, h):
+def AuxFallbackWire.afw_key_round_trip(k, rest, h):
   match k:
     case Af.K{+p, +s, +r}:
       +z = rest
@@ -36,8 +36,8 @@ def AuxFallback.afw_key_round_trip(k, rest, h):
       {==}
 
 # a key reads back (turned around for rewriting)
-def pfw.key(+k: Af.Key, +rest: String, h: {AuxFallback.afw_key_fits(k) == True{} : Bool}) -> {Wr.Got{k, rest} == FAf.get_key(FAf.put_key(k, rest)) : Wr.Dec<Af.Key>}:
-  Equal.sym(Wr.Dec<Af.Key>, FAf.get_key(FAf.put_key(k, rest)), Wr.Got{k, rest}, AuxFallback.afw_key_round_trip(k, rest, h))
+def pfw.key(+k: Af.Key, +rest: String, h: {AuxFallbackWire.afw_key_fits(k) == True{} : Bool}) -> {Wr.Got{k, rest} == FAf.get_key(FAf.put_key(k, rest)) : Wr.Dec<Af.Key>}:
+  Equal.sym(Wr.Dec<Af.Key>, FAf.get_key(FAf.put_key(k, rest)), Wr.Got{k, rest}, AuxFallbackWire.afw_key_round_trip(k, rest, h))
 
 # the items of xs, then rest (Af.Key; a copy of PROOF.bend wire's wr_items)
 def pfw.key_items(xs: List<&2, Af.Key>, rest: String) -> String:
@@ -64,18 +64,18 @@ def pfw.key_put(+xs: List<&2, Af.Key>, -rest: String) ->
 
 # the item loop reads back x then t (wr_list_go_rt for Af.Key)
 def pfw.key_go_rt(+t: List<&2, Af.Key>, +x: Af.Key, +rest: String,
-  +hf: {AuxFallback.afw_keys_fit(x <> t) == True{} : Bool}) ->
+  +hf: {AuxFallbackWire.afw_keys_fit(x <> t) == True{} : Bool}) ->
   {Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, t), FAf.get_key(FAf.put_key(x, pfw.key_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Af.Key>>}:
   match t:
     case Nil{}:
-      %pfw.key(x, rest, LLogicBool.wr_and_l(AuxFallback.afw_key_fits(x), True{}, hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Af.Key>>}
+      %pfw.key(x, rest, LLogicBool.wr_and_l(AuxFallbackWire.afw_key_fits(x), True{}, hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Af.Key>>}
       {==}
     case Con{+y, +u}:
-      %pfw.key(x, FAf.put_key(y, pfw.key_items(u, rest)), LLogicBool.wr_and_l(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(y <> u), hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 1n+List.length(&2, Af.Key, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
-      %Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, u), FAf.get_key(FAf.put_key(y, pfw.key_items(u, rest)))), Wr.Got{y <> u, rest}, pfw.key_go_rt(u, y, rest, LLogicBool.wr_and_r(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(y <> u), hf))) : {Wr.get_list.cons(Af.Key, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
+      %pfw.key(x, FAf.put_key(y, pfw.key_items(u, rest)), LLogicBool.wr_and_l(AuxFallbackWire.afw_key_fits(x), AuxFallbackWire.afw_keys_fit(y <> u), hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 1n+List.length(&2, Af.Key, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
+      %Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, u), FAf.get_key(FAf.put_key(y, pfw.key_items(u, rest)))), Wr.Got{y <> u, rest}, pfw.key_go_rt(u, y, rest, LLogicBool.wr_and_r(AuxFallbackWire.afw_key_fits(x), AuxFallbackWire.afw_keys_fit(y <> u), hf))) : {Wr.get_list.cons(Af.Key, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
       {==}
 
-def AuxFallback.afw_keys_round_trip(xs, rest, h):
+def AuxFallbackWire.afw_keys_round_trip(xs, rest, h):
   match xs:
     case Nil{}:
       %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LLogicBool.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Af.Key>>}
@@ -84,15 +84,15 @@ def AuxFallback.afw_keys_round_trip(xs, rest, h):
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~Af.Key, ~FAf.put_key, x <> t, r), Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)), pfw.key_put(x <> t, r)) : {Wr.get_list(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r))), Wr.Got{List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallback.afw_keys_fit(x <> t), hh))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
-      pfw.key_go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallback.afw_keys_fit(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r))), Wr.Got{List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallbackWire.afw_keys_fit(x <> t), hh))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
+      pfw.key_go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallbackWire.afw_keys_fit(x <> t), hh))
 
 # a list that fits reads back (turned around for rewriting)
-def pfw.keys(+xs: List<&2, Af.Key>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallback.afw_keys_fit(xs)) == True{} : Bool}) ->
+def pfw.keys(+xs: List<&2, Af.Key>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallbackWire.afw_keys_fit(xs)) == True{} : Bool}) ->
   {Wr.Got{xs, rest} == Wr.get_list(~Af.Key, ~FAf.get_key, Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest)) : Wr.Dec<List<&2, Af.Key>>}:
-  Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list(~Af.Key, ~FAf.get_key, Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest)), Wr.Got{xs, rest}, AuxFallback.afw_keys_round_trip(xs, rest, h))
+  Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list(~Af.Key, ~FAf.get_key, Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest)), Wr.Got{xs, rest}, AuxFallbackWire.afw_keys_round_trip(xs, rest, h))
 
-def AuxFallback.afw_route_round_trip(r, rest, h):
+def AuxFallbackWire.afw_route_round_trip(r, rest, h):
   match r:
     case Af.Session{}:
       {==}
@@ -103,10 +103,10 @@ def AuxFallback.afw_route_round_trip(r, rest, h):
       {==}
 
 # a route reads back (turned around for rewriting)
-def pfw.route(+r: Af.Route, +rest: String, h: {AuxFallback.afw_route_fits(r) == True{} : Bool}) -> {Wr.Got{r, rest} == FAf.get_route(FAf.put_route(r, rest)) : Wr.Dec<Af.Route>}:
-  Equal.sym(Wr.Dec<Af.Route>, FAf.get_route(FAf.put_route(r, rest)), Wr.Got{r, rest}, AuxFallback.afw_route_round_trip(r, rest, h))
+def pfw.route(+r: Af.Route, +rest: String, h: {AuxFallbackWire.afw_route_fits(r) == True{} : Bool}) -> {Wr.Got{r, rest} == FAf.get_route(FAf.put_route(r, rest)) : Wr.Dec<Af.Route>}:
+  Equal.sym(Wr.Dec<Af.Route>, FAf.get_route(FAf.put_route(r, rest)), Wr.Got{r, rest}, AuxFallbackWire.afw_route_round_trip(r, rest, h))
 
-def AuxFallback.afw_gate_round_trip(g, rest, h):
+def AuxFallbackWire.afw_gate_round_trip(g, rest, h):
   match g:
     case Af.Known{+r}:
       %pfw.route(r, rest, h) : {FAf.get_gate.known(_) == Wr.Got{Af.Known{r}, rest} : Wr.Dec<Af.Gate>}
@@ -119,10 +119,10 @@ def AuxFallback.afw_gate_round_trip(g, rest, h):
       {==}
 
 # a gate reads back (turned around for rewriting)
-def pfw.gate(+g: Af.Gate, +rest: String, h: {AuxFallback.afw_gate_fits(g) == True{} : Bool}) -> {Wr.Got{g, rest} == FAf.get_gate(FAf.put_gate(g, rest)) : Wr.Dec<Af.Gate>}:
-  Equal.sym(Wr.Dec<Af.Gate>, FAf.get_gate(FAf.put_gate(g, rest)), Wr.Got{g, rest}, AuxFallback.afw_gate_round_trip(g, rest, h))
+def pfw.gate(+g: Af.Gate, +rest: String, h: {AuxFallbackWire.afw_gate_fits(g) == True{} : Bool}) -> {Wr.Got{g, rest} == FAf.get_gate(FAf.put_gate(g, rest)) : Wr.Dec<Af.Gate>}:
+  Equal.sym(Wr.Dec<Af.Gate>, FAf.get_gate(FAf.put_gate(g, rest)), Wr.Got{g, rest}, AuxFallbackWire.afw_gate_round_trip(g, rest, h))
 
-def AuxFallback.afw_sel_round_trip(x, rest, h):
+def AuxFallbackWire.afw_sel_round_trip(x, rest, h):
   match x:
     case Af.Unset{}:
       {==}
@@ -133,10 +133,10 @@ def AuxFallback.afw_sel_round_trip(x, rest, h):
       {==}
 
 # a sel reads back (turned around for rewriting)
-def pfw.sel(+x: Af.Sel, +rest: String, h: {AuxFallback.afw_sel_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_sel(FAf.put_sel(x, rest)) : Wr.Dec<Af.Sel>}:
-  Equal.sym(Wr.Dec<Af.Sel>, FAf.get_sel(FAf.put_sel(x, rest)), Wr.Got{x, rest}, AuxFallback.afw_sel_round_trip(x, rest, h))
+def pfw.sel(+x: Af.Sel, +rest: String, h: {AuxFallbackWire.afw_sel_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_sel(FAf.put_sel(x, rest)) : Wr.Dec<Af.Sel>}:
+  Equal.sym(Wr.Dec<Af.Sel>, FAf.get_sel(FAf.put_sel(x, rest)), Wr.Got{x, rest}, AuxFallbackWire.afw_sel_round_trip(x, rest, h))
 
-def AuxFallback.afw_look_round_trip(x, rest, h):
+def AuxFallbackWire.afw_look_round_trip(x, rest, h):
   match x:
     case Af.Miss{+r}:
       %pfw.nat(r, rest, h) : {FAf.get_look.tag(_, 0n) == Wr.Got{Af.Miss{r}, rest} : Wr.Dec<Af.Look>}
@@ -146,59 +146,59 @@ def AuxFallback.afw_look_round_trip(x, rest, h):
       {==}
 
 # a look reads back (turned around for rewriting)
-def pfw.look(+x: Af.Look, +rest: String, h: {AuxFallback.afw_look_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_look(FAf.put_look(x, rest)) : Wr.Dec<Af.Look>}:
-  Equal.sym(Wr.Dec<Af.Look>, FAf.get_look(FAf.put_look(x, rest)), Wr.Got{x, rest}, AuxFallback.afw_look_round_trip(x, rest, h))
+def pfw.look(+x: Af.Look, +rest: String, h: {AuxFallbackWire.afw_look_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_look(FAf.put_look(x, rest)) : Wr.Dec<Af.Look>}:
+  Equal.sym(Wr.Dec<Af.Look>, FAf.get_look(FAf.put_look(x, rest)), Wr.Got{x, rest}, AuxFallbackWire.afw_look_round_trip(x, rest, h))
 
-def AuxFallback.afw_req_round_trip(x, rest, h):
+def AuxFallbackWire.afw_req_round_trip(x, rest, h):
   match x:
     case FAf.GateReq{+p, +sel, +ok}:
       +z = rest
       +hh = h
-      %pfw.nat(p, FAf.put_sel(sel, Wr.put_bool(ok, z)), LLogicBool.wr_and_l(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), hh)) : {FAf.get_req.gate(_) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
-      %pfw.sel(sel, Wr.put_bool(ok, z), LLogicBool.wr_and_r(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), hh)) : {FAf.get_req.sel(p, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      %pfw.nat(p, FAf.put_sel(sel, Wr.put_bool(ok, z)), LLogicBool.wr_and_l(LawsBase.wire_fits(p), AuxFallbackWire.afw_sel_fits(sel), hh)) : {FAf.get_req.gate(_) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      %pfw.sel(sel, Wr.put_bool(ok, z), LLogicBool.wr_and_r(LawsBase.wire_fits(p), AuxFallbackWire.afw_sel_fits(sel), hh)) : {FAf.get_req.sel(p, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
       %pfw.bool(ok, z) : {FAf.get_req.ok(p, sel, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
       {==}
     case FAf.SettleReq{+g, +look, +need}:
       +z = rest
       +hh = h
-      +h1 = LLogicBool.wr_and_r(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), hh)
-      %pfw.gate(g, FAf.put_look(look, Wr.put_nat(need, z)), LLogicBool.wr_and_l(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), hh)) : {FAf.get_req.settle(_) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
-      %pfw.look(look, Wr.put_nat(need, z), LLogicBool.wr_and_l(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.look(g, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
-      %pfw.nat(need, z, LLogicBool.wr_and_r(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.need(g, look, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      +h1 = LLogicBool.wr_and_r(AuxFallbackWire.afw_gate_fits(g), Bool.and(AuxFallbackWire.afw_look_fits(look), LawsBase.wire_fits(need)), hh)
+      %pfw.gate(g, FAf.put_look(look, Wr.put_nat(need, z)), LLogicBool.wr_and_l(AuxFallbackWire.afw_gate_fits(g), Bool.and(AuxFallbackWire.afw_look_fits(look), LawsBase.wire_fits(need)), hh)) : {FAf.get_req.settle(_) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      %pfw.look(look, Wr.put_nat(need, z), LLogicBool.wr_and_l(AuxFallbackWire.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.look(g, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      %pfw.nat(need, z, LLogicBool.wr_and_r(AuxFallbackWire.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.need(g, look, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
       {==}
     case FAf.PassReq{+r, +sh}:
       +z = rest
       +hh = h
-      +lt = Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, sh)), AuxFallback.afw_keys_fit(sh))
-      %pfw.route(r, Wr.put_list(~Af.Key, ~FAf.put_key, sh, z), LLogicBool.wr_and_l(AuxFallback.afw_route_fits(r), lt, hh)) : {FAf.get_req.pass(_) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
-      %pfw.keys(sh, z, LLogicBool.wr_and_r(AuxFallback.afw_route_fits(r), lt, hh)) : {FAf.get_req.shown(r, _) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
+      +lt = Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, sh)), AuxFallbackWire.afw_keys_fit(sh))
+      %pfw.route(r, Wr.put_list(~Af.Key, ~FAf.put_key, sh, z), LLogicBool.wr_and_l(AuxFallbackWire.afw_route_fits(r), lt, hh)) : {FAf.get_req.pass(_) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
+      %pfw.keys(sh, z, LLogicBool.wr_and_r(AuxFallbackWire.afw_route_fits(r), lt, hh)) : {FAf.get_req.shown(r, _) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
       {==}
 
 # a req reads back (turned around for rewriting)
-def pfw.req(+x: FAf.Req, +rest: String, h: {AuxFallback.afw_req_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_req(FAf.put_req(x, rest)) : Wr.Dec<FAf.Req>}:
-  Equal.sym(Wr.Dec<FAf.Req>, FAf.get_req(FAf.put_req(x, rest)), Wr.Got{x, rest}, AuxFallback.afw_req_round_trip(x, rest, h))
+def pfw.req(+x: FAf.Req, +rest: String, h: {AuxFallbackWire.afw_req_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_req(FAf.put_req(x, rest)) : Wr.Dec<FAf.Req>}:
+  Equal.sym(Wr.Dec<FAf.Req>, FAf.get_req(FAf.put_req(x, rest)), Wr.Got{x, rest}, AuxFallbackWire.afw_req_round_trip(x, rest, h))
 
 # ---- the entry by the grammar's spelling ----
 
 # the entry's encoders write what the grammar spells
-def pfs.key(k: Af.Key, -rest: String) -> {FAf.put_key(k, rest) == AuxFallback.afw_spell_key(k, rest) : String}:
+def pfs.key(k: Af.Key, -rest: String) -> {FAf.put_key(k, rest) == AuxFallbackWire.afw_spell_key(k, rest) : String}:
   match k:
     case Af.K{p, s, r}:
       {==}
 
-def pfs.items(xs: List<&2, Af.Key>, -rest: String) -> {pfw.key_items(xs, rest) == AuxFallback.afw_spell_key_items(xs, rest) : String}:
+def pfs.items(xs: List<&2, Af.Key>, -rest: String) -> {pfw.key_items(xs, rest) == AuxFallbackWire.afw_spell_key_items(xs, rest) : String}:
   match xs:
     case Nil{}:
       {==}
     case Con{+x, +t}:
-      %pfs.items(t, rest) : {FAf.put_key(x, pfw.key_items(t, rest)) == AuxFallback.afw_spell_key(x, _) : String}
+      %pfs.items(t, rest) : {FAf.put_key(x, pfw.key_items(t, rest)) == AuxFallbackWire.afw_spell_key(x, _) : String}
       pfs.key(x, pfw.key_items(t, rest))
 
-def pfs.keys(+xs: List<&2, Af.Key>, -rest: String) -> {Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest) == AuxFallback.afw_spell_keys(xs, rest) : String}:
+def pfs.keys(+xs: List<&2, Af.Key>, -rest: String) -> {Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest) == AuxFallbackWire.afw_spell_keys(xs, rest) : String}:
   %pfs.items(xs, rest) : {Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest) == Wr.put_nat(List.length(&2, Af.Key, xs), _) : String}
   pfw.key_put(xs, rest)
 
-def pfs.route(r: Af.Route, -rest: String) -> {FAf.put_route(r, rest) == AuxFallback.afw_spell_route(r, rest) : String}:
+def pfs.route(r: Af.Route, -rest: String) -> {FAf.put_route(r, rest) == AuxFallbackWire.afw_spell_route(r, rest) : String}:
   match r:
     case Af.Session{}:
       {==}
@@ -209,7 +209,7 @@ def pfs.route(r: Af.Route, -rest: String) -> {FAf.put_route(r, rest) == AuxFallb
         case Af.K{p, s, q}:
           {==}
 
-def pfs.gate(g: Af.Gate, -rest: String) -> {FAf.put_gate(g, rest) == AuxFallback.afw_spell_gate(g, rest) : String}:
+def pfs.gate(g: Af.Gate, -rest: String) -> {FAf.put_gate(g, rest) == AuxFallbackWire.afw_spell_gate(g, rest) : String}:
   match g:
     case Af.Known{r}:
       %pfs.route(r, rest) : {FAf.put_gate(Af.Known{r}, rest) == Wr.put_nat(0n, _) : String}
@@ -217,7 +217,7 @@ def pfs.gate(g: Af.Gate, -rest: String) -> {FAf.put_gate(g, rest) == AuxFallback
     case Af.Lookup{p, s}:
       {==}
 
-def pfs.sel(x: Af.Sel, -rest: String) -> {FAf.put_sel(x, rest) == AuxFallback.afw_spell_sel(x, rest) : String}:
+def pfs.sel(x: Af.Sel, -rest: String) -> {FAf.put_sel(x, rest) == AuxFallbackWire.afw_spell_sel(x, rest) : String}:
   match x:
     case Af.Unset{}:
       {==}
@@ -226,7 +226,7 @@ def pfs.sel(x: Af.Sel, -rest: String) -> {FAf.put_sel(x, rest) == AuxFallback.af
     case Af.Other{s}:
       {==}
 
-def pfs.look(x: Af.Look, -rest: String) -> {FAf.put_look(x, rest) == AuxFallback.afw_spell_look(x, rest) : String}:
+def pfs.look(x: Af.Look, -rest: String) -> {FAf.put_look(x, rest) == AuxFallbackWire.afw_spell_look(x, rest) : String}:
   match x:
     case Af.Miss{r}:
       {==}
@@ -234,29 +234,29 @@ def pfs.look(x: Af.Look, -rest: String) -> {FAf.put_look(x, rest) == AuxFallback
       {==}
 
 # a request the entry writes is the grammar's spelling of it
-def pfs.req(x: FAf.Req, -rest: String) -> {FAf.put_req(x, rest) == AuxFallback.afw_spell_req(x, rest) : String}:
+def pfs.req(x: FAf.Req, -rest: String) -> {FAf.put_req(x, rest) == AuxFallbackWire.afw_spell_req(x, rest) : String}:
   match x:
     case FAf.GateReq{p, sel, ok}:
       %pfs.sel(sel, Wr.put_bool(ok, rest)) : {FAf.put_req(FAf.GateReq{p, sel, ok}, rest) == Wr.put_nat(0n, Wr.put_nat(p, _)) : String}
       {==}
     case FAf.SettleReq{+g, +look, need}:
-      %pfs.gate(g, AuxFallback.afw_spell_look(look, Wr.put_nat(need, rest))) : {FAf.put_req(FAf.SettleReq{g, look, need}, rest) == Wr.put_nat(1n, _) : String}
+      %pfs.gate(g, AuxFallbackWire.afw_spell_look(look, Wr.put_nat(need, rest))) : {FAf.put_req(FAf.SettleReq{g, look, need}, rest) == Wr.put_nat(1n, _) : String}
       %pfs.look(look, Wr.put_nat(need, rest)) : {FAf.put_req(FAf.SettleReq{g, look, need}, rest) == Wr.put_nat(1n, FAf.put_gate(g, _)) : String}
       {==}
     case FAf.PassReq{+r, +sh}:
-      %pfs.route(r, AuxFallback.afw_spell_keys(sh, rest)) : {FAf.put_req(FAf.PassReq{r, sh}, rest) == Wr.put_nat(2n, _) : String}
+      %pfs.route(r, AuxFallbackWire.afw_spell_keys(sh, rest)) : {FAf.put_req(FAf.PassReq{r, sh}, rest) == Wr.put_nat(2n, _) : String}
       %pfs.keys(sh, rest) : {FAf.put_req(FAf.PassReq{r, sh}, rest) == Wr.put_nat(2n, FAf.put_route(r, _)) : String}
       {==}
 
 # a spelled request that fits, then rest, runs to the entry's end check
-def pfs.run(+x: FAf.Req, +rest: String, fits: {AuxFallback.afw_req_fits(x) == True{} : Bool}) -> {FAf.ffi(AuxFallback.afw_spell_req(x, rest)) == FAf.ffi.end(Wr.end(rest), x) : String}:
+def pfs.run(+x: FAf.Req, +rest: String, fits: {AuxFallbackWire.afw_req_fits(x) == True{} : Bool}) -> {FAf.ffi(AuxFallbackWire.afw_spell_req(x, rest)) == FAf.ffi.end(Wr.end(rest), x) : String}:
   %pfs.req(x, rest) : {FAf.ffi(_) == FAf.ffi.end(Wr.end(rest), x) : String}
   %pfw.req(x, rest, fits) : {FAf.ffi.go(_) == FAf.ffi.end(Wr.end(rest), x) : String}
   {==}
 
 # ---- the decision by the spec ----
 
-def pfs.gate_answer(p: Nat, sel: Af.Sel, ok: Bool) -> {FAf.put_gate(Af.gate(p, sel, ok), "") == AuxFallback.afw_spell_gate_answer(p, sel, ok) : String}:
+def pfs.gate_answer(p: Nat, sel: Af.Sel, ok: Bool) -> {FAf.put_gate(Af.gate(p, sel, ok), "") == AuxFallbackWire.afw_spell_gate_answer(p, sel, ok) : String}:
   match sel:
     case Af.Unset{}:
       {==}
@@ -269,14 +269,14 @@ def pfs.gate_answer(p: Nat, sel: Af.Sel, ok: Bool) -> {FAf.put_gate(Af.gate(p, s
         case False{}:
           {==}
 
-def pfs.small(b: Bool, p: Nat, s: Nat) -> {FAf.put_route(Af.fits.route(Bool.not(b), p, s), "") == AuxFallback.afw_spell_small(b, p, s) : String}:
+def pfs.small(b: Bool, p: Nat, s: Nat) -> {FAf.put_route(Af.fits.route(Bool.not(b), p, s), "") == AuxFallbackWire.afw_spell_small(b, p, s) : String}:
   match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def pfs.settle_answer(g: Af.Gate, look: Af.Look, +need: Nat) -> {FAf.put_route(Af.settle(g, look, need), "") == AuxFallback.afw_spell_settle_answer(g, look, need) : String}:
+def pfs.settle_answer(g: Af.Gate, look: Af.Look, +need: Nat) -> {FAf.put_route(Af.settle(g, look, need), "") == AuxFallbackWire.afw_spell_settle_answer(g, look, need) : String}:
   match g:
     case Af.Known{r}:
       pfs.route(r, "")
@@ -291,35 +291,35 @@ def pfs.settle_answer(g: Af.Gate, look: Af.Look, +need: Nat) -> {FAf.put_route(A
             case 1n+x:
               pfs.small(Nat.is_lt(1n+x, need), p, s)
 
-def pfs.same(a: Af.Key, b: Af.Key) -> {Af.Key.eq(a, b) == AuxFallback.afw_same_key(a, b) : Bool}:
+def pfs.same(a: Af.Key, b: Af.Key) -> {Af.Key.eq(a, b) == AuxFallbackWire.afw_same_key(a, b) : Bool}:
   match a:
     case Af.K{ap, as1, ar}:
       match b:
         case Af.K{bp, bs1, br}:
           {==}
 
-def pfs.listed(ks: List<&2, Af.Key>, +k: Af.Key) -> {Af.listed(ks, k) == AuxFallback.afw_has_key(ks, k) : Bool}:
+def pfs.listed(ks: List<&2, Af.Key>, +k: Af.Key) -> {Af.listed(ks, k) == AuxFallbackWire.afw_has_key(ks, k) : Bool}:
   match ks:
     case Nil{}:
       {==}
     case Con{+x, +t}:
-      %pfs.listed(t, k) : {Af.listed(x <> t, k) == Bool.or(AuxFallback.afw_same_key(x, k), _) : Bool}
+      %pfs.listed(t, k) : {Af.listed(x <> t, k) == Bool.or(AuxFallbackWire.afw_same_key(x, k), _) : Bool}
       %pfs.same(x, k) : {Af.listed(x <> t, k) == Bool.or(_, Af.listed(t, k)) : Bool}
       {==}
 
-def pfs.fallback(b: Bool, +k: Af.Key, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.Sub{k} <> Af.noted(b, k, Nil{}), Af.shown(b, k, sh)), "") == AuxFallback.afw_spell_fallback(b, k, sh) : String}:
+def pfs.fallback(b: Bool, +k: Af.Key, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.Sub{k} <> Af.noted(b, k, Nil{}), Af.shown(b, k, sh)), "") == AuxFallbackWire.afw_spell_fallback(b, k, sh) : String}:
   match b:
     case True{}:
-      %pfs.keys(sh, "") : {FAf.put_pass(([Af.Sub{k}], sh), "") == Wr.put_nat(1n, Wr.put_nat(2n, AuxFallback.afw_spell_key(k, _))) : String}
+      %pfs.keys(sh, "") : {FAf.put_pass(([Af.Sub{k}], sh), "") == Wr.put_nat(1n, Wr.put_nat(2n, AuxFallbackWire.afw_spell_key(k, _))) : String}
       %pfs.key(k, Wr.put_list(~Af.Key, ~FAf.put_key, sh, "")) : {FAf.put_pass(([Af.Sub{k}], sh), "") == Wr.put_nat(1n, Wr.put_nat(2n, _)) : String}
       {==}
     case False{}:
-      %pfs.keys(k <> sh, "") : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, AuxFallback.afw_spell_key(k, Wr.put_nat(3n, AuxFallback.afw_spell_key(k, _))))) : String}
-      %pfs.key(k, Wr.put_list(~Af.Key, ~FAf.put_key, k <> sh, "")) : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, AuxFallback.afw_spell_key(k, Wr.put_nat(3n, _)))) : String}
+      %pfs.keys(k <> sh, "") : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, AuxFallbackWire.afw_spell_key(k, Wr.put_nat(3n, AuxFallbackWire.afw_spell_key(k, _))))) : String}
+      %pfs.key(k, Wr.put_list(~Af.Key, ~FAf.put_key, k <> sh, "")) : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, AuxFallbackWire.afw_spell_key(k, Wr.put_nat(3n, _)))) : String}
       %pfs.key(k, Wr.put_nat(3n, FAf.put_key(k, Wr.put_list(~Af.Key, ~FAf.put_key, k <> sh, "")))) : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, _)) : String}
       {==}
 
-def pfs.pass_answer(r: Af.Route, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.put(r, sh, Nil{}), Af.after(r, sh)), "") == AuxFallback.afw_spell_pass_answer(r, sh) : String}:
+def pfs.pass_answer(r: Af.Route, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.put(r, sh, Nil{}), Af.after(r, sh)), "") == AuxFallbackWire.afw_spell_pass_answer(r, sh) : String}:
   match r:
     case Af.Session{}:
       %pfs.keys(sh, "") : {FAf.put_pass(([Af.Stay{}], sh), "") == Wr.put_nat(1n, Wr.put_nat(0n, _)) : String}
@@ -328,11 +328,11 @@ def pfs.pass_answer(r: Af.Route, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.put
       %pfs.keys(sh, "") : {FAf.put_pass(([Af.Went{}], sh), "") == Wr.put_nat(1n, Wr.put_nat(1n, _)) : String}
       {==}
     case Af.Fallback{+k}:
-      %pfs.listed(sh, k) : {FAf.put_pass((Af.Sub{k} <> Af.noted(Af.listed(sh, k), k, Nil{}), Af.shown(Af.listed(sh, k), k, sh)), "") == AuxFallback.afw_spell_fallback(_, k, sh) : String}
+      %pfs.listed(sh, k) : {FAf.put_pass((Af.Sub{k} <> Af.noted(Af.listed(sh, k), k, Nil{}), Af.shown(Af.listed(sh, k), k, sh)), "") == AuxFallbackWire.afw_spell_fallback(_, k, sh) : String}
       pfs.fallback(Af.listed(sh, k), k, sh)
 
 # the entry's answer on a request is the spelled spec decision
-def pfs.answer(x: FAf.Req) -> {FAf.answer(x) == AuxFallback.afw_spell_answer(x) : String}:
+def pfs.answer(x: FAf.Req) -> {FAf.answer(x) == AuxFallbackWire.afw_spell_answer(x) : String}:
   match x:
     case FAf.GateReq{p, sel, ok}:
       pfs.gate_answer(p, sel, ok)

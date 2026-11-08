@@ -1,0 +1,8 @@
+# every count at its largest: the excess text names NAT_MAX, placed marks
+# past the budget
+call 0,{MAX},
+call 1,{MAX},3,TTT
+call 1,0,5,TFTTT
+call 0,3,
+refuse 0,{LONG},
+refuse 1,{LONG},0,

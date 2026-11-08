@@ -1,0 +1,100 @@
+[
+  {
+    "id": 1,
+    "name": "Ana",
+    "active": true,
+    "last_login": "2026-09-29",
+    "plan": "pro"
+  },
+  {
+    "id": 2,
+    "name": "Ben",
+    "active": true,
+    "last_login": "2026-09-19",
+    "plan": "team"
+  },
+  {
+    "id": 3,
+    "name": "Cai",
+    "active": true,
+    "last_login": "2026-09-06",
+    "plan": "trial"
+  },
+  {
+    "id": 4,
+    "name": "Dee",
+    "active": false,
+    "last_login": "2026-09-28",
+    "plan": "pro"
+  },
+  {
+    "id": 5,
+    "name": "Eli",
+    "active": true,
+    "last_login": "2026-08-17",
+    "plan": "pro"
+  },
+  {
+    "id": 6,
+    "name": "Fay",
+    "active": true,
+    "last_login": "2026-07-13",
+    "plan": "team"
+  },
+  {
+    "id": 7,
+    "name": "Gus",
+    "active": false,
+    "last_login": "2026-08-02",
+    "plan": "free"
+  },
+  {
+    "id": 8,
+    "name": "Hal",
+    "active": true,
+    "last_login": "2026-09-24",
+    "plan": "free"
+  },
+  {
+    "id": 9,
+    "name": "Ivy",
+    "active": true,
+    "last_login": "2026-09-12",
+    "plan": "pro"
+  },
+  {
+    "id": 10,
+    "name": "Jon",
+    "active": true,
+    "last_login": "2026-06-03",
+    "plan": "pro"
+  },
+  {
+    "id": 11,
+    "name": "Kim",
+    "active": false,
+    "last_login": "2026-09-22",
+    "plan": "team"
+  },
+  {
+    "id": 12,
+    "name": "Lou",
+    "active": true,
+    "last_login": "2026-09-27",
+    "plan": "trial"
+  },
+  {
+    "id": 13,
+    "name": "Max",
+    "active": true,
+    "last_login": "2026-08-12",
+    "plan": "free"
+  },
+  {
+    "id": 14,
+    "name": "Nia",
+    "active": true,
+    "last_login": "2026-09-30",
+    "plan": "team"
+  }
+]

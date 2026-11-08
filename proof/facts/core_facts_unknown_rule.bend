@@ -8,7 +8,7 @@ import Base
 import ../../bend/facts.bend as Fx
 import ../../bend/ffi_facts.bend as FFx
 import ../../bend/wire.bend as Wr
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 import ../../laws/base.bend as LawsBase
 import ../wire/base/spell.bend as LAWireSpell
 
@@ -24,5 +24,5 @@ def furu.main(+n: Nat, +rest: String) -> {FFx.ffi(Wr.put_nat(3n, Wr.put_nat(2n+n
   %furu.bad(LawsBase.wire_fits(2n+n), n, rest) : {FFx.ffi.go(FFx.get_google.of(FFx.seq(~FFx.P2<Maybe<&2, Fx.Budgets>, Fx.Customs>, ~Fx.Lv, ~FFx.get_lv, FFx.seq(~Maybe<&2, Fx.Budgets>, ~Fx.Customs, ~FFx.get_customs, _)))) == Wr.err("budget request: malformed") : String}
   {==}
 
-def Facts.core_facts_unknown_rule(n, rest):
+def FactsBudgets.core_facts_unknown_rule(n, rest):
   furu.main(n, rest)

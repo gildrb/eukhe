@@ -49,7 +49,7 @@ fn acp_daemon_attached_forwards_cli_session_options() {
         "--append-system-prompt reaches the worker"
     );
     assert!(
-        system_prompt.contains("<name>acp-argv-probe</name>"),
+        system_prompt.contains("\n- acp-argv-probe: probe"),
         "--skill reaches the worker"
     );
     let turn = client.request(
@@ -298,16 +298,11 @@ fn acp_overflow_recovery_compacts_and_retries_the_turn() {
     assert!(metas[0]["tokensBefore"].as_u64().unwrap() > 0);
 }
 
-/// The namespaced eukhe payload of one session/update frame.
-fn update_meta(frame: &Value) -> &Value {
-    &frame["params"]["update"]["_meta"]["com.eukhe"]
-}
-
 /// The kernel cell of the spawn turn (the worker's
 /// `rlm_quiescence_barrier_e2e` lane): spawn one RLM child through the
 /// product `rlm.spawn` surface and record its child id.
 fn spawn_cell() -> &'static str {
-    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nprint(handle.rlm_child_id)"
+    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nprint(handle.rlm_child_id)"
 }
 
 /// The parent faux script whose turns run the spawn cell; the third

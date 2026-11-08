@@ -220,6 +220,20 @@ impl AgentView {
                     width,
                 ));
             }
+            // A turn that ended while work it started still runs: the row
+            // names that work, so the session never reads as done.
+            AgentActivity::Waiting(waiting) => {
+                tail.push(Vec::new());
+                tail.extend(crate::chat::render_text_rows(
+                    &format!(
+                        "{} {}",
+                        crate::glyphs::DOT_HALF,
+                        waiting.label(crate::glyphs::SEP)
+                    ),
+                    self.theme.fg_style(crate::theme::ThemeColor::Muted),
+                    width,
+                ));
+            }
             AgentActivity::Background { .. } | AgentActivity::Idle => {}
         }
         // The side-question pane (TS `sideQuestionContainer`): a scroll-area
@@ -246,8 +260,8 @@ impl AgentView {
     /// mapping: a turn runs while its loader, a retry, or a compaction is
     /// up (a retry or a compaction overlays the loader's phase; the loader
     /// stays up while its answer's text still shows at its pace); between
-    /// turns a quota park, then the dock's running background work, else
-    /// idle.
+    /// turns a quota park, then the work the session waits on, then the
+    /// dock's running background work, else idle.
     #[must_use]
     pub fn activity(&self) -> AgentActivity {
         let phase = match (&self.retry, &self.compaction, self.loader_row()) {
@@ -264,6 +278,9 @@ impl AgentView {
         }
         if let Some(park) = &self.quota_park {
             return AgentActivity::Parked(park.clone());
+        }
+        if let Some(waiting) = &self.waiting_on {
+            return AgentActivity::Waiting(waiting.clone());
         }
         let tasks = self.chrome.activity.as_ref().map_or(0, |dock| {
             dock.subagents_running_direct

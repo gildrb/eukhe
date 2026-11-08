@@ -312,47 +312,105 @@ fn safe_entry_id(entry_id: &str) -> String {
     }
 }
 
-fn require_string(entry_id: &str, field: &str, value: &str) -> Result<String, String> {
+/// Why one catalog entry is invalid: its (bounded) id and the broken rule.
+#[derive(Debug, thiserror::Error)]
+#[error("catalog entry {entry}: {fault}")]
+pub struct CatalogEntryError {
+    /// The entry id, bounded by [`safe_entry_id`].
+    pub entry: String,
+    #[source]
+    pub fault: CatalogEntryFault,
+}
+
+/// The rule a catalog entry breaks. Never echoes the input value: it may
+/// carry query tokens or secrets.
+#[derive(Debug, thiserror::Error)]
+pub enum CatalogEntryFault {
+    #[error("{field} must be a non-empty string")]
+    Empty { field: &'static str },
+    #[error("{field} is not an absolute URL")]
+    NotAbsoluteUrl {
+        field: &'static str,
+        #[source]
+        source: url::ParseError,
+    },
+    #[error("{field} must be an absolute HTTPS URL without credentials or a fragment")]
+    UnsafeUrl { field: &'static str },
+    #[error("{field} host could not be checked: {source}")]
+    HostCheck {
+        field: &'static str,
+        #[source]
+        source: eukhe_bend::Error,
+    },
+    #[error("{field} must not be a literal loopback, private, link-local or unspecified endpoint")]
+    PrivateHost { field: &'static str },
+    #[error("server id must match ^[a-z0-9][a-z0-9-]{{0,63}}$")]
+    ServerId,
+    #[error("url must equal transport.url")]
+    UrlMismatch,
+    #[error("http-template transports need at least one variable")]
+    NoTemplateVariables,
+    #[error("url must be empty for http-template transports")]
+    TemplateUrl,
+    #[error("stdio transports need at least one server")]
+    NoStdioServers,
+    #[error("url must be empty for stdio transports")]
+    StdioUrl,
+    #[error("requires-setup entries need a reason")]
+    SetupReason,
+    #[error("oauth is only allowed on oauth-strategy entries")]
+    OauthStrategy,
+    #[error("aliases must be lowercase strings distinct from the server id")]
+    AliasCase,
+    #[error("aliases must be sorted and unique")]
+    AliasOrder,
+    #[error("provenance must be a non-empty array")]
+    NoProvenance,
+}
+
+impl CatalogEntryError {
+    fn new(entry_id: &str, fault: CatalogEntryFault) -> Self {
+        CatalogEntryError {
+            entry: safe_entry_id(entry_id),
+            fault,
+        }
+    }
+}
+
+fn require_string(
+    entry_id: &str,
+    field: &'static str,
+    value: &str,
+) -> Result<String, CatalogEntryError> {
     if value.is_empty() {
-        Err(format!(
-            "catalog entry {}: {field} must be a non-empty string",
-            safe_entry_id(entry_id)
+        Err(CatalogEntryError::new(
+            entry_id,
+            CatalogEntryFault::Empty { field },
         ))
     } else {
         Ok(value.to_string())
     }
 }
 
-fn require_https_url(entry_id: &str, field: &str, url: &str) -> Result<String, String> {
+fn require_https_url(
+    entry_id: &str,
+    field: &'static str,
+    url: &str,
+) -> Result<String, CatalogEntryError> {
     require_string(entry_id, field, url)?;
-    // Do not echo the input value: it may carry query tokens or secrets.
-    let parsed = url::Url::parse(url).map_err(|_| {
-        format!(
-            "catalog entry {}: {field} is not an absolute URL",
-            safe_entry_id(entry_id)
-        )
-    })?;
+    let fail = |fault| CatalogEntryError::new(entry_id, fault);
+    let parsed = url::Url::parse(url)
+        .map_err(|source| fail(CatalogEntryFault::NotAbsoluteUrl { field, source }))?;
     let has_credentials = parsed.username().is_empty() && parsed.password().is_none();
     if parsed.scheme() != "https" || !has_credentials || parsed.fragment().is_some() {
-        return Err(format!(
-            "catalog entry {}: {field} must be an absolute HTTPS URL without credentials or a fragment",
-            safe_entry_id(entry_id)
-        ));
+        return Err(fail(CatalogEntryFault::UnsafeUrl { field }));
     }
     let refused = eukhe_bend::rules::mcp_url::literal_private_or_loopback(
         parsed.host_str().unwrap_or_default(),
     )
-    .map_err(|error| {
-        format!(
-            "catalog entry {}: {field} host could not be checked: {error}",
-            safe_entry_id(entry_id)
-        )
-    })?;
+    .map_err(|source| fail(CatalogEntryFault::HostCheck { field, source }))?;
     if refused {
-        return Err(format!(
-            "catalog entry {}: {field} must not be a literal loopback, private, link-local or unspecified endpoint",
-            safe_entry_id(entry_id)
-        ));
+        return Err(fail(CatalogEntryFault::PrivateHost { field }));
     }
     Ok(url.to_string())
 }
@@ -362,14 +420,12 @@ impl McpServiceEntry {
     /// id pattern, transport/url consistency, aliases rules, setup honesty,
     /// and the no-secrets invariant. Unknown keys were already rejected by
     /// `deny_unknown_fields` at the serde layer.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), CatalogEntryError> {
         let at = safe_entry_id(&self.server);
-        let fail = |message: String| Err(message);
+        let fail = |fault| Err(CatalogEntryError::new(&at, fault));
         require_string(&at, "server", &self.server)?;
         if !server_id_valid(&self.server) {
-            return fail(format!(
-                "catalog entry {at}: server id must match ^[a-z0-9][a-z0-9-]{{0,63}}$"
-            ));
+            return fail(CatalogEntryFault::ServerId);
         }
         require_string(&at, "label", &self.label)?;
         require_string(&at, "service", &self.service)?;
@@ -377,7 +433,7 @@ impl McpServiceEntry {
             McpServiceTransport::Http { url } | McpServiceTransport::Sse { url } => {
                 let endpoint = require_https_url(&at, "transport.url", url)?;
                 if self.url != endpoint {
-                    return fail(format!("catalog entry {at}: url must equal transport.url"));
+                    return fail(CatalogEntryFault::UrlMismatch);
                 }
             }
             McpServiceTransport::HttpTemplate {
@@ -386,9 +442,7 @@ impl McpServiceEntry {
             } => {
                 require_string(&at, "transport.template", template)?;
                 if variables.is_empty() {
-                    return fail(format!(
-                        "catalog entry {at}: http-template transports need at least one variable"
-                    ));
+                    return fail(CatalogEntryFault::NoTemplateVariables);
                 }
                 for variable in variables {
                     require_string(&at, "transport.variables[].name", &variable.name)?;
@@ -399,25 +453,19 @@ impl McpServiceEntry {
                     )?;
                 }
                 if !self.url.is_empty() {
-                    return fail(format!(
-                        "catalog entry {at}: url must be empty for http-template transports"
-                    ));
+                    return fail(CatalogEntryFault::TemplateUrl);
                 }
             }
             McpServiceTransport::Stdio { servers } => {
                 if servers.is_empty() {
-                    return fail(format!(
-                        "catalog entry {at}: stdio transports need at least one server"
-                    ));
+                    return fail(CatalogEntryFault::NoStdioServers);
                 }
                 for server in servers {
                     require_string(&at, "transport.servers[].name", &server.name)?;
                     require_string(&at, "transport.servers[].command", &server.command)?;
                 }
                 if !self.url.is_empty() {
-                    return fail(format!(
-                        "catalog entry {at}: url must be empty for stdio transports"
-                    ));
+                    return fail(CatalogEntryFault::StdioUrl);
                 }
             }
         }
@@ -427,9 +475,7 @@ impl McpServiceEntry {
         if self.setup.status == SetupStatus::RequiresSetup
             && self.setup.reason.as_deref().is_none_or(str::is_empty)
         {
-            return fail(format!(
-                "catalog entry {at}: requires-setup entries need a reason"
-            ));
+            return fail(CatalogEntryFault::SetupReason);
         }
         for field in self.setup.fields.iter().flatten() {
             require_string(&at, "setup.fields[].id", &field.id)?;
@@ -440,9 +486,7 @@ impl McpServiceEntry {
         }
         if let Some(oauth) = &self.oauth {
             if self.auth.strategy != AuthStrategy::Oauth {
-                return fail(format!(
-                    "catalog entry {at}: oauth is only allowed on oauth-strategy entries"
-                ));
+                return fail(CatalogEntryFault::OauthStrategy);
             }
             if let Some(scopes) = &oauth.scopes {
                 require_string(&at, "oauth.scopes", scopes)?;
@@ -451,22 +495,16 @@ impl McpServiceEntry {
         let server = &self.server;
         for alias in &self.aliases {
             if alias.to_lowercase() != *alias || alias == server {
-                return fail(format!(
-                    "catalog entry {at}: aliases must be lowercase strings distinct from the server id"
-                ));
+                return fail(CatalogEntryFault::AliasCase);
             }
         }
         for pair in self.aliases.windows(2) {
             if pair[0] >= pair[1] {
-                return fail(format!(
-                    "catalog entry {at}: aliases must be sorted and unique"
-                ));
+                return fail(CatalogEntryFault::AliasOrder);
             }
         }
         if self.provenance.is_empty() {
-            return fail(format!(
-                "catalog entry {at}: provenance must be a non-empty array"
-            ));
+            return fail(CatalogEntryFault::NoProvenance);
         }
         Ok(())
     }
@@ -487,32 +525,38 @@ pub(crate) fn server_id_valid(server: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
 }
 
+/// Why a plugins catalog payload was rejected.
+#[derive(Debug, thiserror::Error)]
+pub enum CatalogError {
+    /// Not a catalog document. The parser's error is dropped on purpose:
+    /// its text can quote raw (possibly secret) input.
+    #[error("catalog is not a valid catalog document")]
+    NotADocument,
+    #[error("catalog has unsupported version {0}")]
+    UnsupportedVersion(u8),
+    #[error("{0} (rejected)")]
+    Entry(#[source] CatalogEntryError),
+    #[error("catalog contains duplicate server id {0}")]
+    DuplicateServer(String),
+}
+
 /// Parse and validate a plugins catalog payload (v1 local or v2 bundled).
 /// Whole-file fail-closed: any invalid entry rejects the entire file;
 /// callers fall back to the compiled built-ins on `Err`.
-pub fn parse_plugins_catalog(bytes: &[u8]) -> Result<PluginsCatalog, String> {
-    // Never echo parser text: it can quote raw (possibly secret) input.
-    let envelope: CatalogFileEnvelope = serde_json::from_slice(bytes)
-        .map_err(|_| "catalog is not a valid catalog document".to_string())?;
+pub fn parse_plugins_catalog(bytes: &[u8]) -> Result<PluginsCatalog, CatalogError> {
+    let envelope: CatalogFileEnvelope =
+        serde_json::from_slice(bytes).map_err(|_| CatalogError::NotADocument)?;
     if envelope.version != 1 && envelope.version != 2 {
-        return Err(format!(
-            "catalog has unsupported version {}",
-            envelope.version
-        ));
+        return Err(CatalogError::UnsupportedVersion(envelope.version));
     }
     let mut entries = envelope.entries;
     for entry in &entries {
-        entry
-            .validate()
-            .map_err(|error| format!("{error} (rejected)"))?;
+        entry.validate().map_err(CatalogError::Entry)?;
     }
     let mut seen = std::collections::HashSet::new();
     for entry in &entries {
         if !seen.insert(entry.server.clone()) {
-            return Err(format!(
-                "catalog contains duplicate server id {}",
-                safe_entry_id(&entry.server)
-            ));
+            return Err(CatalogError::DuplicateServer(safe_entry_id(&entry.server)));
         }
     }
     entries.sort_by(|a, b| a.server.cmp(&b.server));
@@ -598,7 +642,8 @@ mod tests {
     /// a public host passes.
     #[test]
     fn mapped_loopback_endpoints_are_refused() {
-        let check = |url: &str| require_https_url("svc", "url", url);
+        let check =
+            |url: &str| require_https_url("svc", "url", url).map_err(|error| error.to_string());
         let refused = "catalog entry svc: url must not be a literal loopback, private, link-local or unspecified endpoint".to_string();
         assert_eq!(
             [
@@ -708,7 +753,9 @@ mod tests {
             ]
         }))
         .unwrap();
-        let error = parse_plugins_catalog(bad.as_bytes()).expect_err("whole file fails closed");
+        let error = parse_plugins_catalog(bad.as_bytes())
+            .expect_err("whole file fails closed")
+            .to_string();
         assert!(
             error.contains("broken-entry"),
             "names the bad entry: {error}"
@@ -722,7 +769,8 @@ mod tests {
         for version in [0u8, 3, 255] {
             let doc = serde_json::json!({ "version": version, "counts": {}, "entries": [] });
             let error = parse_plugins_catalog(doc.to_string().as_bytes())
-                .expect_err("unsupported version rejects");
+                .expect_err("unsupported version rejects")
+                .to_string();
             assert!(error.contains("unsupported version"), "{error}");
         }
     }

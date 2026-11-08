@@ -1,4 +1,4 @@
-# bound: the bounder of a tool's output (docs/runtime.md S2, limits 1 and
+# bound: the bounder of a tool's output (limits 1 and
 # 2): which bytes of the output it keeps under a cap, what it counts as
 # dropped, what it stores while the output streams, and the truncation
 # notice. Rust (crates/eukhe-durable/src/harness/output.rs) moves the

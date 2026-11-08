@@ -35,9 +35,5 @@ def wt.each(xs: List<&2, Ru.Tool>, i: Nat, +t: Ru.Tool, none: {wt.none(xs) == Tr
         case 1n+p:
           wt.each(rest, p, t, LLogicBool.pl.and_r(Bool.not(Runners.worker_tool(x)), wt.none(rest), none), at)
 
-def Runners.worker_tools_main_only(chat, i, t, at):
-  match chat:
-    case True{}:
-      wt.each(Ru.registry(True{}), i, t, {==}, at)
-    case False{}:
-      wt.each(Ru.registry(False{}), i, t, {==}, at)
+def Runners.worker_tools_main_only(i, t, at):
+  wt.each(Ru.registry(), i, t, {==}, at)

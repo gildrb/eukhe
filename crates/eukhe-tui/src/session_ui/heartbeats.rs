@@ -15,7 +15,7 @@ pub(crate) struct HeartbeatsUpdate {
     /// catalog.
     pub epoch: u64,
     pub heartbeats: Vec<HeartbeatEntry>,
-    pub fetch_error: Option<String>,
+    pub fetch_error: Option<super::RefreshError>,
 }
 
 impl SessionUi {
@@ -222,16 +222,14 @@ impl SessionUi {
                     let _ = updates.send(HeartbeatsUpdate {
                         epoch,
                         heartbeats: Vec::new(),
-                        fetch_error: Some(format!("{error:#}")),
+                        fetch_error: Some(super::RefreshError::Daemon(error)),
                     });
                 }
                 Err(_) => {
                     let _ = updates.send(HeartbeatsUpdate {
                         epoch,
                         heartbeats: Vec::new(),
-                        fetch_error: Some(
-                            "timed out waiting for the Eukhe daemon response".to_string(),
-                        ),
+                        fetch_error: Some(super::RefreshError::Timeout),
                     });
                 }
             }
@@ -265,7 +263,7 @@ impl SessionUi {
         // failure surfaces only inside an open manager view.
         if let Some(error) = update.fetch_error {
             if let Some(picker) = view.heartbeats_picker.as_mut() {
-                picker.set_fetch_error(Some(error));
+                picker.set_fetch_error(Some(error.to_string()));
             }
             self.dirty = true;
         } else {

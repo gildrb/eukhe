@@ -11,6 +11,8 @@ use parking_lot::Mutex;
 use regex::Regex;
 use twox_hash::XxHash32;
 
+use crate::seen_log::{self, SeenJournal, SeenRecord};
+
 /// Retained path count before LRU eviction.
 pub const DEFAULT_MAX_PATHS: usize = 256;
 /// Full-file versions retained per path.
@@ -154,6 +156,9 @@ struct StoreState {
     max_paths: usize,
     max_versions: usize,
     max_total_units: usize,
+    /// The journal's records not restored yet, by path; `None` until the
+    /// first [`EditStore::restore`] loads them.
+    logged: Option<HashMap<PathBuf, Vec<SeenRecord>>>,
 }
 
 impl Default for StoreState {
@@ -166,6 +171,7 @@ impl Default for StoreState {
             max_paths: DEFAULT_MAX_PATHS,
             max_versions: DEFAULT_MAX_VERSIONS_PER_PATH,
             max_total_units: DEFAULT_MAX_TOTAL_BYTES,
+            logged: None,
         }
     }
 }
@@ -174,6 +180,8 @@ impl Default for StoreState {
 #[derive(Default, Clone)]
 pub struct EditStore {
     inner: Arc<Mutex<StoreState>>,
+    /// Where seen lines outlive the process; `None`: they live in memory.
+    journal: Option<Arc<dyn SeenJournal>>,
 }
 
 impl EditStore {
@@ -194,6 +202,18 @@ impl EditStore {
         };
         Self {
             inner: Arc::new(Mutex::new(state)),
+            journal: None,
+        }
+    }
+
+    /// Construct a store with production retention limits whose seen lines
+    /// are appended to `journal` and restored from it
+    /// ([`EditStore::restore`]).
+    #[must_use]
+    pub fn journaled(journal: Arc<dyn SeenJournal>) -> Self {
+        Self {
+            journal: Some(journal),
+            ..Self::default()
         }
     }
 
@@ -203,6 +223,16 @@ impl EditStore {
         reason = "callers record for the side effect and read the tag only when they render it"
     )]
     pub fn record(&self, path: &Path, text: &str, seen_lines: Option<&[u32]>) -> String {
+        let hash = self.keep(path, text, seen_lines);
+        if let Some(lines) = seen_lines {
+            self.log(path, &hash, text, lines);
+        }
+        hash
+    }
+
+    /// Keep `text` as the newest version of `path` with `seen_lines` joined
+    /// to its seen lines, and return its tag.
+    fn keep(&self, path: &Path, text: &str, seen_lines: Option<&[u32]>) -> String {
         let hash = file_hash(text);
         let mut state = self.inner.lock();
         state.clock = state.clock.wrapping_add(1);
@@ -234,6 +264,57 @@ impl EditStore {
         }
         evict(&mut state);
         hash
+    }
+
+    /// Append to the journal that `lines` of `text` (tagged `tag`) of
+    /// `path` are seen.
+    fn log(&self, path: &Path, tag: &str, text: &str, lines: &[u32]) {
+        let Some(journal) = &self.journal else { return };
+        if lines.is_empty() {
+            return;
+        }
+        journal.append(&SeenRecord {
+            path: path.to_owned(),
+            tag: tag.to_owned(),
+            digest: digest(text.as_bytes()),
+            runs: seen_log::runs(lines),
+        });
+    }
+
+    /// Restore the lines an earlier process of the session saw of `text`,
+    /// what canonical `path` holds now: the journal's records of exactly
+    /// this text (its tag and its digest) join its seen lines, and every
+    /// other record of `path` is dropped (`seen_log::reload`). Each path
+    /// is restored once per process, from the records loaded at the first
+    /// call; a store without a journal restores nothing.
+    pub fn restore(&self, path: &Path, text: &str) {
+        let Some(journal) = &self.journal else { return };
+        if self.inner.lock().logged.is_none() {
+            let mut by_path: HashMap<PathBuf, Vec<SeenRecord>> = HashMap::new();
+            for record in journal.load() {
+                by_path.entry(record.path.clone()).or_default().push(record);
+            }
+            self.inner.lock().logged.get_or_insert(by_path);
+        }
+        let Some(records) = self
+            .inner
+            .lock()
+            .logged
+            .as_mut()
+            .and_then(|logged| logged.remove(path))
+        else {
+            return;
+        };
+        // A run past the text's last line names no line of it.
+        let last = u32::try_from(text.split('\n').count()).unwrap_or(u32::MAX);
+        let lines: Vec<u32> = seen_log::reload(records, &file_hash(text), &digest(text.as_bytes()))
+            .iter()
+            .flat_map(|record| record.runs.iter())
+            .flat_map(|&(lo, hi)| lo..=hi.min(last))
+            .collect();
+        if !lines.is_empty() {
+            self.keep(path, text, Some(&lines));
+        }
     }
 
     /// Record that the session saw `bytes`, the raw content of the file at
@@ -269,15 +350,20 @@ impl EditStore {
 
     /// Union displayed lines into the most recent version matching a tag.
     pub fn record_seen_lines(&self, path: &Path, hash: &str, lines: &[u32]) {
-        let mut state = self.inner.lock();
-        touch(&mut state, path);
-        if let Some(version) = state
-            .histories
-            .get_mut(path)
-            .and_then(|h| h.versions.iter_mut().find(|v| v.hash == hash))
-        {
+        let text = {
+            let mut state = self.inner.lock();
+            touch(&mut state, path);
+            let Some(version) = state
+                .histories
+                .get_mut(path)
+                .and_then(|h| h.versions.iter_mut().find(|v| v.hash == hash))
+            else {
+                return;
+            };
             merge_seen(version, Some(lines));
-        }
+            Arc::clone(&version.text)
+        };
+        self.log(path, hash, &text, lines);
     }
 
     /// Return the current version and refresh path recency.

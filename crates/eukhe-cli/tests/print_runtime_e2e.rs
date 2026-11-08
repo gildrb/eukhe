@@ -522,9 +522,6 @@ fn print_mode_overflow_retry_recovers_the_turn() {
             overflow_error(0),
             {"text": "the summary"},
             {"text": "recovered reply"},
-            // The compact-trigger auto-refine review the recovered turn's
-            // checkpoint runs: a decline, so the review stays silent.
-            r#"{"shouldRefine": false, "rationale": "one-off tool output"}"#,
         ]
     });
     let seed = format!("seed turn {}", "x".repeat(48_000));
@@ -569,8 +566,8 @@ fn print_mode_overflow_skip_surfaces_the_warning_row() {
 /// `compaction_end` pair with `reason: "overflow"` and `willRetry: true`,
 /// the retried turn without a new user message, and the reported failure
 /// surface — the outcome row's message pair, then the `compaction_end`
-/// failure. json mode keeps the TS exit contract (0 unless the autonomous
-/// gates or a thrown error decide otherwise).
+/// failure. json mode exits non-zero on the failed run like text mode
+/// (`headless_exit`: a provider error is never a final answer).
 #[test]
 fn print_mode_overflow_json_streams_the_compaction_events() {
     let home = isolated_home();
@@ -590,7 +587,7 @@ fn print_mode_overflow_json_streams_the_compaction_events() {
         &["--mode", "json", "-p", &seed, &probe],
         &script,
     );
-    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(code, 1, "stderr: {stderr}");
     let events: Vec<serde_json::Value> = stdout
         .lines()
         .map(serde_json::from_str)
@@ -702,9 +699,6 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
             overflow_error(0),
             {"text": "the stale recovery summary"},
             {"text": "recovered after the resume"},
-            // The compact-trigger auto-refine review the recovered turn's
-            // checkpoint runs: a decline, so the review stays silent.
-            r#"{"shouldRefine": false, "rationale": "one-off tool output"}"#,
         ]
     });
     let (stdout, stderr, code) =
@@ -723,80 +717,19 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
 }
 
 // ---------------------------------------------------------------------------
-// The json event stream's TS parity surface (message_update, harness
-// digest, threshold compaction; verified against the TS binary's print
-// json stream over the same scripted faux provider).
+// The json event stream's parity surface (message_update deltas: the omp
+// `printableEvent` shape; threshold compaction: verified against the TS
+// binary's print json stream over the same scripted faux provider).
 // ---------------------------------------------------------------------------
-
-/// The harness digest pair: the fresh session's first request commits the
-/// digest (eukhe.digest delivery, after the prompt's user entry) and streams
-/// its `message_start`/`message_end` pair as a `custom` message between the
-/// user pair and the assistant. The request itself places it ahead of the
-/// prompt.
-#[test]
-fn print_mode_json_streams_the_harness_digest_pair() {
-    let home = isolated_home();
-    let script = serde_json::json!({ "responses": ["json answer"] });
-    let (stdout, stderr, code) = run_in_home(home.path(), &["--mode", "json", "-p", "hi"], &script);
-    assert_eq!(code, 0, "stderr: {stderr}");
-    let events: Vec<serde_json::Value> = stdout
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()
-        .unwrap();
-    let digest_at = events
-        .iter()
-        .position(|event| {
-            event["type"] == "message_start"
-                && event["message"]["role"] == "custom"
-                && event["message"]["customType"] == "harness_digest"
-        })
-        .expect("the digest message_start event");
-    // The pair rides the first turn: after the user pair, before the answer.
-    let user_end_at = events
-        .iter()
-        .position(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
-        .expect("the user message pair");
-    let assistant_at = events
-        .iter()
-        .position(|event| {
-            event["type"] == "message_start" && event["message"]["role"] == "assistant"
-        })
-        .expect("the assistant message");
-    assert!(user_end_at < digest_at && digest_at < assistant_at);
-    // The wire shape: the framed text (one text block, as the model sees
-    // it), display false, the raw digest in details.
-    let digest = &events[digest_at]["message"];
-    let framed = digest["content"][0]["text"].as_str().expect("a text block");
-    assert!(framed.starts_with("[harness-digest]"));
-    assert!(framed.ends_with("</harness_state>"));
-    assert_eq!(digest["display"], false);
-    assert!(digest["details"]["digest"].is_string());
-    assert!(digest["details"]["digest"]
-        .as_str()
-        .unwrap()
-        .contains("# Continual Harness State"));
-    // The end event carries the same message.
-    let digest_end_at = events
-        .iter()
-        .position(|event| {
-            event["type"] == "message_end"
-                && event["message"]["role"] == "custom"
-                && event["message"]["customType"] == "harness_digest"
-        })
-        .expect("the digest message_end event");
-    assert_eq!(
-        events[digest_at]["message"],
-        events[digest_end_at]["message"]
-    );
-}
 
 /// The streaming deltas: pi-durable commits the in-flight partial at most
 /// every 100 ms (TS `streamResponse`'s throttle), so between the
 /// assistant's `message_start` (the first committed partial) and its
-/// `message_end`, each `message_update` carries the accumulated partial and
-/// the text appended since the previous frame; `partial` never rides the
-/// wire. A slow stream makes the throttle publish.
+/// `message_end`, each `message_update` carries only the change since the
+/// previous frame (omp `printableEvent`): never the accumulated partial,
+/// which would re-serialize the whole message per frame and grow the
+/// stream quadratically. The settled message rides `message_end` whole.
+/// A slow stream makes the throttle publish.
 #[test]
 fn print_mode_json_streams_the_message_update_deltas() {
     const ANSWER: &str = "a streamed answer that takes a while to arrive in many small pieces";
@@ -823,38 +756,44 @@ fn print_mode_json_streams_the_message_update_deltas() {
         .iter()
         .filter(|event| event["type"] == "message_update")
         .collect();
-    assert!(!updates.is_empty(), "the stream carries the deltas");
+    assert!(
+        updates
+            .iter()
+            .any(|update| update["assistantMessageEvent"]["type"] == "text_delta"),
+        "the stream carries the deltas: {updates:?}"
+    );
     let text = |event: &serde_json::Value| {
         event["message"]["content"][0]["text"]
             .as_str()
             .unwrap_or_default()
             .to_owned()
     };
-    // The deltas rebuild each frame's partial from the start's.
+    // The deltas extend the start's partial toward the settled answer.
     let mut rebuilt = text(&events[start_at]);
     for update in &updates {
-        assert_eq!(update["message"]["role"], "assistant");
-        assert!(update["assistantMessageEvent"].get("partial").is_none());
+        // The frame is the change alone, in the omp field order (`type`,
+        // `assistantMessageEvent`; the JSON map preserves insertion order,
+        // so this is the wire byte order).
+        let keys: Vec<&str> = update
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["type", "assistantMessageEvent"], "{update}");
         if update["assistantMessageEvent"]["type"] == "text_delta" {
             rebuilt.push_str(update["assistantMessageEvent"]["delta"].as_str().unwrap());
         }
-        assert_eq!(rebuilt, text(update));
         assert!(
             ANSWER.starts_with(&rebuilt),
             "a prefix of the answer: {rebuilt:?}"
         );
     }
+    assert!(
+        rebuilt.len() > text(&events[start_at]).len(),
+        "the deltas add text"
+    );
     assert_eq!(text(&events[end_at]), ANSWER);
-    // The event field order matches the TS stream (`MessageUpdateEvent`:
-    // type, message, assistantMessageEvent) -- the JSON map preserves
-    // insertion order, so this is the wire byte order.
-    let keys: Vec<&str> = updates[0]
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    assert_eq!(keys, ["type", "message", "assistantMessageEvent"]);
 }
 
 /// The threshold compaction (pi-durable's pre-request check): a prompt whose
@@ -868,14 +807,17 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     write_compaction_settings(
         home.path(),
         &serde_json::json!({
-            "compaction": { "enabled": true, "reserveTokens": 1, "keepRecentTokens": 10 }
+            "compaction": { "enabled": true, "reserveTokens": 8192, "keepRecentTokens": 10 }
         }),
     );
-    // A small context window so the crossing turn exceeds the threshold:
-    // the ~8.1k seed turn stays below the combined input+output ceiling
-    // (24k window - 4_096 output budget - 4_096 headroom floor = 15_808),
-    // and the ~12k-token crossing turn pushes the context past it (the
-    // faux provider estimates usage from the serialized context).
+    // A small context window so the crossing turn crosses the blocking
+    // threshold and stays inside the window: the blocking threshold is
+    // 24k window - 8_192 reserve = 15_808 tokens; the ~5.5k-token seed
+    // request stays below it, and the ~13.7k-token crossing turn pushes
+    // the context (~23.3k) past it (the faux provider estimates usage
+    // from the serialized context). The background threshold alone
+    // compacts no more: its cut cannot bring this context down to the
+    // target, since the crossing turn alone is past it.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [

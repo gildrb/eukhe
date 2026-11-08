@@ -1188,7 +1188,6 @@ pub fn create_remote_service_endpoint(provider: RemoteServiceProvider) -> Remote
 
 impl RemoteServiceEndpoint {
     /// Handle one call: `$chord.service` control calls or a method call.
-    #[must_use]
     pub fn invoke(
         &self,
         call: ServiceCall,

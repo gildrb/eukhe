@@ -39,7 +39,7 @@ fn summary(id: &str, name: &str, parent: &str) -> Value {
 fn roster() -> Vec<Value> {
     let mut busy = summary("c1", "worker-1", "p1");
     busy["isStreaming"] = json!(true);
-    busy["model"] = json!("elpis/elpis-fast");
+    busy["model"] = json!("local/local");
     busy["admission"] = json!("generating");
     busy["note"] = json!("wrote the\nparser");
     let mut done = summary("c2", "worker-2", "p1");
@@ -83,7 +83,7 @@ fn the_family_lists_in_tree_order_with_connectors() {
                 status: "running".to_string(),
                 admission: Some(ModelAdmission::Generating),
                 depth: 1,
-                model: "elpis-fast".to_string(),
+                model: "local".to_string(),
                 note: Some("wrote the parser".to_string()),
             },
             RosterLine {
@@ -176,8 +176,7 @@ fn the_roster_renders_aligned_columns() {
         vec![
             String::new(),
             " agents: 3 (1 running)".to_string(),
-            " |- worker-1     running (generating)  depth 1  elpis-fast  wrote the parser"
-                .to_string(),
+            " |- worker-1     running (generating)  depth 1  local  wrote the parser".to_string(),
             " |  `- worker-2  idle                  depth 2  -".to_string(),
             " `- worker-2     done                  depth 1  -".to_string(),
         ]
@@ -206,12 +205,11 @@ fn a_sent_message_echoes_its_target() {
 }
 
 #[test]
-fn a_relay_shows_its_first_line_until_detail_all() {
-    let row = SwarmRow::Relay(AgentRelayEvent {
+fn a_reply_shows_its_first_line_until_detail_all() {
+    let row = SwarmRow::Reply {
         from: "scout".to_string(),
-        to: "builder".to_string(),
         text: "the api is in core\nsee durable/children".to_string(),
-    });
+    };
     assert_eq!(
         [
             plain(&render_swarm_row(
@@ -231,10 +229,10 @@ fn a_relay_shows_its_first_line_until_detail_all() {
             plain(&render_swarm_row(&row, Detail::All, &theme(), 80, false)),
         ],
         [
-            vec![" scout -> builder: the api is in core...".to_string()],
-            vec![" scout -> builder: the api ...".to_string()],
+            vec![" scout -> you: the api is in core...".to_string()],
+            vec![" scout -> you: the api is i...".to_string()],
             vec![
-                " scout -> builder: the api is in core".to_string(),
+                " scout -> you: the api is in core".to_string(),
                 "   see durable/children".to_string(),
             ],
         ]

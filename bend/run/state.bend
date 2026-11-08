@@ -1,7 +1,7 @@
 # run: the run's configuration, inputs (Reply, Got, Fin, Ev), phases and state St, its start and its end predicates
 #
 # run: one run of the harness (one user turn) as a state machine, after
-# docs/harness.md H4. Its live phases: prepare (the request is built; a
+# LAWS.bend H4. Its live phases: prepare (the request is built; a
 # blocking threshold compaction may start), call (a request or a deferred
 # poll is out), compact (the run waits for an overflow's or a threshold
 # compaction), tools (the round's tools run). Its ends: answered (an
@@ -103,7 +103,7 @@ def Ended.pick(calls: Bool, text: Bool) -> Reply:
     case False{}:
       Ended.text(text)
 
-# the reply such a message makes (Ended::reply, docs/harness.md H4.7): its
+# the reply such a message makes (Ended::reply, LAWS.bend H4.7): its
 # calls when it has a tool call, whatever its stop reason (vLLM,
 # llama.cpp and Ollama send the stop reason stop with tool calls); else
 # an answer when it has text. With no text and no call the model gave no

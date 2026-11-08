@@ -14,6 +14,65 @@ use serde_json::Value;
 
 use eukhe_core::mcp::AcpMcpServerConfig;
 
+/// Why an ACP `session/new` `mcpServers` list fails admission (the TS
+/// `resolveAcpMcpServers` texts, verbatim): the ACP `invalid params`
+/// `reason`.
+#[derive(Debug, thiserror::Error)]
+pub enum AcpMcpConfigError {
+    #[error("MCP server names must start with an alphanumeric character and contain at most 64 alphanumeric, underscore, or hyphen characters")]
+    InvalidServerName,
+    #[error("duplicate MCP server name: {name}")]
+    DuplicateServerName { name: String },
+    #[error("MCP server {name} uses unsupported {kind} transport")]
+    UnsupportedTransport { name: String, kind: &'static str },
+    #[error("MCP server {name} has no stdio command")]
+    MissingCommand { name: String },
+    #[error("MCP server {name} has an invalid stdio command")]
+    InvalidCommand { name: String },
+    #[error("MCP server {server} has an empty {label} name")]
+    EmptyEntryName { server: String, label: EntryLabel },
+    #[error("MCP server {server} has duplicate {label} {name}")]
+    DuplicateEntry {
+        server: String,
+        label: EntryLabel,
+        name: String,
+    },
+    #[error("MCP server {server} has an invalid HTTP header")]
+    InvalidHeader { server: String },
+    #[error("MCP server {server} has an invalid environment entry")]
+    InvalidEnvironmentEntry { server: String },
+    #[error("MCP server {server} has an invalid HTTP URL")]
+    InvalidUrl { server: String },
+    #[error("MCP server {server} must use an HTTP(S) URL without embedded credentials")]
+    UrlNotHttp { server: String },
+}
+
+/// Which name/value list of a server an entry belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryLabel {
+    Header,
+    Environment,
+}
+
+impl std::fmt::Display for EntryLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            EntryLabel::Header => "header",
+            EntryLabel::Environment => "environment",
+        })
+    }
+}
+
+/// Why admitted ACP MCP servers cannot add their tools (TS
+/// `acpMcpToolNames`): the ACP internal error's details.
+#[derive(Debug, thiserror::Error)]
+pub enum AcpMcpToolNameError {
+    #[error("Invalid ACP MCP server name: {name}")]
+    InvalidName { name: String },
+    #[error("Duplicate ACP MCP server: {name}")]
+    Duplicate { name: String },
+}
+
 /// Wire shape of one `session/new` `mcpServers` entry (ACP SDK
 /// `McpServer` union: stdio by `command`, http by `type`).
 #[derive(Debug)]
@@ -31,7 +90,7 @@ enum WireServer {
     },
     Unsupported {
         name: String,
-        kind: String,
+        kind: &'static str,
     },
 }
 
@@ -78,31 +137,44 @@ fn valid_header_value(value: &str) -> bool {
 /// Header identity is case-insensitive; environment identity is exact.
 fn entries(
     server: &str,
-    label: &str,
+    label: EntryLabel,
     values: &[(String, String)],
-) -> Result<Vec<(String, String)>, String> {
+) -> Result<Vec<(String, String)>, AcpMcpConfigError> {
     let mut result = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for (name, value) in values {
         if name.is_empty() {
-            return Err(format!("MCP server {server} has an empty {label} name"));
+            return Err(AcpMcpConfigError::EmptyEntryName {
+                server: server.to_string(),
+                label,
+            });
         }
-        let identity = if label == "header" {
-            name.to_lowercase()
-        } else {
-            name.clone()
+        let identity = match label {
+            EntryLabel::Header => name.to_lowercase(),
+            EntryLabel::Environment => name.clone(),
         };
         if seen.contains(&identity) {
-            return Err(format!("MCP server {server} has duplicate {label} {name}"));
+            return Err(AcpMcpConfigError::DuplicateEntry {
+                server: server.to_string(),
+                label,
+                name: name.clone(),
+            });
         }
-        if label == "header" {
-            if !valid_header_name(name) || !valid_header_value(value) {
-                return Err(format!("MCP server {server} has an invalid HTTP header"));
+        match label {
+            EntryLabel::Header => {
+                if !valid_header_name(name) || !valid_header_value(value) {
+                    return Err(AcpMcpConfigError::InvalidHeader {
+                        server: server.to_string(),
+                    });
+                }
             }
-        } else if name.contains('=') || name.contains('\0') || value.contains('\0') {
-            return Err(format!(
-                "MCP server {server} has an invalid environment entry"
-            ));
+            EntryLabel::Environment => {
+                if name.contains('=') || name.contains('\0') || value.contains('\0') {
+                    return Err(AcpMcpConfigError::InvalidEnvironmentEntry {
+                        server: server.to_string(),
+                    });
+                }
+            }
         }
         seen.insert(identity);
         result.push((name.clone(), value.clone()));
@@ -129,17 +201,11 @@ fn parse_wire(server: &Value) -> Option<WireServer> {
         if server_type == "http" {
             return Some(WireServer::Http { name, url, headers });
         }
-        return Some(WireServer::Unsupported {
-            name,
-            kind: "sse".to_string(),
-        });
+        return Some(WireServer::Unsupported { name, kind: "sse" });
     }
     if server_type == "acp" {
         object.get("serverId").and_then(Value::as_str)?;
-        return Some(WireServer::Unsupported {
-            name,
-            kind: "acp".to_string(),
-        });
+        return Some(WireServer::Unsupported { name, kind: "acp" });
     }
     let command = object.get("command")?.as_str()?.to_string();
     let args = string_list(object, "args")?;
@@ -174,15 +240,17 @@ fn pair_list(object: &serde_json::Map<String, Value>, key: &str) -> Option<Vec<(
 
 /// Validate an http(s) URL without embedded credentials (TS `new URL`
 /// parsing plus the protocol/username/password checks).
-fn validate_http_url(server: &str, url: &str) -> Result<(), String> {
-    let parsed = parse_url(url).ok_or(format!("MCP server {server} has an invalid HTTP URL"))?;
+fn validate_http_url(server: &str, url: &str) -> Result<(), AcpMcpConfigError> {
+    let parsed = parse_url(url).ok_or_else(|| AcpMcpConfigError::InvalidUrl {
+        server: server.to_string(),
+    })?;
     if (parsed.scheme != "http" && parsed.scheme != "https")
         || !parsed.username.is_empty()
         || parsed.password.is_some()
     {
-        return Err(format!(
-            "MCP server {server} must use an HTTP(S) URL without embedded credentials"
-        ));
+        return Err(AcpMcpConfigError::UrlNotHttp {
+            server: server.to_string(),
+        });
     }
     Ok(())
 }
@@ -222,7 +290,7 @@ fn parse_url(url: &str) -> Option<ParsedUrl> {
 pub fn resolve_acp_mcp_servers(
     servers: &[Value],
     cwd: &Path,
-) -> Result<Vec<AcpMcpServerConfig>, String> {
+) -> Result<Vec<AcpMcpServerConfig>, AcpMcpConfigError> {
     let mut names: HashSet<String> = HashSet::new();
     let mut resolved = Vec::new();
     for server in servers {
@@ -237,20 +305,15 @@ pub fn resolve_acp_mcp_servers(
             | WireServer::Unsupported { name, .. } => name.clone(),
         };
         if !server_name_matches_pattern(&name, SERVER_NAME_PATTERN_MAX) {
-            return Err(
-                "MCP server names must start with an alphanumeric character and contain at most 64 alphanumeric, underscore, or hyphen characters"
-                    .to_string(),
-            );
+            return Err(AcpMcpConfigError::InvalidServerName);
         }
         if names.contains(&name) {
-            return Err(format!("duplicate MCP server name: {name}"));
+            return Err(AcpMcpConfigError::DuplicateServerName { name });
         }
         names.insert(name.clone());
         match parsed {
             WireServer::Unsupported { name, kind } => {
-                return Err(format!(
-                    "MCP server {name} uses unsupported {kind} transport"
-                ));
+                return Err(AcpMcpConfigError::UnsupportedTransport { name, kind });
             }
             WireServer::Stdio {
                 name,
@@ -259,12 +322,12 @@ pub fn resolve_acp_mcp_servers(
                 env,
             } => {
                 if command.is_empty() {
-                    return Err(format!("MCP server {name} has no stdio command"));
+                    return Err(AcpMcpConfigError::MissingCommand { name });
                 }
                 if command.contains('\0') || args.iter().any(|arg| arg.contains('\0')) {
-                    return Err(format!("MCP server {name} has an invalid stdio command"));
+                    return Err(AcpMcpConfigError::InvalidCommand { name });
                 }
-                let env = entries(&name, "environment", &env)?;
+                let env = entries(&name, EntryLabel::Environment, &env)?;
                 resolved.push(AcpMcpServerConfig::Stdio {
                     name,
                     command,
@@ -275,7 +338,7 @@ pub fn resolve_acp_mcp_servers(
             }
             WireServer::Http { name, url, headers } => {
                 validate_http_url(&name, &url)?;
-                let headers = entries(&name, "header", &headers)?;
+                let headers = entries(&name, EntryLabel::Header, &headers)?;
                 resolved.push(AcpMcpServerConfig::Http {
                     name,
                     url: normalize_url(&url),
@@ -299,15 +362,21 @@ fn normalize_url(url: &str) -> String {
 /// The tool names an ACP MCP server adds (TS `acpMcpToolNames`):
 /// `mcp_list_tools_<name>` and `mcp_call_<name>` per server. Names that
 /// pass admission but overflow the tool-name limit fail here.
-pub fn acp_mcp_tool_names(servers: &[AcpMcpServerConfig]) -> Result<Vec<String>, String> {
+pub fn acp_mcp_tool_names(
+    servers: &[AcpMcpServerConfig],
+) -> Result<Vec<String>, AcpMcpToolNameError> {
     let mut names = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for server in servers {
         if !server_name_matches_pattern(server.name(), TOOL_NAME_PATTERN_MAX) {
-            return Err(format!("Invalid ACP MCP server name: {}", server.name()));
+            return Err(AcpMcpToolNameError::InvalidName {
+                name: server.name().to_string(),
+            });
         }
         if seen.contains(server.name()) {
-            return Err(format!("Duplicate ACP MCP server: {}", server.name()));
+            return Err(AcpMcpToolNameError::Duplicate {
+                name: server.name().to_string(),
+            });
         }
         seen.insert(server.name().to_string());
         names.push(format!("mcp_list_tools_{}", server.name()));
@@ -392,13 +461,16 @@ mod tests {
 
     #[test]
     fn rejects_invalid_names_and_duplicates() {
-        let err = resolve_acp_mcp_servers(&[stdio("-bad")], Path::new("/tmp")).unwrap_err();
+        let err = resolve_acp_mcp_servers(&[stdio("-bad")], Path::new("/tmp"))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("must start with an alphanumeric"));
         let err = resolve_acp_mcp_servers(
             &[stdio("dup"), http("dup", "https://x.invalid", &json!([]))],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "duplicate MCP server name: dup");
     }
 
@@ -408,13 +480,15 @@ mod tests {
             &[json!({ "name": "n", "type": "stdio", "command": "", "args": [], "env": [] })],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server n has no stdio command");
         let err = resolve_acp_mcp_servers(
             &[json!({ "name": "n", "type": "stdio", "command": "cat\u{0}", "args": [], "env": [] })],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server n has an invalid stdio command");
     }
 
@@ -425,7 +499,8 @@ mod tests {
             &[entry(json!([{"name": "", "value": "1"}]))],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server e has an empty environment name");
         let err = resolve_acp_mcp_servers(
             &[entry(
@@ -433,13 +508,15 @@ mod tests {
             )],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server e has duplicate environment A");
         let err = resolve_acp_mcp_servers(
             &[entry(json!([{"name": "A=B", "value": "1"}]))],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server e has an invalid environment entry");
     }
 
@@ -449,25 +526,29 @@ mod tests {
             &[json!({ "name": "s", "type": "sse", "url": "https://x.invalid", "headers": [] })],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server s uses unsupported sse transport");
         let err = resolve_acp_mcp_servers(
             &[json!({ "name": "a2", "type": "acp", "serverId": "x" })],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server a2 uses unsupported acp transport");
         let err = resolve_acp_mcp_servers(
             &[http("c", "https://user:pw@x.invalid", &json!([]))],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(
             err,
             "MCP server c must use an HTTP(S) URL without embedded credentials"
         );
         let err = resolve_acp_mcp_servers(&[http("h", "not a url", &json!([]))], Path::new("/tmp"))
-            .unwrap_err();
+            .unwrap_err()
+            .to_string();
         assert_eq!(err, "MCP server h has an invalid HTTP URL");
     }
 
@@ -481,7 +562,8 @@ mod tests {
             )],
             Path::new("/tmp"),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert_eq!(err, "MCP server hdr has duplicate header x-a");
     }
 
@@ -489,7 +571,7 @@ mod tests {
     fn tool_names_follow_the_tighter_limit() {
         let long = "a".repeat(51);
         let servers = resolve_acp_mcp_servers(&[stdio(&long)], Path::new("/tmp")).unwrap();
-        let err = acp_mcp_tool_names(&servers).unwrap_err();
+        let err = acp_mcp_tool_names(&servers).unwrap_err().to_string();
         assert_eq!(err, format!("Invalid ACP MCP server name: {long}"));
         let servers = resolve_acp_mcp_servers(&[stdio("demo")], Path::new("/tmp")).unwrap();
         assert_eq!(

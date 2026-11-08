@@ -1,0 +1,10 @@
+# the wire round trip: every number at its largest, written back verbatim
+call {MAX},{U32MAX},T5,hello3,{MAX},{MAX},{MAX},
+call {MAX},{U32MAX},F0,0,
+call 0,0,T0,5,{MAX},{MAX},{MAX},{MAX},{MAX},
+refuse {LONG},0,T0,0,
+refuse 1,{LONG},T0,0,
+refuse 1,4294967296,T0,0,
+refuse 1,1,T0,1,{LONG},
+refuse 1,1,T{LONG},x0,
+refuse 1,1,T0,{MAX},

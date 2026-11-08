@@ -1,5 +1,6 @@
 //! Model subsystem: the local registry (bundled/compiled catalog plus the
-//! user's models.json), the resolver, and Prime Inference private models.
+//! user's models.json), the resolver, Prime Inference private models, and
+//! the model source of every role (`roles`).
 
 pub use allowlist::{model_allowed, ModelAllowlistRefusal};
 pub use registry::{ModelRegistry, ResolvedRequestAuth, SetModelSelectionError};
@@ -10,6 +11,7 @@ pub mod image_model_routing;
 pub(crate) mod prime_inference;
 pub(crate) mod registry;
 pub(crate) mod resolver;
+pub mod roles;
 
 pub use image_model_routing::{
     resolve_image_model_override, ImageModelRoutingInputs, ResolvedImageModel,

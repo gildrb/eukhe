@@ -1,0 +1,6 @@
+{"prompt": "Which agents are running right now and what is each doing?", "expect_skill": "agent-observe", "expect": "Calls agent_observe.list_agents() and reports status and note per agent."}
+{"prompt": "Before you research the parser again, check whether another agent already did.", "expect_skill": "agent-observe", "expect": "Reads the roster notes and routes the question to the agent with the context."}
+{"prompt": "Show me the last few messages of the child 'indexer'.", "expect_skill": "agent-observe", "expect": "Calls agent_observe.recent_messages(\"indexer\", limit=...) within 1-50."}
+{"prompt": "Is the child 'tester' still busy?", "expect_skill": "agent-observe", "expect": "Reads its status via list_agents or get_agent; changes nothing."}
+{"prompt": "Stop the child 'tester'.", "expect_skill": "subagents", "expect": "Uses the subagent handle (delete_subagent), not the read-only skill."}
+{"prompt": "Tell the child 'tester' to rerun the suite.", "expect_skill": "agent-message", "expect": "A message, not an observation."}

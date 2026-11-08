@@ -429,3 +429,212 @@ law seen_entry_malformed_unless_anchors:
 #   width tag read as a known one, two error texts swapped
 law seen_entry_tags_example:
   {[Fds.ffi("1,1,1,4,1,1,3,2,0,3,1,513,4,1,512,"), Fds.ffi("1,1,3,1,2,1,5,"), Fds.ffi("0,1,2,1,3,"), Fds.ffi("1,1,"), Fds.ffi("0,1,2,2,0,"), Fds.ffi("0,"), Fds.ffi("0,0,0,")] == ["3,2,3,4,2,3,1,512,4,0,F", "0,0,T", "1,2,1,2,0,T", Wr.err("doc_seen: malformed seen runs"), Wr.err("doc_seen: malformed anchors"), Wr.err("doc_seen: malformed anchors"), Wr.err("doc_seen: input left over")] : List<&2, String>}
+
+
+# Reload
+# ------
+# bend/doc_seen.bend `reload` and `restored`: every input is free: any
+# log of one file (any records, each of any version with any runs), any
+# version the file holds when a later process of the session edits it.
+
+def seen.Live.keep(+r: Ds.Rec, rest: List<&2, Ds.Rec>, same: Bool) -> List<&2, Ds.Rec>:
+  match same:
+    case True{}:
+      r <> rest
+    case False{}:
+      rest
+
+# the records of log whose version is live, in order
+def seen.Live(+live: Nat, log: List<&2, Ds.Rec>) -> List<&2, Ds.Rec>:
+  match log:
+    case Nil{}:
+      Nil{}
+    case +r <> rest:
+      match r:
+        case Ds.Rec{t, s}:
+          seen.Live.keep(Ds.Rec{t, s}, seen.Live(live, rest), Nat.is_eq(t, live))
+
+# line n is held by a record of log whose version is live
+def seen.HeldLive(+n: Nat, +live: Nat, log: List<&2, Ds.Rec>) -> Bool:
+  match log:
+    case Nil{}:
+      False{}
+    case r <> rest:
+      match r:
+        case Ds.Rec{t, s}:
+          Bool.or(Bool.and(Nat.is_eq(t, live), seen.In(n, s)), seen.HeldLive(n, live, rest))
+
+# LAW reload_keeps_exactly_the_live_version: a reload keeps exactly the records of the
+# version the file holds, in order: none of another version (the file
+# changed since, or changed back and forth: those lines were not seen of
+# this text) and every one of this version
+# EXCLUDES: restoring by path alone, keeping only the last record or the
+# first, dropping a record of the live version, keeping a stale one
+law reload_keeps_exactly_the_live_version:
+  for +live: Nat
+  for +log: List<&2, Ds.Rec>
+  {Ds.reload(live, log) == seen.Live(live, log) : List<&2, Ds.Rec>}
+
+# LAW reload_sees_exactly_the_live_records: after a reload, a line is seen exactly when a
+# record of the version the file holds names it: the guard then lets an
+# edit through exactly on the lines an earlier process saw of this text
+# EXCLUDES: a line seen from a stale record, a line of a kept record lost
+# (only the first record's runs restored, the last record's runs alone)
+law reload_sees_exactly_the_live_records:
+  for +n: Nat
+  for +live: Nat
+  for +log: List<&2, Ds.Rec>
+  {seen.In(n, Ds.restored(Ds.reload(live, log))) == seen.HeldLive(n, live, log) : Bool}
+
+# LAW reload_example (anchor): of a log of versions 5, 7, 5, the file holding 5 keeps
+# the first and the third record, and their runs are the seen lines; the
+# file holding 9 keeps nothing
+# EXCLUDES: a reload that matches every version, or none
+law reload_example:
+  {Ds.restored(Ds.reload(5n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}, Ds.Rec{5n, [Ds.Iv{9n, 9n}]}])) == [Ds.Iv{1n, 3n}, Ds.Iv{9n, 9n}] : List<&2, Ds.Iv>} & {Ds.reload(9n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}]) == [] : List<&2, Ds.Rec>}
+
+# The entry from the requirement
+# ------------------------------
+# The spec of the whole entry, written from the requirement (F11, the
+# rules above) and the wire's primitives only: no function of
+# bend/doc_seen.bend or bend/ffi_doc_seen.bend (their types only; `cap`
+# and `cols` through seen.Shown and seen.Whole, which reveal_bounds pins to
+# 40 and 512).
+
+# the anchors of ats whose line is not seen, in order
+def seen.sp_unseen(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>) -> List<&2, Ds.At>:
+  match ats:
+    case Nil{}:
+      Nil{}
+    case a <> rest:
+      match a:
+        case Ds.At{+n, +w}:
+          seen.Unseen.keep(Ds.At{n, w}, seen.sp_unseen(seen, rest), seen.In(n, seen))
+
+# the line numbers of the anchors us, in order
+def seen.sp_lines(us: List<&2, Ds.At>) -> List<&2, Nat>:
+  match us:
+    case Nil{}:
+      Nil{}
+    case a <> rest:
+      match a:
+        case Ds.At{n, w}:
+          n <> seen.sp_lines(rest)
+
+# a Maybe<Nat> on the wire: 0, or 1 then the Nat
+def seen.sp_put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_nat(x, rest))
+
+def seen.sp_put_show(x: Ds.Show, rest: String) -> String:
+  match x:
+    case Ds.Show{n, c}:
+      Wr.put_nat(n, seen.sp_put_mnat(c, rest))
+
+# the verdict on the unseen anchors us: their lines, the lines a
+# rejection shows, whether it showed them whole
+def seen.sp_verdict(+us: List<&2, Ds.At>) -> String:
+  Wr.put_list(~Nat, ~Wr.put_nat, seen.sp_lines(us), Wr.put_list(~Ds.Show, ~seen.sp_put_show, seen.Shown(List.take(&2, Ds.At, us, 40n)), Wr.put_bool(seen.Whole(us), "")))
+
+def seen.sp_mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{Some{x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def seen.sp_mnat.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{None{}, s}
+        case 1n:
+          seen.sp_mnat.some(Wr.get_nat(s))
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a Maybe<Nat>: the tag 0 (none) or 1 then the Nat
+def seen.sp_mnat(s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  seen.sp_mnat.tag(Wr.get_nat(s))
+
+def seen.sp_iv.hi(lo: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ds.Iv>:
+  match r:
+    case Wr.Got{hi, s}:
+      Wr.Got{Ds.Iv{lo, hi}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def seen.sp_iv.lo(r: Wr.Dec<Nat>) -> Wr.Dec<Ds.Iv>:
+  match r:
+    case Wr.Got{lo, s}:
+      seen.sp_iv.hi(lo, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a run of seen lines: lo, then hi
+def seen.sp_iv(s: String) -> Wr.Dec<Ds.Iv>:
+  seen.sp_iv.lo(Wr.get_nat(s))
+
+def seen.sp_at.w(n: Nat, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ds.At>:
+  match r:
+    case Wr.Got{w, s}:
+      Wr.Got{Ds.At{n, w}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def seen.sp_at.n(r: Wr.Dec<Nat>) -> Wr.Dec<Ds.At>:
+  match r:
+    case Wr.Got{n, s}:
+      seen.sp_at.w(n, seen.sp_mnat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# an anchor: its line, then its width (a Maybe<Nat>)
+def seen.sp_at(s: String) -> Wr.Dec<Ds.At>:
+  seen.sp_at.n(Wr.get_nat(s))
+
+def seen.sp_done(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, whole: Bool) -> String:
+  match whole:
+    case True{}:
+      seen.sp_verdict(seen.sp_unseen(seen, ats))
+    case False{}:
+      Wr.err("doc_seen: input left over")
+
+def seen.sp_ats(+seen: List<&2, Ds.Iv>, r: Wr.Dec<List<&2, Ds.At>>) -> String:
+  match r:
+    case Wr.Got{ats, s}:
+      seen.sp_done(seen, ats, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("doc_seen: malformed anchors")
+
+def seen.sp_seen(r: Wr.Dec<List<&2, Ds.Iv>>) -> String:
+  match r:
+    case Wr.Got{seen, s}:
+      seen.sp_ats(seen, Wr.get_list(~Ds.At, ~seen.sp_at, s))
+    case Wr.Bad{}:
+      Wr.err("doc_seen: malformed seen runs")
+
+# the entry's answer to the input s: the seen runs, then the anchors
+def seen.sp_entry(s: String) -> String:
+  seen.sp_seen(Wr.get_list(~Ds.Iv, ~seen.sp_iv, s))
+
+# LAW doc_seen_ffi_exact (compiled core): on every input the guard's entry answers the
+# spec's verdict on the seen runs and the anchors the input is exactly
+# (the unseen anchors' lines in order; the first 40 of them that are
+# lines of the snapshot, each cut to 512 characters when longer; whether
+# they are at most 40 and each a line of at most 512 characters), and
+# exactly the error form for malformed seen runs, malformed anchors, or
+# input left over
+# EXCLUDES: a seen anchor named or an unseen one dropped, a line shown cut
+#   or whole by another rule, a whole reveal with a line missing or cut, a
+#   run or an anchor misread, a reply spelled otherwise, a default for
+#   malformed input, input left over ignored, another error text
+law doc_seen_ffi_exact:
+  for +s: String
+  {Fds.ffi(s) == seen.sp_entry(s) : String}

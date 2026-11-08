@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 
 def pw.again(s: W.Sts) -> {W.again(s) == Workflow.wf_again(s) : W.Admit}:
   match s:

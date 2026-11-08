@@ -3,7 +3,7 @@
 # PROOF: the closed claim computes.
 
 import Base
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 
 def Child.child_entry_malformed_example():
   {==}

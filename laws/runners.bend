@@ -14,27 +14,25 @@ import ./base.bend as LawsBase
 
 # (G4) Every runner of code goes through the gate
 # -----------------------------------------------
-# docs/tools.md S7, the model in bend/runners.bend. `Rn.registry` is the
+# the model in bend/runners.bend. `Rn.registry` is the
 # registry a session installs (crates/eukhe-core/src/durable/registry.rs);
 # it and the gate run as the compiled core (section runners entry below),
 # and the registry test in crates/eukhe-core/src/durable/runner/tests.rs
 # compares the real registry with the core's.
 
-# LAW gate_covers_every_runner: every tool of a session's registry (with or without chat memory)
-# that runs code that may run a program is gated
+# LAW gate_covers_every_runner: every tool of a session's registry that runs code that may run a
+# program is gated
 law gate_covers_every_runner:
-  for +chat: Bool
   for +i: Nat
   for +t: Ru.Tool
-  for at: {List.get(&2, Ru.Tool, Ru.registry(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  for at: {List.get(&2, Ru.Tool, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.Tool>}
   for runs: {Ru.runs(t) == True{} : Bool}
   {Ru.gated(t) == True{} : Bool}
 
 # LAW ipython_gated_each_call: the `ipython` tool runs code that may run a program, and the gate
 # covers each of its calls
 law ipython_gated_each_call:
-  for +chat: Bool
-  {Ru.find(Ru.registry(chat), "ipython") == Some{Ru.Tool{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.Tool>}
+  {Ru.find(Ru.registry(), "ipython") == Some{Ru.Tool{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.Tool>}
 
 # LAW cell_runs_only_within_or_approved: a gated call runs only when its caps are within the auto set or the
 # user approves it
@@ -148,10 +146,9 @@ law main_roster_offers_workers:
 # LAW worker_tools_main_only: no tool of a session's registry outside main (a `single` session, every child; with or without chat memory) is a worker tool
 # EXCLUDES: a child or a single session that creates or drives workers
 law worker_tools_main_only:
-  for +chat: Bool
   for +i: Nat
   for +t: Ru.Tool
-  for at: {List.get(&2, Ru.Tool, Ru.registry(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  for at: {List.get(&2, Ru.Tool, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.Tool>}
   {worker_tool(t) == False{} : Bool}
 
 # ---- runners entry ----
@@ -169,8 +166,7 @@ law worker_tools_main_only:
 #     the tools a session installs (`Ru.registry`).
 # R2: every other input answers exactly the error form "runners:
 #     malformed request".
-# Every input is free: any caps, any auto set, any asker, chat memory or
-# not, any text.
+# Every input is free: any caps, any auto set, any asker, any text.
 
 # Spec spellers
 # -------------
@@ -194,8 +190,8 @@ def spell_req(q: FRu.Req, rest: String) -> String:
       Wr.put_nat(0n, spell_ns(c, spell_ns(a, rest)))
     case FRu.QCell{c, a, k}:
       Wr.put_nat(1n, spell_ns(c, spell_ns(a, spell_asker(k, rest))))
-    case FRu.QRegistry{h}:
-      Wr.put_nat(2n, Wr.put_bool(h, rest))
+    case FRu.QRegistry{}:
+      Wr.put_nat(2n, rest)
     case FRu.QMain{h}:
       Wr.put_nat(3n, Wr.put_bool(h, rest))
 
@@ -210,7 +206,7 @@ def req_fits(q: FRu.Req) -> Bool:
       Bool.and(ns_fit(c), ns_fit(a))
     case FRu.QCell{c, a, k}:
       Bool.and(ns_fit(c), ns_fit(a))
-    case FRu.QRegistry{h}:
+    case FRu.QRegistry{}:
       True{}
     case FRu.QMain{h}:
       True{}
@@ -260,8 +256,8 @@ def spell_answer(q: FRu.Req) -> String:
       Wr.put_bool(Ru.within(c, a), "")
     case FRu.QCell{c, +a, k}:
       spell_out(Ru.cell(c, a, k))
-    case FRu.QRegistry{h}:
-      Wr.put_list(~Ru.Tool, ~spell_tool, Ru.registry(h), "")
+    case FRu.QRegistry{}:
+      Wr.put_list(~Ru.Tool, ~spell_tool, Ru.registry(), "")
     case FRu.QMain{h}:
       Wr.put_list(~Ru.Tool, ~spell_tool, Ru.main_roster(h), "")
 
@@ -335,13 +331,6 @@ def read_cell(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def read_registry(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{h, s}:
-      Wr.Got{FRu.QRegistry{h}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
 def read_main(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
   match r:
     case Wr.Got{h, s}:
@@ -356,7 +345,7 @@ def read_req.tag(t: Nat, s: String) -> Wr.Dec<FRu.Req>:
     case 1n:
       read_cell(read_ns(s))
     case 2n:
-      read_registry(Wr.get_bool(s))
+      Wr.Got{FRu.QRegistry{}, s}
     case 3n:
       read_main(Wr.get_bool(s))
     case 4n+u:
@@ -418,7 +407,7 @@ law runners_ffi_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FRu.ffi(spell_req(q, more)) == malformed() : String}
 
-# LAW runners_ffi_example: anchor: the strings Rust sends: caps {exec} under {read} asks, under {exec} runs unasked; a cell under {read} answered yes runs approved, unanswered and with no client is refused unanswered, denied is refused denied; the registry without chat memory; main's roster with chat memory; an asker tag 3 is refused
+# LAW runners_ffi_example: anchor: the strings Rust sends: caps {exec} under {read} asks, under {exec} runs unasked; a cell under {read} answered yes runs approved, unanswered and with no client is refused unanswered, denied is refused denied; the registry; main's roster with chat memory; an asker tag 3 is refused
 # EXCLUDES: another spelling of a request or a reply
 law runners_ffi_example:
   {FRu.ffi("0,1,2,1,0,") == "F" : String} &
@@ -427,6 +416,151 @@ law runners_ffi_example:
   {FRu.ffi("1,1,2,1,0,1,") == "T1,1," : String} &
   {FRu.ffi("1,1,2,1,0,0,") == "F1,1," : String} &
   {FRu.ffi("1,1,2,1,0,2,F") == "T1,0," : String} &
-  {FRu.ffi("2,F") == "11,7,ipython1,2,2,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
+  {FRu.ffi("2,") == "13,7,ipython1,2,2,4,zoom0,0,4,date0,0,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
   {FRu.ffi("3,T") == "8,4,zoom0,0,4,date0,0,13,worker_assign0,0,14,worker_forward0,0,13,worker_status0,0,4,read0,0,4,grep0,0,4,glob0,0," : String} &
   {FRu.ffi("1,1,2,1,0,3,") == malformed() : String}
+
+# ---- runners: the decision, pinned to the requirement ----
+
+# LAWS (G4, the decision): the decision the entry answers, stated with
+# spec functions written from the requirement (bend/runners.bend header,
+# crates/eukhe-core/src/durable/registry.rs), never the model's own, so
+# R1's "the model's decision" is itself pinned.
+#
+# R3: a call runs unasked exactly when each of its caps is a grantable
+#     effect (0 read to 5 protected; never 6 secret) in the auto set.
+# R4: a gated call within the auto set runs unasked. Outside it, with no
+#     client it does not ask and ends unanswered; a client that gives no
+#     answer was asked and the call ends unanswered; a yes runs it,
+#     approved, a no refuses it, denied (both asked).
+# R5: a session installs, in order: `ipython` (caps exec, gated at each
+#     call), `zoom` and `date` (with or without chat memory), `workflow`,
+#     `read`, `edit`, `grep`, `glob`, `bash` (caps 0 to 6, gated at each
+#     step), `dyn`, `codemode`, `pi.codemode.models.classify`,
+#     `pi.codemode.models.generateImages` (each of these but `ipython` and
+#     `bash` runs no code of its own: no caps, ungated).
+# R6: main (a root in the `main-worker` shape) installs, in order: `zoom`
+#     and `date` only with chat memory, then `worker_assign`,
+#     `worker_forward`, `worker_status`, then `read`, `grep`, `glob` (none
+#     runs code of its own: no caps, ungated).
+
+# Spec functions
+# --------------
+
+# R3: x is an item of xs
+def ru_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), ru_has(rest, x))
+
+# R3: an auto set may hold effect c (0 to 5)
+def ru_grantable(c: Nat) -> Bool:
+  Nat.is_lt(c, 6n)
+
+# R3: every cap is grantable and in the auto set
+def ru_within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match caps:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(ru_grantable(c), ru_has(auto, c)), ru_within(rest, auto))
+
+# R4: how a gated call goes; free: it runs unasked (R3)
+def ru_cell(free: Bool, a: Ru.Asker) -> Ru.Out:
+  match free:
+    case True{}:
+      Ru.Out{False{}, Ru.Ran{Ru.Auto{}}}
+    case False{}:
+      match a:
+        case Ru.NoClient{}:
+          Ru.Out{False{}, Ru.Refused{Ru.Unanswered{}}}
+        case Ru.Silent{}:
+          Ru.Out{True{}, Ru.Refused{Ru.Unanswered{}}}
+        case Ru.Says{y}:
+          match y:
+            case True{}:
+              Ru.Out{True{}, Ru.Ran{Ru.Approved{}}}
+            case False{}:
+              Ru.Out{True{}, Ru.Refused{Ru.Denied{}}}
+
+# R5: a tool that runs no code of its own
+def ru_plain(n: String) -> Ru.Tool:
+  Ru.Tool{n, Nil{}, Ru.Ungated{}}
+
+# R5: every tool a session installs
+def ru_registry() -> List<&2, Ru.Tool>:
+  [Ru.Tool{"ipython", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.Tool{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
+
+# R6: main's roster, with chat memory or without
+def ru_main_roster(chat: Bool) -> List<&2, Ru.Tool>:
+  match chat:
+    case True{}:
+      [ru_plain("zoom"), ru_plain("date"), ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
+    case False{}:
+      [ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
+
+# the reply R3-R6 give a request
+def ru_reply(q: FRu.Req) -> String:
+  match q:
+    case FRu.QWithin{c, +a}:
+      Wr.put_bool(ru_within(c, a), "")
+    case FRu.QCell{c, +a, k}:
+      spell_out(ru_cell(ru_within(c, a), k))
+    case FRu.QRegistry{}:
+      Wr.put_list(~Ru.Tool, ~spell_tool, ru_registry(), "")
+    case FRu.QMain{h}:
+      Wr.put_list(~Ru.Tool, ~spell_tool, ru_main_roster(h), "")
+
+def ru_spec.end(whole: Bool, q: FRu.Req) -> String:
+  match whole:
+    case True{}:
+      ru_reply(q)
+    case False{}:
+      malformed()
+
+def ru_spec.run(r: Wr.Dec<FRu.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      ru_spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply R1-R5 give the input s: the reply to the request s is exactly,
+# else the error form
+def ru_spec(s: String) -> String:
+  ru_spec.run(read_req(s))
+
+# Laws
+# ----
+
+# LAW runners_within_spec: a call runs unasked exactly when each cap is a grantable effect (0 to 5) in the auto set
+# EXCLUDES: a cap outside the auto set run unasked, the secret effect run
+#   unasked, a cap in the auto set asked
+law runners_within_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  {Ru.within(caps, auto) == ru_within(caps, auto) : Bool}
+
+# LAW runners_cell_spec: a gated call within the auto set runs unasked; outside it, no client ends unanswered unasked, a silent client unanswered asked, a yes runs approved, a no is denied
+# EXCLUDES: a call asked without a client, a silent client read as a
+#   denial or a yes, an asked flag lost, a denial that runs
+law runners_cell_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  {Ru.cell(caps, auto, a) == ru_cell(ru_within(caps, auto), a) : Ru.Out}
+
+# LAW runners_registry_spec: a session installs exactly the R5 tools, in order
+# EXCLUDES: a tool lost, added or moved; a caps list or gate changed
+law runners_registry_spec:
+  {Ru.registry() == ru_registry() : List<&2, Ru.Tool>}
+
+# LAW runners_ffi_spec: on every input the entry answers the reply R3-R5 give the request the input is exactly, and the error form on any other input
+# EXCLUDES: a decision the model computes wrong (a call run unasked
+#   outside the auto set, a denial run, a tool lost from the registry), a
+#   default for malformed input, input left over ignored
+law runners_ffi_spec:
+  for +s: String
+  {FRu.ffi(s) == ru_spec(s) : String}

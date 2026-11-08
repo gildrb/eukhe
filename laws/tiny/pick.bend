@@ -10,7 +10,7 @@ import ../base.bend as LawsBase
 
 # (S9) Local tiny models
 # ----------------------
-# docs/inference.md S9, the model in bend/tiny.bend. Every input is free:
+# the model in bend/tiny.bend. Every input is free:
 # any chain of models, any set of available models, any needs of any
 # processes with any tags, any worker exits, in any order.
 
@@ -265,3 +265,86 @@ law tiny_ffi_malformed_unless_request:
 #   not (Use 0, Unavailable 1), the lists read in the other order
 law tiny_ffi_tags_example:
   {[FTn.ffi("2,0,1,1,1,"), FTn.ffi("1,0,1,1,"), FTn.ffi("0,1,0,"), FTn.ffi("2,0,1,1,0,"), FTn.ffi("1,0,"), FTn.ffi("0,2,0,"), FTn.ffi("1,0,0,x")] == ["0,1,", "1,", "1,", "0,0,", Wr.err("tiny: malformed request"), Wr.err("tiny: malformed request"), Wr.err("tiny: input left over")] : List<&2, String>}
+
+
+# The pick's entry from the requirement
+# -------------------------------------
+# The spec of the whole entry, written from the requirement (S9: a task
+# uses the first model of its chain that is available, else it fails as
+# Unavailable) and the wire's primitives only: no function of
+# bend/tiny.bend or bend/ffi_tiny.bend (their types only).
+
+# m when it is available (here), else the pick of the rest
+def sp_pick.at(here: Bool, m: Nat, r: Tn.Pick) -> Tn.Pick:
+  match here:
+    case True{}:
+      Tn.Use{m}
+    case False{}:
+      r
+
+# the first model of chain among up, else Unavailable
+def sp_pick(chain: List<&2, Nat>, +up: List<&2, Nat>) -> Tn.Pick:
+  match chain:
+    case Nil{}:
+      Tn.Unavailable{}
+    case +m <> rest:
+      sp_pick.at(sp_in(up, m), m, sp_pick(rest, up))
+
+# a pick on the wire: 0 then the model, or 1
+def sp_spell_pick(p: Tn.Pick) -> String:
+  match p:
+    case Tn.Use{m}:
+      Wr.put_nat(0n, Wr.put_nat(m, ""))
+    case Tn.Unavailable{}:
+      Wr.put_nat(1n, "")
+
+def sp_read.up(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FTn.Req>:
+  match r:
+    case Wr.Got{u, s}:
+      Wr.Got{FTn.Req{c, u}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def sp_read.chain(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FTn.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      sp_read.up(c, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the chain and the available models s starts with (two lists of Nats),
+# and what follows
+def sp_read(s: String) -> Wr.Dec<FTn.Req>:
+  sp_read.chain(Wr.get_list(~Nat, ~Wr.get_nat, s))
+
+def sp_pick_end(whole: Bool, q: FTn.Req) -> String:
+  match whole:
+    case True{}:
+      match q:
+        case FTn.Req{c, u}:
+          sp_spell_pick(sp_pick(c, u))
+    case False{}:
+      Wr.err("tiny: input left over")
+
+def sp_pick_run(r: Wr.Dec<FTn.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      sp_pick_end(Wr.end(s), q)
+    case Wr.Bad{}:
+      Wr.err("tiny: malformed request")
+
+# the entry's answer to the input s
+def sp_pick_entry(s: String) -> String:
+  sp_pick_run(sp_read(s))
+
+# LAW tiny_ffi_exact (compiled core): on every input the tiny pick entry answers the spec's
+# pick of the chain and the available models the input is exactly (the
+# first model of the chain that is available, else Unavailable), exactly
+# "tiny: input left over" for a request followed by more input, and
+# exactly "tiny: malformed request" for any other input
+# EXCLUDES: a model outside the chain or not available, a later one, a
+#   misread request, a pick spelled otherwise, a default for malformed
+#   input, input left over ignored, another error text
+law tiny_ffi_exact:
+  for +s: String
+  {FTn.ffi(s) == sp_pick_entry(s) : String}

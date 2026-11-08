@@ -6,10 +6,11 @@ use crate::settings::types::{
     AutoRefineSettings, AutonomousLimitSetting, AutonomousSettings, BranchSummarySettings,
     CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings,
     ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
-    ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
-    RetryFailoverSettings, RetrySettings, Settings, ShellSettings, SignalGatewaySettings,
-    SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
-    ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, WarningSettings,
+    PrivacySettings, ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings,
+    QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings, Settings, ShellSettings,
+    SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings, TerminalSettings,
+    ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings,
+    WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -50,9 +51,15 @@ fn populated() -> Settings {
             provider_token_count: Some(true),
         }),
         memory: Some(MemorySettings {
+            chat: Some(false),
             model: Some("m".into()),
             thinking: Some(ThinkingLevelSetting::Low),
             settle_timeout_ms: Some(1),
+        }),
+        rlm: Some(RlmSettings {
+            query_model: Some("m".into()),
+            query_concurrency: Some(1),
+            query_budget_bytes: Some(1),
         }),
         auto_refine: Some(AutoRefineSettings {
             enabled: Some(true),
@@ -172,6 +179,7 @@ fn populated() -> Settings {
                 cwd: Some("d".into()),
                 model: Some("e".into()),
             }),
+            root_heartbeat: Some("every 30 minutes".into()),
         }),
         kernel_transport: Some(Value::from(1)),
         shell: Some(ShellSettings {
@@ -181,6 +189,7 @@ fn populated() -> Settings {
             hosts: Some(vec![]),
         }),
         model_roles: Some(ModelRolesSettings {
+            all: Some("m".into()),
             tiny: Some("m".into()),
             judge: Some("m".into()),
             translate: Some("m".into()),
@@ -200,6 +209,10 @@ fn populated() -> Settings {
         }),
         stt: Some(SttSettings {
             enabled: Some(true),
+        }),
+        privacy: Some(PrivacySettings {
+            anonymize_remote: Some(true),
+            terms: None,
         }),
         extra: serde_json::Map::new(),
     }

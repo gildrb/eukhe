@@ -1,0 +1,8 @@
+# the rebases done, then what the re-read met (0..2): the count at the
+# wire's largest with every tag; a tag past 2 at the wire's largest; a
+# 15-digit count
+call {MAX},0,
+call {MAX},1,
+call {MAX},2,
+refuse 0,{MAX},
+refuse {LONG},0,

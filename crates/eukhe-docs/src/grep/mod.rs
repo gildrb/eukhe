@@ -31,7 +31,7 @@ use std::{
 use eukhe_types::path_policy::resolve;
 
 use crate::{
-    gate::{Access, AccessGate},
+    gate::{Access, AccessGate, AccessRefusal},
     notice::{Notice, NoticeKind, Omitted, Tally, Unit},
     path_tree::{build_path_tree, walk_path_tree, GroupedTreeEventKind},
     read::{
@@ -86,7 +86,7 @@ pub struct GrepRequest {
 }
 
 /// A failed `grep`. `Display` is the model-facing message.
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum GrepError {
     /// The pattern was empty or whitespace-only.
     #[error("Pattern must not be empty")]
@@ -124,14 +124,15 @@ pub enum GrepError {
         /// The target as the model wrote it.
         path: String,
         /// Why the host's gate refused it.
-        reason: String,
+        #[source]
+        reason: AccessRefusal,
     },
-    /// The filesystem failed or a glob did not compile.
-    #[error("{message}")]
-    Workspace {
-        /// The failure.
-        message: String,
-    },
+    /// The filesystem failed.
+    #[error(transparent)]
+    Workspace(#[from] std::io::Error),
+    /// A walk filter glob did not compile.
+    #[error("invalid glob pattern: {0}")]
+    WalkGlob(#[source] globset::Error),
 }
 
 /// One line shown around a match.
@@ -397,7 +398,7 @@ pub(crate) fn grep_with(
         return Err(GrepError::EmptyPattern);
     }
     let deadline = Instant::now() + SEARCH_GREP_TIMEOUT;
-    let root = fs::canonicalize(cwd).map_err(workspace_error)?;
+    let root = fs::canonicalize(cwd)?;
     let roots = split_roots(&root, &request.path);
     let mut targets = Vec::new();
     let mut missing_paths = Vec::new();
@@ -765,9 +766,7 @@ fn search_files(
             searched.leave(left, || shown_path(root, path));
             continue;
         }
-        let hits = file_searcher
-            .search(&regex, &buffer, fetch)
-            .map_err(workspace_error)?;
+        let hits = file_searcher.search(&regex, &buffer, fetch)?;
         let mut matches = hits.matches;
         if !ranges.is_empty() {
             let inside = |line: &ContextLine| line_in_ranges(u64::from(line.line_number), ranges);
@@ -912,7 +911,7 @@ fn resolve_target(root: &Path, input: &str) -> Result<Option<Target>, GrepError>
     let literal = resolve_input_path(root, input);
     match fs::metadata(&literal) {
         Ok(metadata) => {
-            let canonical = fs::canonicalize(&literal).map_err(workspace_error)?;
+            let canonical = fs::canonicalize(&literal)?;
             return Ok(Some(if metadata.is_dir() {
                 Target::Directory {
                     path: canonical,
@@ -923,7 +922,7 @@ fn resolve_target(root: &Path, input: &str) -> Result<Option<Target>, GrepError>
             }));
         }
         Err(error) if is_missing(&error) => {}
-        Err(error) => return Err(workspace_error(error)),
+        Err(error) => return Err(GrepError::Workspace(error)),
     }
     let normalized = input.replace('\\', "/");
     let segments: Vec<&str> = normalized.split('/').collect();
@@ -938,12 +937,12 @@ fn resolve_target(root: &Path, input: &str) -> Result<Option<Target>, GrepError>
     let base = resolve_input_path(root, &base);
     match fs::metadata(&base) {
         Ok(metadata) if metadata.is_dir() => Ok(Some(Target::Directory {
-            path: fs::canonicalize(&base).map_err(workspace_error)?,
+            path: fs::canonicalize(&base)?,
             glob: Some(segments[first_glob..].join("/")),
         })),
         Ok(_) => Ok(None),
         Err(error) if is_missing(&error) => Ok(None),
-        Err(error) => Err(workspace_error(error)),
+        Err(error) => Err(GrepError::Workspace(error)),
     }
 }
 
@@ -1059,11 +1058,5 @@ fn shown_path(root: &Path, path: &Path) -> String {
 }
 
 fn display_path(root: &Path, path: &Path) -> Result<String, GrepError> {
-    workspace_relative(root, path).map_err(workspace_error)
-}
-
-fn workspace_error(error: impl std::fmt::Display) -> GrepError {
-    GrepError::Workspace {
-        message: error.to_string(),
-    }
+    Ok(workspace_relative(root, path)?)
 }

@@ -18,7 +18,7 @@ import ./base.bend as LawsBase
 
 # (T3) Terminal colors
 # --------------------
-# docs/interface.md "Terminal colors", the model in bend/tui_color.bend:
+# The model in bend/tui_color.bend:
 # the effort ramp, the usage bands and the color roles of
 # crates/eukhe-tui. Every input is free: any ramp ends and any ladder
 # length, any token count and any window. The terminal UI runs the model
@@ -507,6 +507,51 @@ law tui_color_ffi_example:
   {FTC.ffi("1,89,100,") == "2," : String} &
   {FTC.ffi("1,90,100,") == "3," : String} &
   {FTC.ffi("2,x") == malformed_err() : String}
+
+# The whole entry, as a spec
+# --------------------------
+# What the entry answers to every input, from the reader above and the
+# spec helpers only: the ramp is TC.ramp, which tui_effort_ramp_length and
+# tui_effort_ramp_exact pin for every input (its length, and each rung as
+# rung_spec); the band is band_spec and the roles roles_spec.
+
+def tc_reply.ramp(in: Bool, +lo: TC.Px, +hi: TC.Px, +n: Nat) -> String:
+  match in:
+    case True{}:
+      spell_rungs(TC.ramp(lo, hi, n))
+    case False{}:
+      range_err()
+
+# the reply to a request read whole
+def tc_reply(q: FTC.Req) -> String:
+  match q:
+    case FTC.QRamp{+lo, +hi, +n}:
+      tc_reply.ramp(ramp_in(lo, hi, n), lo, hi, n)
+    case FTC.QBand{+t, w}:
+      Wr.put_nat(band_spec(t, w), "")
+    case FTC.QRoles{}:
+      spell_nats(roles_spec())
+
+def tc_entry.of(m: Maybe<&2, FTC.Req>) -> String:
+  match m:
+    case None{}:
+      malformed_err()
+    case Some{q}:
+      tc_reply(q)
+
+# the answer to the input s: the malformed error unless s is exactly one
+# request, else the reply to it
+def tc_entry(s: String) -> String:
+  tc_entry.of(read_req(s))
+
+# LAW tui_color_ffi_total: every input string is answered as the spec entry answers it: the malformed error unless it reads (read_req) as exactly one request; a ramp in range its rungs, out of range the range error; a band the usage band of band_spec; the roles roles_spec
+# EXCLUDES: an input the laws above leave free (a request spelled in a way
+#   the speller never writes but the reader reads), a reply off the spec
+#   helpers for a request that does not fit the wire
+law tui_color_ffi_total:
+  for +s: String
+  {FTC.ffi(s) == tc_entry(s) : String}
+
 def tc_is_set(m: Maybe<&2, TFile.Val>) -> Bool:
   match m:
     case None{}:
@@ -545,3 +590,32 @@ law tui_resolves_spec:
 # EXCLUDES: a reading of tui_resolves_spec the human did not mean
 law tui_resolves_example:
   {[TC.resolves([None{}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [1n])] == [False{}, True{}, False{}] : List<&2, Bool>}
+
+# whether token r of the color table xs has a color (a token past xs has
+# none)
+def tc_has(xs: List<&2, Co.Rgb>, r: Nat) -> Bool:
+  match xs r:
+    case Nil{} _:
+      False{}
+    case Con{x, t} 0n:
+      True{}
+    case Con{x, t} 1n+k:
+      tc_has(t, k)
+
+# every role of rs has a color in the table xs
+def tc_paint_all(+xs: List<&2, Co.Rgb>, rs: List<&2, Nat>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case Con{r, rest}:
+      Bool.and(tc_has(xs, r), tc_paint_all(xs, rest))
+
+# LAW tui_paints_spec (T3): the roles paint in a color table exactly when each has a color
+# there, for every table and every roles
+# EXCLUDES: a test that always holds for some tables (tui_roles_shipped
+#   made vacuous, e.g. one that holds for any table of 2 or more colors),
+#   a role looked up at another token
+law tui_paints_spec:
+  for +xs: List<&2, Co.Rgb>
+  for rs: List<&2, Nat>
+  {TC.paints(xs, rs) == tc_paint_all(xs, rs) : Bool}

@@ -1,4 +1,4 @@
-//! The expansion of the command language (docs/control.md S4.4, S4.5): the
+//! The expansion of the command language: the
 //! model `bend/cvar.bend` (`expand`, `press`), entry `bend/ffi_cvar.bend`.
 //!
 //! The model sees numbers: an alias is its place in the table (a name the

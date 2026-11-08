@@ -74,7 +74,7 @@ async fn an_ended_child_reports_its_workspace_hand_back() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: done\n\n{}",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: done\n\n{}",
             row.session_name,
             handback.text()
         )]

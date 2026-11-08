@@ -1,0 +1,7 @@
+# the longest default ladders (every level, twice) and full maps: an offer,
+# a clamp with no offered level, a cycle
+call 0,TT1,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,7,0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,
+call 1,FF0,0,0,0,6,
+call 2,TF1,1,1,1,1,1,1,1,0,0,0,6,1,
+call 2,TF1,2,2,2,2,2,2,2,0,14,0,1,2,3,4,5,6,0,1,2,3,4,5,6,0,6,0,
+refuse 2,{LONG},

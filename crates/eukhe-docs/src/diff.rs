@@ -208,7 +208,7 @@ fn myers_diff(old: &[u32], new: &[u32]) -> Vec<Run> {
 }
 
 /// jsdiff line tokens: each line keeps its trailing `\n`.
-fn line_tokens(text: &str) -> Vec<&str> {
+pub(crate) fn line_tokens(text: &str) -> Vec<&str> {
     text.split_inclusive('\n').collect()
 }
 

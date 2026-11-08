@@ -1,0 +1,8 @@
+# a stamp, the clock, the max age and the skew at their largest (the
+# veto compares the clock plus the skew: two Nats, below 2^48), a lease
+# holder of the largest pid
+call FF0,2,{MAX},{MAX},{MAX},{MAX},
+call FF0,2,0,{MAX},{MAX},{MAX},
+call FF0,2,{MAX},0,{MAX},{MAX},
+call FF1,{MAX},0,{MAX},{MAX},{MAX},
+refuse FF0,2,{LONG},0,0,0,

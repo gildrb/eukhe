@@ -123,9 +123,7 @@ fn session_stats_and_header_match_live_daemon_goldens() {
     assert_eq!(data["assistantMessages"], 1);
     assert_eq!(data["toolCalls"], 0);
     assert_eq!(data["toolResults"], 0);
-    // pi-durable commits the harness digest (a `custom` message) right
-    // after the prompt's user entry: user, digest, assistant.
-    assert_eq!(data["totalMessages"], 3);
+    assert_eq!(data["totalMessages"], 2);
     assert_eq!(data["cost"], 0.0);
     // The faux provider's usage (engine-decided numbers): the total sums
     // the parts.

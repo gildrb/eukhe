@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use eukhe_core::models::roles::{role_model, role_table};
+use eukhe_types::model_roles::ModelRole;
 use serde_json::{json, Value};
 
 use super::*;
@@ -62,6 +64,17 @@ fn models_fixture(dir: &Path) {
     .expect("write models.json");
 }
 
+/// The user's own `~/.eukhe` files of the v0.10.61 reports.
+const USER_SETTINGS: &str =
+    include_str!("../../../eukhe-core/tests/fixtures/user_home/settings.json");
+const USER_CONFIG: &str = include_str!("../../../eukhe-core/tests/fixtures/user_home/config.cfg");
+
+fn write_user_files(dir: &Path) {
+    std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
+    std::fs::write(dir.join("agent").join("settings.json"), USER_SETTINGS).expect("settings");
+    std::fs::write(dir.join("agent").join("config.cfg"), USER_CONFIG).expect("config.cfg");
+}
+
 fn write_settings(dir: &Path, settings: &Value) {
     std::fs::write(
         dir.join("agent").join("settings.json"),
@@ -116,9 +129,118 @@ async fn set_model_refuses_models_outside_the_allowlist() {
     let response = worker.dispatch("set_model", &set_model).await;
     assert!(response.success, "unrestricted switch: {response:?}");
     let settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
-    assert_eq!(settings.get_default_provider(), Some(provider.clone()));
-    assert_eq!(settings.get_default_model().as_deref(), Some("faux-1"));
+    assert_eq!(
+        role_model(settings.cvars(), ModelRole::Chat).selector,
+        Some(format!("{provider}/faux-1"))
+    );
     assert_eq!(connection_state(&worker).await["model"]["id"], "faux-1");
+}
+
+/// Regression (v0.10.61: `/model --all anthropic/claude-fable-5` kept the
+/// memory compactor, compaction, phone gateway and titles models): over
+/// the user's files, `set_model` with `allRoles: true` switches the
+/// session and every LLM role runs on the model (each role's own global
+/// setting is gone from both files); speech and dictation keep their
+/// default.
+#[tokio::test]
+async fn set_model_with_all_roles_runs_every_llm_role_on_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_user_files(dir.path());
+    let worker = created_worker(dir.path(), Some(faux_script(false))).await;
+    let provider = connection_state(&worker).await["model"]["provider"]
+        .as_str()
+        .expect("the scripted model's provider")
+        .to_string();
+    let response = worker
+        .dispatch(
+            "set_model",
+            &json!({ "provider": provider, "modelId": "faux-1", "allRoles": true }),
+        )
+        .await;
+    assert!(response.success, "all-roles switch: {response:?}");
+    let settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
+    let selector = format!("{provider}/faux-1");
+    let table: Vec<(ModelRole, Option<String>)> = role_table(settings.cvars())
+        .into_iter()
+        .map(|row| (row.role, row.selector))
+        .collect();
+    let expected: Vec<(ModelRole, Option<String>)> = ModelRole::ALL
+        .into_iter()
+        .map(|role| match role {
+            ModelRole::Speech | ModelRole::Dictation => (role, None),
+            _ => (role, Some(selector.clone())),
+        })
+        .collect();
+    assert_eq!(
+        (
+            table,
+            std::fs::read_to_string(dir.path().join("agent").join("config.cfg"))
+                .expect("config.cfg"),
+        ),
+        (
+            expected,
+            format!(
+                "set memory.thinking low\n\
+                 set defaultThinkingLevel xhigh\n\
+                 set modelRoles.all {selector}\n\
+                 set defaultProvider {provider}\n\
+                 set defaultModel faux-1\n"
+            ),
+        )
+    );
+}
+
+/// The phone gateway's `/model N` (`save: gateway`) saves the gateway's
+/// model, not the chat default; its switch to its own model
+/// (`save: none`) saves nothing.
+#[tokio::test]
+async fn set_model_saves_where_the_switch_says() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_user_files(dir.path());
+    let worker = created_worker(dir.path(), Some(faux_script(false))).await;
+    let provider = connection_state(&worker).await["model"]["provider"]
+        .as_str()
+        .expect("the scripted model's provider")
+        .to_string();
+    let response = worker
+        .dispatch(
+            "set_model",
+            &json!({ "provider": provider, "modelId": "faux-1", "save": "none" }),
+        )
+        .await;
+    assert!(response.success, "unsaved switch: {response:?}");
+    let untouched = (
+        std::fs::read_to_string(dir.path().join("agent").join("settings.json")).expect("settings"),
+        std::fs::read_to_string(dir.path().join("agent").join("config.cfg")).expect("config.cfg"),
+    );
+    let response = worker
+        .dispatch(
+            "set_model",
+            &json!({ "provider": provider, "modelId": "faux-1", "save": "gateway" }),
+        )
+        .await;
+    assert!(response.success, "gateway switch: {response:?}");
+    let settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
+    let bad = worker
+        .dispatch(
+            "set_model",
+            &json!({ "provider": provider, "modelId": "faux-1", "save": "phone" }),
+        )
+        .await;
+    assert_eq!(
+        (
+            untouched,
+            role_model(settings.cvars(), ModelRole::Gateway).selector,
+            role_model(settings.cvars(), ModelRole::Chat).selector,
+            bad.error,
+        ),
+        (
+            (USER_SETTINGS.to_owned(), USER_CONFIG.to_owned()),
+            Some(format!("{provider}/faux-1")),
+            Some("anthropic/claude-fable-5".to_owned()),
+            Some("set_model save must be chat, gateway or none".to_owned()),
+        )
+    );
 }
 
 /// The `set_model` refusal for a catalog model whose provider is not
@@ -228,6 +350,31 @@ async fn set_thinking_level_switches_clamps_and_persists() {
         .await;
     assert!(response.success, "clamped set: {response:?}");
     assert_eq!(connection_state(&plain).await["thinkingLevel"], "off");
+}
+
+/// Regression (v0.10.61: "Thinking level: max", then "the default thinking
+/// level is not saved as the default: … config.cfg also sets it"): over the
+/// user's files (config.cfg sets `defaultThinkingLevel xhigh`, settings.json
+/// `low`), the level set through the session sticks as the default.
+#[tokio::test]
+async fn set_thinking_level_with_the_users_files_saves_the_default() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_user_files(dir.path());
+    let worker = created_worker(dir.path(), Some(faux_script(true))).await;
+    let response = worker
+        .dispatch("set_thinking_level", &json!({ "level": "low" }))
+        .await;
+    assert!(response.success, "set low: {response:?}");
+    let mut settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
+    assert_eq!(
+        (
+            settings.get_default_thinking_level(),
+            settings
+                .set_default_thinking_level(ThinkingLevelSetting::Max)
+                .expect("save"),
+        ),
+        (Some(ThinkingLevelSetting::Low), Persisted::Applies)
+    );
 }
 
 #[test]

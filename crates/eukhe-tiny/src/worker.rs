@@ -73,8 +73,45 @@ struct WorkerArgs {
     idle_secs: u64,
 }
 
+/// Why the `eukhe tiny-worker` command line was refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+enum WorkerArgsError {
+    #[error("{flag} needs a value")]
+    MissingValue { flag: String },
+    #[error("unknown backend {id:?}")]
+    UnknownBackend { id: String },
+    #[error("--idle-secs {value:?}: {source}")]
+    IdleSecs {
+        value: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    #[error("unknown option {flag}")]
+    UnknownOption { flag: String },
+    #[error("unexpected argument {word:?}")]
+    UnexpectedArgument { word: String },
+    #[error("missing <model>")]
+    MissingModel,
+    #[error("missing --backend")]
+    MissingBackend,
+    #[error("missing --agent-dir")]
+    MissingAgentDir,
+}
+
+/// Why a request line could not be read as a [`Request`].
+#[derive(Debug, thiserror::Error)]
+enum RequestLineError {
+    #[error("{source}")]
+    Json {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("the request line is over {MAX_LINE_BYTES} bytes")]
+    TooLong,
+}
+
 impl WorkerArgs {
-    fn parse(args: &[String]) -> Result<WorkerArgs, String> {
+    fn parse(args: &[String]) -> Result<WorkerArgs, WorkerArgsError> {
         let mut model = None;
         let mut backend = None;
         let mut agent_dir = None;
@@ -90,13 +127,15 @@ impl WorkerArgs {
                 words
                     .next()
                     .cloned()
-                    .ok_or_else(|| format!("{word} needs a value"))
+                    .ok_or_else(|| WorkerArgsError::MissingValue { flag: word.clone() })
             };
             match word.as_str() {
                 "--backend" => {
                     let id = value()?;
-                    backend =
-                        Some(Backend::parse(&id).ok_or_else(|| format!("unknown backend {id:?}"))?);
+                    backend = Some(match Backend::parse(&id) {
+                        Some(backend) => backend,
+                        None => return Err(WorkerArgsError::UnknownBackend { id }),
+                    });
                 }
                 "--agent-dir" => agent_dir = Some(PathBuf::from(value()?)),
                 "--device" => options.device = value()?,
@@ -104,21 +143,35 @@ impl WorkerArgs {
                 "--runtime-library" => options.runtime_library = PathBuf::from(value()?),
                 "--idle-secs" => {
                     let secs = value()?;
-                    idle_secs = secs
-                        .parse()
-                        .map_err(|error| format!("--idle-secs {secs:?}: {error}"))?;
+                    idle_secs = match secs.parse() {
+                        Ok(idle) => idle,
+                        Err(source) => {
+                            return Err(WorkerArgsError::IdleSecs {
+                                value: secs,
+                                source,
+                            })
+                        }
+                    };
                 }
-                flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
+                flag if flag.starts_with("--") => {
+                    return Err(WorkerArgsError::UnknownOption {
+                        flag: flag.to_owned(),
+                    })
+                }
                 id => match model {
                     None => model = Some(id.to_owned()),
-                    Some(_) => return Err(format!("unexpected argument {id:?}")),
+                    Some(_) => {
+                        return Err(WorkerArgsError::UnexpectedArgument {
+                            word: id.to_owned(),
+                        })
+                    }
                 },
             }
         }
         Ok(WorkerArgs {
-            model: model.ok_or("missing <model>")?,
-            backend: backend.ok_or("missing --backend")?,
-            agent_dir: agent_dir.ok_or("missing --agent-dir")?,
+            model: model.ok_or(WorkerArgsError::MissingModel)?,
+            backend: backend.ok_or(WorkerArgsError::MissingBackend)?,
+            agent_dir: agent_dir.ok_or(WorkerArgsError::MissingAgentDir)?,
             options,
             idle_secs,
         })
@@ -136,8 +189,8 @@ impl WorkerArgs {
 pub async fn run_worker(args: &[String], factory: EngineFactory) -> ExitCode {
     let args = match WorkerArgs::parse(args) {
         Ok(args) => args,
-        Err(message) => {
-            eprintln!("tiny-worker: {message}\n{USAGE}");
+        Err(error) => {
+            eprintln!("tiny-worker: {error}\n{USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -402,12 +455,15 @@ async fn connection(shared: Arc<Shared>, stream: UnixStream) {
         shared.activity().busy += 1;
         let mut shutdown = false;
         let parsed = match &line {
-            Some(line) => serde_json::from_str::<Request>(line).map_err(|error| error.to_string()),
-            None => Err(format!("the request line is over {MAX_LINE_BYTES} bytes")),
+            Some(line) => serde_json::from_str::<Request>(line)
+                .map_err(|source| RequestLineError::Json { source }),
+            None => Err(RequestLineError::TooLong),
         };
         let response = match parsed {
-            Err(message) => Response::Err {
-                error: WorkerFailure::BadRequest { message },
+            Err(error) => Response::Err {
+                error: WorkerFailure::BadRequest {
+                    message: error.to_string(),
+                },
             },
             Ok(Request::Ping) => Response::Ok {
                 reply: Reply::Pong {
@@ -519,23 +575,25 @@ mod tests {
     #[test]
     fn a_bad_command_line_is_refused() {
         assert_eq!(
-            WorkerArgs::parse(&words("kokoro --agent-dir /a")),
+            WorkerArgs::parse(&words("kokoro --agent-dir /a")).map_err(|error| error.to_string()),
             Err("missing --backend".to_owned())
         );
         assert_eq!(
-            WorkerArgs::parse(&words("kokoro --backend onnx")),
+            WorkerArgs::parse(&words("kokoro --backend onnx")).map_err(|error| error.to_string()),
             Err("missing --agent-dir".to_owned())
         );
         assert_eq!(
-            WorkerArgs::parse(&words("kokoro --backend llama")),
+            WorkerArgs::parse(&words("kokoro --backend llama")).map_err(|error| error.to_string()),
             Err("unknown backend \"llama\"".to_owned())
         );
         assert_eq!(
-            WorkerArgs::parse(&words("kokoro --backend onnx --idle-secs")),
+            WorkerArgs::parse(&words("kokoro --backend onnx --idle-secs"))
+                .map_err(|error| error.to_string()),
             Err("--idle-secs needs a value".to_owned())
         );
         assert_eq!(
-            WorkerArgs::parse(&words("kokoro whisper-base --backend onnx")),
+            WorkerArgs::parse(&words("kokoro whisper-base --backend onnx"))
+                .map_err(|error| error.to_string()),
             Err("unexpected argument \"whisper-base\"".to_owned())
         );
     }

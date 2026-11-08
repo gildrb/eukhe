@@ -1,0 +1,5 @@
+# every scan of a page (a list's count is its only number); a count past
+# the wire is refused
+call 3,1,T0,1,F
+call 0,
+refuse {LONG},0,

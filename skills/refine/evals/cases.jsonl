@@ -1,0 +1,6 @@
+{"prompt": "We hit the same lockfile error three times; make sure future sessions avoid it.", "expect_skill": "refine", "expect": "Calls refine.run with instructions naming the lockfile failure."}
+{"prompt": "Turn the release checklist we keep following into a reusable skill.", "expect_skill": "refine", "expect": "Calls refine.run(\"turn the release checklist into a skill\")."}
+{"prompt": "Remember this for all sessions: always run cargo fmt before commit.", "expect_skill": "refine", "expect": "Calls refine.run(..., global_=True)."}
+{"prompt": "Is a refinement already queued?", "expect_skill": "refine", "expect": "Calls refine.status() and reports pending/in_flight."}
+{"prompt": "Write a new skill for PDF extraction from scratch.", "expect_skill": "skill-creator", "expect": "Authoring a skill directly, not a refinement."}
+{"prompt": "Fix the failing test.", "expect_skill": null, "expect": "Fixes it; no refinement."}

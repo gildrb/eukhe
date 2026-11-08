@@ -1,0 +1,7 @@
+# the stopper's tag (0..3), then taken: every tag at its largest, both
+# flags; a tag past 3 at the wire's largest; a 15-digit tag
+call 3,F
+call 3,T
+call 0,F
+refuse {MAX},F
+refuse {LONG},F

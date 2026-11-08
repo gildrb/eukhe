@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 import ./base.bend as LA
 
 def pf.hi_le(+x: Nat, +hi: Nat, g: Bool, eg: {Nat.is_lt(hi, x) == g : Bool}) -> {Nat.is_le(Fx.clamp.hi(g, x, hi), hi) == True{} : Bool}:

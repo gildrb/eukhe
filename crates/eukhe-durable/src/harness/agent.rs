@@ -121,6 +121,12 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
                 .and_then(|progress| progress.output_interval_ms)
                 .unwrap_or(DEFAULT_PROGRESS_POLICY.output_interval_ms),
         },
+        privacy_anonymize_remote: settings
+            .and_then(|settings| settings.privacy_anonymize_remote)
+            .unwrap_or(false),
+        privacy_terms: settings
+            .and_then(|settings| settings.privacy_terms.clone())
+            .unwrap_or_default(),
         tool_execution: settings
             .and_then(|settings| settings.tool_execution)
             .unwrap_or(ToolExecutionMode::Parallel),
@@ -438,6 +444,7 @@ pub fn resolve_agent(
             key: INSTRUCTIONS_KEY.to_owned(),
             render: Arc::new(move |_, _| futures::future::ready(Ok(Some(text.clone()))).boxed()),
             tag: None,
+            shared: false,
         }));
     }
 

@@ -32,7 +32,7 @@ pub(crate) enum FactoryUpdate {
     Error {
         session: String,
         epoch: u64,
-        message: String,
+        error: super::RefreshError,
     },
 }
 
@@ -295,14 +295,14 @@ impl super::SessionUi {
                     let _ = tx.send(FactoryUpdate::Error {
                         session: active_session_id,
                         epoch,
-                        message: format!("{error:#}"),
+                        error: super::RefreshError::Daemon(error),
                     });
                 }
                 Err(_) => {
                     let _ = tx.send(FactoryUpdate::Error {
                         session: active_session_id,
                         epoch,
-                        message: "timed out waiting for the Eukhe daemon response".to_string(),
+                        error: super::RefreshError::Timeout,
                     });
                 }
             }
@@ -351,8 +351,8 @@ impl super::SessionUi {
             FactoryUpdate::Error {
                 session,
                 epoch,
-                message,
-            } => (session, epoch, Err(message)),
+                error,
+            } => (session, epoch, Err(error)),
         };
         if session != self.active_session_id || epoch != self.factory_list_epoch {
             if queued {
@@ -376,9 +376,9 @@ impl super::SessionUi {
                     }
                 }
             },
-            Err(message) => {
+            Err(error) => {
                 if let Some(factory_view) = view.factory_view.as_mut() {
-                    factory_view.set_error(Some(message));
+                    factory_view.set_error(Some(error.to_string()));
                 }
             }
         }

@@ -7,8 +7,8 @@
 
 import Base
 import ../../bend/ffi_aux_fallback.bend as FAf
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/wire.bend as AuxFallbackWire
 import ./base.bend as LA
 
-def AuxFallback.afw_answers_spelled(x, fits):
-  Equal.trans(String, FAf.ffi(AuxFallback.afw_spell_req(x, "")), FAf.answer(x), AuxFallback.afw_spell_answer(x), LA.pfs.run(x, "", fits), LA.pfs.answer(x))
+def AuxFallbackWire.afw_answers_spelled(x, fits):
+  Equal.trans(String, FAf.ffi(AuxFallbackWire.afw_spell_req(x, "")), FAf.answer(x), AuxFallbackWire.afw_spell_answer(x), LA.pfs.run(x, "", fits), LA.pfs.answer(x))

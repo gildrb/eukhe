@@ -20,7 +20,6 @@ mod tests;
 use std::future::Future;
 use std::sync::Arc;
 
-use eukhe_bend::rules::ai_text;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
     JsonObject, JsonValue, Model, ModelThinkingLevel, StopReason, ThinkingLevel, Tool,
@@ -259,25 +258,24 @@ fn resolve_thought_signature(
         .flatten()
 }
 
-/// Models via Google APIs that require explicit tool call IDs in function
-/// calls/responses.
+/// Whether a model behind a Google API carries the tool-call id in its
+/// function calls and responses (and gets sanitized ids): the quirks
+/// rulebook's `google_tool_call_ids` (Gemini 3 and later, Claude, gpt-oss);
+/// a model the rulebook does not name carries none.
 #[must_use]
-pub fn requires_tool_call_id(model_id: &str) -> bool {
-    model_id.starts_with("claude-")
-        || model_id.starts_with("gpt-oss-")
-        || get_gemini_major_version(model_id).is_some_and(|major| major >= 3)
+pub fn requires_tool_call_id(model: &Model) -> bool {
+    eukhe_bend::rules::model_facts::flag(Quirks::of(model).google_tool_call_ids(), false)
 }
 
-/// `Number.parseInt` of the leading `gemini[-live]-<digits>` version (the
-/// compiled core's [`ai_text::gemini_major`]); digit runs beyond `u64`
-/// saturate (they compare as large numbers in JS too).
-fn get_gemini_major_version(model_id: &str) -> Option<u64> {
-    let digits = ai_text::gemini_major(&model_id.to_lowercase())?;
-    Some(digits.parse::<u64>().unwrap_or(u64::MAX))
-}
-
-fn supports_multimodal_function_response(model_id: &str) -> bool {
-    get_gemini_major_version(model_id).is_none_or(|major| major >= 3)
+/// Whether a tool result's images go inside `functionResponse.parts`: the
+/// quirks rulebook's `google_multimodal_function_response` (Gemini before 3
+/// says no: its images go into a separate user turn); a model the rulebook
+/// does not name takes them inside.
+fn supports_multimodal_function_response(model: &Model) -> bool {
+    eukhe_bend::rules::model_facts::flag(
+        Quirks::of(model).google_multimodal_function_response(),
+        true,
+    )
 }
 
 const JSON_SCHEMA_META_DECLARATIONS: [&str; 8] = [

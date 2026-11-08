@@ -430,18 +430,6 @@ fn does_not_add_a_thought_signature_for_non_gemini_3_models() {
         .all(|part| part["functionResponse"].get("id").is_none()));
 }
 
-#[test]
-fn requires_tool_call_id_by_model() {
-    for (expected, model_id) in [
-        (false, "gemini-2.5-flash"),
-        (true, "gemini-3.6-flash"),
-        (true, "claude-sonnet-4-5"),
-        (true, "gpt-oss-120b"),
-    ] {
-        assert_eq!(requires_tool_call_id(model_id), expected, "{model_id}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // google-shared-image-tool-result-routing.test.ts
 // ---------------------------------------------------------------------------

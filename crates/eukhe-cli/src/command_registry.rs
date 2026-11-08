@@ -80,7 +80,7 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
     ),
     CommandSpec::new(
         &["state"],
-        "state [<agent>] [--since <cursor>] [--follow] [--json]",
+        "state [<agent>] [--since <CURSOR>] [--follow] [--json]",
         "Show the state tree of an agent's session",
     )
     .description(
@@ -91,13 +91,13 @@ active agent. With --follow, the command then prints each new batch of records a
 commits it, until Ctrl+C.",
     )
     .options(&[
-        "--since <cursor>  Print the records after this cursor",
+        "--since <CURSOR>  Print the records after this cursor",
         "--follow          Keep printing the new records",
         "--json            Print JSON",
     ]),
     CommandSpec::new(
         &["state", "rewind-plan"],
-        "state rewind-plan <cursor> [<agent>] [--json]",
+        "state rewind-plan <CURSOR> [<agent>] [--json]",
         "Show what a rewind of the state tree to a cursor does",
     )
     .description(
@@ -135,40 +135,40 @@ for a node that comes back, restore for a node that changes.",
     .examples(&["schedule add worker \"0 9 * * 1-5\" -- \"Check open work\""]),
     CommandSpec::new(
         &["schedule", "cancel"],
-        "schedule cancel <job-id>",
+        "schedule cancel <job>",
         "Cancel a scheduled prompt",
     ),
     CommandSpec::new(
         &["status"],
-        "status [--daemon-socket <path>] [--json]",
+        "status [--daemon-socket <PATH>] [--json]",
         "Show background service status",
     )
     .options(&[
-        "--daemon-socket <path>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--daemon-socket <PATH>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
         "--json                  Print JSON",
     ]),
     CommandSpec::new(
         &["doctor"],
-        "doctor [--fix] [--daemon-socket <path>] [--json]",
+        "doctor [--fix] [--daemon-socket <PATH>] [--json]",
         "Inspect and safely clean up background services",
     )
     .options(&[
         "--fix                   Remove stale sockets and stop idle orphaned services",
-        "--daemon-socket <path>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--daemon-socket <PATH>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
         "--json                  Print JSON",
     ]),
     CommandSpec::new(
         &["incident"],
-        "incident [--since <time>] [--until <time>] [--session <id>]",
+        "incident [--since <TIME>] [--until <TIME>] [--session <session>]",
         "Reconstruct a daemon incident from its logs",
     )
     .description(
         "Summarizes the daemon logs for a time window into an operator timeline: supervisor and worker events, session anomalies, and recovery actions. Times without a timezone are read as UTC, matching the log; the default window is the last 24 hours.",
     )
     .options(&[
-        "--since <time>  Window start (ISO date/time, date, or HH:MM today; default: 24h ago)",
-        "--until <time>  Window end (default: now)",
-        "--session <id>  Only events naming this session id, worker id, or session name (prefix match)",
+        "--since <TIME>  Window start (ISO date/time, date, or HH:MM today; default: 24h ago)",
+        "--until <TIME>  Window end (default: now)",
+        "--session <session>  Only events naming this session id, worker id, or session name (prefix match)",
     ])
     .examples(&[
         "incident --since \"2026-09-16T20:02\" --until \"2026-09-16T20:21\"",
@@ -176,7 +176,7 @@ for a node that comes back, restore for a node that changes.",
     ]),
     CommandSpec::new(
         &["shutdown"],
-        "shutdown [--force] [--daemon-socket <path>] [--json]",
+        "shutdown [--force] [--daemon-socket <PATH>] [--json]",
         "Stop every agent and background service",
     )
     .description(
@@ -184,7 +184,7 @@ for a node that comes back, restore for a node that changes.",
     )
     .options(&[
         "--force                 Skip confirmation and kill unresponsive processes",
-        "--daemon-socket <path>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--daemon-socket <PATH>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
         "--json                  Print JSON",
     ]),
     CommandSpec::new(
@@ -194,10 +194,10 @@ for a node that comes back, restore for a node that changes.",
     ),
     CommandSpec::new(
         &["mcp", "add"],
-        "mcp add <name> --url <url> [--bearer-token-env-var <env>|--oauth] [--force]",
+        "mcp add <name> --url <URL> [--bearer-token-env-var <VAR>|--oauth] [--force]",
         "Add an HTTP or stdio MCP server",
     )
-    .description("For stdio, use: mcp add <name> [--cwd <dir>] [--env CHILD=SOURCE] -- <command> [args...]"),
+    .description("For stdio, use: mcp add <name> [--cwd <DIR>] [--env CHILD=SOURCE] -- <command> [args...]"),
     CommandSpec::new(&["mcp", "list"], "mcp list", "List user MCP servers"),
     CommandSpec::new(&["mcp", "get"], "mcp get <name>", "Show a user MCP server"),
     CommandSpec::new(&["mcp", "remove"], "mcp remove <name>", "Remove a user MCP server"),
@@ -333,8 +333,9 @@ refused, never overwritten.",
         "Read, browse, or import into the chat memory",
     )
     .description(
-        "The chat memory is the endless log of every message, the binary tree of one-line \
-summaries over it, and the view each turn starts from. It lives under the agent dir.",
+        "Each root session keeps its own chat thread under the agent dir. `eukhe chat` reads \
+only the shared chat of earlier versions and of `chat import`: its log, the binary tree of \
+one-line summaries over it, and its view.",
     ),
     CommandSpec::new(&["chat", "view"], "chat view", "Print the view the agent sees"),
     CommandSpec::new(
@@ -366,18 +367,20 @@ The compactor then summarizes them like any other messages.",
     .examples(&["chat import sessions ~/.eukhe/sessions"]),
     CommandSpec::new(
         &["gateway"],
-        "gateway [--daemon-socket <path>]",
+        "gateway [--daemon-socket <PATH>]",
         "Chat with the current session from Signal",
     )
     .description(
         "Runs signal-cli and relays Signal messages into the newest session (the one the CLI \
 uses), then sends the replies back. Set gateway.signal.account in the global settings first. \
-Runs until Ctrl+C. See docs/gateway.md.",
+With gateway.rootHeartbeat set (a heartbeat schedule, such as `every 30 minutes`), messages go \
+to the persistent session named root instead (made when missing), and each start creates or \
+replaces its heartbeat. Runs until Ctrl+C.",
     )
-    .options(&["--daemon-socket <path>  Use a specific daemon socket"]),
+    .options(&["--daemon-socket <PATH>  Use a specific daemon socket"]),
     CommandSpec::new(
         &["dashboard"],
-        "dashboard [--port <port>] [--no-open] [--allow-host <name>]... [--rotate-token] [--daemon-socket <path>]",
+        "dashboard [--port <PORT>] [--no-open] [--allow-host <NAME>]... [--rotate-token] [--daemon-socket <PATH>]",
         "Open the web dashboard: chat with and control the current session, browse its memory",
     )
     .description(
@@ -389,18 +392,18 @@ prints holds a pairing token after `#token=`: a browser must present it, and not
 socket without the current token. The token stays the same across restarts (it is in the agent \
 dir, mode 0600) until --rotate-token replaces it. It answers only to loopback host names and to \
 the names you add with --allow-host (for example the name `tailscale serve` gives your machine), \
-and its socket accepts only pages it served itself. Runs until Ctrl+C. See docs/dashboard.md.",
+and its socket accepts only pages it served itself. Runs until Ctrl+C.",
     )
     .options(&[
-        "--port <port>           Listen on this port (default: a free port)",
+        "--port <PORT>           Listen on this port (default: a free port)",
         "--no-open               Print the URL without opening the browser",
-        "--allow-host <name>     Also answer to this host name (repeatable), e.g. a tailscale serve name",
+        "--allow-host <NAME>     Also answer to this host name (repeatable), e.g. a tailscale serve name",
         "--rotate-token          Replace the pairing token: every earlier link stops working",
-        "--daemon-socket <path>  Use a specific daemon socket",
+        "--daemon-socket <PATH>  Use a specific daemon socket",
     ]),
     CommandSpec::new(
         &["prompt"],
-        "prompt [--model <selector>] [--cwd <dir>] [--json]",
+        "prompt [--model <MODEL>] [--cwd <DIR>] [--json]",
         "Print the assembled system prompt with its layer breakdown",
     )
     .description(
@@ -408,13 +411,13 @@ and its socket accepts only pages it served itself. Runs until Ctrl+C. See docs/
 and prints the per-layer breakdown (cached static layers, then the dynamic tail) followed by the full prompt text.",
     )
     .options(&[
-        "--model <selector>  Preview the per-model additions (model-prompts.toml) for a selector",
-        "--cwd <dir>         Assemble for this working directory (default: current)",
+        "--model <MODEL>     Preview the per-model additions (model-prompts.toml) for a selector",
+        "--cwd <DIR>         Assemble for this working directory (default: current)",
         "--json              Print segments and prompt as JSON",
     ]),
     CommandSpec::new(
         &["tiny-models"],
-        "tiny-models [list|download <id|all>]",
+        "tiny-models [list|download <model|all>]",
         "List or download the local tiny models",
     )
     .description(
@@ -451,7 +454,7 @@ provider model) and prints only the translation. <lang> is a language code (fr) 
     .examples(&["translate pt good morning"]),
     CommandSpec::new(
         &["say"],
-        "say <text...> [--out <file.wav>] [--voice <id>]",
+        "say <text...> [--out <FILE>] [--voice <VOICE>]",
         "Speak text with the local speech model",
     )
     .description(
@@ -459,16 +462,16 @@ provider model) and prints only the translation. <lang> is a language code (fr) 
 first of pw-play, paplay, or aplay; the voice defaults to tts.localVoice.",
     )
     .options(&[
-        "--out <file.wav>  Write the speech to a WAV file instead of playing it",
-        "--voice <id>      The voice (af_heart, bf_emma, ...)",
+        "--out <FILE>      Write the speech to a WAV file instead of playing it",
+        "--voice <VOICE>   The voice (af_heart, bf_emma, ...)",
     ]),
     CommandSpec::new(
         &["transcribe"],
-        "transcribe <file.wav> [--language <code>]",
+        "transcribe <file.wav> [--language <LANGUAGE>]",
         "Transcribe a WAV file with the local dictation model",
     )
     .description("Uses the dictation role's local model (whisper) and prints the text.")
-    .options(&["--language <code>  The spoken language (default: detected)"]),
+    .options(&["--language <LANGUAGE>  The spoken language (default: detected)"]),
 ];
 
 /// Command names that once existed and now print removal guidance.
@@ -498,24 +501,24 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
                 "--mode <text|json|rpc|acp|daemon>",
                 "Select the output mode (default: text)",
             ),
-            ("--cwd <dir>", "Use a specific working directory"),
+            ("--cwd <DIR>", "Use a specific working directory"),
             ("--offline", "Disable startup network operations"),
             ("--verbose", "Force verbose startup"),
-            ("--daemon-socket <path>", "Use a specific daemon socket"),
+            ("--daemon-socket <PATH>", "Use a specific daemon socket"),
         ],
     },
     OptionGroup {
         heading: "Model options",
         options: &[
-            ("--provider <name>", "Select a model provider"),
-            ("--model <id>", "Select a model"),
-            ("--api-key <key>", "Use an API key for this run"),
+            ("--provider <NAME>", "Select a model provider"),
+            ("--model <MODEL>", "Select a model"),
+            ("--api-key <VALUE>", "Use an API key for this run"),
             (
-                "--models <patterns>",
+                "--models <MODELS>",
                 "Set comma-separated models for cycling",
             ),
             (
-                "--thinking <level>",
+                "--thinking <LEVEL>",
                 "Set reasoning: off, minimal, low, medium, high, xhigh, max",
             ),
         ],
@@ -525,21 +528,21 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         options: &[
             ("-c, --continue", "Continue the previous session"),
             (
-                "-r, --resume [path|id]",
+                "-r, --resume [<session>]",
                 "Open the agents view, or resume a saved session",
             ),
             (
-                "--fork <path|id>",
+                "--fork <session>",
                 "Fork a saved session into a new session",
             ),
-            ("--session-dir <dir>", "Use a custom session directory"),
+            ("--session-dir <DIR>", "Use a custom session directory"),
             ("--no-session", "Do not save the session"),
             (
-                "--goal <objective>",
+                "--goal <OBJECTIVE>",
                 "Seed a persistent goal for a new root session",
             ),
             (
-                "--goal-token-budget <n>",
+                "--goal-token-budget <NUMBER>",
                 "Set a positive token budget for --goal",
             ),
         ],
@@ -547,20 +550,17 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
     OptionGroup {
         heading: "Resource options",
         options: &[
-            ("--skill <path>", "Load a skill (repeatable)"),
-            ("-ns, --no-skills", "Disable skill discovery"),
+            ("--skill <PATH>", "Load a skill (repeatable)"),
+            ("--no-skills", "Disable skill discovery"),
             (
-                "--prompt-template <path>",
+                "--prompt-template <PATH>",
                 "Load a prompt template (repeatable)",
             ),
-            (
-                "-np, --no-prompt-templates",
-                "Disable prompt template discovery",
-            ),
-            ("--theme <path>", "Load a theme (repeatable)"),
+            ("--no-prompt-templates", "Disable prompt template discovery"),
+            ("--theme <PATH>", "Load a theme (repeatable)"),
             ("--no-themes", "Disable theme discovery"),
             (
-                "-nc, --no-context-files",
+                "--no-context-files",
                 "Disable AGENTS.md and CLAUDE.md discovery",
             ),
         ],
@@ -569,22 +569,31 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         heading: "Prompt options",
         options: &[
             (
-                "--system-prompt <text>",
+                "--system-prompt <TEXT>",
                 "Replace the default system prompt",
             ),
             (
-                "--system-prompt-file <path>",
+                "--system-prompt-file <PATH>",
                 "Replace the default system prompt with this file",
             ),
             (
-                "--append-system-prompt <text>",
+                "--append-system-prompt <TEXT>",
                 "Append to the system prompt (repeatable)",
             ),
             (
-                "--append-system-prompt-file <path>",
+                "--append-system-prompt-file <PATH>",
                 "Append this file to the system prompt (repeatable)",
             ),
             ("--", "Treat all following arguments as messages"),
+        ],
+    },
+    OptionGroup {
+        heading: "Print options",
+        options: &[
+            (
+                "--wait-limit-ms <n>",
+                "Wait at most this long in ms for background jobs and subagents after a turn (default: 3600000)",
+            ),
         ],
     },
     OptionGroup {
@@ -595,31 +604,31 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
                 "Continue until gates pass or a limit is reached",
             ),
             (
-                "--autonomous-gate <command>",
+                "--autonomous-gate <COMMAND>",
                 "Run a completion gate (repeatable)",
             ),
             (
-                "--autonomous-gate-retries <n>",
+                "--autonomous-gate-retries <NUMBER>",
                 "Set positive retries per failed gate (default: 3)",
             ),
             (
-                "--autonomous-gate-timeout-ms <n>",
+                "--autonomous-gate-timeout-ms <NUMBER>",
                 "Set positive per-gate timeout in ms (default: 300000)",
             ),
             (
-                "--autonomous-max-continuations <n>",
+                "--autonomous-max-continuations <NUMBER>",
                 "Set positive follow-up limit (default: 3)",
             ),
             (
-                "--autonomous-max-turns <n>",
+                "--autonomous-max-turns <NUMBER>",
                 "Set positive assistant-turn limit (default: 12)",
             ),
             (
-                "--autonomous-max-tokens <n>",
+                "--autonomous-max-tokens <NUMBER>",
                 "Set positive token limit (default: 80000)",
             ),
             (
-                "--autonomous-timeout-ms <n>",
+                "--autonomous-timeout-ms <NUMBER>",
                 "Set positive wall-clock limit in ms (default: 1800000)",
             ),
         ],
@@ -654,23 +663,10 @@ pub fn get_child_command_specs(path: &[&str]) -> Vec<&'static CommandSpec> {
         .collect()
 }
 
-/// True when a `help <path>` request resolves to help rather than a message.
-pub fn is_help_command_request(path: &[&str]) -> bool {
-    if path.is_empty() || get_command_spec(path).is_some() {
-        return true;
-    }
-    if REMOVED_COMMAND_NAMES.contains(&path[0]) {
-        return true;
-    }
-    if get_command_spec(&path[..1]).is_some() {
-        return true;
-    }
-    let parent = &path[..path.len() - 1];
-    let candidates: Vec<&str> = get_child_command_specs(parent)
-        .into_iter()
-        .map(|spec| spec.path[spec.path.len() - 1])
-        .collect();
-    eukhe_bend::rules::slash::suggestion(path[path.len() - 1], &candidates).is_some()
+/// Suggest the closest candidate command name (the slash-command
+/// suggestion rule from the compiled core).
+pub fn find_command_suggestion<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    eukhe_bend::rules::slash::suggestion(input, candidates)
 }
 
 fn pad_end(value: &str, width: usize) -> String {
@@ -790,10 +786,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn help_command_request() {
-        assert!(is_help_command_request(&["schedule", "bogus"]));
-        assert!(!is_help_command_request(&["bogus"]));
-        assert!(is_help_command_request(&[]));
-        assert!(is_help_command_request(&["daemon"]));
+    fn suggestion_thresholds() {
+        assert_eq!(
+            find_command_suggestion("schedul", &["schedule", "list"]),
+            Some("schedule")
+        );
+        // Two-character tolerance would let "tmp" masquerade as "mcp", so
+        // short tokens allow a single-character typo only.
+        assert_eq!(find_command_suggestion("tmp", &["mcp"]), None);
+        assert_eq!(find_command_suggestion("bogus", &["list"]), None);
     }
 }

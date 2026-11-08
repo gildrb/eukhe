@@ -4,7 +4,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/model.bend as Facts
 
 def fee.of(e: Maybe<&2, Maybe<&2, Nat>>, l: Fx.ELv) -> {Fx.effort.of(e, l) == Facts.effort_spec.of(e, Facts.effort_spec.dflt(l)) : Nat}:
   match e:

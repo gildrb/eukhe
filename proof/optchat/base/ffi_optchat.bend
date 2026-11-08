@@ -134,10 +134,10 @@ def oe.serve(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> {FOc.serve(cfg, s, q)
     case FOc.QWait{}:
       %oe.held(s) : {(FOc.Live{cfg, OQueue.St.wait(s)}, FOc.put_nodes(_, "")) == (FOc.Live{cfg, OQueue.St.wait(s)}, Optchat.oc_spell_nodes(Optchat.oc_held(OState.St.info(s), OState.St.view(s), OState.St.busy(s)), "")) : FOc.St & String}
       oe.query(cfg, OQueue.St.wait(s), Optchat.oc_held(OState.St.info(s), OState.St.view(s), OState.St.busy(s)))
-    case FOc.QCands{}:
-      oe.query(cfg, s, OQueue.cands(cfg, s))
-    case FOc.QNeed{}:
-      oe.query(cfg, s, OQueue.cands.need(cfg, s))
+    case FOc.QCands{+d}:
+      oe.query(cfg, s, OQueue.cands.due(cfg, s, d))
+    case FOc.QNeed{+d}:
+      oe.query(cfg, s, OQueue.cands.need.due(cfg, s, d))
     case FOc.QCtx{+l, +k}:
       oe.query(cfg, s, OCtx.ctx(s, Optchat.oc_node(l, k)))
     case FOc.QBusy{}:
@@ -222,6 +222,20 @@ def oe.ctx(r: Wr.Dec<FOc.Line>) -> {Optchat.oc_read.ctx(r) == FOc.get_ev.ctx(r) 
     case Wr.Bad{}:
       {==}
 
+def oe.cands(r: Wr.Dec<Nat>) -> {Optchat.oc_read.cands(r) == FOc.get_ev.due(True{}, r) : Wr.Dec<FOc.Q>}:
+  match r:
+    case Wr.Got{d, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def oe.need(r: Wr.Dec<Nat>) -> {Optchat.oc_read.need(r) == FOc.get_ev.due(False{}, r) : Wr.Dec<FOc.Q>}:
+  match r:
+    case Wr.Got{d, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
 def oe.tag(n: Nat, +s: String) -> {Optchat.oc_read.tag(n, s) == FOc.get_ev.tag(n, s) : Wr.Dec<FOc.Q>}:
   match n:
     case 0n:
@@ -238,9 +252,9 @@ def oe.tag(n: Nat, +s: String) -> {Optchat.oc_read.tag(n, s) == FOc.get_ev.tag(n
     case 4n:
       {==}
     case 5n:
-      {==}
+      oe.cands(Wr.get_nat(s))
     case 6n:
-      {==}
+      oe.need(Wr.get_nat(s))
     case 7n:
       %oe.line(s) : {Optchat.oc_read.ctx(_) == FOc.get_ev.ctx(FOc.get_line(s)) : Wr.Dec<FOc.Q>}
       oe.ctx(FOc.get_line(s))
@@ -320,9 +334,11 @@ def oe.spelled(q: FOc.Q, +fits: {Optchat.oc_fits(q) == True{} : Bool}) -> {Optch
       {==}
     case FOc.QWait{}:
       {==}
-    case FOc.QCands{}:
+    case FOc.QCands{+d}:
+      %LWire.pc.nat(d, "", fits) : {Optchat.oc_read.whole(Optchat.oc_read.cands(_)) == Some{FOc.QCands{d}} : Maybe<&2, FOc.Q>}
       {==}
-    case FOc.QNeed{}:
+    case FOc.QNeed{+d}:
+      %LWire.pc.nat(d, "", fits) : {Optchat.oc_read.whole(Optchat.oc_read.need(_)) == Some{FOc.QNeed{d}} : Maybe<&2, FOc.Q>}
       {==}
     case FOc.QCtx{+l, +k}:
       %oe.lk_and(l, k, "", fits) : {Optchat.oc_read.whole(Optchat.oc_read.ctx(_)) == Some{FOc.QCtx{l, k}} : Maybe<&2, FOc.Q>}

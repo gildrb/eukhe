@@ -409,7 +409,6 @@ async fn imports_a_compaction_as_a_head_at_the_first_kept_entry() {
                 summary: "the story so far".to_owned(),
                 read_files: Vec::new(),
                 modified_files: Vec::new(),
-                digest: None,
             }),
         }
     );
@@ -477,7 +476,6 @@ fn compaction_head_starts_at_the_first_imported_entry_from_first_kept() {
                     summary: "s1".to_owned(),
                     read_files: Vec::new(),
                     modified_files: Vec::new(),
-                    digest: None,
                 }),
             })
             .unwrap()
@@ -603,9 +601,9 @@ async fn imports_custom_rows_bash_runs_and_branch_summaries() {
     let has_model: Vec<bool> = entries.iter().map(|entry| entry.model.is_some()).collect();
     assert_eq!(
         has_model,
-        // The older digest, the display-only outcome, the excluded bash
+        // The legacy digests, the display-only outcome, the excluded bash
         // run, and the state row never reach the model.
-        [true, false, true, true, false, true, false, true, true, false, true, true, true]
+        [true, false, true, true, false, true, false, true, true, false, false, true, true]
     );
     let data: Vec<Option<Value>> = entries
         .iter()
@@ -616,7 +614,7 @@ async fn imports_custom_rows_bash_runs_and_branch_summaries() {
         Some(json!({"customType": "agent_message", "display": true,
             "details": {"source": "n1"}}))
     );
-    // Display-only rows and dropped digests keep their content in data.
+    // Display-only rows and legacy digests keep their content in data.
     assert_eq!(
         data[4],
         Some(json!({"customType": COMPACTION_OUTCOME_CUSTOM_TYPE,
@@ -646,8 +644,10 @@ async fn imports_custom_rows_bash_runs_and_branch_summaries() {
     harness.close(&cx()).await.unwrap();
 }
 
+/// Legacy harness digests (rows and compaction snapshots) never reach the
+/// imported context.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_compaction_snapshot_outranks_older_digests() {
+async fn legacy_harness_digests_never_reach_the_model() {
     let content = jsonl(&[
         header(),
         user("u1", None, "hi", 1),
@@ -667,7 +667,6 @@ async fn a_compaction_snapshot_outranks_older_digests() {
     let (harness, _root) = assert_context_matches(&content, &imported).await;
     harness.close(&cx()).await.unwrap();
 
-    // A digest after the compaction takes the summary's snapshot's place.
     let content = jsonl(&[
         header(),
         user("u1", None, "hi", 1),

@@ -1,0 +1,22 @@
+# on, tokens, the last turn's tokens, window, reserve (0 n | 1 n: -(1+n)),
+# margin, keepRecentTokens,
+# full, the sizes (a list, newest first), the cuts (a list): every number
+# at its largest; sizes of {MAX} several times (their sum passes 2^48 - 1:
+# the core takes them one at a time and never adds two)
+call T{MAX},{MAX},{MAX},0,0,0,0,{MAX},0,3,{MAX},{MAX},{MAX},3,1,2,3,
+call T{MAX},{MAX},{MAX},1,{MAX},0,{MAX},{MAX},{MAX},3,{MAX},{MAX},{MAX},3,1,2,3,
+call T{MAX},{MAX},{MAX},0,{MAX},1,{MAX},{MAX},{MAX},5,{MAX},{MAX},{MAX},{MAX},{MAX},2,1,5,
+# over the background threshold with no cut within the budget: the newest
+# cut keeps three sizes of {MAX}, and whether it reaches the target
+call T{MAX},{MAX},{MAX},0,0,0,{MAX},0,{MAX},3,{MAX},{MAX},{MAX},1,3,
+call T{MAX},{MAX},{MAX},0,0,0,{MAX},{MAX},{MAX},3,1,{MAX},{MAX},3,1,2,3,
+# the window unknown: keep alone bounds the cut
+call T{MAX},{MAX},0,0,{MAX},0,{MAX},{MAX},{MAX},2,{MAX},{MAX},2,1,2,
+call F{MAX},{MAX},{MAX},1,{MAX},1,{MAX},{MAX},{MAX},3,{MAX},{MAX},{MAX},3,1,2,{MAX},
+call T0,{MAX},{MAX},1,{MAX},0,1,{MAX},{MAX},0,0,
+refuse T{LONG},5,10,0,2,0,3,9,2,2,1,3,1,1,
+refuse T5,5,10,0,2,0,3,9,2,2,{LONG},3,1,1,
+refuse T5,{LONG},10,0,2,0,3,9,2,2,1,3,1,1,
+# adversary 6 (infer_threshold): the window unknown, three sizes of
+# {MAX} (their sum past 2^48 - 1), one cut
+call T99999999999999,99999999999999,0,0,0,0,0,99999999999999,3,3,99999999999999,99999999999999,99999999999999,1,1,

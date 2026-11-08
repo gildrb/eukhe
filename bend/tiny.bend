@@ -1,4 +1,4 @@
-# tiny: the model of the local tiny-model service (docs/inference.md, S9),
+# tiny: the model of the local tiny-model service,
 # after omp's local models. A role (titles, classification, translation,
 # speech, dictation) names a chain of models, local or remote. A task goes
 # to the first model of the chain that is available; with none available

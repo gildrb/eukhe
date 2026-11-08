@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./base.bend as LA
 
 def pw.spawns_size(n: Nat, +p: W.Pool) -> {W.size(W.spawns(n, p)) == W.size(p) : Nat}:

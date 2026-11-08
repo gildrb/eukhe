@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
+use eukhe_ai::providers::faux_script::{
+    create_faux_script_models, parse_faux_script, FauxScriptProvider,
+};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
 
@@ -8,26 +10,33 @@ use super::*;
 use crate::headless_terminal::HeadlessPrimary;
 use crate::mode::{RuntimeConfig, SessionOptions};
 
-/// A memory session on the scripted faux provider (the print harness's
-/// `EUKHE_FAUX_SCRIPT` models without the environment).
-async fn faux_session(dir: &Path, script: &serde_json::Value) -> EukheSession {
+/// A session on the scripted faux provider (the print harness's
+/// `EUKHE_FAUX_SCRIPT` models without the environment), hosted as print
+/// mode hosts it.
+async fn faux_session(
+    dir: &Path,
+    script: &serde_json::Value,
+    storage: SessionStorage,
+) -> (EukheSession, FauxScriptProvider) {
     let script = parse_faux_script(&script.to_string()).expect("faux script");
     let model = script.model.id.clone();
-    let (models, _provider) = create_faux_script_models(script);
+    let (models, provider) = create_faux_script_models(script);
     let mut config = SessionConfig::new(
         dir.join("agent"),
         dir,
         "0198f000-0000-7000-8000-000000000000",
-        SessionStorage::Memory,
+        storage,
     );
     config.models = Some(models);
     config.model = Some(ModelRequest {
         provider: Some("faux".to_owned()),
         pattern: model,
     });
-    open_session(config, &BACKGROUND_CONTEXT)
+    config.host = AppMode::Print.session_host();
+    let session = open_session(config, &BACKGROUND_CONTEXT)
         .await
-        .expect("open the faux session")
+        .expect("open the faux session");
+    (session, provider)
 }
 
 fn run_options(dir: &Path, prompts: &[&str]) -> RunOptions {
@@ -55,7 +64,59 @@ fn run_options(dir: &Path, prompts: &[&str]) -> RunOptions {
     }
 }
 
-/// Run the prompt loop on a faux session and select the terminal result.
+/// Run the prompt loop on a faux session, select the terminal result, and
+/// close the session as print mode does.
+async fn run_in(
+    dir: &Path,
+    storage: SessionStorage,
+    script: &serde_json::Value,
+    prompts: &[&str],
+) -> (
+    Option<String>,
+    crate::headless_terminal::HeadlessTerminalResult,
+    FauxScriptProvider,
+) {
+    let (session, provider) = faux_session(dir, script, storage).await;
+    let opened = HeadlessSession {
+        session: Arc::new(session),
+        lease: None,
+        session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
+        cwd: dir.to_path_buf(),
+        parent_session: None,
+        wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+    };
+    let conversation = opened.session.main();
+    let cx = &*BACKGROUND_CONTEXT;
+    let watch = RunWatch::start(&opened, &conversation, cx)
+        .await
+        .expect("the run watch starts");
+    let ended = drive_prompts(
+        &opened,
+        &conversation,
+        &watch,
+        &run_options(dir, prompts),
+        cx,
+    )
+    .await
+    .expect("the prompt loop runs");
+    let failure = match ended {
+        PromptsEnd::Completed => None,
+        PromptsEnd::CommandFailed(error) => Some(error.to_string()),
+        PromptsEnd::GaveUp(work) => panic!("nothing runs in the background: {work:?}"),
+    };
+    let result = select_terminal_result(&conversation, cx)
+        .await
+        .expect("terminal selection");
+    watch.finish().await;
+    drop(conversation);
+    let Ok(session) = Arc::try_unwrap(opened.session) else {
+        panic!("the test holds the only session handle");
+    };
+    session.close(cx).await.expect("close");
+    (failure, result, provider)
+}
+
+/// [`run_in`] on a memory session in a fresh directory.
 async fn run(
     script: &serde_json::Value,
     prompts: &[&str],
@@ -64,21 +125,8 @@ async fn run(
     crate::headless_terminal::HeadlessTerminalResult,
 ) {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let session = faux_session(dir.path(), script).await;
-    let conversation = session.main();
-    let cx = &*BACKGROUND_CONTEXT;
-    let failure = drive_prompts(
-        &session,
-        &conversation,
-        &run_options(dir.path(), prompts),
-        cx,
-    )
-    .await
-    .expect("the prompt loop runs");
-    let result = select_terminal_result(&conversation, cx)
-        .await
-        .expect("terminal selection");
-    session.close(cx).await.expect("close");
+    let (failure, result, _provider) =
+        run_in(dir.path(), SessionStorage::Memory, script, prompts).await;
     (failure, result)
 }
 
@@ -93,6 +141,53 @@ async fn every_prompt_answers_in_order_and_the_last_answer_is_the_result() {
     let primary = result.primary.expect("a primary answer");
     assert_eq!(primary.failure(), None);
     assert_eq!(primary.stdout_text(), "second answer");
+}
+
+/// A print run sends nothing after its final answer, even when its turn
+/// compacted: the compact-trigger review would start at the idle right
+/// before the exit, which cancels its request after its prompt was paid
+/// for (bench longmem: one main-model review per compaction, every one
+/// cancelled). The overflow error compacts the turn, the summary and the
+/// retried answer are the run's last scripted requests.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_print_run_sends_no_request_after_its_final_answer() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    // The keep window leaves the seed turn before the cut.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "compaction": { "enabled": true, "reserveTokens": 1, "keepRecentTokens": 10 }
+        })
+        .to_string(),
+    )
+    .expect("settings");
+    let script = serde_json::json!({
+        "responses": [
+            {"text": "seed reply"},
+            {
+                "content": [{ "type": "text", "text": "" }],
+                "stopReason": "error",
+                "errorMessage": "prompt is too long: 213462 tokens > 200000 maximum",
+            },
+            {"text": "the summary"},
+            {"text": "recovered reply"},
+        ]
+    });
+    let seed = format!("seed turn {}", "x".repeat(48_000));
+    let probe = format!("overflow probe {}", "x".repeat(48_000));
+    let storage = SessionStorage::Jsonl {
+        dir: dir.path().join("sessions").join("print"),
+        fsync: false,
+    };
+    let (failure, result, provider) = run_in(dir.path(), storage, &script, &[&seed, &probe]).await;
+    assert_eq!(failure, None);
+    let primary = result.primary.expect("the recovered answer");
+    assert_eq!(primary.stdout_text(), "recovered reply");
+    // The session is closed: a request it started after the answer would
+    // have been counted by now.
+    assert_eq!(provider.call_count(), 4);
 }
 
 #[tokio::test]
@@ -406,16 +501,20 @@ fn print_lease_outlives_runtime_writers_on_every_return_path() {
                     writer_ready_rx.await.unwrap();
                     match fixture.outcome {
                         Outcome::Success => Ok(0),
-                        Outcome::Error => Err("failed after lease acquisition".to_string()),
+                        Outcome::Error => Err(HeadlessModeError::Runtime(std::io::Error::other(
+                            "failed after lease acquisition",
+                        ))),
                         Outcome::Panic => panic!("unwind after lease acquisition"),
                     }
                 })
             })
         }));
         match outcome {
-            Outcome::Success => assert_eq!(result.unwrap(), Ok(0)),
+            Outcome::Success => {
+                assert_eq!(result.unwrap().map_err(|error| error.to_string()), Ok(0));
+            }
             Outcome::Error => assert_eq!(
-                result.unwrap(),
+                result.unwrap().map_err(|error| error.to_string()),
                 Err("failed after lease acquisition".to_string())
             ),
             Outcome::Panic => assert!(result.is_err()),
@@ -430,4 +529,95 @@ fn print_lease_outlives_runtime_writers_on_every_return_path() {
                 .is_none()
         );
     }
+}
+
+fn summary_message(summary: &str) -> eukhe_types::session::AgentMessage {
+    eukhe_types::session::AgentMessage::BranchSummary(eukhe_types::session::BranchSummaryMessage {
+        summary: summary.to_owned(),
+        from_id: "e1".to_owned(),
+        timestamp: 7,
+    })
+}
+
+fn line(event: &SessionEvent) -> serde_json::Value {
+    serde_json::from_str(&json_line(event).expect("serializes")).expect("one JSON line")
+}
+
+/// A json-mode `message_update` is its change alone (omp `printableEvent`):
+/// the accumulated partial never rides it, whatever its size.
+#[test]
+fn json_message_update_carries_only_the_change() {
+    let partial = summary_message(&"x".repeat(64 * 1024));
+    for (update, wire) in [
+        (StreamUpdate::Start, serde_json::json!({ "type": "start" })),
+        (
+            StreamUpdate::TextStart,
+            serde_json::json!({ "type": "text_start" }),
+        ),
+        (
+            StreamUpdate::TextDelta {
+                delta: "ab".to_owned(),
+            },
+            serde_json::json!({ "type": "text_delta", "delta": "ab" }),
+        ),
+        (
+            StreamUpdate::TextEnd,
+            serde_json::json!({ "type": "text_end" }),
+        ),
+        (
+            StreamUpdate::ThinkingStart,
+            serde_json::json!({ "type": "thinking_start" }),
+        ),
+        (
+            StreamUpdate::ThinkingDelta {
+                delta: "hm".to_owned(),
+            },
+            serde_json::json!({ "type": "thinking_delta", "delta": "hm" }),
+        ),
+        (
+            StreamUpdate::ThinkingEnd,
+            serde_json::json!({ "type": "thinking_end" }),
+        ),
+        (
+            StreamUpdate::ToolcallStart,
+            serde_json::json!({ "type": "toolcall_start" }),
+        ),
+        (
+            StreamUpdate::ToolcallDelta {
+                delta: "{\"a\"".to_owned(),
+            },
+            serde_json::json!({ "type": "toolcall_delta", "delta": "{\"a\"" }),
+        ),
+        (
+            StreamUpdate::ToolcallEnd,
+            serde_json::json!({ "type": "toolcall_end" }),
+        ),
+    ] {
+        let event = SessionEvent::MessageUpdate {
+            message: partial.clone(),
+            assistant_message_event: update,
+        };
+        assert_eq!(
+            json_line(&event).expect("serializes"),
+            serde_json::json!({ "type": "message_update", "assistantMessageEvent": wire })
+                .to_string()
+        );
+    }
+}
+
+/// A whole-message replacement's change is the message itself, so it keeps
+/// it; every other frame (the settled `message_end` included) is the
+/// session event's own form.
+#[test]
+fn json_message_replacement_and_end_carry_the_message() {
+    let message = summary_message("replaced");
+    let replaced = SessionEvent::MessageUpdate {
+        message: message.clone(),
+        assistant_message_event: StreamUpdate::Message,
+    };
+    assert_eq!(line(&replaced), serde_json::to_value(&replaced).unwrap());
+    assert_eq!(line(&replaced)["message"]["summary"], "replaced");
+    let end = SessionEvent::MessageEnd { message };
+    assert_eq!(line(&end), serde_json::to_value(&end).unwrap());
+    assert_eq!(line(&end)["message"]["summary"], "replaced");
 }

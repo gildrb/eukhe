@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use eukhe_types::pi_ai::{Tool, Usage};
+use eukhe_types::pi_ai::Usage;
 
 use super::*;
 
@@ -106,18 +106,6 @@ fn request() -> NodeRequest {
     }
 }
 
-fn prompt() -> CompactionPrompt {
-    CompactionPrompt {
-        system: "You are Eukhe. User instructions follow.".to_string(),
-        tools: vec![serde_json::from_value::<Tool>(serde_json::json!({
-            "name": "zoom",
-            "description": "Open a line.",
-            "parameters": {"type": "object", "properties": {}}
-        }))
-        .expect("a tool")],
-    }
-}
-
 fn user(blocks: Vec<UserContentBlock>) -> Message {
     Message::User(UserMessage {
         content: UserContent::Blocks(blocks),
@@ -125,30 +113,24 @@ fn user(blocks: Vec<UserContentBlock>) -> Message {
     })
 }
 
-/// The first request: the turns' system prompt and tools, then ONE user
-/// message with the view and the task, the task marked as the request's
-/// end (a view shorter than one block carries no mark of its own).
+/// The first request: the compactor's system prompt and no tools, then ONE
+/// user message with the view and the task, the task marked as the
+/// request's end (a view shorter than one block carries no mark of its
+/// own).
 fn first_request() -> Context {
     Context {
-        system_prompt: Some(prompt().system),
+        system_prompt: Some(compactor_system_prompt()),
         messages: vec![user(vec![
             text_block(CONTEXT.to_string(), None),
             text_block(TASK.to_string(), Some(CacheBreakpoint::Ephemeral)),
         ])],
-        tools: Some(prompt().tools),
+        tools: None,
     }
 }
 
-/// `build_line` on `summarizer` with the test's prompt and request.
+/// `build_line` on `summarizer` with the test's request.
 async fn line_of(summarizer: &dyn Summarizer) -> anyhow::Result<String> {
-    build_line(
-        summarizer,
-        &prompt(),
-        &request(),
-        7,
-        ResponseStarted::default(),
-    )
-    .await
+    build_line(summarizer, &request(), 7, ResponseStarted::default()).await
 }
 
 #[tokio::test]
@@ -161,43 +143,16 @@ async fn a_line_within_the_limit_is_taken_at_once() {
     );
 }
 
-/// An over-long line gets the cut follow-up in the SAME conversation (the
-/// end mark moves to it) while the lines get shorter; after [`TRIES`]
-/// lines the shortest, cut to [`NODE`] bytes, wins.
+/// An over-long line is cut to [`NODE`] bytes at once: one call, no
+/// follow-up round trip.
 #[tokio::test]
-async fn over_long_lines_get_the_cut_and_the_shortest_cut_wins() {
+async fn an_over_long_line_is_cut_after_one_call() {
     let long = |n: usize| "x".repeat(n);
-    let summarizer = Scripted::with(vec![
-        Ok(reply(&long(530))),
-        Ok(reply(&long(520))),
-        Ok(reply(&long(519))),
-        Ok(reply(&long(518))),
-        Ok(reply(&long(517))),
-        Ok(reply(&long(100))),
-    ]);
+    let summarizer = Scripted::with(vec![Ok(reply(&long(530))), Ok(reply(&long(100)))]);
     let line = line_of(summarizer.as_ref()).await.unwrap();
-    let requests = summarizer.requests();
-    let follow_up = |n: usize| {
-        user(vec![text_block(
-            format!(
-                "Too long: your line is {n} bytes, over the 512-byte limit. Write\nthe whole line again for the same <input>, cutting just enough of the\nleast valuable items to fit before this cut:\n{}| \u{2190} LIMIT",
-                long(512)
-            ),
-            Some(CacheBreakpoint::Ephemeral),
-        )])
-    };
-    let mut second = first_request();
-    second.messages = vec![
-        user(vec![
-            text_block(CONTEXT.to_string(), None),
-            text_block(TASK.to_string(), None),
-        ]),
-        Message::Assistant(reply(&long(530))),
-        follow_up(530),
-    ];
     assert_eq!(
-        (line, requests.len(), requests[1].clone()),
-        (long(NODE), TRIES, second)
+        (line, summarizer.requests()),
+        (long(NODE), vec![first_request()])
     );
 }
 
@@ -271,7 +226,6 @@ async fn the_view_is_marked_at_its_last_whole_block() {
     let summarizer = Scripted::with(vec![Ok(reply("done"))]);
     build_line(
         summarizer.as_ref(),
-        &CompactionPrompt::memory_layer(),
         &NodeRequest {
             context,
             task: "task".to_string(),
@@ -285,7 +239,7 @@ async fn the_view_is_marked_at_its_last_whole_block() {
     assert_eq!(
         summarizer.requests(),
         vec![Context {
-            system_prompt: Some(crate::memory::memory_system_layer()),
+            system_prompt: Some(compactor_system_prompt()),
             messages: vec![user(vec![
                 text_block(
                     "<chat>\n0+1|l0\n1+1|l1\n2+1|l2\n3+1|l3\n".to_string(),

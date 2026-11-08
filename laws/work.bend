@@ -324,7 +324,10 @@ def wk_nums(xs: List<&2, Pr.Act>) -> List<&2, Nat>:
       wk_num(x) <> wk_nums(t)
 
 # the answer of the spec's ledger: its work is the number of distinct acts
-# among those it read (W4)
+# among those it read (W4). `Pr.work` is wd_new for every input
+# (work_counts_distinct), which reads only equality of the numbers, and
+# `Pr.act` / `Pr.note` are equal exactly when the acts are
+# (work_act_one, work_note_apart)
 def wk_done(st: wk.S) -> wk.S & String:
   match st:
     case wk.S{+a, p, +r, +z}:

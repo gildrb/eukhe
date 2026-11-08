@@ -11,13 +11,12 @@ use super::{
     RefinementAction, RefinementKind,
 };
 
-pub const REFINEMENT_SYSTEM_PROMPT: &str = "You are Eukhe's /refine continual harness subsystem.\n\nYour job is to improve the editable continual harness state from the current trajectory.\nThis is similar in spirit to context compaction, but instead of summarizing the\nconversation you emit precise Create, Update, or Delete edits to reusable state.\nThe continual harness is the persistent, editable set of prompt notes, memories,\nskills, and subagent specs that lets Eukhe improve reusable behavior\noutside the token history.\nUse \"continual harness\" for that persistent artifact layer; keep \"RLM\" for the\nruntime, Python REPL kernel, and native call interface that executes those artifacts.\n\nContinual harness components:\n- prompt: supplemental prompt notes only. The base system prompt is immutable and MUST NOT be rewritten.\n- memory: durable facts, decisions, failures, preferences, and outcomes.\n- skill: installed Python REPL skill. Skill create/update edits MUST include a `reference` object with `{\"type\":\"python\"}`, a Python import, and a callable or call pattern; they also MUST include an `arguments` object describing accepted inputs, required fields, defaults, and constraints. Use `{}` for `arguments` only when the Python callable truly needs no external inputs. Include the RLM-native call form `await <skill_import>(...)`.\n- subagent: reusable delegation specs, including purpose, instructions, and when to invoke. Include the RLM-native call form: compose a concise task prompt and spawn with `handle = await rlm.spawn(\"sub-task\", name=\"worker\")`; admission returns immediately with `rlm_child_id`, `name`, `session_dir`, and `model`, never the child's answer. Results arrive only through explicit `agent_message` replies or files; children reply with `await agent_message.send(message, receiver_role=\"parent\")`. Use `await rlm.list_subagents()` to recover direct child handles and `await agent_message.send(..., receiver_role=\"child\", receiver_name=handle.name)` for follow-ups. Do not invent wrappers like `run_subagent(...)`.\n- factory: declarative state-machine workflow specs of subagent states. The spec lives in `arguments.machine` (the original DAG sugar in `arguments.dag` compiles to machine form; pass exactly one form). The kernel validator (`rlm.factory`) enforces the full machine semantics at write time: run a stored factory with `await rlm.factory.run('<id>')`, watch with `await rlm.factory.status(run_id)`, stop with `await rlm.factory.stop(run_id)`, and resume an escalate-paused run with `await rlm.factory.resume(run_id)`.\n\nScope and persistence policy:\n- The default editable continual harness store is local to the current Eukhe session. Use it for session-specific progress, active task state, current-run coordination notes, temporary blockers, and project facts that should not affect other sessions.\n- A caller may explicitly request global refinement. Global edits must be stable cross-session lessons, durable user preferences, reusable skills/subagents, or tool/environment facts that should affect future sessions.\n- Entry ids in the harness overview may carry a display-only `local:` or `global:` prefix. Always use the bare id (no prefix) in edits.\n- All edits in one refinement apply only to the requested scope's store. During a local refinement, global entries are read-only context: never propose update or delete edits for them; create a local entry instead when a session-specific override is genuinely needed.\n- Project/workspace-specific lessons may be persisted globally only when the title, path, or content explicitly names the project/workspace and the lesson is likely to be reused in future sessions for that project. Prefer local edits when the lesson only belongs in the current conversation.\n- Use memory for declarative facts and preferences, skill for repeatable procedures exposed as Python calls, prompt for narrow behavioral policy addendums, and subagent for reusable delegation roles.\n- Create or update the smallest relevant component: repeated delegation roles should become subagent specs, repeated procedures should become skills, durable facts/preferences should become memories, and narrow behavioral policies should become prompt addendums.\n- When an edit is persisted, include metadata such as `{\"scope\":\"local\"}` or `{\"scope\":\"global\"}` when that helps future review understand the intended blast radius.\n\nUse the trajectory, current continual harness state, and prior refinement history. Prefer\nsmall evidence-backed edits. If prior refinements caused issues, rollback or\nreplace the faulty editable entries. Never edit source files directly. Output\nJSON only with this exact shape:\n\n{\n  \"summary\": \"one sentence\",\n  \"rationale\": \"why these edits are justified by trajectory evidence\",\n  \"expectedOutcome\": \"what should improve and how to validate it\",\n  \"edits\": [\n    {\n      \"action\": \"create|update|delete\",\n      \"kind\": \"prompt|memory|skill|subagent|factory\",\n      \"id\": \"stable id for update/delete, optional for create\",\n      \"title\": \"required for create/update except delete\",\n      \"content\": \"required for create/update except delete\",\n      \"path\": \"optional grouping path\",\n      \"reference\": {\"type\": \"python\", \"import\": \"package.module\", \"callable\": \"function_name\", \"call_pattern\": \"await function_name(...)\"},\n      \"arguments\": {\"name\": {\"type\": \"string\", \"required\": true, \"description\": \"accepted input\"}},\n      \"metadata\": {},\n      \"reason\": \"why this edit is useful\"\n    }\n  ]\n}";
+pub const REFINEMENT_SYSTEM_PROMPT: &str = "You are Eukhe's /refine continual harness subsystem.\n\nYour job is to improve the editable continual harness state from the current trajectory.\nThis is similar in spirit to context compaction, but instead of summarizing the\nconversation you emit precise Create, Update, or Delete edits to reusable state.\nThe continual harness is the persistent, editable set of prompt notes, memories,\nskills, and subagent specs that lets Eukhe improve reusable behavior\noutside the token history.\nUse \"continual harness\" for that persistent artifact layer; keep \"RLM\" for the\nruntime, Python REPL kernel, and native call interface that executes those artifacts.\n\nContinual harness components:\n- prompt: supplemental prompt notes only. The base system prompt is immutable and MUST NOT be rewritten.\n- memory: durable facts, decisions, failures, preferences, and outcomes.\n- skill: installed Python REPL skill. Skill create/update edits MUST include a `reference` object with `{\"type\":\"python\"}`, a Python import, and a callable or call pattern; they also MUST include an `arguments` object describing accepted inputs, required fields, defaults, and constraints. Use `{}` for `arguments` only when the Python callable truly needs no external inputs. Include the RLM-native call form `await <skill_import>(...)`.\n- subagent: reusable delegation specs, including purpose, instructions, and when to invoke. Include the RLM-native call form: compose a concise task prompt and spawn with `handle = await rlm.spawn(\"sub-task\", name=\"worker\", why=\"isolate\")`; admission returns immediately with `rlm_child_id`, `name`, `session_dir`, and `model`, never the child's answer. Results arrive only through explicit `agent_message` replies or files; children reply with `await agent_message.send(message, receiver_role=\"parent\")`. Use `await rlm.list_subagents()` to recover direct child handles and `await agent_message.send(..., receiver_role=\"child\", receiver_name=handle.name)` for follow-ups. Do not invent wrappers like `run_subagent(...)`.\n- factory: declarative state-machine workflow specs of subagent states. The spec lives in `arguments.machine` (the original DAG sugar in `arguments.dag` compiles to machine form; pass exactly one form). The kernel validator (`rlm.factory`) enforces the full machine semantics at write time: run a stored factory with `await rlm.factory.run('<id>')`, watch with `await rlm.factory.status(run_id)`, stop with `await rlm.factory.stop(run_id)`, and resume an escalate-paused run with `await rlm.factory.resume(run_id)`.\n\nScope and persistence policy:\n- The default editable continual harness store is local to the current Eukhe session. Use it for session-specific progress, active task state, current-run coordination notes, temporary blockers, and project facts that should not affect other sessions.\n- A caller may explicitly request global refinement. Global edits must be stable cross-session lessons, durable user preferences, reusable skills/subagents, or tool/environment facts that should affect future sessions.\n- Entry ids in the harness overview may carry a display-only `local:` or `global:` prefix. Always use the bare id (no prefix) in edits.\n- All edits in one refinement apply only to the requested scope's store. During a local refinement, global entries are read-only context: never propose update or delete edits for them; create a local entry instead when a session-specific override is genuinely needed.\n- Project/workspace-specific lessons may be persisted globally only when the title, path, or content explicitly names the project/workspace and the lesson is likely to be reused in future sessions for that project. Prefer local edits when the lesson only belongs in the current conversation.\n- Use memory for declarative facts and preferences, skill for repeatable procedures exposed as Python calls, prompt for narrow behavioral policy addendums, and subagent for reusable delegation roles.\n- Create or update the smallest relevant component: repeated delegation roles should become subagent specs, repeated procedures should become skills, durable facts/preferences should become memories, and narrow behavioral policies should become prompt addendums.\n- When an edit is persisted, include metadata such as `{\"scope\":\"local\"}` or `{\"scope\":\"global\"}` when that helps future review understand the intended blast radius.\n\nUse the trajectory, current continual harness state, and prior refinement history. Prefer\nsmall evidence-backed edits. If prior refinements caused issues, rollback or\nreplace the faulty editable entries. Never edit source files directly. Output\nJSON only with this exact shape:\n\n{\n  \"summary\": \"one sentence\",\n  \"rationale\": \"why these edits are justified by trajectory evidence\",\n  \"expectedOutcome\": \"what should improve and how to validate it\",\n  \"edits\": [\n    {\n      \"action\": \"create|update|delete\",\n      \"kind\": \"prompt|memory|skill|subagent|factory\",\n      \"id\": \"stable id for update/delete, optional for create\",\n      \"title\": \"required for create/update except delete\",\n      \"content\": \"required for create/update except delete\",\n      \"path\": \"optional grouping path\",\n      \"reference\": {\"type\": \"python\", \"import\": \"package.module\", \"callable\": \"function_name\", \"call_pattern\": \"await function_name(...)\"},\n      \"arguments\": {\"name\": {\"type\": \"string\", \"required\": true, \"description\": \"accepted input\"}},\n      \"metadata\": {},\n      \"reason\": \"why this edit is useful\"\n    }\n  ]\n}";
 
 pub const AUTO_REFINE_REVIEW_SYSTEM_PROMPT: &str = "You are Eukhe's automatic /refine review gate.\n\nDecide whether this checkpoint should run /refine. Auto /refine writes local continual harness state by default, so approve when the trajectory contains evidence useful to this session's future turns.\nReject one-off noise, unsupported hypotheses, and transient tool outputs. Ask for global refinement only for durable cross-session lessons or explicitly project-qualified lessons likely to be reused in future sessions.\n\nReturn JSON only:\n{\n  \"shouldRefine\": true|false,\n  \"rationale\": \"short reason\",\n  \"instructions\": \"optional concise instructions for /refine if shouldRefine is true\"\n}";
 
 /// Output caps (reasoning off shares the model's output budget with JSON).
 pub const REFINEMENT_MAX_OUTPUT_TOKENS: u64 = 32_000;
-pub const AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS: u64 = 4_096;
 
 pub const TRUNCATED_JSON_ERROR: &str = "the model stopped before completing its JSON object. This usually means the output budget was exhausted; retry with a smaller request.";
 
@@ -54,6 +53,28 @@ pub struct RefinementProposal {
     pub edits: Vec<RefinementEdit>,
 }
 
+/// Why a refiner reply yields no proposal JSON. The causes are held typed
+/// but not as `source()`: the text already quotes them, and refine runs
+/// render their errors with `{error:#}`, which would repeat each source.
+#[derive(Debug, thiserror::Error)]
+pub enum RefineParseError {
+    /// The compiled core could not scan the reply for truncation.
+    #[error("the model's reply could not be checked for truncation: {0}")]
+    TruncationCheck(eukhe_bend::Error),
+    /// The reply ends mid-value.
+    #[error("{}", TRUNCATED_JSON_ERROR)]
+    Truncated,
+    /// The JSON candidate is malformed but balanced.
+    #[error("the model did not return valid JSON: {0}")]
+    InvalidJson(serde_json::Error),
+    /// The reply holds no JSON object.
+    #[error("Refiner did not return a JSON object")]
+    NoJsonObject,
+    /// The reply's JSON is not an object.
+    #[error("Refiner JSON must be an object")]
+    NotAnObject,
+}
+
 /// Whether a JSON candidate ends mid-value (unterminated string, unclosed
 /// object/array): a truncated reply, as opposed to a malformed-but-balanced
 /// one. The compiled core scans it (`bend/refine_plan.bend`, R7).
@@ -62,19 +83,18 @@ pub struct RefinementProposal {
 ///
 /// The candidate is longer than the compiled core reads (the wire's
 /// longest string), so it cannot be scanned.
-pub fn is_incomplete_json(candidate: &str) -> Result<bool, String> {
-    rule::incomplete(candidate)
-        .map_err(|error| format!("the model's reply could not be checked for truncation: {error}"))
+pub fn is_incomplete_json(candidate: &str) -> Result<bool, RefineParseError> {
+    rule::incomplete(candidate).map_err(RefineParseError::TruncationCheck)
 }
 
-fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, String> {
+fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, RefineParseError> {
     match serde_json::from_str::<serde_json::Value>(candidate) {
         Ok(value) => Ok(value),
         Err(error) => {
             if is_incomplete_json(candidate)? {
-                Err(TRUNCATED_JSON_ERROR.to_string())
+                Err(RefineParseError::Truncated)
             } else {
-                Err(format!("the model did not return valid JSON: {error}"))
+                Err(RefineParseError::InvalidJson(error))
             }
         }
     }
@@ -85,9 +105,9 @@ fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, String> {
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when the reply contains no JSON
-/// object, the candidate JSON is invalid, or the reply looks truncated.
-pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
+/// The reply contains no JSON object, the candidate JSON is invalid, or
+/// the reply looks truncated.
+pub fn extract_json_object(text: &str) -> Result<serde_json::Value, RefineParseError> {
     let trimmed = text.trim();
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
         return parse_json_candidate(trimmed);
@@ -111,9 +131,9 @@ pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
         }
     }
     if is_incomplete_json(trimmed)? {
-        return Err(TRUNCATED_JSON_ERROR.to_string());
+        return Err(RefineParseError::Truncated);
     }
-    Err("Refiner did not return a JSON object".to_string())
+    Err(RefineParseError::NoJsonObject)
 }
 
 /// Normalize an untrusted proposal, preserving invalid edit fields for
@@ -150,12 +170,11 @@ pub fn normalize_refinement_proposal(value: &serde_json::Value) -> RefinementPro
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when the reply's JSON cannot be
-/// extracted or its top level is not an object.
-pub fn parse_proposal(text: &str) -> Result<RefinementProposal, String> {
+/// The reply's JSON cannot be extracted or its top level is not an object.
+pub fn parse_proposal(text: &str) -> Result<RefinementProposal, RefineParseError> {
     let value = extract_json_object(text)?;
     if !value.is_object() {
-        return Err("Refiner JSON must be an object".to_string());
+        return Err(RefineParseError::NotAnObject);
     }
     Ok(normalize_refinement_proposal(&value))
 }
@@ -517,7 +536,7 @@ mod tests {
     #[test]
     fn a_reply_too_long_to_scan_is_an_error() {
         let reply = "[".repeat(eukhe_bend::wire::STR_MAX + 1);
-        let error = extract_json_object(&reply).unwrap_err();
+        let error = extract_json_object(&reply).unwrap_err().to_string();
         assert!(
             error.starts_with("the model's reply could not be checked for truncation: "),
             "{error}"
@@ -547,11 +566,13 @@ mod tests {
         let prose = parse_proposal("Here you go:\n{\"summary\":\"sliced\"}\nAll set.").unwrap();
         assert_eq!(prose.summary, "sliced");
         // Truncated JSON reports the output-budget cause.
-        let error = parse_proposal(r#"{"summary":"cut","edits":[{"action":"cre"#).unwrap_err();
+        let error = parse_proposal(r#"{"summary":"cut","edits":[{"action":"cre"#)
+            .unwrap_err()
+            .to_string();
         assert_eq!(error, TRUNCATED_JSON_ERROR);
         // Non-JSON text reports missing JSON.
         assert_eq!(
-            parse_proposal("no json here").unwrap_err(),
+            parse_proposal("no json here").unwrap_err().to_string(),
             "Refiner did not return a JSON object"
         );
     }

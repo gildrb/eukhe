@@ -113,9 +113,8 @@ fn tool_result_entries_persisted_and_streamed() {
     assert_eq!(stats["success"], true, "get_session_stats failed: {stats}");
     assert_eq!(stats["data"]["toolCalls"], 1, "stats: {stats}");
     assert_eq!(stats["data"]["toolResults"], 1, "stats: {stats}");
-    // user, harness digest (pi-durable commits it after the prompt's user
-    // entry), tool-call assistant, toolResult, follow-up assistant.
-    assert_eq!(stats["data"]["totalMessages"], 5, "stats: {stats}");
+    // user, tool-call assistant, toolResult, follow-up assistant.
+    assert_eq!(stats["data"]["totalMessages"], 4, "stats: {stats}");
 
     // The durable commit log carries the result: `sessionFile` names the
     // session directory, read through the read-only durable reader (the

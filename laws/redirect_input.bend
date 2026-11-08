@@ -3,7 +3,6 @@
 import Base
 import ../bend/redirect_input.bend as Ri
 import ../bend/ffi_redirect_input.bend as FRi
-import ../bend/gateway_answer.bend as Ga
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
@@ -16,7 +15,7 @@ import ./base.bend as LawsBase
 # Every input is free: any text, code, state and failure.
 #
 # R1: the cleaned paste (Rust `clean_paste`): every char that is whitespace
-#     (Rust `char::is_whitespace`: Ga.space) or one of U+200B, U+200C,
+#     (Rust `char::is_whitespace`: ri_space) or one of U+200B, U+200C,
 #     U+200D, U+2060, U+FEFF dropped, then every leading and every trailing
 #     char of `"` `'` `` ` `` `<` `>` U+201C U+201D U+2018 U+2019 trimmed.
 # R2: a paste's answer (Rust `parse_redirect_input`) of the cleaned text v:
@@ -71,11 +70,28 @@ import ./base.bend as LawsBase
 # Clean
 # -----
 
+# x is one of xs
+def ri_in(+x: U32, xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(U32.is_eq(x, y), ri_in(x, rest))
+
+# Rust's whitespace (`char::is_whitespace`, Unicode White_Space), by code
+# point
+def ri_ws() -> List<&2, U32>:
+  [9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288]
+
+# c is whitespace
+def ri_space(c: Char) -> Bool:
+  ri_in(Char.to_u32(c), ri_ws())
+
 def ri_zero_width(c: Char) -> Bool:
-  Ga.in(Char.to_u32(c), [8203, 8204, 8205, 8288, 65279])
+  ri_in(Char.to_u32(c), [8203, 8204, 8205, 8288, 65279])
 
 def ri_wrapper(c: Char) -> Bool:
-  Ga.in(Char.to_u32(c), [34, 39, 96, 60, 62, 8220, 8221, 8216, 8217])
+  ri_in(Char.to_u32(c), [34, 39, 96, 60, 62, 8220, 8221, 8216, 8217])
 
 def ri_compact.at(drop: Bool, c: Char, r: String) -> String:
   match drop:
@@ -90,7 +106,7 @@ def ri_compact(s: String) -> String:
     case SNil{}:
       SNil{}
     case SCon{+c, t}:
-      ri_compact.at(Bool.or(Ga.space(c), ri_zero_width(c)), c, ri_compact(t))
+      ri_compact.at(Bool.or(ri_space(c), ri_zero_width(c)), c, ri_compact(t))
 
 def ri_unwrap.at(b: Bool, c: Char, t: String, r: String) -> String:
   match b:
@@ -626,7 +642,7 @@ def ri_trim_start(s: String) -> String:
     case SNil{}:
       SNil{}
     case SCon{+c, +t}:
-      ri_trim_start.at(Ga.space(c), c, t, ri_trim_start(t))
+      ri_trim_start.at(ri_space(c), c, t, ri_trim_start(t))
 
 def ri_dots.at(b: Bool, c: Char, t: String, r: String) -> String:
   match b:

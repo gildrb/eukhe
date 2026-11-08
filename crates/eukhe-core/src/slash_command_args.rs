@@ -25,14 +25,23 @@ pub enum GoalCommand {
     },
 }
 
+/// The compiled core's refusal of a `/goal` or `/autonomous` argument
+/// string: its usage text, shown as the core wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{text}")]
+pub struct SlashArgsRefusal {
+    /// The core's usage text.
+    pub text: String,
+}
+
 /// Parse `/goal [status|clear|stop|pause|resume|[--budget <tokens>] <objective>]`.
 ///
 /// # Errors
 ///
-/// Returns a usage-error string when the budget flag is given without a
-/// value or an objective, when the budget is not a positive integer, or
-/// when the objective is missing or exceeds the configured character limit.
-pub fn parse_goal_command(args: &str) -> Result<GoalCommand, String> {
+/// The core's usage text when the budget flag is given without a value or
+/// an objective, when the budget is not a positive integer, or when the
+/// objective is missing or exceeds the configured character limit.
+pub fn parse_goal_command(args: &str) -> Result<GoalCommand, SlashArgsRefusal> {
     match slash_args::goal(args) {
         GoalArgs::Status => Ok(GoalCommand::Status),
         GoalArgs::Clear => Ok(GoalCommand::Clear),
@@ -45,7 +54,7 @@ pub fn parse_goal_command(args: &str) -> Result<GoalCommand, String> {
             objective,
             token_budget,
         }),
-        GoalArgs::Error(error) => Err(error),
+        GoalArgs::Error(text) => Err(SlashArgsRefusal { text }),
     }
 }
 
@@ -61,13 +70,13 @@ pub enum AutonomousCommand {
 ///
 /// # Errors
 ///
-/// Returns a usage-error string for an unexpected subcommand, trailing
-/// arguments after `status`/`off`, or invalid budget options.
-pub fn parse_autonomous_command(args: &str) -> Result<AutonomousCommand, String> {
+/// The core's usage text for an unexpected subcommand, trailing arguments
+/// after `status`/`off`, or invalid budget options.
+pub fn parse_autonomous_command(args: &str) -> Result<AutonomousCommand, SlashArgsRefusal> {
     match slash_args::autonomous(args) {
         AutonomousArgs::Status => Ok(AutonomousCommand::Status),
         AutonomousArgs::Off => Ok(AutonomousCommand::Off),
-        AutonomousArgs::Error(error) => Err(error),
+        AutonomousArgs::Error(text) => Err(SlashArgsRefusal { text }),
         AutonomousArgs::On(options) => Ok(AutonomousCommand::On {
             config: AgentAutonomousConfig {
                 max_continuations: options.max_continuations.map(limit),
@@ -196,7 +205,7 @@ mod tests {
             })
         );
         assert!(parse_autonomous_command("bogus")
-            .is_err_and(|error| error.starts_with("Usage: /autonomous [status|off]")));
+            .is_err_and(|error| error.text.starts_with("Usage: /autonomous [status|off]")));
     }
 
     #[test]

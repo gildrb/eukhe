@@ -3,7 +3,7 @@
 # PROOF: closed: the entry runs on each literal input.
 
 import Base
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 
-def Facts.core_facts_tags_example():
+def FactsBudgets.core_facts_tags_example():
   {==}

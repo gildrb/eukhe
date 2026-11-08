@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 import ../base/child.bend as LChild
 import ../base/logic/logic.bend as LLogicLogic
 

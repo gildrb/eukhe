@@ -114,7 +114,7 @@ fn coding_agent_executor_cases() {
             &DiskWriter::default(),
         )
         .expect_err("rejects file creation and directs to the write tool");
-    assert!(error.to_string().contains("write tool"));
+    assert!(error.to_string().contains("New files: `write`"));
     assert!(create.read("new.ts").is_none());
 
     let inserts = Workspace::new();
@@ -218,8 +218,8 @@ fn seen_line_guard_rejects_hidden_anchors_and_accepts_seen_ones() {
             "This edit anchors to lines 3 of a.txt that [a.txt#{tag}] never displayed (it showed \
              a partial range, a search hit, or a folded summary). Actual file content at those \
              lines:\n  3:three\nVerify the content matches what you intend to touch, then \
-             re-issue the edit with the same [path#tag] header — a straight retry now succeeds \
-             without a re-read. If the content does NOT match, fix your line numbers."
+             re-issue the edit with the same [a.txt#{tag}] header — a straight retry now \
+             succeeds without a re-read. If the content does NOT match, fix your line numbers."
         )
     );
     assert_eq!(hidden.read("a.txt").as_deref(), Some(source));
@@ -277,9 +277,9 @@ fn every_block_locator_form_is_rejected() {
 }
 
 /// Same drift as `stale_edit_rebases_when_anchor_remap_cannot_prove_one_offset`
-/// (only the byte rebase can apply it), but line 6 was never displayed.
+/// (only the three-way rebase can apply it), but line 6 was never displayed.
 #[test]
-fn byte_rebase_runs_the_seen_line_guard_on_the_snapshot() {
+fn rebase_runs_the_seen_line_guard_on_the_snapshot() {
     let live = "a\nb\nc\nd\nX\ne\nf\n";
     let mut ws = Workspace::new();
     ws.enforce_seen_lines = true;
@@ -297,8 +297,8 @@ fn byte_rebase_runs_the_seen_line_guard_on_the_snapshot() {
             "This edit anchors to lines 6 of a.txt that [a.txt#{tag}] never displayed (it showed \
              a partial range, a search hit, or a folded summary). Actual file content at those \
              lines:\n  6:f\nVerify the content matches what you intend to touch, then re-issue \
-             the edit with the same [path#tag] header — a straight retry now succeeds without a \
-             re-read. If the content does NOT match, fix your line numbers."
+             the edit with the same [a.txt#{tag}] header — a straight retry now succeeds without \
+             a re-read. If the content does NOT match, fix your line numbers."
         )
     );
     assert_eq!(ws.read("a.txt").as_deref(), Some(live));
@@ -320,7 +320,7 @@ fn colliding_tag_with_different_live_text_is_stale() {
         .expect_err("the tag names the read text, not the live one");
     assert!(error
         .to_string()
-        .starts_with("Edit rejected for a.txt: file changed between read and edit."));
+        .starts_with("Edit rejected for a.txt: file changed between read and edit"));
     assert_eq!(writer.writes(), 0);
     assert_eq!(ws.read("a.txt").as_deref(), Some(COLLIDE_LIVE));
 }
@@ -399,7 +399,7 @@ fn stale_edit_overlapping_the_other_writer_is_rejected() {
     assert!(
         error
             .to_string()
-            .starts_with("Edit rejected for a.txt: file changed between read and edit."),
+            .starts_with("Edit rejected for a.txt: file changed between read and edit"),
         "{error}"
     );
     assert_eq!(

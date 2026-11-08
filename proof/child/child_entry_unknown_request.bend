@@ -6,7 +6,7 @@
 import Base
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ../base/wire.bend as LWire
 
 def uk.tag(n: Nat, rest: String) -> {FCh.run.tag(FCh.tag.of(3n+n), rest) == Wr.err("child: unknown request") : String}:

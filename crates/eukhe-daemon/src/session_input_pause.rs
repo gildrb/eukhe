@@ -17,6 +17,7 @@ use std::sync::Mutex;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::AbortSubmissionResult;
+use eukhe_durable::session::SessionResult;
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
@@ -162,7 +163,12 @@ impl Worker {
             .input_pauses
             .acquire(&active_session_id, &owner_client_id, lease_key);
         if let Err(error) = self.hold_queued_inputs().await {
-            return response_failure(None, "acquire_session_input_pause", &error, None);
+            return response_failure(
+                None,
+                "acquire_session_input_pause",
+                &error.to_string(),
+                None,
+            );
         }
         response_success(
             None,
@@ -176,21 +182,18 @@ impl Worker {
     /// queue behind the admission gate), and a durable steer left in the
     /// inbox would otherwise enter the running turn at its next boundary.
     /// An input a run already placed is no longer queued and stays put.
-    async fn hold_queued_inputs(&self) -> Result<(), String> {
+    async fn hold_queued_inputs(&self) -> SessionResult<()> {
         let Some(hosted) = self.session.get() else {
             return Ok(());
         };
-        let main = hosted.main().map_err(|error| error.to_string())?;
-        let inbox = inbox_previews(hosted.harness(), main.id(), &BACKGROUND_CONTEXT)
-            .await
-            .map_err(|error| error.to_string())?;
+        let main = hosted.main()?;
+        let inbox = inbox_previews(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await?;
         let mut withdrawn = Vec::new();
         for input in inbox {
             match hosted
                 .harness()
                 .abort_submission(input.id, Some(main.id()), &BACKGROUND_CONTEXT)
-                .await
-                .map_err(|error| error.to_string())?
+                .await?
             {
                 AbortSubmissionResult::Aborted => withdrawn.push(input),
                 AbortSubmissionResult::AlreadyPlaced
@@ -244,7 +247,12 @@ impl Worker {
             ReleaseOutcome::Released => match self.admit_held_inputs().await {
                 // The gate lifted: inputs held while paused admit now.
                 Ok(()) => response_success(None, "release_session_input_pause", None),
-                Err(error) => response_failure(None, "release_session_input_pause", &error, None),
+                Err(error) => response_failure(
+                    None,
+                    "release_session_input_pause",
+                    &error.to_string(),
+                    None,
+                ),
             },
             ReleaseOutcome::Unknown => response_success(None, "release_session_input_pause", None),
             ReleaseOutcome::OwnedByAnotherClient => response_failure(
@@ -290,7 +298,7 @@ impl Worker {
     }
 
     /// Admit the held inputs now, once no pause remains.
-    async fn admit_held_inputs(&self) -> Result<(), String> {
+    async fn admit_held_inputs(&self) -> SessionResult<()> {
         if self.input_pauses.paused() {
             return Ok(());
         }

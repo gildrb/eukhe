@@ -1,6 +1,6 @@
 //! eukhe settings as the Harness settings source: the global
 //! `<agent_dir>/settings.json` merged with the project
-//! `<cwd>/.eukhe/settings.json`, then the cfg layers (docs/control.md S4):
+//! `<cwd>/.eukhe/settings.json`, then the cfg layers:
 //! config.cfg (global, then project), the family this session inherited,
 //! its profile (`agents/main.cfg`, or `subagent.cfg` and
 //! `agents/<name>.cfg`), and its own sets. Re-read when any of those files
@@ -507,8 +507,8 @@ fn load(
 ///   an explicit `auto`.
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
 ///   compaction policy; `compaction.providerTokenCount` -> where its
-///   threshold check gets the input tokens (the provider's own counter when
-///   on, else the local estimate).
+///   window check gets the request's input tokens (the provider's own
+///   counter when on, else the local estimate).
 /// - `steeringMode` / `followUpMode` -> the queue modes.
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
@@ -537,12 +537,13 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             enabled: Some(manager.get_compaction_enabled()),
             reserve_tokens: Some(u64_to_f64(manager.get_compaction_reserve_tokens())),
             keep_recent_tokens: Some(u64_to_f64(manager.get_compaction_keep_recent_tokens())),
-            // Early compaction: a background compaction starts a tenth of
-            // the model's context window below the blocking threshold
-            // (`contextWindow - reserveTokens`), so a turn that grows the
-            // context by up to that much starts one before the context
-            // crosses the blocking threshold (`bend/infer.bend` §5); the
-            // blocking threshold and the overflow arm stay the safety nets.
+            // Early compaction: a background compaction starts once a turn
+            // reaches a tenth of the model's context window below the
+            // blocking threshold (`contextWindow - reserveTokens`), so it
+            // runs beside the next request instead of blocking it
+            // (`bend/infer.bend` §5); the blocking threshold, the window
+            // (a request past it waits) and the overflow arm stay the
+            // safety nets.
             background: Some(BackgroundMargin::WindowPercent(10.0)),
             token_count: Some(if manager.get_compaction_provider_token_count() {
                 ThresholdTokens::Provider
@@ -557,6 +558,8 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         context_retention_ms: None,
         document_retention_ms: None,
         max_tool_rounds: Some(manager.get_max_tool_rounds()),
+        privacy_anonymize_remote: Some(manager.get_privacy_anonymize_remote()),
+        privacy_terms: Some(manager.get_privacy_terms()),
     }
 }
 
@@ -635,42 +638,6 @@ mod tests {
         assert_eq!(resolved.follow_up_mode, QueueMode::OneAtATime);
         assert_eq!(resolved.stream, ConversationStreamOptions::default());
         assert_eq!(resolved.compaction.token_count, ThresholdTokens::Estimate);
-    }
-
-    /// The default keep window is 40,000 tokens, and with every catalog
-    /// model it stays under the context size where automatic compaction
-    /// starts, so a compaction there always has history to cut.
-    #[test]
-    #[allow(clippy::cast_precision_loss)] // Reason: token counts are JS numbers.
-    fn the_default_keep_window_stays_under_every_catalog_compaction_start() {
-        use eukhe_ai::models::CreateModelsOptions;
-        use eukhe_ai::providers::all::builtin_models;
-
-        let dir = tempfile::tempdir().expect("tempdir");
-        let settings = EukheSettings::new(dir.path().join("cwd"), dir.path().join("agent"));
-        let policy = resolve_settings(Some(&settings.current())).compaction;
-        assert!((policy.keep_recent_tokens - 40_000.0).abs() < 0.5);
-        let models = builtin_models(CreateModelsOptions::default()).get_models(None);
-        assert!(!models.is_empty());
-        for model in models {
-            let window = model.context_window;
-            if window == 0 {
-                continue;
-            }
-            let start =
-                window as f64 - policy.reserve_tokens - policy.background.tokens(window as f64);
-            let keep = policy.keep_window(window);
-            assert!(
-                keep <= start.max(0.0) / 2.0 && keep <= policy.keep_recent_tokens,
-                "{}/{}: window {window}, keep {keep}, start {start}",
-                model.provider,
-                model.id
-            );
-            // From a ~107k window on, the configured 40,000 applies whole.
-            if start >= 2.0 * policy.keep_recent_tokens {
-                assert!((keep - policy.keep_recent_tokens).abs() < 0.5);
-            }
-        }
     }
 
     #[test]

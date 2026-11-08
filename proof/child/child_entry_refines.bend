@@ -11,7 +11,7 @@ import Base
 import ../../bend/child.bend as Ch
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ./base.bend as LA
 
 # Fields

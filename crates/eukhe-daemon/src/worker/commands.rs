@@ -10,6 +10,7 @@ use eukhe_core::durable::children::PauseAction;
 use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
+use eukhe_durable::session::SessionResult;
 use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
 
@@ -65,7 +66,7 @@ impl Worker {
             "wait_for_headless_completion" => {
                 self.handle_wait_for_headless_completion(payload).await
             }
-            "get_state" => self.handle_get_state(),
+            "get_state" => self.handle_get_state().await,
             "get_messages" => self.handle_get_messages(),
             "get_session_header" => self.handle_get_session_header(),
             "get_session_stats" => self.handle_get_session_stats(),
@@ -105,7 +106,6 @@ impl Worker {
             "rename" => self.handle_rename("rename", payload).await,
             "set_session_name" => self.handle_rename("set_session_name", payload).await,
             "mark_anthropic_warning_shown" => self.handle_mark_anthropic_warning_shown().await,
-            "agent_relay" => self.handle_agent_relay(payload),
             "agent_reply" => self.handle_agent_reply(payload).await,
             "rename_saved_session" => self.handle_rename_saved_session(payload).await,
             "delete_saved_session" => self.handle_delete_saved_session(payload).await,
@@ -347,7 +347,7 @@ impl Worker {
         .await
         {
             Ok(cleared) => cleared,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         self.emit_action_update();
         let data = match queue {
@@ -355,7 +355,7 @@ impl Worker {
             AbortQueue::Send => {
                 if let Some(admission) = &admission {
                     if let Err(error) = resubmit(&hosted, cleared, admission).await {
-                        return response_failure(None, command, &error, None);
+                        return response_failure(None, command, &error.to_string(), None);
                     }
                 }
                 None
@@ -372,18 +372,22 @@ impl Worker {
     pub(crate) async fn resume_suspended_inputs(
         &self,
         hosted: &HostedSession,
-    ) -> Result<bool, String> {
+    ) -> SessionResult<bool> {
         resubmit_suspended(hosted, &self.core, &self.events).await
     }
 
-    fn handle_get_state(&self) -> DaemonResponse {
+    /// `get_state`: the session summary, its `waitingOn` read fresh (a
+    /// failed read keeps the last one the summary showed).
+    async fn handle_get_state(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("get_state") {
             return response;
         }
-        let core = self
+        let waiting_on = super::summary::read_waiting_on(&self.session).await;
+        let mut core = self
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core.note_waiting_on(waiting_on);
         let summary = self.summary_locked(&core);
         response_success(
             None,
@@ -578,7 +582,7 @@ impl Worker {
         .await
         {
             Ok(withdrawn) => withdrawn,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         cleared.extend(withdrawn);
         self.emit_action_update();
@@ -745,25 +749,6 @@ impl Worker {
         }
     }
 
-    /// `agent_relay`: a peer message between two non-root agents of this
-    /// root's family, shown to the root's attached clients as the
-    /// display-only `agent_relay` session event. It never reaches the
-    /// model and never enters chat memory: only the event stream sees it.
-    fn handle_agent_relay(&self, payload: &Value) -> DaemonResponse {
-        const NAME: &str = "agent_relay";
-        if let Err(response) = self.require_created(NAME) {
-            return response;
-        }
-        let field = |key: &str| payload.get(key).and_then(Value::as_str).map(str::to_string);
-        let (Some(from), Some(to), Some(text)) = (field("from"), field("to"), field("text")) else {
-            return response_failure(None, NAME, "agent_relay needs from, to, and text", None);
-        };
-        self.emit_worker_event(SessionEvent::AgentRelay(
-            eukhe_types::daemon::AgentRelayEvent { from, to, text },
-        ));
-        response_success(None, NAME, None)
-    }
-
     pub(crate) async fn handle_rename(&self, command: &str, payload: &Value) -> DaemonResponse {
         let hosted = match self.hosted(command) {
             Ok(hosted) => hosted,
@@ -785,7 +770,7 @@ impl Worker {
             .clone();
         let summary = match self.commit_session_name(&hosted, name).await {
             Ok(summary) => summary,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         // TS #2529 `applyStateSessionName`: a rename that changed an
         // existing name leaves the renamed session a displayed transcript
@@ -824,19 +809,18 @@ impl Worker {
     ///
     /// # Errors
     ///
-    /// The durable commit's failure text.
+    /// The durable commit's failure.
     pub(crate) async fn commit_session_name(
         &self,
         hosted: &HostedSession,
         name: &str,
-    ) -> Result<eukhe_types::daemon::SessionSummary, String> {
+    ) -> SessionResult<eukhe_types::daemon::SessionSummary> {
         meta::set_session_name(
             hosted.harness(),
             Some(name.to_string()),
             &BACKGROUND_CONTEXT,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
         let summary = {
             let mut core = self
                 .core
@@ -882,8 +866,8 @@ async fn resubmit(
     hosted: &HostedSession,
     inputs: Vec<QueuedInput>,
     _admission: &RunAdmission,
-) -> Result<(), String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
+) -> SessionResult<()> {
+    let main = hosted.main()?;
     for input in inputs {
         main.submit(
             InputSubmissionDraft {
@@ -898,8 +882,7 @@ async fn resubmit(
             },
             &BACKGROUND_CONTEXT,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     }
     Ok(())
 }
@@ -941,7 +924,7 @@ pub(crate) async fn mutate_withdrawn<T, F>(
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
     decide: F,
-) -> Result<T, String>
+) -> SessionResult<T>
 where
     F: FnOnce(SuspendedState) -> (SuspendedState, T),
 {
@@ -959,10 +942,8 @@ where
         withdrawn_of(&core)
     };
     let (next, outcome) = decide(current);
-    let main = hosted.main().map_err(|error| error.to_string())?;
-    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT)
-        .await
-        .map_err(|error| error.to_string())?;
+    let main = hosted.main()?;
+    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT).await?;
     {
         let mut core = core
             .lock()
@@ -980,7 +961,7 @@ pub(crate) async fn set_withdrawn(
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
     state: SuspendedState,
-) -> Result<(), String> {
+) -> SessionResult<()> {
     mutate_withdrawn(hosted, core, events, move |_| (state, ())).await
 }
 
@@ -1003,7 +984,7 @@ pub(crate) async fn drain_withdrawn(
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
     list: WithdrawnList,
-) -> Result<bool, String> {
+) -> SessionResult<bool> {
     let gate = {
         let core = core
             .lock()
@@ -1046,10 +1027,8 @@ pub(crate) async fn drain_withdrawn(
             held: Vec::new(),
         },
     };
-    let main = hosted.main().map_err(|error| error.to_string())?;
-    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT)
-        .await
-        .map_err(|error| error.to_string())?;
+    let main = hosted.main()?;
+    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT).await?;
     {
         let mut core = core
             .lock()
@@ -1066,6 +1045,6 @@ pub(crate) async fn resubmit_suspended(
     hosted: &HostedSession,
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
-) -> Result<bool, String> {
+) -> SessionResult<bool> {
     drain_withdrawn(hosted, core, events, WithdrawnList::Suspended).await
 }

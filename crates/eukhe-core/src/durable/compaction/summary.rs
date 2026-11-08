@@ -3,8 +3,7 @@
 //! `CompactionRequest`): the old summarizer prompts and serializer
 //! (`compaction_utils`), the auxiliary-model routing (`auxiliaryModel`,
 //! TS #2411), the previous summary's update mode, the recent-state anchor
-//! (TS #2385), the harness-digest block that leads the summary, and the
-//! `[compaction-summary]` wrapper.
+//! (TS #2385), and the `[compaction-summary]` wrapper.
 //! The summary text deltas stream to the session's
 //! [`SummaryDeltaSink`](super::HostDeps) while the summarizer answers.
 //!
@@ -17,7 +16,7 @@ use std::sync::Arc;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_chord::context::Context;
-use eukhe_durable::entries::{CompactionSummary, HarnessDigest, COMPACTION_ENTRY};
+use eukhe_durable::entries::{CompactionSummary, COMPACTION_ENTRY};
 use eukhe_durable::harness::types::{
     BeforeCompactHook, CompactionDecision, CompactionRequest, HookApi,
 };
@@ -73,11 +72,6 @@ async fn decide(
         "compact.enter",
         &json!({ "customInstructions": request.instructions.is_some() }),
     );
-    // A chat-memory root's next turn starts fresh from the settled view;
-    // the history lives in the chat, so the compaction is declined.
-    if chat_memory_root(deps, api.conversation_id(), cx).await? {
-        return Ok(Some(CompactionDecision::Decline));
-    }
     let harness = deps.harness.require()?;
     let Some(conversation) = harness.conversation(api.conversation_id(), cx).await? else {
         return Ok(Some(CompactionDecision::Decline));
@@ -251,50 +245,15 @@ async fn decide(
             sink(&file_block);
         }
     }
-    // The harness digest: a fresh render leads the summary (the old
-    // engine's `harness_digest` block, TS #2394) and rides the entry data
-    // with its state fingerprint, so a later staleness check compares
-    // state instead of query-dependent renderings.
-    let digest = super::digest_render_of(deps, &conversation, cx).await?;
     let summary = CompactionSummary {
         summary: summary_text,
         read_files,
         modified_files,
-        digest: digest.map(|render| HarnessDigest {
-            digest: render.digest,
-            state_fingerprint: render.state_fingerprint,
-        }),
     };
     Ok(Some(CompactionDecision::Rendered {
         text: head::rendered_summary(&summary),
         summary,
     }))
-}
-
-/// Whether the compaction's conversation is a chat-memory root (a session
-/// with chat memory, root role, whose conversation no task owns).
-async fn chat_memory_root(
-    deps: &super::HostDeps,
-    conversation: eukhe_durable::types::ConversationId,
-    cx: &Context,
-) -> SessionResult<bool> {
-    if deps.memory.is_none() || deps.role.memory_role() != crate::memory::MemoryRole::Root {
-        return Ok(false);
-    }
-    let harness = deps.harness.require()?;
-    let root =
-        crate::durable::optchat::request::is_root_conversation(&harness, conversation, cx).await;
-    root.map_err(SessionError::other)
-}
-
-/// Whether `conversation` is a chat-memory root (the observer's skip
-/// message reads the same decline the hook applies).
-pub(super) async fn chat_memory_root_of(
-    deps: &super::HostDeps,
-    conversation: eukhe_durable::types::ConversationId,
-    cx: &Context,
-) -> SessionResult<bool> {
-    chat_memory_root(deps, conversation, cx).await
 }
 
 /// The recent-state anchor over the kept tail: the newest assistant text

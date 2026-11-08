@@ -27,6 +27,7 @@ mod endings;
 mod input;
 mod messages;
 mod mismatch;
+mod parse_error;
 mod parser;
 mod patcher;
 mod prefixes;
@@ -41,6 +42,8 @@ mod tests;
 use std::path::{Path, PathBuf};
 
 use eukhe_types::path_policy::real_path;
+
+pub use self::parse_error::HashlineParseError;
 
 use self::{
     input::split_sections,
@@ -118,12 +121,25 @@ pub enum Published {
         /// The text actually on disk after the write (a host may
         /// reformat); empty for deletes.
         written: String,
-        /// A step after the change landed that failed (a directory sync,
-        /// the removal of a moved file's source).
-        warning: Option<String>,
+        /// What `written` was made from.
+        basis: Basis,
+        /// What a step after the change landed met (a failed directory
+        /// sync, a moved file's source not removed, the rebase of the
+        /// change onto bytes another program wrote).
+        warnings: Vec<String>,
     },
     /// The change is not on disk.
     Failed(EditError),
+}
+
+/// What the text that landed was made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    /// The bytes the edit was staged on.
+    Staged,
+    /// Bytes another program wrote while the edit was being written: the
+    /// change was rebased onto them.
+    Rebased,
 }
 
 /// The host-owned writer every hashline write goes through.
@@ -137,7 +153,9 @@ pub enum Published {
 /// after the first change that fails. It returns one [`Published`] per
 /// request it tried: fewer than the requests when a failure stopped it.
 /// When the text that landed differs from `content`, the engine warns and
-/// records the landed text as the new snapshot.
+/// records the landed text as the new snapshot. A change the host rebased
+/// onto bytes another program wrote after the check lands as
+/// [`Basis::Rebased`]: the lines that program wrote are not seen.
 pub trait EditWriter {
     /// Check every request, then perform them in order.
     ///
@@ -304,9 +322,18 @@ pub fn apply_hashline(
     for ((file, write), note) in staged.into_iter().zip(by_file).zip(notes) {
         let write = match (note, write) {
             (crate::commit::Note::Untouched, _) => Write::Unneeded,
-            (crate::commit::Note::Written, Some(Published::Landed { written, warning })) => {
-                Write::Landed { written, warning }
-            }
+            (
+                crate::commit::Note::Written,
+                Some(Published::Landed {
+                    written,
+                    basis,
+                    warnings,
+                }),
+            ) => Write::Landed {
+                written,
+                basis,
+                warnings,
+            },
             (crate::commit::Note::Unwritten, Some(Published::Failed(error))) => {
                 Write::NotWritten(error.to_string())
             }
@@ -389,7 +416,8 @@ enum Write {
     /// The change is on disk.
     Landed {
         written: String,
-        warning: Option<String>,
+        basis: Basis,
+        warnings: Vec<String>,
     },
     /// The change is not on disk, for this reason.
     NotWritten(String),
@@ -398,9 +426,13 @@ enum Write {
 /// Update the store with what landed of one staged file and render its
 /// result text.
 fn commit(mut file: StagedFile, write: Write, store: &EditStore) -> FileOutcome {
-    let (written, warning) = match write {
-        Write::Unneeded => (String::new(), None),
-        Write::Landed { written, warning } => (written, warning),
+    let (written, basis, warnings) = match write {
+        Write::Unneeded => (String::new(), Basis::Staged, Vec::new()),
+        Write::Landed {
+            written,
+            basis,
+            warnings,
+        } => (written, basis, warnings),
         Write::NotWritten(reason) => {
             let text = format!("NOT applied to {}: {reason}", file.display);
             return FileOutcome {
@@ -415,7 +447,7 @@ fn commit(mut file: StagedFile, write: Write, store: &EditStore) -> FileOutcome 
             };
         }
     };
-    file.warnings.extend(warning);
+    file.warnings.extend(warnings);
     let (change, tag, text) = match &file.op {
         StagedOp::Delete => {
             store.invalidate(&file.canonical);
@@ -440,33 +472,31 @@ fn commit(mut file: StagedFile, write: Write, store: &EditStore) -> FileOutcome 
             };
             // The lines of the new text the model saw: the lines of the
             // base it saw that the edit kept, and every line the edit
-            // wrote; `None` when the session holds no seen lines of the base.
+            // wrote, less every line another program wrote meanwhile (a
+            // rebased edit); `None` when the session holds no seen lines of
+            // the base.
             let before = lf_text(&file.before_raw);
             let seen = store
                 .by_content(&file.canonical, &before)
                 .and_then(|snapshot| snapshot.seen_lines)
-                .map(|seen| {
-                    let (mut old, mut new) = (1_u32, 1_u32);
-                    let mut carried = Vec::new();
-                    for run in crate::diff::line_runs(&before, &recorded) {
-                        match (run.added, run.removed) {
-                            (true, false | true) => {
-                                carried.extend(new..new + run.count);
-                                new += run.count;
-                            }
-                            (false, true) => old += run.count,
-                            (false, false) => {
-                                carried.extend(
-                                    (0..run.count)
-                                        .filter(|offset| seen.contains(&(old + offset)))
-                                        .map(|offset| new + offset),
-                                );
-                                old += run.count;
-                                new += run.count;
-                            }
-                        }
+                .map(|seen| match basis {
+                    Basis::Staged => {
+                        carry_seen(&before, &recorded, |line| seen.contains(&line), Added::Seen)
                     }
-                    carried
+                    Basis::Rebased => {
+                        let edited = carry_seen(
+                            &before,
+                            &file.after,
+                            |line| seen.contains(&line),
+                            Added::Seen,
+                        );
+                        carry_seen(
+                            &file.after,
+                            &recorded,
+                            |line| edited.binary_search(&line).is_ok(),
+                            Added::Unseen,
+                        )
+                    }
                 });
             let (key, change) = if let Some(destination) = &file.move_to {
                 let key = real_path(&destination.absolute);
@@ -476,12 +506,18 @@ fn commit(mut file: StagedFile, write: Write, store: &EditStore) -> FileOutcome 
                 };
                 (key, change)
             } else {
-                if recorded != file.after {
+                if basis == Basis::Staged && recorded != file.after {
                     file.warnings.push(write_drift_warning(&file.display));
                 }
                 (file.canonical.clone(), FileChange::Updated)
             };
-            store.saw_bytes(&key, written.as_bytes());
+            match basis {
+                // The write tool may replace exactly these bytes.
+                Basis::Staged => store.saw_bytes(&key, written.as_bytes()),
+                // Another program's lines are in them: the model has not
+                // seen these bytes.
+                Basis::Rebased => {}
+            }
             let tag = store.record(&key, &recorded, seen.as_deref());
             store.reset_noop(&file.canonical);
             let text = format_file_text(&file, &tag);
@@ -499,6 +535,50 @@ fn commit(mut file: StagedFile, write: Write, store: &EditStore) -> FileOutcome 
         tag,
         text,
     }
+}
+
+/// Who wrote the lines a change added.
+#[derive(Clone, Copy)]
+pub(crate) enum Added {
+    /// The edit: the model saw them.
+    Seen,
+    /// Another program: the model has not seen them.
+    Unseen,
+}
+
+/// The seen lines of `new` (ascending), changed from `old` whose seen
+/// lines `seen` answers: a kept line keeps its state; an added line is
+/// seen only when the edit wrote it.
+pub(crate) fn carry_seen(
+    old: &str,
+    new: &str,
+    seen: impl Fn(u32) -> bool,
+    added: Added,
+) -> Vec<u32> {
+    let (mut at_old, mut at_new) = (1_u32, 1_u32);
+    let mut carried = Vec::new();
+    for run in crate::diff::line_runs(old, new) {
+        match (run.added, run.removed) {
+            (true, false | true) => {
+                match added {
+                    Added::Seen => carried.extend(at_new..at_new + run.count),
+                    Added::Unseen => {}
+                }
+                at_new += run.count;
+            }
+            (false, true) => at_old += run.count,
+            (false, false) => {
+                carried.extend(
+                    (0..run.count)
+                        .filter(|offset| seen(at_old + offset))
+                        .map(|offset| at_new + offset),
+                );
+                at_old += run.count;
+                at_new += run.count;
+            }
+        }
+    }
+    carried
 }
 
 /// Model-facing text for one written file (omp `format_file_text`).

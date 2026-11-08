@@ -721,6 +721,24 @@ law search_met_answers:
   for h: {ds_fits(ds_met(f)) == True{} : Bool}
   {FDs.step(FDs.Walk{p, s, k, rem, n, t, maxb}, ds_spell(ds_met(f))) == (FDs.Walk{p, s, k, Sr.left(Sr.Ent{0n, f}, p, rem), Sr.seen(Sr.Ent{0n, f}, rem, n), Nat.sub(t, 1n), maxb}, ds_spell(ds_said(Sr.out(Sr.Ent{0n, f}, p, s, k, rem, n), Sr.kept(Sr.Ent{0n, f}, p, rem)))) : FDs.St & String}
 
+# LAW search_met_rules_spec: the rules search_met_answers names are the
+# spec's for every entry: its class, cut and part (Sr.out is ds_out), the
+# matches it keeps (Sr.kept is ds_kept), the matches left after it (rem
+# less those kept) and the matching files met after it (Sr.seen is
+# ds_seen)
+# EXCLUDES: a stepper that answers one file with a rule of its own (a
+#   class, cut or kept count that is not the spec's) while the walk's run
+#   (grep_walk_spec) keeps the spec's; matches left or files met that
+#   drift, so the next ask fetches or stops wrongly
+law search_met_rules_spec:
+  for +e: Sr.Ent
+  for +p: Nat
+  for +s: Nat
+  for +k: Nat
+  for +rem: Nat
+  for +n: Nat
+  {(Sr.out(e, p, s, k, rem, n), (Sr.kept(e, p, rem), (Sr.left(e, p, rem), Sr.seen(e, rem, n)))) == (ds_out(e, p, s, k, rem, n), (ds_kept(e, p, rem), (Nat.sub(rem, ds_kept(e, p, rem)), ds_seen(e, rem, n)))) : Sr.Out & (Nat & (Nat & Nat))}
+
 # the replies of the stepper to the files of a walk, after the reply of r
 def ds_drive(es: List<&2, Sr.Ent>, r: FDs.St & String) -> List<&2, String>:
   match es:

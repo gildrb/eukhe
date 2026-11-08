@@ -1,0 +1,20 @@
+# the call (no input), then one with a number past the wire
+call 
+refuse {LONG},
+# the desk: questions whose effects are at their largest, shown and
+# relayed; answers; a detach that relays the rest; the parent's answers,
+# cancels and keys at their largest
+open 
+step 0,1,a3,{MAX},{MAX},5,2,F
+step 0,1,b2,{MAX},{MAX},2,T
+step 0,1,c2,{MAX},6,0,T
+step 0,1,d1,{MAX},1,F
+step 1,1,aT
+step 2,0,T
+step 4,{MAX},3,
+step 3,{MAX},
+step 4,2,0,
+step 3,1,
+# a key one digit past the wire: refused, the desk kept
+refuse-step 3,{LONG},
+step 3,0,

@@ -1,8 +1,10 @@
-//! What every eukhe wire tool's contract shares (omp ADR 0026, docs/tools.md
-//! S7): the intent `i`, the first property of a closed parameter object; the
+//! What every eukhe wire tool's contract shares (omp ADR 0026): the intent `i`, the first property of a closed parameter object; the
 //! schema version, the annotation `title: "v<n>"` with `n >= 1`, which every
 //! wire API keeps; and the durable identity `name@rev` each result's details
-//! carry as `version`.
+//! carry as `version`. The lift table (`bend/call_lift.bend` `table()`)
+//! holds every family's current rev: a rev bump adds the step from the old
+//! rev there, so stored calls replay in the new dialect
+//! (eukhe-durable `harness/lift.rs`).
 //!
 //! `i` is declared but not required: a call without an intent still runs
 //! (strict on meaning, charitable on dialect, ADR 0020). [`build`] gives
@@ -12,7 +14,7 @@ use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_bend::rules::tool_surface::{self, Schema, INTENT as INTENT_ID};
 use eukhe_types::pi_ai::{JsonObject, JsonValue, ToolSchema};
 
-const INTENT_DESCRIPTION: &str = "Short present-participle intent for this call.";
+const INTENT_DESCRIPTION: &str = "2-6 word present-participle intent.";
 
 /// The intent parameter's name.
 const INTENT: &str = "i";

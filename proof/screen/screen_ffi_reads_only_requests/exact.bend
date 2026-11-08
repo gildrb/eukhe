@@ -10,7 +10,7 @@ import ../../../bend/ffi_screen.bend as FSc
 import ../../../bend/screen.bend as Sc
 import ../../../bend/wire.bend as Wr
 import ../../../laws/base.bend as LawsBase
-import ../../../laws/screen.bend as Screen
+import ../../../laws/screen/interface.bend as Screen
 import ../../../laws/wire.bend as Wire
 import ../../wire/base/spell.bend as LAWireSpell
 import ../../wire/wire_nat_exact.bend as PWireNatExact

@@ -1,12 +1,14 @@
-//! The `read` function's internal URLs (docs/tools.md S7): `repo://` and
+//! The `read` function's internal URLs: `repo://` and
 //! `skill://` read a file or directory under their root through the
 //! session's documents (anchorable like any read); `agent://` reads a
-//! subagent's chat, `memory://` the chat memory, `mcp://` an MCP server's
+//! subagent's chat outside a chat session, `mcp://` an MCP server's
 //! resources (through the kernel, where the MCP client runs), and `ssh://`
 //! a file of a host that `ssh.hosts` allows (through the user's own
-//! `ssh`, [`super::ssh`]), as text. The path is confined by
-//! [`Url::names`] and [`Url::remote`]: a `..` above the scheme's root is
-//! an `escapes` rejection, never clamped; a file-backed read whose real
+//! `ssh`, [`super::ssh`]), as text. In a chat session `zoom` and `date`
+//! are the only model-facing door into the chat (law `memory_one_door`),
+//! so `read` serves no `agent://` there ([`serves`]). The path is confined
+//! by [`Url::names`] and [`Url::remote`]: a `..` above the scheme's root
+//! is an `escapes` rejection, never clamped; a file-backed read whose real
 //! path leaves the root's real path through a symlink is one too.
 
 use std::ffi::OsStr;

@@ -93,7 +93,6 @@ pub(crate) fn answer(event: &SessionEvent) -> Option<Answer> {
         | SessionEvent::SessionActionUpdate { .. }
         | SessionEvent::GoalUpdate { .. }
         | SessionEvent::MemoryUpdate { .. }
-        | SessionEvent::AgentRelay(_)
         | SessionEvent::BashStart { .. }
         | SessionEvent::BashOutput { .. }
         | SessionEvent::BashEnd { .. }

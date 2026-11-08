@@ -1,0 +1,10 @@
+# expand: alias numbers, cvar ids and values at their largest
+call 1,{MAX},1,2,{MAX},2,0,{MAX},0,{MAX},2,{MAX},
+call 2,{MAX},1,1,{MAX},99999999999998,1,2,{MAX},1,2,99999999999998,
+refuse 1,{LONG},0,0,
+# press: a key and an alias numbered {MAX}
+open 1,{MAX},1,2,{MAX},1,{MAX},1,0,{MAX},0,{MAX},
+step {MAX},
+step 0,
+refuse-step {LONG},
+step {MAX},

@@ -63,7 +63,8 @@ pub enum AgentPeerScope {
 /// ([`DaemonCommand::ProviderAdmissionAcquire`]). Interactive requests are
 /// served in arrival order; a background request is admitted only while
 /// no interactive request of its provider holds or waits for a slot, and
-/// the next interactive request that comes preempts it.
+/// on a provider with an in-flight limit the next interactive request
+/// that comes preempts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AdmissionPriority {
@@ -85,8 +86,7 @@ pub enum DaemonSessionLifecycle {
 /// session asks its interactive clients each shell approval question. A
 /// session whose only clients are the phone gateway asks no one: it runs
 /// each gated step at once, except a step that writes a protected path
-/// or reads or writes a secret, which it refuses at once (docs/tools.md
-/// G5). An attach without the field is interactive.
+/// or reads or writes a secret, which it refuses at once. An attach without the field is interactive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonClientKind {
@@ -1468,21 +1468,6 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native worker command: a subagent that messaged another
-    /// non-root agent of its family asks the family root's worker to show
-    /// the exchange (the root emits the display-only `agent_relay` session
-    /// event; never model input, never chat memory).
-    AgentRelay {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        /// The family root's live session.
-        active_session_id: String,
-        from: String,
-        to: String,
-        text: String,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
     /// Rust-native worker command: an agent's final answer to a user's
     /// `@name` message, delivered to the session the user sent it from.
     /// The session commits it as an `agent_reply` row once per `reply_id`
@@ -1558,6 +1543,42 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native client command: a headless (print/json/RPC) session
+    /// that hosts subagents on this supervisor joins the roster as their
+    /// parent, for the life of the connection that sent it. The session
+    /// runs in the client process, so its live session id is its
+    /// `session_id`. The supervisor routes every message to it over that
+    /// connection (`headless_parent_delivery` frames, answered with
+    /// [`DaemonCommand::HeadlessParentReceipt`]); the connection's close
+    /// unregisters it and stops its resident children.
+    RegisterHeadlessParent {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_name: Option<String>,
+        /// The session's storage; absent for a memory session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_file: Option<String>,
+        cwd: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native client command: a registered headless parent's answer
+    /// to the `headless_parent_delivery` frame `delivery_id`: the
+    /// delivery receipt (the shape `worker_deliver_message` answers), or
+    /// the error that refused the message.
+    HeadlessParentReceipt {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        delivery_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1601,10 +1622,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_relay_and_roster_scope_roundtrip() {
-        rt::<DaemonCommand>(
-            r#"{"type":"agent_relay","activeSessionId":"root","from":"scout","to":"builder","text":"hi"}"#,
-        );
+    fn roster_scope_roundtrip() {
         rt::<DaemonCommand>(r#"{"type":"list_agent_peers","workerToken":"t","scope":"roster"}"#);
     }
 

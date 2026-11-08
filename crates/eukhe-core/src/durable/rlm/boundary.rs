@@ -243,9 +243,7 @@ fn compact_run(
             .as_ref()
             .and_then(|model| runtime.model(model))
             .map_or(0, |model| model.context_window);
-        let keep_recent = resolve_settings(Some(&runtime.deps.settings.harness()))
-            .compaction
-            .keep_window(window);
+        let policy = resolve_settings(Some(&runtime.deps.settings.harness())).compaction;
         let compacted_tail = view.entries.len() == usize::from(view.head.is_some())
             && view
                 .head
@@ -254,7 +252,7 @@ fn compact_run(
         if compacted_tail {
             return Ok(json!({ "scheduled": false, "reason": "already compacted" }));
         }
-        if select_cut(&view, keep_recent).is_none() {
+        if select_cut(&view, &policy, window).is_none() {
             return Ok(json!({ "scheduled": false, "reason": "session is too short to compact" }));
         }
         conversation.compact(instructions, &cx).await?;

@@ -16,7 +16,7 @@ async fn a_silent_child_settles_its_row_without_a_report() {
         &setup,
         json!([{
             "prompt": PROMPT,
-            "kwargs": { "label": "scan api", "phase": "Scan", "report": "silent" }
+            "kwargs": { "why": "parallel", "label": "scan api", "phase": "Scan", "report": "silent" }
         }]),
     )
     .await;
@@ -90,7 +90,7 @@ async fn a_failed_silent_child_posts_no_report() {
     spawn_batch_turn(
         &opened,
         &setup,
-        json!([{ "prompt": PROMPT, "kwargs": { "report": "silent" } }]),
+        json!([{ "prompt": PROMPT, "kwargs": { "why": "parallel", "report": "silent" } }]),
     )
     .await;
     let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())

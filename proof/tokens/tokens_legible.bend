@@ -6,7 +6,7 @@ import ../../laws/tokens.bend as Tokens
 
 # ---- tokens ----
 
-# proof_tokens: the T2 laws (docs/dashboard.md "Tokens") of the token
+# proof_tokens: the T2 laws of the token
 # model in bend/tokens.bend.
 #
 # The tables are constants, so each claim about them computes: the

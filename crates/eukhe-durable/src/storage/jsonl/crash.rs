@@ -32,7 +32,7 @@ use crate::env::{
     OpenBinaryReaderOptions, ReadTextLinesOptions, RemoveOptions, TempFileOptions, TextLineReader,
     WatchTarget,
 };
-use crate::testing::bridge::Rng;
+use crate::testing::rng::Rng;
 use crate::types::{Storage, StorageWrite, ROOT_CONVERSATION_ID};
 
 /// What the power loss of [`CrashFs`] knows of the files.

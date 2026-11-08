@@ -1,0 +1,17 @@
+# the child task's three decisions: every number at its largest
+# verdict: a poll with no progress, the clock full, the elapsed ms at the largest
+call 0,{MAX},{MAX},1,{MAX},{MAX},{MAX},{MAX},0,1,{MAX},0,
+# verdict: progress to a new token, a silent task
+call 0,{MAX},{MAX},1,{MAX},{MAX},{MAX},0,0,1,99999999999998,1,
+# verdict: a failed poll with the tries left at the largest; a reply
+call 0,{MAX},{MAX},1,{MAX},{MAX},{MAX},{MAX},1,0,
+call 0,{MAX},{MAX},0,{MAX},{MAX},{MAX},2,F0,
+# move: a withdrawn submission under the largest id; one the parent read;
+# none yet
+call 1,1,1,{MAX},
+call 1,1,3,{MAX},
+call 1,0,{MAX},
+# abort: a watched child deleted; an owed report under the largest id
+call 2,0,1,{MAX},{MAX},{MAX},T
+call 2,1,4,{MAX},F
+refuse 1,0,{LONG},

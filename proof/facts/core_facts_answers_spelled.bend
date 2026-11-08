@@ -8,12 +8,12 @@ import Base
 import ../../bend/facts.bend as Fx
 import ../../bend/ffi_facts.bend as FFx
 import ../../bend/wire.bend as Wr
-import ../../laws/facts.bend as Facts
+import ../../laws/facts/budgets.bend as FactsBudgets
 import ../../laws/base.bend as LawsBase
 import ./base.bend as LA
 
-def fas.main(+q: FFx.Req, fits: {Facts.core_facts_req_fits(q) == True{} : Bool}) -> {FFx.ffi(Facts.facts_spell_req(q, "")) == Facts.facts_spell_answer(q) : String}:
-  Equal.trans(String, FFx.ffi(Facts.facts_spell_req(q, "")), FFx.answer(q), Facts.facts_spell_answer(q), LA.fs.run(q, "", fits), LA.fs.answer(q))
+def fas.main(+q: FFx.Req, fits: {FactsBudgets.core_facts_req_fits(q) == True{} : Bool}) -> {FFx.ffi(FactsBudgets.facts_spell_req(q, "")) == FactsBudgets.facts_spell_answer(q) : String}:
+  Equal.trans(String, FFx.ffi(FactsBudgets.facts_spell_req(q, "")), FFx.answer(q), FactsBudgets.facts_spell_answer(q), LA.fs.run(q, "", fits), LA.fs.answer(q))
 
-def Facts.core_facts_answers_spelled(q, fits):
+def FactsBudgets.core_facts_answers_spelled(q, fits):
   fas.main(q, fits)

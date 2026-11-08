@@ -1,4 +1,8 @@
-# eukhe: shared lemmas of the doc_tags proofs (F3, grep's tags)
+# eukhe: shared lemmas of the doc_tags proofs (F3, tags and grep's tags)
+#
+# The tagged result against the spec (laws/doc_tags.bend sp_rows,
+# sp_show, sp_line, sp_from_text): ptg.rows, ptg.show, ptg.line,
+# ptg.from_text, by induction on the text, the selection and the rows.
 #
 # The scan codec of bend/ffi_doc_tags.bend against the spec's spelling
 # (laws/doc_tags.bend sp_w_scan, sp_w_req), both directions: a spelled
@@ -34,6 +38,66 @@ def ptg.BT(b: Bool, G: Type) -> Type:
 def ptg.tf(-G: Type, e: {True{} == False{} : Bool}) -> G:
   %e : ptg.BT(_, G)
   Unit{}
+
+# Tags
+# ----
+
+# the rows cut from ts are the spec's
+def ptg.rows(ts: List<&2, Nat>, sel: List<&2, Bool>, +n: Nat) -> {Dt.rows(ts, sel, n) == DocTags.sp_rows(ts, sel, n) : List<&2, Dt.Row>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      match sel:
+        case Nil{}:
+          {==}
+        case s <> +more:
+          match s:
+            case True{}:
+              %Equal.sym(List<&2, Dt.Row>, Dt.rows(rest, more, 1n+n), DocTags.sp_rows(rest, more, 1n+n), ptg.rows(rest, more, 1n+n)) : {Dt.Row{n, x} <> _ == Dt.Row{n, x} <> DocTags.sp_rows(rest, more, 1n+n) : List<&2, Dt.Row>}
+              {==}
+            case False{}:
+              ptg.rows(rest, more, 1n+n)
+
+# the result of an op is the spec's
+def ptg.show(+t: List<&2, Nat>, op: Dt.Op) -> {Dt.show(t, op) == DocTags.sp_show(t, op) : Dt.Shown}:
+  match op:
+    case Dt.Read{+sel}:
+      %Equal.sym(List<&2, Dt.Row>, Dt.rows(t, sel, 1n), DocTags.sp_rows(t, sel, 1n), ptg.rows(t, sel, 1n)) : {Dt.Shown{t, _} == Dt.Shown{t, DocTags.sp_rows(t, sel, 1n)} : Dt.Shown}
+      {==}
+    case Dt.Grep{+sel, later}:
+      %Equal.sym(List<&2, Dt.Row>, Dt.rows(t, sel, 1n), DocTags.sp_rows(t, sel, 1n), ptg.rows(t, sel, 1n)) : {Dt.Shown{t, _} == Dt.Shown{t, DocTags.sp_rows(t, sel, 1n)} : Dt.Shown}
+      {==}
+
+# the line at index m, as `is_line` looks it up, is the spec's
+def ptg.at(t: List<&2, Nat>, m: Nat, +x: Nat) -> {Maybe.default(&2, Bool, Maybe.bind(&2, Nat, Bool, List.get(&2, Nat, t, m), y => Some{Nat.is_eq(y, x)}), False{}) == DocTags.sp_at(t, m, x) : Bool}:
+  match t m:
+    case Nil{} _:
+      {==}
+    case h <> rest 0n:
+      {==}
+    case h <> rest 1n+p:
+      ptg.at(rest, p, x)
+
+# `is_line` is the spec's
+def ptg.line(t: List<&2, Nat>, n: Nat, +x: Nat) -> {Dt.is_line(t, n, x) == DocTags.sp_line(t, n, x) : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+m:
+      ptg.at(t, m, x)
+
+# `from_text` is the spec's
+def ptg.from_text(+t: List<&2, Nat>, rs: List<&2, Dt.Row>) -> {Dt.from_text(t, rs) == DocTags.sp_from_text(t, rs) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case r <> +more:
+      match r:
+        case Dt.Row{+n, +x}:
+          %Equal.sym(Bool, Dt.is_line(t, n, x), DocTags.sp_line(t, n, x), ptg.line(t, n, x)) : {Bool.and(_, Dt.from_text(t, more)) == Bool.and(DocTags.sp_line(t, n, x), DocTags.sp_from_text(t, more)) : Bool}
+          %Equal.sym(Bool, Dt.from_text(t, more), DocTags.sp_from_text(t, more), ptg.from_text(t, more)) : {Bool.and(DocTags.sp_line(t, n, x), _) == Bool.and(DocTags.sp_line(t, n, x), DocTags.sp_from_text(t, more)) : Bool}
+          {==}
 
 # Fates
 # -----

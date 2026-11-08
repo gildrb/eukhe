@@ -1,0 +1,6 @@
+# the cells' widths, flat (1 + width, each row closed by 0): every width
+# at its largest, several in a column and a row, a short row, an empty row
+call 7,{MAX},{MAX},{MAX},0,{MAX},0,0,
+call 9,{MAX},1,{MAX},0,1,{MAX},{MAX},0,0,
+call 0,
+refuse 2,{LONG},0,

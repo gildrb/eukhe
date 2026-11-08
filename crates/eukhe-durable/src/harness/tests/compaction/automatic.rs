@@ -3,22 +3,25 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::providers::faux::faux_tool_call;
 use eukhe_chord::json::{to_json, JsonValue};
+use eukhe_types::pi_ai::{JsonObject as PiJsonObject, Message, StopReason};
 use futures::FutureExt;
 
 use super::{
     answer, compact, compaction_tasks, fails_before_the_request, failure, first_user_text, gated,
     history, kinds, live, open, result, step, submission, submission_id, submit, summary, text,
-    turn, Chat, OpenOptions, BACKGROUND, BLOCKING, MANUAL, OVERFLOW,
+    text_tool, turn, user_text, with_stop, Chat, OpenOptions, BACKGROUND, BLOCKING, MANUAL,
+    OVERFLOW,
 };
 use crate::harness::events::{watch_events, AgentEvent};
 use crate::harness::live::CompactionStatus;
-use crate::harness::tests::chat_support::{all_entries, wait_for};
-use crate::harness::tests::support::{add_hooks, add_section, compaction_task, context};
+use crate::harness::tests::chat_support::{all_entries, tools_named, wait_for};
+use crate::harness::tests::support::{add_hooks, add_section, add_tool, compaction_task, context};
 use crate::harness::tests::task_support::deferred;
 use crate::harness::types::{
-    BackgroundMargin, CompactionDecision, CompactionHooks, CompactionPolicy, CompactionReason,
-    CompactionResult, ConversationAbortOptions,
+    AgentChange, BackgroundMargin, CompactionDecision, CompactionHooks, CompactionPolicy,
+    CompactionReason, CompactionResult, ConversationAbortOptions, FieldChange, ToolsChange,
 };
 use crate::types::{AnyTaskRecord, SubmissionStatus, TaskId, TaskOutcome, TaskState};
 
@@ -370,6 +373,105 @@ async fn waits_for_its_compaction_which_appends_the_summary_before_the_request()
     chat.harness.close(context()).await.unwrap();
 }
 
+/// The system prompt and tools lead a request after a compaction as before
+/// it: the new baseline goes ahead of the summary and the kept turns, so the
+/// request's cached prefix (prompt and tools) stays the same and only the
+/// summary and what follows it are new. Behind the kept answer, the baseline
+/// would ride mid-conversation and every compaction would write it again.
+#[tokio::test]
+async fn a_compaction_keeps_the_system_prompt_and_tools_leading_the_request() {
+    let chat = open(OpenOptions {
+        context_window: Some(1000),
+        ..OpenOptions::default()
+    })
+    .await;
+    add_tool(&chat.setup.registry, text_tool("read", ""), None).unwrap();
+    chat.root
+        .configure(
+            AgentChange {
+                tools: FieldChange::Set(ToolsChange::Exactly(tools_named(&chat.setup, &["read"]))),
+                ..AgentChange::default()
+            },
+            context(),
+        )
+        .await
+        .unwrap();
+    history(&chat).await;
+    let before = chat.faux.last_agent_messages();
+    chat.set_policy(CompactionPolicy {
+        keep_recent_tokens: 400.0,
+        ..BLOCKING
+    });
+    chat.faux.summary(summary("SUMMARY"));
+    turn(&chat, &text("u4", 150), "a4").await;
+    let after = chat.faux.last_agent_messages();
+    assert_eq!(chat.faux.summary_requests().len(), 1);
+    // The compaction kept an answer: the baseline came after it.
+    assert!(after
+        .iter()
+        .any(|message| matches!(message, Message::Assistant(_))));
+    let lead = |messages: &[Message]| match messages.first() {
+        Some(Message::System(system)) => (
+            system.content.clone(),
+            system.sections.clone(),
+            system.tools_added.clone(),
+            system.tools_removed.clone(),
+        ),
+        other => panic!("a request leads with its system prompt: {other:?}"),
+    };
+    assert_eq!(lead(&after), lead(&before));
+    assert!(user_text(after.get(1)).contains("SUMMARY"));
+    chat.harness.close(context()).await.unwrap();
+}
+
+/// A compaction runs after the turn that crossed the threshold, at the
+/// next run's first request, never between the requests of a run (omp
+/// compacts once a turn ends too). The run's first request (about 670
+/// tokens) is past the blocking threshold (600) after a turn under it, and
+/// its tool result takes the second request to about 890, within the
+/// window (1000): the run goes on without a summary (it used to block
+/// before its first request, and a turn that crossed mid-run would block
+/// its second one and write the turn's own context to the cache again);
+/// the next run compacts first.
+#[tokio::test]
+async fn compacts_at_the_next_run_never_between_the_requests_of_a_run() {
+    let chat = open(OpenOptions {
+        context_window: Some(1000),
+        ..OpenOptions::default()
+    })
+    .await;
+    add_tool(
+        &chat.setup.registry,
+        text_tool("read", &text("r", 200)),
+        None,
+    )
+    .unwrap();
+    chat.root
+        .configure(
+            AgentChange {
+                tools: FieldChange::Set(ToolsChange::Exactly(tools_named(&chat.setup, &["read"]))),
+                ..AgentChange::default()
+            },
+            context(),
+        )
+        .await
+        .unwrap();
+    turn(&chat, &text("u1", 100), &text("a1", 100)).await;
+    turn(&chat, &text("u2", 100), &text("a2", 100)).await;
+    chat.set_policy(BLOCKING);
+    chat.faux.agent(with_stop(
+        vec![faux_tool_call("read", PiJsonObject::new(), None)],
+        StopReason::ToolUse,
+    ));
+    turn(&chat, &text("u3", 250), "a3").await;
+    let within_the_run = chat.faux.summary_requests().len();
+    chat.faux.summary(summary("SUMMARY"));
+    turn(&chat, &text("u4", 50), "a4").await;
+    assert_eq!((within_the_run, chat.faux.summary_requests().len()), (0, 1));
+    assert!(first_user_text(&chat.faux.last_agent_messages()).contains("SUMMARY"));
+    chat.harness.close(context()).await.unwrap();
+}
+
 #[tokio::test]
 async fn sends_the_request_once_without_a_second_compaction_when_the_kept_part_is_still_above_the_threshold(
 ) {
@@ -553,7 +655,8 @@ async fn wins_over_a_background_compaction_still_in_flight_which_then_settles_st
     reached.wait().await;
     let background = compaction_tasks(&chat).await.remove(0);
     chat.faux.summary(summary("BLOCKING"));
-    turn(&chat, &text("u5", 1000), "a5").await;
+    // Past the 2000-token window: the request blocks for its compaction.
+    turn(&chat, &text("u5", 1100), "a5").await;
     let messages = chat
         .root
         .context(context(), crate::harness::types::ContextOptions::default())

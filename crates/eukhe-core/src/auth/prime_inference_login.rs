@@ -12,6 +12,7 @@ use std::path::Path;
 use super::prime_browser_login::{
     run_prime_browser_login, PrimeAuthInfo, DEFAULT_POLL_INTERVAL_MS,
 };
+use super::prime_error::PrimeLoginError;
 use super::prime_inference::{
     check_prime_inference_access, read_prime_cli_config, PrimeAccessError, PrimeHttp,
     PrimeInferenceAuthConfig, DEFAULT_REQUEST_TIMEOUT_MS,
@@ -86,15 +87,15 @@ impl<'a> PrimeInferenceLoginOptions<'a> {
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when the reused prime-cli key's
-/// access check fails to run, when the browser challenge or its polling
-/// fails, or when the resulting key does not have Prime Inference access.
+/// Returns [`PrimeLoginError`] when the reused prime-cli key's access
+/// check fails to run, when the browser challenge or its polling fails,
+/// or when the resulting key does not have Prime Inference access.
 pub async fn login_prime_inference(
     http: &dyn PrimeHttp,
     config: &PrimeInferenceAuthConfig,
     options: &PrimeInferenceLoginOptions<'_>,
     callbacks: &PrimeInferenceLoginCallbacks<'_>,
-) -> Result<PrimeInferenceLoginResult, String> {
+) -> Result<PrimeInferenceLoginResult, PrimeLoginError> {
     let request_timeout_ms = options
         .request_timeout_ms
         .unwrap_or(DEFAULT_REQUEST_TIMEOUT_MS);
@@ -135,7 +136,7 @@ pub async fn login_prime_inference(
                 "Existing Prime CLI key cannot access Prime Inference ({}). Starting browser login...",
                 failure.format()
             )),
-            Err(PrimeAccessError::Failed(message)) => return Err(message),
+            Err(PrimeAccessError::Failed(error)) => return Err(error.into()),
         }
     } else {
         callbacks
@@ -159,16 +160,14 @@ pub async fn login_prime_inference(
             // selection of the same key survives the credential write.
             prime_team: PrimeTeamAssignment::PreserveWhenKeyMatches,
         }),
-        Err(PrimeAccessError::Denied(failure)) => Err(format!(
-            "Prime API key does not have Prime Inference access ({})",
-            failure.format()
-        )),
-        Err(PrimeAccessError::Failed(message)) => Err(message),
+        Err(PrimeAccessError::Denied(failure)) => Err(PrimeLoginError::Denied(failure)),
+        Err(PrimeAccessError::Failed(error)) => Err(error.into()),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::prime_error::PrimeHttpError;
     use super::super::prime_inference::{DEFAULT_PRIME_API_BASE_URL, DEFAULT_PRIME_FRONTEND_URL};
     use super::super::types::PrimeTeamCredential;
     use super::*;
@@ -237,7 +236,8 @@ mod tests {
             url: &str,
             _api_key: &str,
             _timeout_ms: u64,
-        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send>>
+        {
             // The trait's boxed answer is 'static, so the whole read
             // resolves before the future arms.
             let url = url.to_string();
@@ -275,7 +275,8 @@ mod tests {
             body: &'a str,
             _bearer: Option<&'a str>,
             _timeout_ms: u64,
-        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, String>> + Send + 'a>> {
+        ) -> Pin<Box<dyn Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send + 'a>>
+        {
             let url = url.to_string();
             let body = body.to_string();
             self.served.lock().unwrap().push(url.clone());
@@ -580,7 +581,7 @@ mod tests {
         .await
         {
             Err(error) => assert_eq!(
-                error,
+                error.to_string(),
                 "Prime API key does not have Prime Inference access (Prime token does not have inference write permission)"
             ),
             Ok(result) => panic!("expected a denial, got {result:?}"),
@@ -614,7 +615,7 @@ mod tests {
             request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
         };
         match login_prime_inference(&http, &production_config(), &options, &callbacks).await {
-            Err(error) => assert_eq!(error, "Prime login challenge expired"),
+            Err(error) => assert_eq!(error.to_string(), "Prime login challenge expired"),
             Ok(result) => panic!("expected an expiry, got {result:?}"),
         }
     }

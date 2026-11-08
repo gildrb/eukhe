@@ -1,0 +1,6 @@
+{"prompt": "Check on the build every 10 minutes and tell me when it finishes.", "expect_skill": "rlm-heartbeat", "expect": "Lists heartbeats, creates one with a specific instruction, interval=\"10m\", a label, and deletes it when the build ends."}
+{"prompt": "Start a heartbeat that watches test progress.", "expect_skill": "rlm-heartbeat", "expect": "Creates an agent-owned heartbeat with a concrete, actionable instruction."}
+{"prompt": "Pause the tests heartbeat.", "expect_skill": "rlm-heartbeat", "expect": "Calls rlm_heartbeat.update(id, status=\"pause\")."}
+{"prompt": "Configure my /heartbeat to run every hour.", "expect_skill": null, "expect": "Tells the user to use the /heartbeat command; the skill cannot change it."}
+{"prompt": "Wait for the child agent to finish.", "expect_skill": null, "expect": "No heartbeat: the child's end arrives as a message."}
+{"prompt": "Stop all your heartbeats.", "expect_skill": "rlm-heartbeat", "expect": "Lists them and deletes each by id."}

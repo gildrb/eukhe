@@ -7,13 +7,11 @@ use crate::worker::Worker;
 
 const SESSION: &str = "custom-session";
 
-/// `(customType, content)` of the main conversation's custom rows, the
-/// harness digest aside (each turn's first request delivers one).
+/// `(customType, content)` of the main conversation's custom rows.
 async fn custom_rows(worker: &Worker) -> Vec<(String, Value)> {
     worker_rows(worker, "eukhe.custom")
         .await
         .into_iter()
-        .filter(|row| row["customType"] != "harness_digest")
         .map(|row| {
             (
                 row["customType"].as_str().unwrap_or_default().to_owned(),
@@ -171,14 +169,8 @@ async fn restore_next_turn_lands_before_the_next_prompt() {
         .collect();
     assert_eq!(
         kinds,
-        [
-            "eukhe.custom",
-            "eukhe.custom",
-            "pi.user",
-            "eukhe.custom",
-            "pi.assistant"
-        ],
-        "the rows precede the prompt; the digest follows it"
+        ["eukhe.custom", "eukhe.custom", "pi.user", "pi.assistant"],
+        "the rows precede the prompt"
     );
     assert_eq!(
         custom_rows(&worker).await,

@@ -28,8 +28,8 @@ def pp.anc_res(+pol: Pp.Pol, r: Pp.Res, anc: {Pp.any_ancestor(List.append(&2, Li
   match r:
     case Pp.Res{+at, looped}:
       +sec = Pp.any_under(Pp.Pol.secret(pol), at)
-      +ins = Maybe.is_some(&2, List<&2, Nat>, Pp.root.of(Pp.Pol.roots(pol), at))
-      +hp = LA.pp.or_tr(Pp.any_covers(Pp.Pol.rules(pol), at, Pp.below(at, Pp.root.of(Pp.Pol.roots(pol), at))), Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(Pp.Pol.rules(pol)), Pp.Pol.secret(pol)), at), anc)
+      +ins = Pp.any_under(Pp.Pol.roots(pol), at)
+      +hp = LA.pp.or_tr(Pp.any_covers(Pp.Pol.rules(pol), at, Pp.below(Pp.Pol.roots(pol), at)), Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(Pp.Pol.rules(pol)), Pp.Pol.secret(pol)), at), anc)
       +g = pp.pick_guarded(sec, ins)
       %Equal.sym(Bool, Pp.protects(pol, at), True{}, hp) : {Pp.Cls.guarded(Pp.demote(Pp.cls.pick(sec, _, ins), looped)) == True{} : Bool}
       pp.demote_guarded(Pp.cls.pick(sec, True{}, ins), looped, g)

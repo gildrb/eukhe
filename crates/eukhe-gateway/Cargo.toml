@@ -12,8 +12,9 @@ eukhe-types = { path = "../eukhe-types" }
 eukhe-bend.workspace = true
 # The daemon-wire client (`eukhe_client::daemon_client::DaemonClient`).
 eukhe-client = { path = "../eukhe-client" }
-# Only for `width::str_width`: the reply tables measure text the way the
-# terminal does, and terminal text measurement stays in the TUI.
+# `width::str_width` (the reply tables measure text the way the terminal
+# does, and terminal text measurement stays in the TUI) and
+# `client_settings` (the settings seam the composition root implements).
 eukhe-tui = { path = "../eukhe-tui" }
 serde = { workspace = true }
 serde_json = { workspace = true }

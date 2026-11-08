@@ -7,7 +7,7 @@ import Base
 import ../../../bend/config.bend as Cf
 import ../../../bend/ffi_config.bend as FC
 import ../../../bend/wire.bend as Wr
-import ../../../spec/config.bend as CS
+import ../../../spec/settings/config.bend as CS
 
 # Logic
 # -----

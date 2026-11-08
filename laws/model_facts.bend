@@ -6,6 +6,7 @@ import ../bend/ffi_model_facts.bend as FMF
 import ../bend/infer.bend as If
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
+import ./facts/model.bend as Facts
 
 # ---- model_facts ----
 
@@ -95,6 +96,35 @@ def spell_effort(m: Fx.EMap, l: Fx.ELv) -> String:
 
 def spell_price(+rows: List<&2, Fx.PRow>, m: Nat, t: Nat) -> String:
   Wr.put_nat(3n, Wr.put_nat(List.length(&2, Fx.PRow, rows), mf.items(rows, Wr.put_nat(m, Wr.put_nat(t, "")))))
+
+def mf.shape(s: Maybe<&2, Fx.Shape>, rest: String) -> String:
+  match s:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      match x:
+        case Fx.SClaude{}:
+          Wr.put_nat(1n, rest)
+        case Fx.SGpt{}:
+          Wr.put_nat(2n, rest)
+        case Fx.SGptOss{}:
+          Wr.put_nat(3n, rest)
+
+def spell_reasoning(s: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, l: Fx.ELv) -> String:
+  Wr.put_nat(4n, mf.shape(s, mf.ent(e, mf.elv(l, ""))))
+
+# the reply Rust reads: 0 none | 1 Claude | 2 then the nested effort | 3
+# then the flat effort
+def mf.rfields(f: Fx.RFields) -> String:
+  match f:
+    case Fx.RNone{}:
+      Wr.put_nat(0n, "")
+    case Fx.RClaude{}:
+      Wr.put_nat(1n, "")
+    case Fx.RNested{e}:
+      Wr.put_nat(2n, Wr.put_nat(e, ""))
+    case Fx.RFlat{e}:
+      Wr.put_nat(3n, Wr.put_nat(e, ""))
 
 # every number Rust writes fits the wire
 def mf.ans_fits(a: If.Ans) -> Bool:
@@ -432,6 +462,49 @@ def mfr.get_price(r: Wr.Dec<List<&2, Fx.PRow>>) -> Wr.Dec<FMF.Req>:
     case Wr.Bad{}:
       Wr.Bad{}
 
+# a shape: 0 none | 1 Claude | 2 GPT | 3 gpt-oss
+def mfr.get_shape.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Fx.Shape>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      Wr.Got{Some{Fx.SClaude{}}, s}
+    case 2n:
+      Wr.Got{Some{Fx.SGpt{}}, s}
+    case 3n:
+      Wr.Got{Some{Fx.SGptOss{}}, s}
+    case 4n+p:
+      Wr.Bad{}
+
+def mfr.get_shape(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Fx.Shape>>:
+  match r:
+    case Wr.Got{t, s}:
+      mfr.get_shape.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# 4 the Bedrock reasoning fields: the shape, the entry, the level
+def mfr.get_reasoning.l(x: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Fx.ELv>) -> Wr.Dec<FMF.Req>:
+  match r:
+    case Wr.Got{l, s}:
+      Wr.Got{FMF.QReasoning{x, e, l}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def mfr.get_reasoning.e(x: Maybe<&2, Fx.Shape>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
+  match r:
+    case Wr.Got{e, s}:
+      mfr.get_reasoning.l(x, e, mfr.get_elv(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def mfr.get_reasoning(r: Wr.Dec<Maybe<&2, Fx.Shape>>) -> Wr.Dec<FMF.Req>:
+  match r:
+    case Wr.Got{x, s}:
+      mfr.get_reasoning.e(x, mfr.get_ent(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
 def mfr.get_req.tag(t: Nat, s: String) -> Wr.Dec<FMF.Req>:
   match t:
     case 0n:
@@ -442,7 +515,9 @@ def mfr.get_req.tag(t: Nat, s: String) -> Wr.Dec<FMF.Req>:
       mfr.get_effort(mfr.get_ent(Wr.get_nat(s)))
     case 3n:
       mfr.get_price(mfr.get_rows(Wr.get_nat(s)))
-    case 4n+p:
+    case 4n:
+      mfr.get_reasoning(mfr.get_shape(Wr.get_nat(s)))
+    case 5n+p:
       Wr.Bad{}
 
 def mfr.get_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FMF.Req>:
@@ -474,6 +549,52 @@ def mfr.whole(r: Wr.Dec<FMF.Req>) -> Maybe<&2, FMF.Req>:
 def mfr.read(s: String) -> Maybe<&2, FMF.Req>:
   mfr.whole(mfr.get_req(s))
 
+# adaptive thinking, independently: the model's compat flag, else the
+# rulebook's flag with the default false
+def mf.adaptive_spec(c: Maybe<&2, Bool>, a: If.Ans) -> Bool:
+  match c:
+    case Some{b}:
+      b
+    case None{}:
+      Facts.flag_spec(a, False{})
+
+# the reply to a request, from the spec terms of laws/facts.bend (never the
+# model's functions), spelled with the wire primitives
+def mf.reply(q: FMF.Req) -> String:
+  match q:
+    case FMF.QFlag{a, d}:
+      Wr.put_bool(Facts.flag_spec(a, d), "")
+    case FMF.QAdaptive{c, a}:
+      Wr.put_bool(mf.adaptive_spec(c, a), "")
+    case FMF.QEffort{m, l}:
+      Wr.put_nat(Facts.effort_spec(m, l), "")
+    case FMF.QPrice{rows, m, t}:
+      mf.mnat(Facts.price_spec(rows, m, t), "")
+    case FMF.QReasoning{x, e, l}:
+      mf.rfields(Facts.reasoning_spec(x, e, l))
+
+def mf.spec.go(m: Maybe<&2, FMF.Req>) -> String:
+  match m:
+    case Some{q}:
+      mf.reply(q)
+    case None{}:
+      SCon{'E', SCon{' ', "model facts: malformed request"}}
+
+# the reply to the input s: the spec's decision on the request s is
+# exactly, else the error form
+def mf.spec(s: String) -> String:
+  mf.spec.go(mfr.read(s))
+
+# LAW model_facts_ffi_exact: on every input the entry answers the spec's decision on the request the input is exactly (a flag: a known answer is true only at 1, an unknown one the default; adaptive: the compat flag, else that flag with the default false; the effort: the map's wire code at the level, else 2, 3 or 4; the price: the model's first row of the tier, else every model's first row, else none; the Bedrock reasoning fields of the shape), and exactly the error form "model facts: malformed request" on any other input
+# EXCLUDES: a decision that differs from the spec terms (laws/facts.bend
+#   flag_spec, effort_spec, price_spec, reasoning_spec) on any request, a
+#   value answered for an input that is not exactly one request (a short
+#   field, an unknown tag, a 15-digit number, input left over), another
+#   error text
+law model_facts_ffi_exact:
+  for +s: String
+  {FMF.ffi(s) == mf.spec(s) : String}
+
 # LAW model_facts_ffi_flag: a flag request answers the model's flag decision
 law model_facts_ffi_flag:
   for +a: If.Ans
@@ -503,6 +624,16 @@ law model_facts_ffi_price:
   for +fits: {mf.price_fits(rows, m, t) == True{} : Bool}
   {FMF.ffi(spell_price(rows, m, t)) == mf.mnat(Fx.price(rows, m, t), "") : String}
 
+# LAW model_facts_ffi_reasoning: a reasoning request answers the model's Bedrock reasoning fields for the shape, the map's entry and the level
+# EXCLUDES: the shape, the entry or the level misread; the nested and flat
+#   efforts swapped in the reply; Claude's fields answered as none
+law model_facts_ffi_reasoning:
+  for +s: Maybe<&2, Fx.Shape>
+  for +e: Maybe<&2, Maybe<&2, Nat>>
+  for +l: Fx.ELv
+  for fits: {mf.ent_fits(e) == True{} : Bool}
+  {FMF.ffi(spell_reasoning(s, e, l)) == mf.rfields(Fx.reasoning(s, e, l)) : String}
+
 # LAW model_facts_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "model facts: malformed request"
 law model_facts_ffi_malformed_exact:
   for +s: String
@@ -519,3 +650,14 @@ law model_facts_ffi_example:
   {FMF.ffi("3,2,0,0,0,1,0,0,1,0,0,") == "1,1," : String} &
   {FMF.ffi("4,") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String} &
   {FMF.ffi("0,1,Fx") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String}
+
+# LAW model_facts_ffi_reasoning_example: anchor: the bytes Rust sends and reads for the Bedrock reasoning fields: Claude; gpt-oss at xhigh sends the flat high; GPT at max with no entry the nested max, at high with the map's string the nested code 0; no shape sends nothing; a shape past gpt-oss is refused
+# EXCLUDES: a codec that reads the shape, entry and level in another order
+#   than Rust writes them, or replies in another form than Rust reads
+law model_facts_ffi_reasoning_example:
+  {FMF.ffi("4,1,0,3,") == "1," : String} &
+  {FMF.ffi("4,3,0,4,") == "3,4," : String} &
+  {FMF.ffi("4,2,0,5,") == "2,6," : String} &
+  {FMF.ffi("4,2,1,1,0,3,") == "2,0," : String} &
+  {FMF.ffi("4,0,1,0,0,") == "0," : String} &
+  {FMF.ffi("4,4,0,0,") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String}

@@ -19,7 +19,16 @@ use crate::workflow_view::{parse_workflow_runs, WorkflowView, WorkflowViewAction
 pub(crate) struct WorkflowUpdate {
     session: String,
     epoch: u64,
-    runs: Result<Vec<WorkflowRunSnapshot>, String>,
+    runs: Result<Vec<WorkflowRunSnapshot>, WorkflowFetchError>,
+}
+
+/// Why a workflow refresh failed.
+#[derive(Debug, thiserror::Error)]
+enum WorkflowFetchError {
+    #[error("malformed workflow reply (no runs list)")]
+    Malformed,
+    #[error(transparent)]
+    Refresh(#[from] super::RefreshError),
 }
 
 /// The workflow lane's state on the session UI.
@@ -136,10 +145,9 @@ impl super::SessionUi {
                 match tokio::time::timeout(Duration::from_millis(UI_REQUEST_TIMEOUT_MS), request)
                     .await
                 {
-                    Ok(Ok(data)) => parse_workflow_runs(&data)
-                        .ok_or_else(|| "malformed workflow reply (no runs list)".to_owned()),
-                    Ok(Err(error)) => Err(format!("{error:#}")),
-                    Err(_) => Err("timed out waiting for the Eukhe daemon response".to_owned()),
+                    Ok(Ok(data)) => parse_workflow_runs(&data).ok_or(WorkflowFetchError::Malformed),
+                    Ok(Err(error)) => Err(super::RefreshError::Daemon(error).into()),
+                    Err(_) => Err(super::RefreshError::Timeout.into()),
                 };
             let _ = tx.send(WorkflowUpdate {
                 session,
@@ -163,9 +171,9 @@ impl super::SessionUi {
                 }
                 self.workflow_lane.runs = runs;
             }
-            Err(message) => {
+            Err(error) => {
                 if let Some(page) = view.workflow_view.as_mut() {
-                    page.set_error(Some(message));
+                    page.set_error(Some(error.to_string()));
                 }
             }
         }

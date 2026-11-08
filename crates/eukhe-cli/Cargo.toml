@@ -33,6 +33,7 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 # The subscription logins' paste validation (the authorization URL's state,
 # the code query the flow receives).
 url = "2"
@@ -50,6 +51,8 @@ path = "src/main.rs"
 [dev-dependencies]
 tempfile = "3"
 base64 = "0.22"
+# The e2e edits name each file version by its tag (`file_hash`).
+eukhe-docs = { path = "../eukhe-docs" }
 # The Prime Inference login tests encrypt the challenge result with the
 # flow's own public key (same versions the workspace resolves for the engine).
 rsa = { version = "0.9", features = ["sha2", "pem"] }

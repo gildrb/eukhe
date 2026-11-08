@@ -4,7 +4,7 @@ import Base
 import ../../bend/child.bend as Ch
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ../../laws/base.bend as LawsBase
 import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire

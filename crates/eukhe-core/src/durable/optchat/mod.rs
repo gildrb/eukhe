@@ -1,14 +1,17 @@
 //! `eukhe.optchat`: the chat memory in a durable session (`OptChat` spec
-//! §1, §3.3, §6). A root conversation logs everything it says and does to
-//! the endless chat and starts every call (run) from the settled view; a
-//! subagent starts from the view at its first request and logs nothing to
-//! the chat (its own steps stay in its own session).
+//! §1, §3.3, §6). Each session is its own thread: a root conversation logs
+//! everything it says and does to the session's own chat and sends its own
+//! transcript verbatim, after the view of the history that scrolled out of
+//! it; a subagent starts from the view at its first request and logs
+//! nothing to the chat (its own steps stay in its own session).
 //!
-//! - Tools `zoom(id, n)`, `zoom("Name")` and `date(id)`.
-//! - `pi.generation` `before_request`: the call's request — the pinned
-//!   view (`eukhe.optchat.call`) with the call's leading user texts as ONE
-//!   user message, then the rest of the call; what came before the call is
-//!   in the chat log and dropped ([`request`]).
+//! - Tools `zoom(id, n)`, `zoom("Name")` and `date(id)`, in every session
+//!   (the same tool list with or without chat memory, [`tools`]).
+//! - `pi.generation` `before_request`: a root call's request is its
+//!   transcript with the pinned view (`eukhe.optchat.call`) of the older
+//!   history leading its first user message; a subagent's is the view with
+//!   its leading user texts as ONE user message, then the rest
+//!   ([`request`]).
 //! - The post-commit logger (root sessions): appends finished entries to
 //!   the chat log with idempotent keys and a durable cursor
 //!   (`eukhe.optchat.logged`), and gives the root-turn lease back when the
@@ -42,11 +45,17 @@ use logger::{LoggerLink, LoggerRequest};
 /// The extension name.
 pub const EXTENSION_NAME: &str = "eukhe.optchat";
 
-/// The `eukhe.optchat` extension of a session with chat memory; `None`
-/// without. A root session also starts the chat logger when it opens.
+/// The `eukhe.optchat` extension: in a session with chat memory its tools,
+/// generation hooks and (root sessions) the chat logger, started when the
+/// session opens; without, only the tools, whose memory reads refuse.
 #[must_use]
-pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
-    let memory = deps.memory.clone()?;
+pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    let Some(memory) = deps.memory.clone() else {
+        return define_extension(Extension {
+            tools: tools::memory_tools(None),
+            ..Extension::named(EXTENSION_NAME)
+        });
+    };
     let chat = OptChat::new(
         memory,
         deps.role.memory_role(),
@@ -54,6 +63,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
         Arc::clone(&deps.settings),
         deps.harness.clone(),
     );
+    // Weakly: the extension's hooks own the chat memory.
+    let _first_extension_wins = deps.optchat.set(Arc::downgrade(&chat));
     if chat.role == MemoryRole::Root {
         let logged = Arc::clone(&chat);
         deps.add_service(Box::new(move |opened| {
@@ -65,7 +76,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
             .boxed()
         }));
     }
-    Some(chat.extension())
+    chat.extension()
 }
 
 /// One session's chat memory: shared by its hooks, tools, and logger.
@@ -110,7 +121,7 @@ impl OptChat {
             ..GenerationHooks::default()
         };
         define_extension(Extension {
-            tools: tools::memory_tools(&self.memory),
+            tools: tools::memory_tools(Some(self.memory.clone())),
             hooks: vec![hook(&*GENERATION_TASK, generation)],
             ..Extension::named(EXTENSION_NAME)
         })

@@ -234,9 +234,6 @@ impl WorkerPane {
                 self.streaming_index = None;
                 self.view.stop_loader();
             }
-            TurnUpdate::AgentRelay(relay) => self.view.push_entry(ChatEntry::Swarm(Box::new(
-                crate::swarm_block::SwarmRow::Relay(relay),
-            ))),
             TurnUpdate::SessionInfoChanged { .. }
             | TurnUpdate::ServiceTierChanged { .. }
             | TurnUpdate::AutoRetryStart { .. }

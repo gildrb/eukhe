@@ -155,12 +155,13 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "subscribe_state_tree",
     "unsubscribe_state_tree",
     "get_state_rewind_plan",
-    "agent_relay",
     "agent_reply",
     "get_run_outcome",
     "get_worker_liveness",
     "cvar",
     "cvar_save",
+    "register_headless_parent",
+    "headless_parent_receipt",
 ];
 
 /// Parsed client command envelope.
@@ -920,9 +921,6 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::MarkAnthropicWarningShown {
             active_session_id, ..
         }
-        | DaemonCommand::AgentRelay {
-            active_session_id, ..
-        }
         | DaemonCommand::AgentReply {
             active_session_id, ..
         }
@@ -975,7 +973,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::SendMessage { .. }
         | DaemonCommand::AckResult { .. }
         | DaemonCommand::Restart { .. }
-        | DaemonCommand::Shutdown { .. } => None,
+        | DaemonCommand::Shutdown { .. }
+        | DaemonCommand::RegisterHeadlessParent { .. }
+        | DaemonCommand::HeadlessParentReceipt { .. } => None,
     }
 }
 
@@ -1112,12 +1112,13 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
-        DaemonCommand::AgentRelay { .. } => "agent_relay",
         DaemonCommand::AgentReply { .. } => "agent_reply",
         DaemonCommand::AckResult { .. } => "ack_result",
         DaemonCommand::RetryWorker { .. } => "retry_worker",
         DaemonCommand::Restart { .. } => "restart",
         DaemonCommand::Shutdown { .. } => "shutdown",
+        DaemonCommand::RegisterHeadlessParent { .. } => "register_headless_parent",
+        DaemonCommand::HeadlessParentReceipt { .. } => "headless_parent_receipt",
         DaemonCommand::WorkerRegister { .. } => "worker_register",
     }
 }

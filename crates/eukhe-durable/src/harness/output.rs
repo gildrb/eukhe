@@ -38,7 +38,7 @@ impl Default for OutputLimits {
 }
 
 /// Whether an output is bounded: the one limits value of a tool call, a
-/// cell, or a job (docs/runtime.md S2). Truncation is on by default, with
+/// cell, or a job. Truncation is on by default, with
 /// the default limits; `Off` is the explicit opt-out, which keeps every
 /// byte. Every truncation is visible: the bytes kept and the bytes counted
 /// as dropped are every byte the output produced.
@@ -151,10 +151,16 @@ pub struct OutputBuffer {
     stored: String,
 }
 
-/// Error of [`OutputBuffer::push`] with a skip under head retention.
+/// Error of [`OutputBuffer::push`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("Skipped output requires tail retention")]
-pub struct SkipRequiresTail;
+pub enum PushError {
+    /// A skip under head retention.
+    #[error("Skipped output requires tail retention")]
+    SkipRequiresTail,
+    /// The whole output passed what the bounder counts (100 TB).
+    #[error(transparent)]
+    TooLarge(#[from] bound::StreamError),
+}
 
 impl OutputBuffer {
     #[must_use]
@@ -183,12 +189,14 @@ impl OutputBuffer {
     /// only tail retention accepts it.
     ///
     /// # Errors
-    /// [`SkipRequiresTail`] for a skip under head retention.
+    /// [`PushError::SkipRequiresTail`] for a skip under head retention;
+    /// [`PushError::TooLarge`] when the whole output would pass what the
+    /// bounder counts (the chunk is then not stored).
     pub fn push(
         &mut self,
         chunk: ToolOutputChunk<'_>,
         skipped: Option<&ShellOutputSkip>,
-    ) -> Result<bool, SkipRequiresTail> {
+    ) -> Result<bool, PushError> {
         let is_text = matches!(chunk, ToolOutputChunk::Text(_));
         // Bytes of an incomplete character from an earlier byte chunk come first.
         let pending = if is_text || skipped.is_some() {
@@ -208,42 +216,51 @@ impl OutputBuffer {
             text.drain(..'\u{feff}'.len_utf8());
         }
         let Some(skipped) = skipped else {
-            return Ok(self.accept(&(pending + &text)));
+            return self.accept(&(pending + &text)).map_err(PushError::from);
         };
         let Some(bound) = self.bound.as_mut().filter(|bound| bound.takes_skips()) else {
-            return Err(SkipRequiresTail);
+            return Err(PushError::SkipRequiresTail);
         };
-        let _accepted = Self::take(bound, &mut self.stored, &pending);
-        if bound.skip(skipped.bytes, skipped.newlines, !skipped.ends_with_newline) {
+        let _accepted = Self::take(bound, &mut self.stored, &pending)?;
+        if bound.skip(skipped.bytes, skipped.newlines, !skipped.ends_with_newline)? {
             // Nothing stored before the skip is in a window once the text after it arrives.
             self.stored.clear();
         }
-        let _accepted = Self::take(bound, &mut self.stored, &text);
+        let _accepted = Self::take(bound, &mut self.stored, &text)?;
         Ok(true)
     }
 
     /// Flush an incomplete trailing character as a replacement character;
     /// call when the stream ends.
-    pub fn end(&mut self) {
+    ///
+    /// # Errors
+    /// [`bound::StreamError::TooLarge`] when that character would take the
+    /// whole output past what the bounder counts (it is then not stored).
+    pub fn end(&mut self) -> Result<(), bound::StreamError> {
         let text = self.decoder.finish();
-        self.accept(&text);
+        self.accept(&text)?;
+        Ok(())
     }
 
-    fn accept(&mut self, text: &str) -> bool {
+    fn accept(&mut self, text: &str) -> Result<bool, bound::StreamError> {
         if let Some(bound) = &mut self.bound {
             return Self::take(bound, &mut self.stored, text);
         }
         self.stored.push_str(text);
-        !text.is_empty()
+        Ok(!text.is_empty())
     }
 
     /// Feed a text to the bounder and store it as it decides.
-    fn take(bound: &mut bound::Stream, stored: &mut String, text: &str) -> bool {
+    fn take(
+        bound: &mut bound::Stream,
+        stored: &mut String,
+        text: &str,
+    ) -> Result<bool, bound::StreamError> {
         if text.is_empty() {
-            return false;
+            return Ok(false);
         }
         let newlines = count_newlines(text);
-        match bound.out(text.len(), newlines, !text.ends_with('\n')) {
+        match bound.out(text.len(), newlines, !text.ends_with('\n'))? {
             bound::Act::Drop => {}
             bound::Act::Store => stored.push_str(text),
             bound::Act::Trim => {
@@ -252,7 +269,7 @@ impl OutputBuffer {
                 stored.drain(..cut);
             }
         }
-        true
+        Ok(true)
     }
 
     /// Retained, sanitized output and what the limits dropped from the whole

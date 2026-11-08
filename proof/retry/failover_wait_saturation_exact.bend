@@ -4,6 +4,7 @@ import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
 import ../base/logic/logic.bend as LLogicLogic
+import ../base/retry.bend as LRetry
 import ./base.bend as LA
 
 # max(a, b) > x when b > x
@@ -43,14 +44,20 @@ def rx.cw_seen(+x: Nat, ts: List<&2, R.Tried>, +c: Nat) -> {R.seen(x, Retry.rs.c
           %Equal.sym(Bool, R.seen(x, Retry.rs.cap_waits(rest, c)), R.seen(x, rest), rx.cw_seen(x, rest, c)) : {Bool.or(Nat.is_eq(a, x), _) == Bool.or(Nat.is_eq(a, x), R.seen(x, rest)) : Bool}
           {==}
 
-def rx.cw_all(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +c: Nat) -> {R.all_seen.go(xs, Retry.rs.cap_waits(ts, c)) == R.all_seen.go(xs, ts) : Bool}:
-  match xs:
-    case Nil{}:
+# the all-tried walk reads only the providers, never a server wait
+def rx.cw_run(k: Nat, h: Bool, +a: Nat, +ts: List<&2, R.Tried>, +c: Nat) -> {R.seen_run(k, h, a, Retry.rs.cap_waits(ts, c)) == R.seen_run(k, h, a, ts) : Bool}:
+  match k h:
+    case 0n h:
       {==}
-    case +x <> +rest:
-      %Equal.sym(Bool, R.seen(x, Retry.rs.cap_waits(ts, c)), R.seen(x, ts), rx.cw_seen(x, ts, c)) : {Bool.and(_, R.all_seen.go(rest, Retry.rs.cap_waits(ts, c))) == Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) : Bool}
-      %Equal.sym(Bool, R.all_seen.go(rest, Retry.rs.cap_waits(ts, c)), R.all_seen.go(rest, ts), rx.cw_all(rest, ts, c)) : {Bool.and(R.seen(x, ts), _) == Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) : Bool}
+    case 1n+j False{}:
       {==}
+    case 1n+j True{}:
+      %Equal.sym(Bool, R.seen(1n+a, Retry.rs.cap_waits(ts, c)), R.seen(1n+a, ts), rx.cw_seen(1n+a, ts, c)) : {R.seen_run(j, _, 1n+a, Retry.rs.cap_waits(ts, c)) == R.seen_run(j, R.seen(1n+a, ts), 1n+a, ts) : Bool}
+      rx.cw_run(j, R.seen(1n+a, ts), 1n+a, ts, c)
+
+def rx.cw_all(+len: Nat, +ts: List<&2, R.Tried>, +c: Nat) -> {R.all_seen(len, Retry.rs.cap_waits(ts, c)) == R.all_seen(len, ts) : Bool}:
+  %Equal.sym(Bool, R.seen(0n, Retry.rs.cap_waits(ts, c)), R.seen(0n, ts), rx.cw_seen(0n, ts, c)) : {R.seen_run(len, _, 0n, Retry.rs.cap_waits(ts, c)) == R.seen_run(len, R.seen(0n, ts), 0n, ts) : Bool}
+  rx.cw_run(len, R.seen(0n, ts), 0n, ts, c)
 
 def rx.cw_last(ts: List<&2, R.Tried>, +a: Nat, -w: Maybe<&2, Nat>, -v: Maybe<&2, Nat>, +c: Nat) -> {R.Tried.at(R.last.go(Retry.rs.cap_waits(ts, c), R.Tried{a, v})) == R.Tried.at(R.last.go(ts, R.Tried{a, w})) : Nat}:
   match ts:
@@ -135,12 +142,14 @@ def rx.cw_mode(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.P
       %Equal.sym(Nat, R.length(Retry.rs.cap_waits(ts, c)), R.length(ts), rx.cw_len(ts, c)) : {R.pick.back(R.order(last, len), Retry.rs.cap_waits(ts, c), R.double(Nat.sub(_, len), R.Policy.base(p), R.Policy.max(p)), R.Policy.max(p)) == R.next.mode(True{}, last, len, ts, p) : Maybe<&2, R.Switch>}
       rx.cw_back(R.order(last, len), ts, R.backoff(p, len, ts), R.Policy.max(p), c, hc)
     case False{}:
+      %LRetry.rp.fresh_order(last, len, Retry.rs.cap_waits(ts, c)) : {_ == R.fresh(last, len, ts) : Maybe<&2, R.Switch>}
+      %LRetry.rp.fresh_order(last, len, ts) : {R.pick.fresh(R.order(last, len), Retry.rs.cap_waits(ts, c)) == _ : Maybe<&2, R.Switch>}
       rx.cw_fresh(R.order(last, len), ts, c)
 
 def rx.cw_budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy, +c: Nat, hc: {Nat.is_gt(c, R.Policy.max(p)) == True{} : Bool}) -> {R.next.budget(ok, last, len, Retry.rs.cap_waits(ts, c), p) == R.next.budget(ok, last, len, ts, p) : Maybe<&2, R.Switch>}:
   match ok:
     case True{}:
-      %Equal.sym(Bool, R.all_seen.go(R.upto(len, 0n), Retry.rs.cap_waits(ts, c)), R.all_seen(len, ts), rx.cw_all(R.upto(len, 0n), ts, c)) : {R.next.mode(_, last, len, Retry.rs.cap_waits(ts, c), p) == R.next.mode(R.all_seen(len, ts), last, len, ts, p) : Maybe<&2, R.Switch>}
+      %Equal.sym(Bool, R.all_seen(len, Retry.rs.cap_waits(ts, c)), R.all_seen(len, ts), rx.cw_all(len, ts, c)) : {R.next.mode(_, last, len, Retry.rs.cap_waits(ts, c), p) == R.next.mode(R.all_seen(len, ts), last, len, ts, p) : Maybe<&2, R.Switch>}
       rx.cw_mode(R.all_seen(len, ts), last, len, ts, p, c, hc)
     case False{}:
       {==}

@@ -8,7 +8,7 @@ import ../../../bend/optchat/info.bend as OInfo
 import ../../../bend/optchat/node.bend as ONode
 import ../../../bend/optchat/state.bend as OState
 import ../../../bend/optchat/step.bend as OStep
-import ../../../bend/spec.bend as S
+import ../../../spec/memory/optchat.bend as S
 import ../../base/bool.bend as LBool
 import ../../base/logic/bool.bend as LLogicBool
 import ../../base/logic/logic.bend as LLogicLogic
@@ -248,7 +248,7 @@ def cover.fitc_if(over: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo
       cover.fit_view(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, cv, s, e, tiles)
 
 def cover.fitc(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, +s: Nat, +e: Nat, tiles: S.Tiles(s, cv, e)) -> S.Tiles(s, OStep.fitc(cfg, t, info, cv), e):
-  cover.fitc_if(Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, cv), OState.Cfg.cceil(cfg)), cfg, t, info, cv, s, e, tiles)
+  cover.fitc_if(OFit.over(OState.Cfg.ph(cfg), info, cv, OState.Cfg.cceil(cfg)), cfg, t, info, cv, s, e, tiles)
 
 # The chat
 # --------
@@ -479,7 +479,7 @@ def pf.csound.if(over: Bool, +m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info
       pf.best_sound(v, m, t, info, Nil{}, None{}, Unit{})
 
 def pf.choose_sound(+m: OFit.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: OInfo.Info, +v: List<&2, ONode.Node>) -> pf.Cand(info, v, OFit.choose(m, t, budget, ph, info, v)):
-  pf.csound.if(Nat.is_gt(OFit.view_size(ph, info, v), budget), m, t, info, v)
+  pf.csound.if(OFit.over(ph, info, v, budget), m, t, info, v)
 
 def pf.snd_cons(-n: ONode.Node, r: List<&2, ONode.Node> & List<&2, ONode.Node>) -> {Pair.snd(List<&2, ONode.Node>, List<&2, ONode.Node>, r) == Pair.snd(List<&2, ONode.Node>, List<&2, ONode.Node>, OFit.fit.cons(n, r)) : List<&2, ONode.Node>}:
   (ms, out) = r
@@ -646,7 +646,7 @@ def pf.fcsumm.if(over: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.
       pf.fit_summ(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, cv, s)
 
 def pf.fitc_summ(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, s: S.Summarized(info, cv)) -> S.Summarized(info, OStep.fitc(cfg, t, info, cv)):
-  pf.fcsumm.if(Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, cv), OState.Cfg.cceil(cfg)), cfg, t, info, cv, s)
+  pf.fcsumm.if(OFit.over(OState.Cfg.ph(cfg), info, cv, OState.Cfg.cceil(cfg)), cfg, t, info, cv, s)
 
 # The history
 # -----------

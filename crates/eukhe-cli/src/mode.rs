@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use eukhe_core::durable::SessionHost;
 use eukhe_core::resources::SystemPromptInput;
 
 use crate::args::{Args, AutonomousConfig, Mode};
@@ -51,6 +52,19 @@ impl AppMode {
             AppMode::Daemon => "daemon",
         }
     }
+
+    /// How a session this mode opens is hosted: print and json mode close
+    /// it once its runs settle and the process exits; every other mode
+    /// keeps it open between runs.
+    #[must_use]
+    pub fn session_host(self) -> SessionHost {
+        match self {
+            AppMode::Print | AppMode::Json => SessionHost::EndsWithRuns,
+            AppMode::Interactive | AppMode::Rpc | AppMode::Acp | AppMode::Daemon => {
+                SessionHost::Resident
+            }
+        }
+    }
 }
 
 /// A seeded persistent goal (`initialGoal` in the runtime config).
@@ -59,6 +73,9 @@ pub struct InitialGoal {
     pub objective: String,
     pub token_budget: Option<u32>,
 }
+
+/// The default `--wait-limit-ms`: one hour.
+const DEFAULT_WAIT_LIMIT_MS: u64 = 3_600_000;
 
 /// The typed per-session runtime configuration, mirroring
 /// `AgentSessionRuntimeConfig`. This is the API boundary the eukhe-core/eukhe-ai
@@ -88,6 +105,9 @@ pub struct RuntimeConfig {
     pub autonomous: Option<AutonomousConfig>,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
+    /// How long print/json mode waits for the session to go quiescent
+    /// (background jobs and subagents settled) after a turn ends.
+    pub wait_limit: std::time::Duration,
 }
 
 /// Session selection options that stay client-side.
@@ -150,14 +170,6 @@ impl MissingSubsystem {
             MissingSubsystem::PackageManager => "the capability package manager (eukhe-core)",
         }
     }
-
-    #[must_use]
-    pub fn error_message(&self) -> String {
-        format!(
-            "this invocation needs {}, which is not linked into the binary yet",
-            self.subsystem_name()
-        )
-    }
 }
 
 impl std::fmt::Display for MissingSubsystem {
@@ -195,19 +207,39 @@ impl Runtime for UnavailableRuntime {
     }
 }
 
+/// A `--system-prompt-file` / `--append-system-prompt-file` that cannot
+/// be used; the run stops before a session starts.
+#[derive(Debug, thiserror::Error)]
+pub enum PromptFileError {
+    #[error("{flag} {}: {} is not a file", .file.display(), .path.display())]
+    NotAFile {
+        flag: &'static str,
+        file: PathBuf,
+        path: PathBuf,
+    },
+    #[error("{flag} {}: cannot read {}: {source}", .file.display(), .path.display())]
+    Unreadable {
+        flag: &'static str,
+        file: PathBuf,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// Build the runtime config from parsed args, mirroring `runtimeConfigFromArgs`.
 ///
 /// # Errors
 ///
-/// Returns the message for a `--system-prompt-file` or
-/// `--append-system-prompt-file` that cannot be opened or is not a file.
+/// A `--system-prompt-file` or `--append-system-prompt-file` that cannot
+/// be opened or is not a file.
 pub fn runtime_config_from_args(
     parsed: &Args,
     cwd: PathBuf,
     agent_dir: PathBuf,
     session_dir: Option<PathBuf>,
     app_mode: AppMode,
-) -> Result<RuntimeConfig, String> {
+) -> Result<RuntimeConfig, PromptFileError> {
     // isLocalPath (the compiled core's): only npm:/git:/github:/http(s):/ssh:
     // sources are not local; everything else resolves against the session
     // cwd (utils/paths.ts).
@@ -232,30 +264,32 @@ pub fn runtime_config_from_args(
     let themes = resolve_cli_path(&parsed.themes);
     // A prompt file resolves against the session cwd, like `--skill`. A file
     // that cannot be opened stops the run here, before a session starts.
-    let resolve_prompt_input =
-        |input: &SystemPromptInput, file_flag: &str| -> Result<SystemPromptInput, String> {
-            match input {
-                SystemPromptInput::Text(text) => Ok(SystemPromptInput::Text(text.clone())),
-                SystemPromptInput::File { file } => {
-                    let path = cwd.join(file);
-                    match std::fs::File::open(&path).and_then(|opened| opened.metadata()) {
-                        Ok(metadata) if metadata.is_file() => {
-                            Ok(SystemPromptInput::File { file: path })
-                        }
-                        Ok(_) => Err(format!(
-                            "{file_flag} {}: {} is not a file",
-                            file.display(),
-                            path.display()
-                        )),
-                        Err(error) => Err(format!(
-                            "{file_flag} {}: cannot read {}: {error}",
-                            file.display(),
-                            path.display()
-                        )),
+    let resolve_prompt_input = |input: &SystemPromptInput,
+                                flag: &'static str|
+     -> Result<SystemPromptInput, PromptFileError> {
+        match input {
+            SystemPromptInput::Text(text) => Ok(SystemPromptInput::Text(text.clone())),
+            SystemPromptInput::File { file } => {
+                let path = cwd.join(file);
+                match std::fs::File::open(&path).and_then(|opened| opened.metadata()) {
+                    Ok(metadata) if metadata.is_file() => {
+                        Ok(SystemPromptInput::File { file: path })
                     }
+                    Ok(_) => Err(PromptFileError::NotAFile {
+                        flag,
+                        file: file.clone(),
+                        path,
+                    }),
+                    Err(source) => Err(PromptFileError::Unreadable {
+                        flag,
+                        file: file.clone(),
+                        path,
+                        source,
+                    }),
                 }
             }
-        };
+        }
+    };
     let system_prompt = parsed
         .system_prompt
         .as_ref()
@@ -291,6 +325,9 @@ pub fn runtime_config_from_args(
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
+        wait_limit: std::time::Duration::from_millis(
+            parsed.wait_limit_ms.unwrap_or(DEFAULT_WAIT_LIMIT_MS),
+        ),
     })
 }
 
@@ -319,7 +356,7 @@ mod tests {
             panic!("a missing prompt file is an error");
         };
         assert_eq!(
-            error,
+            error.to_string(),
             format!(
                 "--system-prompt-file ./missing.md: cannot read {}: {io_error}",
                 path.display()

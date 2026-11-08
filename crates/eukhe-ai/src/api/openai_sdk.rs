@@ -405,13 +405,9 @@ impl OpenAiClient {
             };
             return Err(status_error(status, &text, response_headers).thrown());
         }
-        let bytes: BoxStream<'static, Result<Vec<u8>, String>> = response
+        let bytes: BoxStream<'static, Result<Vec<u8>, reqwest::Error>> = response
             .bytes_stream()
-            .map(|chunk| {
-                chunk
-                    .map(|bytes| bytes.to_vec())
-                    .map_err(|error| error.to_string())
-            })
+            .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
             .boxed();
         Ok(OpenAiStreamResponse {
             status,

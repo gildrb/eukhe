@@ -18,7 +18,7 @@ import ./base.bend as LawsBase
 
 # File modes, the socket dir and the working dir
 # ----------------------------------------------
-# docs/runtime.md "Local access", the model in bend/fsmode.bend, which
+# The model in bend/fsmode.bend, which
 # runs as the compiled core (entry bend/ffi_fsmode.bend, laws below).
 
 # LAW socket_dir_owned: the daemon binds in a socket dir only when the dir is a real
@@ -437,6 +437,27 @@ law fsmode_ffi_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, Fs.Ask>}
   {FFs.ffi(s) == SCon{'E', SCon{' ', "fsmode: malformed request"}} : String}
 
+# the reply to the input s: when s is exactly one request (read_ask), the
+# spelled answer to it (spell_answer); else the error form 'E ', then
+# "fsmode: malformed request"
+def ffi_spec.read(m: Maybe<&2, Fs.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "fsmode: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def ffi_spec(s: String) -> String:
+  ffi_spec.read(read_ask(s))
+
+# LAW fsmode_ffi_exact: the entry's reply to every input string is the spec's: to exactly one request, the socket dir's verdict, the peer's, the mode of what eukhe creates or the cwd's verdict, spelled from the specs alone; to any other input, exactly the error form
+# EXCLUDES: a reply that the specs do not determine for some input (a
+#   request read by a reader the laws do not fix, a value answered to
+#   malformed input, an error form with another text)
+law fsmode_ffi_exact:
+  for +s: String
+  {FFs.ffi(s) == ffi_spec(s) : String}
+
 # The model's own terms, pinned
 # -----------------------------
 # The laws above (socket_dir_owned, private_on_create, ...) read the model's
@@ -509,3 +530,26 @@ law fsmode_modes_exact:
   for g: Nat
   for o: Nat
   {Fs.made_mode(Fs.DirMade{}) == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.made_mode(Fs.FileMade{}) == Fs.Mode{6n, 0n, 0n} : Fs.Mode} & {Fs.dir_mode() == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.Mode.loose(Fs.Mode{u, g, o}) == Bool.or(set_spec(g), set_spec(o)) : Bool}
+
+# what the check finds at a dir the daemon just created with mode m: a
+# real dir, this uid's, loose when m has a group- or other-write bit (the
+# rule `look` reads from Rust's permission bits: read and search bits are
+# harmless)
+def made_spec(m: Fs.Mode) -> Fs.Seen:
+  match m:
+    case Fs.Mode{u, g, o}:
+      Fs.Seen{Fs.Dir{}, True{}, Bool.or(wbit(g, 2n), wbit(o, 2n))}
+
+# LAW fsmode_made_exact (G1): the dir the daemon creates with mode m is found as a real dir this uid owns, loose exactly when m has a group- or other-write bit, for every mode
+# EXCLUDES: a created dir found safe whatever its mode
+#   (socket_dir_created_used made vacuous: made(m) = Seen{Dir, True,
+#   False}), found as another node or another owner's, loose by another
+#   digit, or loose by a read or search bit (0750 is safe, 0770 is not)
+law fsmode_made_exact:
+  for m: Fs.Mode
+  {Fs.made(m) == made_spec(m) : Fs.Seen}
+
+# LAW socket_dir_group_read_used: a created dir with a group read and search bit (0750) is used, one with a group write bit (0770) is refused
+law socket_dir_group_read_used:
+  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 5n, 0n})) == Fs.Use{} : Fs.Verdict} &
+  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 7n, 0n})) == Fs.Refuse{} : Fs.Verdict}

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW afw_malformed_example
 
 import Base
-import ../../laws/aux_fallback.bend as AuxFallback
+import ../../laws/aux_fallback/wire.bend as AuxFallbackWire
 
-def AuxFallback.afw_malformed_example():
+def AuxFallbackWire.afw_malformed_example():
   ({==}, {==})

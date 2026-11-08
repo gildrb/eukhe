@@ -1,4 +1,4 @@
-# wait: the model of one wait of the harness (docs/harness.md, H6). A
+# wait: the model of one wait of the harness (LAWS.bend, H6). A
 # wait races three things: the event it waits for, a deadline, and the
 # cancel signal. It sees them one at a time, in any order the adversary
 # picks; the first one ends it, and nothing after that changes the end.

@@ -19,6 +19,7 @@
 //! — the daemon-attached transport serves those for real.
 
 pub mod commands;
+pub mod error;
 mod event_pump;
 pub mod model_commands;
 pub mod prompt_commands;
@@ -32,9 +33,11 @@ use std::sync::Arc;
 
 use eukhe_core::autonomous::AgentAutonomousConfig;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
+use eukhe_durable::session::SessionResult;
 use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
 
+use error::RpcModeError;
 use protocol::{ParsedLine, RpcCommand};
 use reads::rpc_context;
 use session::{ConnectionOutputs, RpcEngineFactory, RpcSession};
@@ -161,15 +164,17 @@ fn exit_with(code: i32) -> ! {
 /// frame is written), or the CLI goal/autonomous seed fails. The
 /// transport itself never errors out of the loop (protocol failures
 /// answer on stdout, TS parity).
-pub async fn run_rpc_mode(options: RpcOptions) -> anyhow::Result<i32> {
+pub async fn run_rpc_mode(options: RpcOptions) -> Result<i32, RpcModeError> {
     let writer = LineWriter::spawn();
     let session = RpcSession::start(
         options.engine_factory,
         ConnectionOutputs::new(writer.clone()),
     )
     .await
-    .map_err(anyhow::Error::msg)?;
-    seed_startup_state(&session, options.initial_goal, options.autonomous_config).await?;
+    .map_err(RpcModeError::Start)?;
+    seed_startup_state(&session, options.initial_goal, options.autonomous_config)
+        .await
+        .map_err(RpcModeError::Seed)?;
     let session = Arc::new(session);
     let state = Arc::new(commands::RpcState {
         session: Arc::clone(&session),
@@ -187,7 +192,7 @@ async fn seed_startup_state(
     session: &RpcSession,
     initial_goal: Option<(String, Option<u64>)>,
     autonomous_config: Option<AgentAutonomousConfig>,
-) -> anyhow::Result<()> {
+) -> SessionResult<()> {
     let opened = session.session().await;
     let main = opened.main().id();
     let cx = rpc_context();

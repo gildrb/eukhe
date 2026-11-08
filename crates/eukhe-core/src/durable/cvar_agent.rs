@@ -1,5 +1,4 @@
-//! The session's agent in the cvar layers (docs/control.md S4,
-//! `bend/cvar.bend`): which agent it is ([`CvarAgent`]: the root `main`, or
+//! The session's agent in the cvar layers (`bend/cvar.bend`): which agent it is ([`CvarAgent`]: the root `main`, or
 //! a subagent with the family it inherited at spawn), and its own state
 //! ([`AgentState`]: the sets and aliases its commands made), kept in the
 //! `eukhe.cvar.agent` document of the main conversation in its own commit.

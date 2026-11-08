@@ -1,0 +1,15 @@
+# the walk, the length note and the round note with every number at its
+# largest, and a 15-digit field refused
+call 0,TTTT
+call 0,FFFF
+call 1,{MAX},{MAX},{MAX},{MAX},
+call 1,{MAX},0,{MAX},{MAX},
+call 2,{MAX},{MAX},
+call 2,{MAX},0,
+call 2,{MAX},99999999999990,
+call 2,{MAX},99999999999998,
+refuse 1,{LONG},0,1,3,
+refuse 2,{MAX},{LONG},
+# adversary 6 (stop): a round note with a 15-digit max is refused, its
+# digits never folded past 2^48-1
+refuse 2,{LONG},1,

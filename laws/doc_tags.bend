@@ -20,6 +20,111 @@ law tag_names_shown_text:
   for +op: Dt.Op
   {Dt.Shown.tag(Dt.show(t, op)) == t : List<&2, Nat>} & {Dt.from_text(t, Dt.Shown.rows(Dt.show(t, op))) == True{} : Bool}
 
+# Spec helpers (F3, tags)
+# -----------------------
+
+# the lines an op selects: its `sel`; a grep's `later` selects nothing
+def sp_sel(op: Dt.Op) -> List<&2, Bool>:
+  match op:
+    case Dt.Read{sel}:
+      sel
+    case Dt.Grep{sel, later}:
+      sel
+
+# the rows of the lines of ts whose flag in sel is True, in order; n
+# numbers the first line; a line with no flag (sel too short) and a flag
+# with no line (ts too short) show nothing
+def sp_rows(ts: List<&2, Nat>, sel: List<&2, Bool>, +n: Nat) -> List<&2, Dt.Row>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      match sel:
+        case Nil{}:
+          Nil{}
+        case s <> more:
+          match s:
+            case True{}:
+              Dt.Row{n, x} <> sp_rows(rest, more, 1n+n)
+            case False{}:
+              sp_rows(rest, more, 1n+n)
+
+# the result of an op on the text t it read: tagged t, with the rows of
+# the lines it selects, numbered from 1
+def sp_show(+t: List<&2, Nat>, op: Dt.Op) -> Dt.Shown:
+  Dt.Shown{t, sp_rows(t, sp_sel(op), 1n)}
+
+# whether the line at index m of t (0 first) is x; past the end: no
+def sp_at(t: List<&2, Nat>, m: Nat, +x: Nat) -> Bool:
+  match t:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      match m:
+        case 0n:
+          Nat.is_eq(y, x)
+        case 1n+k:
+          sp_at(rest, k, x)
+
+# whether line n of t (1 first) is x; there is no line 0
+def sp_line(t: List<&2, Nat>, n: Nat, +x: Nat) -> Bool:
+  match n:
+    case 0n:
+      False{}
+    case 1n+m:
+      sp_at(t, m, x)
+
+# whether every row (n, x) of rs is line n of t
+def sp_from_text(+t: List<&2, Nat>, rs: List<&2, Dt.Row>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> more:
+      match r:
+        case Dt.Row{n, x}:
+          Bool.and(sp_line(t, n, x), sp_from_text(t, more))
+
+# LAW tag_rows_spec (F3): the rows cut from a text are exactly the
+# selected lines, each with its number, in order, for any first number
+# EXCLUDES: a selected line dropped, an unselected one shown, rows
+#   reordered or misnumbered, a row with another line's text, rows past
+#   the end of the selection
+law tag_rows_spec:
+  for +ts: List<&2, Nat>
+  for +sel: List<&2, Bool>
+  for +n: Nat
+  {Dt.rows(ts, sel, n) == sp_rows(ts, sel, n) : List<&2, Dt.Row>}
+
+# LAW tag_show_spec (F3): a read or grep result is, whole, the text it
+# read as its tag and the rows of the lines it selects, numbered from 1
+# EXCLUDES: `show` answering `Shown{t, Nil}` or any other rows (the
+#   audit's rewrite, which passed tag_names_shown_text with a vacuous
+#   from_text); a grep tagged or cut from `later`; rows numbered from 0;
+#   a read and a grep cut differently
+law tag_show_spec:
+  for +t: List<&2, Nat>
+  for +op: Dt.Op
+  {Dt.show(t, op) == sp_show(t, op) : Dt.Shown}
+
+# LAW tag_line_spec (F3): `is_line` says whether line n of t (1 first) is x
+# EXCLUDES: a line counted from 0, line 0 or a line past the end
+#   accepted, any x accepted, a constant answer
+law tag_line_spec:
+  for +t: List<&2, Nat>
+  for +n: Nat
+  for +x: Nat
+  {Dt.is_line(t, n, x) == sp_line(t, n, x) : Bool}
+
+# LAW tag_from_text_spec (F3): `from_text` says whether every row (n, x)
+# is line n of the text, for every text and every rows
+# EXCLUDES: `from_text = True` (the audit's rewrite, which made
+#   tag_names_shown_text vacuous); a check of the first row only; a row
+#   off by one line accepted
+law tag_from_text_spec:
+  for +t: List<&2, Nat>
+  for +rs: List<&2, Dt.Row>
+  {Dt.from_text(t, rs) == sp_from_text(t, rs) : Bool}
+
 # (F3) Grep's tags
 # ----------------
 # bend/doc_tags.bend `fates`, run as the compiled core by

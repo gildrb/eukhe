@@ -76,11 +76,48 @@ def rp.back_inv(xs: List<&2, Nat>, +last: Nat, +ts: List<&2, R.Tried>, +backoff:
       nr = LLogicBool.rp.and_r(Bool.not(Nat.is_eq(x, last)), LLogicBool.rp.notin(last, rest), nin)
       rp.back_sel(Bool.and(Nat.is_gt(Nat.max(backoff, R.server(x, ts)), 0n), Nat.is_le(Nat.max(backoff, R.server(x, ts)), max)), x, last, ts, backoff, max, R.pick.back(rest, ts, backoff, max), {==}, ne, rp.back_inv(rest, last, ts, backoff, max, nr))
 
+# The fresh walk (R.fresh) is the fresh pick over the order
+# ---------------------------------------------------------
+
+# fresh_run is pick.fresh over upto(k, a), hit being whether a was tried
+def rp.fresh_run(k: Nat, hit: Bool, +a: Nat, +ts: List<&2, R.Tried>, e: {R.seen(a, ts) == hit : Bool}) -> {R.pick.fresh(R.upto(k, a), ts) == R.fresh_run(k, hit, a, ts) : Maybe<&2, R.Switch>}:
+  match k hit:
+    case 0n h:
+      {==}
+    case 1n+j False{}:
+      %Equal.sym(Bool, R.seen(a, ts), False{}, e) : {R.pick.sel(Bool.not(_), R.Switch{a, 0n}, R.pick.fresh(R.upto(j, 1n+a), ts)) == Some{R.Switch{a, 0n}} : Maybe<&2, R.Switch>}
+      {==}
+    case 1n+j True{}:
+      %Equal.sym(Bool, R.seen(a, ts), True{}, e) : {R.pick.sel(Bool.not(_), R.Switch{a, 0n}, R.pick.fresh(R.upto(j, 1n+a), ts)) == R.fresh_run(j, R.seen(1n+a, ts), 1n+a, ts) : Maybe<&2, R.Switch>}
+      rp.fresh_run(j, R.seen(1n+a, ts), 1n+a, ts, {==})
+
+def rp.fresh_sel_then(c: Bool, +s: R.Switch, r: Maybe<&2, R.Switch>, r2: Maybe<&2, R.Switch>, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, ih: {R.fresh.then(r, last, len, ts) == r2 : Maybe<&2, R.Switch>}) -> {R.fresh.then(R.pick.sel(c, s, r), last, len, ts) == R.pick.sel(c, s, r2) : Maybe<&2, R.Switch>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+# the fresh pick of xs, else the walk below last, is the fresh pick of xs
+# then the indices below last
+def rp.fresh_then(xs: List<&2, Nat>, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>) -> {R.fresh.then(R.pick.fresh(xs, ts), last, len, ts) == R.pick.fresh(List.append(&2, Nat, xs, R.upto(Nat.min(last, len), 0n)), ts) : Maybe<&2, R.Switch>}:
+  match xs:
+    case Nil{}:
+      Equal.sym(Maybe<&2, R.Switch>, R.pick.fresh(R.upto(Nat.min(last, len), 0n), ts), R.fresh_run(Nat.min(last, len), R.seen(0n, ts), 0n, ts), rp.fresh_run(Nat.min(last, len), R.seen(0n, ts), 0n, ts, {==}))
+    case +x <> +rest:
+      rp.fresh_sel_then(Bool.not(R.seen(x, ts)), R.Switch{x, 0n}, R.pick.fresh(rest, ts), R.pick.fresh(List.append(&2, Nat, rest, R.upto(Nat.min(last, len), 0n)), ts), last, len, ts, rp.fresh_then(rest, last, len, ts))
+
+# the fresh walk picks as pick.fresh over the whole order
+def rp.fresh_order(+last: Nat, +len: Nat, +ts: List<&2, R.Tried>) -> {R.pick.fresh(R.order(last, len), ts) == R.fresh(last, len, ts) : Maybe<&2, R.Switch>}:
+  %rp.fresh_run(Nat.sub(len, 1n+last), R.seen(1n+last, ts), 1n+last, ts, {==}) : {R.pick.fresh(R.order(last, len), ts) == R.fresh.then(_, last, len, ts) : Maybe<&2, R.Switch>}
+  Equal.sym(Maybe<&2, R.Switch>, R.fresh.then(R.pick.fresh(R.upto(Nat.sub(len, 1n+last), 1n+last), ts), last, len, ts), R.pick.fresh(R.order(last, len), ts), rp.fresh_then(R.upto(Nat.sub(len, 1n+last), 1n+last), last, len, ts))
+
 def rp.mode_good(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy, eall: {R.all_seen(len, ts) == all : Bool}, elast: {last == R.last_at(ts) : Nat}, eok: {Nat.is_le(R.length(ts), R.Policy.switches(p)) == True{} : Bool}) -> LLogicLogic.rp.Good(R.next.mode(all, last, len, ts, p), len, ts, p):
   match all:
     case True{}:
       LNat.rp.back_good(R.pick.back(R.order(last, len), ts, R.backoff(p, len, ts), R.Policy.max(p)), last, len, ts, p, R.backoff(p, len, ts), rp.back_inv(R.order(last, len), last, ts, R.backoff(p, len, ts), R.Policy.max(p), rp.order_notin(last, len)), eall, elast, eok)
     case False{}:
+      %rp.fresh_order(last, len, ts) : LLogicLogic.rp.Good(_, len, ts, p)
       LNat.rp.fresh_good(R.pick.fresh(R.order(last, len), ts), last, len, ts, p, rp.fresh_inv(R.order(last, len), last, ts, rp.order_notin(last, len)), elast, eok)
 
 def rp.budget_good(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy, eok: {Nat.is_le(R.length(ts), R.Policy.switches(p)) == ok : Bool}, elast: {last == R.last_at(ts) : Nat}) -> LLogicLogic.rp.Good(R.next.budget(ok, last, len, ts, p), len, ts, p):

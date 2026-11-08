@@ -166,9 +166,16 @@ impl QueueHooks {
             return;
         };
         let prefix = fire_request_prefix(job);
-        if let Err(error) =
-            withdraw_queued(&hosted, |request_id| request_id.starts_with(&prefix)).await
-        {
+        let withdrawn = match hosted.main() {
+            Ok(main) => {
+                withdraw_queued(hosted.harness(), &main, |request_id| {
+                    request_id.starts_with(&prefix)
+                })
+                .await
+            }
+            Err(error) => Err(error.into()),
+        };
+        if let Err(error) = withdrawn {
             eprintln!("eukhe-daemon worker: withdrawing a queued heartbeat failed: {error:#}");
         }
     }
@@ -243,9 +250,7 @@ impl AgentCronSchedulerHooks for QueueHooks {
         // TS cron fires resume the suspension before admission
         // (`promptHeartbeat`/`promptUntilAccepted` carry `resumeIfIdle:
         // true`): a fire on a post-abort session is a resume site.
-        crate::worker::resubmit_suspended(&hosted, &self.core, &self.events)
-            .await
-            .map_err(|error| anyhow::anyhow!(error))?;
+        crate::worker::resubmit_suspended(&hosted, &self.core, &self.events).await?;
         // The TS `heartbeat:<id>` queue key: a later fire replaces the
         // queued one instead of stacking.
         self.remove_queued_heartbeat_follow_up(job).await;
@@ -323,7 +328,8 @@ impl ScheduledJobs {
 
     /// Bind the live session (TS `rebindCronJobsToState`): register the
     /// session's artifact partition, move its stored jobs onto the live
-    /// ids, and start (or wake) the scheduler.
+    /// ids (a heartbeat the move stops withdraws its queued fire), and
+    /// start (or wake) the scheduler.
     ///
     /// # Errors
     ///
@@ -341,7 +347,14 @@ impl ScheduledJobs {
                 .register_session_artifact(&binding.session_id, &dir);
         }
         if !binding.session_file.is_empty() {
-            self.store.rebind_session_jobs(&binding)?;
+            let changed = self
+                .store
+                .rebind_session_jobs(&binding, crate::util::now_ms())?;
+            for job in changed.iter().filter(|job| {
+                job.source == JobSource::Heartbeat && job.status == JobStatus::Cancelled
+            }) {
+                self.remove_queued_heartbeat_follow_up(job).await;
+            }
         }
         let mut guard = self.scheduler.lock().await;
         if let Some(scheduler) = guard.as_ref() {

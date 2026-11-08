@@ -134,6 +134,32 @@ fn an_interactive_request_preempts_every_background_permit() {
     assert_eq!(controller.snapshot(), classes(2, 1, 0, 0));
 }
 
+/// An interactive request preempts running background requests only on a
+/// provider with an in-flight limit, where it might otherwise wait for
+/// their slots. An unlimited provider has a slot for every request, so
+/// there a preemption would only send the background request again: it
+/// keeps its slot and finishes, and only new background requests wait
+/// while the interactive one runs.
+#[test]
+fn only_a_limited_provider_preempts_a_running_background_request() {
+    let unlimited = AdmissionController::new("p", &limits(0, 8));
+    let running = granted(unlimited.admit(Background));
+    let _session = granted(unlimited.admit(Interactive));
+    let _later = queued(unlimited.admit(Background));
+    let limited = AdmissionController::new("p", &limits(2, 8));
+    let preempted = granted(limited.admit(Background));
+    let _limited_session = granted(limited.admit(Interactive));
+    assert_eq!(
+        (
+            running.preemption().is_cancelled(),
+            unlimited.snapshot(),
+            preempted.preemption().is_cancelled(),
+            limited.snapshot()
+        ),
+        (false, classes(1, 0, 1, 1), true, classes(1, 0, 0, 0))
+    );
+}
+
 /// A background request waits while an interactive request of its
 /// provider holds a slot (even with room to spare) or waits for one, and
 /// gets its slot once none does.
@@ -141,9 +167,6 @@ fn an_interactive_request_preempts_every_background_permit() {
 /// rounds of a turn keep the slot: a waiting round gets it before any
 /// background request, the compactor gets it only between rounds, and the
 /// next round takes it back from the compactor at once.
-/// An unlimited provider admits every interactive request at once, still
-/// holds its background requests back while one runs, and preempts them
-/// when one comes.
 /// A background grant its waiter has not collected yet goes back to the
 /// head of the background queue when an interactive request comes.
 #[test]

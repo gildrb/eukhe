@@ -57,10 +57,10 @@ pub struct RlmChildSpawnRequest {
     /// copy-on-write copy of the parent's workspace.
     pub workspace: WorkspaceMode,
     /// The child is a worker of a main session (`sessionShape`
-    /// `main-worker`): the host gives it the chat view (as a subagent: it
-    /// logs nothing and takes no root-turn lease) and the worker doctrine,
-    /// and an unpinned model falls back to `workerModel`, then the
-    /// parent's model (never `subagentDefaultModel`).
+    /// `main-worker`): it keeps a chat of its own (as a top-level session
+    /// does; it never reads main's) and gets the worker doctrine, and an
+    /// unpinned model falls back to `workerModel`, then the parent's model
+    /// (never `subagentDefaultModel`).
     pub worker: bool,
 }
 
@@ -353,28 +353,6 @@ impl RlmChildActivityKind {
     }
 }
 
-/// Create and prompt one resident depth-0 session (`rlm.create_session`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RlmCreateSessionRequest {
-    /// `rlm.create_session:<call id>:<n>`: one session per tool call request.
-    pub idempotency_key: String,
-    pub prompt: String,
-    pub name: Option<String>,
-    pub model: Option<String>,
-    pub thinking: Option<String>,
-    pub cwd: Option<String>,
-}
-
-/// `rlm.create_session` handle: one resident depth-0 daemon session.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct RlmCreateSessionHandle {
-    pub active_session_id: String,
-    pub session_id: String,
-    pub name: String,
-    pub session_file: String,
-    pub model: String,
-}
-
 /// What one `rlm.rename` renames (TS `renameAgentFamilySession`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RlmRenameTarget {
@@ -423,11 +401,6 @@ pub struct RlmSpawnCapacity {
 pub trait RlmSubagentHost: Send + Sync {
     /// Create one recursive child session (no prompt).
     fn spawn(&self, request: RlmChildSpawnRequest) -> RlmHostFuture<'_, RlmChildSession>;
-    /// Create and prompt a resident depth-0 daemon session.
-    fn create_session(
-        &self,
-        request: RlmCreateSessionRequest,
-    ) -> RlmHostFuture<'_, RlmCreateSessionHandle>;
     /// Admit the task prompt into a created child.
     fn prompt(&self, request: RlmChildPromptRequest) -> RlmHostFuture<'_, ()>;
     /// Long-poll a child for its run to settle.
@@ -466,7 +439,7 @@ pub trait RlmSubagentHost: Send + Sync {
     fn session_command(&self, request: RlmChildCommandRequest) -> RlmHostFuture<'_, ()>;
 }
 
-/// Host behavior for sessions with no child runtime: spawns and creates fail
+/// Host behavior for sessions with no child runtime: spawns fail
 /// explicitly, the roster overlay is empty. Child primitives fail because no
 /// child can exist without a spawn.
 pub struct NoRlmChildren;
@@ -479,15 +452,6 @@ impl RlmSubagentHost for NoRlmChildren {
             anyhow::bail!(
                 "rlm.spawn requires a daemon-backed session: this session has no RLM child runtime"
             );
-        })
-    }
-
-    fn create_session(
-        &self,
-        _request: RlmCreateSessionRequest,
-    ) -> RlmHostFuture<'_, RlmCreateSessionHandle> {
-        Box::pin(async {
-            anyhow::bail!("rlm.create_session requires a daemon-backed depth-0 session");
         })
     }
 

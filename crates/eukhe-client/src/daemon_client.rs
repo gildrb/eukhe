@@ -38,7 +38,8 @@ use errors::{command_type_debug, response_data_or_error, DaemonConnectFailed, Di
 pub use errors::{
     is_connect_failure, is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable,
     is_foreign_daemon, is_kernel_not_running, is_shell_approval_gone,
-    rejected_provider_unauthenticated, ForeignDaemon, ForeignGreeting, RequestRejected,
+    rejected_provider_unauthenticated, CommandFailed, ForeignDaemon, ForeignGreeting,
+    RequestRejected,
 };
 
 /// Default response timeout (TS `DEFAULT_DAEMON_REQUEST_TIMEOUT_MS`).
@@ -460,16 +461,13 @@ impl DaemonClient {
         )
         .await
         .map_err(|_| {
-            anyhow::Error::new(DaemonConnectFailed(format!(
-                "Timed out after {CONNECT_TIMEOUT_MS}ms connecting to the Eukhe daemon. Socket: {}.",
-                socket_path.display()
-            )))
+            anyhow::Error::new(DaemonConnectFailed::TimedOut {
+                timeout_ms: CONNECT_TIMEOUT_MS,
+                socket_path: socket_path.to_path_buf(),
+            })
         })?
-        .with_context(|| {
-            DaemonConnectFailed(format!(
-                "Failed to connect to the Eukhe daemon. Socket: {}.",
-                socket_path.display()
-            ))
+        .with_context(|| DaemonConnectFailed::Refused {
+            socket_path: socket_path.to_path_buf(),
         })?;
 
         let (reader_half, writer_half) = connect.split();
@@ -482,7 +480,8 @@ impl DaemonClient {
         // observe a supervisor socket loss -- the watch is the observable
         // signal the UI loop arms its reconnect driver on.
         let (reader_dead_tx, reader_dead_rx) = tokio::sync::watch::channel(false);
-        let (hello_tx, hello_rx) = oneshot::channel::<std::result::Result<Value, String>>();
+        let (hello_tx, hello_rx) =
+            oneshot::channel::<std::result::Result<Value, ForeignGreeting>>();
         let shared = Arc::new(Shared::default());
         let reader_shared = Arc::clone(&shared);
 
@@ -519,7 +518,9 @@ impl DaemonClient {
                     // all: a foreign server holds the socket.
                     if !trimmed.is_empty() {
                         if let Some(tx) = hello_tx.take() {
-                            let _ = tx.send(Err(trimmed.chars().take(120).collect()));
+                            let _ = tx.send(Err(ForeignGreeting::Unparseable(
+                                trimmed.chars().take(120).collect(),
+                            )));
                         }
                     }
                     continue;
@@ -527,10 +528,9 @@ impl DaemonClient {
                 match frame.kind.as_deref().unwrap_or_default() {
                     "daemon_hello" => {
                         let Some(tx) = hello_tx.take() else { continue };
-                        let _ = tx.send(
-                            serde_json::from_str(trimmed)
-                                .map_err(|_| trimmed.chars().take(120).collect()),
-                        );
+                        let _ = tx.send(serde_json::from_str(trimmed).map_err(|_| {
+                            ForeignGreeting::Unparseable(trimmed.chars().take(120).collect())
+                        }));
                     }
                     "response" => {
                         if let Ok(response) = serde_json::from_str::<DaemonResponse>(trimmed) {
@@ -568,11 +568,11 @@ impl DaemonClient {
                 reader_task.abort();
                 anyhow!("the daemon connection closed before the handshake")
             })?
-            .map_err(|line| {
+            .map_err(|greeting| {
                 reader_task.abort();
                 anyhow::Error::new(ForeignDaemon {
                     socket_path: socket_path.to_path_buf(),
-                    greeting: ForeignGreeting::Unparseable(line),
+                    greeting,
                 })
             })?;
         let protocol = hello

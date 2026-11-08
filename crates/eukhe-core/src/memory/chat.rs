@@ -263,8 +263,10 @@ impl Chat {
         self.view.first_unbuilt(self.total(), &self.nodes)
     }
 
-    pub(crate) fn settled(&self) -> bool {
-        self.view.settled(&self.nodes)
+    /// Whether every line a request showing the history before message
+    /// `end` keeps is a summary.
+    pub(crate) fn settled(&self, end: u64) -> bool {
+        self.view.settled(end, &self.nodes)
     }
 
     /// A new message enters the log and the view. Returns its id and the
@@ -305,9 +307,10 @@ impl Chat {
     }
 
     /// The nodes to start now, within the free job slots, as the planner
-    /// orders them (§4 "The order").
-    pub(crate) fn candidates(&mut self, demand: Demand) -> Vec<Part> {
-        parts(self.planner.candidates(demand))
+    /// orders them (§4 "The order"), under the due mark `due`: only lines
+    /// and merges that start before it (`laws/optchat.bend` H4).
+    pub(crate) fn candidates(&mut self, demand: Demand, due: u64) -> Vec<Part> {
+        parts(self.planner.candidates(demand, due))
     }
 
     /// The node is running (or failed, waiting to be tried again).

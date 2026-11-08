@@ -47,7 +47,10 @@ async fn fresh_session_without_a_lease_fails_closed() {
     };
 
     assert!(
-        error.starts_with("could not lease the fresh session "),
+        matches!(error, HeadlessSessionError::FreshLease { .. })
+            && error
+                .to_string()
+                .starts_with("could not lease the fresh session "),
         "unexpected: {error}"
     );
     assert!(

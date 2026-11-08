@@ -1,4 +1,4 @@
-//! The `cvar` command's wire shapes (docs/control.md S4): the values it
+//! The `cvar` command's wire shapes: the values it
 //! answers and the typed data of a rejected command.
 
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,8 @@ pub enum CvarFailureKind {
     Parse,
     /// An `action`, which only a key bind runs.
     Action,
+    /// A setting kept in `settings.json` only (packages, MCP servers, …).
+    Document,
 }
 
 /// The `data` of a rejected `cvar` command. A failure line with `data`

@@ -1,43 +1,37 @@
-//! The child-lifecycle concern: session creation (create/launch), the
-//! prompt/kill/close routing, the record refresh, and the
-//! spawn-admission outbox types (`CreatedSessionIds`, `CreatedChild`).
+//! The child-lifecycle concern: session creation, the busy/outcome reads
+//! and the settle wait, and the spawn-admission outbox type
+//! (`CreatedChild`).
 use eukhe_core::durable::children as durable;
 
 use super::{
-    anyhow, json, ChildCloseReason, Context, DaemonCommand, DaemonSessionLifecycle, Duration, Map,
-    ParentIdentity, Path, PathBuf, PromptInput, Result, SupervisorChildSessionsInner, Value,
-    CREATE_TIMEOUT_MS, IDLE_WAIT_GRACE_MS, PROMPT_TIMEOUT_MS, RUNTIME_METADATA_PROMPT_MAX,
-    STATE_TIMEOUT_MS,
+    anyhow, json, Context, DaemonCommand, DaemonSessionLifecycle, Duration, Map, ParentIdentity,
+    Path, PathBuf, Result, SupervisorChildSessionsInner, Value, CREATE_TIMEOUT_MS,
+    IDLE_WAIT_GRACE_MS, RUNTIME_METADATA_PROMPT_MAX, STATE_TIMEOUT_MS,
 };
-use crate::timeouts;
-
-/// Parsed ids of one created child session.
-struct CreatedSessionIds {
-    active_session_id: String,
-    session_id: Option<String>,
-    session_file: Option<String>,
-    session_name: Option<String>,
-}
 
 pub(super) struct CreatedChild {
     pub(super) active_session_id: String,
-    pub(super) session_id: Option<String>,
-    pub(super) session_file: Option<String>,
     pub(super) session_name: Option<String>,
     pub(super) session_dir: String,
-    pub(super) summary_rlm_depth: Option<u64>,
 }
 
 impl CreatedChild {
+    /// The created session's live id (`activeSessionId`, the supervisor
+    /// rows' `id` fallback) and name, from its summary.
     fn from_summary(summary: &Value, session_dir: &Path) -> Result<Self> {
-        let ids = SupervisorChildSessionsInner::created_summary_ids(summary)?;
+        let active_session_id = summary
+            .get("activeSessionId")
+            .or_else(|| summary.get("id"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow!("supervisor returned a session summary without an id"))?;
         Ok(Self {
-            active_session_id: ids.active_session_id,
-            session_id: ids.session_id,
-            session_file: ids.session_file,
-            session_name: ids.session_name,
+            active_session_id: active_session_id.to_string(),
+            session_name: summary
+                .get("sessionName")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             session_dir: session_dir.to_string_lossy().to_string(),
-            summary_rlm_depth: summary.get("rlmDepth").and_then(Value::as_u64),
         })
     }
 }
@@ -60,7 +54,7 @@ impl SupervisorChildSessionsInner {
         child_id: &str,
         name: Option<&str>,
         // The spawned task's prompt, mirrored into the create runtime
-        // metadata (`None` for a depth-0 resident session).
+        // metadata.
         prompt: Option<&str>,
         depth: u32,
         model: &str,
@@ -119,8 +113,7 @@ impl SupervisorChildSessionsInner {
         if let Some(family) = family {
             config["cvarFamily"] = serde_json::to_value(family())?;
         }
-        // Runtime metadata mirrors the TS subagent runtime identity; a
-        // depth-0 resident session carries none (it is a plain root session).
+        // Runtime metadata mirrors the TS subagent runtime identity.
         let runtime_metadata = runtime_metadata.map(|mut metadata| {
             if let Some(session_id) = &identity.session_id {
                 metadata["parentSessionId"] = json!(session_id);
@@ -157,125 +150,7 @@ impl SupervisorChildSessionsInner {
             .command(&create, CREATE_TIMEOUT_MS)
             .await
             .with_context(|| format!("spawn RLM child session {child_id}"))?;
-        let created = CreatedChild::from_summary(&summary, session_dir)?;
-        Ok(created)
-    }
-
-    /// Create and promptly admit one child's task (the depth-0 resident
-    /// session path: the prompt is part of the awaited admission).
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn launch_child(
-        &self,
-        child_id: &str,
-        name: Option<&str>,
-        prompt: &str,
-        depth: u32,
-        model: &str,
-        thinking: Option<&str>,
-        cwd: &str,
-        session_dir: &Path,
-        runtime_metadata: Option<Value>,
-        identity: &ParentIdentity,
-    ) -> Result<CreatedChild> {
-        let created = self
-            .create_child(
-                child_id,
-                name,
-                None,
-                depth,
-                model,
-                thinking,
-                cwd,
-                session_dir,
-                /*spawned_by_request_id*/ None,
-                runtime_metadata,
-                identity,
-                /*requested_session_id*/ None,
-            )
-            .await?;
-        // A failed prompt tears the just-created session down (TS kills the
-        // created session in the create-path catch block).
-        if let Err(error) = self.prompt_child(&created.active_session_id, prompt).await {
-            let _ = self
-                .kill_child(&created.active_session_id, ChildCloseReason::Killed)
-                .await;
-            return Err(error);
-        }
-        Ok(created)
-    }
-
-    /// Parse a created-session summary into its ids (TS `createRlmRootSession`
-    /// reads `activeSessionId`/`sessionId`/`sessionFile`/`sessionName`).
-    fn created_summary_ids(summary: &Value) -> Result<CreatedSessionIds> {
-        let active_session_id = summary
-            .get("activeSessionId")
-            .or_else(|| summary.get("id"))
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| anyhow!("supervisor returned a session summary without an id"))?;
-        Ok(CreatedSessionIds {
-            active_session_id: active_session_id.to_string(),
-            session_id: summary
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            session_file: summary
-                .get("sessionFile")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            session_name: summary
-                .get("sessionName")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        })
-    }
-
-    pub(super) async fn prompt_child(&self, active_session_id: &str, prompt: &str) -> Result<()> {
-        let command = DaemonCommand::Prompt {
-            id: None,
-            active_session_id: active_session_id.to_string(),
-            message: prompt.to_string(),
-            input: PromptInput {
-                content: None,
-                images: None,
-                streaming_behavior: None,
-                queue_if_busy: None,
-                expand_prompt_templates: None,
-                source: Some(json!("rpc")),
-                agent_message_id: None,
-                custom_message: None,
-                queue_key: None,
-                prefix_messages: None,
-                admission_id: None,
-                rlm_notice_nonce: None,
-                reply_to: None,
-            },
-            rest: Map::default(),
-        };
-        self.command(&command, PROMPT_TIMEOUT_MS)
-            .await
-            .with_context(|| format!("prompt RLM child session {active_session_id}"))?;
-        Ok(())
-    }
-
-    pub(super) async fn kill_child(
-        &self,
-        active_session_id: &str,
-        reason: ChildCloseReason,
-    ) -> Result<()> {
-        let mut rest = serde_json::Map::new();
-        if let Some(marker) = reason.wire_marker() {
-            rest.insert("rlmCloseReason".to_string(), json!(marker));
-        }
-        let command = DaemonCommand::Kill {
-            id: None,
-            active_session_id: active_session_id.to_string(),
-            rest,
-        };
-        self.command(&command, timeouts::derived().rlm_child_kill_timeout_ms)
-            .await
-            .with_context(|| format!("kill RLM child session {active_session_id}"))?;
-        Ok(())
+        CreatedChild::from_summary(&summary, session_dir)
     }
 
     /// Whether the child worker still has work in flight (streaming,

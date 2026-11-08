@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, Weak};
 use anyhow::{anyhow, Context as _, Result};
 
 use crate::auth::types::AuthCredential;
-use crate::auth::{AuthStorage, OAuthIntegration};
+use crate::auth::{AuthStorage, OAuthIntegration, OAuthRefreshError};
 
 use super::oauth::{mcp_login, McpLoginUi, McpOAuthConfig};
 use super::oauth_http::OAuthHttp;
@@ -153,19 +153,21 @@ impl McpOAuth {
         &self,
         provider_id: &str,
         credentials: &AuthCredential,
-    ) -> Result<AuthCredential, String> {
+    ) -> Result<AuthCredential, OAuthRefreshError> {
         let server = provider_id
             .strip_prefix("mcp:")
-            .ok_or_else(|| format!("{provider_id} is not an MCP login"))?
+            .ok_or_else(|| OAuthRefreshError::NotMcpLogin {
+                provider: provider_id.to_string(),
+            })?
             .to_string();
         let AuthCredential::Oauth {
             endpoint: Some(endpoint),
             ..
         } = credentials
         else {
-            return Err(format!(
-                "the stored {provider_id} credential names no MCP endpoint"
-            ));
+            return Err(OAuthRefreshError::NoMcpEndpoint {
+                provider: provider_id.to_string(),
+            });
         };
         let config = McpOAuthConfig {
             server: server.clone(),
@@ -186,18 +188,18 @@ impl McpOAuth {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .map_err(|error| format!("could not start the refresh runtime: {error}"))?;
+                    .map_err(OAuthRefreshError::Runtime)?;
                 runtime
                     .block_on(super::oauth::mcp_refresh_token(
                         http.as_ref(),
                         &config,
                         &credential,
                     ))
-                    .map_err(|error| format!("{error:#}"))
+                    .map_err(OAuthRefreshError::Mcp)
             })
-            .map_err(|error| format!("could not start the refresh thread: {error}"))?
+            .map_err(OAuthRefreshError::Thread)?
             .join()
-            .map_err(|_| "the refresh thread panicked".to_string())?
+            .map_err(|_| OAuthRefreshError::Panicked)?
     }
 }
 
@@ -213,10 +215,13 @@ impl OAuthIntegration for McpOAuth {
         &self,
         provider_id: &str,
         credentials: &crate::auth::AuthStorageData,
-    ) -> Result<AuthCredential, String> {
-        let credential = credentials
-            .credential(provider_id)
-            .ok_or_else(|| format!("no stored credential for {provider_id}"))?;
+    ) -> Result<AuthCredential, OAuthRefreshError> {
+        let credential =
+            credentials
+                .credential(provider_id)
+                .ok_or_else(|| OAuthRefreshError::NotStored {
+                    provider: provider_id.to_string(),
+                })?;
         self.refresh_blocking(provider_id, &credential)
     }
 }

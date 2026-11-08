@@ -8,14 +8,19 @@ check:
 	cargo build --release --workspace --locked
 
 # The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
-# here. ci-fast is the pre-commit gate: rustfmt, the crate layering
-# (scripts/check_crate_layers.py), the secrets scan of the staged diff (when
-# gitleaks is installed), clippy on the crates the staged change touches
-# (scripts/ci_pr_crates.py). The pre-push gate checks the
-# pushed commits: rustfmt, their secrets scan, clippy and tests on the
-# crates they touch, `bend PROOF.bend`. ci-local is the full gate; the
-# nightly run (scripts/ci_nightly.sh, a systemd user timer) runs it on
-# origin/main and starts the release only when it passes.
+# here. ci-fast is the pre-commit gate (< 1 min): rustfmt, the crate
+# layering (scripts/check_crate_layers.py), the secrets scan of the staged
+# diff (when gitleaks is installed), clippy on the crates the staged change
+# touches (scripts/ci_pr_crates.py). The pre-push gate
+# (< 5 min) checks the pushed commits: rustfmt, their secrets scan, clippy
+# and the unit tests (nextest profile pre-push, .config/nextest.toml: no
+# e2e suite) of the crates they touch, the proofs their Bend change can
+# reach (scripts/bend_proofs.py), the laws against LAWS.lock. ci-local is
+# the full gate (< 30 min): every test (nextest profile nightly) and `bend
+# PROOF.bend --verdict`; the nightly run (scripts/ci_nightly.sh, a systemd
+# user timer) runs it on origin/main and starts the release only when it
+# passes. lock re-locks the laws in seconds: the proofs the change since
+# origin/main can reach, then LAWS.lock. Tools: mise.toml.
 # `make hooks` makes git run the hooks through prek (.pre-commit-config.yaml;
 # the hooks are in the git common dir, so every worktree shares them; a
 # worktree of an older commit, without the config, skips them).
@@ -25,6 +30,9 @@ ci-fast:
 ci-local:
 	@scripts/ci_local.sh full
 
+lock:
+	@scripts/ci_local.sh lock
+
 nightly:
 	@scripts/ci_nightly.sh run
 
@@ -32,7 +40,7 @@ nightly-status:
 	@scripts/ci_nightly.sh status
 
 hooks:
-	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (docs/develop.md: mise use -g github:j178/prek@0.5.7)"; exit 1; }
+	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (mise use -g github:j178/prek@0.5.7)"; exit 1; }
 	prek install --allow-missing-config --hook-type pre-commit --hook-type pre-push
 
 # The eukhe-runtime Python suite on the uv-locked kernel env (the env the
@@ -40,10 +48,15 @@ hooks:
 runtime-test:
 	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
+# The Home Manager module's settings merge (nix/merge-settings.sh): the
+# declared settings never drop the model choice eukhe saved. Needs jq.
+nix-test:
+	python3 nix/test_merge_settings.py
+
 # The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
 include scripts/toolchain.env
 
-# The laws (LAWS.bend, proven in PROOF.bend; docs/memory.md). The full gate
+# The laws (LAWS.bend, proven in PROOF.bend). The full gate
 # (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION). Every Bend
 # target runs the pinned Bend $(BEND_VERSION) (scripts/pinned_bend.sh).
 laws:
@@ -230,4 +243,28 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui
+# The benchmark suite (bench/README.md): real model calls that cost money,
+# never run by CI. The release build lands in this checkout's target/ (not
+# $CARGO_TARGET_DIR): a binary inside its checkout finds the checkout's
+# skills/ and eukhe-runtime/. BENCH_FLAGS passes bench flags (--dir, --model, …).
+BENCH_TOOLS ?= eukhe
+BENCH_TASKS ?= all
+BENCH_RUNS ?= 1
+BENCH_PAR ?= 4
+BENCH_FLAGS ?=
+BENCH_QUICK_TASKS ?= crm
+
+bench-build:
+	cargo build --release --locked -p eukhe-cli --target-dir target
+
+bench: bench-build
+	python3 bench/batch.py --tools $(BENCH_TOOLS) --tasks $(BENCH_TASKS) --runs $(BENCH_RUNS) --par $(BENCH_PAR) $(BENCH_FLAGS)
+	python3 bench/report.py $(BENCH_FLAGS)
+
+# A cheap check that the suite runs end to end: BENCH_QUICK_TASKS once, every
+# model call on claude-haiku-5-5.
+bench-quick: bench-build
+	python3 bench/batch.py --tools eukhe --tasks $(BENCH_QUICK_TASKS) --runs 1 --par $(BENCH_PAR) --model haiku --rerun $(BENCH_FLAGS)
+	python3 bench/report.py --tasks $(BENCH_QUICK_TASKS) --labels eukhe-haiku $(BENCH_FLAGS)
+
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick

@@ -8,23 +8,48 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_core::agent_messaging::{
-    AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
-    DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
-};
 use eukhe_core::durable::children::Wake;
 use eukhe_core::durable::input_entry;
 use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
+use eukhe_durable::session::SessionError;
 use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Value};
 
 use super::durable_host::suspended::WithdrawnInput;
-use super::{sender_is_child_of, HostedSession, RunAdmission, Worker};
+use super::{HostedSession, RunAdmission, Worker};
+use crate::agent_message_delivery::{AgentMessageDelivery, Recipient, RecipientRun};
 use crate::compaction::durable::ManualCompactionError;
+use crate::error_chain::ErrorChain;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+
+/// Why an input's display row does not build its input entry.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum InputRowError {
+    /// The row's `content` is not user content.
+    #[error(transparent)]
+    Content(#[from] serde_json::Error),
+    /// The row's `details` are not strict JSON.
+    #[error(transparent)]
+    Details(#[from] eukhe_chord::json::JsonError),
+}
+
+/// Why an input was not admitted.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AdmitError {
+    #[error(transparent)]
+    Row(#[from] InputRowError),
+    /// A closed Harness, a rejected busy input, a failed commit.
+    #[error(transparent)]
+    Session(#[from] SessionError),
+}
+
+/// The wire `customMessage` is not a custom row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid customMessage: expected a custom message object with a customType")]
+pub(crate) struct InvalidCustomMessage;
 
 /// One input to admit on the main conversation.
 pub(crate) struct InputRequest {
@@ -55,7 +80,7 @@ impl InputRequest {
     /// # Errors
     ///
     /// The row's content or details are malformed.
-    fn entry(&self) -> anyhow::Result<Option<InputEntry>> {
+    fn entry(&self) -> Result<Option<InputEntry>, InputRowError> {
         let Some(row) = &self.custom_row else {
             return Ok(None);
         };
@@ -79,6 +104,21 @@ impl InputRequest {
             details,
             self.origin.clone(),
         )?))
+    }
+
+    /// The input as one submission draft.
+    ///
+    /// # Errors
+    ///
+    /// The row's content or details are malformed.
+    pub(crate) fn draft(&self) -> Result<InputSubmissionDraft, InputRowError> {
+        Ok(InputSubmissionDraft {
+            request_id: self.request_id.clone(),
+            content: self.content(),
+            when_busy: Some(self.when_busy),
+            origin: self.origin.clone(),
+            entry: self.entry()?,
+        })
     }
 }
 
@@ -107,23 +147,23 @@ pub(crate) fn parse_prompt_images(payload: &Value) -> Vec<ImageContent> {
 ///
 /// # Errors
 ///
-/// The wire message of a malformed row (never silently degraded into a
-/// plain prompt).
-pub(crate) fn parse_custom_message(value: Option<&Value>) -> Result<Option<Value>, String> {
+/// A malformed row (never silently degraded into a plain prompt).
+pub(crate) fn parse_custom_message(
+    value: Option<&Value>,
+) -> Result<Option<Value>, InvalidCustomMessage> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
-    let invalid = "Invalid customMessage: expected a custom message object with a customType";
-    let object = value.as_object().ok_or(invalid)?;
+    let object = value.as_object().ok_or(InvalidCustomMessage)?;
     if object.get("role").and_then(Value::as_str) != Some("custom") {
-        return Err(invalid.to_string());
+        return Err(InvalidCustomMessage);
     }
     if object
         .get("customType")
         .and_then(Value::as_str)
         .is_none_or(str::is_empty)
     {
-        return Err(invalid.to_string());
+        return Err(InvalidCustomMessage);
     }
     Ok(Some(value.clone()))
 }
@@ -141,20 +181,8 @@ pub(crate) async fn submit_input(
     request: &InputRequest,
     _admission: &RunAdmission,
     cx: &Context,
-) -> anyhow::Result<SubmissionHandle> {
-    let handle = conversation
-        .submit(
-            InputSubmissionDraft {
-                request_id: request.request_id.clone(),
-                content: request.content(),
-                when_busy: Some(request.when_busy),
-                origin: request.origin.clone(),
-                entry: request.entry()?,
-            },
-            cx,
-        )
-        .await?;
-    Ok(handle)
+) -> Result<SubmissionHandle, AdmitError> {
+    Ok(conversation.submit(request.draft()?, cx).await?)
 }
 
 /// The failure text of a waited prompt that ended unanswered: the run's
@@ -176,17 +204,15 @@ impl Worker {
     ///
     /// # Errors
     ///
-    /// The admission failure text.
+    /// The admission failure.
     pub(crate) async fn admit_input(
         &self,
         hosted: &HostedSession,
         request: &InputRequest,
-    ) -> Result<SubmissionHandle, String> {
-        let main = hosted.main().map_err(|error| error.to_string())?;
+    ) -> Result<SubmissionHandle, AdmitError> {
+        let main = hosted.main()?;
         let admission = RunAdmission::enter(&self.core).await;
-        submit_input(&main, request, &admission, &BACKGROUND_CONTEXT)
-            .await
-            .map_err(|error| format!("{error:#}"))
+        submit_input(&main, request, &admission, &BACKGROUND_CONTEXT).await
     }
 
     /// Hold one admission under a live input-pause lease (TS
@@ -203,23 +229,27 @@ impl Worker {
         wait: bool,
         queued_payload: bool,
     ) -> DaemonResponse {
-        let held = (|| async {
-            let held = WithdrawnInput {
-                id: None,
-                mode: request.when_busy.into(),
-                content: request.content(),
-                entry: request.entry().map_err(|error| format!("{error:#}"))?,
-                origin: request.origin.clone(),
-            };
+        let entry = match request.entry() {
+            Ok(entry) => entry,
+            Err(error) => {
+                return response_failure(None, command, &ErrorChain(&error).to_string(), None)
+            }
+        };
+        let held = WithdrawnInput {
+            id: None,
+            mode: request.when_busy.into(),
+            content: request.content(),
+            entry,
+            origin: request.origin.clone(),
+        };
+        if let Err(error) =
             super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
                 state.held.push(held);
                 (state, ())
             })
             .await
-        })()
-        .await;
-        if let Err(error) = held {
-            return response_failure(None, command, &error, None);
+        {
+            return response_failure(None, command, &error.to_string(), None);
         }
         if wait {
             return response_failure(None, command, "Session input is paused", None);
@@ -246,7 +276,7 @@ impl Worker {
         }
         let custom_row = match parse_custom_message(payload.get("customMessage")) {
             Ok(row) => row,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         // The reserved child-status kinds are daemon provenance: a prompt
         // row claiming one is a spoof, answered loudly.
@@ -321,7 +351,9 @@ impl Worker {
         }
         let handle = match self.admit_input(&hosted, &request).await {
             Ok(handle) => handle,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => {
+                return response_failure(None, command, &ErrorChain(&error).to_string(), None)
+            }
         };
         // A prompt is the user's words or main's hand-over: it wakes a
         // paused run, which places it at the boundary it parked at.
@@ -387,11 +419,13 @@ impl Worker {
         // A successful `/refine` surfaces `refine_complete` through its
         // committed audit row; a failed run commits no audit, so the
         // failure event (TS `refine_failed`) is emitted here.
-        if let Some(error) = outcome.refinement_failed {
-            self.emit_worker_event(eukhe_types::daemon::SessionEvent::RefineFailed { error });
+        if let Some(error) = outcome.refinement_failed() {
+            self.emit_worker_event(eukhe_types::daemon::SessionEvent::RefineFailed {
+                error: error.to_string(),
+            });
         }
         match outcome.error {
-            Some(error) => response_failure(None, command, &error, None),
+            Some(error) => response_failure(None, command, &error.to_string(), None),
             None => response_success(None, command, None),
         }
     }
@@ -413,7 +447,7 @@ impl Worker {
         if let Err(error) =
             eukhe_core::durable::commit_session_command_echo(main, session_command, cx).await
         {
-            return response_failure(None, command, &error, None);
+            return response_failure(None, command, &error.to_string(), None);
         }
         let instructions = (!session_command.args.is_empty()).then(|| session_command.args.clone());
         let response = match self.compaction.compact(instructions).await {
@@ -429,7 +463,7 @@ impl Worker {
                 .await
                 {
                     Ok(()) => response_failure(None, command, &message, None),
-                    Err(commit) => response_failure(None, command, &commit, None),
+                    Err(commit) => response_failure(None, command, &commit.to_string(), None),
                 }
             }
         };
@@ -456,7 +490,7 @@ impl Worker {
             .unwrap_or_default();
         let custom_row = match parse_custom_message(payload.get("customMessage")) {
             Ok(row) => row,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         // Only the daemon's own durable notice producer writes the reserved
         // child-status kinds; any row claiming them on intake is refused.
@@ -494,157 +528,81 @@ impl Worker {
                 self.heard_waking(&hosted).await;
                 response_success(None, command, Some(json!({ "queued": true })))
             }
-            Err(error) => response_failure(None, command, &error, None),
+            Err(error) => response_failure(None, command, &ErrorChain(&error).to_string(), None),
         }
     }
 
     /// Agent-to-agent message delivery, routed by the supervisor's
-    /// `send_message` arm: the `[agent-message from ...]` prompt is admitted
-    /// as input on the requested lane, preceded by the `agent_message`
-    /// display row (the collapsed card). Answers with the delivery receipt:
-    /// `queued` while a run is busy, else `delivered`.
+    /// `send_message` arm: the shared delivery
+    /// ([`AgentMessageDelivery`]) behind this worker's pause gate and
+    /// input-pause lease. Answers with the delivery receipt: `queued`
+    /// while a run is busy, else `delivered`.
     pub(crate) async fn handle_worker_deliver_message(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "worker_deliver_message";
         let hosted = match self.hosted(COMMAND) {
             Ok(hosted) => hosted,
             Err(response) => return response,
         };
-        let message = payload
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if let Err(error) = eukhe_core::agent_messaging::normalize_agent_session_message(message) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
-        }
+        let message = match AgentMessageDelivery::validated_message(payload) {
+            Ok(message) => message,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
         if let Err(response) = self.refuse_delivery_if_paused() {
             return response;
         }
-        let sender = payload.get("sender").cloned().unwrap_or(Value::Null);
-        // Sender label precedence: session name, session id, active session
-        // id, client id.
-        let sender_name = ["sessionName", "sessionId", "activeSessionId", "clientId"]
-            .iter()
-            .find_map(|key| sender.get(*key).and_then(Value::as_str))
-            .unwrap_or("unknown")
-            .to_string();
-        let (from_relationship, pending, queued, summary) = {
+        let prepared = {
             let core = self
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (
-                sender_is_child_of(&sender, &core).then_some(AgentFamilyRelationship::Child),
-                core.view.as_ref().map_or(0, |view| view.inbox.len()),
-                core.is_busy(),
-                self.summary_locked(&core),
-            )
-        };
-        if let Err(error) = eukhe_core::agent_messaging::assert_agent_message_queue_capacity(
-            pending,
-            DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
-        ) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
-        }
-        // A child's message to this parent is its reply: its settle owes no
-        // no-reply notice (and so no extra parent turn restating it). The
-        // mark commits on the child's durable row before the receipt
-        // answers, so the child's own settle can never overtake it.
-        if from_relationship == Some(AgentFamilyRelationship::Child) {
-            let sender_ids = ["activeSessionId", "sessionId"]
-                .iter()
-                .filter_map(|key| sender.get(*key).and_then(Value::as_str))
-                .map(str::to_string)
-                .collect();
-            let marked = async {
-                let main = hosted.main()?;
-                eukhe_core::durable::children::mark_child_replied(
-                    hosted.harness(),
-                    main.id(),
-                    sender_ids,
-                )
-                .await
-            }
-            .await;
-            if let Err(error) = marked {
-                eprintln!("eukhe-daemon worker: recording the child's reply failed: {error:#}");
-            }
-        }
-        let report =
-            eukhe_core::agent_messaging::agent_session_message_report(&AgentMessagePromptPayload {
-                message: message.to_string(),
-                sender_name,
-                from_relationship,
+            let summary = self.summary_locked(&core);
+            let mut target = json!({
+                "activeSessionId": summary.active_session_id.clone().unwrap_or_default(),
+                "sessionId": summary.session_id,
+                "runtimeKind": summary
+                    .runtime_kind
+                    .clone()
+                    .unwrap_or_else(|| "top-level".to_string()),
             });
-        let prompt = report.render(message);
-        let id = eukhe_core::agent_messaging::create_agent_session_message_id();
-        let mut target = json!({
-            "activeSessionId": summary.active_session_id.clone().unwrap_or_default(),
-            "sessionId": summary.session_id,
-            "runtimeKind": summary
-                .runtime_kind
-                .clone()
-                .unwrap_or_else(|| "top-level".to_string()),
-        });
-        if let Some(name) = summary.session_name.filter(|name| !name.is_empty()) {
-            target["sessionName"] = json!(name);
-        }
-        let row = eukhe_core::agent_messaging::create_agent_session_message_row(
-            &eukhe_core::agent_messaging::AgentSessionMessageRowPayload {
-                id: &id,
-                prompt: &prompt,
-                message,
-                from: &sender,
-                from_relationship,
-                target: Some(&target),
-                timestamp: crate::util::now_ms(),
-            },
-        );
-        let follow_up = payload.get("deliveryMode").and_then(Value::as_str) == Some("follow_up");
-        let request = InputRequest {
-            text: prompt,
-            images: Vec::new(),
-            custom_row: Some(row),
-            when_busy: if follow_up {
-                WhenBusy::FollowUp
+            if let Some(name) = summary.session_name.filter(|name| !name.is_empty()) {
+                target["sessionName"] = json!(name);
+            }
+            let recipient = Recipient {
+                session_id: (!core.session_id.is_empty()).then_some(core.session_id.as_str()),
+                active_session_id: &core.active_session_id,
+                session_file: core.session_dir.as_deref(),
+            };
+            let pending = core.view.as_ref().map_or(0, |view| view.inbox.len());
+            let run = if core.is_busy() {
+                RecipientRun::Busy
             } else {
-                WhenBusy::Steer
-            },
-            request_id: Some(format!("agent-message:{id}")),
-            origin: InputOrigin::Report { report },
+                RecipientRun::Idle
+            };
+            AgentMessageDelivery::prepare(payload, message, &recipient, pending, target)
+                .map(|delivery| (delivery, run))
         };
+        let (delivery, run) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
+        delivery
+            .record_child_reply(hosted.harness(), || Ok(hosted.main()?))
+            .await;
         // A live input-pause lease holds the delivery's input like any
         // admission; the card row above already committed, and the
         // release delivers the prompt.
         if self.input_pauses.paused() {
             return self
-                .hold_input(&hosted, &request, COMMAND, false, false)
+                .hold_input(&hosted, &delivery.request, COMMAND, false, false)
                 .await;
         }
-        if let Err(error) = self.admit_input(&hosted, &request).await {
-            return response_failure(None, COMMAND, &error, None);
+        if let Err(error) = self.admit_input(&hosted, &delivery.request).await {
+            return response_failure(None, COMMAND, &ErrorChain(&error).to_string(), None);
         }
         // An agent's message waits while the run is paused: the held
         // boundary places it when the run goes on.
         heard(&hosted, Wake::Waits).await;
-        let timestamp = crate::util::now_iso();
-        let mut receipt = json!({
-            "id": id,
-            "source": AGENT_MESSAGE_SOURCE,
-            "target": target,
-            "message": message,
-            "deliveryMode": if follow_up { "follow_up" } else { "steer" },
-        });
-        if queued {
-            receipt["deliveryStatus"] = json!("queued");
-            receipt["queuedAt"] = json!(timestamp);
-        } else {
-            receipt["deliveryStatus"] = json!("delivered");
-            receipt["deliveredAt"] = json!(timestamp);
-        }
-        if !sender.is_null() {
-            receipt["from"] = json!(sender);
-        }
-        response_success(None, COMMAND, Some(receipt))
+        response_success(None, COMMAND, Some(delivery.receipt(run)))
     }
 }
 

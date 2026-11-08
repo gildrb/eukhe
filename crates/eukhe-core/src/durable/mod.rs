@@ -13,7 +13,6 @@ mod codemode;
 pub mod compaction;
 pub mod cvar_agent;
 mod deps;
-mod digest;
 pub mod directors;
 mod discovery;
 pub mod documents;
@@ -31,6 +30,7 @@ pub mod observe;
 mod open;
 pub mod optchat;
 pub(crate) mod path_policy;
+pub mod pending;
 mod prompt;
 mod registry;
 mod retry_outcome;
@@ -38,7 +38,7 @@ pub mod rlm;
 mod runner;
 pub(crate) mod session_commands;
 mod settings;
-mod shell;
+pub(crate) mod shell;
 mod staging;
 mod state_tree;
 mod tool_contract;
@@ -49,8 +49,8 @@ pub use admission_gate::AdmissionStateSink;
 pub use deps::{
     HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, JobSettledSink,
     LateAgentMessageSink, McpLogin, ModelRequest, OpenedSession, ParentLink, PromptConfig,
-    ServiceStart, ServiceStop, SessionConfig, SessionRole, SessionShape, SessionStorage,
-    ShellApprovalSink, SummaryDeltaSink,
+    ServiceStart, ServiceStop, SessionConfig, SessionHost, SessionRole, SessionShape,
+    SessionStorage, ShellApprovalSink, SummaryDeltaSink,
 };
 pub use discovery::{
     list_sessions, most_recent_session_for_cwd, read_main_transcript, read_session_cwd,
@@ -77,14 +77,15 @@ pub use main_conversation::{
 pub use models::provider::{ProviderRuntime, ProviderWireEvent};
 pub use models::{
     compose_models_json, create_models, resolve_session_model, ModelsError, ResolvedModel,
-    SessionModels, Substitution, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+    SavedSetting, SessionModels, Substitution, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
 };
 pub use open::{open_session, session_artifact_dir_for_log, EukheSession, OpenError};
-pub use prompt::{section_keys, PROMPT_EXTENSION};
+pub use prompt::{CLOSING_KEYS, PROMPT_EXTENSION, SECTION_KEYS, SHARED_SECTIONS};
 pub use registry::create_eukhe_registry;
 pub use session_commands::{
     classify_session_command, commit_session_command_echo, commit_session_command_failure,
-    execute_session_command, SessionCommand, SessionCommandName, SessionCommandOutcome,
+    execute_session_command, SessionCommand, SessionCommandError, SessionCommandName,
+    SessionCommandOutcome,
 };
 pub use settings::{default_thinking_level, harness_settings, thinking_level, EukheSettings};
 pub use staging::{sweep_stale_staging_dirs, StagingSweep};

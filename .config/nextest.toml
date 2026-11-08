@@ -1,0 +1,99 @@
+# The test runner of the gates: cargo-nextest (pinned in mise.toml), run by
+# scripts/ci_local.sh. Every test runs in its own process, all binaries at
+# once on one build.
+#
+# Profiles:
+#   default    every test (`cargo nextest run --workspace` = `cargo test
+#              --workspace` without the doctests).
+#   pre-push   the unit tests: every test but the e2e suites (below).
+#   nightly    every test, JUnit report in target/nextest/nightly/junit.xml.
+#
+# The e2e suites, which pre-push leaves to the nightly run: the integration
+# test binaries named `*_e2e` (crates/*/tests/*_e2e.rs and *_e2e/main.rs:
+# they start a daemon, a pty, a kitty probe, ACP or a real kernel). A new
+# suite of that kind takes the `_e2e` suffix; scripts/ci_local.sh skips
+# building those binaries in pre-push by the same suffix.
+#
+# A failed test runs once more (retries = 1): a pass on the retry is FLAKY,
+# named in the summary (the nightly log keeps the names), and does not fail
+# the run; a second failure does.
+
+[store]
+dir = "target/nextest"
+
+# Tests that serialized themselves with an in-process lock while cargo test
+# ran a whole binary in one process. In nextest each test is its own
+# process, so the lock no longer holds; a group of one thread does.
+[test-groups]
+# eukhe-core's real Python kernel tests, the kernel bootstrap and the probe
+# memo files they share (KERNEL_TEST_LOCK, KERNEL_ENV_LOCK, MEMO_STATE_LOCK).
+core-kernel = { max-threads = 1 }
+# eukhe-core's MCP OAuth callback port range (CALLBACK_PORT_LOCK).
+core-oauth-ports = { max-threads = 1 }
+# eukhe-ai's OAuth login flows: fixed loopback callback ports and the
+# process-wide fetch mock; in parallel processes they collide.
+ai-oauth = { max-threads = 1 }
+# Process-table scans that must see only their own kernel (TEST_LOCK).
+kernel-teardown = { max-threads = 1 }
+# Daemon startup windows (SERIAL), one group per binary as before.
+protocol-b6-b9 = { max-threads = 1 }
+protocol-b10-b11 = { max-threads = 1 }
+# Full packaged layouts that boot the kernel (TEST_LOCK).
+packaged-layout = { max-threads = 1 }
+# Byte-level waits on a raw pty and the kitty probe windows (HARNESS_LOCK),
+# and the remote-login callback port: one at a time across all of them.
+pty = { max-threads = 1 }
+# Every other e2e suite: each test starts processes of its own.
+e2e = { max-threads = 8 }
+
+[profile.default]
+fail-fast = false
+retries = 1
+# Show failures, retries and slow tests as they happen; list the flaky and
+# failed tests again at the end.
+status-level = "slow"
+final-status-level = "flaky"
+# A test still running after 10 minutes hangs: stop it.
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-core) & test(/^(durable::rlm::|durable::runner::|kernel::)/)'
+test-group = "core-kernel"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-core) & test(/^mcp::(oauth|oauth_callback|login)::/)'
+test-group = "core-oauth-ports"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-ai) & test(/^auth::oauth::/)'
+test-group = "ai-oauth"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-core::kernel_teardown)'
+test-group = "kernel-teardown"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-daemon::protocol_breadth_b6_b9)'
+test-group = "protocol-b6-b9"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-daemon::protocol_breadth_b10_b11)'
+test-group = "protocol-b10-b11"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-cli::packaged_layout_e2e)'
+test-group = "packaged-layout"
+
+[[profile.default.overrides]]
+filter = 'package(eukhe-cli) & binary(/^(chat_open_first_frame_pty|input_live_open_pty|kitty_early_typing|kitty_exit_routes|kitty_verdict_time|suspend_signal|terminal_state_differential|anthropic_remote_login_pty)_e2e$/)'
+test-group = "pty"
+
+[[profile.default.overrides]]
+filter = 'binary(/_e2e$/)'
+test-group = "e2e"
+
+[profile.pre-push]
+default-filter = 'not binary(/_e2e$/)'
+
+[profile.nightly.junit]
+path = "junit.xml"

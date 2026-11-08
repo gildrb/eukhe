@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 
 def Child.child_report_move_is_owe(f, k, n, open, inbox):
   match f:
@@ -15,4 +15,6 @@ def Child.child_report_move_is_owe(f, k, n, open, inbox):
         case Ch.Withdrawn{}:
           {==}
         case Ch.Placed{}:
+          {==}
+        case Ch.Read{}:
           {==}

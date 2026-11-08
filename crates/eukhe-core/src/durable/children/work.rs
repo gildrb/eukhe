@@ -1,6 +1,6 @@
 //! The work a session did, as the stall checks measure it (rule H5 for a
-//! subagent's parent watch, `docs/harness.md`; the goal loop's progress
-//! check, `docs/control.md`): the number of distinct acts.
+//! subagent's parent watch, `LAWS.bend`; the goal loop's progress
+//! check): the number of distinct acts.
 //!
 //! An act is a tool call with its result (the tool's name and arguments,
 //! and the result's text, images and error flag), or an accepted progress

@@ -28,11 +28,13 @@ from .harness import (
     chat_memory_session,
     get_harness_state,
 )
+from .history import ChatLine, HistoryEntry, ToolCall, chat, history
 from .jobs import Job, jobs
+from .query import RLMQueryError, RLMText, query, query_batch
 from .remote import remote
 
-_NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
-_RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
+_NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
+_RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
 
 
 @dataclass(frozen=True)
@@ -40,15 +42,6 @@ class RLMSpawnHandle:
     rlm_child_id: str
     name: str
     session_dir: Path
-    model: str
-
-
-@dataclass(frozen=True)
-class RLMCreateSessionHandle:
-    active_session_id: str
-    session_id: str
-    name: str
-    session_file: Path
     model: str
 
 
@@ -126,25 +119,6 @@ def _spawn_handle_from_payload(payload: Any) -> RLMSpawnHandle:
     )
 
 
-def _create_session_handle_from_payload(payload: Any) -> RLMCreateSessionHandle:
-    if not isinstance(payload, dict):
-        raise RuntimeError("rlm.create_session returned an invalid payload")
-    active_session_id = payload.get("active_session_id")
-    session_id = payload.get("session_id")
-    name = payload.get("name")
-    session_file = payload.get("session_file")
-    model = payload.get("model")
-    if not all(isinstance(value, str) and value for value in (active_session_id, session_id, name, session_file, model)):
-        raise RuntimeError("rlm.create_session returned an invalid payload structure")
-    return RLMCreateSessionHandle(
-        active_session_id=active_session_id,
-        session_id=session_id,
-        name=name,
-        session_file=Path(session_file),
-        model=model,
-    )
-
-
 def _parse_host_reply(request_type: str, reply: dict[str, Any]) -> dict[str, Any]:
     status = reply.get("status")
     if status == "ok":
@@ -200,6 +174,7 @@ async def spawn(
     prompt: str,
     *,
     name: str,
+    why: str | None = None,
     model: str | None = None,
     thinking: str | None = None,
     workspace: str | None = None,
@@ -207,6 +182,12 @@ async def spawn(
     """Spawn a recursive Eukhe child and return once its task is admitted.
 
     ``name`` is required and must be unique among siblings.
+    ``why`` is required: the reason for a subagent, one of ``"parallel"``
+    (independent tasks run at once), ``"isolate"`` (the work would bloat
+    this context; only a compact result comes back), ``"tools"`` (the task
+    needs a tool set or instructions that conflict with this agent's) or
+    ``"user"`` (the user asked for a subagent). The host refuses a spawn
+    without one of these with an error that states the rule.
     ``model`` selects a child with an exact ``provider/model`` selector.
     ``thinking`` sets the child reasoning level (e.g. 'off', 'low', 'medium', 'high');
     defaults to the parent level; levels invalid for the resolved model fail the spawn.
@@ -217,6 +198,8 @@ async def spawn(
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
     kwargs: dict[str, Any] = {"name": name}
+    if why is not None:
+        kwargs["why"] = why
     if model is not None:
         kwargs["model"] = model
     if thinking is not None:
@@ -231,11 +214,12 @@ async def spawn(
 async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     """Spawn several recursive Eukhe children together, all or none.
 
-    Each task is a dict ``{"prompt": str, "name": str, "model"?: str,
+    Each task is a dict ``{"prompt": str, "name": str, "why": str, "model"?: str,
     "thinking"?: str, "workspace"?: str}`` with the same rules as :func:`spawn`. The batch admits
-    atomically: when it would exceed the family's running-subagent cap
-    (``subagentMaxConcurrency``) nothing is spawned and the call fails with
-    ``subagent concurrency limit N is already full``.
+    atomically: when a task has no allowed ``why``, or the batch would exceed
+    the family's running-subagent cap (``subagentMaxConcurrency``), nothing is
+    spawned and the call fails (for the cap with ``subagent concurrency limit
+    N is already full``).
     """
     if not isinstance(tasks, list) or not tasks:
         raise TypeError("tasks must be a non-empty list of dicts")
@@ -243,7 +227,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     for task in tasks:
         if not isinstance(task, dict):
             raise TypeError(f"each task must be a dict, got {type(task).__name__}")
-        unknown = sorted(set(task) - {"prompt", "name", "model", "thinking", "workspace"})
+        unknown = sorted(set(task) - {"prompt", "name", "why", "model", "thinking", "workspace"})
         if unknown:
             raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
         prompt = task.get("prompt")
@@ -253,7 +237,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
             raise TypeError("each task needs a name")
         kwargs = {
             key: task[key]
-            for key in ("name", "model", "thinking", "workspace")
+            for key in ("name", "why", "model", "thinking", "workspace")
             if task.get(key) is not None
         }
         entries.append({"prompt": prompt, "kwargs": kwargs})
@@ -274,33 +258,6 @@ def _model_from_payload(payload: Any) -> RLMModel:
     if not all(isinstance(value, str) and value for value in (provider, model_id, name, selector)):
         raise RuntimeError("rlm.find_models returned an invalid model entry")
     return RLMModel(provider=provider, id=model_id, name=name, selector=selector)
-
-
-async def create_session(
-    prompt: str,
-    name: str | None = None,
-    model: str | None = None,
-    thinking: str | None = None,
-    cwd: str | None = None,
-) -> RLMCreateSessionHandle:
-    """Create and prompt a resident depth-0 daemon session.
-
-    Only daemon-backed depth-0 sessions support this operation. The optional
-    arguments set the session name, model, thinking level, and working directory.
-    """
-    if not isinstance(prompt, str):
-        raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
-    kwargs: dict[str, Any] = {}
-    if name is not None:
-        kwargs["name"] = name
-    if model is not None:
-        kwargs["model"] = model
-    if thinking is not None:
-        kwargs["thinking"] = thinking
-    if cwd is not None:
-        kwargs["cwd"] = cwd
-    payload = await host_request("rlm.create_session", {"prompt": prompt, "kwargs": kwargs})
-    return _create_session_handle_from_payload(payload)
 
 
 async def find_models(query: str = "", limit: int = 8) -> list[RLMModel]:
@@ -698,30 +655,23 @@ class _RLMFactoryNamespace:
 class _RLMNamespace:
     harness = _harness_state
     get_harness_state = staticmethod(get_harness_state)
+    RLMQueryError = RLMQueryError
+    RLMText = RLMText
 
     async def spawn(
         self,
         prompt: str,
         *,
         name: str,
+        why: str | None = None,
         model: str | None = None,
         thinking: str | None = None,
         workspace: str | None = None,
     ) -> RLMSpawnHandle:
-        return await spawn(prompt, name=name, model=model, thinking=thinking, workspace=workspace)
+        return await spawn(prompt, name=name, why=why, model=model, thinking=thinking, workspace=workspace)
 
     async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
         return await spawn_batch(tasks)
-
-    async def create_session(
-        self,
-        prompt: str,
-        name: str | None = None,
-        model: str | None = None,
-        thinking: str | None = None,
-        cwd: str | None = None,
-    ) -> RLMCreateSessionHandle:
-        return await create_session(prompt, name=name, model=model, thinking=thinking, cwd=cwd)
 
     async def find_models(self, query: str = "", limit: int = 8) -> list[RLMModel]:
         return await find_models(query, limit)
@@ -745,6 +695,22 @@ class _RLMNamespace:
 
     async def collect(self, targets: Any = None, *, timeout_ms: int = 0) -> list[RLMChildResult]:
         return await collect(targets, timeout_ms=timeout_ms)
+
+    async def query(
+        self,
+        prompt: str,
+        context: str | None = None,
+        *,
+        model: str | None = None,
+        thinking: str | None = None,
+        max_bytes: int | None = None,
+    ) -> RLMText:
+        return await query(prompt, context, model=model, thinking=thinking, max_bytes=max_bytes)
+
+    async def query_batch(
+        self, calls: list[dict[str, Any]], *, concurrency: int | None = None
+    ) -> list[RLMText | RLMQueryError]:
+        return await query_batch(calls, concurrency=concurrency)
 
     factory = _RLMFactoryNamespace()
 
@@ -772,32 +738,39 @@ sys.modules[__name__].__class__ = _NotCallableModule
 __all__ = [
     "BashHandle",
     "BashResult",
+    "ChatLine",
     "HarnessEntry",
     "HarnessScope",
     "HarnessState",
+    "HistoryEntry",
     "McpIntegration",
     "McpToolError",
     "NotEnabled",
-    "RLMCreateSessionHandle",
     "RLMModel",
     "RLMProgressNoteResult",
+    "RLMQueryError",
     "RLMSpawnHandle",
     "RLMSubagent",
     "RLMSubagentActivity",
-    "create_session",
+    "RLMText",
+    "ToolCall",
     "RefinementEvent",
     "Job",
     "bash",
+    "chat",
     "delete_subagent",
     "emit",
     "find_models",
     "get_harness_state",
     "harness",
+    "history",
     "host_request",
     "jobs",
     "host_request_sync",
     "list_subagents",
     "progress_note",
+    "query",
+    "query_batch",
     "remote",
     "rename",
     "rlm",

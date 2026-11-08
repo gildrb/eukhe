@@ -29,11 +29,11 @@ mod workers;
 mod workflows;
 
 pub(crate) use agents::AgentsUpdate;
-pub(crate) use apply::CompactionAbortNote;
-use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome};
+pub(crate) use apply::{AbortFailed, CompactionAbortNote};
+use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome, SwitchScope};
 pub(crate) use bash::BashActivityUpdate;
 use bash::{ResyncBash, SideBashRun};
-pub(crate) use chat_view::ChatViewUpdate;
+pub(crate) use chat_view::{ChatViewUpdate, UiFetchError};
 pub(crate) use factory::FactoryUpdate;
 use heartbeats::paused_heartbeat_count;
 pub(crate) use heartbeats::HeartbeatsUpdate;
@@ -517,7 +517,7 @@ pub(crate) struct SessionUi {
     pub(crate) goal_view: GoalView,
     /// Notes surfacing from background tasks (the async abort result) into
     /// the UI loop.
-    notes: mpsc::UnboundedSender<String>,
+    notes: mpsc::UnboundedSender<AbortFailed>,
     /// Compaction-abort outcomes from the backgrounded request (the abort
     /// supervision's UI recovery): a failed abort clears the stuck loader.
     compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,
@@ -556,7 +556,7 @@ pub(crate) struct SessionUi {
     /// The re-attach window expired (TS terminal close after
     /// `DAEMON_RECONNECT_TIMEOUT_MS`): dispatch is blocked and submits
     /// surface the error instead of leaving the UI on a silent spinner.
-    pub(crate) reconnection_failed: Option<String>,
+    pub(crate) reconnection_failed: Option<ReconnectError>,
     /// The double-Ctrl+C force-quit guard (the run's shared instance is
     /// installed by the interactive loop after `open`).
     pub(crate) exit_guard: crate::exit_guard::ExitGuard,
@@ -633,6 +633,25 @@ pub(crate) struct SessionUi {
 pub(crate) enum ReattachOutcome {
     Attached,
     AttachBudgetExceeded,
+}
+
+/// Why the last session re-attach attempt failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ReconnectError {
+    #[error("the session re-attach attempt timed out")]
+    TimedOut,
+    #[error("{0:#}")]
+    Attach(#[source] anyhow::Error),
+}
+
+/// Why a background lane refresh (the factory, heartbeat and workflow
+/// polls) failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RefreshError {
+    #[error("{0:#}")]
+    Daemon(#[source] anyhow::Error),
+    #[error("timed out waiting for the Eukhe daemon response")]
+    Timeout,
 }
 
 pub(crate) enum RebuildKind {

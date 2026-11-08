@@ -1,4 +1,4 @@
-//! Model revisions (docs/inference.md S6.2): the `major.minor.patch`
+//! Model revisions: the `major.minor.patch`
 //! triple that a model id names, and the range a family can require. A
 //! port of omp's taxonomy revisions (`packages/catalog/src/compat/
 //! revision.ts`, `taxonomy.ts` `extractRevision`).
@@ -75,11 +75,25 @@ pub(super) fn of(id: &str, prefix: &str) -> Option<Revision> {
     leading(&tail.as_bytes()[digit..])
 }
 
+/// Why a revision range does not parse.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RevisionRangeError {
+    /// A term starts with none of `>=`, `>`, `<=`, `<`, `=`.
+    #[error("`{term}` has no comparison")]
+    NoComparison { term: String },
+    /// A term's operand is not one to three components of 0 to 255.
+    #[error("`{term}` has no revision of 1 to 3 components")]
+    BadOperand { term: String },
+    /// The range has no term.
+    #[error("the range has no comparison")]
+    Empty,
+}
+
 impl Range {
     /// Parse a range: comparisons (`>=`, `>`, `<=`, `<`, `=`) with an
     /// operand of one to three components separated by `.`, separated by
     /// white space.
-    pub(super) fn parse(text: &str) -> Result<Self, String> {
+    pub(super) fn parse(text: &str) -> Result<Self, RevisionRangeError> {
         let terms = text
             .split_whitespace()
             .map(|term| {
@@ -92,20 +106,24 @@ impl Range {
                 ]
                 .into_iter()
                 .find_map(|(sign, op)| term.strip_prefix(sign).map(|operand| (op, operand)))
-                .ok_or_else(|| format!("`{term}` has no comparison"))?;
+                .ok_or_else(|| RevisionRangeError::NoComparison {
+                    term: term.to_owned(),
+                })?;
                 let parts = operand
                     .split('.')
                     .map(|part| component(part.as_bytes()))
                     .collect::<Option<Vec<u8>>>()
                     .filter(|parts| (1..=3).contains(&parts.len()))
-                    .ok_or_else(|| format!("`{term}` has no revision of 1 to 3 components"))?;
+                    .ok_or_else(|| RevisionRangeError::BadOperand {
+                        term: term.to_owned(),
+                    })?;
                 let mut revision = [0u8; 3];
                 revision[..parts.len()].copy_from_slice(&parts);
                 Ok((op, revision))
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, RevisionRangeError>>()?;
         if terms.is_empty() {
-            return Err("the range has no comparison".to_owned());
+            return Err(RevisionRangeError::Empty);
         }
         Ok(Self { terms })
     }

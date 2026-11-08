@@ -23,7 +23,8 @@ use eukhe_ai::auth::{
 use eukhe_ai::models::{create_provider, CreateProviderOptions, Models, Provider};
 use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_tiny::{
-    Candidate, CatalogModel, ModelKind, Role, RoleSettings, TinyClient, TinyHome, CATALOG,
+    Candidate, CatalogModel, ModelKind, Role, RoleSettings, TinyClient, TinyError, TinyHome,
+    CATALOG,
 };
 use eukhe_types::pi_ai::{
     AnyModel, ClassifierAnswer, ClassifierContext, ClassifierModel, ClassifierQuestion,
@@ -142,17 +143,21 @@ pub fn add_local_provider(models: &Models, agent_dir: &Path) {
 }
 
 /// Why the `judge` role gave no classifier model.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum JudgeClassifierError {
     /// No candidate of the role's chain is an available classifier model.
     #[error(transparent)]
     Unavailable(RoleUnavailable),
     /// Checking a provider candidate (its auth, its model list) failed.
-    #[error("checking the classifier models of provider {provider}: {message}")]
-    Provider { provider: String, message: String },
+    #[error("checking the classifier models of provider {provider}: {source}")]
+    Provider {
+        provider: String,
+        #[source]
+        source: Thrown,
+    },
 }
 
-/// The classifier model of the `judge` role (docs/inference.md S9) for a
+/// The classifier model of the `judge` role for a
 /// classification that names no model: the first candidate of the role's
 /// chain that is an available classifier model of `models` (`pick` in
 /// bend/tiny.bend; later candidates are not checked). A local candidate is
@@ -190,9 +195,9 @@ pub async fn judge_classifier(
                         AuthOperationOptions::default(),
                     )
                     .await
-                    .map_err(|error| JudgeClassifierError::Provider {
+                    .map_err(|source| JudgeClassifierError::Provider {
                         provider: provider.to_owned(),
-                        message: error.to_string(),
+                        source,
                     })?
                     .into_iter()
                     .find(|model| model.id() == id),
@@ -234,6 +239,30 @@ pub fn answer_from_reply(
     Some(answer_from_probabilities(question, keys, &probabilities))
 }
 
+/// Why a local judgment gave no answers.
+#[derive(Debug, thiserror::Error)]
+pub enum JudgeError {
+    /// A question cannot be rendered as a labeled prompt.
+    #[error(transparent)]
+    Render(Thrown),
+    /// The tiny worker failed the request.
+    #[error(transparent)]
+    Worker(#[from] TinyError),
+    /// The reply is none of the question's labels.
+    #[error("local/{model} answered {reply:?}, not one of the labels {}", .labels.join(", "))]
+    NotALabel {
+        model: &'static str,
+        reply: String,
+        labels: Vec<String>,
+    },
+    /// The worker executable (the current one) cannot be resolved.
+    #[error("the eukhe executable is unknown: {0}")]
+    UnknownExecutable(#[source] std::io::Error),
+    /// The classifier model names no catalog model.
+    #[error("`local/{model}` is not a catalog model")]
+    NotInCatalog { model: String },
+}
+
 /// Every question of `context` on the local `model` through `client`.
 ///
 /// # Errors
@@ -245,24 +274,20 @@ pub async fn judge_all(
     client: &TinyClient,
     model: &'static CatalogModel,
     context: &ClassifierContext,
-) -> Result<IndexMap<String, ClassifierAnswer>, String> {
+) -> Result<IndexMap<String, ClassifierAnswer>, JudgeError> {
     let mut answers = IndexMap::new();
     for (id, question) in &context.questions {
-        let labeled = render_question(context, id).map_err(|error| error.to_string())?;
+        let labeled = render_question(context, id).map_err(JudgeError::Render)?;
         let request = eukhe_tiny::judge_request(&labeled.content, &labeled.labels);
-        let reply = client
-            .chat(model, request)
-            .await
-            .map_err(|error| error.to_string())?;
-        let answer = answer_from_reply(question, &labeled.labels, &labeled.keys, &reply.text)
-            .ok_or_else(|| {
-                format!(
-                    "local/{} answered {:?}, not one of the labels {}",
-                    model.id,
-                    reply.text.trim(),
-                    labeled.labels.join(", ")
-                )
-            })?;
+        let reply = client.chat(model, request).await?;
+        let Some(answer) = answer_from_reply(question, &labeled.labels, &labeled.keys, &reply.text)
+        else {
+            return Err(JudgeError::NotALabel {
+                model: model.id,
+                reply: reply.text.trim().to_owned(),
+                labels: labeled.labels,
+            });
+        };
         answers.insert(id.clone(), answer);
     }
     Ok(answers)
@@ -283,13 +308,20 @@ async fn classify(
                 let client = super::client(agent_dir, settings.cvars(), worker_exe);
                 judge_all(&client, local, context).await
             }
-            Err(error) => Err(format!("the eukhe executable is unknown: {error}")),
+            Err(error) => Err(JudgeError::UnknownExecutable(error)),
         },
-        None => Err(format!("`local/{}` is not a catalog model", model.id)),
+        None => Err(JudgeError::NotInCatalog {
+            model: model.id.clone(),
+        }),
     };
+    // The result's error message is where the failure becomes text.
     let (answers, stop_reason, error_message) = match answered {
         Ok(answers) => (answers, ClassifierStopReason::Stop, None),
-        Err(message) => (IndexMap::new(), ClassifierStopReason::Error, Some(message)),
+        Err(error) => (
+            IndexMap::new(),
+            ClassifierStopReason::Error,
+            Some(error.to_string()),
+        ),
     };
     ClassifierResult {
         api: model.api.clone(),

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../laws/child.bend as Child
+import ../../laws/child/model.bend as Child
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
@@ -20,6 +20,8 @@ def pc.old_live(rest: List<&2, Ch.Sub>, +m: Nat, o: {LA.pc.Old(rest, m) == True{
               pc.old_live(r, j, LA.pc.and_r(Nat.is_le(1n+j, m), LA.pc.Old(r, j), o))
             case Ch.Placed{}:
               LLogicLogic.child.pc.absurd({0n == Ch.live(Ch.Sub{j, Ch.Placed{}} <> r) : Nat}, o)
+            case Ch.Read{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.live(Ch.Sub{j, Ch.Read{}} <> r) : Nat}, o)
 
 # one_live, report_once: only the newest submission may be live
 def pc.le1_live(f: Ch.Fate) -> {Nat.is_le(Nat.add(Ch.Fate.live(f), 0n), 1n) == True{} : Bool}:
@@ -29,6 +31,8 @@ def pc.le1_live(f: Ch.Fate) -> {Nat.is_le(Nat.add(Ch.Fate.live(f), 0n), 1n) == T
     case Ch.Withdrawn{}:
       {==}
     case Ch.Placed{}:
+      {==}
+    case Ch.Read{}:
       {==}
 
 def pc.live_le(inbox: List<&2, Ch.Sub>, kin: {LA.pc.Kin(inbox) == True{} : Bool}) -> {Nat.is_le(Ch.live(inbox), 1n) == True{} : Bool}:

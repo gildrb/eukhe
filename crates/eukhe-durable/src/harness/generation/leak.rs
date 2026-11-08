@@ -8,7 +8,7 @@
 //! `QUOTED_CODE_PATTERN`). The scan is pure. It borrows the text until it
 //! builds the result.
 
-use eukhe_ai::utils::json_parse::parse_json_with_repair;
+use eukhe_ai::utils::json_parse::{parse_json_with_repair, JsonSyntaxError};
 use eukhe_types::pi_ai::{JsonObject, JsonValue};
 
 /// The open tag of a Hermes or Qwen3 call section.
@@ -60,6 +60,72 @@ pub(crate) enum Markup {
     Dsml,
 }
 
+/// Why leaked tool-call markup does not parse: a short reason.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum LeakParseError {
+    #[error("the <tool_call> section has no close tag")]
+    ToolCallUnclosed,
+    #[error("the tool call is not valid JSON: {source}")]
+    ToolCallNotJson {
+        #[source]
+        source: JsonSyntaxError,
+    },
+    #[error("the tool call is not a JSON object")]
+    ToolCallNotAnObject,
+    #[error("the tool call has no name")]
+    ToolCallNoName,
+    #[error("the tool call arguments are not a JSON object")]
+    ArgumentsNotAnObject,
+    #[error("the tool call arguments are not valid JSON: {source}")]
+    ArgumentsNotJson {
+        #[source]
+        source: JsonSyntaxError,
+    },
+    #[error("the <function=> tag has no end")]
+    FunctionTagUnended,
+    #[error("the <function=> tag has no name")]
+    FunctionTagNoName,
+    #[error("the function {name} has no close tag")]
+    FunctionUnclosed { name: String },
+    #[error("the <parameter=> tag has no end")]
+    ParameterTagUnended,
+    #[error("the <parameter=> tag has no name")]
+    ParameterTagNoName,
+    #[error("the parameter {key} has no close tag")]
+    ParameterUnclosed { key: String },
+    #[error("the <tool_calls> section has no close tag")]
+    ToolCallsUnclosed,
+    #[error("a <tool_calls> element has no tool name")]
+    ElementNoName,
+    #[error("the {name} element has a bad attribute")]
+    BadAttribute { name: String },
+    #[error("the Kimi tool-call section has no end token")]
+    KimiSectionUnended,
+    #[error("a Kimi tool call has no argument token")]
+    KimiNoArgumentToken,
+    #[error("a Kimi tool call has no name")]
+    KimiNoName,
+    #[error("the Kimi tool call {name} has no end token")]
+    KimiCallUnended { name: String },
+    #[error("the DSML tool_calls section has no close tag")]
+    DsmlSectionUnclosed,
+    #[error("a DSML invoke tag has no end")]
+    DsmlInvokeTagUnended,
+    #[error("a DSML invoke has no name")]
+    DsmlInvokeNoName,
+    #[error("the DSML invoke {name} has no close tag")]
+    DsmlInvokeUnclosed { name: String },
+    #[error("a DSML parameter tag has no end")]
+    DsmlParameterTagUnended,
+    #[error("a parameter of {name} has no name")]
+    DsmlParameterNoName { name: String },
+    #[error("the tool-call section has no call")]
+    NoCall,
+    /// Every call parsed, but one names a tool the request did not offer.
+    #[error("it names no offered tool {name:?}")]
+    UnknownTool { name: String },
+}
+
 impl Markup {
     /// The name of the family: `hermes`, `qwen3`, `qwen-xml`, `kimi` or
     /// `dsml`.
@@ -78,23 +144,23 @@ impl Markup {
     /// order. Returns the length of `body` up to the end of the close tag, or
     /// the reason the section does not parse.
     #[allow(clippy::too_many_lines)] // One arm per family, as omp has one scanner per dialect.
-    fn section(self, body: &str, calls: &mut Vec<LeakedCall>) -> Result<usize, String> {
+    fn section(self, body: &str, calls: &mut Vec<LeakedCall>) -> Result<usize, LeakParseError> {
         match self {
             // omp dialect/hermes.ts:147-159 (`#parseCall`).
             Self::Hermes => {
                 let close = body
                     .find(TOOL_CALL_CLOSE)
-                    .ok_or("the <tool_call> section has no close tag")?;
+                    .ok_or(LeakParseError::ToolCallUnclosed)?;
                 let JsonValue::Object(mut call) = parse_json_with_repair(body[..close].trim())
-                    .map_err(|error| format!("the tool call is not valid JSON: {error}"))?
+                    .map_err(|source| LeakParseError::ToolCallNotJson { source })?
                 else {
-                    return Err("the tool call is not a JSON object".to_owned());
+                    return Err(LeakParseError::ToolCallNotAnObject);
                 };
                 let Some(JsonValue::String(name)) = call.remove("name") else {
-                    return Err("the tool call has no name".to_owned());
+                    return Err(LeakParseError::ToolCallNoName);
                 };
                 if name.is_empty() {
-                    return Err("the tool call has no name".to_owned());
+                    return Err(LeakParseError::ToolCallNoName);
                 }
                 let arguments = match call
                     .remove("arguments")
@@ -108,7 +174,7 @@ impl Markup {
                         | JsonValue::Bool(_)
                         | JsonValue::Number(_)
                         | JsonValue::Array(_),
-                    ) => return Err("the tool call arguments are not a JSON object".to_owned()),
+                    ) => return Err(LeakParseError::ArgumentsNotAnObject),
                 };
                 calls.push(LeakedCall { name, arguments });
                 Ok(close + TOOL_CALL_CLOSE.len())
@@ -117,33 +183,39 @@ impl Markup {
             Self::Qwen3 => {
                 let close = body
                     .find(TOOL_CALL_CLOSE)
-                    .ok_or("the <tool_call> section has no close tag")?;
+                    .ok_or(LeakParseError::ToolCallUnclosed)?;
                 let mut rest = body[..close].trim_start();
                 while let Some(function) = rest.strip_prefix(FUNCTION_OPEN) {
-                    let tag_end = function.find('>').ok_or("the <function=> tag has no end")?;
+                    let tag_end = function
+                        .find('>')
+                        .ok_or(LeakParseError::FunctionTagUnended)?;
                     let name = function[..tag_end].trim();
                     if name.is_empty() {
-                        return Err("the <function=> tag has no name".to_owned());
+                        return Err(LeakParseError::FunctionTagNoName);
                     }
                     let function = &function[tag_end + 1..];
-                    let function_end = function
-                        .find(FUNCTION_CLOSE)
-                        .ok_or_else(|| format!("the function {name} has no close tag"))?;
+                    let function_end = function.find(FUNCTION_CLOSE).ok_or_else(|| {
+                        LeakParseError::FunctionUnclosed {
+                            name: name.to_owned(),
+                        }
+                    })?;
                     let mut parameters = &function[..function_end];
                     let mut arguments = JsonObject::new();
                     while let Some(start) = parameters.find(PARAMETER_OPEN) {
                         let parameter = &parameters[start + PARAMETER_OPEN.len()..];
                         let tag_end = parameter
                             .find('>')
-                            .ok_or("the <parameter=> tag has no end")?;
+                            .ok_or(LeakParseError::ParameterTagUnended)?;
                         let key = parameter[..tag_end].trim();
                         if key.is_empty() {
-                            return Err("the <parameter=> tag has no name".to_owned());
+                            return Err(LeakParseError::ParameterTagNoName);
                         }
                         let parameter = &parameter[tag_end + 1..];
-                        let value_end = parameter
-                            .find(PARAMETER_CLOSE)
-                            .ok_or_else(|| format!("the parameter {key} has no close tag"))?;
+                        let value_end = parameter.find(PARAMETER_CLOSE).ok_or_else(|| {
+                            LeakParseError::ParameterUnclosed {
+                                key: key.to_owned(),
+                            }
+                        })?;
                         let raw = &parameter[..value_end];
                         let raw = raw.strip_prefix('\n').unwrap_or(raw);
                         let raw = raw.strip_suffix('\n').unwrap_or(raw);
@@ -162,7 +234,7 @@ impl Markup {
             Self::QwenXml => {
                 let close = body
                     .find(TOOL_CALLS_CLOSE)
-                    .ok_or("the <tool_calls> section has no close tag")?;
+                    .ok_or(LeakParseError::ToolCallsUnclosed)?;
                 let mut section = &body[..close];
                 while let Some(start) = section.find('<') {
                     let element = &section[start + 1..];
@@ -182,12 +254,14 @@ impl Markup {
                     if name.is_empty()
                         || !(attributes.is_empty() || attributes.starts_with(char::is_whitespace))
                     {
-                        return Err("a <tool_calls> element has no tool name".to_owned());
+                        return Err(LeakParseError::ElementNoName);
                     }
                     let mut arguments = JsonObject::new();
                     attributes = attributes.trim();
                     while !attributes.is_empty() {
-                        let malformed = || format!("the {name} element has a bad attribute");
+                        let malformed = || LeakParseError::BadAttribute {
+                            name: name.to_owned(),
+                        };
                         let (key, rest) = attributes.split_at(name_len(attributes));
                         if key.is_empty() {
                             return Err(malformed());
@@ -229,14 +303,13 @@ impl Markup {
                         .find(KIMI_CALL_BEGIN)
                         .filter(|call| section_end.is_none_or(|end| *call < end))
                     else {
-                        let end =
-                            section_end.ok_or("the Kimi tool-call section has no end token")?;
+                        let end = section_end.ok_or(LeakParseError::KimiSectionUnended)?;
                         return Ok(at + end + KIMI_SECTION_END.len());
                     };
                     let header = &rest[call_start + KIMI_CALL_BEGIN.len()..];
                     let header_end = header
                         .find(KIMI_ARGUMENT_BEGIN)
-                        .ok_or("a Kimi tool call has no argument token")?;
+                        .ok_or(LeakParseError::KimiNoArgumentToken)?;
                     let id = header[..header_end].trim();
                     let before_index = id.split(':').next().unwrap_or(id);
                     let name = before_index
@@ -245,12 +318,14 @@ impl Markup {
                         .unwrap_or(before_index)
                         .trim();
                     if name.is_empty() {
-                        return Err("a Kimi tool call has no name".to_owned());
+                        return Err(LeakParseError::KimiNoName);
                     }
                     let raw = &header[header_end + KIMI_ARGUMENT_BEGIN.len()..];
-                    let raw_end = raw
-                        .find(KIMI_CALL_END)
-                        .ok_or_else(|| format!("the Kimi tool call {name} has no end token"))?;
+                    let raw_end =
+                        raw.find(KIMI_CALL_END)
+                            .ok_or_else(|| LeakParseError::KimiCallUnended {
+                                name: name.to_owned(),
+                            })?;
                     calls.push(LeakedCall {
                         name: name.to_owned(),
                         arguments: parse_object(&raw[..raw_end])?,
@@ -273,15 +348,17 @@ impl Markup {
                     let Some(invoke) = dsml_tag(rest, "<", "invoke") else {
                         let mut chars = rest.chars();
                         if chars.next().is_none() {
-                            return Err("the DSML tool_calls section has no close tag".to_owned());
+                            return Err(LeakParseError::DsmlSectionUnclosed);
                         }
                         rest = chars.as_str();
                         continue;
                     };
-                    let tag_end = invoke.find('>').ok_or("a DSML invoke tag has no end")?;
+                    let tag_end = invoke
+                        .find('>')
+                        .ok_or(LeakParseError::DsmlInvokeTagUnended)?;
                     let name = attribute(&invoke[..tag_end], "name")
                         .filter(|name| !name.is_empty())
-                        .ok_or("a DSML invoke has no name")?;
+                        .ok_or(LeakParseError::DsmlInvokeNoName)?;
                     let mut arguments = JsonObject::new();
                     rest = &invoke[tag_end + 1..];
                     loop {
@@ -295,18 +372,22 @@ impl Markup {
                         let Some(parameter) = dsml_tag(rest, "<", "parameter") else {
                             let mut chars = rest.chars();
                             if chars.next().is_none() {
-                                return Err(format!("the DSML invoke {name} has no close tag"));
+                                return Err(LeakParseError::DsmlInvokeUnclosed {
+                                    name: name.to_owned(),
+                                });
                             }
                             rest = chars.as_str();
                             continue;
                         };
                         let tag_end = parameter
                             .find('>')
-                            .ok_or("a DSML parameter tag has no end")?;
+                            .ok_or(LeakParseError::DsmlParameterTagUnended)?;
                         let tag = &parameter[..tag_end];
                         let key = attribute(tag, "name")
                             .filter(|key| !key.is_empty())
-                            .ok_or_else(|| format!("a parameter of {name} has no name"))?;
+                            .ok_or_else(|| LeakParseError::DsmlParameterNoName {
+                                name: name.to_owned(),
+                            })?;
                         let value = &parameter[tag_end + 1..];
                         let (raw_end, after) = value
                             .match_indices("</")
@@ -315,7 +396,9 @@ impl Markup {
                                     .and_then(|tag| tag.strip_prefix('>'))
                                     .map(|after| (at, after))
                             })
-                            .ok_or_else(|| format!("the parameter {key} has no close tag"))?;
+                            .ok_or_else(|| LeakParseError::ParameterUnclosed {
+                                key: key.to_owned(),
+                            })?;
                         let raw = &value[..raw_end];
                         let value = if attribute(tag, "string") == Some("false") {
                             json_or_string(raw)
@@ -365,7 +448,7 @@ pub(crate) enum Leak {
         /// The family of the markup.
         markup: Markup,
         /// Why the call does not parse.
-        reason: String,
+        reason: LeakParseError,
     },
 }
 
@@ -441,7 +524,7 @@ pub(crate) fn scan(text: &str) -> Leak {
         if calls.len() == found {
             return Leak::Broken {
                 markup,
-                reason: "the tool-call section has no call".to_owned(),
+                reason: LeakParseError::NoCall,
             };
         }
         kept.push_str(&text[copied..at]);
@@ -496,7 +579,7 @@ fn name_len(text: &str) -> usize {
 
 /// Tool-call arguments as a JSON object. Empty text gives an empty object
 /// (omp utils/tool-call-arguments.ts:5-13).
-fn parse_object(raw: &str) -> Result<JsonObject, String> {
+fn parse_object(raw: &str) -> Result<JsonObject, LeakParseError> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Ok(JsonObject::new());
@@ -509,10 +592,8 @@ fn parse_object(raw: &str) -> Result<JsonObject, String> {
             | JsonValue::Number(_)
             | JsonValue::String(_)
             | JsonValue::Array(_),
-        ) => Err("the tool call arguments are not a JSON object".to_owned()),
-        Err(error) => Err(format!(
-            "the tool call arguments are not valid JSON: {error}"
-        )),
+        ) => Err(LeakParseError::ArgumentsNotAnObject),
+        Err(source) => Err(LeakParseError::ArgumentsNotJson { source }),
     }
 }
 
@@ -544,11 +625,16 @@ mod tests {
         }
     }
 
-    fn broken(markup: Markup, reason: &str) -> Leak {
-        Leak::Broken {
-            markup,
-            reason: reason.to_owned(),
+    /// The markup and the reason of a scan that finds broken markup.
+    fn scan_broken(text: &str) -> (Markup, String) {
+        match scan(text) {
+            Leak::Broken { markup, reason } => (markup, reason.to_string()),
+            other @ (Leak::None | Leak::Calls { .. }) => panic!("not broken: {other:?}"),
         }
+    }
+
+    fn broken(markup: Markup, reason: &str) -> (Markup, String) {
+        (markup, reason.to_owned())
     }
 
     #[test]
@@ -733,7 +819,7 @@ mod tests {
                 "<tool_call>{\"name\": \"bash\", \"arguments\": [1]}</tool_call>",
                 "<tool_call>{\"name\": \"bash\", \"arguments\": \"[1]\"}</tool_call>",
             ]
-            .map(scan),
+            .map(scan_broken),
             [
                 broken(Markup::Hermes, "the <tool_call> section has no close tag"),
                 broken(
@@ -764,7 +850,7 @@ mod tests {
                 "<tool_call><function=><parameter=a>1</parameter></function></tool_call>",
                 "<tool_call><function=bash><parameter=command>ls</function></tool_call>",
             ]
-            .map(scan),
+            .map(scan_broken),
             [
                 broken(Markup::Qwen3, "the <tool_call> section has no close tag"),
                 broken(Markup::Qwen3, "the function bash has no close tag"),
@@ -783,7 +869,7 @@ mod tests {
                 "<tool_calls><9x a=\"b\"/></tool_calls>",
                 "<tool_calls><read path=a/></tool_calls>",
             ]
-            .map(scan),
+            .map(scan_broken),
             [
                 broken(Markup::QwenXml, "the <tool_calls> section has no close tag"),
                 broken(Markup::QwenXml, "the tool-call section has no call"),
@@ -804,7 +890,7 @@ mod tests {
                 "<|tool_calls_section_begin|><|tool_call_begin|>functions.read:0<|tool_call_argument_begin|>[1]<|tool_call_end|><|tool_calls_section_end|>",
                 "<|tool_calls_section_begin|><|tool_calls_section_end|>",
             ]
-            .map(scan),
+            .map(scan_broken),
             [
                 broken(Markup::Kimi, "the Kimi tool-call section has no end token"),
                 broken(Markup::Kimi, "a Kimi tool call has no argument token"),
@@ -827,7 +913,7 @@ mod tests {
                 "bash\n<｜DSML｜invoke name=\"bash\"><｜DSML｜parameter name=\"command\" string=\"true\">ls</｜DSML｜parameter></｜DSML｜invoke>",
                 "<｜DSML｜tool_calls></｜DSML｜tool_calls>",
             ]
-            .map(scan),
+            .map(scan_broken),
             [
                 broken(Markup::Dsml, "a DSML invoke has no name"),
                 broken(Markup::Dsml, "the parameter command has no close tag"),

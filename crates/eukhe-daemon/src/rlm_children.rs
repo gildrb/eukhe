@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle, PromptInput};
+use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle};
 use serde_json::{json, Value};
 
 use crate::rlm_child_model::{
@@ -174,7 +174,7 @@ pub type ParentNameSource = std::sync::Arc<dyn Fn() -> Option<String> + Send + S
 
 /// Reads the parent session's effective cvar family (root first) at spawn
 /// time: the worker answers from its session settings, so a child starts
-/// from the values its parent has now (docs/control.md S4).
+/// from the values its parent has now.
 pub type ParentCvarFamilySource =
     std::sync::Arc<dyn Fn() -> Vec<eukhe_core::settings::cvar::AgentLayer> + Send + Sync>;
 
@@ -185,6 +185,38 @@ pub type ParentCvarFamilySource =
 pub type DurableChildrenSource = std::sync::Arc<
     dyn Fn() -> futures::future::BoxFuture<'static, Result<Vec<RlmChildIdentity>>> + Send + Sync,
 >;
+
+/// The durable children of `conversation` (its `eukhe.rlm.children`
+/// document, the one `rlm.list_subagents` reads) as family identities: a
+/// child is addressable once it has a session (its live id, else its
+/// durable session id); a queued child without one is not. A worker and a
+/// headless parent both answer their [`DurableChildrenSource`] with it.
+///
+/// # Errors
+///
+/// The children document cannot be read.
+pub async fn durable_child_identities(
+    harness: &eukhe_durable::harness::Harness,
+    conversation: eukhe_durable::types::ConversationId,
+    cx: &eukhe_chord::context::Context,
+) -> Result<Vec<RlmChildIdentity>> {
+    let records = eukhe_core::durable::children::list_children(harness, conversation, cx).await?;
+    Ok(records
+        .into_iter()
+        .filter_map(|record| {
+            let entry = record.entry;
+            let active_session_id = entry
+                .active_session_id
+                .or_else(|| entry.session_id.clone())?;
+            Some(RlmChildIdentity {
+                rlm_child_id: entry.rlm_child_id,
+                active_session_id,
+                session_id: entry.session_id,
+                session_name: entry.session_name,
+            })
+        })
+        .collect())
+}
 
 struct SupervisorChildSessionsInner {
     link: Arc<SupervisorLink>,
@@ -279,8 +311,8 @@ impl SupervisorChildSessions {
         *self.inner.identity.lock().expect("identity lock") = identity;
     }
 
-    /// Wire the parent's live model reader: each durable spawn and
-    /// `create_session` refreshes the inherited model from it first.
+    /// Wire the parent's live model reader: each durable spawn refreshes
+    /// the inherited model from it first.
     pub fn set_parent_model_source(&self, source: ParentModelSource) {
         *self
             .inner
@@ -448,6 +480,7 @@ impl SupervisorChildSessionsInner {
 }
 
 mod durable_host;
+mod first_prompt;
 mod lifecycle;
 
 #[cfg(test)]

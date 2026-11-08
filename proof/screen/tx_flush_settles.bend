@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../laws/screen.bend as Screen
+import ../../laws/screen/interface.bend as Screen
 
 def ps.flushed_flush(bs: List<&2, Sc.Blk>) -> {Sc.flushed(Sc.flush(bs)) == True{} : Bool}:
   match bs:

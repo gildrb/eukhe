@@ -12,7 +12,7 @@ use super::callback_server::{
     OAuthCallbackServerOptions,
 };
 use super::http::{fetch, FetchRequest};
-use super::pkce::generate_pkce;
+use super::pkce::{base64url_encode, generate_pkce, random_bytes};
 use super::{api_key_auth, error_name, parse_authorization_input, shared};
 use crate::auth::errors::{date_now, js_error, timeout_signal};
 use crate::auth::types::{
@@ -145,7 +145,14 @@ async fn exchange_authorization_code(
     Ok(credential_from(&token_data))
 }
 
-fn authorize_url(challenge: &str, verifier: &str, redirect_uri: &str) -> String {
+/// The `state` of one login: 32 random bytes, base64url (Claude Code's
+/// `state`). Never the PKCE verifier: the authorize URL travels through
+/// the browser and its history, and the verifier must stay on this machine.
+fn generate_state() -> Result<String, Thrown> {
+    Ok(base64url_encode(&random_bytes::<32>()?))
+}
+
+fn authorize_url(challenge: &str, state: &str, redirect_uri: &str) -> String {
     let params = super::http::form_urlencode(&[
         ("code", "true"),
         ("client_id", &CLIENT_ID),
@@ -154,13 +161,14 @@ fn authorize_url(challenge: &str, verifier: &str, redirect_uri: &str) -> String 
         ("scope", SCOPES),
         ("code_challenge", challenge),
         ("code_challenge_method", "S256"),
-        ("state", verifier),
+        ("state", state),
     ]);
     format!("{AUTHORIZE_URL}?{params}")
 }
 
 async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthCredential, Thrown> {
     let pkce = generate_pkce()?;
+    let login_state = generate_state()?;
     let start_callback_server = |port: u16| {
         start_oauth_callback_server(OAuthCallbackServerOptions {
             provider_name: "Anthropic".to_owned(),
@@ -168,7 +176,7 @@ async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthC
             port,
             path: CALLBACK_PATH.to_owned(),
             redirect_host: Some("localhost".to_owned()),
-            state: Some(pkce.verifier.clone()),
+            state: Some(login_state.clone()),
             complete: Arc::new(|code| Box::pin(async move { Ok(code) })),
             signal: Some(interaction.signal.clone()),
             timeout_ms: None,
@@ -186,7 +194,7 @@ async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthC
 
     let result = async {
         interaction.notify(AuthEvent::AuthUrl {
-            url: authorize_url(&pkce.challenge, &pkce.verifier, &redirect_uri),
+            url: authorize_url(&pkce.challenge, &login_state, &redirect_uri),
             instructions: Some("Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.".to_owned()),
         });
 
@@ -204,13 +212,13 @@ async fn login_anthropic(interaction: &ProviderAuthInteraction) -> Result<OAuthC
                 &redirect_uri,
             )
             .await?;
-            let mut state = pkce.verifier.clone();
+            let mut state = login_state.clone();
             let code = match result {
                 CallbackOrManual::Callback { value } => Some(value),
                 CallbackOrManual::Manual { input } => {
                     let parsed = parse_authorization_input(&input);
                     if parsed.state.as_ref().is_some_and(|parsed_state| {
-                        !parsed_state.is_empty() && *parsed_state != pkce.verifier
+                        !parsed_state.is_empty() && *parsed_state != login_state
                     }) {
                         return Err(js_error("OAuth state mismatch"));
                     }
@@ -250,8 +258,9 @@ async fn login_anthropic_copy_code(
     interaction: &ProviderAuthInteraction,
 ) -> Result<OAuthCredential, Thrown> {
     let pkce = generate_pkce()?;
+    let login_state = generate_state()?;
     interaction.notify(AuthEvent::AuthUrl {
-        url: authorize_url(&pkce.challenge, &pkce.verifier, COPY_CODE_REDIRECT_URI),
+        url: authorize_url(&pkce.challenge, &login_state, COPY_CODE_REDIRECT_URI),
         instructions: Some(
             "Complete login in your browser, then copy the code Anthropic shows and paste it here."
                 .to_owned(),
@@ -271,7 +280,7 @@ async fn login_anthropic_copy_code(
     if parsed
         .state
         .as_ref()
-        .is_some_and(|state| !state.is_empty() && *state != pkce.verifier)
+        .is_some_and(|state| !state.is_empty() && *state != login_state)
     {
         return Err(js_error("OAuth state mismatch"));
     }
@@ -281,7 +290,7 @@ async fn login_anthropic_copy_code(
     interaction.notify(AuthEvent::Progress {
         message: "Exchanging authorization code for tokens...".to_owned(),
     });
-    let state = parsed.state.unwrap_or_else(|| pkce.verifier.clone());
+    let state = parsed.state.unwrap_or(login_state);
     exchange_authorization_code(
         &code,
         &state,

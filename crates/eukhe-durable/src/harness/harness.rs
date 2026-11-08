@@ -2,6 +2,7 @@
 //! registry, a task scheduler, and submissions (`harness/harness.ts`, spec
 //! §2.2).
 
+mod continuation;
 mod conversation;
 
 use std::ops::Deref;
@@ -16,6 +17,7 @@ use crate::types::{DocumentObserver, DocumentReader};
 use futures::future::{self, BoxFuture};
 use futures::FutureExt;
 
+pub use self::continuation::Continuation;
 use self::conversation::bound_conversation;
 pub use self::conversation::{Conversation, ConversationEntryQuery};
 use crate::env::ExecutionEnv;

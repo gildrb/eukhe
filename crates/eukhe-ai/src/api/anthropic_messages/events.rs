@@ -175,11 +175,18 @@ fn event_failure(error: &EventStreamError, request_id: Option<&str>) -> StreamFa
     }
 }
 
+/// A stop reason [`map_stop_reason`] does not know.
+#[derive(Debug, thiserror::Error)]
+#[error("Unhandled stop reason: {reason}")]
+struct UnhandledStopReason {
+    reason: String,
+}
+
 /// TS `mapStopReason`.
 fn map_stop_reason(
     reason: &str,
     stop_details: Option<&JsonValue>,
-) -> Result<(StopReason, Option<String>), String> {
+) -> Result<(StopReason, Option<String>), UnhandledStopReason> {
     match reason {
         "end_turn" | "pause_turn" | "stop_sequence" => Ok((StopReason::Stop, None)),
         "max_tokens" => Ok((StopReason::Length, None)),
@@ -196,7 +203,9 @@ fn map_stop_reason(
             StopReason::Error,
             Some("Provider stopped with: sensitive".to_owned()),
         )),
-        other => Err(format!("Unhandled stop reason: {other}")),
+        other => Err(UnhandledStopReason {
+            reason: other.to_owned(),
+        }),
     }
 }
 
@@ -541,7 +550,7 @@ pub(crate) async fn consume(
                     output.raw_stop_reason = Some(reason.to_owned());
                     let (stop_reason, error_message) =
                         map_stop_reason(reason, delta.and_then(|delta| delta.get("stop_details")))
-                            .map_err(StreamFailure::message)?;
+                            .map_err(|error| StreamFailure::message(error.to_string()))?;
                     output.stop_reason = stop_reason;
                     if let Some(error_message) = error_message {
                         output.error_message = Some(error_message);

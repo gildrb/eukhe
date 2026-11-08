@@ -1,21 +1,17 @@
 # eukhe
 
-eukhe (Greek εὐχή: a wish, a prayer): a coding agent whose memory is one endless chat log shared by all sessions (no empty new session, no compaction dropping the start); each turn starts from a compact view of the full log. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect; not affiliated with Prime Intellect, Victor Taelin or Earendil ([Attribution](#attribution)).
+Coding agent with a memory of all things. εὐχή: a wish, a prayer.
 
 ## Install
 
 ```sh
 curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64); rerun to update
+eukhe kernel install                       # one time: the Python kernel (needs uv)
 ```
 
-|Method|Command|
-|---|---|
-|Nix, one run|`nix run github:gildrb/eukhe`|
-|Home Manager|`programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)|
-|mise|`"github:gildrb/eukhe" = { version = "latest", version_prefix = "eukhe-v" }`|
-|Source|`cargo build --release --locked -p eukhe-cli`|
-
-`eukhe update` does not download. Details: [docs/install.md](docs/install.md).
+- Nix: `nix run github:gildrb/eukhe`
+- Home Manager: `programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)
+- Source: `cargo build --release --locked -p eukhe-cli`
 
 ## Use
 
@@ -23,72 +19,51 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 cd /path/to/project
 eukhe            # start; run /login at the first start
 eukhe agents     # find and open sessions
-eukhe gateway    # connect Signal on your phone to the CLI session
+eukhe gateway    # chat with the session from Signal on your phone
 eukhe dashboard  # open the session in a browser
 ```
 
-All commands: [docs/usage.md](docs/usage.md).
+`eukhe --help` lists the commands. In a session, type `/` for the slash commands.
 
 ## Memory
 
-- Log: `~/.eukhe/chat/`, append-only.
-- The compactor writes one-line summaries into a binary tree over the log.
-- Each root turn starts from the view: 64 KB to 128 KB of lines.
-- `/memory`: the view. `/memory model`: compaction model and reasoning effort (the `/model` hub at the memory role).
+> γραμμάτων τε συνθέσεις, μνήμην ἁπάντων, μουσομήτορ᾽ ἐργάνην.
+> And the joining of letters: memory of all things, the Muses' mother, a worker. (Aeschylus, Prometheus Bound 460-461)
 
-Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449). Details: [docs/memory.md](docs/memory.md).
+- Each session keeps an append-only log. Nothing is deleted.
+- A turn sends the newest messages verbatim and a view of the older ones: one-line summaries the agent can open back to the full text.
 
 ## Agents
 
-- `rlm.spawn` in the agent's Python REPL starts subagents.
-- `@name message`: message a family agent. `/agents`: list the session's agents.
+- `@name message`: send a message to an agent. `/agents`: list them.
 
-## Dynamic workflows
+## Laws
 
-- `/dynamic-workflow <request>`: the agent writes and runs one orchestration script that starts many subagents (fan-out, pipelines, phases).
-- `--size small|medium|large`: how many agents; `/workflows size` sets the default. `/workflows`: phases, agents, log per run.
+- The rules of eukhe are [Bend 2](https://github.com/bendlang/bend) models, compiled into the binary. `LAWS.bend` states their laws; `PROOF.bend` proves them. See [spec/README.md](spec/README.md).
 
-Details: [docs/workflows.md](docs/workflows.md).
+```sh
+bend PROOF.bend  # check every law
+```
 
-## Phone and browser
+## Components
 
-- `eukhe gateway`: Signal to the CLI session ([docs/gateway.md](docs/gateway.md)).
-- `eukhe dashboard`: the session on `127.0.0.1`; phone: `poros eukhe dashboard` ([docs/dashboard.md](docs/dashboard.md)).
-
-## References
-
-|File|Content|
-|---|---|
-|[docs/install.md](docs/install.md)|Installer, Nix, Home Manager, mise, source build, daemon versions|
-|[docs/usage.md](docs/usage.md)|Commands, agents, providers, session state|
-|[docs/settings.md](docs/settings.md)|Settings files, key binds, all settings, Directors|
-|[docs/workflows.md](docs/workflows.md)|Dynamic workflows: sizes, script API, resume, limits|
-|[docs/memory.md](docs/memory.md)|Chat memory: use, rules, Bend model, proofs|
-|[docs/local-models.md](docs/local-models.md)|Local models: titles, translation, speech, dictation|
-|[docs/gateway.md](docs/gateway.md)|Signal gateway|
-|[docs/dashboard.md](docs/dashboard.md)|Web dashboard|
-|[docs/develop.md](docs/develop.md)|Build, test, releases|
+- [Eukhe RLM](spec/rlm/) forks Prime Agent's REPL subagents: every spawn must say why.
+- [Eukhe Memory](spec/memory/) is OptChat, split into one thread per session.
+- [Eukhe Hierarchy](spec/agents/) keeps agents in a tree: each talks only to its parent and children.
 
 ## Limitations
 
-- Runs model-generated Python and shell with your user permissions; no sandbox. Trusted repositories only.
-- macOS (Apple Silicon), Linux (x64, arm64). No Windows.
-- Kernel needs uv; chat memory needs git; the Nix package supplies both.
-- Local models need ONNX Runtime 1.24+.
+- Runs model-written Python and shell with your permissions. No sandbox. Trusted repositories only.
+- No Windows.
 
-## Attribution
+## Credits
 
-- [Prime Intellect](https://www.primeintellect.ai): Prime Agent, the code
-  base of eukhe. Copyright (c) 2025-2026 Prime Intellect Ltd., MIT.
-- [Mario Zechner](https://github.com/badlogic): the original code of the
-  Prime Agent TypeScript product, which eukhe ports. Copyright (c) 2025 Mario
-  Zechner, MIT.
-- [Victor Taelin](https://github.com/VictorTaelin): the chat memory design,
-  [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449),
-  and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem). The
-  memory prompts come from the OptChat specification.
+- Fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), built on Mario Zechner's [pi](https://github.com/earendil-works/pi).
+- Victor Taelin: the chat memory design, OptChat, and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem).
+- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools and the harness design.
+- Not affiliated with Prime Intellect, Victor Taelin or Earendil.
+- Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Prime Agent copyright stays with Prime
-Intellect Ltd. and Mario Zechner.
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,6 @@
+# no number but tags and lengths: a skill and a template
+call 0,1,10,web-search10,web-search1,14,Search the web
+call 0,0,5,Bad--1,2,　 
+call 1,1,14,Search the web4,body
+call 1,0,8,\n  hi \nx
+refuse 0,1,{LONG},x

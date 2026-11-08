@@ -3,6 +3,7 @@
 //! drivers, the session-plane re-attach, and the arming seam.
 
 use super::{mpsc, AgentView, DaemonClient, DaemonClientEvent, Duration, RecoveryKind, SessionUi};
+use crate::session_ui::ReconnectError;
 
 /// The in-flight reconnect attempt's connect leg: a spawned task's
 /// bounded `DaemonClient::connect_with_retry` result (fresh client plus
@@ -86,7 +87,6 @@ pub(super) struct SessionReconnect {
     pub(super) deadline: tokio::time::Instant,
     pub(super) next_attempt: tokio::time::Instant,
     delay: Duration,
-    pub(super) last_error: String,
 }
 
 impl SessionReconnect {
@@ -96,7 +96,6 @@ impl SessionReconnect {
             deadline: tokio::time::Instant::now() + SESSION_RECONNECT_WINDOW,
             next_attempt: tokio::time::Instant::now(),
             delay: Duration::from_millis(100),
-            last_error: String::new(),
         }
     }
 
@@ -114,7 +113,7 @@ impl SessionReconnect {
 pub(super) async fn retry_session_attach(
     session: &mut SessionUi,
     view: &mut AgentView,
-    mut state: SessionReconnect,
+    state: SessionReconnect,
 ) -> Option<SessionReconnect> {
     // The user switched sessions while the link was down: the new attach
     // owns its own connection, so this driver stops.
@@ -130,7 +129,7 @@ pub(super) async fn retry_session_attach(
         session.attach_session(&state.active_session_id, crate::session_ui::DockFold::Held),
     )
     .await;
-    state.last_error = match attempt {
+    let error = match attempt {
         Ok(Ok(())) => {
             // The resynced transcript replaces the chat (TS
             // `session_resynced`), then the reconnected status lands on
@@ -144,8 +143,8 @@ pub(super) async fn retry_session_attach(
             session.dirty = true;
             return None;
         }
-        Ok(Err(error)) => format!("{error:#}"),
-        Err(_) => "the session re-attach attempt timed out".to_string(),
+        Ok(Err(error)) => ReconnectError::Attach(error),
+        Err(_) => ReconnectError::TimedOut,
     };
     if tokio::time::Instant::now() <= state.deadline {
         return Some(state.next_attempt());
@@ -153,11 +152,8 @@ pub(super) async fn retry_session_attach(
     // TS terminal close: the window expired, the last error surfaces as
     // the closed event's error row, and the UI stays mounted without
     // dispatching anything.
-    session.error_row(
-        &format!("Daemon reconnection failed: {}", state.last_error),
-        view,
-    );
-    session.reconnection_failed = Some(state.last_error);
+    session.error_row(&format!("Daemon reconnection failed: {error}"), view);
+    session.reconnection_failed = Some(error);
     session.dirty = true;
     None
 }

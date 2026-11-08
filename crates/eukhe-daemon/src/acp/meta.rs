@@ -19,12 +19,17 @@ pub struct EukheCwdMeta {
     pub actual: String,
 }
 
-/// Observed subagent and autonomous-continuation counts at a completion point.
+/// Observed subagent and autonomous-continuation counts at a completion
+/// point, and the work whose end wakes the session (absent when nothing
+/// runs): a completion that names any is not quiescent, and the prompt
+/// holds until a terminal names none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EukheQuiescenceMeta {
     pub outstanding_subagents: u64,
     pub remaining_autonomous_continuations: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_on: Option<eukhe_types::daemon::WaitingOn>,
 }
 
 /// Producer-side ordering of an update inside its prompt turn.
@@ -343,6 +348,7 @@ mod tests {
             quiescence: Some(EukheQuiescenceMeta {
                 outstanding_subagents: 0,
                 remaining_autonomous_continuations: 0,
+                waiting_on: None,
             }),
             ..Default::default()
         });

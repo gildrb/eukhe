@@ -1,0 +1,40 @@
+# An experiment whose iteration cap is at its largest; runs whose exit
+# code, deviations and metrics are at their largest (15 significant
+# digits, the most a metric holds), a flag and a start at the largest run
+# number (refused), the snapshot after each kind of log.
+open 
+step 0,1,n1,g1,x1,u0,1,1,y1,3,src1,4,.git1,{MAX},TT
+step 1,1,
+step 2,25,METRIC x=99999999999999.9
+step 2,25,METRIC y=-999999999999999
+step 3,F0,F
+step 4,0,4,base1,3,why{MAX},
+step 7,
+step 1,2,
+step 2,25,METRIC x=0.00000000000001
+step 3,F0,F
+step 4,0,4,best1,3,why{MAX},
+step 1,3,
+step 2,25,METRIC x=-999999999999999
+step 3,T{MAX},T
+step 4,2,5,crash0,{MAX},
+step 1,4,
+step 2,24,METRIC x=123456789012345
+step 3,F0,F
+step 4,1,4,disc0,{MAX},
+step 1,5,
+step 2,25,METRIC x=99999999999999.9
+step 3,F0,F
+step 4,3,6,checks0,{MAX},
+step 5,{MAX},6,reason
+step 1,{MAX},
+step 6,0,
+step 7,
+step 5,1,6,reason
+step 7,
+step 0,1,n1,g1,x1,u0,1,1,y1,3,src1,4,.git1,{MAX},FT
+step 7,
+refuse-step 1,{LONG},
+refuse-step 0,1,n1,g1,x1,u0,0,0,0,1,{LONG},TT
+refuse-open {LONG},
+refuse-step 7,

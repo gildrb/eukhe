@@ -857,11 +857,11 @@
 			"parse": [
 				{
 					"input": "*** Update File: a.ts\nPUT 2-2:\n+X",
-					"error": "Error: line 1: apply_patch sentinel \"*** Update File: a.ts\" is not valid in hashline. File sections start with `[path#HASH]` (no `Update File:` / `Add File:` keyword). Use `PUT N.=M:`, `CUT N.=M`, or `PUT <N:`/`PUT >N:` ops."
+					"error": "Error: line 1: apply_patch sentinel \"*** Update File: a.ts\" is not valid in hashline. A file section starts with the file's header line copied verbatim from the latest `read`/`grep` output (e.g. `[src/a.rs#3F9A]`) (no `Update File:` / `Add File:` keyword). Use `PUT N.=M:`, `CUT N.=M`, or `PUT <N:`/`PUT >N:` ops."
 				},
 				{
 					"input": "*** Add File: a.ts\nPUT 2-2:\n+X",
-					"error": "Error: line 1: apply_patch sentinel \"*** Add File: a.ts\" is not valid in hashline. File sections start with `[path#HASH]` (no `Update File:` / `Add File:` keyword). Use `PUT N.=M:`, `CUT N.=M`, or `PUT <N:`/`PUT >N:` ops."
+					"error": "Error: line 1: apply_patch sentinel \"*** Add File: a.ts\" is not valid in hashline. A file section starts with the file's header line copied verbatim from the latest `read`/`grep` output (e.g. `[src/a.rs#3F9A]`) (no `Update File:` / `Add File:` keyword). Use `PUT N.=M:`, `CUT N.=M`, or `PUT <N:`/`PUT >N:` ops."
 				}
 			]
 		},

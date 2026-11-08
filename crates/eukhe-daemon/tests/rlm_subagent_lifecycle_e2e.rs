@@ -397,13 +397,15 @@ fn kid_resident(client: &mut Client) -> bool {
 }
 
 /// The body of the spawn cell: spawn `kid`, record its id.
-const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nrecord({\"id\": handle.rlm_child_id})";
+const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nrecord({\"id\": handle.rlm_child_id})";
 
 /// The body of the busy-parent cell: spawn `kid`, wait for its run to
-/// settle, record the result, then hold the turn until the gate opens.
+/// settle by reading the roster (which reads no report, unlike
+/// `rlm.collect`: the child's report stays owed), record the roster row,
+/// then hold the turn until the gate opens.
 fn spawn_wait_hold(gate: &Path) -> String {
     format!(
-        "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [asdict(r) for r in results]}})\nwhile not os.path.exists({gate:?}):\n    await asyncio.sleep(0.05)",
+        "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nwhile not (results := [s for s in await rlm.list_subagents() if s.rlm_child_id == handle.rlm_child_id and s.status != \"running\"]):\n    await asyncio.sleep(0.05)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [asdict(r) for r in results]}})\nwhile not os.path.exists({gate:?}):\n    await asyncio.sleep(0.05)",
         gate = gate.display().to_string(),
     )
 }
@@ -418,8 +420,8 @@ fn tool_call(code: &str) -> Value {
     ] })
 }
 
-/// Spawn, wait, report, message (kernel `agent_message` and a user's
-/// `@name` prompt), and kill, all through the product surfaces.
+/// Spawn, wait, message (kernel `agent_message` and a user's `@name`
+/// prompt), and kill, all through the product surfaces.
 #[test]
 fn spawn_message_wait_and_kill_a_subagent() {
     let lane = Lane::new();
@@ -436,10 +438,9 @@ fn spawn_message_wait_and_kill_a_subagent() {
         &json!([
             tool_call(&lane.cell(
                 "spawn",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({\"id\": handle.rlm_child_id, \"results\": [{\"status\": r.status, \"settled\": r.settled, \"answer\": r.answer_preview} for r in results]})",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({\"id\": handle.rlm_child_id, \"results\": [{\"status\": r.status, \"settled\": r.settled, \"answer\": r.answer_preview} for r in results]})",
             )),
             { "text": "spawn turn done" },
-            { "text": "report noted" },
             tool_call(&lane.cell(
                 "send",
                 "receipt = await agent_message.send(\"ping from parent\", receiver_role=\"child\", receiver_name=\"kid\")\nrecord(receipt)",
@@ -462,13 +463,11 @@ fn spawn_message_wait_and_kill_a_subagent() {
         json!([{ "status": "done", "settled": true, "answer": "kid report one" }]),
         "{spawned}"
     );
-    // The child's report reaches the parent once (a follow-up turn).
-    let reports = await_report(&mut client, &parent.active);
+    // The wait read the child's report (the read is durable before
+    // `rlm.collect` answers): no report turn follows.
     assert_eq!(
-        reports,
-        vec![
-            "[child-exited: no-reply child:kid]\n\nLast assistant text: kid report one".to_owned()
-        ],
+        kid_reports(&client.messages(&parent.active)),
+        Vec::<String>::new()
     );
     let kid = wait_until(Duration::from_secs(30), "the kid worker", || {
         client
@@ -543,7 +542,10 @@ fn spawn_message_wait_and_kill_a_subagent() {
     wait_until(Duration::from_secs(30), "the kid worker exit", || {
         (!kid_resident(&mut client)).then_some(())
     });
-    assert_eq!(kid_reports(&client.messages(&parent.active)).len(), 1);
+    assert_eq!(
+        kid_reports(&client.messages(&parent.active)),
+        Vec::<String>::new()
+    );
 }
 
 /// How the daemon restarts.
@@ -643,7 +645,7 @@ fn restart_lane(restart: Restart, state: ChildAtRestart) {
             });
         }
         ChildAtRestart::ReportQueued => {
-            assert_eq!(spawned["results"][0]["status"], "done", "{spawned}");
+            assert_eq!(spawned["results"][0]["status"], "completed", "{spawned}");
             // The report is admitted to the parent's inbox (its keyed
             // submission is durable) while the held turn keeps it queued.
             wait_until(Duration::from_secs(30), "the queued report", || {
@@ -694,10 +696,10 @@ fn restart_lane(restart: Restart, state: ChildAtRestart) {
     let reports = await_report(&mut client, &parent_active);
     let expected = match (restart, state) {
         (Restart::Graceful, ChildAtRestart::Running) => {
-            "[child-failed: interrupted child:kid]\n\nRLM child run was interrupted: the child stopped mid-run while its parent session was down"
+            "[child-failed: interrupted child:kid]\n\nResume your work using the result below.\n\nRLM child run was interrupted: the child stopped mid-run while its parent session was down"
         }
         (Restart::Kill9, ChildAtRestart::Running) | (_, ChildAtRestart::ReportQueued) => {
-            "[child-exited: no-reply child:kid]\n\nLast assistant text: kid done"
+            "[child-exited: no-reply child:kid]\n\nResume your work using the result below.\n\nLast assistant text: kid done"
         }
     };
     assert_eq!(reports, vec![expected.to_owned()], "{}", lane.daemon_log());

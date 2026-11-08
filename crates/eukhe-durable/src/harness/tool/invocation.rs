@@ -578,7 +578,14 @@ pub(super) async fn run(
             .unwrap_or_else(PoisonError::into_inner),
     );
     futures::future::join_all(admissions).await;
-    reporting.lock().output.end();
+    let ended = reporting.lock().output.end();
+    if let Err(error) = ended {
+        // The output passed what the bounder counts (100 TB): the call settles with what it kept, and says so.
+        reporting
+            .lock()
+            .diagnostics
+            .push(tool_diagnostic("output_too_large", &error.to_string()));
+    }
     // Details still waiting for a progress publication settle with the terminal commit, the final flush.
     let pending = reporting.progress.stop().await;
     let settled = async {

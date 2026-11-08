@@ -1,5 +1,5 @@
 # eukhe: lemmas of the theme entry's proofs: the entry's reader answers
-# what the laws' reader (spec/theme_read.bend) answers on every input, one
+# what the laws' reader (spec/theme/read.bend) answers on every input, one
 # lemma per stage, each a case split on the stage's input
 
 import Base
@@ -7,7 +7,7 @@ import ../../../bend/wire.bend as Wr
 import ../../../bend/theme/file.bend as TFile
 import ../../../bend/theme/resolve.bend as TResolve
 import ../../../bend/ffi_theme.bend as FTh
-import ../../../spec/theme_read.bend as Tr
+import ../../../spec/theme/read.bend as Tr
 
 def tl.mnat.some(r: Wr.Dec<Nat>) -> {Tr.read.mnat.some(r) == FTh.get_mnat.some(r) : Wr.Dec<Maybe<&2, Nat>>}:
   match r:

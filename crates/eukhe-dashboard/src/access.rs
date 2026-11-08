@@ -7,7 +7,7 @@
 //! the browser still sends that name. A WebSocket upgrade must also carry
 //! the page's own `Origin`: the origin of the `Host` it was served under,
 //! or of the public authority that a forwarder in front of the dashboard
-//! names in `X-Forwarded-Host` (poros rewrites `Host` to the local address
+//! names in `X-Forwarded-Host` (porthmeus rewrites `Host` to the local address
 //! and keeps the browser's `Origin`). That defeats cross-site WebSocket
 //! hijacking, where another site's page opens the socket with its own
 //! origin: a page cannot add `X-Forwarded-Host` to a WebSocket handshake,

@@ -1,4 +1,4 @@
-//! docs/harness.md H4.7: a retry after a noted reply never sends the
+//! LAWS.bend H4.7: a retry after a noted reply never sends the
 //! request that was cut. A model that loops on a request, as a greedy one
 //! does every time, loops on the same request again; the retry's request
 //! ends with a note that names the retry's attempt and what went wrong
@@ -222,7 +222,7 @@ async fn a_retry_after_no_answer_ends_its_request_with_a_note_and_answers() {
             .collect(),
     );
     assert_eq!(
-        note(2, NoteCause::NoAnswer),
+        note(2, NoteCause::NoAnswer { row: 1 }),
         "user:Harness note, attempt 2: your previous reply gave no text and no tool call. Give \
          the answer again, as text or as a tool call."
     );
@@ -245,13 +245,16 @@ async fn a_retry_after_no_answer_ends_its_request_with_a_note_and_answers() {
             ),
             vec![
                 vec![format!("user:{ASK}")],
-                vec![format!("user:{ASK}"), note(2, NoteCause::NoAnswer)],
+                vec![
+                    format!("user:{ASK}"),
+                    note(2, NoteCause::NoAnswer { row: 1 })
+                ],
             ]
         )
     );
 }
 
-/// docs/harness.md H4.5: a stream that stalled is noted (M3). Its retry
+/// LAWS.bend H4.5: a stream that stalled is noted (M3). Its retry
 /// is a new request: it ends with a note and has twice the idle deadline
 /// the stream stalled under, so it does not stall the same way again. A
 /// noted retry spends a note: with no transient retries left

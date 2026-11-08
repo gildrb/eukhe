@@ -1,8 +1,8 @@
-//! docs/harness.md H4.1, H4.7 and H4.8: the recoveries that help a weaker
+//! LAWS.bend H4.1, H4.7 and H4.8: the recoveries that help a weaker
 //! model get unstuck. A length stop while the model still reasons is
 //! retried with a length note; the same calls with the same results are
 //! redirected with a note before they run a fifth time; tool calls leaked
-//! as text are rebuilt, or noted and then stand as text. A reply with tool
+//! as text are rebuilt, or noted and then fail the run. A reply with tool
 //! calls runs them whatever its stop reason, but no call of a reply cut at
 //! the output limit runs. A noted retry is a new request: it goes out at
 //! once and does not spend `retry.maxRetries`.
@@ -12,31 +12,37 @@ use std::time::Duration;
 
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
-    FauxContentBlock, FauxResponseStep, RegisterFauxProviderOptions,
+    FauxContentBlock, FauxModelDefinition, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_chord::json::JsonValue;
-use eukhe_types::pi_ai::{Message, StopReason, UserContentBlock};
+use eukhe_types::pi_ai::{
+    Message, ModelThinkingLevel, StopReason, ThinkingLevel, UserContentBlock,
+};
 
 use super::run_bounds::tool;
 use crate::harness::tests::chat_support::{
     all_entries, chat_setup, open_chat, ChatSetup, OpenChat,
 };
 use crate::harness::tests::support::{add_tool, context, describe_message};
-use crate::harness::types::{InputSubmissionDraft, PartialRetryPolicy};
+use crate::harness::types::{AgentChange, FieldChange, InputSubmissionDraft, PartialRetryPolicy};
 use crate::storage::MemoryStorage;
 use crate::types::SubmissionStatus;
 
-const ASK: &str = "go";
+pub(super) const ASK: &str = "go";
 
 /// Thinking of 47 characters: the faux provider counts 12 output tokens.
-const THINKING: &str = "The user wants a plan. First I check the files.";
+pub(super) const THINKING: &str = "The user wants a plan. First I check the files.";
 
 /// The last message of each request the model got.
-type Seen = Arc<Mutex<Vec<String>>>;
+pub(super) type Seen = Arc<Mutex<Vec<String>>>;
 
 /// A step that records the last message of its request, then replies
 /// with `content` and `stop_reason`.
-fn reply(seen: &Seen, content: Vec<FauxContentBlock>, stop_reason: StopReason) -> FauxResponseStep {
+pub(super) fn reply(
+    seen: &Seen,
+    content: Vec<FauxContentBlock>,
+    stop_reason: StopReason,
+) -> FauxResponseStep {
     let seen = Arc::clone(seen);
     FauxResponseStep::factory(move |request, _, _, _| {
         seen.lock().unwrap_or_else(PoisonError::into_inner).push(
@@ -55,19 +61,51 @@ fn reply(seen: &Seen, content: Vec<FauxContentBlock>, stop_reason: StopReason) -
     })
 }
 
-fn tick(id: &str) -> FauxContentBlock {
+pub(super) fn tick(id: &str) -> FauxContentBlock {
     faux_tool_call("tick", serde_json::Map::new(), Some(id.to_owned()))
 }
 
 /// How a run settled: its status, reason and detail.
-type Settled = (SubmissionStatus, Option<String>, Option<JsonValue>);
+pub(super) type Settled = (SubmissionStatus, Option<String>, Option<JsonValue>);
 
 /// Run one input to its end: how it settled, and the messages of the
 /// transcript (its system entries aside), as `describe_message` shows them.
-async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
-    let OpenChat { harness, root } = open_chat(Arc::new(MemoryStorage::new()), setup, None)
+pub(super) async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
+    let (settled, lines, _) = settle_stops(setup).await;
+    (settled, lines)
+}
+
+/// The stop reason and error of each assistant message of a transcript.
+pub(super) type Stops = Vec<(StopReason, Option<String>)>;
+
+/// [`settle`], and the stop reason and error of each assistant message.
+pub(super) async fn settle_stops(setup: &ChatSetup) -> (Settled, Vec<String>, Stops) {
+    let chat = open_chat(Arc::new(MemoryStorage::new()), setup, None)
         .await
         .unwrap();
+    run_to_end(chat).await
+}
+
+/// [`settle`] with the agent at the thinking level `level`, and the stop
+/// reason and error of each assistant message.
+async fn settle_at(setup: &ChatSetup, level: ModelThinkingLevel) -> (Settled, Vec<String>, Stops) {
+    let chat = open_chat(Arc::new(MemoryStorage::new()), setup, None)
+        .await
+        .unwrap();
+    chat.root
+        .configure(
+            AgentChange {
+                thinking_level: FieldChange::Set(level),
+                ..AgentChange::default()
+            },
+            context(),
+        )
+        .await
+        .unwrap();
+    run_to_end(chat).await
+}
+
+async fn run_to_end(OpenChat { harness, root }: OpenChat) -> (Settled, Vec<String>, Stops) {
     harness.resume().unwrap();
     let settled = root
         .submit(InputSubmissionDraft::new(ASK), context())
@@ -79,9 +117,15 @@ async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
         .into_record();
     let entries = all_entries(&root, context()).await.unwrap();
     harness.close(context()).await.unwrap();
-    let lines = entries
+    let messages = entries
         .iter()
-        .flat_map(|entry| entry.model.iter().flatten())
+        .flat_map(|entry| entry.model.iter().flatten());
+    let stops = messages
+        .clone()
+        .filter_map(Message::as_assistant)
+        .map(|message| (message.stop_reason, message.error_message.clone()))
+        .collect();
+    let lines = messages
         .filter_map(|message| match message {
             Message::System(_) => None,
             Message::User(_) | Message::Assistant(_) => Some(describe_message(message)),
@@ -108,28 +152,27 @@ async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
             settled.state.detail().cloned(),
         ),
         lines,
+        stops,
     )
 }
 
-fn seen(seen: &Seen) -> Vec<String> {
+pub(super) fn seen(seen: &Seen) -> Vec<String> {
     seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
-fn user(text: &str) -> String {
+pub(super) fn user(text: &str) -> String {
     format!("user:{text}")
 }
 
-/// The length note of `attempt`, the `row`th in a row, for a reply of
-/// only [`THINKING`].
-fn length_note(attempt: u64, row: u32) -> String {
+/// The length note of `attempt`, the `row`th of `cap` in a row, for a
+/// reply of only [`THINKING`].
+fn length_note(attempt: u64, row: u32, cap: u32) -> String {
     user(&format!(
         "Harness note, attempt {attempt}: your previous reply hit the 12-token output limit \
-         while it was still reasoning. It gave no text and no tool call, so the harness \
-         discarded it with every tool call that it planned. If you plan the whole task again \
-         in your reasoning, you hit the same limit. Reason only about the next step, then call \
-         its tool. For a large answer (a file, a document, a long text), write a minimal \
-         working version first, then extend it with more edits in later turns. Length note \
-         {row} of 3."
+         while still reasoning, so the harness discarded it unseen, with every tool call it \
+         planned. Reason only about the next step, then call its tool. For a large deliverable \
+         (a file, a document, a long answer), write a minimal working version now and extend \
+         it in later turns. Length note {row} of {cap}."
     ))
 }
 
@@ -155,11 +198,13 @@ async fn a_length_stop_while_reasoning_is_retried_with_a_length_note_and_answers
                     "assistant:done".to_owned()
                 ]
             ),
-            vec![user(ASK), length_note(2, 1)]
+            vec![user(ASK), length_note(2, 1, 3)]
         )
     );
 }
 
+/// With no thinking level below the agent's (`off`), the ladder is the 3
+/// length notes; then the run fails, saying what it tried.
 #[tokio::test]
 async fn length_stops_while_reasoning_fail_the_run_after_three_length_notes() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
@@ -170,8 +215,9 @@ async fn length_stops_while_reasoning_fail_the_run_after_three_length_notes() {
             .collect(),
     );
     let error = format!(
-        "{NO_ANSWER}. The model hit the output limit while it was still reasoning after 3 length \
-         notes in a row: use a different model or raise the model's max output tokens"
+        "{NO_ANSWER}. It hit the 12-token output limit while it was still reasoning, again \
+         after 3 retries with a note to reason only about the next step: use a different model \
+         or raise the model's max output tokens"
     );
     assert_eq!(
         (settle(&setup).await, seen(&requests)),
@@ -189,10 +235,150 @@ async fn length_stops_while_reasoning_fail_the_run_after_three_length_notes() {
             ),
             vec![
                 user(ASK),
-                length_note(2, 1),
-                length_note(3, 2),
-                length_note(4, 3)
+                length_note(2, 1, 3),
+                length_note(3, 2, 3),
+                length_note(4, 3, 3)
             ]
+        )
+    );
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
+}
+
+/// A reasoning faux model: its ladder offers off to high.
+fn reasoning_setup() -> ChatSetup {
+    chat_setup(RegisterFauxProviderOptions {
+        models: Some(vec![FauxModelDefinition {
+            reasoning: Some(true),
+            ..FauxModelDefinition::new("faux-1")
+        }]),
+        ..RegisterFauxProviderOptions::default()
+    })
+}
+
+/// What each request the model got held: its messages (system ones aside,
+/// as `describe_message` shows them) and its thinking level.
+type Asked = Arc<Mutex<Vec<(Vec<String>, Option<ThinkingLevel>)>>>;
+
+/// A step that records its request in `asked`, then replies with
+/// `content` and `stop_reason`.
+fn asked(
+    asked: &Asked,
+    content: Vec<FauxContentBlock>,
+    stop_reason: StopReason,
+) -> FauxResponseStep {
+    let asked = Arc::clone(asked);
+    FauxResponseStep::factory(move |request, options, _, _| {
+        let messages = request
+            .messages()
+            .iter()
+            .filter(|message| !matches!(message, Message::System(_)))
+            .map(describe_message)
+            .collect();
+        asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((messages, options.and_then(|options| options.reasoning)));
+        Ok(faux_assistant_message(
+            content.clone(),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(stop_reason),
+                ..FauxAssistantMessageOptions::default()
+            },
+        ))
+    })
+}
+
+/// Regression (v0.10.59, "only 58076 characters of thinking"): a reasoning
+/// model that keeps hitting the output limit while it reasons is not
+/// failed after 3 identical retries. Its ladder's last rung retries once
+/// one thinking level lower (`medium` below `high`), for that request
+/// only, and the answer lands. Every rung is quiet (no stop carries an
+/// error) and drops the cut reasoning: each retry sends the input and its
+/// one note.
+#[tokio::test]
+async fn length_stops_while_reasoning_climb_to_a_lower_level_and_answer() {
+    let setup = reasoning_setup();
+    let requests = Asked::default();
+    let mut responses: Vec<_> = (0..4)
+        .map(|_| asked(&requests, vec![faux_thinking(THINKING)], StopReason::Length))
+        .collect();
+    responses.push(asked(&requests, vec![faux_text("done")], StopReason::Stop));
+    setup.faux.set_responses(responses);
+    let high = Some(ThinkingLevel::High);
+    let length = (StopReason::Length, None);
+    assert_eq!(
+        (
+            settle_at(&setup, ModelThinkingLevel::High).await,
+            requests
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        ),
+        (
+            (
+                (SubmissionStatus::Done, None, None),
+                [user(ASK)]
+                    .into_iter()
+                    .chain((0..4).map(|_| "assistant:".to_owned()))
+                    .chain(["assistant:done".to_owned()])
+                    .collect::<Vec<_>>(),
+                vec![
+                    length.clone(),
+                    length.clone(),
+                    length.clone(),
+                    length,
+                    (StopReason::Stop, None)
+                ]
+            ),
+            vec![
+                (vec![user(ASK)], high),
+                (vec![user(ASK), length_note(2, 1, 4)], high),
+                (vec![user(ASK), length_note(3, 2, 4)], high),
+                (vec![user(ASK), length_note(4, 3, 4)], high),
+                (
+                    vec![user(ASK), length_note(5, 4, 4)],
+                    Some(ThinkingLevel::Medium)
+                )
+            ]
+        )
+    );
+}
+
+/// Past the last rung the run fails, saying every rung it tried; the stop
+/// keeps the stop reason length.
+#[tokio::test]
+async fn length_stops_while_reasoning_fail_after_the_lower_level() {
+    let setup = reasoning_setup();
+    let requests = Asked::default();
+    setup.faux.set_responses(
+        (0..6)
+            .map(|_| asked(&requests, vec![faux_thinking(THINKING)], StopReason::Length))
+            .collect(),
+    );
+    let error = format!(
+        "{NO_ANSWER}. It hit the 12-token output limit while it was still reasoning, again \
+         after 3 retries with a note to reason only about the next step, then a retry at the \
+         lower thinking level medium: use a different model or raise the model's max output \
+         tokens"
+    );
+    let (settled, _, stops) = settle_at(&setup, ModelThinkingLevel::High).await;
+    assert_eq!(
+        (
+            settled,
+            stops.last().cloned(),
+            requests
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .len()
+        ),
+        (
+            (
+                SubmissionStatus::Unanswered,
+                Some("model_error".to_owned()),
+                Some(JsonValue::from(error.clone()))
+            ),
+            Some((StopReason::Length, Some(error))),
+            5
         )
     );
     assert_eq!(setup.faux.get_pending_response_count(), 1);
@@ -300,8 +486,10 @@ fn leak_note(attempt: u64, row: u32) -> String {
     ))
 }
 
+/// Markup is never an answer (law `rec_leak_gives_up`): before, the third
+/// broken leak stood as the run's final answer.
 #[tokio::test]
-async fn a_broken_leaked_tool_call_is_noted_and_then_stands_as_text_after_two_notes() {
+async fn a_broken_leaked_tool_call_is_noted_and_then_fails_the_run_after_two_notes() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     add_tool(&setup.registry, tool("tick", |n| format!("tick {n}")), None).unwrap();
     let requests = Seen::default();
@@ -311,11 +499,17 @@ async fn a_broken_leaked_tool_call_is_noted_and_then_stands_as_text_after_two_no
             .map(|_| reply(&requests, vec![faux_text(leaked)], StopReason::Stop))
             .collect(),
     );
+    let error = "The model kept writing tool calls as markup in its text after 2 leak notes in \
+                 a row, and the harness could not read them";
     assert_eq!(
         (settle(&setup).await, seen(&requests)),
         (
             (
-                (SubmissionStatus::Done, None, None),
+                (
+                    SubmissionStatus::Unanswered,
+                    Some("model_error".to_owned()),
+                    Some(JsonValue::from(error))
+                ),
                 vec![
                     user(ASK),
                     format!("assistant:{leaked}"),
@@ -435,7 +629,7 @@ async fn a_noted_retry_is_sent_at_once_and_spends_no_retry() {
                     "assistant:done".to_owned()
                 ]
             ),
-            vec![user(ASK), length_note(2, 1)]
+            vec![user(ASK), length_note(2, 1, 3)]
         )
     );
 }

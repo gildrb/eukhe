@@ -1,5 +1,5 @@
 # color: the color math of the themes (crates/eukhe-theme/src/color.rs,
-# laws in laws/color/, docs/interface.md Themes). Every function here
+# laws in laws/color/). Every function here
 # is on U32 and exact; it runs as the compiled entry bend/ffi_color.bend
 # (and inside bend/ffi_theme.bend).
 #

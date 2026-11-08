@@ -25,8 +25,6 @@
 //!    respawned parent's `get_rlm_children` reads empty, and the `list
 //!    --all` surface shows the child as a passive ledger row (the spawn
 //!    edge survived - the close is a stop, not a delete).
-//! 2. `SIGKILLing` the parent KEEPS an `rlm.create_session` depth-0 root
-//!    session running: the close touches parent-linked children only.
 //!
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
@@ -276,17 +274,7 @@ fn storage_text(dir: &Path) -> String {
 /// product `rlm.spawn` surface and record its child id.
 fn spawn_cell(receipt: &Path, error_receipt: &Path) -> String {
     format!(
-        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
-        receipt = receipt.display().to_string(),
-        error_receipt = error_receipt.display().to_string(),
-    )
-}
-
-/// The kernel cell that creates one depth-0 resident root session through
-/// the product `rlm.create_session` surface.
-fn create_session_cell(receipt: &Path, error_receipt: &Path) -> String {
-    format!(
-        "import json, traceback\ntry:\n    handle = await rlm.create_session(\"root session task\", name=\"rootkid\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"name\": handle.name}}))\n    print(handle.name)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
+        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
         receipt = receipt.display().to_string(),
         error_receipt = error_receipt.display().to_string(),
     )
@@ -541,97 +529,11 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
     );
 }
 
-/// `rlm.create_session` depth-0 root sessions are NOT parent-linked (TS
-/// `createRlmRootSession` builds a root `ActiveSessionState` with no
-/// `parentActiveSessionId`), so `getChildActiveSessionStates` never
-/// matches them: a created root session survives the parent's hard death
-/// (the supervisor restarts the parent and the root keeps running),
-/// while the parent's own registry reads empty.
-#[test]
-fn sigkill_keeps_a_created_root_session_running() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let socket = dir.path().join("supervisor.sock");
-    let receipts = dir.path().join("receipts");
-    std::fs::create_dir_all(&receipts).expect("receipts dir");
-    let create_receipt = receipts.join("create.json");
-    let create_error = receipts.join("create.error");
-
-    let child_script = write_child_script(dir.path());
-    let parent_script = write_parent_script(
-        dir.path(),
-        &create_session_cell(&create_receipt, &create_error),
-    );
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
-    let (mut client, hello) = Client::connect(&socket);
-    assert_eq!(hello["type"], "daemon_hello");
-    let parent = create_parent(&mut client, dir.path(), &parent_script, &child_script, "c1");
-    let parent_id = parent["activeSessionId"]
-        .as_str()
-        .or_else(|| parent["id"].as_str())
-        .expect("parent active session id")
-        .to_string();
-
-    // Turn 1: the kernel cell creates the depth-0 root session.
-    run_turn(&mut client, &parent_id, "create the root session", "t1");
-    let created: Value =
-        serde_json::from_str(&await_receipt(&create_receipt)).expect("create receipt json");
-    assert_eq!(
-        created["name"], "rootkid",
-        "the create_session handle must carry the session name: {created}"
-    );
-    assert!(
-        !create_error.exists(),
-        "the create_session cell failed: {}",
-        std::fs::read_to_string(&create_error).unwrap_or_default()
-    );
-    let root_active_session_id = wait_until(&mut client, Duration::from_secs(30), |client| {
-        roster_summaries(client, "l1")
-            .into_iter()
-            .find(|summary| summary["sessionName"] == json!("rootkid"))
-            .map(|summary| {
-                summary["activeSessionId"]
-                    .as_str()
-                    .expect("root active session id")
-                    .to_string()
-            })
-    });
-
-    // The hard kill: the supervisor restarts the parent, and its death
-    // close touches parent-linked children only.
-    let pid = parent_worker_pid(&agent_dir, &socket, &parent_id);
-    sigkill(pid);
-    // The respawn (and with it the death close) settles before the
-    // registry reads empty.
-    wait_until(&mut client, Duration::from_mins(1), |client| {
-        client.send_command(
-            "g1",
-            &json!({ "type": "get_rlm_children", "activeSessionId": parent_id }),
-        );
-        let response = client.read_response("g1");
-        (response["success"] == true
-            && response["data"]["children"]
-                .as_array()
-                .is_some_and(std::vec::Vec::is_empty))
-        .then_some(())
-    });
-
-    // The created root session is still resident and running: the close
-    // touches parent-linked children only (TS `getChildActiveSessionStates`).
-    let survivor = wait_until(&mut client, Duration::from_secs(30), |client| {
-        roster_summaries(client, "l2")
-            .into_iter()
-            .find(|summary| summary["activeSessionId"] == json!(root_active_session_id))
-    });
-    assert_eq!(survivor["sessionName"], "rootkid");
-}
-
 /// The kernel cell of the spawn turn for the semantic-edge e2e: spawn one
 /// RLM child through the product surface and record its id + session dir.
 fn semantic_spawn_cell(receipt: &Path, error_receipt: &Path) -> String {
     format!(
-        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"child task text\", name=\"kid\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id, \"session_dir\": str(handle.session_dir)}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
+        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"child task text\", name=\"kid\", why=\"isolate\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id, \"session_dir\": str(handle.session_dir)}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
         receipt = receipt.display().to_string(),
         error_receipt = error_receipt.display().to_string(),
     )

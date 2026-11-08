@@ -8,7 +8,7 @@ import Base
 import ../../../bend/aux_fallback.bend as Af
 import ../../../bend/ffi_aux_fallback.bend as FAf
 import ../../../bend/wire.bend as Wr
-import ../../../laws/aux_fallback.bend as AuxFallback
+import ../../../laws/aux_fallback/wire.bend as AuxFallbackWire
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../wire/wire_nat_exact.bend as PWireNatExact
@@ -63,7 +63,7 @@ def afx.bool(+s: String) -> afx.PB(s, Wr.get_bool(s)):
 def afx.PK(s: String, d: Wr.Dec<Af.Key>) -> Type:
   match d:
     case Wr.Got{+k, r}:
-      {s == AuxFallback.afw_spell_key(k, r) : String} & {AuxFallback.afw_key_fits(k) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_key(k, r) : String} & {AuxFallbackWire.afw_key_fits(k) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -100,7 +100,7 @@ def afx.key(+s: String) -> afx.PK(s, FAf.get_key(s)):
 def afx.PR(s: String, d: Wr.Dec<Af.Route>) -> Type:
   match d:
     case Wr.Got{+r, x}:
-      {s == AuxFallback.afw_spell_route(r, x) : String} & {AuxFallback.afw_route_fits(r) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_route(r, x) : String} & {AuxFallbackWire.afw_route_fits(r) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -108,7 +108,7 @@ def afx.route.fb(-s: String, -s1: String, pre: {s == Wr.put_nat(2n, s1) : String
   match d:
     case Wr.Got{+k, +s2}:
       (ek, fk) = pk
-      (afx.step(z => Wr.put_nat(2n, z), s, s1, AuxFallback.afw_spell_key(k, s2), pre, ek), fk)
+      (afx.step(z => Wr.put_nat(2n, z), s, s1, AuxFallbackWire.afw_spell_key(k, s2), pre, ek), fk)
     case Wr.Bad{}:
       Unit{}
 
@@ -139,7 +139,7 @@ def afx.route(+s: String) -> afx.PR(s, FAf.get_route(s)):
 def afx.PG(s: String, d: Wr.Dec<Af.Gate>) -> Type:
   match d:
     case Wr.Got{+g, x}:
-      {s == AuxFallback.afw_spell_gate(g, x) : String} & {AuxFallback.afw_gate_fits(g) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_gate(g, x) : String} & {AuxFallbackWire.afw_gate_fits(g) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -147,7 +147,7 @@ def afx.gate.known(-s: String, -s1: String, pre: {s == Wr.put_nat(0n, s1) : Stri
   match d:
     case Wr.Got{+r, +s2}:
       (er, fr) = pr
-      (afx.step(z => Wr.put_nat(0n, z), s, s1, AuxFallback.afw_spell_route(r, s2), pre, er), fr)
+      (afx.step(z => Wr.put_nat(0n, z), s, s1, AuxFallbackWire.afw_spell_route(r, s2), pre, er), fr)
     case Wr.Bad{}:
       Unit{}
 
@@ -191,7 +191,7 @@ def afx.gate(+s: String) -> afx.PG(s, FAf.get_gate(s)):
 def afx.PS(s: String, d: Wr.Dec<Af.Sel>) -> Type:
   match d:
     case Wr.Got{+x, r}:
-      {s == AuxFallback.afw_spell_sel(x, r) : String} & {AuxFallback.afw_sel_fits(x) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_sel(x, r) : String} & {AuxFallbackWire.afw_sel_fits(x) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -230,7 +230,7 @@ def afx.sel(+s: String) -> afx.PS(s, FAf.get_sel(s)):
 def afx.PL(s: String, d: Wr.Dec<Af.Look>) -> Type:
   match d:
     case Wr.Got{+x, r}:
-      {s == AuxFallback.afw_spell_look(x, r) : String} & {AuxFallback.afw_look_fits(x) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_look(x, r) : String} & {AuxFallbackWire.afw_look_fits(x) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
@@ -275,20 +275,20 @@ def afx.look(+s: String) -> afx.PL(s, FAf.get_look(s)):
 def afx.PLL(s: String, m: Nat, d: Wr.Dec<List<&2, Af.Key>>) -> Type:
   match d:
     case Wr.Got{+xs, r}:
-      {s == AuxFallback.afw_spell_key_items(xs, r) : String} & ({List.length(&2, Af.Key, xs) == 1n+m : Nat} & {AuxFallback.afw_keys_fit(xs) == True{} : Bool})
+      {s == AuxFallbackWire.afw_spell_key_items(xs, r) : String} & ({List.length(&2, Af.Key, xs) == 1n+m : Nat} & {AuxFallbackWire.afw_keys_fit(xs) == True{} : Bool})
     case Wr.Bad{}:
       Unit
 
 # one more spelled key before the rest of the loop
-def afx.keys.step(-s: String, +x: Af.Key, -s3: String, -k: Nat, ex: {s == AuxFallback.afw_spell_key(x, s3) : String}, fx: {AuxFallback.afw_key_fits(x) == True{} : Bool},
+def afx.keys.step(-s: String, +x: Af.Key, -s3: String, -k: Nat, ex: {s == AuxFallbackWire.afw_spell_key(x, s3) : String}, fx: {AuxFallbackWire.afw_key_fits(x) == True{} : Bool},
   d: Wr.Dec<List<&2, Af.Key>>, ih: afx.PLL(s3, k, d)) -> afx.PLL(s, 1n+k, Wr.get_list.cons(Af.Key, x, d)):
   match d:
     case Wr.Got{+ys, +r}:
       (e1, e23) = ih
       (e2, e3) = e23
-      (afx.step(z => AuxFallback.afw_spell_key(x, z), s, s3, AuxFallback.afw_spell_key_items(ys, r), ex, e1),
+      (afx.step(z => AuxFallbackWire.afw_spell_key(x, z), s, s3, AuxFallbackWire.afw_spell_key_items(ys, r), ex, e1),
         (Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Af.Key, ys), 1n+k, e2),
-          LAWireSpell.ws_and_tt(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(ys), fx, e3)))
+          LAWireSpell.ws_and_tt(AuxFallbackWire.afw_key_fits(x), AuxFallbackWire.afw_keys_fit(ys), fx, e3)))
     case Wr.Bad{}:
       Unit{}
 
@@ -298,7 +298,7 @@ def afx.keys.loop(m: Nat, cur: Wr.Dec<Af.Key>, +s: String, pc: afx.PK(s, cur)) -
   match m cur:
     case 0n Wr.Got{+x, s3}:
       (ex, fx) = pc
-      (ex, ({==}, LAWireSpell.ws_and_tt(AuxFallback.afw_key_fits(x), True{}, fx, {==})))
+      (ex, ({==}, LAWireSpell.ws_and_tt(AuxFallbackWire.afw_key_fits(x), True{}, fx, {==})))
     case 0n Wr.Bad{}:
       Unit{}
     case 1n++k Wr.Got{+x, +s3}:
@@ -312,15 +312,15 @@ def afx.keys.loop(m: Nat, cur: Wr.Dec<Af.Key>, +s: String, pc: afx.PK(s, cur)) -
 def afx.PKL(s: String, d: Wr.Dec<List<&2, Af.Key>>) -> Type:
   match d:
     case Wr.Got{+xs, r}:
-      {s == AuxFallback.afw_spell_keys(xs, r) : String} & {Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallback.afw_keys_fit(xs)) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_keys(xs, r) : String} & {Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallbackWire.afw_keys_fit(xs)) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
 # the count spelled before the keys is the list's length
 def afx.keys.eq(-s: String, -s2: String, -m: Nat, +xs: List<&2, Af.Key>, -r: String,
-  en: {s == Wr.put_nat(1n+m, s2) : String}, e1: {s2 == AuxFallback.afw_spell_key_items(xs, r) : String},
-  e2: {List.length(&2, Af.Key, xs) == 1n+m : Nat}) -> {s == AuxFallback.afw_spell_keys(xs, r) : String}:
-  %Equal.sym(Nat, List.length(&2, Af.Key, xs), 1n+m, e2) : {s == Wr.put_nat(_, AuxFallback.afw_spell_key_items(xs, r)) : String}
+  en: {s == Wr.put_nat(1n+m, s2) : String}, e1: {s2 == AuxFallbackWire.afw_spell_key_items(xs, r) : String},
+  e2: {List.length(&2, Af.Key, xs) == 1n+m : Nat}) -> {s == AuxFallbackWire.afw_spell_keys(xs, r) : String}:
+  %Equal.sym(Nat, List.length(&2, Af.Key, xs), 1n+m, e2) : {s == Wr.put_nat(_, AuxFallbackWire.afw_spell_key_items(xs, r)) : String}
   %e1 : {s == Wr.put_nat(1n+m, _) : String}
   en
 
@@ -332,7 +332,7 @@ def afx.keys.conv(-s: String, -s2: String, -m: Nat, en: {s == Wr.put_nat(1n+m, s
       (e1, e23) = pl
       (+e2, e3) = e23
       (afx.keys.eq(s, s2, m, xs, r, en, e1, e2),
-        LAWireSpell.ws_and_tt(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallback.afw_keys_fit(xs),
+        LAWireSpell.ws_and_tt(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallbackWire.afw_keys_fit(xs),
           Equal.trans(Bool, LawsBase.wire_fits(List.length(&2, Af.Key, xs)), LawsBase.wire_fits(1n+m), True{},
             Equal.cong(Nat, Bool, k => LawsBase.wire_fits(k), List.length(&2, Af.Key, xs), 1n+m, e2), fn), e3))
     case Wr.Bad{}:
@@ -366,15 +366,15 @@ def afx.keys(+s: String) -> afx.PKL(s, Wr.get_list(~Af.Key, ~FAf.get_key, s)):
 def afx.PQ(s: String, d: Wr.Dec<FAf.Req>) -> Type:
   match d:
     case Wr.Got{+x, r}:
-      {s == AuxFallback.afw_spell_req(x, r) : String} & {AuxFallback.afw_req_fits(x) == True{} : Bool}
+      {s == AuxFallbackWire.afw_spell_req(x, r) : String} & {AuxFallbackWire.afw_req_fits(x) == True{} : Bool}
     case Wr.Bad{}:
       Unit
 
-def afx.req.ok(-s: String, +p: Nat, +sel: Af.Sel, -s3: String, pre: {s == Wr.put_nat(0n, Wr.put_nat(p, AuxFallback.afw_spell_sel(sel, s3))) : String},
-  f: {Bool.and(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel)) == True{} : Bool}, d: Wr.Dec<Bool>, pb: afx.PB(s3, d)) -> afx.PQ(s, FAf.get_req.ok(p, sel, d)):
+def afx.req.ok(-s: String, +p: Nat, +sel: Af.Sel, -s3: String, pre: {s == Wr.put_nat(0n, Wr.put_nat(p, AuxFallbackWire.afw_spell_sel(sel, s3))) : String},
+  f: {Bool.and(LawsBase.wire_fits(p), AuxFallbackWire.afw_sel_fits(sel)) == True{} : Bool}, d: Wr.Dec<Bool>, pb: afx.PB(s3, d)) -> afx.PQ(s, FAf.get_req.ok(p, sel, d)):
   match d:
     case Wr.Got{+ok, +s4}:
-      (afx.step(z => Wr.put_nat(0n, Wr.put_nat(p, AuxFallback.afw_spell_sel(sel, z))), s, s3, Wr.put_bool(ok, s4), pre, pb), f)
+      (afx.step(z => Wr.put_nat(0n, Wr.put_nat(p, AuxFallbackWire.afw_spell_sel(sel, z))), s, s3, Wr.put_bool(ok, s4), pre, pb), f)
     case Wr.Bad{}:
       Unit{}
 
@@ -383,8 +383,8 @@ def afx.req.sel(-s: String, +p: Nat, -s2: String, pre: {s == Wr.put_nat(0n, Wr.p
   match d:
     case Wr.Got{+sel, +s3}:
       (es, fs) = ps
-      afx.req.ok(s, p, sel, s3, afx.step(z => Wr.put_nat(0n, Wr.put_nat(p, z)), s, s2, AuxFallback.afw_spell_sel(sel, s3), pre, es),
-        LAWireSpell.ws_and_tt(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), fp, fs), Wr.get_bool(s3), afx.bool(s3))
+      afx.req.ok(s, p, sel, s3, afx.step(z => Wr.put_nat(0n, Wr.put_nat(p, z)), s, s2, AuxFallbackWire.afw_spell_sel(sel, s3), pre, es),
+        LAWireSpell.ws_and_tt(LawsBase.wire_fits(p), AuxFallbackWire.afw_sel_fits(sel), fp, fs), Wr.get_bool(s3), afx.bool(s3))
     case Wr.Bad{}:
       Unit{}
 
@@ -396,23 +396,23 @@ def afx.req.gate(-s: String, -s1: String, pre: {s == Wr.put_nat(0n, s1) : String
     case Wr.Bad{}:
       Unit{}
 
-def afx.req.need(-s: String, +g: Af.Gate, +look: Af.Look, -s3: String, pre: {s == Wr.put_nat(1n, AuxFallback.afw_spell_gate(g, AuxFallback.afw_spell_look(look, s3))) : String},
-  fg: {AuxFallback.afw_gate_fits(g) == True{} : Bool}, fl: {AuxFallback.afw_look_fits(look) == True{} : Bool}, d: Wr.Dec<Nat>, pn: afx.PN(s3, d)) -> afx.PQ(s, FAf.get_req.need(g, look, d)):
+def afx.req.need(-s: String, +g: Af.Gate, +look: Af.Look, -s3: String, pre: {s == Wr.put_nat(1n, AuxFallbackWire.afw_spell_gate(g, AuxFallbackWire.afw_spell_look(look, s3))) : String},
+  fg: {AuxFallbackWire.afw_gate_fits(g) == True{} : Bool}, fl: {AuxFallbackWire.afw_look_fits(look) == True{} : Bool}, d: Wr.Dec<Nat>, pn: afx.PN(s3, d)) -> afx.PQ(s, FAf.get_req.need(g, look, d)):
   match d:
     case Wr.Got{+need, +s4}:
       (en, fn) = pn
-      (afx.step(z => Wr.put_nat(1n, AuxFallback.afw_spell_gate(g, AuxFallback.afw_spell_look(look, z))), s, s3, Wr.put_nat(need, s4), pre, en),
-        LAWireSpell.ws_and_tt(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), fg,
-          LAWireSpell.ws_and_tt(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), fl, fn)))
+      (afx.step(z => Wr.put_nat(1n, AuxFallbackWire.afw_spell_gate(g, AuxFallbackWire.afw_spell_look(look, z))), s, s3, Wr.put_nat(need, s4), pre, en),
+        LAWireSpell.ws_and_tt(AuxFallbackWire.afw_gate_fits(g), Bool.and(AuxFallbackWire.afw_look_fits(look), LawsBase.wire_fits(need)), fg,
+          LAWireSpell.ws_and_tt(AuxFallbackWire.afw_look_fits(look), LawsBase.wire_fits(need), fl, fn)))
     case Wr.Bad{}:
       Unit{}
 
-def afx.req.look(-s: String, +g: Af.Gate, -s2: String, pre: {s == Wr.put_nat(1n, AuxFallback.afw_spell_gate(g, s2)) : String}, fg: {AuxFallback.afw_gate_fits(g) == True{} : Bool},
+def afx.req.look(-s: String, +g: Af.Gate, -s2: String, pre: {s == Wr.put_nat(1n, AuxFallbackWire.afw_spell_gate(g, s2)) : String}, fg: {AuxFallbackWire.afw_gate_fits(g) == True{} : Bool},
   d: Wr.Dec<Af.Look>, pl: afx.PL(s2, d)) -> afx.PQ(s, FAf.get_req.look(g, d)):
   match d:
     case Wr.Got{+look, +s3}:
       (el, fl) = pl
-      afx.req.need(s, g, look, s3, afx.step(z => Wr.put_nat(1n, AuxFallback.afw_spell_gate(g, z)), s, s2, AuxFallback.afw_spell_look(look, s3), pre, el), fg, fl, Wr.get_nat(s3), afx.nat(s3))
+      afx.req.need(s, g, look, s3, afx.step(z => Wr.put_nat(1n, AuxFallbackWire.afw_spell_gate(g, z)), s, s2, AuxFallbackWire.afw_spell_look(look, s3), pre, el), fg, fl, Wr.get_nat(s3), afx.nat(s3))
     case Wr.Bad{}:
       Unit{}
 
@@ -420,17 +420,17 @@ def afx.req.settle(-s: String, -s1: String, pre: {s == Wr.put_nat(1n, s1) : Stri
   match d:
     case Wr.Got{+g, +s2}:
       (eg, fg) = pg
-      afx.req.look(s, g, s2, afx.step(z => Wr.put_nat(1n, z), s, s1, AuxFallback.afw_spell_gate(g, s2), pre, eg), fg, FAf.get_look(s2), afx.look(s2))
+      afx.req.look(s, g, s2, afx.step(z => Wr.put_nat(1n, z), s, s1, AuxFallbackWire.afw_spell_gate(g, s2), pre, eg), fg, FAf.get_look(s2), afx.look(s2))
     case Wr.Bad{}:
       Unit{}
 
-def afx.req.shown(-s: String, +r: Af.Route, -s2: String, pre: {s == Wr.put_nat(2n, AuxFallback.afw_spell_route(r, s2)) : String}, fr: {AuxFallback.afw_route_fits(r) == True{} : Bool},
+def afx.req.shown(-s: String, +r: Af.Route, -s2: String, pre: {s == Wr.put_nat(2n, AuxFallbackWire.afw_spell_route(r, s2)) : String}, fr: {AuxFallbackWire.afw_route_fits(r) == True{} : Bool},
   d: Wr.Dec<List<&2, Af.Key>>, pk: afx.PKL(s2, d)) -> afx.PQ(s, FAf.get_req.shown(r, d)):
   match d:
     case Wr.Got{+sh, +s3}:
       (ek, fk) = pk
-      (afx.step(z => Wr.put_nat(2n, AuxFallback.afw_spell_route(r, z)), s, s2, AuxFallback.afw_spell_keys(sh, s3), pre, ek),
-        LAWireSpell.ws_and_tt(AuxFallback.afw_route_fits(r), Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, sh)), AuxFallback.afw_keys_fit(sh)), fr, fk))
+      (afx.step(z => Wr.put_nat(2n, AuxFallbackWire.afw_spell_route(r, z)), s, s2, AuxFallbackWire.afw_spell_keys(sh, s3), pre, ek),
+        LAWireSpell.ws_and_tt(AuxFallbackWire.afw_route_fits(r), Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, sh)), AuxFallbackWire.afw_keys_fit(sh)), fr, fk))
     case Wr.Bad{}:
       Unit{}
 
@@ -438,7 +438,7 @@ def afx.req.pass(-s: String, -s1: String, pre: {s == Wr.put_nat(2n, s1) : String
   match d:
     case Wr.Got{+r, +s2}:
       (er, fr) = pr
-      afx.req.shown(s, r, s2, afx.step(z => Wr.put_nat(2n, z), s, s1, AuxFallback.afw_spell_route(r, s2), pre, er), fr, Wr.get_list(~Af.Key, ~FAf.get_key, s2), afx.keys(s2))
+      afx.req.shown(s, r, s2, afx.step(z => Wr.put_nat(2n, z), s, s1, AuxFallbackWire.afw_spell_route(r, s2), pre, er), fr, Wr.get_list(~Af.Key, ~FAf.get_key, s2), afx.keys(s2))
     case Wr.Bad{}:
       Unit{}
 

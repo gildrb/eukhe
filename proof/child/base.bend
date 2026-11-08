@@ -4,7 +4,7 @@ import Base
 import ../../bend/child.bend as Ch
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
-import ../../laws/child.bend as Child
+import ../../laws/child/entry.bend as Child
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
@@ -61,6 +61,8 @@ def pc.isW(f: Ch.Fate) -> Bool:
     case Ch.Withdrawn{}:
       True{}
     case Ch.Placed{}:
+      False{}
+    case Ch.Read{}:
       False{}
 
 def pc.empty(inbox: List<&2, Ch.Sub>) -> Bool:
@@ -171,6 +173,44 @@ def pc.old_placed(rest: List<&2, Ch.Sub>, +m: Nat, o: {pc.Old(rest, m) == True{}
               pc.old_placed(r, j, pc.and_r(Nat.is_le(1n+j, m), pc.Old(r, j), o))
             case Ch.Placed{}:
               LLogicLogic.child.pc.absurd({0n == Ch.placed(Ch.Sub{j, Ch.Placed{}} <> r) : Nat}, o)
+            case Ch.Read{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.placed(Ch.Sub{j, Ch.Read{}} <> r) : Nat}, o)
+
+# no submission in an old list is read
+def pc.old_reads(rest: List<&2, Ch.Sub>, +m: Nat, o: {pc.Old(rest, m) == True{} : Bool}) -> {0n == Ch.reads(rest) : Nat}:
+  match rest:
+    case Nil{}:
+      {==}
+    case s <> r:
+      match s:
+        case Ch.Sub{+j, f}:
+          match f:
+            case Ch.Queued{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.reads(Ch.Sub{j, Ch.Queued{}} <> r) : Nat}, o)
+            case Ch.Withdrawn{}:
+              pc.old_reads(r, j, pc.and_r(Nat.is_le(1n+j, m), pc.Old(r, j), o))
+            case Ch.Placed{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.reads(Ch.Sub{j, Ch.Placed{}} <> r) : Nat}, o)
+            case Ch.Read{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.reads(Ch.Sub{j, Ch.Read{}} <> r) : Nat}, o)
+
+# no submission in an old list is queued
+def pc.old_queued(rest: List<&2, Ch.Sub>, +m: Nat, o: {pc.Old(rest, m) == True{} : Bool}) -> {0n == Ch.queued(rest) : Nat}:
+  match rest:
+    case Nil{}:
+      {==}
+    case s <> r:
+      match s:
+        case Ch.Sub{+j, f}:
+          match f:
+            case Ch.Queued{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.queued(Ch.Sub{j, Ch.Queued{}} <> r) : Nat}, o)
+            case Ch.Withdrawn{}:
+              pc.old_queued(r, j, pc.and_r(Nat.is_le(1n+j, m), pc.Old(r, j), o))
+            case Ch.Placed{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.queued(Ch.Sub{j, Ch.Placed{}} <> r) : Nat}, o)
+            case Ch.Read{}:
+              LLogicLogic.child.pc.absurd({0n == Ch.queued(Ch.Sub{j, Ch.Read{}} <> r) : Nat}, o)
 
 # a delivery or withdrawal leaves a withdrawn submission withdrawn
 def pc.isW_act(f: Ch.Fate, +a: Ch.Act, +i: Nat, w: {pc.isW(f) == True{} : Bool}) -> {pc.isW(Ch.Fate.act(a, i, f)) == True{} : Bool}:
@@ -181,6 +221,8 @@ def pc.isW_act(f: Ch.Fate, +a: Ch.Act, +i: Nat, w: {pc.isW(f) == True{} : Bool})
       {==}
     case Ch.Placed{}:
       LLogicLogic.child.pc.absurd({pc.isW(Ch.Fate.act(a, i, Ch.Placed{})) == True{} : Bool}, w)
+    case Ch.Read{}:
+      LLogicLogic.child.pc.absurd({pc.isW(Ch.Fate.act(a, i, Ch.Read{})) == True{} : Bool}, w)
 
 def pc.old_act(rest: List<&2, Ch.Sub>, +m: Nat, +a: Ch.Act, +o: {pc.Old(rest, m) == True{} : Bool}) -> {pc.Old(Ch.act(rest, a), m) == True{} : Bool}:
   match rest:
@@ -252,6 +294,8 @@ def pc.K_owe.at(same: Bool, +kr: Ch.Report, +n: Nat, +m: Nat, f: Ch.Fate, +rest:
           pc.and_in(pc.Kowe.at(Nat.is_eq(m, 1n+n), 1n+n, m, Ch.Withdrawn{}), pc.Old(rest, m), pc.kat_w(Nat.is_eq(m, 1n+n), m, n, eb), kin)
         case Ch.Placed{}:
           kin
+        case Ch.Read{}:
+          kin
     case False{}:
       %pc.old_none(rest, m, n, kin, pc.le_pred(m, n, pc.le_of_eq(1n+m, n, pc.and_l(Nat.is_eq(1n+m, n), pc.isW(f), kph)))) : {pc.K(Ch.owe(_, kr, n, open, Ch.Sub{m, f} <> rest)) == True{} : Bool}
       pc.K_new(open, kr, n, m, f, rest, kph, kph0, kin)
@@ -318,6 +362,33 @@ def pc.K_act(inbox: List<&2, Ch.Sub>, ph: Ch.Ph, +a: Ch.Act, +kph: {pc.Kph(ph, i
             case Ch.Ended{}:
               pc.old_act(rest, m, a, kin)
 
+# the parent's read of the owed report n keeps K: it reads the newest
+# submission n, or stands a read n before the withdrawn n - 1
+def pc.K_read.at(same: Bool, +n: Nat, +m: Nat, +f: Ch.Fate, +rest: List<&2, Ch.Sub>, eb: {Nat.is_eq(m, n) == same : Bool}, +kph: {pc.Kowe.at(same, n, m, f) == True{} : Bool}, +kin: {pc.Old(rest, m) == True{} : Bool}) -> {Bool.and(pc.Kowe(Ch.read.at(same, n, Ch.Sub{m, f}, rest), n), pc.Kin(Ch.read.at(same, n, Ch.Sub{m, f}, rest))) == True{} : Bool}:
+  match same:
+    case True{}:
+      pc.and_in(pc.Kowe.at(Nat.is_eq(m, n), n, m, Ch.Fate.read(f)), pc.Old(rest, m), pc.kat(Nat.is_eq(m, n), n, m, Ch.Fate.read(f), eb), kin)
+    case False{}:
+      pc.and_in(pc.Kowe.at(Nat.is_eq(n, n), n, n, Ch.Read{}), pc.Old(Ch.Sub{m, f} <> rest, n), pc.kat(Nat.is_eq(n, n), n, n, Ch.Read{}, LNat.child.pc.eq_refl(n)), pc.and_in(pc.isW(f), Bool.and(Nat.is_le(1n+m, n), pc.Old(rest, m)), pc.and_r(Nat.is_eq(1n+m, n), pc.isW(f), kph), pc.and_in(Nat.is_le(1n+m, n), pc.Old(rest, m), pc.le_of_eq(1n+m, n, pc.and_l(Nat.is_eq(1n+m, n), pc.isW(f), kph)), kin)))
+
+def pc.K_read.sub(inbox: List<&2, Ch.Sub>, +n: Nat, kph: {pc.Kowe(inbox, n) == True{} : Bool}, kin: {pc.Kin(inbox) == True{} : Bool}) -> {Bool.and(pc.Kowe(Ch.read.sub(inbox, n), n), pc.Kin(Ch.read.sub(inbox, n))) == True{} : Bool}:
+  match inbox:
+    case Nil{}:
+      pc.and_in(pc.Kowe.at(Nat.is_eq(n, n), n, n, Ch.Read{}), True{}, pc.kat(Nat.is_eq(n, n), n, n, Ch.Read{}, LNat.child.pc.eq_refl(n)), {==})
+    case s <> rest:
+      match s:
+        case Ch.Sub{+m, f}:
+          pc.K_read.at(Nat.is_eq(m, n), n, m, f, rest, {==}, kph, kin)
+
+def pc.K_read(ph: Ch.Ph, +inbox: List<&2, Ch.Sub>, kph: {pc.Kph(ph, inbox) == True{} : Bool}, kin: {pc.Kin(inbox) == True{} : Bool}) -> {Bool.and(pc.Kph(ph, Ch.read(ph, inbox)), pc.Kin(Ch.read(ph, inbox))) == True{} : Bool}:
+  match ph:
+    case Ch.Watching{w}:
+      pc.and_in(pc.Kph(Ch.Watching{w}, inbox), pc.Kin(inbox), kph, kin)
+    case Ch.Owing{kr, +n}:
+      pc.K_read.sub(inbox, n, kph, kin)
+    case Ch.Ended{}:
+      kin
+
 # every event keeps K
 def pc.K_step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev, +k: {pc.K(s) == True{} : Bool}) -> {pc.K(Ch.step(cfg, s, e)) == True{} : Bool}:
   match s:
@@ -337,6 +408,8 @@ def pc.K_step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev, +k: {pc.K(s) == True{} : Bool}) 
           k
         case Ch.Cut{del}:
           k
+        case Ch.Collect{}:
+          pc.K_read(ph, inbox, pc.and_l(pc.Kph(ph, inbox), pc.Kin(inbox), k), pc.and_r(pc.Kph(ph, inbox), pc.Kin(inbox), k))
 
 def pc.K_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, +s: Ch.St, k: {pc.K(s) == True{} : Bool}) -> {pc.K(Ch.run(evs, cfg, s)) == True{} : Bool}:
   match evs:
@@ -372,7 +445,7 @@ def pw6.w(w: Ch.W, +rest: String, +h: {Child.wire_w_fits(w) == True{} : Bool}) -
 
 # The entry's spelled wire
 # ------------------------
-# The spec spellers of laws/child.bend (Child.ch_spell_*): the code's reply
+# The spec spellers of laws/child/entry.bend (Child.ch_spell_*): the code's reply
 # encoders spell as they do (sp.*), each decoder reads a spelled value back
 # (rt.*), and a spelled request runs to its last stage (lo.run), which
 # answers the spelled model decision (lo.answer) or, with input left, the
@@ -519,6 +592,9 @@ def rt.fate(f: Ch.Fate, +rest: String) -> {Wr.Got{f, rest} == FCh.get_fate(Child
       {==}
     case Ch.Placed{}:
       %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Placed{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+    case Ch.Read{}:
+      %LWire.pw6.nat(3n, rest, {==}) : {Wr.Got{Ch.Read{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
       {==}
 
 def rt.mfate(f: Maybe<&2, Ch.Fate>, +rest: String) -> {Wr.Got{f, rest} == FCh.get_mfate(Child.ch_spell_mfate(f, rest)) : Wr.Dec<Maybe<&2, Ch.Fate>>}:

@@ -1,5 +1,4 @@
-# semver: eukhe's release versions (laws/semver.bend R1, docs/develop.md
-# "Releases"). The rule runs as compiled Bend (entry bend/ffi_semver.bend,
+# semver: eukhe's release versions (laws/semver.bend R1). The rule runs as compiled Bend (entry bend/ffi_semver.bend,
 # laws/semver.bend R2): `eukhe-next-version` computes a release with it and
 # crates/eukhe-build-info's build script checks EUKHE_RELEASE_VERSION.
 #
@@ -302,12 +301,29 @@ def Tag.of(v: Ver) -> String:
 def Rel.title(v: Ver) -> String:
   String.append("Eukhe v", Ver.show(v))
 
-def Tag.strip(t: String) -> Maybe<&2, String>:
-  match t:
-    case SCon{'e', SCon{'u', SCon{'k', SCon{'h', SCon{'e', SCon{'-', SCon{'v', rest}}}}}}}:
-      Some{rest}
-    case _:
+def Tag.after.when(hit: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match hit:
+    case True{}:
+      m
+    case False{}:
       None{}
+
+# the text after the prefix p of t, None when t does not start with p
+# (one char compare per char of p)
+def Tag.after(p: String, t: String) -> Maybe<&2, String>:
+  match p:
+    case SNil{}:
+      Some{t}
+    case SCon{c, pr}:
+      match t:
+        case SNil{}:
+          None{}
+        case SCon{d, tr}:
+          Tag.after.when(Char.is_eq(c, d), Tag.after(pr, tr))
+
+# the text after a tag's `eukhe-v`, None for any other text
+def Tag.strip(t: String) -> Maybe<&2, String>:
+  Tag.after("eukhe-v", t)
 
 def Tag.ver.of(m: Maybe<&2, String>) -> Maybe<&2, Ver>:
   match m:

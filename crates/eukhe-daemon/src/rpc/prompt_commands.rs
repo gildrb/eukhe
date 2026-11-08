@@ -19,16 +19,9 @@ use eukhe_types::input_origin::InputOrigin;
 use serde_json::Value;
 
 use super::commands::RpcState;
+use super::error::RpcCommandError;
 use super::protocol::{self, ResponseData};
 use super::reads::rpc_context;
-
-/// The busy refusal of a prompt without a `streamingBehavior` (TS
-/// `AgentSession.prompt`).
-const PROMPT_WHILE_BUSY: &str =
-    "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.";
-
-/// The text a durable compaction that ended without a result answers.
-const COMPACTION_CANCELLED: &str = "Compaction cancelled";
 
 /// `prompt` (TS `connection.prompt(message, {images, streamingBehavior,
 /// source: "rpc"})`): admission-level success — the response fires once
@@ -43,11 +36,14 @@ const COMPACTION_CANCELLED: &str = "Compaction cancelled";
 ///
 /// A missing message, the busy refusal, the admission failure, and the
 /// admitted session command's own error.
-pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+pub(crate) async fn prompt(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
     let message = payload
         .get("message")
         .and_then(Value::as_str)
-        .ok_or_else(|| "prompt requires a message".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("prompt", "a message"))?;
     let images = protocol::command_images(payload);
     let behavior = protocol::command_streaming_behavior(payload);
     // The handle guard stays held through the admission (and a session
@@ -70,9 +66,9 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
     };
     main.submit(draft, &cx).await.map_err(|error| {
         if is_busy_refusal(&error) {
-            PROMPT_WHILE_BUSY.to_string()
+            RpcCommandError::PromptWhileBusy { source: error }
         } else {
-            error.to_string()
+            RpcCommandError::Session(error)
         }
     })?;
     Ok(ResponseData::Absent)
@@ -96,29 +92,29 @@ async fn run_session_command(
     main: &Conversation,
     command: &SessionCommand,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), RpcCommandError> {
     let outcome = {
         let _ops = state.session_ops.lock().await;
         execute_session_command(session, main, command, cx).await
     };
     if let Some(error) = outcome.error {
-        return Err(error);
+        return Err(error.into());
     }
     if let Some(task) = outcome.compaction {
-        let settled = session
-            .harness()
-            .wait_for_task(task, cx)
-            .await
-            .map_err(|error| error.to_string())?;
+        let settled = session.harness().wait_for_task(task, cx).await?;
         match settled.outcome {
             TaskOutcome::Completed { .. } => {}
             TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error } => {
-                return Err(error.message);
+                return Err(RpcCommandError::CompactionFailed {
+                    message: error.message,
+                });
             }
             TaskOutcome::Aborted { reason, .. } => {
-                return Err(reason.unwrap_or_else(|| COMPACTION_CANCELLED.to_string()));
+                return Err(RpcCommandError::CompactionAborted { reason });
             }
-            TaskOutcome::Orphaned { reason } => return Err(reason),
+            TaskOutcome::Orphaned { reason } => {
+                return Err(RpcCommandError::CompactionOrphaned { reason });
+            }
         }
     }
     Ok(())
@@ -132,15 +128,15 @@ async fn run_session_command(
 /// # Errors
 ///
 /// The missing-message error, or the admission failure.
-pub async fn steer_or_follow_up(
+pub(crate) async fn steer_or_follow_up(
     state: &Arc<RpcState>,
     payload: &Value,
     name: &str,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     let message = payload
         .get("message")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("{name} requires a message"))?;
+        .ok_or_else(|| RpcCommandError::missing(name, "a message"))?;
     let images = protocol::command_images(payload);
     let when_busy = if name == "steer" {
         WhenBusy::Steer
@@ -155,12 +151,7 @@ pub async fn steer_or_follow_up(
         origin: InputOrigin::User,
         entry: None,
     };
-    handle
-        .session
-        .main()
-        .submit(draft, &rpc_context())
-        .await
-        .map_err(|error| error.to_string())?;
+    handle.session.main().submit(draft, &rpc_context()).await?;
     Ok(ResponseData::Absent)
 }
 

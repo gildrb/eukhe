@@ -1,4 +1,4 @@
-//! The service tiers (docs/inference.md S6.8): the tiers that a provider
+//! The service tiers: the tiers that a provider
 //! honors for a model, as the rulebook's `service_tiers` table.
 
 use eukhe_types::ai::ServiceTier;
@@ -132,7 +132,7 @@ mod tests {
                     "anthropic/claude-fable-5"
                 ),
                 key("openai", "openai-completions", "gpt-5.5"),
-                key("elpis-fast", "openai-completions", "qwen3.8-27b"),
+                key("local", "openai-completions", "qwen3.8-27b"),
             ]
             .map(service_tiers),
             [

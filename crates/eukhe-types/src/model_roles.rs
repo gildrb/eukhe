@@ -14,10 +14,13 @@ pub enum ModelRole {
     Image,
     /// Subagents without an explicit model (`subagentDefaultModel`).
     Subagent,
-    /// The main session's worker (`workerModel`; unset: the chat model).
+    /// The main session's worker (`workerModel`, else `modelRoles.all`;
+    /// both unset: the parent session's model).
     Worker,
     /// The phone gateway (`gateway.signal.model`).
     Gateway,
+    /// `rlm.query` calls (`rlm.queryModel`).
+    Query,
     /// Session titles (`modelRoles.tiny`).
     Titles,
     /// The judge (`modelRoles.judge`).
@@ -41,7 +44,7 @@ pub enum ModelRoleGroup {
 
 impl ModelRole {
     /// Every role, in hub order.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Chat,
         Self::Memory,
         Self::Auxiliary,
@@ -49,6 +52,7 @@ impl ModelRole {
         Self::Subagent,
         Self::Worker,
         Self::Gateway,
+        Self::Query,
         Self::Titles,
         Self::Judge,
         Self::Translate,
@@ -67,6 +71,7 @@ impl ModelRole {
             Self::Subagent => "subagent",
             Self::Worker => "worker",
             Self::Gateway => "gateway",
+            Self::Query => "query",
             Self::Titles => "titles",
             Self::Judge => "judge",
             Self::Translate => "translate",
@@ -86,6 +91,7 @@ impl ModelRole {
             Self::Subagent => "Subagents",
             Self::Worker => "Worker",
             Self::Gateway => "Phone gateway",
+            Self::Query => "rlm.query calls",
             Self::Titles => "Titles",
             Self::Judge => "Judge",
             Self::Translate => "Translation",
@@ -104,7 +110,8 @@ impl ModelRole {
             | Self::Image
             | Self::Subagent
             | Self::Worker
-            | Self::Gateway => ModelRoleGroup::Chat,
+            | Self::Gateway
+            | Self::Query => ModelRoleGroup::Chat,
             Self::Titles | Self::Judge | Self::Translate | Self::Speech | Self::Dictation => {
                 ModelRoleGroup::Local
             }

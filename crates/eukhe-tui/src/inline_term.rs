@@ -1189,13 +1189,7 @@ mod tests {
     /// `text` as a soft-wrapped block at `width`, then `after` as plain
     /// rows.
     fn block_then(text: &str, width: usize, after: &[&str]) -> Vec<Line> {
-        let mut lines = crate::soft_wrap::rows(
-            " ",
-            text,
-            crate::style::Style::default(),
-            width,
-            crate::soft_wrap::Link::Plain,
-        );
+        let mut lines = crate::soft_wrap::rows(" ", text, crate::style::Style::default(), width);
         lines.extend(rows(after));
         lines
     }

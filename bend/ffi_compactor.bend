@@ -3,7 +3,7 @@ import ./wire.bend as W
 import ./compactor.bend as C
 
 # ffi_compactor: the compactor's decisions (bend/compactor.bend `line.open`,
-# `line.step`, `Pend.after`; docs/harness.md H1) as an entry of the
+# `line.step`, `Pend.after`; spec/README.md M2) as an entry of the
 # compiled Bend core. Rust keeps the texts (the replies, the best one, the
 # node's input) and sends their lengths in UTF-8 bytes; the model decides.
 # Request: a tag, then

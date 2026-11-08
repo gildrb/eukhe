@@ -10,7 +10,8 @@ use serde_json::json;
 
 use super::{options, run_script, sandbox, setup, setup_with, text, Setup};
 use crate::codemode::{
-    ClassifierDefault, ClassifierResolver, CodemodeCallStatus, CodemodeModels, CodemodeToolDetails,
+    ClassifierDefault, ClassifierResolveError, ClassifierResolver, CodemodeCallStatus,
+    CodemodeModels, CodemodeToolDetails,
 };
 use crate::harness::tests::chat_support::{all_entries, open_chat};
 use crate::harness::tests::support::context;
@@ -222,7 +223,11 @@ async fn a_classification_without_a_model_asks_the_default_classifier() {
     let seen = Arc::clone(&asked);
     let resolver: ClassifierResolver = Arc::new(move |_models, session_model| {
         lock(&seen).push(session_model);
-        Box::pin(async { Err("no model of the judge role is available".to_owned()) })
+        Box::pin(async {
+            Err(ClassifierResolveError::from(
+                "no model of the judge role is available",
+            ))
+        })
     });
     let setup = setup_with(crate::codemode::CodemodeToolOptions {
         models: CodemodeModels::Included,
@@ -317,7 +322,7 @@ async fn the_scripts_deadline_ends_a_busy_script() {
 }
 
 #[tokio::test]
-async fn the_codemode_section_lists_the_callable_tools_by_namespace() {
+async fn the_codemode_section_lists_only_the_tools_the_model_lacks() {
     let Setup { chat, .. } = setup();
     let requests: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = Arc::clone(&requests);
@@ -336,13 +341,14 @@ async fn the_codemode_section_lists_the_callable_tools_by_namespace() {
     open.harness.close(context()).await.unwrap();
     let request = lock(&requests).pop().expect("a request");
     for expected in [
-        "Tools scripts can call (`await tools.<name>(args)`):",
+        "Tools scripts can call besides yours (`await tools.<name>(args)`):",
         "## github\\nGitHub issues",
-        "### `echo`",
         "### `gh_search_issues`",
     ] {
         assert!(request.contains(expected), "{expected} in {request}");
     }
-    // The code mode tool itself is not callable from scripts.
+    // The model's own tools are in its tool list, not in the section; the
+    // code mode tool itself is not callable from scripts.
+    assert!(!request.contains("### `echo`"), "{request}");
     assert!(!request.contains("### `codemode`"), "{request}");
 }

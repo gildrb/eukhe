@@ -1,0 +1,11 @@
+# window, input, cache reads and output at their largest: input + cache
+# reads is 2 * NAT_MAX, below 2^48-1
+call 0,0,0,0,{MAX},{MAX},{MAX},{MAX},
+call 0,1,0,0,{MAX},{MAX},{MAX},0,
+call 0,3,15,Prompt too long3,zai{MAX},{MAX},{MAX},{MAX},
+call 0,3,25,400 status code (no body)8,cerebras{MAX},0,0,0,
+call 0,2,0,0,{MAX},0,{MAX},{MAX},
+call 1,1,{MAX},{MAX},
+call 1,1,{MAX},0,
+refuse 0,0,0,0,{LONG},0,0,0,
+refuse 1,1,{LONG},0,

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./base.bend as LA
 
 def pw.refused(+k: Nat, +rs: List<&2, W.Row>, t: Nat, miss: {Workflow.wf_first(rs, k) == None{} : Maybe<&2, Nat>}) -> {W.admit(None{}, k, rs, W.Pool{t, 0n}) == (W.Refused{}, W.Pool{t, 0n}) : W.Admit & W.Pool}:

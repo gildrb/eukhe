@@ -4,16 +4,21 @@ fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|item| (*item).to_owned()).collect()
 }
 
+/// The parse result with its usage error rendered as the printed text.
+fn rendered<T>(parsed: Result<T, TinyUsage>) -> Result<T, String> {
+    parsed.map_err(|usage| usage.to_string())
+}
+
 #[test]
 fn say_arguments_parse() {
     assert_eq!(
         (
-            parse_say(&strings(&[
+            rendered(parse_say(&strings(&[
                 "hello", "there", "--out", "a.wav", "--voice", "bf_emma"
-            ])),
-            parse_say(&strings(&["--voice", "am_puck", "hi"])),
-            parse_say(&strings(&["--out"])),
-            parse_say(&strings(&[])),
+            ]))),
+            rendered(parse_say(&strings(&["--voice", "am_puck", "hi"]))),
+            rendered(parse_say(&strings(&["--out"]))),
+            rendered(parse_say(&strings(&[]))),
         ),
         (
             Ok(SayArgs {
@@ -41,10 +46,14 @@ fn transcribe_arguments_parse() {
     let usage = format!("Usage: {APP_NAME} transcribe <file.wav> [--language <code>]");
     assert_eq!(
         (
-            parse_transcribe(&strings(&["clip.wav", "--language", "pt"])),
-            parse_transcribe(&strings(&["clip.wav"])),
-            parse_transcribe(&strings(&["a.wav", "b.wav"])),
-            parse_transcribe(&strings(&["--language", "en"])),
+            rendered(parse_transcribe(&strings(&[
+                "clip.wav",
+                "--language",
+                "pt"
+            ]))),
+            rendered(parse_transcribe(&strings(&["clip.wav"]))),
+            rendered(parse_transcribe(&strings(&["a.wav", "b.wav"]))),
+            rendered(parse_transcribe(&strings(&["--language", "en"]))),
         ),
         (
             Ok(TranscribeArgs {

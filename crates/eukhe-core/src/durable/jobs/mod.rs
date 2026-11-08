@@ -1,4 +1,4 @@
-//! Jobs (docs/runtime.md S2): everything that runs long is one [`Job`]. A
+//! Jobs: everything that runs long is one [`Job`]. A
 //! user bash is a job from its start; an `ipython` cell or a `bash` tool
 //! script becomes one when its call outlives the blocking budget (ADR
 //! 0010). A job counts its output
@@ -13,6 +13,9 @@
 //! model's `poll`: Rust only sends the timer's tick and the job's end in
 //! the order they arrive, so `laws/job_wait.bend`, which ties the stepper
 //! to the model's `wait` for every order of events, covers it; no bridge.
+//! The tests drive the interleaving of [`wait_until`] (the timer against
+//! the job's end, on a paused clock) step by step against the model's
+//! `wait`.
 //!
 //! The session's [`JobTable`] holds its jobs. The table commits the start
 //! and the end of each job (never its output) as a session document, so
@@ -22,6 +25,7 @@
 //! commits the table sees; the system prompt shows the running jobs of the
 //! tree ([`running_jobs_section`]).
 
+mod delivery;
 #[cfg(test)]
 mod tests;
 mod tree;
@@ -32,13 +36,18 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use eukhe_bend::rules::wait_any::Target;
 use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{Entry, Stepper};
 use eukhe_durable::harness::Truncation;
-use eukhe_durable::types::{CommitChange, CommitPublication, EntryId, Seq};
+use eukhe_durable::types::{
+    CommitChange, CommitPublication, ConversationId, EntryId, InputSubmission, Seq, SubmissionId,
+    SubmissionState,
+};
 use eukhe_types::job::JobId;
 use tokio::sync::{mpsc, watch};
 
+pub use delivery::JobResult;
 use tree::JobRecord;
 pub use tree::{
     install, running_jobs_section, stop_orphans, Orphans, JOB_DOC_KIND,
@@ -296,6 +305,10 @@ struct JobInner {
     kill: KillSwitch,
     /// The table's tree writer, which records the end.
     records: mpsc::UnboundedSender<JobRecord>,
+    /// Where the job's result goes once it settles ([`delivery`]).
+    slot: Mutex<delivery::Slot>,
+    /// The table's pulse, moved by every change a wait may act on.
+    pulse: Arc<watch::Sender<u64>>,
 }
 
 /// One job; a clone is the same job.
@@ -355,7 +368,15 @@ impl Job {
                 id: self.inner.id.clone(),
                 end,
             });
+            self.pulse();
         }
+    }
+
+    /// Move the table's pulse: a wait looks again.
+    fn pulse(&self) {
+        self.inner
+            .pulse
+            .send_modify(|beat| *beat = beat.wrapping_add(1));
     }
 
     /// Send the kill signal to a running job; nothing for an ended one.
@@ -482,6 +503,13 @@ pub struct JobTable {
     records: mpsc::UnboundedSender<JobRecord>,
     /// The writer's end of `records`, until the session opens.
     queue: Mutex<Option<mpsc::UnboundedReceiver<JobRecord>>>,
+    /// Moved by every change a `jobs.wait` acts on: a job's delivery or
+    /// end, an input queued or placed.
+    pulse: Arc<watch::Sender<u64>>,
+    /// The inputs admitted to a conversation and not yet in its
+    /// transcript (a steer, a peer's message, a report), seen since the
+    /// session opened.
+    queued: Mutex<HashMap<SubmissionId, ConversationId>>,
 }
 
 impl Default for JobTable {
@@ -492,6 +520,8 @@ impl Default for JobTable {
             entries: Mutex::default(),
             records,
             queue: Mutex::new(Some(queue)),
+            pulse: Arc::new(watch::channel(0).0),
+            queued: Mutex::default(),
         }
     }
 }
@@ -526,18 +556,26 @@ impl JobTable {
                 state,
                 kill,
                 records: self.records.clone(),
+                slot: Mutex::default(),
+                pulse: Arc::clone(&self.pulse),
             }),
         };
         let _ = self.records.send(JobRecord::Start { id, kind, label });
         job.record(JobEvent::Output(written));
         let mut jobs = lock(&self.jobs);
         while jobs.len() >= ENDED_HISTORY {
-            let Some(oldest_ended) = jobs.iter().position(|job| !job.is_running()) else {
+            // A kept result stays until a wait takes it.
+            let Some(oldest_ended) = jobs
+                .iter()
+                .position(|job| !job.is_running() && job.target() != Target::Ready)
+            else {
                 break;
             };
             jobs.remove(oldest_ended);
         }
         jobs.push_back(job.clone());
+        drop(jobs);
+        job.pulse();
         job
     }
 
@@ -554,6 +592,46 @@ impl JobTable {
     #[must_use]
     pub fn jobs(&self) -> Vec<Job> {
         lock(&self.jobs).iter().cloned().collect()
+    }
+
+    /// The jobs of the agent's own work (detached cells and `bash` tool
+    /// scripts; not the user's bash), oldest first.
+    #[must_use]
+    pub fn agent_jobs(&self) -> Vec<Job> {
+        lock(&self.jobs)
+            .iter()
+            .filter(|job| match job.kind() {
+                JobKind::Cell | JobKind::Shell => true,
+                JobKind::UserBash => false,
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// The session's own work is pending: a detached cell or `bash` tool
+    /// script runs, or one settled with a result kept for a wait (no
+    /// notice took it: a session without a wake path, or a wait watches
+    /// it).
+    #[must_use]
+    pub fn pending_work(&self) -> bool {
+        self.agent_jobs()
+            .iter()
+            .any(|job| job.is_running() || job.target() == Target::Ready)
+    }
+
+    /// An input admitted to `conversation` waits for its turn boundary.
+    #[must_use]
+    pub fn queued_input(&self, conversation: ConversationId) -> bool {
+        lock(&self.queued)
+            .values()
+            .any(|queued| *queued == conversation)
+    }
+
+    /// The pulse a wait watches: it moves on every change the wait acts
+    /// on.
+    #[must_use]
+    pub fn pulse(&self) -> watch::Receiver<u64> {
+        self.pulse.subscribe()
     }
 
     /// The rewind to the session just after `target` was added (`None`:
@@ -576,20 +654,40 @@ impl JobTable {
             .collect()
     }
 
-    /// Note the entries of a commit (the session's commit listener).
+    /// Note the entries and the input submissions of a commit (the
+    /// session's commit listener).
     pub(super) fn observe(&self, publication: &CommitPublication) {
-        let mut entries = lock(&self.entries);
-        for change in &publication.changes {
-            match change {
-                CommitChange::Entry(record) => {
-                    entries.commits.insert(record.id, publication.seq);
-                    entries.last = Some(publication.seq);
+        let mut moved = false;
+        {
+            let mut entries = lock(&self.entries);
+            let mut queued = lock(&self.queued);
+            for change in &publication.changes {
+                match change {
+                    CommitChange::Entry(record) => {
+                        entries.commits.insert(record.id, publication.seq);
+                        entries.last = Some(publication.seq);
+                    }
+                    CommitChange::Submission(record) => {
+                        moved |= match &record.state {
+                            SubmissionState::Input(InputSubmission::Queued) => {
+                                queued.insert(record.id, record.conversation_id).is_none()
+                            }
+                            SubmissionState::Input(
+                                InputSubmission::Placed { .. }
+                                | InputSubmission::Done { .. }
+                                | InputSubmission::Unanswered { .. },
+                            )
+                            | SubmissionState::Write(_) => queued.remove(&record.id).is_some(),
+                        };
+                    }
+                    CommitChange::Conversation(_)
+                    | CommitChange::Task(_)
+                    | CommitChange::Document(_) => {}
                 }
-                CommitChange::Conversation(_)
-                | CommitChange::Task(_)
-                | CommitChange::Submission(_)
-                | CommitChange::Document(_) => {}
             }
+        }
+        if moved {
+            self.pulse.send_modify(|beat| *beat = beat.wrapping_add(1));
         }
     }
 

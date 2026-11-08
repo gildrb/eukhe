@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat/state.bend as OState
 import ../../bend/optchat/step.bend as OStep
-import ../../bend/spec.bend as S
+import ../../spec/memory/optchat.bend as S
 import ../../laws/optchat.bend as Optchat
 import ./base/step.bend as LA
 

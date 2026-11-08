@@ -1,0 +1,6 @@
+{"prompt": "Context is at 85% and half the migration remains.", "expect_skill": "compact", "expect": "Calls compact.run with instructions naming what the rest of the migration needs, then keeps working."}
+{"prompt": "How full is my context?", "expect_skill": "compact", "expect": "Calls compact.status() and reports tokens, window and percent."}
+{"prompt": "Compact now but keep the list of failing tests.", "expect_skill": "compact", "expect": "compact.run(\"keep the list of failing tests\")."}
+{"prompt": "compact.run returned scheduled False: session is too short to compact.", "expect_skill": "compact", "expect": "Continues working; does not retry."}
+{"prompt": "Summarize this conversation for me.", "expect_skill": null, "expect": "Writes a summary reply; does not compact."}
+{"prompt": "Context is nearly full; should I stop and hand back to the user?", "expect_skill": "compact", "expect": "Compacts at the next boundary and continues instead of stopping early."}

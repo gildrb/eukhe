@@ -7,11 +7,10 @@
 //! harness, so the cases assert with the std macros and
 //! [`run_storage_conformance`] / [`run_env_conformance`] run them all.
 //!
-//! [`bridge`] is the harness the bridge tests of this crate and of
-//! eukhe-core share: Rust code against its Bend model.
+//! [`rng`] is the deterministic generator of the crate's randomized tests.
 
-pub mod bridge;
 mod env_conformance;
+pub mod rng;
 mod storage_conformance;
 mod types;
 

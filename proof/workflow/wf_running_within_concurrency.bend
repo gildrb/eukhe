@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../laws/workflow.bend as Workflow
+import ../../laws/workflow/model.bend as Workflow
 import ./base.bend as LA
 
 def pw.give_size(p: W.Pool) -> {W.size(W.give(p)) == W.size(p) : Nat}:

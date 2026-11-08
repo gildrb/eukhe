@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S6.2) A forced tool call, one attempt at a time
 # ------------------------------------------------
-# docs/inference.md S6.2, the model `force` in bend/infer.bend section 2;
+# The model `force` in bend/infer.bend section 2;
 # the harness asks the compiled core (bend/ffi_infer_force.bend) for each
 # request's native flag and for the step after each reply. Every input is
 # free: any attempt, retries, provider support, replies.
@@ -210,6 +210,38 @@ law infer_force_ffi_malformed_exact:
   for +s: String
   for no: {read_ask(s) == None{} : Maybe<&2, Ask>}
   {FF.ffi(s) == SCon{'E', SCon{' ', "infer_force: malformed request"}} : String}
+
+# The entry, whole: what it answers to every input, from the spec steps
+# (flag_spec, after_spec) and the spec reader (read_ask) only, never the
+# entry's codec or the model `flag`/`after`
+
+# the reply to the request a: its native flag, or the step after its reply
+def reply_spec(a: Ask) -> String:
+  match a:
+    case AFlag{i, sup, free}:
+      Wr.put_bool(flag_spec(i, sup, free), "")
+    case AAfter{i, r, c}:
+      spell_next(after_spec(i, r, c))
+
+def entry_spec.of(m: Maybe<&2, Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "infer_force: malformed request"}}
+    case Some{a}:
+      reply_spec(a)
+
+# the answer to the input s: the spec's reply to the one request s is,
+# else the error form
+def entry_spec(s: String) -> String:
+  entry_spec.of(read_ask(s))
+
+# LAW infer_force_ffi_spec: for every input, the entry answers exactly the spec's: the native flag of attempt i (flag_spec) or the step after a reply (after_spec) when the input is exactly one request, else the error form 'E ', then "infer_force: malformed request"
+# EXCLUDES: an answer for an input that is not exactly one request (input
+#   left over, an unknown tag, a malformed field), a flag or step other
+#   than the spec's for any request, numbers too long for the wire included
+law infer_force_ffi_spec:
+  for +s: String
+  {FF.ffi(s) == entry_spec(s) : String}
 
 # LAW infer_force_ffi_example: anchor: the bytes Rust sends and reads: a first request sets the flag only when supported and free, a retry when supported; a miss within the retries retries, past them fails, a call ends; an unknown tag and input left over are refused
 law infer_force_ffi_example:

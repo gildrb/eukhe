@@ -52,7 +52,7 @@ impl Transcript {
     }
 
     /// The text of every user and assistant message, in order (the chat
-    /// rows, without the custom rows such as the harness digest).
+    /// rows, without the custom rows).
     pub fn chat_texts(&self) -> Vec<String> {
         self.entries
             .iter()

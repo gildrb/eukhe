@@ -234,7 +234,7 @@ async fn a_prompt_streams_session_events_and_answers() {
             .iter()
             .map(|m| m["role"].clone())
             .collect::<Vec<_>>(),
-        [json!("user"), json!("custom"), json!("assistant")]
+        [json!("user"), json!("assistant")]
     );
     assert_eq!(text(&events[assistant_end_at]["message"]), ANSWER);
     let transcript = messages(&worker).await;
@@ -322,7 +322,6 @@ async fn steer_lands_before_an_earlier_follow_up() {
         order,
         [
             "user:go",
-            "custom:harness_digest",
             "assistant:",
             "user:S",
             "assistant:second",
@@ -345,8 +344,8 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
     let response = worker.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
     // The abort must land on the held `never` request: one landing before
-    // the generation asked the model (it asks after committing the digest)
-    // would leave `never` queued for the resume.
+    // the generation asked the model would leave `never` queued for the
+    // resume.
     wait_requests(&worker, 1).await;
     let queued = worker
         .dispatch("follow_up", &json!({ "message": "later" }))
