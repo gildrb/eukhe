@@ -466,3 +466,109 @@ law child_entry_reads_only_requests:
 #   does not, an unknown tag read as a known one
 law child_entry_tags_example:
   {[FCh.ffi("0,5,2,0,5,1,1,1,0,"), FCh.ffi("1,0,1,"), FCh.ffi("2,1,2,1,F"), FCh.ffi("0,5,2,0,5,1,1,5,0,"), FCh.ffi("3,")] == ["1,4,", "0,1,", "1,2,1,", "E child: bad poll", "E child: unknown request"] : List<&2, String>}
+
+# a is one of the child entry's error replies: the error form of one of the
+# texts bend/ffi_child.bend writes
+def ch_named_error(+a: String) -> Bool:
+  Bool.or(String.eq(a, Wr.err("child: bad request")), Bool.or(String.eq(a, Wr.err("child: unknown request")), Bool.or(String.eq(a, Wr.err("child: bad settings")), Bool.or(String.eq(a, Wr.err("child: bad clock")), Bool.or(String.eq(a, Wr.err("child: bad elapsed ms")), Bool.or(String.eq(a, Wr.err("child: bad poll")), Bool.or(String.eq(a, Wr.err("child: bad mode")), Bool.or(String.eq(a, Wr.err("child: input left over")), Bool.or(String.eq(a, Wr.err("child: bad fate")), Bool.or(String.eq(a, Wr.err("child: bad id")), Bool.or(String.eq(a, Wr.err("child: bad phase")), String.eq(a, Wr.err("child: bad delete flag")))))))))))))
+
+# LAW child_entry_errors_named: every answer of the entry that is the error
+# form is one of its named errors ("child: " then the request, unknown
+# request, settings, clock, elapsed ms, poll, mode, input left over, fate,
+# id, phase or delete flag); which input gets which is pinned below
+# EXCLUDES: an error text Rust's caller does not know (an unprefixed or
+#   reworded text), an error with no text
+law child_entry_errors_named:
+  for +s: String
+  for err: {LawsBase.wire_opens_err(FCh.ffi(s)) == True{} : Bool}
+  {ch_named_error(FCh.ffi(s)) == True{} : Bool}
+
+# LAW child_entry_unknown_token: in a verdict request, a clock token tag
+# past 1 (none, some) answers "child: bad clock", whatever follows
+# EXCLUDES: an unknown token tag read as none or some, or named as another
+#   field
+law child_entry_unknown_token:
+  for +c: Ch.Cfg
+  for +n: Nat
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for fit: {LawsBase.wire_fits(2n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, Wr.put_nat(2n+n, rest)))) == Wr.err("child: bad clock") : String}
+
+# LAW child_entry_unknown_poll: in a verdict request, a poll tag past 4
+# answers "child: bad poll", whatever follows
+# EXCLUDES: an unknown poll read as a known one (the old TBad-as-Lost
+#   mutant), or named as another field
+law child_entry_unknown_poll:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +n: Nat
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {LawsBase.wire_fits(e) == True{} : Bool}
+  for fit: {LawsBase.wire_fits(5n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, Wr.put_nat(5n+n, rest)))))) == Wr.err("child: bad poll") : String}
+
+# LAW child_entry_unknown_mode: in a verdict request, a mode tag past 1
+# (inbox, silent) answers "child: bad mode", whatever follows
+# EXCLUDES: an unknown mode read as inbox or silent, or named as another
+#   field
+law child_entry_unknown_mode:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +o: Ch.Obs
+  for +n: Nat
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {LawsBase.wire_fits(e) == True{} : Bool}
+  for ho: {wire_obs_fits(o) == True{} : Bool}
+  for fit: {LawsBase.wire_fits(2n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, ch_spell_obs(o, Wr.put_nat(2n+n, rest))))))) == Wr.err("child: bad mode") : String}
+
+# LAW child_entry_unknown_mfate: in a move request, a fate presence tag
+# past 1 (none, some) answers "child: bad fate", whatever follows
+# EXCLUDES: an unknown presence tag read as none or some
+law child_entry_unknown_mfate:
+  for +n: Nat
+  for +rest: String
+  for fit: {LawsBase.wire_fits(2n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(1n, Wr.put_nat(2n+n, rest))) == Wr.err("child: bad fate") : String}
+
+# LAW child_entry_unknown_fate: in a move request, a fate tag past 2
+# (queued, withdrawn, placed) answers "child: bad fate", whatever follows
+# EXCLUDES: an unknown fate read as a known one
+law child_entry_unknown_fate:
+  for +n: Nat
+  for +rest: String
+  for fit: {LawsBase.wire_fits(3n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(1n, Wr.put_nat(1n, Wr.put_nat(3n+n, rest)))) == Wr.err("child: bad fate") : String}
+
+# LAW child_entry_unknown_phase: in an abort request, a phase tag past 2
+# (watching, owing, ended) answers "child: bad phase", whatever follows
+# EXCLUDES: an unknown phase read as a known one
+law child_entry_unknown_phase:
+  for +n: Nat
+  for +rest: String
+  for fit: {LawsBase.wire_fits(3n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(2n, Wr.put_nat(3n+n, rest))) == Wr.err("child: bad phase") : String}
+
+# LAW child_entry_unknown_report: in an abort request, an owing phase's
+# report tag past 4 answers "child: bad phase", whatever follows
+# EXCLUDES: an unknown report read as a known one
+law child_entry_unknown_report:
+  for +n: Nat
+  for +rest: String
+  for fit: {LawsBase.wire_fits(5n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(2n, Wr.put_nat(1n, Wr.put_nat(5n+n, rest)))) == Wr.err("child: bad phase") : String}
+
+# LAW child_entry_errors_example: anchor: each field cut short names
+# itself: no request, then the settings, clock, elapsed ms, poll and mode
+# of a verdict, the fate and id of a move, the phase and delete flag of an
+# abort
+# EXCLUDES: two error texts swapped, a field's error named as another
+law child_entry_errors_example:
+  {[FCh.ffi(""), FCh.ffi("0,"), FCh.ffi("0,5,2,"), FCh.ffi("0,5,2,0,5,1,"), FCh.ffi("0,5,2,0,5,1,1,"), FCh.ffi("0,5,2,0,5,1,1,1,"), FCh.ffi("1,"), FCh.ffi("1,0,"), FCh.ffi("2,"), FCh.ffi("2,2,")] == [Wr.err("child: bad request"), Wr.err("child: bad settings"), Wr.err("child: bad clock"), Wr.err("child: bad elapsed ms"), Wr.err("child: bad poll"), Wr.err("child: bad mode"), Wr.err("child: bad fate"), Wr.err("child: bad id"), Wr.err("child: bad phase"), Wr.err("child: bad delete flag")] : List<&2, String>}

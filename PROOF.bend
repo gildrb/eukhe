@@ -144,6 +144,15 @@ import ./proof/child/child_entry_left_over.bend as PChildEntryLeftOver
 import ./proof/child/child_entry_unknown_request.bend as PChildEntryUnknownRequest
 import ./proof/child/child_entry_reads_only_requests.bend as PChildEntryReadsOnlyRequests
 import ./proof/child/child_entry_tags_example.bend as PChildEntryTagsExample
+import ./proof/child/child_entry_errors_named.bend as PChildEntryErrorsNamed
+import ./proof/child/child_entry_unknown_token.bend as PChildEntryUnknownToken
+import ./proof/child/child_entry_unknown_poll.bend as PChildEntryUnknownPoll
+import ./proof/child/child_entry_unknown_mode.bend as PChildEntryUnknownMode
+import ./proof/child/child_entry_unknown_mfate.bend as PChildEntryUnknownMfate
+import ./proof/child/child_entry_unknown_fate.bend as PChildEntryUnknownFate
+import ./proof/child/child_entry_unknown_phase.bend as PChildEntryUnknownPhase
+import ./proof/child/child_entry_unknown_report.bend as PChildEntryUnknownReport
+import ./proof/child/child_entry_errors_example.bend as PChildEntryErrorsExample
 import ./proof/admission/base/admission/St.bend as LAAdmissionAdmissionSt
 import ./proof/admission/base/admission/bit.bend as LAAdmissionAdmissionBit
 import ./proof/admission/base/admission/calm.bend as LAAdmissionAdmissionCalm
