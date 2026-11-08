@@ -22,7 +22,10 @@ check covers it). The whole PROOF.bend runs instead when the Bend pin
 other than an import changes, or when half of the entries or more are
 selected (one run of everything costs no more than such an index).
 
---list prints the decision and the selection and runs nothing.
+--list prints the decision and the selection and runs nothing. The bend
+run is --bend, else BEND_BIN (scripts/ci_local.sh sets it to the pinned
+release: a version manager's `python3` shim rewrites PATH for this
+process, so `bend` on PATH could be another release), else `bend`.
 
 Callers: scripts/ci_local.sh (the pre-push proofs gate, REF = the pushed
 range's base) and `make lock` (REF = the merge base with origin/main).
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import os
 import re
 import subprocess
 import sys
@@ -179,7 +183,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--base", required=True, help="the commit the change starts from")
     ap.add_argument("--root", default=".", help="the repository root (default: .)")
-    ap.add_argument("--bend", default="bend", help="the bend executable (default: bend)")
+    ap.add_argument(
+        "--bend",
+        default=os.environ.get("BEND_BIN") or "bend",
+        help="the bend executable (default: $BEND_BIN, else bend on PATH)",
+    )
     ap.add_argument("--list", action="store_true", help="print the selection, run nothing")
     args = ap.parse_args()
     root = Path(args.root).resolve()
