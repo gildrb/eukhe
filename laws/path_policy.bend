@@ -695,3 +695,171 @@ law path_judge_class_exact:
 #   below the outer root, a Dir rule that covers a grandchild
 law path_judge_class_example:
   {[Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, Nil{}}, Pp.Res{[2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, Nil{}}, Pp.Res{[2n, 1n], True{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{Nil{}, Nil{}, Nil{}}, Pp.Res{[2n, 3n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, [[4n, 1n]]}, Pp.Res{[7n, 4n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, [[4n, 1n]]}, Pp.Res{[1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Dir{[1n]}], Nil{}}, Pp.Res{[2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Dir{[1n]}], Nil{}}, Pp.Res{[3n, 2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Tree{[6n, 1n]}], Nil{}}, Pp.Res{[1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Tree{[6n, 1n]}], Nil{}}, Pp.Res{[8n, 6n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n], [2n, 1n]], [Pp.Named{2n}], Nil{}}, Pp.Res{[5n, 2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n], [2n, 1n]], [Pp.Named{2n}], Nil{}}, Pp.Res{[2n, 5n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n], [2n, 1n]], [Pp.Named{2n}], Nil{}}, Pp.Res{[2n, 1n], False{}}))] == [Pp.Inside{}, Pp.Outside{}, Pp.Outside{}, Pp.Secret{}, Pp.Protected{}, Pp.Protected{}, Pp.Inside{}, Pp.Protected{}, Pp.Protected{}, Pp.Inside{}, Pp.Protected{}, Pp.Inside{}] : List<&2, Pp.Cls>}
+
+# (G1) The real path, against an independent spec
+# -----------------------------------------------
+# path_real_has_no_link and path_real_reaches_no_link are one-way (the path
+# a resolution reaches stands on no link unless it looped) and
+# path_real_links_example has no `..` or `.`: a resolution that reads `..`
+# as `.` passes them, and the class, gate and store laws judge whatever path
+# it reaches (/3/7/../5 judged at /3/7/5, so a secret /3/5 read unasked).
+# The laws below pin the whole resolution to Rust's (crates/eukhe-types/
+# src/path_policy.rs `resolve`), spelled here: from `/`, a name enters the
+# directory, `.` stays, `..` goes to the parent of the real directory (`..`
+# of `/` is `/`); a name at the location of a link is replaced by the link's
+# target, read from `/` (absolute) or from the link's directory (relative),
+# for at most 40 links (MAX_LINKS); past them every link met is kept as a
+# name and the path loops.
+
+# the parent of the path at; `/` is its own parent
+def pp_parent(at: List<&2, Nat>) -> List<&2, Nat>:
+  match at:
+    case Nil{}:
+      Nil{}
+    case x <> r:
+      r
+
+# l when hit, else the rest's answer
+def pp_link_pick(hit: Bool, l: Pp.Link, rest: Maybe<&2, Pp.Link>) -> Maybe<&2, Pp.Link>:
+  match hit:
+    case True{}:
+      Some{l}
+    case False{}:
+      rest
+
+# the first link of ls at the location k, if any
+def pp_link_of(ls: List<&2, Pp.Link>, +k: List<&2, Nat>) -> Maybe<&2, Pp.Link>:
+  match ls:
+    case Nil{}:
+      None{}
+    case l <> rest:
+      match l:
+        case Pp.Link{+a, b, t}:
+          pp_link_pick(pp_same(a, k), Pp.Link{a, b, t}, pp_link_of(rest, k))
+
+# the link the first segment of segs enters from the directory at, if any
+# (`..` and `.` enter none)
+def pp_link_next(+ls: List<&2, Pp.Link>, segs: List<&2, Tl.Seg>, at: List<&2, Nat>) -> Maybe<&2, Pp.Link>:
+  match segs:
+    case Nil{}:
+      None{}
+    case s <> rest:
+      match s:
+        case Tl.Name{n}:
+          pp_link_of(ls, n <> at)
+        case Tl.Up{}:
+          None{}
+        case Tl.Here{}:
+          None{}
+
+# segs walked from the directory at once no link is left to follow: a name
+# enters it (a link there is kept as a name, and the path loops), `.`
+# stays, `..` goes to the parent; l: the path looped already
+def pp_walk_past(segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, l: Bool) -> Pp.Res:
+  match segs:
+    case Nil{}:
+      Pp.Res{at, l}
+    case s <> rest:
+      match s:
+        case Tl.Name{+n}:
+          pp_walk_past(rest, ls, n <> at, Bool.or(l, pp_link_at(ls, n <> at)))
+        case Tl.Up{}:
+          pp_walk_past(rest, ls, pp_parent(at), l)
+        case Tl.Here{}:
+          pp_walk_past(rest, ls, at, l)
+
+# segs walked from the directory at with n links left to follow: a name at
+# a link's location continues with the link's target, then the rest, from
+# `/` (absolute) or from at (relative), one link fewer; hit is
+# pp_link_next(ls, segs, at) (Bend matches only parameters)
+def pp_walk(n: Nat, segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, hit: Maybe<&2, Pp.Link>) -> Pp.Res:
+  match n:
+    case 0n:
+      pp_walk_past(segs, ls, at, False{})
+    case 1n+k:
+      match segs:
+        case Nil{}:
+          Pp.Res{at, False{}}
+        case s <> +rest:
+          match s:
+            case Tl.Name{+x}:
+              match hit:
+                case None{}:
+                  pp_walk(1n+k, rest, ls, x <> at, pp_link_next(ls, rest, x <> at))
+                case Some{lk}:
+                  match lk:
+                    case Pp.Link{la, abs, +to}:
+                      match abs:
+                        case True{}:
+                          pp_walk(k, List.append(&2, Tl.Seg, to, rest), ls, Nil{}, pp_link_next(ls, List.append(&2, Tl.Seg, to, rest), Nil{}))
+                        case False{}:
+                          pp_walk(k, List.append(&2, Tl.Seg, to, rest), ls, at, pp_link_next(ls, List.append(&2, Tl.Seg, to, rest), at))
+            case Tl.Up{}:
+              pp_walk(1n+k, rest, ls, pp_parent(at), pp_link_next(ls, rest, pp_parent(at)))
+            case Tl.Here{}:
+              pp_walk(1n+k, rest, ls, at, pp_link_next(ls, rest, at))
+
+# the real path of segs (from `/`, 40 links at most) and whether its links
+# looped
+def pp_real(+ls: List<&2, Pp.Link>, +segs: List<&2, Tl.Seg>) -> Pp.Res:
+  pp_walk(40n, segs, ls, Nil{}, pp_link_next(ls, segs, Nil{}))
+
+# the path segs leads to from the directory at when no link is anywhere: a
+# name enters it, `.` stays, `..` goes to the parent
+def pp_walk_plain(segs: List<&2, Tl.Seg>, at: List<&2, Nat>) -> List<&2, Nat>:
+  match segs:
+    case Nil{}:
+      at
+    case s <> rest:
+      match s:
+        case Tl.Name{n}:
+          pp_walk_plain(rest, n <> at)
+        case Tl.Up{}:
+          pp_walk_plain(rest, pp_parent(at))
+        case Tl.Here{}:
+          pp_walk_plain(rest, at)
+
+# LAW path_real_exact: the resolution of any path under any links is the spec's: from `/`, a
+# name enters the directory, `.` stays, `..` goes to the parent of the real
+# directory (`/` stays `/`), a name at a link's location (the first link
+# there) is replaced by the link's target, read from `/` or from the link's
+# directory, for at most 40 links; past them every link met is kept as a
+# name and the path loops
+# EXCLUDES: `..` read as `.`, as two levels up, or from the path as written
+#   (before its links); `..` of `/` anything but `/`; a relative target
+#   read from `/` or from the link itself; a link limit other than 40; a
+#   loop flag lost or invented; a link skipped, or followed at another
+#   location
+law path_real_exact:
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  {Pp.real(ls, segs) == pp_real(ls, segs) : Pp.Res}
+
+# LAW path_real_no_links_exact: with no link anywhere, the real path of any path is its plain walk
+# from `/` (a name enters, `.` stays, `..` goes to the parent, `/` stays
+# `/`), and it never loops
+# EXCLUDES: `..` read as `.` or as two levels up, `.` read as anything but
+#   staying, a loop with no link
+law path_real_no_links_exact:
+  for +segs: List<&2, Tl.Seg>
+  {Pp.real(Nil{}, segs) == Pp.Res{pp_walk_plain(segs, Nil{}), False{}} : Pp.Res}
+
+# LAW path_real_dots_at_root: under any links, `..` and `.` at `/` change nothing: the path
+# resolves as without them
+# EXCLUDES: `..` of `/` read as an error, a name or a loop
+law path_real_dots_at_root:
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  {[Pp.real(ls, Tl.Up{} <> segs), Pp.real(ls, Tl.Here{} <> segs)] == [Pp.real(ls, segs), Pp.real(ls, segs)] : List<&2, Pp.Res>}
+
+# LAW path_real_dots_example: anchor: under the root /3 with the secret /3/5, /3/7/../5 is
+# /3/5 and Secret, /3/5/../7 is /3/7 and Inside; /../1/./2 is /1/2; a
+# relative link /1/2/3 -> ../4 makes /1/2/3/5 /1/4/5 (from the link's
+# directory /1/2); `..` after an absolute link /1/2 -> /9/8 goes up from
+# the target (/1/2/../6 is /9/6); a relative link /1 -> ./3/../4 makes /1/7
+# /4/7; none loops; the spec agrees on the first and the last two
+# EXCLUDES: `..` read as `.` (the secret /3/5 judged at /3/7/5, Inside),
+#   from the path as written, or as two levels up; a relative target read
+#   from `/` or from the link itself
+law path_real_dots_example:
+  {[Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}]), Pp.real(Nil{}, [Tl.Up{}, Tl.Name{1n}, Tl.Here{}, Tl.Name{2n}]), Pp.real([Pp.Link{[3n, 2n, 1n], False{}, [Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Name{3n}, Tl.Name{5n}]), Pp.real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), Pp.real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[7n, 3n], False{}}, Pp.Res{[2n, 1n], False{}}, Pp.Res{[5n, 4n, 1n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>} & {[Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}])] == [Pp.Secret{}, Pp.Inside{}] : List<&2, Pp.Cls>} & {[pp_real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), pp_real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), pp_real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>}
