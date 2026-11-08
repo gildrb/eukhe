@@ -2007,6 +2007,12 @@ import ./proof/wire/wire_nats_decimal.bend as PWireNatsDecimal
 import ./proof/wire/wire_nats_reads_decimal.bend as PWireNatsReadsDecimal
 import ./proof/wire/wire_strs_decimal.bend as PWireStrsDecimal
 import ./proof/wire/wire_strs_reads_decimal.bend as PWireStrsReadsDecimal
+import ./proof/wire_ffi/base.bend as LAWireFfi
+import ./proof/wire_ffi/wire_ffi_answers.bend as PWireFfiAnswers
+import ./proof/wire_ffi/wire_ffi_reads_only_requests.bend as PWireFfiReadsOnlyRequests
+import ./proof/wire_ffi/wire_ffi_refuses.bend as PWireFfiRefuses
+import ./proof/wire_ffi/wire_ffi_example.bend as PWireFfiExample
+import ./proof/wire_ffi/wire_ffi_fits_witness.bend as PWireFfiFitsWitness
 import ./proof/echo/echo_ffi_identity.bend as PEchoFfiIdentity
 import ./proof/echo/echo_stepper_history.bend as PEchoStepperHistory
 import ./proof/echo/echo_example.bend as PEchoExample

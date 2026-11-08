@@ -67,6 +67,7 @@ import ./laws/approvals/entry.bend as ApprovalsEntry
 import ./laws/approvals/desk.bend as ApprovalsDesk
 import ./laws/wire.bend as Wire
 import ./laws/echo.bend as Echo
+import ./laws/wire_ffi.bend as WireFfi
 import ./laws/facts.bend as Facts
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry

@@ -2359,6 +2359,11 @@
     "laws/wire.bend::wire_u32_example": "33f9e59198cadebb3deb5cb77b9fb34a0596e995f25e3abbde46a4b7dbf4b42b",
     "laws/wire.bend::wire_u32_reads_decimal": "76b9d5e1945f54587705523f465a4605201c470c4affd0f605c5ade169b10459",
     "laws/wire.bend::wire_u32_round_trip": "1be288a569eaa489741544f47e18dec579592c9a576eb37b7c01debb7e0aba86",
+    "laws/wire_ffi.bend::wire_ffi_answers": "99aac64c87d489900a8cdec1b8e132d21b251b4cce5aadf6a79ccb28f8154763",
+    "laws/wire_ffi.bend::wire_ffi_example": "e56626d43521fe4d5c2181e3d87629f2de398ee4263fd0968d46b0df53684d15",
+    "laws/wire_ffi.bend::wire_ffi_fits_witness": "9dc900f75c7ab5ce7df68e41fbb2ea40d2744e18460cc88cd1eaf387aa66db4d",
+    "laws/wire_ffi.bend::wire_ffi_reads_only_requests": "5919d8d8bab4e62714b66c90c33a80033097d7f17de709639c39a4606fd09228",
+    "laws/wire_ffi.bend::wire_ffi_refuses": "0cd21d1f5574ca005ed5666f212d2a3e76d04c40a7cc8dea5712a57cd126b323",
     "laws/work.bend::prior_entry_answers": "c12cf220315c9c281d8c6fef7550ea350f4c6bbc890e140ebadc76d62fd296c0",
     "laws/work.bend::prior_entry_example": "da9a8332e12707af09909f25b89c45154e26d4be59642117643154efd85bbad7",
     "laws/work.bend::prior_entry_malformed_exact": "a274f0c4fd8b8dbe95b18a16b9e42c4b52c969b670cb690d84cccb6337bbe10b",
@@ -2464,7 +2469,7 @@
     "laws/workflow.bend::wfw_unknown_row_sts": "4799406a788972c824efbff2d177f286f0ed87215499ff20fa78efc59ae47c6e"
   },
   "spec": {
-    "LAWS.bend": "001c5f8f099879784e600593017b1f868834de35fe7eb2ee8ad2ffcb2611afea",
+    "LAWS.bend": "a32cd9e5e2f2d3d3a3941a94a226e8d8b16f82246a6558fa69964ec23bc638ce",
     "laws/admission.bend": "651564580cbb1ebe062f64c556f197b273d79521a7387feb25871f69da7abc1e",
     "laws/ai_text.bend": "ea21cf667dc82d2bb59d3426d10f645ee39d57f53f3e0ffeb9e3bf31a4a76097",
     "laws/approvals/desk.bend": "e638163606a58e3d62c5b538e39d61de086bdc2d65c3c49c0b46364054b17cce",
@@ -2601,6 +2606,7 @@
     "laws/tui_color.bend": "85a7ee6dfb574a0d19eb346bfe32d6e7a0bed2d7feff8c17fb319795ff5046be",
     "laws/wait.bend": "9014d71f297464b751acefa27684add82255749349007e341afbc9eb0876833f",
     "laws/wire.bend": "eddbcb8f15ad21aff72d927e4410670df0993165f77b5c04645c5dc6b96cf001",
+    "laws/wire_ffi.bend": "43e5ceb5bae781aac26cd542cb2506a461fa2255b4179e1f409c6319f13537bd",
     "laws/work.bend": "7a7a552cf5785e7956b6f2f41d8d5c020cbb05e2eda044ed20c70ddfa3fb8347",
     "laws/worker.bend": "e03be67f1047f500a2fe97a6e8593c70cb222760bfaa7c822c2218385febc176",
     "laws/workflow.bend": "3622f8e0cdfbbb2535db9b6e2bd28bdf4cb25c769a0bd63a32fd17ceb80135f1"
