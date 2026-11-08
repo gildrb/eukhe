@@ -1007,6 +1007,11 @@ import ./proof/orphan/orphan_wire_reply.bend as POrphanWireReply
 import ./proof/orphan/orphan_ffi_decides.bend as POrphanFfiDecides
 import ./proof/orphan/orphan_ffi_malformed.bend as POrphanFfiMalformed
 import ./proof/orphan/orphan_ffi_left_over.bend as POrphanFfiLeftOver
+import ./proof/orphan/orphan_live_state.bend as POrphanLiveState
+import ./proof/orphan/orphan_live_not_due.bend as POrphanLiveNotDue
+import ./proof/orphan/orphan_next_by_history.bend as POrphanNextByHistory
+import ./proof/orphan/orphan_exited_stays.bend as POrphanExitedStays
+import ./proof/orphan/orphan_history_example.bend as POrphanHistoryExample
 import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
 import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
 import ./proof/launcher/base.bend as LALauncher

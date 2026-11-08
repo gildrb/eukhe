@@ -55,6 +55,248 @@ law orphan_exit_by_work:
   for work: Or.Work
   {Or.orphan_exit(work) == orphan_exit_spec(work) : Or.Exit}
 
+# The orphan event machine's state, by its history
+
+# a run: a run start opens it, a run end closes it, any other event keeps it
+def orphan_run_ev(open: Bool, e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      True{}
+    case Or.RunEnd{}:
+      False{}
+    case Or.Queue{}:
+      open
+    case Or.Drain{}:
+      open
+    case Or.CompactStart{}:
+      open
+    case Or.CompactEnd{}:
+      open
+    case Or.Gone{g}:
+      open
+    case Or.Back{}:
+      open
+
+def orphan_run_fold(evs: List<&2, Or.Ev>, open: Bool) -> Bool:
+  match evs:
+    case Nil{}:
+      open
+    case e <> rest:
+      orphan_run_fold(rest, orphan_run_ev(open, e))
+
+# whether a run is open after the history evs, from `open` (a left fold)
+def orphan_run_open(open: Bool, evs: List<&2, Or.Ev>) -> Bool:
+  orphan_run_fold(evs, open)
+
+# a compaction: a compaction start opens it, a compaction end closes it,
+# any other event keeps it
+def orphan_compact_ev(open: Bool, e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      open
+    case Or.RunEnd{}:
+      open
+    case Or.Queue{}:
+      open
+    case Or.Drain{}:
+      open
+    case Or.CompactStart{}:
+      True{}
+    case Or.CompactEnd{}:
+      False{}
+    case Or.Gone{g}:
+      open
+    case Or.Back{}:
+      open
+
+def orphan_compact_fold(evs: List<&2, Or.Ev>, open: Bool) -> Bool:
+  match evs:
+    case Nil{}:
+      open
+    case e <> rest:
+      orphan_compact_fold(rest, orphan_compact_ev(open, e))
+
+# whether a compaction is open after the history evs, from `open`
+def orphan_compact_open(open: Bool, evs: List<&2, Or.Ev>) -> Bool:
+  orphan_compact_fold(evs, open)
+
+# the queued inputs: a queue adds one, a drain takes one (none stay none),
+# any other event keeps them
+def orphan_queued_ev(q: Nat, e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      q
+    case Or.RunEnd{}:
+      q
+    case Or.Queue{}:
+      1n+q
+    case Or.Drain{}:
+      Nat.sub(q, 1n)
+    case Or.CompactStart{}:
+      q
+    case Or.CompactEnd{}:
+      q
+    case Or.Gone{g}:
+      q
+    case Or.Back{}:
+      q
+
+def orphan_queued_fold(evs: List<&2, Or.Ev>, q: Nat) -> Nat:
+  match evs:
+    case Nil{}:
+      q
+    case e <> rest:
+      orphan_queued_fold(rest, orphan_queued_ev(q, e))
+
+# the inputs queued after the history evs, from q
+def orphan_queued(q: Nat, evs: List<&2, Or.Ev>) -> Nat:
+  orphan_queued_fold(evs, q)
+
+# the ms absent: the supervisor's g more ms add g, its answer resets them
+# to 0, any other event keeps them
+def orphan_absent_ev(a: Nat, e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      a
+    case Or.RunEnd{}:
+      a
+    case Or.Queue{}:
+      a
+    case Or.Drain{}:
+      a
+    case Or.CompactStart{}:
+      a
+    case Or.CompactEnd{}:
+      a
+    case Or.Gone{g}:
+      Nat.add(g, a)
+    case Or.Back{}:
+      0n
+
+def orphan_absent_fold(evs: List<&2, Or.Ev>, a: Nat) -> Nat:
+  match evs:
+    case Nil{}:
+      a
+    case e <> rest:
+      orphan_absent_fold(rest, orphan_absent_ev(a, e))
+
+# the ms absent after the history evs, from a
+def orphan_absent(a: Nat, evs: List<&2, Or.Ev>) -> Nat:
+  orphan_absent_fold(evs, a)
+
+# the live state a history means, from a fresh worker (no run, nothing
+# queued, no compaction, 0 ms absent)
+def orphan_state(+evs: List<&2, Or.Ev>) -> Or.W:
+  Or.W{orphan_run_open(False{}, evs), orphan_queued(0n, evs), orphan_compact_open(False{}, evs), orphan_absent(0n, evs)}
+
+# whether the worker holds work after the history: a run open, a
+# compaction open, or an input queued
+def orphan_busy(+evs: List<&2, Or.Ev>) -> Bool:
+  Bool.or(orphan_run_open(False{}, evs), Bool.or(orphan_compact_open(False{}, evs), Nat.is_lt(0n, orphan_queued(0n, evs))))
+
+# the exit is due after `absent` ms: without work once the window passed,
+# with work once two windows passed
+def orphan_due_by(+window: Nat, busy: Bool, +absent: Nat) -> Bool:
+  match busy:
+    case False{}:
+      Nat.is_le(window, absent)
+    case True{}:
+      Nat.is_le(Nat.add(window, window), absent)
+
+# whether the exit check after the history's last event is due, by the Nat
+# arithmetic above on every non-empty history (no event, no exit check yet:
+# the empty history is False)
+def orphan_due(+window: Nat, evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      False{}
+    case +e <> +rest:
+      orphan_due_by(window, orphan_busy(e <> rest), orphan_absent(0n, e <> rest))
+
+def orphan_work_of(busy: Bool) -> Or.Work:
+  match busy:
+    case False{}:
+      Or.Idle{}
+    case True{}:
+      Or.Ongoing{}
+
+# due: the exit with the work held (closes the session without work, hands
+# it over busy with work, aborts nothing); not due: the worker lives on in w
+def orphan_after_by(due: Bool, +busy: Bool, w: Or.W) -> Or.St:
+  match due:
+    case True{}:
+      Or.Exited{Or.Out{orphan_exit_spec(orphan_work_of(busy)), orphan_work_of(busy), busy, False{}}}
+    case False{}:
+      Or.Live{w}
+
+# what the worker is after the history evs, when it was live before its
+# last event
+def orphan_after(+window: Nat, +evs: List<&2, Or.Ev>) -> Or.St:
+  orphan_after_by(orphan_due(window, evs), orphan_busy(evs), orphan_state(evs))
+
+# LAW orphan_live_state: a live worker's state is what its history says: a run is open
+# exactly when a run start came after the last run end, a compaction
+# likewise, the inputs queued are the queues less the drains (a drain of
+# none takes nothing), the ms absent are the sum of the absences since
+# the supervisor last answered (any window, any history)
+# EXCLUDES: a run or compaction its end does not close (or another event
+# opens or closes), a lost, invented or underflowed queued input, a lost
+# or ignored absence, an absence kept past the supervisor's answer
+law orphan_live_state:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  for +w: Or.W
+  for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
+  {w == orphan_state(evs) : Or.W}
+
+# LAW orphan_live_not_due: a live worker never skipped a due exit: the exit check after its
+# last event was not due (the empty history is unchecked: no event, no exit
+# check yet)
+# EXCLUDES: a worker kept alive past its window (or two windows with
+# work), an exit check skipped or computed on a wrong work or absence
+law orphan_live_not_due:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  for +w: Or.W
+  for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
+  {orphan_due(window, evs) == False{} : Bool}
+
+# LAW orphan_next_by_history: one more event after a live history: when the exit is due on the
+# longer history the worker exits, closing the session without work and
+# handing it over busy with work, aborting nothing; else it lives on with
+# the state of the longer history
+# EXCLUDES: an early or missed exit, an exit with the wrong work, way,
+# busy flag or abort, a wrong next state
+law orphan_next_by_history:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  for +e: Or.Ev
+  for +w: Or.W
+  for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
+  {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == orphan_after(window, List.append(&2, Or.Ev, evs, [e])) : Or.St}
+
+# LAW orphan_exited_stays: an exited worker stays exited with the same outcome, whatever the
+# next event
+# EXCLUDES: a worker that revives, or changes its recorded exit, after it
+# exited
+law orphan_exited_stays:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  for +e: Or.Ev
+  for +d: Or.Out
+  for out: {Or.run(window, evs) == Or.Exited{d} : Or.St}
+  {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == Or.Exited{d} : Or.St}
+
+# LAW orphan_history_example: anchor and witnesses, window 2: a compaction that ended, then
+# 2 ms absent, exits shut idle; a compaction still open after 2 ms stays
+# live compacting; after 4 ms it exits handing over busy; a run open
+# after a compaction ended stays live with the run open; two queues and a
+# drain keep one input queued
+# EXCLUDES: vacuous premises of the laws above, a machine wrong on these
+# histories
+law orphan_history_example:
+  {[Or.run(2n, [Or.CompactStart{}, Or.CompactEnd{}, Or.Gone{2n}]), Or.run(2n, [Or.CompactStart{}, Or.Gone{2n}]), Or.run(2n, [Or.CompactStart{}, Or.Gone{4n}]), Or.run(2n, [Or.RunStart{}, Or.CompactStart{}, Or.CompactEnd{}]), Or.run(2n, [Or.Queue{}, Or.Queue{}, Or.Drain{}])] == [Or.Exited{Or.Out{Or.Shut{}, Or.Idle{}, False{}, False{}}}, Or.Live{Or.W{False{}, 0n, True{}, 2n}}, Or.Exited{Or.Out{Or.Handover{}, Or.Ongoing{}, True{}, False{}}}, Or.Live{Or.W{True{}, 0n, False{}, 0n}}, Or.Live{Or.W{False{}, 1n, False{}, 0n}}] : List<&2, Or.St>}
+
 # The orphan entry of the compiled core (bend/ffi_orphan.bend)
 
 # LAW orphan_wire_req_window: the entry reads back every request Rust writes: a window that fits
