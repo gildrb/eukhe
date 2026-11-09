@@ -924,6 +924,15 @@ impl Supervisor {
                             .fetch_add(1, Ordering::Relaxed);
                         let _ =
                             events.send((ClientRouting::Broadcast, std::sync::Arc::new(payload)));
+                    } else if outbound_type == crate::worker::CRON_CHANGED_FRAME {
+                        // A job write on the worker: its cached `cron_list`
+                        // slice is stale (the frame precedes the mutating
+                        // command's response on the ordered stream, so the
+                        // next list after that response consults the
+                        // worker again).
+                        reader_resident
+                            .cron_snapshot_generation
+                            .fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 // The connection is gone: no reply can arrive on it any

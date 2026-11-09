@@ -107,6 +107,9 @@ pub struct AgentCronJobStore {
     /// artifact partition as sessions bind.
     session_artifact_files: std::sync::Mutex<HashMap<String, PathBuf>>,
     heartbeat_change_listeners: Vec<Box<dyn Fn() + Send + Sync>>,
+    /// Called after any write that changed a job file (every job and claim
+    /// record, not just the heartbeat catalog).
+    job_change_listeners: Vec<Box<dyn Fn() + Send + Sync>>,
     /// The owner of the claims this store makes: this process.
     owner: Arc<owner::ClaimOwner>,
 }
@@ -144,6 +147,7 @@ impl AgentCronJobStore {
             session_artifact_mode: false,
             session_artifact_files: std::sync::Mutex::new(HashMap::new()),
             heartbeat_change_listeners: Vec::new(),
+            job_change_listeners: Vec::new(),
             owner,
         }
     }
@@ -156,6 +160,7 @@ impl AgentCronJobStore {
             session_artifact_mode: true,
             session_artifact_files: std::sync::Mutex::new(HashMap::new()),
             heartbeat_change_listeners: Vec::new(),
+            job_change_listeners: Vec::new(),
             owner: owner::ClaimOwner::this_process(),
         }
     }
@@ -166,6 +171,18 @@ impl AgentCronJobStore {
 
     pub(crate) fn notify_heartbeat_change(&self) {
         for listener in &self.heartbeat_change_listeners {
+            listener();
+        }
+    }
+
+    /// Register `listener` for every write that changed a job file: a
+    /// cached copy of the job list is stale after it fires.
+    pub fn on_job_change(&mut self, listener: Box<dyn Fn() + Send + Sync>) {
+        self.job_change_listeners.push(listener);
+    }
+
+    pub(crate) fn notify_job_change(&self) {
+        for listener in &self.job_change_listeners {
             listener();
         }
     }

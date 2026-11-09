@@ -91,7 +91,21 @@ impl OutboundFrame {
             seq: 0,
         }
     }
+
+    /// `cron_changed`: the worker's job catalog changed (any job or claim
+    /// record written), so the supervisor's cached `cron_list` slice of
+    /// this worker is stale. Supervisor-only; never re-broadcast.
+    pub(crate) fn cron_changed() -> Self {
+        OutboundFrame {
+            payload: br#"{"type":"cron_changed"}"#.to_vec(),
+            outbound_type: CRON_CHANGED_FRAME,
+            seq: 0,
+        }
+    }
 }
+
+/// The outbound type of [`OutboundFrame::cron_changed`].
+pub(crate) const CRON_CHANGED_FRAME: &str = "cron_changed";
 
 /// The worker's outbound event pump: one sequence-stamped broadcast stream
 /// shared by every frame-emitting path (turns, compaction, side questions,

@@ -112,8 +112,11 @@ impl AgentCronJobStore {
             }
         }
         drop(guards);
-        if changed && Self::heartbeat_catalog_signature(&all_jobs(&states)) != heartbeats_before {
-            self.notify_heartbeat_change();
+        if changed {
+            self.notify_job_change();
+            if Self::heartbeat_catalog_signature(&all_jobs(&states)) != heartbeats_before {
+                self.notify_heartbeat_change();
+            }
         }
         Ok(result)
     }

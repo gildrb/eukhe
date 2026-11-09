@@ -33,7 +33,9 @@ mod title;
 
 mod connection;
 
-pub(crate) use connection::{AuthOutcome, ConnectionSink, EventPump, OutboundFrame};
+pub(crate) use connection::{
+    AuthOutcome, ConnectionSink, EventPump, OutboundFrame, CRON_CHANGED_FRAME,
+};
 
 mod create;
 

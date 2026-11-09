@@ -308,6 +308,13 @@ impl ScheduledJobs {
         store.on_heartbeat_change(Box::new(move || {
             change_events.send(crate::worker::OutboundFrame::heartbeats_changed());
         }));
+        // Any job write (a cron add/cancel, a fire's bookkeeping, the
+        // agent's own cron tool) makes the supervisor's cached `cron_list`
+        // slice of this worker stale.
+        let job_events = Arc::clone(&events);
+        store.on_job_change(Box::new(move || {
+            job_events.send(crate::worker::OutboundFrame::cron_changed());
+        }));
         let store = Arc::new(store);
         ScheduledJobs {
             hooks: Arc::new(QueueHooks {
