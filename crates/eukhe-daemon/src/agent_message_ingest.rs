@@ -89,6 +89,64 @@ pub(crate) struct Withdrawn {
     pub(crate) text: String,
 }
 
+/// One submission waiting in `main`'s inbox, with its request id.
+struct QueuedSubmission {
+    id: SubmissionId,
+    lane: WithdrawnLane,
+    content: Option<UserContent>,
+    request_id: String,
+}
+
+/// `main`'s queued submissions that carry a request id, in inbox order.
+async fn queued_submissions(
+    harness: &Harness,
+    main: &Conversation,
+) -> anyhow::Result<Vec<QueuedSubmission>> {
+    let cx = &BACKGROUND_CONTEXT;
+    let Some(value) = harness.snapshot(&INBOX_DOC, main.id(), cx).await? else {
+        return Ok(Vec::new());
+    };
+    let inbox: InboxState = from_json(&JsonValue::Object(value))?;
+    let mut queued = Vec::new();
+    for item in inbox.items {
+        let (id, lane, content): (SubmissionId, WithdrawnLane, Option<UserContent>) = match item {
+            InboxItem::Steer { id, content, .. } => (id, WithdrawnLane::Steer, Some(content)),
+            InboxItem::FollowUp { id, content, .. } => (id, WithdrawnLane::FollowUp, Some(content)),
+            InboxItem::Write { id, .. } => (id, WithdrawnLane::Write, None),
+        };
+        let Some(handle) = harness.submission(id, cx).await? else {
+            continue;
+        };
+        let Some(request_id) = handle.status(cx).await?.request_id else {
+            continue;
+        };
+        queued.push(QueuedSubmission {
+            id,
+            lane,
+            content,
+            request_id,
+        });
+    }
+    Ok(queued)
+}
+
+/// Whether `main`'s inbox still holds a submission whose request id
+/// `select` accepts.
+///
+/// # Errors
+///
+/// The `pi.inbox` document or a submission record cannot be read.
+pub(crate) async fn any_queued(
+    harness: &Harness,
+    main: &Conversation,
+    mut select: impl FnMut(&str) -> bool,
+) -> anyhow::Result<bool> {
+    Ok(queued_submissions(harness, main)
+        .await?
+        .iter()
+        .any(|queued| select(&queued.request_id)))
+}
+
 /// Withdraw `main`'s queued submissions whose request id `select`
 /// accepts, in inbox order. A submission a boundary placed in the
 /// meantime stays (it is no longer queued).
@@ -102,32 +160,23 @@ pub(crate) async fn withdraw_queued(
     main: &Conversation,
     mut select: impl FnMut(&str) -> bool,
 ) -> anyhow::Result<Vec<Withdrawn>> {
-    let cx = &BACKGROUND_CONTEXT;
-    let Some(value) = harness.snapshot(&INBOX_DOC, main.id(), cx).await? else {
-        return Ok(Vec::new());
-    };
-    let inbox: InboxState = from_json(&JsonValue::Object(value))?;
     let mut withdrawn = Vec::new();
-    for item in inbox.items {
-        let (id, lane, content): (SubmissionId, WithdrawnLane, Option<UserContent>) = match item {
-            InboxItem::Steer { id, content, .. } => (id, WithdrawnLane::Steer, Some(content)),
-            InboxItem::FollowUp { id, content, .. } => (id, WithdrawnLane::FollowUp, Some(content)),
-            InboxItem::Write { id, .. } => (id, WithdrawnLane::Write, None),
-        };
-        let Some(handle) = harness.submission(id, cx).await? else {
-            continue;
-        };
-        let Some(request_id) = handle.status(cx).await?.request_id else {
-            continue;
-        };
-        if !select(&request_id) {
+    for queued in queued_submissions(harness, main).await? {
+        if !select(&queued.request_id) {
             continue;
         }
-        match harness.abort_submission(id, Some(main.id()), cx).await? {
+        match harness
+            .abort_submission(queued.id, Some(main.id()), &BACKGROUND_CONTEXT)
+            .await?
+        {
             AbortSubmissionResult::Aborted => withdrawn.push(Withdrawn {
-                request_id,
-                lane,
-                text: content.as_ref().map(content_preview).unwrap_or_default(),
+                request_id: queued.request_id,
+                lane: queued.lane,
+                text: queued
+                    .content
+                    .as_ref()
+                    .map(content_preview)
+                    .unwrap_or_default(),
             }),
             AbortSubmissionResult::AlreadyPlaced
             | AbortSubmissionResult::Settled

@@ -254,14 +254,6 @@ pub fn normalize_heartbeat_delivery_mode(
 }
 
 #[must_use]
-pub fn resolve_heartbeat_streaming_behavior(delivery_mode: Option<DeliveryMode>) -> &'static str {
-    match delivery_mode.unwrap_or(DEFAULT_HEARTBEAT_DELIVERY_MODE) {
-        DeliveryMode::FollowUp => "followUp",
-        DeliveryMode::Steer => "steer",
-    }
-}
-
-#[must_use]
 pub fn is_heartbeat_cron_job(job: &AgentCronJob) -> bool {
     match job.source {
         JobSource::Heartbeat | JobSource::RlmHeartbeat => true,
@@ -269,27 +261,25 @@ pub fn is_heartbeat_cron_job(job: &AgentCronJob) -> bool {
     }
 }
 
-/// Whether a due heartbeat should wait instead of firing now.
+/// Whether a due heartbeat should wait instead of firing now: while the
+/// session compacts, retries, runs a user bash command, holds suspended
+/// work, or has unfinished actions outside a run. A streaming turn takes a
+/// heartbeat in either delivery mode: a steer joins the turn, a follow-up
+/// queues behind it and is delivered when the turn ends (omp
+/// `Agent.followUp`, packages/agent/src/agent.ts:1494-1501; a prompt sent
+/// while streaming queues on its `streamingBehavior`,
+/// packages/coding-agent/src/session/agent-session.ts:8805-8833).
 #[must_use]
 pub fn should_defer_heartbeat_cron_job(
     job: &AgentCronJob,
     activity: &HeartbeatSessionActivity,
 ) -> bool {
-    if !is_heartbeat_cron_job(job) {
-        return false;
-    }
-    let busy_besides_streaming = activity.is_compacting
-        || activity.is_retrying
-        || activity.is_bash_running
-        || activity.has_pending_session_work
-        || (!activity.is_streaming && activity.unfinished_action_count > 0);
-    if busy_besides_streaming {
-        return true;
-    }
-    if resolve_heartbeat_streaming_behavior(job.delivery_mode) == "steer" {
-        return false;
-    }
-    activity.is_streaming
+    is_heartbeat_cron_job(job)
+        && (activity.is_compacting
+            || activity.is_retrying
+            || activity.is_bash_running
+            || activity.has_pending_session_work
+            || (!activity.is_streaming && activity.unfinished_action_count > 0))
 }
 
 /// Next run time for a schedule after `after_millis`.
@@ -736,13 +726,18 @@ mod tests {
             &job(JobSource::Cron, None),
             &streaming
         ));
-        // Steer heartbeats fire during streaming; follow-up waits.
+        // A streaming turn takes a heartbeat in either mode: a steer joins
+        // the turn, a follow-up queues behind it (omp `Agent.followUp`).
         assert!(!should_defer_heartbeat_cron_job(
             &job(JobSource::Heartbeat, Some(DeliveryMode::Steer)),
             &streaming
         ));
-        assert!(should_defer_heartbeat_cron_job(
+        assert!(!should_defer_heartbeat_cron_job(
             &job(JobSource::Heartbeat, Some(DeliveryMode::FollowUp)),
+            &streaming
+        ));
+        assert!(!should_defer_heartbeat_cron_job(
+            &job(JobSource::RlmHeartbeat, Some(DeliveryMode::FollowUp)),
             &streaming
         ));
         // Busy states defer regardless of mode.
