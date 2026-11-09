@@ -26,8 +26,8 @@
 # and answers `E tiny_run: malformed open`; the refused state answers
 # every step `E tiny_run: the open was refused`. A malformed event (or
 # one with input left over) keeps the run and answers
-# `E tiny_run: malformed event`. laws/tiny.bend (tiny_run_entry_*) pins
-# the entry. Pure: no IO, no @unsafe.
+# `E tiny_run: malformed event`. laws/tiny/run.bend (tiny_run_entry_*)
+# pins the entry. Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W

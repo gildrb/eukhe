@@ -1,6 +1,39 @@
 # eukhe: the laws of area tiny, section pick: the chain of models and the
 # worker of one model (bend/tiny.bend sections 1 and 2), and the pick's
 # entry (bend/ffi_tiny.bend)
+#
+# (S9) Local tiny models: the model in bend/tiny.bend (its header, lines
+# 1-11; omp's local models: a role names a chain of models, the first
+# available one serves). Every input is free: any chain of models, any
+# set of available models, any needs of any processes with any tags, any
+# worker exits, in any order.
+#
+# S9: a task goes to the first model of its chain that is available;
+#     with none available it fails as Unavailable, never on a model
+#     outside the chain [tiny_pick_in_chain, tiny_pick_first,
+#     tiny_pick_unavailable]. One worker per model: every need of a
+#     process gets exactly one outcome (joined, started, replaced)
+#     [tiny_every_need_served]; a need with the running worker's tag
+#     joins it [tiny_same_tag_joins]; after any events the worker runs
+#     with the tag of the last need since the last exit
+#     [tiny_worker_current]; the process election refines this model
+#     (laws/tiny/elect.bend tiny_elect_is_worker_model, laws/tiny/run.bend
+#     tiny_run_is_model).
+# A1: the pick entry reads a request (the chain, then the available
+#     models, as crates/eukhe-tiny/src/roles.rs writes them) and answers
+#     the pick as Rust reads it; it decides only on such a request and
+#     answers every other input with its exact error
+#     [tiny_ffi_request_round_trip, tiny_ffi_answers,
+#     tiny_ffi_answers_spelled, tiny_ffi_left_over_spelled,
+#     tiny_ffi_reads_only_requests, tiny_ffi_malformed_unless_request;
+#     anchor tiny_ffi_tags_example].
+# A2: the model's terms the S9 laws read mean what the laws say: `elem`
+#     is membership [tiny_elem_finds, tiny_elem_only_members]; `none_up`
+#     holds exactly when no model of the list is available
+#     [tiny_none_up_misses, tiny_none_up_only_when_none]; `needs` counts
+#     the needs [tiny_needs_counts]; `last_tag` is the tag of the last
+#     need since the last exit [tiny_last_tag_is_last]. Without A2 a
+#     wrong model with its terms redefined to match passes S9's laws.
 
 import Base
 import ../../bend/ffi_tiny.bend as FTn
@@ -8,11 +41,8 @@ import ../../bend/tiny.bend as Tn
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
 
-# (S9) Local tiny models
-# ----------------------
-# the model in bend/tiny.bend. Every input is free:
-# any chain of models, any set of available models, any needs of any
-# processes with any tags, any worker exits, in any order.
+# Laws: the chain (S9)
+# --------------------
 
 # LAW tiny_pick_in_chain: a task uses only a model of its chain that is available
 law tiny_pick_in_chain:
@@ -40,32 +70,61 @@ law tiny_pick_unavailable:
   for none: {Tn.none_up(chain, up) == True{} : Bool}
   {Tn.pick(chain, up) == Tn.Unavailable{} : Tn.Pick}
 
-# the spec of the terms the pick laws read: x is among xs; no model of
-# xs is among up
-def sp_in(xs: List<&2, Nat>, +x: Nat) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case y <> rest:
-      Bool.or(Nat.is_eq(y, x), sp_in(rest, x))
+# Laws: the terms the pick laws read (A2)
+# ---------------------------------------
 
-def sp_none_up(xs: List<&2, Nat>, +up: List<&2, Nat>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case +x <> rest:
-      Bool.and(Bool.not(sp_in(up, x)), sp_none_up(rest, up))
+# LAW tiny_elem_finds (A2): the membership test the pick laws read
+# (`elem`) finds a model wherever it stands in a list: any models
+# before it, any after it
+# EXCLUDES: an `elem` that misses a model past the head or at the head
+#   (tiny_pick_first would then claim a pick no chain gets)
+law tiny_elem_finds:
+  for +pre: List<&2, Nat>
+  for +x: Nat
+  for +post: List<&2, Nat>
+  {Tn.elem(List.append(&2, Nat, pre, x <> post), x) == True{} : Bool}
 
-# LAW tiny_terms_exact: the model's terms the pick laws read (`elem`,
-# `none_up`) mean what the laws say: membership, and no model available
+# LAW tiny_elem_only_members (A2): `elem` answers True only for a model
+# the list holds: the list is then some models, that model, and some more
+# EXCLUDES: an `elem` that answers True for anything (a mutation probe
+#   found it would leave tiny_pick_in_chain saying nothing)
+law tiny_elem_only_members:
+  for +xs: List<&2, Nat>
+  for +x: Nat
+  for hit: {Tn.elem(xs, x) == True{} : Bool}
+  exs pre: List<&2, Nat>
+  exs post: List<&2, Nat>
+  {xs == List.append(&2, Nat, pre, x <> post) : List<&2, Nat>}
+
+# LAW tiny_none_up_misses (A2): when `none_up` says that no model of a
+# list is available, no model the list holds is available (`elem` of the
+# available models answers False for it)
+# EXCLUDES: a `none_up` that is True while a model of the list is
+#   available (tiny_pick_unavailable would then claim Unavailable for a
+#   chain with an available model)
+law tiny_none_up_misses:
+  for +pre: List<&2, Nat>
+  for +x: Nat
+  for +post: List<&2, Nat>
+  for +up: List<&2, Nat>
+  for none: {Tn.none_up(List.append(&2, Nat, pre, x <> post), up) == True{} : Bool}
+  {Tn.elem(up, x) == False{} : Bool}
+
+# LAW tiny_none_up_only_when_none (A2): `none_up` says False only when
+# some model the list holds is available
 # EXCLUDES: a `none_up` that is False for every chain (it would make
-#   tiny_pick_unavailable and tiny_pick_first vacuous), an `elem` that
-#   answers True for anything (a mutation probe found the first free)
-law tiny_terms_exact:
+#   tiny_pick_unavailable and tiny_pick_first vacuous)
+law tiny_none_up_only_when_none:
   for +xs: List<&2, Nat>
   for +up: List<&2, Nat>
-  for +x: Nat
-  {Tn.elem(xs, x) == sp_in(xs, x) : Bool} & {Tn.none_up(xs, up) == sp_none_up(xs, up) : Bool}
+  for some: {Tn.none_up(xs, up) == False{} : Bool}
+  exs pre: List<&2, Nat>
+  exs x: Nat
+  exs post: List<&2, Nat>
+  {xs == List.append(&2, Nat, pre, x <> post) : List<&2, Nat>} & {Tn.elem(up, x) == True{} : Bool}
+
+# Laws: the worker of one model (S9)
+# ----------------------------------
 
 # LAW tiny_every_need_served: every need of a process gets exactly one outcome: it joins, starts
 # or replaces the worker
@@ -80,49 +139,6 @@ law tiny_worker_current:
   for +es: List<&2, Tn.Ev>
   {Tn.W.tag(Tn.run(es, Tn.NoWorker{})) == Tn.last_tag(es, None{}) : Maybe<&2, Nat>}
 
-# the spec of the terms the worker laws read: the number of needs, the
-# tag of the last need since the last exit, the tag a worker runs with
-def sp_needs(es: List<&2, Tn.Ev>) -> Nat:
-  match es:
-    case Nil{}:
-      0n
-    case e <> rest:
-      match e:
-        case Tn.Need{p, t}:
-          1n+sp_needs(rest)
-        case Tn.Gone{}:
-          sp_needs(rest)
-
-def sp_last_tag(es: List<&2, Tn.Ev>, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match es:
-    case Nil{}:
-      m
-    case e <> rest:
-      match e:
-        case Tn.Need{p, t}:
-          sp_last_tag(rest, Some{t})
-        case Tn.Gone{}:
-          sp_last_tag(rest, None{})
-
-def sp_wtag(w: Tn.W) -> Maybe<&2, Nat>:
-  match w:
-    case Tn.NoWorker{}:
-      None{}
-    case Tn.Worker{o, t}:
-      Some{t}
-
-# LAW tiny_worker_terms_exact: the model's terms tiny_every_need_served and
-# tiny_worker_current read (`needs`, `last_tag`, `W.tag`) mean what the
-# laws say
-# EXCLUDES: a worker model that never starts a worker and reports no
-#   outcome, with `needs` and `last_tag` redefined to match (a fresh
-#   specification-completeness review passed every law that way)
-law tiny_worker_terms_exact:
-  for +es: List<&2, Tn.Ev>
-  for +m: Maybe<&2, Nat>
-  for +w: Tn.W
-  {Tn.needs(es) == sp_needs(es) : Nat} & {Tn.last_tag(es, m) == sp_last_tag(es, m) : Maybe<&2, Nat>} & {Tn.W.tag(w) == sp_wtag(w) : Maybe<&2, Nat>}
-
 # LAW tiny_same_tag_joins: a need with the running worker's tag joins it: no restart churn
 law tiny_same_tag_joins:
   for +o: Nat
@@ -130,8 +146,43 @@ law tiny_same_tag_joins:
   for +p: Nat
   {Tn.got(Tn.Worker{o, t}, Tn.Need{p, t}) == [Tn.Joined{}] : List<&2, Tn.Got>}
 
-# LAW tiny_ffi_request_round_trip (compiled core): the tiny pick entry (bend/ffi_tiny.bend) reads back
-# a chain and the available models as Rust writes it, and leaves what follows untouched
+# Laws: the terms the worker laws read (A2)
+# -----------------------------------------
+
+# LAW tiny_needs_counts (A2): `needs` counts the needs among events: a
+# need counts one, an exit none, and two runs of events one after the
+# other count the sum of theirs
+# EXCLUDES: a `needs` that misses or double-counts needs, or is constant
+#   (with it tiny_every_need_served would pass a model that loses a need
+#   or answers one twice: a fresh specification-completeness review
+#   passed every worker law that way)
+law tiny_needs_counts:
+  for +a: List<&2, Tn.Ev>
+  for +b: List<&2, Tn.Ev>
+  for +p: Nat
+  for +t: Nat
+  {Tn.needs(List.append(&2, Tn.Ev, a, b)) == Nat.add(Tn.needs(a), Tn.needs(b)) : Nat} & {[Tn.needs([Tn.Need{p, t}]), Tn.needs([Tn.Gone{}])] == [1n, 0n] : List<&2, Nat>}
+
+# LAW tiny_last_tag_is_last (A2): `last_tag` from a start value m is the
+# tag of the last event when that event is a need of any process p, none
+# when it is an exit, and m with no events
+# EXCLUDES: a `last_tag` that reads the first need, keeps a tag past an
+#   exit, or is constant (with it tiny_worker_current would pass a model
+#   whose stale worker serves)
+law tiny_last_tag_is_last:
+  for +es: List<&2, Tn.Ev>
+  for +m: Maybe<&2, Nat>
+  for +p: Nat
+  for +t: Nat
+  {Tn.last_tag(List.append(&2, Tn.Ev, es, [Tn.Need{p, t}]), m) == Some{t} : Maybe<&2, Nat>} & {Tn.last_tag(List.append(&2, Tn.Ev, es, [Tn.Gone{}]), m) == None{} : Maybe<&2, Nat>} & {Tn.last_tag(Nil{}, m) == m : Maybe<&2, Nat>}
+
+# Laws: the pick's entry (A1)
+# ---------------------------
+
+# LAW tiny_ffi_request_round_trip (A1, compiled core): the tiny pick entry (bend/ffi_tiny.bend)
+# reads back a chain and the available models as its own encoder put_req writes them (every
+# count and model within the wire), and leaves what follows untouched (the spelling Rust
+# writes is tiny_ffi_answers_spelled's)
 # EXCLUDES: a request field misread, dropped, reordered or shifted; a
 #   decoder that eats the input after the request
 law tiny_ffi_request_round_trip:
@@ -141,7 +192,7 @@ law tiny_ffi_request_round_trip:
   for h: {Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, chain)), LawsBase.wire_nats_fit(chain)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, up)), LawsBase.wire_nats_fit(up))) == True{} : Bool}
   {FTn.get_req(FTn.put_req(FTn.Req{chain, up}, rest)) == Wr.Got{FTn.Req{chain, up}, rest} : Wr.Dec<FTn.Req>}
 
-# LAW tiny_ffi_answers (compiled core): the tiny pick entry answers a whole request with the
+# LAW tiny_ffi_answers (A1, compiled core): the tiny pick entry answers a whole request with the
 # model's pick
 # EXCLUDES: an entry that answers another rule, a default, or a reply for
 #   a request it misread
@@ -150,26 +201,6 @@ law tiny_ffi_answers:
   for +up: List<&2, Nat>
   for h: {Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, chain)), LawsBase.wire_nats_fit(chain)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, up)), LawsBase.wire_nats_fit(up))) == True{} : Bool}
   {FTn.ffi(FTn.put_req(FTn.Req{chain, up}, "")) == FTn.put_pick(Tn.pick(chain, up), "") : String}
-
-# LAW tiny_ffi_rejects_malformed (compiled core): the tiny pick entry answers a malformed request with
-# the error form, never a default
-# EXCLUDES: a decision made on input that is no request
-law tiny_ffi_rejects_malformed:
-  for +s: String
-  for bad: {FTn.get_req(s) == Wr.Bad{} : Wr.Dec<FTn.Req>}
-  {LawsBase.wire_opens_err(FTn.ffi(s)) == True{} : Bool}
-
-# LAW tiny_ffi_rejects_left_over (compiled core): and a request followed by more input with the error
-# form
-# EXCLUDES: an entry that ignores input left over (a second request, a
-#   truncated one)
-law tiny_ffi_rejects_left_over:
-  for +s: String
-  for +q: FTn.Req
-  for +r: String
-  for got: {FTn.get_req(s) == Wr.Got{q, r} : Wr.Dec<FTn.Req>}
-  for more: {String.is_empty(r) == False{} : Bool}
-  {LawsBase.wire_opens_err(FTn.ffi(s)) == True{} : Bool}
 
 # The pick entry, spelled
 # -----------------------
@@ -203,7 +234,7 @@ def tiny_spell_pick(p: Tn.Pick) -> String:
       Wr.put_nat(1n, "")
 
 # the spelled reply to a request: the model's pick (tiny_pick_first,
-# tiny_pick_unavailable and tiny_terms_exact pin it)
+# tiny_pick_unavailable and the A2 laws on `elem` and `none_up` pin it)
 def tiny_spell_answer(q: FTn.Req) -> String:
   match q:
     case FTn.Req{+c, +u}:
@@ -265,86 +296,3 @@ law tiny_ffi_malformed_unless_request:
 #   not (Use 0, Unavailable 1), the lists read in the other order
 law tiny_ffi_tags_example:
   {[FTn.ffi("2,0,1,1,1,"), FTn.ffi("1,0,1,1,"), FTn.ffi("0,1,0,"), FTn.ffi("2,0,1,1,0,"), FTn.ffi("1,0,"), FTn.ffi("0,2,0,"), FTn.ffi("1,0,0,x")] == ["0,1,", "1,", "1,", "0,0,", Wr.err("tiny: malformed request"), Wr.err("tiny: malformed request"), Wr.err("tiny: input left over")] : List<&2, String>}
-
-
-# The pick's entry from the requirement
-# -------------------------------------
-# The spec of the whole entry, written from the requirement (S9: a task
-# uses the first model of its chain that is available, else it fails as
-# Unavailable) and the wire's primitives only: no function of
-# bend/tiny.bend or bend/ffi_tiny.bend (their types only).
-
-# m when it is available (here), else the pick of the rest
-def sp_pick.at(here: Bool, m: Nat, r: Tn.Pick) -> Tn.Pick:
-  match here:
-    case True{}:
-      Tn.Use{m}
-    case False{}:
-      r
-
-# the first model of chain among up, else Unavailable
-def sp_pick(chain: List<&2, Nat>, +up: List<&2, Nat>) -> Tn.Pick:
-  match chain:
-    case Nil{}:
-      Tn.Unavailable{}
-    case +m <> rest:
-      sp_pick.at(sp_in(up, m), m, sp_pick(rest, up))
-
-# a pick on the wire: 0 then the model, or 1
-def sp_spell_pick(p: Tn.Pick) -> String:
-  match p:
-    case Tn.Use{m}:
-      Wr.put_nat(0n, Wr.put_nat(m, ""))
-    case Tn.Unavailable{}:
-      Wr.put_nat(1n, "")
-
-def sp_read.up(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FTn.Req>:
-  match r:
-    case Wr.Got{u, s}:
-      Wr.Got{FTn.Req{c, u}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def sp_read.chain(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FTn.Req>:
-  match r:
-    case Wr.Got{c, s}:
-      sp_read.up(c, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the chain and the available models s starts with (two lists of Nats),
-# and what follows
-def sp_read(s: String) -> Wr.Dec<FTn.Req>:
-  sp_read.chain(Wr.get_list(~Nat, ~Wr.get_nat, s))
-
-def sp_pick_end(whole: Bool, q: FTn.Req) -> String:
-  match whole:
-    case True{}:
-      match q:
-        case FTn.Req{c, u}:
-          sp_spell_pick(sp_pick(c, u))
-    case False{}:
-      Wr.err("tiny: input left over")
-
-def sp_pick_run(r: Wr.Dec<FTn.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      sp_pick_end(Wr.end(s), q)
-    case Wr.Bad{}:
-      Wr.err("tiny: malformed request")
-
-# the entry's answer to the input s
-def sp_pick_entry(s: String) -> String:
-  sp_pick_run(sp_read(s))
-
-# LAW tiny_ffi_exact (compiled core): on every input the tiny pick entry answers the spec's
-# pick of the chain and the available models the input is exactly (the
-# first model of the chain that is available, else Unavailable), exactly
-# "tiny: input left over" for a request followed by more input, and
-# exactly "tiny: malformed request" for any other input
-# EXCLUDES: a model outside the chain or not available, a later one, a
-#   misread request, a pick spelled otherwise, a default for malformed
-#   input, input left over ignored, another error text
-law tiny_ffi_exact:
-  for +s: String
-  {FTn.ffi(s) == sp_pick_entry(s) : String}
