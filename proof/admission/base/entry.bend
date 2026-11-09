@@ -103,7 +103,7 @@ def pae.op(o: Ad.Op, +rest: String) -> {FAd.put_op(o, rest) == AdmissionEntry.ad
       {==}
     case Ad.Release{k}:
       {==}
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       {==}
     case Ad.Limit{l, q}:
       match l:

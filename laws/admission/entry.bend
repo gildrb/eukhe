@@ -70,7 +70,7 @@ def ads_spell_op(o: Ad.Op, rest: String) -> String:
       Wr.put_nat(1n, Wr.put_nat(k, rest))
     case Ad.Release{k}:
       Wr.put_nat(2n, Wr.put_nat(k, rest))
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       Wr.put_nat(3n, Wr.put_nat(k, rest))
     case Ad.Limit{l, q}:
       Wr.put_nat(4n, ads_spell_lim(l, Wr.put_nat(q, rest)))
@@ -150,7 +150,7 @@ def ads_read_release(d: Wr.Dec<Nat>) -> Wr.Dec<Ad.Op>:
 def ads_read_leave(d: Wr.Dec<Nat>) -> Wr.Dec<Ad.Op>:
   match d:
     case Wr.Got{k, s}:
-      Wr.Got{Ad.Leave{k}, s}
+      Wr.Got{Ad.Depart{k}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 

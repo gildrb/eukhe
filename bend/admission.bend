@@ -53,7 +53,7 @@ type Op is Data:
   Admit{c: Cls}
   Collect{k: Nat}
   Release{k: Nat}
-  Leave{k: Nat}
+  Depart{k: Nat}
   Limit{lim: Lim, q: Nat}
 
 def St.lim(s: St) -> Lim:
@@ -370,7 +370,7 @@ def step(s: St, o: Op) -> St:
           collect.at(get(ts, k), l, q, ts, k)
         case Release{+k}:
           release.at(get(ts, k), l, q, ts, k)
-        case Leave{+k}:
+        case Depart{+k}:
           leave.at(get(ts, k), l, q, ts, k)
         case Limit{+l2, q2}:
           St{l2, q2, grant(l2, ts)}
@@ -603,7 +603,7 @@ def Live.step(x: Live, o: Op) -> Live:
           Live{l, q, lv.collect(lv.find(ts, k), ts, k), n}
         case Release{+k}:
           Live{l, q, lv.release(lv.find(ts, k), l, ts, k), n}
-        case Leave{+k}:
+        case Depart{+k}:
           Live{l, q, lv.leave(lv.find(ts, k), l, ts, k), n}
         case Limit{+l2, q2}:
           Live{l2, q2, lv.grant(l2, ts), n}
@@ -667,7 +667,7 @@ def freed(+s: St, o: Op) -> Nat:
       0n
     case Release{k}:
       freed.at(get(St.ts(s), k), True{})
-    case Leave{k}:
+    case Depart{k}:
       freed.at(get(St.ts(s), k), False{})
     case Limit{l, q}:
       0n
@@ -727,7 +727,7 @@ def frees(+s: St, o: Op) -> Nat:
       0n
     case Release{k}:
       frees.at(get(St.ts(s), k), True{})
-    case Leave{k}:
+    case Depart{k}:
       frees.at(get(St.ts(s), k), False{})
     case Limit{l, q}:
       0n
@@ -763,8 +763,8 @@ def ended(m: Maybe<&2, Tk>) -> Bool:
 def finish(m: Maybe<&2, Tk>, k: Nat) -> Op:
   match m:
     case Some{Tk{c, Queued{}}}:
-      Leave{k}
+      Depart{k}
     case Some{Tk{c, Granted{}}}:
-      Leave{k}
+      Depart{k}
     case _:
       Release{k}

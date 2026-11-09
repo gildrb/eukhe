@@ -30,7 +30,7 @@ def wire_obs_fits(o: Ch.Obs) -> Bool:
   match o:
     case Ch.Busy{t}:
       LawsBase.wire_mfits(t)
-    case Ch.Lost{}:
+    case Ch.PollFailed{}:
       True{}
     case Ch.Answered{r}:
       True{}
@@ -101,12 +101,12 @@ def ch_spell_cfg(c: Ch.Cfg, rest: String) -> String:
     case Ch.Cfg{s, f}:
       Wr.put_nat(s, Wr.put_nat(f, rest))
 
-# a poll: Busy 0 (token), Lost 1, Answered 2 (Bool), Broke 3, Gone 4
+# a poll: Busy 0 (token), PollFailed 1, Answered 2 (Bool), Broke 3, Gone 4
 def ch_spell_obs(o: Ch.Obs, rest: String) -> String:
   match o:
     case Ch.Busy{t}:
       Wr.put_nat(0n, ch_spell_mnat(t, rest))
-    case Ch.Lost{}:
+    case Ch.PollFailed{}:
       Wr.put_nat(1n, rest)
     case Ch.Answered{r}:
       Wr.put_nat(2n, Wr.put_bool(r, rest))
@@ -314,7 +314,7 @@ law child_entry_unknown_token:
 
 # LAW child_entry_unknown_poll: in a verdict request, a poll tag past 4
 # answers "child: bad poll", whatever follows
-# EXCLUDES: an unknown poll read as a known one (the old TBad-as-Lost
+# EXCLUDES: an unknown poll read as a known one (the old TBad-as-PollFailed
 #   mutant), or named as another field
 law child_entry_unknown_poll:
   for +c: Ch.Cfg

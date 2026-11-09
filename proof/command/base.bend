@@ -617,7 +617,7 @@ def cb_walk_rest(r: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +q: List<&2,
       %LList.cb_app_assoc(List<&2, Nat>, ws, [w], more) : {Cmd.walk(more, t, Cmd.Rest{q, ww}) == Cmd.Rest{q, _} : Cmd.St}
       cb_walk_rest(more, t, q, ww)
 
-def cb_step_lost(w: List<&2, Nat>, -t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -x: List<&2, Nat>) -> {Cmd.step(Cmd.Lost{q, x}, t, w) == Cmd.Lost{q, x} : Cmd.St}:
+def cb_step_lost(w: List<&2, Nat>, -t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -x: List<&2, Nat>) -> {Cmd.step(Cmd.OffPath{q, x}, t, w) == Cmd.OffPath{q, x} : Cmd.St}:
   match w:
     case Nil{}:
       {==}
@@ -625,12 +625,12 @@ def cb_step_lost(w: List<&2, Nat>, -t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, 
       {==}
 
 # an unknown word stays
-def cb_walk_lost(r: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -x: List<&2, Nat>) -> {Cmd.walk(r, t, Cmd.Lost{q, x}) == Cmd.Lost{q, x} : Cmd.St}:
+def cb_walk_lost(r: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -x: List<&2, Nat>) -> {Cmd.walk(r, t, Cmd.OffPath{q, x}) == Cmd.OffPath{q, x} : Cmd.St}:
   match r:
     case Nil{}:
       {==}
     case Con{+w, more}:
-      %Equal.sym(Cmd.St, Cmd.step(Cmd.Lost{q, x}, t, w), Cmd.Lost{q, x}, cb_step_lost(w, t, q, x)) : {Cmd.walk(more, t, _) == Cmd.Lost{q, x} : Cmd.St}
+      %Equal.sym(Cmd.St, Cmd.step(Cmd.OffPath{q, x}, t, w), Cmd.OffPath{q, x}, cb_step_lost(w, t, q, x)) : {Cmd.walk(more, t, _) == Cmd.OffPath{q, x} : Cmd.St}
       cb_walk_lost(more, t, q, x)
 
 def cb_step_stray(w: List<&2, Nat>, -t: List<&2, Cmd.Ent>) -> {Cmd.step(Cmd.Stray{}, t, w) == Cmd.Stray{} : Cmd.St}:

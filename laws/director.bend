@@ -88,14 +88,14 @@ law dir_go_defer:
   for +stay: Bool
   {Dr.decide.go(l <> rest, Dr.Defer{} <> vs, room, stay) == dir_on_top(l, Dr.decide.go(rest, vs, room, stay)) : Dr.Dec}
 
-# LAW dir_go_leave: a Leave removes the layer; the layers below decide
+# LAW dir_go_leave: an Unstack removes the layer; the layers below decide
 law dir_go_leave:
   for +l: Dr.Layer
   for +rest: List<&2, Dr.Layer>
   for vs: List<&2, Dr.Verdict>
   for +room: Bool
   for +stay: Bool
-  {Dr.decide.go(l <> rest, Dr.Leave{} <> vs, room, stay) == Dr.decide.go(rest, vs, room, stay) : Dr.Dec}
+  {Dr.decide.go(l <> rest, Dr.Unstack{} <> vs, room, stay) == Dr.decide.go(rest, vs, room, stay) : Dr.Dec}
 
 # LAW dir_go_lead_stays: a Lead stays when the loop ends: it stays on top of the decision of
 # the layers below
@@ -254,8 +254,8 @@ def dir_lead_as(v: Dr.Verdict, +w: Dr.Verdict) -> Dr.Verdict:
       Dr.Yield{}
     case Dr.Stack{l}:
       Dr.Stack{l}
-    case Dr.Leave{}:
-      Dr.Leave{}
+    case Dr.Unstack{}:
+      Dr.Unstack{}
     case Dr.Abort{}:
       Dr.Abort{}
     case Dr.Lead{}:
@@ -275,8 +275,8 @@ law dir_lead_leaves_with_the_continuation:
   for +cap: Nat
   for +l: Dr.Loop
   for +vs: List<&2, Dr.Verdict>
-  for on: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Leave{}))) == False{} : Bool}
-  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Leave{})) : Dr.Loop}
+  for on: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
+  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{})) : Dr.Loop}
 
 # LAW dir_lead_stays_when_the_loop_ends: a step that ends the loop is the step where every layer that leads
 # stays (defers): a reminder never leaves without its continuation
@@ -284,7 +284,7 @@ law dir_lead_stays_when_the_loop_ends:
   for +cap: Nat
   for +l: Dr.Loop
   for +vs: List<&2, Dr.Verdict>
-  for ends: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Leave{}))) == True{} : Bool}
+  for ends: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
   {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Defer{})) : Dr.Loop}
 
 # LAW dir_lead_goes_example: anchor: a reminder over a goal with budget leads the goal's
@@ -335,7 +335,7 @@ def dir_verdict_fits(v: Dr.Verdict) -> Bool:
       True{}
     case Dr.Stack{l}:
       dir_layer_fits(l)
-    case Dr.Leave{}:
+    case Dr.Unstack{}:
       True{}
     case Dr.Abort{}:
       True{}
@@ -426,7 +426,7 @@ def dir_spell_layers(+xs: List<&2, Dr.Layer>, rest: String) -> String:
   Wr.put_nat(List.length(&2, Dr.Layer, xs), dir_spell_layers.items(xs, rest))
 
 # a verdict: Defer 0, Again 1, Yield 2, Stack 3 then the pushed layer,
-# Leave 4, Abort 5, Lead 6
+# Unstack 4, Abort 5, Lead 6
 def dir_spell_verdict(v: Dr.Verdict, rest: String) -> String:
   match v:
     case Dr.Defer{}:
@@ -437,7 +437,7 @@ def dir_spell_verdict(v: Dr.Verdict, rest: String) -> String:
       Wr.put_nat(2n, rest)
     case Dr.Stack{l}:
       Wr.put_nat(3n, dir_spell_layer(l, rest))
-    case Dr.Leave{}:
+    case Dr.Unstack{}:
       Wr.put_nat(4n, rest)
     case Dr.Abort{}:
       Wr.put_nat(5n, rest)
@@ -618,7 +618,7 @@ def dirr.layer.k(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Layer>:
 def dirr.layer(s: String) -> Wr.Dec<Dr.Layer>:
   dirr.layer.k(Wr.get_nat(s))
 
-# a verdict: 0 Defer | 1 Again | 2 Yield | 3 Stack, then a layer | 4 Leave
+# a verdict: 0 Defer | 1 Again | 2 Yield | 3 Stack, then a layer | 4 Unstack
 # | 5 Abort | 6 Lead
 def dirr.verdict.stack(r: Wr.Dec<Dr.Layer>) -> Wr.Dec<Dr.Verdict>:
   match r:
@@ -638,7 +638,7 @@ def dirr.verdict.tag(t: Nat, s: String) -> Wr.Dec<Dr.Verdict>:
     case 3n:
       dirr.verdict.stack(dirr.layer(s))
     case 4n:
-      Wr.Got{Dr.Leave{}, s}
+      Wr.Got{Dr.Unstack{}, s}
     case 5n:
       Wr.Got{Dr.Abort{}, s}
     case 6n:
@@ -795,7 +795,7 @@ def dirs.go(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, +stay:
               Dr.Dec{Dr.Hand{}, l <> rest}
             case Dr.Stack{n}:
               dirs.push(l, n, rest, room)
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               dirs.go(rest, vr, room, stay)
             case Dr.Abort{}:
               Dr.Dec{Dr.Failed{}, l <> rest}

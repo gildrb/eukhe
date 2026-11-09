@@ -5,7 +5,7 @@ import ../../bend/runners.bend as Ru
 import ../../laws/runners.bend as Runners
 import ../base/logic/bool.bend as LLogicBool
 
-def mr.MD(m: Maybe<&2, Ru.Tool>, n: Type, s: Type) -> Type:
+def mr.MD(m: Maybe<&2, Ru.ToolReg>, n: Type, s: Type) -> Type:
   match m:
     case None{}:
       n
@@ -13,7 +13,7 @@ def mr.MD(m: Maybe<&2, Ru.Tool>, n: Type, s: Type) -> Type:
       s
 
 # every tool of xs may be on main's roster
-def mr.all(xs: List<&2, Ru.Tool>) -> Bool:
+def mr.all(xs: List<&2, Ru.ToolReg>) -> Bool:
   match xs:
     case Nil{}:
       True{}
@@ -21,7 +21,7 @@ def mr.all(xs: List<&2, Ru.Tool>) -> Bool:
       Bool.and(Runners.main_ok(x), mr.all(rest))
 
 # every tool of a list whose tools may all be on main's roster may be
-def mr.each(xs: List<&2, Ru.Tool>, i: Nat, +t: Ru.Tool, all: {mr.all(xs) == True{} : Bool}, at: {List.get(&2, Ru.Tool, xs, i) == Some{t} : Maybe<&2, Ru.Tool>}) -> {Runners.main_ok(t) == True{} : Bool}:
+def mr.each(xs: List<&2, Ru.ToolReg>, i: Nat, +t: Ru.ToolReg, all: {mr.all(xs) == True{} : Bool}, at: {List.get(&2, Ru.ToolReg, xs, i) == Some{t} : Maybe<&2, Ru.ToolReg>}) -> {Runners.main_ok(t) == True{} : Bool}:
   match xs:
     case Nil{}:
       %at : mr.MD(_, Unit, {Runners.main_ok(t) == True{} : Bool})
@@ -29,7 +29,7 @@ def mr.each(xs: List<&2, Ru.Tool>, i: Nat, +t: Ru.Tool, all: {mr.all(xs) == True
     case +x <> +rest:
       match i:
         case 0n:
-          +same = Equal.cong(Maybe<&2, Ru.Tool>, Ru.Tool, m => Maybe.default(&2, Ru.Tool, m, t), Some{x}, Some{t}, at)
+          +same = Equal.cong(Maybe<&2, Ru.ToolReg>, Ru.ToolReg, m => Maybe.default(&2, Ru.ToolReg, m, t), Some{x}, Some{t}, at)
           %same : {Runners.main_ok(_) == True{} : Bool}
           LLogicBool.pl.and_l(Runners.main_ok(x), mr.all(rest), all)
         case 1n+p:

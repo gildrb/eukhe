@@ -68,7 +68,7 @@ def cmd_sp_next(m: Maybe<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, free: Bool, w
         case True{}:
           Cmd.Rest{q, [w]}
         case False{}:
-          Cmd.Lost{q, w}
+          Cmd.OffPath{q, w}
 
 # one typed word (not empty)
 def cmd_sp_word(s: Cmd.St, +t: List<&2, Cmd.Ent>, +w: List<&2, Nat>) -> Cmd.St:
@@ -79,8 +79,8 @@ def cmd_sp_word(s: Cmd.St, +t: List<&2, Cmd.Ent>, +w: List<&2, Nat>) -> Cmd.St:
       cmd_sp_next(Named.cmd_named(t, q, w), q, cmd_sp_free(e), w)
     case Cmd.Rest{q, ws}:
       Cmd.Rest{q, List.append(&2, List<&2, Nat>, ws, [w])}
-    case Cmd.Lost{q, x}:
-      Cmd.Lost{q, x}
+    case Cmd.OffPath{q, x}:
+      Cmd.OffPath{q, x}
     case Cmd.Stray{}:
       Cmd.Stray{}
 
@@ -93,8 +93,8 @@ def cmd_sp_gap(s: Cmd.St) -> Cmd.St:
       Cmd.Walk{q, e}
     case Cmd.Rest{q, ws}:
       Cmd.Rest{q, List.append(&2, List<&2, Nat>, ws, [Nil{}])}
-    case Cmd.Lost{q, x}:
-      Cmd.Lost{q, x}
+    case Cmd.OffPath{q, x}:
+      Cmd.OffPath{q, x}
     case Cmd.Stray{}:
       Cmd.Stray{}
 
@@ -124,7 +124,7 @@ def cmd_sp_finish(s: Cmd.St, +t: List<&2, Cmd.Ent>) -> Cmd.Res:
           Paths.cmd_ended.at(Bool.or(r, Bool.not(Paths.cmd_has_kid(t, p))), q)
     case Cmd.Rest{q, ws}:
       Cmd.Runs{q, Paths.cmd_render(ws)}
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       Cmd.Unknown{q, w}
     case Cmd.Stray{}:
       Cmd.NoCmd{}
@@ -141,7 +141,7 @@ def cmd_sp_menu.at(s: Cmd.St, +t: List<&2, Cmd.Ent>, p: List<&2, Nat>) -> Cmd.Me
       Cmd.Kids{q, Paths.cmd_rows(t, 0n, q, Paths.cmd_lower(p))}
     case Cmd.Rest{q, ws}:
       Cmd.Shut{}
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       Cmd.Shut{}
     case Cmd.Stray{}:
       Cmd.Shut{}
@@ -167,7 +167,7 @@ def cmd_sp_key.at(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, p: Lis
       Named.cmd_key_at(t, q, line, p, sel, k)
     case Cmd.Rest{q, ws}:
       Named.cmd_key_bare(t, line, k)
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       Named.cmd_key_bare(t, line, k)
     case Cmd.Stray{}:
       Named.cmd_key_bare(t, line, k)

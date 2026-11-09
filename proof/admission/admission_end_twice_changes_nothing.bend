@@ -11,9 +11,9 @@ def ad.twice(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k
     case None{}:
       LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Queued{}}}:
-      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Leave{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Depart{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Granted{}}}:
-      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Leave{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Depart{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Held{}}}:
       LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Preempted{}}}:

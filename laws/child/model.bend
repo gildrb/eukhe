@@ -139,7 +139,7 @@ law child_failed_poll_spends_try_and_time:
   for +cfg: Ch.Cfg
   for +w: Ch.W
   for +e: Nat
-  {Ch.look(cfg, w, e, Ch.Lost{}) == ChildMisses(w, e) : Ch.Next}
+  {Ch.look(cfg, w, e, Ch.PollFailed{}) == ChildMisses(w, e) : Ch.Next}
 
 # LAW child_settled_poll: a poll that reads the child settled ends the
 # watch with the child's one end, whatever the settings, clock and time.

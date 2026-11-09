@@ -82,7 +82,7 @@ def sp_shut(h: Tn.Heard) -> Tn.Shut:
       Tn.Spoke{}
     case Tn.Eof{}:
       Tn.Down{}
-    case Tn.Lost{}:
+    case Tn.Dropped{}:
       Tn.Cut{}
 
 # R3

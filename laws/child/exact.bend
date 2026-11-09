@@ -99,7 +99,7 @@ def ch_look_spec(cfg: Ch.Cfg, w: Ch.W, e: Nat, o: Ch.Obs) -> Ch.Next:
       match o:
         case Ch.Busy{+t}:
           ch_busy(ch_news(tok, t), cfg, t, tok, left, e)
-        case Ch.Lost{}:
+        case Ch.PollFailed{}:
           ch_lost(tries, tok, left, e)
         case Ch.Answered{r}:
           ch_settled(r)
@@ -144,12 +144,12 @@ def ch_spell_w(w: Ch.W, rest: String) -> String:
     case Ch.W{t, l, n}:
       ch_spell_mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)))
 
-# a poll: Busy 0 (the token) | Lost 1 | Answered 2 (T|F replied) | Broke 3 | Gone 4
+# a poll: Busy 0 (the token) | PollFailed 1 | Answered 2 (T|F replied) | Broke 3 | Gone 4
 def ch_spell_obs(o: Ch.Obs, rest: String) -> String:
   match o:
     case Ch.Busy{t}:
       Wr.put_nat(0n, ch_spell_mnat(t, rest))
-    case Ch.Lost{}:
+    case Ch.PollFailed{}:
       Wr.put_nat(1n, rest)
     case Ch.Answered{r}:
       Wr.put_nat(2n, Wr.put_bool(r, rest))
@@ -349,7 +349,7 @@ def ch_read_obs.tag(t: Nat, s: String) -> Wr.Dec<Ch.Obs>:
     case 0n:
       ch_read_obs.busy(ch_read_mnat(Wr.get_nat(s)))
     case 1n:
-      Wr.Got{Ch.Lost{}, s}
+      Wr.Got{Ch.PollFailed{}, s}
     case 2n:
       ch_read_obs.answered(Wr.get_bool(s))
     case 3n:

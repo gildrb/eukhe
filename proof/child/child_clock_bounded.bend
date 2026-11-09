@@ -26,7 +26,7 @@ def pc.look_within(o: Ch.Obs, +cfg: Ch.Cfg, +w: Ch.W, +e: Nat, +full: {Ch.within
   match o:
     case Ch.Busy{+t}:
       pc.busy_within(Ch.moved(Ch.W.tok(w), t), cfg, w, t, e, full)
-    case Ch.Lost{}:
+    case Ch.PollFailed{}:
       match w:
         case Ch.W{+tok, +l, +n}:
           match n:

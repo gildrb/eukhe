@@ -4,7 +4,7 @@
 # more and p (every word is spaceless), so the cut is (q ++ [w] ++ more,
 # p); the walk over q lands on q (the root, or q with its entry), and w,
 # naming no child of q, lands on Stray at the root, else on Rest (q takes
-# text) or Lost (B.cb_walk_miss); each stays one of those whatever
+# text) or OffPath (B.cb_walk_miss); each stays one of those whatever
 # follows (B.cb_walk_stray, B.cb_walk_rest, B.cb_walk_lost), and none of
 # them opens a menu.
 
@@ -28,7 +28,7 @@ def pms_free(b: Bool, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: Li
       %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.Rest{q, [w]}), Cmd.Rest{q, w <> more}, LA.cb_walk_rest(more, t, q, [w])) : {Cmd.menu.at(_, t, p) == Cmd.Shut{} : Cmd.Menu}
       {==}
     case False{}:
-      %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.Lost{q, w}), Cmd.Lost{q, w}, LA.cb_walk_lost(more, t, q, w)) : {Cmd.menu.at(_, t, p) == Cmd.Shut{} : Cmd.Menu}
+      %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.OffPath{q, w}), Cmd.OffPath{q, w}, LA.cb_walk_lost(more, t, q, w)) : {Cmd.menu.at(_, t, p) == Cmd.Shut{} : Cmd.Menu}
       {==}
 
 # no menu after a word that names no child of q

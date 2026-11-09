@@ -5,7 +5,7 @@ import ./child.bend as M
 # ffi_child: the child task's three decisions (bend/child.bend) as one
 # entry of the compiled Bend core. The request is a constructor:
 #   0 verdict: Cfg (stall, fails), W (tok: Maybe<Nat>, left, tries), e,
-#     Obs (Busy 0 (Maybe<Nat>) | Lost 1 | Answered 2 (Bool) | Broke 3 |
+#     Obs (Busy 0 (Maybe<Nat>) | PollFailed 1 | Answered 2 (Bool) | Broke 3 |
 #     Gone 4), Mode (Inbox 0 | Silent 1); reply: the Call (Watches 0 (W) |
 #     Reports 1 (Report) | Settles 2 (Maybe<Report>))
 #   1 move: the fate (Maybe of Queued 0 | Withdrawn 1 | Placed 2 | Read
@@ -39,7 +39,7 @@ def put_obs(o: M.Obs, rest: String) -> String:
   match o:
     case M.Busy{t}:
       W.put_nat(0n, put_maybe_nat(t, rest))
-    case M.Lost{}:
+    case M.PollFailed{}:
       W.put_nat(1n, rest)
     case M.Answered{r}:
       W.put_nat(2n, W.put_bool(r, rest))
@@ -261,7 +261,7 @@ def get_obs.tag(t: Tag, s: String) -> W.Dec<M.Obs>:
     case T0{}:
       get_obs.busy(get_maybe_nat(s))
     case T1{}:
-      W.Got{M.Lost{}, s}
+      W.Got{M.PollFailed{}, s}
     case T2{}:
       get_obs.answered(W.get_bool(s))
     case T3{}:

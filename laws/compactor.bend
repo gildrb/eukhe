@@ -228,7 +228,7 @@ def step_spec(st: C.Lst, r: C.Reply) -> C.Next:
         case 1n+q:
           match r:
             case C.Erred{}:
-              C.Ends{1n+m, C.Lost{}}
+              C.Ends{1n+m, C.Errored{}}
             case C.Says{ws}:
               match ws:
                 case Nil{}:
@@ -572,7 +572,7 @@ def spell_fin(e: C.Fin) -> String:
       Wr.put_nat(2n, "")
     case C.CutInput{t}:
       Wr.put_nat(3n, "")
-    case C.Lost{}:
+    case C.Errored{}:
       Wr.put_nat(4n, "")
 
 # the reply Rust reads: 0 the line ends after c calls, then how | 1 the

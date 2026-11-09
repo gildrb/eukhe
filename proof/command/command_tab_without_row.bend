@@ -19,7 +19,7 @@ def ktwr.at(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, p: List<&2, 
       {==}
     case Cmd.Rest{q, ws}:
       {==}
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       {==}
     case Cmd.Stray{}:
       {==}

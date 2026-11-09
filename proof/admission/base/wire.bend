@@ -47,8 +47,8 @@ def Admission.adw_op_round_trip(o, rest, h):
     case Ad.Release{+k}:
       %paw.nat(k, rest, h) : {FAd.get_op.k(_, 1n) == Wr.Got{Ad.Release{k}, rest} : Wr.Dec<Ad.Op>}
       {==}
-    case Ad.Leave{+k}:
-      %paw.nat(k, rest, h) : {FAd.get_op.k(_, 2n) == Wr.Got{Ad.Leave{k}, rest} : Wr.Dec<Ad.Op>}
+    case Ad.Depart{+k}:
+      %paw.nat(k, rest, h) : {FAd.get_op.k(_, 2n) == Wr.Got{Ad.Depart{k}, rest} : Wr.Dec<Ad.Op>}
       {==}
     case Ad.Limit{+l, +q}:
       +r = rest

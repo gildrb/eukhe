@@ -71,7 +71,7 @@ def tz.step(ph: Tn.Phase, s: Tn.Seen, +m: String, +rest: List<&2, Tn.Seen>, ih: 
               tz.over(rest, m)
             case Tn.Eof{}:
               ih(Tn.Launching{Tn.Again{}})
-            case Tn.Lost{}:
+            case Tn.Dropped{}:
               tz.over(rest, m)
         case Tn.Came{+l}:
           ih(Tn.Shutting{})

@@ -196,7 +196,7 @@ type Fin is Data:
   CutReply{text: List<&2, W>}
   CutBest{text: List<&2, W>}
   CutInput{text: List<&2, W>}
-  Lost{}
+  Errored{}
 
 # after a reply: the line ends after so many calls, or the next call goes
 type Next is Data:
@@ -226,7 +226,7 @@ def Fin.line(+node: Nat, e: Fin) -> Maybe<&2, List<&2, W>>:
       Some{cut(b, node)}
     case CutInput{i}:
       Some{cut(i, node)}
-    case Lost{}:
+    case Errored{}:
       None{}
 
 # with tries left, the next call goes; with none, the line ends
@@ -260,7 +260,7 @@ def line.step(st: Lst, r: Reply) -> Next:
         case 1n+p:
           match r:
             case Erred{}:
-              Ends{1n+made, Lost{}}
+              Ends{1n+made, Errored{}}
             case Says{ws}:
               match ws:
                 case Nil{}:

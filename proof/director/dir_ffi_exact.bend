@@ -205,7 +205,7 @@ def de.go(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, +stay: B
               {==}
             case Dr.Stack{n}:
               de.push(l, n, rest, room)
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               de.go(rest, vr, room, stay)
             case Dr.Abort{}:
               {==}

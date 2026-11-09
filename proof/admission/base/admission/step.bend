@@ -22,7 +22,7 @@ def ad.step_ok(s: Ad.St, o: Ad.Op, +h: {LALogic.ad.okS(s) == True{} : Bool}) -> 
           LAAdmissionCollect.ad.col_ok(Ad.get(ts, k), l, q, ts, k, {==}, h)
         case Ad.Release{+k}:
           LAAdmissionRelease.ad.rel_ok(Ad.get(ts, k), l, q, ts, k, {==}, h)
-        case Ad.Leave{+k}:
+        case Ad.Depart{+k}:
           LAAdmissionPick.ad.lea_ok(Ad.get(ts, k), l, q, ts, k, {==}, h)
         case Ad.Limit{+l2, q2}:
           LAAdmissionPick.ad.grant_ok(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, {==}, LAAdmissionLe.ad.le_refl(Ad.waits(ts)), LAAdmissionCalm.ad.calm_of(l, ts, h))

@@ -120,7 +120,7 @@ def pas.step(s: Ad.St, o: Ad.Op) -> {Ad.step(s, o) == Admission.ads_step(s, o) :
           pas.collect(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
         case Ad.Release{+k}:
           pas.release(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
-        case Ad.Leave{+k}:
+        case Ad.Depart{+k}:
           pas.leave(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
         case Ad.Limit{+l2, q2}:
           %PG.pag.grant(l2, ts) : {Ad.St{l2, q2, Ad.grant(l2, ts)} == Ad.St{l2, q2, _} : Ad.St}

@@ -164,9 +164,9 @@ def put_gate(g: Ru.Gate, rest: String) -> String:
     case Ru.EachCall{}:
       W.put_nat(2n, rest)
 
-def put_tool(t: Ru.Tool, rest: String) -> String:
+def put_tool(t: Ru.ToolReg, rest: String) -> String:
   match t:
-    case Ru.Tool{n, c, g}:
+    case Ru.ToolReg{n, c, g}:
       W.put_str(n, W.put_list(~Nat, ~W.put_nat, c, put_gate(g, rest)))
 
 # the model's decision on a request, encoded
@@ -177,9 +177,9 @@ def answer(q: Req) -> String:
     case QCell{c, +a, k}:
       put_out(Ru.cell(c, a, k), "")
     case QRegistry{}:
-      W.put_list(~Ru.Tool, ~put_tool, Ru.registry(), "")
+      W.put_list(~Ru.ToolReg, ~put_tool, Ru.registry(), "")
     case QMain{h}:
-      W.put_list(~Ru.Tool, ~put_tool, Ru.main_roster(h), "")
+      W.put_list(~Ru.ToolReg, ~put_tool, Ru.main_roster(h), "")
 
 def malformed() -> String:
   W.err("runners: malformed request")

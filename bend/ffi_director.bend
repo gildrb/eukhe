@@ -6,7 +6,7 @@
 #   cap: Nat, loop: Loop, verdicts: List<Verdict>
 # with
 #   Layer   = a record (kind: Nat, budget: Nat)
-#   Verdict = tag 0 Defer | 1 Again | 2 Yield | 3 Stack (Layer) | 4 Leave
+#   Verdict = tag 0 Defer | 1 Again | 2 Yield | 3 Stack (Layer) | 4 Unstack
 #             | 5 Abort | 6 Lead
 #   Out     = tag 0 Cont | 1 Hand | 2 Failed
 #   Loop    = a record (left: Nat, stack: List<Layer> top first,
@@ -55,7 +55,7 @@ def put_verdict(v: D.Verdict, rest: String) -> String:
       W.put_nat(2n, rest)
     case D.Stack{l}:
       W.put_nat(3n, put_layer(l, rest))
-    case D.Leave{}:
+    case D.Unstack{}:
       W.put_nat(4n, rest)
     case D.Abort{}:
       W.put_nat(5n, rest)
@@ -80,7 +80,7 @@ def get_verdict.tag(t: Nat, s: String) -> W.Dec<D.Verdict>:
     case 3n:
       get_verdict.stack(get_layer(s))
     case 4n:
-      W.Got{D.Leave{}, s}
+      W.Got{D.Unstack{}, s}
     case 5n:
       W.Got{D.Abort{}, s}
     case 6n:

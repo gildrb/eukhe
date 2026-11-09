@@ -15,7 +15,7 @@
 #           | 4 (the bind lock is held)
 #   Probe   0 Missing | 1 Unreachable | 2 Pong{tag: String} | 3 Odd
 #           | 4 Garbled | 5 Hung
-#   Heard   0 Bye | 1 Other | 2 Eof | 3 Lost
+#   Heard   0 Bye | 1 Other | 2 Eof | 3 Dropped
 #   Launch  0 Bound | 1 Adopted
 #   Do      0 Ping | 1 Shutdown | 2 Launch | 3 Use, Got | 4 Fail, Why
 #           | 5 Lock | 6 Adopt | 7 Take | 8 Fault | 9 Nothing
@@ -76,7 +76,7 @@ def get_heard.tag(t: Nat, s: String) -> W.Dec<Tn.Heard>:
     case 2n:
       W.Got{Tn.Eof{}, s}
     case 3n:
-      W.Got{Tn.Lost{}, s}
+      W.Got{Tn.Dropped{}, s}
     case 4n+u:
       W.Bad{}
 

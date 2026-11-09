@@ -73,7 +73,7 @@ def tr.shutting(+m: String, s: Tn.Seen) -> {TinyRun.tr_allowed(m, s, TinyRun.tr_
           {==}
         case Tn.Eof{}:
           {==}
-        case Tn.Lost{}:
+        case Tn.Dropped{}:
           {==}
     case Tn.Came{l}:
       {==}

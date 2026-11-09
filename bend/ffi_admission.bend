@@ -70,7 +70,7 @@ def put_op(o: M.Op, rest: String) -> String:
       W.put_nat(1n, W.put_nat(k, rest))
     case M.Release{k}:
       W.put_nat(2n, W.put_nat(k, rest))
-    case M.Leave{k}:
+    case M.Depart{k}:
       W.put_nat(3n, W.put_nat(k, rest))
     case M.Limit{l, q}:
       W.put_nat(4n, put_lim(l, W.put_nat(q, rest)))
@@ -226,7 +226,7 @@ def get_op.k(r: W.Dec<Nat>, t: Nat) -> W.Dec<M.Op>:
             case 0n:
               W.Got{M.Release{k}, s}
             case 1n+b:
-              W.Got{M.Leave{k}, s}
+              W.Got{M.Depart{k}, s}
     case W.Bad{}:
       W.Bad{}
 

@@ -48,7 +48,7 @@ def pwh.word(s: Cmd.St, +t: List<&2, Cmd.Ent>, +w: List<&2, Nat>) -> {Cmd.step.w
       pwh.next(CommandNamed.cmd_named(t, q, w), q, CommandWhole.cmd_sp_free(e), w)
     case Cmd.Rest{q, ws}:
       {==}
-    case Cmd.Lost{q, x}:
+    case Cmd.OffPath{q, x}:
       {==}
     case Cmd.Stray{}:
       {==}
@@ -61,7 +61,7 @@ def pwh.gap(s: Cmd.St) -> {Cmd.step.empty(s) == CommandWhole.cmd_sp_gap(s) : Cmd
       {==}
     case Cmd.Rest{q, ws}:
       {==}
-    case Cmd.Lost{q, x}:
+    case Cmd.OffPath{q, x}:
       {==}
     case Cmd.Stray{}:
       {==}
@@ -100,7 +100,7 @@ def pwh.finish(s: Cmd.St, +t: List<&2, Cmd.Ent>) -> {Cmd.finish(s, t) == Command
           pwh.fin_at(Bool.or(r, Bool.not(Command.cmd_has_kid(t, p))), q)
     case Cmd.Rest{+q, +ws}:
       Equal.cong(List<&2, Nat>, Cmd.Res, z => Cmd.Runs{q, z}, Cmd.join(ws), Command.cmd_render(ws), LA.cb_join(ws))
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       {==}
     case Cmd.Stray{}:
       {==}
@@ -136,7 +136,7 @@ def pwh.menu_at(s: Cmd.St, +t: List<&2, Cmd.Ent>, +p: List<&2, Nat>) -> {Cmd.men
       {==}
     case Cmd.Rest{q, ws}:
       {==}
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       {==}
     case Cmd.Stray{}:
       {==}
@@ -163,7 +163,7 @@ def pwh.key_at(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List<
       LANamed.nm_key_row(sel, t, q, line, p, k)
     case Cmd.Rest{q, ws}:
       LANamed.nm_bare(k, t, line)
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       LANamed.nm_bare(k, t, line)
     case Cmd.Stray{}:
       LANamed.nm_bare(k, t, line)

@@ -8,7 +8,7 @@ import ../base/nat.bend as LNat
 # The strict schema budget
 # ------------------------
 
-def pi.take_len(xs: List<&2, If.Tool>, n: Nat) -> {Nat.is_le(List.length(&2, If.Tool, List.take(&2, If.Tool, xs, n)), n) == True{} : Bool}:
+def pi.take_len(xs: List<&2, If.ToolPrio>, n: Nat) -> {Nat.is_le(List.length(&2, If.ToolPrio, List.take(&2, If.ToolPrio, xs, n)), n) == True{} : Bool}:
   match xs n:
     case Nil{} _:
       LNat.pi.le0(n)
@@ -17,7 +17,7 @@ def pi.take_len(xs: List<&2, If.Tool>, n: Nat) -> {Nat.is_le(List.length(&2, If.
     case h <> t 1n+p:
       pi.take_len(t, p)
 
-def pi.strict_within_cap(+cap: Nat, +ts: List<&2, If.Tool>) -> {Nat.is_le(List.length(&2, If.Tool, Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))), cap) == True{} : Bool}:
+def pi.strict_within_cap(+cap: Nat, +ts: List<&2, If.ToolPrio>) -> {Nat.is_le(List.length(&2, If.ToolPrio, Pair.fst(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict(cap, ts))), cap) == True{} : Bool}:
   pi.take_len(If.rank(ts), cap)
 
 def Infer.strict_within_cap(cap, ts):

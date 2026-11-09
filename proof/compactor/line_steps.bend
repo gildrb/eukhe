@@ -83,7 +83,7 @@ def lsx.go(t: Nat, +made: Nat, +node: Nat, +best: Maybe<&2, List<&2, C.W>>, +bl:
         case r <> +rest:
           match r:
             case C.Erred{}:
-              lsx.ends(rest, 1n+made, C.Lost{}, node)
+              lsx.ends(rest, 1n+made, C.Errored{}, node)
             case C.Says{ws}:
               match ws:
                 case Nil{}:

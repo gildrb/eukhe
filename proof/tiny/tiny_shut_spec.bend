@@ -12,5 +12,5 @@ def Tiny.tiny_shut_spec(h):
       {==}
     case Tn.Eof{}:
       {==}
-    case Tn.Lost{}:
+    case Tn.Dropped{}:
       {==}

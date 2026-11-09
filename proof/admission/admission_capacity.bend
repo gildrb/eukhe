@@ -330,7 +330,7 @@ def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)),
           ad.cap_col(Ad.get(ts, k), l, q, ts, k, {==})
         case Ad.Release{+k}:
           ad.cap_rel(Ad.get(ts, k), l, q, ts, k, {==})
-        case Ad.Leave{+k}:
+        case Ad.Depart{+k}:
           ad.cap_lea(Ad.get(ts, k), l, q, ts, k, {==})
         case Ad.Limit{+l2, q2}:
           ad.cap_after(l2, ts, ts, 0n, LANat.ad.add_zero(Ad.held(ts)))
