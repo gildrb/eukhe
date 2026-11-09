@@ -796,41 +796,44 @@ fn print_mode_json_streams_the_message_update_deltas() {
     assert_eq!(text(&events[end_at]), ANSWER);
 }
 
-/// The threshold compaction (pi-durable's pre-request check): a prompt whose
-/// context crosses the reserve headroom compacts before its request, so the
-/// `compaction_start`/`compaction_end` pair with the `threshold` reason, the
-/// client-facing result, and `willRetry: false` streams inside that run,
-/// between its user message and the answer.
+/// The threshold compaction (pi-durable's pre-request check): once a turn's
+/// context crossed the reserve headroom, the next run compacts before its
+/// first request, so the `compaction_start`/`compaction_end` pair with the
+/// `threshold` reason, the client-facing result, and `willRetry: false`
+/// streams inside that run, between its user message and the answer.
 #[test]
 fn print_mode_json_streams_the_threshold_compaction_pair() {
     let home = isolated_home();
     write_compaction_settings(
         home.path(),
         &serde_json::json!({
-            "compaction": { "enabled": true, "reserveTokens": 8192, "keepRecentTokens": 10 }
+            "compaction": { "enabled": true, "reserveTokens": 10_000, "keepRecentTokens": 10 }
         }),
     );
     // A small context window so the crossing turn crosses the blocking
-    // threshold and stays inside the window: the blocking threshold is
-    // 24k window - 8_192 reserve = 15_808 tokens; the ~5.5k-token seed
-    // request stays below it, and the ~13.7k-token crossing turn pushes
-    // the context (~23.3k) past it (the faux provider estimates usage
-    // from the serialized context). The background threshold alone
-    // compacts no more: its cut cannot bring this context down to the
-    // target, since the crossing turn alone is past it.
+    // threshold while its own request stays inside the window: the
+    // blocking threshold is 24k window - 10k reserve = 14k tokens. The
+    // thresholds read the context the last turn reached, as the provider
+    // counted it (the faux provider estimates usage from the serialized
+    // context): the ~5k-token seed turn stays below it, the ~11k-token
+    // crossing message takes the crossing turn (~16k) past it without
+    // putting its request past the window (which would compact inside the
+    // crossing run), and the next run compacts before its first request.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [
             {"text": "seed reply"},
-            {"text": "the compaction summary"},
             {"text": "crossing reply"},
+            {"text": "the compaction summary"},
+            {"text": "after reply"},
         ]
     });
     let first = "seed turn".to_string();
-    let second = format!("crossing turn {}", "x".repeat(48_000));
+    let second = format!("crossing turn {}", "x".repeat(44_000));
+    let third = "after the crossing".to_string();
     let (stdout, stderr, code) = run_in_home(
         home.path(),
-        &["--mode", "json", "-p", &first, &second],
+        &["--mode", "json", "-p", &first, &second, &third],
         &script,
     );
     assert_eq!(code, 0, "stderr: {stderr}");
@@ -847,26 +850,34 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
         events[start_at],
         serde_json::json!({ "type": "compaction_start", "reason": "threshold" })
     );
-    // The pair runs inside the crossing run: after its user message, before
-    // its answer.
+    // The pair runs inside the run after the crossing turn, the only
+    // compaction: after that run's user message, before its answer.
     let last_user_end = events
         .iter()
         .rposition(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
-        .expect("the crossing user message");
+        .expect("the last user message");
     let answer_at = events
         .iter()
         .rposition(|event| {
             event["type"] == "message_start" && event["message"]["role"] == "assistant"
         })
-        .expect("the crossing answer");
+        .expect("the last answer");
     assert!(last_user_end < start_at);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["type"] == "compaction_start")
+            .count(),
+        1,
+        "one compaction"
+    );
     assert_eq!(
         events
             .iter()
             .filter(|event| event["type"] == "turn_start")
             .count(),
-        2,
-        "exactly two runs"
+        3,
+        "exactly three runs"
     );
     let end_at = events
         .iter()
@@ -1056,7 +1067,8 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         "stderr: {stderr}"
     );
 
-    // The flag conflicts still refuse (TS validateForkFlags).
+    // The flag conflicts still refuse (TS validateForkFlags), as a usage
+    // error (exit 2).
     let (stdout, stderr, code) = run_in_home(
         home.path(),
         &[
@@ -1069,7 +1081,7 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         ],
         &script,
     );
-    assert_eq!(code, 1);
+    assert_eq!(code, 2);
     assert!(stdout.is_empty());
     assert!(
         stderr.contains("--fork cannot be combined with --resume"),

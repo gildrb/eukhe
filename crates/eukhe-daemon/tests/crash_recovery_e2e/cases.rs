@@ -14,7 +14,7 @@ const COMPACTION_RESERVE: u64 = 4_000;
 const TURN_PAD: usize = 600;
 
 /// A message long enough (over one 512-byte tree line) that the chat
-/// compactor summarizes it.
+/// compactor summarizes it, once a request shows its line.
 const NODE_PAD: usize = 120;
 
 fn run_case(phase: Phase, target: Target) {
@@ -28,7 +28,14 @@ fn run_case(phase: Phase, target: Target) {
                 "keepRecentTokens": 10,
             }}),
         ),
-        Phase::Stream | Phase::Tool | Phase::MemoryNode => (0, 128_000, json!({})),
+        // The memory phase compacts its long message out of the transcript
+        // by hand: a cut keeping almost nothing scrolls it out.
+        Phase::MemoryNode => (
+            0,
+            128_000,
+            json!({ "compaction": { "keepRecentTokens": 10 }}),
+        ),
+        Phase::Stream | Phase::Tool => (0, 128_000, json!({})),
     };
     let mut world = World::new(window, &settings);
     let mut client = world.connect();
@@ -71,7 +78,28 @@ fn run_case(phase: Phase, target: Target) {
             message
         }
         Phase::MemoryNode => {
-            let message = prompt("crash", &[], NODE_PAD);
+            // The chat compactor builds a tree line only once a request
+            // shows it (the due mark): the long message is logged, a
+            // compaction scrolls it out of the transcript, and the next
+            // turn's request waits on its line while that call holds.
+            let long = prompt("long", &[], NODE_PAD);
+            run_turn(&mut client, &session_id, &long);
+            prompts.push(long);
+            world.mock.open_gate(SUMMARIZER_GATE);
+            let compacted = client.request(
+                &json!({ "type": "compact", "activeSessionId": session_id }),
+                WAIT,
+            );
+            assert_eq!(compacted["success"], true, "compact: {compacted}");
+            assert!(
+                !world
+                    .mock
+                    .log()
+                    .iter()
+                    .any(|entry| entry.request.kind == RequestKind::MemoryNode),
+                "no tree line is built before a request shows it"
+            );
+            let message = prompt("crash", &[], 0);
             client.send(
                 &json!({ "type": "prompt", "activeSessionId": session_id, "message": message }),
             );

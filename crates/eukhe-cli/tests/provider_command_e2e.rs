@@ -138,7 +138,8 @@ fn provider_caps_rejects_an_unknown_provider() {
         (
             Some(1),
             String::new(),
-            "Error: Unknown provider: no-such-provider\n".to_string(),
+            "Error: Couldn't find provider no-such-provider in the catalog. The providers with chat models:\n    eukhe provider caps\n"
+                .to_string(),
         )
     );
 }
@@ -157,7 +158,8 @@ fn provider_models_lists_the_mock_servers_models() {
         ),
         (
             Some(0),
-            "id        name  context  max-out\nqwen3-8b  -     -        -\n".to_string(),
+            // Piped stdout: the header kept, the columns one tab apart.
+            "id\tname\tcontext\tmax-out\nqwen3-8b\t-\t-\t-\n".to_string(),
             String::new(),
         )
     );

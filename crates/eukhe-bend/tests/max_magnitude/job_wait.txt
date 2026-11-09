@@ -1,6 +1,26 @@
-# one poll of a blocking wait: no number in the request
-call TT
-call TF
-call FT
-call FF
-refuse {LONG},
+# the stepper of one blocking wait: the budget in ticks is its only
+# number; each tick spends one, the end spends none, and once the call
+# settles or detaches every later event answers that turn
+# the largest budget: ticks, the end, then a tick after it settled
+open {MAX},
+step 0,
+step 0,
+step 1,
+step 0,
+# the largest budget, the end before any tick
+open {MAX},
+step 1,
+# no budget: detached at the open
+open 0,
+step 1,
+# a malformed event (a tag past 1, a 15-digit tag, input left over) keeps
+# the state
+open {MAX},
+refuse-step 2,
+refuse-step {MAX},
+refuse-step {LONG},
+refuse-step 0,x
+step 0,
+# a 15-digit budget: the open is refused, and so is every step after it
+refuse-open {LONG},
+refuse-step 0,

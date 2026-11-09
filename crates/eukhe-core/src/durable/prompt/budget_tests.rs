@@ -6,7 +6,7 @@
 //! the prompt elsewhere, or raise the budget in the same change), never a
 //! drift. The 56 KB system prompt plus 23.5 KB of tools of 2026-11-01 was
 //! such a drift. The user's own skills (`~/.agents/skills` of the HOME the
-//! tests run in) are left out of the count.
+//! tests run in) are left out of the count; eukhe's bundled skills count.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -23,13 +23,15 @@ use eukhe_types::pi_ai::Tool;
 
 use crate::durable::{open_session, SessionConfig, SessionStorage};
 use crate::memory::{Memory, ResponseStarted, Summarizer, SummarizerFuture};
+use crate::packages::get_bundled_skills_dir;
 
 /// The most bytes eukhe's own system prompt and tool schemas may take in
 /// one request of a default root session (chat memory on, as the daemon
-/// and headless runs open it): the 20,258 bytes measured after the prompt
-/// and tool trims of 2026-11-02 (system prompt 7,996, tool schemas 12,262;
-/// omp sends 18,781 and 18,328), plus 5%.
-const PROMPT_BUDGET_BYTES: usize = 21_300;
+/// and headless runs open it): what release v0.10.67 (f58acb642) sends,
+/// its bundled skills counted: 21,926 bytes (system prompt 9,490, tool
+/// schemas 12,436). No headroom: the prompt does not grow past the
+/// release unless a change decides it.
+const PROMPT_BUDGET_BYTES: usize = 21_926;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -131,25 +133,30 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
     );
 }
 
-/// The system prompt without the skills inventory groups under the HOME
-/// the tests run in (`~/.agents/skills/<name>/SKILL.md:`): those skills are
-/// the user's, not eukhe's, and differ from machine to machine.
+/// The system prompt without the user's skills: the inventory groups under
+/// the HOME the tests run in (`~/.agents/skills/<name>/SKILL.md:`) differ
+/// from machine to machine. eukhe's own bundled skills
+/// (`get_bundled_skills_dir`) stay, wherever the checkout lives (also
+/// under HOME), with their directory written `skills/`: every user gets
+/// their inventory, and only the checkout's path differs.
 fn without_user_skills(system: &str) -> String {
-    let Some(home) = std::env::var_os("HOME") else {
-        return system.to_owned();
-    };
-    let home = home.to_string_lossy();
+    let bundled = format!("{}/", get_bundled_skills_dir().display());
+    let home = std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned());
     let mut skipping = false;
     let kept: Vec<&str> = system
         .split('\n')
         .filter(|line| {
             if line.starts_with('/') && line.ends_with("SKILL.md:") {
-                skipping = line.starts_with(home.as_ref());
+                skipping = home
+                    .as_deref()
+                    .is_some_and(|home| line.starts_with(home) && !line.starts_with(&bundled));
             } else if *line == "</skills>" {
                 skipping = false;
             }
             !skipping
         })
         .collect();
-    kept.join("\n").replace("\n\n<skills>\n</skills>", "")
+    kept.join("\n")
+        .replace("\n\n<skills>\n</skills>", "")
+        .replace(&bundled, "skills/")
 }

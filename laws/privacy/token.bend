@@ -13,9 +13,10 @@ import ../../spec/harness/privacy_map.bend as Sm
 # model read the token, wrote it back in an edit, and the file kept it.
 # And the failover re-dispatch scrubbed the already scrubbed context, so a
 # local sibling read tokens. The token map now runs as the compiled core
-# (bend/ffi_privacy.bend's stepper, held by eukhe-ai privacy/mod.rs for
-# the daemon's life): one step asks the tokens of a text's values
-# (Tk.scrub_vals), one the values of a text's tokens (Tk.restore_toks); a
+# (bend/ffi_privacy.bend's stepper, one per session: eukhe-ai
+# privacy/mod.rs `TokenMap`, for the session's life): one step asks the
+# tokens of a text's values (Tk.scrub_vals), one the values of a text's
+# tokens (Tk.restore_toks); a
 # text as Rust reads it is a list of pieces (Tk.scrub, Tk.restore are those
 # steps over it). spec/harness/privacy.bend restates the rule (S4-S6).
 # Every input is free: any map, any text, any answer, any failover.

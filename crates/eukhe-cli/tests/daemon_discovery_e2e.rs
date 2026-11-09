@@ -381,9 +381,10 @@ fn doctor_lists_and_then_reaps_an_idle_root_owned_daemon() {
     wait_until_stopped(&socket, &mut daemon);
 }
 
-/// `shutdown` without `--force` demands confirmation: no TTY on stdin is the
-/// router error, `--json` without force is the JSON confirmation error. The
-/// daemon survives both.
+/// `shutdown` without `--force` demands confirmation, and its absence is
+/// missing input (exit 2): no TTY on stdin is the router error, `--json`
+/// without force is the one-line JSON error document on stderr with stdout
+/// empty. The daemon survives both.
 #[test]
 fn shutdown_without_force_requires_confirmation_and_harms_nothing() {
     let fixture = tempfile::tempdir().expect("fixture");
@@ -393,7 +394,7 @@ fn shutdown_without_force_requires_confirmation_and_harms_nothing() {
 
     // Non-interactive stdin: the router refuses before any discovery.
     let tty_error = run_cli(fixture.path(), &["shutdown"]);
-    assert_eq!(tty_error.status.code(), Some(1));
+    assert_eq!(tty_error.status.code(), Some(2));
     assert!(
         stderr(&tty_error).contains(
             "Shutdown requires confirmation in an interactive terminal. Use \"eukhe shutdown --force\"."
@@ -404,30 +405,27 @@ fn shutdown_without_force_requires_confirmation_and_harms_nothing() {
     );
     assert!(UnixStream::connect(&socket).is_ok());
 
-    // JSON without force: the daemon is counted, the report demands --force.
+    // JSON without force: the one stderr error document asks for --force,
+    // stdout stays empty.
     let json_error = run_cli(fixture.path(), &["shutdown", "--json"]);
-    assert_eq!(json_error.status.code(), Some(1));
-    let report: Value = serde_json::from_str(&stdout(&json_error)).expect("json report");
-    let failed = report
-        .get("failed")
-        .and_then(Value::as_array)
-        .expect("failed rows");
-    assert_eq!(failed.len(), 1, "report: {}", stdout(&json_error));
+    assert_eq!(json_error.status.code(), Some(2));
     assert_eq!(
-        failed[0].get("socketPath").and_then(Value::as_str),
-        Some(socket.to_string_lossy().as_ref())
+        stdout(&json_error),
+        "",
+        "a failed --json run prints no stdout"
     );
+    let report: Value =
+        serde_json::from_str(stderr(&json_error).trim()).expect("one JSON error document");
+    assert_eq!(report["status"], "action_required", "report: {report}");
     assert_eq!(
-        failed[0].get("reason").and_then(Value::as_str),
-        Some("confirmation required; use \"eukhe shutdown --force --json\"")
+        report["reason"], "confirmation_required",
+        "report: {report}"
     );
     assert!(
-        report
-            .get("stopped")
-            .and_then(Value::as_array)
-            .is_none_or(Vec::is_empty),
-        "stopped rows: {}",
-        stdout(&json_error)
+        report["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("--force")),
+        "report: {report}"
     );
 
     // The daemon is untouched by both refusals.
@@ -456,7 +454,12 @@ fn discovery_and_shutdown_from_another_root_leave_a_foreign_daemon_alive() {
         "status stderr: {}",
         stderr(&status)
     );
-    assert_eq!(stdout(&status).trim(), "[]");
+    let listed: Value = serde_json::from_str(stdout(&status).trim()).expect("status json");
+    assert_eq!(
+        listed,
+        serde_json::json!({ "services": [] }),
+        "status: {listed}"
+    );
 
     // `shutdown --force --json` from root B: succeeds, reports nothing, and
     // reports no socket outside fixture B (a containment regression would
