@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW rebase_ambiguous_refused
 #
-# PROOF: the rule is the spec's (rebase_refines); the edit is valid and
+# PROOF: the rule is the spec's (rr.refines); the edit is valid and
 # the head differs, so the edit tries its contexts: at each the head holds
 # two copies or more, so the step goes on (ra.step, ra.win), and past the
 # last context the edit is Ambiguous (ra.go, by induction on the fuel).
@@ -10,7 +10,7 @@ import ../../bend/rebase.bend as R
 import ../../spec/harness/rebase.bend as RbSpec
 import ../../laws/rebase.bend as Rebase
 import ./base.bend as LR
-import ./rebase_refines.bend as PRebaseRefines
+import ./base/refines.bend as LRR
 
 def ra.step(ch: List<&2, Nat>, cb: List<&2, Nat>, +la: Bool, +ha: Bool, +wl: Nat, +hl: Nat, +bl: Nat, +off: Nat, +len: Nat, ls: List<&2, Nat>, +i: Nat, -next: Unit -> R.Land, tw: {RbSpec.two(ch) == True{} : Bool}, e: {next(Unit{}) == R.Fails{R.Ambiguous{i}} : R.Land}) -> {RbSpec.step(ch, cb, la, ha, wl, hl, bl, off, len, ls, i, next) == R.Fails{R.Ambiguous{i}} : R.Land}:
   match ch:
@@ -46,7 +46,7 @@ def ra.land(e: R.Edit, +b: List<&2, Nat>, +h: List<&2, Nat>, +i: Nat, many: {RbS
 def Rebase.rebase_ambiguous_refused(b, h, e, ok, stale, many):
   +l = {[e] : List<&2, R.Edit>}
   +n = List.length(&2, Nat, b)
-  %Equal.sym(R.Outcome, R.rebase(b, h, l), RbSpec.rebase(b, h, l), Rebase.rebase_refines(b, h, l)) : {_ == R.Conflict{R.Ambiguous{0n}} : R.Outcome}
+  %Equal.sym(R.Outcome, R.rebase(b, h, l), RbSpec.rebase(b, h, l), LRR.rr.refines(b, h, l)) : {_ == R.Conflict{R.Ambiguous{0n}} : R.Outcome}
   %Equal.sym(Maybe<&2, Nat>, RbSpec.bad(l, n), None{}, LR.rb.none_true(RbSpec.bad(l, n), ok)) : {RbSpec.rebase.of(_, RbSpec.same(b, h), b, h, l) == R.Conflict{R.Ambiguous{0n}} : R.Outcome}
   %Equal.sym(Bool, RbSpec.same(b, h), False{}, stale) : {RbSpec.rebase.of(None{}, _, b, h, l) == R.Conflict{R.Ambiguous{0n}} : R.Outcome}
   %Equal.sym(R.Land, RbSpec.land(b, h, e, 0n), R.Fails{R.Ambiguous{0n}}, ra.land(e, b, h, 0n, many)) : {RbSpec.crossed(RbSpec.land_all.of(_, R.Rebased{Nil{}}), List.length(&2, Nat, h)) == R.Conflict{R.Ambiguous{0n}} : R.Outcome}

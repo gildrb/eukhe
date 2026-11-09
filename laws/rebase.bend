@@ -15,14 +15,15 @@ import ../spec/harness/rebase.bend as RbSpec
 # snapshot: omp² "documents checked out", the 3-way rebase). Every input is
 # free: any base, head and edits, sorted or not.
 #
-# R1: the rebase is the spec's (spec/harness/rebase.bend S1-S5): the edits
-#     are sorted and apart or Invalid at the first that is not; a head that
-#     is the base takes them unchanged; each edit is found in the head by
-#     its window (its lines with 0 to 8 lines of context, anchored at the
-#     file's ends), landing only where the base and the head each hold
-#     exactly one copy, else Moved (no copy in the head) or Ambiguous (two
-#     or more at every context); the first failure refuses all; landed
-#     edits that cross are refused.
+# R1: the rebase follows spec/harness/rebase.bend S1-S5: the edits are
+#     sorted and apart or Invalid at the first that is not
+#     (rebase_invalid_first); a head that is the base takes them unchanged
+#     (R2); each edit is found in the head by its window (its lines with 0
+#     to 8 lines of context, anchored at the file's ends), landing only
+#     where the base and the head each hold exactly one copy, else Moved
+#     (no copy in the head) or Ambiguous (two or more at every context)
+#     (R3-R5); the edits are decided each alone, the first failure refuses
+#     all, landed edits that cross are refused (rebase_each_alone).
 # R2: a head that is the base takes valid edits unchanged.
 # R3: a stale edit whose lines the head left in place (found once in the
 #     base, at the edit, and once in the head) lands there with the same
@@ -38,7 +39,7 @@ import ../spec/harness/rebase.bend as RbSpec
 #     3-way merge: the head's change kept outside, the session's inside).
 # R7: the entry answers each request Rust writes (the base, the head and
 #     the flat edits as List<Nat>: start, end, the count of lines, the
-#     lines; every number within the wire) with the spec's answer within
+#     lines; every number within the wire) with the rule's answer within
 #     the work bound (the edits times the lines of base and head at most
 #     1048576, else TooLarge): `0,` then the flat edits, or `1,` then the
 #     refusal's tag (0 Invalid, 1 Moved, 2 Ambiguous, 3 Crossed, each with
@@ -100,13 +101,80 @@ def rb_work_max() -> Nat:
 def rb_bounded.of(ok: Bool, +b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> R.Outcome:
   match ok:
     case True{}:
-      RbSpec.rebase(b, h, es)
+      R.rebase(b, h, es)
     case False{}:
       R.Conflict{R.TooLarge{}}
 
-# the spec's answer within the work bound
+# the rule's answer within the work bound
 def rb_answer(+b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> R.Outcome:
   rb_bounded.of(Nat.is_le(Nat.mul(List.length(&2, R.Edit, es), Nat.add(List.length(&2, Nat, b), List.length(&2, Nat, h))), rb_work_max()), b, h, es)
+
+# Spec helpers: the rule's refusals
+# ---------------------------------
+
+# the edit an Invalid refusal names; none for any other answer
+def rb_invalid(o: R.Outcome) -> Maybe<&2, Nat>:
+  match o:
+    case R.Rebased{fs}:
+      None{}
+    case R.Conflict{w}:
+      match w:
+        case R.Invalid{i}:
+          Some{i}
+        case R.Moved{i}:
+          None{}
+        case R.Ambiguous{i}:
+          None{}
+        case R.Crossed{i}:
+          None{}
+        case R.TooLarge{}:
+          None{}
+
+# a refusal's reason, naming the i-th edit
+def rb_at(w: R.Why, +i: Nat) -> R.Why:
+  match w:
+    case R.Invalid{k}:
+      R.Invalid{i}
+    case R.Moved{k}:
+      R.Moved{i}
+    case R.Ambiguous{k}:
+      R.Ambiguous{i}
+    case R.Crossed{k}:
+      R.Crossed{i}
+    case R.TooLarge{}:
+      R.TooLarge{}
+
+# S5 for one edit: o is the rebase of the i-th edit alone, r the answer
+# for the edits after it; the edit it lands as joins r, its refusal
+# refuses them all, naming the i-th edit
+def rb_alone.at(o: R.Outcome, +i: Nat, r: R.Outcome) -> R.Outcome:
+  match o:
+    case R.Rebased{fs}:
+      match fs:
+        case Nil{}:
+          r
+        case Con{f, more}:
+          match r:
+            case R.Rebased{gs}:
+              R.Rebased{f <> gs}
+            case R.Conflict{w}:
+              R.Conflict{w}
+    case R.Conflict{w}:
+      R.Conflict{rb_at(w, i)}
+
+# the edits es (the first is the i-th) each rebased alone onto h
+def rb_alone.go(+b: List<&2, Nat>, +h: List<&2, Nat>, es: List<&2, R.Edit>, +i: Nat) -> R.Outcome:
+  match es:
+    case Nil{}:
+      R.Rebased{Nil{}}
+    case Con{e, rest}:
+      rb_alone.at(R.rebase(b, h, [e]), i, rb_alone.go(b, h, rest, 1n+i))
+
+# S5 from each edit alone: the first refusal refuses all; else the edits
+# as each lands alone, refused as Crossed at the first that breaks S1
+# against the head (RbSpec.crossed: each edit against the one before it)
+def rb_alone(+b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> R.Outcome:
+  RbSpec.crossed(rb_alone.go(b, h, es, 0n), List.length(&2, Nat, h))
 
 # A request, as the entry's answer shows it was spelled
 type Ask is Data:
@@ -125,20 +193,38 @@ def rb_fit_ask(q: Ask) -> Bool:
 # Laws: the rule
 # --------------
 
-# LAW rebase_refines (R1): every rebase of every base, head and edits is
-# the spec's
-# EXCLUDES: a scan that stops before the second copy and calls one copy
-#   unique, a scan that misses the copy at the file's end, the anchors
-#   ignored or swapped, the floor of an insertion taken as its end (two
-#   insertions at one place passed), the base's copies not counted, a
-#   context skipped, fewer or more than 8, an edit landing off its window
-#   by the context before it, a conflict at a later index, edits that
-#   cross returned, a head equal to the base still searched
-law rebase_refines:
+# LAW rebase_invalid_first (R1: S1): a rebase is refused as Invalid exactly
+# when its edits are not sorted and apart within the base, and then names
+# the first edit that breaks it (RbSpec.bad: each edit within the base and
+# after the one before it, compared pairwise), for every base, head and
+# edits
+# EXCLUDES: the floor of an insertion taken as its end (two insertions at
+#   one place passed), an edit past the base or ending before it starts
+#   passed, a later or earlier index named, Invalid answered for sorted
+#   edits, an unchanged head that skips the check
+law rebase_invalid_first:
   for +b: List<&2, Nat>
   for +h: List<&2, Nat>
   for +es: List<&2, R.Edit>
-  {R.rebase(b, h, es) == RbSpec.rebase(b, h, es) : R.Outcome}
+  {rb_invalid(R.rebase(b, h, es)) == RbSpec.bad(es, List.length(&2, Nat, b)) : Maybe<&2, Nat>}
+
+# LAW rebase_each_alone (R1: S4, S5): sorted edits against a head that is
+# not the base are decided edit by edit, each as the rebase of that edit
+# alone decides it: the first edit whose own rebase is refused refuses them
+# all, naming that edit with the same reason; else each lands where it
+# lands alone, and the landed edits are refused as Crossed at the first
+# that is not sorted and apart from the one before it in the head
+# EXCLUDES: an edit landed or refused by the edits around it (an offset
+#   carried over, a window cut at a neighbour), a refusal named at another
+#   index or with another reason, a later refusal reported before an
+#   earlier one, landed edits that cross returned, Crossed at another index
+law rebase_each_alone:
+  for +b: List<&2, Nat>
+  for +h: List<&2, Nat>
+  for +es: List<&2, R.Edit>
+  for ok: {RbSpec.valid(es, List.length(&2, Nat, b)) == True{} : Bool}
+  for stale: {RbSpec.same(b, h) == False{} : Bool}
+  {R.rebase(b, h, es) == rb_alone(b, h, es) : R.Outcome}
 
 # LAW rebase_identity_when_head_is_base (R2): a head that is the base takes
 # valid edits unchanged
@@ -226,8 +312,8 @@ law rebase_example:
 # --------------------
 
 # LAW rebase_entry_answers (R7): the entry answers every request Rust
-# spells, every number within the wire, with the spec's answer within the
-# work bound, spelled
+# spells, every number within the wire, with the rule's answer (pinned by
+# the R1-R6 laws) within the work bound, spelled
 # EXCLUDES: the base and the head swapped, an edit's start, end or count
 #   misread, the bound skipped or counted on other sizes, a refusal spelled
 #   with another tag or without its index, a default

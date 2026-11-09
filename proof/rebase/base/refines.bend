@@ -1,4 +1,8 @@
-# eukhe: the proof of LAW rebase_refines
+# eukhe: a lemma of the proofs of area rebase: the rule (bend/rebase.bend)
+# computes what the spec (spec/harness/rebase.bend) computes, rr.refines.
+# No law states it: the spec restates the rule's steps (S4's step order
+# and landing offset are the rule's), so the laws state requirements
+# instead, and their proofs reason on the spec through this lemma.
 #
 # PROOF: step by step. The model's lazy prefix test is the spec's
 # (rr.fits); its scan, stopping at the second copy, classifies the spec's
@@ -10,10 +14,9 @@
 # the same branches (rr.crossed, rr.rebase).
 
 import Base
-import ../../bend/rebase.bend as R
-import ../../spec/harness/rebase.bend as RbSpec
-import ../../laws/rebase.bend as Rebase
-import ./base.bend as LR
+import ../../../bend/rebase.bend as R
+import ../../../spec/harness/rebase.bend as RbSpec
+import ../base.bend as LR
 
 # Windows: copies
 # ---------------
@@ -324,7 +327,7 @@ def rr.rebase.at(c: Maybe<&2, Nat>, eq: Bool, +b: List<&2, Nat>, +h: List<&2, Na
           %Equal.sym(R.Outcome, R.land_all(es, b, h, 0n), RbSpec.land_all(es, b, h, 0n), rr.all(es, b, h, 0n)) : {R.crossed(_, List.length(&2, Nat, h)) == RbSpec.crossed(RbSpec.land_all(es, b, h, 0n), List.length(&2, Nat, h)) : R.Outcome}
           rr.crossed(RbSpec.land_all(es, b, h, 0n), List.length(&2, Nat, h))
 
-def Rebase.rebase_refines(b, h, es):
+def rr.refines(+b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> {R.rebase(b, h, es) == RbSpec.rebase(b, h, es) : R.Outcome}:
   %Equal.sym(Maybe<&2, Nat>, R.check(es, List.length(&2, Nat, b)), RbSpec.bad(es, List.length(&2, Nat, b)), rr.check(es, List.length(&2, Nat, b))) : {R.rebase.at(_, R.same(b, h), b, h, es) == RbSpec.rebase(b, h, es) : R.Outcome}
   %Equal.sym(Bool, R.same(b, h), RbSpec.same(b, h), rr.same(b, h)) : {R.rebase.at(RbSpec.bad(es, List.length(&2, Nat, b)), _, b, h, es) == RbSpec.rebase(b, h, es) : R.Outcome}
   rr.rebase.at(RbSpec.bad(es, List.length(&2, Nat, b)), RbSpec.same(b, h), b, h, es)
