@@ -700,14 +700,17 @@ law screen_ffi_malformed_unless_request:
   {(s, screen_req_fits(q)) == (screen_spell_req(q, rest), True{}) : String & Bool}
 
 # LAW screen_ffi_tags_example: anchor: the bytes Rust sends and reads: a Run of block 5
-# (final) and 6 (active) with Open, Grow 6 by 2, Fin 6, Flush and Resize 9
-# (blocks 5 and 6 committed, 6 of length 2, 7 active, next 8, width 9); a
+# (final) and 6 (active) with Open, Grow 5 by 2 (a final block does not
+# grow), Fin 6, Flush and Resize 9 (blocks 5 and 6 committed, both of
+# length 0, 7 active, next 8, width 9); a
 # Pace (min 1, lag 2, recv 5, shown 1, 3 arrive: recv 8, shown 3); a Stack
 # (heights 1 and 3 from row 1 of 3: rects 1+1 and 2+1); Paint steps Put
 # (frame 0, diff), next check, Fresh 2, Kept 0; request tag 4, state tag 3
 # and event tag 5 are malformed; a Paint of four checks is refused; a
-# request with input left over is refused
+# request with input left over is refused. The Grow is of the final
+# block: an active block's growth is capped at 2^32 - 1 (Sc.grow1), a
+# literal the --verdict kernel runs out of fuel on in a closed evaluation
 # EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
 #   does not, a reversed full flag, an unknown tag read as a known one
 law screen_ffi_tags_example:
-  {[FSc.ffi("0,2,5,1,0,6,0,0,7,4,5,0,1,6,2,2,6,3,4,9,"), FSc.ffi("1,1,2,5,1,3,"), FSc.ffi("2,2,1,3,1,3,"), FSc.ffi("3,1,T"), FSc.ffi("3,1,F"), FSc.ffi("3,3,FFT"), FSc.ffi("3,3,FFF"), FSc.ffi("4,"), FSc.ffi("0,1,0,3,0,0,0,0,"), FSc.ffi("0,0,0,0,1,5,"), FSc.ffi("3,4,FFFF"), FSc.ffi("1,1,2,5,1,3,x")] == ["3,5,2,0,6,2,2,7,0,0,8,9,", "8,3,", "2,1,1,2,1,", "1,0,F", "0,", "2,2,", "3,0,", Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: more than three checks"), Wr.err("screen: input left over")] : List<&2, String>}
+  {[FSc.ffi("0,2,5,1,0,6,0,0,7,4,5,0,1,5,2,2,6,3,4,9,"), FSc.ffi("1,1,2,5,1,3,"), FSc.ffi("2,2,1,3,1,3,"), FSc.ffi("3,1,T"), FSc.ffi("3,1,F"), FSc.ffi("3,3,FFT"), FSc.ffi("3,3,FFF"), FSc.ffi("4,"), FSc.ffi("0,1,0,3,0,0,0,0,"), FSc.ffi("0,0,0,0,1,5,"), FSc.ffi("3,4,FFFF"), FSc.ffi("1,1,2,5,1,3,x")] == ["3,5,2,0,6,2,0,7,0,0,8,9,", "8,3,", "2,1,1,2,1,", "1,0,F", "0,", "2,2,", "3,0,", Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: more than three checks"), Wr.err("screen: input left over")] : List<&2, String>}

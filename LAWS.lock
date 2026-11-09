@@ -2454,7 +2454,7 @@
     "laws/screen/interface.bend::screen_ffi_refuses_example": "ea0dbadf26e052dc3230e147c14f52a0424368ff13a1d31cf2af9e1752e80d66",
     "laws/screen/interface.bend::screen_ffi_run": "bddc749c8c0da98b0436b4d12ec03772aa9c87f19f60fb26e51774255cc2632e",
     "laws/screen/interface.bend::screen_ffi_stack": "e5f5551b7e00608a8fb8bf32b31b372c604a7f0aad7eca065cd0337462252b5f",
-    "laws/screen/interface.bend::screen_ffi_tags_example": "b81134461bfe92b5eecd18082462283633f9c3d0c5501045b5bf3f81bb6a172f",
+    "laws/screen/interface.bend::screen_ffi_tags_example": "079317655c887bf94b636bdce3ff27dd1f5dde80f62ebba100705c49e0fd5f81",
     "laws/screen/interface.bend::screen_ffi_unknown_event": "892fe68c31254fdccb6280c05347db8346ebc3152dedf9f1490d499664fd5990",
     "laws/screen/interface.bend::screen_ffi_unknown_request": "6775db1a6cdd64683cb26523e56143aa28d3aaa29f14621aa6bf3b7d82e2cd3f",
     "laws/screen/interface.bend::screen_ffi_unknown_state": "85396efc8d5a2a6e7b03bc9dd047fad0ba185fb5f3c1761826419d35c51b3f5c",
