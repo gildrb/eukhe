@@ -347,6 +347,27 @@ fn settings_sink_persists_the_completion_flag() {
     );
 }
 
+/// `/resume <selector>` leaves a session run for the session it names (TS
+/// switches in place): the request is followed whether or not the run
+/// returns to the agents view, so the process never ends on it with a
+/// resume hint. Agents-back opens the view; any other exit ends the run.
+#[test]
+fn a_resume_selection_opens_that_session_before_the_view_or_the_exit() {
+    let selection = SessionSelection::Attach("01a1bda2-4a03-74ef-a56e-e1c160c4eb0d".to_owned());
+    let mut outcome = eukhe_tui::interactive::InteractiveOutcome {
+        selection_request: Some(selection.clone()),
+        ..Default::default()
+    };
+    assert_eq!(after_session(&mut outcome), AfterSession::Open(selection));
+    assert_eq!(
+        after_session(&mut outcome),
+        AfterSession::Exit,
+        "the request is taken once"
+    );
+    outcome.return_to_agents_view = true;
+    assert_eq!(after_session(&mut outcome), AfterSession::AgentsView);
+}
+
 #[test]
 fn build_tui_options_reads_code_block_indent_settings() {
     // `markdown.codeBlockIndent` rides InteractiveOptions at startup

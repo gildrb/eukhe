@@ -87,24 +87,39 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             });
             run_agents_view_flow(tui_options, anchor, None, notice).await
         } else {
-            let outcome =
+            let mut outcome =
                 eukhe_tui::interactive::run_interactive(tui_options.clone(), UiMode::Terminal)
                     .await?;
             // TS `main.ts`: a direct session run closes into the agents view
             // when the exit came through agents-back or `/resume`
-            // (`launchAgentsView` anchored on the session just left); every
+            // (`launchAgentsView` anchored on the session just left), and
+            // `/resume <selector>` switches to that session in place; every
             // other exit (ctrl+c/ctrl+d, `/quit`) ends the process.
-            if outcome.return_to_agents_view {
-                // A startup attach that fell back to the view has no session
-                // identity to anchor on; its notice seeds the view's status
-                // line instead.
-                let anchor = (!outcome.session_id.is_empty()).then(|| outcome.session_id.clone());
-                let return_chat = return_chat_of(&outcome);
-                run_agents_view_flow(tui_options, anchor, return_chat, outcome.agents_view_notice)
-                    .await
-            } else {
-                print_resume_hint(outcome.resume_hint.as_deref());
-                Ok(())
+            loop {
+                match after_session(&mut outcome) {
+                    AfterSession::Open(selection) => {
+                        outcome = run_selected_session(&tui_options, selection).await?;
+                    }
+                    AfterSession::AgentsView => {
+                        // A startup attach that fell back to the view has no
+                        // session identity to anchor on; its notice seeds the
+                        // view's status line instead.
+                        let anchor =
+                            (!outcome.session_id.is_empty()).then(|| outcome.session_id.clone());
+                        let return_chat = return_chat_of(&outcome);
+                        return run_agents_view_flow(
+                            tui_options,
+                            anchor,
+                            return_chat,
+                            outcome.agents_view_notice,
+                        )
+                        .await;
+                    }
+                    AfterSession::Exit => {
+                        print_resume_hint(outcome.resume_hint.as_deref());
+                        return Ok(());
+                    }
+                }
             }
         }
     })?;
@@ -274,21 +289,31 @@ async fn run_agents_view_flow(
         if let Some(cwd) = view.opened_cwd {
             session_options.cwd = cwd;
         }
-        let outcome =
+        let mut outcome =
             eukhe_tui::interactive::run_interactive(session_options, UiMode::Terminal).await?;
-        if !outcome.session_id.is_empty() {
-            anchor = Some(outcome.session_id.clone());
-        }
-        return_chat = return_chat_of(&outcome);
-        if let Some(notice) = &outcome.agents_view_notice {
-            status_message = Some(notice.clone());
-        }
-        if !outcome.return_to_agents_view {
-            print_resume_hint(outcome.resume_hint.as_deref());
-            if let Some(link) = roster_link.take() {
-                link.close();
+        // `/resume <selector>` routes straight to that session; the view
+        // reopens once a session run returns to it.
+        loop {
+            if !outcome.session_id.is_empty() {
+                anchor = Some(outcome.session_id.clone());
             }
-            return Ok(());
+            return_chat = return_chat_of(&outcome);
+            if let Some(notice) = &outcome.agents_view_notice {
+                status_message = Some(notice.clone());
+            }
+            match after_session(&mut outcome) {
+                AfterSession::Open(selection) => {
+                    outcome = run_selected_session(&base, selection).await?;
+                }
+                AfterSession::AgentsView => break,
+                AfterSession::Exit => {
+                    print_resume_hint(outcome.resume_hint.as_deref());
+                    if let Some(link) = roster_link.take() {
+                        link.close();
+                    }
+                    return Ok(());
+                }
+            }
         }
         if let Some(scope) = outcome.agents_view_scope {
             // The session's subagent summary line opened the agents view
@@ -303,39 +328,42 @@ async fn run_agents_view_flow(
             ));
             query = None;
         }
-        // `/resume <selector>` routes straight to that session before the
-        // loop reopens the view.
-        let mut pending = outcome.selection_request;
-        while let Some(selection) = pending.take() {
-            let mut next = base.clone();
-            next.session = selection;
-            next.screen_mode = current_screen_mode(&base);
-            let outcome = eukhe_tui::interactive::run_interactive(next, UiMode::Terminal).await?;
-            if !outcome.session_id.is_empty() {
-                anchor = Some(outcome.session_id.clone());
-            }
-            return_chat = return_chat_of(&outcome);
-            if let Some(notice) = &outcome.agents_view_notice {
-                status_message = Some(notice.clone());
-            }
-            if !outcome.return_to_agents_view {
-                print_resume_hint(outcome.resume_hint.as_deref());
-                if let Some(link) = roster_link.take() {
-                    link.close();
-                }
-                return Ok(());
-            }
-            if let Some(scope) = outcome.agents_view_scope {
-                frames.retain(|(frame, _)| frame.session_id != scope.session_id);
-                frames.push((
-                    scope,
-                    Some(SessionSelection::Attach(outcome.active_session_id.clone())),
-                ));
-                query = None;
-            }
-            pending = outcome.selection_request;
-        }
     }
+}
+
+/// Where a session run's exit leads.
+#[derive(Debug, PartialEq)]
+enum AfterSession {
+    /// `/resume <selector>`: that session opens next, in this process (TS
+    /// `/resume <id>` switches the session in place, `handleResumeSession`).
+    Open(SessionSelection),
+    /// Agents-back or a bare `/resume`: the agents view.
+    AgentsView,
+    /// Every other exit ends the process.
+    Exit,
+}
+
+/// Take the next step out of a finished session run: its `/resume
+/// <selector>` request first, then a return to the agents view.
+fn after_session(outcome: &mut eukhe_tui::interactive::InteractiveOutcome) -> AfterSession {
+    if let Some(selection) = outcome.selection_request.take() {
+        AfterSession::Open(selection)
+    } else if outcome.return_to_agents_view {
+        AfterSession::AgentsView
+    } else {
+        AfterSession::Exit
+    }
+}
+
+/// Run the session a `/resume <selector>` asked for, on the base options.
+async fn run_selected_session(
+    base: &InteractiveOptions,
+    selection: SessionSelection,
+) -> Result<eukhe_tui::interactive::InteractiveOutcome> {
+    let mut next = base.clone();
+    next.session = selection;
+    next.screen_mode = current_screen_mode(base);
+    eukhe_tui::interactive::run_interactive(next, UiMode::Terminal).await
 }
 
 /// The live session a chat run left through agents-back or `/resume`: the

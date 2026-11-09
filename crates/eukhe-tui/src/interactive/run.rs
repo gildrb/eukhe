@@ -1984,11 +1984,12 @@ async fn run_interactive_surface(
     session.release_prompt_stash_session();
     // TS `shutdown` fetches the session stats while the connection is
     // alive, then prints the resume hint after teardown; eukhe-cli prints it
-    // once the terminal is restored. Bounded best-effort. The agents-view
-    // handoff never prints it (TS `returnToAgentsView` skips the stats
-    // fetch entirely -- the next surface is another view, not a process
-    // exit), so the round-trip is dead work on that path.
-    let resume_hint = if session.open_agents_view {
+    // once the terminal is restored. Bounded best-effort. A handoff (the
+    // agents view, a `/resume <selector>` switch) never prints it (TS
+    // `returnToAgentsView` skips the stats fetch entirely -- the next
+    // surface is another view, not a process exit), so the round-trip is
+    // dead work on that path.
+    let resume_hint = if handing_off {
         None
     } else {
         session.exit_resume_hint(&view.theme).await
