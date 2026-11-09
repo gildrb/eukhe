@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW rlm_query_entry_answers
 #
-# PROOF: the spelled request reads back whole with nothing left (re.req_rt), so the entry answers the model's decision, which is the spec's (qp.plan, qc.code, qc.spec, rlm_query_text_spec; re.reply).
+# PROOF: the spelled request reads back whole with nothing left (re.req_rt), so the entry answers the model's decision, which is the spec's (qp.plan, qc.code, qc.spec, re.text; re.reply).
 
 import Base
 import ../../bend/ffi_rlm_query.bend as FRq

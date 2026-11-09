@@ -19,7 +19,10 @@ import ../spec/rlm/query.bend as QSpec
 #     The budget is checked first, then the cap; an admitted batch runs in
 #     waves that never put more than the cap's room (nor the caller's
 #     width) at once, and plan every call of the batch exactly once.
-# R2: the refusal texts, byte for byte, as the host's contract states them.
+# R2: the refusal texts, byte for byte, as the host's contract states them
+#     (rq_text: the texts crates/eukhe-bend/src/rules/rlm_query.rs and
+#     crates/eukhe-core/src/durable/rlm/tests/query.rs expect); the entry's
+#     reply carries them for every refusal (rlm_query_entry_answers).
 # R3: the cut of a result is the spec's (S4): whole chars, at most the
 #     limit in UTF-8 bytes, the longest such prefix; a text cut in pieces
 #     cuts as the whole text (the host sends a long text in pieces).
@@ -231,12 +234,6 @@ law rlm_query_covers:
   for +ws: List<&2, Nat>
   for e: {Rq.plan(r, c, w, b, u, sizes) == Rq.Waves{ws} : Rq.Plan}
   {QSpec.total(ws) == List.length(&2, Nat, sizes) : Nat}
-
-# LAW rlm_query_text_spec (R2): every refusal text is the spec's
-# EXCLUDES: a changed text, the total and the left bytes swapped
-law rlm_query_text_spec:
-  for +f: Rq.Refusal
-  {Rq.text(f) == rq_text(f) : String}
 
 # LAW rlm_query_plan_example (R1): anchor: ten calls under the cap 4 run
 # 4, 4, 2; with width 3, 3, 3, 3, 1; with 3 of 4 running, one at a time;

@@ -3308,7 +3308,6 @@ import ./proof/rlm_query/rlm_query_admits.bend as PRlmQueryAdmits
 import ./proof/rlm_query/rlm_query_cap_bound.bend as PRlmQueryCapBound
 import ./proof/rlm_query/rlm_query_width_bound.bend as PRlmQueryWidthBound
 import ./proof/rlm_query/rlm_query_covers.bend as PRlmQueryCovers
-import ./proof/rlm_query/rlm_query_text_spec.bend as PRlmQueryTextSpec
 import ./proof/rlm_query/rlm_query_plan_example.bend as PRlmQueryPlanExample
 import ./proof/rlm_query/rlm_query_text_example.bend as PRlmQueryTextExample
 import ./proof/rlm_query/rlm_query_cut_spec.bend as PRlmQueryCutSpec

@@ -2267,7 +2267,6 @@
     "laws/rlm_query.bend::rlm_query_plan_example": "569cfea514985723440a26ffd9b7690f11c4fa03e3d475ce95fb79e01b65c61d",
     "laws/rlm_query.bend::rlm_query_plan_spec": "e07fdf32f845ba82c14694622662bdae5bfa219d9b084626f48cafb552a18808",
     "laws/rlm_query.bend::rlm_query_text_example": "5afe72c7f617fe986069d0e22d2664f2fd45111fbdaafdc493a2d13f1ba32f3b",
-    "laws/rlm_query.bend::rlm_query_text_spec": "6e736bc58e8e06076a2d496ab3707a2553ea4c28936d1fe298428093fa3382e7",
     "laws/rlm_query.bend::rlm_query_width_bound": "26941dc3a59c4697df97ab06e39d56fc188110fdc890e14608e4209e0d6d88ba",
     "laws/run/entry.bend::run_ffi_answer_fits_witness": "b8df2db322fde835f15a5e3a9c7b8a27a8e41a81186e229ed88318b2ac229424",
     "laws/run/entry.bend::run_ffi_answers": "6c7a60bf5c27059efeea7d6a16c376f43feb90c3f0841314cef32de753c525dd",
