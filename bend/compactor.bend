@@ -1,5 +1,5 @@
-# compactor: the decisions that make a compactor call end (LAWS.bend
-# H1) and the wait for a settled view end (H2), against any model reply.
+# compactor: the decisions that make a compactor call end (H1) and the
+# wait for a settled view end (H2), against any model reply.
 #
 # - A line (H1): at most `tries` calls; an empty or thinking-only reply is
 #   a try that ends the call; a follow-up not shorter than the best reply
@@ -13,12 +13,13 @@
 #   error and a stop change nothing. So the view settles after a bounded
 #   number of counted outcomes. A waiting turn stops no call it needs, and
 #   the queue starts one whenever a job slot is free and a needed line
-#   has no call.
+#   has no call (H2.1).
 #
 # Text is a list of characters by their UTF-8 width: lengths are bytes,
-# and a cut never splits a character. laws/compactor.bend states the laws
-# (H1, H2); proof/compactor/ proves them. `line.open`, `line.step` and
-# `Pend.after` run as the compiled core (entry bend/ffi_compactor.bend).
+# and a cut never splits a character. laws/compactor.bend states the
+# requirements (H1, H2, H2.1: R1 to R16) and their laws; proof/compactor/
+# proves them. `line.open`, `line.step` and `Pend.after` run as the
+# compiled core (entry bend/ffi_compactor.bend).
 
 import Base
 import ./optchat/bits.bend as OBits
@@ -53,30 +54,6 @@ def Text.len(t: List<&2, W>) -> Nat:
       0n
     case c <> rest:
       Nat.add(W.size(c), Text.len(rest))
-
-def W.eq(a: W, b: W) -> Bool:
-  match a b:
-    case W1{} W1{}:
-      True{}
-    case W2{} W2{}:
-      True{}
-    case W3{} W3{}:
-      True{}
-    case W4{} W4{}:
-      True{}
-    case _ _:
-      False{}
-
-def Text.eq(a: List<&2, W>, b: List<&2, W>) -> Bool:
-  match a b:
-    case Nil{} Nil{}:
-      True{}
-    case Nil{} y <> ys:
-      False{}
-    case x <> xs Nil{}:
-      False{}
-    case x <> xs y <> ys:
-      Bool.and(W.eq(x, y), Text.eq(xs, ys))
 
 # the longest start of t within room bytes: never inside a character
 def cut(t: List<&2, W>, room: Nat) -> List<&2, W>:
@@ -284,57 +261,6 @@ def line.drive(rs: List<&2, Reply>, n: Next, +node: Nat) -> Line:
     case r <> rest Asks{st}:
       line.drive(rest, line.step(st, r), node)
 
-# the first n replies: the ones a line of n calls read
-def read(n: Nat, rs: List<&2, Reply>) -> List<&2, Reply>:
-  match n rs:
-    case 0n _:
-      Nil{}
-    case 1n+p Nil{}:
-      Nil{}
-    case 1n+p r <> rest:
-      r <> read(p, rest)
-
-def first_fit.pick(fit: Bool, ws: List<&2, W>, rec: Maybe<&2, List<&2, W>>) -> Maybe<&2, List<&2, W>>:
-  match fit:
-    case True{}:
-      Some{ws}
-    case False{}:
-      rec
-
-# the first reply of rs that fits: not empty, at most node bytes
-def first_fit(+node: Nat, rs: List<&2, Reply>) -> Maybe<&2, List<&2, W>>:
-  match rs:
-    case Nil{}:
-      None{}
-    case r <> rest:
-      match r:
-        case Erred{}:
-          first_fit(node, rest)
-        case Says{ws}:
-          match ws:
-            case Nil{}:
-              first_fit(node, rest)
-            case +w <> +t:
-              first_fit.pick(Nat.is_le(Text.len(w <> t), node), w <> t, first_fit(node, rest))
-
-# the line is the first fitting reply the call read, when there is one
-def line.first(want: Maybe<&2, List<&2, W>>, got: Maybe<&2, List<&2, W>>) -> Bool:
-  match want got:
-    case None{} _:
-      True{}
-    case Some{f} None{}:
-      False{}
-    case Some{f} Some{g}:
-      Text.eq(f, g)
-
-# a line of 1 to node bytes, or a failed call
-def line.fits(+node: Nat, m: Maybe<&2, List<&2, W>>) -> Bool:
-  match m:
-    case None{}:
-      True{}
-    case Some{+t}:
-      Bool.and(OBits.Nat.is_pos(Text.len(t)), Nat.is_le(Text.len(t), node))
-
 # The settle (H2)
 # ---------------
 
@@ -471,22 +397,6 @@ def Pend.run(os: List<&2, Outcome>, p: Pend) -> Pend:
       p
     case o <> rest:
       Pend.run(rest, Pend.after(p, o))
-
-# how many of them are failed calls
-def failures(os: List<&2, Outcome>) -> Nat:
-  match os:
-    case Nil{}:
-      0n
-    case o <> rest:
-      match o:
-        case Built{}:
-          failures(rest)
-        case Failed{}:
-          1n+failures(rest)
-        case Disk{}:
-          failures(rest)
-        case Stopped{}:
-          failures(rest)
 
 # the view's lines when a turn starts to wait, cap = 1+p failures each
 def settle.line(built: Bool, +p: Nat) -> Pend:

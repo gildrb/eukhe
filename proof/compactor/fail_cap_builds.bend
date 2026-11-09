@@ -21,7 +21,7 @@ def pc.run_made(os: List<&2, C.Outcome>) -> {C.Pend.run(os, C.Made{}) == C.Made{
         case C.Stopped{}:
           pc.run_made(rest)
 
-def pc.fail_cap_builds(os: List<&2, C.Outcome>, n: Nat, many: {Nat.is_le(1n+n, C.failures(os)) == True{} : Bool}) -> {C.Pend.run(os, C.Owed{n}) == C.Made{} : C.Pend}:
+def pc.fail_cap_builds(os: List<&2, C.Outcome>, n: Nat, many: {Nat.is_le(1n+n, Compactor.failures(os)) == True{} : Bool}) -> {C.Pend.run(os, C.Owed{n}) == C.Made{} : C.Pend}:
   match os:
     case Nil{}:
       LLogicLogic.pc.absurd_ft({C.Owed{n} == C.Made{} : C.Pend}, many)
