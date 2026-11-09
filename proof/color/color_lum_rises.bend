@@ -1,7 +1,8 @@
-# eukhe: the proof of LAW color_lum_rises: every leaf of lin's table (one
-# closed check, so lin(c) for every c, a walk of the table) has its three
-# weighted products equal to the products of the values and at most
-# 0.2126, 0.7152 and 0.0722; those bounds' sums do not carry (two closed
+# eukhe: the proof of LAW color_lum_rises: every leaf of lin's table (a
+# closed check per part, cl.table, so lin(c) for every c, a walk of the
+# table) has its three weighted products equal to the products of the
+# values and at most 0.2126, 0.7152 and 0.0722; those bounds' sums do not
+# carry (two closed
 # carries of 32 bits), so neither does the luminance's (lr.cy_monoU) and its
 # value is the sum of the three products' values (lrs.sum); each product
 # keeps the order of its linear value (lr.term_le), and sums keep order
@@ -18,8 +19,57 @@ import ../base/logic/bool.bend as LLogicBool
 # The leaves
 # ----------
 
-def lrs.term_all() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.table()) == True{} : Bool}:
+def lumr.t0() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t0()) == True{} : Bool}:
   {==}
+
+def lumr.t1() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t1()) == True{} : Bool}:
+  {==}
+
+def lumr.t2() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t2()) == True{} : Bool}:
+  {==}
+
+def lumr.t3() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t3()) == True{} : Bool}:
+  {==}
+
+def lumr.t4() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t4()) == True{} : Bool}:
+  {==}
+
+def lumr.t5() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t5()) == True{} : Bool}:
+  {==}
+
+def lumr.t6() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t6()) == True{} : Bool}:
+  {==}
+
+def lumr.t7() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t7()) == True{} : Bool}:
+  {==}
+
+def lumr.t8() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t8()) == True{} : Bool}:
+  {==}
+
+def lumr.t9() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t9()) == True{} : Bool}:
+  {==}
+
+def lumr.t10() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t10()) == True{} : Bool}:
+  {==}
+
+def lumr.t11() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t11()) == True{} : Bool}:
+  {==}
+
+def lumr.t12() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t12()) == True{} : Bool}:
+  {==}
+
+def lumr.t13() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t13()) == True{} : Bool}:
+  {==}
+
+def lumr.t14() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t14()) == True{} : Bool}:
+  {==}
+
+def lumr.t15() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.t15()) == True{} : Bool}:
+  {==}
+
+# every leaf of lin's table, part by part
+def lrs.term_all() -> {LCl.cl.all(LCl.ClTerm{}, Co.lin.table()) == True{} : Bool}:
+  LCl.cl.table(LCl.ClTerm{}, lumr.t0(), lumr.t1(), lumr.t2(), lumr.t3(), lumr.t4(), lumr.t5(), lumr.t6(), lumr.t7(), lumr.t8(), lumr.t9(), lumr.t10(), lumr.t11(), lumr.t12(), lumr.t13(), lumr.t14(), lumr.t15())
 
 # the linear value of every channel has the leaves' product facts
 def lrs.term(+c: U32) -> {LCl.cl.ok(LCl.ClTerm{}, Co.lin(c)) == True{} : Bool}:
