@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use eukhe_ai::api::builtin::load_stream_api;
 use eukhe_ai::api::lazy::lazy_stream;
+use eukhe_ai::api::{StreamFn, StreamSimpleFn};
 use eukhe_ai::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthResult, LoginOptions, ModelAuth,
     OAuthAuth, OAuthCredential, ProviderAuth, ProviderAuthInteraction,
@@ -214,8 +215,7 @@ fn compose_provider(
                 })
             });
 
-    let stream_base = base.clone();
-    let simple_base = base.clone();
+    let (stream, stream_simple) = layered_streams(base.clone());
     Ok(Provider {
         id: id.to_owned(),
         name: config
@@ -238,33 +238,43 @@ fn compose_provider(
         filter_all_models: base
             .as_ref()
             .and_then(|base| base.filter_all_models.clone()),
-        stream: Arc::new(move |model, context, options| {
-            if let Some(base) = stream_base.as_ref().filter(|base| base_serves(base, model)) {
-                return (base.stream)(model, context, options);
-            }
-            let api_model = model.clone();
-            let context = context.clone();
-            lazy_stream(model, async move {
-                let api = load_stream_api(&api_model.api)?;
-                Ok((api.stream)(&api_model, &context, options))
-            })
-        }),
-        stream_simple: Arc::new(move |model, context, options| {
-            if let Some(base) = simple_base.as_ref().filter(|base| base_serves(base, model)) {
-                return (base.stream_simple)(model, context, options);
-            }
-            let api_model = model.clone();
-            let context = context.clone();
-            lazy_stream(model, async move {
-                let api = load_stream_api(&api_model.api)?;
-                Ok((api.stream_simple)(&api_model, &context, options))
-            })
-        }),
+        stream,
+        stream_simple,
         fetch_deferred: base.as_ref().and_then(|base| base.fetch_deferred.clone()),
         cancel_deferred: base.as_ref().and_then(|base| base.cancel_deferred.clone()),
         generate_images: base.as_ref().and_then(|base| base.generate_images.clone()),
         classify: base.as_ref().and_then(|base| base.classify.clone()),
     })
+}
+
+/// The streams of a provider layered over `base`: a model whose api the
+/// base implements streams through the base, any other through its api's
+/// built-in implementation.
+pub(super) fn layered_streams(base: Option<Arc<Provider>>) -> (StreamFn, StreamSimpleFn) {
+    let simple_base = base.clone();
+    let stream: StreamFn = Arc::new(move |model, context, options| {
+        if let Some(base) = base.as_ref().filter(|base| base_serves(base, model)) {
+            return (base.stream)(model, context, options);
+        }
+        let api_model = model.clone();
+        let context = context.clone();
+        lazy_stream(model, async move {
+            let api = load_stream_api(&api_model.api)?;
+            Ok((api.stream)(&api_model, &context, options))
+        })
+    });
+    let stream_simple: StreamSimpleFn = Arc::new(move |model, context, options| {
+        if let Some(base) = simple_base.as_ref().filter(|base| base_serves(base, model)) {
+            return (base.stream_simple)(model, context, options);
+        }
+        let api_model = model.clone();
+        let context = context.clone();
+        lazy_stream(model, async move {
+            let api = load_stream_api(&api_model.api)?;
+            Ok((api.stream_simple)(&api_model, &context, options))
+        })
+    });
+    (stream, stream_simple)
 }
 
 /// Whether the built-in provider implements `model`'s api (TS
