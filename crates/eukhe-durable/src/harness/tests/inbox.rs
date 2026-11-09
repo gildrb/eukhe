@@ -976,9 +976,12 @@ mod queue {
         harness.close(context()).await.unwrap();
     }
 
+    /// A failed run ends at a final boundary like an answered one: the input
+    /// queued behind it is placed and answered by the next run, not left
+    /// queued until another submission (TS `AgentSession`
+    /// `#drainStrandedQueuedMessages`). A later input runs after it.
     #[tokio::test]
-    async fn leaves_queued_items_after_a_failed_run_until_the_next_submission_places_them_in_order()
-    {
+    async fn places_the_items_queued_behind_a_failed_run_and_starts_the_next_run() {
         let setup = chat_setup(RegisterFauxProviderOptions::default());
         let failing = gated(failure("invalid request"));
         setup.faux.set_responses(vec![
@@ -992,14 +995,12 @@ mod queue {
         let f = submit(&root, input("f")).await;
         failing.release();
         assert_unanswered(&settle(&input_submission).await, "model_error");
+        assert_done(&settle(&f).await, None);
         harness.wait_for_idle(context()).await.unwrap();
-        assert_eq!(status(&f).await.state.status(), SubmissionStatus::Queued);
-        assert_eq!(inbox(&harness, &root).await, vec![(f.id(), "followUp")]);
+        assert_eq!(inbox(&harness, &root).await, Vec::new());
 
-        // Idle with a queued item: the new input queues behind it, and a final boundary places the older one first.
         let g = submit(&root, input_when("g", WhenBusy::Reject)).await;
-        settle(&g).await;
-        assert_done(&status(&f).await, None);
+        assert_done(&settle(&g).await, None);
         assert_eq!(
             last(
                 &transcript(&all_entries(&root, context()).await.unwrap()),
@@ -1012,6 +1013,48 @@ mod queue {
                 "pi.assistant:for g"
             ]
         );
+        assert_eq!(setup.faux.state().call_count, 3);
+        harness.close(context()).await.unwrap();
+    }
+
+    /// A steer sent while a run retries a provider error is answered once
+    /// the retries are spent and the run fails: the failure's final boundary
+    /// places it and starts the next run.
+    #[tokio::test]
+    async fn answers_a_steer_queued_while_a_run_retries_after_the_retries_fail() {
+        let setup = chat_setup(RegisterFauxProviderOptions::default());
+        let first = gated(failure("503 Service Unavailable"));
+        setup.faux.set_responses(vec![
+            first.step.clone(),
+            failure("503 Service Unavailable").into(),
+            answer("for the steer").into(),
+        ]);
+        let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
+        setup.settings.update(|settings| {
+            settings.retry = Some(PartialRetryPolicy {
+                enabled: Some(true),
+                max_retries: Some(1),
+                base_delay_ms: Some(1.0),
+                ..PartialRetryPolicy::default()
+            });
+        });
+        let input_submission = submit(&root, input("say hi")).await;
+        first.reached().await;
+        let steer = submit(&root, input_when("say hi again", WhenBusy::Steer)).await;
+        assert_eq!(inbox(&harness, &root).await, vec![(steer.id(), "steer")]);
+        first.release();
+        assert_unanswered(&settle(&input_submission).await, "model_error");
+        assert_done(&settle(&steer).await, None);
+        harness.wait_for_idle(context()).await.unwrap();
+        assert_eq!(inbox(&harness, &root).await, Vec::new());
+        assert_eq!(
+            last(
+                &transcript(&all_entries(&root, context()).await.unwrap()),
+                2
+            ),
+            ["pi.user:say hi again", "pi.assistant:for the steer"]
+        );
+        assert_eq!(setup.faux.state().call_count, 3);
         harness.close(context()).await.unwrap();
     }
 

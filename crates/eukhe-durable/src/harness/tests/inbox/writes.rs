@@ -113,19 +113,22 @@ async fn queues_a_display_only_write_behind_a_queued_reset_so_it_lands_after_the
     harness.close(context()).await.unwrap();
 }
 
+/// An aborted run leaves its conversation idle with the input queued behind
+/// it; a display-only write lands at once and places nothing.
 #[tokio::test]
-async fn a_display_only_write_after_a_failed_run_leaves_the_queued_items_queued() {
+async fn a_display_only_write_after_an_aborted_run_leaves_the_queued_items_queued() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
-    let failing = gated(failure("invalid request"));
+    let first = gated(answer("never"));
     setup
         .faux
-        .set_responses(vec![failing.step.clone(), answer("for f").into()]);
+        .set_responses(vec![first.step.clone(), answer("for f").into()]);
     let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
     let input_submission = submit(&root, input("a")).await;
-    failing.reached().await;
+    first.reached().await;
     let f = submit(&root, input("f")).await;
-    failing.release();
-    assert_unanswered(&settle(&input_submission).await, "model_error");
+    let task_id = live(&harness, &root).await.unwrap().run.unwrap().task_id;
+    harness.abort_task(task_id, context()).await.unwrap();
+    assert_unanswered(&settle(&input_submission).await, "aborted");
     harness.wait_for_idle(context()).await.unwrap();
 
     let shown = submit(&root, write(shown_note())).await;
