@@ -539,6 +539,40 @@ fn print_mode_overflow_retry_recovers_the_turn() {
     );
 }
 
+/// A provider failure the retry recovers: the answer prints, exit 0 (TS
+/// print mode prints the last assistant message). The episode's
+/// `provider_retry_outcome` row trails the answer in the transcript; it is
+/// a disclosure, never the terminal result.
+#[test]
+fn print_mode_provider_retry_recovers_the_answer() {
+    let home = isolated_home();
+    write_compaction_settings(
+        home.path(),
+        &serde_json::json!({
+            "retry": { "enabled": true, "maxRetries": 1, "baseDelayMs": 1 },
+            "titles": { "generate": false }
+        }),
+    );
+    let script = serde_json::json!({
+        "responses": [
+            {
+                "content": [{ "type": "text", "text": "" }],
+                "stopReason": "error",
+                "errorMessage": "overloaded",
+            },
+            {"text": "recovered answer"},
+        ]
+    });
+    let (stdout, stderr, code) = run_in_home(home.path(), &["-p", "hi"], &script);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "recovered answer\n", "stderr: {stderr}");
+    let files = session_files(home.path());
+    let transcript = read_transcript(&files[0]);
+    let outcomes = transcript.custom_rows("provider_retry_outcome");
+    assert_eq!(outcomes.len(), 1, "the episode's disclosure row");
+    assert_eq!(outcomes[0]["details"]["success"], true);
+}
+
 /// An overflow with nothing compactable ends the run on the provider error
 /// (pi-durable keeps the error turn): stderr carries the error, then the
 /// skip warning row, exit 1.
