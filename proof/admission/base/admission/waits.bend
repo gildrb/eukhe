@@ -6,8 +6,10 @@ import ./isz.bend as LAAdmissionIsz
 import ./le.bend as LAAdmissionLe
 import ./pot.bend as LAAdmissionPot
 import ../logic.bend as LALogic
+import ./terms.bend as AT
+import ../../../../laws/admission.bend as Admission
 
-def aw.wait_pre1(t: Ad.Tk) -> {Ad.waits.ia(Some{Ad.Tk.preempt(t)}) == Ad.waits.ia(Some{t}) : Bool}:
+def aw.wait_pre1(t: Ad.Tk) -> {Admission.adm_waits_ia(Some{Ad.Tk.preempt(t)}) == Admission.adm_waits_ia(Some{t}) : Bool}:
   match t:
     case Ad.Tk{Ad.Ia{}, s}:
       {==}
@@ -22,7 +24,7 @@ def aw.wait_pre1(t: Ad.Tk) -> {Ad.waits.ia(Some{Ad.Tk.preempt(t)}) == Ad.waits.i
     case Ad.Tk{Ad.Bg{}, Ad.Ended{}}:
       {==}
 
-def aw.wait_pre(t: List<&2, Ad.Tk>, w: Nat) -> {Ad.waits.ia(Ad.get(Ad.preempt(t), w)) == Ad.waits.ia(Ad.get(t, w)) : Bool}:
+def aw.wait_pre(t: List<&2, Ad.Tk>, w: Nat) -> {Admission.adm_waits_ia(Ad.get(Ad.preempt(t), w)) == Admission.adm_waits_ia(Ad.get(t, w)) : Bool}:
   match t w:
     case Nil{} _:
       {==}
@@ -31,7 +33,7 @@ def aw.wait_pre(t: List<&2, Ad.Tk>, w: Nat) -> {Ad.waits.ia(Ad.get(Ad.preempt(t)
     case +h <> +r 1n+p:
       aw.wait_pre(r, p)
 
-def aw.wait_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, w: Nat) -> {Ad.waits.ia(Ad.get(Ad.preempt.on(l, t), w)) == Ad.waits.ia(Ad.get(t, w)) : Bool}:
+def aw.wait_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, w: Nat) -> {Admission.adm_waits_ia(Ad.get(Ad.preempt.on(l, t), w)) == Admission.adm_waits_ia(Ad.get(t, w)) : Bool}:
   match l:
     case Ad.Unl{}:
       {==}
@@ -39,7 +41,7 @@ def aw.wait_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, w: Nat) -> {Ad.waits.ia(Ad.get
       aw.wait_pre(t, w)
 
 # a grant never makes a ticket wait
-def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get(Ad.mark(c, t), w)) == True{} : Bool}) -> {Ad.waits.ia(Ad.get(t, w)) == True{} : Bool}:
+def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Admission.adm_waits_ia(Ad.get(Ad.mark(c, t), w)) == True{} : Bool}) -> {Admission.adm_waits_ia(Ad.get(t, w)) == True{} : Bool}:
   match t:
     case Nil{}:
       e
@@ -48,7 +50,7 @@ def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get
         case Ad.Ia{} Ad.Queued{}:
           match c w:
             case Ad.Ia{} 0n:
-              LALogic.ad.absurd({Ad.waits.ia(Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}) == True{} : Bool}, e)
+              LALogic.ad.absurd({Admission.adm_waits_ia(Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}) == True{} : Bool}, e)
             case Ad.Ia{} 1n+p:
               e
             case Ad.Bg{} 0n:
@@ -58,7 +60,7 @@ def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get
         case Ad.Bg{} Ad.Queued{}:
           match c w:
             case Ad.Bg{} 0n:
-              LALogic.ad.absurd({Ad.waits.ia(Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}) == True{} : Bool}, e)
+              LALogic.ad.absurd({Admission.adm_waits_ia(Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}) == True{} : Bool}, e)
             case Ad.Bg{} 1n+p:
               e
             case Ad.Ia{} 0n:
@@ -90,7 +92,7 @@ def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get
             case 1n+p:
               aw.wait_mark(r, c, p, e)
 
-def aw.wait_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +w: Nat, e: {Ad.waits.ia(Ad.get(Ad.grant.go(n, d, l, t), w)) == True{} : Bool}) -> {Ad.waits.ia(Ad.get(t, w)) == True{} : Bool}:
+def aw.wait_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +w: Nat, e: {Admission.adm_waits_ia(Ad.get(Ad.grant.go(n, d, l, t), w)) == True{} : Bool}) -> {Admission.adm_waits_ia(Ad.get(t, w)) == True{} : Bool}:
   match n d:
     case 0n _:
       e
@@ -99,7 +101,7 @@ def aw.wait_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk
     case 1n+f Some{+c}:
       aw.wait_mark(t, c, w, aw.wait_grant(f, Ad.pick(l, Ad.mark(c, t)), l, Ad.mark(c, t), w, e))
 
-def aw.pot_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +w: Nat, +e: {Ad.waits.ia(Ad.get(Ad.grant.go(n, d, l, t), w)) == True{} : Bool}) -> {Ad.pot(Ad.grant.go(n, d, l, t), w) == Ad.pot(t, w) : Nat}:
+def aw.pot_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +w: Nat, +e: {Admission.adm_waits_ia(Ad.get(Ad.grant.go(n, d, l, t), w)) == True{} : Bool}) -> {AT.pot(Ad.grant.go(n, d, l, t), w) == AT.pot(t, w) : Nat}:
   match n d:
     case 0n _:
       {==}
@@ -107,88 +109,88 @@ def aw.pot_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>
       {==}
     case 1n+f Some{Ad.Ia{}}:
       +t2 = Ad.mark(Ad.Ia{}, t)
-      Equal.trans(Nat, Ad.pot(Ad.grant.go(f, Ad.pick(l, t2), l, t2), w), Ad.pot(t2, w), Ad.pot(t, w), aw.pot_grant(f, Ad.pick(l, t2), l, t2, w, e), LAAdmissionPot.aw.pot_mark_ia(t, w, aw.wait_grant(f, Ad.pick(l, t2), l, t2, w, e)))
+      Equal.trans(Nat, AT.pot(Ad.grant.go(f, Ad.pick(l, t2), l, t2), w), AT.pot(t2, w), AT.pot(t, w), aw.pot_grant(f, Ad.pick(l, t2), l, t2, w, e), LAAdmissionPot.aw.pot_mark_ia(t, w, aw.wait_grant(f, Ad.pick(l, t2), l, t2, w, e)))
     case 1n+f Some{Ad.Bg{}}:
       +t2 = Ad.mark(Ad.Bg{}, t)
-      Equal.trans(Nat, Ad.pot(Ad.grant.go(f, Ad.pick(l, t2), l, t2), w), Ad.pot(t2, w), Ad.pot(t, w), aw.pot_grant(f, Ad.pick(l, t2), l, t2, w, e), LAAdmissionPot.aw.pot_mark_bg(t, w))
+      Equal.trans(Nat, AT.pot(Ad.grant.go(f, Ad.pick(l, t2), l, t2), w), AT.pot(t2, w), AT.pot(t, w), aw.pot_grant(f, Ad.pick(l, t2), l, t2, w, e), LAAdmissionPot.aw.pot_mark_bg(t, w))
 
 # a new interactive request waits behind w
-def aw.st_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +w: Nat, +ws: {Ad.waits.ia(Ad.get(ts, w)) == True{} : Bool}) -> {Ad.le(Ad.pot(Ad.admit.ia(l, q, ts), w), Ad.pot(ts, w)) == True{} : Bool}:
+def aw.st_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +w: Nat, +ws: {Admission.adm_waits_ia(Ad.get(ts, w)) == True{} : Bool}) -> {Ad.le(AT.pot(Ad.admit.ia(l, q, ts), w), AT.pot(ts, w)) == True{} : Bool}:
   +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
   +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
   +st = Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))
   +x = {Ad.Tk{Ad.Ia{}, st} : Ad.Tk}
   +t1 = Ad.preempt.on(l, ts)
-  +p = Ad.pot(ts, w)
-  +ws1 = Equal.trans(Bool, Ad.waits.ia(Ad.get(t1, w)), Ad.waits.ia(Ad.get(ts, w)), True{}, aw.wait_pre_on(l, ts, w), ws)
-  %Equal.sym(Nat, Ad.pot(List.append(&2, Ad.Tk, t1, [x]), w), Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), Ad.pot(t1, w)), LAAdmissionPot.aw.pot_app(t1, x, w, ws1)) : {Ad.le(_, p) == True{} : Bool}
-  %Equal.sym(Nat, Ad.pot(t1, w), p, LAAdmissionPot.aw.pot_pre_on(l, ts, w)) : {Ad.le(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), _), p) == True{} : Bool}
+  +p = AT.pot(ts, w)
+  +ws1 = Equal.trans(Bool, Admission.adm_waits_ia(Ad.get(t1, w)), Admission.adm_waits_ia(Ad.get(ts, w)), True{}, aw.wait_pre_on(l, ts, w), ws)
+  %Equal.sym(Nat, AT.pot(List.append(&2, Ad.Tk, t1, [x]), w), Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), AT.pot(t1, w)), LAAdmissionPot.aw.pot_app(t1, x, w, ws1)) : {Ad.le(_, p) == True{} : Bool}
+  %Equal.sym(Nat, AT.pot(t1, w), p, LAAdmissionPot.aw.pot_pre_on(l, ts, w)) : {Ad.le(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), _), p) == True{} : Bool}
   %Equal.sym(Bool, Ad.isz(wi), False{}, LAAdmissionIsz.aw.wait_cnt(ts, w, ws)) : {Ad.le(Ad.bit(Bool.and(Ad.Mode.of(Ad.Holding{}, Ad.admit.ia.st(Bool.and(_, Ad.room(l, hi)), Ad.le(q, wi))), True{}), p), p) == True{} : Bool}
   LAAdmissionLe.aw.ia_new(Ad.room(l, hi), Ad.le(q, wi), p)
 
-def aw.rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, +w: Nat, ej: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}, wf: {Ad.waits.ia(Ad.get(Ad.St.ts(Ad.release.at(mb, l, q, ts, k)), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Ad.frees.at(mb, True{}), Ad.pot(Ad.St.ts(Ad.release.at(mb, l, q, ts, k)), w)), Ad.pot(ts, w)) == True{} : Bool}:
+def aw.rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, +w: Nat, ej: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}, wf: {Admission.adm_waits_ia(Ad.get(Admission.adm_ts(Ad.release.at(mb, l, q, ts, k)), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Admission.adm_frees.at(mb, True{}), AT.pot(Admission.adm_ts(Ad.release.at(mb, l, q, ts, k)), w)), AT.pot(ts, w)) == True{} : Bool}:
   match mb:
     case None{}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Ia{}, Ad.Held{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l, t2), w), Ad.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Ad.frees.at(Some{Ad.Tk{Ad.Ia{}, Ad.Held{}}}, True{}), _), Ad.pot(ts, w)) == True{} : Bool}
+      %Equal.sym(Nat, AT.pot(Ad.grant(l, t2), w), AT.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Admission.adm_frees.at(Some{Ad.Tk{Ad.Ia{}, Ad.Held{}}}, True{}), _), AT.pot(ts, w)) == True{} : Bool}
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Ia{}, Ad.Held{}}}, ej)
     case Some{Ad.Tk{Ad.Ia{}, Ad.Preempted{}}}:
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Ia{}, Ad.Preempted{}}}, ej)
     case Some{Ad.Tk{Ad.Ia{}, Ad.Ended{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Bg{}, Ad.Held{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l, t2), w), Ad.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Ad.frees.at(Some{Ad.Tk{Ad.Bg{}, Ad.Held{}}}, True{}), _), Ad.pot(ts, w)) == True{} : Bool}
+      %Equal.sym(Nat, AT.pot(Ad.grant(l, t2), w), AT.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Admission.adm_frees.at(Some{Ad.Tk{Ad.Bg{}, Ad.Held{}}}, True{}), _), AT.pot(ts, w)) == True{} : Bool}
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Bg{}, Ad.Held{}}}, ej)
     case Some{Ad.Tk{Ad.Bg{}, Ad.Preempted{}}}:
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Bg{}, Ad.Preempted{}}}, ej)
     case Some{Ad.Tk{Ad.Bg{}, Ad.Ended{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
 
-def aw.lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, +w: Nat, ej: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}, wf: {Ad.waits.ia(Ad.get(Ad.St.ts(Ad.leave.at(mb, l, q, ts, k)), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Ad.frees.at(mb, False{}), Ad.pot(Ad.St.ts(Ad.leave.at(mb, l, q, ts, k)), w)), Ad.pot(ts, w)) == True{} : Bool}:
+def aw.lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, +w: Nat, ej: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}, wf: {Admission.adm_waits_ia(Ad.get(Admission.adm_ts(Ad.leave.at(mb, l, q, ts, k)), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Admission.adm_frees.at(mb, False{}), AT.pot(Admission.adm_ts(Ad.leave.at(mb, l, q, ts, k)), w)), AT.pot(ts, w)) == True{} : Bool}:
   match mb:
     case None{}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l, t2), w), Ad.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Ad.frees.at(Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}, False{}), _), Ad.pot(ts, w)) == True{} : Bool}
+      %Equal.sym(Nat, AT.pot(Ad.grant(l, t2), w), AT.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Admission.adm_frees.at(Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}, False{}), _), AT.pot(ts, w)) == True{} : Bool}
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}, ej)
     case Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l, t2), w), Ad.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Ad.frees.at(Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}, False{}), _), Ad.pot(ts, w)) == True{} : Bool}
+      %Equal.sym(Nat, AT.pot(Ad.grant(l, t2), w), AT.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Admission.adm_frees.at(Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}, False{}), _), AT.pot(ts, w)) == True{} : Bool}
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}, ej)
     case Some{Ad.Tk{Ad.Ia{}, Ad.Held{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Ia{}, Ad.Preempted{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Ia{}, Ad.Ended{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l, t2), w), Ad.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Ad.frees.at(Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}, False{}), _), Ad.pot(ts, w)) == True{} : Bool}
+      %Equal.sym(Nat, AT.pot(Ad.grant(l, t2), w), AT.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Admission.adm_frees.at(Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}, False{}), _), AT.pot(ts, w)) == True{} : Bool}
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}, ej)
     case Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l, t2), w), Ad.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Ad.frees.at(Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}, False{}), _), Ad.pot(ts, w)) == True{} : Bool}
+      %Equal.sym(Nat, AT.pot(Ad.grant(l, t2), w), AT.pot(t2, w), aw.pot_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, w, wf)) : {Ad.le(Nat.add(Admission.adm_frees.at(Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}, False{}), _), AT.pot(ts, w)) == True{} : Bool}
       LAAdmissionPot.aw.end_at(ts, k, w, Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}, ej)
     case Some{Ad.Tk{Ad.Bg{}, Ad.Held{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Bg{}, Ad.Preempted{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
     case Some{Ad.Tk{Ad.Bg{}, Ad.Ended{}}}:
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))
 
-def aw.step(s: Ad.St, o: Ad.Op, +w: Nat, +ws: {Ad.waits.ia(Ad.status(s, w)) == True{} : Bool}, wf: {Ad.waits.ia(Ad.status(Ad.step(s, o), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Ad.frees(s, o), Ad.ahead(Ad.step(s, o), w)), Ad.ahead(s, w)) == True{} : Bool}:
+def aw.step(s: Ad.St, o: Ad.Op, +w: Nat, +ws: {Admission.adm_waits_ia(Admission.adm_status(s, w)) == True{} : Bool}, wf: {Admission.adm_waits_ia(Admission.adm_status(Ad.step(s, o), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Admission.adm_frees(s, o), AT.ahead(Ad.step(s, o), w)), AT.ahead(s, w)) == True{} : Bool}:
   match s o:
     case Ad.St{+l, +q, +ts} Ad.Admit{Ad.Ia{}}:
       aw.st_ia(l, q, ts, w, ws)
@@ -201,5 +203,5 @@ def aw.step(s: Ad.St, o: Ad.Op, +w: Nat, +ws: {Ad.waits.ia(Ad.status(s, w)) == T
     case Ad.St{+l, +q, +ts} Ad.Leave{+k}:
       aw.lea(Ad.get(ts, k), l, q, ts, k, w, {==}, wf)
     case Ad.St{+l, +q, +ts} Ad.Limit{+l2, q2}:
-      %Equal.sym(Nat, Ad.pot(Ad.grant(l2, ts), w), Ad.pot(ts, w), aw.pot_grant(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, w, wf)) : {Ad.le(_, Ad.pot(ts, w)) == True{} : Bool}
-      LAAdmissionLe.ad.le_refl(Ad.pot(ts, w))
+      %Equal.sym(Nat, AT.pot(Ad.grant(l2, ts), w), AT.pot(ts, w), aw.pot_grant(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, w, wf)) : {Ad.le(_, AT.pot(ts, w)) == True{} : Bool}
+      LAAdmissionLe.ad.le_refl(AT.pot(ts, w))

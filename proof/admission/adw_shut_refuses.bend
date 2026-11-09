@@ -2,6 +2,7 @@
 
 import Base
 import ../../laws/admission.bend as Admission
+import ../../laws/admission/wire.bend as AdmissionWire
 
-def Admission.adw_shut_refuses(s):
+def AdmissionWire.adw_shut_refuses(s):
   {==}

@@ -19,7 +19,7 @@ def uk.get_app(ts: List<&2, Ad.Tk>, k: Nat, -x: Ad.Tk, e: {Maybe.is_some(&2, Ad.
     case h <> t 1n+p:
       uk.get_app(t, p, x, e)
 
-def keeps_background(q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, live: {Maybe.is_some(&2, Ad.Tk, Ad.get(ts, k)) == True{} : Bool}) -> {Ad.get(Ad.St.ts(Ad.step(Ad.St{Ad.Unl{}, q, ts}, Ad.Admit{Ad.Ia{}})), k) == Ad.get(ts, k) : Maybe<&2, Ad.Tk>}:
+def keeps_background(q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, live: {Maybe.is_some(&2, Ad.Tk, Ad.get(ts, k)) == True{} : Bool}) -> {Ad.get(Admission.adm_ts(Ad.step(Ad.St{Ad.Unl{}, q, ts}, Ad.Admit{Ad.Ia{}})), k) == Ad.get(ts, k) : Maybe<&2, Ad.Tk>}:
   uk.get_app(ts, k, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(Ad.Unl{}, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}, live)
 
 # (H3) A user's request never waits behind background work

@@ -9,6 +9,7 @@ import ./le.bend as LAAdmissionLe
 import ../bool.bend as LABool
 import ../logic.bend as LALogic
 import ../nat.bend as LANat
+import ./terms.bend as AT
 
 def ad.pick_none0(r: Bool, hi: Nat) -> {Ad.pick.go(r, 0n, hi, 0n) == None{} : Maybe<&2, Ad.Cls>}:
   match r hi:
@@ -57,15 +58,15 @@ def ad.adm_ia0(+l: Ad.Lim, +hi: Nat, +wb1: Nat, r: Bool, u: Bool, er: {Ad.room(l
   match r u:
     case True{} _:
       +rr = Ad.room(l, Nat.add(1n+hi, 0n))
-      %Equal.sym(Maybe<&2, Ad.Cls>, Ad.pick.go(rr, 0n, 1n+hi, wb1), None{}, ad.pick_none_hi(rr, hi, wb1)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), Ad.calm.n(0n, 0n)) == True{} : Bool}
+      %Equal.sym(Maybe<&2, Ad.Cls>, Ad.pick.go(rr, 0n, 1n+hi, wb1), None{}, ad.pick_none_hi(rr, hi, wb1)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), AT.calm.n(0n, 0n)) == True{} : Bool}
       {==}
     case False{} True{}:
-      %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, _), 0n, hi, wb1))), Ad.calm.n(0n, 0n)) == True{} : Bool}
-      %Equal.sym(Bool, Ad.room(l, hi), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 0n, hi, wb1))), Ad.calm.n(0n, 0n)) == True{} : Bool}
+      %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, _), 0n, hi, wb1))), AT.calm.n(0n, 0n)) == True{} : Bool}
+      %Equal.sym(Bool, Ad.room(l, hi), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 0n, hi, wb1))), AT.calm.n(0n, 0n)) == True{} : Bool}
       {==}
     case False{} False{}:
-      %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, _), 1n, hi, wb1))), Ad.calm.n(1n, 0n)) == True{} : Bool}
-      %Equal.sym(Bool, Ad.room(l, hi), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 1n, hi, wb1))), Ad.calm.n(1n, 0n)) == True{} : Bool}
+      %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, _), 1n, hi, wb1))), AT.calm.n(1n, 0n)) == True{} : Bool}
+      %Equal.sym(Bool, Ad.room(l, hi), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 1n, hi, wb1))), AT.calm.n(1n, 0n)) == True{} : Bool}
       {==}
 
 # a background admit: a slot only when no request holds one
@@ -74,29 +75,29 @@ def ad.adm_bg0(+l: Ad.Lim, +hb: Nat, r: Bool, er: {Ad.room(l, hb) == r : Bool}) 
   match r:
     case True{}:
       +rr = Ad.room(l, 1n+hb)
-      %Equal.sym(Maybe<&2, Ad.Cls>, Ad.pick.go(rr, 0n, 0n, 0n), None{}, ad.pick_none0(rr, 0n)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), Ad.calm.n(0n, 1n+hb)) == True{} : Bool}
+      %Equal.sym(Maybe<&2, Ad.Cls>, Ad.pick.go(rr, 0n, 0n, 0n), None{}, ad.pick_none0(rr, 0n)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), AT.calm.n(0n, 1n+hb)) == True{} : Bool}
       {==}
     case False{}:
-      %Equal.sym(Bool, Ad.room(l, hb), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 0n, 0n, 1n))), Ad.calm.n(0n, hb)) == True{} : Bool}
+      %Equal.sym(Bool, Ad.room(l, hb), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 0n, 0n, 1n))), AT.calm.n(0n, hb)) == True{} : Bool}
       LABool.ad.or_t(Ad.isz(hb))
 
 def ad.adm_bg(+l: Ad.Lim, +hi: Nat, +wi: Nat, +wb: Nat, +hb: Nat, h: {LALogic.ad.ok.n(l, hi, wi, hb, wb) == True{} : Bool}) -> {LALogic.ad.ok.n(l, hi, wi, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(hi), Bool.and(Ad.isz(wi), Bool.and(Ad.isz(wb), Ad.room(l, Nat.add(hi, hb))))))}), hb), Ad.bit(Ad.hit(Ad.Waiting{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(hi), Bool.and(Ad.isz(wi), Bool.and(Ad.isz(wb), Ad.room(l, Nat.add(hi, hb))))))}), wb)) == True{} : Bool}:
   match hi:
     case 1n+a:
       +rr = Ad.room(l, Nat.add(1n+a, hb))
-      %ad.pick_hi(rr, wi, a, wb, 1n+wb) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), Ad.calm.n(wi, hb)) == True{} : Bool}
+      %ad.pick_hi(rr, wi, a, wb, 1n+wb) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), AT.calm.n(wi, hb)) == True{} : Bool}
       h
     case 0n:
       match wi:
         case 1n+b:
           +rr = Ad.room(l, hb)
-          %ad.pick_wi(rr, b, 0n, wb, 1n+wb) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), Ad.calm.n(1n+b, hb)) == True{} : Bool}
+          %ad.pick_wi(rr, b, 0n, wb, 1n+wb) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), AT.calm.n(1n+b, hb)) == True{} : Bool}
           h
         case 0n:
           match wb:
             case 1n+c:
               +rr = Ad.room(l, hb)
-              %ad.pick_wb(rr, c, 1n+c) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), Ad.calm.n(0n, hb)) == True{} : Bool}
+              %ad.pick_wb(rr, c, 1n+c) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), AT.calm.n(0n, hb)) == True{} : Bool}
               h
             case 0n:
               ad.adm_bg0(l, hb, Ad.room(l, hb), {==})
@@ -114,12 +115,12 @@ def ad.adm_bg_ok(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, h: {LALogic.ad.ok(l, ts) == T
 # A grant keeps the invariant
 # ---------------------------
 
-def ad.ok_idle(+l: Ad.Lim, +hi: Nat, +hb: Nat, c: {Ad.calm.n(0n, hb) == True{} : Bool}) -> {LALogic.ad.ok.n(l, hi, 0n, hb, 0n) == True{} : Bool}:
+def ad.ok_idle(+l: Ad.Lim, +hi: Nat, +hb: Nat, c: {AT.calm.n(0n, hb) == True{} : Bool}) -> {LALogic.ad.ok.n(l, hi, 0n, hb, 0n) == True{} : Bool}:
   +r = Ad.room(l, Nat.add(hi, hb))
-  %Equal.sym(Maybe<&2, Ad.Cls>, Ad.pick.go(r, 0n, hi, 0n), None{}, ad.pick_none0(r, hi)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), Ad.calm.n(0n, hb)) == True{} : Bool}
+  %Equal.sym(Maybe<&2, Ad.Cls>, Ad.pick.go(r, 0n, hi, 0n), None{}, ad.pick_none0(r, hi)) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, _)), AT.calm.n(0n, hb)) == True{} : Bool}
   c
 
-def ad.grant_idle(+l: Ad.Lim, +t: List<&2, Ad.Tk>, z: {Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t) == 0n : Nat} & {Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t) == 0n : Nat}, cm: {Ad.calm(t) == True{} : Bool}) -> {LALogic.ad.ok(l, t) == True{} : Bool}:
+def ad.grant_idle(+l: Ad.Lim, +t: List<&2, Ad.Tk>, z: {Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t) == 0n : Nat} & {Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t) == 0n : Nat}, cm: {AT.calm(t) == True{} : Bool}) -> {LALogic.ad.ok(l, t) == True{} : Bool}:
   (+zi, zb) = z
   +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, t)
   +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t)
@@ -127,7 +128,7 @@ def ad.grant_idle(+l: Ad.Lim, +t: List<&2, Ad.Tk>, z: {Ad.cnt(Ad.Waiting{}, Ad.I
   +wb = Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t)
   LALogic.ad.ok.tr(l, hi, 0n, hb, 0n, hi, wi, hb, wb, {==}, Equal.sym(Nat, wi, 0n, zi), {==}, Equal.sym(Nat, wb, 0n, zb), ad.ok_idle(l, hi, hb, LAAdmissionCalm.ad.calm.tr(wi, hb, 0n, hb, zi, {==}, cm)))
 
-def ad.grant_ok(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +ed: {Ad.pick(l, t) == d : Maybe<&2, Ad.Cls>}, fuel: {Ad.le(Ad.waits(t), n) == True{} : Bool}, +cm: {Ad.calm(t) == True{} : Bool}) -> {LALogic.ad.ok(l, Ad.grant.go(n, d, l, t)) == True{} : Bool}:
+def ad.grant_ok(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +ed: {Ad.pick(l, t) == d : Maybe<&2, Ad.Cls>}, fuel: {Ad.le(Ad.waits(t), n) == True{} : Bool}, +cm: {AT.calm(t) == True{} : Bool}) -> {LALogic.ad.ok(l, Ad.grant.go(n, d, l, t)) == True{} : Bool}:
   match n d:
     case 0n _:
       ad.grant_idle(l, t, LALogic.ad.zero2(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t), Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t), fuel), cm)
@@ -140,7 +141,7 @@ def ad.grant_ok(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +
       ad.grant_ok(f, Ad.pick(l, Ad.mark(Ad.Bg{}, t)), l, Ad.mark(Ad.Bg{}, t), {==}, LAAdmissionLe.ad.fuel_bg(t, f, LAAdmissionCnt.ad.bg_wi(t, LAAdmissionIsz.ad.pbg(l, t, ed)), LAAdmissionIsz.ad.bg_wb(t, LAAdmissionIsz.ad.pbg(l, t, ed)), fuel), LAAdmissionCalm.ad.calm_bg(t, LAAdmissionCnt.ad.bg_wi(t, LAAdmissionIsz.ad.pbg(l, t, ed)), LAAdmissionIsz.ad.bg_wb(t, LAAdmissionIsz.ad.pbg(l, t, ed))))
 
 # a ticket ends, then the waiters are granted
-def ad.end_grant(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +k: Nat, +c: Ad.Cls, +s: Ad.Sts, +e: {Ad.get(ts, k) == Some{Ad.Tk{c, s}} : Maybe<&2, Ad.Tk>}, cm: {Ad.calm(ts) == True{} : Bool}) -> {LALogic.ad.ok(l, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))) == True{} : Bool}:
+def ad.end_grant(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +k: Nat, +c: Ad.Cls, +s: Ad.Sts, +e: {Ad.get(ts, k) == Some{Ad.Tk{c, s}} : Maybe<&2, Ad.Tk>}, cm: {AT.calm(ts) == True{} : Bool}) -> {LALogic.ad.ok(l, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))) == True{} : Bool}:
   +t2 = Ad.put(ts, k, Ad.Ended{})
   ad.grant_ok(Ad.waits(t2), Ad.pick(l, t2), l, t2, {==}, LAAdmissionLe.ad.le_refl(Ad.waits(t2)), LAAdmissionCalm.ad.end_calm(ts, k, c, s, e, cm))
 

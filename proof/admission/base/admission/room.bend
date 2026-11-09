@@ -8,9 +8,10 @@ import ./hit.bend as LAAdmissionHit
 import ./pick.bend as LAAdmissionPick
 import ../bool.bend as LABool
 import ../logic.bend as LALogic
+import ./terms.bend as AT
 
 def ad.room0(+l: Ad.Lim, +hi: Nat, +w: Nat, +hb: Nat, +wb: Nat, +h: {LALogic.ad.ok.n(l, hi, 1n+w, hb, wb) == True{} : Bool}) -> {Ad.room(l, Nat.add(hi, 0n)) == False{} : Bool}:
-  +cn = Ad.calm.n(1n+w, hb)
+  +cn = AT.calm.n(1n+w, hb)
   %LABool.ad.calm_hb0(w, hb, LALogic.ad.and_r(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), 1n+w, hi, wb))), cn, h)) : {Ad.room(l, Nat.add(hi, _)) == False{} : Bool}
   LALogic.ad.ok_room(Ad.room(l, Nat.add(hi, hb)), w, hi, wb, cn, h)
 

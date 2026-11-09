@@ -3,8 +3,9 @@
 import Base
 import ../../../../bend/admission.bend as Ad
 import ../logic.bend as LALogic
+import ./terms.bend as AT
 
-def ad.new_ok(l: Ad.Lim, -q: Nat) -> {LALogic.ad.okS(Ad.St.new(l, q)) == True{} : Bool}:
+def ad.new_ok(l: Ad.Lim, -q: Nat) -> {LALogic.ad.okS(AT.St.new(l, q)) == True{} : Bool}:
   match l:
     case Ad.Unl{}:
       {==}

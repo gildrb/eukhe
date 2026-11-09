@@ -10,7 +10,7 @@ import ./base/logic.bend as LALogic
 # ------------------------------
 
 # a preemption ends no ticket and revives none
-def ad.end_pre1(t: Ad.Tk) -> {Ad.ended(Some{Ad.Tk.preempt(t)}) == Ad.ended(Some{t}) : Bool}:
+def ad.end_pre1(t: Ad.Tk) -> {Admission.adm_ended(Some{Ad.Tk.preempt(t)}) == Admission.adm_ended(Some{t}) : Bool}:
   match t:
     case Ad.Tk{Ad.Ia{}, s}:
       {==}
@@ -25,7 +25,7 @@ def ad.end_pre1(t: Ad.Tk) -> {Ad.ended(Some{Ad.Tk.preempt(t)}) == Ad.ended(Some{
     case Ad.Tk{Ad.Bg{}, Ad.Ended{}}:
       {==}
 
-def ad.end_pre(t: List<&2, Ad.Tk>, k: Nat) -> {Ad.ended(Ad.get(Ad.preempt(t), k)) == Ad.ended(Ad.get(t, k)) : Bool}:
+def ad.end_pre(t: List<&2, Ad.Tk>, k: Nat) -> {Admission.adm_ended(Ad.get(Ad.preempt(t), k)) == Admission.adm_ended(Ad.get(t, k)) : Bool}:
   match t:
     case Nil{}:
       {==}
@@ -36,17 +36,17 @@ def ad.end_pre(t: List<&2, Ad.Tk>, k: Nat) -> {Ad.ended(Ad.get(Ad.preempt(t), k)
         case 1n+p:
           ad.end_pre(r, p)
 
-def ad.end_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, k: Nat) -> {Ad.ended(Ad.get(Ad.preempt.on(l, t), k)) == Ad.ended(Ad.get(t, k)) : Bool}:
+def ad.end_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, k: Nat) -> {Admission.adm_ended(Ad.get(Ad.preempt.on(l, t), k)) == Admission.adm_ended(Ad.get(t, k)) : Bool}:
   match l:
     case Ad.Unl{}:
       {==}
     case Ad.Cap{p}:
       ad.end_pre(t, k)
 
-def ad.end_app(t: List<&2, Ad.Tk>, -x: Ad.Tk, k: Nat, e: {Ad.ended(Ad.get(t, k)) == True{} : Bool}) -> {Ad.ended(Ad.get(List.append(&2, Ad.Tk, t, [x]), k)) == True{} : Bool}:
+def ad.end_app(t: List<&2, Ad.Tk>, -x: Ad.Tk, k: Nat, e: {Admission.adm_ended(Ad.get(t, k)) == True{} : Bool}) -> {Admission.adm_ended(Ad.get(List.append(&2, Ad.Tk, t, [x]), k)) == True{} : Bool}:
   match t:
     case Nil{}:
-      LALogic.ad.absurd({Ad.ended(Ad.get([x], k)) == True{} : Bool}, e)
+      LALogic.ad.absurd({Admission.adm_ended(Ad.get([x], k)) == True{} : Bool}, e)
     case +h <> +r:
       match k:
         case 0n:
@@ -55,14 +55,14 @@ def ad.end_app(t: List<&2, Ad.Tk>, -x: Ad.Tk, k: Nat, e: {Ad.ended(Ad.get(t, k))
           ad.end_app(r, x, p, e)
 
 # a ticket op on another ticket leaves an ended one ended
-def ad.end_put(t: List<&2, Ad.Tk>, k: Nat, j: Nat, -x: Ad.Sts, e: {Ad.ended(Ad.get(t, k)) == True{} : Bool}, ne: {Ad.ended(Ad.get(t, j)) == False{} : Bool}) -> {Ad.ended(Ad.get(Ad.put(t, j, x), k)) == True{} : Bool}:
+def ad.end_put(t: List<&2, Ad.Tk>, k: Nat, j: Nat, -x: Ad.Sts, e: {Admission.adm_ended(Ad.get(t, k)) == True{} : Bool}, ne: {Admission.adm_ended(Ad.get(t, j)) == False{} : Bool}) -> {Admission.adm_ended(Ad.get(Ad.put(t, j, x), k)) == True{} : Bool}:
   match t:
     case Nil{}:
       e
     case Ad.Tk{+c, +s} <> +r:
       match k j:
         case 0n 0n:
-          LALogic.ad.absurd({Ad.ended(Some{Ad.Tk{c, x}}) == True{} : Bool}, Equal.trans(Bool, False{}, Ad.ended(Some{Ad.Tk{c, s}}), True{}, Equal.sym(Bool, Ad.ended(Some{Ad.Tk{c, s}}), False{}, ne), e))
+          LALogic.ad.absurd({Admission.adm_ended(Some{Ad.Tk{c, x}}) == True{} : Bool}, Equal.trans(Bool, False{}, Admission.adm_ended(Some{Ad.Tk{c, s}}), True{}, Equal.sym(Bool, Admission.adm_ended(Some{Ad.Tk{c, s}}), False{}, ne), e))
         case 0n 1n+q:
           e
         case 1n+p 0n:
@@ -71,14 +71,14 @@ def ad.end_put(t: List<&2, Ad.Tk>, k: Nat, j: Nat, -x: Ad.Sts, e: {Ad.ended(Ad.g
           ad.end_put(r, p, q, x, e, ne)
 
 # ticket j, which is not ended, ends and the waiters are granted
-def ad.ne_at(-ts: List<&2, Ad.Tk>, -j: Nat, -mb: Maybe<&2, Ad.Tk>, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, f: {Ad.ended(mb) == False{} : Bool}) -> {Ad.ended(Ad.get(ts, j)) == False{} : Bool}:
-  %Equal.sym(Maybe<&2, Ad.Tk>, Ad.get(ts, j), mb, ej) : {Ad.ended(_) == False{} : Bool}
+def ad.ne_at(-ts: List<&2, Ad.Tk>, -j: Nat, -mb: Maybe<&2, Ad.Tk>, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, f: {Admission.adm_ended(mb) == False{} : Bool}) -> {Admission.adm_ended(Ad.get(ts, j)) == False{} : Bool}:
+  %Equal.sym(Maybe<&2, Ad.Tk>, Ad.get(ts, j), mb, ej) : {Admission.adm_ended(_) == False{} : Bool}
   f
 
-def ad.end_other(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +k: Nat, +j: Nat, -c: Ad.Cls, -s: Ad.Sts, ej: {Ad.get(ts, j) == Some{Ad.Tk{c, s}} : Maybe<&2, Ad.Tk>}, ne: {Ad.ended(Some{Ad.Tk{c, s}}) == False{} : Bool}, e: {Ad.ended(Ad.get(ts, k)) == True{} : Bool}) -> {Ad.ended(Ad.get(Ad.put(ts, j, Ad.Ended{}), k)) == True{} : Bool}:
+def ad.end_other(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +k: Nat, +j: Nat, -c: Ad.Cls, -s: Ad.Sts, ej: {Ad.get(ts, j) == Some{Ad.Tk{c, s}} : Maybe<&2, Ad.Tk>}, ne: {Admission.adm_ended(Some{Ad.Tk{c, s}}) == False{} : Bool}, e: {Admission.adm_ended(Ad.get(ts, k)) == True{} : Bool}) -> {Admission.adm_ended(Ad.get(Ad.put(ts, j, Ad.Ended{}), k)) == True{} : Bool}:
   ad.end_put(ts, k, j, Ad.Ended{}, e, ad.ne_at(ts, j, Some{Ad.Tk{c, s}}, ej, ne))
 
-def ad.end_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +j: Nat, +k: Nat, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, e: {Ad.ended(Ad.get(ts, k)) == True{} : Bool}) -> {Ad.ended(Ad.status(Ad.collect.at(mb, l, q, ts, j), k)) == True{} : Bool}:
+def ad.end_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +j: Nat, +k: Nat, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, e: {Admission.adm_ended(Ad.get(ts, k)) == True{} : Bool}) -> {Admission.adm_ended(Admission.adm_status(Ad.collect.at(mb, l, q, ts, j), k)) == True{} : Bool}:
   match mb:
     case None{}:
       e
@@ -93,7 +93,7 @@ def ad.end_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
     case Some{Ad.Tk{c, Ad.Ended{}}}:
       e
 
-def ad.end_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +j: Nat, +k: Nat, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, e: {Ad.ended(Ad.get(ts, k)) == True{} : Bool}) -> {Ad.ended(Ad.status(Ad.release.at(mb, l, q, ts, j), k)) == True{} : Bool}:
+def ad.end_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +j: Nat, +k: Nat, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, e: {Admission.adm_ended(Ad.get(ts, k)) == True{} : Bool}) -> {Admission.adm_ended(Admission.adm_status(Ad.release.at(mb, l, q, ts, j), k)) == True{} : Bool}:
   match mb:
     case None{}:
       e
@@ -109,7 +109,7 @@ def ad.end_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
     case Some{Ad.Tk{c, Ad.Ended{}}}:
       e
 
-def ad.end_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +j: Nat, +k: Nat, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, e: {Ad.ended(Ad.get(ts, k)) == True{} : Bool}) -> {Ad.ended(Ad.status(Ad.leave.at(mb, l, q, ts, j), k)) == True{} : Bool}:
+def ad.end_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +j: Nat, +k: Nat, ej: {Ad.get(ts, j) == mb : Maybe<&2, Ad.Tk>}, e: {Admission.adm_ended(Ad.get(ts, k)) == True{} : Bool}) -> {Admission.adm_ended(Admission.adm_status(Ad.leave.at(mb, l, q, ts, j), k)) == True{} : Bool}:
   match mb:
     case None{}:
       e
@@ -126,13 +126,13 @@ def ad.end_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
     case Some{Ad.Tk{c, Ad.Ended{}}}:
       e
 
-def ended_stays_ended(s: Ad.St, o: Ad.Op, +k: Nat, e: {Ad.ended(Ad.status(s, k)) == True{} : Bool}) -> {Ad.ended(Ad.status(Ad.step(s, o), k)) == True{} : Bool}:
+def ended_stays_ended(s: Ad.St, o: Ad.Op, +k: Nat, e: {Admission.adm_ended(Admission.adm_status(s, k)) == True{} : Bool}) -> {Admission.adm_ended(Admission.adm_status(Ad.step(s, o), k)) == True{} : Bool}:
   match s:
     case Ad.St{+l, +q, +ts}:
       match o:
         case Ad.Admit{Ad.Ia{}}:
           +st = Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))
-          ad.end_app(Ad.preempt.on(l, ts), Ad.Tk{Ad.Ia{}, st}, k, Equal.trans(Bool, Ad.ended(Ad.get(Ad.preempt.on(l, ts), k)), Ad.ended(Ad.get(ts, k)), True{}, ad.end_pre_on(l, ts, k), e))
+          ad.end_app(Ad.preempt.on(l, ts), Ad.Tk{Ad.Ia{}, st}, k, Equal.trans(Bool, Admission.adm_ended(Ad.get(Ad.preempt.on(l, ts), k)), Admission.adm_ended(Ad.get(ts, k)), True{}, ad.end_pre_on(l, ts, k), e))
         case Ad.Admit{Ad.Bg{}}:
           +st = Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts)), Ad.room(l, Ad.held(ts))))))
           ad.end_app(ts, Ad.Tk{Ad.Bg{}, st}, k, e)

@@ -1,9 +1,10 @@
-# eukhe: lemmas of LAW admission_step_exact: the spec's counts, tests and
-# per-ticket ops are the model's
+# eukhe: lemmas the proofs of area admission share: admission/count. The
+# laws' counts, tests and preemption table (laws/admission.bend, Terms)
+# are the model's.
 
 import Base
-import ../../../bend/admission.bend as Ad
-import ../../../laws/admission.bend as Admission
+import ../../../../bend/admission.bend as Ad
+import ../../../../laws/admission.bend as Admission
 
 # Logic
 # -----
@@ -165,22 +166,7 @@ def pac.room(l: Ad.Lim, n: Nat) -> {Ad.room(l, n) == Admission.ads_room(l, n) : 
     case Ad.Cap{p}:
       pac.le(n, p)
 
-# Per-ticket ops
-# --------------
-
-def pac.set(ts: List<&2, Ad.Tk>, k: Nat, +x: Ad.Sts) -> {Ad.put(ts, k, x) == Admission.ads_set(ts, k, x) : List<&2, Ad.Tk>}:
-  match ts:
-    case Nil{}:
-      {==}
-    case Ad.Tk{+c, +s} <> +r:
-      match k:
-        case 0n:
-          {==}
-        case 1n+j:
-          %pac.set(r, j, x) : {Ad.Tk{c, s} <> Ad.put(r, j, x) == Ad.Tk{c, s} <> _ : List<&2, Ad.Tk>}
-          {==}
-
-def pac.pre1(t: Ad.Tk) -> {Ad.Tk.preempt(t) == Admission.ads_preempt1(t) : Ad.Tk}:
+def pac.pre1(t: Ad.Tk) -> {Ad.Tk.preempt(t) == Admission.adm_taken_back(t) : Ad.Tk}:
   match t:
     case Ad.Tk{c, s}:
       match c:
@@ -199,34 +185,19 @@ def pac.pre1(t: Ad.Tk) -> {Ad.Tk.preempt(t) == Admission.ads_preempt1(t) : Ad.Tk
             case Ad.Ended{}:
               {==}
 
-def pac.pre(ts: List<&2, Ad.Tk>) -> {Ad.preempt(ts) == Admission.ads_preempt(ts) : List<&2, Ad.Tk>}:
+def pac.pre(ts: List<&2, Ad.Tk>) -> {Ad.preempt(ts) == Admission.adm_taken_back.all(ts) : List<&2, Ad.Tk>}:
   match ts:
     case Nil{}:
       {==}
     case +h <> +r:
-      %pac.pre(r) : {Ad.Tk.preempt(h) <> Ad.preempt(r) == Admission.ads_preempt1(h) <> _ : List<&2, Ad.Tk>}
+      %pac.pre(r) : {Ad.Tk.preempt(h) <> Ad.preempt(r) == Admission.adm_taken_back(h) <> _ : List<&2, Ad.Tk>}
       %pac.pre1(h) : {Ad.Tk.preempt(h) <> Ad.preempt(r) == _ <> Ad.preempt(r) : List<&2, Ad.Tk>}
       {==}
 
-def pac.pre_on(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> {Ad.preempt.on(l, ts) == Admission.ads_yield(l, ts) : List<&2, Ad.Tk>}:
+def pac.pre_on(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> {Ad.preempt.on(l, ts) == Admission.adm_yield(Ad.Ia{}, l, ts) : List<&2, Ad.Tk>}:
   match l:
     case Ad.Unl{}:
       {==}
     case Ad.Cap{p}:
       pac.pre(ts)
 
-def pac.ia_st(a: Bool, b: Bool) -> {Ad.admit.ia.st(a, b) == Admission.ads_ia_status(a, b) : Ad.Sts}:
-  match a b:
-    case True{} _:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
-def pac.bg_st(a: Bool) -> {Ad.admit.bg.st(a) == Admission.ads_bg_status(a) : Ad.Sts}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      {==}

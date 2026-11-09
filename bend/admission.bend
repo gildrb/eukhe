@@ -1,6 +1,6 @@
 # admission: the pure model of one provider's admission controller
 # (crates/eukhe-core/src/admission.rs, `ControllerState`), rule H3 of
-# LAWS.bend.
+# laws/admission.bend.
 #
 # - The state is the limit, the queue limit, and one entry per ticket, in
 #   ticket order: its class and its status. Ticket k is entry k.
@@ -12,8 +12,8 @@
 # - The Rust queues are the queued entries of a class, in ticket order;
 #   its counters are the counts below.
 #
-# LAWS.bend states what must hold; PROOF.bend proves it (with
-# proof/admission/).
+# laws/admission.bend states what must hold (its header holds the
+# requirement table); PROOF.bend proves it (with proof/admission/).
 
 import Base
 
@@ -55,16 +55,6 @@ type Op is Data:
   Release{k: Nat}
   Leave{k: Nat}
   Limit{lim: Lim, q: Nat}
-
-def St.lim(s: St) -> Lim:
-  match s:
-    case St{l, q, ts}:
-      l
-
-def St.ts(s: St) -> List<&2, Tk>:
-  match s:
-    case St{l, q, ts}:
-      ts
 
 # Counting
 # --------
@@ -152,14 +142,6 @@ def room(l: Lim, n: Nat) -> Bool:
       True{}
     case Cap{p}:
       le(n, p)
-
-# n slots held are within the limit
-def within(l: Lim, n: Nat) -> Bool:
-  match l:
-    case Unl{}:
-      True{}
-    case Cap{p}:
-      le(n, 1n+p)
 
 # slots held, both classes
 def held(+ts: List<&2, Tk>) -> Nat:
@@ -375,24 +357,15 @@ def step(s: St, o: Op) -> St:
         case Limit{+l2, q2}:
           St{l2, q2, grant(l2, ts)}
 
-def run(os: List<&2, Op>, s: St) -> St:
-  match os:
-    case Nil{}:
-      s
-    case o <> r:
-      run(r, step(s, o))
-
-def St.new(l: Lim, q: Nat) -> St:
-  St{l, q, Nil{}}
-
 # The live controller
 # -------------------
 # What eukhe runs (the Rust `ControllerState` keeps this state and asks
 # `Live.step` for each op). The model above keeps every ticket ever
 # admitted, so its ticket k is its k-th entry; this one keeps only the
 # live tickets (an ended ticket leaves), each with its ticket number, and
-# the number the next ticket gets. LAWS.bend (`admission_live_step`)
-# states that it is the model above with the ended tickets left out.
+# the number the next ticket gets. laws/admission.bend
+# (`admission_live_step`) states that it is the model above with the
+# ended tickets left out.
 
 # a live ticket: its number, class and status
 type Lv is Data:
@@ -608,163 +581,5 @@ def Live.step(x: Live, o: Op) -> Live:
         case Limit{+l2, q2}:
           Live{l2, q2, lv.grant(l2, ts), n}
 
-def Live.run(os: List<&2, Op>, x: Live) -> Live:
-  match os:
-    case Nil{}:
-      x
-    case o <> r:
-      Live.run(r, Live.step(x, o))
-
 def Live.new(l: Lim, q: Nat) -> Live:
   Live{l, q, Nil{}, 0n}
-
-# What the laws speak of
-# ----------------------
-
-# no lost wake-up: some waiter may take a free slot
-def grantable(+s: St) -> Bool:
-  match s:
-    case St{+l, q, +ts}:
-      Maybe.is_some(&2, Cls, pick(l, ts))
-
-# a background slot is held only while no interactive request waits (on
-# a capped provider an interactive admit preempts every background slot,
-# and a background request takes one only while no interactive request
-# holds or waits; an unlimited provider has a slot for every
-# interactive request, so none waits)
-def calm.n(wi: Nat, hb: Nat) -> Bool:
-  Bool.or(isz(hb), isz(wi))
-
-def calm(+ts: List<&2, Tk>) -> Bool:
-  calm.n(cnt(Waiting{}, Ia{}, ts), cnt(Holding{}, Bg{}, ts))
-
-# the slots an op frees itself, before any grant: a release or a granted
-# waiter that leaves, one; an interactive admit on a capped provider,
-# every background slot
-def freed.at(m: Maybe<&2, Tk>, rel: Bool) -> Nat:
-  match m rel:
-    case Some{Tk{c, Held{}}} True{}:
-      1n
-    case Some{Tk{c, Granted{}}} False{}:
-      1n
-    case _ _:
-      0n
-
-def freed.ia(l: Lim, n: Nat) -> Nat:
-  match l:
-    case Unl{}:
-      0n
-    case Cap{p}:
-      n
-
-def freed(+s: St, o: Op) -> Nat:
-  match o:
-    case Admit{Ia{}}:
-      freed.ia(St.lim(s), cnt(Holding{}, Bg{}, St.ts(s)))
-    case Admit{Bg{}}:
-      0n
-    case Collect{k}:
-      0n
-    case Release{k}:
-      freed.at(get(St.ts(s), k), True{})
-    case Leave{k}:
-      freed.at(get(St.ts(s), k), False{})
-    case Limit{l, q}:
-      0n
-
-# fifo(c, ts, seen): no ticket of class c holds a slot after one of its
-# class that waits (seen: one waited before ts)
-def fifo(+c: Cls, ts: List<&2, Tk>, +seen: Bool) -> Bool:
-  match ts:
-    case Nil{}:
-      True{}
-    case +h <> r:
-      Bool.and(Bool.not(Bool.and(seen, hit(Holding{}, c, h))), fifo(c, r, Bool.or(seen, hit(Waiting{}, c, h))))
-
-def fifo.both(+ts: List<&2, Tk>) -> Bool:
-  Bool.and(fifo(Ia{}, ts, False{}), fifo(Bg{}, ts, False{}))
-
-# ticket m waits, interactive
-def waits.ia(m: Maybe<&2, Tk>) -> Bool:
-  match m:
-    case Some{Tk{Ia{}, Queued{}}}:
-      True{}
-    case _:
-      False{}
-
-# what interactive ticket w waits for: the interactive slots held and the
-# interactive waiters ahead of it (interactive tickets before w that hold
-# or wait, and interactive slots from w on)
-def pot(ts: List<&2, Tk>, w: Nat) -> Nat:
-  match ts:
-    case Nil{}:
-      0n
-    case +h <> +r:
-      match w:
-        case 0n:
-          cnt(Holding{}, Ia{}, h <> r)
-        case 1n+p:
-          bit(Bool.or(hit(Holding{}, Ia{}, h), hit(Waiting{}, Ia{}, h)), pot(r, p))
-
-def ahead(+s: St, w: Nat) -> Nat:
-  pot(St.ts(s), w)
-
-# an op frees an interactive slot
-def frees.at(m: Maybe<&2, Tk>, rel: Bool) -> Nat:
-  match m rel:
-    case Some{Tk{Ia{}, Held{}}} True{}:
-      1n
-    case Some{Tk{Ia{}, Granted{}}} False{}:
-      1n
-    case _ _:
-      0n
-
-def frees(+s: St, o: Op) -> Nat:
-  match o:
-    case Admit{c}:
-      0n
-    case Collect{k}:
-      0n
-    case Release{k}:
-      frees.at(get(St.ts(s), k), True{})
-    case Leave{k}:
-      frees.at(get(St.ts(s), k), False{})
-    case Limit{l, q}:
-      0n
-
-# the interactive slots freed along a run
-def frees.run(os: List<&2, Op>, +s: St) -> Nat:
-  match os:
-    case Nil{}:
-      0n
-    case +o <> r:
-      Nat.add(frees(s, o), frees.run(r, step(s, o)))
-
-def status(+s: St, k: Nat) -> Maybe<&2, Tk>:
-  get(St.ts(s), k)
-
-# ticket w waits, interactive, before and after every op of a run
-def waits.thru(os: List<&2, Op>, +s: St, +w: Nat) -> Bool:
-  match os:
-    case Nil{}:
-      waits.ia(status(s, w))
-    case +o <> r:
-      Bool.and(waits.ia(status(s, w)), waits.thru(r, step(s, o), w))
-
-def ended(m: Maybe<&2, Tk>) -> Bool:
-  match m:
-    case Some{Tk{c, Ended{}}}:
-      True{}
-    case _:
-      False{}
-
-# the op by which ticket m's holder ends it: a waiter leaves, a permit
-# is released
-def finish(m: Maybe<&2, Tk>, k: Nat) -> Op:
-  match m:
-    case Some{Tk{c, Queued{}}}:
-      Leave{k}
-    case Some{Tk{c, Granted{}}}:
-      Leave{k}
-    case _:
-      Release{k}

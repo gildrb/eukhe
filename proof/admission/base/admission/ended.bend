@@ -3,8 +3,9 @@
 import Base
 import ../../../../bend/admission.bend as Ad
 import ../logic.bend as LALogic
+import ../../../../laws/admission.bend as Admission
 
-def ad.end_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, k: Nat, e: {Ad.ended(Ad.get(t, k)) == True{} : Bool}) -> {Ad.ended(Ad.get(Ad.mark(c, t), k)) == True{} : Bool}:
+def ad.end_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, k: Nat, e: {Admission.adm_ended(Ad.get(t, k)) == True{} : Bool}) -> {Admission.adm_ended(Ad.get(Ad.mark(c, t), k)) == True{} : Bool}:
   match t:
     case Nil{}:
       e
@@ -13,7 +14,7 @@ def ad.end_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, k: Nat, e: {Ad.ended(Ad.get(t, k
         case Ad.Ia{} Ad.Queued{}:
           match c k:
             case Ad.Ia{} 0n:
-              LALogic.ad.absurd({Ad.ended(Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}) == True{} : Bool}, e)
+              LALogic.ad.absurd({Admission.adm_ended(Some{Ad.Tk{Ad.Ia{}, Ad.Granted{}}}) == True{} : Bool}, e)
             case Ad.Ia{} 1n+p:
               e
             case Ad.Bg{} 0n:
@@ -23,7 +24,7 @@ def ad.end_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, k: Nat, e: {Ad.ended(Ad.get(t, k
         case Ad.Bg{} Ad.Queued{}:
           match c k:
             case Ad.Bg{} 0n:
-              LALogic.ad.absurd({Ad.ended(Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}) == True{} : Bool}, e)
+              LALogic.ad.absurd({Admission.adm_ended(Some{Ad.Tk{Ad.Bg{}, Ad.Granted{}}}) == True{} : Bool}, e)
             case Ad.Bg{} 1n+p:
               e
             case Ad.Ia{} 0n:
@@ -55,7 +56,7 @@ def ad.end_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, k: Nat, e: {Ad.ended(Ad.get(t, k
             case 1n+p:
               ad.end_mark(r, c, p, e)
 
-def ad.end_grant_k(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +k: Nat, e: {Ad.ended(Ad.get(t, k)) == True{} : Bool}) -> {Ad.ended(Ad.get(Ad.grant.go(n, d, l, t), k)) == True{} : Bool}:
+def ad.end_grant_k(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +k: Nat, e: {Admission.adm_ended(Ad.get(t, k)) == True{} : Bool}) -> {Admission.adm_ended(Ad.get(Ad.grant.go(n, d, l, t), k)) == True{} : Bool}:
   match n d:
     case 0n _:
       e

@@ -13,8 +13,7 @@ import ./laws/child/entry.bend as ChildEntry
 import ./laws/child/exact.bend as ChildExact
 import ./laws/child/run.bend as ChildRun
 import ./laws/admission.bend as Admission
-import ./laws/admission/runs.bend as AdmissionRuns
-import ./laws/admission/entry.bend as AdmissionEntry
+import ./laws/admission/wire.bend as AdmissionWire
 import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
 import ./laws/job_step.bend as JobStep

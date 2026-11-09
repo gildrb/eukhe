@@ -3,6 +3,7 @@
 import Base
 import ../../../../bend/admission.bend as Ad
 import ../logic.bend as LALogic
+import ./terms.bend as AT
 
 # Counting
 # --------
@@ -97,8 +98,8 @@ def ad.end_cnt(m: Ad.Mode, +cc: Ad.Cls, +ts: List<&2, Ad.Tk>, +k: Nat, +c: Ad.Cl
 def ad.adm_ia1(+l: Ad.Lim, +hi: Nat, +w: Nat, +wb1: Nat, u: Bool, er: {Ad.room(l, Nat.add(hi, 0n)) == False{} : Bool}) -> {LALogic.ad.ok.n(l, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(False{}, u)}), hi), Ad.bit(Ad.hit(Ad.Waiting{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(False{}, u)}), 1n+w), 0n, wb1) == True{} : Bool}:
   match u:
     case True{}:
-      %Equal.sym(Bool, Ad.room(l, Nat.add(hi, 0n)), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 1n+w, hi, wb1))), Ad.calm.n(1n+w, 0n)) == True{} : Bool}
+      %Equal.sym(Bool, Ad.room(l, Nat.add(hi, 0n)), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 1n+w, hi, wb1))), AT.calm.n(1n+w, 0n)) == True{} : Bool}
       {==}
     case False{}:
-      %Equal.sym(Bool, Ad.room(l, Nat.add(hi, 0n)), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 2n+w, hi, wb1))), Ad.calm.n(2n+w, 0n)) == True{} : Bool}
+      %Equal.sym(Bool, Ad.room(l, Nat.add(hi, 0n)), False{}, er) : {Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(_, 2n+w, hi, wb1))), AT.calm.n(2n+w, 0n)) == True{} : Bool}
       {==}

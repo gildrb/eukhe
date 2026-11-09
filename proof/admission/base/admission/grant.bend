@@ -1,4 +1,4 @@
-# eukhe: lemmas of LAW admission_step_exact: the model's grant loop, which
+# eukhe: lemmas the proofs of area admission share: admission/grant. The model's grant loop, which
 # grants one waiter at a time (Ad.grant.go), is the spec's two passes
 # (Admission.ads_grant). A pass with no waiter of its class, or no free
 # slot, changes nothing (pag.none_waits, pag.no_slot); granting the oldest
@@ -8,14 +8,14 @@
 # nothing left to grant (pag.idle, pag.none).
 
 import Base
-import ../../../bend/admission.bend as Ad
-import ../../../laws/admission.bend as Admission
-import ../base/admission/bit.bend as LAAdmissionBit
-import ../base/admission/cnt.bend as LAAdmissionCnt
-import ../base/admission/isz.bend as LAAdmissionIsz
-import ../base/admission/le.bend as LAAdmissionLe
-import ../base/logic.bend as LALogic
-import ../base/nat.bend as LANat
+import ../../../../bend/admission.bend as Ad
+import ../../../../laws/admission.bend as Admission
+import ./bit.bend as LAAdmissionBit
+import ./cnt.bend as LAAdmissionCnt
+import ./isz.bend as LAAdmissionIsz
+import ./le.bend as LAAdmissionLe
+import ../logic.bend as LALogic
+import ../nat.bend as LANat
 import ./count.bend as PC
 
 # Free slots

@@ -60,7 +60,7 @@ def al.pick(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.pick(l, Admissi
 # Granting
 # --------
 
-def al.mark_at(b: Bool, +c: Ad.Cls, +j: Nat, +c2: Ad.Cls, s: Ad.Sts, +r: List<&2, Ad.Tk>, ne: {Ad.ended(Some{Ad.Tk{c2, s}}) == False{} : Bool}, ih: {Ad.lv.mark(c, Admission.adl_lives(r, 1n+j)) == Admission.adl_lives(Ad.mark(c, r), 1n+j) : List<&2, Ad.Lv>}) -> {Ad.lv.mark.at(b, c, Ad.Lv{j, c2, s}, Admission.adl_lives(r, 1n+j), Ad.lv.mark(c, Admission.adl_lives(r, 1n+j))) == Admission.adl_lives(Ad.mark.at(b, c, Ad.Tk{c2, s}, r, Ad.mark(c, r)), j) : List<&2, Ad.Lv>}:
+def al.mark_at(b: Bool, +c: Ad.Cls, +j: Nat, +c2: Ad.Cls, s: Ad.Sts, +r: List<&2, Ad.Tk>, ne: {Admission.adm_ended(Some{Ad.Tk{c2, s}}) == False{} : Bool}, ih: {Ad.lv.mark(c, Admission.adl_lives(r, 1n+j)) == Admission.adl_lives(Ad.mark(c, r), 1n+j) : List<&2, Ad.Lv>}) -> {Ad.lv.mark.at(b, c, Ad.Lv{j, c2, s}, Admission.adl_lives(r, 1n+j), Ad.lv.mark(c, Admission.adl_lives(r, 1n+j))) == Admission.adl_lives(Ad.mark.at(b, c, Ad.Tk{c2, s}, r, Ad.mark(c, r)), j) : List<&2, Ad.Lv>}:
   match b:
     case True{}:
       {==}
@@ -312,7 +312,7 @@ def al.find(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat) -> {Ad.lv.find(Admission.adl_l
     case Ad.Tk{c, s} <> +r 1n++p:
       al.find1(s, c, r, p, j, al.find(r, p, 1n+j))
 
-def al.set0(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat, ne: {Ad.ended(Some{Ad.Tk{c, s}}) == False{} : Bool}) -> {Ad.lv.set(Admission.adl_lives(Ad.Tk{c, s} <> r, j), j, Ad.Held{}) == Admission.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 0n, Ad.Held{}), j) : List<&2, Ad.Lv>}:
+def al.set0(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat, ne: {Admission.adm_ended(Some{Ad.Tk{c, s}}) == False{} : Bool}) -> {Ad.lv.set(Admission.adl_lives(Ad.Tk{c, s} <> r, j), j, Ad.Held{}) == Admission.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 0n, Ad.Held{}), j) : List<&2, Ad.Lv>}:
   match s:
     case Ad.Queued{}:
       %Equal.sym(Bool, Nat.is_eq(j, j), True{}, LANat.al.eq_refl(j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Queued{}}, Ad.Held{}) <> Ad.lv.set(Admission.adl_lives(r, 1n+j), j, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Admission.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
@@ -351,7 +351,7 @@ def al.set1(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {A
       %LANat.al.add_succ(p, j) : {Ad.lv.set(Admission.adl_lives(r, 1n+j), _, Ad.Held{}) == Admission.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
       ih
 
-def al.set(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat, ne: {Ad.ended(List.get(&2, Ad.Tk, ts, i)) == False{} : Bool}) -> {Ad.lv.set(Admission.adl_lives(ts, j), Nat.add(i, j), Ad.Held{}) == Admission.adl_lives(Ad.put(ts, i, Ad.Held{}), j) : List<&2, Ad.Lv>}:
+def al.set(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat, ne: {Admission.adm_ended(List.get(&2, Ad.Tk, ts, i)) == False{} : Bool}) -> {Ad.lv.set(Admission.adl_lives(ts, j), Nat.add(i, j), Ad.Held{}) == Admission.adl_lives(Ad.put(ts, i, Ad.Held{}), j) : List<&2, Ad.Lv>}:
   match ts i:
     case Nil{} _:
       {==}
@@ -418,7 +418,7 @@ def al.col(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: N
 {==}
     case Some{Ad.Tk{c, Ad.Granted{}}}:
       %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.set(Admission.adl_lives(ts, 0n), _, Ad.Held{}), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Held{})}) : Ad.Live}
-      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.set(Admission.adl_lives(ts, 0n), Nat.add(k, 0n), Ad.Held{}), Admission.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), al.set(ts, k, 0n, Equal.trans(Bool, Ad.ended(List.get(&2, Ad.Tk, ts, k)), Ad.ended(Some{Ad.Tk{c, Ad.Granted{}}}), False{}, Equal.cong(Maybe<&2, Ad.Tk>, Bool, x => Ad.ended(x), List.get(&2, Ad.Tk, ts, k), Some{Ad.Tk{c, Ad.Granted{}}}, eq), {==}))) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Held{})}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.set(Admission.adl_lives(ts, 0n), Nat.add(k, 0n), Ad.Held{}), Admission.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), al.set(ts, k, 0n, Equal.trans(Bool, Admission.adm_ended(List.get(&2, Ad.Tk, ts, k)), Admission.adm_ended(Some{Ad.Tk{c, Ad.Granted{}}}), False{}, Equal.cong(Maybe<&2, Ad.Tk>, Bool, x => Admission.adm_ended(x), List.get(&2, Ad.Tk, ts, k), Some{Ad.Tk{c, Ad.Granted{}}}, eq), {==}))) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Held{})}) : Ad.Live}
       %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Held{})), List.length(&2, Ad.Tk, ts), LAList.al.len_put(ts, k, Ad.Held{})) : {Ad.Live{l, q, Admission.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Admission.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), _} : Ad.Live}
       {==}
     case Some{Ad.Tk{c, Ad.Held{}}}:

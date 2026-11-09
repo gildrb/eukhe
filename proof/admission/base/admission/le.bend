@@ -51,8 +51,8 @@ def ad.le_trans(a: Nat, b: Nat, c: Nat, ab: {Ad.le(a, b) == True{} : Bool}, bc: 
 
 # ---- admission_wait ----
 
-# proof_admission_wait: the interactive bound of LAWS.bend (rule H3.4 of
-# LAWS.bend). An interactive waiter w waits for ahead(s, w): the
+# proof_admission_wait: the interactive bound of laws/admission.bend (rule
+# H3.4 of its header). An interactive waiter w waits for ahead(s, w): the
 # interactive slots held and the interactive waiters older than w. No op
 # raises it, a release of an interactive slot lowers it by one, and
 # while w waits it is at least one (no lost wake-up). So w is granted

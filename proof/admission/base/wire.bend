@@ -10,6 +10,7 @@ import ../../../laws/wire.bend as Wire
 import ../../base/logic/bool.bend as LLogicBool
 import ../../base/wire.bend as LWire
 import ../adw_cls_round_trip.bend as PAdwClsRoundTrip
+import ../../../laws/admission/wire.bend as AdmissionWire
 
 # ---- admission_wire ----
 
@@ -20,7 +21,7 @@ import ../adw_cls_round_trip.bend as PAdwClsRoundTrip
 def paw.nat(+n: Nat, +rest: String, h: {LawsBase.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
   Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, h))
 
-def Admission.adw_lim_round_trip(l, rest, h):
+def AdmissionWire.adw_lim_round_trip(l, rest, h):
   match l:
     case Ad.Unl{}:
       {==}
@@ -30,13 +31,13 @@ def Admission.adw_lim_round_trip(l, rest, h):
 
 # a cls reads back (turned around for rewriting)
 def paw.cls(+c: Ad.Cls, +rest: String) -> {Wr.Got{c, rest} == FAd.get_cls(FAd.put_cls(c, rest)) : Wr.Dec<Ad.Cls>}:
-  Equal.sym(Wr.Dec<Ad.Cls>, FAd.get_cls(FAd.put_cls(c, rest)), Wr.Got{c, rest}, Admission.adw_cls_round_trip(c, rest))
+  Equal.sym(Wr.Dec<Ad.Cls>, FAd.get_cls(FAd.put_cls(c, rest)), Wr.Got{c, rest}, AdmissionWire.adw_cls_round_trip(c, rest))
 
 # a lim reads back (turned around for rewriting)
-def paw.lim(+l: Ad.Lim, +rest: String, h: {Admission.adw_lim_fits(l) == True{} : Bool}) -> {Wr.Got{l, rest} == FAd.get_lim(FAd.put_lim(l, rest)) : Wr.Dec<Ad.Lim>}:
-  Equal.sym(Wr.Dec<Ad.Lim>, FAd.get_lim(FAd.put_lim(l, rest)), Wr.Got{l, rest}, Admission.adw_lim_round_trip(l, rest, h))
+def paw.lim(+l: Ad.Lim, +rest: String, h: {AdmissionWire.adw_lim_fits(l) == True{} : Bool}) -> {Wr.Got{l, rest} == FAd.get_lim(FAd.put_lim(l, rest)) : Wr.Dec<Ad.Lim>}:
+  Equal.sym(Wr.Dec<Ad.Lim>, FAd.get_lim(FAd.put_lim(l, rest)), Wr.Got{l, rest}, AdmissionWire.adw_lim_round_trip(l, rest, h))
 
-def Admission.adw_op_round_trip(o, rest, h):
+def AdmissionWire.adw_op_round_trip(o, rest, h):
   match o:
     case Ad.Admit{+c}:
       %paw.cls(c, rest) : {FAd.get_op.admit(_) == Wr.Got{Ad.Admit{c}, rest} : Wr.Dec<Ad.Op>}
@@ -53,22 +54,22 @@ def Admission.adw_op_round_trip(o, rest, h):
     case Ad.Limit{+l, +q}:
       +r = rest
       +hh = h
-      %paw.lim(l, Wr.put_nat(q, r), LLogicBool.wr_and_l(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.limit(_) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
-      %paw.nat(q, r, LLogicBool.wr_and_r(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.q(l, _) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
+      %paw.lim(l, Wr.put_nat(q, r), LLogicBool.wr_and_l(AdmissionWire.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.limit(_) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
+      %paw.nat(q, r, LLogicBool.wr_and_r(AdmissionWire.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.q(l, _) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
       {==}
 
 # a op reads back (turned around for rewriting)
-def paw.op(+o: Ad.Op, +rest: String, h: {Admission.adw_op_fits(o) == True{} : Bool}) -> {Wr.Got{o, rest} == FAd.get_op(FAd.put_op(o, rest)) : Wr.Dec<Ad.Op>}:
-  Equal.sym(Wr.Dec<Ad.Op>, FAd.get_op(FAd.put_op(o, rest)), Wr.Got{o, rest}, Admission.adw_op_round_trip(o, rest, h))
+def paw.op(+o: Ad.Op, +rest: String, h: {AdmissionWire.adw_op_fits(o) == True{} : Bool}) -> {Wr.Got{o, rest} == FAd.get_op(FAd.put_op(o, rest)) : Wr.Dec<Ad.Op>}:
+  Equal.sym(Wr.Dec<Ad.Op>, FAd.get_op(FAd.put_op(o, rest)), Wr.Got{o, rest}, AdmissionWire.adw_op_round_trip(o, rest, h))
 
-def Admission.adw_open_round_trip(l, q, rest, h):
+def AdmissionWire.adw_open_round_trip(l, q, rest, h):
   +r = rest
   +hh = h
-  %paw.lim(l, Wr.put_nat(q, r), LLogicBool.wr_and_l(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.go(_) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
-  %paw.nat(q, r, LLogicBool.wr_and_r(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.q(l, _) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  %paw.lim(l, Wr.put_nat(q, r), LLogicBool.wr_and_l(AdmissionWire.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.go(_) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  %paw.nat(q, r, LLogicBool.wr_and_r(AdmissionWire.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.q(l, _) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
   {==}
 
 # an open request that fits reads back (turned around for rewriting)
-def paw.open(+l: Ad.Lim, +q: Nat, +rest: String, h: {Bool.and(Admission.adw_lim_fits(l), LawsBase.wire_fits(q)) == True{} : Bool}) ->
+def paw.open(+l: Ad.Lim, +q: Nat, +rest: String, h: {Bool.and(AdmissionWire.adw_lim_fits(l), LawsBase.wire_fits(q)) == True{} : Bool}) ->
   {Wr.Got{(l, q), rest} == FAd.get_open(FAd.put_lim(l, Wr.put_nat(q, rest))) : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}:
-  Equal.sym(Wr.Dec<+Sigma<Ad.Lim, x => Nat>>, FAd.get_open(FAd.put_lim(l, Wr.put_nat(q, rest))), Wr.Got{(l, q), rest}, Admission.adw_open_round_trip(l, q, rest, h))
+  Equal.sym(Wr.Dec<+Sigma<Ad.Lim, x => Nat>>, FAd.get_open(FAd.put_lim(l, Wr.put_nat(q, rest))), Wr.Got{(l, q), rest}, AdmissionWire.adw_open_round_trip(l, q, rest, h))
