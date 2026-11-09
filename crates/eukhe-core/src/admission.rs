@@ -82,7 +82,7 @@ impl AdmissionLimits {
     /// Limits from the `providerMaxInFlight` value as written, read entry
     /// by entry; the compiled core decides each provider's limit
     /// (`laws/config.bend` `limit_malformed_fails_closed`,
-    /// `limit_number_applies`): a whole number is the provider's limit
+    /// `limit_values`): a whole number is the provider's limit
     /// (`0` unlimited; a count past `u32::MAX` is `u32::MAX`), any other
     /// entry caps its provider at [`MALFORMED_IN_FLIGHT_LIMIT`], a value
     /// that is neither a map nor `null` (unset) caps every provider at it.

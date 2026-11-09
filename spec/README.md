@@ -23,7 +23,7 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 |memory|[OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449)|`memory/optchat.bend`, `memory/thread.bend`|optchat (46), compactor (34), admission (46), thread (20)|
 |agents|[Fold subagents into the main loop](https://claude.com/resources/articles/building-agents-when-to-fold-subagents-into-your-main-agent-loop)|`rlm/family.bend` (spawn reasons), `agents/kin.bend` (who messages whom)|run (69), family (17), kin (14), tools (38), tool_surface (9), skill_load (13), runners (15), approvals (33), director (35)|
 |autoresearch|[oh-my-pi autoresearch](https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/autoresearch)|`autoresearch/{decimal,metric_line,segment,stats,step}.bend`|autoresearch (55)|
-|settings|eukhe|`settings/config.bend`, `settings/config_rules.bend`|config (49), cvar (44)|
+|settings|eukhe|`settings/config.bend`|config (40), cvar (44)|
 |theme|eukhe|`theme/{color,model,read,rules,wire}.bend`|theme (52), theme_model (16), color (40)|
 
 ## Requirements

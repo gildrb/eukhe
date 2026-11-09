@@ -1,8 +1,8 @@
 # config (spec): the spec helpers of the laws of area config
-# (laws/config.bend): independent restatements of what the config rules
-# decide (bend/config.bend), and the wire spellers, reader and bounds of
-# its entry (bend/ffi_config.bend). A spec: the shipped code never calls
-# it.
+# (laws/config.bend): the spellers of a request and of its reply, written
+# from the grammar in the header of bend/ffi_config.bend with the wire
+# primitives, and what fits the wire. A spec: the shipped code never
+# calls it.
 
 import Base
 import ../../bend/config.bend as Cf
@@ -288,7 +288,11 @@ def cf_fit_ask(a: FC.Ask) -> Bool:
     case FC.AskMerge{+g, +p, qs}:
       Bool.and(LawsBase.wire_fits(List.length(&2, Cf.Named, g)), Bool.and(cf_fit_nameds(g), Bool.and(LawsBase.wire_fits(List.length(&2, Cf.Named, p)), Bool.and(cf_fit_nameds(p), cf_fit_qs(qs)))))
 
-# Reader: the requests the entry accepts, read with the wire primitives
+# Reader: the requests the entry accepts, read with the wire primitives.
+# No law states it: the proofs read the entry through it
+# (proof/config/base/ffi_read.bend) and show that what it reads is what
+# the spellers above write (config_ffi_answers,
+# config_ffi_reads_only_requests).
 
 def cf_r_entry.v(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Cf.Entry>:
   match r:

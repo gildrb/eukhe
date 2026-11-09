@@ -3,7 +3,7 @@
 //! disk under its lock, classifies the read (missing, parsed or broken)
 //! and lets the compiled core decide what to write (`laws/config.bend`
 //! `rmw_refuses_broken`, `rmw_keeps_others`, `rmw_applies_change`,
-//! `rmw_keeps_place`, `settings_save_preserves`): a document that cannot
+//! `rmw_keeps_place`, `save_ignores_loaded`): a document that cannot
 //! be read or parsed is never written; every other key keeps its value and
 //! its place.
 
