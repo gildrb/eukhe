@@ -1155,6 +1155,95 @@ async fn tui_compact_slower_than_the_submit_ack_cap_settles_without_a_timeout_ro
     drop(supervisor);
 }
 
+/// Esc while `/compact` summarizes cancels it with one notice, as omp's
+/// `executeCompaction` shows one `Compaction cancelled` error and never
+/// returns the command to the editor (command-controller.ts:2297-2300,
+/// builtin-lifecycle.ts:290): no `Command failed` result row, no refused
+/// prompt row, no `/compact` back in the editor.
+#[tokio::test]
+async fn tui_compact_cancelled_by_esc_shows_one_notice() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    // The keep-recent cut of the loader verifier above: the second turn
+    // is kept whole, the first summarized in one summarizer call.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({ "compaction": { "keepRecentTokens": 10 } }).to_string(),
+    )
+    .expect("write settings");
+    let supervisor = spawn_supervisor(dir.path());
+    // The summarizer holds until the Esc cancels it.
+    let script = serde_json::json!({
+        "engine": "faux",
+        "responses": [
+            { "text": "history ".repeat(150) },
+            { "text": "second turn done, kept intact" },
+            { "text": "## Summary\nnever placed", "delayMs": 120_000 },
+        ],
+    });
+    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![
+            eukhe_tui::interactive::HeadlessStep::Submit("first".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::Submit(
+                "second, and please keep this second parity turn short and intact".to_string(),
+            ),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::Submit("/compact".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Compacting context".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Compaction cancelled".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::SettleIdle,
+        ],
+        width: 100,
+        height: 30,
+    };
+    let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run");
+    let rendered = outcome.frames.join("\n");
+    let last = outcome.frames.last().expect("the settled frame");
+    assert_eq!(
+        last.matches("Compaction cancelled").count(),
+        1,
+        "one cancel notice:\n{last}"
+    );
+    assert!(
+        !rendered.contains("Command failed") && !rendered.contains("rejected the prompt"),
+        "no failure row and no refused prompt row:\n{rendered}"
+    );
+    assert_eq!(
+        last.matches("/compact").count(),
+        1,
+        "only the echo row names /compact; the editor stays empty:\n{last}"
+    );
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
+    assert!(
+        transcript
+            .custom_rows("session_slash_command_result")
+            .is_empty()
+            && transcript.of_kind("pi.compaction").is_empty(),
+        "a cancelled compaction persisted no result row and no compaction: {:?}",
+        transcript.entries
+    );
+    drop(supervisor);
+}
+
 /// Session-tree verifier: two scripted turns, then `/tree` navigation back
 /// to the first user message, a fork from it, and a clone at the leaf.
 /// Exercises the full loop the TS `/tree` surface owns: the `get_session_tree`

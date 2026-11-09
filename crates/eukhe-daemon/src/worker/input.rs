@@ -433,9 +433,12 @@ impl Worker {
     /// `/compact [instructions]`: the echo row, then the `compact`
     /// command's manual compaction with its frame pair (the loader's
     /// `compaction_start` carries the instructions; a skip ends with its
-    /// warning). A skip answers success: TS's queued-command catch arm
-    /// stays silent, the warning end is the report. An abort or failure
-    /// records the `Command failed: <e>` result row and answers the error.
+    /// warning, a cancel with its aborted end). A skip or a cancel answers
+    /// success: the end frame is the one report, as omp's
+    /// `executeCompaction` shows one `Compaction cancelled` error and keeps
+    /// the command out of the editor (command-controller.ts:2297-2300). A
+    /// failure records the `Command failed: <e>` result row and answers the
+    /// error.
     async fn run_compact_command(
         &self,
         hosted: &Arc<HostedSession>,
@@ -451,8 +454,10 @@ impl Worker {
         }
         let instructions = (!session_command.args.is_empty()).then(|| session_command.args.clone());
         let response = match self.compaction.compact(instructions).await {
-            Ok(_) | Err(ManualCompactionError::Skipped(_)) => response_success(None, command, None),
-            Err(error @ (ManualCompactionError::Aborted | ManualCompactionError::Failed(_))) => {
+            Ok(_) | Err(ManualCompactionError::Skipped(_) | ManualCompactionError::Aborted) => {
+                response_success(None, command, None)
+            }
+            Err(error @ ManualCompactionError::Failed(_)) => {
                 let message = error.to_string();
                 match eukhe_core::durable::commit_session_command_failure(
                     main,
