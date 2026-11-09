@@ -1,8 +1,9 @@
 {
   "families": [
-    { "id": "claude-adaptive-4-6", "on": "names", "match": [{ "contains": ["opus-4-6", "sonnet-4-6"] }] },
     { "id": "bedrock-effort", "on": "id", "match": [{ "number": { "after": ["xai.grok-4.", "global.xai.grok-4.", "us.xai.grok-4.", "eu.xai.grok-4.", "apac.xai.grok-4.", "jp.xai.grok-4.", "au.xai.grok-4."], "at_least": 6 } }, { "number": { "after": ["xai.grok-", "global.xai.grok-", "us.xai.grok-", "eu.xai.grok-", "apac.xai.grok-", "jp.xai.grok-", "au.xai.grok-"], "at_least": 5 } }, { "contains": ["moonshotai.kimi-k3"] }] },
     { "id": "claude-adaptive", "on": "names", "match": [{ "contains": ["opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5"] }], "except": [{ "contains": ["opus-5-5", "sonnet-5-5", "haiku-5-5", "fable-5-1", "fable-5-2", "fable-5-3", "fable-5-4", "fable-5-5", "fable-5-6", "fable-5-7", "fable-5-8", "fable-5-9"] }] },
+    { "id": "claude-adaptive-4-6", "on": "names", "match": [{ "contains": ["opus-4-6", "sonnet-4-6"] }], "except": [{ "contains": ["anthropic.claude-sonnet-4-6"] }] },
+    { "id": "claude-bedrock-sonnet-4-6", "on": "id", "match": [{ "contains": ["anthropic.claude-sonnet-4-6"] }] },
     { "id": "claude-cached", "on": "names", "match": [{ "then": ["claude", "-4-"] }, { "then": ["-4-", "claude"] }, { "contains": ["claude-3-7-sonnet", "claude-3-5-haiku"] }], "except": [{ "contains": ["opus-4-6", "opus-4-7", "opus-4-8", "opus-5", "sonnet-4-6", "sonnet-5", "haiku-5", "fable-5"] }] },
     { "id": "claude-prefix-bound", "on": "names", "match": [{ "contains": ["opus-5-5", "sonnet-5-5", "haiku-5-5", "fable-5-1", "fable-5-2", "fable-5-3", "fable-5-4", "fable-5-5", "fable-5-6", "fable-5-7", "fable-5-8", "fable-5-9"] }] },
     { "id": "claude-uncached", "on": "names", "match": [{ "contains": ["claude"] }], "except": [{ "contains": ["opus-4-6", "opus-4-7", "opus-4-8", "opus-5", "sonnet-4-6", "sonnet-5", "haiku-5", "fable-5"] }, { "then": ["claude", "-4-"] }, { "then": ["-4-", "claude"] }, { "contains": ["claude-3-7-sonnet", "claude-3-5-haiku"] }] },
@@ -55,6 +56,7 @@
     { "layer": "family", "target": "bedrock-effort", "set": { "bedrock_reasoning": "gpt" } },
     { "layer": "family", "target": "claude-adaptive", "set": { "adaptive_thinking": true, "thinking_block_binding": false, "prompt_caching": true, "google_tool_call_ids": true, "bedrock_reasoning": "claude" } },
     { "layer": "family", "target": "claude-adaptive-4-6", "set": { "adaptive_thinking": true, "thinking_block_binding": false, "prompt_caching": true, "google_tool_call_ids": true, "bedrock_reasoning": "claude" } },
+    { "layer": "family", "target": "claude-bedrock-sonnet-4-6", "set": { "adaptive_thinking": false, "thinking_block_binding": false, "prompt_caching": true, "google_tool_call_ids": true, "bedrock_reasoning": "claude" } },
     { "layer": "family", "target": "claude-cached", "set": { "prompt_caching": true, "google_tool_call_ids": true, "bedrock_reasoning": "claude" } },
     { "layer": "family", "target": "claude-prefix-bound", "set": { "adaptive_thinking": true, "thinking_block_binding": true, "prompt_caching": true, "google_tool_call_ids": true, "bedrock_reasoning": "claude" } },
     { "layer": "family", "target": "claude-uncached", "set": { "prompt_caching": false, "google_tool_call_ids": true, "bedrock_reasoning": "claude" } },

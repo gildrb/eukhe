@@ -182,7 +182,9 @@ const PREFIX_BOUND: [&str; 12] = [
     "fable-5-9",
 ];
 
-/// The old adaptive list and omp's prefix-bound list of block binding.
+/// The old adaptive list (less Bedrock's Sonnet 4.6, budget thinking in
+/// omp's `amazon-bedrock.kdl`) and omp's prefix-bound list of block
+/// binding.
 #[test]
 fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists() {
     let models: Vec<Model> = bedrock()
@@ -204,7 +206,7 @@ fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists
                     .and_then(|compat| compat.force_adaptive_thinking)
                     == Some(true)
             } else {
-                old_adaptive(model)
+                old_adaptive(model) && !model.id.contains("anthropic.claude-sonnet-4-6")
             };
             let old_binding = old_adaptive && any_candidate(model, &PREFIX_BOUND);
             let binding = adaptive_thinking(model)

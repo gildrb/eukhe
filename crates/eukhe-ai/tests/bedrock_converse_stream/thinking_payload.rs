@@ -159,20 +159,32 @@ async fn sends_block_binding_and_the_binding_beta_for_claude_opus_5_5() {
 
 // Bedrock rejects block_binding on 4.6 models (#10324).
 #[tokio::test]
-async fn omits_block_binding_for_4_6_models() {
+async fn omits_block_binding_for_opus_4_6() {
+    let model = get_model("amazon-bedrock", "global.anthropic.claude-opus-4-6-v1");
+    let payload = capture_payload(&model, json!({})).await;
+    assert_eq!(
+        fields(&payload)["thinking"],
+        json!({ "type": "adaptive", "display": "summarized" })
+    );
+    assert!(fields(&payload).get("anthropic_beta").is_none());
+}
+
+/// omp makes only Opus 4.6 adaptive on Bedrock (`amazon-bedrock.kdl`
+/// `thinking-mode "anthropic-adaptive"` under `family "opus"`, revision
+/// 4.6): Sonnet 4.6 there, regional profiles included, takes budget
+/// thinking.
+#[tokio::test]
+async fn sonnet_4_6_takes_budget_thinking_on_bedrock() {
     for model_id in [
-        "global.anthropic.claude-opus-4-6-v1",
+        "anthropic.claude-sonnet-4-6",
+        "eu.anthropic.claude-sonnet-4-6",
         "global.anthropic.claude-sonnet-4-6",
     ] {
         let model = get_model("amazon-bedrock", model_id);
-        let payload = capture_payload(&model, json!({})).await;
+        let payload = capture_payload(&model, json!({ "reasoning": "low" })).await;
         assert_eq!(
-            fields(&payload)["thinking"],
-            json!({ "type": "adaptive", "display": "summarized" }),
-            "{model_id}"
-        );
-        assert!(
-            fields(&payload).get("anthropic_beta").is_none(),
+            fields(&payload),
+            &json!({ "thinking": { "type": "enabled", "budget_tokens": 2048, "display": "summarized" } }),
             "{model_id}"
         );
     }
