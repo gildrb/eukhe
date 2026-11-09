@@ -133,10 +133,24 @@ impl Plan {
 #[cfg(test)]
 mod tests {
     use super::{tail, Act, Plan, Tail};
+    use eukhe_bend::wire::NAT_MAX;
 
     #[test]
     fn an_open_asks_the_compiled_core() {
         assert_eq!(tail(10, Some(4)).unwrap(), Tail::Torn(5));
+    }
+
+    /// The laws of `tail` quantify over unbounded Nats; the runtime's Nat
+    /// stops at 2^48 - 1. These are the sizes Rust sends: a 128 KiB file and
+    /// files of the largest length the wire carries.
+    #[test]
+    fn an_open_of_any_size_the_wire_carries() {
+        let max = usize::try_from(NAT_MAX).unwrap();
+        assert_eq!(tail(131_072, Some(131_071)).unwrap(), Tail::Whole);
+        assert_eq!(tail(max, Some(max - 1)).unwrap(), Tail::Whole);
+        assert_eq!(tail(max, Some(max - 2)).unwrap(), Tail::Torn(max - 1));
+        assert_eq!(tail(max, Some(max)).unwrap(), Tail::Odd);
+        assert_eq!(tail(max, None).unwrap(), Tail::Torn(0));
     }
 
     #[test]

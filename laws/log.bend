@@ -73,6 +73,13 @@ law log_only_commits:
 # R4: the entry answers each request Rust writes with the spelling of the
 #     rule's decision, and the wire's error form to every other input; a
 #     refused step keeps the stepper's state.
+# Runtime limits: the laws quantify over unbounded Nats; the runtime's Nat
+#     is an immediate of at most 2^48 - 1, and the wire carries Nats up to
+#     10^14 - 1 (crates/eukhe-bend/WIRE.md). That no value the rule computes
+#     passes the runtime's bound on any input the wire carries is covered by
+#     tests, not by the laws: plan.rs `an_open_of_any_size_the_wire_carries`
+#     runs the compiled entry on a 128 KiB file and on files of the largest
+#     length the wire carries.
 
 # The open of a file
 # ------------------
