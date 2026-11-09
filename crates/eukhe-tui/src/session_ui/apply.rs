@@ -245,6 +245,15 @@ impl SessionUi {
         self.external_editor_request.take()
     }
 
+    /// Take a parked `/new` / `app.session.new` request: the interactive
+    /// loop paints the asking key's frame, then runs
+    /// [`SessionUi::start_new_session`] (only the loop owns the renderer).
+    pub(crate) fn take_new_session_request(
+        &mut self,
+    ) -> Option<super::commands::NewSessionRequest> {
+        self.new_session_request.take()
+    }
+
     pub(crate) fn apply_client_event(&mut self, event: DaemonClientEvent, view: &mut AgentView) {
         match event {
             DaemonClientEvent::SessionEvent {

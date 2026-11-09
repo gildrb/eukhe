@@ -95,6 +95,31 @@ pub async fn run_interactive(
     }
 }
 
+/// A key's daemon work failed: a daemon refusal answered its request (the
+/// connection stays healthy), or the connection could not carry it at all
+/// (a timeout on a sent request, a down or reconnecting daemon). The TS
+/// `showError` row surfaces it and the loop keeps running with the editor
+/// state preserved -- a failed request never exits the client while the
+/// reconnect driver owns the recovery (the operator's kicked-out class).
+/// Everything else (protocol corruption) stays fatal.
+fn surface_request_error(
+    session: &mut SessionUi,
+    view: &mut AgentView,
+    outcome: Result<()>,
+) -> Result<()> {
+    match outcome {
+        Ok(()) => Ok(()),
+        Err(error)
+            if eukhe_client::daemon_client::is_daemon_rejection(&error)
+                || eukhe_client::daemon_client::is_daemon_unreachable(&error) =>
+        {
+            session.error_row(&format!("{error:#}"), view);
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 async fn run_interactive_surface(
     options: InteractiveOptions,
     ui: UiMode,
@@ -899,30 +924,8 @@ async fn run_interactive_surface(
                     // cleared a shown selection is spent there.
                     UiInput::Key(key) if view.selection_key(&key) => {}
                     UiInput::Key(key) => {
-                        match session.handle_key(key, &mut view, &mut running).await {
-                            Ok(()) => {}
-                            // A daemon refusal answered this key's request
-                            // (the connection stays healthy), or the
-                            // connection could not carry it at all (a
-                            // timeout on a sent request, a down or
-                            // reconnecting daemon): the TS `showError` row
-                            // surfaces it and the loop keeps running with
-                            // the editor state preserved -- a failed request
-                            // never exits the client while the reconnect
-                            // driver owns the recovery (the operator's
-                            // kicked-out class).
-                            Err(error)
-                                if eukhe_client::daemon_client::is_daemon_rejection(&error)
-                                    || eukhe_client::daemon_client::is_daemon_unreachable(
-                                        &error,
-                                    ) =>
-                            {
-                                session.error_row(&format!("{error:#}"), &mut view);
-                            }
-                            // Everything else (protocol corruption) stays
-                            // fatal.
-                            Err(error) => return Err(error),
-                        }
+                        let handled = session.handle_key(key, &mut view, &mut running).await;
+                        surface_request_error(&mut session, &mut view, handled)?;
                         hand_terminal_to_requests(&mut session, &mut view, &mut renderer).await;
                         // The `/mcp` view resolved to an auth request (its
                         // Enter on a connection, or the pasteable service's
@@ -1010,8 +1013,14 @@ async fn run_interactive_surface(
                 // final repaint), so the chat's last layout is dead work
                 // that only delays the switch.
                 // A burst still queued behind this input paints once at its
-                // end (the frame gate below the drain), not per key.
-                if renderer.is_terminal() && pending.is_empty() {
+                // end (the frame gate below the drain), not per key -- except
+                // ahead of a session switch the input asked for (`/new`,
+                // `app.session.new`): TS clears the submitted text and
+                // renders while `handleClearCommand` awaits, so the
+                // submitted `/new` and its menu never stay on screen for
+                // the length of the create and attach.
+                let new_session = session.take_new_session_request();
+                if renderer.is_terminal() && (pending.is_empty() || new_session.is_some()) {
                     if !session.open_agents_view && session.pending_selection.is_none() {
                         // The inline paint must reflect tray state the
                         // handled key just armed (the Ctrl+C exit hint:
@@ -1031,6 +1040,15 @@ async fn run_interactive_surface(
                         render_deadline = None;
                     }
                     session.dirty = false;
+                }
+                if let Some(request) = new_session {
+                    if !renderer.is_terminal() {
+                        // The headless capture records the same frame.
+                        view.chrome.tray_override = session.tray_override(&view);
+                        renderer.render_headless(&mut session, &mut view);
+                    }
+                    let started = session.start_new_session(request, &mut view).await;
+                    surface_request_error(&mut session, &mut view, started)?;
                 }
                 // An exit key must not wait out the select tick before the
                 // bounded shutdown path runs.

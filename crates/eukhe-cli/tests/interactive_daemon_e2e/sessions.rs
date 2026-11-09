@@ -949,3 +949,98 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
     );
     drop(supervisor);
 }
+
+/// `/new` typed with its menu open, then Enter: a frame with the
+/// submitted `/new` cleared and its menu closed paints before the fresh
+/// session starts (TS clears the submitted text and renders while
+/// `handleClearCommand` awaits) -- the menu never stays on screen for the
+/// length of the create and attach. The documented arguments
+/// (`/new [--name "session name" --] [prompt]`) name the next fresh
+/// session and send its first prompt in it.
+#[tokio::test]
+async fn tui_new_paints_the_cleared_prompt_then_starts_a_named_session_with_its_prompt() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    let supervisor = spawn_supervisor(dir.path());
+    let script = serde_json::json!({ "responses": [{ "text": "gamma scripted reply" }] });
+    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let options = base_options(&supervisor, dir.path(), &session_dir);
+    let wait_render = |needle: &str| eukhe_tui::interactive::HeadlessStep::WaitRender {
+        needle: needle.to_string(),
+        timeout_ms: 30_000,
+    };
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![
+            eukhe_tui::interactive::HeadlessStep::Type("/new".to_string()),
+            // The menu opens before Enter, as after a real user's pause.
+            eukhe_tui::interactive::HeadlessStep::SettleIdle,
+            wait_render("Start a new session"),
+            eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
+            wait_render("started session"),
+            eukhe_tui::interactive::HeadlessStep::Submit(
+                r#"/new --name "second" -- gamma prompt"#.to_string(),
+            ),
+            wait_render("Session name set: second"),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+        ],
+        width: 120,
+        height: 36,
+    };
+    let outcome = run_headless_bounded(options, plan)
+        .await
+        .expect("interactive run");
+    let rendered = outcome.frames.join("\n");
+    let started = outcome
+        .frames
+        .iter()
+        .position(|frame| frame.contains("started session"))
+        .unwrap_or_else(|| panic!("the fresh session started:\n{rendered}"));
+    let before = &outcome.frames[started - 1];
+    assert!(
+        !before.contains("Start a new session")
+            && !before.lines().any(|row| row.trim_end().starts_with("> /new")),
+        "the frame before the session switch shows the submitted /new cleared and its menu closed:\n{before}"
+    );
+    assert!(
+        rendered.contains("gamma scripted reply"),
+        "the prompt ran in the new session:\n{rendered}"
+    );
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
+        .await
+        .expect("connect supervisor");
+    let listed = client
+        .request_ok(DaemonCommand::List {
+            id: None,
+            all: None,
+            cwd: None,
+            session_dir: None,
+            include_client_owned: None,
+            rest: serde_json::Map::default(),
+        })
+        .await
+        .expect("list");
+    client.close();
+    assert!(
+        listed["sessions"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row["sessionName"] == "second")),
+        "the second fresh session carries its name: {listed}"
+    );
+    let prompted: Vec<_> = session_dirs(&session_dir)
+        .into_iter()
+        .filter(|storage| {
+            read_transcript(storage)
+                .message_texts()
+                .iter()
+                .any(|text| text == "gamma prompt")
+        })
+        .collect();
+    assert_eq!(
+        prompted.len(),
+        1,
+        "one session holds the prompt: {prompted:?}"
+    );
+    drop(supervisor);
+}
