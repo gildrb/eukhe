@@ -1,8 +1,10 @@
 //! The turns the supervisor ends itself: a worker it killed because it
-//! stopped answering (`responsiveness.rs`). Restarting such a worker would
-//! resume the very run that hung, so the supervisor keeps one notice per
-//! session file until a worker reopens that session: the reopen (the
-//! relaunch's create replay) carries it as `interruptedRun`, and the worker
+//! stopped answering (`responsiveness.rs`), or a session whose worker
+//! crashed past the restart budget (`supervision.rs`). Restarting such a
+//! worker would resume the very run that hung or crashed, so the
+//! supervisor keeps one notice per session file until a worker reopens
+//! that session: the reopen (the relaunch's create replay, or the next
+//! launch over the file) carries it as `interruptedRun`, and the worker
 //! opens the storage without resuming the run (`StoredWork::Stop`: the
 //! run's tasks are aborted before scheduling starts, so no model request
 //! or tool of it runs again) and writes the notice as a display-only row
@@ -11,6 +13,7 @@
 
 use std::collections::HashMap;
 
+use eukhe_types::daemon::{DaemonOutbound, SessionEvent};
 use serde_json::{json, Value};
 
 use crate::registry::canonical_session_file_string;
@@ -20,6 +23,8 @@ use crate::registry::canonical_session_file_string;
 pub(crate) enum InterruptedRun {
     /// The worker left the responsiveness probe unanswered this many ms.
     Unresponsive { after_ms: u64 },
+    /// The worker crashed this many times inside the restart window.
+    CrashLoop { failures: u32 },
 }
 
 impl InterruptedRun {
@@ -30,6 +35,56 @@ impl InterruptedRun {
                 "The session worker stopped responding for {}s; Eukhe restarted it and stopped the turn. Send the message again to retry.",
                 after_ms / 1_000
             ),
+            Self::CrashLoop { failures } => format!(
+                "The session worker crashed {failures} times in a row; Eukhe stopped restarting it and stopped the turn. Send the message again to retry."
+            ),
+        }
+    }
+}
+
+impl super::Supervisor {
+    /// A session given up with nobody to end its turn: the clients that
+    /// follow it through the supervisor see the notice row (the one the
+    /// reopened transcript keeps), the turn fail with it, and the run end,
+    /// so none keeps showing it busy.
+    pub(super) fn end_followed_turn(&self, active_session_id: &str, run: InterruptedRun) {
+        let row = eukhe_types::session::AgentMessage::Custom(eukhe_types::session::CustomMessage {
+            custom_type: eukhe_types::custom_type::WORKER_RESTART_NOTICE_CUSTOM_TYPE.to_string(),
+            content: eukhe_types::ai::UserContent::Text(run.notice()),
+            display: true,
+            details: None,
+            timestamp: crate::util::now_ms(),
+            rest: serde_json::Map::default(),
+        });
+        for event in [
+            SessionEvent::MessageStart {
+                message: row.clone(),
+                assistant_message_event: None,
+            },
+            SessionEvent::MessageEnd { message: row },
+            SessionEvent::TurnEnd {
+                answer: None,
+                error: Some(run.notice()),
+            },
+            SessionEvent::AgentEnd {
+                messages: Vec::new(),
+            },
+        ] {
+            let outbound = DaemonOutbound::SessionEvent {
+                active_session_id: active_session_id.to_string(),
+                event,
+                meta: None,
+                rest: serde_json::Map::default(),
+            };
+            match serde_json::to_vec(&outbound) {
+                Ok(line) => self.publish_session_line(
+                    active_session_id,
+                    &super::subscribers::event_line(line),
+                ),
+                Err(error) => self.log_line(&format!(
+                    "the turn end of given-up session {active_session_id} did not serialize: {error}"
+                )),
+            }
         }
     }
 }
@@ -132,10 +187,7 @@ mod tests {
             Some(&json!({ "interruptedRunPersisted": false })),
         );
         assert_eq!(runs.payload_for("/s/a.jsonl"), Some(first.clone()));
-        runs.declare(
-            "/s/a.jsonl",
-            InterruptedRun::Unresponsive { after_ms: 90_000 },
-        );
+        runs.declare("/s/a.jsonl", InterruptedRun::CrashLoop { failures: 6 });
         let second = runs.payload_for("/s/a.jsonl").expect("redeclared");
         runs.settle(
             "/s/a.jsonl",

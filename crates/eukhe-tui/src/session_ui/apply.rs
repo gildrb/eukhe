@@ -534,6 +534,18 @@ impl SessionUi {
                 self.dirty = true;
             }
             TurnUpdate::CustomRow(entry) => {
+                // A row that shows an error (the supervisor's notice of a
+                // turn it ended) is the turn's failure row: the turn's end
+                // adds no second one.
+                if matches!(
+                    entry,
+                    ChatEntry::Status {
+                        kind: StatusKind::Error,
+                        ..
+                    }
+                ) {
+                    self.turn_error_shown = true;
+                }
                 view.push_entry(entry);
             }
             TurnUpdate::RetryOutcomeRow(entry) => {

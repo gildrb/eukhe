@@ -1,5 +1,6 @@
 //! Worker supervision: the watch loop, the restart backoff, and
 //! the spawn/connect plumbing.
+use super::interrupted_runs::InterruptedRun;
 use super::restart_budget::RestartVerdict;
 use super::routing::{fail_unsent_request, WORKER_REQUEST_TIMEOUT_MS, WORKER_SOCKET_CLOSED};
 use super::{
@@ -194,8 +195,20 @@ impl Supervisor {
                     descriptor.consecutive_failures = u64::from(failures);
                     descriptor.last_failure_at = Some(util::now_iso());
                     let journal_path = descriptor.recovery_journal_path.clone();
+                    let session_file = descriptor.session_file.clone();
+                    let active_session_id = descriptor.root_active_session_id.clone();
                     let _ = persist_worker(&resident.descriptor_path, &descriptor);
                     drop(descriptor);
+                    // The next open of the session (a client's attach or
+                    // prompt wakes it) stops the run this loop kept
+                    // crashing in and shows why, instead of resuming it;
+                    // the clients following the session now see its turn
+                    // end with the same notice.
+                    let run = InterruptedRun::CrashLoop { failures };
+                    if let Some(session_file) = &session_file {
+                        self.interrupted_runs.declare(session_file, run);
+                    }
+                    self.end_followed_turn(&active_session_id, run);
                     // The give-up settles its own revival evidence (the storm
                     // cycle's breaker): the journal's busy records are what a
                     // later boot reads as "interrupted live work" — the
