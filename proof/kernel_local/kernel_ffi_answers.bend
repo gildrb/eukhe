@@ -2,7 +2,8 @@
 # A plan and every lock but one aged lock are closed strings: they compute.
 # An aged lock and a sweep carry a number of the request: the wire's
 # round trip reads it back (LWire.pw6.nat), the files read back one by one
-# (LKL.kl.lefts_rt), and the reply writers write what the laws spell.
+# (LKL.kl.lefts_rt), and the reply writers write what the laws spell
+# (LKL.kl.bools_items, LKL.kl.end).
 
 import Base
 import ../../bend/ffi_kernel_local.bend as FKL
@@ -45,7 +46,7 @@ def ka.lock(x: KL.Seen, fits: {KernelLocal.ask_fits(KL.AskLock{x}) == True{} : B
           {==}
         case Some{+n}:
           %LWire.pw6.nat(n, "", fits) : {FKL.run(FKL.get_lock(FKL.get_age.some(_))) == KernelLocal.spell_answer(KL.AskLock{KL.NoOwner{Some{n}}}) : String}
-          LKL.kl.lock_old(Nat.is_lt(30000n, n))
+          LKL.kl.end(KL.attempt(KL.lock.of(KL.NoOwner{Some{n}})), "")
 
 def ka.sweep(ls: List<&2, KL.Left>, fits: {KernelLocal.ask_fits(KL.AskSweep{ls}) == True{} : Bool}) -> {FKL.ffi(KernelLocal.spell_ask(KL.AskSweep{ls})) == KernelLocal.spell_answer(KL.AskSweep{ls}) : String}:
   match ls:
@@ -54,9 +55,7 @@ def ka.sweep(ls: List<&2, KL.Left>, fits: {KernelLocal.ask_fits(KL.AskSweep{ls})
     case +l <> +t:
       %LWire.pw6.nat(1n+List.length(&2, KL.Left, t), KernelLocal.spell_left(l, KernelLocal.spell_lefts(t, "")), fits) : {FKL.run(FKL.get_sweep(_)) == KernelLocal.spell_answer(KL.AskSweep{l <> t}) : String}
       %LKL.kl.lefts_rt(t, l, "") : {FKL.run(FKL.get_sweep.files(_)) == KernelLocal.spell_answer(KL.AskSweep{l <> t}) : String}
-      %LKL.kl.keeps_items(l <> t, "") : {Wr.put_nat(List.length(&2, Bool, KL.keeps(l <> t)), _) == Wr.put_nat(List.length(&2, KL.Left, l <> t), KernelLocal.spell_keeps(l <> t, "")) : String}
-      %LKL.kl.len_keeps(l <> t) : {Wr.put_nat(_, KernelLocal.spell_keeps(l <> t, "")) == Wr.put_nat(List.length(&2, KL.Left, l <> t), KernelLocal.spell_keeps(l <> t, "")) : String}
-      {==}
+      Equal.cong(String, String, x => Wr.put_nat(List.length(&2, Bool, KL.keeps(l <> t)), x), FKL.put_bools.items(KL.keeps(l <> t), ""), KernelLocal.spell_bools(KL.keeps(l <> t), ""), LKL.kl.bools_items(KL.keeps(l <> t), ""))
 
 def KernelLocal.kernel_ffi_answers(a, fits):
   match a:

@@ -5,7 +5,7 @@ import ../../bend/launcher.bend as La
 import ../../laws/launcher.bend as Launcher
 import ../base/logic/logic.bend as LLogicLogic
 
-# (D1) idle_shutdown_never_aborts
+# (A5) idle_shutdown_never_aborts
 # -------------------------------
 
 # a closed gate holds no run

@@ -1,8 +1,6 @@
-# eukhe: lemmas the proofs of area launcher share: the entry's reader
-# answers what the laws' reader answers on every input (one lemma per
-# stage, each a case split on the stage's input), the entry reads back the
-# answers the laws spell, and its commit is the laws' "every answer is
-# quiesced".
+# eukhe: lemmas the proofs of area launcher share: logic, the entry reads
+# back the answers the laws spell, its commit is the laws' "every answer
+# is quiesced", and `at` changes worker i alone.
 
 import Base
 import ../../bend/ffi_launcher.bend as FLa
@@ -13,132 +11,44 @@ import ../../laws/launcher.bend as Launcher
 # Logic
 # -----
 
-def la.if_none(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
-  match m:
-    case None{}:
-      G
-    case Some{x}:
-      Unit
+def la.BD(b: Bool, t: Type, f: Type) -> Type:
+  match b:
+    case True{}:
+      t
+    case False{}:
+      f
 
-# a claim that Some is None proves anything
-def la.some_none(-A: Data, -x: A, -G: Type, e: {Some{x} == None{} : Maybe<&2, A>}) -> G:
-  %e : la.if_none(A, _, G)
+# False is not True: anything follows
+def la.absurd(-A: Type, e: {False{} == True{} : Bool}) -> A:
+  %e : la.BD(_, A, Unit)
   Unit{}
 
-# The reader, stage by stage
-# --------------------------
+def la.MD(-A: Data, m: Maybe<&2, A>, t: Type, f: Type) -> Type:
+  match m:
+    case None{}:
+      t
+    case Some{x}:
+      f
 
-def la.prompt(r: Wr.Dec<Bool>) -> {Launcher.read_prompt(r) == FLa.get_prompt(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{c, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
+# None is not Some: anything follows
+def la.none_some(-A: Data, -x: A, -G: Type, e: {None{} == Some{x} : Maybe<&2, A>}) -> G:
+  %e : la.MD(A, _, Unit, G)
+  Unit{}
 
-def la.quiesce_closed(b: Bool, r: Wr.Dec<Bool>) -> {Launcher.read_quiesce.closed(b, r) == FLa.get_quiesce.closed(b, r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{c, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
+# the value of a Some, d for None
+def la.val(-A: Data, d: A, m: Maybe<&2, A>) -> A:
+  match m:
+    case None{}:
+      d
+    case Some{x}:
+      x
 
-def la.quiesce(r: Wr.Dec<Bool>) -> {Launcher.read_quiesce(r) == FLa.get_quiesce(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{b, s}:
-      la.quiesce_closed(b, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
+# Some is injective
+def la.some_inj(-A: Data, -x: A, -y: A, e: {Some{x} == Some{y} : Maybe<&2, A>}) -> {x == y : A}:
+  Equal.cong(Maybe<&2, A>, A, m => la.val(A, x, m), Some{x}, Some{y}, e)
 
-def la.answers_cons(a: Bool, r: Wr.Dec<List<&2, Bool>>) -> {Launcher.read_answers.cons(a, r) == FLa.get_answers.cons(a, r) : Wr.Dec<List<&2, Bool>>}:
-  match r:
-    case Wr.Got{xs, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def la.answers(n: Nat, cur: Wr.Dec<Bool>) -> {Launcher.read_answers(n, cur) == FLa.get_answers.go(n, cur) : Wr.Dec<List<&2, Bool>>}:
-  match n:
-    case 0n:
-      match cur:
-        case Wr.Got{a, s}:
-          {==}
-        case Wr.Bad{}:
-          {==}
-    case 1n++m:
-      match cur:
-        case Wr.Got{+a, +s}:
-          %la.answers(m, Wr.get_bool(s)) : {Launcher.read_answers.cons(a, Launcher.read_answers(m, Wr.get_bool(s))) == FLa.get_answers.cons(a, _) : Wr.Dec<List<&2, Bool>>}
-          %la.answers_cons(a, Launcher.read_answers(m, Wr.get_bool(s))) : {Launcher.read_answers.cons(a, Launcher.read_answers(m, Wr.get_bool(s))) == _ : Wr.Dec<List<&2, Bool>>}
-          {==}
-        case Wr.Bad{}:
-          {==}
-
-def la.commit_answers(r: Wr.Dec<List<&2, Bool>>) -> {Launcher.read_commit.answers(r) == FLa.get_commit.answers(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{xs, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def la.commit(r: Wr.Dec<Nat>) -> {Launcher.read_commit(r) == FLa.get_commit(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{n, +s}:
-      match n:
-        case 0n:
-          {==}
-        case 1n++m:
-          %la.answers(m, Wr.get_bool(s)) : {Launcher.read_commit.answers(Launcher.read_answers(m, Wr.get_bool(s))) == FLa.get_commit.answers(_) : Wr.Dec<La.Ask>}
-          %la.commit_answers(Launcher.read_answers(m, Wr.get_bool(s))) : {Launcher.read_commit.answers(Launcher.read_answers(m, Wr.get_bool(s))) == _ : Wr.Dec<La.Ask>}
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-def la.adopt_some(r: Wr.Dec<Nat>) -> {Launcher.read_adopt.some(r) == FLa.get_adopt.some(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{b, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def la.adopt_tag(t: Nat, s: String) -> {Launcher.read_adopt.tag(t, s) == FLa.get_adopt.tag(t, s) : Wr.Dec<La.Ask>}:
-  match t:
-    case 0n:
-      {==}
-    case 1n:
-      la.adopt_some(Wr.get_nat(s))
-    case 2n+p:
-      {==}
-
-def la.adopt(r: Wr.Dec<Nat>) -> {Launcher.read_adopt(r) == FLa.get_adopt(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{t, s}:
-      la.adopt_tag(t, s)
-    case Wr.Bad{}:
-      {==}
-
-def la.ask_tag(t: Nat, s: String) -> {Launcher.read_ask.tag(t, s) == FLa.get_ask.tag(t, s) : Wr.Dec<La.Ask>}:
-  match t:
-    case 0n:
-      la.prompt(Wr.get_bool(s))
-    case 1n:
-      la.quiesce(Wr.get_bool(s))
-    case 2n:
-      la.commit(Wr.get_nat(s))
-    case 3n:
-      la.adopt(Wr.get_nat(s))
-    case 4n+p:
-      {==}
-
-# the entry reads every input as the laws' reader does
-def la.ask(r: Wr.Dec<Nat>) -> {Launcher.read_ask.go(r) == FLa.get_ask.go(r) : Wr.Dec<La.Ask>}:
-  match r:
-    case Wr.Got{t, s}:
-      la.ask_tag(t, s)
-    case Wr.Bad{}:
-      {==}
-
-# Round trip and the commit
-# -------------------------
+# The entry
+# ---------
 
 # the answers after the first read back, the first one being a
 def la.bools_rt(t: List<&2, Bool>, +a: Bool, +rest: String) -> {Wr.Got{a <> t, rest} == FLa.get_answers.go(List.length(&2, Bool, t), Wr.get_bool(Wr.put_bool(a, Launcher.spell_bools(t, rest)))) : Wr.Dec<List<&2, Bool>>}:
@@ -175,24 +85,18 @@ def la.adopt_n(n: Nat) -> {FLa.put_adoption(La.adoption(0n, Some{n}), "") == Wr.
     case 1n+p:
       {==}
 
-# the runs a stop finds are the laws' count
-def la.busy(ws: List<&2, La.Wk>) -> {La.busy_count(ws) == Launcher.busy_spec(ws) : Nat}:
-  match ws:
-    case Nil{}:
-      {==}
-    case La.Wk{b, c} <> t:
-      match b:
-        case True{}:
-          %la.busy(t) : {1n+La.busy_count(t) == 1n+_ : Nat}
-          {==}
-        case False{}:
-          la.busy(t)
+# The workers
+# -----------
 
-# the workers a run starts on are the laws' open workers
-def la.open(bs: List<&2, Bool>) -> {La.open(bs) == Launcher.open_spec(bs) : List<&2, La.Wk>}:
-  match bs:
-    case Nil{}:
+# `at` puts f(w) at i, where ws has w
+def la.at_here(~f: La.Wk -> La.Wk, i: Nat, ws: List<&2, La.Wk>, -w: La.Wk, at: {List.get(&2, La.Wk, ws, i) == Some{w} : Maybe<&2, La.Wk>}) -> {List.get(&2, La.Wk, La.at(~f, i, ws), i) == Some{f(w)} : Maybe<&2, La.Wk>}:
+  match i ws:
+    case 0n Nil{}:
+      la.none_some(La.Wk, w, {List.get(&2, La.Wk, La.at(~f, 0n, Nil{}), 0n) == Some{f(w)} : Maybe<&2, La.Wk>}, at)
+    case 0n x <> t:
+      %Equal.sym(La.Wk, x, w, la.some_inj(La.Wk, x, w, at)) : {Some{f(_)} == Some{f(w)} : Maybe<&2, La.Wk>}
       {==}
-    case b <> t:
-      %la.open(t) : {La.Wk{b, False{}} <> La.open(t) == La.Wk{b, False{}} <> _ : List<&2, La.Wk>}
-      {==}
+    case 1n+j Nil{}:
+      la.none_some(La.Wk, w, {List.get(&2, La.Wk, La.at(~f, 1n+j, Nil{}), 1n+j) == Some{f(w)} : Maybe<&2, La.Wk>}, at)
+    case 1n+j x <> t:
+      la.at_here(~f, j, t, w, at)

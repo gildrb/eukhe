@@ -1,6 +1,5 @@
-# kernel_local: the kernel setup, the session's tools while the kernel is
-# missing, and the bootstrap lock's leftovers
-# (crates/eukhe-core/src/kernel/bootstrap: setup.rs, venv.rs, mod.rs,
+# kernel_local: the kernel setup and the bootstrap lock's leftovers
+# (crates/eukhe-core/src/kernel/bootstrap: setup.rs, venv.rs,
 # dir_lock.rs). The setup's plan, the sweep's verdict on each leftover and
 # the lock attempt's verdict run as this code (entry
 # bend/ffi_kernel_local.bend); laws/kernel_local.bend states the laws;
@@ -96,55 +95,7 @@ def acts.verified(xs: List<&2, Act>, +clean: Bool) -> Bool:
     case Run{} <> rest:
       Bool.and(clean, acts.verified(rest, clean))
 
-# Part 2: the session's tools
-# ---------------------------
-
-type Kernel is Data:
-  Up{}
-  # the setup failed: the error names `eukhe kernel install`
-  Missing{}
-
-# the kernel after a setup that finds f; ok: the sync or the build worked
-def start(f: Found, ok: Bool) -> Kernel:
-  match f:
-    case Current{}:
-      Up{}
-    case Skills{}:
-      match ok:
-        case True{}:
-          Up{}
-        case False{}:
-          Missing{}
-    case Stale{}:
-      match ok:
-        case True{}:
-          Up{}
-        case False{}:
-          Missing{}
-
-# a tool call: the ipython tool, or any other tool (by its number)
-type Tool is Data:
-  Python{}
-  Other{n: Nat}
-
-type Answer is Data:
-  # the tool ran
-  Ran{}
-  # the tool answered with the install command
-  NamesInstall{}
-
-def answer(t: Tool, k: Kernel) -> Answer:
-  match t:
-    case Python{}:
-      match k:
-        case Up{}:
-          Ran{}
-        case Missing{}:
-          NamesInstall{}
-    case Other{n}:
-      Ran{}
-
-# Part 3: the bootstrap lock's leftovers
+# Part 2: the bootstrap lock's leftovers
 # --------------------------------------
 
 type Owner is Data:
@@ -229,18 +180,6 @@ def lock.of(s: Seen) -> Lock:
           Gone{}
     case NoOwner{age}:
       lock.age(age)
-
-# the attempt's own candidates left after it ends
-def own_left(e: End) -> Nat:
-  match e:
-    case Got{}:
-      0n
-    case Busy{}:
-      0n
-    case Freed{}:
-      0n
-    case Crash{}:
-      1n
 
 # does the sweep keep the file: a live attempt's leftover or another file
 def keep(l: Left) -> Bool:

@@ -3,7 +3,7 @@
 //! but `eukhe kernel install`) uses only local files; `eukhe kernel
 //! install` is the only path that downloads. The rule is `plan` of
 //! `bend/kernel_local.bend`, run by the compiled Bend core
-//! (`bend/ffi_kernel_local.bend`, request 0; laws `kernel_plan_exact`,
+//! (`bend/ffi_kernel_local.bend`, request 0; laws `kernel_plan_read_by_rust`,
 //! `kernel_session_never_downloads`, `kernel_fetch_verified_before_use` in
 //! `laws/kernel_local.bend`).
 

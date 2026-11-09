@@ -1,7 +1,7 @@
 //! A session whose kernel is missing: the ipython tool answers with the
-//! install command, and the other tools run (the model's laws
-//! `kernel_missing_names_install` and `kernel_missing_spares_tools` in
-//! `laws/kernel_local.bend`; this test runs the real session).
+//! install command, and the other tools run (requirement R5 of
+//! `laws/kernel_local.bend`, which no Bend code decides: this test runs the
+//! real session).
 
 use std::ffi::OsString;
 

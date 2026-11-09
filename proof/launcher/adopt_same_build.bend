@@ -5,7 +5,7 @@ import ../../bend/launcher.bend as La
 import ../../laws/launcher.bend as Launcher
 import ../base/logic/nat.bend as LLogicNat
 
-# (D1) adopt_same_build
+# (A6) adopt_same_build
 # ---------------------
 
 def ps.AD(x: La.Adoption, A: Type) -> Type:

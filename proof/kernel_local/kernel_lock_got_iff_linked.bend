@@ -1,17 +1,20 @@
-# eukhe: the proof of LAW kernel_lock_judge
+# eukhe: the proof of LAW kernel_lock_got_iff_linked
+#
+# A case split on what the attempt saw; an aged lock that names no owner
+# is busy or freed, never got, whatever the age test answers.
 
 import Base
 import ../../bend/kernel_local.bend as KL
 import ../../laws/kernel_local.bend as KernelLocal
 
-def kj.old(old: Bool) -> {KL.attempt(KL.lock.past(old)) == KernelLocal.judge_spec.old(old) : KL.End}:
-  match old:
+def kgl.past(b: Bool) -> {KernelLocal.kl_got(KL.attempt(KL.lock.past(b))) == False{} : Bool}:
+  match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def KernelLocal.kernel_lock_judge(x):
+def KernelLocal.kernel_lock_got_iff_linked(x):
   match x:
     case KL.Linked{}:
       {==}
@@ -28,4 +31,4 @@ def KernelLocal.kernel_lock_judge(x):
         case None{}:
           {==}
         case Some{a}:
-          kj.old(Nat.is_lt(30000n, a))
+          kgl.past(Nat.is_lt(30000n, a))
