@@ -2,9 +2,10 @@
 
 import Base
 import ../../bend/child.bend as Ch
+import ../../spec/child.bend as ChS
 import ../../laws/child.bend as Child
 
-def pc.silent(x: Ch.Next) -> {Ch.Call.reports(Ch.call.of(x, Ch.Silent{})) == False{} : Bool}:
+def pc.silent(x: Ch.Next) -> {ChS.reports(Ch.call.of(x, Ch.Silent{})) == False{} : Bool}:
   match x:
     case Ch.Watch{w}:
       {==}

@@ -2,42 +2,39 @@
 
 import Base
 import ../../bend/child.bend as Ch
+import ../../spec/child.bend as ChS
 import ../../laws/child.bend as Child
 import ../base/nat.bend as LNat
 import ./base.bend as LA
 
-def pc.spend_within(+cfg: Ch.Cfg, +r: Nat, +tok: Maybe<&2, Nat>, +n: Nat, er: {Nat.is_le(r, Ch.Cfg.stall(cfg)) == True{} : Bool}, en: {Nat.is_le(n, Ch.Cfg.fails(cfg)) == True{} : Bool}) -> {Ch.within(cfg, Ch.spend(r, tok, n)) == True{} : Bool}:
+def pc.spend_within(+s: Nat, +f: Nat, +r: Nat, +tok: Maybe<&2, Nat>, +n: Nat, er: {Nat.is_le(r, s) == True{} : Bool}, en: {Nat.is_le(n, f) == True{} : Bool}) -> {ChS.within(s, f, Ch.spend(r, tok, n)) == True{} : Bool}:
   match r:
     case 0n:
       {==}
     case 1n+p:
-      LA.pc.and_in(Nat.is_le(1n+p, Ch.Cfg.stall(cfg)), Nat.is_le(n, Ch.Cfg.fails(cfg)), er, en)
+      LA.pc.and_in(Nat.is_le(1n+p, s), Nat.is_le(n, f), er, en)
 
-def pc.busy_within(b: Bool, +cfg: Ch.Cfg, +w: Ch.W, +t: Maybe<&2, Nat>, +e: Nat, full: {Ch.within(cfg, Ch.Watch{w}) == True{} : Bool}) -> {Ch.within(cfg, Ch.busy(b, cfg, w, t, e)) == True{} : Bool}:
+def pc.busy_within(b: Bool, +s: Nat, +f: Nat, +tok: Maybe<&2, Nat>, +l: Nat, +n: Nat, +t: Maybe<&2, Nat>, +e: Nat, full: {Bool.and(Nat.is_le(l, s), Nat.is_le(n, f)) == True{} : Bool}) -> {ChS.within(s, f, Ch.busy(b, Ch.Cfg{s, f}, Ch.W{tok, l, n}, t, e)) == True{} : Bool}:
   match b:
     case True{}:
-      LA.pc.and_in(Nat.is_le(Ch.Cfg.stall(cfg), Ch.Cfg.stall(cfg)), Nat.is_le(Ch.Cfg.fails(cfg), Ch.Cfg.fails(cfg)), LNat.child.pc.le_refl(Ch.Cfg.stall(cfg)), LNat.child.pc.le_refl(Ch.Cfg.fails(cfg)))
+      LA.pc.and_in(Nat.is_le(s, s), Nat.is_le(f, f), LNat.child.pc.le_refl(s), LNat.child.pc.le_refl(f))
     case False{}:
-      match w:
-        case Ch.W{+tok, +l, +n}:
-          pc.spend_within(cfg, Nat.sub(l, e), tok, Ch.Cfg.fails(cfg), LNat.child.pc.le_trans(Nat.sub(l, e), l, Ch.Cfg.stall(cfg), LNat.pc.sub_le(l, e), LA.pc.and_l(Nat.is_le(l, Ch.Cfg.stall(cfg)), Nat.is_le(n, Ch.Cfg.fails(cfg)), full)), LNat.child.pc.le_refl(Ch.Cfg.fails(cfg)))
+      pc.spend_within(s, f, Nat.sub(l, e), tok, f, LNat.child.pc.le_trans(Nat.sub(l, e), l, s, LNat.pc.sub_le(l, e), LA.pc.and_l(Nat.is_le(l, s), Nat.is_le(n, f), full)), LNat.child.pc.le_refl(f))
 
-def pc.look_within(o: Ch.Obs, +cfg: Ch.Cfg, +w: Ch.W, +e: Nat, +full: {Ch.within(cfg, Ch.Watch{w}) == True{} : Bool}) -> {Ch.within(cfg, Ch.look(cfg, w, e, o)) == True{} : Bool}:
+def pc.look_within(o: Ch.Obs, +s: Nat, +f: Nat, +tok: Maybe<&2, Nat>, +l: Nat, +n: Nat, +e: Nat, +full: {Bool.and(Nat.is_le(l, s), Nat.is_le(n, f)) == True{} : Bool}) -> {ChS.within(s, f, Ch.look(Ch.Cfg{s, f}, Ch.W{tok, l, n}, e, o)) == True{} : Bool}:
   match o:
     case Ch.Busy{+t}:
-      pc.busy_within(Ch.moved(Ch.W.tok(w), t), cfg, w, t, e, full)
+      pc.busy_within(Ch.moved(tok, t), s, f, tok, l, n, t, e, full)
     case Ch.Lost{}:
-      match w:
-        case Ch.W{+tok, +l, +n}:
-          match n:
+      match n:
+        case 0n:
+          {==}
+        case 1n+q:
+          match q:
             case 0n:
               {==}
-            case 1n+q:
-              match q:
-                case 0n:
-                  {==}
-                case 1n+u:
-                  pc.spend_within(cfg, Nat.sub(l, e), tok, 1n+u, LNat.child.pc.le_trans(Nat.sub(l, e), l, Ch.Cfg.stall(cfg), LNat.pc.sub_le(l, e), LA.pc.and_l(Nat.is_le(l, Ch.Cfg.stall(cfg)), Nat.is_le(2n+u, Ch.Cfg.fails(cfg)), full)), LA.pc.le_pred(1n+u, Ch.Cfg.fails(cfg), LA.pc.and_r(Nat.is_le(l, Ch.Cfg.stall(cfg)), Nat.is_le(2n+u, Ch.Cfg.fails(cfg)), full)))
+            case 1n+u:
+              pc.spend_within(s, f, Nat.sub(l, e), tok, 1n+u, LNat.child.pc.le_trans(Nat.sub(l, e), l, s, LNat.pc.sub_le(l, e), LA.pc.and_l(Nat.is_le(l, s), Nat.is_le(2n+u, f), full)), LA.pc.le_pred(1n+u, f, LA.pc.and_r(Nat.is_le(l, s), Nat.is_le(2n+u, f), full)))
     case Ch.Answered{r}:
       match r:
         case True{}:
@@ -49,8 +46,5 @@ def pc.look_within(o: Ch.Obs, +cfg: Ch.Cfg, +w: Ch.W, +e: Nat, +full: {Ch.within
     case Ch.Gone{}:
       {==}
 
-def pc.clock_bounded(+cfg: Ch.Cfg, +w: Ch.W, +e: Nat, o: Ch.Obs, full: {Ch.within(cfg, Ch.Watch{w}) == True{} : Bool}) -> {Ch.within(cfg, Ch.look(cfg, w, e, o)) == True{} : Bool}:
-  pc.look_within(o, cfg, w, e, full)
-
-def Child.child_clock_bounded(cfg, w, e, o, full):
-  pc.clock_bounded(cfg, w, e, o, full)
+def Child.child_clock_bounded(s, f, tok, l, n, e, o, full):
+  pc.look_within(o, s, f, tok, l, n, e, full)

@@ -6,6 +6,7 @@ import ../bend/ffi_progress.bend as FPr
 import ../bend/wire.bend as Wr
 import ../bend/progress.bend as Pr
 import ./base.bend as LawsBase
+import ../spec/child.bend as ChS
 
 # ---- progress ----
 
@@ -33,31 +34,36 @@ law child_repeat_is_no_work:
 
 # LAW child_loop_is_a_stall: a child that loops is a stall: polls of a child whose acts since
 # the watch last saw progress are all acts it did before, at least as many
-# as the ms left on the clock, end the watch (each poll takes 1 ms or more)
+# as the l ms left on the clock, end the watch (each poll takes 1 ms or more)
 law child_loop_is_a_stall:
   for +cfg: Ch.Cfg
-  for +w: Ch.W
+  for +tok: Maybe<&2, Nat>
+  for +l: Nat
+  for +n: Nat
   for +hist: List<&2, Nat>
   for p: Pr.Peek
   for +ps: List<&2, Pr.Peek>
   for loops: Pr.Loops(p <> ps, hist)
-  for tok: {Ch.W.tok(w) == Some{Pr.work(hist)} : Maybe<&2, Nat>}
-  for long: {Nat.is_le(Ch.W.left(w), List.length(&2, Pr.Peek, p <> ps)) == True{} : Bool}
-  {Ch.Next.watching(Pr.watch(p <> ps, cfg, hist, Ch.Watch{w})) == False{} : Bool}
+  for held: {tok == Some{Pr.work(hist)} : Maybe<&2, Nat>}
+  for long: {Nat.is_le(l, List.length(&2, Pr.Peek, p <> ps)) == True{} : Bool}
+  {ChS.watches(Pr.watch(p <> ps, cfg, hist, Ch.Watch{Ch.W{tok, l, n}})) == False{} : Bool}
 
 # LAW child_new_work_is_progress: new work is progress: a poll after an act the child never did
-# before goes on with a full clock
+# before goes on holding the new work with the clock full from the settings (s ms, f tries)
 law child_new_work_is_progress:
-  for +cfg: Ch.Cfg
-  for +w: Ch.W
+  for +s: Nat
+  for +f: Nat
+  for +tok: Maybe<&2, Nat>
+  for +l: Nat
+  for +n: Nat
   for +e: Nat
   for +seen: List<&2, Nat>
   for +seg: List<&2, Nat>
   for +x: Nat
   for fresh: {Pr.mem(x, seen) == False{} : Bool}
   for news: Pr.In(x, seg)
-  for tok: {Ch.W.tok(w) == Some{Pr.work(seen)} : Maybe<&2, Nat>}
-  {Ch.look(cfg, w, e, Ch.Busy{Some{Pr.work(List.append(&2, Nat, seen, seg))}}) == Ch.Watch{Ch.W.fresh(cfg, Some{Pr.work(List.append(&2, Nat, seen, seg))})} : Ch.Next}
+  for held: {tok == Some{Pr.work(seen)} : Maybe<&2, Nat>}
+  {Ch.look(Ch.Cfg{s, f}, Ch.W{tok, l, n}, e, Ch.Busy{Some{Pr.work(List.append(&2, Nat, seen, seg))}}) == Ch.Watch{Ch.W{Some{Pr.work(List.append(&2, Nat, seen, seg))}, s, f}} : Ch.Next}
 
 # (H6) A goal without progress stops
 # ----------------------------------

@@ -5,12 +5,11 @@
 
 import Base
 import ../../bend/child.bend as Ch
+import ../../spec/child.bend as ChS
 import ../../laws/child.bend as Child
 import ../base/child.bend as LChild
 import ./base.bend as LA
 
-def Child.child_quiet_poll_spends_time(cfg, w, e):
-  match w:
-    case Ch.W{+tok, +l, +n}:
-      %LChild.pc.moved_self(tok) : {Ch.busy(_, cfg, Ch.W{tok, l, n}, tok, e) == Child.ChildSpends(tok, l, e, Ch.Cfg.fails(cfg)) : Ch.Next}
-      LA.pc.spends(l, e, tok, Ch.Cfg.fails(cfg))
+def Child.child_quiet_poll_spends_time(s, f, tok, l, n, e):
+  %LChild.pc.moved_self(tok) : {Ch.busy(_, Ch.Cfg{s, f}, Ch.W{tok, l, n}, tok, e) == ChS.ChildSpends(tok, l, e, f) : Ch.Next}
+  LA.pc.spends(l, e, tok, f)
