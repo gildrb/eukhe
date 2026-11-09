@@ -91,20 +91,22 @@ async fn places_a_reset_queued_after_the_summary_last_and_makes_a_summary_queued
     }
 }
 
+/// A failed run ends at a final boundary: the summary queued behind it is
+/// placed there, and the next input's request starts from it.
 #[tokio::test]
-async fn places_a_summary_left_queued_by_a_failed_run_at_the_next_submission_before_its_input() {
+async fn places_a_summary_queued_behind_a_failed_run_at_the_failure_before_the_next_input() {
     let chat = open(OpenOptions::default()).await;
     history(&chat).await;
     let run = busy(&chat, failure("bad request")).await;
     let handle = queued_summary(&chat, "SUMMARY").await;
+    assert_eq!(status(&handle).await, SubmissionStatus::Queued);
     run.gate.resolve(());
     assert_eq!(
         run.input.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Unanswered
     );
-    assert_eq!(status(&handle).await, SubmissionStatus::Queued);
-    turn(&chat, "again", "ok").await;
     assert_eq!(status(&handle).await, SubmissionStatus::Done);
+    turn(&chat, "again", "ok").await;
     let request = chat.faux.last_agent_messages();
     assert!(first_user_text(&request).contains("SUMMARY"));
     assert!(request

@@ -9,9 +9,9 @@ use eukhe_types::pi_ai::{
 };
 
 use super::{
-    answer, compact, doc, failure, first_user_text, gated, history, input_tokens, kinds, live,
-    open, result, script, set_policy, status_of, submission, submission_id, submit, summary, text,
-    text_tool, turn, user_text, with_stop, OpenOptions, MANUAL,
+    answer, compact, doc, first_user_text, gated, history, input_tokens, kinds, live, open, result,
+    script, set_policy, status_of, submission, submission_id, submit, summary, text, text_tool,
+    turn, user_text, with_stop, OpenOptions, MANUAL,
 };
 use crate::harness::provider::{ProviderState, PROVIDER_DOC};
 use crate::harness::tests::chat_support::{
@@ -254,20 +254,23 @@ async fn places_a_queued_summary_at_post_tools_and_the_run_continues_in_the_comp
     chat.harness.close(context()).await.unwrap();
 }
 
+/// An aborted run leaves its follow-up queued (a failed run would run it);
+/// a manual compaction places its summary and then runs the follow-up.
 #[tokio::test]
-async fn runs_follow_ups_left_by_a_failed_run_after_placing_the_summary() {
+async fn runs_follow_ups_left_by_an_aborted_run_after_placing_the_summary() {
     let chat = open(OpenOptions::default()).await;
     history(&chat).await;
     let gate = deferred();
     let reached = deferred();
     chat.faux
-        .agent(gated(&gate, failure("bad request"), Some(&reached)));
-    let failed = submit(&chat, "fails").await;
+        .agent(gated(&gate, answer("never"), Some(&reached)));
+    let aborted = submit(&chat, "aborted").await;
     reached.wait().await;
     let follow_up = submit(&chat, "follow-up").await;
-    gate.resolve(());
+    let run = live(&chat).await.run.unwrap().task_id;
+    chat.harness.abort_task(run, context()).await.unwrap();
     assert_eq!(
-        failed.wait(context()).await.unwrap().state.status(),
+        aborted.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Unanswered
     );
     assert_eq!(

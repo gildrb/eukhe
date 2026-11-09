@@ -370,6 +370,9 @@ async fn settles_stale_in_a_fork_reset_while_it_summarizes() {
     chat.harness.close(context()).await.unwrap();
 }
 
+/// An aborted run leaves the conversation idle with the older summary still
+/// queued (a failed run would place it); the current one queues behind it
+/// and idle admission's final boundary places both.
 #[tokio::test]
 async fn places_an_older_queued_summary_and_the_current_one_together_when_idle_admission_drains_the_inbox(
 ) {
@@ -378,13 +381,14 @@ async fn places_an_older_queued_summary_and_the_current_one_together_when_idle_a
     let gate = deferred();
     let reached = deferred();
     chat.faux
-        .agent(gated(&gate, failure("bad request"), Some(&reached)));
-    let failed = submit(&chat, "fails").await;
+        .agent(gated(&gate, answer("never"), Some(&reached)));
+    let aborted = submit(&chat, "aborted").await;
     reached.wait().await;
     chat.faux.summary(summary("OLDER"));
     let older = result(&chat, compact(&chat, None).await).await;
-    gate.resolve(());
-    failed.wait(context()).await.unwrap();
+    let run = live(&chat).await.run.unwrap().task_id;
+    chat.harness.abort_task(run, context()).await.unwrap();
+    aborted.wait(context()).await.unwrap();
     // Idle now, with the older summary still queued; the current one queues
     // behind it and a final boundary runs.
     chat.faux.summary(summary("CURRENT"));
