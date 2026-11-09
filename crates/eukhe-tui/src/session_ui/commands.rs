@@ -210,9 +210,15 @@ impl SessionUi {
     }
 
     /// TS `handleClearCommand` (the `/new` flow, interactive-mode.ts:4703,
-    /// :12486): create a fresh session and rebind the view to it. The
-    /// `/new` command and the `app.session.new` action share it.
-    pub(super) async fn start_new_session(&mut self, view: &mut AgentView) -> Result<()> {
+    /// :12486): create a fresh session and rebind the view to it, then
+    /// name it and send its first prompt when `/new` asked. The `/new`
+    /// command and the `app.session.new` action park the request; the
+    /// interactive loop runs it here once their frame painted.
+    pub(crate) async fn start_new_session(
+        &mut self,
+        request: NewSessionRequest,
+        view: &mut AgentView,
+    ) -> Result<()> {
         let id = create_session(&self.client, &self.create_options(), None).await?;
         self.attach_session(&id, DockFold::Fresh).await?;
         // The tray's context usage rode the attach snapshot: the rebuild
@@ -224,6 +230,13 @@ impl SessionUi {
         view.editor.clear_history();
         view.editor.set_text("");
         self.note(&format!("started session {id}"), view);
+        if let Some(name) = request.name {
+            self.set_session_name(&name, view).await;
+        }
+        if let Some(prompt) = request.prompt {
+            self.send_prompt(&prompt, SubmitBehavior::Steer, view)?;
+        }
+        self.dirty = true;
         Ok(())
     }
 
@@ -245,12 +258,22 @@ impl SessionUi {
             "new" if resolved.original_name == "clear" && !resolved.args.is_empty() => {
                 self.note("Usage: /clear", view);
             }
+            // `/new [--name "session name" --] [prompt]`: the interactive
+            // loop starts the session once this submit's frame painted
+            // (TS clears the submitted text and renders while
+            // `handleClearCommand` awaits), the route the
+            // `app.session.new` key takes.
             "new" => {
-                // The lane's app.session.new dispatch owns /new: the
-                // startup-scope-aware session start (draft and prompt
-                // history cleared, the status row) lives in one place, the
-                // same route the key takes.
-                self.start_new_session(view).await?;
+                if let Some(request) = parse_new_args(&resolved.args) {
+                    self.new_session_request = Some(request);
+                } else {
+                    view.editor.set_text(text);
+                    let usage = SlashCommandRegistry::builtin()
+                        .get("new")
+                        .and_then(|command| command.argument_hint)
+                        .unwrap_or_default();
+                    self.error_row(&format!("Usage: /new {usage}"), view);
+                }
             }
             // TS `/quit` shuts the client down; this build's exit detaches
             // and exits (the session keeps running in the daemon).
@@ -891,26 +914,7 @@ impl SessionUi {
                     }
                     return Ok(());
                 }
-                match self
-                    .bounded_request(
-                        Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                        DaemonCommand::SetSessionName {
-                            id: None,
-                            active_session_id: self.active_session_id.clone(),
-                            name: name.to_string(),
-                            worker_token: None,
-                            rest: Map::default(),
-                        },
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        self.session_name = Some(name.to_string());
-                        view.chrome.session_name.clone_from(&self.session_name);
-                        self.plain_row(&format!("Session name set: {name}"), view);
-                    }
-                    Err(error) => self.error_row(&format!("{error:#}"), view),
-                }
+                self.set_session_name(name, view).await;
             }
             // `/fast` (TS `handleFastCommand`): toggle the priority service
             // tier on a fast-mode-eligible model; the state refresh after
@@ -1111,5 +1115,136 @@ impl SessionUi {
                 None
             }
         }
+    }
+
+    /// Rename the attached session (`/name <name>`, `/new --name`): the
+    /// rename travels to the daemon (`set_session_name` persists the
+    /// `session_info` entry and broadcasts the change).
+    async fn set_session_name(&mut self, name: &str, view: &mut AgentView) {
+        match self
+            .bounded_request(
+                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                DaemonCommand::SetSessionName {
+                    id: None,
+                    active_session_id: self.active_session_id.clone(),
+                    name: name.to_string(),
+                    worker_token: None,
+                    rest: Map::default(),
+                },
+            )
+            .await
+        {
+            Ok(_) => {
+                self.session_name = Some(name.to_string());
+                view.chrome.session_name.clone_from(&self.session_name);
+                self.plain_row(&format!("Session name set: {name}"), view);
+            }
+            Err(error) => self.error_row(&format!("{error:#}"), view),
+        }
+    }
+}
+
+/// A fresh session to start (`/new`, `app.session.new`; TS
+/// `handleClearCommand`), with the `/new [--name "session name" --]
+/// [prompt]` arguments: the name it gets and the prompt sent in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct NewSessionRequest {
+    pub(crate) name: Option<String>,
+    pub(crate) prompt: Option<String>,
+}
+
+/// The `/new` arguments, `[--name "session name" --] [prompt]`: a leading
+/// `--name` word takes the next word, or a `"`/`'`-quoted text, as the
+/// name, and a `--` after it starts the prompt; any other text is the
+/// prompt as typed. `None` for a malformed name group (no name, or text
+/// after the name without the `--`).
+pub(crate) fn parse_new_args(args: &str) -> Option<NewSessionRequest> {
+    let args = args.trim();
+    let rest = match args.strip_prefix("--name") {
+        Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => rest.trim_start(),
+        _ => {
+            return Some(NewSessionRequest {
+                name: None,
+                prompt: (!args.is_empty()).then(|| args.to_string()),
+            })
+        }
+    };
+    let (name, rest) = if let quote @ ('"' | '\'') = rest.chars().next()? {
+        let body = &rest[1..];
+        let end = body.find(quote)?;
+        (&body[..end], &body[end + 1..])
+    } else {
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        (&rest[..end], &rest[end..])
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let rest = rest.trim_start();
+    let prompt = if rest.is_empty() {
+        None
+    } else {
+        let after = rest.strip_prefix("--")?;
+        if !(after.is_empty() || after.starts_with(char::is_whitespace)) {
+            return None;
+        }
+        let prompt = after.trim();
+        (!prompt.is_empty()).then(|| prompt.to_string())
+    };
+    Some(NewSessionRequest {
+        name: Some(name.to_string()),
+        prompt,
+    })
+}
+
+#[cfg(test)]
+mod new_args_tests {
+    use super::{parse_new_args, NewSessionRequest};
+
+    fn request(name: Option<&str>, prompt: Option<&str>) -> Option<NewSessionRequest> {
+        Some(NewSessionRequest {
+            name: name.map(str::to_string),
+            prompt: prompt.map(str::to_string),
+        })
+    }
+
+    /// The documented form `[--name "session name" --] [prompt]`: the
+    /// name group, the prompt, both, or neither.
+    #[test]
+    fn new_takes_a_name_and_a_prompt() {
+        assert_eq!(parse_new_args(""), request(None, None));
+        assert_eq!(
+            parse_new_args(r#"--name "second" -- gamma prompt"#),
+            request(Some("second"), Some("gamma prompt"))
+        );
+        assert_eq!(
+            parse_new_args(r#"--name "session name" --"#),
+            request(Some("session name"), None)
+        );
+        assert_eq!(parse_new_args("--name solo"), request(Some("solo"), None));
+        assert_eq!(
+            parse_new_args("--name 'a b' --   x  y "),
+            request(Some("a b"), Some("x  y"))
+        );
+        assert_eq!(
+            parse_new_args("gamma prompt"),
+            request(None, Some("gamma prompt"))
+        );
+        assert_eq!(
+            parse_new_args("--names are words"),
+            request(None, Some("--names are words"))
+        );
+    }
+
+    /// A name group without its name or its `--` is malformed: the
+    /// handler shows the usage instead of guessing.
+    #[test]
+    fn a_malformed_name_group_is_refused() {
+        assert_eq!(parse_new_args("--name"), None);
+        assert_eq!(parse_new_args(r#"--name "" -- x"#), None);
+        assert_eq!(parse_new_args(r#"--name "open -- x"#), None);
+        assert_eq!(parse_new_args(r#"--name "a" gamma"#), None);
+        assert_eq!(parse_new_args(r#"--name "a" --gamma"#), None);
     }
 }

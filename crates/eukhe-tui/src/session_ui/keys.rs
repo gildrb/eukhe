@@ -753,9 +753,10 @@ impl SessionUi {
         }
         // TS `app.session.new` (no default key; user-bindable,
         // `handleClearCommand`): the `/new` flow -- TS registers it
-        // without an editor-text gate, so it fires with a draft too.
+        // without an editor-text gate, so it fires with a draft too. The
+        // interactive loop starts the session after this key's frame.
         if view.editor.keybindings().matches(&id, "app.session.new") {
-            self.start_new_session(view).await?;
+            self.new_session_request = Some(super::commands::NewSessionRequest::default());
             self.dirty = true;
             return Ok(());
         }
