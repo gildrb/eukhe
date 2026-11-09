@@ -547,6 +547,9 @@ async fn load_session_resources(
             extra_builtin_skill_overrides,
             additional_skill_paths: prompt.additional_skill_paths.clone(),
             additional_prompt_paths: prompt.additional_prompt_paths.clone(),
+            no_skills: prompt.no_skills,
+            no_prompt_templates: prompt.no_prompt_templates,
+            no_context_files: prompt.no_context_files,
             system_prompt: prompt.custom_system_prompt.clone(),
             append_system_prompt: prompt.append_system_prompt.clone(),
             ..ResourceLoaderOptions::default()

@@ -547,6 +547,9 @@ async fn session_config(
             .iter()
             .map(|path| path.display().to_string())
             .collect(),
+        no_skills: config.no_skills,
+        no_prompt_templates: config.no_prompt_templates,
+        no_context_files: config.no_context_files,
         ..PromptConfig::default()
     };
     if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {
