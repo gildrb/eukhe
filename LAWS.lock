@@ -1504,6 +1504,7 @@
     "laws/orphan.bend::orphan_live_by_history": "3b4de774a1b1a7a26fe50b085a05bd88fb2add032947ece6eaa67dcf73cb7c70",
     "laws/orphan.bend::orphan_live_not_due": "cff80960bceda4193edc25c26832d999285e18c8cb175b4c8ebd6c1333d62fd1",
     "laws/orphan.bend::orphan_never_aborts_resumable": "849cac1cb2cc22e3ef27141958c95bcc51e830c362abb8ce96f18fb319c32733",
+    "laws/orphan.bend::orphan_starts_live": "3626b7483eec23ee2612180b9944c2affdd766b6c3551960ec731d0d8ecc79bb",
     "laws/orphan.bend::orphan_wire_reply": "ac7e4d058ba10eff2d847c00ecc0167148b9bf6e838d67228804ab5f82d96827",
     "laws/orphan.bend::orphan_wire_req_no_window": "0ea6d928898729976b9639b64f572d000607cbc2e23a00cbb85a004ee652699b",
     "laws/orphan.bend::orphan_wire_req_window": "46de8474e85fadc707bed902d6695aeb09d9f78c00e18600f9f075d9082e79e2",

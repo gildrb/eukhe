@@ -408,6 +408,16 @@ law orphan_exited_stays:
   for out: {Or.run(window, evs) == Or.Exited{d} : Or.St}
   {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == Or.Exited{d} : Or.St}
 
+# LAW orphan_starts_live: for every window, a worker that has seen no event is live with no run,
+# nothing queued, no compaction and no absence (the laws over histories
+# take a live state before their last event as a premise, so the start
+# pins every history; a fresh blind adversary's worker that started
+# exited for any window above 2 ms passed every other law)
+# EXCLUDES: a worker that exits, or starts busy or absent, before any event
+law orphan_starts_live:
+  for +window: Nat
+  {Or.run(window, Nil{}) == Or.Live{Or.W{False{}, 0n, False{}, 0n}} : Or.St}
+
 # LAW orphan_history_example: anchor and witnesses, window 2: a compaction that ended, then
 # 2 ms absent, exits shut idle; a compaction still open after 2 ms stays
 # live compacting; after 4 ms it exits handing over busy; a run open
