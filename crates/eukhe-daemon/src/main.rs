@@ -19,8 +19,10 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn main() -> Result<ExitCode> {
     // A launcher that asked for a detached session (eukhe-client's
     // `ProcessLauncher`) gets it before anything else runs, while the
-    // process is still single-threaded.
+    // process is still single-threaded; the same holds for its startup
+    // stderr pipe.
     eukhe_core::platform::process::enter_requested_session().context("start a new session")?;
+    eukhe_core::platform::process::claim_startup_stderr();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

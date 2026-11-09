@@ -16,6 +16,7 @@
 //! never replaces a daemon.
 
 use std::future::Future;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -46,11 +47,19 @@ use crate::saved_sessions::DaemonLauncher;
 /// the timeout error are unchanged.
 const DAEMON_PROBE_INTERVAL_MS: u64 = 1;
 
-/// The connect budget of one probe of [`socket_released`].
+/// The connect budget of one probe of [`socket_accepts`].
 const RELEASE_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// The pause between two probes of [`socket_released`].
 const RELEASE_PROBE_INTERVAL: Duration = Duration::from_millis(25);
+
+/// The most of a supervisor's startup stderr a start keeps: its end, where
+/// a failing start prints its error.
+const STARTUP_OUTPUT_LIMIT: usize = 16 * 1024;
+
+/// How long a start waits for the end of an exited supervisor's startup
+/// stderr (a process it started may still hold the pipe).
+const STARTUP_OUTPUT_WAIT: Duration = Duration::from_secs(1);
 
 /// What a start left listening on the socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,8 +192,9 @@ pub struct Launched {
 
 /// Starts one supervisor command on one socket.
 pub struct ProcessLauncher {
-    /// The supervisor command, ready to spawn (its stdout and stderr are
-    /// null; its stdin is null, or a pipe when tied to the caller).
+    /// The supervisor command, ready to spawn (its stdout is null, its
+    /// stderr the startup pipe; its stdin is null, or a pipe when tied to
+    /// the caller).
     command: Mutex<Command>,
     socket_path: PathBuf,
     stop_hint: String,
@@ -196,21 +206,23 @@ impl ProcessLauncher {
     /// A launcher that spawns `command` when no daemon serves
     /// `socket_path`. `command` runs a supervisor that binds `socket_path`
     /// (program, arguments, working directory and environment are the
-    /// caller's); the launcher runs it detached: null stdio, in a new
-    /// session (the eukhe binaries leave the launcher's session at startup).
-    /// `stop_hint` is the step a user takes to stop a daemon that holds the
-    /// socket (an error names it: "Run: `<stop_hint>`, then retry ...").
+    /// caller's); the launcher runs it detached: null stdin and stdout, in a
+    /// new session (the eukhe binaries leave the launcher's session at
+    /// startup), its stderr a pipe the start reads until the supervisor
+    /// serves (the eukhe binaries point it at the null device then): a
+    /// supervisor that exits before it serves fails the start with what it
+    /// printed. `stop_hint` is the step a user takes to stop a daemon that
+    /// holds the socket (an error names it: "Run: `<stop_hint>`, then
+    /// retry ...").
     #[must_use]
     pub fn new(
         mut command: Command,
         socket_path: impl Into<PathBuf>,
         stop_hint: impl Into<String>,
     ) -> Self {
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.stdin(Stdio::null()).stdout(Stdio::null());
         eukhe_types::platform::process::request_new_session(&mut command);
+        eukhe_types::platform::process::request_startup_stderr(&mut command);
         Self {
             command: Mutex::new(command),
             socket_path: socket_path.into(),
@@ -220,9 +232,9 @@ impl ProcessLauncher {
     }
 
     /// This launcher, running `check` on the socket path before it spawns:
-    /// a supervisor's stderr goes nowhere, so a refusal the supervisor
-    /// would only print (its socket dir, say) surfaces as `check`'s error
-    /// instead of a startup timeout. The error fails the start unchanged.
+    /// a refusal the supervisor would only print after it started (its
+    /// socket dir, say) fails the start before anything spawns. The error
+    /// fails the start unchanged.
     #[must_use]
     pub fn with_spawn_check(
         mut self,
@@ -390,11 +402,54 @@ impl ProcessLauncher {
     }
 
     /// Waits for the daemon the `supervisor` this start spawned to serve
-    /// the socket, or for a concurrent launcher's daemon that won it.
-    async fn await_spawned(&self, client: Build<'_>, supervisor: Child) -> Result<Launched> {
+    /// the socket, or for a concurrent launcher's daemon that won it. A
+    /// supervisor that exits while nothing accepts on the socket fails the
+    /// start at once with what it printed on its startup stderr.
+    async fn await_spawned(&self, client: Build<'_>, mut supervisor: Child) -> Result<Launched> {
         let socket_path = self.socket_path.as_path();
         let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
+        // The startup stderr, read to its end on a detached thread (the
+        // supervisor never stalls on a full pipe, and a supervisor that
+        // hangs never holds up this process's exit), keeping its last
+        // bytes: a failing start prints its error last. The end comes when
+        // the supervisor exits or, serving, points its stderr elsewhere.
+        let mut startup_output = match supervisor.stderr.take() {
+            Some(mut stderr) => {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                std::thread::Builder::new()
+                    .name("daemon-startup-stderr".to_string())
+                    .spawn(move || {
+                        let mut kept = Vec::new();
+                        let mut chunk = [0_u8; 4096];
+                        loop {
+                            match stderr.read(&mut chunk) {
+                                Ok(0) => break,
+                                Ok(read) => {
+                                    kept.extend_from_slice(&chunk[..read]);
+                                    let excess = kept.len().saturating_sub(STARTUP_OUTPUT_LIMIT);
+                                    kept.drain(..excess);
+                                }
+                                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                                Err(_) => break,
+                            }
+                        }
+                        // The start may have stopped listening: nothing to tell.
+                        let _ = sender.send(kept);
+                    })
+                    .context("read the Eukhe daemon's startup output")?;
+                Some(receiver)
+            }
+            None => None,
+        };
         loop {
+            // Before the probe: a daemon that serves the socket by the time
+            // this supervisor is seen gone (a concurrent launcher's) is
+            // found by the probe below.
+            let exited = if startup_output.is_some() {
+                supervisor.try_wait().ok().flatten()
+            } else {
+                None
+            };
             match probe_daemon(socket_path).await {
                 DaemonProbe::Answered {
                     client: daemon_client,
@@ -428,6 +483,34 @@ impl ProcessLauncher {
                     daemon_client.close();
                 }
                 DaemonProbe::Foreign(_) | DaemonProbe::Absent => {}
+            }
+            if let Some(status) = exited {
+                if !socket_accepts(socket_path).await {
+                    let output = match startup_output.take() {
+                        Some(reader) => {
+                            match tokio::time::timeout(STARTUP_OUTPUT_WAIT, reader).await {
+                                Ok(Ok(bytes)) => String::from_utf8_lossy(&bytes).trim().to_owned(),
+                                Ok(Err(_)) | Err(_) => String::new(),
+                            }
+                        }
+                        None => String::new(),
+                    };
+                    return Err(if output.is_empty() {
+                        anyhow!(
+                            "The Eukhe daemon exited before it served {} ({status}) and printed no error.",
+                            socket_path.display()
+                        )
+                    } else {
+                        anyhow!(
+                            "The Eukhe daemon exited before it served {} ({status}): {output}",
+                            socket_path.display()
+                        )
+                    });
+                }
+                // Something else accepts on the socket (a daemon that does
+                // not answer, or one still starting): the wait below
+                // decides, as for any daemon that does not greet.
+                startup_output = None;
             }
             if Instant::now() > deadline {
                 return Err(anyhow!(
@@ -569,14 +652,55 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
 pub async fn socket_released(socket_path: &Path, within: Duration) -> bool {
     let deadline = Instant::now() + within;
     while Instant::now() < deadline {
-        let connect = eukhe_types::platform::transport::connect_transport(socket_path);
-        if !matches!(
-            tokio::time::timeout(RELEASE_PROBE_TIMEOUT, connect).await,
-            Ok(Ok(_))
-        ) {
+        if !socket_accepts(socket_path).await {
             return true;
         }
         tokio::time::sleep(RELEASE_PROBE_INTERVAL).await;
     }
     false
+}
+
+/// Whether something accepts a connection on `socket_path` within one
+/// probe's connect budget.
+async fn socket_accepts(socket_path: &Path) -> bool {
+    let connect = eukhe_types::platform::transport::connect_transport(socket_path);
+    matches!(
+        tokio::time::timeout(RELEASE_PROBE_TIMEOUT, connect).await,
+        Ok(Ok(_))
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A supervisor that fails before it serves (a full disk at its first
+    /// write) fails the start at once with what it printed, not with the
+    /// startup timeout and its `shutdown --force` advice.
+    #[tokio::test]
+    async fn a_supervisor_that_exits_before_it_serves_fails_the_start_with_its_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "echo 'Error: write /agent/supervisor-config.tmp-7: No space left on device (os error 28)' >&2; exit 1",
+        ]);
+        let launcher = ProcessLauncher::new(command, &socket, "eukhe shutdown --force");
+        let started = Instant::now();
+        let error = launcher.ensure_background(Build::THIS).await.unwrap_err();
+        assert_eq!(
+            (
+                error.to_string(),
+                started.elapsed() < Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS)
+            ),
+            (
+                format!(
+                    "The Eukhe daemon exited before it served {} (exit status: 1): Error: write /agent/supervisor-config.tmp-7: No space left on device (os error 28)",
+                    socket.display()
+                ),
+                true
+            )
+        );
+    }
 }

@@ -27,11 +27,12 @@ fn main() {
     }));
     // A launcher that asked for a detached session (the daemon spawn)
     // gets it before anything else runs, while the process is still
-    // single-threaded.
+    // single-threaded; the same holds for its startup stderr pipe.
     if let Err(error) = eukhe_core::platform::process::enter_requested_session() {
         eprintln!("Error: starting a new session failed: {error}");
         std::process::exit(1);
     }
+    eukhe_core::platform::process::claim_startup_stderr();
     // The cvar table is checked here, before any session runs: a table that
     // declares an id twice or a default of the wrong type stops eukhe now.
     let _ = eukhe_core::settings::cvar::registry();

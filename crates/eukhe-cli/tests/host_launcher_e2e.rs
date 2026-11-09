@@ -1,7 +1,8 @@
 //! A host that bundles the engine starts it the way the CLI does, without
 //! linking the CLI: eukhe-client's `ProcessLauncher` runs
 //! `eukhe-daemon supervisor --socket <p> --agent-dir <d>` detached (null
-//! stdio, a new session), waits until it greets, and a second start keeps
+//! stdin and stdout, stderr a startup pipe the daemon lets go of once it
+//! serves, a new session), waits until it greets, and a second start keeps
 //! the daemon that serves.
 
 use std::path::{Path, PathBuf};

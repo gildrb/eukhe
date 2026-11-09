@@ -147,8 +147,11 @@ fn acp_mode_daemon_unreachable_exits_1_without_fallback() {
         stderr.contains("Error: "),
         "the startup failure is an error line: {stderr}"
     );
+    // The supervisor refuses the path and exits before it serves: the
+    // start fails at once with the supervisor's own error.
     assert!(
-        stderr.contains("Timed out waiting for the Eukhe daemon to start"),
+        stderr.contains("The Eukhe daemon exited before it served")
+            && stderr.contains("Daemon socket path exists and is not a socket"),
         "the daemon never became reachable: {stderr}"
     );
 }

@@ -380,6 +380,12 @@ impl Supervisor {
         *self.bound_socket_identity.lock().unwrap() =
             socket::socket_identity(&self.options.socket_path);
         socket::restrict_socket_path(&self.options.socket_path)?;
+        // The socket serves from here on: a launcher's startup pipe has
+        // carried every failure this start could print, and the launcher
+        // lets go of it once this daemon answers, which it does only
+        // after this point.
+        eukhe_core::platform::process::release_startup_stderr()
+            .context("point the daemon's stderr at the null device")?;
         self.log
             .append(&format!("supervisor started pid {}", std::process::id()));
         // Claim the chat memory only once this process owns the daemon
