@@ -1,10 +1,11 @@
 # eukhe: the proof of LAW replace_replaces_new_daemon
 #
-# PROOF of LAW replace_replaces_new_daemon: split the start's relation
-# into its tests (rrn.go): the same build id keeps the daemon b (0, and b's
-# id is b's); an older daemon and an interactive start replace b by the
-# client (1, and the ids differ: the relation saw them differ); every other
-# start keeps b (0).
+# PROOF of LAW replace_replaces_new_daemon: with no daemon running the
+# start counts 0 and nothing runs to differ from. With a daemon b: split
+# the start's relation into its tests (rrn.go): the same build id keeps the
+# daemon b (0, and b's id is b's); an older daemon and an interactive start
+# replace b by the client (1, and the ids differ: the relation saw them
+# differ); every other start keeps b (0).
 
 import Base
 import ../../bend/replace.bend as Rp
@@ -34,7 +35,9 @@ def rrn.start(+c: Rp.Build, k: Rp.Caller, +b: Rp.Build) -> {Rp.replaces(Rp.Start
     case Rp.Build{+rc, +ic} Rp.Build{+rb, +ib}:
       rrn.go(String.eq(ic, ib), Rp.lt(rb, rc), Rp.lt(rc, rb), k, ic, ib, rc, rb, {==})
 
-def Replace.replace_replaces_new_daemon(s, b):
-  match s:
-    case Rp.Start{+c, k}:
+def Replace.replace_replaces_new_daemon(s, d):
+  match s d:
+    case Rp.Start{+c, k} None{}:
+      {==}
+    case Rp.Start{+c, k} Some{+b}:
       rrn.start(c, k, b)

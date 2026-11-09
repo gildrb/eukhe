@@ -435,6 +435,15 @@ def rp_one_if(b: Bool) -> Nat:
     case False{}:
       0n
 
+# a daemon running (d) and n another build than it, by build id; with
+# none running, False
+def rp_other_than(d: Maybe<&2, Rp.Build>, +n: Rp.Build) -> Bool:
+  match d:
+    case None{}:
+      False{}
+    case Some{b}:
+      Bool.not(String.eq(rp_id_of(n), rp_id_of(b)))
+
 # rank r is below no rank of seen
 def rp_not_below(seen: List<&2, List<&2, Nat>>, +r: List<&2, Nat>) -> Bool:
   match seen:
@@ -475,16 +484,18 @@ law replace_daemons_exact:
   for +ss: List<&2, Rp.Start>
   {Rp.daemons(ss) == rp_daemons_spec(ss) : List<&2, Rp.Build>}
 
-# LAW replace_replaces_new_daemon: with a daemon b running, a start counts 1 replacement when the
-# daemon after it has another build id than b, else 0
+# LAW replace_replaces_new_daemon: a start counts 1 replacement when a daemon b runs and the
+# daemon after the start has another build id than b, else 0; with no
+# daemon running it counts none
 # EXCLUDES: a per-start count that counts a start that keeps the daemon (a
 #   background start, a newer, equal or other daemon) or misses one that
 #   replaces it, while the history count replaced stays right (an
-#   adversary found this gap)
+#   adversary found this gap); a replacement counted for a start with no
+#   daemon running (replace-3 found it pinned only by an example)
 law replace_replaces_new_daemon:
   for +s: Rp.Start
-  for +b: Rp.Build
-  {Rp.replaces(s, Some{b}) == rp_one_if(Bool.not(String.eq(rp_id_of(Rp.after(s, Some{b})), rp_id_of(b)))) : Nat}
+  for +d: Maybe<&2, Rp.Build>
+  {Rp.replaces(s, d) == rp_one_if(rp_other_than(d, Rp.after(s, d))) : Nat}
 
 # LAW replace_replaces_background: a background start counts no replacement, whatever daemon
 # runs (or none)
