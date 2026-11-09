@@ -23,8 +23,8 @@
 //!   revision 0), and none of whose `outside` families does (a family
 //!   that holds what other families leave, as `gpt` holds every `gpt-`
 //!   name the id-anchored GPT families do not). A model that two families match is the error
-//!   [`FamilyOverlap`], never a choice between them: the shipped rulebook
-//!   is checked against every model of the compiled catalog
+//!   [`FamilyOverlap`], never a choice between them: a test checks the
+//!   shipped rulebook against every model of the compiled catalog
 //!   ([`Rulebook::check_catalog`]), and a model outside it that two
 //!   families match names no family (each family directive is then
 //!   Unknown), reported once per model id;
@@ -1037,19 +1037,19 @@ fn claim(map: &mut HashMap<String, String>, key: &str, host: &str, errors: &mut 
     }
 }
 
+/// The shipped rulebook, parsed and compiled. The check of its families
+/// against the compiled catalog runs in its test
+/// (`quirks::tests::the_shipped_rulebook_compiles`), not here: the catalog
+/// is compiled in, so the check's answer is fixed at build time, and asking
+/// the core about every catalog model cost each process start ~0.7 s.
 static SHIPPED: LazyLock<Rulebook> = LazyLock::new(|| {
-    let catalog = crate::models_generated::MODELS
-        .values()
-        .flat_map(|models| models.values());
-    Rulebook::from_json(include_str!("rulebook.json"))
-        .and_then(|book| book.check_catalog(catalog).map(|()| book))
-        .unwrap_or_else(|errors| {
-            let errors: Vec<String> = errors.iter().map(ToString::to_string).collect();
-            panic!(
-                "the shipped quirks rulebook does not compile: {}",
-                errors.join("; ")
-            )
-        })
+    Rulebook::from_json(include_str!("rulebook.json")).unwrap_or_else(|errors| {
+        let errors: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!(
+            "the shipped quirks rulebook does not compile: {}",
+            errors.join("; ")
+        )
+    })
 });
 
 /// The model ids whose family overlap [`Quirks::of`] has reported.
@@ -1061,9 +1061,9 @@ impl Rulebook {
     ///
     /// # Panics
     ///
-    /// When the shipped rulebook does not compile, or two of its families
-    /// match one model of the compiled catalog; its test
-    /// (`quirks::tests::the_shipped_rulebook_compiles`) keeps that from
+    /// When the shipped rulebook does not compile; its test
+    /// (`quirks::tests::the_shipped_rulebook_compiles`) keeps that, and two
+    /// of its families matching one model of the compiled catalog, from
     /// shipping.
     #[must_use]
     pub fn shipped() -> &'static Self {
