@@ -92,13 +92,6 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, DashboardUsageError> {
     Ok(parsed)
 }
 
-/// How the dashboard's foreground run ended: the server stopped on its
-/// own, or the user's Ctrl+C canceled the wait.
-enum DashboardStop {
-    Served,
-    Canceled,
-}
-
 /// Run the `dashboard` command; returns the process exit code.
 pub fn run_dashboard_command(args: &[String]) -> i32 {
     let args = match parse_args(args) {
@@ -172,20 +165,15 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
             eukhe_core::platform::browser::open_in_browser(&opener.display().to_string());
         }
         tokio::select! {
-            served = eukhe_dashboard::serve(listener, config, launcher) => {
-                served.map(|()| DashboardStop::Served)
-            }
-            signal = tokio::signal::ctrl_c() => {
-                signal.context("wait for Ctrl+C").map(|()| DashboardStop::Canceled)
-            }
+            served = eukhe_dashboard::serve(listener, config, launcher) => served,
+            signal = tokio::signal::ctrl_c() => signal.context("wait for Ctrl+C"),
         }
     });
     match served {
-        // A Ctrl+C stop is a cancel: exit 130, the terminal contract for
-        // an interrupted foreground process. The server stopping on its
-        // own was a clean run.
-        Ok(DashboardStop::Canceled) => 130,
-        Ok(DashboardStop::Served) => 0,
+        // Ctrl+C is how a foreground server is meant to stop: a clean exit
+        // (omp's serve commands exit 0 on SIGINT, e.g. `auth-broker-cli.ts`
+        // `runServe`).
+        Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");
             1

@@ -33,6 +33,11 @@ fn cli_binary() -> PathBuf {
 /// Run the CLI with its state pinned to a fixture agent dir: no daemon,
 /// no network (offline), stdout and stderr captured separately.
 fn run(args: &[&str], agent_dir: &Path) -> Output {
+    command(args, agent_dir).output().expect("run the CLI")
+}
+
+/// The CLI command [`run`] runs, for a test that drives the process itself.
+fn command(args: &[&str], agent_dir: &Path) -> Command {
     let mut command = Command::new(cli_binary());
     command
         .args(args)
@@ -55,7 +60,7 @@ fn run(args: &[&str], agent_dir: &Path) -> Output {
     ] {
         command.env_remove(key);
     }
-    command.output().expect("run the CLI")
+    command
 }
 
 fn stdout(output: &Output) -> String {
@@ -298,6 +303,50 @@ fn a_json_usage_failure_exits_2() {
     let parsed: serde_json::Value =
         serde_json::from_str(stderr(&output).trim()).expect("one JSON error document");
     assert_eq!(parsed["reason"], "invalid_arguments");
+}
+
+/// Ctrl+C is how the foreground dashboard stops: a clean exit 0 (omp's
+/// serve commands exit 0 on SIGINT).
+#[test]
+fn the_dashboard_stops_cleanly_on_ctrl_c() {
+    use std::io::{BufRead, BufReader};
+    use std::time::{Duration, Instant};
+
+    let fixture = Fixture::new("dashboard-sigint");
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free port")
+        .port()
+        .to_string();
+    let mut child = command(&["dashboard", "--no-open", "--port", &port], fixture.path())
+        .spawn()
+        .expect("start the dashboard");
+    // The URL on stdout means the server is listening.
+    let mut url = String::new();
+    BufReader::new(child.stdout.take().expect("dashboard stdout"))
+        .read_line(&mut url)
+        .expect("read the dashboard URL");
+    assert!(url.contains("#token="), "dashboard URL: {url:?}");
+    // The Ctrl+C handler is installed right after the URL prints; a short
+    // pause keeps the signal from beating it.
+    std::thread::sleep(Duration::from_millis(500));
+    let kill = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(kill.success());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll the dashboard") {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("the dashboard did not stop within 20 s of SIGINT");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(status.code(), Some(0), "Ctrl+C must exit 0");
 }
 
 #[test]
