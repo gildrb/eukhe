@@ -224,23 +224,34 @@ fn piped_tables_stay_space_padded() {
     assert!(doctor_out.contains("orphan-file"), "{doctor_out}");
 }
 
+/// `status --json` and `doctor --json` print the services as a top-level
+/// array (omp `ps-cli.ts` `runList`), each row with its pid and status.
 #[test]
-fn status_json_keys_the_list_by_noun() {
+fn status_and_doctor_json_are_the_service_array() {
     let fixture = Fixture::new("status-json");
-    let output = run(&["status", "--json"], fixture.path());
-    assert_eq!(output.status.code(), Some(0));
-    let parsed: serde_json::Value =
-        serde_json::from_str(stdout(&output).trim()).expect("one JSON document");
-    let services = parsed
-        .get("services")
-        .and_then(serde_json::Value::as_array)
-        .expect("services array");
-    assert_eq!(
-        services.len(),
-        0,
-        "a fixture state root holds no daemons: {parsed}"
-    );
-    assert_eq!(stderr(&output), "");
+    for command in ["status", "doctor"] {
+        let output = run(&[command, "--json"], fixture.path());
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        assert_eq!(stdout(&output).trim(), "[]", "{command} --json");
+        assert_eq!(stderr(&output), "");
+    }
+
+    // A stale socket file: one row, its fields at the top level of the row.
+    let socket = fixture.path().join("daemon.sock");
+    drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind the stale socket"));
+    for command in ["status", "doctor"] {
+        let output = run(&[command, "--json"], fixture.path());
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(stdout(&output).trim()).expect("a JSON array of services");
+        assert_eq!(rows.len(), 1, "{command} --json: {rows:?}");
+        assert_eq!(rows[0]["status"], "orphan-file", "{command} --json");
+        assert_eq!(
+            rows[0]["socketPath"],
+            socket.to_string_lossy().as_ref(),
+            "{command} --json"
+        );
+    }
 }
 
 #[test]

@@ -31,9 +31,8 @@
 //! Deliberate divergences from the TS reference (the CLI output contract,
 //! 2026-11): usage and missing-input failures exit `2` (the TS port exited
 //! `1`); `--help` wins over `--version`; a bare `help` prints help and an
-//! unknown `help <path>` is a usage error; `status --json` shapes its list
-//! under a `services` key; `shutdown` confirmation refusals exit `2` (JSON:
-//! one error document on stderr) and a declined
+//! unknown `help <path>` is a usage error; `shutdown` confirmation refusals
+//! exit `2` (JSON: one error document on stderr) and a declined
 //! confirmation exits `130`; the connect-failure error carries a recovery
 //! command. The corpus below predates the change, so a differential run
 //! against a TS binary that still follows the old contract fails on those
