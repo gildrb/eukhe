@@ -163,7 +163,7 @@ impl SessionUi {
             // bails out before fuzzy matching). Close typos get the exact TS
             // error; everything else passes through to the model.
             if name.chars().count() > 64 {
-                return self.send_prompt(text, behavior, view);
+                return self.send_prompt(text, behavior, view).await;
             }
             let candidates = registry.suggestion_candidates();
             return match eukhe_bend::rules::slash::suggestion(&name, &candidates) {
@@ -174,7 +174,7 @@ impl SessionUi {
                     );
                     Ok(())
                 }
-                None => self.send_prompt(text, behavior, view),
+                None => self.send_prompt(text, behavior, view).await,
             };
         };
 
@@ -201,7 +201,7 @@ impl SessionUi {
             None => Vec::new(),
         };
         match command.execution {
-            SlashCommandExecution::Session => self.send_prompt(text, behavior, view),
+            SlashCommandExecution::Session => self.send_prompt(text, behavior, view).await,
             SlashCommandExecution::Client => {
                 self.dispatch_client_command(&resolved, &sub, text, view)
                     .await
