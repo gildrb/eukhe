@@ -1056,7 +1056,8 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         "stderr: {stderr}"
     );
 
-    // The flag conflicts still refuse (TS validateForkFlags).
+    // The flag conflicts still refuse (TS validateForkFlags), as a usage
+    // error (exit 2).
     let (stdout, stderr, code) = run_in_home(
         home.path(),
         &[
@@ -1069,7 +1070,7 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         ],
         &script,
     );
-    assert_eq!(code, 1);
+    assert_eq!(code, 2);
     assert!(stdout.is_empty());
     assert!(
         stderr.contains("--fork cannot be combined with --resume"),
