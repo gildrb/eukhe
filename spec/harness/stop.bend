@@ -39,43 +39,6 @@ import Base
 import ../../bend/stop.bend as S
 import ../../bend/run/decision.bend as RnDecision
 
-# S2: the verdicts
-# ----------------
-
-def go_if(b: Bool) -> S.Verdict:
-  match b:
-    case True{}:
-      S.Continue{}
-    case False{}:
-      S.Pass{}
-
-def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
-  match d:
-    case S.LengthStop{}:
-      match f:
-        case S.Facts{cut, text, broken, pending}:
-          go_if(cut)
-    case S.EmptyStop{}:
-      match f:
-        case S.Facts{cut, text, broken, pending}:
-          match text:
-            case True{}:
-              S.Pass{}
-            case False{}:
-              S.Continue{}
-    case S.MarkupStop{}:
-      match f:
-        case S.Facts{cut, text, broken, pending}:
-          go_if(broken)
-    case S.PendingWork{}:
-      match f:
-        case S.Facts{cut, text, broken, pending}:
-          match pending:
-            case True{}:
-              S.Yield{}
-            case False{}:
-              S.Pass{}
-
 # S3: the walk
 # ------------
 

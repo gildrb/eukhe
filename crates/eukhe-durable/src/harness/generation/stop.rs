@@ -118,8 +118,8 @@ pub(crate) fn walk(facts: Facts) -> Option<Stuck> {
     )
 }
 
-/// The text of `note` at the end of the request of `attempt` (law
-/// `stop_note_exact`).
+/// The text of `note` at the end of the request of `attempt` (laws
+/// `stop_note_names_the_attempt`, `stop_texts_rust_example`).
 pub(crate) fn note_text(attempt: u64, note: Note) -> String {
     ask(
         |w| {
@@ -134,8 +134,8 @@ pub(crate) fn note_text(attempt: u64, note: Note) -> String {
 }
 
 /// The note that ends a request after `done` tool rounds of the run's
-/// `max` (`maxToolRounds`): the rounds left, once few remain (law
-/// `stop_rounds_exact`).
+/// `max` (`maxToolRounds`): the rounds left, once few remain (laws
+/// `stop_rounds_quiet_while_many_left`, `stop_rounds_note_near_the_cap`).
 pub(crate) fn rounds_note(max: u32, done: u32) -> Option<String> {
     ask(
         |w| {

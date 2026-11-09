@@ -836,7 +836,7 @@ async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
 
 /// An empty reply is no answer (LAWS.bend H4.7): the `EmptyStop` Director
 /// retries it with a harness note under its cap (3 empty notes in a row,
-/// law `stop_empty_gives_up`: the first request and 3 noted retries) and
+/// law `stop_empty_three_notes_then_fails`: the first request and 3 noted retries) and
 /// then fails the run with the model error, which fails the goal; it
 /// never reaches the goal's continuation mint.
 #[tokio::test(start_paused = true)]

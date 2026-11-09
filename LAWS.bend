@@ -188,6 +188,7 @@ import ./laws/arg_repair.bend as ArgRepair
 import ./laws/wait_any.bend as WaitAny
 import ./laws/stop.bend as LawsStop
 import ./laws/stop/entry.bend as StopEntry
+import ./laws/stop/recover.bend as StopRecover
 import ./laws/headless_settle.bend as HeadlessSettle
 import ./laws/headless_exit.bend as HeadlessExit
 import ./laws/thread.bend as Thread
