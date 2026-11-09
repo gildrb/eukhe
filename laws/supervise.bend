@@ -177,8 +177,11 @@ law restart_ffi_left_over:
 # R2: any other input answers exactly the error form: "supervise: input
 #     left over" when a whole request is followed by more input, else
 #     "supervise: malformed request".
-# The spellers and the reader below are built from the wire primitives
-# of bend/wire.bend only, never from the entry's put_*/get_*.
+# The spellers below are built from the wire primitives of bend/wire.bend
+# only, never from the entry's put_*/get_*. R1 is
+# restart_ffi_answers_spelled; R2 is restart_ffi_left_over_spelled and
+# restart_ffi_malformed_unless_request; together they pin the entry's
+# answer to every input.
 
 # the configuration: give up after k, the window w, the base pause b, the
 # longest pause m
@@ -231,83 +234,6 @@ def rs_malformed() -> String:
 def rs_left_over() -> String:
   Wr.err("supervise: input left over")
 
-# Reader: the requests, read with the wire primitives
-
-def rs_read_req.gap(c: Su.Cfg, a: List<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{g, s}:
-      Wr.Got{FS.Req{c, a, g}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.ages(c: Su.Cfg, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      rs_read_req.gap(c, a, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.m(k: Nat, w: Nat, b: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{m, s}:
-      rs_read_req.ages(Su.Cfg{k, w, b, m}, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.b(k: Nat, w: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{b, s}:
-      rs_read_req.m(k, w, b, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.w(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{w, s}:
-      rs_read_req.b(k, w, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.k(r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{k, s}:
-      rs_read_req.w(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s starts with, and what follows it
-def rs_read_req(s: String) -> Wr.Dec<FS.Req>:
-  rs_read_req.k(Wr.get_nat(s))
-
-def rs_spec.end(whole: Bool, q: FS.Req) -> String:
-  match whole:
-    case True{}:
-      rs_spell_answer(q)
-    case False{}:
-      rs_left_over()
-
-def rs_spec.run(r: Wr.Dec<FS.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      rs_spec.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      rs_malformed()
-
-# the reply to s: the model's decision on the request s is exactly; the
-# left-over error when more input follows a whole request; else the
-# malformed error
-def rs_spec(s: String) -> String:
-  rs_spec.run(rs_read_req(s))
-
-# LAW restart_ffi_exact: on every input the entry answers the spelled decision on the request the input is exactly, "supervise: input left over" when more input follows a whole request, and "supervise: malformed request" on any other input
-# EXCLUDES: a reply tag, field order or age list that drifts from the
-#   bytes Rust reads, a request field misread or reordered, a default for
-#   malformed input, the two error texts swapped or reworded, input left
-#   over ignored
-law restart_ffi_exact:
-  for +s: String
-  {FS.ffi(s) == rs_spec(s) : String}
-
 # LAW restart_ffi_answers_spelled: every request Rust writes (every number within the wire) gets the spelled model decision
 # EXCLUDES: a request Rust writes refused or misread, a reply spelled
 #   another way than Rust reads it
@@ -325,6 +251,21 @@ law restart_ffi_left_over_spelled:
   for fits: {rs_req_fits(q) == True{} : Bool}
   for some: {String.is_empty(more) == False{} : Bool}
   {FS.ffi(rs_spell_req(q, more)) == rs_left_over() : String}
+
+# LAW restart_ffi_malformed_unless_request: every answer but the error form "supervise: malformed
+# request" comes from an input that begins with a request Rust writes (every number within the
+# wire); with restart_ffi_answers_spelled and restart_ffi_left_over_spelled this pins the entry's
+# answer to every input
+# EXCLUDES: a lenient reader (a leading zero, a list shorter than its
+#   count, a missing gap, a number past the wire accepted) answering a
+#   verdict or the left-over error, a default verdict on garbage, the
+#   malformed error spelled with another text
+law restart_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FS.ffi(s), rs_malformed()) == False{} : Bool}
+  exs q: FS.Req
+  exs rest: String
+  {(s, rs_req_fits(q)) == (rs_spell_req(q, rest), True{}) : String & Bool}
 
 # LAW restart_ffi_tags_example: anchor: the bytes Rust sends and reads: a failure 3 ms after two
 # failures (ages 5 and 98) with give-up after 2 in a 100 ms window, base pause 10, cap 50: the old

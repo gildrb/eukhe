@@ -529,6 +529,10 @@ import ./proof/tools/schema_keeps_params.bend as PSchemaKeepsParams
 import ./proof/tools/schema_build_idempotent.bend as PSchemaBuildIdempotent
 import ./proof/tools/path_rejects_escape.bend as PPathRejectsEscape
 import ./proof/tools/path_resolves_inside.bend as PPathResolvesInside
+import ./proof/tools/path_up_cancels.bend as PPathUpCancels
+import ./proof/tools/path_here_drops.bend as PPathHereDrops
+import ./proof/tools/path_names_plain.bend as PPathNamesPlain
+import ./proof/tools/path_up_at_root.bend as PPathUpAtRoot
 import ./proof/tools/tools_ffi_request_round_trip.bend as PToolsFfiRequestRoundTrip
 import ./proof/tools/tools_ffi_answers.bend as PToolsFfiAnswers
 import ./proof/tools/tools_ffi_rejects_malformed.bend as PToolsFfiRejectsMalformed
@@ -1127,9 +1131,9 @@ import ./proof/supervise/restart_ffi_decides.bend as PRestartFfiDecides
 import ./proof/supervise/restart_ffi_malformed.bend as PRestartFfiMalformed
 import ./proof/supervise/restart_ffi_left_over.bend as PRestartFfiLeftOver
 import ./proof/supervise/base/entry.bend as LASuperviseEntry
-import ./proof/supervise/restart_ffi_exact.bend as PRestartFfiExact
 import ./proof/supervise/restart_ffi_answers_spelled.bend as PRestartFfiAnswersSpelled
 import ./proof/supervise/restart_ffi_left_over_spelled.bend as PRestartFfiLeftOverSpelled
+import ./proof/supervise/restart_ffi_malformed_unless_request.bend as PRestartFfiMalformedUnlessRequest
 import ./proof/supervise/restart_ffi_tags_example.bend as PRestartFfiTagsExample
 import ./proof/supervise/timeouts_ordered.bend as PTimeoutsOrdered
 import ./proof/revive/revive_after_refresh.bend as PReviveAfterRefresh
@@ -1923,7 +1927,6 @@ import ./proof/workflow/wfw_unknown_prior_sts.bend as PWfwUnknownPriorSts
 import ./proof/workflow/wfw_unknown_row_sts.bend as PWfwUnknownRowSts
 import ./proof/workflow/wfw_reads_only_requests.bend as PWfwReadsOnlyRequests
 import ./proof/workflow/wfw_malformed_unless_request.bend as PWfwMalformedUnlessRequest
-import ./proof/workflow/wfw_reader_unknown_decision.bend as PWfwReaderUnknownDecision
 import ./proof/workflow/wfw_ffi_tags_example.bend as PWfwFfiTagsExample
 import ./proof/command/base.bend as LACommand
 import ./proof/command/command_path_runs_itself.bend as PCommandPathRunsItself

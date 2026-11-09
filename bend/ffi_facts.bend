@@ -293,7 +293,7 @@ def get_req(s: String) -> W.Dec<Req>:
 # Encoding
 # --------
 # The request as Rust's `Writer` spells it (`api/simple_options.rs`): the
-# inverse of get_req, used by the laws (LAWS.bend `core entries`).
+# inverse of get_req, used by the laws (laws/base.bend `core entries`).
 
 def put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
   match m:

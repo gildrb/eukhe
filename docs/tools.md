@@ -172,6 +172,9 @@ the user.
 | `schema_build_idempotent` | rebuild changes nothing (S7.3) |
 | `path_rejects_escape` | above root: rejected, never clamped (S7.6) |
 | `path_resolves_inside` | under root: resolves (S7.6) |
+| `path_up_cancels`, `path_here_drops` | a name then `..`, or a `.`, anywhere: the path resolves as without them (S7.6) |
+| `path_names_plain` | names only: reaches them, deepest first (S7.6) |
+| `path_up_at_root` | `..` where the path is at its root: rejected, whatever follows (S7.6) |
 | `gate_prefix` | steps that ran = first steps of the script, in order (S7.8) |
 | `gate_needs_yes` | gated steps run ≤ steps approved (S7.8) |
 | `gate_deny_stops` | denial: earlier steps ran; denied and later steps did not (S7.8) |

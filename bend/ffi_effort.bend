@@ -271,7 +271,7 @@ def get_req(s: String) -> W.Dec<Req>:
 # Encoding
 # --------
 # The request as Rust's `Writer` spells it (`models/ladder.rs`): the
-# inverse of get_req, used by the laws (LAWS.bend `core entries`).
+# inverse of get_req, used by the laws (laws/base.bend `core entries`).
 
 # a level (a request's field and a reply): its tag off 0 .. max 6
 def put_lv(l: Ef.Lv, rest: String) -> String:
