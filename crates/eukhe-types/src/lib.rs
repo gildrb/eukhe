@@ -18,6 +18,7 @@ pub mod custom_type;
 pub mod cvar;
 pub mod daemon;
 pub mod goal;
+pub mod heartbeat_command;
 pub mod incident;
 pub mod input_origin;
 pub mod job;

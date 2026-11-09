@@ -43,10 +43,10 @@ use eukhe_core::cron::store::{
     SessionBinding,
 };
 use eukhe_core::cron::{
-    is_heartbeat_cron_job, normalize_heartbeat_delivery_mode, normalize_heartbeat_schedule,
-    should_defer_heartbeat_cron_job, AgentCronJob, DeliveryMode, HeartbeatSessionActivity,
-    JobSource, JobStatus,
+    is_heartbeat_cron_job, normalize_heartbeat_delivery_mode, should_defer_heartbeat_cron_job,
+    AgentCronJob, DeliveryMode, HeartbeatSessionActivity, JobSource, JobStatus,
 };
+use eukhe_types::heartbeat_command::normalize_heartbeat_schedule;
 
 use crate::agent_message_ingest::withdraw_queued;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
