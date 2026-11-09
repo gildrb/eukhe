@@ -209,16 +209,3 @@ def ce.lights_w(cs: List<&2, Co.Rgb>, -rest: String) -> {FCo.put_lights.items(cs
     case +c <> t:
       %ce.lights_w(t, rest) : {Wr.put_bool(Co.light(c), FCo.put_lights.items(t, rest)) == Wr.put_bool(Co.light(c), _) : String}
       {==}
-
-def ce.rgb_w(c: Co.Rgb, rest: String) -> {FCo.put_rgb(c, rest) == Color.co_spell_rgb(c, rest) : String}:
-  match c:
-    case Co.Rgb{r, g, b}:
-      {==}
-
-def ce.table(k: Nat, +i: U32, +rest: String) -> {FCo.put_table(k, i, rest) == Color.co_spell_table(k, i, rest) : String}:
-  match k:
-    case 0n:
-      {==}
-    case 1n++m:
-      %ce.table(m, (i + 1 : U32), rest) : {FCo.put_rgb(Co.ansi256(i), FCo.put_table(m, (i + 1 : U32), rest)) == Color.co_spell_rgb(Co.ansi256(i), _) : String}
-      ce.rgb_w(Co.ansi256(i), FCo.put_table(m, (i + 1 : U32), rest))
