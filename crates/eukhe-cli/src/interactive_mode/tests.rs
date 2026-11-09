@@ -95,8 +95,8 @@ fn seed_saved_session(
 
 /// `--continue` surfaces the newest saved session for the cwd as the
 /// preselected agents-view target, never as a direct resume.
-#[test]
-fn continue_recent_targets_the_newest_saved_session_for_the_cwd() {
+#[tokio::test]
+async fn continue_recent_targets_the_newest_saved_session_for_the_cwd() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -124,7 +124,9 @@ fn continue_recent_targets_the_newest_saved_session_for_the_cwd() {
     let mut options = run_options_for_continue(dir.path());
     options.session.continue_recent = true;
     options.session.session_dir = Some(session_dir);
-    let view = continue_recent_view(&options, false).expect("candidate resolves");
+    let view = continue_recent_view(&options, false)
+        .await
+        .expect("candidate resolves");
     assert_eq!(
         view.session_id, "newest00000000000000000000000001",
         "the newest saved session for the cwd is the preselected row"
@@ -140,10 +142,94 @@ fn continue_recent_targets_the_newest_saved_session_for_the_cwd() {
     );
 }
 
+/// A durable session storage `<session_dir>/<id>/` (the layout the daemon
+/// saves every session in) asked one prompt with `cwd` as its cwd.
+async fn seed_durable_session(
+    agent_dir: &std::path::Path,
+    session_dir: &std::path::Path,
+    id: &str,
+    cwd: &std::path::Path,
+) {
+    use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
+    use eukhe_core::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
+    use eukhe_durable::harness::types::InputSubmissionDraft;
+
+    let script = parse_faux_script(&serde_json::json!({ "responses": ["answer"] }).to_string())
+        .expect("faux script");
+    let model = script.model.id.clone();
+    let (models, _provider) = create_faux_script_models(script);
+    let mut config = SessionConfig::new(
+        agent_dir,
+        cwd,
+        id,
+        SessionStorage::Jsonl {
+            dir: session_dir.join(id),
+            fsync: true,
+        },
+    );
+    config.models = Some(models);
+    config.model = Some(ModelRequest {
+        provider: Some("faux".to_owned()),
+        pattern: model,
+    });
+    let cx = &*eukhe_chord::context::BACKGROUND_CONTEXT;
+    let session = open_session(config, cx).await.expect("open session");
+    session
+        .main()
+        .submit(InputSubmissionDraft::new("alpha marker one"), cx)
+        .await
+        .expect("submit")
+        .wait(cx)
+        .await
+        .expect("turn");
+    session.close(cx).await.expect("close session");
+}
+
+/// The sessions the daemon saves are durable storages (`<id>/main.jsonl`),
+/// not legacy `<id>.jsonl` files: `--continue` finds the newest one for the
+/// cwd and names it, never a session of another cwd.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn continue_recent_targets_a_durable_saved_session() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let session_dir = agent_dir.join("sessions");
+    let other_cwd = tempfile::TempDir::new().expect("other cwd");
+    seed_durable_session(
+        &agent_dir,
+        &session_dir,
+        "01a1bd9e-0000-7000-8000-00000000f0e1",
+        other_cwd.path(),
+    )
+    .await;
+    seed_durable_session(
+        &agent_dir,
+        &session_dir,
+        "01a1bd9e-0000-7000-8000-000000000001",
+        dir.path(),
+    )
+    .await;
+
+    let mut options = run_options_for_continue(dir.path());
+    options.session.continue_recent = true;
+    options.session.session_dir = Some(session_dir);
+    let view = continue_recent_view(&options, false)
+        .await
+        .expect("the durable session is the candidate");
+    assert_eq!(view.session_id, "01a1bd9e-0000-7000-8000-000000000001");
+    assert!(
+        view.notice.contains(
+            "Most recent session for this directory: 01a1bd9e-0000-7000-8000-000000000001"
+        ),
+        "the notice names the candidate: {}",
+        view.notice
+    );
+}
+
 /// Without a saved session for the cwd, `--continue` falls through to the
 /// fresh-session run (TS `continueRecent`'s own fallback).
-#[test]
-fn continue_recent_without_a_candidate_opens_a_fresh_session() {
+#[tokio::test]
+async fn continue_recent_without_a_candidate_opens_a_fresh_session() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -160,7 +246,7 @@ fn continue_recent_without_a_candidate_opens_a_fresh_session() {
     options.session.continue_recent = true;
     options.session.session_dir = Some(session_dir);
     assert!(
-        continue_recent_view(&options, false).is_none(),
+        continue_recent_view(&options, false).await.is_none(),
         "no candidate: the launch opens a fresh session, not the view"
     );
 }
@@ -168,8 +254,8 @@ fn continue_recent_without_a_candidate_opens_a_fresh_session() {
 /// An explicit `--resume` selector or `--no-session` owns the selection
 /// first (the TS flag order): `--continue` never shadows them with the
 /// agents view.
-#[test]
-fn continue_recent_defers_to_resume_and_no_session() {
+#[tokio::test]
+async fn continue_recent_defers_to_resume_and_no_session() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -180,26 +266,26 @@ fn continue_recent_defers_to_resume_and_no_session() {
     options.session.session_dir = Some(session_dir);
     options.session.continue_recent = true;
     assert!(
-        continue_recent_view(&options, false).is_some(),
+        continue_recent_view(&options, false).await.is_some(),
         "a bare --continue opens the view preselected on the candidate"
     );
     options.session.resume = Some("named-session".to_string());
     assert!(
-        continue_recent_view(&options, false).is_none(),
+        continue_recent_view(&options, false).await.is_none(),
         "an explicit --resume selector wins over --continue"
     );
     options.session.resume = None;
     options.session.no_session = true;
     assert!(
-        continue_recent_view(&options, false).is_none(),
+        continue_recent_view(&options, false).await.is_none(),
         "--no-session owns the launch: nothing to continue"
     );
 }
 
 /// A pending onboarding keeps the startup (the first-run notice owns the
 /// launch), and a non-continue launch never opens the view.
-#[test]
-fn continue_recent_view_gates_on_onboarding_and_the_flag() {
+#[tokio::test]
+async fn continue_recent_view_gates_on_onboarding_and_the_flag() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -209,16 +295,16 @@ fn continue_recent_view_gates_on_onboarding_and_the_flag() {
     let mut options = run_options_for_continue(dir.path());
     options.session.session_dir = Some(session_dir);
     assert!(
-        continue_recent_view(&options, false).is_none(),
+        continue_recent_view(&options, false).await.is_none(),
         "a non-continue launch never opens the agents view through this path"
     );
     options.session.continue_recent = true;
     assert!(
-        continue_recent_view(&options, true).is_none(),
+        continue_recent_view(&options, true).await.is_none(),
         "a pending onboarding keeps the first-run startup"
     );
     assert!(
-        continue_recent_view(&options, false).is_some(),
+        continue_recent_view(&options, false).await.is_some(),
         "a completed onboarding opens the view preselected on the candidate"
     );
 }

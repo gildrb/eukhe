@@ -75,7 +75,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         // session exists: the view opens preselected on the newest saved
         // session for the cwd (the notice names it) so the user confirms
         // what continues instead of a blind newest-resume.
-        let continue_view = continue_recent_view(options, tui_options.onboarding.is_some());
+        let continue_view = continue_recent_view(options, tui_options.onboarding.is_some()).await;
         let agents_view = should_open_agents_view(
             options,
             tui_options.onboarding.is_some(),
@@ -608,13 +608,16 @@ struct ContinueRecentView {
 /// its context and scheduled jobs without the user ever naming it. The view
 /// shows the candidate preselected and the user confirms what continues (a
 /// sanctioned divergence: TS `SessionManager.continueRecent` reopens the
-/// candidate silently). `None` falls through to the direct fresh-session
-/// run: not a bare `--continue` launch (an explicit `--resume` selector or
-/// `--no-session` owns the selection first, the TS flag order), a pending
-/// onboarding (the first-run notice owns the startup, like the explicit
-/// `agents` request), or no saved session for the cwd (the fresh-session
-/// fallback TS `continueRecent` itself takes).
-fn continue_recent_view(
+/// candidate silently). The candidate is the newest session of the sessions
+/// dir's listing for the cwd -- durable storages and legacy files not
+/// imported yet, the listing `--continue` print mode opens. `None` falls
+/// through to the direct fresh-session run: not a bare `--continue` launch
+/// (an explicit `--resume` selector or `--no-session` owns the selection
+/// first, the TS flag order), a pending onboarding (the first-run notice
+/// owns the startup, like the explicit `agents` request), or no saved
+/// session for the cwd (the fresh-session fallback TS `continueRecent`
+/// itself takes).
+async fn continue_recent_view(
     options: &RunOptions,
     onboarding_pending: bool,
 ) -> Option<ContinueRecentView> {
@@ -630,16 +633,18 @@ fn continue_recent_view(
         .session_dir
         .clone()
         .unwrap_or_else(|| options.config.agent_dir.join("sessions"));
-    let cwd = options.config.cwd.clone();
-    let path =
-        eukhe_core::session::discovery::find_most_recent_session_for_cwd(&session_dir, &cwd)?;
-    let header = eukhe_core::session::manager::read_session_header(&path)?;
+    let listing = eukhe_core::durable::most_recent_session_for_cwd(
+        &session_dir,
+        &options.config.cwd,
+        &eukhe_chord::context::BACKGROUND_CONTEXT,
+    )
+    .await?;
     Some(ContinueRecentView {
-        session_id: header.id.clone(),
         notice: format!(
             "Most recent session for this directory: {} -- Enter continues it, or pick another session.",
-            header.id
+            listing.id
         ),
+        session_id: listing.id,
     })
 }
 
