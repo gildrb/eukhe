@@ -3593,6 +3593,9 @@ import ./proof/privacy/privacy_restore_text_spec.bend as PPrivacyRestoreTextSpec
 import ./proof/privacy/privacy_restore_tok_spec.bend as PPrivacyRestoreTokSpec
 import ./proof/privacy/privacy_send_spec.bend as PPrivacySendSpec
 import ./proof/privacy/privacy_scrub_classes_example.bend as PPrivacyScrubClassesExample
+import ./proof/privacy/privacy_session_restores_own.bend as PPrivacySessionRestoresOwn
+import ./proof/privacy/privacy_session_numbers_from_one.bend as PPrivacySessionNumbersFromOne
+import ./proof/privacy/privacy_session_example.bend as PPrivacySessionExample
 import ./proof/doc_publish/base.bend as LADocPublish
 import ./proof/doc_publish/doc_publish_never_overwrites_unread.bend as PDocPublishNeverOverwritesUnread
 import ./proof/doc_publish/doc_publish_places_over_base.bend as PDocPublishPlacesOverBase

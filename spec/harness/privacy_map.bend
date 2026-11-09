@@ -1,6 +1,6 @@
 # privacy (spec): the token map of the outbound scrubber (spec/README.md
-# H7; the stepper of bend/ffi_privacy.bend, held by eukhe-ai
-# privacy/mod.rs for the daemon's life), restated without the code
+# H7; the stepper of bend/ffi_privacy.bend, one per session: eukhe-ai
+# privacy/mod.rs `TokenMap`, for the session's life), restated without the code
 # (bend/privacy/token.bend's count, find and value): a state machine over
 # the values each class holds. A spec: the shipped code never calls it (it
 # uses the code's data types only: the map is a Tk.Book, its values newest
