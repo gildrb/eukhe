@@ -17,7 +17,7 @@ use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_chord::AttachedReplicatedState;
 use eukhe_core::durable::children::{watch_workers, RunPause};
 use eukhe_core::durable::{ProviderWireEvent, SessionShape};
-use eukhe_durable::harness::types::InputEntry;
+use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Conversation, Harness, InboxItem,
     InboxState, INBOX_DOC, LIVE_DOC,
@@ -713,6 +713,37 @@ pub async fn inbox_previews(
             InboxItem::Write { .. } => None,
         })
         .collect())
+}
+
+/// Submit `inputs` (queued inputs an abort withdrew) on `conversation`
+/// again, in order, in their lanes.
+///
+/// # Errors
+///
+/// The first failed admission.
+pub(crate) async fn resubmit_queued(
+    conversation: &Conversation,
+    inputs: Vec<QueuedInput>,
+    cx: &Context,
+) -> SessionResult<()> {
+    for input in inputs {
+        conversation
+            .submit(
+                InputSubmissionDraft {
+                    request_id: None,
+                    content: input.content,
+                    when_busy: Some(match input.mode {
+                        QueuedMode::Steer => WhenBusy::Steer,
+                        QueuedMode::FollowUp => WhenBusy::FollowUp,
+                    }),
+                    origin: input.origin,
+                    entry: input.entry,
+                },
+                cx,
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 /// The queue-strip text of one input: its non-empty text blocks joined; an

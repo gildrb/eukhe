@@ -9,15 +9,22 @@ use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_core::durable::compaction::compaction_summary_text;
 use eukhe_core::durable::HostDeps;
 use eukhe_durable::entries::COMPACTION_ENTRY;
+use eukhe_durable::errors::ConversationBusy;
 use eukhe_durable::harness::agent::resolve_settings;
 use eukhe_durable::harness::compaction::{estimate_context, select_cut};
-use eukhe_durable::harness::types::{CompactionResult, ContextView};
+use eukhe_durable::harness::types::{
+    CompactionResult, ContextView, ConversationAbortOptions, InputSubmissionDraft, WhenBusy,
+};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, LiveState, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::SubmissionState;
 use eukhe_durable::types::{
     DocumentReaderExt, EntryId, EntryRecord, TaskId, TaskOutcome, WriteSubmission,
 };
+use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::pi_ai::UserContent;
+
+use crate::worker::durable_host::bridge::{inbox_previews, QueuedInput};
 
 /// The skip of a session with no history before the keep window (TS
 /// `CompactionSkippedError`).
@@ -219,6 +226,74 @@ pub(crate) async fn abort_compactions(
         harness.abort_task(*task, cx).await?;
     }
     Ok(tasks)
+}
+
+/// omp's auto-continue prompt (prompts/system/auto-continue.md): the input
+/// that resumes a turn a manual compaction interrupted when nothing queued
+/// drives it.
+pub(crate) const AUTO_CONTINUE_PROMPT: &str = "Resume the user's latest intent. Re-read kept recent messages above the summary to confirm the latest request. If it supersedes earlier plans in the summary, follow it. If no work remains, say so briefly; do not invent work.";
+
+/// Abort the running turn of `conversation` for a manual compaction (omp
+/// `compact()`, session-maintenance.ts:1303-1312) and answer the inputs
+/// queued behind it. The abort withdraws them, but a compaction keeps the
+/// queues (omp session-maintenance.ts:1725-1731): the caller submits them
+/// again once the compaction ended (`resubmit_queued`).
+///
+/// # Errors
+///
+/// The `pi.inbox` read or the abort fails.
+pub(crate) async fn interrupt_turn(
+    harness: &Harness,
+    conversation: &Conversation,
+    cx: &Context,
+) -> SessionResult<Vec<QueuedInput>> {
+    let queued = inbox_previews(harness, conversation.id(), cx).await?;
+    conversation
+        .abort(ConversationAbortOptions::default(), cx)
+        .await?;
+    Ok(queued)
+}
+
+/// Whether a manual compaction that interrupted a turn resumes it: one
+/// that compacted, or was skipped as a no-op (too short, already
+/// compacted); a cancel or a failure leaves the turn stopped (omp
+/// session-maintenance.ts:1262-1265, 1680, 1739).
+pub(crate) fn resumes_interrupted_turn(
+    outcome: &Result<eukhe_types::daemon::CompactionResult, ManualCompactionError>,
+) -> bool {
+    matches!(outcome, Ok(_) | Err(ManualCompactionError::Skipped(_)))
+}
+
+/// Resume the turn a manual compaction interrupted with omp's
+/// auto-continue prompt (`#scheduleInterruptedTurnResume` ->
+/// `#scheduleAutoContinuePrompt`, session-maintenance.ts:2149-2156,
+/// agent-session.ts:5650-5714). Queued input drives the resume instead
+/// (agent-session.ts:5657-5665, 5701-5707): the prompt is admitted only on
+/// an idle conversation with nothing queued, so the resubmitted inputs, a
+/// goal continuation, or a prompt sent during the compaction take the
+/// session first. Answers whether the prompt was admitted.
+///
+/// # Errors
+///
+/// The admission fails for another reason than a busy conversation.
+pub(crate) async fn submit_auto_continue(
+    conversation: &Conversation,
+    cx: &Context,
+) -> SessionResult<bool> {
+    let draft = InputSubmissionDraft {
+        request_id: None,
+        content: UserContent::Text(AUTO_CONTINUE_PROMPT.to_owned()),
+        when_busy: Some(WhenBusy::Reject),
+        origin: InputOrigin::CompactionResume,
+        entry: None,
+    };
+    match conversation.submit(draft, cx).await {
+        Ok(_) => Ok(true),
+        Err(SessionError::Other(inner)) if inner.downcast_ref::<ConversationBusy>().is_some() => {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]

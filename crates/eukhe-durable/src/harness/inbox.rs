@@ -137,6 +137,7 @@ impl Serialize for InboxItem {
                     | InputOrigin::Autonomous { .. }
                     | InputOrigin::Director
                     | InputOrigin::QuotaResume
+                    | InputOrigin::CompactionResume
                     | InputOrigin::Report { .. } => item.serialize_field("origin", origin)?,
                 }
                 item.end()

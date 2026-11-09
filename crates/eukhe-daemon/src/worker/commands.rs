@@ -9,12 +9,12 @@ use eukhe_core::agent_messaging::AgentFamilyRelationship;
 use eukhe_core::durable::children::PauseAction;
 use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
-use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
+use eukhe_durable::harness::types::{ConversationAbortOptions, WhenBusy};
 use eukhe_durable::session::SessionResult;
 use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
 
-use super::durable_host::bridge::{QueuedInput, QueuedMode};
+use super::durable_host::bridge::{resubmit_queued, QueuedInput, QueuedMode};
 use super::durable_host::meta;
 use super::durable_host::suspended::{write_suspended, SuspendedState, WithdrawnInput};
 use super::durable_host::wire_messages::entry_wire_message;
@@ -886,24 +886,7 @@ async fn resubmit(
     inputs: Vec<QueuedInput>,
     _admission: &RunAdmission,
 ) -> SessionResult<()> {
-    let main = hosted.main()?;
-    for input in inputs {
-        main.submit(
-            InputSubmissionDraft {
-                request_id: None,
-                content: input.content,
-                when_busy: Some(match input.mode {
-                    QueuedMode::Steer => WhenBusy::Steer,
-                    QueuedMode::FollowUp => WhenBusy::FollowUp,
-                }),
-                origin: input.origin,
-                entry: input.entry,
-            },
-            &BACKGROUND_CONTEXT,
-        )
-        .await?;
-    }
-    Ok(())
+    resubmit_queued(&hosted.main()?, inputs, &BACKGROUND_CONTEXT).await
 }
 
 /// `{ steering: [...], followUp: [...] }` of `inputs`.

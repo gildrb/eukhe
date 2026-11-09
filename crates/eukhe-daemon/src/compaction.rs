@@ -7,14 +7,19 @@
 use std::sync::{Arc, Mutex};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_types::daemon::{CompactionReason, CompactionResult, ErrorSeverity, SessionEvent};
 use serde_json::Value;
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+use crate::worker::durable_host::bridge::resubmit_queued;
 use crate::worker::durable_host::translator::ManualSettle;
-use crate::worker::{emit_worker_event_with, EventPump, SessionCore, SessionSlot, Worker};
-use durable::{abort_compactions, run_manual_compaction, ManualCompactionError};
+use crate::worker::{
+    emit_worker_event_with, EventPump, RunAdmission, SessionCore, SessionSlot, Worker,
+};
+use durable::{
+    abort_compactions, interrupt_turn, resumes_interrupted_turn, run_manual_compaction,
+    submit_auto_continue, ManualCompactionError,
+};
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -26,10 +31,25 @@ fn cx() -> &'static Context {
 /// instructions; its `compaction_end` is this command's (the TS
 /// `CompactionResult` the response carries, or the abort), and a skip,
 /// which starts no task, emits its frame pair here.
+#[derive(Clone)]
 pub(crate) struct CompactionManager {
     session: SessionSlot,
     events: Arc<EventPump>,
     core: Arc<Mutex<SessionCore>>,
+}
+
+/// What a manual compaction does to a turn running when it starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunningTurn {
+    /// Interrupt it (omp `compact()`, session-maintenance.ts:1303-1316,
+    /// 1724-1749): abort it, compact, submit the inputs queued behind it
+    /// again, then resume it when the compaction compacted or was a no-op.
+    /// The `compact` command and a `/compact` sent with Enter.
+    Interrupt,
+    /// Leave it running (the summary lands at its next boundary): a
+    /// `/compact` the follow-up key queued behind the turn, which waited
+    /// for it to yield.
+    Keep,
 }
 
 impl CompactionManager {
@@ -45,12 +65,20 @@ impl CompactionManager {
         }
     }
 
-    /// `compact` (TS `session.compact(customInstructions)`): abort the
+    /// `compact` (TS `session.compact(customInstructions)`): interrupt the
     /// running turn, run one manual compaction, and answer the TS
     /// `CompactionResult`; skips, aborts, and failures answer the session's
-    /// error message exactly like the TS daemon catch.
-    pub(crate) async fn run(&self, custom_instructions: Option<String>) -> DaemonResponse {
-        match self.compact(custom_instructions).await {
+    /// error message exactly like the TS daemon catch. The caller passed
+    /// the run gate (`admission`).
+    pub(crate) async fn run(
+        &self,
+        custom_instructions: Option<String>,
+        admission: &RunAdmission,
+    ) -> DaemonResponse {
+        match self
+            .compact(custom_instructions, RunningTurn::Interrupt, admission)
+            .await
+        {
             Ok(result) => match serde_json::to_value(result) {
                 Ok(result) => response_success(None, "compact", Some(result)),
                 Err(error) => response_failure(None, "compact", &error.to_string(), None),
@@ -61,11 +89,18 @@ impl CompactionManager {
 
     /// One manual compaction with its `compaction_start`/`compaction_end`
     /// frame pair, settled: the `compact` command and the `/compact`
-    /// session command share it. A compaction that compacted continues an
-    /// active goal (the abort ended its in-run loop).
+    /// session command share it. `running_turn` decides what happens to a
+    /// running turn; an interrupted one gets its queued inputs back and
+    /// resumes (see [`RunningTurn::Interrupt`]). A compaction that
+    /// compacted continues an active goal (an abort ended its in-run loop)
+    /// unless resubmitted inputs drive the next run. The caller passed the
+    /// run gate (`_admission`): the resubmissions and the resume admit
+    /// under it.
     pub(crate) async fn compact(
         &self,
         custom_instructions: Option<String>,
+        running_turn: RunningTurn,
+        _admission: &RunAdmission,
     ) -> Result<CompactionResult, ManualCompactionError> {
         let Some(hosted) = self.session.get() else {
             return Err(ManualCompactionError::Failed(
@@ -75,14 +110,18 @@ impl CompactionManager {
         let main = hosted
             .main()
             .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
-        // TS `compact()` aborts the agent first: the compaction summarizes a
-        // settled transcript.
+        // omp `compact()` aborts the live turn first: the compaction
+        // summarizes a settled transcript.
         let busy = self.core.lock().unwrap().is_busy();
-        if busy {
-            main.abort(ConversationAbortOptions::default(), cx())
-                .await
-                .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
-        }
+        let interrupted = if busy && running_turn == RunningTurn::Interrupt {
+            Some(
+                interrupt_turn(hosted.harness(), &main, cx())
+                    .await
+                    .map_err(|error| ManualCompactionError::Failed(error.to_string()))?,
+            )
+        } else {
+            None
+        };
         // The claim ties the run's task frames to this command.
         if let Some(view) = self.core.lock().unwrap().view.as_mut() {
             view.translator
@@ -110,19 +149,6 @@ impl CompactionManager {
                     },
                     true,
                 );
-                // The abort before the compaction ended an active goal's
-                // in-run loop: a compaction that compacted continues it.
-                if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
-                    hosted.harness(),
-                    main.id(),
-                    cx(),
-                )
-                .await
-                {
-                    eprintln!(
-                        "eukhe-daemon: the post-compaction goal continuation failed: {error}"
-                    );
-                }
             }
             Err(ManualCompactionError::Skipped(message)) => {
                 let end = compaction_end_unsuccessful(
@@ -170,6 +196,36 @@ impl CompactionManager {
                     ),
                     false,
                 );
+            }
+        }
+        // omp `compact()`'s `finally` (session-maintenance.ts:1724-1749):
+        // the interrupted turn's queued inputs come back and drive its
+        // resume; without them an active goal's continuation or the
+        // auto-continue prompt does.
+        let resume = interrupted.is_some() && resumes_interrupted_turn(&outcome);
+        let queued = interrupted.unwrap_or_default();
+        let restored = !queued.is_empty();
+        if restored {
+            if let Err(error) = resubmit_queued(&main, queued, cx()).await {
+                eprintln!(
+                    "eukhe-daemon: the inputs queued behind the compacted turn failed to resubmit: {error}"
+                );
+            }
+        }
+        if outcome.is_ok() && !restored {
+            if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
+                hosted.harness(),
+                main.id(),
+                cx(),
+            )
+            .await
+            {
+                eprintln!("eukhe-daemon: the post-compaction goal continuation failed: {error}");
+            }
+        }
+        if resume && !restored {
+            if let Err(error) = submit_auto_continue(&main, cx()).await {
+                eprintln!("eukhe-daemon: the post-compaction turn resume failed: {error}");
             }
         }
         outcome
@@ -226,8 +282,8 @@ impl Worker {
             .map(str::to_string);
         // A compaction is work a stop interrupts: it holds the run gate
         // until it ends.
-        let _admission = crate::worker::RunAdmission::enter(&self.core).await;
-        self.compaction.run(custom_instructions).await
+        let admission = RunAdmission::enter(&self.core).await;
+        self.compaction.run(custom_instructions, &admission).await
     }
 
     /// `abort_compaction`.
@@ -297,7 +353,8 @@ mod tests {
         let (manager, pump) = manager(&slot);
         let mut receiver = pump.subscribe();
 
-        let response = manager.run(Some("focus".to_string())).await;
+        let admission = RunAdmission::enter(&manager.core).await;
+        let response = manager.run(Some("focus".to_string()), &admission).await;
         assert!(!response.success);
         assert_eq!(
             response.error.as_deref(),
@@ -332,7 +389,8 @@ mod tests {
         fixture.faux.append_responses(vec![answer("SUMMARY")]);
         let (manager, _pump) = manager(&slot);
 
-        let response = manager.run(None).await;
+        let admission = RunAdmission::enter(&manager.core).await;
+        let response = manager.run(None, &admission).await;
         assert!(response.success, "{response:?}");
         let data = response.data.expect("result");
         assert_eq!(data["summary"], json!("SUMMARY"));

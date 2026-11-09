@@ -40,7 +40,7 @@ use eukhe_core::durable::rlm::{release_settled_kernel, transfer_kernel};
 use eukhe_core::durable::{
     fork_main_conversation, fork_session_conversation, ForkPoint, SessionLocation,
 };
-use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
+use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, EntryId, EntryRecord};
@@ -48,7 +48,7 @@ use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::session_navigation::PreparedReplacement;
-use crate::worker::durable_host::bridge::{QueuedInput, QueuedMode};
+use crate::worker::durable_host::bridge::{resubmit_queued, QueuedInput};
 use crate::worker::{HostedSession, SessionSlot, Worker};
 use summary::{SummaryError, SummaryOutcome, SummaryRequest};
 use tree::{custom_entry_text, is_custom_entry, user_entry_text, SessionTree};
@@ -335,32 +335,6 @@ fn name_orphans(data: &mut Value, orphans: Orphans) {
     }
 }
 
-/// Submit `inputs` on `conversation`, in order, in their lanes.
-async fn resubmit(
-    conversation: &Conversation,
-    inputs: Vec<QueuedInput>,
-    cx: &Context,
-) -> SessionResult<()> {
-    for input in inputs {
-        conversation
-            .submit(
-                InputSubmissionDraft {
-                    request_id: None,
-                    content: input.content,
-                    when_busy: Some(match input.mode {
-                        QueuedMode::Steer => WhenBusy::Steer,
-                        QueuedMode::FollowUp => WhenBusy::FollowUp,
-                    }),
-                    origin: input.origin,
-                    entry: input.entry,
-                },
-                cx,
-            )
-            .await?;
-    }
-    Ok(())
-}
-
 /// The parsed `navigate_tree` payload.
 struct NavigateRequest {
     target_id: String,
@@ -504,14 +478,14 @@ impl Worker {
                         if let Some(notice) = summarized.notice {
                             show_auxiliary_notice(&main, notice, cx).await;
                         }
-                        resubmit(&main, withdrawn, cx).await?;
+                        resubmit_queued(&main, withdrawn, cx).await?;
                         return Ok(json!({ "cancelled": true, "aborted": true }));
                     }
                     SummaryOutcome::Failed(error) => {
                         if let Some(notice) = summarized.notice {
                             show_auxiliary_notice(&main, notice, cx).await;
                         }
-                        resubmit(&main, withdrawn, cx).await?;
+                        resubmit_queued(&main, withdrawn, cx).await?;
                         return Err(error.into());
                     }
                 }
@@ -538,7 +512,7 @@ impl Worker {
             labels::set_label(harness, labeled, Some(label.clone()), cx).await?;
         }
         self.show_conversation(hosted, &moved).await?;
-        resubmit(&moved, withdrawn, cx).await?;
+        resubmit_queued(&moved, withdrawn, cx).await?;
         self.push_roster_delta();
         let mut data = json!({ "cancelled": false });
         if let Some(editor_text) = editor_text {

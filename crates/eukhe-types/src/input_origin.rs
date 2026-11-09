@@ -23,6 +23,9 @@ pub enum InputOrigin {
     Director,
     /// The marker that resumes a session the provider quota parked.
     QuotaResume,
+    /// The prompt that resumes a turn a manual compaction interrupted
+    /// (omp's auto-continue prompt).
+    CompactionResume,
     /// A report of work outside this conversation.
     Report { report: Report },
 }
