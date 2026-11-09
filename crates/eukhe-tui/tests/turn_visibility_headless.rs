@@ -1006,3 +1006,48 @@ fn f16_a_closure_in_a_retry_wait_keeps_the_failed_attempt() {
     );
     assert_ended_with_one_row(&frames, "Error: 529 overloaded", RESEND);
 }
+
+/// A worker restarted mid-turn (killed while its tool ran): the client
+/// re-attaches, the restarted worker ends the interrupted turn with a bare
+/// `turn_end` and resumes it. The resumed turn's answer ends the turn: no
+/// row says it ended without a reply, and the indicator stays up until the
+/// answer.
+#[test]
+fn a_turn_resumed_after_a_worker_restart_leaves_no_end_row() {
+    let tools = assistant(
+        json!([
+            { "type": "toolCall", "id": "c1", "name": "bash", "arguments": { "command": "sleep 45" } },
+        ]),
+        "toolUse",
+        None,
+    );
+    let mut script = vec![Act::Prompt, Act::Admit, run_start(), ev("turn_start")];
+    script.extend(user_message());
+    script.extend(message(&tools));
+    script.push(Act::Hold(300));
+    script.push(Act::Rebuild(Snapshot {
+        streaming: true,
+        ..Snapshot::idle(vec![user(PROMPT, now_ms()), tools.clone()])
+    }));
+    script.push(Act::Hold(300));
+    script.push(ev("turn_end"));
+    script.push(ev("turn_start"));
+    script.extend(message(&tools));
+    script.push(turn_end(&tools));
+    script.push(ev("turn_start"));
+    script.extend(message(&answer_message()));
+    script.push(turn_end(&answer_message()));
+    script.push(run_end());
+    let frames = run(
+        Snapshot::idle(Vec::new()),
+        script,
+        vec![wait_for(ANSWER), HeadlessStep::WaitMs(300)],
+    );
+    assert!(
+        !all_frames(&frames).contains(NO_REPLY),
+        "a resumed turn never says it ended:\n{}",
+        all_frames(&frames)
+    );
+    assert_loader_until(&frames, ANSWER);
+    assert_eq!(loader(frames.last().expect("a frame")), None);
+}
