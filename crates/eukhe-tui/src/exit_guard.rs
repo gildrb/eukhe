@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::KeyEvent;
 
 /// The double-press window (TS `EXIT_HINT_DURATION_MS`): a Ctrl+C pair is
 /// two presses at most this far apart.
@@ -182,12 +182,14 @@ impl ExitGuard {
 
     /// Observe one key from the terminal reader: a Ctrl+C press inside the
     /// window of the previous press arms the force-quit deadline. Runs on
-    /// the reader thread, independent of the UI loop.
+    /// the reader thread, independent of the UI loop. A press is the key
+    /// id `ctrl+c` exactly -- the id the loop reports handled -- so a
+    /// chord that merely carries ctrl and c (`ctrl+shift+c`, the editor's
+    /// copy under the kitty protocol) is never half of an exit pair: it
+    /// would count as observed but never as handled, and a plain Ctrl+C
+    /// after it would force-quit the healthy loop.
     pub(crate) fn observe_key(&self, key: &KeyEvent) {
-        let is_press = matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
-            && key.code == KeyCode::Char('c')
-            && key.modifiers.contains(KeyModifiers::CONTROL);
-        if !is_press {
+        if crate::keys::key_event_to_id(key).as_deref() != Some("ctrl+c") {
             return;
         }
         self.state.observed_ctrl_c.fetch_add(1, Ordering::SeqCst);
@@ -314,6 +316,7 @@ fn force_quit() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
     /// Serializes the tests that touch the process-global progress stamp:
     /// the stamp is shared by every test thread, so a reader must hold
@@ -396,6 +399,41 @@ mod tests {
         guard.observe_key(&release);
         assert_eq!(guard.state.last_ctrl_c_ms.load(Ordering::SeqCst), 0);
         assert_eq!(guard.state.observed_ctrl_c.load(Ordering::SeqCst), 0);
+    }
+
+    /// The kitty copy chord (`ctrl+shift+c`) and `super+c` are not Ctrl+C:
+    /// the copy, then a plain Ctrl+C the loop handles (clearing the
+    /// prompt), leaves the force quit unarmed -- the scenario that killed
+    /// the healthy TUI with "shutdown stalled; forced exit".
+    #[test]
+    fn the_copy_chords_are_never_half_of_an_exit_pair() {
+        let guard = ExitGuard::new();
+        for chord in [
+            KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            KeyEvent::new(
+                KeyCode::Char('C'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::SUPER),
+            KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
+        ] {
+            guard.observe_key(&chord);
+        }
+        assert_eq!(guard.state.observed_ctrl_c.load(Ordering::SeqCst), 0);
+        guard.observe_key(&ctrl_c());
+        guard.note_ctrl_c_handled();
+        assert_eq!(
+            guard.state.force_deadline_ms.load(Ordering::SeqCst),
+            u64::MAX,
+            "a single handled Ctrl+C after the copy never arms the force quit"
+        );
+        guard.cancel();
     }
 
     #[test]
