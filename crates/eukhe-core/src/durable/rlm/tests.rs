@@ -1068,6 +1068,7 @@ async fn job_request(session: &EukheSession, request: &str, data: Value) -> Valu
         data,
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .expect("the jobs request")
@@ -1152,6 +1153,7 @@ async fn a_waited_job_is_delivered_by_the_wait_alone() {
         data: json!({}),
         cell_source_code: None,
         call: None,
+        signal: None,
     }));
     // The wait outlives the blocking budget: it is no longer clamped to it.
     assert!(
@@ -1181,6 +1183,7 @@ async fn a_waited_job_is_delivered_by_the_wait_alone() {
         data: json!({}),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .expect_err("nothing runs");

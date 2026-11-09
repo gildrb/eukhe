@@ -697,6 +697,7 @@ async fn host_call(
         data,
         cell_source_code: None,
         call: Some(Arc::clone(api)),
+        signal: None,
     })
     .await
 }

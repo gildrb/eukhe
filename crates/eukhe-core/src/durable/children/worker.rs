@@ -662,6 +662,7 @@ async fn assign_call(
                 data: Value::Null,
                 cell_source_code: None,
                 call: Some(Arc::clone(&api)),
+                signal: None,
             };
             admit_spawns(&children, &call, vec![spec], Some(handed.cursor))
                 .await

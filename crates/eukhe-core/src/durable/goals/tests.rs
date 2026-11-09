@@ -144,6 +144,7 @@ fn finish_extension(requests: HostRequestRegistry) -> Arc<Extension> {
                     data: json!({ "type": "goal.complete" }),
                     cell_source_code: None,
                     call: Some(api),
+                    signal: None,
                 })
                 .await
                 .map_err(|error| eukhe_durable::session::SessionError::error(error.to_string()))?;
@@ -202,6 +203,7 @@ impl Setup {
             data,
             cell_source_code: None,
             call: None,
+            signal: None,
         })
         .await
     }
@@ -1041,6 +1043,7 @@ async fn an_eukhe_session_installs_the_goal_hooks_and_host_requests() {
         data: json!({ "objective": "wrap up", "token_budget": 1 }),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .expect("goal.create succeeds");

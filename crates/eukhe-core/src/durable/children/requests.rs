@@ -42,6 +42,7 @@ use super::Children;
 use crate::agent_messaging::assert_direct_agent_message_target;
 use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::{HostCall, HostRequestRegistry};
+use crate::kernel::cancellation::AbortSignal;
 use crate::kernel::rlm_runtime::{
     create_default_rlm_subagent_session_name, find_rlm_model_matches, kwargs_from_payload,
     normalize_requested_rlm_subagent_model, normalize_requested_rlm_subagent_session_name,
@@ -877,7 +878,9 @@ fn collect_targets(data: &Value) -> anyhow::Result<Vec<String>> {
 /// shared wait, `timeout_ms` clamped to the cap of every wait on the
 /// agent's work (30 minutes, the compiled core's `wait_any` timeout; the
 /// kernel keeps a cell inside it from detaching at its blocking budget);
-/// a timeout returns current snapshots, never an error.
+/// a timeout returns current snapshots, never an error. An abort of the
+/// turn that stops the waiting cell (Esc) cancels the children it waited
+/// on ([`cancel_waited`]) and fails the wait.
 async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let targets = collect_targets(&call.data)?;
     let requested = match call.data.get("timeout_ms") {
@@ -935,7 +938,24 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         }
     }
     let deadline = tokio::time::Instant::now() + timeout;
-    wait_for_verdicts(&harness, conversation_id, &live, deadline).await?;
+    let waited = wait_for_verdicts(
+        &harness,
+        conversation_id,
+        &live,
+        deadline,
+        call.signal.as_ref(),
+    )
+    .await?;
+    if waited == Waited::Stopped {
+        if turn_aborted(&harness, &call).await? {
+            cancel_waited(&harness, conversation_id, &live).await?;
+            bail!("rlm.collect aborted: the turn was cancelled");
+        }
+        // A stop that is no abort request (a closing session signals the
+        // call without marking it) leaves the children running; the wait
+        // goes on as before it.
+        wait_for_verdicts(&harness, conversation_id, &live, deadline, None).await?;
+    }
     let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
@@ -998,18 +1018,29 @@ async fn mark_read<'a>(
     Ok(())
 }
 
+/// How [`wait_for_verdicts`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Waited {
+    /// Every child reached its verdict, or the deadline passed.
+    Over,
+    /// The requesting cell's stop signal fired first.
+    Stopped,
+}
+
 /// Wait until every child of `task_ids` reached its verdict (its row left
-/// `spawning`/`running`) or its task ended, or `deadline` passed. The row,
-/// not the task: a settled child's task stays live while its report waits
-/// behind the parent's busy turn — possibly the very turn that waits here.
+/// `spawning`/`running`) or its task ended, or `deadline` passed, or `stop`
+/// (the requesting cell's stop signal) fired. The row, not the task: a
+/// settled child's task stays live while its report waits behind the
+/// parent's busy turn — possibly the very turn that waits here.
 async fn wait_for_verdicts(
     harness: &Harness,
     conversation_id: ConversationId,
     task_ids: &[TaskId],
     deadline: tokio::time::Instant,
-) -> anyhow::Result<()> {
+    stop: Option<&AbortSignal>,
+) -> anyhow::Result<Waited> {
     if task_ids.is_empty() || tokio::time::Instant::now() >= deadline {
-        return Ok(());
+        return Ok(Waited::Over);
     }
     let changed = Arc::new(Notify::new());
     let watch = harness
@@ -1046,18 +1077,23 @@ async fn wait_for_verdicts(
                 }
             }
             let Some(task_id) = pending else {
-                return anyhow::Ok(());
+                return anyhow::Ok(Waited::Over);
             };
             let woke = tokio::time::timeout_at(deadline, async {
                 tokio::select! {
-                    () = changed.notified() => Ok(()),
-                    ended = harness.wait_for_task(task_id, &cx()) => ended.map(drop),
+                    () = changed.notified() => Ok(None),
+                    ended = harness.wait_for_task(task_id, &cx()) => ended.map(|_| None),
+                    () = stopped(stop) => Ok(Some(Waited::Stopped)),
                 }
             })
             .await;
             match woke {
-                Ok(woke) => woke.map_err(session_error)?,
-                Err(_elapsed) => return Ok(()),
+                Ok(woke) => {
+                    if let Some(waited) = woke.map_err(session_error)? {
+                        return Ok(waited);
+                    }
+                }
+                Err(_elapsed) => return Ok(Waited::Over),
             }
         }
     }
@@ -1066,6 +1102,63 @@ async fn wait_for_verdicts(
         watch.stop().await;
     }
     outcome
+}
+
+/// Resolves when `stop` fires; never without one.
+async fn stopped(stop: Option<&AbortSignal>) {
+    match stop {
+        Some(stop) => stop.cancelled().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Whether the stop of the cell `call` runs is an abort of its turn: the
+/// `ipython` call carries an abort request's mark (a closing session signals
+/// the call without marking it, and a restart's mark is no abort request).
+async fn turn_aborted(harness: &Harness, call: &HostCall) -> anyhow::Result<bool> {
+    let Some(api) = &call.call else {
+        return Ok(false);
+    };
+    let record = harness
+        .get_task(api.task_id(), &cx())
+        .await
+        .map_err(session_error)?;
+    Ok(record.is_some_and(|record| record.abort_requested && record.abort_reason.is_none()))
+}
+
+/// Cancel the children of `task_ids` still running: the turn whose cell
+/// waited on them was aborted, and an aborted wait cancels every handle it
+/// awaited, then waits for each to settle (omp `runEvalWait`,
+/// `eval/handle-bridge.ts:281-286`). Each child task's abort cancels the
+/// child's run at the host and marks its row cancelled, owing no report
+/// (`task::abort`); a child that reached its verdict keeps it.
+async fn cancel_waited(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    task_ids: &[TaskId],
+) -> anyhow::Result<()> {
+    let state = read_children(harness, conversation_id, &cx())
+        .await
+        .map_err(session_error)?;
+    let running: Vec<TaskId> = task_ids
+        .iter()
+        .filter_map(|task_id| state.children.get(&task_id.to_string()))
+        .filter(|row| !row.settled && !row.status.is_terminal())
+        .map(ChildRow::live_task)
+        .collect();
+    for task_id in &running {
+        harness
+            .abort_task(*task_id, &cx())
+            .await
+            .map_err(session_error)?;
+    }
+    for task_id in running {
+        harness
+            .wait_for_task(task_id, &cx())
+            .await
+            .map_err(session_error)?;
+    }
+    Ok(())
 }
 
 /// `rlm.answer`: the settled-or-not state of the one live child `target`
