@@ -104,6 +104,7 @@ pub(crate) fn injected_prompt_row(
         | CustomType::RefinementOutcome
         | CustomType::ProviderRetryOutcome
         | CustomType::ModelPromptError
+        | CustomType::KernelUnavailable
         | CustomType::SessionSlashCommand
         | CustomType::SessionSlashCommandResult
         | CustomType::Other(_) => return None,

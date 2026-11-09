@@ -526,6 +526,10 @@ pub struct HostDeps {
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
     pub kernel_python: Option<PathBuf>,
+    /// Why the kernel cannot start, probed at open
+    /// ([`super::rlm::kernel_unavailable_notice`]); `Some` means no
+    /// `ipython` tool this session.
+    pub kernel_unavailable: Option<crate::kernel::KernelUnavailable>,
     /// [`SessionConfig::host`].
     pub host: SessionHost,
     pub harness: HarnessCell,
@@ -580,6 +584,7 @@ pub(crate) struct ResolvedServices {
     pub mcp: Arc<Mutex<crate::mcp::McpManager>>,
     pub python_skills: Vec<KernelPythonSkill>,
     pub semantic_edges: Arc<super::observe::semantic_edges::SemanticEdgeRecorder>,
+    pub kernel_unavailable: Option<crate::kernel::KernelUnavailable>,
 }
 
 impl HostDeps {
@@ -612,6 +617,7 @@ impl HostDeps {
             prewarm_kernel: config.prewarm_kernel,
             host: config.host,
             kernel_python: config.kernel_python.clone(),
+            kernel_unavailable: services.kernel_unavailable,
             harness,
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),

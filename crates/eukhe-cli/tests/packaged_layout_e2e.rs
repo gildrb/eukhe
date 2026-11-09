@@ -308,6 +308,59 @@ fn packaged_binary_reports_manifest_version() {
     );
 }
 
+/// Regression (Local Studio, whose app bundle ships the binary without the
+/// sidecar): a packaged session with no `eukhe-runtime/` offered the
+/// ipython tool, and the model's first call was a cell that could only
+/// fail. Now the session offers no ipython tool (the request's prompt says
+/// there is no Python REPL) and stores the notice row naming the runtime
+/// directory and `eukhe kernel install`.
+#[test]
+fn missing_sidecar_session_offers_no_ipython() {
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, false);
+    let box_ = sandbox();
+    let sessions = box_.home.path().join("sessions");
+    let script = serde_json::json!({ "responses": [{ "systemPrompt": true }] });
+    let mut command = box_.command(staged);
+    command.env("EUKHE_SESSION_DIR", &sessions);
+    let (stdout, stderr, code) = run_json_turn(&mut command, &script);
+    assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
+    assert!(
+        stdout.contains("This session has no Python REPL (`ipython` tool)"),
+        "the prompt must say there is no ipython tool; stdout: {stdout}"
+    );
+    let stored = stored_text(&sessions);
+    assert_eq!(
+        stored
+            .matches("The Python kernel cannot start: the eukhe-runtime kernel runtime directory was not found")
+            .count(),
+        1,
+        "one kernel-unavailable notice row; stored: {stored}"
+    );
+    assert!(
+        stored.contains("run `eukhe kernel install` once"),
+        "stored: {stored}"
+    );
+}
+
+/// Every file under `dir`, concatenated.
+fn stored_text(dir: &Path) -> String {
+    let mut text = String::new();
+    for entry in std::fs::read_dir(dir).expect("read stored dir") {
+        let path = entry.expect("stored entry").path();
+        if path.is_dir() {
+            text.push_str(&stored_text(&path));
+        } else {
+            text.push_str(&String::from_utf8_lossy(
+                &std::fs::read(&path).expect("read stored file"),
+            ));
+        }
+    }
+    text
+}
+
 /// A missing sidecar (broken install) surfaces the actionable install
 /// failure: the base text plus the missing eukhe-runtime hint, not a raw
 /// uv/pip error.

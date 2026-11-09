@@ -17,6 +17,7 @@ mod host;
 mod jobs;
 mod kernels;
 pub(crate) use self::kernels::submit_notice;
+pub mod kernel_unavailable_notice;
 mod query;
 pub(crate) mod refine;
 mod remote;
@@ -164,7 +165,8 @@ pub(crate) fn background() -> Context {
     eukhe_chord::context::BACKGROUND_CONTEXT.clone()
 }
 
-/// The `eukhe.rlm` extension of a session: the `ipython` tool, the
+/// The `eukhe.rlm` extension of a session: the `ipython` tool (none when
+/// the kernel cannot start, [`HostDeps::kernel_unavailable`]), the
 /// run-boundary refinement hook, and the RLM host-request handlers (registered
 /// into `deps.host_requests` now). At open it prewarms the main
 /// conversation's kernel (the user-facing one: the root unless a fork or
@@ -189,9 +191,15 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     history::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
+    // A kernel that cannot start is never booted: a failed local build
+    // would leave a broken venv the next open's probe could not tell from
+    // an out-of-date one.
+    let kernel_usable = deps.kernel_unavailable.is_none();
     deps.add_service(Box::new(move |opened: OpenedSession| {
         async move {
-            service_runtime.kernels.prewarm(opened.main.id());
+            if kernel_usable {
+                service_runtime.kernels.prewarm(opened.main.id());
+            }
             let stop: ServiceStop = Box::new(move || {
                 async move { service_runtime.kernels.dispose_all().await }.boxed()
             });
@@ -203,8 +211,15 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     if refine_allowed {
         hooks.push(refine::refine_hook(&runtime));
     }
+    // No `ipython` tool when the kernel cannot start
+    // ([`kernel_unavailable_notice`]): the model is never offered it.
+    let tools = if kernel_usable {
+        vec![tool::ipython_tool(&runtime)]
+    } else {
+        Vec::new()
+    };
     define_extension(Extension {
-        tools: vec![tool::ipython_tool(&runtime)],
+        tools,
         hooks,
         ..Extension::named(RLM_EXTENSION)
     })

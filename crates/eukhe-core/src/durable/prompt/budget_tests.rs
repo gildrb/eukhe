@@ -55,6 +55,66 @@ type Sent = Arc<Mutex<Option<(String, Vec<Tool>)>>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_default_root_request_stays_within_the_prompt_budget() {
+    let (total, report) = default_root_request(Kernel::Available).await;
+    eprintln!("{report}");
+    assert!(
+        total <= PROMPT_BUDGET_BYTES,
+        "a default root request sends {total} bytes of eukhe's own prompt, past the budget of \
+         {PROMPT_BUDGET_BYTES}: {report}"
+    );
+}
+
+/// A session whose kernel cannot start (no kernel venv) sends no larger a
+/// prompt than one whose kernel can: it drops the `ipython` schema and the
+/// kernel's package list, and says it has no Python REPL.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unavailable_kernel_does_not_grow_the_prompt() {
+    let _env_lock = crate::kernel::bootstrap::KERNEL_ENV_LOCK.lock().await;
+    let (available, available_report) = default_root_request(Kernel::Available).await;
+    let (unavailable, unavailable_report) = default_root_request(Kernel::Unavailable).await;
+    eprintln!("available: {available_report}\nunavailable: {unavailable_report}");
+    assert!(
+        unavailable <= available,
+        "an unavailable kernel grows the prompt from {available} to {unavailable} bytes: \
+         {unavailable_report}"
+    );
+}
+
+/// Whether the session's kernel can start.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kernel {
+    /// The tests' kernel interpreter.
+    Available,
+    /// No interpreter named and no kernel venv.
+    Unavailable,
+}
+
+/// Puts an env variable back when dropped.
+struct EnvVar(&'static str, Option<std::ffi::OsString>);
+
+impl EnvVar {
+    fn set(name: &'static str, value: Option<&std::ffi::OsStr>) -> Self {
+        let old = std::env::var_os(name);
+        match value {
+            Some(value) => std::env::set_var(name, value),
+            None => std::env::remove_var(name),
+        }
+        Self(name, old)
+    }
+}
+
+impl Drop for EnvVar {
+    fn drop(&mut self) {
+        match &self.1 {
+            Some(value) => std::env::set_var(self.0, value),
+            None => std::env::remove_var(self.0),
+        }
+    }
+}
+
+/// The bytes of eukhe's own system prompt and tool schemas in the first
+/// request of a default root session, and their breakdown.
+async fn default_root_request(kernel: Kernel) -> (usize, String) {
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
     let cwd = dir.path().join("project");
@@ -97,6 +157,16 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
             .await
             .expect("memory"),
     );
+    let _env = (kernel == Kernel::Unavailable).then(|| {
+        config.kernel_python = None;
+        let venv = dir.path().join("no-kernel-venv");
+        let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        [
+            EnvVar::set("EUKHE_KERNEL_VENV", Some(venv.as_os_str())),
+            EnvVar::set("EUKHE_PACKAGE_DIR", Some(checkout.as_os_str())),
+            EnvVar::set("EUKHE_KERNEL_PYTHON", None),
+        ]
+    });
     let session = open_session(config, cx()).await.expect("open");
     session
         .root()
@@ -110,6 +180,10 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
         .unwrap_or_else(PoisonError::into_inner)
         .take()
         .expect("the request was captured");
+    assert_eq!(
+        tools.iter().any(|tool| tool.name == "ipython"),
+        kernel == Kernel::Available
+    );
     // Each tool's schema as the transcript declares it to the provider:
     // name, description, parameters.
     let schemas: Vec<(String, usize)> = tools
@@ -121,16 +195,11 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
         .collect();
     let system = without_user_skills(&system);
     let total = system.len() + schemas.iter().map(|(_, bytes)| bytes).sum::<usize>();
-    eprintln!(
+    let report = format!(
         "system prompt {}, tool schemas {schemas:?}, total {total}",
         system.len()
     );
-    assert!(
-        total <= PROMPT_BUDGET_BYTES,
-        "a default root request sends {total} bytes of eukhe's own prompt, past the budget of \
-         {PROMPT_BUDGET_BYTES}: system prompt {}, tool schemas {schemas:?}",
-        system.len()
-    );
+    (total, report)
 }
 
 /// The system prompt without the user's skills: the inventory groups under
