@@ -291,15 +291,19 @@ law union_at_bundled_alone:
   for hc: {cu_in(cu_keys(cs), k) == False{} : Bool}
   {List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), cs), List.length(&2, CU.Ent, bp)) == Some{CU.Ent{k, a, d, t, cm, ft, hd}} : Maybe<&2, CU.Ent>}
 
-# LAW union_at_both_keeps_bundled: a bundled entry whose key the compiled catalog has (its twin:
-# the first compiled entry with that key) is, at its own place in the
-# built-in catalog, shown by an optional field it states: the bundled
-# entry's key, api, data and that field
-# EXCLUDES: a merged entry that takes its key, api or data (or a stated
-#   field) from the twin, a view (CU.slot) that answers another field or
-#   a constant, a twin other than the first, an entry behind a
-#   duplicated bundled key left unmerged
-law union_at_both_keeps_bundled:
+# LAW union_at_both_same_api: a bundled entry whose key the compiled catalog has (its twin:
+# the first compiled entry with that key) and whose twin uses the same
+# api is, at its own place in the built-in catalog, the entry with the
+# bundled key, api and data and, for each of the four optional fields,
+# the bundled entry's when it states it, else the twin's (Maybe.or: the
+# first that is Some), read by its constructor (bundled entries before
+# it with the same key or not)
+# EXCLUDES: a field the bundle leaves out kept out (for some keys,
+#   fields, apis or values) or taken from another twin or another field;
+#   a stated field replaced by the twin's; key, api or data from the
+#   twin; a twin other than the first; an entry behind a duplicated
+#   bundled key left unmerged
+law union_at_both_same_api:
   for +bp: List<&2, CU.Ent>
   for +bq: List<&2, CU.Ent>
   for +cp: List<&2, CU.Ent>
@@ -311,24 +315,20 @@ law union_at_both_keeps_bundled:
   for +cm: Maybe<&2, Nat>
   for +ft: Maybe<&2, Nat>
   for +hd: Maybe<&2, Nat>
-  for +ca: Nat
   for +cd: Nat
   for +ct: Maybe<&2, Nat>
   for +cc: Maybe<&2, Nat>
   for +cf: Maybe<&2, Nat>
   for +ch: Maybe<&2, Nat>
-  for +fld: CU.Fld
-  for +v: Nat
   for hp: {cu_in(cu_keys(cp), k) == False{} : Bool}
-  for hv: {CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld) == Some{v} : Maybe<&2, Nat>}
-  {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, Some{v}}} : Maybe<&2, CU.Slot>}
+  {List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, a, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)) == Some{CU.Ent{k, a, d, Maybe.or(&2, Nat, t, ct), Maybe.or(&2, Nat, cm, cc), Maybe.or(&2, Nat, ft, cf), Maybe.or(&2, Nat, hd, ch)}} : Maybe<&2, CU.Ent>}
 
-# LAW union_at_both_fills_from_compiled: and an optional field the bundled entry leaves out is the
-# twin's when both use the same api
-# EXCLUDES: a field the bundle leaves out kept out, or taken from another
-#   twin or another field, when the apis agree; key, api or data from the
-#   twin
-law union_at_both_fills_from_compiled:
+# LAW union_at_both_apis_differ: and when its twin uses another api it is, at its own place,
+# the bundled entry itself, every field (a field the bundle leaves out
+# stays out), read by its constructor
+# EXCLUDES: a field filled from a twin of another api; a stated field,
+#   key, api or data from the twin
+law union_at_both_apis_differ:
   for +bp: List<&2, CU.Ent>
   for +bq: List<&2, CU.Ent>
   for +cp: List<&2, CU.Ent>
@@ -346,38 +346,9 @@ law union_at_both_fills_from_compiled:
   for +cc: Maybe<&2, Nat>
   for +cf: Maybe<&2, Nat>
   for +ch: Maybe<&2, Nat>
-  for +fld: CU.Fld
   for hp: {cu_in(cu_keys(cp), k) == False{} : Bool}
-  for hn: {CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld) == None{} : Maybe<&2, Nat>}
-  for ha: {Nat.is_eq(a, ca) == True{} : Bool}
-  {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld)}} : Maybe<&2, CU.Slot>}
-
-# LAW union_at_both_other_api: and stays out when the two use different apis
-# EXCLUDES: a field filled from a twin of another api; key, api or data
-#   from the twin
-law union_at_both_other_api:
-  for +bp: List<&2, CU.Ent>
-  for +bq: List<&2, CU.Ent>
-  for +cp: List<&2, CU.Ent>
-  for +cq: List<&2, CU.Ent>
-  for +k: Nat
-  for +a: Nat
-  for +d: Nat
-  for +t: Maybe<&2, Nat>
-  for +cm: Maybe<&2, Nat>
-  for +ft: Maybe<&2, Nat>
-  for +hd: Maybe<&2, Nat>
-  for +ca: Nat
-  for +cd: Nat
-  for +ct: Maybe<&2, Nat>
-  for +cc: Maybe<&2, Nat>
-  for +cf: Maybe<&2, Nat>
-  for +ch: Maybe<&2, Nat>
-  for +fld: CU.Fld
-  for hp: {cu_in(cu_keys(cp), k) == False{} : Bool}
-  for hn: {CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld) == None{} : Maybe<&2, Nat>}
   for ha: {Nat.is_eq(a, ca) == False{} : Bool}
-  {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, None{}}} : Maybe<&2, CU.Slot>}
+  {List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)) == Some{CU.Ent{k, a, d, t, cm, ft, hd}} : Maybe<&2, CU.Ent>}
 
 # LAW catalog_union_ffi_request_round_trip (compiled core): the catalog entry (bend/ffi_catalog_union.bend) reads back
 # the two sources as Rust writes it, and leaves what follows untouched

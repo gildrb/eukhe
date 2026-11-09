@@ -1082,9 +1082,8 @@ import ./proof/catalog_union/union_tail_in_compiled_order.bend as PUnionTailInCo
 import ./proof/catalog_union/union_tail_lacks_bundled.bend as PUnionTailLacksBundled
 import ./proof/catalog_union/union_tail_keeps_compiled_only.bend as PUnionTailKeepsCompiledOnly
 import ./proof/catalog_union/union_at_bundled_alone.bend as PUnionAtBundledAlone
-import ./proof/catalog_union/union_at_both_keeps_bundled.bend as PUnionAtBothKeepsBundled
-import ./proof/catalog_union/union_at_both_fills_from_compiled.bend as PUnionAtBothFillsFromCompiled
-import ./proof/catalog_union/union_at_both_other_api.bend as PUnionAtBothOtherApi
+import ./proof/catalog_union/union_at_both_same_api.bend as PUnionAtBothSameApi
+import ./proof/catalog_union/union_at_both_apis_differ.bend as PUnionAtBothApisDiffer
 import ./proof/catalog_union/catalog_union_ffi_request_round_trip.bend as PCatalogUnionFfiRequestRoundTrip
 import ./proof/catalog_union/catalog_union_ffi_answers.bend as PCatalogUnionFfiAnswers
 import ./proof/catalog_union/catalog_union_ffi_rejects_malformed.bend as PCatalogUnionFfiRejectsMalformed
