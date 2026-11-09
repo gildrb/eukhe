@@ -305,6 +305,23 @@ fn a_json_usage_failure_exits_2() {
     assert_eq!(parsed["reason"], "invalid_arguments");
 }
 
+/// `tiny-models` names its models dir on stdout, after the table (omp
+/// `tiny-models-cli.ts` lists the model dir on stdout).
+#[test]
+fn tiny_models_names_its_dir_on_stdout() {
+    let fixture = Fixture::new("tiny-models-dir");
+    let output = run(&["tiny-models"], fixture.path());
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.lines()
+            .last()
+            .is_some_and(|line| line.starts_with("Models dir: ")),
+        "the models dir ends stdout:\n{out}"
+    );
+    assert_eq!(stderr(&output), "");
+}
+
 /// Ctrl+C is how the foreground dashboard stops: a clean exit 0 (omp's
 /// serve commands exit 0 on SIGINT).
 #[test]

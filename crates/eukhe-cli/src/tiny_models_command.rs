@@ -88,8 +88,9 @@ fn print_list(home: &TinyHome) {
             .collect();
         println!("{}", line.join("  ").trim_end());
     }
-    // The models dir is context for the state column, not the answer.
-    eprintln!("Models dir: {}", home.models.display());
+    // The models dir belongs to the listing (omp `tiny-models-cli.ts`
+    // prints the model dir on stdout with the list).
+    println!("Models dir: {}", home.models.display());
 }
 
 fn megabytes(bytes: u64) -> String {
