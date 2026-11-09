@@ -295,9 +295,8 @@ impl AgentsViewMode {
     ///
     /// While the entry anchor still waits on its row (the saved catalog
     /// streams in), the selection is the rebuild's default, not the
-    /// user's -- opening it would confirm an arbitrary row (on a
-    /// continue-recent launch that can be an unrelated live session). The
-    /// open waits instead: the anchor lands the selection once its row
+    /// user's -- opening it would confirm an arbitrary row. The open
+    /// waits instead: the anchor lands the selection once its row
     /// appears, and any direction key cancels the wait for
     /// an explicit manual pick. A scoped view never lists its anchor
     /// (the scope root is excluded), so its wait never resolves -- it

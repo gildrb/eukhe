@@ -71,21 +71,9 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         // session exits back into the view until the user exits it. TS gates
         // the explicit `agents` request on completed onboarding (a fresh
         // install shows the first-run notice first); bare `--resume` opens
-        // the view regardless. `--continue` joins them when a candidate
-        // session exists: the view opens preselected on the newest saved
-        // session for the cwd (the notice names it) so the user confirms
-        // what continues instead of a blind newest-resume.
-        let continue_view = continue_recent_view(options, tui_options.onboarding.is_some());
-        let agents_view = should_open_agents_view(
-            options,
-            tui_options.onboarding.is_some(),
-            continue_view.is_some(),
-        );
-        if agents_view {
-            let (anchor, notice) = continue_view.map_or((None, daemon_notice), |view| {
-                (Some(view.session_id), Some(view.notice))
-            });
-            run_agents_view_flow(tui_options, anchor, None, notice).await
+        // the view regardless.
+        if should_open_agents_view(options, tui_options.onboarding.is_some()) {
+            run_agents_view_flow(tui_options, None, None, daemon_notice).await
         } else {
             let mut outcome =
                 eukhe_tui::interactive::run_interactive(tui_options.clone(), UiMode::Terminal)
@@ -406,13 +394,16 @@ fn build_tui_options(
     // Test seam: a scripted faux daemon session (same contract as the print
     // runtime). Verification harness only; never set by the product.
     let script_path = std::env::var_os("EUKHE_FAUX_SCRIPT").map(PathBuf::from);
-    // TS `createSessionManager`'s flag order (fork -> resume -> create):
-    // a fork copies its source into a fresh file client-side, and the
-    // daemon opens the fork -- never the source -- through the create
-    // `sessionPath` (TS `getInteractiveDaemonSessionPath`).
+    // TS `createSessionManager`'s flag order (fork -> resume -> continue
+    // -> create): a fork copies its source into a fresh file client-side,
+    // and the daemon opens the fork -- never the source -- through the
+    // create `sessionPath` (TS `getInteractiveDaemonSessionPath`).
     let session = match &options.session.fork {
         Some(selector) => fork_startup_selection(options, selector)?,
-        None => session_selection(&options.session, session_dir.as_deref()),
+        None => match continue_startup_selection(options)? {
+            Some(selection) => selection,
+            None => session_selection(&options.session, session_dir.as_deref()),
+        },
     };
     // The chat markdown code-block indent reads the effective settings on
     // startup (TS `getCodeBlockIndent` -> `getMarkdownThemeWithSettings`).
@@ -557,10 +548,8 @@ fn build_tui_options(
 }
 
 /// Map the CLI session flags onto the TUI session selection (the TS order:
-/// explicit `--resume` selector, then a fresh session). `--continue` never
-/// maps to a resume: it surfaces its candidate through the agents view
-/// ([`continue_recent_view`]) and falls through to the fresh-session run
-/// here.
+/// explicit `--resume` selector, then a fresh session). `--continue`
+/// resolves before this ([`continue_startup_selection`]).
 fn session_selection(
     session: &crate::mode::SessionOptions,
     session_dir: Option<&Path>,
@@ -571,6 +560,42 @@ fn session_selection(
         return resolve_resume_selector(selector, dir);
     }
     SessionSelection::New
+}
+
+/// TS `SessionManager.continueRecent` (session-manager.ts:4573, reached
+/// from main.ts:1360): `--continue` reopens the newest saved session of
+/// the cwd -- a durable `<sessions>/<id>/` storage or a legacy
+/// `<sessions>/<id>.jsonl` file -- and falls back to a fresh session when
+/// the cwd has none (`None`). A live session reopens as an attach: the
+/// daemon's create answers the worker already serving that storage. An
+/// explicit `--resume` selector and `--no-session` own the selection
+/// first (the TS flag order), so they yield `None` too.
+///
+/// # Errors
+///
+/// The runtime build, or a candidate whose path cannot be made absolute.
+fn continue_startup_selection(options: &RunOptions) -> Result<Option<SessionSelection>> {
+    if !options.session.continue_recent
+        || options.session.resume.is_some()
+        || options.session.no_session
+    {
+        return Ok(None);
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let listing = runtime.block_on(eukhe_core::durable::most_recent_session_for_cwd(
+        &crate::headless_session::sessions_dir(options),
+        &options.config.cwd,
+        &eukhe_chord::context::BACKGROUND_CONTEXT,
+    ));
+    listing
+        .map(|listing| {
+            std::path::absolute(listing.location.path())
+                .map(SessionSelection::Resume)
+                .context("resolve the continued session path")
+        })
+        .transpose()
 }
 
 /// TS `createSessionManager`'s fork arm for the interactive launch: resolve
@@ -608,67 +633,10 @@ fn fork_startup_selection(options: &RunOptions, selector: &str) -> Result<Sessio
 /// The selector (`--resume <id>`) and `--continue` launches never reach the
 /// view with `--fork` anyway (the shared flag validation refuses the
 /// combination at startup), so only the explicit `agents` request needs the
-/// guard; bare `--resume` still opens the view, as does a `--continue` with
-/// a saved candidate.
-fn should_open_agents_view(
-    options: &RunOptions,
-    onboarding_pending: bool,
-    continue_view: bool,
-) -> bool {
+/// guard; bare `--resume` still opens the view.
+fn should_open_agents_view(options: &RunOptions, onboarding_pending: bool) -> bool {
     options.session.resume_bare
         || (options.agents_view_requested && !onboarding_pending && options.session.fork.is_none())
-        || continue_view
-}
-
-/// The `--continue` launch's agents-view target: the newest saved session
-/// for the cwd (the candidate TS `SessionManager.continueRecent` silently
-/// reopens) plus the status-line notice that names it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ContinueRecentView {
-    /// The candidate's session id: the view preselects (anchors on) its row.
-    session_id: String,
-    notice: String,
-}
-
-/// Resolve the `--continue` launch into an agents-view opening. The launch
-/// never blind-resumes the newest session: on a shared session dir that
-/// could be any session (an orchestrator's), and reopening it would revive
-/// its context and scheduled jobs without the user ever naming it. The view
-/// shows the candidate preselected and the user confirms what continues (a
-/// sanctioned divergence: TS `SessionManager.continueRecent` reopens the
-/// candidate silently). `None` falls through to the direct fresh-session
-/// run: not a bare `--continue` launch (an explicit `--resume` selector or
-/// `--no-session` owns the selection first, the TS flag order), a pending
-/// onboarding (the first-run notice owns the startup, like the explicit
-/// `agents` request), or no saved session for the cwd (the fresh-session
-/// fallback TS `continueRecent` itself takes).
-fn continue_recent_view(
-    options: &RunOptions,
-    onboarding_pending: bool,
-) -> Option<ContinueRecentView> {
-    if !options.session.continue_recent
-        || options.session.resume.is_some()
-        || options.session.no_session
-        || onboarding_pending
-    {
-        return None;
-    }
-    let session_dir = options
-        .session
-        .session_dir
-        .clone()
-        .unwrap_or_else(|| options.config.agent_dir.join("sessions"));
-    let cwd = options.config.cwd.clone();
-    let path =
-        eukhe_core::session::discovery::find_most_recent_session_for_cwd(&session_dir, &cwd)?;
-    let header = eukhe_core::session::manager::read_session_header(&path)?;
-    Some(ContinueRecentView {
-        session_id: header.id.clone(),
-        notice: format!(
-            "Most recent session for this directory: {} -- Enter continues it, or pick another session.",
-            header.id
-        ),
-    })
 }
 
 /// `--resume <selector>`: an existing session file path, a `<id>.jsonl` under
