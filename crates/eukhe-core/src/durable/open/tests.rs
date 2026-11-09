@@ -816,6 +816,76 @@ async fn a_fork_made_main_in_its_creating_commit_is_main_after_reopen() {
     session.close(cx()).await.expect("close");
 }
 
+/// `--no-skills`, `--no-prompt-templates`, and `--no-context-files` reach
+/// the session's resources: discovery stops (agent-dir skills and
+/// templates, `AGENTS.md`), while the explicit `--skill` and
+/// `--prompt-template` paths still load (TS resource loader
+/// `noSkills`/`noPromptTemplates`/`noContextFiles`).
+#[tokio::test]
+async fn the_discovery_switches_reach_the_session_resources() {
+    let fixture = fixture();
+    std::fs::write(fixture.cwd.join("AGENTS.md"), "Project instructions.\n").expect("agents");
+    let write_skill = |dir: &std::path::Path, name: &str| {
+        std::fs::create_dir_all(dir).expect("skill dir");
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: A test skill.\n---\n# {name}\n"),
+        )
+        .expect("skill");
+    };
+    write_skill(&fixture.agent_dir.join("skills/agent-skill"), "agent-skill");
+    let cli_skill = fixture.agent_dir.join("extra/cli-skill");
+    write_skill(&cli_skill, "cli-skill");
+    std::fs::create_dir_all(fixture.agent_dir.join("prompts")).expect("prompts dir");
+    std::fs::write(
+        fixture.agent_dir.join("prompts/agent-tpl.md"),
+        "---\ndescription: An agent-dir template\n---\nAgent body.\n",
+    )
+    .expect("template");
+    let cli_tpl = fixture.agent_dir.join("cli-tpl.md");
+    std::fs::write(
+        &cli_tpl,
+        "---\ndescription: A CLI template\n---\nCli body.\n",
+    )
+    .expect("template");
+    let resources = |no_switches: bool| {
+        let mut config = fixture.config(SessionStorage::Memory);
+        config.model = Some(fixture.model().into());
+        config.prompt.additional_skill_paths = vec![cli_skill.to_string_lossy().into_owned()];
+        config.prompt.additional_prompt_paths = vec![cli_tpl.to_string_lossy().into_owned()];
+        config.prompt.no_skills = no_switches;
+        config.prompt.no_prompt_templates = no_switches;
+        config.prompt.no_context_files = no_switches;
+        async move {
+            let session = open_session(config, cx()).await.expect("open");
+            let resources = &session.deps().resources;
+            let mut skills: Vec<String> = resources
+                .skills
+                .iter()
+                .map(|skill| skill.name.clone())
+                .collect();
+            skills.sort();
+            let mut prompts: Vec<String> = resources
+                .prompts
+                .iter()
+                .map(|prompt| prompt.name.clone())
+                .collect();
+            prompts.sort();
+            let context_files = resources.agents_files.len();
+            session.close(cx()).await.expect("close");
+            (skills, prompts, context_files)
+        }
+    };
+    let (skills, prompts, context_files) = resources(false).await;
+    assert!(skills.contains(&"agent-skill".to_owned()), "{skills:?}");
+    assert!(prompts.contains(&"agent-tpl".to_owned()), "{prompts:?}");
+    assert!(context_files >= 1, "the project AGENTS.md");
+    let (skills, prompts, context_files) = resources(true).await;
+    assert_eq!(skills, ["cli-skill"]);
+    assert_eq!(prompts, ["cli-tpl"]);
+    assert_eq!(context_files, 0);
+}
+
 /// The system prompt the provider receives is `build_system_prompt`'s
 /// output for the same inputs, with the `codemode` section just before its
 /// closing `<critical>` block, which the project's instructions and the

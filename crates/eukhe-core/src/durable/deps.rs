@@ -159,6 +159,14 @@ pub struct PromptConfig {
     pub additional_prompt_paths: Vec<String>,
     /// Force-exclude patterns for built-in skills.
     pub extra_builtin_skill_overrides: Vec<String>,
+    /// `--no-skills`: no skill discovery (agent dir, project, settings,
+    /// packages, bundled); the extra skill paths still load.
+    pub no_skills: bool,
+    /// `--no-prompt-templates`: no prompt-template discovery; the extra
+    /// prompt-template paths still load.
+    pub no_prompt_templates: bool,
+    /// `--no-context-files`: no `AGENTS.md`/`CLAUDE.md` discovery.
+    pub no_context_files: bool,
 }
 
 /// A requested model as the CLI takes it: `--provider` (optional) and

@@ -107,6 +107,56 @@ fn print_mode_json_streams_ts_shaped_events() {
     assert_eq!(*types.last().unwrap(), "agent_end");
 }
 
+/// `--no-skills` and `--no-prompt-templates` stop discovery for print mode:
+/// an agent-dir skill or template no longer expands its `/skill:<name>` or
+/// `/<template>` prompt (TS resource loader `noSkills`/
+/// `noPromptTemplates`); without them both expand.
+#[test]
+fn print_mode_no_discovery_flags_stop_skill_and_template_expansion() {
+    let home = isolated_home();
+    let agent = home.path().join(".eukhe");
+    std::fs::create_dir_all(agent.join("skills/agent-skill")).unwrap();
+    std::fs::write(
+        agent.join("skills/agent-skill/SKILL.md"),
+        "---\nname: agent-skill\ndescription: A test skill.\n---\n# agent-skill\nSay KIWI.\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(agent.join("prompts")).unwrap();
+    std::fs::write(
+        agent.join("prompts/agent-tpl.md"),
+        "---\ndescription: A test template\n---\nAgent template body.\n",
+    )
+    .unwrap();
+    let user_text = |args: &[&str]| {
+        let script = serde_json::json!({ "responses": ["ok"] });
+        let (stdout, stderr, code) = run_in_home(home.path(), args, &script);
+        assert_eq!(code, 0, "stderr: {stderr}");
+        stdout
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|line| line["type"] == "message_start" && line["message"]["role"] == "user")
+            .map(|line| line["message"]["content"][0]["text"].clone())
+            .expect("the user message")
+    };
+    let expanded = |text: &serde_json::Value, needle: &str| {
+        text.as_str().is_some_and(|text| text.contains(needle))
+    };
+    let skill = user_text(&["--mode", "json", "-p", "/skill:agent-skill"]);
+    assert!(expanded(&skill, "Say KIWI."), "{skill}");
+    let template = user_text(&["--mode", "json", "-p", "/agent-tpl"]);
+    assert!(expanded(&template, "Agent template body."), "{template}");
+    let skill = user_text(&["--mode", "json", "--no-skills", "-p", "/skill:agent-skill"]);
+    assert_eq!(skill, "/skill:agent-skill");
+    let template = user_text(&[
+        "--mode",
+        "json",
+        "--no-prompt-templates",
+        "-p",
+        "/agent-tpl",
+    ]);
+    assert_eq!(template, "/agent-tpl");
+}
+
 /// A `codemode` script's nested calls are part of the `codemode` call: the
 /// json stream carries one tool start/end pair, the model's call, which
 /// succeeds with the script's result. Its nested `read`s never show as
