@@ -1,14 +1,36 @@
 # eukhe: the proof of LAW job_rewind_refines
-# The kills are the spec's (job_rewind_exact). Then job by job, the job at
-# place i: the tree holds it (its id i heads the ids held, and no later
-# slot has id i, so the head id changes nothing after it) or not (no id
-# held from i + 1 on is i).
+# Job by job, the job at place i: the model's held is the laws' held (a
+# commit below the target is one the target is not at or below); the
+# tree holds the job (its id i heads the ids held, and no later slot has
+# id i, so the head id changes nothing after it) or not (no id held from
+# i + 1 on is i).
 
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
 import ../base/nat.bend as LNat
-import ./job_rewind_exact.bend as PJobRewindExact
+
+def pr.not_le(t: Nat, a: Nat) -> {Nat.is_lt(a, t) == Bool.not(Nat.is_le(t, a)) : Bool}:
+  match t a:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      pr.not_le(p, q)
+
+def pr.held(target: Maybe<&2, Nat>, a: Maybe<&2, Nat>) -> {Jb.held(target, a) == Job.rw_held_spec(target, a) : Bool}:
+  match target a:
+    case None{} None{}:
+      {==}
+    case None{} Some{x}:
+      {==}
+    case Some{t} None{}:
+      {==}
+    case Some{t} Some{x}:
+      pr.not_le(t, x)
 
 def pr.ne(+x: Nat, +j: Nat, lt: {Nat.is_lt(x, j) == True{} : Bool}) -> {False{} == Nat.is_eq(x, j) : Bool}:
   Equal.sym(Bool, Nat.is_eq(x, j), False{}, LNat.pt.lt_ne(x, j, lt))
@@ -89,7 +111,7 @@ def pr.step_ended(h: Bool, +i: Nat, -S: List<&2, Jb.Slot>, -KS: List<&2, Bool>, 
       %ih : {Jb.Slot{i, False{}} <> Job.rw_stopped(S, KS) == Jb.Slot{i, False{}} <> _ : List<&2, Jb.Slot>}
       {==}
 
-def pr.refine(js: List<&2, Jb.Seen>, +t: Maybe<&2, Nat>, +i: Nat) -> {Job.rw_stopped(Job.rw_slots(js, i), Job.rw_kills_spec(js, t)) == Jb.rewind(Job.rw_slots(js, i), Job.rw_held_ids(js, t, i)) : List<&2, Jb.Slot>}:
+def pr.refine(js: List<&2, Jb.Seen>, +t: Maybe<&2, Nat>, +i: Nat) -> {Job.rw_stopped(Job.rw_slots(js, i), Jb.kills(js, t)) == Jb.rewind(Job.rw_slots(js, i), Job.rw_held_ids(js, t, i)) : List<&2, Jb.Slot>}:
   match js:
     case Nil{}:
       {==}
@@ -98,10 +120,11 @@ def pr.refine(js: List<&2, Jb.Seen>, +t: Maybe<&2, Nat>, +i: Nat) -> {Job.rw_sto
         case Jb.Seen{r, +a}:
           match r:
             case True{}:
-              pr.step_run(Job.rw_held_spec(t, a), i, Job.rw_slots(rest, 1n+i), Job.rw_kills_spec(rest, t), Job.rw_held_ids(rest, t, 1n+i), pr.refine(rest, t, 1n+i), pr.drop(rest, 1n+i, i, Job.rw_held_ids(rest, t, 1n+i), LNat.rp.lt_self(i)), pr.not_held(rest, t, 1n+i, i, LNat.rp.lt_self(i)), pr.refl(i))
+              +K = Job.rw_held_ids(rest, t, 1n+i)
+              %pr.held(t, a) : {Job.rw_stop_if(Bool.not(Jb.held(t, a)), Jb.Slot{i, True{}}) <> Job.rw_stopped(Job.rw_slots(rest, 1n+i), Jb.kills(rest, t)) == Jb.stop.at(Jb.elem(Job.rw_put_if(_, i, K), i), Jb.Slot{i, True{}}) <> Jb.rewind(Job.rw_slots(rest, 1n+i), Job.rw_put_if(_, i, K)) : List<&2, Jb.Slot>}
+              pr.step_run(Jb.held(t, a), i, Job.rw_slots(rest, 1n+i), Jb.kills(rest, t), K, pr.refine(rest, t, 1n+i), pr.drop(rest, 1n+i, i, K, LNat.rp.lt_self(i)), pr.not_held(rest, t, 1n+i, i, LNat.rp.lt_self(i)), pr.refl(i))
             case False{}:
-              pr.step_ended(Job.rw_held_spec(t, a), i, Job.rw_slots(rest, 1n+i), Job.rw_kills_spec(rest, t), Job.rw_held_ids(rest, t, 1n+i), pr.refine(rest, t, 1n+i), pr.drop(rest, 1n+i, i, Job.rw_held_ids(rest, t, 1n+i), LNat.rp.lt_self(i)), pr.not_held(rest, t, 1n+i, i, LNat.rp.lt_self(i)), pr.refl(i))
+              pr.step_ended(Job.rw_held_spec(t, a), i, Job.rw_slots(rest, 1n+i), Jb.kills(rest, t), Job.rw_held_ids(rest, t, 1n+i), pr.refine(rest, t, 1n+i), pr.drop(rest, 1n+i, i, Job.rw_held_ids(rest, t, 1n+i), LNat.rp.lt_self(i)), pr.not_held(rest, t, 1n+i, i, LNat.rp.lt_self(i)), pr.refl(i))
 
 def Job.job_rewind_refines(js, target):
-  %Equal.sym(List<&2, Bool>, Jb.kills(js, target), Job.rw_kills_spec(js, target), Job.job_rewind_exact(js, target)) : {Job.rw_stopped(Job.rw_slots(js, 0n), _) == Jb.rewind(Job.rw_slots(js, 0n), Job.rw_held_ids(js, target, 0n)) : List<&2, Jb.Slot>}
   pr.refine(js, target, 0n)
