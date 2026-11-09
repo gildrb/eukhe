@@ -1,4 +1,11 @@
 # eukhe: the proof of LAW secrets_kept_without_yes
+#
+# PROOF: the entry s is at or above k ++ s (pcc.under_app), so the model's
+# secret test holds there (pri.any). A write without a yes that runs is not
+# to a Secret path (gate_write_auto_never_secret), so the secret test fails
+# at its real location, which is then not k ++ s, and the write keeps the
+# content at k ++ s (pp.cell_set); a refused write keeps the store. By
+# induction on the writes.
 
 import Base
 import ../../bend/path_policy.bend as Pp
@@ -6,6 +13,8 @@ import ../../bend/tools.bend as Tl
 import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
 import ./base/lemmas.bend as LAE
+import ./base/class.bend as LAC
+import ./path_root_inside.bend as PPathRootInside
 
 # the first write of writes without a yes has no yes
 def pp.no_yes_head(ans: Pp.Ans, +segs: List<&2, Tl.Seg>, +v: Nat, +rest: List<&2, Pp.Put>, no: {PathPolicy.pp_no_yes(Pp.Put{segs, v, ans} <> rest) == True{} : Bool}) -> {Pp.Ans.yes(ans) == False{} : Bool}:
@@ -27,13 +36,13 @@ def pp.no_yes_rest(ans: Pp.Ans, +segs: List<&2, Tl.Seg>, +v: Nat, +rest: List<&2
     case Pp.Gone{}:
       no
 
-# a location no secret entry covers is not the secret location at
-def pp.not_same(b: Bool, +se: List<&2, List<&2, Nat>>, +k: List<&2, Nat>, +at: List<&2, Nat>, e: {PathPolicy.pp_same(k, at) == b : Bool}, hk: {PathPolicy.pp_under_any(se, k) == False{} : Bool}, sec: {PathPolicy.pp_under_any(se, at) == True{} : Bool}) -> {PathPolicy.pp_same(k, at) == False{} : Bool}:
+# a location the secret test misses is not the secret location at
+def pp.not_same(b: Bool, +se: List<&2, List<&2, Nat>>, +k: List<&2, Nat>, +at: List<&2, Nat>, e: {PathPolicy.pp_same(k, at) == b : Bool}, hk: {Pp.any_under(se, k) == False{} : Bool}, sec: {Pp.any_under(se, at) == True{} : Bool}) -> {PathPolicy.pp_same(k, at) == False{} : Bool}:
   match b:
     case True{}:
       +same = LAE.pp.ids_sound(k, at, Equal.trans(Bool, Tl.ids.eq(k, at), PathPolicy.pp_same(k, at), True{}, LA.pp.ids_same(k, at), e))
-      +moved = Equal.cong(List<&2, Nat>, Bool, x => PathPolicy.pp_under_any(se, x), k, at, same)
-      LA.pp.absurdF({PathPolicy.pp_same(k, at) == False{} : Bool}, Equal.trans(Bool, False{}, PathPolicy.pp_under_any(se, at), True{}, Equal.trans(Bool, False{}, PathPolicy.pp_under_any(se, k), PathPolicy.pp_under_any(se, at), Equal.sym(Bool, PathPolicy.pp_under_any(se, k), False{}, hk), moved), sec))
+      +moved = Equal.cong(List<&2, Nat>, Bool, x => Pp.any_under(se, x), k, at, same)
+      LA.pp.absurdF({PathPolicy.pp_same(k, at) == False{} : Bool}, Equal.trans(Bool, False{}, Pp.any_under(se, at), True{}, Equal.trans(Bool, False{}, Pp.any_under(se, k), Pp.any_under(se, at), Equal.sym(Bool, Pp.any_under(se, k), False{}, hk), moved), sec))
     case False{}:
       e
 
@@ -63,18 +72,18 @@ def pp.cell_set(cs: List<&2, Pp.Cell>, +k: List<&2, Nat>, +v: Nat, +at: List<&2,
 
 # one write without a yes, by the gate's verdict b, keeps the content at a
 # secret location
-def pp.put_keeps(b: Bool, +ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +ls: List<&2, Pp.Link>, +auto: List<&2, Nat>, cs: List<&2, Pp.Cell>, +segs: List<&2, Tl.Seg>, +v: Nat, +ans: Pp.Ans, +at: List<&2, Nat>, e: {Pp.runs(Pp.class(Pp.Pol{ro, ru, se}, ls, segs), Pp.Wr{}, auto, ans) == b : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}, sec: {PathPolicy.pp_under_any(se, at) == True{} : Bool}) -> {PathPolicy.pp_cell(Pp.put.pick(b, cs, Pp.Res.at(Pp.real(ls, segs)), v), at) == PathPolicy.pp_cell(cs, at) : Maybe<&2, Nat>}:
+def pp.put_keeps(b: Bool, +ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +ls: List<&2, Pp.Link>, +auto: List<&2, Nat>, cs: List<&2, Pp.Cell>, +segs: List<&2, Tl.Seg>, +v: Nat, +ans: Pp.Ans, +at: List<&2, Nat>, e: {Pp.runs(Pp.class(Pp.Pol{ro, ru, se}, ls, segs), Pp.Wr{}, auto, ans) == b : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}, sec: {Pp.any_under(se, at) == True{} : Bool}) -> {PathPolicy.pp_cell(Pp.put.pick(b, cs, Pp.Res.at(Pp.real(ls, segs)), v), at) == PathPolicy.pp_cell(cs, at) : Maybe<&2, Nat>}:
   match b:
     case True{}:
       +k = Pp.Res.at(Pp.real(ls, segs))
       +plain = LA.pp.gate_write_auto_never_secret(Pp.class(Pp.Pol{ro, ru, se}, ls, segs), auto, ans, e, no)
       +plain_at = LAE.pp.res_secret(Pp.Pol{ro, ru, se}, Pp.real(ls, segs), plain)
-      +hk = Equal.trans(Bool, PathPolicy.pp_under_any(se, k), Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, k)), False{}, Equal.sym(Bool, Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, k)), PathPolicy.pp_under_any(se, k), LA.pp.class_of_secret(ro, ru, se, k)), plain_at)
+      +hk = Equal.trans(Bool, Pp.any_under(se, k), Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, k)), False{}, Equal.sym(Bool, Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, k)), Pp.any_under(se, k), LA.pp.class_of_secret(ro, ru, se, k)), plain_at)
       pp.cell_set(cs, k, v, at, pp.not_same(PathPolicy.pp_same(k, at), se, k, at, {==}, hk, sec))
     case False{}:
       {==}
 
-def pp.kept(es: List<&2, Pp.Put>, +ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +ls: List<&2, Pp.Link>, +auto: List<&2, Nat>, +cs: List<&2, Pp.Cell>, +at: List<&2, Nat>, +sec: {PathPolicy.pp_under_any(se, at) == True{} : Bool}, +no: {PathPolicy.pp_no_yes(es) == True{} : Bool}) -> {PathPolicy.pp_cell(Pp.run(es, Pp.Pol{ro, ru, se}, ls, auto, cs), at) == PathPolicy.pp_cell(cs, at) : Maybe<&2, Nat>}:
+def pp.kept(es: List<&2, Pp.Put>, +ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +ls: List<&2, Pp.Link>, +auto: List<&2, Nat>, +cs: List<&2, Pp.Cell>, +at: List<&2, Nat>, +sec: {Pp.any_under(se, at) == True{} : Bool}, +no: {PathPolicy.pp_no_yes(es) == True{} : Bool}) -> {PathPolicy.pp_cell(Pp.run(es, Pp.Pol{ro, ru, se}, ls, auto, cs), at) == PathPolicy.pp_cell(cs, at) : Maybe<&2, Nat>}:
   match es:
     case Nil{}:
       {==}
@@ -86,5 +95,7 @@ def pp.kept(es: List<&2, Pp.Put>, +ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp
           +next = Pp.step(Pp.Pol{ro, ru, se}, ls, auto, cs, Pp.Put{segs, v, ans})
           Equal.trans(Maybe<&2, Nat>, PathPolicy.pp_cell(Pp.run(rest, Pp.Pol{ro, ru, se}, ls, auto, next), at), PathPolicy.pp_cell(next, at), PathPolicy.pp_cell(cs, at), pp.kept(rest, ro, ru, se, ls, auto, next, at, sec, nr), pp.put_keeps(Pp.runs(Pp.class(Pp.Pol{ro, ru, se}, ls, segs), Pp.Wr{}, auto, ans), ro, ru, se, ls, auto, cs, segs, v, ans, at, {==}, na, sec))
 
-def PathPolicy.secrets_kept_without_yes(es, ro, ru, se, ls, auto, cs, at, sec, no):
-  pp.kept(es, ro, ru, se, ls, auto, cs, at, sec, no)
+def PathPolicy.secrets_kept_without_yes(es, ro, ru, se1, s, se2, ls, auto, cs, k, no):
+  +se = List.append(&2, List<&2, Nat>, se1, s <> se2)
+  +at = List.append(&2, Nat, k, s)
+  pp.kept(es, ro, ru, se, ls, auto, cs, at, PPathRootInside.pri.any(se1, s, se2, at, LAC.pcc.under_app(s, k)), no)

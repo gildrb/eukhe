@@ -12,8 +12,9 @@ import ../base/wire.bend as LWire
 
 # ---- child_env ----
 
-# proof_child_env: the G3 laws (LAWS.bend section child_env, no credential
-# reaches a child) of the model in bend/child_env.bend.
+# proof_child_env: the laws of docs/tools.md S7 item 7 (LAWS.bend section
+# child_env, no credential reaches a child) of the model in
+# bend/child_env.bend.
 #
 # The filter keeps a variable exactly when its name passes. So every
 # variable of the child passes (`pce.all` holds of the filtered list, and

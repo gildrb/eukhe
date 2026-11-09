@@ -33,9 +33,10 @@ law gate_yes_runs:
 # (G1) The gate, against the effects table
 # ----------------------------------------
 # The gate laws once read the model's own effects and answer test (and a
-# law took the model's own Pp.secret_read as its premise): a model whose
-# effects of a plain read of a secret lack the secret effect let it run
-# with no yes and passed them (an adversary found this gap).
+# law took a model-side test of a secret read, since removed, as its
+# premise): a model whose effects of a plain read of a secret lack the
+# secret effect let it run with no yes and passed them (an adversary found
+# this gap).
 # gate_effs_exact pins the effects to docs/tools.md G1.5 with the spec
 # helpers here, which never call the model; gate_secret_needs_yes and
 # gate_holding_search_needs_yes state the secret reads over constructors;
@@ -59,35 +60,50 @@ def pp_cls_secret(c: Pp.Cls) -> Bool:
     case Pp.Secret{}:
       True{}
 
-# a read's effects: read, and secret when it reads a secret
+# a read's effects: read, and secret when it reads a secret (docs/tools.md
+# G1.5, codes S7 item 8: read 0, secret 6)
 def pp_read_effs(sec: Bool) -> List<&2, Nat>:
   match sec:
     case True{}:
+      # G1.5 "read or list ... of a Secret path, read and secret" and
+      # "search ... of a path that is or holds a secret: read and secret"
       [0n, 6n]
     case False{}:
+      # G1.5 "read or list: read" and "search of any other path: read"
       [0n]
 
-# a write's effects: write, then outside, protected or secret by the class
+# a write's effects by the class (docs/tools.md G1.5; codes S7 item 8:
+# write 1, outside 4, protected 5, secret 6)
 def pp_write_effs(c: Pp.Cls) -> List<&2, Nat>:
   match c:
     case Pp.Inside{}:
+      # G1.5 "write Inside: write"
       [1n]
     case Pp.Outside{}:
+      # G1.5 "write Outside: write and outside"
       [1n, 4n]
     case Pp.Protected{}:
+      # G1.5 "write Protected: write and protected"
       [1n, 5n]
     case Pp.Secret{}:
+      # G1.5 "write Secret: write and secret"
       [1n, 6n]
 
+# the effects of access a to a path of class c, row by row of the G1.5 table
 def pp_effs(c: Pp.Cls, a: Pp.Acc) -> List<&2, Nat>:
   match a:
     case Pp.Rd{}:
+      # G1.5 "read or list": a read of a Secret path reads the secret
       pp_read_effs(pp_cls_secret(c))
     case Pp.Ls{}:
+      # G1.5 "read or list": the same row as a read
       pp_read_effs(pp_cls_secret(c))
     case Pp.Sr{h}:
+      # G1.5 "search ... of a path that is (Secret) or holds (h) a
+      # secret", else "search of any other path"
       pp_read_effs(Bool.or(h, pp_cls_secret(c)))
     case Pp.Wr{}:
+      # G1.5 "write <class>"
       pp_write_effs(c)
 
 # LAW gate_effs_exact: the effects of every access to a path of every class are exactly pp_effs
@@ -228,8 +244,11 @@ law store_write_only_its_path:
   {PathPolicy.pp_cell(Pp.run([Pp.Put{segs, v, ans}], pol, ls, auto, cs), x) == PathPolicy.pp_cell(cs, x) : Maybe<&2, Nat>}
 
 # LAW store_write_adds_at_most_one: a write adds at most one cell to the store
-# EXCLUDES: a write that lands twice, or appends a cell for a location the
-#   store already holds and more
+# EXCLUDES: a write that appends two or more cells (a new location written
+#   as two cells, or a cell for a location the store already holds appended
+#   beside another). Not excluded: a write that replaces the first cell at
+#   its location and also appends a copy (one cell added; the content
+#   there, the first cell, is the same)
 law store_write_adds_at_most_one:
   for +pol: Pp.Pol
   for +ls: List<&2, Pp.Link>

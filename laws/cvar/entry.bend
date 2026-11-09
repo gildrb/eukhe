@@ -364,13 +364,40 @@ law cvar_step_left_over_spelled:
   for +t: String
   {FCv.step(FCv.Table{bs, as}, Wr.put_nat(k, SCon{c, t})) == (FCv.Table{bs, as}, Wr.err("cvar: input left over")) : FCv.St & String}
 
-# LAW cvar_step_keeps_table: a press of any input, malformed or not, leaves the table as it was
-# EXCLUDES: a malformed press that drops, refuses or changes the table
-law cvar_step_keeps_table:
+# the replies of the shipped stepper to the inputs ins, one step each,
+# from the state st
+def cvar_feed(ins: List<&2, String>, +st: FCv.St) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case Con{+i, rest}:
+      cvar_reply_of(FCv.step(st, i)) <> cvar_feed(rest, cvar_st_of(FCv.step(st, i)))
+
+# the replies to the inputs ins, each sent alone to the press state of the
+# table of binds bs and aliases as
+def cvar_fresh(ins: List<&2, String>, +bs: List<&2, Cv.KeyBind>, +as: List<&2, Cv.Alias>) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case Con{i, rest}:
+      cvar_reply_of(FCv.step(FCv.Table{bs, as}, i)) <> cvar_fresh(rest, bs, as)
+
+# LAW cvar_history_keeps_table: open a press table spelled by the grammar, every number within
+# the wire, then send it any inputs, malformed or not: every reply is the
+# reply the opened table gives that input alone (with cvar_step_answers_spelled,
+# cvar_step_left_over_spelled, cvar_step_reads_only_keys and
+# cvar_step_malformed_unless_key: at every point of every history, a key
+# within the wire answers the spelled press of the table that was opened,
+# and every other input an error form)
+# EXCLUDES: a press, malformed or not, that drops, refuses, changes or
+#   reorders the table for the presses after it, a stepper that answers a
+#   press from an earlier one
+law cvar_history_keeps_table:
   for +bs: List<&2, Cv.KeyBind>
   for +as: List<&2, Cv.Alias>
-  for +s: String
-  {cvar_st_of(FCv.step(FCv.Table{bs, as}, s)) == FCv.Table{bs, as} : FCv.St}
+  for fits: {Bool.and(cvar_binds_fit(bs), cvar_aliases_fit(as)) == True{} : Bool}
+  for +ins: List<&2, String>
+  {cvar_feed(ins, cvar_st_of(FCv.open(cvar_spell_binds(bs, cvar_spell_aliases(as, ""))))) == cvar_fresh(ins, bs, as) : List<&2, String>}
 
 # LAW cvar_step_reads_only_keys: a press reply that is not the error form answers exactly a
 # spelled key within the wire, with the spelled expansion of its press

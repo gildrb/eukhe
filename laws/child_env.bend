@@ -8,12 +8,13 @@ import ./base.bend as LawsBase
 
 # ---- child_env ----
 
-# LAWS (G3): no credential reaches a child. Each law is an open claim
-# about the model in bend/child_env.bend; PROOF.bend proves them (as
-# ChildEnv.<law>) with the lemmas of proof/child_env/.
+# LAWS (docs/tools.md S7 item 7, the environment of an external process
+# and of a local kernel): no credential reaches a child. Each law is an
+# open claim about the model in bend/child_env.bend; PROOF.bend proves them
+# (as ChildEnv.<law>) with the lemmas of proof/child_env/.
 
-# (G3) No credential reaches a child
-# ----------------------------------
+# (S7 item 7) No credential reaches a child
+# -----------------------------------------
 # The environment of a child the host starts for an agent: the overlay
 # over the base, less the credential names (bend/child_env.bend). The
 # `bash` tool's external steps get an empty keep list; a local kernel gets
@@ -159,7 +160,7 @@ law env_kernel_example:
 
 # ---- child_env_entry ----
 
-# LAWS (G3, the compiled core): the entry bend/ffi_child_env.bend runs the
+# LAWS (docs/tools.md S7 item 7, the compiled core): the entry bend/ffi_child_env.bend runs the
 # child environment for the Rust code. Each law is an open claim about
 # that entry; PROOF.bend proves them (as ChildEnv.<law>) with the lemmas of
 # proof/child_env/.

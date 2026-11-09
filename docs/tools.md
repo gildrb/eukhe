@@ -69,7 +69,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    - Built in: `cat`, `ls`, `head`, `tail`, `wc`, `echo`, `pwd`, `mkdir`, `rm`, `rmdir`, `touch`, `cp`, `mv`; `grep` on the ripgrep engine (`grep-regex`, `grep-searcher`). All other commands, and these with options the shell does not know, run as external processes.
    - Each external process gets its own process group and this environment: the daemon worker's environment, plus the session values (`EUKHE_CODING_AGENT_DIR`; `EUKHE_CHAT_MEMORY` in a chat-memory session), minus each credential (`kernel::manager::local_env` over `durable::rlm::session_env`).
    - A credential is a provider credential the provider code reads (`eukhe_ai::env_api_keys::credential_env_vars`, any case), or a name whose upper case contains `API_KEY`, `APIKEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `PRIVATE_KEY` or `ACCESS_KEY`.
-   - A local kernel gets the same environment, but keeps the credentials the user's MCP config reads (a `bearerTokenEnvVar`, a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that names a variable). It never keeps a provider credential. Runs as the compiled model `bend/child_env.bend` (`kernel::manager::child_env` calls entry `bend/ffi_child_env.bend`). Laws (G3): `laws/child_env.bend`.
+   - A local kernel gets the same environment, but keeps the credentials the user's MCP config reads (a `bearerTokenEnvVar`, a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that names a variable). It never keeps a provider credential. Runs as the compiled model `bend/child_env.bend` (`kernel::manager::child_env` calls entry `bend/ffi_child_env.bend`). Laws of this bullet and the two before it (no credential reaches a child; tagged S7 item 7): `laws/child_env.bend`.
    - Pipeline commands run at the same time, joined by OS pipes; the kernel pipe buffer limits each pipe. When a command stops, its input pipe closes, and the writer to that pipe stops too: an external process gets SIGPIPE, a shell command stops with status 141. Thus `yes | head -n 3` stops.
    - A script with other syntax (control flow, functions, subshells, command substitution, here-documents, background jobs) is one `exec` step; `bash -c` runs it.
    - The tool obeys the S2 limits. Output goes through the call's `Truncation` as the steps write it: the result keeps output within the cap; the `output_bounded` diagnostic counts each dropped byte. With the opt-out, the result keeps all output.
@@ -235,6 +235,7 @@ requests) share it, so they cannot judge a path differently.
    | --- | --- |
    | read or list | read; of a Secret path, read and secret |
    | search (`grep` of a directory) of a path that is or holds a secret | read and secret |
+   | search of any other path | as a read of it: read |
    | write Inside | write |
    | write Outside | write and outside |
    | write Protected | write and protected |
@@ -282,13 +283,16 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `gate_unasked_only_granted`, `gate_refusal_names_an_effect` | without a yes, an access runs exactly when each of its effects is below secret (6) and in the auto set (G1.6) |
 | `gate_secret_needs_yes`, `gate_holding_search_needs_yes` | every access to a Secret path, and a search of a directory that holds a secret, runs only on a yes (G1.6) |
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
-| `secrets_kept_without_yes` | no agent write sequence without a yes changes the content at or under a secret entry (G1.6, G1.7) |
+| `secrets_kept_without_yes` | no agent write sequence without a yes changes the content at a secret entry or under it (entries `se1 ++ s :: se2`, location `k ++ s`) (G1.6, G1.7) |
 | `store_write_lands`, `store_refused_write_keeps` | a write the gate runs on its judged class lands at its real path; one it refuses leaves the store as it was (G1.6, G1.7) |
 | `store_write_only_its_path`, `store_write_adds_at_most_one`, `store_run_in_pieces` | a write changes only its real path and adds at most one cell; writes run one by one, in order (G1.7) |
 | `path_tree_rule_protects`, `path_dir_rule_protects`, `path_named_rule_protects`, `path_entry_ancestor_protects` | a Tree rule's path and all under it, a Dir rule's directory and its entries, a Named rule's name below the deepest root, a strict ancestor of a rule's entry: Protected unless Secret (G1.2, G1.3) |
 | `path_protected_has_cause` | Protected only with one of those causes or a secret entry below it (G1.2, G1.3) |
-| `path_root_inside`, `path_inside_needs_root`, `path_looped_never_inside`, `path_rule_never_unprotects`, `path_safe_is_inside` | a root holds an unlooped path not Protected or Secret: Inside; Inside needs a root at or above it; a loop is never Inside; a rule added never unprotects; safe only if Inside (G1.1, G1.2) |
+| `path_root_inside`, `path_inside_needs_root`, `path_looped_never_inside`, `path_rule_never_unprotects`, `path_safe_is_inside` | a root holds an unlooped path not Protected or Secret: Inside; Inside needs a root at or above it; a loop is never Inside; a rule added at any position never unprotects; safe only if Inside (G1.1, G1.2) |
+| `path_judge_secret_under`, `path_judge_secret_has_entry` | a secret entry and each path under it: Secret; Secret only there (G1.2) |
+| `path_judge_guards_secret_ancestor` | a strict ancestor of a secret entry: Protected or Secret (G1.2) |
 | `path_holds_at_or_under_secret`, `path_holds_above_secret`, `path_holds_only_with_secret` | a path holds a secret exactly when a secret entry is it, above it or below it (G1.5) |
+| `path_real_no_link_never_loops`, `path_real_names_resolve` | with no symlink: no path loops; a path of names resolves to those names (G1.1) |
 | `path_real_here_stays`, `path_real_up_cancels_name`, `path_real_up_at_root`, `path_real_link_followed` | `.` stays; `..` after a name that is no link goes back, `..` of `/` is `/`; a name at a link resolves as the link's target then the rest, from `/` or from the link's directory, `..` then going up from the target (G1.1) |
 | `path_real_chain_within`, `path_real_chain_past` | a chain of at most 40 links resolves to its end; more loops (G1.1, `MAX_LINKS`) |
 

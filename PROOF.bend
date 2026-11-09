@@ -431,7 +431,7 @@ import ./proof/cvar/cvar_open_reads_only_tables.bend as PCvarOpenReadsOnlyTables
 import ./proof/cvar/cvar_open_malformed_unless_table.bend as PCvarOpenMalformedUnlessTable
 import ./proof/cvar/cvar_step_answers_spelled.bend as PCvarStepAnswersSpelled
 import ./proof/cvar/cvar_step_left_over_spelled.bend as PCvarStepLeftOverSpelled
-import ./proof/cvar/cvar_step_keeps_table.bend as PCvarStepKeepsTable
+import ./proof/cvar/cvar_history_keeps_table.bend as PCvarHistoryKeepsTable
 import ./proof/cvar/cvar_step_reads_only_keys.bend as PCvarStepReadsOnlyKeys
 import ./proof/cvar/cvar_step_malformed_unless_key.bend as PCvarStepMalformedUnlessKey
 import ./proof/cvar/cvar_tags_example.bend as PCvarTagsExample
@@ -1310,7 +1310,8 @@ import ./proof/path_policy/path_policy_ffi_request_round_trip.bend as PPathPolic
 import ./proof/path_policy/path_policy_ffi_answers.bend as PPathPolicyFfiAnswers
 import ./proof/path_policy/path_policy_ffi_rejects_malformed.bend as PPathPolicyFfiRejectsMalformed
 import ./proof/path_policy/path_policy_ffi_rejects_left_over.bend as PPathPolicyFfiRejectsLeftOver
-import ./proof/path_policy/path_judge_secret_exact.bend as PPathJudgeSecretExact
+import ./proof/path_policy/path_judge_secret_under.bend as PPathJudgeSecretUnder
+import ./proof/path_policy/path_judge_secret_has_entry.bend as PPathJudgeSecretHasEntry
 import ./proof/path_policy/path_holds_at_or_under_secret.bend as PPathHoldsAtOrUnderSecret
 import ./proof/path_policy/path_holds_above_secret.bend as PPathHoldsAboveSecret
 import ./proof/path_policy/path_holds_only_with_secret.bend as PPathHoldsOnlyWithSecret
@@ -1341,7 +1342,8 @@ import ./proof/path_policy/path_real_up_at_root.bend as PPathRealUpAtRoot
 import ./proof/path_policy/path_real_link_followed.bend as PPathRealLinkFollowed
 import ./proof/path_policy/path_real_chain_within.bend as PPathRealChainWithin
 import ./proof/path_policy/path_real_chain_past.bend as PPathRealChainPast
-import ./proof/path_policy/path_real_no_links_exact.bend as PPathRealNoLinksExact
+import ./proof/path_policy/path_real_no_link_never_loops.bend as PPathRealNoLinkNeverLoops
+import ./proof/path_policy/path_real_names_resolve.bend as PPathRealNamesResolve
 import ./proof/path_policy/path_real_dots_example.bend as PPathRealDotsExample
 import ./proof/path_policy/path_safe_is_inside.bend as PPathSafeIsInside
 import ./proof/path_policy/path_class_example.bend as PPathClassExample
@@ -2134,7 +2136,6 @@ import ./proof/wire_ffi/wire_ffi_refuses.bend as PWireFfiRefuses
 import ./proof/wire_ffi/wire_ffi_example.bend as PWireFfiExample
 import ./proof/wire_ffi/wire_ffi_fits_witness.bend as PWireFfiFitsWitness
 import ./proof/echo/base.bend as LAEcho
-import ./proof/echo/echo_ffi_identity.bend as PEchoFfiIdentity
 import ./proof/echo/echo_stepper_counts.bend as PEchoStepperCounts
 import ./proof/echo/echo_stepper_refused.bend as PEchoStepperRefused
 import ./proof/echo/echo_example.bend as PEchoExample
