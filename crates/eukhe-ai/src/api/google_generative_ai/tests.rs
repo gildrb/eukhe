@@ -291,6 +291,29 @@ async fn uses_mapped_levels_for_token_budgets() {
     );
 }
 
+/// omp 18.18.1 gives the Google budget models outside the Gemini 2.5
+/// tables its default ladder (`stream.ts` `getGoogleBudget`, the model's
+/// effort budgets) and keeps the `-latest` aliases on `thinkingBudget`
+/// (`providers/google.kdl` `models "*latest"`: `thinking-mode "budget"`).
+#[tokio::test]
+async fn budget_models_without_a_gemini_2_5_table_take_omps_ladder() {
+    for id in [
+        "deep-research-preview-04-2026",
+        "gemini-2.5-computer-use-preview-10-2025",
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+    ] {
+        for (reasoning, budget) in [(ThinkingLevel::Minimal, 1024), (ThinkingLevel::Low, 2048)] {
+            let payload = capture(id, &json!({}), Some(reasoning)).await;
+            assert_eq!(
+                payload["config"]["thinkingConfig"],
+                json!({ "includeThoughts": true, "thinkingBudget": budget }),
+                "{id} {reasoning:?}"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // google-thinking-disable.test.ts (Google Generative AI, live)
 // ---------------------------------------------------------------------------
