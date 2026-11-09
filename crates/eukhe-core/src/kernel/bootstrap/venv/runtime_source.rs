@@ -46,7 +46,7 @@ fn runtime_candidate_dirs() -> Vec<PathBuf> {
     candidates
 }
 
-pub(super) fn resolve_runtime_source_dir() -> anyhow::Result<PathBuf> {
+pub(crate) fn resolve_runtime_source_dir() -> anyhow::Result<PathBuf> {
     select_runtime_source_dir(&runtime_candidate_dirs())
 }
 

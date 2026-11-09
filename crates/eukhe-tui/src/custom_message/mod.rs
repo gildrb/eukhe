@@ -210,7 +210,7 @@ pub fn custom_message_entries(
                 }]
             }
         }
-        CustomType::ModelPromptError => vec![ChatEntry::Status {
+        CustomType::ModelPromptError | CustomType::KernelUnavailable => vec![ChatEntry::Status {
             text,
             kind: crate::chat::StatusKind::Warning,
         }],

@@ -39,6 +39,7 @@ use super::models::{
 use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
+use super::rlm::kernel_unavailable_notice;
 use super::settings::{default_thinking_level, EukheSettings};
 use super::state_tree::LiveStateTree;
 use crate::admission::local_admission;
@@ -244,6 +245,8 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         },
     ));
     let loaded = load_session_resources(&config, &settings, &manager).await?;
+    let kernel_unavailable =
+        kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager);
     let deps = Arc::new(HostDeps::new(
         &config,
         ResolvedServices {
@@ -255,6 +258,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             mcp: loaded.mcp,
             python_skills: loaded.python_skills,
             semantic_edges: Arc::clone(&semantic_edges),
+            kernel_unavailable,
         },
     ));
     super::jobs::install(&deps);
@@ -385,6 +389,22 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             cx,
         )
         .await;
+    }
+    // A kernel that cannot start shows one row per session (a child's
+    // parent already shows it).
+    if config.role.is_root() {
+        if let Some(notice) = kernel_unavailable_notice::notice_once(
+            deps.storage_dir.as_deref(),
+            deps.kernel_unavailable.as_ref(),
+        ) {
+            show_notice_row(
+                &session.main(),
+                kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE,
+                notice,
+                cx,
+            )
+            .await;
+        }
     }
     Ok(session)
 }

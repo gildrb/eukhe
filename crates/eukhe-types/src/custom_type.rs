@@ -30,6 +30,8 @@ pub enum CustomType {
     /// The one outcome row of a provider retry episode.
     ProviderRetryOutcome,
     ModelPromptError,
+    /// The session's Python kernel cannot start: no `ipython` tool.
+    KernelUnavailable,
     /// The echo of a session slash command.
     SessionSlashCommand,
     SessionSlashCommandResult,
@@ -55,6 +57,7 @@ impl CustomType {
             "refinement_outcome" => Self::RefinementOutcome,
             "provider_retry_outcome" => Self::ProviderRetryOutcome,
             "model_prompt_error" => Self::ModelPromptError,
+            "kernel_unavailable" => Self::KernelUnavailable,
             SESSION_SLASH_COMMAND_CUSTOM_TYPE => Self::SessionSlashCommand,
             SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => Self::SessionSlashCommandResult,
             other => Self::Other(other.to_owned()),
@@ -78,6 +81,7 @@ impl CustomType {
             Self::RefinementOutcome => "refinement_outcome",
             Self::ProviderRetryOutcome => "provider_retry_outcome",
             Self::ModelPromptError => "model_prompt_error",
+            Self::KernelUnavailable => "kernel_unavailable",
             Self::SessionSlashCommand => SESSION_SLASH_COMMAND_CUSTOM_TYPE,
             Self::SessionSlashCommandResult => SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
             Self::Other(other) => other,
@@ -105,6 +109,7 @@ mod tests {
             CustomType::RefinementOutcome,
             CustomType::ProviderRetryOutcome,
             CustomType::ModelPromptError,
+            CustomType::KernelUnavailable,
             CustomType::SessionSlashCommand,
             CustomType::SessionSlashCommandResult,
             CustomType::Other("autonomous_status".to_owned()),

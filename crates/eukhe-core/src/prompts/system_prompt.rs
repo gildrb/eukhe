@@ -243,11 +243,13 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     let has_ipython = tools.contains(&"ipython");
     let has_file_access = has_ipython || tools.contains(&"bash");
 
-    segments.push(PromptSegment::dynamic_segment(
-        "packages",
-        "kernel bootstrap defaults",
-        packages_section(),
-    ));
+    if has_ipython {
+        segments.push(PromptSegment::dynamic_segment(
+            "packages",
+            "kernel bootstrap defaults",
+            packages_section(),
+        ));
+    }
 
     let visible_skills: Vec<&Skill> = options
         .skills
@@ -334,7 +336,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     segments.push(PromptSegment::dynamic_segment(
         "environment",
         "session configuration",
-        environment_section(options),
+        environment_section(options, has_ipython),
     ));
 
     let assembled = segments
@@ -390,7 +392,7 @@ fn context_files_section(context_files: &[(String, String)]) -> String {
     lines.join("\n")
 }
 
-fn environment_section(options: &BuildSystemPromptOptions) -> String {
+fn environment_section(options: &BuildSystemPromptOptions, has_ipython: bool) -> String {
     let cwd = options.cwd.replace('\\', "/");
     // A chat-memory session keeps volatile content out of the cached prompt
     // (the date changes daily); `date(id)` gives the time of any message.
@@ -400,11 +402,15 @@ fn environment_section(options: &BuildSystemPromptOptions) -> String {
     }
     lines.push(format!("Working directory: {cwd}"));
     match options.vision_capable {
-        Some(true) => lines.push(
-            "Images: `read` shows a PNG or JPEG; `await attach_image.run(path)` in `ipython` resizes a larger one. \
-             An image stays in context for the rest of the session: measure layout in code, and look at one screenshot per check, clipped to the part it checks."
-                .to_string(),
-        ),
+        Some(true) => lines.push(format!(
+            "Images: `read` shows a PNG or JPEG{}. \
+             An image stays in context for the rest of the session: measure layout in code, and look at one screenshot per check, clipped to the part it checks.",
+            if has_ipython {
+                "; `await attach_image.run(path)` in `ipython` resizes a larger one"
+            } else {
+                ""
+            }
+        )),
         Some(false) => lines.push("This model cannot see images.".to_string()),
         None => {}
     }
