@@ -287,21 +287,48 @@ fn run_case(phase: Phase, target: Target) {
             assert_eq!(after_tool, vec![Served::Complete], "{context}");
         }
         Phase::Compaction => {
+            // One summarizer call per summary window: a span past the
+            // summarizer's input budget is summarized in windows (omp
+            // `generateSummary`), so a run is a sequence of distinct calls.
             let summarizers = |entries: &[Logged]| {
                 entries
                     .iter()
                     .filter(|entry| entry.request.kind == RequestKind::Summarizer)
-                    .map(|entry| entry.served)
+                    .map(|entry| (entry.request.last_user_text.clone(), entry.served))
                     .collect::<Vec<_>>()
             };
-            let expected = match target {
-                Target::Worker | Target::Both => (vec![Served::Dropped], vec![Served::Complete]),
-                Target::Supervisor => (vec![Served::Complete], vec![]),
+            let (crashed_calls, after_calls) = (summarizers(crashed), summarizers(after));
+            let served = |calls: &[(String, Served)]| {
+                calls.iter().map(|(_, served)| *served).collect::<Vec<_>>()
             };
-            assert_eq!(
-                (summarizers(crashed), summarizers(after)),
-                expected,
-                "{context}"
+            // The crash lands on the first window's held call.
+            let run = match target {
+                // The killed worker dropped it; the relaunched worker runs
+                // the summary again from that first window.
+                Target::Worker | Target::Both => {
+                    assert_eq!(served(&crashed_calls), vec![Served::Dropped], "{context}");
+                    assert_eq!(
+                        after_calls.first().map(|(text, _)| text),
+                        crashed_calls.first().map(|(text, _)| text),
+                        "the recovered summary restarts at the first window; {context}"
+                    );
+                    after_calls
+                }
+                // The worker outlives the supervisor: its summary goes on
+                // past the held window and never restarts.
+                Target::Supervisor => {
+                    assert_eq!(served(&crashed_calls), vec![Served::Complete], "{context}");
+                    [crashed_calls, after_calls].concat()
+                }
+            };
+            let windows: std::collections::BTreeSet<&String> =
+                run.iter().map(|(text, _)| text).collect();
+            assert!(
+                !run.is_empty()
+                    && windows.len() == run.len()
+                    && run.iter().all(|(_, served)| *served == Served::Complete),
+                "one summary run, each window answered once: {:?}; {context}",
+                served(&run)
             );
             // Exactly one compaction, committed (never a second run, never
             // a failure row for the run that finished).

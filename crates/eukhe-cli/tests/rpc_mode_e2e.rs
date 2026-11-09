@@ -1111,6 +1111,12 @@ fn rpc_sigterm_during_replacement_exits_promptly() {
     client.spawn_stderr = None;
 }
 
+/// A faux context window whose summarizer input budget (omp
+/// `summaryInputBudgetTokens`: 0.8 of the window less the output reserves)
+/// holds a whole 10 MiB corpus (about 3M estimated tokens), so its history
+/// summary is one summarizer call.
+const CORPUS_CONTEXT_WINDOW: u64 = 8_000_000;
+
 /// A deterministic large session fixture in the corpus row schema (the
 /// bench generator's exact row shapes: the session header, the base
 /// harness-digest rows, then user -> assistant(tool call) -> toolResult
@@ -1545,7 +1551,10 @@ fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
         // The faux harness's response budget is finite (repeat-last is a
         // daemon-seam key the CLI harness ignores): the split-turn cut
         // makes two concurrent summarizer calls, so the script queues
-        // one response each.
+        // one response each. The window holds the whole corpus in one
+        // summarizer input budget, so the history summary is one call
+        // rather than one per window (omp `generateSummary`).
+        "contextWindow": CORPUS_CONTEXT_WINDOW,
         "responses": [
             { "text": "corpus history summary: the scale corpus ran" },
             { "text": "corpus turn-prefix summary: the final marker" },
@@ -1605,10 +1614,9 @@ fn rpc_prompt_admitted_compact_frames_flush_after_the_response() {
     let fixture = home.path().join("sess").join("fixture.jsonl");
     write_corpus_fixture(&fixture, 10);
     let script = json!({
-        // The faux harness's response budget is finite (repeat-last is a
-        // daemon-seam key the CLI harness ignores): the split-turn cut
-        // makes two concurrent summarizer calls, so the script queues
-        // one response each.
+        // As in the stalled-reader test: two concurrent summarizer calls,
+        // one response each, the corpus inside one summarizer window.
+        "contextWindow": CORPUS_CONTEXT_WINDOW,
         "responses": [
             { "text": "corpus history summary: the scale corpus ran" },
             { "text": "corpus turn-prefix summary: the final marker" },
