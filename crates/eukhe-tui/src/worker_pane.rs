@@ -154,7 +154,11 @@ impl WorkerPane {
             Attach::Live { .. } | Attach::Failed(_) => Vec::new(),
         };
         self.view.chat = rebuilt.chat;
-        self.streaming_index = None;
+        // The snapshot's in-flight reply stays the open streaming message:
+        // the frames that follow continue it in place, never as a copy.
+        self.streaming_index = rebuilt
+            .open_message
+            .filter(|index| self.view.resume_streaming_entry(*index));
         self.view.working = None;
         if rebuilt.turn_running {
             self.loader(TurnPhase::Requesting);
@@ -229,9 +233,9 @@ impl WorkerPane {
                 self.tool_result(&tool_call_id, ToolResultView::new(&result, is_error), false);
                 self.loader(TurnPhase::Requesting);
             }
-            TurnUpdate::TurnEnded { .. } => self.streaming_index = None,
+            TurnUpdate::TurnEnded { .. } => self.end_open_message(),
             TurnUpdate::Idle => {
-                self.streaming_index = None;
+                self.end_open_message();
                 self.view.stop_loader();
             }
             TurnUpdate::SessionInfoChanged { .. }
@@ -252,6 +256,15 @@ impl WorkerPane {
         }
     }
 
+    /// The open message ends without its final frame (the attach's
+    /// snapshot adopted a reply that had already finished): it stops
+    /// streaming, so it settles.
+    fn end_open_message(&mut self) {
+        if let Some(index) = self.streaming_index.take() {
+            self.view.end_streaming_entry(index);
+        }
+    }
+
     /// An assistant frame: the open message updates in place, a new one
     /// opens at `message_start`; its tool calls become cards; a failed
     /// final frame shows its error row.
@@ -263,7 +276,7 @@ impl WorkerPane {
     ) {
         let (blocks, tool_calls) = crate::snapshot::assistant_message_parts(message);
         if matches!(stream_event, Some(StreamUpdate::Start)) {
-            self.streaming_index = None;
+            self.end_open_message();
         }
         let error = if streaming {
             None

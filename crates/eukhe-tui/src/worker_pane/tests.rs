@@ -201,6 +201,49 @@ fn the_pane_seeds_from_the_snapshot_and_folds_the_live_stream() {
     assert_eq!(shown.len(), 14);
 }
 
+/// A watch attach while the worker's reply streams: the snapshot's partial
+/// reply is the open message, and the frames past its cursor continue it
+/// in place -- the pane holds the reply once.
+#[test]
+fn the_snapshots_partial_reply_continues_in_place() {
+    let mut pane = pane();
+    let partial = assistant(&json!([{ "type": "text", "text": "Reading the" }]), "stop");
+    pane.attached(Ok(attach_data(
+        4,
+        &json!([
+            { "role": "user", "content": "go", "timestamp": 1 },
+            serde_json::to_value(&partial).expect("a wire message"),
+        ]),
+    )));
+    pane.apply(
+        5,
+        streamed(
+            &json!([{ "type": "text", "text": "Reading the crate" }]),
+            None,
+        ),
+    );
+    let replies: Vec<&crate::chat::AssistantMessage> = pane
+        .view
+        .chat
+        .iter()
+        .filter_map(|entry| {
+            if let ChatEntry::Assistant(message) = entry {
+                Some(&**message)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert_eq!(
+        replies[0].blocks,
+        vec![crate::chat::MessageBlock::Text(
+            "Reading the crate".to_string()
+        )]
+    );
+    assert!(replies[0].streaming);
+}
+
 /// A failed watch attach says why in the pane.
 #[test]
 fn a_failed_attach_says_why() {
