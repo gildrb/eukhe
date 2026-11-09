@@ -1,7 +1,8 @@
 # eukhe: the proof of LAW color_ffi_answers
 # The colors of a request read back one by one (LCo.ce.list_rt: the
 # wire's round trips, each channel within 255), and the reply writers
-# write what the laws spell (LCo.ce.idxs, LCo.ce.lights_w, LCo.ce.table).
+# write what the laws spell (LCo.ce.idxs, LCo.ce.lights_w). The palette
+# request is closed: both sides evaluate to the same 256 colors.
 
 import Base
 import ../../bend/color.bend as Co
@@ -27,7 +28,6 @@ def ca.lights(+cs: List<&2, Co.Rgb>, +fits: {Color.co_fits(FCo.Lights{cs}) == Tr
   {==}
 
 def ca.table() -> {FCo.ffi(Color.co_spell_req(FCo.Table{}, "")) == Color.co_spell_answer(FCo.Table{}) : String}:
-  %LCo.ce.table(256n, 0, "") : {Wr.put_nat(256n, FCo.put_table(256n, 0, "")) == Wr.put_nat(256n, _) : String}
   {==}
 
 def Color.color_ffi_answers(r, fits):
