@@ -231,12 +231,15 @@ async fn preserves_native_medium_effort_for_gemini_3_1_pro() {
     );
 }
 
+/// omp (`stream.ts` `resolveGoogleThinkingOff`, `google-shared.ts`
+/// `buildParams`) turns a budget model's thinking off with a zero budget
+/// and no thought summaries.
 #[tokio::test]
 async fn disables_gemini_2_5_thinking_when_reasoning_is_omitted() {
     let payload = capture("gemini-2.5-flash", &json!({}), None).await;
     assert_eq!(
         payload["config"]["thinkingConfig"],
-        json!({ "thinkingBudget": 0 })
+        json!({ "includeThoughts": false, "thinkingBudget": 0 })
     );
 }
 
