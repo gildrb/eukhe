@@ -188,6 +188,17 @@ fn empty_results_are_silent_success_or_plain_zero_lines() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stdout(&output), "No background services.\n");
     assert_eq!(stderr(&output), "");
+    // `doctor`, `doctor --fix` and `shutdown` say it the same way.
+    for args in [&["doctor"] as &[&str], &["doctor", "--fix"], &["shutdown"]] {
+        let output = run(args, fixture.path());
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+        assert_eq!(stdout(&output), "No background services.\n", "{args:?}");
+    }
 }
 
 /// Piped management tables keep the terminal's space-padded columns (omp

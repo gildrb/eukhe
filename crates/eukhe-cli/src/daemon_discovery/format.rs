@@ -129,7 +129,7 @@ fn pad_end(text: &str, width: usize) -> String {
 /// (TS `runReap` text output).
 pub(crate) fn print_reap_report(reaped: &[(String, String)], skipped: &[(String, String)]) {
     if reaped.is_empty() && skipped.is_empty() {
-        println!("No background services found.");
+        println!("No background services.");
         return;
     }
     let styling = Styling::for_stdout();
@@ -151,7 +151,7 @@ pub(crate) fn print_reap_report(reaped: &[(String, String)], skipped: &[(String,
 /// (TS `runShutdownAllConverging` text output).
 pub(crate) fn print_shutdown_report(stopped: &[(String, String)], failed: &[(String, String)]) {
     if stopped.is_empty() && failed.is_empty() {
-        println!("No background services found.");
+        println!("No background services.");
         return;
     }
     let styling = Styling::for_stdout();
