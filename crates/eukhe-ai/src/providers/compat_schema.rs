@@ -577,6 +577,13 @@ pub fn openai_responses_compat_schema() -> TSchema {
 }
 
 fn anthropic_messages_compat_properties() -> Properties {
+    let mut properties = anthropic_messages_request_properties();
+    properties.extend(anthropic_messages_conversation_properties());
+    properties
+}
+
+/// Request-shape settings (tools, caching, sampling, thinking format).
+fn anthropic_messages_request_properties() -> Properties {
     vec![
         (
             "supportsEagerToolInputStreaming",
@@ -642,11 +649,33 @@ fn anthropic_messages_compat_properties() -> Properties {
                 false,
             )),
         ),
+    ]
+}
+
+/// Conversation-level controls (per-message effort, thinking binding, mid-conversation
+/// messages, fallbacks).
+fn anthropic_messages_conversation_properties() -> Properties {
+    vec![
         (
             "supportsMidConvoEffort",
             optional_boolean(desc_default(
-                "Whether the exact model transport supports effort-only system messages and thinking binding controls.",
+                "Whether the exact model transport supports effort-only system messages (per-message output_config effort controls).",
                 false,
+            )),
+        ),
+        (
+            "supportsThinkingBindingControls",
+            optional_boolean(desc(
+                "Whether the exact model binds signed thinking to its conversation prefix: requests send thinking.block_binding and the thinking-binding-controls beta. Default: supportsMidConvoEffort.",
+            )),
+        ),
+        (
+            "disabledThinking",
+            Type::optional(Type::union_with(
+                literals(&["disabled", "between-tools"]),
+                desc(
+                    "What a thinking-off request of a supportsMidConvoEffort model sends: \"disabled\" sends thinking.type disabled (when no effort control in the history forbids it), \"between-tools\" sends thinking.type between_tools. When omitted, thinking stays adaptive at the lowest effort (low).",
+                ),
             )),
         ),
         (

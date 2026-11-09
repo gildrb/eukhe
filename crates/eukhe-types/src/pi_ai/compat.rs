@@ -205,6 +205,17 @@ string_enum! {
     }
 }
 
+string_enum! {
+    /// What a thinking-off request of an adaptive Anthropic model sends.
+    pub enum AnthropicDisabledThinking {
+        /// `thinking: {type: "disabled"}` (Haiku 5.5; refused above `high`
+        /// effort or once per-message effort controls are in the history).
+        Disabled => "disabled",
+        /// `thinking: {type: "between_tools"}` (Sonnet 5.5).
+        BetweenTools => "between-tools",
+    }
+}
+
 /// A model Anthropic accepts in `fallbacks`, with local pricing metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnthropicAllowedFallbackModel {
@@ -244,9 +255,20 @@ pub struct AnthropicMessagesCompat {
     /// Whether the provider supports Anthropic strict tool schemas. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_strict_tools: Option<bool>,
-    /// Whether effort-only system messages and thinking binding controls are supported. Default: false.
+    /// Whether per-message effort controls (`role: "system"` messages with
+    /// `output_config`) are supported. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_mid_convo_effort: Option<bool>,
+    /// Whether the model binds signed thinking to its conversation prefix:
+    /// requests send `thinking.block_binding` and the binding beta.
+    /// Default: `supportsMidConvoEffort`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_thinking_binding_controls: Option<bool>,
+    /// What a thinking-off request of a `supportsMidConvoEffort` model sends.
+    /// Default: no `thinking` field (or adaptive with the prefix binding) at
+    /// the lowest effort, for models that cannot turn thinking off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled_thinking: Option<AnthropicDisabledThinking>,
     /// Whether system-role messages are accepted inside the conversation. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_mid_convo_system_messages: Option<bool>,

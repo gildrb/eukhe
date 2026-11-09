@@ -445,7 +445,7 @@ impl StreamFailure {
     }
 }
 
-fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> AssistantMessage {
+fn empty_output(model: &Model) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -453,7 +453,7 @@ fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> Assis
         model: model.id.clone(),
         response_model: None,
         response_id: None,
-        provider_thinking_level,
+        provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
         usage: Usage::default(),
@@ -470,7 +470,7 @@ fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> Assis
 
 /// A stream that fails before the request starts.
 fn error_stream(model: &Model, message: String) -> AssistantMessageEventStream {
-    let mut output = empty_output(model, None);
+    let mut output = empty_output(model);
     output.stop_reason = StopReason::Error;
     output.error_message = Some(message);
     let stream = AssistantMessageEventStream::new();
@@ -515,9 +515,7 @@ pub fn stream_anthropic(
     let model = model.clone();
     let target = stream.clone();
     tokio::spawn(async move {
-        let provider_thinking_level = supports_mid_convo_effort(&model)
-            .then(|| options.effort.clone().unwrap_or_else(|| "high".to_owned()));
-        let mut output = empty_output(&model, provider_thinking_level);
+        let mut output = empty_output(&model);
         let result = run(&model, &normalized, &options, &mut output, &target).await;
         let signal = options.stream.request.signal.as_ref();
         match result {
@@ -621,8 +619,11 @@ async fn run(
             },
         )
     };
-    let mut params = params::build_params(model, context.messages(), is_oauth, options)
-        .map_err(StreamFailure::plain)?;
+    let (mut params, recorded_effort) =
+        params::build_params(model, context.messages(), is_oauth, options)
+            .map_err(StreamFailure::plain)?;
+    // The effort controls this request leaves in force, replayed by the next.
+    output.provider_thinking_level = recorded_effort;
     if let Some(on_payload) = &request.on_payload {
         let next = on_payload(JsonValue::Object(params.clone()), model)
             .await
