@@ -371,13 +371,15 @@ def es.wired(explicit: Maybe<&2, Ef.LvMap>) -> Bool:
           Bool.or(es.wire(o), Bool.or(es.wire(mi), Bool.or(es.wire(lo), Bool.or(es.wire(me), Bool.or(es.wire(hi), Bool.or(es.wire(xh), es.wire(mx)))))))
 
 # a model reasons by its flag, or, a registry model (by_map), by an
-# explicit map that gives some level a wire string (quirk_ladder_reasons)
+# explicit map that gives some level a wire string (laws/infer.bend
+# quirk_ladder_flag_reasons, quirk_ladder_map_reasons,
+# quirk_ladder_reasons_only_so)
 def es.reasons(flag: Bool, bm: Bool, explicit: Maybe<&2, Ef.LvMap>) -> Bool:
   Bool.or(flag, Bool.and(bm, es.wired(explicit)))
 
 # the chosen ladder: the explicit map, else the rule's, else no entry
-# (quirk_ladder_explicit_first, quirk_ladder_rule_second,
-# quirk_ladder_default_last)
+# (laws/infer.bend quirk_ladder_explicit_decides, quirk_ladder_rule_decides,
+# quirk_ladder_default_decides)
 def es.chosen(explicit: Maybe<&2, Ef.LvMap>, rule: Maybe<&2, Ef.LvMap>) -> Ef.LvMap:
   match explicit:
     case Some{e}:

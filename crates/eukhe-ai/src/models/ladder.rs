@@ -201,8 +201,10 @@ fn read_rung(reader: &mut Reader<'_>) -> Result<usize, WireError> {
 }
 
 /// The rungs a model offers, in ladder order (the module docs, rule 2;
-/// `laws/effort.bend`, `laws/infer.bend` `quirk_ladder_offered_exact`, `quirk_ladder_plain_exact`,
-/// `quirk_ladder_reasons`).
+/// `laws/effort/ladder.bend` `quirk_ladder_offered_exact`, `quirk_ladder_plain_exact`;
+/// `laws/infer.bend` `quirk_ladder_explicit_decides`, `quirk_ladder_rule_decides`,
+/// `quirk_ladder_default_decides`, `quirk_ladder_flag_reasons`,
+/// `quirk_ladder_map_reasons`, `quirk_ladder_reasons_only_so`).
 fn offered(facts: &LadderFacts) -> Vec<usize> {
     ladder_call(
         0,

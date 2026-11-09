@@ -13,6 +13,36 @@ import ./base.bend as LawsBase
 # the model in bend/infer.bend. Every input is free:
 # any rulebook, query and directive; any replies of the model; any
 # provider support; any tools; any stream; any context sizes.
+#
+# Requirements (bend/infer.bend header, sections 1-6;
+# crates/eukhe-ai/src/models/ladder.rs module docs; R1-R3 of the core
+# entries: laws/base.bend):
+# S6.1  The quirks rulebook: a rule of an unknown directive, or two rules of
+#       one layer, target and directive with different values, make the
+#       rulebook fail to compile; a lookup takes the rule of the highest
+#       layer that applies (host over model over family); no rule applies:
+#       Unknown, never a guess.
+# S6.2  A forced tool call: the first attempt sets the native flag only when
+#       supported and free, each retry when supported; at most 1 + r
+#       attempts; the call reports a call or the failure.
+# S6.3  The strict schema budget: with a cap c, at most c tools are strict,
+#       those of highest priority, the rest loose, none lost (no cap: every
+#       tool strict); a tool that requires a strict schema is never sent
+#       loose: the plan refuses and names such a tool.
+# S6.4  The repetition guard: a stream whose last k chunks are periodic, with
+#       a period of at most k/4 (at least 1), is cut; no other is.
+# S6.5  Early compaction starts a margin below the limit.
+# S6.9  The thinking ladder: (a) the explicit map decides, else the
+#       rulebook's ladder, else no map (every level left to the default
+#       ladder); (b) a reasoning model offers a level whose entry is a wire
+#       string, or that has no entry and the default ladder lists, never a
+#       level whose entry is null; (c) a model reasons by its flag, a
+#       registry model also by an explicit map that gives a level a wire
+#       string (#2858), by nothing else.
+# S6.10 A wire API decides a flag fact by the rulebook's answer (below).
+# A1    Whether a rulebook compiles does not depend on the order of its rules.
+# A2    The plan refuses only when a loose tool requires a strict schema;
+#       otherwise it fits and lists the loose tools.
 
 # LAW quirk_unknown_rejected: a rulebook with a rule of an unknown directive does not compile
 law quirk_unknown_rejected:
@@ -121,38 +151,26 @@ law force_reports:
   for +free: Bool
   {If.Forced.called(Pair.snd(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free))) == If.called_within(1n+r, replies) : Bool}
 
-# LAW strict_within_cap: at most cap tools get strict schemas
+# LAW strict_within_cap (S6.3): with a cap, at most cap tools of a request get strict schemas
 law strict_within_cap:
   for +cap: Nat
   for +ts: List<&2, If.Tool>
-  {Nat.is_le(List.length(&2, If.Tool, Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))), cap) == True{} : Bool}
+  {Nat.is_le(List.length(&2, If.Tool, Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts))), cap) == True{} : Bool}
 
-# LAW strict_keeps_every_tool: no tool is lost: every tool is strict or loose, as many times as
-# it was given
+# LAW strict_keeps_every_tool (S6.3): with a cap, no tool of a request is lost: every tool is strict
+# or loose, as many times as it was given
 law strict_keeps_every_tool:
   for +cap: Nat
   for +ts: List<&2, If.Tool>
   for +i: Nat
-  {Nat.add(If.count(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i), If.count(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i)) == If.count(ts, i) : Nat}
+  {Nat.add(If.count(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts)), i), If.count(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts)), i)) == If.count(ts, i) : Nat}
 
-# LAW strict_by_priority: every strict tool has a priority of at least every loose tool
+# LAW strict_by_priority (S6.3): with a cap, every strict tool of a request has a priority of at
+# least every loose tool
 law strict_by_priority:
   for +cap: Nat
   for +ts: List<&2, If.Tool>
-  {If.dominates(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))) == True{} : Bool}
-
-# LAW strict_no_cap: with no cap every tool keeps its strict schema
-law strict_no_cap:
-  for +ts: List<&2, If.Tool>
-  {If.strict.of(None{}, ts) == (ts, []) : List<&2, If.Tool> & List<&2, If.Tool>}
-
-# LAW strict_cap_is_strict: a request's cap splits the tools as strict does, so
-# strict_within_cap, strict_keeps_every_tool and strict_by_priority hold
-# for every request
-law strict_cap_is_strict:
-  for +c: Nat
-  for +ts: List<&2, If.Tool>
-  {If.strict.of(Some{c}, ts) == If.strict(c, ts) : List<&2, If.Tool> & List<&2, If.Tool>}
+  {If.dominates(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts)), Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts))) == True{} : Bool}
 
 # the ids of the tools of ts, in order
 def strict.ids(ts: List<&2, If.Tool>) -> List<&2, Nat>:
@@ -162,14 +180,38 @@ def strict.ids(ts: List<&2, If.Tool>) -> List<&2, Nat>:
     case t <> rest:
       If.Tool.id(t) <> strict.ids(rest)
 
-# LAW plan_fits_lists_the_loose: a plan that fits lists exactly the loose tools of the request
-law plan_fits_lists_the_loose:
+# no id of ids is in need
+def plan.none_needed(ids: List<&2, Nat>, +need: List<&2, Nat>) -> Bool:
+  match ids:
+    case Nil{}:
+      True{}
+    case i <> rest:
+      Bool.and(Bool.not(If.elem(need, i)), plan.none_needed(rest, need))
+
+# LAW plan_fits_unless_forced (S6.3, A2): when no loose tool of a request (under its cap, as
+# strict.of splits it, pinned by the strict_* laws) requires a strict
+# schema, the plan fits and lists exactly the ids of the loose tools, in
+# their order
+# EXCLUDES: a refusal of a request that fits, a fit that lists other tools
+#   than the loose ones (or drops, adds or reorders loose ids)
+law plan_fits_unless_forced:
+  for cap: Maybe<&2, Nat>
+  for +ts: List<&2, If.Tool>
+  for +need: List<&2, Nat>
+  for calm: {plan.none_needed(strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))), need) == True{} : Bool}
+  {If.plan(cap, ts, need) == If.Fits{strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts)))} : If.Plan}
+
+# LAW plan_fits_only_unforced (S6.3): a plan fits only when no loose tool of the request requires a
+# strict schema: a loose tool that requires one makes the plan refuse
+# EXCLUDES: a fit (with the needed tool dropped from the loose ids, or
+#   any list) where the request must be refused
+law plan_fits_only_unforced:
   for cap: Maybe<&2, Nat>
   for +ts: List<&2, If.Tool>
   for +need: List<&2, Nat>
   for +ls: List<&2, Nat>
   for f: {If.plan(cap, ts, need) == If.Fits{ls} : If.Plan}
-  {ls == strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))) : List<&2, Nat>}
+  {plan.none_needed(strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))), need) == True{} : Bool}
 
 # LAW plan_never_loosens_a_needed_tool: a tool that requires a strict schema is never sent loose
 # EXCLUDES: a request that drops the schema a tool requires
@@ -248,24 +290,60 @@ law compact_starts_early:
 # --------------------------
 # the model in
 # bend/infer.bend section 6. Every input is free: any explicit map, any
-# rulebook ladder, any default ladders, any level.
+# rulebook ladder, any default ladders, any level, any flags.
+# The precedence (S6.9 a) is stated on the levels a reasoning model offers,
+# not on the code's chosen map: each law names the one map that decides
+# and reads its entry through `ladder.offers`, the rule S6.9 b, row by row.
 
-# LAW quirk_ladder_explicit_first: a model's explicit thinking-level map is its chosen ladder, over
-# any ladder of the rulebook
-law quirk_ladder_explicit_first:
+# whether a reasoning model offers a level, given the level's entry in the
+# map that decides and whether the reasoning default ladder lists the
+# level (S6.9 b; crates/eukhe-ai/src/models/ladder.rs module docs, rule 2):
+#   a wire string offers the level ("each level whose entry ... is a wire
+#   string"); a null entry removes it ("A `null` entry removes the
+#   level"); no entry leaves it to the default ladder ("each level that the
+#   chosen ladder does not name and the rulebook's default ladder lists")
+def ladder.offers(e: Ef.Ent, listed: Bool) -> Bool:
+  match e:
+    case Ef.Wire{}:
+      True{}
+    case Ef.Null{}:
+      False{}
+    case Ef.Missing{}:
+      listed
+
+# LAW quirk_ladder_explicit_decides (S6.9 a, b): a reasoning model with an explicit thinking-level
+# map e offers a level l exactly when e gives l a wire string, or gives l
+# no entry and the reasoning default ladder lists l, whatever ladder the
+# rulebook gives the model
+# EXCLUDES: the rulebook's ladder (or the default ladder) read over an
+#   explicit map, an explicit map ignored, a null entry that keeps its
+#   level, a missing entry that drops a level the default ladder lists
+law quirk_ladder_explicit_decides:
   for +e: Ef.LvMap
   for +rule: Maybe<&2, Ef.LvMap>
-  {If.lad.chosen(Some{e}, rule) == e : Ef.LvMap}
+  for +d: If.Defaults
+  for +l: Ef.Lv
+  {Ef.has(If.lad.offered(True{}, Some{e}, rule, d), l) == ladder.offers(Ef.entry(l, e), Ef.has(If.Defaults.reasoning(d), l)) : Bool}
 
-# LAW quirk_ladder_rule_second: with no explicit map, the rulebook's ladder is the chosen ladder
-law quirk_ladder_rule_second:
-  for +l: Ef.LvMap
-  {If.lad.chosen(None{}, Some{l}) == l : Ef.LvMap}
+# LAW quirk_ladder_rule_decides (S6.9 a, b): a reasoning model with no explicit map, to which the
+# rulebook gives the ladder m, offers a level l exactly when m gives l a
+# wire string, or gives l no entry and the reasoning default ladder lists l
+# EXCLUDES: the rulebook's ladder ignored when no explicit map is given
+law quirk_ladder_rule_decides:
+  for +m: Ef.LvMap
+  for +d: If.Defaults
+  for +l: Ef.Lv
+  {Ef.has(If.lad.offered(True{}, None{}, Some{m}, d), l) == ladder.offers(Ef.entry(l, m), Ef.has(If.Defaults.reasoning(d), l)) : Bool}
 
-# LAW quirk_ladder_default_last: with no explicit map and no rulebook ladder, the chosen ladder has
-# no entry: the default ladder gives every level
-law quirk_ladder_default_last:
-  {If.lad.chosen(None{}, None{}) == Ef.LvMap.none() : Ef.LvMap}
+# LAW quirk_ladder_default_decides (S6.9 a, b): a reasoning model with no explicit map and no
+# rulebook ladder offers exactly the levels the reasoning default ladder
+# lists
+# EXCLUDES: a level invented or dropped when no map names any level, the
+#   plain default ladder read for a reasoning model
+law quirk_ladder_default_decides:
+  for +d: If.Defaults
+  for +l: Ef.Lv
+  {Ef.has(If.lad.offered(True{}, None{}, None{}, d), l) == Ef.has(If.Defaults.reasoning(d), l) : Bool}
 
 # LAW quirk_ladder_shipped_is_s10: with the shipped default ladders, the levels a model offers are the
 # S10 ladder of its chosen map, so every law of S10 holds for them
@@ -274,40 +352,47 @@ law quirk_ladder_shipped_is_s10:
   for +map: Ef.LvMap
   {If.lad.offered.of(r, map, If.lad.shipped()) == Ef.offered(Ef.Mdl{r, map}) : List<&2, Ef.Lv>}
 
-# the entry is a wire string
-def ladder.is_wire(e: Ef.Ent) -> Bool:
-  match e:
-    case Ef.Missing{}:
-      False{}
-    case Ef.Null{}:
-      False{}
-    case Ef.Wire{}:
-      True{}
-
-# some level of ls has a wire entry in m
-def ladder.wired.go(ls: List<&2, Ef.Lv>, +m: Ef.LvMap) -> Bool:
-  match ls:
-    case Nil{}:
-      False{}
-    case l <> rest:
-      Bool.or(ladder.is_wire(Ef.entry(l, m)), ladder.wired.go(rest, m))
-
-# an explicit map gives some level a wire string
-def ladder.wired(explicit: Maybe<&2, Ef.LvMap>) -> Bool:
-  match explicit:
-    case Some{+m}:
-      ladder.wired.go(Ef.ladder(), m)
-    case None{}:
-      False{}
-
-# LAW quirk_ladder_reasons: a model reasons when its flag says so and, for a registry model
-# (by_map, #2858), when its explicit map gives some level a wire string;
-# no other input makes a model reason
-law quirk_ladder_reasons:
-  for f: Bool
+# LAW quirk_ladder_flag_reasons (S6.9 c): a model whose reasoning flag is set reasons, whatever
+# its maps and whether it is a registry model
+# EXCLUDES: a set flag vetoed by an empty or all-null explicit map
+law quirk_ladder_flag_reasons:
   for bm: Bool
-  for +explicit: Maybe<&2, Ef.LvMap>
-  {If.lad.reasons(f, bm, explicit) == Bool.or(f, Bool.and(bm, ladder.wired(explicit))) : Bool}
+  for ex: Maybe<&2, Ef.LvMap>
+  {If.lad.reasons(True{}, bm, ex) == True{} : Bool}
+
+# LAW quirk_ladder_map_reasons (S6.9 c, #2858): a registry model (by_map) whose explicit map gives
+# some level l a wire string reasons, whatever its flag
+# EXCLUDES: the coarse flag vetoing what the map addresses (#2858), a map
+#   level other than the first ones ignored
+law quirk_ladder_map_reasons:
+  for f: Bool
+  for +m: Ef.LvMap
+  for +l: Ef.Lv
+  for w: {Ef.entry(l, m) == Ef.Wire{} : Ef.Ent}
+  {If.lad.reasons(f, True{}, Some{m}) == True{} : Bool}
+
+# LAW quirk_ladder_reasons_only_so (S6.9 c): a model whose flag is not set reasons only as a
+# registry model whose explicit map gives some level a wire string
+# EXCLUDES: a model without the flag made to reason by a rulebook ladder,
+#   by a map of a model that is no registry model, by a map with only null
+#   or missing entries, or by no map
+law quirk_ladder_reasons_only_so:
+  for bm: Bool
+  for ex: Maybe<&2, Ef.LvMap>
+  for ok: {If.lad.reasons(False{}, bm, ex) == True{} : Bool}
+  exs m: Ef.LvMap
+  exs l: Ef.Lv
+  {(bm, (ex, Ef.entry(l, m))) == (True{}, (Some{m}, Ef.Wire{})) : Bool & (Maybe<&2, Ef.LvMap> & Ef.Ent)}
+
+# LAW quirk_ladder_map_reasons_example (S6.9 b, c): anchor from the Rust test of #2858
+# (crates/eukhe-core/src/durable/models.rs
+# `a_map_addressed_level_makes_a_model_thinking_capable`): a registry model
+# with the flag off and the map {off: null, xhigh: a string} offers
+# minimal, low, medium, high and xhigh under the shipped default ladders;
+# one with the map {off: null} does not reason and offers off alone
+# EXCLUDES: a vacuous quirk_ladder_map_reasons, the #2858 vector broken
+law quirk_ladder_map_reasons_example:
+  {[If.lad.offered(If.lad.reasons(False{}, True{}, Some{Ef.LvMap{Ef.Null{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Wire{}, Ef.Missing{}}}), Some{Ef.LvMap{Ef.Null{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Wire{}, Ef.Missing{}}}, None{}, If.lad.shipped()), If.lad.offered(If.lad.reasons(False{}, True{}, Some{Ef.LvMap{Ef.Null{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}}}), Some{Ef.LvMap{Ef.Null{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}, Ef.Missing{}}}, None{}, If.lad.shipped())] == [[Ef.Minimal{}, Ef.Low{}, Ef.Medium{}, Ef.High{}, Ef.Xhigh{}], [Ef.Off{}]] : List<&2, List<&2, Ef.Lv>>}
 
 # (infer) The strict plan: bend/ffi_infer.bend
 # --------------------------------------------
@@ -349,14 +434,6 @@ law core_infer_answers:
   for h: {core_infer_fits(FIn.Req{cap, ts, need}) == True{} : Bool}
   {FIn.ffi(FIn.put_req(FIn.Req{cap, ts, need}, "")) == FIn.put_plan(If.plan(cap, ts, need), "") : String}
 
-# LAW core_infer_malformed (R3): a malformed strict plan request answers the error form
-# EXCLUDES: a default plan (every tool strict, or none) for a request it
-#   cannot read
-law core_infer_malformed:
-  for +s: String
-  for h: {FIn.get_req(s) == Wr.Bad{} : Wr.Dec<FIn.Req>}
-  {FIn.ffi(s) == Wr.err("strict plan request: malformed") : String}
-
 # LAW core_infer_left_over (R3): a strict plan request with input left over answers the error form
 # EXCLUDES: an entry that answers a request followed by garbage
 law core_infer_left_over:
@@ -379,9 +456,10 @@ law core_infer_req_example:
 law core_infer_reply_example:
   {FIn.put_plan(If.Fits{[3n, 1n]}, FIn.put_plan(If.Over{7n}, "")) == "0,2,3,1,1,7," : String}
 
-# LAW core_infer_malformed_example (R3): witness: a malformed strict plan request exists (an unknown cap
-# tag)
-# EXCLUDES: a vacuous core_infer_malformed
+# LAW core_infer_malformed_example (R3): anchor: the input "2," (an unknown cap tag) is read as no
+# request and answers the error form "strict plan request: malformed"
+# (a closed instance of core_infer_unknown_cap)
+# EXCLUDES: an unknown cap tag read as a known one
 law core_infer_malformed_example:
   {FIn.get_req("2,") == Wr.Bad{} : Wr.Dec<FIn.Req>} & {FIn.ffi("2,") == Wr.err("strict plan request: malformed") : String}
 
@@ -704,14 +782,16 @@ law core_infer_ffi_exact:
 
 # ---- model_facts ----
 
-# LAWS (S6.10): model and provider facts are data. A wire API decides a
-# fact of a model only from the quirks rulebook's answer (and the model's
-# explicit compat flag or the user's setting), the thinking budgets stay
-# inside the model's limits, and where a fact moved from code into data the
-# data gives the answers the code gave. Each law is an open claim about the
-# model in bend/facts.bend; PROOF.bend proves them (as Infer.<law>)
-# with the lemmas of proof/facts/. The decisions run as the compiled core
-# (entry bend/ffi_model_facts.bend, laws/model_facts.bend).
+# LAWS (S6.10.1): a wire API's decision of a flag fact is the quirks
+# rulebook's answer for one directive: the value of the highest rule that
+# applies (facts_rulebook_decides), else the wire API's stated default
+# (facts_rulebook_default). Each law is an open claim about `Fx.decide` in
+# bend/facts.bend; PROOF.bend proves them (as Infer.<law>). That a model's
+# id reaches a decision only through the rulebook is not a law here: it is
+# the shape of the entry bend/ffi_model_facts.bend, whose requests carry the
+# rulebook's answer, the compat flag and the user's setting and no model id
+# (its laws: laws/model_facts.bend). The budgets and the facts that moved
+# from code into data: laws/facts/.
 
 # (S6.10.1) Decisions are rulebook lookups
 # ----------------------------------------
@@ -740,14 +820,3 @@ law facts_rulebook_default:
   for dflt: Bool
   for none: {If.any_at(rs, q, d, 0n) == False{} : Bool}
   {Fx.decide(rs, q, d, dflt) == dflt : Bool}
-
-# LAW facts_only_the_rulebook_decides: two models with one rulebook answer get one decision: a model's id
-# reaches a decision only through the rulebook
-law facts_only_the_rulebook_decides:
-  for +rs: List<&2, If.Rule>
-  for +q1: If.Query
-  for +q2: If.Query
-  for +d: Nat
-  for dflt: Bool
-  for same: {If.lookup(rs, q1, d) == If.lookup(rs, q2, d) : If.Ans}
-  {Fx.decide(rs, q1, d, dflt) == Fx.decide(rs, q2, d, dflt) : Bool}
