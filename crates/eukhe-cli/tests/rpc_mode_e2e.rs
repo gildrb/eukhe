@@ -1563,9 +1563,12 @@ fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
     // while no reader drains the child. The entry's appearance IS the
     // readiness signal (polled, never a fixed sleep): a command wedged
     // on the reader never lands it, and the poll deadline fails right
-    // here.
+    // here. The deadline is the suite's TIMEOUT: a wedge never lands the
+    // entry at all, while a landed one only takes longer on a loaded
+    // machine (the debug-build compaction alone takes 2.4-3.9 s at load
+    // ~55, and over 7 s beside the full nightly suite).
     let sessions_dir = fixture.parent().unwrap();
-    let row_deadline = Instant::now() + Duration::from_secs(4);
+    let row_deadline = Instant::now() + TIMEOUT;
     let mut compacted_behind_the_stall = false;
     while Instant::now() < row_deadline {
         if durable_storage_contains(sessions_dir, &fixture, "\"kind\":\"pi.compaction\"") {
