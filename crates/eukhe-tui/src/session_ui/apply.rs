@@ -792,7 +792,7 @@ impl SessionUi {
                 // Only the engine's own turn_end clears the busy state:
                 // trailing `agent_end` frames from the previous turn must
                 // not cancel a turn admitted in between (prompt queueing).
-                self.streaming_index = None;
+                self.end_open_message(view);
                 self.turn_ends_seen += 1;
                 self.turn_active = false;
                 // The request ended: the compactor's work of this
@@ -1000,6 +1000,7 @@ impl SessionUi {
                 }
             }
             TurnUpdate::Idle => {
+                self.end_open_message(view);
                 // A run that made no model request (stopped while it
                 // prepared or waited) never sends the `turn_end` its
                 // prompt's admission counts on: its end stands in for it.
@@ -1157,6 +1158,15 @@ impl SessionUi {
         }
     }
 
+    /// The open message ends without its final frame (an attach's
+    /// snapshot adopted a reply that had already finished): it stops
+    /// streaming, so it settles.
+    fn end_open_message(&mut self, view: &mut AgentView) {
+        if let Some(index) = self.streaming_index.take() {
+            view.end_streaming_entry(index);
+        }
+    }
+
     /// Apply an assistant message frame: an open streaming message is
     /// updated in place; otherwise the message expands into a chat component
     /// plus a card per tool call.
@@ -1217,7 +1227,7 @@ impl SessionUi {
         // A message_start always opens a new streaming message (the engine
         // emits one per provider call); later frames update it in place.
         if starts_message {
-            self.streaming_index = None;
+            self.end_open_message(view);
         }
         match self.streaming_index {
             Some(index) => {

@@ -264,6 +264,9 @@ pub(crate) struct SessionUi {
     heartbeat_updates: mpsc::UnboundedSender<HeartbeatsUpdate>,
     /// Snapshot chat entries to fold into the view on the next rebuild.
     pending_snapshot: Option<Vec<ChatEntry>>,
+    /// The snapshot's open streaming message (its chat index), adopted as
+    /// `streaming_index` on the next rebuild.
+    pending_open_message: Option<usize>,
     /// Snapshot labels (model) for the next rebuild.
     pending_model: Option<String>,
     /// Snapshot model provider for the next rebuild (the attach state's
