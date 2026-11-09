@@ -793,7 +793,63 @@ fn print_mode_json_streams_the_message_update_deltas() {
         rebuilt.len() > text(&events[start_at]).len(),
         "the deltas add text"
     );
+    assert_eq!(rebuilt, ANSWER, "the deltas complete the answer");
     assert_eq!(text(&events[end_at]), ANSWER);
+}
+
+/// An answer that settles before the 100 ms partial throttle commits its
+/// last changes still streams to its end (omp print json emits every
+/// `message_update`): the `message_start` partial plus the `text_delta`s
+/// rebuild the answer, a `text_end` closes the block, then the settled
+/// `message_end`.
+#[test]
+fn print_mode_json_streams_a_fast_answer_start_to_end() {
+    let script = serde_json::json!({ "responses": ["fast answer"] });
+    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "hi"], &script);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let start_at = events
+        .iter()
+        .position(|event| {
+            event["type"] == "message_start" && event["message"]["role"] == "assistant"
+        })
+        .expect("the assistant message_start");
+    let end_at = events
+        .iter()
+        .position(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant")
+        .expect("the assistant message_end");
+    let streamed: String = events[start_at]["message"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|block| block["text"].as_str())
+        .collect();
+    let updates: Vec<&serde_json::Value> = events[start_at..end_at]
+        .iter()
+        .filter(|event| event["type"] == "message_update")
+        .collect();
+    let kinds: Vec<&str> = updates
+        .iter()
+        .map(|update| update["assistantMessageEvent"]["type"].as_str().unwrap())
+        .collect();
+    assert!(!updates.is_empty(), "the stream carries updates");
+    assert_eq!(kinds.last(), Some(&"text_end"), "{kinds:?}");
+    let rebuilt = updates
+        .iter()
+        .filter(|update| update["assistantMessageEvent"]["type"] == "text_delta")
+        .fold(streamed, |mut text, update| {
+            text.push_str(update["assistantMessageEvent"]["delta"].as_str().unwrap());
+            text
+        });
+    assert_eq!(rebuilt, "fast answer");
+    assert_eq!(
+        events[end_at]["message"]["content"][0]["text"],
+        "fast answer"
+    );
 }
 
 /// The threshold compaction (pi-durable's pre-request check): once a turn's

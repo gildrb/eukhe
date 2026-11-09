@@ -55,7 +55,9 @@ const NO_RESULT_TEXT: &str = "Tool execution ended without a result";
 pub enum CoalesceMode {
     /// Park updates in one slot; the caller flushes them on a timer.
     Coalesced,
-    /// One frame per message change.
+    /// One frame per message change; an assistant message's `message_end`
+    /// first streams the changes its committed partials missed (the
+    /// json/rpc event streams: every answer streams start to end).
     Immediate,
 }
 
@@ -233,6 +235,9 @@ pub struct EventTranslator {
     mode: CoalesceMode,
     /// The parked `message_update` change, its deltas merged.
     parked: Option<StreamUpdate>,
+    /// The content indices of the streaming message whose block end
+    /// (`text_end`, ...) went out.
+    ended_blocks: Vec<usize>,
     /// A generation failure since the last turn boundary.
     turn_error: Option<String>,
     /// Where the current turn's messages start in `run_messages`.
@@ -374,6 +379,7 @@ impl EventTranslator {
             mirror: ConversationMirror::from_snapshot(snapshot),
             mode,
             parked: None,
+            ended_blocks: Vec::new(),
             turn_error: None,
             turn_from: 0,
             summaries: Vec::new(),
@@ -834,6 +840,7 @@ impl EventTranslator {
     fn reset(&mut self, snapshot: &SnapshotEvent, out: &mut Vec<SessionEvent>) {
         self.mirror = ConversationMirror::from_snapshot(snapshot);
         self.parked = None;
+        self.ended_blocks.clear();
         self.turn_error = None;
         self.summaries.clear();
         // A snapshot replaces the conversation's state: an episode it
@@ -907,6 +914,7 @@ impl EventTranslator {
         self.flush_into(out);
         out.extend(start_frame(message));
         self.mirror.partial = Some(message.clone());
+        self.ended_blocks.clear();
     }
 
     fn message_update(
@@ -928,6 +936,13 @@ impl EventTranslator {
                 self.flush_into(out);
             }
             apply_change(&mut self.mirror.partial, change);
+            match change {
+                MessageChange::Block { content_index, .. } => {
+                    self.ended_blocks.push(*content_index);
+                }
+                MessageChange::Message { .. } => self.ended_blocks.clear(),
+                _ => {}
+            }
             if let (MessageChange::Message { .. }, Some(partial)) =
                 (change, &mut self.mirror.partial)
             {
@@ -961,6 +976,27 @@ impl EventTranslator {
         }
     }
 
+    /// Immediate mode streams every assistant message to its end (TS agent
+    /// loop: `message_start`, each block's start/delta/end, then
+    /// `message_end`): the durable partial commits at most every 100 ms, so
+    /// a fast answer settles before its last changes (or any partial)
+    /// committed. The missing changes go out before the `message_end`; an
+    /// unstreamed message starts empty.
+    fn complete_stream(&mut self, message: &AssistantMessage, out: &mut Vec<SessionEvent>) {
+        let partial = if let Some(partial) = self.mirror.partial.take() {
+            partial
+        } else {
+            let mut start = message.clone();
+            start.content.clear();
+            out.extend(start_frame(&start));
+            self.ended_blocks.clear();
+            start
+        };
+        let changes = completion_changes(&partial, message, &self.ended_blocks);
+        self.mirror.partial = Some(partial);
+        self.message_update(message.usage, &changes, out);
+    }
+
     fn message_end(&mut self, entry: &EntryRecord, out: &mut Vec<SessionEvent>) {
         let kind = entry.kind.as_str();
         if kind == ASSISTANT_ENTRY.kind() {
@@ -971,7 +1007,9 @@ impl EventTranslator {
                 .and_then(Message::as_assistant);
             if let Some(message) = message {
                 self.flush_into(out);
-                if self.mirror.partial.is_none() {
+                if self.mode == CoalesceMode::Immediate {
+                    self.complete_stream(message, out);
+                } else if self.mirror.partial.is_none() {
                     out.extend(start_frame(message));
                 }
                 if let Some(message) = assistant_wire_message(message) {
@@ -980,6 +1018,7 @@ impl EventTranslator {
                 self.settle_retry_episode(message, out);
             }
             self.mirror.partial = None;
+            self.ended_blocks.clear();
         } else if kind == COMPACTION_ENTRY.kind() {
             // Reported by its `compaction_end`.
             match eukhe_core::durable::compaction::compaction_summary_text(entry) {
@@ -1450,6 +1489,100 @@ fn change_event(change: &MessageChange) -> StreamUpdate {
         },
         MessageChange::Message { .. } => StreamUpdate::Message,
     }
+}
+
+/// The changes that carry the streamed `partial` to the settled `message`:
+/// a block the partial lacks starts (empty), its text or thinking follows
+/// as one delta, and every block that changed, or whose end has not gone
+/// out (`ended`), ends in its settled form. A partial that does not lead
+/// to the message (more blocks, a block of another kind, a text the
+/// settled one does not extend) is replaced whole.
+fn completion_changes(
+    partial: &AssistantMessage,
+    message: &AssistantMessage,
+    ended: &[usize],
+) -> Vec<MessageChange> {
+    let whole = || {
+        vec![MessageChange::Message {
+            message: message.clone(),
+        }]
+    };
+    if partial.content.len() > message.content.len() {
+        return whole();
+    }
+    let mut changes = Vec::new();
+    for (content_index, block) in message.content.iter().enumerate() {
+        let streamed = match partial.content.get(content_index) {
+            Some(streamed) if streamed == block => {
+                if !ended.contains(&content_index) {
+                    changes.push(MessageChange::Block {
+                        content_index,
+                        block: block.clone(),
+                    });
+                }
+                continue;
+            }
+            Some(streamed) => streamed.clone(),
+            None => {
+                let mut started = block.clone();
+                match &mut started {
+                    AssistantContentBlock::Text(text) => text.text.clear(),
+                    AssistantContentBlock::Thinking(thinking) => thinking.thinking.clear(),
+                    AssistantContentBlock::ToolCall(call) => call.arguments.clear(),
+                }
+                changes.push(match block {
+                    AssistantContentBlock::Text(_) => MessageChange::TextStart {
+                        content_index,
+                        block: started.clone(),
+                    },
+                    AssistantContentBlock::Thinking(_) => MessageChange::ThinkingStart {
+                        content_index,
+                        block: started.clone(),
+                    },
+                    AssistantContentBlock::ToolCall(_) => MessageChange::ToolcallStart {
+                        content_index,
+                        block: started.clone(),
+                    },
+                });
+                started
+            }
+        };
+        let rest = match (&streamed, block) {
+            (AssistantContentBlock::Text(streamed), AssistantContentBlock::Text(settled)) => {
+                settled.text.strip_prefix(streamed.text.as_str())
+            }
+            (
+                AssistantContentBlock::Thinking(streamed),
+                AssistantContentBlock::Thinking(settled),
+            ) => settled.thinking.strip_prefix(streamed.thinking.as_str()),
+            // A call's arguments arrive whole with its end.
+            (AssistantContentBlock::ToolCall(_), AssistantContentBlock::ToolCall(_)) => Some(""),
+            _ => None,
+        };
+        let Some(rest) = rest else {
+            return whole();
+        };
+        if !rest.is_empty() {
+            let delta = rest.to_owned();
+            changes.push(match block {
+                AssistantContentBlock::Thinking(_) => MessageChange::ThinkingDelta {
+                    content_index,
+                    delta,
+                },
+                AssistantContentBlock::Text(_) | AssistantContentBlock::ToolCall(_) => {
+                    MessageChange::TextDelta {
+                        content_index,
+                        delta,
+                    }
+                }
+            });
+        }
+        changes.push(MessageChange::Block {
+            content_index,
+            block: block.clone(),
+        });
+    }
+    changes
 }
 
 /// Apply one change to the partial (absent only before a whole-message change).
