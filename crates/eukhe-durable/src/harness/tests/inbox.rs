@@ -995,8 +995,10 @@ mod queue {
         let f = submit(&root, input("f")).await;
         failing.release();
         assert_unanswered(&settle(&input_submission).await, "model_error");
-        assert_done(&settle(&f).await, None);
+        // The failure's commit places f and starts its run: once idle, f is
+        // answered and nothing is left queued.
         harness.wait_for_idle(context()).await.unwrap();
+        assert_done(&status(&f).await, None);
         assert_eq!(inbox(&harness, &root).await, Vec::new());
 
         let g = submit(&root, input_when("g", WhenBusy::Reject)).await;
@@ -1044,8 +1046,8 @@ mod queue {
         assert_eq!(inbox(&harness, &root).await, vec![(steer.id(), "steer")]);
         first.release();
         assert_unanswered(&settle(&input_submission).await, "model_error");
-        assert_done(&settle(&steer).await, None);
         harness.wait_for_idle(context()).await.unwrap();
+        assert_done(&status(&steer).await, None);
         assert_eq!(inbox(&harness, &root).await, Vec::new());
         assert_eq!(
             last(
@@ -1292,20 +1294,24 @@ mod queue {
         harness.close(context()).await.unwrap();
     }
 
+    /// An aborted run leaves its conversation idle with the input queued
+    /// behind it (a failed run places it instead); an idle steer then queues
+    /// behind it and both are placed together, in ID order.
     #[tokio::test]
     async fn queues_an_idle_steer_behind_waiting_items_and_places_it_with_the_first_follow_up_in_id_order(
     ) {
         let setup = chat_setup(RegisterFauxProviderOptions::default());
-        let failing = gated(failure("invalid request"));
+        let first = gated(answer("never"));
         setup
             .faux
-            .set_responses(vec![failing.step.clone(), answer("both").into()]);
+            .set_responses(vec![first.step.clone(), answer("both").into()]);
         let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
         let input_submission = submit(&root, input("a")).await;
-        failing.reached().await;
+        first.reached().await;
         let f = submit(&root, input("f")).await;
-        failing.release();
-        settle(&input_submission).await;
+        let task_id = live(&harness, &root).await.unwrap().run.unwrap().task_id;
+        harness.abort_task(task_id, context()).await.unwrap();
+        assert_unanswered(&settle(&input_submission).await, "aborted");
         harness.wait_for_idle(context()).await.unwrap();
         let steer = submit(&root, input_when("s", WhenBusy::Steer)).await;
         let settled = settle(&steer).await;
