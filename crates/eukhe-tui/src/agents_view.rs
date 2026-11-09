@@ -1374,6 +1374,23 @@ async fn run_agents_view_surface(
                 .await;
         });
     }
+    // Opening another session than the chat the view was entered from
+    // leaves that chat (omp disposes the session `/resume` leaves): a
+    // switch, so its worker is released once idle. Fire-and-forget like
+    // the unsubscribe: the handoff parks this connection for the flow.
+    if let Some(left) = mode.left_return_chat() {
+        let client = client.clone();
+        tokio::spawn(async move {
+            let _ = client
+                .request(DaemonCommand::Detach {
+                    id: None,
+                    active_session_id: Some(left),
+                    reason: Some(eukhe_types::daemon::DetachReason::Switch),
+                    rest: serde_json::Map::default(),
+                })
+                .await;
+        });
+    }
     let opened = mode.opened.take();
     // A handoff retires the watchdog before the drain wait: the reader
     // keeps observing Ctrl+C through that window, and a double-press

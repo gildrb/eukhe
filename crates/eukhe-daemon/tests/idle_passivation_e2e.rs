@@ -837,3 +837,177 @@ async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcri
         "the snapshot must carry the first turn's reply: {messages}"
     );
 }
+
+/// Create a root session over the faux `script` and attach `client` to
+/// it; answers its active and durable ids.
+fn create_attached(
+    client: &mut Client,
+    name: &str,
+    dir: &Path,
+    sessions_dir: &Path,
+    script: &Path,
+) -> (String, String) {
+    let id = format!("create-{name}");
+    client.send_command(
+        &id,
+        &json!({
+            "type": "create",
+            "name": name,
+            "config": {
+                "cwd": dir.to_string_lossy(),
+                "sessionDir": sessions_dir.to_string_lossy(),
+                "script": script.to_string_lossy(),
+            },
+        }),
+    );
+    let created = client.read_response(&id);
+    assert_eq!(created["success"], true, "create {name} failed: {created}");
+    let active = created["data"]["activeSessionId"]
+        .as_str()
+        .expect("active session id")
+        .to_string();
+    let durable = created["data"]["sessionId"]
+        .as_str()
+        .expect("durable session id")
+        .to_string();
+    let id = format!("attach-{name}");
+    client.send_command(&id, &json!({ "type": "attach", "activeSessionId": active }));
+    let attached = client.read_response(&id);
+    assert_eq!(
+        attached["success"], true,
+        "attach {name} failed: {attached}"
+    );
+    (active, durable)
+}
+
+/// Wait until `pid` left the process table, at most `budget`.
+async fn wait_gone(pid: u32, budget: Duration, what: &str) {
+    let deadline = Instant::now() + budget;
+    while process_present(pid) {
+        assert!(Instant::now() < deadline, "{what}: worker {pid} still runs");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// F5: a root its client left for another session (`/new`, `/resume`: a
+/// `detach` with reason `switch`) releases its worker once idle after the
+/// left grace, not after the 90-minute idle threshold (omp disposes the
+/// session it leaves), and resumes by its durable id with its transcript.
+/// A left root with a turn in flight keeps its worker until the turn ends.
+#[tokio::test]
+async fn a_root_left_for_another_session_releases_its_worker_once_idle() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let agent_dir = dir.path().join("agent");
+    let sessions_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+    let hold = dir.path().join("hold.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&hold).expect("bind the hold socket");
+    let left_script = write_faux_script(dir.path(), "left", &json!([{ "text": "left turn done" }]));
+    let busy_script = write_faux_script(
+        dir.path(),
+        "busy",
+        &json!([{ "text": "busy turn done", "holdUntilReleased": hold.to_string_lossy() }]),
+    );
+    let next_script = write_faux_script(dir.path(), "next", &json!([{ "text": "next" }]));
+
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let (mut client, _hello) = Client::connect(&socket);
+    let (left, left_durable) =
+        create_attached(&mut client, "left", dir.path(), &sessions_dir, &left_script);
+    client.send_command(
+        "left-turn",
+        &json!({ "type": "prompt_and_wait", "activeSessionId": left, "message": "first turn" }),
+    );
+    let turn = client.read_response("left-turn");
+    assert_eq!(turn["success"], true, "the left session's turn: {turn}");
+    let (busy, _) = create_attached(&mut client, "busy", dir.path(), &sessions_dir, &busy_script);
+    client.send_command(
+        "busy-turn",
+        &json!({ "type": "prompt", "activeSessionId": busy, "message": "busy turn" }),
+    );
+    // The busy turn's model request holds until the test closes its
+    // connection.
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let provider_peer = std::thread::spawn(move || {
+        let (connection, _) = listener.accept().expect("the held request connects");
+        let _ = released.recv();
+        drop(connection);
+    });
+    // A session left before its first prompt (each `/new` of a `/new`
+    // spam): its window armed at create, before the attach.
+    let (draft, _) = create_attached(
+        &mut client,
+        "draft",
+        dir.path(),
+        &sessions_dir,
+        &next_script,
+    );
+    let (next, _) = create_attached(&mut client, "next", dir.path(), &sessions_dir, &next_script);
+    let left_pid = worker_pid(&agent_dir, &left).expect("the left worker's pid");
+    let busy_pid = worker_pid(&agent_dir, &busy).expect("the busy worker's pid");
+    let draft_pid = worker_pid(&agent_dir, &draft).expect("the draft worker's pid");
+    let next_pid = worker_pid(&agent_dir, &next).expect("the next worker's pid");
+
+    // The client moves on (the TUI's `/new`): the earlier sessions left.
+    let left_at = Instant::now();
+    for (id, session) in [
+        ("leave-left", &left),
+        ("leave-busy", &busy),
+        ("leave-draft", &draft),
+    ] {
+        client.send_command(
+            id,
+            &json!({ "type": "detach", "activeSessionId": session, "reason": "switch" }),
+        );
+        let detached = client.read_response(id);
+        assert_eq!(detached["success"], true, "{id}: {detached}");
+    }
+    wait_gone(left_pid, Duration::from_secs(120), "the idle left session").await;
+    wait_gone(
+        draft_pid,
+        Duration::from_secs(120),
+        "the left draft session",
+    )
+    .await;
+    // Past the grace, the left session with a turn in flight keeps its
+    // worker: an absence the test can only observe by waiting the grace
+    // out (30 s) and a margin.
+    tokio::time::sleep(
+        (left_at + Duration::from_secs(35)).saturating_duration_since(Instant::now()),
+    )
+    .await;
+    assert!(
+        process_present(busy_pid),
+        "a left session with work keeps its worker"
+    );
+    release.send(()).expect("release the held request");
+    provider_peer.join().expect("the hold thread");
+    wait_gone(
+        busy_pid,
+        Duration::from_secs(120),
+        "the left session after its turn",
+    )
+    .await;
+    assert!(
+        process_present(next_pid),
+        "the attached session keeps its worker"
+    );
+
+    // The left session resumes by its durable id with its transcript.
+    let (mut fresh, _hello) = Client::connect(&socket);
+    fresh.send_command(
+        "resume-left",
+        &json!({ "type": "attach", "activeSessionId": left_durable }),
+    );
+    let attached = fresh.read_response("resume-left");
+    assert_eq!(
+        attached["success"], true,
+        "resume the left session: {attached}"
+    );
+    let messages = attached["data"]["snapshot"]["messages"].to_string();
+    assert!(
+        messages.contains("first turn") && messages.contains("left turn done"),
+        "the resumed snapshot carries the left session's turn: {messages}"
+    );
+}

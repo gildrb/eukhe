@@ -477,7 +477,9 @@ impl SessionUi {
         // The new attachment exists (the snapshot above rebuilt from it):
         // retire the superseded id's subscription now, addressed by the
         // captured previous id (the detach must target the OLD address,
-        // not the id the pane just adopted).
+        // not the id the pane just adopted). Leaving one session for
+        // another (`/new`, `/resume`) says so: the left session's worker
+        // is released once idle (omp disposes the session it leaves).
         if !previous.is_empty() && previous != self.active_session_id {
             let _ = self
                 .bounded_request(
@@ -485,6 +487,8 @@ impl SessionUi {
                     DaemonCommand::Detach {
                         id: None,
                         active_session_id: Some(previous),
+                        reason: mounted_session_changes
+                            .then_some(eukhe_types::daemon::DetachReason::Switch),
                         rest: Map::default(),
                     },
                 )
@@ -965,7 +969,10 @@ impl SessionUi {
     /// connection until the daemon answers (or the exit cap fires), then
     /// closes it. Attached-client bookkeeping must not delay the switch;
     /// the supervisor also detaches this client when the socket closes, so
-    /// the response is not a handoff dependency.
+    /// the response is not a handoff dependency. Not a switch: Escape in
+    /// the agents view returns to this session by its active id, which a
+    /// released worker no longer serves; the idle threshold releases it
+    /// as before.
     pub(crate) fn detach_for_handoff(&self) {
         let client = self.client.clone();
         let active_session_id = self.active_session_id.clone();
@@ -975,6 +982,7 @@ impl SessionUi {
                 client.request_ok(DaemonCommand::Detach {
                     id: None,
                     active_session_id: Some(active_session_id),
+                    reason: None,
                     rest: Map::default(),
                 }),
             )
@@ -985,13 +993,19 @@ impl SessionUi {
 
     /// Detach during the exit path, bounded hard: a wedged worker socket can
     /// never hold the client open (the exit contract is exit-within-1s even
-    /// then, so this must stay well under the bound).
+    /// then, so this must stay well under the bound). A `/resume <selector>`
+    /// leaves the session for the selected one: a switch; a plain exit
+    /// keeps the session's worker as before.
     pub(crate) async fn detach_for_exit(&self) {
         let _ = tokio::time::timeout(
             Duration::from_millis(EXIT_DETACH_TIMEOUT_MS),
             self.client.request_ok(DaemonCommand::Detach {
                 id: None,
                 active_session_id: Some(self.active_session_id.clone()),
+                reason: self
+                    .pending_selection
+                    .is_some()
+                    .then_some(eukhe_types::daemon::DetachReason::Switch),
                 rest: Map::default(),
             }),
         )
