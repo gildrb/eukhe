@@ -92,6 +92,24 @@ law cow_conflict_is_real:
   for clash: {Sb.elem(Sb.Back.clashes(Sb.back(ks, par, base, child)), k) == True{} : Bool}
   {Bool.or(Bool.or(Sb.m.eq(Sb.read(child, k), Sb.read(base, k)), Sb.m.eq(Sb.read(par, k), Sb.read(base, k))), Sb.m.eq(Sb.read(par, k), Sb.read(child, k))) == False{} : Bool}
 
+# LAW cow_same_means_equal: the hand-back counts two contents of a path as the same only when
+# they are equal: both absent, or the same id. The laws above that read Sb.m.eq then
+# speak of real equality.
+# EXCLUDES: a file one side created or removed taken as unchanged (an absent and a
+#   present content counted the same), two different ids counted the same
+law cow_same_means_equal:
+  for +a: Maybe<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  for same: {Sb.m.eq(a, b) == True{} : Bool}
+  {a == b : Maybe<&2, Nat>}
+
+# LAW cow_equal_is_same: every content of a path is the same as itself
+# EXCLUDES: an unchanged path counted as changed (a spurious take, removal or
+#   conflict)
+law cow_equal_is_same:
+  for +a: Maybe<&2, Nat>
+  {Sb.m.eq(a, a) == True{} : Bool}
+
 # The plan of one path the Rust hand-back runs (bend/sandbox.bend
 # `plan`): the parent's content stays (taken: both made the same change),
 # a conflict, the child's file goes in, or the child's removal does.
@@ -338,15 +356,6 @@ law cow_req_fits_example:
 def cow_spell_answer(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> String:
   cow_spell_plan(Sb.plan(p, b, c))
 
-# LAW cow_entry_exact: on every input the sandbox entry answers the spelled plan of the three contents the input is exactly, else the error naming the first field that is not a content, or "sandbox: input left over"
-# EXCLUDES: a plan tag or taken flag that drifts from the bytes Rust reads,
-#   a content misread (a tag past 1 read as a content), the error texts
-#   swapped or reworded, a field's error named as another, input left
-#   over ignored
-law cow_entry_exact:
-  for +s: String
-  {FSb.ffi(s) == cow_spec(s) : String}
-
 # LAW cow_entry_answers_spelled: every request Rust writes (every id within the wire) gets the spelled plan of the path
 # EXCLUDES: a request Rust writes refused or misread, a plan spelled
 #   another way than Rust reads it
@@ -398,6 +407,21 @@ law cow_entry_bad_child:
   for +s: String
   for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
   {FSb.ffi(cow_spell_doc(p, cow_spell_doc(b, s))) == Wr.err("sandbox: bad child content") : String}
+
+# LAW cow_entry_malformed_unless_request: every answer but the three field errors ("sandbox: bad parent content", "bad base content", "bad child content") answers an input that begins with a request Rust writes: three contents, every id within the wire, then any rest
+# EXCLUDES: a malformed content read and answered (a tag past 1, a leading
+#   zero, an id past the wire, a cut field) with a plan or the left-over
+#   error, instead of the error naming its field
+law cow_entry_malformed_unless_request:
+  for +s: String
+  for np: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad parent content")) == False{} : Bool}
+  for nb: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad base content")) == False{} : Bool}
+  for nc: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad child content")) == False{} : Bool}
+  exs p: Maybe<&2, Nat>
+  exs b: Maybe<&2, Nat>
+  exs c: Maybe<&2, Nat>
+  exs rest: String
+  {(s, Bool.and(LawsBase.wire_mfits(p), Bool.and(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c)))) == (cow_spell_req(p, b, c, rest), True{}) : String & Bool}
 
 # LAW cow_entry_tags_example: anchor: the bytes Rust sends and reads: no file anywhere (keep);
 # both changed the path alike (keep, taken); only the child changed it, to a file (take) or by

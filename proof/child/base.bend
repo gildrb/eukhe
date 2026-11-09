@@ -5,6 +5,7 @@ import ../../bend/child.bend as Ch
 import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
 import ../../laws/child/entry.bend as Child
+import ../../laws/child/model.bend as ChildModel
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
@@ -418,6 +419,26 @@ def pc.K_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, +s: Ch.St, k: {pc.K(s) == True{
     case +e <> t:
       pc.K_run(t, cfg, Ch.step(cfg, s, e), pc.K_step(cfg, s, e, k))
 
+# the stall clock is the same for l ms left and e elapsed as for one more of each
+def pc.spent_succ(b: Bool, +tok: Maybe<&2, Nat>, +p: Nat, +f: Nat, +n: Nat) -> {ChildModel.ChildSpent(b, tok, p, f, n) == ChildModel.ChildSpent(b, tok, 1n+p, 1n+f, n) : Ch.Next}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# spending e of the l ms left is the clock ChildModel.ChildSpends names
+def pc.spends(+l: Nat, +e: Nat, +tok: Maybe<&2, Nat>, +n: Nat) -> {Ch.spend(Nat.sub(l, e), tok, n) == ChildModel.ChildSpends(tok, l, e, n) : Ch.Next}:
+  match l e:
+    case 0n 0n:
+      {==}
+    case 0n 1n+f:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+f:
+      Equal.trans(Ch.Next, Ch.spend(Nat.sub(p, f), tok, n), ChildModel.ChildSpent(Nat.is_le(p, f), tok, p, f, n), ChildModel.ChildSpent(Nat.is_le(p, f), tok, 1n+p, 1n+f, n), pc.spends(p, f, tok, n), pc.spent_succ(Nat.is_le(p, f), tok, p, f, n))
+
 def pw6.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
   Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Wire.wire_bool_round_trip(b, rest))
 
@@ -620,6 +641,26 @@ def rt.ph(p: Ch.Ph, +rest: String, +h: {Child.wire_ph_fits(p) == True{} : Bool})
       {==}
     case Ch.Ended{}:
       %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Ended{}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      {==}
+
+# a clock cut before a number that does not read decodes to Bad
+def ct.clock(k: Child.ChClockCut, +rest: String, +fit: {Child.ch_cut_clock_fits(k) == True{} : Bool}, bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}) -> {Wr.Bad{} == FCh.get_w(Child.ch_cut_clock(k, rest)) : Wr.Dec<Ch.W>}:
+  match k:
+    case Child.ClkAtTag{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.t(FCh.get_maybe_nat.go(_)) : Wr.Dec<Ch.W>}
+      {==}
+    case Child.ClkAtToken{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Bad{} == FCh.get_w.t(FCh.get_maybe_nat.go(_)) : Wr.Dec<Ch.W>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.t(FCh.get_maybe_nat.some(_)) : Wr.Dec<Ch.W>}
+      {==}
+    case Child.ClkAtLeft{+t}:
+      %rt.mnat(t, rest, fit) : {Wr.Bad{} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      {==}
+    case Child.ClkAtTries{+t, +l}:
+      %rt.mnat(t, Wr.put_nat(l, rest), LLogicBool.wr_and_l(LawsBase.wire_mfits(t), LawsBase.wire_fits(l), fit)) : {Wr.Bad{} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %LWire.pw6.nat(l, rest, LLogicBool.wr_and_r(LawsBase.wire_mfits(t), LawsBase.wire_fits(l), fit)) : {Wr.Bad{} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
       {==}
 
 # the last stage of request r: its answer when nothing is left (left)

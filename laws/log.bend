@@ -436,6 +436,32 @@ def log_state(r: FLg.St & String) -> FLg.St:
   (st, s) = r
   st
 
+# the replies of the stepper to the events evs, fed in order from the
+# state st
+def log_replies(+evs: List<&2, String>, +st: FLg.St) -> List<&2, String>:
+  match evs:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      log_reply(FLg.step(st, e)) <> log_replies(t, log_state(FLg.step(st, e)))
+
+# the state of the stepper after the events evs, fed in order from the
+# state st
+def log_fed_state(evs: List<&2, String>, st: FLg.St) -> FLg.St:
+  match evs:
+    case Nil{}:
+      st
+    case e <> t:
+      log_fed_state(t, log_state(FLg.step(st, e)))
+
+# one error form "log: the open was refused" for each event of evs
+def log_refused(evs: List<&2, String>) -> List<&2, String>:
+  match evs:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      Wr.err("log: the open was refused") <> log_refused(t)
+
 # a last newline that fits the wire
 def log_last_fits(m: Maybe<&2, Nat>) -> Bool:
   match m:
@@ -625,12 +651,18 @@ law log_stepper_malformed_unless_commit:
   exs rest: String
   {(s, LawsBase.wire_fits(List.length(&2, Bool, ds))) == (Wr.put_list(~Bool, ~Wr.put_bool, ds, rest), True{}) : String & Bool}
 
-# LAW log_stepper_shut_refused_text (R4): after a refused open, every event answers exactly the
-# error form "log: the open was refused"
-# EXCLUDES: the refusal reworded, or answered with another error text
-law log_stepper_shut_refused_text:
+# LAW log_stepper_refused_open_history (R4): after an open the stepper refuses (its reply is
+# an error form), any events fed to it in order are each answered exactly
+# the error form "log: the open was refused", and the stepper is still
+# shut after them
+# EXCLUDES: a refused open that keeps a default storage, a refused stepper
+#   that plans a commit or opens again after some event, the refusal
+#   reworded or swapped with another error text
+law log_stepper_refused_open_history:
   for +s: String
-  {log_reply(FLg.step(FLg.Shut{}, s)) == Wr.err("log: the open was refused") : String}
+  for no: {LawsBase.wire_opens_err(log_reply(FLg.open(s))) == True{} : Bool}
+  for +evs: List<&2, String>
+  {log_replies(evs, log_state(FLg.open(s))) == log_refused(evs) : List<&2, String>} & {log_fed_state(evs, log_state(FLg.open(s))) == FLg.Shut{} : FLg.St}
 
 # LAW log_fits_example (R4): witness: the premises of log_ffi_answers_the_open and
 # log_stepper_commit hold for requests Rust writes

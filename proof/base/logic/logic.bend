@@ -595,7 +595,7 @@ def pu.absurd_ft(-A: Type, +e: {False{} == True{} : Bool}) -> A:
 # Outside. Secret (code 6) is never grantable, so a write to a secret,
 # or a read of one, reduces to the user's answer. A write that runs
 # without a yes is not Secret, so its real location is no secret, and a
-# write there leaves every secret cell as it was (`pp.secrets_set`).
+# write there leaves every secret cell as it was (`pp.put_keeps`).
 
 # Logic
 # -----

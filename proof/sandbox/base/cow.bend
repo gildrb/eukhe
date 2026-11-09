@@ -149,3 +149,11 @@ def cw.answers(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>, +fits
   %cw.rt_doc(b, Sandbox.cow_spell_doc(c, ""), hb) : {Sandbox.cow_spec.b(p, _) == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}
   %cw.rt_doc(c, "", hc) : {Sandbox.cow_spec.c(p, b, _) == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}
   {==}
+
+# a content: the laws' reader is the entry's
+def cse.docs(s: String) -> {Sandbox.cow_read_doc(Wr.get_nat(s)) == FSb.get_doc(s) : Wr.Dec<Maybe<&2, Nat>>}:
+  cw.doc(Wr.get_nat(s))
+
+# a content that fits, as the entry reads it: itself, with what follows it
+def cse.rt_get(+m: Maybe<&2, Nat>, +rest: String, +h: {LawsBase.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FSb.get_doc(Sandbox.cow_spell_doc(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  Equal.trans(Wr.Dec<Maybe<&2, Nat>>, Wr.Got{m, rest}, Sandbox.cow_read_doc(Wr.get_nat(Sandbox.cow_spell_doc(m, rest))), FSb.get_doc(Sandbox.cow_spell_doc(m, rest)), cw.rt_doc(m, rest, h), cse.docs(Sandbox.cow_spell_doc(m, rest)))
