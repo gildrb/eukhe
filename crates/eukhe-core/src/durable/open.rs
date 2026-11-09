@@ -390,11 +390,11 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         )
         .await;
     }
-    // A kernel that cannot start shows one row per session (a child's
-    // parent already shows it).
+    // A kernel that cannot start shows one row per install state, in the
+    // first top-level session that finds it so (children never show it).
     if config.role.is_root() {
         if let Some(notice) = kernel_unavailable_notice::notice_once(
-            deps.storage_dir.as_deref(),
+            &deps.agent_dir,
             deps.kernel_unavailable.as_ref(),
         ) {
             show_notice_row(

@@ -213,12 +213,13 @@ async fn a_missing_kernel_names_the_install_and_spares_the_other_tools() {
 /// the ipython tool, so the model's first call was a cell that could only
 /// answer with the install command. Now the probe at open finds no kernel
 /// venv: the model is offered no ipython tool and its prompt says the
-/// session has no Python REPL, and the user sees one notice naming the
-/// install, also after the session is opened again. The next open after
-/// the venv appears offers the tool; when it is gone again, one more
-/// notice shows.
+/// session has no Python REPL. The user sees the notice naming the
+/// install once per install state (omp's first-launch warning): in the
+/// first fresh session, not the second, not once the venv appears, and
+/// once more in the first session after it is gone again. A reopened
+/// session does not show it again either.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kernel_that_cannot_start_is_not_offered_and_shows_one_notice() {
+async fn a_kernel_that_cannot_start_is_not_offered_and_noticed_once() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
     let fixture = Fixture::new();
     let venv = fixture.dir.path().join("kernel-venv");
@@ -238,20 +239,36 @@ async fn a_kernel_that_cannot_start_is_not_offered_and_shows_one_notice() {
         origin: None,
     };
     let seen = Seen::default();
-    let no_interpreter = |config: &mut SessionConfig| config.kernel_python = None;
+    // A fresh session of the fixture's install: its own id and storage.
+    let fresh = |n: u8| {
+        let dir = fixture
+            .dir
+            .path()
+            .join("sessions")
+            .join(format!("fresh-{n}"));
+        move |config: &mut SessionConfig| {
+            config.kernel_python = None;
+            config.session_id = format!("019a0000-0000-7000-8000-0000000001{n:02}");
+            config.storage = SessionStorage::Jsonl { dir, fsync: false };
+        }
+    };
 
-    let first = open_and_ask(&fixture, &seen, no_interpreter).await;
+    let first = open_and_ask(&fixture, &seen, fresh(1)).await;
     assert_eq!(first, (false, vec![notice.clone()]));
-    let reopened = open_and_ask(&fixture, &seen, no_interpreter).await;
+    let reopened = open_and_ask(&fixture, &seen, fresh(1)).await;
     assert_eq!(reopened, (false, vec![notice.clone()]));
+    let second = open_and_ask(&fixture, &seen, fresh(2)).await;
+    assert_eq!(second, (false, Vec::new()));
 
     std::fs::create_dir(&venv).expect("a venv appears");
-    let installed = open_and_ask(&fixture, &seen, no_interpreter).await;
-    assert_eq!(installed, (true, vec![notice.clone()]));
+    let installed = open_and_ask(&fixture, &seen, fresh(3)).await;
+    assert_eq!(installed, (true, Vec::new()));
 
     std::fs::remove_dir(&venv).expect("the venv is gone again");
-    let lost = open_and_ask(&fixture, &seen, no_interpreter).await;
-    assert_eq!(lost, (false, vec![notice.clone(), notice]));
+    let lost = open_and_ask(&fixture, &seen, fresh(4)).await;
+    assert_eq!(lost, (false, vec![notice.clone()]));
+    let after = open_and_ask(&fixture, &seen, fresh(5)).await;
+    assert_eq!(after, (false, Vec::new()));
 }
 
 /// A working kernel is offered with no notice, even with no kernel venv:

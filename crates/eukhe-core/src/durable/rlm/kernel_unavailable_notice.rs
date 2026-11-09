@@ -6,13 +6,16 @@
 //! it definitively cannot (the `eukhe-runtime/` directory is missing, or
 //! the kernel venv is: `eukhe kernel install` never ran), the session
 //! offers no `ipython` tool, so the model never spends a call on a cell
-//! that can only answer with the install command, and the user sees one
-//! display-only row naming the fix. The model does not see the row; its
-//! system prompt already says the session has no Python REPL. Every open
-//! probes again: once the kernel is installed, the next open offers the
-//! tool. omp parity: `resolveAdvertisedEvalBackends` drops the Python
-//! backend after a definitive failed probe, `resolvePythonEvalWarning`
-//! shows one startup warning.
+//! that can only answer with the install command. The user sees one
+//! display-only row naming the fix, once per install state: the first
+//! session that finds the kernel unavailable shows it, later sessions do
+//! not, until a session finds the kernel usable and a later one finds it
+//! gone again. The model does not see the row; its system prompt already
+//! says the session has no Python REPL. Every open probes again: once the
+//! kernel is installed, the next open offers the tool. omp parity:
+//! `resolveAdvertisedEvalBackends` drops the Python backend after a
+//! definitive failed probe; `resolveFirstLaunchPythonEvalWarning` warns
+//! once, not at every session.
 
 use std::path::Path;
 
@@ -23,9 +26,9 @@ use crate::settings::SettingsManager;
 /// The notice's `customType` (display-only: never model context).
 pub const KERNEL_UNAVAILABLE_CUSTOM_TYPE: &str = "kernel_unavailable";
 
-/// The file in the session's storage directory that records the notice
-/// was shown for the current unavailability: a session reopened (a worker
-/// replaced, an idle session woken) does not show it again.
+/// The file in the agent state directory (`~/.eukhe`) that records the
+/// notice was shown for the current unavailability: later sessions, and a
+/// session reopened, do not show it again.
 const NOTICE_SHOWN_MARKER: &str = "kernel-unavailable-shown";
 
 /// The session's probe: `None` when the session names its interpreter
@@ -65,41 +68,36 @@ pub fn notice_text(unavailable: &KernelUnavailable) -> String {
 }
 
 /// The notice this open shows, if any: the text while the kernel is
-/// unavailable and the session has not shown it yet. A session without a
-/// storage directory (memory storage) opens once, so it shows it each
-/// open. A session whose kernel is available forgets the shown notice, so
-/// a later loss shows it again.
+/// unavailable and no session of the install under `state_dir` has shown
+/// it since the kernel was last usable. An open that finds the kernel
+/// usable forgets the shown notice, so a later loss shows it again.
 pub(crate) fn notice_once(
-    storage_dir: Option<&Path>,
+    state_dir: &Path,
     unavailable: Option<&KernelUnavailable>,
 ) -> Option<String> {
-    let marker = storage_dir.map(|dir| dir.join(NOTICE_SHOWN_MARKER));
+    let marker = state_dir.join(NOTICE_SHOWN_MARKER);
     let Some(unavailable) = unavailable else {
-        if let Some(marker) = marker {
-            match std::fs::remove_file(&marker) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    tracing::warn!(%error, marker = %marker.display(), "kernel notice marker not removed");
-                }
+        match std::fs::remove_file(&marker) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(%error, marker = %marker.display(), "kernel notice marker not removed");
             }
         }
         return None;
     };
-    if let Some(marker) = marker {
-        // Created before the row is written, atomically: two opens of one
-        // session show one row.
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&marker)
-        {
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return None,
-            // The row still shows: a notice shown twice beats none.
-            Err(error) => {
-                tracing::warn!(%error, marker = %marker.display(), "kernel notice marker not written");
-            }
+    // Created before the row is written, atomically: two sessions opening
+    // at once show one row.
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)
+    {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return None,
+        // The row still shows: a notice shown twice beats none.
+        Err(error) => {
+            tracing::warn!(%error, marker = %marker.display(), "kernel notice marker not written");
         }
     }
     Some(notice_text(unavailable))
