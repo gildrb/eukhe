@@ -200,7 +200,7 @@ def aw.step(s: Ad.St, o: Ad.Op, +w: Nat, +ws: {Admission.adm_waits_ia(Admission.
       LAAdmissionPot.aw.col(Ad.get(ts, k), l, q, ts, k, w, {==})
     case Ad.St{+l, +q, +ts} Ad.Release{+k}:
       aw.rel(Ad.get(ts, k), l, q, ts, k, w, {==}, wf)
-    case Ad.St{+l, +q, +ts} Ad.Leave{+k}:
+    case Ad.St{+l, +q, +ts} Ad.Depart{+k}:
       aw.lea(Ad.get(ts, k), l, q, ts, k, w, {==}, wf)
     case Ad.St{+l, +q, +ts} Ad.Limit{+l2, q2}:
       %Equal.sym(Nat, AT.pot(Ad.grant(l2, ts), w), AT.pot(ts, w), aw.pot_grant(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, w, wf)) : {Ad.le(_, AT.pot(ts, w)) == True{} : Bool}

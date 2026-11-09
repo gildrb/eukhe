@@ -58,7 +58,7 @@ def asp.op(o: Ad.Op, -rest: String) -> {FAd.put_op(o, rest) == AdmissionWire.adw
       {==}
     case Ad.Release{k}:
       {==}
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       {==}
     case Ad.Limit{+l, +q}:
       %asp.lim(l, Wr.put_nat(q, rest)) : {Wr.put_nat(4n, FAd.put_lim(l, Wr.put_nat(q, rest))) == Wr.put_nat(4n, _) : String}

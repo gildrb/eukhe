@@ -315,7 +315,7 @@ def adm_freed(+s: Ad.St, o: Ad.Op) -> Nat:
       0n
     case Ad.Release{k}:
       adm_freed.at(List.get(&2, Ad.Tk, adm_ts(s), k), True{})
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       adm_freed.at(List.get(&2, Ad.Tk, adm_ts(s), k), False{})
     case Ad.Limit{l, q}:
       0n
@@ -376,7 +376,7 @@ def adm_frees(+s: Ad.St, o: Ad.Op) -> Nat:
       0n
     case Ad.Release{k}:
       adm_frees.at(List.get(&2, Ad.Tk, adm_ts(s), k), True{})
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       adm_frees.at(List.get(&2, Ad.Tk, adm_ts(s), k), False{})
     case Ad.Limit{l, q}:
       0n
@@ -419,9 +419,9 @@ def adm_took(m: Maybe<&2, Ad.Tk>) -> Bool:
 def adm_finish(m: Maybe<&2, Ad.Tk>, k: Nat) -> Ad.Op:
   match m:
     case Some{Ad.Tk{c, Ad.Queued{}}}:
-      Ad.Leave{k}
+      Ad.Depart{k}
     case Some{Ad.Tk{c, Ad.Granted{}}}:
-      Ad.Leave{k}
+      Ad.Depart{k}
     case _:
       Ad.Release{k}
 
@@ -571,7 +571,7 @@ def adm_applies(+ts: List<&2, Ad.Tk>, o: Ad.Op) -> Bool:
       adm_granted.at(List.get(&2, Ad.Tk, ts, k))
     case Ad.Release{k}:
       adm_permit.at(List.get(&2, Ad.Tk, ts, k))
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       adm_waiter.at(List.get(&2, Ad.Tk, ts, k))
     case Ad.Limit{l, q}:
       True{}
@@ -657,7 +657,7 @@ law admission_leave_grants:
   for +x: Ad.Sts
   for +post: List<&2, Ad.Tk>
   for w: {adm_waiter(x) == True{} : Bool}
-  {Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, x} <> post)}, Ad.Leave{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}
+  {Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, x} <> post)}, Ad.Depart{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}
 
 # LAW admission_limits_grant: on every state, new limits take effect at once, and the free slots under them go to the waiters by the two passes of ads_grant (H3.5, H3.8)
 # EXCLUDES: limits ignored or kept, waiters left waiting after a raised

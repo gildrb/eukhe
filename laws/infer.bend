@@ -154,31 +154,31 @@ law force_reports:
 # LAW strict_within_cap (S6.3): with a cap, at most cap tools of a request get strict schemas
 law strict_within_cap:
   for +cap: Nat
-  for +ts: List<&2, If.Tool>
-  {Nat.is_le(List.length(&2, If.Tool, Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts))), cap) == True{} : Bool}
+  for +ts: List<&2, If.ToolPrio>
+  {Nat.is_le(List.length(&2, If.ToolPrio, Pair.fst(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(Some{cap}, ts))), cap) == True{} : Bool}
 
 # LAW strict_keeps_every_tool (S6.3): with a cap, no tool of a request is lost: every tool is strict
 # or loose, as many times as it was given
 law strict_keeps_every_tool:
   for +cap: Nat
-  for +ts: List<&2, If.Tool>
+  for +ts: List<&2, If.ToolPrio>
   for +i: Nat
-  {Nat.add(If.count(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts)), i), If.count(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts)), i)) == If.count(ts, i) : Nat}
+  {Nat.add(If.count(Pair.fst(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(Some{cap}, ts)), i), If.count(Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(Some{cap}, ts)), i)) == If.count(ts, i) : Nat}
 
 # LAW strict_by_priority (S6.3): with a cap, every strict tool of a request has a priority of at
 # least every loose tool
 law strict_by_priority:
   for +cap: Nat
-  for +ts: List<&2, If.Tool>
-  {If.dominates(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts)), Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(Some{cap}, ts))) == True{} : Bool}
+  for +ts: List<&2, If.ToolPrio>
+  {If.dominates(Pair.fst(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(Some{cap}, ts)), Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(Some{cap}, ts))) == True{} : Bool}
 
 # the ids of the tools of ts, in order
-def strict.ids(ts: List<&2, If.Tool>) -> List<&2, Nat>:
+def strict.ids(ts: List<&2, If.ToolPrio>) -> List<&2, Nat>:
   match ts:
     case Nil{}:
       Nil{}
     case t <> rest:
-      If.Tool.id(t) <> strict.ids(rest)
+      If.ToolPrio.id(t) <> strict.ids(rest)
 
 # no id of ids is in need
 def plan.none_needed(ids: List<&2, Nat>, +need: List<&2, Nat>) -> Bool:
@@ -196,10 +196,10 @@ def plan.none_needed(ids: List<&2, Nat>, +need: List<&2, Nat>) -> Bool:
 #   than the loose ones (or drops, adds or reorders loose ids)
 law plan_fits_unless_forced:
   for cap: Maybe<&2, Nat>
-  for +ts: List<&2, If.Tool>
+  for +ts: List<&2, If.ToolPrio>
   for +need: List<&2, Nat>
-  for calm: {plan.none_needed(strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))), need) == True{} : Bool}
-  {If.plan(cap, ts, need) == If.Fits{strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts)))} : If.Plan}
+  for calm: {plan.none_needed(strict.ids(Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(cap, ts))), need) == True{} : Bool}
+  {If.plan(cap, ts, need) == If.Fits{strict.ids(Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(cap, ts)))} : If.Plan}
 
 # LAW plan_fits_only_unforced (S6.3): a plan fits only when no loose tool of the request requires a
 # strict schema: a loose tool that requires one makes the plan refuse
@@ -207,17 +207,17 @@ law plan_fits_unless_forced:
 #   any list) where the request must be refused
 law plan_fits_only_unforced:
   for cap: Maybe<&2, Nat>
-  for +ts: List<&2, If.Tool>
+  for +ts: List<&2, If.ToolPrio>
   for +need: List<&2, Nat>
   for +ls: List<&2, Nat>
   for f: {If.plan(cap, ts, need) == If.Fits{ls} : If.Plan}
-  {plan.none_needed(strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))), need) == True{} : Bool}
+  {plan.none_needed(strict.ids(Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(cap, ts))), need) == True{} : Bool}
 
 # LAW plan_never_loosens_a_needed_tool: a tool that requires a strict schema is never sent loose
 # EXCLUDES: a request that drops the schema a tool requires
 law plan_never_loosens_a_needed_tool:
   for cap: Maybe<&2, Nat>
-  for +ts: List<&2, If.Tool>
+  for +ts: List<&2, If.ToolPrio>
   for +need: List<&2, Nat>
   for +ls: List<&2, Nat>
   for +i: Nat
@@ -231,20 +231,20 @@ law plan_never_loosens_a_needed_tool:
 # model names the first loose one, highest priority first)
 law plan_refusal_names_a_needed_loose_tool:
   for cap: Maybe<&2, Nat>
-  for +ts: List<&2, If.Tool>
+  for +ts: List<&2, If.ToolPrio>
   for +need: List<&2, Nat>
   for +i: Nat
   for o: {If.plan(cap, ts, need) == If.Over{i} : If.Plan}
-  {Bool.and(If.elem(need, i), If.elem(strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))), i)) == True{} : Bool}
+  {Bool.and(If.elem(need, i), If.elem(strict.ids(Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(cap, ts))), i)) == True{} : Bool}
 
 # LAW plan_example_over: a required tool past the cap refuses the request (witness of the
 # refusal)
 law plan_example_over:
-  {If.plan(Some{1n}, [If.Tool{0n, 1n}, If.Tool{1n, 3n}, If.Tool{2n, 2n}], [0n, 2n]) == If.Over{2n} : If.Plan}
+  {If.plan(Some{1n}, [If.ToolPrio{0n, 1n}, If.ToolPrio{1n, 3n}, If.ToolPrio{2n, 2n}], [0n, 2n]) == If.Over{2n} : If.Plan}
 
 # LAW plan_example_fits: a required tool within the cap fits (witness of a fit)
 law plan_example_fits:
-  {If.plan(Some{1n}, [If.Tool{0n, 1n}, If.Tool{1n, 3n}, If.Tool{2n, 3n}], [1n]) == If.Fits{[2n, 0n]} : If.Plan}
+  {If.plan(Some{1n}, [If.ToolPrio{0n, 1n}, If.ToolPrio{1n, 3n}, If.ToolPrio{2n, 3n}], [1n]) == If.Fits{[2n, 0n]} : If.Plan}
 
 # LAW guard_cuts_repeats: a stream that repeats a chunk k times in a row is cut
 law guard_cuts_repeats:
@@ -397,12 +397,12 @@ law quirk_ladder_map_reasons_example:
 # (infer) The strict plan: bend/ffi_infer.bend
 # --------------------------------------------
 
-def core_tool_fits(t: If.Tool) -> Bool:
+def core_tool_fits(t: If.ToolPrio) -> Bool:
   match t:
-    case If.Tool{i, p}:
+    case If.ToolPrio{i, p}:
       Bool.and(LawsBase.wire_fits(i), LawsBase.wire_fits(p))
 
-def core_tools_fit(ts: List<&2, If.Tool>) -> Bool:
+def core_tools_fit(ts: List<&2, If.ToolPrio>) -> Bool:
   match ts:
     case Nil{}:
       True{}
@@ -412,7 +412,7 @@ def core_tools_fit(ts: List<&2, If.Tool>) -> Bool:
 def core_infer_fits(q: FIn.Req) -> Bool:
   match q:
     case FIn.Req{cap, +ts, +need}:
-      Bool.and(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))))
+      Bool.and(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.ToolPrio, ts)), core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))))
 
 # LAW core_infer_round_trip (R1): a strict plan request that fits reads back, and the rest is
 # untouched
@@ -429,7 +429,7 @@ law core_infer_round_trip:
 #   that fits, a plan that ignores the needed tools
 law core_infer_answers:
   for +cap: Maybe<&2, Nat>
-  for +ts: List<&2, If.Tool>
+  for +ts: List<&2, If.ToolPrio>
   for +need: List<&2, Nat>
   for h: {core_infer_fits(FIn.Req{cap, ts, need}) == True{} : Bool}
   {FIn.ffi(FIn.put_req(FIn.Req{cap, ts, need}, "")) == FIn.put_plan(If.plan(cap, ts, need), "") : String}
@@ -448,7 +448,7 @@ law core_infer_left_over:
 # EXCLUDES: a vacuous core_infer_round_trip, fields in another order than
 #   `api/constrained_sampling.rs` writes them
 law core_infer_req_example:
-  {core_infer_fits(FIn.Req{Some{1n}, [If.Tool{7n, 3n}, If.Tool{9n, 0n}], [9n]}) == True{} : Bool} & {FIn.put_req(FIn.Req{Some{1n}, [If.Tool{7n, 3n}, If.Tool{9n, 0n}], [9n]}, "") == "1,1,2,7,3,9,0,1,9," : String}
+  {core_infer_fits(FIn.Req{Some{1n}, [If.ToolPrio{7n, 3n}, If.ToolPrio{9n, 0n}], [9n]}) == True{} : Bool} & {FIn.put_req(FIn.Req{Some{1n}, [If.ToolPrio{7n, 3n}, If.ToolPrio{9n, 0n}], [9n]}, "") == "1,1,2,7,3,9,0,1,9," : String}
 
 # LAW core_infer_reply_example (R2): anchor: a plan that fits is 0 then the loose ids; a refusal is 1
 # then the tool's id
@@ -480,13 +480,13 @@ def core_infer_spell_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
       Wr.put_nat(1n, Wr.put_nat(n, rest))
 
 # a tool: its id, then its priority
-def core_infer_spell_tool(t: If.Tool, rest: String) -> String:
+def core_infer_spell_tool(t: If.ToolPrio, rest: String) -> String:
   match t:
-    case If.Tool{i, p}:
+    case If.ToolPrio{i, p}:
       Wr.put_nat(i, Wr.put_nat(p, rest))
 
 # the tools of ts, each spelled, then rest
-def core_infer_spell_tools.items(ts: List<&2, If.Tool>, rest: String) -> String:
+def core_infer_spell_tools.items(ts: List<&2, If.ToolPrio>, rest: String) -> String:
   match ts:
     case Nil{}:
       rest
@@ -494,8 +494,8 @@ def core_infer_spell_tools.items(ts: List<&2, If.Tool>, rest: String) -> String:
       core_infer_spell_tool(t, core_infer_spell_tools.items(u, rest))
 
 # a list of tools: its count, then each tool
-def core_infer_spell_tools(+ts: List<&2, If.Tool>, rest: String) -> String:
-  Wr.put_nat(List.length(&2, If.Tool, ts), core_infer_spell_tools.items(ts, rest))
+def core_infer_spell_tools(+ts: List<&2, If.ToolPrio>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, If.ToolPrio, ts), core_infer_spell_tools.items(ts, rest))
 
 # a request: the cap, the tools, the ids of the tools that need a strict
 # schema
@@ -617,32 +617,32 @@ def ir.mnat(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
       Wr.Bad{}
 
 # a tool: its id, then its priority
-def ir.tool.p(i: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<If.Tool>:
+def ir.tool.p(i: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<If.ToolPrio>:
   match r:
     case Wr.Got{p, s}:
-      Wr.Got{If.Tool{i, p}, s}
+      Wr.Got{If.ToolPrio{i, p}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 
-def ir.tool.i(r: Wr.Dec<Nat>) -> Wr.Dec<If.Tool>:
+def ir.tool.i(r: Wr.Dec<Nat>) -> Wr.Dec<If.ToolPrio>:
   match r:
     case Wr.Got{i, s}:
       ir.tool.p(i, Wr.get_nat(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
-def ir.tool(s: String) -> Wr.Dec<If.Tool>:
+def ir.tool(s: String) -> Wr.Dec<If.ToolPrio>:
   ir.tool.i(Wr.get_nat(s))
 
 # a request: the cap, the tools (a list), the needed ids (a list)
-def ir.req.need(cap: Maybe<&2, Nat>, ts: List<&2, If.Tool>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FIn.Req>:
+def ir.req.need(cap: Maybe<&2, Nat>, ts: List<&2, If.ToolPrio>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FIn.Req>:
   match r:
     case Wr.Got{need, s}:
       Wr.Got{FIn.Req{cap, ts, need}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 
-def ir.req.ts(cap: Maybe<&2, Nat>, r: Wr.Dec<List<&2, If.Tool>>) -> Wr.Dec<FIn.Req>:
+def ir.req.ts(cap: Maybe<&2, Nat>, r: Wr.Dec<List<&2, If.ToolPrio>>) -> Wr.Dec<FIn.Req>:
   match r:
     case Wr.Got{ts, s}:
       ir.req.need(cap, ts, Wr.get_list(~Nat, ~Wr.get_nat, s))
@@ -652,7 +652,7 @@ def ir.req.ts(cap: Maybe<&2, Nat>, r: Wr.Dec<List<&2, If.Tool>>) -> Wr.Dec<FIn.R
 def ir.req.cap(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<FIn.Req>:
   match r:
     case Wr.Got{cap, s}:
-      ir.req.ts(cap, Wr.get_list(~If.Tool, ~ir.tool, s))
+      ir.req.ts(cap, Wr.get_list(~If.ToolPrio, ~ir.tool, s))
     case Wr.Bad{}:
       Wr.Bad{}
 
@@ -668,28 +668,28 @@ def is.if(-A: Data, b: Bool, t: A, e: A) -> A:
     case False{}:
       e
 
-def is.id(t: If.Tool) -> Nat:
+def is.id(t: If.ToolPrio) -> Nat:
   match t:
-    case If.Tool{i, p}:
+    case If.ToolPrio{i, p}:
       i
 
-def is.prio(t: If.Tool) -> Nat:
+def is.prio(t: If.ToolPrio) -> Nat:
   match t:
-    case If.Tool{i, p}:
+    case If.ToolPrio{i, p}:
       p
 
 # x put into ys (highest priority first) before the first tool of
 # priority at most x's: x goes before the tools it ties with
-def is.ins(+x: If.Tool, ys: List<&2, If.Tool>) -> List<&2, If.Tool>:
+def is.ins(+x: If.ToolPrio, ys: List<&2, If.ToolPrio>) -> List<&2, If.ToolPrio>:
   match ys:
     case Nil{}:
       [x]
     case +y <> +yt:
-      is.if(List<&2, If.Tool>, Nat.is_le(is.prio(y), is.prio(x)), x <> y <> yt, y <> is.ins(x, yt))
+      is.if(List<&2, If.ToolPrio>, Nat.is_le(is.prio(y), is.prio(x)), x <> y <> yt, y <> is.ins(x, yt))
 
 # the tools by priority, highest first; among equal priorities the earlier
 # tool comes first (a stable sort)
-def is.sort(ts: List<&2, If.Tool>) -> List<&2, If.Tool>:
+def is.sort(ts: List<&2, If.ToolPrio>) -> List<&2, If.ToolPrio>:
   match ts:
     case Nil{}:
       Nil{}
@@ -698,12 +698,12 @@ def is.sort(ts: List<&2, If.Tool>) -> List<&2, If.Tool>:
 
 # the loose tools: with no cap none; with a cap c the tools past the c
 # highest
-def is.loose(cap: Maybe<&2, Nat>, ts: List<&2, If.Tool>) -> List<&2, If.Tool>:
+def is.loose(cap: Maybe<&2, Nat>, ts: List<&2, If.ToolPrio>) -> List<&2, If.ToolPrio>:
   match cap:
     case None{}:
       Nil{}
     case Some{c}:
-      List.drop(&2, If.Tool, is.sort(ts), c)
+      List.drop(&2, If.ToolPrio, is.sort(ts), c)
 
 # xs lists x
 def is.elem(xs: List<&2, Nat>, +x: Nat) -> Bool:
@@ -714,21 +714,21 @@ def is.elem(xs: List<&2, Nat>, +x: Nat) -> Bool:
       Bool.or(Nat.is_eq(y, x), is.elem(rest, x))
 
 # the id of the first tool of ls that requires a strict schema
-def is.needed(ls: List<&2, If.Tool>, +need: List<&2, Nat>) -> Maybe<&2, Nat>:
+def is.needed(ls: List<&2, If.ToolPrio>, +need: List<&2, Nat>) -> Maybe<&2, Nat>:
   match ls:
     case Nil{}:
       None{}
     case +t <> rest:
       is.if(Maybe<&2, Nat>, is.elem(need, is.id(t)), Some{is.id(t)}, is.needed(rest, need))
 
-def is.ids(ts: List<&2, If.Tool>) -> List<&2, Nat>:
+def is.ids(ts: List<&2, If.ToolPrio>) -> List<&2, Nat>:
   match ts:
     case Nil{}:
       Nil{}
     case t <> rest:
       is.id(t) <> is.ids(rest)
 
-def is.plan.of(m: Maybe<&2, Nat>, loose: List<&2, If.Tool>) -> If.Plan:
+def is.plan.of(m: Maybe<&2, Nat>, loose: List<&2, If.ToolPrio>) -> If.Plan:
   match m:
     case Some{i}:
       If.Over{i}
@@ -737,7 +737,7 @@ def is.plan.of(m: Maybe<&2, Nat>, loose: List<&2, If.Tool>) -> If.Plan:
 
 # the plan: the first loose tool (highest priority first) that requires a
 # strict schema is refused; else every tool fits, with the loose ids
-def is.plan(cap: Maybe<&2, Nat>, ts: List<&2, If.Tool>, +need: List<&2, Nat>) -> If.Plan:
+def is.plan(cap: Maybe<&2, Nat>, ts: List<&2, If.ToolPrio>, +need: List<&2, Nat>) -> If.Plan:
   +loose = is.loose(cap, ts)
   is.plan.of(is.needed(loose, need), loose)
 

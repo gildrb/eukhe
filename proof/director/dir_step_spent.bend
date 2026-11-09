@@ -23,8 +23,8 @@ def ps.spent(v: Dr.Verdict, +n: Nat, +a: List<&2, Dr.Layer>, +k: Nat, +b: List<&
       +vs = List.append(&2, Dr.Verdict, va, Dr.Stack{p} <> vr)
       +St = Director.dir_stayers(a, va)
       Equal.trans(Dr.Loop, Dr.tick(cap, Dr.Loop{n, s, None{}}, vs), Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}}, Dr.Loop{n, List.append(&2, Dr.Layer, St, Dr.Layer{k, 0n} <> b), Some{Dr.Hand{}}}, LA.pd.step_at(n, a, Dr.Layer{k, 0n}, b, va, Dr.Stack{p}, vr, cap, one, pass), Equal.cong(List<&2, Dr.Layer>, Dr.Loop, x => Dr.Loop{n, x, Some{Dr.Hand{}}}, Dr.kept(s, vs, cap), List.append(&2, Dr.Layer, St, Dr.Layer{k, 0n} <> b), LA.pd.kept_at(a, Dr.Layer{k, 0n}, b, va, Dr.Stack{p}, vr, cap, one, pass)))
-    case Dr.Leave{}:
-      LLogicLogic.tree.pt.absurdF({Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, Dr.Layer{k, 0n} <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Leave{} <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, Director.dir_stayers(a, va), Dr.Layer{k, 0n} <> b), Some{Dr.Hand{}}} : Dr.Loop}, asks)
+    case Dr.Unstack{}:
+      LLogicLogic.tree.pt.absurdF({Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, Dr.Layer{k, 0n} <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Unstack{} <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, Director.dir_stayers(a, va), Dr.Layer{k, 0n} <> b), Some{Dr.Hand{}}} : Dr.Loop}, asks)
     case Dr.Abort{}:
       LLogicLogic.tree.pt.absurdF({Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, Dr.Layer{k, 0n} <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Abort{} <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, Director.dir_stayers(a, va), Dr.Layer{k, 0n} <> b), Some{Dr.Hand{}}} : Dr.Loop}, asks)
     case Dr.Lead{}:

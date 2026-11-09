@@ -26,7 +26,7 @@ def pd.defer_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: B
               {==}
             case Dr.Stack{n}:
               {==}
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               pd.defer_as(rest, vr, r, x)
             case Dr.Abort{}:
               {==}
@@ -60,7 +60,7 @@ def pd.out_stay(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool) -> {D
               {==}
             case Dr.Stack{n}:
               {==}
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               pd.out_stay(rest, vr, r)
             case Dr.Abort{}:
               {==}
@@ -124,7 +124,7 @@ def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, LRun.ends):
     case Dr.Loop{+n, +s, e}:
       match e:
         case None{}:
-          +L = Director.dir_leads(vs, Dr.Leave{})
+          +L = Director.dir_leads(vs, Dr.Unstack{})
           +Df = Director.dir_leads(vs, Dr.Defer{})
           +r = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
           +D = Dr.decide.go(s, vs, r, False{})

@@ -72,7 +72,7 @@ def cl.look(+cfg: Ch.Cfg, w: Ch.W, +e: Nat, o: Ch.Obs) -> {Ch.look(cfg, w, e, o)
         case Ch.Busy{+t}:
           %cl.moved(tok, t) : {Ch.busy(Ch.moved(tok, t), cfg, Ch.W{tok, left, tries}, t, e) == Child.ch_busy(_, cfg, t, tok, left, e) : Ch.Next}
           cl.busy(Ch.moved(tok, t), cfg, tok, left, tries, t, e)
-        case Ch.Lost{}:
+        case Ch.PollFailed{}:
           cl.lost(tries, tok, left, e)
         case Ch.Answered{r}:
           cl.settled(r)
@@ -549,8 +549,8 @@ def rt.obs(o: Ch.Obs, +rest: String, +h: {ChildEntry.wire_obs_fits(o) == True{} 
       %LWire.pw6.nat(0n, Child.ch_spell_mnat(t, rest), {==}) : {Wr.Got{Ch.Busy{t}, rest} == Child.ch_read_obs(_) : Wr.Dec<Ch.Obs>}
       %rt.mnat(t, rest, h) : {Wr.Got{Ch.Busy{t}, rest} == Child.ch_read_obs.busy(_) : Wr.Dec<Ch.Obs>}
       {==}
-    case Ch.Lost{}:
-      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Lost{}, rest} == Child.ch_read_obs(_) : Wr.Dec<Ch.Obs>}
+    case Ch.PollFailed{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.PollFailed{}, rest} == Child.ch_read_obs(_) : Wr.Dec<Ch.Obs>}
       {==}
     case Ch.Answered{+r}:
       %LWire.pw6.nat(2n, Wr.put_bool(r, rest), {==}) : {Wr.Got{Ch.Answered{r}, rest} == Child.ch_read_obs(_) : Wr.Dec<Ch.Obs>}

@@ -195,7 +195,7 @@ def put_fin(e: C.Fin, rest: String) -> String:
       W.put_nat(2n, rest)
     case C.CutInput{t}:
       W.put_nat(3n, rest)
-    case C.Lost{}:
+    case C.Errored{}:
       W.put_nat(4n, rest)
 
 def put_best(b: Maybe<&2, List<&2, C.W>>, bl: Nat, rest: String) -> String:
@@ -257,7 +257,7 @@ def reply(left: Nat, made: Nat, +node: Nat, +bl: Maybe<&2, Nat>, r: Rep) -> C.Ne
     case 1n+p:
       match r:
         case RErr{}:
-          C.Ends{1n+made, C.Lost{}}
+          C.Ends{1n+made, C.Errored{}}
         case RSays{len}:
           reply.says(len, p, made, node, bl)
 

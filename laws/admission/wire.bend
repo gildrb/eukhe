@@ -52,7 +52,7 @@ def adw_op_fits(o: Ad.Op) -> Bool:
       LawsBase.wire_fits(k)
     case Ad.Release{k}:
       LawsBase.wire_fits(k)
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       LawsBase.wire_fits(k)
     case Ad.Limit{l, q}:
       Bool.and(adw_lim_fits(l), LawsBase.wire_fits(q))
@@ -172,7 +172,7 @@ law adw_live_example:
 # LAW adw_op_example (R1): anchor and witness: every op's tag and fields
 # EXCLUDES: a vacuous adw_op_round_trip, op tags in another order
 law adw_op_example:
-  {adw_op_fits(Ad.Limit{Ad.Cap{2n}, 3n}) == True{} : Bool} & {FAd.put_op(Ad.Admit{Ad.Bg{}}, FAd.put_op(Ad.Collect{5n}, FAd.put_op(Ad.Release{6n}, FAd.put_op(Ad.Leave{7n}, FAd.put_op(Ad.Limit{Ad.Cap{2n}, 3n}, ""))))) == "0,1,1,5,2,6,3,7,4,1,2,3," : String}
+  {adw_op_fits(Ad.Limit{Ad.Cap{2n}, 3n}) == True{} : Bool} & {FAd.put_op(Ad.Admit{Ad.Bg{}}, FAd.put_op(Ad.Collect{5n}, FAd.put_op(Ad.Release{6n}, FAd.put_op(Ad.Depart{7n}, FAd.put_op(Ad.Limit{Ad.Cap{2n}, 3n}, ""))))) == "0,1,1,5,2,6,3,7,4,1,2,3," : String}
 
 # LAW adw_open_example (R2): anchor and witness: open on 0, 3 (unlimited, 3 queued) answers
 # the controller with no ticket
@@ -265,7 +265,7 @@ def adw_spell_op(o: Ad.Op, rest: String) -> String:
       Wr.put_nat(1n, Wr.put_nat(k, rest))
     case Ad.Release{k}:
       Wr.put_nat(2n, Wr.put_nat(k, rest))
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       Wr.put_nat(3n, Wr.put_nat(k, rest))
     case Ad.Limit{l, q}:
       Wr.put_nat(4n, adw_spell_lim(l, Wr.put_nat(q, rest)))

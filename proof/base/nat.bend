@@ -581,7 +581,7 @@ def tc.ge_miss(+e: Tr.Ent, +b: Nat, +x: Nat, +ge: {Nat.is_lt(Tr.Ent.k(e), b) == 
 # is below cap (the whole stack's length, fixed for the decision). A
 # layer that keeps its place keeps the length; a deferring layer, or one
 # that leads and stays, goes back on the stack of the layers below
-# (`pd.under_ok`), which is bounded under one more layer; a Leave, or a
+# (`pd.under_ok`), which is bounded under one more layer; an Unstack, or a
 # Lead that leaves, drops it (`pd.le_pred`); a Stack adds a layer only
 # with room (`pd.push_ok`). Each loop step is one decision, and its kept
 # stack (leads staying) is a decision too (`pd.tick_bounded`).
@@ -590,13 +590,13 @@ def tc.ge_miss(+e: Tr.Ent, +b: Nat, +x: Nat, +ge: {Nat.is_lt(Tr.Ent.k(e), b) == 
 # global steps left. A tick takes one step off (`pd.tick_ok`), so after k
 # steps the loop has ended (`pd.ends_go`). An ended loop never changes.
 #
-# The step, verdict by verdict: layers above that each say Defer or Leave
+# The step, verdict by verdict: layers above that each say Defer or Unstack
 # pass the decision down, those that defer staying on top of it
 # (`pd.go_split`, proof/director/base.bend); each dir_step_* law then
 # settles the deciding layer's decision (`pd.step_at`, `pd.kept_at`).
 #
 # Leads: a decision where leads leave equals the decision on the verdicts
-# with each Lead read as a Leave (`pd.leave_as`), one where they stay the
+# with each Lead read as an Unstack (`pd.leave_as`), one where they stay the
 # decision with each read as a Defer (`pd.defer_as`), and both have the
 # same outcome (`pd.out_stay`). A step that goes on does not read the kept
 # stack (`pd.settle_on`); one that ends reads only the outcome and the

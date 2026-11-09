@@ -99,7 +99,7 @@ def pd.pushed_ok(l: Dr.Layer, +n: Dr.Layer, +rest: List<&2, Dr.Layer>, +room: Bo
         case 1n+c:
           pd.push_ok(cap, above, rest, room, er, Dr.Layer{k, c}, n, h)
 
-# a Lead stays (as a Defer) or leaves (as a Leave)
+# a Lead stays (as a Defer) or leaves (as an Unstack)
 def pd.lead_ok(st: Bool, +l: Dr.Layer, d: Dr.Dec, +above: Nat, +cap: Nat, ih: {Nat.is_le(Nat.add(1n+above, List.length(&2, Dr.Layer, Dr.Dec.stack(d))), cap) == True{} : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.lead(st, l, d)))), cap) == True{} : Bool}:
   match st:
     case True{}:
@@ -127,7 +127,7 @@ def pd.go_bounded(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, 
               h
             case Dr.Stack{n}:
               pd.pushed_ok(l, n, rest, room, above, cap, h, er)
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               pd.le_pred(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide.go(rest, vr, room, st)))), cap, pd.go_bounded(rest, vr, room, st, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h), pd.shift_lt(above, List.length(&2, Dr.Layer, rest), cap, room, er)))
             case Dr.Abort{}:
               h
@@ -161,7 +161,7 @@ def pd.under_over(+l: Dr.Layer, +xs: List<&2, Dr.Layer>, d: Dr.Dec) -> {Dr.under
 def pd.split_goal(a: List<&2, Dr.Layer>, va: List<&2, Dr.Verdict>, rest: List<&2, Dr.Layer>, vr: List<&2, Dr.Verdict>, r: Bool, st: Bool) -> Type:
   {Dr.decide.go(List.append(&2, Dr.Layer, a, rest), List.append(&2, Dr.Verdict, va, vr), r, st) == pd.over(Director.dir_stayers(a, va), Dr.decide.go(rest, vr, r, st)) : Dr.Dec}
 
-# layers above that each say Defer or Leave (one verdict each) pass the
+# layers above that each say Defer or Unstack (one verdict each) pass the
 # decision to the layers below them: those that defer stay on top of it
 def pd.go_split(a: List<&2, Dr.Layer>, va: List<&2, Dr.Verdict>, +rest: List<&2, Dr.Layer>, +vr: List<&2, Dr.Verdict>, +r: Bool, +st: Bool, one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}, pass: {Director.dir_all_pass(va) == True{} : Bool}) -> {Dr.decide.go(List.append(&2, Dr.Layer, a, rest), List.append(&2, Dr.Verdict, va, vr), r, st) == pd.over(Director.dir_stayers(a, va), Dr.decide.go(rest, vr, r, st)) : Dr.Dec}:
   match a:
@@ -187,7 +187,7 @@ def pd.go_split(a: List<&2, Dr.Layer>, va: List<&2, Dr.Verdict>, +rest: List<&2,
               LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Yield{} <> vt, rest, vr, r, st), pass)
             case Dr.Stack{p}:
               LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Stack{p} <> vt, rest, vr, r, st), pass)
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               pd.go_split(t, vt, rest, vr, r, st, one, pass)
             case Dr.Abort{}:
               LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Abort{} <> vt, rest, vr, r, st), pass)
@@ -250,8 +250,8 @@ def pd.out_absurd(-G: Type, +a: Dr.Out, +b: Dr.Out, e: {a == b : Dr.Out}, ne: {p
 # Leads
 # -----
 
-# a Lead that leaves is a Leave, whatever the decision does with leads
-def pd.leave_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: Bool) -> {Dr.decide.go(s, vs, r, False{}) == Dr.decide.go(s, Director.dir_leads(vs, Dr.Leave{}), r, x) : Dr.Dec}:
+# a Lead that leaves is an Unstack, whatever the decision does with leads
+def pd.leave_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: Bool) -> {Dr.decide.go(s, vs, r, False{}) == Dr.decide.go(s, Director.dir_leads(vs, Dr.Unstack{}), r, x) : Dr.Dec}:
   match s:
     case Nil{}:
       {==}
@@ -262,14 +262,14 @@ def pd.leave_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: B
         case v <> +vr:
           match v:
             case Dr.Defer{}:
-              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, False{}), Dr.decide.go(rest, Director.dir_leads(vr, Dr.Leave{}), r, x), pd.leave_as(rest, vr, r, x))
+              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, False{}), Dr.decide.go(rest, Director.dir_leads(vr, Dr.Unstack{}), r, x), pd.leave_as(rest, vr, r, x))
             case Dr.Again{}:
               {==}
             case Dr.Yield{}:
               {==}
             case Dr.Stack{n}:
               {==}
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               pd.leave_as(rest, vr, r, x)
             case Dr.Abort{}:
               {==}
@@ -296,7 +296,7 @@ def pdf.verdict_rt(+v: Dr.Verdict, +rest: String, +h: {Director.dir_verdict_fits
       Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(1n, rest)), Wr.Got{1n, rest}, Wire.wire_nat_round_trip(1n, rest, {==}))
     case Dr.Yield{}:
       Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(2n, rest)), Wr.Got{2n, rest}, Wire.wire_nat_round_trip(2n, rest, {==}))
-    case Dr.Leave{}:
+    case Dr.Unstack{}:
       Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(4n, rest)), Wr.Got{4n, rest}, Wire.wire_nat_round_trip(4n, rest, {==}))
     case Dr.Abort{}:
       Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(5n, rest)), Wr.Got{5n, rest}, Wire.wire_nat_round_trip(5n, rest, {==}))

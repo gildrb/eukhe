@@ -236,7 +236,7 @@ type Heard is Data:
   Bye{}    # the worker said bye
   Other{}  # it answered with something else
   Eof{}    # it closed first: it exited on its own meanwhile
-  Lost{}   # the connection failed otherwise
+  Dropped{}   # the connection failed otherwise
 
 type Shut is Data:
   Down{}   # the worker is gone: start one
@@ -251,7 +251,7 @@ def shut(h: Heard) -> Shut:
       Spoke{}
     case Eof{}:
       Down{}
-    case Lost{}:
+    case Dropped{}:
       Cut{}
 
 # a start the process made: of a first worker, or of a replacement

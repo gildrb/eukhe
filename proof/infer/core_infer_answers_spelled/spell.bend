@@ -24,18 +24,18 @@ def is.mnat(m: Maybe<&2, Nat>, rest: String) -> {FIn.put_mnat(m, rest) == Infer.
       {==}
 
 # the items of a list of tools
-def is.items(ts: List<&2, If.Tool>, +rest: String) -> {LA.pc.i_tool_items(ts, rest) == Infer.core_infer_spell_tools.items(ts, rest) : String}:
+def is.items(ts: List<&2, If.ToolPrio>, +rest: String) -> {LA.pc.i_tool_items(ts, rest) == Infer.core_infer_spell_tools.items(ts, rest) : String}:
   match ts:
     case Nil{}:
       {==}
     case Con{x, +t}:
       match x:
-        case If.Tool{+i, +p}:
+        case If.ToolPrio{+i, +p}:
           Equal.cong(String, String, z => Wr.put_nat(i, Wr.put_nat(p, z)), LA.pc.i_tool_items(t, rest), Infer.core_infer_spell_tools.items(t, rest), is.items(t, rest))
 
 # a list of tools: its count, then its items
-def is.tools(+ts: List<&2, If.Tool>, +rest: String) -> {Wr.put_list(~If.Tool, ~FIn.put_tool, ts, rest) == Infer.core_infer_spell_tools(ts, rest) : String}:
-  Equal.trans(String, Wr.put_list(~If.Tool, ~FIn.put_tool, ts, rest), Wr.put_nat(List.length(&2, If.Tool, ts), LA.pc.i_tool_items(ts, rest)), Infer.core_infer_spell_tools(ts, rest), LA.pc.i_tool_put(ts, rest), Equal.cong(String, String, z => Wr.put_nat(List.length(&2, If.Tool, ts), z), LA.pc.i_tool_items(ts, rest), Infer.core_infer_spell_tools.items(ts, rest), is.items(ts, rest)))
+def is.tools(+ts: List<&2, If.ToolPrio>, +rest: String) -> {Wr.put_list(~If.ToolPrio, ~FIn.put_tool, ts, rest) == Infer.core_infer_spell_tools(ts, rest) : String}:
+  Equal.trans(String, Wr.put_list(~If.ToolPrio, ~FIn.put_tool, ts, rest), Wr.put_nat(List.length(&2, If.ToolPrio, ts), LA.pc.i_tool_items(ts, rest)), Infer.core_infer_spell_tools(ts, rest), LA.pc.i_tool_put(ts, rest), Equal.cong(String, String, z => Wr.put_nat(List.length(&2, If.ToolPrio, ts), z), LA.pc.i_tool_items(ts, rest), Infer.core_infer_spell_tools.items(ts, rest), is.items(ts, rest)))
 
 # a request
 def is.req(q: FIn.Req, +rest: String) -> {FIn.put_req(q, rest) == Infer.core_infer_spell_req(q, rest) : String}:
@@ -43,9 +43,9 @@ def is.req(q: FIn.Req, +rest: String) -> {FIn.put_req(q, rest) == Infer.core_inf
     case FIn.Req{+cap, +ts, +need}:
       +p2 = Wr.put_list(~Nat, ~Wr.put_nat, need, rest)
       +s2 = LawsBase.wire_spell_nats(need, rest)
-      +p1 = Wr.put_list(~If.Tool, ~FIn.put_tool, ts, p2)
+      +p1 = Wr.put_list(~If.ToolPrio, ~FIn.put_tool, ts, p2)
       +s1 = Infer.core_infer_spell_tools(ts, s2)
-      +e1 = Equal.trans(String, p1, Wr.put_list(~If.Tool, ~FIn.put_tool, ts, s2), s1, Equal.cong(String, String, z => Wr.put_list(~If.Tool, ~FIn.put_tool, ts, z), p2, s2, Wire.wire_nats_spells(need, rest)), is.tools(ts, s2))
+      +e1 = Equal.trans(String, p1, Wr.put_list(~If.ToolPrio, ~FIn.put_tool, ts, s2), s1, Equal.cong(String, String, z => Wr.put_list(~If.ToolPrio, ~FIn.put_tool, ts, z), p2, s2, Wire.wire_nats_spells(need, rest)), is.tools(ts, s2))
       Equal.trans(String, FIn.put_mnat(cap, p1), FIn.put_mnat(cap, s1), Infer.core_infer_spell_mnat(cap, s1), Equal.cong(String, String, z => FIn.put_mnat(cap, z), p1, s1, e1), is.mnat(cap, s1))
 
 # a plan

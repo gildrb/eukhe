@@ -22,7 +22,7 @@ def ruf.reply(q: FRu.Req) -> {Runners.spell_answer(q) == Runners.ru_reply(q) : S
       %Runners.runners_cell_spec(c, a, k) : {Runners.spell_answer(FRu.QCell{c, a, k}) == Runners.spell_out(_) : String}
       {==}
     case FRu.QRegistry{}:
-      %Runners.runners_registry_spec() : {Runners.spell_answer(FRu.QRegistry{}) == Wr.put_list(~Ru.Tool, ~Runners.spell_tool, _, "") : String}
+      %Runners.runners_registry_spec() : {Runners.spell_answer(FRu.QRegistry{}) == Wr.put_list(~Ru.ToolReg, ~Runners.spell_tool, _, "") : String}
       {==}
     case FRu.QMain{h}:
       match h:

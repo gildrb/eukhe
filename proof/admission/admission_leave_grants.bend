@@ -12,7 +12,7 @@ import ./base/admission/at.bend as PAt
 import ./base/admission/grant.bend as PG
 import ./base/logic.bend as LALogic
 
-def plg.at(+l: Ad.Lim, +q: Nat, +pre: List<&2, Ad.Tk>, +c: Ad.Cls, x: Ad.Sts, +post: List<&2, Ad.Tk>, w: {Admission.adm_waiter(x) == True{} : Bool}) -> {Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, x} <> post)}, Ad.Leave{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}:
+def plg.at(+l: Ad.Lim, +q: Nat, +pre: List<&2, Ad.Tk>, +c: Ad.Cls, x: Ad.Sts, +post: List<&2, Ad.Tk>, w: {Admission.adm_waiter(x) == True{} : Bool}) -> {Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, x} <> post)}, Ad.Depart{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}:
   match x:
     case Ad.Queued{}:
       +ts = List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Queued{}} <> post)
@@ -29,11 +29,11 @@ def plg.at(+l: Ad.Lim, +q: Nat, +pre: List<&2, Ad.Tk>, +c: Ad.Cls, x: Ad.Sts, +p
       %PG.pag.grant(l, Ad.put(ts, k, Ad.Ended{})) : {Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))} == Ad.St{l, q, _} : Ad.St}
       {==}
     case Ad.Held{}:
-      LALogic.ad.absurd({Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Held{}} <> post)}, Ad.Leave{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}, w)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Held{}} <> post)}, Ad.Depart{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}, w)
     case Ad.Preempted{}:
-      LALogic.ad.absurd({Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Preempted{}} <> post)}, Ad.Leave{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}, w)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Preempted{}} <> post)}, Ad.Depart{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}, w)
     case Ad.Ended{}:
-      LALogic.ad.absurd({Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post)}, Ad.Leave{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}, w)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post)}, Ad.Depart{List.length(&2, Ad.Tk, pre)}) == Ad.St{l, q, Admission.ads_grant(l, List.append(&2, Ad.Tk, pre, Ad.Tk{c, Ad.Ended{}} <> post))} : Ad.St}, w)
 
 def Admission.admission_leave_grants(l, q, pre, c, x, post, w):
   plg.at(l, q, pre, c, x, post, w)

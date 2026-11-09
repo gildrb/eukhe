@@ -368,12 +368,12 @@ def Forced.called(o: Forced) -> Bool:
 # 3. The strict schema budget
 # ---------------------------
 
-type Tool is Data:
-  Tool{id: Nat, prio: Nat}
+type ToolPrio is Data:
+  ToolPrio{id: Nat, prio: Nat}
 
-def Tool.prio(t: Tool) -> Nat:
+def ToolPrio.prio(t: ToolPrio) -> Nat:
   match t:
-    case Tool{i, p}:
+    case ToolPrio{i, p}:
       p
 
 # rank is a stable merge sort, highest priority first; among equal
@@ -385,7 +385,7 @@ def Tool.prio(t: Tool) -> Nat:
 # a tree of tools; TTip is the empty tree
 type TTree is Data:
   TTip{}
-  TLeaf{tool: Tool}
+  TLeaf{tool: ToolPrio}
   TNode{left: TTree, right: TTree}
 
 # a binary counter of trees, lowest digit first: digit k is empty (T0) or
@@ -407,7 +407,7 @@ def tpush(ds: TDig, t: TTree) -> TDig:
       T0{tpush(rest, TNode{t2, t})}
 
 # push every tool of ts into the counter ds, in order
-def tbuild(ts: List<&2, Tool>, ds: TDig) -> TDig:
+def tbuild(ts: List<&2, ToolPrio>, ds: TDig) -> TDig:
   match ts:
     case Nil{}:
       ds
@@ -426,8 +426,8 @@ def tjoin(ds: TDig, acc: TTree) -> TTree:
       tjoin(rest, TNode{t, acc})
 
 # merge x <> xt and y <> yt (each by priority, highest first); y_le_x is
-# Nat.is_le(Tool.prio(y), Tool.prio(x)), so on a tie x goes first
-def tmerge.go(xt: List<&2, Tool>, yt: List<&2, Tool>, +x: Tool, +y: Tool, y_le_x: Bool) -> List<&2, Tool>:
+# Nat.is_le(ToolPrio.prio(y), ToolPrio.prio(x)), so on a tie x goes first
+def tmerge.go(xt: List<&2, ToolPrio>, yt: List<&2, ToolPrio>, +x: ToolPrio, +y: ToolPrio, y_le_x: Bool) -> List<&2, ToolPrio>:
   match xt yt y_le_x:
     case Nil{} Nil{} True{}:
       x <> y <> Nil{}
@@ -436,18 +436,18 @@ def tmerge.go(xt: List<&2, Tool>, yt: List<&2, Tool>, +x: Tool, +y: Tool, y_le_x
     case Nil{} y2 <> yt2 True{}:
       x <> y <> y2 <> yt2
     case Nil{} +y2 <> yt2 False{}:
-      y <> tmerge.go(Nil{}, yt2, x, y2, Nat.is_le(Tool.prio(y2), Tool.prio(x)))
+      y <> tmerge.go(Nil{}, yt2, x, y2, Nat.is_le(ToolPrio.prio(y2), ToolPrio.prio(x)))
     case +x2 <> xt2 Nil{} True{}:
-      x <> tmerge.go(xt2, Nil{}, x2, y, Nat.is_le(Tool.prio(y), Tool.prio(x2)))
+      x <> tmerge.go(xt2, Nil{}, x2, y, Nat.is_le(ToolPrio.prio(y), ToolPrio.prio(x2)))
     case x2 <> xt2 Nil{} False{}:
       y <> x <> x2 <> xt2
     case +x2 <> xt2 y2 <> yt2 True{}:
-      x <> tmerge.go(xt2, y2 <> yt2, x2, y, Nat.is_le(Tool.prio(y), Tool.prio(x2)))
+      x <> tmerge.go(xt2, y2 <> yt2, x2, y, Nat.is_le(ToolPrio.prio(y), ToolPrio.prio(x2)))
     case x2 <> xt2 +y2 <> yt2 False{}:
-      y <> tmerge.go(x2 <> xt2, yt2, x, y2, Nat.is_le(Tool.prio(y2), Tool.prio(x)))
+      y <> tmerge.go(x2 <> xt2, yt2, x, y2, Nat.is_le(ToolPrio.prio(y2), ToolPrio.prio(x)))
 
 # merge xs and ys (each by priority, highest first); xs wins a tie
-def tmerge(xs: List<&2, Tool>, ys: List<&2, Tool>) -> List<&2, Tool>:
+def tmerge(xs: List<&2, ToolPrio>, ys: List<&2, ToolPrio>) -> List<&2, ToolPrio>:
   match xs ys:
     case Nil{} Nil{}:
       Nil{}
@@ -456,10 +456,10 @@ def tmerge(xs: List<&2, Tool>, ys: List<&2, Tool>) -> List<&2, Tool>:
     case x <> xt Nil{}:
       x <> xt
     case +x <> xt +y <> yt:
-      tmerge.go(xt, yt, x, y, Nat.is_le(Tool.prio(y), Tool.prio(x)))
+      tmerge.go(xt, yt, x, y, Nat.is_le(ToolPrio.prio(y), ToolPrio.prio(x)))
 
 # the leaves of t by priority, highest first; the left half wins a tie
-def tsort(t: TTree) -> List<&2, Tool>:
+def tsort(t: TTree) -> List<&2, ToolPrio>:
   match t:
     case TTip{}:
       Nil{}
@@ -468,45 +468,45 @@ def tsort(t: TTree) -> List<&2, Tool>:
     case TNode{l, r}:
       tmerge(tsort(l), tsort(r))
 
-def rank(ts: List<&2, Tool>) -> List<&2, Tool>:
+def rank(ts: List<&2, ToolPrio>) -> List<&2, ToolPrio>:
   tsort(tjoin(tbuild(ts, TEnd{}), TTip{}))
 
 # the tools that get strict schemas (at most cap) and the loose ones
-def strict(+cap: Nat, +ts: List<&2, Tool>) -> List<&2, Tool> & List<&2, Tool>:
+def strict(+cap: Nat, +ts: List<&2, ToolPrio>) -> List<&2, ToolPrio> & List<&2, ToolPrio>:
   +r = rank(ts)
-  (List.take(&2, Tool, r, cap), List.drop(&2, Tool, r, cap))
+  (List.take(&2, ToolPrio, r, cap), List.drop(&2, ToolPrio, r, cap))
 
 # every tool of xs has a priority of at least p
-def all_ge(xs: List<&2, Tool>, +p: Nat) -> Bool:
+def all_ge(xs: List<&2, ToolPrio>, +p: Nat) -> Bool:
   match xs:
     case Nil{}:
       True{}
     case +x <> rest:
-      Bool.and(Nat.is_le(p, Tool.prio(x)), all_ge(rest, p))
+      Bool.and(Nat.is_le(p, ToolPrio.prio(x)), all_ge(rest, p))
 
 # every tool of xs has a priority of at least every one of ys
-def dominates(+xs: List<&2, Tool>, ys: List<&2, Tool>) -> Bool:
+def dominates(+xs: List<&2, ToolPrio>, ys: List<&2, ToolPrio>) -> Bool:
   match ys:
     case Nil{}:
       True{}
     case +y <> rest:
-      Bool.and(all_ge(xs, Tool.prio(y)), dominates(xs, rest))
+      Bool.and(all_ge(xs, ToolPrio.prio(y)), dominates(xs, rest))
 
-def Tool.id(t: Tool) -> Nat:
+def ToolPrio.id(t: ToolPrio) -> Nat:
   match t:
-    case Tool{i, p}:
+    case ToolPrio{i, p}:
       i
 
 # the first tool of ts has id i
-def tid.at(+ts: List<&2, Tool>, +i: Nat) -> Bool:
+def tid.at(+ts: List<&2, ToolPrio>, +i: Nat) -> Bool:
   match ts:
     case Nil{}:
       False{}
     case t <> rest:
-      Nat.is_eq(Tool.id(t), i)
+      Nat.is_eq(ToolPrio.id(t), i)
 
 # the number of copies of tool id i in ts; hit is tid.at(ts, i)
-def count.go(ts: List<&2, Tool>, +i: Nat, hit: Bool) -> Nat:
+def count.go(ts: List<&2, ToolPrio>, +i: Nat, hit: Bool) -> Nat:
   match ts:
     case Nil{}:
       0n
@@ -517,12 +517,12 @@ def count.go(ts: List<&2, Tool>, +i: Nat, hit: Bool) -> Nat:
         case False{}:
           count.go(rest, i, tid.at(rest, i))
 
-def count(+ts: List<&2, Tool>, +i: Nat) -> Nat:
+def count(+ts: List<&2, ToolPrio>, +i: Nat) -> Nat:
   count.go(ts, i, tid.at(ts, i))
 
 # the strict and the loose tools under the cap of a request
 # (`strict_budget`): with no cap, every tool is strict
-def strict.of(cap: Maybe<&2, Nat>, +ts: List<&2, Tool>) -> List<&2, Tool> & List<&2, Tool>:
+def strict.of(cap: Maybe<&2, Nat>, +ts: List<&2, ToolPrio>) -> List<&2, ToolPrio> & List<&2, ToolPrio>:
   match cap:
     case None{}:
       (ts, Nil{})
@@ -530,12 +530,12 @@ def strict.of(cap: Maybe<&2, Nat>, +ts: List<&2, Tool>) -> List<&2, Tool> & List
       strict(c, ts)
 
 # the ids of the tools of ts, in order
-def ids(ts: List<&2, Tool>) -> List<&2, Nat>:
+def ids(ts: List<&2, ToolPrio>) -> List<&2, Nat>:
   match ts:
     case Nil{}:
       Nil{}
     case t <> rest:
-      Tool.id(t) <> ids(rest)
+      ToolPrio.id(t) <> ids(rest)
 
 # what a request does with its strict schemas
 type Plan is Data:
@@ -544,41 +544,41 @@ type Plan is Data:
 
 # the first tool of ls requires a strict schema (need: the ids of the
 # tools that require one)
-def needs.at(ls: List<&2, Tool>, +need: List<&2, Nat>) -> Bool:
+def needs.at(ls: List<&2, ToolPrio>, +need: List<&2, Nat>) -> Bool:
   match ls:
     case Nil{}:
       False{}
     case t <> rest:
-      elem(need, Tool.id(t))
+      elem(need, ToolPrio.id(t))
 
 # the id of the first tool of ls that requires a strict schema; hit is
 # needs.at(ls, need)
-def needs.go(ls: List<&2, Tool>, +need: List<&2, Nat>, hit: Bool) -> Maybe<&2, Nat>:
+def needs.go(ls: List<&2, ToolPrio>, +need: List<&2, Nat>, hit: Bool) -> Maybe<&2, Nat>:
   match ls:
     case Nil{}:
       None{}
     case t <> +rest:
       match hit:
         case True{}:
-          Some{Tool.id(t)}
+          Some{ToolPrio.id(t)}
         case False{}:
           needs.go(rest, need, needs.at(rest, need))
 
-def plan.of(m: Maybe<&2, Nat>, loose: List<&2, Tool>) -> Plan:
+def plan.of(m: Maybe<&2, Nat>, loose: List<&2, ToolPrio>) -> Plan:
   match m:
     case Some{i}:
       Over{i}
     case None{}:
       Fits{ids(loose)}
 
-def plan.loose(+loose: List<&2, Tool>, +need: List<&2, Nat>) -> Plan:
+def plan.loose(+loose: List<&2, ToolPrio>, +need: List<&2, Nat>) -> Plan:
   plan.of(needs.go(loose, need, needs.at(loose, need)), loose)
 
 # the plan of a request (`StrictPlan::new`): the loose tools under the
 # cap, or the first loose tool (highest priority first) that requires a
 # strict schema; need holds the ids of the tools that require one
-def plan(cap: Maybe<&2, Nat>, +ts: List<&2, Tool>, +need: List<&2, Nat>) -> Plan:
-  plan.loose(Pair.snd(List<&2, Tool>, List<&2, Tool>, strict.of(cap, ts)), need)
+def plan(cap: Maybe<&2, Nat>, +ts: List<&2, ToolPrio>, +need: List<&2, Nat>) -> Plan:
+  plan.loose(Pair.snd(List<&2, ToolPrio>, List<&2, ToolPrio>, strict.of(cap, ts)), need)
 
 # 4. The repetition guard
 # -----------------------

@@ -159,7 +159,7 @@ def br.freed(+s: Ad.St, o: Ad.Op) -> {AT.freed(s, o) == Admission.adm_freed(s, o
       {==}
     case Ad.Release{k}:
       br.freed_at(List.get(&2, Ad.Tk, Admission.adm_ts(s), k), True{})
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       br.freed_at(List.get(&2, Ad.Tk, Admission.adm_ts(s), k), False{})
     case Ad.Limit{l, q}:
       {==}

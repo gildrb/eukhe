@@ -329,7 +329,7 @@ def tre.seen(e: Tn.Seen, +rest: String, h: {TinyRun.sp_fit_seen(e) == True{} : B
           {==}
         case Tn.Eof{}:
           {==}
-        case Tn.Lost{}:
+        case Tn.Dropped{}:
           {==}
     case Tn.Came{l}:
       match l:

@@ -4,7 +4,7 @@
 # format of bend/wire.bend:
 #
 #   request (a record)                                reply (a constructor)
-#   (cap: Maybe<Nat>, tools: List<Tool>,              0 Fits{loose: List<Nat>}
+#   (cap: Maybe<Nat>, tools: List<ToolPrio>,              0 Fits{loose: List<Nat>}
 #    need: List<Nat>)                                 1 Over{id: Nat}
 #
 # A tool is the record (id: Nat, prio: Nat); need holds the ids of the
@@ -68,19 +68,19 @@ def get_mnat(s: String) -> W.Dec<Maybe<&2, Nat>>:
   get_mnat.go(W.get_nat(s))
 
 # a tool: its id, then its priority
-def get_tool.of(d: W.Dec<P2<Nat, Nat>>) -> W.Dec<If.Tool>:
+def get_tool.of(d: W.Dec<P2<Nat, Nat>>) -> W.Dec<If.ToolPrio>:
   match d:
     case W.Got{q, r}:
       P2{i, p} = q
-      W.Got{If.Tool{i, p}, r}
+      W.Got{If.ToolPrio{i, p}, r}
     case W.Bad{}:
       W.Bad{}
 
-def get_tool(s: String) -> W.Dec<If.Tool>:
+def get_tool(s: String) -> W.Dec<If.ToolPrio>:
   get_tool.of(seq(~Nat, ~Nat, ~W.get_nat, W.get_nat(s)))
 
-def get_tools(s: String) -> W.Dec<List<&2, If.Tool>>:
-  W.get_list(~If.Tool, ~get_tool, s)
+def get_tools(s: String) -> W.Dec<List<&2, If.ToolPrio>>:
+  W.get_list(~If.ToolPrio, ~get_tool, s)
 
 def get_ids(s: String) -> W.Dec<List<&2, Nat>>:
   W.get_list(~Nat, ~W.get_nat, s)
@@ -89,9 +89,9 @@ def get_ids(s: String) -> W.Dec<List<&2, Nat>>:
 # --------
 
 type Req is Data:
-  Req{cap: Maybe<&2, Nat>, tools: List<&2, If.Tool>, need: List<&2, Nat>}
+  Req{cap: Maybe<&2, Nat>, tools: List<&2, If.ToolPrio>, need: List<&2, Nat>}
 
-def get_req.of(d: W.Dec<P2<P2<Maybe<&2, Nat>, List<&2, If.Tool>>, List<&2, Nat>>>) -> W.Dec<Req>:
+def get_req.of(d: W.Dec<P2<P2<Maybe<&2, Nat>, List<&2, If.ToolPrio>>, List<&2, Nat>>>) -> W.Dec<Req>:
   match d:
     case W.Got{q, r}:
       P2{q2, need} = q
@@ -102,7 +102,7 @@ def get_req.of(d: W.Dec<P2<P2<Maybe<&2, Nat>, List<&2, If.Tool>>, List<&2, Nat>>
 
 # a request
 def get_req(s: String) -> W.Dec<Req>:
-  get_req.of(seq(~P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~get_ids, seq(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~get_tools, get_mnat(s))))
+  get_req.of(seq(~P2<Maybe<&2, Nat>, List<&2, If.ToolPrio>>, ~List<&2, Nat>, ~get_ids, seq(~Maybe<&2, Nat>, ~List<&2, If.ToolPrio>, ~get_tools, get_mnat(s))))
 
 # Encoding
 # --------
@@ -116,15 +116,15 @@ def put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
     case Some{n}:
       W.put_nat(1n, W.put_nat(n, rest))
 
-def put_tool(t: If.Tool, rest: String) -> String:
+def put_tool(t: If.ToolPrio, rest: String) -> String:
   match t:
-    case If.Tool{i, p}:
+    case If.ToolPrio{i, p}:
       W.put_nat(i, W.put_nat(p, rest))
 
 def put_req(q: Req, rest: String) -> String:
   match q:
     case Req{cap, ts, need}:
-      put_mnat(cap, W.put_list(~If.Tool, ~put_tool, ts, W.put_list(~Nat, ~W.put_nat, need, rest)))
+      put_mnat(cap, W.put_list(~If.ToolPrio, ~put_tool, ts, W.put_list(~Nat, ~W.put_nat, need, rest)))
 
 # Replies
 # -------

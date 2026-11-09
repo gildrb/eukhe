@@ -27,7 +27,7 @@ def dp_st(+t: List<&2, Cmd.Ent>, s: Cmd.St) -> Bool:
       Command.cmd_declared(t, q)
     case Cmd.Rest{q, ws}:
       Command.cmd_declared(t, q)
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       Command.cmd_declared(t, q)
     case Cmd.Stray{}:
       True{}
@@ -92,7 +92,7 @@ def dp_step(s: Cmd.St, +t: List<&2, Cmd.Ent>, w: List<&2, Nat>, h: {dp_st(t, s) 
           h
         case Con{c, r}:
           h
-    case Cmd.Lost{q, x}:
+    case Cmd.OffPath{q, x}:
       match w:
         case Nil{}:
           h
@@ -129,7 +129,7 @@ def dp_fin(s: Cmd.St, +t: List<&2, Cmd.Ent>, h: {dp_st(t, s) == True{} : Bool}) 
       dp_fin_at(Cmd.done(t, e), t, q, h)
     case Cmd.Rest{q, ws}:
       h
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       h
     case Cmd.Stray{}:
       {==}

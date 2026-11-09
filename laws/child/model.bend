@@ -109,7 +109,7 @@ law child_failed_poll_spends_try_and_time:
   for +cfg: Ch.Cfg
   for +w: Ch.W
   for +e: Nat
-  {Ch.look(cfg, w, e, Ch.Lost{}) == ChildMisses(w, e) : Ch.Next}
+  {Ch.look(cfg, w, e, Ch.PollFailed{}) == ChildMisses(w, e) : Ch.Next}
 
 # The report laws hold after any events: task steps (polls), the parent's
 # deliveries and withdrawals of any submission id, its aborts, closes and

@@ -57,7 +57,7 @@ type St is Data:
   Top{}
   Walk{path: List<&2, List<&2, Nat>>, ent: Ent}
   Rest{path: List<&2, List<&2, Nat>>, words: List<&2, List<&2, Nat>>}
-  Lost{path: List<&2, List<&2, Nat>>, word: List<&2, Nat>}
+  OffPath{path: List<&2, List<&2, Nat>>, word: List<&2, Nat>}
   Stray{}
 
 # What a submitted line does: run a path with its argument text, open
@@ -312,7 +312,7 @@ def step.miss(free: Bool, q: List<&2, List<&2, Nat>>, w: List<&2, Nat>) -> St:
     case True{}:
       Rest{q, [w]}
     case False{}:
-      Lost{q, w}
+      OffPath{q, w}
 
 def step.walk(m: Maybe<&2, Ent>, q: List<&2, List<&2, Nat>>, free: Bool, w: List<&2, Nat>) -> St:
   match m:
@@ -330,8 +330,8 @@ def step.word(s: St, +t: List<&2, Ent>, +w: List<&2, Nat>) -> St:
       step.walk(search(t, q, lows(w)), q, Ent.free(e), w)
     case Rest{q, ws}:
       Rest{q, List.append(&2, List<&2, Nat>, ws, [w])}
-    case Lost{q, x}:
-      Lost{q, x}
+    case OffPath{q, x}:
+      OffPath{q, x}
     case Stray{}:
       Stray{}
 
@@ -345,8 +345,8 @@ def step.empty(s: St) -> St:
       Walk{q, e}
     case Rest{q, ws}:
       Rest{q, List.append(&2, List<&2, Nat>, ws, [Nil{}])}
-    case Lost{q, x}:
-      Lost{q, x}
+    case OffPath{q, x}:
+      OffPath{q, x}
     case Stray{}:
       Stray{}
 
@@ -382,7 +382,7 @@ def finish(s: St, +t: List<&2, Ent>) -> Res:
       finish.at(done(t, e), q)
     case Rest{q, ws}:
       Runs{q, join(ws)}
-    case Lost{q, w}:
+    case OffPath{q, w}:
       Unknown{q, w}
     case Stray{}:
       NoCmd{}
@@ -421,7 +421,7 @@ def menu.at(s: St, +t: List<&2, Ent>, p: List<&2, Nat>) -> Menu:
       Kids{q, items(t, 0n, q, lows(p))}
     case Rest{q, ws}:
       Shut{}
-    case Lost{q, w}:
+    case OffPath{q, w}:
       Shut{}
     case Stray{}:
       Shut{}
@@ -554,7 +554,7 @@ def key.at(s: St, +t: List<&2, Ent>, +line: List<&2, Nat>, p: List<&2, Nat>, sel
       key.row(row(sel, t, q), k, t, line, p)
     case Rest{q, ws}:
       key.bare(k, t, line)
-    case Lost{q, w}:
+    case OffPath{q, w}:
       key.bare(k, t, line)
     case Stray{}:
       key.bare(k, t, line)

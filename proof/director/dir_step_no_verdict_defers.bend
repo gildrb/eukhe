@@ -24,7 +24,7 @@ def pn.pad(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +st: Bool)
               {==}
             case Dr.Stack{p}:
               {==}
-            case Dr.Leave{}:
+            case Dr.Unstack{}:
               pn.pad(rest, vr, r, st)
             case Dr.Abort{}:
               {==}

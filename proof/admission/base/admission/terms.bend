@@ -61,7 +61,7 @@ def freed(+s: Ad.St, o: Ad.Op) -> Nat:
       0n
     case Ad.Release{k}:
       freed.at(Ad.get(Admission.adm_ts(s), k), True{})
-    case Ad.Leave{k}:
+    case Ad.Depart{k}:
       freed.at(Ad.get(Admission.adm_ts(s), k), False{})
     case Ad.Limit{l, q}:
       0n

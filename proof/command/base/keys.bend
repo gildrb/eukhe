@@ -33,7 +33,7 @@ def kb_ent(s: Cmd.St, d: Cmd.Ent) -> Cmd.Ent:
       e
     case Cmd.Rest{q, ws}:
       d
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       d
     case Cmd.Stray{}:
       d
@@ -50,8 +50,8 @@ def kb_inv(s: Cmd.St, +t: List<&2, Cmd.Ent>, +p: List<&2, Nat>, +q: List<&2, Lis
       Equal.cong(List<&2, List<&2, Nat>>, Cmd.St, z => Cmd.Walk{z, e}, q0, q, LLogicNat.cb_path_eq(q0, q, h))
     case Cmd.Rest{q0, ws}:
       LLogicLogic.cb_absurd({Cmd.Rest{q0, ws} == Cmd.Walk{q, kb_ent(Cmd.Rest{q0, ws}, kb_dflt())} : Cmd.St}, h)
-    case Cmd.Lost{q0, w}:
-      LLogicLogic.cb_absurd({Cmd.Lost{q0, w} == Cmd.Walk{q, kb_ent(Cmd.Lost{q0, w}, kb_dflt())} : Cmd.St}, h)
+    case Cmd.OffPath{q0, w}:
+      LLogicLogic.cb_absurd({Cmd.OffPath{q0, w} == Cmd.Walk{q, kb_ent(Cmd.OffPath{q0, w}, kb_dflt())} : Cmd.St}, h)
     case Cmd.Stray{}:
       LLogicLogic.cb_absurd({Cmd.Stray{} == Cmd.Walk{q, kb_ent(Cmd.Stray{}, kb_dflt())} : Cmd.St}, h)
 
@@ -201,7 +201,7 @@ def kb_enter_at(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, p: List<
       {==}
     case Cmd.Rest{q, ws}:
       {==}
-    case Cmd.Lost{q, w}:
+    case Cmd.OffPath{q, w}:
       {==}
     case Cmd.Stray{}:
       {==}

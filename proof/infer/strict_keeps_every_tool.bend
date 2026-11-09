@@ -12,15 +12,15 @@ def pi.cnt(b: Bool, n: Nat) -> Nat:
     case False{}:
       n
 
-def pi.count_go(b: Bool, +h: If.Tool, +X: List<&2, If.Tool>, +i: Nat) -> {pi.cnt(b, If.count(X, i)) == If.count.go(h <> X, i, b) : Nat}:
+def pi.count_go(b: Bool, +h: If.ToolPrio, +X: List<&2, If.ToolPrio>, +i: Nat) -> {pi.cnt(b, If.count(X, i)) == If.count.go(h <> X, i, b) : Nat}:
   match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def pi.count_cons(+h: If.Tool, +X: List<&2, If.Tool>, +i: Nat) -> {pi.cnt(Nat.is_eq(If.Tool.id(h), i), If.count(X, i)) == If.count(h <> X, i) : Nat}:
-  pi.count_go(Nat.is_eq(If.Tool.id(h), i), h, X, i)
+def pi.count_cons(+h: If.ToolPrio, +X: List<&2, If.ToolPrio>, +i: Nat) -> {pi.cnt(Nat.is_eq(If.ToolPrio.id(h), i), If.count(X, i)) == If.count(h <> X, i) : Nat}:
+  pi.count_go(Nat.is_eq(If.ToolPrio.id(h), i), h, X, i)
 
 def pi.cnt_add(b: Bool, +x: Nat, +y: Nat) -> {pi.cnt(b, Nat.add(x, y)) == Nat.add(pi.cnt(b, x), y) : Nat}:
   match b:
@@ -30,16 +30,16 @@ def pi.cnt_add(b: Bool, +x: Nat, +y: Nat) -> {pi.cnt(b, Nat.add(x, y)) == Nat.ad
       {==}
 
 # a take and its drop split every count
-def pi.count_split(+xs: List<&2, If.Tool>, +n: Nat, +i: Nat) -> {Nat.add(If.count(List.take(&2, If.Tool, xs, n), i), If.count(List.drop(&2, If.Tool, xs, n), i)) == If.count(xs, i) : Nat}:
+def pi.count_split(+xs: List<&2, If.ToolPrio>, +n: Nat, +i: Nat) -> {Nat.add(If.count(List.take(&2, If.ToolPrio, xs, n), i), If.count(List.drop(&2, If.ToolPrio, xs, n), i)) == If.count(xs, i) : Nat}:
   match xs n:
     case Nil{} _:
       {==}
     case h <> t 0n:
       {==}
     case h <> t 1n+p:
-      +b = Nat.is_eq(If.Tool.id(h), i)
-      +T = List.take(&2, If.Tool, t, p)
-      +D = If.count(List.drop(&2, If.Tool, t, p), i)
+      +b = Nat.is_eq(If.ToolPrio.id(h), i)
+      +T = List.take(&2, If.ToolPrio, t, p)
+      +D = If.count(List.drop(&2, If.ToolPrio, t, p), i)
       %pi.count_cons(h, T, i) : {Nat.add(_, D) == If.count(h <> t, i) : Nat}
       %pi.count_cons(h, t, i) : {Nat.add(pi.cnt(b, If.count(T, i)), D) == _ : Nat}
       %pi.cnt_add(b, If.count(T, i), D) : {_ == pi.cnt(b, If.count(t, i)) : Nat}
@@ -98,18 +98,18 @@ def pms.last_cnt(+q: Bool, +s: Nat) -> {Nat.add(s, pi.cnt(q, 0n)) == pi.cnt(q, s
 # ------
 
 # tool h has id i
-def pms.w(+h: If.Tool, +i: Nat) -> Bool:
-  Nat.is_eq(If.Tool.id(h), i)
+def pms.w(+h: If.ToolPrio, +i: Nat) -> Bool:
+  Nat.is_eq(If.ToolPrio.id(h), i)
 
 # the copies of id i in xs, counted head-first
-def pms.c(xs: List<&2, If.Tool>, +i: Nat) -> Nat:
+def pms.c(xs: List<&2, If.ToolPrio>, +i: Nat) -> Nat:
   match xs:
     case Nil{}:
       0n
     case +h <> t:
       pi.cnt(pms.w(h, i), pms.c(t, i))
 
-def pms.c_count(xs: List<&2, If.Tool>, +i: Nat) -> {pms.c(xs, i) == If.count(xs, i) : Nat}:
+def pms.c_count(xs: List<&2, If.ToolPrio>, +i: Nat) -> {pms.c(xs, i) == If.count(xs, i) : Nat}:
   match xs:
     case Nil{}:
       {==}
@@ -141,7 +141,7 @@ def pms.dc(ds: If.TDig, +i: Nat) -> Nat:
 
 # tmerge.go(xt, yt, x, y, c) counts x <> xt and y <> yt together,
 # whatever the verdict c is
-def pms.c_mg(+xt: List<&2, If.Tool>, +yt: List<&2, If.Tool>, +x: If.Tool, +y: If.Tool, c: Bool, +i: Nat) -> {Nat.add(pms.c(x <> xt, i), pms.c(y <> yt, i)) == pms.c(If.tmerge.go(xt, yt, x, y, c), i) : Nat}:
+def pms.c_mg(+xt: List<&2, If.ToolPrio>, +yt: List<&2, If.ToolPrio>, +x: If.ToolPrio, +y: If.ToolPrio, c: Bool, +i: Nat) -> {Nat.add(pms.c(x <> xt, i), pms.c(y <> yt, i)) == pms.c(If.tmerge.go(xt, yt, x, y, c), i) : Nat}:
   match xt yt c:
     case Nil{} Nil{} True{}:
       Equal.sym(Nat, pi.cnt(pms.w(x, i), pms.c(y <> Nil{}, i)), Nat.add(pi.cnt(pms.w(x, i), 0n), pms.c(y <> Nil{}, i)),
@@ -152,24 +152,24 @@ def pms.c_mg(+xt: List<&2, If.Tool>, +yt: List<&2, If.Tool>, +x: If.Tool, +y: If
       Equal.sym(Nat, pi.cnt(pms.w(x, i), pms.c(y <> y2 <> yt2, i)), Nat.add(pi.cnt(pms.w(x, i), 0n), pms.c(y <> y2 <> yt2, i)),
         pi.cnt_add(pms.w(x, i), 0n, pms.c(y <> y2 <> yt2, i)))
     case Nil{} +y2 <> +yt2 False{}:
-      %pms.c_mg(Nil{}, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)), i) : {Nat.add(pms.c(x <> Nil{}, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(y, i), _) : Nat}
+      %pms.c_mg(Nil{}, yt2, x, y2, Nat.is_le(If.ToolPrio.prio(y2), If.ToolPrio.prio(x)), i) : {Nat.add(pms.c(x <> Nil{}, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(y, i), _) : Nat}
       pms.add_cnt(pms.w(y, i), pms.c(x <> Nil{}, i), pms.c(y2 <> yt2, i))
     case +x2 <> +xt2 Nil{} True{}:
-      %pms.c_mg(xt2, Nil{}, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> Nil{}, i)) == pi.cnt(pms.w(x, i), _) : Nat}
+      %pms.c_mg(xt2, Nil{}, x2, y, Nat.is_le(If.ToolPrio.prio(y), If.ToolPrio.prio(x2)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> Nil{}, i)) == pi.cnt(pms.w(x, i), _) : Nat}
       Equal.sym(Nat, pi.cnt(pms.w(x, i), Nat.add(pms.c(x2 <> xt2, i), pms.c(y <> Nil{}, i))), Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> Nil{}, i)),
         pi.cnt_add(pms.w(x, i), pms.c(x2 <> xt2, i), pms.c(y <> Nil{}, i)))
     case +x2 <> +xt2 Nil{} False{}:
       pms.last_cnt(pms.w(y, i), pms.c(x <> x2 <> xt2, i))
     case +x2 <> +xt2 +y2 <> +yt2 True{}:
-      %pms.c_mg(xt2, y2 <> yt2, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(x, i), _) : Nat}
+      %pms.c_mg(xt2, y2 <> yt2, x2, y, Nat.is_le(If.ToolPrio.prio(y), If.ToolPrio.prio(x2)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(x, i), _) : Nat}
       Equal.sym(Nat, pi.cnt(pms.w(x, i), Nat.add(pms.c(x2 <> xt2, i), pms.c(y <> y2 <> yt2, i))), Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)),
         pi.cnt_add(pms.w(x, i), pms.c(x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)))
     case +x2 <> +xt2 +y2 <> +yt2 False{}:
-      %pms.c_mg(x2 <> xt2, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(y, i), _) : Nat}
+      %pms.c_mg(x2 <> xt2, yt2, x, y2, Nat.is_le(If.ToolPrio.prio(y2), If.ToolPrio.prio(x)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(y, i), _) : Nat}
       pms.add_cnt(pms.w(y, i), pms.c(x <> x2 <> xt2, i), pms.c(y2 <> yt2, i))
 
 # tmerge(a, b) counts a and b together
-def pms.c_merge(+a: List<&2, If.Tool>, +b: List<&2, If.Tool>, +i: Nat) -> {Nat.add(pms.c(a, i), pms.c(b, i)) == pms.c(If.tmerge(a, b), i) : Nat}:
+def pms.c_merge(+a: List<&2, If.ToolPrio>, +b: List<&2, If.ToolPrio>, +i: Nat) -> {Nat.add(pms.c(a, i), pms.c(b, i)) == pms.c(If.tmerge(a, b), i) : Nat}:
   match a b:
     case Nil{} Nil{}:
       {==}
@@ -178,7 +178,7 @@ def pms.c_merge(+a: List<&2, If.Tool>, +b: List<&2, If.Tool>, +i: Nat) -> {Nat.a
     case +x <> +xt Nil{}:
       pms.add_zero_r(pms.c(x <> xt, i))
     case +x <> +xt +y <> +yt:
-      pms.c_mg(xt, yt, x, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x)), i)
+      pms.c_mg(xt, yt, x, y, Nat.is_le(If.ToolPrio.prio(y), If.ToolPrio.prio(x)), i)
 
 # tsort(t) counts the leaves of t
 def pms.c_tsort(+t: If.TTree, +i: Nat) -> {pms.tc(t, i) == pms.c(If.tsort(t), i) : Nat}:
@@ -207,7 +207,7 @@ def pms.c_push(+ds: If.TDig, +t: If.TTree, +i: Nat) -> {Nat.add(pms.tc(t, i), pm
         pms.add_assoc_swap(pms.tc(t2, i), pms.tc(t, i), pms.dc(rest, i)))
 
 # tbuild(ts, ds) adds the count of ts to the counter
-def pms.c_build(+ts: List<&2, If.Tool>, +ds: If.TDig, +i: Nat) -> {Nat.add(pms.c(ts, i), pms.dc(ds, i)) == pms.dc(If.tbuild(ts, ds), i) : Nat}:
+def pms.c_build(+ts: List<&2, If.ToolPrio>, +ds: If.TDig, +i: Nat) -> {Nat.add(pms.c(ts, i), pms.dc(ds, i)) == pms.dc(If.tbuild(ts, ds), i) : Nat}:
   match ts:
     case Nil{}:
       {==}
@@ -229,7 +229,7 @@ def pms.c_join(+ds: If.TDig, +acc: If.TTree, +i: Nat) -> {Nat.add(pms.dc(ds, i),
       pms.add_assoc_swap(pms.tc(d, i), pms.dc(rest, i), pms.tc(acc, i))
 
 # rank(ts) counts ts
-def pms.c_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {pms.c(ts, i) == pms.c(If.rank(ts), i) : Nat}:
+def pms.c_rank(+ts: List<&2, If.ToolPrio>, +i: Nat) -> {pms.c(ts, i) == pms.c(If.rank(ts), i) : Nat}:
   +B = If.tbuild(ts, If.TEnd{})
   %pms.c_tsort(If.tjoin(B, If.TTip{}), i) : {pms.c(ts, i) == _ : Nat}
   %pms.c_join(B, If.TTip{}, i) : {pms.c(ts, i) == _ : Nat}
@@ -238,7 +238,7 @@ def pms.c_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {pms.c(ts, i) == pms.c(If.ran
   Equal.sym(Nat, Nat.add(pms.c(ts, i), 0n), pms.c(ts, i), pms.add_zero_r(pms.c(ts, i)))
 
 # ranking keeps every count
-def pi.count_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {If.count(ts, i) == If.count(If.rank(ts), i) : Nat}:
+def pi.count_rank(+ts: List<&2, If.ToolPrio>, +i: Nat) -> {If.count(ts, i) == If.count(If.rank(ts), i) : Nat}:
   Equal.trans(Nat, If.count(ts, i), pms.c(ts, i), If.count(If.rank(ts), i),
     Equal.sym(Nat, pms.c(ts, i), If.count(ts, i), pms.c_count(ts, i)),
     Equal.trans(Nat, pms.c(ts, i), pms.c(If.rank(ts), i), If.count(If.rank(ts), i),
@@ -247,9 +247,9 @@ def pi.count_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {If.count(ts, i) == If.cou
 # Sortedness
 # ----------
 
-def pi.strict_keeps_every_tool(+cap: Nat, +ts: List<&2, If.Tool>, +i: Nat) -> {Nat.add(If.count(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i), If.count(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i)) == If.count(ts, i) : Nat}:
+def pi.strict_keeps_every_tool(+cap: Nat, +ts: List<&2, If.ToolPrio>, +i: Nat) -> {Nat.add(If.count(Pair.fst(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict(cap, ts)), i), If.count(Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict(cap, ts)), i)) == If.count(ts, i) : Nat}:
   +R = If.rank(ts)
-  Equal.trans(Nat, Nat.add(If.count(List.take(&2, If.Tool, R, cap), i), If.count(List.drop(&2, If.Tool, R, cap), i)), If.count(R, i), If.count(ts, i), pi.count_split(R, cap, i), Equal.sym(Nat, If.count(ts, i), If.count(R, i), pi.count_rank(ts, i)))
+  Equal.trans(Nat, Nat.add(If.count(List.take(&2, If.ToolPrio, R, cap), i), If.count(List.drop(&2, If.ToolPrio, R, cap), i)), If.count(R, i), If.count(ts, i), pi.count_split(R, cap, i), Equal.sym(Nat, If.count(ts, i), If.count(R, i), pi.count_rank(ts, i)))
 
 def Infer.strict_keeps_every_tool(cap, ts, i):
   pi.strict_keeps_every_tool(cap, ts, i)

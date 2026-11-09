@@ -11,7 +11,7 @@
 # - Stack{l}: the layer adds l on top, and the loop goes on. It costs the
 #   layer one unit of its budget. A stack that holds cap layers already
 #   (counting every layer, those above the deciding one too) fails.
-# - Leave: the layer removes itself; the next layer down decides.
+# - Unstack: the layer removes itself; the next layer down decides.
 # - Abort: the loop stops with a failure.
 # - Lead: a reminder that leads the next continuation. It leaves with the
 #   continuation it leads: when the loop goes on it leaves, and when the
@@ -48,7 +48,7 @@ type Verdict is Data:
   Again{}
   Yield{}
   Stack{l: Layer}
-  Leave{}
+  Unstack{}
   Abort{}
   Lead{}
 
@@ -144,7 +144,7 @@ def decide.go(s: List<&2, Layer>, vs: List<&2, Verdict>, +room: Bool, +stay: Boo
               Dec{Hand{}, l <> rest}
             case Stack{n}:
               push(l, n, rest, room)
-            case Leave{}:
+            case Unstack{}:
               decide.go(rest, vr, room, stay)
             case Abort{}:
               Dec{Failed{}, l <> rest}

@@ -5,7 +5,7 @@ import ../../bend/runners.bend as Ru
 import ../../laws/runners.bend as Runners
 import ./base.bend as LA
 
-def pr.MD(m: Maybe<&2, Ru.Tool>, n: Type, s: Type) -> Type:
+def pr.MD(m: Maybe<&2, Ru.ToolReg>, n: Type, s: Type) -> Type:
   match m:
     case None{}:
       n
@@ -38,7 +38,7 @@ def pr.imp(a: Bool, +b: Bool, h: {Bool.or(Bool.not(a), b) == True{} : Bool}, ha:
 # ------------
 
 # every tool of a covered list that runs code is gated
-def pr.cover(xs: List<&2, Ru.Tool>, i: Nat, +t: Ru.Tool, cov: {Ru.covered(xs) == True{} : Bool}, at: {List.get(&2, Ru.Tool, xs, i) == Some{t} : Maybe<&2, Ru.Tool>}, runs: {Ru.runs(t) == True{} : Bool}) -> {Ru.gated(t) == True{} : Bool}:
+def pr.cover(xs: List<&2, Ru.ToolReg>, i: Nat, +t: Ru.ToolReg, cov: {Ru.covered(xs) == True{} : Bool}, at: {List.get(&2, Ru.ToolReg, xs, i) == Some{t} : Maybe<&2, Ru.ToolReg>}, runs: {Ru.runs(t) == True{} : Bool}) -> {Ru.gated(t) == True{} : Bool}:
   match xs:
     case Nil{}:
       %at : pr.MD(_, Unit, {Ru.gated(t) == True{} : Bool})
@@ -46,9 +46,9 @@ def pr.cover(xs: List<&2, Ru.Tool>, i: Nat, +t: Ru.Tool, cov: {Ru.covered(xs) ==
     case +x <> +rest:
       match i:
         case 0n:
-          +same = Equal.cong(Maybe<&2, Ru.Tool>, Ru.Tool, m => Maybe.default(&2, Ru.Tool, m, t), Some{x}, Some{t}, at)
+          +same = Equal.cong(Maybe<&2, Ru.ToolReg>, Ru.ToolReg, m => Maybe.default(&2, Ru.ToolReg, m, t), Some{x}, Some{t}, at)
           %same : {Ru.gated(_) == True{} : Bool}
-          pr.imp(Ru.runs(x), Ru.gated(x), runners.pr.and_l(Bool.or(Bool.not(Ru.runs(x)), Ru.gated(x)), Ru.covered(rest), cov), Equal.trans(Bool, Ru.runs(x), Ru.runs(t), True{}, Equal.cong(Ru.Tool, Bool, s => Ru.runs(s), x, t, same), runs))
+          pr.imp(Ru.runs(x), Ru.gated(x), runners.pr.and_l(Bool.or(Bool.not(Ru.runs(x)), Ru.gated(x)), Ru.covered(rest), cov), Equal.trans(Bool, Ru.runs(x), Ru.runs(t), True{}, Equal.cong(Ru.ToolReg, Bool, s => Ru.runs(s), x, t, same), runs))
         case 1n+p:
           pr.cover(rest, p, t, runners.pr.and_r(Bool.or(Bool.not(Ru.runs(x)), Ru.gated(x)), Ru.covered(rest), cov), at, runs)
 

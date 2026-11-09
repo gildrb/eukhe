@@ -76,7 +76,7 @@ def pio.main(s: Ad.St, o: Ad.Op, no: {Admission.adm_applies(Admission.adm_ts(s),
           pio.col(Ad.get(ts, k), l, q, ts, k, no)
         case Ad.Release{+k}:
           pio.rel(Ad.get(ts, k), l, q, ts, k, no)
-        case Ad.Leave{+k}:
+        case Ad.Depart{+k}:
           pio.lea(Ad.get(ts, k), l, q, ts, k, no)
         case Ad.Limit{l2, q2}:
           LALogic.ad.absurd_t({Ad.step(Ad.St{l, q, ts}, Ad.Limit{l2, q2}) == Ad.St{l, q, ts} : Ad.St}, no)

@@ -35,27 +35,27 @@ type Gate is Data:
   EachStep{}  # each step asks unless within the auto set (`bash`)
   EachCall{}  # each call asks unless within the auto set (`ipython`)
 
-type Tool is Data:
-  Tool{name: String, caps: List<&2, Nat>, gate: Gate}
+type ToolReg is Data:
+  ToolReg{name: String, caps: List<&2, Nat>, gate: Gate}
 
-def Tool.name(t: Tool) -> String:
+def ToolReg.name(t: ToolReg) -> String:
   match t:
-    case Tool{n, c, g}:
+    case ToolReg{n, c, g}:
       n
 
-def Tool.caps(t: Tool) -> List<&2, Nat>:
+def ToolReg.caps(t: ToolReg) -> List<&2, Nat>:
   match t:
-    case Tool{n, c, g}:
+    case ToolReg{n, c, g}:
       c
 
-def Tool.gate(t: Tool) -> Gate:
+def ToolReg.gate(t: ToolReg) -> Gate:
   match t:
-    case Tool{n, c, g}:
+    case ToolReg{n, c, g}:
       g
 
 # the tool runs code that may run a program
-def runs(+t: Tool) -> Bool:
-  elem(Tool.caps(t), exec())
+def runs(+t: ToolReg) -> Bool:
+  elem(ToolReg.caps(t), exec())
 
 def Gate.gated(g: Gate) -> Bool:
   match g:
@@ -67,12 +67,12 @@ def Gate.gated(g: Gate) -> Bool:
       True{}
 
 # the gate covers the tool's code
-def gated(+t: Tool) -> Bool:
-  Gate.gated(Tool.gate(t))
+def gated(+t: ToolReg) -> Bool:
+  Gate.gated(ToolReg.gate(t))
 
 # a tool that runs no code of its own
-def plain(name: String) -> Tool:
-  Tool{name, Nil{}, Ungated{}}
+def plain(name: String) -> ToolReg:
+  ToolReg{name, Nil{}, Ungated{}}
 
 # every tool a session installs, in install order (crates/eukhe-core/src/
 # durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` (`zoom` and `date`,
@@ -84,9 +84,9 @@ def plain(name: String) -> Tool:
 # The `workflow` script runs no program either: its agents are child
 # sessions with their own gates. A session outside the `main-worker`
 # shape's main (a `single` session, every child) has no worker tool.
-def registry() -> List<&2, Tool>:
+def registry() -> List<&2, ToolReg>:
   [
-    Tool{"ipython", [exec()], EachCall{}},
+    ToolReg{"ipython", [exec()], EachCall{}},
     plain("zoom"),
     plain("date"),
     plain("workflow"),
@@ -94,7 +94,7 @@ def registry() -> List<&2, Tool>:
     plain("edit"),
     plain("grep"),
     plain("glob"),
-    Tool{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], EachStep{}},
+    ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], EachStep{}},
     plain("dyn"),
     plain("codemode"),
     plain("pi.codemode.models.classify"),
@@ -102,16 +102,16 @@ def registry() -> List<&2, Tool>:
   ]
 
 # the worker tools (`eukhe.children`): main's hand-overs to its workers
-def worker.tools() -> List<&2, Tool>:
+def worker.tools() -> List<&2, ToolReg>:
   [plain("worker_assign"), plain("worker_forward"), plain("worker_status")]
 
 # the read-only tools of `eukhe.documents`, in install order
-def read.tools() -> List<&2, Tool>:
+def read.tools() -> List<&2, ToolReg>:
   [plain("read"), plain("grep"), plain("glob")]
 
 # the tools of the chat memory (`eukhe.optchat`) on main's roster: main
 # offers them only when it has chat memory
-def chat.tools(chat: Bool) -> List<&2, Tool>:
+def chat.tools(chat: Bool) -> List<&2, ToolReg>:
   match chat:
     case True{}:
       [plain("zoom"), plain("date")]
@@ -122,11 +122,11 @@ def chat.tools(chat: Bool) -> List<&2, Tool>:
 # order: the chat memory's tools when chat holds, the worker tools, the
 # read-only document tools. Main runs no code, edits no file and spawns
 # nothing but workers.
-def main_roster(chat: Bool) -> List<&2, Tool>:
-  List.append(&2, Tool, chat.tools(chat), List.append(&2, Tool, worker.tools(), read.tools()))
+def main_roster(chat: Bool) -> List<&2, ToolReg>:
+  List.append(&2, ToolReg, chat.tools(chat), List.append(&2, ToolReg, worker.tools(), read.tools()))
 
 # every tool of ts that runs code is gated
-def covered(ts: List<&2, Tool>) -> Bool:
+def covered(ts: List<&2, ToolReg>) -> Bool:
   match ts:
     case Nil{}:
       True{}
@@ -134,15 +134,15 @@ def covered(ts: List<&2, Tool>) -> Bool:
       Bool.and(Bool.or(Bool.not(runs(t)), gated(t)), covered(rest))
 
 # the first tool of ts is named n
-def named.at(+ts: List<&2, Tool>, +n: String) -> Bool:
+def named.at(+ts: List<&2, ToolReg>, +n: String) -> Bool:
   match ts:
     case Nil{}:
       False{}
     case t <> rest:
-      String.eq(Tool.name(t), n)
+      String.eq(ToolReg.name(t), n)
 
 # the first tool of ts named n; hit is named.at(ts, n)
-def find.go(ts: List<&2, Tool>, +n: String, hit: Bool) -> Maybe<&2, Tool>:
+def find.go(ts: List<&2, ToolReg>, +n: String, hit: Bool) -> Maybe<&2, ToolReg>:
   match ts:
     case Nil{}:
       None{}
@@ -153,7 +153,7 @@ def find.go(ts: List<&2, Tool>, +n: String, hit: Bool) -> Maybe<&2, Tool>:
         case False{}:
           find.go(rest, n, named.at(rest, n))
 
-def find(+ts: List<&2, Tool>, +n: String) -> Maybe<&2, Tool>:
+def find(+ts: List<&2, ToolReg>, +n: String) -> Maybe<&2, ToolReg>:
   find.go(ts, n, named.at(ts, n))
 
 # 2. The cell gate

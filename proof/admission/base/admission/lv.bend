@@ -498,9 +498,9 @@ def al.step(s: Ad.St, o: Ad.Op) -> {Ad.Live.step(Admission.adl_live(s), o) == Ad
           %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.release(Ad.lv.find(Admission.adl_lives(ts, 0n), _), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
           %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LALogic.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.release(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
           al.rel(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
-        case Ad.Leave{+k}:
-          %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.leave(Ad.lv.find(Admission.adl_lives(ts, 0n), _), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
-          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LALogic.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.leave(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
+        case Ad.Depart{+k}:
+          %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.leave(Ad.lv.find(Admission.adl_lives(ts, 0n), _), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Depart{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LALogic.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.leave(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Depart{k})) : Ad.Live}
           al.lea(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
         case Ad.Limit{+l2, q2}:
           %Equal.sym(List<&2, Ad.Lv>, Ad.lv.grant(l2, Admission.adl_lives(ts, 0n)), Admission.adl_lives(Ad.grant(l2, ts), 0n), al.grant(l2, ts, 0n)) : {Ad.Live{l2, q2, _, List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Limit{l2, q2})) : Ad.Live}

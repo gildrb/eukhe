@@ -5,7 +5,7 @@
 # word is spaceless; rio_words), so the cut keeps all but p. The walk
 # skips the empty words at the root and at a declared path and lands on
 # q (LSp.sp_walk_lsi); w, naming no child of q, lands on Stray at the
-# root, else on Rest (q takes text) or Lost (LA.cb_step_miss), and each
+# root, else on Rest (q takes text) or OffPath (LA.cb_step_miss), and each
 # stays one of those whatever follows (LA.cb_walk_stray,
 # LA.cb_walk_rest, LA.cb_walk_lost). There key.at answers key.bare,
 # which never reads the selection: the row and no row act the same.
@@ -24,7 +24,7 @@ def rio_free(b: Bool, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: Li
       %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.Rest{q, [w]}), Cmd.Rest{q, w <> more}, LA.cb_walk_rest(more, t, q, [w])) : {Cmd.key.at(_, t, line, p, sel, k) == Cmd.key.bare(k, t, line) : Cmd.Out}
       {==}
     case False{}:
-      %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.Lost{q, w}), Cmd.Lost{q, w}, LA.cb_walk_lost(more, t, q, w)) : {Cmd.key.at(_, t, line, p, sel, k) == Cmd.key.bare(k, t, line) : Cmd.Out}
+      %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.OffPath{q, w}), Cmd.OffPath{q, w}, LA.cb_walk_lost(more, t, q, w)) : {Cmd.key.at(_, t, line, p, sel, k) == Cmd.key.bare(k, t, line) : Cmd.Out}
       {==}
 
 # after a word that names no child of q, Tab and Enter act as with no row

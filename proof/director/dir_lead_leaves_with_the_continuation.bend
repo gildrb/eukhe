@@ -30,7 +30,7 @@ def Director.dir_lead_leaves_with_the_continuation(cap, l, vs, on):
     case Dr.Loop{+n, +s, e}:
       match e:
         case None{}:
-          +L = Director.dir_leads(vs, Dr.Leave{})
+          +L = Director.dir_leads(vs, Dr.Unstack{})
           +r = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
           %Equal.sym(Dr.Dec, Dr.decide.go(s, vs, r, False{}), Dr.decide.go(s, L, r, False{}), LA.pd.leave_as(s, vs, r, False{})) : {Dr.settle(_, n, s, vs, cap) == Dr.settle(Dr.decide(s, L, cap), n, s, L, cap) : Dr.Loop}
           pd.settle_on(Dr.decide(s, L, cap), n, s, vs, L, cap, on)

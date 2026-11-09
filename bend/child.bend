@@ -78,7 +78,7 @@ def W.fresh(+cfg: Cfg, t: Maybe<&2, Nat>) -> W:
 # what one poll read
 type Obs is Data:
   Busy{tok: Maybe<&2, Nat>}
-  Lost{}
+  PollFailed{}
   Answered{replied: Bool}
   Broke{}
   Gone{}
@@ -166,7 +166,7 @@ def look(+cfg: Cfg, +w: W, +e: Nat, o: Obs) -> Next:
   match o:
     case Busy{+t}:
       busy(moved(W.tok(w), t), cfg, w, t, e)
-    case Lost{}:
+    case PollFailed{}:
       lost(w, e)
     case Answered{r}:
       settled(r)
@@ -190,7 +190,7 @@ def Hush.look(+cfg: Cfg, +w: W, h: Hush) -> Next:
     case Same{dt}:
       look(cfg, w, 1n+dt, Busy{W.tok(w)})
     case Miss{dt}:
-      look(cfg, w, 1n+dt, Lost{})
+      look(cfg, w, 1n+dt, PollFailed{})
 
 # one more quiet poll, if the watch still runs
 def hush.step(+cfg: Cfg, h: Hush, x: Next) -> Next:

@@ -104,7 +104,7 @@ def tc.c0_step(ph: Tn.Phase, s: Tn.Seen, +m: String, +rest: List<&2, Tn.Seen>, i
               tc.up(TinyRun.tr_count(0n, rest, Tn.Run{m, Tn.Over{}}), ih(Tn.Over{}))
             case Tn.Eof{}:
               ih(Tn.Launching{Tn.Again{}})
-            case Tn.Lost{}:
+            case Tn.Dropped{}:
               tc.up(TinyRun.tr_count(0n, rest, Tn.Run{m, Tn.Over{}}), ih(Tn.Over{}))
         case Tn.Came{l}:
           ih(Tn.Shutting{})
@@ -298,7 +298,7 @@ def tc.c1_step(ph: Tn.Phase, s: Tn.Seen, +m: String, +rest: List<&2, Tn.Seen>, i
               ih(Tn.Over{})
             case Tn.Eof{}:
               ih(Tn.Launching{Tn.Again{}})
-            case Tn.Lost{}:
+            case Tn.Dropped{}:
               ih(Tn.Over{})
         case Tn.Came{l}:
           ih(Tn.Shutting{})
@@ -492,7 +492,7 @@ def tc.c2_step(ph: Tn.Phase, s: Tn.Seen, +m: String, +rest: List<&2, Tn.Seen>, i
               tc.up(TinyRun.tr_count(2n, rest, Tn.Run{m, Tn.Over{}}), ih(Tn.Over{}))
             case Tn.Eof{}:
               ih(Tn.Launching{Tn.Again{}})
-            case Tn.Lost{}:
+            case Tn.Dropped{}:
               tc.up(TinyRun.tr_count(2n, rest, Tn.Run{m, Tn.Over{}}), ih(Tn.Over{}))
         case Tn.Came{l}:
           ih(Tn.Shutting{})

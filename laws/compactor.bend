@@ -181,7 +181,7 @@ def Names(e: C.Fin, said: Maybe<&2, List<&2, C.W>>, best: Maybe<&2, List<&2, C.W
       {best == Some{t} : Maybe<&2, List<&2, C.W>>}
     case C.CutInput{t}:
       {input == t : List<&2, C.W>}
-    case C.Lost{}:
+    case C.Errored{}:
       Unit
 
 def NextNames(x: C.Next, said: Maybe<&2, List<&2, C.W>>, best: Maybe<&2, List<&2, C.W>>, input: List<&2, C.W>) -> Type:
@@ -655,7 +655,7 @@ def spell_fin(e: C.Fin) -> String:
       Wr.put_nat(2n, "")
     case C.CutInput{t}:
       Wr.put_nat(3n, "")
-    case C.Lost{}:
+    case C.Errored{}:
       Wr.put_nat(4n, "")
 
 # the reply Rust reads: 0 the line ends after c calls, then how | 1 the

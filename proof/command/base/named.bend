@@ -394,7 +394,7 @@ def nm_top(s: Cmd.St) -> Bool:
       False{}
     case Cmd.Rest{q, ws}:
       False{}
-    case Cmd.Lost{q, x}:
+    case Cmd.OffPath{q, x}:
       False{}
     case Cmd.Stray{}:
       False{}
@@ -408,7 +408,7 @@ def nm_key_shut(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List
       LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Walk{q0, e}, t, line, p, Cmd.Row{i}, k) == Cmd.key.at(Cmd.Walk{q0, e}, t, line, p, Cmd.NoRow{}, k) : Cmd.Out}, Equal.sym(Bool, True{}, False{}, Equal.cong(Cmd.Menu, Bool, m => nm_is_kids(m), Cmd.Kids{q0, Cmd.items(t, 0n, q0, Cmd.lows(p))}, Cmd.Shut{}, h)))
     case Cmd.Rest{q0, ws}:
       {==}
-    case Cmd.Lost{q0, x}:
+    case Cmd.OffPath{q0, x}:
       {==}
     case Cmd.Stray{}:
       {==}
@@ -449,7 +449,7 @@ def nm_step_off(s: Cmd.St, +t: List<&2, Cmd.Ent>, w: List<&2, Nat>, h: {nm_top(s
           {==}
         case Con{c, r}:
           {==}
-    case Cmd.Lost{q, x}:
+    case Cmd.OffPath{q, x}:
       match w:
         case Nil{}:
           {==}
@@ -633,7 +633,7 @@ def nm_miss_shut(f: Bool, rest: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, 
       %Equal.sym(Cmd.St, Cmd.walk(rest, t, Cmd.Rest{p, [w]}), Cmd.Rest{p, List.append(&2, List<&2, Nat>, [w], rest)}, LA.cb_walk_rest(rest, t, p, [w])) : {Cmd.menu.at(_, t, x) == Cmd.Shut{} : Cmd.Menu}
       {==}
     case False{}:
-      %Equal.sym(Cmd.St, Cmd.walk(rest, t, Cmd.Lost{p, w}), Cmd.Lost{p, w}, LA.cb_walk_lost(rest, t, p, w)) : {Cmd.menu.at(_, t, x) == Cmd.Shut{} : Cmd.Menu}
+      %Equal.sym(Cmd.St, Cmd.walk(rest, t, Cmd.OffPath{p, w}), Cmd.OffPath{p, w}, LA.cb_walk_lost(rest, t, p, w)) : {Cmd.menu.at(_, t, x) == Cmd.Shut{} : Cmd.Menu}
       {==}
 
 def nm_menu_sw(m: Maybe<&2, Cmd.Ent>, f1: Bool, f2: Bool, rest: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +x: List<&2, Nat>) -> {Cmd.menu.at(Cmd.walk(rest, t, Cmd.step.walk(m, p, f1, w)), t, x) == Cmd.menu.at(Cmd.walk(rest, t, Cmd.step.walk(m, p, f2, w)), t, x) : Cmd.Menu}:
@@ -779,7 +779,7 @@ def nm_finish_miss(f: Bool, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, 
       %Equal.sym(List<&2, Nat>, Cmd.join.go(nm_tail(s), x), List.append(&2, Nat, x, s), nm_join_tail(s, x, gap)) : {Cmd.Runs{p, _} == Cmd.Runs{p, List.append(&2, Nat, x, s)} : Cmd.Res}
       {==}
     case False{}:
-      %Equal.sym(Cmd.St, Cmd.walk(nm_tail(s), t, Cmd.Lost{p, x}), Cmd.Lost{p, x}, LA.cb_walk_lost(nm_tail(s), t, p, x)) : {Cmd.finish(_, t) == Cmd.Unknown{p, x} : Cmd.Res}
+      %Equal.sym(Cmd.St, Cmd.walk(nm_tail(s), t, Cmd.OffPath{p, x}), Cmd.OffPath{p, x}, LA.cb_walk_lost(nm_tail(s), t, p, x)) : {Cmd.finish(_, t) == Cmd.Unknown{p, x} : Cmd.Res}
       {==}
 
 # after a named word: a blank rest leaves the walk at the entry

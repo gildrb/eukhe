@@ -354,7 +354,7 @@ def ad.f_step(s: Ad.St, o: Ad.Op, +e: {AT.fifo.both(Admission.adm_ts(s)) == True
       ad.f_col_op(Ad.get(ts, k), l, q, ts, k, {==}, e)
     case Ad.St{+l, +q, +ts} Ad.Release{+k}:
       ad.f_rel_op(Ad.get(ts, k), l, q, ts, k, e)
-    case Ad.St{+l, +q, +ts} Ad.Leave{+k}:
+    case Ad.St{+l, +q, +ts} Ad.Depart{+k}:
       ad.f_lea_op(Ad.get(ts, k), l, q, ts, k, e)
     case Ad.St{+l, +q, +ts} Ad.Limit{+l2, q2}:
       ad.f_grant(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, e)

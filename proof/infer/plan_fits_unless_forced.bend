@@ -23,19 +23,19 @@ def pu.rest(a: Bool, -b: Bool, ea: {a == False{} : Bool}, c: {Bool.and(Bool.not(
       LLogicLogic.pq.absurd({b == True{} : Bool}, ea)
 
 # no tool of ls requires a strict schema: the scan for one finds none
-def pu.none_go(ls: List<&2, If.Tool>, +need: List<&2, Nat>, hit: Bool, eh: {If.needs.at(ls, need) == hit : Bool}, calm: {Infer.plan.none_needed(Infer.strict.ids(ls), need) == True{} : Bool}) -> {If.needs.go(ls, need, hit) == None{} : Maybe<&2, Nat>}:
+def pu.none_go(ls: List<&2, If.ToolPrio>, +need: List<&2, Nat>, hit: Bool, eh: {If.needs.at(ls, need) == hit : Bool}, calm: {Infer.plan.none_needed(Infer.strict.ids(ls), need) == True{} : Bool}) -> {If.needs.go(ls, need, hit) == None{} : Maybe<&2, Nat>}:
   match ls:
     case Nil{}:
       {==}
     case +t <> +rest:
       match hit:
         case True{}:
-          pu.clash({If.needs.go(t <> rest, need, True{}) == None{} : Maybe<&2, Nat>}, If.elem(need, If.Tool.id(t)), Infer.plan.none_needed(Infer.strict.ids(rest), need), eh, calm)
+          pu.clash({If.needs.go(t <> rest, need, True{}) == None{} : Maybe<&2, Nat>}, If.elem(need, If.ToolPrio.id(t)), Infer.plan.none_needed(Infer.strict.ids(rest), need), eh, calm)
         case False{}:
-          pu.none_go(rest, need, If.needs.at(rest, need), {==}, pu.rest(If.elem(need, If.Tool.id(t)), Infer.plan.none_needed(Infer.strict.ids(rest), need), eh, calm))
+          pu.none_go(rest, need, If.needs.at(rest, need), {==}, pu.rest(If.elem(need, If.ToolPrio.id(t)), Infer.plan.none_needed(Infer.strict.ids(rest), need), eh, calm))
 
 def Infer.plan_fits_unless_forced(cap, ts, need, calm):
-  +L = Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))
+  +L = Pair.snd(List<&2, If.ToolPrio>, List<&2, If.ToolPrio>, If.strict.of(cap, ts))
   %Equal.sym(Maybe<&2, Nat>, If.needs.go(L, need, If.needs.at(L, need)), None{}, pu.none_go(L, need, If.needs.at(L, need), {==}, calm)) : {If.plan.of(_, L) == If.Fits{Infer.strict.ids(L)} : If.Plan}
   %Equal.sym(List<&2, Nat>, If.ids(L), Infer.strict.ids(L), LA.w2.ids(L)) : {If.Fits{_} == If.Fits{Infer.strict.ids(L)} : If.Plan}
   {==}

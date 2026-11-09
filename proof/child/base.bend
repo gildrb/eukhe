@@ -562,8 +562,8 @@ def rt.obs(o: Ch.Obs, +rest: String, +h: {Child.wire_obs_fits(o) == True{} : Boo
       %LWire.pw6.nat(0n, Child.ch_spell_mnat(t, rest), {==}) : {Wr.Got{Ch.Busy{t}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
       %rt.mnat(t, rest, h) : {Wr.Got{Ch.Busy{t}, rest} == FCh.get_obs.busy(_) : Wr.Dec<Ch.Obs>}
       {==}
-    case Ch.Lost{}:
-      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Lost{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+    case Ch.PollFailed{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.PollFailed{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
       {==}
     case Ch.Answered{+r}:
       %LWire.pw6.nat(2n, Wr.put_bool(r, rest), {==}) : {Wr.Got{Ch.Answered{r}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}

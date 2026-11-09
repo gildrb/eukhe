@@ -24,15 +24,15 @@ import ./base.bend as LawsBase
 # program is gated
 law gate_covers_every_runner:
   for +i: Nat
-  for +t: Ru.Tool
-  for at: {List.get(&2, Ru.Tool, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  for +t: Ru.ToolReg
+  for at: {List.get(&2, Ru.ToolReg, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.ToolReg>}
   for runs: {Ru.runs(t) == True{} : Bool}
   {Ru.gated(t) == True{} : Bool}
 
 # LAW ipython_gated_each_call: the `ipython` tool runs code that may run a program, and the gate
 # covers each of its calls
 law ipython_gated_each_call:
-  {Ru.find(Ru.registry(), "ipython") == Some{Ru.Tool{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.Tool>}
+  {Ru.find(Ru.registry(), "ipython") == Some{Ru.ToolReg{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.ToolReg>}
 
 # LAW cell_runs_only_within_or_approved: a gated call runs only when its caps are within the auto set or the
 # user approves it
@@ -109,19 +109,19 @@ def no_caps(c: List<&2, Nat>) -> Bool:
       False{}
 
 # the tool runs no code of its own: no caps, not gated
-def quiet(t: Ru.Tool) -> Bool:
+def quiet(t: Ru.ToolReg) -> Bool:
   match t:
-    case Ru.Tool{n, c, g}:
+    case Ru.ToolReg{n, c, g}:
       Bool.and(no_caps(c), Bool.not(Ru.Gate.gated(g)))
 
 # the tool may be on main's roster: it runs no code of its own and is a
 # read-only tool or a worker tool
-def main_ok(+t: Ru.Tool) -> Bool:
-  Bool.and(quiet(t), Bool.or(named_in(Ru.Tool.name(t), read_names()), named_in(Ru.Tool.name(t), worker_names())))
+def main_ok(+t: Ru.ToolReg) -> Bool:
+  Bool.and(quiet(t), Bool.or(named_in(Ru.ToolReg.name(t), read_names()), named_in(Ru.ToolReg.name(t), worker_names())))
 
 # the tool is a worker tool
-def worker_tool(+t: Ru.Tool) -> Bool:
-  named_in(Ru.Tool.name(t), worker_names())
+def worker_tool(+t: Ru.ToolReg) -> Bool:
+  named_in(Ru.ToolReg.name(t), worker_names())
 
 # LAW main_roster_read_or_workers: every tool of main's roster (the `main-worker` shape, with or without chat memory) runs no code of its own and is a read-only tool (read, grep, glob, zoom, date) or a worker tool (worker_assign, worker_forward, worker_status)
 # EXCLUDES: main offered a tool that runs a program (ipython, bash,
@@ -130,8 +130,8 @@ def worker_tool(+t: Ru.Tool) -> Bool:
 law main_roster_read_or_workers:
   for +chat: Bool
   for +i: Nat
-  for +t: Ru.Tool
-  for at: {List.get(&2, Ru.Tool, Ru.main_roster(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  for +t: Ru.ToolReg
+  for at: {List.get(&2, Ru.ToolReg, Ru.main_roster(chat), i) == Some{t} : Maybe<&2, Ru.ToolReg>}
   {main_ok(t) == True{} : Bool}
 
 # LAW main_roster_offers_workers: main's roster (with or without chat memory) offers the three worker tools, each running no code of its own
@@ -139,16 +139,16 @@ law main_roster_read_or_workers:
 #   see its workers
 law main_roster_offers_workers:
   for +chat: Bool
-  {Ru.find(Ru.main_roster(chat), "worker_assign") == Some{Ru.plain("worker_assign")} : Maybe<&2, Ru.Tool>} &
-  {Ru.find(Ru.main_roster(chat), "worker_forward") == Some{Ru.plain("worker_forward")} : Maybe<&2, Ru.Tool>} &
-  {Ru.find(Ru.main_roster(chat), "worker_status") == Some{Ru.plain("worker_status")} : Maybe<&2, Ru.Tool>}
+  {Ru.find(Ru.main_roster(chat), "worker_assign") == Some{Ru.plain("worker_assign")} : Maybe<&2, Ru.ToolReg>} &
+  {Ru.find(Ru.main_roster(chat), "worker_forward") == Some{Ru.plain("worker_forward")} : Maybe<&2, Ru.ToolReg>} &
+  {Ru.find(Ru.main_roster(chat), "worker_status") == Some{Ru.plain("worker_status")} : Maybe<&2, Ru.ToolReg>}
 
 # LAW worker_tools_main_only: no tool of a session's registry outside main (a `single` session, every child; with or without chat memory) is a worker tool
 # EXCLUDES: a child or a single session that creates or drives workers
 law worker_tools_main_only:
   for +i: Nat
-  for +t: Ru.Tool
-  for at: {List.get(&2, Ru.Tool, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  for +t: Ru.ToolReg
+  for at: {List.get(&2, Ru.ToolReg, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.ToolReg>}
   {worker_tool(t) == False{} : Bool}
 
 # ---- runners entry ----
@@ -244,9 +244,9 @@ def spell_gate(g: Ru.Gate) -> Nat:
       2n
 
 # a tool: its name, its caps, its gate
-def spell_tool(t: Ru.Tool, rest: String) -> String:
+def spell_tool(t: Ru.ToolReg, rest: String) -> String:
   match t:
-    case Ru.Tool{n, c, g}:
+    case Ru.ToolReg{n, c, g}:
       Wr.put_str(n, spell_ns(c, Wr.put_nat(spell_gate(g), rest)))
 
 # the model's decision on q, spelled
@@ -257,9 +257,9 @@ def spell_answer(q: FRu.Req) -> String:
     case FRu.QCell{c, +a, k}:
       spell_out(Ru.cell(c, a, k))
     case FRu.QRegistry{}:
-      Wr.put_list(~Ru.Tool, ~spell_tool, Ru.registry(), "")
+      Wr.put_list(~Ru.ToolReg, ~spell_tool, Ru.registry(), "")
     case FRu.QMain{h}:
-      Wr.put_list(~Ru.Tool, ~spell_tool, Ru.main_roster(h), "")
+      Wr.put_list(~Ru.ToolReg, ~spell_tool, Ru.main_roster(h), "")
 
 # the error form of every input that is not exactly one request
 def malformed() -> String:
@@ -486,15 +486,15 @@ def ru_cell(free: Bool, a: Ru.Asker) -> Ru.Out:
               Ru.Out{True{}, Ru.Refused{Ru.Denied{}}}
 
 # R5: a tool that runs no code of its own
-def ru_plain(n: String) -> Ru.Tool:
-  Ru.Tool{n, Nil{}, Ru.Ungated{}}
+def ru_plain(n: String) -> Ru.ToolReg:
+  Ru.ToolReg{n, Nil{}, Ru.Ungated{}}
 
 # R5: every tool a session installs
-def ru_registry() -> List<&2, Ru.Tool>:
-  [Ru.Tool{"ipython", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.Tool{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
+def ru_registry() -> List<&2, Ru.ToolReg>:
+  [Ru.ToolReg{"ipython", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
 
 # R6: main's roster, with chat memory or without
-def ru_main_roster(chat: Bool) -> List<&2, Ru.Tool>:
+def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
   match chat:
     case True{}:
       [ru_plain("zoom"), ru_plain("date"), ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
@@ -509,9 +509,9 @@ def ru_reply(q: FRu.Req) -> String:
     case FRu.QCell{c, +a, k}:
       spell_out(ru_cell(ru_within(c, a), k))
     case FRu.QRegistry{}:
-      Wr.put_list(~Ru.Tool, ~spell_tool, ru_registry(), "")
+      Wr.put_list(~Ru.ToolReg, ~spell_tool, ru_registry(), "")
     case FRu.QMain{h}:
-      Wr.put_list(~Ru.Tool, ~spell_tool, ru_main_roster(h), "")
+      Wr.put_list(~Ru.ToolReg, ~spell_tool, ru_main_roster(h), "")
 
 def ru_spec.end(whole: Bool, q: FRu.Req) -> String:
   match whole:
@@ -555,7 +555,7 @@ law runners_cell_spec:
 # LAW runners_registry_spec: a session installs exactly the R5 tools, in order
 # EXCLUDES: a tool lost, added or moved; a caps list or gate changed
 law runners_registry_spec:
-  {Ru.registry() == ru_registry() : List<&2, Ru.Tool>}
+  {Ru.registry() == ru_registry() : List<&2, Ru.ToolReg>}
 
 # LAW runners_ffi_spec: on every input the entry answers the reply R3-R5 give the request the input is exactly, and the error form on any other input
 # EXCLUDES: a decision the model computes wrong (a call run unasked

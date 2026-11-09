@@ -140,7 +140,7 @@ def ended_stays_ended(s: Ad.St, o: Ad.Op, +k: Nat, e: {Admission.adm_ended(Admis
           ad.end_col(Ad.get(ts, j), l, q, ts, j, k, {==}, e)
         case Ad.Release{+j}:
           ad.end_rel(Ad.get(ts, j), l, q, ts, j, k, {==}, e)
-        case Ad.Leave{+j}:
+        case Ad.Depart{+j}:
           ad.end_lea(Ad.get(ts, j), l, q, ts, j, k, {==}, e)
         case Ad.Limit{+l2, q2}:
           LAAdmissionEnded.ad.end_grant_k(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, k, e)

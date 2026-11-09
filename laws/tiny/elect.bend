@@ -167,14 +167,14 @@ law tiny_seat_adopts_live:
 # shut a worker of another tag down, an answer bye or the connection
 # closed by the worker's own exit (Eof) launches a replacement; another
 # answer fails the need as out of protocol; any other failure of the
-# connection (Lost) as an IO error
+# connection (Dropped) as an IO error
 # EXCLUDES: a start on top of a worker that answered the shutdown out of
 #   protocol; an error for a worker that exited on its own meanwhile; a
 #   replacement launched as a first worker (reported Started)
 law tiny_run_shutdown_answered:
   for +m: String
   {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Bye{}}) == (Tn.Run{m, Tn.Launching{Tn.Again{}}}, Tn.DoLaunch{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Eof{}}) == (Tn.Run{m, Tn.Launching{Tn.Again{}}}, Tn.DoLaunch{}) : Tn.Run & Tn.Do} &
-  {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Other{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyProtocol{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Lost{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do}
+  {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Other{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyProtocol{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Dropped{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do}
 
 # LAW tiny_run_launch_ended (R3, R7): a launch that ended pings again and
 # carries what the start got into the check: a first worker that bound

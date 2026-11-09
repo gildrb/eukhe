@@ -46,7 +46,7 @@ def pds.verdict(v: Dr.Verdict, -rest: String) -> {FDr.put_verdict(v, rest) == Di
     case Dr.Stack{+l}:
       %pds.layer(l, rest) : {Wr.put_nat(3n, FDr.put_layer(l, rest)) == Wr.put_nat(3n, _) : String}
       {==}
-    case Dr.Leave{}:
+    case Dr.Unstack{}:
       {==}
     case Dr.Abort{}:
       {==}

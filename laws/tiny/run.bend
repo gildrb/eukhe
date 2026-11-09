@@ -61,7 +61,7 @@ def sp_w_heard(h: Tn.Heard) -> Nat:
       1n
     case Tn.Eof{}:
       2n
-    case Tn.Lost{}:
+    case Tn.Dropped{}:
       3n
 
 def sp_w_got(g: Tn.Got) -> Nat:
@@ -325,7 +325,7 @@ def tr_vacant(s: Tn.Seen) -> Bool:
           True{}
         case Tn.Other{}:
           False{}
-        case Tn.Lost{}:
+        case Tn.Dropped{}:
           False{}
     case Tn.Came{l}:
       False{}
