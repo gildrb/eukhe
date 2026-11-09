@@ -11,8 +11,8 @@
 #   reply    List<Nat>: 0 when rest starts with no address, else 1 + the
 #            address's length in chars (`Ip.ip`)
 #
-# The stepper is the token map of the daemon (`Tk.Book`, kept in the Bend
-# heap for the daemon's life):
+# The stepper is the token map of one session (`Tk.Book`, kept in the Bend
+# heap for the session's life; eukhe-ai privacy/mod.rs `TokenMap`):
 #
 #   open     nothing         reply: List<Nat>, the tags of the classes
 #                            whose tokens map back (`Tk.mapped_classes`)

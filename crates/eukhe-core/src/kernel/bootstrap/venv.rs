@@ -36,9 +36,8 @@ pub(crate) use probe::{
 };
 use probe::{has_eukhe_runtime_memoized, installed_runtime_identity};
 pub use runtime_source::resolve_runtime_identity;
-use runtime_source::{
-    collect_python_files, hash_runtime_source, resolve_runtime_source_dir, RUNTIME_LOCK_FILE,
-};
+pub(crate) use runtime_source::resolve_runtime_source_dir;
+use runtime_source::{collect_python_files, hash_runtime_source, RUNTIME_LOCK_FILE};
 #[cfg(test)]
 use skills::{file_content_hash, read_python_skill_dependency_names};
 use skills::{

@@ -29,8 +29,8 @@ pub use runtime_code::{
 };
 use venv::{
     bootstrap_venv, ensure_uv, expand_home, has_eukhe_runtime, missing_python_skill_import_labels,
-    missing_rlm_extra_import_labels, normalize_python_skills, resolve_writable_kernel_venv_dir,
-    sync_python_skills, BootstrapPythonSkill,
+    missing_rlm_extra_import_labels, normalize_python_skills, resolve_runtime_source_dir,
+    resolve_writable_kernel_venv_dir, sync_python_skills, BootstrapPythonSkill,
 };
 pub use venv::{
     invalidate_runtime_probe_cache, kernel_venv_dir, kernel_venv_python, resolve_runtime_identity,
@@ -203,6 +203,36 @@ pub fn kernel_install_state() -> anyhow::Result<KernelInstallState> {
         return Ok(KernelInstallState::OutOfDate(venv));
     }
     Ok(KernelInstallState::Missing(venv))
+}
+
+/// Why a session cannot start the kernel until the user acts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KernelUnavailable {
+    /// No `eukhe-runtime/` beside the binary (or in the source checkout
+    /// it runs from): the text names every place looked at.
+    RuntimeMissing(String),
+    /// No kernel venv: `eukhe kernel install` never ran; the path is where
+    /// it goes ([`KernelInstallState::Missing`]).
+    NotInstalled(PathBuf),
+}
+
+/// The probe a session runs at open: `Some` only when the kernel
+/// definitively cannot start (the runtime directory is missing, or the
+/// venv is, which `eukhe kernel install --check` reports as not
+/// installed). Local only: no network, no interpreter run. An
+/// `EUKHE_KERNEL_PYTHON` override, an out-of-date venv (a session sets it
+/// up again from local files if it can) and any error reading the state
+/// are not definitive: `None`.
+#[must_use]
+pub fn kernel_unavailable() -> Option<KernelUnavailable> {
+    if std::env::var("EUKHE_KERNEL_PYTHON").is_ok_and(|python| !python.is_empty()) {
+        return None;
+    }
+    if let Err(error) = resolve_runtime_source_dir() {
+        return Some(KernelUnavailable::RuntimeMissing(format!("{error:#}")));
+    }
+    let venv = resolve_writable_kernel_venv_dir().ok()?;
+    (!venv.exists()).then_some(KernelUnavailable::NotInstalled(venv))
 }
 
 /// The shared flow of [`ensure_kernel_python`] and [`install_kernel_python`].

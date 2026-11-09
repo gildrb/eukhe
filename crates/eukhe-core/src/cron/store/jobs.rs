@@ -73,9 +73,10 @@ impl AgentCronJobStore {
             run_count: 0,
             failure_streak: made.streak,
         };
-        let mut jobs = self.read_jobs();
-        jobs.push(job.clone());
-        self.write_jobs(&jobs)?;
+        self.mutate_jobs(|jobs| {
+            jobs.push(job.clone());
+            Ok(())
+        })?;
         Ok(job)
     }
 
@@ -96,76 +97,63 @@ impl AgentCronJobStore {
         now: u64,
     ) -> anyhow::Result<Vec<AgentCronJob>> {
         let target_session_file = resolve_path(&input.session_file);
-        let mut changed = Vec::new();
-        let mut jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .enumerate()
-            .map(|(index, job)| {
+        let now_iso = iso_from_millis(now);
+        self.mutate_jobs(|jobs| {
+            let mut changed = Vec::new();
+            for (index, job) in jobs.iter_mut().enumerate() {
                 if job.active_session_id != input.active_session_id
                     && resolve_path(&job.session_file) != target_session_file
                 {
-                    return job;
+                    continue;
                 }
                 if job.active_session_id == input.active_session_id
                     && job.session_id == input.session_id
                     && resolve_path(&job.session_file) == target_session_file
                     && job.cwd == input.cwd
                 {
-                    return job;
+                    continue;
                 }
                 changed.push(index);
-                AgentCronJob {
-                    active_session_id: input.active_session_id.clone(),
-                    session_id: input.session_id.clone(),
-                    session_file: input.session_file.clone(),
-                    cwd: input.cwd.clone(),
-                    ..job
-                }
-            })
-            .collect();
-        let heartbeats: Vec<usize> = jobs
-            .iter()
-            .enumerate()
-            .filter(|(_, job)| {
-                job.active_session_id == input.active_session_id
-                    && job.source == JobSource::Heartbeat
-                    && matches!(job.status, JobStatus::Active | JobStatus::Paused)
-            })
-            .map(|(index, _)| index)
-            .collect();
-        // The heartbeat `get_heartbeat` reads: the newest.
-        let newest = heartbeats
-            .iter()
-            .copied()
-            .max_by_key(|index| parse_iso_millis(&jobs[*index].updated_at).unwrap_or(0));
-        let now_iso = iso_from_millis(now);
-        for index in heartbeats {
-            if Some(index) == newest {
-                continue;
+                job.active_session_id.clone_from(&input.active_session_id);
+                job.session_id.clone_from(&input.session_id);
+                job.session_file.clone_from(&input.session_file);
+                job.cwd.clone_from(&input.cwd);
             }
-            let job = &jobs[index];
-            let Cut::Cut { status, next } = rule::halt(&fact_of(job), Halt::Stop) else {
-                continue;
-            };
-            jobs[index] = AgentCronJob {
-                status: job_status(status),
-                next_run_at: next_text_at(job, next),
-                updated_at: now_iso.clone(),
-                ..job.clone()
-            };
-            changed.push(index);
-        }
-        if changed.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.write_jobs(&jobs)?;
-        changed.sort_unstable();
-        changed.dedup();
-        Ok(changed
-            .into_iter()
-            .map(|index| jobs[index].clone())
-            .collect())
+            let heartbeats: Vec<usize> = jobs
+                .iter()
+                .enumerate()
+                .filter(|(_, job)| {
+                    job.active_session_id == input.active_session_id
+                        && job.source == JobSource::Heartbeat
+                        && matches!(job.status, JobStatus::Active | JobStatus::Paused)
+                })
+                .map(|(index, _)| index)
+                .collect();
+            // The heartbeat `get_heartbeat` reads: the newest.
+            let newest = heartbeats
+                .iter()
+                .copied()
+                .max_by_key(|index| parse_iso_millis(&jobs[*index].updated_at).unwrap_or(0));
+            for index in heartbeats {
+                if Some(index) == newest {
+                    continue;
+                }
+                let job = &mut jobs[index];
+                let Cut::Cut { status, next } = rule::halt(&fact_of(job), Halt::Stop) else {
+                    continue;
+                };
+                job.next_run_at = next_text_at(job, next);
+                job.status = job_status(status);
+                job.updated_at.clone_from(&now_iso);
+                changed.push(index);
+            }
+            changed.sort_unstable();
+            changed.dedup();
+            Ok(changed
+                .into_iter()
+                .map(|index| jobs[index].clone())
+                .collect())
+        })
     }
     /// Stop the jobs of a session (the compiled core decides each:
     /// `rule::halt` with [`Halt::Stop`]: an active or paused job is
@@ -181,11 +169,9 @@ impl AgentCronJobStore {
     ) -> anyhow::Result<Vec<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
         let target_session_file = input.session_file.as_ref().map(|file| resolve_path(file));
-        let mut cancelled = Vec::new();
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
+        self.mutate_jobs(|jobs| {
+            let mut cancelled = Vec::new();
+            for job in jobs.iter_mut() {
                 let matches = input
                     .active_session_id
                     .as_ref()
@@ -198,56 +184,36 @@ impl AgentCronJobStore {
                         .as_ref()
                         .is_some_and(|file| resolve_path(&job.session_file) == *file);
                 if !matches {
-                    return job;
+                    continue;
                 }
-                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Stop) else {
-                    return job;
+                let Cut::Cut { status, next } = rule::halt(&fact_of(job), Halt::Stop) else {
+                    continue;
                 };
-                let cancelled_job = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                cancelled.push(cancelled_job.clone());
-                cancelled_job
-            })
-            .collect();
-        if !cancelled.is_empty() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(cancelled)
+                job.next_run_at = next_text_at(job, next);
+                job.status = job_status(status);
+                job.updated_at.clone_from(&now_iso);
+                cancelled.push(job.clone());
+            }
+            Ok(cancelled)
+        })
     }
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
     pub fn cancel(&self, id: &str, now: u64) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
-        let mut cancelled = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != id {
-                    return job;
-                }
-                let Cut::Cut { status, next } = rule::cancel(&fact_of(&job)) else {
-                    return job;
-                };
-                let cancelled_job = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                cancelled = Some(cancelled_job.clone());
-                cancelled_job
-            })
-            .collect();
-        if cancelled.is_some() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(cancelled)
+        self.mutate_jobs(|jobs| {
+            let Some(job) = jobs.iter_mut().find(|job| job.id == id) else {
+                return Ok(None);
+            };
+            let Cut::Cut { status, next } = rule::cancel(&fact_of(job)) else {
+                return Ok(None);
+            };
+            job.next_run_at = next_text_at(job, next);
+            job.status = job_status(status);
+            job.updated_at = now_iso;
+            Ok(Some(job.clone()))
+        })
     }
 
     pub fn due(&self, now: u64) -> Vec<AgentCronJob> {

@@ -223,7 +223,7 @@ async fn a_paused_child_is_not_stalled() {
     assert_eq!(
         user_texts(&opened.root, "[child-").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: done",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: done",
             row.session_name
         )]
     );

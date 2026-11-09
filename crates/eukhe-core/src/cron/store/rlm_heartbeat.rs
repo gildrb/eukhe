@@ -96,9 +96,10 @@ impl AgentCronJobStore {
             run_count: 0,
             failure_streak: made.streak,
         };
-        let mut jobs = self.read_jobs();
-        jobs.push(job.clone());
-        self.write_jobs(&jobs)?;
+        self.mutate_jobs(|jobs| {
+            jobs.push(job.clone());
+            Ok(())
+        })?;
         Ok(job)
     }
 
@@ -119,92 +120,22 @@ impl AgentCronJobStore {
     ) -> anyhow::Result<Option<AgentCronJob>> {
         let now = update.now.unwrap_or_else(now_millis);
         let now_iso = iso_from_millis(now);
-        let mut updated: Option<AgentCronJob> = None;
-        let mut matched = false;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != id
-                    || job.active_session_id != active_session_id
-                    || job.source != JobSource::RlmHeartbeat
-                {
-                    return job;
-                }
-                matched = true;
-                let schedule = match &update.schedule_text {
-                    None => None,
-                    Some(schedule_text) => match parse_agent_cron_schedule(schedule_text, now) {
-                        Ok(parsed) if parsed.0.kind != ScheduleKind::Once => Some(parsed),
-                        _ => return job,
-                    },
-                };
-                let fact = fact_of(&job);
-                let Edit::Edited {
-                    status,
-                    next: next_run,
-                } = rule::edit(&fact, schedule.as_ref().map(|parsed| parsed.1))
-                else {
-                    return job;
-                };
-                let mut next = job.clone();
-                if let Some(label) = &update.label {
-                    next.label = normalize_optional_label(Some(label));
-                }
-                if let Some(delivery_mode) = &update.delivery_mode {
-                    next.delivery_mode = Some(*delivery_mode);
-                }
-                if let Some(prompt) = &update.prompt {
-                    let prompt = prompt.trim();
-                    if prompt.is_empty() {
-                        return job; // caller surfaces the error via !updated
-                    }
-                    next.prompt = prompt.to_string();
-                }
-                if let Some(parsed) = schedule {
-                    next.schedule = parsed.0;
-                }
-                next.status = job_status(status);
-                // The record keeps its next run as written unless the core
-                // answers another one than it read.
-                if next_run != fact.next {
-                    next.next_run_at = next_run.map(iso_from_millis);
-                }
-                match update.status {
-                    Some(RlmHeartbeatStatusUpdate::Pause) => {
-                        if let Cut::Cut {
-                            status,
-                            next: paused,
-                        } = rule::halt(&fact_of(&next), Halt::Pause)
-                        {
-                            next.next_run_at = next_text_at(&next, paused);
-                            next.status = job_status(status);
-                        }
-                    }
-                    Some(RlmHeartbeatStatusUpdate::Resume) => {
-                        if let Again::Resumed(becomes) = rule::resume(&fact_of(&next), now) {
-                            next.next_run_at = next_text(&next, becomes.next, now).ok().flatten();
-                            next.status = job_status(becomes.status);
-                            next.failure_streak = becomes.streak;
-                        }
-                    }
-                    None => {}
-                }
-                next.updated_at.clone_from(&now_iso);
-                updated = Some(next.clone());
-                next
-            })
-            .collect();
-        if matched {
-            if let Some(updated_job) = &updated {
-                self.write_jobs(&jobs)?;
-                return Ok(Some(updated_job.clone()));
-            }
-            anyhow::bail!(
-                "RLM heartbeat update rejected (empty instruction or non-recurring schedule)"
-            );
-        }
-        Ok(None)
+        self.mutate_jobs(|jobs| {
+            let Some(job) = jobs.iter_mut().find(|job| {
+                job.id == id
+                    && job.active_session_id == active_session_id
+                    && job.source == JobSource::RlmHeartbeat
+            }) else {
+                return Ok(None);
+            };
+            let Some(edited) = edited_rlm_heartbeat(job, update, now, &now_iso) else {
+                anyhow::bail!(
+                    "RLM heartbeat update rejected (empty instruction or non-recurring schedule)"
+                );
+            };
+            job.clone_from(&edited);
+            Ok(Some(edited))
+        })
     }
 
     /// # Errors
@@ -217,34 +148,22 @@ impl AgentCronJobStore {
         now: u64,
     ) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
-        let mut deleted = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != id
-                    || job.active_session_id != active_session_id
-                    || job.source != JobSource::RlmHeartbeat
-                {
-                    return job;
-                }
-                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Delete) else {
-                    return job;
-                };
-                let cancelled = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                deleted = Some(cancelled.clone());
-                cancelled
-            })
-            .collect();
-        if deleted.is_some() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(deleted)
+        self.mutate_jobs(|jobs| {
+            let Some(job) = jobs.iter_mut().find(|job| {
+                job.id == id
+                    && job.active_session_id == active_session_id
+                    && job.source == JobSource::RlmHeartbeat
+            }) else {
+                return Ok(None);
+            };
+            let Cut::Cut { status, next } = rule::halt(&fact_of(job), Halt::Delete) else {
+                return Ok(None);
+            };
+            job.next_run_at = next_text_at(job, next);
+            job.status = job_status(status);
+            job.updated_at = now_iso;
+            Ok(Some(job.clone()))
+        })
     }
 
     /// # Errors
@@ -256,34 +175,98 @@ impl AgentCronJobStore {
         now: u64,
     ) -> anyhow::Result<Vec<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
-        let mut cancelled = Vec::new();
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
+        self.mutate_jobs(|jobs| {
+            let mut cancelled = Vec::new();
+            for job in jobs.iter_mut() {
                 if job.active_session_id != active_session_id
                     || job.source != JobSource::RlmHeartbeat
                 {
-                    return job;
+                    continue;
                 }
-                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Stop) else {
-                    return job;
+                let Cut::Cut { status, next } = rule::halt(&fact_of(job), Halt::Stop) else {
+                    continue;
                 };
-                let cancelled_job = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                cancelled.push(cancelled_job.clone());
-                cancelled_job
-            })
-            .collect();
-        if !cancelled.is_empty() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(cancelled)
+                job.next_run_at = next_text_at(job, next);
+                job.status = job_status(status);
+                job.updated_at.clone_from(&now_iso);
+                cancelled.push(job.clone());
+            }
+            Ok(cancelled)
+        })
     }
+}
+
+/// What `update` makes of the RLM heartbeat `job` at `now` (the compiled
+/// core decides its status and next run: `rule::edit`, then a pause or
+/// resume), or `None` when the update is rejected: the new schedule does
+/// not parse or is not recurring, the core locks the job (finished or
+/// cancelled), or the new instruction is empty.
+fn edited_rlm_heartbeat(
+    job: &AgentCronJob,
+    update: &RlmHeartbeatUpdate,
+    now: u64,
+    now_iso: &str,
+) -> Option<AgentCronJob> {
+    let schedule = match &update.schedule_text {
+        None => None,
+        Some(schedule_text) => match parse_agent_cron_schedule(schedule_text, now) {
+            Ok(parsed) if parsed.0.kind != ScheduleKind::Once => Some(parsed),
+            _ => return None,
+        },
+    };
+    let fact = fact_of(job);
+    let Edit::Edited {
+        status,
+        next: next_run,
+    } = rule::edit(&fact, schedule.as_ref().map(|parsed| parsed.1))
+    else {
+        return None;
+    };
+    let mut next = job.clone();
+    if let Some(label) = &update.label {
+        next.label = normalize_optional_label(Some(label));
+    }
+    if let Some(delivery_mode) = &update.delivery_mode {
+        next.delivery_mode = Some(*delivery_mode);
+    }
+    if let Some(prompt) = &update.prompt {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            return None;
+        }
+        next.prompt = prompt.to_string();
+    }
+    if let Some(parsed) = schedule {
+        next.schedule = parsed.0;
+    }
+    next.status = job_status(status);
+    // The record keeps its next run as written unless the core answers
+    // another one than it read.
+    if next_run != fact.next {
+        next.next_run_at = next_run.map(iso_from_millis);
+    }
+    match update.status {
+        Some(RlmHeartbeatStatusUpdate::Pause) => {
+            if let Cut::Cut {
+                status,
+                next: paused,
+            } = rule::halt(&fact_of(&next), Halt::Pause)
+            {
+                next.next_run_at = next_text_at(&next, paused);
+                next.status = job_status(status);
+            }
+        }
+        Some(RlmHeartbeatStatusUpdate::Resume) => {
+            if let Again::Resumed(becomes) = rule::resume(&fact_of(&next), now) {
+                next.next_run_at = next_text(&next, becomes.next, now).ok().flatten();
+                next.status = job_status(becomes.status);
+                next.failure_streak = becomes.streak;
+            }
+        }
+        None => {}
+    }
+    now_iso.clone_into(&mut next.updated_at);
+    Some(next)
 }
 
 #[cfg(test)]

@@ -90,6 +90,7 @@ fn fixture_set(text_only: bool, second_model_id: &str, settings: &serde_json::Va
                     },
                 ),
             ),
+            kernel_unavailable: None,
         },
     ));
     let runtime = ProviderRuntime::install(&models, &deps);

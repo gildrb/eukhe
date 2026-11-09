@@ -131,9 +131,9 @@ law path_policy_ffi_rejects_left_over:
 # (G1) Path policy against an independent spec
 # --------------------------------------------
 # The laws above reach the secret entries through the model's own
-# projection and scans (Pp.Pol.secret, Pp.any_under, Pp.any_ancestor,
-# Pp.secrets, Pp.any_yes): a model whose projection forgets the secret
-# entries passes every one of them (no path is ever secret). The laws
+# projection and scans (Pp.Pol.secret, Pp.any_under, Pp.any_ancestor): a
+# model whose projection forgets the secret entries passes every one of
+# them (no path is ever secret). The laws
 # below state the claims over the policy's own fields Pol{ro, ru, se} with
 # the spec helpers here, which never call the model. A path is a list of
 # names, deepest first; Nil{} is `/`.
@@ -213,24 +213,6 @@ def pp_cell(cs: List<&2, Pp.Cell>, +at: List<&2, Nat>) -> Maybe<&2, Nat>:
         case Pp.Cell{a, v}:
           pp_cell_pick(pp_same(a, at), v, pp_cell(rest, at))
 
-# c in front of rest when hit, else rest
-def pp_keep(hit: Bool, c: Pp.Cell, rest: List<&2, Pp.Cell>) -> List<&2, Pp.Cell>:
-  match hit:
-    case True{}:
-      c <> rest
-    case False{}:
-      rest
-
-# the cells of cs at a location at or under an entry of se, in order
-def pp_secret_cells(+se: List<&2, List<&2, Nat>>, cs: List<&2, Pp.Cell>) -> List<&2, Pp.Cell>:
-  match cs:
-    case Nil{}:
-      Nil{}
-    case c <> rest:
-      match c:
-        case Pp.Cell{+a, v}:
-          pp_keep(pp_under_any(se, a), Pp.Cell{a, v}, pp_secret_cells(se, rest))
-
 # some link of ls sits at the location k
 def pp_link_at(ls: List<&2, Pp.Link>, +k: List<&2, Nat>) -> Bool:
   match ls:
@@ -297,19 +279,54 @@ law path_judge_secret_exact:
   for +l: Bool
   {Pp.Cls.secret(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}))) == pp_under_any(se, at) : Bool}
 
-# LAW path_judge_holds_exact: the judgment says the path holds a secret exactly when one of the
-# policy's secret entries is the path or one of its ancestors, or the path
-# is a strict ancestor of one of them
+# LAW path_holds_at_or_under_secret: a secret entry of the policy, and every path under it, holds a
+# secret, whatever the other entries and whether or not its links looped
 # EXCLUDES: a holds answer computed from anything but the policy's own
-#   secret entries (none, all), a holds test that misses a directory above
-#   a secret or flags a sibling of one
-law path_judge_holds_exact:
+#   secret entries (none), a holds test that misses a secret file or a
+#   directory inside a secret one
+law path_holds_at_or_under_secret:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se1: List<&2, List<&2, Nat>>
+  for +s: List<&2, Nat>
+  for +se2: List<&2, List<&2, Nat>>
+  for +k: List<&2, Nat>
+  for +l: Bool
+  {Pp.Judged.holds(Pp.judge(Pp.Pol{ro, ru, List.append(&2, List<&2, Nat>, se1, s <> se2)}, Pp.Res{List.append(&2, Nat, k, s), l})) == True{} : Bool}
+
+# LAW path_holds_above_secret: a directory strictly above a secret entry of the policy holds a
+# secret (a recursive read of it reads the secret)
+# EXCLUDES: a holds test that misses a directory above a secret (a search
+#   of the home dir reads ~/.ssh unasked)
+law path_holds_above_secret:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se1: List<&2, List<&2, Nat>>
+  for +m: Nat
+  for +k: List<&2, Nat>
+  for +at: List<&2, Nat>
+  for +se2: List<&2, List<&2, Nat>>
+  for +l: Bool
+  {Pp.Judged.holds(Pp.judge(Pp.Pol{ro, ru, List.append(&2, List<&2, Nat>, se1, (m <> List.append(&2, Nat, k, at)) <> se2)}, Pp.Res{at, l})) == True{} : Bool}
+
+# LAW path_holds_only_with_secret: a path holds a secret only when one of the policy's secret
+# entries s and it are on one line: some location (k1 ++ s, k2 ++ at) is
+# at or under both, so the entry is the path, above it or below it
+# EXCLUDES: a holds test that flags a sibling of a secret, or every path
+#   (all), or reads entries other than the policy's
+law path_holds_only_with_secret:
   for +ro: List<&2, List<&2, Nat>>
   for +ru: List<&2, Pp.Rule>
   for +se: List<&2, List<&2, Nat>>
   for +at: List<&2, Nat>
   for +l: Bool
-  {Pp.Judged.holds(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l})) == Bool.or(pp_under_any(se, at), pp_above_any(se, at)) : Bool}
+  for holds: {Pp.Judged.holds(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l})) == True{} : Bool}
+  exs se1: List<&2, List<&2, Nat>>
+  exs s: List<&2, Nat>
+  exs se2: List<&2, List<&2, Nat>>
+  exs k1: List<&2, Nat>
+  exs k2: List<&2, Nat>
+  {se == List.append(&2, List<&2, Nat>, se1, s <> se2) : List<&2, List<&2, Nat>>} & {List.append(&2, Nat, k1, s) == List.append(&2, Nat, k2, at) : List<&2, Nat>}
 
 # LAW path_judge_guards_secret_ancestor: a path that is a strict ancestor of one of the policy's
 # secret entries (a move or a removal of it moves or removes the secret) is
@@ -328,18 +345,7 @@ law path_judge_guards_secret_ancestor:
 # (changed 2026-10-27 by the user: secrets never ask again) the store law
 # secrets_kept_without_yes (no write without a yes lands on a secret,
 # whatever the auto set holds) is gone with secrets_need_yes: an auto set
-# may hold the secret effect; store_run_exact pins the whole store.
-
-# LAW secrets_are_secret_cells: the cells the store counts as secrets are exactly the cells at a
-# location at or under a secret entry of the policy, in order
-# EXCLUDES: a secrets view that drops or invents cells or reads other
-#   entries than the policy's secret ones
-law secrets_are_secret_cells:
-  for +ro: List<&2, List<&2, Nat>>
-  for +ru: List<&2, Pp.Rule>
-  for +se: List<&2, List<&2, Nat>>
-  for +cs: List<&2, Pp.Cell>
-  {Pp.secrets(cs, Pp.Pol{ro, ru, se}) == pp_secret_cells(se, cs) : List<&2, Pp.Cell>}
+# may hold the secret effect; the store laws of gate.bend pin each write.
 
 # LAW path_judge_secret_example: anchor and witness: with the secret /3/5, /3/5 is Secret and
 # holds a secret, its parent /3 is Protected and holds one, its sibling /3/7
@@ -352,14 +358,13 @@ law path_judge_secret_example:
 
 # LAW secrets_kept_example: anchor: under roots [/3] and the secret /3/5, with write in the auto
 # set, a write of 1 to /3/5 without a yes leaves its 0 (the auto set lacks
-# the secret effect), the same write with a yes lands, a write of 2 to /3/7
-# without a yes lands, and the store's secrets of /3/5 and /3/7 are the
-# /3/5 cell
+# the secret effect), the same write with a yes lands, and a write of 2 to
+# /3/7 without a yes lands
 # EXCLUDES: a write to a secret that lands while the auto set lacks the
 #   secret effect and no yes came, a store where no write runs at all, a
 #   gate that ignores the user's yes
 law secrets_kept_example:
-  {[pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.Yes{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{7n}], 2n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], Nil{}), [7n, 3n])] == [Some{0n}, Some{1n}, Some{2n}] : List<&2, Maybe<&2, Nat>>} & {Pp.secrets([Pp.Cell{[5n, 3n], 0n}, Pp.Cell{[7n, 3n], 1n}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}) == [Pp.Cell{[5n, 3n], 0n}] : List<&2, Pp.Cell>}
+  {[pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.Yes{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{7n}], 2n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], Nil{}), [7n, 3n])] == [Some{0n}, Some{1n}, Some{2n}] : List<&2, Maybe<&2, Nat>>}
 
 # (G1) The path judgment entry, spelled
 # -------------------------------------
@@ -510,17 +515,23 @@ law path_policy_ffi_malformed_unless_request:
 law path_policy_ffi_tags_example:
   {[FPp.ffi("2,2,0,0,0,1,1,F"), FPp.ffi("2,2,0,0,0,1,1,T"), FPp.ffi("0,0,0,1,1,F"), FPp.ffi("0,0,3,6,4,0,2,5,3,F"), FPp.ffi("0,0,3,6,4,0,1,3,F"), FPp.ffi("0,3,1,8,0,0,3,9,8,7,F"), FPp.ffi("0,3,2,8,0,0,3,9,8,7,F"), FPp.ffi("0,3,3,10,0,0,3,9,8,7,F"), FPp.ffi("0,2,4,0,0,0,F"), FPp.ffi("0,0,0,0,Fx")] == ["0,F", "1,F", "1,F", "3,T", "2,T", "2,F", "1,F", "2,F", Wr.err("path_policy: malformed request"), Wr.err("path_policy: input left over")] : List<&2, String>}
 
-# (G1) The class, against an independent spec
-# -------------------------------------------
+# (G1) The class, clause by clause
+# --------------------------------
 # path_secret_wins, path_ancestor_guarded and path_inside_is_safe read the
 # model's own entries, root test and rule tests (Pp.entries, Pp.below,
 # Pp.protects): a model that drops a rule's entry, or picks another root
-# for a Named rule, passes them. The law below pins the whole class of a
-# resolved path to (G1), spelled here: the first
-# class that applies wins (Secret, Protected, Inside, Outside), a loop
-# never leaves a path Inside, and a Named rule looks at the names of the
-# path strictly below its deepest workspace root (all of them when no root
-# holds it).
+# for a Named rule, passes them; and a Pp.class that drops every rule's
+# cover (a Tree rule's path read as Inside), with a Pp.safe that drops it
+# too, passed every law (an adversary found this gap). The laws below state
+# each clause of G1.2 and G1.3 for the class of a path through
+# any links (Pp.class: the class the gate and the store judge), over the
+# policy's own fields Pol{ro, ru, se} and its real path, with constructors
+# and list splits (a path p is at or above q when q is k ++ p, names deepest
+# first): each rule protects what it covers, a strict ancestor of an entry
+# is protected, a root holds what is under it, nothing else is protected or
+# Inside, a loop never leaves a path Inside. A Named rule looks at the names
+# of the path strictly below its deepest workspace root (all of them when
+# no root holds it).
 
 # some entry of ps is the path p
 def pp_is_root(ps: List<&2, List<&2, Nat>>, +p: List<&2, Nat>) -> Bool:
@@ -548,98 +559,179 @@ def pp_below_root(+ro: List<&2, List<&2, Nat>>, at: List<&2, Nat>) -> List<&2, N
     case +x <> +r:
       pp_below_pick(pp_is_root(ro, x <> r), x, pp_below_root(ro, r))
 
-# n is one of the names xs
-def pp_has_name(xs: List<&2, Nat>, +n: Nat) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case y <> rest:
-      Bool.or(Nat.is_eq(y, n), pp_has_name(rest, n))
-
-# the parent of at is p (`/` has no parent)
-def pp_parent_is(at: List<&2, Nat>, +p: List<&2, Nat>) -> Bool:
-  match at:
-    case Nil{}:
-      False{}
-    case x <> r:
-      pp_same(r, p)
-
-# rule r covers the path at whose names below its root are low: a Tree its
-# path and everything under it, a Dir its directory and its direct
-# entries, a Named rule a path with that name below its root
-def pp_covers(r: Pp.Rule, +at: List<&2, Nat>, +low: List<&2, Nat>) -> Bool:
-  match r:
-    case Pp.Tree{p}:
-      pp_at_or_above(p, at)
-    case Pp.Dir{+p}:
-      Bool.or(pp_same(at, p), pp_parent_is(at, p))
-    case Pp.Named{n}:
-      pp_has_name(low, n)
-
-def pp_covers_any(rs: List<&2, Pp.Rule>, +at: List<&2, Nat>, +low: List<&2, Nat>) -> Bool:
-  match rs:
-    case Nil{}:
-      False{}
-    case r <> rest:
-      Bool.or(pp_covers(r, at, low), pp_covers_any(rest, at, low))
-
-# the entries of the rules: a Tree's or a Dir's path (a Named rule has none)
-def pp_entries(rs: List<&2, Pp.Rule>) -> List<&2, List<&2, Nat>>:
-  match rs:
-    case Nil{}:
-      Nil{}
-    case r <> rest:
-      match r:
-        case Pp.Tree{p}:
-          p <> pp_entries(rest)
-        case Pp.Dir{p}:
-          p <> pp_entries(rest)
-        case Pp.Named{n}:
-          pp_entries(rest)
-
-# the first class that applies
-def pp_cls_pick(sec: Bool, prot: Bool, ins: Bool) -> Pp.Cls:
-  match sec:
+# a Tree (tree) or a Dir rule on the path p
+def pp_entry_rule(tree: Bool, p: List<&2, Nat>) -> Pp.Rule:
+  match tree:
     case True{}:
-      Pp.Secret{}
+      Pp.Tree{p}
     case False{}:
-      match prot:
-        case True{}:
-          Pp.Protected{}
-        case False{}:
-          match ins:
-            case True{}:
-              Pp.Inside{}
-            case False{}:
-              Pp.Outside{}
+      Pp.Dir{p}
 
-# the class of the real path at (looped: l) under the policy ro, ru, se:
-# Secret under a secret entry; else Protected when a rule covers it or it
-# is a strict ancestor of a Tree or Dir entry or of a secret entry; else
-# Inside under a workspace root when its links did not loop; else Outside
-def pp_class(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +at: List<&2, Nat>, l: Bool) -> Pp.Cls:
-  pp_cls_pick(pp_under_any(se, at), Bool.or(pp_covers_any(ru, at, pp_below_root(ro, at)), Bool.or(pp_above_any(pp_entries(ru), at), pp_above_any(se, at))), Bool.and(pp_under_any(ro, at), Bool.not(l)))
+# LAW path_tree_rule_protects: a path whose real path is a Tree rule's path or under it is
+# Protected, unless it is Secret, whatever the other rules, roots and links
+# EXCLUDES: a Tree rule that misses its own path (a workspace's .git judged
+#   Inside) or a path below it, a class that drops a rule's cover
+law path_tree_rule_protects:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru1: List<&2, Pp.Rule>
+  for +p: List<&2, Nat>
+  for +ru2: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +k: List<&2, Nat>
+  for +l: Bool
+  for res: {Pp.real(ls, segs) == Pp.Res{List.append(&2, Nat, k, p), l} : Pp.Res}
+  for ns: {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, Pp.Tree{p} <> ru2), se}, ls, segs) != Pp.Secret{} : Pp.Cls}
+  {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, Pp.Tree{p} <> ru2), se}, ls, segs) == Pp.Protected{} : Pp.Cls}
 
-# LAW path_judge_class_exact: the class the judgment of a resolved path answers, under any policy,
-# is the spec's: Secret under a secret entry; else Protected when a Tree
-# rule's path is at or above it, it is a Dir rule's directory or directly
-# in it, a Named rule's name is one of its names strictly below its
-# deepest workspace root (any of its names when no root holds it), or it
-# is a strict ancestor of a Tree or Dir entry or of a secret entry; else
-# Inside when a workspace root is at or above it and its links did not
-# loop; else Outside
+# LAW path_dir_rule_protects: a path whose real path is a Dir rule's directory or an entry directly
+# in it (k ++ p with at most one name k) is Protected, unless it is Secret
+# EXCLUDES: a Dir rule that misses its directory or a child (the agent
+#   dir's settings.json judged Inside)
+law path_dir_rule_protects:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru1: List<&2, Pp.Rule>
+  for +p: List<&2, Nat>
+  for +ru2: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +k: List<&2, Nat>
+  for +l: Bool
+  for one: {Nat.is_lt(List.length(&2, Nat, k), 2n) == True{} : Bool}
+  for res: {Pp.real(ls, segs) == Pp.Res{List.append(&2, Nat, k, p), l} : Pp.Res}
+  for ns: {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, Pp.Dir{p} <> ru2), se}, ls, segs) != Pp.Secret{} : Pp.Cls}
+  {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, Pp.Dir{p} <> ru2), se}, ls, segs) == Pp.Protected{} : Pp.Cls}
+
+# LAW path_named_rule_protects: a path that has a Named rule's name among the names of its real
+# path below its deepest workspace root (all its names when no root holds
+# it) is Protected, unless it is Secret
+# EXCLUDES: a Named rule that misses a `.git` or `.eukhe` directory below
+#   the root, or the files in it
+law path_named_rule_protects:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru1: List<&2, Pp.Rule>
+  for +n: Nat
+  for +ru2: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  for res: {Pp.real(ls, segs) == Pp.Res{at, l} : Pp.Res}
+  for named: {pp_below_root(ro, at) == List.append(&2, Nat, xs, n <> ys) : List<&2, Nat>}
+  for ns: {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, Pp.Named{n} <> ru2), se}, ls, segs) != Pp.Secret{} : Pp.Cls}
+  {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, Pp.Named{n} <> ru2), se}, ls, segs) == Pp.Protected{} : Pp.Cls}
+
+# LAW path_entry_ancestor_protects: a path whose real path is a strict ancestor of a Tree or Dir
+# rule's path is Protected, unless it is Secret (moving or removing it
+# moves or removes the entry)
 # EXCLUDES: a dropped or misread rule entry (an ancestor of a protected
-#   entry left Inside), a Named rule read below a root other than the
-#   deepest one (or on the root's own name), a Dir rule that covers a
-#   grandchild or misses a child, a Tree rule that misses a path below it,
-#   classes in another order, a loop that leaves a path Inside
-law path_judge_class_exact:
+#   entry left Inside)
+law path_entry_ancestor_protects:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru1: List<&2, Pp.Rule>
+  for +tree: Bool
+  for +m: Nat
+  for +k: List<&2, Nat>
+  for +ru2: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  for res: {Pp.real(ls, segs) == Pp.Res{at, l} : Pp.Res}
+  for ns: {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, pp_entry_rule(tree, m <> List.append(&2, Nat, k, at)) <> ru2), se}, ls, segs) != Pp.Secret{} : Pp.Cls}
+  {Pp.class(Pp.Pol{ro, List.append(&2, Pp.Rule, ru1, pp_entry_rule(tree, m <> List.append(&2, Nat, k, at)) <> ru2), se}, ls, segs) == Pp.Protected{} : Pp.Cls}
+
+# LAW path_protected_has_cause: a path is never Protected without a cause: when no Tree rule's
+# path is at or above its real path, no Dir rule's directory is it or its
+# parent, no Named rule's name is among its names below its deepest root,
+# and it is no strict ancestor of a Tree or Dir rule's path or of a secret
+# entry, it is not Protected
+# EXCLUDES: a rule that protects a path it does not cover (a Dir rule's
+#   grandchild, a Tree rule's sibling or parent, a Named rule's name at or
+#   above the root), a path protected with no rule at all
+law path_protected_has_cause:
   for +ro: List<&2, List<&2, Nat>>
   for +ru: List<&2, Pp.Rule>
   for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
   for +at: List<&2, Nat>
   for +l: Bool
-  {Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l})) == pp_class(ro, ru, se, at, l) : Pp.Cls}
+  for res: {Pp.real(ls, segs) == Pp.Res{at, l} : Pp.Res}
+  for tree: @ru1: List<&2, Pp.Rule> -> @p: List<&2, Nat> -> @ru2: List<&2, Pp.Rule> -> @k: List<&2, Nat> -> {ru == List.append(&2, Pp.Rule, ru1, Pp.Tree{p} <> ru2) : List<&2, Pp.Rule>} -> {at == List.append(&2, Nat, k, p) : List<&2, Nat>} -> Empty
+  for dir: @ru1: List<&2, Pp.Rule> -> @p: List<&2, Nat> -> @ru2: List<&2, Pp.Rule> -> @k: List<&2, Nat> -> {ru == List.append(&2, Pp.Rule, ru1, Pp.Dir{p} <> ru2) : List<&2, Pp.Rule>} -> {at == List.append(&2, Nat, k, p) : List<&2, Nat>} -> {Nat.is_lt(List.length(&2, Nat, k), 2n) == True{} : Bool} -> Empty
+  for named: @ru1: List<&2, Pp.Rule> -> @n: Nat -> @ru2: List<&2, Pp.Rule> -> @xs: List<&2, Nat> -> @ys: List<&2, Nat> -> {ru == List.append(&2, Pp.Rule, ru1, Pp.Named{n} <> ru2) : List<&2, Pp.Rule>} -> {pp_below_root(ro, at) == List.append(&2, Nat, xs, n <> ys) : List<&2, Nat>} -> Empty
+  for entry: @ru1: List<&2, Pp.Rule> -> @t: Bool -> @m: Nat -> @k: List<&2, Nat> -> @ru2: List<&2, Pp.Rule> -> {ru == List.append(&2, Pp.Rule, ru1, pp_entry_rule(t, m <> List.append(&2, Nat, k, at)) <> ru2) : List<&2, Pp.Rule>} -> Empty
+  for secret: @se1: List<&2, List<&2, Nat>> -> @m: Nat -> @k: List<&2, Nat> -> @se2: List<&2, List<&2, Nat>> -> {se == List.append(&2, List<&2, Nat>, se1, (m <> List.append(&2, Nat, k, at)) <> se2) : List<&2, List<&2, Nat>>} -> Empty
+  {Pp.class(Pp.Pol{ro, ru, se}, ls, segs) != Pp.Protected{} : Pp.Cls}
+
+# LAW path_root_inside: a path whose links did not loop and whose real path is a workspace root or
+# under one is Inside, unless it is Protected or Secret
+# EXCLUDES: a root that holds nothing (every path Outside), a root read
+#   from the written path
+law path_root_inside:
+  for +ro1: List<&2, List<&2, Nat>>
+  for +q: List<&2, Nat>
+  for +ro2: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +k: List<&2, Nat>
+  for res: {Pp.real(ls, segs) == Pp.Res{List.append(&2, Nat, k, q), False{}} : Pp.Res}
+  for np: {Pp.class(Pp.Pol{List.append(&2, List<&2, Nat>, ro1, q <> ro2), ru, se}, ls, segs) != Pp.Protected{} : Pp.Cls}
+  for ns: {Pp.class(Pp.Pol{List.append(&2, List<&2, Nat>, ro1, q <> ro2), ru, se}, ls, segs) != Pp.Secret{} : Pp.Cls}
+  {Pp.class(Pp.Pol{List.append(&2, List<&2, Nat>, ro1, q <> ro2), ru, se}, ls, segs) == Pp.Inside{} : Pp.Cls}
+
+# LAW path_inside_needs_root: a path is Inside only when one of the workspace roots is its real
+# path or above it
+# EXCLUDES: a path outside every root (or no root at all) judged Inside
+law path_inside_needs_root:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  for res: {Pp.real(ls, segs) == Pp.Res{at, l} : Pp.Res}
+  for inside: {Pp.class(Pp.Pol{ro, ru, se}, ls, segs) == Pp.Inside{} : Pp.Cls}
+  exs ro1: List<&2, List<&2, Nat>>
+  exs q: List<&2, Nat>
+  exs ro2: List<&2, List<&2, Nat>>
+  exs k: List<&2, Nat>
+  {ro == List.append(&2, List<&2, Nat>, ro1, q <> ro2) : List<&2, List<&2, Nat>>} & {at == List.append(&2, Nat, k, q) : List<&2, Nat>}
+
+# LAW path_looped_never_inside: a path whose links looped is never Inside, whatever the policy
+# EXCLUDES: a loop that leaves a path Inside (the rest of a looping path
+#   trusted)
+law path_looped_never_inside:
+  for +pol: Pp.Pol
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for +at: List<&2, Nat>
+  for res: {Pp.real(ls, segs) == Pp.Res{at, True{}} : Pp.Res}
+  {Pp.class(pol, ls, segs) != Pp.Inside{} : Pp.Cls}
+
+# LAW path_rule_never_unprotects: adding a rule to a policy never turns a Protected path into
+# another class
+# EXCLUDES: a rule that hides or overrides another rule's cover, or an
+#   entry's ancestor
+law path_rule_never_unprotects:
+  for +ro: List<&2, List<&2, Nat>>
+  for +r: Pp.Rule
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for prot: {Pp.class(Pp.Pol{ro, ru, se}, ls, segs) == Pp.Protected{} : Pp.Cls}
+  {Pp.class(Pp.Pol{ro, r <> ru, se}, ls, segs) == Pp.Protected{} : Pp.Cls}
 
 # LAW path_judge_class_example: anchor: under the root /1, /1/2 is Inside and Outside when its
 # links looped, /3/2 (no root) is Outside; with the secret /1/4, /1/4/7 is
@@ -653,20 +745,30 @@ law path_judge_class_exact:
 law path_judge_class_example:
   {[Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, Nil{}}, Pp.Res{[2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, Nil{}}, Pp.Res{[2n, 1n], True{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{Nil{}, Nil{}, Nil{}}, Pp.Res{[2n, 3n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, [[4n, 1n]]}, Pp.Res{[7n, 4n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], Nil{}, [[4n, 1n]]}, Pp.Res{[1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Dir{[1n]}], Nil{}}, Pp.Res{[2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Dir{[1n]}], Nil{}}, Pp.Res{[3n, 2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Tree{[6n, 1n]}], Nil{}}, Pp.Res{[1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n]], [Pp.Tree{[6n, 1n]}], Nil{}}, Pp.Res{[8n, 6n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n], [2n, 1n]], [Pp.Named{2n}], Nil{}}, Pp.Res{[5n, 2n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n], [2n, 1n]], [Pp.Named{2n}], Nil{}}, Pp.Res{[2n, 5n, 1n], False{}})), Pp.Judged.cls(Pp.judge(Pp.Pol{[[1n], [2n, 1n]], [Pp.Named{2n}], Nil{}}, Pp.Res{[2n, 1n], False{}}))] == [Pp.Inside{}, Pp.Outside{}, Pp.Outside{}, Pp.Secret{}, Pp.Protected{}, Pp.Protected{}, Pp.Inside{}, Pp.Protected{}, Pp.Protected{}, Pp.Inside{}, Pp.Protected{}, Pp.Inside{}] : List<&2, Pp.Cls>}
 
-# (G1) The real path, against an independent spec
-# -----------------------------------------------
+# (G1) The real path, by its properties
+# -------------------------------------
 # path_real_has_no_link and path_real_reaches_no_link are one-way (the path
 # a resolution reaches stands on no link unless it looped) and
 # path_real_links_example has no `..` or `.`: a resolution that reads `..`
 # as `.` passes them, and the class, gate and store laws judge whatever path
 # it reaches (/3/7/../5 judged at /3/7/5, so a secret /3/5 read unasked).
-# The laws below pin the whole resolution to Rust's (crates/eukhe-types/
-# src/path_policy.rs `resolve`), spelled here: from `/`, a name enters the
-# directory, `.` stays, `..` goes to the parent of the real directory (`..`
-# of `/` is `/`); a name at the location of a link is replaced by the link's
-# target, read from `/` (absolute) or from the link's directory (relative),
-# for at most 40 links (MAX_LINKS); past them every link met is kept as a
-# name and the path loops.
+# The laws below state the resolution of G1.1 (Rust's
+# crates/eukhe-types/src/path_policy.rs `resolve`) by what it does to a
+# path, never by a second walker: `.` stays; `..` after a name that is no
+# link goes back, and `..` of `/` is `/`; a name at the location of a link
+# (the first link of ls there) resolves as the link's target then the rest,
+# read from `/` (absolute) or from the link's directory (relative); a chain
+# of links resolves to its end for at most 40 links (MAX_LINKS, as Linux)
+# and loops past them.
+
+# where a link's target is read from: `/` for an absolute link, the
+# directory p leads to (the link's directory) for a relative one
+def pp_link_from(abs: Bool, p: List<&2, Tl.Seg>) -> List<&2, Tl.Seg>:
+  match abs:
+    case True{}:
+      Nil{}
+    case False{}:
+      p
 
 # the parent of the path at; `/` is its own parent
 def pp_parent(at: List<&2, Nat>) -> List<&2, Nat>:
@@ -675,91 +777,6 @@ def pp_parent(at: List<&2, Nat>) -> List<&2, Nat>:
       Nil{}
     case x <> r:
       r
-
-# l when hit, else the rest's answer
-def pp_link_pick(hit: Bool, l: Pp.Link, rest: Maybe<&2, Pp.Link>) -> Maybe<&2, Pp.Link>:
-  match hit:
-    case True{}:
-      Some{l}
-    case False{}:
-      rest
-
-# the first link of ls at the location k, if any
-def pp_link_of(ls: List<&2, Pp.Link>, +k: List<&2, Nat>) -> Maybe<&2, Pp.Link>:
-  match ls:
-    case Nil{}:
-      None{}
-    case l <> rest:
-      match l:
-        case Pp.Link{+a, b, t}:
-          pp_link_pick(pp_same(a, k), Pp.Link{a, b, t}, pp_link_of(rest, k))
-
-# the link the first segment of segs enters from the directory at, if any
-# (`..` and `.` enter none)
-def pp_link_next(+ls: List<&2, Pp.Link>, segs: List<&2, Tl.Seg>, at: List<&2, Nat>) -> Maybe<&2, Pp.Link>:
-  match segs:
-    case Nil{}:
-      None{}
-    case s <> rest:
-      match s:
-        case Tl.Name{n}:
-          pp_link_of(ls, n <> at)
-        case Tl.Up{}:
-          None{}
-        case Tl.Here{}:
-          None{}
-
-# segs walked from the directory at once no link is left to follow: a name
-# enters it (a link there is kept as a name, and the path loops), `.`
-# stays, `..` goes to the parent; l: the path looped already
-def pp_walk_past(segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, l: Bool) -> Pp.Res:
-  match segs:
-    case Nil{}:
-      Pp.Res{at, l}
-    case s <> rest:
-      match s:
-        case Tl.Name{+n}:
-          pp_walk_past(rest, ls, n <> at, Bool.or(l, pp_link_at(ls, n <> at)))
-        case Tl.Up{}:
-          pp_walk_past(rest, ls, pp_parent(at), l)
-        case Tl.Here{}:
-          pp_walk_past(rest, ls, at, l)
-
-# segs walked from the directory at with n links left to follow: a name at
-# a link's location continues with the link's target, then the rest, from
-# `/` (absolute) or from at (relative), one link fewer; hit is
-# pp_link_next(ls, segs, at) (Bend matches only parameters)
-def pp_walk(n: Nat, segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, hit: Maybe<&2, Pp.Link>) -> Pp.Res:
-  match n:
-    case 0n:
-      pp_walk_past(segs, ls, at, False{})
-    case 1n+k:
-      match segs:
-        case Nil{}:
-          Pp.Res{at, False{}}
-        case s <> +rest:
-          match s:
-            case Tl.Name{+x}:
-              match hit:
-                case None{}:
-                  pp_walk(1n+k, rest, ls, x <> at, pp_link_next(ls, rest, x <> at))
-                case Some{lk}:
-                  match lk:
-                    case Pp.Link{la, abs, +to}:
-                      match abs:
-                        case True{}:
-                          pp_walk(k, List.append(&2, Tl.Seg, to, rest), ls, Nil{}, pp_link_next(ls, List.append(&2, Tl.Seg, to, rest), Nil{}))
-                        case False{}:
-                          pp_walk(k, List.append(&2, Tl.Seg, to, rest), ls, at, pp_link_next(ls, List.append(&2, Tl.Seg, to, rest), at))
-            case Tl.Up{}:
-              pp_walk(1n+k, rest, ls, pp_parent(at), pp_link_next(ls, rest, pp_parent(at)))
-            case Tl.Here{}:
-              pp_walk(1n+k, rest, ls, at, pp_link_next(ls, rest, at))
-
-# the real path of segs (from `/`, 40 links at most) and whether its links
-# looped
-def pp_real(+ls: List<&2, Pp.Link>, +segs: List<&2, Tl.Seg>) -> Pp.Res:
-  pp_walk(40n, segs, ls, Nil{}, pp_link_next(ls, segs, Nil{}))
 
 # the path segs leads to from the directory at when no link is anywhere: a
 # name enters it, `.` stays, `..` goes to the parent
@@ -776,21 +793,80 @@ def pp_walk_plain(segs: List<&2, Tl.Seg>, at: List<&2, Nat>) -> List<&2, Nat>:
         case Tl.Here{}:
           pp_walk_plain(rest, at)
 
-# LAW path_real_exact: the resolution of any path under any links is the spec's: from `/`, a
-# name enters the directory, `.` stays, `..` goes to the parent of the real
-# directory (`/` stays `/`), a name at a link's location (the first link
-# there) is replaced by the link's target, read from `/` or from the link's
-# directory, for at most 40 links; past them every link met is kept as a
-# name and the path loops
-# EXCLUDES: `..` read as `.`, as two levels up, or from the path as written
-#   (before its links); `..` of `/` anything but `/`; a relative target
-#   read from `/` or from the link itself; a link limit other than 40; a
-#   loop flag lost or invented; a link skipped, or followed at another
-#   location
-law path_real_exact:
+# LAW path_real_here_stays: under any links, a `.` anywhere in a path changes nothing: the path
+# resolves as without it
+# EXCLUDES: `.` read as a name, as `..`, or as a loop
+law path_real_here_stays:
   for +ls: List<&2, Pp.Link>
-  for +segs: List<&2, Tl.Seg>
-  {Pp.real(ls, segs) == pp_real(ls, segs) : Pp.Res}
+  for +p: List<&2, Tl.Seg>
+  for +r: List<&2, Tl.Seg>
+  {Pp.real(ls, List.append(&2, Tl.Seg, p, Tl.Here{} <> r)) == Pp.real(ls, List.append(&2, Tl.Seg, p, r)) : Pp.Res}
+
+# LAW path_real_up_cancels_name: under any links, where p resolves to at, a name n that is no link
+# there followed by `..` changes nothing: `..` goes back to the real
+# directory
+# EXCLUDES: `..` read as `.` (the secret /3/5 judged at /3/7/5) or as two
+#   levels up
+law path_real_up_cancels_name:
+  for +ls: List<&2, Pp.Link>
+  for +p: List<&2, Tl.Seg>
+  for +n: Nat
+  for +r: List<&2, Tl.Seg>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  for reach: {Pp.real(ls, p) == Pp.Res{at, l} : Pp.Res}
+  for plain: {pp_link_at(ls, n <> at) == False{} : Bool}
+  {Pp.real(ls, List.append(&2, Tl.Seg, p, Tl.Name{n} <> Tl.Up{} <> r)) == Pp.real(ls, List.append(&2, Tl.Seg, p, r)) : Pp.Res}
+
+# LAW path_real_up_at_root: under any links, where p resolves to `/`, a `..` after it changes
+# nothing: `..` of `/` is `/`
+# EXCLUDES: `..` of `/` read as an error, a name or a loop
+law path_real_up_at_root:
+  for +ls: List<&2, Pp.Link>
+  for +p: List<&2, Tl.Seg>
+  for +r: List<&2, Tl.Seg>
+  for +l: Bool
+  for reach: {Pp.real(ls, p) == Pp.Res{Nil{}, l} : Pp.Res}
+  {Pp.real(ls, List.append(&2, Tl.Seg, p, Tl.Up{} <> r)) == Pp.real(ls, List.append(&2, Tl.Seg, p, r)) : Pp.Res}
+
+# LAW path_real_link_followed: where p resolves to at without a loop, a name n whose location n/at
+# holds a link (the first link of the links there) resolves, when the whole
+# path does not loop, as the link's target then the rest r, read from `/`
+# for an absolute link and from at (the link's directory) for a relative
+# one; `..` in r then goes up from the target, not from the written name
+# EXCLUDES: a link skipped or followed at another location, a relative
+#   target read from `/` or from the link itself, `..` after a link read
+#   from the path as written
+law path_real_link_followed:
+  for +ls1: List<&2, Pp.Link>
+  for +n: Nat
+  for +at: List<&2, Nat>
+  for +abs: Bool
+  for +to: List<&2, Tl.Seg>
+  for +ls2: List<&2, Pp.Link>
+  for +p: List<&2, Tl.Seg>
+  for +r: List<&2, Tl.Seg>
+  for +x: List<&2, Nat>
+  for first: {pp_link_at(ls1, n <> at) == False{} : Bool}
+  for reach: {Pp.real(List.append(&2, Pp.Link, ls1, Pp.Link{n <> at, abs, to} <> ls2), p) == Pp.Res{at, False{}} : Pp.Res}
+  for ok: {Pp.real(List.append(&2, Pp.Link, ls1, Pp.Link{n <> at, abs, to} <> ls2), List.append(&2, Tl.Seg, p, Tl.Name{n} <> r)) == Pp.Res{x, False{}} : Pp.Res}
+  {Pp.real(List.append(&2, Pp.Link, ls1, Pp.Link{n <> at, abs, to} <> ls2), List.append(&2, Tl.Seg, pp_link_from(abs, p), List.append(&2, Tl.Seg, to, r))) == Pp.Res{x, False{}} : Pp.Res}
+
+# LAW path_real_chain_within: a chain of at most 40 links (/k -> /k-1 -> ... -> /0, Rust's
+# MAX_LINKS, as Linux) resolves to its end without a loop
+# EXCLUDES: a link limit below 40, a loop flag invented
+law path_real_chain_within:
+  for +k: Nat
+  for le: {Nat.is_le(k, 40n) == True{} : Bool}
+  {Pp.real(pp_chain(k), [Tl.Name{k}]) == Pp.Res{[0n], False{}} : Pp.Res}
+
+# LAW path_real_chain_past: a chain of more than 40 links (41 + j) loops, at the link where the
+# count ran out (/1+j kept as a name)
+# EXCLUDES: a link limit above 40, a resolution that never loops, a loop
+#   flag lost
+law path_real_chain_past:
+  for +j: Nat
+  {Pp.real(pp_chain(Nat.add(41n, j)), [Tl.Name{Nat.add(41n, j)}]) == Pp.Res{[1n+j], True{}} : Pp.Res}
 
 # LAW path_real_no_links_exact: with no link anywhere, the real path of any path is its plain walk
 # from `/` (a name enters, `.` stays, `..` goes to the parent, `/` stays
@@ -801,22 +877,41 @@ law path_real_no_links_exact:
   for +segs: List<&2, Tl.Seg>
   {Pp.real(Nil{}, segs) == Pp.Res{pp_walk_plain(segs, Nil{}), False{}} : Pp.Res}
 
-# LAW path_real_dots_at_root: under any links, `..` and `.` at `/` change nothing: the path
-# resolves as without them
-# EXCLUDES: `..` of `/` read as an error, a name or a loop
-law path_real_dots_at_root:
-  for +ls: List<&2, Pp.Link>
-  for +segs: List<&2, Tl.Seg>
-  {[Pp.real(ls, Tl.Up{} <> segs), Pp.real(ls, Tl.Here{} <> segs)] == [Pp.real(ls, segs), Pp.real(ls, segs)] : List<&2, Pp.Res>}
-
 # LAW path_real_dots_example: anchor: under the root /3 with the secret /3/5, /3/7/../5 is
 # /3/5 and Secret, /3/5/../7 is /3/7 and Inside; /../1/./2 is /1/2; a
 # relative link /1/2/3 -> ../4 makes /1/2/3/5 /1/4/5 (from the link's
 # directory /1/2); `..` after an absolute link /1/2 -> /9/8 goes up from
 # the target (/1/2/../6 is /9/6); a relative link /1 -> ./3/../4 makes /1/7
-# /4/7; none loops; the spec agrees on the first and the last two
+# /4/7; none loops
 # EXCLUDES: `..` read as `.` (the secret /3/5 judged at /3/7/5, Inside),
 #   from the path as written, or as two levels up; a relative target read
 #   from `/` or from the link itself
 law path_real_dots_example:
-  {[Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}]), Pp.real(Nil{}, [Tl.Up{}, Tl.Name{1n}, Tl.Here{}, Tl.Name{2n}]), Pp.real([Pp.Link{[3n, 2n, 1n], False{}, [Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Name{3n}, Tl.Name{5n}]), Pp.real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), Pp.real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[7n, 3n], False{}}, Pp.Res{[2n, 1n], False{}}, Pp.Res{[5n, 4n, 1n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>} & {[Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}])] == [Pp.Secret{}, Pp.Inside{}] : List<&2, Pp.Cls>} & {[pp_real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), pp_real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), pp_real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>}
+  {[Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}]), Pp.real(Nil{}, [Tl.Up{}, Tl.Name{1n}, Tl.Here{}, Tl.Name{2n}]), Pp.real([Pp.Link{[3n, 2n, 1n], False{}, [Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Name{3n}, Tl.Name{5n}]), Pp.real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), Pp.real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[7n, 3n], False{}}, Pp.Res{[2n, 1n], False{}}, Pp.Res{[5n, 4n, 1n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>} & {[Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}])] == [Pp.Secret{}, Pp.Inside{}] : List<&2, Pp.Cls>}
+
+# (G1) The safety of a path
+# -------------------------
+# path_inside_is_safe concludes the model's own Pp.safe: a Pp.class that
+# drops every rule's cover (a Tree rule's path read as Inside), with a
+# Pp.safe that drops it too, passed every law (an adversary found this
+# gap). The law below makes safe and Inside one: with path_inside_is_safe,
+# a path is safe exactly when it is Inside, which the laws of the class
+# section state clause by clause.
+
+# LAW path_safe_is_inside: a path is safe to write unasked (path_inside_is_safe's conclusion) only
+# when it is Inside
+# EXCLUDES: a safe test that misses a rule's cover, a secret, an entry
+#   below the path, a loop or a missing root
+law path_safe_is_inside:
+  for +pol: Pp.Pol
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for safe: {Pp.safe(pol, Pp.real(ls, segs)) == True{} : Bool}
+  {Pp.class(pol, ls, segs) == Pp.Inside{} : Pp.Cls}
+
+# LAW path_class_example: anchor: the adversary's input: under the root /3 with a Tree /3/9 rule
+# (a workspace's .git), /3/9 and /3/9/1 are Protected and /3/7 Inside; /3/9
+# is not safe, /3/7 is
+# EXCLUDES: a class or a safe test that drops a rule's cover
+law path_class_example:
+  {[Pp.class(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Nil{}, [Tl.Name{3n}, Tl.Name{9n}]), Pp.class(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Nil{}, [Tl.Name{3n}, Tl.Name{9n}, Tl.Name{1n}]), Pp.class(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Nil{}, [Tl.Name{3n}, Tl.Name{7n}])] == [Pp.Protected{}, Pp.Protected{}, Pp.Inside{}] : List<&2, Pp.Cls>} & {[Pp.safe(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Pp.Res{[9n, 3n], False{}}), Pp.safe(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Pp.Res{[7n, 3n], False{}})] == [False{}, True{}] : List<&2, Bool>}

@@ -1,18 +1,21 @@
 //! Cross-process directory locks, byte-compatible with the TS product's
 //! `proper-lockfile` 4.1.2 convention.
 //!
-//! The TS product (auth.json, settings.json, cron state, session-lease
-//! guards) locks a file by creating an EMPTY DIRECTORY at `{file}.lock`,
-//! bumping its mtime, and removing the directory on release. Staleness is
-//! judged from that mtime alone - there is no pid or owner file. A regular
-//! file at the lock path is not a valid lock in this protocol; it is removed
-//! on acquisition (older Rust builds left flock files there, which broke TS
-//! startup with ENOTDIR).
+//! The TS product (auth.json, settings.json, session-lease guards) locks a
+//! file by creating an EMPTY DIRECTORY at `{file}.lock`, bumping its mtime,
+//! and removing the directory on release. Staleness is judged from that
+//! mtime alone - there is no pid or owner file. A regular file at the lock
+//! path is not a valid lock in this protocol; it is removed on acquisition
+//! (older Rust builds left flock files there, which broke TS startup with
+//! ENOTDIR).
 //!
-//! Harness-state locks ([`LockDir::acquire_owned_retrying`]) add an `owner`
-//! file (pid + per-process token) inside the directory: a stale-aged
-//! harness lock is reclaimed only when its owner is provably dead, and a
-//! guard whose lock was reclaimed never removes its successor.
+//! Owned locks ([`LockDir::acquire_owned_retrying`]: the harness state and
+//! the cron jobs files) add an `owner` file inside the directory: the pid,
+//! a per-hold token and, where the platform shows one, the process's start
+//! identity. A stale-aged owned lock is reclaimed only when its owner is
+//! provably dead (its pid is gone, or the pid now names a process with
+//! another start identity: a recycled pid), and a guard whose lock was
+//! reclaimed never removes its successor.
 //!
 //! Held locks are expected to be short (read-modify-write of one small JSON
 //! document); long holds rely on the caller re-checking, as in the TS
@@ -159,8 +162,17 @@ impl LockDir {
         interval: Duration,
     ) -> io::Result<Self> {
         static PROCESS_TOKEN: std::sync::OnceLock<uuid::Uuid> = std::sync::OnceLock::new();
+        static PROCESS_START: std::sync::LazyLock<Option<String>> =
+            std::sync::LazyLock::new(|| start_word(std::process::id()));
         let token = PROCESS_TOKEN.get_or_init(uuid::Uuid::new_v4);
-        let owner = format!("{} {token}.{}", std::process::id(), uuid::Uuid::new_v4());
+        let owner = match &*PROCESS_START {
+            Some(start) => format!(
+                "{} {token}.{} {start}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ),
+            None => format!("{} {token}.{}", std::process::id(), uuid::Uuid::new_v4()),
+        };
         let mut attempt = 0;
         loop {
             match Self::acquire_with_owner(file, stale_after, Some(owner.clone())) {
@@ -200,11 +212,13 @@ impl LockDir {
         fs::read_to_string(path.join("owner")).is_ok_and(|recorded| recorded.trim() == owner)
     }
 
-    /// True only when the recorded owner is malformed or provably gone
-    /// (`kill(pid, 0)` answers `ESRCH`); `EPERM` means a live process of
-    /// another user, which still owns the lock.
+    /// True only when the recorded owner is malformed or provably gone:
+    /// `kill(pid, 0)` answers `ESRCH` (`EPERM` means a live process of
+    /// another user, which still owns the lock), or the owner recorded a
+    /// start identity and the pid now has another one (a recycled pid).
     fn owner_dead(recorded: &str) -> bool {
-        let Some((pid, token)) = recorded.trim().split_once(' ') else {
+        let mut words = recorded.trim().splitn(3, ' ');
+        let (Some(pid), Some(token)) = (words.next(), words.next()) else {
             return true;
         };
         if token.is_empty() {
@@ -216,10 +230,17 @@ impl LockDir {
         if pid <= 0 {
             return true;
         }
-        matches!(
+        if matches!(
             nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
             Err(nix::errno::Errno::ESRCH)
-        )
+        ) {
+            return true;
+        }
+        // A start identity the platform cannot show now counts as the
+        // owner's: to take over a live owner's lock is worse than to wait.
+        words.next().is_some_and(|recorded_start| {
+            start_word(pid.unsigned_abs()).is_some_and(|current| current != recorded_start.trim())
+        })
     }
 
     /// The mkdir is the acquisition signal: EEXIST is the only collision.
@@ -344,6 +365,13 @@ impl LockDir {
     }
 }
 
+/// The start identity of process `pid` as one word of an `owner` file (its
+/// whitespace runs as `_`), or `None` when the platform shows none.
+fn start_word(pid: u32) -> Option<String> {
+    eukhe_types::platform::process::process_start_id(pid)
+        .map(|start| start.split_whitespace().collect::<Vec<_>>().join("_"))
+}
+
 impl Drop for LockDir {
     fn drop(&mut self) {
         self.release();
@@ -456,6 +484,33 @@ mod tests {
         next.ensure_owned().unwrap();
         drop(next);
         assert!(!LockDir::path_for(&file).exists());
+    }
+
+    /// A stale-aged owned lock whose pid is alive but names another process
+    /// than the one that took it (a recycled pid: its start identity
+    /// differs) is reclaimed; with the owner's own start identity it is not.
+    #[cfg(unix)]
+    #[test]
+    fn recycled_pid_owned_lock_is_reclaimed() {
+        let Some(start) = start_word(std::process::id()) else {
+            return; // the platform shows no start identity: pid-only, as before
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("jobs.json");
+        let path = LockDir::path_for(&file);
+        fs::create_dir(&path).unwrap();
+        let live = format!("{} earlier-token {start}\n", std::process::id());
+        fs::write(path.join("owner"), &live).unwrap();
+        set_mtime(&path, 1, 0).unwrap();
+        let error = LockDir::acquire_owned_retrying(&file, Duration::from_secs(10), 1, MIN_STALE)
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        let recycled = format!("{} earlier-token proc:another-start\n", std::process::id());
+        fs::write(path.join("owner"), recycled).unwrap();
+        set_mtime(&path, 1, 0).unwrap();
+        let next =
+            LockDir::acquire_owned_retrying(&file, Duration::from_secs(10), 1, MIN_STALE).unwrap();
+        next.ensure_owned().unwrap();
     }
 
     #[cfg(unix)]

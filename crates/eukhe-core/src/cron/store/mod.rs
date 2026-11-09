@@ -25,6 +25,8 @@ mod facts;
 mod heartbeat;
 mod jobs;
 mod owner;
+#[cfg(test)]
+mod race_tests;
 mod rlm_heartbeat;
 mod session_artifacts;
 mod state;

@@ -172,6 +172,148 @@ def finish_js_spec(js: List<&2, CF.Slot>, +k: Maybe<&2, Nat>, +u: Nat, +ran: Boo
 def finish_all_spec(+u: Nat, js: List<&2, CF.Slot>, +cs: List<&2, CF.Pin>, +ran: Bool, +failed: Bool, +now: Nat) -> CF.Closed:
   CF.Closed{drops_spec(cs), finish_js_spec(js, hit_spec(cs), u, ran, failed, now)}
 
+# The jobs a pass leaves alone
+# ----------------------------
+
+# a job the passes act on: an active one; a paused, finished or cancelled
+# job is held (the user paused, stopped, deleted or cancelled it, or it
+# ended)
+def live_spec(f: CS.Fact) -> Bool:
+  match f:
+    case CS.Fact{st, p, nx, k}:
+      match st:
+        case Cr.Active{}:
+          True{}
+        case Cr.Paused{}:
+          False{}
+        case Cr.Finished{}:
+          False{}
+        case Cr.Cancelled{}:
+          False{}
+
+def kept_took_spec(live: Bool, a: CS.Took) -> Bool:
+  match live:
+    case True{}:
+      True{}
+    case False{}:
+      match a:
+        case CS.Keep{}:
+          True{}
+        case CS.Roll{n}:
+          False{}
+        case CS.Claimed{n}:
+          False{}
+
+# every held job of a claim pass is answered Keep (a job with no answer
+# is not changed either)
+def take_spares_spec(js: List<&2, CF.Slot>, ts: List<&2, CS.Took>) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case j <> t:
+      match j:
+        case CF.Slot{key, f}:
+          match ts:
+            case Nil{}:
+              True{}
+            case a <> u:
+              Bool.and(kept_took_spec(live_spec(f), a), take_spares_spec(t, u))
+
+def kept_back_spec(live: Bool, b: CS.Back) -> Bool:
+  match live:
+    case True{}:
+      True{}
+    case False{}:
+      match b:
+        case CS.Kept{}:
+          True{}
+        case CS.Interrupted{st, next}:
+          False{}
+
+def recover_spares_js_spec(js: List<&2, CF.Slot>, bs: List<&2, CS.Back>) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case j <> t:
+      match j:
+        case CF.Slot{key, f}:
+          match bs:
+            case Nil{}:
+              True{}
+            case b <> u:
+              Bool.and(kept_back_spec(live_spec(f), b), recover_spares_js_spec(t, u))
+
+# every held job of a recovery is answered Kept
+def recover_spares_spec(js: List<&2, CF.Slot>, s: CF.Swept) -> Bool:
+  match s:
+    case CF.Swept{keep, bs}:
+      recover_spares_js_spec(js, bs)
+
+def kept_fin_spec(live: Bool, e: CS.Fin) -> Bool:
+  match live:
+    case True{}:
+      True{}
+    case False{}:
+      match e:
+        case CS.Untouched{}:
+          True{}
+        case CS.Ran{st, n, k}:
+          False{}
+        case CS.Skipped{st, n, k}:
+          False{}
+
+def finish_spares_js_spec(js: List<&2, CF.Slot>, es: List<&2, CS.Fin>) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case j <> t:
+      match j:
+        case CF.Slot{key, f}:
+          match es:
+            case Nil{}:
+              True{}
+            case e <> u:
+              Bool.and(kept_fin_spec(live_spec(f), e), finish_spares_js_spec(t, u))
+
+# every held job of a finish step is answered Untouched
+def finish_spares_spec(js: List<&2, CF.Slot>, c: CF.Closed) -> Bool:
+  match c:
+    case CF.Closed{keep, es}:
+      finish_spares_js_spec(js, es)
+
+# A claim on record
+# -----------------
+
+# the answer of a job a claim record names (named) is no claim: a claim
+# pass may roll it, never claim it again
+def once_took_spec(named: Bool, a: CS.Took) -> Bool:
+  match named:
+    case False{}:
+      True{}
+    case True{}:
+      match a:
+        case CS.Keep{}:
+          True{}
+        case CS.Roll{n}:
+          True{}
+        case CS.Claimed{n}:
+          False{}
+
+# no job a claim record names is answered Claimed (a job with no answer
+# is not changed either)
+def take_once_spec(js: List<&2, CF.Slot>, +cs: List<&2, Maybe<&2, Nat>>, ts: List<&2, CS.Took>) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case j <> t:
+      match j:
+        case CF.Slot{key, f}:
+          match ts:
+            case Nil{}:
+              True{}
+            case a <> u:
+              Bool.and(once_took_spec(claimed_spec(key, cs), a), take_once_spec(t, cs, u))
+
 # Laws
 # ----
 
@@ -205,3 +347,50 @@ law cron_file_finish_exact:
   for +n: Nat
   {CF.finish(u, js, cs, r, b, n) == finish_all_spec(u, js, cs, r, b, n) : CF.Closed}
 
+# The cron store writes a user's pause, stop, delete or cancel to the file
+# under its lock, as the file stands then (no copy another process changed
+# since); the laws below are why a later pass never undoes it: a pass
+# changes only active jobs. Neither pins which active jobs a pass changes
+# (the *_exact laws above do).
+
+# LAW cron_file_take_spares_held: a claim pass of the code that runs answers Keep for every job that is not active (paused, finished or cancelled), on every file, due time and clock: a later claim pass never rolls, claims or changes a job the user held or that ended
+# EXCLUDES: a cancelled, paused or finished job claimed, rolled or given a next run by a claim pass
+law cron_file_take_spares_held:
+  for +js: List<&2, CF.Slot>
+  for +cs: List<&2, Maybe<&2, Nat>>
+  for +d: Nat
+  for +n: Nat
+  {take_spares_spec(js, CF.take(js, cs, d, n)) == True{} : Bool}
+
+# LAW cron_file_recover_spares_held: a recovery of the code that runs answers Kept for every job that is not active, on every file, whoever's claim records it clears: a recovery never revives or changes a held or ended job
+# EXCLUDES: a cancelled, paused or finished job given an interruption, a status or a next run by a recovery
+law cron_file_recover_spares_held:
+  for +js: List<&2, CF.Slot>
+  for +cs: List<&2, CF.Hold>
+  {recover_spares_spec(js, CF.recover(js, cs)) == True{} : Bool}
+
+# LAW cron_file_finish_spares_held: a finish step of the code that runs answers Untouched for every job that is not active, on every file, clock unit, result and clock: the end of a run that started before the user held its job never revives or changes it
+# EXCLUDES: a run's result counted by, or a next run given to, a job cancelled, paused or finished while it ran
+law cron_file_finish_spares_held:
+  for +u: Nat
+  for +js: List<&2, CF.Slot>
+  for +cs: List<&2, CF.Pin>
+  for +r: Bool
+  for +b: Bool
+  for +n: Nat
+  {finish_spares_spec(js, CF.finish(u, js, cs, r, b, n)) == True{} : Bool}
+
+# The store writes a claim pass's claim records with the jobs it rolls,
+# under the lock, before it hands any claimed run to the scheduler (host,
+# crates/eukhe-core/src/cron/store/state.rs); the law below is why a later
+# pass, of this process or another, never starts that occurrence again
+# while its record stands.
+
+# LAW cron_file_take_claims_once: a claim pass of the code that runs never answers Claimed for a job a claim record of the file names, on every file, due time and clock: a job whose claim is on record is at most rolled, never claimed (so never run) a second time
+# EXCLUDES: a second claim, and so a second run, of a job while a claim record names it
+law cron_file_take_claims_once:
+  for +js: List<&2, CF.Slot>
+  for +cs: List<&2, Maybe<&2, Nat>>
+  for +d: Nat
+  for +n: Nat
+  {take_once_spec(js, cs, CF.take(js, cs, d, n)) == True{} : Bool}

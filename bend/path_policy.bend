@@ -461,19 +461,6 @@ def Cls.secret(c: Cls) -> Bool:
     case Secret{}:
       True{}
 
-# a read of a secret: a read or list of one, a search of a directory
-# that holds one
-def secret_read(c: Cls, a: Acc) -> Bool:
-  match a:
-    case Rd{}:
-      Cls.secret(c)
-    case Ls{}:
-      Cls.secret(c)
-    case Sr{h}:
-      Bool.or(h, Cls.secret(c))
-    case Wr{}:
-      False{}
-
 # 4. The store
 # ------------
 
@@ -526,28 +513,3 @@ def run(es: List<&2, Put>, +pol: Pol, +ls: List<&2, Link>, +auto: List<&2, Nat>,
       cs
     case e <> rest:
       run(rest, pol, ls, auto, step(pol, ls, auto, cs, e))
-
-# the user said yes to one of the writes
-def any_yes(es: List<&2, Put>) -> Bool:
-  match es:
-    case Nil{}:
-      False{}
-    case e <> rest:
-      match e:
-        case Put{s, v, a}:
-          Bool.or(Ans.yes(a), any_yes(rest))
-
-def keep.pick(keep: Bool, c: Cell, rest: List<&2, Cell>) -> List<&2, Cell>:
-  match keep:
-    case True{}:
-      c <> rest
-    case False{}:
-      rest
-
-# the cells at secret locations
-def secrets(cs: List<&2, Cell>, +pol: Pol) -> List<&2, Cell>:
-  match cs:
-    case Nil{}:
-      Nil{}
-    case +c <> rest:
-      keep.pick(Cls.secret(class_of(pol, Cell.at(c))), c, secrets(rest, pol))

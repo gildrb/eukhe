@@ -234,6 +234,95 @@ law replace_build_of_rank:
   for i: String
   {Rp.Build.of(v, i) == Rp.Build{rank_spec(v), i} : Rp.Build}
 
+# The order of ranks (A: ranks compare lexicographically, the empty rank
+# lowest), as properties of Rp.lt stated apart from its code. Together
+# replace_lt_prefix, _first_difference and _only_when fix the order: a rank
+# is below another exactly when the other extends it, or when at the first
+# place where the two differ its number is smaller. The empty rank is then
+# below every nonempty rank, and no rank is below it.
+
+# ys is xs followed by at least one more number
+def rp_extends(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Type:
+  &y: Nat -> &yr: List<&2, Nat> -> {ys == List.append(&2, Nat, xs, y <> yr) : List<&2, Nat>}
+
+# after a prefix p that xs and ys share, xs has a number x and ys a number
+# y with x < y
+def rp_first_smaller(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Type:
+  &p: List<&2, Nat> -> &x: Nat -> &xr: List<&2, Nat> -> &y: Nat -> &yr: List<&2, Nat> -> {xs == List.append(&2, Nat, p, x <> xr) : List<&2, Nat>} & {ys == List.append(&2, Nat, p, y <> yr) : List<&2, Nat>} & {Nat.is_lt(x, y) == True{} : Bool}
+
+# LAW replace_lt_irreflexive: no rank is below itself
+# EXCLUDES: an order that calls an equal rank lower (another build of the
+#   daemon's own version replacing it)
+law replace_lt_irreflexive:
+  for +xs: List<&2, Nat>
+  {Rp.lt(xs, xs) == False{} : Bool}
+
+# LAW replace_lt_asymmetric: of two ranks, at most one is below the other
+# EXCLUDES: two builds each older than the other (replacements back and
+#   forth between them)
+law replace_lt_asymmetric:
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  for below: {Rp.lt(xs, ys) == True{} : Bool}
+  {Rp.lt(ys, xs) == False{} : Bool}
+
+# LAW replace_lt_transitive: a rank below a second rank that is below a third is below the third
+# EXCLUDES: a cycle of builds, each older than the next (replacements that
+#   never stop)
+law replace_lt_transitive:
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  for +zs: List<&2, Nat>
+  for below: {Rp.lt(xs, ys) == True{} : Bool}
+  for then: {Rp.lt(ys, zs) == True{} : Bool}
+  {Rp.lt(xs, zs) == True{} : Bool}
+
+# LAW replace_lt_total: two ranks neither of which is below the other are equal
+# EXCLUDES: unequal ranks the order leaves unordered (an older daemon of
+#   another version kept as "another build")
+law replace_lt_total:
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  for no: {Rp.lt(xs, ys) == False{} : Bool}
+  for nor: {Rp.lt(ys, xs) == False{} : Bool}
+  {xs == ys : List<&2, Nat>}
+
+# LAW replace_lt_first_difference: two ranks that agree up to a place where the first has the
+# smaller number are ordered: the first is below the second, whatever
+# follows that place
+# EXCLUDES: an order that lets a later number (minor, tier, patch) or the
+#   length outweigh an earlier one, compares from the last number, compares
+#   numbers the wrong way round or as text (10 below 9), or answers
+#   differently once a common prefix is added
+law replace_lt_first_difference:
+  for +p: List<&2, Nat>
+  for +x: Nat
+  for +y: Nat
+  for +xr: List<&2, Nat>
+  for +yr: List<&2, Nat>
+  for less: {Nat.is_lt(x, y) == True{} : Bool}
+  {Rp.lt(List.append(&2, Nat, p, x <> xr), List.append(&2, Nat, p, y <> yr)) == True{} : Bool}
+
+# LAW replace_lt_prefix: a rank is below every longer rank that begins with it
+# EXCLUDES: an order that stops at the shorter rank and calls the two equal
+law replace_lt_prefix:
+  for +xs: List<&2, Nat>
+  for +y: Nat
+  for +ys: List<&2, Nat>
+  {Rp.lt(xs, List.append(&2, Nat, xs, y <> ys)) == True{} : Bool}
+
+# LAW replace_lt_only_when: a rank is below another only when the other extends it, or when at
+# the first place where the two differ its number is smaller
+# EXCLUDES: an order that ranks a version that does not parse (the empty
+#   rank) above a release, calls a longer rank below its own prefix, or
+#   puts a rank below another for any other reason (a shared major number
+#   alone, a larger number at the first difference)
+law replace_lt_only_when:
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  for below: {Rp.lt(xs, ys) == True{} : Bool}
+  rp_extends(xs, ys) | rp_first_smaller(xs, ys)
+
 # LAW replace_relation_exact: the relation of the daemon to the client is exactly rel_spec
 # EXCLUDES: a relation that ignores the build ids, compares ranks the
 # wrong way round, or calls an equal rank older or newer
@@ -332,6 +421,29 @@ def rp_rank_of(b: Rp.Build) -> List<&2, Nat>:
     case Rp.Build{r, i}:
       r
 
+# the build id of a build
+def rp_id_of(b: Rp.Build) -> String:
+  match b:
+    case Rp.Build{r, i}:
+      i
+
+# 1 for True, 0 for False
+def rp_one_if(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# a daemon running (d) and n another build than it, by build id; with
+# none running, False
+def rp_other_than(d: Maybe<&2, Rp.Build>, +n: Rp.Build) -> Bool:
+  match d:
+    case None{}:
+      False{}
+    case Some{b}:
+      Bool.not(String.eq(rp_id_of(n), rp_id_of(b)))
+
 # rank r is below no rank of seen
 def rp_rank_not_below(seen: List<&2, List<&2, Nat>>, +r: List<&2, Nat>) -> Bool:
   match seen:
@@ -372,17 +484,26 @@ law replace_daemons_exact_spec:
   for +ss: List<&2, Rp.Start>
   {Rp.daemons(ss) == rp_daemons_spec(ss) : List<&2, Rp.Build>}
 
-# LAW replace_replaces_exact: whether one start replaces the running daemon is exactly
-# rp_replaces_spec: 0 when no daemon runs; else 1 when
-# verdict_spec(rel_spec(c, b), k) is Replace (an interactive start of a
-# build that ranks above the running b), else 0
-# EXCLUDES: a per-start replaces that counts a background start, or a start
-#   on a newer, equal or other build, while the history count replaced
-#   stays right (an adversary found this gap)
-law replace_replaces_exact:
+# LAW replace_replaces_new_daemon: a start counts 1 replacement when a daemon b runs and the
+# daemon after the start has another build id than b, else 0; with no
+# daemon running it counts none
+# EXCLUDES: a per-start count that counts a start that keeps the daemon (a
+#   background start, a newer, equal or other daemon) or misses one that
+#   replaces it, while the history count replaced stays right (an
+#   adversary found this gap); a replacement counted for a start with no
+#   daemon running (replace-3 found it pinned only by an example)
+law replace_replaces_new_daemon:
   for +s: Rp.Start
   for +d: Maybe<&2, Rp.Build>
-  {Rp.replaces(s, d) == rp_replaces_spec(s, d) : Nat}
+  {Rp.replaces(s, d) == rp_one_if(rp_other_than(d, Rp.after(s, d))) : Nat}
+
+# LAW replace_replaces_background: a background start counts no replacement, whatever daemon
+# runs (or none)
+# EXCLUDES: every caller counted as interactive
+law replace_replaces_background:
+  for +c: Rp.Build
+  for +d: Maybe<&2, Rp.Build>
+  {Rp.replaces(Rp.Start{c, Rp.Background{}}, d) == 0n : Nat}
 
 # LAW replace_replaces_example: anchor: the adversary's input: with o (0.9.9-main.46, rank
 # [0, 9, 0, 9]) running, a background start of n (0.10.40, rank

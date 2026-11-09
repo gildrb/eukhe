@@ -287,6 +287,7 @@ fn classify_custom(custom_type: &str) -> CustomRow {
         | "compaction_outcome"
         | "provider_retry_outcome"
         | "model_prompt_error"
+        | crate::durable::rlm::kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE
         | "session_slash_command"
         | "session_slash_command_result"
         | "anthropic_subscription_warning_shown"

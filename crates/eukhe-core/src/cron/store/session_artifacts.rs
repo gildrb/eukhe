@@ -1,17 +1,15 @@
 //! Session-artifact partitioning: registration of per-session scheduled-jobs
-//! artifact files, recovery of a session's jobs from its artifact partition,
-//! and the partitioned merge-write that keeps each artifact file holding only
-//! its session's jobs and dispatches. Records a file holds that this build
-//! cannot read, and dispatches of no known job, stay in their file.
+//! artifact files and the read of one artifact file. A change keeps each
+//! artifact file holding only its session's jobs and their dispatches
+//! (`AgentCronJobStore::mutate_jobs`, in [`super::state`]); records a file
+//! holds that this build cannot read, and dispatches of no known job, stay
+//! in their file.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::state::{
-    load_jobs_state, merge_fresh_jobs, read_jobs_state, with_state_locks, write_jobs_state,
-};
-use super::{AgentCronJobStore, CronJobsState, SESSION_SCHEDULED_JOBS_FILENAME};
+use super::state::read_jobs_state;
+use super::{AgentCronJobStore, SESSION_SCHEDULED_JOBS_FILENAME};
 use crate::cron::AgentCronJob;
 
 impl AgentCronJobStore {
@@ -40,98 +38,6 @@ impl AgentCronJobStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.clone().into_iter().collect()
-    }
-
-    pub(crate) fn write_jobs_session_artifacts(&self, jobs: &[AgentCronJob]) -> anyhow::Result<()> {
-        let artifact_files = self
-            .session_artifact_files
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        let registered: std::collections::HashSet<String> =
-            artifact_files.keys().cloned().collect();
-        for job in jobs {
-            if !registered.contains(&job.session_id) {
-                anyhow::bail!(
-                    "cron job session artifact not registered: {}",
-                    job.session_id
-                );
-            }
-        }
-        let paths: Vec<PathBuf> = artifact_files.values().cloned().collect();
-        let with_locks = with_state_locks(&paths, || -> anyhow::Result<()> {
-            let current_by_session_id: HashMap<String, CronJobsState> = artifact_files
-                .iter()
-                .map(|(session_id, path)| Ok((session_id.clone(), load_jobs_state(path)?)))
-                .collect::<anyhow::Result<_>>()?;
-            let incoming_by_id: HashMap<&str, &AgentCronJob> =
-                jobs.iter().map(|job| (job.id.as_str(), job)).collect();
-            let mut merged_by_session_id: HashMap<String, Vec<AgentCronJob>> = HashMap::new();
-            for (session_id, current) in &current_by_session_id {
-                let retained: Vec<AgentCronJob> = current
-                    .jobs
-                    .iter()
-                    .filter(|job| {
-                        incoming_by_id
-                            .get(job.id.as_str())
-                            .is_none_or(|incoming| incoming.session_id == *session_id)
-                    })
-                    .cloned()
-                    .collect();
-                let session_jobs: Vec<AgentCronJob> = jobs
-                    .iter()
-                    .filter(|job| job.session_id == *session_id)
-                    .cloned()
-                    .collect();
-                merged_by_session_id
-                    .insert(session_id.clone(), merge_fresh_jobs(retained, session_jobs));
-            }
-            let session_id_by_job_id: HashMap<String, String> = merged_by_session_id
-                .iter()
-                .flat_map(|(session_id, session_jobs)| {
-                    session_jobs
-                        .iter()
-                        .map(move |job| (job.id.clone(), session_id.clone()))
-                })
-                .collect();
-            let session_id_by_job_id = &session_id_by_job_id;
-            for (session_id, path) in &artifact_files {
-                let Some(current) = current_by_session_id.get(session_id) else {
-                    continue;
-                };
-                // A dispatch goes to the file of its job's session; a
-                // dispatch of no known job stays in its own file.
-                let dispatches = current_by_session_id
-                    .iter()
-                    .flat_map(|(from, state)| {
-                        state.dispatches.iter().filter(move |dispatch| {
-                            match session_id_by_job_id.get(&dispatch.job_id) {
-                                Some(to) => to == session_id,
-                                None => from == session_id,
-                            }
-                        })
-                    })
-                    .cloned()
-                    .collect();
-                let next_state = CronJobsState {
-                    jobs: merged_by_session_id
-                        .get(session_id)
-                        .cloned()
-                        .unwrap_or_default(),
-                    dispatches,
-                    unread_jobs: current.unread_jobs.clone(),
-                    unread_dispatches: current.unread_dispatches.clone(),
-                    other_keys: current.other_keys.clone(),
-                };
-                if serde_json::to_string(current).unwrap_or_default()
-                    != serde_json::to_string(&next_state).unwrap_or_default()
-                {
-                    write_jobs_state(path, &next_state)?;
-                }
-            }
-            Ok(())
-        });
-        with_locks.ok_or_else(|| anyhow::anyhow!("cron jobs state lock not acquired; skipped"))?
     }
 }
 

@@ -1,8 +1,9 @@
 use super::corpus_tests::secrets;
 use super::*;
 
+/// A scrubber of a fresh session (its own, empty map).
 fn scrubber() -> Scrubber {
-    Scrubber::new(&["Ada Lovelace".to_owned()])
+    Scrubber::new(&["Ada Lovelace".to_owned()], TokenMap::default())
 }
 
 #[test]
@@ -16,17 +17,18 @@ fn loopback_endpoints_are_local_and_others_are_not() {
 
 #[test]
 fn emails_get_a_stable_token() {
-    let email = scrubber().scrub_str("write to dev@example.net about the invoice");
+    let session = scrubber();
+    let email = session.scrub_str("write to dev@example.net about the invoice");
     assert_eq!(email, "write to EMAIL_1 about the invoice");
-    // The same input twice: the same token.
+    // The same input twice in one session: the same token.
     assert_eq!(
-        scrubber().scrub_str("dev@example.net"),
-        scrubber().scrub_str("dev@example.net")
+        session.scrub_str("dev@example.net"),
+        session.scrub_str("dev@example.net")
     );
     // A different input: a different token.
     assert_ne!(
-        scrubber().scrub_str("dev@example.net"),
-        scrubber().scrub_str("ops@example.net")
+        session.scrub_str("dev@example.net"),
+        session.scrub_str("ops@example.net")
     );
 }
 
@@ -35,13 +37,14 @@ fn terms_scrub_names_and_only_at_boundaries() {
     let out = scrubber().scrub_str("ask Ada Lovelace, not Adalbert; ADA LOVELACE too");
     assert_eq!(out, "ask PERSON_1, not Adalbert; PERSON_2 too");
     // A term inside a longer word does not match.
-    let inside = Scrubber::new(&["Ada".to_owned()]).scrub_str("Adalbert stays");
+    let inside =
+        Scrubber::new(&["Ada".to_owned()], TokenMap::default()).scrub_str("Adalbert stays");
     assert_eq!(inside, "Adalbert stays");
 }
 
 #[test]
 fn every_value_takes_the_token_of_its_class() {
-    let out = Scrubber::new(&[]).scrub_str(
+    let out = Scrubber::new(&[], TokenMap::default()).scrub_str(
         "mail dev@example.net, call +49 172 4510 5432, ssn 078-05-1120, host 10.0.0.7 or 2001:db8::1",
     );
     assert_eq!(
@@ -54,7 +57,8 @@ fn every_value_takes_the_token_of_its_class() {
 fn credentials_become_one_way_tokens() {
     let secrets = secrets();
     for (text, secret) in &secrets {
-        let out = scrubber().scrub_str(text);
+        let scrubber = scrubber();
+        let out = scrubber.scrub_str(text);
         assert!(!out.contains(secret), "{secret} survived: {out}");
         assert!(
             ["KEY_", "CARD_", "IBAN_"]
@@ -62,7 +66,10 @@ fn credentials_become_one_way_tokens() {
                 .any(|class| out.contains(class)),
             "{out}"
         );
-        assert!(!restore(&out).contains(secret), "{secret} came back");
+        assert!(
+            !scrubber.tokens().restore(&out).contains(secret),
+            "{secret} came back"
+        );
     }
     // A bearer credential keeps its scheme visible.
     let bearer = scrubber().scrub_str(&secrets[11].0);
@@ -79,7 +86,7 @@ fn ips_are_scrubbed_paths_and_domains_pass() {
         "the log at /home/lovelace/Repos/eukhe/target and /var/log/syslog says IP_1 refused https://api.anthropic.com/v1"
     );
     // Your own domain is a term, not a shape.
-    let own = Scrubber::new(&["example.dev".to_owned()]);
+    let own = Scrubber::new(&["example.dev".to_owned()], TokenMap::default());
     assert_eq!(
         own.scrub_str("deploy example.dev now"),
         "deploy PERSON_1 now"
@@ -106,7 +113,7 @@ fn restore_inverts_the_scrub() {
         model_view,
         "PERSON_1 (EMAIL_1, PHONE_1) set IP_2 = \"IP_1\"; ID_1 and PERSON_1x stay"
     );
-    assert_eq!(restore(&model_view), text);
+    assert_eq!(scrubber.tokens().restore(&model_view), text);
 }
 
 /// Restoring random mixes of values, literals that read as tokens and
@@ -155,7 +162,11 @@ fn restore_inverts_the_scrub_on_random_text() {
             let pick = usize::try_from(state >> 33).unwrap_or(0) % PARTS.len();
             text.push_str(PARTS[pick]);
         }
-        assert_eq!(restore(&scrubber.scrub_str(&text)), text, "{text:?}");
+        assert_eq!(
+            scrubber.tokens().restore(&scrubber.scrub_str(&text)),
+            text,
+            "{text:?}"
+        );
     }
 }
 
@@ -163,7 +174,8 @@ fn restore_inverts_the_scrub_on_random_text() {
 /// thinking and every string of its tool calls' arguments.
 #[test]
 fn the_answer_is_restored_whole() {
-    let scrubbed = scrubber().scrub_str("write to Ada Lovelace at dev@example.net from 10.0.0.7");
+    let session = scrubber();
+    let scrubbed = session.scrub_str("write to Ada Lovelace at dev@example.net from 10.0.0.7");
     let message: AssistantMessage = serde_json::from_value(serde_json::json!({
         "role": "assistant",
         "content": [
@@ -178,7 +190,8 @@ fn the_answer_is_restored_whole() {
         "stopReason": "toolUse",
     }))
     .expect("the wire shape");
-    let restored = serde_json::to_value(restore_message(message)).expect("serializes");
+    let restored =
+        serde_json::to_value(session.tokens().restore_message(message)).expect("serializes");
     let original = "write to Ada Lovelace at dev@example.net from 10.0.0.7";
     assert_eq!(
         restored["content"],
@@ -189,6 +202,22 @@ fn the_answer_is_restored_whole() {
               "arguments": { "script": original, "env": [{ "to": "dev@example.net" }] } },
         ])
     );
+}
+
+/// Two sessions in one daemon: a value one session scrubbed never comes
+/// back in the other's answer, even when the other's model writes the
+/// first one's token, and each session numbers its own values from 1.
+#[test]
+fn a_session_restores_only_its_own_values() {
+    let first = Scrubber::new(&[], TokenMap::default());
+    assert_eq!(first.scrub_str("host 10.0.0.1"), "host IP_1");
+    let second = Scrubber::new(&[], TokenMap::default());
+    assert_eq!(
+        second.tokens().restore("ping IP_1"),
+        "ping IP_1",
+        "the second session's answer restored the first session's value"
+    );
+    assert_eq!(second.scrub_str("host 192.0.2.5"), "host IP_1");
 }
 
 #[test]
@@ -254,7 +283,7 @@ fn no_original_survives_anywhere() {
 /// and everything a pattern cannot see.
 #[test]
 fn what_still_leaks_is_visible() {
-    let scrubber = Scrubber::new(&[]);
+    let scrubber = Scrubber::new(&[], TokenMap::default());
     let out = scrubber.scrub_str("my sister Mia and my repo porthmeus at C:\\Users\\dev");
     // Not in the term list, no pattern shape: both travel as-is. This
     // test documents the boundary, it does not assert a property.

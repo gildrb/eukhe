@@ -1045,10 +1045,16 @@ async fn provider_tokens(
     let extra = planned_messages(planned);
     let messages = view.messages.iter().chain(&extra).cloned().collect();
     // The count request reaches the provider: it reads pseudonyms too.
+    // Nothing of its answer is restored, so its scrub numbers the values
+    // in a map of its own, which goes with the count.
     let messages = if runtime.settings().privacy_anonymize_remote
         && !eukhe_ai::privacy::is_local(&model.base_url)
     {
-        eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms).scrub_messages(messages)
+        eukhe_ai::privacy::Scrubber::new(
+            &runtime.settings().privacy_terms,
+            eukhe_ai::privacy::TokenMap::default(),
+        )
+        .scrub_messages(messages)
     } else {
         messages
     };

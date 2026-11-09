@@ -547,11 +547,28 @@ fn query(url: &url::Url, name: &str) -> String {
     )
 }
 
-/// The one exchange the login made: the pasted code, the login's state
-/// (its PKCE verifier), and the registered redirect.
+/// The one exchange the login made: the pasted code, the login's state,
+/// the PKCE verifier behind the URL's challenge (never the state: the URL
+/// travels through the browser, the verifier stays on this machine), and
+/// the registered redirect.
 fn assert_exchange(world: &World, url: &url::Url, code: &str) {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+
     let state = query(url, "state");
     let bodies = world.tokens.bodies();
+    let verifier = bodies
+        .last()
+        .and_then(|body| body["code_verifier"].as_str())
+        .unwrap_or_else(|| panic!("the exchange carries a code_verifier: {bodies:?}"))
+        .to_owned();
+    assert_ne!(verifier, state, "the verifier is not the URL's state");
+    assert_eq!(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(sha2::Sha256::digest(verifier.as_bytes())),
+        query(url, "code_challenge"),
+        "the verifier answers the URL's S256 challenge"
+    );
     assert_eq!(
         bodies.last(),
         Some(&json!({
@@ -560,7 +577,7 @@ fn assert_exchange(world: &World, url: &url::Url, code: &str) {
             "code": code,
             "state": state,
             "redirect_uri": "http://localhost:53692/callback",
-            "code_verifier": state,
+            "code_verifier": verifier,
         })),
         "{bodies:?}"
     );

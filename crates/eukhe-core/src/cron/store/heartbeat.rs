@@ -10,26 +10,19 @@ use uuid::Uuid;
 use eukhe_bend::rules::cron::{self as rule, Again, Cut, Halt};
 
 use super::facts::{fact_of, job_status, next_text, next_text_at};
-use super::state::normalize_optional_label;
+use super::state::{heartbeat_of, normalize_optional_label};
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
     HeartbeatManagementAction,
 };
 use crate::cron::{
-    is_heartbeat_cron_job, parse_agent_cron_schedule, parse_iso_millis, AgentCronJob, JobStatus,
-    ScheduleKind, DEFAULT_HEARTBEAT_DELIVERY_MODE,
+    is_heartbeat_cron_job, parse_agent_cron_schedule, AgentCronJob, ScheduleKind,
+    DEFAULT_HEARTBEAT_DELIVERY_MODE,
 };
 
 impl AgentCronJobStore {
     pub fn get_heartbeat(&self, active_session_id: &str) -> Option<AgentCronJob> {
-        self.read_jobs()
-            .into_iter()
-            .filter(|job| {
-                job.active_session_id == active_session_id
-                    && job.source == JobSource::Heartbeat
-                    && matches!(job.status, JobStatus::Active | JobStatus::Paused)
-            })
-            .max_by_key(|job| parse_iso_millis(&job.updated_at).unwrap_or(0))
+        heartbeat_of(&self.read_jobs(), active_session_id).cloned()
     }
 
     /// Create the heartbeat job for a session, cancelling its existing
@@ -53,28 +46,6 @@ impl AgentCronJobStore {
             anyhow::bail!("Heartbeat instruction cannot be empty");
         }
         let now_iso = iso_from_millis(now);
-        // Stop the session's existing heartbeats (the compiled core leaves
-        // a completed or cancelled one as it is).
-        let existing: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.active_session_id != input.active_session_id
-                    || job.source != JobSource::Heartbeat
-                {
-                    return job;
-                }
-                match rule::halt(&fact_of(&job), Halt::Stop) {
-                    Cut::Same => job,
-                    Cut::Cut { status, next } => AgentCronJob {
-                        status: job_status(status),
-                        next_run_at: next_text_at(&job, next),
-                        updated_at: now_iso.clone(),
-                        ..job
-                    },
-                }
-            })
-            .collect();
         let made = rule::make(parsed.1);
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
@@ -94,7 +65,7 @@ impl AgentCronJobStore {
             prompt: prompt.to_string(),
             schedule: parsed.0,
             created_at: now_iso.clone(),
-            updated_at: now_iso,
+            updated_at: now_iso.clone(),
             next_run_at: Some(iso_from_millis(made.next)),
             last_run_at: None,
             last_skipped_at: None,
@@ -102,11 +73,27 @@ impl AgentCronJobStore {
             run_count: 0,
             failure_streak: made.streak,
         };
-        let mut jobs = existing;
-        jobs.push(job.clone());
-        self.write_jobs(&jobs)?;
+        self.mutate_jobs(|jobs| {
+            // Stop the session's existing heartbeats (the compiled core
+            // leaves a completed or cancelled one as it is).
+            for existing in jobs.iter_mut() {
+                if existing.active_session_id != input.active_session_id
+                    || existing.source != JobSource::Heartbeat
+                {
+                    continue;
+                }
+                if let Cut::Cut { status, next } = rule::halt(&fact_of(existing), Halt::Stop) {
+                    existing.next_run_at = next_text_at(existing, next);
+                    existing.status = job_status(status);
+                    existing.updated_at.clone_from(&now_iso);
+                }
+            }
+            jobs.push(job.clone());
+            Ok(())
+        })?;
         Ok(job)
     }
+
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
@@ -115,35 +102,7 @@ impl AgentCronJobStore {
         active_session_id: &str,
         now: u64,
     ) -> anyhow::Result<Option<AgentCronJob>> {
-        let Some(current) = self.get_heartbeat(active_session_id) else {
-            return Ok(None);
-        };
-        let now_iso = iso_from_millis(now);
-        let mut paused = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != current.id {
-                    return job;
-                }
-                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Pause) else {
-                    return job;
-                };
-                let paused_job = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                paused = Some(paused_job.clone());
-                paused_job
-            })
-            .collect();
-        if paused.is_some() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(paused)
+        self.halt_heartbeat(active_session_id, Halt::Pause, now)
     }
 
     /// Resume the heartbeat for a session, recomputing its next run time.
@@ -158,37 +117,25 @@ impl AgentCronJobStore {
         active_session_id: &str,
         now: u64,
     ) -> anyhow::Result<Option<AgentCronJob>> {
-        let Some(current) = self.get_heartbeat(active_session_id) else {
-            return Ok(None);
-        };
-        let becomes = match rule::resume(&fact_of(&current), now) {
-            Again::Resumed(becomes) => becomes,
-            Again::Ended => return Ok(None),
-            Again::NotRecurring => anyhow::bail!("Heartbeat schedule must be recurring"),
-        };
-        let next_run_at = next_text(&current, becomes.next, now)?;
         let now_iso = iso_from_millis(now);
-        let mut resumed = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != current.id {
-                    return job;
-                }
-                let resumed_job = AgentCronJob {
-                    status: job_status(becomes.status),
-                    next_run_at: next_run_at.clone(),
-                    updated_at: now_iso.clone(),
-                    failure_streak: becomes.streak,
-                    ..job
-                };
-                resumed = Some(resumed_job.clone());
-                resumed_job
-            })
-            .collect();
-        self.write_jobs(&jobs)?;
-        Ok(resumed)
+        self.mutate_jobs(|jobs| {
+            let Some(id) = heartbeat_of(jobs, active_session_id).map(|job| job.id.clone()) else {
+                return Ok(None);
+            };
+            let Some(job) = jobs.iter_mut().find(|job| job.id == id) else {
+                return Ok(None);
+            };
+            let becomes = match rule::resume(&fact_of(job), now) {
+                Again::Resumed(becomes) => becomes,
+                Again::Ended => return Ok(None),
+                Again::NotRecurring => anyhow::bail!("Heartbeat schedule must be recurring"),
+            };
+            job.next_run_at = next_text(job, becomes.next, now)?;
+            job.status = job_status(becomes.status);
+            job.failure_streak = becomes.streak;
+            job.updated_at = now_iso;
+            Ok(Some(job.clone()))
+        })
     }
 
     /// # Errors
@@ -199,35 +146,33 @@ impl AgentCronJobStore {
         active_session_id: &str,
         now: u64,
     ) -> anyhow::Result<Option<AgentCronJob>> {
-        let Some(current) = self.get_heartbeat(active_session_id) else {
-            return Ok(None);
-        };
+        self.halt_heartbeat(active_session_id, Halt::Stop, now)
+    }
+
+    /// Pause or stop a session's heartbeat (the compiled core decides:
+    /// `rule::halt`); `None` when it has none or the core leaves it.
+    fn halt_heartbeat(
+        &self,
+        active_session_id: &str,
+        how: Halt,
+        now: u64,
+    ) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
-        let mut cleared = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != current.id {
-                    return job;
-                }
-                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Stop) else {
-                    return job;
-                };
-                let cleared_job = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                cleared = Some(cleared_job.clone());
-                cleared_job
-            })
-            .collect();
-        if cleared.is_some() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(cleared)
+        self.mutate_jobs(|jobs| {
+            let Some(id) = heartbeat_of(jobs, active_session_id).map(|job| job.id.clone()) else {
+                return Ok(None);
+            };
+            let Some(job) = jobs.iter_mut().find(|job| job.id == id) else {
+                return Ok(None);
+            };
+            let Cut::Cut { status, next } = rule::halt(&fact_of(job), how) else {
+                return Ok(None);
+            };
+            job.next_run_at = next_text_at(job, next);
+            job.status = job_status(status);
+            job.updated_at = now_iso;
+            Ok(Some(job.clone()))
+        })
     }
 
     /// Apply a pause, stop, or resume management action to a heartbeat job.
@@ -246,42 +191,43 @@ impl AgentCronJobStore {
         now: u64,
     ) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
-        let mut jobs = self.read_jobs();
-        let Some(job) = jobs.iter_mut().find(|job| {
-            job.id == id && job.active_session_id == active_session_id && is_heartbeat_cron_job(job)
-        }) else {
-            return Ok(None);
-        };
-        match action {
-            HeartbeatManagementAction::Pause | HeartbeatManagementAction::Stop => {
-                let how = if action == HeartbeatManagementAction::Pause {
-                    Halt::Pause
-                } else {
-                    Halt::Stop
-                };
-                let Cut::Cut { status, next } = rule::halt(&fact_of(job), how) else {
-                    return Ok(None);
-                };
-                job.next_run_at = next_text_at(job, next);
-                job.status = job_status(status);
+        self.mutate_jobs(|jobs| {
+            let Some(job) = jobs.iter_mut().find(|job| {
+                job.id == id
+                    && job.active_session_id == active_session_id
+                    && is_heartbeat_cron_job(job)
+            }) else {
+                return Ok(None);
+            };
+            match action {
+                HeartbeatManagementAction::Pause | HeartbeatManagementAction::Stop => {
+                    let how = if action == HeartbeatManagementAction::Pause {
+                        Halt::Pause
+                    } else {
+                        Halt::Stop
+                    };
+                    let Cut::Cut { status, next } = rule::halt(&fact_of(job), how) else {
+                        return Ok(None);
+                    };
+                    job.next_run_at = next_text_at(job, next);
+                    job.status = job_status(status);
+                }
+                HeartbeatManagementAction::Resume => {
+                    let becomes = match rule::resume(&fact_of(job), now) {
+                        Again::Resumed(becomes) => becomes,
+                        Again::Ended => return Ok(None),
+                        Again::NotRecurring => {
+                            anyhow::bail!("Heartbeat schedule must be recurring")
+                        }
+                    };
+                    job.next_run_at = next_text(job, becomes.next, now)?;
+                    job.status = job_status(becomes.status);
+                    job.failure_streak = becomes.streak;
+                }
             }
-            HeartbeatManagementAction::Resume => {
-                let becomes = match rule::resume(&fact_of(job), now) {
-                    Again::Resumed(becomes) => becomes,
-                    Again::Ended => return Ok(None),
-                    Again::NotRecurring => {
-                        anyhow::bail!("Heartbeat schedule must be recurring")
-                    }
-                };
-                job.next_run_at = next_text(job, becomes.next, now)?;
-                job.status = job_status(becomes.status);
-                job.failure_streak = becomes.streak;
-            }
-        }
-        job.updated_at = now_iso;
-        let updated = job.clone();
-        self.write_jobs(&jobs)?;
-        Ok(Some(updated))
+            job.updated_at = now_iso;
+            Ok(Some(job.clone()))
+        })
     }
 }
 
@@ -289,6 +235,7 @@ impl AgentCronJobStore {
 mod tests {
     use super::*;
     use crate::cron::store::input;
+    use crate::cron::JobStatus;
 
     #[test]
     fn pause_does_not_ack_when_state_lock_is_held() {

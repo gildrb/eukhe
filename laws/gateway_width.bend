@@ -162,7 +162,7 @@ def gw_spell_lay(l: Gw.Lay) -> String:
       LawsBase.wire_spell_nats(w, LawsBase.wire_spell_nats(gw_flat(p), ""))
 
 # the spelled reply to a request: the model's layout of the measured
-# table (layout_measured_spec pins it)
+# table (the laws of section (G) state what it is)
 def gw_spell_answer(rows: List<&2, List<&2, Nat>>) -> String:
   gw_spell_lay(Gw.layout(gw_table(rows)))
 
@@ -227,86 +227,89 @@ law gateway_width_ffi_malformed_unless_request:
 law gateway_width_ffi_tags_example:
   {[FGw.ffi("5,2,3,0,4,0,"), FGw.ffi("0,"), FGw.ffi("2,6,0,"), FGw.ffi("5,2,0,3,5,0,"), FGw.ffi("5,1,1,0,1,0,"), FGw.ffi("1,5,"), FGw.ffi("2,1,"), FGw.ffi("0,x")] == ["2,3,2,4,3,0,1,0,", "0,0,", "1,5,1,0,", "2,2,4,4,2,0,1,0,", "2,0,0,4,1,0,1,0,", Wr.err("gateway_width: malformed request"), Wr.err("gateway_width: malformed request"), Wr.err("gateway_width: input left over")] : List<&2, String>}
 
-# (G) The layout of a measured table, against an independent spec
-# ----------------------------------------------------------------
+# (G) The layout of a measured table, declared
+# --------------------------------------------
 # layout_widths and layout_pads state the layout with the model's own
 # terms (Gw.cols, Gw.col.w, Gw.get.w): a missing cell counted 1 wide, or
 # a column never narrower than 1, passes them (a mutation probe found
-# both). The spec below states the layout of a table as the entry reads
-# it (each cell one glyph of its measured width; crates/eukhe-gateway/
-# src/style.rs `layout`) from the widths alone.
+# both). The laws below state what makes the layout of a table as the
+# entry reads it (each cell one glyph of its measured width; crates/
+# eukhe-gateway/src/style.rs `layout`) right, without computing one: a
+# row and a cell are named by their index (Base's List.get), a short
+# row's missing cell is 0 wide. Every cell has a column at least as wide
+# (layout_cell_fits) and every column is as wide as one of its cells
+# (layout_column_reached): so there are as many columns as the longest
+# row has cells, each as wide as its widest cell. Every row has a row of
+# pads (layout_pad_rows), one pad per column but the last
+# (layout_pads_but_last), and its cell and its pad fill the column's
+# width (layout_pad_fills).
 
-# the width of cell i of a measured row, 0 past its end (a missing cell)
-def gw_cell(row: List<&2, Nat>, i: Nat) -> Nat:
-  match row:
-    case Nil{}:
-      0n
-    case w <> rest:
-      match i:
-        case 0n:
-          w
-        case 1n+p:
-          gw_cell(rest, p)
-
-# the width of column i: its widest cell
-def gw_colw(rows: List<&2, List<&2, Nat>>, +i: Nat) -> Nat:
-  match rows:
-    case Nil{}:
-      0n
-    case r <> rest:
-      Nat.max(gw_cell(r, i), gw_colw(rest, i))
-
-# the count of columns: the longest row
-def gw_cols(rows: List<&2, List<&2, Nat>>) -> Nat:
-  match rows:
-    case Nil{}:
-      0n
-    case r <> rest:
-      Nat.max(List.length(&2, Nat, r), gw_cols(rest))
-
-# the widths of the k columns from column i
-def gw_widths_spec(k: Nat, +rows: List<&2, List<&2, Nat>>, +i: Nat) -> List<&2, Nat>:
-  match k:
-    case 0n:
-      Nil{}
-    case 1n+p:
-      gw_colw(rows, i) <> gw_widths_spec(p, rows, 1n+i)
-
-# the pads of row over the k columns from column i: the column's width
-# less the row's cell
-def gw_row_pads(k: Nat, +rows: List<&2, List<&2, Nat>>, +row: List<&2, Nat>, +i: Nat) -> List<&2, Nat>:
-  match k:
-    case 0n:
-      Nil{}
-    case 1n+p:
-      Nat.sub(gw_colw(rows, i), gw_cell(row, i)) <> gw_row_pads(p, rows, row, 1n+i)
-
-# the pads of every row of rs over k columns of the table rows
-def gw_pads_spec(rs: List<&2, List<&2, Nat>>, +k: Nat, +rows: List<&2, List<&2, Nat>>) -> List<&2, List<&2, Nat>>:
-  match rs:
-    case Nil{}:
-      Nil{}
-    case r <> rest:
-      gw_row_pads(k, rows, r, 0n) <> gw_pads_spec(rest, k, rows)
-
-# the layout of a measured table: every column's width, and every row's
-# pads in every column but the last
-def gw_layout_spec(+rows: List<&2, List<&2, Nat>>) -> Gw.Lay:
-  +k = gw_cols(rows)
-  Gw.Lay{gw_widths_spec(k, rows, 0n), gw_pads_spec(rows, Nat.sub(k, 1n), rows)}
-
-# LAW layout_measured_spec: the layout of a measured table (each cell one glyph of its
-# width, as the entry reads it) has as many columns as its longest row,
-# each as wide as its widest cell (a missing cell is 0 wide), and pads
-# each row in every column but the last with the column's width less its
-# cell's width
-# EXCLUDES: a missing cell counted wider than 0, a column at least 1 wide,
-#   a column count other than the longest row, a measured width summed
-#   with anything, a pad from another column or row
-law layout_measured_spec:
+# LAW layout_cell_fits: every cell of a measured table has a column in the table's layout,
+# at least as wide as the cell
+# EXCLUDES: a dropped column (fewer columns than the longest row has
+#   cells), a column narrower than one of its cells (a row left out of the
+#   column's width, a width from another column, a cell measured by
+#   another rule)
+law layout_cell_fits:
   for +rows: List<&2, List<&2, Nat>>
-  {Gw.layout(gw_table(rows)) == gw_layout_spec(rows) : Gw.Lay}
+  for +j: Nat
+  for +r: List<&2, Nat>
+  for +i: Nat
+  for +c: Nat
+  for row: {List.get(&2, List<&2, Nat>, rows, j) == Some{r} : Maybe<&2, List<&2, Nat>>}
+  for cell: {List.get(&2, Nat, r, i) == Some{c} : Maybe<&2, Nat>}
+  exs w: Nat
+  {(List.get(&2, Nat, Gw.Lay.widths(Gw.layout(gw_table(rows))), i), Nat.is_le(c, w)) == (Some{w}, True{}) : Maybe<&2, Nat> & Bool}
 
+# LAW layout_column_reached: every column of the layout of a measured table is exactly as
+# wide as a cell in that column: some row has a cell there of the
+# column's width
+# EXCLUDES: a column wider than its widest cell (a column at least 1
+#   wide, a missing cell counted wider than 0, a width summed with
+#   anything), a column past the longest row, a column of no cell
+law layout_column_reached:
+  for +rows: List<&2, List<&2, Nat>>
+  for +i: Nat
+  for +w: Nat
+  for col: {List.get(&2, Nat, Gw.Lay.widths(Gw.layout(gw_table(rows))), i) == Some{w} : Maybe<&2, Nat>}
+  exs j: Nat
+  exs r: List<&2, Nat>
+  {(List.get(&2, List<&2, Nat>, rows, j), List.get(&2, Nat, r, i)) == (Some{r}, Some{w}) : Maybe<&2, List<&2, Nat>> & Maybe<&2, Nat>}
+
+# LAW layout_pad_rows: the layout of a measured table has one row of pads per row of the
+# table
+# EXCLUDES: a row left without pads, pads for a row that is not there
+law layout_pad_rows:
+  for +rows: List<&2, List<&2, Nat>>
+  {List.length(&2, List<&2, Nat>, Gw.Lay.pads(Gw.layout(gw_table(rows)))) == List.length(&2, List<&2, Nat>, rows) : Nat}
+
+# LAW layout_pads_but_last: every row of pads of the layout of a measured table has one pad
+# per column but the last
+# EXCLUDES: a padded last column, a pad dropped from a short row
+law layout_pads_but_last:
+  for +rows: List<&2, List<&2, Nat>>
+  for +j: Nat
+  for +ps: List<&2, Nat>
+  for got: {List.get(&2, List<&2, Nat>, Gw.Lay.pads(Gw.layout(gw_table(rows))), j) == Some{ps} : Maybe<&2, List<&2, Nat>>}
+  {List.length(&2, Nat, ps) == Nat.sub(List.length(&2, Nat, Gw.Lay.widths(Gw.layout(gw_table(rows)))), 1n) : Nat}
+
+# LAW layout_pad_fills: in the layout of a measured table, row j's pad i and the cell i of
+# row j (0 wide when the row has none) together are exactly as wide as
+# column i
+# EXCLUDES: a pad by another measure than the cell's, a pad from another
+#   column or row, a pad that forgets a missing cell, a misaligned column
+law layout_pad_fills:
+  for +rows: List<&2, List<&2, Nat>>
+  for +j: Nat
+  for +r: List<&2, Nat>
+  for +ps: List<&2, Nat>
+  for +i: Nat
+  for +p: Nat
+  for row: {List.get(&2, List<&2, Nat>, rows, j) == Some{r} : Maybe<&2, List<&2, Nat>>}
+  for pads: {List.get(&2, List<&2, Nat>, Gw.Lay.pads(Gw.layout(gw_table(rows))), j) == Some{ps} : Maybe<&2, List<&2, Nat>>}
+  for pad: {List.get(&2, Nat, ps, i) == Some{p} : Maybe<&2, Nat>}
+  exs w: Nat
+  {(List.get(&2, Nat, Gw.Lay.widths(Gw.layout(gw_table(rows))), i), Nat.add(Maybe.default(&2, Nat, List.get(&2, Nat, r, i), 0n), p)) == (Some{w}, w) : Maybe<&2, Nat> & Nat}
 
 # The entry from the requirement
 # ------------------------------
