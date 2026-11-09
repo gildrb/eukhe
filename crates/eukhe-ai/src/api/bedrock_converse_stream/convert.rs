@@ -666,7 +666,9 @@ pub(crate) fn build_additional_model_request_fields(
             thinking.insert("display".to_owned(), display.as_str().into());
         }
         result.insert("thinking".to_owned(), JsonValue::Object(thinking));
-        if options.interleaved_thinking.unwrap_or(true) {
+        // Only a caller's explicit `interleavedThinking` adds the beta (omp
+        // `amazon-bedrock.ts` `buildAdditionalModelRequestFields`).
+        if options.interleaved_thinking == Some(true) {
             result.insert(
                 "anthropic_beta".to_owned(),
                 json!(["interleaved-thinking-2025-05-14"]),

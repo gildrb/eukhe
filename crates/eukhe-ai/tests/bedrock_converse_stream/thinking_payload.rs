@@ -177,10 +177,7 @@ async fn omits_display_for_govcloud_model_ids_on_non_adaptive_claude_thinking() 
         fields(&payload)["thinking"],
         json!({ "type": "enabled", "budget_tokens": 16384 })
     );
-    assert_eq!(
-        fields(&payload)["anthropic_beta"],
-        json!(["interleaved-thinking-2025-05-14"])
-    );
+    assert!(fields(&payload).get("anthropic_beta").is_none());
 }
 
 #[tokio::test]
@@ -310,9 +307,30 @@ async fn falls_back_to_fixed_budget_thinking_for_non_adaptive_claude_via_model_n
     let payload = capture_payload(&model, json!({})).await;
     assert_eq!(fields(&payload)["thinking"]["type"], json!("enabled"));
     assert!(fields(&payload)["thinking"]["budget_tokens"].is_number());
+    assert!(fields(&payload).get("anthropic_beta").is_none());
+}
+
+/// omp (`amazon-bedrock.ts` `buildAdditionalModelRequestFields`) adds the
+/// interleaved-thinking beta to budget thinking only when the caller sets
+/// `interleavedThinking`; its agent never does.
+#[tokio::test]
+async fn budget_thinking_sends_the_interleaved_beta_only_when_asked() {
+    let model = get_model(
+        "amazon-bedrock",
+        "global.anthropic.claude-opus-4-5-20251101-v1:0",
+    );
+    let unasked = capture_payload(&model, json!({ "reasoning": "low" })).await;
+    let asked = capture_payload(
+        &model,
+        json!({ "reasoning": "low", "interleavedThinking": true }),
+    )
+    .await;
     assert_eq!(
-        fields(&payload)["anthropic_beta"],
-        json!(["interleaved-thinking-2025-05-14"])
+        (fields(&unasked), &fields(&asked)["anthropic_beta"]),
+        (
+            &json!({ "thinking": { "type": "enabled", "budget_tokens": 2048, "display": "summarized" } }),
+            &json!(["interleaved-thinking-2025-05-14"])
+        )
     );
 }
 
