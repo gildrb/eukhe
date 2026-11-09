@@ -101,7 +101,13 @@ impl Supervisor {
     ) {
         loop {
             if let Some(mut child) = child.take() {
+                let pid = child.id().map(u64::from);
                 let status = child.wait().await;
+                // Every exit, a stop's too: the commands the worker still
+                // ran die with it.
+                if pid == Some(resident.descriptor.lock().await.pid) {
+                    self.reap_worker_groups(&resident).await;
+                }
                 if resident.intentional_stop.load(Ordering::SeqCst)
                     || self.shutting_down.load(Ordering::SeqCst)
                 {
@@ -133,10 +139,12 @@ impl Supervisor {
                     }
                 }
                 // A relaunch elsewhere (update abandon, retry) took over the
-                // resident with a new process.
-                if self.is_stopping(&resident)
-                    || resident.descriptor.lock().await.pid != adopted_pid
-                {
+                // resident with a new process, which owns the group journal.
+                if resident.descriptor.lock().await.pid != adopted_pid {
+                    return;
+                }
+                self.reap_worker_groups(&resident).await;
+                if self.is_stopping(&resident) {
                     return;
                 }
             }
@@ -301,6 +309,36 @@ impl Supervisor {
             || resident.intentional_stop.load(Ordering::SeqCst)
     }
 
+    /// Kill the process groups the resident's exited worker still ran
+    /// commands in (its group journal, `eukhe_types::platform::group_journal`),
+    /// so no `bash` command outlives its worker: the run that resumes in
+    /// the next worker reads the call as interrupted, and the command must
+    /// not run on beside a retry. Runs on every exit before the session
+    /// relaunches, and before every relaunch (a boot's revival of a worker
+    /// that died with its supervisor).
+    pub(super) async fn reap_worker_groups(&self, resident: &ResidentWorker) {
+        let recovery = PathBuf::from(&resident.descriptor.lock().await.recovery_journal_path);
+        let journal = crate::journal::group_journal_path(&recovery);
+        // The identity reads may spawn `ps` (macOS): off the runtime.
+        let reaped = tokio::task::spawn_blocking(move || {
+            eukhe_types::platform::group_journal::reap(&journal)
+        })
+        .await;
+        let worker_id = &resident.worker_id;
+        match reaped {
+            Ok(Ok(groups)) if groups.is_empty() => {}
+            Ok(Ok(groups)) => self.log_line(&format!(
+                "session worker {worker_id}: killed the process groups {groups:?} its commands left running"
+            )),
+            Ok(Err(error)) => self.log_line(&format!(
+                "session worker {worker_id}: the process group journal reap failed: {error}"
+            )),
+            Err(error) => self.log_line(&format!(
+                "session worker {worker_id}: the process group journal reap did not finish: {error}"
+            )),
+        }
+    }
+
     /// Whether the supervisor is tearing down (long-lived daemon tasks
     /// poll this instead of holding their own shutdown wiring).
     pub(crate) fn is_shutting_down(&self) -> bool {
@@ -323,6 +361,9 @@ impl Supervisor {
         // commands must wait for the replayed session (the replacement-
         // aware route gates on this until the replay answers).
         resident.note_session_replaying();
+        // The old worker is gone: what its commands left running dies
+        // before the replacement resumes the run.
+        self.reap_worker_groups(resident).await;
         // The old worker is gone for good: a run with a pending abort is
         // declared terminal HERE, before the create payload is built, so
         // the journal record deterministically rides this replay even when
