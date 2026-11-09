@@ -309,6 +309,10 @@ pub(crate) struct SessionUi {
     /// called tools. A run that ends owing one ended without a reply and
     /// says so.
     run_awaits_turn: bool,
+    /// This client interrupted the open run (Escape or Ctrl+C): a run that
+    /// then ends owing its answering turn ended by that abort, and says
+    /// so instead of "without a reply".
+    run_interrupted: bool,
     /// The session closed under this view (`session_closed`): a late
     /// prompt ack re-arms nothing. A re-attach clears it.
     session_closed: bool,

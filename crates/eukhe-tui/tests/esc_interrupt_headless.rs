@@ -1,11 +1,12 @@
-//! Headless e2e for the Escape interrupt (robustness findings F2-F3),
+//! Headless e2e for the Escape interrupt (robustness findings F2-F4),
 //! matched to omp's `handleEscape` (input-controller.ts:629-682): a double
 //! Escape during a stream stops the turn and never opens the session tree
 //! over the next prompt (F2); Escape returns the user's parked messages to
 //! the editor instead of starting the turn the user just stopped (F3,
-//! `restoreQueuedMessagesToEditor({ abort: true })`). Each test replays a
-//! run against the real interactive loop and a scripted mock daemon that
-//! waits for the client's requests.
+//! `restoreQueuedMessagesToEditor({ abort: true })`); and a run stopped
+//! during its tools says "Operation aborted", not "ended without a reply"
+//! (F4). Each test replays a run against the real interactive loop and a
+//! scripted mock daemon that waits for the client's requests.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -24,6 +25,8 @@ use serde_json::{json, Value};
 const PROMPT: &str = "go now";
 /// The streamed partial reply the interrupt stops.
 const PARTIAL: &str = "streaming partial words";
+/// The row a turn that ended with no reply leaves.
+const NO_REPLY: &str = "The turn ended without a reply";
 /// The row of a stopped turn.
 const ABORTED: &str = "Operation aborted";
 /// The tree selector's title row.
@@ -480,5 +483,51 @@ fn escape_returns_the_parked_steering_message_to_the_editor() {
         last.lines()
             .any(|line| line.trim_start().starts_with('>') && line.contains("steer msg")),
         "the parked message is back in the editor:\n{last}"
+    );
+}
+
+/// F4: Escape while a tool runs stops the run, which ends with no
+/// answering turn: the chat says the operation was aborted, not that the
+/// turn ended without a reply.
+#[test]
+fn escape_during_a_tool_says_the_operation_was_aborted() {
+    let tools = assistant(
+        &json!([
+            { "type": "text", "text": "listing files" },
+            { "type": "toolCall", "id": "c1", "name": "bash", "arguments": { "script": "sleep 45" } },
+        ]),
+        "toolUse",
+        None,
+    );
+    let mut script = vec![Act::Prompt(PROMPT)];
+    script.extend(run_for(PROMPT));
+    script.extend([message_start(&tools), message_end(&tools)]);
+    script.push(Act::Event(json!({
+        "type": "tool_execution_start",
+        "toolCallId": "c1",
+        "toolName": "bash",
+        "args": { "script": "sleep 45" },
+    })));
+    script.push(Act::Await("abort_and_send_queued"));
+    script.push(Act::Event(json!({
+        "type": "tool_execution_end",
+        "toolCallId": "c1",
+        "toolName": "bash",
+        "result": { "content": [{ "type": "text", "text": "Tool bash was aborted" }] },
+        "isError": true,
+    })));
+    script.extend([turn_end(&tools), run_end()]);
+    let steps = vec![
+        wait_for("listing files"),
+        key(KeyCode::Esc),
+        wait_for(ABORTED),
+        HeadlessStep::WaitMs(300),
+    ];
+    let frames = run(script, steps);
+    let last = frames.last().expect("a final frame");
+    assert!(last.contains(ABORTED), "the stop shows:\n{last}");
+    assert!(
+        !last.contains(NO_REPLY),
+        "a stopped run is not a turn without a reply:\n{last}"
     );
 }

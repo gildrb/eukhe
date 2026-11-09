@@ -119,6 +119,7 @@ impl SessionUi {
             run_open: false,
             run_rounds: 0,
             run_awaits_turn: false,
+            run_interrupted: false,
             session_closed: false,
             resynced_phase: None,
             rebuild_keeps_clock: false,

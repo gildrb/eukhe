@@ -606,7 +606,7 @@ pub use tool_fold::{
 mod tool_fold;
 
 pub use turn_end::TurnTail;
-pub(crate) use turn_end::{failure_row, no_reply_row};
+pub(crate) use turn_end::{aborted_row, failure_row, no_reply_row};
 use turn_end::{TurnBoundary, TurnFold};
 mod turn_end;
 

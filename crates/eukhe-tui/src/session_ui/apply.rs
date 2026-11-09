@@ -593,6 +593,7 @@ impl SessionUi {
                 self.run_open = true;
                 self.run_rounds = 0;
                 self.run_awaits_turn = true;
+                self.run_interrupted = false;
                 self.retry_popped_attempt = None;
                 self.begin_request(view);
             }
@@ -1008,11 +1009,22 @@ impl SessionUi {
                 // A run that ends owing its answering turn (none came, or
                 // its last turn called tools and the next never did) ended
                 // without a reply: the chat says so, like the rebuild of
-                // its stored transcript. A run that made no request stored
-                // no prompt for a rebuild to fold, so only this view holds
-                // the row.
+                // its stored transcript. A run this client interrupted
+                // ended by that abort instead (the engine settles a run
+                // aborted during its tools with no aborted message of its
+                // own; omp's loop closes such a run with one, rendered
+                // "Operation aborted", agent-loop.ts:1250,2836). A run
+                // that made no request stored no prompt for a rebuild to
+                // fold, so only this view holds the row.
                 if self.run_open && self.run_awaits_turn && !self.turn_error_shown {
-                    let row = crate::snapshot::no_reply_row();
+                    let row = if self.run_interrupted {
+                        crate::snapshot::aborted_row(crate::chat::live_abort_text(
+                            view.retry.as_ref().map_or(0, |retry| retry.attempt),
+                            view.working_since.map(|since| since.elapsed().as_secs()),
+                        ))
+                    } else {
+                        crate::snapshot::no_reply_row()
+                    };
                     if self.run_rounds == 0 {
                         self.carried_rows.push(row.clone());
                     }
@@ -1020,6 +1032,7 @@ impl SessionUi {
                 }
                 self.run_open = false;
                 self.run_awaits_turn = false;
+                self.run_interrupted = false;
                 self.retry_popped_attempt = None;
                 // The run is over unless a later prompt of this client is
                 // still owed its turn (admitted in between, or traveling).
@@ -1118,7 +1131,7 @@ impl SessionUi {
     /// `parked` says what becomes of the messages parked behind it), and a
     /// running user bash aborts alongside. The side-question abort stays
     /// at the call sites -- the two keys dispose of its pane differently.
-    pub(super) fn interrupt_running_work(&self, view: &AgentView, parked: ParkedOnInterrupt) {
+    pub(super) fn interrupt_running_work(&mut self, view: &AgentView, parked: ParkedOnInterrupt) {
         if view.compaction.is_some() {
             // The compaction loader is up (TS `isAgentCompacting()`):
             // the interrupt cancels the compaction run only -- the agent
@@ -1129,7 +1142,11 @@ impl SessionUi {
             // TS shows no transient abort hint: the aborted turn's own
             // assistant row carries the interrupt (the red "Operation
             // aborted" error row inside the message component), so
-            // nothing is noted here.
+            // nothing is noted here. The open run's end knows it was
+            // stopped (the `Idle` row).
+            if self.run_open {
+                self.run_interrupted = true;
+            }
             self.abort_turn(parked, view);
         }
         // A running user-bash command aborts the same way (TS
