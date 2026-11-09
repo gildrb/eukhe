@@ -58,75 +58,91 @@ fn opus_48() -> Model {
 
 #[tokio::test]
 async fn uses_adaptive_thinking_for_claude_opus_4_8_when_reasoning_is_enabled() {
-    let payload = capture_payload(&opus_48(), json!({})).await;
-    assert_eq!(fields(&payload)["thinking"], adaptive_with_binding());
-    assert_eq!(
-        fields(&payload)["output_config"],
-        json!({ "effort": "high" })
-    );
-    assert_eq!(
-        fields(&payload)["anthropic_beta"],
-        json!([THINKING_BINDING_CONTROLS_BETA])
-    );
+    assert_adaptive("global.anthropic.claude-opus-4-8", "high", "high").await;
 }
 
 #[tokio::test]
 async fn maps_xhigh_reasoning_to_effort_xhigh_for_claude_opus_4_8() {
-    let payload = capture_payload(&opus_48(), json!({ "reasoning": "xhigh" })).await;
-    assert_eq!(fields(&payload)["thinking"], adaptive_with_binding());
-    assert_eq!(
-        fields(&payload)["output_config"],
-        json!({ "effort": "xhigh" })
-    );
-    assert_eq!(
-        fields(&payload)["anthropic_beta"],
-        json!([THINKING_BINDING_CONTROLS_BETA])
-    );
+    assert_adaptive(&opus_48().id, "xhigh", "xhigh").await;
 }
 
-async fn assert_adaptive_binding(model_id: &str, reasoning: &str, effort: &str) {
+/// Adaptive thinking without block binding: omp binds only prefix-bound
+/// models (`classes/anthropic.kdl` `thinking-prefix-binding`: Fable 5.1+,
+/// Opus, Sonnet and Haiku 5.5).
+async fn assert_adaptive(model_id: &str, reasoning: &str, effort: &str) {
     let model = get_model("amazon-bedrock", model_id);
     let payload = capture_payload(&model, json!({ "reasoning": reasoning })).await;
     assert_eq!(
-        fields(&payload)["thinking"],
-        adaptive_with_binding(),
-        "{model_id}"
-    );
-    assert_eq!(
-        fields(&payload)["output_config"],
-        json!({ "effort": effort }),
-        "{model_id}"
-    );
-    assert_eq!(
-        fields(&payload)["anthropic_beta"],
-        json!([THINKING_BINDING_CONTROLS_BETA]),
+        fields(&payload),
+        &json!({
+            "thinking": { "type": "adaptive", "display": "summarized" },
+            "output_config": { "effort": effort },
+        }),
         "{model_id}"
     );
 }
 
 #[tokio::test]
 async fn uses_adaptive_thinking_for_claude_fable_5_when_reasoning_is_enabled() {
-    assert_adaptive_binding("global.anthropic.claude-fable-5", "high", "high").await;
+    assert_adaptive("global.anthropic.claude-fable-5", "high", "high").await;
 }
 
 #[tokio::test]
 async fn uses_adaptive_thinking_for_claude_sonnet_5_when_reasoning_is_enabled() {
-    assert_adaptive_binding("global.anthropic.claude-sonnet-5", "high", "high").await;
+    assert_adaptive("global.anthropic.claude-sonnet-5", "high", "high").await;
 }
 
 #[tokio::test]
 async fn uses_adaptive_thinking_for_claude_opus_5_when_reasoning_is_enabled() {
-    assert_adaptive_binding("global.anthropic.claude-opus-5", "high", "high").await;
+    assert_adaptive("global.anthropic.claude-opus-5", "high", "high").await;
 }
 
 #[tokio::test]
 async fn maps_xhigh_reasoning_to_effort_xhigh_for_claude_opus_5() {
-    assert_adaptive_binding("global.anthropic.claude-opus-5", "xhigh", "xhigh").await;
+    assert_adaptive("global.anthropic.claude-opus-5", "xhigh", "xhigh").await;
 }
 
 #[tokio::test]
 async fn maps_xhigh_reasoning_to_effort_xhigh_for_claude_fable_5() {
-    assert_adaptive_binding("global.anthropic.claude-fable-5", "xhigh", "xhigh").await;
+    assert_adaptive("global.anthropic.claude-fable-5", "xhigh", "xhigh").await;
+}
+
+/// omp binds signed thinking only on prefix-bound models (Fable 5.1+, Opus,
+/// Sonnet and Haiku 5.5); the 4.7 to 5 line sends no `block_binding` and
+/// no binding beta.
+#[tokio::test]
+async fn block_binding_goes_only_to_prefix_bound_models() {
+    let mut bound = Vec::new();
+    for model_id in [
+        "global.anthropic.claude-opus-4-7",
+        "global.anthropic.claude-opus-4-8",
+        "global.anthropic.claude-opus-5",
+        "global.anthropic.claude-sonnet-5",
+        "global.anthropic.claude-fable-5",
+        "global.anthropic.claude-fable-5-1",
+        "global.anthropic.claude-haiku-5-5",
+        "global.anthropic.claude-sonnet-5-5",
+        "global.anthropic.claude-opus-5-5",
+    ] {
+        let model = get_model("amazon-bedrock", model_id);
+        let payload = capture_payload(&model, json!({})).await;
+        let binding = fields(&payload)["thinking"].get("block_binding").is_some();
+        let beta = fields(&payload).get("anthropic_beta")
+            == Some(&json!([THINKING_BINDING_CONTROLS_BETA]));
+        assert_eq!(binding, beta, "{model_id}");
+        if binding {
+            bound.push(model_id);
+        }
+    }
+    assert_eq!(
+        bound,
+        [
+            "global.anthropic.claude-fable-5-1",
+            "global.anthropic.claude-haiku-5-5",
+            "global.anthropic.claude-sonnet-5-5",
+            "global.anthropic.claude-opus-5-5",
+        ]
+    );
 }
 
 // https://github.com/earendil-works/pi/issues/10324

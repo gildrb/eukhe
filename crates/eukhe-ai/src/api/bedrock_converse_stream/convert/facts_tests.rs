@@ -164,6 +164,25 @@ fn a_row_without_native_xhigh_in_its_map_is_sent_high() {
     );
 }
 
+/// omp's prefix-bound models (`classes/anthropic.kdl`
+/// `thinking-prefix-binding`: Fable 5.1+, Opus, Sonnet and Haiku 5.5), the
+/// only ones that take block binding.
+const PREFIX_BOUND: [&str; 12] = [
+    "opus-5-5",
+    "sonnet-5-5",
+    "haiku-5-5",
+    "fable-5-1",
+    "fable-5-2",
+    "fable-5-3",
+    "fable-5-4",
+    "fable-5-5",
+    "fable-5-6",
+    "fable-5-7",
+    "fable-5-8",
+    "fable-5-9",
+];
+
+/// The old adaptive list and omp's prefix-bound list of block binding.
 #[test]
 fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists() {
     let models: Vec<Model> = bedrock()
@@ -187,7 +206,7 @@ fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists
             } else {
                 old_adaptive(model)
             };
-            let old_binding = old_adaptive && any_candidate(model, &NATIVE_XHIGH);
+            let old_binding = old_adaptive && any_candidate(model, &PREFIX_BOUND);
             let binding = adaptive_thinking(model)
                 && Quirks::of(*model).thinking_block_binding() == Some(true);
             (old_adaptive, old_binding) != (adaptive_thinking(model), binding)
