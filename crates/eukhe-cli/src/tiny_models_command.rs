@@ -74,25 +74,19 @@ fn print_list(home: &TinyHome) {
         })
         .collect();
     let header = ["ID", "KIND", "ROLES", "SIZE", "STATE"].map(str::to_owned);
-    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        let mut widths = header.clone().map(|cell| cell.len());
-        for row in &rows {
-            for (width, cell) in widths.iter_mut().zip(row) {
-                *width = (*width).max(cell.len());
-            }
+    let mut widths = header.clone().map(|cell| cell.len());
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.len());
         }
-        for row in std::iter::once(&header).chain(&rows) {
-            let line: Vec<String> = row
-                .iter()
-                .zip(widths)
-                .map(|(cell, width)| format!("{cell:<width$}"))
-                .collect();
-            println!("{}", line.join("  ").trim_end());
-        }
-    } else {
-        let mut lines = vec![header.join("\t")];
-        lines.extend(rows.iter().map(|row| row.join("\t")));
-        println!("{}", lines.join("\n"));
+    }
+    for row in std::iter::once(&header).chain(&rows) {
+        let line: Vec<String> = row
+            .iter()
+            .zip(widths)
+            .map(|(cell, width)| format!("{cell:<width$}"))
+            .collect();
+        println!("{}", line.join("  ").trim_end());
     }
     // The models dir is context for the state column, not the answer.
     eprintln!("Models dir: {}", home.models.display());

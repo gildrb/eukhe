@@ -20,7 +20,8 @@
 //! The CLI's output contract, end to end against the real binary:
 //! exit-code classes (0 success, 1 operational, 2 usage), help discovery
 //! (`help` wins over version and validation), the `--json` shapes, the
-//! piped-table format, and the quiet closed-stdout exit.
+//! piped-table format (space-padded like on a terminal), and the quiet
+//! closed-stdout exit.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -182,6 +183,45 @@ fn empty_results_are_silent_success_or_plain_zero_lines() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stdout(&output), "No background services.\n");
     assert_eq!(stderr(&output), "");
+}
+
+/// Piped management tables keep the terminal's space-padded columns (omp
+/// `ps-cli.ts` `printTable`): no tabs, the header padded to its column.
+#[test]
+fn piped_tables_stay_space_padded() {
+    let fixture = Fixture::new("piped-tables");
+    let tiny = run(&["tiny-models"], fixture.path());
+    assert_eq!(tiny.status.code(), Some(0), "{}", stderr(&tiny));
+    let tiny_out = stdout(&tiny);
+    assert!(
+        !tiny_out.contains('\t'),
+        "piped tiny-models must not use tabs:\n{tiny_out}"
+    );
+    let header = tiny_out.lines().next().unwrap_or_default();
+    assert!(
+        header.starts_with("ID  "),
+        "space-padded header: {header:?}"
+    );
+    assert!(
+        tiny_out.lines().any(|line| line.starts_with("kokoro ")),
+        "a row splits on spaces:\n{tiny_out}"
+    );
+
+    // A stale socket file nobody listens on: `doctor` lists it as a row.
+    let socket = fixture.path().join("daemon.sock");
+    drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind the stale socket"));
+    let doctor = run(&["doctor"], fixture.path());
+    assert_eq!(doctor.status.code(), Some(0), "{}", stderr(&doctor));
+    let doctor_out = stdout(&doctor);
+    assert!(
+        !doctor_out.contains('\t'),
+        "piped doctor must not use tabs:\n{doctor_out}"
+    );
+    assert!(
+        doctor_out.starts_with("socket  "),
+        "space-padded header:\n{doctor_out}"
+    );
+    assert!(doctor_out.contains("orphan-file"), "{doctor_out}");
 }
 
 #[test]

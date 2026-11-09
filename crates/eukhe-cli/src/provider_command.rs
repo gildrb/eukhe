@@ -260,17 +260,9 @@ fn run_models(models: &Models, provider: &str, output: Output) -> i32 {
 }
 
 /// The listing table: `id  name  context  max-out`, `-` for a value the
-/// provider does not give, columns padded to their widest cell. Piped
-/// stdout keeps the header and separates the columns with one tab.
+/// provider does not give, columns padded to their widest cell, on a
+/// terminal and piped alike.
 fn render_listing(listed: &[ListedModel]) -> String {
-    render_listing_layout(
-        listed,
-        !std::io::IsTerminal::is_terminal(&std::io::stdout()),
-    )
-}
-
-/// The listing table in a fixed layout (`tab`: the piped form).
-fn render_listing_layout(listed: &[ListedModel], tab: bool) -> String {
     const HEADERS: [&str; 4] = ["id", "name", "context", "max-out"];
     let tokens = |count: Option<u64>| count.map_or_else(|| "-".to_string(), format_token_count);
     let rows: Vec<[String; 4]> = listed
@@ -284,11 +276,6 @@ fn render_listing_layout(listed: &[ListedModel], tab: bool) -> String {
             ]
         })
         .collect();
-    if tab {
-        let mut lines = vec![HEADERS.join("\t")];
-        lines.extend(rows.iter().map(|row| row.join("\t")));
-        return lines.join("\n");
-    }
     let mut widths = HEADERS.map(|header| header.chars().count());
     for row in &rows {
         for (width, cell) in widths.iter_mut().zip(row) {
@@ -460,7 +447,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            render_listing_layout(&listed, false),
+            render_listing(&listed),
             "id                 name               context  max-out\n\
              claude-sonnet-4-5  Claude Sonnet 4.5  200K     64K\n\
              qwen3-8b           -                  -        -"

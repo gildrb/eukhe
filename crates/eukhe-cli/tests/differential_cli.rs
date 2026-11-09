@@ -33,13 +33,12 @@
 //! `1`); `--help` wins over `--version`; a bare `help` prints help and an
 //! unknown `help <path>` is a usage error; `status --json` shapes its list
 //! under a `services` key; `shutdown` confirmation refusals exit `2` (JSON:
-//! one error document on stderr) and a declined confirmation exits `130`;
-//! piped tables are tab-separated; the connect-failure error carries a
-//! recovery command. The corpus below predates the change, so a differential
-//! run against a TS binary that still follows the old contract fails on
-//! those families by design; the new contract is pinned by the Rust-side
-//! tests in `cli_contract_e2e.rs` and the unit tests of the touched
-//! modules.
+//! one error document on stderr) and a declined
+//! confirmation exits `130`; the connect-failure error carries a recovery
+//! command. The corpus below predates the change, so a differential run
+//! against a TS binary that still follows the old contract fails on those
+//! families by design; the new contract is pinned by the Rust-side tests in
+//! `cli_contract_e2e.rs` and the unit tests of the touched modules.
 //!
 //! The TS binary is located via `EUKHE_TS_BINARY`; the
 //! test is skipped (not failed) when it is not installed. Each binary runs in

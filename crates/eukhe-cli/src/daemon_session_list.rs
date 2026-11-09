@@ -141,21 +141,12 @@ pub(crate) fn live_session_summary(data: &Value) -> Option<&Value> {
     is_live_session_summary(data).then_some(data)
 }
 
-/// The shared CLI table renderer (TS `formatTable`): on a terminal every
-/// column pads to the widest cell's terminal display width, so a wide
-/// glyph (CJK, emoji) cannot drift the columns after it, with two spaces
-/// between columns. `tab` renders the piped form instead: header kept,
-/// one tab between cells, no padding, so `grep`/`cut`/agents read it.
-pub(crate) fn format_table_layout<const N: usize>(
-    headers: &[&str; N],
-    rows: &[[String; N]],
-    tab: bool,
-) -> String {
-    if tab {
-        let mut lines = vec![headers.join("\t")];
-        lines.extend(rows.iter().map(|row| row.join("\t")));
-        return lines.join("\n");
-    }
+/// The shared CLI table renderer (TS `formatTable`): every column pads to
+/// the widest cell's terminal display width, so a wide glyph (CJK, emoji)
+/// cannot drift the columns after it, with two spaces between columns.
+/// Piped stdout gets the same padded layout (omp `ps-cli.ts` `printTable`
+/// keeps padding when piped), so scripts can split it on spaces.
+pub(crate) fn format_table<const N: usize>(headers: &[&str; N], rows: &[[String; N]]) -> String {
     let widths: [usize; N] = std::array::from_fn(|column| {
         rows.iter()
             .map(|row| eukhe_tui::width::str_width(&row[column]))
@@ -194,14 +185,6 @@ const LIST_HEADERS: [&str; 7] = [
 /// The fixed-column table, mirroring `formatSessionListTable` (colors are
 /// TTY-only in TS; this output is color-free like TS piped output).
 pub(crate) fn format_session_list_table(sessions: &[SessionSummary]) -> String {
-    format_session_list_table_layout(
-        sessions,
-        !std::io::IsTerminal::is_terminal(&std::io::stdout()),
-    )
-}
-
-/// The list table in a fixed layout (`tab`: the piped, tab-separated form).
-pub(crate) fn format_session_list_table_layout(sessions: &[SessionSummary], tab: bool) -> String {
     let now = now_ms();
     let mut sorted: Vec<&SessionSummary> = sessions.iter().collect();
     sorted.sort_by_key(|session| session.list_status_order());
@@ -223,7 +206,7 @@ pub(crate) fn format_session_list_table_layout(sessions: &[SessionSummary], tab:
             ]
         })
         .collect();
-    format_table_layout(&LIST_HEADERS, &rows, tab)
+    format_table(&LIST_HEADERS, &rows)
 }
 
 /// `formatSessionDisplayId`: the last 12 chars of a hex-normalized id.
@@ -426,7 +409,7 @@ mod tests {
     #[test]
     fn table_matches_captured_ts_golden_shape() {
         let sessions = get_session_summaries(&json!({ "sessions": [summary()] })).unwrap();
-        let table = format_session_list_table_layout(&sessions, false);
+        let table = format_session_list_table(&sessions);
         let lines: Vec<&str> = table.lines().collect();
         assert_eq!(
             lines[0],
@@ -439,18 +422,6 @@ mod tests {
         assert!(
             lines[1].contains("prime-inference/z-ai/glm-5.3"),
             "{lines:?}"
-        );
-
-        // The piped form keeps the header, tab-separated, unpadded.
-        let piped = format_session_list_table_layout(&sessions, true);
-        let piped_lines: Vec<&str> = piped.lines().collect();
-        assert_eq!(
-            piped_lines[0],
-            "name\tid\tstatus\tage\tmodel\tmessages\tclients"
-        );
-        assert!(
-            piped_lines[1].starts_with("research\tb72ad7009b11\tidle\t"),
-            "{piped_lines:?}"
         );
     }
 

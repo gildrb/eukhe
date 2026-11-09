@@ -19,21 +19,8 @@ fn status_name(status: DaemonStatus) -> String {
 
 /// The discovered-daemon table (TS `formatDaemonListTable`): socket, pid,
 /// version, status, sessions, uptime; the default socket is starred with a
-/// footnote.
+/// footnote. Piped stdout gets the same padded layout.
 pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo], styling: Styling) -> String {
-    format_daemon_list_table_layout(
-        daemons,
-        styling,
-        !std::io::IsTerminal::is_terminal(&std::io::stdout()),
-    )
-}
-
-/// The daemon table in a fixed layout (`tab`: the piped form).
-pub(crate) fn format_daemon_list_table_layout(
-    daemons: &[DaemonInfo],
-    styling: Styling,
-    tab: bool,
-) -> String {
     let headers = ["socket", "pid", "version", "status", "sessions", "uptime"];
     let rows: Vec<[String; 6]> = daemons
         .iter()
@@ -55,14 +42,6 @@ pub(crate) fn format_daemon_list_table_layout(
             ]
         })
         .collect();
-    // Piped stdout keeps the header and separates the columns with one
-    // tab, never padding; the default-socket footnote only makes sense
-    // beside the padded layout.
-    if tab {
-        let mut lines = vec![headers.join("\t")];
-        lines.extend(rows.iter().map(|row| row.join("\t")));
-        return lines.join("\n");
-    }
     let widths: Vec<usize> = headers
         .iter()
         .enumerate()
@@ -214,13 +193,12 @@ mod tests {
 
     #[test]
     fn table_matches_the_ts_layout() {
-        let table = format_daemon_list_table_layout(
+        let table = format_daemon_list_table(
             &[
                 daemon("/tmp/eukhe-1000/daemon.sock", DaemonStatus::Current, true),
                 daemon("/tmp/other.sock", DaemonStatus::Stale, false),
             ],
             Styling::Plain,
-            false,
         );
         // Column widths: socket 29 (the starred default path), pid 3,
         // version 7, status 7, sessions 8, uptime 6; two-space gutters.
