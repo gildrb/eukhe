@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW dash_conn_entry_history
 #
 # PROOF: the open is a waiting socket; then by induction on the events,
-# each spelled event moves the stepper as the spec's step does and answers
-# its spelled verdict (dash_conn_entry_answers), so the next state is the
-# spec's socket after it and the rest follows.
+# each spelled event moves the stepper as the model's step does and
+# answers its spelled verdict (dash_conn_entry_answers), so the next state
+# is the model's socket after it and the rest follows.
 
 import Base
 import ../../bend/dash.bend as Da
@@ -22,8 +22,8 @@ def dceh.go(es: List<&2, Da.CEv>, +c: Da.Conn, out: String, fits: {DashConn.sp_f
       {==}
     case +e <> +t:
       +f2 = fits
-      %Equal.sym(FDa.St & String, FDa.step(FDa.Live{c}, DashConn.sp_w_ev(e, "")), DashConn.cs_reply(DashConn.sp_cstep(c, e)), DashConn.dash_conn_entry_answers(c, e, LA.dcn.and_l(DashConn.sp_fit_ev(e), DashConn.sp_fit_evs(t), f2))) : {out <> DashConn.cs_feed(t, _) == out <> DashConn.cs_replies(e <> t, c) : List<&2, String>}
-      Equal.cong(List<&2, String>, List<&2, String>, z => out <> z, DashConn.cs_feed(t, DashConn.cs_reply(DashConn.sp_cstep(c, e))), DashConn.cs_replies(e <> t, c), dceh.step(t, DashConn.sp_cstep(c, e), c2 => o2 => dceh.go(t, c2, o2, LA.dcn.and_r(DashConn.sp_fit_ev(e), DashConn.sp_fit_evs(t), f2))))
+      %Equal.sym(FDa.St & String, FDa.step(FDa.Live{c}, DashConn.sp_w_ev(e, "")), DashConn.cs_reply(Da.cstep(c, e)), DashConn.dash_conn_entry_answers(c, e, LA.dcn.and_l(DashConn.sp_fit_ev(e), DashConn.sp_fit_evs(t), f2))) : {out <> DashConn.cs_feed(t, _) == out <> DashConn.cs_replies(e <> t, c) : List<&2, String>}
+      Equal.cong(List<&2, String>, List<&2, String>, z => out <> z, DashConn.cs_feed(t, DashConn.cs_reply(Da.cstep(c, e))), DashConn.cs_replies(e <> t, c), dceh.step(t, Da.cstep(c, e), c2 => o2 => dceh.go(t, c2, o2, LA.dcn.and_r(DashConn.sp_fit_ev(e), DashConn.sp_fit_evs(t), f2))))
 
 def DashConn.dash_conn_entry_history(es, fits):
   dceh.go(es, Da.Waiting{}, "", fits)

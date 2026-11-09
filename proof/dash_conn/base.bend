@@ -1,9 +1,8 @@
 # eukhe: lemmas the proofs of laws/dash_conn.bend share
 #
-# The stepper's decoder is the laws' reader, stage by stage (dcn.read);
-# its verdict encoder is the laws' speller (dcn.reply); the reader reads
-# back every event Rust spells (dcn.rt: tags and Bools compute, a text
-# reads back by wire_str_round_trip). A pass of the gate is Admit or
+# The stepper's verdict encoder is the laws' speller (dcn.reply); its
+# decoder reads back every event Rust spells (dcn.rt: tags and Bools
+# compute, a text reads back by wire_str_round_trip). A pass of the gate is Admit or
 # Refuse, so what a step answers follows by cases on it (dcr.*); a closed
 # socket answers only `closed` (dcr.closed_run).
 
@@ -53,131 +52,6 @@ def dcn.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == 
     case False{}:
       dcn.absurdF({b == True{} : Bool}, h)
 
-# The decoder is the reader
-# -------------------------
-
-def dcn.disk_text(r: Wr.Dec<String>) -> {FDa.get_file.text(r) == DashConn.rd_disk.text(r) : Wr.Dec<Da.Disk>}:
-  match r:
-    case Wr.Got{t, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.disk(r: Wr.Dec<Nat>) -> {FDa.get_file(r) == DashConn.rd_disk(r) : Wr.Dec<Da.Disk>}:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          {==}
-        case 1n:
-          {==}
-        case 2n:
-          dcn.disk_text(Wr.get_str(s))
-        case 3n:
-          {==}
-        case 4n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.said_spoken(r: Wr.Dec<String>) -> {FDa.get_said.spoken(r) == DashConn.rd_said.spoken(r) : Wr.Dec<Da.Said>}:
-  match r:
-    case Wr.Got{t, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.said(r: Wr.Dec<Nat>) -> {FDa.get_said(r) == DashConn.rd_said(r) : Wr.Dec<Da.Said>}:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          dcn.said_spoken(Wr.get_str(s))
-        case 1n:
-          {==}
-        case 2n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.first_pair(r: Wr.Dec<Da.Said>) -> {FDa.get_first.pair(r) == DashConn.rd_first.pair(r) : Wr.Dec<Da.First>}:
-  match r:
-    case Wr.Got{t, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.first(r: Wr.Dec<Nat>) -> {FDa.get_first(r) == DashConn.rd_first(r) : Wr.Dec<Da.First>}:
-  match r:
-    case Wr.Got{t, +s}:
-      match t:
-        case 0n:
-          {==}
-        case 1n:
-          {==}
-        case 2n:
-          %dcn.said(Wr.get_nat(s)) : {FDa.get_first.pair(FDa.get_said(Wr.get_nat(s))) == DashConn.rd_first.pair(_) : Wr.Dec<Da.First>}
-          dcn.first_pair(FDa.get_said(Wr.get_nat(s)))
-        case 3n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.ev_matches(x: Da.First, f: Da.Disk, r: Wr.Dec<Bool>) -> {FDa.get_ev.matches(x, f, r) == DashConn.rd_ev.matches(x, f, r) : Wr.Dec<Da.CEv>}:
-  match r:
-    case Wr.Got{m, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.ev_first(x: Da.First, r: Wr.Dec<Da.Disk>) -> {FDa.get_ev.first(x, r) == DashConn.rd_ev.first(x, r) : Wr.Dec<Da.CEv>}:
-  match r:
-    case Wr.Got{f, s}:
-      dcn.ev_matches(x, f, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def dcn.ev_pair(r: Wr.Dec<Da.First>) -> {FDa.get_ev.pair(r) == DashConn.rd_ev.pair(r) : Wr.Dec<Da.CEv>}:
-  match r:
-    case Wr.Got{+x, +s}:
-      %dcn.disk(Wr.get_nat(s)) : {FDa.get_ev.first(x, FDa.get_file(Wr.get_nat(s))) == DashConn.rd_ev.first(x, _) : Wr.Dec<Da.CEv>}
-      dcn.ev_first(x, FDa.get_file(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      {==}
-
-def dcn.ev_later(f: Da.Disk, r: Wr.Dec<Bool>) -> {FDa.get_ev.later(f, r) == DashConn.rd_ev.later(f, r) : Wr.Dec<Da.CEv>}:
-  match r:
-    case Wr.Got{m, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def dcn.ev_frame(r: Wr.Dec<Da.Disk>) -> {FDa.get_ev.frame(r) == DashConn.rd_ev.frame(r) : Wr.Dec<Da.CEv>}:
-  match r:
-    case Wr.Got{f, s}:
-      dcn.ev_later(f, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def dcn.ev_go(r: Wr.Dec<Nat>) -> {FDa.get_ev.go(r) == DashConn.rd_ev.go(r) : Wr.Dec<Da.CEv>}:
-  match r:
-    case Wr.Got{t, +s}:
-      match t:
-        case 0n:
-          %dcn.first(Wr.get_nat(s)) : {FDa.get_ev.pair(FDa.get_first(Wr.get_nat(s))) == DashConn.rd_ev.pair(_) : Wr.Dec<Da.CEv>}
-          dcn.ev_pair(FDa.get_first(Wr.get_nat(s)))
-        case 1n:
-          %dcn.disk(Wr.get_nat(s)) : {FDa.get_ev.frame(FDa.get_file(Wr.get_nat(s))) == DashConn.rd_ev.frame(_) : Wr.Dec<Da.CEv>}
-          dcn.ev_frame(FDa.get_file(Wr.get_nat(s)))
-        case 2n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-# the stepper reads every input as the laws' reader does
-def dcn.read(+s: String) -> {FDa.get_ev(s) == DashConn.read_ev(s) : Wr.Dec<Da.CEv>}:
-  dcn.ev_go(Wr.get_nat(s))
-
 # The encoder is the speller
 # --------------------------
 
@@ -197,50 +71,50 @@ def dcn.reply(r: Da.Conn & Da.Verdict) -> {FDa.step.reply(r) == DashConn.cs_repl
   %dcn.verdict(v) : {(FDa.Live{c}, FDa.put_verdict(v)) == (FDa.Live{c}, _) : FDa.St & String}
   {==}
 
-# The reader reads back what Rust writes
+# The decoder reads back what Rust writes
 # --------------------------------------
 
 def dcn.str(+a: String, +rest: String, h: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}) -> {Wr.Got{a, rest} == Wr.get_str(Wr.put_str(a, rest)) : Wr.Dec<String>}:
   Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(a, rest)), Wr.Got{a, rest}, Wire.wire_str_round_trip(a, rest, h))
 
-def dcn.rt_disk(f: Da.Disk, +rest: String, h: {Dash.sp_fit_disk(f) == True{} : Bool}) -> {Wr.Got{f, rest} == DashConn.rd_disk(Wr.get_nat(Dash.sp_w_disk(f, rest))) : Wr.Dec<Da.Disk>}:
+def dcn.rt_disk(f: Da.Disk, +rest: String, h: {Dash.sp_fit_disk(f) == True{} : Bool}) -> {Wr.Got{f, rest} == FDa.get_file(Wr.get_nat(Dash.sp_w_disk(f, rest))) : Wr.Dec<Da.Disk>}:
   match f:
     case Da.NoFile{}:
       {==}
     case Da.Unread{}:
       {==}
     case Da.Holds{+s}:
-      %dcn.str(s, rest, h) : {Wr.Got{Da.Holds{s}, rest} == DashConn.rd_disk.text(_) : Wr.Dec<Da.Disk>}
+      %dcn.str(s, rest, h) : {Wr.Got{Da.Holds{s}, rest} == FDa.get_file.text(_) : Wr.Dec<Da.Disk>}
       {==}
     case Da.Huge{}:
       {==}
 
-def dcn.rt_said(x: Da.Said, +rest: String, h: {Dash.sp_fit_said(x) == True{} : Bool}) -> {Wr.Got{x, rest} == DashConn.rd_said(Wr.get_nat(Dash.sp_w_said(x, rest))) : Wr.Dec<Da.Said>}:
+def dcn.rt_said(x: Da.Said, +rest: String, h: {Dash.sp_fit_said(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FDa.get_said(Wr.get_nat(Dash.sp_w_said(x, rest))) : Wr.Dec<Da.Said>}:
   match x:
     case Da.Spoken{+t}:
-      %dcn.str(t, rest, h) : {Wr.Got{Da.Spoken{t}, rest} == DashConn.rd_said.spoken(_) : Wr.Dec<Da.Said>}
+      %dcn.str(t, rest, h) : {Wr.Got{Da.Spoken{t}, rest} == FDa.get_said.spoken(_) : Wr.Dec<Da.Said>}
       {==}
     case Da.Overlong{}:
       {==}
 
-def dcn.rt_first(x: Da.First, +rest: String, h: {Dash.sp_fit_first(x) == True{} : Bool}) -> {Wr.Got{x, rest} == DashConn.rd_first(Wr.get_nat(Dash.sp_w_first(x, rest))) : Wr.Dec<Da.First>}:
+def dcn.rt_first(x: Da.First, +rest: String, h: {Dash.sp_fit_first(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FDa.get_first(Wr.get_nat(Dash.sp_w_first(x, rest))) : Wr.Dec<Da.First>}:
   match x:
     case Da.NoText{}:
       {==}
     case Da.NotPairing{}:
       {==}
     case Da.Pair{+t}:
-      %dcn.rt_said(t, rest, h) : {Wr.Got{Da.Pair{t}, rest} == DashConn.rd_first.pair(_) : Wr.Dec<Da.First>}
+      %dcn.rt_said(t, rest, h) : {Wr.Got{Da.Pair{t}, rest} == FDa.get_first.pair(_) : Wr.Dec<Da.First>}
       {==}
 
-def dcn.rt_matches(m: Bool, -x: Da.First, -f: Da.Disk, -rest: String) -> {DashConn.rd_ev.matches(x, f, Wr.get_bool(Wr.put_bool(m, rest))) == Wr.Got{Da.CFirst{x, f, m}, rest} : Wr.Dec<Da.CEv>}:
+def dcn.rt_matches(m: Bool, -x: Da.First, -f: Da.Disk, -rest: String) -> {FDa.get_ev.matches(x, f, Wr.get_bool(Wr.put_bool(m, rest))) == Wr.Got{Da.CFirst{x, f, m}, rest} : Wr.Dec<Da.CEv>}:
   match m:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def dcn.rt_later(m: Bool, -f: Da.Disk, -rest: String) -> {DashConn.rd_ev.later(f, Wr.get_bool(Wr.put_bool(m, rest))) == Wr.Got{Da.CFrame{f, m}, rest} : Wr.Dec<Da.CEv>}:
+def dcn.rt_later(m: Bool, -f: Da.Disk, -rest: String) -> {FDa.get_ev.later(f, Wr.get_bool(Wr.put_bool(m, rest))) == Wr.Got{Da.CFrame{f, m}, rest} : Wr.Dec<Da.CEv>}:
   match m:
     case True{}:
       {==}
@@ -248,17 +122,17 @@ def dcn.rt_later(m: Bool, -f: Da.Disk, -rest: String) -> {DashConn.rd_ev.later(f
       {==}
 
 # every event Rust spells reads back whole, the rest untouched
-def dcn.rt(e: Da.CEv, +rest: String, h: {DashConn.sp_fit_ev(e) == True{} : Bool}) -> {DashConn.read_ev(DashConn.sp_w_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Da.CEv>}:
+def dcn.rt(e: Da.CEv, +rest: String, h: {DashConn.sp_fit_ev(e) == True{} : Bool}) -> {FDa.get_ev(DashConn.sp_w_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Da.CEv>}:
   match e:
     case Da.CFirst{+x, +f, +m}:
       +h2 = h
       +r2 = Wr.put_bool(m, rest)
       +r1 = Dash.sp_w_disk(f, r2)
-      %dcn.rt_first(x, r1, dcn.and_l(Dash.sp_fit_first(x), Dash.sp_fit_disk(f), h2)) : {DashConn.rd_ev.pair(_) == Wr.Got{Da.CFirst{x, f, m}, rest} : Wr.Dec<Da.CEv>}
-      %dcn.rt_disk(f, r2, dcn.and_r(Dash.sp_fit_first(x), Dash.sp_fit_disk(f), h2)) : {DashConn.rd_ev.first(x, _) == Wr.Got{Da.CFirst{x, f, m}, rest} : Wr.Dec<Da.CEv>}
+      %dcn.rt_first(x, r1, dcn.and_l(Dash.sp_fit_first(x), Dash.sp_fit_disk(f), h2)) : {FDa.get_ev.pair(_) == Wr.Got{Da.CFirst{x, f, m}, rest} : Wr.Dec<Da.CEv>}
+      %dcn.rt_disk(f, r2, dcn.and_r(Dash.sp_fit_first(x), Dash.sp_fit_disk(f), h2)) : {FDa.get_ev.first(x, _) == Wr.Got{Da.CFirst{x, f, m}, rest} : Wr.Dec<Da.CEv>}
       dcn.rt_matches(m, x, f, rest)
     case Da.CFrame{+f, +m}:
-      %dcn.rt_disk(f, Wr.put_bool(m, rest), h) : {DashConn.rd_ev.frame(_) == Wr.Got{Da.CFrame{f, m}, rest} : Wr.Dec<Da.CEv>}
+      %dcn.rt_disk(f, Wr.put_bool(m, rest), h) : {FDa.get_ev.frame(_) == Wr.Got{Da.CFrame{f, m}, rest} : Wr.Dec<Da.CEv>}
       dcn.rt_later(m, f, rest)
 
 # What a step answers
@@ -310,3 +184,79 @@ def dcr.closed_quiet(c: Da.Conn, es: List<&2, Da.CEv>, h: {DashConn.cv_is_closed
       dcn.absurdF({DashConn.cv_any_live(DashConn.cv_run(es, Da.Paired{})) == False{} : Bool}, h)
     case Da.Closed{}:
       dcr.closed_run(es)
+
+# A rotation (C5)
+# ---------------
+
+def drt.snd(-A: Type, -B: Type, p: A & B) -> B:
+  (x, y) = p
+  y
+
+# a file that holds the token b holds a token
+def drt.holds(+m: Maybe<&2, List<&2, Nat>>, +b: List<&2, Nat>, h: {m == Some{b} : Maybe<&2, List<&2, Nat>>}) -> {Dash.sp_has(m) == True{} : Bool}:
+  %Equal.sym(Maybe<&2, List<&2, Nat>>, m, Some{b}, h) : {Dash.sp_has(_) == True{} : Bool}
+  {==}
+
+# Rust's comparison of the token a with a file that holds another token b
+# fails
+def drt.unmatched(+a: List<&2, Nat>, +g: Da.Disk, +b: List<&2, Nat>, rotated: {Dash.sp_stored(g) == Some{b} : Maybe<&2, List<&2, Nat>>}, other: {DashConn.cv_bytes_same(a, b) == False{} : Bool}) -> {DashConn.cv_rust_match(Some{a}, g) == False{} : Bool}:
+  %Equal.sym(Maybe<&2, List<&2, Nat>>, Dash.sp_stored(g), Some{b}, rotated) : {DashConn.cv_rust_match.held(a, _) == False{} : Bool}
+  other
+
+def drt.pass_admit(p: Da.Pass) -> Bool:
+  match p:
+    case Da.Admit{}:
+      True{}
+    case Da.Refuse{x}:
+      False{}
+
+def drt.pass_text(p: Da.Pass) -> String:
+  match p:
+    case Da.Admit{}:
+      ""
+    case Da.Refuse{x}:
+      x
+
+# a first frame the gate refuses with w closes the socket and answers w
+def drt.first_refuse(p: Da.Pass, +w: String, hp: {p == Da.Refuse{w} : Da.Pass}) -> {Da.first.pass(p) == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}:
+  match p:
+    case Da.Admit{}:
+      dcn.absurdT({Da.first.pass(Da.Admit{}) == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}, Equal.cong(Da.Pass, Bool, z => drt.pass_admit(z), Da.Admit{}, Da.Refuse{w}, hp))
+    case Da.Refuse{+x}:
+      Equal.cong(String, Da.Conn & Da.Verdict, z => (Da.Closed{}, Da.VRefuse{z}), x, w, Equal.cong(Da.Pass, String, z => drt.pass_text(z), Da.Refuse{x}, Da.Refuse{w}, hp))
+
+# a later frame the check refuses with w closes the socket and answers w
+def drt.frame_refuse(p: Da.Pass, +w: String, hp: {p == Da.Refuse{w} : Da.Pass}) -> {Da.frame.pass(p) == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}:
+  match p:
+    case Da.Admit{}:
+      dcn.absurdT({Da.frame.pass(Da.Admit{}) == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}, Equal.cong(Da.Pass, Bool, z => drt.pass_admit(z), Da.Admit{}, Da.Refuse{w}, hp))
+    case Da.Refuse{+x}:
+      Equal.cong(String, Da.Conn & Da.Verdict, z => (Da.Closed{}, Da.VRefuse{z}), x, w, Equal.cong(Da.Pass, String, z => drt.pass_text(z), Da.Refuse{x}, Da.Refuse{w}, hp))
+
+# a step that refuses with w: the model's replies are w, then those of a
+# closed socket
+def drt.replies(r: Da.Conn & Da.Verdict, +w: String, rest: List<&2, Da.CEv>, hr: {r == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}) -> {DashConn.sp_w_verdict(DashConn.cv_verdict(r)) <> DashConn.cs_replies(rest, DashConn.cv_conn(r)) == DashConn.sp_w_verdict(Da.VRefuse{w}) <> DashConn.cs_replies(rest, Da.Closed{}) : List<&2, String>}:
+  Equal.cong(Da.Conn & Da.Verdict, List<&2, String>, z => DashConn.sp_w_verdict(DashConn.cv_verdict(z)) <> DashConn.cs_replies(rest, DashConn.cv_conn(z)), r, (Da.Closed{}, Da.VRefuse{w}), hr)
+
+# a closed socket answers `closed` to each later frame
+def drt.closed(+p: Maybe<&2, List<&2, Nat>>, fs: List<&2, Da.Disk>) -> {DashConn.cs_replies(DashConn.cv_frames(p, fs), Da.Closed{}) == DashConn.cw_closed(fs) : List<&2, String>}:
+  match fs:
+    case Nil{}:
+      {==}
+    case f <> t:
+      Equal.cong(List<&2, String>, List<&2, String>, z => DashConn.sp_w_verdict(Da.VClosed{}) <> z, DashConn.cs_replies(DashConn.cv_frames(p, t), Da.Closed{}), DashConn.cw_closed(t), drt.closed(p, t))
+
+# the frames fit the wire when their files do
+def drt.fit_frames(+p: Maybe<&2, List<&2, Nat>>, fs: List<&2, Da.Disk>) -> {DashConn.sp_fit_evs(DashConn.cv_frames(p, fs)) == DashConn.cv_fit_disks(fs) : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +f <> t:
+      Equal.cong(Bool, Bool, z => Bool.and(Dash.sp_fit_disk(f), z), DashConn.sp_fit_evs(DashConn.cv_frames(p, t)), DashConn.cv_fit_disks(t), drt.fit_frames(p, t))
+
+def drt.and3(x: Bool, -y: Bool, -z: Bool, hx: {x == True{} : Bool}, hyz: {Bool.and(y, z) == True{} : Bool}) -> {Bool.and(Bool.and(x, y), z) == True{} : Bool}:
+  match x:
+    case True{}:
+      hyz
+    case False{}:
+      dcn.absurdF({Bool.and(Bool.and(False{}, y), z) == True{} : Bool}, hx)

@@ -3,6 +3,11 @@
 # PROOF: each field reads back by the wire's round trips (LA.dcn.rt).
 
 import Base
+import ../../bend/dash.bend as Da
+import ../../bend/ffi_dash.bend as FDa
+import ../../bend/wire.bend as Wr
+import ../../laws/base.bend as LawsBase
+import ../../laws/dash.bend as Dash
 import ../../laws/dash_conn.bend as DashConn
 import ./base.bend as LA
 

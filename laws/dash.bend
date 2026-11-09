@@ -210,69 +210,9 @@ def sp_wrong() -> String:
 def sp_unset() -> String:
   "the dashboard has no pairing token: restart `eukhe dashboard`"
 
-def sp_check(m: Maybe<&2, List<&2, Nat>>, same: Bool) -> Da.Pass:
-  match m:
-    case None{}:
-      Da.Refuse{sp_unset()}
-    case Some{bs}:
-      match same:
-        case True{}:
-          Da.Admit{}
-        case False{}:
-          Da.Refuse{sp_wrong()}
-
-def sp_gate.shown(x: Da.Shown, f: Da.Disk, same: Bool) -> Da.Pass:
-  match x:
-    case Da.Hex{bs}:
-      sp_check(sp_stored(f), same)
-    case Da.Blank{}:
-      Da.Refuse{sp_missing()}
-    case Da.Junk{}:
-      Da.Refuse{sp_wrong()}
-
-# R3
-def sp_gate(x: Da.First, f: Da.Disk, same: Bool) -> Da.Pass:
-  match x:
-    case Da.NoText{}:
-      Da.Refuse{sp_missing()}
-    case Da.NotPairing{}:
-      Da.Refuse{sp_missing()}
-    case Da.Pair{t}:
-      sp_gate.shown(sp_shown(t), f, same)
-
-# R4
-def sp_frame(f: Da.Disk, same: Bool) -> Da.Pass:
-  sp_check(sp_stored(f), same)
-
-def sp_keep.mode(b: Bool) -> Da.Keep:
-  match b:
-    case True{}:
-      Da.Restrict{}
-    case False{}:
-      Da.Reuse{}
-
-def sp_keep.held(m: Maybe<&2, List<&2, Nat>>, +mode: Nat) -> Da.Keep:
-  match m:
-    case None{}:
-      Da.Tokenless{}
-    case Some{bs}:
-      sp_keep.mode(Nat.is_gt(Nat.mod(mode, 64n), 0n))
-
-# R5
-def sp_keep(o: Da.Rotation, f: Da.Disk, +mode: Nat) -> Da.Keep:
-  match o:
-    case Da.RotateToken{}:
-      Da.Mint{}
-    case Da.KeepToken{}:
-      match f:
-        case Da.NoFile{}:
-          Da.Mint{}
-        case Da.Unread{}:
-          Da.Unreadable{}
-        case Da.Holds{s}:
-          sp_keep.held(sp_stored(Da.Holds{s}), mode)
-        case Da.Huge{}:
-          Da.Tokenless{}
+# whether a token or a text is there
+def sp_has(m: Maybe<&2, List<&2, Nat>>) -> Bool:
+  Maybe.is_some(&2, List<&2, Nat>, m)
 
 # The spelling of a request and of its reply, from the wire primitives
 # (R6).
@@ -352,7 +292,9 @@ def sp_w_keep(k: Da.Keep) -> Nat:
     case Da.Tokenless{}:
       4n
 
-# the reply Rust reads: the spelled choice of the spec (R1, R2, R5)
+# the reply Rust reads: the spelled choice of R1 and R2 (sp_shown,
+# sp_stored), and of R5 as the model decides it (Da.keep, pinned by the
+# dash_keep_* laws)
 def sp_w_reply(q: FDa.Req) -> String:
   match q:
     case FDa.QToken{t}:
@@ -360,7 +302,7 @@ def sp_w_reply(q: FDa.Req) -> String:
     case FDa.QStored{f}:
       sp_w_stored(sp_stored(f))
     case FDa.QKeep{o, f, m}:
-      Wr.put_nat(sp_w_keep(sp_keep(o, f, m)), "")
+      Wr.put_nat(sp_w_keep(Da.keep(o, f, m)), "")
 
 def sp_fit_disk(f: Da.Disk) -> Bool:
   match f:
@@ -419,48 +361,139 @@ law dash_stored_spec:
   for +f: Da.Disk
   {Da.stored(f) == sp_stored(f) : Maybe<&2, List<&2, Nat>>}
 
-# LAW dash_gate_spec (R3): the first frame of a socket opens it exactly
-# when it pairs with the stored token; each refusal has its text
-# EXCLUDES: a socket opened without a pairing, on a file with no token, or
-#   on a token Rust found different; a refusal with another text
-law dash_gate_spec:
-  for +x: Da.First
+# LAW dash_gate_needs_pairing (R3): a first frame that is no pairing (no
+# text in time, a binary frame, a text that is no pairing) or a pairing
+# with an empty text is refused with "pairing needed", whatever the file
+# holds and whatever Rust reported
+# EXCLUDES: a socket opened, or told another text, without a pairing or on
+#   an empty token
+law dash_gate_needs_pairing:
   for +f: Da.Disk
   for +b: Bool
-  {Da.gate(x, f, b) == sp_gate(x, f, b) : Da.Pass}
+  {Da.gate(Da.NoText{}, f, b) == Da.Refuse{sp_missing()} : Da.Pass} & {Da.gate(Da.NotPairing{}, f, b) == Da.Refuse{sp_missing()} : Da.Pass} & {Da.gate(Da.Pair{Da.Spoken{""}}, f, b) == Da.Refuse{sp_missing()} : Da.Pass}
 
-# LAW dash_frame_spec (R4): a later frame runs only while its token is the
-# stored one
-# EXCLUDES: a frame that runs after a rotation, or with the file gone
-law dash_frame_spec:
+# LAW dash_gate_not_token (R1, R3): a pairing whose text is not empty and
+# is no token (R1: sp_token), or too long for the wire, is refused with
+# "not valid any more", whatever the file holds and whatever Rust reported
+# EXCLUDES: a socket opened on a 63- or 65-digit, signed or spaced text;
+#   such a text told "pairing needed" or "no pairing token"
+law dash_gate_not_token:
+  for +t: String
   for +f: Da.Disk
   for +b: Bool
-  {Da.frame(f, b) == sp_frame(f, b) : Da.Pass}
+  for junk: {sp_has(sp_token(t)) == False{} : Bool}
+  for said: {String.is_empty(t) == False{} : Bool}
+  {Da.gate(Da.Pair{Da.Spoken{t}}, f, b) == Da.Refuse{sp_wrong()} : Da.Pass} & {Da.gate(Da.Pair{Da.Overlong{}}, f, b) == Da.Refuse{sp_wrong()} : Da.Pass}
 
-# LAW dash_keep_spec (R5): what `eukhe dashboard` does with the token file
-# at its start
-# EXCLUDES: a damaged file silently replaced, a missing file an error, a
-#   rotation that keeps the old token, a group- or world-readable file
-#   left as it is, a private file chmodded
-law dash_keep_spec:
-  for +o: Da.Rotation
+# LAW dash_gate_no_stored (R2, R3): a pairing that presents a token (R1)
+# while the file holds none (R2: missing, unreadable, too long, or no
+# token once trimmed) is refused with "no pairing token", whatever Rust
+# reported
+# EXCLUDES: a socket opened on a file with no token (a missing or damaged
+#   file taken for an open door); the refusal told as a wrong link
+law dash_gate_no_stored:
+  for +t: String
+  for +f: Da.Disk
+  for +b: Bool
+  for token: {sp_has(sp_token(t)) == True{} : Bool}
+  for none: {sp_has(sp_stored(f)) == False{} : Bool}
+  {Da.gate(Da.Pair{Da.Spoken{t}}, f, b) == Da.Refuse{sp_unset()} : Da.Pass}
+
+# LAW dash_gate_token_stored (R1-R3): a pairing that presents a token (R1)
+# while the file holds one (R2) opens the socket when Rust found both
+# equal, and is refused with "not valid any more" when it did not
+# EXCLUDES: a socket opened on a token Rust found different (an old link
+#   after a rotation); a valid tab refused its pairing
+law dash_gate_token_stored:
+  for +t: String
+  for +f: Da.Disk
+  for token: {sp_has(sp_token(t)) == True{} : Bool}
+  for holds: {sp_has(sp_stored(f)) == True{} : Bool}
+  {Da.gate(Da.Pair{Da.Spoken{t}}, f, True{}) == Da.Admit{} : Da.Pass} & {Da.gate(Da.Pair{Da.Spoken{t}}, f, False{}) == Da.Refuse{sp_wrong()} : Da.Pass}
+
+# LAW dash_frame_stored (R2, R4): while the file, read at the frame, holds
+# a token (R2), a later frame runs when Rust found it equal to the
+# socket's token, and is refused with "not valid any more" when it did not
+# EXCLUDES: a frame run after a rotation (Rust's comparison failed); a
+#   frame of a current tab refused
+law dash_frame_stored:
+  for +f: Da.Disk
+  for holds: {sp_has(sp_stored(f)) == True{} : Bool}
+  {Da.frame(f, True{}) == Da.Admit{} : Da.Pass} & {Da.frame(f, False{}) == Da.Refuse{sp_wrong()} : Da.Pass}
+
+# LAW dash_frame_no_stored (R2, R4): when the file, read at the frame,
+# holds no token (missing, unreadable, too long, damaged), a later frame is
+# refused with "no pairing token", whatever Rust reported
+# EXCLUDES: a frame run with the file gone or damaged
+law dash_frame_no_stored:
+  for +f: Da.Disk
+  for +b: Bool
+  for none: {sp_has(sp_stored(f)) == False{} : Bool}
+  {Da.frame(f, b) == Da.Refuse{sp_unset()} : Da.Pass}
+
+# LAW dash_keep_mints (R5): `eukhe dashboard` stores a new token when it
+# rotates, whatever the file and its mode, and when no file exists
+# EXCLUDES: a rotation that keeps the old token; a missing file an error
+law dash_keep_mints:
   for +f: Da.Disk
   for +m: Nat
-  {Da.keep(o, f, m) == sp_keep(o, f, m) : Da.Keep}
+  {Da.keep(Da.RotateToken{}, f, m) == Da.Mint{} : Da.Keep} & {Da.keep(Da.KeepToken{}, Da.NoFile{}, m) == Da.Mint{} : Da.Keep}
 
-# LAW dash_token_example (R1, R2): anchor: tokens in both cases, a short
-# and a long one, a signed pair, a stored token with its newline and a
+# LAW dash_keep_fails (R2, R5): without a rotation, an unreadable file
+# fails as unreadable, and a file that holds no token (R2: no token once
+# trimmed, or too long for the wire) fails as tokenless, whatever its
+# mode: the file is never replaced unasked
+# EXCLUDES: a damaged file silently replaced by a new token (every paired
+#   tab locked out), an unreadable file taken for a missing one
+law dash_keep_fails:
+  for +s: String
+  for +m: Nat
+  for none: {sp_has(sp_stored(Da.Holds{s})) == False{} : Bool}
+  {Da.keep(Da.KeepToken{}, Da.Unread{}, m) == Da.Unreadable{} : Da.Keep} & {Da.keep(Da.KeepToken{}, Da.Holds{s}, m) == Da.Tokenless{} : Da.Keep} & {Da.keep(Da.KeepToken{}, Da.Huge{}, m) == Da.Tokenless{} : Da.Keep}
+
+# LAW dash_keep_private_reused (R5): without a rotation, a file that holds
+# a token (R2) and whose mode gives the group and others no bit (a mode of
+# 64 u: any owner bits and file type above the low six bits) is used as it
+# is
+# EXCLUDES: a private file chmodded or replaced; a mode test that looks at
+#   the owner's bits or the file type
+law dash_keep_private_reused:
+  for +s: String
+  for +u: Nat
+  for holds: {sp_has(sp_stored(Da.Holds{s})) == True{} : Bool}
+  {Da.keep(Da.KeepToken{}, Da.Holds{s}, Nat.mul(u, 64n)) == Da.Reuse{} : Da.Keep}
+
+# LAW dash_keep_open_narrowed (R5): without a rotation, a file that holds
+# a token (R2) and whose mode gives the group or others any bit (a mode of
+# 64 u + 8 g + o, g and o octal digits, not both 0: chmod(2)'s group and
+# other bits) is used and narrowed to 0600
+# EXCLUDES: a group- or world-readable token file left as it is; a test
+#   of only the others' bits or only the read bits
+law dash_keep_open_narrowed:
+  for +s: String
+  for +u: Nat
+  for +g: Nat
+  for +o: Nat
+  for holds: {sp_has(sp_stored(Da.Holds{s})) == True{} : Bool}
+  for gd: {Nat.is_lt(g, 8n) == True{} : Bool}
+  for od: {Nat.is_lt(o, 8n) == True{} : Bool}
+  for open: {Nat.is_eq(Nat.add(g, o), 0n) == False{} : Bool}
+  {Da.keep(Da.KeepToken{}, Da.Holds{s}, Nat.add(Nat.mul(u, 64n), Nat.add(Nat.mul(g, 8n), o))) == Da.Restrict{} : Da.Keep}
+
+# LAW dash_token_example (R1, R2): anchor: tokens in both cases, an empty
+# text, a 63- and a 65-digit text, a signed pair, a stored token with its newline and a
 # stored one with a space inside
 # EXCLUDES: a spec that accepts any of the near misses
 law dash_token_example:
-  {[Da.shown(Da.Spoken{"00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF"}), Da.shown(Da.Spoken{""}), Da.shown(Da.Spoken{"0011223344556677889900112233445566778899aabbccddeeff0011223344556"}), Da.shown(Da.Spoken{"+a112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})] == [Da.Hex{[0n, 17n, 34n, 51n, 68n, 85n, 102n, 119n, 136n, 153n, 170n, 187n, 204n, 221n, 238n, 255n, 0n, 17n, 34n, 51n, 68n, 85n, 102n, 119n, 136n, 153n, 170n, 187n, 204n, 221n, 238n, 255n]}, Da.Blank{}, Da.Junk{}, Da.Junk{}] : List<&2, Da.Shown>} & {[Maybe.is_some(&2, List<&2, Nat>, Da.stored(Da.Holds{" 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n"})), Maybe.is_some(&2, List<&2, Nat>, Da.stored(Da.Holds{"00112233445566778899aabbccddeeff 00112233445566778899aabbccddeeff"}))] == [True{}, False{}] : List<&2, Bool>}
+  {[Da.shown(Da.Spoken{"00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF"}), Da.shown(Da.Spoken{""}), Da.shown(Da.Spoken{"0011223344556677889900112233445566778899aabbccddeeff0011223344556"}), Da.shown(Da.Spoken{"00112233445566778899001122334455667788990aabbccddeeff0011223344"}), Da.shown(Da.Spoken{"+a112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"})] == [Da.Hex{[0n, 17n, 34n, 51n, 68n, 85n, 102n, 119n, 136n, 153n, 170n, 187n, 204n, 221n, 238n, 255n, 0n, 17n, 34n, 51n, 68n, 85n, 102n, 119n, 136n, 153n, 170n, 187n, 204n, 221n, 238n, 255n]}, Da.Blank{}, Da.Junk{}, Da.Junk{}, Da.Junk{}] : List<&2, Da.Shown>} & {[Maybe.is_some(&2, List<&2, Nat>, Da.stored(Da.Holds{" 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n"})), Maybe.is_some(&2, List<&2, Nat>, Da.stored(Da.Holds{"00112233445566778899aabbccddeeff 00112233445566778899aabbccddeeff"}))] == [True{}, False{}] : List<&2, Bool>}
 
 # Laws: the entry (R6)
 # --------------------
 
 # LAW dash_entry_answers (R6): the dash entry answers every request Rust
 # spells, every number and length within the wire, with the spelled
-# choice of the spec
+# choice of R1, R2 (sp_shown, sp_stored) and of the model's R5 choice
+# (Da.keep)
 # EXCLUDES: a field misread, swapped or dropped; a request answered with
 #   another request's choice, a default, or a reply spelled otherwise
 law dash_entry_answers:
