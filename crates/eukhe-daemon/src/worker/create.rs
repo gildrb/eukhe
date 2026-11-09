@@ -111,6 +111,9 @@ pub(crate) struct CreateParams {
     /// The family a spawned child inherits (the create config's
     /// `cvarFamily`: its parent's effective family, root first).
     pub(crate) cvar_family: Option<Vec<eukhe_core::settings::cvar::AgentLayer>>,
+    /// A run the supervisor ended (the create carries `interruptedRun`)
+    /// stops at the open instead of resuming.
+    pub(crate) stored_work: eukhe_core::durable::StoredWork,
 }
 
 impl CreateParams {
@@ -240,6 +243,11 @@ impl CreateParams {
             prompt,
             autonomous,
             cvar_family,
+            stored_work: if payload.get("interruptedRun").is_some() {
+                eukhe_core::durable::StoredWork::Stop
+            } else {
+                eukhe_core::durable::StoredWork::Resume
+            },
         })
     }
 
@@ -452,6 +460,21 @@ impl Worker {
             };
             data["interruptedCompactionPersisted"] = json!(persisted);
         }
+        if let Some(interrupted) = payload.get("interruptedRun") {
+            // The open stopped the run; a notice that failed to land keeps
+            // the supervisor's declaration pending: the next reopen of the
+            // session writes it.
+            let persisted = match self.write_interrupted_run_notice(interrupted, &cx).await {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!(
+                        "eukhe-daemon worker: the notice of the run the supervisor ended did not land: {error:#}"
+                    );
+                    false
+                }
+            };
+            data["interruptedRunPersisted"] = json!(persisted);
+        }
         response_success(None, "create", Some(data))
     }
 
@@ -478,6 +501,50 @@ impl Worker {
         Ok(())
     }
 
+    /// A run the supervisor ended (`supervisor/interrupted_runs.rs`): its
+    /// worker stopped responding and was killed, or crashed past the
+    /// restart budget. The open stopped the run instead of resuming it
+    /// (`StoredWork::Stop`), so none of its model requests or tools runs
+    /// again; the supervisor's notice lands here as the display-only row
+    /// that says why the turn ended. The row's request id is the
+    /// declaration's, so a replayed declaration writes one row.
+    async fn write_interrupted_run_notice(
+        &self,
+        interrupted: &Value,
+        cx: &Context,
+    ) -> anyhow::Result<()> {
+        let field = |key: &str| {
+            interrupted
+                .get(key)
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("interruptedRun carries no {key}"))
+        };
+        let notice = field("notice")?;
+        let declared_at = field("declaredAt")?;
+        let hosted = self
+            .session
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("the created session is not installed"))?;
+        let entry = eukhe_core::durable::custom_entry_draft(
+            eukhe_types::custom_type::WORKER_RESTART_NOTICE_CUSTOM_TYPE,
+            eukhe_types::pi_ai::UserContent::Text(notice.to_string()),
+            true,
+            None,
+            crate::util::now_ms(),
+        )?;
+        hosted
+            .main()?
+            .submit(
+                eukhe_durable::harness::types::WriteSubmissionDraft {
+                    request_id: Some(format!("worker-restart:{declared_at}")),
+                    entry,
+                },
+                cx,
+            )
+            .await?;
+        Ok(())
+    }
+
     /// The eukhe session config for `params` (cwd, id, storage, role,
     /// model, thinking, chat memory, turn-wait sink).
     pub(crate) async fn session_config(
@@ -492,6 +559,7 @@ impl Worker {
             session_id,
             storage,
         );
+        config.stored_work = params.stored_work;
         config.role = SessionRole {
             rlm_depth: params.rlm_depth.unwrap_or(0),
             // A spawned child carries its parent's bound in the create;

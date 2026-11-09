@@ -28,6 +28,7 @@ use super::compaction::auxiliary_model::show_notice_row;
 use super::cvar_agent::{load_agent_state, read_agent_state};
 use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
+    StoredWork,
 };
 use super::env::env_factory;
 use super::import::{import_legacy_session, ImportError};
@@ -197,6 +198,7 @@ impl Drop for EukheSession {
 /// The legacy import, storage, resource loading, model resolution, or
 /// Harness open fails.
 pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSession, OpenError> {
+    let stored_work = config.stored_work;
     let (storage, storage_dir, jsonl) = open_storage(&config, cx).await?;
     let settings = Arc::new(if config.memory.is_some() && config.role.is_root() {
         EukheSettings::chat_memory_root(&config.cwd, &config.agent_dir)
@@ -367,7 +369,24 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             }
         }
     }
-    if let Err(error) = harness.resume() {
+    // A run its host already ended is aborted before scheduling resumes:
+    // the marks commit ahead of the first reservation, so none of its
+    // tasks runs again.
+    let stopped = match stored_work {
+        StoredWork::Resume => None,
+        StoredWork::Stop => Some(session.main().abort_unresumed(
+            eukhe_durable::harness::types::ConversationAbortOptions::default(),
+            cx,
+        )),
+    };
+    let resumed = match stopped {
+        None => harness.resume(),
+        Some(stopped) => match harness.resume() {
+            Ok(()) => stopped.await,
+            Err(error) => Err(error),
+        },
+    };
+    if let Err(error) = resumed {
         if let Err(close_error) = session.close(cx).await {
             tracing::warn!(error = %close_error, "closing a session that failed to resume");
         }

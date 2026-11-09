@@ -401,9 +401,17 @@ impl Supervisor {
             let _ = std::fs::remove_file(&descriptor_path);
             return Err(error);
         }
-        let create_payload = {
+        // A session whose run the supervisor ended (its worker crashed
+        // past the restart budget) reopens with that run stopped.
+        let (create_payload, interrupted_run) = {
             let descriptor = resident.descriptor.lock().await;
-            create_command_payload(&descriptor.create_command)
+            let mut payload = create_command_payload(&descriptor.create_command);
+            let interrupted_run = descriptor.session_file.clone().and_then(|session_file| {
+                let run = self.interrupted_runs.payload_for(&session_file)?;
+                payload["interruptedRun"] = run.clone();
+                Some((session_file, run))
+            });
+            (payload, interrupted_run)
         };
         let mut child = child;
         let response = match self
@@ -474,6 +482,10 @@ impl Supervisor {
                     response.error.unwrap_or_default()
                 ),
             });
+        }
+        if let Some((session_file, run)) = &interrupted_run {
+            self.interrupted_runs
+                .settle(session_file, run, response.data.as_ref());
         }
         // The create response is authoritative: a sessioned create must
         // carry a non-empty session file before it can succeed (the

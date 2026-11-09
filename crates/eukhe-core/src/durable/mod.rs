@@ -50,7 +50,7 @@ pub use deps::{
     HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, JobSettledSink,
     LateAgentMessageSink, McpLogin, ModelRequest, OpenedSession, ParentLink, PromptConfig,
     ServiceStart, ServiceStop, SessionConfig, SessionHost, SessionRole, SessionShape,
-    SessionStorage, ShellApprovalSink, SummaryDeltaSink,
+    SessionStorage, ShellApprovalSink, StoredWork, SummaryDeltaSink,
 };
 pub use discovery::{
     list_sessions, most_recent_session_for_cwd, read_main_transcript, read_session_cwd,

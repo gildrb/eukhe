@@ -225,6 +225,16 @@ pub enum DaemonWorkerCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// The supervisor's responsiveness probe: the worker answers it on its
+    /// connection loop, ahead of every running command, so only a worker
+    /// that stopped running (stopped by a signal, a wedged runtime) leaves
+    /// it unanswered.
+    WorkerPing {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
 }
 
 /// The subset of `create` persisted in the durable worker descriptor.

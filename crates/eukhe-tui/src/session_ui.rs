@@ -41,6 +41,7 @@ pub(crate) use heartbeats::HeartbeatsUpdate;
 /// `handle_key`'s keymap-aware ladder -- a claimed key queues behind the
 /// session open instead of echoing into the editor.
 pub(crate) use keys::opening_echo_key_claimed;
+pub(crate) use lifecycle::ReattachBy;
 pub(crate) use memory::MemoryTreeUpdate;
 pub(crate) use model_picker::picker_viewport_rows;
 pub(crate) use model_picker::ModelCatalogUpdate;

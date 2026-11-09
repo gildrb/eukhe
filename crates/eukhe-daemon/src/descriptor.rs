@@ -238,18 +238,24 @@ pub(crate) fn write_file_atomic_unsynced(path: &Path, content: &str) -> Result<(
 
 fn write_file_atomic_at(path: &Path, content: &str, sync: TempSync) -> Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create the dir {}", parent.display()))?;
     }
     let temp = path.with_extension(format!("tmp-{}", std::process::id()));
     {
         let file =
             std::fs::File::create(&temp).with_context(|| format!("create {}", temp.display()))?;
         let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(content.as_bytes())?;
-        writer.flush()?;
-        if matches!(sync, TempSync::Synced) {
-            writer.get_ref().sync_all()?;
-        }
+        // A full disk fails here (ENOSPC): the error names the file, like
+        // the create and the rename around it.
+        writer
+            .write_all(content.as_bytes())
+            .and_then(|()| writer.flush())
+            .and_then(|()| match sync {
+                TempSync::Synced => writer.get_ref().sync_all(),
+                TempSync::Unsynced => Ok(()),
+            })
+            .with_context(|| format!("write {}", temp.display()))?;
     }
     let _ = eukhe_core::platform::perms::restrict_file(&temp);
     std::fs::rename(&temp, path).with_context(|| format!("persist {}", path.display()))?;
@@ -470,6 +476,26 @@ mod tests {
         assert!(
             std::fs::read_dir(dir.path()).unwrap().count() == 1,
             "the temp file must not survive the rename"
+        );
+    }
+
+    /// A full disk (`/dev/full` answers every write with ENOSPC) fails the
+    /// write with the file it was writing: the supervisor's startup error
+    /// names the path that ran out of space.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_full_disk_names_the_file_it_failed_to_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(SUPERVISOR_CONFIG_FILE_NAME);
+        let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+        std::os::unix::fs::symlink("/dev/full", &temp).unwrap();
+        let error = write_file_atomic_unsynced(&path, "{}").unwrap_err();
+        assert_eq!(
+            format!("{error:#}"),
+            format!(
+                "write {}: No space left on device (os error 28)",
+                temp.display()
+            )
         );
     }
 

@@ -103,6 +103,19 @@ pub enum DaemonClientKind {
     Watch,
 }
 
+/// Why a client detaches from a session (`detach`'s `reason`); a detach
+/// without one only stops the client's view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetachReason {
+    /// The client left the session for another one (`/new`, `/resume`).
+    /// Once no client is attached and the session has no work, its worker
+    /// is released after a short grace (omp disposes the session it
+    /// leaves); the session stays saved, and the next open or prompt
+    /// starts a worker over it again.
+    Switch,
+}
+
 /// `prompt`/`steer`/`follow_up`-family input payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -383,6 +396,8 @@ pub enum DaemonCommand {
         id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         active_session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<DetachReason>,
         #[serde(flatten)]
         rest: JsonMap,
     },

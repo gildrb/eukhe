@@ -253,6 +253,22 @@ impl AgentsViewMode {
         self.open_attached(active, expanded_ancestors);
     }
 
+    /// The chat this view was entered from, when the session the view
+    /// opens is another one: the user left that chat for this session
+    /// (`/resume`, agents-back), so the view's finish detaches it as a
+    /// switch and its worker is released once idle. Escape back to the
+    /// chat (or opening its row) opens the same session: nothing was left.
+    pub(super) fn left_return_chat(&self) -> Option<String> {
+        let opened = self.opened.as_ref()?;
+        self.options
+            .return_active_session_id
+            .clone()
+            .filter(|left| {
+                !left.is_empty()
+                    && !matches!(&opened.selection, SessionSelection::Attach(active) if active == left)
+            })
+    }
+
     /// Escape in the unscoped view entered from a chat (agents-back or
     /// bare `/resume`): hand the terminal back to that chat instead of
     /// exiting the app. `false` when the view has no return chat.

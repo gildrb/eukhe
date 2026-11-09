@@ -294,6 +294,25 @@ impl Conversation {
             .boxed()
     }
 
+    /// [`Self::abort`] on a Harness whose scheduling has not resumed yet (a
+    /// reopen that must not run the work it reopened): the abort marks are
+    /// enqueued on the Session line before scheduling resumes, so they
+    /// commit ahead of the first reservation and no marked task runs
+    /// another phase; its abort hook settles it.
+    #[must_use]
+    pub fn abort_unresumed(
+        &self,
+        options: ConversationAbortOptions,
+        cx: &Context,
+    ) -> BoxFuture<'static, SessionResult<()>> {
+        let aborted = self
+            .core
+            .tasks
+            .abort_conversation(self.id, reach(options), cx);
+        self.core.tasks.resume();
+        aborted.boxed()
+    }
+
     /// Resolve when the ordinary ownership scope has no live non-background
     /// task: this conversation and the conversations owned, transitively, by
     /// its non-background tasks.

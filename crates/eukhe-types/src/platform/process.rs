@@ -59,6 +59,26 @@ pub fn request_new_session(command: &mut std::process::Command) {
     command.env(NEW_SESSION_ENV, "1");
 }
 
+/// The marker [`request_startup_stderr`] puts in the child's environment;
+/// the startup of the eukhe binaries (`eukhe`, `eukhe-daemon`) consumes it
+/// (`eukhe_core::platform::process::claim_startup_stderr`).
+pub const STARTUP_STDERR_ENV: &str = "EUKHE_STARTUP_STDERR";
+
+/// Give the spawned eukhe daemon a stderr pipe its launcher reads while
+/// the daemon starts: a daemon that fails before it serves prints why
+/// there and exits, and the launcher shows that text instead of waiting
+/// out its startup timeout. Once its socket serves, before it answers
+/// anyone, the daemon points its stderr at the null device
+/// (`eukhe_core::platform::process::release_startup_stderr`): the
+/// launcher lets go of the pipe after the daemon answers, and a daemon
+/// that outlives the launcher never writes into a closed pipe. The command
+/// must run an eukhe binary.
+pub fn request_startup_stderr(command: &mut std::process::Command) {
+    command
+        .env(STARTUP_STDERR_ENV, "1")
+        .stderr(std::process::Stdio::piped());
+}
+
 /// The `ps -p <pid> -o lstart=` identity (TS `getPsProcessStartId`):
 /// `lstart` renders in the subprocess timezone and locale, so both are
 /// pinned for a durable identity. Formatted `ps:<lstart>` - the exact

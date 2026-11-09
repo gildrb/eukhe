@@ -8,9 +8,24 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) const RECOVERY_JOURNAL_SUFFIX: &str = ".recovery.jsonl";
+
+/// The suffix of a worker's process group journal
+/// (`eukhe_types::platform::group_journal`).
+const GROUP_JOURNAL_SUFFIX: &str = ".groups.jsonl";
+
+/// The worker's process group journal, beside its recovery journal: the
+/// worker writes it, its supervisor reaps it once the worker is gone.
+pub(crate) fn group_journal_path(recovery_journal: &Path) -> PathBuf {
+    let name = recovery_journal
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = name.strip_suffix(RECOVERY_JOURNAL_SUFFIX).unwrap_or(&name);
+    recovery_journal.with_file_name(format!("{stem}{GROUP_JOURNAL_SUFFIX}"))
+}
 
 pub(crate) fn append_record(path: &Path, record: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {

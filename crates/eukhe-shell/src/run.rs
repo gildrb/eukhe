@@ -928,7 +928,12 @@ async fn command(argv: Vec<String>, env: Vec<(String, String)>, cwd: PathBuf, wi
         }
     };
     drop(report);
-    let mut group = GroupKill(child.id().and_then(|pid| i32::try_from(pid).ok()));
+    let pid = child.id();
+    // The group is on the session worker's journal while it runs, so the
+    // worker's supervisor kills it when the worker dies without its
+    // teardown (the guard drops after `group`'s kill).
+    let _running = pid.map(eukhe_types::platform::group_journal::RunningGroup::record);
+    let mut group = GroupKill(pid.and_then(|pid| i32::try_from(pid).ok()));
     let waited = child.wait().await;
     // It ended: what it left running is no longer this step's.
     group.0 = None;

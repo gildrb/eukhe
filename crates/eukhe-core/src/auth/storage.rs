@@ -129,26 +129,10 @@ impl FileAuthStorageBackend {
 
     /// TS `acquireLockSyncWithRetry` on the document's real file `real`:
     /// 10 attempts, 20ms apart, retrying only contention (ELOCKED); other
-    /// errors fail fast.
-    fn acquire_lock(real: &Path) -> Result<LockGuard> {
-        let mut last_error: Option<std::io::Error> = None;
-        for _ in 1..=10 {
-            match LockGuard::acquire(real, STALE_AFTER) {
-                Ok(guard) => return Ok(guard),
-                // Only lock contention retries; open failures fail fast.
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if last_error.is_none() {
-                        last_error = Some(error);
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        Err(anyhow::anyhow!(
-            "Failed to acquire auth storage lock: {}",
-            last_error.map_or_else(|| "busy".into(), |e| e.to_string())
-        ))
+    /// errors fail fast. Contention past the last attempt is the
+    /// `WouldBlock` error that names the held lock.
+    fn acquire_lock(real: &Path) -> std::io::Result<LockGuard> {
+        LockGuard::acquire_retrying(real, STALE_AFTER, 10, std::time::Duration::from_millis(20))
     }
 
     /// Read the document under the lock. Only a missing file is `None`.
@@ -160,6 +144,16 @@ impl FileAuthStorageBackend {
             Err(error) => Err(anyhow::Error::new(error)
                 .context(format!("Failed to read {}", self.auth_path.display()))),
         }
+    }
+}
+
+/// The error of a failed [`FileAuthStorageBackend::acquire_lock`]: held
+/// lock contention says so and names the lock; any other failure as is.
+fn lock_failure(error: std::io::Error) -> anyhow::Error {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        anyhow::anyhow!("Failed to acquire auth storage lock: {error}")
+    } else {
+        error.into()
     }
 }
 
@@ -250,7 +244,9 @@ impl AuthStorageBackend for FileAuthStorageBackend {
     /// `with_lock`'s read arm, which also populates the cache. The
     /// same-process mutex still orders this against in-process writers
     /// (see [`process_lock`]), and an external write changes the stat
-    /// identity, so the next read misses and re-reads fresh.
+    /// identity, so the next read misses and re-reads fresh. A lock held
+    /// past the retry budget does not fail a miss: it serves and caches
+    /// the document as it stands when that is a whole document.
     fn read(&self) -> Result<Option<String>> {
         // A read can arrive before the document's initializer created it:
         // `document` creates it, so the identity below pairs with the
@@ -271,9 +267,34 @@ impl AuthStorageBackend for FileAuthStorageBackend {
             }
         }
         // Miss: the full protocol read — the lock protocol is unchanged.
-        let guard = Self::acquire_lock(&real)?;
-        let content = self.read_current()?;
-        drop(guard);
+        let content = match Self::acquire_lock(&real) {
+            Ok(guard) => {
+                let content = self.read_current()?;
+                drop(guard);
+                content
+            }
+            // A writer holds the lock past the retry budget. Every writer of
+            // the protocol replaces the document by atomic rename, so the
+            // file as it stands is the last whole document: serve it, as
+            // omp's credential store answers a read while a writer holds its
+            // lock (WAL: the read sees the last commit and never waits for
+            // the writer). It is cached like a locked read, so the reads
+            // after it (one per provider at a session's create) hit the
+            // cache instead of each waiting out the retry budget. Content
+            // that is not a whole document (a foreign writer rewriting in
+            // place) reports the held lock instead.
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                let content = self.read_current()?;
+                let whole = content
+                    .as_deref()
+                    .is_some_and(|text| !text.is_empty() && parse_storage_data(Some(text)).is_ok());
+                if !whole {
+                    return Err(lock_failure(error));
+                }
+                content
+            }
+            Err(error) => return Err(lock_failure(error)),
+        };
         if let (Some(identity), Some(content)) = (now_identity, content.as_deref()) {
             read_cache()
                 .lock()
@@ -295,7 +316,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
     ) -> Result<()> {
         let real = self.document()?;
         let _process_guard = process_lock(&real);
-        let guard = Self::acquire_lock(&real)?;
+        let guard = Self::acquire_lock(&real).map_err(lock_failure)?;
         let current = self.read_current()?;
         let ((), next) = update(current)?;
         if let Some(next) = next {
@@ -681,6 +702,36 @@ mod tests {
         fs::create_dir(crate::platform::lock_dir::LockDir::path_for(&path)).unwrap();
         assert_eq!(backend.read().unwrap().as_deref(), Some("{}"));
         fs::remove_dir(crate::platform::lock_dir::LockDir::path_for(&path)).unwrap();
+    }
+
+    #[test]
+    fn a_read_miss_under_a_held_lock_serves_the_whole_document() {
+        // Another process holds the lock past the whole retry budget when a
+        // fresh process first reads (a worker resolving its models at
+        // session create): the read serves the document as it stands. A
+        // document that is not whole (a writer rewriting it in place)
+        // reports the held lock by its path instead.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let document = r#"{ "anthropic": { "type": "api_key", "key": "sk" } }"#;
+        fs::write(&path, document).unwrap();
+        let lock = crate::platform::lock_dir::LockDir::path_for(&fs::canonicalize(&path).unwrap());
+        fs::create_dir(&lock).unwrap();
+        let backend = FileAuthStorageBackend::new(&path);
+        let whole = backend.read().map_err(|error| error.to_string());
+        fs::write(&path, "").unwrap();
+        let torn = backend.read().map_err(|error| error.to_string());
+        fs::remove_dir(&lock).unwrap();
+        assert_eq!(
+            (whole, torn),
+            (
+                Ok(Some(document.to_string())),
+                Err(format!(
+                    "Failed to acquire auth storage lock: Lock file is already being held: {}",
+                    lock.display()
+                ))
+            )
+        );
     }
 
     #[test]

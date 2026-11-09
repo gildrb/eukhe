@@ -11,10 +11,12 @@ mod accept_loop;
 pub(crate) mod adoption;
 mod clients;
 mod idle_shutdown;
+mod interrupted_runs;
 mod launch_budget;
 mod liveness;
 mod notes;
 mod options;
+mod responsiveness;
 pub(crate) mod restart_budget;
 mod root_identity;
 mod routing;
@@ -234,6 +236,10 @@ pub struct Supervisor {
     /// create replay, cleared by a `compaction_end` that did land.
     pub(crate) compaction_journal:
         std::sync::Mutex<crate::compaction_supervision::TerminalCompactionJournal>,
+    /// The runs the supervisor ended itself (a hung worker it killed, a
+    /// crash loop it gave up on), waiting for the next reopen of their
+    /// session to stop the resumed run and show why.
+    pub(crate) interrupted_runs: interrupted_runs::InterruptedRuns,
     /// The chat memory, claimed at boot: the always-on supervisor owns
     /// `<agent-dir>/chat/lock` and runs the compactor, so the summaries
     /// keep up while no session is open; workers are its clients. `None`
@@ -321,6 +327,7 @@ impl Supervisor {
             passive_scan_pending: std::sync::atomic::AtomicBool::new(false),
             passive_catalog_epoch: std::sync::atomic::AtomicU64::new(0),
             compaction_journal: std::sync::Mutex::new(compaction_journal),
+            interrupted_runs: interrupted_runs::InterruptedRuns::default(),
             chat_memory: std::sync::Mutex::new(None),
             provider_admission,
         })
@@ -380,6 +387,12 @@ impl Supervisor {
         *self.bound_socket_identity.lock().unwrap() =
             socket::socket_identity(&self.options.socket_path);
         socket::restrict_socket_path(&self.options.socket_path)?;
+        // The socket serves from here on: a launcher's startup pipe has
+        // carried every failure this start could print, and the launcher
+        // lets go of it once this daemon answers, which it does only
+        // after this point.
+        eukhe_core::platform::process::release_startup_stderr()
+            .context("point the daemon's stderr at the null device")?;
         self.log
             .append(&format!("supervisor started pid {}", std::process::id()));
         // Claim the chat memory only once this process owns the daemon
