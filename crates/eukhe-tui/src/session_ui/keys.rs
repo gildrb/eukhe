@@ -508,13 +508,16 @@ impl SessionUi {
             // input-controller.ts:629-682 -- the double-Escape action runs
             // only once nothing streams), so the second Escape of an
             // interrupt never opens the tree over the stopped turn, where
-            // the next prompt would land in its search box. A running
-            // worker still arms its pause.
+            // the next prompt would land in its search box. The user's
+            // parked messages return to the editor (omp
+            // `restoreQueuedMessagesToEditor({ abort: true })`) instead of
+            // starting the turn the user just stopped. A running worker
+            // still arms its pause.
             if self.turn_active || view.compaction.is_some() || self.user_bash_running {
                 if self.worker_running() {
                     self.arm_escape_repeat("pause");
                 }
-                self.interrupt_running_work(view);
+                self.interrupt_running_work(view, super::ParkedOnInterrupt::ReturnToEditor);
                 return Ok(());
             }
             if let Some(action) = armed {
@@ -568,7 +571,7 @@ impl SessionUi {
             // interrupts on the same press.
             if !view.editor.get_text().is_empty() {
                 view.editor.set_text("");
-                self.interrupt_running_work(view);
+                self.interrupt_running_work(view, super::ParkedOnInterrupt::Deliver);
                 self.show_ctrl_c_hint();
                 self.dirty = true;
                 return Ok(());
@@ -602,11 +605,13 @@ impl SessionUi {
                         })
                         .await
                     {
-                        let _ = notes.send(super::AbortFailed::SideQuestion(error));
+                        let _ = notes.send(super::InterruptNote::Failed(
+                            super::AbortFailed::SideQuestion(error),
+                        ));
                     }
                 });
             }
-            self.interrupt_running_work(view);
+            self.interrupt_running_work(view, super::ParkedOnInterrupt::Deliver);
             self.show_ctrl_c_hint();
             self.dirty = true;
             return Ok(());
@@ -989,7 +994,7 @@ impl SessionUi {
                         self.submit_prompt(&text, SubmitBehavior::Steer, view)
                             .await?;
                         if flush {
-                            self.abort_turn();
+                            self.abort_turn(super::ParkedOnInterrupt::Deliver, view);
                         }
                     }
                 }

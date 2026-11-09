@@ -29,7 +29,7 @@ mod workers;
 mod workflows;
 
 pub(crate) use agents::AgentsUpdate;
-pub(crate) use apply::{AbortFailed, CompactionAbortNote};
+pub(crate) use apply::{AbortFailed, CompactionAbortNote, InterruptNote, ParkedOnInterrupt};
 use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome, SwitchScope};
 pub(crate) use bash::BashActivityUpdate;
 use bash::{ResyncBash, SideBashRun};
@@ -516,9 +516,9 @@ pub(crate) struct SessionUi {
     /// The session's thread-goal view state (current `goal_update` state,
     /// announcement dedupe, tray label bookkeeping).
     pub(crate) goal_view: GoalView,
-    /// Notes surfacing from background tasks (the async abort result) into
-    /// the UI loop.
-    notes: mpsc::UnboundedSender<AbortFailed>,
+    /// Notes surfacing from background tasks (the async abort result, the
+    /// parked messages an Escape withdrew) into the UI loop.
+    notes: mpsc::UnboundedSender<InterruptNote>,
     /// Compaction-abort outcomes from the backgrounded request (the abort
     /// supervision's UI recovery): a failed abort clears the stuck loader.
     compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,

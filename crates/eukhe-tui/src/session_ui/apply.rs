@@ -40,6 +40,33 @@ pub(crate) enum AbortFailed {
     SideQuestion(#[source] anyhow::Error),
 }
 
+/// A backgrounded interrupt's outcome for the UI loop.
+#[derive(Debug)]
+pub(crate) enum InterruptNote {
+    /// An abort request failed: its transcript note.
+    Failed(AbortFailed),
+    /// The user's own parked messages an Escape interrupt withdrew from
+    /// the queue of `active_session_id`, oldest first: they return to the
+    /// editor.
+    Withdrawn {
+        active_session_id: String,
+        texts: Vec<String>,
+    },
+}
+
+/// What an interrupt does with the messages parked behind the turn it
+/// aborts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParkedOnInterrupt {
+    /// They deliver behind the aborted turn (`abort_and_send_queued`).
+    Deliver,
+    /// The user's own messages return to the editor instead of starting a
+    /// turn the user just stopped (omp's Escape,
+    /// `restoreQueuedMessagesToEditor({ abort: true })`,
+    /// input-controller.ts:637,2274); internal prompts deliver as before.
+    ReturnToEditor,
+}
+
 impl SessionUi {
     /// Abort the active turn off the UI loop (TS `interruptOrClearInput`
     /// fires `void abortAndSendQueued()` when streaming, schema 29): the
@@ -49,14 +76,63 @@ impl SessionUi {
     /// abort when the abort leaves nothing queued. A daemon without the
     /// schema-29 capability gets the plain abort (TS
     /// `supportsServerCapability` + the `isUnknownDaemonCommandError`
-    /// catch, both arms of TS `abortAndSendQueued`). The request never
+    /// catch, both arms of TS `abortAndSendQueued`). With
+    /// [`ParkedOnInterrupt::ReturnToEditor`] the user's parked messages
+    /// leave the queue first (newest first, so every earlier index stays
+    /// valid) and the withdrawn ones come back as an
+    /// [`InterruptNote::Withdrawn`]; one the queue no longer holds as
+    /// shown is not withdrawn and delivers as before. The request never
     /// blocks key handling, and a failure surfaces later as a transcript
     /// note.
-    pub(crate) fn abort_turn(&self) {
+    pub(crate) fn abort_turn(&self, parked: ParkedOnInterrupt, view: &AgentView) {
         let client = self.client.clone();
         let active_session_id = self.active_session_id.clone();
         let notes = self.notes.clone();
+        let returned: Vec<(crate::queued::QueueLane, usize, String)> = match parked {
+            ParkedOnInterrupt::Deliver => Vec::new(),
+            ParkedOnInterrupt::ReturnToEditor => [
+                (crate::queued::QueueLane::Steering, &view.queued.steering),
+                (crate::queued::QueueLane::FollowUp, &view.queued.follow_ups),
+            ]
+            .into_iter()
+            .flat_map(|(lane, items)| {
+                items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| {
+                        matches!(item.origin, eukhe_types::input_origin::InputOrigin::User)
+                    })
+                    .map(move |(index, item)| (lane, index, item.text.clone()))
+            })
+            .collect(),
+        };
         tokio::spawn(async move {
+            let mut withdrawn = Vec::new();
+            for (lane, index, text) in returned.into_iter().rev() {
+                let deleted = client
+                    .request_ok(DaemonCommand::MutateQueuedMessage {
+                        id: None,
+                        active_session_id: active_session_id.clone(),
+                        lane: Value::String(lane.wire_name().to_string()),
+                        index: index as u64,
+                        expected_text: text.clone(),
+                        mutation: serde_json::json!({ "type": "delete" }),
+                        rest: Map::default(),
+                    })
+                    .await;
+                if deleted
+                    .is_ok_and(|data| data.get("status").and_then(Value::as_str) == Some("applied"))
+                {
+                    withdrawn.push(text);
+                }
+            }
+            if !withdrawn.is_empty() {
+                withdrawn.reverse();
+                let _ = notes.send(InterruptNote::Withdrawn {
+                    active_session_id: active_session_id.clone(),
+                    texts: withdrawn,
+                });
+            }
             let mut result = if client.supports_server_capability("abort_and_send_queued") {
                 client
                     .request_ok(DaemonCommand::AbortAndSendQueued {
@@ -87,7 +163,7 @@ impl SessionUi {
                     .await;
             }
             if let Err(error) = result {
-                let _ = notes.send(AbortFailed::Turn(error));
+                let _ = notes.send(InterruptNote::Failed(AbortFailed::Turn(error)));
             }
         });
     }
@@ -148,9 +224,51 @@ impl SessionUi {
         self.settle_compaction_loader(view);
     }
 
-    /// Apply one background note (a failed abort request) to the transcript.
-    pub(crate) fn apply_background_note(&mut self, failure: &AbortFailed, view: &mut AgentView) {
-        self.note(&failure.to_string(), view);
+    /// Apply one background interrupt note: a failed abort request's
+    /// transcript note, or the withdrawn parked messages, which go back
+    /// into the editor ahead of the draft (omp `#restoreEntriesToEditor`,
+    /// input-controller.ts:2362: oldest first, blank-line separated) --
+    /// only while the view still holds the session they were parked in.
+    pub(crate) fn apply_background_note(&mut self, note: InterruptNote, view: &mut AgentView) {
+        match note {
+            InterruptNote::Failed(failure) => self.note(&failure.to_string(), view),
+            InterruptNote::Withdrawn {
+                active_session_id,
+                texts,
+            } => {
+                if active_session_id != self.active_session_id {
+                    return;
+                }
+                let draft = view.editor.get_text();
+                let combined = texts
+                    .iter()
+                    .map(String::as_str)
+                    .chain(std::iter::once(draft.as_str()))
+                    .filter(|text| !text.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                view.editor.set_text(&combined);
+                // Each withdrawn prompt was owed a turn end of its own that
+                // never comes now; a run that already ended waited only on
+                // them, so the busy state ends here (the `Idle` rule).
+                self.last_prompt_turn_end = self
+                    .last_prompt_turn_end
+                    .saturating_sub(texts.len() as u64)
+                    .max(self.turn_ends_seen);
+                if self.turn_active
+                    && !self.run_open
+                    && self.prompt_in_flight == 0
+                    && self.turn_ends_seen >= self.last_prompt_turn_end
+                {
+                    self.turn_active = false;
+                    view.retry = None;
+                    if !compaction_runs(view) {
+                        Self::stop_loader(view);
+                    }
+                }
+                self.dirty = true;
+            }
+        }
     }
 
     /// A compaction succeeded and the durable transcript was rebuilt (it
@@ -996,11 +1114,11 @@ impl SessionUi {
 
     /// TS `interruptOrClearInput`'s abort ladder, shared by the Ctrl+C and
     /// Escape interrupts: a compacting session aborts the compaction run,
-    /// a streaming turn aborts through `abort_and_send_queued` (schema 29),
-    /// and a running user bash aborts alongside. The side-question abort
-    /// stays at the call sites -- the two keys dispose of its pane
-    /// differently.
-    pub(super) fn interrupt_running_work(&self, view: &AgentView) {
+    /// a streaming turn aborts through `abort_and_send_queued` (schema 29;
+    /// `parked` says what becomes of the messages parked behind it), and a
+    /// running user bash aborts alongside. The side-question abort stays
+    /// at the call sites -- the two keys dispose of its pane differently.
+    pub(super) fn interrupt_running_work(&self, view: &AgentView, parked: ParkedOnInterrupt) {
         if view.compaction.is_some() {
             // The compaction loader is up (TS `isAgentCompacting()`):
             // the interrupt cancels the compaction run only -- the agent
@@ -1012,7 +1130,7 @@ impl SessionUi {
             // assistant row carries the interrupt (the red "Operation
             // aborted" error row inside the message component), so
             // nothing is noted here.
-            self.abort_turn();
+            self.abort_turn(parked, view);
         }
         // A running user-bash command aborts the same way (TS
         // `interruptOrClearInput` fires `void abortBash()`): the settled

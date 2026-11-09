@@ -1,9 +1,11 @@
-//! Headless e2e for the Escape interrupt (robustness finding F2),
+//! Headless e2e for the Escape interrupt (robustness findings F2-F3),
 //! matched to omp's `handleEscape` (input-controller.ts:629-682): a double
 //! Escape during a stream stops the turn and never opens the session tree
-//! over the next prompt. Each test replays a run against the real
-//! interactive loop and a scripted mock daemon that waits for the
-//! client's requests.
+//! over the next prompt (F2); Escape returns the user's parked messages to
+//! the editor instead of starting the turn the user just stopped (F3,
+//! `restoreQueuedMessagesToEditor({ abort: true })`). Each test replays a
+//! run against the real interactive loop and a scripted mock daemon that
+//! waits for the client's requests.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -444,4 +446,39 @@ fn a_double_escape_during_a_stream_stops_it_and_the_next_prompt_sends() {
     );
     let last = frames.last().expect("a final frame");
     assert!(last.contains("pong answer"), "the next prompt ran:\n{last}");
+}
+
+/// F3: Escape with a steering message parked behind the stream withdraws
+/// it into the editor instead of sending it as a new turn: the script
+/// only goes on once the client deleted the parked message, and no turn
+/// runs for it.
+#[test]
+fn escape_returns_the_parked_steering_message_to_the_editor() {
+    let mut script = vec![Act::Prompt(PROMPT)];
+    script.extend(run_for(PROMPT));
+    script.push(message_start(&assistant(&text(PARTIAL), "stop", None)));
+    script.push(Act::Prompt("steer msg"));
+    script.push(Act::Event(queue_update(&["steer msg"])));
+    script.push(Act::Await("mutate_queued_message"));
+    script.push(Act::Await("abort_and_send_queued"));
+    script.extend(stopped_stream());
+    let steps = vec![
+        wait_for(PARTIAL),
+        HeadlessStep::Submit("steer msg".to_string()),
+        wait_for("Steering"),
+        key(KeyCode::Esc),
+        wait_for(ABORTED),
+        HeadlessStep::WaitMs(500),
+    ];
+    let frames = run(script, steps);
+    let last = frames.last().expect("a final frame");
+    assert!(
+        !last.contains("Steering"),
+        "the parked message left the queue:\n{last}"
+    );
+    assert!(
+        last.lines()
+            .any(|line| line.trim_start().starts_with('>') && line.contains("steer msg")),
+        "the parked message is back in the editor:\n{last}"
+    );
 }
