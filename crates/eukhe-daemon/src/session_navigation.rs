@@ -402,6 +402,9 @@ fn replacement_params(
         prompt: live.prompt,
         autonomous: None,
         cvar_family: Some(live.cvar_family),
+        // A replacement (`/new`, `/resume`, a fork) resumes what its
+        // storage holds.
+        stored_work: eukhe_core::durable::StoredWork::Resume,
     }
 }
 

@@ -385,7 +385,7 @@ impl Supervisor {
             let _ = child.kill().await;
             return Err(error);
         }
-        let (payload, injected_compaction_abort) = {
+        let (mut payload, injected_compaction_abort) = {
             let descriptor = resident.descriptor.lock().await;
             let mut payload = create_command_payload(&descriptor.create_command);
             // The abort supervision's pending terminal record rides the
@@ -429,6 +429,14 @@ impl Supervisor {
                 (payload, None)
             }
         };
+        // A run the supervisor ended itself (this worker hung, or its crash
+        // loop was given up) stops with the replay instead of resuming.
+        let session_file = resident.descriptor.lock().await.session_file.clone();
+        let interrupted_run = session_file.and_then(|session_file| {
+            let run = self.interrupted_runs.payload_for(&session_file)?;
+            payload["interruptedRun"] = run.clone();
+            Some((session_file, run))
+        });
         let response = match self
             .route_command_typed(
                 resident,
@@ -488,6 +496,10 @@ impl Supervisor {
                     response.error.unwrap_or_default()
                 ),
             });
+        }
+        if let Some((session_file, run)) = &interrupted_run {
+            self.interrupted_runs
+                .settle(session_file, run, response.data.as_ref());
         }
         // The create replay consumed the terminal record when the
         // disclosure it carried is durable (persisted by this replay, or
@@ -1091,6 +1103,12 @@ impl Supervisor {
         resident
             .install_command_channel(connection_epoch, cmd_tx)
             .await;
+        // A supervised connection (a stop's own connect is not one) is
+        // probed for as long as it lives: a worker that stops answering is
+        // killed and restarted.
+        if auth_floor {
+            self.spawn_responsiveness_probe(resident, connection_epoch);
+        }
         // Peer-transport capability rides on the worker instance id (the TS
         // worker only advertises `direct_peer_transport` with one).
         let peer_transport_capable = response

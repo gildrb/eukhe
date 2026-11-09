@@ -67,6 +67,17 @@ pub const RESTART_MAX_BACKOFF_MS: u64 = 30_000;
 /// is given up (it is a loop, not a rare crash).
 pub const RESTART_CRASH_LOOP_MS: u64 = 120_000;
 
+/// The supervisor asks each connected worker this often whether it still
+/// runs (`worker_ping`, answered on the worker's connection loop).
+pub const WORKER_PROBE_INTERVAL_MS: u64 = 5_000;
+
+/// A worker that leaves one probe unanswered this long is hung (stopped,
+/// or its runtime wedged): the supervisor kills it and restarts it. The
+/// wait runs on the monotonic clock, which stands still while the machine
+/// sleeps, and it outlasts a worker paused for 40 s, which answers late
+/// and keeps its run.
+pub const WORKER_UNRESPONSIVE_MS: u64 = 60_000;
+
 /// The timeouts derived from the base values (ms), as the compiled core
 /// answers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

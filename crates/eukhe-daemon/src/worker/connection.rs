@@ -605,6 +605,16 @@ impl Worker {
                             .await;
                         continue;
                     }
+                    // The supervisor's responsiveness probe answers here,
+                    // on the connection loop itself: a worker that still
+                    // reads its socket is running, however long its
+                    // commands take.
+                    if command_type == "worker_ping" {
+                        let response = response_success(None, "worker_ping", None);
+                        self.write_response_frame(&sink, &request_id, response)
+                            .await;
+                        continue;
+                    }
                     // Shutdown stays sequential: the reply must precede the
                     // exit. Every other command runs concurrently, like the
                     // TS daemon's async handlers: a long-running command (a
