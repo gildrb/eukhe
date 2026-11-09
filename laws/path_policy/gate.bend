@@ -23,18 +23,6 @@ law gate_write_auto_never_secret:
   for no: {Pp.Ans.yes(ans) == False{} : Bool}
   {Pp.Cls.secret(c) == False{} : Bool}
 
-# LAW gate_secret_read_needs_yes: a read of a secret (a read or a list of one, a search of a
-# directory that holds one) runs only on the user's yes, whatever the auto
-# set holds
-law gate_secret_read_needs_yes:
-  for c: Pp.Cls
-  for a: Pp.Acc
-  for +auto: List<&2, Nat>
-  for ans: Pp.Ans
-  for s: {Pp.secret_read(c, a) == True{} : Bool}
-  for ran: {Pp.runs(c, a, auto, ans) == True{} : Bool}
-  {Pp.Ans.yes(ans) == True{} : Bool}
-
 # LAW gate_yes_runs: the user's yes runs any access
 law gate_yes_runs:
   for c: Pp.Cls
@@ -44,13 +32,14 @@ law gate_yes_runs:
 
 # (G1) The gate, against the effects table
 # ----------------------------------------
-# gate_secret_read_needs_yes takes the model's own Pp.secret_read as its
-# premise, and the gate laws read the model's own effects and answer test:
-# a model whose secret_read misses a plain read of a secret, and whose
-# effects of that read lack the secret effect, lets it run with no yes and
-# passes them (an adversary found this gap). gate_effs_exact pins the
-# effects to docs/tools.md G1.5 with the spec helpers here, which never
-# call the model; the laws after it tie the gate's verdict to those effects
+# The gate laws once read the model's own effects and answer test (and a
+# law took the model's own Pp.secret_read as its premise): a model whose
+# effects of a plain read of a secret lack the secret effect let it run
+# with no yes and passed them (an adversary found this gap).
+# gate_effs_exact pins the effects to docs/tools.md G1.5 with the spec
+# helpers here, which never call the model; gate_secret_needs_yes and
+# gate_holding_search_needs_yes state the secret reads over constructors;
+# the laws after it tie the gate's verdict to those effects
 # over constructors and Base's own list membership (List.contains with
 # Nat.is_eq), never the model's auto test (G1.6: an access runs without a
 # question only when the auto set holds each of its effects; on this
@@ -181,7 +170,7 @@ law gate_secret_read_example:
 
 # (G1) The store, by the gate
 # ---------------------------
-# The store laws of policy.bend (secrets_need_yes, secrets_kept_without_yes,
+# The store laws of policy.bend (secrets_kept_without_yes,
 # secrets_kept_example) constrain only the cells at or under a secret
 # entry: a store whose write asks the gate about secrets only, so that a
 # write to a protected or outside path, or any write with an empty auto

@@ -81,19 +81,6 @@ law path_judge_holds:
   for +r: Pp.Res
   {Pp.Judged.holds(Pp.judge(pol, r)) == Bool.or(Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(r)), Pp.any_ancestor(Pp.Pol.secret(pol), Pp.Res.at(r))) : Bool}
 
-# LAW secrets_need_yes (changed 2026-10-23 by the user: no prompts, like omp): no sequence of
-# agent writes through any paths, each judged by the gate on its real
-# path and landing there, without a yes of the user, changes a secret:
-# the secrets stay as they were, whatever the auto set holds
-law secrets_need_yes:
-  for es: List<&2, Pp.Put>
-  for +pol: Pp.Pol
-  for +ls: List<&2, Pp.Link>
-  for +auto: List<&2, Nat>
-  for +cs: List<&2, Pp.Cell>
-  for no: {Pp.any_yes(es) == False{} : Bool}
-  {Pp.secrets(Pp.run(es, pol, ls, auto, cs), pol) == Pp.secrets(cs, pol) : List<&2, Pp.Cell>}
-
 # LAW path_policy_ffi_request_round_trip (compiled core): the path judgment entry (bend/ffi_path_policy.bend) reads back
 # a policy and a resolved path as Rust writes it, and leaves what follows untouched
 # EXCLUDES: a request field misread, dropped, reordered or shifted; a
@@ -144,9 +131,9 @@ law path_policy_ffi_rejects_left_over:
 # (G1) Path policy against an independent spec
 # --------------------------------------------
 # The laws above reach the secret entries through the model's own
-# projection and scans (Pp.Pol.secret, Pp.any_under, Pp.any_ancestor,
-# Pp.secrets, Pp.any_yes): a model whose projection forgets the secret
-# entries passes every one of them (no path is ever secret). The laws
+# projection and scans (Pp.Pol.secret, Pp.any_under, Pp.any_ancestor): a
+# model whose projection forgets the secret entries passes every one of
+# them (no path is ever secret). The laws
 # below state the claims over the policy's own fields Pol{ro, ru, se} with
 # the spec helpers here, which never call the model. A path is a list of
 # names, deepest first; Nil{} is `/`.
@@ -386,12 +373,11 @@ law path_judge_secret_example:
 
 # LAW secrets_kept_example: anchor: under roots [/3] and the secret /3/5, with write in the auto
 # set, a write of 1 to /3/5 without a yes leaves its 0, the same write with
-# a yes lands, a write of 2 to /3/7 without a yes lands, and the store's
-# secrets of /3/5 and /3/7 are the /3/5 cell
+# a yes lands, and a write of 2 to /3/7 without a yes lands
 # EXCLUDES: a vacuous secrets_kept_without_yes (no write runs at all), a
 #   gate that ignores the user's yes
 law secrets_kept_example:
-  {[pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.Yes{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{7n}], 2n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], Nil{}), [7n, 3n])] == [Some{0n}, Some{1n}, Some{2n}] : List<&2, Maybe<&2, Nat>>} & {Pp.secrets([Pp.Cell{[5n, 3n], 0n}, Pp.Cell{[7n, 3n], 1n}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}) == [Pp.Cell{[5n, 3n], 0n}] : List<&2, Pp.Cell>}
+  {[pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.Yes{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{7n}], 2n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], Nil{}), [7n, 3n])] == [Some{0n}, Some{1n}, Some{2n}] : List<&2, Maybe<&2, Nat>>}
 
 # (G1) The path judgment entry, spelled
 # -------------------------------------

@@ -5,7 +5,7 @@ import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
 import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
-import ./secrets_need_yes.bend as PSecretsNeedYes
+import ./base/lemmas.bend as LAE
 
 # the first write of writes without a yes has no yes
 def pp.no_yes_head(ans: Pp.Ans, +segs: List<&2, Tl.Seg>, +v: Nat, +rest: List<&2, Pp.Put>, no: {PathPolicy.pp_no_yes(Pp.Put{segs, v, ans} <> rest) == True{} : Bool}) -> {Pp.Ans.yes(ans) == False{} : Bool}:
@@ -31,7 +31,7 @@ def pp.no_yes_rest(ans: Pp.Ans, +segs: List<&2, Tl.Seg>, +v: Nat, +rest: List<&2
 def pp.not_same(b: Bool, +se: List<&2, List<&2, Nat>>, +k: List<&2, Nat>, +at: List<&2, Nat>, e: {PathPolicy.pp_same(k, at) == b : Bool}, hk: {PathPolicy.pp_under_any(se, k) == False{} : Bool}, sec: {PathPolicy.pp_under_any(se, at) == True{} : Bool}) -> {PathPolicy.pp_same(k, at) == False{} : Bool}:
   match b:
     case True{}:
-      +same = PSecretsNeedYes.pp.ids_sound(k, at, Equal.trans(Bool, Tl.ids.eq(k, at), PathPolicy.pp_same(k, at), True{}, LA.pp.ids_same(k, at), e))
+      +same = LAE.pp.ids_sound(k, at, Equal.trans(Bool, Tl.ids.eq(k, at), PathPolicy.pp_same(k, at), True{}, LA.pp.ids_same(k, at), e))
       +moved = Equal.cong(List<&2, Nat>, Bool, x => PathPolicy.pp_under_any(se, x), k, at, same)
       LA.pp.absurdF({PathPolicy.pp_same(k, at) == False{} : Bool}, Equal.trans(Bool, False{}, PathPolicy.pp_under_any(se, at), True{}, Equal.trans(Bool, False{}, PathPolicy.pp_under_any(se, k), PathPolicy.pp_under_any(se, at), Equal.sym(Bool, PathPolicy.pp_under_any(se, k), False{}, hk), moved), sec))
     case False{}:
@@ -41,7 +41,7 @@ def pp.not_same(b: Bool, +se: List<&2, List<&2, Nat>>, +k: List<&2, Nat>, +at: L
 def pp.cell_set_pick(b: Bool, +a: List<&2, Nat>, +w: Nat, +rest: List<&2, Pp.Cell>, +k: List<&2, Nat>, +v: Nat, +at: List<&2, Nat>, e: {Tl.ids.eq(a, k) == b : Bool}, +hk: {PathPolicy.pp_same(k, at) == False{} : Bool}, ih: {PathPolicy.pp_cell(Pp.set(rest, k, v), at) == PathPolicy.pp_cell(rest, at) : Maybe<&2, Nat>}) -> {PathPolicy.pp_cell(Pp.set.pick(b, Pp.Cell{a, w}, k, v, rest, Pp.set(rest, k, v)), at) == PathPolicy.pp_cell(Pp.Cell{a, w} <> rest, at) : Maybe<&2, Nat>}:
   match b:
     case True{}:
-      +same = PSecretsNeedYes.pp.ids_sound(a, k, e)
+      +same = LAE.pp.ids_sound(a, k, e)
       %Equal.sym(List<&2, Nat>, a, k, same) : {PathPolicy.pp_cell_pick(PathPolicy.pp_same(k, at), v, PathPolicy.pp_cell(rest, at)) == PathPolicy.pp_cell_pick(PathPolicy.pp_same(_, at), w, PathPolicy.pp_cell(rest, at)) : Maybe<&2, Nat>}
       %Equal.sym(Bool, PathPolicy.pp_same(k, at), False{}, hk) : {PathPolicy.pp_cell_pick(_, v, PathPolicy.pp_cell(rest, at)) == PathPolicy.pp_cell_pick(PathPolicy.pp_same(k, at), w, PathPolicy.pp_cell(rest, at)) : Maybe<&2, Nat>}
       %Equal.sym(Bool, PathPolicy.pp_same(k, at), False{}, hk) : {PathPolicy.pp_cell(rest, at) == PathPolicy.pp_cell_pick(_, w, PathPolicy.pp_cell(rest, at)) : Maybe<&2, Nat>}
@@ -68,7 +68,7 @@ def pp.put_keeps(b: Bool, +ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, 
     case True{}:
       +k = Pp.Res.at(Pp.real(ls, segs))
       +plain = LA.pp.gate_write_auto_never_secret(Pp.class(Pp.Pol{ro, ru, se}, ls, segs), auto, ans, e, no)
-      +plain_at = PSecretsNeedYes.pp.res_secret(Pp.Pol{ro, ru, se}, Pp.real(ls, segs), plain)
+      +plain_at = LAE.pp.res_secret(Pp.Pol{ro, ru, se}, Pp.real(ls, segs), plain)
       +hk = Equal.trans(Bool, PathPolicy.pp_under_any(se, k), Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, k)), False{}, Equal.sym(Bool, Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, k)), PathPolicy.pp_under_any(se, k), LA.pp.class_of_secret(ro, ru, se, k)), plain_at)
       pp.cell_set(cs, k, v, at, pp.not_same(PathPolicy.pp_same(k, at), se, k, at, {==}, hk, sec))
     case False{}:

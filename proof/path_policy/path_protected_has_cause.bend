@@ -15,7 +15,7 @@ import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
 import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
-import ./secrets_need_yes.bend as PSecretsNeedYes
+import ./base/lemmas.bend as LAE
 import ./path_inside_needs_root.bend as PPathInsideNeedsRoot
 import ./base/root.bend as LAR
 import ./base/class.bend as LAC
@@ -109,9 +109,9 @@ def phc.SecretW(se: List<&2, List<&2, Nat>>, at: List<&2, Nat>) -> Type:
 def phc.dir(at: List<&2, Nat>, +p: List<&2, Nat>, h: {Bool.or(Tl.ids.eq(at, p), Pp.parent_is(at, p)) == True{} : Bool}) -> phc.DirW(at, p):
   match at:
     case Nil{}:
-      phc.or_cases(phc.DirW(Nil{}, p), Tl.ids.eq(Nil{}, p), False{}, h, e => (Nil{}, (PSecretsNeedYes.pp.ids_sound(Nil{}, p, e), {==})), e => LA.pp.absurdF(phc.DirW(Nil{}, p), e))
+      phc.or_cases(phc.DirW(Nil{}, p), Tl.ids.eq(Nil{}, p), False{}, h, e => (Nil{}, (LAE.pp.ids_sound(Nil{}, p, e), {==})), e => LA.pp.absurdF(phc.DirW(Nil{}, p), e))
     case +x <> +r:
-      phc.or_cases(phc.DirW(x <> r, p), Tl.ids.eq(x <> r, p), Tl.ids.eq(r, p), h, e => (Nil{}, (PSecretsNeedYes.pp.ids_sound(x <> r, p, e), {==})), e => ([x], (Equal.cong(List<&2, Nat>, List<&2, Nat>, z => x <> z, r, p, PSecretsNeedYes.pp.ids_sound(r, p, e)), {==})))
+      phc.or_cases(phc.DirW(x <> r, p), Tl.ids.eq(x <> r, p), Tl.ids.eq(r, p), h, e => (Nil{}, (LAE.pp.ids_sound(x <> r, p, e), {==})), e => ([x], (Equal.cong(List<&2, Nat>, List<&2, Nat>, z => x <> z, r, p, LAE.pp.ids_sound(r, p, e)), {==})))
 
 def phc.elem_cons(+x: Nat, -rest: List<&2, Nat>, -n: Nat, s: phc.ElemW(rest, n)) -> phc.ElemW(x <> rest, n):
   match s:
@@ -123,7 +123,7 @@ def phc.elem_cons(+x: Nat, -rest: List<&2, Nat>, -n: Nat, s: phc.ElemW(rest, n))
 def phc.elem_at(c: Bool, +x: Nat, +rest: List<&2, Nat>, +n: Nat, ec: {Nat.is_eq(x, n) == c : Bool}, h: {Bool.or(c, Tl.elem(rest, n)) == True{} : Bool}, ih: {Tl.elem(rest, n) == True{} : Bool} -> phc.ElemW(rest, n)) -> phc.ElemW(x <> rest, n):
   match c:
     case True{}:
-      (Nil{}, (rest, Equal.cong(Nat, List<&2, Nat>, z => z <> rest, x, n, PSecretsNeedYes.pp.eq_true(x, n, ec))))
+      (Nil{}, (rest, Equal.cong(Nat, List<&2, Nat>, z => z <> rest, x, n, LAE.pp.eq_true(x, n, ec))))
     case False{}:
       phc.elem_cons(x, rest, n, ih(h))
 

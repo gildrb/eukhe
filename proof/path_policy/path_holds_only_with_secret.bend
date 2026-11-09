@@ -12,7 +12,7 @@ import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
 import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
-import ./secrets_need_yes.bend as PSecretsNeedYes
+import ./base/lemmas.bend as LAE
 import ./path_inside_needs_root.bend as PPathInsideNeedsRoot
 
 # the law's witnesses
@@ -43,7 +43,7 @@ def pho.a_cons(+p: List<&2, Nat>, -rest: List<&2, List<&2, Nat>>, -at: List<&2, 
 def pho.a_at(b: Bool, +p: List<&2, Nat>, +rest: List<&2, List<&2, Nat>>, +at: List<&2, Nat>, eb: {Bool.and(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p))) == b : Bool}, h: {Bool.or(b, Pp.any_ancestor(rest, at)) == True{} : Bool}, ih: {Pp.any_ancestor(rest, at) == True{} : Bool} -> pho.A(rest, at)) -> pho.A(p <> rest, at):
   match b:
     case True{}:
-      pho.a_here(p, rest, at, PPathInsideNeedsRoot.pin.usplit(at, p)(PSecretsNeedYes.pp.and_l(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p)), eb)))
+      pho.a_here(p, rest, at, PPathInsideNeedsRoot.pin.usplit(at, p)(LAE.pp.and_l(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p)), eb)))
     case False{}:
       pho.a_cons(p, rest, at, ih(h))
 

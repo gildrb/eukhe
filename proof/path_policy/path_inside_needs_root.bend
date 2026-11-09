@@ -12,7 +12,7 @@ import ../../bend/tools.bend as Tl
 import ../../laws/path_policy/policy.bend as PathPolicy
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
-import ./secrets_need_yes.bend as PSecretsNeedYes
+import ./base/lemmas.bend as LAE
 import ./base/root.bend as LAR
 import ./base/class.bend as LAC
 
@@ -47,7 +47,7 @@ def pin.suf_cons(+x: Nat, -r: List<&2, Nat>, -p: List<&2, Nat>, s: pin.Suf(p, r)
 def pin.u_at(b: Bool, +p: List<&2, Nat>, +x: Nat, +r: List<&2, Nat>, eb: {Tl.ids.eq(p, x <> r) == b : Bool}, h: {Bool.or(b, Pp.under(p, r)) == True{} : Bool}, ih: {Pp.under(p, r) == True{} : Bool} -> pin.Suf(p, r)) -> pin.Suf(p, x <> r):
   match b:
     case True{}:
-      (Nil{}, Equal.sym(List<&2, Nat>, p, x <> r, PSecretsNeedYes.pp.ids_sound(p, x <> r, eb)))
+      (Nil{}, Equal.sym(List<&2, Nat>, p, x <> r, LAE.pp.ids_sound(p, x <> r, eb)))
     case False{}:
       pin.suf_cons(x, r, p, ih(h))
 
@@ -55,7 +55,7 @@ def pin.u_at(b: Bool, +p: List<&2, Nat>, +x: Nat, +r: List<&2, Nat>, eb: {Tl.ids
 def pin.usplit(+p: List<&2, Nat>, at: List<&2, Nat>) -> {Pp.under(p, at) == True{} : Bool} -> pin.Suf(p, at):
   match at:
     case Nil{}:
-      h => (Nil{}, Equal.sym(List<&2, Nat>, p, Nil{}, PSecretsNeedYes.pp.ids_sound(p, Nil{}, h)))
+      h => (Nil{}, Equal.sym(List<&2, Nat>, p, Nil{}, LAE.pp.ids_sound(p, Nil{}, h)))
     case +x <> +r:
       h => pin.u_at(Tl.ids.eq(p, x <> r), p, x, r, {==}, h, pin.usplit(p, r))
 

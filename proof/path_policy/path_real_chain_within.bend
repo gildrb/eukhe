@@ -11,7 +11,7 @@ import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
 import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
-import ./secrets_need_yes.bend as PSecretsNeedYes
+import ./base/lemmas.bend as LAE
 import ../base/logic/logic.bend as LLogicLogic
 
 def pch.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
@@ -68,7 +68,7 @@ def pch.find_none(k: Nat) -> {Pp.link.find(PathPolicy.pp_chain(k), [0n]) == None
 def pch.fs_at(b: Bool, +k: Nat, +i: Nat, eb: {Nat.is_eq(k, i) == b : Bool}, le: {Nat.is_le(1n+i, 1n+k) == True{} : Bool}, ih: {Nat.is_le(1n+i, k) == True{} : Bool} -> {Pp.link.find(PathPolicy.pp_chain(k), [1n+i]) == Some{Pp.Link{[1n+i], True{}, [Tl.Name{i}]}} : Maybe<&2, Pp.Link>}) -> {Pp.link.pick(Bool.and(b, True{}), Pp.Link{[1n+k], True{}, [Tl.Name{k}]}, Pp.link.find(PathPolicy.pp_chain(k), [1n+i])) == Some{Pp.Link{[1n+i], True{}, [Tl.Name{i}]}} : Maybe<&2, Pp.Link>}:
   match b:
     case True{}:
-      +e = PSecretsNeedYes.pp.eq_true(k, i, eb)
+      +e = LAE.pp.eq_true(k, i, eb)
       Equal.cong(Nat, Maybe<&2, Pp.Link>, z => Some{Pp.Link{[1n+z], True{}, [Tl.Name{z}]}}, k, i, e)
     case False{}:
       ih(pch.le_ne(i, k, le, eb))

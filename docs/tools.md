@@ -264,7 +264,7 @@ requests) share it, so they cannot judge a path differently.
 
 Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
 links of fuel, `class`, `judge` (the class and whether the path holds a
-secret), `effs`, `secret_read`, `runs`, the store `run` and `guarded`).
+secret), `effs`, `runs`, the store `run` and `guarded`).
 Laws: `laws/path_policy/` (`policy.bend`: the real
 path, the judgment, the store, the entry; `gate.bend`: the gate).
 Proofs: `proof/path_policy/`. Every input is free: any
@@ -277,13 +277,12 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `path_inside_is_safe` | Inside only if: no loop, no secret covers it, no rule protects it, no ancestor of an entry, a root holds it (G1.2) |
 | `path_ancestor_guarded` | ancestor of a protected or secret entry: Protected or Secret (G1.2) |
 | `gate_write_auto_never_secret` | write without a yes: never to a secret (G1.6) |
-| `gate_secret_read_needs_yes` | secret read: only on a yes (G1.6) |
 | `gate_yes_runs` | a yes runs each access (G1.6) |
 | `gate_effs_exact` | each access's effects are the table of G1.5 (G1.5) |
 | `gate_unasked_only_granted`, `gate_refusal_names_an_effect` | without a yes, an access runs exactly when each of its effects is below secret (6) and in the auto set (G1.6) |
 | `gate_secret_needs_yes`, `gate_holding_search_needs_yes` | every access to a Secret path, and a search of a directory that holds a secret, runs only on a yes (G1.6) |
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
-| `secrets_need_yes` | no agent write sequence without a yes changes a secret (G1.6, G1.7) |
+| `secrets_kept_without_yes` | no agent write sequence without a yes changes the content at or under a secret entry (G1.6, G1.7) |
 | `store_write_lands`, `store_refused_write_keeps` | a write the gate runs on its judged class lands at its real path; one it refuses leaves the store as it was (G1.6, G1.7) |
 | `store_write_only_its_path`, `store_write_adds_at_most_one`, `store_run_in_pieces` | a write changes only its real path and adds at most one cell; writes run one by one, in order (G1.7) |
 | `path_tree_rule_protects`, `path_dir_rule_protects`, `path_named_rule_protects`, `path_entry_ancestor_protects` | a Tree rule's path and all under it, a Dir rule's directory and its entries, a Named rule's name below the deepest root, a strict ancestor of a rule's entry: Protected unless Secret (G1.2, G1.3) |

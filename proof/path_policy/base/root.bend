@@ -15,7 +15,7 @@ import ../../../bend/tools.bend as Tl
 import ../../../laws/path_policy/policy.bend as PathPolicy
 import ../../base/logic/logic.bend as LLogicLogic
 import ../base.bend as LA
-import ../secrets_need_yes.bend as PSecretsNeedYes
+import ./lemmas.bend as LAE
 
 # Nat order
 # ---------
@@ -104,7 +104,7 @@ def pc.under_refl(at: List<&2, Nat>) -> {Pp.under(at, at) == True{} : Bool}:
 def pc.ule_nil(b: Bool, +p: List<&2, Nat>, e: {Tl.ids.eq(p, Nil{}) == b : Bool}) -> {Bool.or(Bool.not(b), Bool.not(Nat.is_lt(0n, List.length(&2, Nat, p)))) == True{} : Bool}:
   match b:
     case True{}:
-      Equal.cong(List<&2, Nat>, Bool, z => Bool.not(Nat.is_lt(0n, List.length(&2, Nat, z))), p, Nil{}, PSecretsNeedYes.pp.ids_sound(p, Nil{}, e))
+      Equal.cong(List<&2, Nat>, Bool, z => Bool.not(Nat.is_lt(0n, List.length(&2, Nat, z))), p, Nil{}, LAE.pp.ids_sound(p, Nil{}, e))
     case False{}:
       {==}
 
@@ -112,7 +112,7 @@ def pc.ule_nil(b: Bool, +p: List<&2, Nat>, e: {Tl.ids.eq(p, Nil{}) == b : Bool})
 def pc.ule_cons(b: Bool, c: Bool, +p: List<&2, Nat>, +y: Nat, +s: List<&2, Nat>, e: {Tl.ids.eq(p, y <> s) == b : Bool}, ih: {Bool.or(Bool.not(c), Bool.not(Nat.is_lt(List.length(&2, Nat, s), List.length(&2, Nat, p)))) == True{} : Bool}) -> {Bool.or(Bool.not(Bool.or(b, c)), Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, p)))) == True{} : Bool}:
   match b:
     case True{}:
-      Equal.trans(Bool, Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, p))), Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, y <> s))), True{}, Equal.cong(List<&2, Nat>, Bool, z => Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, z))), p, y <> s, PSecretsNeedYes.pp.ids_sound(p, y <> s, e)), Equal.cong(Bool, Bool, z => Bool.not(z), Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, y <> s)), False{}, pc.lt_irrefl(List.length(&2, Nat, y <> s))))
+      Equal.trans(Bool, Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, p))), Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, y <> s))), True{}, Equal.cong(List<&2, Nat>, Bool, z => Bool.not(Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, z))), p, y <> s, LAE.pp.ids_sound(p, y <> s, e)), Equal.cong(Bool, Bool, z => Bool.not(z), Nat.is_lt(List.length(&2, Nat, y <> s), List.length(&2, Nat, y <> s)), False{}, pc.lt_irrefl(List.length(&2, Nat, y <> s))))
     case False{}:
       match c:
         case True{}:
@@ -202,8 +202,8 @@ def pc.root_of_up(ro: List<&2, List<&2, Nat>>, +x: Nat, +r: List<&2, Nat>, +h: {
     case Nil{}:
       {==}
     case +p <> +rest:
-      +hp = PSecretsNeedYes.pp.or_false_l(PathPolicy.pp_same(p, x <> r), PathPolicy.pp_is_root(rest, x <> r), h)
-      +hr = PSecretsNeedYes.pp.or_false_r(PathPolicy.pp_same(p, x <> r), PathPolicy.pp_is_root(rest, x <> r), h)
+      +hp = LAE.pp.or_false_l(PathPolicy.pp_same(p, x <> r), PathPolicy.pp_is_root(rest, x <> r), h)
+      +hr = LAE.pp.or_false_r(PathPolicy.pp_same(p, x <> r), PathPolicy.pp_is_root(rest, x <> r), h)
       %Equal.sym(Maybe<&2, List<&2, Nat>>, Pp.root.of(rest, x <> r), Pp.root.of(rest, r), pc.root_of_up(rest, x, r, hr)) : {Pp.root.pick(Bool.or(Tl.ids.eq(p, x <> r), Pp.under(p, r)), p, _) == Pp.root.pick(Pp.under(p, r), p, Pp.root.of(rest, r)) : Maybe<&2, List<&2, Nat>>}
       %Equal.sym(Bool, Tl.ids.eq(p, x <> r), False{}, Equal.trans(Bool, Tl.ids.eq(p, x <> r), PathPolicy.pp_same(p, x <> r), False{}, LA.pp.ids_same(p, x <> r), hp)) : {Pp.root.pick(Bool.or(_, Pp.under(p, r)), p, Pp.root.of(rest, r)) == Pp.root.pick(Pp.under(p, r), p, Pp.root.of(rest, r)) : Maybe<&2, List<&2, Nat>>}
       {==}
@@ -241,11 +241,11 @@ def pc.hit_other(c: Bool, -p: List<&2, Nat>, +b: List<&2, Nat>, +at: List<&2, Na
       LA.pp.absurdF({Tl.ids.eq(at, p) == True{} : Bool}, Equal.trans(Bool, False{}, Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), True{}, Equal.sym(Bool, Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), False{}, ec), lt))
 
 def pc.same_of(+p: List<&2, Nat>, +at: List<&2, Nat>, es: {PathPolicy.pp_same(p, at) == True{} : Bool}) -> {p == at : List<&2, Nat>}:
-  PSecretsNeedYes.pp.ids_sound(p, at, Equal.trans(Bool, Tl.ids.eq(p, at), PathPolicy.pp_same(p, at), True{}, LA.pp.ids_same(p, at), es))
+  LAE.pp.ids_sound(p, at, Equal.trans(Bool, Tl.ids.eq(p, at), PathPolicy.pp_same(p, at), True{}, LA.pp.ids_same(p, at), es))
 
 # p strictly above at, b at itself: the longer is b
 def pc.other(+p: List<&2, Nat>, +b: List<&2, Nat>, +at: List<&2, Nat>, es: {PathPolicy.pp_same(p, at) == False{} : Bool}, eh: {Pp.under(p, at) == True{} : Bool}, +hb: {Tl.ids.eq(at, b) == True{} : Bool}) -> {Tl.ids.eq(at, Pp.longer.pick(Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), p, b)) == True{} : Bool}:
-  pc.hit_other(Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), p, b, at, {==}, Equal.trans(Bool, Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, at)), True{}, Equal.cong(List<&2, Nat>, Bool, z => Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, z)), b, at, Equal.sym(List<&2, Nat>, at, b, PSecretsNeedYes.pp.ids_sound(at, b, hb))), pc.strict(p, at, es, eh)), hb)
+  pc.hit_other(Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), p, b, at, {==}, Equal.trans(Bool, Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, b)), Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, at)), True{}, Equal.cong(List<&2, Nat>, Bool, z => Nat.is_lt(List.length(&2, Nat, p), List.length(&2, Nat, z)), b, at, Equal.sym(List<&2, Nat>, at, b, LAE.pp.ids_sound(at, b, hb))), pc.strict(p, at, es, eh)), hb)
 
 def pc.hit_pick(s: Bool, k: Bool, hit: Bool, +p: List<&2, Nat>, +at: List<&2, Nat>, es: {PathPolicy.pp_same(p, at) == s : Bool}, eh: {Pp.under(p, at) == hit : Bool}, best: Maybe<&2, List<&2, Nat>>, ru: pc.RU(at, best), ih: pc.RE(at, best, k)) -> pc.RE(at, Pp.root.pick(hit, p, best), Bool.or(s, k)):
   match s:
@@ -303,7 +303,7 @@ def pc.miss_at(c: Bool, +x: Nat, +r: List<&2, Nat>, +b: List<&2, Nat>, -S: List<
   match c:
     case True{}:
       +u = pc.ule(b, r, ru)
-      +cb = Equal.cong(List<&2, Nat>, Bool, z => Bool.not(Nat.is_lt(List.length(&2, Nat, r), List.length(&2, Nat, z))), x <> r, b, PSecretsNeedYes.pp.ids_sound(x <> r, b, ec))
+      +cb = Equal.cong(List<&2, Nat>, Bool, z => Bool.not(Nat.is_lt(List.length(&2, Nat, r), List.length(&2, Nat, z))), x <> r, b, LAE.pp.ids_sound(x <> r, b, ec))
       +cl = Equal.cong(Bool, Bool, z => Bool.not(z), Nat.is_lt(List.length(&2, Nat, r), 1n+List.length(&2, Nat, r)), True{}, pc.lt_succ(List.length(&2, Nat, r)))
       LA.pp.absurdF({Nil{} == x <> S : List<&2, Nat>}, Equal.trans(Bool, False{}, Bool.not(Nat.is_lt(List.length(&2, Nat, r), List.length(&2, Nat, x <> r))), True{}, Equal.sym(Bool, Bool.not(Nat.is_lt(List.length(&2, Nat, r), List.length(&2, Nat, x <> r))), False{}, cl), Equal.trans(Bool, Bool.not(Nat.is_lt(List.length(&2, Nat, r), List.length(&2, Nat, x <> r))), Bool.not(Nat.is_lt(List.length(&2, Nat, r), List.length(&2, Nat, b))), True{}, cb, u)))
     case False{}:

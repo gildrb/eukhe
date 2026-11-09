@@ -14,7 +14,7 @@ import ../../../laws/path_policy/policy.bend as PathPolicy
 import ../../base/logic/logic.bend as LLogicLogic
 import ../base.bend as LA
 import ./root.bend as LAR
-import ../secrets_need_yes.bend as PSecretsNeedYes
+import ./lemmas.bend as LAE
 import ../path_real_reaches_no_link.bend as PPathRealReachesNoLink
 
 # Lists and numbers
@@ -387,7 +387,7 @@ def prw.more(g: Nat, segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&
 def prw.up_pick(b: Bool, +H: Nat, +g: Nat, +segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, +look: Maybe<&2, Pp.Link>, +x: List<&2, Nat>, eb: {Nat.is_eq(1n+H, g) == b : Bool}, ih: {Nat.is_le(g, H) == True{} : Bool} -> {Pp.go(g, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res} -> {Pp.go(H, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res}, le: {Nat.is_le(g, 1n+H) == True{} : Bool}, h: {Pp.go(g, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res}) -> {Pp.go(1n+H, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res}:
   match b:
     case True{}:
-      %Equal.sym(Nat, 1n+H, g, PSecretsNeedYes.pp.eq_true(1n+H, g, eb)) : {Pp.go(_, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res}
+      %Equal.sym(Nat, 1n+H, g, LAE.pp.eq_true(1n+H, g, eb)) : {Pp.go(_, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res}
       h
     case False{}:
       prw.more(H, segs, ls, at, look, x, ih(prw.le_ne(g, 1n+H, le, eb), h))
