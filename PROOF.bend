@@ -1362,6 +1362,7 @@ import ./proof/notice/notice_rule_history.bend as PNoticeRuleHistory
 import ./proof/notice/notice_real_shown_once.bend as PNoticeRealShownOnce
 import ./proof/notice/notice_real_record_keeps.bend as PNoticeRealRecordKeeps
 import ./proof/notice/notice_real_apart.bend as PNoticeRealApart
+import ./proof/notice/notice_real_record.bend as PNoticeRealRecord
 import ./proof/notice/notice_real_refines.bend as PNoticeRealRefines
 import ./proof/notice/notice_real_once.bend as PNoticeRealOnce
 import ./proof/notice/notice_real_per_restore.bend as PNoticeRealPerRestore

@@ -92,6 +92,15 @@ def nt_noted(qs: List<&2, No.Ask>, +sid: String, +s: String) -> Bool:
         case No.Notes{a, ms}:
           Bool.or(Bool.and(nt_eq(a, sid), nt_has(ms, s)), nt_noted(t, sid, s))
 
+# m, asked for session q, is a restore notice of the session sid whose
+# stamp a restore notice among ms holds (what a record of ms for sid hides)
+def nt_hides(+q: String, +sid: String, m: No.Msg, ms: List<&2, No.Msg>) -> Bool:
+  match m:
+    case No.Other{}:
+      False{}
+    case No.Custom{k, s}:
+      Bool.and(nt_eq(k, nt_kind()), Bool.and(nt_eq(sid, q), nt_has(ms, s)))
+
 # after the asks qs, m of session sid shows: it is no restore notice, or
 # no record of sid among qs holds its stamp
 def nt_shows(qs: List<&2, No.Ask>, +sid: String, m: No.Msg) -> Bool:
@@ -455,6 +464,21 @@ law notice_real_apart:
   for +m: No.Msg
   for h: {nt_eq(sid, q) == False{} : Bool}
   {No.visible(No.record(rs, sid, ms), q, m) == No.visible(rs, q, m) : Bool}
+
+# LAW notice_real_record (R1, R2, R3, R4): after the view records the
+# messages ms of session sid on any record rs, a message m of session q
+# shows exactly when it showed before and it is not a restore notice of the
+# same session (q = sid) whose stamp a restore notice among ms holds
+# EXCLUDES: a record that hides more than it was given (another stamp,
+#   another kind, another role, another session, a stamp of its own), or
+#   that forgets or reveals an earlier notice
+law notice_real_record:
+  for +rs: List<&2, No.Seen>
+  for +sid: String
+  for +q: String
+  for +ms: List<&2, No.Msg>
+  for +m: No.Msg
+  {No.visible(No.record(rs, sid, ms), q, m) == Bool.and(No.visible(rs, q, m), Bool.not(nt_hides(q, sid, m, ms))) : Bool}
 
 # LAW notice_real_refines (R6): the model's events run on the rule as eukhe runs them (a
 # restore stores a notice after a message of another role; a live notice
