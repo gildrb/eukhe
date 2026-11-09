@@ -509,11 +509,10 @@ impl Supervisor {
         for resident in self.live_workers_in_creation_order().await {
             // TS #2487: the supervisor serves each worker's own catalog
             // slice while it is current, so a `cron_list` consults a worker
-            // at most once per generation (the worker's `heartbeats_changed`
-            // bumps the generation and forces the next consult).
-            let generation = resident
-                .heartbeat_snapshot_generation
-                .load(Ordering::Relaxed);
+            // at most once per generation (the worker's `cron_changed`,
+            // sent on every job write, bumps the generation and forces the
+            // next consult).
+            let generation = resident.cron_snapshot_generation.load(Ordering::Relaxed);
             let served_slice = {
                 let snapshot = resident.cron_snapshot.lock().await;
                 snapshot
@@ -526,9 +525,7 @@ impl Supervisor {
                     // generation-discipline against mid-read mutations).
                     .filter(|snapshot| {
                         snapshot.generation
-                            == resident
-                                .heartbeat_snapshot_generation
-                                .load(Ordering::Relaxed)
+                            == resident.cron_snapshot_generation.load(Ordering::Relaxed)
                     })
                     .map(|snapshot| snapshot.jobs.clone())
             };
