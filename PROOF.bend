@@ -1611,7 +1611,6 @@ import ./proof/facts/facts_price_exact.bend as PFactsPriceExact
 import ./proof/facts/facts_customs_at_exact.bend as PFactsCustomsAtExact
 import ./proof/facts/facts_aux_exact.bend as PFactsAuxExact
 import ./proof/facts/facts_reasoning_exact.bend as PFactsReasoningExact
-import ./proof/facts/facts_bedrock_reasoning_oracle.bend as PFactsBedrockReasoningOracle
 import ./proof/facts/facts_reasoning_example.bend as PFactsReasoningExample
 import ./proof/facts/core_facts_cap.bend as PCoreFactsCap
 import ./proof/facts/core_facts_cap_example.bend as PCoreFactsCapExample

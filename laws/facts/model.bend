@@ -683,11 +683,13 @@ law facts_aux_exact:
 # (S6.10.5) The Bedrock reasoning fields are the rulebook's shape
 # ----------------------------------------------------------------
 # Rust reads the rulebook's `bedrock_reasoning` (the shape a family of
-# rulebook.json names: `claude`, `gpt`, `gpt-oss`) and the map's entry of
-# the level; the model decides the fields. The model's terms,
-# independently: a level's rank (minimal 0 .. max 5); GPT sends the
-# map's wire value, else the larger of low (2) and the rank plus one; gpt-oss
-# sends the smaller of high (4) and that default, never reading the map.
+# rulebook.json names: `claude`, `gpt`) and the map's entry of the level;
+# the model decides the fields (omp `amazon-bedrock.ts`
+# `buildAdditionalModelRequestFields`: effort mode sends `reasoning.effort`,
+# every other reasoning model Anthropic's thinking block). The model's
+# terms, independently: a level's rank (minimal 0 .. max 5); GPT sends the
+# map's wire value, else the larger of low (2) and the rank plus one; a
+# model of no shape or of Claude's sends the thinking block.
 
 def reasoning_spec.rank(l: Fx.ELv) -> Nat:
   match l:
@@ -714,51 +716,36 @@ def reasoning_spec.wire(e: Maybe<&2, Maybe<&2, Nat>>, d: Nat) -> Nat:
     case Some{w}:
       Maybe.default(&2, Nat, w, d)
 
+def reasoning_spec.shaped(x: Fx.Shape, e: Maybe<&2, Maybe<&2, Nat>>, +l: Fx.ELv) -> Fx.RFields:
+  match x:
+    case Fx.SGpt{}:
+      Fx.RNested{reasoning_spec.wire(e, reasoning_spec.gpt(l))}
+    case Fx.SClaude{}:
+      Fx.RThinking{}
+
 def reasoning_spec(s: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, +l: Fx.ELv) -> Fx.RFields:
   match s:
-    case None{}:
-      Fx.RNone{}
     case Some{x}:
-      match x:
-        case Fx.SClaude{}:
-          Fx.RClaude{}
-        case Fx.SGpt{}:
-          Fx.RNested{reasoning_spec.wire(e, reasoning_spec.gpt(l))}
-        case Fx.SGptOss{}:
-          Fx.RFlat{Nat.min(4n, reasoning_spec.gpt(l))}
+      reasoning_spec.shaped(x, e, l)
+    case None{}:
+      Fx.RThinking{}
 
-# LAW facts_reasoning_exact: the Bedrock reasoning fields are exactly: none with no shape, Claude's for Claude, GPT's nested effort (the map's wire value, else low at minimal and low, then medium, high, xhigh, max), gpt-oss's flat effort (low at minimal and low, medium, high at high, xhigh and max; the map unread)
-# EXCLUDES: a shape read as another; the map read for gpt-oss or ignored for
-#   GPT; xhigh or max sent flat; a GPT level collapsed to high; a null entry
-#   sent as a wire string
+# LAW facts_reasoning_exact: the Bedrock reasoning fields are exactly: GPT's nested effort (the map's wire value, else low at minimal and low, then medium, high, xhigh, max); Anthropic's thinking block for Claude and for a model of no shape
+# EXCLUDES: a shape read as another; the map ignored for GPT; a GPT level
+#   collapsed to high; a null entry sent as a wire string; a reasoning
+#   model of no shape sent no reasoning field
 law facts_reasoning_exact:
   for s: Maybe<&2, Fx.Shape>
   for e: Maybe<&2, Maybe<&2, Nat>>
   for +l: Fx.ELv
   {Fx.reasoning(s, e, l) == reasoning_spec(s, e, l) : Fx.RFields}
 
-# LAW facts_bedrock_reasoning_oracle: for every model the old name checks place (a name with "claude",
-# "gpt-oss", "gpt-"), the fields of the shape the rulebook gives it are the fields the old code sent
-# EXCLUDES: the shape data ordered differently from the old checks (gpt-oss
-#   read as GPT, Claude as GPT), the effort tables changed by the move
-law facts_bedrock_reasoning_oracle:
-  for cl: Bool
-  for oss: Bool
-  for gpt: Bool
-  for e: Maybe<&2, Maybe<&2, Nat>>
-  for +l: Fx.ELv
-  {Fx.reasoning.old(cl, oss, gpt, e, l) == Fx.reasoning(Fx.shape.old(cl, oss, gpt), e, l) : Fx.RFields}
-
-# LAW facts_reasoning_example: anchor, one per former branch of the Bedrock code: Claude (`anthropic.claude-opus-4-7`); gpt-oss (`openai.gpt-oss-120b`) sends low at minimal and high at xhigh, whatever its map; GPT (`openai.gpt-5.4`) sends xhigh and max as named, its map's string first, the default at a null entry; no shape (`amazon.nova-pro-v1:0`) sends nothing
-# EXCLUDES: a spec that is wrong on the cases the old Rust tests pinned
+# LAW facts_reasoning_example: anchor: Claude (`anthropic.claude-opus-4-7`) sends the thinking block; GPT (`openai.gpt-5.4`) sends xhigh and max as named, its map's string first, the default at a null entry; no shape (`amazon.nova-2-lite-v1:0`, `openai.gpt-oss-120b-1:0`) sends the thinking block, as omp does
+# EXCLUDES: a spec that is wrong on the cases the Rust tests pin
 law facts_reasoning_example:
-  {Fx.reasoning(Some{Fx.SClaude{}}, None{}, Fx.EHigh{}) == Fx.RClaude{} : Fx.RFields} &
-  {Fx.reasoning(Some{Fx.SGptOss{}}, None{}, Fx.EMinimal{}) == Fx.RFlat{2n} : Fx.RFields} &
-  {Fx.reasoning(Some{Fx.SGptOss{}}, Some{Some{0n}}, Fx.EXhigh{}) == Fx.RFlat{4n} : Fx.RFields} &
+  {Fx.reasoning(Some{Fx.SClaude{}}, None{}, Fx.EHigh{}) == Fx.RThinking{} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, None{}, Fx.EXhigh{}) == Fx.RNested{5n} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, None{}, Fx.EMax{}) == Fx.RNested{6n} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, Some{Some{0n}}, Fx.EHigh{}) == Fx.RNested{0n} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, Some{None{}}, Fx.EMinimal{}) == Fx.RNested{2n} : Fx.RFields} &
-  {Fx.reasoning(None{}, Some{Some{0n}}, Fx.EHigh{}) == Fx.RNone{} : Fx.RFields} &
-  {Fx.shape.old(True{}, True{}, True{}) == Some{Fx.SClaude{}} : Maybe<&2, Fx.Shape>} &
-  {Fx.shape.old(False{}, True{}, True{}) == Some{Fx.SGptOss{}} : Maybe<&2, Fx.Shape>}
+  {Fx.reasoning(None{}, Some{Some{0n}}, Fx.EMinimal{}) == Fx.RThinking{} : Fx.RFields}

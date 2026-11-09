@@ -193,7 +193,8 @@ pub enum Directive {
     /// inside.
     GoogleMultimodalFunctionResponse,
     /// Bedrock: the request shape of the model's reasoning fields
-    /// (`claude`, `gpt`, `gpt-oss`); no rule: no reasoning field.
+    /// (`claude`, `gpt`: a nested `reasoning.effort`); no rule:
+    /// Anthropic's thinking block (budget thinking).
     BedrockReasoning,
     /// openai-completions: the longest tool-call id the host accepts, in
     /// UTF-16 units (a longer id is cut to it). No rule: no limit.
@@ -445,7 +446,7 @@ pub enum ValueKind {
     /// A `thinkingBudgets` object with all four levels set, each level at
     /// least the one before it (`minimal` ≤ `low` ≤ `medium` ≤ `high`).
     ThinkingBudgets,
-    /// A Bedrock reasoning shape: `claude`, `gpt` or `gpt-oss`.
+    /// A Bedrock reasoning shape: `claude` or `gpt`.
     BedrockReasoning,
     /// A [`Dialect`] wire string that implements the capability, or `false`.
     Endpoint(Capability),
@@ -493,7 +494,6 @@ impl ValueKind {
             Self::BedrockReasoning => match raw.as_str()? {
                 "claude" => Some(Value::BedrockReasoning(model_facts::Shape::Claude)),
                 "gpt" => Some(Value::BedrockReasoning(model_facts::Shape::Gpt)),
-                "gpt-oss" => Some(Value::BedrockReasoning(model_facts::Shape::GptOss)),
                 _ => None,
             },
             Self::Endpoint(capability) => match raw {

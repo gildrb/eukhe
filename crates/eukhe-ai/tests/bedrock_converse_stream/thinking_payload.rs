@@ -374,12 +374,53 @@ async fn sends_reasoning_effort_when_only_model_name_identifies_a_gpt_model() {
     );
 }
 
+fn budget_thinking(budget: u64) -> Value {
+    json!({ "thinking": { "type": "enabled", "budget_tokens": budget, "display": "summarized" } })
+}
+
+/// omp (`amazon-bedrock.ts` `buildAdditionalModelRequestFields`) sends
+/// every reasoning model outside the adaptive and effort modes Anthropic's
+/// budget thinking block: gpt-oss, Nova, `DeepSeek`, GLM, Grok before 4.6 and
+/// the rest, with the default budget of the level (high past high).
 #[tokio::test]
-async fn sends_flat_reasoning_effort_for_gpt_oss_clamped_to_high() {
-    let model = get_model("amazon-bedrock", "openai.gpt-oss-120b-1:0");
-    for (reasoning, effort) in [("minimal", "low"), ("medium", "medium"), ("xhigh", "high")] {
-        let payload = capture_payload(&model, json!({ "reasoning": reasoning })).await;
-        assert_eq!(fields(&payload), &json!({ "reasoning_effort": effort }));
+async fn non_claude_budget_models_send_the_thinking_budget() {
+    for model_id in [
+        "openai.gpt-oss-120b-1:0",
+        "amazon.nova-2-lite-v1:0",
+        "deepseek.v3.2",
+        "zai.glm-5",
+        "xai.grok-4.3",
+    ] {
+        let model = get_model("amazon-bedrock", model_id);
+        for (reasoning, budget) in [("minimal", 1024), ("medium", 8192), ("xhigh", 16384)] {
+            let payload = capture_payload(&model, json!({ "reasoning": reasoning })).await;
+            assert_eq!(
+                fields(&payload),
+                &budget_thinking(budget),
+                "{model_id} {reasoning}"
+            );
+        }
+    }
+}
+
+/// omp's effort mode on Bedrock (`amazon-bedrock.kdl`: Grok 4.6+, the
+/// `*.moonshotai.kimi-k3` profiles) sends `reasoning.effort`.
+#[tokio::test]
+async fn effort_mode_models_send_a_nested_reasoning_effort() {
+    for model_id in [
+        "xai.grok-4.6",
+        "global.xai.grok-4.7",
+        "us.moonshotai.kimi-k3",
+    ] {
+        let model = get_model("amazon-bedrock", model_id);
+        for effort in ["low", "high"] {
+            let payload = capture_payload(&model, json!({ "reasoning": effort })).await;
+            assert_eq!(
+                fields(&payload),
+                &json!({ "reasoning": { "effort": effort } }),
+                "{model_id}"
+            );
+        }
     }
 }
 

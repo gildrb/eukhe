@@ -28,11 +28,11 @@ import ./facts.bend as Fx
 #      its tier's number and its multiplier in hundredths), then the
 #      model's number and the tier's number
 #   4  the Bedrock reasoning fields (`Fx.reasoning`): the rulebook's shape
-#      (0 none | 1 Claude | 2 GPT | 3 gpt-oss), the thinking-level map's
-#      entry of the level (as in 2), then the level (as in 2)
+#      (0 none | 1 Claude | 2 GPT), the thinking-level map's entry of the
+#      level (as in 2), then the level (as in 2)
 # Reply to 0 and 1: the Bool; to 2: the Nat; to 3: 0 no row | 1 then the
-# multiplier; to 4: 0 none | 1 Claude | 2 then the nested effort | 3 then
-# the flat effort. Any other input: the error form.
+# multiplier; to 4: 1 the thinking block | 2 then the nested effort. Any
+# other input: the error form.
 
 # A request of the entry
 type Req is Data:
@@ -347,7 +347,7 @@ def get_price(r: W.Dec<List<&2, Fx.PRow>>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
-# a shape: 0 none | 1 Claude | 2 GPT | 3 gpt-oss
+# a shape: 0 none | 1 Claude | 2 GPT
 def get_shape.tag(t: Nat, s: String) -> W.Dec<Maybe<&2, Fx.Shape>>:
   match t:
     case 0n:
@@ -356,9 +356,7 @@ def get_shape.tag(t: Nat, s: String) -> W.Dec<Maybe<&2, Fx.Shape>>:
       W.Got{Some{Fx.SClaude{}}, s}
     case 2n:
       W.Got{Some{Fx.SGpt{}}, s}
-    case 3n:
-      W.Got{Some{Fx.SGptOss{}}, s}
-    case 4n+p:
+    case 3n+p:
       W.Bad{}
 
 def get_shape(r: W.Dec<Nat>) -> W.Dec<Maybe<&2, Fx.Shape>>:
@@ -428,14 +426,10 @@ def put_mnat(m: Maybe<&2, Nat>) -> String:
 
 def put_rfields(f: Fx.RFields) -> String:
   match f:
-    case Fx.RNone{}:
-      W.put_nat(0n, "")
-    case Fx.RClaude{}:
+    case Fx.RThinking{}:
       W.put_nat(1n, "")
     case Fx.RNested{e}:
       W.put_nat(2n, W.put_nat(e, ""))
-    case Fx.RFlat{e}:
-      W.put_nat(3n, W.put_nat(e, ""))
 
 # The decisions
 # -------------
