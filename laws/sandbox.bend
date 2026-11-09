@@ -187,8 +187,8 @@ law cow_entry:
 #     field that is not a content ("sandbox: bad parent content", "bad
 #     base content", "bad child content"), or "sandbox: input left over"
 #     when more input follows the three contents.
-# The spellers and the reader below are built from the wire primitives
-# of bend/wire.bend only, never from the entry's put_*/get_*.
+# The spellers below are built from the wire primitives of bend/wire.bend
+# only, never from the entry's put_*/get_*.
 
 # a content: 0 no file, 1 then its id
 def cow_spell_doc(m: Maybe<&2, Nat>, rest: String) -> String:
@@ -219,32 +219,6 @@ def cow_spell_plan(x: Sb.Plan) -> String:
 def cow_spell_answer(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> String:
   cow_spell_plan(Sb.plan(p, b, c))
 
-# Reader: a content, read with the wire primitives
-
-def cow_read_some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def cow_read_doc.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      cow_read_some(Wr.get_nat(s))
-    case 2n+u:
-      Wr.Bad{}
-
-# the content the input r (its tag read) starts with, and what follows it
-def cow_read_doc(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{t, s}:
-      cow_read_doc.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
 # LAW cow_entry_answers_spelled: every request Rust writes (every id within the wire) gets the spelled plan of the path
 # EXCLUDES: a request Rust writes refused or misread, a plan spelled
 #   another way than Rust reads it
@@ -270,32 +244,42 @@ law cow_entry_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FSb.ffi(cow_spell_req(p, b, c, more)) == Wr.err("sandbox: input left over") : String}
 
-# LAW cow_entry_bad_parent: an input that does not start with a content answers "sandbox: bad parent content"
-# EXCLUDES: a default parent content, another error text for it
-law cow_entry_bad_parent:
+# LAW cow_entry_malformed_unless_parent: every answer but "sandbox: bad parent content" comes from input that begins with a spelled content (0 no file, or 1 then an id within the wire)
+# EXCLUDES: a malformed parent content (a tag past 1, a leading zero, an id
+#   past the wire, a cut field, no input) read as a content or answered with
+#   a plan, the base's, the child's or the left-over error
+law cow_entry_malformed_unless_parent:
   for +s: String
-  for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
-  {FSb.ffi(s) == Wr.err("sandbox: bad parent content") : String}
+  for other: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad parent content")) == False{} : Bool}
+  exs m: Maybe<&2, Nat>
+  exs rest: String
+  {s == cow_spell_doc(m, rest) : String} & {LawsBase.wire_mfits(m) == True{} : Bool}
 
-# LAW cow_entry_bad_base: a parent content Rust writes followed by input that does not start with a content answers "sandbox: bad base content"
-# EXCLUDES: a default base content, the parent's or the child's error for it
-law cow_entry_bad_base:
+# LAW cow_entry_malformed_unless_base: after a spelled parent content that fits, every answer but "sandbox: bad base content" comes from input that goes on with a spelled content
+# EXCLUDES: a malformed base content read as a content or answered with a
+#   plan, the parent's, the child's or the left-over error
+law cow_entry_malformed_unless_base:
   for +p: Maybe<&2, Nat>
   for hp: {LawsBase.wire_mfits(p) == True{} : Bool}
-  for +s: String
-  for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
-  {FSb.ffi(cow_spell_doc(p, s)) == Wr.err("sandbox: bad base content") : String}
+  for +t: String
+  for other: {String.eq(FSb.ffi(cow_spell_doc(p, t)), Wr.err("sandbox: bad base content")) == False{} : Bool}
+  exs m: Maybe<&2, Nat>
+  exs rest: String
+  {t == cow_spell_doc(m, rest) : String} & {LawsBase.wire_mfits(m) == True{} : Bool}
 
-# LAW cow_entry_bad_child: a parent's and a base's content Rust writes followed by input that does not start with a content answers "sandbox: bad child content"
-# EXCLUDES: a default child content, the parent's or the base's error for it
-law cow_entry_bad_child:
+# LAW cow_entry_malformed_unless_child: after spelled parent and base contents that fit, every answer but "sandbox: bad child content" comes from input that goes on with a spelled content
+# EXCLUDES: a malformed child content read as a content or answered with a
+#   plan, the parent's, the base's or the left-over error
+law cow_entry_malformed_unless_child:
   for +p: Maybe<&2, Nat>
   for hp: {LawsBase.wire_mfits(p) == True{} : Bool}
   for +b: Maybe<&2, Nat>
   for hb: {LawsBase.wire_mfits(b) == True{} : Bool}
-  for +s: String
-  for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
-  {FSb.ffi(cow_spell_doc(p, cow_spell_doc(b, s))) == Wr.err("sandbox: bad child content") : String}
+  for +t: String
+  for other: {String.eq(FSb.ffi(cow_spell_doc(p, cow_spell_doc(b, t))), Wr.err("sandbox: bad child content")) == False{} : Bool}
+  exs m: Maybe<&2, Nat>
+  exs rest: String
+  {t == cow_spell_doc(m, rest) : String} & {LawsBase.wire_mfits(m) == True{} : Bool}
 
 # LAW cow_entry_malformed_unless_request: every answer but the three field errors ("sandbox: bad parent content", "bad base content", "bad child content") answers an input that begins with a request Rust writes: three contents, every id within the wire, then any rest
 # EXCLUDES: a malformed content read and answered (a tag past 1, a leading
