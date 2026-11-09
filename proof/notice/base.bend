@@ -11,7 +11,7 @@ import ../base/wire.bend as LWire
 
 # ---- notice ----
 
-# proof_notice: the restore notice laws of LAWS.bend section supervisor (D1).
+# The model laws of laws/notice.bend (the scenario model No.run):
 #
 # - notice_shown_once: each stored notice is in one of two states: not
 #   in the record and never shown, or in the record and shown once
@@ -19,7 +19,7 @@ import ../base/wire.bend as LWire
 #   (`No.show`) moves a notice to the second state (`pn.show_shown`).
 #   So no notice shows more than once.
 # - notice_per_restore: an attach offers every stored notice, so after
-#   it each one showed exactly once (`pn.full`), and the view stores one
+#   it each one showed exactly once (`pn.full`), and the model stores one
 #   notice for each restore (`pn.len_go`).
 
 # Logic
