@@ -13,10 +13,9 @@ import ./color.bend as Co
 # Reply: quantize: a count, then per color the xterm-256 index a
 # 256-color terminal paints for it (Co.to256); lights: a count, then per
 # color T (light: Co.light) or F; the palette: a count (256), then per
-# index 0-255 its color's channels (Co.ansi256, written here from its
-# parts in index order: the 16 ANSI colors, the cube, the grays). Any
-# other input (an unknown tag, a channel past 255, a short list, input
-# left over): the error form.
+# index 0-255 its color's channels (Co.ansi256). Any other input (an
+# unknown tag, a channel past 255, a short list, input left over): the
+# error form.
 
 type Req is Data:
   Quantize{cs: List<&2, Co.Rgb>}
@@ -155,50 +154,13 @@ def put_rgb(c: Co.Rgb, rest: String) -> String:
     case Co.Rgb{r, g, b}:
       W.put_u32(r, W.put_u32(g, W.put_u32(b, rest)))
 
-# each color of cs
-def put_rgbs(cs: List<&2, Co.Rgb>, rest: String) -> String:
-  match cs:
-    case Nil{}:
+# the colors of the n palette indices from i on
+def put_table(n: Nat, +i: U32, rest: String) -> String:
+  match n:
+    case 0n:
       rest
-    case c <> t:
-      put_rgb(c, put_rgbs(t, rest))
-
-# the cube colors with red level r and green level g, one per blue level of bs
-def put_cube.b(+r: U32, +g: U32, bs: List<&2, U32>, rest: String) -> String:
-  match bs:
-    case Nil{}:
-      rest
-    case b <> t:
-      put_rgb(Co.Rgb{r, g, b}, put_cube.b(r, g, t, rest))
-
-# the cube colors with red level r, one row per green level of gs
-def put_cube.g(+r: U32, gs: List<&2, U32>, rest: String) -> String:
-  match gs:
-    case Nil{}:
-      rest
-    case g <> t:
-      put_cube.b(r, g, Co.levels(), put_cube.g(r, t, rest))
-
-# the 6x6x6 cube (palette indices 16-231: red slowest, blue fastest), one
-# plane per red level of rs
-def put_cube(rs: List<&2, U32>, rest: String) -> String:
-  match rs:
-    case Nil{}:
-      rest
-    case r <> t:
-      put_cube.g(r, Co.levels(), put_cube(t, rest))
-
-# the grays (palette indices 232-255), one per level of gs
-def put_grays(gs: List<&2, U32>, rest: String) -> String:
-  match gs:
-    case Nil{}:
-      rest
-    case +g <> t:
-      put_rgb(Co.Rgb{g, g, g}, put_grays(t, rest))
-
-# the colors of the 256 palette indices, in order
-def put_table(rest: String) -> String:
-  put_rgbs(Co.ansi16(), put_cube(Co.levels(), put_grays(Co.grays(), rest)))
+    case 1n+m:
+      put_rgb(Co.ansi256(i), put_table(m, (i + 1 : U32), rest))
 
 def reply(r: Req) -> String:
   match r:
@@ -207,7 +169,7 @@ def reply(r: Req) -> String:
     case Lights{+cs}:
       W.put_nat(List.length(&2, Co.Rgb, cs), put_lights.items(cs, ""))
     case Table{}:
-      W.put_nat(256n, put_table(""))
+      W.put_nat(256n, put_table(256n, 0, ""))
 
 # Running
 # -------
