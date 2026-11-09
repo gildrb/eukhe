@@ -46,8 +46,8 @@ impl SessionUi {
         None
     }
 
-    /// Arm the double-Escape action (TS `armEscapeRepeat`): the tree when
-    /// the session is idle or the editor empty, the clear action
+    /// Arm the double-Escape action (TS `armEscapeRepeat`) on an idle
+    /// press: the tree when the editor is empty, the clear action
     /// otherwise, for 500ms; the worker pause for
     /// [`super::workers::PAUSE_ESCAPE_WINDOW`] while a worker runs.
     fn arm_escape_repeat(&mut self, action: &'static str) {
@@ -488,46 +488,58 @@ impl SessionUi {
             // pauses it (its running model request and tool calls finish,
             // nothing new starts; the first press aborted only main's own
             // turn). Otherwise the second press within 500ms opens the
-            // tree when the session is idle or the editor empty, and
-            // clears the input otherwise. The repeat's tree action is one
-            // shot per input chain (the operator's 2026-09-29 Esc-overflow
-            // ruling): once the repeat-opened tree was dismissed, the
-            // empty state's pop loop terminates -- the next Escape arms
-            // nothing, so a held or repeated Escape converges to the
-            // inert empty editor instead of cycling the selector open
-            // again every second press.
-            if let Some(action) = self.take_escape_repeat_action() {
-                match action {
-                    "pause" => self.control_workers(super::workers::WorkerAction::Pause, view),
-                    "tree" => {
-                        self.escape_tree_shortcut_spent = true;
-                        self.open_tree_selector(view, None).await?;
-                    }
-                    _ => view.editor.set_text(""),
+            // tree when the editor is empty and clears the input
+            // otherwise. The repeat's tree action is one shot per input
+            // chain (the operator's 2026-09-29 Esc-overflow ruling): once
+            // the repeat-opened tree was dismissed, the empty state's pop
+            // loop terminates -- the next Escape arms nothing, so a held
+            // or repeated Escape converges to the inert empty editor
+            // instead of cycling the selector open again every second
+            // press.
+            let armed = self.take_escape_repeat_action();
+            if armed == Some("pause") {
+                self.control_workers(super::workers::WorkerAction::Pause, view);
+                self.dirty = true;
+                return Ok(());
+            }
+            // A press that stops running work (the turn, a compaction, a
+            // user bash) only stops it: the tree and clear actions arm on
+            // an idle press alone (omp `handleEscape`,
+            // input-controller.ts:629-682 -- the double-Escape action runs
+            // only once nothing streams), so the second Escape of an
+            // interrupt never opens the tree over the stopped turn, where
+            // the next prompt would land in its search box. A running
+            // worker still arms its pause.
+            if self.turn_active || view.compaction.is_some() || self.user_bash_running {
+                if self.worker_running() {
+                    self.arm_escape_repeat("pause");
+                }
+                self.interrupt_running_work(view);
+                return Ok(());
+            }
+            if let Some(action) = armed {
+                if action == "tree" {
+                    self.escape_tree_shortcut_spent = true;
+                    self.open_tree_selector(view, None).await?;
+                } else {
+                    view.editor.set_text("");
                 }
                 self.dirty = true;
                 return Ok(());
             }
             let action = if self.worker_running() {
                 "pause"
-            } else if self.turn_active || view.editor.get_text().trim().is_empty() {
+            } else if view.editor.get_text().trim().is_empty() {
                 "tree"
             } else {
                 "clear"
             };
             if action == "tree" && self.escape_tree_shortcut_spent {
-                // The gesture already fired: this press interrupts running
-                // work like every Escape, but arms no reopen -- the pop loop
-                // stays terminated at the empty state.
-                self.interrupt_running_work(view);
+                // The gesture already fired: this press arms no reopen --
+                // the pop loop stays terminated at the empty state.
                 return Ok(());
             }
             self.arm_escape_repeat(action);
-            // TS `handleEscape` arms the repeat, then fires
-            // `interruptOrClearInput()` -- the same abort ladder as the
-            // Ctrl+C interrupt, minus the Ctrl+C exit hint (TS shows that
-            // only through `handleInterruptKey`).
-            self.interrupt_running_work(view);
             return Ok(());
         }
         if view.editor.keybindings().matches(&id, "app.exit") && view.editor.get_text().is_empty() {
