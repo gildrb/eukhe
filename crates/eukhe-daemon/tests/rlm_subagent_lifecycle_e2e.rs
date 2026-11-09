@@ -645,6 +645,75 @@ fn aborting_a_parent_waiting_in_collect_cancels_the_child() {
     assert_eq!(kid_reports(&messages), Vec::<String>::new());
 }
 
+/// A child whose `bash` step outlived its blocking budget keeps it as a
+/// background job after its turn: Esc on the parent waiting on it cancels
+/// the child, and the cancel kills that job's process too (omp reaps a
+/// cancelled subagent's own jobs, task/executor.ts:5375-5385).
+#[test]
+fn aborting_a_parent_waiting_in_collect_kills_the_child_s_background_job() {
+    const SLEEP_SECS: u32 = 1795;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "wait",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+            )),
+            { "text": "after the abort" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent.active, "message": "spawn and wait" }),
+    );
+    wait_until(Duration::from_mins(2), "the kid's sleep", || {
+        (sleeping.exists() && kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+    // Past the 30-second blocking budget the step is a background job and
+    // the kid's turn ends without it.
+    let kid = wait_until(Duration::from_secs(30), "the kid worker", || {
+        client
+            .roster()
+            .into_iter()
+            .find(|row| row["sessionName"] == "kid" && row["runtimeKind"] == "subagent")
+    });
+    let kid_active = kid["activeSessionId"].as_str().expect("kid id").to_owned();
+    wait_until(Duration::from_mins(2), "the kid's turn to end", || {
+        client.wait_idle(&kid_active);
+        client
+            .messages(&kid_active)
+            .iter()
+            .any(|message| message_text(message) == "kid woke up")
+            .then_some(())
+    });
+    assert!(kid_sleeping(SLEEP_SECS), "the background job ended early");
+
+    client.request(
+        "abort",
+        &json!({ "type": "abort", "activeSessionId": parent.active }),
+    );
+    client.wait_idle(&parent.active);
+    wait_until(
+        Duration::from_secs(60),
+        "the kid's background job killed",
+        || (!kid_sleeping(SLEEP_SECS)).then_some(()),
+    );
+    client.run_turn(&parent.active, "what now?");
+    let messages = client.messages(&parent.active);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("after the abort"),
+        "{messages:?}"
+    );
+}
+
 /// A wait an earlier cell left running in a task is not the aborted
 /// cell's: Esc on a later cell leaves the child that task waits on running
 /// (omp aborts only the waits of the cancelled run).
