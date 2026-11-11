@@ -307,9 +307,22 @@ fn run_case(phase: Phase, target: Target) {
                 // the summary again from that first window.
                 Target::Worker | Target::Both => {
                     assert_eq!(served(&crashed_calls), vec![Served::Dropped], "{context}");
+                    // The window is the request's conversation. What
+                    // follows it may differ: the turn beside the background
+                    // compaction may answer between the crash and the
+                    // recovery, and its answer is then the recovered
+                    // request's recent-state anchor.
+                    let window = |calls: &[(String, Served)]| {
+                        calls.first().map(|(text, _)| {
+                            let (conversation, _) = text
+                                .split_once("</conversation>")
+                                .expect("a summarizer request carries its conversation");
+                            conversation.to_owned()
+                        })
+                    };
                     assert_eq!(
-                        after_calls.first().map(|(text, _)| text),
-                        crashed_calls.first().map(|(text, _)| text),
+                        window(&after_calls),
+                        window(&crashed_calls),
                         "the recovered summary restarts at the first window; {context}"
                     );
                     after_calls
