@@ -58,15 +58,21 @@ def la_stopped(s: La.St) -> Bool:
     case La.St{ws, a, d}:
       d
 
+def la_aborted(s: La.St) -> Nat:
+  match s:
+    case La.St{ws, a, d}:
+      a
+
 # The idle shutdown
 # -----------------
 
 # LAW idle_shutdown_never_aborts (A5): an idle shutdown never aborts a run, in any order of prompts, run
-# ends, quiesces, releases and commits on any workers
+# ends, quiesces, releases and commits on any workers: the state's count of
+# aborted runs stays 0
 law idle_shutdown_never_aborts:
   for +bs: List<&2, Bool>
   for +ops: List<&2, La.Op>
-  {La.St.aborted(La.run(bs, ops)) == 0n : Nat}
+  {la_aborted(La.run(bs, ops)) == 0n : Nat}
 
 # a worker with run b and an open gate, where bs has b
 def la_open_at(m: Maybe<&2, Bool>) -> Maybe<&2, La.Wk>:
@@ -84,7 +90,7 @@ def la_open_at(m: Maybe<&2, Bool>) -> Maybe<&2, La.Wk>:
 law launcher_run_starts_serving:
   for +bs: List<&2, Bool>
   for i: Nat
-  {la_stopped(La.run(bs, [])) == False{} : Bool} & {La.St.aborted(La.run(bs, [])) == 0n : Nat} & {List.get(&2, La.Wk, la_ws(La.run(bs, [])), i) == la_open_at(List.get(&2, Bool, bs, i)) : Maybe<&2, La.Wk>}
+  {la_stopped(La.run(bs, [])) == False{} : Bool} & {la_aborted(La.run(bs, [])) == 0n : Nat} & {List.get(&2, La.Wk, la_ws(La.run(bs, [])), i) == la_open_at(List.get(&2, Bool, bs, i)) : Maybe<&2, La.Wk>}
 
 # LAW launcher_run_steps (A8): the replacement after ops then op is one step on op from the
 # replacement after ops
@@ -213,6 +219,19 @@ law launcher_op_keeps_workers:
   for a: Nat
   for op: La.Op
   {List.length(&2, La.Wk, la_ws(La.step(La.St{ws, a, False{}}, op))) == List.length(&2, La.Wk, ws) : Nat}
+
+# LAW launcher_op_keeps_serving (A4, A8): a run start, run end, quiesce or release on any worker of a
+# serving daemon keeps it serving and aborts no run: only a commit stops it
+# EXCLUDES: a run start (or run end, quiesce, release) that stops the daemon
+#   or counts a run as aborted, though no commit was made and no worker
+#   quiesced
+law launcher_op_keeps_serving:
+  for ws: List<&2, La.Wk>
+  for a: Nat
+  for op: La.Op
+  for +i: Nat
+  for on: {la_target(op) == Some{i} : Maybe<&2, Nat>}
+  {la_stopped(La.step(La.St{ws, a, False{}}, op)) == False{} : Bool} & {la_aborted(La.step(La.St{ws, a, False{}}, op)) == a : Nat}
 
 # The commit
 # ----------

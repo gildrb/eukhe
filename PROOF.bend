@@ -1326,6 +1326,7 @@ import ./proof/launcher/launcher_finish_ends_run.bend as PLauncherFinishEndsRun
 import ./proof/launcher/launcher_release_opens_gate.bend as PLauncherReleaseOpensGate
 import ./proof/launcher/launcher_op_leaves_others.bend as PLauncherOpLeavesOthers
 import ./proof/launcher/launcher_op_keeps_workers.bend as PLauncherOpKeepsWorkers
+import ./proof/launcher/launcher_op_keeps_serving.bend as PLauncherOpKeepsServing
 import ./proof/launcher/launcher_commit_waits_open_gate.bend as PLauncherCommitWaitsOpenGate
 import ./proof/launcher/launcher_commit_stops_closed.bend as PLauncherCommitStopsClosed
 import ./proof/launcher/launcher_ffi_answers.bend as PLauncherFfiAnswers
