@@ -342,13 +342,42 @@ def log_commit_spec(fsync: Bool, main: Bool, +ds: List<&2, Bool>) -> Lr.Plan:
     case True{}:
       Lr.Plan{Lr.Store{True{}, True{}}, List.append(&2, Lr.Act, log_appends(log_ixs(ds, 0n)), List.append(&2, Lr.Act, log_flushes(log_ixs(ds, 0n)), List.append(&2, Lr.Act, log_dir(log_fresh(ds)), List.append(&2, Lr.Act, [Lr.AppendMain{}, Lr.FlushMain{}], List.append(&2, Lr.Act, log_dir(Bool.not(main)), [Lr.Ack{}])))))}
 
-# the plan of an open
-def log_open_spec(fsync: Bool) -> Lr.Plan:
-  match fsync:
-    case True{}:
-      Lr.Plan{Lr.Store{True{}, False{}}, [Lr.FlushParent{}]}
-    case False{}:
-      Lr.Plan{Lr.Store{False{}, False{}}, Nil{}}
+# a step that flushes a file or a directory
+def log_is_flush(a: Lr.Act) -> Bool:
+  match a:
+    case Lr.FlushParent{}:
+      True{}
+    case Lr.AppendSide{i}:
+      False{}
+    case Lr.FlushSide{i}:
+      True{}
+    case Lr.FlushDir{}:
+      True{}
+    case Lr.AppendMain{}:
+      False{}
+    case Lr.FlushMain{}:
+      True{}
+    case Lr.Ack{}:
+      False{}
+
+# some step of acts is a flush
+def log_any_flush(acts: List<&2, Lr.Act>) -> Bool:
+  match acts:
+    case Nil{}:
+      False{}
+    case a <> more:
+      Bool.or(log_is_flush(a), log_any_flush(more))
+
+# some step of the commits dss (per commit, the durable entries of its
+# sidecar files) is a flush, each commit planned from the storage the one
+# before it left, the first from s
+def log_session_flushes(dss: List<&2, List<&2, Bool>>, s: Lr.Store) -> Bool:
+  match dss:
+    case Nil{}:
+      False{}
+    case ds <> rest:
+      +p = Lr.Store.commit(s, ds)
+      Bool.or(log_any_flush(log_acts(p)), log_session_flushes(rest, log_st(p)))
 
 # LAW log_commit_plan (R3): every commit's plan, for every storage and every sidecar
 # list: its records (each sidecar once, in order), then with fsync their
@@ -366,13 +395,26 @@ law log_commit_plan:
   for +ds: List<&2, Bool>
   {Lr.Store.commit(Lr.Store{fsync, main}, ds) == log_commit_spec(fsync, main, ds) : Lr.Plan}
 
-# LAW log_open_plan (R3): an open's plan: with fsync the flush of the storage directory's
-# parent, and main.jsonl's entry not yet durable
-# EXCLUDES: an fsync storage whose own directory entry a power loss drops,
-#   a first commit that skips the directory flush of main.jsonl
-law log_open_plan:
+# LAW log_open_storage (R3): the storage an open leaves has the fsync it
+# was opened with, and main.jsonl's directory entry not durable yet (no
+# commit has flushed it)
+# EXCLUDES: an open that turns fsync on or off (a storage opened without
+#   fsync whose every commit then flushes, one opened with fsync that
+#   never does), a storage whose first commit skips the directory flush of
+#   main.jsonl
+law log_open_storage:
   for fsync: Bool
-  {Lr.Store.open(fsync) == log_open_spec(fsync) : Lr.Plan}
+  {log_st(Lr.Store.open(fsync)) == Lr.Store{fsync, False{}} : Lr.Store}
+
+# LAW log_without_fsync_never_flushes (R3): a storage opened without fsync
+# flushes nothing: neither its open nor any commit after it, whatever the
+# commits and their sidecar files (R3 names every flush "(fsync)")
+# EXCLUDES: an open without fsync that flushes the parent directory or
+#   leaves a storage that flushes, a commit without fsync that flushes a
+#   sidecar, main.jsonl or the directory
+law log_without_fsync_never_flushes:
+  for dss: List<&2, List<&2, Bool>>
+  {Bool.or(log_any_flush(log_acts(Lr.Store.open(False{}))), log_session_flushes(dss, log_st(Lr.Store.open(False{})))) == False{} : Bool}
 
 # The entry
 # ---------
@@ -481,17 +523,6 @@ law log_ffi_answers_the_open:
   for fits: {Bool.and(LawsBase.wire_fits(len), log_last_fits(last)) == True{} : Bool}
   {FLg.ffi(log_spell_req(len, last)) == log_spell_tail(Lr.tail(len, last)) : String}
 
-# LAW log_ffi_reads_only_requests (R4): an input the entry answers with no error form is the
-# spelling of the facts of a file
-# EXCLUDES: a default decision for malformed input, an unknown Maybe tag
-#   read as a value, input left over ignored
-law log_ffi_reads_only_requests:
-  for +s: String
-  for ok: {LawsBase.wire_opens_err(FLg.ffi(s)) == False{} : Bool}
-  exs len: Nat
-  exs last: Maybe<&2, Nat>
-  {s == log_spell_req(len, last) : String}
-
 # LAW log_ffi_reads_only_fitting_requests (R4): an input the entry answers with no error form is the
 # spelling of a request whose numbers fit the wire
 # EXCLUDES: a decoder that reads a number of 15 digits or more (a length
@@ -536,16 +567,6 @@ law log_stepper_commit:
   for +ds: List<&2, Bool>
   for fits: {LawsBase.wire_fits(List.length(&2, Bool, ds)) == True{} : Bool}
   {FLg.step(FLg.Running{s}, log_spell_sides(ds)) == log_answer(Lr.Store.commit(s, ds)) : FLg.St & String}
-
-# LAW log_stepper_reads_only_commits (R4): an event the stepper answers with no error form is
-# the spelling of a commit's sidecar entries
-# EXCLUDES: a default plan for malformed input, input left over ignored
-law log_stepper_reads_only_commits:
-  for +st: FLg.St
-  for +s: String
-  for ok: {LawsBase.wire_opens_err(log_reply(FLg.step(st, s))) == False{} : Bool}
-  exs ds: List<&2, Bool>
-  {s == log_spell_sides(ds) : String}
 
 # LAW log_stepper_reads_only_fitting_commits (R4): an event the stepper answers with no error form is
 # the spelling of a commit whose count fits the wire
@@ -694,8 +715,8 @@ law log_stepper_example:
 # state) on every input string, from spec helpers alone: the wire
 # primitives (Wr.get_nat, Wr.get_bool, Wr.get_list, Wr.end, Wr.err: pinned
 # by laws/wire.bend), the spellers above, the model of the log
-# (spec/durable/log.bend, through log_tail_spec) and the plans
-# log_open_spec and log_commit_spec.
+# (spec/durable/log.bend, through log_tail_spec) and the plan
+# log_commit_spec.
 
 # the file of len bytes whose only newline (0n) is at the index last (None:
 # it has none) and whose every other byte is the data byte 1n; a newline at
@@ -783,27 +804,6 @@ def log_ffi_spec.len(r: Wr.Dec<Nat>) -> String:
 def log_ffi_spec(s: String) -> String:
   log_ffi_spec.len(Wr.get_nat(s))
 
-def log_open_entry.end(done: Bool, fsync: Bool) -> FLg.St & String:
-  match done:
-    case True{}:
-      log_answer(log_open_spec(fsync))
-    case False{}:
-      (FLg.Shut{}, Wr.err("log: input left over"))
-
-def log_open_entry.go(r: Wr.Dec<Bool>) -> FLg.St & String:
-  match r:
-    case Wr.Got{b, s}:
-      log_open_entry.end(Wr.end(s), b)
-    case Wr.Bad{}:
-      (FLg.Shut{}, Wr.err("log: malformed open"))
-
-# the stepper's open of the input s: fsync, then nothing, opens the storage
-# of the open's plan (log_open_spec) and answers its steps; else the
-# stepper is shut and answers "log: malformed open" (no Bool) or "log:
-# input left over"
-def log_open_entry(s: String) -> FLg.St & String:
-  log_open_entry.go(Wr.get_bool(s))
-
 def log_step_entry.commit(s: Lr.Store, ds: List<&2, Bool>) -> FLg.St & String:
   match s:
     case Lr.Store{fsync, main}:
@@ -858,15 +858,6 @@ law log_tail_exact:
 law log_ffi_exact:
   for +s: String
   {FLg.ffi(s) == log_ffi_spec(s) : String}
-
-# LAW log_stepper_open_exact (R3, R4): the stepper's open of every input
-# string is the spec's: the storage and steps of the open's plan, or a shut
-# stepper with the exact error form
-# EXCLUDES: a state or reply the specs do not determine for some input
-#   (a storage opened by malformed input, an error form with another text)
-law log_stepper_open_exact:
-  for +s: String
-  {FLg.open(s) == log_open_entry(s) : FLg.St & String}
 
 # LAW log_stepper_step_exact (R3, R4): the stepper's step on every state
 # and every input string is the spec's: the storage and steps of the

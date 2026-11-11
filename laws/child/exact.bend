@@ -1,5 +1,6 @@
-# eukhe: the laws of area child: the watch's verdict (K1) and the child
-# entry (K2) pinned whole to an independent spec
+# eukhe: the laws of area child: the child entry (K2) on requests spelled
+# from the wire primitives, answered from the laws' own rules (K1's verdict
+# of the watch, ChildActed, ChildMove, ChildAbort)
 
 import Base
 import ../../bend/child.bend as Ch
@@ -28,7 +29,13 @@ import ./entry.bend as ChildEntry
 #     child with no progress keeps its token, has e ms fewer left (none
 #     left: it owes Stalled) and its tries back to full; a failed poll with
 #     one try left or none owes Unreachable, else it has e ms fewer left
-#     (none left: Stalled) and one try fewer.
+#     (none left: Stalled) and one try fewer. K1 is carried, for every
+#     request within the wire, by child_ffi_answers below (its answer is
+#     K1's verdict, ch_look_spec) and, for every clock and elapsed ms, by
+#     the laws of laws/child/model.bend (child_settled_child_ends_the_watch,
+#     child_token_is_progress, child_other_token_is_progress,
+#     child_progress_is_not_a_stall, child_quiet_poll_spends_time,
+#     child_failed_poll_spends_try_and_time).
 # K2: on every input that is exactly one request the entry answers the
 #     decision spelled; on any other input exactly the error form naming
 #     the first part that does not read ("child: bad request", "child:
@@ -111,19 +118,6 @@ def ch_look_spec(cfg: Ch.Cfg, w: Ch.W, e: Nat, o: Ch.Obs) -> Ch.Next:
           Ch.Owe{Ch.Failed{}}
         case Ch.Gone{}:
           Ch.Owe{Ch.Failed{}}
-
-# LAW child_look_exact (K1): the watch's verdict on one poll (which child_task_call and the clock laws read) is K1's verdict, for every setting, clock, elapsed ms and poll
-# EXCLUDES: a stall before the clock runs out or after, a failed poll
-#   that never ends the watch or ends it a try early, a successful poll
-#   that keeps the failed polls counted, progress read from an unchanged
-#   or absent token, a clock not refilled to the settings, a settled child
-#   watched on or reported as another end
-law child_look_exact:
-  for +cfg: Ch.Cfg
-  for +w: Ch.W
-  for +e: Nat
-  for o: Ch.Obs
-  {Ch.look(cfg, w, e, o) == ch_look_spec(cfg, w, e, o) : Ch.Next}
 
 # The wire (spellers over the primitives of bend/wire.bend)
 # --------------------------------------------------------

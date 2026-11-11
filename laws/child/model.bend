@@ -111,6 +111,57 @@ law child_failed_poll_spends_try_and_time:
   for +e: Nat
   {Ch.look(cfg, w, e, Ch.PollFailed{}) == ChildMisses(w, e) : Ch.Next}
 
+# LAW child_settled_child_ends_the_watch (K1, laws/child/exact.bend): a
+# poll that reads the child settled ends the watch, whatever the settings,
+# the clock and the elapsed ms: a child that replied to its parent ends it
+# with no report, one that settled without a reply owes Completed, one
+# that failed or is gone owes Failed
+# EXCLUDES: a settled child watched on, a reply reported again, a failed
+#   or gone child reported as completed (or the reverse), a verdict on a
+#   settled child that depends on the clock
+law child_settled_child_ends_the_watch:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  {Ch.look(cfg, w, e, Ch.Answered{True{}}) == Ch.Quiet{} : Ch.Next} &                # K1: settled with a reply: no report
+  {Ch.look(cfg, w, e, Ch.Answered{False{}}) == Ch.Owe{Ch.Completed{}} : Ch.Next} &   # K1: settled without one: Completed
+  {Ch.look(cfg, w, e, Ch.Broke{}) == Ch.Owe{Ch.Failed{}} : Ch.Next} &                # K1: failed: Failed
+  {Ch.look(cfg, w, e, Ch.Gone{}) == Ch.Owe{Ch.Failed{}} : Ch.Next}                   # K1: gone: Failed
+
+# LAW child_token_is_progress (K1): progress is a token: a first token
+# (the watch held none) is progress, the watch goes on with a full clock
+# on it; a poll of an unsettled child that reads no token is no progress,
+# whatever the watch holds: it spends the e ms elapsed as a quiet poll
+# does (ChildSpends) and sets the failed polls in a row back to full
+# EXCLUDES: a first token read as no progress (a child that just started
+#   stalled), a poll with no token read as progress (a hung child watched
+#   forever) or one that keeps the clock
+law child_token_is_progress:
+  for +cfg: Ch.Cfg
+  for +tok: Maybe<&2, Nat>
+  for +l: Nat
+  for +n: Nat
+  for +e: Nat
+  for +x: Nat
+  {Ch.look(cfg, Ch.W{None{}, l, n}, e, Ch.Busy{Some{x}}) == Ch.Watch{Ch.W.fresh(cfg, Some{x})} : Ch.Next} &
+  {Ch.look(cfg, Ch.W{tok, l, n}, e, Ch.Busy{None{}}) == ChildSpends(tok, l, e, Ch.Cfg.fails(cfg)) : Ch.Next}
+
+# LAW child_other_token_is_progress (K1): a token other than the one the
+# watch holds (y is not x) is progress: the watch goes on with a full
+# clock on the new token. Unlike child_progress_is_not_a_stall, the
+# premise is the tokens' inequality itself, not the code's test
+# EXCLUDES: a changed token read as no progress (a working child stalled),
+#   a clock that keeps the old token or is not refilled
+law child_other_token_is_progress:
+  for +cfg: Ch.Cfg
+  for +y: Nat
+  for +l: Nat
+  for +n: Nat
+  for +e: Nat
+  for +x: Nat
+  for other: {Nat.is_eq(y, x) == False{} : Bool}
+  {Ch.look(cfg, Ch.W{Some{y}, l, n}, e, Ch.Busy{Some{x}}) == Ch.Watch{Ch.W.fresh(cfg, Some{x})} : Ch.Next}
+
 # The report laws hold after any events: task steps (polls), the parent's
 # deliveries and withdrawals of any submission id, its aborts, closes and
 # reopens, and task aborts and deletes, in any order. The parent's inbox
@@ -173,7 +224,9 @@ law child_read_never_wakes:
 
 # The task's decisions, as the Rust task runs them (bend/child.bend
 # `verdict`, `owe.next`, `cut.ph`): the call on one poll, the report
-# phase's move, the abort.
+# phase's move, the abort. The three rules below (ChildActed, ChildMove,
+# ChildAbort) are the rules the entry law child_ffi_answers
+# (laws/child/exact.bend) answers every request from.
 
 # the call a task in mode m makes on the watch's verdict x: watch on,
 # report to the parent's inbox, or (a silent task, or a child that
@@ -225,18 +278,6 @@ def ChildAbort(ph: Ch.Ph, del: Bool) -> Ch.Ph:
     case Ch.Ended{}:
       Ch.Ended{}
 
-# LAW child_task_call: the task's call on a poll is the watch's verdict (`look`, which
-# the laws above bound) as the task's mode acts on it
-# EXCLUDES: a call that drops or invents a report, a silent task that
-# reports, an inbox task that settles a child that owes a report
-law child_task_call:
-  for +cfg: Ch.Cfg
-  for +w: Ch.W
-  for +e: Nat
-  for o: Ch.Obs
-  for m: Ch.Mode
-  {Ch.verdict(cfg, w, e, o, m) == ChildActed(Ch.look(cfg, w, e, o), m) : Ch.Call}
-
 # LAW child_silent_never_reports: a silent task never reports to its parent
 law child_silent_never_reports:
   for +cfg: Ch.Cfg
@@ -244,14 +285,6 @@ law child_silent_never_reports:
   for +e: Nat
   for o: Ch.Obs
   {Ch.Call.reports(Ch.verdict(cfg, w, e, o, Ch.Silent{})) == False{} : Bool}
-
-# LAW child_report_move: the report phase's move is the one report rule
-# EXCLUDES: a second submission while one is queued, a resubmission under
-# the same id, an end before the report is placed or read
-law child_report_move:
-  for f: Maybe<&2, Ch.Fate>
-  for +n: Nat
-  {Ch.owe.next(f, n) == ChildMove(f, n) : Ch.Move}
 
 # LAW child_report_move_is_owe: the move, carried out, is the model's report rule `owe`, so the
 # report laws above hold for the task the Rust code runs
@@ -263,10 +296,3 @@ law child_report_move_is_owe:
   for inbox: List<&2, Ch.Sub>
   {Ch.owe.do(Ch.owe.next(f, n), k, n, open, inbox) == Ch.owe(f, k, n, open, inbox) : Ch.St}
 
-# LAW child_abort_rule: the abort's rule
-# EXCLUDES: a delete with no report, a cancel that reports, an abort that
-# loses or restarts an owed report
-law child_abort_rule:
-  for ph: Ch.Ph
-  for del: Bool
-  {Ch.cut.ph(ph, del) == ChildAbort(ph, del) : Ch.Ph}
