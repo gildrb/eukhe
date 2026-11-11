@@ -366,7 +366,13 @@ fn apply_thinking_format(
         }
         ThinkingFormat::Deepseek => {
             if effort.is_some() {
-                insert(params, "thinking", json!({ "type": "enabled" }));
+                // omp: `thinkingKeep` rides the enabled thinking object
+                // (Moonshot Kimi K2.6 preserved thinking).
+                let mut thinking = json!({ "type": "enabled" });
+                if let Some(keep) = &compat.thinking_keep {
+                    thinking["keep"] = json!(keep);
+                }
+                insert(params, "thinking", thinking);
             } else if level_map(model, ModelThinkingLevel::Off) != Some(None) {
                 insert(params, "thinking", json!({ "type": "disabled" }));
             }

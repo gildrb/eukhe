@@ -158,3 +158,39 @@ async fn xiaomi_mimo_sends_thinking_without_reasoning_effort() {
     })
     .await;
 }
+
+/// omp: Moonshot-native Kimi (`moonshot` provider, the `zai` dialect of
+/// `classes/kimi.kdl` / `providers/moonshot.kdl`) supports
+/// `reasoning_effort` (catalog `compat/resolve.ts`: only Grok, Xiaomi `MiMo`
+/// and pre-5.2 Z.AI GLM lack it). K2.6 keeps every earlier turn's thinking
+/// (`thinkingKeep: "all"`): a level sends
+/// `thinking: { type: "enabled", keep: "all" }` plus `reasoning_effort`.
+/// K2.7 Code always thinks (`requiresEnabledThinking`, disable mode
+/// `omit`): a level sends `reasoning_effort` alone.
+#[tokio::test]
+async fn moonshot_kimi_sends_reasoning_effort_and_k2_6_keeps_thinking() {
+    for provider in ["moonshotai", "moonshotai-cn"] {
+        for (level_name, effort) in [
+            ("minimal", "minimal"),
+            ("low", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            ("xhigh", "high"),
+        ] {
+            assert_rows(&[(provider, "kimi-k2.6", level_name)], |_| {
+                json!({
+                    "reasoning_effort": effort,
+                    "thinking": { "type": "enabled", "keep": "all" },
+                })
+            })
+            .await;
+            for id in ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"] {
+                assert_rows(
+                    &[(provider, id, level_name)],
+                    |_| json!({ "reasoning_effort": effort }),
+                )
+                .await;
+            }
+        }
+    }
+}

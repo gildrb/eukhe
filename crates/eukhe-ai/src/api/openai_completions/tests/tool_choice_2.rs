@@ -561,6 +561,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         chat_template_kwargs: IndexMap::new(),
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
+        thinking_keep: None,
         supports_thinking_token_budget: None,
         thinking_token_budget_field: None,
         supports_strict_mode: true,

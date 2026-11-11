@@ -407,6 +407,12 @@ fn openai_completions_compat_properties() -> Properties {
             )),
         ),
         (
+            "thinkingKeep",
+            Type::optional(Type::string_with(desc(
+                "Sent as thinking.keep next to an enabled thinking object of the deepseek thinking format (Moonshot Kimi preserved thinking: \"all\" keeps the reasoning of every earlier turn). Default: not sent.",
+            ))),
+        ),
+        (
             "thinkingTokenBudgetField",
             Type::optional(thinking_token_budget_field(desc(
                 "Top-level request field used to cap reasoning tokens from thinkingBudgets. Reasoning and the answer share max_tokens on these endpoints. \"thinking_token_budget\" is vLLM, \"thinking_budget\" is Qwen, DashScope, or SGLang, and \"thinking_budget_tokens\" is llama.cpp. Off by default and not set on the generated catalog.",
