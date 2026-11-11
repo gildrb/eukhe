@@ -38,24 +38,15 @@ import ./base.bend as LawsBase
 # said only there), retry_note_line, retry_note_cycle, retry_note_length,
 # retry_note_leak, retry_note_redirect, retry_note_stall_seconds (each
 # cause's fields in place); anchors retry_note_example,
-# retry_note_limit_example. R2 retry_note_ffi_answers (decision:
-# note_spec, the note.rs format strings), retry_note_ffi_exact,
-# retry_note_ffi_left_over, retry_note_ffi_left_over_exact,
-# retry_note_ffi_errors; anchor retry_note_ffi_example.
+# retry_note_limit_example. R2 retry_note_ffi_answers (decision: the
+# model's note Rn.text, which the R1 laws above pin for every input with
+# the note.rs test vectors as anchors; no copy of the format strings),
+# retry_note_ffi_exact, retry_note_ffi_left_over,
+# retry_note_ffi_left_over_exact, retry_note_ffi_errors; anchor
+# retry_note_ffi_example.
 
 # Terms
 # -----
-
-# the limit a length note names: none reported (0), or the reported one
-def limit_spec.pick(none: Bool, tokens: Nat) -> String:
-  match none:
-    case True{}:
-      "the output limit"
-    case False{}:
-      String.concat(["the ", Nat.show(tokens), "-token output limit"])
-
-def limit_spec(+tokens: Nat) -> String:
-  limit_spec.pick(Nat.is_eq(tokens, 0n), tokens)
 
 # one repeated call, as the note shows it
 def call_spec(c: Rn.Call) -> String:
@@ -70,36 +61,6 @@ def shown_spec(cs: List<&2, Rn.Call>) -> List<&2, String>:
       Nil{}
     case c <> r:
       call_spec(c) <> shown_spec(r)
-
-# the note of the retry of `attempt` after a reply that repeated a cycle of
-# `period` lines ending with the quoted `line`
-def repeated_spec.pick(one: Bool, a: Nat, period: Nat, line: String) -> String:
-  match one:
-    case True{}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply repeated the line ", line, " until it was cut. Give the answer again; never list the same item twice."])
-    case False{}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply repeated a cycle of ", Nat.show(period), " lines, ending with the line ", line, ", until it was cut. Give the answer again; never repeat the same lines."])
-
-def repeated_spec(a: Nat, +period: Nat, line: String) -> String:
-  repeated_spec.pick(Nat.is_eq(period, 1n), a, period, line)
-
-# the note of the retry of `attempt` for cause c (the format strings of
-# note.rs, one per cause): the note retry_note_ffi_answers says the entry
-# answers
-def note_spec(a: Nat, c: Rn.Cause) -> String:
-  match c:
-    case Rn.Repeated{p, l}:
-      repeated_spec(a, p, l)
-    case Rn.NoAnswer{}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply gave no text and no tool call. Give the answer again, as text or as a tool call."])
-    case Rn.Length{t, r, k}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply hit ", limit_spec(t), " while still reasoning, so the harness discarded it unseen, with every tool call it planned. Reason only about the next step, then call its tool. For a large deliverable (a file, a document, a long answer), write a minimal working version now and extend it in later turns. Length note ", Nat.show(r), " of ", Nat.show(k), "."])
-    case Rn.Leaked{m, why, r, k}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply wrote a tool call as ", m, " markup in its text, and the harness could not read it (", why, "). No tool ran. Make the call again through the tool-calling interface, with its arguments as one JSON object that agrees with the schema of the tool. Do not write a tool call as text. If you need no tool, give the answer as plain text. Leak note ", Nat.show(r), " of ", Nat.show(k), "."])
-    case Rn.Redirect{cs, n, r, k}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": you made the same tool calls ", Nat.show(n), " times in a row, and they gave the same results each time: ", String.join(shown_spec(cs), "; "), ". The harness did not run them again. Do not make these calls with these arguments again in this turn. Use different arguments, use a different tool, or give your answer with what you found. Redirect note ", Nat.show(r), " of ", Nat.show(k), "."])
-    case Rn.Stalled{ms}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply produced no output for ", Nat.show(Nat.div(ms, 1000n)), " s, so the harness cut it. Reason briefly, then act: give the answer or call the tool of the next step."])
 
 # Laws
 # ----
@@ -315,11 +276,13 @@ def req_fits(q: FRn.Req) -> Bool:
     case FRn.Req{+a, c}:
       Bool.and(LawsBase.wire_fits(a), cause_fits(c))
 
-# the note a request asks for
+# the note a request asks for: the model's note, R1 (the R1 laws pin
+# Rn.text for every attempt and cause; their anchors are note.rs's test
+# vectors)
 def req_note(q: FRn.Req) -> String:
   match q:
     case FRn.Req{a, c}:
-      note_spec(a, c)
+      Rn.text(a, c)
 
 # a request with more input after it: the request, then a char and the rest
 type LeftOver is Data:

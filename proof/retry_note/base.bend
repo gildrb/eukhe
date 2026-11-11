@@ -874,35 +874,6 @@ def rn.app_assoc(a: String, -b: String, -c: String) -> {String.append(String.app
 def rn.lim(+t: Nat, +rest: String) -> {String.append(Rn.limit(1n+t), rest) == String.append("the ", String.append(Nat.show(1n+t), String.append("-token output limit", rest))) : String}:
   Equal.cong(String, String, z => String.append("the ", z), String.append(String.append(Nat.show(1n+t), String.append("-token output limit", "")), rest), String.append(Nat.show(1n+t), String.append(String.append("-token output limit", ""), rest)), rn.app_assoc(Nat.show(1n+t), String.append("-token output limit", ""), rest))
 
-# the model's note is the spec's: per cause both sides compute to the same
-# text once the period (0, 1, more) and the reported limit (0, more) are
-# split; the calls the code joins are the spec's join (rn.calls)
-def rn.exact(a: Nat, c: Rn.Cause) -> {Rn.text(a, c) == RetryNote.note_spec(a, c) : String}:
-  match c:
-    case Rn.Repeated{p, l}:
-      match p:
-        case 0n:
-          {==}
-        case 1n:
-          {==}
-        case 2n+q:
-          {==}
-    case Rn.NoAnswer{}:
-      {==}
-    case Rn.Length{t, r, k}:
-      match t:
-        case 0n:
-          {==}
-        case 1n+u:
-          {==}
-    case Rn.Leaked{m, why, r, k}:
-      {==}
-    case Rn.Redirect{+cs, n, r, k}:
-      %rn.calls(cs) : {String.append("Harness note, attempt ", String.append(Nat.show(a), String.append(": ", Rn.redirect(n, r, k, _)))) == RetryNote.note_spec(a, Rn.Redirect{cs, n, r, k}) : String}
-      {==}
-    case Rn.Stalled{ms}:
-      {==}
-
 # ---- whole seconds ----
 
 def rn.add_zero(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:

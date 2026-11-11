@@ -1741,6 +1741,7 @@ import ./proof/retry_idle/retry_idle_req_fits_example.bend as PRetryIdleReqFitsE
 import ./proof/retry_idle/idle_step_is_model.bend as PIdleStepIsModel
 import ./proof/retry_idle/idle_only_fires_answer.bend as PIdleOnlyFiresAnswer
 import ./proof/retry_idle/idle_fire_exact.bend as PIdleFireExact
+import ./proof/retry_idle/idle_fire_total.bend as PIdleFireTotal
 import ./proof/retry_idle/idle_stalls_once.bend as PIdleStallsOnce
 import ./proof/retry_idle/idle_step_refines.bend as PIdleStepRefines
 import ./proof/retry_idle/idle_wake_stalls_past_deadline.bend as PIdleWakeStallsPastDeadline

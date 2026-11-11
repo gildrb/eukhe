@@ -66,7 +66,7 @@ import ./base.bend as LawsBase
 # retry_idle_entry_answers; R2 retry_idle_open_first; R3
 # idle_wake_stalls_past_deadline, idle_wake_rearms_at_deadline,
 # idle_fire_exact; R4 idle_wake_held_restarts, idle_fire_exact; R5
-# idle_fire_exact; R6 idle_stalls_once, retry_idle_open_first; R7
+# idle_fire_exact (support: idle_fire_total); R6 idle_stalls_once, retry_idle_open_first; R7
 # idle_only_fires_answer; R8 idle_model_closes, idle_model_stalls; R9
 # idle_wake_refines, idle_step_refines; R10 idle_step_is_model,
 # retry_idle_entry_answers, retry_idle_step_reads_spelled,
@@ -77,23 +77,29 @@ import ./base.bend as LawsBase
 # Terms
 # -----
 
-def wake_spec.free(early: Bool, left: Nat) -> R.Wake:
-  match early:
-    case True{}:
-      R.WakeSleep{left}
-    case False{}:
-      R.WakeStall{}
-
-# what the timer decides when it fires `since` after the last life of a
-# stream under a deadline of d: a held clock sleeps a whole deadline; a
-# free one sleeps what is left of d, and stalls once d has passed (R3, R4;
-# the decision idle_fire_exact states)
-def wake_spec(held: Bool, +since: Nat, +d: Nat) -> R.Wake:
+# R3, R4 as a relation of the fire and its answer, not a formula: the
+# timer fires `since` after the stream's latest life under a deadline d.
+# omp `onTimerFire` (idle-iterator.ts:278-293): the deadline is the latest
+# life plus d; a fire before it re-arms for exactly the time left
+# (`remainingMs`: since + sleep = d), a fire at or past it times out; a
+# held clock (omp `extendDeadlineForLocalWork`) counts as life just now,
+# so it sleeps a whole d. w is a right answer exactly when fire_ok holds;
+# some w is for every fire (idle_fire_total), and since a fire answers
+# one reply, idle_fire_exact pins it.
+def fire_ok(held: Bool, +since: Nat, +d: Nat, w: R.Wake) -> Bool:
   match held:
     case True{}:
-      R.WakeSleep{d}
+      match w:
+        case R.WakeStall{}:
+          False{}
+        case R.WakeSleep{s}:
+          Nat.is_eq(s, d)
     case False{}:
-      wake_spec.free(Nat.is_lt(since, d), Nat.sub(d, since))
+      match w:
+        case R.WakeStall{}:
+          Nat.is_le(d, since)
+        case R.WakeSleep{s}:
+          Bool.and(Nat.is_lt(since, d), Nat.is_eq(Nat.add(since, s), d))
 
 # the gaps gs are each at most the deadline d
 def gaps_within(gs: List<&2, Nat>, +d: Nat) -> Bool:
@@ -571,7 +577,7 @@ law retry_idle_entry_answers:
   for fits: {Bool.and(LawsBase.wire_fits(whole), LawsBase.wire_fits(d)) == True{} : Bool}
   {Fi.open(spell_open(nan, neg, whole, frac, d)) == open_spec(R.idle.arm(nan, neg, whole, frac), d) : Fi.St & String}
 
-# LAW idle_fire_exact: whatever events came before, in any order, a fire of a deadline that has not stalled answers the timer's decision from the history: held while more holds started than ended, `now - latest` after the latest life any event reported (the arming at 0 included)
+# LAW idle_fire_exact: whatever events came before, in any order, a fire of a deadline that has not stalled answers the timer's decision from the history: held while more holds started than ended, `now - latest` after the latest life any event reported (the arming at 0 included); the decision is every w that fire_ok calls right (a stall at or past the deadline when free, else a sleep to exactly the deadline, a whole d when held)
 # EXCLUDES: a stall before the deadline after the latest life, a stall
 #   while held, a lost stall (a fire past the deadline that sleeps), a
 #   re-arm past or short of the deadline, a life moved back by a late
@@ -580,10 +586,22 @@ law idle_fire_exact:
   for +d: Nat
   for +pre: List<&2, R.IdleEv>
   for +now: Nat
+  for +w: R.Wake
   for fits: {Bool.and(LawsBase.wire_fits(d), Bool.and(LawsBase.wire_fits(now), evs_fit(pre))) == True{} : Bool}
   for positive: {Nat.is_gt(d, 0n) == True{} : Bool}
   for quiet: {ri_quiet(pre, ri_opened(d)) == True{} : Bool}
-  {ri_reply(Fi.step(ri_feed(pre, ri_opened(d)), spell_ev(R.IdleFire{now}))) == spell_reply(Some{wake_spec(Nat.is_gt(ri_holds(pre, 0n), 0n), Nat.sub(now, ri_latest(pre, 0n)), d)}) : String}
+  for right: {fire_ok(Nat.is_gt(ri_holds(pre, 0n), 0n), Nat.sub(now, ri_latest(pre, 0n)), d, w) == True{} : Bool}
+  {ri_reply(Fi.step(ri_feed(pre, ri_opened(d)), spell_ev(R.IdleFire{now}))) == spell_reply(Some{w}) : String}
+
+# LAW idle_fire_total: support: every fire has a right answer under fire_ok (so idle_fire_exact speaks of every fire)
+# EXCLUDES: a relation no answer meets, which would leave idle_fire_exact
+#   vacuous at that fire
+law idle_fire_total:
+  for +held: Bool
+  for +since: Nat
+  for +d: Nat
+  exs w: R.Wake
+  {fire_ok(held, since, d, w) == True{} : Bool}
 
 # LAW idle_stalls_once: whatever inputs come between, a deadline that answered a stall answers every later event nothing
 # EXCLUDES: a second stall (a double abort of the request), a stalled

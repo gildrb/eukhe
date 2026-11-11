@@ -312,8 +312,8 @@ def ri.reply_pair(p: R.IdleSt & Maybe<&2, R.Wake>) -> {Fi.reply(p) == (Fi.Live{R
       %ri.reply(m) : {(Fi.Live{s}, _) == (Fi.Live{s}, RetryIdle.spell_reply(m)) : Fi.St & String}
       {==}
 
-# The timer's decision is wake_spec's
-# -----------------------------------
+# The timer's decision is the one fire_ok calls right
+# ---------------------------------------------------
 
 def ri.flip(a: Nat, b: Nat) -> {Nat.is_lt(a, b) == Nat.is_gt(b, a) : Bool}:
   match a:
@@ -330,31 +330,84 @@ def ri.flip(a: Nat, b: Nat) -> {Nat.is_lt(a, b) == Nat.is_gt(b, a) : Bool}:
         case 1n+q:
           ri.flip(p, q)
 
-def ri.wsel(b: Bool, left: Nat) -> {R.idle.wake.sel(b, left) == RetryIdle.wake_spec.free(b, left) : R.Wake}:
-  match b:
-    case True{}:
+# Nat.is_eq says the two are equal
+def ri.eqn(a: Nat, b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == b : Nat}:
+  match a b:
+    case 0n 0n:
       {==}
-    case False{}:
-      {==}
+    case 0n 1n+q:
+      ri.absurd({0n == 1n+q : Nat}, h)
+    case 1n+p 0n:
+      ri.absurd({1n+p == 0n : Nat}, h)
+    case 1n++p 1n++q:
+      Equal.cong(Nat, Nat, x => 1n+x, p, q, ri.eqn(p, q, h))
 
-# d above since is since below d; the two selectors pick alike
-def ri.wake(held: Bool, +since: Nat, +d: Nat) -> {R.idle.wake(held, since, d) == RetryIdle.wake_spec(held, since, d) : R.Wake}:
-  match held:
-    case True{}:
-      {==}
-    case False{}:
-      %ri.flip(since, d) : {R.idle.wake.sel(_, Nat.sub(d, since)) == RetryIdle.wake_spec.free(Nat.is_lt(since, d), Nat.sub(d, since)) : R.Wake}
-      ri.wsel(Nat.is_lt(since, d), Nat.sub(d, since))
-
-# a fire's decision, from the holds alive, is wake_spec's
-def ri.fire(+d: Nat, +last: Nat, holds: Nat, +now: Nat) -> {R.idle.fired(d, last, holds, R.idle.wake(R.idle.held(holds), Nat.sub(now, last), d)) == R.idle.fired(d, last, holds, RetryIdle.wake_spec(Nat.is_gt(holds, 0n), Nat.sub(now, last), d)) : R.IdleSt & Maybe<&2, R.Wake>}:
-  match holds:
+def ri.eq_refl(a: Nat) -> {Nat.is_eq(a, a) == True{} : Bool}:
+  match a:
     case 0n:
-      %ri.wake(False{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d)) == R.idle.fired(d, last, 0n, _) : R.IdleSt & Maybe<&2, R.Wake>}
       {==}
     case 1n+p:
-      %ri.wake(True{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d)) == R.idle.fired(d, last, 1n+p, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      ri.eq_refl(p)
+
+# a + s, less a, is s
+def ri.sub_add(a: Nat, +s: Nat) -> {Nat.sub(Nat.add(a, s), a) == s : Nat}:
+  match a:
+    case 0n:
+      ri.sub_zero(s)
+    case 1n+p:
+      ri.sub_add(p, s)
+
+# a not below b: b is at most a
+def ri.nlt_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == False{} : Bool}) -> {Nat.is_le(b, a) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
       {==}
+    case 0n 1n+q:
+      ri.absurd({Nat.is_le(1n+q, 0n) == True{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      ri.nlt_le(p, q, h)
+
+# at most is never above
+def ri.le_ngt(c: Cmp, h: {Cmp.is_le(c) == True{} : Bool}) -> {Cmp.is_gt(c) == False{} : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
+      ri.absurd({Cmp.is_gt(GT{}) == False{} : Bool}, h)
+
+# the timer's decision is every answer fire_ok calls right
+def ri.wake_ok(held: Bool, +since: Nat, +d: Nat, w: R.Wake, ok: {RetryIdle.fire_ok(held, since, d, w) == True{} : Bool}) -> {R.idle.wake(held, since, d) == w : R.Wake}:
+  match held:
+    case True{}:
+      match w:
+        case R.WakeStall{}:
+          ri.absurd({R.idle.wake(True{}, since, d) == R.WakeStall{} : R.Wake}, ok)
+        case R.WakeSleep{+s}:
+          Equal.cong(Nat, R.Wake, x => R.WakeSleep{x}, d, s, Equal.sym(Nat, s, d, ri.eqn(s, d, ok)))
+    case False{}:
+      match w:
+        case R.WakeStall{}:
+          %Equal.sym(Bool, Nat.is_gt(d, since), False{}, ri.le_ngt(Nat.cmp(d, since), ok)) : {R.idle.wake.sel(_, Nat.sub(d, since)) == R.WakeStall{} : R.Wake}
+          {==}
+        case R.WakeSleep{+s}:
+          +ok2 = ok
+          +hl = ri.and_l(Nat.is_lt(since, d), Nat.is_eq(Nat.add(since, s), d), ok2)
+          +he = ri.eqn(Nat.add(since, s), d, ri.and_r(Nat.is_lt(since, d), Nat.is_eq(Nat.add(since, s), d), ok2))
+          %Equal.trans(Bool, True{}, Nat.is_lt(since, d), Nat.is_gt(d, since), Equal.sym(Bool, Nat.is_lt(since, d), True{}, hl), ri.flip(since, d)) : {R.idle.wake.sel(_, Nat.sub(d, since)) == R.WakeSleep{s} : R.Wake}
+          %he : {R.WakeSleep{Nat.sub(_, since)} == R.WakeSleep{s} : R.Wake}
+          Equal.cong(Nat, R.Wake, x => R.WakeSleep{x}, Nat.sub(Nat.add(since, s), since), s, ri.sub_add(since, s))
+
+# a fire's decision, from the holds alive, is the answer fire_ok calls right
+def ri.fire_ok(+d: Nat, +last: Nat, holds: Nat, +now: Nat, w: R.Wake, ok: {RetryIdle.fire_ok(Nat.is_gt(holds, 0n), Nat.sub(now, last), d, w) == True{} : Bool}) -> {R.idle.fired(d, last, holds, R.idle.wake(R.idle.held(holds), Nat.sub(now, last), d)) == R.idle.fired(d, last, holds, w) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match holds:
+    case 0n:
+      Equal.cong(R.Wake, R.IdleSt & Maybe<&2, R.Wake>, x => R.idle.fired(d, last, 0n, x), R.idle.wake(False{}, Nat.sub(now, last), d), w, ri.wake_ok(False{}, Nat.sub(now, last), d, w, ok))
+    case 1n++p:
+      Equal.cong(R.Wake, R.IdleSt & Maybe<&2, R.Wake>, x => R.idle.fired(d, last, 1n+p, x), R.idle.wake(True{}, Nat.sub(now, last), d), w, ri.wake_ok(True{}, Nat.sub(now, last), d, w, ok))
 
 def ri.drop(holds: Nat) -> {R.idle.drop(holds) == Nat.sub(holds, 1n) : Nat}:
   match holds:
