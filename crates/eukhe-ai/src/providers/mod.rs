@@ -8,6 +8,7 @@ pub mod ant_ling;
 pub mod ant_ling_models;
 pub mod anthropic;
 pub mod anthropic_models;
+pub mod api_route;
 pub mod azure;
 pub mod azure_models;
 pub mod baseten;
