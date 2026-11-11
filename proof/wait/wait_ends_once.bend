@@ -8,7 +8,7 @@ import ./base.bend as LA
 # Exactly once
 # ------------
 
-def pw.once(xs: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>) -> {List.length(&2, Wt.End, Wt.go(xs, Wt.Open{l})) == Wt.once(Wt.exits(LA.pw.up(l), xs)) : Nat}:
+def pw.once(xs: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>) -> {List.length(&2, Wt.End, Wt.go(xs, Wt.Open{l})) == WaitLaws.ww_bit(WaitLaws.ww_exits(LA.pw.up(l), xs)) : Nat}:
   match xs:
     case Nil{}:
       match l:
@@ -22,8 +22,8 @@ def pw.once(xs: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>) -> {List.length(&2, Wt.End
           %LA.pw.over(rest) : {1n+List.length(&2, Wt.End, _) == 1n : Nat}
           {==}
         case Wt.Cancel{}:
-          %LA.pw.over(rest) : {1n+List.length(&2, Wt.End, _) == Wt.once(Bool.or(Wt.has_arrive(rest), True{})) : Nat}
-          %LA.pw.or_true(Wt.has_arrive(rest)) : {1n == Wt.once(_) : Nat}
+          %LA.pw.over(rest) : {1n+List.length(&2, Wt.End, _) == WaitLaws.ww_bit(Bool.or(WaitLaws.ww_has(Wt.Arrive{}, rest), True{})) : Nat}
+          %LA.pw.or_true(WaitLaws.ww_has(Wt.Arrive{}, rest)) : {1n == WaitLaws.ww_bit(_) : Nat}
           {==}
         case Wt.Tick{}:
           match l:
@@ -32,8 +32,8 @@ def pw.once(xs: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>) -> {List.length(&2, Wt.End
             case Some{m}:
               match m:
                 case 0n:
-                  %LA.pw.over(rest) : {1n+List.length(&2, Wt.End, _) == Wt.once(Bool.or(Wt.has_arrive(rest), Bool.or(Wt.has_cancel(rest), Nat.is_le(0n, Wt.ticks(rest))))) : Nat}
-                  %LA.pw.reached0(Wt.has_arrive(rest), Wt.has_cancel(rest), Wt.ticks(rest)) : {1n == Wt.once(_) : Nat}
+                  %LA.pw.over(rest) : {1n+List.length(&2, Wt.End, _) == WaitLaws.ww_bit(Bool.or(WaitLaws.ww_has(Wt.Arrive{}, rest), Bool.or(WaitLaws.ww_has(Wt.Cancel{}, rest), Nat.is_le(0n, WaitLaws.ww_count(Wt.Tick{}, rest))))) : Nat}
+                  %LA.pw.reached0(WaitLaws.ww_has(Wt.Arrive{}, rest), WaitLaws.ww_has(Wt.Cancel{}, rest), WaitLaws.ww_count(Wt.Tick{}, rest)) : {1n == WaitLaws.ww_bit(_) : Nat}
                   {==}
                 case 1n+q:
                   pw.once(rest, Some{q})
@@ -41,19 +41,19 @@ def pw.once(xs: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>) -> {List.length(&2, Wt.End
 # The laws
 # --------
 
-def wait_ends_once(+dl: Maybe<&2, Nat>, +xs: List<&2, Wt.Sig>) -> {List.length(&2, Wt.End, Wt.run(dl, xs)) == Wt.once(Wt.exits(dl, xs)) : Nat}:
+def wait_ends_once(+dl: Maybe<&2, Nat>, +xs: List<&2, Wt.Sig>) -> {List.length(&2, Wt.End, Wt.run(dl, xs)) == WaitLaws.ww_bit(WaitLaws.ww_exits(dl, xs)) : Nat}:
   match dl:
     case None{}:
       pw.once(xs, None{})
     case Some{d}:
       match d:
         case 0n:
-          %LA.pw.reached0(Wt.has_arrive(xs), Wt.has_cancel(xs), Wt.ticks(xs)) : {1n == Wt.once(_) : Nat}
+          %LA.pw.reached0(WaitLaws.ww_has(Wt.Arrive{}, xs), WaitLaws.ww_has(Wt.Cancel{}, xs), WaitLaws.ww_count(Wt.Tick{}, xs)) : {1n == WaitLaws.ww_bit(_) : Nat}
           {==}
         case 1n+m:
           pw.once(xs, Some{m})
 
-# (H6) Every other wait has an exit
+# (D4) Every wait has an exit
 
 def WaitLaws.wait_ends_once(dl, xs):
   wait_ends_once(dl, xs)

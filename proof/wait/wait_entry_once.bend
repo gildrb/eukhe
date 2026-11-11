@@ -14,11 +14,11 @@ import ../../laws/base.bend as LawsBase
 import ./base.bend as LA
 
 # the run up to p ended: so did the run up to any later poll
-def wo.more(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Polled>, +p: Wt.Polled, +mid: List<&2, Wt.Polled>, -e: Wt.End, -t: List<&2, Wt.End>, h: {Wt.run(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p))) == e <> t : List<&2, Wt.End>}) -> {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == Wt.run(dl, WaitLaws.ww_flat(List.append(&2, Wt.Polled, pre, p <> mid))) : List<&2, Wt.End>}:
-  %LA.ws.flat_app(pre, p <> mid) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == Wt.run(dl, _) : List<&2, Wt.End>}
-  %LA.ws.app_assoc(Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p), WaitLaws.ww_flat(mid)) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == Wt.run(dl, _) : List<&2, Wt.End>}
-  %LA.ws.run_app(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), WaitLaws.ww_flat(mid)) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == _ : List<&2, Wt.End>}
-  %Equal.sym(List<&2, Wt.End>, Wt.run(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p))), e <> t, h) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == List.append(&2, Wt.End, _, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) : List<&2, Wt.End>}
+def wo.more(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Polled>, +p: Wt.Polled, +mid: List<&2, Wt.Polled>, -e: Wt.End, -t: List<&2, Wt.End>, h: {Wt.run(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p))) == e <> t : List<&2, Wt.End>}) -> {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == Wt.run(dl, WaitLaws.ww_flat(List.append(&2, Wt.Polled, pre, p <> mid))) : List<&2, Wt.End>}:
+  %LA.ws.flat_app(pre, p <> mid) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == Wt.run(dl, _) : List<&2, Wt.End>}
+  %LA.ws.app_assoc(Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p), WaitLaws.ww_flat(mid)) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == Wt.run(dl, _) : List<&2, Wt.End>}
+  %LA.ws.run_app(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), WaitLaws.ww_flat(mid)) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == _ : List<&2, Wt.End>}
+  %Equal.sym(List<&2, Wt.End>, Wt.run(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p))), e <> t, h) : {e <> List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) == List.append(&2, Wt.End, _, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))) : List<&2, Wt.End>}
   {==}
 
 # a run that has ended brings nothing new
@@ -33,7 +33,7 @@ def wo.pick(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Polled>, +p: Wt.Polled, +mid:
         case Nil{}:
           LA.pw.absurd({WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, List.append(&2, Wt.Polled, pre, p <> mid), q)) == "0," : String}, ended)
         case e <> t:
-          wo.quiet(Wt.run(dl, WaitLaws.ww_flat(List.append(&2, Wt.Polled, pre, p <> mid))), Wt.run(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(List.append(&2, Wt.Polled, pre, p <> mid)), WaitLaws.ww_sigs(q))), e, List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), WaitLaws.ww_after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))), wo.more(dl, pre, p, mid, e, t, hx))
+          wo.quiet(Wt.run(dl, WaitLaws.ww_flat(List.append(&2, Wt.Polled, pre, p <> mid))), Wt.run(dl, List.append(&2, Wt.Sig, WaitLaws.ww_flat(List.append(&2, Wt.Polled, pre, p <> mid)), WaitLaws.ww_sigs(q))), e, List.append(&2, Wt.End, t, Wt.go(WaitLaws.ww_flat(mid), Wt.after(List.append(&2, Wt.Sig, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)), Wt.start(dl)))), wo.more(dl, pre, p, mid, e, t, hx))
     case e <> t:
       LA.pw.absurd({WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, List.append(&2, Wt.Polled, pre, p <> mid), q)) == "0," : String}, ended)
 

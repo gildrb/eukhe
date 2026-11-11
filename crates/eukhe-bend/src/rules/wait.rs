@@ -4,7 +4,7 @@
 //! The wait lives in the compiled core. Its race opens it with its
 //! deadline, sends what it finds ready at each poll, and ends on the end
 //! the stepper answers: the event, then the cancel, then the deadline
-//! (`wait_poll_refines` in `laws/wait.bend`), never a second one
+//! (`wait_entry_priority`, `wait_poll_refines` in `laws/wait.bend`), never a second one
 //! (`wait_entry_once`), whatever order the polls come in
 //! (`wait_step_is_model`).
 
