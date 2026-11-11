@@ -67,14 +67,14 @@ ROOT = Path(__file__).resolve().parent.parent
 # the headers of these sources describe an old layout: dropped
 OBSOLETE_HEADERS = {"PROOF.bend", "LAWS.bend"}
 
-# the names Base (Bend 2.0.39, `bend base`) declares: no area alias
+# the names Base (Bend 2.0.40, `bend base`) declares: no area alias
 BASE_NAMES = set("""
 ALeaf ANode App Array Audio Bool Chan Char Chr Close Cmp Con Done EQ Either
-Emit Empty Equal Event Exists Exit F32 Fail False File GT Halt IO Image Inl
-Inr Key LT List Listener Look MLeaf MNode MTip Map Maybe Mouse Move Nat Nil
-None Or Pair Pix Poll Process Qua Ready Result SCon SNil Scroll Set Sigma
-Socket Some String Succ TCP Text True Tuple U32 UDP Unit WCon WNil Wait
-Window Word Zero
+Emit Empty Equal Event Exists Exit F32 Fail False File Focus GT Halt IO Image
+Inl Inr Key LT Leave List Listener Look Lost MLeaf MNode MTip Map Maybe Move
+Nat Nil None Or Pair Pix Poll Press Process Qua Ready Result SCon SNil Scroll
+Set Sigma Socket Some String Succ TCP Text Tool True Tuple U32 UDP Unit WCon
+WNil Wait Window Word Zero
 """.split())
 
 TOK = re.compile(r"(?<![A-Za-z0-9_.'])([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)")
