@@ -235,8 +235,12 @@ def drt.frame_refuse(p: Da.Pass, +w: String, hp: {p == Da.Refuse{w} : Da.Pass}) 
 
 # a step that refuses with w: the model's replies are w, then those of a
 # closed socket
-def drt.replies(r: Da.Conn & Da.Verdict, +w: String, rest: List<&2, Da.CEv>, hr: {r == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}) -> {DashConn.sp_w_verdict(DashConn.cv_verdict(r)) <> DashConn.cs_replies(rest, DashConn.cv_conn(r)) == DashConn.sp_w_verdict(Da.VRefuse{w}) <> DashConn.cs_replies(rest, Da.Closed{}) : List<&2, String>}:
-  Equal.cong(Da.Conn & Da.Verdict, List<&2, String>, z => DashConn.sp_w_verdict(DashConn.cv_verdict(z)) <> DashConn.cs_replies(rest, DashConn.cv_conn(z)), r, (Da.Closed{}, Da.VRefuse{w}), hr)
+def drt.replies(r: Da.Conn & Da.Verdict, +w: String, +rest: List<&2, Da.CEv>, +hr: {r == (Da.Closed{}, Da.VRefuse{w}) : Da.Conn & Da.Verdict}) -> {DashConn.sp_w_verdict(DashConn.cv_verdict(r)) <> DashConn.cs_replies(rest, DashConn.cv_conn(r)) == DashConn.sp_w_verdict(Da.VRefuse{w}) <> DashConn.cs_replies(rest, Da.Closed{}) : List<&2, String>}:
+  +hv = Equal.cong(Da.Conn & Da.Verdict, Da.Verdict, DashConn.cv_verdict, r, (Da.Closed{}, Da.VRefuse{w}), hr)
+  +hc = Equal.cong(Da.Conn & Da.Verdict, Da.Conn, DashConn.cv_conn, r, (Da.Closed{}, Da.VRefuse{w}), hr)
+  +e1 = Equal.cong(Da.Verdict, List<&2, String>, v => DashConn.sp_w_verdict(v) <> DashConn.cs_replies(rest, DashConn.cv_conn(r)), DashConn.cv_verdict(r), Da.VRefuse{w}, hv)
+  +e2 = Equal.cong(Da.Conn, List<&2, String>, c => DashConn.sp_w_verdict(Da.VRefuse{w}) <> DashConn.cs_replies(rest, c), DashConn.cv_conn(r), Da.Closed{}, hc)
+  Equal.trans(List<&2, String>, DashConn.sp_w_verdict(DashConn.cv_verdict(r)) <> DashConn.cs_replies(rest, DashConn.cv_conn(r)), DashConn.sp_w_verdict(Da.VRefuse{w}) <> DashConn.cs_replies(rest, DashConn.cv_conn(r)), DashConn.sp_w_verdict(Da.VRefuse{w}) <> DashConn.cs_replies(rest, Da.Closed{}), e1, e2)
 
 # a closed socket answers `closed` to each later frame
 def drt.closed(+p: Maybe<&2, List<&2, Nat>>, fs: List<&2, Da.Disk>) -> {DashConn.cs_replies(DashConn.cv_frames(p, fs), Da.Closed{}) == DashConn.cw_closed(fs) : List<&2, String>}:
