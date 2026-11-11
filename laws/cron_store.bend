@@ -6,12 +6,17 @@ import ../bend/cron_store.bend as CS
 
 # ---- cron_store ----
 
-# LAWS (D2.2): the per-job decisions of the cron job store, the code the
-# entry bend/ffi_cron.bend runs (bend/cron_store.bend). Each decision is
-# exactly the spec below, on a clock of any unit u (the store's: ms, a
-# minute being 60000). laws/cron.bend reads these specs for the entry's
-# replies and ties each one to the model's step (`cron_*_refines`).
-# PROOF.bend proves them (as CronStore.<law>) in proof/cron_store/.
+# SPECS (D2.2): the per-job decisions of the cron job store, the code the
+# entry bend/ffi_cron.bend runs (bend/cron_store.bend), each stated on a
+# clock of any unit u (the store's: ms, a minute being 60000). The laws
+# that hold the code to these specs state them through what Rust calls:
+# every request the entry answers (cron_entry_answers, laws/cron.bend, and
+# cron_file_entry_answers, laws/cron_file/entry.bend, on the store's
+# minute), the finish step on every clock unit (cron_file_finish_exact,
+# laws/cron_file/pass.bend) and what each answer writes on a record
+# (cron_beats_step_exact, laws/cron_beats.bend). The `cron_*_refines` laws
+# (laws/cron.bend, laws/cron_user.bend) tie each spec to the model's step.
+# The one law here is the corrupt file's (cron_open_exact).
 
 # Terms
 # -----
@@ -242,48 +247,6 @@ def resume_spec(f: CS.Fact, +now: Nat) -> CS.Again:
         case Cr.Cancelled{}:
           CS.Ended{}
 
-# Laws
-# ----
-
-# LAW cron_take_exact: a claim pass of the model that runs is the spec's on every fact, claim on record, due time and clock
-law cron_take_exact:
-  for +f: CS.Fact
-  for +c: Bool
-  for +d: Nat
-  for +n: Nat
-  {CS.take(f, c, d, n) == take_spec(f, c, d, n) : CS.Took}
-
-# LAW cron_clear_exact: the verdict of the model that runs on a claim on record is the spec's: this process's claim clears exactly when it no longer runs it, another's exactly when that process is dead
-law cron_clear_exact:
-  for +w: CS.Who
-  {CS.clear(w) == clear_spec(w) : Bool}
-
-# LAW cron_recover_exact: a recovery of the model that runs is the spec's on every fact, cleared or not
-law cron_recover_exact:
-  for +f: CS.Fact
-  for +c: Bool
-  {CS.recover(f, c) == recover_spec(f, c) : CS.Back}
-
-# LAW cron_finish_exact: the finish step of the model that runs is the spec's on a clock of every unit u (the pause u times the spec's minutes), every fact, result and clock
-law cron_finish_exact:
-  for +u: Nat
-  for +f: CS.Fact
-  for +r: Bool
-  for +b: Bool
-  for +n: Nat
-  {CS.finish(u, f, r, b, n) == finish_spec(u, f, r, b, n) : CS.Fin}
-
-# LAW cron_cancel_exact: a cancel of the model that runs is the spec's on every fact
-law cron_cancel_exact:
-  for +f: CS.Fact
-  {CS.cancel(f) == cancel_spec(f) : CS.Cut}
-
-# LAW cron_resume_exact: a resume of the model that runs is the spec's on every fact and clock
-law cron_resume_exact:
-  for +f: CS.Fact
-  for +n: Nat
-  {CS.resume(f, n) == resume_spec(f, n) : CS.Again}
-
 # User actions on one job (laws/cron_user.bend ties each to the model)
 # ---------------------------------------------------------------------
 
@@ -371,27 +334,8 @@ def open_spec(update: Bool) -> Bool:
     case False{}:
       False{}
 
-# LAW cron_halt_exact: a pause, stop or delete of the model that runs is the spec's on every fact
-# EXCLUDES: a pause or stop that changes a finished or cancelled job, a delete that skips one, a
-#   held job left with a next run, a stop that pauses or a pause that cancels
-law cron_halt_exact:
-  for +f: CS.Fact
-  for +h: CS.Halt
-  {CS.halt(f, h) == halt_spec(f, h) : CS.Cut}
-
-# LAW cron_edit_exact: an edit of the model that runs is the spec's on every fact and first run
-# EXCLUDES: an edit of a finished or cancelled job, an edit that changes a status, a paused job
-#   given a next run, an active job left on its old next run after a new schedule
-law cron_edit_exact:
-  for +f: CS.Fact
-  for +at: Maybe<&2, Nat>
-  {CS.edit(f, at) == edit_spec(f, at) : CS.Edit}
-
-# LAW cron_make_exact: a new job of the model that runs is active, first runs at the time given, and has no failures in a row
-# EXCLUDES: a new job made paused, with an old failure count, or a first run other than its schedule's
-law cron_make_exact:
-  for +at: Nat
-  {CS.make(at) == make_spec(at) : CS.Made}
+# Laws
+# ----
 
 # LAW cron_open_exact: the model that runs moves a corrupt file aside exactly on an update
 # EXCLUDES: a corrupt file written over by an update, or moved aside by a read

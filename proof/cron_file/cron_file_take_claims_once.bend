@@ -8,7 +8,7 @@ import ../../bend/cron.bend as Cr
 import ../../bend/cron_store.bend as CS
 import ../../bend/cron_file.bend as CF
 import ../../laws/cron_file/pass.bend as CronFile
-import ./cron_file_take_exact.bend as PTakeX
+import ./base/pass.bend as PTakeX
 
 def cto.due(b: Bool, -p: CS.Plan, -n: Nat, -rest: Bool, ih: {rest == True{} : Bool}) -> {Bool.and(CronFile.once_took_spec(True{}, CS.take.due(b, True{}, p, n)), rest) == True{} : Bool}:
   match b:

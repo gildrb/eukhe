@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW cron_file_finish_exact
 # The first claim record of the dispatch is dropped (once it is passed,
 # every record stays); the key it names is the spec's; the first job of
-# that key takes CronStore.finish_spec (cron_finish_exact) and every
+# that key takes CronStore.finish_spec (LCs.cx.finish) and every
 # other job is untouched.
 import Base
 import ../../bend/cron.bend as Cr
@@ -12,7 +12,7 @@ import ../../laws/cron_file/pass.bend as CronFile
 import ../../laws/cron_file/entry.bend as CronFileEntry
 import ../../laws/cron_file/view.bend as CronFileView
 import ./base/logic.bend as LCfl
-import ../cron_store/cron_finish_exact.bend as PFinish
+import ../cron_store/base.bend as LCs
 
 def cff.names(+k: Nat, m: Maybe<&2, Nat>) -> {CF.names(k, m) == CronFile.names_spec(k, m) : Bool}:
   match m:
@@ -102,7 +102,7 @@ def cff.slot(go: Bool, +f: CS.Fact, +t: List<&2, CF.Slot>, +k: Maybe<&2, Nat>, +
   match go:
     case True{}:
       %cff.none(t, u, r, b, n) : {CS.finish(u, f, r, b, n) <> CF.finish.js(t, None{}, u, r, b, n) == CronStore.finish_spec(u, f, r, b, n) <> _ : List<&2, CS.Fin>}
-      %CronStore.cron_finish_exact(u, f, r, b, n) : {CS.finish(u, f, r, b, n) <> CF.finish.js(t, None{}, u, r, b, n) == _ <> CF.finish.js(t, None{}, u, r, b, n) : List<&2, CS.Fin>}
+      %LCs.cx.finish(u, f, r, b, n) : {CS.finish(u, f, r, b, n) <> CF.finish.js(t, None{}, u, r, b, n) == _ <> CF.finish.js(t, None{}, u, r, b, n) : List<&2, CS.Fin>}
       {==}
     case False{}:
       %ih : {CS.Untouched{} <> CF.finish.js(t, k, u, r, b, n) == CS.Untouched{} <> _ : List<&2, CS.Fin>}

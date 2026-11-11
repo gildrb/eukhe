@@ -84,10 +84,11 @@ law cron_backoff_bounded:
 # gathers one job's facts and calls the entry bend/ffi_cron.bend, which
 # runs bend/cron_store.bend on the store's clock (ms); its passes over a
 # whole file (state.rs, jobs.rs `record_dispatch_result`) call
-# bend/ffi_cron_file.bend (laws/cron_file.bend), which runs these same
+# bend/ffi_cron_file.bend (laws/cron_file/), which runs these same
 # decisions per record. The spec (laws/cron_store.bend) states each
-# decision on a clock of any unit u, and pins the code to it; the spellers
-# and the reader are the entry's wire grammar written with the
+# decision on a clock of any unit u; the laws here hold the entry, and so
+# the code it runs, to it (cron_entry_answers, cron_entry_malformed_exact);
+# the spellers and the reader are the entry's wire grammar written with the
 # wire primitives alone (laws/wire.bend proves their round trips); they
 # never call the entry's codec. The `cron_*_refines` laws (here and in
 # laws/cron_user.bend) tie each decision, on every clock unit (the
@@ -822,7 +823,7 @@ law cron_entry_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, CS.Ask>}
   {FC.ffi(s) == SCon{'E', SCon{' ', "cron: malformed request"}} : String}
 
-# LAW cron_entry_example: anchor: the strings Rust sends, with small times (the proven kernel unfolds numbers one by one, so no anchor here runs the failure pause, a count of minutes times 60000 ms: cron_finish_exact pins it for every unit, cron_entry_answers at the entry's minute): a due unclaimed interval job is claimed, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is finished, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
+# LAW cron_entry_example: anchor: the strings Rust sends, with small times (the proven kernel unfolds numbers one by one, so no anchor here runs the failure pause, a count of minutes times 60000 ms: cron_file_finish_exact states it for every unit, cron_entry_answers at the entry's minute): a due unclaimed interval job is claimed, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is finished, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
 law cron_entry_example:
   {FC.ffi("0,0,1,6,1,10,0,F10,10,") == "2,1,16," : String} &
   {FC.ffi("3,0,1,6,1,10,7,TT50,") == "1,1,0,8," : String} &
@@ -839,24 +840,6 @@ law cron_entry_example:
 law cron_entry_fits_example:
   exs a: CS.Ask
   {ask_fits(a) == True{} : Bool}
-
-# the reply to input s: the spec's decision on the request s is (read with
-# the wire primitives), or the error form when s is not exactly one request
-def entry_spec.go(m: Maybe<&2, CS.Ask>) -> String:
-  match m:
-    case None{}:
-      SCon{'E', SCon{' ', "cron: malformed request"}}
-    case Some{a}:
-      spell_answer(a)
-
-def entry_spec(s: String) -> String:
-  entry_spec.go(read_ask(s))
-
-# LAW cron_entry_exact: every input gets exactly the spec's reply: the spec's decision (laws/cron_store.bend, on the store's clock) on the request it is when it is exactly one request read with the wire primitives, else the error form 'E ', then "cron: malformed request"
-# EXCLUDES: any answer, on any input, other than the spec's decision on the request read or the exact error text
-law cron_entry_exact:
-  for +s: String
-  {FC.ffi(s) == entry_spec(s) : String}
 
 # LAW cron_take_refines: on a clock of any unit u, a claim pass of p, applied to a model job (its facts as Rust reads them, due by and at the clock), is the model's claim step of p (Cr.take): the same status, next run, failures in a row and claim on record
 law cron_take_refines:
