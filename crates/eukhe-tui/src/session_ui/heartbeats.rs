@@ -1,10 +1,17 @@
 //! The heartbeats concern: the background catalog fetch and its update
-//! fold, the `/heartbeats` manager view's keys and management requests.
+//! fold, the `/heartbeats` manager view's keys and management requests,
+//! and the `/heartbeat` command over the session's own heartbeat.
+use eukhe_types::heartbeat_command::{parse_heartbeat_command, ParsedHeartbeatCommand};
+
 use super::{
     key_event_to_id, parse_heartbeats, picker_viewport_rows, scope_heartbeats, sort_heartbeats,
     AgentView, DaemonCommand, Duration, HeartbeatAction, HeartbeatEntry, HeartbeatsPicker,
     HeartbeatsPickerAction, KeyEvent, Map, Result, SessionUi, Value, UI_REQUEST_TIMEOUT_MS,
 };
+
+/// TS `DEFAULT_HEARTBEAT_DELIVERY_MODE`: the delivery a heartbeat without
+/// one uses.
+const DEFAULT_DELIVERY_MODE: &str = "steer";
 
 /// A landed heartbeat-catalog refresh for the `/heartbeats` view (TS
 /// `refreshHeartbeatCatalog`'s fetch result): the scoped, sorted rows, or
@@ -19,6 +26,108 @@ pub(crate) struct HeartbeatsUpdate {
 }
 
 impl SessionUi {
+    /// `/heartbeat [status|pause|resume|stop|clear|[every <duration>]
+    /// [--steer|--follow-up] <instruction>]` (TS `handleHeartbeatCommand`):
+    /// view, set, pause, resume or clear THIS session's heartbeat over the
+    /// daemon's `heartbeat_get` / `heartbeat_set` / `heartbeat_update`.
+    /// A parse or daemon failure is the TS `showError` row; a view or a
+    /// change refreshes the heartbeat catalog the dock and `/heartbeats`
+    /// read (TS `refreshHeartbeatCatalog`).
+    pub(crate) async fn handle_heartbeat_command(&mut self, args: &str, view: &mut AgentView) {
+        let command = match parse_heartbeat_command(args) {
+            Ok(command) => command,
+            Err(error) => {
+                self.error_row(&format!("{error:#}"), view);
+                return;
+            }
+        };
+        let active_session_id = self.active_session_id.clone();
+        let request = match &command {
+            ParsedHeartbeatCommand::Status => DaemonCommand::HeartbeatGet {
+                id: None,
+                active_session_id,
+                rest: Map::default(),
+            },
+            ParsedHeartbeatCommand::Set {
+                schedule,
+                instruction,
+                delivery_mode,
+            } => DaemonCommand::HeartbeatSet {
+                id: None,
+                active_session_id,
+                schedule: schedule.clone(),
+                prompt: instruction.clone(),
+                delivery_mode: delivery_mode.map(|mode| Value::String(mode.to_string())),
+                promote_owned_session: None,
+                rest: Map::default(),
+            },
+            ParsedHeartbeatCommand::Pause
+            | ParsedHeartbeatCommand::Resume
+            | ParsedHeartbeatCommand::Clear => {
+                let action = match &command {
+                    ParsedHeartbeatCommand::Pause => "pause",
+                    ParsedHeartbeatCommand::Resume => "resume",
+                    _ => "clear",
+                };
+                DaemonCommand::HeartbeatUpdate {
+                    id: None,
+                    active_session_id,
+                    action: Value::String(action.to_string()),
+                    rest: Map::default(),
+                }
+            }
+        };
+        let data = match self
+            .bounded_request(Duration::from_millis(UI_REQUEST_TIMEOUT_MS), request)
+            .await
+        {
+            Ok(data) => data,
+            Err(error) => {
+                self.error_row(&format!("{error:#}"), view);
+                return;
+            }
+        };
+        let heartbeat = data
+            .get("heartbeat")
+            .filter(|heartbeat| !heartbeat.is_null());
+        let field = |name: &str| {
+            heartbeat
+                .and_then(|heartbeat| heartbeat.get(name))
+                .and_then(Value::as_str)
+                .map(crate::menu_panel::scrub_controls)
+        };
+        let next_run = field("nextRunAt").unwrap_or_else(|| "-".to_string());
+        let text = match (&command, heartbeat) {
+            (ParsedHeartbeatCommand::Status, Some(heartbeat)) => {
+                // TS `showHeartbeat`: a plain text block, not a status.
+                self.plain_row(&heartbeat_status_text(heartbeat), view);
+                None
+            }
+            (ParsedHeartbeatCommand::Status, None) => Some("No active heartbeat".to_string()),
+            (ParsedHeartbeatCommand::Set { .. }, _) => Some(format!(
+                "Heartbeat set\nDelivery: {}\nNext run: {next_run}",
+                field("deliveryMode").unwrap_or_else(|| DEFAULT_DELIVERY_MODE.to_string())
+            )),
+            // TS: a pause, resume or clear with no heartbeat changes
+            // nothing, so it refreshes nothing either.
+            (_, None) => {
+                self.note("No active heartbeat", view);
+                self.dirty = true;
+                return;
+            }
+            (ParsedHeartbeatCommand::Pause, Some(_)) => Some("Heartbeat paused".to_string()),
+            (ParsedHeartbeatCommand::Resume, Some(_)) => {
+                Some(format!("Heartbeat resumed\nNext run: {next_run}"))
+            }
+            (ParsedHeartbeatCommand::Clear, Some(_)) => Some("Heartbeat cleared".to_string()),
+        };
+        if let Some(text) = text {
+            self.note(&text, view);
+        }
+        self.spawn_heartbeat_refresh();
+        self.dirty = true;
+    }
+
     /// One key press while the `/heartbeats` view is open: Esc/Ctrl+C/close
     /// binding close it; Enter on the list opens the selected heartbeat's
     /// action pane; Enter on an action runs the management request.
@@ -316,4 +425,52 @@ pub(super) fn paused_heartbeat_count(heartbeats: &[HeartbeatEntry]) -> usize {
         .iter()
         .filter(|entry| entry.job.status == "paused")
         .count()
+}
+
+/// TS `showHeartbeat`: the session heartbeat's status block. Every
+/// daemon-supplied string is scrubbed of control characters
+/// (`parse_heartbeat_job`'s boundary) before it renders.
+fn heartbeat_status_text(heartbeat: &Value) -> String {
+    let text = |field: &str| {
+        heartbeat
+            .get(field)
+            .and_then(Value::as_str)
+            .map(crate::menu_panel::scrub_controls)
+    };
+    let time = |field: &str| {
+        text(field).map_or_else(
+            || "-".to_string(),
+            |value| crate::heartbeats_picker::format_timestamp(&value),
+        )
+    };
+    let schedule = heartbeat
+        .get("schedule")
+        .and_then(|schedule| schedule.get("expression"))
+        .and_then(Value::as_str)
+        .map(crate::menu_panel::scrub_controls)
+        .unwrap_or_default();
+    let mut lines = vec![
+        "Heartbeat".to_string(),
+        String::new(),
+        format!("Status: {}", text("status").unwrap_or_default()),
+        format!("Every: {schedule}"),
+        format!(
+            "Delivery: {}",
+            text("deliveryMode").unwrap_or_else(|| DEFAULT_DELIVERY_MODE.to_string())
+        ),
+        format!("Instruction: {}", text("prompt").unwrap_or_default()),
+        format!("Next: {}", time("nextRunAt")),
+        format!("Last: {}", time("lastRunAt")),
+        format!(
+            "Runs: {}",
+            heartbeat
+                .get("runCount")
+                .and_then(Value::as_u64)
+                .unwrap_or_default()
+        ),
+    ];
+    if let Some(error) = text("lastError") {
+        lines.push(format!("Error: {error}"));
+    }
+    lines.join("\n")
 }

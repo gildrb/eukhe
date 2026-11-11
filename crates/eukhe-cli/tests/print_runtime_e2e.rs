@@ -625,7 +625,8 @@ fn print_mode_provider_retry_recovers_the_answer() {
 
 /// An overflow with nothing compactable ends the run on the provider error
 /// (pi-durable keeps the error turn): stderr carries the error, then the
-/// skip warning row, exit 1.
+/// skip warning row that names the oversized turn and its remedies (omp's
+/// compaction dead-end warning), exit 1.
 #[test]
 fn print_mode_overflow_skip_surfaces_the_warning_row() {
     let home = isolated_home();
@@ -641,7 +642,7 @@ fn print_mode_overflow_skip_surfaces_the_warning_row() {
     assert!(stdout.is_empty(), "stdout: {stdout}");
     assert_eq!(
         stderr,
-        "prompt is too long: 213462 tokens > 200000 maximum\nAuto-compaction skipped: Session is too short to compact -- try again once it grows\n"
+        "prompt is too long: 213462 tokens > 200000 maximum\nAuto-compaction skipped: The most recent turn alone is too large to reduce further; shrink it (e.g. clear large tool output) or switch to a larger-context model.\n"
     );
 }
 
@@ -959,11 +960,17 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     // crossing message takes the crossing turn (~16k) past it without
     // putting its request past the window (which would compact inside the
     // crossing run), and the next run compacts before its first request.
+    // That window's summarizer input budget is its floor (3k tokens, omp
+    // `minSummaryInputTokens`), so the summary runs one call per window
+    // (omp `generateSummary`): the seed turn, the crossing message alone
+    // (clamped to the budget), and the crossing reply.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [
             {"text": "seed reply"},
             {"text": "crossing reply"},
+            {"text": "the compaction summary"},
+            {"text": "the compaction summary"},
             {"text": "the compaction summary"},
             {"text": "after reply"},
         ]

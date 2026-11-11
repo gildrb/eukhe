@@ -1,5 +1,6 @@
-//! Cron scheduling core: schedule parsing (`in`/`every`/`at`/cron),
-//! five-field cron expression evaluation, and `/heartbeat` command parsing.
+//! Cron scheduling core: schedule parsing (`in`/`every`/`at`/cron) and
+//! five-field cron expression evaluation (the `/heartbeat` command language
+//! lives in `eukhe_types::heartbeat_command`, the client parses it).
 //! Port of the pure-function half of core/cron-jobs.ts; the file-backed job
 //! store lives in the `store` submodule.
 
@@ -9,9 +10,9 @@ pub mod store;
 
 use std::collections::BTreeSet;
 
+use eukhe_types::heartbeat_command::{split_amount_unit, unit_multiplier};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_HEARTBEAT_SCHEDULE: &str = "every 5m";
 pub const DEFAULT_HEARTBEAT_DELIVERY_MODE: DeliveryMode = DeliveryMode::Steer;
 const ONE_SECOND_MS: u64 = 1000;
 const ONE_MINUTE_MS: u64 = 60 * ONE_SECOND_MS;
@@ -124,20 +125,6 @@ fn is_zero(count: &u32) -> bool {
     *count == 0
 }
 
-/// Parsed `/heartbeat` command.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParsedHeartbeatCommand {
-    Status,
-    Pause,
-    Resume,
-    Clear,
-    Set {
-        schedule: String,
-        instruction: String,
-        delivery_mode: Option<DeliveryMode>,
-    },
-}
-
 /// Session activity snapshot used by heartbeat deferral.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 // The mirrored TS API shape is deliberate (the booleans are the
@@ -227,47 +214,10 @@ pub fn parse_agent_cron_schedule(
     ))
 }
 
-fn unit_multiplier(unit: &str, allow_seconds: bool) -> Option<u64> {
-    let unit = unit.trim();
-    let seconds = allow_seconds && matches!(unit, "s" | "sec" | "secs" | "second" | "seconds");
-    if seconds {
-        return Some(ONE_SECOND_MS);
-    }
-    if matches!(unit, "m" | "min" | "mins" | "minute" | "minutes") {
-        return Some(ONE_MINUTE_MS);
-    }
-    if matches!(unit, "h" | "hr" | "hrs" | "hour" | "hours") {
-        return Some(60 * ONE_MINUTE_MS);
-    }
-    if matches!(unit, "d" | "day" | "days") {
-        return Some(24 * 60 * ONE_MINUTE_MS);
-    }
-    None
-}
-
 fn parse_in_delay(rest: &str, now_millis: u64) -> Option<u64> {
     let (amount, unit) = split_amount_unit(rest)?;
     let multiplier = unit_multiplier(unit, false)?;
     Some(now_millis + amount.saturating_mul(multiplier))
-}
-
-/// `<digits> <unit?>` with the unit optionally attached (`10m`, `10 m`).
-fn split_amount_unit(rest: &str) -> Option<(u64, &str)> {
-    let rest = rest.trim();
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    if digits.is_empty() {
-        return None;
-    }
-    let digits_len = digits.len();
-    let unit = rest[digits_len..].trim();
-    let amount: u64 = digits.parse().ok()?;
-    if !unit.is_empty()
-        && !rest[digits_len..].starts_with(char::is_whitespace)
-        && !unit.chars().all(|c| c.is_ascii_alphabetic())
-    {
-        return None;
-    }
-    Some((amount, unit))
 }
 
 fn parse_every_delay(rest: &str, now_millis: u64) -> anyhow::Result<Option<u64>> {
@@ -282,19 +232,6 @@ fn parse_every_delay(rest: &str, now_millis: u64) -> anyhow::Result<Option<u64>>
         anyhow::bail!("Recurring interval must be at least 10 seconds");
     }
     Ok(Some(now_millis + interval_ms))
-}
-
-pub fn normalize_heartbeat_schedule(input: Option<&str>) -> String {
-    let text = input.map(str::trim).filter(|text| !text.is_empty());
-    let Some(text) = text else {
-        return DEFAULT_HEARTBEAT_SCHEDULE.to_string();
-    };
-    if let Some((_, unit)) = split_amount_unit(text) {
-        if !unit.is_empty() && unit_multiplier(unit, true).is_some() {
-            return format!("every {text}");
-        }
-    }
-    text.to_string()
 }
 
 /// Normalize an optional heartbeat delivery mode string.
@@ -317,264 +254,6 @@ pub fn normalize_heartbeat_delivery_mode(
 }
 
 #[must_use]
-pub fn resolve_heartbeat_streaming_behavior(delivery_mode: Option<DeliveryMode>) -> &'static str {
-    match delivery_mode.unwrap_or(DEFAULT_HEARTBEAT_DELIVERY_MODE) {
-        DeliveryMode::FollowUp => "followUp",
-        DeliveryMode::Steer => "steer",
-    }
-}
-
-/// Parse a `/heartbeat ...` command body.
-///
-/// # Errors
-///
-/// Returns an error when the command body is malformed: an unknown delivery
-/// mode is given, an `--every` option is used without an interval value, or
-/// the command ends with no instruction to set.
-pub fn parse_heartbeat_command(input: &str) -> anyhow::Result<ParsedHeartbeatCommand> {
-    let text = input
-        .strip_prefix("/heartbeat")
-        .filter(|rest| rest.chars().next().is_none_or(char::is_whitespace))
-        .map_or_else(|| input.trim(), str::trim_start);
-    if text.is_empty() || text == "status" {
-        return Ok(ParsedHeartbeatCommand::Status);
-    }
-    if text == "pause" {
-        return Ok(ParsedHeartbeatCommand::Pause);
-    }
-    if text == "resume" {
-        return Ok(ParsedHeartbeatCommand::Resume);
-    }
-    if text == "clear" || text == "stop" {
-        return Ok(ParsedHeartbeatCommand::Clear);
-    }
-    let leading = consume_delivery_option(text)?;
-    let mut delivery_mode = leading.0;
-    let rest = leading.1;
-
-    if let Some(option) = consume_every_option(&rest)? {
-        let trailing = consume_delivery_option(&option.1)?;
-        delivery_mode = trailing.0.or(delivery_mode);
-        if trailing.1.is_empty() {
-            anyhow::bail!(
-                "Usage: /heartbeat [--every <interval>] [--steer|--follow-up] <instruction>"
-            );
-        }
-        return Ok(ParsedHeartbeatCommand::Set {
-            schedule: normalize_heartbeat_schedule(Some(&option.0)),
-            instruction: trailing.1,
-            delivery_mode,
-        });
-    }
-    if let Some(leading_schedule) = consume_leading_every_schedule(&rest) {
-        let trailing = consume_delivery_option(&leading_schedule.1)?;
-        delivery_mode = trailing.0.or(delivery_mode);
-        if trailing.1.is_empty() {
-            anyhow::bail!(
-                "Usage: /heartbeat [--every <interval>] [--steer|--follow-up] <instruction>"
-            );
-        }
-        return Ok(ParsedHeartbeatCommand::Set {
-            schedule: normalize_heartbeat_schedule(Some(&leading_schedule.0)),
-            instruction: trailing.1,
-            delivery_mode,
-        });
-    }
-    let rest = rest.trim();
-    if rest.is_empty() {
-        anyhow::bail!("Usage: /heartbeat [--every <interval>] [--steer|--follow-up] <instruction>");
-    }
-    Ok(ParsedHeartbeatCommand::Set {
-        schedule: DEFAULT_HEARTBEAT_SCHEDULE.to_string(),
-        instruction: rest.to_string(),
-        delivery_mode,
-    })
-}
-
-fn consume_delivery_option(text: &str) -> anyhow::Result<(Option<DeliveryMode>, String)> {
-    let mut rest = text.trim().to_string();
-    let lower = rest.to_lowercase();
-    if lower == "--deliver" || lower.ends_with(" --deliver") {
-        return Err(anyhow::anyhow!(
-            "Heartbeat delivery mode must be \"steer\" or \"follow_up\""
-        ));
-    }
-    let mut delivery_mode: Option<DeliveryMode> = None;
-    while let Some((mode, remaining)) = consume_leading_delivery_flag(&rest)? {
-        delivery_mode = Some(mode);
-        rest = remaining.trim().to_string();
-    }
-    let mut trailing_delivery_mode: Option<DeliveryMode> = None;
-    while let Some((mode, remaining)) = consume_trailing_delivery_flag(&rest)? {
-        // Consume all trailing flags but keep the rightmost (textually latest).
-        trailing_delivery_mode = trailing_delivery_mode.or(Some(mode));
-        rest = remaining.trim().to_string();
-    }
-    Ok((trailing_delivery_mode.or(delivery_mode), rest))
-}
-
-fn consume_leading_delivery_flag(text: &str) -> anyhow::Result<Option<(DeliveryMode, String)>> {
-    let trimmed = text.trim_start();
-    let Some(after_dash) = trimmed.strip_prefix("--") else {
-        return Ok(None);
-    };
-    if let Some(value) = after_dash.strip_prefix("deliver") {
-        let value = value
-            .strip_prefix('=')
-            .map(String::from)
-            .or_else(|| value.strip_prefix(char::is_whitespace).map(String::from))
-            .unwrap_or_default();
-        if value.is_empty() {
-            anyhow::bail!("Heartbeat delivery mode must be \"steer\" or \"follow_up\"");
-        }
-        let (token, remainder) = split_first_token(&value);
-        let mode = parse_delivery_mode_token(token)?;
-        return Ok(Some((mode, remainder.to_string())));
-    }
-    for (token, mode) in [
-        ("steer", DeliveryMode::Steer),
-        ("follow-up", DeliveryMode::FollowUp),
-        ("follow_up", DeliveryMode::FollowUp),
-    ] {
-        if let Some(rest) = after_dash.strip_prefix(token) {
-            check_standalone(after_dash, token)?;
-            return Ok(Some((mode, rest.to_string())));
-        }
-    }
-    Ok(None)
-}
-
-fn check_standalone(rest: &str, token: &str) -> anyhow::Result<()> {
-    let after = &rest[token.len()..];
-    if !after.is_empty() && !after.starts_with(char::is_whitespace) {
-        anyhow::bail!("Heartbeat delivery mode must be \"steer\" or \"follow_up\"");
-    }
-    Ok(())
-}
-
-fn split_first_token(value: &str) -> (&str, &str) {
-    match value.find(char::is_whitespace) {
-        Some(index) => (&value[..index], value[index..].trim_start()),
-        None => (value, ""),
-    }
-}
-
-fn consume_trailing_delivery_flag(text: &str) -> anyhow::Result<Option<(DeliveryMode, String)>> {
-    let lower = text.to_lowercase();
-    if let Some(index) = lower.rfind(" --deliver ") {
-        let token = text[index + " --deliver ".len()..].trim();
-        if !token.is_empty() && !token.contains(char::is_whitespace) {
-            return Ok(Some((
-                parse_delivery_mode_token(token)?,
-                text[..index].to_string(),
-            )));
-        }
-    }
-    if let Some(index) = lower.rfind(" --deliver=") {
-        let token = text[index + " --deliver=".len()..].trim();
-        if !token.is_empty() && !token.contains(char::is_whitespace) {
-            return Ok(Some((
-                parse_delivery_mode_token(token)?,
-                text[..index].to_string(),
-            )));
-        }
-    }
-    for token in ["--follow-up", "--follow_up", "--steer"] {
-        if let Some(index) = lower.rfind(&format!(" {token}")) {
-            if index + token.len() + 1 == text.len() {
-                return Ok(Some((
-                    parse_delivery_mode_token(&token[2..])?,
-                    text[..index].to_string(),
-                )));
-            }
-        }
-    }
-    Ok(None)
-}
-
-fn parse_delivery_mode_token(token: &str) -> anyhow::Result<DeliveryMode> {
-    let normalized = token.to_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "steer" => Ok(DeliveryMode::Steer),
-        "follow_up" => Ok(DeliveryMode::FollowUp),
-        _ => Err(anyhow::anyhow!(
-            "Heartbeat delivery mode must be \"steer\" or \"follow_up\""
-        )),
-    }
-}
-
-fn consume_every_option(text: &str) -> anyhow::Result<Option<(String, String)>> {
-    let trimmed = text.trim_start();
-    let Some(rest) = trimmed.strip_prefix("--every") else {
-        return Ok(None);
-    };
-    let rest = match rest.strip_prefix('=') {
-        Some(value) => value.to_string(),
-        None => match rest.strip_prefix(char::is_whitespace) {
-            Some(value) => value.to_string(),
-            // No separator: "--everyfoo" is not an every option.
-            None if !rest.is_empty() => return Ok(None),
-            None => String::new(),
-        },
-    };
-    // Quoted or bare interval value.
-    let (interval, remainder): (String, String) = if let Some(stripped) = rest.strip_prefix('"') {
-        match stripped.find('"') {
-            Some(index) => (
-                stripped[..index].to_string(),
-                stripped[index + 1..].to_string(),
-            ),
-            None => (stripped.to_string(), String::new()),
-        }
-    } else if let Some(stripped) = rest.strip_prefix('\'') {
-        match stripped.find('\'') {
-            Some(index) => (
-                stripped[..index].to_string(),
-                stripped[index + 1..].to_string(),
-            ),
-            None => (stripped.to_string(), String::new()),
-        }
-    } else {
-        let (token, rest) = split_first_token(&rest);
-        (token.to_string(), rest.to_string())
-    };
-    if interval.is_empty() {
-        anyhow::bail!("Usage: /heartbeat [--every <interval>] [--steer|--follow-up] <instruction>");
-    }
-    Ok(Some((interval, remainder.trim_start().to_string())))
-}
-
-fn consume_leading_every_schedule(text: &str) -> Option<(String, String)> {
-    let lower = text.to_lowercase();
-    for prefix in ["every ", "each "] {
-        if let Some(rest) = lower.strip_prefix(prefix) {
-            let first_token = rest.split_whitespace().next()?;
-            let Some((_, unit)) = split_amount_unit(first_token) else {
-                continue;
-            };
-            if unit.is_empty() || unit_multiplier(unit, true).is_none() {
-                continue;
-            }
-            {
-                let consumed = prefix.len() + first_token.len();
-                let consumed = consumed.min(text.len());
-                let remainder = text[consumed..].trim();
-                // Strip a standalone "--" separator, never a flag.
-                let remainder = remainder
-                    .strip_prefix("--")
-                    .filter(|after| after.is_empty() || after.starts_with(char::is_whitespace))
-                    .map_or(remainder, str::trim)
-                    .trim()
-                    .to_string();
-                let interval = format!("{} {}", prefix.trim(), first_token);
-                return Some((interval, remainder));
-            }
-        }
-    }
-    None
-}
-
-#[must_use]
 pub fn is_heartbeat_cron_job(job: &AgentCronJob) -> bool {
     match job.source {
         JobSource::Heartbeat | JobSource::RlmHeartbeat => true,
@@ -582,27 +261,25 @@ pub fn is_heartbeat_cron_job(job: &AgentCronJob) -> bool {
     }
 }
 
-/// Whether a due heartbeat should wait instead of firing now.
+/// Whether a due heartbeat should wait instead of firing now: while the
+/// session compacts, retries, runs a user bash command, holds suspended
+/// work, or has unfinished actions outside a run. A streaming turn takes a
+/// heartbeat in either delivery mode: a steer joins the turn, a follow-up
+/// queues behind it and is delivered when the turn ends (omp
+/// `Agent.followUp`, packages/agent/src/agent.ts:1494-1501; a prompt sent
+/// while streaming queues on its `streamingBehavior`,
+/// packages/coding-agent/src/session/agent-session.ts:8805-8833).
 #[must_use]
 pub fn should_defer_heartbeat_cron_job(
     job: &AgentCronJob,
     activity: &HeartbeatSessionActivity,
 ) -> bool {
-    if !is_heartbeat_cron_job(job) {
-        return false;
-    }
-    let busy_besides_streaming = activity.is_compacting
-        || activity.is_retrying
-        || activity.is_bash_running
-        || activity.has_pending_session_work
-        || (!activity.is_streaming && activity.unfinished_action_count > 0);
-    if busy_besides_streaming {
-        return true;
-    }
-    if resolve_heartbeat_streaming_behavior(job.delivery_mode) == "steer" {
-        return false;
-    }
-    activity.is_streaming
+    is_heartbeat_cron_job(job)
+        && (activity.is_compacting
+            || activity.is_retrying
+            || activity.is_bash_running
+            || activity.has_pending_session_work
+            || (!activity.is_streaming && activity.unfinished_action_count > 0))
 }
 
 /// Next run time for a schedule after `after_millis`.
@@ -1012,94 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_command_parsing() {
-        use ParsedHeartbeatCommand::*;
-        assert_eq!(parse_heartbeat_command("status").unwrap(), Status);
-        assert_eq!(parse_heartbeat_command("/heartbeat").unwrap(), Status);
-        assert_eq!(
-            parse_heartbeat_command("/heartbeat status").unwrap(),
-            Status
-        );
-        assert_eq!(parse_heartbeat_command("/heartbeat pause").unwrap(), Pause);
-        assert_eq!(
-            parse_heartbeat_command("/heartbeat resume").unwrap(),
-            Resume
-        );
-        assert_eq!(parse_heartbeat_command("/heartbeat stop").unwrap(), Clear);
-        // Bare instruction uses the default schedule.
-        let Set {
-            schedule,
-            instruction,
-            delivery_mode,
-        } = parse_heartbeat_command("/heartbeat check the build").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(schedule, "every 5m");
-        assert_eq!(instruction, "check the build");
-        assert_eq!(delivery_mode, None);
-        // --every with bare and quoted values.
-        let Set {
-            schedule,
-            instruction,
-            ..
-        } = parse_heartbeat_command("/heartbeat --every 10m keep going").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(schedule, "every 10m");
-        assert_eq!(instruction, "keep going");
-        let Set {
-            schedule,
-            instruction,
-            ..
-        } = parse_heartbeat_command("/heartbeat --every=\"15 m\" watch things").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(schedule, "every 15 m");
-        assert_eq!(instruction, "watch things");
-        // Leading schedule form.
-        let Set {
-            schedule,
-            instruction,
-            ..
-        } = parse_heartbeat_command("/heartbeat every 2h sweep logs").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(schedule, "every 2h");
-        assert_eq!(instruction, "sweep logs");
-        // Delivery flags: leading, trailing, and --deliver forms.
-        let Set { delivery_mode, .. } =
-            parse_heartbeat_command("/heartbeat --steer --every 5m ping").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(delivery_mode, Some(DeliveryMode::Steer));
-        let Set { delivery_mode, .. } =
-            parse_heartbeat_command("/heartbeat --every 5m ping --follow-up").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(delivery_mode, Some(DeliveryMode::FollowUp));
-        let Set { delivery_mode, .. } =
-            parse_heartbeat_command("/heartbeat --deliver=steer --every 5m ping").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(delivery_mode, Some(DeliveryMode::Steer));
-        let Set { delivery_mode, .. } =
-            parse_heartbeat_command("/heartbeat --deliver follow_up --every 5m ping").unwrap()
-        else {
-            panic!("expected set");
-        };
-        assert_eq!(delivery_mode, Some(DeliveryMode::FollowUp));
-        // Missing instruction.
-        assert!(parse_heartbeat_command("/heartbeat --every 10m").is_err());
-    }
-
-    #[test]
     fn heartbeat_deferral_rules() {
         let job = |source: JobSource, mode: Option<DeliveryMode>| AgentCronJob {
             id: "j1".to_string(),
@@ -1137,13 +726,18 @@ mod tests {
             &job(JobSource::Cron, None),
             &streaming
         ));
-        // Steer heartbeats fire during streaming; follow-up waits.
+        // A streaming turn takes a heartbeat in either mode: a steer joins
+        // the turn, a follow-up queues behind it (omp `Agent.followUp`).
         assert!(!should_defer_heartbeat_cron_job(
             &job(JobSource::Heartbeat, Some(DeliveryMode::Steer)),
             &streaming
         ));
-        assert!(should_defer_heartbeat_cron_job(
+        assert!(!should_defer_heartbeat_cron_job(
             &job(JobSource::Heartbeat, Some(DeliveryMode::FollowUp)),
+            &streaming
+        ));
+        assert!(!should_defer_heartbeat_cron_job(
+            &job(JobSource::RlmHeartbeat, Some(DeliveryMode::FollowUp)),
             &streaming
         ));
         // Busy states defer regardless of mode.

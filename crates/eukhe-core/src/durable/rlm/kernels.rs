@@ -443,12 +443,14 @@ impl KernelHostDispatch for RegistryDispatch {
             data,
             cell_source_code,
             call,
+            signal,
         } = request;
         if let Some(handler) = self.registry.get(&request_type) {
             return handler(HostCall {
                 data,
                 cell_source_code,
                 call,
+                signal,
             });
         }
         if let Some(handler) = self

@@ -184,7 +184,7 @@ async def host_request(data: dict[str, Any]) -> dict[str, Any]:
     future: asyncio.Future[dict[str, Any]] = _loop.create_future()
     _pending_host[rid] = future
     try:
-        _send({"event": "host_request", "id": rid, "data": data})
+        _send({"event": "host_request", "id": rid, "cell": _current_cell.get(), "data": data})
         return await future
     finally:
         _pending_host.pop(rid, None)
@@ -236,7 +236,7 @@ def host_request_sync(data: dict[str, Any]) -> dict[str, Any]:
     with _sync_lock:
         _pending_host_sync[rid] = waiter
     try:
-        _send({"event": "host_request", "id": rid, "data": data})
+        _send({"event": "host_request", "id": rid, "cell": _current_cell.get(), "data": data})
         waiter.done.wait()
     finally:
         with _sync_lock:

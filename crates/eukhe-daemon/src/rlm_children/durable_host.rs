@@ -27,6 +27,7 @@ use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
 use super::first_prompt::{Cohort, FirstPromptGate, LeaderRead, Turn};
+use super::RLM_CANCEL;
 use super::{
     assert_thinking_supported, json, now_ms, resolve_child_model_from_settings, Arc, Context,
     Duration, Map, Path, Result, SupervisorChildSessions, SupervisorChildSessionsInner,
@@ -688,13 +689,16 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         })
     }
 
+    /// Abort the child's run and kill its background jobs (`rlmCancel`): a
+    /// cancelled subagent's own jobs end with it (omp
+    /// `cancelAndReapOwnerJobs`, task/executor.ts:5375-5385).
     fn cancel(&self, request: durable::RlmChildCancelRequest) -> durable::RlmHostFuture<'_, ()> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
             this.keyed_child_command(request, "cancel", |selector| DaemonCommand::Abort {
                 id: None,
                 active_session_id: selector.to_owned(),
-                rest: Map::default(),
+                rest: Map::from_iter([(RLM_CANCEL.to_owned(), Value::Bool(true))]),
             })
             .await
         })

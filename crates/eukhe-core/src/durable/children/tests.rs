@@ -529,6 +529,7 @@ fn spawn_batch_tool(
                     data,
                     cell_source_code: None,
                     call: Some(api),
+                    signal: None,
                 })
                 .await;
                 let text = match reply {
@@ -563,6 +564,7 @@ fn spawn_tool(requests: HostRequestRegistry) -> Arc<Extension> {
                     data: json!({ "prompt": PROMPT, "kwargs": { "why": "parallel" } }),
                     cell_source_code: None,
                     call: Some(api),
+                    signal: None,
                 })
                 .await;
                 let text = match reply {
@@ -756,6 +758,7 @@ async fn handle(opened: &Opened, request_type: &str, data: Value) -> anyhow::Res
         data,
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
 }
@@ -1051,6 +1054,7 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
             data: json!({ "targets": [target], "timeout_ms": 30_000 }),
             cell_source_code: None,
             call: None,
+            signal: None,
         }))
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1326,6 +1330,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
             data: json!({ "prompt": PROMPT, "kwargs": kwargs }),
             cell_source_code: None,
             call: None,
+            signal: None,
         })
     };
     // The compiled core (entry 431) refuses at the bound; a spawn without
@@ -1368,6 +1373,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         data: json!({ "prompt": PROMPT, "kwargs": { "colour": "red" } }),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .unwrap_err();
@@ -1376,6 +1382,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         data: json!({ "prompt": PROMPT }),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .unwrap_err();

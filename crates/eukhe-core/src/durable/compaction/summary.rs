@@ -11,10 +11,12 @@
 //! settled view, so the context a summary would replace is dropped anyway
 //! (the threshold skip).
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
+use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::{CompactionSummary, COMPACTION_ENTRY};
 use eukhe_durable::harness::types::{
@@ -24,8 +26,11 @@ use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::EntryRecord;
 use eukhe_types::pi_ai::{
-    AssistantMessageEvent, CacheRetention, Context as PiContext, Message, StopReason,
+    AssistantContentBlock, AssistantMessageEvent, CacheRetention, Context as PiContext, Message,
+    StopReason,
 };
+use eukhe_types::session::AgentMessage;
+use eukhe_types::token_estimate::estimate_text_tokens;
 use futures::{FutureExt, StreamExt};
 use serde_json::json;
 
@@ -36,14 +41,17 @@ use super::auxiliary_model::{
 };
 use super::head;
 use super::summary_request::{
-    build_summarization_request, estimate_summary_request_tokens, history_summary_completion_budget,
+    build_summarization_request_for_text, clamp_conversation_to_budget,
+    estimate_summary_request_tokens, history_summary_completion_budget, min_summary_input_tokens,
+    plan_summary_windows, summary_input_budget_tokens,
 };
 use super::utils::{
-    compute_file_lists, extract_file_ops_from_message, format_file_operations, FileOperations,
-    SUMMARIZATION_SYSTEM_PROMPT,
+    compute_file_lists, extract_file_ops_from_message, format_file_operations,
+    serialize_conversation, FileOperations, SUMMARIZATION_SYSTEM_PROMPT,
 };
 use crate::durable::messages::{
-    create_compaction_outcome_message, CompactionOutcomeKind, CompactionOutcomeReason,
+    convert_to_llm, create_compaction_outcome_message, CompactionOutcomeKind,
+    CompactionOutcomeReason,
 };
 
 use super::CompactionRuntime;
@@ -149,28 +157,6 @@ async fn decide(
     }
     model.max_tokens = max_tokens;
 
-    // The summarization request.
-    let request_messages = build_summarization_request(
-        &history,
-        request.instructions.as_deref(),
-        previous.as_deref(),
-        anchor.as_deref(),
-        reserve,
-    );
-    let mut messages: Vec<Message> = Vec::with_capacity(request_messages.len());
-    for message in &request_messages {
-        let value = serde_json::to_value(message)
-            .map_err(|error| SessionError::error(error.to_string()))?;
-        messages.push(
-            serde_json::from_value(value)
-                .map_err(|error| SessionError::error(error.to_string()))?,
-        );
-    }
-    let context = PiContext {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
-        messages,
-        tools: None,
-    };
     let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
         stream: eukhe_ai::types::StreamOptions {
             max_tokens: Some(max_tokens),
@@ -195,48 +181,115 @@ async fn decide(
     // like pi-durable's own summarize phase.
     let signal = cx.abort_signal();
     options.options.stream.request.signal.clone_from(&signal);
-    trace(
-        "compact.summarizer_request",
-        &json!({ "maxTokens": max_tokens }),
-    );
-    // Stream the summarizer, forwarding every text delta to the live
-    // summary sink.
+
+    // The summary windows (omp `generateSummary`): the whole conversation
+    // in one call when it fits the summarizer's input budget, else windows
+    // that each fit it, each folding into the summary carried out of the
+    // one before. A window that is one message above the budget (an
+    // oversized paste) is clamped to it. A summarizer that still overflows
+    // (its provider counts more than the local estimate) halves the budget
+    // and plans that window again, until the budget falls below the floor.
+    let llm_history = convert_to_llm(&history);
+    drop(history);
+    let budget = summary_input_budget_tokens(model.context_window, max_tokens);
+    let floor = min_summary_input_tokens(model.context_window);
+    let whole = serialize_conversation(&llm_history);
+    let mut pending: VecDeque<SummaryWindow> = if estimate_text_tokens(&whole) <= budget {
+        VecDeque::from([SummaryWindow {
+            messages: llm_history,
+            budget,
+            text: Some(whole),
+        }])
+    } else {
+        drop(whole);
+        SummaryWindow::plan(llm_history, budget).collect()
+    };
     let sink = deps.summary_delta.clone();
-    let forward_sink = sink.clone();
-    let stream = deps.models.stream_simple(&model, context, options);
-    let events = stream.events();
-    let drain = tokio::spawn(async move {
-        let mut events = events;
-        while let Some(event) = events.next().await {
-            if let AssistantMessageEvent::TextDelta { delta, .. } = &event {
-                if let Some(sink) = forward_sink.as_ref() {
-                    sink(delta);
+    let mut carried = previous;
+    while let Some(window) = pending.pop_front() {
+        let text = window
+            .text
+            .unwrap_or_else(|| serialize_conversation(&window.messages));
+        let tokens = estimate_text_tokens(&text);
+        let sent = clamp_conversation_to_budget(text, window.budget, tokens);
+        let request_messages = build_summarization_request_for_text(
+            &sent,
+            request.instructions.as_deref(),
+            carried.as_deref(),
+            anchor.as_deref(),
+        );
+        drop(sent);
+        let mut messages: Vec<Message> = Vec::with_capacity(request_messages.len());
+        for message in &request_messages {
+            let value = serde_json::to_value(message)
+                .map_err(|error| SessionError::error(error.to_string()))?;
+            messages.push(
+                serde_json::from_value(value)
+                    .map_err(|error| SessionError::error(error.to_string()))?,
+            );
+        }
+        let context = PiContext {
+            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+            messages,
+            tools: None,
+        };
+        trace(
+            "compact.summarizer_request",
+            &json!({ "maxTokens": max_tokens }),
+        );
+        // Stream the summarizer, forwarding every text delta to the live
+        // summary sink. Only the last window's text is the summary a
+        // client accumulating deltas must hold.
+        let forward_sink = if pending.is_empty() {
+            sink.clone()
+        } else {
+            None
+        };
+        let stream = deps.models.stream_simple(&model, context, options.clone());
+        let events = stream.events();
+        let drain = tokio::spawn(async move {
+            let mut events = events;
+            while let Some(event) = events.next().await {
+                if let AssistantMessageEvent::TextDelta { delta, .. } = &event {
+                    if let Some(sink) = forward_sink.as_ref() {
+                        sink(delta);
+                    }
                 }
             }
+        });
+        let reply = stream.result().await;
+        let _ = drain.await;
+        if let Some(signal) = &signal {
+            signal.throw_if_aborted().map_err(SessionError::Aborted)?;
         }
-    });
-    let reply = stream.result().await;
-    let _ = drain.await;
-    if let Some(signal) = &signal {
-        signal.throw_if_aborted().map_err(SessionError::Aborted)?;
+        // The failure label ("Summarization failed"): an error
+        // stop bubbles out of the hook and fails the compaction task.
+        if reply.stop_reason == StopReason::Error {
+            let halved = window.budget.min(tokens) / 2;
+            if !is_context_overflow(&reply, Some(model.context_window)) || halved < floor {
+                let message = reply.error_message.unwrap_or_default();
+                return Err(SessionError::error(format!(
+                    "Summarization failed: {message}"
+                )));
+            }
+            for window in SummaryWindow::plan(window.messages, halved).rev() {
+                pending.push_front(window);
+            }
+            continue;
+        }
+        carried = Some(
+            reply
+                .content
+                .iter()
+                .filter_map(|block| match block {
+                    AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+                    AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
     }
-    // The failure label ("Summarization failed"): an error
-    // stop bubbles out of the hook and fails the compaction task.
-    if reply.stop_reason == StopReason::Error {
-        let message = reply.error_message.unwrap_or_default();
-        return Err(SessionError::error(format!(
-            "Summarization failed: {message}"
-        )));
-    }
-    let summary_text: String = reply
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            eukhe_types::pi_ai::AssistantContentBlock::Text(text) => Some(text.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let summary_text = carried.unwrap_or_default();
     // The parts the live stream never carried (the file-operations block
     // never flows through the summarizer) flush through the sink so a
     // client accumulating deltas holds the committed text.
@@ -254,6 +307,28 @@ async fn decide(
         text: head::rendered_summary(&summary),
         summary,
     }))
+}
+
+/// One planned summarization call (omp `SummaryWindow`): its messages,
+/// already converted for the model, the budget they were packed for, and
+/// their serialization when the fit check already made it.
+struct SummaryWindow {
+    messages: Vec<AgentMessage>,
+    budget: u64,
+    text: Option<String>,
+}
+
+impl SummaryWindow {
+    /// The windows of `messages` under `budget` ([`plan_summary_windows`]).
+    fn plan(messages: Vec<AgentMessage>, budget: u64) -> impl DoubleEndedIterator<Item = Self> {
+        plan_summary_windows(messages, budget)
+            .into_iter()
+            .map(move |messages| Self {
+                messages,
+                budget,
+                text: None,
+            })
+    }
 }
 
 /// The recent-state anchor over the kept tail: the newest assistant text

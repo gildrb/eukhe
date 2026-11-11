@@ -461,6 +461,10 @@ pub struct HostCall {
     pub cell_source_code: Option<String>,
     /// The `ipython` tool call running the cell; `None` outside a tool call.
     pub call: Option<Arc<dyn ToolExecutionApi>>,
+    /// The stop signal of the cell `call` runs (its abort, see
+    /// [`crate::kernel::shared::ExecuteOptions::signal`]) when that cell
+    /// sent the request; `None` otherwise.
+    pub signal: Option<crate::kernel::cancellation::AbortSignal>,
 }
 
 /// Handles one kernel host request type; the value reaches the Python caller.

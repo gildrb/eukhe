@@ -37,7 +37,13 @@ impl Worker {
             "prompt_and_wait" => self.handle_prompt(payload, true).await,
             "steer" => self.handle_queue(payload, WhenBusy::Steer).await,
             "follow_up" => self.handle_queue(payload, WhenBusy::FollowUp).await,
-            "abort" => self.handle_abort(AbortQueue::Suspend).await,
+            "abort" => {
+                let response = self.handle_abort(AbortQueue::Suspend).await;
+                if payload.get(crate::rlm_children::RLM_CANCEL) == Some(&Value::Bool(true)) {
+                    self.kill_background_jobs();
+                }
+                response
+            }
             "abort_and_send_queued" => self.handle_abort(AbortQueue::Send).await,
             "abort_and_clear_queue" => self.handle_abort(AbortQueue::Clear).await,
             "pause_workers" => self.handle_pause_workers(payload, PauseAction::Pause).await,
@@ -266,6 +272,19 @@ impl Worker {
                     let _ = manager.replace_acp_servers(&[], owner_id);
                 }
                 response_failure(None, COMMAND, &error.to_string(), None)
+            }
+        }
+    }
+
+    /// A parent cancelled this RLM child: its background jobs (detached
+    /// shells and cells, with their process trees) end with its run, through
+    /// each job's own kill (omp `cancelAndReapOwnerJobs`,
+    /// task/executor.ts:5375-5385). A child that settles on its own keeps
+    /// them.
+    fn kill_background_jobs(&self) {
+        if let Some(hosted) = self.session.get() {
+            for job in hosted.deps().jobs.jobs() {
+                job.kill();
             }
         }
     }

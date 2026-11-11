@@ -989,6 +989,11 @@ impl SessionUi {
                 }
                 self.handle_reload_command(view)?;
             }
+            // `/heartbeat ...` (TS `handleHeartbeatCommand`): view, set,
+            // pause, resume or clear this session's own heartbeat.
+            "heartbeat" => {
+                self.handle_heartbeat_command(&resolved.args, view).await;
+            }
             // `/heartbeats` (TS `showHeartbeatManager`): the inline
             // management view over the session-scoped heartbeat catalog --
             // this session's and its RLM children's user and agent

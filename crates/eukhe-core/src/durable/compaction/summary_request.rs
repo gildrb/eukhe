@@ -121,6 +121,23 @@ pub fn build_summarization_request(
 ) -> Vec<AgentMessage> {
     let llm_messages = convert_to_llm(messages);
     let conversation_text = serialize_conversation(&llm_messages);
+    build_summarization_request_for_text(
+        &conversation_text,
+        custom_instructions,
+        previous_summary,
+        recent_state_anchor,
+    )
+}
+
+/// [`build_summarization_request`] over an already serialized
+/// conversation (one summary window, omp `summarizeConversationWindow`).
+#[must_use]
+pub(crate) fn build_summarization_request_for_text(
+    conversation_text: &str,
+    custom_instructions: Option<&str>,
+    previous_summary: Option<&str>,
+    recent_state_anchor: Option<&str>,
+) -> Vec<AgentMessage> {
     let mut prompt_text = format!("<conversation>\n{conversation_text}\n</conversation>\n\n");
     if let Some(previous_summary) = previous_summary {
         let _ = write!(
@@ -185,6 +202,112 @@ pub(crate) fn history_summary_completion_budget(reserve_tokens: u64) -> u64 {
 /// `generateTurnPrefixSummary`: `Math.floor(0.5 * reserveTokens)`).
 pub(crate) fn turn_prefix_summary_completion_budget(reserve_tokens: u64) -> u64 {
     reserve_tokens / 2
+}
+
+/// The summarizer window of a model whose catalog entry carries no usable
+/// context window (omp `DEFAULT_SUMMARY_INPUT_WINDOW`).
+const DEFAULT_SUMMARY_INPUT_WINDOW: u64 = 200_000;
+
+/// The floor of one summarization window, so a tiny model still makes
+/// progress (omp `MIN_SUMMARY_INPUT_TOKENS`).
+const MIN_SUMMARY_INPUT_TOKENS: u64 = 16_384;
+
+/// The most a summary may emit (omp `MAX_SUMMARY_TOKENS`, its default
+/// reserve).
+const MAX_SUMMARY_TOKENS: u64 = 16_384;
+
+fn summary_input_window(context_window: u64) -> u64 {
+    if context_window > 0 {
+        context_window
+    } else {
+        DEFAULT_SUMMARY_INPUT_WINDOW
+    }
+}
+
+/// The smallest summarization window worth planning for a model of
+/// `context_window` tokens; below it, overflow recovery gives up (omp
+/// `minSummaryInputTokens`).
+pub(crate) fn min_summary_input_tokens(context_window: u64) -> u64 {
+    MIN_SUMMARY_INPUT_TOKENS.min((summary_input_window(context_window) / 8).max(1_024))
+}
+
+/// The conversation input of ONE summarization call (omp
+/// `summaryInputBudgetTokens`): the summarizer's window, discounted to 0.8
+/// because the provider's tokenizer disagrees with the local estimate,
+/// minus the summary it emits (`max_tokens`) and the previous summary and
+/// prompt it carries.
+pub(crate) fn summary_input_budget_tokens(context_window: u64, max_tokens: u64) -> u64 {
+    let window = summary_input_window(context_window);
+    (window.saturating_mul(4) / 5)
+        .saturating_sub(max_tokens)
+        .saturating_sub(MAX_SUMMARY_TOKENS)
+        .max(min_summary_input_tokens(context_window))
+}
+
+/// Clamp one serialized window of `tokens` estimated tokens to
+/// `budget_tokens` (omp `clampConversationToBudget`): only a single message
+/// above the budget (an oversized paste) gets here, and the alternative is
+/// a summarizer rejection no retry can clear, which strands the session
+/// with a full window. Lengths count UTF-16 code units like the TS slice;
+/// the cut never splits a character.
+pub(crate) fn clamp_conversation_to_budget(
+    mut text: String,
+    budget_tokens: u64,
+    tokens: u64,
+) -> String {
+    if tokens <= budget_tokens {
+        return text;
+    }
+    let length = text_chars(&text);
+    let keep = u64::try_from(
+        u128::from(length) * u128::from(budget_tokens) * 95 / (u128::from(tokens) * 100),
+    )
+    .unwrap_or(u64::MAX)
+    .max(1_024);
+    if keep >= length {
+        return text;
+    }
+    let mut units = 0u64;
+    let cut = text
+        .char_indices()
+        .find(|(_, character)| {
+            units += character.len_utf16() as u64;
+            units > keep
+        })
+        .map_or(text.len(), |(index, _)| index);
+    text.truncate(cut);
+    let _ = write!(
+        text,
+        "\n\n[... {} more characters truncated]",
+        length - keep
+    );
+    text
+}
+
+/// Partition `messages` (already converted for the model) into windows
+/// whose serializations each fit `budget_tokens`, splitting on message
+/// boundaries (omp `planSummaryWindows`); a single message above the
+/// budget is a window of its own.
+pub(crate) fn plan_summary_windows(
+    messages: Vec<AgentMessage>,
+    budget_tokens: u64,
+) -> Vec<Vec<AgentMessage>> {
+    let mut windows = Vec::new();
+    let mut current: Vec<AgentMessage> = Vec::new();
+    let mut current_tokens = 0u64;
+    for message in messages {
+        let tokens = estimate_text_tokens(&serialize_conversation(std::slice::from_ref(&message)));
+        if current_tokens > 0 && current_tokens + tokens > budget_tokens {
+            windows.push(std::mem::take(&mut current));
+            current_tokens = 0;
+        }
+        current.push(message);
+        current_tokens += tokens;
+    }
+    if !current.is_empty() {
+        windows.push(current);
+    }
+    windows
 }
 
 /// The tokens the summarizer request text occupies at the one token
@@ -277,6 +400,64 @@ mod tests {
     #[test]
     fn token_estimation() {
         assert_eq!(estimate_tokens(&user("12345678")), 3);
+    }
+
+    /// A window above its budget keeps the share of its characters the
+    /// budget allows (omp `clampConversationToBudget`: 95% of the
+    /// proportional length, at least 1024), never splitting a character,
+    /// and says how many it dropped; one within its budget is unchanged.
+    #[test]
+    fn an_oversized_window_is_clamped_to_its_budget() {
+        let text = "字".repeat(10_000);
+        assert_eq!(
+            clamp_conversation_to_budget(text.clone(), 10_000, 10_000),
+            text
+        );
+        assert_eq!(
+            clamp_conversation_to_budget(text.clone(), 5_000, 10_000),
+            format!(
+                "{}\n\n[... 5250 more characters truncated]",
+                "字".repeat(4_750)
+            )
+        );
+        assert_eq!(
+            clamp_conversation_to_budget(text, 1, 10_000),
+            format!(
+                "{}\n\n[... 8976 more characters truncated]",
+                "字".repeat(1_024)
+            )
+        );
+        let pairs = "😀".repeat(1_000);
+        assert_eq!(
+            clamp_conversation_to_budget(pairs, 1, 1_000),
+            format!(
+                "{}\n\n[... 976 more characters truncated]",
+                "😀".repeat(512)
+            )
+        );
+    }
+
+    /// Windows split on message boundaries under the budget; a message
+    /// above it is a window of its own (omp `planSummaryWindows`). The
+    /// input budget is 0.8 of the window less the summary's and the
+    /// carried summary's reserves, never below the floor (omp
+    /// `summaryInputBudgetTokens`, `minSummaryInputTokens`).
+    #[test]
+    fn summary_windows_fit_their_budget() {
+        let small = || user(&"x".repeat(35));
+        let windows = plan_summary_windows(
+            vec![small(), small(), user(&"y".repeat(3_500)), small()],
+            30,
+        );
+        assert_eq!(
+            windows.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![2, 1, 1]
+        );
+        assert_eq!(summary_input_budget_tokens(1_000_000, 13_107), 770_509);
+        assert_eq!(summary_input_budget_tokens(0, 13_107), 130_509);
+        assert_eq!(summary_input_budget_tokens(32_000, 13_107), 4_000);
+        assert_eq!(min_summary_input_tokens(1_000_000), 16_384);
+        assert_eq!(min_summary_input_tokens(4_000), 1_024);
     }
 
     /// Summary routing sizes the request with the estimate the compaction

@@ -261,6 +261,7 @@ async fn the_init_host_request_starts_the_loop_and_answers_exact_json() {
         }),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .expect("autoresearch.init answers");

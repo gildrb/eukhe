@@ -78,11 +78,13 @@ it within 30 seconds (a synchronous cell holding the loop).
   `ValueError` in the calling cell. `id` rides task
   context: an asyncio task spawned by a cell keeps that cell's id even after
   the cell finishes; user threads emit `null`.
-- `{"event":"host_request","id":str,"data":{...}}` — one typed request from
-  runtime code to the host; the host answers with a `host_reply` request
-  carrying the same id. `data` is subject to the same encoding cap as a
-  `display` payload: `host_request()` raises `ValueError` in the calling cell
-  instead of sending an oversized request.
+- `{"event":"host_request","id":str,"cell":str|null,"data":{...}}` — one typed
+  request from runtime code to the host; the host answers with a `host_reply`
+  request carrying the same id. `cell` names the sending cell like a `display`
+  frame's `id` (task context; `null` from a user thread): the host stops a
+  cell's waits with that cell only. `data` is subject to the same encoding cap
+  as a `display` payload: `host_request()` raises `ValueError` in the calling
+  cell instead of sending an oversized request.
 - `{"event":"error","id":str|null,"ename":str,"evalue":str,"traceback":[str,...]}`
   — `evalue` and each `traceback` entry are capped at 1,048,576 characters,
   with a trailing truncation marker, so one error event fits one frame.
