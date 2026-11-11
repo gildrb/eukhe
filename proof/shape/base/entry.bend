@@ -20,9 +20,9 @@ import ../../../laws/autolink_shapes.bend as AutolinkShapes
 import ../../../laws/preview_shapes.bend as PreviewShapes
 import ../../../laws/shape/entry.bend as ShapeEntry
 import ../../incident_shapes/incident_shapes_table.bend as PIncidentShapesTable
+import ../../arg_token_shapes/base.bend as LArgTokenShapes
+import ../../autolink_shapes/base.bend as LAutolinkShapes
 import ../../image_marker_shapes/base.bend as LImageMarkerShapes
-import ../../arg_token_shapes/arg_token_shapes_table.bend as PArgTokenShapesTable
-import ../../autolink_shapes/autolink_shapes_table.bend as PAutolinkShapesTable
 import ../../preview_shapes/base.bend as LPreviewShapes
 import ../../base/wire.bend as LBaseWire
 import ../../wire/wire_nats_spells.bend as PWireNatsSpells
@@ -57,9 +57,9 @@ def she.shape_of.in(inc: Bool, img: Bool, arg: Bool, link: Bool, prev: Bool, +id
     case False{} True{} _ _ _:
       LImageMarkerShapes.im.table(Nat.sub(id, 100n))
     case False{} False{} True{} _ _:
-      ArgTokenShapes.arg_token_shapes_table(Nat.sub(id, 110n))
+      LArgTokenShapes.at.table(Nat.sub(id, 110n))
     case False{} False{} False{} True{} _:
-      AutolinkShapes.autolink_shapes_table(Nat.sub(id, 120n))
+      LAutolinkShapes.al.table(Nat.sub(id, 120n))
     case False{} False{} False{} False{} True{}:
       LPreviewShapes.pv.table(Nat.sub(id, 130n))
     case False{} False{} False{} False{} False{}:
