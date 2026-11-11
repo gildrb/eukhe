@@ -203,6 +203,38 @@ async fn loopback_custom_models_omit_the_store_field() {
     assert_eq!(params.get("store"), Some(&json!(false)));
 }
 
+/// A Qwen-family model sends no `store` on any host (omp `supportsStore`:
+/// `isQwen` is a non-standard host class): a self-hosted server with a
+/// strict request schema rejects the field with a 400.
+#[tokio::test]
+async fn qwen_models_omit_the_store_field_on_any_host() {
+    let qwen = gpt_4o_mini_completions(&json!({
+        "id": "qwen3.8-27b",
+        "name": "Qwen3.8 27B",
+        "provider": "elpis",
+        "baseUrl": "https://server.example.ts.net/v1",
+    }));
+    let other = gpt_4o_mini_completions(&json!({
+        "id": "gemma-3-27b",
+        "name": "Gemma 3 27B",
+        "provider": "elpis",
+        "baseUrl": "https://server.example.ts.net/v1",
+    }));
+    assert_eq!(
+        [
+            simple_payload(&qwen, &hi_context(), None)
+                .await
+                .get("store")
+                .cloned(),
+            simple_payload(&other, &hi_context(), None)
+                .await
+                .get("store")
+                .cloned(),
+        ],
+        [None, Some(json!(false))]
+    );
+}
+
 /// A reasoning model on a self-hosted server sends its system prompt as
 /// `system`, on any address: vLLM/SGLang reject the `developer` role with
 /// a 400 ("Supported message roles: system, user, assistant, tool"), and

@@ -69,8 +69,8 @@
     { "layer": "family", "target": "grok-4.3", "set": { "thinking_ladder": { "off": "none", "minimal": null } } },
     { "layer": "family", "target": "grok-4.5", "set": { "thinking_ladder": { "off": null, "minimal": null } } },
     { "layer": "family", "target": "grok-4.6", "set": { "thinking_ladder": { "off": null, "minimal": null, "xhigh": "xhigh" } } },
-    { "layer": "family", "target": "qwen", "set": { "qwen_chat_template": true, "thinking_ladder": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": null, "max": null } } },
-    { "layer": "family", "target": "qwen-3.8", "set": { "qwen_chat_template": true, "thinking_ladder": { "off": "none", "minimal": null, "low": "low", "medium": "medium", "high": null, "xhigh": "xhigh", "max": null } } },
+    { "layer": "family", "target": "qwen", "set": { "store": false, "qwen_chat_template": true, "thinking_ladder": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": null, "max": null } } },
+    { "layer": "family", "target": "qwen-3.8", "set": { "store": false, "qwen_chat_template": true, "thinking_ladder": { "off": "none", "minimal": null, "low": "low", "medium": "medium", "high": null, "xhigh": "xhigh", "max": null } } },
 
     { "layer": "model", "target": "claude-fable-5", "set": { "stops_output_at_window": true } },
     { "layer": "model", "target": "claude-fable-5-1", "set": { "stops_output_at_window": true } },
