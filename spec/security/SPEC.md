@@ -66,7 +66,7 @@ labels on data, and confinement of the programs an agent runs.
 |C13|Declassification is explicit. Only a user's answer releases one labelled value to one destination, once. Any other value, destination or time stays refused.|
 |C14|Visible. A client can read every agent's set and denials with each capability's origin; every decision reaches the clients once, naming the capability that allowed it or the reason it was asked or refused; a client can grant, take away and answer. Every decision is in the record (`spec/record/SPEC.md` T1).|
 
-## 3. What exists
+## 3. What exists in eukhe
 
 ### eukhe (origin/merge/main-into-client-sdk)
 
@@ -101,30 +101,6 @@ Gaps against the requirements:
    credential patterns are the only stop, and only when it is on (C6, C7).
 5. A yes is one step's; nothing is remembered, nothing is taken away
    (C5, C10).
-
-### oh-my-pi (c28b3e3, paths under `packages/coding-agent/src` unless rooted)
-
-|Behavior|Where|
-|---|---|
-|Three tiers per tool (read, write, exec; undeclared is exec); four modes, each auto-approving up to a tier; the default mode is `yolo` (everything).|`tools/approval.ts:44,153-158,295,320-322`, `tools/settings.ts:314-318`|
-|Tool or user `deny` always denies; `tools.restrictedFolders` forces a per-call prompt in every mode, matched by `cwd` for tools that name no path.|`tools/approval.ts:366-501,573`, `docs/approval-mode.md:50-63`|
-|Bash: deny patterns, critical patterns that prompt outside `yolo`; an allow rule never applies to a line with shell control characters.|`tools/bash.ts:197,315-318,621-668`|
-|Remembered answers: once; session (in memory); file and folder grants in `approval-cache.db`; a write grant covers reads, never the reverse.|`tools/approval.ts:171-186,605-613`, `tools/approval-cache.ts:19-60`|
-|No UI: a call that needs a prompt fails; any answer but an explicit approval is a denial.|`extensibility/extensions/wrapper.ts:448-470`, `tools/approval.ts:875-879`|
-|No workspace boundary and no sandbox: "approval decides when you are asked; it does not sandbox reads"; an approved process keeps the shell's ambient access. `pi-iso` clones workspaces, it does not confine processes.|`docs/approval-mode.md:41,119`, `docs/bash-tool-runtime.md:48`, `crates/pi-iso/src/lib.rs:1-13`|
-|Plan mode: the working tree is read-only; writes land only in session-local roots.|`tools/plan-mode-guard.ts:14-31,46-70,111-114`|
-|Secrets (off by default): env values and `secrets.yml` entries leave to the provider as `$$HASH$$` placeholders and are restored in tool arguments; session files and HTML export keep the literal text; `/share` redacts.|`secrets/index.ts:23-24,166-217`, `sdk.ts:4637-4640,4816-4817`, `secrets/message-transform.ts:24-26`, `export/share.ts:70-97`|
-|Egress: no host allow or deny list; private and loopback URLs are gated only in `always-ask-cached`.|`tools/approval-targets.ts:34-66`|
-|Subagents: the child is forced to `yolo` and has no UI, so a call that would prompt is refused, never forwarded to the parent; its tools are its agent definition's, not intersected with the parent's; depth cap 2; spawn policy by agent name; opt-in copy-on-write isolation.|`task/executor.ts:1239-1262,4556-4597,5005`, `task/structured-subagent.ts:341-360,628-634`, `task/settings.ts:473-477`|
-|No project trust: project settings, extensions and MCP configs load unconditionally.|`extensibility/extensions/types.ts:835-841`, `mcp/settings.ts:9-12`|
-|Child environment: project dotenv values removed from shells; an API-key deny list only for the Python kernel; MCP stdio servers get the full environment.|`packages/utils/src/env.ts:162-235`, `eval/py/runtime.ts:70-83`, `mcp/transports/stdio.ts:593-596`|
-
-omp has no behavior for: an operating-system sandbox; a workspace boundary
-or protected paths; a rule relating a child's tools to its parent's; an
-egress host list; labels or flow control on data; revocation. Where omp has
-the behavior, eukhe already matches or is stricter (tiers as effects,
-remembered grants are C10's session answer, plan mode is a narrowed set).
-The rest of this pillar is designed, not ported.
 
 ## 4. Proposed laws (requirement laws only)
 
@@ -254,10 +230,10 @@ the tool registry) and that Rust sends the host model's events faithfully.
 
 ## 9. Open questions for the user
 
-1. Default posture. Today every effect runs unasked, a secret read included
-   (omp's default is `yolo` too). Keep that as profile `open` and add
-   `workspace` (read anywhere not secret, write inside, send to the model
-   only) and `locked`, or make `workspace` the default?
+1. Default posture. Today every effect runs unasked, a secret read
+   included. Keep that as profile `open` and add `workspace` (read anywhere
+   not secret, write inside, send to the model only) and `locked`, or make
+   `workspace` the default?
 2. Confinement (C9). Build real operating-system confinement (Linux and
    macOS; a host proxy for the network), or ship first with every external
    program counted as `run unconfined` and C7 stated only for confined runs?
@@ -265,8 +241,8 @@ the tool registry) and that Rust sends the host model's events faithfully.
 3. Label grain (C6). Context-level labels are simple and provable but one
    secret read taints the session: every later remote request asks. The
    alternative seals secret values as one-way tokens before they enter the
-   context and restores them only at an effect that is allowed them (omp's
-   placeholders, eukhe's privacy tokens). Which is the default?
+   context and restores them only at an effect that is allowed them
+   (eukhe's privacy tokens). Which is the default?
 4. A user's yes to a subagent's question: a grant to that subagent only
    (assumed above: C4 counts it as given directly), or to its whole chain,
    so that a parent is always allowed what its child is?
@@ -280,7 +256,7 @@ the tool registry) and that Rust sends the host model's events faithfully.
 8. Taking a capability away while an effect it covers runs: let it finish
    (assumed), or stop it?
 9. Remembered answers: once and session only, or also "always" (written to
-   the policy store), as omp has?
+   the policy store)?
 10. Principals beyond one OS user: remote clients with their own rights, or
     one user per daemon as today?
 11. The phone gateway today answers every question by its rule (yes, except

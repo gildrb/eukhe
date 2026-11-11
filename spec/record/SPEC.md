@@ -51,7 +51,7 @@ chain with anchors, the replay, and the audit across agents.
 |T11|Out of an agent's reach. A write or a delete by an agent that targets a record, an anchor or the ledger is refused, whatever the agent holds (`spec/security/SPEC.md` C11: they are part of the store). Reading another agent's record is a read like any other.|
 |T12|Portable. An exported record verifies and replays with the released verifier alone, to the verdicts its source gives: no daemon, no network, no access to the machine it came from. Its format is versioned under `spec/contract/SPEC.md` W9.|
 
-## 3. What exists
+## 3. What exists in eukhe
 
 ### eukhe (origin/merge/main-into-client-sdk)
 
@@ -88,28 +88,6 @@ Gaps against the requirements:
 6. No audit across sessions; each storage is read alone (T9).
 7. Clock readings, generated ids and file contents that decisions read are
    not captured as inputs (T7).
-
-### oh-my-pi (c28b3e3, paths under `packages/coding-agent/src` unless rooted)
-
-|Behavior|Where|
-|---|---|
-|One JSONL file per session: header with `version` 3, then entries with `id`, `parentId`, ISO `timestamp`, `runtime` (the writer's build); 16 entry kinds.|`session/session-entries.ts:17,42-111,355`, `docs/session.md:42-122`|
-|No request record: the reply is a `message` with provider, model, usage, stop reason; side calls are `model_usage`; the main session's system prompt is only a digest (`system-prompt-digest`).|`packages/ai/src/types.ts:1311-1399`, `session/session-entries.ts:119-135`, `session/session-tools.ts:291-305`|
-|Tool call in the assistant message; a `tool_execution_start` entry just before the tool runs; the result as a `toolResult` message; large output spills to a numbered artifact file.|`session/agent-session.ts:3926-3938`, `packages/ai/src/types.ts:1056-1063,1401-1420`, `docs/blob-artifact-architecture.md:141`|
-|Approval decisions are not in the session: grants live in memory or `approval-cache.db`.|`tools/approval-cache.ts:1-10,38`, `docs/approval-mode.md:37,45`|
-|A subagent is its own file under the parent's stem; its `session_init` stores system prompt, task, tools, model; entries carry no agent id (the file implies it).|`task/executor.ts:4508,4864-4866,5206-5210`, `session/session-entries.ts:277-321`|
-|No hash, chain or signature; not strictly append only (rewrites for migration, strip, sanitising); no fsync; malformed and torn records are skipped and dropped at the next rewrite.|`docs/session.md:506,543,614`, `session/session-loader.ts:170-181,354-380`|
-|Images are content-addressed blobs (`blob:sha256:`); artifacts are not.|`session/blob-store.ts:8,45,60-67`, `docs/blob-artifact-architecture.md:76`|
-|No replay: "replay" means resending history to the provider; `--restore` reruns cut-off turns with "outcome unknown" results; fork, branch and seance copy or read paths.|`packages/agent/src/replay-policy.ts:1-13`, `docs/session-operations-export-share-fork-resume.md:369-415,501`|
-|Export: HTML with subagent transcripts (not redacted); `/dump` of the live request; an anonymised zip; OTLP spans (`invoke_agent`, `chat`, `execute_tool`) when an endpoint is set; a stats database and a hub that scans child files.|`docs/session-operations-export-share-fork-resume.md:60-124`, `telemetry-export.ts:79-95`, `packages/agent/src/telemetry.ts:74-116`, `docs/agent-hub.md:63-117`|
-|Retention: `gc` archives and strips on request; `/delete` is "not a guaranteed erasure boundary".|`docs/session.md:601-618`, `docs/session-operations-export-share-fork-resume.md:625`|
-
-omp has no behavior for: tamper evidence; a per-request record of the model
-input; a record of approval decisions; deterministic replay; a per-entry
-agent or user identity; an audit query across agents beyond the hub's scan.
-Where omp has the behavior eukhe matches it already (entries, usage, child
-transcripts, a start marker before a tool runs) and is stricter (fsync,
-append only). T4 to T9 are designed, not ported.
 
 ## 4. Proposed laws (requirement laws only)
 
@@ -238,7 +216,7 @@ and 9.
    path only) or in Rust (fast, trusted)? Assumed: Rust on append, Bend in
    the verifier.
 8. One audit store for many sessions (an index the daemon keeps), or files
-   only plus export (OTLP spans as omp has)?
+   only plus export (OTLP spans, for example)?
 9. How often is a root anchored in the ledger: at each turn's end, spawn,
    report and close (assumed), or at every commit? It is the window in
    which a rewrite of the newest entries would not show.
