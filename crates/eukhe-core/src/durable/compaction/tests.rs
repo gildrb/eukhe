@@ -524,15 +524,14 @@ fn unmarked(mut body: serde_json::Value) -> serde_json::Value {
     body
 }
 
-/// The Anthropic body of `request` without marks, and its messages up to
-/// the request's own end: without the trailing message that sets the
-/// request's thinking effort (it ends every request).
+/// The Anthropic body of `request` without marks, and its messages. The
+/// request's thinking effort is in the body (`output_config.effort`): no
+/// reply in these histories records an effort, so no message carries one.
 async fn wire(request: &Captured) -> (serde_json::Value, Vec<serde_json::Value>) {
     let mut body =
         unmarked(crate::durable::open::tests::anthropic_body(&request.0, &request.1).await);
-    let mut messages = body["messages"].as_array().expect("messages").clone();
-    let effort = messages.pop().expect("the effort message");
-    assert_eq!(effort["role"], "system");
+    let messages = body["messages"].as_array().expect("messages").clone();
+    assert!(messages.iter().all(|message| message["role"] != "system"));
     body.as_object_mut().expect("body").remove("messages");
     (body, messages)
 }
