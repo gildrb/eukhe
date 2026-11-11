@@ -100,6 +100,11 @@ pub struct Reconstructed {
     /// conversation's newest message does not settle its turn (an
     /// answer, a blank reply or an abort does).
     pub turn_running: bool,
+    /// The chat index of the open streaming message: the run is open and
+    /// the snapshot's newest message is the in-flight assistant reply the
+    /// daemon appends to the attach (`message_update`s continue it), with
+    /// visible content and no failure.
+    pub open_message: Option<usize>,
 }
 
 impl Reconstructed {
@@ -490,6 +495,27 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
             TurnTail::Ended
         },
     );
+    // The daemon appends the streaming assistant message to the attach
+    // (worker `attach`: later `message_update`s continue it): while the
+    // run is open, the newest message's entry is the open one. Its
+    // entries come last, so its message entry is the newest one; a
+    // message without visible content has no entry yet (its first frame
+    // opens one), and a failed or aborted message already ended.
+    let open_message = match snapshot.messages.last() {
+        Some(AgentMessage::Assistant(assistant))
+            if run_open
+                && !matches!(
+                    assistant.stop_reason,
+                    eukhe_types::ai::StopReason::Error | eukhe_types::ai::StopReason::Aborted
+                )
+                && !assistant_message_parts(assistant).0.is_empty() =>
+        {
+            messages
+                .iter()
+                .rposition(|entry| matches!(entry, ChatEntry::Assistant(_)))
+        }
+        _ => None,
+    };
     let state = Some(&snapshot.state);
     let (model_id, model_provider) = state
         .and_then(|state| state.get("model"))
@@ -557,6 +583,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         run_open,
         compacting,
         turn_running,
+        open_message,
     })
 }
 
@@ -606,7 +633,7 @@ pub use tool_fold::{
 mod tool_fold;
 
 pub use turn_end::TurnTail;
-pub(crate) use turn_end::{failure_row, no_reply_row};
+pub(crate) use turn_end::{aborted_row, failure_row, no_reply_row};
 use turn_end::{TurnBoundary, TurnFold};
 mod turn_end;
 

@@ -29,7 +29,7 @@ mod workers;
 mod workflows;
 
 pub(crate) use agents::AgentsUpdate;
-pub(crate) use apply::{AbortFailed, CompactionAbortNote};
+pub(crate) use apply::{AbortFailed, CompactionAbortNote, InterruptNote, ParkedOnInterrupt};
 use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome, SwitchScope};
 pub(crate) use bash::BashActivityUpdate;
 use bash::{ResyncBash, SideBashRun};
@@ -264,6 +264,9 @@ pub(crate) struct SessionUi {
     heartbeat_updates: mpsc::UnboundedSender<HeartbeatsUpdate>,
     /// Snapshot chat entries to fold into the view on the next rebuild.
     pending_snapshot: Option<Vec<ChatEntry>>,
+    /// The snapshot's open streaming message (its chat index), adopted as
+    /// `streaming_index` on the next rebuild.
+    pending_open_message: Option<usize>,
     /// Snapshot labels (model) for the next rebuild.
     pending_model: Option<String>,
     /// Snapshot model provider for the next rebuild (the attach state's
@@ -309,6 +312,10 @@ pub(crate) struct SessionUi {
     /// called tools. A run that ends owing one ended without a reply and
     /// says so.
     run_awaits_turn: bool,
+    /// This client interrupted the open run (Escape or Ctrl+C): a run that
+    /// then ends owing its answering turn ended by that abort, and says
+    /// so instead of "without a reply".
+    run_interrupted: bool,
     /// The session closed under this view (`session_closed`): a late
     /// prompt ack re-arms nothing. A re-attach clears it.
     session_closed: bool,
@@ -520,9 +527,9 @@ pub(crate) struct SessionUi {
     /// The session's thread-goal view state (current `goal_update` state,
     /// announcement dedupe, tray label bookkeeping).
     pub(crate) goal_view: GoalView,
-    /// Notes surfacing from background tasks (the async abort result) into
-    /// the UI loop.
-    notes: mpsc::UnboundedSender<AbortFailed>,
+    /// Notes surfacing from background tasks (the async abort result, the
+    /// parked messages an Escape withdrew) into the UI loop.
+    notes: mpsc::UnboundedSender<InterruptNote>,
     /// Compaction-abort outcomes from the backgrounded request (the abort
     /// supervision's UI recovery): a failed abort clears the stuck loader.
     compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,

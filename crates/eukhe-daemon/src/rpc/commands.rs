@@ -14,7 +14,6 @@ use eukhe_core::durable::EukheSession;
 use eukhe_core::settings::cvar::{table, Decl};
 use eukhe_core::settings::QueueModeSetting;
 use eukhe_core::settings::SettingsManager;
-use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::harness::InboxItem;
 use eukhe_types::cvar::Command;
 use eukhe_types::daemon::{CompactionReason, SessionEvent};
@@ -31,7 +30,11 @@ use super::reads::{
 use super::session::{RpcEngineRequest, RpcSession};
 use super::session_commands;
 use super::LineWriter;
-use crate::compaction::durable::{run_manual_compaction, ManualCompactionError};
+use crate::compaction::durable::{
+    interrupt_turn, resumes_interrupted_turn, run_manual_compaction, submit_auto_continue,
+    ManualCompactionError,
+};
+use crate::worker::durable_host::bridge::resubmit_queued;
 use crate::worker::durable_host::meta::read_session_meta;
 
 /// The shared handler state: the live session plus the command lanes.
@@ -211,11 +214,14 @@ fn session_actions_snapshot(items: &[InboxItem], streaming: bool) -> Value {
     snapshot
 }
 
-/// `compact` (TS `session.compact(customInstructions)`): abort the
-/// running turn, run a manual durable compaction and answer with the TS
-/// `CompactionResult`; a skip answers the TS `CompactionSkippedError`
-/// message with the compaction frames around it (a compaction that ran
-/// publishes its own frames through the event pump).
+/// `compact` (TS `session.compact(customInstructions)`, omp rpc-mode.ts:
+/// 2596-2598): interrupt the running turn, run a manual durable compaction
+/// and answer with the TS `CompactionResult`; a skip answers the TS
+/// `CompactionSkippedError` message with the compaction frames around it
+/// (a compaction that ran publishes its own frames through the event
+/// pump). The interrupted turn gets its queued inputs back and resumes
+/// when the compaction compacted or was a no-op (omp `compact()`,
+/// session-maintenance.ts:1303-1316, 1724-1749).
 async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, RpcCommandError> {
     let instructions = payload
         .get("customInstructions")
@@ -230,18 +236,29 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
     let _ops = state.session_ops.lock().await;
     // TS `session.compact` aborts the running turn before the snapshot:
     // the compaction summarizes a settled transcript.
-    if !matches!(is_busy(session.harness(), main.id(), &cx).await, Ok(false)) {
-        main.abort(ConversationAbortOptions::default(), &cx).await?;
-    }
-    match run_manual_compaction(
+    let interrupted = if matches!(is_busy(session.harness(), main.id(), &cx).await, Ok(false)) {
+        None
+    } else {
+        Some(interrupt_turn(session.harness(), &main, &cx).await?)
+    };
+    let outcome = run_manual_compaction(
         session.harness(),
         session.deps(),
         &main,
         instructions.clone(),
         &cx,
     )
-    .await
-    {
+    .await;
+    // The queued inputs drive the resume; without them the auto-continue
+    // prompt does.
+    let resume = interrupted.is_some() && resumes_interrupted_turn(&outcome);
+    let queued = interrupted.unwrap_or_default();
+    let restored = !queued.is_empty();
+    resubmit_queued(&main, queued, &cx).await?;
+    if resume && !restored {
+        submit_auto_continue(&main, &cx).await?;
+    }
+    match outcome {
         Ok(result) => Ok(ResponseData::Present(serde_json::to_value(result)?)),
         Err(skipped @ ManualCompactionError::Skipped(_)) => {
             state.session.outputs().write_events([

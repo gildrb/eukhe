@@ -147,24 +147,6 @@ pub fn scan_session_headers(session_dir: &Path) -> Vec<SessionHeaderInfo> {
     headers
 }
 
-/// `findMostRecentSessionForCwd`: the newest session file in `session_dir`
-/// whose header cwd matches, or None.
-#[must_use]
-pub fn find_most_recent_session_for_cwd(session_dir: &Path, cwd: &Path) -> Option<PathBuf> {
-    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = scan_session_headers(session_dir)
-        .into_iter()
-        .filter(|header| session_cwd_matches(&header.cwd, cwd))
-        .filter_map(|header| {
-            std::fs::metadata(&header.path)
-                .and_then(|meta| meta.modified())
-                .map(|modified| (modified, header.path))
-                .ok()
-        })
-        .collect();
-    candidates.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
-    candidates.into_iter().map(|(_, path)| path).next()
-}
-
 /// `matchesSavedSessionSelector`: hex ids match by prefix or suffix; plain
 /// ids match by prefix only.
 fn matches_saved_session_selector(candidate: &str, selector: &str) -> bool {
@@ -465,34 +447,5 @@ mod tests {
             } => assert_eq!(suggestion, "01a0ab79-503d-768f-bfe5-19a937ded438"),
             other => panic!("expected a suggestion, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn most_recent_session_for_cwd_prefers_newest_mtime() {
-        let dir = temp_dir();
-        let older = write_session(dir.path(), "older", "/work");
-        let newer = write_session(dir.path(), "newer", "/work");
-        // Same mtime granularity: nudge the newer file forward in time.
-        let future = std::time::SystemTime::now() + std::time::Duration::from_mins(1);
-        let file = std::fs::File::options().append(true).open(&newer).unwrap();
-        file.set_modified(future).unwrap();
-        assert_eq!(
-            find_most_recent_session_for_cwd(dir.path(), Path::new("/work")),
-            Some(newer)
-        );
-        assert_ne!(
-            find_most_recent_session_for_cwd(dir.path(), Path::new("/work")),
-            Some(older)
-        );
-    }
-
-    #[test]
-    fn most_recent_ignores_other_cwds() {
-        let dir = temp_dir();
-        write_session(dir.path(), "session", "/elsewhere");
-        assert_eq!(
-            find_most_recent_session_for_cwd(dir.path(), Path::new("/work")),
-            None
-        );
     }
 }

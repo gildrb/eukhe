@@ -36,7 +36,7 @@ impl SessionUi {
     pub(crate) async fn open(
         client: DaemonClient,
         options: &InteractiveOptions,
-        notes: mpsc::UnboundedSender<super::AbortFailed>,
+        notes: mpsc::UnboundedSender<super::InterruptNote>,
         compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,
         prompt_notes: mpsc::UnboundedSender<PromptSubmitNote>,
         reload_notes: mpsc::UnboundedSender<ReloadNote>,
@@ -103,6 +103,7 @@ impl SessionUi {
             pasted_images: BTreeMap::default(),
             next_image_marker_id: 1,
             pending_snapshot: None,
+            pending_open_message: None,
             pending_model: None,
             pending_model_provider: None,
             pending_thinking_suffix: None,
@@ -119,6 +120,7 @@ impl SessionUi {
             run_open: false,
             run_rounds: 0,
             run_awaits_turn: false,
+            run_interrupted: false,
             session_closed: false,
             resynced_phase: None,
             rebuild_keeps_clock: false,
@@ -626,6 +628,7 @@ impl SessionUi {
             });
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
+        self.pending_open_message = reconstructed.open_message;
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
         self.streaming_index = None;
         // The turn-end watermark restarts only when the mounted session
@@ -806,6 +809,13 @@ impl SessionUi {
             for entry in items {
                 view.push_entry(entry);
             }
+            // The snapshot's in-flight reply stays the open streaming
+            // message: the frames that follow continue it in place
+            // instead of opening a second copy of it below.
+            self.streaming_index = self
+                .pending_open_message
+                .take()
+                .filter(|index| view.resume_streaming_entry(*index));
         }
         // The latest prompt's end rows that only this view holds follow
         // the stored transcript: a same-session rebuild never wipes how

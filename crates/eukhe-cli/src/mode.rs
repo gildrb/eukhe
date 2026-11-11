@@ -114,9 +114,9 @@ pub struct RuntimeConfig {
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::struct_excessive_bools)] // the selection's flag set is the deliberate client-side surface
 pub struct SessionOptions {
-    /// `--continue`/`-c`: the launch surfaces the newest saved session for
-    /// the cwd through the agents view (preselected, never a blind reopen)
-    /// and falls back to a fresh session without a candidate.
+    /// `--continue`/`-c`: the launch reopens the newest saved session for
+    /// the cwd (TS `SessionManager.continueRecent`) and falls back to a
+    /// fresh session without a candidate.
     pub continue_recent: bool,
     pub resume_bare: bool,
     pub resume: Option<String>,

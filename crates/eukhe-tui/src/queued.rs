@@ -87,6 +87,7 @@ fn internal_origin(origin: &InputOrigin) -> Option<InternalPromptOrigin> {
         | InputOrigin::Autonomous { .. }
         | InputOrigin::Director
         | InputOrigin::QuotaResume
+        | InputOrigin::CompactionResume
         | InputOrigin::Report {
             report: Report::BashDone { .. } | Report::JobSettled { .. },
         } => Some(InternalPromptOrigin::Other),

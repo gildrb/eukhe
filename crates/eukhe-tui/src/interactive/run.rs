@@ -135,9 +135,10 @@ async fn run_interactive_surface(
     let (client, events) = DaemonClient::connect_with_retry(&options.socket_path)
         .await
         .with_context(|| "the interactive UI could not attach to the daemon")?;
-    // Background notes (a failed abort request) fold into the transcript
-    // through the same loop that renders daemon events.
-    let (notes_tx, mut notes_rx) = mpsc::unbounded_channel::<crate::session_ui::AbortFailed>();
+    // Background notes (a failed abort request, the parked messages an
+    // Escape withdrew) fold into the transcript and the editor through
+    // the same loop that renders daemon events.
+    let (notes_tx, mut notes_rx) = mpsc::unbounded_channel::<crate::session_ui::InterruptNote>();
     // The backgrounded compaction abort reports here; the loop folds a
     // failed abort into the transcript note and clears the stuck loader.
     let (compaction_abort_tx, mut compaction_abort_rx) =
@@ -1490,7 +1491,7 @@ async fn run_interactive_surface(
             }
             maybe_note = notes_rx.recv() => {
                 if let Some(note) = maybe_note {
-                    session.apply_background_note(&note, &mut view);
+                    session.apply_background_note(note, &mut view);
                 }
             }
             maybe_compaction_abort = compaction_abort_rx.recv() => {
