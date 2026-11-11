@@ -20,10 +20,10 @@ import ../../../laws/autolink_shapes.bend as AutolinkShapes
 import ../../../laws/preview_shapes.bend as PreviewShapes
 import ../../../laws/shape/entry.bend as ShapeEntry
 import ../../incident_shapes/incident_shapes_table.bend as PIncidentShapesTable
-import ../../image_marker_shapes/image_marker_shapes_table.bend as PImageMarkerShapesTable
+import ../../image_marker_shapes/base.bend as LImageMarkerShapes
 import ../../arg_token_shapes/arg_token_shapes_table.bend as PArgTokenShapesTable
 import ../../autolink_shapes/autolink_shapes_table.bend as PAutolinkShapesTable
-import ../../preview_shapes/preview_shapes_table.bend as PPreviewShapesTable
+import ../../preview_shapes/base.bend as LPreviewShapes
 import ../../base/wire.bend as LBaseWire
 import ../../wire/wire_nats_spells.bend as PWireNatsSpells
 import ../../wire/wire_list_exact.bend as PWireListExact
@@ -55,13 +55,13 @@ def she.shape_of.in(inc: Bool, img: Bool, arg: Bool, link: Bool, prev: Bool, +id
     case True{} _ _ _ _:
       Equal.cong(List<&2, S.Shape>, Maybe<&2, S.Shape>, xs => List.get(&2, S.Shape, xs, id), IS.table(), IncidentShapes.sp_table(), IncidentShapes.incident_shapes_table())
     case False{} True{} _ _ _:
-      ImageMarkerShapes.image_marker_shapes_table(Nat.sub(id, 100n))
+      LImageMarkerShapes.im.table(Nat.sub(id, 100n))
     case False{} False{} True{} _ _:
       ArgTokenShapes.arg_token_shapes_table(Nat.sub(id, 110n))
     case False{} False{} False{} True{} _:
       AutolinkShapes.autolink_shapes_table(Nat.sub(id, 120n))
     case False{} False{} False{} False{} True{}:
-      PreviewShapes.preview_shapes_table(Nat.sub(id, 130n))
+      LPreviewShapes.pv.table(Nat.sub(id, 130n))
     case False{} False{} False{} False{} False{}:
       {==}
 

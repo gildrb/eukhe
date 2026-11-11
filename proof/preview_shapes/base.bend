@@ -1,4 +1,9 @@
-# eukhe: the proof of LAW preview_shapes_table
+# eukhe: a lemma for the proof of area shape's entry laws
+# (proof/shape/base/entry.bend): the preview table is the spec table
+# laws/preview_shapes.bend sp_table, which laws/shape/entry.bend reads. No
+# law states it: sp_table is the table written out again, so it proves no
+# requirement of the preview shapes (those are anchored by the
+# preview_shapes_*_example laws).
 #
 # PROOF: each index computes on both sides; past the last both are none.
 
@@ -7,7 +12,7 @@ import ../../bend/shape.bend as S
 import ../../bend/preview_shapes.bend as PS
 import ../../laws/preview_shapes.bend as PreviewShapes
 
-def PreviewShapes.preview_shapes_table(i):
+def pv.table(i: Nat) -> {PS.shape(i) == List.get(&2, S.Shape, PreviewShapes.sp_table(), i) : Maybe<&2, S.Shape>}:
   match i:
     case 0n:
       {==}
