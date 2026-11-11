@@ -254,6 +254,8 @@ pub enum Entry {
     ToolResult = 452,
     /// `bend/ffi_worker.bend`: a call.
     Worker = 453,
+    /// `bend/ffi_loop.bend`: a call.
+    Loop = 456,
 }
 
 impl Entry {
@@ -383,6 +385,7 @@ impl Entry {
         Entry::Privacy,
         Entry::ToolResult,
         Entry::Worker,
+        Entry::Loop,
     ];
 
     /// The id `bend/core.bend` dispatches on.

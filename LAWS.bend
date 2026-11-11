@@ -197,3 +197,6 @@ import ./laws/privacy/token.bend as PrivacyToken
 import ./laws/privacy/session.bend as PrivacySession
 import ./laws/privacy/entry.bend as PrivacyEntry
 import ./laws/doc_publish.bend as DocPublish
+import ./laws/loop/model.bend as Loop
+import ./laws/loop/history.bend as LoopHistory
+import ./laws/loop/entry.bend as LoopEntry
