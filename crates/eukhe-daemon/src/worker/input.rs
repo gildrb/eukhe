@@ -288,6 +288,14 @@ impl Worker {
             content: request.content(),
             entry,
             origin: request.origin.clone(),
+            // The sender's own key when it gave one (a retried send then
+            // delivers once), else one minted for this hold.
+            request: Some(
+                request
+                    .request_id
+                    .clone()
+                    .unwrap_or_else(|| format!("held:{}", uuid::Uuid::new_v4())),
+            ),
         };
         if let Err(error) =
             super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {

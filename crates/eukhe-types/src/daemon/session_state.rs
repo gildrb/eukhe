@@ -366,6 +366,10 @@ pub struct AgentConnectionState {
     pub session_actions: SessionActionSnapshot,
     pub compaction_count: u32,
     pub goal: Value,
+    /// The ledger of effects whose outcome a restart could not tell (the
+    /// `unknown_effects_update` payload), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_effects: Vec<crate::effects::UnknownEffect>,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]

@@ -342,6 +342,7 @@ mod tests {
             inbox: Vec::new(),
             active: None,
             goal: serde_json::Value::Null,
+            unknown_effects: Vec::new(),
             workers: Vec::new(),
             paused: false,
         });

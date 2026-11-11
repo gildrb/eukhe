@@ -73,6 +73,7 @@ import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_model_name.bend as ffi_model_name
 import ./ffi_model_roles.bend as ffi_model_roles
 import ./ffi_notice.bend as ffi_notice
+import ./ffi_once.bend as ffi_once
 import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
@@ -357,6 +358,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tool_result.ffi(input)
     case 453:
       ffi_worker.ffi(input)
+    case 454:
+      ffi_once.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -391,6 +394,7 @@ type State is Type:
   Optchat{s: ffi_optchat.St}
   Autoresearch{s: ffi_autoresearch.St}
   Privacy{s: ffi_privacy.St}
+  Once{s: ffi_once.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -513,6 +517,11 @@ def open.privacy(r: ffi_privacy.St & String) -> State & String:
     case (s, reply):
       (Privacy{s}, reply)
 
+def open.once(r: ffi_once.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Once{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -563,6 +572,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.autoresearch(ffi_autoresearch.open(input))
     case 451:
       open.privacy(ffi_privacy.open(input))
+    case 454:
+      open.once(ffi_once.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -691,6 +702,11 @@ def step.privacy(r: ffi_privacy.St & String) -> State & String:
     case (s, reply):
       (Privacy{s}, reply)
 
+def step.once(r: ffi_once.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Once{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -741,6 +757,8 @@ def step.go(state: State, input: String) -> State & String:
       step.autoresearch(ffi_autoresearch.step(s, input))
     case Privacy{s}:
       step.privacy(ffi_privacy.step(s, input))
+    case Once{s}:
+      step.once(ffi_once.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -798,6 +816,8 @@ def close.go(state: State) -> Unit:
     case Autoresearch{s}:
       Unit{}
     case Privacy{s}:
+      Unit{}
+    case Once{s}:
       Unit{}
     case Unknown{}:
       Unit{}

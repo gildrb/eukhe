@@ -102,25 +102,42 @@ impl UserBash {
         AwaitedRun { user_bash: self }
     }
 
-    /// Start the job of one run of `command` on the session's `jobs`: its
+    /// Record, then start, the job of one run of `command` on the session's
+    /// `jobs`: its start is durable before the run launches anything. Its
     /// kill cancels the returned token, on which the run kills its process
     /// group.
-    fn start_run(&self, jobs: &JobTable, command: &str) -> (Job, CancellationToken) {
+    ///
+    /// # Errors
+    ///
+    /// The start record did not commit: nothing runs.
+    async fn start_run(
+        &self,
+        jobs: &JobTable,
+        command: &str,
+    ) -> Result<(Job, CancellationToken), BashSpawnError> {
+        let record = jobs
+            .record_start(
+                JobId::new(format!("bash-{}", uuid::Uuid::new_v4().simple()))
+                    .expect("a simple uuid is a header-safe job id"),
+                JobKind::UserBash,
+                command.to_owned(),
+            )
+            .await
+            .map_err(BashSpawnError::Record)?;
         let cancel = CancellationToken::new();
-        let job = jobs.start(JobSpec {
-            id: JobId::new(format!("bash-{}", uuid::Uuid::new_v4().simple()))
-                .expect("a simple uuid is a header-safe job id"),
-            kind: JobKind::UserBash,
-            label: command.to_owned(),
-            truncation: Truncation::default(),
-            written: 0,
-            kill: {
-                let cancel = cancel.clone();
-                Box::new(move |_| cancel.cancel())
+        let job = jobs.start(
+            record,
+            JobSpec {
+                truncation: Truncation::default(),
+                written: 0,
+                kill: {
+                    let cancel = cancel.clone();
+                    Box::new(move |_| cancel.cancel())
+                },
             },
-        });
+        );
         lock(&self.runs).push(job.clone());
-        (job, cancel)
+        Ok((job, cancel))
     }
 
     /// Kill every run in flight (TS `abortBash` aborts every controller);
@@ -208,8 +225,9 @@ impl Worker {
     /// the durable `eukhe.bash` row, unless transient) follows. The row is a
     /// write submission keyed by the run's request id, so a retried write
     /// never records the run twice; the Harness inbox places it at the next
-    /// boundary while a run is busy.
-    pub(crate) fn handle_execute_bash(&self, payload: &Value) -> DaemonResponse {
+    /// boundary while a run is busy. The job's start is durable before the
+    /// response, so a rewind that follows it sees the job.
+    pub(crate) async fn handle_execute_bash(&self, payload: &Value) -> DaemonResponse {
         let hosted = match self.hosted("execute_bash") {
             Ok(hosted) => hosted,
             Err(response) => return response,
@@ -267,30 +285,38 @@ impl Worker {
         let events = Arc::clone(&self.events);
         let session = self.session.clone();
         let user_bash = Arc::clone(&self.user_bash);
-        let (job, cancel) = user_bash.start_run(&hosted.deps().jobs, command);
-        let stream = OutputStream::shared(
-            hosted.storage_dir(),
-            Some((Arc::clone(&core), Arc::clone(&events))),
-            job.clone(),
-        );
         let command = command.to_string();
         let agent_dir = self.config.agent_dir.clone();
+        // The job's start is durable before the command launches.
+        let started = user_bash.start_run(&hosted.deps().jobs, &command).await;
         tokio::spawn(async move {
-            let cwd = lock(&core).cwd.clone();
-            let settings = eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir);
-            let prefix = settings.get_shell_command_prefix();
-            let shell_path = settings.get_shell_path();
-            let end = run_bash(RunBash {
-                command: &command,
-                cwd: &cwd,
-                prefix: prefix.as_deref(),
-                shell_path: shell_path.as_deref(),
-                user_bash: &user_bash,
-                job,
-                cancel,
-                stream,
-            })
-            .await;
+            let end = match started {
+                Ok((job, cancel)) => {
+                    let stream = OutputStream::shared(
+                        hosted.storage_dir(),
+                        Some((Arc::clone(&core), Arc::clone(&events))),
+                        job.clone(),
+                    );
+                    // The run holds its job, not the session.
+                    drop(hosted);
+                    let cwd = lock(&core).cwd.clone();
+                    let settings = eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir);
+                    let prefix = settings.get_shell_command_prefix();
+                    let shell_path = settings.get_shell_path();
+                    run_bash(RunBash {
+                        command: &command,
+                        cwd: &cwd,
+                        prefix: prefix.as_deref(),
+                        shell_path: shell_path.as_deref(),
+                        user_bash: &user_bash,
+                        job,
+                        cancel,
+                        stream,
+                    })
+                    .await
+                }
+                Err(error) => BashEnd::unspawned(error),
+            };
             // Persist the durable row (transient runs live only in their
             // pane; reloads and rebuilds cannot resurface them).
             if !transient {
@@ -370,7 +396,18 @@ impl Worker {
             )
         };
         let request_id = bash_request_id(payload.get("runId").and_then(Value::as_str));
-        let (job, cancel) = self.user_bash.start_run(&hosted.deps().jobs, command);
+        // The job's start is durable before the command launches.
+        let (job, cancel) = match self.user_bash.start_run(&hosted.deps().jobs, command).await {
+            Ok(started) => started,
+            Err(error) => {
+                return response_failure(
+                    None,
+                    "execute_bash_and_wait",
+                    &AwaitedBashError::Spawn(error).to_string(),
+                    None,
+                )
+            }
+        };
         // The awaited path emits nothing (TS passes no `onChunk`).
         let stream = OutputStream::shared(hosted.storage_dir(), None, job.clone());
         let job_id = job.id().clone();
@@ -542,6 +579,9 @@ enum BashSpawnError {
     },
     #[error(transparent)]
     Spawn(#[from] std::io::Error),
+    /// The job's start record did not commit, so nothing was launched.
+    #[error("the bash job's start could not be recorded: {0}")]
+    Record(#[source] eukhe_durable::session::SessionError),
 }
 
 /// Why an awaited user bash answers no result.
@@ -566,6 +606,20 @@ struct BashEnd {
     omitted: Option<OmittedOutput>,
     artifact: Option<String>,
     error: Option<BashSpawnError>,
+}
+
+impl BashEnd {
+    /// A run that launched nothing: `error` says why.
+    fn unspawned(error: BashSpawnError) -> Self {
+        Self {
+            output: String::new(),
+            exit_code: None,
+            cancelled: false,
+            omitted: None,
+            artifact: None,
+            error: Some(error),
+        }
+    }
 }
 
 /// One process run (TS `executeBashWithOperations` over the local bash
@@ -645,14 +699,7 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         cancel,
         stream,
     } = run;
-    let spawn_failure = |error: BashSpawnError| BashEnd {
-        output: String::new(),
-        exit_code: None,
-        cancelled: false,
-        omitted: None,
-        artifact: None,
-        error: Some(error),
-    };
+    let spawn_failure = BashEnd::unspawned;
     let end = 'run: {
         let resolved = match prefix.filter(|prefix| !prefix.is_empty()) {
             Some(prefix) => format!("{prefix}\n{command}"),

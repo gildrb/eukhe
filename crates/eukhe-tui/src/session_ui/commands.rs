@@ -1008,6 +1008,12 @@ impl SessionUi {
                 }
                 self.open_heartbeats_view(view);
             }
+            // `/effects [ran|not-run <id>]`: the session's interrupted
+            // effects whose outcome is unknown, and settling one after
+            // looking at the world.
+            "effects" => {
+                self.handle_effects_command(sub, &resolved.args, view).await;
+            }
             other => {
                 self.note(
                     &format!("/{other} is not available in this client yet"),

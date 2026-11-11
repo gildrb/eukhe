@@ -10,6 +10,8 @@ use eukhe_ai::providers::faux::{
 use eukhe_ai::utils::text::get_system_message_text;
 use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_chord::json::{from_json, JsonValue};
+use eukhe_durable::harness::effects::{EffectKind, EffectResolution, EffectsState, EFFECTS_DOC};
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::harness::Truncation;
@@ -1207,24 +1209,34 @@ async fn job_nodes_become(session: &EukheSession, expected: &[&str]) {
         .unwrap_or_else(|_| panic!("the job nodes never became {expected:?}"));
 }
 
-/// A job of `session` whose kill ends it at once.
-fn sleeper(session: &EukheSession, id: &str) -> Job {
-    session.deps().jobs.start(JobSpec {
-        id: JobId::new(id).expect("id"),
-        kind: JobKind::UserBash,
-        label: "sleep 60".to_owned(),
-        truncation: Truncation::default(),
-        written: 0,
-        kill: Box::new(|job| {
-            job.record(JobEvent::Killed);
-        }),
-    })
+/// A recorded job of `session` whose kill ends it at once.
+async fn sleeper(session: &EukheSession, id: &str) -> Job {
+    let jobs = &session.deps().jobs;
+    let record = jobs
+        .record_start(
+            JobId::new(id).expect("id"),
+            JobKind::UserBash,
+            "sleep 60".to_owned(),
+        )
+        .await
+        .expect("the start records");
+    jobs.start(
+        record,
+        JobSpec {
+            truncation: Truncation::default(),
+            written: 0,
+            kill: Box::new(|job| {
+                job.record(JobEvent::Killed);
+            }),
+        },
+    )
 }
 
 /// A job is a node of the state tree while it runs; the system prompt
 /// shows the running jobs of the tree; a rewind to an entry stops the
-/// running jobs started after it and keeps the others; a reopen retires
-/// the nodes of the jobs of the closed session.
+/// running jobs started after it and keeps the others; a reopen reports
+/// the job the closed session left running interrupted and retires its
+/// node.
 #[tokio::test]
 async fn jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orphans() {
     let fixture = fixture();
@@ -1241,15 +1253,17 @@ async fn jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orpha
                 FauxAssistantMessageOptions::default(),
             ))
         }),
+        // The turn the reopen's interrupted-job notice wakes.
+        answer("noted"),
     ]);
     let mut config = fixture.config(fixture.jsonl());
     config.model = Some(fixture.model().into());
     let session = open_session(config.clone(), cx()).await.expect("open");
-    let kept = sleeper(&session, "bash-kept");
+    let kept = sleeper(&session, "bash-kept").await;
     job_nodes_become(&session, &["bash-kept"]).await;
     ask(&session, "first").await;
     let target = entries(&session).await.last().expect("the answer").id;
-    let orphan = sleeper(&session, "bash-orphan");
+    let orphan = sleeper(&session, "bash-orphan").await;
     job_nodes_become(&session, &["bash-kept", "bash-orphan"]).await;
 
     ask(&session, "second").await;
@@ -1307,13 +1321,13 @@ fn put_at(state: &StateTree, put: impl Fn(Option<&StateKey>, &StateNode) -> bool
         })
 }
 
-/// A rewind orders the jobs by the entry commits they started after, not
-/// by their nodes: the writer commits a node later, so an entry can come
-/// before the node of a job that started before it. That job stays; a
-/// job started after the entry stops; a job whose kill sends only a
-/// signal is `stopping` until its end comes.
+/// A rewind orders the jobs by the entry commits they started after: a
+/// job's node commits before the job starts, so the node of a job that
+/// started before an entry comes before it. That job stays; a job started
+/// after the entry stops; a job whose kill sends only a signal is
+/// `stopping` until its end comes.
 #[tokio::test]
-async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_after() {
+async fn a_rewind_keeps_a_job_that_started_before_its_target() {
     let fixture = fixture();
     std::fs::write(
         fixture.agent_dir.join("settings.json"),
@@ -1323,7 +1337,7 @@ async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_
     let session = open_session(fixture.config(SessionStorage::Memory), cx())
         .await
         .expect("open");
-    let early = sleeper(&session, "bash-early");
+    let early = sleeper(&session, "bash-early").await;
     let root = session.root().id();
     let draft = CustomNotice::new("test_note", "target".to_owned(), false, None)
         .draft()
@@ -1337,17 +1351,24 @@ async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_
         .await
         .expect("the entry commits")
         .id;
-    let late = sleeper(&session, "bash-late");
-    let deaf = session.deps().jobs.start(JobSpec {
-        id: JobId::new("bash-deaf").expect("id"),
-        kind: JobKind::UserBash,
-        label: "trap '' TERM; sleep 60".to_owned(),
-        truncation: Truncation::default(),
-        written: 0,
-        kill: Box::new(|_| {}),
-    });
+    let late = sleeper(&session, "bash-late").await;
+    let jobs = &session.deps().jobs;
+    let deaf = jobs.start(
+        jobs.record_start(
+            JobId::new("bash-deaf").expect("id"),
+            JobKind::UserBash,
+            "trap '' TERM; sleep 60".to_owned(),
+        )
+        .await
+        .expect("the start records"),
+        JobSpec {
+            truncation: Truncation::default(),
+            written: 0,
+            kill: Box::new(|_| {}),
+        },
+    );
     job_nodes_become(&session, &["bash-early", "bash-late", "bash-deaf"]).await;
-    // The writer was behind: the target entry came before the early node.
+    // The early node was durable before the job started: before the entry.
     let order = session
         .state_tree()
         .read(|state| {
@@ -1362,7 +1383,7 @@ async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_
         .await
         .expect("a tree");
     assert!(
-        matches!(order, (Some(entry), Some(node)) if entry < node),
+        matches!(order, (Some(entry), Some(node)) if node < entry),
         "{order:?}"
     );
 
@@ -1382,6 +1403,86 @@ async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_
             },
             JobState::START,
         )
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// What the main conversation of `session` holds of interrupted jobs: the
+/// texts of its interrupted-job notices, and its ledger of unknown effects
+/// as (id, kind, what, resolution).
+async fn interrupted_jobs(
+    session: &EukheSession,
+) -> (
+    Vec<String>,
+    Vec<(String, EffectKind, String, Option<EffectResolution>)>,
+) {
+    let notices = entries(session)
+        .await
+        .iter()
+        .filter(|entry| entry.kind == "eukhe.custom")
+        .flat_map(|entry| entry.model.iter().flatten())
+        .filter_map(|message| match message {
+            Message::User(user) => match &user.content {
+                UserContent::Text(text) => Some(text.clone()),
+                UserContent::Blocks(_) => None,
+            },
+            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
+        })
+        .filter(|text| text.contains(" status:interrupted]"))
+        .collect();
+    let ledger = session
+        .harness()
+        .snapshot(&EFFECTS_DOC, session.root().id(), cx())
+        .await
+        .expect("the ledger reads")
+        .map(|value| from_json::<EffectsState>(&JsonValue::Object(value)).expect("a ledger"))
+        .unwrap_or_default();
+    let unknown = ledger
+        .unknown
+        .into_iter()
+        .map(|effect| (effect.id, effect.kind, effect.what, effect.resolution))
+        .collect();
+    (notices, unknown)
+}
+
+/// A job the closed session left running died with it: the reopen reports
+/// it interrupted to the main conversation once (a `job_settled` notice)
+/// and notes it once in the conversation's ledger of unknown effects, in
+/// the commit that retires its node; a second reopen finds nothing to
+/// report.
+#[tokio::test]
+async fn a_job_cut_by_a_restart_is_reported_interrupted_once() {
+    let fixture = fixture();
+    // The turn the notice wakes.
+    fixture.faux.set_responses(vec![answer("noted")]);
+    let mut config = fixture.config(fixture.jsonl());
+    config.model = Some(fixture.model().into());
+    let session = open_session(config.clone(), cx()).await.expect("open");
+    let _cut = sleeper(&session, "bash-cut").await;
+    session.close(cx()).await.expect("close");
+
+    config.model = None;
+    let session = open_session(config.clone(), cx()).await.expect("reopen");
+    job_nodes_become(&session, &[]).await;
+    let reopened = interrupted_jobs(&session).await;
+    session.close(cx()).await.expect("close");
+    let session = open_session(config, cx()).await.expect("second reopen");
+    job_nodes_become(&session, &[]).await;
+    let expected = (
+        vec![
+            "[job-settled job:bash-cut status:interrupted]\n\nResume your work using the result below.\n\nThe background bash job bash-cut (\"sleep 60\") was interrupted by a restart: it may have partially run, and its output is lost. It was not run again; check the state it changes before you run it again."
+                .to_owned(),
+        ],
+        vec![(
+            "job:bash-cut".to_owned(),
+            EffectKind::Job,
+            "sleep 60".to_owned(),
+            None,
+        )],
+    );
+    assert_eq!(
+        (reopened, interrupted_jobs(&session).await),
+        (expected.clone(), expected)
     );
     session.close(cx()).await.expect("close");
 }

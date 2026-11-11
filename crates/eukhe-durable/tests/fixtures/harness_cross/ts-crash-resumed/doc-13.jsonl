@@ -1,0 +1,1 @@
+{"format":1,"type":"record","seq":13,"ordinal":1,"payload":{"type":"document","id":13,"content":{"version":1,"kind":"base","value":{"unknown":[{"id":"tool:call-1","kind":"tool","what":"probe {\"target\":\"disk\"}","at":1000000}]}}}}

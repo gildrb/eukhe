@@ -229,6 +229,8 @@ def kept_back_spec(live: Bool, b: CS.Back) -> Bool:
           True{}
         case CS.Interrupted{st, next}:
           False{}
+        case CS.Refire{}:
+          False{}
 
 def recover_spares_js_spec(js: List<&2, CF.Slot>, bs: List<&2, CS.Back>) -> Bool:
   match js:

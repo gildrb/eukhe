@@ -56,6 +56,9 @@ pub struct Request {
     /// session's local count.
     pub prompt_tokens: u64,
     pub body: Value,
+    /// The request's `Idempotency-Key` header: every send of one model
+    /// request carries the same key.
+    pub idempotency_key: Option<String>,
 }
 
 /// What the script answers.
@@ -319,7 +322,7 @@ fn is_harness_notice(message: &Value) -> bool {
             .is_some_and(|(tag, _)| !tag.contains(' '))
 }
 
-fn classify(index: usize, body: Value, raw_len: usize) -> Request {
+fn classify(index: usize, body: Value, raw_len: usize, idempotency_key: Option<String>) -> Request {
     let messages = body["messages"].as_array().cloned().unwrap_or_default();
     let prompt_at = messages
         .iter()
@@ -369,19 +372,22 @@ fn classify(index: usize, body: Value, raw_len: usize) -> Request {
         tool_results,
         prompt_tokens: (raw_len / 4) as u64,
         body,
+        idempotency_key,
     }
 }
 
-/// The completion call's body and length; `None` for anything that is no
-/// completion call (POST) of the daemon's - an empty connection, or a
-/// localhost port scanner's `GET /v1/models` - which never enters the log.
-fn read_request(stream: &TcpStream) -> std::io::Result<Option<(Value, usize)>> {
+/// The completion call's body, length and `Idempotency-Key` header; `None`
+/// for anything that is no completion call (POST) of the daemon's - an
+/// empty connection, or a localhost port scanner's `GET /v1/models` -
+/// which never enters the log.
+fn read_request(stream: &TcpStream) -> std::io::Result<Option<(Value, usize, Option<String>)>> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line)? == 0 || !request_line.starts_with("POST ") {
         return Ok(None);
     }
     let mut content_length = 0usize;
+    let mut idempotency_key = None;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -390,8 +396,14 @@ fn read_request(stream: &TcpStream) -> std::io::Result<Option<(Value, usize)>> {
         if line == "\r\n" {
             break;
         }
-        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-            content_length = value.trim().parse().unwrap_or_default();
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if name.eq_ignore_ascii_case("content-length") {
+            content_length = value.parse().unwrap_or_default();
+        } else if name.eq_ignore_ascii_case("idempotency-key") {
+            idempotency_key = Some(value.to_string());
         }
     }
     let mut body = vec![0u8; content_length];
@@ -399,18 +411,19 @@ fn read_request(stream: &TcpStream) -> std::io::Result<Option<(Value, usize)>> {
     Ok(Some((
         serde_json::from_slice(&body).unwrap_or(Value::Null),
         content_length,
+        idempotency_key,
     )))
 }
 
 fn serve(shared: &Shared, mut stream: TcpStream) {
-    let Ok(Some((body, raw_len))) = read_request(&stream) else {
+    let Ok(Some((body, raw_len, idempotency_key))) = read_request(&stream) else {
         let _ = stream
             .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return;
     };
     let (index, reply) = shared.update(|state| {
         let index = state.log.len();
-        let request = classify(index, body, raw_len);
+        let request = classify(index, body, raw_len, idempotency_key);
         let over = state
             .window
             .is_some_and(|window| request.prompt_tokens > window);

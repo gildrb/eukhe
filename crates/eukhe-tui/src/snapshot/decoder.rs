@@ -9,6 +9,7 @@ use eukhe_types::daemon::{
     BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover, MemoryUpdate,
     SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
+use eukhe_types::effects::UnknownEffect;
 use eukhe_types::goal::GoalState;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 
@@ -116,6 +117,10 @@ pub enum TurnUpdate {
     /// `goal_update`: the session goal state changed (the session view
     /// owns announcement and tray rendering).
     GoalUpdate(GoalState),
+    /// `unknown_effects_update`: the session's ledger of effects whose
+    /// outcome a restart could not tell changed (the whole ledger, oldest
+    /// first; the session view owns the notices and `/effects`).
+    UnknownEffectsUpdate(Vec<UnknownEffect>),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -350,6 +355,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             TurnUpdate::QueueUpdated(queued_messages(actions))
         }
         SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
+        SessionEvent::UnknownEffectsUpdate { effects } => {
+            TurnUpdate::UnknownEffectsUpdate(effects.clone())
+        }
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,

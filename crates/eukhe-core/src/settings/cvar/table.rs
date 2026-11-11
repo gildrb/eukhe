@@ -517,6 +517,18 @@ pub const RETRY_MAX_RETRIES: Decl = Decl {
     init: Init::Nat(3),
 };
 
+/// The Harness's `DEFAULT_REQUEST_RESENDS`: the times a model request a
+/// restart found sent and unanswered is sent again, under the same
+/// idempotency key, before its run ends with an error.
+pub const RETRY_MAX_RESENDS: Decl = Decl {
+    id: "retry.maxResends",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(2),
+};
+
 /// The Harness's `DEFAULT_RETRY_POLICY.base_delay_ms`.
 pub const RETRY_BASE_DELAY_MS: Decl = Decl {
     id: "retry.baseDelayMs",
@@ -1406,6 +1418,7 @@ pub const DECLS: &[Decl] = &[
     BRANCH_SUMMARY_SKIP_PROMPT,
     RETRY_ENABLED,
     RETRY_MAX_RETRIES,
+    RETRY_MAX_RESENDS,
     RETRY_BASE_DELAY_MS,
     RETRY_FAILOVER_ENABLED,
     RETRY_FAILOVER_MAX_RETRIES,

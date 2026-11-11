@@ -5,6 +5,7 @@ pub mod types;
 // HarnessContracts modules.
 pub mod agent;
 pub mod define;
+pub mod effects;
 pub mod json;
 pub mod provider;
 pub mod registry;

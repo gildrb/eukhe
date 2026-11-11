@@ -23,7 +23,12 @@
 //! `job-settled:<uuid>` (`:row` for the card) — so a busy session queues
 //! it for the next boundary and an idle one wakes into the turn; the
 //! Harness inbox makes the admission durable. A `bash.consumed` withdraws
-//! the front-most still-queued notice for the same pid and command.
+//! the front-most still-queued notice for the same pid and command. A job
+//! of an earlier process that a crash or a restart cut is reported by the
+//! session itself at open (`eukhe_core::durable::jobs`): the same
+//! `job_settled` row of status `interrupted` on the steer lane, under the
+//! request id `job-interrupted:<job id>`, so a repeated open never reports
+//! it twice.
 //!
 //! A headless (print/json/RPC) session gets the same wake through
 //! [`HeadlessWakes`]: its notices admit straight into the in-process

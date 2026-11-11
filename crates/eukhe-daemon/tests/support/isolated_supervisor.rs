@@ -15,10 +15,16 @@ pub struct Supervisor {
 }
 
 impl Supervisor {
-    /// Start a supervisor and wait until its socket accepts (a restarted
+    /// Start a supervisor, with `env` added to its environment (its workers
+    /// inherit it), and wait until its socket accepts (a restarted
     /// supervisor parks on the stale socket file before replacing it, so
     /// the file's existence is not readiness).
-    pub fn start(socket: &Path, agent_dir: &Path, log: &Path) -> Supervisor {
+    pub fn start(
+        socket: &Path,
+        agent_dir: &Path,
+        log: &Path,
+        env: &[(String, String)],
+    ) -> Supervisor {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -37,7 +43,8 @@ impl Supervisor {
             )
             // Parallel e2e load can starve a fresh worker's boot past the
             // 30 s default.
-            .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
+            .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000")
+            .envs(env.iter().map(|(name, value)| (name, value)));
         Supervisor {
             daemon: Daemon::spawn_listening(&mut command, socket, Duration::from_mins(3)),
         }

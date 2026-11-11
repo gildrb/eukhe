@@ -512,6 +512,8 @@ fn load(
 /// - `steeringMode` / `followUpMode` -> the queue modes.
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
+/// - `retry.maxResends` -> the times a model request a restart found sent
+///   and unanswered is sent again under its idempotency key.
 ///
 /// eukhe has no tool-execution setting: the Harness default applies (each
 /// tool's own execution mode still serializes `ipython`).
@@ -558,6 +560,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         context_retention_ms: None,
         document_retention_ms: None,
         max_tool_rounds: Some(manager.get_max_tool_rounds()),
+        request_resends: Some(manager.get_retry_max_resends()),
         privacy_anonymize_remote: Some(manager.get_privacy_anonymize_remote()),
         privacy_terms: Some(manager.get_privacy_terms()),
     }

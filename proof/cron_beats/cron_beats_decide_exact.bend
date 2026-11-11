@@ -44,11 +44,15 @@ def de.took(t: CS.Took, +r: Nat, f: CS.Fact) -> {CB.took(t, r, f) == CronBeats.w
           %de.next(n, r) : {CS.Fact{st, p, CB.next_at(n, r), k} == CS.Fact{st, p, _, k} : CS.Fact}
           {==}
 
-def de.back(b: CS.Back, f: CS.Fact) -> {CB.back(b, f) == CronBeats.written_spec(CronBeats.back_sets_spec(b), f) : CS.Fact}:
+def de.back(b: CS.Back, +at: Nat, f: CS.Fact) -> {CB.back(b, at, f) == CronBeats.written_spec(CronBeats.back_sets_spec(b, at), f) : CS.Fact}:
   match b:
     case CS.Kept{}:
       {==}
     case CS.Interrupted{st2, nx2}:
+      match f:
+        case CS.Fact{st, p, nx, k}:
+          {==}
+    case CS.Refire{}:
       match f:
         case CS.Fact{st, p, nx, k}:
           {==}
@@ -106,9 +110,9 @@ def de.apply(op: CB.Op, +f: CS.Fact) -> {CB.apply(op, f) == CronBeats.written_sp
     case CB.OTake{+c, +d, +n, +r}:
       %CronStore.cron_take_exact(f, c, d, n) : {CB.took(CS.take(f, c, d, n), r, f) == CronBeats.written_spec(CronBeats.took_sets_spec(_, r), f) : CS.Fact}
       de.took(CS.take(f, c, d, n), r, f)
-    case CB.ORecover{+c}:
-      %CronStore.cron_recover_exact(f, c) : {CB.back(CS.recover(f, c), f) == CronBeats.written_spec(CronBeats.back_sets_spec(_), f) : CS.Fact}
-      de.back(CS.recover(f, c), f)
+    case CB.ORecover{+c, +at}:
+      %CronStore.cron_recover_exact(f, c) : {CB.back(CS.recover(f, c), at, f) == CronBeats.written_spec(CronBeats.back_sets_spec(_, at), f) : CS.Fact}
+      de.back(CS.recover(f, c), at, f)
     case CB.OFinish{+u, +a, +b, +n, +r}:
       %CronStore.cron_finish_exact(u, f, a, b, n) : {CB.fin(CS.finish(u, f, a, b, n), r, f) == CronBeats.written_spec(CronBeats.fin_sets_spec(_, r), f) : CS.Fact}
       de.fin(CS.finish(u, f, a, b, n), r, f)

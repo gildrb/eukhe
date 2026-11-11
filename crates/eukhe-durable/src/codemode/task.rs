@@ -204,6 +204,14 @@ impl ToolExecutionApi for TaskApi {
         self.runtime.memo_or_store(name, candidate, cx)
     }
 
+    /// A task has no tool call whose recovery could read a probe record.
+    fn probe(&self, _record: JsonValue, _cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
+        let error = SessionError::error(
+            "a code mode script that runs in a task has no tool call to record a probe in",
+        );
+        futures::future::ready(Err(error)).boxed()
+    }
+
     fn create_task_erased(
         &self,
         task: AnyTask,

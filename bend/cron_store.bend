@@ -76,11 +76,15 @@ type Took is Data:
   Roll{n: Next}
   Claimed{n: Next}
 
-# a recovery: nothing changes, or the job records the interruption of its
-# run with this status and next run
+# a recovery: nothing changes; the job records the interruption of its run
+# with this status and next run; or (an active one-shot) the job stays
+# active and is due again at the occurrence of its cleared claim record
+# (its `scheduledFor`), so the next claim pass fires it once more under
+# its original request id
 type Back is Data:
   Kept{}
   Interrupted{st: Cr.Status, next: Maybe<&2, Nat>}
+  Refire{}
 
 # a finish step: the job is not active (only its claim goes), it counts a
 # run, or it counts a skip
@@ -205,7 +209,7 @@ def recover.go(st: Cr.Status, once: Bool, nx: Maybe<&2, Nat>) -> Back:
     case Cr.Active{}:
       match once:
         case True{}:
-          Interrupted{Cr.Finished{}, None{}}
+          Refire{}
         case False{}:
           Interrupted{Cr.Active{}, nx}
     case Cr.Paused{}:
@@ -216,7 +220,7 @@ def recover.go(st: Cr.Status, once: Bool, nx: Maybe<&2, Nat>) -> Back:
       Kept{}
 
 # a cleared claim of an active job ends its run: an active one-shot is
-# finished (Cr.recover)
+# fired again at its claim's occurrence (Cr.recover)
 def recover(f: Fact, cleared: Bool) -> Back:
   match f:
     case Fact{st, p, nx, k}:

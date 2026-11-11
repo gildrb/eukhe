@@ -17,7 +17,7 @@ use futures::StreamExt as _;
 use serde_json::Value as JsonValue;
 use sha2::{Digest as _, Sha256};
 
-use super::{model_request_headers, SemanticEdgeRecorder};
+use super::{model_request_headers, SemanticEdgeRecorder, IDEMPOTENCY_KEY_HEADER};
 
 /// Bind a full-options stream function to one session's recorder (TS
 /// `wrapStreamFnWithSemanticEdges`; the engine wraps it OUTERMOST). The
@@ -68,11 +68,18 @@ pub(crate) fn wrap_stream_simple_fn(
 }
 
 /// Overlay the two id-carrying headers on one call's headers (the id's
-/// headers win, and they ride even a headerless call).
+/// headers win, and they ride even a headerless call), except an
+/// `Idempotency-Key` the call already carries: the harness's key of an
+/// exactly-once request (spec O7), the same on every send of that request,
+/// where a minted id is new on each.
 fn merge_request_headers(stream: &mut StreamOptions, request_id: &str) {
     let headers = stream.request.headers.get_or_insert_with(Default::default);
     for (header, id) in model_request_headers(request_id) {
-        headers.insert(header, Some(id));
+        let keyed =
+            header == IDEMPOTENCY_KEY_HEADER && headers.get(&header).is_some_and(Option::is_some);
+        if !keyed {
+            headers.insert(header, Some(id));
+        }
     }
 }
 

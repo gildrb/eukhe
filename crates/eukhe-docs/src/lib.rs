@@ -8,7 +8,8 @@
 //!   (the path policy and the user's approval), on the real path.
 //! - [`Documents`]: the session's authority: reads project `[path#TAG]` plus
 //!   `N:TEXT` rows (the caller marks the rows that reach the model seen);
-//!   writes take an OS path lock and replace files atomically.
+//!   writes take an OS path lock and replace files atomically, after the
+//!   host's [`Witness`] recorded each change.
 //! - [`text`]: line endings and the BOM, stripped for editing and restored on
 //!   write.
 //! - [`grep`]: regex search rendered as `[path#TAG]` / `N:TEXT` rows that
@@ -69,4 +70,6 @@ pub use store::{
     MAX_SNAPSHOT_FILE_BYTES, NOOP_HARD_LIMIT,
 };
 pub use url::{Located, Remote, Scheme, Url, UrlError};
-pub use write::{WriteDisposition, WriteError, WriteOutcome, WriteRefusal};
+pub use write::{
+    Change, Unwitnessed, Witness, WriteDisposition, WriteError, WriteOutcome, WriteRefusal,
+};

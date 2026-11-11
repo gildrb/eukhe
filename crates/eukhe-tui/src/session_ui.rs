@@ -12,6 +12,7 @@ mod commands;
 mod copy_export;
 mod cvar;
 mod dictation;
+mod effects;
 mod factory;
 mod heartbeats;
 mod keys;
@@ -527,6 +528,9 @@ pub(crate) struct SessionUi {
     /// The session's thread-goal view state (current `goal_update` state,
     /// announcement dedupe, tray label bookkeeping).
     pub(crate) goal_view: GoalView,
+    /// The session's ledger of effects whose outcome a restart could not
+    /// tell (`unknown_effects_update`), oldest first.
+    pub(crate) unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
     /// Notes surfacing from background tasks (the async abort result, the
     /// parked messages an Escape withdrew) into the UI loop.
     notes: mpsc::UnboundedSender<InterruptNote>,

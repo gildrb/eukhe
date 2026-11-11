@@ -39,6 +39,10 @@
 //! - [`prompt`] submits user text to a conversation and waits until the
 //!   conversation is idle again.
 //! - [`watch`] streams a conversation's committed events.
+//! - [`unknown_effects`] lists a conversation's interrupted effects whose
+//!   outcome a restart could not tell, [`resolve_unknown_effect`] settles
+//!   one after the host checked the world, and [`watch_unknown_effects`]
+//!   follows the ledger (its current state first, then every change).
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
 //! - [`context`] holds the [`Context`](context::Context) every engine call
@@ -59,6 +63,9 @@ pub use eukhe_chord::context;
 pub use eukhe_core::durable::{
     create_models, open_session, EukheSession, ModelRequest, OpenError, SessionConfig,
     SessionModels, SessionStorage,
+};
+pub use eukhe_durable::harness::effects::{
+    EffectKind, EffectResolution, UnknownEffect, UnknownEffectUpdates,
 };
 pub use eukhe_durable::harness::{
     AgentEvent, AgentEventBatch, AgentEventStream, Conversation, SnapshotEvent,
@@ -126,6 +133,77 @@ pub async fn watch(
         futures::future::ready(Ok(())).boxed()
     }))?;
     Ok(Events { stream, batches })
+}
+
+/// The ledger of `conversation`'s interrupted effects whose outcome a
+/// restart could not tell, oldest first, open and resolved.
+///
+/// # Errors
+///
+/// The ledger cannot be read (the session closed, `cx` cancelled).
+pub async fn unknown_effects(
+    session: &EukheSession,
+    conversation: &Conversation,
+    cx: &Context,
+) -> anyhow::Result<Vec<UnknownEffect>> {
+    Ok(eukhe_durable::harness::effects::read_unknown_effects(
+        session.harness(),
+        conversation.id(),
+        cx,
+    )
+    .await?)
+}
+
+/// Settle `conversation`'s open unknown effect `id` as `resolution`: the
+/// effect as resolved, or `None` when the ledger holds no open effect of
+/// that id (never noted, or settled already).
+///
+/// # Errors
+///
+/// The commit fails (the session closed, `cx` cancelled).
+pub async fn resolve_unknown_effect(
+    session: &EukheSession,
+    conversation: &Conversation,
+    id: &str,
+    resolution: EffectResolution,
+    cx: &Context,
+) -> anyhow::Result<Option<UnknownEffect>> {
+    let conversation_id = conversation.id();
+    let id = id.to_owned();
+    Ok(session
+        .harness()
+        .commit(
+            move |tx| async move {
+                eukhe_durable::harness::effects::resolve_unknown(
+                    &tx,
+                    conversation_id,
+                    &id,
+                    resolution,
+                )
+                .await
+            },
+            cx,
+        )
+        .await?)
+}
+
+/// Follow `conversation`'s ledger: the current ledger first, then the
+/// ledger after every change (an effect noted or resolved). Dropping the
+/// stream stops it.
+///
+/// # Errors
+///
+/// The session's harness cannot attach the watch (closed).
+pub fn watch_unknown_effects(
+    session: &EukheSession,
+    conversation: &Conversation,
+    cx: &Context,
+) -> anyhow::Result<UnknownEffectUpdates> {
+    Ok(eukhe_durable::harness::effects::watch_unknown_effects(
+        session.harness(),
+        conversation.id(),
+        cx,
+    )?)
 }
 
 /// A conversation's event stream (see [`watch`]).

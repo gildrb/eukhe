@@ -17,6 +17,7 @@ mod session_core;
 pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
 mod agent_reply;
+mod effects;
 mod input;
 pub(crate) use input::{parse_prompt_images, submit_input, InputRequest, InputRowError};
 mod harness_end;

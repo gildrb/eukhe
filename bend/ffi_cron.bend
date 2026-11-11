@@ -31,7 +31,8 @@ import ./cron_store.bend as CS
 # after the clock):
 #   0  0 not due | 1 roll, then the next run | 2 claim, then the next run
 #   1  T (clear the claim) | F (keep it)
-#   2  0 kept | 1 interrupted, then a status and a next run (Maybe ms)
+#   2  0 kept | 1 interrupted, then a status and a next run (Maybe ms) |
+#      2 fired again (active, due at its cleared claim's occurrence)
 #   3  0 untouched | 1 ran | 2 skipped; ran and skipped then a status, a
 #      next run and the failures in a row
 #   4  0 already cancelled | 1 cut, then a status and a next run (Maybe ms)
@@ -409,6 +410,8 @@ def put_back(b: CS.Back, rest: String) -> String:
       W.put_nat(0n, rest)
     case CS.Interrupted{st, m}:
       W.put_nat(1n, put_status(st, put_mnat(m, rest)))
+    case CS.Refire{}:
+      W.put_nat(2n, rest)
 
 def put_fin(x: CS.Fin, rest: String) -> String:
   match x:

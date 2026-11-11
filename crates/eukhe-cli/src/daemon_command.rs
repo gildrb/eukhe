@@ -1,6 +1,7 @@
 //! The daemon-backed command runner behind the public commands `list`,
-//! `sessions`, `stop`, `rename`, `state`, `send`, and `schedule`: argument parsing,
-//! request shaping, and output rendering. Ported from
+//! `sessions`, `stop`, `rename`, `state`, `effects`, `send`, and
+//! `schedule`: argument parsing, request shaping, and output rendering.
+//! Ported from
 //! `cli/daemon-command.ts` (the `handleDaemonCommand` surface reachable
 //! from public routing).
 //!
@@ -19,6 +20,9 @@ use eukhe_types::daemon::{
     DaemonCommand, DaemonProtocolInfo, DaemonResponse, StateRewindPlanReply, StateTreeEffect,
     StateTreeNode, StateTreeOp, StateTreeRecord, StateTreeReply, StateTreeSnapshot, StopOutcome,
     DAEMON_PROTOCOL_VERSION,
+};
+use eukhe_types::effects::{
+    EffectResolution, ResolvedEffectReply, UnknownEffect, UnknownEffectsReply,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -108,6 +112,7 @@ fn run_daemon_command_parsed(command: &str, parsed: &ParsedDaemonCommand) -> Res
         "kill" => run_kill(&mut client, &parsed.positionals, parsed.json),
         "rename" => run_rename(&mut client, &parsed.positionals, parsed.json),
         "state" => run_state(&mut client, &parsed.positionals, parsed.json),
+        "effects" => run_effects(&mut client, &parsed.positionals, parsed.json),
         "send" => run_send(&mut client, &parsed.positionals, parsed.json),
         "cron" => run_cron(&mut client, &parsed.positionals, parsed.json),
         other => bail!("Unknown daemon command: {other}"),
@@ -856,6 +861,117 @@ fn only_live_session(client: &mut Daemon) -> Result<String> {
 }
 
 // ---------------------------------------------------------------------------
+// effects
+// ---------------------------------------------------------------------------
+
+/// What one `eukhe effects` run asks.
+#[derive(Debug, PartialEq, Eq)]
+enum EffectsRequest<'a> {
+    /// `effects [<agent>]`: the ledger.
+    List { selector: Option<&'a str> },
+    /// `effects resolve <id> <ran|not-run> [<agent>]`: settle one.
+    Resolve {
+        effect_id: &'a str,
+        resolution: EffectResolution,
+        selector: Option<&'a str>,
+    },
+}
+
+const EFFECTS_RESOLVE_USAGE: &str = "Usage: eukhe effects resolve <id> <ran|not-run> [<agent>]";
+
+/// Parse the `effects` operands (the options are gone already).
+fn parse_effects_args(args: &[String]) -> Result<EffectsRequest<'_>> {
+    let unknown = |operand: &str| usage_error(format!("Unknown effects operand: {operand}"));
+    match args.split_first() {
+        Some((first, rest)) if first == "resolve" => {
+            let [effect_id, word, selector @ ..] = rest else {
+                return Err(usage_error(EFFECTS_RESOLVE_USAGE));
+            };
+            let resolution = EffectResolution::from_word(word).ok_or_else(|| {
+                usage_error(format!(
+                    "Unknown resolution: {word} (ran or not-run).\n\n{EFFECTS_RESOLVE_USAGE}"
+                ))
+            })?;
+            let selector = match selector {
+                [] => None,
+                [agent] if !agent.starts_with("--") => Some(agent.as_str()),
+                [extra, ..] => return Err(unknown(extra.as_str())),
+            };
+            Ok(EffectsRequest::Resolve {
+                effect_id: effect_id.as_str(),
+                resolution,
+                selector,
+            })
+        }
+        None => Ok(EffectsRequest::List { selector: None }),
+        Some((agent, [])) if !agent.starts_with("--") => Ok(EffectsRequest::List {
+            selector: Some(agent.as_str()),
+        }),
+        Some((first, [])) => Err(unknown(first.as_str())),
+        Some((_, [extra, ..])) => Err(unknown(extra.as_str())),
+    }
+}
+
+/// `effects [<agent>]` and `effects resolve <id> <ran|not-run>
+/// [<agent>]`: the interrupted effects of one live agent whose outcome is
+/// unknown, and settling one.
+fn run_effects(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
+    let request = parse_effects_args(args)?;
+    let selector = match &request {
+        EffectsRequest::List { selector } | EffectsRequest::Resolve { selector, .. } => *selector,
+    };
+    let active_session_id = match selector {
+        Some(selector) => resolve_live_session_selector(client, selector)?,
+        None => only_live_session(client)?,
+    };
+    let command = match request {
+        EffectsRequest::List { .. } => DaemonCommand::GetUnknownEffects {
+            id: None,
+            active_session_id,
+            rest: serde_json::Map::new(),
+        },
+        EffectsRequest::Resolve {
+            effect_id,
+            resolution,
+            ..
+        } => DaemonCommand::ResolveUnknownEffect {
+            id: None,
+            active_session_id,
+            effect_id: effect_id.to_owned(),
+            resolution,
+            rest: serde_json::Map::new(),
+        },
+    };
+    let resolving = matches!(command, DaemonCommand::ResolveUnknownEffect { .. });
+    let data = require_success(client.request(command)?)?.unwrap_or(Value::Null);
+    if json {
+        return print_json(&data);
+    }
+    if resolving {
+        let reply: ResolvedEffectReply =
+            serde_json::from_value(data).context("malformed resolved effect")?;
+        println!("Resolved {}", crate::sanitize::line(&reply.effect.line()));
+        return Ok(());
+    }
+    let reply: UnknownEffectsReply =
+        serde_json::from_value(data).context("malformed unknown effects")?;
+    println!("{}", effects_lines(&reply.effects).join("\n"));
+    Ok(())
+}
+
+/// The ledger as `eukhe effects` prints it: one line per effect, oldest
+/// first (`<id> <kind> <unknown|ran|not-run> <what>`).
+fn effects_lines(effects: &[UnknownEffect]) -> Vec<String> {
+    if effects.is_empty() {
+        return vec!["No interrupted effects with an unknown outcome.".to_owned()];
+    }
+    effects
+        .iter()
+        .map(|effect| crate::sanitize::line(&effect.line()))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // send
 // ---------------------------------------------------------------------------
 
@@ -1261,6 +1377,81 @@ mod tests {
                 "  entry 14",
                 "document 9",
             ]
+        );
+    }
+
+    /// `effects` lists (one optional agent); `effects resolve` takes an
+    /// id, `ran` or `not-run`, and an optional agent; anything else is a
+    /// usage error.
+    #[test]
+    fn effects_args_parse() {
+        let list = args(&[]);
+        assert_eq!(
+            parse_effects_args(&list).unwrap(),
+            EffectsRequest::List { selector: None }
+        );
+        let agent = args(&["worker"]);
+        assert_eq!(
+            parse_effects_args(&agent).unwrap(),
+            EffectsRequest::List {
+                selector: Some("worker")
+            }
+        );
+        let resolve = args(&["resolve", "tool:c1", "not-run", "worker"]);
+        assert_eq!(
+            parse_effects_args(&resolve).unwrap(),
+            EffectsRequest::Resolve {
+                effect_id: "tool:c1",
+                resolution: EffectResolution::NotRun,
+                selector: Some("worker"),
+            }
+        );
+        let ran = args(&["resolve", "job:7", "ran"]);
+        assert_eq!(
+            parse_effects_args(&ran).unwrap(),
+            EffectsRequest::Resolve {
+                effect_id: "job:7",
+                resolution: EffectResolution::Ran,
+                selector: None,
+            }
+        );
+        for (operands, error) in [
+            (vec!["resolve", "tool:c1"], EFFECTS_RESOLVE_USAGE.to_owned()),
+            (
+                vec!["resolve", "tool:c1", "maybe"],
+                format!("Unknown resolution: maybe (ran or not-run).\n\n{EFFECTS_RESOLVE_USAGE}"),
+            ),
+            (
+                vec!["resolve", "tool:c1", "ran", "a", "b"],
+                "Unknown effects operand: a".to_owned(),
+            ),
+            (vec!["a", "b"], "Unknown effects operand: b".to_owned()),
+            (vec!["--all"], "Unknown effects operand: --all".to_owned()),
+        ] {
+            let operands = args(&operands);
+            assert_eq!(
+                parse_effects_args(&operands).unwrap_err().to_string(),
+                error
+            );
+        }
+    }
+
+    #[test]
+    fn effects_lines_show_each_effect_or_none() {
+        assert_eq!(
+            effects_lines(&[]),
+            ["No interrupted effects with an unknown outcome."]
+        );
+        let effect = UnknownEffect {
+            id: "tool:c1".to_owned(),
+            kind: eukhe_types::effects::EffectKind::Tool,
+            what: "bash: make deploy".to_owned(),
+            at: 0.0,
+            resolution: None,
+        };
+        assert_eq!(
+            effects_lines(&[effect]),
+            ["tool:c1 tool unknown bash: make deploy"]
         );
     }
 

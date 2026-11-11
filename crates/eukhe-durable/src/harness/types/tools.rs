@@ -8,6 +8,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::Models;
+use eukhe_bend::rules::once::Seen;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_types::pi_ai::{
@@ -274,6 +275,17 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
         candidate: JsonValue,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<JsonValue>>;
+    /// Record durably what this call of a probed tool
+    /// ([`ToolRegistration::probe`]) is about to change, before any of it
+    /// changes: `record` replaces the call's last record, and the tool's
+    /// probe reads it when a restart finds the call unsettled. Resolves once
+    /// the record is durable.
+    ///
+    /// # Errors
+    ///
+    /// The invocation ended, it has no tool call to record in, or the
+    /// commit failed.
+    fn probe(&self, record: JsonValue, cx: &Context) -> BoxFuture<'static, SessionResult<()>>;
     /// Erased `createTask()`; see [`ToolExecutionApiExt::create_task`]. A
     /// task-owned child of a tool that is not replay-safe defaults to
     /// `abandon_on_restart`: the tool never resumes after a restart, so
@@ -412,6 +424,15 @@ pub type ToolExecute = Arc<
 /// recorded. Its result is still validated against `parameters`.
 pub type PrepareArguments = Arc<dyn Fn(PiJsonValue) -> SessionResult<PiJsonValue> + Send + Sync>;
 
+/// How a restart looks at what an interrupted call of a tool changed: given
+/// the call's last record ([`ToolExecutionApi::probe`]), what the world
+/// shows of that change now. The recovery runs in a new process, so the
+/// process that made the change is dead. An implementation answers
+/// [`Seen::Landed`] only when the whole change is there, [`Seen::Clean`]
+/// only when none of it is and none of it can come, and [`Seen::Dark`]
+/// when it cannot tell.
+pub type ToolProbe = Arc<dyn Fn(JsonValue) -> BoxFuture<'static, Seen> + Send + Sync>;
+
 /// Executable tool registered in a registry (TS `ToolRegistration`). Only
 /// the pi-ai `Tool` fields enter the transcript.
 ///
@@ -428,6 +449,11 @@ pub struct ToolRegistration {
     /// Whether an interrupted execution may rerun on recovery. Default
     /// `Unsafe`.
     pub replay: Option<ToolReplay>,
+    /// Looks at what a call interrupted by a restart changed (a file
+    /// write: the effects ledger names it `write:<call id>`), so the call is
+    /// adopted, run again, or reported interrupted as the world shows,
+    /// whatever `replay` says; `None`: `replay` alone decides.
+    pub probe: Option<ToolProbe>,
     /// Default: the settings' `tool_execution`. One sequential call makes its
     /// whole round sequential.
     pub execution_mode: Option<ToolExecutionMode>,
@@ -468,6 +494,7 @@ impl ToolRegistration {
             parameters: parameters.into(),
             constrained_sampling: None,
             replay: None,
+            probe: None,
             execution_mode: None,
             prepare_arguments: None,
             dialect: ArgDialect::default(),
@@ -515,6 +542,7 @@ impl fmt::Debug for ToolRegistration {
             .field("parameters", &self.parameters)
             .field("constrained_sampling", &self.constrained_sampling)
             .field("replay", &self.replay)
+            .field("probe", &self.probe.is_some())
             .field("execution_mode", &self.execution_mode)
             .field("prepare_arguments", &self.prepare_arguments.is_some())
             .field("dialect", &self.dialect)

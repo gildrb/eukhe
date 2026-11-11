@@ -241,6 +241,7 @@ async fn answers_an_unsafe_tool_interrupted_after_intent_with_what_is_durable_on
             arguments: PiJsonObject::new(),
             repairs: Vec::new(),
             replay: ToolReplay::Unsafe,
+            probe: None,
         }
     );
     assert_eq!(settle(&opened, id).await, SubmissionStatus::Done);

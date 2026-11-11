@@ -162,16 +162,19 @@ def pc.rec_none(+p: Nat, +o: Nat, +w: Nat, +dead: List<&2, Nat>, ow: {o == w : N
   +no = pc.clears_at(p, o, w, dead, ow, LABool.pc.no_clear(Nat.is_eq(w, p), Cr.has(w, dead), live))
   LALogic.cron.pc.absurd(Empty, Equal.trans(Bool, True{}, Cr.clears(p, o, [w], dead), False{}, Equal.sym(Bool, Cr.clears(p, o, [w], dead), True{}, eq), no))
 
-def pc.rec_end(+s: Cr.Sched, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, +x: Cr.Claim, g: LALogic.pc.G(c, dead, Cr.Job{i, s, Cr.Active{}, nx, k, Some{x}, Nil{}, ss, h})) -> LALogic.pc.G(c, dead, Cr.recover.end(Cr.is_once(s), i, s, nx, k, Nil{}, ss, h)):
+# a one-shot fired again: no run, no start, its count kept as active
+def pc.rec_end(+s: Cr.Sched, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, +x: Cr.Claim, g: LALogic.pc.G(c, dead, Cr.Job{i, s, Cr.Active{}, nx, k, Some{x}, Nil{}, ss, h})) -> LALogic.pc.G(c, dead, Cr.recover.end(Cr.is_once(s), i, s, nx, k, x, Nil{}, ss, h)):
   match s:
     case Cr.Once{+d}:
-      (h1, g2) = g
-      (h2, g3) = g2
-      (h3, g4) = g3
-      (h4, g5) = g4
-      (h5, g6) = g5
-      (h6, h7) = g6
-      (Unit{}, (Unit{}, (h3, (LALogic.pc.top_none(ss, c, nx, h4), (LALogic.pc.once_none(Cr.Once{d}, ss, nx, h5), (LANat.pc.cnt_down(Cr.Finished{}, k, h, h6), {==}))))))
+      match x:
+        case Cr.Claim{+oc, +o}:
+          (h1, g2) = g
+          (h2, g3) = g2
+          (h3, g4) = g3
+          (h4, g5) = g4
+          (h5, g6) = g5
+          (h6, h7) = g6
+          (Unit{}, (Unit{}, (Unit{}, (Unit{}, (Unit{}, (h6, Unit{}))))))
     case Cr.Every{q}:
       g
 
@@ -763,7 +766,9 @@ def pc.id_rec_go(b: Bool, st: Cr.Status, +s: Cr.Sched, +i: Nat, +nx: Maybe<&2, N
         case Cr.Active{}:
           match s:
             case Cr.Once{d}:
-              {==}
+              match x:
+                case Cr.Claim{oc, o}:
+                  {==}
             case Cr.Every{q}:
               {==}
         case Cr.Paused{}:

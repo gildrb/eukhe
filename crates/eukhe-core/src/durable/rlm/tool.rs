@@ -360,21 +360,40 @@ async fn execute(
     let executed = match waited {
         Wait::Settled(joined) => joined,
         Wait::Detached => {
+            // The job's start is durable before its detach is reported; a
+            // cell whose start cannot be recorded is stopped (the abort
+            // interrupts it, then kills its kernel after the grace).
+            let record = match runtime
+                .deps
+                .jobs
+                .record_start(
+                    job.id().clone(),
+                    JobKind::Cell,
+                    IPYTHON_TOOL_NAME.to_owned(),
+                )
+                .await
+            {
+                Ok(record) => record,
+                Err(error) => {
+                    job_signal.abort();
+                    return Err(error);
+                }
+            };
             // Under the output lock: a chunk counts in the job's start or,
             // once the cell detached, on the job.
             let (cell_job, partial, bounded) = {
                 let mut cell_output = cell_output.lock().unwrap_or_else(PoisonError::into_inner);
-                let cell_job = runtime.deps.jobs.start(JobSpec {
-                    id: job.id().clone(),
-                    kind: JobKind::Cell,
-                    label: IPYTHON_TOOL_NAME.to_owned(),
-                    truncation: api.truncation(),
-                    written: cell_output.bytes(),
-                    kill: {
-                        let signal = job_signal.clone();
-                        Box::new(move |_| signal.abort())
+                let cell_job = runtime.deps.jobs.start(
+                    record,
+                    JobSpec {
+                        truncation: api.truncation(),
+                        written: cell_output.bytes(),
+                        kill: {
+                            let signal = job_signal.clone();
+                            Box::new(move |_| signal.abort())
+                        },
                     },
-                });
+                );
                 let _ = detached_job.set(cell_job.clone());
                 job.detach();
                 let (partial, bounded) = cell_output.projection();

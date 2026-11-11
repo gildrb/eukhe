@@ -37,6 +37,7 @@ use eukhe_durable::types::{
 };
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::UserContent;
+use eukhe_types::platform::kill_point::kill_point;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
@@ -584,6 +585,10 @@ async fn spawn(
     cx: Context,
 ) -> SessionResult<()> {
     let row = require_row(&runtime, &task, &cx).await?;
+    // Exactly once (spec O1, O7): the task and its row are the intent; the
+    // host dedupes a repeat of the spawn on its idempotency key and the
+    // child's identity, so a spawn a restart repeats creates one child.
+    kill_point("spawn", "intended");
     let task_id = task.id.erase();
     let request = RlmChildSpawnRequest {
         idempotency_key: format!("rlm:{task_id}:spawn"),
@@ -599,6 +604,7 @@ async fn spawn(
         workspace: task.input.workspace.unwrap_or_default(),
         worker: task.input.worker,
     };
+    kill_point("spawn", "started");
     let spawned = services.host.spawn(request).await;
     let conversation_id = task.conversation_id;
     runtime
@@ -626,7 +632,9 @@ async fn spawn(
             },
             &cx,
         )
-        .await
+        .await?;
+    kill_point("spawn", "finished");
+    Ok(())
 }
 
 /// `prompt`: admit the task prompt (one retry, as the old route did). A

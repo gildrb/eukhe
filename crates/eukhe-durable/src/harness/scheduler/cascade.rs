@@ -53,6 +53,18 @@ pub(crate) enum ConversationAbortReach {
     Background,
 }
 
+/// Why `Conversation.abort()` marks its scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConversationAbortCause {
+    /// An abort was asked for: the tasks are marked `request`.
+    Requested,
+    /// A restart left the scope's work behind and it must not resume: the
+    /// tasks are marked `restart`, so each abort hook says whether its work
+    /// may have run (a tool call whose intent was recorded settles
+    /// `interrupted`, one that never started `abandoned`; spec O4).
+    Restart,
+}
+
 impl TaskScheduler {
     /// Commit the abort mark, or settle a task that no registered definition
     /// can take as `orphaned` when nothing it owns is live, then join the run
@@ -147,10 +159,11 @@ impl TaskScheduler {
 
     /// `Conversation.abort()`: in one commit, withdraw the queued inputs and
     /// mark every live non-background task that ordinary traversal from the
-    /// conversation reaches; resolves once the scope is idle. With
-    /// [`ConversationAbortReach::Background`], traversal crosses background
-    /// boundaries, and the wait also covers every task it reached. The
-    /// commit is enqueued at the call, as the TS promise starts eagerly.
+    /// conversation reaches, as `cause` says; resolves once the scope is
+    /// idle. With [`ConversationAbortReach::Background`], traversal crosses
+    /// background boundaries, and the wait also covers every task it
+    /// reached. The commit is enqueued at the call, as the TS promise starts
+    /// eagerly.
     ///
     /// # Errors
     ///
@@ -159,8 +172,13 @@ impl TaskScheduler {
         &self,
         conversation_id: ConversationId,
         reach: ConversationAbortReach,
+        cause: ConversationAbortCause,
         cx: &Context,
     ) -> impl Future<Output = SessionResult<()>> + Send + 'static {
+        let by = match cause {
+            ConversationAbortCause::Requested => Mark::Request,
+            ConversationAbortCause::Restart => Mark::Restart,
+        };
         let background = match reach {
             ConversationAbortReach::Ordinary => Background::Boundary,
             ConversationAbortReach::Background => Background::Cross,
@@ -185,7 +203,7 @@ impl TaskScheduler {
                             continue;
                         }
                         reached.push(live.id);
-                        if let Some(marked) = life::marked(live, Mark::Request) {
+                        if let Some(marked) = life::marked(live, by) {
                             tx.set_task(marked)?;
                         }
                     }

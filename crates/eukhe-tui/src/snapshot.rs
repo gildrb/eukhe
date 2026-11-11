@@ -68,6 +68,9 @@ pub struct Reconstructed {
     /// The session's goal state (`state.goal`), when the snapshot reports
     /// one (TS `snapshot.ts: goal: session.goalState`).
     pub goal: Option<eukhe_types::goal::GoalState>,
+    /// The session's ledger of effects whose outcome a restart could not
+    /// tell (`state.unknownEffects`; absent when empty).
+    pub unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
     pub last_event_sequence: u64,
     /// Whether the attach supplied the resume cursor (the event
     /// sequence AND the generation): the reconstruction collapses an
@@ -451,7 +454,7 @@ pub(crate) fn state_session_id(state: &Value) -> &str {
 ///
 /// # Errors
 ///
-/// The state's `sessionActions` does not decode.
+/// The state's `sessionActions` or `unknownEffects` does not decode.
 pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Error> {
     let snapshot = &attach.snapshot;
     let flag = |name: &str| {
@@ -547,6 +550,10 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
         None => crate::queued::QueuedMessages::default(),
     };
+    let unknown_effects = match state.and_then(|state| state.get("unknownEffects")) {
+        Some(effects) => Vec::<eukhe_types::effects::UnknownEffect>::deserialize(effects)?,
+        None => Vec::new(),
+    };
 
     let service_tier = state
         .and_then(|state| state.get("serviceTier"))
@@ -575,6 +582,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         session_id,
         event_generation,
         goal,
+        unknown_effects,
         last_event_sequence,
         cursor_present,
         queued,

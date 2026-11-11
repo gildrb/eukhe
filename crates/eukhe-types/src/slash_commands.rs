@@ -151,6 +151,19 @@ const AUTORESEARCH_SUBCOMMANDS: &[Subcommand] = &[
     },
 ];
 
+const EFFECTS_SUBCOMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "ran",
+        description: "Settle an interrupted effect as one that ran",
+        usage: Some("<id>"),
+    },
+    Subcommand {
+        name: "not-run",
+        description: "Settle an interrupted effect as one that did not run",
+        usage: Some("<id>"),
+    },
+];
+
 const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "settings", description: "Open settings menu", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role; /model --all <provider/model> sets the model of every role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role|--all]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
@@ -197,6 +210,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "factory", description: "Show or set the agent factory opt-in gate (off by default)", execution: SlashCommandExecution::Client, argument_hint: Some("[on|off|status]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "pause", description: "Pause this session's worker: its running model request and tool calls finish, nothing new starts (any message or /resume wakes it)", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "resume", description: "Resume the paused worker; without one, open the agents view, or resume a session by id or path", execution: SlashCommandExecution::Client, argument_hint: Some("[id|path]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "effects", description: "List the interrupted effects whose outcome is unknown, or settle one after checking", execution: SlashCommandExecution::Client, argument_hint: Some("[ran|not-run <id>]"), aliases: &[], takes_argument: false, subcommands: EFFECTS_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "reload", description: "Reload keybindings, skills, prompts, and themes", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "speed", description: "Toggle footer readout of model output tok/sec (latest response and session average)", execution: SlashCommandExecution::Client, argument_hint: Some("[on|off]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "quit", description: "Quit Eukhe", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },

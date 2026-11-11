@@ -22,7 +22,8 @@ use eukhe_types::pi_ai::{
 };
 
 use super::contract::Function;
-use super::requests::{perform, Cut, Done, Performed, ReadImage};
+use super::probe;
+use super::requests::{perform, Caller, Cut, Done, Performed, ReadImage};
 use super::DocumentsHost;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::durable::HostDeps;
@@ -48,8 +49,10 @@ pub(super) fn bounded(
 }
 
 /// The registration of `function`. `edit` runs sequentially with the kernel
-/// cell that may also edit and never replays (a write may have landed
-/// before a crash); the others only read and replay safely.
+/// cell that may also edit and never replays blindly: its probe looks at
+/// the files a call interrupted by a crash was writing, so the call is
+/// adopted, run again, or reported interrupted as they show
+/// ([`probe::probe`]). The others only read and replay safely.
 pub(super) fn document_tool(
     function: Function,
     host: &Arc<DocumentsHost>,
@@ -72,6 +75,7 @@ pub(super) fn document_tool(
         Function::Edit | Function::Write => {
             registration.execution_mode = Some(ToolExecutionMode::Sequential);
             registration.replay = Some(ToolReplay::Unsafe);
+            registration.probe = Some(probe::probe());
         }
         Function::Read | Function::Grep | Function::Glob => {
             registration.replay = Some(ToolReplay::Safe);
@@ -123,7 +127,7 @@ async fn execute(
         cwd.clone(),
         &cwd,
         args,
-        Some(Arc::clone(&api)),
+        Caller::Tool(Arc::clone(&api)),
         cx,
     )
     .await

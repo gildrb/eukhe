@@ -14,6 +14,7 @@ mod force;
 mod leak;
 mod note;
 mod repeat;
+mod resend;
 mod round;
 mod stop;
 mod stream;
@@ -39,14 +40,16 @@ use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_bend::rules::infer_force::{self, Offer, Reply as ForceReply, Step as ForceStep};
 use eukhe_bend::rules::infer_threshold::Over;
+use eukhe_bend::rules::once::Mode;
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::to_json;
 use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, DeferredHandle, Message, Model, ModelThinkingLevel,
-    StopReason, ThinkingLevel, ToolCall, ToolChoice, UserContent, UserMessage,
+    ProviderHeaders, StopReason, ThinkingLevel, ToolCall, ToolChoice, UserContent, UserMessage,
 };
+use eukhe_types::platform::kill_point::kill_point;
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
@@ -66,6 +69,7 @@ use self::stop::Facts;
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{context_tokens, last_turn_tokens, plan, select_cut};
+use crate::harness::effects::note_unknown;
 use crate::harness::inbox::{
     apply_boundary, has_queued_reset, has_queued_summary, prepare_boundary, Boundary, BoundaryAt,
     INBOX_DOC,
@@ -89,7 +93,8 @@ use crate::harness::types::{
 use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
 use crate::types::{
-    EntryId, EntryQuery, JoinPolicy, SubmissionSettlement, TaskId, TaskOutcome, TaskOutcomeError,
+    EntryId, EntryQuery, JoinPolicy, SubmissionSettlement, TaskAbortReason, TaskId, TaskOutcome,
+    TaskOutcomeError,
 };
 
 pub use self::force::ForcedToolError;
@@ -145,6 +150,17 @@ pub enum GenerationCheckpoint {
         forced: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<RetryNote>,
+        /// The times the request went out before (the starts on record of
+        /// its effect, spec O1): each time a restart found it sent and
+        /// unanswered.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        sends: u32,
+        /// The idempotency key every send of the request carries (spec
+        /// O7): derived from its intent (the provider session, the
+        /// generation and its attempt) and committed with its first send,
+        /// so every resend after a restart reads the same key back.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Retry {
@@ -616,6 +632,8 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         cutoff,
                         forced,
                         note,
+                        sends: 0,
+                        key: None,
                     },
                 }))
             },
@@ -629,6 +647,13 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     reason = "one TS phase, kept whole to read against it"
 )]
 async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()> {
+    // The checkpoint with one more send (and the request's key) on record:
+    // committed before the request goes out (spec O1: started before each
+    // launch).
+    let mut started = task.checkpoint.clone();
+    if let GenerationCheckpoint::Request { sends, .. } = &mut started {
+        *sends = sends.saturating_add(1);
+    }
     let GenerationCheckpoint::Request {
         attempt,
         compacted,
@@ -638,10 +663,34 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         cutoff,
         forced,
         note,
+        sends,
+        key,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("request"));
     };
+    // Exactly-once (spec O2, O4, O7): a first send launches; after a
+    // restart found the request sent and unanswered, the compiled core
+    // says whether it goes out again under the same idempotency key or
+    // ends interrupted (`resend`).
+    if sends == 0 {
+        kill_point("request", "intended");
+    }
+    match resend::decide(sends, runtime.settings().request_resends, Mode::Resume)? {
+        resend::Send::Go => {}
+        resend::Send::Interrupted | resend::Send::Unsent => {
+            return resend::fail_interrupted(&runtime, attempt, sends, &cx).await
+        }
+    }
+    let provider_session = ensure_provider_session_id(&runtime, &cx).await?;
+    // Every send of this request carries one idempotency key (spec O7): the
+    // provider's session, then the generation and its attempt. The first
+    // send commits it with its start; a resend reads it back from there.
+    let key =
+        key.unwrap_or_else(|| resend::key(&provider_session, runtime.task_id().erase(), attempt));
+    if let GenerationCheckpoint::Request { key: recorded, .. } = &mut started {
+        *recorded = Some(key.clone());
+    }
     let conversation_id = runtime.conversation_id();
     runtime
         .commit(
@@ -649,11 +698,14 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 convert_partial(&tx, &live, conversation_id).await?;
                 live.set("generation", to_json(&live_generation(attempt))?)?;
-                Ok(None)
+                Ok(Some(Next::Running {
+                    checkpoint: started,
+                }))
             },
             &cx,
         )
         .await?;
+    kill_point("request", "started");
     let Some(model) = runtime
         .models()
         .get_model(&reference.provider, &reference.model_id)
@@ -705,7 +757,13 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     } = shaped.into_inner().unwrap_or_else(PoisonError::into_inner);
     let mut options = stream_options.simple_stream_options();
     options.stream.request.signal = Some(runtime.signal());
-    options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
+    options
+        .stream
+        .request
+        .headers
+        .get_or_insert_with(ProviderHeaders::new)
+        .insert(resend::IDEMPOTENCY_KEY_HEADER.to_owned(), Some(key));
+    options.stream.session_id = Some(provider_session);
     options.reasoning = reasoning(thinking_level);
     // eukhe addition: the leading prompt's shared prefix ends a cache mark
     // of its own, the same in every session.
@@ -781,7 +839,9 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         force,
         note,
     };
-    classify(&runtime, request, message, &cx).await
+    classify(&runtime, request, message, &cx).await?;
+    kill_point("request", "finished");
+    Ok(())
 }
 
 async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()> {
@@ -936,6 +996,20 @@ async fn abort(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
         | GenerationCheckpoint::Retry { .. }
         | GenerationCheckpoint::Poll { .. } => Vec::new(),
     };
+    // A request a dead process sent and no reply answered ends unknown
+    // when its run is stopped (spec O4): the stop notes it.
+    let cut = match &checkpoint {
+        GenerationCheckpoint::Request { attempt, sends, .. }
+            if task.abort_reason == Some(TaskAbortReason::Restart) =>
+        {
+            resend::cut_by_stop(&runtime, *attempt, *sends)?
+        }
+        GenerationCheckpoint::Prepare { .. }
+        | GenerationCheckpoint::Request { .. }
+        | GenerationCheckpoint::Retry { .. }
+        | GenerationCheckpoint::Poll { .. }
+        | GenerationCheckpoint::Tools { .. } => None,
+    };
     let commit_runtime = runtime.clone();
     runtime
         .commit(
@@ -943,6 +1017,9 @@ async fn abort(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
                 let runtime = commit_runtime;
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 convert_partial(&tx, &live, conversation_id).await?;
+                if let Some(effect) = &cut {
+                    note_unknown(&tx, conversation_id, effect).await?;
+                }
                 for call in &unstarted {
                     let result =
                         harness_error("aborted", &format!("Tool {} was aborted", call.name));

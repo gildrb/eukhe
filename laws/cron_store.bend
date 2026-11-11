@@ -116,7 +116,7 @@ def recover_spec.on(st: Cr.Status, once: Bool, nx: Maybe<&2, Nat>) -> CS.Back:
     case Cr.Active{}:
       match once:
         case True{}:
-          CS.Interrupted{Cr.Finished{}, None{}}
+          CS.Refire{}
         case False{}:
           CS.Interrupted{Cr.Active{}, nx}
     case Cr.Paused{}:
@@ -126,8 +126,9 @@ def recover_spec.on(st: Cr.Status, once: Bool, nx: Maybe<&2, Nat>) -> CS.Back:
     case Cr.Cancelled{}:
       CS.Kept{}
 
-# a cleared claim interrupts an active job's run: a one-shot is finished
-# with no next run, a repeating job keeps its next run; nothing else
+# a cleared claim interrupts an active job's run: a one-shot is fired again
+# (it stays active, due again at its cleared claim's occurrence, under its
+# original request id), a repeating job keeps its next run; nothing else
 # changes
 def recover_spec(f: CS.Fact, cleared: Bool) -> CS.Back:
   match f:

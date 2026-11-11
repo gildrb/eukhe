@@ -504,6 +504,9 @@ pub struct OpenedSession {
     /// move made another conversation the main).
     pub main: Conversation,
     pub deps: Arc<HostDeps>,
+    /// What the open does with the run its storage left unfinished
+    /// ([`SessionConfig::stored_work`]).
+    pub stored_work: StoredWork,
 }
 
 /// Stops a service; awaited by `EukheSession::close` before the Harness
@@ -646,7 +649,7 @@ impl HostDeps {
             host: config.host,
             kernel_python: config.kernel_python.clone(),
             kernel_unavailable: services.kernel_unavailable,
-            harness,
+            harness: harness.clone(),
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),
@@ -654,7 +657,7 @@ impl HostDeps {
             optchat: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
-            jobs: super::jobs::JobTable::default(),
+            jobs: super::jobs::JobTable::new(harness),
             state_tree: OnceLock::new(),
             tool_surface: super::tool_surface::ToolSurface::default(),
             auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices::default(),
