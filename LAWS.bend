@@ -149,6 +149,8 @@ import ./laws/redirect_input.bend as RedirectInput
 import ./laws/package_source/model.bend as PackageSource
 import ./laws/package_source/entry.bend as PackageSourceEntry
 import ./laws/refine_plan/model.bend as RefinePlan
+import ./laws/refine_plan/plan.bend as RefinePlanPlan
+import ./laws/refine_plan/walk.bend as RefinePlanWalk
 import ./laws/refine_plan/entry.bend as RefinePlanEntry
 import ./laws/glob.bend as Glob
 import ./laws/glob/entry.bend as GlobEntry
