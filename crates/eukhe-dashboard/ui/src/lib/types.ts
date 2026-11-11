@@ -107,7 +107,14 @@ export type SessionEvent =
   | { type: "turn_end"; error?: string }
   | { type: "prompt_progress"; progress: PromptProgress }
   | { type: "message_start"; message: Message; assistantMessageEvent?: StreamUpdate }
-  | { type: "message_update"; message: Message; assistantMessageEvent?: StreamUpdate }
+  | {
+      type: "message_update";
+      message: Message;
+      assistantMessageEvent?: StreamUpdate;
+      // The open reply's output tokens so far, counted by the daemon with
+      // the model's tokenizer; on the updates it recounted at.
+      outputTokens?: number;
+    }
   | { type: "message_end"; message: Message }
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
   | {

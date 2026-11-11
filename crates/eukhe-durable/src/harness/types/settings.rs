@@ -199,8 +199,8 @@ pub struct CompactionPolicy {
     /// How far below the blocking threshold background compaction starts.
     pub background: BackgroundMargin,
     /// Where the threshold check gets the input tokens of a request (the
-    /// window check and the cut). Stored policies without the field use
-    /// the local estimate.
+    /// window check and the cut). Stored policies without the field count
+    /// locally.
     #[serde(default)]
     pub token_count: ThresholdTokens,
 }
@@ -210,12 +210,16 @@ pub struct CompactionPolicy {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ThresholdTokens {
-    /// The local estimate of the context (no provider request).
+    /// The reading model's tokenizer counts the context locally (no
+    /// provider request). Stored as `estimate`, its name from when the
+    /// local count was a characters-per-token estimate, so builds before
+    /// and after read each other's policies.
     #[default]
-    Estimate,
+    #[serde(rename = "estimate")]
+    Local,
     /// The provider's own token counter (`count_tokens`): one more provider
     /// request per preparation. When the provider has no counter or the
-    /// count fails, the harness logs it and uses the local estimate.
+    /// count fails, the harness logs it and counts locally.
     Provider,
 }
 

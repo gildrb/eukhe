@@ -270,17 +270,19 @@ async fn invalid_source_options_end_the_call_with_an_error() {
     assert_eq!(setup.runs.all(), Vec::<String>::new());
 }
 
+/// The budget counts the reading model's tokens (`o200k_base` here: the
+/// catalog names no tokenizer for the faux model): each ` the` is one.
 #[tokio::test]
 async fn cuts_output_to_its_token_budget_and_reports_a_failed_spill() {
     let setup = setup();
     let message = run_script(
         &setup,
-        "// @options: {\"max_output_tokens\": 5}\ntext(\"a\".repeat(50) + \"b\".repeat(50));",
+        "// @options: {\"max_output_tokens\": 4}\ntext(\" the\".repeat(10));",
     )
     .await;
     assert_eq!(
         text(&message),
-        "Script completed\nWall time <t> seconds\nOutput:\nWarning: truncated output (original token count: 25)\nTotal output lines: 1\n\naaaaaaaaaa…20 tokens truncated…bbbbbbbbbb\n\n[Could not save the full output: no execution environment]"
+        "Script completed\nWall time <t> seconds\nOutput:\nWarning: truncated output (original token count: 10)\nTotal output lines: 1\n\n the the…6 tokens truncated… the the\n\n[Could not save the full output: no execution environment]"
     );
 }
 

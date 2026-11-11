@@ -25,6 +25,9 @@ eukhe-models = { path = "../eukhe-models" }
 eukhe-durable.workspace = true
 eukhe-ai.workspace = true
 eukhe-chord.workspace = true
+# The summarizer model's tokenizer: the summary requests' sizes for the
+# auxiliary-model routing and the branch summary's slice.
+eukhe-tokens.workspace = true
 eukhe-docs = { path = "../eukhe-docs" }
 # The `bash` tool's in-process interpreter and approval gate.
 eukhe-shell.workspace = true

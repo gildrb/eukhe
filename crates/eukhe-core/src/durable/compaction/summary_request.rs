@@ -1,76 +1,15 @@
 //! The summarization request: the history and turn-prefix summarizer
-//! request bodies (TS core/compaction/compaction.ts prompts), their size
-//! estimates (the one token estimate, [`eukhe_types::token_estimate`]),
-//! and the completion budgets of the two summary calls.
+//! request bodies (TS core/compaction/compaction.ts prompts), their sizes
+//! counted with the summarizer model's tokenizer, and the completion
+//! budgets of the two summary calls.
 
-use eukhe_types::ai::{
-    AssistantContentBlock, TextContent, UserContent, UserContentBlock, UserMessage,
-};
+use eukhe_tokens::Tokenizer;
+use eukhe_types::ai::{TextContent, UserContent, UserContentBlock, UserMessage};
 use eukhe_types::session::AgentMessage;
-use eukhe_types::token_estimate::{
-    chars_to_tokens, estimate_text_tokens, text_chars, ESTIMATED_IMAGE_CHARS,
-};
 use std::fmt::Write as _;
 
 use super::utils::{serialize_conversation, SUMMARIZATION_SYSTEM_PROMPT};
 use crate::durable::messages::convert_to_llm;
-
-/// Estimated tokens of one session message (TS `estimateTokens`): the
-/// characters of its text, thinking, tool calls (name and arguments),
-/// command and output, or summary, at the one token estimate.
-#[must_use]
-pub fn estimate_tokens(message: &AgentMessage) -> u64 {
-    let chars = match message {
-        AgentMessage::User(user) => match &user.content {
-            UserContent::Text(text) => text_chars(text),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .map(|block| match block {
-                    UserContentBlock::Text(text) => text_chars(&text.text),
-                    UserContentBlock::Image(_) | UserContentBlock::Raw(_) => 0,
-                })
-                .sum(),
-        },
-        AgentMessage::Assistant(assistant) => assistant
-            .content
-            .iter()
-            .map(|block| match block {
-                AssistantContentBlock::Text(text) => text_chars(&text.text),
-                AssistantContentBlock::Thinking(thinking) => text_chars(&thinking.thinking),
-                AssistantContentBlock::ToolCall(call) => {
-                    text_chars(&call.name)
-                        + serde_json::to_string(&call.arguments).map_or(0, |json| text_chars(&json))
-                }
-            })
-            .sum(),
-        AgentMessage::Custom(custom) => match &custom.content {
-            UserContent::Text(text) => text_chars(text),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .map(|block| match block {
-                    UserContentBlock::Text(text) => text_chars(&text.text),
-                    UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
-                    // Un-modeled blocks have no modeled size; TS sizes
-                    // only typed blocks, so estimate zero.
-                    UserContentBlock::Raw(_) => 0,
-                })
-                .sum(),
-        },
-        AgentMessage::ToolResult(result) => result
-            .content
-            .iter()
-            .map(|block| match block {
-                UserContentBlock::Text(text) => text_chars(&text.text),
-                UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
-                UserContentBlock::Raw(_) => 0,
-            })
-            .sum(),
-        AgentMessage::BashExecution(bash) => text_chars(&bash.command) + text_chars(&bash.output),
-        AgentMessage::BranchSummary(summary) => text_chars(&summary.summary),
-        AgentMessage::CompactionSummary(summary) => text_chars(&summary.summary),
-    };
-    chars_to_tokens(chars)
-}
 
 const SUMMARIZATION_PROMPT: &str = "The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.";
 
@@ -230,10 +169,9 @@ pub(crate) fn min_summary_input_tokens(context_window: u64) -> u64 {
 }
 
 /// The conversation input of ONE summarization call: the summarizer's
-/// window, discounted to 0.8
-/// because the provider's tokenizer disagrees with the local estimate,
-/// minus the summary it emits (`max_tokens`) and the previous summary and
-/// prompt it carries.
+/// window, discounted to 0.8 because the provider's tokenizer disagrees
+/// with the local count by a few percent, minus the summary it emits
+/// (`max_tokens`) and the previous summary and prompt it carries.
 pub(crate) fn summary_input_budget_tokens(context_window: u64, max_tokens: u64) -> u64 {
     let window = summary_input_window(context_window);
     (window.saturating_mul(4) / 5)
@@ -242,7 +180,7 @@ pub(crate) fn summary_input_budget_tokens(context_window: u64, max_tokens: u64) 
         .max(min_summary_input_tokens(context_window))
 }
 
-/// Clamp one serialized window of `tokens` estimated tokens to
+/// Clamp one serialized window of `tokens` counted tokens to
 /// `budget_tokens`: only a single message
 /// above the budget (an oversized paste) gets here, and the alternative is
 /// a summarizer rejection no retry can clear, which strands the session
@@ -256,7 +194,7 @@ pub(crate) fn clamp_conversation_to_budget(
     if tokens <= budget_tokens {
         return text;
     }
-    let length = text_chars(&text);
+    let length = text.encode_utf16().count() as u64;
     let keep = u64::try_from(
         u128::from(length) * u128::from(budget_tokens) * 95 / (u128::from(tokens) * 100),
     )
@@ -283,18 +221,19 @@ pub(crate) fn clamp_conversation_to_budget(
 }
 
 /// Partition `messages` (already converted for the model) into windows
-/// whose serializations each fit `budget_tokens`, splitting on message
-/// boundaries; a single message above the
-/// budget is a window of its own.
+/// whose serializations each fit `budget_tokens` under the summarizer
+/// model's `tokenizer`, splitting on message boundaries; a single message
+/// above the budget is a window of its own.
 pub(crate) fn plan_summary_windows(
     messages: Vec<AgentMessage>,
+    tokenizer: &Tokenizer,
     budget_tokens: u64,
 ) -> Vec<Vec<AgentMessage>> {
     let mut windows = Vec::new();
     let mut current: Vec<AgentMessage> = Vec::new();
     let mut current_tokens = 0u64;
     for message in messages {
-        let tokens = estimate_text_tokens(&serialize_conversation(std::slice::from_ref(&message)));
+        let tokens = tokenizer.count_text(&serialize_conversation(std::slice::from_ref(&message)));
         if current_tokens > 0 && current_tokens + tokens > budget_tokens {
             windows.push(std::mem::take(&mut current));
             current_tokens = 0;
@@ -308,13 +247,13 @@ pub(crate) fn plan_summary_windows(
     windows
 }
 
-/// The tokens the summarizer request text occupies at the one token
-/// estimate (TS #2411's estimator math): the request is user text only.
-pub(crate) fn summarizer_request_tokens(request: &[AgentMessage]) -> u64 {
-    let chars = request
+/// The tokens the summarizer request text occupies under the summarizer
+/// model's `tokenizer`: the request is user text only.
+pub(crate) fn summarizer_request_tokens(tokenizer: &Tokenizer, request: &[AgentMessage]) -> u64 {
+    request
         .iter()
         .map(|message| match message {
-            AgentMessage::User(user) => text_chars(&user.content.text()),
+            AgentMessage::User(user) => tokenizer.count_text(&user.content.text()),
             AgentMessage::Assistant(_)
             | AgentMessage::Custom(_)
             | AgentMessage::ToolResult(_)
@@ -322,24 +261,28 @@ pub(crate) fn summarizer_request_tokens(request: &[AgentMessage]) -> u64 {
             | AgentMessage::BranchSummary(_)
             | AgentMessage::CompactionSummary(_) => 0,
         })
-        .sum();
-    chars_to_tokens(chars)
+        .sum()
 }
 
-/// Estimate the context window the compaction's summary calls need (TS
-/// #2411's `estimateSummaryRequestTokens`): the exact request bodies
-/// through the same builders as the wire calls
-/// ([`build_summarization_request`], [`build_turn_prefix_request`]), the
-/// one token estimate, the shared system prompt, and each call's
-/// completion budget — the largest slice wins, because routing must fit
-/// every request the compaction will issue. `history` and `turn_prefix`
-/// are the messages the run will summarize (the compaction run's slices).
-/// `recent_state_anchor` mirrors the anchor block the history wire request
-/// always carries when the kept tail has assistant text (TS follow-up
-/// 771611b14): an estimate without it would accept an auxiliary model
-/// whose window fits the underestimate while the real request goes
-/// over-limit.
-pub fn estimate_summary_request_tokens(
+/// The context window the compaction's summary calls need (TS #2411's
+/// `estimateSummaryRequestTokens`), counted with the summarizer model's
+/// `tokenizer`: the exact request bodies through the same builders as the
+/// wire calls ([`build_summarization_request`],
+/// [`build_turn_prefix_request`]), the shared system prompt, and each
+/// call's completion budget — the largest slice wins, because routing must
+/// fit every request the compaction will issue. `history` and
+/// `turn_prefix` are the messages the run will summarize (the compaction
+/// run's slices). `recent_state_anchor` mirrors the anchor block the
+/// history wire request always carries when the kept tail has assistant
+/// text (TS follow-up 771611b14): a count without it would accept an
+/// auxiliary model whose window fits the smaller size while the real
+/// request goes over-limit.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the summary request's inputs, as the wire builders take them, and the counting model"
+)]
+pub fn summary_request_tokens(
+    tokenizer: &Tokenizer,
     history: &[AgentMessage],
     turn_prefix: &[AgentMessage],
     is_split_turn: bool,
@@ -348,7 +291,7 @@ pub fn estimate_summary_request_tokens(
     custom_instructions: Option<&str>,
     reserve_tokens: u64,
 ) -> u64 {
-    let system_prompt_tokens = estimate_text_tokens(SUMMARIZATION_SYSTEM_PROMPT);
+    let system_prompt_tokens = tokenizer.count_text(SUMMARIZATION_SYSTEM_PROMPT);
     let mut required = 0u64;
     // The history slice runs for every compaction except a split turn
     // whose kept cut leaves no history ("No prior history." is a literal
@@ -364,7 +307,7 @@ pub fn estimate_summary_request_tokens(
         );
         required = required.max(
             system_prompt_tokens
-                + summarizer_request_tokens(&request)
+                + summarizer_request_tokens(tokenizer, &request)
                 + history_summary_completion_budget(reserve_tokens),
         );
     }
@@ -375,7 +318,7 @@ pub fn estimate_summary_request_tokens(
         let request = build_turn_prefix_request(turn_prefix);
         required = required.max(
             system_prompt_tokens
-                + summarizer_request_tokens(&request)
+                + summarizer_request_tokens(tokenizer, &request)
                 + turn_prefix_summary_completion_budget(reserve_tokens),
         );
     }
@@ -392,12 +335,6 @@ mod tests {
             timestamp: 0,
             rest: serde_json::Map::default(),
         })
-    }
-
-    /// 8 chars at 3.5 chars per token are 3 tokens (chars/4 made 2).
-    #[test]
-    fn token_estimation() {
-        assert_eq!(estimate_tokens(&user("12345678")), 3);
     }
 
     /// A window above its budget keeps the share of its characters the
@@ -435,20 +372,30 @@ mod tests {
         );
     }
 
-    /// Windows split on message boundaries under the budget; a message
-    /// above it is a window of its own. The
-    /// input budget is 0.8 of the window less the summary's and the
-    /// carried summary's reserves, never below the floor.
+    /// Windows split on message boundaries under the budget, counted with
+    /// the summarizer's tokenizer; a message above it is a window of its
+    /// own. The input budget is 0.8 of the window less the summary's and
+    /// the carried summary's reserves, never below the floor.
     #[test]
     fn summary_windows_fit_their_budget() {
-        let small = || user(&"x".repeat(35));
+        let tokenizer = Tokenizer::unknown_model();
+        let serialized_tokens = |message: &AgentMessage| {
+            tokenizer.count_text(&serialize_conversation(std::slice::from_ref(message)))
+        };
+        let small = || user(&" x".repeat(10));
+        let large = user(&" y".repeat(1_000));
+        // Two small messages fill the budget exactly; the large one alone
+        // is past it.
+        let budget = 2 * serialized_tokens(&small());
+        assert!(serialized_tokens(&large) > budget);
         let windows = plan_summary_windows(
-            vec![small(), small(), user(&"y".repeat(3_500)), small()],
-            30,
+            vec![small(), small(), large.clone(), small()],
+            &tokenizer,
+            budget,
         );
         assert_eq!(
-            windows.iter().map(Vec::len).collect::<Vec<_>>(),
-            vec![2, 1, 1]
+            windows,
+            vec![vec![small(), small()], vec![large], vec![small()]]
         );
         assert_eq!(summary_input_budget_tokens(1_000_000, 13_107), 770_509);
         assert_eq!(summary_input_budget_tokens(0, 13_107), 130_509);
@@ -457,29 +404,22 @@ mod tests {
         assert_eq!(min_summary_input_tokens(4_000), 1_024);
     }
 
-    /// Summary routing sizes the request with the estimate the compaction
-    /// threshold uses (`eukhe_ai::utils::estimate`), not its own chars/4:
-    /// the system prompt, the request body, and the completion budget.
+    /// Summary routing sizes the request with the summarizer model's
+    /// tokenizer: the system prompt, the request body, and the completion
+    /// budget.
     #[test]
-    fn summary_routing_uses_the_threshold_estimate() {
+    fn summary_routing_counts_with_the_summarizer_tokenizer() {
+        let tokenizer = Tokenizer::unknown_model();
         let history = vec![user(&"0123456".repeat(100))];
         let request = build_summarization_request(&history, None, None, None, 1_000);
         let AgentMessage::User(prompt) = &request[0] else {
             panic!("the summarization request is a single user message");
         };
-        let as_model = |text: String| {
-            eukhe_types::pi_ai::Message::User(eukhe_types::pi_ai::UserMessage {
-                content: eukhe_types::pi_ai::UserContent::Text(text),
-                timestamp: 0,
-            })
-        };
         assert_eq!(
-            estimate_summary_request_tokens(&history, &[], false, None, None, None, 1_000),
-            eukhe_ai::utils::estimate::estimate_message_tokens(&as_model(
-                SUMMARIZATION_SYSTEM_PROMPT.to_owned()
-            )) + eukhe_ai::utils::estimate::estimate_message_tokens(&as_model(
-                prompt.content.text()
-            )) + 800
+            summary_request_tokens(&tokenizer, &history, &[], false, None, None, None, 1_000),
+            tokenizer.count_text(SUMMARIZATION_SYSTEM_PROMPT)
+                + tokenizer.count_text(&prompt.content.text())
+                + 800
         );
     }
 
@@ -577,57 +517,90 @@ mod tests {
         }
     }
 
-    /// The window estimate covers the exact wire bodies the compaction
-    /// will issue (TS #2411's `estimateSummaryRequestTokens`): a split
-    /// turn estimates BOTH the history request and the turn-prefix
-    /// request (each with the shared system prompt and its own
-    /// completion budget), and the no-history split arm estimates only the
-    /// prefix call.
+    /// The window count covers the exact wire bodies the compaction will
+    /// issue (TS #2411's `estimateSummaryRequestTokens`): a split turn
+    /// counts BOTH the history request and the turn-prefix request (each
+    /// with the shared system prompt and its own completion budget), and
+    /// the no-history split arm counts only the prefix call.
     #[test]
-    fn summary_window_estimate_covers_both_split_requests() {
+    fn summary_window_count_covers_both_split_requests() {
+        let tokenizer = Tokenizer::unknown_model();
+        let count = |history: &[AgentMessage],
+                     turn_prefix: &[AgentMessage],
+                     is_split_turn: bool,
+                     anchors: [Option<&str>; 3],
+                     reserve: u64| {
+            let [previous, anchor, custom] = anchors;
+            summary_request_tokens(
+                &tokenizer,
+                history,
+                turn_prefix,
+                is_split_turn,
+                previous,
+                anchor,
+                custom,
+                reserve,
+            )
+        };
         let history = vec![user("some history to summarize")];
         let turn_prefix = vec![user(&"a very long turn prefix ".repeat(2_000))];
-        let full =
-            estimate_summary_request_tokens(&history, &turn_prefix, true, None, None, None, 10_000);
-        let history_only =
-            estimate_summary_request_tokens(&history, &[], false, None, None, None, 10_000);
-        let prefix_only =
-            estimate_summary_request_tokens(&[], &turn_prefix, true, None, None, None, 10_000);
-        // A split turn must fit every request it will issue: the estimate
-        // is the larger of the two arms' estimates (each with the shared
-        // system prompt and its own completion budget).
+        let full = count(&history, &turn_prefix, true, [None; 3], 10_000);
+        let history_only = count(&history, &[], false, [None; 3], 10_000);
+        let prefix_only = count(&[], &turn_prefix, true, [None; 3], 10_000);
+        // A split turn must fit every request it will issue: the count is
+        // the larger of the two arms' (each with the shared system prompt
+        // and its own completion budget).
         assert_eq!(full, history_only.max(prefix_only));
         assert!(full > history_only);
         // The previous summary, the recency anchor, and the custom
-        // instructions grow the history request, so they grow the
-        // estimate.
-        let with_anchors = estimate_summary_request_tokens(
+        // instructions grow the history request, so they grow the count.
+        let with_anchors = count(
             &history,
             &[],
             false,
-            Some("the previous summary text"),
-            Some("the newest kept-tail assistant text"),
-            Some("focus on the goal"),
+            [
+                Some("the previous summary text"),
+                Some("the newest kept-tail assistant text"),
+                Some("focus on the goal"),
+            ],
             10_000,
         );
         assert!(with_anchors > history_only);
-        // The recency anchor alone grows the estimate (TS follow-up
-        // 771611b14: the estimator mirrors the anchor block the wire
-        // request carries).
-        let with_anchor = estimate_summary_request_tokens(
+        // The recency anchor alone grows the count (TS follow-up
+        // 771611b14: the count mirrors the anchor block the wire request
+        // carries).
+        let with_anchor = count(
             &history,
             &[],
             false,
-            None,
-            Some("the newest kept-tail assistant text"),
-            None,
+            [None, Some("the newest kept-tail assistant text"), None],
             10_000,
         );
         assert!(with_anchor > history_only);
         // The completion budgets draw on the reserve: a larger reserve
-        // grows the estimate.
-        let bigger_reserve =
-            estimate_summary_request_tokens(&history, &[], false, None, None, None, 100_000);
+        // grows the count.
+        let bigger_reserve = count(&history, &[], false, [None; 3], 100_000);
         assert!(bigger_reserve > history_only);
+    }
+
+    /// CJK text is counted, not guessed at 3.5 characters per token: a
+    /// history of 200,000 CJK characters, which that guess put at 57,143
+    /// tokens, is counted past a 128,000-token window.
+    #[test]
+    fn a_cjk_history_is_counted_past_the_window_its_estimate_fit() {
+        let cjk: String = (0..200_000u32)
+            .filter_map(|i| char::from_u32(0x4E00 + (i * 7919 % 0x5200)))
+            .collect();
+        let required = summary_request_tokens(
+            &Tokenizer::unknown_model(),
+            &[user(&cjk)],
+            &[],
+            false,
+            None,
+            None,
+            None,
+            1_000,
+        );
+        assert!(required > 128_000, "{required}");
     }
 }

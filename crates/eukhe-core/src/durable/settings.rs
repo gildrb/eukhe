@@ -508,7 +508,7 @@ fn load(
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
 ///   compaction policy; `compaction.providerTokenCount` -> where its
 ///   window check gets the request's input tokens (the provider's own
-///   counter when on, else the local estimate).
+///   counter when on, else the session model's tokenizer, locally).
 /// - `steeringMode` / `followUpMode` -> the queue modes.
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
@@ -548,7 +548,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             token_count: Some(if manager.get_compaction_provider_token_count() {
                 ThresholdTokens::Provider
             } else {
-                ThresholdTokens::Estimate
+                ThresholdTokens::Local
             }),
         }),
         progress: None,
@@ -637,7 +637,7 @@ mod tests {
         assert_eq!(resolved.steering_mode, QueueMode::All);
         assert_eq!(resolved.follow_up_mode, QueueMode::OneAtATime);
         assert_eq!(resolved.stream, ConversationStreamOptions::default());
-        assert_eq!(resolved.compaction.token_count, ThresholdTokens::Estimate);
+        assert_eq!(resolved.compaction.token_count, ThresholdTokens::Local);
     }
 
     #[test]

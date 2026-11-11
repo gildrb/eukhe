@@ -207,6 +207,8 @@ impl WorkerPane {
                 message,
                 streaming,
                 stream_event,
+                // The pane shows no token count.
+                output_tokens: _,
             } => self.assistant(&message, streaming, stream_event.as_ref()),
             TurnUpdate::ToolExecutionStart {
                 tool_call_id,

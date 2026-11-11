@@ -5,12 +5,14 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::future::Future;
+use std::sync::Arc;
 
 use base64::alphabet;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
 use eukhe_chord::json::JsonValue;
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::{ImageContent, TextContent, UserContentBlock};
 
 use super::types::{
@@ -26,8 +28,6 @@ use crate::session::SessionError;
 const LINE_MARGIN: i64 = 100;
 /// Default token budget for script output.
 pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 10_000;
-/// Characters per token when estimating.
-const CHARS_PER_TOKEN: u64 = 4;
 
 /// JS `atob`: the standard alphabet, padding optional, non-zero trailing
 /// bits accepted (ASCII whitespace is stripped before decoding).
@@ -79,6 +79,9 @@ pub(crate) struct FormatOptions<'a> {
     /// The run's tool calls, for the failure summary.
     pub(crate) calls: &'a [CodemodeNestedCall],
     pub(crate) limits: OutputLimits,
+    /// The tokenizer of the model that reads the result: it counts the
+    /// token budget.
+    pub(crate) tokenizer: Arc<Tokenizer>,
 }
 
 /// The tool result's content, and the path of the complete text when it was
@@ -146,11 +149,44 @@ fn js_slice(len: usize, start: i64, end: Option<i64>) -> std::ops::Range<usize> 
     usize::try_from(start).unwrap_or(0)..usize::try_from(end).unwrap_or(0)
 }
 
-/// JS `Math.ceil(units / CHARS_PER_TOKEN)`.
-fn tokens(units: i64) -> i64 {
-    let per_token = i64::try_from(CHARS_PER_TOKEN).unwrap_or(i64::MAX);
-    // Ceiling division: `ceil(a / b) == -floor(-a / b)` for `b > 0`.
-    -(-units).div_euclid(per_token)
+/// Which end of a text [`within_tokens`] keeps.
+#[derive(Debug, Clone, Copy)]
+enum End {
+    Head,
+    Tail,
+}
+
+/// The longest start ([`End::Head`]) or end ([`End::Tail`]) of `text`
+/// within `budget` tokens of `tokenizer`, cut at a character: the kept
+/// length is bisected on the exact count. The probes count through the
+/// encoding, outside the tokenizer's cache: each is a different text, never
+/// seen again.
+fn within_tokens<'t>(text: &'t str, budget: u64, end: End, tokenizer: &Tokenizer) -> &'t str {
+    let encoding = tokenizer.encoding();
+    if u64::from(encoding.count(text)) <= budget {
+        return text;
+    }
+    let boundaries: Vec<usize> = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain([text.len()])
+        .collect();
+    let chars = boundaries.len() - 1;
+    let keep = |kept: usize| match end {
+        End::Head => &text[..boundaries[kept]],
+        End::Tail => &text[boundaries[chars - kept]..],
+    };
+    // `keep(low)` fits, `keep(high)` does not.
+    let (mut low, mut high) = (0, chars);
+    while high - low > 1 {
+        let mid = low + (high - low) / 2;
+        if u64::from(encoding.count(keep(mid))) <= budget {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    keep(low)
 }
 
 /// JS `x.toFixed(1)`: an exact tie rounds to the larger neighbour, where
@@ -265,13 +301,15 @@ fn join_adjacent_text(items: Vec<Item>) -> Vec<Item> {
     joined
 }
 
-/// Apply the token budget: when the combined text exceeds it, the text
-/// items become one item that keeps the start and end of the text, and
-/// images follow it. The complete text is written to `output.txt`.
+/// Apply the token budget (`max_tokens` of `tokenizer`) and the byte and
+/// line limits: when the combined text exceeds one, the text items become
+/// one item that keeps the start and end of the text, and images follow
+/// it. The complete text is written to `output.txt`.
 async fn truncate<W: OutputFiles>(
     items: Vec<Item>,
     max_tokens: u64,
     limits: OutputLimits,
+    tokenizer: &Tokenizer,
     files: &W,
 ) -> (Vec<Item>, Option<String>) {
     let texts: Vec<&str> = items
@@ -286,47 +324,54 @@ async fn truncate<W: OutputFiles>(
     }
     let combined = texts.join("\n");
     let length = utf16_len(&combined);
-    // Within the limits too: a UTF-16 unit is at most 3 UTF-8 bytes, and the
-    // rest of the result is a few short lines.
-    let budget = max_tokens
-        .saturating_mul(CHARS_PER_TOKEN)
-        .min(limits.max_bytes as u64 / 4);
+    // Within the byte limit too: a UTF-16 unit is at most 3 UTF-8 bytes,
+    // and the rest of the result is a few short lines.
+    let max_units = limits.max_bytes as u64 / 4;
     let max_lines = i64::try_from(limits.max_lines).unwrap_or(i64::MAX);
     let line_budget = (max_lines - LINE_MARGIN).div_euclid(2);
     let lines: Vec<&str> = combined.split('\n').collect();
     let line_count = i64::try_from(lines.len()).unwrap_or(i64::MAX);
-    if (length as u64) <= budget && line_count <= 2 * line_budget {
+    if (length as u64) <= max_units
+        && line_count <= 2 * line_budget
+        && tokenizer.check_token_budget(&[&combined], max_tokens).fits
+    {
         return (items, None);
     }
-    let head_chars = budget / 2;
-    let tail_chars = budget - head_chars;
-    let head_lines: Vec<&str> =
-        utf16_prefix(&combined, usize::try_from(head_chars).unwrap_or(usize::MAX))
-            .split('\n')
-            .collect();
+    let head_tokens = max_tokens / 2;
+    let tail_tokens = max_tokens - head_tokens;
+    let head_units = max_units / 2;
+    let tail_units = max_units - head_units;
+    let head_lines: Vec<&str> = within_tokens(
+        utf16_prefix(&combined, usize::try_from(head_units).unwrap_or(usize::MAX)),
+        head_tokens,
+        End::Head,
+        tokenizer,
+    )
+    .split('\n')
+    .collect();
     let head = head_lines[js_slice(head_lines.len(), 0, Some(line_budget))].join("\n");
-    let tail = if tail_chars > 0 {
-        let tail_lines: Vec<&str> =
-            utf16_suffix(&combined, usize::try_from(tail_chars).unwrap_or(usize::MAX))
-                .split('\n')
-                .collect();
+    let tail = if tail_tokens > 0 {
+        let tail_lines: Vec<&str> = within_tokens(
+            utf16_suffix(&combined, usize::try_from(tail_units).unwrap_or(usize::MAX)),
+            tail_tokens,
+            End::Tail,
+            tokenizer,
+        )
+        .split('\n')
+        .collect();
         tail_lines[js_slice(tail_lines.len(), -line_budget, None)].join("\n")
     } else {
         String::new()
     };
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "UTF-16 lengths of in-memory text are far below `i64::MAX`"
-    )]
-    let removed = length as i64 - utf16_len(&head) as i64 - utf16_len(&tail) as i64;
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "UTF-16 lengths of in-memory text are far below `i64::MAX`"
-    )]
-    let original_tokens = tokens(length as i64);
+    let original_tokens = tokenizer.count_text(&combined);
+    // The head is a start and the tail an end of the text: the cut is the
+    // text between them (none when the line limit alone cut and they
+    // overlap).
+    let removed = combined
+        .get(head.len()..combined.len().saturating_sub(tail.len()))
+        .map_or(0, |middle| tokenizer.count_text(middle));
     let mut text = format!(
-        "Warning: truncated output (original token count: {original_tokens})\nTotal output lines: {line_count}\n\n{head}…{} tokens truncated…{tail}",
-        tokens(removed)
+        "Warning: truncated output (original token count: {original_tokens})\nTotal output lines: {line_count}\n\n{head}…{removed} tokens truncated…{tail}"
     );
     let spilled = files.write("output.txt", combined.as_bytes()).await;
     let full_output_path = match spilled {
@@ -490,6 +535,7 @@ pub(crate) async fn format_result<W: OutputFiles>(
         join_adjacent_text(items),
         options.max_output_tokens,
         options.limits,
+        &options.tokenizer,
         files,
     )
     .await;
@@ -591,6 +637,7 @@ mod tests {
             max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
             calls,
             limits: LIMITS,
+            tokenizer: Tokenizer::unknown_model(),
         }
     }
 
@@ -702,24 +749,25 @@ mod tests {
     #[tokio::test]
     async fn truncates_to_the_token_budget_and_spills_the_text() {
         let files = FakeFiles::new(Writes::Succeed);
-        let result = completed(None, vec![script("0123456789abcdefghij")]);
+        let result = completed(None, vec![script(&" the".repeat(10))]);
         let options = FormatOptions {
-            max_output_tokens: 2,
+            max_output_tokens: 4,
             ..options(&[])
         };
+        // Each ` the` is one token: two at each end, six cut.
         assert_eq!(
             format_result(&result, options, &files).await,
             FormattedResult {
                 content: vec![
                     text(COMPLETED),
-                    text("Warning: truncated output (original token count: 5)\nTotal output lines: 1\n\n0123…3 tokens truncated…ghij\n\n[Full output: /tmp/out/output.txt (read with offset/limit)]"),
+                    text("Warning: truncated output (original token count: 10)\nTotal output lines: 1\n\n the the…6 tokens truncated… the the\n\n[Full output: /tmp/out/output.txt (read with offset/limit)]"),
                 ],
                 full_output_path: Some("/tmp/out/output.txt".to_owned()),
             }
         );
         assert_eq!(
             files.written(),
-            vec![("output.txt".to_owned(), b"0123456789abcdefghij".to_vec())]
+            vec![("output.txt".to_owned(), " the".repeat(10).into_bytes())]
         );
     }
 
@@ -743,7 +791,7 @@ mod tests {
             FormattedResult {
                 content: vec![
                     text(COMPLETED),
-                    text("Warning: truncated output (original token count: 3)\nTotal output lines: 5\n\n1\n2…1 tokens truncated…4\n5\n\n[Could not save the full output: disk full]\n[Image (image/gif, 3 bytes) could not be saved: disk full]"),
+                    text("Warning: truncated output (original token count: 9)\nTotal output lines: 5\n\n1\n2…3 tokens truncated…4\n5\n\n[Could not save the full output: disk full]\n[Image (image/gif, 3 bytes) could not be saved: disk full]"),
                     image_block("AAEC", "image/gif"),
                 ],
                 full_output_path: None,

@@ -18,16 +18,17 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let supervisor = spawn_supervisor(dir.path());
 
-    // Two ~12k-token fillers (chars/4 estimate), unpaced: the faux provider
-    // streams each as ~3000 full-partial deltas as fast as it can. Every
-    // ~250-word segment carries a MARK-nn marker so mid-turn frames prove
-    // the applied content progressed instead of jumping once at turn end.
+    // Two ~6k-token fillers (the faux provider counts with o200k_base: one
+    // token per " history"), unpaced: the faux provider streams each as
+    // ~3000 full-partial deltas as fast as it can. Every ~250-word segment
+    // carries a MARK-nn marker so mid-turn frames prove the applied content
+    // progressed instead of jumping once at turn end.
     let mut filler = String::new();
     for segment in 0..24 {
         let _ = write!(filler, "MARK-{segment:02} ");
         filler.push_str(&"history ".repeat(250));
     }
-    // Paced at 3000 tokens/second so the ~12k-token turn streams for
+    // Paced at 1500 tokens/second so the ~6k-token turn streams for
     // ~4s: the mid-turn marker-progression assertion needs several wire
     // updates inside the turn (an unpaced faux finishes in ~0.3s and the
     // whole stream lands in a handful of frames). The settle bound is
@@ -42,7 +43,7 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     // The mid-turn marker progression below is the content proof.
     let script = serde_json::json!({
         "engine": "faux",
-        "tokensPerSecond": 3_000,
+        "tokensPerSecond": 1_500,
         "responses": [
             { "text": filler.clone() },
             { "text": format!("{filler}second big turn done, tail marker intact") },
@@ -174,8 +175,8 @@ async fn tui_headless_run_ends_only_after_the_paced_reply_shows_whole() {
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let supervisor = spawn_supervisor(dir.path());
-    // ~24k characters (~6k tokens) streamed at 20k tokens/second: the
-    // message streams (so it is paced) for ~0.3s, far faster than the
+    // ~24k characters (~4k tokens) streamed at 20k tokens/second: the
+    // message streams (so it is paced) for ~0.2s, far faster than the
     // pace shows it, so thousands of characters are backlog at the
     // stream's end and the drain takes dozens of frames.
     let reply = format!("PACE-HEAD {}PACE-TAIL shown", "paced ".repeat(4_000));

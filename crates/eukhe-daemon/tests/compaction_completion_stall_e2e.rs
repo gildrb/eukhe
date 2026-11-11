@@ -1001,9 +1001,9 @@ fn interrupted_threshold_compaction_settles_consistent() {
     // The interrupted run left the session usable: the next prompt's turn
     // served against a consistent context — either the un-compacted bulk
     // or the summary of a LEGITIMATE post-abort compaction at the prompt's
-    // own pre-turn boundary (the crossing turn's usage is still the
-    // context estimate anchor, so the threshold arm fires again on the
-    // newly admitted prompt). Neither loses work to the interrupt.
+    // own pre-turn boundary (the crossing turn's usage still anchors the
+    // context size, so the threshold arm fires again on the newly
+    // admitted prompt). Neither loses work to the interrupt.
     let un_compacted =
         (0..FATTENING_TURNS).all(|kept| request_text.contains(&format!("fatten-{kept}-")));
     let legitimately_compacted = request_text.contains(CHECKPOINT_SUMMARY);

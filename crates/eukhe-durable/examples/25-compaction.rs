@@ -90,10 +90,11 @@ fn respond(script: &Arc<Script>) -> FauxResponseStep {
             .iter()
             .rev()
             .find(|message| matches!(message, Message::User(_)));
+        // About 400 tokens: each " details" is one token of the model's tokenizer.
         let answer = format!(
             "A detailed answer to \"{}\": {}",
             text(question),
-            "details ".repeat(200)
+            "details ".repeat(400)
         );
         async move {
             if let Some(held) = held {

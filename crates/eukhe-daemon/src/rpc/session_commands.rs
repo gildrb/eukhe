@@ -24,7 +24,7 @@ use super::reads::{
 };
 use super::session::RpcEngineRequest;
 use crate::session_export::durable::export_html as export_session_html;
-use crate::state_getters::context_usage;
+use crate::state_getters::{context_usage, ContextMeter};
 use crate::worker::durable_host::meta::set_session_name as persist_session_name;
 use crate::worker::durable_host::wire_messages::transcript_messages;
 
@@ -405,9 +405,11 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, RpcCom
     {
         object.extend(counts);
     }
-    let context_window = agent_model(session, &agent).map_or(0, |model| model.context_window);
-    if context_window > 0 {
-        session_stats["contextUsage"] = context_usage(&view, context_window);
+    if let Some(meter) = agent_model(session, &agent)
+        .as_ref()
+        .and_then(ContextMeter::of_model)
+    {
+        session_stats["contextUsage"] = context_usage(&view, &meter);
     }
     Ok(ResponseData::Present(session_stats))
 }

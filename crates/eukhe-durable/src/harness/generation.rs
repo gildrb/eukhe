@@ -29,6 +29,7 @@ use eukhe_ai::types::{
     DeferredCancelOptions, DeferredFetchOptions, DeferredRequest, DeferredWindow,
     ProviderRequestOptions,
 };
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_ai::utils::retry::{
     is_retryable_assistant_error, repeated_lines, retry_wait, stalled_idle_ms, RetryDelay,
@@ -41,6 +42,7 @@ use eukhe_bend::rules::infer_threshold::Over;
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::to_json;
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, DeferredHandle, Message, Model, ModelThinkingLevel,
     StopReason, ThinkingLevel, ToolCall, ToolChoice, UserContent, UserMessage,
@@ -63,9 +65,7 @@ use self::round::{
 use self::stop::Facts;
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
-use crate::harness::compaction::{
-    estimate_calibrated, estimate_context, last_turn_tokens, plan, select_cut, Calibration,
-};
+use crate::harness::compaction::{context_tokens, last_turn_tokens, plan, select_cut};
 use crate::harness::inbox::{
     apply_boundary, has_queued_reset, has_queued_summary, prepare_boundary, Boundary, BoundaryAt,
     INBOX_DOC,
@@ -461,9 +461,11 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
             None
         }
     };
+    let tokenizer = model_tokenizer(&resolved);
     let input = PromptInput {
         conversation_id,
         agent: Arc::clone(&agent),
+        tokenizer: Arc::clone(&tokenizer),
         env,
         shown,
         read: Arc::new(runtime.clone()),
@@ -487,12 +489,11 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         ThresholdTokens::Provider if checks => {
             Some(provider_tokens(&runtime, &resolved, &settings.stream, &view, &entries).await)
         }
-        ThresholdTokens::Provider | ThresholdTokens::Estimate => None,
+        ThresholdTokens::Provider | ThresholdTokens::Local => None,
     };
     let threshold = if at.compacted {
         None
     } else {
-        let calibration = Calibration::of(&view);
         // The thresholds read the context the previous turn reached, at the
         // first request of a run (as omp compacts after a turn ends); the
         // later requests of a run only have to stay within the window, so
@@ -506,11 +507,11 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
             &view,
             resolved.context_window,
             policy,
-            calibration,
+            &tokenizer,
             last,
             || {
                 counted.unwrap_or_else(|| {
-                    estimate_calibrated(&view, &planned_messages(&entries), calibration)
+                    context_tokens(&view, &planned_messages(&entries), &tokenizer)
                 })
             },
         )
@@ -1006,14 +1007,14 @@ fn threshold_compaction(
     view: &ContextView,
     context_window: u64,
     policy: &CompactionPolicy,
-    calibration: Calibration,
+    tokenizer: &Tokenizer,
     last: u64,
     tokens: impl FnOnce() -> u64,
 ) -> Option<Threshold> {
     if !policy.enabled || context_window == 0 {
         return None;
     }
-    match plan(view, policy, context_window, tokens(), last, calibration).over {
+    match plan(view, policy, context_window, tokens(), last, tokenizer).over {
         Over::Under => None,
         Over::Background => Some(Threshold::Background),
         Over::Blocking => Some(Threshold::Blocking),
@@ -1034,8 +1035,8 @@ fn planned_messages(planned: &[SystemDraft]) -> Vec<Message> {
 /// takes the request options of the stream (`stream`: timeout, retries,
 /// headers), so it obeys the same limits and sends the same headers. When
 /// the provider has no counter or the count fails, this logs a warning and
-/// returns the local estimate: the caller asked for that choice, so it is
-/// never silent.
+/// returns the local tokenizer count: the caller asked for that choice, so
+/// it is never silent.
 #[tracing::instrument(skip_all, fields(provider = %model.provider, model = %model.id))]
 async fn provider_tokens(
     runtime: &Runtime,
@@ -1074,9 +1075,9 @@ async fn provider_tokens(
                 provider = %model.provider,
                 model = %model.id,
                 %error,
-                "provider token count failed; the compaction threshold uses the local estimate"
+                "provider token count failed; the compaction threshold uses the local count"
             );
-            estimate_context(view, &extra)
+            context_tokens(view, &extra, &model_tokenizer(model))
         }
     }
 }
@@ -1476,6 +1477,9 @@ async fn classify(
                             .await?,
                         &settings.compaction,
                         window,
+                        &model
+                            .as_ref()
+                            .map_or_else(Tokenizer::unknown_model, model_tokenizer),
                     )
                     .is_some();
                 let level = runtime.agent(cx).await?.thinking_level;
@@ -1729,9 +1733,11 @@ async fn classify(
     } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {
         // An overflow is never retried: only a compaction can make the next
         // request fit.
-        let cut = compacted.is_none()
-            && settings.compaction.enabled
-            && select_cut(
+        let cut = compacted.is_none() && settings.compaction.enabled && {
+            let model = runtime
+                .models()
+                .get_model(&request.model.provider, &request.model.model_id);
+            select_cut(
                 &runtime
                     .context(
                         conversation_id,
@@ -1742,12 +1748,13 @@ async fn classify(
                     )
                     .await?,
                 &settings.compaction,
-                runtime
-                    .models()
-                    .get_model(&request.model.provider, &request.model.model_id)
-                    .map_or(0, |model| model.context_window),
+                model.as_ref().map_or(0, |model| model.context_window),
+                &model
+                    .as_ref()
+                    .map_or_else(Tokenizer::unknown_model, model_tokenizer),
             )
-            .is_some();
+            .is_some()
+        };
         (Reply::Overflow { cut }, None)
     } else {
         // A stream the repetition guard cut is noted (H4.7): its retry

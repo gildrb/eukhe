@@ -6,6 +6,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::IndexMap;
 use futures::future::BoxFuture;
 
@@ -23,6 +24,9 @@ pub struct PromptInput {
     /// The request's resolution; `agent.tools` are the tools offered in this
     /// request.
     pub agent: Arc<Agent>,
+    /// The tokenizer of the model the request goes to, for sections that
+    /// fit a token budget.
+    pub tokenizer: Arc<Tokenizer>,
     /// Built by `HarnessOptions.env` for this preparation; `None` without an
     /// environment.
     pub env: Option<Arc<dyn ExecutionEnv>>,

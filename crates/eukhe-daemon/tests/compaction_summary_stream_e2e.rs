@@ -122,9 +122,9 @@ fn small_usage() -> Value {
 }
 
 /// The crossing turn's reported usage. pi-durable compacts before a
-/// request once the context estimate exceeds `contextWindow -
-/// reserveTokens` (`127_500` here; no `4_096` estimate-error floor), so
-/// `126_010` does not cross: `127_910` does.
+/// request once the context size (this usage plus the counted tokens
+/// after it) exceeds `contextWindow - reserveTokens` (`127_500` here; no
+/// `4_096` error floor), so `126_010` does not cross: `127_910` does.
 fn crossing_usage() -> Value {
     json!({
         "prompt_tokens": 127_900, "completion_tokens": 10, "total_tokens": 127_910,

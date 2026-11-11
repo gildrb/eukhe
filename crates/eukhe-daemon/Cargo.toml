@@ -21,6 +21,10 @@ eukhe-docs = { path = "../eukhe-docs" }
 eukhe-durable = { path = "../eukhe-durable" }
 eukhe-chord = { path = "../eukhe-chord" }
 eukhe-ai = { path = "../eukhe-ai" }
+# The session model's tokenizer: the context usage the clients show, the
+# session stats, and a streaming answer's output tokens
+# (`message_update.outputTokens`) count real tokens.
+eukhe-tokens.workspace = true
 # `eukhe-daemon tiny-worker`: the shared tiny-model worker its sessions
 # spawn runs this binary too (the ONNX engine, run-time dlopen), so the
 # daemon binary alone is a complete engine image.

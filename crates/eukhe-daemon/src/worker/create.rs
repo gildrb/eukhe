@@ -958,6 +958,20 @@ impl Worker {
                 eprintln!("eukhe-daemon worker: closing the replaced session failed: {error}");
             }
         }
+        // Decode the session model's vocabulary now, off the core lock
+        // (once per process and encoding; tens of milliseconds in a
+        // release build): the first count would otherwise pay it on the
+        // first prompt's path, under the core lock its summary holds.
+        let model = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            super::model_metadata(&core, &self.session)
+        };
+        if let Some(meter) = crate::state_getters::ContextMeter::of_wire(model.as_ref()) {
+            let _ = tokio::task::spawn_blocking(move || meter.tokenizer.count_text("warm")).await;
+        }
         let mut core = self
             .core
             .lock()

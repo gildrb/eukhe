@@ -32,6 +32,9 @@ pub enum TurnUpdate {
         message: Box<AssistantMessage>,
         streaming: bool,
         stream_event: Option<StreamUpdate>,
+        /// The worker's count of the streamed output so far, on the
+        /// `message_update` frames it counted at.
+        output_tokens: Option<u64>,
     },
     /// `tool_execution_start`: a tool call began executing.
     ToolExecutionStart {
@@ -193,6 +196,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
                 message: Box::new(message.clone()),
                 streaming: true,
                 stream_event: assistant_message_event.clone(),
+                output_tokens: None,
             },
             // Custom rows arrive as a message_start + message_end pair
             // carrying the same payload; only the start adds the row.
@@ -224,11 +228,13 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::MessageUpdate {
             message,
             assistant_message_event,
+            output_tokens,
         } => match message {
             AgentMessage::Assistant(message) => TurnUpdate::AssistantMessage {
                 message: Box::new(message.clone()),
                 streaming: true,
                 stream_event: Some(assistant_message_event.clone()),
+                output_tokens: *output_tokens,
             },
             AgentMessage::User(_)
             | AgentMessage::ToolResult(_)
@@ -242,6 +248,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
                 message: Box::new(message.clone()),
                 streaming: false,
                 stream_event: None,
+                output_tokens: None,
             },
             // A user or custom row renders from its message_start twin.
             AgentMessage::User(_)

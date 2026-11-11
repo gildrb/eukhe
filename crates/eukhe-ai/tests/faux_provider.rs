@@ -14,6 +14,7 @@ use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_chord::context::AbortController;
+use eukhe_tokens::{ModelRef, Tokenizer};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, CacheRetention, Context,
     ErrorReason, ImageContent, JsonObject, Message, Model, StopReason, TextContent,
@@ -57,6 +58,16 @@ fn register(options: RegisterFauxProviderOptions) -> Registered {
 
 fn message(text: &str) -> FauxResponseStep {
     faux_assistant_message(text, FauxAssistantMessageOptions::default()).into()
+}
+
+/// The tokenizer the faux server counts its usage with: its model's.
+fn faux_tokenizer(registration: &Registered) -> Arc<Tokenizer> {
+    let model = registration.get_model();
+    Tokenizer::for_model(ModelRef {
+        id: &model.id,
+        provider: &model.provider,
+        api: &model.api,
+    })
 }
 
 fn hi() -> Context {
@@ -104,7 +115,7 @@ async fn done(
 }
 
 #[tokio::test]
-async fn registers_a_custom_provider_and_estimates_usage() {
+async fn registers_a_custom_provider_and_counts_usage() {
     let registration = register(RegisterFauxProviderOptions::default());
     registration.set_responses(vec![message("hello world")]);
 
@@ -373,7 +384,7 @@ async fn rejects_a_queued_response_without_a_terminal_stop_reason() {
 }
 
 #[tokio::test]
-async fn estimates_prompt_and_output_tokens_from_serialized_context() {
+async fn counts_prompt_and_output_tokens_from_serialized_context() {
     let registration = register(RegisterFauxProviderOptions::default());
     registration.set_responses(vec![message("done")]);
 
@@ -423,20 +434,21 @@ async fn estimates_prompt_and_output_tokens_from_serialized_context() {
     };
 
     let response = done(&registration, context, ProviderStreamOptions::default()).await;
+    // One text per message, joined with blank lines; the system message
+    // carries the tool it adds.
     let prompt_text = [
-        "system:sys".to_owned(),
+        format!(
+            "system:sys\ntool+:{}",
+            serde_json::to_value(&tool).expect("json")
+        ),
         "user:hello\n[image:image/png:4]".to_owned(),
         "assistant:prior".to_owned(),
         "toolResult:echo\ntool out".to_owned(),
-        format!(
-            "tools:{}",
-            serde_json::to_string(&vec![tool]).expect("json")
-        ),
     ]
     .join("\n\n");
-    let expected_prompt_tokens =
-        u64::try_from(prompt_text.encode_utf16().count().div_ceil(4)).expect("small");
-    let expected_output_tokens = u64::try_from("done".len().div_ceil(4)).expect("small");
+    let tokenizer = faux_tokenizer(&registration);
+    let expected_prompt_tokens = tokenizer.count_text(&prompt_text);
+    let expected_output_tokens = tokenizer.count_text("done");
 
     assert_eq!(response.usage.input, expected_prompt_tokens);
     assert_eq!(response.usage.output, expected_output_tokens);
@@ -523,16 +535,27 @@ async fn simulates_prompt_caching_per_session_id() {
 }
 
 #[tokio::test]
-async fn counts_cached_characters_up_to_the_first_difference_in_the_joined_prompt() {
+async fn counts_cached_tokens_up_to_the_first_difference_in_the_joined_prompt() {
     let registration = register(RegisterFauxProviderOptions::default());
     registration.set_responses(vec![message("a"), message("b"), message("c")]);
+    let tokenizer = faux_tokenizer(&registration);
     let context = |messages: &[&str]| Context {
         system_prompt: None,
         messages: messages.iter().map(|text| user(text)).collect(),
         tools: None,
     };
+    // `(input, cache_read, cache_write)` of a prompt whose first `cached`
+    // text the previous prompt shared: the prompt less the cached prefix,
+    // the prefix, the rest.
+    let usage = |prompt: &str, cached: &str| {
+        let read = tokenizer.count_text(cached);
+        (
+            tokenizer.count_text(prompt) - read,
+            read,
+            tokenizer.count_text(&prompt[cached.len()..]),
+        )
+    };
 
-    // Prompt texts: "user:hello world" (16 characters), then 16 + 2 + "user:next" (9) = 27.
     done(
         &registration,
         context(&["hello world"]),
@@ -551,10 +574,10 @@ async fn counts_cached_characters_up_to_the_first_difference_in_the_joined_promp
             extended.usage.cache_read,
             extended.usage.cache_write
         ),
-        (3, 4, 3)
+        usage("user:hello world\n\nuser:next", "user:hello world")
     );
 
-    // The first message now differs after "user:hello w" (12 characters): "user:hello wide" + 2 + 9 = 26.
+    // The first message now differs after "user:hello w".
     let edited = done(
         &registration,
         context(&["hello wide", "next"]),
@@ -567,7 +590,7 @@ async fn counts_cached_characters_up_to_the_first_difference_in_the_joined_promp
             edited.usage.cache_read,
             edited.usage.cache_write
         ),
-        (4, 3, 4)
+        usage("user:hello wide\n\nuser:next", "user:hello w")
     );
 }
 

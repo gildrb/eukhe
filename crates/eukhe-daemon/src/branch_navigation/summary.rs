@@ -11,9 +11,10 @@
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_chord::context::{AbortSignal, Context};
 use eukhe_core::durable::branch_summary::{
-    build_branch_summary_request, estimate_branch_summary_request_tokens, finalize_branch_summary,
+    branch_summary_request_tokens, build_branch_summary_request, finalize_branch_summary,
     BranchSummaryDetails,
 };
 use eukhe_core::durable::compaction::auxiliary_model::{
@@ -125,16 +126,6 @@ pub(crate) async fn generate(
     };
     let settings = deps.settings.manager();
     let reserve = settings.get_branch_summary_reserve_tokens();
-    // The fit check estimates the request the SESSION model would issue
-    // (its window sizes the slice); the routed model re-slices with its own
-    // window, exactly like TS.
-    let required = estimate_branch_summary_request_tokens(
-        request.entries,
-        session_model.context_window,
-        reserve,
-        request.custom_instructions,
-        request.replace_instructions,
-    );
     // TS #2411's `_resolveAuxiliaryModel` over the session's model
     // collection, with the decision the compaction summary uses: a set
     // selector that is not used falls back to the session model with a
@@ -156,7 +147,20 @@ pub(crate) async fn generate(
     let route = decide_auxiliary_route(
         &selector,
         settings.get_allowed_models().as_deref(),
-        Some(required),
+        // The fit check counts, with the auxiliary model's tokenizer, the
+        // request the SESSION model would issue (its window sizes the
+        // slice); the routed model re-slices with its own window, exactly
+        // like TS.
+        |model: &eukhe_types::pi_ai::Model| {
+            Some(branch_summary_request_tokens(
+                &model_tokenizer(model),
+                request.entries,
+                session_model.context_window,
+                reserve,
+                request.custom_instructions,
+                request.replace_instructions,
+            ))
+        },
         |selector| {
             // The error itself stays out of the notice: an auth error can
             // hold credential material.
@@ -188,6 +192,7 @@ pub(crate) async fn generate(
             DEFAULT_CONTEXT_WINDOW
         };
         let (messages, preparation) = build_branch_summary_request(
+            &model_tokenizer(&model),
             request.entries,
             window.saturating_sub(reserve),
             request.custom_instructions,

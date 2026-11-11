@@ -1,7 +1,8 @@
 //! "provider token count": with [`ThresholdTokens::Provider`] the window
 //! check uses the provider's own count of the request; without it, or when
-//! the provider has no counter, the local estimate. (The thresholds read
-//! the provider's count of the last turn either way.)
+//! the provider has no counter, the local count (the reading model's
+//! tokenizer). (The thresholds read the provider's count of the last turn
+//! either way.)
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -222,7 +223,7 @@ fn requests(log: &Log) -> Vec<Received> {
 }
 
 #[tokio::test]
-async fn blocks_on_the_provider_count_when_the_local_estimate_is_within_the_window() {
+async fn blocks_on_the_provider_count_when_the_local_count_is_within_the_window() {
     let log = Log::default();
     let chat = llama_chat(
         &llama_server(Arc::clone(&log), Serve::Open).await,
@@ -283,7 +284,7 @@ async fn sends_no_count_request_when_the_setting_is_off() {
 
 /// The count request sends the headers of the stream settings: the mock
 /// answers only with them, so its count (past the window) blocks. Without
-/// them it answers 401 and the estimate (within) does not.
+/// them it answers 401 and the local count (within) does not.
 #[tokio::test]
 async fn the_count_request_sends_the_stream_headers() {
     let log = Log::default();
@@ -316,9 +317,9 @@ async fn the_count_request_sends_the_stream_headers() {
 }
 
 /// A count endpoint that never answers fails at the stream settings'
-/// `timeoutMs`: the turn goes on with the local estimate (within the
-/// window, so no compaction) instead of waiting forever. The outer
-/// timeout only turns a hang into a failure.
+/// `timeoutMs`: the turn goes on with the local count (within the window,
+/// so no compaction) instead of waiting forever. The outer timeout only
+/// turns a hang into a failure.
 #[tokio::test]
 async fn a_stalled_count_request_times_out_at_the_stream_timeout() {
     let log = Log::default();
@@ -350,10 +351,10 @@ async fn a_stalled_count_request_times_out_at_the_stream_timeout() {
     chat.harness.close(context()).await.unwrap();
 }
 
-/// The faux provider has no token counter: the check logs it and uses the
-/// local estimate, which is past the window here.
+/// The faux provider has no token counter: the check logs it and counts
+/// locally, which is past the window here.
 #[tokio::test]
-async fn uses_the_local_estimate_when_the_provider_has_no_counter() {
+async fn counts_locally_when_the_provider_has_no_counter() {
     let chat = open(OpenOptions {
         context_window: Some(WINDOW),
         ..OpenOptions::default()

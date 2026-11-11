@@ -1,0 +1,1262 @@
+{
+ "classes": [
+  {
+   "id": "ai21",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "jamba"
+    },
+    {
+     "kind": "namespace",
+     "token": "ai21"
+    }
+   ],
+   "families": [
+    {
+     "id": "jamba",
+     "glob": "*jamba*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "amazon",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "nova"
+    },
+    {
+     "kind": "bounded",
+     "token": "titan"
+    },
+    {
+     "kind": "namespace",
+     "token": "amazon",
+     "bounded": true
+    }
+   ],
+   "families": [
+    {
+     "id": "nova",
+     "glob": "*nova*",
+     "priority": 0
+    },
+    {
+     "id": "titan",
+     "glob": "*titan*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "anthropic",
+   "matchers": [
+    {
+     "kind": "namespace",
+     "token": "anthropic",
+     "bounded": true
+    },
+    {
+     "kind": "bounded",
+     "token": "anthropic"
+    },
+    {
+     "kind": "bounded",
+     "token": "claude"
+    }
+   ],
+   "families": [
+    {
+     "id": "opus",
+     "glob": "*opus*",
+     "priority": 0
+    },
+    {
+     "id": "sonnet",
+     "glob": "*sonnet*",
+     "priority": 0
+    },
+    {
+     "id": "haiku",
+     "glob": "*haiku*",
+     "priority": 0
+    },
+    {
+     "id": "fable",
+     "glob": "*fable*",
+     "priority": 0
+    },
+    {
+     "id": "mythos",
+     "glob": "*mythos*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "claude-",
+     "anywhere": true
+    }
+   ],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "nanogpt-gemma-claude-opus-distill-family",
+     "model": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
+     "provider": "nanogpt",
+     "logical": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
+     "class": "anthropic",
+     "family": "opus"
+    },
+    {
+     "id": "nanogpt-qwen-claude-opus-distill-family",
+     "model": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",
+     "provider": "nanogpt",
+     "logical": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",
+     "class": "anthropic",
+     "family": "opus"
+    },
+    {
+     "id": "nanogpt-qwen-claude-opus-distill-lite-family",
+     "model": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted-Lite",
+     "provider": "nanogpt",
+     "logical": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted-Lite",
+     "class": "anthropic",
+     "family": "opus"
+    }
+   ]
+  },
+  {
+   "id": "baidu",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "ernie"
+    }
+   ],
+   "families": [
+    {
+     "id": "ernie",
+     "glob": "*ernie*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "bytedance",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "doubao"
+    }
+   ],
+   "families": [
+    {
+     "id": "doubao",
+     "glob": "*doubao*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "cohere",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "command"
+    },
+    {
+     "kind": "namespace",
+     "token": "cohere"
+    }
+   ],
+   "families": [
+    {
+     "id": "command",
+     "glob": "*command*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "deepseek",
+   "matchers": [
+    {
+     "kind": "namespace",
+     "token": "deepseek",
+     "bounded": true
+    },
+    {
+     "kind": "bounded",
+     "token": "deepseek"
+    }
+   ],
+   "families": [
+    {
+     "id": "r1",
+     "glob": "*deepseek-r1*",
+     "priority": 0
+    },
+    {
+     "id": "reasoner",
+     "glob": "*deepseek-reasoner*",
+     "priority": 0
+    },
+    {
+     "id": "flash",
+     "glob": "*deepseek*v4*flash*",
+     "priority": 0
+    },
+    {
+     "id": "flash",
+     "glob": "*deepseek-flash",
+     "priority": 0
+    },
+    {
+     "id": "pro",
+     "glob": "*deepseek*v4*pro*",
+     "priority": 0
+    },
+    {
+     "id": "v4",
+     "glob": "*deepseek-v4*",
+     "priority": 0
+    },
+    {
+     "id": "v3",
+     "glob": "*deepseek-v3*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "deepseek-v",
+     "anywhere": true
+    }
+   ],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "deepseek-bare-flash-v4-1",
+     "model": "deepseek-flash",
+     "provider": "deepseek",
+     "class": "deepseek",
+     "family": "flash",
+     "revision": "4.1.0"
+    },
+    {
+     "id": "opencode-go-bare-flash-v4-1",
+     "model": "deepseek-flash",
+     "provider": "opencode-go",
+     "class": "deepseek",
+     "family": "flash",
+     "revision": "4.1.0"
+    },
+    {
+     "id": "vercel-deepseek-v3-2-thinking-product",
+     "model": "deepseek-v3.2-thinking",
+     "provider": "vercel-ai-gateway",
+     "logical": "deepseek/deepseek-v3.2-thinking",
+     "class": "deepseek"
+    },
+    {
+     "id": "opencode-zen-big-pickle-family",
+     "model": "big-pickle",
+     "provider": "opencode-zen",
+     "class": "deepseek"
+    },
+    {
+     "id": "umans-deepseek-v4-flash-family",
+     "model": "umans-deepseek-v4-flash-0731",
+     "provider": "umans",
+     "logical": "umans-deepseek-v4-flash-0731",
+     "class": "deepseek"
+    },
+    {
+     "id": "umans-deepseek-v4-flash-lab-family",
+     "model": "umans-deepseek-v4-flash-0731-lab",
+     "provider": "umans",
+     "logical": "umans-deepseek-v4-flash-0731-lab",
+     "class": "deepseek"
+    },
+    {
+     "id": "venice-e2ee-deepseek-family",
+     "model": "e2ee-deepseek-v4-flash",
+     "provider": "venice",
+     "logical": "e2ee-deepseek-v4-flash",
+     "class": "deepseek"
+    }
+   ]
+  },
+  {
+   "id": "gemini",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "gemini"
+    }
+   ],
+   "families": [
+    {
+     "id": "lite",
+     "glob": "*flash-lite*",
+     "priority": 10
+    },
+    {
+     "id": "flash",
+     "glob": "*flash*",
+     "priority": 0
+    },
+    {
+     "id": "pro",
+     "glob": "*pro*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "gemini-"
+    }
+   ],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "gemma",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "gemma"
+    }
+   ],
+   "families": [],
+   "revisionPrefixes": [
+    {
+     "prefix": "gemma-"
+    }
+   ],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "glm",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "glm"
+    },
+    {
+     "kind": "bounded",
+     "token": "zai-glm"
+    }
+   ],
+   "families": [
+    {
+     "id": "flash",
+     "glob": "*flash*",
+     "priority": 0
+    },
+    {
+     "id": "air",
+     "glob": "*air*",
+     "priority": 0
+    },
+    {
+     "id": "turbo",
+     "glob": "*turbo*",
+     "priority": 0
+    },
+    {
+     "id": "vision",
+     "glob": "*glm-5v*",
+     "priority": 20
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "glm-",
+     "anywhere": true
+    }
+   ],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "umans-glm-5-3-flash-lab-family",
+     "model": "umans-glm-5.3-flash-lab",
+     "provider": "umans",
+     "class": "glm"
+    },
+    {
+     "id": "abliteration-glm-5-3-family",
+     "model": "abliterated-model-large-v2",
+     "provider": "abliteration",
+     "class": "glm",
+     "revision": "5.3.0"
+    },
+    {
+     "id": "abliteration-glm-5-2-family",
+     "model": "abliterated-model-large",
+     "provider": "abliteration",
+     "class": "glm",
+     "revision": "5.2.0"
+    },
+    {
+     "id": "abliteration-glm-base-family",
+     "model": "abliterated-model",
+     "provider": "abliteration",
+     "class": "glm"
+    }
+   ]
+  },
+  {
+   "id": "gpt-oss",
+   "matchers": [
+    {
+     "kind": "namespace",
+     "token": "gpt-oss",
+     "bounded": true
+    },
+    {
+     "kind": "bounded",
+     "token": "gpt-oss"
+    }
+   ],
+   "families": [
+    {
+     "id": "120b",
+     "glob": "*gpt-oss-120b*",
+     "priority": 0
+    },
+    {
+     "id": "20b",
+     "glob": "*gpt-oss-20b*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "venice-e2ee-gpt-oss-120b-family",
+     "model": "e2ee-gpt-oss-120b-p",
+     "provider": "venice",
+     "logical": "e2ee-gpt-oss-120b-p",
+     "class": "gpt-oss"
+    },
+    {
+     "id": "venice-e2ee-gpt-oss-20b-family",
+     "model": "e2ee-gpt-oss-20b-p",
+     "provider": "venice",
+     "logical": "e2ee-gpt-oss-20b-p",
+     "class": "gpt-oss"
+    },
+    {
+     "id": "venice-openai-gpt-oss-family",
+     "model": "openai-gpt-oss-120b",
+     "provider": "venice",
+     "logical": "openai-gpt-oss-120b",
+     "class": "gpt-oss"
+    }
+   ]
+  },
+  {
+   "id": "kimi",
+   "matchers": [
+    {
+     "kind": "namespace",
+     "token": "moonshotai"
+    },
+    {
+     "kind": "bounded",
+     "token": "kimi"
+    },
+    {
+     "kind": "exact",
+     "token": "k3"
+    },
+    {
+     "kind": "exact",
+     "token": "k3-256k"
+    }
+   ],
+   "families": [
+    {
+     "id": "k2",
+     "glob": "*kimi-k2*",
+     "priority": 0
+    },
+    {
+     "id": "k2.5",
+     "glob": "*kimi-k2.5*",
+     "priority": 10
+    },
+    {
+     "id": "k2.6",
+     "glob": "*kimi-k2.6*",
+     "priority": 10
+    },
+    {
+     "id": "k2.6",
+     "glob": "*kimi-k2p6*",
+     "priority": 10
+    },
+    {
+     "id": "k2.7-code",
+     "glob": "*kimi-k2.7-code*",
+     "priority": 10
+    },
+    {
+     "id": "k2.7-code",
+     "glob": "*kimi-k2-7-code*",
+     "priority": 10
+    },
+    {
+     "id": "k2.7-code",
+     "glob": "*kimi-k2p7*code*",
+     "priority": 10
+    },
+    {
+     "id": "k2-thinking",
+     "glob": "*kimi-k2-thinking*",
+     "priority": 20
+    },
+    {
+     "id": "k3",
+     "glob": "*kimi-k3*",
+     "priority": 0
+    },
+    {
+     "id": "k3",
+     "glob": "k3",
+     "priority": 0
+    },
+    {
+     "id": "k3",
+     "glob": "k3-256k",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "kimi-k3-1-pro",
+     "glob": "*k3.1-pro",
+     "class": "kimi",
+     "family": "k3",
+     "revision": "3.1.0"
+    },
+    {
+     "id": "kimi-k3-1-pro-highspeed",
+     "glob": "*k3.1-pro-highspeed",
+     "class": "kimi",
+     "family": "k3",
+     "revision": "3.1.0"
+    },
+    {
+     "id": "kilo-kimi-k2-thinking-product",
+     "model": "kimi-k2-thinking",
+     "provider": "kilo",
+     "logical": "moonshotai/kimi-k2-thinking",
+     "class": "kimi"
+    },
+    {
+     "id": "openrouter-kimi-k2-thinking-product",
+     "model": "kimi-k2-thinking",
+     "provider": "openrouter",
+     "logical": "moonshotai/kimi-k2-thinking",
+     "class": "kimi"
+    },
+    {
+     "id": "vercel-kimi-k2-thinking-product",
+     "model": "kimi-k2-thinking",
+     "provider": "vercel-ai-gateway",
+     "logical": "moonshotai/kimi-k2-thinking",
+     "class": "kimi"
+    }
+   ]
+  },
+  {
+   "id": "meta",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "muse-spark"
+    },
+    {
+     "kind": "bounded",
+     "token": "muse-wonder"
+    },
+    {
+     "kind": "bounded",
+     "token": "llama"
+    },
+    {
+     "kind": "bounded",
+     "token": "meta-llama"
+    },
+    {
+     "kind": "namespace",
+     "token": "meta-llama"
+    }
+   ],
+   "families": [
+    {
+     "id": "llama",
+     "glob": "*llama*",
+     "priority": 0
+    },
+    {
+     "id": "muse-spark",
+     "glob": "*muse-spark*",
+     "priority": 0
+    },
+    {
+     "id": "muse-wonder",
+     "glob": "*muse-wonder*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "muse-spark-"
+    },
+    {
+     "prefix": "muse-wonder-"
+    }
+   ],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "mimo",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "mimo"
+    }
+   ],
+   "families": [
+    {
+     "id": "v2",
+     "glob": "*mimo-v2*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "venice-xiaomi-mimo-family",
+     "model": "xiaomi-mimo-v2-5",
+     "provider": "venice",
+     "logical": "xiaomi-mimo-v2-5",
+     "class": "mimo"
+    }
+   ]
+  },
+  {
+   "id": "minimax",
+   "matchers": [
+    {
+     "kind": "namespace",
+     "token": "minimax"
+    },
+    {
+     "kind": "bounded",
+     "token": "minimax"
+    },
+    {
+     "kind": "bounded",
+     "token": "hailuo"
+    }
+   ],
+   "families": [
+    {
+     "id": "m1",
+     "glob": "*minimax-m1*",
+     "priority": 0
+    },
+    {
+     "id": "m2",
+     "glob": "*minimax-m2*",
+     "priority": 0
+    },
+    {
+     "id": "m3",
+     "glob": "*minimax-m3*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "mistral",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "mistral"
+    },
+    {
+     "kind": "bounded",
+     "token": "mixtral"
+    }
+   ],
+   "families": [
+    {
+     "id": "mistral",
+     "glob": "*mistral*",
+     "priority": 0
+    },
+    {
+     "id": "mixtral",
+     "glob": "*mixtral*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "openai",
+   "matchers": [
+    {
+     "kind": "namespace",
+     "token": "openai"
+    },
+    {
+     "kind": "namespace",
+     "token": "openai",
+     "bounded": true
+    },
+    {
+     "kind": "prefix",
+     "token": "gpt-"
+    },
+    {
+     "kind": "prefix",
+     "token": "chatgpt-"
+    },
+    {
+     "kind": "prefix",
+     "token": "codex-"
+    },
+    {
+     "kind": "exact",
+     "token": "o1"
+    },
+    {
+     "kind": "prefix",
+     "token": "o1-"
+    },
+    {
+     "kind": "prefix",
+     "token": "o1."
+    },
+    {
+     "kind": "exact",
+     "token": "o3"
+    },
+    {
+     "kind": "prefix",
+     "token": "o3-"
+    },
+    {
+     "kind": "prefix",
+     "token": "o3."
+    },
+    {
+     "kind": "exact",
+     "token": "o4"
+    },
+    {
+     "kind": "prefix",
+     "token": "o4-"
+    },
+    {
+     "kind": "prefix",
+     "token": "o4."
+    }
+   ],
+   "families": [
+    {
+     "id": "gpt",
+     "glob": "gpt-*",
+     "priority": 0
+    },
+    {
+     "id": "chatgpt",
+     "glob": "chatgpt-*",
+     "priority": 0
+    },
+    {
+     "id": "gpt-image",
+     "glob": "gpt-image-*",
+     "priority": 0
+    },
+    {
+     "id": "gpt-image",
+     "glob": "chatgpt-image-*",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o1",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o1-*",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o1.*",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o3",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o3-*",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o3.*",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o4",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o4-*",
+     "priority": 0
+    },
+    {
+     "id": "o-series",
+     "glob": "o4.*",
+     "priority": 0
+    },
+    {
+     "id": "codex",
+     "glob": "*codex*",
+     "priority": 10
+    },
+    {
+     "id": "codex-spark",
+     "glob": "*codex-spark*",
+     "priority": 20
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "chatgpt-"
+    },
+    {
+     "prefix": "gpt-",
+     "anywhere": true
+    },
+    {
+     "prefix": "o"
+    }
+   ],
+   "skipBare": [
+    "o1",
+    "o3",
+    "o4"
+   ],
+   "overrides": [
+    {
+     "id": "openai-daybreak-blue-2026-08",
+     "model": "daybreak-blue-latest",
+     "logical": "daybreak-blue-latest",
+     "class": "unknown",
+     "revision": "5.6.0"
+    },
+    {
+     "id": "openai-daybreak-red-2026-08",
+     "model": "daybreak-red-latest",
+     "logical": "daybreak-red-latest",
+     "class": "unknown",
+     "revision": "5.6.0"
+    },
+    {
+     "id": "openai-gpt-daybreak-blue-2026-08",
+     "model": "gpt-daybreak-blue-latest",
+     "logical": "gpt-daybreak-blue-latest",
+     "class": "openai",
+     "revision": "5.6.0"
+    },
+    {
+     "id": "openai-gpt-daybreak-red-2026-08",
+     "model": "gpt-daybreak-red-latest",
+     "logical": "gpt-daybreak-red-latest",
+     "class": "openai",
+     "revision": "5.6.0"
+    }
+   ]
+  },
+  {
+   "id": "qwen",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "qwen"
+    },
+    {
+     "kind": "bounded",
+     "token": "deepseek-r1-distill-qwen"
+    },
+    {
+     "kind": "glob",
+     "token": "*distill-qwen*"
+    }
+   ],
+   "families": [
+    {
+     "id": "qwq",
+     "glob": "*qwq*",
+     "priority": 0
+    },
+    {
+     "id": "coder",
+     "glob": "*qwen3-coder*",
+     "priority": 0
+    },
+    {
+     "id": "next",
+     "glob": "*qwen3-next*",
+     "priority": 0
+    },
+    {
+     "id": "omni",
+     "glob": "*qwen3-omni*",
+     "priority": 0
+    },
+    {
+     "id": "vl",
+     "glob": "*qwen3-vl*",
+     "priority": 0
+    },
+    {
+     "id": "qwenlong",
+     "glob": "*qwenlong*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "qwen"
+    }
+   ],
+   "skipBare": [],
+   "overrides": [
+    {
+     "id": "yolo-auto-yolo-identity",
+     "model": "yolo",
+     "provider": "yolo-auto",
+     "class": "qwen",
+     "revision": "3.8.0"
+    },
+    {
+     "id": "prismml-bonsai-27b-qwen-3-6",
+     "glob": "*bonsai-27b*",
+     "class": "qwen",
+     "revision": "3.6.0"
+    },
+    {
+     "id": "prismml-bonsai-2-27b-qwen-3-8",
+     "glob": "*bonsai-2-27b*",
+     "class": "qwen",
+     "revision": "3.8.0"
+    },
+    {
+     "id": "kilo-qwq-32b-family",
+     "model": "qwq-32b",
+     "provider": "kilo",
+     "logical": "qwen/qwq-32b",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-eva-qwen-2-5-family",
+     "model": "EVA-Qwen2.5-32B-v0.2",
+     "provider": "nanogpt",
+     "logical": "EVA-UNIT-01/EVA-Qwen2.5-32B-v0.2",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-eva-qwen-2-5-72b-family",
+     "model": "EVA-Qwen2.5-72B-v0.2",
+     "provider": "nanogpt",
+     "logical": "EVA-UNIT-01/EVA-Qwen2.5-72B-v0.2",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-qwenlong-l1-family",
+     "model": "QwenLong-L1-32B",
+     "provider": "nanogpt",
+     "logical": "Tongyi-Zhiwen/QwenLong-L1-32B",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-dolphin-qwen-family",
+     "model": "dolphin-2.9.2-qwen2-72b",
+     "provider": "nanogpt",
+     "logical": "cognitivecomputations/dolphin-2.9.2-qwen2-72b",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-cogito-qwen-family",
+     "model": "cogito-v1-preview-qwen-32B",
+     "provider": "nanogpt",
+     "logical": "deepcogito/cogito-v1-preview-qwen-32B",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-qwq-preview-family",
+     "model": "qwq-32b-preview",
+     "provider": "nanogpt",
+     "logical": "qwen/qwq-32b-preview",
+     "class": "qwen"
+    },
+    {
+     "id": "nanogpt-grayline-qwen-family",
+     "model": "GrayLine-Qwen3-8B",
+     "provider": "nanogpt",
+     "logical": "soob3123/GrayLine-Qwen3-8B",
+     "class": "qwen"
+    },
+    {
+     "id": "novita-r1-qwen-family",
+     "model": "deepseek-r1-0528-qwen3-8b",
+     "provider": "novita",
+     "logical": "deepseek/deepseek-r1-0528-qwen3-8b",
+     "class": "qwen"
+    },
+    {
+     "id": "openrouter-qwq-family",
+     "model": "qwq-32b",
+     "provider": "openrouter",
+     "logical": "qwen/qwq-32b",
+     "class": "qwen"
+    },
+    {
+     "id": "umans-qwen-3-6-family",
+     "model": "umans-qwen3.6-35b-a3b",
+     "provider": "umans",
+     "logical": "umans-qwen3.6-35b-a3b",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-2-5-family",
+     "model": "e2ee-qwen-2-5-7b-p",
+     "provider": "venice",
+     "logical": "e2ee-qwen-2-5-7b-p",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-3-30b-family",
+     "model": "e2ee-qwen3-30b-a3b-p",
+     "provider": "venice",
+     "logical": "e2ee-qwen3-30b-a3b-p",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-3-5-family",
+     "model": "e2ee-qwen3-5-122b-a10b",
+     "provider": "venice",
+     "logical": "e2ee-qwen3-5-122b-a10b",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-3-6-27b-family",
+     "model": "e2ee-qwen3-6-27b",
+     "provider": "venice",
+     "logical": "e2ee-qwen3-6-27b",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-3-6-35b-family",
+     "model": "e2ee-qwen3-6-35b-a3b",
+     "provider": "venice",
+     "logical": "e2ee-qwen3-6-35b-a3b",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-3-6-uncensored-family",
+     "model": "e2ee-qwen3-6-35b-a3b-uncensored-p",
+     "provider": "venice",
+     "logical": "e2ee-qwen3-6-35b-a3b-uncensored-p",
+     "class": "qwen"
+    },
+    {
+     "id": "venice-e2ee-qwen-vl-family",
+     "model": "e2ee-qwen3-vl-30b-a3b-p",
+     "provider": "venice",
+     "logical": "e2ee-qwen3-vl-30b-a3b-p",
+     "class": "qwen"
+    }
+   ]
+  },
+  {
+   "id": "stepfun",
+   "matchers": [
+    {
+     "kind": "bounded",
+     "token": "step"
+    }
+   ],
+   "families": [
+    {
+     "id": "step",
+     "glob": "*step*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "unknown",
+   "matchers": [],
+   "families": [],
+   "revisionPrefixes": [],
+   "skipBare": [],
+   "overrides": []
+  },
+  {
+   "id": "xai",
+   "matchers": [
+    {
+     "kind": "prefix",
+     "token": "cursor-grok-"
+    },
+    {
+     "kind": "bounded",
+     "token": "grok"
+    },
+    {
+     "kind": "namespace",
+     "token": "x-ai"
+    },
+    {
+     "kind": "namespace",
+     "token": "xai",
+     "bounded": true
+    }
+   ],
+   "families": [
+    {
+     "id": "grok",
+     "glob": "*grok*",
+     "priority": 0
+    }
+   ],
+   "revisionPrefixes": [
+    {
+     "prefix": "cursor-grok-"
+    },
+    {
+     "prefix": "grok-",
+     "anywhere": true
+    }
+   ],
+   "skipBare": [],
+   "overrides": []
+  }
+ ],
+ "collapse": {
+  "effortFamilies": [
+   {
+    "provider": "cursor",
+    "logical": "gpt-5.6-luna",
+    "aliases": []
+   },
+   {
+    "provider": "cursor",
+    "logical": "gpt-5.6-sol",
+    "aliases": []
+   },
+   {
+    "provider": "cursor",
+    "logical": "gpt-5.6-terra",
+    "aliases": []
+   }
+  ],
+  "lanes": [
+   {
+    "suffix": "-fast",
+    "providers": [
+     "cursor"
+    ]
+   }
+  ],
+  "suffixes": [
+   {
+    "suffix": "-thinking",
+    "thinking": true
+   },
+   {
+    "suffix": "-extra-high",
+    "effort": "xhigh"
+   },
+   {
+    "suffix": "-none",
+    "effort": "off"
+   },
+   {
+    "suffix": "-minimal",
+    "effort": "minimal"
+   },
+   {
+    "suffix": "-medium",
+    "effort": "medium"
+   },
+   {
+    "suffix": "-xhigh",
+    "effort": "xhigh"
+   },
+   {
+    "suffix": "-high",
+    "effort": "high"
+   },
+   {
+    "suffix": "-low",
+    "effort": "low"
+   },
+   {
+    "suffix": "-max",
+    "effort": "max",
+    "exceptBarePrefix": "qwen"
+   }
+  ]
+ }
+}

@@ -245,8 +245,8 @@ fn compaction_commands_scripted_session() {
     golden_keys.sort_unstable();
     assert_eq!(data_keys, golden_keys, "CompactionResult key set");
     assert_eq!(data["summary"], serde_json::json!("second summary"));
-    // Durable estimates `tokensBefore` over the pre-summary context (the
-    // old scripted engine echoed a scripted number).
+    // Durable counts `tokensBefore` over the pre-summary context (the old
+    // scripted engine echoed a scripted number).
     assert!(
         data["tokensBefore"]
             .as_u64()

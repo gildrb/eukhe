@@ -656,7 +656,7 @@ async fn wins_over_a_background_compaction_still_in_flight_which_then_settles_st
     let background = compaction_tasks(&chat).await.remove(0);
     chat.faux.summary(summary("BLOCKING"));
     // Past the 2000-token window: the request blocks for its compaction.
-    turn(&chat, &text("u5", 1100), "a5").await;
+    turn(&chat, &text("u5", 1400), "a5").await;
     let messages = chat
         .root
         .context(context(), crate::harness::types::ContextOptions::default())

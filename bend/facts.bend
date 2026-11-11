@@ -207,7 +207,7 @@ def gbudget(rule: Maybe<&2, Budgets>, c: Customs, l: Lv) -> GB:
 # --------------
 
 # the context window facts of a request: the window (0: unknown), the
-# estimated prompt, the safety margin, the floor of a shrunk cap, and
+# prompt's local count, the safety margin, the floor of a shrunk cap, and
 # whether the model ends its output at the window itself (the rulebook's
 # `stops_output_at_window`)
 type Win is Data:

@@ -109,7 +109,7 @@ async fn compaction() {
     let details = |question: &str| {
         let line = format!(
             "A detailed answer to \"{question}\": {}",
-            "details ".repeat(200)
+            "details ".repeat(400)
         );
         format!("  assistant {}", &line[..70])
     };

@@ -1,6 +1,8 @@
 //! The apply concern: the streamed-event pump -- client events, turn
 //! updates, assistant/tool rows, and compaction aborts.
-use eukhe_types::token_estimate::{chars_to_tokens, text_chars, ESTIMATED_IMAGE_CHARS};
+use std::sync::Arc;
+
+use eukhe_tokens::{ModelRef, Tokenizer};
 
 use super::bash::BashSettled;
 use super::{
@@ -67,7 +69,40 @@ pub(crate) enum ParkedOnInterrupt {
     ReturnToEditor,
 }
 
+/// The model the session's next request reads with, owned so a count can
+/// run off the UI thread.
+struct SessionModel {
+    id: String,
+    provider: String,
+    api: String,
+}
+
+impl SessionModel {
+    /// Its tokenizer, resolved on the counting thread (a family's first
+    /// use decodes its vocabulary). A model the tray does not name yet
+    /// counts in the default `o200k_base`.
+    fn tokenizer(&self) -> Arc<Tokenizer> {
+        Tokenizer::for_model(ModelRef {
+            id: &self.id,
+            provider: &self.provider,
+            api: &self.api,
+        })
+    }
+}
+
 impl SessionUi {
+    /// The session's model (the tray's; its catalog entry names the wire).
+    fn session_model(&self, view: &AgentView) -> SessionModel {
+        SessionModel {
+            id: view.chrome.model_id.clone().unwrap_or_default(),
+            provider: view.chrome.model_provider.clone().unwrap_or_default(),
+            api: self
+                .current_model_entry(view)
+                .map(|entry| entry.model.api.clone())
+                .unwrap_or_default(),
+        }
+    }
+
     /// Abort the active turn off the UI loop (TS `interruptOrClearInput`
     /// fires `void abortAndSendQueued()` when streaming, schema 29): the
     /// daemon aborts the run and the queue keeps flowing behind the
@@ -603,7 +638,10 @@ impl SessionUi {
                 self.begin_request(view);
             }
             TurnUpdate::UserMessage(text) => {
-                self.speed_clock.prompt_added(text_chars(&text));
+                let model = self.session_model(view);
+                let prompt = text.clone();
+                self.speed_clock
+                    .prompt_added(move || model.tokenizer().count_text(&prompt));
                 // A prompt that lands in an open run starts a turn this
                 // view may have missed the start of (it attached after
                 // the run's `turn_start`, before the prompt was stored):
@@ -711,12 +749,19 @@ impl SessionUi {
                 message,
                 streaming,
                 stream_event,
+                output_tokens,
             } => {
                 // A next attempt's message: the retry wait is over.
                 if matches!(stream_event, Some(eukhe_types::daemon::StreamUpdate::Start)) {
                     self.retry_popped_attempt = None;
                 }
-                self.apply_assistant_message(&message, streaming, stream_event.as_ref(), view);
+                self.apply_assistant_message(
+                    &message,
+                    streaming,
+                    stream_event.as_ref(),
+                    output_tokens,
+                    view,
+                );
             }
             TurnUpdate::ToolExecutionStart {
                 tool_call_id,
@@ -764,17 +809,13 @@ impl SessionUi {
                 is_error,
             } => {
                 // The result goes into the next request's prompt.
-                self.speed_clock.prompt_added(
-                    result
-                        .content
-                        .iter()
-                        .map(|block| match block {
-                            eukhe_types::ai::UserContentBlock::Text(text) => text_chars(&text.text),
-                            eukhe_types::ai::UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
-                            eukhe_types::ai::UserContentBlock::Raw(_) => 0,
-                        })
-                        .sum(),
-                );
+                let model = self.session_model(view);
+                let content = result.content.clone();
+                self.speed_clock.prompt_added(move || {
+                    model
+                        .tokenizer()
+                        .count_parts(&eukhe_tokens::ai_blocks(&content))
+                });
                 // The landed-result gate keeps the loader safe: after the
                 // interrupt delivers the parked queue, a late end frame from
                 // the aborted run must not rewrite the new turn's activity
@@ -1168,12 +1209,14 @@ impl SessionUi {
 
     /// Apply an assistant message frame: an open streaming message is
     /// updated in place; otherwise the message expands into a chat component
-    /// plus a card per tool call.
+    /// plus a card per tool call. `output_tokens` is the worker's count of
+    /// the streamed output on the frames it counted at.
     fn apply_assistant_message(
         &mut self,
         message: &eukhe_types::ai::AssistantMessage,
         streaming: bool,
         stream_event: Option<&eukhe_types::daemon::StreamUpdate>,
+        output_tokens: Option<u64>,
         view: &mut AgentView,
     ) {
         if let Some(event) = stream_event {
@@ -1188,28 +1231,18 @@ impl SessionUi {
             if starts_message {
                 self.working_tokens.start_message();
             }
-            let content_chars: u64 = blocks
-                .iter()
-                .map(|block| match block {
-                    MessageBlock::Text(text) | MessageBlock::Thinking(text) => text_chars(text),
-                })
-                .sum();
             let current = self
                 .working_tokens
-                .apply_streaming(usage_output, content_chars);
+                .apply_streaming(usage_output, output_tokens);
             if let Some(working) = &mut view.working {
                 working.tokens = working.tokens.max(current);
             }
             // This message's own output so far, tool-call arguments
             // included: the provider's count when it streams one, else the
-            // content at the one token estimate.
-            let tool_chars: u64 = tool_calls
-                .iter()
-                .map(|(_, name, args)| text_chars(name) + text_chars(&args.to_string()))
-                .sum();
+            // worker's count of the streamed content.
             self.speed_clock.streamed(
                 std::time::Instant::now(),
-                usage_output.max(chars_to_tokens(content_chars + tool_chars)),
+                self.working_tokens.streaming_tokens(),
             );
         } else {
             self.working_tokens.settle(usage_output);

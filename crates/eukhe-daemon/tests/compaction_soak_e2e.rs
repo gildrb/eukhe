@@ -6,7 +6,7 @@
 //! The provider is a scripted OpenAI-compatible mock that enforces the
 //! window itself: any request over it gets the provider's context-overflow
 //! error, so "no overflow" is the provider's verdict, not the client's
-//! estimate. Over the whole run: no compaction fails, no turn stalls (each
+//! local count. Over the whole run: no compaction fails, no turn stalls (each
 //! settles while the session or the provider keeps making progress), no
 //! request overflows except the one the script injects (which the session
 //! recovers from by compacting), the durable transcript holds every

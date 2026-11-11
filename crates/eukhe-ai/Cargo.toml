@@ -8,6 +8,9 @@ description = "Rust port of @earendil-works/pi-ai v1.0.4: models, providers, str
 
 [dependencies]
 eukhe-types.workspace = true
+# Token counts with the models' real tokenizers (the output cap's prompt,
+# the faux provider's usage).
+eukhe-tokens.workspace = true
 # The compiled Bend core: the thinking ladder, the strict plan, the
 # thinking budgets and the retry classifier and wait run as their Bend models.
 eukhe-bend.workspace = true

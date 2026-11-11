@@ -31,6 +31,11 @@
 //!   jobs) before you run it again.", LAWS.bend H7), edited in the
 //!   same way, with the token counts of the answer that follows it; TS's
 //!   text ends at "may have partially run".
+//! - Every faux `usage` (both answers and the summed `pi.provider`
+//!   document, in all four fixtures) holds eukhe's faux counts, edited in
+//!   after TS wrote them: `o200k_base` tokens of the serialized prompt and
+//!   answer (first answer 43 in / 7 out, resume answer 105 in / 5 out). TS's
+//!   faux counts 4 characters per token (48/6 and 110/7).
 //!
 //! The final state is `{ toolRuns, context, storage }`: how often `probe` ran
 //! during the resume (TS does not rerun an `unsafe` call: 0), the root's

@@ -510,14 +510,14 @@ impl Worker {
             },
             "cost": cost,
         });
-        // The tray's context usage, the estimate the attach snapshot
-        // carries; omitted without a model context window (TS sessions
-        // without a model).
-        if let Some(window) = crate::state_getters::model_context_window(
+        // The tray's context usage, the count the attach snapshot carries;
+        // omitted without a model context window (TS sessions without a
+        // model).
+        if let Some(meter) = crate::state_getters::ContextMeter::of_wire(
             super::model_metadata(&core, &self.session).as_ref(),
         ) {
             stats["contextUsage"] =
-                crate::state_getters::mirror_context_usage(&mirror.entries, window);
+                crate::state_getters::mirror_context_usage(&mirror.entries, &meter);
         }
         response_success(None, "get_session_stats", Some(stats))
     }

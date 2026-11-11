@@ -16,3 +16,10 @@ description = "LAWS.lock: law names (some contain 'secret') with content hashes,
 paths = [
   '''^LAWS\.lock$''',
 ]
+
+[[allowlists]]
+description = "eukhe-tokens catalog tests: (provider, model id) pairs such as \"xai-oauth\", \"grok-4.20-0309-non-reasoning\" that generic-api-key reads as keys"
+paths = [
+  '''^crates/eukhe-tokens/tests/fixtures/reference_(model_tokenizers|image_rules)\.json$''',
+  '''^crates/eukhe-tokens/src/policy/image_tests\.rs$''',
+]

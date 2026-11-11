@@ -103,12 +103,12 @@ async fn an_answer_while_work_runs_is_a_pause_that_stands() {
     assert_eq!(setup.faux.get_pending_response_count(), 1);
 }
 
-/// The length note of `attempt` for a reply whose text the 8-token limit
-/// cut (the faux provider counts a token per 4 chars), the `row`th in a
-/// row.
+/// The length note of `attempt` for a reply whose text the 7-token limit
+/// cut (the faux provider counts the reply's tokens in `o200k_base`), the
+/// `row`th in a row.
 fn cut_note(attempt: u64, row: u32) -> String {
     user(&format!(
-        "Harness note, attempt {attempt}: your previous reply hit the 8-token output limit \
+        "Harness note, attempt {attempt}: your previous reply hit the 7-token output limit \
          before it finished, so the harness did not take its cut text as your answer. Reason \
          only about the next step, then call its tool. For a large answer (a file, a document, \
          a long text), write a minimal working version first, then extend it with further \

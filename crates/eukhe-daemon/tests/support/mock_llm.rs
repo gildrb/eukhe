@@ -51,7 +51,9 @@ pub struct Request {
     pub after_tool: bool,
     /// The tool call ids answered so far in the request.
     pub tool_results: Vec<String>,
-    /// The request's size as this provider counts it (JSON chars / 4).
+    /// The request's size as this provider counts it: a quarter of the
+    /// JSON's bytes, a provider tokenizer that disagrees with the
+    /// session's local count.
     pub prompt_tokens: u64,
     pub body: Value,
 }

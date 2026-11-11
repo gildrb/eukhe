@@ -12,7 +12,7 @@ use crate::types::{
     JsonValue, Model, ProviderRequestOptions, SimpleStreamOptions, StreamOptions, ThinkingLevel,
     TranscriptContext,
 };
-use crate::utils::estimate::estimate_context_tokens;
+use crate::utils::context_tokens::{model_tokenizer, output_cap_prompt_tokens};
 
 /// A reasoning model on a local vLLM with the catalog max `max_tokens`.
 fn vllm_model(context_window: u64, max_tokens: u64) -> Model {
@@ -84,11 +84,13 @@ async fn a_model_whose_max_is_its_window_omits_the_cap() {
 }
 
 /// A prompt near the window shrinks the cap to the room it leaves after
-/// the prompt and the 4096-token safety margin.
+/// the prompt (counted locally and padded) and the 4096-token safety
+/// margin.
 #[tokio::test]
 async fn a_long_prompt_near_the_window_shrinks_the_cap_to_the_room() {
     let context = user_context(&"word ".repeat(2_000));
-    let prompt = estimate_context_tokens(context.messages()).tokens;
+    let prompt =
+        output_cap_prompt_tokens(&model_tokenizer(&vllm_model(0, 4000)), context.messages());
     let params = capture(&vllm_model(prompt + 4096 + 1000, 4000), &context).await;
     assert_eq!(caps(&params), (Some(&json!(1000)), None), "prompt {prompt}");
 }

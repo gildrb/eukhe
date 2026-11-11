@@ -1,13 +1,13 @@
-//! `src/utils/*`: transcript, estimation, retry, overflow, validation, JSON,
+//! `src/utils/*`: transcript, token counts, retry, overflow, validation, JSON,
 //! streaming, and provider helpers. Every module is public, like the TS
 //! package's `./utils/*` export.
 
 pub mod abort;
 pub mod abort_signals;
 pub mod assistant_message_frame;
+pub mod context_tokens;
 pub mod diagnostics;
 pub mod error_body;
-pub mod estimate;
 pub mod event_stream;
 pub mod hash;
 pub mod headers;

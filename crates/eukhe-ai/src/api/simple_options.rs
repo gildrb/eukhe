@@ -12,10 +12,12 @@ use eukhe_bend::Entry;
 use crate::models::clamp_thinking_level;
 use crate::quirks::{LevelBudgets, Quirks, Rulebook};
 use crate::types::{SimpleStreamOptions, StreamOptions};
-use crate::utils::estimate::estimate_context_tokens;
+use crate::utils::context_tokens::{model_tokenizer, output_cap_prompt_tokens};
 
-/// Tokens left free under the context window for the estimate's error
-/// when the output cap is shrunk to fit it.
+/// Tokens left free under the context window for what the prompt's count
+/// leaves out (the request's wire frame) when the output cap is shrunk to
+/// fit it, on top of the padding of the locally counted messages
+/// ([`output_cap_prompt_tokens`]).
 const CONTEXT_SAFETY_TOKENS: u64 = 4096;
 /// The smallest output cap a window shrink leaves.
 const MIN_MAX_TOKENS: u64 = 1;
@@ -52,11 +54,12 @@ pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) 
 }
 
 /// The window facts of a request on the wire (model `Fx.Win`): the context
-/// window (0: unknown), the estimated prompt, the safety margin, the floor
-/// of a shrunk cap, and whether the provider ends the model's output at the
-/// window itself (the rulebook's `stops_output_at_window`).
+/// window (0: unknown), the prompt (the provider's last count plus the
+/// padded local count of the messages after it), the safety margin, the
+/// floor of a shrunk cap, and whether the provider ends the model's output
+/// at the window itself (the rulebook's `stops_output_at_window`).
 fn write_window(writer: &mut Writer, model: &Model, context: &TranscriptContext) {
-    let prompt = estimate_context_tokens(context.messages()).tokens;
+    let prompt = output_cap_prompt_tokens(&model_tokenizer(model), context.messages());
     writer
         .nat(saturated(model.context_window))
         .nat(saturated(prompt))
