@@ -14,9 +14,8 @@ import ../base.bend as LawsBase
 # order.
 #
 # Requirements (sources: the module doc of crates/eukhe-daemon/src/
-# shell_approval.rs and its tests, named per row; omp has no such desk:
-# its subagents raise no approval prompt, omp packages/coding-agent/src/
-# internal-urls/cfg-protocol.ts:301-304, so these rows are eukhe's own):
+# shell_approval.rs and its tests, named per row; these rows are eukhe's
+# own, stated by no outside source):
 # D1: a question that reaches the session gets the desk's next key; the
 #     session's decision sends it to its clients (shown; open, waiting on
 #     the clients), to the parent session (relayed; open, waiting on the

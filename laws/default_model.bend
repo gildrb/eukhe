@@ -13,14 +13,13 @@ import ./base.bend as LawsBase
 # crates/eukhe-core/src/models/resolver.rs `DefaultMiss`,
 # `saved_default_facts`, `resolve_default`, `saved_default_miss`;
 # crates/eukhe-core/src/durable/models.rs `Substitution`, `resolve` and
-# its regression tests (audit H4). omp (packages/coding-agent/src/config/
-# model-resolver.ts `findInitialModel`) takes the saved default when the
-# registry has it and else the first model with a key, in silence; its
-# `restoreModelFromSession` names the reason it falls back ("model no
-# longer exists", "no API key available"). Eukhe's audit H4 fix keeps
-# omp's order and makes every move past the saved default name it (R6)
-# and never moves past an unkeyed one (R4): the Rust doc comments are the
-# requirement where they differ from omp.
+# its regression tests (audit H4). The base order: the saved default when
+# the registry has it, else the first model with a key; a session's model
+# that falls back names the reason ("model no longer exists", "no API key
+# available"). Eukhe's audit H4 fix keeps that order and makes every move
+# past the saved default name it (R6) and never moves past an unkeyed one
+# (R4): the Rust doc comments are the requirement where they differ from
+# the base order.
 #
 # Requirements:
 #   R1  the request and every part of the reply read back (wire section)

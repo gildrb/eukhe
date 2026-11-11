@@ -21,9 +21,9 @@ import ../../bend/effort.bend as Ef
 # states the session rules for the Bend model only.
 #
 # Requirements (the header of bend/effort.bend; crates/eukhe-ai
-# models/ladder.rs; omp c28b3e3 where they are silent or differ):
+# models/ladder.rs; the requirement's effort ladder where they are silent):
 # A1 The ladder: off, minimal, low, medium, high, xhigh, max, in that order
-#    (effort_rank; omp THINKING_EFFORTS, off below every effort).
+#    (effort_rank, off below every effort).
 # A2 A reasoning model offers a level whose map entry is a wire string.
 # A3 A reasoning model offers a level below xhigh that its map has no
 #    entry for.
@@ -38,10 +38,8 @@ import ../../bend/effort.bend as Ef
 #    bend/effort.bend header rule 2, crates/eukhe-ai models/ladder.rs
 #    clamp and its vectors): a level the model offers stays; another goes
 #    to the lowest offered level above it, else to the highest offered
-#    level below it (off included), else to off. omp's agent clamps down
-#    first instead (omp c28b3e3 packages/catalog/src/model-thinking.ts:42-87);
-#    eukhe keeps v0.10.67's order on purpose (the commit that states this
-#    law lists the divergence, model by model).
+#    level below it (off included), else to off. eukhe keeps v0.10.67's
+#    order on purpose: up before down.
 # A9 The clamp of any level for a model that offers none is off.
 # A10 The clamp lands on an offered level; a second clamp changes nothing.
 # A11 A cycle step gives a level exactly when two or more are offered;
@@ -73,8 +71,8 @@ import ../../bend/effort.bend as Ef
 # -----
 
 # a level's place on the ladder: off 0, minimal 1, low 2, medium 3, high 4,
-# xhigh 5, max 6 (the order bend/effort.bend's header and omp's
-# THINKING_EFFORTS list, off below every effort)
+# xhigh 5, max 6 (the order of bend/effort.bend's header, off below every
+# effort)
 def effort_rank(l: Ef.Lv) -> Nat:
   match l:
     case Ef.Off{}:
@@ -224,8 +222,8 @@ law effort_offered_asc:
 # no offered level is passed over on the way (effort_lands): l itself when
 # offered; else the lowest offered level above l; else the highest offered
 # level below l, off included. The order is eukhe v0.10.67's (tag
-# eukhe-v0.10.67); omp's agent clamps down first, a divergence kept on
-# purpose (no wire regression against v0.10.67 on any catalog model)
+# eukhe-v0.10.67), kept on purpose (no wire regression against v0.10.67 on
+# any catalog model)
 # EXCLUDES: a clamp that goes down before up (high on off, low, medium,
 #   xhigh giving medium), that skips the nearest offered level above, that
 #   lands on a level not offered, or that moves an offered level

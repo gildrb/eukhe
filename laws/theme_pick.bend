@@ -6,8 +6,8 @@
 # proves them (as ThemePick.<law>) with the lemmas of proof/theme_pick/.
 #
 # Requirements (laws/theme.bend header; crates/eukhe-theme sources.rs,
-# palette.rs; oh-my-pi packages/tui/src/theme/loader.ts resolves the
-# builtins, then the custom directory):
+# palette.rs; the requirement resolves the builtins, then the custom
+# directory):
 # R5 a name picks, among the files that load: the first registered file
 #    that advertises it (theme_pick_registered), else the builtin of that
 #    name, eukhe 0, dark 1, light 2 (palette.rs BUILTIN_THEME_NAMES;

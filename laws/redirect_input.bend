@@ -501,8 +501,9 @@ law redirect_input_verify_other:
 
 # R5's texts are anchored only (redirect_input_text_example: Rust's four
 # failure texts and two notices): no source outside eukhe's code states
-# them (omp has no such paste loop), and a law whose spec spells the same
-# literals the model concatenates would compare the model with itself.
+# them (no requirement states such a paste loop), and a law whose spec
+# spells the same literals the model concatenates would compare the model
+# with itself.
 
 # LAW redirect_input_notice_reason (R5): an error text w1 r d w2 (w1, w2 whitespace, d only `.`s, r empty or not starting with whitespace, not ending with `.`, and not ending with whitespace when d is empty) gives the notice of the reason r
 # EXCLUDES: whitespace or trailing dots kept, a leading dot dropped, a dot

@@ -1,5 +1,5 @@
 # durable (spec): the lifecycle of a durable task (area task_life) as
-# pi-durable states it (spec §5.1-§5.5): the terms the laws of area
+# the durable task spec states it (§5.1-§5.5): the terms the laws of area
 # task_life (laws/task_life.bend) state the rules of bend/task_life.bend
 # with. They name what a state, a list or a mark holds (a checkpoint, an
 # outcome, the i-th flag, a count, the rank of a mark); none of them

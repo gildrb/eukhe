@@ -20,8 +20,7 @@ import ../spec/harness/stop.bend as StSpec
 # bend/run/recovery.bend (asked through bend/ffi_run.bend: decide.rs
 # `recover` and `after_reply`; their laws: laws/stop/recover.bend). Every
 # input is free: any facts, any note, any round count. Where a rule is
-# unclear, omp's behavior is the requirement (oh-my-pi
-# packages/coding-agent/src/session/turn-recovery.ts).
+# unclear, the requirement's turn recovery decides.
 #
 # R1: the walk is the spec's (spec/harness/stop.bend S1-S3): LengthStop,
 #     EmptyStop, MarkupStop, PendingWork, inside to outside; the first
@@ -35,7 +34,7 @@ import ../spec/harness/stop.bend as StSpec
 # R3: PendingWork never continues a run: a whole, readable reply with no
 #     unread markup stands while the session owns running work (a pause).
 #     A cut, empty or markup reply still continues with work pending.
-# R4: the caps (S4; omp EMPTY_STOP_MAX_RETRIES = 3): an empty reply is
+# R4: the caps (S4; EMPTY_STOP_MAX_RETRIES = 3): an empty reply is
 #     retried with an empty note at most 3 times in a row, the notes
 #     counting 1, 2, 3, then the run fails; a note of another recovery
 #     between them starts the row again.
@@ -45,10 +44,9 @@ import ../spec/harness/stop.bend as StSpec
 #     at most 10 tool rounds are left (left = max - 1 - done, at least 0)
 #     and names them. The texts are those of the Rust tests
 #     (generation/tests/stops.rs `cut_note`, `round_note`). The cap k is
-#     the configured cap of length notes (RCfg `long`, LENGTH_NOTES 3;
-#     omp INCOMPLETE_RECOVERY_MAX_RETRIES = 3, session-maintenance.ts
-#     166, 3465-3502: `Attempt #<r>/<k>`, the attempt past the cap ends
-#     the run): cut replies with text in a row get length notes 1 to k,
+#     the configured cap of length notes (RCfg `long`, LENGTH_NOTES 3; the
+#     requirement's cap is 3, `Attempt #<r>/<k>`, the attempt past the cap
+#     ends the run): cut replies with text in a row get length notes 1 to k,
 #     then the run fails; a note of another recovery before them starts
 #     the row at 1 (laws: laws/stop/recover.bend).
 # R6: the entry answers each request Rust writes (0 the walk: cut, text,

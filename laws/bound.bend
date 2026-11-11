@@ -3,9 +3,9 @@
 #
 # Requirements (sources: crates/eukhe-durable/src/harness/output.rs
 # `Truncation`, `bound_output`, `OutputBuffer`; harness/tool/result.rs
-# `truncated`; omp's truncateHead / truncateTail, /tmp/omp-src
-# packages/tui/src/tools/streaming-output.ts). This file cited "limits 1
-# and 2" and "(S2)" before, defined nowhere: they are R1, R2 and R3-R10.
+# `truncated`; the requirement's head and tail truncation). This file cited
+# "limits 1 and 2" and "(S2)" before, defined nowhere: they are R1, R2 and
+# R3-R10.
 #
 # R1: a window keeps at most the cap's bytes and at most its lines;
 #     nothing under a cap of no line or no byte.
@@ -326,9 +326,9 @@ law bound_head_full_keeps:
 # ---------------
 # Rust (harness/tool/result.rs `truncated`) shows a notice "Output
 # truncated." with the omitted bytes and lines and where they lie
-# (`OmittedAt::End` for At{End}, `OmittedAt::Start` for AtStart); omp
-# (/tmp/omp-src packages/tui/src/tools/output-meta.ts:17-19, 371-372)
-# shows one only for a truncated output, of direction head or tail.
+# (`OmittedAt::End` for At{End}, `OmittedAt::Start` for AtStart); the
+# requirement shows one only for a truncated output, of direction head or
+# tail.
 
 # LAW bound_notice_rule (R4): no notice when nothing was dropped, or when the result no longer
 # holds the output; else the output was cut at its end under a head cap

@@ -19,10 +19,10 @@ import ../bend/image_marker_shapes.bend as IM
 # R2: the table holds exactly this shape, at index 0, and no other.
 #
 # R1 and R2 are anchored only (image_marker_shapes_example): no source
-# outside eukhe's code states the shape (omp has no image-marker regex), so
-# a law over the table would compare it with itself; a law by meaning over
-# every text needs the matcher's search (bend/shape.bend seek) reasoned
-# through for this shape, not done.
+# outside eukhe's code states the shape (no requirement holds an
+# image-marker regex), so a law over the table would compare it with
+# itself; a law by meaning over every text needs the matcher's search
+# (bend/shape.bend seek) reasoned through for this shape, not done.
 
 # Spec helpers
 # ------------

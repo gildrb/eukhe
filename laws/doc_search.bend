@@ -82,8 +82,8 @@ law continuation_disjoint:
 # (F8) The rules, exactly
 # -----------------------
 # bend/doc_search.bend: the rules the entry runs, as the module's header
-# states them (crates/eukhe-docs/src/grep/mod.rs, after omp's grep tool,
-# packages/coding-agent/src/tools/grep.ts). Every input is free.
+# states them (crates/eukhe-docs/src/grep/mod.rs, after the requirement's
+# grep tool). Every input is free.
 #
 # A1 (page): a page of a list is the K items after the first S, in order.
 # A2 (continuation): the continuation is S + K when K is not 0 and an
@@ -585,18 +585,16 @@ def ds_sc_rest(sc: Sr.Scope) -> List<&2, Nat>:
     case Sr.Scope{m, p, s, k}:
       [p, s, k]
 
-# LAW search_scope_omp: the model's scope (Sr.scope) is omp's grep scope
-# (packages/coding-agent/src/tools/grep.ts at c28b3e3): several files
-# exactly when the path has more than one root or a directory root
-# (`isMultiScope`, 797); then 20 matches a file
-# (MULTI_FILE_PER_FILE_MATCHES), else 200 (SINGLE_FILE_MATCHES, 798); the
-# page starts at the skip asked only in a scope of several files
-# (`windowStart`, 986); a page holds the match limit + 1 files, 20
-# (DEFAULT_FILE_LIMIT) without a limit (`fileWindow`, 985). Each field is
-# stated against the record's own `multi`
+# LAW search_scope_as_required: the model's scope (Sr.scope) is the
+# requirement's grep scope: several files exactly when the path has more
+# than one root or a directory root; then 20 matches a file
+# (MULTI_FILE_PER_FILE_MATCHES), else 200 (SINGLE_FILE_MATCHES); the page
+# starts at the skip asked only in a scope of several files; a page holds
+# the match limit + 1 files, 20 (DEFAULT_FILE_LIMIT) without a limit. Each
+# field is stated against the record's own `multi`
 # EXCLUDES: a rule that ignores directory roots (or any input), a cap of
 #   the other scope, a skip kept for one file, a page size off by one
-law search_scope_omp:
+law search_scope_as_required:
   for +roots: Nat
   for +dirs: Nat
   for +skip: Nat
@@ -605,7 +603,7 @@ law search_scope_omp:
 
 # LAW search_one_file_no_pages: in a scope of one file (multi 0) a page
 # request [0, t, s, k, 0] answers no continuation and no past-the-end
-# notice, whatever t, s and k (omp grep.ts 973: a single-file scope cannot
+# notice, whatever t, s and k (the requirement: a single-file scope cannot
 # paginate), then the page
 # EXCLUDES: paging one file, a skip notice for one file
 law search_one_file_no_pages:

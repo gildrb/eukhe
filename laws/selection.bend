@@ -16,8 +16,7 @@ import ./base.bend as LawsBase
 # below never call the code.
 #
 # Requirements (A: inferred from bend/selection.bend's header and the Rust
-# caller crates/eukhe-tui/src/selection.rs; omp leaves the selection to the
-# terminal, so no omp behavior applies):
+# caller crates/eukhe-tui/src/selection.rs):
 # A1: a release copies exactly the text of the selection being made: its
 #     cells in reading order, a wide glyph once, rows joined by a newline,
 #     a line's trailing blanks dropped (sel_release_copies,

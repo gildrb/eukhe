@@ -12,8 +12,8 @@ import ./base.bend as LawsBase
 # ------------
 # Sources: the doc comments of bend/worker.bend, of
 # crates/eukhe-bend/src/rules/worker.rs and of the one caller
-# crates/eukhe-core/src/durable/children/pause.rs. omp has no counterpart
-# (the "main + worker" shape and its pause are Eukhe's own).
+# crates/eukhe-core/src/durable/children/pause.rs (the "main + worker"
+# shape and its pause are Eukhe's own).
 #   R1 a pause cancels nothing: Pause, Resume and a message leave the tool
 #      calls in flight; only a tool call's end and the run's end lower the
 #      count, a tool call's start raises it

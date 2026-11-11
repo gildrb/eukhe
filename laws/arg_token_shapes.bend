@@ -31,7 +31,7 @@ import ../bend/arg_token_shapes.bend as AT
 #     i, and no other.
 #
 # Anchored only: R1 and R2 (arg_token_shapes_example). No source
-# outside eukhe's code states the shapes (omp has no ARG_TOKEN_PATTERN;
+# outside eukhe's code states the shapes (no requirement holds a token regex;
 # the TS regexes are written above each shape of bend/arg_token_shapes.bend
 # and above), so a law over the table would compare it with itself; a law
 # by meaning over every text needs the matcher's search (bend/shape.bend)

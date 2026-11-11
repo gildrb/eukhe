@@ -22,23 +22,21 @@ import ./base.bend as LawsBase
 #
 # Requirements (RI). Sources: the Rust docs (crates/eukhe-bend/src/rules/
 # retry.rs `Idle`, crates/eukhe-ai/src/utils/stream_idle.rs), bend/retry.bend
-# section 6, crates/eukhe-bend/WIRE.md; where they are silent, omp's watchdog
-# (/tmp/omp-src packages/ai/src/utils/idle-iterator.ts:10-16
-# `normalizeIdleTimeoutMs`, :215-229 local work, :271-293 `onTimerFire`).
+# section 6, crates/eukhe-bend/WIRE.md; where they are silent, the
+# requirement's idle watchdog.
 # R1  The timeout (stream_idle_timeout_ms) arms the deadline only when it is
-#     a number above 0: NaN, a negative number and 0 disable it (omp: a
-#     timeout <= 0 disables the watchdog); any positive number, a fraction
-#     of a ms too, arms it, and every positive timeout arms the same
-#     deadline: only the deadline d (us) sets the timer.
+#     a number above 0: NaN, a negative number and 0 disable it (the
+#     requirement: a timeout <= 0 disables the watchdog); any positive
+#     number, a fraction of a ms too, arms it, and every positive timeout
+#     arms the same deadline: only the deadline d (us) sets the timer.
 # R2  The armed deadline's first decision: sleep the whole deadline d from
 #     the arming at 0; a deadline of 0 us stalls at once.
 # R3  When the timer fires with no hold alive, it stalls once d has passed
 #     since the stream's latest life, else it sleeps exactly until then
-#     (omp `onTimerFire`: re-arm for the remainder, else time out).
-# R4  While a hold of the stream's clock is alive (omp: pending local
-#     work), a fire never stalls: it acts as if the stream had just shown
-#     life (omp `extendDeadlineForLocalWork`), and the end of a hold counts
-#     as life.
+#     (the requirement: re-arm for the remainder, else time out).
+# R4  While a hold of the stream's clock is alive (pending local work), a
+#     fire never stalls: it acts as if the stream had just shown life (local
+#     work extends the deadline), and the end of a hold counts as life.
 # R5  Events come in any order: the latest life is the latest time a life
 #     or the end of a hold reported (the arming at 0 included), and the
 #     holds alive are the holds started less those ended (an end with none
@@ -79,10 +77,10 @@ import ./base.bend as LawsBase
 
 # R3, R4 as a relation of the fire and its answer, not a formula: the
 # timer fires `since` after the stream's latest life under a deadline d.
-# omp `onTimerFire` (idle-iterator.ts:278-293): the deadline is the latest
+# The requirement's timer fire: the deadline is the latest
 # life plus d; a fire before it re-arms for exactly the time left
 # (`remainingMs`: since + sleep = d), a fire at or past it times out; a
-# held clock (omp `extendDeadlineForLocalWork`) counts as life just now,
+# held clock (local work extends the deadline) counts as life just now,
 # so it sleeps a whole d. w is a right answer exactly when fire_ok holds;
 # some w is for every fire (idle_fire_total), and since a fire answers
 # one reply, idle_fire_exact pins it.

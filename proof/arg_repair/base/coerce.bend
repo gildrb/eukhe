@@ -232,7 +232,7 @@ def ac.lower(s: String) -> {Ar.lower(s) == ArgRepairCoerce.sp_lower(s) : String}
           %ac.lower_at(Bool.and(U32.is_ge(x, 65), U32.is_le(x, 90)), x) : {SCon{Chr{Ar.lower.code(x)}, Ar.lower(t)} == SCon{Chr{_}, Ar.lower(t)} : String}
           {==}
 
-# omp's word order, then the code's
+# the requirement's word order, then the code's
 def ac.perm(a: Bool, b: Bool, c: Bool, d: Bool) -> {Bool.or(a, Bool.or(d, Bool.or(b, Bool.or(c, False{})))) == Bool.or(a, Bool.or(b, Bool.or(c, d))) : Bool}:
   match a:
     case True{}:
@@ -271,7 +271,7 @@ def ac.word_of(t: Bool, f: Bool) -> {Ar.word.of(t, f) == ArgRepairCoerce.sp_bool
         case False{}:
           {==}
 
-# the code's words are omp's
+# the code's words are the requirement's
 def ac.word(+w: String) -> {Ar.word(w) == ArgRepairCoerce.sp_bool.word(w) : Maybe<&2, Ar.To>}:
   +t = Bool.or(String.eq(w, "true"), Bool.or(String.eq(w, "1"), Bool.or(String.eq(w, "yes"), Bool.or(String.eq(w, "on"), False{}))))
   %ac.perm(String.eq(w, "true"), String.eq(w, "yes"), String.eq(w, "on"), String.eq(w, "1")) : {Ar.word.of(_, Bool.or(String.eq(w, "false"), Bool.or(String.eq(w, "no"), Bool.or(String.eq(w, "off"), String.eq(w, "0"))))) == ArgRepairCoerce.sp_bool.word(w) : Maybe<&2, Ar.To>}

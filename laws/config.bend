@@ -50,10 +50,8 @@ import ../spec/settings/config_rules.bend as CR
 #     a key (a URL, a credential) from the global entry of its name
 #     (settings/merge.rs); a global entry the project does not name stays
 #     whole.
-# A1  (shipped as in eukhe v0.10.67; omp has no global-only settings: a
-#     project merges every key, packages/coding-agent/src/config/
-#     settings.ts:1403-1407, 2706-2728, test/settings-manager.test.ts:
-#     2806-2815) Rust's cvar layer reads every CvarScope::Global cvar
+# A1  (shipped as in eukhe v0.10.67) Rust's cvar layer reads every
+#     CvarScope::Global cvar
 #     (crates/eukhe-core/src/settings/cvar/table.rs) from the global
 #     settings alone (settings/cvar.rs:1027-1031 document_sets): a project
 #     value of one never takes effect, trusted or not, whatever this model

@@ -1,4 +1,4 @@
-# harness (spec): charitable argument repair (omp ADR 0020): the
+# harness (spec): charitable argument repair: the
 # requirement S1-S5 and the words the laws of area arg_repair
 # (laws/arg_repair.bend, laws/arg_repair/coerce.bend) state it with: a
 # call's sent keys, a key's decoding, the first text a list gives a key,

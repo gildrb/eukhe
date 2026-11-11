@@ -17,9 +17,8 @@ import ../spec/durable/wait_any_wire.bend as SpW
 # and its wire spec/durable/wait_any_wire.bend (W1-W3); the laws state
 # each as properties of the code's answers, never as a copy of it. Every
 # input is free: any targets, cancel, cap, asked length, watchers, phase
-# and events. (omp's source was not available to compare with; the Rust
-# doc comments of rules/wait_any.rs and durable/jobs/delivery.rs state
-# the same rules.)
+# and events. (The Rust doc comments of rules/wait_any.rs and
+# durable/jobs/delivery.rs state the same rules.)
 #
 # R1: a poll is the spec's (S1, S2): the first settled target, a refusal
 #     with nothing to wait for, then the cancel, then the cap.

@@ -15,12 +15,12 @@ import ./base.bend as LawsBase
 # (eukhe-bend rules/task_life.rs; asked by the eukhe-durable scheduler,
 # harness/scheduler/life.rs, for every task transition it writes, the
 # resume of a stored state, the failFast check of a wait, and every abort
-# mark). spec/durable/task_life.bend restates pi-durable's rules (S1-S8)
+# mark). spec/durable/task_life.bend restates the durable task rules (S1-S8)
 # and names the terms the laws use (a state's checkpoint and outcome, the
 # i-th flag of a list, a count, a mark's rank); no spec helper decides a
 # transition. Every input is free: any state, transition, handle, policy,
-# mark and list. (oh-my-pi has no durable task scheduler: the source of
-# these rules is pi-durable's spec §5.1-§5.5 and the Rust host.)
+# mark and list. (The source of these rules is the durable task scheduler
+# spec §5.1-§5.5 and the Rust host.)
 #
 # R1: a transition gives the state of S1-S4 or refuses it with the reason
 #     (terminal: ended; completing: held; a commit or handover of a task

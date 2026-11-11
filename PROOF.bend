@@ -2122,7 +2122,7 @@ import ./proof/doc_lines/doc_lines_ffi_exact.bend as PDocLinesFfiExact
 import ./proof/doc_rows/base.bend as LADocRows
 import ./proof/doc_rows/rows_lines_are_read_rows.bend as PRowsLinesAreReadRows
 import ./proof/doc_rows/rows_raw_lines_are_pieces.bend as PRowsRawLinesArePieces
-import ./proof/doc_rows/rows_gate_goes_as_omp.bend as PRowsGateGoesAsOmp
+import ./proof/doc_rows/rows_gate_goes_as_required.bend as PRowsGateGoesAsRequired
 import ./proof/doc_rows/rows_gate_names_the_refusal.bend as PRowsGateNamesTheRefusal
 import ./proof/doc_rows/rows_view_shows.bend as PRowsViewShows
 import ./proof/doc_rows/rows_view_example.bend as PRowsViewExample
@@ -2215,7 +2215,7 @@ import ./proof/doc_search/limit_round_robin.bend as PLimitRoundRobin
 import ./proof/doc_search/search_page_answers.bend as PSearchPageAnswers
 import ./proof/doc_search/search_limit_answers.bend as PSearchLimitAnswers
 import ./proof/doc_search/search_scope_answers.bend as PSearchScopeAnswers
-import ./proof/doc_search/search_scope_omp.bend as PSearchScopeOmp
+import ./proof/doc_search/search_scope_as_required.bend as PSearchScopeAsRequired
 import ./proof/doc_search/search_one_file_no_pages.bend as PSearchOneFileNoPages
 import ./proof/doc_search/grep_account_exact.bend as PGrepAccountExact
 import ./proof/doc_search/search_list_tests_find.bend as PSearchListTestsFind
@@ -2954,7 +2954,7 @@ import ./proof/color/color_ffi_malformed_exact.bend as PColorFfiMalformedExact
 import ./proof/color/color_ffi_left_over.bend as PColorFfiLeftOver
 import ./proof/color/color_ffi_example.bend as PColorFfiExample
 import ./proof/tui_color/tui_effort_ramp_lerp.bend as PTuiEffortRampLerp
-import ./proof/tui_color/tui_usage_band_omp.bend as PTuiUsageBandOmp
+import ./proof/tui_color/tui_usage_band_percents.bend as PTuiUsageBandPercents
 import ./proof/tui_color/tui_roles_cover.bend as PTuiRolesCover
 import ./proof/tui_color/tui_roles_by_name.bend as PTuiRolesByName
 import ./proof/tui_color/tui_effort_ladder_max_exact.bend as PTuiEffortLadderMaxExact
@@ -3605,7 +3605,7 @@ import ./proof/arg_token_shapes/arg_token_shapes_example.bend as PArgTokenShapes
 import ./proof/autolink_shapes/base.bend as LAAutolinkShapes
 import ./proof/autolink_shapes/autolink_shapes_link_example.bend as PAutolinkShapesAutolinkShapesLinkExample
 import ./proof/autolink_shapes/autolink_shapes_backpedal_example.bend as PAutolinkShapesAutolinkShapesBackpedalExample
-import ./proof/autolink_shapes/autolink_shapes_omp_example.bend as PAutolinkShapesAutolinkShapesOmpExample
+import ./proof/autolink_shapes/autolink_shapes_fixture_example.bend as PAutolinkShapesAutolinkShapesFixtureExample
 import ./proof/preview_shapes/base.bend as LPreviewShapes
 import ./proof/preview_shapes/preview_shapes_redact_example.bend as PPreviewShapesPreviewShapesRedactExample
 import ./proof/preview_shapes/preview_shapes_chain_example.bend as PPreviewShapesPreviewShapesChainExample

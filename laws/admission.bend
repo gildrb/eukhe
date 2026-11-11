@@ -10,11 +10,10 @@ import ./base.bend as LawsBase
 # ---------------------------------------------------------
 # One provider's admission: crates/eukhe-core/src/admission.rs (module
 # doc, `AdmissionLimits`, `ProviderPermit`, `QueuedPermit`) and its tests
-# (admission/tests.rs). omp (packages/ai/src/stream.ts
-# `withProviderInFlightLimit`, `providers.maxInFlightRequests` in
-# docs/settings.md) caps each provider's requests in flight and makes the
-# rest wait, an omitted provider unlimited; eukhe adds the two classes,
-# the preemption and the queue limit. The model is bend/admission.bend:
+# (admission/tests.rs). The requirement caps each provider's requests in
+# flight and makes the rest wait, an omitted provider unlimited; eukhe adds
+# the two classes, the preemption and the queue limit. The model is
+# bend/admission.bend:
 # `Ad.step`, one op on every ticket ever admitted (ticket k is the k-th
 # admitted, oldest 0). eukhe runs `Ad.Live.step`, which
 # admission_live_step ties to the model, through the stepper
@@ -40,7 +39,7 @@ import ./base.bend as LawsBase
 # H3.4 An interactive waiter is granted once the interactive slots held
 #      and the interactive waiters ahead of it are freed, whatever
 #      background requests do.
-# H3.5 At most providerMaxInFlight slots are held at once (omp's cap); a
+# H3.5 At most providerMaxInFlight slots are held at once (the cap); a
 #      lowered limit only drains.
 # H3.6 An interactive request gets a slot at once when no interactive
 #      request waits and one is free for it (no limit, or fewer

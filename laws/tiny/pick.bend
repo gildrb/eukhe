@@ -3,8 +3,8 @@
 # entry (bend/ffi_tiny.bend)
 #
 # (S9) Local tiny models: the model in bend/tiny.bend (its header, lines
-# 1-11; omp's local models: a role names a chain of models, the first
-# available one serves). Every input is free: any chain of models, any
+# 1-11: a role names a chain of models, the first available one serves).
+# Every input is free: any chain of models, any
 # set of available models, any needs of any processes with any tags, any
 # worker exits, in any order.
 #

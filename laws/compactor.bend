@@ -3,9 +3,9 @@
 # The compactor writes the chat memory's lines (spec/README.md M2: a
 # compactor line fits its budget). The model is bend/compactor.bend (its
 # headings H1, H2, H2.1), the entry bend/ffi_compactor.bend, the Rust
-# caller crates/eukhe-bend/src/rules/compactor.rs. oh-my-pi has no
-# compactor of its own (the chat memory follows the pi-optchat extension),
-# so these requirements come from the model's header and the Rust docs.
+# caller crates/eukhe-bend/src/rules/compactor.rs. No outside source
+# states a compactor, so these requirements come from the model's header
+# and the Rust docs.
 #
 # H1 A compactor call (a line of a node: its input, at most `tries` model
 # calls, `node` bytes) always ends, with a line that fits. A reply is

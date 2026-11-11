@@ -6,7 +6,7 @@
 # answers the malformed error, which the premise excludes; a request read
 # whole is the input's spelling, and its answer is tc_reply (tot.answer:
 # the ramp's range test is ramp_in, its rungs the spec's list; the band is
-# the model's (FB.fb.band_go), which is omp_level (tui_usage_band_omp);
+# the model's (FB.fb.band_go), which is usage_level (tui_usage_band_percents);
 # the roles are the model's).
 
 import Base
@@ -20,7 +20,7 @@ import ../wire/wire_nat_exact.bend as PWireNatExact
 import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
 import ./base.bend as LA
 import ./tui_color_ffi_band.bend as FB
-import ./tui_usage_band_omp.bend as UO
+import ./tui_usage_band_percents.bend as UO
 
 # Reading
 # -------
@@ -172,7 +172,7 @@ def tot.answer(q: FTC.Req) -> {FTC.answer(q) == TuiColor.tc_reply(q) : String}:
         case TC.Px{+lr, +lg, +lb} TC.Px{+hr, +hg, +hb}:
           tot.ramp(TuiColor.ramp_in(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n), TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n)
     case FTC.QBand{+t, +w}:
-      %TuiColor.tui_usage_band_omp(t, w) : {Wr.put_nat(FTC.band(t, w), "") == Wr.put_nat(_, "") : String}
+      %TuiColor.tui_usage_band_percents(t, w) : {Wr.put_nat(FTC.band(t, w), "") == Wr.put_nat(_, "") : String}
       %FB.fb.band_go(TC.bands(), t, w) : {Wr.put_nat(FTC.band.go(TC.bands(), t, w), "") == Wr.put_nat(_, "") : String}
       {==}
     case FTC.QRoles{}:

@@ -10,8 +10,8 @@ import ../../spec/harness/arguments.bend as ArgSpec
 # (laws/arg_repair.bend arg_repair_outs). Every input is free: any declared
 # name, `items.type`, value, text, f64 reading and shape. The rows below
 # are S4's; whitespace, words and bounds come from outside the code: Unicode
-# White_Space (PropList.txt), omp's boolean words
-# (packages/ai/src/utils/validation.ts:116-126), Rust's i64 bounds
+# White_Space (PropList.txt), the requirement's boolean words (`true`,
+# `1`, `yes`, `on`; `false`, `0`, `no`, `off`), Rust's i64 bounds
 # (`i64::MIN` = -9223372036854775808, `i64::MAX` = 9223372036854775807) and
 # `str::parse::<i64>`'s grammar `[+-]?[0-9]+`, RFC 8259's `true`/`false`.
 
@@ -107,12 +107,12 @@ def sp_bool.of(yes: Bool, no: Bool) -> Maybe<&2, Ar.To>:
         case False{}:
           None{}
 
-# omp's boolean words (validation.ts:116-126), as written there
+# the requirement's boolean words, in its order
 def sp_bool.word(+w: String) -> Maybe<&2, Ar.To>:
   sp_bool.of(ArgSpec.member(w, ["true", "1", "yes", "on"]), ArgSpec.member(w, ["false", "0", "no", "off"]))
 
 # S4: the boolean a text (none past 4,096 chars) spells, its ASCII lower case
-# one of omp's words
+# one of the requirement's words
 def sp_bool(m: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
   match m:
     case None{}:
@@ -406,8 +406,8 @@ law arg_repair_coerce_trims:
   {Ar.coerce(p, Ar.VStr{Some{String.append(a, String.append(u, b))}, n, sh}) == Ar.coerce(p, Ar.VStr{Some{u}, n, sh}) : Maybe<&2, Ar.To>}
 
 # LAW arg_repair_coerce_bool (R7, S4): for `boolean`, a string whose text
-# (trimmed) in ASCII lower case is one of omp's words is that boolean; any
-# other text, or none (past 4,096 chars), is not read
+# (trimmed) in ASCII lower case is one of the requirement's words is that
+# boolean; any other text, or none (past 4,096 chars), is not read
 # EXCLUDES: a word dropped or added, `on`/`off` swapped, a case-sensitive
 #   reading, a non-ASCII char folded
 law arg_repair_coerce_bool:

@@ -25,8 +25,7 @@ import ./base.bend as LawsBase
 #       else: semver_show_value, semver_roundtrip, semver_parse_exact
 #       (anchors semver_parse_patch_example, semver_parse_two_fields_example).
 # R1.3  The order: major first, then minor, then patch, each by its value
-#       (SemVer 2.0.0 section 11; omp packages/utils/src/version.ts:20-64,
-#       compareVersions, less its `v` prefix and prerelease cases):
+#       (SemVer 2.0.0 section 11, less a `v` prefix and prerelease cases):
 #       semver_le_refl, semver_le_antisym, semver_le_trans, semver_le_total,
 #       semver_le_exact, semver_lt_exact.
 # R1.4  The tag of v is `eukhe-v` then v written, its release's title

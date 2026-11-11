@@ -5,16 +5,15 @@
 # bend/ffi_theme.bend that runs them; PROOF.bend proves them (as
 # Theme.<law>) with the lemmas of proof/theme/.
 #
-# Requirements (crates/eukhe-theme, which follows oh-my-pi
-# packages/tui/src/theme: color.ts resolveVarRefs, loader.ts, theme.ts):
+# Requirements (crates/eukhe-theme and the theme rules it follows: variable
+# references, the loader, the theme):
 # R1 a color is "" (the terminal default), an integer 0-255 (an xterm-256
 #    index) or #rrggbb (either case); every other value is an error that
 #    names it: "Invalid hex color" for a #-string, "Invalid color value"
 #    for the rest. Law: theme_chase_chain (anchor theme_chase_example).
 # R2 any other string names a variable; a missing one is "Variable
 #    reference not found: <name>", the first one met twice on the chain is
-#    "Circular variable reference detected: <name>" (omp color.ts
-#    resolveVarRefs). Law: theme_chase_chain.
+#    "Circular variable reference detected: <name>". Law: theme_chase_chain.
 # R3 a file is rejected with the first error of its colors in key order (a
 #    key that names no token: "unknown color token"), then the required
 #    tokens it does not write, in token order, then the errors of its

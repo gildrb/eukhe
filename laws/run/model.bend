@@ -7,9 +7,9 @@
 # Sources: the module docs of crates/eukhe-durable/src/harness/generation/
 # decide.rs, deferred.rs, note.rs and repeat.rs, the headers of
 # bend/run/state.bend, bend/run/request.bend and bend/run/recovery.bend,
-# and omp (/tmp/omp-src, packages/coding-agent/src/session/:
-# session-maintenance.ts INCOMPLETE_RECOVERY_MAX_RETRIES, settings.ts
-# model.toolCallLoopGuard.threshold). Rust keeps its counters as they grow
+# and the requirement's session maintenance (the retry cap of an
+# incomplete reply, the threshold of the tool-call loop guard). Rust keeps
+# its counters as they grow
 # (Counts: attempt, notes, ms waited, compacted; Rounds); the decisions it
 # calls (decide.reply, decide.prepare, decide.compact, decide.round,
 # decide.recover, decide.poll of bend/run/decision.bend, through
@@ -47,12 +47,12 @@
 #     note.rs).
 # H4.8: a stuck model gets a recovery, each with a cap (decide.rs
 #     `recover`; the laws are in laws/run/recover.bend): a length stop
-#     with text gets length notes 1 to `long`, then the run fails (omp
-#     INCOMPLETE_RECOVERY_MAX_RETRIES); leaked tool
+#     with text gets length notes 1 to `long`, then the run fails (the
+#     requirement's retry cap of an incomplete reply); leaked tool
 #     calls the harness could not rebuild get leak notes 1 to `leak`, then
 #     the run fails; calls that would make `repeat` rounds in a row with the
-#     same calls and the same results do not run (omp
-#     toolCallLoopGuard.threshold) and get redirect notes 1 to `redirect`,
+#     same calls and the same results do not run (the requirement's loop
+#     guard threshold) and get redirect notes 1 to `redirect`,
 #     then the run fails; calls below that run; a user message ends the
 #     row. A recovery's retry is a noted retry (H4.7). An empty reply and a
 #     length stop with no text: R4 and R7 of laws/stop.bend.

@@ -4,7 +4,7 @@
 # No law states it: sp_table is the table written out again, so it proves
 # no requirement of the autolinks (anchored by
 # autolink_shapes_link_example, autolink_shapes_backpedal_example and
-# autolink_shapes_omp_example).
+# autolink_shapes_fixture_example).
 #
 # PROOF: each index computes on both sides; past the last both are none.
 

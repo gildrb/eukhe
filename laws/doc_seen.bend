@@ -13,12 +13,12 @@ import ./base.bend as LawsBase
 # lines), any anchors, each with any width of its line in the snapshot
 # or no line there (line 0, past the end).
 #
-# F11 (bend/doc_seen.bend header; omp crates/pi-edit/src/modes/hashline/
-# patcher.rs `assert_seen_lines`), split:
+# F11 (bend/doc_seen.bend header and the requirement's seen-line check),
+# split:
 # R1: an edit applies exactly when every anchor is a seen line.
 # R2: a rejected edit names its unseen anchors, in order.
 # R3: a rejection shows, of its first 40 unseen anchors
-#     (SEEN_LINE_REVEAL_CAP = 40 in omp's patcher.rs), each one that is a
+#     (SEEN_LINE_REVEAL_CAP = 40 in the requirement), each one that is a
 #     line of the snapshot, in order: whole when it has at most 512
 #     characters (SEEN_LINE_REVEAL_MAX_COLUMNS = 512), else its first 512.
 # R4: the rejection is whole when it has at most 40 unseen anchors, each a
@@ -29,8 +29,8 @@ import ./base.bend as LawsBase
 #     in order; the seen lines are then the runs of those records.
 # A1: the guard's entry answers, for the request Rust spells, the verdict
 #     of R1-R4 spelled back, and refuses anything else with its error form.
-# (omp differs on one point: it rejects an unseen line longer than 512
-# characters without a reveal; eukhe shows its first 512 characters.)
+# (eukhe shows the first 512 characters of an unseen line longer than 512
+# characters; it never rejects such a line without a reveal.)
 
 # line n is in the run iv: lo <= n <= hi
 def seen.Inside(+n: Nat, iv: Ds.Iv) -> Bool:

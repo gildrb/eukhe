@@ -1,4 +1,4 @@
-# eukhe: the proof of LAW search_scope_omp
+# eukhe: the proof of LAW search_scope_as_required
 #
 # PROOF: the scope is scope.of(multi, skip, scope.k(lim)); per multi, its
 # multi is that multi and its cap and skip are those of that scope; the
@@ -29,6 +29,6 @@ def sso.rest(m: Bool, +skip: Nat, +lim: Maybe<&2, Nat>) -> {DocSearch.ds_sc_rest
     case False{}:
       Equal.cong(Nat, List<&2, Nat>, v => [200n, 0n, v], Sr.scope.k(lim), DocSearch.ds_page_size(lim), sso.k(lim))
 
-def DocSearch.search_scope_omp(roots, dirs, skip, lim):
+def DocSearch.search_scope_as_required(roots, dirs, skip, lim):
   +m = Bool.or(Nat.is_lt(1n, roots), Nat.is_lt(0n, dirs))
   (sso.multi(m, skip, Sr.scope.k(lim)), sso.rest(m, skip, lim))

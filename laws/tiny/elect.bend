@@ -14,13 +14,11 @@
 #
 # Sources: crates/eukhe-tiny/src/election.rs (`Met` and `probe`: which
 # ping outcome is which probe; `ensure`, `failure`, `seat`: what Rust
-# does with each reply) and worker.rs `bind`; omp
-# packages/coding-agent/src/subprocess/shared-worker.ts
-# probeSharedWorker:220-226 (a worker is live for a process exactly when
-# its pong carries the process's launch tag, compared as strings; a pong
-# of another tag is shut down and replaced). Eukhe adds what omp folds
-# into "absent": a socket that fails otherwise or answers out of protocol
-# is an IO error (R1, R4, R6).
+# does with each reply) and worker.rs `bind`; the requirement: a worker
+# is live for a process exactly when its pong carries the process's launch
+# tag, compared as strings; a pong of another tag is shut down and
+# replaced. Eukhe reads a socket that fails otherwise or answers out of
+# protocol as an IO error, never as an absent worker (R1, R4, R6).
 #
 # R1: a worker that answers with the process's tag (the same text, char
 #     by char) is joined; one with another tag is replaced; with no

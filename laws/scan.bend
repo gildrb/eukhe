@@ -189,7 +189,7 @@ law scan_cursor_keeps_its_order:
 # R5 and TS `cursorId` (crates/eukhe-durable/src/storage/common.rs:76-78)
 # EXCLUDES: a bad id read as none (the scan restarts), an absent id
 #   refused, another refusal text
-# waive L10-mirror: pin; the four rows of R5 / TS cursorId (pi-durable,
+# waive L10-mirror: pin; the four rows of R5 / TS cursorId (the TS store,
 #   ported in crates/eukhe-durable/src/storage/common.rs:76-91), the safe
 #   row also the Rust test crates/eukhe-bend/src/rules/scan.rs:195
 law scan_id_exact:

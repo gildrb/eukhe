@@ -17,10 +17,9 @@
 # X2: at most one pending run; every started run is logged or abandoned; a
 #   refused log changes nothing; the iteration cap stops the loop; the
 #   logged metric is the parsed one.
-# Inferred (oh-my-pi autoresearch, /tmp/omp-src packages/coding-agent/src/
-# autoresearch, is the reference where a rule is unclear):
+# Inferred (the requirement where a rule above is unclear):
 # A1: the order of metrics is the numeric order of their values.
-# A2: a METRIC line (omp's regex ^METRIC\s+([\w.µ-]+)=(\S+)\s*$, the value
+# A2: a METRIC line (the regex ^METRIC\s+([\w.µ-]+)=(\S+)\s*$, the value
 #   narrowed to plain decimals) is read with its exact name and value, and
 #   nothing else is read as one.
 # A3: a refusal prints a metric as the one canonical spelling of its value.
@@ -33,9 +32,9 @@
 #   so far); it abandons the pending run and starts the new one with no
 #   output.
 # A6: output and end reach only a running run; a METRIC line sets that
-#   metric of the run, the last value per name (omp parseMetricLines:
-#   Map.set); an end marks the run passed exactly when it exited 0 and did
-#   not time out (omp run-experiment.ts: exitCode === 0 && !killed).
+#   metric of the run, the last value per name (a later value replaces an
+#   earlier one); an end marks the run passed exactly when it exited 0 and
+#   did not time out (exitCode === 0 && !killed).
 # A7: a log needs a finished pending run; crash only for a failed run,
 #   checks_failed only for a passed one, discard always; each refusal
 #   names its cause; a keep commits, every other log resets.

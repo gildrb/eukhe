@@ -16,9 +16,7 @@ import ./desk.bend as ApprovalsDesk
 #
 # Requirements (G5; source: crates/eukhe-daemon/src/shell_approval.rs, its
 # module doc and its chain tests, and the header of bend/approvals.bend.
-# omp relays no question up a chain: its subagents raise no approval
-# prompt at all, omp packages/coding-agent/src/internal-urls/
-# cfg-protocol.ts:301-304; the chain is eukhe's own requirement):
+# The chain is eukhe's own requirement, stated by no outside source):
 # G5.1 a question goes up the chain, from the session that asks to its
 #      root, until a session's clients answer or a session's gateway rule
 #      does: the nearest one wins, and the end names that session

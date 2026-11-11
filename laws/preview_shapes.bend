@@ -174,10 +174,10 @@ import ../bend/preview_shapes.bend as PS
 #
 # R1-R48 are anchored only (the preview_shapes_*_example laws, on the
 # Rust preview tests' texts): no source outside eukhe's code states these
-# shapes (omp has no code-preview regexes), so a law over the table would
-# compare it with itself, and a law by meaning over every text needs the
-# matcher's search (bend/shape.bend seek) reasoned through per shape, not
-# done.
+# shapes (no requirement holds code-preview regexes), so a law over the
+# table would compare it with itself, and a law by meaning over every text
+# needs the matcher's search (bend/shape.bend seek) reasoned through per
+# shape, not done.
 
 # Spec helpers
 # ------------

@@ -2,7 +2,7 @@
 #
 # PROOF: no text: no reading; a bare text is its own `str::trim`
 # (AC.ac.trim_self), the code's ASCII lower case is Rust's (AC.ac.lower)
-# and its words are omp's, in another order (AC.ac.word).
+# and its words are the requirement's, in another order (AC.ac.word).
 
 import Base
 import ../../bend/arg_repair.bend as Ar

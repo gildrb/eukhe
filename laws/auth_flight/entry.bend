@@ -12,8 +12,7 @@ import ../base.bend as LawsBase
 # crates/eukhe-core/src/auth/flight.rs:1-3 ("one token fetch in flight per
 # provider and document, its outcome given to every caller that joined it,
 # and the credential stored before the flight ends"); where it is silent,
-# oh-my-pi's single-flight refresh is the requirement
-# (/tmp/omp-src packages/ai/src/auth/refresh.ts:937-985: a caller joins
+# a single-flight refresh is the requirement (a caller joins
 # the credential's refresh in flight and takes its result; the in-flight
 # entry is dropped when the refresh settles, success or failure, so a
 # later caller reads the stored credential or starts a new refresh).

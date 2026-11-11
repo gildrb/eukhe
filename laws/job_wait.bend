@@ -33,9 +33,8 @@ import ./base.bend as LawsBase
 #     job_wait: malformed event` and keeps the wait.
 #     Laws: job_wait_step_exact, job_wait_step_refuses,
 #     job_wait_entry_unknown_tag.
-# (omp's wait tool, packages/coding-agent/src/tools/wait.ts, races the
-# job's promise against a timer: the job settling or the time running
-# out ends the call, the same two ends as S2.)
+# (The requirement's wait races the job's promise against a timer: the job
+# settling or the time running out ends the call, the same two ends as S2.)
 #
 # The grammar is restated from the entry's header, never from its code:
 #

@@ -24,7 +24,7 @@ import ./base.bend as LawsBase
 # length, any token count and any window. The terminal UI runs the model
 # itself, through the entry bend/ffi_tui_color.bend (section entry).
 #
-# Requirements (T3 is this area's tag; omp = oh-my-pi c28b3e3)
+# Requirements (T3 is this area's tag)
 # R1 The effort ramp (crates/eukhe-tui/src/theme.rs:542-546 effort_ramp,
 #    bend/tui_color.bend:7-12): a ladder of n levels gets n rungs, lowest
 #    first, from the theme's effortLow toward its effortHigh; rung k
@@ -32,22 +32,21 @@ import ./base.bend as LawsBase
 #    to effortHigh rounded down, so rung n is effortHigh; every channel
 #    moves one way along the ramp; the rungs are distinct when one channel
 #    of the ends is at least n apart, and in every shipped theme for every
-#    ladder of the level vocabulary (7 levels). omp has no effort ramp.
+#    ladder of the level vocabulary (7 levels).
 #    Laws: tui_effort_ramp_length, tui_effort_ramp_lerp,
 #    tui_effort_ramp_ordered, tui_effort_ramp_distinct,
 #    tui_effort_shipped_distinct; anchors tui_effort_ladder_max_exact,
 #    tui_effort_ramp_teeth_example.
-# R2 The usage band (omp packages/tui/src/chrome/context-thresholds.ts:
-#    6-11,13-56 getContextUsageLevel, contextPercent = 100 t / w as in
-#    packages/tui/src/status-line/component.ts:2664-2667; crates/eukhe-tui
-#    status_line.rs context_color): t tokens in a w-token window give 0
-#    (normal) for an unknown window (0), else 3 (error) from 90% of the
-#    window, 2 from 70%, 1 (warning) from 50%, 0 below, each percent
-#    reached exactly at it. omp's token thresholds (150k, 270k, 500k
-#    tokens, whichever comes first) are NOT modeled: eukhe colors by the
-#    percents only, so above a 300k window it colors later than omp (an
-#    open gap, reported, not a law). Laws: tui_usage_band_omp,
-#    tui_usage_band_monotone, tui_usage_band_fraction, tui_usage_band_full,
+# R2 The usage band (the requirement's context usage level, its percent
+#    = 100 t / w; crates/eukhe-tui status_line.rs context_color): t tokens
+#    in a w-token window give 0 (normal) for an unknown window (0), else 3
+#    (error) from 90% of the window, 2 from 70%, 1 (warning) from 50%, 0
+#    below, each percent reached exactly at it. The requirement's token
+#    thresholds (150k, 270k, 500k tokens, whichever comes first) are NOT
+#    modeled: eukhe colors by the percents only, so above a 300k window it
+#    colors later than the requirement (an open gap, reported, not a law).
+#    Laws: tui_usage_band_percents, tui_usage_band_monotone,
+#    tui_usage_band_fraction, tui_usage_band_full,
 #    tui_usage_bands_ascend; anchor tui_usage_bands_ascend_teeth_example.
 # R3 The roles (crates/eukhe-tui/src/theme.rs:84-298, crates/eukhe-theme/
 #    src/token.rs:5-196): every color slot of the terminal UI, in Rust's
@@ -173,13 +172,13 @@ law tui_effort_ramp_lerp:
   {List.get(&2, TC.Px, TC.ramp(lo, hi, n), k) == Some{lerp_px(lo, hi, 1n+k, n)} : Maybe<&2, TC.Px>}
 
 # t of w tokens reach p percent of the window: t / w * 100 >= p, that is
-# w p <= 100 t (omp reachesThreshold, percent part)
-def omp_reaches(+t: Nat, +w: Nat, p: Nat) -> Bool:
+# w p <= 100 t (the percent part of the requirement's threshold test)
+def usage_reaches(+t: Nat, +w: Nat, p: Nat) -> Bool:
   Nat.is_le(Nat.mul(w, p), Nat.mul(t, 100n))
 
-# omp getContextUsageLevel, from the top: error (3) at 90%, purple (2) at
-# 70%, warning (1) at 50%, else normal (0)
-def omp_level.from(error: Bool, purple: Bool, warning: Bool) -> Nat:
+# the requirement's context usage level, from the top: error (3) at 90%,
+# purple (2) at 70%, warning (1) at 50%, else normal (0)
+def usage_level.from(error: Bool, purple: Bool, warning: Bool) -> Nat:
   match error:
     case True{}:
       3n
@@ -194,24 +193,25 @@ def omp_level.from(error: Bool, purple: Bool, warning: Bool) -> Nat:
             case False{}:
               0n
 
-# the context usage level of t tokens in a w-token window by omp's
-# percent thresholds; an unknown window (0) is normal (omp: no percent)
-def omp_level(+t: Nat, w: Nat) -> Nat:
+# the context usage level of t tokens in a w-token window by the
+# requirement's percent thresholds; an unknown window (0) is normal (no
+# percent)
+def usage_level(+t: Nat, w: Nat) -> Nat:
   match w:
     case 0n:
       0n
     case 1n+v:
       +x = {1n+v : Nat}
-      omp_level.from(omp_reaches(t, x, 90n), omp_reaches(t, x, 70n), omp_reaches(t, x, 50n))
+      usage_level.from(usage_reaches(t, x, 90n), usage_reaches(t, x, 70n), usage_reaches(t, x, 50n))
 
-# LAW tui_usage_band_omp (R2): the usage band of t tokens in a w-token window is omp's context usage level by its percent thresholds: 0 for an unknown window (0); else 3 when t is at least 90% of w, 2 at least 70%, 1 at least 50%, 0 below, each percent reached exactly at it. omp's token thresholds (150k, 270k, 500k tokens) are not part of the claim: the band ignores them
+# LAW tui_usage_band_percents (R2): the usage band of t tokens in a w-token window is the requirement's context usage level by its percent thresholds: 0 for an unknown window (0); else 3 when t is at least 90% of w, 2 at least 70%, 1 at least 50%, 0 below, each percent reached exactly at it. The requirement's token thresholds (150k, 270k, 500k tokens) are not part of the claim: the band ignores them
 # EXCLUDES: other shares (the bands' own laws hold for any ascending
 #   shares in (0, 1]), a share reached only past its percent, tokens and
 #   window swapped, a band for an unknown window, levels in another order
-law tui_usage_band_omp:
+law tui_usage_band_percents:
   for +t: Nat
   for +w: Nat
-  {TC.band(t, w) == omp_level(t, w) : Nat}
+  {TC.band(t, w) == usage_level(t, w) : Nat}
 
 def roles_below(xs: List<&2, Nat>, +m: Nat) -> Bool:
   match xs:
@@ -484,8 +484,8 @@ law tui_color_ffi_example:
 # input that answers anything but the malformed error is exactly the
 # spelling of one request that fits the wire, and the answer is the reply
 # to it: the ramp TC.ramp (pinned for every input by tui_effort_ramp_length
-# and tui_effort_ramp_lerp) or the range error, the band omp_level
-# (omp's percent thresholds) and the roles TC.roles (pinned by
+# and tui_effort_ramp_lerp) or the range error, the band usage_level
+# (the requirement's percent thresholds) and the roles TC.roles (pinned by
 # tui_roles_by_name).
 
 def tc_reply.ramp(in: Bool, +lo: TC.Px, +hi: TC.Px, +n: Nat) -> String:
@@ -501,11 +501,11 @@ def tc_reply(q: FTC.Req) -> String:
     case FTC.QRamp{+lo, +hi, +n}:
       tc_reply.ramp(ramp_in(lo, hi, n), lo, hi, n)
     case FTC.QBand{+t, w}:
-      Wr.put_nat(omp_level(t, w), "")
+      Wr.put_nat(usage_level(t, w), "")
     case FTC.QRoles{}:
       spell_nats(TC.roles())
 
-# LAW tui_color_ffi_total (R4): every input that answers anything but the malformed error is exactly the spelling of one request whose numbers fit the wire, and its answer is the reply to that request: a ramp in range its rungs, out of range the range error; a band omp's usage level of its tokens in its window; the roles the role list. With tui_color_ffi_ramp, tui_color_ffi_ramp_range, tui_color_ffi_band and tui_color_ffi_roles (no request answers the malformed error) this pins the answer to every input
+# LAW tui_color_ffi_total (R4): every input that answers anything but the malformed error is exactly the spelling of one request whose numbers fit the wire, and its answer is the reply to that request: a ramp in range its rungs, out of range the range error; a band the requirement's usage level of its tokens in its window; the roles the role list. With tui_color_ffi_ramp, tui_color_ffi_ramp_range, tui_color_ffi_band and tui_color_ffi_roles (no request answers the malformed error) this pins the answer to every input
 # EXCLUDES: an entry that answers an input that is not exactly one request
 #   (an unknown tag, a field missing, a number malformed or too long, a
 #   number spelled another way, input left over) with anything but the

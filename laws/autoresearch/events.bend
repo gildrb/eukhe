@@ -79,9 +79,9 @@ def ar_pmetric(s: ArS.St) -> Maybe<&2, ArD.Dec>:
 def ar_name_ok(+n: String) -> Bool:
   Bool.and(SL.nonempty(n), SL.all_name(n))
 
-# a run passed: it exited 0 and was not killed by its timeout (oh-my-pi
-# run-experiment.ts: `passed = execution.exitCode === 0 &&
-# !execution.killed`); the exit code is its sign and size
+# a run passed: it exited 0 and was not killed by its timeout (the
+# requirement: `passed = exitCode === 0 && !killed`); the exit code is its
+# sign and size
 def ar_exit_passed(neg: Bool, code: Nat, timeout: Bool) -> Bool:
   match code:
     case 0n:
@@ -361,8 +361,7 @@ def ar_kind_ok(s: ArS.St, fresh: Bool, +c: ArS.Cfg) -> Bool:
 # LAW init_name_refused: whatever the state, segment flag and harness, an
 # init whose metric name is not one a METRIC line can carry (one or more
 # of A-Z a-z 0-9 _ . -, the name clause of the METRIC grammar) is refused
-# with exactly the text that says so. A deliberate rule of eukhe: oh-my-pi
-# accepts any name
+# with exactly the text that says so. A deliberate rule of eukhe
 # EXCLUDES: an experiment whose primary metric no benchmark line can
 # report (every keep refused afterwards), another refusal text, a name
 # check after another check
@@ -376,8 +375,7 @@ law init_name_refused:
 
 # LAW init_cap_refused: an init with a METRIC name and max_iterations 0 is
 # refused with exactly the text that asks for at least 1, whatever the
-# state, segment flag and harness. A deliberate rule of eukhe: oh-my-pi
-# reads a cap of 0 or less as no cap
+# state, segment flag and harness. A deliberate rule of eukhe
 # EXCLUDES: a cap of 0 taken (a loop that stops before its first run, or
 # one that never stops), another refusal text
 law init_cap_refused:
@@ -392,8 +390,7 @@ law init_cap_refused:
 # LAW init_harness_refused: a first init (no experiment yet) or one that
 # opens a new segment, with a METRIC name and a cap of at least 1 (or
 # none), is refused when the harness is missing, with exactly the text
-# that asks to build it first (oh-my-pi init-experiment.ts:
-# requiresHarness = !existing || isNewSegmentInit)
+# that asks to build it first
 # EXCLUDES: an experiment or a segment started with nothing to measure,
 # another refusal text
 law init_harness_refused:
@@ -409,7 +406,7 @@ law init_harness_refused:
 # with a METRIC name and a cap of at least 1 (or none), whose metric or
 # direction differs from the experiment's, is refused with exactly the
 # text that asks for new_segment, whatever the harness. A deliberate rule
-# of eukhe: oh-my-pi changes the metric in place
+# of eukhe: a new metric or direction needs a new segment
 # EXCLUDES: kept runs of one metric compared with runs of another, a
 # direction flipped under a segment's best, another refusal text
 law init_kind_refused:
@@ -496,7 +493,7 @@ law output_frame:
 # LAW finish_records_exit: the end of a running run is accepted; the
 # configuration, every ended row, the run's id and the metrics it printed
 # stay, and it is finished, passed exactly when it exited 0 and was not
-# killed by its timeout (oh-my-pi run-experiment.ts)
+# killed by its timeout
 # EXCLUDES: a timed-out, failing or signalled run marked passed, a run
 # that exited 0 marked failed, metrics dropped at the end, an end that
 # logs or drops the run
@@ -514,7 +511,7 @@ def ar_ex_running() -> ArS.St:
 def ar_ex_end(neg: Bool, code: Nat, timeout: Bool) -> Maybe<&2, Bool>:
   ArM.ar_fin(ArM.ar_after(ArP.step(ar_ex_running(), ArS.Finish{neg, code, timeout}), ar_ex_running()))
 
-# LAW finish_exit_example: anchor: oh-my-pi's verdicts on a run's end:
+# LAW finish_exit_example: anchor: the requirement's verdicts on a run's end:
 # exit 0 passes; exit 1, exit -1, exit 0 killed by the timeout and exit
 # 124 killed by the timeout fail
 # EXCLUDES: an exit test that misses one of these cases
@@ -530,8 +527,8 @@ law finish_exit_example:
 # did not end), not flagged; its metric is the value of the primary metric
 # (the experiment's at the start) that the last METRIC line of that name
 # printed, read by the parser (ArL.metric), and its other metrics hold,
-# for every name, just the last value printed (oh-my-pi
-# parseMetricLines: Map.set). This is X2's "the logged metric is the
+# for every name, just the last value printed (a later value of a name
+# replaces an earlier one). This is X2's "the logged metric is the
 # parsed one"
 # EXCLUDES: a model-supplied or stale metric logged, the first value kept
 # instead of the last, a value of another name, a metric dropped or

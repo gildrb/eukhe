@@ -12,10 +12,9 @@
 # for a length stop with no text) and asks `recover` about that request's
 # reply with the note's recovery and row (note.rs `NoteCause::recovery`:
 # Empty or Length, the row). The laws below feed each help's row back
-# that way. The caps come from omp: EMPTY_STOP_MAX_RETRIES = 3
-# (packages/coding-agent/src/session/turn-recovery.ts: the 1st to 3rd
-# empty stop get a reminder, the 4th ends the turn; any other reply
-# resets the count).
+# that way. The caps come from the requirement: EMPTY_STOP_MAX_RETRIES = 3
+# (the 1st to 3rd empty stop get a reminder, the 4th ends the turn; any
+# other reply resets the count).
 
 import Base
 import ../../bend/run/state.bend as RnState
@@ -170,7 +169,8 @@ def kept_rounds(n: Nat, +h: Nat) -> List<&2, RnRecovery.Out>:
 # request whose note is no empty note (no note, or a note of another
 # recovery, of any row), empty replies, each request carrying the empty
 # note the help before made, get empty notes 1, 2 and 3, then the run
-# fails (omp: three reminders, the fourth empty stop ends the turn)
+# fails (the requirement: three reminders, the fourth empty stop ends the
+# turn)
 # EXCLUDES: an empty reply nudged forever, a cap off by one either way, a
 #   row that does not grow, a row that does not start at 1 after another
 #   note, an empty reply that fails the run before its cap
@@ -198,7 +198,7 @@ law stop_empty_capped_at_three:
 # notes, any other caps), after a request whose note is no length note
 # (any row), cut replies with text, each request carrying the length note
 # the help before made, get length notes 1 to `long`, then the run fails
-# (omp: `Attempt #1/3` to `#3/3`, then the turn ends)
+# (the requirement: `Attempt #1/3` to `#3/3`, then the turn ends)
 # EXCLUDES: a cap other than the configured one (a fixed cap of 1 or 3
 #   that ignores `long`), a row that skips, repeats or does not start at
 #   1 after another note, a cut reply that fails the run before its cap

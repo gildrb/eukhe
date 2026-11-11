@@ -14,9 +14,8 @@
 #    at its n-th `\n`.
 # R3 an edited file whose lines own one ending only (LF, or CRLF; new
 #    lines and the last line own none), persisted from that ending, has
-#    that ending after every line but the last (omp
-#    packages/coding-agent/src/edit/normalize.ts detectLineEnding and
-#    restoreLineEndings: an edited file keeps its detected ending).
+#    that ending after every line but the last (the requirement: an edited
+#    file keeps its detected ending).
 # R4 the separators Rust persists an edit with (the plan over runs of
 #    line origins) follow the carry rule: each line's own ending, else the
 #    separator written before it; a run of no lines neither appears nor

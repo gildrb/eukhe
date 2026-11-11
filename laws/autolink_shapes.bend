@@ -50,14 +50,12 @@ import ../bend/autolink_shapes.bend as AL
 #     i, and no other.
 #
 # Anchored only: R1-R3 (autolink_shapes_link_example,
-# autolink_shapes_backpedal_example, autolink_shapes_omp_example). No
-# source outside eukhe's code holds marked 18.0.7's regexes (oh-my-pi
-# c28b3e3 lexes autolinks with its own code, packages/utils/src/marked/
-# core.ts, and has no copy of marked), so a law over the table would
-# compare it with itself; a law by meaning over every text needs the
-# matcher's search (bend/shape.bend) reasoned through for these shapes,
-# not done. oh-my-pi's marked fixtures are the outside table the anchors
-# follow. R4 (ids, none past the last) is stated for the entry by
+# autolink_shapes_backpedal_example, autolink_shapes_fixture_example). No
+# source outside eukhe's code holds marked 18.0.7's regexes, so a law over
+# the table would compare it with itself; a law by meaning over every text
+# needs the matcher's search (bend/shape.bend) reasoned through for these
+# shapes, not done. The requirement's marked fixtures are the outside table
+# the anchors follow. R4 (ids, none past the last) is stated for the entry by
 # laws/shape/entry.bend (area shape), which reads sp_table.
 
 # Spec helpers
@@ -137,9 +135,8 @@ law autolink_shapes_link_example:
 law autolink_shapes_backpedal_example:
   {[S.first([AL.backpedal()], "https://x.dev/pull/182."), S.first([AL.backpedal()], "https://x.dev/a(b))"), S.first([AL.backpedal()], "https://x.dev/page,")] == [Some{S.Found{0n, S.Fit{0n, 22n, []}}}, Some{S.Found{0n, S.Fit{0n, 18n, []}}}, Some{S.Found{0n, S.Fit{0n, 18n, []}}}] : List<&2, Maybe<&2, S.Found>>}
 
-# LAW autolink_shapes_omp_example (R1-R3): anchor: oh-my-pi's marked
-# fixture `autolinks` (packages/utils/test/fixtures/marked/goldens.json,
-# oh-my-pi c28b3e3): its source `<https://x.test/a> <me@example.com>
+# LAW autolink_shapes_fixture_example (R1-R3): anchor: the requirement's
+# marked fixture `autolinks`: its source `<https://x.test/a> <me@example.com>
 # www.example.com https://example.com/a_(b).` lexes to an angle url link
 # `<https://x.test/a>`, an angle email link `<me@example.com>`, a `www.`
 # link `www.example.com` (ended by the space) and a url link
@@ -151,5 +148,5 @@ law autolink_shapes_backpedal_example:
 # group cut, the final `.` kept, an angle link cut at its `@`)
 # waive L4-examples-only: a shape is a constant, no input to leave free;
 #   no source outside eukhe states the shapes (see R1-R3 above)
-law autolink_shapes_omp_example:
+law autolink_shapes_fixture_example:
   {[S.first([AL.angle()], "<https://x.test/a> <me@example.com> www.example.com https://example.com/a_(b)."), S.first([AL.angle()], "<me@example.com> www.example.com https://example.com/a_(b)."), S.first([AL.bare()], "www.example.com https://example.com/a_(b)."), S.first([AL.bare()], "https://example.com/a_(b)."), S.first([AL.backpedal()], "https://example.com/a_(b).")] == [Some{S.Found{0n, S.Fit{0n, 18n, [Some{"https://x.test/a"}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 16n, [Some{"me@example.com"}, Some{"@"}]}}}, Some{S.Found{0n, S.Fit{0n, 15n, [Some{"www."}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 26n, [Some{"https://"}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 25n, []}}}] : List<&2, Maybe<&2, S.Found>>}

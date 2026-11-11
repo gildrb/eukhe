@@ -15,10 +15,9 @@ import ./base.bend as LawsBase
 # The requirements below are read from this header, the comments of
 # bend/job.bend, bend/ffi_job.bend, bend/ffi_job_rewind.bend and the Rust
 # docs of JobState::step and JobTable::rewind_to
-# (crates/eukhe-core/src/durable/jobs/mod.rs). oh-my-pi has no counterpart
-# of this byte cap or of the rewind kills (its shell output spills to an
-# artifact), so the Rust docs are the source. The laws of
-# laws/job_step.bend belong to this area.
+# (crates/eukhe-core/src/durable/jobs/mod.rs). No outside source states
+# this byte cap or the rewind kills, so the Rust docs are the source. The
+# laws of laws/job_step.bend belong to this area.
 #
 # A1: under the cap Some c a job keeps at most c bytes of its output and
 #     counts the rest as dropped; every byte that fits under the cap is kept.

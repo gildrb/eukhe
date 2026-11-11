@@ -13,7 +13,7 @@ import ./base.bend as LawsBase
 # `Loop::tick`, entry bend/ffi_director.bend). Every verdict is free:
 # each layer of each step says what the adversary picks. Requirements
 # (stack.rs `Verdict` and `Loop::tick` doc comments, the header of
-# bend/director.bend; omp has no Director stack, so they are eukhe's own):
+# bend/director.bend; they are eukhe's own):
 #
 # R1: the top layer decides first. A layer that says Defer, or has no
 #     verdict, stays where it is and the next layer down decides; a layer

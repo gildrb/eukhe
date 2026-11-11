@@ -12,9 +12,8 @@
 #    the one before, no tag over the size limit or for a file that is not
 #    UTF-8).
 # R3 a read goes on exactly when it is raw, or the bytes are UTF-8 and the
-#    sniffed head has no NUL (omp packages/coding-agent/src/tools/read.ts
-#    2474-2503 with packages/utils/src/binary.ts isProbablyBinaryHeader: a
-#    head with a NUL or not UTF-8 is refused, `:raw` never is).
+#    sniffed head has no NUL (the requirement: a head with a NUL or not
+#    UTF-8 is refused, `:raw` never is).
 # R4 a refused read names its cause: a UTF-16 file (a UTF-16 BOM, bytes
 #    not UTF-8) is named by its encoding even with the NUL bytes of its
 #    ASCII, any other refused file with a NUL in its head is binary, a
@@ -26,7 +25,7 @@
 #    spelled, reads exactly the request and nothing after it, and answers
 #    any other input with exactly one of its two error forms.
 # Coverage: R1 rows_lines_are_read_rows, rows_raw_lines_are_pieces; R2
-# rows_view_shows, rows_gap_marks_every_jump; R3 rows_gate_goes_as_omp; R4
+# rows_view_shows, rows_gap_marks_every_jump; R3 rows_gate_goes_as_required; R4
 # rows_gate_names_the_refusal; R5 rows_entry_answers, rows_entry_exact,
 # rows_entry_left_over_spelled, rows_entry_malformed_unless_request,
 # rows_entry_left_over, rows_entry_left_over_exact, rows_entry_errors.
@@ -161,15 +160,15 @@ def rows.IsBinary(g: Dr.Gate) -> Bool:
     case Dr.Binary{}:
       True{}
 
-# LAW rows_gate_goes_as_omp (R3): for any facts about a read (raw or not,
+# LAW rows_gate_goes_as_required (R3): for any facts about a read (raw or not,
 # the bytes UTF-8 or not, a UTF-16 BOM or not, a NUL in the sniffed head
 # or not) it goes on exactly when it is raw, or the bytes are UTF-8 and
-# the head has no NUL (omp's read: binary is a NUL in the head or bytes
-# that are not UTF-8; `:raw` reads every file)
+# the head has no NUL (the requirement's read: binary is a NUL in the head
+# or bytes that are not UTF-8; `:raw` reads every file)
 # EXCLUDES: a raw read refused; a file with a NUL, or one that is not
 #   UTF-8 (UTF-16, Latin-1), shown as text; a UTF-8 file with no NUL
 #   refused
-law rows_gate_goes_as_omp:
+law rows_gate_goes_as_required:
   for +raw: Bool
   for +utf8: Bool
   for +utf16: Bool
@@ -435,7 +434,7 @@ def rows.spell_req(r: rows.Req) -> String:
     case rows.ViewReq{sel, u8, over, p}:
       Wr.put_nat(1n, rows.spell_sel(sel, Wr.put_bool(u8, Wr.put_bool(over, LawsBase.proj_spell(p, "")))))
 
-# the spelling of the model's answer (Dr.gate: rows_gate_goes_as_omp and
+# the spelling of the model's answer (Dr.gate: rows_gate_goes_as_required and
 # rows_gate_names_the_refusal; Dr.view is rows.View for every input,
 # rows_view_shows)
 def rows.answer(r: rows.Req) -> String:
