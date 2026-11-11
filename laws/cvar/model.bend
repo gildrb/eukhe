@@ -34,8 +34,14 @@ import ../../bend/cvar.bend as Cv
 # R8  the model write Cv.save of a setting into the global config.cfg
 #     reads back, keeps every other cvar, and leaves one set of the cvar.
 # R9  an expansion runs a run's alias body (the first alias of the name),
-#     keeps every set and toggle, in order; a missing alias is unknown, a
-#     nest deeper than the table a cycle; the first error stops it.
+#     in place, at every nesting depth, keeps every set and toggle, in
+#     order; a missing alias is unknown; the first error stops it
+#     (alias_expands_any_depth: on every table, whenever the unfolding
+#     ends, at any depth); an alias that runs itself is a cycle naming it
+#     (alias_self_cycle), and so is a run into a closed set of aliases
+#     each of which first runs into the set (alias_cycle_closed); any
+#     nest that never ends (it runs an alias inside itself), at any
+#     depth, on any table, is a cycle (alias_endless_is_cycle).
 # R10 a key press runs the commands of the key's first bind, else nothing.
 # R11 the entries bend/ffi_cvar.bend and bend/ffi_cvar_layers.bend answer
 #     every input as their grammar says (laws/cvar/entry.bend; R1, R2 of

@@ -2691,6 +2691,10 @@ import ./proof/cvar/alias_missing_unknown.bend as PAliasMissingUnknown
 import ./proof/cvar/alias_runs_nested.bend as PAliasRunsNested
 import ./proof/cvar/alias_cycle_closed.bend as PAliasCycleClosed
 import ./proof/cvar/alias_nesting_example.bend as PAliasNestingExample
+import ./proof/cvar/alias_expands_any_depth.bend as PAliasExpandsAnyDepth
+import ./proof/cvar/alias_any_depth_example.bend as PAliasAnyDepthExample
+import ./proof/cvar/alias_endless_is_cycle.bend as PAliasEndlessIsCycle
+import ./proof/cvar/alias_endless_example.bend as PAliasEndlessExample
 import ./proof/cvar/bind_absent_runs_nothing.bend as PBindAbsentRunsNothing
 import ./proof/cvar/bind_other_key_skipped.bend as PBindOtherKeySkipped
 import ./proof/cvar_layers/base.bend as LACvarLayers

@@ -193,6 +193,233 @@ law alias_nesting_example:
   {(spec_alias([Cv.Alias{3n, [Cv.CToggle{1n}, Cv.CRun{4n}]}, Cv.Alias{4n, [Cv.CToggle{2n}]}], 3n), Cv.expand([Cv.CRun{3n}], [Cv.Alias{3n, [Cv.CToggle{1n}, Cv.CRun{4n}]}, Cv.Alias{4n, [Cv.CToggle{2n}]}])) == (Some{[Cv.CToggle{1n}, Cv.CRun{4n}]}, Cv.Flat{[Cv.CToggle{1n}, Cv.CToggle{2n}]}) : Maybe<&2, List<&2, Cv.Cmd>> & Cv.Exp} &
   {(spec_closed([Cv.Alias{0n, [Cv.CToggle{9n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{0n}, Cv.CToggle{8n}]}, Cv.Alias{2n, [Cv.CToggle{7n}]}], [0n, 1n], [0n, 1n]), Cv.expand([Cv.CRun{0n}], [Cv.Alias{0n, [Cv.CToggle{9n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{0n}, Cv.CToggle{8n}]}, Cv.Alias{2n, [Cv.CToggle{7n}]}])) == (True{}, Cv.Cycle{0n}) : Bool & Cv.Exp}
 
+# Expansion at any nesting depth (R9)
+# -----------------------------------
+# The laws' own expansion, the textbook unfolding: a set or a toggle stays,
+# a run of a missing alias is unknown, a run of n is the expansion of the
+# body of the first alias named n, in place, and the first error, left to
+# right, stops it. It remembers the aliases it is inside of (the path) and
+# fails (None) on a run of one of them, an alias that runs itself through
+# any chain; and it fails when the nest is deeper than its fuel f. The law
+# below holds for EVERY fuel, so it pins the code at every nesting depth:
+# whenever this unfolding ends, at any depth, the code's expansion is its
+# result. It never reads the code's depth bound (1 + the table's length).
+
+# the body a run of n runs: the first alias named n, else a run of a
+# missing alias
+def spec_body.of(m: Maybe<&2, List<&2, Cv.Cmd>>, +n: Nat) -> List<&2, Cv.Cmd>:
+  match m:
+    case None{}:
+      [Cv.CGone{n}]
+    case Some{b}:
+      b
+
+def spec_body(+as: List<&2, Cv.Alias>, +n: Nat) -> List<&2, Cv.Cmd>:
+  spec_body.of(spec_alias(as, n), n)
+
+# the command c, then the expansion m of the rest
+def spec_put(c: Cv.Cmd, m: Maybe<&2, Cv.Exp>) -> Maybe<&2, Cv.Exp>:
+  match m:
+    case None{}:
+      None{}
+    case Some{e}:
+      match e:
+        case Cv.Flat{xs}:
+          Some{Cv.Flat{c <> xs}}
+        case Cv.Cycle{k}:
+          Some{Cv.Cycle{k}}
+        case Cv.Unknown{k}:
+          Some{Cv.Unknown{k}}
+
+# the expansion a, then the expansion b: the commands of both, in order;
+# an error of a stops it before b
+def spec_then(a: Maybe<&2, Cv.Exp>, b: Maybe<&2, Cv.Exp>) -> Maybe<&2, Cv.Exp>:
+  match a:
+    case None{}:
+      None{}
+    case Some{x}:
+      match x:
+        case Cv.Flat{xs}:
+          match b:
+            case None{}:
+              None{}
+            case Some{y}:
+              match y:
+                case Cv.Flat{ys}:
+                  Some{Cv.Flat{List.append(&2, Cv.Cmd, xs, ys)}}
+                case Cv.Cycle{k}:
+                  Some{Cv.Cycle{k}}
+                case Cv.Unknown{k}:
+                  Some{Cv.Unknown{k}}
+        case Cv.Cycle{k}:
+          Some{Cv.Cycle{k}}
+        case Cv.Unknown{k}:
+          Some{Cv.Unknown{k}}
+
+# a run met while inside the alias it names (on the path) fails; else its
+# body's expansion b, then the rest's expansion r
+def spec_run(on_path: Bool, b: Maybe<&2, Cv.Exp>, r: Maybe<&2, Cv.Exp>) -> Maybe<&2, Cv.Exp>:
+  match on_path:
+    case True{}:
+      None{}
+    case False{}:
+      spec_then(b, r)
+
+# the expansion of cs with the alias table as, inside the aliases of the
+# path p, nesting at most f runs deep (None: a run on the path, or a nest
+# deeper than f)
+def spec_exp(f: Nat, cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, +p: List<&2, Nat>) -> Maybe<&2, Cv.Exp>:
+  match f:
+    case 0n:
+      match cs:
+        case Nil{}:
+          Some{Cv.Flat{Nil{}}}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              spec_put(Cv.CSet{i, v}, spec_exp(0n, rest, as, p))
+            case Cv.CToggle{i}:
+              spec_put(Cv.CToggle{i}, spec_exp(0n, rest, as, p))
+            case Cv.CRun{n}:
+              None{}
+            case Cv.CGone{n}:
+              Some{Cv.Unknown{n}}
+    case 1n+(+g):
+      match cs:
+        case Nil{}:
+          Some{Cv.Flat{Nil{}}}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              spec_put(Cv.CSet{i, v}, spec_exp(1n+g, rest, as, p))
+            case Cv.CToggle{i}:
+              spec_put(Cv.CToggle{i}, spec_exp(1n+g, rest, as, p))
+            case Cv.CRun{+n}:
+              spec_run(spec_in(p, n), spec_exp(g, spec_body(as, n), as, n <> p), spec_exp(1n+g, rest, as, p))
+            case Cv.CGone{n}:
+              Some{Cv.Unknown{n}}
+
+# LAW alias_expands_any_depth (R9): alias expansion is right at every nesting depth, on every alias table: for every fuel f, when the laws' unfolding of cs (spec_exp above: each run replaced in place by the expansion of the body of the first alias of its name, a missing alias unknown, the first error left to right stopping it; it fails on an alias met again inside itself, and past f nested runs) ends with an outcome e, the code's expansion of cs is exactly e. So on a table with no cycle every expansion, however deep its aliases nest, is that unfolding; the code's nesting bound never cuts a nest that ends (no false cycle), nor lets a deep nest through changed
+# EXCLUDES: a depth bound below the depth a cycle-free table can nest (a
+#   false cycle at depth 2, 3 or the table's length), a nested body
+#   expanded with a later alias of its name, out of order, partly, or
+#   after the commands that follow its run, an unknown alias deep in a
+#   nest reported under another name, a set or toggle of a nested body
+#   lost or added
+law alias_expands_any_depth:
+  for +f: Nat
+  for +cs: List<&2, Cv.Cmd>
+  for +as: List<&2, Cv.Alias>
+  for +e: Cv.Exp
+  for ends: {spec_exp(f, cs, as, Nil{}) == Some{e} : Maybe<&2, Cv.Exp>}
+  {Cv.expand(cs, as) == e : Cv.Exp}
+
+# LAW alias_any_depth_example: anchor: alias_expands_any_depth's premise holds of a nest three runs deep: aliases 0 = [toggle 1, run 1], 1 = [run 2, toggle 2], 2 = [toggle 3]; the unfolding of [run 0] with fuel 3 is [toggle 1, toggle 3, toggle 2], and so is the code's expansion
+# EXCLUDES: a vacuous alias_expands_any_depth (an unfolding that never
+#   ends past one level)
+law alias_any_depth_example:
+  {(spec_exp(3n, [Cv.CRun{0n}], [Cv.Alias{0n, [Cv.CToggle{1n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{2n}, Cv.CToggle{2n}]}, Cv.Alias{2n, [Cv.CToggle{3n}]}], Nil{}), Cv.expand([Cv.CRun{0n}], [Cv.Alias{0n, [Cv.CToggle{1n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{2n}, Cv.CToggle{2n}]}, Cv.Alias{2n, [Cv.CToggle{3n}]}])) == (Some{Cv.Flat{[Cv.CToggle{1n}, Cv.CToggle{3n}, Cv.CToggle{2n}]}}, Cv.Flat{[Cv.CToggle{1n}, Cv.CToggle{3n}, Cv.CToggle{2n}]}) : Maybe<&2, Cv.Exp> & Cv.Exp}
+
+# The laws' own test of a nest that never ends: the unfolding of cs, the
+# same walk as spec_exp above (a set or a toggle passes, a run of n walks
+# the body of the first alias named n with n on the path, then the rest),
+# meets a run of an alias it is already inside of before it meets a
+# missing alias or the end of its fuel f. Such a nest runs an alias
+# inside itself, so its unfolding never ends; and a nest that never ends
+# must run some alias inside itself, as the table holds finitely many,
+# whether its aliases form a closed cycle or it reaches one after other
+# runs. With alias_expands_any_depth (every nest that ends), this covers
+# the code's expansion at every depth on every table, cyclic or not: the
+# exact outcome of a nest that ends, a cycle for one that does not.
+
+# the rest's test, after the body's: the body loops (lb), or it ended (eb)
+# with commands only and the rest loops (lr)
+def spec_loop.then(lb: Bool, eb: Maybe<&2, Cv.Exp>, lr: Bool) -> Bool:
+  match lb:
+    case True{}:
+      True{}
+    case False{}:
+      match eb:
+        case None{}:
+          False{}
+        case Some{x}:
+          match x:
+            case Cv.Flat{xs}:
+              lr
+            case Cv.Cycle{k}:
+              False{}
+            case Cv.Unknown{k}:
+              False{}
+
+# a run met inside the alias it names (on the path) loops; else the body's
+# test, then the rest's
+def spec_loop.run(on_path: Bool, lb: Bool, eb: Maybe<&2, Cv.Exp>, lr: Bool) -> Bool:
+  match on_path:
+    case True{}:
+      True{}
+    case False{}:
+      spec_loop.then(lb, eb, lr)
+
+# the unfolding of cs with the alias table as, inside the aliases of the
+# path p, with fuel f, runs an alias it is inside of before any error
+def spec_loop(f: Nat, cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, +p: List<&2, Nat>) -> Bool:
+  match f:
+    case 0n:
+      match cs:
+        case Nil{}:
+          False{}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              spec_loop(0n, rest, as, p)
+            case Cv.CToggle{i}:
+              spec_loop(0n, rest, as, p)
+            case Cv.CRun{n}:
+              spec_in(p, n)
+            case Cv.CGone{n}:
+              False{}
+    case 1n+(+g):
+      match cs:
+        case Nil{}:
+          False{}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              spec_loop(1n+g, rest, as, p)
+            case Cv.CToggle{i}:
+              spec_loop(1n+g, rest, as, p)
+            case Cv.CRun{+n}:
+              spec_loop.run(spec_in(p, n), spec_loop(g, spec_body(as, n), as, n <> p), spec_exp(g, spec_body(as, n), as, n <> p), spec_loop(1n+g, rest, as, p))
+            case Cv.CGone{n}:
+              False{}
+
+# the expansion is a cycle (of any name)
+def spec_is_cycle(e: Cv.Exp) -> Bool:
+  match e:
+    case Cv.Flat{cs}:
+      False{}
+    case Cv.Cycle{n}:
+      True{}
+    case Cv.Unknown{n}:
+      False{}
+
+# LAW alias_endless_is_cycle (R9): an alias nest that never ends is reported as a cycle, on every table, at any depth: for every fuel f, when the laws' unfolding of cs (spec_loop above: the walk of spec_exp, each run walking the first alias of its name) runs an alias it is already inside of before any missing alias, the code's expansion of cs is a cycle, whether that alias belongs to a closed cycle or is reached through other runs and after commands and nests that end
+# EXCLUDES: a nest that never ends expanded without end, cut short and
+#   reported as a flat list of the commands so far, or as an unknown
+#   alias; a cycle entered from an alias outside it, or after a nested
+#   run that ends, missed
+law alias_endless_is_cycle:
+  for +f: Nat
+  for +cs: List<&2, Cv.Cmd>
+  for +as: List<&2, Cv.Alias>
+  for loops: {spec_loop(f, cs, as, Nil{}) == True{} : Bool}
+  {spec_is_cycle(Cv.expand(cs, as)) == True{} : Bool}
+
+# LAW alias_endless_example: anchor: alias_endless_is_cycle's premise holds of a nest that is no closed cycle: aliases 0 = [toggle 1, run 1], 1 = [run 2, toggle 2], 2 = [run 3, run 1], 3 = [toggle 3] (alias 3 runs nothing, so no set of these aliases is closed); the unfolding of [run 0] with fuel 4 runs 1 inside itself, and the code's expansion of [run 0] is a cycle
+# EXCLUDES: a vacuous alias_endless_is_cycle (a loop test no table meets)
+law alias_endless_example:
+  {(spec_loop(4n, [Cv.CRun{0n}], [Cv.Alias{0n, [Cv.CToggle{1n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{2n}, Cv.CToggle{2n}]}, Cv.Alias{2n, [Cv.CRun{3n}, Cv.CRun{1n}]}, Cv.Alias{3n, [Cv.CToggle{3n}]}], Nil{}), spec_is_cycle(Cv.expand([Cv.CRun{0n}], [Cv.Alias{0n, [Cv.CToggle{1n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{2n}, Cv.CToggle{2n}]}, Cv.Alias{2n, [Cv.CRun{3n}, Cv.CRun{1n}]}, Cv.Alias{3n, [Cv.CToggle{3n}]}]))) == (True{}, True{}) : Bool & Bool}
+
 # LAW bind_absent_runs_nothing: a press of a key no bind of the table names runs nothing
 # EXCLUDES: an unbound key that runs a default or another key's commands
 law bind_absent_runs_nothing:
