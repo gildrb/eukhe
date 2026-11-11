@@ -46,7 +46,6 @@ import ./laws/theme_pick.bend as ThemePick
 import ./laws/color/text.bend as ColorText
 import ./laws/color/math.bend as Color
 import ./laws/color/entry.bend as ColorEntry
-import ./laws/color/spec.bend as ColorSpec
 import ./laws/theme_model.bend as ThemeModel
 import ./laws/theme_entry.bend as ThemeEntry
 import ./laws/tokens.bend as Tokens

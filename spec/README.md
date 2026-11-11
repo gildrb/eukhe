@@ -24,7 +24,7 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 |agents|[Fold subagents into the main loop](https://claude.com/resources/articles/building-agents-when-to-fold-subagents-into-your-main-agent-loop)|`rlm/family.bend` (spawn reasons), `agents/kin.bend` (who messages whom)|run (69), family (17), kin (14), tools (38), tool_surface (12), skill_load (13), runners (15), approvals (33), director (35)|
 |autoresearch|[oh-my-pi autoresearch](https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/autoresearch)|`autoresearch/{decimal,metric_line,segment,stats,step}.bend`|autoresearch (55)|
 |settings|eukhe|`settings/config.bend`|config (41), cvar (44)|
-|theme|eukhe|`theme/{color,model,read,rules,wire}.bend`|theme (52), theme_model (16), color (40)|
+|theme|eukhe|`theme/{model,read,rules,wire}.bend`|theme (52), theme_model (16), color (48)|
 
 ## Requirements
 

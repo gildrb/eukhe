@@ -140,6 +140,33 @@ law theme_hex_shape:
   for h: {Co.hex(s) == Some{c} : Maybe<&2, Co.Rgb>}
   {th.sharp7(s) == True{} : Bool}
 
+# every one of ms is a value
+def th.all_some(ms: List<&2, Maybe<&2, U32>>) -> Bool:
+  match ms:
+    case Nil{}:
+      True{}
+    case m <> t:
+      match m:
+        case None{}:
+          False{}
+        case Some{x}:
+          th.all_some(t)
+
+# LAW theme_hex_digits_only (R1): a # and six chars read as a color only when each of the six
+# reads as a hex digit (theme_hex_value then says which color;
+# theme_hex_shape that no other shape reads)
+# EXCLUDES: a non-digit read as a digit, read as 0 or skipped
+law theme_hex_digits_only:
+  for +a1: Char
+  for +a2: Char
+  for +a3: Char
+  for +a4: Char
+  for +a5: Char
+  for +a6: Char
+  for +c: Co.Rgb
+  for h: {Co.hex(SCon{'#', SCon{a1, SCon{a2, SCon{a3, SCon{a4, SCon{a5, SCon{a6, SNil{}}}}}}}}) == Some{c} : Maybe<&2, Co.Rgb>}
+  {th.all_some([Co.hexd(a1), Co.hexd(a2), Co.hexd(a3), Co.hexd(a4), Co.hexd(a5), Co.hexd(a6)]) == True{} : Bool}
+
 # LAW theme_num_bytes (R1): every index 0-255, written in decimal, reads back
 # EXCLUDES: a wrong digit value, a lost index
 law theme_num_bytes:
@@ -156,6 +183,15 @@ law theme_num_bytes_128:
 # EXCLUDES: wrapping 256 to 0, reading a sign, a fraction or an exponent
 law theme_num_example:
   {[Co.num("256"), Co.num("-1"), Co.num("1.5"), Co.num("007"), Co.num(""), Co.num("1000"), Co.num("1e2"), Co.num("255"), Co.num("0")] == [None{}, None{}, None{}, None{}, None{}, None{}, None{}, Some{255}, Some{0}] : List<&2, Maybe<&2, U32>>}
+
+# LAW theme_num_digits_example (R1): only the ten digits make an index, in every place: the
+# chars next to 0-9 (/ and :) are no digit alone, first, in the middle or
+# last; a leading zero is refused in two digits too; a sign or a space is
+# no digit
+# EXCLUDES: a digit range one char too wide at either end, in any place
+#   of the text; a leading zero read
+law theme_num_digits_example:
+  {[Co.num("/"), Co.num(":"), Co.num("/0"), Co.num(":0"), Co.num("1/"), Co.num("1:"), Co.num("/00"), Co.num(":00"), Co.num("1/0"), Co.num("1:0"), Co.num("10/"), Co.num("10:"), Co.num("01"), Co.num("+1"), Co.num(" 1"), Co.num("1 ")] == [None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}] : List<&2, Maybe<&2, U32>>}
 
 # LAW theme_to256_palette_16: the xterm-256 cube and gray colors (16-255) quantize back to their
 # own index; four laws of 60 indices each (one is past the kernel's fuel)
