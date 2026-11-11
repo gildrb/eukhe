@@ -300,3 +300,32 @@ async fn opencode_kimi_and_deepseek_send_reasoning_effort_only() {
     )
     .await;
 }
+
+/// omp: off on a model of the `openai` dialect (disable mode
+/// `lowest-effort`, catalog `compat/resolve.ts`
+/// `resolveReasoningDisableMode`) sends the model's lowest offered effort
+/// (`ai/src/providers/openai-shared.ts` `resolveOpenAICompatPolicy`,
+/// `applyChatCompletionsCompatPolicy`), not nothing, and not `"none"` where
+/// that lowest effort matches the model's ladder.
+#[tokio::test]
+async fn off_sends_the_lowest_offered_effort() {
+    assert_rows(
+        &[
+            ("huggingface", "google/gemma-4-26B-A4B-it", "off"),
+            ("huggingface", "google/gemma-4-31B-it", "off"),
+            ("huggingface", "moonshotai/Kimi-K2.5", "off"),
+            ("huggingface", "moonshotai/Kimi-K2.6", "off"),
+        ],
+        |_| json!({ "reasoning_effort": "minimal" }),
+    )
+    .await;
+    assert_rows(
+        &[
+            ("huggingface", "deepseek-ai/DeepSeek-V4.1-Flash", "off"),
+            ("huggingface", "XiaomiMiMo/MiMo-V2.5", "off"),
+            ("huggingface", "XiaomiMiMo/MiMo-V2.5-Pro", "off"),
+        ],
+        |_| json!({ "reasoning_effort": "low" }),
+    )
+    .await;
+}

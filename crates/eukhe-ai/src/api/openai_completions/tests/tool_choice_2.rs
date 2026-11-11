@@ -609,14 +609,14 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
 /// omp: the `OpenCode` hosts speak the openai dialect (catalog
 /// `compat/resolve.ts`: the thinking object is for Moonshot-native Kimi,
 /// Z.AI, Zhipu and Xiaomi `MiMo` only), so Kimi K2.6 there sends no
-/// thinking object.
+/// thinking object; off is its lowest offered effort.
 #[tokio::test]
-async fn sends_no_thinking_object_for_opencode_kimi_k2_6_when_thinking_is_off() {
+async fn sends_the_lowest_effort_for_opencode_kimi_k2_6_when_thinking_is_off() {
     let model = catalog_model("opencode", "kimi-k2.6");
     let params = simple_payload(&model, &ctx("Hi", None, None), simple_options()).await;
 
     assert!(params.get("thinking").is_none());
-    assert!(params.get("reasoning_effort").is_none());
+    assert_eq!(params["reasoning_effort"], json!("minimal"));
 }
 
 #[tokio::test]

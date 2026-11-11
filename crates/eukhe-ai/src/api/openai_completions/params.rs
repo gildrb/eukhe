@@ -13,7 +13,7 @@ use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::simple_options::{
     clamp_thinking_budget_to_answer_room, resolve_sampling_params, thinking_budget_for_level,
 };
-use crate::models::thinking_level_map;
+use crate::models::{get_supported_thinking_levels, thinking_level_map};
 use crate::types::{
     AssistantContentBlock, CacheControlFormat, CacheRetention, ChatTemplateKwargValue,
     ChatTemplateVar, JsonObject, JsonValue, MaxTokensField, Message, Model, ModelThinkingLevel,
@@ -440,16 +440,20 @@ fn apply_thinking_format(
         ThinkingFormat::OpenAI => {
             // eukhe addition: a self-hosted Qwen template thinks by default,
             // so state the level explicitly unless `off` is mapped.
-            if level_map(model, ModelThinkingLevel::Off).is_none()
-                && is_custom_qwen_template_model(model)
-            {
+            let template_toggle = level_map(model, ModelThinkingLevel::Off).is_none()
+                && is_custom_qwen_template_model(model);
+            if template_toggle {
                 insert(
                     params,
                     "chat_template_kwargs",
                     json!({ "enable_thinking": effort.is_some() }),
                 );
             }
-            apply_openai_reasoning_effort(model, effort, compat, params);
+            // The template toggle is that model's off control (omp's qwen
+            // dialect: off sends the toggle and no effort).
+            if effort.is_some() || !template_toggle {
+                apply_openai_reasoning_effort(model, effort, compat, params);
+            }
         }
     }
 }
@@ -472,11 +476,24 @@ fn apply_openai_reasoning_effort(
                 json!(mapped_effort_or_default(model, effort)),
             );
         }
-        None => {
-            if let Some(Some(off)) = level_map(model, ModelThinkingLevel::Off) {
-                insert(params, "reasoning_effort", json!(off));
+        None => match level_map(model, ModelThinkingLevel::Off) {
+            Some(Some(off)) => insert(params, "reasoning_effort", json!(off)),
+            Some(None) => {}
+            // omp's `lowest-effort` disable mode (`openai-shared.ts`
+            // `resolveOpenAICompatPolicy` / `applyChatCompletionsCompatPolicy`):
+            // a model with no `off` entry sends its lowest offered effort.
+            None => {
+                if let Some(lowest) = get_supported_thinking_levels(model)
+                    .into_iter()
+                    .find(|level| *level != ModelThinkingLevel::Off)
+                {
+                    let value = level_map(model, lowest)
+                        .flatten()
+                        .unwrap_or_else(|| lowest.as_str());
+                    insert(params, "reasoning_effort", json!(value));
+                }
             }
-        }
+        },
     }
 }
 
