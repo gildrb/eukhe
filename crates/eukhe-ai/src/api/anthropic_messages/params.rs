@@ -26,6 +26,7 @@ use crate::api::simple_options::thinking_budget_for_level;
 use crate::api::tool_result_content::sent_blocks;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
+use crate::quirks::Quirks;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -1050,12 +1051,16 @@ pub(crate) fn build_params(
         None
     };
     if !mid_convo_effort && model.reasoning {
+        let quirks = Quirks::of(model);
         if options.thinking_enabled == Some(true) {
             if adaptive_thinking(model) {
-                params.insert(
-                    "thinking".into(),
-                    json!({ "type": "adaptive", "display": display }),
-                );
+                // omp `buildParams`: `display` only where the model takes
+                // it (Claude 4.7 and later; 4.6 rejects it with a 400).
+                let mut thinking = json!({ "type": "adaptive" });
+                if quirks.thinking_display() == Some(true) {
+                    thinking["display"] = display.into();
+                }
+                params.insert("thinking".into(), thinking);
                 if let Some(effort) = options.effort.as_ref().filter(|effort| !effort.is_empty()) {
                     params.insert("output_config".into(), json!({ "effort": effort }));
                 }

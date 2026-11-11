@@ -49,9 +49,11 @@ async fn sends_adaptive_thinking_payload_when_compat_force_adaptive_thinking_is_
     )
     .await;
 
+    // omp sends `display` only to adaptive Claude 4.7 and later (catalog
+    // `compat/resolve.ts` `defaultSupportsDisplay`).
     assert_eq!(
         payload.get("thinking"),
-        Some(&json!({ "type": "adaptive", "display": "summarized" }))
+        Some(&json!({ "type": "adaptive" }))
     );
     assert_eq!(
         payload.get("output_config"),
@@ -88,9 +90,10 @@ async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding(
     )
     .await;
 
+    // omp: Kimi rejects `display`.
     assert_eq!(
         payload.get("thinking"),
-        Some(&json!({ "type": "adaptive", "display": "summarized" }))
+        Some(&json!({ "type": "adaptive" }))
     );
     assert_eq!(
         payload.get("output_config"),
