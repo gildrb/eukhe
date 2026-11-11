@@ -158,9 +158,9 @@ enum End {
 
 /// The longest start ([`End::Head`]) or end ([`End::Tail`]) of `text`
 /// within `budget` tokens of `tokenizer`, cut at a character: the kept
-/// length is bisected on the exact count (omp `jevPrefix`). The probes
-/// count through the encoding, outside the tokenizer's cache: each is a
-/// different text, never seen again.
+/// length is bisected on the exact count. The probes count through the
+/// encoding, outside the tokenizer's cache: each is a different text, never
+/// seen again.
 fn within_tokens<'t>(text: &'t str, budget: u64, end: End, tokenizer: &Tokenizer) -> &'t str {
     let encoding = tokenizer.encoding();
     if u64::from(encoding.count(text)) <= budget {

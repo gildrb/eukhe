@@ -84,8 +84,8 @@ async fn a_model_whose_max_is_its_window_omits_the_cap() {
 }
 
 /// A prompt near the window shrinks the cap to the room it leaves after
-/// the prompt (counted locally, padded as omp pads it) and the 4096-token
-/// safety margin.
+/// the prompt (counted locally and padded) and the 4096-token safety
+/// margin.
 #[tokio::test]
 async fn a_long_prompt_near_the_window_shrinks_the_cap_to_the_room() {
     let context = user_context(&"word ".repeat(2_000));

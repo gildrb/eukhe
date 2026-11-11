@@ -1,9 +1,9 @@
-//! The slice of omp's compat cascade (`packages/catalog/src/compat/cascade.ts`)
-//! the catalog axes here read: rules are conjunctions over `(class,
-//! provider, api, family, revision, models)`, and per axis the matching rule
-//! with the greatest `(model-selector exactness, constrained-dimension
-//! count, priority)` wins. Upstream constraints and `token` model selectors
-//! are not ported: no rule on these axes uses them.
+//! The slice of the compat rule cascade the catalog axes here read: rules
+//! are conjunctions over `(class, provider, api, family, revision, models)`,
+//! and per axis the matching rule with the greatest `(model-selector
+//! exactness, constrained-dimension count, priority)` wins. Upstream
+//! constraints and `token` model selectors are not ported: no rule on these
+//! axes uses them.
 
 use super::ModelRef;
 use super::revision::{RevisionTerm, revision_satisfies};
@@ -102,7 +102,7 @@ pub(crate) struct Target<'a> {
 }
 
 impl<'a> Target<'a> {
-    /// omp's image-tokenization and thinking-replay targets: the id's
+    /// The image-tokenization and thinking-replay target: the id's
     /// lenient identity on its host, or an unclassified target when the id
     /// is empty.
     pub(crate) fn new(model: ModelRef<'a>) -> Self {
@@ -125,9 +125,9 @@ impl<'a> Target<'a> {
     }
 }
 
-/// The winning value of one axis among `rules`. omp throws on an equal-rank
-/// contest; the checked-in rules never produce one, and the first declared
-/// rule would hold here.
+/// The winning value of one axis among `rules`. The reference implementation
+/// throws on an equal-rank contest; the checked-in rules never produce one,
+/// and the first declared rule would hold here.
 pub(crate) fn resolve_axis<'r, T>(
     rules: &'r [(Selector, T)],
     target: &Target<'_>,

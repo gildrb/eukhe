@@ -746,13 +746,12 @@ async fn compaction_outcome_rows(session: &EukheSession) -> Vec<String> {
 /// 40,000-token keep window, so a compaction can cut before it, and its
 /// failed turn's usage stays under the background threshold) ends its run
 /// on the overflow with a skip row that names the oversized turn and the
-/// way out (omp's compaction dead-end warning). The next prompt's overflow
+/// way out (the compaction dead-end warning). The next prompt's overflow
 /// compaction summarizes the oversized message: the whole of it fits the
 /// summarizer's input budget by the local count and overflows the
 /// summarizer too, so what was sent halves and the message is clamped to
-/// it (omp `generateSummary`, `clampConversationToBudget`), and the
-/// retried request is answered. The session stays usable without a new
-/// one.
+/// it, and the retried request is answered. The session stays usable
+/// without a new one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_oversized_prompt_leaves_the_session_usable() {
     let fixture = Fixture::new();

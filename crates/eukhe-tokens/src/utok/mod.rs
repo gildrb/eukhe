@@ -1,4 +1,4 @@
-//! Universal offline tokenizer (port of omp's `pi-natives` `utok`).
+//! Universal offline tokenizer (`utok`).
 //!
 //! Exact token counting (and, where meaningful, encoding) for six model
 //! families, with all vocabulary data zstd-compressed and embedded in the
@@ -125,7 +125,7 @@ impl Encoding {
 #[cfg(test)]
 #[allow(
     clippy::cast_possible_truncation,
-    reason = "test PRNG output and fixture ids narrow on purpose (ported from omp, which allows the cast lints)"
+    reason = "test PRNG output and fixture ids narrow on purpose"
 )]
 #[path = "tests"]
 mod tests {

@@ -2,12 +2,12 @@
 //!
 //! Ground-up Rust implementation of the tokenizer-count model reconstructed
 //! by [ctok](https://github.com/sanderland/ctok): the algorithm port and its
-//! optimizations are omp's (oh-my-pi `crates/pi-natives/src/utok/claude`,
-//! ported here); the measured vocabulary *data* is Sander Land's (MIT — see
-//! `data/LICENSE.ctok`), pinned at upstream revision `df3b59b` (v1.0.0),
-//! embedded in the front-coded binary form produced by omp's pi-natives
-//! `tools/gen-ctok-vocab.ts` and zstd-compressed by `tools/pack-ctok.ts`
-//! into `data/ctok_*.bin.zst`. The research behind the
+//! optimizations come from the upstream tokenizer port credited in
+//! `THIRD-PARTY-NOTICES`; the measured vocabulary *data* is Sander Land's
+//! (MIT — see `data/LICENSE.ctok`), pinned at ctok revision `df3b59b`
+//! (v1.0.0), embedded in the front-coded binary form produced by the
+//! upstream generator `gen-ctok-vocab.ts` and zstd-compressed by
+//! `pack-ctok.ts` into `data/ctok_*.bin.zst`. The research behind the
 //! model is described in "On the biology of Claude's tokenizer"
 //! (<https://tokencontributions.substack.com/p/on-the-biology-of-claudes-tokenizer>).
 //!

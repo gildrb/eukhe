@@ -87,9 +87,9 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |`eukhe-theme`|Single theme source and resolver (TUI, HTML export): theme files, their decoding, the palette, the resolver; its decisions (validation, name resolution, color math) come from the compiled core, passed in as `ThemeRules`|none|
 |`eukhe-build-info`|This build's identity (`build.rs`): version (the release, or `<series>-dev`) and source (commit, `.dirty.<hash>`, or `src.<hash>`)|none|
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
-|`eukhe-tokens`|Token counts with the models' real tokenizers (port of omp's utok, vocabularies embedded): model → tokenizer, image token pricing, thinking replay pricing, message counting|`eukhe-types`|
-|`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-tokens`|
-|`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-tokens`, `eukhe-ai`|
+|`eukhe-tokens`|Token counts with the models' real tokenizers (vocabularies embedded): model → tokenizer, image token pricing, thinking replay pricing, message counting|`eukhe-types`|
+|`eukhe-ai`|Providers, model catalog, streaming|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-tokens`|
+|`eukhe-durable`|Durable Harness, storage, conversations|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-tokens`, `eukhe-ai`|
 |`eukhe-models`|Built-in model catalog (bundled snapshot ∪ compiled catalog), transport pinning|`eukhe-types`, `eukhe-bend`, `eukhe-ai`|
 |`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|`eukhe-types`, `eukhe-bend`|
 |`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`, `eukhe-bend`|

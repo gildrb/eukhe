@@ -1,5 +1,5 @@
-//! Batch token counting via the embedded utok universal tokenizer (port of
-//! omp's `pi-natives` `tokens.rs` `countTokens` array form).
+//! Batch token counting via the embedded utok universal tokenizer: one
+//! encoding, many texts, one count per text.
 //!
 //! Encodings (see [`Encoding`]):
 //!

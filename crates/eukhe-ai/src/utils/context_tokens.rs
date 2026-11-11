@@ -1,4 +1,4 @@
-//! Message and transcript token counts over pi-ai messages, with the
+//! Message and transcript token counts over `pi_ai` messages, with the
 //! reading model's real tokenizer ([`eukhe_tokens::Tokenizer`]).
 
 use std::sync::Arc;
@@ -129,20 +129,19 @@ pub fn context_tokens(tokenizer: &Tokenizer, messages: &[Message]) -> ContextTok
 }
 
 /// Locally counted prompt tokens are padded by 1/this before the output
-/// cap is sized (omp `PROMPT_ESTIMATE_MARGIN_DIVISOR`): the provider's
-/// tokenizer can disagree with the local one by a few percent.
+/// cap is sized: the provider's tokenizer can disagree with the local one
+/// by a few percent.
 const LOCAL_COUNT_MARGIN_DIVISOR: u64 = 10;
 
-/// Chat-template framing charged per locally counted message (omp
-/// `MESSAGE_FRAMING_TOKENS`): a count is message content, and every
-/// template wraps a message in role markers and separators.
+/// Chat-template framing charged per locally counted message: a count is
+/// message content, and every template wraps a message in role markers and
+/// separators.
 const MESSAGE_FRAMING_TOKENS: u64 = 16;
 
-/// The prompt of a request as the output cap sizes it (omp
-/// `countPromptTokens`, `packages/agent/src/output-budget.ts`): the
-/// provider's count at the last applicable assistant usage, exact, plus
-/// the local count of the messages after it (of every message without
-/// one), padded by a tenth and [`MESSAGE_FRAMING_TOKENS`] per message.
+/// The prompt of a request as the output cap sizes it: the provider's
+/// count at the last applicable assistant usage, exact, plus the local
+/// count of the messages after it (of every message without one), padded
+/// by a tenth and [`MESSAGE_FRAMING_TOKENS`] per message.
 #[must_use]
 pub fn output_cap_prompt_tokens(tokenizer: &Tokenizer, messages: &[Message]) -> u64 {
     let counted = context_tokens(tokenizer, messages);
@@ -281,7 +280,7 @@ mod tests {
 
     /// The output cap's prompt keeps the provider's count exact and pads
     /// only the locally counted tail: a tenth of its tokens, rounded up,
-    /// and 16 framing tokens per message (omp `countPromptTokens`).
+    /// and 16 framing tokens per message.
     #[test]
     fn the_output_cap_prompt_pads_only_the_locally_counted_messages() {
         let tail = " x".repeat(1_005);

@@ -466,7 +466,7 @@ pub(crate) struct VocabCore {
 
 impl VocabCore {
     /// Parse one front-coded binary vocabulary blob produced by
-    /// `crates/pi-natives/tools/gen-ctok-vocab.ts` (format documented there;
+    /// the upstream generator `gen-ctok-vocab.ts` (format documented there;
     /// pieces arrive in the compact marker alphabet, sorted by those bytes).
     /// Pieces stream straight into the automaton builder; nothing is buffered
     /// beyond the front-coding scratch.

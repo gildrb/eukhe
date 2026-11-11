@@ -1,8 +1,7 @@
-//! How a reader bills a replayed signed thinking block as input. Port of
-//! omp `packages/catalog/src/compat/thinking-replay.ts` and its
-//! `thinking-replay-tokens` rules: a model line's lineage rule
-//! (`compat/rules/classes/*.kdl`) applies on every host; readers without
-//! one are charged the counted tokens of the signature.
+//! How a reader bills a replayed signed thinking block as input, by the
+//! catalog's `thinking-replay-tokens` rules: a model line's lineage rule
+//! (`rules/classes/*.kdl`) applies on every host; readers without one are
+//! charged the counted tokens of the signature.
 
 use super::ModelRef;
 use super::cascade::{Selector, Target, resolve_axis};
@@ -17,7 +16,7 @@ pub enum ThinkingReplayTokens {
     Signature,
 }
 
-/// The `thinking-replay-tokens` rules of omp c28b3e3.
+/// The `thinking-replay-tokens` rules at reference commit c28b3e3.
 static RULES: &[(Selector, ThinkingReplayTokens)] = &[
     // classes/anthropic.kdl:26 — every Claude line, on every host.
     (

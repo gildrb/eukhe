@@ -961,9 +961,9 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     // without putting its request past the window (which would compact
     // inside the crossing run), and the next run compacts before its
     // first request. That window's summarizer input budget is its floor
-    // (3k tokens, omp `minSummaryInputTokens`), so the summary runs one
-    // call per window (omp `generateSummary`): the seed turn, the crossing
-    // message alone (clamped to the budget), and the crossing reply.
+    // (3k tokens), so the summary runs one call per window: the seed turn,
+    // the crossing message alone (clamped to the budget), and the crossing
+    // reply.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [

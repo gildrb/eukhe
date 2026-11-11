@@ -1,5 +1,5 @@
 //! The parts of a message the counter reads, borrowed from each of eukhe's
-//! message shapes: the pi-ai transcript types, the session's agent
+//! message shapes: the `pi_ai` transcript types, the session's agent
 //! messages, and wire JSON rows.
 
 use std::borrow::Cow;
@@ -60,7 +60,7 @@ fn arguments_json<T: serde::Serialize>(arguments: &T) -> Cow<'static, str> {
 }
 
 impl<'a> MessageParts<'a> {
-    /// A pi-ai transcript message; `None` for a system message, whose
+    /// A `pi_ai` transcript message; `None` for a system message, whose
     /// prompt text the caller assembles (eukhe-ai `get_system_message_text`).
     #[must_use]
     pub fn from_pi_ai(message: &'a pi_ai::Message) -> Option<Self> {

@@ -1,11 +1,9 @@
-//! Model identity: classifies a wire model id into `(class, family,
-//! revision)`. Port of omp `classifyModel(provider, id, { lenient: true })`
-//! (`packages/catalog/src/compat/taxonomy.ts`) with its glob matcher
-//! (`compat/cascade.ts` `globMatch`).
+//! Model identity: classifies a wire model id leniently into `(class,
+//! family, revision)`, with an anchored glob matcher for the rule patterns.
 //!
-//! The rules are `taxonomy.json`, the identity part of omp's compiled
-//! `compat/rules.json` (generated from `compat/rules/classes/*.kdl`) at omp
-//! c28b3e3, extracted with
+//! The rules are `taxonomy.json`, the identity part of the compiled compat
+//! rules (`rules.json`, generated from `rules/classes/*.kdl`) at reference
+//! commit c28b3e3, extracted with
 //!
 //! ```text
 //! jq '{classes: [.taxonomy.classes[] | .overrides |= map(del(.rationale, .provenance, .expiresAtMs))],
@@ -13,8 +11,8 @@
 //! ```
 //!
 //! Every class is kept: a model only lands in a class when no other class
-//! matches it better. Override expiry is dropped because omp classifies
-//! without an observation time here, which keeps every override active.
+//! matches it better. Override expiry is dropped because classification
+//! here has no observation time, which keeps every override active.
 //! Only the lenient path exists: an ambiguous class resolves to `unknown`,
 //! an ambiguous family or pattern override to none.
 
@@ -143,7 +141,7 @@ struct SuffixRule {
 
 static RULES: LazyLock<Rules> = LazyLock::new(|| {
     serde_json::from_str(include_str!("taxonomy.json"))
-        .expect("taxonomy.json is the checked-in omp identity rule set")
+        .expect("taxonomy.json is the checked-in model identity rule set")
 });
 
 /// The part of an id after its last `/`.
@@ -151,8 +149,8 @@ pub(crate) fn bare_of(id: &str) -> &str {
     id.rfind('/').map_or(id, |slash| &id[slash + 1..])
 }
 
-/// Anchored `*`-wildcard match (omp `globMatch`): `*` spans any substring,
-/// the literal text stays anchored in order. Both sides are pre-lowercased.
+/// Anchored `*`-wildcard match: `*` spans any substring, the literal text
+/// stays anchored in order. Both sides are pre-lowercased.
 pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
     let Some((head, rest)) = pattern.split_once('*') else {
         return value == pattern;
@@ -276,7 +274,8 @@ fn extract_revision(class: &Class, bare: &str) -> Option<Revision> {
             continue;
         };
         let digit = tail.find(|c: char| c.is_ascii_digit())?;
-        // omp formats the parsed triple; storing the triple is equivalent.
+        // The parsed triple is the revision; formatting and reparsing it
+        // would give the same one.
         return parse_revision_prefix(&tail[digit..]);
     }
     None
@@ -388,7 +387,7 @@ fn find_identity_override(provider: &str, bare_model: &str) -> Option<&'static I
                     .is_some_and(|m| m.to_lowercase() == lower_bare)
             })
     };
-    // The first declaration wins within each bucket, like omp's index.
+    // The first declaration wins within each bucket.
     let scoped = exact().find(|o| {
         o.provider
             .as_deref()
@@ -404,7 +403,7 @@ fn find_identity_override(provider: &str, bare_model: &str) -> Option<&'static I
 }
 
 /// The logical id after collapsing a declared thinking or effort suffix
-/// (omp `collapseVariantId`; the effort it names does not change identity).
+/// (the effort it names does not change identity).
 fn collapse_variant_id<'a>(provider: &str, model: &'a str) -> std::borrow::Cow<'a, str> {
     use std::borrow::Cow;
     let collapse = &RULES.collapse;
@@ -474,7 +473,7 @@ fn collapse_variant_id<'a>(provider: &str, model: &'a str) -> std::borrow::Cow<'
     Cow::Borrowed(model)
 }
 
-/// omp `classifyModel(provider, model_id, { lenient: true })`: reviewed
+/// Lenient classification of `model_id` on `provider`: reviewed
 /// override first, then suffix collapse, then class/family/revision ranks
 /// over the logical id.
 pub(crate) fn classify_model(provider: &str, model_id: &str) -> ModelIdentity {
@@ -519,8 +518,8 @@ mod tests {
         }
     }
 
-    // omp packages/catalog/test/compat-taxonomy.test.ts (the identity part;
-    // the logical id, effort and thinking-variant facts are not kept here).
+    // Identity cases (the logical id, effort and thinking-variant facts are
+    // not kept here).
     #[test]
     fn extracts_dashed_revisions_and_classifies_namespaced_ids_by_bare_name() {
         let opus = identity("anthropic", Some("opus"), Some([4, 6, 0]));

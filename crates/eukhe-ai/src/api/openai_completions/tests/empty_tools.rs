@@ -152,9 +152,8 @@ async fn sends_explicit_max_tokens() {
 }
 
 /// The prompt is 8,000 `x`: 1,000 `o200k_base` tokens, padded by a tenth
-/// and one message's 16 framing tokens (omp `countPromptTokens`) to 1,116;
-/// the cap is the room under the 10,000-token window after it and the
-/// 4,096-token safety margin.
+/// and one message's 16 framing tokens to 1,116; the cap is the room under
+/// the 10,000-token window after it and the 4,096-token safety margin.
 #[tokio::test]
 async fn clamps_default_max_tokens_to_remaining_context() {
     let model = gpt_4o_mini_completions(&json!({ "contextWindow": 10000, "maxTokens": 8000 }));

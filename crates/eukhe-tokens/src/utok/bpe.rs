@@ -130,7 +130,7 @@ fn pack(key: &[u8]) -> Option<ShortKey> {
 /// Per-thread memo of merge-loop counts for 2..=15-byte pieces: the dynamic
 /// piece cache of [toks](https://github.com/actual-computer/toks)
 /// (`docs/kernels.md` §6). Pieces the vocabulary misses were 6-22% of the
-/// pieces of English prose, omp's TypeScript and its Markdown docs, and
+/// pieces of English prose, a TypeScript codebase and its Markdown docs, and
 /// 64-84% of them repeated within the same text; a hit costs one probe
 /// where the merge run costs a rank lookup per pair and per merge.
 ///

@@ -1,24 +1,25 @@
-//! Agreement with omp's own policy code over two catalogs: omp's bundled
-//! catalog (`packages/catalog/src/models.json`) and Eukhe's
-//! (`crates/eukhe-ai/src/providers/data/*.json` plus
-//! `crates/eukhe-models/tests/fixtures/catalog.v1.json`).
+//! Agreement with the reference implementation's policy code (credited in
+//! THIRD-PARTY-NOTICES) over two catalogs: the reference implementation's
+//! bundled catalog and Eukhe's (`crates/eukhe-ai/src/providers/data/*.json`
+//! plus `crates/eukhe-models/tests/fixtures/catalog.v1.json`).
 //!
-//! The fixtures were generated at omp c28b3e3 by one bun process running
-//! omp's TypeScript unchanged (a copy of `packages/catalog/src` with two
-//! workspace-heavy modules stubbed: `identity/index.ts` re-exporting only
-//! `classifyModel`, `utils.ts` only `isRecord`):
+//! The fixtures were generated at reference commit c28b3e3 by one bun process
+//! running the reference catalog's TypeScript unchanged (a copy of its
+//! sources with two workspace-heavy modules stubbed: `identity/index.ts`
+//! re-exporting only `classifyModel`, `utils.ts` only `isRecord`):
 //!
-//! - `fixtures/omp_model_tokenizers.json`: for every omp bundled model
-//!   (decoded with omp's `model-catalog-format.ts`) the provider, id, wire id
-//!   (`requestModelId`, when it differs), the materialized `Model.tokenizer`
-//!   and `resolveModelTokenizer(wire id, provider)`; for every Eukhe catalog
-//!   `(provider, id)` the `resolveModelTokenizer(id, provider)`.
-//! - `fixtures/omp_image_rules.json`: for every Eukhe and omp catalog
-//!   `(provider, id, api)`, plus wire-only targets, omp's
+//! - `fixtures/reference_model_tokenizers.json`: for every bundled reference
+//!   model (decoded with the reference `model-catalog-format.ts`) the
+//!   provider, id, wire id (`requestModelId`, when it differs), the
+//!   materialized `Model.tokenizer` and `resolveModelTokenizer(wire id,
+//!   provider)`; for every Eukhe catalog `(provider, id)` the
+//!   `resolveModelTokenizer(id, provider)`.
+//! - `fixtures/reference_image_rules.json`: for every Eukhe and reference
+//!   catalog `(provider, id, api)`, plus wire-only targets, the reference
 //!   `resolveImageTokenization` (as a key into the distinct rules) and
 //!   `resolveThinkingReplayTokens`.
 //!
-//! Regenerate after an omp catalog/rules bump or an Eukhe catalog change
+//! Regenerate after a reference catalog/rules bump or an Eukhe catalog change
 //! (the coverage test below names the rows the fixture lacks).
 
 use std::collections::HashSet;
@@ -30,8 +31,8 @@ use eukhe_tokens::{
 };
 use serde_json::Value;
 
-const TOKENIZERS: &str = include_str!("fixtures/omp_model_tokenizers.json");
-const IMAGE_RULES: &str = include_str!("fixtures/omp_image_rules.json");
+const TOKENIZERS: &str = include_str!("fixtures/reference_model_tokenizers.json");
+const IMAGE_RULES: &str = include_str!("fixtures/reference_image_rules.json");
 
 fn parse(fixture: &str) -> Value {
     serde_json::from_str(fixture).expect("fixture is JSON")
@@ -50,9 +51,9 @@ fn tokenizer_name(model_id: &str, provider: &str) -> Option<&'static str> {
 }
 
 #[test]
-fn omp_bundled_catalog_tokenizers_agree() {
+fn reference_bundled_catalog_tokenizers_agree() {
     let fixture = parse(TOKENIZERS);
-    let rows = rows(&fixture, "omp_catalog");
+    let rows = rows(&fixture, "reference_catalog");
     let mut mismatches = Vec::new();
     let mut copied_pins = 0;
     for row in rows {
@@ -62,11 +63,12 @@ fn omp_bundled_catalog_tokenizers_agree() {
         let actual = tokenizer_name(wire, provider);
         if actual != expected {
             mismatches.push(format!(
-                "{provider}/{id}: omp {expected:?}, eukhe {actual:?}"
+                "{provider}/{id}: reference {expected:?}, eukhe {actual:?}"
             ));
         }
-        // omp's generator keeps a copied tokenizer only on ids its policy
-        // cannot classify (GitLab Duo aliases of Claude models and the like).
+        // The reference generator keeps a copied tokenizer only on ids its
+        // policy cannot classify (GitLab Duo aliases of Claude models and the
+        // like).
         if materialized != expected {
             assert_eq!(
                 expected, None,
@@ -75,7 +77,7 @@ fn omp_bundled_catalog_tokenizers_agree() {
             copied_pins += 1;
         }
     }
-    assert!(rows.len() > 5000, "{} omp rows", rows.len());
+    assert!(rows.len() > 5000, "{} reference rows", rows.len());
     assert_eq!(copied_pins, 16);
     assert!(
         mismatches.is_empty(),
@@ -86,7 +88,7 @@ fn omp_bundled_catalog_tokenizers_agree() {
 }
 
 #[test]
-fn eukhe_catalog_tokenizers_agree_with_omp() {
+fn eukhe_catalog_tokenizers_agree_with_reference() {
     let fixture = parse(TOKENIZERS);
     let mut mismatches = Vec::new();
     for row in rows(&fixture, "eukhe_catalog") {
@@ -94,7 +96,7 @@ fn eukhe_catalog_tokenizers_agree_with_omp() {
         let actual = tokenizer_name(id, provider);
         if actual != expected {
             mismatches.push(format!(
-                "{provider}/{id}: omp {expected:?}, eukhe {actual:?}"
+                "{provider}/{id}: reference {expected:?}, eukhe {actual:?}"
             ));
         }
     }
@@ -171,7 +173,7 @@ fn fixtures_cover_the_eukhe_catalog() {
         .collect();
     assert!(
         missing.is_empty(),
-        "regenerate the omp fixtures; {} Eukhe catalog rows are missing:\n{}",
+        "regenerate the reference fixtures; {} Eukhe catalog rows are missing:\n{}",
         missing.len(),
         missing.join("\n")
     );
@@ -188,7 +190,7 @@ fn number(value: &Value) -> u32 {
     u32::try_from(value.as_u64().expect("integer")).expect("u32")
 }
 
-/// omp's `ImageTokenization` JSON as the Rust rule.
+/// The reference `ImageTokenization` JSON as the Rust rule.
 fn image_rule(rule: &Value) -> ImageTokenization {
     let verified = rule
         .get("verified")
@@ -228,7 +230,7 @@ fn image_rule(rule: &Value) -> ImageTokenization {
 }
 
 #[test]
-fn image_and_thinking_replay_rules_agree_with_omp() {
+fn image_and_thinking_replay_rules_agree_with_reference() {
     let fixture = parse(IMAGE_RULES);
     let rules = fixture["rules"].as_object().expect("rules");
     let rows = rows(&fixture, "rows");
@@ -240,7 +242,7 @@ fn image_and_thinking_replay_rules_agree_with_omp() {
         let actual = resolve_image_tokenization(model);
         if actual != expected {
             mismatches.push(format!(
-                "{provider}/{id} ({api}) image: omp {expected:?}, eukhe {actual:?}"
+                "{provider}/{id} ({api}) image: reference {expected:?}, eukhe {actual:?}"
             ));
         }
         let replay = match text(&row[5]) {
@@ -250,7 +252,7 @@ fn image_and_thinking_replay_rules_agree_with_omp() {
         };
         if resolve_thinking_replay_tokens(model) != replay {
             mismatches.push(format!(
-                "{provider}/{id} ({api}) thinking replay: omp {replay:?}"
+                "{provider}/{id} ({api}) thinking replay: reference {replay:?}"
             ));
         }
     }

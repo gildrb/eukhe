@@ -1,8 +1,6 @@
-//! Pixel size from the header of base64 image data. Port of omp agent's
-//! `base64ImageSize` (`packages/agent/src/image-tokens.ts`) and the
-//! PNG/JPEG/GIF/WebP header parsers of omp utils' `parseImageMetadata`
-//! (`packages/utils/src/mime.ts`); the channel and alpha facts those read
-//! are dropped, nothing here prices them.
+//! Pixel size from the header of base64 image data: decodes just enough of
+//! the payload to parse a PNG, JPEG, GIF or WebP header; the channel and
+//! alpha facts those headers carry are dropped, nothing here prices them.
 
 use super::image::ImageSize;
 
@@ -211,7 +209,7 @@ fn parse_webp(header: &[u8]) -> Option<ImageMetadata> {
     Some(ImageMetadata::UNSIZED)
 }
 
-/// omp `parseImageMetadata`: the first recognized format wins, sized or not.
+/// The first recognized format wins, sized or not.
 fn parse_image_metadata(header: &[u8]) -> Option<ImageMetadata> {
     parse_png(header)
         .or_else(|| parse_jpeg(header))

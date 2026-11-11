@@ -182,7 +182,7 @@ fn ps_end<U: Unit>(units: &[U], pos: usize) -> Option<usize> {
 #[cfg(test)]
 #[allow(
     clippy::cast_possible_truncation,
-    reason = "test PRNG output and fixture ids narrow on purpose (ported from omp, which allows the cast lints)"
+    reason = "test PRNG output and fixture ids narrow on purpose"
 )]
 mod tests {
     use super::*;

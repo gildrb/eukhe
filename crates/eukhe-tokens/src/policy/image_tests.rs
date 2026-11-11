@@ -1,6 +1,5 @@
-//! omp `packages/catalog/test/image-tokenization.test.ts` and
-//! `packages/agent/test/image-tokens.test.ts`. omp's `getBundledModel(…)`
-//! targets are spelled out as the bundled row's `{ provider, id, api }`.
+//! Image-tokenization rule resolution and billed-token cases. A bundled
+//! catalog model is spelled out as its row's `{ provider, id, api }`.
 
 use super::*;
 
@@ -145,7 +144,7 @@ fn follows_the_claude_lineage_through_gateways_and_cloud_hosts() {
 }
 
 #[test]
-fn prices_every_current_codex_model_with_32px_patches_times_1_2() {
+fn prices_every_current_gpt_line_with_32px_patches_times_1_2() {
     for id in [
         "gpt-6-astra",
         "gpt-6.1-sol",
@@ -165,7 +164,7 @@ fn prices_every_current_codex_model_with_32px_patches_times_1_2() {
 }
 
 #[test]
-fn marks_the_gpt_rules_measured_against_codex_billing_as_verified() {
+fn marks_the_gpt_rules_measured_against_billed_usage_as_verified() {
     for id in [
         "gpt-6-astra",
         "gpt-6.1-sol",
@@ -363,8 +362,8 @@ fn keeps_separator_collapsed_gpt_revisions_off_the_gpt_5_6_sizing() {
 
 #[test]
 fn uses_the_models_identity() {
-    // omp's second case swaps a built model's `identity`; a `ModelRef` is
-    // always classified from its id.
+    // A `ModelRef` is always classified from its id; no separate identity
+    // overrides it.
     assert_eq!(
         resolve("anthropic", "claude-opus-4-6", "anthropic-messages"),
         Some(STANDARD)
@@ -517,7 +516,7 @@ fn resizes_deepseek_images_like_the_reference_processor_at_extreme_aspect_ratios
     assert_eq!(tokens(&DEEPSEEK_PATCH, 2000, 100, None), 179);
 }
 
-// omp packages/agent/test/image-tokens.test.ts
+// Billed image tokens for a known pixel size.
 #[test]
 fn billed_tokens_match_openais_documented_patch_examples() {
     let size = |width, height| Some(ImageSize { width, height });

@@ -736,13 +736,12 @@ fn print_event(event: &SessionEvent) {
     }
 }
 
-/// One session event's json-mode line (omp `printableEvent`): a
-/// `message_update` carries only its change (omp's line has no
-/// `outputTokens` either). The accumulated partial it holds would
-/// re-serialize the whole in-flight message per frame (a long turn's stream
-/// grows quadratically); the settled message follows whole in
-/// `message_end`. A whole-message replacement keeps its message (and its
-/// count): that message is its change.
+/// One session event's json-mode line: a `message_update` carries only its
+/// change, without the message or its `outputTokens`. The accumulated
+/// partial it holds would re-serialize the whole in-flight message per
+/// frame (a long turn's stream grows quadratically); the settled message
+/// follows whole in `message_end`. A whole-message replacement keeps its
+/// message (and its count): that message is its change.
 fn json_line(event: &SessionEvent) -> serde_json::Result<String> {
     if let SessionEvent::MessageUpdate {
         assistant_message_event: update,

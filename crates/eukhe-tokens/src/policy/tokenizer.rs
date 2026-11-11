@@ -1,5 +1,4 @@
-//! Which embedded tokenizer a model reads with. Port of omp
-//! `packages/catalog/src/model-tokenizer.ts` (`resolveModelTokenizer`).
+//! Which embedded tokenizer a model reads with, by model id and provider.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -36,7 +35,7 @@ impl ModelTokenizer {
         Self::O200k,
     ];
 
-    /// omp's name for the tokenizer (`Model.tokenizer`).
+    /// The tokenizer's catalog name (`Model.tokenizer`).
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -53,7 +52,7 @@ impl ModelTokenizer {
         }
     }
 
-    /// The tokenizer omp names `name`.
+    /// The tokenizer whose catalog name is `name`.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL
@@ -168,7 +167,7 @@ mod tests {
         resolve_model_tokenizer(model_id, provider).map(ModelTokenizer::name)
     }
 
-    // omp packages/catalog/test/model-tokenizer.test.ts
+    // Model-to-tokenizer routing cases.
     #[test]
     fn routes_only_tokenizer_generations_covered_by_embedded_vocabularies() {
         assert_eq!(tok("anthropic/claude-opus-4-7", ""), Some("claude-v47"));

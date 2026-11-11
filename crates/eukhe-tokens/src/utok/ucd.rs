@@ -1,8 +1,8 @@
 //! Unicode character data for the scanners and the Claude normalizer.
 //!
-//! omp's `utok` reads these from `xutf`, which needs a nightly compiler
-//! (`portable_simd`); eukhe builds on stable, so this module offers the
-//! same names over stable crates and the ported files change only their
+//! The upstream tokenizer reads these from `xutf`, which needs a nightly
+//! compiler (`portable_simd`); eukhe builds on stable, so this module offers
+//! the same names over stable crates and the ported files change only their
 //! `use` lines:
 //!
 //! - General Category: `unicode-general-category` (UCD 16.0.0).
@@ -10,7 +10,7 @@
 //! - NFC, its quick check and the canonical combining class:
 //!   `unicode-normalization`.
 //!
-//! GC and Script stay on UCD 16.0.0 for the reason omp pins `xutf` there:
+//! GC and Script stay on UCD 16.0.0, the version upstream pins `xutf` to:
 //! the reference regex engines (`regex-syntax` under fancy-regex and
 //! tiktoken-rs) resolve `\p{..}` classes against 16.0.0, and the 4803
 //! scalars 17.0.0 added would re-split text and change token ids

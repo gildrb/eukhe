@@ -154,7 +154,7 @@ pub(crate) fn bpe_for(enc: Encoding) -> &'static BpeEncoding {
 #[cfg(test)]
 #[allow(
     clippy::cast_possible_truncation,
-    reason = "test PRNG output and fixture ids narrow on purpose (ported from omp, which allows the cast lints)"
+    reason = "test PRNG output and fixture ids narrow on purpose"
 )]
 mod glm_scan_tests {
     //! Differential justifying the cl100k-scanner alias: piece boundaries

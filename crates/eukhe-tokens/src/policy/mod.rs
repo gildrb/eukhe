@@ -1,8 +1,8 @@
-//! Model policy ported from omp's catalog (c28b3e3): which embedded
-//! tokenizer a model reads with, how it prices an image, how it bills a
-//! replayed thinking block. Every decision starts from the model's identity
-//! (`taxonomy`), the class/family/revision omp's compat rules classify a
-//! wire id into.
+//! Model policy from the catalog rules (reference commit c28b3e3): which
+//! embedded tokenizer a model reads with, how it prices an image, how it
+//! bills a replayed thinking block. Every decision starts from the model's
+//! identity (`taxonomy`), the class/family/revision the compat rules
+//! classify a wire id into.
 
 mod cascade;
 mod image;

@@ -3,13 +3,12 @@
 //! guess.
 //!
 //! - Tokenizers: exact offline counts for the `OpenAI`, Claude, Qwen,
-//!   `DeepSeek`, Kimi, GLM and Jev families (port of omp's `utok`), the
-//!   vocabularies zstd-embedded and decoded on first use.
-//! - Policy: which tokenizer a model reads with (omp's catalog
-//!   `resolveModelTokenizer`; unknown models count in `o200k_base`), how it
-//!   prices an image and a replayed thinking block.
-//! - Counting: messages and transcripts under one model's tokenizer (omp's
-//!   `Tokenizer`), with the provider-reported usage where a turn has one.
+//!   `DeepSeek`, Kimi, GLM and Jev families (`utok`), the vocabularies
+//!   zstd-embedded and decoded on first use.
+//! - Policy: which tokenizer a model reads with (unknown models count in
+//!   `o200k_base`), how it prices an image and a replayed thinking block.
+//! - Counting: messages and transcripts under one model's tokenizer
+//!   ([`Tokenizer`]), with the provider-reported usage where a turn has one.
 
 mod batch;
 mod counter;

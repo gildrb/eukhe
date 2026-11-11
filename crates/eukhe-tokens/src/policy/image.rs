@@ -1,14 +1,13 @@
-//! Billed input tokens per image. Port of omp
-//! `packages/catalog/src/compat/image-tokenization.ts` and the
-//! `image-tokenization` rules it resolves: a model line's lineage rule
-//! (`compat/rules/classes/*.kdl`) applies on every host, a host rule can
-//! refine it (`providers/google-antigravity.kdl`), and readers without one
-//! fall back to the rule for the wire API carrying the request
-//! (`providers/image-tokenization.kdl`, priority -1). Plus omp agent's
-//! `estimateImageTokens` (`packages/agent/src/image-tokens.ts`).
+//! Billed input tokens per image, by the catalog's `image-tokenization`
+//! rules: a model line's lineage rule (`rules/classes/*.kdl`) applies on
+//! every host, a host rule can refine it (`providers/google-antigravity.kdl`),
+//! and readers without one fall back to the rule for the wire API carrying
+//! the request (`providers/image-tokenization.kdl`, priority -1). Plus the
+//! billed estimate for an image of known or unknown pixel size
+//! ([`billed_image_tokens`]).
 //!
-//! The pixel math runs in `f64` exactly as the JavaScript does, so every
-//! intermediate rounding matches.
+//! The pixel math runs in `f64` exactly as the reference JavaScript does, so
+//! every intermediate rounding matches.
 
 use super::ModelRef;
 use super::cascade::{ModelSelector, Selector, Target, resolve_axis};
@@ -150,7 +149,7 @@ const OPENAI_WIRES: &[&str] = &[
     "azure-openai-responses",
 ];
 
-/// The `image-tokenization` rules of omp c28b3e3, in rule order.
+/// The `image-tokenization` rules at reference commit c28b3e3, in rule order.
 static RULES: &[(Selector, ImageTokenization)] = &[
     // classes/anthropic.kdl:26 — every Claude line not narrowed below: the
     // 4.7+ high-res tier (2,576px edges, 4,784 visual tokens).
@@ -274,7 +273,8 @@ static RULES: &[(Selector, ImageTokenization)] = &[
             verified: false,
         },
     ),
-    // classes/openai.kdl:107 — GPT-5.6 through 6.1, measured on Codex.
+    // classes/openai.kdl:107 — GPT-5.6 through 6.1, measured against billed
+    // usage.
     (
         Selector {
             class: Some("openai"),

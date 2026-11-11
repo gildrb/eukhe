@@ -890,7 +890,7 @@ impl<F: FnMut(&[u8])> Stream<F> {
 /// stray-mark runs receive their measured boundary markers.
 #[allow(
     clippy::too_many_lines,
-    reason = "one streaming state machine over the runs, ported whole from omp"
+    reason = "one streaming state machine over the runs, kept whole"
 )]
 pub(crate) fn stream_norm(
     norm: &str,

@@ -1,5 +1,4 @@
-//! Model-aware token counting (port of omp `packages/agent/src/tokenizer.ts`
-//! onto eukhe's message types).
+//! Model-aware token counting over eukhe's message types.
 //!
 //! A [`Tokenizer`] is fixed to one reading model: its tokenizer family (the
 //! catalog policy of [`crate::resolve_model_tokenizer`]; a model without one
@@ -35,8 +34,7 @@ use crate::{
 pub use view::{AssistantTurn, MessageParts, Part, ai_assistant, ai_blocks};
 
 /// When at least this many fragments of one count miss the cache, they
-/// count in parallel (omp `countTokensNat`: the native batch path takes 16
-/// or more fragments).
+/// count in parallel (the batch path takes 16 or more fragments).
 const PARALLEL_BATCH_MIN: usize = 16;
 
 /// Fragments one cache generation holds before it ages out (two
@@ -244,7 +242,7 @@ impl Tokenizer {
     /// Whether `fragments` fit `budget` tokens, cheapest first: UTF-8 bytes
     /// bound the token count from above, so fragments whose bytes fit are
     /// answered without tokenizing (upper bound); only text past that bound
-    /// pays for the exact count (strict). omp `checkTokenBudget`.
+    /// pays for the exact count (strict).
     #[must_use]
     pub fn check_token_budget<S: AsRef<str>>(
         &self,

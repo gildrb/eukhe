@@ -183,14 +183,14 @@ async fn decide(
     let signal = cx.abort_signal();
     options.options.stream.request.signal.clone_from(&signal);
 
-    // The summary windows (omp `generateSummary`), counted with the
-    // summarizer's tokenizer: the whole conversation in one call when it
-    // fits the summarizer's input budget, else windows that each fit it,
-    // each folding into the summary carried out of the one before. A
-    // window that is one message above the budget (an oversized paste) is
-    // clamped to it. A summarizer that still overflows (its provider
-    // accepts less than the catalog window) halves what was sent and plans
-    // that window again, until the budget falls below the floor.
+    // The summary windows, counted with the summarizer's tokenizer: the
+    // whole conversation in one call when it fits the summarizer's input
+    // budget, else windows that each fit it, each folding into the summary
+    // carried out of the one before. A window that is one message above the
+    // budget (an oversized paste) is clamped to it. A summarizer that still
+    // overflows (its provider accepts less than the catalog window) halves
+    // what was sent and plans that window again, until the budget falls
+    // below the floor.
     let tokenizer = model_tokenizer(&model);
     let llm_history = convert_to_llm(&history);
     drop(history);
@@ -214,10 +214,9 @@ async fn decide(
         let text = window
             .text
             .unwrap_or_else(|| serialize_conversation(&window.messages));
-        // A budget probe, not a raw count (omp `checkTokenBudget`): a
-        // window whose bytes already fit needs neither the exact count nor
-        // the clamp; one past the budget hands back the exact count the
-        // proportional clamp divides by.
+        // A budget probe, not a raw count: a window whose bytes already fit
+        // needs neither the exact count nor the clamp; one past the budget
+        // hands back the exact count the proportional clamp divides by.
         let fit = tokenizer.check_token_budget(&[&text], window.budget);
         let sent = if fit.fits {
             text
@@ -277,9 +276,9 @@ async fn decide(
         // The failure label ("Summarization failed"): an error
         // stop bubbles out of the hook and fails the compaction task.
         if reply.stop_reason == StopReason::Error {
-            // Halve what was sent, not the budget it was planned against
-            // (omp): the window the cheap fit path never counted pays for
-            // its exact size here.
+            // Halve what was sent, not the budget it was planned against:
+            // the window the cheap fit path never counted pays for its
+            // exact size here.
             let sent_tokens = if fit.exact {
                 fit.tokens
             } else {

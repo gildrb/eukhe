@@ -225,9 +225,8 @@ pub(crate) fn clamp_conversation_to_budget(
 
 /// Partition `messages` (already converted for the model) into windows
 /// whose serializations each fit `budget_tokens` under the summarizer
-/// model's `tokenizer`, splitting on message boundaries (omp
-/// `planSummaryWindows`); a single message above the budget is a window of
-/// its own.
+/// model's `tokenizer`, splitting on message boundaries; a single message
+/// above the budget is a window of its own.
 pub(crate) fn plan_summary_windows(
     messages: Vec<AgentMessage>,
     tokenizer: &Tokenizer,
@@ -378,10 +377,8 @@ mod tests {
 
     /// Windows split on message boundaries under the budget, counted with
     /// the summarizer's tokenizer; a message above it is a window of its
-    /// own (omp `planSummaryWindows`). The input budget is 0.8 of the
-    /// window less the summary's and the carried summary's reserves, never
-    /// below the floor (omp `summaryInputBudgetTokens`,
-    /// `minSummaryInputTokens`).
+    /// own. The input budget is 0.8 of the window less the summary's and
+    /// the carried summary's reserves, never below the floor.
     #[test]
     fn summary_windows_fit_their_budget() {
         let tokenizer = Tokenizer::unknown_model();

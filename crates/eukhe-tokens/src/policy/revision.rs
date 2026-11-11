@@ -1,13 +1,12 @@
-//! Revision triples (`major.minor.patch`) extracted from model ids. Port of
-//! omp `packages/catalog/src/compat/revision.ts`: three unsigned 8-bit
-//! components, omitted ones zero (`4.6` ≡ `4.6.0`). omp renders extracted
-//! revisions as `"4.6.0"` strings and reparses them for every comparison;
-//! this port keeps the parsed triple, which compares identically.
+//! Revision triples (`major.minor.patch`) extracted from model ids: three
+//! unsigned 8-bit components, omitted ones zero (`4.6` ≡ `4.6.0`). The
+//! parsed triple is kept and compared directly, which orders revisions the
+//! same as formatting them as `"4.6.0"` strings and reparsing them.
 
 use std::cmp::Ordering;
 
-/// A parsed `major.minor.patch` revision; the derived order is omp's
-/// lexicographic `compareRevision`.
+/// A parsed `major.minor.patch` revision; the derived order is
+/// lexicographic over the components.
 pub(crate) type Revision = [u8; 3];
 
 /// One decimal component: non-empty ASCII digits, at most 255.
@@ -78,7 +77,7 @@ pub(crate) fn parse_revision_prefix(value: &str) -> Option<Revision> {
 }
 
 /// Whether `revision` is present and at or above the literal `floor`; an
-/// absent (or, in omp, unparsable) revision never is.
+/// absent revision never is.
 pub(crate) fn revision_at_least(revision: Option<Revision>, floor: &str) -> bool {
     match (revision, parse_revision(floor)) {
         (Some(revision), Some(floor)) => revision >= floor,

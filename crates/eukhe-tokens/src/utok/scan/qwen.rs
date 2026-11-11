@@ -109,7 +109,7 @@ fn punct<U: Unit>(units: &[U], pos: usize) -> Option<usize> {
 #[cfg(test)]
 #[allow(
     clippy::cast_possible_truncation,
-    reason = "test PRNG output and fixture ids narrow on purpose (ported from omp, which allows the cast lints)"
+    reason = "test PRNG output and fixture ids narrow on purpose"
 )]
 mod tests {
     //! Differential: scanner piece boundaries vs the reference fancy-regex
