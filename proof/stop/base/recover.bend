@@ -1,7 +1,8 @@
 # eukhe: lemmas of the proofs of laws/stop/recover.bend: the model's row
 # test (`below`) against Nat's order, `recover` at the rungs of the
-# ladder (str.think_*), the window test (str.bound_*), the reply of each
-# act (str.never_answers), and a row of kept rounds (str.rep_*).
+# ladder (str.think_*), at the notes of a cut reply with text (str.cut_*),
+# the window test (str.bound_*), the reply of each act
+# (str.never_answers), and a row of kept rounds (str.rep_*).
 
 import Base
 import ../../../bend/run/state.bend as RnState
@@ -267,6 +268,62 @@ def str.think_first(k: RnRecovery.Rk, +row: Nat, long: Nat, +le: Nat, +re: Nat, 
               {==}
             case False{}:
               {==}
+        case 1n++q:
+          {==}
+
+# The length notes of a cut reply with text
+# -----------------------------------------
+
+# under the cap: the next length note
+def str.cut_under(+q: Nat, +j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j) == RnDecision.Redoes{1n+j} : RnDecision.Help}:
+  %Equal.sym(Bool, RnRecovery.below(j, 1n+Nat.add(q, j)), True{}, str.below_add(q, j)) : {RnDecision.Help.of(RnRecovery.rec.long(_, j, 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, j, 0n, 0n})) == RnDecision.Redoes{1n+j} : RnDecision.Help}
+  {==}
+
+# at the cap: the run fails
+def str.cut_quit(+j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j) == RnDecision.Quits{} : RnDecision.Help}:
+  %Equal.sym(Bool, RnRecovery.below(j, j), False{}, str.below_refl(j)) : {RnDecision.Help.of(RnRecovery.rec.long(_, j, 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, j, 0n, 0n})) == RnDecision.Quits{} : RnDecision.Help}
+  {==}
+
+# from j notes in a row, m under the cap remain: m notes, then the failure
+def str.cut_climb(m: Nat, +j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {StopRecover.climb(1n+m, RnRecovery.RCfg{Nat.add(m, j), le, re, rp}, RnDecision.Truncated{}, RnDecision.decide.recover(RnRecovery.RCfg{Nat.add(m, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j)) == StopRecover.ups(m, j, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}:
+  match m:
+    case 0n:
+      %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j), RnDecision.Quits{}, str.cut_quit(j, le, re, rp)) : {StopRecover.climb(1n, RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, _) == [RnDecision.Quits{}] : List<&2, RnDecision.Help>}
+      {==}
+    case 1n++q:
+      %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j), RnDecision.Redoes{1n+j}, str.cut_under(q, j, le, re, rp)) : {StopRecover.climb(2n+q, RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, _) == StopRecover.ups(1n+q, j, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}
+      %str.add_succ(q, j) : {RnDecision.Redoes{1n+j} <> StopRecover.climb(1n+q, RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnDecision.decide.recover(RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 1n+j)) == RnDecision.Redoes{1n+j} <> StopRecover.ups(q, 1n+j, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}
+      %str.cut_climb(q, 1n+j, le, re, rp) : {RnDecision.Redoes{1n+j} <> StopRecover.climb(1n+q, RnRecovery.RCfg{Nat.add(q, 1n+j), le, re, rp}, RnDecision.Truncated{}, RnDecision.decide.recover(RnRecovery.RCfg{Nat.add(q, 1n+j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 1n+j)) == RnDecision.Redoes{1n+j} <> _ : List<&2, RnDecision.Help>}
+      {==}
+
+# after a note that is no length note, a cut reply gets what it gets
+# after no length note
+def str.cut_first(k: RnRecovery.Rk, +row: Nat, long: Nat, +le: Nat, +re: Nat, +rp: Nat, other: {StopRecover.length_note(k) == False{} : Bool}) -> {RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, k, row) == RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n) : RnDecision.Help}:
+  match k:
+    case RnRecovery.Free{}:
+      match long:
+        case 0n:
+          {==}
+        case 1n++q:
+          {==}
+    case RnRecovery.Longs{}:
+      str.absurd_t({RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, row) == RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n) : RnDecision.Help}, other)
+    case RnRecovery.Leaks{}:
+      match long:
+        case 0n:
+          {==}
+        case 1n++q:
+          {==}
+    case RnRecovery.Loops{}:
+      match long:
+        case 0n:
+          {==}
+        case 1n++q:
+          {==}
+    case RnRecovery.Empties{}:
+      match long:
+        case 0n:
+          {==}
         case 1n++q:
           {==}
 

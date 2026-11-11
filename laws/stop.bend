@@ -44,7 +44,13 @@ import ../spec/harness/stop.bend as StSpec
 #     row and cap (`Length note <r> of <k>.`); the round note comes once
 #     at most 10 tool rounds are left (left = max - 1 - done, at least 0)
 #     and names them. The texts are those of the Rust tests
-#     (generation/tests/stops.rs `cut_note`, `round_note`).
+#     (generation/tests/stops.rs `cut_note`, `round_note`). The cap k is
+#     the configured cap of length notes (RCfg `long`, LENGTH_NOTES 3;
+#     omp INCOMPLETE_RECOVERY_MAX_RETRIES = 3, session-maintenance.ts
+#     166, 3465-3502: `Attempt #<r>/<k>`, the attempt past the cap ends
+#     the run): cut replies with text in a row get length notes 1 to k,
+#     then the run fails; a note of another recovery before them starts
+#     the row at 1 (laws: laws/stop/recover.bend).
 # R6: the entry answers each request Rust writes (0 the walk: cut, text,
 #     broken, pending; 1 a length note: the attempt, then the cut reply's
 #     tokens, row, cap; 2 the round note: max, done; every Nat within the

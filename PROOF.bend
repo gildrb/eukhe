@@ -3656,6 +3656,8 @@ import ./proof/stop/stop_entry_malformed_example.bend as PStopEntryMalformedExam
 import ./proof/stop/base/recover.bend as LAStopRecover
 import ./proof/stop/stop_empty_three_notes_then_fails.bend as PStopEmptyThreeNotesThenFails
 import ./proof/stop/stop_empty_capped_at_three.bend as PStopEmptyCappedAtThree
+import ./proof/stop/stop_cut_notes_follow_the_cap.bend as PStopCutNotesFollowTheCap
+import ./proof/stop/stop_cut_entry_follows_the_cap.bend as PStopCutEntryFollowsTheCap
 import ./proof/stop/stop_think_ladder_climbs.bend as PStopThinkLadderClimbs
 import ./proof/stop/stop_think_compacts_when_window_ran_out.bend as PStopThinkCompactsWhenWindowRanOut
 import ./proof/stop/stop_think_unknown_window_or_catalog_cut.bend as PStopThinkUnknownWindowOrCatalogCut
