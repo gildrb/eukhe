@@ -3,7 +3,6 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../bend/infer.bend as If
 
 # ---- model_facts ----
 
@@ -58,43 +57,8 @@ import ../../bend/infer.bend as If
 # (S6.10) The model's terms the entry bend/ffi_model_facts.bend calls
 # ------------------------------------------------------------------
 
-# Spec terms of laws/model_facts.bend (model_facts_ffi_exact): a known
-# flag is true exactly at 1, an unknown one takes the wire API's default;
-# the effort is the map's wire value at the level, else 2 (low) at minimal
-# and low, 3 at medium, 4 at high, xhigh and max; the price is the first
-# row of the model that prices the tier, else the first row of every model
-# that does, else none. effort_spec.at (the map's entry of a level) is also
-# the projection of facts_bedrock_effort_oracle.
-def flag_spec(a: If.Ans, d: Bool) -> Bool:
-  match a:
-    case If.Known{v}:
-      match v:
-        case 0n:
-          False{}
-        case 1n+k:
-          match k:
-            case 0n:
-              True{}
-            case 1n+j:
-              False{}
-    case If.Unknown{}:
-      d
-
-def effort_spec.dflt(l: Fx.ELv) -> Nat:
-  match l:
-    case Fx.EMinimal{}:
-      2n
-    case Fx.ELow{}:
-      2n
-    case Fx.EMedium{}:
-      3n
-    case Fx.EHigh{}:
-      4n
-    case Fx.EXhigh{}:
-      4n
-    case Fx.EMax{}:
-      4n
-
+# the map's entry of a level (the projection of facts_bedrock_effort_oracle
+# and of effort_old below)
 def effort_spec.at(m: Fx.EMap, l: Fx.ELv) -> Maybe<&2, Maybe<&2, Nat>>:
   match m:
     case Fx.EMap{mi, lo, me, hi, xh, mx}:
@@ -111,67 +75,6 @@ def effort_spec.at(m: Fx.EMap, l: Fx.ELv) -> Maybe<&2, Maybe<&2, Nat>>:
           xh
         case Fx.EMax{}:
           mx
-
-def effort_spec.of(e: Maybe<&2, Maybe<&2, Nat>>, d: Nat) -> Nat:
-  match e:
-    case None{}:
-      d
-    case Some{w}:
-      Maybe.default(&2, Nat, w, d)
-
-def effort_spec(+m: Fx.EMap, +l: Fx.ELv) -> Nat:
-  effort_spec.of(effort_spec.at(m, l), effort_spec.dflt(l))
-
-def price_spec.pick(hit: Bool, k: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match hit:
-    case True{}:
-      Some{k}
-    case False{}:
-      later
-
-def price_spec.exact(+m: Nat, rm: Maybe<&2, Nat>) -> Bool:
-  match rm:
-    case None{}:
-      False{}
-    case Some{x}:
-      Nat.is_eq(x, m)
-
-def price_spec.wide(rm: Maybe<&2, Nat>) -> Bool:
-  match rm:
-    case None{}:
-      True{}
-    case Some{x}:
-      False{}
-
-# the first row of the model m that prices the tier t
-def price_spec.of_model(rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
-  match rows:
-    case Nil{}:
-      None{}
-    case r <> more:
-      match r:
-        case Fx.PRow{rm, rt, k}:
-          price_spec.pick(Bool.and(price_spec.exact(m, rm), Nat.is_eq(rt, t)), k, price_spec.of_model(more, m, t))
-
-# the first row of every model that prices the tier t
-def price_spec.of_all(rows: List<&2, Fx.PRow>, +t: Nat) -> Maybe<&2, Nat>:
-  match rows:
-    case Nil{}:
-      None{}
-    case r <> more:
-      match r:
-        case Fx.PRow{rm, rt, k}:
-          price_spec.pick(Bool.and(price_spec.wide(rm), Nat.is_eq(rt, t)), k, price_spec.of_all(more, t))
-
-def price_spec.or(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match a:
-    case None{}:
-      b
-    case Some{k}:
-      Some{k}
-
-def price_spec(+rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
-  price_spec.or(price_spec.of_model(rows, m, t), price_spec.of_all(rows, t))
 
 # the user's budget of a level: the field of that level (laws/facts/entry.bend
 # and the facts_google_* laws)

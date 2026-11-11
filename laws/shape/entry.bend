@@ -15,10 +15,12 @@ import ../preview_shapes.bend as PreviewShapes
 # ---------------------------------------------
 # bend/ffi_shape.bend (entry 385; eukhe-bend rules/shape.rs). Every request,
 # every string after it and every input is free. The model's answers are
-# pinned by laws/shape/search.bend (shape_first_of, shape_all), the tables
-# by laws/incident_shapes.bend (incident_shapes_table) and the tui's
-# laws/image_marker_shapes.bend, arg_token_shapes.bend,
-# autolink_shapes.bend and preview_shapes.bend (their `_table` laws).
+# pinned by laws/shape/search.bend (shape_first_of, shape_all), the
+# incident table by laws/incident_shapes.bend (incident_shapes_table). The
+# tui's tables (laws/image_marker_shapes.bend, arg_token_shapes.bend,
+# autolink_shapes.bend, preview_shapes.bend) have no table law (no source
+# outside eukhe's code holds them): their `_example` laws anchor them, and
+# their table facts are proof lemmas of this entry's proofs.
 #
 # R1: a shape id is a Nat, each table a range of ids from its base: 0-99
 #     the incident shapes (laws/incident_shapes.bend R32), 100-109 the
