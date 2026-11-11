@@ -3545,7 +3545,7 @@
     "laws/workflow/model.bend": "3f8421fee539572a1be5971fdcda1d5ffe980efcd268c75adfa6da0de42bbe7e"
   },
   "spec_files": {
-    "spec/README.md": "7484a1fb39743f40154825c6d53309acff211adc907414c19c5b39db3257bf1d",
+    "spec/README.md": "87614e7ad0cc24dd081b21f152c27e592c48708eabd71b1ecdfbeac4d9925594",
     "spec/agents/kin.bend": "3637a9eedbb127a412b8646da7e0ab8d881681ec5710670aecf852afd98f0429",
     "spec/autoresearch/decimal.bend": "74a60228e250a0b414769e76d0814ea460e131a1e41165e023e3138e3ae0f99e",
     "spec/autoresearch/metric_line.bend": "8ffb9ca922253c2413273e839a5c9ed7780258d32b51a13ee1db04f8bd3b158b",

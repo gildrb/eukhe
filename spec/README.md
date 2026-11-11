@@ -1,8 +1,14 @@
 # spec
 
-The written spec of eukhe: one folder per pillar. A spec file restates a rule
-without calling the code. Laws (`laws/<area>.bend`) state that the shipped
-Bend model refines it; `PROOF.bend` proves every law; `LAWS.lock` freezes them.
+Eukhe is the harness for the AGI era: each pillar exists to make a stronger
+model more useful. This is its written spec: one folder per pillar. A spec
+file restates a rule without calling the code. Laws (`laws/<area>.bend`) state
+that the shipped Bend model refines it; `PROOF.bend` proves every law;
+`LAWS.lock` freezes them. So Eukhe can be trusted without reading it.
+
+Planned, no spec yet: loop, hard budgets, verified completion, exactly-once
+effects, capability security, replayable record, orchestration at scale,
+stable SDK contract.
 
 ```
 bend PROOF.bend             # every law checks
