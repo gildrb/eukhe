@@ -23,3 +23,9 @@ paths = [
   '''^crates/eukhe-tokens/tests/fixtures/reference_(model_tokenizers|image_rules)\.json$''',
   '''^crates/eukhe-tokens/src/policy/image_tests\.rs$''',
 ]
+
+[[allowlists]]
+description = "The commit that added those catalog fixtures under their first file names (renamed to reference_* later): the same (provider, model id) pairs, not credentials"
+commits = [
+  "25dbe1d842732dffe83311db747b7cd2e976a9f7",
+]
