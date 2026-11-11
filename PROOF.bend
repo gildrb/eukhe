@@ -527,6 +527,7 @@ import ./proof/infer/quirk_known_when_some.bend as PQuirkKnownWhenSome
 import ./proof/infer/quirk_highest_wins.bend as PQuirkHighestWins
 import ./proof/infer/quirk_order_free.bend as PQuirkOrderFree
 import ./proof/infer/quirk_compile_order_free.bend as PQuirkCompileOrderFree
+import ./proof/infer/quirk_valid_rulebook_compiles.bend as PQuirkValidRulebookCompiles
 import ./proof/infer/force_bounded.bend as PForceBounded
 import ./proof/infer/force_first_flag.bend as PForceFirstFlag
 import ./proof/infer/force_retry_flag.bend as PForceRetryFlag

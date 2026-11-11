@@ -117,6 +117,83 @@ law quirk_compile_order_free:
   for +post: List<&2, If.Rule>
   {If.compiles(known, List.append(&2, If.Rule, pre, b <> a <> post)) == If.compiles(known, List.append(&2, If.Rule, pre, a <> b <> post)) : Bool}
 
+# The rulebook conditions of S6.1, written here from the rule fields only
+# (never the code's elem, clash, clashes, ambiguous or known_all)
+
+# directive d is one of the known directives ks
+def rb.has(ks: List<&2, Nat>, +d: Nat) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case k <> rest:
+      Bool.or(Nat.is_eq(k, d), rb.has(rest, d))
+
+# every rule of rs has a known directive
+def rb.all_known(+ks: List<&2, Nat>, rs: List<&2, If.Rule>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(rb.has(ks, If.Rule.dir(r)), rb.all_known(ks, rest))
+
+# a and b are of one layer
+def rb.same_layer(a: If.Lay, b: If.Lay) -> Bool:
+  match a b:
+    case If.Fam{} If.Fam{}:
+      True{}
+    case If.Fam{} If.Mod{}:
+      False{}
+    case If.Fam{} If.Host{}:
+      False{}
+    case If.Mod{} If.Fam{}:
+      False{}
+    case If.Mod{} If.Mod{}:
+      True{}
+    case If.Mod{} If.Host{}:
+      False{}
+    case If.Host{} If.Fam{}:
+      False{}
+    case If.Host{} If.Mod{}:
+      False{}
+    case If.Host{} If.Host{}:
+      True{}
+
+# a and b clash (S6.1): one layer, target and directive, different values
+def rb.clash(a: If.Rule, b: If.Rule) -> Bool:
+  match a b:
+    case If.Rule{la, ta, da, va} If.Rule{lb, tb, db, vb}:
+      Bool.and(rb.same_layer(la, lb), Bool.and(Nat.is_eq(ta, tb), Bool.and(Nat.is_eq(da, db), Bool.not(Nat.is_eq(va, vb)))))
+
+# r clashes with no rule of rs
+def rb.calm(+r: If.Rule, rs: List<&2, If.Rule>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +s <> rest:
+      Bool.and(Bool.not(rb.clash(r, s)), rb.calm(r, rest))
+
+# no rule of xs clashes with any rule of rs
+def rb.calm_all(xs: List<&2, If.Rule>, +rs: List<&2, If.Rule>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(rb.calm(x, rs), rb.calm_all(rest, rs))
+
+# LAW quirk_valid_rulebook_compiles (S6.1): a rulebook compiles whenever every rule has a
+# known directive and no rule clashes with any rule of the rulebook (no
+# two rules of one layer, target and directive with different values),
+# for every list of known directives and every list of rules, the empty
+# one included
+# EXCLUDES: a valid rulebook refused (a compiler that refuses every
+#   rulebook, the empty one, one rule, or rules that repeat one value)
+law quirk_valid_rulebook_compiles:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  for kn: {rb.all_known(known, rs) == True{} : Bool}
+  for calm: {rb.calm_all(rs, rs) == True{} : Bool}
+  {If.compiles(known, rs) == True{} : Bool}
+
 # LAW force_bounded: a forced call makes at most 1 + r attempts
 law force_bounded:
   for +r: Nat
