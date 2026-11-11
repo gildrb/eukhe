@@ -41,6 +41,14 @@ import ../base.bend as LawsBase
 
 # Spec spellers
 # -------------
+# The wire is the contract with its one Rust user,
+# crates/eukhe-bend/src/rules/approvals.rs: an event is spelled as its
+# writer writes it (`Desk::ask`, `answer`, `detach`, `cancel`, `back`), a
+# reply as its reader reads it (`ask` reads the key, `read_acts` the acts,
+# `fate` a fate). Every row cites the line of approvals.rs that decides it,
+# so these tables are external (not copies of bend/ffi_approvals.bend's
+# encoders): a tag Rust writes or reads otherwise breaks the row, and
+# approvals_desk_entry_answers states the reply bytes for every event.
 
 def spell_ns(xs: List<&2, Nat>, rest: String) -> String:
   Wr.put_list(~Nat, ~Wr.put_nat, xs, rest)
@@ -48,27 +56,28 @@ def spell_ns(xs: List<&2, Nat>, rest: String) -> String:
 def spell_here(h: Am.Here) -> Nat:
   match h:
     case Am.Nobody{}:
-      0n
+      0n  # approvals.rs:164 Here::Nobody => 0
     case Am.GatewayOnly{}:
-      1n
+      1n  # approvals.rs:165 Here::GatewayOnly => 1
     case Am.Clients{}:
-      2n
+      2n  # approvals.rs:166 Here::Clients => 2
 
 # a list of Nats fits the wire: its length and each item
 def ns_fit(+xs: List<&2, Nat>) -> Bool:
   Bool.and(LawsBase.wire_fits(List.length(&2, Nat, xs)), LawsBase.wire_nats_fit(xs))
 
 # a fate: runs 0, denied 1, unanswered 2, refused by the gateway rule 3
+# (written by `back`, read by `fate`)
 def spell_fate(f: Am.Fate, rest: String) -> String:
   match f:
     case Am.Runs{}:
-      Wr.put_nat(0n, rest)
+      Wr.put_nat(0n, rest)  # approvals.rs:148 Approve => 0; :212 0 => Approve
     case Am.Denied{}:
-      Wr.put_nat(1n, rest)
+      Wr.put_nat(1n, rest)  # approvals.rs:149 Deny => 1; :213 1 => Deny
     case Am.Unheard{}:
-      Wr.put_nat(2n, rest)
+      Wr.put_nat(2n, rest)  # approvals.rs:150 Unanswered => 2; :214 2 => Unanswered
     case Am.GatewayRefused{}:
-      Wr.put_nat(3n, rest)
+      Wr.put_nat(3n, rest)  # approvals.rs:151 GatewayRefused => 3; :216 _ (3) => GatewayRefused
 
 # the error form of a call with input
 def malformed() -> String:
@@ -82,15 +91,15 @@ def malformed_event() -> String:
 def spell_ev(e: Am.Ev, rest: String) -> String:
   match e:
     case Am.EAsk{id, es, h, p}:
-      Wr.put_nat(0n, Wr.put_str(id, spell_ns(es, Wr.put_nat(spell_here(h), Wr.put_bool(p, rest)))))
+      Wr.put_nat(0n, Wr.put_str(id, spell_ns(es, Wr.put_nat(spell_here(h), Wr.put_bool(p, rest)))))  # approvals.rs:101-106 tag(0).str(id), count + codes, tag(here).bool(parent)
     case Am.EAnswer{id, y}:
-      Wr.put_nat(1n, Wr.put_str(id, Wr.put_bool(y, rest)))
+      Wr.put_nat(1n, Wr.put_str(id, Wr.put_bool(y, rest)))  # approvals.rs:121 tag(1).str(id).bool(yes)
     case Am.EDetach{h, p}:
-      Wr.put_nat(2n, Wr.put_nat(spell_here(h), Wr.put_bool(p, rest)))
+      Wr.put_nat(2n, Wr.put_nat(spell_here(h), Wr.put_bool(p, rest)))  # approvals.rs:130-132 tag(2).tag(here).bool(parent)
     case Am.ECancel{k}:
-      Wr.put_nat(3n, Wr.put_nat(k, rest))
+      Wr.put_nat(3n, Wr.put_nat(k, rest))  # approvals.rs:139 tag(3).nat(key)
     case Am.EBack{k, f}:
-      Wr.put_nat(4n, Wr.put_nat(k, spell_fate(f, rest)))
+      Wr.put_nat(4n, Wr.put_nat(k, spell_fate(f, rest)))  # approvals.rs:147 tag(4).nat(key).tag(fate)
 
 # every length and number of the event fits the wire
 def ev_fits(e: Am.Ev) -> Bool:
@@ -116,17 +125,17 @@ def evs_fit(es: List<&2, Am.Ev>) -> Bool:
 def spell_act(a: Am.Act, rest: String) -> String:
   match a:
     case Am.AShow{k}:
-      Wr.put_nat(0n, Wr.put_nat(k, rest))
+      Wr.put_nat(0n, Wr.put_nat(k, rest))  # approvals.rs:176 0 => Show(key)
     case Am.ASettle{k}:
-      Wr.put_nat(1n, Wr.put_nat(k, rest))
+      Wr.put_nat(1n, Wr.put_nat(k, rest))  # approvals.rs:177 1 => Settle(key)
     case Am.ARelay{k}:
-      Wr.put_nat(2n, Wr.put_nat(k, rest))
+      Wr.put_nat(2n, Wr.put_nat(k, rest))  # approvals.rs:178 2 => Relay(key)
     case Am.AWake{k, f}:
-      Wr.put_nat(3n, Wr.put_nat(k, spell_fate(f, rest)))
+      Wr.put_nat(3n, Wr.put_nat(k, spell_fate(f, rest)))  # approvals.rs:179-181 3 => Wake(key, fate)
     case Am.ATook{}:
-      Wr.put_nat(4n, rest)
+      Wr.put_nat(4n, rest)  # approvals.rs:183 4 => Took
     case Am.AGone{}:
-      Wr.put_nat(5n, rest)
+      Wr.put_nat(5n, rest)  # approvals.rs:185 _ (5) => Gone
 
 def spell_acts.items(as: List<&2, Am.Act>) -> String:
   match as:
@@ -135,11 +144,13 @@ def spell_acts.items(as: List<&2, Am.Act>) -> String:
     case a <> t:
       spell_act(a, spell_acts.items(t))
 
-# the acts: their count, then each
+# the acts: their count, then each, then the end (approvals.rs:171-188
+# `read_acts`: count, each act, reader.end)
 def spell_acts(+as: List<&2, Am.Act>) -> String:
   Wr.put_nat(List.length(&2, Am.Act, as), spell_acts.items(as))
 
-# the reply to e: an ask's leads with its key n
+# the reply to e: an ask's leads with its key n (approvals.rs:109 `ask`
+# reads the key, then the acts; :156-158 every other event reads the acts)
 def spell_reply(e: Am.Ev, +n: Nat, +as: List<&2, Am.Act>) -> String:
   match e:
     case Am.EAsk{id, es, h, p}:

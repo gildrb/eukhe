@@ -73,18 +73,11 @@ def sp_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
     case y <> rest:
       Bool.or(Nat.is_eq(y, x), sp_has(rest, x))
 
-# D1: the gateway rule (changed 2026-10-27 by the user: secrets never ask
-# again): a step that writes a protected path (effect 5) is refused; any
-# other runs, a secret access (effect 6) included
-def sp_guard(g: Bool) -> Am.Fate:
-  match g:
-    case True{}:
-      Am.GatewayRefused{}
-    case False{}:
-      Am.Runs{}
-
-def sp_rule(+es: List<&2, Nat>) -> Am.Fate:
-  sp_guard(sp_has(es, 5n))
+# D1: the gateway rule's fate is the code's `Am.fate` at the end Ruled,
+# which approvals_gateway_refuses_protected and
+# approvals_gateway_runs_unprotected pin for every list of effects (a
+# protected-path write, effect 5, anywhere: refused; none: runs). No law
+# restates the rule (the former sp_rule/sp_guard copied `rule`/`guard`).
 
 # D2: the clients' answer: yes runs the step, no denies it
 def sp_answered(+es: List<&2, Nat>, yes: Bool) -> Am.Fate:
@@ -546,15 +539,18 @@ law approvals_desk_never_stranded:
 
 # LAW approvals_desk_gateway_never_waits (D6): from every desk, a question
 # that reaches a session whose only client is the phone gateway is woken at
-# once by the gateway rule: no frame, no relay, and the desk keeps its
-# other questions
-# EXCLUDES: a phone-only session that waits or hands the question up
+# once with the gateway rule's fate (the fate of a question that ends
+# Ruled: approvals_gateway_refuses_protected and
+# approvals_gateway_runs_unprotected say which): no frame, no relay, and
+# the desk keeps its other questions
+# EXCLUDES: a phone-only session that waits or hands the question up, or
+#   wakes the step with a fate other than the gateway rule's
 law approvals_desk_gateway_never_waits:
   for +d: Am.D
   for +id: String
   for +es: List<&2, Nat>
   for +p: Bool
-  {Am.dstep(d, Am.EAsk{id, es, Am.GatewayOnly{}, p}) == (Am.D{1n+ds_next(d), ds_qs(d)}, [Am.AWake{ds_next(d), sp_rule(es)}]) : Am.D & List<&2, Am.Act>}
+  {Am.dstep(d, Am.EAsk{id, es, Am.GatewayOnly{}, p}) == (Am.D{1n+ds_next(d), ds_qs(d)}, [Am.AWake{ds_next(d), Am.fate(es, Am.Ruled{0n})}]) : Am.D & List<&2, Am.Act>}
 
 # LAW approvals_desk_root_never_relays (D6): from every desk, a root
 # session (no parent) never relays, on a question or on a detach
