@@ -2,7 +2,7 @@
 #
 # PROOF: the second call keeps the first call's pin: a pin is rendered
 # under the call's head, so a call under that head keeps it (tpk.pin_twice).
-# Both requests are then the spec's (thread_request_spec) over one view v.
+# Both requests are then trq.request (trq.is_request) over one view v.
 # The chat of evs ++ more is the chat of evs, then the chat of more
 # (tpk.chat_app), so its length is T + k (tpk.len_app) and end stays
 # (T + k) - (w + k) = T - w (tpk.sub_add). The kept lines of v end within
@@ -17,7 +17,7 @@ import ../../spec/memory/thread.bend as S
 import ../../laws/thread.bend as Thread
 import ./base.bend as LA
 import ./thread_newest_verbatim.bend as PThreadNewestVerbatim
-import ./thread_request_spec.bend as PThreadRequestSpec
+import ./base/request.bend as RQ
 
 # Pins
 # ----
@@ -110,7 +110,7 @@ def tpk.line(st: Nat, ch: List<&2, Th.Msg>, +ys: List<&2, Th.Msg>, +c: Nat, h: {
 
 # every line of a view that ends within ch covers the same messages of
 # ch ++ ys
-def tpk.lines(+ch: List<&2, Th.Msg>, +ys: List<&2, Th.Msg>, view: List<&2, Th.Span>, +h: {Thread.sp_inside(List.length(&2, Th.Msg, ch), view) == True{} : Bool}) -> {S.lines(List.append(&2, Th.Msg, ch, ys), view) == S.lines(ch, view) : List<&2, Th.Item>}:
+def tpk.lines(+ch: List<&2, Th.Msg>, +ys: List<&2, Th.Msg>, view: List<&2, Th.Span>, +h: {Thread.sp_inside(List.length(&2, Th.Msg, ch), view) == True{} : Bool}) -> {RQ.trq.lines(List.append(&2, Th.Msg, ch, ys), view) == RQ.trq.lines(ch, view) : List<&2, Th.Item>}:
   match view:
     case Nil{}:
       {==}
@@ -121,11 +121,11 @@ def tpk.lines(+ch: List<&2, Th.Msg>, +ys: List<&2, Th.Msg>, view: List<&2, Th.Sp
           +hl = LA.thb.and_l(Nat.is_le(Nat.add(st, c), n), Thread.sp_inside(n, t), h)
           +hr = LA.thb.and_r(Nat.is_le(Nat.add(st, c), n), Thread.sp_inside(n, t), h)
           +a = List.take(&2, Th.Msg, List.drop(&2, Th.Msg, List.append(&2, Th.Msg, ch, ys), st), c)
-          %tpk.line(st, ch, ys, c, hl) : {Th.Line{st, a} <> S.lines(List.append(&2, Th.Msg, ch, ys), t) == Th.Line{st, _} <> S.lines(ch, t) : List<&2, Th.Item>}
-          %tpk.lines(ch, ys, t, hr) : {Th.Line{st, a} <> S.lines(List.append(&2, Th.Msg, ch, ys), t) == Th.Line{st, a} <> _ : List<&2, Th.Item>}
+          %tpk.line(st, ch, ys, c, hl) : {Th.Line{st, a} <> RQ.trq.lines(List.append(&2, Th.Msg, ch, ys), t) == Th.Line{st, _} <> RQ.trq.lines(ch, t) : List<&2, Th.Item>}
+          %tpk.lines(ch, ys, t, hr) : {Th.Line{st, a} <> RQ.trq.lines(List.append(&2, Th.Msg, ch, ys), t) == Th.Line{st, a} <> _ : List<&2, Th.Item>}
           {==}
 
-def tpk.kept_inside.step(b: Bool, +n: Nat, +sp: Th.Span, -t: List<&2, Th.Span>, hs: {Thread.sp_inside(n, [sp]) == True{} : Bool}, ih: {Thread.sp_inside(n, t) == True{} : Bool}) -> {Thread.sp_inside(n, S.keep.span(b, sp, t)) == True{} : Bool}:
+def tpk.kept_inside.step(b: Bool, +n: Nat, +sp: Th.Span, -t: List<&2, Th.Span>, hs: {Thread.sp_inside(n, [sp]) == True{} : Bool}, ih: {Thread.sp_inside(n, t) == True{} : Bool}) -> {Thread.sp_inside(n, RQ.trq.keep.span(b, sp, t)) == True{} : Bool}:
   match b:
     case True{}:
       match sp:
@@ -135,7 +135,7 @@ def tpk.kept_inside.step(b: Bool, +n: Nat, +sp: Th.Span, -t: List<&2, Th.Span>, 
       {==}
 
 # the kept lines of a view inside the chat are inside it
-def tpk.kept_inside(+n: Nat, +e: Nat, view: List<&2, Th.Span>, +h: {Thread.sp_inside(n, view) == True{} : Bool}) -> {Thread.sp_inside(n, S.kept(e, view)) == True{} : Bool}:
+def tpk.kept_inside(+n: Nat, +e: Nat, view: List<&2, Th.Span>, +h: {Thread.sp_inside(n, view) == True{} : Bool}) -> {Thread.sp_inside(n, RQ.trq.kept(e, view)) == True{} : Bool}:
   match view:
     case Nil{}:
       {==}
@@ -145,7 +145,7 @@ def tpk.kept_inside(+n: Nat, +e: Nat, view: List<&2, Th.Span>, +h: {Thread.sp_in
           +hl = LA.thb.and_l(Nat.is_le(Nat.add(st, c), n), Thread.sp_inside(n, t), h)
           +hr = LA.thb.and_r(Nat.is_le(Nat.add(st, c), n), Thread.sp_inside(n, t), h)
           +hs = LA.thb.and_i(Nat.is_le(Nat.add(st, c), n), True{}, hl, {==})
-          tpk.kept_inside.step(Nat.is_lt(st, e), n, Th.Span{st, c}, S.kept(e, t), hs, tpk.kept_inside(n, e, t, hr))
+          tpk.kept_inside.step(Nat.is_lt(st, e), n, Th.Span{st, c}, RQ.trq.kept(e, t), hs, tpk.kept_inside(n, e, t, hr))
 
 # the chat of two streams is the chat of each, in order
 def tpk.chat_app(+s: Nat, a: List<&2, Th.Msg>, +b: List<&2, Th.Msg>) -> {S.chat(s, List.append(&2, Th.Msg, a, b)) == List.append(&2, Th.Msg, S.chat(s, a), S.chat(s, b)) : List<&2, Th.Msg>}:
@@ -228,20 +228,20 @@ def tpk.sub_add(a: Nat, b: Nat, +k: Nat) -> {Nat.sub(Nat.add(a, k), Nat.add(b, k
 # over one view inside the chat of evs, the spec's request after more
 # events, the window grown by the session's new messages, is the spec's
 # request before them, then the new messages' turns
-def tpk.core(+s: Nat, +evs: List<&2, Th.Msg>, +more: List<&2, Th.Msg>, +v: List<&2, Th.Span>, +w: Nat, inside: {Thread.sp_inside(List.length(&2, Th.Msg, S.chat(s, evs)), v) == True{} : Bool}) -> {S.request(s, List.append(&2, Th.Msg, evs, more), v, Nat.add(w, List.length(&2, Th.Msg, S.chat(s, more)))) == List.append(&2, Th.Item, S.request(s, evs, v, w), S.turns(S.chat(s, more))) : List<&2, Th.Item>}:
+def tpk.core(+s: Nat, +evs: List<&2, Th.Msg>, +more: List<&2, Th.Msg>, +v: List<&2, Th.Span>, +w: Nat, inside: {Thread.sp_inside(List.length(&2, Th.Msg, S.chat(s, evs)), v) == True{} : Bool}) -> {RQ.trq.request(s, List.append(&2, Th.Msg, evs, more), v, Nat.add(w, List.length(&2, Th.Msg, S.chat(s, more)))) == List.append(&2, Th.Item, RQ.trq.request(s, evs, v, w), S.turns(S.chat(s, more))) : List<&2, Th.Item>}:
   +ch = S.chat(s, evs)
   +cm = S.chat(s, more)
   +k = List.length(&2, Th.Msg, cm)
   +t = List.length(&2, Th.Msg, ch)
   +e = Nat.sub(t, w)
   +app = List.append(&2, Th.Msg, ch, cm)
-  +old = S.lines(ch, S.kept(e, v))
+  +old = RQ.trq.lines(ch, RQ.trq.kept(e, v))
   +rest = S.turns(List.drop(&2, Th.Msg, ch, e))
   +goal = List.append(&2, Th.Item, List.append(&2, Th.Item, old, rest), S.turns(cm))
-  %Equal.sym(List<&2, Th.Msg>, S.chat(s, List.append(&2, Th.Msg, evs, more)), app, tpk.chat_app(s, evs, more)) : {List.append(&2, Th.Item, S.lines(_, S.kept(Nat.sub(List.length(&2, Th.Msg, _), Nat.add(w, k)), v)), S.turns(List.drop(&2, Th.Msg, _, Nat.sub(List.length(&2, Th.Msg, _), Nat.add(w, k))))) == goal : List<&2, Th.Item>}
-  %Equal.sym(Nat, List.length(&2, Th.Msg, app), Nat.add(t, k), tpk.len_app(ch, cm)) : {List.append(&2, Th.Item, S.lines(app, S.kept(Nat.sub(_, Nat.add(w, k)), v)), S.turns(List.drop(&2, Th.Msg, app, Nat.sub(_, Nat.add(w, k))))) == goal : List<&2, Th.Item>}
-  %Equal.sym(Nat, Nat.sub(Nat.add(t, k), Nat.add(w, k)), e, tpk.sub_add(t, w, k)) : {List.append(&2, Th.Item, S.lines(app, S.kept(_, v)), S.turns(List.drop(&2, Th.Msg, app, _))) == goal : List<&2, Th.Item>}
-  %Equal.sym(List<&2, Th.Item>, S.lines(app, S.kept(e, v)), old, tpk.lines(ch, cm, S.kept(e, v), tpk.kept_inside(t, e, v, inside))) : {List.append(&2, Th.Item, _, S.turns(List.drop(&2, Th.Msg, app, e))) == goal : List<&2, Th.Item>}
+  %Equal.sym(List<&2, Th.Msg>, S.chat(s, List.append(&2, Th.Msg, evs, more)), app, tpk.chat_app(s, evs, more)) : {List.append(&2, Th.Item, RQ.trq.lines(_, RQ.trq.kept(Nat.sub(List.length(&2, Th.Msg, _), Nat.add(w, k)), v)), S.turns(List.drop(&2, Th.Msg, _, Nat.sub(List.length(&2, Th.Msg, _), Nat.add(w, k))))) == goal : List<&2, Th.Item>}
+  %Equal.sym(Nat, List.length(&2, Th.Msg, app), Nat.add(t, k), tpk.len_app(ch, cm)) : {List.append(&2, Th.Item, RQ.trq.lines(app, RQ.trq.kept(Nat.sub(_, Nat.add(w, k)), v)), S.turns(List.drop(&2, Th.Msg, app, Nat.sub(_, Nat.add(w, k))))) == goal : List<&2, Th.Item>}
+  %Equal.sym(Nat, Nat.sub(Nat.add(t, k), Nat.add(w, k)), e, tpk.sub_add(t, w, k)) : {List.append(&2, Th.Item, RQ.trq.lines(app, RQ.trq.kept(_, v)), S.turns(List.drop(&2, Th.Msg, app, _))) == goal : List<&2, Th.Item>}
+  %Equal.sym(List<&2, Th.Item>, RQ.trq.lines(app, RQ.trq.kept(e, v)), old, tpk.lines(ch, cm, RQ.trq.kept(e, v), tpk.kept_inside(t, e, v, inside))) : {List.append(&2, Th.Item, _, S.turns(List.drop(&2, Th.Msg, app, e))) == goal : List<&2, Th.Item>}
   %Equal.sym(List<&2, Th.Msg>, List.drop(&2, Th.Msg, app, e), List.append(&2, Th.Msg, List.drop(&2, Th.Msg, ch, e), cm), tpk.drop_app(ch, cm, e, PThreadNewestVerbatim.tnv.sub_le(t, w))) : {List.append(&2, Th.Item, old, S.turns(_)) == goal : List<&2, Th.Item>}
   %Equal.sym(List<&2, Th.Item>, S.turns(List.append(&2, Th.Msg, List.drop(&2, Th.Msg, ch, e), cm)), List.append(&2, Th.Item, rest, S.turns(cm)), tpk.turns_app(List.drop(&2, Th.Msg, ch, e), cm)) : {List.append(&2, Th.Item, old, _) == goal : List<&2, Th.Item>}
   Equal.sym(List<&2, Th.Item>, goal, List.append(&2, Th.Item, old, List.append(&2, Th.Item, rest, S.turns(cm))), tpk.assoc(Th.Item, old, rest, S.turns(cm)))
@@ -253,4 +253,4 @@ def Thread.thread_request_prefix_kept(s, evs, more, p, h, fresh, again, w, insid
   +evs2 = List.append(&2, Th.Msg, evs, more)
   +rhs = List.append(&2, Th.Item, Th.request(s, evs, v, w), S.turns(cm))
   %tpk.pin_twice(p, h, fresh, again) : {Th.request(s, evs2, Thread.sp_view(_), Nat.add(w, k)) == rhs : List<&2, Th.Item>}
-  Equal.trans(List<&2, Th.Item>, Th.request(s, evs2, v, Nat.add(w, k)), S.request(s, evs2, v, Nat.add(w, k)), rhs, Thread.thread_request_spec(s, evs2, v, Nat.add(w, k)), Equal.trans(List<&2, Th.Item>, S.request(s, evs2, v, Nat.add(w, k)), List.append(&2, Th.Item, S.request(s, evs, v, w), S.turns(cm)), rhs, tpk.core(s, evs, more, v, w, inside), Equal.cong(List<&2, Th.Item>, List<&2, Th.Item>, x => List.append(&2, Th.Item, x, S.turns(cm)), S.request(s, evs, v, w), Th.request(s, evs, v, w), Equal.sym(List<&2, Th.Item>, Th.request(s, evs, v, w), S.request(s, evs, v, w), Thread.thread_request_spec(s, evs, v, w)))))
+  Equal.trans(List<&2, Th.Item>, Th.request(s, evs2, v, Nat.add(w, k)), RQ.trq.request(s, evs2, v, Nat.add(w, k)), rhs, RQ.trq.is_request(s, evs2, v, Nat.add(w, k)), Equal.trans(List<&2, Th.Item>, RQ.trq.request(s, evs2, v, Nat.add(w, k)), List.append(&2, Th.Item, RQ.trq.request(s, evs, v, w), S.turns(cm)), rhs, tpk.core(s, evs, more, v, w, inside), Equal.cong(List<&2, Th.Item>, List<&2, Th.Item>, x => List.append(&2, Th.Item, x, S.turns(cm)), RQ.trq.request(s, evs, v, w), Th.request(s, evs, v, w), Equal.sym(List<&2, Th.Item>, Th.request(s, evs, v, w), RQ.trq.request(s, evs, v, w), RQ.trq.is_request(s, evs, v, w)))))
