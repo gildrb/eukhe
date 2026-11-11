@@ -6,7 +6,8 @@
 #            window at a cut reply: window, catalog, prompt, out (Nats),
 #            cuttable (Bool)
 #              -> the pick (Nat): 0 stands | 1 LengthStop | 2 EmptyStop |
-#                 3 MarkupStop | 4 PendingWork
+#                 3 MarkupStop | 4 PendingWork | 5 dropped (the stop
+#                 stands without the reply: it leaves the model's context)
 #            1, max, done (Nats)
 #              -> the round note (Maybe<String>: 0, | 1, then the text)
 #
@@ -28,10 +29,10 @@ type Ask is Data:
   AskWalk{cut: Bool, text: Bool, broken: Bool, pending: Bool, window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool}
   AskRounds{max: Nat, done: Nat}
 
-# the facts of the stop the walk reads: `full` is the ladder's test that a
-# compaction makes room (MRecovery.full)
+# the facts of the stop the walk reads: `spent` is the ladder's test that
+# the window ran out (MRecovery.bound), `cuttable` as Rust found it
 def facts(cut: Bool, text: Bool, broken: Bool, pending: Bool, +window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> S.Facts:
-  S.Facts{cut, text, broken, pending, MRecovery.full(window, catalog, prompt, out, cuttable)}
+  S.Facts{cut, text, broken, pending, MRecovery.bound(window, catalog, prompt, out), cuttable}
 
 # Reading a request
 # -----------------
@@ -147,6 +148,8 @@ def put_pick(p: S.Pick, rest: String) -> String:
           W.put_nat(3n, rest)
         case S.PendingWork{}:
           W.put_nat(4n, rest)
+    case S.Drops{}:
+      W.put_nat(5n, rest)
 
 def put_text(m: Maybe<&2, String>, rest: String) -> String:
   match m:

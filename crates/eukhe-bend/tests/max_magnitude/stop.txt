@@ -1,8 +1,12 @@
 # the walk (a cut reply with every number of its window at its largest:
-# the window test sums the prompt and the output) and the round note with
-# every number at its largest, and a 15-digit field refused
+# the window test sums the prompt and the output; one that ran out with
+# no compaction to make, and one in an unknown window, both dropped) and
+# the round note with every number at its largest, and a 15-digit field
+# refused
 call 0,TTTT{MAX},{MAX},{MAX},{MAX},T
 call 0,TTFF{MAX},{MAX},{MAX},99999999999998,T
+call 0,TTFF{MAX},{MAX},{MAX},99999999999998,F
+call 0,TTFF0,{MAX},{MAX},{MAX},F
 call 0,TFFF{MAX},{MAX},{MAX},99999999999998,F
 call 0,FFFF0,0,0,0,F
 call 1,{MAX},{MAX},

@@ -310,8 +310,9 @@ def decide.round(+l: Lim, +count: Nat, stops: Bool, reset: Bool) -> End:
 
 # a stuck reply as `recover` reads it (`Stuck`): a length stop the stop
 # walk's LengthStop continues (no text: the model still reasoned; or text
-# with the window run out) with the facts its ladder reads: the model's
-# context window (0: unknown) and catalog max output, the reply's prompt
+# with the window run out and a compaction to make) with the facts its
+# ladder reads: the model's context window (0: unknown, which counts as
+# run out) and catalog max output, the reply's prompt
 # and output tokens, whether a compaction can run (compaction on, a cut,
 # the generation has not compacted) and whether a thinking level below
 # the agent's exists; leaked calls that the harness could not rebuild

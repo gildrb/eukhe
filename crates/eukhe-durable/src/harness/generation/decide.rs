@@ -69,11 +69,13 @@ pub(crate) const CAPS: Caps = Caps {
 pub(crate) enum Stuck {
     /// A length stop with no tool call that `LengthStop` continues: the
     /// model hit the output limit while it still reasoned (no text), or in
-    /// the middle of its text with the window run out (a reply with text
-    /// and room in the window is no stuck reply: the walk keeps it as the
-    /// answer). Its ladder reads whether the window ran out (the model's
-    /// context window, 0 when unknown, and catalog max output; the reply's
-    /// prompt and output tokens), whether a compaction can run (`cuttable`:
+    /// the middle of its text with the window run out and a compaction to
+    /// make (a reply with text is otherwise no stuck reply: the walk keeps
+    /// it as the answer while the window has room, and drops it when the
+    /// window ran out with no compaction to make). Its ladder reads whether
+    /// the window ran out (the model's context window, 0 when unknown,
+    /// which counts as run out, and catalog max output; the reply's prompt
+    /// and output tokens), whether a compaction can run (`cuttable`:
     /// compaction on, a cut, the generation has not compacted) and whether
     /// a thinking level below the agent's exists (`lower`).
     Thought {

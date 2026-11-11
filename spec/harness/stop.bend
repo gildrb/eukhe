@@ -1,7 +1,8 @@
 # stop (spec): the Directors at a candidate stop of the run loop (omp2
 # ADR 0015: at a stop the loop walks its Directors inside to outside,
-# each saying Pass, Continue or Yield), restated without the code
-# (bend/stop.bend): the walk as one decision per case, where the code
+# each saying Pass, Continue or Yield; Drop is eukhe's for omp's
+# truncated turn that leaves the active context), restated without the
+# code (bend/stop.bend): the walk as one decision per case, where the code
 # walks a list of Directors and their verdicts. The laws of area stop
 # (laws/stop.bend) state that the code refines it. A spec: the shipped
 # code never calls it.
@@ -10,33 +11,37 @@
 #     stop reason is length), text (a text block that is not blank),
 #     broken (tool-call markup in the text that the harness could not
 #     read), pending (the session owns running work: jobs, children,
-#     workflow runs), full (S5). What the text says is no fact: a whole,
-#     readable reply stands, whatever it says.
+#     workflow runs), spent and cuttable (S5). What the text says is no
+#     fact: a whole, readable reply stands, whatever it says.
 # S2: the verdicts: LengthStop decides every cut reply: it continues one
-#     with no text and one that is full, and yields at one with text that
-#     is not full (the truncated reply is kept as the answer, as omp keeps
-#     a truncated turn that delivered text while the window has room);
-#     EmptyStop continues a reply with no text, MarkupStop a broken reply;
-#     PendingWork yields when work is pending. Every other verdict passes.
+#     with no text; at one with text it yields while the window has room
+#     (the truncated reply is kept as the answer, as omp keeps a truncated
+#     turn that delivered text while the window has room), continues when
+#     the window is spent and a compaction can run, and drops it when the
+#     window is spent and none can (omp removes the turn from its active
+#     context and ends the run with no notice); EmptyStop continues a
+#     reply with no text, MarkupStop a broken reply; PendingWork yields
+#     when work is pending. Every other verdict passes.
 # S3: the walk, inside to outside (LengthStop, EmptyStop, MarkupStop,
 #     PendingWork): the first Director that does not pass decides;
-#     Continue goes on with it, Yield makes the stop stand; with all
-#     passing the stop stands.
+#     Continue goes on with it, Yield makes the stop stand, Drop makes it
+#     stand without the reply; with all passing the stop stands.
 # S4: the caps: 3 empty notes in a row.
-# S5: full: at a cut reply, the window is what ran out (S7's test) and a
-#     compaction can run. Rust gathers the window's facts only at a cut
-#     reply: no other reply reads them.
+# S5: at a cut reply: spent: the window is what ran out (S7's test);
+#     cuttable: a compaction can run; full: both. Rust gathers the
+#     window's facts only at a cut reply: no other reply reads them.
 # S6: the round note after `done` tool rounds of `max`: left = max - 1 -
 #     done (0 at least): the rounds whose results the model still reads.
 #     A note when left <= 10: none left, 1 left, or <left> left.
 # S7: a length stop that LengthStop continues climbs a ladder: when the
-#     window ran out (a window is known, the output is below the model's
-#     catalog max output, prompt + output + 8192 >= window) and a
-#     compaction can run (full), compact and send again (no note); else,
-#     under the cap of `long` length notes in a row, the next note; else,
-#     once, when a level below the agent's exists, the next note with the
-#     request one thinking level lower; else the run fails. A continued
-#     reply with text is full, so it compacts.
+#     window ran out (the window is unknown, as omp counts it, or the
+#     output is below the model's catalog max output and prompt + output
+#     + 8192 >= window) and a compaction can run (full), compact and send
+#     again (no note); else, under the cap of `long` length notes in a
+#     row, the next note; else, once, when a level below the agent's
+#     exists, the next note with the request one thinking level lower;
+#     else the run fails. A continued reply with text is full, so it
+#     compacts.
 
 import Base
 import ../../bend/stop.bend as S
@@ -52,30 +57,34 @@ def go_if(b: Bool) -> S.Verdict:
     case False{}:
       S.Pass{}
 
-def cut_verdict(text: Bool, full: Bool) -> S.Verdict:
+def cut_verdict(text: Bool, spent: Bool, cuttable: Bool) -> S.Verdict:
   match text:
     case False{}:
       S.Continue{}
     case True{}:
-      match full:
-        case True{}:
-          S.Continue{}
+      match spent:
         case False{}:
           S.Yield{}
+        case True{}:
+          match cuttable:
+            case True{}:
+              S.Continue{}
+            case False{}:
+              S.Drop{}
 
 def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
   match d:
     case S.LengthStop{}:
       match f:
-        case S.Facts{cut, text, broken, pending, full}:
+        case S.Facts{cut, text, broken, pending, spent, cuttable}:
           match cut:
             case True{}:
-              cut_verdict(text, full)
+              cut_verdict(text, spent, cuttable)
             case False{}:
               S.Pass{}
     case S.EmptyStop{}:
       match f:
-        case S.Facts{cut, text, broken, pending, full}:
+        case S.Facts{cut, text, broken, pending, spent, cuttable}:
           match text:
             case True{}:
               S.Pass{}
@@ -83,11 +92,11 @@ def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
               S.Continue{}
     case S.MarkupStop{}:
       match f:
-        case S.Facts{cut, text, broken, pending, full}:
+        case S.Facts{cut, text, broken, pending, spent, cuttable}:
           go_if(broken)
     case S.PendingWork{}:
       match f:
-        case S.Facts{cut, text, broken, pending, full}:
+        case S.Facts{cut, text, broken, pending, spent, cuttable}:
           match pending:
             case True{}:
               S.Yield{}
@@ -97,24 +106,30 @@ def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
 # S3: the walk
 # ------------
 
-# a cut reply: kept (the stop stands) when it has text and is not full
-def cut_pick(text: Bool, full: Bool) -> S.Pick:
+# a cut reply: kept (the stop stands) when it has text and the window has
+# room; with text and the window spent, the compaction when one can run,
+# else dropped
+def cut_pick(text: Bool, spent: Bool, cuttable: Bool) -> S.Pick:
   match text:
     case False{}:
       S.Goes{S.LengthStop{}}
     case True{}:
-      match full:
-        case True{}:
-          S.Goes{S.LengthStop{}}
+      match spent:
         case False{}:
           S.Stands{}
+        case True{}:
+          match cuttable:
+            case True{}:
+              S.Goes{S.LengthStop{}}
+            case False{}:
+              S.Drops{}
 
 def pick(f: S.Facts) -> S.Pick:
   match f:
-    case S.Facts{cut, text, broken, pending, full}:
+    case S.Facts{cut, text, broken, pending, spent, cuttable}:
       match cut:
         case True{}:
-          cut_pick(text, full)
+          cut_pick(text, spent, cuttable)
         case False{}:
           match text:
             case False{}:
@@ -158,13 +173,13 @@ def rounds(+max: Nat, +done: Nat) -> Maybe<&2, String>:
 # S7: the ladder of a length stop
 # -------------------------------
 
-# the window ran out: a window is known, the output is below the catalog
-# max output, and the prompt and the output reach the window within 8192
-# tokens
+# the window ran out: the window is unknown (0), or the output is below
+# the catalog max output and the prompt and the output reach the window
+# within 8192 tokens
 def ran_out(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat) -> Bool:
   match window:
     case 0n:
-      False{}
+      True{}
     case 1n+w:
       Bool.and(Nat.is_lt(out, catalog), Nat.is_le(1n+w, Nat.add(Nat.add(prompt, out), 8192n)))
 
@@ -175,7 +190,7 @@ def full(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -
 # S1, S5: the facts of the stop Rust describes: what the reply holds, and
 # the window's facts at a cut reply
 def facts(cut: Bool, text: Bool, broken: Bool, pending: Bool, +window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> S.Facts:
-  S.Facts{cut, text, broken, pending, full(window, catalog, prompt, out, cuttable)}
+  S.Facts{cut, text, broken, pending, ran_out(window, catalog, prompt, out), cuttable}
 
 def at_cap(lowers: Bool, +n: Nat) -> RnDecision.Help:
   match lowers:

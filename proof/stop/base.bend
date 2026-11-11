@@ -60,14 +60,18 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
   match d:
     case S.LengthStop{}:
       match f:
-        case S.Facts{c, t, b, p, fu}:
+        case S.Facts{c, t, b, p, sp, cu}:
           match c:
             case True{}:
               match t:
                 case True{}:
-                  match fu:
+                  match sp:
                     case True{}:
-                      {==}
+                      match cu:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
                     case False{}:
                       {==}
                 case False{}:
@@ -76,7 +80,7 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
               {==}
     case S.EmptyStop{}:
       match f:
-        case S.Facts{c, t, b, p, fu}:
+        case S.Facts{c, t, b, p, sp, cu}:
           match t:
             case True{}:
               {==}
@@ -84,11 +88,11 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
               {==}
     case S.MarkupStop{}:
       match f:
-        case S.Facts{c, t, b, p, fu}:
+        case S.Facts{c, t, b, p, sp, cu}:
           stb.on(b)
     case S.PendingWork{}:
       match f:
-        case S.Facts{c, t, b, p, fu}:
+        case S.Facts{c, t, b, p, sp, cu}:
           match p:
             case True{}:
               {==}
@@ -97,16 +101,20 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
 
 def stb.walk(f: S.Facts) -> {S.walk(f) == StSpec.pick(f) : S.Pick}:
   match f:
-    case S.Facts{c, t, b, p, fu}:
+    case S.Facts{c, t, b, p, sp, cu}:
       match c:
         case True{}:
           match t:
             case False{}:
               {==}
             case True{}:
-              match fu:
+              match sp:
                 case True{}:
-                  {==}
+                  match cu:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
                 case False{}:
                   {==}
         case False{}:
@@ -195,6 +203,8 @@ def stb.w_pick(p: S.Pick) -> {FS.put_pick(p, "") == Stop.sp_w_pick(p) : String}:
           {==}
         case S.PendingWork{}:
           {==}
+    case S.Drops{}:
+      {==}
 
 def stb.w_round(m: Maybe<&2, String>) -> {FS.put_text(m, "") == Stop.sp_w_round(m) : String}:
   match m:
@@ -228,12 +238,12 @@ def stb.rounds(+m: Nat, +d: Nat) -> {S.rounds(m, d) == StSpec.rounds(m, d) : May
   stb.round_at(Nat.is_le(l, 10n), l, m)
 
 # the entry's answer to a request is the spelled spec answer: the stop
-# the entry reads from the window is the spec's (stb.full)
+# the entry reads from the window is the spec's (stb.bound)
 def stb.reply(q: FS.Ask) -> {FS.answer(q) == Stop.sp_w_reply(q) : String}:
   match q:
     case FS.AskWalk{+c, +t, +b, +p, +w, +ca, +pr, +o, +cu}:
-      +f = {S.Facts{c, t, b, p, StSpec.full(w, ca, pr, o, cu)} : S.Facts}
-      %stb.full(w, ca, pr, o, cu) : {FS.put_pick(S.walk(S.Facts{c, t, b, p, _}), "") == Stop.sp_w_pick(StSpec.pick(f)) : String}
+      +f = {S.Facts{c, t, b, p, StSpec.ran_out(w, ca, pr, o), cu} : S.Facts}
+      %stb.bound(w, ca, pr, o) : {FS.put_pick(S.walk(S.Facts{c, t, b, p, _, cu}), "") == Stop.sp_w_pick(StSpec.pick(f)) : String}
       %Equal.sym(S.Pick, S.walk(f), StSpec.pick(f), stb.walk(f)) : {FS.put_pick(_, "") == Stop.sp_w_pick(StSpec.pick(f)) : String}
       stb.w_pick(StSpec.pick(f))
     case FS.AskRounds{+m, +d}:

@@ -7,7 +7,9 @@
 //! ([`Stuck`]); `PendingWork` yields, so a stop while the session owns
 //! running work is a pause that their ends wake, and `LengthStop` yields
 //! at a reply cut at the output limit with text and room left in the
-//! window, so the truncated reply is kept as the answer. With every
+//! window, so the truncated reply is kept as the answer. At such a reply
+//! whose window ran out (an unknown window counts as run out) with no
+//! compaction to make, `LengthStop` drops it ([`Pick::Drops`]). With every
 //! Director passing, the reply is the answer, whatever its text says.
 //! Rust gathers the facts; the compiled core picks, and writes the round
 //! cap's note.
@@ -45,8 +47,9 @@ pub(crate) struct Facts {
 /// output tokens, whether a compaction can run (`cuttable`: compaction on,
 /// a cut, the generation has not compacted) and whether a thinking level
 /// below the agent's exists (`lower`). The walk reads from it whether the
-/// window is what ran out and a compaction makes room (`full` of
-/// `bend/stop.bend`); the ladder reads the same facts ([`Stuck::Thought`]).
+/// window is what ran out (`spent` of `bend/stop.bend`) and whether a
+/// compaction makes room; the ladder reads the same facts
+/// ([`Stuck::Thought`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Cut {
     pub(crate) window: u64,
@@ -55,6 +58,21 @@ pub(crate) struct Cut {
     pub(crate) output: u64,
     pub(crate) cuttable: bool,
     pub(crate) lower: bool,
+}
+
+/// What the walk picks at a candidate stop (`Pick` of `bend/stop.bend`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Pick {
+    /// The stop stands: the reply is the run's answer.
+    Stands,
+    /// The stop stands without the reply: a cut reply with text whose
+    /// window ran out with no compaction to make. The run ends; the reply
+    /// stays in the transcript, out of the model's context, with no
+    /// warning (omp `session-maintenance.ts` removes such a turn from its
+    /// active context and ends with no notice).
+    Drops,
+    /// A Director continues the run: the recovery that caps it.
+    Goes(Stuck),
 }
 
 /// Whether the session owns running work whose end wakes it (the
@@ -103,13 +121,14 @@ fn ask<T>(
     )
 }
 
-/// The Director that continues the run at the stop `facts`, as the
-/// recovery that caps it; `None`: the stop stands (laws
-/// `stop_walk_refines`, `stop_pending_never_continues`, and for a reply
-/// that hit the output limit `stop_cut_empty_never_stands`,
-/// `stop_cut_text_stands_unless_full`). A reply that was not cut has no
-/// window: the entry reads 0s.
-pub(crate) fn walk(facts: Facts) -> Option<Stuck> {
+/// What the walk picks at the stop `facts`: the stop stands, a Director
+/// continues the run (the recovery that caps it), or the stop stands
+/// without the reply (laws `stop_walk_refines`,
+/// `stop_pending_never_continues`, and for a reply that hit the output
+/// limit `stop_cut_empty_never_stands`, `stop_cut_text_stands_with_room`,
+/// `stop_cut_spent_never_kept`, `stop_cut_unknown_window_never_kept`). A
+/// reply that was not cut has no window: the entry reads 0s.
+pub(crate) fn walk(facts: Facts) -> Pick {
     let window = facts.cut.unwrap_or(Cut {
         window: 0,
         catalog: 0,
@@ -131,12 +150,12 @@ pub(crate) fn walk(facts: Facts) -> Option<Stuck> {
                 .nat(saturated(window.output))
                 .bool(window.cuttable);
         },
-        |r| match r.tag_of(5, "a stop pick")? {
-            0 => Ok(None),
+        |r| match r.tag_of(6, "a stop pick")? {
+            0 => Ok(Pick::Stands),
             1 => facts
                 .cut
                 .map(|cut| {
-                    Some(Stuck::Thought {
+                    Pick::Goes(Stuck::Thought {
                         window: cut.window,
                         catalog: cut.catalog,
                         prompt: cut.prompt,
@@ -146,9 +165,11 @@ pub(crate) fn walk(facts: Facts) -> Option<Stuck> {
                     })
                 })
                 .ok_or_else(|| mismatch("no LengthStop at a reply that was not cut")),
-            2 => Ok(Some(Stuck::Empty)),
-            3 => Ok(Some(Stuck::Leak)),
-            4..=u32::MAX => Err(mismatch("a Director that continues")),
+            2 => Ok(Pick::Goes(Stuck::Empty)),
+            3 => Ok(Pick::Goes(Stuck::Leak)),
+            4 => Err(mismatch("a Director that continues")),
+            5 => Ok(Pick::Drops),
+            6..=u32::MAX => Err(mismatch("a stop pick")),
         },
     )
 }

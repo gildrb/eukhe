@@ -60,7 +60,7 @@ use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{
     answer, finish_tool_round, queue_modes, read_calls, start_next_call, start_tool_round,
 };
-use self::stop::{Cut, Facts};
+use self::stop::{Cut, Facts, Pick};
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{
@@ -1326,6 +1326,9 @@ async fn classify(
     };
     // The overflow text a compaction of the length ladder fails with.
     let mut shrink = None;
+    // A cut reply the stop walk dropped: the run ends, the reply out of
+    // the model's context and with no warning (laws/stop/cut.bend).
+    let mut dropped = false;
     let (reply, cause) = if let Some(handle) = &deferred {
         (Reply::Deferred(handle), None)
     } else if cancelled {
@@ -1488,17 +1491,25 @@ async fn classify(
         // call is a candidate stop: the stop Directors pick the recovery
         // that continues the run, or let the stop stand (`stop::walk`). A
         // cut reply with text and room left in the window stands: the
-        // truncated reply is kept as the answer (laws/stop/cut.bend).
+        // truncated reply is kept as the answer; with the window run out and
+        // no compaction to make, it is dropped (laws/stop/cut.bend).
         let stuck = match reply {
             Reply::Calls => Some(Stuck::Calls {
                 rounds: rounds_in_a_row(context, &calls),
             }),
-            Reply::Text | Reply::Error { .. } => stop::walk(Facts {
+            Reply::Text | Reply::Error { .. } => match stop::walk(Facts {
                 cut,
                 text,
                 broken: broken.is_some(),
                 pending: stop::pending(runtime, cx).await?,
-            }),
+            }) {
+                Pick::Stands => None,
+                Pick::Drops => {
+                    dropped = true;
+                    None
+                }
+                Pick::Goes(stuck) => Some(stuck),
+            },
             Reply::Deferred(_) | Reply::Overflow { .. } => None,
         };
         let thinking: usize = message
@@ -1528,7 +1539,9 @@ async fn classify(
             // too: no note, no cause, no error, no further request (laws
             // `stop_stand_answers_once`, `stop_stand_sends_no_request`,
             // `stop_cut_kept_answers_once`; `stop_reply` in laws/stop.bend
-            // models this match).
+            // models this match). A dropped cut reply ends the run the same
+            // way (law `stop_cut_dropped_ends_the_run`); `answer` takes it
+            // out of the model's context.
             None => match reply {
                 Reply::Error { .. } => {
                     (reply, Some(NoteCause::NoAnswer { row: 0 }), Some(no_answer))
@@ -1932,7 +1945,7 @@ async fn classify(
             fail_model_error(runtime, text, cx).await
         }
         Step::Tools => start_tool_round(runtime, request, message, calls, cx).await,
-        Step::Answer => answer(runtime, message, cx).await,
+        Step::Answer => answer(runtime, message, dropped, cx).await,
         Step::Compact => {
             let text = shrink
                 .or_else(|| message.error_message.clone())

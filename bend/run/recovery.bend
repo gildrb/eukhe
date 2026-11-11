@@ -24,13 +24,15 @@ def again(same: Nat, +last: Nat, +h: Nat) -> Nat:
 # ----------
 # LAWS.bend H4.8. The replies a weaker model gets stuck with get a
 # recovery, each with a cap: a length stop the stop walk continues (no
-# text, or the window ran out: the ladder of rec.think: compact when the
-# window ran out, length notes, then once one thinking level lower), tool
+# text, or text with the window run out and a compaction to make: the
+# ladder of rec.think: compact when the window ran out, length notes,
+# then once one thinking level lower), tool
 # calls that it wrote as text (markup in the answer), the same tool calls
 # (names and arguments) round after round, and, from the Directors at a
 # candidate stop (bend/stop.bend), a reply with no text. A length stop
-# with text and room left in the window is no stuck reply: the stop walk
-# keeps it as the answer. A recovery turns the reply into one that the
+# with text is no stuck reply otherwise: the stop walk keeps it as the
+# answer while the window has room, and drops it when the window ran out
+# with no compaction to make. A recovery turns the reply into one that the
 # steps above already read (Act.reply): a noted error, whose retry ends
 # its request with a note of the recovery (H4.7), an overflow that
 # compacts, calls that run, or the run's failure. Thus every law above
@@ -86,8 +88,9 @@ type Rk is Data:
 
 # what a reply holds, as the recoveries read it. Think: a length stop with
 # no tool call that the stop walk's LengthStop continues: no text (cut
-# while the model still reasoned), or text with the window run out;
-# shrink: the window was what ran out and a compaction can run (`full`
+# while the model still reasoned), or text with the window run out and a
+# compaction to make; shrink: the window was what ran out (or is unknown)
+# and a compaction can run (`full`
 # below); lower: a thinking level below the agent's exists. Leak: tool-call
 # markup in its text and no tool call; rebuilt: every leaked call parsed
 # and names a tool that the request offered, so the calls are rebuilt, as
@@ -261,17 +264,20 @@ def rec.think(shrink: Bool, under: Bool, lowers: Bool, +n: Nat, +same: Nat, +las
 def margin() -> Nat:
   8192n
 
-# a length stop ran into the context window: the window is known (not 0),
-# the reply's output is below the model's catalog max output (so that cap
-# did not stop it), and its prompt and output reach the window, within
-# the margin
+# a length stop ran into the context window: the window is unknown (0:
+# omp counts it as run out, there is no evidence it had room), or the
+# reply's output is below the model's catalog max output (so that cap did
+# not stop it) and its prompt and output reach the window, within the
+# margin
 def bound(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat) -> Bool:
-  Bool.and(Nat.is_lt(0n, window), Bool.and(Nat.is_lt(out, catalog), Nat.is_le(window, Nat.add(Nat.add(prompt, out), margin()))))
+  Bool.or(Nat.is_eq(window, 0n), Bool.and(Nat.is_lt(out, catalog), Nat.is_le(window, Nat.add(Nat.add(prompt, out), margin()))))
 
 # a compaction makes room for a length stop: the window is what ran out
 # (bound) and a compaction can run (cuttable: compaction on, a cut, the
-# generation has not compacted). The stop walk's `full` (bend/stop.bend:
-# a cut reply with text stands unless it holds) and the ladder's `shrink`
+# generation has not compacted). The ladder's `shrink`; the stop walk
+# reads `bound` and `cuttable` apart (bend/stop.bend: a cut reply with
+# text stands while the window has room, goes to the compaction when it
+# is full, and is dropped when it ran out with no compaction to make)
 def full(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> Bool:
   Bool.and(cuttable, bound(window, catalog, prompt, out))
 

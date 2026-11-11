@@ -11,16 +11,21 @@
 #   or, at a length stop whose window ran out, after a compaction;
 #   bend/run/recovery.bend counts each Director's reminders in a row and
 #   stops it at its cap;
-# - Yield: the stop stands.
+# - Yield: the stop stands;
+# - Drop: the stop stands without the reply: the run ends, the reply
+#   stays in the transcript but leaves the model's context, and no
+#   warning follows it (omp removes such a turn from its active context).
 #
 # With every Director passing, the stop stands: the reply is the final
 # answer, whatever its text says. The Directors, inside to outside:
 #
 # - LengthStop: the reply hit the output limit. With no text nothing was
-#   delivered, and with the window run out (full) the next request needs a
-#   compaction: the run goes on. A cut reply with text and room left in
+#   delivered: the run goes on. A cut reply with text and room left in
 #   the window is kept as it is (omp keeps a truncated turn that delivered
-#   text): the stop stands, whatever else the text holds;
+#   text): the stop stands, whatever else the text holds. With text and
+#   the window run out (an unknown window counts as run out, as in omp),
+#   the run goes on when a compaction can run (the next request needs
+#   one), else the reply is dropped;
 # - EmptyStop: no text: nothing the user can read (a thinking-only reply);
 # - MarkupStop: tool-call markup in the text that the harness could not
 #   read: a call the model meant to make, never an answer;
@@ -36,12 +41,13 @@ import Base
 
 # cut: the reply hit the output limit (stop reason length); text: a text
 # block that is not blank; broken: tool-call markup in the text that the
-# harness could not read; pending: the session owns running work; full:
-# the window is what ran out at a cut reply and a compaction can run
-# (bend/run/recovery.bend `full`), so a compaction makes room for the
-# reply's request
+# harness could not read; pending: the session owns running work; spent:
+# at a cut reply, the window is what ran out (bend/run/recovery.bend
+# `bound`: an unknown window counts as run out); cuttable: a compaction
+# can run. Spent and cuttable: a compaction makes room for the reply's
+# request (bend/run/recovery.bend `full`)
 type Facts is Data:
-  Facts{cut: Bool, text: Bool, broken: Bool, pending: Bool, full: Bool}
+  Facts{cut: Bool, text: Bool, broken: Bool, pending: Bool, spent: Bool, cuttable: Bool}
 
 # The Directors
 type Dir is Data:
@@ -54,11 +60,14 @@ type Verdict is Data:
   Pass{}
   Continue{}
   Yield{}
+  Drop{}
 
-# what the walk picks: the stop stands, or the Director d continues the run
+# what the walk picks: the stop stands, the Director d continues the run,
+# or the stop stands without the reply (Drop)
 type Pick is Data:
   Stands{}
   Goes{d: Dir}
+  Drops{}
 
 # The walk
 # --------
@@ -80,47 +89,61 @@ def hold(b: Bool) -> Verdict:
 # the facts, one by one
 def Facts.cut(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending, full}:
+    case Facts{cut, text, broken, pending, spent, cuttable}:
       cut
 
 def Facts.text(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending, full}:
+    case Facts{cut, text, broken, pending, spent, cuttable}:
       text
 
 def Facts.broken(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending, full}:
+    case Facts{cut, text, broken, pending, spent, cuttable}:
       broken
 
 def Facts.pending(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending, full}:
+    case Facts{cut, text, broken, pending, spent, cuttable}:
       pending
 
-def Facts.full(f: Facts) -> Bool:
+def Facts.spent(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending, full}:
-      full
+    case Facts{cut, text, broken, pending, spent, cuttable}:
+      spent
 
-# LengthStop at a cut reply: it stands when it has text and the window has
-# room; else the run goes on
-def cut.at(text: Bool, full: Bool) -> Verdict:
+def Facts.cuttable(f: Facts) -> Bool:
+  match f:
+    case Facts{cut, text, broken, pending, spent, cuttable}:
+      cuttable
+
+# LengthStop at a cut reply with text whose window ran out: the run goes
+# on to the compaction when one can run, else the reply is dropped
+def cut.spent(cuttable: Bool) -> Verdict:
+  match cuttable:
+    case True{}:
+      Continue{}
+    case False{}:
+      Drop{}
+
+# LengthStop at a cut reply: with text it stands while the window has
+# room; with no text the run goes on
+def cut.at(text: Bool, spent: Bool, cuttable: Bool) -> Verdict:
   match text:
     case True{}:
-      match full:
+      match spent:
         case True{}:
-          Continue{}
+          cut.spent(cuttable)
         case False{}:
           Yield{}
     case False{}:
       Continue{}
 
 # LengthStop: only a cut reply is its to decide
-def length(cut: Bool, text: Bool, full: Bool) -> Verdict:
+def length(cut: Bool, text: Bool, spent: Bool, cuttable: Bool) -> Verdict:
   match cut:
     case True{}:
-      cut.at(text, full)
+      cut.at(text, spent, cuttable)
     case False{}:
       Pass{}
 
@@ -128,7 +151,7 @@ def length(cut: Bool, text: Bool, full: Bool) -> Verdict:
 def verdict(d: Dir, +f: Facts) -> Verdict:
   match d:
     case LengthStop{}:
-      length(Facts.cut(f), Facts.text(f), Facts.full(f))
+      length(Facts.cut(f), Facts.text(f), Facts.spent(f), Facts.cuttable(f))
     case EmptyStop{}:
       on(Bool.not(Facts.text(f)))
     case MarkupStop{}:
@@ -149,6 +172,8 @@ def pick(v: Verdict, d: Dir, next: Unit -> Pick) -> Pick:
       Goes{d}
     case Yield{}:
       Stands{}
+    case Drop{}:
+      Drops{}
 
 def walk.go(ds: List<&2, Dir>, +f: Facts) -> Pick:
   match ds:

@@ -207,6 +207,13 @@ pub static RESET_ENTRY: Entry = Entry::builtin("pi.reset");
 /// through a write submission.
 pub static COMPACTION_ENTRY: Entry<CompactionData> = Entry::builtin("pi.compaction");
 
+/// A reply taken out of model context and kept in the transcript: `edits`
+/// omit the assistant entry it follows; no `model`, no `data`. Written by
+/// generation after a reply cut at the output limit that the stop walk
+/// drops (laws/stop/cut.bend; omp removes such a turn from its active
+/// context and keeps it on the branch).
+pub static DROP_ENTRY: Entry = Entry::builtin("pi.drop");
+
 #[cfg(test)]
 mod tests {
     //! Typed entry cases of `test/session-definitions.test.ts`; the
@@ -310,6 +317,7 @@ mod tests {
             TOOL_RESULT_ENTRY.kind(),
             RESET_ENTRY.kind(),
             COMPACTION_ENTRY.kind(),
+            DROP_ENTRY.kind(),
         ];
         assert_eq!(
             kinds,
@@ -319,7 +327,8 @@ mod tests {
                 "pi.system",
                 "pi.tool-result",
                 "pi.reset",
-                "pi.compaction"
+                "pi.compaction",
+                "pi.drop"
             ]
         );
         let data = r#"{"diagnostics":[{"severity":"warn","code":"truncated","message":"truncated"},{"severity":"info","message":"ok"}]}"#;

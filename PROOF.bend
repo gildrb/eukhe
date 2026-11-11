@@ -3504,8 +3504,11 @@ import ./proof/stop/stop_entry_reads.bend as PStopEntryReads
 import ./proof/stop/stop_entry_malformed_example.bend as PStopEntryMalformedExample
 import ./proof/stop/base/cut.bend as LAStopCut
 import ./proof/stop/stop_cut_empty_never_stands.bend as PStopCutEmptyNeverStands
-import ./proof/stop/stop_cut_text_stands_unless_full.bend as PStopCutTextStandsUnlessFull
+import ./proof/stop/stop_cut_text_stands_with_room.bend as PStopCutTextStandsWithRoom
+import ./proof/stop/stop_cut_spent_never_kept.bend as PStopCutSpentNeverKept
+import ./proof/stop/stop_cut_unknown_window_never_kept.bend as PStopCutUnknownWindowNeverKept
 import ./proof/stop/stop_cut_kept_answers_once.bend as PStopCutKeptAnswersOnce
+import ./proof/stop/stop_cut_dropped_ends_the_run.bend as PStopCutDroppedEndsTheRun
 import ./proof/stop/stop_cut_full_compacts.bend as PStopCutFullCompacts
 import ./proof/stop/stop_cut_example.bend as PStopCutExample
 import ./proof/headless_settle/base.bend as LAHeadlessSettle

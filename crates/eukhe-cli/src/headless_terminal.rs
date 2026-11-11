@@ -2,8 +2,11 @@
 //! selection half of TS `headless-completion.ts` + the text-output half of
 //! `print-mode.ts`): walk the main conversation newest-first, collect the
 //! trailing compaction outcomes and the warning of a truncated answer, skip
-//! internal notices, and take the first substantive entry (an assistant
-//! answer or a slash-command result) as the primary.
+//! internal notices and replies out of the model's context, and take the
+//! first substantive entry (an assistant answer or a slash-command result)
+//! as the primary.
+
+use std::collections::HashSet;
 
 use eukhe_bend::rules::headless::Primary;
 use eukhe_chord::context::Context;
@@ -15,7 +18,7 @@ use eukhe_core::durable::messages::{
 use eukhe_core::durable::{custom_entry_content, CUSTOM_ENTRY};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
-use eukhe_durable::types::EntryRecord;
+use eukhe_durable::types::{ContextEditAction, EntryId, EntryRecord};
 use eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
@@ -160,27 +163,60 @@ pub(crate) async fn select_terminal_result(
     conversation: &Conversation,
     cx: &Context,
 ) -> Result<HeadlessTerminalResult, eukhe_durable::session::SessionError> {
-    let mut result = HeadlessTerminalResult::default();
+    let mut walk = Walk::default();
     let mut cursor = None;
     loop {
         let page = conversation
             .entries(ConversationEntryQuery::default(), PAGE, cursor, cx)
             .await?;
         for entry in page.items {
-            match step(entry) {
-                Step::Outcome(outcome) => result.compaction_outcomes.insert(0, outcome),
-                Step::Warning(warning) => result.warnings.insert(0, warning),
-                Step::Skip => {}
-                Step::Stop(primary) => {
-                    result.primary = primary;
-                    return Ok(result);
-                }
+            if walk.take(entry) {
+                return Ok(walk.result);
             }
         }
         match page.next {
             Some(next) => cursor = Some(next),
-            None => return Ok(result),
+            None => return Ok(walk.result),
         }
+    }
+}
+
+/// The selection so far, newest entry first: the result, and the entries
+/// a newer entry omits from the model's context.
+#[derive(Default)]
+struct Walk {
+    result: HeadlessTerminalResult,
+    omitted: HashSet<EntryId>,
+}
+
+impl Walk {
+    /// Take the next older entry; true once the selection ended. A reply
+    /// a newer entry omits from the model's context (a cut reply the stop
+    /// walk dropped: `pi.drop`) is no result: omp's print mode prints the
+    /// last assistant message of its active context, which no longer
+    /// holds it.
+    fn take(&mut self, entry: EntryRecord) -> bool {
+        self.omitted.extend(
+            entry
+                .edits
+                .iter()
+                .flatten()
+                .filter(|edit| matches!(edit.action, ContextEditAction::Omit))
+                .map(|edit| edit.target),
+        );
+        if ASSISTANT_ENTRY.is(Some(&entry)) && self.omitted.contains(&entry.id) {
+            return false;
+        }
+        match step(entry) {
+            Step::Outcome(outcome) => self.result.compaction_outcomes.insert(0, outcome),
+            Step::Warning(warning) => self.result.warnings.insert(0, warning),
+            Step::Skip => {}
+            Step::Stop(primary) => {
+                self.result.primary = primary;
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -267,7 +303,7 @@ fn user_content_text(content: &UserContent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{step, Step};
+    use super::{step, Step, Walk};
     use eukhe_durable::types::EntryRecord;
 
     /// The `provider_retry_outcome` row of an episode (the durable shape
@@ -310,5 +346,34 @@ mod tests {
         }))
         .expect("an entry record");
         assert!(matches!(step(row), Step::Warning(warning) if warning == text));
+    }
+
+    /// A cut reply the stop walk dropped stays in the transcript, out of
+    /// the model's context (the `pi.drop` entry after it omits it): the
+    /// walk passes over it to the user's prompt, so the run has no result
+    /// to print, as omp's print mode prints none.
+    #[test]
+    fn a_dropped_reply_is_no_result() {
+        let entries: Vec<EntryRecord> = serde_json::from_value(serde_json::json!([
+            { "kind": "pi.drop", "id": 3, "conversationId": 1,
+              "edits": [{ "target": 2, "action": "omit" }] },
+            { "kind": "pi.assistant", "id": 2, "conversationId": 1,
+              "model": [{ "role": "assistant",
+                "content": [{ "type": "text", "text": "Here is the whole plan: first" }],
+                "api": "faux", "provider": "faux", "model": "faux-1",
+                "usage": { "input": 0, "output": 8, "cacheRead": 0, "cacheWrite": 0,
+                  "totalTokens": 8,
+                  "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } },
+                "stopReason": "length", "timestamp": 2 }] },
+            { "kind": "pi.user", "id": 1, "conversationId": 1,
+              "model": [{ "role": "user", "content": "go", "timestamp": 1 }] },
+        ]))
+        .expect("entry records");
+        let mut walk = Walk::default();
+        let ended: Vec<bool> = entries.into_iter().map(|entry| walk.take(entry)).collect();
+        assert_eq!(
+            (ended, walk.result.primary, walk.result.warnings),
+            (vec![false, false, true], None, Vec::<String>::new())
+        );
     }
 }

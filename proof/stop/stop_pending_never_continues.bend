@@ -10,16 +10,20 @@ import ../../laws/stop.bend as Stop
 
 def pends.pick(f: S.Facts) -> {Stop.pends(StSpec.pick(f)) == False{} : Bool}:
   match f:
-    case S.Facts{c, t, b, p, fu}:
+    case S.Facts{c, t, b, p, sp, cu}:
       match c:
         case True{}:
           match t:
             case False{}:
               {==}
             case True{}:
-              match fu:
+              match sp:
                 case True{}:
-                  {==}
+                  match cu:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
                 case False{}:
                   {==}
         case False{}:

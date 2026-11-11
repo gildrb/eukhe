@@ -18,7 +18,7 @@ use super::decide::{round_end, Ending, RoundEnd, Rounds};
 use super::{
     failed, limits, GenerationCheckpoint, GenerationInput, GenerationResult, Next, Request, Runtime,
 };
-use crate::entries::{UserData, ASSISTANT_ENTRY, RESET_ENTRY, USER_ENTRY};
+use crate::entries::{UserData, ASSISTANT_ENTRY, DROP_ENTRY, RESET_ENTRY, USER_ENTRY};
 use crate::harness::agent::add_tools;
 use crate::harness::inbox::{apply_boundary, prepare_boundary, BoundaryAt, QueueModes};
 use crate::harness::live::run::{
@@ -35,8 +35,8 @@ use crate::harness::types::{
 use crate::session::{SessionResult, Tx};
 use crate::tasks::AnyTask;
 use crate::types::{
-    DocumentReaderExt, EntryDraft, EntryHead, EntryId, JoinPolicy, SubmissionSettlement, TaskId,
-    TaskOptions, TaskOutcome, TaskOwnership, TypedEntryDraft,
+    ContextEdit, ContextEditAction, DocumentReaderExt, EntryDraft, EntryHead, EntryId, JoinPolicy,
+    SubmissionSettlement, TaskId, TaskOptions, TaskOutcome, TaskOwnership, TypedEntryDraft,
 };
 
 pub(super) fn queue_modes(runtime: &Runtime) -> QueueModes {
@@ -211,40 +211,24 @@ async fn truncated_rows(
 /// a successor generation, but only when the boundary selected no user item
 /// and no reset. Otherwise the run's inputs settle `done`, and selected user
 /// items start the next run. The rows of a kept truncated answer's warning
-/// ([`truncated_rows`]) follow it in the commit.
+/// ([`truncated_rows`]) follow it in the commit. A `dropped` reply (a cut
+/// reply the stop walk dropped, laws/stop/cut.bend) ends the run the same
+/// way, but stays in the transcript only: a `pi.drop` entry omits it from
+/// the model's context, and no warning row follows it (omp
+/// `session-maintenance.ts` removes such a turn from its active context
+/// and shows no notice).
 pub(super) async fn answer(
     runtime: &Runtime,
     message: AssistantMessage,
+    dropped: bool,
     cx: &Context,
 ) -> SessionResult<()> {
-    let continuation: Arc<Mutex<Option<YieldContinuation>>> = Arc::default();
-    let api = runtime.hook_api();
-    runtime
-        .hooks()
-        .each(
-            |hooks: &GenerationHooks| hooks.on_yield.clone(),
-            |hook| {
-                let pending = continuation
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .is_none()
-                    .then(|| hook(&message, &api, cx));
-                let continuation = Arc::clone(&continuation);
-                async move {
-                    if let Some(pending) = pending {
-                        let next = pending.await?;
-                        *continuation.lock().unwrap_or_else(PoisonError::into_inner) = next;
-                    }
-                    Ok(())
-                }
-            },
-        )
-        .await?;
-    let continuation = continuation
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take();
-    let warnings = truncated_rows(runtime, &message, cx).await?;
+    let continuation = yield_continuation(runtime, &message, cx).await?;
+    let warnings = if dropped {
+        Vec::new()
+    } else {
+        truncated_rows(runtime, &message, cx).await?
+    };
     let conversation_id = runtime.conversation_id();
     let task_id = runtime.task_id().erase();
     let generation = runtime.registry().builtins().generation.clone();
@@ -259,6 +243,20 @@ pub(super) async fn answer(
                     prepare_boundary(&tx, conversation_id, queue_modes(&runtime)).await?;
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 let entry = append_assistant(&tx, conversation_id, message).await?;
+                if dropped {
+                    tx.append_typed_entry(
+                        &DROP_ENTRY,
+                        conversation_id,
+                        TypedEntryDraft {
+                            edits: Some(vec![ContextEdit {
+                                target: entry.id,
+                                action: ContextEditAction::Omit,
+                            }]),
+                            ..TypedEntryDraft::default()
+                        },
+                    )
+                    .await?;
+                }
                 for warning in warnings {
                     tx.append_entry(conversation_id, warning).await?;
                 }
@@ -319,6 +317,42 @@ pub(super) async fn answer(
             cx,
         )
         .await
+}
+
+/// The continuation of the first `onYield` hook that returns one, if any.
+async fn yield_continuation(
+    runtime: &Runtime,
+    message: &AssistantMessage,
+    cx: &Context,
+) -> SessionResult<Option<YieldContinuation>> {
+    let continuation: Arc<Mutex<Option<YieldContinuation>>> = Arc::default();
+    let api = runtime.hook_api();
+    runtime
+        .hooks()
+        .each(
+            |hooks: &GenerationHooks| hooks.on_yield.clone(),
+            |hook| {
+                let pending = continuation
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .is_none()
+                    .then(|| hook(message, &api, cx));
+                let continuation = Arc::clone(&continuation);
+                async move {
+                    if let Some(pending) = pending {
+                        let next = pending.await?;
+                        *continuation.lock().unwrap_or_else(PoisonError::into_inner) = next;
+                    }
+                    Ok(())
+                }
+            },
+        )
+        .await?;
+    let continuation = continuation
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    Ok(continuation)
 }
 
 /// Append the tool-calling answer and start its tool round in one commit

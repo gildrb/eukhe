@@ -25,8 +25,8 @@ import ../spec/harness/stop.bend as StSpec
 #     that does not pass decides. A whole, readable reply stands,
 #     whatever it says: its text is no fact of the walk, and a reply that
 #     was not cut reads no fact of the window.
-# R2: each Director's verdict is the spec's (S2): Continue, Pass or Yield
-#     exactly.
+# R2: each Director's verdict is the spec's (S2): Continue, Pass, Yield or
+#     Drop exactly.
 # R3: a stop never continues while the session owns running work: it
 #     stands (PendingWork never continues).
 # R4: the caps (S4): an empty reply is retried with a note at most 3
@@ -36,9 +36,10 @@ import ../spec/harness/stop.bend as StSpec
 #     broken, pending, then the window's facts at a cut reply: window,
 #     catalog, prompt, out, cuttable; 1 the round note: max, done; every
 #     Nat within the wire) with the spelled spec answer: the pick (0
-#     stands, 1-4 the Director, inside to outside) or the round note
-#     (0, none | 1, then the text); reads exactly the request; answers a
-#     tag past 1 and input left over with `E stop: malformed request`.
+#     stands, 1-4 the Director, inside to outside, 5 dropped) or the round
+#     note (0, none | 1, then the text); reads exactly the request;
+#     answers a tag past 1 and input left over with `E stop: malformed
+#     request`.
 # R7: a length stop that LengthStop continues (no text: the model still
 #     reasoned; or full, R10) climbs the spec's ladder (S7), never failing
 #     the run while a rung remains: compact when the window ran out and a
@@ -53,7 +54,7 @@ import ../spec/harness/stop.bend as StSpec
 #     good; the run sends no further request and counts one answer,
 #     whatever follows. A stop the walk does not let stand never answers
 #     the run: its reply is a noted retry, a failure or the overflow's
-#     compaction.
+#     compaction. A dropped stop ends the run as an answer does (R10).
 # R9: the recoveries' own helpers that the laws above read are the
 #     spec's: only Exec runs calls; every act but Pass helps; the reply
 #     each act makes (Pass the reply as it was, Exec the calls, Redo and
@@ -63,12 +64,16 @@ import ../spec/harness/stop.bend as StSpec
 #     more after a round of the same calls, else 1.
 # R10: a reply cut at the output limit, as omp treats it (omp at c28b3e3,
 #     packages/coding-agent/src/session/session-maintenance.ts:3399-3534).
-#     With no text it never stands. With text it stands exactly when it
-#     is not full (S5: the window has room, or no compaction can run):
-#     the truncated reply is kept as the run's answer, whatever else its
-#     text holds; it answers the run once and the run sends no further
-#     request. With text and full, the run compacts (the overflow's
-#     compaction), then the request goes again. Its laws:
+#     With no text it never stands. With text it stands exactly when the
+#     window has room (S5: not spent; an unknown window is spent, as omp
+#     counts it: :3412-3415): the truncated reply is kept as the run's
+#     answer, whatever else its text holds; it answers the run once and
+#     the run sends no further request. With text and a spent window, the
+#     run compacts (the overflow's compaction) when a compaction can run,
+#     then the request goes again; when none can, the reply is dropped
+#     (:3528-3533): the run ends with no further request, the reply stays
+#     in the transcript but leaves the model's context, and no warning
+#     follows it (Rust: generation/round.rs `answer`). Its laws:
 #     laws/stop/cut.bend.
 
 # Spec helpers
@@ -89,6 +94,8 @@ def pends(p: S.Pick) -> Bool:
           False{}
         case S.PendingWork{}:
           True{}
+    case S.Drops{}:
+      False{}
 
 # the empty notes in a row that a note of recovery k with row `row` makes
 # (decide.rs `recover` over `NoteCause::row`)
@@ -255,6 +262,8 @@ def sp_w_pick(p: S.Pick) -> String:
           Wr.put_nat(3n, "")
         case S.PendingWork{}:
           Wr.put_nat(4n, "")
+    case S.Drops{}:
+      Wr.put_nat(5n, "")
 
 def sp_w_round(m: Maybe<&2, String>) -> String:
   match m:
@@ -324,13 +333,17 @@ def go_reply(d: S.Dir, +rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +w: N
 # R8: the reply the run reads at a candidate stop (a reply with no tool
 # call; generation.rs `after_reply`) of facts f, the walk's pick p: a
 # stop that stands reads the reply as Ended.reply made it (no note, no
-# cause), a Director that goes reads its recovery's
+# cause), a Director that goes reads its recovery's; a dropped stop reads
+# the reply as Ended.reply made it too: the run ends as at an answer
+# (Rust takes the reply out of the model's context, R10)
 def stop_reply(p: S.Pick, +f: S.Facts, +rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +ca: Nat, +pr: Nat, +o: Nat, cu: Bool, lo: Bool) -> RnState.Reply:
   match p:
     case S.Stands{}:
       RnState.Ended.reply(RnState.Ended{S.Facts.text(f), False{}})
     case S.Goes{d}:
       go_reply(d, rc, k, row, w, ca, pr, o, cu, lo, RnState.Ended.reply(RnState.Ended{S.Facts.text(f), False{}}))
+    case S.Drops{}:
+      RnState.Ended.reply(RnState.Ended{S.Facts.text(f), False{}})
 
 # R8: the reply never answers the run: a retry (noted or not), a failure,
 # the overflow's compaction
@@ -422,7 +435,7 @@ law stop_walk_refines:
   {S.walk(f) == StSpec.pick(f) : S.Pick}
 
 # LAW stop_verdict_exact (R2): every Director's verdict at every stop is
-# the spec's: Continue, Pass or Yield exactly
+# the spec's: Continue, Pass, Yield or Drop exactly
 # EXCLUDES: a Director that yields where it should continue (or the
 #   reverse), one that reads another fact
 law stop_verdict_exact:
@@ -437,8 +450,9 @@ law stop_verdict_exact:
 law stop_empty_continues:
   for b: Bool
   for p: Bool
-  for fu: Bool
-  {S.walk(S.Facts{False{}, False{}, b, p, fu}) == S.Goes{S.EmptyStop{}} : S.Pick}
+  for sp: Bool
+  for cu: Bool
+  {S.walk(S.Facts{False{}, False{}, b, p, sp, cu}) == S.Goes{S.EmptyStop{}} : S.Pick}
 
 # LAW stop_markup_continues (R1): a whole reply with markup the harness
 # could not read never stands: MarkupStop continues it, whatever the
@@ -446,28 +460,32 @@ law stop_empty_continues:
 # EXCLUDES: tool-call markup taken as the final answer
 law stop_markup_continues:
   for p: Bool
-  for fu: Bool
-  {S.walk(S.Facts{False{}, True{}, True{}, p, fu}) == S.Goes{S.MarkupStop{}} : S.Pick}
+  for sp: Bool
+  for cu: Bool
+  {S.walk(S.Facts{False{}, True{}, True{}, p, sp, cu}) == S.Goes{S.MarkupStop{}} : S.Pick}
 
 # LAW stop_pending_pauses (R3): a whole, readable reply while the session
 # owns running work stands: the stop is a pause, whatever it says and
 # whatever the window
 # EXCLUDES: a reminder while a job or a child will wake the session
 law stop_pending_pauses:
-  for fu: Bool
-  {S.walk(S.Facts{False{}, True{}, False{}, True{}, fu}) == S.Stands{} : S.Pick}
+  for sp: Bool
+  for cu: Bool
+  {S.walk(S.Facts{False{}, True{}, False{}, True{}, sp, cu}) == S.Stands{} : S.Pick}
 
 # LAW stop_reply_stands (R1): a whole, readable reply with no work
 # pending stands, whatever it says (a hand-off to the user such as
 # 'Next: say "ship it" and I will commit, push and deploy the change.'
 # too: the walk reads no text) and whatever the window, on the wire too
-# (Rust writes no window for a reply that was not cut: 0s and F)
+# (Rust writes no window for a reply that was not cut: 0s and F, a window
+# the walk reads as spent with no compaction to make)
 # EXCLUDES: a reminder after a final answer that names a next step, a
-#   Director that reads the reply's text, a whole reply continued because
-#   the window is full
+#   Director that reads the reply's text, a whole reply continued or
+#   dropped because the window is spent
 law stop_reply_stands:
-  for fu: Bool
-  {S.walk(S.Facts{False{}, True{}, False{}, False{}, fu}) == S.Stands{} : S.Pick} &
+  for sp: Bool
+  for cu: Bool
+  {S.walk(S.Facts{False{}, True{}, False{}, False{}, sp, cu}) == S.Stands{} : S.Pick} &
   {FS.ffi("0,FTFF0,0,0,0,F") == "0," : String}
 
 # LAW stop_pending_never_continues (R3): PendingWork never continues a run
@@ -478,11 +496,12 @@ law stop_pending_never_continues:
 
 # LAW stop_walk_example (R1, R3, R10): anchor: a final answer alone and
 # with a job running, an empty reply with a job running, a cut reply with
-# text and room (kept), a cut reply with text at a full window, a cut
-# reply with no text, markup
+# text and room (kept), a cut reply with text at a spent window with a
+# compaction to make (LengthStop) and with none (dropped), a cut reply
+# with no text, markup
 # EXCLUDES: a walk that drifts from the Directors' order
 law stop_walk_example:
-  {[S.walk(S.Facts{False{}, True{}, False{}, False{}, False{}}), S.walk(S.Facts{False{}, True{}, False{}, True{}, False{}}), S.walk(S.Facts{False{}, False{}, False{}, True{}, False{}}), S.walk(S.Facts{True{}, True{}, False{}, False{}, False{}}), S.walk(S.Facts{True{}, True{}, False{}, False{}, True{}}), S.walk(S.Facts{True{}, False{}, False{}, False{}, False{}}), S.walk(S.Facts{False{}, True{}, True{}, False{}, False{}})] == [S.Stands{}, S.Stands{}, S.Goes{S.EmptyStop{}}, S.Stands{}, S.Goes{S.LengthStop{}}, S.Goes{S.LengthStop{}}, S.Goes{S.MarkupStop{}}] : List<&2, S.Pick>}
+  {[S.walk(S.Facts{False{}, True{}, False{}, False{}, False{}, False{}}), S.walk(S.Facts{False{}, True{}, False{}, True{}, False{}, False{}}), S.walk(S.Facts{False{}, False{}, False{}, True{}, False{}, False{}}), S.walk(S.Facts{True{}, True{}, False{}, False{}, False{}, True{}}), S.walk(S.Facts{True{}, True{}, False{}, False{}, True{}, True{}}), S.walk(S.Facts{True{}, True{}, False{}, False{}, True{}, False{}}), S.walk(S.Facts{True{}, False{}, False{}, False{}, False{}, False{}}), S.walk(S.Facts{False{}, True{}, True{}, False{}, False{}, False{}})] == [S.Stands{}, S.Stands{}, S.Goes{S.EmptyStop{}}, S.Stands{}, S.Goes{S.LengthStop{}}, S.Drops{}, S.Goes{S.LengthStop{}}, S.Goes{S.MarkupStop{}}] : List<&2, S.Pick>}
 
 # Laws: the caps (R4)
 # -------------------
@@ -742,8 +761,9 @@ law stop_shrink_compacts_once:
   {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass), r, 1n+c, a, n, p) == RnState.St{RnState.Compact{True{}}, r, c, a, n, p} : RnState.St}
 
 # LAW stop_bound_exact (R7): the window ran out exactly as the spec says
-# EXCLUDES: a compaction when the catalog cap stopped the reply, or when
-#   the window is unknown; none when the reply filled the window
+# (an unknown window counts as run out, as omp counts it)
+# EXCLUDES: a compaction when the catalog cap stopped the reply; none
+#   when the reply filled the window, or when the window is unknown
 law stop_bound_exact:
   for +window: Nat
   for +catalog: Nat
@@ -754,10 +774,11 @@ law stop_bound_exact:
 # LAW stop_think_example (R7): anchor: the user's stop (a 262144 window, a
 # 16384 cap reached with a 48106 prompt: no compaction) at rows 0 to 4 of
 # 3 with a lower level, at row 3 with none; a stop at the window of a
-# 200000 window (compacts); an unknown window (no compaction)
+# 200000 window (compacts); an unknown window with a compaction to make
+# (compacts) and with none (a note)
 # EXCLUDES: a ladder that drifts from the shipped rungs
 law stop_think_example:
-  {[RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Free{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 2n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 4n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, False{}}, RnRecovery.Longs{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{200000n, 64000n, 180000n, 15000n, True{}, True{}}, RnRecovery.Longs{}, 1n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{200000n, 64000n, 180000n, 15000n, False{}, True{}}, RnRecovery.Longs{}, 1n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{0n, 64000n, 180000n, 15000n, True{}, True{}}, RnRecovery.Free{}, 0n)] == [RnDecision.Redoes{1n}, RnDecision.Redoes{3n}, RnDecision.Lowers{4n}, RnDecision.Quits{}, RnDecision.Quits{}, RnDecision.Compacts{}, RnDecision.Redoes{2n}, RnDecision.Redoes{1n}] : List<&2, RnDecision.Help>}
+  {[RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Free{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 2n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 4n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, False{}}, RnRecovery.Longs{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{200000n, 64000n, 180000n, 15000n, True{}, True{}}, RnRecovery.Longs{}, 1n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{200000n, 64000n, 180000n, 15000n, False{}, True{}}, RnRecovery.Longs{}, 1n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{0n, 64000n, 180000n, 15000n, True{}, True{}}, RnRecovery.Free{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{0n, 64000n, 180000n, 15000n, False{}, True{}}, RnRecovery.Free{}, 0n)] == [RnDecision.Redoes{1n}, RnDecision.Redoes{3n}, RnDecision.Lowers{4n}, RnDecision.Quits{}, RnDecision.Quits{}, RnDecision.Compacts{}, RnDecision.Redoes{2n}, RnDecision.Compacts{}, RnDecision.Redoes{1n}] : List<&2, RnDecision.Help>}
 
 # Laws: the round note (R5)
 # -------------------------
@@ -810,11 +831,13 @@ law stop_entry_unknown:
 # and the answers it reads: a final answer, a pause, a cut reply with
 # text and room in a 262144-token window (kept: it stands), the same
 # reply at a window that ran out with a compaction to make (LengthStop),
-# the same with no compaction to make (kept), a cut reply with no text
-# (LengthStop), a round note with none, an unknown tag, input left over
+# the same with no compaction to make (dropped), a cut reply with text in
+# an unknown window with a compaction to make (LengthStop) and with none
+# (dropped), a cut reply with no text (LengthStop), a round note with
+# none, an unknown tag, input left over
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law stop_entry_example:
-  {[FS.ffi("0,FTFF0,0,0,0,F"), FS.ffi("0,FTFT0,0,0,0,F"), FS.ffi("0,TTFF262144,32768,69000,4096,T"), FS.ffi("0,TTFF200000,64000,180000,15000,T"), FS.ffi("0,TTFF200000,64000,180000,15000,F"), FS.ffi("0,TFFF262144,32768,69000,4096,T"), FS.ffi("1,250,1,"), FS.ffi("2,"), FS.ffi("1,250,1,x")] == ["0,", "0,", "0,", "1,", "0,", "1,", "0,", Wr.err("stop: malformed request"), Wr.err("stop: malformed request")] : List<&2, String>}
+  {[FS.ffi("0,FTFF0,0,0,0,F"), FS.ffi("0,FTFT0,0,0,0,F"), FS.ffi("0,TTFF262144,32768,69000,4096,T"), FS.ffi("0,TTFF200000,64000,180000,15000,T"), FS.ffi("0,TTFF200000,64000,180000,15000,F"), FS.ffi("0,TTFF0,32768,69000,4096,T"), FS.ffi("0,TTFF0,32768,69000,4096,F"), FS.ffi("0,TFFF262144,32768,69000,4096,T"), FS.ffi("1,250,1,"), FS.ffi("2,"), FS.ffi("1,250,1,x")] == ["0,", "0,", "0,", "1,", "5,", "1,", "5,", "1,", "0,", Wr.err("stop: malformed request"), Wr.err("stop: malformed request")] : List<&2, String>}
 
 # LAW stop_entry_premises_witness (R6): a request of each kind that fits
 # exists, and so does input left over
@@ -930,4 +953,4 @@ law stop_goes_never_answers:
 # EXCLUDES: vacuous premises (facts that stand with text, facts that go,
 #   exist), a stop_reply that drifts from the shipped walk
 law stop_stand_example:
-  {[stop_reply(S.walk(S.Facts{False{}, True{}, False{}, False{}, False{}}), S.Facts{False{}, True{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, True{}, False{}, True{}, False{}}), S.Facts{False{}, True{}, False{}, True{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Empties{}, 3n, 0n, 0n, 0n, 0n, False{}, False{})] == [RnState.Plain{}, RnState.Plain{}, RnState.Error{False{}, True{}}, RnState.Error{False{}, False{}}] : List<&2, RnState.Reply>}
+  {[stop_reply(S.walk(S.Facts{False{}, True{}, False{}, False{}, False{}, False{}}), S.Facts{False{}, True{}, False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, True{}, False{}, True{}, False{}, False{}}), S.Facts{False{}, True{}, False{}, True{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Empties{}, 3n, 0n, 0n, 0n, 0n, False{}, False{})] == [RnState.Plain{}, RnState.Plain{}, RnState.Error{False{}, True{}}, RnState.Error{False{}, False{}}] : List<&2, RnState.Reply>}

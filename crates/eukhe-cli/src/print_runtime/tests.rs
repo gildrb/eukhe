@@ -230,6 +230,35 @@ async fn a_truncated_answer_is_the_result_and_its_warning_trails_it() {
     );
 }
 
+/// A reply that hit the output limit with text in a window that is
+/// unknown (0, which counts as run out, as omp counts it) and no
+/// compaction to make is dropped: omp removes the turn from its active
+/// context and ends the run with no notice (`session-maintenance.ts`
+/// :3412-3415, :3528-3533), so its print mode prints no result. The run
+/// has no primary, no warning and no failure, and sends no second request.
+#[tokio::test]
+async fn a_dropped_truncated_reply_is_no_result_and_has_no_warning() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let script = serde_json::json!({
+        "contextWindow": 0,
+        "responses": [
+            { "text": "Here is the whole plan: first", "stopReason": "length" },
+            "unused",
+        ]
+    });
+    let (failure, result, provider) =
+        run_in(dir.path(), SessionStorage::Memory, &script, &["go"]).await;
+    assert_eq!(
+        (
+            failure,
+            result.primary,
+            result.warnings,
+            provider.call_count()
+        ),
+        (None, None, Vec::<String>::new(), 1)
+    );
+}
+
 #[tokio::test]
 async fn an_unscripted_request_fails_the_run_with_its_error() {
     let (failure, result) = run(&serde_json::json!({ "responses": [] }), &["hi"]).await;

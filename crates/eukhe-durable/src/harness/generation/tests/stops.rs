@@ -47,7 +47,7 @@ fn setup_with_pending(pending: bool) -> ChatSetup {
 
 /// The Rust side of laws `stop_stand_answers_once`,
 /// `stop_stand_sends_no_request` (laws/stop.bend): a stop the walk lets
-/// stand (`stop::walk` None) with text is read as the answer
+/// stand (`stop::walk` `Pick::Stands`) with text is read as the answer
 /// (`Reply::Text`, no note, no cause). The run ends after its one request
 /// with exactly one assistant message, that answer, with no error, and
 /// sends no further request once it settled: the scripted second reply
@@ -110,7 +110,7 @@ const CUT: [&str; 2] = [
     "I will look.\n<tool_call>{\"name\": \"tick\", \"argum",
 ];
 
-/// The Rust side of laws `stop_cut_text_stands_unless_full` and
+/// The Rust side of laws `stop_cut_text_stands_with_room` and
 /// `stop_cut_kept_answers_once` (laws/stop/cut.bend; omp
 /// `session-maintenance.ts` keeps a truncated turn that delivered text
 /// while the window has room). Regression (v0.10.67): the harness failed
