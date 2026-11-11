@@ -1,7 +1,8 @@
 //! The connection's event pump over one session's main conversation: the
 //! durable agent events translated to session events, plus
 //! the `goal_update` frames of the conversation's goal (TS forwards
-//! `event.event` verbatim and `_emitGoalUpdate` on goal changes). Frames
+//! `event.event` verbatim and `_emitGoalUpdate` on goal changes) and the
+//! `loop_update` frames of its loop. Frames
 //! go through the connection outputs, so a pending prompt response still
 //! precedes them.
 
@@ -9,11 +10,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::Context;
 use eukhe_core::durable::goals::watch_goal_updates;
+use eukhe_core::durable::loop_mode::watch_loop_updates;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::{watch_events, AgentEventBatch, AgentEventStream};
 use eukhe_durable::session::SessionResult;
 use eukhe_types::daemon::SessionEvent;
+use eukhe_types::loop_mode::LoopStatus;
 use futures::future::{self, FutureExt};
 use tokio::task::JoinHandle;
 
@@ -39,6 +42,20 @@ pub(crate) struct EventPump {
     translation: Arc<Mutex<Translation>>,
     outputs: ConnectionOutputs,
     goals: JoinHandle<()>,
+    loops: JoinHandle<()>,
+}
+
+/// The change gate of the `goal_update` and `loop_update` frames: record
+/// `next` as the connection's last published value and answer whether it
+/// differs from the one before.
+fn changed<T: PartialEq + Clone>(last: &Mutex<T>, next: &T) -> bool {
+    let mut last = last.lock().unwrap_or_else(PoisonError::into_inner);
+    if *last == *next {
+        false
+    } else {
+        last.clone_from(next);
+        true
+    }
 }
 
 impl EventPump {
@@ -46,15 +63,17 @@ impl EventPump {
     /// connection's last published goal: a `goal_update` frame publishes
     /// only when the goal differs from it (TS change-gated emits), so the
     /// watch's first value (the current goal) publishes nothing unless it
-    /// changed across a replacement.
+    /// changed across a replacement. `last_loop` gates the `loop_update`
+    /// frames the same way.
     ///
     /// # Errors
     ///
-    /// The event or goal watch cannot attach (the Harness is closed).
+    /// The event, goal or loop watch cannot attach (the Harness is closed).
     pub(crate) async fn attach(
         session: &EukheSession,
         outputs: &ConnectionOutputs,
         last_goal: &Arc<Mutex<GoalState>>,
+        last_loop: &Arc<Mutex<LoopStatus>>,
         cx: &Context,
     ) -> SessionResult<Self> {
         let conversation_id = session.main().id();
@@ -73,21 +92,22 @@ impl EventPump {
             future::ready(Ok(())).boxed()
         }))?;
         let mut updates = watch_goal_updates(session.harness(), conversation_id, cx)?;
+        let mut loop_updates = watch_loop_updates(session.harness(), conversation_id, cx)?;
         let goal_outputs = outputs.clone();
         let last_goal = Arc::clone(last_goal);
         let goals = tokio::spawn(async move {
             while let Some(goal) = updates.next().await {
-                let changed = {
-                    let mut last = last_goal.lock().unwrap_or_else(PoisonError::into_inner);
-                    if *last == goal {
-                        false
-                    } else {
-                        last.clone_from(&goal);
-                        true
-                    }
-                };
-                if changed {
+                if changed(&last_goal, &goal) {
                     goal_outputs.write_events([SessionEvent::GoalUpdate { goal }]);
+                }
+            }
+        });
+        let loop_outputs = outputs.clone();
+        let last_loop = Arc::clone(last_loop);
+        let loops = tokio::spawn(async move {
+            while let Some(status) = loop_updates.next().await {
+                if changed(&last_loop, &status) {
+                    loop_outputs.write_events([SessionEvent::LoopUpdate { r#loop: status }]);
                 }
             }
         });
@@ -96,11 +116,12 @@ impl EventPump {
             translation,
             outputs: outputs.clone(),
             goals,
+            loops,
         })
     }
 
     /// Detach: stop the event watch, publish the translator's held frame,
-    /// and end the goal watch.
+    /// and end the goal and loop watches.
     pub(crate) async fn stop(self) {
         // The watch's terminal result carries nothing the connection
         // reports: the pump only ever stops on purpose.
@@ -113,5 +134,6 @@ impl EventPump {
             .flush();
         self.outputs.write_events(held);
         self.goals.abort();
+        self.loops.abort();
     }
 }

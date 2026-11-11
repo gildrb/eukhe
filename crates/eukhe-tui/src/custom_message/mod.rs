@@ -564,6 +564,26 @@ mod tests {
         }
     }
 
+    /// A loop's end line (`eukhe.loop`, display-only) shows like the
+    /// director notices: the generic panel under its type label.
+    #[test]
+    fn the_loop_notice_renders_the_generic_panel() {
+        let text = "Loop condition `test -f done` is now satisfied. Loop mode disabled.";
+        assert_eq!(
+            decoded(&json!({
+                "role": "custom",
+                "customType": "eukhe.loop",
+                "content": text,
+                "display": true,
+                "details": { "end": "satisfied" },
+            })),
+            vec![ChatEntry::CustomPanel(Box::new(CustomPanelRow {
+                custom_type: "eukhe.loop".to_string(),
+                content: text.to_string(),
+            }))]
+        );
+    }
+
     #[test]
     fn agent_message_decodes_counterpart_and_body() {
         let entries = decoded(&json!({

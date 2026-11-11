@@ -3,9 +3,11 @@
 // sidebar status word, the document title, the badge and announcements.
 // No DOM, no clock reads: callers pass `now`.
 
+import { loopEndNote } from "./loop.ts";
 import type {
   AgentState,
   Cursor,
+  LoopStatus,
   Message,
   ModelRef,
   OpenReply,
@@ -111,6 +113,8 @@ export type Session = {
   last: Speed | null;
   bash: { command: string; output: string; startedAt: number } | null;
   goal: unknown;
+  /** The session's `/loop`: `state.loop`, then every `loop_update`. */
+  loop: LoopStatus | null;
   serviceTier: string | null;
   memory: { stamp: number; last: unknown };
   notes: Note[];
@@ -206,6 +210,7 @@ export function openSession(reply: OpenReply, previous: Session | null, now: num
     cursor: reply.cursor ?? (keep ? previous.cursor : null),
     queue: state.sessionActions ?? EMPTY_QUEUE,
     goal: state.goal ?? null,
+    loop: state.loop ?? null,
     serviceTier: state.serviceTier ?? null,
   };
   if (!keep) {
@@ -638,6 +643,15 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
       return { ...session, queue: event.actions };
     case "goal_update":
       return { ...session, goal: event.goal };
+    case "loop_update": {
+      // A loop that ends here leaves one note of why; a replayed end does not.
+      const end = session.loop?.phase.state === "ended" ? null : loopEndNote(event.loop);
+      return {
+        ...session,
+        loop: event.loop,
+        notes: end ? note(session, end.kind, end.text, now) : session.notes,
+      };
+    }
     case "chat_turn_wait":
       return {
         ...session,

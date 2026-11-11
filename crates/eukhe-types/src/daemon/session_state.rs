@@ -366,6 +366,9 @@ pub struct AgentConnectionState {
     pub session_actions: SessionActionSnapshot,
     pub compaction_count: u32,
     pub goal: Value,
+    /// The session's `/loop` (off without one).
+    #[serde(default)]
+    pub r#loop: crate::loop_mode::LoopStatus,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]

@@ -76,6 +76,7 @@ async fn get_connection_state_matches_the_ts_shape() {
         "sessionActions",
         "compactionCount",
         "goal",
+        "loop",
         "scopedModels",
         "activeToolNames",
     ] {
@@ -87,6 +88,42 @@ async fn get_connection_state_matches_the_ts_shape() {
     assert_eq!(
         response.error.as_deref(),
         Some("Session is still initializing")
+    );
+}
+
+/// The connection state carries the session's loop: off on a fresh
+/// session; `/loop 3` arms it, and the status the `loop_update` event
+/// announced is the one the state serves.
+#[tokio::test]
+async fn the_connection_state_carries_the_loop() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), ack_script()).await;
+    let data = get(&worker, "get_connection_state", &json!({})).await;
+    assert_eq!(
+        data["loop"],
+        json!(eukhe_types::loop_mode::LoopStatus::default())
+    );
+
+    let mut frames = worker.events.subscribe();
+    let armed = worker
+        .dispatch("prompt", &json!({ "message": "/loop 3" }))
+        .await;
+    assert!(armed.success, "/loop 3 failed: {armed:?}");
+    let announced = loop {
+        let frame = frames.recv().await.expect("the event pump stays open");
+        if frame.outbound_type != "session_event" {
+            continue;
+        }
+        let payload: Value = serde_json::from_slice(&frame.payload).expect("frame json");
+        let event = &payload["event"];
+        if event["type"] == "loop_update" && event["loop"]["phase"]["state"] == "armed" {
+            break event.clone();
+        }
+    };
+    let data = get(&worker, "get_connection_state", &json!({})).await;
+    assert_eq!(
+        announced,
+        json!({ "type": "loop_update", "loop": data["loop"] })
     );
 }
 

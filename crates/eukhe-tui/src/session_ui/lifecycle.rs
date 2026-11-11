@@ -6,9 +6,9 @@ use super::{
     attach_data_from_response, create_session, mpsc, reconstruct, resume_hint_from_stats,
     ActivityUpdates, AgentView, BTreeMap, ChatEntry, CompactionAbortNote, Context, DaemonClient,
     DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions, LoaderTokenTracker,
-    Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote, ReattachOutcome,
-    RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi, Value,
-    EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
+    LoopView, Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote,
+    ReattachOutcome, RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi,
+    Value, EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::activity::TurnPhase;
 
@@ -183,6 +183,7 @@ impl SessionUi {
             dirty: true,
             ctrl_c_hint_until: None,
             goal_view: GoalView::new(),
+            loop_view: LoopView::default(),
             notes,
             compaction_abort_notes,
             prompt_orders: orders_tx,
@@ -611,6 +612,8 @@ impl SessionUi {
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
+        self.loop_view
+            .seed(reconstructed.loop_status.unwrap_or_default());
         self.streaming_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly

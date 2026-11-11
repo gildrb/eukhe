@@ -1642,6 +1642,62 @@ fn goal_update_decodes_the_goal_payload() {
     assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
 }
 
+/// A `loop_update` event decodes to the wire loop status (the session
+/// view owns the status line label).
+#[test]
+fn loop_update_decodes_the_loop_status() {
+    let update = event_to_update(&event(json!({
+        "type": "loop_update",
+        "loop": {
+            "phase": { "state": "turn" },
+            "iteration": 3,
+            "remaining": 7,
+            "condition": { "command": "test -f done", "until": true },
+            "prompt": "fix it",
+            "failures": 0,
+            "limit": { "kind": "iterations", "iterations": 10 },
+            "startedAtMs": 5
+        }
+    })));
+    assert_eq!(update, TurnUpdate::LoopUpdate(running_loop()));
+}
+
+/// The loop the loop fixtures carry: the third turn of ten, until
+/// `test -f done`.
+fn running_loop() -> eukhe_types::loop_mode::LoopStatus {
+    use eukhe_types::loop_mode::{LoopCondition, LoopLimit, LoopPhase, LoopState, LoopStatus};
+    LoopStatus {
+        state: LoopState {
+            phase: LoopPhase::Turn,
+            iteration: 3,
+            remaining: Some(7),
+            condition: Some(LoopCondition {
+                command: "test -f done".to_string(),
+                until: true,
+            }),
+            prompt: "fix it".to_string(),
+            ..LoopState::default()
+        },
+        limit: Some(LoopLimit::Iterations { iterations: 10 }),
+        started_at_ms: Some(5),
+        ..LoopStatus::default()
+    }
+}
+
+/// The attach snapshot's `state.loop` rehydrates with the session; a
+/// snapshot without one (an older daemon) reports none.
+#[test]
+fn attach_snapshot_carries_the_loop_status() {
+    let mut attach = slim_attach();
+    let reconstructed =
+        reconstruct(&attach_data_from_response(attach.clone()).unwrap()).expect("reconstructs");
+    assert_eq!(reconstructed.loop_status, None);
+    attach["snapshot"]["state"]["loop"] = json!(running_loop());
+    let reconstructed =
+        reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
+    assert_eq!(reconstructed.loop_status, Some(running_loop()));
+}
+
 /// The attach snapshot's `state.goal` rehydrates with the session (TS
 /// `snapshot.ts: goal: session.goalState`); a null goal stays absent.
 #[test]

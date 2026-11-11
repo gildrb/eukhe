@@ -61,8 +61,11 @@ impl CompactionManager {
 
     /// One manual compaction with its `compaction_start`/`compaction_end`
     /// frame pair, settled: the `compact` command and the `/compact`
-    /// session command share it. A compaction that compacted continues an
-    /// active goal (the abort ended its in-run loop).
+    /// session command share it. A loop whose turn the abort cuts is held
+    /// across the compaction and takes its work up again whatever the
+    /// compaction did. A compaction that compacted continues an active
+    /// goal (the abort ended its in-run loop) unless a loop is on: the
+    /// loop's turn comes first.
     pub(crate) async fn compact(
         &self,
         custom_instructions: Option<String>,
@@ -79,9 +82,16 @@ impl CompactionManager {
         // settled transcript.
         let busy = self.core.lock().unwrap().is_busy();
         if busy {
-            main.abort(ConversationAbortOptions::default(), cx())
+            // The abort is the compaction's, not the user's interrupt: a
+            // loop with a turn in flight is held, not paused.
+            eukhe_core::durable::loop_mode::hold_loop_for_compaction(hosted.harness(), &main, cx())
                 .await
                 .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
+            if let Err(error) = main.abort(ConversationAbortOptions::default(), cx()).await {
+                // No compaction follows: the held loop is released here.
+                resume_loop(&hosted, &main).await;
+                return Err(ManualCompactionError::Failed(error.to_string()));
+            }
         }
         // The claim ties the run's task frames to this command.
         if let Some(view) = self.core.lock().unwrap().view.as_mut() {
@@ -110,19 +120,6 @@ impl CompactionManager {
                     },
                     true,
                 );
-                // The abort before the compaction ended an active goal's
-                // in-run loop: a compaction that compacted continues it.
-                if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
-                    hosted.harness(),
-                    main.id(),
-                    cx(),
-                )
-                .await
-                {
-                    eprintln!(
-                        "eukhe-daemon: the post-compaction goal continuation failed: {error}"
-                    );
-                }
             }
             Err(ManualCompactionError::Skipped(message)) => {
                 let end = compaction_end_unsuccessful(
@@ -172,6 +169,23 @@ impl CompactionManager {
                 );
             }
         }
+        // The compaction settled, whatever it did: a held loop takes its
+        // work up again, before the goal.
+        let loop_on = resume_loop(&hosted, &main).await;
+        // The abort before the compaction ended an active goal's in-run
+        // loop: a compaction that compacted continues it, unless a loop
+        // is on (its turn runs first, and the goal follows its answer).
+        if outcome.is_ok() && !loop_on {
+            if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
+                hosted.harness(),
+                main.id(),
+                cx(),
+            )
+            .await
+            {
+                eprintln!("eukhe-daemon: the post-compaction goal continuation failed: {error}");
+            }
+        }
         outcome
     }
 
@@ -210,6 +224,27 @@ impl CompactionManager {
         match aborted {
             Ok(_) => response_success(None, "abort_compaction", None),
             Err(error) => response_failure(None, "abort_compaction", &error.to_string(), None),
+        }
+    }
+}
+
+/// After a manual compaction settled (or could not start): a loop held
+/// for it takes its work up again. Answers whether a loop is on.
+async fn resume_loop(
+    hosted: &crate::worker::HostedSession,
+    main: &eukhe_durable::harness::Conversation,
+) -> bool {
+    if let Err(error) =
+        eukhe_core::durable::loop_mode::resume_loop_after_compaction(hosted.deps(), main, cx())
+            .await
+    {
+        eprintln!("eukhe-daemon: resuming the loop after the compaction failed: {error}");
+    }
+    match eukhe_core::durable::loop_mode::loop_status(hosted.harness(), main.id(), cx()).await {
+        Ok(status) => status.state.phase.is_on(),
+        Err(error) => {
+            eprintln!("eukhe-daemon: reading the loop after the compaction failed: {error}");
+            false
         }
     }
 }

@@ -10,6 +10,7 @@ use eukhe_types::daemon::{
     SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
 use eukhe_types::goal::GoalState;
+use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 
 /// One session event decoded for the transcript.
@@ -113,6 +114,9 @@ pub enum TurnUpdate {
     /// `goal_update`: the session goal state changed (the session view
     /// owns announcement and tray rendering).
     GoalUpdate(GoalState),
+    /// `loop_update`: the session's `/loop` changed (the session view
+    /// owns the status line label).
+    LoopUpdate(LoopStatus),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -343,6 +347,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             TurnUpdate::QueueUpdated(queued_messages(actions))
         }
         SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
+        SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,

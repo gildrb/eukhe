@@ -51,7 +51,7 @@ pub enum RpcSessionError {
     /// The composition root could not open the session.
     #[error(transparent)]
     Engine(#[from] RpcEngineError),
-    /// The goal read, the settle, or the event pump attach failed.
+    /// The goal or loop read, the settle, or the event pump attach failed.
     #[error(transparent)]
     Session(#[from] SessionError),
 }

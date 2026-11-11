@@ -1,6 +1,7 @@
 //! Daemon session-event mapping: the TS `acpUpdatesForSessionEvent` port
 //! for the wire shapes a daemon worker streams (`message_start/update/end`,
-//! `tool_execution_*`, `bash_*`, `compaction_end`, `goal_update`, ...): the
+//! `tool_execution_*`, `bash_*`, `compaction_end`, `goal_update`,
+//! `loop_update`, ...): the
 //! ACP frames the daemon worker's session events produce.
 //!
 //! Events with no ACP counterpart (`turn_end`, `auto_retry_*`,
@@ -355,6 +356,22 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 }),
             }]
         }
+        "loop_update" => {
+            // The whole status rides the meta; an event without a readable
+            // one has nothing to publish.
+            let status = event
+                .get("loop")
+                .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
+            match status {
+                Some(status) => vec![AcpSessionUpdate::SessionInfoUpdate {
+                    meta: eukhe_meta(&EukheSessionMeta {
+                        r#loop: Some(status),
+                        ..Default::default()
+                    }),
+                }],
+                None => Vec::new(),
+            }
+        }
         "compaction_end" => {
             let result = event.get("result");
             vec![AcpSessionUpdate::SessionInfoUpdate {
@@ -705,6 +722,40 @@ mod tests {
                 "tokenBudget": 500,
                 "tokensUsed": 0,
             })
+        );
+    }
+
+    /// A `loop_update` publishes the whole loop status under the
+    /// namespaced `loop` meta.
+    #[test]
+    fn loop_update_maps_to_the_namespaced_loop_meta() {
+        let mut state = WireMappingState::default();
+        let status = json!({
+            "phase": { "state": "judging" },
+            "iteration": 2,
+            "remaining": 8,
+            "condition": { "command": "test -f done", "until": true },
+            "prompt": "fix it",
+            "failures": 0,
+            "lastCheck": { "iteration": 1, "evidence": { "kind": "exited", "code": 1 } },
+            "limit": { "kind": "iterations", "iterations": 10 },
+            "startedAtMs": 5,
+            "verdict": 1,
+        });
+        let updates = wire_updates(
+            &json!({ "type": "loop_update", "loop": status }),
+            &mut state,
+        );
+        let frames: Vec<Value> = updates
+            .iter()
+            .map(|update| serde_json::to_value(update).unwrap())
+            .collect();
+        assert_eq!(
+            frames,
+            [json!({
+                "sessionUpdate": "session_info_update",
+                "_meta": { "com.eukhe": { "loop": status } },
+            })]
         );
     }
 

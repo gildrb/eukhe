@@ -89,6 +89,9 @@ pub struct EukheSessionMeta {
     pub heartbeats_changed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<EukheGoalMeta>,
+    /// The session's `/loop`: its whole status, after every change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#loop: Option<eukhe_types::loop_mode::LoopStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refinement: Option<EukheRefinementMeta>,
     #[serde(skip_serializing_if = "Option::is_none")]

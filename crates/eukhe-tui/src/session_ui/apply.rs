@@ -922,6 +922,9 @@ impl SessionUi {
             TurnUpdate::GoalUpdate(goal) => {
                 self.apply_goal_update(goal, view);
             }
+            TurnUpdate::LoopUpdate(status) => {
+                self.apply_loop_update(status, view);
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

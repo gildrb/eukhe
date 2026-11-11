@@ -3,9 +3,9 @@
 //! sequence and the attach snapshot's mirror advance together), coalesced
 //! `message_update`s flush every 50 ms, inbox changes become
 //! `session_action_update` (with the queued inputs' previews read from the
-//! `pi.inbox` document), goal document changes become `goal_update`, and
-//! main's workers and the session's run pause land on the view (summary
-//! `workers`, `isPaused`).
+//! `pi.inbox` document), goal document changes become `goal_update`, loop
+//! document changes become `loop_update`, and main's workers and the
+//! session's run pause land on the view (summary `workers`, `isPaused`).
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,6 +26,7 @@ use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
 use eukhe_types::daemon::{SessionEvent, SessionWorker};
 use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
 use eukhe_types::session::AgentMessage;
 use futures::FutureExt as _;
@@ -82,6 +83,9 @@ pub(crate) struct ShownView {
     pub(crate) active: Option<eukhe_types::daemon::SessionActionActive>,
     /// The served goal (`goal_update` payload); `Null` without a goal.
     pub(crate) goal: Value,
+    /// The served loop (`loop_update` payload); `None` until the loop
+    /// watch read it.
+    pub(crate) loop_status: Option<LoopStatus>,
     /// Main's workers (summary `workers`), in creation order.
     pub(crate) workers: Vec<SessionWorker>,
     /// This session's run is paused (summary `isPaused`).
@@ -177,7 +181,8 @@ impl EventBridge {
 
     /// Attach to `conversation`'s events and durable view, install both on
     /// the core, and start the listener, the flush timer, the goal watch,
-    /// the workers and pause watch, and the provider failover relay.
+    /// the loop watch, the workers and pause watch, and the provider
+    /// failover relay.
     ///
     /// # Errors
     ///
@@ -214,6 +219,7 @@ impl EventBridge {
                 inbox,
                 active: None,
                 goal: Value::Null,
+                loop_status: None,
                 workers: Vec::new(),
                 paused: shape.pause.view().paused,
             });
@@ -236,6 +242,13 @@ impl EventBridge {
             .tasks
             .push(tokio::spawn(flush_loop(epoch, sink.clone())));
         bridge.tasks.push(tokio::spawn(goal_loop(
+            harness.clone(),
+            epoch,
+            conversation_id,
+            sink.clone(),
+            cx.clone(),
+        )));
+        bridge.tasks.push(tokio::spawn(loop_loop(
             harness.clone(),
             epoch,
             conversation_id,
@@ -513,6 +526,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::LoopUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }
@@ -568,6 +582,40 @@ async fn goal_loop(
             &mut core,
             &sink.events,
             SessionEvent::GoalUpdate { goal },
+        );
+    }
+}
+
+/// The loop of the shown conversation on the core (state `loop`): each
+/// changed status lands on the view and goes out as `loop_update`.
+async fn loop_loop(
+    harness: Harness,
+    epoch: u64,
+    conversation_id: ConversationId,
+    sink: BridgeSink,
+    cx: Context,
+) {
+    let mut updates =
+        match eukhe_core::durable::loop_mode::watch_loop_updates(&harness, conversation_id, &cx) {
+            Ok(updates) => updates,
+            Err(error) => {
+                eprintln!("eukhe-daemon worker: loop updates unavailable: {error}");
+                return;
+            }
+        };
+    while let Some(status) = updates.next().await {
+        let mut core = lock(&sink.core);
+        let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+            return;
+        };
+        if view.loop_status.as_ref() == Some(&status) {
+            continue;
+        }
+        view.loop_status = Some(status.clone());
+        crate::worker::emit_event_locked(
+            &mut core,
+            &sink.events,
+            SessionEvent::LoopUpdate { r#loop: status },
         );
     }
 }

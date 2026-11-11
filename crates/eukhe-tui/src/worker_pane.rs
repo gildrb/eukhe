@@ -244,6 +244,7 @@ impl WorkerPane {
             | TurnUpdate::PromptProgress(_)
             | TurnUpdate::MemoryUpdate(_)
             | TurnUpdate::GoalUpdate(_)
+            | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::QueueUpdated(_)
             | TurnUpdate::BashStart { .. }
             | TurnUpdate::BashOutput { .. }

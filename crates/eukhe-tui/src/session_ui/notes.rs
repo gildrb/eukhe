@@ -28,6 +28,19 @@ impl SessionUi {
         self.sync_goal_tray(view);
     }
 
+    /// One `loop_update` session event: store the status and sync the
+    /// status line's loop label. (The loop reports its start and its end
+    /// in transcript rows of its own.)
+    pub(super) fn apply_loop_update(
+        &mut self,
+        status: eukhe_types::loop_mode::LoopStatus,
+        view: &mut AgentView,
+    ) {
+        if self.loop_view.apply_update(status) {
+            self.sync_activity_dock(view);
+        }
+    }
+
     /// The goal status row (TS `showStatus` via `formatGoalStatus`): a
     /// consecutive announcement rewrites the previous status row in place
     /// while it is still the transcript's last entry.

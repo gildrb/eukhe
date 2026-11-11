@@ -183,6 +183,10 @@ pub struct ActivityDock {
     /// panel); `None` unless the goal is actively being pursued (a
     /// completed or idle goal carries no dock segment).
     pub goal_label: Option<String>,
+    /// The session's `/loop` label (`Loop running 7/10 until: test -f
+    /// done`-style); `None` unless a loop is on. Not a group: it opens
+    /// nothing, so the arrows never land on it.
+    pub loop_label: Option<crate::loop_surface::LoopLabel>,
     pub selected: ActivityGroup,
     pub focused: bool,
 }

@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::{MemoryUpdate, SessionActionSnapshot};
 use crate::ai::{ServiceTier, UserContentBlock};
 use crate::goal::GoalState;
+use crate::loop_mode::LoopStatus;
 use crate::output::OmittedOutput;
 use crate::pi_ai::PromptProgress;
 use crate::session::AgentMessage;
@@ -138,6 +139,10 @@ pub enum SessionEvent {
     GoalUpdate {
         goal: GoalState,
     },
+    /// The session's `/loop` changed: its whole status.
+    LoopUpdate {
+        r#loop: LoopStatus,
+    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -206,6 +211,7 @@ impl SessionEvent {
             | Self::ServiceTierChanged { .. }
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
+            | Self::LoopUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }
             | Self::BashOutput { .. }
@@ -374,6 +380,20 @@ mod tests {
         );
         rt::<SessionEvent>(
             r#"{"type":"bash_end","exitCode":null,"cancelled":true,"output":"tail","omitted":{"bytes":10,"lines":2,"at":"start"},"artifact":"/tmp/out","transient":true,"runId":"r"}"#,
+        );
+    }
+
+    /// `loop_update` carries the whole loop status under `loop`.
+    #[test]
+    fn loop_update_roundtrips() {
+        rt::<SessionEvent>(
+            r#"{"type":"loop_update","loop":{"phase":{"state":"off"},"iteration":0,"prompt":"","failures":0}}"#,
+        );
+        rt::<SessionEvent>(
+            r#"{"type":"loop_update","loop":{"phase":{"state":"judging"},"iteration":2,"remaining":8,"deadlineMs":90000,"condition":{"command":"test -f done","until":true},"prompt":"fix it","failures":1,"lastCheck":{"iteration":1,"evidence":{"kind":"exited","code":1}},"limit":{"kind":"iterations","iterations":10},"startedAtMs":5,"verdict":1,"message":"Loop mode enabled."}}"#,
+        );
+        rt::<SessionEvent>(
+            r#"{"type":"loop_update","loop":{"phase":{"state":"ended","end":"out_of_time"},"iteration":4,"prompt":"fix it","failures":0,"limit":{"kind":"duration","durationMs":600000},"startedAtMs":5}}"#,
         );
     }
 }

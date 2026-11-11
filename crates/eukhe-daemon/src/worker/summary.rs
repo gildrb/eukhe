@@ -225,6 +225,11 @@ impl Worker {
                 .view
                 .as_ref()
                 .map_or(Value::Null, |view| view.goal.clone()),
+            r#loop: core
+                .view
+                .as_ref()
+                .and_then(|view| view.loop_status.clone())
+                .unwrap_or_default(),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,
@@ -800,6 +805,7 @@ mod tests {
             inbox,
             active: None,
             goal: Value::Null,
+            loop_status: None,
             workers: Vec::new(),
             paused: false,
         });
