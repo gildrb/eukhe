@@ -194,3 +194,27 @@ async fn moonshot_kimi_sends_reasoning_effort_and_k2_6_keeps_thinking() {
         }
     }
 }
+
+/// omp: a Kimi model always sends an output cap (catalog
+/// `compat/resolve.ts` `alwaysSendMaxTokens: facts.is("kimi")`), also where
+/// the catalog max is the whole window and the cap would otherwise be left
+/// to the provider.
+#[tokio::test]
+async fn kimi_always_sends_an_output_cap() {
+    for provider in ["moonshotai", "moonshotai-cn"] {
+        for id in [
+            "kimi-k2.6",
+            "kimi-k2.7-code",
+            "kimi-k2.7-code-highspeed",
+            "kimi-k3",
+        ] {
+            for level_name in ["off", "high"] {
+                let payload = payload(&model(provider, id), level(level_name)).await;
+                assert!(
+                    payload.get("max_tokens").is_some_and(JsonValue::is_u64),
+                    "{provider}/{id} {level_name}: no max_tokens in {payload}"
+                );
+            }
+        }
+    }
+}

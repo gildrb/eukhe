@@ -90,6 +90,14 @@ fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
     })
 }
 
+/// omp: a Kimi model always sends its output cap (catalog
+/// `compat/resolve.ts` `alwaysSendMaxTokens: facts.is("kimi")`, applied in
+/// `ai/src/providers/openai-shared.ts` `resolveOpenAIOutputTokenParam`),
+/// even where the cap would otherwise be left to the provider.
+pub(crate) fn always_sends_max_tokens(model: &Model) -> bool {
+    model.id.to_ascii_lowercase().contains("kimi")
+}
+
 /// The settings the quirks rulebook gives the model's host (provider id,
 /// else base URL); a setting no rule gives takes the standard
 /// OpenAI-compatible default. Used as the base when `model.compat` is not
