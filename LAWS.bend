@@ -160,6 +160,7 @@ import ./laws/job_wait.bend as JobWait
 import ./laws/auth_flight/model.bend as AuthFlight
 import ./laws/auth_flight/entry.bend as AuthFlightEntry
 import ./laws/auth_flight/safety.bend as AuthFlightSafety
+import ./laws/auth_flight/desk.bend as AuthFlightDesk
 import ./laws/worker.bend as Worker
 import ./laws/worker/forward.bend as WorkerForward
 import ./laws/model_name.bend as ModelName

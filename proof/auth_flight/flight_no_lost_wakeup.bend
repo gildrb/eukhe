@@ -16,24 +16,25 @@ import ./base/flights.bend as AF
 import ./base/moves.bend as MV
 
 import ../../laws/auth_flight/safety.bend as AuthFlightSafety
+import ./base/desk.bend as D
 
-def pnl.board(w: Bool, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +ew: {S.af_inflight(p, cs) == w : Bool}, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, F.Loads{}}} : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(S.af_board(w, k, cs, n))) == True{} : Bool}:
+def pnl.board(w: Bool, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +ew: {S.af_inflight(p, cs) == w : Bool}, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, F.Loads{}}} : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(D.af_board(w, k, cs, n))) == True{} : Bool}:
   match w:
     case True{}:
-      AF.ad.led_setL(k, F.Waits{}, cs, S.af_set(k, F.Waits{}, cs), j, p, F.Loads{}, at, AF.ad.infl_set(p, k, F.Waits{}, cs, j, p, F.Loads{}, at, {==}, ew), AF.ad.led_setC(cs, k, F.Waits{}, cs, j, p, F.Loads{}, at, {==}, h))
+      AF.ad.led_setL(k, F.Waits{}, cs, D.af_set(k, F.Waits{}, cs), j, p, F.Loads{}, at, AF.ad.infl_set(p, k, F.Waits{}, cs, j, p, F.Loads{}, at, {==}, ew), AF.ad.led_setC(cs, k, F.Waits{}, cs, j, p, F.Loads{}, at, {==}, h))
     case False{}:
-      AF.ad.led_setL(k, F.Checks{}, cs, S.af_set(k, F.Checks{}, cs), j, p, F.Loads{}, at, {==}, AF.ad.led_setC(cs, k, F.Checks{}, cs, j, p, F.Loads{}, at, {==}, h))
+      AF.ad.led_setL(k, F.Checks{}, cs, D.af_set(k, F.Checks{}, cs), j, p, F.Loads{}, at, {==}, AF.ad.led_setC(cs, k, F.Checks{}, cs, j, p, F.Loads{}, at, {==}, h))
 
-def pnl.fit(a: F.At, fd: F.Fd, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, a}} : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(S.af_found_fit(S.af_takes(a, fd), fd, k, p, cs, n))) == True{} : Bool}:
+def pnl.fit(a: F.At, fd: F.Fd, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, a}} : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(D.af_found_fit(S.af_takes(a, fd), fd, k, p, cs, n))) == True{} : Bool}:
   match a:
     case F.Loads{}:
       match fd:
         case F.LoadFresh{}:
-          AF.ad.led_cutL(k, cs, S.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Loads{}, at, {==}, h))
+          AF.ad.led_cutL(k, cs, D.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Loads{}, at, {==}, h))
         case F.LoadExpired{}:
           pnl.board(S.af_inflight(p, cs), k, j, p, cs, n, {==}, at, h)
         case F.LoadFailed{}:
-          AF.ad.led_cutL(k, cs, S.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Loads{}, at, {==}, h))
+          AF.ad.led_cutL(k, cs, D.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Loads{}, at, {==}, h))
         case F.CheckFresh{}:
           h
         case F.CheckExpired{}:
@@ -53,9 +54,9 @@ def pnl.fit(a: F.At, fd: F.Fd, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.LoadFailed{}:
           h
         case F.CheckFresh{}:
-          AF.ad.led_landC(S.af_cut(k, cs), k, cs, j, p, F.Checks{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
+          AF.ad.led_landC(D.af_cut(k, cs), k, cs, j, p, F.Checks{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
         case F.CheckExpired{}:
-          AF.ad.led_setL(k, F.Fetches{}, cs, S.af_set(k, F.Fetches{}, cs), j, p, F.Checks{}, at, {==}, AF.ad.led_setC(cs, k, F.Fetches{}, cs, j, p, F.Checks{}, at, {==}, h))
+          AF.ad.led_setL(k, F.Fetches{}, cs, D.af_set(k, F.Fetches{}, cs), j, p, F.Checks{}, at, {==}, AF.ad.led_setC(cs, k, F.Fetches{}, cs, j, p, F.Checks{}, at, {==}, h))
         case F.FetchOk{}:
           h
         case F.FetchFailed{}:
@@ -75,9 +76,9 @@ def pnl.fit(a: F.At, fd: F.Fd, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.CheckExpired{}:
           h
         case F.FetchOk{}:
-          AF.ad.led_setL(k, F.Stores{}, cs, S.af_set(k, F.Stores{}, cs), j, p, F.Fetches{}, at, {==}, AF.ad.led_setC(cs, k, F.Stores{}, cs, j, p, F.Fetches{}, at, {==}, h))
+          AF.ad.led_setL(k, F.Stores{}, cs, D.af_set(k, F.Stores{}, cs), j, p, F.Fetches{}, at, {==}, AF.ad.led_setC(cs, k, F.Stores{}, cs, j, p, F.Fetches{}, at, {==}, h))
         case F.FetchFailed{}:
-          AF.ad.led_landC(S.af_cut(k, cs), k, cs, j, p, F.Fetches{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
+          AF.ad.led_landC(D.af_cut(k, cs), k, cs, j, p, F.Fetches{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
         case F.Stored{}:
           h
     case F.Stores{}:
@@ -97,7 +98,7 @@ def pnl.fit(a: F.At, fd: F.Fd, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.FetchFailed{}:
           h
         case F.Stored{}:
-          AF.ad.led_landC(S.af_cut(k, cs), k, cs, j, p, F.Stores{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
+          AF.ad.led_landC(D.af_cut(k, cs), k, cs, j, p, F.Stores{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
     case F.Waits{}:
       match fd:
         case F.LoadFresh{}:
@@ -117,7 +118,7 @@ def pnl.fit(a: F.At, fd: F.Fd, +k: Nat, +j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.Stored{}:
           h
 
-def pnl.found(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(S.af_found_at(m, fd, k, cs, n))) == True{} : Bool}:
+def pnl.found(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(D.af_found_at(m, fd, k, cs, n))) == True{} : Bool}:
   match m:
     case None{}:
       h
@@ -126,7 +127,7 @@ def pnl.found(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: N
         case F.Cl{+j, +p, +a}:
           pnl.fit(a, fd, k, j, p, cs, n, at, h)
 
-def pnl.unwind(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(S.af_unwind_at(m, k, cs, n))) == True{} : Bool}:
+def pnl.unwind(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: {MV.mv.led(F.Desk{cs, n}) == True{} : Bool}) -> {MV.mv.led(SS.af_after(D.af_unwind_at(m, k, cs, n))) == True{} : Bool}:
   match m:
     case None{}:
       h
@@ -135,17 +136,17 @@ def pnl.unwind(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {
         case F.Cl{+j, +p, a}:
           match a:
             case F.Loads{}:
-              AF.ad.led_cutL(k, cs, S.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Loads{}, at, {==}, h))
+              AF.ad.led_cutL(k, cs, D.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Loads{}, at, {==}, h))
             case F.Checks{}:
-              AF.ad.led_landC(S.af_cut(k, cs), k, cs, j, p, F.Checks{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
+              AF.ad.led_landC(D.af_cut(k, cs), k, cs, j, p, F.Checks{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
             case F.Fetches{}:
-              AF.ad.led_landC(S.af_cut(k, cs), k, cs, j, p, F.Fetches{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
+              AF.ad.led_landC(D.af_cut(k, cs), k, cs, j, p, F.Fetches{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
             case F.Stores{}:
-              AF.ad.led_landC(S.af_cut(k, cs), k, cs, j, p, F.Stores{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
+              AF.ad.led_landC(D.af_cut(k, cs), k, cs, j, p, F.Stores{}, at, {==}, AF.ad.led_cutL(k, cs, cs, h))
             case F.Waits{}:
-              AF.ad.led_cutL(k, cs, S.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Waits{}, at, {==}, h))
+              AF.ad.led_cutL(k, cs, D.af_cut(k, cs), AF.ad.led_cutC(cs, k, cs, j, p, F.Waits{}, at, {==}, h))
 
-def pnl.step(d: F.Desk, e: F.DEv, h: {MV.mv.led(d) == True{} : Bool}) -> {MV.mv.led(SS.af_after(S.af_desk(d, e))) == True{} : Bool}:
+def pnl.step(d: F.Desk, e: F.DEv, h: {MV.mv.led(d) == True{} : Bool}) -> {MV.mv.led(SS.af_after(D.af_desk(d, e))) == True{} : Bool}:
   match d:
     case F.Desk{+cs, +n}:
       match e:
@@ -159,7 +160,7 @@ def pnl.step(d: F.Desk, e: F.DEv, h: {MV.mv.led(d) == True{} : Bool}) -> {MV.mv.
           h
 
 def pnl.step_code(+d: F.Desk, +e: F.DEv, h: {MV.mv.led(d) == True{} : Bool}) -> {MV.mv.led(SS.af_after(F.desk.step(d, e))) == True{} : Bool}:
-  %Equal.sym(F.DRes, F.desk.step(d, e), S.af_desk(d, e), LAE.ae.desk(d, e)) : {MV.mv.led(SS.af_after(_)) == True{} : Bool}
+  %Equal.sym(F.DRes, F.desk.step(d, e), D.af_desk(d, e), LAE.ae.desk(d, e)) : {MV.mv.led(SS.af_after(_)) == True{} : Bool}
   pnl.step(d, e, h)
 
 # every run keeps every waiting caller led

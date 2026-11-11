@@ -12,12 +12,13 @@ import ../../bend/auth_flight.bend as F
 import ../../bend/ffi_auth_flight.bend as FA
 import ../../laws/auth_flight/entry.bend as AuthFlightEntry
 import ./base/entry.bend as LAE
+import ./base/desk.bend as D
 
 # the claim, after the found's caller is found
 def afm.G(fit: Bool, +fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +c: Nat, +f: Nat, +w: F.W) -> Type:
-  &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(AuthFlightEntry.af_step_of(AuthFlightEntry.af_found_fit(fit, fd, k, p, cs, n))) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(fd, AuthFlightEntry.af_inflight(p, cs), c, f, w)} <> rest}) : String}
+  &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(AuthFlightEntry.af_step_of(D.af_found_fit(fit, fd, k, p, cs, n))) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(fd, AuthFlightEntry.af_inflight(p, cs), c, f, w)} <> rest}) : String}
 
-def afm.board(fl: Bool, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +c: Nat, +w: F.W) -> &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(AuthFlightEntry.af_step_of(AuthFlightEntry.af_board(fl, k, cs, n))) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(F.LoadExpired{}, fl, c, 0n, w)} <> rest}) : String}:
+def afm.board(fl: Bool, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +c: Nat, +w: F.W) -> &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(AuthFlightEntry.af_step_of(D.af_board(fl, k, cs, n))) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(F.LoadExpired{}, fl, c, 0n, w)} <> rest}) : String}:
   match fl:
     case True{}:
       (Nil{}, {==})
@@ -53,7 +54,7 @@ def afm.fit(a: F.At, fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat
         case F.LoadFailed{}:
           LAE.ae.ft(afm.G(AuthFlightEntry.af_takes(F.Checks{}, F.LoadFailed{}), F.LoadFailed{}, k, p, cs, n, c, f, w), takes)
         case F.CheckFresh{}:
-          (AuthFlightEntry.af_wake(p, F.DoDone{}, AuthFlightEntry.af_cut(k, cs)), {==})
+          (D.af_wake(p, F.DoDone{}, D.af_cut(k, cs)), {==})
         case F.CheckExpired{}:
           (Nil{}, {==})
         case F.FetchOk{}:
@@ -81,7 +82,7 @@ def afm.fit(a: F.At, fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat
         case F.FetchFailed{}:
           match w:
             case F.W{s, fl, ld, m}:
-              (AuthFlightEntry.af_wake(p, F.DoDone{}, AuthFlightEntry.af_cut(k, cs)), {==})
+              (D.af_wake(p, F.DoDone{}, D.af_cut(k, cs)), {==})
         case F.Stored{}:
           LAE.ae.ft(afm.G(AuthFlightEntry.af_takes(F.Fetches{}, F.Stored{}), F.Stored{}, k, p, cs, n, c, f, w), takes)
     case F.Stores{}:
@@ -107,9 +108,9 @@ def afm.fit(a: F.At, fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat
                 case F.Sto{q, fresh}:
                   match fresh:
                     case True{}:
-                      (AuthFlightEntry.af_wake(p, F.DoDone{}, AuthFlightEntry.af_cut(k, cs)), {==})
+                      (D.af_wake(p, F.DoDone{}, D.af_cut(k, cs)), {==})
                     case False{}:
-                      (AuthFlightEntry.af_wake(p, F.DoDone{}, AuthFlightEntry.af_cut(k, cs)), {==})
+                      (D.af_wake(p, F.DoDone{}, D.af_cut(k, cs)), {==})
     case F.Waits{}:
       match fd:
         case F.LoadFresh{}:
@@ -131,5 +132,5 @@ def afm.fit(a: F.At, fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat
 
 def AuthFlightEntry.flight_step_is_model(cs, n, k, fits, j, p, a, at, fd, c, f, w, takes):
   %LAE.ae.answers_r(F.Desk{cs, n}, F.Found{k, fd}, fits) : &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(_) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(fd, AuthFlightEntry.af_inflight(p, cs), c, f, w)} <> rest}) : String}
-  %LAE.ae.at_r(k, cs, F.Cl{j, p, a}, at) : &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(AuthFlightEntry.af_step_of(AuthFlightEntry.af_found_at(_, fd, k, cs, n))) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(fd, AuthFlightEntry.af_inflight(p, cs), c, f, w)} <> rest}) : String}
+  %LAE.ae.at_r(k, cs, F.Cl{j, p, a}, at) : &rest: List<&2, F.To> -> {AuthFlightEntry.af_reply(AuthFlightEntry.af_step_of(D.af_found_at(_, fd, k, cs, n))) == AuthFlightEntry.af_spell_out(F.Acts{F.To{k, AuthFlightEntry.af_model_fd(fd, AuthFlightEntry.af_inflight(p, cs), c, f, w)} <> rest}) : String}
   afm.fit(a, fd, k, p, cs, n, c, f, w, takes)

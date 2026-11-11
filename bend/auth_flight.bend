@@ -244,69 +244,6 @@ def step(s: St, e: Ev) -> St:
                 case Expire{}:
                   St{W{Sto{c, False{}}, fl, ld, n}, cs}
 
-# the state after evs, from s
-def go(evs: List<&2, Ev>, s: St) -> St:
-  match evs:
-    case Nil{}:
-      s
-    case e <> rest:
-      go(rest, step(s, e))
-
-# no caller yet; the store holds credential 0, expired
-def St.new() -> St:
-  St{W{Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}}
-
-def run(evs: List<&2, Ev>) -> St:
-  go(evs, St.new())
-
-# What the laws speak of
-# ----------------------
-
-def le(a: Nat, b: Nat) -> Bool:
-  match a b:
-    case 0n _:
-      True{}
-    case 1n+p 0n:
-      False{}
-    case 1n+p 1n+q:
-      le(p, q)
-
-def fetching.of(l: Leg) -> Nat:
-  match l:
-    case Fetch{f}:
-      1n
-    case _:
-      0n
-
-# the callers that fetch now
-def fetching(cs: List<&2, Leg>) -> Nat:
-  match cs:
-    case Nil{}:
-      0n
-    case l <> t:
-      Nat.add(fetching.of(l), fetching(t))
-
-# the flight a caller leads
-def led(l: Leg) -> Maybe<&2, Nat>:
-  match l:
-    case Check{f}:
-      Some{f}
-    case Fetch{f}:
-      Some{f}
-    case Store{f, c}:
-      Some{f}
-    case Land{f, o}:
-      Some{f}
-    case _:
-      None{}
-
-# a caller that arrives in s and takes a step is served the stored
-# credential, and it is c or a newer one
-def After(+c: Nat, +s: St, ok: Bool) -> Type:
-  +k = List.length(&2, Leg, St.cs(s))
-  +stored = Sto.c(W.sto(St.w(s)))
-  ({List.get(&2, Leg, St.cs(step(step(s, Arrive{}), Step{k, ok})), k) == Some{Served{None{}, Ok{stored}}} : Maybe<&2, Leg>} & {le(c, stored) == True{} : Bool})
-
 # The desk the Rust runs
 # ----------------------
 # The Rust refresh keeps one desk per auth document behind a mutex (the

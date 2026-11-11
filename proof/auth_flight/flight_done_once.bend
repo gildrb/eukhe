@@ -13,9 +13,10 @@ import ../../laws/auth_flight/safety.bend as AuthFlightSafety
 import ./base/entry.bend as LAE
 import ./base/moves.bend as MV
 import ./flight_done_once/steps.bend as PDS
+import ./base/desk.bend as D
 
 def pdo.ids_code(+d: F.Desk, +e: F.DEv, h: {MV.mv.ids(d) == True{} : Bool}) -> {MV.mv.ids(SS.af_after(F.desk.step(d, e))) == True{} : Bool}:
-  %Equal.sym(F.DRes, F.desk.step(d, e), S.af_desk(d, e), LAE.ae.desk(d, e)) : {MV.mv.ids(SS.af_after(_)) == True{} : Bool}
+  %Equal.sym(F.DRes, F.desk.step(d, e), D.af_desk(d, e), LAE.ae.desk(d, e)) : {MV.mv.ids(SS.af_after(_)) == True{} : Bool}
   PDS.pid.step(d, e, h)
 
 # every run keeps each number held once and below the next one's
@@ -28,11 +29,11 @@ def pdo.ids_run(evs: List<&2, F.DEv>, +d: F.Desk, h: {MV.mv.ids(d) == True{} : B
 
 def pdo.end_code(+d: F.Desk, +e: F.DEv, +i: Nat, hi: {MV.mv.ids(d) == True{} : Bool}, en: {SS.af_ends(i, SS.af_out(F.desk.step(d, e))) == True{} : Bool}) -> MV.mv.EndGoal(i, F.desk.step(d, e)):
   +eq = LAE.ae.desk(d, e)
-  %Equal.sym(F.DRes, F.desk.step(d, e), S.af_desk(d, e), eq) : MV.mv.EndGoal(i, _)
-  PDS.pen.step(d, e, i, hi, Equal.trans(Bool, SS.af_ends(i, SS.af_out(S.af_desk(d, e))), SS.af_ends(i, SS.af_out(F.desk.step(d, e))), True{}, Equal.cong(F.DRes, Bool, r => SS.af_ends(i, SS.af_out(r)), S.af_desk(d, e), F.desk.step(d, e), Equal.sym(F.DRes, F.desk.step(d, e), S.af_desk(d, e), eq)), en))
+  %Equal.sym(F.DRes, F.desk.step(d, e), D.af_desk(d, e), eq) : MV.mv.EndGoal(i, _)
+  PDS.pen.step(d, e, i, hi, Equal.trans(Bool, SS.af_ends(i, SS.af_out(D.af_desk(d, e))), SS.af_ends(i, SS.af_out(F.desk.step(d, e))), True{}, Equal.cong(F.DRes, Bool, r => SS.af_ends(i, SS.af_out(r)), D.af_desk(d, e), F.desk.step(d, e), Equal.sym(F.DRes, F.desk.step(d, e), D.af_desk(d, e), eq)), en))
 
 def pdo.quiet_code(+d: F.Desk, +e: F.DEv, +i: Nat, q: ({SS.af_live(i, S.af_cs(d)) == False{} : Bool} & {Nat.is_lt(i, MV.mv.m_of(d)) == True{} : Bool})) -> MV.mv.QGoal(i, F.desk.step(d, e)):
-  %Equal.sym(F.DRes, F.desk.step(d, e), S.af_desk(d, e), LAE.ae.desk(d, e)) : MV.mv.QGoal(i, _)
+  %Equal.sym(F.DRes, F.desk.step(d, e), D.af_desk(d, e), LAE.ae.desk(d, e)) : MV.mv.QGoal(i, _)
   PDS.pq.step(d, e, i, q)
 
 def pdo.quiet_at(+i: Nat, +o: F.DOut, rest: List<&2, F.DEv>, +d1: F.Desk, t: ({SS.af_names(i, o) == 0n : Nat} & {SS.af_live(i, S.af_cs(d1)) == False{} : Bool} & {Nat.is_lt(i, MV.mv.m_of(d1)) == True{} : Bool}), ih: ({SS.af_live(i, S.af_cs(d1)) == False{} : Bool} & {Nat.is_lt(i, MV.mv.m_of(d1)) == True{} : Bool}) -> ({SS.af_named(i, rest, d1) == False{} : Bool} & {SS.af_live(i, S.af_cs(SS.af_go(rest, d1))) == False{} : Bool})) -> ({Bool.or(Nat.is_lt(0n, SS.af_names(i, o)), SS.af_named(i, rest, d1)) == False{} : Bool} & {SS.af_live(i, S.af_cs(SS.af_go(rest, d1))) == False{} : Bool}):
