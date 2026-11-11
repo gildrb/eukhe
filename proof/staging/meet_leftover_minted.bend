@@ -14,7 +14,7 @@ def ml.fin(-s: String, +main: Bool, ms: LA.mi.MS(s)) -> ml.G(Some{Sg.Seen{Sg.Utf
   (+t, (+l, (+id, (es, (ht, hid))))) = ms
   (t, (l, (id, (main, (Equal.cong(String, Maybe<&2, Sg.Seen>, z => Some{Sg.Seen{Sg.Utf{z}, Sg.KDir{main}}}, s, Staging.sp_mint(t, l, id), es), (ht, hid))))))
 
-def ml.dir(sw: Bool, +s: String, +main: Bool, esw: {Staging.sp_swept(s) == sw : Bool}, r: {LA.rr.m.dir(sw, main) == Sg.MLeftover{} : Sg.Met}) -> ml.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KDir{main}}}):
+def ml.dir(sw: Bool, +s: String, +main: Bool, esw: {LA.sp_swept(s) == sw : Bool}, r: {LA.rr.m.dir(sw, main) == Sg.MLeftover{} : Sg.Met}) -> ml.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KDir{main}}}):
   match sw:
     case True{}:
       ml.fin(s, main, LA.mi.swept(s, esw))
@@ -29,7 +29,7 @@ def ml.m(e: Sg.Seen, +all: List<&2, Sg.Seen>, r: {LA.rr.m(e, all) == Sg.MLeftove
         case Sg.Utf{+s}:
           match k:
             case Sg.KDir{+main}:
-              ml.dir(Staging.sp_swept(s), s, main, {==}, r)
+              ml.dir(LA.sp_swept(s), s, main, {==}, r)
             case Sg.KFile{}:
               LA.mi.absurd_l(ml.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KFile{}}}), LA.rr.m.file(LawsBase.text_unsuffix(".lock", s), all), r, LA.mi.file_l(ml.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KFile{}}}), LawsBase.text_unsuffix(".lock", s), all))
             case Sg.KOther{}:

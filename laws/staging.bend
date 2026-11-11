@@ -1,4 +1,11 @@
 # eukhe: the laws of area staging
+#
+# R1 (publish never replaces an entry at the target) is the kernel's: the
+# rename without replacement and its refusal are enforced by the Rust test
+# publish_never_replaces_an_entry_at_the_target
+# (crates/eukhe-core/src/durable/staging/tests.rs); the core only reports
+# what the rename met (see R1 in "the real rule" below). R2-R4 and R8 are
+# the laws below.
 
 import Base
 import ../bend/staging.bend as Sg
@@ -136,56 +143,6 @@ def sp_in(+c: Char, cs: String) -> Bool:
     case SCon{x, t}:
       Bool.or(Char.is_eq(c, x), sp_in(c, t))
 
-def sp_if(ok: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
-  match ok:
-    case True{}:
-      m
-    case False{}:
-      None{}
-
-# s after the prefix p, when s starts with p
-def sp_unprefix(p: String, s: String) -> Maybe<&2, String>:
-  match p:
-    case SNil{}:
-      Some{s}
-    case SCon{x, pt}:
-      match s:
-        case SNil{}:
-          None{}
-        case SCon{y, st}:
-          sp_if(Char.is_eq(x, y), sp_unprefix(pt, st))
-
-# the text before the last '.' of a text, and the text after it
-type SpCut is Data:
-  SpCut{before: String, after: String}
-
-def sp_cut.cons(c: Char, p: SpCut) -> Maybe<&2, SpCut>:
-  match p:
-    case SpCut{b, a}:
-      Some{SpCut{SCon{c, b}, a}}
-
-def sp_cut.dot(d: Bool, t: String) -> Maybe<&2, SpCut>:
-  match d:
-    case True{}:
-      Some{SpCut{SNil{}, t}}
-    case False{}:
-      None{}
-
-def sp_cut.put(r: Maybe<&2, SpCut>, d: Bool, c: Char, t: String) -> Maybe<&2, SpCut>:
-  match r:
-    case Some{p}:
-      sp_cut.cons(c, p)
-    case None{}:
-      sp_cut.dot(d, t)
-
-# w split at its last '.'
-def sp_cut(w: String) -> Maybe<&2, SpCut>:
-  match w:
-    case SNil{}:
-      None{}
-    case SCon{+c, +t}:
-      sp_cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t)
-
 # s is n lowercase hex digits
 def sp_hexn(n: Nat, s: String) -> Bool:
   match n:
@@ -197,34 +154,6 @@ def sp_hexn(n: Nat, s: String) -> Bool:
           False{}
         case SCon{c, t}:
           Bool.and(sp_in(c, "0123456789abcdef"), sp_hexn(k, t))
-
-def sp_uuid(m: Maybe<&2, String>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{s}:
-      sp_hexn(32n, s)
-
-# the part after the last '.': `import-`, `fork-` or `deleted-`, then a uuid
-def sp_tail(+a: String) -> Bool:
-  Bool.or(sp_uuid(sp_unprefix("import-", a)), Bool.or(sp_uuid(sp_unprefix("fork-", a)), sp_uuid(sp_unprefix("deleted-", a))))
-
-def sp_swept.cut(m: Maybe<&2, SpCut>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{p}:
-      match p:
-        case SpCut{b, a}:
-          Bool.and(Bool.not(String.is_empty(b)), sp_tail(a))
-
-# s is `.<target>.<label>-<uuid>`, the target not empty
-def sp_swept(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{c, t}:
-      Bool.and(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(t)))
 
 # the labels of the names Rust mints (staging.rs `staging_dir`: import and
 # fork; the daemon's saved-session delete: deleted)
@@ -246,32 +175,6 @@ def sp_label(l: SpLab) -> String:
 def sp_mint(t: String, l: SpLab, id: String) -> String:
   SCon{'.', String.append(t, SCon{'.', String.append(sp_label(l), SCon{'-', id})})}
 
-# a plain directory: no swept name, no main.jsonl (R3)
-def sp_plain.k(k: Sg.Form, sw: Bool) -> Bool:
-  match k:
-    case Sg.KDir{main}:
-      Bool.and(Bool.not(sw), Bool.not(main))
-    case Sg.KFile{}:
-      False{}
-    case Sg.KOther{}:
-      False{}
-
-def sp_plain(e: Sg.Seen) -> Bool:
-  match e:
-    case Sg.Seen{n, k}:
-      match n:
-        case Sg.Utf{s}:
-          sp_plain.k(k, sp_swept(s))
-        case Sg.Raw{}:
-          sp_plain.k(k, False{})
-
-def sp_plains(es: List<&2, Sg.Seen>) -> List<&2, Bool>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      sp_plain(e) <> sp_plains(rest)
-
 def sp_descend(m: Sg.Met) -> Bool:
   match m:
     case Sg.MKeep{}:
@@ -290,15 +193,40 @@ def sp_descends(ms: List<&2, Sg.Met>) -> List<&2, Bool>:
     case m <> rest:
       sp_descend(m) <> sp_descends(rest)
 
-# t is at least a day (86400 s) before now, a time ahead of now is fresh
-# (R2): the age now - t is at least a day
+# The age test (R2), as Rust orders times: Rust spells a time as its
+# whole seconds since the epoch, then its subsec_nanos (rule.rs
+# `put_time`: Duration::as_secs, Duration::subsec_nanos, below 10^9), and
+# std orders Durations (and SystemTimes) by the seconds, then the
+# nanoseconds (core::time::Duration derives Ord over (secs, nanos)).
+
+# a is at or before b in Rust's order of times
+def sp_time_le.by(c: Cmp, +an: Nat, +bn: Nat) -> Bool:
+  match c:
+    case LT{}:
+      True{}
+    case EQ{}:
+      Nat.is_le(an, bn)
+    case GT{}:
+      False{}
+
+def sp_time_le(a: Sg.Time, b: Sg.Time) -> Bool:
+  match a:
+    case Sg.Time{asec, an}:
+      match b:
+        case Sg.Time{bsec, bn}:
+          sp_time_le.by(Nat.cmp(asec, bsec), an, bn)
+
+# the time a day after t: t + Duration::from_secs(86400) (whole seconds:
+# the nanoseconds stay, no carry)
+def sp_day_after(t: Sg.Time) -> Sg.Time:
+  match t:
+    case Sg.Time{ts, tn}:
+      Sg.Time{Nat.add(ts, 86400n), tn}
+
+# t is at least a day before now: a day after t is at or before now (a
+# time ahead of now is fresh)
 def sp_old(+now: Sg.Time, t: Sg.Time) -> Bool:
-  match now:
-    case Sg.Time{+ns, nn}:
-      match t:
-        case Sg.Time{ts, tn}:
-          +d = Nat.add(ts, 86400n)
-          Bool.or(Nat.is_lt(d, ns), Bool.and(Nat.is_eq(d, ns), Nat.is_le(tn, nn)))
+  sp_time_le(sp_day_after(t), now)
 
 # every time of ts is at least a day before now
 def sp_all_old(+now: Sg.Time, ts: List<&2, Sg.Time>) -> Bool:
@@ -660,14 +588,56 @@ law meet_minted_orphan:
 law meet_names_example:
   {Sg.meet([Sg.Seen{Sg.Utf{".s1.import-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s12.deleted-0123456789abcdef0123456789abcdef"}, Sg.KDir{True{}}}, Sg.Seen{Sg.Utf{"session-1"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{"s2"}, Sg.KDir{True{}}}, Sg.Seen{Sg.Utf{".s3.fork-0123456789abcdef0123456789abcdef.lock"}, Sg.KFile{}}, Sg.Seen{Sg.Utf{".s1.import-0123456789abcdef0123456789abcdef.lock"}, Sg.KFile{}}, Sg.Seen{Sg.Utf{".s6.import-not-a-uuid"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s7.export-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{"s8.import-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{"..import-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s9.fork-0123456789ABCDEF0123456789ABCDEF"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s10.import-0123456789abcdef0123456789abcdef"}, Sg.KFile{}}, Sg.Seen{Sg.Utf{".s11.fork-0123456789abcdef0123456789abcdef"}, Sg.KOther{}}, Sg.Seen{Sg.Raw{}, Sg.KDir{False{}}}, Sg.Seen{Sg.Raw{}, Sg.KDir{True{}}}]) == [Sg.MLeftover{}, Sg.MLeftover{}, Sg.MDescend{}, Sg.MKeep{}, Sg.MOrphan{}, Sg.MKeep{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MKeep{}, Sg.MKeep{}, Sg.MDescend{}, Sg.MKeep{}] : List<&2, Sg.Met>}
 
+# the walk may enter the entry e: a directory (symlinks are not followed:
+# a symlink is no directory) that holds no main.jsonl (no storage)
+def sp_open_dir(e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{n, k}:
+      match k:
+        case Sg.KDir{main}:
+          Bool.not(main)
+        case Sg.KFile{}:
+          False{}
+        case Sg.KOther{}:
+          False{}
+
+# the sweep judged the entry a staging directory or a tombstone
+def sp_leftover(m: Sg.Met) -> Bool:
+  match m:
+    case Sg.MLeftover{}:
+      True{}
+    case Sg.MKeep{}:
+      False{}
+    case Sg.MDescend{}:
+      False{}
+    case Sg.MOrphan{}:
+      False{}
+
+# for each entry of es with its class in ms, in order: whether the walk
+# enters it: a directory that is no storage and that the sweep does not
+# judge as a leftover
+def sp_enters(es: List<&2, Sg.Seen>, ms: List<&2, Sg.Met>) -> List<&2, Bool>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> er:
+      match ms:
+        case Nil{}:
+          Nil{}
+        case m <> mr:
+          Bool.and(sp_open_dir(e), Bool.not(sp_leftover(m))) <> sp_enters(er, mr)
+
 # LAW sweep_stays_out_real (R3): the walk enters exactly the plain directories: never a
 # storage, a symlink, a file or a leftover (sweep_stays_out, on the real
-# listing)
-# EXCLUDES: a walk into a storage or behind a symlink, a plain directory
-#   left unwalked (sweep_reaches_every_depth)
+# listing): an entry is entered exactly when it is a directory with no
+# main.jsonl that the sweep does not judge as a staging directory or a
+# tombstone. Which directories are judged so is the leftover laws':
+# exactly the names Rust mints (meet_leftover_minted, meet_minted_anywhere)
+# EXCLUDES: a walk into a storage, a leftover or behind a symlink, a plain
+#   directory left unwalked (sweep_reaches_every_depth)
 law sweep_stays_out_real:
   for +es: List<&2, Sg.Seen>
-  {sp_descends(Sg.meet(es)) == sp_plains(es) : List<&2, Bool>}
+  {sp_descends(Sg.meet(es)) == sp_enters(es, Sg.meet(es)) : List<&2, Bool>}
 
 # LAW judge_gone_lock_kept (R4): an orphan lock file found gone when it is probed stays (nothing is removed), whatever the times
 # EXCLUDES: a removal planned for a lock file that is not there

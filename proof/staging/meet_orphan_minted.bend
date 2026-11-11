@@ -18,7 +18,7 @@ def om.fin(+x: String, -s: String, +all: List<&2, Sg.Seen>, ms: LA.mi.MS(x), eb:
     Equal.cong(String, Bool, z => LawsBase.text_has_name(z, all), Staging.sp_mint(t, l, id), x, Equal.sym(String, x, Staging.sp_mint(t, l, id), ex)), eb)
   (t, (l, (id, (eq, (ht, (hid, hn))))))
 
-def om.lock(a: Bool, b: Bool, +x: String, -s: String, +all: List<&2, Sg.Seen>, ea: {Staging.sp_swept(x) == a : Bool}, eb: {LawsBase.text_has_name(x, all) == b : Bool}, us: {s == String.append(x, ".lock") : String}, r: {LA.rr.m.lock(a, b) == Sg.MOrphan{} : Sg.Met}) -> om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KFile{}}}, all):
+def om.lock(a: Bool, b: Bool, +x: String, -s: String, +all: List<&2, Sg.Seen>, ea: {LA.sp_swept(x) == a : Bool}, eb: {LawsBase.text_has_name(x, all) == b : Bool}, us: {s == String.append(x, ".lock") : String}, r: {LA.rr.m.lock(a, b) == Sg.MOrphan{} : Sg.Met}) -> om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KFile{}}}, all):
   match a b:
     case True{} True{}:
       LA.mi.absurd_o(om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KFile{}}}, all), Sg.MKeep{}, r, Unit{})
@@ -34,7 +34,7 @@ def om.file(m: Maybe<&2, String>, -s: String, +all: List<&2, Sg.Seen>, us: LA.mi
     case None{}:
       LA.mi.absurd_o(om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KFile{}}}, all), Sg.MKeep{}, r, Unit{})
     case Some{+x}:
-      om.lock(Staging.sp_swept(x), LawsBase.text_has_name(x, all), x, s, all, {==}, {==}, us, r)
+      om.lock(LA.sp_swept(x), LawsBase.text_has_name(x, all), x, s, all, {==}, {==}, us, r)
 
 # an entry the real rule judges as a lock file is the lock file of a
 # minted name whose directory is not in the listing
@@ -45,7 +45,7 @@ def om.m(e: Sg.Seen, +all: List<&2, Sg.Seen>, r: {LA.rr.m(e, all) == Sg.MOrphan{
         case Sg.Utf{+s}:
           match k:
             case Sg.KDir{+main}:
-              LA.mi.absurd_o(om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KDir{main}}}, all), LA.rr.m.dir(Staging.sp_swept(s), main), r, LA.mi.dir_o(om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KDir{main}}}, all), Staging.sp_swept(s), main))
+              LA.mi.absurd_o(om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KDir{main}}}, all), LA.rr.m.dir(LA.sp_swept(s), main), r, LA.mi.dir_o(om.G(Some{Sg.Seen{Sg.Utf{s}, Sg.KDir{main}}}, all), LA.sp_swept(s), main))
             case Sg.KFile{}:
               om.file(LawsBase.text_unsuffix(".lock", s), s, all, LA.mi.uns(".lock", s), r)
             case Sg.KOther{}:

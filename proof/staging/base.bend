@@ -14,6 +14,116 @@ import ../base/staging.bend as LStg
 # exactly the names Rust mints; a session is listed once, under the
 # storage it opens as.
 
+# The sweep's name test, as a proof device (moved from laws/staging.bend:
+# no law calls it). It restates the code's recognizer (Sg.swept: cut at
+# the last '.', a label, a 32-digit lowercase hex uuid) so the proofs of
+# the meet_* laws can take a name apart; the laws state which names are
+# judged by the names Rust mints (Staging.sp_mint), not by this test.
+
+def sp_if(ok: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match ok:
+    case True{}:
+      m
+    case False{}:
+      None{}
+
+# s after the prefix p, when s starts with p
+def sp_unprefix(p: String, s: String) -> Maybe<&2, String>:
+  match p:
+    case SNil{}:
+      Some{s}
+    case SCon{x, pt}:
+      match s:
+        case SNil{}:
+          None{}
+        case SCon{y, st}:
+          sp_if(Char.is_eq(x, y), sp_unprefix(pt, st))
+
+# the text before the last '.' of a text, and the text after it
+type SpCut is Data:
+  SpCut{before: String, after: String}
+
+def sp_cut.cons(c: Char, p: SpCut) -> Maybe<&2, SpCut>:
+  match p:
+    case SpCut{b, a}:
+      Some{SpCut{SCon{c, b}, a}}
+
+def sp_cut.dot(d: Bool, t: String) -> Maybe<&2, SpCut>:
+  match d:
+    case True{}:
+      Some{SpCut{SNil{}, t}}
+    case False{}:
+      None{}
+
+def sp_cut.put(r: Maybe<&2, SpCut>, d: Bool, c: Char, t: String) -> Maybe<&2, SpCut>:
+  match r:
+    case Some{p}:
+      sp_cut.cons(c, p)
+    case None{}:
+      sp_cut.dot(d, t)
+
+# w split at its last '.'
+def sp_cut(w: String) -> Maybe<&2, SpCut>:
+  match w:
+    case SNil{}:
+      None{}
+    case SCon{+c, +t}:
+      sp_cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t)
+
+def sp_uuid(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{s}:
+      Staging.sp_hexn(32n, s)
+
+# the part after the last '.': `import-`, `fork-` or `deleted-`, then a uuid
+def sp_tail(+a: String) -> Bool:
+  Bool.or(sp_uuid(sp_unprefix("import-", a)), Bool.or(sp_uuid(sp_unprefix("fork-", a)), sp_uuid(sp_unprefix("deleted-", a))))
+
+def sp_swept.cut(m: Maybe<&2, SpCut>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      match p:
+        case SpCut{b, a}:
+          Bool.and(Bool.not(String.is_empty(b)), sp_tail(a))
+
+# s is `.<target>.<label>-<uuid>`, the target not empty
+def sp_swept(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Bool.and(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(t)))
+
+# a plain directory: no swept name, no main.jsonl (R3)
+def sp_plain.k(k: Sg.Form, sw: Bool) -> Bool:
+  match k:
+    case Sg.KDir{main}:
+      Bool.and(Bool.not(sw), Bool.not(main))
+    case Sg.KFile{}:
+      False{}
+    case Sg.KOther{}:
+      False{}
+
+def sp_plain(e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          sp_plain.k(k, sp_swept(s))
+        case Sg.Raw{}:
+          sp_plain.k(k, False{})
+
+def sp_plains(es: List<&2, Sg.Seen>) -> List<&2, Bool>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      sp_plain(e) <> sp_plains(rest)
+
 # Logic and numbers
 # -----------------
 
@@ -143,21 +253,21 @@ def rr.hexn(n: Nat, s: String) -> {Sg.hexn(n, s) == Staging.sp_hexn(n, s) : Bool
           %rr.hexn(k, t) : {Bool.and(Sg.ch.in(c, "0123456789abcdef"), Sg.hexn(k, t)) == Bool.and(Sg.ch.in(c, "0123456789abcdef"), _) : Bool}
           {==}
 
-def rr.uuid(m: Maybe<&2, String>) -> {Sg.uuid(m) == Staging.sp_uuid(m) : Bool}:
+def rr.uuid(m: Maybe<&2, String>) -> {Sg.uuid(m) == sp_uuid(m) : Bool}:
   match m:
     case None{}:
       {==}
     case Some{s}:
       rr.hexn(32n, s)
 
-def rr.kept(ok: Bool, m: Maybe<&2, String>) -> {Sg.kept_if(ok, m) == Staging.sp_if(ok, m) : Maybe<&2, String>}:
+def rr.kept(ok: Bool, m: Maybe<&2, String>) -> {Sg.kept_if(ok, m) == sp_if(ok, m) : Maybe<&2, String>}:
   match ok:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def rr.unprefix(p: String, s: String) -> {Sg.unprefix(p, s) == Staging.sp_unprefix(p, s) : Maybe<&2, String>}:
+def rr.unprefix(p: String, s: String) -> {Sg.unprefix(p, s) == sp_unprefix(p, s) : Maybe<&2, String>}:
   match p:
     case SNil{}:
       {==}
@@ -166,36 +276,36 @@ def rr.unprefix(p: String, s: String) -> {Sg.unprefix(p, s) == Staging.sp_unpref
         case SNil{}:
           {==}
         case SCon{+y, +st}:
-          %rr.unprefix(pt, st) : {Sg.kept_if(Char.is_eq(x, y), Sg.unprefix(pt, st)) == Staging.sp_if(Char.is_eq(x, y), _) : Maybe<&2, String>}
+          %rr.unprefix(pt, st) : {Sg.kept_if(Char.is_eq(x, y), Sg.unprefix(pt, st)) == sp_if(Char.is_eq(x, y), _) : Maybe<&2, String>}
           rr.kept(Char.is_eq(x, y), Sg.unprefix(pt, st))
 
 # the uuid of a label's prefix
-def rr.lab(+p: String, +a: String) -> {Sg.uuid(Sg.unprefix(p, a)) == Staging.sp_uuid(Staging.sp_unprefix(p, a)) : Bool}:
-  %rr.unprefix(p, a) : {Sg.uuid(Sg.unprefix(p, a)) == Staging.sp_uuid(_) : Bool}
+def rr.lab(+p: String, +a: String) -> {Sg.uuid(Sg.unprefix(p, a)) == sp_uuid(sp_unprefix(p, a)) : Bool}:
+  %rr.unprefix(p, a) : {Sg.uuid(Sg.unprefix(p, a)) == sp_uuid(_) : Bool}
   rr.uuid(Sg.unprefix(p, a))
 
-def rr.tail(+a: String) -> {Sg.tail(a) == Staging.sp_tail(a) : Bool}:
+def rr.tail(+a: String) -> {Sg.tail(a) == sp_tail(a) : Bool}:
   +i = Sg.uuid(Sg.unprefix("import-", a))
   +f = Sg.uuid(Sg.unprefix("fork-", a))
   +d = Sg.uuid(Sg.unprefix("deleted-", a))
-  +sf = Staging.sp_uuid(Staging.sp_unprefix("fork-", a))
-  +sd = Staging.sp_uuid(Staging.sp_unprefix("deleted-", a))
+  +sf = sp_uuid(sp_unprefix("fork-", a))
+  +sd = sp_uuid(sp_unprefix("deleted-", a))
   %rr.lab("import-", a) : {Bool.or(i, Bool.or(f, d)) == Bool.or(_, Bool.or(sf, sd)) : Bool}
   %rr.lab("fork-", a) : {Bool.or(i, Bool.or(f, d)) == Bool.or(i, Bool.or(_, sd)) : Bool}
   %rr.lab("deleted-", a) : {Bool.or(i, Bool.or(f, d)) == Bool.or(i, Bool.or(f, _)) : Bool}
   {==}
 
 # the code's split, as the spec's
-def rr.sp(m: Maybe<&2, Sg.Split>) -> Maybe<&2, Staging.SpCut>:
+def rr.sp(m: Maybe<&2, Sg.Split>) -> Maybe<&2, SpCut>:
   match m:
     case None{}:
       None{}
     case Some{p}:
       match p:
         case Sg.Split{b, a}:
-          Some{Staging.SpCut{b, a}}
+          Some{SpCut{b, a}}
 
-def rr.cut_put(r: Maybe<&2, Sg.Split>, d: Bool, +c: Char, +t: String) -> {rr.sp(Sg.cut.put(r, d, c, t)) == Staging.sp_cut.put(rr.sp(r), d, c, t) : Maybe<&2, Staging.SpCut>}:
+def rr.cut_put(r: Maybe<&2, Sg.Split>, d: Bool, +c: Char, +t: String) -> {rr.sp(Sg.cut.put(r, d, c, t)) == sp_cut.put(rr.sp(r), d, c, t) : Maybe<&2, SpCut>}:
   match r:
     case Some{p}:
       match p:
@@ -208,17 +318,17 @@ def rr.cut_put(r: Maybe<&2, Sg.Split>, d: Bool, +c: Char, +t: String) -> {rr.sp(
         case False{}:
           {==}
 
-def rr.cut(w: String) -> {rr.sp(Sg.cut(w)) == Staging.sp_cut(w) : Maybe<&2, Staging.SpCut>}:
+def rr.cut(w: String) -> {rr.sp(Sg.cut(w)) == sp_cut(w) : Maybe<&2, SpCut>}:
   match w:
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(Maybe<&2, Staging.SpCut>, rr.sp(Sg.cut.put(Sg.cut(t), Sg.ch.is(c, 46), c, t)), Staging.sp_cut.put(rr.sp(Sg.cut(t)), Sg.ch.is(c, 46), c, t), rr.cut_put(Sg.cut(t), Sg.ch.is(c, 46), c, t)) : {_ == Staging.sp_cut.put(Staging.sp_cut(t), Char.is_eq(c, '.'), c, t) : Maybe<&2, Staging.SpCut>}
-      %rr.cut(t) : {Staging.sp_cut.put(rr.sp(Sg.cut(t)), Sg.ch.is(c, 46), c, t) == Staging.sp_cut.put(_, Char.is_eq(c, '.'), c, t) : Maybe<&2, Staging.SpCut>}
-      %rr.dot(c) : {Staging.sp_cut.put(rr.sp(Sg.cut(t)), Sg.ch.is(c, 46), c, t) == Staging.sp_cut.put(rr.sp(Sg.cut(t)), _, c, t) : Maybe<&2, Staging.SpCut>}
+      %Equal.sym(Maybe<&2, SpCut>, rr.sp(Sg.cut.put(Sg.cut(t), Sg.ch.is(c, 46), c, t)), sp_cut.put(rr.sp(Sg.cut(t)), Sg.ch.is(c, 46), c, t), rr.cut_put(Sg.cut(t), Sg.ch.is(c, 46), c, t)) : {_ == sp_cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t) : Maybe<&2, SpCut>}
+      %rr.cut(t) : {sp_cut.put(rr.sp(Sg.cut(t)), Sg.ch.is(c, 46), c, t) == sp_cut.put(_, Char.is_eq(c, '.'), c, t) : Maybe<&2, SpCut>}
+      %rr.dot(c) : {sp_cut.put(rr.sp(Sg.cut(t)), Sg.ch.is(c, 46), c, t) == sp_cut.put(rr.sp(Sg.cut(t)), _, c, t) : Maybe<&2, SpCut>}
       {==}
 
-def rr.swept_cut(m: Maybe<&2, Sg.Split>) -> {Sg.swept.cut(m) == Staging.sp_swept.cut(rr.sp(m)) : Bool}:
+def rr.swept_cut(m: Maybe<&2, Sg.Split>) -> {Sg.swept.cut(m) == sp_swept.cut(rr.sp(m)) : Bool}:
   match m:
     case None{}:
       {==}
@@ -228,23 +338,34 @@ def rr.swept_cut(m: Maybe<&2, Sg.Split>) -> {Sg.swept.cut(m) == Staging.sp_swept
           %rr.tail(a) : {Bool.and(Bool.not(String.is_empty(b)), Sg.tail(a)) == Bool.and(Bool.not(String.is_empty(b)), _) : Bool}
           {==}
 
-def rr.swept(s: String) -> {Sg.swept(s) == Staging.sp_swept(s) : Bool}:
+def rr.swept(s: String) -> {Sg.swept(s) == sp_swept(s) : Bool}:
   match s:
     case SNil{}:
       {==}
     case SCon{+c, +t}:
       +x = Sg.swept.cut(Sg.cut(t))
-      %rr.cut(t) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(Char.is_eq(c, '.'), Staging.sp_swept.cut(_)) : Bool}
+      %rr.cut(t) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(Char.is_eq(c, '.'), sp_swept.cut(_)) : Bool}
       %rr.swept_cut(Sg.cut(t)) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(Char.is_eq(c, '.'), _) : Bool}
       %rr.dot(c) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(_, x) : Bool}
+      {==}
+
+# the code's test (less, or equal then nanos at most) is the order by
+# seconds, then nanoseconds, for every comparison of the seconds
+def rr.by(c: Cmp, +a: Nat, +b: Nat) -> {Bool.or(Cmp.is_lt(c), Bool.and(Cmp.is_eq(c), Nat.is_le(a, b))) == Staging.sp_time_le.by(c, a, b) : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
       {==}
 
 def rr.stale(+now: Sg.Time, t: Sg.Time) -> {Sg.stale(now, t) == Staging.sp_old(now, t) : Bool}:
   match now:
     case Sg.Time{+ns, +nn}:
       match t:
-        case Sg.Time{ts, tn}:
-          {==}
+        case Sg.Time{+ts, +tn}:
+          rr.by(Nat.cmp(Nat.add(ts, 86400n), ns), tn, nn)
 
 def rr.stale_all(+now: Sg.Time, ts: List<&2, Sg.Time>) -> {Sg.stale_all(now, ts) == Staging.sp_all_old(now, ts) : Bool}:
   match ts:
@@ -295,12 +416,12 @@ def rr.m.file(m: Maybe<&2, String>, all: List<&2, Sg.Seen>) -> Sg.Met:
     case None{}:
       Sg.MKeep{}
     case Some{+x}:
-      rr.m.lock(Staging.sp_swept(x), LawsBase.text_has_name(x, all))
+      rr.m.lock(sp_swept(x), LawsBase.text_has_name(x, all))
 
 def rr.m.utf(k: Sg.Form, +s: String, all: List<&2, Sg.Seen>) -> Sg.Met:
   match k:
     case Sg.KDir{main}:
-      rr.m.dir(Staging.sp_swept(s), main)
+      rr.m.dir(sp_swept(s), main)
     case Sg.KFile{}:
       rr.m.file(LawsBase.text_unsuffix(".lock", s), all)
     case Sg.KOther{}:
@@ -397,7 +518,7 @@ def rr.not_t(+b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Boo
       {==}
 
 # a text with no '.' has no last '.'
-def rr.cut_none(z: String, h: {rr.nodot(z) == True{} : Bool}) -> {Staging.sp_cut(z) == None{} : Maybe<&2, Staging.SpCut>}:
+def rr.cut_none(z: String, h: {rr.nodot(z) == True{} : Bool}) -> {sp_cut(z) == None{} : Maybe<&2, SpCut>}:
   match z:
     case SNil{}:
       {==}
@@ -405,19 +526,19 @@ def rr.cut_none(z: String, h: {rr.nodot(z) == True{} : Bool}) -> {Staging.sp_cut
       +hh = h
       +hc = rr.not_t(Char.is_eq(c, '.'), LStg.stg.and_l(Bool.not(Char.is_eq(c, '.')), rr.nodot(t), hh))
       +ht = LStg.stg.and_r(Bool.not(Char.is_eq(c, '.')), rr.nodot(t), hh)
-      %Equal.sym(Maybe<&2, Staging.SpCut>, Staging.sp_cut(t), None{}, rr.cut_none(t, ht)) : {Staging.sp_cut.put(_, Char.is_eq(c, '.'), c, t) == None{} : Maybe<&2, Staging.SpCut>}
-      %Equal.sym(Bool, Char.is_eq(c, '.'), False{}, hc) : {Staging.sp_cut.put(None{}, _, c, t) == None{} : Maybe<&2, Staging.SpCut>}
+      %Equal.sym(Maybe<&2, SpCut>, sp_cut(t), None{}, rr.cut_none(t, ht)) : {sp_cut.put(_, Char.is_eq(c, '.'), c, t) == None{} : Maybe<&2, SpCut>}
+      %Equal.sym(Bool, Char.is_eq(c, '.'), False{}, hc) : {sp_cut.put(None{}, _, c, t) == None{} : Maybe<&2, SpCut>}
       {==}
 
 # t, a '.', then a text z with no '.': the last '.' is that one
-def rr.cut_last(t: String, +z: String, +h: {rr.nodot(z) == True{} : Bool}) -> {Staging.sp_cut(String.append(t, SCon{'.', z})) == Some{Staging.SpCut{t, z}} : Maybe<&2, Staging.SpCut>}:
+def rr.cut_last(t: String, +z: String, +h: {rr.nodot(z) == True{} : Bool}) -> {sp_cut(String.append(t, SCon{'.', z})) == Some{SpCut{t, z}} : Maybe<&2, SpCut>}:
   match t:
     case SNil{}:
-      %Equal.sym(Maybe<&2, Staging.SpCut>, Staging.sp_cut(z), None{}, rr.cut_none(z, h)) : {Staging.sp_cut.put(_, Char.is_eq('.', '.'), '.', z) == Some{Staging.SpCut{SNil{}, z}} : Maybe<&2, Staging.SpCut>}
+      %Equal.sym(Maybe<&2, SpCut>, sp_cut(z), None{}, rr.cut_none(z, h)) : {sp_cut.put(_, Char.is_eq('.', '.'), '.', z) == Some{SpCut{SNil{}, z}} : Maybe<&2, SpCut>}
       {==}
     case SCon{+c, +u}:
       +w = String.append(u, SCon{'.', z})
-      %Equal.sym(Maybe<&2, Staging.SpCut>, Staging.sp_cut(w), Some{Staging.SpCut{u, z}}, rr.cut_last(u, z, h)) : {Staging.sp_cut.put(_, Char.is_eq(c, '.'), c, w) == Some{Staging.SpCut{SCon{c, u}, z}} : Maybe<&2, Staging.SpCut>}
+      %Equal.sym(Maybe<&2, SpCut>, sp_cut(w), Some{SpCut{u, z}}, rr.cut_last(u, z, h)) : {sp_cut.put(_, Char.is_eq(c, '.'), c, w) == Some{SpCut{SCon{c, u}, z}} : Maybe<&2, SpCut>}
       {==}
 
 def rr.in_nodot.at(+c: Char, +x: Char, -r: String, b: Bool, eb: {Char.is_eq(c, x) == b : Bool},
@@ -472,24 +593,24 @@ def rr.lab_nodot(l: Staging.SpLab, +id: String, h: {rr.nodot(id) == True{} : Boo
       h
 
 # the tail of a minted name is a label, '-' and a uuid
-def rr.lab_tail(l: Staging.SpLab, +id: String, u: {Staging.sp_hexn(32n, id) == True{} : Bool}) -> {Staging.sp_tail(String.append(Staging.sp_label(l), SCon{'-', id})) == True{} : Bool}:
+def rr.lab_tail(l: Staging.SpLab, +id: String, u: {Staging.sp_hexn(32n, id) == True{} : Bool}) -> {sp_tail(String.append(Staging.sp_label(l), SCon{'-', id})) == True{} : Bool}:
   match l:
     case Staging.SpImport{}:
-      %Equal.sym(Bool, Staging.sp_hexn(32n, id), True{}, u) : {Bool.or(_, Bool.or(Staging.sp_uuid(Staging.sp_unprefix("fork-", "import-" ++ id)), Staging.sp_uuid(Staging.sp_unprefix("deleted-", "import-" ++ id)))) == True{} : Bool}
+      %Equal.sym(Bool, Staging.sp_hexn(32n, id), True{}, u) : {Bool.or(_, Bool.or(sp_uuid(sp_unprefix("fork-", "import-" ++ id)), sp_uuid(sp_unprefix("deleted-", "import-" ++ id)))) == True{} : Bool}
       {==}
     case Staging.SpFork{}:
-      %Equal.sym(Bool, Staging.sp_hexn(32n, id), True{}, u) : {Bool.or(False{}, Bool.or(_, Staging.sp_uuid(Staging.sp_unprefix("deleted-", "fork-" ++ id)))) == True{} : Bool}
+      %Equal.sym(Bool, Staging.sp_hexn(32n, id), True{}, u) : {Bool.or(False{}, Bool.or(_, sp_uuid(sp_unprefix("deleted-", "fork-" ++ id)))) == True{} : Bool}
       {==}
     case Staging.SpDeleted{}:
       %Equal.sym(Bool, Staging.sp_hexn(32n, id), True{}, u) : {Bool.or(False{}, Bool.or(False{}, _)) == True{} : Bool}
       {==}
 
 # every name Rust mints is swept
-def rr.minted(+t: String, +l: Staging.SpLab, +id: String, full: {String.is_empty(t) == False{} : Bool}, +u: {Staging.sp_hexn(32n, id) == True{} : Bool}) -> {Staging.sp_swept(Staging.sp_mint(t, l, id)) == True{} : Bool}:
+def rr.minted(+t: String, +l: Staging.SpLab, +id: String, full: {String.is_empty(t) == False{} : Bool}, +u: {Staging.sp_hexn(32n, id) == True{} : Bool}) -> {sp_swept(Staging.sp_mint(t, l, id)) == True{} : Bool}:
   +z = String.append(Staging.sp_label(l), SCon{'-', id})
   +hz = rr.lab_nodot(l, id, rr.hex_nodot(32n, id, u))
-  %Equal.sym(Maybe<&2, Staging.SpCut>, Staging.sp_cut(String.append(t, SCon{'.', z})), Some{Staging.SpCut{t, z}}, rr.cut_last(t, z, hz)) : {Bool.and(Char.is_eq('.', '.'), Staging.sp_swept.cut(_)) == True{} : Bool}
-  %Equal.sym(Bool, String.is_empty(t), False{}, full) : {Bool.and(Bool.not(_), Staging.sp_tail(z)) == True{} : Bool}
+  %Equal.sym(Maybe<&2, SpCut>, sp_cut(String.append(t, SCon{'.', z})), Some{SpCut{t, z}}, rr.cut_last(t, z, hz)) : {Bool.and(Char.is_eq('.', '.'), sp_swept.cut(_)) == True{} : Bool}
+  %Equal.sym(Bool, String.is_empty(t), False{}, full) : {Bool.and(Bool.not(_), sp_tail(z)) == True{} : Bool}
   rr.lab_tail(l, id, u)
 
 # n + k + 1 is not n
@@ -592,7 +713,7 @@ def mi.file_l(-G: Type, m: Maybe<&2, String>, +all: List<&2, Sg.Seen>) -> mi.TL(
     case None{}:
       Unit{}
     case Some{+x}:
-      mi.lock_l(G, Staging.sp_swept(x), LawsBase.text_has_name(x, all))
+      mi.lock_l(G, sp_swept(x), LawsBase.text_has_name(x, all))
 
 # a directory with no swept name is never judged
 def mi.dirf_l(-G: Type, main: Bool) -> mi.TL(rr.m.dir(False{}, main), G):
@@ -654,20 +775,20 @@ def mi.uns(+p: String, s: String) -> mi.US(p, s, LawsBase.text_unsuffix(p, s)):
       mi.uns.found(LawsBase.text_same(SCon{c, t}, p), SCon{c, t}, p, LawsBase.text_cons(c, LawsBase.text_unsuffix(p, t)), {==}, mi.uns.cons(c, t, p, LawsBase.text_unsuffix(p, t), mi.uns(p, t)))
 
 # w is b, a '.', then a
-def mi.CS(w: String, m: Maybe<&2, Staging.SpCut>) -> Type:
+def mi.CS(w: String, m: Maybe<&2, SpCut>) -> Type:
   match m:
     case None{}:
       Unit
     case Some{q}:
       match q:
-        case Staging.SpCut{b, a}:
+        case SpCut{b, a}:
           {w == String.append(b, SCon{'.', a}) : String}
 
-def mi.cut.put(r: Maybe<&2, Staging.SpCut>, d: Bool, +c: Char, +t: String, ed: {Char.is_eq(c, '.') == d : Bool}, ih: mi.CS(t, r)) -> mi.CS(SCon{c, t}, Staging.sp_cut.put(r, d, c, t)):
+def mi.cut.put(r: Maybe<&2, SpCut>, d: Bool, +c: Char, +t: String, ed: {Char.is_eq(c, '.') == d : Bool}, ih: mi.CS(t, r)) -> mi.CS(SCon{c, t}, sp_cut.put(r, d, c, t)):
   match r:
     case Some{q}:
       match q:
-        case Staging.SpCut{b, a}:
+        case SpCut{b, a}:
           Equal.cong(String, String, z => SCon{c, z}, t, String.append(b, SCon{'.', a}), ih)
     case None{}:
       match d:
@@ -677,12 +798,12 @@ def mi.cut.put(r: Maybe<&2, Staging.SpCut>, d: Bool, +c: Char, +t: String, ed: {
           Unit{}
 
 # sp_cut splits a text only at a '.'
-def mi.cut(w: String) -> mi.CS(w, Staging.sp_cut(w)):
+def mi.cut(w: String) -> mi.CS(w, sp_cut(w)):
   match w:
     case SNil{}:
       Unit{}
     case SCon{+c, +t}:
-      mi.cut.put(Staging.sp_cut(t), Char.is_eq(c, '.'), c, t, {==}, mi.cut(t))
+      mi.cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t, {==}, mi.cut(t))
 
 # a is p then r
 def mi.PS(p: String, a: String, m: Maybe<&2, String>) -> Type:
@@ -692,7 +813,7 @@ def mi.PS(p: String, a: String, m: Maybe<&2, String>) -> Type:
     case Some{r}:
       {a == String.append(p, r) : String}
 
-def mi.pre.if(b: Bool, +x: Char, +y: Char, -pt: String, -st: String, m: Maybe<&2, String>, eb: {Char.is_eq(x, y) == b : Bool}, ih: mi.PS(pt, st, m)) -> mi.PS(SCon{x, pt}, SCon{y, st}, Staging.sp_if(b, m)):
+def mi.pre.if(b: Bool, +x: Char, +y: Char, -pt: String, -st: String, m: Maybe<&2, String>, eb: {Char.is_eq(x, y) == b : Bool}, ih: mi.PS(pt, st, m)) -> mi.PS(SCon{x, pt}, SCon{y, st}, sp_if(b, m)):
   match b:
     case True{}:
       match m:
@@ -705,7 +826,7 @@ def mi.pre.if(b: Bool, +x: Char, +y: Char, -pt: String, -st: String, m: Maybe<&2
       Unit{}
 
 # sp_unprefix(p, a) is Some{r} only when a is p then r
-def mi.pre(p: String, a: String) -> mi.PS(p, a, Staging.sp_unprefix(p, a)):
+def mi.pre(p: String, a: String) -> mi.PS(p, a, sp_unprefix(p, a)):
   match p:
     case SNil{}:
       {==}
@@ -714,13 +835,13 @@ def mi.pre(p: String, a: String) -> mi.PS(p, a, Staging.sp_unprefix(p, a)):
         case SNil{}:
           Unit{}
         case SCon{+y, +st}:
-          mi.pre.if(Char.is_eq(x, y), x, y, pt, st, Staging.sp_unprefix(pt, st), {==}, mi.pre(pt, st))
+          mi.pre.if(Char.is_eq(x, y), x, y, pt, st, sp_unprefix(pt, st), {==}, mi.pre(pt, st))
 
 # a judged tail: a label, '-' and a 32-digit lowercase hex uuid
 def mi.TS(a: String) -> Type:
   Sigma<&1, &1, Staging.SpLab, l => Sigma<&1, &1, String, id => {a == String.append(Staging.sp_label(l), SCon{'-', id}) : String} & {Staging.sp_hexn(32n, id) == True{} : Bool}>>
 
-def mi.lab(l: Staging.SpLab, -a: String, m: Maybe<&2, String>, ps: mi.PS(String.append(Staging.sp_label(l), "-"), a, m), h: {Staging.sp_uuid(m) == True{} : Bool}) -> mi.TS(a):
+def mi.lab(l: Staging.SpLab, -a: String, m: Maybe<&2, String>, ps: mi.PS(String.append(Staging.sp_label(l), "-"), a, m), h: {sp_uuid(m) == True{} : Bool}) -> mi.TS(a):
   match l:
     case Staging.SpImport{}:
       match m:
@@ -741,22 +862,22 @@ def mi.lab(l: Staging.SpLab, -a: String, m: Maybe<&2, String>, ps: mi.PS(String.
         case Some{+r}:
           (Staging.SpDeleted{}, (r, (ps, h)))
 
-def mi.tail.f(b: Bool, +a: String, eb: {Staging.sp_uuid(Staging.sp_unprefix("fork-", a)) == b : Bool}, h: {Bool.or(b, Staging.sp_uuid(Staging.sp_unprefix("deleted-", a))) == True{} : Bool}) -> mi.TS(a):
+def mi.tail.f(b: Bool, +a: String, eb: {sp_uuid(sp_unprefix("fork-", a)) == b : Bool}, h: {Bool.or(b, sp_uuid(sp_unprefix("deleted-", a))) == True{} : Bool}) -> mi.TS(a):
   match b:
     case True{}:
-      mi.lab(Staging.SpFork{}, a, Staging.sp_unprefix("fork-", a), mi.pre("fork-", a), eb)
+      mi.lab(Staging.SpFork{}, a, sp_unprefix("fork-", a), mi.pre("fork-", a), eb)
     case False{}:
-      mi.lab(Staging.SpDeleted{}, a, Staging.sp_unprefix("deleted-", a), mi.pre("deleted-", a), h)
+      mi.lab(Staging.SpDeleted{}, a, sp_unprefix("deleted-", a), mi.pre("deleted-", a), h)
 
-def mi.tail.i(b: Bool, +a: String, eb: {Staging.sp_uuid(Staging.sp_unprefix("import-", a)) == b : Bool}, h: {Bool.or(b, Bool.or(Staging.sp_uuid(Staging.sp_unprefix("fork-", a)), Staging.sp_uuid(Staging.sp_unprefix("deleted-", a)))) == True{} : Bool}) -> mi.TS(a):
+def mi.tail.i(b: Bool, +a: String, eb: {sp_uuid(sp_unprefix("import-", a)) == b : Bool}, h: {Bool.or(b, Bool.or(sp_uuid(sp_unprefix("fork-", a)), sp_uuid(sp_unprefix("deleted-", a)))) == True{} : Bool}) -> mi.TS(a):
   match b:
     case True{}:
-      mi.lab(Staging.SpImport{}, a, Staging.sp_unprefix("import-", a), mi.pre("import-", a), eb)
+      mi.lab(Staging.SpImport{}, a, sp_unprefix("import-", a), mi.pre("import-", a), eb)
     case False{}:
-      mi.tail.f(Staging.sp_uuid(Staging.sp_unprefix("fork-", a)), a, {==}, h)
+      mi.tail.f(sp_uuid(sp_unprefix("fork-", a)), a, {==}, h)
 
-def mi.tail(+a: String, h: {Staging.sp_tail(a) == True{} : Bool}) -> mi.TS(a):
-  mi.tail.i(Staging.sp_uuid(Staging.sp_unprefix("import-", a)), a, {==}, h)
+def mi.tail(+a: String, h: {sp_tail(a) == True{} : Bool}) -> mi.TS(a):
+  mi.tail.i(sp_uuid(sp_unprefix("import-", a)), a, {==}, h)
 
 # s is a name Rust mints
 def mi.MS(s: String) -> Type:
@@ -770,25 +891,25 @@ def mi.swept.fin(-c: Char, -w: String, +b: String, -a: String, cs: {w == String.
   +e = Equal.trans(String, SCon{c, w}, SCon{'.', w}, Staging.sp_mint(b, l, id), e1, Equal.trans(String, SCon{'.', w}, SCon{'.', String.append(b, SCon{'.', a})}, Staging.sp_mint(b, l, id), e2, e3))
   (b, (l, (id, (e, (hb, hid)))))
 
-def mi.swept.cut(-c: Char, -w: String, m: Maybe<&2, Staging.SpCut>, cs: mi.CS(w, m), h: {Staging.sp_swept.cut(m) == True{} : Bool}, ec: {c == '.' : Char}) -> mi.MS(SCon{c, w}):
+def mi.swept.cut(-c: Char, -w: String, m: Maybe<&2, SpCut>, cs: mi.CS(w, m), h: {sp_swept.cut(m) == True{} : Bool}, ec: {c == '.' : Char}) -> mi.MS(SCon{c, w}):
   match m:
     case None{}:
       LStg.stg.absurdF(mi.MS(SCon{c, w}), h)
     case Some{q}:
       match q:
-        case Staging.SpCut{+b, +a}:
+        case SpCut{+b, +a}:
           +hh = h
-          +hb = LStg.stg.and_l(Bool.not(String.is_empty(b)), Staging.sp_tail(a), hh)
-          +ha = LStg.stg.and_r(Bool.not(String.is_empty(b)), Staging.sp_tail(a), hh)
+          +hb = LStg.stg.and_l(Bool.not(String.is_empty(b)), sp_tail(a), hh)
+          +ha = LStg.stg.and_r(Bool.not(String.is_empty(b)), sp_tail(a), hh)
           mi.swept.fin(c, w, b, a, cs, ec, rr.not_t(String.is_empty(b), hb), mi.tail(a, ha))
 
 # a swept name is a name Rust mints
-def mi.swept(s: String, h: {Staging.sp_swept(s) == True{} : Bool}) -> mi.MS(s):
+def mi.swept(s: String, h: {sp_swept(s) == True{} : Bool}) -> mi.MS(s):
   match s:
     case SNil{}:
       LStg.stg.absurdF(mi.MS(SNil{}), h)
     case SCon{+c, +w}:
       +hh = h
-      +hc = LStg.stg.and_l(Char.is_eq(c, '.'), Staging.sp_swept.cut(Staging.sp_cut(w)), hh)
-      +hw = LStg.stg.and_r(Char.is_eq(c, '.'), Staging.sp_swept.cut(Staging.sp_cut(w)), hh)
-      mi.swept.cut(c, w, Staging.sp_cut(w), mi.cut(w), hw, LStg.stg.char_sound(c, '.', hc))
+      +hc = LStg.stg.and_l(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(w)), hh)
+      +hw = LStg.stg.and_r(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(w)), hh)
+      mi.swept.cut(c, w, sp_cut(w), mi.cut(w), hw, LStg.stg.char_sound(c, '.', hc))
