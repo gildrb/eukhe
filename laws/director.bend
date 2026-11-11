@@ -44,7 +44,7 @@ import ./base.bend as LawsBase
 #     `the_global_budget_hands_back_whatever_the_layers_say` pins the
 #     spent unit).
 # R8: an ended loop stays as it ended, whatever the layers say
-#     (dir_end_is_final).
+#     (dir_ended_stays_any_outcome, dir_ffi_ended_stays_any_outcome).
 # R9: the loop ends after at most n + 1 steps of a global budget n
 #     (dir_loop_ends).
 # R10: no step grows the stack past its cap (dir_stack_bounded,
@@ -86,13 +86,20 @@ law dir_loop_ends:
   for long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}
   {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
 
-# LAW dir_end_is_final: an ended loop stays as it ended
-law dir_end_is_final:
+# LAW dir_ended_stays_any_outcome (R8): a loop that has ended, with any outcome
+# (continue, hand back or failure), any steps left and any stack, is left
+# by a step exactly as it ended, whatever the cap and whatever every
+# layer says
+# EXCLUDES: an ended loop (of any outcome, a continue included) revived as
+#   running, a step or a unit charged, a layer pushed, left or changed, the
+#   outcome rewritten
+law dir_ended_stays_any_outcome:
   for +cap: Nat
-  for +l: Dr.Loop
-  for done: {Dr.ended(l) == True{} : Bool}
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +o: Dr.Out
   for vs: List<&2, Dr.Verdict>
-  {Dr.tick(cap, l, vs) == l : Dr.Loop}
+  {Dr.tick(cap, Dr.Loop{n, s, Some{o}}, vs) == Dr.Loop{n, s, Some{o}} : Dr.Loop}
 
 # LAW dir_resume_restores (A1): the model's tree spelling of a stack reads back
 # as that stack (Dr.decode of Dr.encode), exactly. A model-only claim: no
@@ -610,6 +617,23 @@ law dir_ffi_answers_spelled:
   for +q: FDr.Req
   for fits: {dir_req_fits(q) == True{} : Bool}
   {FDr.ffi(dir_spell_req(q, "")) == dir_spell_answer(q) : String}
+
+# LAW dir_ffi_ended_stays_any_outcome (R8, R12): a request spelled by the grammar, every
+# number within the wire, whose loop has ended with any outcome (end tag
+# 1, then outcome 0, 1 or 2), whatever the cap, steps left, stack and
+# verdicts, is answered with the grammar's spelling of that same loop,
+# unchanged
+# EXCLUDES: an entry that revives an ended loop (a continue included) as
+#   running, charges a step or a unit, pushes, drops or changes a layer, or
+#   spells another outcome
+law dir_ffi_ended_stays_any_outcome:
+  for +c: Nat
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +o: Dr.Out
+  for +vs: List<&2, Dr.Verdict>
+  for fits: {dir_req_fits(FDr.Req{c, Dr.Loop{n, s, Some{o}}, vs}) == True{} : Bool}
+  {FDr.ffi(dir_spell_req(FDr.Req{c, Dr.Loop{n, s, Some{o}}, vs}, "")) == dir_spell_loop(Dr.Loop{n, s, Some{o}}, "") : String}
 
 # LAW dir_ffi_left_over_spelled: a spelled request that fits, followed by any more input, answers
 # the error form "director: input left over"

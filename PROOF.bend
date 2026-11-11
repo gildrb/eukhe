@@ -491,7 +491,7 @@ import ./proof/director/base.bend as LADirector
 import ./proof/director/dir_stack_bounded.bend as PDirStackBounded
 import ./proof/director/dir_loop_stack_bounded.bend as PDirLoopStackBounded
 import ./proof/director/dir_loop_ends.bend as PDirLoopEnds
-import ./proof/director/dir_end_is_final.bend as PDirEndIsFinal
+import ./proof/director/dir_ended_stays_any_outcome.bend as PDirEndedStaysAnyOutcome
 import ./proof/director/dir_resume_restores.bend as PDirResumeRestores
 import ./proof/director/dir_step_undecided.bend as PDirStepUndecided
 import ./proof/director/dir_step_no_verdict_defers.bend as PDirStepNoVerdictDefers
@@ -511,6 +511,7 @@ import ./proof/director/dir_ffi_round_trip.bend as PDirFfiRoundTrip
 import ./proof/director/dir_ffi_is_tick.bend as PDirFfiIsTick
 import ./proof/director/dir_req_fits_example.bend as PDirReqFitsExample
 import ./proof/director/dir_ffi_answers_spelled.bend as PDirFfiAnswersSpelled
+import ./proof/director/dir_ffi_ended_stays_any_outcome.bend as PDirFfiEndedStaysAnyOutcome
 import ./proof/director/dir_ffi_left_over_spelled.bend as PDirFfiLeftOverSpelled
 import ./proof/director/dir_ffi_unknown_verdict.bend as PDirFfiUnknownVerdict
 import ./proof/director/dir_ffi_unknown_end.bend as PDirFfiUnknownEnd
