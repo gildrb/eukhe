@@ -1,4 +1,4 @@
-# eukhe: the proof of LAW doc_plan_content_exact
+# eukhe: the proof of LAW doc_plan_kept_when_not_older
 
 import Base
 import ../../bend/doc_plan.bend as Dp
@@ -16,7 +16,8 @@ import ../base/wire.bend as LWire
 import ../../laws/doc_plan.bend as DocPlan
 import ./base.bend as LADocPlan
 
-# PROOF of LAW doc_plan_content_exact: both sides pick on the same comparison (dp.pick).
+# PROOF of LAW doc_plan_kept_when_not_older: the stored version is not below the definition's (dp.not_lt_up), so with no operations nothing is written.
 
-def DocPlan.doc_plan_content_exact(stored, version, ops):
-  LADocPlan.dp.pick(Nat.is_lt(stored, version), ops)
+def DocPlan.doc_plan_kept_when_not_older(version, d):
+  %LADocPlan.dp.not_lt_up(version, d) : {Dp.content.pick(_, False{}) == Dp.Kept{} : Dp.Content}
+  {==}

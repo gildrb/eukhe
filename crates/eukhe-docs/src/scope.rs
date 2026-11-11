@@ -72,7 +72,9 @@ pub(crate) fn is_missing(error: &io::Error) -> bool {
 }
 
 /// The name prefix of every temporary file of a document write: `temp()`
-/// of `bend/doc_commit.bend` (law `commit_prefix_spec`). Grep's and glob's
+/// of `bend/doc_commit.bend` (laws `commit_sweep_removes_free_temp` and
+/// `commit_sweep_keeps_unprefixed` pin the swept names to
+/// `.eukhe-tmp-<digest>-`). Grep's and glob's
 /// walks test it on every entry, too often to ask the core each time.
 const TEMP_PREFIX: &str = ".eukhe-tmp-";
 

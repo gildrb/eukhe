@@ -1,12 +1,16 @@
-# eukhe: the proof of LAW commit_outcome_spec
+# eukhe: the proof of LAW commit_outcome_lands_iff_in_place
 #
 # PROOF: every publish fact computes.
 
 import Base
 import ../../bend/doc_commit.bend as Cm
+import ../../laws/base.bend as LawsBase
 import ../../laws/doc_commit.bend as DocCommit
+import ../../laws/doc_commit/choices.bend as DocCommitChoices
+import ./base.bend as LA
+import ./base/choices.bend as LC
 
-def dcw.outcome(p: Cm.Pub) -> {Cm.outcome(p) == DocCommit.sp_outcome(p) : Cm.Outcome}:
+def DocCommitChoices.commit_outcome_lands_iff_in_place(p):
   match p:
     case Cm.Updated{x}:
       match x:
@@ -27,11 +31,7 @@ def dcw.outcome(p: Cm.Pub) -> {Cm.outcome(p) == DocCommit.sp_outcome(p) : Cm.Out
     case Cm.Moved{x, r}:
       match x:
         case Cm.NotPlaced{}:
-          match r:
-            case True{}:
-              {==}
-            case False{}:
-              {==}
+          {==}
         case Cm.Placed{s}:
           match s:
             case True{}:
@@ -46,6 +46,3 @@ def dcw.outcome(p: Cm.Pub) -> {Cm.outcome(p) == DocCommit.sp_outcome(p) : Cm.Out
                   {==}
                 case False{}:
                   {==}
-
-def DocCommit.commit_outcome_spec(p):
-  dcw.outcome(p)

@@ -1,4 +1,4 @@
-# eukhe: the proof of LAW doc_plan_publishes_exact
+# eukhe: the proof of LAW doc_plan_delta_when_not_older
 
 import Base
 import ../../bend/doc_plan.bend as Dp
@@ -16,21 +16,8 @@ import ../base/wire.bend as LWire
 import ../../laws/doc_plan.bend as DocPlan
 import ./base.bend as LADocPlan
 
-# PROOF of LAW doc_plan_publishes_exact: every case computes.
+# PROOF of LAW doc_plan_delta_when_not_older: the stored version is not below the definition's (dp.not_lt_up), so staged operations write a delta.
 
-def DocPlan.doc_plan_publishes_exact(retire, c, writes):
-  match retire:
-    case True{}:
-      {==}
-    case False{}:
-      match c:
-        case Dp.NoChange{}:
-          {==}
-        case Dp.Fresh{}:
-          {==}
-        case Dp.OfLoaded{}:
-          match writes:
-            case True{}:
-              {==}
-            case False{}:
-              {==}
+def DocPlan.doc_plan_delta_when_not_older(version, d):
+  %LADocPlan.dp.not_lt_up(version, d) : {Dp.content.pick(_, True{}) == Dp.NewDelta{} : Dp.Content}
+  {==}

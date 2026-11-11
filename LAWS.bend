@@ -105,6 +105,7 @@ import ./laws/slash_suggest.bend as SlashSuggest
 import ./laws/gateway_commands.bend as GatewayCommands
 import ./laws/doc_commit.bend as DocCommit
 import ./laws/doc_commit/exact.bend as DocCommitExact
+import ./laws/doc_commit/choices.bend as DocCommitChoices
 import ./laws/doc_lines.bend as DocLines
 import ./laws/doc_rows.bend as DocRows
 import ./laws/doc_tags.bend as DocTags
