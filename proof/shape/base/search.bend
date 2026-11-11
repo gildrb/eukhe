@@ -1,12 +1,12 @@
-# eukhe: the matcher's searches are the spec's (laws/shape/search.bend R7-R9): the
-# answer at each place is the spec's (shape_first_reading), and the places,
-# shapes and fits follow the spec's order, by induction along the code.
+# eukhe: the matcher's searches are the spec's (laws/shape/search.bend R7-R9):
+# the answer at each place is the spec's (the backtracking matcher,
+# proof/shape/base/seek.bend), and the places, shapes and fits follow the
+# spec's order, by induction along the code.
 
 import Base
 import ../../../bend/shape.bend as S
 import ../../../laws/shape/match.bend as Shape
 import ../../../laws/shape/search.bend as ShapeSearch
-import ../shape_first_reading.bend as LFR
 import ./leaf.bend as LL
 import ./seek.bend as LK
 import ./fuel.bend as LU
@@ -32,36 +32,6 @@ def shf2.next(st: S.Start, -X: Maybe<&2, S.Hit>, -Y: Maybe<&2, S.Hit>, h: {X == 
       {==}
     case S.Anywhere{}:
       h
-
-def shf2.at(+f: Nat, +ps: List<&2, S.Piece>, +ends: Bool, +s: S.St) -> {S.at(f, ps, ends, s) == Shape.sp_answer(f, ps, ends, s) : Maybe<&2, S.St>}:
-  Shape.shape_first_reading(f, ps, ends, s)
-
-def shf2.go(text: String, +f: Nat, +st: S.Start, +ps: List<&2, S.Piece>, +ends: Bool, +pos: Nat, +left: Nat, word: Bool, +caps: List<&2, Maybe<&2, S.Got>>) -> {S.find.go(text, f, st, ps, ends, pos, left, word, caps) == ShapeSearch.sp_find.go(text, f, st, ps, ends, pos, left, word, caps) : Maybe<&2, S.Hit>}:
-  match text:
-    case SNil{}:
-      +s = {S.St{pos, left, word, SNil{}, caps} : S.St}
-      %Equal.sym(Maybe<&2, S.St>, S.at(f, ps, ends, s), Shape.sp_answer(f, ps, ends, s), shf2.at(f, ps, ends, s)) : {S.find.try(_, pos, k => None{}) == ShapeSearch.sp_try(Shape.sp_answer(f, ps, ends, s), pos, k => None{}) : Maybe<&2, S.Hit>}
-      shf2.try(Shape.sp_answer(f, ps, ends, s), pos, None{}, None{}, {==})
-    case SCon{+x, +t}:
-      +s = {S.St{pos, left, word, SCon{x, t}, caps} : S.St}
-      +A = {S.find.next(st, j => S.find.go(t, f, st, ps, ends, 1n+pos, S.pred(left), S.is_word(x), caps)) : Maybe<&2, S.Hit>}
-      +B = {ShapeSearch.sp_next(st, j => ShapeSearch.sp_find.go(t, f, st, ps, ends, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps)) : Maybe<&2, S.Hit>}
-      %Equal.sym(Maybe<&2, S.St>, S.at(f, ps, ends, s), Shape.sp_answer(f, ps, ends, s), shf2.at(f, ps, ends, s)) : {S.find.try(_, pos, k => A) == ShapeSearch.sp_try(Shape.sp_answer(f, ps, ends, s), pos, k => B) : Maybe<&2, S.Hit>}
-      %Equal.sym(Nat, S.pred(left), Shape.sp_dec(left), LL.shl.pred(left)) : {S.find.try(Shape.sp_answer(f, ps, ends, s), pos, k => S.find.next(st, j => S.find.go(t, f, st, ps, ends, 1n+pos, _, S.is_word(x), caps))) == ShapeSearch.sp_try(Shape.sp_answer(f, ps, ends, s), pos, k => B) : Maybe<&2, S.Hit>}
-      %Equal.sym(Bool, S.is_word(x), Shape.sp_word(x), LL.shl.word(x)) : {S.find.try(Shape.sp_answer(f, ps, ends, s), pos, k => S.find.next(st, j => S.find.go(t, f, st, ps, ends, 1n+pos, Shape.sp_dec(left), _, caps))) == ShapeSearch.sp_try(Shape.sp_answer(f, ps, ends, s), pos, k => B) : Maybe<&2, S.Hit>}
-      +C = {S.find.go(t, f, st, ps, ends, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps) : Maybe<&2, S.Hit>}
-      +D = {ShapeSearch.sp_find.go(t, f, st, ps, ends, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps) : Maybe<&2, S.Hit>}
-      shf2.try(Shape.sp_answer(f, ps, ends, s), pos, S.find.next(st, j => C), B, shf2.next(st, C, D, shf2.go(t, f, st, ps, ends, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps)))
-
-# the search of a shape is the spec's
-def shf2.find(+f: Nat, sh: S.Shape, a: S.At) -> {S.find(f, sh, a) == ShapeSearch.sp_find(f, sh, a) : Maybe<&2, S.Hit>}:
-  match sh:
-    case S.Shape{+st, +ps, +ends}:
-      match a:
-        case S.At{+text, +pos, +left, +word}:
-          %Equal.sym(Nat, S.ncaps(ps), Shape.sp_ncaps(ps), LL.shl.ncaps(ps)) : {S.find.go(text, f, st, ps, ends, pos, left, word, S.none_caps(_)) == ShapeSearch.sp_find(f, S.Shape{st, ps, ends}, S.At{text, pos, left, word}) : Maybe<&2, S.Hit>}
-          %Equal.sym(List<&2, Maybe<&2, S.Got>>, S.none_caps(Shape.sp_ncaps(ps)), ShapeSearch.sp_none_caps(Shape.sp_ncaps(ps)), shf2.caps(Shape.sp_ncaps(ps))) : {S.find.go(text, f, st, ps, ends, pos, left, word, _) == ShapeSearch.sp_find(f, S.Shape{st, ps, ends}, S.At{text, pos, left, word}) : Maybe<&2, S.Hit>}
-          shf2.go(text, f, st, ps, ends, pos, left, word, ShapeSearch.sp_none_caps(Shape.sp_ncaps(ps)))
 
 # Fits
 # ----

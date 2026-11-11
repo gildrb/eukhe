@@ -129,6 +129,7 @@ import ./laws/infer_threshold.bend as InferThreshold
 import ./laws/bound.bend as Bound
 import ./laws/selection.bend as Selection
 import ./laws/selection/reply.bend as SelectionReply
+import ./laws/selection/drag.bend as SelectionDrag
 import ./laws/codemode_id.bend as CodemodeId
 import ./laws/submission.bend as Submission
 import ./laws/scan.bend as Scan
