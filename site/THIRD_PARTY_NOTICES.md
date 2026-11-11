@@ -1,5 +1,5 @@
 # Third-party notices
 
-| Component                                                                                       | Files                               | License                                           |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------- |
-| [Ioskeley Mono](https://github.com/ahatem/IoskeleyMono) v2.2.0 by Ahmed Hatem, built on Iosevka | `public/fonts/IoskeleyMono-*.woff2` | SIL Open Font License 1.1, `public/fonts/OFL.txt` |
+| Component                                                                                         | Files                                                                                    | License                                           |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| [Paper Mono](https://github.com/paper-design/paper-mono) v1.000 by the Paper-Mono Project Authors | `public/fonts/PaperMono-Regular.woff2`, `public/fonts/PaperMono-Bold.woff2` (unmodified) | SIL Open Font License 1.1, `public/fonts/OFL.txt` |

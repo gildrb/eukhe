@@ -28,7 +28,7 @@ export const colors = stylex.defineVars({
 
 /** Page metrics: 12px type on a 20px line, a 40px inset, a 68-character measure. */
 export const type = stylex.defineConsts({
-  family: '"Ioskeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  family: '"Paper Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
   size: "12px",
   leading: "20px",
   bold: "700",

@@ -101,27 +101,21 @@ const structured = JSON.stringify({
 }).replaceAll("<", "\\u003c");
 
 /**
- * The faces, three files per weight (scripts/subset-fonts.sh): a page loads only the ranges it
- * shows. `?v=` names the glyph set.
+ * The faces: Paper Mono's release files as they are (scripts/fonts.sh), one per weight. Its
+ * advance is 606/1000 em; `size-adjust` sets it to the grid's 0.6em cell (99.01%: a CSS scale, the
+ * files stay unmodified). Paper Mono has no Greek: the epigraphs' Greek comes from the system's
+ * monospace (the font-family stack, tokens.stylex.ts). `?v=` names the release.
  */
-const ranges = {
-  core: "U+0000-00FF,U+0131,U+0152-0153,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122",
-  greek: "U+0300-036F,U+0370-03FF,U+1F00-1FFF",
-  box: "U+2190-21FF,U+2500-259F",
-};
-const fonts = (["Regular", "Bold"] as const).flatMap((face) =>
-  (["core", "greek", "box"] as const).map((part) => ({
-    file: `/fonts/IoskeleyMono-${face}-${part}.woff2?v=3`,
-    weight: face === "Regular" ? 400 : 700,
-    range: ranges[part],
-  })),
-);
+const fonts = (["Regular", "Bold"] as const).map((face) => ({
+  file: `/fonts/PaperMono-${face}.woff2?v=1.000`,
+  weight: face === "Regular" ? 400 : 700,
+}));
 
 /** Rules StyleX cannot hold: the faces, the selection, and the page color before any class. */
 const globalCss = [
   ...fonts.map(
-    ({ file, weight, range }) =>
-      `@font-face{font-family:"Ioskeley Mono";src:url(${file}) format("woff2");font-weight:${weight};font-style:normal;font-display:swap;unicode-range:${range}}`,
+    ({ file, weight }) =>
+      `@font-face{font-family:"Paper Mono";src:url(${file}) format("woff2");font-weight:${weight};font-style:normal;font-display:swap;size-adjust:99.01%}`,
   ),
   `html{background:${palette.bg.dark};color-scheme:dark}`,
   `@media (prefers-color-scheme:light){html{background:${palette.bg.light};color-scheme:light}}`,
