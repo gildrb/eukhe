@@ -151,3 +151,77 @@ async fn minimax_thinks_by_the_adaptive_tag_alone() {
         ]
     );
 }
+
+/// `MiniMax-M3` answers in at most 128000 tokens on the `MiniMax` hosts: 512K
+/// is its pricing-tier boundary, not its output ceiling.
+#[tokio::test]
+async fn minimax_m3_caps_its_answer_at_128k() {
+    let mut caps = Vec::new();
+    for provider in ["minimax", "minimax-cn"] {
+        let model = builtin_model(provider, "MiniMax-M3", &json!({}));
+        let payload = capture_simple_payload(&model, SimpleStreamOptions::default()).await;
+        caps.push((model.max_tokens, payload["max_tokens"].clone()));
+    }
+    assert_eq!(caps, [(128_000, json!(128_000)), (128_000, json!(128_000))]);
+}
+
+/// Z.AI's GLM rides its Anthropic endpoint
+/// (`https://api.z.ai/api/anthropic`), GLM-5.3-Flash and the high-speed
+/// lanes its `OpenAI`-compatible coding endpoint. GLM 5.2 and later think on
+/// a budget with the level as the effort; older GLM on a budget alone;
+/// thinking off is `disabled`.
+#[tokio::test]
+async fn zai_glm_rides_the_anthropic_endpoint() {
+    let route = |id: &str| {
+        let model = eukhe_ai::providers::all::get_builtin_model("zai", id).expect("zai model");
+        (model.api, model.base_url)
+    };
+    let anthropic = || {
+        (
+            "anthropic-messages".to_owned(),
+            "https://api.z.ai/api/anthropic".to_owned(),
+        )
+    };
+    let coding = || {
+        (
+            "openai-completions".to_owned(),
+            "https://api.z.ai/api/coding/paas/v4".to_owned(),
+        )
+    };
+    assert_eq!(
+        [
+            "glm-4.7",
+            "glm-5-turbo",
+            "glm-5.2",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.2-highspeed",
+            "glm-5.3-highspeed",
+        ]
+        .map(route),
+        [
+            anthropic(),
+            anthropic(),
+            anthropic(),
+            anthropic(),
+            coding(),
+            coding(),
+            coding(),
+        ]
+    );
+    let budget = |tokens: u64| json!({ "type": "enabled", "budget_tokens": tokens, "display": "summarized" });
+    assert_eq!(
+        [
+            wire("zai", "glm-4.7", Some(ThinkingLevel::High)).await,
+            wire("zai", "glm-5.2", Some(ThinkingLevel::High)).await,
+            wire("zai", "glm-5.3", Some(ThinkingLevel::Low)).await,
+            wire("zai", "glm-5.2", None).await,
+        ],
+        [
+            [budget(16384), JsonValue::Null],
+            [budget(16384), json!({ "effort": "high" })],
+            [budget(2048), json!({ "effort": "low" })],
+            [json!({ "type": "disabled" }), JsonValue::Null],
+        ]
+    );
+}

@@ -295,15 +295,19 @@ fn apply_thinking_format(
     let effort = options.reasoning_effort;
     match compat.thinking_format {
         ThinkingFormat::Zai => {
-            insert(
-                params,
-                "thinking",
-                if effort.is_some() {
-                    json!({ "type": "enabled", "clear_thinking": false })
-                } else {
-                    json!({ "type": "disabled" })
-                },
-            );
+            // Thinking on is the bare `{type: enabled}` (plus `keep` where
+            // the model keeps earlier thinking); Z.AI's `clear_thinking`
+            // flag is not sent.
+            let thinking = if effort.is_some() {
+                let mut thinking = json!({ "type": "enabled" });
+                if let Some(keep) = &compat.thinking_keep {
+                    thinking["keep"] = json!(keep);
+                }
+                thinking
+            } else {
+                json!({ "type": "disabled" })
+            };
+            insert(params, "thinking", thinking);
             if let Some(effort) = effort.filter(|_| compat.supports_reasoning_effort) {
                 let value = match level_map(model, effort.into()) {
                     None => Some(effort.as_str()),

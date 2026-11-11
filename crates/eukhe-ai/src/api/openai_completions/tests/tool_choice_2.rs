@@ -738,8 +738,8 @@ async fn sends_max_tokens_for_built_in_and_custom_deepseek_api_models() {
 #[tokio::test]
 async fn sends_max_tokens_for_z_ai_completions_models() {
     for model in [
-        catalog_model("zai", "glm-5-turbo"),
-        catalog_model("zai", "glm-5.2"),
+        catalog_model("zai", "glm-5.3-flash"),
+        catalog_model("zai", "glm-5.2-highspeed"),
     ] {
         assert_eq!(compat_json(&model)["maxTokensField"], json!("max_tokens"));
         assert_sends_max_tokens(&model).await;
