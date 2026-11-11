@@ -1083,7 +1083,11 @@ pub(crate) fn build_params(
                 );
             }
         } else if options.thinking_enabled == Some(false) {
-            if adaptive_only_thinking(model) && quirks.disabled_thinking() != Some(true) {
+            if quirks.between_tools_thinking() == Some(true) {
+                // omp: Sonnet 5.5 rejects `disabled`; `between_tools` is
+                // its lowest setting and pins no effort.
+                params.insert("thinking".into(), json!({ "type": "between_tools" }));
+            } else if adaptive_only_thinking(model) && quirks.disabled_thinking() != Some(true) {
                 // omp: an adaptive-only model rejects `disabled`; an
                 // omitted `thinking` is adaptive, so the lowest effort is
                 // pinned.

@@ -85,6 +85,22 @@ async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
     );
 }
 
+/// Thinking off on Claude Sonnet 5.5, which rejects `disabled`, is its
+/// lowest setting `between_tools`, with no effort pinned (omp
+/// `anthropic.ts` `buildParams`, `compat.supportsBetweenToolsThinking`).
+#[tokio::test]
+async fn thinking_off_on_claude_sonnet_5_5_is_between_tools() {
+    let between = [json!({ "type": "between_tools" }), JsonValue::Null];
+    assert_eq!(
+        [
+            wire("github-copilot", "claude-sonnet-5.5", None).await,
+            wire("opencode", "claude-sonnet-5-5", None).await,
+            wire("vercel-ai-gateway", "anthropic/claude-sonnet-5.5", None).await,
+        ],
+        [between.clone(), between.clone(), between]
+    );
+}
+
 /// `MiniMax` drives thinking with the `thinking.type: adaptive` tag alone:
 /// no effort and no display, at every level (omp catalog `effortMap`
 /// `"adaptive"`, `anthropic.ts` `usesAdaptiveThinkingTagOnly`); its
