@@ -57,7 +57,7 @@ bounded mailbox with returns.
 |O13|A slow reader hurts only itself. What a client receives depends only on the events and on its own reading: a client that reads slowly never delays an agent and never changes what another client receives. A client that lags less than the ring holds receives every event; past that, what it missed is marked as a gap with its range, and the gap can be read back exactly from the record.|
 |O14|Survives restart, and is visible. After a daemon restart the scheduler's state is rebuilt from durable state: no unit lost, none admitted twice, order kept, dead holders no longer counted. For every waiting unit a client can read why it waits: a limit that is full, its place in the order, the units that hold that limit; each of them true.|
 
-## 3. What exists
+## 3. What exists in eukhe
 
 ### eukhe (origin/merge/main-into-client-sdk)
 
@@ -98,30 +98,6 @@ Gaps against the requirements:
    between a child's messages and its report is not stated (O8).
 7. After a restart, queues are rebuilt by each worker alone; no law states
    the order is kept (O14).
-
-### oh-my-pi (c28b3e3; `P` = `packages/coding-agent/src`, `A` = `packages/agent/src`)
-
-|Behavior|Where|
-|---|---|
-|Subagents: one semaphore per session, `task.maxConcurrency` 32, excess waits FIFO; depth cap `task.maxRecursionDepth` 2; optional wall-clock limit; a soft budget of 200 requests, then a forced wrap-up.|`P/task/settings.ts:404-417,473-503,539-546`, `P/task/parallel.ts:140-216`, `P/task/executor.ts:1636-1663,1865-1894`|
-|Background jobs: cap `async.maxJobs` 100; over it `register` throws, no queue; states running, completed, failed, cancelled.|`P/tools/settings.ts:977-981`, `P/async/job-manager.ts:106,483-498`|
-|Job results: delivered to the owner's sink, retried with backoff while the row lives; unconsumed rows expire after 5 minutes, consumed after 30 seconds; with no sink the delivery is dead-lettered.|`P/async/job-manager.ts:9-24,1186-1207,1352-1387`|
-|`wait`: returns at once when nothing runs or a result is undelivered; else blocks until the first job, service, message or timeout; timeout ladder 5 s to 300 s; a result is delivered once, by `wait` or by follow-up.|`P/tools/wait.ts:31-37,175-216,236-239,311-320`|
-|Messages (`IrcBus`): at most once, no retry, no dedup; an unknown agent fails; a parked agent is revived; a mailbox of 100 per agent drops the oldest on overflow; a parent's direct message steers, others queue.|`P/irc/bus.ts:54,133-149,214-295,394-398`, `P/session/irc-bridge.ts:270-335`|
-|User queues while busy: two arrays (steer, follow-up) with no cap, FIFO.|`A/agent.ts:432-433,1474-1501,1607-1611`|
-|Fairness: none across agents; a provider cap exists for one provider only (`ollama-cloud`, 3), wrapping each request, as the fix for a spawn-tree deadlock; retries are per session.|`P/task/provider-concurrency.ts:4-36,78-83`, `docs/non-compaction-retry-policy.md:86-135`|
-|Deadlock: an await graph (`AgentAwaits`) walked with a visited path; a reply wait where no asked agent can answer ends at once as `unanswerable`; a message interrupts a wait.|`P/registry/agent-awaits.ts:13,73-90`, `P/tools/wait.ts:96-106,152,204-216,349-351`|
-|Workpool: items queued, running, completed, failed, cancelled; dispatch in push order to the least loaded worker; a dead worker's items are dispatched again; DAG waves are a prompt convention, not code.|`P/task/workpool.ts:152-170,233-320,454-455,507-514`, `P/prompts/tools/eval-agents.md:15-20`|
-|Tool calls in one turn: shared calls run together with no cap, an exclusive call alone; all settled before the turn goes on.|`A/agent-loop.ts:3908-3957`|
-
-omp has no behavior for: a scheduler or fairness among agents; provider
-limits beyond one provider; a bound on user queues; message retry, dedup or
-at-least-once delivery; a code-enforced DAG; admission on low resources; a
-cap on live agents. Where omp has the behavior eukhe matches it (the family
-cap and its default 32, depth, the wait that refuses when nothing runs, the
-interrupting message, the await graph inside tasks) or is stricter (kin
-never drops where omp's mailbox drops the oldest; reports exactly once).
-O4 to O6 and O13 are designed, not ported.
 
 ## 4. Proposed laws (requirement laws only)
 
@@ -260,8 +236,8 @@ memory per agent, wall-clock bounds.
 5. A wait that would close a cycle: refuse it with the cycle (assumed), or
    allow it and break it after a timeout?
 6. Who may message whom? Parent and children only (today), or also
-   siblings and a broadcast as omp's IRC has? It changes the wait-for graph
-   and the mailbox bounds.
+   siblings and a broadcast? It changes the wait-for graph and the mailbox
+   bounds.
 7. Scale target: hundreds, thousands, or more agents on one daemon? One
    machine only (assumed), or several daemons sharing limits?
 8. A reader that lags: drop, mark the gap and let it read back (assumed),

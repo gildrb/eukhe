@@ -2,17 +2,17 @@
 
 Status: specs only. `spec/README.md` lists what is proven; this file lists
 four pillars that are specified and not built. Each spec is written without
-the code: numbered requirements, a map of what eukhe and oh-my-pi (c28b3e3)
-do today, the laws proposed (requirement laws only: each names a wrong
-program it rejects), a sketch of the Bend core and of the daemon, SDK, CLI
-and TUI surface, and the questions the user must decide.
+the code: numbered requirements, a map of what eukhe does today, the laws
+proposed (requirement laws only: each names a wrong program it rejects), a
+sketch of the Bend core and of the daemon, SDK, CLI and TUI surface, and
+the questions the user must decide.
 
 |Pillar|Spec|Ids|One line|Builds on (proven today)|
 |---|---|---|---|---|
 |capability security|`security/SPEC.md`|C1..C14|What an agent may read, write, run and send is one policy; a subagent holds no more than its parent granted; secrets and private data leave only through a granted capability.|path_policy, approvals, runners, child_env, privacy, sandbox, config trust|
 |complete replayable record|`record/SPEC.md`|T1..T12|Every decision and effect is attributed, the record shows tampering, a session replays to the same decisions, one query audits a tree.|log, tree, tool_call, call_lift, arg_repair|
 |orchestration at scale|`orchestration/SPEC.md`|O1..O14|Many agents, loops and workflows: fair turns, no deadlock, no lost or duplicated message, bounded queues, admission limits.|admission, family, workflow, rlm_query, kin, child, wait, wait_any, job, task_life|
-|stable SDK contract|`contract/SPEC.md`|W1..W13|The wire and the SDKs keep working across upgrades: negotiated versions, unknown fields tolerated, old and new on both sides, rules for removal.|replace, launcher, semver, wire, call_lift|
+|stable SDK contract|`contract/SPEC.md`|W1..W23|The wire and the SDKs keep working across upgrades: negotiated versions, unknown fields tolerated, old and new on both sides, rules for removal. One SDK API over two doors: the engine in the host's process or in the daemon, chosen by configuration, with the host's callbacks working the same in both.|replace, launcher, semver, wire, call_lift|
 
 The id letters are provisional: the pillars built in parallel (budgets,
 verified completion, exactly-once, loop) choose theirs, and the table of
@@ -24,6 +24,10 @@ verified completion, exactly-once, loop) choose theirs, and the table of
    generated schema, a checker in CI) and every other pillar adds commands
    and events: with the rules in place first, each addition is checked
    against the last release instead of being repaired later.
+   Inside it, the two doors (W14 to W23) start with the in-process API,
+   which needs no schema; the host-callback protocol comes after the
+   schema, since its frames enter it as additions. The steps are in
+   section 9 of `contract/SPEC.md`.
 2. **record** second. The other two pillars each produce decisions that
    must be attributed and replayable (a capability decision, an admission),
    their tests use the replay as the oracle, and orchestration fills a slow
@@ -55,13 +59,16 @@ record.
 |orchestration, budgets|A budget refuses before a limit; one law fixes the order of refusals (as `family_refusal_precedence` does).|
 |orchestration, loop|A loop iteration is a unit; a loop's wait is a wait-for edge (O9, O10).|
 |record, verified completion|The evidence of a verdict is an input entry; the verdict is a decision entry.|
+|contract, budgets|A host's budget question is a host callback in both doors (W16); a host that is gone adds nothing (W18).|
+|contract, exactly-once|A host call sent again to a host that came back keeps its id (W18), so the host can do its effect once.|
 
 ## How these specs were made
 
 - eukhe: read at `origin/merge/main-into-client-sdk` (0355548): `bend/`,
-  `laws/`, `spec/`, `crates/`.
-- oh-my-pi: read at c28b3e3; every behavior cited as `path:line`; where a
-  line was not verified the spec says less, not more.
+  `laws/`, `spec/`, `crates/`. Every behavior is cited as `path:line`;
+  where a line was not verified the spec says less, not more.
+- The two doors of the contract (W14 to W23) follow the user's decision of
+  2026-11-11.
 - No law, proof, Bend code or Rust code is in this change. The law names
   are proposals: none exists in `laws/`.
 - The requirement and law lists were read once on paper by two fresh
