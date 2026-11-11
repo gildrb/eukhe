@@ -8,10 +8,11 @@ import ../base/staging.bend as LStg
 
 # ---- staging ----
 
-# proof_staging: the staging, sweep and listing laws of LAWS.bend section storage
-# (D2): a publish never takes a name that is taken; a sweep never removes
-# a held, young or unreached entry, and removes every stale free leftover
-# it reaches; a session is listed once, under the storage it opens as.
+# proof_staging: the staging, sweep and listing laws of laws/staging.bend
+# (D2): a sweep never removes a held, young, unreached or unswept entry,
+# and removes every stale free leftover it reaches; the real rule judges
+# exactly the names Rust mints; a session is listed once, under the
+# storage it opens as.
 
 # Logic and numbers
 # -----------------
@@ -70,61 +71,6 @@ def pg.kept(+pre: List<&2, Sg.Node>, +n: Sg.Node, +post: List<&2, Sg.Node>, no: 
   %pg.sweep_app(pre, n <> post) : {_ == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
   %no : {List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep.put(n, Sg.sweep(post), _)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
   {==}
-
-# The model's sweep is its spec (laws/staging.bend): sort, node and list
-
-def pg.swept_spec(k: Sg.Sort) -> {Sg.Sort.swept(k) == Staging.sp_swept_sort(k) : Bool}:
-  match k:
-    case Sg.Leftover{}:
-      {==}
-    case Sg.Lock{d}:
-      match d:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
-    case Sg.Store{}:
-      {==}
-    case Sg.Plain{}:
-      {==}
-    case Sg.Other{}:
-      {==}
-
-def pg.removes_go(o: Bool, h: Bool, s: Bool, k: Sg.Sort, +i: Nat) -> {Sg.removes(Sg.Node{i, k, h, s, o}) == Staging.sp_sweeps.go(o, h, s, k) : Bool}:
-  match o:
-    case False{}:
-      {==}
-    case True{}:
-      match h:
-        case True{}:
-          {==}
-        case False{}:
-          match s:
-            case False{}:
-              {==}
-            case True{}:
-              pg.swept_spec(k)
-
-def pg.removes_spec(n: Sg.Node) -> {Sg.removes(n) == Staging.sp_sweeps(n) : Bool}:
-  match n:
-    case Sg.Node{i, k, h, s, o}:
-      pg.removes_go(o, h, s, k, i)
-
-def pg.put_go(+n: Sg.Node, xs: List<&2, Sg.Node>, b: Bool) -> {Sg.sweep.put(n, xs, b) == Staging.sp_sweep.go(b, n, xs) : List<&2, Sg.Node>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def pg.sweep_spec(ns: List<&2, Sg.Node>) -> {Sg.sweep(ns) == Staging.sp_sweep(ns) : List<&2, Sg.Node>}:
-  match ns:
-    case Nil{}:
-      {==}
-    case +n <> +rest:
-      %pg.removes_spec(n) : {Sg.sweep.put(n, Sg.sweep(rest), Sg.removes(n)) == Staging.sp_sweep.go(_, n, Staging.sp_sweep(rest)) : List<&2, Sg.Node>}
-      %pg.sweep_spec(rest) : {Sg.sweep.put(n, Sg.sweep(rest), Sg.removes(n)) == Staging.sp_sweep.go(Sg.removes(n), n, _) : List<&2, Sg.Node>}
-      pg.put_go(n, Sg.sweep(rest), Sg.removes(n))
 
 # An import
 # ---------
@@ -293,72 +239,6 @@ def rr.swept(s: String) -> {Sg.swept(s) == Staging.sp_swept(s) : Bool}:
       %rr.dot(c) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(_, x) : Bool}
       {==}
 
-def rr.met_dir(sw: Bool, m: Bool) -> {Sg.met.dir(sw, m) == Staging.sp_met.dir(sw, m) : Sg.Met}:
-  match sw m:
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
-def rr.met_lock(sw: Bool, th: Bool) -> {Sg.met.lock(sw, th) == Staging.sp_met.lock(sw, th) : Sg.Met}:
-  match sw th:
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
-def rr.met_file(m: Maybe<&2, String>, +all: List<&2, Sg.Seen>) -> {Sg.met.file(m, all) == Staging.sp_met.file(m, all) : Sg.Met}:
-  match m:
-    case None{}:
-      {==}
-    case Some{+x}:
-      %rr.swept(x) : {Sg.met.lock(Sg.swept(x), Sg.has_name(x, all)) == Staging.sp_met.lock(_, LawsBase.text_has_name(x, all)) : Sg.Met}
-      %LStg.stg.has_name(x, all) : {Sg.met.lock(Sg.swept(x), Sg.has_name(x, all)) == Staging.sp_met.lock(Sg.swept(x), _) : Sg.Met}
-      rr.met_lock(Sg.swept(x), Sg.has_name(x, all))
-
-def rr.met_utf(k: Sg.Form, +s: String, +all: List<&2, Sg.Seen>) -> {Sg.met.utf(k, s, all) == Staging.sp_met.utf(k, s, all) : Sg.Met}:
-  match k:
-    case Sg.KDir{+main}:
-      %rr.swept(s) : {Sg.met.dir(Sg.swept(s), main) == Staging.sp_met.dir(_, main) : Sg.Met}
-      rr.met_dir(Sg.swept(s), main)
-    case Sg.KFile{}:
-      %LStg.stg.unsuffix(".lock", s) : {Sg.met.file(Sg.unsuffix(".lock", s), all) == Staging.sp_met.file(_, all) : Sg.Met}
-      rr.met_file(Sg.unsuffix(".lock", s), all)
-    case Sg.KOther{}:
-      {==}
-
-def rr.met(e: Sg.Seen, +all: List<&2, Sg.Seen>) -> {Sg.met(e, all) == Staging.sp_met(e, all) : Sg.Met}:
-  match e:
-    case Sg.Seen{n, k}:
-      match n:
-        case Sg.Utf{s}:
-          rr.met_utf(k, s, all)
-        case Sg.Raw{}:
-          match k:
-            case Sg.KDir{main}:
-              rr.met_dir(False{}, main)
-            case Sg.KFile{}:
-              {==}
-            case Sg.KOther{}:
-              {==}
-
-def rr.meet_go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Sg.meet.go(es, all) == Staging.sp_meet.go(es, all) : List<&2, Sg.Met>}:
-  match es:
-    case Nil{}:
-      {==}
-    case +e <> +rest:
-      %rr.met(e, all) : {Sg.met(e, all) <> Sg.meet.go(rest, all) == _ <> Staging.sp_meet.go(rest, all) : List<&2, Sg.Met>}
-      %rr.meet_go(rest, all) : {Sg.met(e, all) <> Sg.meet.go(rest, all) == Sg.met(e, all) <> _ : List<&2, Sg.Met>}
-      {==}
-
 def rr.stale(+now: Sg.Time, t: Sg.Time) -> {Sg.stale(now, t) == Staging.sp_old(now, t) : Bool}:
   match now:
     case Sg.Time{+ns, +nn}:
@@ -375,33 +255,129 @@ def rr.stale_all(+now: Sg.Time, ts: List<&2, Sg.Time>) -> {Sg.stale_all(now, ts)
       %rr.stale_all(now, rest) : {Bool.and(Sg.stale(now, t), Sg.stale_all(now, rest)) == Bool.and(Sg.stale(now, t), _) : Bool}
       {==}
 
-def rr.judge_go(b: Bool, c: Sg.Cand, l: Sg.Lock) -> {Sg.judge.go(b, c, l) == Staging.sp_judge.go(b, c, l) : Sg.Plan}:
-  match b:
-    case True{}:
-      match c:
-        case Sg.CDir{}:
-          match l:
-            case Sg.LHeld{}:
-              {==}
-            case Sg.LFree{}:
-              {==}
-            case Sg.LAbsent{}:
-              {==}
-        case Sg.CLock{}:
-          match l:
-            case Sg.LHeld{}:
-              {==}
-            case Sg.LFree{}:
-              {==}
-            case Sg.LAbsent{}:
-              {==}
-    case False{}:
-      {==}
-
 # the plan's staleness is the spec's: judge is judge.go on sp_all_old
 def rr.judge_old(c: Sg.Cand, l: Sg.Lock, +now: Sg.Time, +own: Sg.Time, +inner: List<&2, Sg.Time>) -> {Sg.judge.go(Staging.sp_all_old(now, own <> inner), c, l) == Sg.judge(c, l, now, own, inner) : Sg.Plan}:
   %rr.stale_all(now, own <> inner) : {Sg.judge.go(_, c, l) == Sg.judge.go(Sg.stale_all(now, own <> inner), c, l) : Sg.Plan}
   {==}
+
+# ---- the real rule: the sweep's class of an entry ----
+
+# the class meet gives, on the laws' text helpers (sp_swept,
+# text_unsuffix, text_has_name): a directory with a swept name is judged;
+# any other directory is kept when it holds main.jsonl and entered
+# otherwise; a file `<x>.lock`, x a swept name, is judged when no entry
+# has the name x; everything else is kept
+
+def rr.m.dir(sw: Bool, main: Bool) -> Sg.Met:
+  match sw:
+    case True{}:
+      Sg.MLeftover{}
+    case False{}:
+      match main:
+        case True{}:
+          Sg.MKeep{}
+        case False{}:
+          Sg.MDescend{}
+
+def rr.m.lock(sw: Bool, there: Bool) -> Sg.Met:
+  match sw:
+    case True{}:
+      match there:
+        case True{}:
+          Sg.MKeep{}
+        case False{}:
+          Sg.MOrphan{}
+    case False{}:
+      Sg.MKeep{}
+
+def rr.m.file(m: Maybe<&2, String>, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match m:
+    case None{}:
+      Sg.MKeep{}
+    case Some{+x}:
+      rr.m.lock(Staging.sp_swept(x), LawsBase.text_has_name(x, all))
+
+def rr.m.utf(k: Sg.Form, +s: String, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match k:
+    case Sg.KDir{main}:
+      rr.m.dir(Staging.sp_swept(s), main)
+    case Sg.KFile{}:
+      rr.m.file(LawsBase.text_unsuffix(".lock", s), all)
+    case Sg.KOther{}:
+      Sg.MKeep{}
+
+def rr.m(e: Sg.Seen, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          rr.m.utf(k, s, all)
+        case Sg.Raw{}:
+          match k:
+            case Sg.KDir{main}:
+              rr.m.dir(False{}, main)
+            case Sg.KFile{}:
+              Sg.MKeep{}
+            case Sg.KOther{}:
+              Sg.MKeep{}
+
+def rr.met_dir(sw: Bool, m: Bool) -> {Sg.met.dir(sw, m) == rr.m.dir(sw, m) : Sg.Met}:
+  match sw m:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def rr.met_lock(sw: Bool, th: Bool) -> {Sg.met.lock(sw, th) == rr.m.lock(sw, th) : Sg.Met}:
+  match sw th:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def rr.met_file(m: Maybe<&2, String>, +all: List<&2, Sg.Seen>) -> {Sg.met.file(m, all) == rr.m.file(m, all) : Sg.Met}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %rr.swept(x) : {Sg.met.lock(Sg.swept(x), Sg.has_name(x, all)) == rr.m.lock(_, LawsBase.text_has_name(x, all)) : Sg.Met}
+      %LStg.stg.has_name(x, all) : {Sg.met.lock(Sg.swept(x), Sg.has_name(x, all)) == rr.m.lock(Sg.swept(x), _) : Sg.Met}
+      rr.met_lock(Sg.swept(x), Sg.has_name(x, all))
+
+def rr.met_utf(k: Sg.Form, +s: String, +all: List<&2, Sg.Seen>) -> {Sg.met.utf(k, s, all) == rr.m.utf(k, s, all) : Sg.Met}:
+  match k:
+    case Sg.KDir{+main}:
+      %rr.swept(s) : {Sg.met.dir(Sg.swept(s), main) == rr.m.dir(_, main) : Sg.Met}
+      rr.met_dir(Sg.swept(s), main)
+    case Sg.KFile{}:
+      %LStg.stg.unsuffix(".lock", s) : {Sg.met.file(Sg.unsuffix(".lock", s), all) == rr.m.file(_, all) : Sg.Met}
+      rr.met_file(Sg.unsuffix(".lock", s), all)
+    case Sg.KOther{}:
+      {==}
+
+# the code's class of an entry is rr.m's
+def rr.met(e: Sg.Seen, +all: List<&2, Sg.Seen>) -> {Sg.met(e, all) == rr.m(e, all) : Sg.Met}:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          rr.met_utf(k, s, all)
+        case Sg.Raw{}:
+          match k:
+            case Sg.KDir{main}:
+              rr.met_dir(False{}, main)
+            case Sg.KFile{}:
+              {==}
+            case Sg.KOther{}:
+              {==}
 
 # ---- the real rule: the names Rust mints ----
 
@@ -530,3 +506,289 @@ def rr.lock_ne(+x: String) -> {LawsBase.text_same(String.append(x, ".lock"), x) 
     Equal.cong(Nat, Bool, z => Nat.is_eq(z, String.length(x)), String.length(String.append(x, ".lock")), Nat.add(String.length(x), 5n), LStg.stg.len_app(x, ".lock")),
     rr.ne_add(String.length(x), 4n))
   LStg.stg.same_len(String.append(x, ".lock"), x, el)
+
+# ---- the real rule: where a class is, and what a judged name is ----
+
+# the class of the entry after pre is the class at the index |pre|
+def mm.at(pre: List<&2, Sg.Seen>, +x: Sg.Seen, +post: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {List.get(&2, Sg.Met, Sg.meet.go(List.append(&2, Sg.Seen, pre, x <> post), all), List.length(&2, Sg.Seen, pre)) == Some{Sg.met(x, all)} : Maybe<&2, Sg.Met>}:
+  match pre:
+    case Nil{}:
+      {==}
+    case e <> +rest:
+      mm.at(rest, x, post, all)
+
+# an entry anywhere in a listing gets the class rr.m gives it there
+def mm.found(+pre: List<&2, Sg.Seen>, +x: Sg.Seen, +post: List<&2, Sg.Seen>, -w: Sg.Met, r: {rr.m(x, List.append(&2, Sg.Seen, pre, x <> post)) == w : Sg.Met}) -> {List.get(&2, Sg.Met, Sg.meet(List.append(&2, Sg.Seen, pre, x <> post)), List.length(&2, Sg.Seen, pre)) == Some{w} : Maybe<&2, Sg.Met>}:
+  +es = List.append(&2, Sg.Seen, pre, x <> post)
+  Equal.trans(Maybe<&2, Sg.Met>, List.get(&2, Sg.Met, Sg.meet(es), List.length(&2, Sg.Seen, pre)), Some{Sg.met(x, es)}, Some{w}, mm.at(pre, x, post, es),
+    Equal.cong(Sg.Met, Maybe<&2, Sg.Met>, z => Some{z}, Sg.met(x, es), w, Equal.trans(Sg.Met, Sg.met(x, es), rr.m(x, es), w, rr.met(x, es), r)))
+
+# Impossible classes
+
+def mi.MD(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      G
+
+def mi.none_some(-A: Data, -G: Type, -x: A, e: {None{} == Some{x} : Maybe<&2, A>}) -> G:
+  %e : mi.MD(A, _, G)
+  Unit{}
+
+def mi.val(m: Maybe<&2, Sg.Met>) -> Sg.Met:
+  match m:
+    case None{}:
+      Sg.MKeep{}
+    case Some{x}:
+      x
+
+# G at a judged directory, nothing to prove elsewhere
+def mi.TL(m: Sg.Met, G: Type) -> Type:
+  match m:
+    case Sg.MKeep{}:
+      Unit
+    case Sg.MDescend{}:
+      Unit
+    case Sg.MLeftover{}:
+      G
+    case Sg.MOrphan{}:
+      Unit
+
+# G at a judged lock file, nothing to prove elsewhere
+def mi.TO(m: Sg.Met, G: Type) -> Type:
+  match m:
+    case Sg.MKeep{}:
+      Unit
+    case Sg.MDescend{}:
+      Unit
+    case Sg.MLeftover{}:
+      Unit
+    case Sg.MOrphan{}:
+      G
+
+def mi.absurd_l(-G: Type, -m: Sg.Met, e: {m == Sg.MLeftover{} : Sg.Met}, u: mi.TL(m, G)) -> G:
+  %e : mi.TL(_, G)
+  u
+
+def mi.absurd_o(-G: Type, -m: Sg.Met, e: {m == Sg.MOrphan{} : Sg.Met}, u: mi.TO(m, G)) -> G:
+  %e : mi.TO(_, G)
+  u
+
+# a lock file's class is never a judged directory
+def mi.lock_l(-G: Type, a: Bool, b: Bool) -> mi.TL(rr.m.lock(a, b), G):
+  match a b:
+    case True{} True{}:
+      Unit{}
+    case True{} False{}:
+      Unit{}
+    case False{} True{}:
+      Unit{}
+    case False{} False{}:
+      Unit{}
+
+def mi.file_l(-G: Type, m: Maybe<&2, String>, +all: List<&2, Sg.Seen>) -> mi.TL(rr.m.file(m, all), G):
+  match m:
+    case None{}:
+      Unit{}
+    case Some{+x}:
+      mi.lock_l(G, Staging.sp_swept(x), LawsBase.text_has_name(x, all))
+
+# a directory with no swept name is never judged
+def mi.dirf_l(-G: Type, main: Bool) -> mi.TL(rr.m.dir(False{}, main), G):
+  match main:
+    case True{}:
+      Unit{}
+    case False{}:
+      Unit{}
+
+# a directory is never a judged lock file
+def mi.dir_o(-G: Type, a: Bool, main: Bool) -> mi.TO(rr.m.dir(a, main), G):
+  match a main:
+    case True{} True{}:
+      Unit{}
+    case True{} False{}:
+      Unit{}
+    case False{} True{}:
+      Unit{}
+    case False{} False{}:
+      Unit{}
+
+# Texts taken apart
+
+# s ends with p, x before it
+def mi.US(p: String, s: String, m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      {s == String.append(x, p) : String}
+
+def mi.uns.nil(p: String) -> mi.US(p, SNil{}, LawsBase.text_found(String.is_empty(p), None{})):
+  match p:
+    case SNil{}:
+      {==}
+    case SCon{c, t}:
+      Unit{}
+
+def mi.uns.cons(+c: Char, -t: String, -p: String, m: Maybe<&2, String>, ih: mi.US(p, t, m)) -> mi.US(p, SCon{c, t}, LawsBase.text_cons(c, m)):
+  match m:
+    case None{}:
+      Unit{}
+    case Some{r}:
+      Equal.cong(String, String, z => SCon{c, z}, t, String.append(r, p), ih)
+
+def mi.uns.found(b: Bool, +s: String, +p: String, -m: Maybe<&2, String>, eb: {LawsBase.text_same(s, p) == b : Bool}, ih: mi.US(p, s, m)) -> mi.US(p, s, LawsBase.text_found(b, m)):
+  match b:
+    case True{}:
+      LStg.stg.same_eq(s, p, eb)
+    case False{}:
+      ih
+
+# text_unsuffix(p, s) is Some{x} only when s is x then p
+def mi.uns(+p: String, s: String) -> mi.US(p, s, LawsBase.text_unsuffix(p, s)):
+  match s:
+    case SNil{}:
+      mi.uns.nil(p)
+    case SCon{+c, +t}:
+      mi.uns.found(LawsBase.text_same(SCon{c, t}, p), SCon{c, t}, p, LawsBase.text_cons(c, LawsBase.text_unsuffix(p, t)), {==}, mi.uns.cons(c, t, p, LawsBase.text_unsuffix(p, t), mi.uns(p, t)))
+
+# w is b, a '.', then a
+def mi.CS(w: String, m: Maybe<&2, Staging.SpCut>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{q}:
+      match q:
+        case Staging.SpCut{b, a}:
+          {w == String.append(b, SCon{'.', a}) : String}
+
+def mi.cut.put(r: Maybe<&2, Staging.SpCut>, d: Bool, +c: Char, +t: String, ed: {Char.is_eq(c, '.') == d : Bool}, ih: mi.CS(t, r)) -> mi.CS(SCon{c, t}, Staging.sp_cut.put(r, d, c, t)):
+  match r:
+    case Some{q}:
+      match q:
+        case Staging.SpCut{b, a}:
+          Equal.cong(String, String, z => SCon{c, z}, t, String.append(b, SCon{'.', a}), ih)
+    case None{}:
+      match d:
+        case True{}:
+          Equal.cong(Char, String, z => SCon{z, t}, c, '.', LStg.stg.char_sound(c, '.', ed))
+        case False{}:
+          Unit{}
+
+# sp_cut splits a text only at a '.'
+def mi.cut(w: String) -> mi.CS(w, Staging.sp_cut(w)):
+  match w:
+    case SNil{}:
+      Unit{}
+    case SCon{+c, +t}:
+      mi.cut.put(Staging.sp_cut(t), Char.is_eq(c, '.'), c, t, {==}, mi.cut(t))
+
+# a is p then r
+def mi.PS(p: String, a: String, m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{r}:
+      {a == String.append(p, r) : String}
+
+def mi.pre.if(b: Bool, +x: Char, +y: Char, -pt: String, -st: String, m: Maybe<&2, String>, eb: {Char.is_eq(x, y) == b : Bool}, ih: mi.PS(pt, st, m)) -> mi.PS(SCon{x, pt}, SCon{y, st}, Staging.sp_if(b, m)):
+  match b:
+    case True{}:
+      match m:
+        case None{}:
+          Unit{}
+        case Some{r}:
+          %LStg.stg.char_sound(x, y, eb) : {SCon{_, st} == SCon{x, String.append(pt, r)} : String}
+          Equal.cong(String, String, z => SCon{x, z}, st, String.append(pt, r), ih)
+    case False{}:
+      Unit{}
+
+# sp_unprefix(p, a) is Some{r} only when a is p then r
+def mi.pre(p: String, a: String) -> mi.PS(p, a, Staging.sp_unprefix(p, a)):
+  match p:
+    case SNil{}:
+      {==}
+    case SCon{+x, +pt}:
+      match a:
+        case SNil{}:
+          Unit{}
+        case SCon{+y, +st}:
+          mi.pre.if(Char.is_eq(x, y), x, y, pt, st, Staging.sp_unprefix(pt, st), {==}, mi.pre(pt, st))
+
+# a judged tail: a label, '-' and a 32-digit lowercase hex uuid
+def mi.TS(a: String) -> Type:
+  Sigma<&1, &1, Staging.SpLab, l => Sigma<&1, &1, String, id => {a == String.append(Staging.sp_label(l), SCon{'-', id}) : String} & {Staging.sp_hexn(32n, id) == True{} : Bool}>>
+
+def mi.lab(l: Staging.SpLab, -a: String, m: Maybe<&2, String>, ps: mi.PS(String.append(Staging.sp_label(l), "-"), a, m), h: {Staging.sp_uuid(m) == True{} : Bool}) -> mi.TS(a):
+  match l:
+    case Staging.SpImport{}:
+      match m:
+        case None{}:
+          LStg.stg.absurdF(mi.TS(a), h)
+        case Some{+r}:
+          (Staging.SpImport{}, (r, (ps, h)))
+    case Staging.SpFork{}:
+      match m:
+        case None{}:
+          LStg.stg.absurdF(mi.TS(a), h)
+        case Some{+r}:
+          (Staging.SpFork{}, (r, (ps, h)))
+    case Staging.SpDeleted{}:
+      match m:
+        case None{}:
+          LStg.stg.absurdF(mi.TS(a), h)
+        case Some{+r}:
+          (Staging.SpDeleted{}, (r, (ps, h)))
+
+def mi.tail.f(b: Bool, +a: String, eb: {Staging.sp_uuid(Staging.sp_unprefix("fork-", a)) == b : Bool}, h: {Bool.or(b, Staging.sp_uuid(Staging.sp_unprefix("deleted-", a))) == True{} : Bool}) -> mi.TS(a):
+  match b:
+    case True{}:
+      mi.lab(Staging.SpFork{}, a, Staging.sp_unprefix("fork-", a), mi.pre("fork-", a), eb)
+    case False{}:
+      mi.lab(Staging.SpDeleted{}, a, Staging.sp_unprefix("deleted-", a), mi.pre("deleted-", a), h)
+
+def mi.tail.i(b: Bool, +a: String, eb: {Staging.sp_uuid(Staging.sp_unprefix("import-", a)) == b : Bool}, h: {Bool.or(b, Bool.or(Staging.sp_uuid(Staging.sp_unprefix("fork-", a)), Staging.sp_uuid(Staging.sp_unprefix("deleted-", a)))) == True{} : Bool}) -> mi.TS(a):
+  match b:
+    case True{}:
+      mi.lab(Staging.SpImport{}, a, Staging.sp_unprefix("import-", a), mi.pre("import-", a), eb)
+    case False{}:
+      mi.tail.f(Staging.sp_uuid(Staging.sp_unprefix("fork-", a)), a, {==}, h)
+
+def mi.tail(+a: String, h: {Staging.sp_tail(a) == True{} : Bool}) -> mi.TS(a):
+  mi.tail.i(Staging.sp_uuid(Staging.sp_unprefix("import-", a)), a, {==}, h)
+
+# s is a name Rust mints
+def mi.MS(s: String) -> Type:
+  Sigma<&1, &1, String, t => Sigma<&1, &1, Staging.SpLab, l => Sigma<&1, &1, String, id => {s == Staging.sp_mint(t, l, id) : String} & ({String.is_empty(t) == False{} : Bool} & {Staging.sp_hexn(32n, id) == True{} : Bool})>>>
+
+def mi.swept.fin(-c: Char, -w: String, +b: String, -a: String, cs: {w == String.append(b, SCon{'.', a}) : String}, ec: {c == '.' : Char}, hb: {String.is_empty(b) == False{} : Bool}, ts: mi.TS(a)) -> mi.MS(SCon{c, w}):
+  (+l, (+id, (ea, hid))) = ts
+  +e1 = Equal.cong(Char, String, z => SCon{z, w}, c, '.', ec)
+  +e2 = Equal.cong(String, String, z => SCon{'.', z}, w, String.append(b, SCon{'.', a}), cs)
+  +e3 = Equal.cong(String, String, z => SCon{'.', String.append(b, SCon{'.', z})}, a, String.append(Staging.sp_label(l), SCon{'-', id}), ea)
+  +e = Equal.trans(String, SCon{c, w}, SCon{'.', w}, Staging.sp_mint(b, l, id), e1, Equal.trans(String, SCon{'.', w}, SCon{'.', String.append(b, SCon{'.', a})}, Staging.sp_mint(b, l, id), e2, e3))
+  (b, (l, (id, (e, (hb, hid)))))
+
+def mi.swept.cut(-c: Char, -w: String, m: Maybe<&2, Staging.SpCut>, cs: mi.CS(w, m), h: {Staging.sp_swept.cut(m) == True{} : Bool}, ec: {c == '.' : Char}) -> mi.MS(SCon{c, w}):
+  match m:
+    case None{}:
+      LStg.stg.absurdF(mi.MS(SCon{c, w}), h)
+    case Some{q}:
+      match q:
+        case Staging.SpCut{+b, +a}:
+          +hh = h
+          +hb = LStg.stg.and_l(Bool.not(String.is_empty(b)), Staging.sp_tail(a), hh)
+          +ha = LStg.stg.and_r(Bool.not(String.is_empty(b)), Staging.sp_tail(a), hh)
+          mi.swept.fin(c, w, b, a, cs, ec, rr.not_t(String.is_empty(b), hb), mi.tail(a, ha))
+
+# a swept name is a name Rust mints
+def mi.swept(s: String, h: {Staging.sp_swept(s) == True{} : Bool}) -> mi.MS(s):
+  match s:
+    case SNil{}:
+      LStg.stg.absurdF(mi.MS(SNil{}), h)
+    case SCon{+c, +w}:
+      +hh = h
+      +hc = LStg.stg.and_l(Char.is_eq(c, '.'), Staging.sp_swept.cut(Staging.sp_cut(w)), hh)
+      +hw = LStg.stg.and_r(Char.is_eq(c, '.'), Staging.sp_swept.cut(Staging.sp_cut(w)), hh)
+      mi.swept.cut(c, w, Staging.sp_cut(w), mi.cut(w), hw, LStg.stg.char_sound(c, '.', hc))

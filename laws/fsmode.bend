@@ -10,18 +10,43 @@ import ./base.bend as LawsBase
 
 # LAWS (G1, file modes, the socket dir and the working dir): who
 # reaches eukhe's own state. Each law is an open claim about the model in
-# bend/fsmode.bend; PROOF.bend proves them (as Fsmode.<law>) with the lemmas
-# of proof/fsmode/.
+# bend/fsmode.bend or the entry bend/ffi_fsmode.bend that runs it;
+# PROOF.bend proves them (as Fsmode.<law>) with the lemmas of
+# proof/fsmode/.
+#
+# G1 (path policy) here:
+# R1: the socket dir (crates/eukhe-daemon/src/platform/paths.rs
+#     `prepare_socket_dir`): a missing dir is created with mode 0700; an
+#     existing dir, and the dir after a create, is used only when it is a
+#     real directory (not a symbolic link), this process's uid owns it,
+#     and neither its group-write (0o020) nor its other-write (0o002) bit
+#     is set; the read and search bits, the user digit and the setuid,
+#     setgid and sticky bits never matter. Anything else is refused, with
+#     the first check it fails as the reason: a link, not a dir, another
+#     owner, a mode others may write.
+# R2: every socket listener accepts a peer exactly when the peer's uid is
+#     this process's uid (crates/eukhe-types/src/platform/transport.rs).
+# R3: what eukhe creates under its home is private: a dir 0700, a file
+#     0600 (eukhe_types::platform::access PRIVATE_DIR_MODE,
+#     PRIVATE_FILE_MODE): no group or other bit.
+# R4: a session create runs only in a working dir it names (a non-empty
+#     path) where a directory exists (crates/eukhe-daemon/src/session_cwd.rs):
+#     no path or an empty one is refused as needing a cwd, a path where
+#     nothing is as gone, a path to a file as not a dir. Rust names the
+#     path in the refusal; the path never crosses the wire.
+# R5: the entry answers every request Rust spells (crates/eukhe-bend/WIRE.md,
+#     the header of bend/ffi_fsmode.bend), every number and length within
+#     the wire, with the spelled verdict; any other input gets exactly the
+#     error form 'E fsmode: malformed request'.
+# Every input is free: any node, uids, permission bits, peer, cwd text and
+# what metadata found.
 
-# (G1) Path policy
-# ----------------
+# The model
+# ---------
+# The model in bend/fsmode.bend, which runs as the compiled core (entry
+# bend/ffi_fsmode.bend, laws below).
 
-# File modes, the socket dir and the working dir
-# ----------------------------------------------
-# The model in bend/fsmode.bend, which
-# runs as the compiled core (entry bend/ffi_fsmode.bend, laws below).
-
-# LAW socket_dir_owned: the daemon binds in a socket dir only when the dir is a real
+# LAW socket_dir_owned (R1): the daemon binds in a socket dir only when the dir is a real
 # directory (not a link), this uid owns it, and no group or other user
 # may write in it
 law socket_dir_owned:
@@ -29,77 +54,58 @@ law socket_dir_owned:
   for used: {Fs.socket_dir(d) == Fs.Use{} : Fs.Verdict}
   {Fs.Seen.safe(d) == True{} : Bool}
 
-# LAW socket_dir_progress: a safe socket dir is used (the check refuses nothing it must not)
+# LAW socket_dir_progress (R1): a safe socket dir is used (the check refuses nothing it must not)
 law socket_dir_progress:
   for d: Fs.Seen
   for safe: {Fs.Seen.safe(d) == True{} : Bool}
   {Fs.socket_dir(d) == Fs.Use{} : Fs.Verdict}
 
-# LAW socket_dir_created: a missing socket dir is created with mode 0700
-law socket_dir_created:
-  for mine: Bool
-  for loose: Bool
-  {Fs.socket_dir(Fs.Seen{Fs.Missing{}, mine, loose}) == Fs.Create{Fs.dir_mode()} : Fs.Verdict}
-
-# LAW socket_dir_created_used: the dir the daemon creates with mode 0700 is then used
+# LAW socket_dir_created_used (R1): the dir the daemon creates with mode 0700 is then used
 law socket_dir_created_used:
   {Fs.socket_dir(Fs.made(Fs.dir_mode())) == Fs.Use{} : Fs.Verdict}
 
-# LAW peer_same_uid: a socket peer is accepted only when its uid is this process's uid
+# LAW socket_dir_group_read_used (R1): a created dir with a group read and search bit (0750) is used, one with a group write bit (0770) is refused
+law socket_dir_group_read_used:
+  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 5n, 0n})) == Fs.Use{} : Fs.Verdict} &
+  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 7n, 0n})) == Fs.Refuse{} : Fs.Verdict}
+
+# LAW peer_same_uid (R2): a socket peer is accepted only when its uid is this process's uid
 law peer_same_uid:
   for p: Nat
   for own: Nat
   for ok: {Fs.peer(p, own) == Fs.Accept{} : Fs.Peer}
   {p == own : Nat}
 
-# LAW peer_own_accepted: a peer of this process's uid is accepted
+# LAW peer_own_accepted (R2): a peer of this process's uid is accepted
 law peer_own_accepted:
   for own: Nat
   {Fs.peer(own, own) == Fs.Accept{} : Fs.Peer}
 
-# LAW private_on_create: every file and dir eukhe creates under its home has no group or
-# other permission bit
+# LAW private_on_create (R3): every file and dir eukhe creates under its home has no group or
+# other permission bit (as the model's Mode.loose reads a mode:
+# mode_tight_is_private pins it)
 law private_on_create:
   for k: Fs.Made
   {Fs.Mode.loose(Fs.made_mode(k)) == False{} : Bool}
 
-# LAW cwd_is_explicit: an accepted session create runs in the dir it named, and that dir
-# exists
-law cwd_is_explicit:
-  for c: Fs.Cwd
-  for p: Nat
-  for ok: {Fs.open(c) == Fs.Opened{p} : Fs.Open}
-  {c == Fs.DirCwd{p} : Fs.Cwd}
-
-# LAW cwd_none_refused: a create that names no working dir is refused
-law cwd_none_refused:
-  {Fs.open(Fs.NoCwd{}) == Fs.NeedsCwd{} : Fs.Open}
-
-# LAW cwd_gone_refused: a create whose working dir is gone is refused, and the refusal
-# names that dir
-law cwd_gone_refused:
-  for p: Nat
-  {Fs.open(Fs.GoneCwd{p}) == Fs.Gone{p} : Fs.Open}
-
-# LAW cwd_file_refused: a create whose working dir is a file is refused, and the refusal
-# names that path
-law cwd_file_refused:
-  for p: Nat
-  {Fs.open(Fs.FileCwd{p}) == Fs.NotDir{p} : Fs.Open}
-
-# LAW cwd_dir_opens: a create that names an existing dir runs in it
-law cwd_dir_opens:
-  for p: Nat
-  {Fs.open(Fs.DirCwd{p}) == Fs.Opened{p} : Fs.Open}
+# LAW mode_tight_is_private (R3): a mode the model does not call loose has group digit 0 and other digit 0, whatever its user digit
+# EXCLUDES: a Mode.loose that misses a group or other bit (a constant
+#   False makes private_on_create hold for any created mode)
+law mode_tight_is_private:
+  for +u: Nat
+  for +g: Nat
+  for +o: Nat
+  for tight: {Fs.Mode.loose(Fs.Mode{u, g, o}) == False{} : Bool}
+  {g == 0n : Nat} & {o == 0n : Nat}
 
 # The entry Rust calls
 # --------------------
 # The socket dir check (prepare_socket_dir), the peer rule of every
 # listener, the modes of what eukhe creates and the session cwd check run
 # as bend/fsmode.bend through the entry bend/ffi_fsmode.bend. The
-# spellers and the reader below are the wire grammar of that entry
-# written with the wire primitives alone (laws/wire.bend proves their
-# round trips); they never call the entry's own codec. Rust sends the raw
+# spellers below are the wire grammar of that entry written with the wire
+# primitives alone (laws/wire.bend proves their round trips and
+# exactness); they never call the entry's own codec. Rust sends the raw
 # facts: what symlink_metadata found, the owner's uid, its own uid, the
 # permission bits, the peer's uid, the named cwd and what metadata found.
 
@@ -240,181 +246,91 @@ def spell_answer(a: Fs.Ask) -> String:
     case Fs.AskCwd{c, s}:
       cwd_reply(c, s)
 
-# Reader: the requests the entry accepts, read with the wire primitives
+# the permission bits whose octal digits are, from the lowest, o (other)
+# and g (group), with h above them (the user digit and the setuid, setgid
+# and sticky bits): 64 h + 8 g + o. Every number is 64 h + 8 g + o for
+# exactly one h and digits g, o below 8.
+def perm(h: Nat, g: Nat, o: Nat) -> Nat:
+  Nat.add(Nat.mul(h, 64n), Nat.add(Nat.mul(g, 8n), o))
 
-def read_node.tag(t: Nat, s: String) -> Wr.Dec<Fs.Node>:
-  match t:
+# an octal permission digit holds read 4, write 2 and execute 1 (POSIX
+# chmod): the digits with the write bit are 2, 3, 6 and 7
+def writes(d: Nat) -> Bool:
+  match d:
     case 0n:
-      Wr.Got{Fs.Missing{}, s}
+      False{}
     case 1n:
-      Wr.Got{Fs.Dir{}, s}
+      False{}
     case 2n:
-      Wr.Got{Fs.Link{}, s}
+      True{}
     case 3n:
-      Wr.Got{Fs.Other{}, s}
-    case 4n+p:
-      Wr.Bad{}
+      True{}
+    case 4n:
+      False{}
+    case 5n:
+      False{}
+    case 6n:
+      True{}
+    case 7n:
+      True{}
+    case 8n+p:
+      False{}
 
-def read_node(r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Node>:
-  match r:
-    case Wr.Got{t, s}:
-      read_node.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_dir.mode(k: Fs.Node, u: Nat, o: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{m, s}:
-      Wr.Got{Fs.AskDir{k, u, o, m}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_dir.own(k: Fs.Node, u: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{o, s}:
-      read_dir.mode(k, u, o, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_dir.uid(k: Fs.Node, r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{u, s}:
-      read_dir.own(k, u, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_dir(r: Wr.Dec<Fs.Node>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{k, s}:
-      read_dir.uid(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_peer.own(p: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{o, s}:
-      Wr.Got{Fs.AskPeer{p, o}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_peer(r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{p, s}:
-      read_peer.own(p, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_made.tag(t: Nat, s: String) -> Wr.Dec<Fs.Ask>:
-  match t:
-    case 0n:
-      Wr.Got{Fs.AskMade{Fs.DirMade{}}, s}
-    case 1n:
-      Wr.Got{Fs.AskMade{Fs.FileMade{}}, s}
-    case 2n+p:
-      Wr.Bad{}
-
-def read_made(r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{t, s}:
-      read_made.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_stat.tag(c: Maybe<&2, String>, t: Nat, s: String) -> Wr.Dec<Fs.Ask>:
-  match t:
-    case 0n:
-      Wr.Got{Fs.AskCwd{c, Fs.Absent{}}, s}
-    case 1n:
-      Wr.Got{Fs.AskCwd{c, Fs.AFile{}}, s}
-    case 2n:
-      Wr.Got{Fs.AskCwd{c, Fs.ADir{}}, s}
-    case 3n+p:
-      Wr.Bad{}
-
-def read_stat(c: Maybe<&2, String>, r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{t, s}:
-      read_stat.tag(c, t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cwd.path(r: Wr.Dec<String>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{p, s}:
-      read_stat(Some{p}, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cwd.tag(t: Nat, s: String) -> Wr.Dec<Fs.Ask>:
-  match t:
-    case 0n:
-      read_stat(None{}, Wr.get_nat(s))
-    case 1n:
-      read_cwd.path(Wr.get_str(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def read_cwd(r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{t, s}:
-      read_cwd.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.tag(t: Nat, s: String) -> Wr.Dec<Fs.Ask>:
-  match t:
-    case 0n:
-      read_dir(read_node(Wr.get_nat(s)))
-    case 1n:
-      read_peer(Wr.get_nat(s))
-    case 2n:
-      read_made(Wr.get_nat(s))
-    case 3n:
-      read_cwd(Wr.get_nat(s))
-    case 4n+p:
-      Wr.Bad{}
-
-def read_ask.go(r: Wr.Dec<Nat>) -> Wr.Dec<Fs.Ask>:
-  match r:
-    case Wr.Got{t, s}:
-      read_ask.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.end(whole: Bool, a: Fs.Ask) -> Maybe<&2, Fs.Ask>:
-  match whole:
+# the reply for a real dir of this uid: a mode others may write is
+# refused (2, why 3); else the dir is used (1)
+def write_reply(w: Bool) -> String:
+  match w:
     case True{}:
-      Some{a}
+      "2,3,"
     case False{}:
-      None{}
-
-def read_ask.whole(r: Wr.Dec<Fs.Ask>) -> Maybe<&2, Fs.Ask>:
-  match r:
-    case Wr.Got{a, s}:
-      read_ask.end(Wr.end(s), a)
-    case Wr.Bad{}:
-      None{}
-
-# the request s is, when s is exactly one request
-def read_ask(s: String) -> Maybe<&2, Fs.Ask>:
-  read_ask.whole(read_ask.go(Wr.get_nat(s)))
+      "1,"
 
 # Laws
 # ----
 
-# LAW fsmode_ffi_answers: on every request Rust writes, the entry answers: a missing socket dir is created with mode 0700, a link and another file are refused, a dir of another owner or with a group- or other-write bit is refused, any other dir is used; a peer is accepted only with this process's uid; a dir eukhe creates is 0700, a file 0600; a create that names no cwd (or an empty one) is refused, a cwd where nothing is is gone, a file is not a dir, a dir opens
+# LAW fsmode_ffi_answers (R1, R2, R3, R4, R5): on every request Rust writes, the entry answers: a missing socket dir is created with mode 0700, a link and another file are refused, a dir of another owner or with a group- or other-write bit is refused, any other dir is used; a peer is accepted only with this process's uid; a dir eukhe creates is 0700, a file 0600; a create that names no cwd (or an empty one) is refused, a cwd where nothing is is gone, a file is not a dir, a dir opens
 law fsmode_ffi_answers:
   for +a: Fs.Ask
   for fits: {ask_fits(a) == True{} : Bool}
   {FFs.ffi(spell_ask(a)) == spell_answer(a) : String}
 
-# LAW fsmode_ffi_malformed: every input that is not exactly one request gets the error form
-law fsmode_ffi_malformed:
-  for +s: String
-  for no: {read_ask(s) == None{} : Maybe<&2, Fs.Ask>}
-  {LawsBase.wire_opens_err(FFs.ffi(s)) == True{} : Bool}
+# LAW socket_dir_write_bits (R1): a real dir this process's uid owns, with any permission bits 64 h + 8 g + o (g and o octal digits: every number has this form; the request fits the wire), is used ("1,") exactly when neither its group digit g nor its other digit o has the write bit of POSIX chmod (2 of read 4, write 2, execute 1), and refused as a mode others may write ("2,3,") otherwise; the user digit, the setuid, setgid and sticky bits and every read and search bit never change the verdict
+# EXCLUDES: a mode read from the wrong bits (a read or search bit taken
+#   for a write bit, the user digit or a special bit counted, the group
+#   and other digits misplaced), a dir others may write used, a private
+#   dir refused
+law socket_dir_write_bits:
+  for +u: Nat
+  for +h: Nat
+  for +g: Nat
+  for +o: Nat
+  for gd: {Nat.is_lt(g, 8n) == True{} : Bool}
+  for od: {Nat.is_lt(o, 8n) == True{} : Bool}
+  for fits: {ask_fits(Fs.AskDir{Fs.Dir{}, u, u, perm(h, g, o)}) == True{} : Bool}
+  {FFs.ffi(spell_ask(Fs.AskDir{Fs.Dir{}, u, u, perm(h, g, o)})) == write_reply(Bool.or(writes(g), writes(o))) : String}
 
-# LAW fsmode_ffi_example: anchor: the strings Rust sends: a missing socket dir, a dir 0700, 0755, 0720 and 0702 of this uid, a dir 0700 of root, a link; a peer of another uid; a file eukhe creates; a cwd that is gone, an empty cwd, a cwd that is a file; input left over is refused
+# LAW cwd_opens_only_named_dir (R4): the entry opens a create's working dir ("0,") only when the create named a non-empty path and metadata found a directory there (Rust then runs the session in the path it named); no path, an empty path, a path where nothing is or a path to a file never opens; the request fits the wire
+# EXCLUDES: a session started with no cwd, an empty one, a gone one or a
+#   file (a fallback to a default dir)
+law cwd_opens_only_named_dir:
+  for +c: Maybe<&2, String>
+  for +s: Fs.Stat
+  for fits: {ask_fits(Fs.AskCwd{c, s}) == True{} : Bool}
+  for opened: {FFs.ffi(spell_ask(Fs.AskCwd{c, s})) == "0," : String}
+  exs p: String
+  {c == Some{p} : Maybe<&2, String>} & {String.is_empty(p) == False{} : Bool} & {s == Fs.ADir{} : Fs.Stat}
+
+# LAW fsmode_ffi_malformed_unless_request (R5): every answer but exactly the error form "E fsmode: malformed request" comes from an input that is exactly one request spelled by spell_ask, every number and length within the wire (with fsmode_ffi_answers: the entry's answer to every input is fixed)
+# EXCLUDES: a decision made on input that is no request (an unknown tag,
+#   a malformed or out-of-range field, a second spelling of a number,
+#   input left over), an error form with another text
+law fsmode_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FFs.ffi(s), "E fsmode: malformed request") == False{} : Bool}
+  exs a: Fs.Ask
+  {s == spell_ask(a) : String} & {ask_fits(a) == True{} : Bool}
+
+# LAW fsmode_ffi_example (R1, R2, R3, R4, R5): anchor: the strings Rust sends: a missing socket dir, a dir 0700, 0755, 0720 and 0702 of this uid, a dir 0700 of root, a link; a peer of another uid; a file eukhe creates; a cwd that is gone, an empty cwd, a cwd that is a file; input left over is refused
 law fsmode_ffi_example:
   {FFs.ffi("0,0,0,1000,0,") == "0,7,0,0," : String} &
   {FFs.ffi("0,1,1000,1000,448,") == "1," : String} &
@@ -428,128 +344,4 @@ law fsmode_ffi_example:
   {FFs.ffi("3,1,4,/tmp0,") == "2," : String} &
   {FFs.ffi("3,1,0,2,") == "1," : String} &
   {FFs.ffi("3,1,4,/tmp1,") == "3," : String} &
-  {read_ask("1,5,5,x") == None{} : Maybe<&2, Fs.Ask>} &
-  {LawsBase.wire_opens_err(FFs.ffi("1,5,5,x")) == True{} : Bool}
-
-# LAW fsmode_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "fsmode: malformed request" (the text Rust's Reader reports)
-law fsmode_ffi_malformed_exact:
-  for +s: String
-  for no: {read_ask(s) == None{} : Maybe<&2, Fs.Ask>}
-  {FFs.ffi(s) == SCon{'E', SCon{' ', "fsmode: malformed request"}} : String}
-
-# the reply to the input s: when s is exactly one request (read_ask), the
-# spelled answer to it (spell_answer); else the error form 'E ', then
-# "fsmode: malformed request"
-def ffi_spec.read(m: Maybe<&2, Fs.Ask>) -> String:
-  match m:
-    case None{}:
-      SCon{'E', SCon{' ', "fsmode: malformed request"}}
-    case Some{a}:
-      spell_answer(a)
-
-def ffi_spec(s: String) -> String:
-  ffi_spec.read(read_ask(s))
-
-# LAW fsmode_ffi_exact: the entry's reply to every input string is the spec's: to exactly one request, the socket dir's verdict, the peer's, the mode of what eukhe creates or the cwd's verdict, spelled from the specs alone; to any other input, exactly the error form
-# EXCLUDES: a reply that the specs do not determine for some input (a
-#   request read by a reader the laws do not fix, a value answered to
-#   malformed input, an error form with another text)
-law fsmode_ffi_exact:
-  for +s: String
-  {FFs.ffi(s) == ffi_spec(s) : String}
-
-# The model's own terms, pinned
-# -----------------------------
-# The laws above (socket_dir_owned, private_on_create, ...) read the model's
-# own predicates (Seen.safe, Mode.loose, dir_mode, made_mode); these pin
-# each of them to its meaning.
-
-# a digit with any bit set
-def set_spec(d: Nat) -> Bool:
-  match d:
-    case 0n:
-      False{}
-    case 1n+p:
-      True{}
-
-# the verdict on what the check found: a missing dir is created 0700; a
-# dir is used only when this uid owns it and no group or other user may
-# write in it; anything else is refused
-def socket_dir_spec(d: Fs.Seen) -> Fs.Verdict:
-  match d:
-    case Fs.Seen{k, mine, loose}:
-      match k:
-        case Fs.Missing{}:
-          Fs.Create{Fs.Mode{7n, 0n, 0n}}
-        case Fs.Dir{}:
-          match mine:
-            case True{}:
-              match loose:
-                case True{}:
-                  Fs.Refuse{}
-                case False{}:
-                  Fs.Use{}
-            case False{}:
-              Fs.Refuse{}
-        case Fs.Link{}:
-          Fs.Refuse{}
-        case Fs.Other{}:
-          Fs.Refuse{}
-
-# LAW fsmode_socket_dir_exact: the socket-dir verdict is exactly: a missing dir is created with mode 0700, a dir this uid owns that no group or other user may write in is used, everything else (a link, another file, another owner, a loose mode) is refused
-law fsmode_socket_dir_exact:
-  for d: Fs.Seen
-  {Fs.socket_dir(d) == socket_dir_spec(d) : Fs.Verdict}
-
-# a real dir this uid owns that no group or other user may write in
-def safe_spec(d: Fs.Seen) -> Bool:
-  match d:
-    case Fs.Seen{k, mine, loose}:
-      match k:
-        case Fs.Missing{}:
-          False{}
-        case Fs.Dir{}:
-          match mine:
-            case True{}:
-              Bool.not(loose)
-            case False{}:
-              False{}
-        case Fs.Link{}:
-          False{}
-        case Fs.Other{}:
-          False{}
-
-# LAW fsmode_safe_exact: a socket dir is safe exactly when it is a real dir (not a link, not missing, not another file), this uid owns it, and no group or other user may write in it
-law fsmode_safe_exact:
-  for d: Fs.Seen
-  {Fs.Seen.safe(d) == safe_spec(d) : Bool}
-
-# LAW fsmode_modes_exact: eukhe creates a dir with mode 0700 and a file with 0600; a mode is loose exactly when its group or other digit has a bit set
-law fsmode_modes_exact:
-  for u: Nat
-  for g: Nat
-  for o: Nat
-  {Fs.made_mode(Fs.DirMade{}) == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.made_mode(Fs.FileMade{}) == Fs.Mode{6n, 0n, 0n} : Fs.Mode} & {Fs.dir_mode() == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.Mode.loose(Fs.Mode{u, g, o}) == Bool.or(set_spec(g), set_spec(o)) : Bool}
-
-# what the check finds at a dir the daemon just created with mode m: a
-# real dir, this uid's, loose when m has a group- or other-write bit (the
-# rule `look` reads from Rust's permission bits: read and search bits are
-# harmless)
-def made_spec(m: Fs.Mode) -> Fs.Seen:
-  match m:
-    case Fs.Mode{u, g, o}:
-      Fs.Seen{Fs.Dir{}, True{}, Bool.or(wbit(g, 2n), wbit(o, 2n))}
-
-# LAW fsmode_made_exact (G1): the dir the daemon creates with mode m is found as a real dir this uid owns, loose exactly when m has a group- or other-write bit, for every mode
-# EXCLUDES: a created dir found safe whatever its mode
-#   (socket_dir_created_used made vacuous: made(m) = Seen{Dir, True,
-#   False}), found as another node or another owner's, loose by another
-#   digit, or loose by a read or search bit (0750 is safe, 0770 is not)
-law fsmode_made_exact:
-  for m: Fs.Mode
-  {Fs.made(m) == made_spec(m) : Fs.Seen}
-
-# LAW socket_dir_group_read_used: a created dir with a group read and search bit (0750) is used, one with a group write bit (0770) is refused
-law socket_dir_group_read_used:
-  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 5n, 0n})) == Fs.Use{} : Fs.Verdict} &
-  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 7n, 0n})) == Fs.Refuse{} : Fs.Verdict}
+  {FFs.ffi("1,5,5,x") == "E fsmode: malformed request" : String}

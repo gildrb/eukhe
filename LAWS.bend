@@ -58,7 +58,6 @@ import ./laws/skill_load.bend as SkillLoad
 import ./laws/kernel_local.bend as KernelLocal
 import ./laws/log.bend as Log
 import ./laws/staging.bend as Staging
-import ./laws/staging/entry.bend as StagingEntry
 import ./laws/listing.bend as Listing
 import ./laws/catalog_union.bend as CatalogUnion
 import ./laws/cron.bend as Cron
