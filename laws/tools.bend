@@ -13,6 +13,39 @@ import ./base.bend as LawsBase
 # the model in bend/tools.bend. Every input is free:
 # any tools that join and quit, any schemas, any paths, any scripts, any
 # auto set, any answers of the user.
+#
+# Requirements (sources: bend/tools.bend header 1-4; spec/README.md row
+# A1; crates/eukhe-docs/src/url.rs `walk` and `resolve`;
+# crates/eukhe-types/src/path_policy.rs; bend/approvals.bend header, the
+# model of crates/eukhe-daemon/src/shell_approval.rs; the user's
+# decisions of 2026-10-23 and 2026-10-27 named at their laws):
+# A1: (spec/README.md) one loop: the roster is fixed at open; late tools
+#     come through `dyn`.
+# S7: the tool surface. (1) A session's roster never changes: tools that
+#     come later join the dynamic set behind `dyn`; every request sends
+#     the roster it started with (the prompt cache stays valid); a call
+#     through `dyn` reaches a tool as the last join or quit of it says.
+#     (2) The schema: laws/tool_surface.bend R3. (3) An internal URL's
+#     path resolves under the root of its scheme: a name goes one level
+#     down, `.` (or an empty segment) stays, `..` goes one level up; a
+#     path that goes above its root is rejected, never clamped; the names
+#     it reaches are the names no `..` cancels, deepest first (url.rs
+#     `walk` reads them back root first). (4) The approval gate: G2.
+# G1: one path policy for the `bash` tool and the document tools (section
+#     G1 below).
+# G2: a script runs step by step; a step runs unasked exactly when each of
+#     its effects is one an auto set may hold (codes 0 to 6: every effect)
+#     and is in the auto set; any other step asks the user and takes the
+#     next answer: a yes runs it, a no or no answer left denies it; a
+#     denial stops the script (the denied step and every later step do
+#     not run, the script ends denied at that step's id); a step that runs
+#     unasked takes no answer. A step's effects are every effect of every
+#     part of it; only a part that names a secret path gives the secret
+#     effect (6).
+# G5: a session whose only clients are the phone gateway never waits: the
+#     gateway rule refuses a step that writes a protected path (5) when
+#     the auto set does not already run it, and runs every other step; the
+#     default auto set holds every grantable effect.
 
 # LAW roster_fixed: no event changes the roster: tools that join go behind `dyn`
 law roster_fixed:
@@ -39,72 +72,93 @@ law dyn_drops_quit:
   for +t: Nat
   {Tl.dyn_call(Tl.step(s, Tl.Quit{t}), t) == False{} : Bool}
 
-# (S7, 1) The roster, against a spec
-# ----------------------------------
-# A session's roster never changes. A tool that joins goes in front of
-# the dynamic tools; a tool that quits leaves them (every copy of it; the
-# others stay, in order); a request sends the roster, recorded in front of
-# the rosters sent so far. Every input is free: any session, any events.
+# (S7, 1) The roster over a history
+# ---------------------------------
+# Every input is free: any session, any events.
 
-# ys, with y in front unless y is the tool that quits (hit)
-def tr_keep(hit: Bool, y: Nat, ys: List<&2, Nat>) -> List<&2, Nat>:
-  match hit:
-    case True{}:
-      ys
-    case False{}:
-      y <> ys
-
-# the dynamic tools ds without tool t
-def tr_drop(ds: List<&2, Nat>, +t: Nat) -> List<&2, Nat>:
-  match ds:
-    case Nil{}:
-      Nil{}
-    case +y <> rest:
-      tr_keep(Nat.is_eq(y, t), y, tr_drop(rest, t))
-
-# the session after event e
-def tr_step(s: Tl.Sess, e: Tl.Ev) -> Tl.Sess:
-  match s:
-    case Tl.Sess{+r, d, x}:
-      match e:
-        case Tl.Join{t}:
-          Tl.Sess{r, t <> d, x}
-        case Tl.Quit{t}:
-          Tl.Sess{r, tr_drop(d, t), x}
-        case Tl.Turn{}:
-          Tl.Sess{r, d, r <> x}
-
-# the session after the events es from s: one step at a time, in order
-def tr_run(es: List<&2, Tl.Ev>, s: Tl.Sess) -> Tl.Sess:
+# how many requests (Turn) es holds
+def tr_turns(es: List<&2, Tl.Ev>) -> Nat:
   match es:
     case Nil{}:
-      s
+      0n
     case e <> rest:
-      tr_run(rest, tr_step(s, e))
+      match e:
+        case Tl.Join{t}:
+          tr_turns(rest)
+        case Tl.Quit{t}:
+          tr_turns(rest)
+        case Tl.Turn{}:
+          1n+tr_turns(rest)
 
-# LAW roster_step_spec (A1): every event moves a session exactly as the
-# spec states: a join puts the tool in front of the dynamic tools, a quit
-# removes every copy of it and keeps the others in order, a request
-# records the roster in front of the rosters sent; the roster never
-# changes
-# EXCLUDES: a join that adds nothing, another tool or a copy too many; a
-#   quit that keeps a copy, drops another tool too (or every tool) or
-#   reorders the rest; a request that records another roster or none; a
-#   step that changes the roster
-law roster_step_spec:
-  for +s: Tl.Sess
-  for +e: Tl.Ev
-  {Tl.step(s, e) == tr_step(s, e) : Tl.Sess}
+# n copies of the roster r
+def tr_copies(n: Nat, +r: List<&2, Nat>) -> List<&2, List<&2, Nat>>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+m:
+      r <> tr_copies(m, r)
 
-# LAW roster_run_spec (A1): a session after events is the spec's step
-# taken once per event, in order, from where the session started
-# EXCLUDES: a run that ignores its events (`run(es, s) = s`, which
-#   roster_fixed and roster_sent_fixed let pass), skips, repeats or
-#   reorders them, or steps another way than the step
-law roster_run_spec:
-  for +es: List<&2, Tl.Ev>
+# what an event that names tool t (b) says of t: v
+def tr_hit(b: Bool, v: Bool) -> Maybe<&2, Bool>:
+  match b:
+    case True{}:
+      Some{v}
+    case False{}:
+      None{}
+
+# what one event says of tool t: a join of t that it is reached, a quit
+# of t that it is not, any other event nothing
+def tr_says(e: Tl.Ev, +t: Nat) -> Maybe<&2, Bool>:
+  match e:
+    case Tl.Join{u}:
+      tr_hit(Nat.is_eq(u, t), True{})
+    case Tl.Quit{u}:
+      tr_hit(Nat.is_eq(u, t), False{})
+    case Tl.Turn{}:
+      None{}
+
+# what a later event said, else what this one says
+def tr_later(later: Maybe<&2, Bool>, here: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
+  match later:
+    case Some{v}:
+      Some{v}
+    case None{}:
+      here
+
+# what the last event of es that joins or quits t says of t
+def tr_last(es: List<&2, Tl.Ev>, +t: Nat) -> Maybe<&2, Bool>:
+  match es:
+    case Nil{}:
+      None{}
+    case e <> rest:
+      tr_later(tr_last(rest, t), tr_says(e, t))
+
+# what m says, else b
+def tr_or(m: Maybe<&2, Bool>, b: Bool) -> Bool:
+  match m:
+    case Some{v}:
+      v
+    case None{}:
+      b
+
+# LAW roster_sent_per_request (A1, S7): after any events from any session, the rosters sent are one copy of the session's roster per request (Turn) among the events, in front of the rosters sent before it; joins and quits record nothing
+# EXCLUDES: a run that ignores its events (which roster_fixed and
+#   roster_sent_fixed let pass), a request that records no roster, two, or
+#   the dynamic tools, a join or a quit that records one, a record lost
+law roster_sent_per_request:
+  for es: List<&2, Tl.Ev>
   for +s: Tl.Sess
-  {Tl.run(es, s) == tr_run(es, s) : Tl.Sess}
+  {Tl.Sess.sent(Tl.run(es, s)) == List.append(&2, List<&2, Nat>, tr_copies(tr_turns(es), Tl.Sess.roster(s)), Tl.Sess.sent(s)) : List<&2, List<&2, Nat>>}
+
+# LAW dyn_reach_follows_last_event (A1, S7): after any events from any session, a call through `dyn` reaches tool t exactly as the last join or quit of t among the events says (a join: reached; a quit: not), and as before the events when none joins or quits t
+# EXCLUDES: a run that ignores, skips, repeats or reorders its events, a
+#   join or a quit that changes whether another tool is reached, a request
+#   that changes the dynamic tools
+law dyn_reach_follows_last_event:
+  for es: List<&2, Tl.Ev>
+  for +s: Tl.Sess
+  for +t: Nat
+  {Tl.dyn_call(Tl.run(es, s), t) == tr_or(tr_last(es, t), Tl.dyn_call(s, t)) : Bool}
 
 # LAW schema_has_intent: every schema the harness sends has the intent parameter
 law schema_has_intent:
@@ -140,58 +194,28 @@ law path_resolves_inside:
   for inside: {Tl.stays(segs, 0n) == True{} : Bool}
   {Maybe.is_some(&2, List<&2, Nat>, Tl.resolve(segs)) == True{} : Bool}
 
-# LAW tools_ffi_request_round_trip (compiled core): the path entry (bend/ffi_tools.bend) reads back
-# the segments of a path as Rust writes it, and leaves what follows untouched
-# EXCLUDES: a request field misread, dropped, reordered or shifted; a
-#   decoder that eats the input after the request
+# LAW tools_ffi_request_round_trip (compiled core, S7): the path entry's decoder (FTl.get_req, bend/ffi_tools.bend) reads back the segments of a path as the entry's own encoder FTl.put_req writes them (every count and code of FTl.codes within the wire), and leaves what follows untouched; the spelling Rust writes is pinned by tools_ffi_answers_spelled and tools_ffi_tags_example, not here
+# EXCLUDES: a decoder that misreads, drops, reorders or shifts a segment
+#   the encoder wrote, or eats the input after the request (a code drift
+#   both Bend sides share passes this law)
 law tools_ffi_request_round_trip:
   for +gs: List<&2, Tl.Seg>
   for +rest: String
   for h: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FTl.codes(gs))), LawsBase.wire_nats_fit(FTl.codes(gs))) == True{} : Bool}
   {FTl.get_req(FTl.put_req(gs, rest)) == Wr.Got{gs, rest} : Wr.Dec<List<&2, Tl.Seg>>}
 
-# LAW tools_ffi_answers (compiled core): the path entry answers a whole request with the
-# model's resolution (the names, or none above the root)
-# EXCLUDES: an entry that answers another rule, a default, or a reply for
-#   a request it misread
-law tools_ffi_answers:
-  for +gs: List<&2, Tl.Seg>
-  for h: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FTl.codes(gs))), LawsBase.wire_nats_fit(FTl.codes(gs))) == True{} : Bool}
-  {FTl.ffi(FTl.put_req(gs, "")) == FTl.put_names(Tl.resolve(gs), "") : String}
-
-# LAW tools_ffi_rejects_malformed (compiled core): the path entry answers a malformed request with
-# the error form, never a default
-# EXCLUDES: a decision made on input that is no request
-law tools_ffi_rejects_malformed:
-  for +s: String
-  for bad: {FTl.get_req(s) == Wr.Bad{} : Wr.Dec<List<&2, Tl.Seg>>}
-  {LawsBase.wire_opens_err(FTl.ffi(s)) == True{} : Bool}
-
-# LAW tools_ffi_rejects_left_over (compiled core): and a request followed by more input with the error
-# form
-# EXCLUDES: an entry that ignores input left over (a second request, a
-#   truncated one)
-law tools_ffi_rejects_left_over:
-  for +s: String
-  for +q: List<&2, Tl.Seg>
-  for +r: String
-  for got: {FTl.get_req(s) == Wr.Got{q, r} : Wr.Dec<List<&2, Tl.Seg>>}
-  for more: {String.is_empty(r) == False{} : Bool}
-  {LawsBase.wire_opens_err(FTl.ffi(s)) == True{} : Bool}
-
 # The path entry, spelled
 # -----------------------
-# The entry laws above read and write through the entry's own encoders
-# (FTl.put_req, FTl.codes, FTl.put_names) and answer with Tl.resolve,
-# whose laws (path_rejects_escape, path_resolves_inside) say whether a
-# path resolves but not which names it reaches: a segment code drift both
-# sides share (Up and Here swapped, a name offset) or a walk that drops a
-# name passes them. The laws below spell the request and the reply with
-# the wire primitives as Rust writes and reads them (crates/eukhe-docs/
-# src/url.rs `resolve`): the segment codes as a wire list of Nats (0 Up
-# `..`, 1 Here `.` or empty, 2 + n the name at segment index n); the reply
-# is 0 when the path goes above its root, else 1 then the names it
-# reaches, deepest first, as a wire list of Nats.
+# The round trip above reads and writes through the entry's own encoder
+# (FTl.put_req, FTl.codes), and path_rejects_escape and path_resolves_inside
+# say whether a path resolves but not which names it reaches: a segment
+# code drift both sides share (Up and Here swapped, a name offset) or a
+# walk that drops a name passes them. The laws below spell the request and
+# the reply with the wire primitives as Rust writes and reads them
+# (crates/eukhe-docs/src/url.rs `resolve`): the segment codes as a wire
+# list of Nats (0 Up `..`, 1 Here `.` or empty, 2 + n the name at segment
+# index n); the reply is 0 when the path goes above its root, else 1 then
+# the names it reaches, deepest first, as a wire list of Nats.
 
 # the code Rust writes for a segment
 def tools_seg_code(g: Tl.Seg) -> Nat:
@@ -441,7 +465,7 @@ def tp_entry.read(r: Wr.Dec<List<&2, Nat>>) -> String:
 def tp_entry(s: String) -> String:
   tp_entry.read(Wr.get_list(~Nat, ~Wr.get_nat, s))
 
-# LAW path_resolve_spec (A1, S7 3): every path resolves as the spec reads
+# LAW path_resolve_spec (S7 3): every path resolves as the spec reads
 # it: each `..` cancels the nearest name before it left to cancel; the
 # names no `..` cancels are the names reached, deepest first; a `..` with
 # no name left to cancel goes above the root, and the path is rejected
@@ -507,16 +531,13 @@ law gate_finish_runs_all:
   for fin: {Tl.End.finished(Tl.Ran.end(Tl.exec(ss, auto, ans))) == True{} : Bool}
   {Tl.Ran.steps(Tl.exec(ss, auto, ans)) == ss : List<&2, Tl.Step>}
 
-# (G2, 4) The gate, against a spec
-# --------------------------------
-# A script runs step by step. A step runs unasked when each of its
-# effects is one an auto set may hold (codes 0 to 6: every effect) and is
-# in the auto set; any other step asks the user and takes the next
-# answer: a yes runs it, a no denies it, and with no answer left it is
-# denied. A step that runs unasked takes no answer. A denial stops the
-# script: the denied step and every later step do not run, and the script
-# ends denied at that step's id; a script whose every step ran finished.
-# Every input is free: any steps, any auto set, any answers.
+# (G2, 4) The gate, by its parts
+# ------------------------------
+# A script is free: steps that run unasked (pre), then a step that asks
+# (s), then any steps (post). With the laws above (gate_prefix,
+# gate_deny_stops) they pin how every script runs: split it at its first
+# step that asks. Every input is free: any steps, any auto set, any
+# answers.
 
 # c is in xs
 def tg_in(xs: List<&2, Nat>, +c: Nat) -> Bool:
@@ -526,7 +547,8 @@ def tg_in(xs: List<&2, Nat>, +c: Nat) -> Bool:
     case y <> rest:
       Bool.or(Nat.is_eq(y, c), tg_in(rest, c))
 
-# each effect of effs is one an auto set may hold (0 to 6) and is in auto
+# each effect of effs is one an auto set may hold (codes 0 to 6) and is in
+# auto
 def tg_unasked(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
   match effs:
     case Nil{}:
@@ -534,72 +556,65 @@ def tg_unasked(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
     case +c <> rest:
       Bool.and(Bool.and(Nat.is_lt(c, 7n), tg_in(auto, c)), tg_unasked(rest, auto))
 
-# step s runs unasked
+# step s runs unasked (G2)
 def tg_free(s: Tl.Step, +auto: List<&2, Nat>) -> Bool:
   match s:
     case Tl.Step{i, f}:
       tg_unasked(f, auto)
 
-# step s ran, then the rest ran as r
-def tg_ran(s: Tl.Step, r: Tl.Ran) -> Tl.Ran:
-  match r:
-    case Tl.Ran{ss, e}:
-      Tl.Ran{s <> ss, e}
-
-# step s is denied: nothing more runs, the script ends denied at its id
-def tg_denied(s: Tl.Step) -> Tl.Ran:
-  match s:
-    case Tl.Step{i, f}:
-      Tl.Ran{Nil{}, Tl.Denied{i}}
-
-# the user answers a to step s; after a yes the rest runs as r
-def tg_answer(a: Bool, s: Tl.Step, r: Tl.Ran) -> Tl.Ran:
-  match a:
-    case True{}:
-      tg_ran(s, r)
-    case False{}:
-      tg_denied(s)
-
-# a step that runs unasked (u) goes as run, an asked one as ask
-def tg_pick(u: Bool, run: Tl.Ran, ask: Tl.Ran) -> Tl.Ran:
-  match u:
-    case True{}:
-      run
-    case False{}:
-      ask
-
-# how the script ss runs with the auto set auto and the user's answers
-# ans (to the asked steps, in order)
-def tg_exec(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>) -> Tl.Ran:
+# every step of ss runs unasked
+def tg_all_free(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>) -> Bool:
   match ss:
     case Nil{}:
-      Tl.Ran{Nil{}, Tl.Finished{}}
-    case +s <> +rest:
-      match ans:
-        case Nil{}:
-          tg_pick(tg_free(s, auto), tg_ran(s, tg_exec(rest, auto, Nil{})), tg_denied(s))
-        case +a <> +more:
-          tg_pick(tg_free(s, auto), tg_ran(s, tg_exec(rest, auto, a <> more)), tg_answer(a, s, tg_exec(rest, auto, more)))
+      True{}
+    case s <> rest:
+      Bool.and(tg_free(s, auto), tg_all_free(rest, auto))
 
-# LAW gate_exec_spec (G2): every script runs, with every auto set and
-# every answers of the user, exactly as the spec states: a step whose
-# effects are all ones an auto set may hold and in the auto set runs
-# without an answer; any other step takes the next answer and runs on a
-# yes, and a no or no answer left denies it, stopping the script there,
-# ended denied at its id; a script whose every step ran finished
-# EXCLUDES: a yes taken as a denial (which gate_prefix, gate_needs_yes,
-#   gate_deny_stops and gate_finish_runs_all let pass); a no or a missing
-#   answer taken as a yes; an answer taken by a step that runs unasked, or
-#   answers used out of order; a denial that runs a step, keeps the steps
-#   before it out of the result or ends at another id; a script that
-#   stops early or ends finished after a denial; a step run unasked with
-#   an effect the auto set lacks or no auto set may hold, or asked when
-#   all its effects are in it
-law gate_exec_spec:
+# the steps xs ran, then the rest ran as r
+def tg_after(xs: List<&2, Tl.Step>, r: Tl.Ran) -> Tl.Ran:
+  match r:
+    case Tl.Ran{ss, e}:
+      Tl.Ran{List.append(&2, Tl.Step, xs, ss), e}
+
+# LAW gate_unasked_runs_all (G2): a script whose every step runs unasked (each effect one an auto set may hold, codes 0 to 6, and in the auto set) runs every step and finishes, whatever the user's answers: none is asked for
+# EXCLUDES: a step asked although its effects are in the auto set (an
+#   effect 4, 5 or 6 taken as one no auto set may hold), a free step that
+#   takes an answer (and is denied when none is left), a script that stops
+#   early
+law gate_unasked_runs_all:
   for +ss: List<&2, Tl.Step>
   for +auto: List<&2, Nat>
-  for +ans: List<&2, Bool>
-  {Tl.exec(ss, auto, ans) == tg_exec(ss, auto, ans) : Tl.Ran}
+  for ans: List<&2, Bool>
+  for free: {tg_all_free(ss, auto) == True{} : Bool}
+  {Tl.exec(ss, auto, ans) == Tl.Ran{ss, Tl.Finished{}} : Tl.Ran}
+
+# LAW gate_yes_runs_held (G2): steps that run unasked, then a step that asks (an effect not in the auto set, or one no auto set may hold) answered yes: they and it run, that one answer taken, and the script goes on from the next step with the answers after it
+# EXCLUDES: a yes taken as a denial, a held step run unasked or with an
+#   answer it did not get, an answer taken by a free step, answers used
+#   out of order, a step lost or repeated
+law gate_yes_runs_held:
+  for +pre: List<&2, Tl.Step>
+  for +s: Tl.Step
+  for +post: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for ans: List<&2, Bool>
+  for free: {tg_all_free(pre, auto) == True{} : Bool}
+  for held: {tg_free(s, auto) == False{} : Bool}
+  {Tl.exec(List.append(&2, Tl.Step, pre, s <> post), auto, True{} <> ans) == tg_after(List.append(&2, Tl.Step, pre, [s]), Tl.exec(post, auto, ans)) : Tl.Ran}
+
+# LAW gate_held_denied_without_yes (G2): steps that run unasked, then a step that asks, with no answer left or answered no: the script stops there, the steps before it ran, it and every later step did not, and it ends denied at that step's id
+# EXCLUDES: a missing answer taken as a yes, a held step run unasked (an
+#   effect 7 or more in the auto set taken as grantable), a denial that
+#   runs a later step, drops the steps before it or ends at another id
+law gate_held_denied_without_yes:
+  for +pre: List<&2, Tl.Step>
+  for +s: Tl.Step
+  for +post: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for ans: List<&2, Bool>
+  for +free: {tg_all_free(pre, auto) == True{} : Bool}
+  for +held: {tg_free(s, auto) == False{} : Bool}
+  {Tl.exec(List.append(&2, Tl.Step, pre, s <> post), auto, Nil{}) == Tl.Ran{pre, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran} & {Tl.exec(List.append(&2, Tl.Step, pre, s <> post), auto, False{} <> ans) == Tl.Ran{pre, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran}
 
 # ---- path_policy ----
 
@@ -692,47 +707,42 @@ law composed_needs_every_part:
   for out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}
   {Tl.auto.at(auto, Tl.Step{i, Tl.join(List.append(&2, List<&2, Nat>, pre, p <> post))}) == False{} : Bool}
 
-# LAW auto_runs_within: a step whose effects are within the auto set runs without a
-# question: it uses no answer of the user
-law auto_runs_within:
-  for +s: Tl.Step
-  for +post: List<&2, Tl.Step>
-  for +auto: List<&2, Nat>
-  for ans: List<&2, Bool>
-  for w: {Tl.within(Tl.Step.effs(s), auto) == True{} : Bool}
-  {Tl.exec(s <> post, auto, ans) == Tl.ran.add(s, Tl.exec(post, auto, ans)) : Tl.Ran}
-
-# LAW held_needs_a_yes: a step whose effects are not within the auto set runs only with
-# the user's yes: with no answer it does not run, and the script stops
-law held_needs_a_yes:
-  for +s: Tl.Step
-  for +post: List<&2, Tl.Step>
-  for +auto: List<&2, Nat>
-  for w: {Tl.within(Tl.Step.effs(s), auto) == False{} : Bool}
-  {Tl.exec(s <> post, auto, Nil{}) == Tl.Ran{Nil{}, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran}
-
 # (G5) A session that runs only from the phone gateway never waits
 # -----------------------------------------------------------------
 # The phone gateway shows no question. A step is guarded when it writes a
 # protected path (effect 5: eukhe's own config and credentials, a .git or
 # .eukhe dir, a PATH dir); the rule refuses it when the auto set does not
-# already run it.
+# already run it, and runs every other step.
 
-# LAW gateway_refuses_protected: the gateway rule refuses a step that writes a protected path
-law gateway_refuses_protected:
-  for +es: List<&2, Nat>
-  for protected: {Tl.elem(es, 5n) == True{} : Bool}
-  for +above: List<&2, Am.Desk>
-  {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}
+# the step runs, as the gate decides it
+def gw_fate_runs(f: Am.Fate) -> Bool:
+  match f:
+    case Am.Runs{}:
+      True{}
+    case Am.Denied{}:
+      False{}
+    case Am.Unheard{}:
+      False{}
+    case Am.GatewayRefused{}:
+      False{}
 
-# LAW gateway_runs_the_rest: the gateway rule runs every other step unasked (a write, a run of
-# a program, the network, a write outside the workspace, a secret access)
-law gateway_runs_the_rest:
+def gw_runs(g: Am.Gated) -> Bool:
+  match g:
+    case Am.Unasked{}:
+      True{}
+    case Am.Routed{o, f}:
+      gw_fate_runs(f)
+
+# LAW gateway_runs_unprotected (G5): in a session whose only clients are the phone gateway, with any auto set and any sessions above it, a step that writes no protected path (5) runs: unasked when its effects are within the auto set, else by the gateway rule, a secret access (6) and a write outside the workspace (4) included
+# EXCLUDES: a phone-only session that waits on a question, refuses or
+#   leaves unanswered a step that writes no protected path (a secret
+#   access refused, a guard on another effect)
+law gateway_runs_unprotected:
+  for +auto: List<&2, Nat>
   for +es: List<&2, Nat>
-  for not_protected: {Tl.elem(es, 5n) == False{} : Bool}
-  for not_secret: {Tl.elem(es, 6n) == False{} : Bool}
+  for not_protected: {tg_in(es, 5n) == False{} : Bool}
   for +above: List<&2, Am.Desk>
-  {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.Runs{} : Am.Fate}
+  {gw_runs(Am.gate(auto, es, Am.Phone{} <> above)) == True{} : Bool}
 
 # (G5) The default auto set
 # --------------------------------------------------

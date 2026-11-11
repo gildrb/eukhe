@@ -8,4 +8,4 @@ import ./base.bend as LA
 
 def ToolCall.stream_settles_once(first, es):
   %LA.tp.model(first, es) : {List.length(&2, String, ToolCall.tc_journaled(_)) == ToolCall.tc_once(ToolCall.tc_ends(es)) : Nat}
-  Equal.sym(Nat, ToolCall.tc_once(ToolCall.tc_ends(es)), List.length(&2, String, ToolCall.tc_journaled(ToolCall.tc_spec(es, False{}))), LA.tp.s_open(es))
+  Equal.sym(Nat, ToolCall.tc_once(ToolCall.tc_ends(es)), List.length(&2, String, ToolCall.tc_journaled(LA.tp.spec(es, False{}))), LA.tp.s_open(es))
