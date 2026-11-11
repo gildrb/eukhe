@@ -179,3 +179,70 @@ def Means(r: Maybe<&2, L.Kv>, +p: L.Parts) -> Type:
       {Nat.is_le(sig(p), 15n) == False{} : Bool}
     case Some{L.Kv{n, d}}:
       {Nat.is_le(sig(p), 15n) == True{} : Bool} & {n == L.Parts.name(p) : String} & {Dec.Canon(d) == True{} : Bool} & {Dec.same(d, raw(p)) == True{} : Bool}
+
+# The text of a decimal
+# ---------------------
+# How a refusal names a metric: the value's spelling in the grammar
+# above: zero is 0; else its sign, the digits before the point (0 when
+# there are none) and, at a scale above 0, the point and the last scale
+# digits, zeros first when there are fewer: 3, -12.5, 0.005. For a
+# canonical decimal (decimal.bend Canon) that is its one canonical
+# spelling.
+
+# the first n digits of ds
+def take(n: Nat, ds: List<&2, Nat>) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      match ds:
+        case Nil{}:
+          Nil{}
+        case d <> t:
+          d <> take(k, t)
+
+# ds without its first n digits
+def drop(n: Nat, ds: List<&2, Nat>) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      ds
+    case 1n+k:
+      match ds:
+        case Nil{}:
+          Nil{}
+        case d <> t:
+          drop(k, t)
+
+# n zero digits
+def zeros(n: Nat) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      0n <> zeros(k)
+
+# the n digits ds at scale sc: the point sc digits from the end, or 0.
+# and the zeros the point needs
+def text.point(more: Bool, +ds: List<&2, Nat>, +n: Nat, +sc: Nat) -> String:
+  match more:
+    case True{}:
+      spell_ds(take(Nat.sub(n, sc), ds), SCon{'.', spell_ds(drop(Nat.sub(n, sc), ds), "")})
+    case False{}:
+      SCon{'0', SCon{'.', spell_ds(zeros(Nat.sub(sc, n)), spell_ds(ds, ""))}}
+
+def text.body(sc: Nat, +ds: List<&2, Nat>) -> String:
+  match sc:
+    case 0n:
+      spell_ds(ds, "")
+    case 1n++p:
+      text.point(Nat.is_lt(1n+p, dlen(ds)), ds, dlen(ds), 1n+p)
+
+# the text of d
+def value_text(d: D.Dec) -> String:
+  match d:
+    case D.Dec{neg, ds, sc}:
+      match ds:
+        case Nil{}:
+          "0"
+        case +h <> +t:
+          spell_sign(neg, text.body(sc, h <> t))

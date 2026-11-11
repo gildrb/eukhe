@@ -6,17 +6,10 @@
  */
 export const epigraphs: ReadonlyMap<string, readonly string[]> = new Map([
   [
-    "# eukhe",
+    "# Eukhe",
     [
       "μὴ παντάπασιν ἡμᾶς εὐχὰς εἰρηκέναι, ἀλλὰ χαλεπὰ μέν, δυνατὰ δέ πῃ.",
       "That we have not spoken mere wishes, but things hard, yet somehow possible. (Plato, Republic 7.540d)",
-    ],
-  ],
-  [
-    "## Agents",
-    [
-      "οὐκ ἀγαθὸν πολυκοιρανίη· εἷς κοίρανος ἔστω.",
-      "The rule of many is not good; let there be one ruler. (Aristotle, Metaphysics 12.1076a4, quoting Iliad 2.204)",
     ],
   ],
   [

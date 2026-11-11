@@ -6,15 +6,15 @@ CONTACT
 
 # CONTACT
 
-eukhe is made by Gil Rodrigues. The best way to reach him is by email
+Eukhe is made by Gil Rodrigues. The best way to reach him is by email
 at [mail@gildrb.com](mailto:mail@gildrb.com).
 
-## BUGS AND FEATURE REQUESTS
+## ISSUES
 
-Open an issue at
+Report a bug or ask for a feature at
 [github.com/gildrb/eukhe/issues](https://github.com/gildrb/eukhe/issues).
-Include your eukhe version, your platform, and what you ran. Issues are public: leave secrets, tokens and private paths out
-of them.
+Include your Eukhe version and your platform, then what you ran.
+Issues are public: leave secrets and private paths out of them.
 
 ## SECURITY
 

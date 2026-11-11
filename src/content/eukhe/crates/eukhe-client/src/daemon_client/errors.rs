@@ -1,0 +1,266 @@
+use anyhow::Result;
+use eukhe_types::daemon::{
+    DaemonCommand, DaemonErrorInfo, DaemonResponse, KERNEL_NOT_RUNNING_MESSAGE,
+};
+use serde_json::Value;
+/// Why a direct request failed: `NotSent` never reached the worker (safe to
+/// fall back to the supervisor), `Wait` did and must not be retried.
+pub(super) enum DirectRequestError {
+    NotSent,
+    Wait(anyhow::Error),
+}
+
+/// The daemon answered with `success: false` for one request: the daemon
+/// is alive and healthy -- it refused THIS request ("Prompt cannot be
+/// empty", a queue/admission refusal, an unknown session selector, a
+/// model the allowlist refuses, ...). Rejections carry data about the
+/// request, never about the connection: the interactive loop renders
+/// them inline and keeps running, while transport failures (dead
+/// socket, timeout, closed connection) stay fatal.
+#[derive(Debug, PartialEq)]
+pub struct RequestRejected {
+    /// Wire `type` of the refused command, for the rendered message.
+    pub command: String,
+    /// The daemon's raw error string.
+    pub message: String,
+    /// The typed refusal info (`errorInfo`), when the daemon typed it:
+    /// `update_restarting` (the update-prepare fence, TS #2391),
+    /// `session_already_active`, `model_provider_unauthenticated`, ...
+    /// `None` for untyped refusals and older daemons.
+    pub error_info: Option<DaemonErrorInfo>,
+}
+
+impl std::fmt::Display for RequestRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the daemon rejected the {} request: {}",
+            self.command, self.message
+        )
+    }
+}
+
+impl std::error::Error for RequestRejected {}
+
+/// Whether the error is (or wraps) a daemon refusal, not a transport
+/// failure: the daemon answered and refused the request itself.
+#[must_use]
+pub fn is_daemon_rejection(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<RequestRejected>().is_some())
+}
+
+/// A daemon command the agents view or an `@name` delivery sent that did
+/// not go through: the daemon's refusal (its message, when it gave one),
+/// or the request's own failure (the connection, a timeout).
+#[derive(Debug, thiserror::Error)]
+pub enum CommandFailed {
+    #[error("{}", message.as_deref().unwrap_or("the command failed"))]
+    Refused { message: Option<String> },
+    #[error("{0:#}")]
+    Request(#[source] anyhow::Error),
+}
+
+impl CommandFailed {
+    /// A settled request: its successful response, or why it failed.
+    ///
+    /// # Errors
+    ///
+    /// The daemon refused the command, or the request itself failed.
+    pub fn check(settled: Result<DaemonResponse>) -> Result<DaemonResponse, Self> {
+        match settled {
+            Ok(response) if response.success => Ok(response),
+            Ok(response) => Err(Self::Refused {
+                message: response.error,
+            }),
+            Err(error) => Err(Self::Request(error)),
+        }
+    }
+}
+
+/// Something accepted the daemon socket's connection but did not greet as
+/// this product's daemon: its hello names another protocol (a pre-rename
+/// `prime-agent.daemon` build), or its first line is not a parseable
+/// frame. The holder keeps the socket bound, so a supervisor spawned beside
+/// it cannot listen; a launcher must stop the holder first.
+#[derive(Debug, PartialEq)]
+pub struct ForeignDaemon {
+    pub socket_path: std::path::PathBuf,
+    pub greeting: ForeignGreeting,
+}
+
+/// What the socket's holder answered instead of this product's hello.
+#[derive(Debug, PartialEq)]
+pub enum ForeignGreeting {
+    /// A hello whose `protocol.name` is not this product's.
+    Protocol(String),
+    /// A first line that is not JSON (clipped for the message).
+    Unparseable(String),
+}
+
+impl std::fmt::Display for ForeignDaemon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let socket = self.socket_path.display();
+        match &self.greeting {
+            ForeignGreeting::Protocol(name) => {
+                write!(
+                    f,
+                    "the daemon on {socket} speaks an unknown protocol \"{name}\""
+                )
+            }
+            ForeignGreeting::Unparseable(line) => {
+                write!(
+                    f,
+                    "the daemon on {socket} sent an unparseable handshake: {line}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ForeignDaemon {}
+
+/// Whether a connect failed because a foreign process holds the socket (see
+/// [`ForeignDaemon`]), as opposed to nothing listening or a slow daemon.
+#[must_use]
+pub fn is_foreign_daemon(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<ForeignDaemon>().is_some())
+}
+
+/// The transport connect failed or timed out: nothing accepted the
+/// connection (as opposed to a handshake failure on a live listener).
+/// Displays the operator-facing connect message; a transport error stays
+/// in the chain beneath it.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum DaemonConnectFailed {
+    #[error(
+        "Timed out after {timeout_ms}ms connecting to the Eukhe daemon. Socket: {}.",
+        socket_path.display()
+    )]
+    TimedOut {
+        timeout_ms: u64,
+        socket_path: std::path::PathBuf,
+    },
+    #[error("Failed to connect to the Eukhe daemon. Socket: {}.", socket_path.display())]
+    Refused { socket_path: std::path::PathBuf },
+}
+
+/// Whether a connect failed before anything accepted the connection
+/// (transport connect error or connect timeout), as opposed to a
+/// handshake failure on a live listener.
+#[must_use]
+pub fn is_connect_failure(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DaemonConnectFailed>().is_some()
+}
+
+/// Whether an error is a response/handshake timeout ("Timed out after
+/// Nms waiting for the Eukhe daemon (response|handshake)"): a
+/// transient under-load failure, not a protocol error -- the caller
+/// degrades (retry or surface the queued state) instead of exiting.
+#[must_use]
+pub fn is_daemon_timeout(error: &anyhow::Error) -> bool {
+    // Case-insensitive: the TUI's own bounded requests say
+    // "timed out after Nms ...", the daemon client's hello/connect paths
+    // "Timed out after Nms ...". ANCHORED at the chain link's start, the
+    // shape of TS's own transport-timeout checks: every genuine emitter
+    // begins its message with the phrase, so an error that merely
+    // QUOTES a timeout (the update-restart wait's deadline error inlines
+    // the last attempt's text) never matches and keeps its dedicated
+    // guidance handoff.
+    error.chain().any(|cause| {
+        cause
+            .to_string()
+            .to_lowercase()
+            .starts_with("timed out after")
+    })
+}
+
+/// Whether an error means the daemon connection could not carry the
+/// request at all (a timeout, or a closed connection): a transient the
+/// submit path surfaces without exiting -- the pane stays mounted for the
+/// reconnect driver to restore the connection.
+#[must_use]
+pub fn is_daemon_unreachable(error: &anyhow::Error) -> bool {
+    is_daemon_timeout(error)
+        || error.chain().any(|cause| {
+            let cause = cause.to_string().to_lowercase();
+            cause.contains("daemon connection")
+                || cause.contains("eukhe daemon closed")
+                || cause.contains("direct session connection closed")
+                || cause.contains("the session connection closed")
+        })
+}
+
+/// Whether the error is the daemon's kernel-not-running refusal
+/// (`KERNEL_NOT_RUNNING_MESSAGE`: the session-addressed lanes answer
+/// with it while the session's kernel is not built -- the lane never
+/// boots an idle kernel): a DEFINITIVE answer, not a transient
+/// failure -- the kernel owns its run registry in memory, so a session
+/// without a kernel carries no live runs and a caller reading the
+/// count can take zero instead of an unknown.
+#[must_use]
+pub fn is_kernel_not_running(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<RequestRejected>()
+            .is_some_and(|rejected| rejected.message == KERNEL_NOT_RUNNING_MESSAGE)
+    })
+}
+
+/// Whether the error is the daemon's refusal of an answer to a shell
+/// approval question it no longer holds
+/// ([`DaemonErrorInfo::ShellApprovalGone`]: another client answered it,
+/// its step ended, or it went elsewhere): nothing is left to answer.
+#[must_use]
+pub fn is_shell_approval_gone(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<RequestRejected>()
+            .is_some_and(|rejected| rejected.error_info == Some(DaemonErrorInfo::ShellApprovalGone))
+    })
+}
+
+/// Unwrap a settled response into its `data`, surfacing the daemon
+/// refusal as a typed [`RequestRejected`] on failure.
+pub(super) fn response_data_or_error(name: &str, response: DaemonResponse) -> Result<Value> {
+    if !response.success {
+        let message = response
+            .error
+            .unwrap_or_else(|| "unknown error".to_string());
+        return Err(anyhow::Error::new(RequestRejected {
+            command: name.to_string(),
+            message,
+            error_info: response.error_info,
+        }));
+    }
+    Ok(response.data.unwrap_or(Value::Null))
+}
+
+/// The typed provider-unauthenticated refusal of a rejected request (the
+/// daemon's `set_model` on a model whose provider is not signed in): the
+/// provider id the client's sign-in flow should serve. `None` for every
+/// other refusal and transport failure.
+#[must_use]
+pub fn rejected_provider_unauthenticated(error: &anyhow::Error) -> Option<String> {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<RequestRejected>())
+        .find_map(|rejected| match &rejected.error_info {
+            Some(DaemonErrorInfo::ModelProviderUnauthenticated { provider }) => {
+                Some(provider.clone())
+            }
+            _ => None,
+        })
+}
+
+/// Wire `type` tag of a command, for error messages.
+pub(super) fn command_type_debug(command: &DaemonCommand) -> String {
+    serde_json::to_value(command)
+        .ok()
+        .and_then(|value| value.get("type").cloned())
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| "command".to_string())
+}

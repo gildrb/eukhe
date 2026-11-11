@@ -21,7 +21,7 @@ The install command downloads the installer from GitHub, under
 
 ## THE EUKHE PROGRAM
 
-eukhe runs on your machine. Its chat logs and memory stay in
+Eukhe runs on your machine. Its chat logs and memory stay in
 `~/.eukhe/` on your disk. Your prompts and the files it reads for them
 go to the model provider you sign in to, under that provider's terms.
 An optional scrubber, `privacy.anonymizeRemote` (off by default),

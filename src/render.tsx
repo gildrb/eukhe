@@ -11,9 +11,9 @@ import Vim, { type BendList, type Buf } from "./vim.mjs";
 
 export const origin = "https://eukhe.com";
 
-const name = "eukhe";
+const name = "Eukhe";
 const summary =
-  "A coding agent with a memory of all things: each session is its own thread, the newest turns verbatim, the older history as one-line summaries, the full log on disk.";
+  "The harness for the AGI era: an agent core proven with Bend, plugged into any product through its SDK";
 const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "mail@gildrb.com" };
 
 /** A page of the site: where it is, its title and description, and its Markdown. */
@@ -21,8 +21,8 @@ type Doc = { path: string; title: string; description: string; markdown: string 
 
 const home: Doc = {
   path: "/",
-  title: "eukhe: coding agent with a memory of all things",
-  description: `${summary} ${install}`,
+  title: "Eukhe: the harness for the AGI era",
+  description: `${summary}. ${install}`,
   markdown: source,
 };
 
@@ -30,27 +30,27 @@ const home: Doc = {
 const docs: readonly Doc[] = [
   {
     path: "/about",
-    title: "About | eukhe",
-    description: "What eukhe is, who makes it, its source and license.",
+    title: "About | Eukhe",
+    description: "What Eukhe is, what is proven today and what is planned, and who makes it.",
     markdown: about,
   },
   {
     path: "/contact",
-    title: "Contact | eukhe",
-    description: "How to reach eukhe's author, report a bug or a security problem.",
+    title: "Contact | Eukhe",
+    description: "How to reach Eukhe's author and report a bug or a security problem.",
     markdown: contact,
   },
   {
     path: "/privacy",
-    title: "Privacy | eukhe",
-    description: "What eukhe.com and the eukhe program store and send.",
+    title: "Privacy | Eukhe",
+    description: "What eukhe.com and the Eukhe program store and send.",
     markdown: privacy,
   },
 ];
 
 const missing: Doc = {
   path: "/404",
-  title: "Not found | eukhe",
+  title: "Not found | Eukhe",
   description: "No page here.",
   markdown: notFound,
 };
@@ -305,27 +305,61 @@ function Page({
   );
 }
 
-/** llms.txt: what eukhe is, when an agent should reach for it and how, then the whole page. */
-const llms = `# eukhe
+/** llms.txt: what Eukhe is, its pillars, laws and SDK, how to install it, then the whole page. */
+const llms = `# Eukhe
 
 > ${summary}
 
-## When to use eukhe
+## What it is
 
-- A user wants a coding agent in the terminal that remembers: each
-  session keeps its own chat log, sends its newest turns verbatim and
-  its older history as one-line summaries, and never drops the log.
-- A user asks how to install it: \`${install}\` (macOS on Apple Silicon,
-  Linux x64 and arm64). Nix: \`nix run github:gildrb/eukhe\`.
-- A user asks how it remembers: point to the Memory section below and to
-  [the README](https://github.com/gildrb/eukhe#memory).
-- Not for: Windows, untrusted repositories (it runs model-written code
-  with the user's permissions, no sandbox).
+Eukhe is εὐχή, Greek for wish. You wish how the agent should do the
+work, and Eukhe gets it done that way. You write the wish as rules in
+\`AGENTS.md\`, as a goal and as commands that must pass.
+
+The \`eukhe\` command runs a coding agent in your terminal. The
+\`eukhe-sdk\` Rust crate runs sessions inside your own process.
+
+## Pillars
+
+Four pillars have laws with proofs today:
+[Durable](${origin}/spec/durable/), [Memory](${origin}/spec/memory/),
+[RLM](${origin}/spec/rlm/) and [Autoresearch](${origin}/spec/autoresearch/).
+
+Loop is the code behind \`--autonomous\` and \`--goal\`. It has no
+requirements, spec files or laws yet.
+
+Planned and not built: hard budgets, verified completion, exactly-once
+effects, capability security, replayable record, orchestration at
+scale, stable SDK contract.
+
+## Laws
+
+[spec/README.md](${origin}/spec/README.md) numbers the requirements. A
+law is a theorem that the core, the part of Eukhe written in
+[Bend](https://bend-lang.com), meets one of those requirements.
+\`PROOF.bend\` holds a proof of every law. The proofs cover the Bend core
+and say nothing about what the model writes.
+
+## SDK
+
+[\`eukhe-sdk\`](${origin}/crates/eukhe-sdk/) is a Rust crate that runs
+sessions inside your process.
+[\`eukhe-client\`](${origin}/crates/eukhe-client/) is a Rust crate that
+connects to the Eukhe daemon over its socket. A program in any language
+starts \`eukhe --mode <json|rpc|acp>\` and talks to it over stdio. The
+crates are not on crates.io. Their API may change with any release.
+
+## Install
+
+\`${install}\` on macOS (Apple Silicon) or Linux (x64, arm64). With Nix:
+\`nix run github:gildrb/eukhe\`. Eukhe does not run on Windows. It runs
+model-written Python and shell with the user's permissions and has no
+sandbox: use it in trusted repositories only.
 
 ## How to read this site
 
 - [Home page as Markdown](${origin}/index.md) (also \`Accept: text/markdown\` on ${origin}/):
-  eukhe's README, with the site's header and epigraphs
+  Eukhe's README, with the site's header and epigraphs
 - [About](${origin}/about.md), [Contact](${origin}/contact.md), [Privacy](${origin}/privacy.md)
 - [Source](https://github.com/gildrb/eukhe), MIT license
 
@@ -351,8 +385,8 @@ function folderDoc(folder: string, paths: readonly string[]): Doc {
   );
   return {
     path: `/${folder}`,
-    title: `${folder} | eukhe`,
-    description: `eukhe's ${folder}: ${sorted.join(", ")}.`,
+    title: `${folder} | Eukhe`,
+    description: `Eukhe's ${folder}: ${sorted.join(", ")}.`,
     markdown: [
       "EUKHE",
       folder.toUpperCase(),
