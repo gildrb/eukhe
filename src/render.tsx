@@ -13,7 +13,7 @@ export const origin = "https://eukhe.com";
 
 const name = "Eukhe";
 const summary =
-  "The harness for the AGI era: an agent core proven with Bend, plugged into any product through its SDK";
+  "The harness for the AGI era. You wish how the agent should do the work, and Eukhe gets it done that way";
 const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "mail@gildrb.com" };
 
 /** A page of the site: where it is, its title and description, and its Markdown. */
@@ -305,40 +305,41 @@ function Page({
   );
 }
 
-/** llms.txt: what Eukhe is, its pillars, laws and SDK, how to install it, then the whole page. */
+/** llms.txt: what Eukhe is, the wish, its laws, SDK and components, how to install it, then the whole page. */
 const llms = `# Eukhe
 
 > ${summary}
 
 ## What it is
 
-Eukhe is εὐχή, Greek for wish. You wish how the agent should do the
-work, and Eukhe gets it done that way. You write the wish as rules in
-\`AGENTS.md\`, as a goal and as commands that must pass.
+Eukhe is εὐχή, Greek for wish. You write the wish as rules in
+\`AGENTS.md\`, as a goal and as commands that must pass. When one of
+those commands fails, Eukhe gives its output to the agent and runs
+another turn, until every command passes or the run reaches a limit. A
+session is an append-only log on disk, so it survives a crash and
+\`eukhe --continue\` reopens it.
 
-The \`eukhe\` command runs a coding agent in your terminal. The
-\`eukhe-sdk\` Rust crate runs sessions inside your own process.
+The \`eukhe\` command runs a coding agent on Eukhe's core in your
+terminal. The \`eukhe-sdk\` Rust crate runs sessions on it inside your
+own process.
 
-## Pillars
+## Wish
 
-Four pillars have laws with proofs today:
-[Durable](${origin}/spec/durable/), [Memory](${origin}/spec/memory/),
-[RLM](${origin}/spec/rlm/) and [Autoresearch](${origin}/spec/autoresearch/).
-
-Loop is the code behind \`--autonomous\` and \`--goal\`. It has no
-requirements, spec files or laws yet.
-
-Planned and not built: hard budgets, verified completion, exactly-once
-effects, capability security, replayable record, orchestration at
-scale, stable SDK contract.
+- Eukhe reads \`AGENTS.md\` in the project and puts it in the system prompt.
+- \`eukhe --goal "objective"\` keeps running turns until the agent marks
+  the goal complete or \`--goal-token-budget\` tokens are used.
+- \`eukhe --autonomous --autonomous-gate "cargo test"\` runs \`cargo test\`
+  after each turn and runs another turn while it fails, up to the
+  limits that \`eukhe --help\` lists.
 
 ## Laws
 
 [spec/README.md](${origin}/spec/README.md) numbers the requirements. A
 law is a theorem that the core, the part of Eukhe written in
 [Bend](https://bend-lang.com), meets one of those requirements.
-\`PROOF.bend\` holds a proof of every law. The proofs cover the Bend core
-and say nothing about what the model writes.
+\`PROOF.bend\` holds a proof of every law, and \`bend PROOF.bend\` checks
+them. The proofs cover the Bend core and say nothing about what the
+model writes.
 
 ## SDK
 
@@ -348,6 +349,17 @@ sessions inside your process.
 connects to the Eukhe daemon over its socket. A program in any language
 starts \`eukhe --mode <json|rpc|acp>\` and talks to it over stdio. The
 crates are not on crates.io. Their API may change with any release.
+
+## Components
+
+[Durable](${origin}/spec/durable/), [Memory](${origin}/spec/memory/),
+[RLM](${origin}/spec/rlm/) and [Autoresearch](${origin}/spec/autoresearch/)
+have requirements and laws. Loop, the code behind \`--autonomous\` and
+\`--goal\`, has no requirements, spec files or laws yet.
+
+Planned and not built: hard budgets, verified completion, exactly-once
+effects, capability security, replayable record, orchestration at
+scale, stable SDK contract.
 
 ## Install
 

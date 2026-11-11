@@ -22,12 +22,68 @@ every command passes or the run reaches a limit. A session is an
 append-only log on disk, so it survives a crash and
 `eukhe --continue` reopens it.
 
-The `eukhe` command runs a coding agent in your terminal. The
-`eukhe-sdk` Rust crate runs sessions inside your own process.
+[spec/](spec/README.md) numbers what Eukhe's session log, memory,
+subagents and tool calls must do. A law is a theorem that the core,
+the part of Eukhe written in [Bend](https://bend-lang.com), meets
+one of those requirements. In a checkout, `bend PROOF.bend` checks
+the proof of every law, and the checked core is the code compiled
+into the binary you install.
 
-## PILLARS
+The `eukhe` command runs a coding agent on this core in your
+terminal. The `eukhe-sdk` Rust crate runs sessions on it inside your
+own process.
 
-Four pillars have laws with proofs today.
+That's Eukhe - and you need nothing else.
+
+## WISH
+
+Eukhe reads `AGENTS.md` in your project and puts it in the system
+prompt.
+
+`eukhe --goal "objective"` starts a session that keeps running turns
+until the agent marks the goal complete or `--goal-token-budget`
+tokens are used.
+
+`eukhe --autonomous --autonomous-gate "cargo test"` runs `cargo test`
+after each turn. If it fails, Eukhe gives the agent its output and
+runs another turn. The run stops when the command passes or a limit
+is reached; `eukhe --help` lists the limits and their defaults.
+
+## LAWS
+
+The tables in [spec/README.md](spec/README.md) number the
+requirements and name the laws of each. A spec file such as
+[`spec/durable/log.bend`](spec/durable/log.bend) restates a
+requirement in Bend. It calls none of the shipped code, so a law
+compares two separately written definitions.
+
+A law is a theorem that the core does what a spec file says, and
+`PROOF.bend` holds a proof of every law. `LAWS.lock` holds a hash of
+each law and spec file, and the repository's pre-push hook rejects a
+push that changes one without the lock. Rust does the IO and calls
+the compiled core wherever a requirement has a law.
+
+The proofs cover the Bend core and say nothing about what the model
+writes. The Bend compiler, the C shim that links the core into the
+binary and the Rust IO are trusted without proof.
+
+## SDK
+
+[`eukhe-sdk`](crates/eukhe-sdk/) is a Rust crate that runs sessions
+inside your process. Its main calls are `open_session`, `prompt` and
+`watch`.
+
+[`eukhe-client`](crates/eukhe-client/) is a Rust crate that connects
+to the Eukhe daemon (`eukhe --mode daemon`) over its socket. The
+terminal UI and the web dashboard use it.
+
+A program in any language starts `eukhe --mode <json|rpc|acp>` and
+talks to it over stdio.
+
+The SDK crates are Rust only and are not on crates.io. Their API may
+change with any release.
+
+## COMPONENTS
 
 [Durable](spec/durable/) syncs every write of the session log to disk
 before acknowledging it. A resumed session keeps every checkpoint and
@@ -54,34 +110,8 @@ Planned and not built: hard budgets, verified completion,
 exactly-once effects, capability security, replayable record,
 orchestration at scale, stable SDK contract.
 
-## LAWS
-
-[spec/](spec/README.md) numbers what Eukhe's session log, memory,
-subagents and tool calls must do. A law is a theorem that the core,
-the part of Eukhe written in [Bend](https://bend-lang.com), meets
-one of those requirements. `PROOF.bend` holds a proof of every law,
-and the checked core is the code compiled into the binary you
-install.
-
-The proofs cover the Bend core and say nothing about what the model
-writes. The Bend compiler, the C shim that links the core into the
-binary and the Rust IO are trusted without proof.
-
-## SDK
-
-[`eukhe-sdk`](crates/eukhe-sdk/) is a Rust crate that runs sessions
-inside your process. Its main calls are `open_session`, `prompt` and
-`watch`.
-
-[`eukhe-client`](crates/eukhe-client/) is a Rust crate that connects
-to the Eukhe daemon (`eukhe --mode daemon`) over its socket. The
-terminal UI and the web dashboard use it.
-
-A program in any language starts `eukhe --mode <json|rpc|acp>` and
-talks to it over stdio.
-
-The crates are not on crates.io. Their API may change with any
-release.
+[spec/README.md](spec/README.md) also lists requirements and laws for
+tool calls, the tree of agents and subagents, settings and themes.
 
 ## WHO MAKES IT
 
