@@ -45,13 +45,14 @@ fn value<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).expect("serialize")
 }
 
+/// omp: Fireworks is a chat-completions provider (no Anthropic route).
 #[test]
-fn registers_non_glm_non_kimi_k3_models_via_anthropic_compatible_messages_api() {
+fn registers_non_glm_non_kimi_k3_models_via_the_openai_compatible_chat_api() {
     let model = fireworks("accounts/fireworks/models/deepseek-v4p1-flash");
 
-    assert_eq!(model.api, "anthropic-messages");
+    assert_eq!(model.api, "openai-completions");
     assert_eq!(model.provider, "fireworks");
-    assert_eq!(model.base_url, "https://api.fireworks.ai/inference");
+    assert_eq!(model.base_url, "https://api.fireworks.ai/inference/v1");
     assert!(model.reasoning);
     assert_json_eq(&model.input, &json!(["text", "image"]));
 }
@@ -107,38 +108,33 @@ fn routes_kimi_k3_through_the_openai_compatible_api_with_native_effort_controls(
     assert_json_eq(&fast.thinking_level_map, &thinking_level_map);
 }
 
-/// Regression for #9323. The catalog half of the TS case; its `thinking` /
-/// `output_config` payload assertions are deferred to the
-/// `anthropic-messages` module.
-fn sends_native_messages_effort_levels_for(model_id: &str, levels: &Value) {
+/// Regression for #9323: the native effort levels each model offers (now
+/// on the chat-completions route, as omp).
+fn offers_native_effort_levels_for(model_id: &str, levels: &Value) {
     let model = fireworks(model_id);
-    assert_eq!(model.api, "anthropic-messages");
-    assert_eq!(
-        compat_field(&model, "forceAdaptiveThinking"),
-        Some(json!(true))
-    );
+    assert_eq!(model.api, "openai-completions");
     assert_json_eq(&get_supported_thinking_levels(&model), levels);
 }
 
 #[test]
-fn sends_native_messages_effort_levels_for_deepseek_v4p1_flash() {
-    sends_native_messages_effort_levels_for(
+fn offers_native_effort_levels_for_deepseek_v4p1_flash() {
+    offers_native_effort_levels_for(
         "accounts/fireworks/models/deepseek-v4p1-flash",
         &json!(["off", "low", "high", "max"]),
     );
 }
 
 #[test]
-fn sends_native_messages_effort_levels_for_qwen3p8_max() {
-    sends_native_messages_effort_levels_for(
+fn offers_native_effort_levels_for_qwen3p8_max() {
+    offers_native_effort_levels_for(
         "accounts/fireworks/models/qwen3p8-max",
         &json!(["off", "low", "medium", "xhigh"]),
     );
 }
 
 #[test]
-fn sends_native_messages_effort_levels_for_qwen3p8_2p4t_a95b() {
-    sends_native_messages_effort_levels_for(
+fn offers_native_effort_levels_for_qwen3p8_2p4t_a95b() {
+    offers_native_effort_levels_for(
         "accounts/fireworks/models/qwen3p8-2p4t-a95b",
         &json!(["off", "low", "medium", "xhigh"]),
     );
@@ -172,12 +168,15 @@ fn exposes_distinct_native_effort_levels_for_kimi_k3_fast() {
     exposes_distinct_native_effort_levels_for("accounts/fireworks/routers/kimi-k3-fast");
 }
 
-/// The catalog half of the TS case; its budget-based `thinking` payload
-/// assertion is deferred to the `anthropic-messages` module.
+/// A model without a verified ladder offers the default levels and sends
+/// minimal as `"none"` (omp `providers/fireworks.kdl` effort map).
 #[test]
-fn keeps_toggle_only_messages_models_without_a_verified_fallback_on_budget_based_thinking() {
+fn sends_minimal_as_none_for_models_without_a_ladder() {
     let model = fireworks("accounts/fireworks/models/nemotron-3-ultra-nvfp4");
-    assert_eq!(compat_field(&model, "forceAdaptiveThinking"), None);
+    assert_json_eq(
+        &value(&model.thinking_level_map),
+        &json!({ "minimal": "none" }),
+    );
 }
 
 #[test]
@@ -197,7 +196,7 @@ fn resolves_fireworks_api_key_from_the_environment() {
 }
 
 #[test]
-fn sets_fireworks_specific_compat_for_session_affinity_and_unsupported_tool_fields() {
+fn sets_fireworks_specific_compat_for_session_affinity_and_cache_retention() {
     let model = fireworks("accounts/fireworks/models/nemotron-3-ultra-nvfp4");
 
     assert!(model.compat.is_some());
@@ -205,20 +204,9 @@ fn sets_fireworks_specific_compat_for_session_affinity_and_unsupported_tool_fiel
         compat_field(&model, "sendSessionAffinityHeaders"),
         Some(json!(true))
     );
-    assert_eq!(
-        compat_field(&model, "supportsEagerToolInputStreaming"),
-        Some(json!(false))
-    );
-    assert_eq!(
-        compat_field(&model, "supportsCacheControlOnTools"),
-        Some(json!(false))
-    );
+    assert_eq!(compat_field(&model, "supportsStore"), Some(json!(false)));
     assert_eq!(
         compat_field(&model, "supportsLongCacheRetention"),
         Some(json!(false))
-    );
-    assert_eq!(
-        compat_field(&model, "allowEmptySignature"),
-        Some(json!(true))
     );
 }

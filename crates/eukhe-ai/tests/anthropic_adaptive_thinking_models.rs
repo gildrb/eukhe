@@ -3,16 +3,13 @@
 use eukhe_ai::providers::all::{get_builtin_models, get_builtin_providers};
 use eukhe_types::pi_ai::Model;
 
-const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 17] = [
+const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 14] = [
     "anthropic/claude-fable-5",
     "anthropic/claude-haiku-5-5",
     "anthropic/claude-opus-4-8",
     "anthropic/claude-opus-5",
     "anthropic/claude-sonnet-5",
     "cloudflare-ai-gateway/claude-fable-5",
-    "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
-    "fireworks/accounts/fireworks/models/gpt-oss-120b",
-    "fireworks/accounts/fireworks/models/qwen3p8-max",
     "kimi-coding/kimi-for-coding",
     "kimi-coding/k3",
     "kimi-coding/kimi-for-coding-highspeed",
@@ -67,12 +64,9 @@ fn marks_built_in_anthropic_messages_models_that_use_adaptive_thinking() {
     ];
     let allowed: Vec<String> = flagged_models
         .iter()
-        // Regression for #9323: Fireworks uses catalog effort metadata and
-        // verified fallbacks, not a fixed set of adaptive model names.
         .filter(|model_id| {
             let dashed = model_id.replace('.', "-");
-            model_id.starts_with("fireworks/")
-                || adaptive_names.iter().any(|name| dashed.contains(name))
+            adaptive_names.iter().any(|name| dashed.contains(name))
         })
         .cloned()
         .collect();

@@ -136,59 +136,6 @@ fn allows_empty_thinking_signatures_for_every_vercel_ai_gateway_model() {
         .all(|model| compat_value(model, "allowEmptySignature") == json!(true)));
 }
 
-// Regression for #9323: Fireworks emits unsigned thinking that must survive replay.
-#[tokio::test]
-async fn preserves_unsigned_thinking_for_fireworks() {
-    for model_id in [
-        "accounts/fireworks/models/deepseek-v4p1-flash",
-        "accounts/fireworks/models/qwen3p8-max",
-        "accounts/fireworks/models/qwen3p8-2p4t-a95b",
-        "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
-    ] {
-        let model = get_builtin_model("fireworks", model_id).expect("fireworks model");
-        assert_eq!(
-            compat_value(&model, "allowEmptySignature"),
-            json!(true),
-            "{model_id}"
-        );
-        let mut context = make_context_value("", "internal reasoning", "fireworks", model_id);
-        context["messages"][1]["content"]
-            .as_array_mut()
-            .expect("assistant content")
-            .push(json!({ "type": "text", "text": "answer" }));
-        let payload = capture_payload(&model, &context).await;
-        assert_eq!(
-            assistant_content(&payload),
-            json!([
-                { "type": "thinking", "thinking": "internal reasoning", "signature": "" },
-                { "type": "text", "text": "answer" },
-            ]),
-            "{model_id}"
-        );
-    }
-}
-
-// Regression for #9323: opting into unsigned replay must not change cross-model conversion.
-#[tokio::test]
-async fn still_converts_cross_model_fireworks_thinking_to_text() {
-    let model = get_builtin_model("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash")
-        .expect("fireworks model");
-    let payload = capture_payload(
-        &model,
-        &make_context_value(
-            "",
-            "internal reasoning",
-            "fireworks",
-            "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
-        ),
-    )
-    .await;
-    assert_eq!(
-        assistant_content(&payload),
-        json!([{ "type": "text", "text": "internal reasoning" }])
-    );
-}
-
 #[tokio::test]
 async fn allows_empty_signatures_for_kimi_coding() {
     for model_id in ["k3"] {

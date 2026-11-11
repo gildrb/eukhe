@@ -329,3 +329,47 @@ async fn off_sends_the_lowest_offered_effort() {
     )
     .await;
 }
+
+/// omp: Fireworks is a chat-completions provider (`providers/fireworks.kdl`
+/// has no Anthropic route; `thinking-mode "effort"`) whose effort map sends
+/// minimal as `"none"`: every catalog model is `openai-completions` and a
+/// level sends `reasoning_effort` (off: the lowest offered effort).
+#[tokio::test]
+async fn fireworks_models_send_chat_completions_reasoning_effort() {
+    let other_api: Vec<String> = crate::providers::all::get_builtin_models("fireworks")
+        .into_iter()
+        .filter(|model| model.api != "openai-completions")
+        .map(|model| format!("{} ({})", model.id, model.api))
+        .collect();
+    assert!(other_api.is_empty(), "not chat-completions: {other_api:?}");
+    let effort = |effort: &str| json!({ "reasoning_effort": effort });
+    for (id, level_name, want) in [
+        ("deepseek-v4p1-flash", "off", effort("low")),
+        ("deepseek-v4p1-flash", "high", effort("high")),
+        ("ember-1", "off", effort("none")),
+        ("ember-1", "medium", effort("medium")),
+        ("gpt-oss-120b", "low", effort("low")),
+        ("inkling", "off", effort("none")),
+        ("inkling", "minimal", effort("none")),
+        ("inkling", "high", effort("high")),
+        ("nemotron-3-ultra-nvfp4", "minimal", effort("none")),
+        ("qwen3p8-max", "low", effort("low")),
+        ("minimax-m3", "high", json!({})),
+    ] {
+        let id = format!("accounts/fireworks/models/{id}");
+        assert_rows(&[("fireworks", id.as_str(), level_name)], |_| want.clone()).await;
+    }
+}
+
+/// omp: `OpenCode` Go serves `MiniMax` M3 on chat completions with
+/// `reasoning_effort` (`providers/opencode-go.kdl` `thinking-mode "effort"`),
+/// not as an Anthropic body.
+#[tokio::test]
+async fn opencode_go_minimax_m3_sends_chat_completions_reasoning_effort() {
+    assert_eq!(model("opencode-go", "minimax-m3").api, "openai-completions");
+    assert_rows(
+        &[("opencode-go", "minimax-m3", "high")],
+        |_| json!({ "reasoning_effort": "high" }),
+    )
+    .await;
+}

@@ -51,7 +51,7 @@ pub fn compiled_models() -> &'static [Model] {
 /// tables. Template-less (no request headers): pinning keeps the catalog's
 /// entries on these transports, and the catalog still cannot introduce
 /// any other.
-pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 8] = [
+pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 9] = [
     (
         "amazon-bedrock",
         "bedrock-converse-stream",
@@ -63,6 +63,11 @@ pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 8] = [
         "https://bedrock-runtime.ap-southeast-2.amazonaws.com",
     ),
     ("azure-openai-responses", "azure-openai-responses", ""),
+    (
+        "fireworks",
+        "anthropic-messages",
+        "https://api.fireworks.ai/inference",
+    ),
     ("xai", "openai-completions", "https://api.x.ai/v1"),
     (
         "xiaomi",
