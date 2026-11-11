@@ -25,6 +25,16 @@ def pd.settle_on(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.V
         case Dr.Failed{}:
           LLogicLogic.cvar.pv.absurd({Dr.settle(Dr.Dec{Dr.Failed{}, t}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Failed{}, t}, n, s, vs2, cap) : Dr.Loop}, on)
 
+# a loop whose end field holds no outcome has not ended
+def pd.running_on(l: Dr.Loop, h: {Director.dir_running(l) == True{} : Bool}) -> {Dr.ended(l) == False{} : Bool}:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          {==}
+        case Some{o}:
+          LLogicLogic.tree.pt.absurdF({Dr.ended(Dr.Loop{n, s, Some{o}}) == False{} : Bool}, h)
+
 def Director.dir_lead_leaves_with_the_continuation(cap, l, vs, on):
   match l:
     case Dr.Loop{+n, +s, e}:
@@ -33,6 +43,6 @@ def Director.dir_lead_leaves_with_the_continuation(cap, l, vs, on):
           +L = Director.dir_leads(vs, Dr.Unstack{})
           +r = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
           %Equal.sym(Dr.Dec, Dr.decide.go(s, vs, r, False{}), Dr.decide.go(s, L, r, False{}), LA.pd.leave_as(s, vs, r, False{})) : {Dr.settle(_, n, s, vs, cap) == Dr.settle(Dr.decide(s, L, cap), n, s, L, cap) : Dr.Loop}
-          pd.settle_on(Dr.decide(s, L, cap), n, s, vs, L, cap, on)
+          pd.settle_on(Dr.decide(s, L, cap), n, s, vs, L, cap, pd.running_on(Dr.settle(Dr.decide(s, L, cap), n, s, L, cap), on))
         case Some{x}:
           {==}

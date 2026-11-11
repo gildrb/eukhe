@@ -75,16 +75,50 @@ law dir_loop_stack_bounded:
   for fits: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(l)), cap) == True{} : Bool}
   {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.run(vss, cap, l))), cap) == True{} : Bool}
 
-# LAW dir_loop_ends: the loop ends (hands back or fails) after at most n + 1 steps,
-# with n its global budget, whatever every layer says: no Director keeps
-# the loop going for ever
+# the outcome o stops the loop: a hand back or a failure
+def dir_stops(o: Dr.Out) -> Bool:
+  match o:
+    case Dr.Cont{}:
+      False{}
+    case Dr.Hand{}:
+      True{}
+    case Dr.Failed{}:
+      True{}
+
+# the loop l has stopped: its end field holds a hand back or a failure
+def dir_stopped(l: Dr.Loop) -> Bool:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          False{}
+        case Some{o}:
+          dir_stops(o)
+
+# the loop l still runs: its end field holds no outcome
+def dir_running(l: Dr.Loop) -> Bool:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          True{}
+        case Some{o}:
+          False{}
+
+# LAW dir_loop_ends (R9): a running loop with global budget n, after n + 1
+# steps, has stopped: its end field holds a hand back or a failure (never
+# a continue, never no outcome), whatever every layer says and whatever
+# the cap and the stack: no Director keeps the loop going for ever
+# EXCLUDES: a loop that runs past its global budget, a step that ends the
+#   loop without an outcome or with a continue, an ended loop the model's
+#   own `ended` test misreads (the law reads the end field, not Dr.ended)
 law dir_loop_ends:
   for +n: Nat
   for +s: List<&2, Dr.Layer>
   for +vss: List<&2, List<&2, Dr.Verdict>>
   for +cap: Nat
   for long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}
-  {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
+  {dir_stopped(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
 
 # LAW dir_ended_stays_any_outcome (R8): a loop that has ended, with any outcome
 # (continue, hand back or failure), any steps left and any stack, is left
@@ -366,22 +400,32 @@ def dir_leads(vs: List<&2, Dr.Verdict>, +w: Dr.Verdict) -> List<&2, Dr.Verdict>:
     case v <> rest:
       dir_lead_as(v, w) <> dir_leads(rest, w)
 
-# LAW dir_lead_leaves_with_the_continuation: a step that goes on is the step where every layer that leads
+# LAW dir_lead_leaves_with_the_continuation (R5): a step that goes on (the
+# step where every layer that leads would leave leaves the loop running:
+# its end field holds no outcome) is that step: every layer that leads
 # leaves
+# EXCLUDES: a reminder that stays although the loop goes on (it would
+#   lead the next continuation twice), a step that goes on read through
+#   the model's own `ended` test (the premise reads the end field)
 law dir_lead_leaves_with_the_continuation:
   for +cap: Nat
   for +l: Dr.Loop
   for +vs: List<&2, Dr.Verdict>
-  for on: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
+  for on: {dir_running(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
   {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{})) : Dr.Loop}
 
-# LAW dir_lead_stays_when_the_loop_ends: a step that ends the loop is the step where every layer that leads
-# stays (defers): a reminder never leaves without its continuation
+# LAW dir_lead_stays_when_the_loop_ends (R5): a step that ends the loop
+# (the step where every layer that leads would leave leaves an outcome in
+# the loop's end field) is the step where every layer that leads stays
+# (defers): a reminder never leaves without its continuation
+# EXCLUDES: a reminder dropped by a step that hands back or fails (its
+#   continuation lost), a step that ends read through the model's own
+#   `ended` test (the premise reads the end field)
 law dir_lead_stays_when_the_loop_ends:
   for +cap: Nat
   for +l: Dr.Loop
   for +vs: List<&2, Dr.Verdict>
-  for ends: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
+  for ends: {dir_running(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
   {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Defer{})) : Dr.Loop}
 
 # LAW dir_lead_goes_example: anchor: a reminder over a goal with budget leads the goal's
