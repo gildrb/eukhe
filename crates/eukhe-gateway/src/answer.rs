@@ -98,7 +98,7 @@ pub(crate) fn answer(event: &SessionEvent) -> Option<Answer> {
         | SessionEvent::BashEnd { .. }
         | SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
-        | SessionEvent::IpythonSentAgentMessage { .. } => {
+        | SessionEvent::PythonSentAgentMessage { .. } => {
             writer.tag(3);
         }
     }

@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn ipython_cell_magic_preview() {
+    fn python_cell_magic_preview() {
         let p = preview_ipython_code("%%bash\necho hi");
         assert_eq!(p.language, CodePreviewLanguage::Bash);
         assert_eq!(p.text, "echo hi");

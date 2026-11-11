@@ -126,10 +126,10 @@ fn assemble_breakdown(
                 .map(|file| (file.path.display().to_string(), file.content.clone()))
                 .collect(),
             skills: resources.skills.clone(),
-            // The shipped model-tool surface: `ipython` plus the chat
+            // The shipped model-tool surface: `python` plus the chat
             // memory's `zoom`/`date`; bash/edit are kernel-resident
             // programmatic tools.
-            selected_tools: Some(vec!["ipython", "zoom", "date"]),
+            selected_tools: Some(vec!["python", "zoom", "date"]),
             allow_recursion: Some(true),
             generic_mcp_servers: generic_servers,
             rlm_depth: Some(0),

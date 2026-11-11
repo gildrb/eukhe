@@ -20,7 +20,7 @@ fn a_query_answers_the_cell_without_growing_the_transcript() {
     let home = tempfile::TempDir::new().expect("home");
     let cell = "ctx = 'word ' * 500\nr = await rlm.query('summarize', ctx)\nprint(len(r))";
     let script = serde_json::json!({ "responses": [
-        { "content": [{ "type": "toolCall", "name": "ipython", "arguments": { "code": cell } }] },
+        { "content": [{ "type": "toolCall", "name": "python", "arguments": { "code": cell } }] },
         ANSWER,
         "done",
     ] });

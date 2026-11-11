@@ -1231,7 +1231,7 @@ fn transcript_replay_completes_tool_cards() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "calling" },
-                { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {"code": "1"} },
+                { "type": "toolCall", "id": "call-1", "name": "python", "arguments": {"code": "1"} },
             ],
             "provider": "faux", "model": "faux-1",
             "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
@@ -1240,7 +1240,7 @@ fn transcript_replay_completes_tool_cards() {
         json!({
             "role": "toolResult",
             "toolCallId": "call-1",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "42" }],
             "details": { "durationMs": 3, "status": "ok" },
             "isError": false,
@@ -1249,7 +1249,7 @@ fn transcript_replay_completes_tool_cards() {
         json!({
             "role": "toolResult",
             "toolCallId": "orphan",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "no card" }],
             "isError": false,
             "timestamp": 4,
@@ -1295,7 +1295,7 @@ fn transcript_replay_keeps_pending_cards_without_results() {
         json!({
             "role": "assistant",
             "content": [
-                { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {} },
+                { "type": "toolCall", "id": "call-1", "name": "python", "arguments": {} },
             ],
             "provider": "faux", "model": "faux-1",
             "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
@@ -1318,7 +1318,7 @@ fn push_message_completes_pending_tool_card() {
     reconstructed.push_message(&msg(json!({
         "role": "assistant",
         "content": [
-            { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {} },
+            { "type": "toolCall", "id": "call-1", "name": "python", "arguments": {} },
         ],
         "provider": "faux", "model": "faux-1",
         "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
@@ -1327,7 +1327,7 @@ fn push_message_completes_pending_tool_card() {
     reconstructed.push_message(&msg(json!({
         "role": "toolResult",
         "toolCallId": "call-1",
-        "toolName": "ipython",
+        "toolName": "python",
         "content": [{ "type": "text", "text": "out" }],
         "isError": true,
         "timestamp": 3,
@@ -1732,7 +1732,7 @@ fn image_heavy_tool_result(payload: &str) -> serde_json::Value {
     json!({
         "role": "toolResult",
         "toolCallId": "call-img",
-        "toolName": "ipython",
+        "toolName": "python",
         "content": [
             { "type": "text", "text": "Loaded 1 image(s) into context: /tmp/shot.png" },
             { "type": "image", "data": payload, "mimeType": "image/png" }
@@ -1747,7 +1747,7 @@ fn elided_image_tool_result(elided_bytes: u64, width: u64, height: u64) -> serde
     json!({
         "role": "toolResult",
         "toolCallId": "call-img",
-        "toolName": "ipython",
+        "toolName": "python",
         "content": [
             { "type": "text", "text": "Loaded 1 image(s) into context: /tmp/shot.png" },
             {

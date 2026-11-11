@@ -1,6 +1,6 @@
 //! The one job-settled wake (ADR 0010): every job a session started that
 //! settles after its call stopped blocking the turn — a background kernel
-//! `bash()` command, a detached `ipython` cell — wakes the session through
+//! `bash()` command, a detached `python` cell — wakes the session through
 //! [`JobNotices::deliver`]; the end of a `bash()` command the agent itself
 //! stopped (`handle.kill()`) is dropped, never a wake.
 //!

@@ -187,7 +187,7 @@ async fn streams_each_entry_form_through_models() {
             {
                 "content": [
                     { "type": "text", "text": "calling" },
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": "1 + 1" }, "id": "call-1" },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": "1 + 1" }, "id": "call-1" },
                     { "type": "toolCall", "name": "noop", "id": "call-2" },
                 ],
             },
@@ -208,7 +208,7 @@ async fn streams_each_entry_form_through_models() {
         (
             vec![
                 faux_text("calling"),
-                faux_tool_call("ipython", code, Some("call-1".to_owned())),
+                faux_tool_call("python", code, Some("call-1".to_owned())),
                 faux_tool_call("noop", JsonObject::new(), Some("call-2".to_owned())),
             ],
             StopReason::ToolUse,

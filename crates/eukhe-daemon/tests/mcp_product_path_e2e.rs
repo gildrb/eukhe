@@ -4,7 +4,7 @@
 //! The verifier writes a `mcpServers` entry into the worker's agent-dir
 //! `settings.json` pointing at the committed echo fixture, creates a real
 //! daemon session over the real kernel (scripted faux provider), and runs a
-//! turn whose ipython cell exercises `rlm.mcp.list_tools` and
+//! turn whose python cell exercises `rlm.mcp.list_tools` and
 //! `rlm.mcp.call_tool`. The kernel must resolve `mcp.config` through the
 //! session's host handlers, spawn the fixture over stdio, list its `echo`
 //! tool, and call it with the echoed argument.
@@ -224,7 +224,7 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
     )
     .expect("write settings.json");
 
-    // The turn script: one ipython cell that runs the MCP round trip, then
+    // The turn script: one python cell that runs the MCP round trip, then
     // a closing text turn.
     let receipts_dir = dir.path().join("receipts");
     std::fs::create_dir_all(&receipts_dir).expect("receipts dir");
@@ -236,7 +236,7 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": {
+                    { "type": "toolCall", "name": "python", "arguments": {
                         "code": mcp_cell(&receipt),
                     } },
                 ] },
@@ -316,17 +316,17 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
         "echo result: {payload}"
     );
 
-    // The same proof reached the session: the ipython tool result (cell
+    // The same proof reached the session: the python tool result (cell
     // output) carries the tool name and the echoed argument.
     let session_messages = messages(&mut client, "m1", &session_id);
     let tool_results = tool_result_texts(&session_messages);
-    let ipython_result = tool_results
+    let python_result = tool_results
         .iter()
         .find(|text| text.contains("hello from the daemon e2e"))
-        .expect("ipython tool result with the echo payload: {tool_results:?}");
+        .expect("python tool result with the echo payload: {tool_results:?}");
     assert!(
-        ipython_result.contains("\"name\": \"echo\""),
-        "tool name in the cell output: {ipython_result}"
+        python_result.contains("\"name\": \"echo\""),
+        "tool name in the cell output: {python_result}"
     );
 }
 
@@ -376,7 +376,7 @@ fn begin_login_host_request_is_live_in_the_worker() {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": {
+                    { "type": "toolCall", "name": "python", "arguments": {
                         "code": cell,
                     } },
                 ] },

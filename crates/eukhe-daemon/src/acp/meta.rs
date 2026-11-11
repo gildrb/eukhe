@@ -80,10 +80,10 @@ pub struct EukheSessionMeta {
     pub cwd: Option<EukheCwdMeta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quiescence: Option<EukheQuiescenceMeta>,
-    /// Rich kernel output reported by the ipython tool (attachments the cell
+    /// Rich kernel output reported by the python tool (attachments the cell
     /// loaded into context).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ipython: Option<Value>,
+    pub python: Option<Value>,
     /// Set when the session's heartbeat or cron schedule changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeats_changed: Option<bool>,

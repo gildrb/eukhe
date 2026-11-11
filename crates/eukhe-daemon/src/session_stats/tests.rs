@@ -199,11 +199,11 @@ fn row_estimate_counts_text_thinking_tool_calls_and_images() {
         "content": [
             { "type": "text", "text": "abcd" },
             { "type": "thinking", "thinking": "efgh" },
-            { "type": "toolCall", "name": "ipython", "arguments": { "code": "x = 1" } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": "x = 1" } },
             { "type": "image" },
         ],
     });
-    // `{"code":"x = 1"}` is 17 chars: 4 + 4 + 7 + 17 + 4800 = 4832 chars.
+    // `{"code":"x = 1"}` is 17 chars: 4 + 4 + 6 + 17 + 4800 = 4831 chars.
     assert_eq!(
         [
             json!({ "role": "user", "content": "12345678" }),
@@ -212,7 +212,7 @@ fn row_estimate_counts_text_thinking_tool_calls_and_images() {
             json!({ "role": "toolResult", "content": "12345678" }),
         ]
         .map(|message| estimate_row_tokens(&message)),
-        [3, 1381, 0, 3]
+        [3, 1380, 0, 3]
     );
 }
 

@@ -670,7 +670,7 @@ impl Worker {
             );
         }));
         // An agent message the kernel reports after its cell settled (TS
-        // `ipython_sent_agent_message`; the ACP adapter maps it to the
+        // `python_sent_agent_message`; the ACP adapter maps it to the
         // namespaced `_meta.agentMessage` update).
         let late_core = Arc::clone(&self.core);
         let late_events = Arc::clone(&self.events);
@@ -678,7 +678,7 @@ impl Worker {
             emit_worker_event_with(
                 &late_core,
                 &late_events,
-                SessionEvent::IpythonSentAgentMessage {
+                SessionEvent::PythonSentAgentMessage {
                     tool_call_id: tool_call_id.to_owned(),
                     message: message.to_json(),
                 },

@@ -1108,7 +1108,7 @@ fn section_keys_follow_the_breakdown_order() {
                 custom_prompt,
                 model_prompt_extras: Some("Model guidance."),
                 vision_capable: Some(true),
-                selected_tools: Some(vec!["ipython"]),
+                selected_tools: Some(vec!["python"]),
                 prompt_guidelines: Some(vec!["Guide.".to_owned()]),
                 append_system_prompt: vec![crate::prompts::SourcedPrompt {
                     origin: crate::prompts::PromptOrigin::Flag("--append-system-prompt"),

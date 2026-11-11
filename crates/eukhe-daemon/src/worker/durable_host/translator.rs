@@ -646,7 +646,7 @@ impl EventTranslator {
                 | SessionEvent::BashEnd { .. }
                 | SessionEvent::RefineComplete { .. }
                 | SessionEvent::RefineFailed { .. }
-                | SessionEvent::IpythonSentAgentMessage { .. } => {}
+                | SessionEvent::PythonSentAgentMessage { .. } => {}
             }
         }
     }

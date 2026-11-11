@@ -2,9 +2,9 @@
 //! (the fetch itself, the pinned version on a machine with other Pythons,
 //! and the locked package installs run against the real binary in
 //! `crates/eukhe-cli/tests/packaged_layout_e2e.rs`). A machine that has not
-//! fetched the Python and is offline: the session offers no ipython tool
+//! fetched the Python and is offline: the session offers no python tool
 //! and reports one notification saying the fetch failed. A fetch that fails
-//! between the open and the first call: the ipython tool answers with the
+//! between the open and the first call: the python tool answers with the
 //! failed fetch, and the other tools run (the model's laws on a failed
 //! setup in `laws/kernel_local.bend`; these tests run the real session).
 
@@ -151,7 +151,7 @@ enum Host {
 }
 
 /// One open of the fixture's session with one model turn: whether the
-/// model was offered `ipython` (its request's tools, checked against the
+/// model was offered `python` (its request's tools, checked against the
 /// agent's), and the notification `host` showed. No open leaves a
 /// kernel-unavailable row in the session.
 async fn open_and_ask(
@@ -172,7 +172,7 @@ async fn open_and_ask(
     let id = submit(&session, "list the files here").await;
     settle(&session, id).await;
     let agent = session.main().agent(cx()).await.expect("agent");
-    let offered = agent.tools.iter().any(|tool| tool.name == "ipython");
+    let offered = agent.tools.iter().any(|tool| tool.name == "python");
     let rows = notices(&session).await;
     session.close(cx()).await.expect("close");
     assert_eq!(rows, Vec::new(), "the notice is no session entry");
@@ -181,9 +181,9 @@ async fn open_and_ask(
         .unwrap_or_else(PoisonError::into_inner)
         .pop()
         .expect("one model request");
-    assert_eq!(tools.iter().any(|tool| tool == "ipython"), offered);
+    assert_eq!(tools.iter().any(|tool| tool == "python"), offered);
     assert_eq!(
-        prompt.contains("This session has no Python REPL (`ipython` tool)"),
+        prompt.contains("This session has no Python REPL (`python` tool)"),
         !offered
     );
     (offered, shown)
@@ -217,14 +217,14 @@ fn is_offline_notice(notice: &str) -> bool {
     )) && notice.contains(&format!("CPython {}", super::pinned_python_version()))
         && notice.contains(KERNEL_INSTALL_COMMAND)
         && notice.ends_with(
-            "This session has no `ipython` tool; the other tools work. The next session tries the fetch again.",
+            "This session has no `python` tool; the other tools work. The next session tries the fetch again.",
         )
 }
 
 /// Regression (Local Studio): a session whose kernel cannot start offered
-/// the ipython tool. The kernel's Python is fetched on its own, so the
+/// the python tool. The kernel's Python is fetched on its own, so the
 /// only machine without a kernel is one that never fetched it and is
-/// offline: there the model is offered no ipython tool, its prompt says
+/// offline: there the model is offered no python tool, its prompt says
 /// the session has no Python REPL, and the user is told by a notification
 /// saying the fetch failed, once per state: at the first interactive
 /// session, not a reopened one, not the second, not once a kernel works,
@@ -311,7 +311,7 @@ async fn a_session_stored_with_the_notice_row_still_opens() {
     let home = fixture.dir.path().join("home");
     let _env = offline_machine(&home);
     let stored =
-        "The Python kernel is not installed, so this session has no `ipython` tool.".to_owned();
+        "The Python kernel is not installed, so this session has no `python` tool.".to_owned();
     let session = fixture
         .open_configured(|config| config.kernel_python = None)
         .await;
@@ -339,10 +339,10 @@ async fn a_session_stored_with_the_notice_row_still_opens() {
 
 /// A fetch that fails between the open and the first call (the session
 /// opened with a kernel; the machine then has none and is offline): the
-/// ipython tool answers with the failed fetch and the command that
+/// python tool answers with the failed fetch and the command that
 /// retries it, and the other tools run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_fetch_answers_the_ipython_tool_and_spares_the_other_tools() {
+async fn a_failed_fetch_answers_the_python_tool_and_spares_the_other_tools() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
     let python = tests_python();
     let fixture = Fixture::new();
@@ -351,8 +351,8 @@ async fn a_failed_fetch_answers_the_ipython_tool_and_spares_the_other_tools() {
     std::env::set_var("EUKHE_KERNEL_PYTHON", &python);
     fixture.faux.set_responses(vec![
         call("bash", "call-0", json!({ "script": "echo 1" })),
-        call("ipython", "call-1", json!({ "code": "print('ran')" })),
-        call("ipython", "call-2", json!({ "code": "print('ran')" })),
+        call("python", "call-1", json!({ "code": "print('ran')" })),
+        call("python", "call-2", json!({ "code": "print('ran')" })),
         call("bash", "call-3", json!({ "script": "echo 2" })),
         text("done"),
     ]);

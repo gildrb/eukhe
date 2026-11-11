@@ -138,7 +138,7 @@ fn serve(mut stream: TcpStream, next: &AtomicUsize) -> std::io::Result<()> {
     if content_length > 0 {
         reader.read_exact(&mut body)?;
     }
-    // The scripted sequence: request 1 answers with the ipython tool
+    // The scripted sequence: request 1 answers with the python tool
     // call that starts the detached watcher, request 2 ends the turn,
     // and every later request (the wake turn) answers with the woken
     // reply.
@@ -155,7 +155,7 @@ fn serve(mut stream: TcpStream, next: &AtomicUsize) -> std::io::Result<()> {
                         "id": "call-wake-1",
                         "type": "function",
                         "function": {
-                            "name": "ipython",
+                            "name": "python",
                             "arguments": "{\"code\": \"bash(\\\"sleep 12; echo RW_WAKE_DONE\\\")\\nprint('watcher armed')\"}"
                         }
                     }]

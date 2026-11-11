@@ -83,7 +83,7 @@ law kernel_setup_ends_started:
 # (K1.2) The session's tools
 # --------------------------
 # crates/eukhe-core/src/kernel/bootstrap/mod.rs `format_setup_failure`
-# and the ipython tool (durable/rlm/tool.rs), which answers with the
+# and the python tool (durable/rlm/tool.rs), which answers with the
 # kernel's start error.
 
 # LAW kernel_missing_spares_tools: a missing kernel never blocks another tool: it runs whatever the
@@ -97,7 +97,7 @@ law kernel_missing_spares_tools:
   {KL.answer(KL.Other{n}, KL.start(uv, python, env, ok)) == KL.Ran{} : KL.Answer}
 
 # LAW kernel_missing_names_failed_step: when a step of the setup failed (the uv, the CPython or the env
-# was not there, and its fetch or making failed, e.g. offline), the ipython tool answers with the failed step
+# was not there, and its fetch or making failed, e.g. offline), the python tool answers with the failed step
 law kernel_missing_names_failed_step:
   for uv: Bool
   for python: Bool
@@ -604,7 +604,7 @@ def start_spec(uv: Bool, python: Bool, env: Bool, ok: Bool) -> KL.Kernel:
     case False{}:
       start_spec.ok(ok)
 
-# a tool's answer: only the ipython tool on a missing kernel names the
+# a tool's answer: only the python tool on a missing kernel names the
 # failed step; every other call runs
 def answer_spec(t: KL.Tool, k: KL.Kernel) -> KL.Answer:
   match t:
@@ -625,7 +625,7 @@ law kernel_start_exact:
   for ok: Bool
   {KL.start(uv, python, env, ok) == start_spec(uv, python, env, ok) : KL.Kernel}
 
-# LAW kernel_answer_exact: the ipython tool runs on an up kernel and names the failed step on a missing one; every other tool runs either way
+# LAW kernel_answer_exact: the python tool runs on an up kernel and names the failed step on a missing one; every other tool runs either way
 law kernel_answer_exact:
   for t: KL.Tool
   for k: KL.Kernel

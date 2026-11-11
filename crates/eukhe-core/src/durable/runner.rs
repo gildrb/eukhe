@@ -32,6 +32,6 @@ pub(crate) enum Gate {
     /// `bash` tool, through `eukhe_shell`).
     EachStep,
     /// Each call asks unless the tool's caps are within the auto set,
-    /// before any of its code runs (the `ipython` tool).
+    /// before any of its code runs (the `python` tool).
     EachCall,
 }

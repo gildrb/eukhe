@@ -6,7 +6,7 @@
 #    as crates/eukhe-core/src/durable/registry.rs installs them.
 #    `main_roster` is the roster of main (a root session in the
 #    `main-worker` shape): read-only tools and the worker tools only.
-# 2. The cell gate. A tool the gate covers at each call (`ipython`) runs
+# 2. The cell gate. A tool the gate covers at each call (`python`) runs
 #    its code unasked only when its caps are within the auto set. Else it
 #    asks the attached client, and runs only when the user approves.
 #
@@ -33,7 +33,7 @@ def exec() -> Nat:
 type Gate is Data:
   Ungated{}   # the tool runs no code of its own (no `Runner`)
   EachStep{}  # each step asks unless within the auto set (`bash`)
-  EachCall{}  # each call asks unless within the auto set (`ipython`)
+  EachCall{}  # each call asks unless within the auto set (`python`)
 
 type Tool is Data:
   Tool{name: String, caps: List<&2, Nat>, gate: Gate}
@@ -86,7 +86,7 @@ def plain(name: String) -> Tool:
 # shape's main (a `single` session, every child) has no worker tool.
 def registry() -> List<&2, Tool>:
   [
-    Tool{"ipython", [exec()], EachCall{}},
+    Tool{"python", [exec()], EachCall{}},
     plain("zoom"),
     plain("date"),
     plain("workflow"),

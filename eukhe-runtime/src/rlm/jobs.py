@@ -1,7 +1,7 @@
 """The agent's own work, and the one blocking wait on it.
 
 Work that outlives its call's blocking budget keeps running as a job: a
-detached ``ipython`` cell or ``bash`` tool script. Besides those, the agent's
+detached ``python`` cell or ``bash`` tool script. Besides those, the agent's
 work is this kernel's ``bash()`` handles and its subagents.
 
 ``await jobs.wait()`` blocks until the first of that work settles and returns

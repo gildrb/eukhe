@@ -273,7 +273,7 @@ impl KernelPool {
         let harness = deps.harness.clone();
         drop(deps);
         tokio::spawn(async move {
-            // A failed boot surfaces on the next ipython call's ensure().
+            // A failed boot surfaces on the next python call's ensure().
             if kernel.provisioner.ensure(None, None).await.is_err() {
                 return;
             }

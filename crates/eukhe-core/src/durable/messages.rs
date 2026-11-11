@@ -39,7 +39,7 @@ pub const HEARTBEAT_PROMPT_CUSTOM_TYPE: &str = "heartbeat_prompt";
 /// TS `ASYNC_BASH_COMPLETION_CUSTOM_TYPE`: the durable row a detached
 /// kernel bash completion admits as the woken turn's injected prompt.
 pub const ASYNC_BASH_COMPLETION_CUSTOM_TYPE: &str = "async_bash_completion";
-/// The durable row a settled detached `ipython` cell admits as the woken
+/// The durable row a settled detached `python` cell admits as the woken
 /// turn's injected prompt.
 pub const JOB_SETTLED_CUSTOM_TYPE: &str = "job_settled";
 /// TS `SESSION_RENAMED_CUSTOM_TYPE` (#2529): the displayed notice a
@@ -249,7 +249,7 @@ pub fn create_heartbeat_prompt_message(
 ///   `{pid, command, exitCode[, stoppedBy]}` in details; a later kernel
 ///   read that reaches the model first withdraws it through its details
 ///   (`bash.consumed`);
-/// - a detached `ipython` cell or `bash` tool script: a `job_settled` row
+/// - a detached `python` cell or `bash` tool script: a `job_settled` row
 ///   carrying `[job-settled job:ID status:S]` plus its bounded output,
 ///   with `{job, status}` in details.
 #[must_use]

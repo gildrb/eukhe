@@ -2,7 +2,7 @@
 # (Rust: eukhe-daemon job_notices.rs JobNotices::deliver, eukhe-core
 # durable/rlm/jobs.rs cancel). A job settles after its call stopped
 # blocking the turn: a background kernel `bash()` command, a detached
-# `ipython` cell, a `bash` tool script. Its end is news to the agent unless
+# `python` cell, a `bash` tool script. Its end is news to the agent unless
 # the agent itself stopped it (`handle.kill()`) or its own call already
 # holds the result (a `jobs.cancel` that saw the job settle within its
 # budget takes the result into its reply). News wakes the session: the

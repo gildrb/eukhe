@@ -1,6 +1,6 @@
 # approvals: the model of where a question of the approval gate goes (crates/eukhe-daemon/src/shell_approval.rs).
 #
-# A `bash` step or an `ipython` cell runs unasked when its effects are
+# A `bash` step or an `python` cell runs unasked when its effects are
 # within the auto set (bend/tools.bend `within`); the default auto set is
 # every grantable effect. Any other step asks the user. A chain is the
 # sessions from the one that asks up to its root: the asking session

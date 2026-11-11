@@ -1382,7 +1382,7 @@ fn a_landing_result_with_receipts_settles_the_card() {
     });
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "cell".to_string(),
-        name: "ipython".to_string(),
+        name: "python".to_string(),
         args: serde_json::json!({"code": "print(1)"}),
         started: true,
         started_at: Some(std::time::Instant::now()),

@@ -99,7 +99,7 @@ impl Approver for SinkApprover {
 }
 
 /// A refusal of the approval gate as the model reads it, for every runner
-/// the gate covers (a `bash` step, an `ipython` cell, a document tool's
+/// the gate covers (a `bash` step, an `python` cell, a document tool's
 /// access): what failed and the step the model takes next, rendered as
 /// `<what failed>. <next step>.`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -279,7 +279,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
 }
 
 /// The auto set of the `shell.autoEffects` setting, for every runner of
-/// code the gate covers (the `bash` steps, the `ipython` cells). The
+/// code the gate covers (the `bash` steps, the `python` cells). The
 /// setting admits only the grantable effect names; a name it holds that
 /// names no grantable effect is skipped.
 pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {

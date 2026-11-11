@@ -251,7 +251,7 @@ fn chunk_selection(
 
 impl AgentView {
     /// TS `isCompactAgentMessageNeighbor`: agent messages, tool calls (the
-    /// ipython cells included), bash executions, and shell completions
+    /// python cells included), bash executions, and shell completions
     /// render flush against each other -- the set both the leading-space
     /// scan and `precededByToolActivity` compact decisions use.
     pub(super) fn is_compact_neighbor(entry: &ChatEntry) -> bool {

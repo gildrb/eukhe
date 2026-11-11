@@ -205,7 +205,7 @@ impl Client {
     }
 }
 
-/// One turn's ipython cell: writes `receipt` under the receipts dir with
+/// One turn's python cell: writes `receipt` under the receipts dir with
 /// the cell's verdict, after setting (first turn) or probing (second
 /// turn) the `marker` variable. The first turn seeds `marker = "warm"`;
 /// the probe records `"warm"` when the variable survived into the
@@ -234,7 +234,7 @@ fn probe_cell(dir: &Path, name: &str) -> String {
     )
 }
 
-/// A faux script whose turns run one ipython cell each: turn 1 seeds the
+/// A faux script whose turns run one python cell each: turn 1 seeds the
 /// marker, turn 2 probes it. The engine's queued responses span the
 /// replacement (the worker keeps its engine), so the second turn runs
 /// whatever kernel the moved-to session owns.
@@ -246,13 +246,13 @@ fn write_faux_script(dir: &Path) -> PathBuf {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": {
+                    { "type": "toolCall", "name": "python", "arguments": {
                         "code": seed_cell(dir, "seed"),
                     } },
                 ] },
                 { "text": "done" },
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": {
+                    { "type": "toolCall", "name": "python", "arguments": {
                         "code": probe_cell(dir, "probe"),
                     } },
                 ] },
@@ -529,7 +529,7 @@ fn switch_session_rebinds_the_kernel_cwd_onto_the_target_session() {
     let beta = dir.path().join("beta");
     std::fs::create_dir_all(&alpha).expect("alpha dir");
     std::fs::create_dir_all(&beta).expect("beta dir");
-    // One scripted turn: an ipython cell writes the kernel's cwd receipt.
+    // One scripted turn: an python cell writes the kernel's cwd receipt.
     let receipt = dir.path().join("receipts").join("cwd.txt");
     std::fs::create_dir_all(receipt.parent().expect("receipts dir")).expect("receipts dir");
     let script = dir.path().join("faux.json");
@@ -539,7 +539,7 @@ fn switch_session_rebinds_the_kernel_cwd_onto_the_target_session() {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": {
+                    { "type": "toolCall", "name": "python", "arguments": {
                         "code": format!(
                             "import os\nopen({receipt:?}, \"w\").write(os.getcwd())\nprint(\"cwd\")",
                             receipt = receipt.to_string_lossy(),

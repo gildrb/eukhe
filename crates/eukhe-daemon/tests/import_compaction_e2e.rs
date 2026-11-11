@@ -254,7 +254,7 @@ fn grown_fixture(dir: &Path, turns: usize) -> PathBuf {
                     ],
                     "toolCalls": [{
                         "id": format!("call-{turn}"),
-                        "name": "ipython",
+                        "name": "python",
                         "arguments": { "code": format!("print('corpus {turn}')") },
                     }],
                     "api": "openai-completions",

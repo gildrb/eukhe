@@ -1,6 +1,6 @@
 //! The `codemode` extension of an eukhe session (`eukhe_durable::codemode`):
 //! the `codemode` tool, whose JavaScript scripts call the session's other
-//! tools (`read`, `edit`, `grep`, `glob`, `ipython`, MCP tools, ...) as
+//! tools (`read`, `edit`, `grep`, `glob`, `python`, MCP tools, ...) as
 //! durable nested calls and survive a worker restart by deterministic
 //! replay, the internal tools behind its `models.*` globals, and the
 //! `codemode` prompt section listing the tools scripts can call. A

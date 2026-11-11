@@ -1,4 +1,4 @@
-//! The model projection of one run's output, bounded once: an `ipython`
+//! The model projection of one run's output, bounded once: an `python`
 //! cell (its streamed chunks, then its result value, traceback, and
 //! background output) or a user `!bash` command.
 //!

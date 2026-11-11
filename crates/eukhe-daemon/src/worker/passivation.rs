@@ -597,7 +597,7 @@ mod tests {
         let (dir, worker) = crate::durable_test_support::created_worker_with(
             SESSION,
             serde_json::json!([
-                { "content": [{ "type": "toolCall", "name": "ipython", "arguments": { "code": cell }, "id": "call-1" }] },
+                { "content": [{ "type": "toolCall", "name": "python", "arguments": { "code": cell }, "id": "call-1" }] },
                 "started",
                 "settled",
             ]),

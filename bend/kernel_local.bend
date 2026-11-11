@@ -195,7 +195,7 @@ def start.all(all: Bool, ok: Bool) -> Kernel:
 def start(uv: Bool, python: Bool, env: Bool, ok: Bool) -> Kernel:
   start.all(Bool.and(uv, Bool.and(python, env)), ok)
 
-# a tool call: the ipython tool, or any other tool (by its number)
+# a tool call: the python tool, or any other tool (by its number)
 type Tool is Data:
   Python{}
   Other{n: Nat}

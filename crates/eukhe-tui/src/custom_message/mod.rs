@@ -54,7 +54,7 @@ use serde_json::Value;
 
 /// Which agent-message side a row renders: the received notice of the
 /// transcript custom-message rows (TS `AgentMessageComponent`), or the
-/// sent/queued receipts of the ipython cell output (TS
+/// sent/queued receipts of the python cell output (TS
 /// `renderSentAgentMessages`). The variants carry no label of their own:
 /// the operator's 2026-09-25 arrow directive folds the direction word into
 /// the viewer-relative arrow (received `down`, sent/queued `up`) that renders
@@ -63,9 +63,9 @@ use serde_json::Value;
 pub enum AgentMessageDirection {
     /// The transcript custom-message rows (this chat received the mail).
     Received,
-    /// A delivered receipt in ipython cell output.
+    /// A delivered receipt in python cell output.
     Sent,
-    /// An undelivered receipt in ipython cell output.
+    /// An undelivered receipt in python cell output.
     Queued,
 }
 
@@ -77,7 +77,7 @@ pub(crate) const AGENT_MESSAGE_LABEL: &str = "Agent message";
 /// One agent-message summary row:
 /// `mail Agent message * <arrow> <counterpart>` plus the guttered body when
 /// expanded (TS `AgentMessageComponent` for received rows; the sent/queued
-/// directions feed the ipython cell receipt rows). The `mail` mail envelope
+/// directions feed the python cell receipt rows). The `mail` mail envelope
 /// is the row's icon -- a sanctioned divergence (Kevin directive 2026-09-24)
 /// from the TS `*` diamond; the TS side is expected to adopt the same
 /// glyph. The collapsed row carries no body preview (the operator's
@@ -813,7 +813,7 @@ mod tests {
         let entries = decoded(&json!({
             "role": "custom",
             "customType": "kernel_unavailable",
-            "content": "The Python kernel is not installed, so this session has no `ipython` tool; the other tools work.",
+            "content": "The Python kernel is not installed, so this session has no `python` tool; the other tools work.",
             "display": true,
         }));
         assert!(

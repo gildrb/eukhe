@@ -13,7 +13,7 @@
 //!
 //! Entry points: [`ensure_kernel_python`] (a kernel start, and `eukhe
 //! kernel install`: fetch what is absent), [`kernel_unavailable`] (a
-//! session's open: the fetch failed, so the session offers no `ipython`
+//! session's open: the fetch failed, so the session offers no `python`
 //! tool), [`kernel_state`] (`eukhe kernel install --check`: no network).
 
 pub(crate) mod dir_lock;
@@ -48,7 +48,7 @@ pub(crate) const KERNEL_FETCH_FAILED: &str = "Eukhe could not fetch its Python k
 pub(crate) const KERNEL_OVERRIDE_MISSING: &str = "EUKHE_KERNEL_PYTHON points to";
 /// How long a session's open waits for the fetch it starts: an offline
 /// machine fails well within it (no route, no DNS answer), and the session
-/// then offers no `ipython` tool; a fetch still running after it goes on
+/// then offers no `python` tool; a fetch still running after it goes on
 /// in the background, and the first cell waits for it.
 const OPEN_FETCH_WAIT: Duration = Duration::from_secs(2);
 
@@ -346,7 +346,7 @@ pub enum KernelUnavailable {
 /// start. A machine that has the pinned toolchain answers from a few
 /// `stat`s. One that lacks it starts the fetch here: a fetch that fails
 /// within [`OPEN_FETCH_WAIT`] (an offline machine) leaves the session
-/// without the `ipython` tool; one that is still running goes on in the
+/// without the `python` tool; one that is still running goes on in the
 /// background and the session's first cell waits for it, showing its
 /// stages. An `EUKHE_KERNEL_PYTHON` override is the user's choice and not
 /// judged here: `None`.

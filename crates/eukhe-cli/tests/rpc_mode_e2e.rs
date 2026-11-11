@@ -1238,7 +1238,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                     ],
                     "toolCalls": [{
                         "id": call_id,
-                        "name": "ipython",
+                        "name": "python",
                         "arguments": { "code": format!("print('corpus {turn}')") },
                     }],
                     "api": "openai-completions",
@@ -1263,7 +1263,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                 "message": {
                     "role": "toolResult",
                     "toolCallId": call_id,
-                    "toolName": "ipython",
+                    "toolName": "python",
                     "content": [{ "type": "text", "text": format!("corpus {turn}\n[0, 1, 2]\n") }],
                     "isError": false,
                     "timestamp": 1_789_584_016_603_i64 + turn as i64,

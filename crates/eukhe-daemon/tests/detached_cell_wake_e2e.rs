@@ -144,7 +144,7 @@ fn serve(mut stream: TcpStream, next: &AtomicUsize) -> std::io::Result<()> {
                         "id": "call-detach-1",
                         "type": "function",
                         "function": {
-                            "name": "ipython",
+                            "name": "python",
                             "arguments": json!({ "code": CELL }).to_string(),
                         }
                     }]

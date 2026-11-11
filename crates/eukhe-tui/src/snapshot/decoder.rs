@@ -375,7 +375,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         },
         SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
-        | SessionEvent::IpythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
+        | SessionEvent::PythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
     }
 }
 

@@ -461,7 +461,7 @@ class RlmSubagentExtrasTest(unittest.TestCase):
                         "session_name": "worker-a",
                         "session_dir": "/tmp/parent/sub-a1b2c3d4",
                         "status": "running",
-                        "activity": {"kind": "executing", "tool_name": "ipython"},
+                        "activity": {"kind": "executing", "tool_name": "python"},
                         "tool_use_count": 3,
                         "duration_ms": 4321,
                         "answer_preview": "task finished cleanly",
@@ -481,7 +481,7 @@ class RlmSubagentExtrasTest(unittest.TestCase):
         self.assertEqual(len(subagents), 1)
         entry = subagents[0]
         self.assertEqual(entry.activity.kind, "executing")
-        self.assertEqual(entry.activity.tool_name, "ipython")
+        self.assertEqual(entry.activity.tool_name, "python")
         self.assertEqual(entry.tool_use_count, 3)
         self.assertEqual(entry.duration_ms, 4321)
         self.assertEqual(entry.answer_preview, "task finished cleanly")

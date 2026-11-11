@@ -116,7 +116,7 @@ const SPAWN_CELL: &str = "handle = await rlm.spawn(\"run the lane task\", name=\
 fn spawn_script(answers: &[&str]) -> Value {
     let mut responses = vec![
         json!({ "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": { "code": SPAWN_CELL } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": SPAWN_CELL } },
         ] }),
         json!({ "text": "spawn turn done" }),
     ];
@@ -233,7 +233,7 @@ fn messaging_child_script() -> Value {
     let send_cell = "import agent_message\nreceipt = await agent_message.send(\"kid says hi\", receiver_role=\"parent\")\nprint(receipt)";
     json!({ "responses": [
         { "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": { "code": send_cell } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": send_cell } },
         ] },
         { "text": "kid report: message sent" },
     ] })
@@ -305,7 +305,7 @@ fn print_json_parent_messages_and_observes_its_child() {
     );
     let mut responses = vec![
         json!({ "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": { "code": cell } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": cell } },
         ] }),
         json!({ "text": "spawn turn done" }),
     ];

@@ -1,4 +1,4 @@
-//! The `ipython` tool-call card, a port of the TS `ipython-cell.ts`:
+//! The `python` tool-call card, a port of the TS `ipython-cell.ts`:
 //! a fixed collapsed summary line (marker, language, preview, line counts,
 //! duration, error name) plus, in the expanded conversation-detail mode,
 //! the full cell source and its output below. The top line never changes
@@ -72,7 +72,7 @@ fn cell_code(card: &ToolCallCard) -> &str {
         .unwrap_or_default()
 }
 
-/// Render the ipython cell card: the fixed summary line, then the expanded
+/// Render the python cell card: the fixed summary line, then the expanded
 /// code and output rows when conversation detail is `all`.
 #[must_use]
 pub fn render(

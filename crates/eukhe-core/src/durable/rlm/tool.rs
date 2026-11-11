@@ -1,6 +1,6 @@
-//! The `ipython` tool on the durable Harness: the conversation's kernel runs
+//! The `python` tool on the durable Harness: the conversation's kernel runs
 //! the cell, its output streams into the call's durable output, and the
-//! result content/details are the `ipython` tool result.
+//! result content/details are the `python` tool result.
 //!
 //! The call is not replay-safe: a cell interrupted by a crash is answered
 //! by the Harness with an `interrupted` result carrying the output
@@ -75,36 +75,36 @@ use crate::kernel::KernelBootstrapProgressHandler;
 use crate::kernel::ReplKernelManager;
 
 /// The tool name.
-pub const IPYTHON_TOOL_NAME: &str = "ipython";
+pub const PYTHON_TOOL_NAME: &str = "python";
 
 /// The tool description.
-const IPYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL; top-level `await` works. State persists across calls and is revived best-effort on resume (unserializable objects are dropped and reported). Shell: `bash('cmd')`/`await bash('cmd')`. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run project imports, tests and CLIs through `bash()` in the project's own environment. A cell outliving the blocking budget continues as a job: the call returns its output so far and the end arrives as `[job-settled ...]`; to wait in-turn: `await jobs.wait(\"<job>\")` (or `jobs.wait()` for the first).";
+const PYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL (not IPython): top-level `await` works; the last expression is shown. `%pip install <pkg>` installs its locked version; no `!cmd`: shell is `bash('cmd')`/`await bash('cmd')`. State persists across calls and is revived best-effort on resume. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run the project's imports, tests and CLIs through `bash()`. A cell outliving the blocking budget continues as a job: the call returns its output so far and the end arrives as `[job-settled ...]`; to wait in-turn: `await jobs.wait(\"<job>\")` (or `jobs.wait()` for the first).";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 /// The durable identity of the tool's contract.
-const IPYTHON_VERSION: &str = "ipython@1";
+const PYTHON_VERSION: &str = "python@1";
 
-/// The `ipython` tool schema: the shared `i`, then `code`.
+/// The `python` tool schema: the shared `i`, then `code`.
 #[must_use]
-pub fn ipython_parameters() -> TSchema {
+pub fn python_parameters() -> TSchema {
     crate::durable::tool_contract::parameters(1, [("code", Type::string())])
 }
 
-/// The `ipython` registration: sequential (the kernel is single-threaded),
+/// The `python` registration: sequential (the kernel is single-threaded),
 /// never replayed after a crash (a cell may have partially run), and a
 /// [`Runner`] of `exec` that the gate covers at each call.
-pub(crate) fn ipython_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
+pub(crate) fn python_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
     let runtime = Arc::clone(runtime);
     let runner = Runner {
         caps: ShellEffects::of(&[ShellEffect::Exec]),
         gate: Gate::EachCall,
     };
     let mut registration = ToolRegistration::new(
-        IPYTHON_TOOL_NAME,
-        IPYTHON_TOOL_DESCRIPTION,
-        ipython_parameters(),
+        PYTHON_TOOL_NAME,
+        PYTHON_TOOL_DESCRIPTION,
+        python_parameters(),
         move |args: PiJsonValue, api: Arc<dyn ToolExecutionApi>, cx: Context| {
             let runtime = Arc::clone(&runtime);
             async move { execute(&runtime, runner.caps, &args, api, &cx).await }
@@ -164,7 +164,7 @@ async fn execute(
     let code = args
         .get("code")
         .and_then(PiJsonValue::as_str)
-        .ok_or_else(|| SessionError::error("ipython tool requires a code string"))?
+        .ok_or_else(|| SessionError::error("python tool requires a code string"))?
         .to_owned();
     // The gate (the compiled core, bend/runners.bend `within`, `cell`): a
     // cell outside the auto set runs only once the user approves it. No
@@ -202,7 +202,7 @@ async fn execute(
         };
         if let Some(refusal) = refusal {
             return Ok(error_result(format!(
-                "ipython did not run ({}): {}",
+                "python did not run ({}): {}",
                 caps.names(),
                 RefusalText::of(refusal)
             )));
@@ -367,7 +367,7 @@ async fn execute(
                 let cell_job = runtime.deps.jobs.start(JobSpec {
                     id: job.id().clone(),
                     kind: JobKind::Cell,
-                    label: IPYTHON_TOOL_NAME.to_owned(),
+                    label: PYTHON_TOOL_NAME.to_owned(),
                     truncation: api.truncation(),
                     written: cell_output.bytes(),
                     kill: {
@@ -559,7 +559,7 @@ fn detached_result(
              the cell keeps running. Keep working; when the next step needs its result, wait for it \
              in this turn with `await jobs.wait(\"{job}\")` (up to 30 min), which runs while the kernel \
              is busy; never sleep-poll and never end the turn on it. Otherwise its end arrives as a \
-             [job-settled job:{job}] message. Until then any other ipython call waits for the job up \
+             [job-settled job:{job}] message. Until then any other python call waits for the job up \
              to the budget, then reports it still running."
         ),
         omitted: None,
@@ -620,7 +620,7 @@ async fn serve_wait(
             ))]),
             is_error: Some(false),
             details: Some(JsonValue::from(json!({
-                "version": IPYTHON_VERSION,
+                "version": PYTHON_VERSION,
                 "status": "ok",
                 "served": { "holder": holder.id().as_str() },
                 "kernelRestarted": false,
@@ -658,7 +658,7 @@ async fn ensure_kernel(
                 if showed_stage && manager.is_ok() {
                     let details = JsonValue::from(json!({ "status": "running" }));
                     if let Err(error) = api.details(details, cx).await {
-                        tracing::debug!(%error, "ipython running status not published");
+                        tracing::debug!(%error, "python running status not published");
                     }
                 }
                 return manager;
@@ -667,7 +667,7 @@ async fn ensure_kernel(
                 Some(message) => {
                     let details = JsonValue::from(json!({ "status": "starting", "message": message }));
                     if let Err(error) = api.details(details, cx).await {
-                        tracing::debug!(%error, "ipython startup progress not published");
+                        tracing::debug!(%error, "python startup progress not published");
                     }
                     showed_stage = true;
                 }
@@ -725,7 +725,7 @@ fn status_name(status: ExecuteStatus) -> &'static str {
     }
 }
 
-/// The `ipython` tool result: the bounded text plus image attachments, and
+/// The `python` tool result: the bounded text plus image attachments, and
 /// the TUI card details (status, timing, bash summary, error name, sent
 /// messages; never a copy of the text). The busy-kernel restart choice
 /// needs a UI the durable host does not have, so `kernelRestarted` is always
@@ -734,7 +734,7 @@ pub(crate) fn tool_result(result: &ExecuteResult, text: String) -> ToolExecution
     let mut content = vec![UserContentBlock::Text(TextContent::new(text))];
     content.extend(result.attachments.iter().flatten().filter_map(image_block));
     let mut details = json!({
-        "version": IPYTHON_VERSION,
+        "version": PYTHON_VERSION,
         "status": status_name(result.status),
         "kernelRestarted": false,
     });

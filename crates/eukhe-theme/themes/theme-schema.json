@@ -178,7 +178,7 @@
 				},
 				"toolPanelBg": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Tool panel background (ipython cells and tool executions)"
+					"description": "Tool panel background (python cells and tool executions)"
 				},
 				"toolTitle": {
 					"$ref": "#/$defs/colorValue",

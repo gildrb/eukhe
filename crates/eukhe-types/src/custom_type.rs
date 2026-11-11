@@ -35,7 +35,7 @@ pub enum CustomType {
     /// The one outcome row of a provider retry episode.
     ProviderRetryOutcome,
     ModelPromptError,
-    /// The session's Python kernel cannot start: no `ipython` tool. No
+    /// The session's Python kernel cannot start: no `python` tool. No
     /// open writes this row any more (the client shows a notification,
     /// [`crate::kernel_notice`]); sessions stored with one keep it.
     KernelUnavailable,

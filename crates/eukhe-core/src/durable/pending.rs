@@ -1,5 +1,5 @@
 //! The work a conversation still owns after its turn ended: the session
-//! jobs that run (detached `ipython` cells and `bash` tool scripts), the
+//! jobs that run (detached `python` cells and `bash` tool scripts), the
 //! kernel's background `bash()` commands, the unsettled children, and the
 //! unsettled workflow runs. Each one settles into a wake of the session
 //! (its job-settled notice or its report), so a turn that ended while any

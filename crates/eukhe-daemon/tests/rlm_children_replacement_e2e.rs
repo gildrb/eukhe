@@ -314,11 +314,11 @@ fn write_parent_script(dir: &Path, first_cell: &str, probe_cell: &str) -> PathBu
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": first_cell } },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": first_cell } },
                 ] },
                 { "text": "spawn turn done" },
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": probe_cell } },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": probe_cell } },
                 ] },
                 { "text": "probe turn done" },
             ],

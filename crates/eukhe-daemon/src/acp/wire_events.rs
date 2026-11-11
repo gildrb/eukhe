@@ -14,7 +14,7 @@ use super::meta::{eukhe_meta, EukheCompactionMeta, EukheSessionMeta};
 use super::types::{AcpSessionUpdate, AcpToolKind, AcpToolStatus, TextBlock};
 
 /// The model-facing Python REPL tool.
-const IPYTHON_TOOL_NAME: &str = "ipython";
+const PYTHON_TOOL_NAME: &str = "python";
 
 /// Correlates streamed chunks with their owning assistant message (the
 /// daemon stream carries the delta on `assistantMessageEvent`) and bash
@@ -222,12 +222,12 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 .unwrap_or_default()
                 .to_string();
             let args = event.get("args").cloned().unwrap_or(Value::Null);
-            let cell = if tool_name == IPYTHON_TOOL_NAME {
+            let cell = if tool_name == PYTHON_TOOL_NAME {
                 args.get("code").and_then(Value::as_str).map(str::to_string)
             } else {
                 None
             };
-            let title = if tool_name == IPYTHON_TOOL_NAME {
+            let title = if tool_name == PYTHON_TOOL_NAME {
                 "Python cell".to_string()
             } else {
                 tool_name.clone()
@@ -254,7 +254,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let text = tool_result_text(event.get("result"));
-            let rich = ipython_rich_output(event.get("result"));
+            let rich = python_rich_output(event.get("result"));
             let update = AcpSessionUpdate::ToolCallUpdate {
                 tool_call_id,
                 status: Some(if is_error {
@@ -265,7 +265,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 content: text.map(|text| vec![super::types::ToolCallContent::new(text)]),
                 meta: rich.map(|rich| {
                     eukhe_meta(&EukheSessionMeta {
-                        ipython: Some(rich),
+                        python: Some(rich),
                         ..Default::default()
                     })
                 }),
@@ -456,7 +456,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 }),
             }]
         }
-        "ipython_sent_agent_message" => {
+        "python_sent_agent_message" => {
             let message = event.get("message");
             vec![AcpSessionUpdate::SessionInfoUpdate {
                 meta: eukhe_meta(&EukheSessionMeta {
@@ -539,7 +539,7 @@ fn base64_byte_length(data: &str) -> u64 {
 }
 
 /// TS `ipythonRichOutput`: media rides the namespaced meta.
-fn ipython_rich_output(result: Option<&Value>) -> Option<Value> {
+fn python_rich_output(result: Option<&Value>) -> Option<Value> {
     let details = result?.get("details")?;
     let attachments = details
         .get("attachments")
@@ -734,7 +734,7 @@ mod tests {
             &json!({
                 "type": "tool_execution_start",
                 "toolCallId": "call-1",
-                "toolName": "ipython",
+                "toolName": "python",
                 "args": { "code": "print(1)" },
             }),
             &mut state,
@@ -937,11 +937,11 @@ mod tests {
     }
 
     #[test]
-    fn ipython_sent_agent_message_maps_the_target_fallback() {
+    fn python_sent_agent_message_maps_the_target_fallback() {
         let mut state = WireMappingState::default();
         let updates = wire_updates(
             &json!({
-                "type": "ipython_sent_agent_message",
+                "type": "python_sent_agent_message",
                 "toolCallId": "t7",
                 "message": {
                     "id": "agentmsg_1",
@@ -966,7 +966,7 @@ mod tests {
         );
         let updates = wire_updates(
             &json!({
-                "type": "ipython_sent_agent_message",
+                "type": "python_sent_agent_message",
                 "toolCallId": "t8",
                 "message": {
                     "id": "agentmsg_2",

@@ -175,7 +175,7 @@ pub enum SessionEvent {
         error: String,
     },
     /// The Python kernel sent an agent message after its cell settled.
-    IpythonSentAgentMessage {
+    PythonSentAgentMessage {
         tool_call_id: String,
         message: Value,
     },
@@ -212,7 +212,7 @@ impl SessionEvent {
             | Self::BashEnd { .. }
             | Self::RefineComplete { .. }
             | Self::RefineFailed { .. }
-            | Self::IpythonSentAgentMessage { .. } => None,
+            | Self::PythonSentAgentMessage { .. } => None,
         }
     }
 }
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn lifecycle_and_message_events_roundtrip() {
         let assistant = r#"{"role":"assistant","content":[{"type":"text","text":"hi"}],"api":"a","provider":"p","model":"m","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}"#;
-        let result = r#"{"role":"toolResult","toolCallId":"c","toolName":"ipython","content":[{"type":"text","text":"1"}],"isError":false,"timestamp":2}"#;
+        let result = r#"{"role":"toolResult","toolCallId":"c","toolName":"python","content":[{"type":"text","text":"1"}],"isError":false,"timestamp":2}"#;
         rt::<SessionEvent>(r#"{"type":"agent_start"}"#);
         rt::<SessionEvent>(&format!(
             r#"{{"type":"agent_end","messages":[{assistant}]}}"#
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn tool_retry_and_compaction_events_roundtrip() {
         rt::<SessionEvent>(
-            r#"{"type":"tool_execution_end","toolCallId":"c","toolName":"ipython","result":{"content":[{"type":"text","text":"1"}],"details":null},"isError":false}"#,
+            r#"{"type":"tool_execution_end","toolCallId":"c","toolName":"python","result":{"content":[{"type":"text","text":"1"}],"details":null},"isError":false}"#,
         );
         rt::<SessionEvent>(
             r#"{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"delayMs":200,"errorMessage":"e","reason":"backup","backupModel":"p/m"}"#,

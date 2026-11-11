@@ -158,7 +158,7 @@ pub enum Report {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stopped_by: Option<BashStopper>,
     },
-    /// A detached `ipython` cell settled.
+    /// A detached `python` cell settled.
     JobSettled { job: JobId, status: CellStatus },
 }
 

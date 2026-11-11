@@ -121,7 +121,7 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
     let home = home_with_short_budget();
     let script = json!({ "responses": [
         call("call-1", "bash", &json!({ "script": "sleep 3; echo built > out.txt; echo BUILD-OK" })),
-        call("call-2", "ipython", &json!({ "code": "job = await jobs.wait()\nprint(job.kind, job.state, job.output.splitlines()[-1])" })),
+        call("call-2", "python", &json!({ "code": "job = await jobs.wait()\nprint(job.kind, job.state, job.output.splitlines()[-1])" })),
         call("call-3", "bash", &json!({ "script": "git add out.txt && git commit -q -m build && git log --oneline | wc -l" })),
         answer("Built and committed."),
     ] });
@@ -168,14 +168,14 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
 }
 
 /// A detached cell holds the kernel; a cell that only waits runs without
-/// it and returns the held cell's output. Before, every ipython call while
+/// it and returns the held cell's output. Before, every python call while
 /// a cell was detached answered "Not run: the kernel is still running job".
 #[test]
 fn a_wait_runs_while_a_detached_cell_holds_the_kernel() {
     let home = home_with_short_budget();
     let script = json!({ "responses": [
-        call("call-1", "ipython", &json!({ "code": "import time\ntime.sleep(3)\nprint('CELL-DONE')" })),
-        call("call-2", "ipython", &json!({ "code": "await jobs.wait()" })),
+        call("call-1", "python", &json!({ "code": "import time\ntime.sleep(3)\nprint('CELL-DONE')" })),
+        call("call-2", "python", &json!({ "code": "await jobs.wait()" })),
         answer("The cell finished."),
     ] });
     let (code, events, stderr) = run(home.path(), &script);
@@ -197,7 +197,7 @@ fn a_wait_runs_while_a_detached_cell_holds_the_kernel() {
 fn a_wait_with_nothing_to_wait_for_is_refused() {
     let home = home_with_short_budget();
     let script = json!({ "responses": [
-        call("call-1", "ipython", &json!({ "code": "try:\n    await jobs.wait()\nexcept RuntimeError as error:\n    print(error)" })),
+        call("call-1", "python", &json!({ "code": "try:\n    await jobs.wait()\nexcept RuntimeError as error:\n    print(error)" })),
         answer("Nothing ran."),
     ] });
     let (code, events, stderr) = run(home.path(), &script);
