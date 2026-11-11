@@ -15,6 +15,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   - Nightly, a systemd user timer runs `scripts/ci_nightly.sh run`: full gate (`make ci-local`, < 30 min: every test, nextest profile `nightly`, and the doctests; `bend PROOF.bend --verdict`) on origin/main. A test failing once then passing is flaky: named in the summary, not red; failing twice is red. Green only: starts `eukhe-release.yml` for that commit, which releases `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`. Red releases nothing; `make nightly-status` shows why.
   - `make catalog-pin` moves `scripts/release/catalog-pin.json` to the catalog repo's newest commit; review the diff, commit it.
 - Prime Intellect stays only as a third-party service: provider `prime-inference`, `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`, catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Every product name is eukhe.
+- Product text never names another agent harness (omp, oh-my-pi, pi, Codex, Claude Code, …) and never compares eukhe with one. Those names belong only in README.md's Credits and in THIRD-PARTY-NOTICES. The rule covers `spec/`, laws and their comments, code comments, docs, help text and commit messages. Say what eukhe does. Wrong: "exactly-once effects, an intent journal per effect (omp has none: its --restore re-runs an interrupted batch)". Right: "exactly-once effects: an intent journal per effect".
 
 ## Style and structure
 
