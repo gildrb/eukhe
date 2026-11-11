@@ -39,7 +39,7 @@ def oa.inv(w: S.World) -> Bool:
           oa.flight(live, hit, k)
         case O.Ran{}:
           Bool.and(Bool.not(live), Nat.is_le(k, 1n))
-        case O.Lost{}:
+        case O.Unsure{}:
           Bool.and(Bool.not(live), Nat.is_le(k, 1n))
         case O.Void{}:
           Bool.and(Bool.not(live), Nat.is_le(k, 1n))
@@ -56,8 +56,8 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
           LA.ob.self(oa.inv(S.Wd{O.Running{again}, live, hit, n, k, d, x}))
         case O.Ran{}:
           LA.ob.self(oa.inv(S.Wd{O.Ran{}, live, hit, n, k, d, x}))
-        case O.Lost{}:
-          LA.ob.self(oa.inv(S.Wd{O.Lost{}, live, hit, n, k, d, x}))
+        case O.Unsure{}:
+          LA.ob.self(oa.inv(S.Wd{O.Unsure{}, live, hit, n, k, d, x}))
         case O.Void{}:
           LA.ob.self(oa.inv(S.Wd{O.Void{}, live, hit, n, k, d, x}))
     case S.Tick{m, look}:
@@ -102,7 +102,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -156,7 +156,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -212,7 +212,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -266,7 +266,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -322,7 +322,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -378,7 +378,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -428,7 +428,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -484,7 +484,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -534,7 +534,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -586,7 +586,7 @@ def oa.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -656,7 +656,7 @@ def oa.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}
@@ -706,7 +706,7 @@ def oa.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}
@@ -758,7 +758,7 @@ def oa.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}
@@ -808,7 +808,7 @@ def oa.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}

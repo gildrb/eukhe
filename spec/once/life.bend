@@ -133,7 +133,7 @@ def life_spec.ended(e: End) -> O.Life:
     case Returned{}:
       O.Ran{}
     case Untold{}:
-      O.Lost{}
+      O.Unsure{}
     case Unrun{}:
       O.Void{}
 
@@ -189,7 +189,7 @@ def verdict_spec(l: O.Life, s: O.Seen, m: O.Mode, p: O.Policy) -> O.Verdict:
           more_spec(Nat.is_lt(again, cap))
     case O.Ran{}:
       O.Settled{}
-    case O.Lost{}:
+    case O.Unsure{}:
       O.Settled{}
     case O.Void{}:
       O.Settled{}
@@ -249,7 +249,7 @@ def settled(l: O.Life) -> Bool:
       False{}
     case O.Ran{}:
       True{}
-    case O.Lost{}:
+    case O.Unsure{}:
       True{}
     case O.Void{}:
       True{}
@@ -319,7 +319,7 @@ def is_ran(l: O.Life) -> Bool:
       False{}
     case O.Ran{}:
       True{}
-    case O.Lost{}:
+    case O.Unsure{}:
       False{}
     case O.Void{}:
       False{}
@@ -335,7 +335,7 @@ def is_void(l: O.Life) -> Bool:
       False{}
     case O.Ran{}:
       False{}
-    case O.Lost{}:
+    case O.Unsure{}:
       False{}
     case O.Void{}:
       True{}

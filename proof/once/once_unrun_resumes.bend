@@ -26,7 +26,7 @@ def ou.all(w: S.World, -look: Bool, -p: O.Policy) -> {Bool.or(Bool.not(Once.wd_w
           {==}
         case O.Ran{}:
           {==}
-        case O.Lost{}:
+        case O.Unsure{}:
           {==}
         case O.Void{}:
           {==}

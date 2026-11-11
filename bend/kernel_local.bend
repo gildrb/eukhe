@@ -196,7 +196,7 @@ def start(uv: Bool, python: Bool, env: Bool, ok: Bool) -> Kernel:
   start.all(Bool.and(uv, Bool.and(python, env)), ok)
 
 # a tool call: the ipython tool, or any other tool (by its number)
-type Tool is Data:
+type Call is Data:
   Python{}
   Other{n: Nat}
 
@@ -206,7 +206,7 @@ type Answer is Data:
   # the tool answered with the setup step that failed (the failed fetch)
   NamesFailed{}
 
-def answer(t: Tool, k: Kernel) -> Answer:
+def answer(t: Call, k: Kernel) -> Answer:
   match t:
     case Python{}:
       match k:

@@ -30,7 +30,7 @@ def ok.all(w: S.World, m: O.Mode) -> {Bool.or(Bool.not(Once.wd_cut(w)), Bool.and
                   {==}
         case O.Ran{}:
           {==}
-        case O.Lost{}:
+        case O.Unsure{}:
           {==}
         case O.Void{}:
           {==}

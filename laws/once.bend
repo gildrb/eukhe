@@ -96,7 +96,7 @@ def on_spell_life(l: O.Life) -> String:
       SCon{'2', SCon{',', Wr.put_nat(again, "")}}
     case O.Ran{}:
       "3,"
-    case O.Lost{}:
+    case O.Unsure{}:
       "4,"
     case O.Void{}:
       "5,"
@@ -275,7 +275,7 @@ def wd_waits(w: S.World) -> Bool:
           False{}
         case O.Ran{}:
           False{}
-        case O.Lost{}:
+        case O.Unsure{}:
           False{}
         case O.Void{}:
           False{}
@@ -293,7 +293,7 @@ def wd_cut(w: S.World) -> Bool:
           Bool.not(live)
         case O.Ran{}:
           False{}
-        case O.Lost{}:
+        case O.Unsure{}:
           False{}
         case O.Void{}:
           False{}
@@ -317,7 +317,7 @@ def wd_lost(w: S.World) -> Bool:
           False{}
         case O.Ran{}:
           False{}
-        case O.Lost{}:
+        case O.Unsure{}:
           True{}
         case O.Void{}:
           False{}

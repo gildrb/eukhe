@@ -38,7 +38,7 @@ def od.inv(w: S.World) -> Bool:
           od.flight(live, hit, k)
         case O.Ran{}:
           Nat.is_le(1n, k)
-        case O.Lost{}:
+        case O.Unsure{}:
           od.flight(live, hit, k)
         case O.Void{}:
           od.flight(live, hit, k)
@@ -55,8 +55,8 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
           LA.ob.self(od.inv(S.Wd{O.Running{again}, live, hit, n, k, d, x}))
         case O.Ran{}:
           LA.ob.self(od.inv(S.Wd{O.Ran{}, live, hit, n, k, d, x}))
-        case O.Lost{}:
-          LA.ob.self(od.inv(S.Wd{O.Lost{}, live, hit, n, k, d, x}))
+        case O.Unsure{}:
+          LA.ob.self(od.inv(S.Wd{O.Unsure{}, live, hit, n, k, d, x}))
         case O.Void{}:
           LA.ob.self(od.inv(S.Wd{O.Void{}, live, hit, n, k, d, x}))
     case S.Tick{m, look}:
@@ -101,7 +101,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -173,7 +173,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -229,7 +229,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -283,7 +283,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                           {==}
                         case 2n+qk:
                           {==}
-                    case O.Lost{}:
+                    case O.Unsure{}:
                       match k:
                         case 0n:
                           {==}
@@ -339,7 +339,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -395,7 +395,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -445,7 +445,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -501,7 +501,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -551,7 +551,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -603,7 +603,7 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                       {==}
                     case 2n+qk:
                       {==}
-                case O.Lost{}:
+                case O.Unsure{}:
                   match k:
                     case 0n:
                       {==}
@@ -673,7 +673,7 @@ def od.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}
@@ -723,7 +723,7 @@ def od.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}
@@ -775,7 +775,7 @@ def od.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}
@@ -825,7 +825,7 @@ def od.out(live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x: Nat) -> 
                   {==}
                 case 2n+qk:
                   {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               match k:
                 case 0n:
                   {==}

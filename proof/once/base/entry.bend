@@ -130,7 +130,7 @@ def oe.put_life(l: O.Life) -> {FO.put_life(l) == Once.on_spell_life(l) : String}
       {==}
     case O.Ran{}:
       {==}
-    case O.Lost{}:
+    case O.Unsure{}:
       {==}
     case O.Void{}:
       {==}

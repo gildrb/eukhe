@@ -54,7 +54,7 @@ type Life is Data:
   Pending{}            # intended, never launched
   Running{again: Nat}  # launched 1 + again times, no end on record
   Ran{}               # finished
-  Lost{}               # settled unknown
+  Unsure{}               # settled unknown
   Void{}               # settled unstarted
 
 # What a restart does with an effect
@@ -79,7 +79,7 @@ def life.fresh(r: Rec) -> Life:
     case Finished{}:
       Ran{}
     case Unknown{}:
-      Lost{}
+      Unsure{}
     case Unstarted{}:
       Void{}
 
@@ -93,7 +93,7 @@ def life.launched(r: Rec, again: Nat) -> Life:
     case Finished{}:
       Ran{}
     case Unknown{}:
-      Lost{}
+      Unsure{}
     case Unstarted{}:
       Void{}
 
@@ -108,8 +108,8 @@ def life.step(l: Life, r: Rec) -> Life:
       life.launched(r, again)
     case Ran{}:
       Ran{}
-    case Lost{}:
-      Lost{}
+    case Unsure{}:
+      Unsure{}
     case Void{}:
       Void{}
 
@@ -185,7 +185,7 @@ def recover(l: Life, s: Seen, m: Mode, p: Policy) -> Verdict:
       started(s, m, p, again)
     case Ran{}:
       Settled{}
-    case Lost{}:
+    case Unsure{}:
       Settled{}
     case Void{}:
       Settled{}

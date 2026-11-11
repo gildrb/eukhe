@@ -148,7 +148,7 @@ def ob.go_ran(j: List<&2, O.Rec>) -> {O.life.go(j, O.Ran{}) == O.Ran{} : O.Life}
     case r <> t:
       ob.go_ran(t)
 
-def ob.go_lost(j: List<&2, O.Rec>) -> {O.life.go(j, O.Lost{}) == O.Lost{} : O.Life}:
+def ob.go_lost(j: List<&2, O.Rec>) -> {O.life.go(j, O.Unsure{}) == O.Unsure{} : O.Life}:
   match j:
     case Nil{}:
       {==}
@@ -228,7 +228,7 @@ def ob.stays(x: O.Life, rest: List<&2, O.Rec>, e: {S.settled(x) == True{} : Bool
       ob.false_true({O.life.go(rest, O.Running{again}) == O.Running{again} : O.Life}, e)
     case O.Ran{}:
       ob.go_ran(rest)
-    case O.Lost{}:
+    case O.Unsure{}:
       ob.go_lost(rest)
     case O.Void{}:
       ob.go_void(rest)

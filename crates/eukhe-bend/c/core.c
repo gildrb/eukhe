@@ -440,7 +440,7 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_once_Pending 129
 #define CID_once_Running 130
 #define CID_once_Ran 131
-#define CID_once_Lost 132
+#define CID_once_Unsure 132
 #define CID_once_Void 133
 #define CID_WNil 134
 #define CID_admission_Unl 135

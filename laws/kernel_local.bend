@@ -606,7 +606,7 @@ def start_spec(uv: Bool, python: Bool, env: Bool, ok: Bool) -> KL.Kernel:
 
 # a tool's answer: only the ipython tool on a missing kernel names the
 # failed step; every other call runs
-def answer_spec(t: KL.Tool, k: KL.Kernel) -> KL.Answer:
+def answer_spec(t: KL.Call, k: KL.Kernel) -> KL.Answer:
   match t:
     case KL.Python{}:
       match k:
@@ -627,7 +627,7 @@ law kernel_start_exact:
 
 # LAW kernel_answer_exact: the ipython tool runs on an up kernel and names the failed step on a missing one; every other tool runs either way
 law kernel_answer_exact:
-  for t: KL.Tool
+  for t: KL.Call
   for k: KL.Kernel
   {KL.answer(t, k) == answer_spec(t, k) : KL.Answer}
 

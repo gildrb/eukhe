@@ -28,7 +28,7 @@ def oc.inv(cap: Nat, w: S.World) -> Bool:
           Bool.and(Nat.is_le(again, cap), Nat.is_eq(n, 1n+again))
         case O.Ran{}:
           Bool.and(Bool.not(live), Nat.is_le(n, 1n+cap))
-        case O.Lost{}:
+        case O.Unsure{}:
           Bool.and(Bool.not(live), Nat.is_le(n, 1n+cap))
         case O.Void{}:
           Bool.and(Bool.not(live), Nat.is_le(n, 1n+cap))
@@ -107,8 +107,8 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
           LA.ob.self(oc.inv(cap, S.Wd{O.Running{again}, live, hit, n, k, d, x}))
         case O.Ran{}:
           LA.ob.self(oc.inv(cap, S.Wd{O.Ran{}, live, hit, n, k, d, x}))
-        case O.Lost{}:
-          LA.ob.self(oc.inv(cap, S.Wd{O.Lost{}, live, hit, n, k, d, x}))
+        case O.Unsure{}:
+          LA.ob.self(oc.inv(cap, S.Wd{O.Unsure{}, live, hit, n, k, d, x}))
         case O.Void{}:
           LA.ob.self(oc.inv(cap, S.Wd{O.Void{}, live, hit, n, k, d, x}))
     case S.Tick{m, look}:
@@ -135,8 +135,8 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
                   LA.ob.keyed_within(cap, again, v => {Bool.or(Bool.not(oc.inv(cap, S.Wd{O.Running{again}, False{}, hit, n, k, d, x})), oc.inv(cap, Once.wd_answer(v, O.Running{again}, n, k, d, x))) == True{} : Bool}, hl => oc.launch(cap, again, n, hl), oc.bound(n, again, cap))
                 case O.Ran{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Ran{}, False{}, hit, n, k, d, x}))
-                case O.Lost{}:
-                  LA.ob.self(oc.inv(cap, S.Wd{O.Lost{}, False{}, hit, n, k, d, x}))
+                case O.Unsure{}:
+                  LA.ob.self(oc.inv(cap, S.Wd{O.Unsure{}, False{}, hit, n, k, d, x}))
                 case O.Void{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Void{}, False{}, hit, n, k, d, x}))
         case O.Stop{}:
@@ -157,8 +157,8 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
                   oc.bound(n, again, cap)
                 case O.Ran{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Ran{}, False{}, hit, n, k, d, x}))
-                case O.Lost{}:
-                  LA.ob.self(oc.inv(cap, S.Wd{O.Lost{}, False{}, hit, n, k, d, x}))
+                case O.Unsure{}:
+                  LA.ob.self(oc.inv(cap, S.Wd{O.Unsure{}, False{}, hit, n, k, d, x}))
                 case O.Void{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Void{}, False{}, hit, n, k, d, x}))
     case S.Land{}:
@@ -177,8 +177,8 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
                   LA.ob.self(oc.inv(cap, S.Wd{O.Running{again}, True{}, False{}, n, k, d, x}))
                 case O.Ran{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Ran{}, True{}, False{}, n, k, d, x}))
-                case O.Lost{}:
-                  LA.ob.self(oc.inv(cap, S.Wd{O.Lost{}, True{}, False{}, n, k, d, x}))
+                case O.Unsure{}:
+                  LA.ob.self(oc.inv(cap, S.Wd{O.Unsure{}, True{}, False{}, n, k, d, x}))
                 case O.Void{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Void{}, True{}, False{}, n, k, d, x}))
         case False{}:
@@ -195,7 +195,7 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
               oc.bound(n, again, cap)
             case O.Ran{}:
               {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               {==}
             case O.Void{}:
               {==}
@@ -213,7 +213,7 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
               LA.ob.self(oc.inv(cap, S.Wd{O.Running{again}, True{}, hit, n, k, d, x}))
             case O.Ran{}:
               {==}
-            case O.Lost{}:
+            case O.Unsure{}:
               {==}
             case O.Void{}:
               {==}
@@ -227,8 +227,8 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
               LA.ob.self(oc.inv(cap, S.Wd{O.Running{again}, False{}, hit, n, k, d, x}))
             case O.Ran{}:
               LA.ob.self(oc.inv(cap, S.Wd{O.Ran{}, False{}, hit, n, k, d, x}))
-            case O.Lost{}:
-              LA.ob.self(oc.inv(cap, S.Wd{O.Lost{}, False{}, hit, n, k, d, x}))
+            case O.Unsure{}:
+              LA.ob.self(oc.inv(cap, S.Wd{O.Unsure{}, False{}, hit, n, k, d, x}))
             case O.Void{}:
               LA.ob.self(oc.inv(cap, S.Wd{O.Void{}, False{}, hit, n, k, d, x}))
 
@@ -278,7 +278,7 @@ def oc.outw(+cap: Nat, w: S.World) -> {Bool.or(Bool.not(oc.inv(cap, w)), Nat.is_
               {==}
             case False{}:
               LA.ob.self(Nat.is_le(n, 1n+cap))
-        case O.Lost{}:
+        case O.Unsure{}:
           match live:
             case True{}:
               {==}

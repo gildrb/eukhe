@@ -197,7 +197,7 @@ def put_life(l: O.Life) -> String:
       W.put_nat(2n, W.put_nat(again, ""))
     case O.Ran{}:
       W.put_nat(3n, "")
-    case O.Lost{}:
+    case O.Unsure{}:
       W.put_nat(4n, "")
     case O.Void{}:
       W.put_nat(5n, "")

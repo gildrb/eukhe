@@ -77,7 +77,7 @@ def Once.once_recover_is_spec(l, s, m, p):
                   {==}
     case O.Ran{}:
       {==}
-    case O.Lost{}:
+    case O.Unsure{}:
       {==}
     case O.Void{}:
       {==}
