@@ -235,7 +235,7 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
             {
                 "name": "eukhe",
                 "version": version,
-                "description": "Eukhe: the harness for the AGI era",
+                "description": "The harness for the AGI era: an agent core proven with Bend, plugged into any product through its SDK",
                 "bin": {"eukhe": binary_name},
             },
             indent=2,

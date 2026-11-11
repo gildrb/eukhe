@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Eukhe SDK: embed the harness in a product, in-process"
+description = "Run Eukhe sessions inside your own process"
 
 [dependencies]
 # The engine the facade opens: sessions, their config and models.

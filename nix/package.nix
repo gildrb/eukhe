@@ -60,7 +60,7 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Agent harness for the AGI era (prebuilt)";
+    description = "Eukhe agent harness (prebuilt)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";

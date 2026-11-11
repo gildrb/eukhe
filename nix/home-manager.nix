@@ -22,7 +22,7 @@ let
 in
 {
   options.programs.eukhe = {
-    enable = lib.mkEnableOption "Eukhe, the harness for the AGI era";
+    enable = lib.mkEnableOption "the Eukhe agent harness";
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
