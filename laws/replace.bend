@@ -7,7 +7,7 @@ import ../bend/semver.bend as Sv
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
-# The orphan entry of the compiled core (bend/ffi_orphan.bend)
+# The daemon replacement of the model (bend/replace.bend): which client start replaces the running daemon
 
 # LAW replace_never_downgrades: client starts never take the daemon back to a lower build. For any
 # client starts (any builds, interactive or background), no daemon ranks
