@@ -50,7 +50,8 @@ fn marks_built_in_anthropic_messages_models_that_use_adaptive_thinking() {
         );
     }
     // The adaptive model names, `.` read as `-` (opus 4.6-4.8 and 5, sonnet
-    // 4.6 and 5, haiku 5.5, fable 5, kimi-coding).
+    // 4.6 and 5, haiku 5.5, fable 5, kimi-coding, and `MiniMax`, whose
+    // adaptive tag is the whole thinking control, as in omp).
     let adaptive_names = [
         "opus-4-6",
         "opus-4-7",
@@ -61,6 +62,7 @@ fn marks_built_in_anthropic_messages_models_that_use_adaptive_thinking() {
         "haiku-5-5",
         "fable-5",
         "kimi-coding/",
+        "minimax",
     ];
     let allowed: Vec<String> = flagged_models
         .iter()

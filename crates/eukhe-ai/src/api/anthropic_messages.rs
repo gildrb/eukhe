@@ -288,6 +288,11 @@ fn supports_mid_convo_effort(model: &Model) -> bool {
     model_compat(model).and_then(|compat| compat.supports_mid_convo_effort) == Some(true)
 }
 
+/// The ladder value of a model whose `thinking.type: adaptive` tag is the
+/// whole thinking control (MiniMax): no `output_config.effort` rides with
+/// it (omp's `effortMap` value `"adaptive"`).
+pub(crate) const ADAPTIVE_TAG_EFFORT: &str = "adaptive";
+
 /// TS `mergeHeaders` (`Object.assign`: case-sensitive keys, a repeated key
 /// keeps its first position) after `{ "User-Agent": getPiUserAgent() }`.
 fn merge_client_headers(sources: &[Option<&ProviderHeaders>]) -> ProviderHeaders {

@@ -14,7 +14,7 @@ use serde_json::json;
 
 use super::{
     billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
-    CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
+    ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
 use crate::api::cache_breakpoints::{
     has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
@@ -1061,7 +1061,13 @@ pub(crate) fn build_params(
                     thinking["display"] = display.into();
                 }
                 params.insert("thinking".into(), thinking);
-                if let Some(effort) = options.effort.as_ref().filter(|effort| !effort.is_empty()) {
+                // `adaptive`: the thinking tag is the only control
+                // (MiniMax), no effort.
+                if let Some(effort) = options
+                    .effort
+                    .as_ref()
+                    .filter(|effort| !effort.is_empty() && *effort != ADAPTIVE_TAG_EFFORT)
+                {
                     params.insert("output_config".into(), json!({ "effort": effort }));
                 }
             } else {

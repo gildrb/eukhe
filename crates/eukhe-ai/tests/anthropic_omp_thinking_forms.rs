@@ -53,3 +53,31 @@ async fn adaptive_thinking_display_rides_on_claude_4_7_and_later_only() {
         ]
     );
 }
+
+/// `MiniMax` drives thinking with the `thinking.type: adaptive` tag alone:
+/// no effort and no display, at every level (omp catalog `effortMap`
+/// `"adaptive"`, `anthropic.ts` `usesAdaptiveThinkingTagOnly`); its
+/// thinking off stays an explicit `disabled`.
+#[tokio::test]
+async fn minimax_thinks_by_the_adaptive_tag_alone() {
+    let adaptive = [json!({ "type": "adaptive" }), JsonValue::Null];
+    assert_eq!(
+        [
+            wire("minimax", "MiniMax-M2.7", Some(ThinkingLevel::Low)).await,
+            wire("minimax-cn", "MiniMax-M3", Some(ThinkingLevel::High)).await,
+            wire(
+                "vercel-ai-gateway",
+                "minimax/minimax-m2.5",
+                Some(ThinkingLevel::Medium)
+            )
+            .await,
+            wire("minimax", "MiniMax-M2.7", None).await,
+        ],
+        [
+            adaptive.clone(),
+            adaptive.clone(),
+            adaptive,
+            [json!({ "type": "disabled" }), JsonValue::Null],
+        ]
+    );
+}
