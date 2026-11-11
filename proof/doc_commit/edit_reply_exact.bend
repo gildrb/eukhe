@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW edit_reply_exact
 #
-# PROOF: conflict is the spec's sp_changed (dx.changed); for either answer
-# of it the reply is the spec's (dx.pick). With no conflict, by cases on
+# PROOF: the files sp_clean builds hold no conflict (dx.clean), so the
+# edit publishes. Then, by cases on
 # the first file's op and fault: a first publish that fails is an error,
 # and in the spec its untried tail landed nothing (dx.quiet); a first
 # publish that lands answers, and the reports of the published files are
@@ -13,16 +13,15 @@ import ../../bend/doc_commit.bend as Cm
 import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/doc_commit/exact.bend as DocCommitExact
 
-# conflict is the spec's sp_changed
-def dx.changed(fs: List<&2, Cm.Doc>) -> {Cm.conflict(fs) == DocCommitExact.sp_changed(fs) : Bool}:
-  match fs:
+# the files sp_clean builds hold no conflict
+def dx.clean(ds: List<&2, DocCommitExact.SpFile>) -> {Cm.conflict(DocCommitExact.sp_clean(ds)) == False{} : Bool}:
+  match ds:
     case Nil{}:
       {==}
-    case f <> rest:
-      match f:
-        case Cm.Doc{k, c, x}:
-          %dx.changed(rest) : {Bool.or(c, Cm.conflict(rest)) == Bool.or(c, _) : Bool}
-          {==}
+    case d <> rest:
+      match d:
+        case DocCommitExact.SpFile{k, x}:
+          dx.clean(rest)
 
 # no publish of an untried tail landed
 def dx.quiet(fs: List<&2, Cm.Doc>) -> {DocCommitExact.sp_quiet(DocCommit.sp_untried(fs)) == True{} : Bool}:
@@ -102,13 +101,7 @@ def dx.go(+fs: List<&2, Cm.Doc>) -> {Cm.reply.go(Cm.run(fs), fs) == DocCommitExa
             case Cm.Moving{} Cm.Publish{}:
               dx.fails(rest)
 
-def dx.pick(b: Bool, +fs: List<&2, Cm.Doc>) -> {Cm.reply.pick(b, fs) == DocCommitExact.sp_reply.pick(b, fs) : Cm.Reply}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      dx.go(fs)
-
-def DocCommitExact.edit_reply_exact(fs):
-  %dx.changed(fs) : {Cm.reply.pick(Cm.conflict(fs), fs) == DocCommitExact.sp_reply.pick(_, fs) : Cm.Reply}
-  dx.pick(Cm.conflict(fs), fs)
+def DocCommitExact.edit_reply_exact(ds):
+  +fs = DocCommitExact.sp_clean(ds)
+  %Equal.sym(Bool, Cm.conflict(fs), False{}, dx.clean(ds)) : {Cm.reply.pick(_, fs) == DocCommitExact.sp_reply.fates(DocCommit.sp_fates(fs)) : Cm.Reply}
+  dx.go(fs)

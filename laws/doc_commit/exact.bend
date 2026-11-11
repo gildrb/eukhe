@@ -23,18 +23,30 @@ import ../doc_commit.bend as DocCommit
 # landed publish's warning (Applied{False} for Landed{True}) passed. The
 # spec reads the reply off the fates of the model's files (sp_fates of
 # laws/doc_commit.bend: each published until the first failure, the rest
-# untried), as R3 reads the real one off its fates. Every input is free:
-# any files, changed or not, each an update or a move, with any fault.
+# untried), as R3 reads the real one off its fates. F1's two cases are two
+# laws over the shapes of the input, so no law decides "some file changed"
+# with a fold of its own: a changed file anywhere in the edit
+# (edit_reply_conflict: pre, the changed file, post, all free), and an
+# edit none of whose files changed (edit_reply_exact: the files built from
+# any ops and faults, each unchanged, by sp_clean). Together they cover
+# every edit. Every other input is free: any files, each an update or a
+# move, with any fault.
 
-# F1: some file changed since the edit staged it
-def sp_changed(fs: List<&2, Cm.Doc>) -> Bool:
-  match fs:
+# a file of an edit that did not change since it was staged: its op and
+# its fault
+type SpFile is Data:
+  SpFile{op: Cm.Op, fault: Cm.Fault}
+
+# the files of an edit none of whose files changed since it was staged:
+# one per op and fault, in order
+def sp_clean(ds: List<&2, SpFile>) -> List<&2, Cm.Doc>:
+  match ds:
     case Nil{}:
-      False{}
-    case f <> rest:
-      match f:
-        case Cm.Doc{k, c, x}:
-          Bool.or(c, sp_changed(rest))
+      Nil{}
+    case d <> rest:
+      match d:
+        case SpFile{k, x}:
+          Cm.Doc{k, False{}, x} <> sp_clean(rest)
 
 # F9: whether a landed publish carries a warning
 def sp_warned(w: Cm.Warn) -> Bool:
@@ -117,27 +129,29 @@ def sp_reply.if(b: Bool, fs: List<&2, Cm.Fate>) -> Cm.Reply:
 def sp_reply.fates(+fs: List<&2, Cm.Fate>) -> Cm.Reply:
   sp_reply.if(sp_rejects(fs), fs)
 
-def sp_reply.pick(c: Bool, +fs: List<&2, Cm.Doc>) -> Cm.Reply:
-  match c:
-    case True{}:
-      Cm.Rejected{}
-    case False{}:
-      sp_reply.fates(DocCommit.sp_fates(fs))
+# LAW edit_reply_conflict (F1): an edit one of whose files changed since the edit staged it, wherever
+# that file is among the others and whatever they are, is an error and
+# writes nothing
+# EXCLUDES: a conflict missed after the first file or before the last; an
+#   answer, or a partial write, after a conflict
+law edit_reply_conflict:
+  for +pre: List<&2, Cm.Doc>
+  for +k: Cm.Op
+  for +x: Cm.Fault
+  for +post: List<&2, Cm.Doc>
+  {Cm.reply(List.append(&2, Cm.Doc, pre, Cm.Doc{k, True{}, x} <> post)) == Cm.Rejected{} : Cm.Reply}
 
-# F1, F9: the reply of an edit: an error when a file changed since it was
-# staged (nothing was written); otherwise R3 on the files' fates
-def sp_reply(+fs: List<&2, Cm.Doc>) -> Cm.Reply:
-  sp_reply.pick(sp_changed(fs), fs)
-
-# LAW edit_reply_exact (F1, F9): the reply of an edit is an error when a
-# file changed since the edit staged it, or when the first publish failed
-# so none landed; otherwise it reports each file applied, with its
-# publish's warning, when its publish landed, and not written otherwise
-# (its publish failed, or one before it did)
+# LAW edit_reply_exact (F1, F9): the reply of an edit none of whose files changed since it was
+# staged (any ops, any faults, in any order) is an error when the first
+# publish failed so none landed; otherwise it reports each file applied,
+# with its publish's warning, when its publish landed, and not written
+# otherwise (its publish failed, or one before it did). (A changed file:
+# edit_reply_conflict.)
 # EXCLUDES: a lost warning (Landed{w} reported Applied{False}) or an
-#   invented one; an answer after a conflict or after nothing landed; an
-#   error after a file landed; a file reported applied that failed or was
-#   never tried, or the reverse; a report dropped, added or reordered
+#   invented one; an answer after nothing landed; an error after a file
+#   landed; a file reported applied that failed or was never tried, or
+#   the reverse; a report dropped, added or reordered; an unchanged edit
+#   rejected
 law edit_reply_exact:
-  for +fs: List<&2, Cm.Doc>
-  {Cm.reply(fs) == sp_reply(fs) : Cm.Reply}
+  for +ds: List<&2, SpFile>
+  {Cm.reply(sp_clean(ds)) == sp_reply.fates(DocCommit.sp_fates(sp_clean(ds))) : Cm.Reply}

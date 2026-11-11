@@ -26,7 +26,9 @@
 #     a move could not remove its source), or fails; the reply keeps that
 #     warning.
 # F10: a sweep removes the temporary files of the target that no live
-#     writer holds and keeps every other entry.
+#     writer holds and keeps every other entry; the shipped sweep (R6,
+#     `gone`, the one Rust calls) is this model's sweep of the entries
+#     read as the model's temporary files (temp_sweep_is_shipped).
 # R1: an edit writes nothing when a file changed since it was staged or a
 #     move's destination exists: the first such file (a change before a
 #     taken destination in one file) is the reason; otherwise every file
@@ -297,6 +299,73 @@ law temp_sweep_removes_free:
   for +post: List<&2, Cm.Temp>
   {Cm.sweep(List.append(&2, Cm.Temp, pre, Cm.Temp{i, Cm.Own{}, False{}} <> post)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.Temp{i, Cm.Own{}, False{}} <> Cm.sweep(post)) : List<&2, Cm.Temp>}
 
+# R6: the name prefix of a target's temporary files (crates/eukhe-docs
+# write.rs module docs: `.eukhe-tmp-<xxh64 of the target name>-...`)
+def tmp_prefix(h: String) -> String:
+  String.append(".eukhe-tmp-", String.append(h, "-"))
+
+# The shipped sweep is the model's
+# --------------------------------
+# The laws above are about the model's sweep (Cm.sweep); Rust calls the
+# shipped one (Cm.gone, R6: the indices of the entries it removes). Read
+# the target's directory as the model's temporary files: entry i is file
+# i, held as the entry is held, of the target when its name starts with
+# the target's prefix `.eukhe-tmp-<h>-` (tmp_prefix, Base's
+# String.starts_with), of another target when it starts with
+# `.eukhe-tmp-` only, another file otherwise (write.rs module docs). Then
+# the shipped sweep removes exactly the files the model's removes, so
+# temp_sweep_never_held, temp_sweep_only_own and temp_sweep_removes_free
+# hold of what Rust removes.
+
+def sp_sort.pick(own: Bool, temp: Bool) -> Cm.Sort:
+  match own:
+    case True{}:
+      Cm.Own{}
+    case False{}:
+      match temp:
+        case True{}:
+          Cm.Foreign{}
+        case False{}:
+          Cm.Plain{}
+
+# the model's sort of a file named n in the directory of the target with
+# digest h
+def sp_sort(+h: String, +n: String) -> Cm.Sort:
+  sp_sort.pick(String.starts_with(n, tmp_prefix(h)), String.starts_with(n, ".eukhe-tmp-"))
+
+# the entries es, from index i on, as the model's temporary files
+def sp_temps(+h: String, es: List<&2, Cm.Ent>, +i: Nat) -> List<&2, Cm.Temp>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      match e:
+        case Cm.Ent{n, held}:
+          Cm.Temp{i, sp_sort(h, n), held} <> sp_temps(h, rest, 1n+i)
+
+# the indices of the files ts
+def sp_ids(ts: List<&2, Cm.Temp>) -> List<&2, Nat>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> rest:
+      match t:
+        case Cm.Temp{i, k, held}:
+          i <> sp_ids(rest)
+
+# LAW temp_sweep_is_shipped (F10, R6): for every target digest and every directory, the entries
+# the shipped sweep removes (by index, as Rust reads them) are exactly
+# the files the model's sweep removes, in order, the directory read as
+# the model's temporary files (sp_temps: of the target by its prefix,
+# held as the entry is)
+# EXCLUDES: a shipped sweep that removes a held or another target's file,
+#   or keeps a free one of the target, while the model's laws hold; the
+#   wrong index reported
+law temp_sweep_is_shipped:
+  for +h: String
+  for +es: List<&2, Cm.Ent>
+  {Cm.gone(h, es) == sp_ids(Cm.sweep(sp_temps(h, es, 0n))) : List<&2, Nat>}
+
 # (F1, F9) The writer's choices, tied to the models
 # -------------------------------------------------
 # bend/doc_commit.bend section "The writer's choices", run as the compiled
@@ -323,11 +392,6 @@ def sp_mets(fs: List<&2, Cm.Doc>) -> List<&2, Cm.Met>:
       match f:
         case Cm.Doc{k, c, x}:
           Cm.Met{c, False{}} <> sp_mets(rest)
-
-# R6: the name prefix of a target's temporary files (crates/eukhe-docs
-# write.rs module docs: `.eukhe-tmp-<xxh64 of the target name>-...`)
-def tmp_prefix(h: String) -> String:
-  String.append(".eukhe-tmp-", String.append(h, "-"))
 
 # the publish facts a fault of the model stands for
 def sp_pub(k: Cm.Op, x: Cm.Fault) -> Cm.Pub:
@@ -426,124 +490,131 @@ def sp_fates(fs: List<&2, Cm.Doc>) -> List<&2, Cm.Fate>:
           sp_fates.pick(Cm.outcome(sp_pub(k, x)), sp_fates(rest), sp_untried(rest))
 
 # The spelling of a request and of its reply, from the wire primitives
-# (R7).
+# (R7). The wire is the contract with its one Rust user,
+# crates/eukhe-docs/src/commit.rs: a request is spelled as its writer
+# writes it, a reply as its reader reads it. Every row cites the line of
+# commit.rs that decides it, so these tables are external (not a copy of
+# bend/ffi_doc_commit.bend's encoders and readers): a tag Rust writes or
+# reads otherwise breaks the row.
 
 def sp_w_met(m: Cm.Met, rest: String) -> String:
   match m:
     case Cm.Met{c, t}:
-      Wr.put_bool(c, Wr.put_bool(t, rest))
+      Wr.put_bool(c, Wr.put_bool(t, rest))  # commit.rs:151 .bool(changed).bool(taken)
 
 def sp_w_placed(x: Cm.Placed, rest: String) -> String:
   match x:
     case Cm.NotPlaced{}:
-      Wr.put_nat(0n, rest)
+      Wr.put_nat(0n, rest)  # commit.rs:168 Placed::No => tag(0)
     case Cm.Placed{s}:
-      Wr.put_nat(1n, Wr.put_bool(s, rest))
+      Wr.put_nat(1n, Wr.put_bool(s, rest))  # commit.rs:169 Placed::Yes => tag(1).bool(synced)
 
 def sp_w_pub(p: Cm.Pub, rest: String) -> String:
   match p:
     case Cm.Updated{x}:
-      Wr.put_nat(0n, sp_w_placed(x, rest))
+      Wr.put_nat(0n, sp_w_placed(x, rest))  # commit.rs:178-180 Pub::Updated => tag(0), placed
     case Cm.Deleted{r}:
-      Wr.put_nat(1n, Wr.put_bool(r, rest))
+      Wr.put_nat(1n, Wr.put_bool(r, rest))  # commit.rs:182-183 Pub::Deleted => tag(1).bool(removed)
     case Cm.Moved{x, r}:
-      Wr.put_nat(2n, sp_w_placed(x, Wr.put_bool(r, rest)))
+      Wr.put_nat(2n, sp_w_placed(x, Wr.put_bool(r, rest)))  # commit.rs:185-188 Pub::Moved => tag(2), placed, bool(removed)
 
+# an outcome, as commit.rs `outcome` reads it (the reply of a publish) and
+# `answer` writes it (a fate of a request)
 def sp_w_outcome(o: Cm.Outcome, rest: String) -> String:
   match o:
     case Cm.Lands{w}:
       match w:
         case Cm.NoWarn{}:
-          Wr.put_nat(0n, Wr.put_nat(0n, rest))
+          Wr.put_nat(0n, Wr.put_nat(0n, rest))  # commit.rs:193-194, 210-211 0 => Lands(Warn::None)
         case Cm.SyncWarn{}:
-          Wr.put_nat(0n, Wr.put_nat(1n, rest))
+          Wr.put_nat(0n, Wr.put_nat(1n, rest))  # commit.rs:193,195, 210,212 0 => Lands(Warn::Sync)
         case Cm.RemoveWarn{}:
-          Wr.put_nat(0n, Wr.put_nat(2n, rest))
+          Wr.put_nat(0n, Wr.put_nat(2n, rest))  # commit.rs:193,196, 210,213 0 => Lands(Warn::Remove)
     case Cm.Fails{}:
-      Wr.put_nat(1n, rest)
+      Wr.put_nat(1n, rest)  # commit.rs:198, 215 1 => Fails
 
 def sp_w_fate(f: Cm.Fate, rest: String) -> String:
   match f:
     case Cm.Noop{}:
-      Wr.put_nat(0n, rest)
+      Wr.put_nat(0n, rest)  # commit.rs:209 Fate::Noop => tag(0)
     case Cm.Wrote{o}:
-      Wr.put_nat(1n, sp_w_outcome(o, rest))
+      Wr.put_nat(1n, sp_w_outcome(o, rest))  # commit.rs:210,215 Fate::Wrote => tag(1), outcome
     case Cm.Untried{}:
-      Wr.put_nat(2n, rest)
+      Wr.put_nat(2n, rest)  # commit.rs:216 Fate::Untried => tag(2)
 
 def sp_w_base(b: Cm.Base, rest: String) -> String:
   match b:
     case Cm.OnSeen{xs}:
-      Wr.put_nat(0n, Wr.put_list(~String, ~Wr.put_str, xs, rest))
+      Wr.put_nat(0n, Wr.put_list(~String, ~Wr.put_str, xs, rest))  # commit.rs:247-251 Base::OnSeen => tag(0), count, strs
     case Cm.OnBytes{}:
-      Wr.put_nat(1n, rest)
+      Wr.put_nat(1n, rest)  # commit.rs:253-254 Base::OnBytes => tag(1)
 
 def sp_w_disk(d: Cm.Disk, rest: String) -> String:
   match d:
     case Cm.Absent{}:
-      Wr.put_nat(0n, rest)
+      Wr.put_nat(0n, rest)  # commit.rs:258 Disk::Absent => tag(0)
     case Cm.Present{g, e}:
-      Wr.put_nat(1n, Wr.put_str(g, Wr.put_bool(e, rest)))
+      Wr.put_nat(1n, Wr.put_str(g, Wr.put_bool(e, rest)))  # commit.rs:259 Disk::Present => tag(1).str(digest).bool(expected)
 
 def sp_w_ent(e: Cm.Ent, rest: String) -> String:
   match e:
     case Cm.Ent{n, h}:
-      Wr.put_str(n, Wr.put_bool(h, rest))
+      Wr.put_str(n, Wr.put_bool(h, rest))  # commit.rs:302 .str(name).bool(held)
 
 def sp_w_req(q: FCm.Req, rest: String) -> String:
   match q:
     case FCm.QCheck{ms}:
-      Wr.put_nat(0n, Wr.put_list(~Cm.Met, ~sp_w_met, ms, rest))
+      Wr.put_nat(0n, Wr.put_list(~Cm.Met, ~sp_w_met, ms, rest))  # commit.rs:149 tag(0).count(mets)
     case FCm.QPublish{p}:
-      Wr.put_nat(1n, sp_w_pub(p, rest))
+      Wr.put_nat(1n, sp_w_pub(p, rest))  # commit.rs:176 tag(1)
     case FCm.QAnswer{fs}:
-      Wr.put_nat(2n, Wr.put_list(~Cm.Fate, ~sp_w_fate, fs, rest))
+      Wr.put_nat(2n, Wr.put_list(~Cm.Fate, ~sp_w_fate, fs, rest))  # commit.rs:206 tag(2).count(fates)
     case FCm.QGate{b, d}:
-      Wr.put_nat(3n, sp_w_base(b, sp_w_disk(d, rest)))
+      Wr.put_nat(3n, sp_w_base(b, sp_w_disk(d, rest)))  # commit.rs:245 tag(3), base, disk
     case FCm.QSeen{d, xs}:
-      Wr.put_nat(4n, Wr.put_str(d, Wr.put_list(~String, ~Wr.put_str, xs, rest)))
+      Wr.put_nat(4n, Wr.put_str(d, Wr.put_list(~String, ~Wr.put_str, xs, rest)))  # commit.rs:280-282 tag(4).str(digest).count(seen)
     case FCm.QPrefix{h}:
-      Wr.put_nat(5n, Wr.put_str(h, rest))
+      Wr.put_nat(5n, Wr.put_str(h, rest))  # commit.rs:291 tag(5).str(name_digest)
     case FCm.QSweep{h, es}:
-      Wr.put_nat(6n, Wr.put_str(h, Wr.put_list(~Cm.Ent, ~sp_w_ent, es, rest)))
+      Wr.put_nat(6n, Wr.put_str(h, Wr.put_list(~Cm.Ent, ~sp_w_ent, es, rest)))  # commit.rs:300 tag(6).str(name_digest).count(entries)
 
 def sp_w_check(c: Cm.Check) -> String:
   match c:
     case Cm.Go{}:
-      Wr.put_nat(0n, "")
+      Wr.put_nat(0n, "")  # commit.rs:154-155 0 => None (publish every file)
     case Cm.Stop{at, why}:
       match why:
         case Cm.Changed{}:
-          Wr.put_nat(1n, Wr.put_nat(at, Wr.put_nat(0n, "")))
+          Wr.put_nat(1n, Wr.put_nat(at, Wr.put_nat(0n, "")))  # commit.rs:157-159 index, 0 => Why::Changed
         case Cm.Taken{}:
-          Wr.put_nat(1n, Wr.put_nat(at, Wr.put_nat(1n, "")))
+          Wr.put_nat(1n, Wr.put_nat(at, Wr.put_nat(1n, "")))  # commit.rs:157-160 index, 1.. => Why::Taken
 
 def sp_w_note(x: Cm.Note, rest: String) -> String:
   match x:
     case Cm.Untouched{}:
-      Wr.put_nat(0n, rest)
+      Wr.put_nat(0n, rest)  # commit.rs:230 0 => Note::Untouched
     case Cm.Written{}:
-      Wr.put_nat(1n, rest)
+      Wr.put_nat(1n, rest)  # commit.rs:231 1 => Note::Written
     case Cm.Unwritten{}:
-      Wr.put_nat(2n, rest)
+      Wr.put_nat(2n, rest)  # commit.rs:232 2 => Note::Unwritten
     case Cm.Skipped{k}:
-      Wr.put_nat(3n, Wr.put_nat(k, rest))
+      Wr.put_nat(3n, Wr.put_nat(k, rest))  # commit.rs:233 3.. => Note::Skipped(index)
 
 def sp_w_verdict(v: Cm.Verdict) -> String:
   match v:
     case Cm.Failure{}:
-      Wr.put_nat(0n, "")
+      Wr.put_nat(0n, "")  # commit.rs:220-221 0 => Verdict::Failure
     case Cm.Summary{ns, p}:
-      Wr.put_nat(1n, Wr.put_list(~Cm.Note, ~sp_w_note, ns, Wr.put_bool(p, "")))
+      Wr.put_nat(1n, Wr.put_list(~Cm.Note, ~sp_w_note, ns, Wr.put_bool(p, "")))  # commit.rs:223-238 count, notes, bool(partial)
 
 def sp_w_gate(g: Cm.Gate) -> String:
   match g:
     case Cm.Proceed{}:
-      Wr.put_nat(0n, "")
+      Wr.put_nat(0n, "")  # commit.rs:263 0 => Gate::Proceed
     case Cm.Unseen{}:
-      Wr.put_nat(1n, "")
+      Wr.put_nat(1n, "")  # commit.rs:264 1 => Gate::Unseen
     case Cm.Stale{}:
-      Wr.put_nat(2n, "")
+      Wr.put_nat(2n, "")  # commit.rs:265 2.. => Gate::Stale
 
 # the reply Rust reads: the spelled choice of the model (pinned by R1-R6
 # in laws/doc_commit/choices.bend); the prefix is R6's

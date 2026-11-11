@@ -1945,6 +1945,7 @@ import ./proof/doc_commit/move_moves.bend as PMoveMoves
 import ./proof/doc_commit/temp_sweep_never_held.bend as PTempSweepNeverHeld
 import ./proof/doc_commit/temp_sweep_only_own.bend as PTempSweepOnlyOwn
 import ./proof/doc_commit/temp_sweep_removes_free.bend as PTempSweepRemovesFree
+import ./proof/doc_commit/temp_sweep_is_shipped.bend as PTempSweepIsShipped
 import ./proof/doc_commit/entry/list_met.bend as PDocCommitEntryListMet
 import ./proof/doc_commit/entry/list_fate.bend as PDocCommitEntryListFate
 import ./proof/doc_commit/entry/list_ents.bend as PDocCommitEntryListEnts
@@ -1959,6 +1960,7 @@ import ./proof/doc_commit/commit_entry_exact.bend as PCommitEntryExact
 import ./proof/doc_commit/commit_entry_refuses.bend as PCommitEntryRefuses
 import ./proof/doc_commit/commit_entry_example.bend as PCommitEntryExample
 import ./proof/doc_commit/edit_reply_exact.bend as PEditReplyExact
+import ./proof/doc_commit/edit_reply_conflict.bend as PEditReplyConflict
 import ./proof/doc_commit/commit_check_clear_goes.bend as PCommitCheckClearGoes
 import ./proof/doc_commit/commit_check_stops_at_changed.bend as PCommitCheckStopsAtChanged
 import ./proof/doc_commit/commit_check_stops_at_taken.bend as PCommitCheckStopsAtTaken
