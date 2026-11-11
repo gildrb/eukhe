@@ -831,3 +831,50 @@ fn a_family_outside_others_takes_only_what_they_leave() {
         ]
     );
 }
+
+/// The Anthropic thinking forms of omp's catalog: `thinking.display` on
+/// adaptive Claude 4.7 and later only (omp `compat/resolve.ts`
+/// `defaultSupportsDisplay`), budget thinking with an effort on Opus 4.5
+/// (`classes/anthropic.kdl` `anthropic-budget-effort`), `between_tools` as
+/// Sonnet 5.5's off and an explicit `disabled` as Haiku 5.5's
+/// (`compat.supportsBetweenToolsThinking`, `compat.disabledThinking`).
+#[test]
+fn the_shipped_anthropic_thinking_forms_follow_omp() {
+    let api = "anthropic-messages";
+    let quirks = |provider: &str, id: &str| {
+        let model = model(api, provider, id, "");
+        let quirks = Quirks::of(&model);
+        [
+            quirks.thinking_display(),
+            quirks.budget_effort(),
+            quirks.between_tools_thinking(),
+            quirks.disabled_thinking(),
+        ]
+    };
+    assert_eq!(
+        [
+            quirks("anthropic", "claude-opus-4-7"),
+            quirks("github-copilot", "claude-sonnet-5.5"),
+            quirks("anthropic", "claude-opus-4-6"),
+            quirks("github-copilot", "claude-sonnet-4.6"),
+            quirks("kimi-coding", "k3"),
+            quirks("anthropic", "claude-opus-4-5"),
+            quirks("vercel-ai-gateway", "anthropic/claude-opus-4.5"),
+            quirks("anthropic", "claude-sonnet-4-5"),
+            quirks("anthropic", "claude-haiku-5-5"),
+            quirks("amazon-bedrock", "global.anthropic.claude-haiku-5-5"),
+        ],
+        [
+            [Some(true), None, None, None],
+            [Some(true), None, Some(true), None],
+            [Some(false), None, None, None],
+            [Some(false), None, None, None],
+            [None, None, None, None],
+            [None, Some(true), None, None],
+            [None, Some(true), None, None],
+            [None, None, None, None],
+            [Some(true), None, None, Some(true)],
+            [Some(true), None, None, Some(true)],
+        ]
+    );
+}

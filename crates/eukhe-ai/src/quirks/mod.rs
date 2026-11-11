@@ -156,6 +156,23 @@ pub enum Directive {
     AdaptiveThinking,
     /// Bedrock: the adaptive model takes `thinking.block_binding`.
     ThinkingBlockBinding,
+    /// Anthropic Messages: adaptive thinking takes `thinking.display`
+    /// (Claude 4.7 and later; Claude 4.6 and other adaptive models reject
+    /// it). No rule: it does not. Budget thinking always takes it.
+    ThinkingDisplay,
+    /// Anthropic Messages: budget thinking (`thinking.type: enabled`) also
+    /// carries the level as `output_config.effort` (Claude Opus 4.5, GLM
+    /// 5.2 and later). No rule: it does not.
+    BudgetEffort,
+    /// Anthropic Messages: thinking off is `thinking.type: between_tools`,
+    /// the model's lowest setting (Claude Sonnet 5.5 rejects `disabled`).
+    /// No rule: it is not.
+    BetweenToolsThinking,
+    /// Anthropic Messages and Bedrock: thinking off is an explicit
+    /// `thinking.type: disabled` even on an adaptive model (Claude Haiku
+    /// 5.5). No rule: an adaptive model's thinking off omits `thinking`
+    /// and pins the lowest effort.
+    DisabledThinking,
     /// Bedrock: the model takes `cachePoint` blocks (prompt caching).
     PromptCaching,
     /// `OpenAI` Responses: the model takes the explicit prompt-cache controls
@@ -246,6 +263,10 @@ impl Directive {
         Self::QwenChatTemplate,
         Self::AdaptiveThinking,
         Self::ThinkingBlockBinding,
+        Self::ThinkingDisplay,
+        Self::BudgetEffort,
+        Self::BetweenToolsThinking,
+        Self::DisabledThinking,
         Self::PromptCaching,
         Self::ExplicitCacheBreakpoints,
         Self::GoogleThinkingLevel,
@@ -295,6 +316,10 @@ impl Directive {
             Self::QwenChatTemplate => "qwen_chat_template",
             Self::AdaptiveThinking => "adaptive_thinking",
             Self::ThinkingBlockBinding => "thinking_block_binding",
+            Self::ThinkingDisplay => "thinking_display",
+            Self::BudgetEffort => "budget_effort",
+            Self::BetweenToolsThinking => "between_tools_thinking",
+            Self::DisabledThinking => "disabled_thinking",
             Self::PromptCaching => "prompt_caching",
             Self::ExplicitCacheBreakpoints => "explicit_cache_breakpoints",
             Self::GoogleThinkingLevel => "google_thinking_level",
@@ -359,6 +384,10 @@ impl Directive {
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
             | Self::ThinkingBlockBinding
+            | Self::ThinkingDisplay
+            | Self::BudgetEffort
+            | Self::BetweenToolsThinking
+            | Self::DisabledThinking
             | Self::PromptCaching
             | Self::ExplicitCacheBreakpoints
             | Self::GoogleThinkingLevel
@@ -395,6 +424,10 @@ impl Directive {
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
             | Self::ThinkingBlockBinding
+            | Self::ThinkingDisplay
+            | Self::BudgetEffort
+            | Self::BetweenToolsThinking
+            | Self::DisabledThinking
             | Self::PromptCaching
             | Self::ExplicitCacheBreakpoints
             | Self::GoogleThinkingLevel
@@ -1695,6 +1728,30 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn thinking_block_binding(&self) -> Option<bool> {
         self.flag(Directive::ThinkingBlockBinding)
+    }
+
+    /// [`Directive::ThinkingDisplay`].
+    #[must_use]
+    pub fn thinking_display(&self) -> Option<bool> {
+        self.flag(Directive::ThinkingDisplay)
+    }
+
+    /// [`Directive::BudgetEffort`].
+    #[must_use]
+    pub fn budget_effort(&self) -> Option<bool> {
+        self.flag(Directive::BudgetEffort)
+    }
+
+    /// [`Directive::BetweenToolsThinking`].
+    #[must_use]
+    pub fn between_tools_thinking(&self) -> Option<bool> {
+        self.flag(Directive::BetweenToolsThinking)
+    }
+
+    /// [`Directive::DisabledThinking`].
+    #[must_use]
+    pub fn disabled_thinking(&self) -> Option<bool> {
+        self.flag(Directive::DisabledThinking)
     }
 
     /// [`Directive::PromptCaching`].
