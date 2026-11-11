@@ -202,6 +202,12 @@ function markdownFile(doc: Doc): string {
 /** Without the script: the page, not the terminal. */
 const noscript = `<style>html[data-vim]{overflow:auto}html[data-vim] main{position:static;width:auto;height:auto;overflow:visible;clip-path:none}html[data-vim] [data-deco]{display:inline}[data-term]{display:none}</style>`;
 
+/**
+ * `translate="no"`: the page is English and never machine-translated. A string record: preact types
+ * `translate` as a boolean, and renders no `translate="no"` from one.
+ */
+const noTranslate: Readonly<Record<string, string>> = { translate: "no" };
+
 function Page({
   css,
   doc,
@@ -218,11 +224,15 @@ function Page({
   return (
     <html
       lang="en"
+      {...noTranslate}
       {...(screen === null ? {} : { "data-vim": "", "data-page": markdownFile(doc) })}
       {...stylex.props(styles.html)}
     >
       <head>
         <meta charset="UTF-8" />
+        {/* English, never machine-translated: the Greek epigraphs (lang="grc") trip the
+            browser's language guess and its "translate this page" offer. */}
+        <meta name="google" content="notranslate" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{doc.title}</title>
         <meta name="description" content={doc.description} />

@@ -97,7 +97,19 @@ function attrs(cls: string): string {
   return cls === "" ? "" : ` class="${cls}"`;
 }
 
-/** A row's cells as runs of one class each; trailing plain blanks dropped. */
+const greekLetter = /[\u0370-\u03FF\u1F00-\u1FFF]/u;
+const latinLetter = /[A-Za-z\u00C0-\u024F]/u;
+
+/**
+ * A line of Ancient Greek (an epigraph, the header's numerals): Greek letters and no Latin ones.
+ * The page and the editor mark it `lang="grc" translate="no"`, so a browser neither takes the
+ * page for Greek nor offers to translate it.
+ */
+export function greekLine(text: string): boolean {
+  return greekLetter.test(text) && !latinLetter.test(text);
+}
+
+/** A row's cells as runs of one class each; trailing plain blanks dropped; a Greek line marked. */
 function rowHtml(row: Row): string {
   let end = row.chars.length;
   while (end > 0 && row.chars[end - 1] === " " && row.classes[end - 1] === "") end -= 1;
@@ -124,7 +136,8 @@ function rowHtml(row: Row): string {
     run += ch;
   }
   flush();
-  return html;
+  const text = row.chars.slice(0, end).join("");
+  return greekLine(text) ? `<span lang="grc" translate="no">${html}</span>` : html;
 }
 
 /** `[copy]` on screen: its row and cells, and what it copies. */

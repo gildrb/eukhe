@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
+import { greekLine } from "./paint.ts";
 import { install } from "./source.ts";
 import { colors, type } from "./tokens.stylex.ts";
 
@@ -219,6 +220,14 @@ function fences(entries: readonly Entry[]): Map<number, string[]> {
 }
 
 /**
+ * A line of Ancient Greek's attributes (paint.ts `greekLine`): its language, and no translation. A
+ * string record: preact types `translate` as a boolean, and renders no `translate="no"` from one.
+ */
+function greek(text: string): Readonly<Record<string, string>> {
+  return greekLine(text) ? { lang: "grc", translate: "no" } : {};
+}
+
+/**
  * The page: one block per row group, each wrapping at the screen's width; list items and quotes
  * hang their marker. Only the fence the install command opens gets a copy button (`source.ts`).
  */
@@ -241,7 +250,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         );
       case "Quote":
         return (
-          <span {...stylex.props(styles.row, styles.hang)}>
+          <span {...greek(block.text)} {...stylex.props(styles.row, styles.hang)}>
             <span {...stylex.props(styles.muted)}>{"> "}</span>
             {inline(block.text)}
           </span>
@@ -250,8 +259,12 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         const { entry } = block;
         const header = entry.line.$ === "Header";
         const code = entry.line.$ === "Code" || entry.line.$ === "Table" || entry.line.$ === "Raw";
+        const text = "text" in entry.line ? entry.line.text : "";
         return (
-          <span {...stylex.props(styles.row, header && styles.header, code && styles.hang)}>
+          <span
+            {...greek(text)}
+            {...stylex.props(styles.row, header && styles.header, code && styles.hang)}
+          >
             {content(entry.line)}
             {fenced.get(entry.n)?.[0] === install ? (
               <button
