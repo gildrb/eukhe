@@ -1,9 +1,9 @@
 //! The headless terminal selection over the durable transcript (the
 //! selection half of TS `headless-completion.ts` + the text-output half of
 //! `print-mode.ts`): walk the main conversation newest-first, collect the
-//! trailing compaction outcomes, skip internal notices, and take the first
-//! substantive entry (an assistant answer or a slash-command result) as the
-//! primary.
+//! trailing compaction outcomes and the warning of a truncated answer, skip
+//! internal notices, and take the first substantive entry (an assistant
+//! answer or a slash-command result) as the primary.
 
 use eukhe_bend::rules::headless::Primary;
 use eukhe_chord::context::Context;
@@ -16,6 +16,7 @@ use eukhe_core::durable::{custom_entry_content, CUSTOM_ENTRY};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::types::EntryRecord;
+use eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
 };
@@ -133,12 +134,17 @@ pub(crate) struct CompactionOutcome {
 pub(crate) struct HeadlessTerminalResult {
     pub primary: Option<HeadlessPrimary>,
     pub compaction_outcomes: Vec<CompactionOutcome>,
+    /// The warnings trailing the primary, oldest first: the answer hit the
+    /// output limit and is truncated.
+    pub warnings: Vec<String>,
 }
 
 /// What one transcript entry means for the selection.
 enum Step {
     /// A trailing compaction outcome.
     Outcome(CompactionOutcome),
+    /// A trailing warning about the answer it follows.
+    Warning(String),
     /// Bookkeeping or an internal notice: keep walking.
     Skip,
     /// The selection ends here, with this primary (or none).
@@ -163,6 +169,7 @@ pub(crate) async fn select_terminal_result(
         for entry in page.items {
             match step(entry) {
                 Step::Outcome(outcome) => result.compaction_outcomes.insert(0, outcome),
+                Step::Warning(warning) => result.warnings.insert(0, warning),
                 Step::Skip => {}
                 Step::Stop(primary) => {
                     result.primary = primary;
@@ -209,6 +216,9 @@ fn step(entry: EntryRecord) -> Step {
                     .and_then(|outcome| outcome.as_str().map(str::to_owned))
                     .unwrap_or_default(),
             }),
+            // The row after an answer that hit the output limit and was
+            // kept as it is: the answer is the primary.
+            OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Step::Warning(content),
             REFINEMENT_OUTCOME_CUSTOM_TYPE
             | REFINEMENT_NOTICE_CUSTOM_TYPE
             | HARNESS_DIGEST_CUSTOM_TYPE => Step::Skip,
@@ -287,5 +297,18 @@ mod tests {
     #[test]
     fn a_failed_retry_row_ends_the_walk() {
         assert!(matches!(step(retry_outcome_row(false)), Step::Stop(None)));
+    }
+
+    /// The warning row of a truncated answer trails the answer the run
+    /// kept: the walk takes its text and passes over it to that answer.
+    #[test]
+    fn a_truncated_answer_warning_does_not_hide_the_answer() {
+        let text = "Response hit the faux/faux-1 output limit (8 tokens) and was truncated.";
+        let row: EntryRecord = serde_json::from_value(serde_json::json!({
+            "kind": "eukhe.custom", "id": 17, "conversationId": 1,
+            "data": { "customType": "eukhe.output_limit", "content": text, "display": true },
+        }))
+        .expect("an entry record");
+        assert!(matches!(step(row), Step::Warning(warning) if warning == text));
     }
 }

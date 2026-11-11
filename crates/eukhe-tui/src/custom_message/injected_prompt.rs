@@ -108,6 +108,7 @@ pub(crate) fn injected_prompt_row(
         | CustomType::SessionSlashCommand
         | CustomType::SessionSlashCommandResult
         | CustomType::WorkerRestartNotice
+        | CustomType::OutputLimitNotice
         | CustomType::Other(_) => return None,
     };
     let body = match &kind {

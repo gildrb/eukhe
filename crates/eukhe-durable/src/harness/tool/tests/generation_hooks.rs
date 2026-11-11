@@ -8,21 +8,21 @@ use eukhe_ai::providers::faux::{
     FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_ai::types::DeferredRequest;
-use eukhe_chord::json::from_json;
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_types::pi_ai::{
-    AssistantMessage, Message, TextContent, UserContent, UserContentBlock, UserMessage,
+    AssistantMessage, Message, StopReason, TextContent, UserContent, UserContentBlock, UserMessage,
 };
 use futures::FutureExt;
 
-use super::support::{calls, done, empty_content, run, run_with, tool, Prepare};
+use super::support::{calls, done, empty_content, run, run_with, submit_and_wait, tool, Prepare};
 use crate::harness::live::LIVE_DOC;
-use crate::harness::tests::chat_support::{chat_setup, text_of};
+use crate::harness::tests::chat_support::{all_entries, chat_setup, text_of};
 use crate::harness::tests::support::{add_hooks, add_tool, context, generation_task, tool_task};
 use crate::harness::types::{
     ConversationStreamOptions, GenerationHooks, RequestMessages, ToolHooks, YieldContinuation,
 };
 use crate::harness::Harness;
-use crate::types::{ConversationId, SubmissionId, SubmissionStatus};
+use crate::types::{ConversationId, EntryDraft, SubmissionId, SubmissionStatus};
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -431,6 +431,67 @@ async fn keeps_durable_hook_decisions_in_task_memos() {
     assert_eq!(
         *lock(&decisions),
         [("approved".to_owned(), "approved".to_owned())]
+    );
+    ran.harness.close(context()).await.unwrap();
+}
+
+/// The warning of a kept truncated answer. The stop walk keeps a reply
+/// that hit the output limit with text and room left in the window
+/// (laws/stop/cut.bend); omp `session-maintenance.ts` emits the same text
+/// for a truncated turn it keeps. The harness writes the warning and asks
+/// each `on_truncated` handler for the row that shows it; the row follows
+/// the answer in the transcript. A whole answer asks no handler.
+#[tokio::test]
+async fn appends_the_on_truncated_row_after_a_kept_truncated_answer() {
+    let setup = chat_setup(RegisterFauxProviderOptions::default());
+    add_hooks(
+        &setup.registry,
+        generation_task(),
+        GenerationHooks {
+            on_truncated: Some(Arc::new(|warning, _, _| {
+                let row = EntryDraft {
+                    data: Some(JsonValue::from(warning.to_owned())),
+                    ..EntryDraft::new("test.warning")
+                };
+                async move { Ok(Some(row)) }.boxed()
+            })),
+            ..GenerationHooks::default()
+        },
+        None,
+    )
+    .unwrap();
+    let truncated: AssistantMessage = faux_assistant_message(
+        vec![faux_text("Here is the whole plan: first")],
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::Length),
+            ..FauxAssistantMessageOptions::default()
+        },
+    );
+    let ran = run(&setup, vec![truncated.into(), answer("whole").into()]).await;
+    submit_and_wait(&ran.root, "more").await;
+    let rows: Vec<_> = all_entries(&ran.root, context())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|entry| {
+            let warning = (entry.kind == "test.warning")
+                .then_some(entry.data)
+                .flatten();
+            (entry.kind, warning)
+        })
+        .collect();
+    let warning = JsonValue::from(
+        "Response hit the faux/faux-1 output limit (8 tokens) and was truncated.".to_owned(),
+    );
+    assert_eq!(
+        rows,
+        [
+            ("pi.user".to_owned(), None),
+            ("pi.assistant".to_owned(), None),
+            ("test.warning".to_owned(), Some(warning)),
+            ("pi.user".to_owned(), None),
+            ("pi.assistant".to_owned(), None),
+        ]
     );
     ran.harness.close(context()).await.unwrap();
 }

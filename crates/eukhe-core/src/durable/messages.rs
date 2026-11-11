@@ -407,6 +407,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                         | crate::durable::models::DEFAULT_MODEL_NOTICE_CUSTOM_TYPE
                         | crate::durable::rlm::kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE
                         | eukhe_types::custom_type::WORKER_RESTART_NOTICE_CUSTOM_TYPE
+                        | eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE
                 ) {
                     continue;
                 }

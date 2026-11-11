@@ -35,8 +35,8 @@ use crate::harness::types::{
 use crate::session::{SessionResult, Tx};
 use crate::tasks::AnyTask;
 use crate::types::{
-    DocumentReaderExt, EntryHead, EntryId, JoinPolicy, SubmissionSettlement, TaskId, TaskOptions,
-    TaskOutcome, TaskOwnership, TypedEntryDraft,
+    DocumentReaderExt, EntryDraft, EntryHead, EntryId, JoinPolicy, SubmissionSettlement, TaskId,
+    TaskOptions, TaskOutcome, TaskOwnership, TypedEntryDraft,
 };
 
 pub(super) fn queue_modes(runtime: &Runtime) -> QueueModes {
@@ -166,11 +166,52 @@ pub(super) async fn start_next_call(
         .await
 }
 
+/// The rows that show the warning of an answer that hit the output limit
+/// and that the stop walk kept (laws/stop/cut.bend): one per
+/// `on_truncated` handler, with the text of omp `session-maintenance.ts`
+/// (its notice of a kept truncated turn). None for a whole answer.
+async fn truncated_rows(
+    runtime: &Runtime,
+    message: &AssistantMessage,
+    cx: &Context,
+) -> SessionResult<Vec<EntryDraft>> {
+    if message.stop_reason != StopReason::Length {
+        return Ok(Vec::new());
+    }
+    let warning = format!(
+        "Response hit the {}/{} output limit ({} tokens) and was truncated.",
+        message.provider, message.model, message.usage.output
+    );
+    let api = runtime.hook_api();
+    let rows: Arc<Mutex<Vec<EntryDraft>>> = Arc::default();
+    runtime
+        .hooks()
+        .each(
+            |hooks: &GenerationHooks| hooks.on_truncated.clone(),
+            |hook| {
+                let row = hook(&warning, &api, cx);
+                let rows = Arc::clone(&rows);
+                async move {
+                    if let Some(row) = row.await? {
+                        rows.lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(row);
+                    }
+                    Ok(())
+                }
+            },
+        )
+        .await?;
+    let rows = std::mem::take(&mut *rows.lock().unwrap_or_else(PoisonError::into_inner));
+    Ok(rows)
+}
+
 /// A final answer; the final boundary places queued items (spec §6). The
 /// first `onYield` continuation appends a user message and hands the run to
 /// a successor generation, but only when the boundary selected no user item
 /// and no reset. Otherwise the run's inputs settle `done`, and selected user
-/// items start the next run.
+/// items start the next run. The rows of a kept truncated answer's warning
+/// ([`truncated_rows`]) follow it in the commit.
 pub(super) async fn answer(
     runtime: &Runtime,
     message: AssistantMessage,
@@ -203,6 +244,7 @@ pub(super) async fn answer(
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .take();
+    let warnings = truncated_rows(runtime, &message, cx).await?;
     let conversation_id = runtime.conversation_id();
     let task_id = runtime.task_id().erase();
     let generation = runtime.registry().builtins().generation.clone();
@@ -217,6 +259,9 @@ pub(super) async fn answer(
                     prepare_boundary(&tx, conversation_id, queue_modes(&runtime)).await?;
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 let entry = append_assistant(&tx, conversation_id, message).await?;
+                for warning in warnings {
+                    tx.append_entry(conversation_id, warning).await?;
+                }
                 let result = completed(entry.id);
                 let outcome = apply_boundary(
                     &tx,

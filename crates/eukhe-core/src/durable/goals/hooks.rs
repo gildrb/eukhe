@@ -22,6 +22,9 @@
 //!   forced. Queued user input and unsettled RLM children hold the
 //!   continuation (the queued run or the child's report run reaches its
 //!   own final answer). An aborted run never reaches `on_yield`.
+//! - `on_truncated`: the display row of a final answer that hit the output
+//!   limit and that the stop Directors kept as it is (`eukhe.output_limit`:
+//!   the Harness's warning, shown after the answer, never model context).
 //!
 //! Every decision is recorded in `eukhe.goal.loop` keyed by the generation
 //! task, in the same commit as its goal, autonomous and stack changes, so a
@@ -41,6 +44,7 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryDraft, EntryRecord, ScanOrder, SubmissionId, TaskId};
+use eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
@@ -126,6 +130,16 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                         }))
                 }
                 .boxed()
+            })),
+            on_truncated: Some(Arc::new(|warning: &str, _: &HookApi, _: &Context| {
+                let row = custom_entry_draft(
+                    OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE,
+                    UserContent::Text(warning.to_owned()),
+                    /*display*/ true,
+                    None,
+                    now_millis(),
+                );
+                async move { Ok(Some(row?)) }.boxed()
             })),
             after_tools: None,
             pending_work: None,
