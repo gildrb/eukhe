@@ -2677,9 +2677,9 @@ import ./proof/cvar/cvar_refusal_first_drop.bend as PCvarRefusalFirstDrop
 import ./proof/cvar/cvar_toggle_values.bend as PCvarToggleValues
 import ./proof/cvar/cvar_terms_example.bend as PCvarTermsExample
 import ./proof/cvar/base/save.bend as LACvarSave
-import ./proof/cvar/cvar_save_reads_back.bend as PCvarSaveReadsBack
-import ./proof/cvar/cvar_save_keeps_others.bend as PCvarSaveKeepsOthers
-import ./proof/cvar/cvar_save_project_wins.bend as PCvarSaveProjectWins
+import ./proof/cvar/cvar_cfg_written_reads_back.bend as PCvarCfgWrittenReadsBack
+import ./proof/cvar/cvar_cfg_written_keeps_others.bend as PCvarCfgWrittenKeepsOthers
+import ./proof/cvar/cvar_cfg_project_wins.bend as PCvarCfgProjectWins
 import ./proof/cvar/cvar_save_once.bend as PCvarSaveOnce
 import ./proof/cvar/cvar_save_example.bend as PCvarSaveExample
 import ./proof/cvar/base/expand.bend as LACvarExpand

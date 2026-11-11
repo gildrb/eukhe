@@ -477,57 +477,21 @@ law cvar_document_per_cvar:
 # The stores of the config layer
 # ------------------------------
 # Cv.stores: settings.json, then the global config.cfg, then the
-# project's config.cfg, read with an empty family; Cv.save: the MODEL of a
-# write of a setting into the global config.cfg (every earlier set of the
-# cvar dropped, the new set last). The Rust writer does not call Cv.save:
-# it replaces the first line that sets the cvar and drops the others (the
-# same sets value-wise: only the sets of one cvar compete in a layer), so
-# these laws are about the model write, not the shipped writer (R8).
+# project's config.cfg, read with an empty family (the order Rust's
+# config layer runs them in, settings/cfg.rs `config_layer`). The shipped
+# write of a setting is Rust's (settings/manager.rs `save_global`,
+# `run_global`): replace_sets (settings/cfg.rs) rewrites the global
+# config.cfg so that it sets the cvar exactly once, to the written value
+# (the first line that set it, in place; every other set of it goes),
+# keeping every other line (Rust test `run_global_replaces_the_line`,
+# settings/cfg/tests.rs; end to end
+# `a_thinking_level_set_in_the_ui_reads_back`,
+# settings/one_store_tests.rs). The laws below take ANY global config.cfg
+# with that property as the written file and state what the reload,
+# which runs the compiled core (Cv.layered through
+# bend/ffi_cvar_layers.bend), reads from it (R8). Cv.save is only a model
+# of that write (cvar_save_once); no entry and no Rust code runs it.
 # Every input is free.
-
-# LAW cvar_save_reads_back: after the model write Cv.save of a set valid in config.cfg into the global config.cfg, the config layer (Cv.stores, read by Cv.layered with no family) reads the written value, whatever settings.json and the global config.cfg held, provided the project's config.cfg sets no valid value of the cvar
-# EXCLUDES: a write into a store a higher store shadows (the old
-#   settings.json write), a stale earlier set of the cvar surviving the
-#   write
-law cvar_save_reads_back:
-  for +ds: List<&2, Cv.Decl>
-  for +doc: List<&2, Cv.Bind>
-  for +g: List<&2, Cv.Bind>
-  for +p: List<&2, Cv.Bind>
-  for +x: Nat
-  for +v: Cv.Val
-  for ok: {Cv.valid(ds, Cv.Config{}, Cv.Bind{x, v}) == True{} : Bool}
-  for quiet: {Cv.layer(p, ds, Cv.Config{}, x, None{}) == None{} : Maybe<&2, Cv.Val>}
-  {Cv.layered(ds, Cv.stores(doc, Cv.save(g, Cv.Bind{x, v}), p), Nil{}, x) == Some{v} : Maybe<&2, Cv.Val>}
-
-# LAW cvar_save_keeps_others: the model write Cv.save of one cvar into the global config.cfg leaves the layered config value of every other cvar as it was
-# EXCLUDES: a write that drops, adds or reorders the sets of another cvar
-#   (a whole-file rewrite that loses lines, a drop by the wrong id)
-law cvar_save_keeps_others:
-  for +ds: List<&2, Cv.Decl>
-  for +doc: List<&2, Cv.Bind>
-  for +g: List<&2, Cv.Bind>
-  for +p: List<&2, Cv.Bind>
-  for +x: Nat
-  for +v: Cv.Val
-  for +y: Nat
-  for +ne: {Nat.is_eq(x, y) == False{} : Bool}
-  {Cv.layered(ds, Cv.stores(doc, Cv.save(g, Cv.Bind{x, v}), p), Nil{}, y) == Cv.layered(ds, Cv.stores(doc, g, p), Nil{}, y) : Maybe<&2, Cv.Val>}
-
-# LAW cvar_save_project_wins: when the project's config.cfg sets a valid value of the cvar, the config layer after the model write Cv.save of a valid set reads the project's value
-# EXCLUDES: a global write that shadows the project's config.cfg, an
-#   override reported from settings.json or the old global value
-law cvar_save_project_wins:
-  for +ds: List<&2, Cv.Decl>
-  for +doc: List<&2, Cv.Bind>
-  for +g: List<&2, Cv.Bind>
-  for +p: List<&2, Cv.Bind>
-  for +x: Nat
-  for +v: Cv.Val
-  for +w: Cv.Val
-  for ok: {Cv.valid(ds, Cv.Config{}, Cv.Bind{x, v}) == True{} : Bool}
-  for set: {Cv.layer(p, ds, Cv.Config{}, x, None{}) == Some{w} : Maybe<&2, Cv.Val>}
-  {Cv.layered(ds, Cv.stores(doc, Cv.save(g, Cv.Bind{x, v}), p), Nil{}, x) == Some{w} : Maybe<&2, Cv.Val>}
 
 def spec_sets_of.pick(hit: Bool, s: Cv.Bind, rest: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
   match hit:
@@ -544,17 +508,60 @@ def spec_sets_of(ss: List<&2, Cv.Bind>, +x: Nat) -> List<&2, Cv.Bind>:
     case Cv.Bind{+i, +v} <> rest:
       spec_sets_of.pick(Nat.is_eq(i, x), Cv.Bind{i, v}, spec_sets_of(rest, x))
 
-# LAW cvar_save_once: after the model write Cv.save, the global config.cfg (the list Cv.save returns) sets the cvar exactly once, to the written value
-# EXCLUDES: a write appended after the old sets of the cvar (a stale set
-#   left in the file), a write lost or written twice
+# LAW cvar_cfg_written_reads_back (R8): when the global config.cfg the write left (any list g) sets the cvar x exactly once, to v (its sets of x are [x = v]), v valid in config.cfg, and the project's config.cfg sets no valid value of x, the config layer the reload reads (settings.json doc, then g, then the project's p, by Cv.layered with no family) gives v, whatever doc and the other lines of g hold
+# EXCLUDES: a write into a store a higher store shadows (the old
+#   settings.json write), a read that takes another line of g, a value
+#   of settings.json read over the written one
+law cvar_cfg_written_reads_back:
+  for +ds: List<&2, Cv.Decl>
+  for +doc: List<&2, Cv.Bind>
+  for +g: List<&2, Cv.Bind>
+  for +p: List<&2, Cv.Bind>
+  for +x: Nat
+  for +v: Cv.Val
+  for once: {spec_sets_of(g, x) == [Cv.Bind{x, v}] : List<&2, Cv.Bind>}
+  for ok: {Cv.valid(ds, Cv.Config{}, Cv.Bind{x, v}) == True{} : Bool}
+  for quiet: {Cv.layer(p, ds, Cv.Config{}, x, None{}) == None{} : Maybe<&2, Cv.Val>}
+  {Cv.layered(ds, Cv.stores(doc, g, p), Nil{}, x) == Some{v} : Maybe<&2, Cv.Val>}
+
+# LAW cvar_cfg_written_keeps_others (R8): a written global config.cfg g2 whose sets of a cvar y are those of the old file g, in order, leaves y's config value as it was: the config layer reads a cvar from that cvar's sets alone
+# EXCLUDES: a value of y read from a set of another cvar, or from the
+#   place of y's sets among other lines (a rewrite that moves other lines
+#   changes nothing)
+law cvar_cfg_written_keeps_others:
+  for +ds: List<&2, Cv.Decl>
+  for +doc: List<&2, Cv.Bind>
+  for +g: List<&2, Cv.Bind>
+  for +g2: List<&2, Cv.Bind>
+  for +p: List<&2, Cv.Bind>
+  for +y: Nat
+  for same: {spec_sets_of(g2, y) == spec_sets_of(g, y) : List<&2, Cv.Bind>}
+  {Cv.layered(ds, Cv.stores(doc, g2, p), Nil{}, y) == Cv.layered(ds, Cv.stores(doc, g, p), Nil{}, y) : Maybe<&2, Cv.Val>}
+
+# LAW cvar_cfg_project_wins (R8): when the project's config.cfg sets a valid value w of x, the config layer reads w, whatever the global config.cfg (written or not) and settings.json hold
+# EXCLUDES: a global write that shadows the project's config.cfg, an
+#   override reported from settings.json or the global value
+law cvar_cfg_project_wins:
+  for +ds: List<&2, Cv.Decl>
+  for +doc: List<&2, Cv.Bind>
+  for +g: List<&2, Cv.Bind>
+  for +p: List<&2, Cv.Bind>
+  for +x: Nat
+  for +w: Cv.Val
+  for set: {Cv.layer(p, ds, Cv.Config{}, x, None{}) == Some{w} : Maybe<&2, Cv.Val>}
+  {Cv.layered(ds, Cv.stores(doc, g, p), Nil{}, x) == Some{w} : Maybe<&2, Cv.Val>}
+
+# LAW cvar_save_once (R8, model only): the model write Cv.save leaves a global config.cfg that sets the cvar exactly once, to the written value: the property cvar_cfg_written_reads_back assumes of the written file. Cv.save is run by no entry and no Rust code; the shipped writer is Rust's replace_sets, which writes the same property (it replaces the first line that sets the cvar and drops every other set of it; Rust test run_global_replaces_the_line)
+# EXCLUDES: a model write appended after the old sets of the cvar (a stale
+#   set left in the file), a write lost or written twice
 law cvar_save_once:
   for +g: List<&2, Cv.Bind>
   for +x: Nat
   for +v: Cv.Val
   {spec_sets_of(Cv.save(g, Cv.Bind{x, v}), x) == [Cv.Bind{x, v}] : List<&2, Cv.Bind>}
 
-# LAW cvar_save_example: anchor (the user's report): settings.json sets the thinking level low (1), the global config.cfg max (2); the model write Cv.save of 3 into the global config.cfg reads 3, while the old write into settings.json reads the config.cfg's 2: the choice did not stick
+# LAW cvar_save_example: anchor (the user's report): settings.json sets the thinking level (cvar 0) low (1); the global config.cfg written with 3 beside a line of another cvar (its only set of cvar 0, as replace_sets writes it) has [0 = 3] as its sets of 0 and reads 3, while the old write into settings.json, under a global config.cfg that sets max (2), reads 2: the choice did not stick
 # EXCLUDES: a write path that a lower store's set shadows, a vacuous
-#   cvar_save_reads_back
+#   cvar_cfg_written_reads_back
 law cvar_save_example:
-  {Cv.layered([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, True{}, Cv.VNat{0n}}], Cv.stores([Cv.Bind{0n, Cv.VNat{1n}}], Cv.save([Cv.Bind{0n, Cv.VNat{2n}}], Cv.Bind{0n, Cv.VNat{3n}}), Nil{}), Nil{}, 0n) == Some{Cv.VNat{3n}} : Maybe<&2, Cv.Val>} & {Cv.layered([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, True{}, Cv.VNat{0n}}], Cv.stores([Cv.Bind{0n, Cv.VNat{3n}}], [Cv.Bind{0n, Cv.VNat{2n}}], Nil{}), Nil{}, 0n) == Some{Cv.VNat{2n}} : Maybe<&2, Cv.Val>}
+  {(spec_sets_of([Cv.Bind{1n, Cv.VBool{True{}}}, Cv.Bind{0n, Cv.VNat{3n}}], 0n), Cv.layered([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, True{}, Cv.VNat{0n}}], Cv.stores([Cv.Bind{0n, Cv.VNat{1n}}], [Cv.Bind{1n, Cv.VBool{True{}}}, Cv.Bind{0n, Cv.VNat{3n}}], Nil{}), Nil{}, 0n)) == ([Cv.Bind{0n, Cv.VNat{3n}}], Some{Cv.VNat{3n}}) : List<&2, Cv.Bind> & Maybe<&2, Cv.Val>} & {Cv.layered([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, True{}, Cv.VNat{0n}}], Cv.stores([Cv.Bind{0n, Cv.VNat{3n}}], [Cv.Bind{0n, Cv.VNat{2n}}], Nil{}), Nil{}, 0n) == Some{Cv.VNat{2n}} : Maybe<&2, Cv.Val>}

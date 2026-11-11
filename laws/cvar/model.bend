@@ -31,8 +31,15 @@ import ../../bend/cvar.bend as Cv
 # R7  the config sets of a settings document: per declared cvar, in the
 #     order of its first declaration, the value its source sets (the
 #     merged document for a Local cvar, the global one for a Global cvar).
-# R8  the model write Cv.save of a setting into the global config.cfg
-#     reads back, keeps every other cvar, and leaves one set of the cvar.
+# R8  a setting written into the global config.cfg reads back: a global
+#     config.cfg that sets the cvar exactly once, to the written value
+#     (what Rust's writer replace_sets writes; Rust test
+#     run_global_replaces_the_line), gives the reload that value unless
+#     the project's config.cfg sets the cvar, which then wins
+#     (cvar_cfg_written_reads_back, cvar_cfg_project_wins); a written
+#     file with the same sets of another cvar keeps that cvar's value
+#     (cvar_cfg_written_keeps_others). The model write Cv.save leaves one
+#     set of the cvar (cvar_save_once, model only: no entry runs it).
 # R9  an expansion runs a run's alias body (the first alias of the name),
 #     in place, at every nesting depth, keeps every set and toggle, in
 #     order; a missing alias is unknown; the first error stops it

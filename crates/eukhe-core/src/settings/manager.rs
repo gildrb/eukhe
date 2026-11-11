@@ -599,11 +599,11 @@ impl SettingsManager {
     /// Save `written` (each a setting and its value): each set replaces
     /// the line of its setting in the global `config.cfg`
     /// ([`Self::run_global`]), the one store every setting a user sets
-    /// lives in, so a read gives it back (`laws/cvar.bend`
-    /// `cvar_save_reads_back`). A setting's key in the global
+    /// lives in, so a read gives it back (`laws/cvar/resolution.bend`
+    /// `cvar_cfg_written_reads_back`). A setting's key in the global
     /// `settings.json` is read (older files), never written: the cfg file
     /// sets over it. Says whether each value applies: only the project's
-    /// `config.cfg` sets over it (`cvar_save_project_wins`).
+    /// `config.cfg` sets over it (`cvar_cfg_project_wins`).
     ///
     /// # Errors
     ///
