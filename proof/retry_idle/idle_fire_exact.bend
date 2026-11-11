@@ -68,7 +68,7 @@ def fe.inv(pre: List<&2, R.IdleEv>, +d: Nat, +l: Nat, +h: Nat, +fits: {RetryIdle
           fe.inv(rest, d, l, h, LA.ri.and_r(RetryIdle.ev_fits(R.IdleFire{now}), RetryIdle.evs_fit(rest), fits), q2)
 
 # the reply to a fire: the timer's decision, spelled
-def fe.last(+d: Nat, +l: Nat, +h: Nat, w: R.Wake) -> {RetryIdle.ri_reply(Fi.reply(RetryIdle.step_spec.fire(d, l, h, w))) == RetryIdle.spell_reply(Some{w}) : String}:
+def fe.last(+d: Nat, +l: Nat, +h: Nat, w: R.Wake) -> {RetryIdle.ri_reply(Fi.reply(R.idle.fired(d, l, h, w))) == RetryIdle.spell_reply(Some{w}) : String}:
   match w:
     case R.WakeStall{}:
       {==}
@@ -85,7 +85,7 @@ def fe.go(+d: Nat, +pre: List<&2, R.IdleEv>, +now: Nat, +fits: {Bool.and(LawsBas
   %opened : {RetryIdle.ri_reply(Fi.step(RetryIdle.ri_feed(pre, _), RetryIdle.spell_ev(R.IdleFire{now}))) == RetryIdle.spell_reply(Some{RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)}) : String}
   %fe.inv(pre, d, 0n, 0n, LA.ri.and_r(LawsBase.wire_fits(now), RetryIdle.evs_fit(pre), fr), q) : {RetryIdle.ri_reply(Fi.step(_, RetryIdle.spell_ev(R.IdleFire{now}))) == RetryIdle.spell_reply(Some{RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)}) : String}
   %Equal.sym(Fi.St & String, Fi.step(Fi.Live{R.IdleSt{d, lp, hp, False{}}}, RetryIdle.spell_ev(R.IdleFire{now})), Fi.reply(R.idle.step(R.IdleSt{d, lp, hp, False{}}, R.IdleFire{now})), LA.ri.ev(R.IdleSt{d, lp, hp, False{}}, R.IdleFire{now}, LA.ri.and_l(LawsBase.wire_fits(now), RetryIdle.evs_fit(pre), fr))) : {RetryIdle.ri_reply(_) == RetryIdle.spell_reply(Some{RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)}) : String}
-  %Equal.sym(R.IdleSt & Maybe<&2, R.Wake>, R.idle.fired(d, lp, hp, R.idle.wake(R.idle.held(hp), Nat.sub(now, lp), d)), RetryIdle.step_spec.fire(d, lp, hp, RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)), LA.ri.fire(d, lp, hp, now)) : {RetryIdle.ri_reply(Fi.reply(_)) == RetryIdle.spell_reply(Some{RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)}) : String}
+  %Equal.sym(R.IdleSt & Maybe<&2, R.Wake>, R.idle.fired(d, lp, hp, R.idle.wake(R.idle.held(hp), Nat.sub(now, lp), d)), R.idle.fired(d, lp, hp, RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)), LA.ri.fire(d, lp, hp, now)) : {RetryIdle.ri_reply(Fi.reply(_)) == RetryIdle.spell_reply(Some{RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d)}) : String}
   fe.last(d, lp, hp, RetryIdle.wake_spec(Nat.is_gt(hp, 0n), Nat.sub(now, lp), d))
 
 def RetryIdle.idle_fire_exact(d, pre, now, fits, positive, quiet):

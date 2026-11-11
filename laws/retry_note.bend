@@ -10,7 +10,11 @@ import ./base.bend as LawsBase
 # (bend/retry_note.bend, the port of eukhe-durable
 # harness/generation/note.rs `RetryNote::text`). Each law is an open claim
 # about Rn.text; PROOF.bend proves them (as RetryNote.<law>) with the
-# lemmas of proof/retry_note/.
+# lemmas of proof/retry_note/. The fixed words of each text are pinned by
+# the anchors (the note.rs test vectors, crates/eukhe-durable/src/harness/
+# generation/tests/retry_note.rs); the laws state, for every input, where
+# each field goes: every text is the opening, then fixed words with each
+# field in its own place, the same words whatever the fields.
 #
 # R1: the note opens with "Harness note, attempt <attempt>: " and then
 #     says what went wrong and what to do instead, one text per cause:
@@ -26,9 +30,18 @@ import ./base.bend as LawsBase
 #     - repeated calls: the rounds, then each call as "`<tool>` with
 #       `<args>`", the calls in order joined by "; "; then "Redirect note
 #       <row> of <cap>.";
-#     - a stall: the idle deadline in whole seconds (milliseconds divided
-#       by 1000, rounded down).
+#     - a stall: the idle deadline in whole seconds (milliseconds divided by
+#       1000, rounded down).
 #     Every attempt, count, text and list of calls is free.
+#
+# Coverage: R1 retry_note_opens_with_attempt (the opening, the attempt
+# said only there), retry_note_line, retry_note_cycle, retry_note_length,
+# retry_note_leak, retry_note_redirect, retry_note_stall_seconds (each
+# cause's fields in place); anchors retry_note_example,
+# retry_note_limit_example. R2 retry_note_ffi_answers (decision:
+# note_spec, the note.rs format strings), retry_note_ffi_exact,
+# retry_note_ffi_left_over, retry_note_ffi_left_over_exact,
+# retry_note_ffi_errors; anchor retry_note_ffi_example.
 
 # Terms
 # -----
@@ -71,7 +84,8 @@ def repeated_spec(a: Nat, +period: Nat, line: String) -> String:
   repeated_spec.pick(Nat.is_eq(period, 1n), a, period, line)
 
 # the note of the retry of `attempt` for cause c (the format strings of
-# note.rs, one per cause)
+# note.rs, one per cause): the note retry_note_ffi_answers says the entry
+# answers
 def note_spec(a: Nat, c: Rn.Cause) -> String:
   match c:
     case Rn.Repeated{p, l}:
@@ -90,19 +104,126 @@ def note_spec(a: Nat, c: Rn.Cause) -> String:
 # Laws
 # ----
 
-# LAW retry_note_exact: the note of every attempt and cause is the text of R1: the opening with the attempt, then the cause's text with its counts, its quoted line or markup and reason, its calls joined by "; ", or its whole seconds
-# EXCLUDES: another attempt, a cycle text for one line or a line text for
-#   a cycle, a limit named when none was reported (or none named when one
-#   was), a row and a cap swapped, calls dropped, reordered, joined by
-#   another separator or with one after the last, milliseconds shown as
-#   seconds or rounded up, any changed word
-law retry_note_exact:
-  for a: Nat
-  for c: Rn.Cause
-  {Rn.text(a, c) == note_spec(a, c) : String}
+# the opening of every note (R1), then the texts xs
+def opened(a: Nat, xs: List<&2, String>) -> String:
+  String.append("Harness note, attempt ", String.append(Nat.show(a), String.append(": ", String.concat(xs))))
 
-# LAW retry_note_example: anchor: the notes note.rs writes for a repeated line, a cycle, no answer, an unreported limit, a stall of 2.5 s, and two repeated calls
-# EXCLUDES: a spec that is wrong on the shipped texts
+# the calls of a redirect note as R1 shows them: each "`<tool>` with
+# `<args>`", in order, joined by "; "
+def listed(cs: List<&2, Rn.Call>) -> String:
+  String.join(shown_spec(cs), "; ")
+
+# LAW retry_note_opens_with_attempt (R1): every note opens with "Harness note, attempt <attempt>: ", and the rest of it is the same text for every attempt (the attempt is said only there)
+# EXCLUDES: another attempt, a note without the opening, the attempt said
+#   or used anywhere else in the note
+law retry_note_opens_with_attempt:
+  for a: Nat
+  for b: Nat
+  for +c: Rn.Cause
+  exs body: String
+  {Rn.text(a, c) == opened(a, [body]) : String} & {Rn.text(b, c) == opened(b, [body]) : String}
+
+# LAW retry_note_line (R1): the note of a repeated line (a cycle of 1) is fixed words with the line, as the host quoted it, in one place: the same words for every line
+# EXCLUDES: the line dropped, said twice, or a cycle text for one line
+law retry_note_line:
+  for +a: Nat
+  for l: String
+  for l2: String
+  exs pre: String
+  exs post: String
+  {Rn.text(a, Rn.Repeated{1n, l}) == opened(a, [pre, l, post]) : String} & {Rn.text(a, Rn.Repeated{1n, l2}) == opened(a, [pre, l2, post]) : String}
+
+# LAW retry_note_cycle (R1): the note of a repeated cycle of any count but 1 (0 too) is fixed words with the count, then the cycle's last line as the host quoted it, each in one place: the same words for every count and line
+# EXCLUDES: a line text for a cycle, the count and the line swapped, dropped
+#   or said twice
+law retry_note_cycle:
+  for +a: Nat
+  for +p: Nat
+  for l: String
+  for +p2: Nat
+  for l2: String
+  for many: {Nat.is_eq(p, 1n) == False{} : Bool}
+  for many2: {Nat.is_eq(p2, 1n) == False{} : Bool}
+  exs pre: String
+  exs mid: String
+  exs post: String
+  {Rn.text(a, Rn.Repeated{p, l}) == opened(a, [pre, Nat.show(p), mid, l, post]) : String} & {Rn.text(a, Rn.Repeated{p2, l2}) == opened(a, [pre, Nat.show(p2), mid, l2, post]) : String}
+
+# LAW retry_note_length (R1): the note of a reply cut by the output limit is fixed words with the limit, then the row, then the cap, each in one place: "the output limit" when the provider reported none (0 tokens), "the <tokens>-token output limit" for every reported one; the same words for every limit, row and cap
+# EXCLUDES: a limit named when none was reported ("the 0-token output
+#   limit") or none named when one was, a row and a cap swapped, dropped
+#   or said twice
+law retry_note_length:
+  for +a: Nat
+  for t: Nat
+  for r: Nat
+  for k: Nat
+  for r2: Nat
+  for k2: Nat
+  exs pre: String
+  exs mid: String
+  exs mid2: String
+  exs post: String
+  {Rn.text(a, Rn.Length{0n, r, k}) == opened(a, [pre, "the output limit", mid, Nat.show(r), mid2, Nat.show(k), post]) : String} & {Rn.text(a, Rn.Length{1n+t, r2, k2}) == opened(a, [pre, "the ", Nat.show(1n+t), "-token output limit", mid, Nat.show(r2), mid2, Nat.show(k2), post]) : String}
+
+# LAW retry_note_leak (R1): the note of tool calls leaked as text is fixed words with the markup, then the reason, then the row, then the cap, each in one place: the same words for every markup, reason, row and cap
+# EXCLUDES: the markup and the reason swapped, a row and a cap swapped, a
+#   field dropped or said twice
+law retry_note_leak:
+  for +a: Nat
+  for m: String
+  for why: String
+  for r: Nat
+  for k: Nat
+  for m2: String
+  for why2: String
+  for r2: Nat
+  for k2: Nat
+  exs pre: String
+  exs mid: String
+  exs mid2: String
+  exs mid3: String
+  exs post: String
+  {Rn.text(a, Rn.Leaked{m, why, r, k}) == opened(a, [pre, m, mid, why, mid2, Nat.show(r), mid3, Nat.show(k), post]) : String} & {Rn.text(a, Rn.Leaked{m2, why2, r2, k2}) == opened(a, [pre, m2, mid, why2, mid2, Nat.show(r2), mid3, Nat.show(k2), post]) : String}
+
+# LAW retry_note_redirect (R1): the note of repeated calls is fixed words with the rounds, then the calls (each "`<tool>` with `<args>`", in order, joined by "; ", nothing after the last), then the row, then the cap, each in one place: the same words for every list of calls and every count
+# EXCLUDES: calls dropped, added or reordered, joined by another separator
+#   or with one after the last, a call's tool and arguments swapped, the
+#   rounds, the row and the cap swapped or dropped
+law retry_note_redirect:
+  for +a: Nat
+  for +cs: List<&2, Rn.Call>
+  for n: Nat
+  for r: Nat
+  for k: Nat
+  for +cs2: List<&2, Rn.Call>
+  for n2: Nat
+  for r2: Nat
+  for k2: Nat
+  exs pre: String
+  exs mid: String
+  exs mid2: String
+  exs mid3: String
+  exs post: String
+  {Rn.text(a, Rn.Redirect{cs, n, r, k}) == opened(a, [pre, Nat.show(n), mid, listed(cs), mid2, Nat.show(r), mid3, Nat.show(k), post]) : String} & {Rn.text(a, Rn.Redirect{cs2, n2, r2, k2}) == opened(a, [pre, Nat.show(n2), mid, listed(cs2), mid2, Nat.show(r2), mid3, Nat.show(k2), post]) : String}
+
+# LAW retry_note_stall_seconds (R1): the note of a stalled stream is fixed words with the idle deadline in whole seconds, rounded down, in one place: an idle deadline of s * 1000 + rem ms (rem below 1000) shows s; the same words for every deadline
+# EXCLUDES: milliseconds shown as seconds, seconds rounded up or to the
+#   nearest, the seconds dropped or said twice
+law retry_note_stall_seconds:
+  for +a: Nat
+  for s: Nat
+  for rem: Nat
+  for s2: Nat
+  for rem2: Nat
+  for below: {Nat.is_lt(rem, 1000n) == True{} : Bool}
+  for below2: {Nat.is_lt(rem2, 1000n) == True{} : Bool}
+  exs pre: String
+  exs post: String
+  {Rn.text(a, Rn.Stalled{Nat.add(Nat.mul(s, 1000n), rem)}) == opened(a, [pre, Nat.show(s), post]) : String} & {Rn.text(a, Rn.Stalled{Nat.add(Nat.mul(s2, 1000n), rem2)}) == opened(a, [pre, Nat.show(s2), post]) : String}
+
+# LAW retry_note_example: anchor: the notes note.rs writes for a repeated line, a cycle, no answer, a stall of 2.5 s, and two repeated calls
+# EXCLUDES: a law above whose fixed words are wrong on the shipped texts
 law retry_note_example:
   {Rn.text(2n, Rn.Repeated{1n, "\"- a\""}) == "Harness note, attempt 2: your previous reply repeated the line \"- a\" until it was cut. Give the answer again; never list the same item twice." : String} &
   {Rn.text(3n, Rn.Repeated{4n, "\"x\""}) == "Harness note, attempt 3: your previous reply repeated a cycle of 4 lines, ending with the line \"x\", until it was cut. Give the answer again; never repeat the same lines." : String} &

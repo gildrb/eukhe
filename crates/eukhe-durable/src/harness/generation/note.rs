@@ -145,8 +145,9 @@ impl RetryNote {
 
     /// The text of the note: the last user message of the request, before
     /// the soft prompt of a forced call. The compiled core writes it
-    /// (`eukhe_bend::rules::retry_note`, law `retry_note_exact`; the stop
-    /// Directors' reminders `bend/stop.bend`, law `stop_note_names_the_attempt`); the
+    /// (`eukhe_bend::rules::retry_note`, laws `retry_note_opens_with_attempt`
+    /// and `retry_note_ffi_answers`; the stop Directors' reminders
+    /// `bend/stop.bend`, law `stop_note_names_the_attempt`); the
     /// host quotes a repeated line (`{:?}`), gives each recovery's cap, and
     /// saturates a count past the wire's bound.
     ///

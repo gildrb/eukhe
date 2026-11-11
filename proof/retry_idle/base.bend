@@ -8,7 +8,10 @@ import ../../laws/retry_idle.bend as RetryIdle
 import ../../laws/wire.bend as Wire
 import ../../laws/base.bend as LawsBase
 import ../base/logic/logic.bend as LLogicLogic
-import ./idle_wake_exact.bend as PIdleWakeExact
+import ../wire/wire_nat_exact.bend as PWireNatExact
+import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
+import ../wire/wire_bool_exact.bend as PWireBoolExact
+import ../wire/wire_nat_not_err.bend as PWireNatNotErr
 
 # Nat facts
 # ---------
@@ -104,6 +107,20 @@ def ri.sub_ngt(k: Nat, g: Nat) -> {Nat.is_gt(Nat.sub(k, g), k) == False{} : Bool
           ri.gt_refl(1n+p)
         case 1n++q:
           ri.ngt_succ(Nat.sub(p, q), p, ri.sub_ngt(p, q))
+
+def ri.add_zero(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n++p:
+      Equal.cong(Nat, Nat, x => 1n+x, Nat.add(p, 0n), p, ri.add_zero(p))
+
+def ri.add_assoc(a: Nat, -b: Nat, -c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n++p:
+      Equal.cong(Nat, Nat, x => 1n+x, Nat.add(Nat.add(p, b), c), Nat.add(p, Nat.add(b, c)), ri.add_assoc(p, b, c))
 
 # An event, under a timer within the deadline
 # --------------------------------------------
@@ -295,24 +312,49 @@ def ri.reply_pair(p: R.IdleSt & Maybe<&2, R.Wake>) -> {Fi.reply(p) == (Fi.Live{R
       %ri.reply(m) : {(Fi.Live{s}, _) == (Fi.Live{s}, RetryIdle.spell_reply(m)) : Fi.St & String}
       {==}
 
-# The model's step, as section 6 states it
-# ----------------------------------------
+# The timer's decision is wake_spec's
+# -----------------------------------
 
-def ri.fired(+d: Nat, +last: Nat, +holds: Nat, w: R.Wake) -> {R.idle.fired(d, last, holds, w) == RetryIdle.step_spec.fire(d, last, holds, w) : R.IdleSt & Maybe<&2, R.Wake>}:
-  match w:
-    case R.WakeStall{}:
+def ri.flip(a: Nat, b: Nat) -> {Nat.is_lt(a, b) == Nat.is_gt(b, a) : Bool}:
+  match a:
+    case 0n:
+      match b:
+        case 0n:
+          {==}
+        case 1n+q:
+          {==}
+    case 1n+p:
+      match b:
+        case 0n:
+          {==}
+        case 1n+q:
+          ri.flip(p, q)
+
+def ri.wsel(b: Bool, left: Nat) -> {R.idle.wake.sel(b, left) == RetryIdle.wake_spec.free(b, left) : R.Wake}:
+  match b:
+    case True{}:
       {==}
-    case R.WakeSleep{us}:
+    case False{}:
       {==}
 
-def ri.fire(+d: Nat, +last: Nat, holds: Nat, +now: Nat) -> {R.idle.fired(d, last, holds, R.idle.wake(R.idle.held(holds), Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, holds, RetryIdle.wake_spec(Nat.is_gt(holds, 0n), Nat.sub(now, last), d)) : R.IdleSt & Maybe<&2, R.Wake>}:
+# d above since is since below d; the two selectors pick alike
+def ri.wake(held: Bool, +since: Nat, +d: Nat) -> {R.idle.wake(held, since, d) == RetryIdle.wake_spec(held, since, d) : R.Wake}:
+  match held:
+    case True{}:
+      {==}
+    case False{}:
+      %ri.flip(since, d) : {R.idle.wake.sel(_, Nat.sub(d, since)) == RetryIdle.wake_spec.free(Nat.is_lt(since, d), Nat.sub(d, since)) : R.Wake}
+      ri.wsel(Nat.is_lt(since, d), Nat.sub(d, since))
+
+# a fire's decision, from the holds alive, is wake_spec's
+def ri.fire(+d: Nat, +last: Nat, holds: Nat, +now: Nat) -> {R.idle.fired(d, last, holds, R.idle.wake(R.idle.held(holds), Nat.sub(now, last), d)) == R.idle.fired(d, last, holds, RetryIdle.wake_spec(Nat.is_gt(holds, 0n), Nat.sub(now, last), d)) : R.IdleSt & Maybe<&2, R.Wake>}:
   match holds:
     case 0n:
-      %RetryIdle.idle_wake_exact(False{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, 0n, _) : R.IdleSt & Maybe<&2, R.Wake>}
-      ri.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d))
+      %ri.wake(False{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d)) == R.idle.fired(d, last, 0n, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      {==}
     case 1n+p:
-      %RetryIdle.idle_wake_exact(True{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, 1n+p, _) : R.IdleSt & Maybe<&2, R.Wake>}
-      ri.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d))
+      %ri.wake(True{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d)) == R.idle.fired(d, last, 1n+p, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      {==}
 
 def ri.drop(holds: Nat) -> {R.idle.drop(holds) == Nat.sub(holds, 1n) : Nat}:
   match holds:
@@ -320,28 +362,6 @@ def ri.drop(holds: Nat) -> {R.idle.drop(holds) == Nat.sub(holds, 1n) : Nat}:
       {==}
     case 1n+p:
       Equal.sym(Nat, Nat.sub(p, 0n), p, ri.sub_zero(p))
-
-def ri.live(+d: Nat, +last: Nat, e: R.IdleEv, +holds: Nat) -> {R.idle.live(d, last, holds, e) == RetryIdle.step_spec.live(d, last, holds, e) : R.IdleSt & Maybe<&2, R.Wake>}:
-  match e:
-    case R.IdleLife{now}:
-      {==}
-    case R.IdleHold{}:
-      {==}
-    case R.IdleFree{now}:
-      %ri.drop(holds) : {(R.IdleSt{d, Nat.max(last, now), R.idle.drop(holds), False{}}, None{}) == (R.IdleSt{d, Nat.max(last, now), _, False{}}, None{}) : R.IdleSt & Maybe<&2, R.Wake>}
-      {==}
-    case R.IdleFire{now}:
-      ri.fire(d, last, holds, now)
-
-# the model's step is the laws' step_spec
-def ri.step(s: R.IdleSt, e: R.IdleEv) -> {R.idle.step(s, e) == RetryIdle.step_spec(s, e) : R.IdleSt & Maybe<&2, R.Wake>}:
-  match s:
-    case R.IdleSt{d, last, holds, over}:
-      match over:
-        case True{}:
-          {==}
-        case False{}:
-          ri.live(d, last, e, holds)
 
 # The entry's step
 # ----------------
@@ -376,3 +396,195 @@ def ri.open_spelled(+nan: Bool, +neg: Bool, +whole: Nat, +frac: Bool, +d: Nat, +
   %ri.bool_rt(frac, Wr.put_nat(d, "")) : {Fi.open.go(Fi.get_open.frac(nan, neg, whole, _)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
   %ri.nat_rt(d, "", ri.and_r(LawsBase.wire_fits(whole), LawsBase.wire_fits(d), fits)) : {Fi.open.go(Fi.get_open.d(nan, neg, whole, frac, _)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
   {==}
+
+# What the entry reads is spelled
+# -------------------------------
+
+def ri.absurd_t(-G: Type, h: {True{} == False{} : Bool}) -> G:
+  %h : ri.BD(_, Unit, G)
+  Unit{}
+
+def ri.and2(-a: Bool, -b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ha) : {Bool.and(_, b) == True{} : Bool}
+  hb
+
+def ri.under(-s: String, -s1: String, -y: String, -f: String -> String, e: {s == f(s1) : String}, p: {s1 == y : String}) -> {s == f(y) : String}:
+  %p : {s == f(_) : String}
+  e
+
+# what a Nat decoder's answer says about its input s: the Nat spelled,
+# then the rest, and the Nat fits the wire
+def ri.PN(s: String, d: Wr.Dec<Nat>) -> Type:
+  match d:
+    case Wr.Got{n, r}:
+      {s == Wr.put_nat(n, r) : String} & {LawsBase.wire_fits(n) == True{} : Bool}
+    case Wr.Bad{}:
+      Unit
+
+def ri.pn_go(+s: String, d: Wr.Dec<Nat>, +ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> ri.PN(s, d):
+  match d:
+    case Wr.Got{+n, +r}:
+      (Wire.wire_nat_exact(s, n, r, ed), Wire.wire_nat_decoded_fits(s, n, r, ed))
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.pn(+s: String) -> ri.PN(s, Wr.get_nat(s)):
+  ri.pn_go(s, Wr.get_nat(s), {==})
+
+# what a Bool decoder's answer says about its input s
+def ri.PB(s: String, d: Wr.Dec<Bool>) -> Type:
+  match d:
+    case Wr.Got{b, r}:
+      {s == Wr.put_bool(b, r) : String}
+    case Wr.Bad{}:
+      Unit
+
+def ri.pb_go(+s: String, d: Wr.Dec<Bool>, +ed: {Wr.get_bool(s) == d : Wr.Dec<Bool>}) -> ri.PB(s, d):
+  match d:
+    case Wr.Got{+b, +r}:
+      Wire.wire_bool_exact(s, b, r, ed)
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.pb(+s: String) -> ri.PB(s, Wr.get_bool(s)):
+  ri.pb_go(s, Wr.get_bool(s), {==})
+
+# an event as Rust spells it, then r
+def ri.spell_ev_r(e: R.IdleEv, r: String) -> String:
+  match e:
+    case R.IdleLife{now}:
+      Wr.put_nat(0n, Wr.put_nat(now, r))
+    case R.IdleHold{}:
+      Wr.put_nat(1n, r)
+    case R.IdleFree{now}:
+      Wr.put_nat(2n, Wr.put_nat(now, r))
+    case R.IdleFire{now}:
+      Wr.put_nat(3n, Wr.put_nat(now, r))
+
+# what the event decoder's answer says about its input s
+def ri.PE(s: String, d: Wr.Dec<R.IdleEv>) -> Type:
+  match d:
+    case Wr.Got{e, r}:
+      {s == ri.spell_ev_r(e, r) : String} & {RetryIdle.ev_fits(e) == True{} : Bool}
+    case Wr.Bad{}:
+      Unit
+
+def ri.pe_life(-s: String, -s1: String, e0: {s == Wr.put_nat(0n, s1) : String}, d: Wr.Dec<Nat>, pn: ri.PN(s1, d)) -> ri.PE(s, Fi.get_ev.life(d)):
+  match d:
+    case Wr.Got{now, r}:
+      (e1, f1) = pn
+      (ri.under(s, s1, Wr.put_nat(now, r), z => Wr.put_nat(0n, z), e0, e1), f1)
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.pe_free(-s: String, -s1: String, e0: {s == Wr.put_nat(2n, s1) : String}, d: Wr.Dec<Nat>, pn: ri.PN(s1, d)) -> ri.PE(s, Fi.get_ev.free(d)):
+  match d:
+    case Wr.Got{now, r}:
+      (e1, f1) = pn
+      (ri.under(s, s1, Wr.put_nat(now, r), z => Wr.put_nat(2n, z), e0, e1), f1)
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.pe_fire(-s: String, -s1: String, e0: {s == Wr.put_nat(3n, s1) : String}, d: Wr.Dec<Nat>, pn: ri.PN(s1, d)) -> ri.PE(s, Fi.get_ev.fire(d)):
+  match d:
+    case Wr.Got{now, r}:
+      (e1, f1) = pn
+      (ri.under(s, s1, Wr.put_nat(now, r), z => Wr.put_nat(3n, z), e0, e1), f1)
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.pe_tag(-s: String, t: Nat, +s1: String, e0: {s == Wr.put_nat(t, s1) : String}) -> ri.PE(s, Fi.get_ev.tag(t, s1)):
+  match t:
+    case 0n:
+      ri.pe_life(s, s1, e0, Wr.get_nat(s1), ri.pn(s1))
+    case 1n:
+      (e0, {==})
+    case 2n:
+      ri.pe_free(s, s1, e0, Wr.get_nat(s1), ri.pn(s1))
+    case 3n:
+      ri.pe_fire(s, s1, e0, Wr.get_nat(s1), ri.pn(s1))
+    case 4n+p:
+      Unit{}
+
+def ri.pe_top(-s: String, d: Wr.Dec<Nat>, pn: ri.PN(s, d)) -> ri.PE(s, Fi.get_ev.go(d)):
+  match d:
+    case Wr.Got{t, +s1}:
+      (e0, f0) = pn
+      ri.pe_tag(s, t, s1, e0)
+    case Wr.Bad{}:
+      Unit{}
+
+# every event the decoder reads is spelled, and so is the input after it
+def ri.pe(+s: String) -> ri.PE(s, Fi.get_ev(s)):
+  ri.pe_top(s, Wr.get_nat(s), ri.pn(s))
+
+# an open as Rust spells it, then r
+def ri.spell_open_r(o: Fi.Open, r: String) -> String:
+  match o:
+    case Fi.Open{nan, neg, whole, frac, d}:
+      Wr.put_bool(nan, Wr.put_bool(neg, Wr.put_nat(whole, Wr.put_bool(frac, Wr.put_nat(d, r)))))
+
+# what the open decoder's answer says about its input s
+def ri.PO(s: String, d: Wr.Dec<Fi.Open>) -> Type:
+  match d:
+    case Wr.Got{o, r}:
+      {s == ri.spell_open_r(o, r) : String} & {RetryIdle.open_fits(o) == True{} : Bool}
+    case Wr.Bad{}:
+      Unit
+
+def ri.po_d(-s: String, -nan: Bool, -neg: Bool, -whole: Nat, -frac: Bool, -s4: String, e: {s == Wr.put_bool(nan, Wr.put_bool(neg, Wr.put_nat(whole, Wr.put_bool(frac, s4)))) : String}, fw: {LawsBase.wire_fits(whole) == True{} : Bool}, d: Wr.Dec<Nat>, pn: ri.PN(s4, d)) -> ri.PO(s, Fi.get_open.d(nan, neg, whole, frac, d)):
+  match d:
+    case Wr.Got{dd, r}:
+      (e4, f4) = pn
+      (ri.under(s, s4, Wr.put_nat(dd, r), z => Wr.put_bool(nan, Wr.put_bool(neg, Wr.put_nat(whole, Wr.put_bool(frac, z)))), e, e4), ri.and2(LawsBase.wire_fits(whole), LawsBase.wire_fits(dd), fw, f4))
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.po_frac(-s: String, -nan: Bool, -neg: Bool, -whole: Nat, -s3: String, e: {s == Wr.put_bool(nan, Wr.put_bool(neg, Wr.put_nat(whole, s3))) : String}, fw: {LawsBase.wire_fits(whole) == True{} : Bool}, d: Wr.Dec<Bool>, pb: ri.PB(s3, d)) -> ri.PO(s, Fi.get_open.frac(nan, neg, whole, d)):
+  match d:
+    case Wr.Got{frac, +s4}:
+      ri.po_d(s, nan, neg, whole, frac, s4, ri.under(s, s3, Wr.put_bool(frac, s4), z => Wr.put_bool(nan, Wr.put_bool(neg, Wr.put_nat(whole, z))), e, pb), fw, Wr.get_nat(s4), ri.pn(s4))
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.po_whole(-s: String, -nan: Bool, -neg: Bool, -s2: String, e: {s == Wr.put_bool(nan, Wr.put_bool(neg, s2)) : String}, d: Wr.Dec<Nat>, pn: ri.PN(s2, d)) -> ri.PO(s, Fi.get_open.whole(nan, neg, d)):
+  match d:
+    case Wr.Got{whole, +s3}:
+      (e3, f3) = pn
+      ri.po_frac(s, nan, neg, whole, s3, ri.under(s, s2, Wr.put_nat(whole, s3), z => Wr.put_bool(nan, Wr.put_bool(neg, z)), e, e3), f3, Wr.get_bool(s3), ri.pb(s3))
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.po_neg(-s: String, -nan: Bool, -s1: String, e: {s == Wr.put_bool(nan, s1) : String}, d: Wr.Dec<Bool>, pb: ri.PB(s1, d)) -> ri.PO(s, Fi.get_open.neg(nan, d)):
+  match d:
+    case Wr.Got{neg, +s2}:
+      ri.po_whole(s, nan, neg, s2, ri.under(s, s1, Wr.put_bool(neg, s2), z => Wr.put_bool(nan, z), e, pb), Wr.get_nat(s2), ri.pn(s2))
+    case Wr.Bad{}:
+      Unit{}
+
+def ri.po_top(-s: String, d: Wr.Dec<Bool>, pb: ri.PB(s, d)) -> ri.PO(s, Fi.get_open.go(d)):
+  match d:
+    case Wr.Got{nan, +s1}:
+      ri.po_neg(s, nan, s1, pb, Wr.get_bool(s1), ri.pb(s1))
+    case Wr.Bad{}:
+      Unit{}
+
+# every open the decoder reads is spelled, and so is the input after it
+def ri.po(+s: String) -> ri.PO(s, Fi.get_open(s)):
+  ri.po_top(s, Wr.get_bool(s), ri.pb(s))
+
+# Replies are no error form
+# -------------------------
+
+def ri.put_reply_ok(m: Maybe<&2, R.Wake>) -> {LawsBase.wire_opens_err(Fi.put_reply(m)) == False{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{w}:
+      Wire.wire_nat_not_err(1n, Fi.put_wake(w))
+
+# the reply of a model step is no error form
+def ri.reply_ok(p: R.IdleSt & Maybe<&2, R.Wake>) -> {LawsBase.wire_opens_err(RetryIdle.ri_reply(Fi.reply(p))) == False{} : Bool}:
+  match p:
+    case (st, m):
+      ri.put_reply_ok(m)

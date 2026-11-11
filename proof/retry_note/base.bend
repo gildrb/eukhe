@@ -860,3 +860,115 @@ def rn.fr_top(d: Wr.Dec<Nat>, fa: rn.FN(d)) -> rn.FR(FRn.get_req(d)):
 # every request the decoder reads fits the wire
 def rn.fr(+s: String) -> rn.FR(FRn.get_req(Wr.get_nat(s))):
   rn.fr_top(Wr.get_nat(s), rn.fn(s))
+
+# ---- the shape of a text ----
+
+def rn.app_assoc(a: String, -b: String, -c: String) -> {String.append(String.append(a, b), c) == String.append(a, String.append(b, c)) : String}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      Equal.cong(String, String, z => SCon{h, z}, String.append(String.append(t, b), c), String.append(t, String.append(b, c)), rn.app_assoc(t, b, c))
+
+# a reported limit, then rest: its words with the number in place
+def rn.lim(+t: Nat, +rest: String) -> {String.append(Rn.limit(1n+t), rest) == String.append("the ", String.append(Nat.show(1n+t), String.append("-token output limit", rest))) : String}:
+  Equal.cong(String, String, z => String.append("the ", z), String.append(String.append(Nat.show(1n+t), String.append("-token output limit", "")), rest), String.append(Nat.show(1n+t), String.append(String.append("-token output limit", ""), rest)), rn.app_assoc(Nat.show(1n+t), String.append("-token output limit", ""), rest))
+
+# the model's note is the spec's: per cause both sides compute to the same
+# text once the period (0, 1, more) and the reported limit (0, more) are
+# split; the calls the code joins are the spec's join (rn.calls)
+def rn.exact(a: Nat, c: Rn.Cause) -> {Rn.text(a, c) == RetryNote.note_spec(a, c) : String}:
+  match c:
+    case Rn.Repeated{p, l}:
+      match p:
+        case 0n:
+          {==}
+        case 1n:
+          {==}
+        case 2n+q:
+          {==}
+    case Rn.NoAnswer{}:
+      {==}
+    case Rn.Length{t, r, k}:
+      match t:
+        case 0n:
+          {==}
+        case 1n+u:
+          {==}
+    case Rn.Leaked{m, why, r, k}:
+      {==}
+    case Rn.Redirect{+cs, n, r, k}:
+      %rn.calls(cs) : {String.append("Harness note, attempt ", String.append(Nat.show(a), String.append(": ", Rn.redirect(n, r, k, _)))) == RetryNote.note_spec(a, Rn.Redirect{cs, n, r, k}) : String}
+      {==}
+    case Rn.Stalled{ms}:
+      {==}
+
+# ---- whole seconds ----
+
+def rn.add_zero(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n++p:
+      Equal.cong(Nat, Nat, x => 1n+x, Nat.add(p, 0n), p, rn.add_zero(p))
+
+def rn.add_succ(a: Nat, -b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n++p:
+      Equal.cong(Nat, Nat, x => 1n+x, Nat.add(p, 1n+b), 1n+Nat.add(p, b), rn.add_succ(p, b))
+
+def rn.add_assoc(a: Nat, -b: Nat, -c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n++p:
+      Equal.cong(Nat, Nat, x => 1n+x, Nat.add(Nat.add(p, b), c), Nat.add(p, Nat.add(b, c)), rn.add_assoc(p, b, c))
+
+# divmod's loop over 1 + m more: one more in the quotient, the count of
+# the divisor starting again
+def rn.dm_step(m: Nat, +n: Nat, -d: Nat, -r: Nat) -> {Nat.divmod.go(Nat.add(1n+m, n), m, d, r) == Nat.divmod.go(n, Nat.add(m, r), 1n+d, 0n) : Nat & Nat}:
+  match m:
+    case 0n:
+      {==}
+    case 1n++mp:
+      %rn.add_succ(mp, r) : {Nat.divmod.go(Nat.add(2n+mp, n), 1n+mp, d, r) == Nat.divmod.go(n, _, 1n+d, 0n) : Nat & Nat}
+      rn.dm_step(mp, n, d, 1n+r)
+
+# 1 + n is never below 1
+def rn.nlt_one(n: Nat) -> {Nat.is_lt(1n+n, 1n) == False{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+x:
+      {==}
+
+# divmod's loop over less than the divisor: the quotient stays
+def rn.dm_small(n: Nat, m: Nat, -d: Nat, -r: Nat, small: {Nat.is_lt(n, 1n+m) == True{} : Bool}) -> {Pair.fst(Nat, Nat, Nat.divmod.go(n, m, d, r)) == d : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+np:
+      match m:
+        case 0n:
+          rn.absurd({Pair.fst(Nat, Nat, Nat.divmod.go(1n+np, 0n, d, r)) == d : Nat}, Equal.trans(Bool, False{}, Nat.is_lt(1n+np, 1n), True{}, Equal.sym(Bool, Nat.is_lt(1n+np, 1n), False{}, rn.nlt_one(np)), small))
+        case 1n+mp:
+          rn.dm_small(np, mp, d, 1n+r, small)
+
+# s whole divisors, then less than one: the quotient grows by s
+def rn.dm_whole(s: Nat, +m: Nat, +rem: Nat, +d: Nat, +small: {Nat.is_lt(rem, 1n+m) == True{} : Bool}) -> {Pair.fst(Nat, Nat, Nat.divmod.go(Nat.add(Nat.mul(s, 1n+m), rem), m, d, 0n)) == Nat.add(s, d) : Nat}:
+  match s:
+    case 0n:
+      rn.dm_small(rem, m, d, 0n, small)
+    case 1n++p:
+      +y = Nat.add(Nat.mul(p, 1n+m), rem)
+      %Equal.sym(Nat, Nat.add(Nat.add(1n+m, Nat.mul(p, 1n+m)), rem), Nat.add(1n+m, y), rn.add_assoc(1n+m, Nat.mul(p, 1n+m), rem)) : {Pair.fst(Nat, Nat, Nat.divmod.go(_, m, d, 0n)) == Nat.add(1n+p, d) : Nat}
+      %Equal.sym(Nat & Nat, Nat.divmod.go(Nat.add(1n+m, y), m, d, 0n), Nat.divmod.go(y, Nat.add(m, 0n), 1n+d, 0n), rn.dm_step(m, y, d, 0n)) : {Pair.fst(Nat, Nat, _) == Nat.add(1n+p, d) : Nat}
+      %Equal.sym(Nat, Nat.add(m, 0n), m, rn.add_zero(m)) : {Pair.fst(Nat, Nat, Nat.divmod.go(y, _, 1n+d, 0n)) == Nat.add(1n+p, d) : Nat}
+      %rn.add_succ(p, d) : {Pair.fst(Nat, Nat, Nat.divmod.go(y, m, 1n+d, 0n)) == _ : Nat}
+      rn.dm_whole(p, m, rem, 1n+d, small)
+
+# s * 1000 + rem ms, rem below 1000, is s whole seconds
+def rn.div1000(+s: Nat, +rem: Nat, +below: {Nat.is_lt(rem, 1000n) == True{} : Bool}) -> {Nat.div(Nat.add(Nat.mul(s, 1000n), rem), 1000n) == s : Nat}:
+  Equal.trans(Nat, Nat.div(Nat.add(Nat.mul(s, 1000n), rem), 1000n), Nat.add(s, 0n), s, rn.dm_whole(s, 999n, rem, 0n, below), rn.add_zero(s))
