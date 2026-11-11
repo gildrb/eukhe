@@ -156,6 +156,7 @@ import ./laws/auth_flight/model.bend as AuthFlight
 import ./laws/auth_flight/entry.bend as AuthFlightEntry
 import ./laws/auth_flight/safety.bend as AuthFlightSafety
 import ./laws/worker.bend as Worker
+import ./laws/worker/forward.bend as WorkerForward
 import ./laws/model_name.bend as ModelName
 import ./laws/aws_text.bend as AwsText
 import ./laws/ai_text.bend as AiText

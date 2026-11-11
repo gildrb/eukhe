@@ -42,10 +42,3 @@ def wu_note(b: Bool, -n: Nat, -rest: String) -> {FWk.get_note.go(LAWireSpell.ws_
       {==}
     case False{}:
       {==}
-
-def wu_verdict(b: Bool, -n: Nat, -rest: String) -> {FWk.get_verdict.go(LAWireSpell.ws_nat_answer(b, 6n+n, rest)) == Wr.Bad{} : Wr.Dec<Wk.Verdict>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}

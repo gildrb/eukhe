@@ -1,25 +1,18 @@
 # eukhe: the proof of LAW forward_once
 #
 # PROOF of LAW forward_once: every seq the first pick hands on is at most
-# its new cursor b (forward_all_new, forward_cursor_exact,
-# wb_all_le_cursor); every seq the second pick hands on is past b
-# (forward_all_new, wb_new_gt); so none is both (wb_disjoint).
+# its new cursor b (wb_top_bound); every seq the second pick hands on is
+# past b (wb_new_gt); so none is both (wb_disjoint).
 
 import Base
 import ../../bend/worker.bend as Wk
-import ../../laws/worker.bend as Worker
+import ../../laws/worker/forward.bend as WorkerForward
 import ./base.bend as LAWorker
-import ./forward_all_new.bend as PWorkerForwardAllNew
-import ./forward_cursor_exact.bend as PWorkerForwardCursorExact
 
-def Worker.forward_once(c, ms, note, ms2, note2):
-  +b = Worker.fw_cursor_of(Wk.pick(c, ms, note))
-  +ps = Worker.fw_seqs(Worker.fw_new(c, ms))
-  +qs = Worker.fw_seqs(Worker.fw_new(b, ms2))
-  %Equal.sym(List<&2, Nat>, Worker.fw_picked_of(Wk.pick(c, ms, note)), ps, Worker.forward_all_new(c, ms, note)) : {Worker.fw_disjoint(_, Worker.fw_picked_of(Wk.pick(b, ms2, note2))) == True{} : Bool}
-  %Equal.sym(List<&2, Nat>, Worker.fw_picked_of(Wk.pick(b, ms2, note2)), qs, Worker.forward_all_new(b, ms2, note2)) : {Worker.fw_disjoint(ps, _) == True{} : Bool}
-  LAWorker.wb_disjoint(ps, b, qs,
-    Equal.trans(Bool, LAWorker.wb_all_le(ps, b), LAWorker.wb_all_le(ps, Worker.fw_cursor(ps, c)), True{},
-      Equal.cong(Nat, Bool, z => LAWorker.wb_all_le(ps, z), b, Worker.fw_cursor(ps, c), Worker.forward_cursor_exact(c, ms, note)),
-      LAWorker.wb_all_le_cursor(ps, c)),
+def WorkerForward.forward_once(c, ms, note, ms2, note2):
+  +sel = Wk.after(c, ms)
+  +b = Wk.top(sel, c)
+  +ps = Wk.seqs(sel)
+  LAWorker.wb_disjoint(ps, b, Wk.seqs(Wk.after(b, ms2)),
+    LAWorker.wb_and_r(Nat.is_le(c, b), WorkerForward.fw_all_le(ps, b), LAWorker.wb_top_bound(sel, c)),
     LAWorker.wb_new_gt(b, ms2))

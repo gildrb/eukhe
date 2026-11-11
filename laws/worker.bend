@@ -10,39 +10,61 @@ import ./base.bend as LawsBase
 
 # Requirements
 # ------------
+# Sources: the doc comments of bend/worker.bend, of
+# crates/eukhe-bend/src/rules/worker.rs and of the one caller
+# crates/eukhe-core/src/durable/children/pause.rs. omp has no counterpart
+# (the "main + worker" shape and its pause are Eukhe's own).
 #   R1 a pause cancels nothing: Pause, Resume and a message leave the tool
 #      calls in flight; only a tool call's end and the run's end lower the
 #      count, a tool call's start raises it
-#                     pause_never_cancels, pause_only_done_lowers
+#                     pause_never_cancels, pause_only_done_lowers,
+#                     tool_count_ledger
 #   R2 while paused, every boundary (model request, tool call, child
 #      spawn) holds and is parked; nothing starts until a Resume or a
 #      waking message
-#                     paused_starts_nothing, pause_then_holds
+#                     pause_then_holds, parked_names_held, answers_by_event
 #   R3 a Resume, or a waking message, runs the tree again: the parked
 #      boundary goes on, the kept messages are released in arrival order
-#      (a waking message last)
-#                     resume_continues, resume_releases_kept,
-#                     waking_msg_resumes, resume_running_noop
-#   R4 a message that arrives while paused and does not wake is kept; while
-#      running a message passes; over any history every message that
+#      (a waking message last) and nothing stays kept
+#                     wake_runs, running_then_goes, kept_once_in_order,
+#                     running_keeps_nothing, answers_by_event
+#   R4 a message that arrives while paused and does not wake is kept, and
+#      nothing is released while paused; while running a message passes
+#      (neither kept nor released); over any history every message that
 #      arrived while paused is released or still kept, once, in order
-#                     paused_msg_kept, running_passes, kept_once_in_order
+#                     paused_keeps_arrivals, kept_once_in_order,
+#                     running_keeps_nothing, answers_by_event
 #   R5 a running boundary goes (a tool call counts in flight); a tool
 #      call's end lowers the count, never below none; the run's end
 #      clears the parked boundary and the count and keeps the mode
-#                     running_tool_counts, running_gate_goes,
-#                     done_settles, end_clears, pause_acks
+#                     running_then_goes, tool_count_ledger,
+#                     parked_names_held, pause_then_holds
 #   R6 the forward pick hands on every message past the cursor, in list
 #      order, its text verbatim (joined by a blank line, then main's note),
 #      moves the cursor to the largest seq handed on (never back), and a
 #      second pick never hands on a seq again
-#                     forward_all_new, forward_verbatim,
-#                     forward_cursor_exact, forward_cursor_monotone,
-#                     forward_once, forward_example
+#                     laws/worker/forward.bend: forward_picks_split,
+#                     forward_picks_one, forward_verbatim,
+#                     forward_cursor_largest, forward_cursor_monotone,
+#                     forward_once
 #   R7 the entry answers every request Rust spells with the spelling of
 #      the model's answer, refuses input left over and any input that is
-#      not a spelled request, and its reply readers read the reply grammar
-#                     worker_ffi_* (the entry laws below)
+#      not a spelled request; the reply grammar spells each answer apart
+#                     worker_ffi_* (the entry laws below),
+#                     worker_reply_verdict_unambiguous,
+#                     worker_reply_pick_unambiguous
+#   A1 a gate answers Go or Hold, nothing else: the caller fails the run on
+#      any other answer at a gate (pause.rs:270-277)
+#                     running_then_goes, pause_then_holds, answers_by_event
+#   A2 the parked boundary is the one a gate holds now: the caller counts a
+#      paused run with a parked boundary and no tool call in flight as idle
+#      (pause.rs:105-116, PauseView.held)
+#                     parked_names_held, pause_then_holds
+#   A3 a running tree keeps no message: kept messages wait only while the
+#      tree is paused (pause.rs:15-20); a new tree keeps none
+#                     running_keeps_nothing
+# Anchors (not coverage): pause_example, pause_rust_example,
+# forward_example, worker_ffi_example; witness: worker_ffi_premises_witness.
 
 # Spec helpers: the pause
 # -----------------------
@@ -113,33 +135,215 @@ def wk_may_lower(e: Wk.Ev) -> Bool:
     case Wk.End{}:
       True{}
 
-# k, then x
-def wk_snoc(k: List<&2, Nat>, x: Nat) -> List<&2, Nat>:
-  match k:
-    case Nil{}:
-      [x]
-    case Con{y, r}:
-      y <> wk_snoc(r, x)
-
-# n less one, none below 0
-def wk_less(n: Nat) -> Nat:
-  match n:
-    case 0n:
-      0n
-    case 1n+p:
+# the parked boundary
+def wk_parked(s: Wk.St) -> Maybe<&2, Nat>:
+  match s:
+    case Wk.St{m, p, k, n}:
       p
 
-# the count after a boundary of this kind starts: one more for a tool call
-# (kind 1)
-def wk_started.is(tool: Bool, n: Nat) -> Nat:
-  match tool:
-    case True{}:
-      1n+n
-    case False{}:
-      n
+# the events that wake the tree: a resume, a waking message
+def wk_wakes(e: Wk.Ev) -> Bool:
+  match e:
+    case Wk.Pause{}:
+      False{}
+    case Wk.Resume{}:
+      True{}
+    case Wk.Gate{g, i}:
+      False{}
+    case Wk.ToolDone{}:
+      False{}
+    case Wk.Msg{i, w}:
+      w
+    case Wk.End{}:
+      False{}
 
-def wk_started(kind: Nat, n: Nat) -> Nat:
-  wk_started.is(Nat.is_eq(kind, 1n), n)
+# no pause among the events h
+def wk_no_pause(h: List<&2, Wk.Ev>) -> Bool:
+  match h:
+    case Nil{}:
+      True{}
+    case Con{e, r}:
+      match e:
+        case Wk.Pause{}:
+          False{}
+        case Wk.Resume{}:
+          wk_no_pause(r)
+        case Wk.Gate{g, i}:
+          wk_no_pause(r)
+        case Wk.ToolDone{}:
+          wk_no_pause(r)
+        case Wk.Msg{i, w}:
+          wk_no_pause(r)
+        case Wk.End{}:
+          wk_no_pause(r)
+
+# the tree is paused, or it keeps no message
+def wk_clean(s: Wk.St) -> Bool:
+  match s:
+    case Wk.St{m, p, k, n}:
+      match m:
+        case Wk.Paused{}:
+          True{}
+        case Wk.Run{}:
+          match k:
+            case Nil{}:
+              True{}
+            case Con{x, r}:
+              False{}
+
+# the ids of the messages of h, in order (whatever the mode)
+def wk_msg_ids(h: List<&2, Wk.Ev>) -> List<&2, Nat>:
+  match h:
+    case Nil{}:
+      Nil{}
+    case Con{e, r}:
+      match e:
+        case Wk.Msg{i, w}:
+          i <> wk_msg_ids(r)
+        case Wk.Pause{}:
+          wk_msg_ids(r)
+        case Wk.Resume{}:
+          wk_msg_ids(r)
+        case Wk.Gate{g, i}:
+          wk_msg_ids(r)
+        case Wk.ToolDone{}:
+          wk_msg_ids(r)
+        case Wk.End{}:
+          wk_msg_ids(r)
+
+# one when b holds, else none
+def wk_one_if(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# the tool calls a gate of kind g answered v starts: one for a tool call
+# (kind 1: Rust's kind_code, worker.rs:176-182) that goes, else none
+def wk_went_tool(g: Nat, v: Wk.Verdict) -> Nat:
+  match v:
+    case Wk.Go{}:
+      wk_one_if(Nat.is_eq(g, 1n))
+    case Wk.Hold{}:
+      0n
+    case Wk.Release{xs}:
+      0n
+    case Wk.Kept{}:
+      0n
+    case Wk.Pass{}:
+      0n
+    case Wk.Ack{}:
+      0n
+
+# the count of tool calls in flight after event e answered v, from n: a
+# tool call that goes adds one; a tool call's end takes one, never below
+# none (Base Nat.sub); the run's end clears it; nothing else moves it
+def wk_counts(e: Wk.Ev, v: Wk.Verdict, n: Nat) -> Nat:
+  match e:
+    case Wk.Pause{}:
+      n
+    case Wk.Resume{}:
+      n
+    case Wk.Gate{g, i}:
+      Nat.add(wk_went_tool(g, v), n)
+    case Wk.ToolDone{}:
+      Nat.sub(n, 1n)
+    case Wk.Msg{i, w}:
+      n
+    case Wk.End{}:
+      0n
+
+# the parked boundary after a gate named i answered v, from p: a hold
+# parks i, a go clears it
+def wk_parks.gate(v: Wk.Verdict, i: Nat, p: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match v:
+    case Wk.Hold{}:
+      Some{i}
+    case Wk.Go{}:
+      None{}
+    case Wk.Release{xs}:
+      p
+    case Wk.Kept{}:
+      p
+    case Wk.Pass{}:
+      p
+    case Wk.Ack{}:
+      p
+
+# the parked boundary after event e answered v, from p: a gate parks or
+# clears it, the run's end clears it, nothing else moves it
+def wk_parks(e: Wk.Ev, v: Wk.Verdict, p: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match e:
+    case Wk.Gate{g, i}:
+      wk_parks.gate(v, i, p)
+    case Wk.End{}:
+      None{}
+    case Wk.Pause{}:
+      p
+    case Wk.Resume{}:
+      p
+    case Wk.ToolDone{}:
+      p
+    case Wk.Msg{i, w}:
+      p
+
+# the class of an answer: 0 go, 1 hold, 2 release, 3 kept, 4 pass, 5 ack
+def wk_class(v: Wk.Verdict) -> Nat:
+  match v:
+    case Wk.Go{}:
+      0n
+    case Wk.Hold{}:
+      1n
+    case Wk.Release{xs}:
+      2n
+    case Wk.Kept{}:
+      3n
+    case Wk.Pass{}:
+      4n
+    case Wk.Ack{}:
+      5n
+
+# a gate goes when the tree ran (R5) and holds when it was paused (R2, A1);
+# b: paused before
+def wk_expect.gate(b: Bool) -> Nat:
+  match b:
+    case False{}:
+      0n
+    case True{}:
+      1n
+
+# a message passes when the tree ran (R4), is kept when the tree stays
+# paused (R4), releases when it woke the tree (R3); b, a: paused before,
+# after
+def wk_expect.msg(b: Bool, a: Bool) -> Nat:
+  match b:
+    case False{}:
+      4n
+    case True{}:
+      match a:
+        case True{}:
+          3n
+        case False{}:
+          2n
+
+# the class of the answer to e, the tree paused before it (b) and after it
+# (a): a pause, a tool call's end and the run's end are noted (R1, R5); a
+# resume releases what was kept (R3)
+def wk_expect(e: Wk.Ev, b: Bool, a: Bool) -> Nat:
+  match e:
+    case Wk.Pause{}:
+      5n
+    case Wk.Resume{}:
+      2n
+    case Wk.Gate{g, i}:
+      wk_expect.gate(b)
+    case Wk.ToolDone{}:
+      5n
+    case Wk.Msg{i, w}:
+      wk_expect.msg(b, a)
+    case Wk.End{}:
+      5n
 
 # the state that holds the boundary id: paused, with what s kept and has
 # in flight
@@ -239,128 +443,68 @@ def wk_arrived(h: List<&2, Wk.Ev>, p: Bool) -> List<&2, Nat>:
         case Wk.End{}:
           wk_arrived(r, p)
 
-# Laws: the pause, event by event
-# -------------------------------
+# Laws: the pause, event by event, in any state
+# ---------------------------------------------
 
-# LAW pause_acks: a pause pauses the tree in any state and touches nothing else
-# EXCLUDES: a pause that cancels tool calls, drops the parked boundary or
-#   the kept messages, or answers anything but Ack
-law pause_acks:
-  for +m: Wk.Mode
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  {Wk.step(Wk.St{m, p, k, n}, Wk.Pause{}) == (Wk.St{Wk.Paused{}, p, k, n}, Wk.Ack{}) : Wk.St & Wk.Verdict}
+# LAW wake_runs: in any state, a resume or a waking message (the user's,
+# or a forward from main) leaves the tree running
+# EXCLUDES: a resume or a user's message that leaves the tree paused (its
+#   parked boundary would hold on), a resume that pauses a running tree
+law wake_runs:
+  for +s: Wk.St
+  for +e: Wk.Ev
+  for wakes: {wk_wakes(e) == True{} : Bool}
+  {wk_paused(wk_state(Wk.step(s, e))) == False{} : Bool}
 
-# LAW resume_releases_kept: a resume runs a paused tree and releases every
-# kept message, in order; the parked boundary stays (its next gate goes)
-# EXCLUDES: kept messages lost, reordered or released twice, a resume that
-#   leaves the tree paused or forgets the parked boundary
-law resume_releases_kept:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  {Wk.step(Wk.St{Wk.Paused{}, p, k, n}, Wk.Resume{}) == (Wk.St{Wk.Run{}, p, Nil{}, n}, Wk.Release{k}) : Wk.St & Wk.Verdict}
+# LAW tool_count_ledger: in any state, after any event, the count of tool
+# calls in flight is the count before, plus one for a tool call (kind 1)
+# whose gate answered Go, less one for a tool call's end (Base Nat.sub:
+# never below none), none after the run's end, and the same otherwise
+# EXCLUDES: a tool call counted when its gate held, or never counted; a
+#   model request or a spawn counted; a count that wraps or goes below
+#   none; a stale count kept past the run's end
+law tool_count_ledger:
+  for +s: Wk.St
+  for +e: Wk.Ev
+  {wk_inflight(wk_state(Wk.step(s, e))) == wk_counts(e, wk_verdict(Wk.step(s, e)), wk_inflight(s)) : Nat}
 
-# LAW resume_running_noop: a resume of a running tree releases nothing and
-# changes nothing
-# EXCLUDES: a second resume that releases (or drops) messages again
-law resume_running_noop:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  {Wk.step(Wk.St{Wk.Run{}, p, k, n}, Wk.Resume{}) == (Wk.St{Wk.Run{}, p, k, n}, Wk.Release{Nil{}}) : Wk.St & Wk.Verdict}
+# LAW parked_names_held: in any state, after any event, the parked
+# boundary is the one a gate holds: a gate answered Hold parks its id, a
+# gate answered Go and the run's end clear it, every other event leaves it
+# EXCLUDES: a held boundary not parked (the run would not count as idle
+#   at it), a boundary still parked after it went or after the run ended,
+#   a pause, resume, message or tool's end that drops or invents one
+law parked_names_held:
+  for +s: Wk.St
+  for +e: Wk.Ev
+  {wk_parked(wk_state(Wk.step(s, e))) == wk_parks(e, wk_verdict(Wk.step(s, e)), wk_parked(s)) : Maybe<&2, Nat>}
 
-# LAW running_tool_counts: a running tree starts a tool call (kind 1): it
-# goes, counts one more in flight and parks nothing
-# EXCLUDES: a tool call not counted (a later Done would then go below the
-#   real count), a stale parked boundary kept
-law running_tool_counts:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  for +id: Nat
-  {Wk.step(Wk.St{Wk.Run{}, p, k, n}, Wk.Gate{1n, id}) == (Wk.St{Wk.Run{}, None{}, k, 1n+n}, Wk.Go{}) : Wk.St & Wk.Verdict}
+# LAW answers_by_event: in any state, the answer to an event says what
+# happened (table wk_expect, over the mode before and after): a pause, a
+# tool call's end and the run's end are noted (Ack); a resume releases; a
+# gate goes when the tree ran and holds when it was paused; a message
+# passes when the tree ran, is kept when the tree stays paused, releases
+# when it woke the tree
+# EXCLUDES: a gate answered anything but Go or Hold (the caller fails the
+#   run), a pause, tool's end or run's end that releases (and so drops)
+#   kept messages, a waking message answered Kept, a message to a running
+#   tree kept
+law answers_by_event:
+  for +s: Wk.St
+  for +e: Wk.Ev
+  {wk_class(wk_verdict(Wk.step(s, e))) == wk_expect(e, wk_paused(s), wk_paused(wk_state(Wk.step(s, e)))) : Nat}
 
-# LAW running_gate_goes: a running tree starts any other boundary (a model
-# request, a child spawn, any kind but 1): it goes, the count stays
-# EXCLUDES: a request or spawn counted as a tool call, a running boundary
-#   that holds
-law running_gate_goes:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  for +kind: Nat
-  for +id: Nat
-  for other: {Nat.is_eq(kind, 1n) == False{} : Bool}
-  {Wk.step(Wk.St{Wk.Run{}, p, k, n}, Wk.Gate{kind, id}) == (Wk.St{Wk.Run{}, None{}, k, n}, Wk.Go{}) : Wk.St & Wk.Verdict}
-
-# LAW paused_starts_nothing: in a paused tree every boundary, of any kind,
-# holds: it is parked, the count stays
-# EXCLUDES: a tool call, model request or child spawn started while paused
-#   (or counted in flight), a boundary held but not parked
-law paused_starts_nothing:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  for +kind: Nat
-  for +id: Nat
-  {Wk.step(Wk.St{Wk.Paused{}, p, k, n}, Wk.Gate{kind, id}) == (Wk.St{Wk.Paused{}, Some{id}, k, n}, Wk.Hold{}) : Wk.St & Wk.Verdict}
-
-# LAW done_settles: a tool call's end lowers the count by one, never below
-# none, and touches nothing else (a paused tree stays paused)
-# EXCLUDES: a count that wraps or goes below none, an end that resumes or
-#   pauses the tree
-law done_settles:
-  for +m: Wk.Mode
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  {Wk.step(Wk.St{m, p, k, n}, Wk.ToolDone{}) == (Wk.St{m, p, k, wk_less(n)}, Wk.Ack{}) : Wk.St & Wk.Verdict}
-
-# LAW running_passes: in a running tree a message passes and the state stays
-# EXCLUDES: a message kept or held while running
-law running_passes:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  for +id: Nat
-  for +w: Bool
-  {Wk.step(Wk.St{Wk.Run{}, p, k, n}, Wk.Msg{id, w}) == (Wk.St{Wk.Run{}, p, k, n}, Wk.Pass{}) : Wk.St & Wk.Verdict}
-
-# LAW waking_msg_resumes: a waking message (the user's, or a forward from
-# main) runs a paused tree: the kept messages are released in order, the
-# waking one last
-# EXCLUDES: a user message that waits behind the pause, a waking message
-#   released before the ones kept earlier, a kept message lost
-law waking_msg_resumes:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  for +id: Nat
-  {Wk.step(Wk.St{Wk.Paused{}, p, k, n}, Wk.Msg{id, True{}}) == (Wk.St{Wk.Run{}, p, Nil{}, n}, Wk.Release{wk_snoc(k, id)}) : Wk.St & Wk.Verdict}
-
-# LAW paused_msg_kept: a message that does not wake (a report, a note) is
-# kept by a paused tree, after the ones kept before; the tree stays paused
-# EXCLUDES: a report that wakes the tree, a kept message put first or lost
-law paused_msg_kept:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  for +id: Nat
-  {Wk.step(Wk.St{Wk.Paused{}, p, k, n}, Wk.Msg{id, False{}}) == (Wk.St{Wk.Paused{}, p, wk_snoc(k, id), n}, Wk.Kept{}) : Wk.St & Wk.Verdict}
-
-# LAW end_clears: the run's end clears the parked boundary and the count;
-# the mode and the kept messages stay (a paused tree stays paused: the next
-# run's first request holds)
-# EXCLUDES: a run's end that resumes the tree, drops kept messages, or
-#   leaves a stale count or parked boundary for the next run
-law end_clears:
-  for +m: Wk.Mode
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
-  {Wk.step(Wk.St{m, p, k, n}, Wk.End{}) == (Wk.St{m, None{}, k, 0n}, Wk.Ack{}) : Wk.St & Wk.Verdict}
+# LAW running_keeps_nothing: a tree that is paused or keeps no message is
+# so after any event: a running tree never keeps a message (a new tree,
+# wk_init, keeps none)
+# EXCLUDES: a resume or a waking message that runs the tree but keeps the
+#   messages it held (they would never be released), a message kept by a
+#   running tree
+law running_keeps_nothing:
+  for +s: Wk.St
+  for +e: Wk.Ev
+  for clean: {wk_clean(s) == True{} : Bool}
+  {wk_clean(wk_state(Wk.step(s, e))) == True{} : Bool}
 
 # Laws: the pause, over events and histories
 # ------------------------------------------
@@ -397,17 +541,32 @@ law pause_then_holds:
   for +id: Nat
   {Wk.step(wk_after(h, wk_state(Wk.step(s, Wk.Pause{}))), Wk.Gate{kind, id}) == (wk_held(wk_after(h, wk_state(Wk.step(s, Wk.Pause{}))), id), Wk.Hold{}) : Wk.St & Wk.Verdict}
 
-# LAW resume_continues: a paused tree that held a boundary, once resumed,
-# lets that same boundary go: the run continues where it parked
-# EXCLUDES: a resume after which the parked boundary still holds, is
-#   skipped, or is counted twice
-law resume_continues:
-  for +p: Maybe<&2, Nat>
-  for +k: List<&2, Nat>
-  for +n: Nat
+# LAW running_then_goes: from any running state, after any events with no
+# pause among them, a gate of any kind goes (with wake_runs: after a resume
+# or a waking message the parked boundary goes on)
+# EXCLUDES: a running boundary that holds; a gate, a tool's end, a
+#   message, a resume or the run's end that pauses a running tree; a
+#   boundary still held after a resume
+law running_then_goes:
+  for +s: Wk.St
+  for run: {wk_paused(s) == False{} : Bool}
+  for +h: List<&2, Wk.Ev>
+  for calm: {wk_no_pause(h) == True{} : Bool}
   for +kind: Nat
   for +id: Nat
-  {Wk.step(wk_state(Wk.step(wk_state(Wk.step(Wk.St{Wk.Paused{}, p, k, n}, Wk.Gate{kind, id})), Wk.Resume{})), Wk.Gate{kind, id}) == (Wk.St{Wk.Run{}, None{}, Nil{}, wk_started(kind, n)}, Wk.Go{}) : Wk.St & Wk.Verdict}
+  {wk_verdict(Wk.step(wk_after(h, s), Wk.Gate{kind, id})) == Wk.Go{} : Wk.Verdict}
+
+# LAW paused_keeps_arrivals: from any state, after a pause and then any
+# events with no resume and no waking message, the kept messages are the
+# ones kept before, then every message of those events, in arrival order:
+# nothing is released while paused
+# EXCLUDES: a report released or passed by a paused tree, a kept message
+#   dropped, reordered or put first
+law paused_keeps_arrivals:
+  for +s: Wk.St
+  for +h: List<&2, Wk.Ev>
+  for quiet: {wk_quiet(h) == True{} : Bool}
+  {wk_kept(wk_after(h, wk_state(Wk.step(s, Wk.Pause{})))) == List.append(&2, Nat, wk_kept(s), wk_msg_ids(h)) : List<&2, Nat>}
 
 # LAW kept_once_in_order: over any events from any state, the ids released
 # (every Release, in order), then the ids still kept, are the ids kept at
@@ -424,156 +583,16 @@ law kept_once_in_order:
 # LAW pause_example: anchor: from a new tree: a tool call goes; a pause;
 # a model request holds; a report is kept; the tool call ends; the user's
 # message releases the report then itself; the request goes on
-# EXCLUDES: a model whose answers differ from the documented session
+# EXCLUDES: a model whose answers to this session differ
 law pause_example:
   {wk_answers([Wk.Gate{1n, 1n}, Wk.Pause{}, Wk.Gate{0n, 2n}, Wk.Msg{7n, False{}}, Wk.ToolDone{}, Wk.Msg{8n, True{}}, Wk.Gate{0n, 2n}], wk_init()) == [Wk.Go{}, Wk.Ack{}, Wk.Hold{}, Wk.Kept{}, Wk.Ack{}, Wk.Release{[7n, 8n]}, Wk.Go{}] : List<&2, Wk.Verdict>}
 
-# Spec helpers: the forward pick
-# ------------------------------
-
-def fw_new.put(keep: Bool, m: Wk.UMsg, r: List<&2, Wk.UMsg>) -> List<&2, Wk.UMsg>:
-  match keep:
-    case True{}:
-      m <> r
-    case False{}:
-      r
-
-# the messages of ms whose seq is greater than the cursor c, in list order
-def fw_new(+c: Nat, ms: List<&2, Wk.UMsg>) -> List<&2, Wk.UMsg>:
-  match ms:
-    case Nil{}:
-      Nil{}
-    case Con{Wk.UMsg{+q, t}, r}:
-      fw_new.put(Nat.is_gt(q, c), Wk.UMsg{q, t}, fw_new(c, r))
-
-def fw_seqs(ms: List<&2, Wk.UMsg>) -> List<&2, Nat>:
-  match ms:
-    case Nil{}:
-      Nil{}
-    case Con{Wk.UMsg{q, t}, r}:
-      q <> fw_seqs(r)
-
-def fw_texts(ms: List<&2, Wk.UMsg>) -> List<&2, String>:
-  match ms:
-    case Nil{}:
-      Nil{}
-    case Con{Wk.UMsg{q, t}, r}:
-      t <> fw_texts(r)
-
-def fw_body.note(ts: List<&2, String>, n: String) -> String:
-  match ts:
-    case Nil{}:
-      String.append("[note from main] ", n)
-    case Con{t, r}:
-      String.append(String.join(t <> r, "\n\n"), String.append("\n\n[note from main] ", n))
-
-# the texts ts joined by a blank line (Base String.join), then main's note:
-# after a blank line when a text comes first, alone when none does
-def fw_body(ts: List<&2, String>, note: Maybe<&2, String>) -> String:
-  match note:
-    case None{}:
-      String.join(ts, "\n\n")
-    case Some{n}:
-      fw_body.note(ts, n)
-
-# the largest of the cursor c and the seqs ps (Base Nat.max)
-def fw_cursor(ps: List<&2, Nat>, c: Nat) -> Nat:
-  match ps:
-    case Nil{}:
-      c
-    case Con{x, r}:
-      fw_cursor(r, Nat.max(c, x))
-
-def fw_cursor_of(x: Wk.Pick) -> Nat:
-  match x:
-    case Wk.Pick{c, ps, b}:
-      c
-
-def fw_picked_of(x: Wk.Pick) -> List<&2, Nat>:
-  match x:
-    case Wk.Pick{c, ps, b}:
-      ps
-
-def fw_body_of(x: Wk.Pick) -> String:
-  match x:
-    case Wk.Pick{c, ps, b}:
-      b
-
-# x is one of ys
-def fw_in(+x: Nat, ys: List<&2, Nat>) -> Bool:
-  match ys:
-    case Nil{}:
-      False{}
-    case Con{y, r}:
-      Bool.or(Nat.is_eq(x, y), fw_in(x, r))
-
-# no x of xs is one of ys
-def fw_disjoint(xs: List<&2, Nat>, +ys: List<&2, Nat>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{x, r}:
-      Bool.and(Bool.not(fw_in(x, ys)), fw_disjoint(r, ys))
-
-# Laws: the forward pick
-# ----------------------
-
-# LAW forward_all_new: the pick hands on the seq of every message past the
-# cursor, in list order, and no other
-# EXCLUDES: a message past the cursor skipped, one at or before it handed
-#   on again, the seqs reordered (sorted, reversed) or deduplicated
-law forward_all_new:
-  for +c: Nat
-  for +ms: List<&2, Wk.UMsg>
-  for +note: Maybe<&2, String>
-  {fw_picked_of(Wk.pick(c, ms, note)) == fw_seqs(fw_new(c, ms)) : List<&2, Nat>}
-
-# LAW forward_verbatim: the text handed on is the texts of the messages past
-# the cursor, unchanged, joined by a blank line, then main's note after
-# "[note from main] " (after a blank line when a text comes first)
-# EXCLUDES: a text trimmed, changed, dropped or reordered, another joint,
-#   a note lost, placed first, or an empty note dropped
-law forward_verbatim:
-  for +c: Nat
-  for +ms: List<&2, Wk.UMsg>
-  for +note: Maybe<&2, String>
-  {fw_body_of(Wk.pick(c, ms, note)) == fw_body(fw_texts(fw_new(c, ms)), note) : String}
-
-# LAW forward_cursor_exact: the new cursor is the largest of the cursor and
-# the seqs handed on (the largest seq handed on, or the cursor when none is)
-# EXCLUDES: a cursor moved to the last seq instead of the largest, past a
-#   message not handed on, or left behind
-law forward_cursor_exact:
-  for +c: Nat
-  for +ms: List<&2, Wk.UMsg>
-  for +note: Maybe<&2, String>
-  {fw_cursor_of(Wk.pick(c, ms, note)) == fw_cursor(fw_seqs(fw_new(c, ms)), c) : Nat}
-
-# LAW forward_cursor_monotone: the new cursor is never below the old one
-# EXCLUDES: a cursor that moves back and hands messages on twice
-law forward_cursor_monotone:
-  for +c: Nat
-  for +ms: List<&2, Wk.UMsg>
-  for +note: Maybe<&2, String>
-  {Nat.is_le(c, fw_cursor_of(Wk.pick(c, ms, note))) == True{} : Bool}
-
-# LAW forward_once: a second pick from the new cursor, over any messages
-# and note, never hands on a seq the first pick handed on
-# EXCLUDES: a user message forwarded twice
-law forward_once:
-  for +c: Nat
-  for +ms: List<&2, Wk.UMsg>
-  for +note: Maybe<&2, String>
-  for +ms2: List<&2, Wk.UMsg>
-  for +note2: Maybe<&2, String>
-  {fw_disjoint(fw_picked_of(Wk.pick(c, ms, note)), fw_picked_of(Wk.pick(fw_cursor_of(Wk.pick(c, ms, note)), ms2, note2))) == True{} : Bool}
-
-# LAW forward_example: anchor: past cursor 1, messages 5 and 3 (not 1) are
-# handed on, cursor 5; an empty note still opens with its head; no message
-# and no note hand on nothing
-# EXCLUDES: a pick that differs from the documented texts
-law forward_example:
-  {[Wk.pick(1n, [Wk.UMsg{1n, "a"}, Wk.UMsg{5n, " b "}, Wk.UMsg{3n, "c\n"}], Some{"n"}), Wk.pick(4n, [Wk.UMsg{2n, "x"}], Some{""}), Wk.pick(0n, [], None{})] == [Wk.Pick{5n, [5n, 3n], " b \n\nc\n\n\n[note from main] n"}, Wk.Pick{4n, [], "[note from main] "}, Wk.Pick{0n, [], ""}] : List<&2, Wk.Pick>}
+# LAW pause_rust_example: anchor: the nine steps of the Rust test
+# each_event_steps_in_the_core (crates/eukhe-bend/src/rules/worker.rs:
+# 251-310): the states after them, then the answers, as that test expects
+# EXCLUDES: a model whose steps differ from the Rust test's vectors
+law pause_rust_example:
+  {[wk_state(Wk.step(wk_init(), Wk.Pause{})), wk_state(Wk.step(Wk.St{Wk.Paused{}, Some{5n}, [7n], 1n}, Wk.Resume{})), wk_state(Wk.step(Wk.St{Wk.Run{}, Some{5n}, [], 1n}, Wk.Gate{1n, 6n})), wk_state(Wk.step(Wk.St{Wk.Paused{}, None{}, [], 1n}, Wk.Gate{2n, 6n})), wk_state(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [], 1n}, Wk.ToolDone{})), wk_state(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [7n], 0n}, Wk.Msg{9n, False{}})), wk_state(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [7n, 9n], 0n}, Wk.Msg{10n, True{}})), wk_state(Wk.step(Wk.St{Wk.Run{}, None{}, [], 0n}, Wk.Msg{11n, True{}})), wk_state(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [7n], 2n}, Wk.End{}))] == [Wk.St{Wk.Paused{}, None{}, [], 0n}, Wk.St{Wk.Run{}, Some{5n}, [], 1n}, Wk.St{Wk.Run{}, None{}, [], 2n}, Wk.St{Wk.Paused{}, Some{6n}, [], 1n}, Wk.St{Wk.Paused{}, Some{6n}, [], 0n}, Wk.St{Wk.Paused{}, Some{6n}, [7n, 9n], 0n}, Wk.St{Wk.Run{}, Some{6n}, [], 0n}, Wk.St{Wk.Run{}, None{}, [], 0n}, Wk.St{Wk.Paused{}, None{}, [7n], 0n}] : List<&2, Wk.St>} & {[wk_verdict(Wk.step(wk_init(), Wk.Pause{})), wk_verdict(Wk.step(Wk.St{Wk.Paused{}, Some{5n}, [7n], 1n}, Wk.Resume{})), wk_verdict(Wk.step(Wk.St{Wk.Run{}, Some{5n}, [], 1n}, Wk.Gate{1n, 6n})), wk_verdict(Wk.step(Wk.St{Wk.Paused{}, None{}, [], 1n}, Wk.Gate{2n, 6n})), wk_verdict(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [], 1n}, Wk.ToolDone{})), wk_verdict(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [7n], 0n}, Wk.Msg{9n, False{}})), wk_verdict(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [7n, 9n], 0n}, Wk.Msg{10n, True{}})), wk_verdict(Wk.step(Wk.St{Wk.Run{}, None{}, [], 0n}, Wk.Msg{11n, True{}})), wk_verdict(Wk.step(Wk.St{Wk.Paused{}, Some{6n}, [7n], 2n}, Wk.End{}))] == [Wk.Ack{}, Wk.Release{[7n]}, Wk.Go{}, Wk.Hold{}, Wk.Ack{}, Wk.Kept{}, Wk.Release{[7n, 9n, 10n]}, Wk.Pass{}, Wk.Ack{}] : List<&2, Wk.Verdict>}
 
 # Spec spellers: the entry
 # ------------------------
@@ -688,6 +707,73 @@ def wk_spell_reply(r: FWk.Req) -> String:
       wk_spell_stepped(Wk.step(s, e))
     case FWk.Forward{c, ms, n}:
       wk_spell_pick(Wk.pick(c, ms, n), "")
+
+# Spec readers: the replies
+# -------------------------
+# Readers of the reply grammar (the header of bend/ffi_worker.bend), in the
+# order Rust reads a reply (crates/eukhe-bend/src/rules/worker.rs:129-140,
+# 166-172). They witness that a reply spelling names one answer; no
+# shipped code calls them (Rust reads the replies).
+
+def wk_read_verdict.release(d: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<Wk.Verdict>:
+  match d:
+    case Wr.Got{xs, s}:
+      Wr.Got{Wk.Release{xs}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def wk_read_verdict.tag(t: Nat, s: String) -> Wr.Dec<Wk.Verdict>:
+  match t:
+    case 0n:
+      Wr.Got{Wk.Go{}, s}
+    case 1n:
+      Wr.Got{Wk.Hold{}, s}
+    case 2n:
+      wk_read_verdict.release(Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case 3n:
+      Wr.Got{Wk.Kept{}, s}
+    case 4n:
+      Wr.Got{Wk.Pass{}, s}
+    case 5n:
+      Wr.Got{Wk.Ack{}, s}
+    case 6n+x:
+      Wr.Bad{}
+
+def wk_read_verdict.go(d: Wr.Dec<Nat>) -> Wr.Dec<Wk.Verdict>:
+  match d:
+    case Wr.Got{t, s}:
+      wk_read_verdict.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a verdict: its tag, then the released ids of a release
+def wk_read_verdict(s: String) -> Wr.Dec<Wk.Verdict>:
+  wk_read_verdict.go(Wr.get_nat(s))
+
+def wk_read_pick.body(c: Nat, ps: List<&2, Nat>, d: Wr.Dec<String>) -> Wr.Dec<Wk.Pick>:
+  match d:
+    case Wr.Got{b, s}:
+      Wr.Got{Wk.Pick{c, ps, b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def wk_read_pick.picked(c: Nat, d: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<Wk.Pick>:
+  match d:
+    case Wr.Got{ps, s}:
+      wk_read_pick.body(c, ps, Wr.get_str(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def wk_read_pick.cursor(d: Wr.Dec<Nat>) -> Wr.Dec<Wk.Pick>:
+  match d:
+    case Wr.Got{c, s}:
+      wk_read_pick.picked(c, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a pick: the cursor, the seqs, the text
+def wk_read_pick(s: String) -> Wr.Dec<Wk.Pick>:
+  wk_read_pick.cursor(Wr.get_nat(s))
 
 # Spec helpers: what fits the wire
 # --------------------------------
@@ -861,32 +947,6 @@ law worker_ffi_unknown_note:
   for h: {Bool.and(LawsBase.wire_fits(c), wk_umsgs_fit(ms)) == True{} : Bool}
   {FWk.ffi(Wr.put_nat(1n, Wr.put_nat(c, wk_spell_umsgs(ms, Wr.put_nat(2n+n, rest))))) == Wr.err("worker: malformed request") : String}
 
-# LAW worker_ffi_unknown_verdict: a verdict reply tag past 5 reads as no
-# reply, whatever follows
-# EXCLUDES: a reply grammar where an unknown tag reads as a verdict (two
-#   spellings of one answer, a reply Rust and the laws read apart)
-law worker_ffi_unknown_verdict:
-  for +n: Nat
-  for +rest: String
-  {FWk.get_verdict(Wr.put_nat(6n+n, rest)) == Wr.Bad{} : Wr.Dec<Wk.Verdict>}
-
-# LAW worker_ffi_unknown_reply_mode: a state whose mode tag is past 1 reads
-# as no state, whatever follows
-# EXCLUDES: a state reader that reads an unknown mode as run or paused
-law worker_ffi_unknown_reply_mode:
-  for +n: Nat
-  for +rest: String
-  {FWk.get_st(Wr.put_nat(2n+n, rest)) == Wr.Bad{} : Wr.Dec<Wk.St>}
-
-# LAW worker_ffi_unknown_reply_parked: a state whose parked tag is past 1
-# reads as no state, whatever follows
-# EXCLUDES: a state reader that reads an unknown parked tag as none or an id
-law worker_ffi_unknown_reply_parked:
-  for +m: Wk.Mode
-  for +n: Nat
-  for +rest: String
-  {FWk.get_st(wk_spell_mode(m, Wr.put_nat(2n+n, rest))) == Wr.Bad{} : Wr.Dec<Wk.St>}
-
 # LAW worker_ffi_st_reads_spelled: the state reader reads every state the
 # grammar spells back as itself, the rest untouched
 # EXCLUDES: a reader (and its own writer) that swap the fields or tags of a
@@ -897,30 +957,34 @@ law worker_ffi_st_reads_spelled:
   for h: {wk_st_fits(x) == True{} : Bool}
   {FWk.get_st(wk_spell_st(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.St>}
 
-# LAW worker_ffi_verdict_reads_spelled: the verdict reader reads every
-# verdict the grammar spells back as itself, the rest untouched
-# EXCLUDES: a reader that swaps verdict tags (a hold read as a go) or loses
-#   the released ids
-law worker_ffi_verdict_reads_spelled:
+# LAW worker_reply_verdict_unambiguous: the reply grammar spells every
+# verdict apart: a reader of the grammar in Rust's order (wk_read_verdict)
+# reads each verdict that fits the wire back as itself, the rest untouched
+# EXCLUDES: a reply grammar (wk_spell_verdict, the spelling
+#   worker_ffi_decides pins the replies to) that spells two verdicts alike
+#   (a hold read as a go) or loses the released ids
+law worker_reply_verdict_unambiguous:
   for +x: Wk.Verdict
   for +rest: String
   for h: {wk_verdict_fits(x) == True{} : Bool}
-  {FWk.get_verdict(wk_spell_verdict(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.Verdict>}
+  {wk_read_verdict(wk_spell_verdict(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.Verdict>}
 
-# LAW worker_ffi_pick_reads_spelled: the pick reader reads every pick the
-# grammar spells back as itself, the rest untouched
-# EXCLUDES: a reader that swaps the cursor and the seqs, or loses the text
-law worker_ffi_pick_reads_spelled:
+# LAW worker_reply_pick_unambiguous: the reply grammar spells every pick
+# apart: a reader of the grammar in Rust's order (wk_read_pick) reads each
+# pick that fits the wire back as itself, the rest untouched
+# EXCLUDES: a reply grammar (wk_spell_pick) that swaps the cursor and the
+#   seqs, or loses the text
+law worker_reply_pick_unambiguous:
   for +x: Wk.Pick
   for +rest: String
   for h: {wk_pick_fits(x) == True{} : Bool}
-  {FWk.get_pick(wk_spell_pick(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.Pick>}
+  {wk_read_pick(wk_spell_pick(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.Pick>}
 
-# LAW worker_ffi_example: anchor: the exact strings Rust sends and reads: a
+# LAW worker_ffi_example: anchor: exact strings in and out of the entry: a
 # pause of a new tree; a report kept by a paused tree that holds 5 with 1
 # tool in flight; the user's message releasing it; a forward past cursor 1
 # with a note; request tag 2, mode tag 2, parked tag 2, event tag 6 and
-# note tag 2 are malformed
+# note tag 2 are malformed; input left over is refused
 law worker_ffi_example:
   {[FWk.ffi("0,0,0,0,0,0,"), FWk.ffi("0,1,1,5,1,7,1,4,9,F"), FWk.ffi("0,1,1,5,1,7,1,4,9,T"), FWk.ffi("1,1,2,1,2,hi3,2,yo1,1,n"), FWk.ffi("2,"), FWk.ffi("0,2,"), FWk.ffi("0,0,2,"), FWk.ffi("0,0,0,0,0,6,"), FWk.ffi("1,0,0,2,"), FWk.ffi("0,0,0,0,0,0,x")] == ["1,0,0,0,5,", "1,1,5,2,7,9,1,3,", "0,1,5,0,1,2,2,7,9,", "3,1,3,22,yo\n\n[note from main] n", "E worker: malformed request", "E worker: malformed request", "E worker: malformed request", "E worker: malformed request", "E worker: malformed request", "E worker: input left over"] : List<&2, String>}
 

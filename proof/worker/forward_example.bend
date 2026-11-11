@@ -3,7 +3,7 @@
 # PROOF of LAW forward_example: a closed computation.
 
 import Base
-import ../../laws/worker.bend as Worker
+import ../../laws/worker/forward.bend as WorkerForward
 
-def Worker.forward_example():
+def WorkerForward.forward_example():
   {==}

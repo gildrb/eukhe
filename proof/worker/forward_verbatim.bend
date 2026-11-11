@@ -6,9 +6,9 @@
 
 import Base
 import ../../bend/worker.bend as Wk
-import ../../laws/worker.bend as Worker
+import ../../laws/worker/forward.bend as WorkerForward
 import ./base.bend as LAWorker
 
-def Worker.forward_verbatim(c, ms, note):
-  %Equal.sym(List<&2, Wk.UMsg>, Wk.after(c, ms), Worker.fw_new(c, ms), LAWorker.wb_after(c, ms)) : {Wk.body(_, note) == Worker.fw_body(Worker.fw_texts(Worker.fw_new(c, ms)), note) : String}
-  LAWorker.wb_body(Worker.fw_new(c, ms), note)
+def WorkerForward.forward_verbatim(c, ms, note):
+  %Equal.sym(List<&2, Wk.UMsg>, Wk.after(c, ms), WorkerForward.fw_new(c, ms), LAWorker.wb_after(c, ms)) : {Wk.body(_, note) == WorkerForward.fw_body(WorkerForward.fw_texts(WorkerForward.fw_new(c, ms)), note) : String}
+  LAWorker.wb_body(WorkerForward.fw_new(c, ms), note)

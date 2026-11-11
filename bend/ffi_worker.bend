@@ -315,68 +315,10 @@ def put_verdict(v: M.Verdict, rest: String) -> String:
     case M.Ack{}:
       W.put_nat(5n, rest)
 
-def get_verdict.release(d: W.Dec<List<&2, Nat>>) -> W.Dec<M.Verdict>:
-  match d:
-    case W.Got{xs, s}:
-      W.Got{M.Release{xs}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_verdict.tag(t: Nat, s: String) -> W.Dec<M.Verdict>:
-  match t:
-    case 0n:
-      W.Got{M.Go{}, s}
-    case 1n:
-      W.Got{M.Hold{}, s}
-    case 2n:
-      get_verdict.release(get_nats(s))
-    case 3n:
-      W.Got{M.Kept{}, s}
-    case 4n:
-      W.Got{M.Pass{}, s}
-    case 5n:
-      W.Got{M.Ack{}, s}
-    case 6n+x:
-      W.Bad{}
-
-def get_verdict.go(d: W.Dec<Nat>) -> W.Dec<M.Verdict>:
-  match d:
-    case W.Got{t, s}:
-      get_verdict.tag(t, s)
-    case W.Bad{}:
-      W.Bad{}
-
-def get_verdict(s: String) -> W.Dec<M.Verdict>:
-  get_verdict.go(W.get_nat(s))
-
 def put_pick(x: M.Pick, rest: String) -> String:
   match x:
     case M.Pick{c, ps, b}:
       W.put_nat(c, put_nats(ps, W.put_str(b, rest)))
-
-def get_pick.body(c: Nat, ps: List<&2, Nat>, d: W.Dec<String>) -> W.Dec<M.Pick>:
-  match d:
-    case W.Got{b, s}:
-      W.Got{M.Pick{c, ps, b}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_pick.picked(c: Nat, d: W.Dec<List<&2, Nat>>) -> W.Dec<M.Pick>:
-  match d:
-    case W.Got{ps, s}:
-      get_pick.body(c, ps, W.get_str(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_pick.cursor(d: W.Dec<Nat>) -> W.Dec<M.Pick>:
-  match d:
-    case W.Got{c, s}:
-      get_pick.picked(c, get_nats(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_pick(s: String) -> W.Dec<M.Pick>:
-  get_pick.cursor(W.get_nat(s))
 
 # The entry
 # ---------
