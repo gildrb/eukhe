@@ -25,7 +25,7 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 |autoresearch|[oh-my-pi autoresearch](https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/autoresearch)|`autoresearch/{decimal,metric_line,segment,stats,step}.bend`|autoresearch (55)|
 |settings|eukhe|`settings/config.bend`, `settings/config_rules.bend`|config (49), cvar (44)|
 |theme|eukhe|`theme/{color,model,read,rules,wire}.bend`|theme (52), theme_model (16), color (40)|
-|once|eukhe: exactly-once effects, an intent journal per effect (omp has none: its `--restore` re-runs an interrupted batch and re-sends the request)|`once/life.bend`|once (22)|
+|once|eukhe: exactly-once effects, an intent journal per effect (a restart never re-runs an interrupted call or re-sends a request blindly: the core decides from the journal)|`once/life.bend`|once (22)|
 
 ## Requirements
 
