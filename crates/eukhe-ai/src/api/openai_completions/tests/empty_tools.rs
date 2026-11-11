@@ -261,7 +261,9 @@ async fn uses_conservative_openai_compatible_fields_for_cloudflare_ai_gateway_co
     assert_eq!(params["messages"][0]["role"], json!("system"));
     assert_eq!(params.get("max_tokens"), Some(&json!(1234)));
     assert_eq!(params.get("max_completion_tokens"), None);
-    assert_eq!(params.get("reasoning_effort"), None);
+    // omp: Workers AI takes `reasoning_effort` (catalog `compat/resolve.ts`
+    // `supportsReasoningEffort`).
+    assert_eq!(params.get("reasoning_effort"), Some(&json!("high")));
     assert_eq!(params.get("store"), None);
 
     assert_eq!(

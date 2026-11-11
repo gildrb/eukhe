@@ -255,3 +255,48 @@ async fn qwen_sends_enable_thinking_without_reasoning_effort() {
     )
     .await;
 }
+
+/// omp: Cloudflare Workers AI chat models (Qwen aside) take `OpenAI`-style
+/// `reasoning_effort` (catalog `compat/resolve.ts`: `supportsReasoningEffort`
+/// is false only for Grok, Xiaomi `MiMo` and pre-5.2 Z.AI GLM; the dialect is
+/// `openai`, `DeepSeek` included).
+#[tokio::test]
+async fn cloudflare_workers_ai_sends_reasoning_effort() {
+    let rows = catalog_rows(
+        &["cloudflare-ai-gateway"],
+        |model| {
+            model.reasoning
+                && model.api == "openai-completions"
+                && model.id.starts_with("workers-ai/")
+                && !is_qwen_chat(model)
+        },
+        &["high"],
+    );
+    assert!(!rows.is_empty());
+    assert_rows(&borrowed(&rows), |_| json!({ "reasoning_effort": "high" })).await;
+}
+
+/// omp: `OpenCode`'s Kimi K2.6 and `OpenCode` Go's `DeepSeek` lanes speak the
+/// `openai` dialect (catalog `compat/resolve.ts` `thinkingFormat`: `zai`
+/// only for Moonshot-native Kimi, Z.AI, Zhipu and Xiaomi `MiMo`): a level
+/// sends `reasoning_effort` alone, no `thinking` object. `OpenCode` Go's
+/// `LongCat` 2.5 Preview has no effort tiers (`providers/opencode-go.kdl`
+/// `supports-reasoning-effort #false`): a level sends no effort.
+#[tokio::test]
+async fn opencode_kimi_and_deepseek_send_reasoning_effort_only() {
+    assert_rows(
+        &[
+            ("opencode", "kimi-k2.6", "high"),
+            ("opencode-go", "deepseek-v4-pro", "high"),
+            ("opencode-go", "deepseek-v4-flash-vision-exp", "high"),
+            ("opencode-go", "deepseek-v4.1-flash", "high"),
+        ],
+        |_| json!({ "reasoning_effort": "high" }),
+    )
+    .await;
+    assert_rows(
+        &[("opencode-go", "longcat-2.5-preview-free", "high")],
+        |_| json!({}),
+    )
+    .await;
+}
