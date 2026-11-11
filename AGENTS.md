@@ -65,11 +65,11 @@ First paint and every frame the user waits on never block on disk sync or backgr
   - user-configured MCP servers;
   - the Signal service, only while `eukhe gateway` runs (through the user's signal-cli);
   - pinned model files from Hugging Face on `eukhe tiny-models download` (each checked against its pinned sha256 before install);
-  - uv-managed Python and hash-locked kernel packages on `eukhe kernel install` (uv checks each hash; a session never downloads them);
+  - the Python kernel's pinned toolchain, once, at the first kernel start or `eukhe kernel install`: Eukhe's uv release and one standalone CPython from github.com (eukhe-runtime/kernel-toolchain.json pins versions and sha256; each archive is checked before use), then locked packages from PyPI when a cell first imports one (eukhe-runtime/requirements-kernel.txt or the project's .eukhe/requirements-kernel.txt: exact versions, uv checks each hash) and the resolution of `eukhe kernel lock`;
   - read-only `ssh://` reads to `ssh.hosts` (through the user's `ssh` and `~/.ssh/config`);
   - npm and git traffic of `eukhe package install` and `eukhe package update`.
   
-  No telemetry, catalog fetches, uploads, automatic model downloads, or automatic package installs or fetches.
+  No telemetry, catalog fetches, uploads, or automatic model downloads. Nothing is fetched on its own but the kernel's pinned toolchain and its locked packages (above): pinned, hash-checked, and only when a kernel needs them.
 - Startup work never delays the first paint; slow bookkeeping runs on a background worker. Launch-path changes keep the first frame unblocked.
 
 ## Merge gates

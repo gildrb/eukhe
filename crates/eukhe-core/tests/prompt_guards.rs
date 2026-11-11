@@ -71,7 +71,7 @@ const DYNAMIC_ONLY_MARKERS: &[&str] = &[
     "Enabled generic MCP servers:",
     "# Project Context",
     "# Additional Guidance",
-    "Pre-installed Python packages:",
+    "Python packages: importing",
     "You are a child agent spawned by",
 ];
 
@@ -137,7 +137,7 @@ fn cached_prefix_is_stable_across_sessions() {
     assert!(first_tail.contains("Working directory: /first/cwd"));
     assert!(first_tail.contains("Recursive agent depth: 0 (root)"));
     assert!(first_tail.contains("<skills>\n"));
-    assert!(first_tail.contains("Pre-installed Python packages:"));
+    assert!(first_tail.contains("Python packages: importing"));
     let second_tail = &second.assembled[second.cached_prefix_len..];
     assert!(second_tail.contains("/completely/different"));
     assert!(second_tail.contains("Enabled generic MCP servers: `github`, `slack`."));

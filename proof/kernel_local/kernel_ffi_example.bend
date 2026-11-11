@@ -4,4 +4,4 @@ import Base
 import ../../laws/kernel_local.bend as KernelLocal
 
 def KernelLocal.kernel_ffi_example():
-  ({==}, {==}, {==}, {==}, {==}, {==})
+  ({==}, {==}, {==}, {==}, {==}, {==}, {==})

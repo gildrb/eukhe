@@ -55,6 +55,11 @@ getrandom = "0.3"
 url = "2"
 toml.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# kernel/bootstrap/toolchain: the pinned uv release is a `.tar.gz`; Eukhe
+# unpacks its one file itself (no `tar` program is asked of the machine).
+# MIT OR Apache-2.0, both.
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
 unicode-normalization = "0.1"
 serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize"] }
 ignore = "0.4"

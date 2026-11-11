@@ -8,49 +8,77 @@ import ./base.bend as LawsBase
 
 # ---- kernel_local ----
 
-# LAWS (K1): the kernel environment is local. A session never downloads;
-# `eukhe kernel install` is the only download, and it checks every file
-# against its hash before the kernel uses it; a missing kernel never
-# blocks the other tools; a bootstrap lock candidate never outlives its
-# attempt. Each law is an open claim about the model in
-# bend/kernel_local.bend; PROOF.bend proves them (as KernelLocal.<law>)
-# with the lemmas of proof/kernel_local/.
+# LAWS (K1): the kernel environment is Eukhe's own. The kernel runs on
+# one pinned CPython that Eukhe fetches itself, with a pinned uv that it
+# also fetches itself, into its own directory, on the first kernel use:
+# no install step is asked of the user, and a session and `eukhe kernel
+# install` run the same setup. Every fetch is checked against its pinned
+# sha256 before what it fetched is used; once uv and the CPython are
+# there the kernel works offline; a missing kernel never blocks the other
+# tools; a bootstrap lock candidate never outlives its attempt. Each law
+# is an open claim about the model in bend/kernel_local.bend; PROOF.bend
+# proves them (as KernelLocal.<law>) with the lemmas of
+# proof/kernel_local/.
 
 # (K1.1) The setup
 # ----------------
-# crates/eukhe-core/src/kernel/bootstrap/setup.rs `setup_step` and
-# venv.rs `venv_build_commands`. Every input is free: any venv found,
-# either setup.
+# crates/eukhe-core/src/kernel/bootstrap/setup.rs `setup_steps`. Every
+# input is free: the pinned uv, the pinned CPython and the kernel env are
+# each there (True) or not.
 
-# LAW kernel_session_never_downloads: a session (any path but `eukhe kernel install`) fetches nothing,
-# whatever kernel venv it finds
-law kernel_session_never_downloads:
-  for f: KL.Found
-  {KL.acts.fetching(KL.plan(f, KL.Local{})) == False{} : Bool}
+# LAW kernel_offline_once_fetched: a setup that finds the pinned uv and the pinned CPython fetches nothing,
+# whether the kernel env is there or not: once they are fetched, the kernel works offline
+law kernel_offline_once_fetched:
+  for env: Bool
+  {KL.acts.fetching(KL.plan(True{}, True{}, env)) == False{} : Bool}
 
-# LAW kernel_download_only_on_install: a setup that fetches is `eukhe kernel install`
-law kernel_download_only_on_install:
-  for f: KL.Found
-  for s: KL.Setup
-  for fetches: {KL.acts.fetching(KL.plan(f, s)) == True{} : Bool}
-  {s == KL.Install{} : KL.Setup}
+# LAW kernel_uv_fetched_iff_absent: the setup fetches the pinned uv exactly when it is not there: nothing
+# is asked of the user, and a uv that is there is not fetched again
+law kernel_uv_fetched_iff_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.fetches_uv(KL.plan(uv, python, env)) == Bool.not(uv) : Bool}
 
-# LAW kernel_fetch_verified_before_use: every fetch is checked against a pinned hash, and the kernel starts
-# only after a check of the venv that came after the last fetch
+# LAW kernel_python_fetched_iff_absent: the setup fetches the pinned CPython exactly when it is not there:
+# nothing is asked of the user, and a CPython that is there is not fetched again
+law kernel_python_fetched_iff_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.fetches_python(KL.plan(uv, python, env)) == Bool.not(python) : Bool}
+
+# LAW kernel_env_made_iff_absent: the setup makes the kernel env exactly when it is not there
+law kernel_env_made_iff_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.makes_env(KL.plan(uv, python, env)) == Bool.not(env) : Bool}
+
+# LAW kernel_fetch_verified_before_use: every fetch of every setup is checked against its pinned sha256
+# before what it fetched is unpacked or installed
 law kernel_fetch_verified_before_use:
-  for f: KL.Found
-  for s: KL.Setup
-  {KL.acts.verified(KL.plan(f, s), True{}) == True{} : Bool}
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.verified(KL.plan(uv, python, env)) == True{} : Bool}
 
-# LAW kernel_setup_runs: every setup ends with the kernel started: no setup is a no-op
-law kernel_setup_runs:
-  for f: KL.Found
-  for s: KL.Setup
-  {KL.acts.runs(KL.plan(f, s)) == True{} : Bool}
+# LAW kernel_setup_uses_only_present: every action of a setup runs with what it uses already there: the
+# CPython is fetched by a uv that is there, the env is made by a uv and from a CPython that are there,
+# and the kernel starts on an env and a CPython that are there
+law kernel_setup_uses_only_present:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.ready(KL.plan(uv, python, env), uv, python, env) == True{} : Bool}
 
-# LAW kernel_install_fetches: an install of a missing or out-of-date venv fetches
-law kernel_install_fetches:
-  {KL.acts.fetching(KL.plan(KL.Stale{}, KL.Install{})) == True{} : Bool}
+# LAW kernel_setup_ends_started: every setup ends with the kernel start, once: no setup is a no-op, and
+# none starts the kernel before its last action
+law kernel_setup_ends_started:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.ends_started(KL.plan(uv, python, env)) == True{} : Bool}
 
 # (K1.2) The session's tools
 # --------------------------
@@ -59,19 +87,23 @@ law kernel_install_fetches:
 # kernel's start error.
 
 # LAW kernel_missing_spares_tools: a missing kernel never blocks another tool: it runs whatever the
-# setup found and whether the setup worked
+# setup found and whether its steps worked
 law kernel_missing_spares_tools:
   for n: Nat
-  for f: KL.Found
+  for uv: Bool
+  for python: Bool
+  for env: Bool
   for ok: Bool
-  {KL.answer(KL.Other{n}, KL.start(f, ok)) == KL.Ran{} : KL.Answer}
+  {KL.answer(KL.Other{n}, KL.start(uv, python, env, ok)) == KL.Ran{} : KL.Answer}
 
-# LAW kernel_missing_names_install: when the setup of a venv that is not current fails, the ipython
-# tool answers with the install command
-law kernel_missing_names_install:
-  for f: KL.Found
-  for failed: {KL.start(f, False{}) == KL.Missing{} : KL.Kernel}
-  {KL.answer(KL.Python{}, KL.start(f, False{})) == KL.NamesInstall{} : KL.Answer}
+# LAW kernel_missing_names_failed_step: when a step of the setup failed (the uv, the CPython or the env
+# was not there, and its fetch or making failed, e.g. offline), the ipython tool answers with the failed step
+law kernel_missing_names_failed_step:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  for absent: {Bool.and(uv, Bool.and(python, env)) == False{} : Bool}
+  {KL.answer(KL.Python{}, KL.start(uv, python, env, False{})) == KL.NamesFailed{} : KL.Answer}
 
 # (K1.3) The bootstrap lock
 # -------------------------
@@ -97,11 +129,12 @@ law kernel_lock_sweep_keeps_live:
 
 # (K1.4) The rules exactly, and the entry Rust calls
 # --------------------------------------------------
-# The setup's plan (setup.rs `setup_step`, venv.rs `venv_build_commands`:
-# which uv command may download), the sweep's verdict on each leftover
-# (dir_lock.rs `sweep_leftovers`) and the attempt's verdict (dir_lock.rs
-# `try_acquire_dir_lock`: what an attempt that did not link its candidate
-# makes of the lock it finds) run as bend/kernel_local.bend through the
+# The setup's plan (setup.rs `setup_steps`: which of the uv fetch, the
+# CPython fetch and the env's making run), the sweep's verdict on each
+# leftover (dir_lock.rs `sweep_leftovers`) and the attempt's verdict
+# (dir_lock.rs `try_acquire_dir_lock`: what an attempt that did not link
+# its candidate makes of the lock it finds) run as
+# bend/kernel_local.bend through the
 # entry bend/ffi_kernel_local.bend. The spellers and the reader below are
 # the wire grammar of that entry written with the wire primitives alone
 # (laws/wire.bend proves their round trips); they never call the entry's
@@ -110,20 +143,28 @@ law kernel_lock_sweep_keeps_live:
 # Terms
 # -----
 
-# the setup's actions, exactly: a session builds from local files only;
-# the install downloads only the Python and the hash-locked packages
-def plan_spec(f: KL.Found, s: KL.Setup) -> List<&2, KL.Act>:
-  match f:
-    case KL.Current{}:
+# the setup's actions, exactly: the pinned uv is fetched when it is not
+# there, then the pinned CPython when it is not there, then the kernel
+# env is made when it is not there, then the kernel starts; every fetch
+# is hashed
+def plan_spec(uv: Bool, python: Bool, env: Bool) -> List<&2, KL.Act>:
+  match uv python env:
+    case True{} True{} True{}:
       [KL.Run{}]
-    case KL.Skills{}:
-      [KL.Offline{}, KL.Run{}]
-    case KL.Stale{}:
-      match s:
-        case KL.Local{}:
-          [KL.Offline{}, KL.Offline{}, KL.Offline{}, KL.Offline{}, KL.Check{}, KL.Run{}]
-        case KL.Install{}:
-          [KL.Fetch{True{}}, KL.Offline{}, KL.Fetch{True{}}, KL.Offline{}, KL.Check{}, KL.Run{}]
+    case True{} True{} False{}:
+      [KL.MakeEnv{}, KL.Run{}]
+    case True{} False{} True{}:
+      [KL.FetchPython{True{}}, KL.Run{}]
+    case True{} False{} False{}:
+      [KL.FetchPython{True{}}, KL.MakeEnv{}, KL.Run{}]
+    case False{} True{} True{}:
+      [KL.FetchUv{True{}}, KL.Run{}]
+    case False{} True{} False{}:
+      [KL.FetchUv{True{}}, KL.MakeEnv{}, KL.Run{}]
+    case False{} False{} True{}:
+      [KL.FetchUv{True{}}, KL.FetchPython{True{}}, KL.Run{}]
+    case False{} False{} False{}:
+      [KL.FetchUv{True{}}, KL.FetchPython{True{}}, KL.MakeEnv{}, KL.Run{}]
 
 def judge_spec.old(old: Bool) -> KL.End:
   match old:
@@ -158,22 +199,6 @@ def judge_spec(x: KL.Seen) -> KL.End:
           judge_spec.old(Nat.is_lt(30000n, a))
 
 # Spellers: the request
-
-def spell_found(f: KL.Found, rest: String) -> String:
-  match f:
-    case KL.Current{}:
-      Wr.put_nat(0n, rest)
-    case KL.Skills{}:
-      Wr.put_nat(1n, rest)
-    case KL.Stale{}:
-      Wr.put_nat(2n, rest)
-
-def spell_setup(s: KL.Setup, rest: String) -> String:
-  match s:
-    case KL.Local{}:
-      Wr.put_nat(0n, rest)
-    case KL.Install{}:
-      Wr.put_nat(1n, rest)
 
 def spell_left.kind(k: KL.FileKind, rest: String) -> String:
   match k:
@@ -221,8 +246,8 @@ def spell_seen(x: KL.Seen, rest: String) -> String:
 # the request Rust writes for a
 def spell_ask(a: KL.Ask) -> String:
   match a:
-    case KL.AskPlan{f, s}:
-      Wr.put_nat(0n, spell_found(f, spell_setup(s, "")))
+    case KL.AskPlan{uv, python, env}:
+      Wr.put_nat(0n, Wr.put_bool(uv, Wr.put_bool(python, Wr.put_bool(env, ""))))
     case KL.AskSweep{+ls}:
       Wr.put_nat(1n, Wr.put_nat(List.length(&2, KL.Left, ls), spell_lefts(ls, "")))
     case KL.AskLock{x}:
@@ -231,7 +256,7 @@ def spell_ask(a: KL.Ask) -> String:
 # every number of a fits the wire
 def ask_fits(a: KL.Ask) -> Bool:
   match a:
-    case KL.AskPlan{f, s}:
+    case KL.AskPlan{uv, python, env}:
       True{}
     case KL.AskSweep{ls}:
       LawsBase.wire_fits(List.length(&2, KL.Left, ls))
@@ -254,11 +279,11 @@ def ask_fits(a: KL.Ask) -> Bool:
 
 def spell_act(x: KL.Act, rest: String) -> String:
   match x:
-    case KL.Fetch{h}:
+    case KL.FetchUv{h}:
       Wr.put_nat(0n, Wr.put_bool(h, rest))
-    case KL.Offline{}:
-      Wr.put_nat(1n, rest)
-    case KL.Check{}:
+    case KL.FetchPython{h}:
+      Wr.put_nat(1n, Wr.put_bool(h, rest))
+    case KL.MakeEnv{}:
       Wr.put_nat(2n, rest)
     case KL.Run{}:
       Wr.put_nat(3n, rest)
@@ -313,8 +338,8 @@ def spell_end(e: KL.End, rest: String) -> String:
 # the reply to a: the plan, the sweep's verdicts, the attempt's end
 def spell_answer(a: KL.Ask) -> String:
   match a:
-    case KL.AskPlan{f, s}:
-      +xs = plan_spec(f, s)
+    case KL.AskPlan{uv, python, env}:
+      +xs = plan_spec(uv, python, env)
       Wr.put_nat(List.length(&2, KL.Act, xs), spell_acts(xs, ""))
     case KL.AskSweep{+ls}:
       Wr.put_nat(List.length(&2, KL.Left, ls), spell_keeps(ls, ""))
@@ -323,51 +348,24 @@ def spell_answer(a: KL.Ask) -> String:
 
 # Reader: the requests the entry accepts, read with the wire primitives
 
-def read_found.tag(t: Nat, s: String) -> Wr.Dec<KL.Found>:
-  match t:
-    case 0n:
-      Wr.Got{KL.Current{}, s}
-    case 1n:
-      Wr.Got{KL.Skills{}, s}
-    case 2n:
-      Wr.Got{KL.Stale{}, s}
-    case 3n+p:
-      Wr.Bad{}
-
-def read_found(r: Wr.Dec<Nat>) -> Wr.Dec<KL.Found>:
+def read_plan.env(uv: Bool, python: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<KL.Ask>:
   match r:
-    case Wr.Got{t, s}:
-      read_found.tag(t, s)
+    case Wr.Got{e, s}:
+      Wr.Got{KL.AskPlan{uv, python, e}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 
-def read_setup.tag(t: Nat, s: String) -> Wr.Dec<KL.Setup>:
-  match t:
-    case 0n:
-      Wr.Got{KL.Local{}, s}
-    case 1n:
-      Wr.Got{KL.Install{}, s}
-    case 2n+p:
-      Wr.Bad{}
-
-def read_setup(r: Wr.Dec<Nat>) -> Wr.Dec<KL.Setup>:
+def read_plan.python(uv: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<KL.Ask>:
   match r:
-    case Wr.Got{t, s}:
-      read_setup.tag(t, s)
+    case Wr.Got{p, s}:
+      read_plan.env(uv, p, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
-def read_plan.setup(f: KL.Found, r: Wr.Dec<KL.Setup>) -> Wr.Dec<KL.Ask>:
+def read_plan(r: Wr.Dec<Bool>) -> Wr.Dec<KL.Ask>:
   match r:
-    case Wr.Got{x, s}:
-      Wr.Got{KL.AskPlan{f, x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_plan(r: Wr.Dec<KL.Found>) -> Wr.Dec<KL.Ask>:
-  match r:
-    case Wr.Got{f, s}:
-      read_plan.setup(f, read_setup(Wr.get_nat(s)))
+    case Wr.Got{u, s}:
+      read_plan.python(u, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
@@ -511,7 +509,7 @@ def read_lock(r: Wr.Dec<KL.Seen>) -> Wr.Dec<KL.Ask>:
 def read_ask.tag(t: Nat, s: String) -> Wr.Dec<KL.Ask>:
   match t:
     case 0n:
-      read_plan(read_found(Wr.get_nat(s)))
+      read_plan(Wr.get_bool(s))
     case 1n:
       read_sweep(Wr.get_nat(s))
     case 2n:
@@ -547,11 +545,12 @@ def read_ask(s: String) -> Maybe<&2, KL.Ask>:
 # Laws
 # ----
 
-# LAW kernel_plan_exact: the setup's actions are exactly these: a session uses local files only, and the install fetches only the Python and the hash-locked packages, both checked
+# LAW kernel_plan_exact: the setup's actions are exactly these, for each of the eight things it can find: the fetch of the pinned uv when it is not there, then the fetch of the pinned CPython when it is not there, then the making of the kernel env when it is not there, then the kernel start; every fetch checked against its pinned sha256
 law kernel_plan_exact:
-  for f: KL.Found
-  for s: KL.Setup
-  {KL.plan(f, s) == plan_spec(f, s) : List<&2, KL.Act>}
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.plan(uv, python, env) == plan_spec(uv, python, env) : List<&2, KL.Act>}
 
 # LAW kernel_lock_judge: an attempt that did not link its candidate is busy while the lock's owner lives, or while a lock naming no owner is at most 30 s old or of unknown age; it frees a lock whose owner is dead, that vanished, or that names no owner and is older
 law kernel_lock_judge:
@@ -570,9 +569,10 @@ law kernel_ffi_malformed:
   for no: {read_ask(s) == None{} : Maybe<&2, KL.Ask>}
   {LawsBase.wire_opens_err(FKL.ffi(s)) == True{} : Bool}
 
-# LAW kernel_ffi_example: anchor: the strings Rust sends: the install's plan of a stale venv, a sweep of three files, a lock naming no owner 30001 ms old, a lock of a live owner; a request with input left over is refused
+# LAW kernel_ffi_example: anchor: the strings Rust sends: the plan of a first kernel use (nothing there), the plan of a setup that finds everything, a sweep of three files, a lock naming no owner 30001 ms old, a lock of a live owner; a request with input left over is refused
 law kernel_ffi_example:
-  {FKL.ffi("0,2,1,") == "6,0,T1,0,T1,2,3," : String} &
+  {FKL.ffi("0,FFF") == "4,0,T1,T2,3," : String} &
+  {FKL.ffi("0,TTT") == "1,3," : String} &
   {FKL.ffi("1,3,0,T0,F2,F") == "3,TFT" : String} &
   {FKL.ffi("2,3,1,30001,") == "2," : String} &
   {FKL.ffi("2,2,T") == "1," : String} &
@@ -586,19 +586,26 @@ def start_spec.ok(ok: Bool) -> KL.Kernel:
     case False{}:
       KL.Missing{}
 
-# the kernel after a setup that finds f: up when the venv is current or
-# the sync or build worked, missing otherwise
-def start_spec(f: KL.Found, ok: Bool) -> KL.Kernel:
-  match f:
-    case KL.Current{}:
-      KL.Up{}
-    case KL.Skills{}:
-      start_spec.ok(ok)
-    case KL.Stale{}:
+# the kernel after a setup: up when the uv, the CPython and the env were
+# all there (no step ran, so none failed) or the steps it ran worked;
+# missing otherwise
+def start_spec(uv: Bool, python: Bool, env: Bool, ok: Bool) -> KL.Kernel:
+  match uv:
+    case True{}:
+      match python:
+        case True{}:
+          match env:
+            case True{}:
+              KL.Up{}
+            case False{}:
+              start_spec.ok(ok)
+        case False{}:
+          start_spec.ok(ok)
+    case False{}:
       start_spec.ok(ok)
 
 # a tool's answer: only the ipython tool on a missing kernel names the
-# install; every other call runs
+# failed step; every other call runs
 def answer_spec(t: KL.Tool, k: KL.Kernel) -> KL.Answer:
   match t:
     case KL.Python{}:
@@ -606,17 +613,19 @@ def answer_spec(t: KL.Tool, k: KL.Kernel) -> KL.Answer:
         case KL.Up{}:
           KL.Ran{}
         case KL.Missing{}:
-          KL.NamesInstall{}
+          KL.NamesFailed{}
     case KL.Other{n}:
       KL.Ran{}
 
-# LAW kernel_start_exact: the kernel is up after a setup that finds a current venv or whose sync or build worked, and missing only when the sync or build of a venv that is not current failed
+# LAW kernel_start_exact: the kernel is up after a setup that finds the uv, the CPython and the env all there, or whose steps worked, and missing only when a step of a setup that found one of them not there failed
 law kernel_start_exact:
-  for f: KL.Found
+  for uv: Bool
+  for python: Bool
+  for env: Bool
   for ok: Bool
-  {KL.start(f, ok) == start_spec(f, ok) : KL.Kernel}
+  {KL.start(uv, python, env, ok) == start_spec(uv, python, env, ok) : KL.Kernel}
 
-# LAW kernel_answer_exact: the ipython tool runs on an up kernel and names the install on a missing one; every other tool runs either way
+# LAW kernel_answer_exact: the ipython tool runs on an up kernel and names the failed step on a missing one; every other tool runs either way
 law kernel_answer_exact:
   for t: KL.Tool
   for k: KL.Kernel
@@ -653,64 +662,157 @@ law kernel_ffi_exact:
 # The model's own terms, pinned
 # -----------------------------
 # The laws of K1.1-K1.3 read the model's own predicates and counters
-# (acts.fetching, acts.runs, acts.verified, own_left, sweep, lefts.dead,
-# lefts.live); these pin each of them to its meaning.
+# (acts.fetching, acts.fetches_uv, acts.fetches_python, acts.makes_env,
+# acts.verified, acts.ready, acts.ends_started, own_left, sweep,
+# lefts.dead, lefts.live); these pin each of them to its meaning.
 
-# some action fetches
+# some action fetches: the uv fetch or the CPython fetch
 def fetching_spec(xs: List<&2, KL.Act>) -> Bool:
   match xs:
     case Nil{}:
       False{}
     case x <> t:
       match x:
-        case KL.Fetch{h}:
+        case KL.FetchUv{h}:
           True{}
-        case KL.Offline{}:
-          fetching_spec(t)
-        case KL.Check{}:
+        case KL.FetchPython{h}:
+          True{}
+        case KL.MakeEnv{}:
           fetching_spec(t)
         case KL.Run{}:
           fetching_spec(t)
 
-# some action starts the kernel
-def runs_spec(xs: List<&2, KL.Act>) -> Bool:
+# some action is the uv fetch
+def fetches_uv_spec(xs: List<&2, KL.Act>) -> Bool:
   match xs:
     case Nil{}:
       False{}
     case x <> t:
       match x:
-        case KL.Fetch{h}:
-          runs_spec(t)
-        case KL.Offline{}:
-          runs_spec(t)
-        case KL.Check{}:
-          runs_spec(t)
-        case KL.Run{}:
+        case KL.FetchUv{h}:
           True{}
+        case KL.FetchPython{h}:
+          fetches_uv_spec(t)
+        case KL.MakeEnv{}:
+          fetches_uv_spec(t)
+        case KL.Run{}:
+          fetches_uv_spec(t)
 
-# every fetch is hashed, and every start comes after a check that follows
-# the last fetch before it (clean: no fetch since the last check)
-def verified_spec(xs: List<&2, KL.Act>, clean: Bool) -> Bool:
+# some action is the CPython fetch
+def fetches_python_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          fetches_python_spec(t)
+        case KL.FetchPython{h}:
+          True{}
+        case KL.MakeEnv{}:
+          fetches_python_spec(t)
+        case KL.Run{}:
+          fetches_python_spec(t)
+
+# some action is the env's making
+def makes_env_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          makes_env_spec(t)
+        case KL.FetchPython{h}:
+          makes_env_spec(t)
+        case KL.MakeEnv{}:
+          True{}
+        case KL.Run{}:
+          makes_env_spec(t)
+
+# every fetch, of the uv or of the CPython, is hashed
+def verified_spec(xs: List<&2, KL.Act>) -> Bool:
   match xs:
     case Nil{}:
       True{}
     case x <> t:
       match x:
-        case KL.Fetch{h}:
+        case KL.FetchUv{h}:
           match h:
             case True{}:
-              verified_spec(t, False{})
+              verified_spec(t)
             case False{}:
               False{}
-        case KL.Offline{}:
-          verified_spec(t, clean)
-        case KL.Check{}:
-          verified_spec(t, True{})
-        case KL.Run{}:
-          match clean:
+        case KL.FetchPython{h}:
+          match h:
             case True{}:
-              verified_spec(t, True{})
+              verified_spec(t)
             case False{}:
+              False{}
+        case KL.MakeEnv{}:
+          verified_spec(t)
+        case KL.Run{}:
+          verified_spec(t)
+
+# every action finds what it uses there, given what is there before the
+# first one (uv, python, env): the uv fetch uses nothing and puts the uv
+# there; the CPython fetch uses the uv and puts the CPython there; the
+# env's making uses the uv and the CPython and puts the env there; the
+# start uses the CPython and the env
+def ready_spec(xs: List<&2, KL.Act>, +uv: Bool, +python: Bool, +env: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          ready_spec(t, True{}, python, env)
+        case KL.FetchPython{h}:
+          match uv:
+            case True{}:
+              ready_spec(t, True{}, True{}, env)
+            case False{}:
+              False{}
+        case KL.MakeEnv{}:
+          match uv:
+            case True{}:
+              match python:
+                case True{}:
+                  ready_spec(t, True{}, True{}, True{})
+                case False{}:
+                  False{}
+            case False{}:
+              False{}
+        case KL.Run{}:
+          match python:
+            case True{}:
+              match env:
+                case True{}:
+                  ready_spec(t, uv, True{}, True{})
+                case False{}:
+                  False{}
+            case False{}:
+              False{}
+
+# the list is not empty, its last action is the start, and no action
+# before the last is
+def ends_started_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          ends_started_spec(t)
+        case KL.FetchPython{h}:
+          ends_started_spec(t)
+        case KL.MakeEnv{}:
+          ends_started_spec(t)
+        case KL.Run{}:
+          match t:
+            case Nil{}:
+              True{}
+            case y <> u:
               False{}
 
 # an attempt leaves a candidate of its own only when its process died in it
@@ -777,12 +879,14 @@ def live_spec(ls: List<&2, KL.Left>) -> Nat:
     case l <> t:
       Nat.add(Nat.sub(1n, dead_one(l)), live_spec(t))
 
-# LAW kernel_terms_exact: the model's predicates mean what the laws above read them as: a list fetches when some action is a fetch, runs when some action is the start, is verified when every fetch is hashed and every start follows a check after the last fetch; an attempt leaves its own candidate only when its process died inside it
+# LAW kernel_terms_exact: the model's predicates mean what the laws above read them as: a list fetches when some action is the uv fetch or the CPython fetch, fetches the uv, fetches the CPython or makes the env when some action is that one, is verified when every fetch is hashed, is ready when every action finds what it uses there, ends started when its last action is the start and no other is; an attempt leaves its own candidate only when its process died inside it
 law kernel_terms_exact:
   for xs: List<&2, KL.Act>
-  for c: Bool
+  for uv: Bool
+  for python: Bool
+  for env: Bool
   for e: KL.End
-  {KL.acts.fetching(xs) == fetching_spec(xs) : Bool} & {KL.acts.runs(xs) == runs_spec(xs) : Bool} & {KL.acts.verified(xs, c) == verified_spec(xs, c) : Bool} & {KL.own_left(e) == own_left_spec(e) : Nat}
+  {KL.acts.fetching(xs) == fetching_spec(xs) : Bool} & {KL.acts.fetches_uv(xs) == fetches_uv_spec(xs) : Bool} & {KL.acts.fetches_python(xs) == fetches_python_spec(xs) : Bool} & {KL.acts.makes_env(xs) == makes_env_spec(xs) : Bool} & {KL.acts.verified(xs) == verified_spec(xs) : Bool} & {KL.acts.ready(xs, uv, python, env) == ready_spec(xs, uv, python, env) : Bool} & {KL.acts.ends_started(xs) == ends_started_spec(xs) : Bool} & {KL.own_left(e) == own_left_spec(e) : Nat}
 
 # LAW kernel_sweep_terms_exact: the model's sweep keeps exactly the files whose verdict is keep, in order, and its counts are the dead attempts' leftovers and the files to keep
 law kernel_sweep_terms_exact:

@@ -26,19 +26,23 @@ def kfe.end_tag(e: KL.End) -> {FKL.put_end(e, "") == KernelLocal.spell_end(e, ""
 
 def kfe.answer(a: KL.Ask) -> {FKL.answer(a) == KernelLocal.spell_answer(a) : String}:
   match a:
-    case KL.AskPlan{f, s}:
-      match f s:
-        case KL.Current{} KL.Local{}:
+    case KL.AskPlan{uv, python, env}:
+      match uv python env:
+        case True{} True{} True{}:
           {==}
-        case KL.Current{} KL.Install{}:
+        case True{} True{} False{}:
           {==}
-        case KL.Skills{} KL.Local{}:
+        case True{} False{} True{}:
           {==}
-        case KL.Skills{} KL.Install{}:
+        case True{} False{} False{}:
           {==}
-        case KL.Stale{} KL.Local{}:
+        case False{} True{} True{}:
           {==}
-        case KL.Stale{} KL.Install{}:
+        case False{} True{} False{}:
+          {==}
+        case False{} False{} True{}:
+          {==}
+        case False{} False{} False{}:
           {==}
     case KL.AskSweep{+ls}:
       %LKL.kl.keeps_items(ls, "") : {Wr.put_nat(List.length(&2, Bool, KL.keeps(ls)), _) == Wr.put_nat(List.length(&2, KL.Left, ls), KernelLocal.spell_keeps(ls, "")) : String}

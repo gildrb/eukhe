@@ -429,18 +429,26 @@ way a local model gets installed.",
     .examples(&["tiny-models", "tiny-models download lfm2.5-230m"]),
     CommandSpec::new(
         &["kernel"],
-        "kernel install [--check]",
-        "Install the Python kernel once, or check it",
+        "kernel install [--check] | kernel lock <requirement>...",
+        "Fetch the kernel's Python now, check it, or lock a package for the project",
     )
     .description(
-        "Installs the environment of the Python kernel (the ipython tool): a Python from uv and \
-the hash-locked kernel packages (eukhe-runtime/requirements-kernel.txt), each checked against its \
-hash before install. Nothing downloads on its own: this command is the only way the kernel gets \
-installed. A session uses the installed kernel and never downloads; without it, the ipython tool \
-names this command and the other tools work. A second run keeps an installed kernel. --check \
-shows the state and makes no network request.",
+        "The Python kernel (the ipython tool) runs on one pinned CPython, the same on every machine. \
+Eukhe fetches it into ~/.eukhe/kernel by itself the first time a kernel starts (its own pinned uv, \
+then the Python; each download is checked against its pinned sha256), so nothing has to be \
+installed: `kernel install` does that fetch now (before going offline) and prints each stage; a \
+second run fetches nothing. --check prints `ready: <python> (Python <version>)` (exit 0) or \
+`not fetched: ...` (exit 1), with no network request. The kernel starts on the standard library; \
+the packages of Eukhe's lock (eukhe-runtime/requirements-kernel.txt: exact versions with hashes) \
+install on first import. `kernel lock <requirement>...` adds other packages to the project's lock \
+(.eukhe/requirements-kernel.txt): it resolves them once, with the locked versions as constraints, \
+and records exact versions and hashes; the kernel installs nothing that no lock names.",
     )
-    .examples(&["kernel install", "kernel install --check"]),
+    .examples(&[
+        "kernel install",
+        "kernel install --check",
+        "kernel lock rich",
+    ]),
     CommandSpec::new(
         &["translate"],
         "translate <lang> <text...>",

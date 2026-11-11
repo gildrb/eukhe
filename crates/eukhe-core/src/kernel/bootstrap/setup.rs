@@ -1,137 +1,185 @@
-//! The kernel setup decision: what the setup does with the kernel venv it
-//! finds, and which of its uv commands may download. A session (every path
-//! but `eukhe kernel install`) uses only local files; `eukhe kernel
-//! install` is the only path that downloads. The rule is `plan` of
-//! `bend/kernel_local.bend`, run by the compiled Bend core
-//! (`bend/ffi_kernel_local.bend`, request 0; laws `kernel_plan_exact`,
-//! `kernel_session_never_downloads`, `kernel_fetch_verified_before_use` in
+//! The kernel setup's plan: which of the pinned uv fetch, the pinned Python
+//! fetch and the kernel env's making run before the kernel starts. The
+//! kernel runs on one pinned standalone Python that Eukhe fetches itself,
+//! with a pinned uv release that it also fetches itself, into its own
+//! directory, on the first kernel use; a session and `eukhe kernel install`
+//! run the same plan. The rule is `plan` of `bend/kernel_local.bend`, run by
+//! the compiled Bend core (`bend/ffi_kernel_local.bend`, request 0; laws
+//! `kernel_plan_exact`, `kernel_offline_once_fetched`,
+//! `kernel_uv_fetched_iff_absent`, `kernel_python_fetched_iff_absent`,
+//! `kernel_env_made_iff_absent`, `kernel_fetch_verified_before_use`,
+//! `kernel_setup_uses_only_present` and `kernel_setup_ends_started` in
 //! `laws/kernel_local.bend`).
 
 use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::{Entry, Error};
 
-/// What the kernel setup may fetch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum KernelSetup {
-    /// A session or any other command: use the installed kernel, or build
-    /// it from local files only (uv `--offline`). Never downloads.
-    Local,
-    /// `eukhe kernel install`: may download Python and the hash-locked
-    /// kernel packages, each checked against its hash before install.
-    Install,
-}
-
-/// The kernel venv the setup finds.
+/// What of the pinned kernel toolchain is on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Found {
-    /// Its runtime and the session's Python skills are current.
-    Ready,
-    /// Its runtime is current; some Python skills are missing or changed.
-    SkillsStale,
-    /// It is missing, or its runtime is not this build's.
-    Stale,
+pub(crate) struct Have {
+    /// The pinned uv release.
+    pub(crate) uv: bool,
+    /// The pinned Python.
+    pub(crate) python: bool,
+    /// The kernel env.
+    pub(crate) env: bool,
 }
 
-/// Where one command of a build may get its files.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Fetch {
-    /// Only from the local uv cache and Python installs (`--offline`).
-    Offline,
-    /// It may download (each file checked against its pinned hash).
-    Download,
-}
-
-/// The step the setup takes.
+/// One step of the setup, in order; the kernel starts after the last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SetupStep {
-    /// Start the kernel as it is.
-    Use,
-    /// Install the missing Python skills from their local directories.
-    SyncSkills,
-    /// Build the venv again: the Python install, the venv, the hash-locked
-    /// requirements and the runtime, each with the files its `Fetch`
-    /// allows; then `uv pip check`; then start.
-    Build([Fetch; 4]),
+    /// Download the pinned uv release archive; it is checked against the
+    /// pinned sha256 before it is unpacked.
+    FetchUv,
+    /// `uv python install` of the pinned version from the pinned download
+    /// list; uv checks the archive against the pinned sha256 before it
+    /// installs it.
+    FetchPython,
+    /// `uv venv --offline`: the kernel env from local files only, never
+    /// the network.
+    MakeEnv,
 }
 
-/// The step for the venv `found` under `setup`.
-pub(crate) fn setup_step(found: Found, setup: KernelSetup) -> SetupStep {
-    eukhe_bend::expect_core(Entry::KernelLocal, ask(found, setup))
+/// The steps for what the setup finds (the compiled Bend core's plan).
+pub(crate) fn setup_steps(have: Have) -> Vec<SetupStep> {
+    eukhe_bend::expect_core(Entry::KernelLocal, ask(have))
 }
 
 /// One action of the core's plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Act {
-    /// A command that may download; `true`: every file it gets is checked
-    /// against a pinned hash.
-    Fetch(bool),
-    /// A command that uses local files only.
-    Offline,
-    /// `uv pip check` of the built venv.
-    Check,
+    /// The uv fetch; `true`: the archive is checked against the pinned
+    /// sha256 before it is unpacked.
+    FetchUv(bool),
+    /// The Python fetch; `true`: uv checks the archive against the pinned
+    /// sha256 before it installs it.
+    FetchPython(bool),
+    /// The env's making, from local files only.
+    MakeEnv,
     /// The kernel starts.
     Run,
 }
 
-fn ask(found: Found, setup: KernelSetup) -> Result<SetupStep, Error> {
+fn ask(have: Have) -> Result<Vec<SetupStep>, Error> {
     let mut request = Writer::new();
     request
         .tag(0)
-        .tag(match found {
-            Found::Ready => 0,
-            Found::SkillsStale => 1,
-            Found::Stale => 2,
-        })
-        .tag(match setup {
-            KernelSetup::Local => 0,
-            KernelSetup::Install => 1,
-        });
+        .bool(have.uv)
+        .bool(have.python)
+        .bool(have.env);
     let reply = eukhe_bend::call(Entry::KernelLocal, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let count = reader.count()?;
-    let mut acts = Vec::with_capacity(count.min(8));
+    let mut acts = Vec::with_capacity(count.min(4));
     for _ in 0..count {
         acts.push(match reader.tag_of(4, "a setup action")? {
-            0 => Act::Fetch(reader.bool()?),
-            1 => Act::Offline,
-            2 => Act::Check,
+            0 => Act::FetchUv(reader.bool()?),
+            1 => Act::FetchPython(reader.bool()?),
+            2 => Act::MakeEnv,
             // `tag_of` answers a tag below 4: this is 3.
             _ => Act::Run,
         });
     }
     reader.end()?;
-    step_of(&acts).map_err(Error::from)
+    steps_of(&acts).map_err(Error::from)
 }
 
-/// The step the plan `acts` describes: the plan shapes the setup runs.
-fn step_of(acts: &[Act]) -> Result<SetupStep, WireError> {
-    match acts {
-        [Act::Run] => Ok(SetupStep::Use),
-        [Act::Offline, Act::Run] => Ok(SetupStep::SyncSkills),
-        [python, venv, requirements, runtime, Act::Check, Act::Run] => Ok(SetupStep::Build([
-            fetch_of(*python)?,
-            fetch_of(*venv)?,
-            fetch_of(*requirements)?,
-            fetch_of(*runtime)?,
-        ])),
-        _ => Err(not_a_plan()),
+/// The steps the plan `acts` describes. A plan ends with the start and
+/// starts the kernel nowhere else; before it come the uv fetch, the Python
+/// fetch and the env's making, each at most once, in that order, every
+/// fetch hashed.
+fn steps_of(acts: &[Act]) -> Result<Vec<SetupStep>, WireError> {
+    let Some((Act::Run, before)) = acts.split_last() else {
+        return Err(not_a_plan());
+    };
+    let steps = before
+        .iter()
+        .map(|act| match act {
+            Act::FetchUv(true) => Ok(SetupStep::FetchUv),
+            Act::FetchPython(true) => Ok(SetupStep::FetchPython),
+            Act::MakeEnv => Ok(SetupStep::MakeEnv),
+            Act::FetchUv(false) | Act::FetchPython(false) | Act::Run => Err(not_a_plan()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if steps.windows(2).all(|pair| place(pair[0]) < place(pair[1])) {
+        Ok(steps)
+    } else {
+        Err(not_a_plan())
     }
 }
 
-/// How a build command gets its files: a fetch the core plans is always
-/// hash-checked (the build's commands have no other kind).
-fn fetch_of(act: Act) -> Result<Fetch, WireError> {
-    match act {
-        Act::Offline => Ok(Fetch::Offline),
-        Act::Fetch(true) => Ok(Fetch::Download),
-        Act::Fetch(false) | Act::Check | Act::Run => Err(not_a_plan()),
+/// Where a step stands in a setup.
+fn place(step: SetupStep) -> u8 {
+    match step {
+        SetupStep::FetchUv => 0,
+        SetupStep::FetchPython => 1,
+        SetupStep::MakeEnv => 2,
     }
 }
 
 fn not_a_plan() -> WireError {
     WireError::Malformed {
         at: 0,
-        expected:
-            "a setup plan: start, sync then start, or four build commands, the check, then start",
+        expected: "a setup plan: the uv fetch, the Python fetch and the env's making, each at \
+                   most once, in that order, every fetch hashed; then the start",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SetupStep::{FetchPython, FetchUv, MakeEnv};
+    use super::*;
+
+    /// The compiled core's plan for each of the eight things a setup can
+    /// find: what is not there is fetched or made, in order, and nothing
+    /// else (law `kernel_plan_exact`).
+    #[test]
+    fn the_steps_come_from_the_compiled_core() {
+        let have = |uv, python, env| Have { uv, python, env };
+        let cases: [(Have, &[SetupStep]); 8] = [
+            (have(true, true, true), &[]),
+            (have(true, true, false), &[MakeEnv]),
+            (have(true, false, true), &[FetchPython]),
+            (have(true, false, false), &[FetchPython, MakeEnv]),
+            (have(false, true, true), &[FetchUv]),
+            (have(false, true, false), &[FetchUv, MakeEnv]),
+            (have(false, false, true), &[FetchUv, FetchPython]),
+            (have(false, false, false), &[FetchUv, FetchPython, MakeEnv]),
+        ];
+        for (have, steps) in cases {
+            let Have { uv, python, env } = have;
+            assert_eq!(
+                setup_steps(have),
+                steps,
+                "uv {uv}, python {python}, env {env}"
+            );
+        }
+    }
+
+    /// A reply that is not a plan is malformed: a fetch that is not
+    /// hashed, no start at the end, a start before the end, a step out of
+    /// order or twice.
+    #[test]
+    fn a_reply_that_is_not_a_plan_is_malformed() {
+        let replies: [&[Act]; 8] = [
+            &[],
+            &[Act::MakeEnv],
+            &[Act::FetchUv(false), Act::Run],
+            &[Act::FetchUv(true), Act::FetchPython(false), Act::Run],
+            &[Act::Run, Act::Run],
+            &[Act::Run, Act::MakeEnv, Act::Run],
+            &[Act::MakeEnv, Act::FetchUv(true), Act::Run],
+            &[Act::MakeEnv, Act::MakeEnv, Act::Run],
+        ];
+        for acts in replies {
+            assert!(
+                matches!(steps_of(acts), Err(WireError::Malformed { .. })),
+                "{acts:?}"
+            );
+        }
+        assert_eq!(
+            steps_of(&[Act::FetchUv(true), Act::MakeEnv, Act::Run]).ok(),
+            Some(vec![FetchUv, MakeEnv])
+        );
     }
 }

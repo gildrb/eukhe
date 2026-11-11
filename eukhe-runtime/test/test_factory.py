@@ -50,7 +50,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -8081,25 +8080,21 @@ asyncio.run(main())
 """
 
 
-class InstalledRuntimeLibraryTest(unittest.TestCase):
-    """A kernel venv built from a staged runtime runs the bundled machines.
+class StagedRuntimeLibraryTest(unittest.TestCase):
+    """A staged runtime runs the bundled machines on the standard library.
 
-    The kernel installs eukhe-runtime non-editably into its venv (the
-    bootstrap installs the hash-locked ``requirements-kernel.txt``, then
-    ``uv pip install --no-deps --no-index --no-build-isolation <staged
-    runtime>`` builds the hatchling wheel, whose target package is
-    ``src/rlm``), so the machine library
-    must resolve from the installed package — ``site-packages/rlm/
-    machines`` — not from any source-checkout path. This stages the
-    runtime the way the release does, installs it into a fresh venv, and
-    runs ``rlm.factory.run("review-sweep")`` end-to-end in that interpreter
-    against a scripted host, asserting the machine came from the installed
-    wheel.
+    The kernel runs eukhe-runtime from its shipped directory: the host puts
+    ``<payload>/eukhe-runtime/src`` on ``PYTHONPATH`` and installs nothing.
+    This stages the runtime the way the release does and runs
+    ``rlm.factory.run("review-sweep")`` end-to-end against a scripted host
+    in an interpreter that sees only the standard library and that
+    directory (``-S``: no site-packages), asserting the machine came from
+    the staged tree.
     """
 
     # Names the release staging drops from the runtime tree (the assemble
-    # script's RUNTIME_EXCLUDED_NAMES): the venv bootstrap installs the
-    # staged layout, so the test stages the same way.
+    # script's RUNTIME_EXCLUDED_NAMES): the kernel runs the staged layout,
+    # so the test stages the same way.
     STAGING_EXCLUDED = frozenset({"test", "uv.lock", ".venv", "__pycache__", ".pytest_cache"})
 
     def setUp(self) -> None:
@@ -8123,47 +8118,25 @@ class InstalledRuntimeLibraryTest(unittest.TestCase):
                 target.write_bytes(source.read_bytes())
         return staged
 
-    def test_kernel_venv_runs_review_sweep_from_the_installed_wheel(self) -> None:
-        uv = shutil.which("uv")
-        if uv is None:
-            self.skipTest("uv is not available to build the kernel venv")
+    def test_a_staged_runtime_runs_review_sweep_on_the_standard_library(self) -> None:
         staged = self.stage_runtime()
-        venv = self.root / "kernel-venv"
         agent_home = self.root / "agent-home"
         agent_home.mkdir(parents=True)
         (agent_home / "settings.json").write_text(
             json.dumps({"factory": {"enabled": True}}), encoding="utf-8"
         )
-        python = str(venv / "bin" / "python")
-        # The suite's own interpreter: an ambient `uv venv` default can be a
-        # Python the hash-locked wheels do not cover.
-        for args in (
-            [uv, "venv", "--no-config", "--python", sys.executable, str(venv)],
-            [uv, "pip", "install", "--no-config", "--python", python, "--require-hashes",
-             "--only-binary", ":all:", "-r", str(staged / "requirements-kernel.txt")],
-            [uv, "pip", "install", "--no-config", "--python", python, "--no-deps",
-             "--no-index", "--no-build-isolation", str(staged)],
-        ):
-            install = subprocess.run(
-                args, capture_output=True, text=True, timeout=240, check=False
-            )
-            self.assertEqual(
-                install.returncode, 0,
-                f"{' '.join(args)} failed:\n{install.stdout}\n{install.stderr}",
-            )
+        env = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
         run_result = subprocess.run(
-            [
-                str(venv / "bin" / "python"), "-I", "-c", _INSTALLED_LIBRARY_RUNNER,
-            ],
+            [sys.executable, "-P", "-S", "-c", _INSTALLED_LIBRARY_RUNNER],
             capture_output=True,
             text=True,
             timeout=120,
             check=False,
-            env={**os.environ, "EUKHE_CODING_AGENT_DIR": str(agent_home)},
+            env={**env, "PYTHONPATH": str(staged / "src"), "EUKHE_CODING_AGENT_DIR": str(agent_home)},
         )
         self.assertEqual(
             run_result.returncode, 0,
-            f"the installed-runtime run failed:\n{run_result.stdout}\n{run_result.stderr}",
+            f"the staged-runtime run failed:\n{run_result.stdout}\n{run_result.stderr}",
         )
         payload = json.loads(run_result.stdout)
         self.assertEqual(payload["state"], "done", payload)
@@ -8171,8 +8144,6 @@ class InstalledRuntimeLibraryTest(unittest.TestCase):
         self.assertEqual(payload["machine"], "review-sweep")
         machine_path = Path(payload["machine_path"])
         self.assertTrue(machine_path.is_file(), machine_path)
-        self.assertIn("site-packages", str(machine_path), machine_path)
-        self.assertIn(os.path.join("rlm", "machines"), str(machine_path), machine_path)
-        # The installed package is the wheel copy, not this checkout's source.
-        self.assertNotIn("eukhe-runtime", str(machine_path), machine_path)
+        # The machine is the staged tree's, not this checkout's source.
+        self.assertTrue(machine_path.is_relative_to(staged / "src" / "rlm" / "machines"), machine_path)
         self.assertEqual(payload["nodes"], ["files", "report", "review"])

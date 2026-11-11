@@ -72,17 +72,14 @@ STAGED_ENTRIES = [
 
 # Shipped-content policy: what the installed tree carries beyond the binary.
 #
-# The runtime sidecar ships only what the kernel consumes. The venv
-# bootstrap installs `<payload>/eukhe-runtime/requirements-kernel.txt`
-# (`uv pip install --require-hashes --only-binary :all:`, the hash-locked
-# export of `uv.lock`; runtime_lock.py gates it at staging), then the
-# runtime itself with `--no-deps --no-index --no-build-isolation` (the
-# hatchling wheel targets only `src/rlm`). The venv cache identity hashes
-# `src/rlm/*.py` + the packaged machine library under `src/rlm/machines` +
-# `pyproject.toml` + the requirements lock — so the pytest suite (`test/`)
-# and the development `uv.lock` (already exported into the requirements
-# lock) are dead weight in every installed tree, and dropping them changes
-# neither the built wheel nor the bootstrap-version identity. The cache
+# The runtime sidecar ships only what the kernel consumes. The kernel
+# runs the runtime from `<payload>/eukhe-runtime/src` (on its
+# `PYTHONPATH`; nothing is installed) and installs packages on demand from
+# `<payload>/eukhe-runtime/requirements-kernel.txt` (`uv pip install
+# --require-hashes --only-binary :all:`, the hash-locked export of
+# `uv.lock`; runtime_lock.py gates it at staging) — so the test suite
+# (`test/`) and the development `uv.lock` (already exported into the
+# requirements lock) are dead weight in every installed tree. The cache
 # names and suffixes mirror package_release.py's EXCLUDED_* so a stale
 # `.venv` or `__pycache__` cannot ride the payload either.
 RUNTIME_EXCLUDED_NAMES = frozenset({

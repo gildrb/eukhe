@@ -28,53 +28,24 @@ def kl.some_none(-A: Data, -x: A, -G: Type, e: {Some{x} == None{} : Maybe<&2, A>
 # The reader, stage by stage
 # --------------------------
 
-def kl.found_tag(t: Nat, s: String) -> {KernelLocal.read_found.tag(t, s) == FKL.get_found.tag(t, s) : Wr.Dec<KL.Found>}:
-  match t:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n+p:
-      {==}
-
-def kl.found(r: Wr.Dec<Nat>) -> {KernelLocal.read_found(r) == FKL.get_found.go(r) : Wr.Dec<KL.Found>}:
+def kl.plan_env(uv: Bool, python: Bool, r: Wr.Dec<Bool>) -> {KernelLocal.read_plan.env(uv, python, r) == FKL.get_plan.env(uv, python, r) : Wr.Dec<KL.Ask>}:
   match r:
-    case Wr.Got{t, s}:
-      kl.found_tag(t, s)
-    case Wr.Bad{}:
-      {==}
-
-def kl.setup_tag(t: Nat, s: String) -> {KernelLocal.read_setup.tag(t, s) == FKL.get_setup.tag(t, s) : Wr.Dec<KL.Setup>}:
-  match t:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n+p:
-      {==}
-
-def kl.setup(r: Wr.Dec<Nat>) -> {KernelLocal.read_setup(r) == FKL.get_setup.go(r) : Wr.Dec<KL.Setup>}:
-  match r:
-    case Wr.Got{t, s}:
-      kl.setup_tag(t, s)
-    case Wr.Bad{}:
-      {==}
-
-def kl.plan_setup(f: KL.Found, r: Wr.Dec<KL.Setup>) -> {KernelLocal.read_plan.setup(f, r) == FKL.get_plan.setup(f, r) : Wr.Dec<KL.Ask>}:
-  match r:
-    case Wr.Got{x, s}:
+    case Wr.Got{e, s}:
       {==}
     case Wr.Bad{}:
       {==}
 
-def kl.plan(r: Wr.Dec<KL.Found>) -> {KernelLocal.read_plan(r) == FKL.get_plan.found(r) : Wr.Dec<KL.Ask>}:
+def kl.plan_python(uv: Bool, r: Wr.Dec<Bool>) -> {KernelLocal.read_plan.python(uv, r) == FKL.get_plan.python(uv, r) : Wr.Dec<KL.Ask>}:
   match r:
-    case Wr.Got{+f, +s}:
-      %kl.setup(Wr.get_nat(s)) : {KernelLocal.read_plan.setup(f, KernelLocal.read_setup(Wr.get_nat(s))) == FKL.get_plan.setup(f, _) : Wr.Dec<KL.Ask>}
-      %kl.plan_setup(f, KernelLocal.read_setup(Wr.get_nat(s))) : {KernelLocal.read_plan.setup(f, KernelLocal.read_setup(Wr.get_nat(s))) == _ : Wr.Dec<KL.Ask>}
+    case Wr.Got{p, s}:
+      kl.plan_env(uv, p, Wr.get_bool(s))
+    case Wr.Bad{}:
       {==}
+
+def kl.plan(r: Wr.Dec<Bool>) -> {KernelLocal.read_plan(r) == FKL.get_plan.uv(r) : Wr.Dec<KL.Ask>}:
+  match r:
+    case Wr.Got{u, s}:
+      kl.plan_python(u, Wr.get_bool(s))
     case Wr.Bad{}:
       {==}
 
@@ -225,9 +196,7 @@ def kl.lock(r: Wr.Dec<KL.Seen>) -> {KernelLocal.read_lock(r) == FKL.get_lock(r) 
 def kl.ask_tag(t: Nat, +s: String) -> {KernelLocal.read_ask.tag(t, s) == FKL.get_ask.tag(t, s) : Wr.Dec<KL.Ask>}:
   match t:
     case 0n:
-      %kl.found(Wr.get_nat(s)) : {KernelLocal.read_plan(KernelLocal.read_found(Wr.get_nat(s))) == FKL.get_plan.found(_) : Wr.Dec<KL.Ask>}
-      %kl.plan(KernelLocal.read_found(Wr.get_nat(s))) : {KernelLocal.read_plan(KernelLocal.read_found(Wr.get_nat(s))) == _ : Wr.Dec<KL.Ask>}
-      {==}
+      kl.plan(Wr.get_bool(s))
     case 1n:
       kl.sweep(Wr.get_nat(s))
     case 2n:

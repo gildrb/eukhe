@@ -49,7 +49,7 @@ hooks:
 # The eukhe-runtime Python suite on the uv-locked kernel env (the env the
 # real-kernel cargo tests build: crates/eukhe-core/tests/support/kernel_runtime.rs).
 runtime-test:
-	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
+	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.14 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
 # The Home Manager module's settings merge (nix/merge-settings.sh): the
 # declared settings never drop the model choice eukhe saved. Needs jq.
@@ -223,9 +223,10 @@ package:
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
 
-# The kernel venv's hash-locked requirements: eukhe-runtime/uv.lock exported
-# to eukhe-runtime/requirements-kernel.txt (the only file the venv bootstrap
-# installs from). runtime-lock re-resolves (network) and re-exports;
+# Eukhe's package lock: eukhe-runtime/uv.lock (the `kernel` group, resolved
+# for the pinned Python of eukhe-runtime/kernel-toolchain.json) exported to
+# eukhe-runtime/requirements-kernel.txt, the only file a kernel installs
+# Eukhe's packages from, on demand. runtime-lock re-resolves (network) and re-exports;
 # runtime-lock-check is offline: uv.lock must match pyproject.toml, the
 # committed export must equal a fresh frozen export, and every pin must be
 # exact, hashed, and in uv.lock (scripts/release/runtime_lock.py).

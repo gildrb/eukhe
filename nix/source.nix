@@ -10,7 +10,6 @@
   rustPlatform,
   python3,
   makeWrapper,
-  uv,
   git,
   onnxruntime,
   stdenv,
@@ -33,7 +32,7 @@ rustPlatform.buildRustPackage {
     "--bin"
     "eukhe"
   ];
-  # The suites need network, sockets, Python, and uv.
+  # The suites need network, sockets and uv (the tests' kernel venv).
   doCheck = false;
 
   nativeBuildInputs = [
@@ -54,15 +53,12 @@ rustPlatform.buildRustPackage {
     cp crates/eukhe-core/tests/fixtures/mcp/plugins-catalog.v2.json "$catalog/plugins/catalog.v2.json"
     python3 scripts/release/bundle_catalog.py generate --catalog-dir "$catalog" --out "$payload"
     rm -r "$catalog"
-    # The tiny-model worker loads ONNX Runtime (>= 1.24) at run time; a
-    # user's own ORT_DYLIB_PATH wins.
+    # git commits the chat memory after every turn; a user's own git
+    # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
+    # fetches its own pinned uv and Python. The tiny-model worker loads
+    # ONNX Runtime (>= 1.24) at run time; a user's own ORT_DYLIB_PATH wins.
     makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
-      --suffix PATH : ${
-        lib.makeBinPath [
-          uv
-          git
-        ]
-      } \
+      --suffix PATH : ${lib.makeBinPath [ git ]} \
       --set-default ORT_DYLIB_PATH ${lib.getLib onnxruntime}/lib/libonnxruntime${stdenv.hostPlatform.extensions.sharedLibrary}
   '';
 

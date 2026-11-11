@@ -6,66 +6,40 @@ import ./kernel_local.bend as M
 # verdict on each leftover and the lock attempt's verdict
 # (bend/kernel_local.bend `plan`, `keeps`, `attempt` of `lock.of`) as an
 # entry of the compiled Bend core. Request: a tag, then
-#   0  the plan: the venv found (0 current, 1 skills stale, 2 stale), the
-#      setup (0 a session, 1 `eukhe kernel install`)
+#   0  the plan: is the pinned uv there (T|F), is the pinned CPython
+#      there (T|F), is the kernel env there (T|F)
 #   1  the sweep: a count, then per file its kind (0 an attempt's
 #      candidate, 1 a stale lock renamed aside, 2 another file) and
 #      whether its owner lives (T|F)
 #   2  the attempt: what it saw (0 linked, 1 vanished, 2 an owner, then
 #      T|F alive, 3 no owner, then its age: 0 none | 1 and the ms)
-# Reply: the plan as a count, then per action its tag (0 a fetch, then
-# T|F hashed, 1 local only, 2 the check, 3 the start); the sweep as a
-# count, then T (the file stays) or F per file; the attempt as its end's
-# tag (0 got, 1 busy, 2 freed, 3 crash). Any other input: the error form.
+# Reply: the plan as a count, then per action its tag (0 the uv fetch,
+# then T|F hashed, 1 the CPython fetch, then T|F hashed, 2 the env's
+# making, 3 the start); the sweep as a count, then T (the file stays) or
+# F per file; the attempt as its end's tag (0 got, 1 busy, 2 freed,
+# 3 crash). Any other input: the error form.
 
 # Decoding
 # --------
 
-def get_found.tag(t: Nat, s: String) -> W.Dec<M.Found>:
-  match t:
-    case 0n:
-      W.Got{M.Current{}, s}
-    case 1n:
-      W.Got{M.Skills{}, s}
-    case 2n:
-      W.Got{M.Stale{}, s}
-    case 3n+p:
-      W.Bad{}
-
-def get_found.go(r: W.Dec<Nat>) -> W.Dec<M.Found>:
+def get_plan.env(uv: Bool, python: Bool, r: W.Dec<Bool>) -> W.Dec<M.Ask>:
   match r:
-    case W.Got{t, s}:
-      get_found.tag(t, s)
+    case W.Got{e, s}:
+      W.Got{M.AskPlan{uv, python, e}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_setup.tag(t: Nat, s: String) -> W.Dec<M.Setup>:
-  match t:
-    case 0n:
-      W.Got{M.Local{}, s}
-    case 1n:
-      W.Got{M.Install{}, s}
-    case 2n+p:
-      W.Bad{}
-
-def get_setup.go(r: W.Dec<Nat>) -> W.Dec<M.Setup>:
+def get_plan.python(uv: Bool, r: W.Dec<Bool>) -> W.Dec<M.Ask>:
   match r:
-    case W.Got{t, s}:
-      get_setup.tag(t, s)
+    case W.Got{p, s}:
+      get_plan.env(uv, p, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_plan.setup(f: M.Found, r: W.Dec<M.Setup>) -> W.Dec<M.Ask>:
+def get_plan.uv(r: W.Dec<Bool>) -> W.Dec<M.Ask>:
   match r:
-    case W.Got{x, s}:
-      W.Got{M.AskPlan{f, x}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_plan.found(r: W.Dec<M.Found>) -> W.Dec<M.Ask>:
-  match r:
-    case W.Got{f, s}:
-      get_plan.setup(f, get_setup.go(W.get_nat(s)))
+    case W.Got{u, s}:
+      get_plan.python(u, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -212,7 +186,7 @@ def get_lock(r: W.Dec<M.Seen>) -> W.Dec<M.Ask>:
 def get_ask.tag(t: Nat, s: String) -> W.Dec<M.Ask>:
   match t:
     case 0n:
-      get_plan.found(get_found.go(W.get_nat(s)))
+      get_plan.uv(W.get_bool(s))
     case 1n:
       get_sweep(W.get_nat(s))
     case 2n:
@@ -236,11 +210,11 @@ def get_ask(s: String) -> W.Dec<M.Ask>:
 
 def put_act(a: M.Act, rest: String) -> String:
   match a:
-    case M.Fetch{h}:
+    case M.FetchUv{h}:
       W.put_nat(0n, W.put_bool(h, rest))
-    case M.Offline{}:
-      W.put_nat(1n, rest)
-    case M.Check{}:
+    case M.FetchPython{h}:
+      W.put_nat(1n, W.put_bool(h, rest))
+    case M.MakeEnv{}:
       W.put_nat(2n, rest)
     case M.Run{}:
       W.put_nat(3n, rest)
@@ -282,8 +256,8 @@ def put_end(e: M.End, rest: String) -> String:
 # the answer to a request
 def answer(a: M.Ask) -> String:
   match a:
-    case M.AskPlan{f, s}:
-      put_acts(M.plan(f, s), "")
+    case M.AskPlan{uv, python, env}:
+      put_acts(M.plan(uv, python, env), "")
     case M.AskSweep{ls}:
       put_bools(M.keeps(ls), "")
     case M.AskLock{x}:

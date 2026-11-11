@@ -24,11 +24,11 @@
 //! Environment:
 //!   `EUKHE_BENCH_SKILLS_DIR`   — skills directory (repo `skills/`); defaults to
 //!                           `../skills` relative to the crate
-//!   `EUKHE_KERNEL_VENV` / `EUKHE_KERNEL_PYTHON` / HOME as for the
+//!   `EUKHE_KERNEL_DIR` / `EUKHE_KERNEL_PYTHON` / HOME as for the
 //!                           product paths themselves.
 //!
-//! Run cold with a fresh HOME + venv dir, then warm with the same dirs to
-//! measure the cross-process cache hit.
+//! Run cold with a fresh HOME (the pinned Python is fetched), then warm
+//! with the same HOME (nothing is fetched).
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -78,12 +78,11 @@ fn ms(t: Instant) -> u64 {
     t.elapsed().as_millis() as u64
 }
 
-fn manager_options(
-    python: PathBuf,
-    snapshot_dir: Option<&std::path::Path>,
-) -> KernelManagerOptions {
+/// The kernel resolves its own Python, the product path: the cached
+/// search answer of the `ensure_kernel_python` call before it.
+fn manager_options(snapshot_dir: Option<&std::path::Path>) -> KernelManagerOptions {
     KernelManagerOptions {
-        python: Some(python),
+        python: None,
         cwd: Some(std::env::temp_dir()),
         env: std::collections::HashMap::default(),
         session_id: Some("kernel-bench".to_string()),
@@ -127,29 +126,36 @@ async fn main() {
     match mode.as_str() {
         "ensure-python" => {
             let t = Instant::now();
-            let python = ensure_kernel_python(EnsureKernelPythonOptions {
-                python_skills: bench_python_skills(),
-                on_progress: None,
-            })
+            let kernel = ensure_kernel_python(
+                EnsureKernelPythonOptions {
+                    python_skills: bench_python_skills(),
+                    on_progress: None,
+                },
+                Some(&std::env::temp_dir()),
+            )
             .await
             .expect("kernel python");
             println!("ensure-kernel-python-ms {}", ms(t));
-            println!("python {}", python.display());
+            println!("python {}", kernel.describe());
         }
         "boot" => {
             let snapshot_dir = std::env::var("EUKHE_BENCH_SNAPSHOT_DIR")
                 .map(PathBuf::from)
                 .ok();
             let t = Instant::now();
-            let python = ensure_kernel_python(EnsureKernelPythonOptions {
-                python_skills: bench_python_skills(),
-                on_progress: None,
-            })
+            let kernel = ensure_kernel_python(
+                EnsureKernelPythonOptions {
+                    python_skills: bench_python_skills(),
+                    on_progress: None,
+                },
+                Some(&std::env::temp_dir()),
+            )
             .await
             .expect("kernel python");
             println!("ensure-kernel-python-ms {}", ms(t));
+            println!("python {}", kernel.describe());
             let t = Instant::now();
-            let options = manager_options(python, snapshot_dir.as_deref());
+            let options = manager_options(snapshot_dir.as_deref());
             let manager = boot_manager(&options).await;
             println!("kernel-boot-and-bootstrap-ms {}", ms(t));
 
@@ -191,13 +197,16 @@ async fn main() {
         "snapshot-restore" => {
             let snapshot_dir =
                 std::env::var("EUKHE_BENCH_SNAPSHOT_DIR").expect("EUKHE_BENCH_SNAPSHOT_DIR");
-            let python = ensure_kernel_python(EnsureKernelPythonOptions {
-                python_skills: bench_python_skills(),
-                on_progress: None,
-            })
+            ensure_kernel_python(
+                EnsureKernelPythonOptions {
+                    python_skills: bench_python_skills(),
+                    on_progress: None,
+                },
+                Some(&std::env::temp_dir()),
+            )
             .await
             .expect("kernel python");
-            let options = manager_options(python, Some(std::path::Path::new(&snapshot_dir)));
+            let options = manager_options(Some(std::path::Path::new(&snapshot_dir)));
             let manager = boot_manager(&options).await;
             // ~5 MiB namespace: one large bytes blob plus small scalars.
             manager

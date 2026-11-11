@@ -158,7 +158,7 @@ fn sandbox() -> Sandbox {
 impl Sandbox {
     /// The packaged binary with a hermetic environment: sandboxed HOME and
     /// agent dir, no ambient `EUKHE_PACKAGE_DIR`, no ambient kernel-override
-    /// env (`EUKHE_KERNEL_PYTHON` / `EUKHE_KERNEL_VENV` — the
+    /// env (`EUKHE_KERNEL_PYTHON` / `EUKHE_KERNEL_DIR` — the
     /// gate kernel-env recipe exports them for the live-kernel suites, and
     /// they must not steer the packaged layout's own resolution), no
     /// ambient API keys. A test that wants an override sets it after this
@@ -170,7 +170,8 @@ impl Sandbox {
             .env("EUKHE_CODING_AGENT_DIR", &self.agent_dir)
             .env_remove("EUKHE_PACKAGE_DIR")
             .env_remove("EUKHE_KERNEL_PYTHON")
-            .env_remove("EUKHE_KERNEL_VENV")
+            .env_remove("EUKHE_KERNEL_DIR")
+            .env_remove("EUKHE_OFFLINE")
             .env_remove("EUKHE_SESSION_DIR")
             .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
             .env_remove("PRIME_API_KEY")
@@ -312,9 +313,9 @@ fn packaged_binary_reports_manifest_version() {
 /// sidecar): a packaged session with no `eukhe-runtime/` offered the
 /// ipython tool, and the model's first call was a cell that could only
 /// fail. Now the session offers no ipython tool (the request's prompt says
-/// there is no Python REPL). The notice naming the runtime directory and
-/// `eukhe kernel install` is a notification of the interactive client: a
-/// json run stores no row for it and prints nothing about it.
+/// there is no Python REPL). The notice naming the runtime directory is a
+/// notification of the interactive client: a json run stores no row for
+/// it and prints nothing about it.
 #[test]
 fn missing_sidecar_session_offers_no_ipython() {
     let _guard = serial_lock();
@@ -360,9 +361,9 @@ fn stored_text(dir: &Path) -> String {
     text
 }
 
-/// A missing sidecar (broken install) surfaces the actionable install
-/// failure: the base text plus the missing eukhe-runtime hint, not a raw
-/// uv/pip error.
+/// A missing sidecar (broken install) surfaces the actionable failure: the
+/// missing eukhe-runtime hint naming the executable's directory, before
+/// anything is fetched.
 #[test]
 fn missing_sidecar_reports_actionable_bootstrap_error() {
     let _guard = serial_lock();
@@ -373,50 +374,82 @@ fn missing_sidecar_reports_actionable_bootstrap_error() {
     let output = box_
         .command(staged)
         .args(["kernel", "install"])
-        // No uv anywhere the bootstrap looks (PATH and ~/.local/bin under
-        // the sandboxed HOME), so the failure is the resolution error, not
-        // an install attempt against the network.
         .env("PATH", "/usr/bin:/bin")
         .output()
         .expect("run packaged binary");
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Failed to install the Python kernel"),
-        "install failure text missing: {stderr}"
-    );
-    assert!(
-        stderr.contains("the eukhe-runtime kernel runtime directory was not found"),
+        stderr.starts_with("Error: the eukhe-runtime kernel runtime directory was not found"),
         "missing-sidecar hint missing: {stderr}"
     );
     assert!(
         stderr.contains(staged.to_string_lossy().as_ref()),
         "the hint must name the executable directory: {stderr}"
     );
+    assert!(
+        !box_
+            .home
+            .path()
+            .join(".eukhe")
+            .join("kernel")
+            .join("uv")
+            .exists(),
+        "nothing is fetched for a broken install"
+    );
 }
 
-/// A `EUKHE_KERNEL_PYTHON` that lacks the runtime reports the
-/// TS-matching override error (the existing UX path, asserted end to end
-/// through the packaged binary).
+/// A `EUKHE_KERNEL_PYTHON` that names no file is what `kernel install
+/// --check` reports, end to end through the packaged binary.
 #[test]
-fn invalid_kernel_python_override_reports_ts_error() {
+fn invalid_kernel_python_override_is_named_by_the_check() {
     let _guard = serial_lock();
     let dir = tempfile::TempDir::new().expect("stage dir");
     let staged = dir.path();
-    stage_packaged_layout(staged, false);
+    stage_packaged_layout(staged, true);
     let box_ = sandbox();
     let bogus = box_.home.path().join("not-a-kernel-python");
     let output = box_
         .command(staged)
-        .args(["kernel", "install"])
+        .args(["kernel", "install", "--check"])
         .env("EUKHE_KERNEL_PYTHON", &bogus)
         .output()
         .expect("run packaged binary");
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("EUKHE_KERNEL_PYTHON points to a Python missing"),
-        "TS override error missing: {stderr}"
+    assert_eq!(
+        stderr.trim_end(),
+        format!(
+            "Error: EUKHE_KERNEL_PYTHON points to {}, which is not a file",
+            bogus.display()
+        ),
+        "the check names the override"
+    );
+}
+
+/// `kernel install --check` on a machine that has not fetched the Python:
+/// `not fetched`, exit 1, and no network request (a dead proxy would fail
+/// one).
+#[test]
+fn the_check_reports_a_python_that_is_not_fetched_without_network() {
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, true);
+    let box_ = sandbox();
+    let mut command = box_.command(staged);
+    dead_network(&mut command);
+    let output = command
+        .args(["kernel", "install", "--check"])
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim_end(),
+        format!(
+            "not fetched: Python {} is fetched at the first kernel start, or now with `eukhe kernel install`",
+            pinned_python()
+        )
     );
 }
 
@@ -434,7 +467,7 @@ const HOSTILE_CHILD_STAGE: &str = "EUKHE_PACKAGED_E2E_HOSTILE_STAGE";
 /// The child half of the hostile-host-env regression: the whole test
 /// process carries the hostile env — a `EUKHE_KERNEL_PYTHON` that
 /// would satisfy the bootstrap if it leaked, a `EUKHE_PACKAGE_DIR` package
-/// dir with its own manifest, a decoy `EUKHE_KERNEL_VENV` — and the
+/// dir with its own manifest, a decoy `EUKHE_KERNEL_DIR` — and the
 /// packaged layout must still behave exactly as on a clean host.
 fn hostile_child_assertions(staged: &Path) {
     let _guard = serial_lock();
@@ -467,11 +500,7 @@ fn hostile_child_assertions(staged: &Path) {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Failed to install the Python kernel"),
-        "install failure text missing: {stderr}"
-    );
-    assert!(
-        stderr.contains("the eukhe-runtime kernel runtime directory was not found"),
+        stderr.starts_with("Error: the eukhe-runtime kernel runtime directory was not found"),
         "missing-sidecar hint missing: {stderr}"
     );
     assert!(
@@ -479,8 +508,8 @@ fn hostile_child_assertions(staged: &Path) {
         "the hint must name the staged dir: {stderr}"
     );
     assert!(
-        !stderr.contains("EUKHE_KERNEL_PYTHON points to"),
-        "the hostile kernel-python override leaked into the packaged layout: {stderr}"
+        !String::from_utf8_lossy(&output.stdout).contains("EUKHE_KERNEL_PYTHON is set"),
+        "the hostile kernel-python override leaked into the packaged layout"
     );
     if let Some(package_decoy) = std::env::var_os("EUKHE_PACKAGE_DIR") {
         assert!(
@@ -516,7 +545,7 @@ fn packaged_layout_stays_hermetic_under_hostile_host_env() {
     .expect("version manifest");
 
     // Decoys that would win if the hostile env leaked into the packaged
-    // binary: a package dir with its own manifest and a decoy kernel venv.
+    // binary: a package dir with its own manifest and a decoy kernel dir.
     let decoys = tempfile::TempDir::new().expect("decoys dir");
     let package_decoy = decoys.path().join("package");
     std::fs::create_dir_all(&package_decoy).expect("package decoy dir");
@@ -525,13 +554,11 @@ fn packaged_layout_stays_hermetic_under_hostile_host_env() {
         r#"{"name":"eukhe","version":"0.0.0-decoy"}"#,
     )
     .expect("decoy manifest");
-    let venv_decoy = decoys.path().join("kernel-venv");
-    std::fs::create_dir_all(venv_decoy.join("bin")).expect("venv decoy dir");
-    std::fs::write(venv_decoy.join("bin").join("python"), "#!/bin/sh\nexit 0\n")
-        .expect("decoy python");
+    let kernel_decoy = decoys.path().join("kernel");
+    std::fs::create_dir_all(&kernel_decoy).expect("kernel decoy dir");
 
     // The most hostile EUKHE_KERNEL_PYTHON is a python that would
-    // satisfy the bootstrap if it leaked: a complete kernel venv.
+    // satisfy the kernel if it leaked: a complete kernel venv.
     let hostile_python = kernel_python();
 
     let child = Command::new(std::env::current_exe().expect("test binary"))
@@ -540,7 +567,7 @@ fn packaged_layout_stays_hermetic_under_hostile_host_env() {
         .env(HOSTILE_CHILD_STAGE, staged)
         .env("EUKHE_KERNEL_PYTHON", &hostile_python)
         .env("EUKHE_PACKAGE_DIR", &package_decoy)
-        .env("EUKHE_KERNEL_VENV", &venv_decoy)
+        .env("EUKHE_KERNEL_DIR", &kernel_decoy)
         .output()
         .expect("re-exec the test binary with the hostile host env");
     assert!(
@@ -1031,57 +1058,394 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     digest
 }
 
-/// Heavy (network + uv): the packaged sidecar installs a fresh kernel venv
-/// with no `EUKHE_KERNEL_PYTHON` and no `EUKHE_PACKAGE_DIR` (both scrubbed
-/// by the hermetic sandbox command, so a gate host exporting them cannot
-/// steer this run), then boots a session on it. Run explicitly:
-/// `cargo test -p eukhe-cli --test packaged_layout_e2e -- --ignored`
+// ---------------------------------------------------------------------------
+// The pinned kernel, through the packaged binary
+// ---------------------------------------------------------------------------
+
+/// The Python version `eukhe-runtime/kernel-toolchain.json` pins.
+fn pinned_python() -> String {
+    let pin: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("eukhe-runtime/kernel-toolchain.json"))
+            .expect("read the pin file"),
+    )
+    .expect("the pin file parses");
+    pin["python"]["version"]
+        .as_str()
+        .expect("a pinned version")
+        .to_owned()
+}
+
+/// The version Eukhe's lock pins for `distribution`.
+fn locked_version(distribution: &str) -> String {
+    let lock = std::fs::read_to_string(repo_root().join("eukhe-runtime/requirements-kernel.txt"))
+        .expect("read Eukhe's lock");
+    lock.lines()
+        .find_map(|line| line.strip_prefix(&format!("{distribution}==")))
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("the distribution is locked")
+        .to_owned()
+}
+
+/// A machine whose every network request fails at once: each proxy
+/// variable names a closed local port, and nothing is exempt.
+fn dead_network(command: &mut Command) -> &mut Command {
+    for name in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ] {
+        command.env(name, "http://127.0.0.1:9");
+    }
+    command.env_remove("NO_PROXY").env_remove("no_proxy")
+}
+
+/// A `PATH` directory of a machine with no Python and no uv: only the
+/// shell tools a session's bash tool looks for, linked from the current
+/// `PATH`.
+fn path_without_python(dir: &Path) -> PathBuf {
+    let bin = dir.join("bare-bin");
+    std::fs::create_dir_all(&bin).expect("the PATH dir");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    for tool in ["bash", "sh", "which"] {
+        if let Some(found) = std::env::split_paths(&path)
+            .map(|dir| dir.join(tool))
+            .find(|candidate| candidate.is_file())
+        {
+            std::os::unix::fs::symlink(found, bin.join(tool)).expect("link a shell tool");
+        }
+    }
+    bin
+}
+
+/// One turn whose ipython cell is `code`, through the packaged binary:
+/// its stdout (the JSON events, which carry the cell's output) and stderr.
+fn run_cell(command: &mut Command, code: &str) -> (String, String) {
+    let script = serde_json::json!({
+        "responses": [
+            { "content": [ { "type": "toolCall", "name": "ipython", "arguments": { "code": code } } ] },
+            { "text": "done" },
+        ],
+    });
+    let (stdout, stderr, code) = run_json_turn(command, &script);
+    assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
+    (stdout, stderr)
+}
+
+/// The cell that names the interpreter it runs on.
+const WHICH_PYTHON: &str =
+    "import sys\nprint('KERNEL_PYTHON', sys.version.split()[0], sys.executable, len(sys.modules) > 0)";
+
+/// A staged layout and a kernel directory holding the fetched toolchain,
+/// fetched once for the tests below that do not test the fetch itself.
+static FETCHED: std::sync::LazyLock<(tempfile::TempDir, tempfile::TempDir)> =
+    std::sync::LazyLock::new(|| {
+        let stage = tempfile::TempDir::new().expect("stage dir");
+        stage_packaged_layout(stage.path(), true);
+        let kernel = tempfile::TempDir::new().expect("kernel dir");
+        let box_ = sandbox();
+        let output = box_
+            .command(stage.path())
+            .args(["kernel", "install"])
+            .env("EUKHE_KERNEL_DIR", kernel.path())
+            .output()
+            .expect("run packaged binary");
+        assert!(
+            output.status.success(),
+            "the fetch failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (stage, kernel)
+    });
+
+/// Regression (the 3-minute first launch, then the kernel that depended on
+/// the machine's Python): a fresh HOME on a machine with no Python and no
+/// uv on PATH, and no `eukhe kernel install`. The session fetches the
+/// pinned uv and the pinned Python by itself, and the first cell runs on
+/// that Python, on the standard library alone.
 #[test]
-#[ignore = "network + uv install (~minutes); the lane verifier runs it explicitly"]
-fn install_kernel_venv_from_packaged_sidecar() {
+#[ignore = "network: fetches uv and Python (~52 MB) from github.com; run with --ignored"]
+fn a_fresh_home_without_python_fetches_the_pinned_python_and_runs_a_cell() {
+    let _guard = serial_lock();
     let dir = tempfile::TempDir::new().expect("stage dir");
     let staged = dir.path();
     stage_packaged_layout(staged, true);
     let box_ = sandbox();
-    let venv = box_.home.path().join("kernel-venv");
-
-    // `eukhe kernel install` builds the venv from the exe-adjacent sidecar.
+    let path = path_without_python(box_.home.path());
+    let started = std::time::Instant::now();
+    let mut command = box_.command(staged);
+    command.env("PATH", &path);
+    let (stdout, stderr) = run_cell(&mut command, WHICH_PYTHON);
+    let elapsed = started.elapsed();
+    let kernel_dir = box_.home.path().join(".eukhe").join("kernel");
+    assert!(
+        stdout.contains(&format!(
+            "KERNEL_PYTHON {} {}/envs/",
+            pinned_python(),
+            kernel_dir.display()
+        )),
+        "the cell ran on the pinned Python; stdout: {stdout}\nstderr: {stderr}"
+    );
+    eprintln!("fresh HOME to the first cell: {elapsed:?}");
+    // The kernel started on the standard library: the env holds no
+    // third-party package but dill, at its locked version, which the
+    // runtime's namespace snapshot imports after the cell (the import hook
+    // installs it from Eukhe's lock).
+    let mut site_packages: Vec<String> = std::fs::read_dir(kernel_dir.join("envs"))
+        .expect("the envs")
+        .flat_map(|env| {
+            let lib = env.expect("an env").path().join("lib");
+            std::fs::read_dir(lib).expect("lib").flat_map(|python| {
+                std::fs::read_dir(python.expect("python dir").path().join("site-packages"))
+                    .expect("site-packages")
+                    .map(|entry| {
+                        entry
+                            .expect("entry")
+                            .file_name()
+                            .to_string_lossy()
+                            .into_owned()
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .filter(|name| {
+            !name.starts_with('_')
+                && !Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension == "pth" || extension == "py")
+        })
+        .collect();
+    site_packages.sort();
+    assert_eq!(
+        site_packages,
+        [
+            "dill".to_owned(),
+            format!("dill-{}.dist-info", locked_version("dill"))
+        ]
+    );
     let output = box_
         .command(staged)
-        .args(["kernel", "install"])
-        .env("EUKHE_KERNEL_VENV", &venv)
+        .env("PATH", &path)
+        .args(["kernel", "install", "--check"])
         .output()
         .expect("run packaged binary");
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "install failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .starts_with(&format!("ready: {}/envs/", kernel_dir.display())),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("installed:"), "install stdout: {stdout}");
-    // The venv layout the product's install creates.
-    let venv_python = venv.join("bin").join("python");
-    assert!(venv_python.exists(), "kernel venv python missing");
+}
 
-    // A session boots on the fresh venv: the same kernel-cell proof as the
-    // ambient-venv test, this time without any kernel python override.
-    let receipt = box_.home.path().join("kernel-receipt.json");
-    let script = kernel_boot_script(&receipt);
+/// Two different system Pythons on PATH (a `python3` and a `python` that
+/// answer other versions): neither is ever run, and the cell prints the
+/// pinned version.
+#[test]
+#[ignore = "network: fetches uv and Python (~52 MB) from github.com; run with --ignored"]
+fn system_pythons_on_path_are_never_used() {
+    let _guard = serial_lock();
+    let (stage, kernel) = &*FETCHED;
+    let box_ = sandbox();
+    let ran = box_.home.path().join("a-system-python-ran");
+    let mut path = vec![path_without_python(box_.home.path())];
+    for (dir, version) in [("py-a", "3.9.6"), ("py-b", "3.12.4")] {
+        let bin = box_.home.path().join(dir);
+        std::fs::create_dir_all(&bin).expect("a system python dir");
+        for name in ["python", "python3"] {
+            let python = bin.join(name);
+            std::fs::write(
+                &python,
+                format!(
+                    "#!/bin/sh\necho {version} >> {}\necho Python {version}\n",
+                    ran.display()
+                ),
+            )
+            .expect("a system python");
+            set_executable(&python);
+        }
+        path.insert(0, bin);
+    }
+    let mut command = box_.command(stage.path());
+    command
+        .env("PATH", std::env::join_paths(path).expect("PATH"))
+        .env("EUKHE_KERNEL_DIR", kernel.path());
+    let (stdout, stderr) = run_cell(&mut command, WHICH_PYTHON);
+    assert!(
+        stdout.contains(&format!(
+            "KERNEL_PYTHON {} {}/envs/",
+            pinned_python(),
+            kernel.path().display()
+        )),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(!ran.exists(), "a system Python was run");
+}
+
+/// Offline with the Python already fetched: the kernel starts and the cell
+/// runs, with no network request (every one would fail).
+#[test]
+#[ignore = "network: fetches uv and Python (~52 MB) from github.com; run with --ignored"]
+fn offline_with_the_python_fetched_runs_a_cell() {
+    let _guard = serial_lock();
+    let (stage, kernel) = &*FETCHED;
+    let box_ = sandbox();
+    let mut command = box_.command(stage.path());
+    dead_network(&mut command)
+        .env("EUKHE_OFFLINE", "1")
+        .env("EUKHE_KERNEL_DIR", kernel.path());
+    let (stdout, stderr) = run_cell(&mut command, WHICH_PYTHON);
+    assert!(
+        stdout.contains(&format!("KERNEL_PYTHON {} ", pinned_python())),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+/// Offline without the Python: the fetch fails, so the session offers no
+/// ipython tool (its prompt says there is no Python REPL); the notice
+/// saying the fetch failed is the interactive client's notification, so a
+/// json run stores no row and prints nothing about it. `kernel install`
+/// fails naming the failed fetch. No download happens, so this runs
+/// without `--ignored`.
+#[test]
+fn offline_without_the_python_offers_no_ipython_and_says_the_fetch_failed() {
+    let _guard = serial_lock();
+    let dir = tempfile::TempDir::new().expect("stage dir");
+    let staged = dir.path();
+    stage_packaged_layout(staged, true);
+    let box_ = sandbox();
+    let sessions = box_.home.path().join("sessions");
+    let script = serde_json::json!({ "responses": [{ "systemPrompt": true }] });
     let mut command = box_.command(staged);
-    command.env("EUKHE_KERNEL_VENV", &venv);
+    dead_network(&mut command).env("EUKHE_SESSION_DIR", &sessions);
     let (stdout, stderr, code) = run_json_turn(&mut command, &script);
     assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
     assert!(
-        stdout.contains("KERNEL_BOOT_OK"),
-        "kernel cell output missing; stdout: {stdout}\nstderr: {stderr}"
+        stdout.contains("This session has no Python REPL (`ipython` tool)"),
+        "the prompt must say there is no ipython tool; stdout: {stdout}"
     );
-    let payload: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&receipt).unwrap_or_default())
-            .unwrap_or(serde_json::Value::Null);
-    assert_eq!(
-        payload["kernel_boot"],
-        serde_json::Value::Bool(true),
-        "receipt: {payload}"
+    let stored = stored_text(&sessions);
+    assert!(
+        !stored.contains("The Python kernel cannot start")
+            && !stored.contains("kernel_unavailable"),
+        "no kernel-unavailable row is stored; stored: {stored}"
+    );
+    let mut command = box_.command(staged);
+    let output = dead_network(&mut command)
+        .args(["kernel", "install"])
+        .output()
+        .expect("run packaged binary");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .starts_with("Error: Eukhe could not fetch its Python kernel: downloading https://"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A locked package installs itself on first import at the lock's version,
+/// with the same files on two machines (two kernel directories with their
+/// own env and their own uv cache); a package outside the locks is
+/// refused, naming `eukhe kernel lock`; `%pip install` follows the lock.
+#[test]
+#[ignore = "network: fetches uv and Python (~52 MB) from github.com; run with --ignored"]
+fn a_locked_package_is_the_same_on_two_machines_and_an_unlocked_one_is_refused() {
+    let _guard = serial_lock();
+    let (stage, kernel) = &*FETCHED;
+    // A second machine: its own kernel directory (the same uv and Python
+    // files; its own env) and its own HOME (its own uv cache).
+    let second = tempfile::TempDir::new().expect("second kernel dir");
+    for part in ["uv", "python"] {
+        std::os::unix::fs::symlink(kernel.path().join(part), second.path().join(part))
+            .expect("link the toolchain");
+    }
+    let cell = "import dill, hashlib, importlib.metadata as md\n\
+                d = md.distribution('dill')\n\
+                h = hashlib.sha256()\n\
+                for f in sorted(str(f) for f in d.files if str(f).endswith('.py')):\n    \
+                h.update(f.encode()); h.update(d.locate_file(f).read_bytes())\n\
+                print('DILL', d.version, h.hexdigest(), 'END')";
+    let mut seen = Vec::new();
+    for kernel_dir in [kernel.path(), second.path()] {
+        let box_ = sandbox();
+        let mut command = box_.command(stage.path());
+        command.env("EUKHE_KERNEL_DIR", kernel_dir);
+        let (stdout, stderr) = run_cell(&mut command, cell);
+        let at = stdout
+            .find("DILL ")
+            .unwrap_or_else(|| panic!("dill did not import; stdout: {stdout}\nstderr: {stderr}"));
+        let line = &stdout[at..];
+        seen.push(line[..line.find(" END").expect("the line's end")].to_owned());
+    }
+    assert_eq!(seen[0], seen[1], "the two machines installed other files");
+    assert!(
+        seen[0].starts_with(&format!("DILL {} ", locked_version("dill"))),
+        "the locked version: {seen:?}"
+    );
+
+    let box_ = sandbox();
+    let mut command = box_.command(stage.path());
+    command.env("EUKHE_KERNEL_DIR", kernel.path());
+    let (stdout, _) = run_cell(
+        &mut command,
+        "try:\n    import eukhe_absent_package_xyz\nexcept ModuleNotFoundError as error:\n    print('MISSING', error)\n\
+         %pip install dill\n%pip install eukhe-absent-package-xyz",
+    );
+    assert!(stdout.contains("MISSING No module named"), "{stdout}");
+    assert!(
+        stdout.contains(&format!(
+            "dill {} (locked): already installed",
+            locked_version("dill")
+        )),
+        "{stdout}"
+    );
+    assert!(
+        stdout
+            .contains("eukhe-absent-package-xyz is not in Eukhe's package lock or this project's")
+            && stdout.contains("`eukhe kernel lock eukhe-absent-package-xyz`"),
+        "{stdout}"
+    );
+}
+
+/// `eukhe kernel lock <package>` records a package outside Eukhe's lock
+/// in the project's lock with its exact version and hashes; a cell then
+/// imports it, from the project's package directory, not the shared env.
+#[test]
+#[ignore = "network: fetches uv and Python (~52 MB) from github.com; run with --ignored"]
+fn a_project_lock_adds_a_package_the_kernel_then_installs() {
+    let _guard = serial_lock();
+    let (stage, kernel) = &*FETCHED;
+    let box_ = sandbox();
+    let output = box_
+        .command(stage.path())
+        .args(["kernel", "lock", "iniconfig"])
+        .env("EUKHE_KERNEL_DIR", kernel.path())
+        .output()
+        .expect("run packaged binary");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("locked: iniconfig "), "{stdout}");
+    let lock = std::fs::read_to_string(box_.cwd.join(".eukhe").join("requirements-kernel.txt"))
+        .expect("the project lock");
+    assert!(
+        lock.contains("\niniconfig==") && lock.contains("--hash=sha256:"),
+        "{lock}"
+    );
+    let mut command = box_.command(stage.path());
+    command.env("EUKHE_KERNEL_DIR", kernel.path());
+    let (stdout, stderr) = run_cell(
+        &mut command,
+        "import iniconfig\nprint('INICONFIG', iniconfig.__file__)",
+    );
+    assert!(
+        stdout.contains(&format!("INICONFIG {}/projects/", kernel.path().display())),
+        "stdout: {stdout}\nstderr: {stderr}"
     );
 }

@@ -1,6 +1,6 @@
 # Python-Backed Skills
 
-A Python-backed skill is a regular markdown skill that also ships a Python package. Eukhe installs the package editable into the kernel venv (`~/.eukhe/kernel-venv` by default, `EUKHE_KERNEL_VENV` to override) and exposes it in the persistent Python kernel, so the agent can call it directly instead of shelling out.
+A Python-backed skill is a regular markdown skill that also ships a Python package. Eukhe puts the package on the kernel's `PYTHONPATH` (nothing is installed) and exposes it in the persistent Python kernel, so the agent can call it directly instead of shelling out.
 
 ## Detection Contract
 
@@ -98,7 +98,7 @@ The `[project.scripts]` entry pointing at `rlm.skill:cli` gives the skill a shel
 
 - The script name must **exactly** match the Python import name, underscores included (`word_count`, not `word-count`).
 - `rlm.skill:cli` imports `<script_name>.run` and parses argv against its signature with `tyro`, awaits async results, and prints non-`None` return values.
-- `rlm` and `tyro` are already present in the kernel venv. Do **not** declare `eukhe-runtime` as a dependency: it is bundled with Eukhe, not published on PyPI, so declaring it breaks installs outside the kernel venv. The CLI entry point only works where the runtime is installed, i.e. inside the kernel venv.
+- `rlm` is always importable in the kernel (Eukhe puts its runtime on the kernel's path) and `tyro` installs from Eukhe's lock on first import. Do **not** declare `eukhe-runtime` as a dependency: it is bundled with Eukhe, not published on PyPI, so declaring it breaks installs outside the kernel. The CLI entry point only works where the runtime is importable, i.e. inside the kernel.
 
 The agent can then use either form:
 
@@ -112,12 +112,12 @@ await word_count("eukhe", top=3)
 
 Omit `[project.scripts]` when a CLI is not needed.
 
-## Dependencies and the Kernel Venv
+## Dependencies
 
 - Declare every third-party package `run()` imports in `dependencies` — `pyproject.toml` is the source of truth. The one exception is `eukhe-runtime` (see above).
-- Eukhe never downloads a skill's dependencies: skills install with `--no-deps` into the kernel venv, which holds only the hash-locked kernel packages, and a skill whose declared dependencies are not all present there is uninstalled and reported unavailable.
-- These are in the kernel venv, so depending on them works: `requests`, `httpx`, `pyyaml`, `tomli`, `python-dotenv`, `pandas`, `numpy`, `scipy`, `beautifulsoup4`, `lxml`, `pydantic`, `tyro`, `pillow`.
-- The install is editable and keyed on a hash of `pyproject.toml`: editing Python source takes effect on the next kernel start with no reinstall; editing `pyproject.toml` triggers a reinstall automatically.
+- The kernel runs on Eukhe's one pinned Python and starts on the standard library. A package installs itself the first time the skill imports it, but only from a lock: Eukhe's (these work everywhere: `requests`, `httpx`, `pyyaml`, `tomli`, `python-dotenv`, `pandas`, `numpy`, `scipy`, `beautifulsoup4`, `lxml`, `pydantic`, `tyro`, `pillow`) or the project's (`eukhe kernel lock <package>` records exact versions and hashes in `.eukhe/requirements-kernel.txt`). A skill that imports a package of neither lock fails to import and is reported unavailable.
+- Import a heavy dependency inside the function that needs it, so the kernel start does not wait for its install.
+- The skill's sources are read where they are: editing Python source takes effect on the next kernel start.
 - If the user sets `EUKHE_KERNEL_PYTHON`, Eukhe installs nothing — skills whose imports are missing there are disabled with a warning.
 
 A Python skill runs inside the agent's kernel, so it can spawn subagents itself with `import rlm` and `await rlm.spawn("subtask", name="worker", why="isolate")`. Only do that when the subagent rule holds (see the `subagents` skill); `why` is required.
@@ -131,4 +131,4 @@ A Python skill runs inside the agent's kernel, so it can spawn subagents itself 
    cd <skill-dir> && uv run python -c "import asyncio, word_count; print(asyncio.run(word_count.run('a b a', top=1)))"
    ```
 
-3. In a fresh agent session (the kernel installs skills at startup), confirm `help(<import_name>)` shows the docstring and `await <import_name>(...)` works. If it raises `RuntimeError`, the message contains the underlying import error.
+3. In a fresh agent session (the kernel imports skills at startup), confirm `help(<import_name>)` shows the docstring and `await <import_name>(...)` works. If it raises `RuntimeError`, the message contains the underlying import error.

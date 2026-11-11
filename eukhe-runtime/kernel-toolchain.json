@@ -1,0 +1,102 @@
+{
+  "comment": "The one place that pins the kernel's toolchain (read by crates/eukhe-core/src/kernel/bootstrap/toolchain.rs, embedded in the binary). uv: the release Eukhe downloads into its own directory; sha256 of each release archive (the release's published checksums; Linux uses the static musl build, which runs on every Linux). python: the one CPython every kernel runs on, on every machine; `downloads` is uv's python-downloads list (`uv python install --python-downloads-json-url`), so uv checks the archive against this sha256 before it installs. To move a pin: change the version, the urls and every sha256 (python-build-standalone's SHA256SUMS; uv's <archive>.sha256), set `requires-python` in pyproject.toml to the same minor, then `make runtime-lock`.",
+  "uv": {
+    "version": "0.13.7",
+    "url": "https://github.com/astral-sh/uv/releases/download/{version}/uv-{target}.tar.gz",
+    "sha256": {
+      "aarch64-apple-darwin": "81b811b57e4624df7ed3aac148e0359100d9962f3d9dce00aec533dc2e086731",
+      "x86_64-apple-darwin": "20c47e4c1f630b8abaff8c291fa9b9aa300fef92c4fbff95adf198b55287cda7",
+      "aarch64-unknown-linux-musl": "2d3ec076a0c4c0e8250bb6418c44080828b544f1a3be0b6e46adf9fb6923de45",
+      "x86_64-unknown-linux-musl": "287491da03f2a785c70fa75b13e1f849918c2f2b5415fe84876b8214eeb792f9"
+    }
+  },
+  "python": {
+    "version": "3.14.10",
+    "downloads": {
+      "cpython-3.14.10-darwin-aarch64-none": {
+        "name": "cpython",
+        "arch": { "family": "aarch64", "variant": null },
+        "os": "darwin",
+        "libc": "none",
+        "major": 3,
+        "minor": 14,
+        "patch": 10,
+        "prerelease": "",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "95eb8c87d16af37c54e9765e31d8c56c0d8ffa9968ea0f704f73a9b83f84e9f9",
+        "variant": null,
+        "build": "20261026"
+      },
+      "cpython-3.14.10-darwin-x86_64-none": {
+        "name": "cpython",
+        "arch": { "family": "x86_64", "variant": null },
+        "os": "darwin",
+        "libc": "none",
+        "major": 3,
+        "minor": 14,
+        "patch": 10,
+        "prerelease": "",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "2fd8becd48cf0ff5f0a15df3c0db7cae7aa708dcaacf901bd30d6cdd6229370b",
+        "variant": null,
+        "build": "20261026"
+      },
+      "cpython-3.14.10-linux-aarch64-gnu": {
+        "name": "cpython",
+        "arch": { "family": "aarch64", "variant": null },
+        "os": "linux",
+        "libc": "gnu",
+        "major": 3,
+        "minor": 14,
+        "patch": 10,
+        "prerelease": "",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "90f48337bc3dd4ae6eda81e001e4c981236d403b6b5a07778bbdf94ee423dc00",
+        "variant": null,
+        "build": "20261026"
+      },
+      "cpython-3.14.10-linux-aarch64-musl": {
+        "name": "cpython",
+        "arch": { "family": "aarch64", "variant": null },
+        "os": "linux",
+        "libc": "musl",
+        "major": 3,
+        "minor": 14,
+        "patch": 10,
+        "prerelease": "",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-aarch64-unknown-linux-musl-install_only_stripped.tar.gz",
+        "sha256": "d96d9e66e1e4f6465114ed239681bf6e45bca63724453675fd9bdf30a6475873",
+        "variant": null,
+        "build": "20261026"
+      },
+      "cpython-3.14.10-linux-x86_64-gnu": {
+        "name": "cpython",
+        "arch": { "family": "x86_64", "variant": null },
+        "os": "linux",
+        "libc": "gnu",
+        "major": 3,
+        "minor": 14,
+        "patch": 10,
+        "prerelease": "",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "4d3c16c59ed0802a3d1d34d8bce504b15ceeaff39d62dadecc6a9fa803412aed",
+        "variant": null,
+        "build": "20261026"
+      },
+      "cpython-3.14.10-linux-x86_64-musl": {
+        "name": "cpython",
+        "arch": { "family": "x86_64", "variant": null },
+        "os": "linux",
+        "libc": "musl",
+        "major": 3,
+        "minor": 14,
+        "patch": 10,
+        "prerelease": "",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-musl-install_only_stripped.tar.gz",
+        "sha256": "f6dc25dc87ec05c1600ff49ad169adcec449b9ca563d274ba143f5e13b41fe42",
+        "variant": null,
+        "build": "20261026"
+      }
+    }
+  }
+}
