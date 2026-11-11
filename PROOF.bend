@@ -625,9 +625,7 @@ import ./proof/screen/tx_grow_lengthens.bend as PTxGrowLengthens
 import ./proof/screen/tx_fin_finishes.bend as PTxFinFinishes
 import ./proof/screen/tx_flush_only_commits.bend as PTxFlushOnlyCommits
 import ./proof/screen/rec_length_notes_then_quit.bend as PRecLengthNotesThenQuit
-import ./proof/screen/rec_length_row_starts_fresh.bend as PRecLengthRowStartsFresh
 import ./proof/screen/rec_leak_notes_then_quit.bend as PRecLeakNotesThenQuit
-import ./proof/screen/rec_leak_row_starts_fresh.bend as PRecLeakRowStartsFresh
 import ./proof/screen/screen_ffi_run.bend as PScreenFfiRun
 import ./proof/screen/screen_ffi_example.bend as PScreenFfiExample
 import ./proof/screen/screen_ffi_refuses_example.bend as PScreenFfiRefusesExample

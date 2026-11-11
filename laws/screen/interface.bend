@@ -52,9 +52,10 @@ import ../base.bend as LawsBase
 #     needed (inline_term.rs `paint_decision` builds a redraw only when
 #     asked): screen_ffi_paint (anchor screen_ffi_paint_example)
 # A2  (H4.8 of laws/run/model.bend) a recovery's cap counts only its own
-#     notes in a row: rec_length_notes_then_quit,
-#     rec_length_row_starts_fresh, rec_leak_notes_then_quit,
-#     rec_leak_row_starts_fresh (recover.bend)
+#     notes in a row: rec_length_notes_then_quit, rec_leak_notes_then_quit
+#     (recover.bend: the model's rows from any row); a row that restarts
+#     after another recovery's note: rec_length_notes_then_fails,
+#     rec_leak_notes_then_fails (laws/run/recover.bend, on decide.recover)
 
 # (S8) The interface
 # ------------------
