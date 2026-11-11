@@ -24,7 +24,10 @@ import ./model_name.bend as ModelName
 #     Prefixes: 0 aws: us, eu, ap, sa, ca, me, af, il, mx; 1 aws-cn: cn;
 #     2 aws-eusc: eusc-de; 3 aws-iso: us-iso; 4 aws-iso-b: us-isob;
 #     5 aws-iso-e: eu-isoe; 6 aws-iso-f: us-isof; 7 aws-us-gov: us-gov.
-#     None: no partition.
+#     None: no partition. Source of the table and its order: the
+#     `regionRegex` of each partition of the AWS SDK's partitions.json
+#     (github.com/boto/botocore botocore/data/partitions.json, read
+#     2026-11-08), which the SDKs try in the file's order.
 # R2: request-id header: a name is one when name = "x-" ++ M ++
 #     "-request-id" or "x-" ++ M ++ "-requestid", M one or more chars each
 #     a word char or `-`. Answer: the index of the first such name.
@@ -78,58 +81,82 @@ def sp_digs(n: String) -> Bool:
     case SCon{x, t}:
       Bool.and(ModelName.sp_digit(x), ModelName.sp_digits(t))
 
-# R1: s is W, `-`, N (seen: a char of W was read)
-def sp_wn(s: String, seen: Bool) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{+x, +t}:
-      Bool.or(Bool.and(Phrase.sp_word(x), sp_wn(t, True{})), Bool.and(Bool.not(Phrase.sp_word(x)), Bool.and(Bool.and(seen, U32.is_eq(sp_code(x), 45)), sp_digs(t))))
+# R1: the AWS table, flat: entry k (0..15) is a prefix (sp_aws_prefix) and
+# the index of its partition (sp_aws_part), in the order of partitions.json
+# (header R1)
+def sp_aws_prefix(k: Nat) -> String:
+  match k:
+    case 0n:
+      "us"
+    case 1n:
+      "eu"
+    case 2n:
+      "ap"
+    case 3n:
+      "sa"
+    case 4n:
+      "ca"
+    case 5n:
+      "me"
+    case 6n:
+      "af"
+    case 7n:
+      "il"
+    case 8n:
+      "mx"
+    case 9n:
+      "cn"
+    case 10n:
+      "eusc-de"
+    case 11n:
+      "us-iso"
+    case 12n:
+      "us-isob"
+    case 13n:
+      "eu-isoe"
+    case 14n:
+      "us-isof"
+    case 15n:
+      "us-gov"
+    case 16n+j:
+      ""
 
-# R1: r is p, `-`, W, `-`, N
-def sp_shape(p: String, r: String) -> Bool:
-  match p:
-    case SNil{}:
-      match r:
-        case SNil{}:
-          False{}
-        case SCon{x, t}:
-          Bool.and(U32.is_eq(45, sp_code(x)), sp_wn(t, False{}))
-    case SCon{c, pt}:
-      match r:
-        case SNil{}:
-          False{}
-        case SCon{x, rt}:
-          Bool.and(ModelName.sp_eq(c, x), sp_shape(pt, rt))
-
-def sp_shapes(ps: List<&2, String>, +r: String) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> more:
-      Bool.or(sp_shape(p, r), sp_shapes(more, r))
-
-# R1: the prefixes of each partition
-def sp_partitions() -> List<&2, List<&2, String>>:
-  [["us", "eu", "ap", "sa", "ca", "me", "af", "il", "mx"], ["cn"], ["eusc-de"], ["us-iso"], ["us-isob"], ["eu-isoe"], ["us-isof"], ["us-gov"]]
-
-def sp_pick(b: Bool, i: Nat, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
-      Some{i}
-    case False{}:
-      m
-
-def sp_partition.go(tab: List<&2, List<&2, String>>, +r: String, +i: Nat) -> Maybe<&2, Nat>:
-  match tab:
-    case Nil{}:
-      None{}
-    case ps <> more:
-      sp_pick(sp_shapes(ps, r), i, sp_partition.go(more, r, 1n+i))
-
-# R1: the index of the first partition whose shape r has
-def sp_partition(+r: String) -> Maybe<&2, Nat>:
-  sp_partition.go(sp_partitions(), r, 0n)
+def sp_aws_part(k: Nat) -> Nat:
+  match k:
+    case 0n:
+      0n
+    case 1n:
+      0n
+    case 2n:
+      0n
+    case 3n:
+      0n
+    case 4n:
+      0n
+    case 5n:
+      0n
+    case 6n:
+      0n
+    case 7n:
+      0n
+    case 8n:
+      0n
+    case 9n:
+      1n
+    case 10n:
+      2n
+    case 11n:
+      3n
+    case 12n:
+      4n
+    case 13n:
+      5n
+    case 14n:
+      6n
+    case 15n:
+      7n
+    case 16n+j:
+      0n
 
 # R2: a word char or `-`; one or more of them
 def sp_wd(+x: Char) -> Bool:
@@ -157,33 +184,18 @@ def sp_rid_tail(k: Bool) -> String:
     case False{}:
       "-requestid"
 
-# R2: s is M, then a tail (seen: a char of M was read)
-def sp_rid_m(s: String, seen: Bool) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{+x, +t}:
-      Bool.or(Bool.and(seen, Bool.or(ModelName.sp_same("-request-id", SCon{x, t}), ModelName.sp_same("-requestid", SCon{x, t}))), Bool.and(sp_wd(x), sp_rid_m(t, True{})))
-
-# R2: the name is a request-id header
-def sp_rid(name: String) -> Bool:
-  match name:
-    case SNil{}:
-      False{}
-    case SCon{a, t}:
-      match t:
-        case SNil{}:
-          False{}
-        case SCon{b, r}:
-          Bool.and(Bool.and(U32.is_eq(120, sp_code(a)), U32.is_eq(45, sp_code(b))), sp_rid_m(r, False{}))
-
-# R2: the index of the first request-id header of names, counting from i
-def sp_rid_index(names: List<&2, String>, +i: Nat) -> Maybe<&2, Nat>:
+# R2: the name at index k of names is a request-id header (A.is_rid,
+# pinned by aws_rid_complete and aws_rid_sound); no name there: False
+def sp_rid_at(names: List<&2, String>, k: Nat) -> Bool:
   match names:
     case Nil{}:
-      None{}
-    case n <> more:
-      sp_pick(sp_rid(n), i, sp_rid_index(more, 1n+i))
+      False{}
+    case n <> t:
+      match k:
+        case 0n:
+          A.is_rid(n)
+        case 1n+j:
+          sp_rid_at(t, j)
 
 # R3: the chunks read as one text
 def sp_cat(cs: List<&2, String>) -> String:
@@ -437,13 +449,32 @@ def sp_fit_req(q: FA.Req) -> Bool:
 # Laws: the rules
 # ---------------
 
-# LAW aws_partition_decides (R1): every region answers the first partition
-# whose shape it has, as the spec decides it
-# EXCLUDES: a later partition preferred (us-gov-west-1 read as aws), a
-#   prefix moved to another partition, an index off by one, a default
-law aws_partition_decides:
+# LAW aws_partition_found (R1): a region that answers partition i has the
+# shape of a prefix the AWS table (sp_aws_prefix, sp_aws_part) gives
+# partition i
+# EXCLUDES: a prefix moved to another partition, an index off by one, a
+#   partition answered for a region of no prefix's shape (a default)
+law aws_partition_found:
   for +r: String
-  {A.partition(r) == sp_partition(r) : Maybe<&2, Nat>}
+  for +i: Nat
+  for h: {A.partition(r) == Some{i} : Maybe<&2, Nat>}
+  exs k: Nat
+  {Nat.is_lt(k, 16n) == True{} : Bool} & ({A.shape(sp_aws_prefix(k), r) == True{} : Bool} & {sp_aws_part(k) == i : Nat})
+
+# LAW aws_partition_least (R1): a region with the shape of a prefix of the
+# AWS table answers a partition, at most that prefix's partition: with
+# aws_partition_found, the answer is the least partition one of whose
+# prefixes' shape the region has, and none when it has no prefix's shape
+# EXCLUDES: a later partition preferred when the region has the shapes of
+#   two, a region of a prefix's shape answered none, a prefix dropped from
+#   the table
+law aws_partition_least:
+  for +r: String
+  for +k: Nat
+  for hk: {Nat.is_lt(k, 16n) == True{} : Bool}
+  for hs: {A.shape(sp_aws_prefix(k), r) == True{} : Bool}
+  exs i: Nat
+  {A.partition(r) == Some{i} : Maybe<&2, Nat>} & {Nat.is_le(i, sp_aws_part(k)) == True{} : Bool}
 
 # LAW aws_shape_complete (R1): p, `-`, one or more word chars, `-`, one or
 # more digits has the shape of p
@@ -469,12 +500,27 @@ law aws_shape_sound:
   exs n: String
   {r == String.append(p, String.append("-", String.append(w, String.append("-", n)))) : String} & ({sp_words(w) == True{} : Bool} & {sp_digs(n) == True{} : Bool})
 
-# LAW aws_rid_decides (R2): every list of names answers the index of its
-# first request-id header, as the spec decides it
-# EXCLUDES: a later name preferred, an index off by one, a default
-law aws_rid_decides:
+# LAW aws_request_id_found (R2): a list of names that answers index i holds
+# a request-id header at index i
+# EXCLUDES: an index off by one, an index past the list, a name answered
+#   that is no request-id header (a default)
+law aws_request_id_found:
   for +names: List<&2, String>
-  {A.request_id(names) == sp_rid_index(names, 0n) : Maybe<&2, Nat>}
+  for +i: Nat
+  for h: {A.request_id(names) == Some{i} : Maybe<&2, Nat>}
+  {sp_rid_at(names, i) == True{} : Bool}
+
+# LAW aws_request_id_least (R2): a list of names with a request-id header
+# at index k answers an index at most k: with aws_request_id_found, the
+# answer is the first request-id header's index, and none when no name is
+# one
+# EXCLUDES: a later name preferred, a header missed (none answered)
+law aws_request_id_least:
+  for +names: List<&2, String>
+  for +k: Nat
+  for h: {sp_rid_at(names, k) == True{} : Bool}
+  exs i: Nat
+  {A.request_id(names) == Some{i} : Maybe<&2, Nat>} & {Nat.is_le(i, k) == True{} : Bool}
 
 # LAW aws_rid_complete (R2): x-, one or more word chars or `-`, then
 # `-request-id` or `-requestid` is a request-id header
