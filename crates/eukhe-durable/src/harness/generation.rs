@@ -39,6 +39,7 @@ use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_bend::rules::infer_force::{self, Offer, Reply as ForceReply, Step as ForceStep};
 use eukhe_bend::rules::infer_threshold::Over;
 use eukhe_chord::context::Context;
+use eukhe_chord::delta::Draft;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, DeferredHandle, Message, Model, ModelThinkingLevel,
@@ -66,10 +67,11 @@ use crate::harness::compaction::{
     estimate_calibrated, estimate_context, last_turn_tokens, plan, select_cut, Calibration,
 };
 use crate::harness::inbox::{
-    apply_boundary, has_queued_reset, has_queued_summary, prepare_boundary, BoundaryAt, INBOX_DOC,
+    apply_boundary, has_queued_reset, has_queued_summary, prepare_boundary, Boundary, BoundaryAt,
+    INBOX_DOC,
 };
 use crate::harness::live::run::{
-    append_assistant, convert_partial, create_compaction, timestamp, CompactionInput,
+    append_assistant, convert_partial, create_compaction, start_run, timestamp, CompactionInput,
 };
 use crate::harness::live::{
     end_run, run_task_id, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC,
@@ -84,7 +86,7 @@ use crate::harness::types::{
     ConversationStreamOptions, GenerationHooks, ModelRef, PromptInput, RequestMessages, Settings,
     ThresholdTokens,
 };
-use crate::session::{SessionError, SessionResult};
+use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
 use crate::types::{
     EntryId, EntryQuery, JoinPolicy, SubmissionSettlement, TaskId, TaskOutcome, TaskOutcomeError,
@@ -1101,20 +1103,25 @@ fn failed(message: String, reason: &str) -> SessionResult<Next> {
 /// `text`.
 async fn fail_model_error(runtime: &Runtime, text: String, cx: &Context) -> SessionResult<()> {
     let conversation_id = runtime.conversation_id();
-    let task_id = runtime.task_id().erase();
+    let commit_runtime = runtime.clone();
     runtime
         .commit(
             move |tx, _current| async move {
+                let runtime = commit_runtime;
+                let boundary =
+                    prepare_boundary(&tx, conversation_id, queue_modes(&runtime)).await?;
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
-                end_run(
+                end_failed_run(
                     &tx,
+                    &runtime,
                     &live,
-                    task_id,
+                    boundary,
                     &SubmissionSettlement::Unanswered {
                         reason: "model_error".to_owned(),
                         detail: Some(to_json(&text)?),
                     },
-                )?;
+                )
+                .await?;
                 failed(text, "model_error").map(Some)
             },
             cx,
@@ -1136,25 +1143,67 @@ async fn fail_no_model(
         ),
     };
     let conversation_id = runtime.conversation_id();
-    let task_id = runtime.task_id().erase();
+    let commit_runtime = runtime.clone();
     runtime
         .commit(
             move |tx, _current| async move {
+                let runtime = commit_runtime;
+                let boundary =
+                    prepare_boundary(&tx, conversation_id, queue_modes(&runtime)).await?;
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
-                end_run(
+                end_failed_run(
                     &tx,
+                    &runtime,
                     &live,
-                    task_id,
+                    boundary,
                     &SubmissionSettlement::Unanswered {
                         reason: "no_model".to_owned(),
                         detail: None,
                     },
-                )?;
+                )
+                .await?;
                 failed(message, "no_model").map(Some)
             },
             cx,
         )
         .await
+}
+
+/// End the failed run of the runtime's task as a final answer ends one:
+/// settle its inputs with `settlement`, then the final boundary places the
+/// queued items and the user items it selects start the next run (the
+/// run-limit end does the same). A steer or follow-up queued behind a run
+/// that fails is delivered, not stranded until the next submission (TS
+/// `AgentSession.#drainStrandedQueuedMessages` drains the queues whenever
+/// the session settles, an error end included). `boundary` was prepared at
+/// the start of the commit, before its first table write.
+async fn end_failed_run(
+    tx: &Tx,
+    runtime: &Runtime,
+    live: &Draft,
+    mut boundary: Boundary,
+    settlement: &SubmissionSettlement,
+) -> SessionResult<()> {
+    end_run(tx, live, runtime.task_id().erase(), settlement)?;
+    let outcome = apply_boundary(
+        tx,
+        &mut boundary,
+        BoundaryAt::Final,
+        timestamp(runtime.now()?)?,
+    )
+    .await?;
+    if !outcome.users.is_empty() {
+        let generation = runtime.registry().builtins().generation.clone();
+        start_run(
+            tx,
+            &generation,
+            runtime.conversation_id(),
+            live,
+            outcome.users,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// The limits of the run's decisions, read when they are decided:
@@ -1768,16 +1817,25 @@ async fn classify(
                     tool: tool.clone(),
                     attempts: tries,
                 });
+                let commit_runtime = runtime.clone();
                 return runtime
                     .commit(
                         move |tx, _current| async move {
+                            let runtime = commit_runtime;
+                            let boundary = match error {
+                                Some(_) => Some(
+                                    prepare_boundary(&tx, conversation_id, queue_modes(&runtime))
+                                        .await?,
+                                ),
+                                None => None,
+                            };
                             let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                             append_assistant(&tx, conversation_id, message).await?;
                             for (call, result) in &skipped {
                                 append_tool_result(&tx, conversation_id, call, result, meta)
                                     .await?;
                             }
-                            let Some(error) = error else {
+                            let (Some(error), Some(boundary)) = (error, boundary) else {
                                 live.delete("generation")?;
                                 return Ok(Some(Next::Running {
                                     checkpoint: GenerationCheckpoint::Prepare {
@@ -1792,15 +1850,17 @@ async fn classify(
                                     },
                                 }));
                             };
-                            end_run(
+                            end_failed_run(
                                 &tx,
+                                &runtime,
                                 &live,
-                                task_id,
+                                boundary,
                                 &SubmissionSettlement::Unanswered {
                                     reason: "forced_tool".to_owned(),
                                     detail: Some(to_json(&error)?),
                                 },
-                            )?;
+                            )
+                            .await?;
                             failed(error.to_string(), "forced_tool").map(Some)
                         },
                         cx,
@@ -1946,14 +2006,26 @@ async fn classify(
                     (false, 0.0)
                 }
             };
+            let commit_runtime = runtime.clone();
             runtime
                 .commit(
                     move |tx, _current| async move {
+                        let runtime = commit_runtime;
+                        // A failure ends the run at a final boundary; a
+                        // retry keeps the run and places nothing.
+                        let boundary = if retry {
+                            None
+                        } else {
+                            Some(
+                                prepare_boundary(&tx, conversation_id, queue_modes(&runtime))
+                                    .await?,
+                            )
+                        };
                         let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                         let error = message.error_message.clone();
                         let stop_reason = message.stop_reason;
                         append_assistant(&tx, conversation_id, message).await?;
-                        if retry {
+                        let Some(boundary) = boundary else {
                             let generation = LiveGeneration {
                                 retry: Some(LiveRetry {
                                     at: until,
@@ -1971,22 +2043,24 @@ async fn classify(
                                     note,
                                 },
                             }));
-                        }
+                        };
                         let text = error.unwrap_or_else(|| {
                             format!(
                                 "Model response ended with stop reason {}",
                                 stop_reason.as_str()
                             )
                         });
-                        end_run(
+                        end_failed_run(
                             &tx,
+                            &runtime,
                             &live,
-                            task_id,
+                            boundary,
                             &SubmissionSettlement::Unanswered {
                                 reason: "model_error".to_owned(),
                                 detail: Some(to_json(&text)?),
                             },
-                        )?;
+                        )
+                        .await?;
                         failed(text, "model_error").map(Some)
                     },
                     cx,

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use serde_json::json;
 
 use super::{
@@ -46,6 +48,28 @@ fn the_shipped_rulebook_compiles() {
     let shipped = Rulebook::from_json(include_str!("rulebook.json"))
         .and_then(|book| book.check_catalog(catalog));
     assert_eq!(shipped, Ok(()));
+}
+
+/// Loading the shipped rulebook leaves the catalog check to the test above:
+/// every process that sends a request loads it, and the check asks the core
+/// about each catalog model (~0.7 s of each `eukhe -p` start). The first
+/// load in this process (nextest runs each test in its own) takes a small
+/// part of what the check alone takes.
+#[test]
+fn loading_the_shipped_rulebook_skips_the_catalog_check() {
+    let started = Instant::now();
+    let shipped = Rulebook::shipped();
+    let load = started.elapsed();
+    let catalog = crate::models_generated::MODELS
+        .values()
+        .flat_map(|models| models.values());
+    let started = Instant::now();
+    assert_eq!(shipped.check_catalog(catalog), Ok(()));
+    let check = started.elapsed();
+    assert!(
+        load * 4 < check,
+        "loading took {load:?}, the catalog check alone {check:?}"
+    );
 }
 
 /// Two families that both match a model of the compiled catalog do not

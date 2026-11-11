@@ -512,7 +512,7 @@ impl SessionUi {
         if text.starts_with('/') {
             return self.handle_slash(text, behavior, view).await;
         }
-        self.send_prompt(text, behavior, view)
+        self.send_prompt(text, behavior, view).await
     }
 
     // ------------------------------------------------------------------
@@ -728,7 +728,7 @@ impl SessionUi {
         self.dirty = true;
     }
 
-    pub(super) fn send_prompt(
+    pub(super) async fn send_prompt(
         &mut self,
         text: &str,
         behavior: SubmitBehavior,
@@ -738,17 +738,27 @@ impl SessionUi {
         // first (TS `onSubmit` flushes `pendingBashComponents` before the
         // prompt travels).
         Self::flush_pending_bash(view);
-        if let Some(error) = &self.reconnection_failed {
-            // The re-attach window expired (TS terminal close): the session
-            // connection is closed, so nothing dispatches. The error row
-            // surfaces the terminal cause and the draft returns to the
-            // editor (TS keeps the input buffer on a failed submit).
-            let row = format!(
-                "Daemon reconnection failed: {error}{SEP}Next: restart Eukhe, then send the message again (it is back in the editor)."
-            );
-            self.error_row(&row, view);
-            view.editor.set_text(text);
-            return Ok(());
+        // The re-attach window expired (TS terminal close) with the session
+        // unreachable: the submit tries once more, since the supervisor
+        // reopens the session from storage once it can (a session outlives
+        // a failure it could not write through, like omp's, whose next
+        // entry retries the write: session-manager.ts:1954-1960). Only a
+        // failed attempt keeps the session closed: nothing dispatches, the
+        // error row surfaces the cause, and the draft returns to the editor
+        // (TS keeps the input buffer on a failed submit).
+        if self.reconnection_failed.is_some() {
+            if let Err(error) = self
+                .reattach_session(super::ReattachBy::ActiveThenDurable, view)
+                .await
+            {
+                let row = format!(
+                    "Daemon reconnection failed: {error}{SEP}Next: send the message again to retry (it is back in the editor), or restart Eukhe."
+                );
+                self.error_row(&row, view);
+                self.reconnection_failed = Some(error);
+                view.editor.set_text(text);
+                return Ok(());
+            }
         }
         let images = self.collect_images_for(text, view);
         // A new prompt: the previous prompt's client-only end rows stay in

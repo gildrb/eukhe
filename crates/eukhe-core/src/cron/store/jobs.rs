@@ -447,6 +447,26 @@ mod tests {
     }
 
     #[test]
+    fn job_change_listeners_fire_on_every_job_write_only() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = AgentCronJobStore::new(dir.path().join("jobs.json"));
+        let writes = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&writes);
+        store.on_job_change(Box::new(move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+        }));
+        let now = 1_700_000_000_000;
+        let job = store.create(&input("tick", "in 10m", now)).unwrap();
+        assert_eq!(writes.load(Ordering::SeqCst), 1, "create writes");
+        assert!(store.cancel(&job.id, now + 1).unwrap().is_some());
+        assert_eq!(writes.load(Ordering::SeqCst), 2, "cancel writes");
+        // A cancel of an unknown id changes no file.
+        assert!(store.cancel("ghost", now + 2).unwrap().is_none());
+        assert_eq!(writes.load(Ordering::SeqCst), 2, "no-op writes nothing");
+    }
+
+    #[test]
     fn claim_dispatch_and_result_recording() {
         let dir = tempfile::TempDir::new().unwrap();
         let store = AgentCronJobStore::new(dir.path().join("jobs.json"));

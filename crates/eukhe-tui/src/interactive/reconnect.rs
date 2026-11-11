@@ -3,7 +3,6 @@
 //! drivers, the session-plane re-attach, and the arming seam.
 
 use super::{mpsc, AgentView, DaemonClient, DaemonClientEvent, Duration, RecoveryKind, SessionUi};
-use crate::session_ui::ReconnectError;
 
 /// The in-flight reconnect attempt's connect leg: a spawned task's
 /// bounded `DaemonClient::connect_with_retry` result (fresh client plus
@@ -70,12 +69,12 @@ pub(super) const SHUTDOWN_RECONNECT_RETRY: Duration = Duration::from_millis(100)
 /// TS `DAEMON_RECONNECT_TIMEOUT_MS`: the bounded session-plane reconnect
 /// window after the direct worker link dies.
 const SESSION_RECONNECT_WINDOW: Duration = Duration::from_mins(1);
+/// Test seam: a number of milliseconds here replaces
+/// [`SESSION_RECONNECT_WINDOW`], so a headless test of the expired window
+/// waits on the window's end, not on a real minute.
+const SESSION_RECONNECT_WINDOW_ENV: &str = "EUKHE_TEST_SESSION_RECONNECT_WINDOW_MS";
 /// TS reconnect backoff cap (`min(2000, 100 * 2 ** min(attempt, 5))`).
 const SESSION_RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(2);
-/// One re-attach attempt's budget: the attach carries its own request
-/// timeouts; this bounds a wedged attempt so the loop reschedules instead
-/// of blocking the UI.
-const SESSION_RECONNECT_ATTEMPT_TIMEOUT_S: u64 = 10;
 
 /// The interactive loop's session re-attach driver (TS
 /// `DaemonAgentConnection.reconnect` over a direct-transport loss): the
@@ -91,9 +90,13 @@ pub(super) struct SessionReconnect {
 
 impl SessionReconnect {
     pub(super) fn start(active_session_id: &str) -> Self {
+        let window = std::env::var(SESSION_RECONNECT_WINDOW_ENV)
+            .ok()
+            .and_then(|ms| ms.parse().ok())
+            .map_or(SESSION_RECONNECT_WINDOW, Duration::from_millis);
         SessionReconnect {
             active_session_id: active_session_id.to_string(),
-            deadline: tokio::time::Instant::now() + SESSION_RECONNECT_WINDOW,
+            deadline: tokio::time::Instant::now() + window,
             next_attempt: tokio::time::Instant::now(),
             delay: Duration::from_millis(100),
         }
@@ -120,38 +123,20 @@ pub(super) async fn retry_session_attach(
     if state.active_session_id != session.active_session_id {
         return None;
     }
-    // The attempt's budget covers the attach alone: the surface is
-    // already up and its dock holds (the background refreshes update
-    // it), so the first-frame fold's bounded fetches cannot eat the 10s
-    // attempt budget on a slow daemon.
-    let attempt = tokio::time::timeout(
-        Duration::from_secs(SESSION_RECONNECT_ATTEMPT_TIMEOUT_S),
-        session.attach_session(&state.active_session_id, crate::session_ui::DockFold::Held),
-    )
-    .await;
-    let error = match attempt {
-        Ok(Ok(())) => {
-            // The resynced transcript replaces the chat (TS
-            // `session_resynced`), then the reconnected status lands on
-            // the rebuilt chat (TS `connection_status: "connected"`).
-            session.rebuild_view(view, &crate::session_ui::RebuildKind::Resync);
-            session.note_as("Daemon reconnected", crate::chat::StatusKind::Info, view);
-            session.reconnection_failed = None;
-            // TS refreshes the heartbeat catalog on the
-            // `connection_status: "connected"` event.
-            session.spawn_heartbeat_refresh();
-            session.dirty = true;
-            return None;
-        }
-        Ok(Err(error)) => ReconnectError::Attach(error),
-        Err(_) => ReconnectError::TimedOut,
+    let Err(error) = session
+        .reattach_session(crate::session_ui::ReattachBy::ActiveId, view)
+        .await
+    else {
+        return None;
     };
     if tokio::time::Instant::now() <= state.deadline {
         return Some(state.next_attempt());
     }
     // TS terminal close: the window expired, the last error surfaces as
-    // the closed event's error row, and the UI stays mounted without
-    // dispatching anything.
+    // the closed event's error row, and the UI stays mounted. The next
+    // submit tries the re-attach once more: the supervisor reopens the
+    // session from storage once it can (a disk that filled up has room
+    // again), so a session outlasting the window is not lost to this view.
     session.error_row(&format!("Daemon reconnection failed: {error}"), view);
     session.reconnection_failed = Some(error);
     session.dirty = true;

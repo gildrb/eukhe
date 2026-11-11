@@ -12,6 +12,24 @@ use super::{
 };
 use crate::activity::TurnPhase;
 
+/// One session re-attach attempt's budget: the attach carries its own
+/// request timeouts; this bounds a wedged attempt so the reconnect loop
+/// reschedules instead of blocking the UI.
+const SESSION_REATTACH_ATTEMPT_TIMEOUT_S: u64 = 10;
+
+/// Which ids a session re-attach tries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReattachBy {
+    /// The active id only: inside the reconnect window the daemon may
+    /// still restart or rebind the session itself, and the view never
+    /// reopens it on its own (a killed session stays stopped).
+    ActiveId,
+    /// The active id, then the durable session id when the supervisor no
+    /// longer knows the active one: the user's submit after the window
+    /// reopens the saved session.
+    ActiveThenDurable,
+}
+
 impl SessionUi {
     /// Create/attach per the session selection and return the live state.
     #[allow(clippy::too_many_arguments)]
@@ -189,6 +207,7 @@ impl SessionUi {
             side_bash_counter: 0,
             suspend_requested: false,
             external_editor_request: None,
+            new_session_request: None,
             pending_mcp_auth: None,
             picker_restored_draft: false,
         };
@@ -274,6 +293,60 @@ impl SessionUi {
         });
         self.dirty = true;
         Ok(ReattachOutcome::Attached)
+    }
+
+    /// One session-plane re-attach after the worker behind the direct link
+    /// died (the reconnect driver's attempts, and the submit after its
+    /// window ran out): the supervisor serves the session again (its
+    /// restarted worker, or a worker it reopens from storage), the chat
+    /// resyncs from the snapshot and says so. With
+    /// [`ReattachBy::ActiveThenDurable`], an active id the supervisor no
+    /// longer knows (it gave the worker up) re-attaches by the durable
+    /// session id, which wakes the saved session (the prompt path's rebind
+    /// rule).
+    pub(crate) async fn reattach_session(
+        &mut self,
+        by: ReattachBy,
+        view: &mut AgentView,
+    ) -> std::result::Result<(), super::ReconnectError> {
+        let active_session_id = self.active_session_id.clone();
+        // The attempt's budget covers the attach alone: the surface is
+        // already up and its dock holds (the background refreshes update
+        // it), so the first-frame fold's bounded fetches cannot eat the
+        // attempt's budget on a slow daemon.
+        let budget = Duration::from_secs(SESSION_REATTACH_ATTEMPT_TIMEOUT_S);
+        let mut attempt = tokio::time::timeout(
+            budget,
+            self.attach_session(&active_session_id, DockFold::Held),
+        )
+        .await;
+        let unknown = matches!(
+            &attempt,
+            Ok(Err(error)) if format!("{error:#}").contains("Unknown active session")
+        );
+        if by == ReattachBy::ActiveThenDurable && unknown && !self.session_id.is_empty() {
+            let durable = self.session_id.clone();
+            attempt =
+                tokio::time::timeout(budget, self.attach_session(&durable, DockFold::Held)).await;
+        }
+        match attempt {
+            Ok(Ok(())) => {
+                // The resynced transcript replaces the chat (TS
+                // `session_resynced`), then the reconnected status lands
+                // on the rebuilt chat (TS `connection_status:
+                // "connected"`).
+                self.rebuild_view(view, &RebuildKind::Resync);
+                self.note_as("Daemon reconnected", crate::chat::StatusKind::Info, view);
+                self.reconnection_failed = None;
+                // TS refreshes the heartbeat catalog on the
+                // `connection_status: "connected"` event.
+                self.spawn_heartbeat_refresh();
+                self.dirty = true;
+                Ok(())
+            }
+            Ok(Err(error)) => Err(super::ReconnectError::Attach(error)),
+            Err(_) => Err(super::ReconnectError::TimedOut),
+        }
     }
 
     /// Detach the current session and attach `id`, rebuilding the transcript
@@ -405,7 +478,9 @@ impl SessionUi {
         // The new attachment exists (the snapshot above rebuilt from it):
         // retire the superseded id's subscription now, addressed by the
         // captured previous id (the detach must target the OLD address,
-        // not the id the pane just adopted).
+        // not the id the pane just adopted). Leaving one session for
+        // another (`/new`, `/resume`) says so: the left session's worker
+        // is released once idle (omp disposes the session it leaves).
         if !previous.is_empty() && previous != self.active_session_id {
             let _ = self
                 .bounded_request(
@@ -413,6 +488,8 @@ impl SessionUi {
                     DaemonCommand::Detach {
                         id: None,
                         active_session_id: Some(previous),
+                        reason: mounted_session_changes
+                            .then_some(eukhe_types::daemon::DetachReason::Switch),
                         rest: Map::default(),
                     },
                 )
@@ -893,7 +970,10 @@ impl SessionUi {
     /// connection until the daemon answers (or the exit cap fires), then
     /// closes it. Attached-client bookkeeping must not delay the switch;
     /// the supervisor also detaches this client when the socket closes, so
-    /// the response is not a handoff dependency.
+    /// the response is not a handoff dependency. Not a switch: Escape in
+    /// the agents view returns to this session by its active id, which a
+    /// released worker no longer serves; the idle threshold releases it
+    /// as before.
     pub(crate) fn detach_for_handoff(&self) {
         let client = self.client.clone();
         let active_session_id = self.active_session_id.clone();
@@ -903,6 +983,7 @@ impl SessionUi {
                 client.request_ok(DaemonCommand::Detach {
                     id: None,
                     active_session_id: Some(active_session_id),
+                    reason: None,
                     rest: Map::default(),
                 }),
             )
@@ -913,13 +994,19 @@ impl SessionUi {
 
     /// Detach during the exit path, bounded hard: a wedged worker socket can
     /// never hold the client open (the exit contract is exit-within-1s even
-    /// then, so this must stay well under the bound).
+    /// then, so this must stay well under the bound). A `/resume <selector>`
+    /// leaves the session for the selected one: a switch; a plain exit
+    /// keeps the session's worker as before.
     pub(crate) async fn detach_for_exit(&self) {
         let _ = tokio::time::timeout(
             Duration::from_millis(EXIT_DETACH_TIMEOUT_MS),
             self.client.request_ok(DaemonCommand::Detach {
                 id: None,
                 active_session_id: Some(self.active_session_id.clone()),
+                reason: self
+                    .pending_selection
+                    .is_some()
+                    .then_some(eukhe_types::daemon::DetachReason::Switch),
                 rest: Map::default(),
             }),
         )

@@ -6,6 +6,11 @@ use crate::slash_commands::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
 
+/// The `customType` of the row a session shows when the supervisor ended
+/// its turn: the worker stopped responding and was restarted, or it
+/// crashed past the restart budget. Display-only, never model context.
+pub const WORKER_RESTART_NOTICE_CUSTOM_TYPE: &str = "eukhe.worker_restart";
+
 /// The type of one custom message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomType {
@@ -35,6 +40,9 @@ pub enum CustomType {
     /// The echo of a session slash command.
     SessionSlashCommand,
     SessionSlashCommandResult,
+    /// The supervisor ended the turn: its worker stopped responding or
+    /// crashed past the restart budget.
+    WorkerRestartNotice,
     /// A type without a dedicated row.
     Other(String),
 }
@@ -60,6 +68,7 @@ impl CustomType {
             "kernel_unavailable" => Self::KernelUnavailable,
             SESSION_SLASH_COMMAND_CUSTOM_TYPE => Self::SessionSlashCommand,
             SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => Self::SessionSlashCommandResult,
+            WORKER_RESTART_NOTICE_CUSTOM_TYPE => Self::WorkerRestartNotice,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -84,6 +93,7 @@ impl CustomType {
             Self::KernelUnavailable => "kernel_unavailable",
             Self::SessionSlashCommand => SESSION_SLASH_COMMAND_CUSTOM_TYPE,
             Self::SessionSlashCommandResult => SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+            Self::WorkerRestartNotice => WORKER_RESTART_NOTICE_CUSTOM_TYPE,
             Self::Other(other) => other,
         }
     }
@@ -112,6 +122,7 @@ mod tests {
             CustomType::KernelUnavailable,
             CustomType::SessionSlashCommand,
             CustomType::SessionSlashCommandResult,
+            CustomType::WorkerRestartNotice,
             CustomType::Other("autonomous_status".to_owned()),
         ];
         for custom_type in types {

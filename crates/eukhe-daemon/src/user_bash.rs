@@ -683,6 +683,11 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
             Err(error) => break 'run spawn_failure(error.into()),
         };
         let group = child.id().and_then(|pid| i32::try_from(pid).ok());
+        // The group is on the worker's journal while it runs, so the
+        // supervisor kills it when this worker dies without its teardown.
+        let _running = child
+            .id()
+            .map(eukhe_types::platform::group_journal::RunningGroup::record);
         // A late abort that arrived before the process spawned kills it
         // immediately (TS honors `_userBashAbortRequested` before
         // executing); the flag still settles the run cancelled.

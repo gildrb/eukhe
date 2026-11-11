@@ -174,6 +174,15 @@ impl ModelRegistry {
         BUILT_IN_CATALOG.bundled_fallback()
     }
 
+    /// The built-in catalog's models (the bundled snapshot's union with the
+    /// compiled catalog), without the private Prime Inference table: the
+    /// models a session serves beside its compiled providers
+    /// (`durable::models`).
+    #[must_use]
+    pub fn built_in_catalog_models() -> &'static [Model] {
+        BUILT_IN_CATALOG.models()
+    }
+
     /// Built-in + custom models (auth not filtered).
     pub fn get_all(&self) -> impl ExactSizeIterator<Item = &Model> + Clone {
         self.models.iter().map(AsRef::as_ref)

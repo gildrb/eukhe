@@ -41,6 +41,7 @@ pub(crate) use heartbeats::HeartbeatsUpdate;
 /// `handle_key`'s keymap-aware ladder -- a claimed key queues behind the
 /// session open instead of echoing into the editor.
 pub(crate) use keys::opening_echo_key_claimed;
+pub(crate) use lifecycle::ReattachBy;
 pub(crate) use memory::MemoryTreeUpdate;
 pub(crate) use model_picker::picker_viewport_rows;
 pub(crate) use model_picker::ModelCatalogUpdate;
@@ -610,6 +611,12 @@ pub(crate) struct SessionUi {
     /// performs the terminal handoff the editor child needs (stop the
     /// reader, suspend the renderer, run the child, resume).
     external_editor_request: Option<String>,
+    /// `/new` or `app.session.new` (TS `handleClearCommand`) parked the
+    /// fresh session to start: the interactive loop paints the frame of
+    /// the key that asked (the submitted `/new` cleared, its menu closed)
+    /// and then starts it -- TS clears the submitted text and renders
+    /// while the session switch awaits.
+    new_session_request: Option<commands::NewSessionRequest>,
     /// The `/mcp` view's internal auth resolution (its Enter on a
     /// connection, or the pasteable service's paste flow): the auth args
     /// plus the inline auth panel's title; the loop mounts the panel and

@@ -80,12 +80,15 @@ pub(crate) enum ConnectionRole {
 impl ConnectionRole {
     /// Whether event fan-out may stream a frame of `outbound_type` to this
     /// connection. A `state_tree_update` goes to the supervisor only: it
-    /// routes the frame to the client connections that subscribed.
+    /// routes the frame to the client connections that subscribed. A
+    /// `cron_changed` is the supervisor's own catalog invalidation.
     pub(crate) fn streams(&self, outbound_type: &str) -> bool {
         match self {
             ConnectionRole::Supervisor { .. } => true,
             ConnectionRole::SessionClient { session } => {
-                session.is_attached() && outbound_type != STATE_TREE_UPDATE_FRAME
+                session.is_attached()
+                    && outbound_type != STATE_TREE_UPDATE_FRAME
+                    && outbound_type != crate::worker::CRON_CHANGED_FRAME
             }
             ConnectionRole::Unauthenticated | ConnectionRole::PeerWorker { .. } => false,
         }

@@ -11,7 +11,7 @@ use super::{
 };
 use std::collections::HashMap;
 
-use eukhe_types::daemon::{DaemonClientKind, DaemonWorkerCommand};
+use eukhe_types::daemon::{DaemonClientKind, DaemonWorkerCommand, DetachReason};
 use serde::Deserialize as _;
 
 /// Result of one connection's authentication command.
@@ -91,7 +91,21 @@ impl OutboundFrame {
             seq: 0,
         }
     }
+
+    /// `cron_changed`: the worker's job catalog changed (any job or claim
+    /// record written), so the supervisor's cached `cron_list` slice of
+    /// this worker is stale. Supervisor-only; never re-broadcast.
+    pub(crate) fn cron_changed() -> Self {
+        OutboundFrame {
+            payload: br#"{"type":"cron_changed"}"#.to_vec(),
+            outbound_type: CRON_CHANGED_FRAME,
+            seq: 0,
+        }
+    }
 }
+
+/// The outbound type of [`OutboundFrame::cron_changed`].
+pub(crate) const CRON_CHANGED_FRAME: &str = "cron_changed";
 
 /// The worker's outbound event pump: one sequence-stamped broadcast stream
 /// shared by every frame-emitting path (turns, compaction, side questions,
@@ -605,6 +619,16 @@ impl Worker {
                             .await;
                         continue;
                     }
+                    // The supervisor's responsiveness probe answers here,
+                    // on the connection loop itself: a worker that still
+                    // reads its socket is running, however long its
+                    // commands take.
+                    if command_type == "worker_ping" {
+                        let response = response_success(None, "worker_ping", None);
+                        self.write_response_frame(&sink, &request_id, response)
+                            .await;
+                        continue;
+                    }
                     // Shutdown stays sequential: the reply must precede the
                     // exit. Every other command runs concurrently, like the
                     // TS daemon's async handlers: a long-running command (a
@@ -1019,6 +1043,8 @@ impl Worker {
             None => true,
         };
         if retained {
+            // A client is back: the session is no longer left.
+            core.left_at_ms = None;
             core.gateway_client_ids.retain(|id| id != &client_id);
             match client_kind {
                 // A watch shows the session only: it is not an attached
@@ -1281,8 +1307,21 @@ impl Worker {
             core.attached_client_ids.retain(|id| id != &client_id);
             core.gateway_client_ids.retain(|id| id != &client_id);
         }
+        // The last client left the session for another one: the idle
+        // window shrinks to the left grace (the park re-arms it now).
+        let left = core.attached_client_ids.is_empty()
+            && payload
+                .get("reason")
+                .and_then(|reason| DetachReason::deserialize(reason).ok())
+                == Some(DetachReason::Switch);
+        if left {
+            core.left_at_ms = Some(crate::util::now_ms());
+        }
         self.shell_approvals.detached(&core);
         drop(core);
+        if left {
+            self.park_notify.notify_one();
+        }
         response_success(None, "detach", None)
     }
 }

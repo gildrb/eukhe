@@ -107,6 +107,56 @@ fn print_mode_json_streams_ts_shaped_events() {
     assert_eq!(*types.last().unwrap(), "agent_end");
 }
 
+/// `--no-skills` and `--no-prompt-templates` stop discovery for print mode:
+/// an agent-dir skill or template no longer expands its `/skill:<name>` or
+/// `/<template>` prompt (TS resource loader `noSkills`/
+/// `noPromptTemplates`); without them both expand.
+#[test]
+fn print_mode_no_discovery_flags_stop_skill_and_template_expansion() {
+    let home = isolated_home();
+    let agent = home.path().join(".eukhe");
+    std::fs::create_dir_all(agent.join("skills/agent-skill")).unwrap();
+    std::fs::write(
+        agent.join("skills/agent-skill/SKILL.md"),
+        "---\nname: agent-skill\ndescription: A test skill.\n---\n# agent-skill\nSay KIWI.\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(agent.join("prompts")).unwrap();
+    std::fs::write(
+        agent.join("prompts/agent-tpl.md"),
+        "---\ndescription: A test template\n---\nAgent template body.\n",
+    )
+    .unwrap();
+    let user_text = |args: &[&str]| {
+        let script = serde_json::json!({ "responses": ["ok"] });
+        let (stdout, stderr, code) = run_in_home(home.path(), args, &script);
+        assert_eq!(code, 0, "stderr: {stderr}");
+        stdout
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|line| line["type"] == "message_start" && line["message"]["role"] == "user")
+            .map(|line| line["message"]["content"][0]["text"].clone())
+            .expect("the user message")
+    };
+    let expanded = |text: &serde_json::Value, needle: &str| {
+        text.as_str().is_some_and(|text| text.contains(needle))
+    };
+    let skill = user_text(&["--mode", "json", "-p", "/skill:agent-skill"]);
+    assert!(expanded(&skill, "Say KIWI."), "{skill}");
+    let template = user_text(&["--mode", "json", "-p", "/agent-tpl"]);
+    assert!(expanded(&template, "Agent template body."), "{template}");
+    let skill = user_text(&["--mode", "json", "--no-skills", "-p", "/skill:agent-skill"]);
+    assert_eq!(skill, "/skill:agent-skill");
+    let template = user_text(&[
+        "--mode",
+        "json",
+        "--no-prompt-templates",
+        "-p",
+        "/agent-tpl",
+    ]);
+    assert_eq!(template, "/agent-tpl");
+}
+
 /// A `codemode` script's nested calls are part of the `codemode` call: the
 /// json stream carries one tool start/end pair, the model's call, which
 /// succeeds with the script's result. Its nested `read`s never show as
@@ -539,6 +589,40 @@ fn print_mode_overflow_retry_recovers_the_turn() {
     );
 }
 
+/// A provider failure the retry recovers: the answer prints, exit 0 (TS
+/// print mode prints the last assistant message). The episode's
+/// `provider_retry_outcome` row trails the answer in the transcript; it is
+/// a disclosure, never the terminal result.
+#[test]
+fn print_mode_provider_retry_recovers_the_answer() {
+    let home = isolated_home();
+    write_compaction_settings(
+        home.path(),
+        &serde_json::json!({
+            "retry": { "enabled": true, "maxRetries": 1, "baseDelayMs": 1 },
+            "titles": { "generate": false }
+        }),
+    );
+    let script = serde_json::json!({
+        "responses": [
+            {
+                "content": [{ "type": "text", "text": "" }],
+                "stopReason": "error",
+                "errorMessage": "overloaded",
+            },
+            {"text": "recovered answer"},
+        ]
+    });
+    let (stdout, stderr, code) = run_in_home(home.path(), &["-p", "hi"], &script);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "recovered answer\n", "stderr: {stderr}");
+    let files = session_files(home.path());
+    let transcript = read_transcript(&files[0]);
+    let outcomes = transcript.custom_rows("provider_retry_outcome");
+    assert_eq!(outcomes.len(), 1, "the episode's disclosure row");
+    assert_eq!(outcomes[0]["details"]["success"], true);
+}
+
 /// An overflow with nothing compactable ends the run on the provider error
 /// (pi-durable keeps the error turn): stderr carries the error, then the
 /// skip warning row, exit 1.
@@ -793,7 +877,63 @@ fn print_mode_json_streams_the_message_update_deltas() {
         rebuilt.len() > text(&events[start_at]).len(),
         "the deltas add text"
     );
+    assert_eq!(rebuilt, ANSWER, "the deltas complete the answer");
     assert_eq!(text(&events[end_at]), ANSWER);
+}
+
+/// An answer that settles before the 100 ms partial throttle commits its
+/// last changes still streams to its end (omp print json emits every
+/// `message_update`): the `message_start` partial plus the `text_delta`s
+/// rebuild the answer, a `text_end` closes the block, then the settled
+/// `message_end`.
+#[test]
+fn print_mode_json_streams_a_fast_answer_start_to_end() {
+    let script = serde_json::json!({ "responses": ["fast answer"] });
+    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "hi"], &script);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let start_at = events
+        .iter()
+        .position(|event| {
+            event["type"] == "message_start" && event["message"]["role"] == "assistant"
+        })
+        .expect("the assistant message_start");
+    let end_at = events
+        .iter()
+        .position(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant")
+        .expect("the assistant message_end");
+    let streamed: String = events[start_at]["message"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|block| block["text"].as_str())
+        .collect();
+    let updates: Vec<&serde_json::Value> = events[start_at..end_at]
+        .iter()
+        .filter(|event| event["type"] == "message_update")
+        .collect();
+    let kinds: Vec<&str> = updates
+        .iter()
+        .map(|update| update["assistantMessageEvent"]["type"].as_str().unwrap())
+        .collect();
+    assert!(!updates.is_empty(), "the stream carries updates");
+    assert_eq!(kinds.last(), Some(&"text_end"), "{kinds:?}");
+    let rebuilt = updates
+        .iter()
+        .filter(|update| update["assistantMessageEvent"]["type"] == "text_delta")
+        .fold(streamed, |mut text, update| {
+            text.push_str(update["assistantMessageEvent"]["delta"].as_str().unwrap());
+            text
+        });
+    assert_eq!(rebuilt, "fast answer");
+    assert_eq!(
+        events[end_at]["message"]["content"][0]["text"],
+        "fast answer"
+    );
 }
 
 /// The threshold compaction (pi-durable's pre-request check): once a turn's

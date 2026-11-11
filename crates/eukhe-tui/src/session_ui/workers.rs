@@ -142,6 +142,7 @@ impl SessionUi {
                 .request_ok(DaemonCommand::Detach {
                     id: None,
                     active_session_id: Some(pane.active_session_id),
+                    reason: None,
                     rest: Map::default(),
                 })
                 .await;

@@ -257,6 +257,114 @@ fn an_unstreamed_assistant_message_end_starts_its_message() {
     assert_eq!(frames[0]["message"], message);
 }
 
+/// Immediate mode (the json/rpc streams) streams an answer that settled
+/// before any partial committed from an empty start to its end, block by
+/// block (TS agent loop: start, block start/delta/end, end).
+#[test]
+fn immediate_mode_streams_an_unstreamed_answer_start_to_end() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let message = assistant(
+        json!([
+            { "type": "thinking", "thinking": "plan" },
+            { "type": "text", "text": "hi" },
+            { "type": "toolCall", "id": "c1", "name": "bash", "arguments": { "command": "ls" } },
+        ]),
+        "toolUse",
+        4,
+    );
+    let frames = translator.translate_wire(&event(json!({
+        "type": "message_end",
+        "entry": entry(10, "pi.assistant", Some(message.clone()), None),
+    })));
+    let last = frames.len() - 1;
+    assert_eq!(frames[0]["type"], "message_start");
+    assert_eq!(frames[0]["message"]["content"], json!([]));
+    assert_eq!(frames[last]["type"], "message_end");
+    assert_eq!(frames[last]["message"], message);
+    let updates = &frames[1..last];
+    assert!(updates
+        .iter()
+        .all(|frame| frame["type"] == "message_update"));
+    assert_eq!(
+        stream_kinds(updates),
+        [
+            "thinking_start",
+            "thinking_delta",
+            "thinking_end",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "toolcall_start",
+            "toolcall_end"
+        ]
+    );
+    assert_eq!(updates[1]["assistantMessageEvent"]["delta"], "plan");
+    assert_eq!(updates[4]["assistantMessageEvent"]["delta"], "hi");
+    assert_eq!(updates[7]["message"]["content"], message["content"]);
+    assert!(translator.mirror().partial.is_none());
+}
+
+/// Immediate mode streams what the last committed partial missed before
+/// the `message_end`: the rest of the text, then the block's end.
+#[test]
+fn immediate_mode_completes_a_partially_streamed_answer() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    start_streaming(&mut translator);
+    translator.translate_wire(&update(json!([
+        { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
+        { "type": "text_delta", "contentIndex": 0, "delta": "he" },
+    ])));
+    let message = assistant(json!([{ "type": "text", "text": "hello" }]), "stop", 9);
+    let frames = translator.translate_wire(&event(json!({
+        "type": "message_end",
+        "entry": entry(10, "pi.assistant", Some(message.clone()), None),
+    })));
+    assert_eq!(
+        types(&frames),
+        ["message_update", "message_update", "message_end"]
+    );
+    assert_eq!(
+        frames[0]["assistantMessageEvent"],
+        json!({ "type": "text_delta", "delta": "llo" })
+    );
+    assert_eq!(
+        frames[1]["assistantMessageEvent"],
+        json!({ "type": "text_end" })
+    );
+    assert_eq!(frames[1]["message"]["content"], message["content"]);
+    assert_eq!(frames[2]["message"], message);
+}
+
+/// A block the partial already holds whole still ends before the
+/// `message_end`, once: a block whose end went out does not end again.
+#[test]
+fn immediate_mode_ends_each_block_once() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    start_streaming(&mut translator);
+    translator.translate_wire(&update(json!([
+        { "type": "thinking_start", "contentIndex": 0, "block": { "type": "thinking", "thinking": "" } },
+        { "type": "thinking_delta", "contentIndex": 0, "delta": "plan" },
+        { "type": "block", "contentIndex": 0, "block": { "type": "thinking", "thinking": "plan" } },
+        { "type": "text_start", "contentIndex": 1, "block": { "type": "text", "text": "" } },
+        { "type": "text_delta", "contentIndex": 1, "delta": "done" },
+    ])));
+    let message = assistant(
+        json!([{ "type": "thinking", "thinking": "plan" }, { "type": "text", "text": "done" }]),
+        "stop",
+        9,
+    );
+    let frames = translator.translate_wire(&event(json!({
+        "type": "message_end",
+        "entry": entry(10, "pi.assistant", Some(message.clone()), None),
+    })));
+    assert_eq!(types(&frames), ["message_update", "message_end"]);
+    assert_eq!(
+        frames[0]["assistantMessageEvent"],
+        json!({ "type": "text_end" })
+    );
+    assert_eq!(frames[1]["message"], message);
+}
+
 #[test]
 fn user_messages_go_out_from_their_message_end() {
     let mut translator = translator(CoalesceMode::Immediate);
@@ -339,7 +447,11 @@ fn a_handover_commit_opens_the_next_run_before_its_placed_input() {
     assert_eq!(
         types(&frames),
         [
+            // The unstreamed answer streams start to end (immediate mode).
             "message_start",
+            "message_update",
+            "message_update",
+            "message_update",
             "message_end",
             "turn_end",
             "agent_end",
@@ -349,8 +461,8 @@ fn a_handover_commit_opens_the_next_run_before_its_placed_input() {
             "message_end",
         ]
     );
-    assert_eq!(frames[3]["messages"], json!([first, answer]));
-    assert_eq!(frames[7]["message"], follow);
+    assert_eq!(frames[6]["messages"], json!([first, answer]));
+    assert_eq!(frames[10]["message"], follow);
 }
 
 /// A legacy input row (a model-less `eukhe.custom` row with `input: true`)

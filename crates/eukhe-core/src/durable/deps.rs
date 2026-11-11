@@ -122,6 +122,19 @@ pub enum SessionHost {
     /// prompt was paid for.
     EndsWithRuns,
 }
+
+/// What an open does with the run its storage left unfinished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoredWork {
+    /// Resume it where it stopped.
+    Resume,
+    /// End it without running it again: its host already ended it (the
+    /// daemon killed a worker that hung in it, or gave up on one that kept
+    /// crashing in it). The main conversation's ordinary scope is aborted
+    /// before scheduling resumes, so no model request or tool of it runs
+    /// again; the tasks' abort hooks settle them.
+    Stop,
+}
 /// Where a session's durable records live.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionStorage {
@@ -159,6 +172,14 @@ pub struct PromptConfig {
     pub additional_prompt_paths: Vec<String>,
     /// Force-exclude patterns for built-in skills.
     pub extra_builtin_skill_overrides: Vec<String>,
+    /// `--no-skills`: no skill discovery (agent dir, project, settings,
+    /// packages, bundled); the extra skill paths still load.
+    pub no_skills: bool,
+    /// `--no-prompt-templates`: no prompt-template discovery; the extra
+    /// prompt-template paths still load.
+    pub no_prompt_templates: bool,
+    /// `--no-context-files`: no `AGENTS.md`/`CLAUDE.md` discovery.
+    pub no_context_files: bool,
 }
 
 /// A requested model as the CLI takes it: `--provider` (optional) and
@@ -299,6 +320,8 @@ pub struct SessionConfig {
     pub kernel_python: Option<PathBuf>,
     /// How long the host keeps the session open.
     pub host: SessionHost,
+    /// What the open does with the run its storage left unfinished.
+    pub stored_work: StoredWork,
 }
 
 impl SessionConfig {
@@ -337,6 +360,7 @@ impl SessionConfig {
             shell_approval: None,
             prewarm_kernel: false,
             host: SessionHost::Resident,
+            stored_work: StoredWork::Resume,
             #[cfg(test)]
             kernel_python: Some(kernel_runtime::kernel_python()),
             #[cfg(not(test))]

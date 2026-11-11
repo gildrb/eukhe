@@ -245,6 +245,15 @@ impl SessionUi {
         self.external_editor_request.take()
     }
 
+    /// Take a parked `/new` / `app.session.new` request: the interactive
+    /// loop paints the asking key's frame, then runs
+    /// [`SessionUi::start_new_session`] (only the loop owns the renderer).
+    pub(crate) fn take_new_session_request(
+        &mut self,
+    ) -> Option<super::commands::NewSessionRequest> {
+        self.new_session_request.take()
+    }
+
     pub(crate) fn apply_client_event(&mut self, event: DaemonClientEvent, view: &mut AgentView) {
         match event {
             DaemonClientEvent::SessionEvent {
@@ -534,6 +543,18 @@ impl SessionUi {
                 self.dirty = true;
             }
             TurnUpdate::CustomRow(entry) => {
+                // A row that shows an error (the supervisor's notice of a
+                // turn it ended) is the turn's failure row: the turn's end
+                // adds no second one.
+                if matches!(
+                    entry,
+                    ChatEntry::Status {
+                        kind: StatusKind::Error,
+                        ..
+                    }
+                ) {
+                    self.turn_error_shown = true;
+                }
                 view.push_entry(entry);
             }
             TurnUpdate::RetryOutcomeRow(entry) => {
@@ -669,14 +690,23 @@ impl SessionUi {
                 self.pending_tools.clear();
                 self.aborted_tools.clear();
                 self.retry_popped_attempt = None;
-                // Only an answer that called tools leaves the run owing a
-                // next turn.
-                self.run_awaits_turn = outcome == TurnOutcome::Continues;
+                // An answer that called tools leaves the run owing a next
+                // turn; so does a turn the engine reported nothing for (a
+                // restarted worker ends its interrupted turn that way and
+                // resumes it): whether the turn ended without a reply is
+                // known only when the run ends owing it (`Idle`), as omp
+                // settles a turn's end only once it knows no re-run follows
+                // (event-controller.ts:1917-1929).
+                self.run_awaits_turn =
+                    matches!(outcome, TurnOutcome::Continues | TurnOutcome::Unreported);
                 match outcome {
-                    // The answer's tools ran; the run's next request is
-                    // on its way (its `turn_start` follows): the loader
-                    // stays up and keeps the turn's clock.
-                    TurnOutcome::Continues => self.enter_phase(view, TurnPhase::Requesting),
+                    // The answer's tools ran, or the turn resumes: the
+                    // run's next request is on its way (its `turn_start`
+                    // follows): the loader stays up and keeps the turn's
+                    // clock.
+                    TurnOutcome::Continues | TurnOutcome::Unreported => {
+                        self.enter_phase(view, TurnPhase::Requesting);
+                    }
                     TurnOutcome::Answered | TurnOutcome::Aborted => {
                         Self::stop_loader(view);
                     }
@@ -691,10 +721,10 @@ impl SessionUi {
                         }
                     }
                     // A turn that ended with nothing to show (a blank
-                    // answer) or that the engine reported nothing for
-                    // says so instead of falling silent -- the same row
-                    // the rebuild folds (`snapshot::fold_transcript`).
-                    TurnOutcome::Empty | TurnOutcome::Unreported => {
+                    // answer) says so instead of falling silent -- the
+                    // same row the rebuild folds
+                    // (`snapshot::fold_transcript`).
+                    TurnOutcome::Empty => {
                         Self::stop_loader(view);
                         if !self.turn_error_shown {
                             view.push_entry(crate::snapshot::no_reply_row());

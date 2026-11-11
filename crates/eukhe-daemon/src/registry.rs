@@ -161,6 +161,10 @@ pub(crate) struct ResidentWorker {
     /// without forwarding while its generation is current, so a
     /// `cron_list` consults this worker at most once per generation.
     pub(crate) cron_snapshot: Mutex<Option<WorkerCronSnapshot>>,
+    /// The worker's job-catalog generation: bumped by every `cron_changed`
+    /// (any job write), with the same in-flight discipline as
+    /// `heartbeat_snapshot_generation`.
+    pub(crate) cron_snapshot_generation: AtomicU64,
     /// The worker's heartbeat-catalog generation (TS
     /// `worker.heartbeatSnapshotStale` + the queued re-read): bumped by
     /// every `heartbeats_changed` invalidation. A snapshot is fresh only
@@ -246,6 +250,7 @@ impl ResidentWorker {
             heartbeat_snapshot: Mutex::new(None),
             cron_snapshot: Mutex::new(None),
             heartbeat_snapshot_generation: AtomicU64::new(0),
+            cron_snapshot_generation: AtomicU64::new(0),
             route_state_tx,
             identity_persist_pending: AtomicBool::new(false),
             identity_quarantined: AtomicBool::new(false),

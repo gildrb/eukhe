@@ -214,6 +214,13 @@ pub fn custom_message_entries(
             text,
             kind: crate::chat::StatusKind::Warning,
         }],
+        // The supervisor ended the turn (a hung worker it restarted, or a
+        // crash loop it stopped restarting): the failure row of the turn,
+        // naming the next step.
+        CustomType::WorkerRestartNotice => vec![ChatEntry::Status {
+            text: format!("{} Error: {text}", crate::glyphs::WARN),
+            kind: crate::chat::StatusKind::Error,
+        }],
         CustomType::RefinementOutcome => refinement::refinement_outcome_entries(content, details),
         CustomType::AgentMessage => agent_message_entry(content, details).map_or_else(
             || vec![generic_panel_entry(custom_type, content)],

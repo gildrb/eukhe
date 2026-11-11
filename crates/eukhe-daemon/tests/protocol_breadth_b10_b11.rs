@@ -414,6 +414,81 @@ fn wave_b10_scheduling_wire_shapes() {
     assert_eq!(response["error"], "No active heartbeat found: ghost-beat");
 }
 
+/// A job write invalidates the supervisor's cached `cron_list` slice: a
+/// job cancelled after a selector-less list is no longer listed as active
+/// by the next one (the `eukhe schedule cancel` then `schedule list`
+/// flow), and a job added after it is listed.
+#[test]
+fn cron_list_after_cancel_and_add_is_fresh() {
+    let _serial = serial_lock();
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let (_daemon, mut client, session_id, _socket) = scripted_session(dir.path(), &agent_dir);
+    let add = |client: &mut Client, id: &str, schedule: &str| -> String {
+        client.send_command(
+            id,
+            &json!({
+                "type": "cron_add", "activeSessionId": session_id,
+                "schedule": schedule, "prompt": format!("prompt {id}")
+            }),
+        );
+        let response = client.read_response(id);
+        assert_eq!(response["success"], true, "{response}");
+        response["data"]["job"]["id"]
+            .as_str()
+            .expect("job id")
+            .to_string()
+    };
+    let cron_job = add(&mut client, "a1", "0 9 * * 1-5");
+    let once_job = add(&mut client, "a2", "in 10m");
+    let listed = |client: &mut Client, id: &str, include_inactive: bool| -> Vec<(String, String)> {
+        client.send_command(
+            id,
+            &json!({ "type": "cron_list", "includeInactive": include_inactive }),
+        );
+        let response = client.read_response(id);
+        assert_eq!(response["success"], true, "{response}");
+        let mut rows: Vec<(String, String)> = response["data"]["jobs"]
+            .as_array()
+            .expect("jobs")
+            .iter()
+            .map(|job| {
+                (
+                    job["id"].as_str().unwrap_or_default().to_string(),
+                    job["status"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        rows.sort();
+        rows
+    };
+    let mut both = vec![
+        (cron_job.clone(), "active".to_string()),
+        (once_job.clone(), "active".to_string()),
+    ];
+    both.sort();
+    assert_eq!(listed(&mut client, "l1", false), both);
+
+    client.send_command("c1", &json!({ "type": "cron_cancel", "jobId": once_job }));
+    let response = client.read_response("c1");
+    assert_eq!(response["success"], true, "{response}");
+    assert_eq!(
+        listed(&mut client, "l2", false),
+        vec![(cron_job, "active".to_string())]
+    );
+    assert!(
+        listed(&mut client, "l3", true).contains(&(once_job, "cancelled".to_string())),
+        "the cancelled job keeps its row in the inactive cut"
+    );
+
+    let third = add(&mut client, "a3", "in 20m");
+    assert!(
+        listed(&mut client, "l4", false).contains(&(third, "active".to_string())),
+        "a job added after a served list is listed"
+    );
+}
+
 /// Wave b10: a scheduled once job actually fires into the session and the
 /// run bookkeeping lands in the catalog (the scheduler's
 /// claim-dispatch-record loop through the worker's queue).

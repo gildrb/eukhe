@@ -59,6 +59,10 @@ pub(crate) struct SessionCore {
     /// The wall-clock ms of this session's last activity (run end);
     /// zero before any.
     pub(crate) last_activity_ms: u64,
+    /// The wall-clock ms its last attached client left the session for
+    /// another one (a `detach` with reason `switch`); cleared by the
+    /// next attach. Such a session's idle window is the short left grace.
+    pub(crate) left_at_ms: Option<u64>,
     /// The last broadcast queue snapshot: `session_action_update` fires
     /// only when the projection changed.
     pub(crate) last_action_snapshot: Option<SessionActionSnapshot>,
@@ -125,6 +129,7 @@ impl SessionCore {
             gateway_client_ids: Vec::new(),
             shutdown_requested: false,
             last_activity_ms: 0,
+            left_at_ms: None,
             // The empty projection: a fresh session's first empty snapshot
             // is not an update.
             last_action_snapshot: Some(SessionActionSnapshot::default()),

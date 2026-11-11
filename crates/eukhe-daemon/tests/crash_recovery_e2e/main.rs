@@ -44,6 +44,7 @@ mod process;
 #[path = "../support/wire_client.rs"]
 mod wire_client;
 
+mod bash_tool;
 mod cases;
 mod codemode;
 
@@ -344,6 +345,12 @@ fn script(request: &Request, release: &Path) -> Reply {
                     format!("call-{prompt}"),
                     "codemode",
                     json!({ "code": codemode::SCRIPT }),
+                )
+            } else if request.prompt.contains(bash_tool::TAG) {
+                Reply::tool_call(
+                    format!("call-{prompt}"),
+                    "bash",
+                    json!({ "script": bash_tool::script(release) }),
                 )
             } else if request.prompt.contains(SLOW_TOOL) {
                 let runs = release.with_file_name("tool-runs");

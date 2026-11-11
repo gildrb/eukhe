@@ -33,7 +33,9 @@ mod title;
 
 mod connection;
 
-pub(crate) use connection::{AuthOutcome, ConnectionSink, EventPump, OutboundFrame};
+pub(crate) use connection::{
+    AuthOutcome, ConnectionSink, EventPump, OutboundFrame, CRON_CHANGED_FRAME,
+};
 
 mod create;
 
@@ -633,6 +635,16 @@ pub async fn run_worker() -> Result<()> {
         return Err(anyhow!("worker mode requires {WORKER_ROLE_ENV}=1"));
     }
     let config = WorkerConfig::from_env()?;
+    // The process groups this worker's commands run in are journaled, so
+    // its supervisor kills them when the worker dies without its teardown.
+    if let Err(error) = eukhe_types::platform::group_journal::open(
+        &crate::journal::group_journal_path(&config.recovery_journal_path),
+    ) {
+        eprintln!(
+            "eukhe-daemon worker {}: the process group journal did not open: {error}",
+            std::process::id()
+        );
+    }
     let registration = crate::registration::start(&config);
     let worker = Arc::new(Worker::new(config, registration));
     let _ = worker.this.set(Arc::downgrade(&worker));

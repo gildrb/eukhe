@@ -2,7 +2,8 @@
 //! new root conversation.
 //!
 //! [`create_models`] registers every built-in pi-ai provider (the eukhe
-//! `prime-inference` provider included), composes the user's
+//! `prime-inference` provider included) serving the built-in catalog
+//! `eukhe model list` lists (`catalog`), composes the user's
 //! `<agent_dir>/models.json` over them (`compose`), and wires the
 //! credential store (`stores`): a pi-ai `CredentialStore` over eukhe's
 //! `<agent_dir>/auth.json`, through eukhe's own `FileAuthStorageBackend`
@@ -11,8 +12,8 @@
 //! one document.
 //!
 //! Catalogs are fully local: every provider serves its compiled catalog
-//! and the collection never refreshes a provider's model list over the
-//! network.
+//! plus the bundled snapshot's models it lacks, and the collection never
+//! refreshes a provider's model list over the network.
 //!
 //! # auth.json mapping
 //!
@@ -75,6 +76,7 @@
 //! writes settings. The Bend models are `bend/default_model.bend` and
 //! `bend/model_roles.bend`.
 
+mod catalog;
 #[cfg(test)]
 mod chat_role_tests;
 mod compose;
@@ -225,10 +227,11 @@ pub struct SessionModels {
     pub diagnostics: Vec<String>,
 }
 
-/// `eukhe_ai::models::Models` with every built-in pi-ai provider,
-/// credentials from eukhe's auth storage, custom providers/models from
-/// eukhe `models.json`, and Prime Inference through the pi-ai
-/// `prime-inference` provider's compiled catalog. See the module docs.
+/// `eukhe_ai::models::Models` with every built-in pi-ai provider serving
+/// the built-in catalog, credentials from eukhe's auth storage, custom
+/// providers/models from eukhe `models.json`, and Prime Inference through
+/// the pi-ai `prime-inference` provider's compiled catalog. See the module
+/// docs.
 #[must_use]
 pub fn create_models(agent_dir: &Path) -> SessionModels {
     build_models(agent_dir, None)
@@ -244,8 +247,12 @@ fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) ->
         models_store: None,
         auth_context,
     });
+    let builtins = catalog::with_catalog_models(
+        builtin_providers(),
+        crate::models::ModelRegistry::built_in_catalog_models(),
+    );
     let (providers, diagnostics) =
-        compose::compose_providers(builtin_providers(), &agent_dir.join("models.json"));
+        compose::compose_providers(builtins, &agent_dir.join("models.json"));
     for provider in providers {
         models.set_provider(provider);
     }

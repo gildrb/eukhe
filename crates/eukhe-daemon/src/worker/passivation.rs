@@ -126,14 +126,43 @@ pub(crate) fn child_release_due(gates: ParkGates, run: RunPark) -> bool {
         }
 }
 
+/// How long a session its last client left for another one stays
+/// resident once idle: the client-owned worker's disconnect grace (TS
+/// `OWNED_WORKER_DISCONNECT_GRACE_MS`), so a quick switch back finds it
+/// live.
+const LEFT_SESSION_GRACE: Duration = Duration::from_secs(30);
+
+/// When the session last did something, and when its last client left it
+/// for another one: what the idle window measures from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Activity {
+    /// [`SessionCore::last_activity_ms`].
+    pub(crate) last_ms: u64,
+    /// [`SessionCore::left_at_ms`].
+    pub(crate) left_ms: Option<u64>,
+}
+
+impl Activity {
+    pub(crate) fn of(core: &SessionCore) -> Self {
+        Self {
+            last_ms: core.last_activity_ms,
+            left_ms: core.left_at_ms,
+        }
+    }
+}
+
 /// The idle-eviction window of one park (TS's `idleEvictionMinutes`
 /// consumer): `Some(remaining)` when the park state holds and the setting
 /// is a live threshold, `None` otherwise (attached sessions, `"off"`, a
 /// held pause, and a child worker stay parked without a timer — the
-/// child's residency is the kernel release's business).
+/// child's residency is the kernel release's business). A session its
+/// client left for another one (`/new`, `/resume`: omp disposes the
+/// session it leaves) waits at most [`LEFT_SESSION_GRACE`], counted from
+/// the leave or its last run end, whichever is later; work holds it as it
+/// holds any idle session.
 pub(crate) fn idle_window(
     gates: ParkGates,
-    last_activity_ms: u64,
+    activity: Activity,
     now_ms: u64,
     eviction: IdleEviction,
 ) -> Option<Duration> {
@@ -144,9 +173,16 @@ pub(crate) fn idle_window(
         IdleEviction::Off => return None,
         IdleEviction::Minutes(minutes) => minutes,
     };
-    let idle_ms = now_ms.saturating_sub(last_activity_ms);
+    let idle_ms = now_ms.saturating_sub(activity.last_ms);
     let threshold_ms = minutes.saturating_mul(60_000);
-    Some(Duration::from_millis(threshold_ms.saturating_sub(idle_ms)))
+    let threshold = Duration::from_millis(threshold_ms.saturating_sub(idle_ms));
+    Some(match activity.left_ms {
+        Some(left_ms) => {
+            let since = now_ms.saturating_sub(left_ms.max(activity.last_ms));
+            threshold.min(LEFT_SESSION_GRACE.saturating_sub(Duration::from_millis(since)))
+        }
+        None => threshold,
+    })
 }
 
 /// Whether the session still owns a registered active or paused
@@ -163,13 +199,14 @@ fn has_registered_job(scheduled: &ScheduledJobs, active_session_id: &str) -> boo
 
 /// The park loop: every wake re-checks the gates, releases a settled
 /// child's kernel, and (re-)arms the idle window; the window's fire asks
-/// the supervisor for the graceful stop over the worker's link. A queued
-/// delivery or fresh prompt wins the select's notified arm and the next
-/// park re-arms.
+/// the supervisor for the graceful stop over the worker's link. A wake
+/// while the window runs (a queued delivery, a fresh prompt, a client
+/// leaving) re-checks at once: the wake that interrupted the window is
+/// the one that re-arms it.
 pub(crate) async fn passivation_loop(context: ParkContext) {
+    context.park_notify.notified().await;
     loop {
-        context.park_notify.notified().await;
-        let (gates, last_activity_ms, cwd, active_session_id) = {
+        let (gates, activity, cwd, active_session_id) = {
             let core = lock(&context.core);
             (
                 ParkGates::of(
@@ -177,7 +214,7 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
                     context.input_pauses.paused(),
                     context.user_bash.is_running(),
                 ),
-                core.last_activity_ms,
+                Activity::of(&core),
                 core.cwd.clone(),
                 core.active_session_id.clone(),
             )
@@ -187,14 +224,15 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
         // fresh-snapshot fence).
         let eviction = SettingsManager::create(std::path::Path::new(&cwd), &context.agent_dir)
             .get_idle_eviction();
-        let Some(remaining) = idle_window(gates, last_activity_ms, crate::util::now_ms(), eviction)
-        else {
+        let Some(remaining) = idle_window(gates, activity, crate::util::now_ms(), eviction) else {
+            context.park_notify.notified().await;
             continue;
         };
         tokio::select! {
             () = context.park_notify.notified() => {}
             () = tokio::time::sleep(remaining) => {
                 maybe_request_idle_passivation(&context, cwd.clone()).await;
+                context.park_notify.notified().await;
             }
         }
     }
@@ -250,7 +288,7 @@ async fn release_settled_child_kernel(
 /// rejected or failed request leaves the worker resident — the next park
 /// re-arms, exactly like the kernel release's best-effort arm.
 async fn maybe_request_idle_passivation(context: &ParkContext, cwd: String) {
-    let (gates, last_activity_ms, active_session_id) = {
+    let (gates, activity, active_session_id) = {
         let core = lock(&context.core);
         (
             ParkGates::of(
@@ -258,7 +296,7 @@ async fn maybe_request_idle_passivation(context: &ParkContext, cwd: String) {
                 context.input_pauses.paused(),
                 context.user_bash.is_running(),
             ),
-            core.last_activity_ms,
+            Activity::of(&core),
             core.active_session_id.clone(),
         )
     };
@@ -277,12 +315,20 @@ async fn maybe_request_idle_passivation(context: &ParkContext, cwd: String) {
         return;
     }
     let settings = SettingsManager::create(std::path::Path::new(&cwd), &context.agent_dir);
-    let IdleEviction::Minutes(minutes) = settings.get_idle_eviction() else {
+    let eviction = settings.get_idle_eviction();
+    let IdleEviction::Minutes(minutes) = eviction else {
         return;
     };
-    // The idle threshold still holds on the fresh clock.
-    if crate::util::now_ms().saturating_sub(last_activity_ms) < minutes.saturating_mul(60_000) {
-        return;
+    // The window ran out on the fresh clock (the threshold, or the grace).
+    // A fire that finds a remainder (the wall clock behind the timer)
+    // re-arms the park: nothing else wakes an idle session's loop.
+    match idle_window(gates, activity, crate::util::now_ms(), eviction) {
+        Some(Duration::ZERO) => {}
+        Some(_) => {
+            context.park_notify.notify_one();
+            return;
+        }
+        None => return,
     }
     let command = json!({
         "type": "worker_idle_passivation",
@@ -400,34 +446,139 @@ mod tests {
     #[test]
     fn the_idle_window_arms_for_a_parked_root() {
         let parked = gates(0, 0, false, false);
+        let active = |last_ms| Activity {
+            last_ms,
+            left_ms: None,
+        };
         assert_eq!(
-            idle_window(parked, 10_000, 10_000 + 60_000, IdleEviction::Minutes(5)),
+            idle_window(
+                parked,
+                active(10_000),
+                10_000 + 60_000,
+                IdleEviction::Minutes(5)
+            ),
             Some(Duration::from_mins(4)),
             "four minutes remain of the five"
         );
         assert_eq!(
-            idle_window(parked, 10_000, 10_000 + 60_000, IdleEviction::Off),
+            idle_window(parked, active(10_000), 10_000 + 60_000, IdleEviction::Off),
             None,
             "an off threshold never arms"
         );
         assert_eq!(
-            idle_window(parked, 10_000, 10_000, IdleEviction::Minutes(5)),
+            idle_window(parked, active(10_000), 10_000, IdleEviction::Minutes(5)),
             Some(Duration::from_mins(5)),
             "a fresh park arms the whole window"
         );
         // A child, a pause, or an attached client stays parked without a
         // timer.
         assert_eq!(
-            idle_window(gates(0, 1, false, false), 0, 0, IdleEviction::Minutes(5)),
+            idle_window(
+                gates(0, 1, false, false),
+                active(0),
+                0,
+                IdleEviction::Minutes(5)
+            ),
             None
         );
         assert_eq!(
-            idle_window(gates(0, 0, true, false), 0, 0, IdleEviction::Minutes(5)),
+            idle_window(
+                gates(0, 0, true, false),
+                active(0),
+                0,
+                IdleEviction::Minutes(5)
+            ),
             None
         );
         assert_eq!(
-            idle_window(gates(1, 0, false, false), 0, 0, IdleEviction::Minutes(5)),
+            idle_window(
+                gates(1, 0, false, false),
+                active(0),
+                0,
+                IdleEviction::Minutes(5)
+            ),
             None
+        );
+    }
+
+    /// F5: a session its client left for another one (`/new`) is released
+    /// after the left grace, counted from the leave or its last run end,
+    /// whichever is later; work, an `"off"` threshold, or a child keeps
+    /// it as before.
+    #[test]
+    fn a_left_session_waits_only_the_left_grace() {
+        let parked = gates(0, 0, false, false);
+        let left = |last_ms, left_ms| Activity {
+            last_ms,
+            left_ms: Some(left_ms),
+        };
+        let window = |gates, activity, now_ms| {
+            idle_window(gates, activity, now_ms, IdleEviction::Minutes(90))
+        };
+        assert_eq!(
+            (
+                window(parked, left(1_000, 5_000), 5_000),
+                window(parked, left(1_000, 5_000), 15_000),
+                window(parked, left(1_000, 5_000), 60_000),
+                window(parked, left(20_000, 5_000), 30_000),
+                window(
+                    ParkGates {
+                        busy: true,
+                        ..parked
+                    },
+                    left(1_000, 5_000),
+                    60_000
+                ),
+                window(gates(0, 1, false, false), left(1_000, 5_000), 60_000),
+                idle_window(parked, left(1_000, 5_000), 60_000, IdleEviction::Off),
+            ),
+            (
+                Some(LEFT_SESSION_GRACE),
+                Some(Duration::from_secs(20)),
+                Some(Duration::ZERO),
+                Some(Duration::from_secs(20)),
+                None,
+                None,
+                None,
+            )
+        );
+    }
+
+    /// A fire that finds the window not quite run out (the wall clock
+    /// behind the timer) re-arms the park: no later event wakes an idle
+    /// session's loop, so it would stay resident (F5).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_early_fire_re_arms_the_park() {
+        use futures::FutureExt as _;
+        let (dir, worker) = crate::durable_test_support::created_worker_with(
+            "early-fire",
+            serde_json::json!(["done"]),
+            serde_json::json!({}),
+        )
+        .await;
+        // The context's own wake: the worker's loop must not take it.
+        let park_notify = Arc::new(Notify::new());
+        let context = ParkContext {
+            core: Arc::clone(&worker.core),
+            session: worker.session.clone(),
+            user_bash: Arc::clone(&worker.user_bash),
+            input_pauses: worker.input_pauses.clone(),
+            scheduled: Arc::clone(&worker.scheduled),
+            link: Arc::new(SupervisorLink::new(PathBuf::new())),
+            worker_token: "token".to_owned(),
+            agent_dir: dir.path().join("agent"),
+            park_notify: Arc::clone(&park_notify),
+        };
+        let cwd = {
+            let mut core = lock(&worker.core);
+            core.attached_client_ids.clear();
+            core.left_at_ms = Some(crate::util::now_ms());
+            core.cwd.clone()
+        };
+        maybe_request_idle_passivation(&context, cwd).await;
+        assert!(
+            park_notify.notified().now_or_never().is_some(),
+            "the early fire re-armed the park"
         );
     }
 

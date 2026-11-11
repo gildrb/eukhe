@@ -8,8 +8,9 @@
 use eukhe_bend::rules::headless::Primary;
 use eukhe_chord::context::Context;
 use eukhe_core::durable::messages::{
-    COMPACTION_OUTCOME_CUSTOM_TYPE, HARNESS_DIGEST_CUSTOM_TYPE, REFINEMENT_NOTICE_CUSTOM_TYPE,
-    REFINEMENT_OUTCOME_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+    COMPACTION_OUTCOME_CUSTOM_TYPE, HARNESS_DIGEST_CUSTOM_TYPE, PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
+    REFINEMENT_NOTICE_CUSTOM_TYPE, REFINEMENT_OUTCOME_CUSTOM_TYPE,
+    SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
 use eukhe_core::durable::{custom_entry_content, CUSTOM_ENTRY};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
@@ -211,6 +212,15 @@ fn step(entry: EntryRecord) -> Step {
             REFINEMENT_OUTCOME_CUSTOM_TYPE
             | REFINEMENT_NOTICE_CUSTOM_TYPE
             | HARNESS_DIGEST_CUSTOM_TYPE => Step::Skip,
+            // A recovered retry episode's disclosure row trails the answer
+            // that settled it: the answer is the primary (TS print mode
+            // prints the last assistant message). A failed episode's row
+            // still ends the walk on the run's failure.
+            PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
+                if detail("success") == Some(serde_json::Value::Bool(true)) =>
+            {
+                Step::Skip
+            }
             SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => {
                 Step::Stop(Some(HeadlessPrimary::SlashCommandResult {
                     content,
@@ -242,5 +252,40 @@ fn user_content_text(content: &UserContent) -> String {
                 eukhe_types::pi_ai::UserContentBlock::Image(_) => None,
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{step, Step};
+    use eukhe_durable::types::EntryRecord;
+
+    /// The `provider_retry_outcome` row of an episode (the durable shape
+    /// the retry observer appends after the answer that ended it).
+    fn retry_outcome_row(success: bool) -> EntryRecord {
+        serde_json::from_value(serde_json::json!({
+            "kind": "eukhe.custom", "id": 17, "conversationId": 1,
+            "data": {
+                "customType": "provider_retry_outcome",
+                "content": "Recovered after 1 retries: 500 stub: internal server error",
+                "display": true,
+                "details": { "success": success, "attempts": 1, "finalError": "500" },
+            },
+        }))
+        .expect("an entry record")
+    }
+
+    /// A recovered episode's row trails the answer that settled it: the
+    /// walk passes over it to that answer (TS print mode prints the last
+    /// assistant message).
+    #[test]
+    fn a_recovered_retry_row_does_not_hide_the_answer() {
+        assert!(matches!(step(retry_outcome_row(true)), Step::Skip));
+    }
+
+    /// A failed episode's row still ends the walk: the run has no answer.
+    #[test]
+    fn a_failed_retry_row_ends_the_walk() {
+        assert!(matches!(step(retry_outcome_row(false)), Step::Stop(None)));
     }
 }

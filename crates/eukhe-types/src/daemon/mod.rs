@@ -131,7 +131,7 @@ pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
     AdmissionPriority, AgentPeerScope, CycleDirection, DaemonClientKind, DaemonCommand,
     DaemonCommandEnvelope, DaemonCommandFrameType, DaemonCommandWire, DaemonSessionLifecycle,
-    ForkPosition, PromptInput, StreamingBehavior,
+    DetachReason, ForkPosition, PromptInput, StreamingBehavior,
 };
 pub use cvar::{CvarFailureData, CvarFailureKind, CvarReply, CvarValue};
 pub use memory::{

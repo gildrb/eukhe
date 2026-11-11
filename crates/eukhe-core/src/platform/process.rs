@@ -7,8 +7,9 @@
 
 use std::os::fd::OwnedFd;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use eukhe_types::platform::process::NEW_SESSION_ENV;
+use eukhe_types::platform::process::{NEW_SESSION_ENV, STARTUP_STDERR_ENV};
 use nix::sys::signal::{kill, killpg};
 use nix::unistd::Pid;
 
@@ -56,6 +57,41 @@ pub fn enter_requested_session() -> std::io::Result<()> {
     nix::unistd::setsid()
         .map(drop)
         .map_err(std::io::Error::from)
+}
+
+/// Whether this process's stderr is its launcher's startup pipe and still
+/// points there ([`claim_startup_stderr`], [`release_startup_stderr`]).
+static STARTUP_STDERR: AtomicBool = AtomicBool::new(false);
+
+/// The child half of
+/// [`request_startup_stderr`](eukhe_types::platform::process::request_startup_stderr):
+/// note that stderr is the launcher's startup pipe. Call it first thing in
+/// `main`, while the process is still single-threaded: the marker is
+/// removed from the environment so this process's own children never
+/// inherit it.
+pub fn claim_startup_stderr() {
+    if std::env::var_os(STARTUP_STDERR_ENV).is_some() {
+        std::env::remove_var(STARTUP_STDERR_ENV);
+        STARTUP_STDERR.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Point stderr at the null device when it is the launcher's startup pipe
+/// ([`claim_startup_stderr`]); otherwise do nothing. The daemon calls it
+/// once its socket serves, before it answers anyone: the launcher lets go
+/// of the pipe after the daemon answers.
+///
+/// # Errors
+///
+/// Opening the null device or `dup2` failed.
+pub fn release_startup_stderr() -> std::io::Result<()> {
+    use std::os::fd::AsRawFd as _;
+    if !STARTUP_STDERR.swap(false, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let null = std::fs::OpenOptions::new().write(true).open("/dev/null")?;
+    nix::unistd::dup2(null.as_raw_fd(), std::io::stderr().as_raw_fd())?;
+    Ok(())
 }
 
 /// Raise the soft open-file limit to the hard limit and return the

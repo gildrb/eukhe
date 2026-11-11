@@ -879,6 +879,7 @@ impl Tab {
             .request_ok(DaemonCommand::Detach {
                 id: None,
                 active_session_id: Some(active_session_id.to_string()),
+                reason: None,
                 rest: Map::default(),
             })
             .await
