@@ -33,12 +33,12 @@ use super::{
 };
 
 /// `status` (TS `runPs`): the daemons discovered in the given state root as
-/// JSON or as the table.
+/// JSON or as the table. The JSON is the top-level array of services (omp
+/// `ps-cli.ts` `runList` prints its rows as a top-level array).
 pub(crate) fn run_ps(json: bool, root: &DaemonStateRoot) -> i32 {
     let daemons = discover_daemons(root);
     if json {
-        let document = serde_json::json!({ "services": daemons });
-        return match crate::json_out::print_json_document(&document) {
+        return match crate::json_out::print_json_document(&daemons) {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("Error: {error}");

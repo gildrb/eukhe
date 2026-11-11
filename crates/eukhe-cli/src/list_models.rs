@@ -138,21 +138,14 @@ pub(crate) fn format_token_count(count: u64) -> String {
     }
 }
 
-/// The catalog table: on a terminal, two-space gutters and every column
-/// padded to its widest value (trailing padding included, like the TS
-/// `padEnd` render). Piped stdout keeps the header and separates the
-/// columns with one tab, never padding.
+/// The catalog table: two-space gutters and every column padded to its
+/// widest value (trailing padding included, like the TS `padEnd` render),
+/// on a terminal and piped alike.
 fn print_table(models: &[eukhe_types::ai::Model]) {
     const HEADERS: [&str; 6] = [
         "provider", "model", "context", "max-out", "thinking", "images",
     ];
     let rows: Vec<Row> = models.iter().map(Row::from_model).collect();
-    if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        let mut lines = vec![HEADERS.join("\t")];
-        lines.extend(rows.iter().map(|row| row.cells().join("\t")));
-        println!("{}", lines.join("\n"));
-        return;
-    }
     let mut widths = [0usize; 6];
     for (index, header) in HEADERS.iter().enumerate() {
         widths[index] = header.chars().count();

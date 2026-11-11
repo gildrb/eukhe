@@ -17,7 +17,7 @@ use eukhe_types::daemon::agent_roster::{
 use serde_json::Value;
 
 use crate::daemon_session_list::{
-    format_session_age, format_session_display_id, format_table_layout, string_field,
+    format_session_age, format_session_display_id, format_table, string_field,
 };
 
 /// Display-width cap for free-text cells (names, recaps, error text) so one
@@ -31,15 +31,6 @@ const SESSIONS_HEADERS: [&str; 6] = ["name", "status", "activity", "last heard",
 /// One-line-per-agent operator table for `eukhe sessions` (TS
 /// `formatSessionsTable`).
 pub(crate) fn format_sessions_table(sessions: &[&Value], now_ms: u64) -> String {
-    format_sessions_table_layout(
-        sessions,
-        now_ms,
-        !std::io::IsTerminal::is_terminal(&std::io::stdout()),
-    )
-}
-
-/// The sessions table in a fixed layout (`tab`: the piped form).
-pub(crate) fn format_sessions_table_layout(sessions: &[&Value], now_ms: u64, tab: bool) -> String {
     let mut sorted = sessions.to_vec();
     sorted.sort_by_key(|summary| sessions_sort_key(summary));
     let rows: Vec<[String; 6]> = sorted
@@ -61,7 +52,7 @@ pub(crate) fn format_sessions_table_layout(sessions: &[&Value], now_ms: u64, tab
             ]
         })
         .collect();
-    format_table_layout(&SESSIONS_HEADERS, &rows, tab)
+    format_table(&SESSIONS_HEADERS, &rows)
 }
 
 /// Failures first, then recovering/running, then idle, then everything else
@@ -281,7 +272,7 @@ mod tests {
     /// the expected rows padded to their own widest cell.
     fn expect_table(case: &str, sessions: &[Value], expected_rows: &[[&str; 6]]) {
         let rows: Vec<&Value> = sessions.iter().collect();
-        let table = format_sessions_table_layout(&rows, NOW_MS, false);
+        let table = format_sessions_table(&rows, NOW_MS);
         let widths: [usize; 6] = std::array::from_fn(|column| {
             str_width(SESSIONS_HEADERS[column]).max(
                 expected_rows
@@ -499,7 +490,7 @@ mod tests {
             })),
         ];
         let rows: Vec<&Value> = sessions.iter().collect();
-        let table = format_sessions_table_layout(&rows, NOW_MS, false);
+        let table = format_sessions_table(&rows, NOW_MS);
         let lines: Vec<&str> = table.lines().collect();
         // Scalar-length padding would misalign the CJK name; the recap cap
         // counts display columns, pair-safe.
