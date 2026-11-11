@@ -42,10 +42,13 @@ import ./base.bend as LawsBase
 #      background requests do.
 # H3.5 At most providerMaxInFlight slots are held at once (omp's cap); a
 #      lowered limit only drains.
-# H3.6 An interactive request that does not get a slot at once is
-#      rejected once providerMaxQueued interactive requests wait
-#      (local_admission_rejects_past_the_queue_limit); a background one
-#      is never rejected.
+# H3.6 An interactive request gets a slot at once when no interactive
+#      request waits and one is free for it (no limit, or fewer
+#      interactive slots held than the limit: the background ones are
+#      taken back, H3.1), whatever providerMaxQueued; one that does not
+#      get a slot at once is rejected once providerMaxQueued interactive
+#      requests wait (local_admission_rejects_past_the_queue_limit); a
+#      background one is never rejected.
 # H3.7 A background request takes a slot only while no interactive
 #      request holds a slot or waits for one (module doc).
 # H3.8 The holders' ops: a poll collects a granted permit; dropping a
@@ -601,6 +604,18 @@ law admission_queue_limit:
   for +q: Nat
   for +ts: List<&2, Ad.Tk>
   {adm_ended(adm_last(adm_ts(Ad.step(Ad.St{l, q, ts}, Ad.Admit{Ad.Ia{}})))) == Bool.and(Bool.not(adm_took(adm_last(adm_ts(Ad.step(Ad.St{l, q, ts}, Ad.Admit{Ad.Ia{}}))))), Nat.is_le(q, ads_queued(Ad.Ia{}, ts))) : Bool}
+
+# LAW admission_interactive_free_slot: on every state, an interactive admit holds a slot at once when no interactive request waits and a slot is free for it (no limit, or fewer interactive slots held than the limit: the background slots are taken back), whatever providerMaxQueued (q): a request is never rejected or queued beside a free slot (H3.6, H3.1)
+# EXCLUDES: an interactive request rejected or queued while no
+#   interactive request waits and a slot is free for it (q 0 rejecting
+#   every request on an idle or unlimited provider)
+law admission_interactive_free_slot:
+  for +l: Ad.Lim
+  for +q: Nat
+  for +ts: List<&2, Ad.Tk>
+  for w0: {ads_queued(Ad.Ia{}, ts) == 0n : Nat}
+  for fr: {ads_room(l, ads_held(Ad.Ia{}, ts)) == True{} : Bool}
+  {adm_took(adm_last(adm_ts(Ad.step(Ad.St{l, q, ts}, Ad.Admit{Ad.Ia{}})))) == True{} : Bool}
 
 # LAW admission_background_admit_idle: on every state, a background admit holds a slot at once only when no interactive request holds a slot or waits (H3.7)
 # EXCLUDES: a background request admitted beside a running or waiting

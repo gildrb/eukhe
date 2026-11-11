@@ -10,6 +10,7 @@
     "laws/admission.bend::admission_fifo": "5190c9406ff35e4144ec82f5ab26759d73436b16f8bb4beb312aeb803720cced",
     "laws/admission.bend::admission_inert_ops": "045d3e70834badbed14339df7cfdf027d4d7c80a031430130232ebde2750f426",
     "laws/admission.bend::admission_interactive_bound": "950d2292a19d0790ed32fe8279468e72a24e002f7a2db4aaa667237109e9fe26",
+    "laws/admission.bend::admission_interactive_free_slot": "d928b5e5d8e2e931dfe9cdcea661a6629def424ca47ac10060cb06c43d04b0e9",
     "laws/admission.bend::admission_interactive_step": "b652c978dd77e26ba18059e0a31aec993a0e9888263a825747a7a50c2ca3632b",
     "laws/admission.bend::admission_leave_grants": "0edbf194108497617df2b587a88a212887f115332802762ef46f45e029d02702",
     "laws/admission.bend::admission_limits_grant": "c92f246efa8983ef539470b4ccb0bed7914ae1ccd377422136c5ef9d3f7efe82",

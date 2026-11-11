@@ -239,6 +239,7 @@ import ./proof/admission/admission_live_run.bend as PAdmissionLiveRun
 import ./proof/admission/admission_live_example.bend as PAdmissionLiveExample
 import ./proof/admission/admission_admit_appends.bend as PAdmissionAdmitAppends
 import ./proof/admission/admission_queue_limit.bend as PAdmissionQueueLimit
+import ./proof/admission/admission_interactive_free_slot.bend as PAdmissionInteractiveFreeSlot
 import ./proof/admission/admission_background_admit_idle.bend as PAdmissionBackgroundAdmitIdle
 import ./proof/admission/admission_collect_takes_grant.bend as PAdmissionCollectTakesGrant
 import ./proof/admission/admission_release_grants.bend as PAdmissionReleaseGrants
