@@ -1,4 +1,38 @@
 # eukhe: the laws of area doc_rows
+#
+# Requirements (section F5 of the documents laws: what a read shows;
+# bend/doc_rows.bend, bend/ffi_doc_rows.bend; Rust crates/eukhe-docs
+# read/mod.rs, read/view.rs):
+# R1 the lines a read numbers are the rows of the model's read (each
+#    `\r\n` made `\n`, split on `\n`, no row after a final `\n`), in order
+#    and length; a raw read counts every piece.
+# R2 the spans, gap markers, notices and tag a read shows follow the read
+#    rule of the section header below (window, ranges, past-the-end and
+#    remain notices, a gap marker before every span that does not follow
+#    the one before, no tag over the size limit or for a file that is not
+#    UTF-8).
+# R3 a read goes on exactly when it is raw, or the bytes are UTF-8 and the
+#    sniffed head has no NUL (omp packages/coding-agent/src/tools/read.ts
+#    2474-2503 with packages/utils/src/binary.ts isProbablyBinaryHeader: a
+#    head with a NUL or not UTF-8 is refused, `:raw` never is).
+# R4 a refused read names its cause: a UTF-16 file (a UTF-16 BOM, bytes
+#    not UTF-8) is named by its encoding even with the NUL bytes of its
+#    ASCII, any other refused file with a NUL in its head is binary, a
+#    refused file with no NUL is not UTF-8 (Rust read/tests.rs 114-130:
+#    latin.txt not UTF-8, wide.txt UTF-16 (little endian); read/tests.rs
+#    214: a file with a NUL is binary).
+# R5 the entry answers each request Rust writes (bend/ffi_doc_rows.bend
+#    header; every number within the wire) with the model's answer
+#    spelled, reads exactly the request and nothing after it, and answers
+#    any other input with exactly one of its two error forms.
+# Coverage: R1 rows_lines_are_read_rows, rows_raw_lines_are_pieces; R2
+# rows_view_shows, rows_gap_marks_every_jump; R3 rows_gate_goes_as_omp; R4
+# rows_gate_names_the_refusal; R5 rows_entry_answers, rows_entry_exact,
+# rows_entry_left_over_spelled, rows_entry_malformed_unless_request,
+# rows_entry_left_over, rows_entry_left_over_exact, rows_entry_errors.
+# Anchors (no coverage): rows_view_example, rows_gap_example,
+# rows_entry_errors_example_spec, rows_entry_example,
+# rows_entry_errors_example; witness: rows_req_fits_example.
 
 import Base
 import ../bend/doc_lines.bend as Dl
@@ -88,7 +122,7 @@ def rows.Count(+ls: List<&2, Dl.Line>) -> Nat:
 def rows.Pieces(bs: List<&2, Dl.B>) -> List<&2, Dl.Line>:
   Dl.proj.lines(Dl.pieces(Dl.split(bs)))
 
-# LAW rows_lines_are_read_rows: the lines a read numbers are, in order and
+# LAW rows_lines_are_read_rows (R1): the lines a read numbers are, in order and
 # length, the rows of the model's read (each `\r\n` made `\n`, split on
 # `\n`, no row after a final `\n`): Rust's row i is line i of its scan
 # EXCLUDES: a lost or extra last row, a row that keeps the `\r` of a
@@ -97,7 +131,7 @@ law rows_lines_are_read_rows:
   for +bs: List<&2, Dl.B>
   {rows.Lens(List.take(&2, Dl.Line, rows.Pieces(bs), rows.Count(rows.Pieces(bs)))) == rows.LensB(Dl.read_rows(bs)) : List<&2, Nat>}
 
-# LAW rows_raw_lines_are_pieces: the lines a raw read counts are the
+# LAW rows_raw_lines_are_pieces (R1): the lines a raw read counts are the
 # pieces of the text with each `\r\n` made `\n`, split on `\n`
 # EXCLUDES: a raw read that drops the empty piece after a final `\n`
 law rows_raw_lines_are_pieces:
@@ -107,31 +141,55 @@ law rows_raw_lines_are_pieces:
 # Gate
 # ----
 
-def rows.Gate.bytes(nul: Bool, bad: Bool) -> Dr.Gate:
-  match bad:
-    case True{}:
-      Dr.NotUtf8{}
-    case False{}:
-      rows.If(Dr.Gate, nul, Dr.Binary{}, Dr.Go{})
+# the gate lets the read go on
+def rows.Goes(g: Dr.Gate) -> Bool:
+  match g:
+    case Dr.Go{}:
+      True{}
+    case Dr.NotUtf8{}:
+      False{}
+    case Dr.Binary{}:
+      False{}
 
-# a raw read always goes; else not UTF-8 (a UTF-16 BOM, or no NUL) is
-# refused first, then a NUL
-def rows.Gate(raw: Bool, utf8: Bool, utf16: Bool, +nul: Bool) -> Dr.Gate:
-  match raw:
-    case True{}:
-      Dr.Go{}
-    case False{}:
-      rows.Gate.bytes(nul, Bool.and(Bool.not(utf8), Bool.or(utf16, Bool.not(nul))))
+# the gate refuses the read as binary
+def rows.IsBinary(g: Dr.Gate) -> Bool:
+  match g:
+    case Dr.Go{}:
+      False{}
+    case Dr.NotUtf8{}:
+      False{}
+    case Dr.Binary{}:
+      True{}
 
-# LAW rows_gate_refuses: the gate of a read is the refusal rule
-# EXCLUDES: a binary file shown, a UTF-16 file read as binary, a raw read
-# refused, a UTF-8 file without NUL refused
-law rows_gate_refuses:
+# LAW rows_gate_goes_as_omp (R3): for any facts about a read (raw or not,
+# the bytes UTF-8 or not, a UTF-16 BOM or not, a NUL in the sniffed head
+# or not) it goes on exactly when it is raw, or the bytes are UTF-8 and
+# the head has no NUL (omp's read: binary is a NUL in the head or bytes
+# that are not UTF-8; `:raw` reads every file)
+# EXCLUDES: a raw read refused; a file with a NUL, or one that is not
+#   UTF-8 (UTF-16, Latin-1), shown as text; a UTF-8 file with no NUL
+#   refused
+law rows_gate_goes_as_omp:
   for +raw: Bool
   for +utf8: Bool
   for +utf16: Bool
   for +nul: Bool
-  {Dr.gate(raw, utf8, utf16, nul) == rows.Gate(raw, utf8, utf16, nul) : Dr.Gate}
+  {rows.Goes(Dr.gate(raw, utf8, utf16, nul)) == Bool.or(raw, Bool.and(utf8, Bool.not(nul))) : Bool}
+
+# LAW rows_gate_names_the_refusal (R4): for any facts about a read that
+# does not go on, it is refused as binary exactly when the head has a NUL
+# and the file is not UTF-16 text (a UTF-16 BOM and bytes that are not
+# UTF-8); else it is refused as not UTF-8
+# EXCLUDES: a UTF-16 file (its ASCII has NUL bytes) called binary; a
+#   UTF-8 or Latin-1 file with a NUL called not UTF-8; a Latin-1 file
+#   with no NUL called binary
+law rows_gate_names_the_refusal:
+  for +raw: Bool
+  for +utf8: Bool
+  for +utf16: Bool
+  for +nul: Bool
+  for refused: {rows.Goes(Dr.gate(raw, utf8, utf16, nul)) == False{} : Bool}
+  {rows.IsBinary(Dr.gate(raw, utf8, utf16, nul)) == Bool.and(nul, Bool.not(Bool.and(utf16, Bool.not(utf8)))) : Bool}
 
 # View
 # ----
@@ -230,7 +288,7 @@ def rows.View(+s: Dr.Sel, utf8: Bool, over: Bool, +ls: List<&2, Dl.Line>) -> Dr.
   +t = rows.If(Nat, raw, List.length(&2, Dl.Line, ls), rows.Count(ls))
   rows.View.fin(t, raw, utf8, over, rows.Shown(s, t))
 
-# LAW rows_view_shows: what the entry decides a read shows is the read
+# LAW rows_view_shows (R2): what the entry decides a read shows is the read
 # rule: the lines it counts, the spans with their context and gap
 # markers, the notices in order, and the tag
 # EXCLUDES: a lost or doubled context line, context on a raw read, a span
@@ -287,7 +345,7 @@ def rows.Spans(v: Dr.View) -> List<&2, Dr.Span>:
     case Dr.View{t, raw, sp, ns, tag}:
       sp
 
-# LAW rows_gap_marks_every_jump: in every read, the first span shown has
+# LAW rows_gap_marks_every_jump (R2): in every read, the first span shown has
 # no gap marker and every later span has one exactly when it does not
 # start right after the span shown before it (a later span, an earlier one
 # or an overlapping one; raw: every later span)
@@ -377,8 +435,9 @@ def rows.spell_req(r: rows.Req) -> String:
     case rows.ViewReq{sel, u8, over, p}:
       Wr.put_nat(1n, rows.spell_sel(sel, Wr.put_bool(u8, Wr.put_bool(over, LawsBase.proj_spell(p, "")))))
 
-# the spelling of the model's answer (Dr.gate is rows.Gate for every input,
-# rows_gate_refuses; Dr.view is rows.View for every input, rows_view_shows)
+# the spelling of the model's answer (Dr.gate: rows_gate_goes_as_omp and
+# rows_gate_names_the_refusal; Dr.view is rows.View for every input,
+# rows_view_shows)
 def rows.answer(r: rows.Req) -> String:
   match r:
     case rows.GateReq{raw, u8, u16, nul}:
@@ -412,7 +471,7 @@ def rows.ReqFits(r: rows.Req) -> Bool:
     case rows.ViewReq{sel, u8, over, p}:
       Bool.and(rows.SelFits(sel), LawsBase.proj_fits(p))
 
-# LAW rows_entry_answers: the entry answers every request whose numbers
+# LAW rows_entry_answers (R5): the entry answers every request whose numbers
 # fit the wire, spelled from the wire primitives, with the spelling of the
 # model's decision
 # EXCLUDES: a codec that loses, reorders or misreads a field (a range, the
@@ -423,7 +482,7 @@ law rows_entry_answers:
   for h: {rows.ReqFits(r) == True{} : Bool}
   {Fdr.ffi(rows.spell_req(r)) == rows.answer(r) : String}
 
-# LAW rows_entry_exact: every input the entry does not answer with the
+# LAW rows_entry_exact (R5): every input the entry does not answer with the
 # error form is the spelling of a request whose numbers fit
 # EXCLUDES: a default answer to malformed input, an unknown tag read as a
 # known one, input left over ignored
@@ -512,7 +571,7 @@ def rows.spell_left_over(w: rows.LeftOver) -> String:
     case rows.LeftOver{q, h, t}:
       rows.spell_req_on(q, SCon{h, t})
 
-# LAW rows_entry_left_over: a request whose numbers fit, followed by more
+# LAW rows_entry_left_over (R5): a request whose numbers fit, followed by more
 # input, answers the left-over error form
 # EXCLUDES: the input after the request ignored or read as part of it
 law rows_entry_left_over:
@@ -522,7 +581,7 @@ law rows_entry_left_over:
   for fit: {rows.ReqFits(r) == True{} : Bool}
   {Fdr.ffi(rows.spell_req_on(r, SCon{h, t})) == Wr.err("doc_rows: input left over") : String}
 
-# LAW rows_entry_left_over_exact: the entry answers the left-over error
+# LAW rows_entry_left_over_exact (R5): the entry answers the left-over error
 # form only to a spelled request whose numbers fit, followed by more input
 # EXCLUDES: the left-over text for a malformed request
 law rows_entry_left_over_exact:
@@ -531,7 +590,7 @@ law rows_entry_left_over_exact:
   exs w: rows.LeftOver
   {s == rows.spell_left_over(w) : String} & {rows.ReqFits(rows.left_req(w)) == True{} : Bool}
 
-# LAW rows_entry_errors: every error the entry answers is the malformed or
+# LAW rows_entry_errors (R5): every error the entry answers is the malformed or
 # the left-over error form; with rows_entry_exact, rows_entry_left_over
 # and rows_entry_left_over_exact, every input that spells no request
 # answers exactly "doc_rows: malformed request"

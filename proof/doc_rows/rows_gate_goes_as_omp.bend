@@ -1,10 +1,11 @@
-# eukhe: the proof of LAW rows_gate_refuses
+# eukhe: the proof of LAW rows_gate_goes_as_omp
+#
+# PROOF: every raw, utf8, utf16 and nul: both sides compute equal.
 
 import Base
 import ../../laws/doc_rows.bend as DocRows
 
-# every raw, utf8, utf16 and nul: both sides compute equal
-def DocRows.rows_gate_refuses(raw, utf8, utf16, nul):
+def DocRows.rows_gate_goes_as_omp(raw, utf8, utf16, nul):
   match raw:
     case True{}:
       {==}
@@ -19,11 +20,7 @@ def DocRows.rows_gate_refuses(raw, utf8, utf16, nul):
         case False{}:
           match utf16:
             case True{}:
-              match nul:
-                case True{}:
-                  {==}
-                case False{}:
-                  {==}
+              {==}
             case False{}:
               match nul:
                 case True{}:

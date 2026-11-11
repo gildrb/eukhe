@@ -1,4 +1,28 @@
 # eukhe: the laws of area doc_glob
+#
+# Requirements (section F11 of the documents laws: glob's ranking and
+# pages; bend/doc_glob.bend, bend/ffi_doc_glob.bend; Rust
+# crates/eukhe-docs/src/glob.rs):
+# R1 a glob ranks the matched paths newest first, then by path (char by
+#    char, by code point; a path before its extensions), each path once at
+#    its newest time; its page, continuation and past-the-end count are
+#    the section header's below; the entry asks for a path whole only when
+#    it can still be on the page or tell that more follow, keeping at most
+#    S + K + 1 paths (bounded memory).
+# R2 an open that is not exactly a spelled skip and limit (0, or 1 then
+#    the limit) that fit the wire answers "doc_glob: malformed open", and
+#    every text after it answers "doc_glob: the open was refused": no page
+#    ever follows a refused open.
+# R3 in an open glob, a text that is not exactly one spelled event (a
+#    path's time, a path whole, the page) that fits the wire answers
+#    "doc_glob: malformed event" and changes nothing.
+# R4 the entry answers every walk Rust feeds it, and any events in any
+#    order, that fit the wire, with the replies of R1.
+# Coverage: R1, R4 glob_walk_runs, glob_events_answer; R2
+# glob_open_malformed_unless_open, glob_refused_open_stays_refused; R3
+# glob_step_malformed_unless_event, glob_step_malformed_keeps. Anchors
+# (no coverage): glob_walk_example, glob_refuses_example; witness:
+# glob_fits_example.
 
 import Base
 import ../bend/doc_glob.bend as Gb
@@ -298,7 +322,7 @@ def glob.Trace(ws: List<&2, glob.Hit>, +s: Nat, +k: Nat, +c: Nat, +rs: List<&2, 
       +y = glob.Wants(w, c, rs)
       List.append(&2, String, glob.If(List<&2, String>, y, [Wr.put_bool(True{}, ""), ""], [Wr.put_bool(False{}, "")]), glob.Trace(t, s, k, c, glob.Put(w, rs)))
 
-# LAW glob_walk_runs: a glob that Rust feeds a walk (open with skip s and
+# LAW glob_walk_runs (R1, R4): a glob that Rust feeds a walk (open with skip s and
 # limit lim; per matched path its time, and the path whole when the entry
 # answers T; then the page) gets the empty reply to the open, T or F per
 # path as the spec decides (F only when the S + K + 1 hits kept are all
@@ -372,7 +396,7 @@ def glob.Answers(es: List<&2, glob.Ev>, +s: Nat, +k: Nat, +c: Nat, +rs: List<&2,
         case glob.EShow{}:
           glob.spell_page(rs, s, k) <> glob.Answers(t, s, k, c, rs)
 
-# LAW glob_events_answer: after an open, any events in any order that fit
+# LAW glob_events_answer (R1, R4): after an open, any events in any order that fit
 # the wire get the spec's replies: a time T or F as the spec decides over
 # the paths sent whole so far, the empty reply to a path whole, the page
 # of the paths sent whole (each event counts, in order)
@@ -386,102 +410,6 @@ law glob_events_answer:
   for +h: {Bool.and(Bool.and(LawsBase.wire_fits(s), LawsBase.core_mfits(lim)), glob.EvsFit(es)) == True{} : Bool}
   {glob.Snd(glob.Open(s, lim)) <> glob.Steps(es, glob.Fst(glob.Open(s, lim))) == "" <> glob.Answers(es, s, glob.Size(lim), 1n+Nat.add(s, glob.Size(lim)), Nil{}) : List<&2, String>}
 
-# The spec readers: whether a text is exactly an open's or an event's
-# spelling, nothing after it
-def glob.end(d: Wr.Dec<Nat>) -> Bool:
-  match d:
-    case Wr.Got{v, r}:
-      String.is_empty(r)
-    case Wr.Bad{}:
-      False{}
-
-def glob.end_str(d: Wr.Dec<String>) -> Bool:
-  match d:
-    case Wr.Got{v, r}:
-      String.is_empty(r)
-    case Wr.Bad{}:
-      False{}
-
-def glob.OpenLim(d: Wr.Dec<Nat>) -> Bool:
-  match d:
-    case Wr.Got{t, r}:
-      match t:
-        case 0n:
-          String.is_empty(r)
-        case 1n:
-          glob.end(Wr.get_nat(r))
-        case 2n+x:
-          False{}
-    case Wr.Bad{}:
-      False{}
-
-# the skip, then 0, or 1 and the limit
-def glob.OpenOk.of(d: Wr.Dec<Nat>) -> Bool:
-  match d:
-    case Wr.Got{s, r}:
-      glob.OpenLim(Wr.get_nat(r))
-    case Wr.Bad{}:
-      False{}
-
-def glob.OpenOk(x: String) -> Bool:
-  glob.OpenOk.of(Wr.get_nat(x))
-
-def glob.AddOk(d: Wr.Dec<Nat>) -> Bool:
-  match d:
-    case Wr.Got{m, r}:
-      glob.end_str(Wr.get_str(r))
-    case Wr.Bad{}:
-      False{}
-
-# 0 and a time; 1, a time and a path; 2
-def glob.EvOk.of(d: Wr.Dec<Nat>) -> Bool:
-  match d:
-    case Wr.Got{t, r}:
-      match t:
-        case 0n:
-          glob.end(Wr.get_nat(r))
-        case 1n:
-          glob.AddOk(Wr.get_nat(r))
-        case 2n:
-          String.is_empty(r)
-        case 3n+x:
-          False{}
-    case Wr.Bad{}:
-      False{}
-
-def glob.EvOk(x: String) -> Bool:
-  glob.EvOk.of(Wr.get_nat(x))
-
-# LAW glob_open_refuses: any open that is not exactly a skip and a limit
-# opens the refused state, with the error form
-# EXCLUDES: a default page for a bad open, input left over read, a limit
-# tag of 2 taken
-law glob_open_refuses:
-  for +x: String
-  for no: {glob.OpenOk(x) == False{} : Bool}
-  {FGb.open(x) == (FGb.Shut{}, Wr.err("doc_glob: malformed open")) : FGb.St & String}
-
-# LAW glob_shut_refuses: the refused state answers every event with the
-# error form
-# EXCLUDES: a page of made-up limits after a refused open
-law glob_shut_refuses:
-  for +x: String
-  {FGb.step(FGb.Shut{}, x) == (FGb.Shut{}, Wr.err("doc_glob: the open was refused")) : FGb.St & String}
-
-# LAW glob_step_refuses: an event that is not exactly a time, a path
-# whole or the page answers the error form and keeps the glob
-# EXCLUDES: a guessed event, a glob changed by a bad event
-law glob_step_refuses:
-  for +s: Nat
-  for +k: Nat
-  for +c: Nat
-  for +len: Nat
-  for +low: Nat
-  for +xs: List<&2, Gb.It>
-  for +x: String
-  for no: {glob.EvOk(x) == False{} : Bool}
-  {FGb.step(FGb.Gl{s, k, c, len, low, xs}, x) == (FGb.Gl{s, k, c, len, low, xs}, Wr.err("doc_glob: malformed event")) : FGb.St & String}
-
 # the replies to the texts xs from the state and reply of r
 def glob.Texts(xs: List<&2, String>, r: FGb.St & String) -> List<&2, String>:
   match xs:
@@ -491,6 +419,79 @@ def glob.Texts(xs: List<&2, String>, r: FGb.St & String) -> List<&2, String>:
       match r:
         case (st, out):
           out <> glob.Texts(t, FGb.step(st, x))
+
+# The refusals
+# ------------
+
+# the n copies of the reply t
+def glob.Rep(n: Nat, +t: String) -> List<&2, String>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+m:
+      t <> glob.Rep(m, t)
+
+# LAW glob_open_malformed_unless_open (R2): every open text the entry
+# answers with anything but the error form "doc_glob: malformed open" is
+# the spelling of a skip and a limit (0, or 1 then the limit) that fit the
+# wire, with nothing after it
+# EXCLUDES: an open with a limit tag of 2 or more, a cut limit, input left
+#   over, or no skip, read as some page (a default skip or limit) or
+#   answered with another error text
+law glob_open_malformed_unless_open:
+  for +x: String
+  for other: {String.eq(glob.Snd(FGb.open(x)), Wr.err("doc_glob: malformed open")) == False{} : Bool}
+  exs s: Nat
+  exs lim: Maybe<&2, Nat>
+  {x == glob.spell_open(s, lim) : String} & {Bool.and(LawsBase.wire_fits(s), LawsBase.core_mfits(lim)) == True{} : Bool}
+
+# LAW glob_refused_open_stays_refused (R2): after an open the entry
+# answers with "doc_glob: malformed open", it answers every later text,
+# whatever and however many, with "doc_glob: the open was refused"
+# EXCLUDES: a refused open that still keeps paths, or answers a page (of a
+#   default skip and limit), T or F, or the empty reply; another error
+#   text
+law glob_refused_open_stays_refused:
+  for +x: String
+  for +ts: List<&2, String>
+  for refused: {String.eq(glob.Snd(FGb.open(x)), Wr.err("doc_glob: malformed open")) == True{} : Bool}
+  {glob.Texts(ts, FGb.open(x)) == Wr.err("doc_glob: malformed open") <> glob.Rep(List.length(&2, String, ts), Wr.err("doc_glob: the open was refused")) : List<&2, String>}
+
+# LAW glob_step_malformed_unless_event (R3): in any open glob (any page,
+# any paths kept), every text the entry answers with anything but the
+# error form "doc_glob: malformed event" is the spelling of one event (a
+# path's time, a path whole, the page) whose numbers fit the wire, with
+# nothing after it
+# EXCLUDES: an unknown tag, a cut time or path, or input left over, read
+#   as some event (a guessed time, path or page) or answered with another
+#   error text
+law glob_step_malformed_unless_event:
+  for +s: Nat
+  for +k: Nat
+  for +c: Nat
+  for +len: Nat
+  for +low: Nat
+  for +xs: List<&2, Gb.It>
+  for +x: String
+  for other: {String.eq(glob.Snd(FGb.step(FGb.Gl{s, k, c, len, low, xs}, x)), Wr.err("doc_glob: malformed event")) == False{} : Bool}
+  exs e: glob.Ev
+  {x == glob.spell_ev(e) : String} & {glob.EvsFit([e]) == True{} : Bool}
+
+# LAW glob_step_malformed_keeps (R3): in any open glob, a text the entry
+# answers with "doc_glob: malformed event" changes nothing: the glob after
+# it is the glob before it
+# EXCLUDES: a malformed event that still keeps a path, moves the page or
+#   the oldest time kept, or forgets paths
+law glob_step_malformed_keeps:
+  for +s: Nat
+  for +k: Nat
+  for +c: Nat
+  for +len: Nat
+  for +low: Nat
+  for +xs: List<&2, Gb.It>
+  for +x: String
+  for bad: {String.eq(glob.Snd(FGb.step(FGb.Gl{s, k, c, len, low, xs}, x)), Wr.err("doc_glob: malformed event")) == True{} : Bool}
+  {glob.Fst(FGb.step(FGb.Gl{s, k, c, len, low, xs}, x)) == FGb.Gl{s, k, c, len, low, xs} : FGb.St}
 
 # LAW glob_walk_example (anchor): the texts Rust writes: an open of skip
 # 1 and limit 1; b, a (both at 5), c (at 9), b again (at 5) are sent
