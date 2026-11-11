@@ -172,6 +172,7 @@ import ./laws/task_life.bend as TaskLife
 import ./laws/autoresearch/model.bend as Autoresearch
 import ./laws/autoresearch/history.bend as AutoresearchHistory
 import ./laws/autoresearch/entry.bend as AutoresearchEntry
+import ./laws/autoresearch/events.bend as AutoresearchEvents
 import ./laws/auth_read.bend as AuthRead
 import ./laws/cron_user.bend as CronUser
 import ./laws/cron_beats.bend as CronBeats

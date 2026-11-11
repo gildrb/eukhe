@@ -37,8 +37,8 @@
 # over) keeps the state and answers `E autoresearch: malformed request`;
 # an open with input opens the refused state and answers `E autoresearch:
 # malformed open`; the refused state answers every step `E autoresearch:
-# the open was refused`. laws/autoresearch.bend pins the entry. Pure: no
-# IO, no @unsafe.
+# the open was refused`. laws/autoresearch/entry.bend pins the entry.
+# Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W

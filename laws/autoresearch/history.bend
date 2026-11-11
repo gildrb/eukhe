@@ -9,7 +9,6 @@ import ../../bend/autoresearch/state.bend as ArS
 import ../../bend/autoresearch/step.bend as ArP
 import ../../bend/autoresearch/stats.bend as ArT
 import ../../spec/autoresearch/segment.bend as SG
-import ../../spec/autoresearch/step.bend as SP
 import ./model.bend as ArM
 
 # Runs
@@ -104,46 +103,96 @@ law best_is_best:
   for +evs: List<&2, ArS.Ev>
   ar_best_ok(ArM.ar_run(evs))
 
-# LAW baseline_is_first: in every state (so after every history), the
-# baseline is the metric of the first (oldest) kept run of the current
-# segment that is not flagged, none when the current segment kept no
-# such run (spec/autoresearch/segment.bend first_kept). confidence_exact
-# reads the state's own baseline, so this also ties the confidence to
-# the current segment
-# EXCLUDES: a baseline carried over from an earlier segment (a new
-# segment that keeps the old baseline, and the confidence built on it),
-# a baseline from a later keep (the best, the last keep), a flagged,
-# discarded, crashed or abandoned run as the baseline, a baseline with
-# nothing kept in the segment
-law baseline_is_first:
-  for +s: ArS.St
-  {ArS.St.baseline(s) == SG.first_kept(ArM.ar_runs(s), ArM.ar_seg(s)) : Maybe<&2, ArD.Dec>}
+# the baseline b is none when the segment kept no run (that is not
+# flagged), else the metric of such a run
+def ar_base_ok(b: Maybe<&2, ArD.Dec>, rs: List<&2, ArS.Row>, +seg: Nat) -> Type:
+  match b:
+    case None{}:
+      {SG.none_kept(rs, seg) == True{} : Bool}
+    case Some{x}:
+      {SG.has_kept(x, rs, seg) == True{} : Bool}
 
-# LAW logged_is_segment: in every state (so after every history), the
-# logged count (the snapshot's, and the one cap_stops reads) is the
-# number of runs of the current segment that were logged (a status set;
-# abandoned rows have none), flagged ones included
-# (spec/autoresearch/segment.bend logged_count). With cap_stops (an
-# equation for the stop), the cap is per segment: a step stops exactly
-# when the current segment's logged runs reach max_iterations
+# LAW baseline_is_kept: in every state, the baseline is none exactly when
+# the current segment kept no run that is not flagged; else it is the
+# metric of such a run (spec/autoresearch/segment.bend). confidence_exact
+# reads the state's own baseline, so this also ties the confidence to the
+# current segment
+# EXCLUDES: a baseline carried over from an earlier segment (and the
+# confidence built on it), a flagged, discarded, crashed or abandoned run
+# as the baseline, a baseline with nothing kept, none after a keep
+law baseline_is_kept:
+  for +s: ArS.St
+  ar_base_ok(ArS.St.baseline(s), ArM.ar_runs(s), ArM.ar_seg(s))
+
+# LAW baseline_stays: within a segment, once there is a baseline, every
+# accepted step other than a flag keeps it. With baseline_is_kept the
+# baseline is the segment's first keep: the first keep of a segment sets
+# it, no later keep, log, start or init on the segment moves it (and
+# flagged_excluded: flagging it moves it to the first keep left)
+# EXCLUDES: a baseline that follows the best (the last keep), a baseline
+# moved by a later keep, a discard, a start or an init on the same
+# segment
+law baseline_stays:
+  for +s: ArS.St
+  for +e: ArS.Ev
+  for +s2: ArS.St
+  for +eff: ArS.Eff
+  for +stop: Bool
+  for +x: ArD.Dec
+  for ok: {ArP.step(s, e) == ArS.Took{s2, eff, stop} : ArS.Res}
+  for nf: {ArM.ar_is_flag(e) == False{} : Bool}
+  for same: {ArM.ar_seg(s2) == ArM.ar_seg(s) : Nat}
+  for was: {ArS.St.baseline(s) == Some{x} : Maybe<&2, ArD.Dec>}
+  {ArS.St.baseline(s2) == Some{x} : Maybe<&2, ArD.Dec>}
+
+def ar_logged_init(fresh: Bool, nocfg: Bool, n: Nat) -> Nat:
+  match fresh:
+    case True{}:
+      match nocfg:
+        case True{}:
+          n
+        case False{}:
+          0n
+    case False{}:
+      n
+
+# the logged count after an accepted step e on s: one more after a log;
+# 0 after an init that opens a new segment of an experiment; the same
+# after every other step
+def ar_logged_next(+s: ArS.St, e: ArS.Ev) -> Nat:
+  match e:
+    case ArS.Init{c, f, h}:
+      ar_logged_init(f, ArM.ar_no_cfg(s), ArS.St.logged(s))
+    case ArS.Begin{n}:
+      ArS.St.logged(s)
+    case ArS.Line{t}:
+      ArS.St.logged(s)
+    case ArS.Finish{n, c, t}:
+      ArS.St.logged(s)
+    case ArS.Log{st, d, w, v}:
+      1n+ArS.St.logged(s)
+    case ArS.Flag{n, r}:
+      ArS.St.logged(s)
+    case ArS.SetMode{m}:
+      ArS.St.logged(s)
+
+# LAW logged_counts_logs: after any history from the empty state, an
+# accepted log adds one to the logged count (the snapshot's, the one
+# cap_stops reads), whatever its status; an init that opens a new segment
+# of an experiment starts it at 0; every other accepted step keeps it (a
+# flag too: a flagged run still counts toward max_iterations). With
+# cap_stops, the cap is per segment
 # EXCLUDES: a count over every segment (a new segment that starts with
 # the old segment's budget spent), abandoned runs counted, flagged runs
-# left out of the cap
-law logged_is_segment:
-  for +s: ArS.St
-  {ArS.St.logged(s) == SG.logged_count(ArM.ar_runs(s), ArM.ar_seg(s)) : Nat}
-
-# LAW best_is_segment: in every state, the best the snapshot shows (and
-# the confidence reads) is the newest kept metric of the current segment
-# that is not flagged, none when the segment kept no such run
-# (spec/autoresearch/step.bend last_kept, the best a refused keep names);
-# snapshot_best_is_best then says it is the segment's best
-# EXCLUDES: a best taken over every segment (the previous segment's
-# better metric after a new segment, and the confidence built on it), a
-# flagged, discarded, crashed or abandoned run as the best
-law best_is_segment:
-  for +s: ArS.St
-  {ArS.St.best(s) == SP.last_kept(ArM.ar_runs(s), ArM.ar_seg(s)) : Maybe<&2, ArD.Dec>}
+# taken out of the cap, a log not counted
+law logged_counts_logs:
+  for +evs: List<&2, ArS.Ev>
+  for +e: ArS.Ev
+  for +s2: ArS.St
+  for +eff: ArS.Eff
+  for +stop: Bool
+  for ok: {ArP.step(ArM.ar_run(evs), e) == ArS.Took{s2, eff, stop} : ArS.Res}
+  {ArS.St.logged(s2) == ar_logged_next(ArM.ar_run(evs), e) : Nat}
 
 def ar_snap_best_ok(s: ArS.St) -> Type:
   match s:
@@ -317,7 +366,7 @@ def ar_ex_pending() -> ArS.St:
 # pending is accepted (no effect, no stop): run 1 ends as an abandoned
 # row (no status, its metric 10 kept, not passed, not finished) and run 2
 # is the only pending run, with no metrics
-# EXCLUDES: a start refused while a run is pending (R1), a pending run
+# EXCLUDES: a start refused while a run is pending (A5), a pending run
 # lost instead of abandoned
 law start_abandons_example:
   {ArP.step(ar_ex_pending(), ArS.Begin{2n}) == ArS.Took{ArS.St{Some{ar_seg_cfg()}, 0n, ArS.On{}, [ArS.Row{1n, 0n, None{}, Some{ArD.Dec{False{}, [1n, 0n], 0n}}, Nil{}, False{}, False{}, False{}, ""}], Some{ArS.Pend{2n, Nil{}, None{}}}}, ArS.Nothing{}, False{}} : ArS.Res}

@@ -1,6 +1,6 @@
 //! Autoresearch's decisions (port of oh-my-pi autoresearch; spec/README.md
 //! X1, X2): the model `bend/autoresearch/`, stepper entry
-//! `bend/ffi_autoresearch.bend`, laws `laws/autoresearch.bend`.
+//! `bend/ffi_autoresearch.bend`, laws `laws/autoresearch/`.
 //!
 //! The lab lives in the compiled core: which runs a log may keep (only a
 //! passed run whose parsed metric beats every kept run of the segment that
