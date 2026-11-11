@@ -54,5 +54,14 @@ def pq.found_k(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +b: Maybe<&2, If.Be
 def pq.quirk_known_when_some(+rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, some: {If.any_at(rs, q, d, 0n) == True{} : Bool}) -> {If.is_known(If.lookup(rs, q, d)) == True{} : Bool}:
   pq.found_k(rs, q, d, None{}, If.use.at(rs, q, d), {==}, some)
 
+# the laws' rb.known is the model's is_known, answer by answer
+def pq.known_is(a: If.Ans) -> {Infer.rb.known(a) == If.is_known(a) : Bool}:
+  match a:
+    case If.Known{v}:
+      {==}
+    case If.Unknown{}:
+      {==}
+
 def Infer.quirk_known_when_some(rs, q, d, some):
-  pq.quirk_known_when_some(rs, q, d, some)
+  +L = If.lookup(rs, q, d)
+  Equal.trans(Bool, Infer.rb.known(L), If.is_known(L), True{}, pq.known_is(L), pq.quirk_known_when_some(rs, q, d, some))

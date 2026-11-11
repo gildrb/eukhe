@@ -4,6 +4,7 @@ import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
 import ./base.bend as LA
+import ./quirk_valid_rulebook_compiles.bend as PV
 
 # Compiling
 # ---------
@@ -23,5 +24,7 @@ def pq.quirk_unknown_rejected(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +r
 
 # (S6) The inference layer
 
+# the laws' rb.has is the model's elem (PV.pv.has_elem)
 def Infer.quirk_unknown_rejected(known, pre, r, post, bad):
-  pq.quirk_unknown_rejected(known, pre, r, post, bad)
+  +D = If.Rule.dir(r)
+  pq.quirk_unknown_rejected(known, pre, r, post, Equal.trans(Bool, If.elem(known, D), Infer.rb.has(known, D), False{}, Equal.sym(Bool, Infer.rb.has(known, D), If.elem(known, D), PV.pv.has_elem(known, D)), bad))

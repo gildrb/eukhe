@@ -44,27 +44,6 @@ import ./base.bend as LawsBase
 # A2    The plan refuses only when a loose tool requires a strict schema;
 #       otherwise it fits and lists the loose tools.
 
-# LAW quirk_unknown_rejected: a rulebook with a rule of an unknown directive does not compile
-law quirk_unknown_rejected:
-  for +known: List<&2, Nat>
-  for +pre: List<&2, If.Rule>
-  for +r: If.Rule
-  for +post: List<&2, If.Rule>
-  for bad: {If.elem(known, If.Rule.dir(r)) == False{} : Bool}
-  {If.compiles(known, List.append(&2, If.Rule, pre, r <> post)) == False{} : Bool}
-
-# LAW quirk_clash_rejected: a rulebook with two rules of one layer, target and directive and
-# different values does not compile: precedence is never ambiguous
-law quirk_clash_rejected:
-  for +known: List<&2, Nat>
-  for +pre: List<&2, If.Rule>
-  for +a: If.Rule
-  for +mid: List<&2, If.Rule>
-  for +b: If.Rule
-  for +post: List<&2, If.Rule>
-  for both: {If.clash(a, b) == True{} : Bool}
-  {If.compiles(known, List.append(&2, If.Rule, pre, a <> List.append(&2, If.Rule, mid, b <> post))) == False{} : Bool}
-
 # LAW quirk_unknown_when_none: with no rule that applies, the answer is Unknown, never a guess
 law quirk_unknown_when_none:
   for +rs: List<&2, If.Rule>
@@ -73,13 +52,26 @@ law quirk_unknown_when_none:
   for none: {If.any_at(rs, q, d, 0n) == False{} : Bool}
   {If.lookup(rs, q, d) == If.Unknown{} : If.Ans}
 
-# LAW quirk_known_when_some: a rule that applies always gives an answer
+# the answer a is known: some value, not Unknown
+def rb.known(a: If.Ans) -> Bool:
+  match a:
+    case If.Known{v}:
+      True{}
+    case If.Unknown{}:
+      False{}
+
+# LAW quirk_known_when_some (S6.1): a rule that applies (a rule of the
+# directive whose target the query matches, any layer) always gives an
+# answer: the lookup is Known{v} for some value v, never Unknown
+# EXCLUDES: an applying rule ignored (Unknown answered), a known answer
+#   read through the model's own is_known test (the law reads the answer's
+#   constructor)
 law quirk_known_when_some:
   for +rs: List<&2, If.Rule>
   for +q: If.Query
   for +d: Nat
   for some: {If.any_at(rs, q, d, 0n) == True{} : Bool}
-  {If.is_known(If.lookup(rs, q, d)) == True{} : Bool}
+  {rb.known(If.lookup(rs, q, d)) == True{} : Bool}
 
 # LAW quirk_highest_wins: in a rulebook that compiles, a rule of the highest layer that
 # applies gives the answer: host over model over family
@@ -179,6 +171,37 @@ def rb.calm_all(xs: List<&2, If.Rule>, +rs: List<&2, If.Rule>) -> Bool:
       True{}
     case +x <> rest:
       Bool.and(rb.calm(x, rs), rb.calm_all(rest, rs))
+
+# LAW quirk_unknown_rejected (S6.1): a rulebook with a rule whose
+# directive is none of the known directives (rb.has, the laws' own check)
+# does not compile, wherever the rule stands and whatever the other rules
+# EXCLUDES: an unknown directive compiled (a typo in rulebook.json taken
+#   as a rule nobody reads), only the first or last rule checked, the
+#   check read through the model's own elem
+law quirk_unknown_rejected:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +r: If.Rule
+  for +post: List<&2, If.Rule>
+  for bad: {rb.has(known, If.Rule.dir(r)) == False{} : Bool}
+  {If.compiles(known, List.append(&2, If.Rule, pre, r <> post)) == False{} : Bool}
+
+# LAW quirk_clash_rejected (S6.1): a rulebook with two rules that clash
+# (rb.clash, the laws' own check: one layer, target and directive,
+# different values), at any two places, does not compile: precedence is
+# never ambiguous
+# EXCLUDES: two clashing rules compiled (the answer then depends on their
+#   order), only neighbours checked, the clash read through the model's
+#   own clash
+law quirk_clash_rejected:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +a: If.Rule
+  for +mid: List<&2, If.Rule>
+  for +b: If.Rule
+  for +post: List<&2, If.Rule>
+  for both: {rb.clash(a, b) == True{} : Bool}
+  {If.compiles(known, List.append(&2, If.Rule, pre, a <> List.append(&2, If.Rule, mid, b <> post))) == False{} : Bool}
 
 # LAW quirk_valid_rulebook_compiles (S6.1): a rulebook compiles whenever every rule has a
 # known directive and no rule clashes with any rule of the rulebook (no
