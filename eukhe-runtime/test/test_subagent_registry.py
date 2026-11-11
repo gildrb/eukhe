@@ -61,6 +61,42 @@ class RlmSubagentRegistryTest(unittest.TestCase):
 
         self.assertEqual(subagents[0].status, "error")
 
+    def test_lists_cancelled_subagents_from_host(self) -> None:
+        # The row of a child whose run was cancelled (Esc on the cell that
+        # waited on it) stays in the roster until the child is deleted.
+        host_request = AsyncMock(
+            return_value={
+                "subagents": [
+                    {
+                        "rlm_child_id": "sub-cancelled",
+                        "active_session_id": "active-child",
+                        "session_id": "session-child",
+                        "session_name": "cancelled-worker",
+                        "session_dir": "/tmp/parent/sub-cancelled",
+                        "status": "cancelled",
+                    }
+                ]
+            }
+        )
+
+        with patch.object(rlm_module, "host_request", host_request):
+            subagents = asyncio.run(rlm_module.rlm.list_subagents())
+
+        self.assertEqual([row.status for row in subagents], ["cancelled"])
+
+    def test_rejects_an_unknown_roster_status(self) -> None:
+        row = {
+            "rlm_child_id": "sub-x",
+            "session_name": "worker",
+            "session_dir": "/tmp/parent/sub-x",
+            "status": "done",
+        }
+        host_request = AsyncMock(return_value={"subagents": [row]})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            with self.assertRaisesRegex(RuntimeError, "rlm.list_subagents entry has invalid status"):
+                asyncio.run(rlm_module.list_subagents())
+
     def test_forwards_orchestrator_chosen_name_and_model_to_host(self) -> None:
         host_request = AsyncMock(
             return_value={
@@ -262,6 +298,24 @@ class RlmSubagentRegistryTest(unittest.TestCase):
             "rlm.delete_subagent",
             {"target": "sub-a1b2c3d4"},
         )
+
+    def test_deletes_a_running_subagent_whose_row_reads_cancelled(self) -> None:
+        # The delete aborts a running child's run: the deleted row the host
+        # answers with reads `cancelled`.
+        deleted_payload = {
+            "rlm_child_id": "sub-a1b2c3d4",
+            "active_session_id": "active-child",
+            "session_id": "session-child",
+            "session_name": "api-reviewer",
+            "session_dir": "/tmp/parent/sub-a1b2c3d4",
+            "status": "cancelled",
+        }
+        host_request = AsyncMock(return_value={"subagent": deleted_payload, "outcome": "deleted"})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            deleted = asyncio.run(rlm_module.rlm.delete_subagent("api-reviewer"))
+
+        self.assertEqual((deleted.rlm_child_id, deleted.status), ("sub-a1b2c3d4", "cancelled"))
 
     def test_rejects_invalid_delete_response_and_target(self) -> None:
         host_request = AsyncMock(return_value={"subagent": {"status": "completed"}})

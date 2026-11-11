@@ -59,8 +59,18 @@ class RLMSubagentActivity:
     tool_name: str | None = None
 
 
+# The run status of a roster row: `cancelled` is a child whose run was
+# stopped before it answered (Esc on the cell that waited on it, a cancel,
+# a delete of the running child); the row stays until the child is deleted.
+SUBAGENT_STATUSES = ("running", "completed", "error", "cancelled")
+
+
 @dataclass(frozen=True)
 class RLMSubagent:
+    """One direct child as ``list_subagents()`` rows it: ``status`` is
+    ``running``, ``completed``, ``error`` or ``cancelled`` (its run was
+    stopped before it answered)."""
+
     rlm_child_id: str
     active_session_id: str | None
     session_id: str | None
@@ -334,7 +344,7 @@ def _subagent_from_payload(payload: Any, operation: str = "rlm.list_subagents") 
         raise RuntimeError(f"{operation} entry is missing session_name")
     if not isinstance(session_dir, str) or not session_dir:
         raise RuntimeError(f"{operation} entry is missing session_dir")
-    if status not in {"running", "completed", "error"}:
+    if status not in SUBAGENT_STATUSES:
         raise RuntimeError(f"{operation} entry has invalid status")
     return RLMSubagent(
         rlm_child_id=child_id,

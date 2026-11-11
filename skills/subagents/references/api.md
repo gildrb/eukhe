@@ -57,7 +57,7 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 ## Types
 
 - `RLMSpawnHandle`: `rlm_child_id: str`, `name: str`, `session_dir: Path`, `model: str` (provider/model).
-- `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "error"]`, plus the live activity fields.
+- `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "error", "cancelled"]`, plus the live activity fields. `cancelled`: the child's run was stopped before it answered (Esc on the cell that waited on it, or a cancel); the row stays until the child is deleted, and `jobs.list()` shows it as `aborted`.
 - `RLMModel`: `provider: str`, `id: str`, `name: str`, `selector: str` (the exact string to spawn the model).
 
 ## Patterns

@@ -714,6 +714,114 @@ fn aborting_a_parent_waiting_in_collect_kills_the_child_s_background_job() {
     );
 }
 
+/// The body of the cell after the cancel: every read the parent has of the
+/// cancelled `kid` (the job list, the roster, a collect snapshot, a wait
+/// on it), then `jobs.cancel`, which deletes it, and the roster again.
+const READ_CANCELLED_KID: &str = "listed = [[job.kind, job.state] for job in await jobs.list() if job.kind == \"child\"]\nroster = await rlm.list_subagents()\nsnapshot = await rlm.collect(\"kid\")\nwaited = await jobs.wait(roster[0], timeout_s=5)\ndeleted = await jobs.cancel(roster[0])\nrecord({\"jobs\": listed, \"roster\": [[row.session_name, row.status] for row in roster], \"collect\": [[r.status, r.settled] for r in snapshot], \"waited\": [waited.kind, waited.state], \"deleted\": [deleted.kind, deleted.state], \"after\": [row.session_name for row in await rlm.list_subagents()]})";
+
+/// The child an aborted wait cancelled stays in the parent's roster, its
+/// status `cancelled` (omp's word for a cancelled agent job,
+/// `async/job-manager.ts:106,643`, printed as is by its job list,
+/// `internal-urls/proc-protocol.ts:196`), and the parent's next cell reads
+/// it: `jobs.list()` lists the child `aborted`, the roster and
+/// `rlm.collect` read it cancelled and settled, a wait on it returns at
+/// once (a cancelled agent is settled for omp's waiter too,
+/// `eval/handle-bridge.ts:95-97,183-190`), and `jobs.cancel` deletes it.
+#[test]
+fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
+    const SLEEP_SECS: u32 = 1796;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "wait",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+            )),
+            tool_call(&lane.cell("read", READ_CANCELLED_KID)),
+            { "text": "read the kid" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent.active, "message": "spawn and wait" }),
+    );
+    wait_until(Duration::from_mins(2), "the kid's sleep", || {
+        (sleeping.exists() && kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+    client.request(
+        "abort",
+        &json!({ "type": "abort", "activeSessionId": parent.active }),
+    );
+    client.wait_idle(&parent.active);
+    wait_until(Duration::from_secs(60), "the kid cancelled", || {
+        (kid_status(&mut client, &parent.active)? == "cancelled" && !kid_sleeping(SLEEP_SECS))
+            .then_some(())
+    });
+
+    client.run_turn(&parent.active, "list the jobs");
+    assert_eq!(
+        lane.receipt("read"),
+        json!({
+            "jobs": [["child", "aborted"]],
+            "roster": [["kid", "cancelled"]],
+            "collect": [["cancelled", true]],
+            "waited": ["child", "aborted"],
+            "deleted": ["child", "aborted"],
+            "after": [],
+        })
+    );
+    let messages = client.messages(&parent.active);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("read the kid"),
+        "{messages:?}"
+    );
+}
+
+/// `jobs.cancel` on a running child deletes it: the delete aborts the
+/// child's run, so the deleted row the host answers with reads
+/// `cancelled`, and the job comes back `aborted`.
+#[test]
+fn cancelling_a_running_child_as_a_job_returns_it_aborted() {
+    const SLEEP_SECS: u32 = 1797;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "kill",
+                &format!(
+                    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nwhile not os.path.exists({:?}):\n    await asyncio.sleep(0.05)\njob = await jobs.cancel(handle)\nrecord({{\"job\": [job.kind, job.state], \"after\": [row.session_name for row in await rlm.list_subagents()]}})",
+                    sleeping.display().to_string()
+                ),
+            )),
+            { "text": "killed the kid" },
+            { "text": "noted" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.run_turn(&parent.active, "spawn and kill");
+    assert_eq!(
+        lane.receipt("kill"),
+        json!({ "job": ["child", "aborted"], "after": [] })
+    );
+    wait_until(Duration::from_secs(60), "the kid's sleep to end", || {
+        (!kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+}
+
 /// A wait an earlier cell left running in a task is not the aborted
 /// cell's: Esc on a later cell leaves the child that task waits on running
 /// (omp aborts only the waits of the cancelled run).
