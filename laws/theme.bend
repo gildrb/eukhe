@@ -52,7 +52,7 @@
 #    theme_builtin_before_custom_example).
 # R6 the compiled entry: see section "The compiled entry" below. Laws:
 #    theme_ffi_answers, theme_ffi_left_over, theme_ffi_unknown_tag, and
-#    laws/theme_entry.bend theme_ffi_spelled and theme_ffi_refuses (anchor
+#    laws/theme_entry.bend theme_ffi_spelled, theme_ffi_refuses (anchor
 #    theme_ffi_example).
 # A1 Rust decodes the JSON (serde) and projects it losslessly: keys in
 #    order, each string with the index of the variable it names, numbers
@@ -84,7 +84,6 @@ import ../bend/tui_color.bend as TC
 import ../bend/ffi_theme.bend as FTh
 import ./base.bend as LawsBase
 import ../spec/theme/wire.bend as Tw
-import ../spec/theme/read.bend as Tr
 import ../spec/theme/rules.bend as Ts
 
 # ---- themes ----
@@ -569,8 +568,9 @@ def th.apart(+xs: List<&2, Co.Rgb>, a: Nat, b: Nat) -> Bool:
 # of p), ends in a value that decides (a color or a malformed value, R1; a
 # reference to no variable: not found; a reference to a variable of p: a
 # cycle named by that reference, R2), j resolves to that decision, for
-# every variables. Premises: no variable of p repeats (so p is no longer
-# than the variables: stated, not derived)
+# every variables. Premise: no variable of p repeats (then p is no longer
+# than the variables: every variable of p exists and none repeats; the
+# proof derives it, so the law needs no length premise)
 # EXCLUDES: a chain followed too far or not far enough, a cycle or a
 #   missing variable reported as another error or with another name (the
 #   start of the chain), a malformed color read as a default, a lookup
@@ -581,7 +581,6 @@ law theme_chase_chain:
   for +p: List<&2, Nat>
   for +g: TChase.Got
   for d: {th.fresh(p, []) == True{} : Bool}
-  for n: {Nat.is_le(List.length(&2, Nat, p), List.length(&2, TFile.Var, vars)) == True{} : Bool}
   for e: {th.chain(p, vars, [], j) == Some{g} : Maybe<&2, TChase.Got>}
   {TChase.chase(vars, j) == g : TChase.Got}
 
@@ -890,9 +889,11 @@ law theme_status_sound:
 # files and decodes their JSON): a theme file read and completed, one
 # load (every file the sources reach read, the theme a name picks, the
 # clashes that warn, the picked file's palette) and the shipped themes'
-# colors. The spellers, the reader and the spec of one load live in
-# spec/theme/wire.bend and spec/theme/read.bend, made of the wire
-# primitives only (bend/wire.bend, laws/wire.bend). Requirements:
+# colors. The spellers and the spec of one load live in
+# spec/theme/wire.bend, made of the wire primitives only (bend/wire.bend,
+# laws/wire.bend); a refusal is the literal error form R6 names. No law
+# reads a request with a reader of its own (a reader is the entry's code
+# restated). Requirements:
 # R6 every request Rust writes (every text, count and variable index
 #    within the wire) is answered with the rules' decision: a load with
 #    TPalette.parse and the color each token paints (a written color, an
@@ -927,7 +928,7 @@ law theme_ffi_left_over:
   for fits: {Tw.fits(r) == True{} : Bool}
   for c: Char
   for x: String
-  {FTh.ffi(Tw.req(r, SCon{c, x})) == Tr.refused() : String}
+  {FTh.ffi(Tw.req(r, SCon{c, x})) == "E theme: malformed request" : String}
 
 # LAW theme_ffi_unknown_tag (R6): an input whose first number (the request's tag, within the
 # wire) is 3 or more, no request kind (0 load, 1 resolve, 2 shipped), is
@@ -939,7 +940,7 @@ law theme_ffi_unknown_tag:
   for +rest: String
   for big: {Nat.is_le(3n, k) == True{} : Bool}
   for fits: {LawsBase.wire_fits(k) == True{} : Bool}
-  {FTh.ffi(Wr.put_nat(k, rest)) == Tr.refused() : String}
+  {FTh.ffi(Wr.put_nat(k, rest)) == "E theme: malformed request" : String}
 
 # LAW theme_ffi_example (R6): anchor: the strings Rust sends: a file whose key zz names no
 # token, the name "dusk" over a registered file named dusk that is no
@@ -947,7 +948,7 @@ law theme_ffi_unknown_tag:
 # unknown tag, input left over and a 15-digit number refused
 # EXCLUDES: a reading of the laws above that the human did not mean
 law theme_ffi_example:
-  {[FTh.ffi("0,1,x0,1,2,zz0,1,1,30,0,0,"), FTh.ffi("1,4,dusk1,F1,4,dusk0,"), FTh.ffi("3,"), FTh.ffi("2,0,x"), FTh.ffi("100000000000000,")] == ["0,0,2,zz", "0,T1,0,0,0,0,1,2,0,", Tr.refused(), Tr.refused(), Tr.refused()] : List<&2, String>}
+  {[FTh.ffi("0,1,x0,1,2,zz0,1,1,30,0,0,"), FTh.ffi("1,4,dusk1,F1,4,dusk0,"), FTh.ffi("3,"), FTh.ffi("2,0,x"), FTh.ffi("100000000000000,")] == ["0,0,2,zz", "0,T1,0,0,0,0,1,2,0,", "E theme: malformed request", "E theme: malformed request", "E theme: malformed request"] : List<&2, String>}
 
 # ---- tui_color ----
 

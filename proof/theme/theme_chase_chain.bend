@@ -4,7 +4,8 @@
 # the next variable, met for the first time (p repeats none), so the walk
 # goes on to its value (cc.next); at the end the walk stops where the
 # laws' th.last decides, with that decision (cc.last). There is fuel for
-# the whole chain: p is no longer than the variables.
+# the whole chain: p is no longer than the variables (CB.cb.chain_fits:
+# its variables exist and are distinct, so they are at most the count).
 
 import Base
 import ../../bend/color.bend as Co
@@ -13,6 +14,7 @@ import ../../bend/theme/file.bend as TFile
 import ../../laws/theme.bend as Theme
 import ./base.bend as LA
 import ./theme_chase_chain/trees.bend as CT
+import ./theme_chase_chain/bound.bend as CB
 
 def cc.ungot(m: Maybe<&2, TChase.Got>) -> TChase.Got:
   match m:
@@ -192,5 +194,7 @@ def cc.walk(p: List<&2, Nat>, f: Nat, +vars: List<&2, TFile.Var>, +seen: List<&2
           %Equal.sym(TChase.Step, CT.cr.next(vars, seen, j), TChase.Go{i <> seen, v}, cc.next(vars, seen, j, i, v, hv, hf)) : {CT.cr.follow(1n+f2, vars, _) == g : TChase.Got}
           cc.walk(rest, f2, vars, i <> seen, v, g, hd2, hn, hr)
 
-def Theme.theme_chase_chain(vars, j, p, g, d, n, e):
-  Equal.trans(TChase.Got, TChase.chase(vars, j), CT.cr.follow(1n+List.length(&2, TFile.Var, vars), vars, TChase.Go{Nil{}, j}), g, CT.pt.chase_walk(vars, j), cc.walk(p, List.length(&2, TFile.Var, vars), vars, Nil{}, j, g, d, n, e))
+def Theme.theme_chase_chain(vars, j, p, g, d, e):
+  +hd = d
+  +he = e
+  Equal.trans(TChase.Got, TChase.chase(vars, j), CT.cr.follow(1n+List.length(&2, TFile.Var, vars), vars, TChase.Go{Nil{}, j}), g, CT.pt.chase_walk(vars, j), cc.walk(p, List.length(&2, TFile.Var, vars), vars, Nil{}, j, g, hd, CB.cb.chain_fits(p, vars, j, g, hd, he), he))
