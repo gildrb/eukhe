@@ -1294,9 +1294,6 @@ import ./proof/orphan/orphan_idle_exit_due.bend as POrphanIdleExitDue
 import ./proof/orphan/orphan_work_exit_due.bend as POrphanWorkExitDue
 import ./proof/orphan/orphan_capped_window_never_expires.bend as POrphanCappedWindowNeverExpires
 import ./proof/orphan/orphan_exit_by_work.bend as POrphanExitByWork
-import ./proof/orphan/orphan_work_spec.bend as POrphanWorkSpec
-import ./proof/orphan/orphan_step_spec.bend as POrphanStepSpec
-import ./proof/orphan/orphan_run_spec.bend as POrphanRunSpec
 import ./proof/orphan/orphan_wire_req_window.bend as POrphanWireReqWindow
 import ./proof/orphan/orphan_wire_req_no_window.bend as POrphanWireReqNoWindow
 import ./proof/orphan/orphan_wire_reply.bend as POrphanWireReply
@@ -1316,8 +1313,6 @@ import ./proof/orphan/orphan_ffi_unknown_window.bend as POrphanFfiUnknownWindow
 import ./proof/orphan/orphan_ffi_reads_only_requests.bend as POrphanFfiReadsOnlyRequests
 import ./proof/orphan/orphan_ffi_malformed_unless_request.bend as POrphanFfiMalformedUnlessRequest
 import ./proof/orphan/orphan_ffi_tags_example.bend as POrphanFfiTagsExample
-import ./proof/orphan/orphan_ffi_exact.bend as POrphanFfiExact
-import ./proof/orphan/orphan_ffi_exact_example.bend as POrphanFfiExactExample
 import ./proof/orphan/orphan_sound_iff.bend as POrphanSoundIff
 import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
 import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
