@@ -6,7 +6,7 @@
 # `eukhe_daemon::timeouts::derived` writes the base values (the constants
 # of crates/eukhe-daemon/src/timeouts.rs, eukhe-types daemon/timing.rs and
 # eukhe-core kernel/shared.rs) to bend/ffi_timeouts.bend and reads the
-# derived values (section Timeouts).
+# derived values (the base values: section Timeouts).
 #
 # A worker fails again and again. Each failure comes g ms after the one
 # before it (a gap; the monotonic clock never runs back, so a gap is a
@@ -184,7 +184,8 @@ def span(gs: List<&2, Nat>) -> Nat:
 
 # Timeouts
 # --------
-# The base values every timeout derives from (ms, but k):
+# The base values every timeout derives from (ms, but k); the entry
+# bend/ffi_timeouts.bend derives the timeouts from them (laws/timeouts.bend):
 #   snap host kstep kterm kverify   the kernel teardown's phases (the
 #                                   shutdown step runs three times)
 #   harness                         the Harness close
@@ -199,110 +200,3 @@ def span(gs: List<&2, Nat>) -> Nat:
 
 type Tm is Data:
   Tm{snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, check: Nat, slack: Nat, k: Nat, bmax: Nat, loop: Nat, qanswer: Nat}
-
-def Tm.teardown(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, +kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      Nat.add(Nat.add(Nat.add(Nat.add(snap, host), Nat.mul(3n, kstep)), kterm), kverify)
-
-def Tm.harness(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      harness
-
-# the stop grace: the teardown, then the Harness close
-def Tm.stop_grace(+t: Tm) -> Nat:
-  Nat.add(Tm.teardown(t), Tm.harness(t))
-
-def Tm.wterm(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      wterm
-
-def Tm.wverify(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      wverify
-
-# the supervisor's drain: the stop grace, SIGTERM, SIGKILL
-def Tm.drain(+t: Tm) -> Nat:
-  Nat.add(Nat.add(Tm.stop_grace(t), Tm.wterm(t)), Tm.wverify(t))
-
-def Tm.margin(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      margin
-
-# the launcher's wait for a supervisor it asked to stop
-def Tm.launcher_wait(+t: Tm) -> Nat:
-  Nat.add(Tm.drain(t), Tm.margin(t))
-
-# the age of busy evidence that still revives
-def Tm.max_age(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      Nat.add(refresh, boot)
-
-# the latest moment a lost worker sees a relaunched supervisor
-def Tm.seen(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      Nat.add(Nat.add(relaunch, startup), check)
-
-# the lost-exit window
-def Tm.lost(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      Nat.add(Nat.add(Nat.add(relaunch, startup), check), slack)
-
-# one crash-loop step: the longest pause and the loop period
-def Tm.loop_step(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      Nat.add(bmax, loop)
-
-def Tm.k(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      k
-
-# the restart window: one more than the give-up count of loop steps
-def Tm.window(+t: Tm) -> Nat:
-  Nat.mul(1n+Tm.k(t), Tm.loop_step(t))
-
-# a parent's kill of a child worker: its kill route's grace, then the
-# child's whole drain, then the margin
-def Tm.child_kill(+t: Tm) -> Nat:
-  Nat.add(Nat.add(Tm.stop_grace(t), Tm.drain(t)), Tm.margin(t))
-
-def Tm.refresh(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      refresh
-
-def Tm.qanswer(t: Tm) -> Nat:
-  match t:
-    case Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:
-      qanswer
-
-# a quiesced worker keeps its gate closed this long: the answer phase,
-# then the stop's grace
-def Tm.quiesce_hold(+t: Tm) -> Nat:
-  Nat.add(Tm.qanswer(t), Tm.stop_grace(t))
-
-# every timeout comes after the ones it waits for:
-# - the stop grace covers the kernel teardown
-# - the launcher's wait covers the supervisor's drain
-# - a parent's kill of a child covers the kill route and the child's drain
-# - a lost worker sees the relaunched supervisor before it exits
-# - busy evidence outlives one refresh
-# - a quiesced gate stays closed past the answer phase
-# - the restart window holds the give-up count of crash-loop steps
-def Tm.ordered(+t: Tm) -> Bool:
-  Bool.and(Nat.is_le(Tm.teardown(t), Tm.stop_grace(t)),
-    Bool.and(Nat.is_le(Tm.drain(t), Tm.launcher_wait(t)),
-      Bool.and(Nat.is_le(Nat.add(Tm.stop_grace(t), Tm.drain(t)), Tm.child_kill(t)),
-        Bool.and(Nat.is_le(Tm.seen(t), Tm.lost(t)),
-          Bool.and(Nat.is_le(Tm.refresh(t), Tm.max_age(t)),
-            Bool.and(Nat.is_le(Tm.qanswer(t), Tm.quiesce_hold(t)),
-              Nat.is_le(Nat.mul(Tm.k(t), Tm.loop_step(t)), Tm.window(t))))))))

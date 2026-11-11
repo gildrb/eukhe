@@ -523,8 +523,6 @@ def ppr.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 #
 # - restart_gives_up: the failures of a crash loop stay in the window, so
 #   their count only grows (`ps.block`), up to the give-up.
-# - timeouts_ordered: each timeout is a sum that contains the timeouts it
-#   waits for.
 # - revive_after_refresh: the time since the last record stays below the
 #   refresh period (`ps.since_lt`), so a boot within the boot window
 #   finds the evidence within the max age.

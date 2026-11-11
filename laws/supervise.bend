@@ -1,4 +1,39 @@
 # eukhe: the laws of area supervise
+#
+# The restart budget (bend/supervise.bend `decide`; Rust
+# `restart_budget::decide` asks the entry bend/ffi_supervise.bend once per
+# worker failure, with the ages it kept and the gap since the last failure)
+# A1  A failure g ms after the last one ages every earlier failure by g
+#     ms. The new ages are this failure at age 0, then every earlier age
+#     still inside the window of w ms once aged (g + age < w), in their
+#     order; the failures the budget counts are exactly these ages. The
+#     count the caller holds never changes the decision (Rust sends none).
+#     Laws: restart_window_empty, restart_window_inside,
+#     restart_window_outside and restart_window_append (together they fix
+#     the new ages of every history), restart_counts_ages,
+#     restart_decide_ignores_count.
+# A2  The verdict on a failure with n failures counted: past k failures
+#     the worker is given up; else it relaunches after base * 2^min(n - 1,
+#     7) ms, at most max ms. Law: restart_decide_verdict.
+# A3  Over a run of failures (gaps oldest first, from no failure) the
+#     failures counted at the last one are it and every earlier failure
+#     whose distance to it (the sum of the gaps after that failure) is under
+#     the window. Law: restart_failures_recent.
+# A4  (D1) A crash loop is given up: a failure followed by k more, all
+#     within a span under the window, gives the worker up, whatever came
+#     before. Laws: restart_gives_up, restart_span_exact (the span is the
+#     sum of the gaps).
+# R1  Every request Rust writes (`restart_budget::decide_call`: the four
+#     configuration Nats, the ages' count then each age, the gap; every
+#     number within the wire) gets the model's decision (Su.decide, which
+#     the laws for A1 and A2 pin) spelled as Rust reads it: the new ages'
+#     count then each age, then the verdict's tag (Relaunch 0 with its
+#     failure count and pause, GiveUp 1 with its failure count). Law:
+#     restart_ffi_answers_spelled.
+# R2  Any other input answers exactly the error form: "supervise: input
+#     left over" when a whole request is followed by more input, else
+#     "supervise: malformed request". Laws: restart_ffi_left_over_spelled,
+#     restart_ffi_malformed_unless_request.
 
 import Base
 import ../bend/ffi_supervise.bend as FS
@@ -10,8 +45,8 @@ import ./base.bend as LawsBase
 
 # (D1) Supervisor
 # ---------------
-# The supervisor, its workers, a lost supervisor, a its workers, a lost supervisor, a
-# daemon replacement, the attaches after a restart. The models are
+# The supervisor, its workers, a lost supervisor, a daemon replacement,
+# the attaches after a restart. The models are
 # bend/supervise.bend (the restart budget and the timeouts),
 # bend/revive.bend (busy evidence and the revival veto), bend/orphan.bend
 # (a lost supervisor's worker), bend/launcher.bend (the idle shutdown and
@@ -35,21 +70,84 @@ law restart_gives_up:
   for fast: {Nat.is_lt(Su.span(gs), Su.Cfg.w(c)) == True{} : Bool}
   {Su.gives_up(Su.verdict(c, Su.failures(c, List.append(&2, Nat, pre, g <> gs)))) == True{} : Bool}
 
-# the ages a failure g ms after the last one keeps (each g ms older), in
-# order: those still inside the window of w ms
-def restart_window_put(b: Bool, a: Nat, r: List<&2, Nat>) -> List<&2, Nat>:
-  match b:
-    case True{}:
-      a <> r
-    case False{}:
-      r
+# The window (A1)
+# ---------------
 
-def restart_window(+w: Nat, +g: Nat, ages: List<&2, Nat>) -> List<&2, Nat>:
-  match ages:
-    case Nil{}:
-      Nil{}
-    case +a <> t:
-      restart_window_put(Nat.is_lt(Nat.add(g, a), w), Nat.add(g, a), restart_window(w, g, t))
+# the new ages after a failure g ms after the last one, from the ages a
+# (the state as the entry builds it: the ages and their count)
+def restart_new_ages(+c: Su.Cfg, +a: List<&2, Nat>, +g: Nat) -> List<&2, Nat>:
+  Su.St.ages(Su.Decision.st(Su.decide(c, Su.St{a, List.length(&2, Nat, a)}, g)))
+
+# LAW restart_window_empty: a failure with no earlier failure in the window keeps only
+# itself, at age 0
+# EXCLUDES: a new failure not recorded, recorded at another age, or twice
+law restart_window_empty:
+  for +c: Su.Cfg
+  for +g: Nat
+  {restart_new_ages(c, Nil{}, g) == [0n] : List<&2, Nat>}
+
+# LAW restart_window_inside: an earlier failure of age a that is still inside the window g ms
+# later (g + a < w) is kept, g ms older, behind the new failure at age 0
+# EXCLUDES: a young failure dropped, an age that does not grow by the gap,
+#   the new failure behind the old one
+law restart_window_inside:
+  for +c: Su.Cfg
+  for +a: Nat
+  for +g: Nat
+  for inside: {Nat.is_lt(Nat.add(g, a), Su.Cfg.w(c)) == True{} : Bool}
+  {restart_new_ages(c, [a], g) == [0n, Nat.add(g, a)] : List<&2, Nat>}
+
+# LAW restart_window_outside: an earlier failure that reaches the window g ms later
+# (g + a >= w) is forgotten: only the new failure stays
+# EXCLUDES: an old failure kept (a crash rare enough counted forever), a
+#   failure exactly at the window's edge kept
+law restart_window_outside:
+  for +c: Su.Cfg
+  for +a: Nat
+  for +g: Nat
+  for outside: {Nat.is_lt(Nat.add(g, a), Su.Cfg.w(c)) == False{} : Bool}
+  {restart_new_ages(c, [a], g) == [0n] : List<&2, Nat>}
+
+# LAW restart_window_append: each earlier age is kept or dropped on its own, in place: the
+# ages kept from xs ++ ys are those kept from xs, then those kept from ys
+# (with the three laws above this fixes the new ages of every history)
+# EXCLUDES: a reordered history, a cap on the ages kept, a decision on one
+#   age that depends on the others
+law restart_window_append:
+  for +c: Su.Cfg
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  for +g: Nat
+  for +p: List<&2, Nat>
+  for +q: List<&2, Nat>
+  for hp: {restart_new_ages(c, xs, g) == 0n <> p : List<&2, Nat>}
+  for hq: {restart_new_ages(c, ys, g) == 0n <> q : List<&2, Nat>}
+  {restart_new_ages(c, List.append(&2, Nat, xs, ys), g) == 0n <> List.append(&2, Nat, p, q) : List<&2, Nat>}
+
+# LAW restart_counts_ages: the failures the budget counts after a failure are exactly the
+# ages it keeps, from any state
+# EXCLUDES: a count that drifts from the ages (a failure counted twice or
+#   not at all, a stale count carried over)
+law restart_counts_ages:
+  for +c: Su.Cfg
+  for +s: Su.St
+  for +g: Nat
+  {Su.St.n(Su.Decision.st(Su.decide(c, s, g))) == List.length(&2, Nat, Su.St.ages(Su.Decision.st(Su.decide(c, s, g)))) : Nat}
+
+# LAW restart_decide_ignores_count: the decision depends on the ages only: the count the
+# caller holds (Rust sends none; the entry passes the ages' length) never
+# changes it
+# EXCLUDES: a decision that reads a stale count instead of the ages
+law restart_decide_ignores_count:
+  for +c: Su.Cfg
+  for +a: List<&2, Nat>
+  for +n: Nat
+  for +m: Nat
+  for +g: Nat
+  {Su.decide(c, Su.St{a, n}, g) == Su.decide(c, Su.St{a, m}, g) : Su.Decision}
+
+# The verdict (A2)
+# ----------------
 
 # 2 to the e
 def restart_pow2(e: Nat) -> Nat:
@@ -71,57 +169,20 @@ def restart_verdict_put(over: Bool, +c: Su.Cfg, +n: Nat) -> Su.Verdict:
         case Su.Cfg{k, w, b, m}:
           Su.Relaunch{n, Nat.min(Nat.mul(restart_pow2(Nat.min(Nat.sub(n, 1n), 7n)), b), m)}
 
-# LAW restart_decide_window: a failure keeps exactly the ages still inside the window (each one
-# g ms older, in order), adds itself at age 0 in front, and counts the
-# failures it keeps
-# EXCLUDES: a dropped young failure, a kept old one, a failure counted
-# twice or not at all, a reordered history, an age that does not grow
-law restart_decide_window:
-  for +c: Su.Cfg
-  for +s: Su.St
-  for +g: Nat
-  {Su.Decision.st(Su.decide(c, s, g)) == Su.St{0n <> restart_window(Su.Cfg.w(c), g, Su.St.ages(s)), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))} : Su.St}
-
-# LAW restart_decide_verdict: the verdict on a failure: give up past k failures in the window,
-# else relaunch after the doubling pause, capped at max
-# EXCLUDES: a give-up at k failures or a relaunch past them, a wrong
-# failure count, a pause that does not double, passes its cap or doubles
-# past 7 times
+# LAW restart_decide_verdict: the verdict on a failure, from the failures the decided
+# budget counts (n): give up past k failures, else relaunch after
+# base * 2^min(n - 1, 7) ms, at most max ms
+# EXCLUDES: a give-up at k failures or a relaunch past them, a verdict on
+#   another count than the budget's, a pause that does not double, passes
+#   its cap or doubles past 7 times
 law restart_decide_verdict:
   for +c: Su.Cfg
   for +s: Su.St
   for +g: Nat
-  {Su.Decision.verdict(Su.decide(c, s, g)) == restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))), c, 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))) : Su.Verdict}
+  {Su.Decision.verdict(Su.decide(c, s, g)) == restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), Su.St.n(Su.Decision.st(Su.decide(c, s, g)))), c, Su.St.n(Su.Decision.st(Su.decide(c, s, g)))) : Su.Verdict}
 
-# the budget after a failure g ms after the last one, from s: the failure
-# at age 0, then the ages still inside the window (each g ms older), and
-# the failures it keeps
-def restart_step(+c: Su.Cfg, s: Su.St, +g: Nat) -> Su.St:
-  match c:
-    case Su.Cfg{k, +w, b, m}:
-      match s:
-        case Su.St{a, n}:
-          +kept = restart_window(w, g, a)
-          Su.St{0n <> kept, 1n+List.length(&2, Nat, kept)}
-
-# the budget after the failures with the gaps gs (oldest first), from s:
-# one step per failure, in order
-def restart_go(+c: Su.Cfg, gs: List<&2, Nat>, s: Su.St) -> Su.St:
-  match gs:
-    case Nil{}:
-      s
-    case +g <> rest:
-      restart_go(c, rest, restart_step(c, s, g))
-
-# the failures a budget counts in the window at its last failure
-def restart_count(s: Su.St) -> Nat:
-  match s:
-    case Su.St{a, n}:
-      n
-
-# the failures in the window at the last failure of gs, from no failure
-def restart_failures(+c: Su.Cfg, gs: List<&2, Nat>) -> Nat:
-  restart_count(restart_go(c, gs, Su.St{Nil{}, 0n}))
+# A run of failures (A3, A4)
+# --------------------------
 
 # the time the gaps gs span: their sum
 def restart_sum(gs: List<&2, Nat>) -> Nat:
@@ -131,25 +192,43 @@ def restart_sum(gs: List<&2, Nat>) -> Nat:
     case g <> rest:
       Nat.add(g, restart_sum(rest))
 
-# LAW restart_go_exact: the budget after any failures, from any budget, is the decided
-# step (restart_decide_window) folded over their gaps in order
-# EXCLUDES: a run that skips, repeats or reorders a failure, keeps a failure
-#   that left the window, or forgets one still inside it
-law restart_go_exact:
-  for +c: Su.Cfg
-  for +gs: List<&2, Nat>
-  for +s: Su.St
-  {Su.go(c, gs, s) == restart_go(c, gs, s) : Su.St}
+def restart_inside.put(b: Bool, r: Nat) -> Nat:
+  match b:
+    case True{}:
+      1n+r
+    case False{}:
+      r
 
-# LAW restart_failures_exact: the failures counted at the last of any failures are exactly
-# those still inside the window, from no failure
-# EXCLUDES: failures(c, gs) = length(gs) (an old failure never forgotten:
-#   restart_gives_up still holds), a count off by one, a count from
-#   another start
-law restart_failures_exact:
+# the earlier failures still inside the window w at the last failure, for
+# the gaps gs after the first of them: a failure followed by the gaps
+# g <> rest is g + sum(rest) ms before the last one
+def restart_inside(+w: Nat, gs: List<&2, Nat>) -> Nat:
+  match gs:
+    case Nil{}:
+      0n
+    case +g <> +rest:
+      restart_inside.put(Nat.is_lt(restart_sum(g <> rest), w), restart_inside(w, rest))
+
+# the failures counted at the last failure of the gaps gs (oldest first):
+# none for no failure, else the last one and the earlier ones inside the
+# window
+def restart_recent(+w: Nat, gs: List<&2, Nat>) -> Nat:
+  match gs:
+    case Nil{}:
+      0n
+    case g <> rest:
+      1n+restart_inside(w, rest)
+
+# LAW restart_failures_recent: over any run of failures from no failure, the failures counted
+# at the last one are it and each earlier failure whose distance to it (the
+# sum of the gaps after that failure) is under the window
+# EXCLUDES: an old failure never forgotten (failures = length), a failure
+#   forgotten while still inside the window, a failure that leaves the
+#   window and comes back, a count off by one
+law restart_failures_recent:
   for +c: Su.Cfg
   for +gs: List<&2, Nat>
-  {Su.failures(c, gs) == restart_failures(c, gs) : Nat}
+  {Su.failures(c, gs) == restart_recent(Su.Cfg.w(c), gs) : Nat}
 
 # LAW restart_span_exact: the time a run of failures spans is the sum of its gaps
 # EXCLUDES: a span that drops, doubles or caps a gap, a span past every
@@ -159,10 +238,14 @@ law restart_span_exact:
   {Su.span(gs) == restart_sum(gs) : Nat}
 
 # The restart-budget entry of the compiled core (bend/ffi_supervise.bend)
+# -----------------------------------------------------------------------
 
-# LAW restart_wire_req: the entry reads back every request Rust writes: a configuration,
-# ages and a gap that fit the wire; the rest is untouched
-# EXCLUDES: a misread or reordered configuration field, age or gap
+# LAW restart_wire_req: the entry's request decoder reads back what the entry's own request
+# encoder writes (a configuration, ages and a gap whose numbers fit the
+# wire), the rest untouched. That the entry reads the bytes Rust writes is
+# restart_ffi_answers_spelled (spelled from the wire primitives)
+# EXCLUDES: a configuration field, age or gap that the entry's encoder and
+#   decoder disagree on
 law restart_wire_req:
   for +k: Nat
   for hk: {LawsBase.wire_fits(k) == True{} : Bool}
@@ -179,8 +262,12 @@ law restart_wire_req:
   for rest: String
   {FS.get_req(FS.put_req(FS.Req{Su.Cfg{k, w, b, m}, ages, g}, rest)) == Wr.Got{FS.Req{Su.Cfg{k, w, b, m}, ages, g}, rest} : Wr.Dec<FS.Req>}
 
-# LAW restart_wire_reply_relaunch: Rust reads back every relaunch reply the entry writes
-# EXCLUDES: a misread age, failure count or pause, a verdict read as another
+# LAW restart_wire_reply_relaunch: the Bend reply decoder (FS.get_reply) reads back every
+# relaunch reply the entry writes. Rust parses replies with its own reader
+# (restart_budget.rs decide_call); the bytes it reads are pinned by
+# restart_ffi_answers_spelled
+# EXCLUDES: a relaunch reply that loses an age, the failure count or the
+#   pause, or reads back as a give-up
 law restart_wire_reply_relaunch:
   for +ages: List<&2, Nat>
   for hs: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, ages)), LawsBase.wire_nats_fit(ages)) == True{} : Bool}
@@ -191,8 +278,10 @@ law restart_wire_reply_relaunch:
   for rest: String
   {FS.get_reply(FS.put_reply(FS.Reply{ages, Su.Relaunch{f, p}}, rest)) == Wr.Got{FS.Reply{ages, Su.Relaunch{f, p}}, rest} : Wr.Dec<FS.Reply>}
 
-# LAW restart_wire_reply_give_up: and every give-up reply
-# EXCLUDES: a give-up read as a relaunch, a misread failure count
+# LAW restart_wire_reply_give_up: the Bend reply decoder reads back every give-up reply the
+# entry writes (Rust's own reader: see restart_wire_reply_relaunch)
+# EXCLUDES: a give-up reply that reads back as a relaunch or loses its
+#   failure count
 law restart_wire_reply_give_up:
   for +ages: List<&2, Nat>
   for hs: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, ages)), LawsBase.wire_nats_fit(ages)) == True{} : Bool}
@@ -201,48 +290,10 @@ law restart_wire_reply_give_up:
   for rest: String
   {FS.get_reply(FS.put_reply(FS.Reply{ages, Su.GiveUp{f}}, rest)) == Wr.Got{FS.Reply{ages, Su.GiveUp{f}}, rest} : Wr.Dec<FS.Reply>}
 
-# LAW restart_ffi_decides: on a whole request the entry answers the model's decision: the
-# budget's new ages and the verdict (Su.decide)
-# EXCLUDES: an entry that answers anything but the model's decision
-law restart_ffi_decides:
-  for +s: String
-  for +c: Su.Cfg
-  for +ages: List<&2, Nat>
-  for +g: Nat
-  for h: {FS.get_req(s) == Wr.Got{FS.Req{c, ages, g}, ""} : Wr.Dec<FS.Req>}
-  {FS.ffi(s) == FS.put_reply(FS.Reply{Su.St.ages(Su.Decision.st(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))), Su.Decision.verdict(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))}, "") : String}
-
-# LAW restart_ffi_malformed: a malformed request answers the error form, never a verdict
-# EXCLUDES: a default verdict on garbage
-law restart_ffi_malformed:
-  for +s: String
-  for h: {FS.get_req(s) == Wr.Bad{} : Wr.Dec<FS.Req>}
-  {FS.ffi(s) == Wr.err("supervise: malformed request") : String}
-
-# LAW restart_ffi_left_over: a request with input after it answers the error form
-# EXCLUDES: a verdict on a request with trailing garbage
-law restart_ffi_left_over:
-  for +s: String
-  for +q: FS.Req
-  for +r: String
-  for h: {FS.get_req(s) == Wr.Got{q, r} : Wr.Dec<FS.Req>}
-  for ne: {String.is_empty(r) == False{} : Bool}
-  {FS.ffi(s) == Wr.err("supervise: input left over") : String}
-
-# The restart-budget entry, spelled
-# ---------------------------------
-# R1: every request Rust writes (`restart_budget::decide_call`: the four
-#     configuration Nats, the ages' count then each age, the gap; every
-#     number within the wire) gets the model's decision (Su.decide, which
-#     restart_decide_window and restart_decide_verdict pin) spelled as Rust
-#     reads it: the new ages' count then each age, then the verdict's tag
-#     (Relaunch 0 with its failure count and pause, GiveUp 1 with its
-#     failure count).
-# R2: any other input answers exactly the error form: "supervise: input
-#     left over" when a whole request is followed by more input, else
-#     "supervise: malformed request".
-# The spellers and the reader below are built from the wire primitives
-# of bend/wire.bend only, never from the entry's put_*/get_*.
+# The restart-budget entry, spelled (R1, R2)
+# ------------------------------------------
+# The spellers below are built from the wire primitives of bend/wire.bend
+# only, never from the entry's put_*/get_*.
 
 # the configuration: give up after k, the window w, the base pause b, the
 # longest pause m
@@ -295,83 +346,6 @@ def rs_malformed() -> String:
 def rs_left_over() -> String:
   Wr.err("supervise: input left over")
 
-# Reader: the requests, read with the wire primitives
-
-def rs_read_req.gap(c: Su.Cfg, a: List<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{g, s}:
-      Wr.Got{FS.Req{c, a, g}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.ages(c: Su.Cfg, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      rs_read_req.gap(c, a, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.m(k: Nat, w: Nat, b: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{m, s}:
-      rs_read_req.ages(Su.Cfg{k, w, b, m}, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.b(k: Nat, w: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{b, s}:
-      rs_read_req.m(k, w, b, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.w(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{w, s}:
-      rs_read_req.b(k, w, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rs_read_req.k(r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{k, s}:
-      rs_read_req.w(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s starts with, and what follows it
-def rs_read_req(s: String) -> Wr.Dec<FS.Req>:
-  rs_read_req.k(Wr.get_nat(s))
-
-def rs_spec.end(whole: Bool, q: FS.Req) -> String:
-  match whole:
-    case True{}:
-      rs_spell_answer(q)
-    case False{}:
-      rs_left_over()
-
-def rs_spec.run(r: Wr.Dec<FS.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      rs_spec.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      rs_malformed()
-
-# the reply to s: the model's decision on the request s is exactly; the
-# left-over error when more input follows a whole request; else the
-# malformed error
-def rs_spec(s: String) -> String:
-  rs_spec.run(rs_read_req(s))
-
-# LAW restart_ffi_exact_spec: on every input the entry answers the spelled decision on the request the input is exactly, "supervise: input left over" when more input follows a whole request, and "supervise: malformed request" on any other input
-# EXCLUDES: a reply tag, field order or age list that drifts from the
-#   bytes Rust reads, a request field misread or reordered, a default for
-#   malformed input, the two error texts swapped or reworded, input left
-#   over ignored
-law restart_ffi_exact_spec:
-  for +s: String
-  {FS.ffi(s) == rs_spec(s) : String}
-
 # LAW restart_ffi_answers_spelled: every request Rust writes (every number within the wire) gets the spelled model decision
 # EXCLUDES: a request Rust writes refused or misread, a reply spelled
 #   another way than Rust reads it
@@ -390,6 +364,20 @@ law restart_ffi_left_over_spelled:
   for some: {String.is_empty(more) == False{} : Bool}
   {FS.ffi(rs_spell_req(q, more)) == rs_left_over() : String}
 
+# LAW restart_ffi_malformed_unless_request: every answer but the error form "supervise:
+# malformed request" comes from an input that begins with a request Rust
+# writes (spelled from the wire primitives, every number within the wire);
+# with the two laws above this fixes the answer to every input
+# EXCLUDES: a decoder that accepts a missing, extra or reordered field, a
+#   list shorter than its count, or a number past the wire, and answers it
+#   (a default decision or the left-over error instead of the malformed one)
+law restart_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FS.ffi(s), rs_malformed()) == False{} : Bool}
+  exs q: FS.Req
+  exs rest: String
+  {(s, rs_req_fits(q)) == (rs_spell_req(q, rest), True{}) : String & Bool}
+
 # LAW restart_ffi_tags_example: anchor: the bytes Rust sends and reads: a failure 3 ms after two
 # failures (ages 5 and 98) with give-up after 2 in a 100 ms window, base pause 10, cap 50: the old
 # age 98 leaves the window, the second failure relaunches after 20 ms; the same with give-up after
@@ -400,162 +388,12 @@ law restart_ffi_left_over_spelled:
 law restart_ffi_tags_example:
   {[FS.ffi("2,100,10,50,2,5,98,3,"), FS.ffi("1,100,10,50,2,5,98,3,"), FS.ffi("9,100,10,15,2,5,6,1,"), FS.ffi(""), FS.ffi("2,100,10,50,0,"), FS.ffi("2,100,10,50,2,5,3,"), FS.ffi("2,100,10,50,0,3,x")] == ["2,0,8,0,2,20,", "2,0,8,1,2,", "3,0,6,7,0,3,15,", "E supervise: malformed request", "E supervise: malformed request", "E supervise: malformed request", "E supervise: input left over"] : List<&2, String>}
 
-# The whole restart-budget entry, every input
-# -------------------------------------------
-# The request and the reply as the wire grammar of WIRE.md, read and
-# spelled with the wire primitives alone (never the entry's own codec),
-# and the decision as the spec above states it (restart_window,
-# restart_verdict_put; never the model's code):
-#   request  k, w, base, max; the ages (a count, then each age); the gap
-#   reply    the new ages (a count, then each); the verdict: 0, then the
-#            failure count and the pause (a relaunch) | 1, then the
-#            failure count (a give-up)
-# A request that cannot be read answers "supervise: malformed request"; a
-# request with input after it answers "supervise: input left over".
-
-def sv_read.gap(c: Su.Cfg, a: List<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{g, s}:
-      Wr.Got{FS.Req{c, a, g}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def sv_read.ages(c: Su.Cfg, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      sv_read.gap(c, a, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def sv_read.m(k: Nat, w: Nat, b: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{m, s}:
-      sv_read.ages(Su.Cfg{k, w, b, m}, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def sv_read.b(k: Nat, w: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{b, s}:
-      sv_read.m(k, w, b, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def sv_read.w(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{w, s}:
-      sv_read.b(k, w, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def sv_read.k(r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
-  match r:
-    case Wr.Got{k, s}:
-      sv_read.w(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request at the head of s, and the input after it
-def sv_read(s: String) -> Wr.Dec<FS.Req>:
-  sv_read.k(Wr.get_nat(s))
-
-# a verdict on the wire: 0, the failure count, the pause | 1, the count
-def sv_verdict(v: Su.Verdict, rest: String) -> String:
-  match v:
-    case Su.Relaunch{f, b}:
-      Wr.put_nat(0n, Wr.put_nat(f, Wr.put_nat(b, rest)))
-    case Su.GiveUp{f}:
-      Wr.put_nat(1n, Wr.put_nat(f, rest))
-
-# the reply to a request: the failure at age 0, then the ages still inside
-# the window (each g ms older); the verdict on the failures it keeps
-def sv_reply(q: FS.Req) -> String:
-  match q:
-    case FS.Req{c, ages, +g}:
-      match c:
-        case Su.Cfg{+k, +w, +b, +m}:
-          +kept = restart_window(w, g, ages)
-          +n = {1n+List.length(&2, Nat, kept) : Nat}
-          Wr.put_list(~Nat, ~Wr.put_nat, 0n <> kept, sv_verdict(restart_verdict_put(Nat.is_lt(k, n), Su.Cfg{k, w, b, m}, n), ""))
-
-def sv_entry.of(d: Wr.Dec<FS.Req>) -> String:
-  match d:
-    case Wr.Got{q, r}:
-      match r:
-        case SNil{}:
-          sv_reply(q)
-        case SCon{c, t}:
-          Wr.err("supervise: input left over")
-    case Wr.Bad{}:
-      Wr.err("supervise: malformed request")
-
-# the entry's answer to s
-def sv_entry(s: String) -> String:
-  sv_entry.of(sv_read(s))
-
-# LAW restart_ffi_exact: for every input, the entry answers exactly: on a request (as the wire
-# primitives read it) with nothing after it, the new ages (this failure at
-# 0, then the ages still inside the window, each g ms older) and the
-# verdict (give up past k failures in the window, else relaunch after the
-# doubling pause capped at max); on a request with input after it, the
-# error form "supervise: input left over"; on any other input, the error
-# form "supervise: malformed request"
-# EXCLUDES: a misread or reordered field, a verdict tag read as another, a
-#   decision on garbage or on a request with input after it, another error
-#   text, a codec of the entry wrong both ways (the spec never calls it)
-law restart_ffi_exact:
-  for +s: String
-  {FS.ffi(s) == sv_entry(s) : String}
-
-# LAW restart_ffi_exact_example: anchor: the strings Rust writes and the replies it reads: an
-# age that leaves the window, a third failure that doubles the pause twice,
-# the same failure given up with k = 2, a pause capped at max; a cut request
-# and input left over are refused
-# EXCLUDES: a field order other than Rust's, a vacuous restart_ffi_exact
-law restart_ffi_exact_example:
-  {[sv_entry("3,10,2,9,1,4,6,"), sv_entry("3,10,2,9,2,1,2,1,"), sv_entry("2,10,2,9,2,1,2,1,"), sv_entry("5,10,4,9,2,1,2,1,"), sv_entry("3,10,2,9,1,"), sv_entry("3,10,2,9,0,6,x")] == ["1,0,0,1,2,", "3,0,2,3,0,3,8,", "3,0,2,3,1,3,", "3,0,2,3,0,3,9,", Wr.err("supervise: malformed request"), Wr.err("supervise: input left over")] : List<&2, String>}
-
-# LAW timeouts_ordered: every timeout comes after the timeouts it waits for (Su.Tm.ordered
-# lists them), whatever the base values
-law timeouts_ordered:
-  for +t: Su.Tm
-  {Su.Tm.ordered(t) == True{} : Bool}
-
-# the order the timeouts keep, from the base values: each derived value
-# covers the ones it waits for (the header of bend/supervise.bend Tm.ordered)
-def tm_ordered_spec(t: Su.Tm) -> Bool:
-  match t:
-    case Su.Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, +margin, +refresh, boot, +relaunch, +startup, +check, slack, +k, +bmax, +loop, +qanswer}:
-      +td = Nat.add(Nat.add(Nat.add(Nat.add(snap, host), Nat.mul(3n, kstep)), kterm), kverify)
-      +sg = Nat.add(td, harness)
-      +dr = Nat.add(Nat.add(sg, wterm), wverify)
-      +seen = Nat.add(Nat.add(relaunch, startup), check)
-      +step = Nat.add(bmax, loop)
-      # the stop grace covers the kernel teardown
-      Bool.and(Nat.is_le(td, sg),
-        # the launcher's wait covers the supervisor's drain
-        Bool.and(Nat.is_le(dr, Nat.add(dr, margin)),
-          # a parent's kill covers the kill route's grace and the child's drain
-          Bool.and(Nat.is_le(Nat.add(sg, dr), Nat.add(Nat.add(sg, dr), margin)),
-            # a lost worker sees the relaunched supervisor before it exits
-            Bool.and(Nat.is_le(seen, Nat.add(seen, slack)),
-              # busy evidence outlives one refresh
-              Bool.and(Nat.is_le(refresh, Nat.add(refresh, boot)),
-                # a quiesced gate stays closed past the answer phase
-                Bool.and(Nat.is_le(qanswer, Nat.add(qanswer, sg)),
-                  # the restart window holds the give-up count of loop steps
-                  Nat.is_le(Nat.mul(k, step), Nat.mul(1n+k, step))))))))
-
-# LAW timeouts_ordered_exact: the order timeouts_ordered proves is exactly the header's
-# comparisons over the base values: the stop grace covers the teardown, the
-# launcher's wait the drain, a child kill the kill route's grace and the
-# child's drain, the lost window the relaunch, start and check, the max age
-# a refresh, the quiesce hold the answer phase, the restart window k loop
-# steps; for every base values
-# EXCLUDES: Tm.ordered checking fewer, other or weaker comparisons than the
-#   header's (timeouts_ordered would then prove an order nobody stated);
-#   being True for every t, ordered = True is the same function, and this
-#   law makes timeouts_ordered read as these comparisons
-law timeouts_ordered_exact:
-  for +t: Su.Tm
-  {Su.Tm.ordered(t) == tm_ordered_spec(t) : Bool}
+# LAW restart_ffi_pause_example: anchor: the entry on hand-computed inputs (field order of
+# restart_budget.rs decide_call): an age that leaves the window, a third
+# failure that doubles the pause twice, the same failure given up with
+# k = 2, a pause capped at max; a cut request and input left over are
+# refused
+# EXCLUDES: a pause that doubles once per failure counted from 0, a cap
+#   applied before the doubling stops
+law restart_ffi_pause_example:
+  {[FS.ffi("3,10,2,9,1,4,6,"), FS.ffi("3,10,2,9,2,1,2,1,"), FS.ffi("2,10,2,9,2,1,2,1,"), FS.ffi("5,10,4,9,2,1,2,1,"), FS.ffi("3,10,2,9,1,"), FS.ffi("3,10,2,9,0,6,x")] == ["1,0,0,1,2,", "3,0,2,3,0,3,8,", "3,0,2,3,1,3,", "3,0,2,3,0,3,9,", Wr.err("supervise: malformed request"), Wr.err("supervise: input left over")] : List<&2, String>}

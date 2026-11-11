@@ -25,7 +25,8 @@ pub const KERNEL_KILL_VERIFY_MS: u64 = 1_000;
 // The longest kernel teardown (the snapshot flush, the host-request drain,
 // the shutdown send, its reply, the exit wait, then SIGTERM and SIGKILL)
 // is derived from the values above by the compiled core (`eukhe-daemon`
-// `timeouts::derived`; laws `timeouts_ordered`, `timeouts_ffi_answers`).
+// `timeouts::derived`; laws `timeouts_ffi_answers`,
+// `timeouts_ffi_malformed_unless_request`).
 /// Restore deserializes everything a snapshot serializes: bounded like the repair step.
 pub const RESTORE_EXECUTION_TIMEOUT_MS: u64 = 30_000;
 /// The provisioner's runtime bootstrap imports the runtime and skills in one

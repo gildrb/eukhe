@@ -1,4 +1,29 @@
 # eukhe: the laws of area timeouts
+#
+# The timeouts' entry of the compiled core (bend/ffi_timeouts.bend): Rust
+# `eukhe_daemon::timeouts::derived` writes the 19 base values once and
+# reads the 9 derived values; the derivation of each is the doc of its
+# field of Rust's `timeouts::Derived` (crates/eukhe-daemon/src/timeouts.rs).
+# (A5-A7 continue the numbering of laws/supervise.bend, which holds A1-A4.)
+# A5  Every request Rust writes (any base values that fit the wire) gets
+#     the 9 derived values in reply order, each the sum of the base values
+#     its Rust doc names (the restart window: k + 1 times the longest pause
+#     plus the loop period); or exactly the error "timeouts: a value past
+#     the wire" when one of them has 15 digits or more. Each derived value
+#     is a sum that contains the timeouts it must exceed (the stop grace
+#     the teardown, the launcher's wait the drain, ...), so A5 is also their
+#     order (a separate `x <= x + y` law would hold for any values). Law:
+#     timeouts_ffi_answers.
+# A6  Any input that is not exactly such a request (a malformed value, a
+#     number past the wire, input left over) gets exactly the error
+#     "timeouts: malformed request". Law:
+#     timeouts_ffi_malformed_unless_request.
+# A7  A worker that crashes in a loop is given up within the restart
+#     window (timeouts.rs): with the budget Rust configures (give up after
+#     k, the derived window, the longest pause as the cap), a failure
+#     followed by k more, each at most the longest pause plus the loop
+#     period after the one before it, gives the worker up. Law:
+#     timeouts_crash_loop_given_up.
 
 import Base
 import ../bend/ffi_timeouts.bend as FT
@@ -8,16 +33,14 @@ import ./base.bend as LawsBase
 
 # (D1) The timeouts' entry of the compiled core
 # ---------------------------------------------
-# Every timeout of the supervisor, its workers and its
-# clients derives from the timeouts it must exceed (law timeouts_ordered,
-# laws/supervise.bend, on the model bend/supervise.bend section Timeouts).
-# Rust `eukhe_daemon::timeouts::derived` writes the 19 base values and
-# reads the 9 derived values from the entry (bend/ffi_timeouts.bend): no
-# Rust copy of the derivation. Every input is free: any base values.
+# Every timeout of the supervisor, its workers and its clients derives
+# from the timeouts it must exceed (A5). Rust writes the base values and
+# reads the derived values from the entry: no Rust copy of the derivation.
+# Every input is free: any base values.
 #
 # The spec below spells the request and the reply with the wire
 # primitives (bend/wire.bend), never with the entry's own codec, and
-# derives each value from the base values.
+# derives each value from the base values as the Rust docs state it.
 
 # Spec
 # ----
@@ -85,166 +108,13 @@ def tw_reply(+t: Su.Tm) -> String:
   +xs = tw_values(t)
   tw_reply.put(tw_all_below(xs), xs)
 
-# Reader: the requests the entry accepts, read with the wire primitives
-
-def tw_read.qanswer(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, check: Nat, slack: Nat, k: Nat, bmax: Nat, loop: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{qanswer, s}:
-      Wr.Got{Su.Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.loop(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, check: Nat, slack: Nat, k: Nat, bmax: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{loop, s}:
-      tw_read.qanswer(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.bmax(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, check: Nat, slack: Nat, k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{bmax, s}:
-      tw_read.loop(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, bmax, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.k(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, check: Nat, slack: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{k, s}:
-      tw_read.bmax(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.slack(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, check: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{slack, s}:
-      tw_read.k(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, slack, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.check(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, startup: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{check, s}:
-      tw_read.slack(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, check, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.startup(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, relaunch: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{startup, s}:
-      tw_read.check(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, startup, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.relaunch(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, boot: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{relaunch, s}:
-      tw_read.startup(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, relaunch, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.boot(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, refresh: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{boot, s}:
-      tw_read.relaunch(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, boot, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.refresh(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, margin: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{refresh, s}:
-      tw_read.boot(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, refresh, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.margin(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, wverify: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{margin, s}:
-      tw_read.refresh(snap, host, kstep, kterm, kverify, harness, wterm, wverify, margin, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.wverify(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, wterm: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{wverify, s}:
-      tw_read.margin(snap, host, kstep, kterm, kverify, harness, wterm, wverify, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.wterm(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, harness: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{wterm, s}:
-      tw_read.wverify(snap, host, kstep, kterm, kverify, harness, wterm, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.harness(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, kverify: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{harness, s}:
-      tw_read.wterm(snap, host, kstep, kterm, kverify, harness, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.kverify(snap: Nat, host: Nat, kstep: Nat, kterm: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{kverify, s}:
-      tw_read.harness(snap, host, kstep, kterm, kverify, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.kterm(snap: Nat, host: Nat, kstep: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{kterm, s}:
-      tw_read.kverify(snap, host, kstep, kterm, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.kstep(snap: Nat, host: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{kstep, s}:
-      tw_read.kterm(snap, host, kstep, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.host(snap: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{host, s}:
-      tw_read.kstep(snap, host, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.snap(r: Wr.Dec<Nat>) -> Wr.Dec<Su.Tm>:
-  match r:
-    case Wr.Got{snap, s}:
-      tw_read.host(snap, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tw_read.end(whole: Bool, t: Su.Tm) -> Maybe<&2, Su.Tm>:
-  match whole:
-    case True{}:
-      Some{t}
-    case False{}:
-      None{}
-
-def tw_read.whole(r: Wr.Dec<Su.Tm>) -> Maybe<&2, Su.Tm>:
-  match r:
-    case Wr.Got{t, s}:
-      tw_read.end(Wr.end(s), t)
-    case Wr.Bad{}:
-      None{}
-
-# the base values s is, when s is exactly one request
-def tw_read(s: String) -> Maybe<&2, Su.Tm>:
-  tw_read.whole(tw_read.snap(Wr.get_nat(s)))
-
 # Laws
 # ----
 
 # LAW timeouts_ffi_answers: on every request Rust writes (any base values that fit the wire),
-# the entry answers the 9 derived values, each derived from the base values
-# it must exceed, in reply order; or exactly the error form "timeouts: a
-# value past the wire" when one of them is 10^14 or more
+# the entry answers the 9 derived values in reply order, each the sum of
+# the base values its Rust doc names (tw_values); or exactly the error form
+# "timeouts: a value past the wire" when one of them is 10^14 or more
 # EXCLUDES: a misread or swapped base value, a derived value that drops,
 #   adds or doubles a term, a reply in another order, a number Rust cannot
 #   read (past the wire)
@@ -253,24 +123,19 @@ law timeouts_ffi_answers:
   for fits: {tw_fits(t) == True{} : Bool}
   {FT.ffi(tw_spell(t)) == tw_reply(t) : String}
 
-# LAW timeouts_ffi_reads: every input that is exactly one request (as the wire primitives read
-# it) gets the reply to its base values
-# EXCLUDES: a reply on another reading of the input
-law timeouts_ffi_reads:
+# LAW timeouts_ffi_malformed_unless_request: every answer but the error form "timeouts:
+# malformed request" comes from an input that is exactly a request Rust
+# writes (base values that fit the wire, spelled from the wire primitives,
+# nothing after them); with timeouts_ffi_answers this fixes the answer to
+# every input
+# EXCLUDES: a decoder that accepts a missing, extra or reordered value, a
+#   number past the wire, or input left over, and answers it (a default
+#   derivation instead of the malformed error)
+law timeouts_ffi_malformed_unless_request:
   for +s: String
-  for +t: Su.Tm
-  for got: {tw_read(s) == Some{t} : Maybe<&2, Su.Tm>}
-  {FT.ffi(s) == tw_reply(t) : String}
-
-# LAW timeouts_ffi_malformed_exact: every input that is not exactly one request (a malformed
-# value, a number past the wire, input left over) gets exactly the error
-# form 'E ', then "timeouts: malformed request"
-# EXCLUDES: a default derivation on garbage, a request with input after it
-#   answered
-law timeouts_ffi_malformed_exact:
-  for +s: String
-  for no: {tw_read(s) == None{} : Maybe<&2, Su.Tm>}
-  {FT.ffi(s) == SCon{'E', SCon{' ', "timeouts: malformed request"}} : String}
+  for other: {String.eq(FT.ffi(s), Wr.err("timeouts: malformed request")) == False{} : Bool}
+  exs t: Su.Tm
+  {(s, tw_fits(t)) == (tw_spell(t), True{}) : String & Bool}
 
 # LAW timeouts_ffi_example: anchor: the base values eukhe ships in seconds (in ms they are
 # 1000 times these, but k = 5; crates/eukhe-daemon src/timeouts.rs,
@@ -284,12 +149,39 @@ law timeouts_ffi_example:
   {FT.ffi("5,5,5,2,1,2,2,1,2,300,1500,60,30,5,205,5,30,120,5,") == "28,30,33,35,65,300,1800,35,900," : String} &
   {FT.ffi("5,5,5,2,1,2,2,1,2,300,1500,60,30,5,205,5,30,120,5,x") == Wr.err("timeouts: malformed request") : String}
 
-# LAW timeouts_values_are_model: the derived values the entry answers are the model's
-# derivation (bend/supervise.bend Tm), of which timeouts_ordered proves the
-# order: the teardown, stop grace, drain, launcher wait, child kill, lost
-# window, max age, quiesce hold and restart window, for any base values
-# EXCLUDES: an entry whose values are not the ones timeouts_ordered is
-#   proved of (that law would then say nothing about the timeouts that run)
-law timeouts_values_are_model:
-  for +t: Su.Tm
-  {tw_values(t) == [Su.Tm.teardown(t), Su.Tm.stop_grace(t), Su.Tm.drain(t), Su.Tm.launcher_wait(t), Su.Tm.child_kill(t), Su.Tm.lost(t), Su.Tm.max_age(t), Su.Tm.quiesce_hold(t), Su.Tm.window(t)] : List<&2, Nat>}
+# The crash loop (A7)
+# -------------------
+
+# the restart budget Rust configures (restart_budget::restart_cfg): give
+# up after k, the window the entry derives (tw_values' last value: k + 1
+# times the longest pause plus the loop period), the base pause b, the
+# longest pause bmax as the cap
+def tw_restart_cfg(+k: Nat, +bmax: Nat, +loop: Nat, b: Nat) -> Su.Cfg:
+  Su.Cfg{k, Nat.mul(1n+k, Nat.add(bmax, loop)), b, bmax}
+
+# every gap of gs is at most m
+def tw_all_le(gs: List<&2, Nat>, +m: Nat) -> Bool:
+  match gs:
+    case Nil{}:
+      True{}
+    case g <> rest:
+      Bool.and(Nat.is_le(g, m), tw_all_le(rest, m))
+
+# LAW timeouts_crash_loop_given_up: with the budget Rust configures from the base values,
+# a crash loop is given up: after any earlier failures, a failure followed
+# by k more, each at most the longest pause plus the loop period after the
+# one before it (that sum not 0), gives the worker up
+# EXCLUDES: a restart window too short for k crash-loop steps (a loop that
+#   is never given up), a window derived from another count or period
+law timeouts_crash_loop_given_up:
+  for +k: Nat
+  for +bmax: Nat
+  for +loop: Nat
+  for +b: Nat
+  for +pre: List<&2, Nat>
+  for +g: Nat
+  for +gs: List<&2, Nat>
+  for live: {Nat.is_lt(0n, Nat.add(bmax, loop)) == True{} : Bool}
+  for many: {List.length(&2, Nat, gs) == k : Nat}
+  for loops: {tw_all_le(gs, Nat.add(bmax, loop)) == True{} : Bool}
+  {Su.gives_up(Su.verdict(tw_restart_cfg(k, bmax, loop, b), Su.failures(tw_restart_cfg(k, bmax, loop, b), List.append(&2, Nat, pre, g <> gs)))) == True{} : Bool}

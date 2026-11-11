@@ -1,11 +1,12 @@
-//! The supervisor's timeouts. Each derived timeout comes from the
-//! timeouts it must exceed, so an edit of one cannot reorder them: the law
-//! `timeouts_ordered` (`laws/supervise.bend`, D1; the model in
-//! bend/supervise.bend) proves the order of the derivation, and the
-//! derivation runs as the compiled model: [`derived`] writes the base
+//! The supervisor's timeouts. Each derived timeout is a sum that contains
+//! the timeouts it must exceed, so an edit of one cannot reorder them. The
+//! derivation runs in the compiled core: [`derived`] writes the base
 //! values below (and those of `eukhe-types` `daemon::timing` and
 //! `eukhe-core` `kernel::shared`) to `bend/ffi_timeouts.bend` once and
-//! keeps its answer (laws `timeouts_ffi_*`, `laws/timeouts.bend`).
+//! keeps its answer (laws `timeouts_ffi_answers` and
+//! `timeouts_ffi_malformed_unless_request`, `laws/timeouts.bend` A5, A6;
+//! the crash loop given up within the restart window:
+//! `timeouts_crash_loop_given_up`, A7).
 //!
 //! - A stop gives a worker the whole kernel teardown plus the Harness
 //!   close before the supervisor kills it.
