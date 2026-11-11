@@ -136,6 +136,7 @@ async fn rendered(agent: Agent) -> Vec<(String, Option<String>)> {
     let input = PromptInput {
         conversation_id: ConversationId::from_number(1),
         agent: Arc::new(agent),
+        tokenizer: eukhe_tokens::Tokenizer::unknown_model(),
         env: None,
         shown: IndexMap::new(),
         read: Arc::new(NoDocuments),

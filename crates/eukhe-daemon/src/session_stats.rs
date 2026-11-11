@@ -1,20 +1,21 @@
 //! `get_session_stats` over the worker session store: port of
 //! `AgentSession.getSessionStats` / `getContextUsage` (TS
 //! `core/agent-session.ts`, shapes from `core/session-stats.ts`) and the
-//! `estimateContextTokens` / `estimateTokens` heuristics from
-//! the same code serves scripted and real engine sessions. The rows are
-//! wire JSON; their token estimate is the one token estimate
-//! ([`eukhe_types::token_estimate`]).
+//! `estimateContextTokens` / `estimateTokens` walk from `core/compaction`,
+//! so the same code serves scripted and real engine sessions. The rows are
+//! wire JSON, counted with the session model's tokenizer
+//! ([`ContextMeter`]).
 
+use eukhe_tokens::MessageParts;
 use serde_json::{json, Value};
 
-use eukhe_types::token_estimate::{chars_to_tokens, text_chars, ESTIMATED_IMAGE_CHARS};
 use eukhe_types::usage::{calculate_context_tokens, valid_assistant_usage};
 
 use crate::session_store::{SessionEntry, SessionFile};
+use crate::state_getters::ContextMeter;
 
 /// Compute the `get_session_stats` response data for one session file.
-/// `context_window` is the engine model's context window; `None` (or zero)
+/// `meter` is the engine model's context window and tokenizer; `None`
 /// omits `contextUsage`, matching TS sessions without a model.
 ///
 /// TS `getSessionStats` sums `state.messages` — the in-memory
@@ -31,9 +32,9 @@ use crate::session_store::{SessionEntry, SessionFile};
 /// and a compaction sitting on that abandoned branch never bounds the
 /// active one. The summarizer's own usage rides the `compaction` entry,
 /// never a message, so it stays out of the active totals. `contextUsage`
-/// keeps the strict branch — the context estimate mirrors what the
-/// model actually sees.
-pub fn session_stats(store: &SessionFile, context_window: Option<u64>) -> Value {
+/// keeps the strict branch — the context count mirrors what the model
+/// actually sees.
+pub fn session_stats(store: &SessionFile, meter: Option<&ContextMeter>) -> Value {
     let branch = store.branch();
     let messages: Vec<&Value> = branch
         .iter()
@@ -127,7 +128,7 @@ pub fn session_stats(store: &SessionFile, context_window: Option<u64>) -> Value 
         },
         "cost": cost,
     });
-    if let Some(usage) = context_usage(&branch, &messages, context_window) {
+    if let Some(usage) = context_usage(&branch, &messages, meter) {
         stats["contextUsage"] = usage;
     }
     stats
@@ -179,11 +180,12 @@ fn kept_region_messages(store: &SessionFile) -> (Vec<&Value>, Option<usize>) {
     (messages, boundary.copied())
 }
 
-/// `contextUsage` for one whole store (the `get_context_tree` root node):
-/// `None` when the context window is unknown, matching `session_stats`.
+/// `contextUsage` for one whole store (the `get_context_tree` child
+/// nodes): `None` when the model's window is unknown, matching
+/// `session_stats`.
 pub(crate) fn store_context_usage(
     store: &SessionFile,
-    context_window: Option<u64>,
+    meter: Option<&ContextMeter>,
 ) -> Option<Value> {
     let branch = store.branch();
     let messages: Vec<&Value> = branch
@@ -191,7 +193,7 @@ pub(crate) fn store_context_usage(
         .filter(|entry| entry.type_ == "message")
         .filter_map(|entry| entry.fields.get("message"))
         .collect();
-    context_usage(&branch, &messages, context_window)
+    context_usage(&branch, &messages, meter)
 }
 
 /// `toolCall` content blocks on one assistant message.
@@ -208,16 +210,17 @@ fn tool_call_count(message: &Value) -> u64 {
         .unwrap_or_default()
 }
 
-/// Estimated context usage (TS `getContextUsage`): the last valid assistant
-/// usage plus trailing message estimates, `null` tokens right after a
-/// compaction without a usable post-compaction usage. `None` when the
-/// context window is unknown.
+/// Context usage (TS `getContextUsage`): the last valid assistant usage
+/// plus the counted tokens of the messages after it (the session model's
+/// tokenizer), `null` tokens right after a compaction without a usable
+/// post-compaction usage. `None` when the context window is unknown.
 fn context_usage(
     branch: &[&SessionEntry],
     messages: &[&Value],
-    context_window: Option<u64>,
+    meter: Option<&ContextMeter>,
 ) -> Option<Value> {
-    let context_window = context_window.filter(|window| *window > 0)?;
+    let ContextMeter { window, tokenizer } = meter?;
+    let context_window = *window;
 
     // The latest compaction entry on the branch, if any (TS
     // `getLatestCompactionEntry`).
@@ -244,69 +247,29 @@ fn context_usage(
     }
 
     // TS `estimateContextTokens`: the last valid assistant usage anchors the
-    // estimate; messages after it add their estimates.
-    let mut tokens = 0u64;
-    match messages
+    // size; messages after it add their counts.
+    let count = |messages: &[&Value]| -> u64 {
+        messages
+            .iter()
+            .map(|message| tokenizer.count_message(&MessageParts::from_wire(message)))
+            .sum()
+    };
+    let tokens = match messages
         .iter()
         .rposition(|message| valid_assistant_usage(message).is_some())
     {
         Some(last_usage_index) => {
             let usage = valid_assistant_usage(messages[last_usage_index]).expect("checked");
-            tokens += calculate_context_tokens(&usage);
-            tokens += messages[last_usage_index + 1..]
-                .iter()
-                .map(|message| estimate_row_tokens(message))
-                .sum::<u64>();
+            calculate_context_tokens(&usage) + count(&messages[last_usage_index + 1..])
         }
-        None => {
-            tokens += messages
-                .iter()
-                .map(|message| estimate_row_tokens(message))
-                .sum::<u64>();
-        }
-    }
+        None => count(messages),
+    };
     let percent = tokens as f64 / context_window as f64 * 100.0;
     Some(json!({
         "tokens": tokens,
         "contextWindow": context_window,
         "percent": percent,
     }))
-}
-
-/// Estimated tokens of one wire message row (TS `estimateTokens`): string
-/// content of user, custom, and tool-result rows, and the text, thinking,
-/// tool calls (name and serialized arguments), and images of content
-/// blocks, at the one token estimate.
-fn estimate_row_tokens(message: &Value) -> u64 {
-    let role = message
-        .get("role")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let text = |value: Option<&Value>| value.and_then(Value::as_str).map_or(0, text_chars);
-    let chars = match message.get("content") {
-        Some(Value::String(content))
-            if role == "user" || role == "custom" || role == "toolResult" =>
-        {
-            text_chars(content)
-        }
-        Some(Value::Array(blocks)) => blocks
-            .iter()
-            .map(|block| match block.get("type").and_then(Value::as_str) {
-                Some("text") => text(block.get("text")),
-                Some("thinking") => text(block.get("thinking")),
-                Some("toolCall") => {
-                    text(block.get("name"))
-                        + block.get("arguments").map_or(0, |arguments| {
-                            serde_json::to_string(arguments).map_or(0, |json| text_chars(&json))
-                        })
-                }
-                Some("image") => ESTIMATED_IMAGE_CHARS,
-                Some(_) | None => 0,
-            })
-            .sum(),
-        Some(_) | None => 0,
-    };
-    chars_to_tokens(chars)
 }
 
 /// `totalTokens` when present, else the four-field sum (TS

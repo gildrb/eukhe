@@ -12,17 +12,18 @@
 
 use std::sync::{Arc, Weak};
 
-use eukhe_ai::utils::estimate::calculate_context_tokens;
+use eukhe_ai::utils::context_tokens::{calculate_context_tokens, model_tokenizer};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::entries::COMPACTION_ENTRY;
 use eukhe_durable::harness::agent::resolve_settings;
-use eukhe_durable::harness::compaction::{estimate_context, select_cut};
+use eukhe_durable::harness::compaction::{context_tokens, select_cut};
 use eukhe_durable::harness::types::{CompactionReason, ContextView, ToolExecutionApiExt};
 use eukhe_durable::harness::{Conversation, LiveState, LIVE_DOC};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, LatestFork};
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::Message;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -145,10 +146,11 @@ async fn live(runtime: &RlmRuntime, id: ConversationId, cx: &Context) -> anyhow:
     })
 }
 
-/// The conversation's estimated context size (TS `getContextUsage`): the
-/// last measured response plus estimates of what follows; `None` right
-/// after a compaction, before a response measured the compacted context.
-fn context_tokens(view: &ContextView) -> Option<u64> {
+/// The conversation's context size (TS `getContextUsage`): the last
+/// measured response plus the counted tokens (the conversation model's
+/// `tokenizer`) of what follows; `None` right after a compaction, before a
+/// response measured the compacted context.
+fn context_size(view: &ContextView, tokenizer: &Tokenizer) -> Option<u64> {
     let compacted = view
         .head
         .as_ref()
@@ -162,7 +164,7 @@ fn context_tokens(view: &ContextView) -> Option<u64> {
             return None;
         }
     }
-    Some(estimate_context(view, &[]))
+    Some(context_tokens(view, &[], tokenizer))
 }
 
 fn compact_status(
@@ -172,14 +174,14 @@ fn compact_status(
     async move {
         let cx = background();
         let (id, agent) = runtime.target(call.call.as_ref(), &cx).await?;
-        let window = agent
+        let model = agent
             .model
             .as_ref()
             .and_then(|model| runtime.model(model))
-            .map(|model| model.context_window)
-            .filter(|window| *window > 0);
-        let (tokens, window_value, percent) = match window {
-            Some(window) => {
+            .filter(|model| model.context_window > 0);
+        let (tokens, window_value, percent) = match &model {
+            Some(model) => {
+                let window = model.context_window;
                 let view = conversation(&runtime, id, &cx)
                     .await?
                     .context(
@@ -187,7 +189,7 @@ fn compact_status(
                         eukhe_durable::harness::types::ContextOptions::default(),
                     )
                     .await?;
-                let tokens = context_tokens(&view);
+                let tokens = context_size(&view, &model_tokenizer(model));
                 #[expect(
                     clippy::cast_precision_loss,
                     reason = "token counts are JS numbers, far below 2^53"
@@ -238,11 +240,11 @@ fn compact_run(
         let view = conversation.context(&cx, eukhe_durable::harness::types::ContextOptions::default()).await?;
         // TS `prepareCompaction`: only schedule a compaction that has
         // history to summarize.
-        let window = agent
-            .model
+        let model = agent.model.as_ref().and_then(|model| runtime.model(model));
+        let window = model.as_ref().map_or(0, |model| model.context_window);
+        let tokenizer = model
             .as_ref()
-            .and_then(|model| runtime.model(model))
-            .map_or(0, |model| model.context_window);
+            .map_or_else(Tokenizer::unknown_model, model_tokenizer);
         let policy = resolve_settings(Some(&runtime.deps.settings.harness())).compaction;
         let compacted_tail = view.entries.len() == usize::from(view.head.is_some())
             && view
@@ -252,7 +254,7 @@ fn compact_run(
         if compacted_tail {
             return Ok(json!({ "scheduled": false, "reason": "already compacted" }));
         }
-        if select_cut(&view, &policy, window).is_none() {
+        if select_cut(&view, &policy, window, &tokenizer).is_none() {
             return Ok(json!({ "scheduled": false, "reason": "session is too short to compact" }));
         }
         conversation.compact(instructions, &cx).await?;

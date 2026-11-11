@@ -20,11 +20,12 @@ use std::time::Duration;
 
 use eukhe_ai::providers::all::{get_builtin_model, get_builtin_models};
 use eukhe_ai::types::ProviderStreamOptions;
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_types::pi_ai::{AssistantMessage, Context, Model, StopReason, Usage};
 use serde_json::json;
 
-/// Lorem ipsum paragraph for realistic token estimation.
+/// Lorem ipsum paragraph: varied text, so the overflow prompt tokenizes like prose.
 const LOREM_IPSUM: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. ";
 
 fn env_value(name: &str) -> Option<String> {
@@ -49,18 +50,19 @@ fn now_ms() -> u64 {
     .expect("epoch millis fit u64")
 }
 
-/// A string that exceeds the context window, using chars/4 as the token
-/// estimate (works better with varied text than repeated chars).
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)] // JS number math: context windows are far below 2^53 and the result is a positive integer.
-fn generate_overflow_content(context_window: u64) -> String {
-    let target_tokens = context_window + 10_000; // Exceed by 10k tokens.
-    let target_chars = target_tokens as f64 * 4.0 * 1.5;
-    let repetitions = (target_chars / LOREM_IPSUM.len() as f64).ceil() as usize;
-    LOREM_IPSUM.repeat(repetitions)
+/// A string that exceeds the context window by 10k tokens, counted with the
+/// model's own tokenizer.
+fn generate_overflow_content(model: &Model) -> String {
+    let tokenizer = model_tokenizer(model);
+    let target_tokens = model.context_window + 10_000;
+    let paragraph_tokens = tokenizer.count_text(LOREM_IPSUM);
+    let repetitions =
+        usize::try_from(target_tokens.div_ceil(paragraph_tokens)).expect("repetitions fit usize");
+    let mut content = LOREM_IPSUM.repeat(repetitions);
+    while tokenizer.count_text(&content) <= target_tokens {
+        content.push_str(LOREM_IPSUM);
+    }
+    content
 }
 
 struct OverflowResult {
@@ -79,7 +81,7 @@ async fn test_context_overflow(model: &Model, api_key: &str) -> OverflowResult {
         "systemPrompt": "You are a helpful assistant.",
         "messages": [{
             "role": "user",
-            "content": generate_overflow_content(model.context_window),
+            "content": generate_overflow_content(model),
             "timestamp": now_ms(),
         }],
     }))

@@ -1,30 +1,45 @@
 //! Range selection and serialization (`test/harness-compaction.test.ts`,
-//! "range selection" and "serialization"), and the calibrated sizes the
-//! cut and the threshold read.
+//! "range selection" and "serialization"), and the counted sizes the cut
+//! and the threshold read.
 
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
 };
-use eukhe_ai::utils::estimate::estimate_message_tokens;
+use eukhe_ai::utils::context_tokens::message_tokens;
 use eukhe_bend::rules::infer_threshold::Over;
+use eukhe_tokens::{Encoding, Tokenizer};
 use eukhe_types::pi_ai::{
     AssistantMessage, IndexMap, JsonObject as PiJsonObject, Message, StopReason, SystemContent,
     SystemMessage, TextContent, ToolResultMessage, Usage, UserContent, UserContentBlock,
     UserMessage,
 };
 
-use super::{
-    estimate_context, last_turn_tokens, plan, select_cut, serialize_conversation, Calibration,
-};
+use super::{context_tokens, last_turn_tokens, plan, select_cut, serialize_conversation};
 use crate::harness::agent::DEFAULT_COMPACTION_POLICY;
 use crate::harness::context::order_tool_results;
 use crate::harness::types::{BackgroundMargin, CompactionPolicy, ContextView};
 use crate::types::{ConversationId, EntryId, EntryRecord};
 
-/// Text of about `tokens` estimated tokens, starting with `label`.
+/// Text of exactly `tokens` `o200k_base` tokens (the tokenizer of a model
+/// the catalog names none for), starting with `label`: each ` the` is its
+/// own pre-token and one token, four characters like the faux provider's
+/// token.
 pub(crate) fn text(label: &str, tokens: usize) -> String {
-    let fill = (tokens * 4).saturating_sub(label.len() + 1);
-    format!("{label} {}", "x".repeat(fill))
+    let label_tokens = usize::try_from(Encoding::O200kBase.count(label)).unwrap_or(usize::MAX);
+    format!(
+        "{label}{}",
+        " the".repeat(tokens.saturating_sub(label_tokens))
+    )
+}
+
+/// [`text`] is as many tokens as it says.
+#[test]
+fn the_test_text_counts_exactly() {
+    assert_eq!(
+        [("u1", 100), ("sys", 5000), ("A", 8000), ("stopped", 100)]
+            .map(|(label, tokens)| Encoding::O200kBase.count(&text(label, tokens))),
+        [100, 5000, 8000, 100]
+    );
 }
 
 /// Entry IDs in creation order (TS `nextId`).
@@ -144,6 +159,7 @@ fn cut(view: &ContextView, keep: f64) -> Option<usize> {
             ..DEFAULT_COMPACTION_POLICY
         },
         0,
+        &Tokenizer::unknown_model(),
     )
 }
 
@@ -376,16 +392,17 @@ const EUKHE: CompactionPolicy = CompactionPolicy {
     ..DEFAULT_COMPACTION_POLICY
 };
 
-/// Bench longmem: pasted logs the provider counts at twice the local
-/// estimate. The estimate of the next request scales its new paste to the
-/// provider's counts, and a compaction keeps only the newest paste: kept
+/// Bench longmem: pasted logs, which the provider counted at twice the old
+/// characters-per-token estimate, are counted exactly by the reading
+/// model's tokenizer: the next request is the last turn's usage plus the
+/// new paste's count, and a compaction keeps only the newest paste: kept
 /// with the system prompt and the summary, two pastes would leave the next
-/// turn over the start again. (The old cut kept every paste here, by
-/// estimate within the keep window, and compacted before every turn.)
+/// turn over the start again.
 #[test]
-fn a_compaction_counts_pastes_as_the_provider_does_and_keeps_the_context_within_the_target() {
+fn a_compaction_counts_pastes_exactly_and_keeps_the_context_within_the_target() {
+    let tokenizer = Tokenizer::unknown_model();
     let mut ids = Ids(0);
-    let paste = |label: &str| user(text(label, 8000));
+    let paste = |label: &str| user(text(label, 18_000));
     let entries = vec![
         ids.entry("pi.system", vec![system_sections(text("sys", 5000))], None),
         ids.entry("pi.user", vec![paste("A")], None),
@@ -397,36 +414,40 @@ fn a_compaction_counts_pastes_as_the_provider_does_and_keeps_the_context_within_
         ids.entry("pi.user", vec![paste("D")], None),
     ];
     let view = view(entries, None);
-    let estimate = |message: &Message| estimate_message_tokens(message);
-    let between = estimate(&paste("B"))
-        + estimate(&counted_answer("a2", 0))
-        + estimate(&paste("C"))
-        + estimate(&counted_answer("a3", 0));
-    let tokens = estimate_context(&view, &[]);
+    let tokens = context_tokens(&view, &[], &tokenizer);
     assert_eq!(
+        (tokens, message_tokens(&tokenizer, &paste("D"))),
+        (66_600 + 18_000, 18_000)
+    );
+    let planned = plan(
+        &view,
+        &EUKHE,
+        WINDOW,
         tokens,
-        66_600 + (estimate(&paste("D")) * 36_600).div_ceil(between)
+        last_turn_tokens(&view),
+        &tokenizer,
     );
     assert_eq!(
-        plan(
-            &view,
-            &EUKHE,
-            WINDOW,
-            tokens,
-            last_turn_tokens(&view),
-            Calibration::of(&view),
-        ),
+        planned,
         super::range::Plan {
             over: Over::Blocking,
             cut: Some(7),
         }
     );
-    assert_eq!(select_cut(&view, &EUKHE, WINDOW), Some(7));
+    // What the cut keeps stays within the target (27808).
+    let kept: u64 = view.contributions[7..]
+        .iter()
+        .flatten()
+        .map(|message| message_tokens(&tokenizer, message))
+        .sum();
+    assert!(kept <= 27_808, "{kept}");
+    assert_eq!(select_cut(&view, &EUKHE, WINDOW, &tokenizer), Some(7));
 }
 
 /// The plan of a request that follows a turn the provider counted at
-/// `last` tokens and adds a paste of `paste` estimated tokens.
+/// `last` tokens and adds a paste of `paste` counted tokens.
 fn after_turn(last: u64, paste: usize) -> super::range::Plan {
+    let tokenizer = Tokenizer::unknown_model();
     let mut ids = Ids(0);
     let entries = vec![
         ids.entry("pi.system", vec![system_sections(text("sys", 5000))], None),
@@ -435,14 +456,14 @@ fn after_turn(last: u64, paste: usize) -> super::range::Plan {
         ids.entry("pi.user", vec![user(text("B", paste))], None),
     ];
     let view = view(entries, None);
-    let tokens = estimate_context(&view, &[]);
+    let tokens = context_tokens(&view, &[], &tokenizer);
     plan(
         &view,
         &EUKHE,
         WINDOW,
         tokens,
         last_turn_tokens(&view),
-        Calibration::of(&view),
+        &tokenizer,
     )
 }
 

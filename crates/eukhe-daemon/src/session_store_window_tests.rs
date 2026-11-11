@@ -1,5 +1,14 @@
 use super::*;
 
+/// A `window`-token model the catalog names no tokenizer for (it counts
+/// in `o200k_base`).
+fn meter(window: u64) -> crate::state_getters::ContextMeter {
+    crate::state_getters::ContextMeter {
+        window,
+        tokenizer: eukhe_tokens::Tokenizer::unknown_model(),
+    }
+}
+
 /// The attribution fold survives the windowed fast open on both sides of
 /// the compaction boundary: an in-window attribution folds into its
 /// retained assistant row, an attribution targeting a discarded-prefix
@@ -143,8 +152,8 @@ fn window_preserves_transcript_metadata_and_hydrates_pending_rows() {
         )
     );
     assert_eq!(
-        crate::session_stats::session_stats(&window, Some(100_000)),
-        crate::session_stats::session_stats(&full, Some(100_000))
+        crate::session_stats::session_stats(&window, Some(&meter(100_000))),
+        crate::session_stats::session_stats(&full, Some(&meter(100_000)))
     );
     window.append_session_info("pending name");
     let leaf = window.leaf_id.clone();
@@ -176,8 +185,8 @@ fn captured_window_matches_full_transcript_and_stats() {
         let reference = SessionFile::open(&path).unwrap();
         assert_eq!(window.messages(), reference.messages());
         assert_eq!(
-            crate::session_stats::session_stats(&window, Some(200_000)),
-            crate::session_stats::session_stats(&reference, Some(200_000))
+            crate::session_stats::session_stats(&window, Some(&meter(200_000))),
+            crate::session_stats::session_stats(&reference, Some(&meter(200_000)))
         );
         assert_eq!(
             (

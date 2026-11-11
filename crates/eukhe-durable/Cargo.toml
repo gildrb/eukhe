@@ -10,6 +10,9 @@ description = "Rust port of @earendil-works/pi-durable 1.0.4 with parts of 1.1 a
 eukhe-chord.workspace = true
 eukhe-ai.workspace = true
 eukhe-types.workspace = true
+# The reading model's tokenizer: compaction thresholds and cuts, the code
+# mode output budget and tool catalog budget count real tokens.
+eukhe-tokens.workspace = true
 # The compiled Bend core: the run's decisions (`decide.rs`, `entry.rs`),
 # the idle deadline after a stall (`deferred.rs`) and the session tree's
 # rule as a stepper (`tree/`, bend/ffi_tree.bend).
@@ -21,7 +24,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 # harness/generation: the provider token count's fallback to the local
-# estimate is logged. MIT.
+# count is logged. MIT.
 tracing.workspace = true
 # env/native: process-group kill, statfs magic, inotify (Linux) and kqueue
 # (macOS) watches through safe wrappers (rustix's kevent is unsafe). MIT.

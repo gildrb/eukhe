@@ -151,6 +151,10 @@ async fn sends_explicit_max_tokens() {
     assert_eq!(params.get("max_completion_tokens"), Some(&json!(1234)));
 }
 
+/// The prompt is 8,000 `x`: 1,000 `o200k_base` tokens, padded by a tenth
+/// and one message's 16 framing tokens (omp `countPromptTokens`) to 1,116;
+/// the cap is the room under the 10,000-token window after it and the
+/// 4,096-token safety margin.
 #[tokio::test]
 async fn clamps_default_max_tokens_to_remaining_context() {
     let model = gpt_4o_mini_completions(&json!({ "contextWindow": 10000, "maxTokens": 8000 }));
@@ -160,7 +164,7 @@ async fn clamps_default_max_tokens_to_remaining_context() {
     let params = simple_payload(&model, &ctx, None).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(4788)));
 }
 
 #[tokio::test]
@@ -172,7 +176,7 @@ async fn clamps_explicit_max_tokens_to_remaining_context() {
     let params = simple_payload(&model, &ctx, Some(7000)).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(4788)));
 }
 
 /// eukhe addition: a custom model on a loopback OpenAI-compatible server

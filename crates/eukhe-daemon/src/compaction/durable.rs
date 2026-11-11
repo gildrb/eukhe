@@ -4,13 +4,14 @@
 //! of the conversation. The `compaction_start`/`compaction_end` frames come
 //! from the event translator (the task's `pi.live` status), not from here.
 
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_core::durable::compaction::compaction_summary_text;
 use eukhe_core::durable::HostDeps;
 use eukhe_durable::entries::COMPACTION_ENTRY;
 use eukhe_durable::harness::agent::resolve_settings;
-use eukhe_durable::harness::compaction::{estimate_context, select_cut};
+use eukhe_durable::harness::compaction::{context_tokens, select_cut};
 use eukhe_durable::harness::types::{CompactionResult, ContextView};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, LiveState, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -18,6 +19,7 @@ use eukhe_durable::types::SubmissionState;
 use eukhe_durable::types::{
     DocumentReaderExt, EntryId, EntryRecord, TaskId, TaskOutcome, WriteSubmission,
 };
+use eukhe_tokens::Tokenizer;
 
 /// The skip of a session with no history before the keep window (TS
 /// `CompactionSkippedError`).
@@ -81,25 +83,29 @@ pub(crate) async fn run_manual_compaction(
     if already_compacted(&view) {
         return Err(ManualCompactionError::Skipped(ALREADY_COMPACTED));
     }
-    let window = conversation
+    let model = conversation
         .agent(cx)
         .await
         .map_err(|error| ManualCompactionError::session(&error))?
         .model
-        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id))
-        .map_or(0, |model| model.context_window);
+        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id));
+    let window = model.as_ref().map_or(0, |model| model.context_window);
+    let tokenizer = model
+        .as_ref()
+        .map_or_else(Tokenizer::unknown_model, model_tokenizer);
     let policy = resolve_settings(Some(&deps.settings.harness())).compaction;
-    if select_cut(&view, &policy, window).is_none() {
+    if select_cut(&view, &policy, window, &tokenizer).is_none() {
         return Err(ManualCompactionError::Skipped(TOO_SHORT_TO_COMPACT));
     }
     let task = conversation
         .compact(instructions, cx)
         .await
         .map_err(|error| ManualCompactionError::session(&error))?;
-    // The context estimate before the summary (TS `tokensBefore`), over the
-    // view read above: computed after the task commit, so the
-    // `compaction_start` frame never waits on it.
-    let tokens_before = estimate_context(&view, &[]);
+    // The context size before the summary (TS `tokensBefore`), counted
+    // over the view read above with the session model's tokenizer:
+    // computed after the task commit, so the `compaction_start` frame
+    // never waits on it.
+    let tokens_before = context_tokens(&view, &[], &tokenizer);
     let settled = harness
         .wait_for_task(task, cx)
         .await

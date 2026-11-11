@@ -646,8 +646,8 @@ async fn the_review_continues_the_sessions_request() {
 }
 
 /// The provider's window in the oversized-prompt test, counted as one
-/// token per character of the request (CJK text: the local estimate of
-/// 3.5 characters per token counts it far below the provider).
+/// token per character of the request: a provider whose tokenizer counts
+/// the text at four times the session model's local count.
 const PROVIDER_WINDOW: usize = 128_000;
 
 /// One request the counting provider answered.
@@ -741,13 +741,18 @@ async fn compaction_outcome_rows(session: &EukheSession) -> Vec<String> {
 }
 
 /// An oversized prompt the provider counts past its window while the local
-/// estimate does not (CJK text) ends its run on the overflow with a skip
-/// row that names the oversized turn and the way out (omp's compaction
-/// dead-end warning). The next prompt's overflow compaction summarizes the
-/// oversized message: the whole of it overflows the summarizer too, so
-/// the budget halves and the message is clamped to it (omp
-/// `generateSummary`, `clampConversationToBudget`), and the retried
-/// request is answered. The session stays usable without a new one.
+/// count does not (41,000 times " the": 41,000 tokens of `o200k_base` in
+/// 164,000 characters, each a token to the provider; more than the
+/// 40,000-token keep window, so a compaction can cut before it, and its
+/// failed turn's usage stays under the background threshold) ends its run
+/// on the overflow with a skip row that names the oversized turn and the
+/// way out (omp's compaction dead-end warning). The next prompt's overflow
+/// compaction summarizes the oversized message: the whole of it fits the
+/// summarizer's input budget by the local count and overflows the
+/// summarizer too, so what was sent halves and the message is clamped to
+/// it (omp `generateSummary`, `clampConversationToBudget`), and the
+/// retried request is answered. The session stays usable without a new
+/// one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_oversized_prompt_leaves_the_session_usable() {
     let fixture = Fixture::new();
@@ -765,7 +770,7 @@ async fn an_oversized_prompt_leaves_the_session_usable() {
     let session = fixture.open().await;
     let mut statuses = Vec::new();
     for prompt in [
-        "字".repeat(200_000),
+        " the".repeat(41_000),
         "Reply with exactly: SMALL1-OK".to_owned(),
         "Reply with exactly: SMALL2-OK".to_owned(),
     ] {

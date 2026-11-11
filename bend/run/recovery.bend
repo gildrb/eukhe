@@ -267,7 +267,7 @@ def rec.think(shrink: Bool, under: Bool, lowers: Bool, +n: Nat, +same: Nat, +las
 
 # the tokens a length stop may end short of the window and still have run
 # into it: twice the safety margin the output cap leaves under the window
-# (CONTEXT_SAFETY_TOKENS, 4096), for the error of the prompt's estimate
+# (CONTEXT_SAFETY_TOKENS, 4096), for what the prompt's local count leaves out
 def margin() -> Nat:
   8192n
 

@@ -14,6 +14,7 @@ mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait, RetryDelay, RetryWait};
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
@@ -30,8 +31,8 @@ use self::prompt::{
     summary_failure, summary_prompt, summary_text, SUMMARIZATION_SYSTEM_PROMPT, SUMMARY_PREFIX,
     SUMMARY_SUFFIX,
 };
-pub(crate) use self::range::{estimate_calibrated, last_turn_tokens, plan, Calibration};
-pub use self::range::{estimate_context, select_cut, summarized_messages};
+pub use self::range::{context_tokens, select_cut, summarized_messages};
+pub(crate) use self::range::{last_turn_tokens, plan};
 use crate::entries::{CompactionData, CompactionSummary, COMPACTION_ENTRY};
 use crate::harness::inbox::QueueModes;
 use crate::harness::live::run::{timestamp, CompactionInput};
@@ -147,7 +148,8 @@ async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
     let view = runtime
         .context(conversation_id, &cx, ContextOptions::default())
         .await?;
-    let Some(cut) = select_cut(&view, &policy, model.context_window) else {
+    let tokenizer = model_tokenizer(&model);
+    let Some(cut) = select_cut(&view, &policy, model.context_window, &tokenizer) else {
         return complete(&runtime, &cx).await;
     };
     let first_kept = view.entries[cut].id;

@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::{CompactionSummary, COMPACTION_ENTRY};
@@ -25,12 +26,12 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::EntryRecord;
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessageEvent, CacheRetention, Context as PiContext, Message,
     StopReason,
 };
 use eukhe_types::session::AgentMessage;
-use eukhe_types::token_estimate::estimate_text_tokens;
 use futures::{FutureExt, StreamExt};
 use serde_json::json;
 
@@ -42,8 +43,8 @@ use super::auxiliary_model::{
 use super::head;
 use super::summary_request::{
     build_summarization_request_for_text, clamp_conversation_to_budget,
-    estimate_summary_request_tokens, history_summary_completion_budget, min_summary_input_tokens,
-    plan_summary_windows, summary_input_budget_tokens,
+    history_summary_completion_budget, min_summary_input_tokens, plan_summary_windows,
+    summary_input_budget_tokens, summary_request_tokens,
 };
 use super::utils::{
     compute_file_lists, extract_file_ops_from_message, format_file_operations,
@@ -182,36 +183,47 @@ async fn decide(
     let signal = cx.abort_signal();
     options.options.stream.request.signal.clone_from(&signal);
 
-    // The summary windows (omp `generateSummary`): the whole conversation
-    // in one call when it fits the summarizer's input budget, else windows
-    // that each fit it, each folding into the summary carried out of the
-    // one before. A window that is one message above the budget (an
-    // oversized paste) is clamped to it. A summarizer that still overflows
-    // (its provider counts more than the local estimate) halves the budget
-    // and plans that window again, until the budget falls below the floor.
+    // The summary windows (omp `generateSummary`), counted with the
+    // summarizer's tokenizer: the whole conversation in one call when it
+    // fits the summarizer's input budget, else windows that each fit it,
+    // each folding into the summary carried out of the one before. A
+    // window that is one message above the budget (an oversized paste) is
+    // clamped to it. A summarizer that still overflows (its provider
+    // accepts less than the catalog window) halves what was sent and plans
+    // that window again, until the budget falls below the floor.
+    let tokenizer = model_tokenizer(&model);
     let llm_history = convert_to_llm(&history);
     drop(history);
     let budget = summary_input_budget_tokens(model.context_window, max_tokens);
     let floor = min_summary_input_tokens(model.context_window);
     let whole = serialize_conversation(&llm_history);
-    let mut pending: VecDeque<SummaryWindow> = if estimate_text_tokens(&whole) <= budget {
-        VecDeque::from([SummaryWindow {
-            messages: llm_history,
-            budget,
-            text: Some(whole),
-        }])
-    } else {
-        drop(whole);
-        SummaryWindow::plan(llm_history, budget).collect()
-    };
+    let mut pending: VecDeque<SummaryWindow> =
+        if tokenizer.check_token_budget(&[&whole], budget).fits {
+            VecDeque::from([SummaryWindow {
+                messages: llm_history,
+                budget,
+                text: Some(whole),
+            }])
+        } else {
+            drop(whole);
+            SummaryWindow::plan(llm_history, &tokenizer, budget).collect()
+        };
     let sink = deps.summary_delta.clone();
     let mut carried = previous;
     while let Some(window) = pending.pop_front() {
         let text = window
             .text
             .unwrap_or_else(|| serialize_conversation(&window.messages));
-        let tokens = estimate_text_tokens(&text);
-        let sent = clamp_conversation_to_budget(text, window.budget, tokens);
+        // A budget probe, not a raw count (omp `checkTokenBudget`): a
+        // window whose bytes already fit needs neither the exact count nor
+        // the clamp; one past the budget hands back the exact count the
+        // proportional clamp divides by.
+        let fit = tokenizer.check_token_budget(&[&text], window.budget);
+        let sent = if fit.fits {
+            text
+        } else {
+            clamp_conversation_to_budget(text, window.budget, fit.tokens)
+        };
         let request_messages = build_summarization_request_for_text(
             &sent,
             request.instructions.as_deref(),
@@ -265,14 +277,22 @@ async fn decide(
         // The failure label ("Summarization failed"): an error
         // stop bubbles out of the hook and fails the compaction task.
         if reply.stop_reason == StopReason::Error {
-            let halved = window.budget.min(tokens) / 2;
+            // Halve what was sent, not the budget it was planned against
+            // (omp): the window the cheap fit path never counted pays for
+            // its exact size here.
+            let sent_tokens = if fit.exact {
+                fit.tokens
+            } else {
+                tokenizer.count_text(&serialize_conversation(&window.messages))
+            };
+            let halved = window.budget.min(sent_tokens) / 2;
             if !is_context_overflow(&reply, Some(model.context_window)) || halved < floor {
                 let message = reply.error_message.unwrap_or_default();
                 return Err(SessionError::error(format!(
                     "Summarization failed: {message}"
                 )));
             }
-            for window in SummaryWindow::plan(window.messages, halved).rev() {
+            for window in SummaryWindow::plan(window.messages, &tokenizer, halved).rev() {
                 pending.push_front(window);
             }
             continue;
@@ -320,8 +340,12 @@ struct SummaryWindow {
 
 impl SummaryWindow {
     /// The windows of `messages` under `budget` ([`plan_summary_windows`]).
-    fn plan(messages: Vec<AgentMessage>, budget: u64) -> impl DoubleEndedIterator<Item = Self> {
-        plan_summary_windows(messages, budget)
+    fn plan(
+        messages: Vec<AgentMessage>,
+        tokenizer: &Tokenizer,
+        budget: u64,
+    ) -> impl DoubleEndedIterator<Item = Self> {
+        plan_summary_windows(messages, tokenizer, budget)
             .into_iter()
             .map(move |messages| Self {
                 messages,
@@ -365,9 +389,10 @@ fn compaction_reserve_tokens(deps: &super::HostDeps) -> u64 {
 }
 
 /// Route the summarizer through `auxiliaryModel` when it is set, usable,
-/// and its known window fits the exact request this compaction issues (TS
-/// #2411 `_resolveAuxiliaryModel`); otherwise the session model with no
-/// key of its own (the session's [`Models`] already carry its auth).
+/// and its known window fits the exact request this compaction issues,
+/// counted with that model's tokenizer (TS #2411 `_resolveAuxiliaryModel`);
+/// otherwise the session model with no key of its own (the session's
+/// [`Models`] already carry its auth).
 fn route_auxiliary(
     deps: &super::HostDeps,
     session_model: &eukhe_types::pi_ai::Model,
@@ -381,22 +406,24 @@ fn route_auxiliary(
         cwd: deps.cwd.clone(),
         agent_dir: deps.agent_dir.clone(),
     };
-    let required = estimate_summary_request_tokens(
-        history,
-        &[],
-        false,
-        previous,
-        anchor,
-        custom_instructions,
-        reserve,
-    );
     resolve_auxiliary_model(
         &context,
         &deps.models,
         &deps.auxiliary_notices,
         "compaction summary",
         session_model,
-        Some(required),
+        |model| {
+            Some(summary_request_tokens(
+                &model_tokenizer(model),
+                history,
+                &[],
+                false,
+                previous,
+                anchor,
+                custom_instructions,
+                reserve,
+            ))
+        },
     )
 }
 

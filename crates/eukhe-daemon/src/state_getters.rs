@@ -9,18 +9,20 @@
 use std::sync::Arc;
 
 use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_ai::utils::transcript::get_current_system_message;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::models::ModelRegistry;
-use eukhe_durable::harness::compaction::estimate_context;
+use eukhe_durable::harness::compaction::context_tokens;
 use eukhe_durable::harness::types::{ContextOptions, ContextView, PromptInput};
 use eukhe_durable::harness::{derive_view, Conversation};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::EntryRecord;
+use eukhe_tokens::{ModelRef, Tokenizer};
 use eukhe_types::daemon::{
     MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryTree, MemoryTreeReply, MemoryZoom,
 };
-use eukhe_types::pi_ai::IndexMap;
+use eukhe_types::pi_ai::{IndexMap, Model};
 use serde_json::{json, Value};
 
 use crate::context_tree_cache::WalkRequest;
@@ -84,17 +86,17 @@ impl Worker {
                 core.rlm_child_id.clone(),
             )
         };
-        let context_window = model_context_window(model.as_ref());
+        let meter = ContextMeter::of_wire(model.as_ref());
         let main = match hosted.main() {
             Ok(main) => main,
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
-        let context_usage = match context_window {
-            Some(window) => match main
+        let context_usage = match meter {
+            Some(meter) => match main
                 .context(&BACKGROUND_CONTEXT, ContextOptions::default())
                 .await
             {
-                Ok(view) => Some(context_usage(&view, window)),
+                Ok(view) => Some(context_usage(&view, &meter)),
                 Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
             },
             None => None,
@@ -411,22 +413,53 @@ async fn context_messages(conversation: &Conversation, cx: &Context) -> SessionR
     Ok(transcript_messages(&view.entries))
 }
 
-/// The positive `contextWindow` of a wire model (`model_metadata`), or
-/// None when the model or its window is unknown.
-pub(crate) fn model_context_window(model: Option<&Value>) -> Option<u64> {
-    model
-        .and_then(|model| model.get("contextWindow"))
-        .and_then(Value::as_u64)
-        .filter(|window| *window > 0)
+/// What the context usage the clients show measures against: the session
+/// model's window and its tokenizer (shared process-wide, so recounting
+/// unchanged text is a cache hit). Public for
+/// [`session_stats`](crate::session_stats::session_stats)'s signature;
+/// built only in this crate.
+pub struct ContextMeter {
+    pub(crate) window: u64,
+    pub(crate) tokenizer: Arc<Tokenizer>,
+}
+
+impl ContextMeter {
+    /// The meter of a wire model (`model_metadata`): its positive
+    /// `contextWindow` and the tokenizer of its `id`, `provider` and `api`;
+    /// `None` when the model or its window is unknown.
+    pub(crate) fn of_wire(model: Option<&Value>) -> Option<Self> {
+        let model = model?;
+        let window = model
+            .get("contextWindow")
+            .and_then(Value::as_u64)
+            .filter(|window| *window > 0)?;
+        let field = |key: &str| model.get(key).and_then(Value::as_str).unwrap_or_default();
+        Some(Self {
+            window,
+            tokenizer: Tokenizer::for_model(ModelRef {
+                id: field("id"),
+                provider: field("provider"),
+                api: field("api"),
+            }),
+        })
+    }
+
+    /// The meter of a catalog model; `None` when its window is unknown.
+    pub(crate) fn of_model(model: &Model) -> Option<Self> {
+        (model.context_window > 0).then(|| Self {
+            window: model.context_window,
+            tokenizer: model_tokenizer(model),
+        })
+    }
 }
 
 /// The tray's context usage off the shown conversation's event mirror (the
-/// attach snapshot's `state.contextUsage` and `get_session_stats`): the
-/// [`context_usage`] of the view the mirror's entries derive
-/// ([`derive_view`]), the one `get_context_tree` reads through the
+/// attach snapshot's `state.contextUsage`, `get_session_stats` and the
+/// roster summary): the [`context_usage`] of the view the mirror's entries
+/// derive ([`derive_view`]), the one `get_context_tree` reads through the
 /// Harness, so the attach can fill it under the core lock it already holds.
-pub(crate) fn mirror_context_usage(entries: &[EntryRecord], context_window: u64) -> Value {
-    context_usage(&derive_view(entries), context_window)
+pub(crate) fn mirror_context_usage(entries: &[EntryRecord], meter: &ContextMeter) -> Value {
+    context_usage(&derive_view(entries), meter)
 }
 
 /// The active context off the event mirror as wire `AgentMessage` rows (TS
@@ -455,18 +488,21 @@ pub(crate) fn mirror_context_messages(entries: &[EntryRecord]) -> Vec<Value> {
 }
 
 /// The context usage the clients show (`contextUsage`) of `view` against
-/// `context_window`: the estimate the compaction threshold reads
-/// ([`estimate_context`], spec §8.3), so the percent the user sees is the
-/// percent that starts a compaction. The threshold also counts the system
-/// entries the next request plans; the shown view holds the committed ones.
-pub(crate) fn context_usage(view: &ContextView, context_window: u64) -> Value {
-    let tokens = estimate_context(view, &[]);
+/// the session model's `meter`: the count the compaction threshold reads
+/// ([`context_tokens`], spec §8.3: the newest provider usage plus the
+/// session model's count of the messages after it), so the percent the
+/// user sees is the percent that starts a compaction. The threshold also
+/// counts the system entries the next request plans; the shown view holds
+/// the committed ones. Only the messages after the newest usage are
+/// counted, each fragment once per process (the tokenizer's cache).
+pub(crate) fn context_usage(view: &ContextView, meter: &ContextMeter) -> Value {
+    let tokens = context_tokens(view, &[], &meter.tokenizer);
     #[expect(
         clippy::cast_precision_loss,
         reason = "TS computes the percentage over JS doubles"
     )]
-    let percent = tokens as f64 / context_window as f64 * 100.0;
-    json!({ "tokens": tokens, "contextWindow": context_window, "percent": percent })
+    let percent = tokens as f64 / meter.window as f64 * 100.0;
+    json!({ "tokens": tokens, "contextWindow": meter.window, "percent": percent })
 }
 
 /// The chat memory as `get_memory` answers it: its status (the compactor
@@ -552,6 +588,16 @@ async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> SessionRe
     let input = PromptInput {
         conversation_id: main.id(),
         agent: Arc::clone(&agent),
+        tokenizer: agent
+            .model
+            .as_ref()
+            .and_then(|model| {
+                hosted
+                    .deps()
+                    .models
+                    .get_model(&model.provider, &model.model_id)
+            })
+            .map_or_else(Tokenizer::unknown_model, |model| model_tokenizer(&model)),
         env: None,
         shown: shown.clone(),
         read: Arc::new(hosted.harness().clone()),

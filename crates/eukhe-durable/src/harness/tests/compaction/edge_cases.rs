@@ -680,7 +680,7 @@ async fn treats_silent_overflow_as_an_ordinary_answer(responses: Vec<AssistantMe
         reserve_tokens: -100_000.0,
         keep_recent_tokens: 150.0,
         background: BackgroundMargin::Tokens(0.0),
-        token_count: ThresholdTokens::Estimate,
+        token_count: ThresholdTokens::Local,
     });
     for response in responses {
         chat.faux.agent(response);
@@ -728,7 +728,7 @@ async fn a_length_stop_that_fills_a_window_too_small_to_compact_fails_with_its_r
         reserve_tokens: -100_000.0,
         keep_recent_tokens: 150.0,
         background: BackgroundMargin::Tokens(0.0),
-        token_count: ThresholdTokens::Estimate,
+        token_count: ThresholdTokens::Local,
     });
     chat.faux.agent(with_stop("", StopReason::Length));
     let input = submit(&chat, "go").await;

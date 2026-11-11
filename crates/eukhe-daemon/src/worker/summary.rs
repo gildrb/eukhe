@@ -172,12 +172,12 @@ impl Worker {
         // session.getContextUsage()` in every attach snapshot, so the
         // client's first frame reads the tray's context usage off the
         // snapshot instead of blocking on a `get_session_stats`
-        // round-trip. The same mirror estimate `get_session_stats` serves:
+        // round-trip. The same mirror count `get_session_stats` serves:
         // `None` without a model context window.
         let context_usage = mirror
-            .zip(crate::state_getters::model_context_window(model.as_ref()))
-            .map(|(mirror, window)| {
-                crate::state_getters::mirror_context_usage(&mirror.entries, window)
+            .zip(crate::state_getters::ContextMeter::of_wire(model.as_ref()))
+            .map(|(mirror, meter)| {
+                crate::state_getters::mirror_context_usage(&mirror.entries, &meter)
             });
         AgentConnectionState {
             is_streaming: core.is_busy(),
@@ -611,7 +611,7 @@ pub(crate) fn session_summary(
         .map(crate::util::iso_from_unix_ms)
         .or_else(|| core.created_at.clone());
     // The pinned agents block's live fields: the running tool, the retry
-    // wait, and the context use (the attach snapshot's estimate).
+    // wait, and the context use (the attach snapshot's count).
     let current_tool = mirror
         .and_then(|mirror| mirror.tools.first())
         .map(|tool| CurrentTool {
@@ -627,10 +627,8 @@ pub(crate) fn session_summary(
             error: retry.error.clone(),
         });
     let context_usage = mirror
-        .zip(crate::state_getters::model_context_window(model.as_ref()))
-        .map(|(mirror, window)| {
-            crate::state_getters::mirror_context_usage(&mirror.entries, window)
-        });
+        .zip(crate::state_getters::ContextMeter::of_wire(model.as_ref()))
+        .map(|(mirror, meter)| crate::state_getters::mirror_context_usage(&mirror.entries, &meter));
     SessionSummary {
         id: core.active_session_id.clone(),
         lifecycle: active_lifecycle(&core.runtime_kind, messages == 0, streaming).to_string(),
@@ -924,7 +922,7 @@ mod tests {
                     retry_at: crate::util::iso_from_unix_ms(8_000),
                     error: "overloaded".to_string(),
                 }),
-                Some(crate::state_getters::mirror_context_usage(&[], 1_000)),
+                Some(json!({ "tokens": 0, "contextWindow": 1_000, "percent": 0.0 })),
             )
         );
     }

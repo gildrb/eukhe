@@ -8,8 +8,9 @@
 
 use std::collections::HashSet;
 
-use eukhe_ai::utils::estimate::{calculate_context_tokens, estimate_message_tokens};
+use eukhe_ai::utils::context_tokens::{calculate_context_tokens, message_tokens};
 use eukhe_bend::rules::infer_threshold::{whole, Compaction, Over, Range};
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message};
 
 use crate::harness::context::order_tool_results;
@@ -30,17 +31,18 @@ pub(crate) struct Plan {
 
 /// Index in `view.entries` of the first entry a summary keeps, or `None`
 /// when there is nothing to compact (spec §8.7): the cut of [`plan`] for
-/// the view's own context size ([`estimate_context`]).
+/// the view's own context size ([`context_tokens`]) under the reading
+/// model's `tokenizer`.
 #[must_use]
 pub fn select_cut(
     view: &ContextView,
     policy: &CompactionPolicy,
     context_window: u64,
+    tokenizer: &Tokenizer,
 ) -> Option<usize> {
-    let calibration = Calibration::of(view);
-    let tokens = estimate_calibrated(view, &[], calibration);
+    let tokens = context_tokens(view, &[], tokenizer);
     // The cut reads no threshold, so no turn's count.
-    plan(view, policy, context_window, tokens, 0, calibration).cut
+    plan(view, policy, context_window, tokens, 0, tokenizer).cut
 }
 
 /// The plan for a request over `view` of `tokens` tokens after a turn that
@@ -55,8 +57,9 @@ pub fn select_cut(
 /// entry whose contribution starts with a user or assistant message, never
 /// a tool result, and never a user entry that a result of the preceding
 /// assistant's calls still follows; it leaves at least one entry with a
-/// message before it. Entries count `calibration`'s tokens, their system
-/// messages none: a compaction writes the system prompt again.
+/// message before it. Entries count their messages' tokens under
+/// `tokenizer`, their system messages none: a compaction writes the system
+/// prompt again.
 #[expect(
     clippy::cast_precision_loss,
     reason = "a percentage margin is a share of the window in f64 tokens"
@@ -67,7 +70,7 @@ pub(crate) fn plan(
     context_window: u64,
     tokens: u64,
     last: u64,
-    calibration: Calibration,
+    tokenizer: &Tokenizer,
 ) -> Plan {
     let contributions = &view.contributions;
     let start = usize::from(view.head.is_some());
@@ -77,13 +80,11 @@ pub(crate) fn plan(
         .iter()
         .rev()
         .map(|contribution| {
-            calibration.tokens(
-                contribution
-                    .iter()
-                    .filter(|message| !matches!(message, Message::System(_)))
-                    .map(estimate_message_tokens)
-                    .sum(),
-            )
+            contribution
+                .iter()
+                .filter(|message| !matches!(message, Message::System(_)))
+                .map(|message| message_tokens(tokenizer, message))
+                .sum()
         })
         .collect();
     let cuts: Vec<u64> = (start..len)
@@ -115,71 +116,6 @@ pub(crate) fn plan(
             .cut
             .and_then(|kept| usize::try_from(kept).ok())
             .and_then(|kept| len.checked_sub(kept)),
-    }
-}
-
-/// The provider's own counts over the local estimate (3.5 chars per
-/// token): log-heavy text counts about twice the estimate. Between two
-/// requests the provider measured on the same transcript prefix (both on
-/// the same side of the head marker), the context grew by the counted
-/// tokens of the messages between them; their estimates sum to
-/// `estimated`. An estimate scales by `counted / estimated`, never below
-/// itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Calibration {
-    counted: u64,
-    estimated: u64,
-}
-
-impl Calibration {
-    pub(crate) fn of(view: &ContextView) -> Calibration {
-        let head = view.head.as_ref().map(|head| head.id);
-        let mut calibration = Calibration {
-            counted: 0,
-            estimated: 0,
-        };
-        let mut last: Option<(u64, bool)> = None;
-        let mut since: u64 = 0;
-        let start = usize::from(head.is_some());
-        for (entry, contribution) in view.entries.iter().zip(&view.contributions).skip(start) {
-            let after = head.is_none_or(|head| entry.id > head);
-            for message in contribution {
-                since += estimate_message_tokens(message);
-                let Some(counted) = measured(message) else {
-                    continue;
-                };
-                if let Some((before, side)) = last {
-                    if side == after && counted > before {
-                        calibration.counted += counted - before;
-                        calibration.estimated += since;
-                    }
-                }
-                last = Some((counted, after));
-                since = 0;
-            }
-        }
-        calibration
-    }
-
-    /// `estimate` scaled to the provider's counts, rounded up.
-    fn tokens(self, estimate: u64) -> u64 {
-        if self.counted <= self.estimated {
-            return estimate;
-        }
-        let scaled =
-            (u128::from(estimate) * u128::from(self.counted)).div_ceil(u128::from(self.estimated));
-        u64::try_from(scaled).unwrap_or(u64::MAX)
-    }
-}
-
-/// The context tokens the provider counted for an assistant's request and
-/// answer, when it reported any.
-fn measured(message: &Message) -> Option<u64> {
-    match message {
-        Message::Assistant(assistant) => {
-            Some(calculate_context_tokens(&assistant.usage)).filter(|&tokens| tokens > 0)
-        }
-        Message::System(_) | Message::User(_) | Message::ToolResult(_) => None,
     }
 }
 
@@ -257,17 +193,32 @@ pub fn summarized_messages(view: &ContextView, cut: usize) -> Vec<Message> {
 
 /// Size of a request over `view` followed by `extra` (spec §8.3): the usage
 /// of the newest assistant appended after the head marker, whose request
-/// included the marker, plus estimates of the messages after it; without
-/// one, estimates of every message. The estimates scale to the provider's
-/// counts of this transcript ([`Calibration`]).
+/// included the marker, plus the counted tokens of the messages after it
+/// under the reading model's `tokenizer`; without one, the counted tokens
+/// of every message.
 ///
 /// TS locates the measured message in `view.messages` by object identity
 /// (`lastIndexOf`); the Rust view holds copies, so the last equal message is
 /// taken, which is the same message: an assistant carries its own usage and
 /// timestamp.
 #[must_use]
-pub fn estimate_context(view: &ContextView, extra: &[Message]) -> u64 {
-    estimate_calibrated(view, extra, Calibration::of(view))
+pub fn context_tokens(view: &ContextView, extra: &[Message], tokenizer: &Tokenizer) -> u64 {
+    let measured = last_turn(view);
+    let from = measured.map_or(0, |measured| {
+        view.messages
+            .iter()
+            .rposition(
+                |message| matches!(message, Message::Assistant(assistant) if assistant == measured),
+            )
+            .map_or(0, |index| index + 1)
+    });
+    let counted = measured.map_or(0, |measured| calculate_context_tokens(&measured.usage));
+    let trailing: u64 = view.messages[from..]
+        .iter()
+        .chain(extra)
+        .map(|message| message_tokens(tokenizer, message))
+        .sum();
+    counted + trailing
 }
 
 /// The tokens the provider counted for the newest answer appended after the
@@ -297,28 +248,4 @@ fn last_turn(view: &ContextView) -> Option<&AssistantMessage> {
                 | Message::ToolResult(_) => None,
             })
         })
-}
-
-/// [`estimate_context`] with the view's `calibration` already read.
-pub(crate) fn estimate_calibrated(
-    view: &ContextView,
-    extra: &[Message],
-    calibration: Calibration,
-) -> u64 {
-    let measured = last_turn(view);
-    let from = measured.map_or(0, |measured| {
-        view.messages
-            .iter()
-            .rposition(
-                |message| matches!(message, Message::Assistant(assistant) if assistant == measured),
-            )
-            .map_or(0, |index| index + 1)
-    });
-    let counted = measured.map_or(0, |measured| calculate_context_tokens(&measured.usage));
-    let estimated: u64 = view.messages[from..]
-        .iter()
-        .chain(extra)
-        .map(estimate_message_tokens)
-        .sum();
-    counted + calibration.tokens(estimated)
 }

@@ -32,7 +32,7 @@ pub const DEFAULT_COMPACTION_POLICY: CompactionPolicy = CompactionPolicy {
     reserve_tokens: 16384.0,
     keep_recent_tokens: 20000.0,
     background: BackgroundMargin::Tokens(32768.0),
-    token_count: ThresholdTokens::Estimate,
+    token_count: ThresholdTokens::Local,
 };
 
 pub const DEFAULT_PROGRESS_POLICY: ProgressPolicy = ProgressPolicy {

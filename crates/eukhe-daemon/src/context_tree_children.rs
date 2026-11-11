@@ -38,9 +38,11 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use eukhe_core::models::ModelRegistry;
+use eukhe_tokens::{ModelRef, Tokenizer};
 
 use crate::session_stats::store_context_usage;
 use crate::session_store::SessionFile;
+use crate::state_getters::ContextMeter;
 
 /// Label cap (TS `compactLabel`'s default).
 const LABEL_MAX_CHARS: usize = 80;
@@ -84,8 +86,8 @@ pub fn load_context_tree_child(
         .find_map(|file| SessionFile::open(file).ok())?;
     // Label, status, and model follow the same gap-bridged branch as the
     // usage totals: a ghost-parent gap must not strip a child of its
-    // identity either. The context estimate below stays strict — it
-    // mirrors the model-facing truth.
+    // identity either. The context count below stays strict — it mirrors
+    // the model-facing truth.
     let branch = store.branch_bridged();
     let all_entries = store.entries();
     let (own_usage, total_usage) =
@@ -116,9 +118,10 @@ pub fn load_context_tree_child(
     });
     if let Some((provider, model_id)) = &model {
         node["model"] = json!({ "provider": provider, "id": model_id });
-        if let Some(usage) =
-            store_context_usage(&store, context_window_of(registry, provider, model_id))
-        {
+        if let Some(usage) = store_context_usage(
+            &store,
+            context_meter_of(registry, provider, model_id).as_ref(),
+        ) {
             node["contextUsage"] = usage;
         }
     }
@@ -289,13 +292,24 @@ fn branch_model(branch: &[&crate::session_store::SessionEntry]) -> Option<(Strin
 }
 
 /// The registry's context window for one model (the TS
-/// `ContextWindowResolver`).
-fn context_window_of(registry: &ModelRegistry, provider: &str, model_id: &str) -> Option<u64> {
+/// `ContextWindowResolver`) and its tokenizer.
+fn context_meter_of(
+    registry: &ModelRegistry,
+    provider: &str,
+    model_id: &str,
+) -> Option<ContextMeter> {
     registry
         .get_all()
         .find(|model| model.provider == provider && model.id == model_id)
-        .map(|model| model.context_window)
-        .filter(|window| *window > 0)
+        .filter(|model| model.context_window > 0)
+        .map(|model| ContextMeter {
+            window: model.context_window,
+            tokenizer: Tokenizer::for_model(ModelRef {
+                id: &model.id,
+                provider: &model.provider,
+                api: &model.api,
+            }),
+        })
 }
 #[cfg(test)]
 mod tests {

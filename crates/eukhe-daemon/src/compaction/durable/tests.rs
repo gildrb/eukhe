@@ -50,8 +50,8 @@ async fn manual_compaction_answers_the_ts_result_and_places_the_summary() {
 async fn a_short_session_skips_with_the_ts_message() {
     let fixture = Fixture::new();
     // The keep window counts the system prompt's entries too: with the
-    // tool declarations the prompt estimates at about 19k tokens. This
-    // window keeps the one exchange whatever the prompt weighs, with any
+    // tool declarations the prompt counts about 19k tokens. This window
+    // keeps the one exchange whatever the prompt weighs, with any
     // default.
     fixture.settings(&json!({ "compaction": { "keepRecentTokens": 200_000 } }));
     let session = fixture.open(SESSION_ID).await;
