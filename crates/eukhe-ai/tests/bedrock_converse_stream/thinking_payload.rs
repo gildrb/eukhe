@@ -467,3 +467,55 @@ async fn sends_no_reasoning_fields_when_reasoning_is_off() {
     .await;
     assert_eq!(payload.get("additionalModelRequestFields"), None);
 }
+
+async fn off_fields(model_id: &str) -> Option<Value> {
+    let context = Context {
+        system_prompt: None,
+        messages: vec![user("Hello")],
+        tools: None,
+    };
+    let model = get_model("amazon-bedrock", model_id);
+    let payload = capture(&model, context, ProviderStreamOptions::default()).await;
+    payload.get("additionalModelRequestFields").cloned()
+}
+
+/// omp with thinking off (`amazon-bedrock.ts`
+/// `buildAdditionalModelRequestFields` and the binding step of
+/// `streamBedrock`): Claude Haiku 5.5 takes the explicit `disabled` with
+/// the lowest effort (`compat.disabledThinking`); the other prefix-bound
+/// models think adaptively without a thinking field, so they send the bare
+/// adaptive tag with the block binding and its beta; the rest send nothing.
+#[tokio::test]
+async fn thinking_off_is_disabled_on_haiku_5_5_and_the_bare_binding_on_prefix_bound_claude() {
+    assert_eq!(
+        off_fields("global.anthropic.claude-haiku-5-5").await,
+        Some(json!({
+            "thinking": { "type": "disabled" },
+            "output_config": { "effort": "low" },
+        }))
+    );
+    for model_id in [
+        "global.anthropic.claude-sonnet-5-5",
+        "global.anthropic.claude-opus-5-5",
+        "global.anthropic.claude-fable-5-1",
+    ] {
+        assert_eq!(
+            off_fields(model_id).await,
+            Some(json!({
+                "thinking": {
+                    "type": "adaptive",
+                    "block_binding": { "prefix_mismatch_behavior": "drop_block" },
+                },
+                "anthropic_beta": [THINKING_BINDING_CONTROLS_BETA],
+            })),
+            "{model_id}"
+        );
+    }
+    for model_id in [
+        "global.anthropic.claude-opus-4-8",
+        "global.anthropic.claude-opus-4-6-v1",
+        "global.anthropic.claude-sonnet-4-6",
+    ] {
+        assert_eq!(off_fields(model_id).await, None, "{model_id}");
+    }
+}
