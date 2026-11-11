@@ -12,9 +12,9 @@ import ./base.bend as LawsBase
 # ---- tui_color ----
 
 # LAWS (T3): terminal colors. Each law is an open claim about the model
-# in bend/tui_color.bend (with the theme tables of bend/theme/bundled.bend);
-# PROOF.bend proves them (as TuiColor.<law>) with the lemmas of
-# proof/tui_color/.
+# in bend/tui_color.bend (with the theme tables of bend/theme/bundled.bend)
+# or about its entry bend/ffi_tui_color.bend (section entry); PROOF.bend
+# proves them (as TuiColor.<law>) with the lemmas of proof/tui_color/.
 
 # (T3) Terminal colors
 # --------------------
@@ -23,6 +23,54 @@ import ./base.bend as LawsBase
 # crates/eukhe-tui. Every input is free: any ramp ends and any ladder
 # length, any token count and any window. The terminal UI runs the model
 # itself, through the entry bend/ffi_tui_color.bend (section entry).
+#
+# Requirements (T3 is this area's tag; omp = oh-my-pi c28b3e3)
+# R1 The effort ramp (crates/eukhe-tui/src/theme.rs:542-546 effort_ramp,
+#    bend/tui_color.bend:7-12): a ladder of n levels gets n rungs, lowest
+#    first, from the theme's effortLow toward its effortHigh; rung k
+#    (1 to n) is, in each channel, the point k/n of the way from effortLow
+#    to effortHigh rounded down, so rung n is effortHigh; every channel
+#    moves one way along the ramp; the rungs are distinct when one channel
+#    of the ends is at least n apart, and in every shipped theme for every
+#    ladder of the level vocabulary (7 levels). omp has no effort ramp.
+#    Laws: tui_effort_ramp_length, tui_effort_ramp_lerp,
+#    tui_effort_ramp_ordered, tui_effort_ramp_distinct,
+#    tui_effort_shipped_distinct; anchors tui_effort_ladder_max_exact,
+#    tui_effort_ramp_teeth_example.
+# R2 The usage band (omp packages/tui/src/chrome/context-thresholds.ts:
+#    6-11,13-56 getContextUsageLevel, contextPercent = 100 t / w as in
+#    packages/tui/src/status-line/component.ts:2664-2667; crates/eukhe-tui
+#    status_line.rs context_color): t tokens in a w-token window give 0
+#    (normal) for an unknown window (0), else 3 (error) from 90% of the
+#    window, 2 from 70%, 1 (warning) from 50%, 0 below, each percent
+#    reached exactly at it. omp's token thresholds (150k, 270k, 500k
+#    tokens, whichever comes first) are NOT modeled: eukhe colors by the
+#    percents only, so above a 300k window it colors later than omp (an
+#    open gap, reported, not a law). Laws: tui_usage_band_omp,
+#    tui_usage_band_monotone, tui_usage_band_fraction, tui_usage_band_full,
+#    tui_usage_bands_ascend; anchor tui_usage_bands_ascend_teeth_example.
+# R3 The roles (crates/eukhe-tui/src/theme.rs:84-298, crates/eukhe-theme/
+#    src/token.rs:5-196): every color slot of the terminal UI, in Rust's
+#    slot order (ThemeColor::ALL, ThemeBg::ALL, ThemeRgb::ALL), is painted
+#    by the token of the same key (the canvas by background); the 58 slots
+#    take 58 distinct tokens, every token but foreground; every role has a
+#    color in every shipped theme; a role paints in a color table exactly
+#    when its index is inside the table, and resolves in a palette exactly
+#    when its entry there has a value. Laws: tui_roles_by_name,
+#    tui_roles_cover, tui_roles_shipped, tui_paints_bound,
+#    tui_resolves_split, tui_resolves_at, tui_resolves_past (and
+#    tui_roles_resolve of laws/theme.bend); anchors
+#    tui_roles_paint_teeth_example, tui_resolves_example.
+# R4 The entry (bend/ffi_tui_color.bend, crates/eukhe-bend/WIRE.md,
+#    crates/eukhe-bend/src/rules/tui_color.rs): a request spelled with the
+#    wire primitives; a ramp whose channels and rung count are at most 255
+#    answers the model's rungs, any other ramp the range error; a band the
+#    model's band; the roles the model's roles; a request with input left
+#    over, and every input that is not exactly one request, the malformed
+#    error. Laws: tui_color_ffi_ramp, tui_color_ffi_ramp_range,
+#    tui_color_ffi_band, tui_color_ffi_roles, tui_color_ffi_left_over,
+#    tui_color_ffi_total; anchors tui_color_ffi_premises_example,
+#    tui_color_ffi_example.
 
 # LAW tui_effort_ramp_length: the effort ramp has one rung for each level the model offers
 law tui_effort_ramp_length:
@@ -99,64 +147,71 @@ law tui_roles_shipped:
   for s: TBundled.Shipped
   {TC.paints(TBundled.table(s), TC.roles()) == True{} : Bool}
 
-# rung k (1 to n) of the ramp from a to b in one channel: the lower end
-# plus floor(d * w / n), d = |b - a|, w = k when the channel rises (a <= b)
-# and n - k when it falls, so rung n is b
-def chan_spec.pick(up: Bool, +a: Nat, +b: Nat, +k: Nat, +n: Nat) -> Nat:
-  match up:
-    case True{}:
-      Nat.add(a, Nat.div(Nat.mul(k, Nat.sub(b, a)), n))
-    case False{}:
-      Nat.add(b, Nat.div(Nat.mul(Nat.sub(n, k), Nat.sub(a, b)), n))
+# rung j of an n-rung ramp from a to b in one channel: the point j/n of
+# the way from a to b, rounded down, floor((a (n - j) + b j) / n). It
+# weighs the two ends, with no case for the direction of the channel.
+def lerp(+a: Nat, +b: Nat, +j: Nat, +n: Nat) -> Nat:
+  Nat.div(Nat.add(Nat.mul(a, Nat.sub(n, j)), Nat.mul(b, j)), n)
 
-def chan_spec(+a: Nat, +b: Nat, +k: Nat, +n: Nat) -> Nat:
-  chan_spec.pick(Nat.is_le(a, b), a, b, k, n)
-
-# rung k (1 to n) of the ramp from lo to hi, channel by channel
-def rung_spec(lo: TC.Px, hi: TC.Px, +k: Nat, +n: Nat) -> TC.Px:
+# rung j of an n-rung ramp from lo to hi, channel by channel
+def lerp_px(lo: TC.Px, hi: TC.Px, +j: Nat, +n: Nat) -> TC.Px:
   match lo hi:
     case TC.Px{lr, lg, lb} TC.Px{hr, hg, hb}:
-      TC.Px{chan_spec(lr, hr, k, n), chan_spec(lg, hg, k, n), chan_spec(lb, hb, k, n)}
+      TC.Px{lerp(lr, hr, j, n), lerp(lg, hg, j, n), lerp(lb, hb, j, n)}
 
-# LAW tui_effort_ramp_exact: rung k + 1 of an n-rung effort ramp (k below n) is, in each channel, the lower end plus floor(d * w / n), d the channel distance, w = k + 1 when the channel rises and n - k - 1 when it falls
-# EXCLUDES: a ramp that is ordered and distinct but not the documented
-#   one (rungs shifted by one, the low end as the first rung, the high end
-#   missing, rounding up, another spacing); with tui_effort_ramp_length it
-#   pins every rung
-law tui_effort_ramp_exact:
+# LAW tui_effort_ramp_lerp (R1): for every ends lo and hi and every ladder length n, rung k + 1 of the effort ramp (k below n) is, in each channel, the point (k + 1)/n of the way from lo to hi rounded down, floor((a (n - k - 1) + b (k + 1)) / n) for the channel's ends a (lo) and b (hi); so the last rung is hi
+# EXCLUDES: a ramp that is ordered and distinct but not evenly spaced:
+#   rungs shifted by one, lo as the first rung, hi missing, rounding up or
+#   to nearest, a falling channel rounded toward the other end, another
+#   spacing; with tui_effort_ramp_length it pins every rung
+law tui_effort_ramp_lerp:
   for +lo: TC.Px
   for +hi: TC.Px
   for +n: Nat
   for +k: Nat
   for lt: {Nat.is_lt(k, n) == True{} : Bool}
-  {List.get(&2, TC.Px, TC.ramp(lo, hi, n), k) == Some{rung_spec(lo, hi, 1n+k, n)} : Maybe<&2, TC.Px>}
+  {List.get(&2, TC.Px, TC.ramp(lo, hi, n), k) == Some{lerp_px(lo, hi, 1n+k, n)} : Maybe<&2, TC.Px>}
 
-def bit(b: Bool) -> Nat:
-  match b:
+# t of w tokens reach p percent of the window: t / w * 100 >= p, that is
+# w p <= 100 t (omp reachesThreshold, percent part)
+def omp_reaches(+t: Nat, +w: Nat, p: Nat) -> Bool:
+  Nat.is_le(Nat.mul(w, p), Nat.mul(t, 100n))
+
+# omp getContextUsageLevel, from the top: error (3) at 90%, purple (2) at
+# 70%, warning (1) at 50%, else normal (0)
+def omp_level.from(error: Bool, purple: Bool, warning: Bool) -> Nat:
+  match error:
     case True{}:
-      1n
+      3n
     case False{}:
-      0n
+      match purple:
+        case True{}:
+          2n
+        case False{}:
+          match warning:
+            case True{}:
+              1n
+            case False{}:
+              0n
 
-# the usage band (omp getContextUsageLevel): an unknown window (0) none;
-# a window of w tokens one for each of the shares 1/2, 7/10 and 9/10 of
-# it that t tokens reach (w * num <= t * den)
-def band_spec(+t: Nat, w: Nat) -> Nat:
+# the context usage level of t tokens in a w-token window by omp's
+# percent thresholds; an unknown window (0) is normal (omp: no percent)
+def omp_level(+t: Nat, w: Nat) -> Nat:
   match w:
     case 0n:
       0n
     case 1n+v:
       +x = {1n+v : Nat}
-      Nat.add(bit(Nat.is_le(Nat.mul(x, 1n), Nat.mul(t, 2n))), Nat.add(bit(Nat.is_le(Nat.mul(x, 7n), Nat.mul(t, 10n))), bit(Nat.is_le(Nat.mul(x, 9n), Nat.mul(t, 10n)))))
+      omp_level.from(omp_reaches(t, x, 90n), omp_reaches(t, x, 70n), omp_reaches(t, x, 50n))
 
-# LAW tui_usage_band_exact: the usage band of t tokens in a w-token window is 0 for an unknown window (0), else the number of the shares 1/2, 7/10 and 9/10 of the window that t reaches
+# LAW tui_usage_band_omp (R2): the usage band of t tokens in a w-token window is omp's context usage level by its percent thresholds: 0 for an unknown window (0); else 3 when t is at least 90% of w, 2 at least 70%, 1 at least 50%, 0 below, each percent reached exactly at it. omp's token thresholds (150k, 270k, 500k tokens) are not part of the claim: the band ignores them
 # EXCLUDES: other shares (the bands' own laws hold for any ascending
-#   shares in (0, 1]), a band that ignores the window or counts a share
-#   it does not reach, a band for an unknown window
-law tui_usage_band_exact:
+#   shares in (0, 1]), a share reached only past its percent, tokens and
+#   window swapped, a band for an unknown window, levels in another order
+law tui_usage_band_omp:
   for +t: Nat
-  for w: Nat
-  {TC.band(t, w) == band_spec(t, w) : Nat}
+  for +w: Nat
+  {TC.band(t, w) == omp_level(t, w) : Nat}
 
 def roles_below(xs: List<&2, Nat>, +m: Nat) -> Bool:
   match xs:
@@ -185,27 +240,44 @@ def roles_distinct(xs: List<&2, Nat>) -> Bool:
 law tui_roles_cover:
   {List.length(&2, Nat, TC.roles()) == 58n : Nat} & {roles_below(TC.roles(), 58n) == True{} : Bool} & {roles_distinct(TC.roles()) == True{} : Bool}
 
-# the k tokens a to a + k - 1, in order
-def tokens_from(k: Nat, +a: Nat) -> List<&2, Nat>:
-  match k:
-    case 0n:
+# the key of every token, in the order of crates/eukhe-theme/src/token.rs
+# Token::ALL (its index is the token's index): Token::name, lines 134-195
+def token_keys() -> List<&2, String>:
+  ["accent", "border", "borderAccent", "borderMuted", "success", "error", "warning", "muted", "dim", "text", "thinkingText", "userMessageText", "customMessageText", "customMessageLabel", "refinementHeader", "refinementSummary", "toolTitle", "toolOutput", "mdBody", "mdHeading", "mdLink", "mdLinkUrl", "mdCode", "mdCodeBlock", "mdCodeBlockBorder", "mdQuote", "mdQuoteBorder", "mdHr", "mdListBullet", "toolDiffAdded", "toolDiffRemoved", "toolDiffText", "toolDiffContext", "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable", "syntaxString", "syntaxNumber", "syntaxType", "syntaxOperator", "syntaxPunctuation", "effortLow", "effortHigh", "contextHigh", "liftLight", "liftDark", "bashMode", "selectedBg", "userMessageBg", "customMessageBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg", "toolDiffAddedBg", "toolDiffRemovedBg", "toolPanelBg", "background", "foreground"]
+
+# the key of every color slot of the terminal UI, in the order the Rust
+# slot tables index the roles (crates/eukhe-tui/src/theme.rs Roles::
+# from_core, lines 285-297): ThemeColor::ALL (lines 134-179), then
+# ThemeBg::ALL (201-211), then ThemeRgb::ALL (233-239); each slot's key is
+# its variant name in lower camel case, the canvas's the background
+# (theme.rs:218-221)
+def slot_keys() -> List<&2, String>:
+  ["accent", "border", "borderAccent", "borderMuted", "success", "error", "warning", "muted", "dim", "text", "thinkingText", "userMessageText", "customMessageText", "customMessageLabel", "refinementHeader", "refinementSummary", "toolTitle", "toolOutput", "mdBody", "mdHeading", "mdLink", "mdLinkUrl", "mdCode", "mdCodeBlock", "mdCodeBlockBorder", "mdQuote", "mdQuoteBorder", "mdHr", "mdListBullet", "toolDiffAdded", "toolDiffRemoved", "toolDiffText", "toolDiffContext", "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable", "syntaxString", "syntaxNumber", "syntaxType", "syntaxOperator", "syntaxPunctuation", "contextHigh", "bashMode", "selectedBg", "userMessageBg", "customMessageBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg", "toolDiffAddedBg", "toolDiffRemovedBg", "toolPanelBg", "effortLow", "effortHigh", "liftLight", "liftDark", "background"]
+
+# the key at index r of ks ("" past its end)
+def key_at(ks: List<&2, String>, r: Nat) -> String:
+  match ks r:
+    case Nil{} _:
+      ""
+    case Con{k, t} 0n:
+      k
+    case Con{k, t} 1n+j:
+      key_at(t, j)
+
+# the token key of every token index of rs
+def keys_of(rs: List<&2, Nat>) -> List<&2, String>:
+  match rs:
+    case Nil{}:
       Nil{}
-    case 1n+j:
-      a <> tokens_from(j, 1n+a)
+    case Con{r, rest}:
+      key_at(token_keys(), r) <> keys_of(rest)
 
-# the slots of the terminal UI, in the order Rust declares them, by the
-# token each paints (crates/eukhe-theme token order): the 42 ink tokens
-# accent .. syntaxPunctuation (0-41), contextHigh (44), bashMode (47);
-# the 9 surfaces selectedBg .. toolPanelBg (48-56); then effortLow (42),
-# effortHigh (43), liftLight (45), liftDark (46), background (57)
-def roles_spec() -> List<&2, Nat>:
-  List.concat(&2, Nat, [tokens_from(42n, 0n), [44n, 47n], tokens_from(9n, 48n), [42n, 43n, 45n, 46n, 57n]])
-
-# LAW tui_roles_exact: each color slot of the terminal UI is painted by its own token: the ink slots by tokens 0 to 41, then contextHigh and bashMode; the surfaces by tokens 48 to 56; then effortLow, effortHigh, liftLight, liftDark and the background
+# LAW tui_roles_by_name (R3): each color slot of the terminal UI, in the order Rust's slot tables read the roles, is painted by the token of the same key: the token keys (crates/eukhe-theme token.rs) of the roles are the slot keys of ThemeColor, ThemeBg and ThemeRgb (crates/eukhe-tui theme.rs) in declaration order, the canvas painted by background. Both key tables are transcribed from the Rust sources named above them
 # EXCLUDES: slots that swap tokens (tui_roles_cover and the palette laws
-#   hold for any order): a slot painted with another slot's color
-law tui_roles_exact:
-  {TC.roles() == roles_spec() : List<&2, Nat>}
+#   hold for any order): a slot painted with another slot's color, a
+#   surface painted with an ink token, the ramp or lift ends swapped
+law tui_roles_by_name:
+  {keys_of(TC.roles()) == slot_keys() : List<&2, String>}
 
 # LAW tui_usage_bands_ascend_teeth_example: the ascent test of tui_usage_bands_ascend refuses shares out of order, a repeated share, a share of 0 and a share above the whole window, first or later
 # EXCLUDES: a vacuous tui_usage_bands_ascend (an ascent test that holds
@@ -329,100 +401,6 @@ def range_err() -> String:
 def malformed_err() -> String:
   SCon{'E', SCon{' ', "tui_color: malformed request"}}
 
-# Reader: the requests the entry accepts, read with the wire primitives
-
-def read_px.b(r: Nat, g: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<TC.Px>:
-  match d:
-    case Wr.Got{b, s}:
-      Wr.Got{TC.Px{r, g, b}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_px.g(r: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<TC.Px>:
-  match d:
-    case Wr.Got{g, s}:
-      read_px.b(r, g, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_px(d: Wr.Dec<Nat>) -> Wr.Dec<TC.Px>:
-  match d:
-    case Wr.Got{r, s}:
-      read_px.g(r, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ramp.n(lo: TC.Px, hi: TC.Px, d: Wr.Dec<Nat>) -> Wr.Dec<FTC.Req>:
-  match d:
-    case Wr.Got{n, s}:
-      Wr.Got{FTC.QRamp{lo, hi, n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ramp.hi(lo: TC.Px, d: Wr.Dec<TC.Px>) -> Wr.Dec<FTC.Req>:
-  match d:
-    case Wr.Got{hi, s}:
-      read_ramp.n(lo, hi, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ramp(d: Wr.Dec<TC.Px>) -> Wr.Dec<FTC.Req>:
-  match d:
-    case Wr.Got{lo, s}:
-      read_ramp.hi(lo, read_px(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_band.w(t: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<FTC.Req>:
-  match d:
-    case Wr.Got{w, s}:
-      Wr.Got{FTC.QBand{t, w}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_band(d: Wr.Dec<Nat>) -> Wr.Dec<FTC.Req>:
-  match d:
-    case Wr.Got{t, s}:
-      read_band.w(t, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_req.tag(t: Nat, s: String) -> Wr.Dec<FTC.Req>:
-  match t:
-    case 0n:
-      read_ramp(read_px(Wr.get_nat(s)))
-    case 1n:
-      read_band(Wr.get_nat(s))
-    case 2n:
-      Wr.Got{FTC.QRoles{}, s}
-    case 3n+p:
-      Wr.Bad{}
-
-def read_req.go(d: Wr.Dec<Nat>) -> Wr.Dec<FTC.Req>:
-  match d:
-    case Wr.Got{t, s}:
-      read_req.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_req.end(whole: Bool, q: FTC.Req) -> Maybe<&2, FTC.Req>:
-  match whole:
-    case True{}:
-      Some{q}
-    case False{}:
-      None{}
-
-def read_req.whole(r: Wr.Dec<FTC.Req>) -> Maybe<&2, FTC.Req>:
-  match r:
-    case Wr.Got{q, s}:
-      read_req.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      None{}
-
-# the request s is, when s is exactly one request
-def read_req(s: String) -> Maybe<&2, FTC.Req>:
-  read_req.whole(read_req.go(Wr.get_nat(s)))
-
 # Laws
 # ----
 
@@ -438,10 +416,10 @@ law tui_color_ffi_ramp:
   for in: {ramp_in(lo, hi, n) == True{} : Bool}
   {FTC.ffi(spell_req(FTC.QRamp{lo, hi, n}, "")) == spell_rungs(TC.ramp(lo, hi, n)) : String}
 
-# LAW tui_color_ffi_ramp_range: a ramp request with a channel above 255 or more than 255 rungs answers exactly the range error
+# LAW tui_color_ffi_ramp_range: a ramp request that fits the wire with a channel above 255 or more than 255 rungs answers exactly the range error
 # EXCLUDES: a ramp of a color no terminal paints, a clamped or wrapped
-#   channel, a ramp too long to have distinct rungs, a slow or stopped
-#   evaluation on a huge rung count
+#   channel, a ramp too long to have distinct rungs, a range error spelled
+#   with another text
 law tui_color_ffi_ramp_range:
   for +lo: TC.Px
   for +hi: TC.Px
@@ -480,21 +458,13 @@ law tui_color_ffi_left_over:
   for rest: String
   {FTC.ffi(spell_req(q, SCon{c, rest})) == malformed_err() : String}
 
-# LAW tui_color_ffi_malformed_exact: every input that is not exactly one request answers exactly the malformed error
-# EXCLUDES: a default answer (a ramp, a band, the roles) to a request Rust
-#   never sends: an unknown tag, a field missing, a number malformed
-law tui_color_ffi_malformed_exact:
-  for +s: String
-  for no: {read_req(s) == None{} : Maybe<&2, FTC.Req>}
-  {FTC.ffi(s) == malformed_err() : String}
-
-# LAW tui_color_ffi_premises_example: the premises of the entry laws hold for real requests: a ramp of the light theme's ends is in range, one with a channel of 256 is not, and "2,x" is no request
+# LAW tui_color_ffi_premises_example: the premises of the entry laws hold for real requests: a ramp of the light theme's ends is in range, one with a channel of 256 is not, and a roles request answers something other than the malformed error
 # EXCLUDES: a vacuous tui_color_ffi_ramp, tui_color_ffi_ramp_range or
-#   tui_color_ffi_malformed_exact
+#   tui_color_ffi_total
 law tui_color_ffi_premises_example:
   {ramp_in(TC.Px{135n, 95n, 135n}, TC.Px{139n, 0n, 139n}, 3n) == True{} : Bool} &
   {ramp_in(TC.Px{0n, 0n, 0n}, TC.Px{256n, 0n, 0n}, 1n) == False{} : Bool} &
-  {read_req("2,x") == None{} : Maybe<&2, FTC.Req>}
+  {String.eq(FTC.ffi("2,"), malformed_err()) == False{} : Bool}
 
 # LAW tui_color_ffi_example: anchor: the bytes Rust sends and reads: the light theme's 3-rung effort ramp, a channel of 256 refused, 64 of 128 tokens (band 1), tokens in an unknown window (band 0), 89 and 90 of 100 tokens (bands 2 and 3), a roles request with a byte left over
 # EXCLUDES: another spelling of a request or of a reply, a rounding off
@@ -508,12 +478,15 @@ law tui_color_ffi_example:
   {FTC.ffi("1,90,100,") == "3," : String} &
   {FTC.ffi("2,x") == malformed_err() : String}
 
-# The whole entry, as a spec
-# --------------------------
-# What the entry answers to every input, from the reader above and the
-# spec helpers only: the ramp is TC.ramp, which tui_effort_ramp_length and
-# tui_effort_ramp_exact pin for every input (its length, and each rung as
-# rung_spec); the band is band_spec and the roles roles_spec.
+# The whole entry
+# ---------------
+# What the entry answers to every input, from the spec spellers above: an
+# input that answers anything but the malformed error is exactly the
+# spelling of one request that fits the wire, and the answer is the reply
+# to it: the ramp TC.ramp (pinned for every input by tui_effort_ramp_length
+# and tui_effort_ramp_lerp) or the range error, the band omp_level
+# (omp's percent thresholds) and the roles TC.roles (pinned by
+# tui_roles_by_name).
 
 def tc_reply.ramp(in: Bool, +lo: TC.Px, +hi: TC.Px, +n: Nat) -> String:
   match in:
@@ -522,100 +495,76 @@ def tc_reply.ramp(in: Bool, +lo: TC.Px, +hi: TC.Px, +n: Nat) -> String:
     case False{}:
       range_err()
 
-# the reply to a request read whole
+# the reply to a request
 def tc_reply(q: FTC.Req) -> String:
   match q:
     case FTC.QRamp{+lo, +hi, +n}:
       tc_reply.ramp(ramp_in(lo, hi, n), lo, hi, n)
     case FTC.QBand{+t, w}:
-      Wr.put_nat(band_spec(t, w), "")
+      Wr.put_nat(omp_level(t, w), "")
     case FTC.QRoles{}:
-      spell_nats(roles_spec())
+      spell_nats(TC.roles())
 
-def tc_entry.of(m: Maybe<&2, FTC.Req>) -> String:
-  match m:
-    case None{}:
-      malformed_err()
-    case Some{q}:
-      tc_reply(q)
-
-# the answer to the input s: the malformed error unless s is exactly one
-# request, else the reply to it
-def tc_entry(s: String) -> String:
-  tc_entry.of(read_req(s))
-
-# LAW tui_color_ffi_total: every input string is answered as the spec entry answers it: the malformed error unless it reads (read_req) as exactly one request; a ramp in range its rungs, out of range the range error; a band the usage band of band_spec; the roles roles_spec
-# EXCLUDES: an input the laws above leave free (a request spelled in a way
-#   the speller never writes but the reader reads), a reply off the spec
-#   helpers for a request that does not fit the wire
+# LAW tui_color_ffi_total (R4): every input that answers anything but the malformed error is exactly the spelling of one request whose numbers fit the wire, and its answer is the reply to that request: a ramp in range its rungs, out of range the range error; a band omp's usage level of its tokens in its window; the roles the role list. With tui_color_ffi_ramp, tui_color_ffi_ramp_range, tui_color_ffi_band and tui_color_ffi_roles (no request answers the malformed error) this pins the answer to every input
+# EXCLUDES: an entry that answers an input that is not exactly one request
+#   (an unknown tag, a field missing, a number malformed or too long, a
+#   number spelled another way, input left over) with anything but the
+#   malformed error (a default ramp, band or roles, the range error), a
+#   reply off the spec for a request read from such an input
 law tui_color_ffi_total:
   for +s: String
-  {FTC.ffi(s) == tc_entry(s) : String}
+  for other: {String.eq(FTC.ffi(s), malformed_err()) == False{} : Bool}
+  exs q: FTC.Req
+  {(s, (req_fits(q), FTC.ffi(s))) == (spell_req(q, ""), (True{}, tc_reply(q))) : String & (Bool & String)}
 
-def tc_is_set(m: Maybe<&2, TFile.Val>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{v}:
-      True{}
-
-# whether token r of the palette p has a value (a token past p has none)
-def tc_set(p: List<&2, Maybe<&2, TFile.Val>>, r: Nat) -> Bool:
-  match p r:
-    case Nil{} _:
-      False{}
-    case Con{m, t} 0n:
-      tc_is_set(m)
-    case Con{m, t} 1n+k:
-      tc_set(t, k)
-
-# every role of rs has a value in the palette p
-def tc_all(+p: List<&2, Maybe<&2, TFile.Val>>, rs: List<&2, Nat>) -> Bool:
-  match rs:
+# xs then ys
+def cat(-A: Data, xs: List<&2, A>, ys: List<&2, A>) -> List<&2, A>:
+  match xs:
     case Nil{}:
-      True{}
-    case Con{r, rest}:
-      Bool.and(tc_set(p, r), tc_all(p, rest))
+      ys
+    case Con{x, rest}:
+      x <> cat(A, rest, ys)
 
-# LAW tui_resolves_spec: the roles resolve in a palette exactly when each has a value there
-# EXCLUDES: a test that always holds (tui_roles_resolve made vacuous), a role
-#   looked up at another token
-law tui_resolves_spec:
+# LAW tui_resolves_split (R3): no roles resolve in every palette, and the roles xs then ys resolve exactly when xs resolve and ys resolve
+# EXCLUDES: a test that reads one role for another or lets a later role
+#   decide for an earlier one (only the first role checked, the last one
+#   ignored)
+law tui_resolves_split:
   for +p: List<&2, Maybe<&2, TFile.Val>>
-  for rs: List<&2, Nat>
-  {TC.resolves(p, rs) == tc_all(p, rs) : Bool}
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  {TC.resolves(p, Nil{}) == True{} : Bool} & {TC.resolves(p, cat(Nat, xs, ys)) == Bool.and(TC.resolves(p, xs), TC.resolves(p, ys)) : Bool}
+
+# LAW tui_resolves_at (R3): the role i resolves in the palette p, then the entry x, then q (i the length of p) exactly when x has a value
+# EXCLUDES: a test that always holds (tui_roles_resolve made vacuous), a
+#   role looked up at another token, an unset token that resolves
+law tui_resolves_at:
+  for +p: List<&2, Maybe<&2, TFile.Val>>
+  for +x: Maybe<&2, TFile.Val>
+  for +q: List<&2, Maybe<&2, TFile.Val>>
+  {TC.resolves(cat(Maybe<&2, TFile.Val>, p, x <> q), [List.length(&2, Maybe<&2, TFile.Val>, p)]) == Maybe.is_some(&2, TFile.Val, x) : Bool}
+
+# LAW tui_resolves_past (R3): a role at or past the end of the palette does not resolve
+# EXCLUDES: a role past the palette read as set (a wrapped index, a
+#   default value)
+law tui_resolves_past:
+  for +p: List<&2, Maybe<&2, TFile.Val>>
+  for +r: Nat
+  for past: {Nat.is_le(List.length(&2, Maybe<&2, TFile.Val>, p), r) == True{} : Bool}
+  {TC.resolves(p, [r]) == False{} : Bool}
 
 # LAW tui_resolves_example: anchors: an unset token does not resolve, a set one does, a token
 # past the palette does not
-# EXCLUDES: a reading of tui_resolves_spec the human did not mean
+# EXCLUDES: a reading of tui_resolves_at and tui_resolves_past the human did
+#   not mean
 law tui_resolves_example:
   {[TC.resolves([None{}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [1n])] == [False{}, True{}, False{}] : List<&2, Bool>}
 
-# whether token r of the color table xs has a color (a token past xs has
-# none)
-def tc_has(xs: List<&2, Co.Rgb>, r: Nat) -> Bool:
-  match xs r:
-    case Nil{} _:
-      False{}
-    case Con{x, t} 0n:
-      True{}
-    case Con{x, t} 1n+k:
-      tc_has(t, k)
-
-# every role of rs has a color in the table xs
-def tc_paint_all(+xs: List<&2, Co.Rgb>, rs: List<&2, Nat>) -> Bool:
-  match rs:
-    case Nil{}:
-      True{}
-    case Con{r, rest}:
-      Bool.and(tc_has(xs, r), tc_paint_all(xs, rest))
-
-# LAW tui_paints_spec (T3): the roles paint in a color table exactly when each has a color
-# there, for every table and every roles
+# LAW tui_paints_bound (R3): the roles paint in a color table exactly when every role index is below the length of the table
 # EXCLUDES: a test that always holds for some tables (tui_roles_shipped
 #   made vacuous, e.g. one that holds for any table of 2 or more colors),
-#   a role looked up at another token
-law tui_paints_spec:
+#   a role looked up at another token, a role past the table that paints
+law tui_paints_bound:
   for +xs: List<&2, Co.Rgb>
-  for rs: List<&2, Nat>
-  {TC.paints(xs, rs) == tc_paint_all(xs, rs) : Bool}
+  for +rs: List<&2, Nat>
+  {TC.paints(xs, rs) == roles_below(rs, List.length(&2, Co.Rgb, xs)) : Bool}
