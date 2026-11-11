@@ -218,3 +218,40 @@ async fn kimi_always_sends_an_output_cap() {
         }
     }
 }
+
+/// A chat-completions reasoning model whose id names Qwen.
+fn is_qwen_chat(model: &Model) -> bool {
+    model.reasoning
+        && model.api == "openai-completions"
+        && model.id.to_ascii_lowercase().contains("qwen")
+}
+
+/// omp: Qwen on Hugging Face, Cloudflare Workers AI and `OpenCode` resolves
+/// the `qwen` dialect (catalog `compat/resolve.ts` `thinkingFormat`: Qwen
+/// off Fireworks/Venice/NVIDIA is `qwen`) whose disable mode is
+/// `qwen-enable-thinking-false` (`ai/src/providers/openai-shared.ts`
+/// `applyChatCompletionsCompatPolicy`): a level sends
+/// `enable_thinking: true` and no `reasoning_effort`; off sends `false`.
+#[tokio::test]
+async fn qwen_sends_enable_thinking_without_reasoning_effort() {
+    let rows = catalog_rows(
+        &["huggingface", "cloudflare-ai-gateway", "opencode"],
+        is_qwen_chat,
+        &THINKING_LEVELS,
+    );
+    assert!(!rows.is_empty());
+    assert_rows(&borrowed(&rows), |_| json!({ "enable_thinking": true })).await;
+    assert_rows(
+        &[
+            ("huggingface", "Qwen/Qwen3-32B", "off"),
+            (
+                "cloudflare-ai-gateway",
+                "workers-ai/@cf/qwen/qwen3-30b-a3b-fp8",
+                "off",
+            ),
+            ("opencode", "qwen3.8-max", "off"),
+        ],
+        |_| json!({ "enable_thinking": false }),
+    )
+    .await;
+}
