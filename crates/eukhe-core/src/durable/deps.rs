@@ -688,6 +688,21 @@ impl HostDeps {
         }
     }
 
+    /// The kernel-unavailable notification of this session, for a client
+    /// that shows notifications
+    /// ([`super::rlm::kernel_unavailable_notice`]): why the kernel cannot
+    /// start and the fix, in a top-level session (a child has no client
+    /// of its own to tell). `None` while the kernel is usable.
+    #[must_use]
+    pub fn kernel_unavailable_notice(&self) -> Option<String> {
+        if !self.role.is_root() {
+            return None;
+        }
+        self.kernel_unavailable
+            .as_ref()
+            .map(super::rlm::kernel_unavailable_notice::notice_text)
+    }
+
     /// Begin closing: from here on the session's background work submits
     /// no new parent input (a child's report stays owed to the reopened
     /// session). The worker calls it before the abort that precedes its

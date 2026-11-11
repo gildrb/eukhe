@@ -312,8 +312,9 @@ fn packaged_binary_reports_manifest_version() {
 /// sidecar): a packaged session with no `eukhe-runtime/` offered the
 /// ipython tool, and the model's first call was a cell that could only
 /// fail. Now the session offers no ipython tool (the request's prompt says
-/// there is no Python REPL) and stores the notice row naming the runtime
-/// directory and `eukhe kernel install`.
+/// there is no Python REPL). The notice naming the runtime directory and
+/// `eukhe kernel install` is a notification of the interactive client: a
+/// json run stores no row for it and prints nothing about it.
 #[test]
 fn missing_sidecar_session_offers_no_ipython() {
     let _guard = serial_lock();
@@ -332,16 +333,14 @@ fn missing_sidecar_session_offers_no_ipython() {
         "the prompt must say there is no ipython tool; stdout: {stdout}"
     );
     let stored = stored_text(&sessions);
-    assert_eq!(
-        stored
-            .matches("The Python kernel cannot start: the eukhe-runtime kernel runtime directory was not found")
-            .count(),
-        1,
-        "one kernel-unavailable notice row; stored: {stored}"
+    assert!(
+        !stored.contains("The Python kernel cannot start")
+            && !stored.contains("kernel_unavailable"),
+        "no kernel-unavailable row is stored; stored: {stored}"
     );
     assert!(
-        stored.contains("run `eukhe kernel install` once"),
-        "stored: {stored}"
+        !stderr.contains("The Python kernel cannot start"),
+        "a json run prints no kernel notice; stderr: {stderr}"
     );
 }
 

@@ -22,6 +22,7 @@ pub mod heartbeat_command;
 pub mod incident;
 pub mod input_origin;
 pub mod job;
+pub mod kernel_notice;
 pub mod model_roles;
 pub mod output;
 pub mod path_policy;

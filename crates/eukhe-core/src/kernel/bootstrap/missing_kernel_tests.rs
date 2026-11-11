@@ -3,7 +3,8 @@
 //! (the model's laws `kernel_missing_names_install` and
 //! `kernel_missing_spares_tools` in `laws/kernel_local.bend`; this test
 //! runs the real session). No venv at all: the session offers no ipython
-//! tool and shows one notice naming the install.
+//! tool and reports a notification naming the install, which a client
+//! shows once per install state; the session itself gets no entry.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -14,10 +15,11 @@ use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep,
 };
-use eukhe_types::pi_ai::{JsonObject, Message, StopReason, UserContent};
+use eukhe_types::pi_ai::{JsonObject, Message, StopReason};
 use serde_json::{json, Value};
 
 use super::{KernelUnavailable, KERNEL_ENV_LOCK, KERNEL_INSTALL_COMMAND};
+use crate::durable::compaction::auxiliary_model::show_notice_row;
 use crate::durable::rlm::kernel_unavailable_notice::{notice_text, KERNEL_UNAVAILABLE_CUSTOM_TYPE};
 use crate::durable::rlm::tests::{
     cx, entries, result_text, results, settle, submit, text, Fixture,
@@ -109,22 +111,43 @@ async fn notices(session: &EukheSession) -> Vec<CustomEntryData> {
         .collect()
 }
 
+/// Who has the session open.
+#[derive(Clone, Copy)]
+enum Host {
+    /// An interactive client is attached: it shows the session's
+    /// notification the first time since the kernel was last usable
+    /// (what the TUI does at its attach).
+    Interactive,
+    /// Print, json or rpc mode: nothing shows a notification.
+    Headless,
+}
+
 /// One open of the fixture's session with one model turn: whether the
 /// model was offered `ipython` (its request's tools, checked against the
-/// agent's), and the kernel-unavailable rows after the turn.
+/// agent's), and the notification `host` showed. No open leaves a
+/// kernel-unavailable row in the session.
 async fn open_and_ask(
     fixture: &Fixture,
     seen: &Seen,
+    host: Host,
     configure: impl FnOnce(&mut SessionConfig),
-) -> (bool, Vec<CustomEntryData>) {
+) -> (bool, Option<String>) {
     fixture.faux.set_responses(vec![recorded(seen)]);
     let session = fixture.open_configured(configure).await;
+    let shown = match host {
+        Host::Interactive => session
+            .deps()
+            .kernel_unavailable_notice()
+            .filter(|_| eukhe_types::kernel_notice::first_showing(&session.deps().agent_dir)),
+        Host::Headless => None,
+    };
     let id = submit(&session, "list the files here").await;
     settle(&session, id).await;
     let agent = session.main().agent(cx()).await.expect("agent");
     let offered = agent.tools.iter().any(|tool| tool.name == "ipython");
     let rows = notices(&session).await;
     session.close(cx()).await.expect("close");
+    assert_eq!(rows, Vec::new(), "the notice is no session entry");
     let (tools, prompt) = seen
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -135,7 +158,7 @@ async fn open_and_ask(
         prompt.contains("This session has no Python REPL (`ipython` tool)"),
         !offered
     );
-    (offered, rows)
+    (offered, shown)
 }
 
 /// The checkout's directory holding `eukhe-runtime/`: the runtime is
@@ -213,13 +236,15 @@ async fn a_missing_kernel_names_the_install_and_spares_the_other_tools() {
 /// the ipython tool, so the model's first call was a cell that could only
 /// answer with the install command. Now the probe at open finds no kernel
 /// venv: the model is offered no ipython tool and its prompt says the
-/// session has no Python REPL. The user sees the notice naming the
-/// install once per install state (omp's first-launch warning): in the
-/// first fresh session, not the second, not once the venv appears, and
-/// once more in the first session after it is gone again. A reopened
-/// session does not show it again either.
+/// session has no Python REPL. The user is told by a notification naming
+/// the install, once per install state (omp's first-launch warning): at
+/// the first interactive session, not the second, not once the venv
+/// appears, and once more at the first session after it is gone again. A
+/// reopened session does not show it again either, and a headless run
+/// (print, json, rpc: no notification surface) neither shows it nor uses
+/// it up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kernel_that_cannot_start_is_not_offered_and_noticed_once() {
+async fn a_kernel_that_cannot_start_is_not_offered_and_notified_once() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
     let fixture = Fixture::new();
     let venv = fixture.dir.path().join("kernel-venv");
@@ -228,16 +253,7 @@ async fn a_kernel_that_cannot_start_is_not_offered_and_noticed_once() {
         ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
         ("EUKHE_KERNEL_PYTHON", None),
     ]);
-    let notice = CustomEntryData {
-        custom_type: KERNEL_UNAVAILABLE_CUSTOM_TYPE.to_owned(),
-        content: Some(UserContent::Text(notice_text(
-            &KernelUnavailable::NotInstalled(venv.clone()),
-        ))),
-        display: true,
-        details: None,
-        input: false,
-        origin: None,
-    };
+    let notice = notice_text(&KernelUnavailable::NotInstalled(venv.clone()));
     let seen = Seen::default();
     // A fresh session of the fixture's install: its own id and storage.
     let fresh = |n: u8| {
@@ -253,22 +269,94 @@ async fn a_kernel_that_cannot_start_is_not_offered_and_noticed_once() {
         }
     };
 
-    let first = open_and_ask(&fixture, &seen, fresh(1)).await;
-    assert_eq!(first, (false, vec![notice.clone()]));
-    let reopened = open_and_ask(&fixture, &seen, fresh(1)).await;
-    assert_eq!(reopened, (false, vec![notice.clone()]));
-    let second = open_and_ask(&fixture, &seen, fresh(2)).await;
-    assert_eq!(second, (false, Vec::new()));
+    let headless = open_and_ask(&fixture, &seen, Host::Headless, fresh(0)).await;
+    assert_eq!(headless, (false, None));
+    let first = open_and_ask(&fixture, &seen, Host::Interactive, fresh(1)).await;
+    assert_eq!(first, (false, Some(notice.clone())));
+    let reopened = open_and_ask(&fixture, &seen, Host::Interactive, fresh(1)).await;
+    assert_eq!(reopened, (false, None));
+    let second = open_and_ask(&fixture, &seen, Host::Interactive, fresh(2)).await;
+    assert_eq!(second, (false, None));
 
     std::fs::create_dir(&venv).expect("a venv appears");
-    let installed = open_and_ask(&fixture, &seen, fresh(3)).await;
-    assert_eq!(installed, (true, Vec::new()));
+    let installed = open_and_ask(&fixture, &seen, Host::Interactive, fresh(3)).await;
+    assert_eq!(installed, (true, None));
 
     std::fs::remove_dir(&venv).expect("the venv is gone again");
-    let lost = open_and_ask(&fixture, &seen, fresh(4)).await;
-    assert_eq!(lost, (false, vec![notice.clone()]));
-    let after = open_and_ask(&fixture, &seen, fresh(5)).await;
-    assert_eq!(after, (false, Vec::new()));
+    let lost = open_and_ask(&fixture, &seen, Host::Interactive, fresh(4)).await;
+    assert_eq!(lost, (false, Some(notice)));
+    let after = open_and_ask(&fixture, &seen, Host::Interactive, fresh(5)).await;
+    assert_eq!(after, (false, None));
+}
+
+/// Regression: the notice was a `kernel_unavailable` row the open wrote
+/// into the first session of an install without the kernel, so that
+/// session was not empty before the user typed anything (the TUI hid its
+/// start banner, `/tree` opened an empty panel instead of saying "No
+/// entries in session", rpc `get_state` counted one message). The open
+/// writes no row; the session reports the notification instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_session_without_a_kernel_holds_no_notice_row() {
+    let _env_lock = KERNEL_ENV_LOCK.lock().await;
+    let fixture = Fixture::new();
+    let venv = fixture.dir.path().join("kernel-venv");
+    let _env = KernelEnv::set(vec![
+        ("EUKHE_KERNEL_VENV", Some(venv.clone().into_os_string())),
+        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
+        ("EUKHE_KERNEL_PYTHON", None),
+    ]);
+    let session = fixture
+        .open_configured(|config| config.kernel_python = None)
+        .await;
+    assert_eq!(
+        session.deps().kernel_unavailable_notice(),
+        Some(notice_text(&KernelUnavailable::NotInstalled(venv)))
+    );
+    let rows = notices(&session).await;
+    session.close(cx()).await.expect("close");
+    assert_eq!(rows, Vec::new());
+}
+
+/// A session stored while the notice was still a row keeps it: it opens,
+/// its next turn runs, the row stays where it was and no second one
+/// joins it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_stored_with_the_notice_row_still_opens() {
+    let _env_lock = KERNEL_ENV_LOCK.lock().await;
+    let fixture = Fixture::new();
+    let venv = fixture.dir.path().join("kernel-venv");
+    let _env = KernelEnv::set(vec![
+        ("EUKHE_KERNEL_VENV", Some(venv.clone().into_os_string())),
+        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
+        ("EUKHE_KERNEL_PYTHON", None),
+    ]);
+    let stored = notice_text(&KernelUnavailable::NotInstalled(venv));
+    let session = fixture
+        .open_configured(|config| config.kernel_python = None)
+        .await;
+    show_notice_row(
+        &session.main(),
+        KERNEL_UNAVAILABLE_CUSTOM_TYPE,
+        stored.clone(),
+        cx(),
+    )
+    .await;
+    session.close(cx()).await.expect("close");
+
+    fixture.faux.set_responses(vec![text("done")]);
+    let session = fixture
+        .open_configured(|config| config.kernel_python = None)
+        .await;
+    let id = submit(&session, "go on").await;
+    settle(&session, id).await;
+    let rows = notices(&session).await;
+    session.close(cx()).await.expect("close");
+    assert_eq!(rows.len(), 1, "the stored row, and no new one: {rows:?}");
+    assert_eq!(
+        rows[0].content,
+        Some(eukhe_types::pi_ai::UserContent::Text(stored))
+    );
+    assert!(rows[0].display && !rows[0].input);
 }
 
 /// A working kernel is offered with no notice, even with no kernel venv:
@@ -290,9 +378,12 @@ async fn a_working_kernel_is_offered_without_a_notice() {
         ("EUKHE_KERNEL_PYTHON", Some(python.into_os_string())),
     ]);
     let seen = Seen::default();
-    let overridden = open_and_ask(&fixture, &seen, |config| config.kernel_python = None).await;
-    assert_eq!(overridden, (true, Vec::new()));
+    let overridden = open_and_ask(&fixture, &seen, Host::Interactive, |config| {
+        config.kernel_python = None;
+    })
+    .await;
+    assert_eq!(overridden, (true, None));
     std::env::remove_var("EUKHE_KERNEL_PYTHON");
-    let configured = open_and_ask(&fixture, &seen, |_| {}).await;
-    assert_eq!(configured, (true, Vec::new()));
+    let configured = open_and_ask(&fixture, &seen, Host::Interactive, |_| {}).await;
+    assert_eq!(configured, (true, None));
 }

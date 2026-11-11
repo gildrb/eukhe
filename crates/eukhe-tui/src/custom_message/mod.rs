@@ -805,6 +805,27 @@ mod tests {
         );
     }
 
+    /// No open writes a `kernel_unavailable` row any more (the kernel's
+    /// absence is a notification); a session stored with one still shows
+    /// it where it was, as the warning status line it always was.
+    #[test]
+    fn a_stored_kernel_unavailable_row_is_a_warning_status_line() {
+        let entries = decoded(&json!({
+            "role": "custom",
+            "customType": "kernel_unavailable",
+            "content": "The Python kernel is not installed, so this session has no `ipython` tool; the other tools work.",
+            "display": true,
+        }));
+        assert!(
+            matches!(
+                entries.as_slice(),
+                [ChatEntry::Status { text, kind: crate::chat::StatusKind::Warning }]
+                    if text.starts_with("The Python kernel is not installed")
+            ),
+            "entries: {entries:?}"
+        );
+    }
+
     #[test]
     fn shell_completion_decodes_details() {
         let entries = decoded(&json!({

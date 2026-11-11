@@ -325,6 +325,10 @@ pub(crate) struct SessionUi {
     /// stored anything): a same-session rebuild folds them back after the
     /// stored transcript, so a rebuild never wipes how the turn ended.
     carried_rows: Vec<ChatEntry>,
+    /// The kernel-unavailable notification the latest attach is the first
+    /// to show ([`eukhe_types::kernel_notice`]): the next rebuild pushes
+    /// it as a warning row of this view.
+    kernel_notice: Option<String>,
     /// The lost submit's prompt text and row: the turn may still run, and
     /// when its user message shows the row retires.
     maybe_sent: Option<(String, ChatEntry)>,

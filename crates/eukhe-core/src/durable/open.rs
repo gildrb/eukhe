@@ -409,21 +409,12 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         )
         .await;
     }
-    // A kernel that cannot start shows one row per install state, in the
-    // first top-level session that finds it so (children never show it).
-    if config.role.is_root() {
-        if let Some(notice) = kernel_unavailable_notice::notice_once(
-            &deps.agent_dir,
-            deps.kernel_unavailable.as_ref(),
-        ) {
-            show_notice_row(
-                &session.main(),
-                kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE,
-                notice,
-                cx,
-            )
-            .await;
-        }
+    // A top-level session that finds the kernel usable forgets the shown
+    // kernel-unavailable notification: a later loss shows it again
+    // ([`kernel_unavailable_notice`]; the client that shows it writes the
+    // marker).
+    if config.role.is_root() && deps.kernel_unavailable.is_none() {
+        eukhe_types::kernel_notice::forget(&deps.agent_dir);
     }
     Ok(session)
 }

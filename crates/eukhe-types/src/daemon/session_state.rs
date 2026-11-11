@@ -372,6 +372,13 @@ pub struct AgentConnectionState {
     pub active_tool_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_usage: Option<Value>,
+    /// Why the session's Python kernel cannot start, with the fix: the
+    /// session offers no `ipython` tool. A top-level session carries it
+    /// while that holds; the interactive client shows it as a
+    /// notification once per install state ([`crate::kernel_notice`]).
+    /// Never a session entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel_unavailable: Option<String>,
 }
 
 #[cfg(test)]

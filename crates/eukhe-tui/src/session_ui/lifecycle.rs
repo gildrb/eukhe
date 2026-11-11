@@ -123,6 +123,7 @@ impl SessionUi {
             resynced_phase: None,
             rebuild_keeps_clock: false,
             carried_rows: Vec::new(),
+            kernel_notice: None,
             maybe_sent: None,
             last_user_text: None,
             retry_popped_attempt: None,
@@ -452,6 +453,22 @@ impl SessionUi {
         };
         self.user_bash_running = resync_bash.snap_running;
         self.resync_bash = Some(resync_bash);
+        // The session's kernel cannot start (the state's
+        // `kernelUnavailable` text: no `ipython` tool, and the fix): this
+        // view says so once per install state. omp pushes its Python
+        // warning to the UI's startup notifications (`main.ts:2855-2857`),
+        // never into the session; the next rebuild shows it the same way,
+        // as a warning row of this view.
+        if let Some(notice) = state
+            .and_then(|state| state.get("kernelUnavailable"))
+            .and_then(Value::as_str)
+        {
+            if eukhe_types::platform::agent_dir()
+                .is_none_or(|dir| eukhe_types::kernel_notice::first_showing(&dir))
+            {
+                self.kernel_notice = Some(notice.to_string());
+            }
+        }
         // The snapshot holds every stored message: a restore notice this
         // view showed before stays out of the rebuilt transcript, and
         // the record takes the notices it shows only once the attach
@@ -934,6 +951,14 @@ impl SessionUi {
         // first-turn growth never passes through here, so a new chat's
         // splash scrolls away exactly like TS).
         view.splash_suppressed = !view.chat.is_empty();
+        // The kernel-unavailable notification follows the splash decision:
+        // it is no transcript content, so a new session keeps its header.
+        if let Some(notice) = self.kernel_notice.take() {
+            view.push_entry(ChatEntry::Status {
+                text: format!("Warning: {notice}"),
+                kind: crate::chat::StatusKind::Warning,
+            });
+        }
         self.dirty = true;
     }
 

@@ -228,6 +228,10 @@ impl Worker {
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,
+            kernel_unavailable: self
+                .session
+                .get()
+                .and_then(|hosted| hosted.deps().kernel_unavailable_notice()),
         }
     }
 

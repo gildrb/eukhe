@@ -408,6 +408,12 @@ fn sweep_orphan_test_daemons() {
 }
 
 fn spawn_supervisor(dir: &Path) -> Supervisor {
+    spawn_supervisor_with(dir, |_| {})
+}
+
+/// [`spawn_supervisor`] with `configure` applied to the daemon's command
+/// (its environment) before it starts.
+fn spawn_supervisor_with(dir: &Path, configure: impl FnOnce(&mut Command)) -> Supervisor {
     sweep_orphan_test_daemons();
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
@@ -428,6 +434,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
         // creates deterministic under that load (the supervisor passes its
         // environment to the workers it spawns).
         .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
+    configure(&mut command);
     // Die with this test binary: a supervisor that outlives the process
     // (a kill or abort runs no `Drop`) gets reparented to init and keeps
     // running, so the kernel SIGKILLs it the moment its parent dies. The

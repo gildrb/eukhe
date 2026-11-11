@@ -132,6 +132,17 @@ impl RpcChild {
     /// provider entry + key to pass the registry's configured-auth gate,
     /// the same shape the daemon harness seeds).
     fn spawn_seeded(args: &[&str], script: &Value, models: Option<Value>) -> RpcChild {
+        Self::spawn_configured(args, script, models, |_, _| {})
+    }
+
+    /// [`RpcChild::spawn_seeded`] with `configure` applied to the command
+    /// last (its environment, given the child's home).
+    fn spawn_configured(
+        args: &[&str],
+        script: &Value,
+        models: Option<Value>,
+        configure: impl FnOnce(&mut std::process::Command, &std::path::Path),
+    ) -> RpcChild {
         let shared_lane = LaneHold::shared();
         let home = tempfile::TempDir::new().unwrap();
         if let Some(models) = models {
@@ -139,7 +150,8 @@ impl RpcChild {
             std::fs::create_dir_all(&agent_dir).unwrap();
             std::fs::write(agent_dir.join("models.json"), models.to_string()).unwrap();
         }
-        let mut child = eukhe_command()
+        let mut command = eukhe_command();
+        command
             .args(args)
             .env("HOME", home.path())
             .env("EUKHE_CODING_AGENT_DIR", home.path().join("agent"))
@@ -147,9 +159,9 @@ impl RpcChild {
             .current_dir(home.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("binary present");
+            .stderr(Stdio::piped());
+        configure(&mut command, home.path());
+        let mut child = command.spawn().expect("binary present");
         let stdin = child.stdin.take().expect("stdin piped");
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");
@@ -398,6 +410,33 @@ fn rpc_get_state_answers_the_fresh_session() {
         "--no-session keeps the session in memory (no sessionFile key)"
     );
     assert!(data["sessionId"].is_string());
+    client.drain_stderr();
+}
+
+/// Regression: in the first session of an install without the Python
+/// kernel the open wrote a `kernel_unavailable` row, so a fresh session
+/// answered `messageCount: 1` (eukhe-v0.10.67: 0). The kernel's absence
+/// is a notification of the interactive client (omp `main.ts:2855-2857`),
+/// never a session entry: rpc mode counts no message.
+#[test]
+fn rpc_fresh_session_without_a_kernel_counts_no_message() {
+    let mut client = RpcChild::spawn_configured(
+        &["--mode", "rpc", "--no-session"],
+        &turn_script(&json!(["unused"])),
+        None,
+        |command, home| {
+            command
+                .env_remove("EUKHE_KERNEL_PYTHON")
+                .env("EUKHE_KERNEL_VENV", home.join("no-kernel-venv"));
+        },
+    );
+    let response = client.request(&json!({ "type": "get_state" }));
+    assert_eq!(response["success"], true, "the response: {response}");
+    assert_eq!(
+        response["data"]["messageCount"], 0,
+        "the state: {}",
+        response["data"]
+    );
     client.drain_stderr();
 }
 
