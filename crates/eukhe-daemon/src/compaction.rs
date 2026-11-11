@@ -114,6 +114,7 @@ impl CompactionManager {
                 // in-run loop: a compaction that compacted continues it.
                 if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
                     hosted.harness(),
+                    &hosted.deps().budget,
                     main.id(),
                     cx(),
                 )

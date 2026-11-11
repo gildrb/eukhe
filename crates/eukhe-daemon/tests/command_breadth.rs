@@ -581,6 +581,22 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "headless_parent_receipt",
         r#"{"type": "headless_parent_receipt", "deliveryId": "d1", "receipt": {"id": "m1"}}"#,
     ),
+    (
+        "get_budget",
+        r#"{"type": "get_budget", "activeSessionId": "sess"}"#,
+    ),
+    (
+        "set_budget",
+        r#"{"type": "set_budget", "activeSessionId": "sess", "limits": {"costMicros": 5000000}}"#,
+    ),
+    (
+        "add_budget",
+        r#"{"type": "add_budget", "activeSessionId": "sess", "amounts": {"tokens": 50000}}"#,
+    ),
+    (
+        "audit_budget",
+        r#"{"type": "audit_budget", "activeSessionId": "sess"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -625,6 +641,10 @@ fn known_command_types_match_the_ts_list() {
                     | "cvar_save"
                     | "register_headless_parent"
                     | "headless_parent_receipt"
+                    | "get_budget"
+                    | "set_budget"
+                    | "add_budget"
+                    | "audit_budget"
             ),
             "unexpected non-TS command type: {extra}"
         );

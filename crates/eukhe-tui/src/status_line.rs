@@ -1,9 +1,9 @@
 //! The status line under the prompt (omp `statusLine`, ascii preset,
 //! transparent): the model and its thinking level, the cwd, the git
 //! branch, then the segments that show only while they carry something
-//! (a hint, the session name and spend, the detail level, the chat
-//! memory's `mem` gauge, live activity); the context usage sits on the
-//! right.
+//! (a hint, the session name and spend, the session's budget, the detail
+//! level, the chat memory's `mem` gauge, live activity); the context
+//! usage sits on the right.
 //!
 //! The `mem` gauge is the only place the chat memory's compactor shows
 //! its progress (its live updates never make transcript rows): `mem
@@ -23,6 +23,7 @@ use crate::git_placement::GitPlacement;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::line_width;
 use crate::{Line, Span};
+use eukhe_types::budget::BudgetPhase;
 
 /// The widest the path segment's text gets (omp `path.maxLength`).
 const PATH_MAX_WIDTH: usize = 35;
@@ -93,6 +94,24 @@ pub fn render_status_line(
         });
     if let Some(cost) = state.cost_usd.filter(|cost| *cost > 0.0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("${cost:.2}"))]);
+    }
+    // The budget beside the spend: dim while it admits work, the warning
+    // tone once only a final answer is left, the error tone when nothing
+    // is. Its time reads what is left at this paint.
+    if let Some(budget) = &state.budget {
+        let tone = match budget.phase {
+            BudgetPhase::Working => ThemeColor::Dim,
+            BudgetPhase::WrapUp => ThemeColor::Warning,
+            BudgetPhase::Exhausted => ThemeColor::Error,
+        };
+        segments.push(vec![theme.fg(
+            tone,
+            crate::budget_text::report_line(
+                budget,
+                crate::budget_text::now_ms(),
+                crate::glyphs::SEP,
+            ),
+        )]);
     }
     if let Some(depth) = state.tray_depth.filter(|depth| *depth > 0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("depth {depth}"))]);

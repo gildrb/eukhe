@@ -963,6 +963,10 @@ impl SessionUi {
             TurnUpdate::GoalUpdate(goal) => {
                 self.apply_goal_update(goal, view);
             }
+            TurnUpdate::BudgetUpdate(budget) => {
+                self.budget = budget.map(|report| *report);
+                view.chrome.budget.clone_from(&self.budget);
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

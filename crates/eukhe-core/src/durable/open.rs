@@ -24,6 +24,7 @@ use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
 
 use super::admission_gate::{wrap_models_with_admission, AdmissionGate};
+use super::budget::{self, wrap_models_with_budget, BudgetGate};
 use super::compaction::auxiliary_model::show_notice_row;
 use super::cvar_agent::{load_agent_state, read_agent_state};
 use super::deps::{
@@ -162,6 +163,14 @@ impl EukheSession {
         &self.state_tree
     }
 
+    /// The session's budget gate: its report, its changes, and setting or
+    /// adding budget (blocking file IO: call its methods on a blocking
+    /// thread).
+    #[must_use]
+    pub fn budget(&self) -> Arc<BudgetGate> {
+        Arc::clone(&self.deps.budget)
+    }
+
     /// Begin closing ([`HostDeps::begin_close`]), stop the session's
     /// services (reverse start order), then close the Harness after its
     /// running tasks settle. Idempotent: a later call stops nothing and
@@ -249,9 +258,25 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     let loaded = load_session_resources(&config, &settings, &manager).await?;
     let kernel_unavailable =
         kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager);
+    // The session's budget: a child's ledger takes what its parent lent
+    // it, and what a crash left reserved is charged before anything spends.
+    let gate = {
+        let agent_dir = config.agent_dir.clone();
+        let session_id = config.session_id.clone();
+        let parent = parent.as_ref().map(|parent| parent.session_id.clone());
+        let settings = Arc::clone(&settings);
+        tokio::task::spawn_blocking(move || {
+            BudgetGate::open(&agent_dir, &session_id, parent.as_deref(), settings)
+        })
+        .await
+        .map_err(|error| {
+            OpenError::Resources(anyhow::anyhow!("opening the budget ledger failed: {error}"))
+        })?
+    };
     let deps = Arc::new(HostDeps::new(
         &config,
         ResolvedServices {
+            budget: gate,
             storage_dir,
             settings: Arc::clone(&settings),
             models: models.clone(),
@@ -264,7 +289,13 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         },
     ));
     super::jobs::install(&deps);
-    // Provider admission rides INNERMOST, under the provider runtime: a
+    budget::install(&deps);
+    // The budget rides INNERMOST, under provider admission: a request
+    // reserves when it is about to reach its provider, holding its slot,
+    // and every failover re-dispatch and retry reserves again. A provider
+    // registered on the collection later is gated as it registers.
+    wrap_models_with_budget(&models, &deps.budget);
+    // Provider admission rides under the provider runtime: a
     // failover re-dispatch takes a slot of the provider it goes to, and no
     // slot is held while a wrapper waits between attempts.
     let admission = config.admission.clone().unwrap_or_else(|| {
@@ -336,6 +367,12 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         }
     };
     deps.harness.set(harness.clone(), root.clone());
+    // Before anything resumes: the budget of every child no task serves
+    // any more goes back (a crash between a carve and its spawn commit, or
+    // between a child's end and its give-back).
+    if let Err(error) = super::children::reconcile(&deps.budget, &harness, cx).await {
+        tracing::warn!(%error, "giving back the budgets of ended children");
+    }
     let session = EukheSession {
         harness: harness.clone(),
         root: root.clone(),

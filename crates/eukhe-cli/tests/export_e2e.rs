@@ -140,6 +140,7 @@ async fn tui_export_surface() {
         .to_string();
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.0.socket.clone(),
         cwd: dir.path().to_path_buf(),

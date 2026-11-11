@@ -424,6 +424,42 @@ fn build_tui_options_reads_code_block_indent_settings() {
     assert_eq!(options.code_block_indent, "  ");
 }
 
+/// `--budget-*` rides the create of the session the launch starts and of
+/// every session the run creates; a session that exists and is opened
+/// later (from the agents view, by `/resume`) keeps its own budget.
+#[test]
+fn the_launch_budget_is_for_the_sessions_this_run_starts() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::create_dir_all(dir.path().join("agent")).expect("agent dir");
+    let limits = eukhe_types::budget::BudgetLimits {
+        cost_micros: Some(2_000_000),
+        ..Default::default()
+    };
+    let mut options = run_options_for_continue(dir.path());
+    options.config.budget = Some(limits);
+    let base = build_tui_options(
+        &options,
+        dir.path().join("d.sock"),
+        std::sync::Arc::default(),
+    )
+    .expect("options");
+    let later = |selection: SessionSelection| later_session_options(&base, selection).budget;
+    assert_eq!(
+        (
+            base.create_config()["budget"].clone(),
+            later(SessionSelection::New),
+            later(SessionSelection::Resume("/sessions/saved".into())),
+            later(SessionSelection::Attach("a1b2c3".to_string())),
+        ),
+        (
+            serde_json::json!({ "costMicros": 2_000_000 }),
+            Some(limits),
+            None,
+            None,
+        )
+    );
+}
+
 /// A legacy session with one user/assistant exchange, written as the
 /// JSONL rows a real run produced. Returns the file and its session id.
 fn seed_session(

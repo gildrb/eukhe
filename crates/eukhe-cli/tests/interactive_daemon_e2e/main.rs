@@ -563,6 +563,7 @@ fn base_options(
     session_dir: &Path,
 ) -> eukhe_tui::interactive::InteractiveOptions {
     eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.to_path_buf(),

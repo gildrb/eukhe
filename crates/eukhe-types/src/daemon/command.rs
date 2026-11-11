@@ -826,6 +826,47 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native: the session's budget (reply: [`super::BudgetReply`],
+    /// `budget` null for a session without one).
+    GetBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: give a root session its budget (reply:
+    /// [`super::BudgetReply`]). A session that already has one refuses:
+    /// `add_budget` adds to it.
+    SetBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        limits: crate::budget::BudgetLimits,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: add `amounts` to the session's budget, so an exhausted
+    /// session works again; a session without a budget gets `amounts` as
+    /// its budget (reply: [`super::BudgetReply`]).
+    AddBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        amounts: crate::budget::BudgetAmounts,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: replay the session's budget ledger and compare its
+    /// settled spends with the reported total (reply:
+    /// [`super::BudgetAuditReply`]).
+    AuditBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetContextTree {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

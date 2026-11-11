@@ -64,6 +64,12 @@ fn fixture_set(text_only: bool, second_model_id: &str, settings: &serde_json::Va
         &SessionConfig::new(&agent_dir, &cwd, "session-test", SessionStorage::Memory),
         ResolvedServices {
             storage_dir: None,
+            budget: crate::durable::budget::BudgetGate::open(
+                &agent_dir,
+                "session-test",
+                None,
+                Arc::clone(&settings),
+            ),
             settings,
             models: models.clone(),
             resources: Arc::new(LoadedResources::default()),

@@ -513,6 +513,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }

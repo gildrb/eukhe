@@ -225,6 +225,7 @@ impl Worker {
                 .view
                 .as_ref()
                 .map_or(Value::Null, |view| view.goal.clone()),
+            budget: core.budget.clone(),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,

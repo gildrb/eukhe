@@ -5,9 +5,8 @@
 //!   `thread_goal_state` row's payload). Rewindable: a fork starts from the
 //!   goal as of its fork entry (the old "goal state follows the branch cut").
 //! - `eukhe.goal.loop`: continuation bookkeeping that makes the hooks
-//!   idempotent across a crash rerun (the last accounted generation and the
-//!   last `on_yield` decision, both keyed by the generation task), and the
-//!   goal's progress check.
+//!   idempotent across a crash rerun (the last `on_yield` decision, keyed
+//!   by the generation task), and the goal's progress check.
 //! - `eukhe.autonomous`: the autonomous run state (see `autonomous.rs`).
 
 use std::sync::Arc;
@@ -94,14 +93,12 @@ pub static AUTONOMOUS_DOC: ConversationDoc<AutonomousDocState> = match Conversat
 };
 
 /// `eukhe.goal.loop`: what the hooks already decided, keyed by the asking
-/// generation task, so a rerun after a crash repeats the decision instead of
-/// charging the goal again.
+/// generation task, so a rerun after a crash repeats the decision. A record
+/// written while the goal counted its own tokens carries `accounted` (the
+/// last generation it charged): it is ignored.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GoalLoopState {
-    /// The generation whose settled response was last accounted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub accounted: Option<TaskId>,
     /// The last `on_yield` decision.
     #[serde(default, rename = "yield", skip_serializing_if = "Option::is_none")]
     pub yield_record: Option<YieldRecord>,
@@ -217,25 +214,18 @@ mod tests {
     }
 
     /// A version 2 record of the removed no-progress backoff loads: the
-    /// migration drops it, so the rerun decides again.
+    /// migration drops it, so the rerun decides again; the removed
+    /// `accounted` record is ignored.
     #[test]
     fn a_wait_record_of_the_removed_backoff_is_dropped() {
         let old = r#"{"accounted":7,"yield":{"taskId":7,"outcome":{"type":"wait","until":20000}}}"#;
-        assert_eq!(
-            migrated(old, 2),
-            GoalLoopState {
-                accounted: Some(TaskId::from_number(7)),
-                yield_record: None,
-                progress: None,
-            }
-        );
+        assert_eq!(migrated(old, 2), GoalLoopState::default());
     }
 
     /// A version 2 continuation carries its origin: the migration keeps it.
     #[test]
     fn a_version_2_continuation_is_kept() {
         let state = GoalLoopState {
-            accounted: None,
             yield_record: Some(YieldRecord {
                 task_id: TaskId::from_number(7),
                 outcome: YieldOutcome::Continue {

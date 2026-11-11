@@ -51,6 +51,7 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -239,6 +240,7 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -447,6 +449,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     });
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -600,6 +603,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
     }))
     .expect("catalog entry");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -749,6 +753,7 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         "both models.json models resolve available"
     );
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),

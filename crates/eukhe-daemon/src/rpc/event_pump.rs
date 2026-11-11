@@ -1,18 +1,20 @@
 //! The connection's event pump over one session's main conversation: the
 //! durable agent events translated to session events, plus
 //! the `goal_update` frames of the conversation's goal (TS forwards
-//! `event.event` verbatim and `_emitGoalUpdate` on goal changes). Frames
-//! go through the connection outputs, so a pending prompt response still
-//! precedes them.
+//! `event.event` verbatim and `_emitGoalUpdate` on goal changes) and the
+//! `budget_update` frames of the session's budget. Frames go through the
+//! connection outputs, so a pending prompt response still precedes them.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::Context;
+use eukhe_core::durable::budget::BudgetGate;
 use eukhe_core::durable::goals::watch_goal_updates;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::{watch_events, AgentEventBatch, AgentEventStream};
 use eukhe_durable::session::SessionResult;
+use eukhe_types::budget::BudgetReport;
 use eukhe_types::daemon::SessionEvent;
 use futures::future::{self, FutureExt};
 use tokio::task::JoinHandle;
@@ -39,6 +41,7 @@ pub(crate) struct EventPump {
     translation: Arc<Mutex<Translation>>,
     outputs: ConnectionOutputs,
     goals: JoinHandle<()>,
+    budgets: JoinHandle<()>,
 }
 
 impl EventPump {
@@ -46,7 +49,8 @@ impl EventPump {
     /// connection's last published goal: a `goal_update` frame publishes
     /// only when the goal differs from it (TS change-gated emits), so the
     /// watch's first value (the current goal) publishes nothing unless it
-    /// changed across a replacement.
+    /// changed across a replacement. `last_budget` gates the
+    /// `budget_update` frames of the session's budget the same way.
     ///
     /// # Errors
     ///
@@ -55,6 +59,7 @@ impl EventPump {
         session: &EukheSession,
         outputs: &ConnectionOutputs,
         last_goal: &Arc<Mutex<GoalState>>,
+        last_budget: &Arc<Mutex<Option<BudgetReport>>>,
         cx: &Context,
     ) -> SessionResult<Self> {
         let conversation_id = session.main().id();
@@ -91,16 +96,22 @@ impl EventPump {
                 }
             }
         });
+        let budgets = tokio::spawn(forward_budget(
+            session.budget(),
+            outputs.clone(),
+            Arc::clone(last_budget),
+        ));
         Ok(Self {
             stream,
             translation,
             outputs: outputs.clone(),
             goals,
+            budgets,
         })
     }
 
     /// Detach: stop the event watch, publish the translator's held frame,
-    /// and end the goal watch.
+    /// and end the goal and budget watches.
     pub(crate) async fn stop(self) {
         // The watch's terminal result carries nothing the connection
         // reports: the pump only ever stops on purpose.
@@ -113,5 +124,50 @@ impl EventPump {
             .flush();
         self.outputs.write_events(held);
         self.goals.abort();
+        self.budgets.abort();
+    }
+}
+
+/// Publish the session's budget, then each change of it, as one
+/// `budget_update` frame whenever it differs from `last` (the connection's
+/// last published budget). The first read is ledger file IO, on the
+/// blocking pool.
+#[tracing::instrument(skip_all)]
+#[expect(
+    clippy::assigning_clones,
+    reason = "a changed budget was moved into its event: nothing to clone into"
+)]
+async fn forward_budget(
+    gate: Arc<BudgetGate>,
+    outputs: ConnectionOutputs,
+    last: Arc<Mutex<Option<BudgetReport>>>,
+) {
+    // Subscribed before the first read: a change the read misses is
+    // delivered after it.
+    let mut updates = gate.watch();
+    let mut budget = match tokio::task::spawn_blocking(move || gate.report()).await {
+        Ok(budget) => budget,
+        Err(error) => {
+            eprintln!("eukhe rpc: reading the session's budget did not finish: {error}");
+            return;
+        }
+    };
+    loop {
+        let changed = {
+            let mut last = last.lock().unwrap_or_else(PoisonError::into_inner);
+            if *last == budget {
+                false
+            } else {
+                last.clone_from(&budget);
+                true
+            }
+        };
+        if changed {
+            outputs.write_events([SessionEvent::BudgetUpdate { budget }]);
+        }
+        if updates.changed().await.is_err() {
+            return;
+        }
+        budget = updates.borrow_and_update().clone();
     }
 }

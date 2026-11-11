@@ -2,10 +2,11 @@
 //! `/autonomous`. The arguments are the compiled core's
 //! (`eukhe_bend::rules::slash_args`, `laws/slash_args.bend`): this module
 //! maps its answers to the session's types. The status text is a port of
-//! agent-session.ts `_formatAutonomousStatus`; its strings are user-facing
-//! and byte-identical.
+//! agent-session.ts `_formatAutonomousStatus`; its turns, tokens and time
+//! are the session budget's (requests, tokens, deadline).
 
 use eukhe_bend::rules::slash_args::{self, AutonomousArgs, GoalArgs, Limit};
+use eukhe_types::budget::BudgetDimension;
 
 use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateConfig, AgentAutonomousStatus,
@@ -120,13 +121,33 @@ fn format_count(value: u64) -> String {
     }
 }
 
-/// `_formatAutonomousStatus`: the `[autonomous-status: ...]` block.
+/// `_formatAutonomousStatus`: the `[autonomous-status: ...]` block. Turns,
+/// tokens and time are the session budget's requests, tokens and deadline
+/// (`unlimited` where it sets none); the time used without a deadline is
+/// the run's age.
 #[must_use]
 pub fn format_autonomous_status(status: &AgentAutonomousStatus) -> String {
     let state = if status.enabled { "on" } else { "off" };
-    let elapsed_seconds = status.started_at.map_or(0, |started_at| {
-        now_millis().saturating_sub(started_at) / 1000
-    });
+    let budget = status.budget.as_ref();
+    let used = |dimension: BudgetDimension| budget.map_or(0, |report| report.spent.get(dimension));
+    let limit = |dimension: BudgetDimension| {
+        budget
+            .and_then(|report| report.limits.get(dimension))
+            .map_or_else(|| "unlimited".to_string(), format_count)
+    };
+    let (elapsed_seconds, time_budget) =
+        match budget.and_then(|report| report.limits.time_ms.map(|limit| (report, limit))) {
+            Some((report, limit)) => (
+                limit.saturating_sub(report.free.time_ms) / 1000,
+                format!("{}s", format_count(limit / 1000)),
+            ),
+            None => (
+                status.started_at.map_or(0, |started_at| {
+                    now_millis().saturating_sub(started_at) / 1000
+                }),
+                "unlimited".to_string(),
+            ),
+        };
     let gate_summary = if status.gates.commands.is_empty() {
         "none".to_string()
     } else {
@@ -137,11 +158,6 @@ pub fn format_autonomous_status(status: &AgentAutonomousStatus) -> String {
             .map(|command| format!("\"{command}\""))
             .collect::<Vec<_>>()
             .join(", ")
-    };
-    let time_budget = if status.limits.timeout_ms == UNLIMITED_AUTONOMOUS_LIMIT {
-        "unlimited".to_string()
-    } else {
-        format!("{}s", format_count(status.limits.timeout_ms / 1000))
     };
     let subagent_keep_alive_ms = status.subagent_keep_alive_ms.unwrap_or(0);
     let keep_alive = if subagent_keep_alive_ms > 0 {
@@ -157,10 +173,10 @@ pub fn format_autonomous_status(status: &AgentAutonomousStatus) -> String {
         "[autonomous-status: {state}]\n\nContinuations: {}/{}. Turns: {}/{}. Tokens: {}/{}. Time: {elapsed_seconds}s/{time_budget}. Gates: {gate_summary}. Subagent keep-alive: {keep_alive}.",
         format_count(status.continuations_used),
         format_count(status.limits.max_continuations),
-        format_count(status.turns_used),
-        format_count(status.limits.max_turns),
-        format_count(status.tokens_used),
-        format_count(status.limits.max_tokens),
+        format_count(used(BudgetDimension::Requests)),
+        limit(BudgetDimension::Requests),
+        format_count(used(BudgetDimension::Tokens)),
+        limit(BudgetDimension::Tokens),
     )
 }
 
@@ -208,13 +224,41 @@ mod tests {
             .is_err_and(|error| error.text.starts_with("Usage: /autonomous [status|off]")));
     }
 
+    /// The turns, tokens and time are the session budget's; without one
+    /// they are unlimited.
     #[test]
     fn autonomous_status_format() {
         let state = crate::autonomous::create_autonomous_runtime_state(None, None);
-        let status = crate::autonomous::autonomous_status(&state);
-        let text = format_autonomous_status(&status);
-        assert!(text.starts_with("[autonomous-status: off]"));
-        assert!(text.contains("Continuations: 0/3. Turns: 0/12. Tokens: 0/80,000."));
-        assert!(text.contains("Time: 0s/1,800s. Gates: none. Subagent keep-alive: 25m."));
+        let budget = eukhe_types::budget::BudgetReport {
+            limits: eukhe_types::budget::BudgetLimits {
+                tokens: Some(80_000),
+                time_ms: Some(1_800_000),
+                requests: Some(12),
+                ..Default::default()
+            },
+            spent: eukhe_types::budget::BudgetAmounts {
+                tokens: 1_500,
+                requests: 2,
+                ..Default::default()
+            },
+            free: eukhe_types::budget::BudgetAmounts {
+                tokens: 78_500,
+                time_ms: 1_740_000,
+                requests: 10,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let status = |budget| {
+            format_autonomous_status(&crate::autonomous::autonomous_status(&state, budget))
+        };
+        assert_eq!(
+            [status(Some(budget)), status(None)],
+            [
+                "[autonomous-status: off]\n\nContinuations: 0/3. Turns: 2/12. Tokens: 1,500/80,000. Time: 60s/1,800s. Gates: none. Subagent keep-alive: 25m.",
+                "[autonomous-status: off]\n\nContinuations: 0/3. Turns: 0/unlimited. Tokens: 0/unlimited. Time: 0s/unlimited. Gates: none. Subagent keep-alive: 25m.",
+            ]
+            .map(str::to_owned)
+        );
     }
 }

@@ -406,3 +406,64 @@ fn the_title_and_the_speed_yield_before_the_fixed_segments() {
         );
     }
 }
+
+/// The budget segment sits after the spend and reads the report's line:
+/// dim while the budget admits work, the warning tone in wrap-up, the
+/// error tone when exhausted.
+#[test]
+fn the_budget_segment_follows_the_spend_in_the_tone_of_its_phase() {
+    use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
+    let theme = theme();
+    let row = |phase: BudgetPhase, short: Option<BudgetDimension>| {
+        let state = ChromeState {
+            cost_usd: Some(0.126),
+            budget: Some(BudgetReport {
+                limits: BudgetLimits {
+                    cost_micros: Some(2_000_000),
+                    tool_calls: Some(50),
+                    ..BudgetLimits::default()
+                },
+                spent: BudgetAmounts {
+                    cost_micros: 420_000,
+                    tool_calls: 12,
+                    ..BudgetAmounts::default()
+                },
+                phase,
+                short,
+                ..BudgetReport::default()
+            }),
+            context: None,
+            git: None,
+            ..base()
+        };
+        let line = render_status_line(&state, Detail::Overview, &theme, 120);
+        let tone = line
+            .iter()
+            .find(|span| span.content.starts_with("budget: "))
+            .map(|span| span.style.fg);
+        (text(&line), tone)
+    };
+    assert_eq!(
+        [
+            row(BudgetPhase::Working, None),
+            row(BudgetPhase::WrapUp, Some(BudgetDimension::Cost)),
+            row(BudgetPhase::Exhausted, Some(BudgetDimension::ToolCalls)),
+        ],
+        [
+            (
+                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls".to_string(),
+                Some(theme.fg_style(ThemeColor::Dim).fg),
+            ),
+            (
+                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls - wrap-up"
+                    .to_string(),
+                Some(theme.fg_style(ThemeColor::Warning).fg),
+            ),
+            (
+                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls - exhausted (tool calls)"
+                    .to_string(),
+                Some(theme.fg_style(ThemeColor::Error).fg),
+            ),
+        ]
+    );
+}

@@ -1179,6 +1179,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }

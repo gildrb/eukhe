@@ -19,7 +19,9 @@ eukhe-chord.workspace = true
 eukhe-types.workspace = true
 anyhow.workspace = true
 futures.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+# The event channel and the budget watch (`sync`); the budget ledger's
+# file IO runs on the blocking pool (`rt`).
+tokio = { workspace = true, features = ["rt", "sync"] }
 # New session ids (UUIDv7, the engine's session id form).
 uuid = { version = "1", features = ["v7"] }
 

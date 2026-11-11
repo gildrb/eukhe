@@ -8,6 +8,7 @@ pub mod arg_repair;
 pub mod autoresearch;
 pub mod aws_text;
 pub mod bound;
+pub mod budget;
 pub mod cache_marks;
 pub mod call_lift;
 pub mod codemode_id;

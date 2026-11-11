@@ -167,6 +167,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "system-prompt", description: "Show the exact system prompt sent to the model", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "logs", description: "Show where daemon and client logs are saved", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "context", description: "Show token, cost, and context usage for agent and sub-agents", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &["usage"], takes_argument: false, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "budget", description: "Show, set or add to this session's budget", execution: SlashCommandExecution::Client, argument_hint: Some("[set|add cost= tokens= time= calls= requests= | audit]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "changelog", description: "Show changelog entries", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "hotkeys", description: "Show all keyboard shortcuts", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "fork", description: "Create a new fork from a previous user message", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
@@ -408,6 +409,30 @@ mod tests {
             );
         }
     }
+
+    /// `/budget` runs in the client and takes its words as one argument.
+    #[test]
+    fn budget_is_a_client_command_with_an_argument() {
+        let registry = SlashCommandRegistry::builtin();
+        assert_eq!(
+            (
+                registry.parse("/budget set cost=2 tokens=200k"),
+                registry
+                    .get("budget")
+                    .map(|command| (command.execution, command.takes_argument)),
+            ),
+            (
+                Some(ResolvedSlashCommand {
+                    name: "budget",
+                    original_name: "budget".to_string(),
+                    is_alias: false,
+                    args: "set cost=2 tokens=200k".to_string(),
+                }),
+                Some((SlashCommandExecution::Client, true)),
+            )
+        );
+    }
+
     #[test]
     fn edit_distance_counts_substitutions() {
         assert_eq!(edit_distance("abc", "abc"), 0);

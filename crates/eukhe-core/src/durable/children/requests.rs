@@ -6,7 +6,7 @@
 //! (`rlm.rename` lives in [`super::rename`]).
 
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
@@ -22,10 +22,12 @@ use eukhe_durable::types::{
     ConversationId, DocumentObserverExt, TaskId, TaskOptions, TaskOutcome, TaskOwnership,
     TaskState, TaskStatus, ROOT_CONVERSATION_ID,
 };
+use eukhe_types::budget::BudgetLimits;
 use futures::FutureExt;
 use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
 
+use super::budget::{allot, give_back, named_budget, Allotment};
 use super::depth::read_max_depth_override;
 use super::host::{ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmSubagentHost};
 use super::notice::{rlm_child_label, DELETED_BY_PARENT};
@@ -246,6 +248,10 @@ pub(super) struct SpawnKwargs {
     /// The workflow phase the child serves.
     pub(super) phase: Option<String>,
     pub(super) report: ReportMode,
+    /// The budget the spawn names for the child (`budget`), carved out of
+    /// the parent's account; `None`: the child draws from the parent's
+    /// account as a shared member (it joins at its open).
+    pub(super) budget: Option<BudgetLimits>,
 }
 
 /// Unsupported keys are rejected with the sorted key list; name, model, and
@@ -265,6 +271,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
             "label",
             "phase",
             "report",
+            "budget",
         ],
     )?;
     let why = optional_string_kwarg(&kwargs, "why", OPERATION)?.map(str::to_owned);
@@ -297,6 +304,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         Some("silent") => ReportMode::Silent,
         Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
     };
+    let budget = named_budget(&kwargs, OPERATION)?;
     Ok(SpawnKwargs {
         why,
         name,
@@ -306,6 +314,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         label,
         phase,
         report,
+        budget,
     })
 }
 
@@ -372,11 +381,13 @@ async fn run_batch(children: Arc<Children>, call: HostCall) -> anyhow::Result<Va
     Ok(json!({ "handles": handles }))
 }
 
-/// One admitted spawn: its name, label, phase, and task input.
+/// One admitted spawn: its name, label, phase, named budget, and task
+/// input.
 type Admitted = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<BudgetLimits>,
     ChildTaskInput,
 );
 
@@ -389,9 +400,13 @@ type Admitted = (
 /// this session's not-yet-visible children) against
 /// `subagentMaxConcurrency`. The name checks, that decision, and the rows
 /// land atomically, so parallel same-name spawns cannot both admit and a
-/// batch is all-or-nothing. `forward_cursor` (main's `worker_assign`): the
-/// user messages the task carries are handed over in the same commit
-/// ([`super::worker`]).
+/// batch is all-or-nothing. A child whose spawn names a budget is carved
+/// that allotment out of the session's account in the same commit, all of
+/// the batch or none ([`super::budget`]): a batch that does not fit is
+/// refused, and no such child starts without its allotment. A child that
+/// names none carves nothing. `forward_cursor` (main's
+/// `worker_assign`): the user messages the task carries are handed over
+/// in the same commit ([`super::worker`]).
 pub(super) async fn admit_spawns(
     children: &Arc<Children>,
     call: &HostCall,
@@ -451,6 +466,7 @@ pub(super) async fn admit_spawns(
                 spec.kwargs.name,
                 spec.kwargs.label,
                 spec.kwargs.phase,
+                spec.kwargs.budget,
                 ChildTaskInput {
                     prompt: spec.prompt,
                     model: spec.kwargs.model,
@@ -472,7 +488,12 @@ pub(super) async fn admit_spawns(
     let task = children.task.as_definition_ref();
     let parent_session_id = children.services.parent_session_id.clone();
     let started_at = now_ms();
-    let task_ids = api
+    let gate = Arc::clone(&children.services.budget);
+    // What the commit carved out of this session's budget: it returns
+    // when the commit does not land.
+    let carved = Arc::new(Mutex::new(Vec::new()));
+    let taken = Arc::clone(&carved);
+    let committed = api
         .commit(
             move |tx| async move {
                 let state = tx_children(&tx, conversation_id).await?;
@@ -508,7 +529,8 @@ pub(super) async fn admit_spawns(
                     batch_names.push(name);
                 }
                 let mut task_ids = Vec::with_capacity(admitted.len());
-                for (name, label, phase, input) in admitted {
+                let mut allotments = Vec::with_capacity(admitted.len());
+                for (name, label, phase, budget, input) in admitted {
                     let task_id = tx
                         .create_task(
                             task.clone(),
@@ -557,17 +579,47 @@ pub(super) async fn admit_spawns(
                         worker: input.worker,
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
+                    if let Some(limits) = budget {
+                        allotments.push(Allotment {
+                            session_id: row.session_id,
+                            limits,
+                        });
+                    }
                     task_ids.push(task_id);
                 }
                 if let Some(cursor) = forward_cursor {
                     super::worker::tx_hand_over(&tx, conversation_id, cursor).await?;
                 }
+                // Each named allotment leaves the account here, all of the
+                // batch or none, before the commit that starts the
+                // children: a refusal admits nothing, and no such child
+                // starts without its allotment on disk.
+                let allotted = allot(&gate, allotments).await?;
+                *taken.lock().unwrap_or_else(PoisonError::into_inner) = allotted;
                 Ok(task_ids)
             },
             &cx(),
         )
-        .await
-        .map_err(|error| anyhow!("{error}"))?;
+        .await;
+    let task_ids = match committed {
+        Ok(task_ids) => task_ids,
+        Err(error) => {
+            // No child was admitted: what the commit carved returns now
+            // (after a failure here, at this session's next open).
+            let carved =
+                std::mem::take(&mut *carved.lock().unwrap_or_else(PoisonError::into_inner));
+            for child in carved {
+                if let Err(failure) = give_back(&children.services.budget, &child).await {
+                    tracing::warn!(
+                        %child,
+                        error = %failure,
+                        "returning the allotment of a spawn that was not admitted"
+                    );
+                }
+            }
+            return Err(anyhow!("{error}"));
+        }
+    };
     // Every task is admitted; a child whose create fails reports its own
     // error (the batch's other children stay admitted and listed).
     let mut handles = Vec::with_capacity(task_ids.len());

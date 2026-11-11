@@ -9,7 +9,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_bend::rules::headless::{ExitCause, ExitFacts, Primary, RunEnd};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
+use eukhe_core::durable::goals::{
+    autonomous_state, budget_report, configure_autonomous, seed_initial_goal,
+};
 use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{
     classify_session_command, execute_session_command, EukheSession, SessionCommandError,
@@ -65,6 +67,10 @@ enum HeadlessModeError {
     SystemPrompt(#[source] serde_json::Error),
     #[error("appended system prompt input: {0}")]
     AppendedSystemPrompt(#[source] serde_json::Error),
+    /// The read of the session's budget at the end of a run did not
+    /// finish.
+    #[error("the session's budget could not be read: {0}")]
+    BudgetReport(#[source] tokio::task::JoinError),
     /// The session resolved no model: a run with prompts must fail loudly.
     #[error(
         "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
@@ -265,6 +271,11 @@ async fn daemon_acp_create(
     }
     if let Some(autonomous) = &config.autonomous {
         create_config["autonomous"] = serde_json::json!(autonomous_runtime_config(autonomous));
+    }
+    // The `--budget-*` limits: the budget of the session this create
+    // starts (a reopened session that has one keeps its own).
+    if let Some(budget) = config.budget {
+        create_config["budget"] = serde_json::json!(budget);
     }
     // Verification seam (the interactive mode's contract): a scripted daemon
     // session from a script FILE path. The product never sets it.
@@ -541,14 +552,33 @@ async fn run_prompts(
             }
         }
         // The TS print-mode autonomous contract applies to both output
-        // modes.
+        // modes; the run's limits are the session budget's.
         let autonomous = autonomous_state(harness, conversation.id(), cx).await?;
-        if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
+        let report = budget_report(&session.budget()).await?;
+        if let Some(stderr) = autonomous_exit_stderr(&autonomous.status(report)) {
             eprintln!("{stderr}");
             facts.autonomous_failed = true;
         }
     }
     watch.finish().await;
+    // The session's budget as the run leaves it: one stderr line in both
+    // modes, and in json mode the report as the stream's last
+    // `budget_update`.
+    let gate = session.budget();
+    let budget = tokio::task::spawn_blocking(move || gate.report())
+        .await
+        .map_err(HeadlessModeError::BudgetReport)?;
+    if let Some(report) = budget {
+        eprintln!(
+            "{}",
+            eukhe_tui::budget_text::report_detail(&report, eukhe_tui::budget_text::now_ms(), " · ")
+        );
+        if json_mode {
+            print_event(&SessionEvent::BudgetUpdate {
+                budget: Some(report),
+            });
+        }
+    }
     let exit = eukhe_bend::rules::headless::exit(&facts).map_err(HeadlessModeError::Exit)?;
     match exit.cause {
         // The run's failure text, unless the failed primary already
@@ -585,23 +615,27 @@ async fn drive_prompts(
     let config = &options.config;
     let quiescent = || wait_quiescent(opened, watch, config.wait_limit, cx);
     // The CLI autonomous flags enable the run on the main conversation (no
-    // status row, as TS `createAgentSession({ autonomous })`); a run without
-    // flags keeps the session's state (`/autonomous` rewrites it live).
+    // status row, as TS `createAgentSession({ autonomous })`) and put its
+    // limits on the session's budget; a run without flags keeps the
+    // session's state (`/autonomous` rewrites it live).
     if let Some(autonomous) = &config.autonomous {
         configure_autonomous(
             harness,
+            &session.budget(),
             conversation.id(),
             autonomous_runtime_config(autonomous),
             cx,
         )
         .await?;
     }
-    // The CLI `--goal` seed: a fresh conversation starts the goal and
-    // queues its continuation; a resumed or already-seeded one keeps its
-    // persisted goal.
+    // The CLI `--goal` seed: a fresh conversation starts the goal (its
+    // token budget goes on the session's budget) and queues its
+    // continuation; a resumed or already-seeded one keeps its persisted
+    // goal.
     if let Some(goal) = &config.initial_goal {
         seed_initial_goal(
             harness,
+            &session.budget(),
             conversation.id(),
             &goal.objective,
             goal.token_budget.map(u64::from),

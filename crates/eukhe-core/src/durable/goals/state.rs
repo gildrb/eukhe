@@ -7,13 +7,14 @@
 //! Every write goes through [`stamp`] (the state normalization:
 //! `updated_at`, the derived `active` flag, and the creation-based timer).
 
+use eukhe_ai::utils::retry::is_budget_refusal;
 use eukhe_bend::wire::{Reader, Writer, NAT_MAX};
 use eukhe_bend::Entry;
-use eukhe_types::pi_ai::{AssistantMessage, StopReason, Usage};
+use eukhe_types::budget::BudgetDimension;
+use eukhe_types::pi_ai::{AssistantMessage, StopReason};
 
-use crate::goals::{
-    normalize_goal_state, validate_goal_budget, validate_goal_objective, GoalState, GoalStatus,
-};
+use crate::autonomous::SessionBudget;
+use crate::goals::{normalize_goal_state, validate_goal_objective, GoalState, GoalStatus};
 
 /// The default reason of a failed assistant response.
 const ASSISTANT_FAILED: &str = "Assistant response failed";
@@ -57,24 +58,18 @@ pub fn owns_continuation_wakeup(state: &GoalState) -> bool {
     state.status == GoalStatus::Active && state.objective.is_some()
 }
 
-/// A fresh active goal (old `GoalDriver::start`).
+/// A fresh active goal (old `GoalDriver::start`). Its token budget is a
+/// limit on the session's budget, put there by the caller.
 ///
 /// # Errors
 ///
-/// The objective or budget fails validation.
-pub(crate) fn new_goal(
-    objective: &str,
-    token_budget: Option<u64>,
-    now: u64,
-) -> anyhow::Result<GoalState> {
+/// The objective fails validation.
+pub(crate) fn new_goal(objective: &str, now: u64) -> anyhow::Result<GoalState> {
     let objective = validate_goal_objective(objective)?;
-    let token_budget = validate_goal_budget(token_budget)?;
     Ok(GoalState {
         status: GoalStatus::Active,
         goal_id: Some(uuid::Uuid::new_v4().to_string()),
         objective: Some(objective),
-        token_budget,
-        tokens_used: 0,
         time_used_seconds: 0,
         continuations_used: 0,
         created_at: Some(now),
@@ -95,29 +90,54 @@ pub(crate) fn paused(state: &GoalState, reason: &str) -> Option<GoalState> {
     })
 }
 
-/// The resumed goal (active, or still `budget_limited` when its budget is
-/// spent); `None` when there is nothing to resume.
+/// The resumed goal (active, or `budget_limited` while the session's
+/// `budget` admits no work); `None` when there is nothing to resume.
 #[must_use]
-pub(crate) fn resumed(state: &GoalState) -> Option<GoalState> {
+pub(crate) fn resumed(state: &GoalState, budget: SessionBudget) -> Option<GoalState> {
     if state.objective.is_none()
         || !matches!(state.status, GoalStatus::Paused | GoalStatus::BudgetLimited)
     {
         return None;
     }
-    let exhausted = state
-        .token_budget
-        .is_some_and(|budget| state.tokens_used >= budget);
-    let status = if exhausted {
-        GoalStatus::BudgetLimited
-    } else {
-        GoalStatus::Active
-    };
-    Some(GoalState {
-        status,
-        last_reason: exhausted.then(|| "Goal token budget already reached".to_owned()),
+    Some(match budget {
+        SessionBudget::Working => GoalState {
+            status: GoalStatus::Active,
+            last_reason: None,
+            last_error: None,
+            ..state.clone()
+        },
+        SessionBudget::Short(short) => GoalState {
+            status: GoalStatus::BudgetLimited,
+            last_reason: Some(budget_reason(short)),
+            last_error: None,
+            ..state.clone()
+        },
+    })
+}
+
+/// The goal of a session whose budget admits no more work (its phase left
+/// `Working`, `short` ran out): `budget_limited`, so it yields; `None` when
+/// the goal is not active.
+#[must_use]
+pub(crate) fn budget_limited(
+    state: &GoalState,
+    short: Option<BudgetDimension>,
+) -> Option<GoalState> {
+    (state.status == GoalStatus::Active).then(|| GoalState {
+        status: GoalStatus::BudgetLimited,
+        last_reason: Some(budget_reason(short)),
         last_error: None,
         ..state.clone()
     })
+}
+
+/// Why a goal is budget limited: the session budget's `short` dimension
+/// ran out.
+fn budget_reason(short: Option<BudgetDimension>) -> String {
+    format!(
+        "Budget exhausted ({}): add budget (/budget add), then /goal resume",
+        short.map_or("work", BudgetDimension::label)
+    )
 }
 
 /// The completed goal; `None` when there is no goal.
@@ -134,71 +154,56 @@ pub(crate) fn completed(state: &GoalState) -> Option<GoalState> {
     })
 }
 
-/// The goal failed by a terminal provider error (old
-/// `finish_for_terminal_message` with `StopReason::Error`); `None` when the
-/// goal is not active.
+/// How a run of the goal's conversation ended without a final answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RunEnd {
+    /// A terminal provider failure: the goal fails.
+    Failed(String),
+    /// The session's budget refused the request (its error text): the goal
+    /// is budget limited.
+    Budget(String),
+}
+
+/// How the run that settled `message` ended: `None` unless `message` is a
+/// terminal provider failure ([`terminal_provider_failure`]), which a
+/// budget refusal is too.
 #[must_use]
-pub(crate) fn failed(state: &GoalState, error: Option<&str>) -> Option<GoalState> {
-    if state.status != GoalStatus::Active {
-        return None;
-    }
-    let reason = error
-        .filter(|message| !message.is_empty())
-        .unwrap_or(ASSISTANT_FAILED);
-    Some(GoalState {
-        status: GoalStatus::Error,
-        last_reason: Some(reason.to_owned()),
-        last_error: Some(reason.to_owned()),
-        ..state.clone()
+pub(crate) fn run_end(message: &AssistantMessage) -> Option<RunEnd> {
+    let error = terminal_provider_failure(message)?;
+    Some(if is_budget_refusal(message) {
+        RunEnd::Budget(error)
+    } else {
+        RunEnd::Failed(error)
     })
 }
 
-/// What accounting one settled response did to the goal.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum UsageOutcome {
-    /// The usage was added.
-    Accounted(GoalState),
-    /// The goal hit its token budget and moved to `budget_limited`.
-    BudgetReached(GoalState),
-    /// The goal was not active.
-    Ignored,
-}
-
-/// Account one settled response's usage (old `record_assistant_usage`):
-/// input plus output tokens, as `crate::goals::goal_token_delta_for_usage`.
+/// The goal after its run ended as `end` (old `finish_for_terminal_message`
+/// with `StopReason::Error`): failed, or budget limited by a budget
+/// refusal; `None` when the goal is not active.
 #[must_use]
-pub(crate) fn accounted(state: &GoalState, usage: &Usage) -> UsageOutcome {
+pub(crate) fn ended(state: &GoalState, end: &RunEnd) -> Option<GoalState> {
     if state.status != GoalStatus::Active {
-        return UsageOutcome::Ignored;
+        return None;
     }
-    let next = GoalState {
-        tokens_used: state
-            .tokens_used
-            .saturating_add(usage.input)
-            .saturating_add(usage.output),
-        ..state.clone()
-    };
-    match next.token_budget {
-        Some(budget) if next.tokens_used >= budget => UsageOutcome::BudgetReached(GoalState {
-            status: GoalStatus::BudgetLimited,
-            last_reason: Some(format!("Reached {budget} token goal budget")),
-            last_error: None,
-            ..next
-        }),
-        Some(_) | None => UsageOutcome::Accounted(next),
-    }
-}
-
-/// Whether a settled response spends the goal and autonomous budgets: every
-/// settled response except a failed or aborted one.
-#[must_use]
-pub(crate) fn spends_budget(stop_reason: StopReason) -> bool {
-    match stop_reason {
-        StopReason::Stop | StopReason::Length | StopReason::ToolUse => true,
-        StopReason::Error | StopReason::Aborted | StopReason::Pending | StopReason::Deferred => {
-            false
+    Some(match end {
+        RunEnd::Failed(error) => {
+            let reason = Some(error.as_str())
+                .filter(|message| !message.is_empty())
+                .unwrap_or(ASSISTANT_FAILED);
+            GoalState {
+                status: GoalStatus::Error,
+                last_reason: Some(reason.to_owned()),
+                last_error: Some(reason.to_owned()),
+                ..state.clone()
+            }
         }
-    }
+        RunEnd::Budget(error) => GoalState {
+            status: GoalStatus::BudgetLimited,
+            last_reason: Some(error.clone()),
+            last_error: None,
+            ..state.clone()
+        },
+    })
 }
 
 /// The provider-failure text when `message` settled as a terminal provider

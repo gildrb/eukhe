@@ -14,6 +14,7 @@
 //! original parsed JSON.
 
 pub mod ai;
+pub mod budget;
 pub mod custom_type;
 pub mod cvar;
 pub mod daemon;

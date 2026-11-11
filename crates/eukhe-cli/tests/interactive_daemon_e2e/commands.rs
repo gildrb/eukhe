@@ -27,6 +27,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -199,6 +200,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
     .expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -297,6 +299,7 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
     ] });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -498,6 +501,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
     );
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -655,6 +659,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
     assert_eq!(catalog[0].model.id, "chat-plus");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -745,6 +750,7 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
     let script = serde_json::json!({ "engine": "faux", "responses": [] });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -883,6 +889,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -1180,6 +1187,7 @@ async fn tui_session_tree_navigates_forks_and_clones() {
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),

@@ -14,6 +14,7 @@ use eukhe_types::pi_ai::ModelThinkingLevel;
 use futures::future::BoxFuture;
 use serde_json::Value;
 
+use super::budget::BudgetGate;
 use super::children::RlmSubagentHost;
 use super::settings::EukheSettings;
 use crate::cron::rlm_heartbeat::KernelCronWiring;
@@ -596,6 +597,9 @@ pub struct HostDeps {
     /// The pause of this session's run (a worker tree's `pause_workers` /
     /// `resume_workers` with `ownRun`).
     pub run_pause: Arc<super::children::RunPause>,
+    /// The session's budget: every provider request and tool call of the
+    /// session passes it (a pass-through while the session has no budget).
+    pub budget: Arc<BudgetGate>,
 }
 
 /// A barrier through a commit observer's queue.
@@ -613,6 +617,7 @@ pub(crate) struct ResolvedServices {
     pub python_skills: Vec<KernelPythonSkill>,
     pub semantic_edges: Arc<super::observe::semantic_edges::SemanticEdgeRecorder>,
     pub kernel_unavailable: Option<crate::kernel::KernelUnavailable>,
+    pub budget: Arc<BudgetGate>,
 }
 
 impl HostDeps {
@@ -659,6 +664,7 @@ impl HostDeps {
             tool_surface: super::tool_surface::ToolSurface::default(),
             auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices::default(),
             semantic_edges: services.semantic_edges,
+            budget: services.budget,
         }
     }
 

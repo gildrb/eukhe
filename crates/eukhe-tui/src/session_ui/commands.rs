@@ -1008,6 +1008,12 @@ impl SessionUi {
                 }
                 self.open_heartbeats_view(view);
             }
+            // `/budget [set|add <key=value>.. | audit]`: the session's
+            // budget -- its report line, a new budget, added budget, or
+            // the ledger's audit; the daemon owns the ledger.
+            "budget" => {
+                self.handle_budget_command(&resolved.args, text, view).await;
+            }
             other => {
                 self.note(
                     &format!("/{other} is not available in this client yet"),

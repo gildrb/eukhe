@@ -26,8 +26,8 @@ use super::deps::SessionShape;
 use super::directors::{push_director, DirectorLimits, Layer};
 use super::entries::custom_entry_draft;
 use super::goals::{
-    autonomous_state, clear_goal, goal_state, pause_goal, resume_goal, set_autonomous, start_goal,
-    AutonomousChange,
+    autonomous_state, budget_report, clear_goal, goal_state, pause_goal, resume_goal,
+    set_autonomous, start_goal, AutonomousChange, StartedGoal,
 };
 use super::messages::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
@@ -565,7 +565,8 @@ fn goal_status_text(state: &GoalState) -> String {
 }
 
 /// `/goal`: status, clear, pause, resume, and start (start and resume submit
-/// their continuation context themselves).
+/// their continuation context themselves; a goal's token budget goes on the
+/// session's budget).
 async fn execute_goal(
     session: &EukheSession,
     conversation: &Conversation,
@@ -575,6 +576,7 @@ async fn execute_goal(
 ) -> Result<(), SessionCommandError> {
     let goal = parse_goal_command(&command.args)?;
     let harness = session.harness();
+    let budget = session.budget();
     let id = conversation.id();
     let (state, text) = match goal {
         GoalCommand::Status => {
@@ -600,7 +602,7 @@ async fn execute_goal(
             (state, text)
         }
         GoalCommand::Resume => {
-            let state = resume_goal(harness, id, cx).await?;
+            let state = resume_goal(harness, &budget, id, cx).await?;
             let text = goal_status_text(&state);
             (state, text)
         }
@@ -608,9 +610,15 @@ async fn execute_goal(
             objective,
             token_budget,
         } => {
-            let state = start_goal(harness, id, &objective, token_budget, cx).await?;
-            let text = goal_status_text(&state);
-            (state, text)
+            let StartedGoal { goal, kept_tokens } =
+                start_goal(harness, &budget, id, &objective, token_budget, cx).await?;
+            let mut text = goal_status_text(&goal);
+            if let Some(kept) = kept_tokens {
+                text.push_str("\nThe session's budget already limits tokens to ");
+                text.push_str(&kept.to_string());
+                text.push_str(": it keeps that limit (/budget add raises it).");
+            }
+            (goal, text)
         }
     };
     outcome.goal = Some(state);
@@ -622,8 +630,8 @@ async fn execute_goal(
     .await
 }
 
-/// `/autonomous`: status, on (with budget flags), off; each appends the
-/// `autonomous_status` row.
+/// `/autonomous`: status, on (with limits that go on the session's
+/// budget), off; each appends the `autonomous_status` row.
 async fn execute_autonomous(
     session: &EukheSession,
     conversation: &Conversation,
@@ -633,12 +641,14 @@ async fn execute_autonomous(
 ) -> Result<(), SessionCommandError> {
     let parsed = parse_autonomous_command(&command.args)?;
     let harness = session.harness();
+    let budget = session.budget();
     let id = conversation.id();
     let change = match parsed {
         AutonomousCommand::On { config } => AutonomousChange::On(config),
         AutonomousCommand::Off => AutonomousChange::Off,
         AutonomousCommand::Status => {
-            let status = autonomous_state(harness, id, cx).await?.status();
+            let report = budget_report(&budget).await?;
+            let status = autonomous_state(harness, id, cx).await?.status(report);
             let details = serde_json::to_value(&status)?;
             let row = Row {
                 custom_type: AUTONOMOUS_STATUS_CUSTOM_TYPE,
@@ -650,7 +660,7 @@ async fn execute_autonomous(
             return append_rows(conversation, vec![row], cx).await;
         }
     };
-    let status = set_autonomous(harness, id, change, cx).await?;
+    let status = set_autonomous(harness, &budget, id, change, cx).await?;
     outcome.autonomous = Some(status);
     Ok(())
 }

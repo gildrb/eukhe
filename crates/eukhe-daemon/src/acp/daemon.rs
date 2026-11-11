@@ -1323,6 +1323,21 @@ async fn prompt_turn(
                     .expect("serializes"),
             );
         }
+        // A turn the session's budget stopped (its request did not fit)
+        // ended at that limit: its stop reason (the budget short in tokens:
+        // `max_tokens`; else `max_turn_requests`).
+        let budget_stop =
+            fetch_autonomous_status(link, &hosted_daemon_session_id, CompletionWait::Run)
+                .await
+                .ok()
+                .and_then(|status| meta::budget_stop_reason(status.budget.as_ref()));
+        if let Some(stop_reason) = budget_stop {
+            return jsonrpc::response(
+                &id,
+                &serde_json::to_value(types::AcpStopReasonResponse { stop_reason })
+                    .expect("serializes"),
+            );
+        }
         return super::internal_error(&id, &format!("eukhe turn failed: {failure}"));
     }
     // The autonomous accounting for the completion envelope: the daemon's

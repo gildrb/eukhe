@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::{MemoryUpdate, SessionActionSnapshot};
 use crate::ai::{ServiceTier, UserContentBlock};
+use crate::budget::BudgetReport;
 use crate::goal::GoalState;
 use crate::output::OmittedOutput;
 use crate::pi_ai::PromptProgress;
@@ -144,6 +145,12 @@ pub enum SessionEvent {
     GoalUpdate {
         goal: GoalState,
     },
+    /// The session's budget changed: set, added to, a reservation made or
+    /// settled, an allotment lent to or returned by a child. `None`: the
+    /// session has no budget.
+    BudgetUpdate {
+        budget: Option<BudgetReport>,
+    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -212,6 +219,7 @@ impl SessionEvent {
             | Self::ServiceTierChanged { .. }
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
+            | Self::BudgetUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }
             | Self::BashOutput { .. }

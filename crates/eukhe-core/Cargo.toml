@@ -31,6 +31,9 @@ eukhe-tokens.workspace = true
 eukhe-docs = { path = "../eukhe-docs" }
 # The `bash` tool's in-process interpreter and approval gate.
 eukhe-shell.workspace = true
+# The ledger of a session's budget: every provider request and tool call
+# reserves there before it runs and settles after (`durable::budget`).
+eukhe-budget.workspace = true
 # S9 local tiny models: the role resolution, the worker client, the
 # title/judge/translate prompts (`tiny` module).
 eukhe-tiny = { path = "../eukhe-tiny" }

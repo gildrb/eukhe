@@ -44,6 +44,7 @@ pub mod bash_bang;
 pub mod bash_card;
 pub mod bash_view;
 pub(crate) mod branch;
+pub mod budget_text;
 pub mod chat;
 pub mod chat_slash;
 mod chat_view_block;

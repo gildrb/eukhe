@@ -55,6 +55,9 @@ pub struct Reconstructed {
     /// feeds the first frame's tray row without a stats round-trip.
     /// `None` clears the tray display.
     pub context_usage: Option<crate::chrome::ContextUsage>,
+    /// The session's budget (`state.budget`), when it has one: the
+    /// status line's budget segment from the first frame.
+    pub budget: Option<eukhe_types::budget::BudgetReport>,
     /// Session display name.
     pub session_name: Option<String>,
     /// Session id of the persisted session file.
@@ -526,6 +529,11 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         .and_then(|state| state.get("serviceTier"))
         .and_then(Value::as_str)
         .map(str::to_string);
+    // No budget is `null` or absent; the report is whole in every
+    // `budget_update` after it.
+    let budget = state
+        .and_then(|state| state.get("budget"))
+        .and_then(|budget| eukhe_types::budget::BudgetReport::deserialize(budget).ok());
     let last_user_prompt_ms = snapshot
         .messages
         .iter()
@@ -545,6 +553,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         model_provider,
         thinking_suffix,
         context_usage,
+        budget,
         session_name,
         session_id,
         event_generation,

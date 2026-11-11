@@ -288,6 +288,7 @@ async fn each_restore_notice_shows_once_across_reconnects() {
         height: 30,
     };
     let options = InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.clone(),
         cwd: dir.path().to_path_buf(),

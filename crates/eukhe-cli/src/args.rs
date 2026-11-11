@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use eukhe_core::resources::SystemPromptInput;
 use eukhe_types::ai::ModelThinkingLevel;
+use eukhe_types::budget::{BudgetDimension, BudgetLimits};
 
 /// Supported reasoning-effort levels (`THINKING_LEVELS` in the TS product).
 pub const THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -190,6 +191,11 @@ pub struct Args {
     pub wait_limit_ms: Option<u64>,
     pub goal: Option<String>,
     pub goal_token_budget: Option<u32>,
+    /// `--budget-cost`, `--budget-tokens`, `--budget-time` (a wall-clock
+    /// duration from when the budget is set: its deadline),
+    /// `--budget-tool-calls` and `--budget-requests`: the limits of the
+    /// session's budget (a dimension without its flag has no limit).
+    pub budget: BudgetLimits,
     /// The `--list-models` flag's tri-state (None = absent,
     /// Some(None) = the bare flag, Some(Some(x)) = with a value).
     #[allow(clippy::option_option)] // the CLI flag's tri-state is genuinely a double Option
@@ -240,6 +246,23 @@ fn parse_positive_u64(value: &str, flag: &str, diagnostics: &mut Vec<Diagnostic>
     }
 }
 
+/// One `--budget-*` flag: the limit of `dimension` in its stored unit, or
+/// the diagnostic that names the flag and the value.
+fn parse_budget_limit(
+    value: &str,
+    flag: &str,
+    dimension: BudgetDimension,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<u64> {
+    match eukhe_tui::budget_text::parse_amount(dimension, flag, value) {
+        Ok(limit) => Some(limit),
+        Err(error) => {
+            diagnostics.push(Diagnostic::error(error.to_string()));
+            None
+        }
+    }
+}
+
 /// The known long options, for the close-match suggestion an unknown
 /// option names (the parser rejects any option not handled above).
 const KNOWN_LONG_OPTIONS: &[&str] = &[
@@ -281,6 +304,11 @@ const KNOWN_LONG_OPTIONS: &[&str] = &[
     "autonomous-timeout-ms",
     "goal",
     "goal-token-budget",
+    "budget-cost",
+    "budget-tokens",
+    "budget-time",
+    "budget-tool-calls",
+    "budget-requests",
     "list-models",
     "verbose",
     "offline",
@@ -544,6 +572,43 @@ pub fn parse_args(args: &[String]) -> Args {
                 let value = require_value!(arg);
                 result.goal_token_budget = parse_positive_u32(&value, arg, &mut result.diagnostics);
             }
+            "--budget-cost" => {
+                let value = require_value!(arg);
+                result.budget.cost_micros =
+                    parse_budget_limit(&value, arg, BudgetDimension::Cost, &mut result.diagnostics);
+            }
+            "--budget-tokens" => {
+                let value = require_value!(arg);
+                result.budget.tokens = parse_budget_limit(
+                    &value,
+                    arg,
+                    BudgetDimension::Tokens,
+                    &mut result.diagnostics,
+                );
+            }
+            "--budget-time" => {
+                let value = require_value!(arg);
+                result.budget.time_ms =
+                    parse_budget_limit(&value, arg, BudgetDimension::Time, &mut result.diagnostics);
+            }
+            "--budget-tool-calls" => {
+                let value = require_value!(arg);
+                result.budget.tool_calls = parse_budget_limit(
+                    &value,
+                    arg,
+                    BudgetDimension::ToolCalls,
+                    &mut result.diagnostics,
+                );
+            }
+            "--budget-requests" => {
+                let value = require_value!(arg);
+                result.budget.requests = parse_budget_limit(
+                    &value,
+                    arg,
+                    BudgetDimension::Requests,
+                    &mut result.diagnostics,
+                );
+            }
             "--list-models" => {
                 let has_search = args
                     .get(i + 1)
@@ -786,5 +851,105 @@ mod tests {
         // The u64 flags accept the same value.
         let parsed = parse(&["--autonomous-timeout-ms", "4294967296"]);
         assert_eq!(parsed.autonomous_timeout_ms, Some(4_294_967_296));
+    }
+
+    /// The five `--budget-*` flags are the limits of the session's budget,
+    /// each in its stored unit; a dimension without its flag has no limit.
+    #[test]
+    fn budget_flags_are_the_limits_of_the_budget() {
+        let all = parse(&[
+            "--budget-cost",
+            "$1.50",
+            "--budget-tokens",
+            "200k",
+            "--budget-time",
+            "10m",
+            "--budget-tool-calls",
+            "50",
+            "--budget-requests",
+            "30",
+        ]);
+        let one = parse(&["--budget-cost", "2", "-p", "hello"]);
+        assert_eq!(
+            (
+                all.budget,
+                all.diagnostics,
+                one.budget,
+                one.messages,
+                parse(&["-p", "hello"]).budget,
+            ),
+            (
+                BudgetLimits {
+                    cost_micros: Some(1_500_000),
+                    tokens: Some(200_000),
+                    time_ms: Some(600_000),
+                    tool_calls: Some(50),
+                    requests: Some(30),
+                },
+                Vec::new(),
+                BudgetLimits {
+                    cost_micros: Some(2_000_000),
+                    ..BudgetLimits::default()
+                },
+                vec!["hello".to_string()],
+                BudgetLimits::default(),
+            )
+        );
+    }
+
+    /// A value that is not an amount of its dimension is an error naming
+    /// the flag and the value, and sets no limit.
+    #[test]
+    fn a_bad_budget_value_names_the_flag_and_the_value() {
+        let refused: Vec<(BudgetLimits, String)> = [
+            ["--budget-cost", "abc"],
+            ["--budget-cost", ".50"],
+            ["--budget-tokens", "0"],
+            ["--budget-time", "90"],
+            ["--budget-tool-calls", "10000000000000"],
+            ["--budget-requests", "1.5"],
+        ]
+        .iter()
+        .map(|args| {
+            let parsed = parse(args);
+            (parsed.budget, last_error(&parsed).to_string())
+        })
+        .collect();
+        let no_limit = BudgetLimits::default();
+        assert_eq!(
+            refused,
+            [
+                (
+                    no_limit,
+                    "--budget-cost \"abc\": expected dollars, like 1.50 or $1.50".to_string()
+                ),
+                (
+                    no_limit,
+                    "--budget-cost \".50\": expected dollars, like 1.50 or $1.50".to_string()
+                ),
+                (
+                    no_limit,
+                    "--budget-tokens \"0\": a budget amount is more than zero".to_string()
+                ),
+                (
+                    no_limit,
+                    "--budget-time \"90\": expected a duration, like 90s, 10m or 2h".to_string()
+                ),
+                (
+                    no_limit,
+                    "--budget-tool-calls \"10000000000000\": a budget holds at most 9999999999999 tool calls"
+                        .to_string()
+                ),
+                (
+                    no_limit,
+                    "--budget-requests \"1.5\": expected a whole number of model requests, like 30"
+                        .to_string()
+                ),
+            ]
+        );
+        assert_eq!(
+            last_error(&parse(&["--budget-cost"])),
+            "--budget-cost requires a value"
+        );
     }
 }

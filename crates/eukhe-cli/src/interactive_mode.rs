@@ -85,6 +85,13 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             let (anchor, notice) = continue_view.map_or((None, daemon_notice), |view| {
                 (Some(view.session_id), Some(view.notice))
             });
+            // The launch opens the view, not a session: the budget flags
+            // are for the sessions created from it, and the view says so.
+            let notice = match (notice, tui_options.budget) {
+                (notice, None) => notice,
+                (Some(notice), Some(_)) => Some(format!("{notice} -- {BUDGET_VIEW_NOTICE}")),
+                (None, Some(_)) => Some(BUDGET_VIEW_NOTICE.to_string()),
+            };
             run_agents_view_flow(tui_options, anchor, None, notice).await
         } else {
             let mut outcome =
@@ -272,11 +279,9 @@ async fn run_agents_view_flow(
         // The opened row's depth metadata rides the session run (TS
         // `sessionDepth`/`sessionHasChildren`): a drilled-in child renders
         // its `depth N` tray label.
-        let mut session_options = base.clone();
-        session_options.session = selection;
+        let mut session_options = later_session_options(&base, selection);
         session_options.session_rlm_depth = view.opened_rlm_depth;
         session_options.session_has_children = view.opened_has_children;
-        session_options.screen_mode = current_screen_mode(&base);
         // The scoped panel's own exit (the parent key or escape) reopened
         // the scope root's chat: it starts with the dock focused on the
         // panel's own group (the Subagents item), not the prompt bar --
@@ -360,10 +365,34 @@ async fn run_selected_session(
     base: &InteractiveOptions,
     selection: SessionSelection,
 ) -> Result<eukhe_tui::interactive::InteractiveOutcome> {
-    let mut next = base.clone();
-    next.session = selection;
-    next.screen_mode = current_screen_mode(base);
-    eukhe_tui::interactive::run_interactive(next, UiMode::Terminal).await
+    eukhe_tui::interactive::run_interactive(
+        later_session_options(base, selection),
+        UiMode::Terminal,
+    )
+    .await
+}
+
+/// What the agents view says when the launch named a budget.
+const BUDGET_VIEW_NOTICE: &str =
+    "the --budget flags apply to the sessions created here; in an open session use /budget set";
+
+/// The options of a session opened after the launch (from the agents
+/// view, or by `/resume <selector>`): the base options on `selection`, at
+/// the current screen mode. The launch budget is for the session the
+/// command line names and for the sessions this run creates: a session
+/// that exists keeps its own.
+fn later_session_options(
+    base: &InteractiveOptions,
+    selection: SessionSelection,
+) -> InteractiveOptions {
+    let mut options = base.clone();
+    match &selection {
+        SessionSelection::Resume(_) | SessionSelection::Attach(_) => options.budget = None,
+        SessionSelection::New | SessionSelection::NewChild { .. } => {}
+    }
+    options.session = selection;
+    options.screen_mode = current_screen_mode(base);
+    options
 }
 
 /// The live session a chat run left through agents-back or `/resume`: the
@@ -466,6 +495,9 @@ fn build_tui_options(
     // daemon when none listens and never replaces one.
     let daemon_launcher = own_launcher(&socket_path, &config.cwd)?;
     let tui_options_value = InteractiveOptions {
+        // The `--budget-*` limits ride the create of the session this
+        // launch names and of every session the run creates.
+        budget: config.budget,
         code_block_indent,
         tree_filter_mode,
         branch_summary_skip_prompt,

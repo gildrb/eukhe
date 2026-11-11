@@ -116,6 +116,10 @@ pub enum TurnUpdate {
     /// `goal_update`: the session goal state changed (the session view
     /// owns announcement and tray rendering).
     GoalUpdate(GoalState),
+    /// `budget_update`: the session's budget changed (a reservation, a
+    /// settlement, added budget, a phase change); `None` is no budget.
+    /// Moves the status line's budget segment only.
+    BudgetUpdate(Option<Box<eukhe_types::budget::BudgetReport>>),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -350,6 +354,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             TurnUpdate::QueueUpdated(queued_messages(actions))
         }
         SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
+        SessionEvent::BudgetUpdate { budget } => {
+            TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
+        }
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,

@@ -8,6 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use eukhe_core::durable::budget::BudgetError;
 use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
 use eukhe_durable::entries::USER_ENTRY;
 use eukhe_durable::harness::types::ContextOptions;
@@ -188,7 +189,8 @@ async fn clone(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
 /// The shared fork tail (the caller holds the replacement lease): settle
 /// the running turn, then a persisted session forks into a new storage
 /// directory the connection switches onto (TS forks into a new session
-/// file); an in-memory session forks its main conversation in place and
+/// file), which draws from the forked session's budget; an in-memory
+/// session forks its main conversation in place (its budget stays) and
 /// the pump follows the new main.
 async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), RpcCommandError> {
     let cx = rpc_context();
@@ -216,14 +218,27 @@ async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), RpcComma
         &cx,
     )
     .await?;
+    let source = session.budget().agent().to_owned();
     drop(session);
-    Ok(state
+    state
         .session
         .replace_locked(RpcEngineRequest::Open {
             session_path: forked_dir,
             reuse_lease: false,
         })
-        .await?)
+        .await?;
+    // The fork is a shared member of the source's account, below it; the
+    // read after the join publishes its budget (`budget_update`).
+    let fork = state.session.session().await.budget();
+    tokio::task::spawn_blocking(move || match fork.ledger().join(&source) {
+        Ok(_) | Err(BudgetError::NoBudget(_) | BudgetError::AlreadyOpen(_)) => {
+            drop(fork.report());
+            Ok(())
+        }
+        Err(error) => Err(error),
+    })
+    .await??;
+    Ok(())
 }
 
 /// `get_fork_messages` (TS `getUserMessagesForForking`): the user

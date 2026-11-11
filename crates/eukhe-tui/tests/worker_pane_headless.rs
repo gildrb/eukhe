@@ -242,6 +242,7 @@ fn serve(listener: &UnixListener) -> Vec<String> {
 
 fn options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

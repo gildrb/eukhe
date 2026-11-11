@@ -434,6 +434,7 @@ fn options(
     auth: Option<eukhe_tui::provider_auth::ProviderAuthCommandsHandle>,
 ) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),
         session_dir: None,

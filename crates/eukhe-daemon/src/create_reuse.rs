@@ -241,9 +241,17 @@ impl Supervisor {
         command: &DaemonCommand,
         client_id: &str,
     ) -> Result<Option<Value>> {
-        let DaemonCommand::Create { lifecycle, .. } = command else {
+        let DaemonCommand::Create {
+            lifecycle, config, ..
+        } = command
+        else {
             return Ok(None);
         };
+        // The budget the create names (its config's `budget`).
+        let budget = config
+            .as_ref()
+            .and_then(|config| config.get("budget"))
+            .filter(|limits| !limits.is_null());
         let Some(path) = create_target_file(command)? else {
             return Ok(None);
         };
@@ -290,7 +298,42 @@ impl Supervisor {
                     return Err(anyhow!(rejection));
                 }
                 match self.reuse_summary_or_holder(resident, &path_text).await? {
-                    ReuseAnswer::Summary(summary) => return Ok(Some(summary)),
+                    ReuseAnswer::Summary(summary) => {
+                        // The create's budget is for a session that has
+                        // none: the live session takes it now, and one
+                        // that has a budget refuses the set and keeps its
+                        // own. Only a session left without the budget
+                        // its opener named fails the open.
+                        if let Some(limits) = budget {
+                            let set = self
+                                .route_command_ready_typed(
+                                    resident,
+                                    "set_budget",
+                                    json!({ "limits": limits }),
+                                    ROUTE_TIMEOUT_MS,
+                                    RouteAdmission::Control,
+                                )
+                                .await?;
+                            if !set.success {
+                                let kept = self
+                                    .route_command_ready_typed(
+                                        resident,
+                                        "get_budget",
+                                        json!({}),
+                                        ROUTE_TIMEOUT_MS,
+                                        RouteAdmission::Control,
+                                    )
+                                    .await?;
+                                if kept.data.is_none_or(|data| data["budget"].is_null()) {
+                                    bail!(
+                                        "Session \"{path_text}\" budget was not set: {}",
+                                        set.error.unwrap_or_default()
+                                    );
+                                }
+                            }
+                        }
+                        return Ok(Some(summary));
+                    }
                     // The routed resident went away with no successor:
                     // its own teardown must settle (the registry row can
                     // leave while its process still holds the lease),

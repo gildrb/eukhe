@@ -165,6 +165,7 @@ fn session_options(
     has_children: bool,
 ) -> eukhe_tui::interactive::InteractiveOptions {
     eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.to_path_buf(),
         cwd: PathBuf::from("/tmp"),

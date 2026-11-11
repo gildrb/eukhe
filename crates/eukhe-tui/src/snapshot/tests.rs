@@ -1692,6 +1692,81 @@ fn attach_snapshot_carries_the_goal_state() {
     assert_eq!(goal.objective.as_deref(), Some("keep shipping"));
 }
 
+/// A `budget_update` decodes to its report, a null one to no budget; the
+/// attach snapshot's `state.budget` reconstructs the same report, and a
+/// state without one reconstructs none.
+#[test]
+fn the_budget_rides_its_update_and_the_attach_snapshot() {
+    let wire_report = json!({
+        "sessionId": "0199-sess",
+        "limits": { "costMicros": 2_000_000 },
+        "free": { "costMicros": 1_580_000, "tokens": 0, "timeMs": 0, "toolCalls": 0 },
+        "spent": { "costMicros": 420_000, "tokens": 0, "timeMs": 0, "toolCalls": 0 },
+        "phase": "wrap_up",
+        "short": "cost",
+    });
+    let report = eukhe_types::budget::BudgetReport {
+        session_id: "0199-sess".to_string(),
+        limits: eukhe_types::budget::BudgetLimits {
+            cost_micros: Some(2_000_000),
+            ..Default::default()
+        },
+        free: eukhe_types::budget::BudgetAmounts {
+            cost_micros: 1_580_000,
+            ..Default::default()
+        },
+        spent: eukhe_types::budget::BudgetAmounts {
+            cost_micros: 420_000,
+            ..Default::default()
+        },
+        phase: eukhe_types::budget::BudgetPhase::WrapUp,
+        short: Some(eukhe_types::budget::BudgetDimension::Cost),
+        ..Default::default()
+    };
+    let attached = |budget: &Value| {
+        let attach = json!({
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+            "activeSessionId": "abc123def456",
+            "snapshot": {
+                "activeSessionId": "abc123def456",
+                "summary": { "id": "abc123def456", "cwd": "/tmp" },
+                "state": {
+                    "activeSessionId": "abc123def456",
+                    "cwd": "/tmp",
+                    "sessionId": "0199-sess",
+                    "isStreaming": false,
+                    "isCompacting": false,
+                    "budget": budget,
+                    "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
+                },
+                "messages": [],
+                "lastEventSequence": 3,
+                "lastEventCursor": { "generation": "g-1", "sequence": 3 }
+            },
+            "lastEventSequence": 3
+        });
+        reconstruct(&attach_data_from_response(attach).unwrap())
+            .expect("reconstructs")
+            .budget
+    };
+    assert_eq!(
+        (
+            event_to_update(&event(
+                json!({ "type": "budget_update", "budget": wire_report })
+            )),
+            event_to_update(&event(json!({ "type": "budget_update", "budget": null }))),
+            attached(&wire_report),
+            attached(&Value::Null),
+        ),
+        (
+            TurnUpdate::BudgetUpdate(Some(Box::new(report.clone()))),
+            TurnUpdate::BudgetUpdate(None),
+            Some(report),
+            None,
+        )
+    );
+}
+
 /// The tray's context usage rides the attach snapshot's state: the
 /// reconstruct hands it to the rebuild that follows every attach.
 #[test]

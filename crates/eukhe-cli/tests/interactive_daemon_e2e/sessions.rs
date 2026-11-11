@@ -589,6 +589,7 @@ async fn tui_two_back_to_back_submits_reach_the_daemon_in_order() {
     std::fs::write(&script_path, script.to_string()).expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -708,6 +709,7 @@ async fn tui_submit_outlived_by_switch_stays_silent_on_the_new_session() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -825,6 +827,7 @@ async fn tui_headless_done_with_a_turn_settling_parks_the_closed_input_channel()
     std::fs::write(&script_path, script.to_string()).expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -976,6 +979,7 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
     });
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),

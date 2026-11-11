@@ -5,8 +5,11 @@
 //!
 //! Events with no ACP counterpart (`turn_end`, `auto_retry_*`,
 //! `agent_begin/end`, `session_action_update`) map to nothing, exactly like
-//! the TS switch's default arm.
+//! the TS switch's default arm. The goal meta of a `goal_update` shows the
+//! tokens of the last `budget_update`.
 
+use eukhe_types::budget::BudgetReport;
+use eukhe_types::goal::GoalTokens;
 use serde::Deserialize as _;
 use serde_json::{json, Value};
 
@@ -27,6 +30,9 @@ pub struct WireMappingState {
     /// as chunks, each concatenated across its blocks.
     published: PublishedChunks,
     active_bash_run_id: Option<String>,
+    /// The tokens of the session's budget, as its last `budget_update`
+    /// carried them: the goal's tokens.
+    goal_tokens: GoalTokens,
 }
 
 /// What one assistant message has published so far.
@@ -330,6 +336,25 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 meta: None,
             }]
         }
+        // The session's budget rides the namespaced meta like the goal (and
+        // its tokens are the goal meta's from now on); a session without a
+        // budget (`budget: null`) has nothing to show.
+        "budget_update" => {
+            let report = event
+                .get("budget")
+                .filter(|budget| !budget.is_null())
+                .and_then(|budget| BudgetReport::deserialize(budget).ok());
+            state.goal_tokens = GoalTokens::of(report.as_ref());
+            report
+                .map(|budget| AcpSessionUpdate::SessionInfoUpdate {
+                    meta: eukhe_meta(&EukheSessionMeta {
+                        budget: Some(budget),
+                        ..Default::default()
+                    }),
+                })
+                .into_iter()
+                .collect()
+        }
         "goal_update" => {
             let goal = event.get("goal");
             vec![AcpSessionUpdate::SessionInfoUpdate {
@@ -344,12 +369,8 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                             .and_then(|goal| goal.get("objective"))
                             .and_then(Value::as_str)
                             .map(str::to_string),
-                        token_budget: goal
-                            .and_then(|goal| goal.get("tokenBudget"))
-                            .and_then(Value::as_u64),
-                        tokens_used: goal
-                            .and_then(|goal| goal.get("tokensUsed"))
-                            .and_then(Value::as_u64),
+                        token_budget: state.goal_tokens.budget,
+                        tokens_used: Some(state.goal_tokens.used),
                     }),
                     ..Default::default()
                 }),
@@ -676,35 +697,90 @@ mod tests {
     #[test]
     fn goal_update_maps_to_the_namespaced_goal_meta() {
         // TS acp-events.ts `case "goal_update"`: the GoalState fields the
-        // meta carries, nothing else.
+        // meta carries, nothing else; its tokens are the session budget's,
+        // from the last `budget_update` (which publishes its own meta).
         let mut state = WireMappingState::default();
-        let updates = wire_updates(
+        let goal = json!({
+            "type": "goal_update",
+            "goal": {
+                "status": "active",
+                "goalId": "g1",
+                "objective": "Name a river",
+                "timeUsedSeconds": 0,
+                "continuationsUsed": 0,
+            },
+        });
+        let meta = |updates: Vec<AcpSessionUpdate>| {
+            assert_eq!(updates.len(), 1);
+            let value = serde_json::to_value(&updates[0]).unwrap();
+            assert_eq!(value["sessionUpdate"], "session_info_update");
+            value["_meta"]["com.eukhe"]["goal"].clone()
+        };
+        let before = meta(wire_updates(&goal, &mut state));
+        let budget = wire_updates(
             &json!({
-                "type": "goal_update",
-                "goal": {
-                    "active": true,
-                    "status": "active",
-                    "goalId": "g1",
-                    "objective": "Name a river",
-                    "tokenBudget": 500,
-                    "tokensUsed": 0,
-                    "timeUsedSeconds": 0,
-                    "continuationsUsed": 0,
+                "type": "budget_update",
+                "budget": {
+                    "sessionId": "s1",
+                    "agentSessionId": "s1",
+                    "limits": { "tokens": 500 },
+                    "free": { "tokens": 380 },
+                    "spent": { "tokens": 120 },
+                    "phase": "working",
                 },
             }),
             &mut state,
         );
-        assert_eq!(updates.len(), 1);
-        let value = serde_json::to_value(&updates[0]).unwrap();
-        assert_eq!(value["sessionUpdate"], "session_info_update");
+        let after = meta(wire_updates(&goal, &mut state));
         assert_eq!(
-            value["_meta"]["com.eukhe"]["goal"],
-            json!({
-                "status": "active",
-                "objective": "Name a river",
-                "tokenBudget": 500,
-                "tokensUsed": 0,
+            (before, budget.len(), after),
+            (
+                json!({ "status": "active", "objective": "Name a river", "tokensUsed": 0 }),
+                1,
+                json!({
+                    "status": "active",
+                    "objective": "Name a river",
+                    "tokenBudget": 500,
+                    "tokensUsed": 120,
+                }),
+            )
+        );
+    }
+
+    #[test]
+    fn budget_update_maps_to_the_namespaced_budget_meta() {
+        // The whole report rides `_meta.com.eukhe.budget`; a session
+        // without a budget maps to nothing.
+        let report = json!({
+            "sessionId": "s1",
+            "agentSessionId": "s1",
+            "limits": { "tokens": 200_000, "timeMs": 600_000 },
+            "free": { "costMicros": 0, "tokens": 198_500, "timeMs": 240_000, "toolCalls": 0, "requests": 0 },
+            "held": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "spent": { "costMicros": 0, "tokens": 1_500, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "lent": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "over": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "phase": "wrap_up",
+            "short": "time",
+            "deadlineMs": 1_800_000_000_000_u64,
+        });
+        let mut state = WireMappingState::default();
+        let updates: Vec<Value> = [report.clone(), Value::Null]
+            .into_iter()
+            .flat_map(|budget| {
+                wire_updates(
+                    &json!({ "type": "budget_update", "budget": budget }),
+                    &mut state,
+                )
             })
+            .map(|update| serde_json::to_value(&update).unwrap())
+            .collect();
+        assert_eq!(
+            updates,
+            [json!({
+                "sessionUpdate": "session_info_update",
+                "_meta": { "com.eukhe": { "budget": report } },
+            })]
         );
     }
 

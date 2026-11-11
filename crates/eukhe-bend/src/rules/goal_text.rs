@@ -1,12 +1,13 @@
 //! The texts of a thread goal (`bend/goal_text.bend`, entry
-//! `bend/ffi_goal_text.bend`; `laws/goal_text.bend`): the continuation,
-//! budget-limit and objective-updated prompts, the usage line of a status
+//! `bend/ffi_goal_text.bend`; `laws/goal_text.bend`): the continuation and
+//! objective-updated prompts, the usage line of a status
 //! display, and what a goal tool call answers (the tokens left and the
 //! completion budget report). Rust sends the goal with its numbers as
 //! decimal digits and reads the texts; the tokens left come back as digits
-//! no larger than the budget.
+//! no larger than the budget. The goal's tokens are its session budget's
+//! ([`GoalTokens`]): the goal counts none itself.
 
-use eukhe_types::goal::{GoalContextKind, GoalState, GoalStatus};
+use eukhe_types::goal::{GoalState, GoalStatus, GoalTokens};
 
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, expect_core, Entry, Error};
@@ -28,40 +29,47 @@ pub enum Report {
     NotAsked,
 }
 
+/// Which prompt [`prompt`] writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prompt {
+    Continuation,
+    ObjectiveUpdated,
+}
+
 /// The question tags of the entry.
 const PROMPT: u32 = 0;
 const USAGE: u32 = 1;
 const HOST: u32 = 2;
 
-/// The prompt of `kind` for the goal (its objective escaped as XML text).
+/// The prompt of `kind` for the goal (its objective escaped as XML text)
+/// with the session budget's `tokens`.
 #[must_use]
-pub fn prompt(goal: &GoalState, kind: GoalContextKind) -> String {
-    expect_core(Entry::GoalText, prompt_call(goal, kind))
+pub fn prompt(goal: &GoalState, tokens: GoalTokens, kind: Prompt) -> String {
+    expect_core(Entry::GoalText, prompt_call(goal, tokens, kind))
 }
 
 /// The usage line of a status display: `<used> / <budget> tokens` with a
-/// budget, else `<seconds>s`, none for 0 seconds.
+/// token budget, else `<seconds>s`, none for 0 seconds.
 #[must_use]
-pub fn usage(goal: &GoalState) -> Option<String> {
-    expect_core(Entry::GoalText, usage_call(goal))
+pub fn usage(goal: &GoalState, tokens: GoalTokens) -> Option<String> {
+    expect_core(Entry::GoalText, usage_call(goal, tokens))
 }
 
 /// What a goal tool call answers: none for an idle goal or one without an
 /// objective.
 #[must_use]
-pub fn host(goal: &GoalState, report: Report) -> Option<HostAnswer> {
-    expect_core(Entry::GoalText, host_call(goal, report))
+pub fn host(goal: &GoalState, tokens: GoalTokens, report: Report) -> Option<HostAnswer> {
+    expect_core(Entry::GoalText, host_call(goal, tokens, report))
 }
 
-fn prompt_call(goal: &GoalState, kind: GoalContextKind) -> Result<String, Error> {
+fn prompt_call(goal: &GoalState, tokens: GoalTokens, kind: Prompt) -> Result<String, Error> {
     let kind = match kind {
-        GoalContextKind::Continuation => 0,
-        GoalContextKind::BudgetLimit => 1,
-        GoalContextKind::ObjectiveUpdated => 2,
+        Prompt::Continuation => 0,
+        Prompt::ObjectiveUpdated => 1,
     };
     let mut writer = Writer::new();
     writer.tag(PROMPT).tag(kind);
-    put_goal(&mut writer, goal);
+    put_goal(&mut writer, goal, tokens);
     let reply = call(Entry::GoalText, &writer.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let text = reader.str()?.to_string();
@@ -69,10 +77,10 @@ fn prompt_call(goal: &GoalState, kind: GoalContextKind) -> Result<String, Error>
     Ok(text)
 }
 
-fn usage_call(goal: &GoalState) -> Result<Option<String>, Error> {
+fn usage_call(goal: &GoalState, tokens: GoalTokens) -> Result<Option<String>, Error> {
     let mut writer = Writer::new();
     writer.tag(USAGE);
-    put_goal(&mut writer, goal);
+    put_goal(&mut writer, goal, tokens);
     let reply = call(Entry::GoalText, &writer.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let line = maybe_str(&mut reader)?;
@@ -80,10 +88,14 @@ fn usage_call(goal: &GoalState) -> Result<Option<String>, Error> {
     Ok(line)
 }
 
-fn host_call(goal: &GoalState, report: Report) -> Result<Option<HostAnswer>, Error> {
+fn host_call(
+    goal: &GoalState,
+    tokens: GoalTokens,
+    report: Report,
+) -> Result<Option<HostAnswer>, Error> {
     let mut writer = Writer::new();
     writer.tag(HOST);
-    put_goal(&mut writer, goal);
+    put_goal(&mut writer, goal, tokens);
     writer.bool(match report {
         Report::Asked => true,
         Report::NotAsked => false,
@@ -111,7 +123,7 @@ fn host_call(goal: &GoalState, report: Report) -> Result<Option<HostAnswer>, Err
 
 /// The goal as the entry reads it: status tag, objective, budget digits,
 /// tokens used and seconds used.
-fn put_goal(writer: &mut Writer, goal: &GoalState) {
+fn put_goal(writer: &mut Writer, goal: &GoalState, tokens: GoalTokens) {
     writer.tag(match goal.status {
         GoalStatus::Idle => 0,
         GoalStatus::Active => 1,
@@ -124,12 +136,12 @@ fn put_goal(writer: &mut Writer, goal: &GoalState) {
         Some(objective) => writer.some().str(objective),
         None => writer.none(),
     };
-    match goal.token_budget {
+    match tokens.budget {
         Some(budget) => writer.some().str(&budget.to_string()),
         None => writer.none(),
     };
     writer
-        .str(&goal.tokens_used.to_string())
+        .str(&tokens.used.to_string())
         .str(&goal.time_used_seconds.to_string());
 }
 
@@ -154,13 +166,15 @@ mod tests {
         let goal = GoalState {
             status: GoalStatus::Complete,
             objective: Some("ship <it>".to_string()),
-            token_budget: Some(100),
-            tokens_used: 250,
             time_used_seconds: 7,
             ..empty_goal_state()
         };
+        let tokens = GoalTokens {
+            used: 250,
+            budget: Some(100),
+        };
         assert_eq!(
-            host(&goal, Report::Asked),
+            host(&goal, tokens, Report::Asked),
             Some(HostAnswer {
                 remaining_tokens: Some(0),
                 completion_budget_report: Some(
@@ -169,7 +183,7 @@ mod tests {
                 ),
             })
         );
-        assert_eq!(usage(&goal).as_deref(), Some("250 / 100 tokens"));
-        assert!(prompt(&goal, GoalContextKind::Continuation).contains("ship &lt;it&gt;"));
+        assert_eq!(usage(&goal, tokens).as_deref(), Some("250 / 100 tokens"));
+        assert!(prompt(&goal, tokens, Prompt::Continuation).contains("ship &lt;it&gt;"));
     }
 }

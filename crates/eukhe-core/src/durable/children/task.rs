@@ -16,6 +16,12 @@
 //! delete owes. `bend/child.bend` models the phases (LAWS.bend H5); their
 //! decisions ([`watched_next`], [`report_step`], [`owed_on_abort`]) are
 //! the compiled core's (entry `child`).
+//!
+//! A session with a budget shares it with each child ([`super::budget`],
+//! spec B4): a child draws from its parent's account, or holds the
+//! allotment its spawn named; the prompt phase makes sure the child is in
+//! the account, and the end of the child's run (a failed spawn or prompt,
+//! the watch's last poll, an abort) gives its budget back.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -51,6 +57,7 @@ use super::registry::{
 };
 use super::watch::{get_report, verdict, Call, Obs, Report, Vigil, CHILD_POLL_FAILURES};
 use crate::child_workspace::WorkspaceMode;
+use crate::durable::budget::BudgetGate;
 use crate::durable::deps::SessionClosing;
 use crate::durable::observe::semantic_edges::{
     last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
@@ -86,6 +93,10 @@ pub(crate) struct ChildrenServices {
     pub(crate) closing: SessionClosing,
     /// The session settings: `subagentStallMs`, the blocking budget.
     pub(crate) settings: Arc<EukheSettings>,
+    /// The session's budget: a child draws from it (or is carved an
+    /// allotment out of it) and gives it back when the child's task ends
+    /// ([`super::budget`]).
+    pub(crate) budget: Arc<BudgetGate>,
     /// The child tasks whose watch polled since this session opened (by
     /// task id): the pause before a re-poll is this session's own.
     pub(crate) polled: Mutex<HashSet<u64>>,
@@ -600,6 +611,15 @@ async fn spawn(
         worker: task.input.worker,
     };
     let spawned = services.host.spawn(request).await;
+    // No child exists after a failed spawn: the allotment carved for it at
+    // admission returns whole.
+    let returned = match &spawned {
+        Ok(_) => Ok(()),
+        Err(_) => super::budget::give_back(&services.budget, &row.session_id).await,
+    };
+    if let Err(error) = returned {
+        runtime.report(error)?;
+    }
     let conversation_id = task.conversation_id;
     runtime
         .commit(
@@ -671,21 +691,35 @@ async fn prompt(
         details: task.input.details.clone(),
         images,
     };
-    let prompted = match services.host.prompt(request.clone()).await {
-        Ok(()) => Ok(()),
-        Err(_) => services.host.prompt(request).await,
+    // The child of a spawn draws from this session's account, or holds the
+    // allotment its admission carved. A child that gave its budget back
+    // when its last task ended (a re-task) joins the account again first;
+    // without that the prompt is not sent.
+    let lent = super::budget::relend(&services.budget, &identity.session_id).await;
+    let prompted = match lent {
+        Ok(()) => match services.host.prompt(request.clone()).await {
+            Ok(()) => Ok(()),
+            Err(_) => services.host.prompt(request).await,
+        },
+        Err(error) => Err(anyhow::Error::new(error)),
     };
     let failure = match prompted {
         Ok(()) => None,
         Err(error) => {
             let cancel = RlmChildCancelRequest {
                 idempotency_key: format!("rlm:{task_id}:cancel"),
-                session_id: identity.session_id,
+                session_id: identity.session_id.clone(),
             };
             if let Err(cancel_error) = services.host.cancel(cancel).await {
                 runtime.report(SessionError::error(format!(
                     "RLM child {task_id} cancel after a failed prompt: {cancel_error:#}"
                 )))?;
+            }
+            // The child got no task: its budget goes back.
+            if let Err(reclaim_error) =
+                super::budget::give_back(&services.budget, &identity.session_id).await
+            {
+                runtime.report(reclaim_error)?;
             }
             Some(format!("{error:#}"))
         }
@@ -1039,6 +1073,16 @@ async fn watch(
     let handback = match &called {
         Some(Call::Watches(_)) => None,
         Some(Call::Reports(_) | Call::Settles(_)) | None => {
+            // The child ended: its budget goes back to this session's
+            // account (an allotment's spend becomes this session's, a
+            // shared member leaves the account), before the commit that
+            // ends the watch (a rerun gives back nothing twice; after a
+            // failure the next open asks again).
+            if let Err(error) =
+                super::budget::give_back(&services.budget, &identity.session_id).await
+            {
+                runtime.report(error)?;
+            }
             tokio::select! {
                 outcome = hand_back(services.host.as_ref(), &identity.session_id, &identity.rlm_child_id) => outcome,
                 reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
@@ -1298,6 +1342,18 @@ async fn abort(
                 "RLM child {task_id} cancel: {error:#}"
             )))?;
         }
+    }
+    // The abort ends the run of the child this task served (a task in its
+    // report phase serves none: its child ended, and may hold the budget
+    // of a later task): its budget goes back.
+    let returned = match task.checkpoint {
+        ChildCheckpoint::Spawn | ChildCheckpoint::Prompt | ChildCheckpoint::Watch { .. } => {
+            super::budget::give_back(&services.budget, &row.session_id).await
+        }
+        ChildCheckpoint::Report { .. } => Ok(()),
+    };
+    if let Err(error) = returned {
+        runtime.report(error)?;
     }
     // A spawned child not handed back yet (the watch hands back an ended
     // one) hands its workspace back now, after its run was cancelled.

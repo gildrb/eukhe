@@ -245,6 +245,7 @@ fn attach_data(id: &str, with_content: bool) -> Value {
 
 fn options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

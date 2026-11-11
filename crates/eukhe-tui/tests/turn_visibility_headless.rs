@@ -297,6 +297,7 @@ fn serve(listener: &UnixListener, initial: Snapshot, script: Vec<Act>) {
 
 fn options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

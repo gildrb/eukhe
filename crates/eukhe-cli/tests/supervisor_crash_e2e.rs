@@ -289,6 +289,7 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
         height: 30,
     };
     let options = InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.clone(),
         cwd: root.clone(),

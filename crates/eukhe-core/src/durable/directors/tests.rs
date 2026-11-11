@@ -111,6 +111,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     set_autonomous(
         &harness,
+        &setup.budget,
         root.id(),
         AutonomousChange::On(AgentAutonomousConfig {
             max_continuations: Some(3),

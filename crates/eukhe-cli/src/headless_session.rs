@@ -89,6 +89,11 @@ pub(crate) enum HeadlessSessionError {
     ChatMemory(#[source] anyhow::Error),
     #[error("MCP manager construction failed: {0}")]
     McpManager(#[source] tokio::task::JoinError),
+    /// The `--budget-*` limits did not become the session's budget.
+    #[error("cannot set the session's budget: {0}")]
+    Budget(#[source] eukhe_core::durable::budget::BudgetError),
+    #[error("cannot set the session's budget: {0}")]
+    BudgetTask(#[source] tokio::task::JoinError),
     /// Reading or reconfiguring the main conversation's agent failed.
     #[error("{0:#}")]
     Agent(#[source] SessionError),
@@ -201,6 +206,12 @@ pub(crate) async fn open_headless_session(
     target: HeadlessTarget,
     cx: &Context,
 ) -> Result<HeadlessSession, HeadlessSessionError> {
+    // The `--budget-*` limits are for the session the command line names
+    // or starts; a session an RPC client switches to keeps its own.
+    let budget = match &target {
+        HeadlessTarget::Selected | HeadlessTarget::New { .. } => options.config.budget,
+        HeadlessTarget::Open { .. } => None,
+    };
     let selection = match target {
         HeadlessTarget::Selected => select(options, cx).await?,
         HeadlessTarget::New { cwd } => Selection::Fresh {
@@ -217,7 +228,7 @@ pub(crate) async fn open_headless_session(
     };
     let sessions_dir = sessions_dir(options);
     let agent_dir = &options.config.agent_dir;
-    match selection {
+    let opened = match selection {
         Selection::Memory => {
             let session_id = new_session_id();
             let (session, wakes) = open(
@@ -228,41 +239,41 @@ pub(crate) async fn open_headless_session(
                 cx,
             )
             .await?;
-            Ok(HeadlessSession {
+            HeadlessSession {
                 session,
                 lease: None,
                 session_id,
                 cwd: options.config.cwd.clone(),
                 parent_session: None,
                 wakes,
-            })
+            }
         }
         Selection::Fresh { cwd } => {
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
             let lease = lease_fresh(&dir, agent_dir)?;
             let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
-            Ok(HeadlessSession {
+            HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: None,
                 wakes,
-            })
+            }
         }
         Selection::Fork { source } => {
             let cwd = options.config.cwd.clone();
             let (session_id, dir, lease) = fork_into_fresh(options, &source, &cwd, cx).await?;
             let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
-            Ok(HeadlessSession {
+            HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: Some(source.path().to_path_buf()),
                 wakes,
-            })
+            }
         }
         Selection::Open {
             location,
@@ -299,16 +310,39 @@ pub(crate) async fn open_headless_session(
                 set_main_cwd(&session, &cwd, cx).await?;
             }
             apply_flag_model(options, &session, cx).await?;
-            Ok(HeadlessSession {
+            HeadlessSession {
                 session,
                 lease,
                 session_id,
                 cwd,
                 parent_session: None,
                 wakes,
-            })
+            }
+        }
+    };
+    if let Some(limits) = budget {
+        let gate = opened.session.budget();
+        let kept = tokio::task::spawn_blocking(move || match gate.report() {
+            Some(report) => Ok(Some(report)),
+            None => gate.set(limits).map(|_| None),
+        })
+        .await
+        .map_err(HeadlessSessionError::BudgetTask)?
+        .map_err(HeadlessSessionError::Budget)?;
+        // A session that has a budget keeps it: the flags change nothing,
+        // and the run says so.
+        if let Some(report) = kept {
+            eprintln!(
+                "eukhe: this session already has a budget, the --budget flags change nothing ({})",
+                eukhe_tui::budget_text::report_detail(
+                    &report,
+                    eukhe_tui::budget_text::now_ms(),
+                    " · "
+                )
+            );
         }
     }
+    Ok(opened)
 }
 
 /// Fork `source` into a fresh session storage whose main conversation runs
@@ -572,9 +606,10 @@ async fn session_config(
         if chat_memory {
             let memory = eukhe_core::memory::Memory::open(
                 eukhe_core::memory::session_chat_dir(&config.agent_dir, session_id),
-                Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
-                    config.agent_dir.clone(),
-                )),
+                Arc::new(
+                    eukhe_core::memory::SettingsSummarizer::in_process(config.agent_dir.clone())
+                        .for_session(session_id),
+                ),
             )
             .await
             .map_err(HeadlessSessionError::ChatMemory)?;

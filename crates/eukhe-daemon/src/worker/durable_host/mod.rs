@@ -103,11 +103,26 @@ impl ScriptedModels {
     }
 
     /// The compactor of a script that opts into the chat memory
-    /// (`"chatMemory": true`); `None` keeps scripted sessions without it.
-    pub(crate) fn chat_memory_summarizer(&self) -> Option<ScriptedSummarizer> {
-        self.compactor.clone().map(|model| ScriptedSummarizer {
-            models: self.models.clone(),
-            model,
+    /// (`"chatMemory": true`), for the chat of session `session_id`;
+    /// `None` keeps scripted sessions without it. Its collection is its
+    /// own over the script's rows (their response queue stays shared), and
+    /// every request it sends passes that session's budget.
+    pub(crate) fn chat_memory_summarizer(
+        &self,
+        agent_dir: &Path,
+        session_id: &str,
+    ) -> Option<ScriptedSummarizer> {
+        self.compactor.clone().map(|model| {
+            let models =
+                eukhe_ai::models::create_models(eukhe_ai::models::CreateModelsOptions::default());
+            for provider in self.models.get_providers() {
+                models.set_provider((*provider).clone());
+            }
+            eukhe_core::durable::budget::wrap_models_with_budget(
+                &models,
+                &eukhe_core::durable::budget::BudgetGate::side(agent_dir, session_id),
+            );
+            ScriptedSummarizer { models, model }
         })
     }
 

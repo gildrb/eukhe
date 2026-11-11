@@ -366,6 +366,10 @@ pub struct AgentConnectionState {
     pub session_actions: SessionActionSnapshot,
     pub compaction_count: u32,
     pub goal: Value,
+    /// The session's budget (the `budget_update` payload); `null` for a
+    /// session without one.
+    #[serde(default)]
+    pub budget: Option<crate::budget::BudgetReport>,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]
