@@ -472,7 +472,6 @@
     "laws/child/entry.bend::child_entry_verdict": "576a69fba8e39673c73627c211695051a1f46926d0952fc578edfcfa0842dd86",
     "laws/child/entry.bend::child_quiet_poll_example": "e3c6d94df70e65b12e9c919955a03a9db0f250760db62b9ff20a783424bfb765",
     "laws/child/exact.bend::child_ffi_answers": "f3059d1b59746a11026b4bfdf8132232e860374e989b1340046b2474408757bf",
-    "laws/child/exact.bend::child_ffi_exact": "85e6ad98a02fdba913e41f6b5c1fb299f76e1073c0884ba0f2c477b76b0a4397",
     "laws/child/exact.bend::child_ffi_example": "b378612535ac0065edbab1e70e234f2a68345daf3bf0f66952d6c62db8a50904",
     "laws/child/exact.bend::child_look_exact": "c0f0056da45bda68aabeaac34397c84949289265a91b4041d716012b07e50996",
     "laws/child/exact.bend::child_req_fits_example": "2c57f656f6a3f862a5d4d9c81211d36a08377d4e93e1e4b8405e8110481887be",
@@ -3783,7 +3782,7 @@
     "laws/workflow/model.bend": "002f259d5b3553252a4a84cec3022fcbdd75e7c44eccc9f1aa409871f3d9154f"
   },
   "spec_files": {
-    "spec/README.md": "ae0e77cf7936e05f0b77f7bedb7b40d19af74a9156f92ae5d3e1a719074dbb1b",
+    "spec/README.md": "dce122d47e72cdf02161e90fe016c676f66f8f7b964995f45e6c3573a794ea27",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "2cb0cd28460da14f60846a80e1d92dd4d66e927c8c497f1a0a660cb346b6605c",

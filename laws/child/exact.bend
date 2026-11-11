@@ -35,7 +35,11 @@ import ./entry.bend as ChildEntry
 #     unknown request", "child: bad settings", "child: bad clock", "child:
 #     bad elapsed ms", "child: bad poll", "child: bad mode", "child: bad
 #     fate", "child: bad id", "child: bad phase", "child: bad delete flag")
-#     or, after a whole request, "child: input left over".
+#     or, after a whole request, "child: input left over". K2 is carried by
+#     the requirement laws of laws/child/entry.bend (child_entry_answers_spelled,
+#     child_entry_left_over, child_entry_reads_only_requests,
+#     child_entry_errors_named, child_entry_bad_* and child_entry_unknown_*)
+#     and child_ffi_answers below.
 
 # The watch's verdict (K1)
 # ------------------------
@@ -479,8 +483,8 @@ def ch_read_ph(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Ph>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-# The reply (K2)
-# --------------
+# The reply (K2), as the proof of child_ffi_answers reads it
+# ----------------------------------------------------------
 
 def ch_spec.verdict.fin(whole: Bool, +c: Ch.Cfg, +w: Ch.W, +e: Nat, o: Ch.Obs, m: Ch.Mode) -> String:
   match whole:
@@ -588,16 +592,6 @@ def ch_spec.go(r: Wr.Dec<Nat>) -> String:
 # error form naming the first part that does not read
 def ch_spec(s: String) -> String:
   ch_spec.go(Wr.get_nat(s))
-
-# LAW child_ffi_exact (K2): on every input the child entry answers the decision on the request the input is exactly (the watch's call: K1's verdict as the task's mode acts on it; the report phase's move; the abort's phase), spelled; on any other input exactly the error form naming the first part that does not read, or the input left over
-# EXCLUDES: a decision other than the rules' (a lost or invented report, a
-#   stall early or late, a resubmission under the same id), a codec that
-#   drops, swaps or misreads a field, a default for malformed input, an
-#   unknown tag read as a known one, input left over ignored, another
-#   error text
-law child_ffi_exact:
-  for +s: String
-  {FCh.ffi(s) == ch_spec(s) : String}
 
 # LAW child_ffi_answers (K2): every request Rust writes (every number within the wire) gets the decision on it
 # EXCLUDES: a request Rust writes refused or misread

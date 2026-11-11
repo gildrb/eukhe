@@ -191,7 +191,6 @@ import ./proof/child/child_entry_bad_delete_flag.bend as PChildEntryBadDeleteFla
 import ./proof/child/child_entry_malformed_example.bend as PChildEntryMalformedExample
 import ./proof/child/base/entry.bend as LAChildEntry
 import ./proof/child/child_look_exact.bend as PChildLookExact
-import ./proof/child/child_ffi_exact.bend as PChildFfiExact
 import ./proof/child/child_ffi_answers.bend as PChildFfiAnswers
 import ./proof/child/child_ffi_example.bend as PChildFfiExample
 import ./proof/child/child_req_fits_example.bend as PChildReqFitsExample
