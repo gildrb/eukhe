@@ -31,11 +31,11 @@ pub use autonomous::{
 };
 pub(crate) use docs::{open_doc, read_doc, write_doc};
 pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
-pub(crate) use ops::conversation_of;
 pub use ops::{
     clear_goal, complete_goal, continue_goal_after_compaction, goal_state, import_legacy_goal,
     pause_goal, resume_goal, seed_initial_goal, start_goal, withdraw_queued_goal_contexts,
 };
+pub(crate) use ops::{conversation_of, end_claimed_goal, user_input_queued, ClaimEnd};
 pub use state::{
     creation_elapsed_seconds, owns_continuation_wakeup, served, terminal_provider_failure,
 };

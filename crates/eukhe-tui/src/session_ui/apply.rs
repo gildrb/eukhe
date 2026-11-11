@@ -922,6 +922,10 @@ impl SessionUi {
             TurnUpdate::GoalUpdate(goal) => {
                 self.apply_goal_update(goal, view);
             }
+            TurnUpdate::AcceptanceUpdate(acceptance) => {
+                self.verification = crate::status_line::Verification::of(&acceptance);
+                view.chrome.verification = self.verification;
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

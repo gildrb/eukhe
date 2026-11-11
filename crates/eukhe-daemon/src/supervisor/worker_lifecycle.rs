@@ -298,6 +298,7 @@ impl Supervisor {
             "skills",
             "promptTemplates",
             "autonomous",
+            "acceptance",
             // The family a subagent inherited at spawn: a respawned child
             // keeps the values it started from.
             "cvarFamily",

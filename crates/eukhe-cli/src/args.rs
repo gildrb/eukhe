@@ -26,7 +26,13 @@ pub fn parse_thinking_level(value: &str) -> Option<ModelThinkingLevel> {
 }
 
 /// Value flags whose free-form text may legitimately start with a dash.
-const FREEFORM_VALUE_FLAGS: [&str; 2] = ["--goal", "--autonomous-gate"];
+const FREEFORM_VALUE_FLAGS: [&str; 5] = [
+    "--goal",
+    "--autonomous-gate",
+    "--accept-cmd",
+    "--accept-judge",
+    "--accept-evidence",
+];
 /// Prompt value flags whose text may look like a long option (YAML frontmatter).
 const PROMPT_VALUE_FLAGS: [&str; 2] = ["--system-prompt", "--append-system-prompt"];
 
@@ -190,6 +196,23 @@ pub struct Args {
     pub wait_limit_ms: Option<u64>,
     pub goal: Option<String>,
     pub goal_token_budget: Option<u32>,
+    /// `--accept-cmd` (repeatable): commands that must exit 0 on the final
+    /// state before the run counts as done.
+    pub accept_cmds: Vec<String>,
+    /// `--accept-judge` (repeatable): conditions an independent judge
+    /// decides from evidence.
+    pub accept_judges: Vec<String>,
+    /// `--accept-evidence` (repeatable): commands whose output the judge
+    /// of each `--accept-judge` reads.
+    pub accept_evidence: Vec<String>,
+    /// `--accept-returns`: how many times a failed check goes back to the
+    /// worker before the run fails.
+    pub accept_returns: Option<u32>,
+    /// `--accept-intent`: verify the run by the intent judge alone (it
+    /// joins every other acceptance check anyway).
+    pub accept_intent: bool,
+    /// `--accept-no-intent`: the explicit checks only, no intent judge.
+    pub accept_no_intent: bool,
     /// The `--list-models` flag's tri-state (None = absent,
     /// Some(None) = the bare flag, Some(Some(x)) = with a value).
     #[allow(clippy::option_option)] // the CLI flag's tri-state is genuinely a double Option
@@ -281,6 +304,12 @@ const KNOWN_LONG_OPTIONS: &[&str] = &[
     "autonomous-timeout-ms",
     "goal",
     "goal-token-budget",
+    "accept-cmd",
+    "accept-judge",
+    "accept-evidence",
+    "accept-returns",
+    "accept-intent",
+    "accept-no-intent",
     "list-models",
     "verbose",
     "offline",
@@ -544,6 +573,45 @@ pub fn parse_args(args: &[String]) -> Args {
                 let value = require_value!(arg);
                 result.goal_token_budget = parse_positive_u32(&value, arg, &mut result.diagnostics);
             }
+            "--accept-cmd" => {
+                let value = require_value!(arg);
+                if value.trim().is_empty() {
+                    result
+                        .diagnostics
+                        .push(Diagnostic::error("--accept-cmd requires a command"));
+                } else {
+                    result.accept_cmds.push(value);
+                }
+            }
+            "--accept-judge" => {
+                let value = require_value!(arg);
+                if value.trim().is_empty() {
+                    result
+                        .diagnostics
+                        .push(Diagnostic::error("--accept-judge requires a condition"));
+                } else {
+                    result.accept_judges.push(value);
+                }
+            }
+            "--accept-evidence" => {
+                let value = require_value!(arg);
+                if value.trim().is_empty() {
+                    result
+                        .diagnostics
+                        .push(Diagnostic::error("--accept-evidence requires a command"));
+                } else {
+                    result.accept_evidence.push(value);
+                }
+            }
+            "--accept-returns" => {
+                let value = require_value!(arg);
+                match value.trim().parse::<u32>() {
+                    Ok(returns) => result.accept_returns = Some(returns),
+                    Err(_) => result.diagnostics.push(Diagnostic::error(
+                        "--accept-returns must be a whole number from 0 to u32::MAX (4294967295)",
+                    )),
+                }
+            }
             "--list-models" => {
                 let has_search = args
                     .get(i + 1)
@@ -564,6 +632,8 @@ pub fn parse_args(args: &[String]) -> Args {
             }
             "--verbose" => result.verbose = true,
             "--offline" => result.offline = true,
+            "--accept-intent" => result.accept_intent = true,
+            "--accept-no-intent" => result.accept_no_intent = true,
             _ if arg.starts_with("--resume=") => {
                 let value = &arg["--resume=".len()..];
                 if value.is_empty() {
@@ -597,6 +667,27 @@ pub fn parse_args(args: &[String]) -> Args {
         result
             .diagnostics
             .push(Diagnostic::error("--goal-token-budget requires --goal"));
+    }
+    if !result.accept_evidence.is_empty() && result.accept_judges.is_empty() {
+        result.diagnostics.push(Diagnostic::error(
+            "--accept-evidence requires --accept-judge",
+        ));
+    }
+    let explicit = !result.accept_cmds.is_empty() || !result.accept_judges.is_empty();
+    if result.accept_returns.is_some() && !explicit && !result.accept_intent {
+        result.diagnostics.push(Diagnostic::error(
+            "--accept-returns requires --accept-cmd, --accept-judge or --accept-intent",
+        ));
+    }
+    if result.accept_intent && result.accept_no_intent {
+        result.diagnostics.push(Diagnostic::error(
+            "--accept-intent and --accept-no-intent exclude each other",
+        ));
+    }
+    if result.accept_no_intent && !explicit {
+        result.diagnostics.push(Diagnostic::error(
+            "--accept-no-intent requires --accept-cmd or --accept-judge",
+        ));
     }
 
     result
@@ -685,6 +776,89 @@ mod tests {
             .diagnostics
             .iter()
             .any(|d| !d.is_error && d.message.contains("--no-skills")));
+    }
+
+    #[test]
+    fn acceptance_flags_collect_the_checks() {
+        let parsed = parse(&[
+            "-p",
+            "--accept-cmd",
+            "cargo test --workspace",
+            "--accept-cmd",
+            "-f done.txt",
+            "--accept-judge",
+            "the README names the flag",
+            "--accept-evidence",
+            "cat README.md",
+            "--accept-returns",
+            "0",
+            "fix it",
+        ]);
+        assert!(!parsed.diagnostics.iter().any(|d| d.is_error));
+        assert_eq!(
+            (
+                parsed.accept_cmds,
+                parsed.accept_judges,
+                parsed.accept_evidence,
+                parsed.accept_returns,
+                parsed.messages,
+            ),
+            (
+                vec![
+                    "cargo test --workspace".to_owned(),
+                    "-f done.txt".to_owned()
+                ],
+                vec!["the README names the flag".to_owned()],
+                vec!["cat README.md".to_owned()],
+                Some(0),
+                vec!["fix it".to_owned()],
+            )
+        );
+    }
+
+    #[test]
+    fn acceptance_intent_flags_parse() {
+        let intent = parse(&["-p", "--accept-intent", "--accept-returns", "1", "fix it"]);
+        assert!(!intent.diagnostics.iter().any(|d| d.is_error));
+        assert!(intent.accept_intent && !intent.accept_no_intent);
+        assert_eq!(intent.accept_returns, Some(1));
+        let explicit = parse(&["-p", "--accept-cmd", "true", "--accept-no-intent", "fix it"]);
+        assert!(!explicit.diagnostics.iter().any(|d| d.is_error));
+        assert!(explicit.accept_no_intent && !explicit.accept_intent);
+    }
+
+    #[test]
+    fn acceptance_flags_without_a_check_are_refused() {
+        assert_eq!(
+            last_error(&parse(&["--accept-returns", "2"])),
+            "--accept-returns requires --accept-cmd, --accept-judge or --accept-intent"
+        );
+        assert_eq!(
+            last_error(&parse(&["--accept-no-intent"])),
+            "--accept-no-intent requires --accept-cmd or --accept-judge"
+        );
+        assert_eq!(
+            last_error(&parse(&[
+                "--accept-cmd",
+                "true",
+                "--accept-intent",
+                "--accept-no-intent"
+            ])),
+            "--accept-intent and --accept-no-intent exclude each other"
+        );
+        assert_eq!(
+            last_error(&parse(&["--accept-cmd", "true", "--accept-evidence", "ls"])),
+            "--accept-evidence requires --accept-judge"
+        );
+        assert_eq!(
+            last_error(&parse(&[
+                "--accept-cmd",
+                "true",
+                "--accept-returns",
+                "many"
+            ])),
+            "--accept-returns must be a whole number from 0 to u32::MAX (4294967295)"
+        );
     }
 
     #[test]

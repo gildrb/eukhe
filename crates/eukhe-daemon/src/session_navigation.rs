@@ -379,6 +379,7 @@ fn replacement_params(
     cwd: Option<String>,
 ) -> CreateParams {
     CreateParams {
+        acceptance: None,
         session_path,
         no_session,
         name: None,

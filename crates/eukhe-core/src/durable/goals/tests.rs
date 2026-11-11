@@ -392,7 +392,10 @@ async fn a_goal_continues_with_its_context_until_completed() {
     assert_eq!(goal.status, GoalStatus::Complete);
     assert!(!goal.is_active());
     assert_eq!(goal.continuations_used, 2);
-    assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
+    assert_eq!(
+        goal.last_reason.as_deref(),
+        Some("Goal achieved (unverified: no acceptance checks)")
+    );
     // Every response while the goal was active spent its budget; the final
     // "done" came after the completion.
     let answers = assistants(&entries);

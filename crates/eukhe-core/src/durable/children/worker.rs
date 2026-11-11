@@ -653,6 +653,7 @@ async fn assign_call(
                     label: None,
                     phase: None,
                     report: ReportMode::Inbox,
+                    accept: None,
                 },
                 details: Some(details.clone()),
                 user_entries: handed.entries.clone(),

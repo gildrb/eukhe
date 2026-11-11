@@ -85,4 +85,9 @@ pub struct RlmChildResult {
     /// The workspace hand-back of an isolated child, as text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handback: Option<String>,
+    /// The verdict of the child's acceptance, when its parent gave it
+    /// checks: `<label> (<k>/<n> checks confirmed on its final state)`
+    /// and the checks not confirmed, as its harness read them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<String>,
 }

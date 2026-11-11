@@ -1,7 +1,7 @@
 //! The extension registry of an eukhe session, installed in prompt order:
 //! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
-//! `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
+//! `eukhe.acceptance`, `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
 //! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
 //! block ends the system prompt. Every tool
 //! schema is built with the intent `i` and a version
@@ -21,8 +21,8 @@ use eukhe_durable::session::SessionResult;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
-    children, codemode, compaction, documents, goals, optchat, prompt, retry_outcome, rlm,
-    settings, shell, tool_contract, tool_surface, workflow,
+    acceptance, children, codemode, compaction, documents, goals, optchat, prompt, retry_outcome,
+    rlm, settings, shell, tool_contract, tool_surface, workflow,
 };
 
 /// A registry with every eukhe extension of the session installed and its
@@ -81,6 +81,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;
     install(optchat::extension(deps))?;
+    install(acceptance::extension(deps))?;
     install(goals::extension(deps))?;
     install(children::extension(deps))?;
     install(workflow::extension(deps))?;

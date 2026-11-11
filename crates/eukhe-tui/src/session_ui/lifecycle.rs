@@ -158,6 +158,7 @@ impl SessionUi {
             dictation_takes: 0,
             dictation_updates: activity_updates.dictation,
             memory: None,
+            verification: None,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,
@@ -611,6 +612,10 @@ impl SessionUi {
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
+        self.verification = reconstructed
+            .acceptance
+            .as_ref()
+            .and_then(crate::status_line::Verification::of);
         self.streaming_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
@@ -831,6 +836,7 @@ impl SessionUi {
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
         view.chrome.memory = self.memory;
+        view.chrome.verification = self.verification;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;
         // the goal state itself carries over (seeded at attach).

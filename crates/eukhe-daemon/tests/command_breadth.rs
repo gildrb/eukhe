@@ -581,6 +581,14 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "headless_parent_receipt",
         r#"{"type": "headless_parent_receipt", "deliveryId": "d1", "receipt": {"id": "m1"}}"#,
     ),
+    (
+        "set_acceptance",
+        r#"{"type": "set_acceptance", "activeSessionId": "sess", "checks": [{"kind": "command", "command": "true"}]}"#,
+    ),
+    (
+        "get_acceptance",
+        r#"{"type": "get_acceptance", "activeSessionId": "sess"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -625,6 +633,8 @@ fn known_command_types_match_the_ts_list() {
                     | "cvar_save"
                     | "register_headless_parent"
                     | "headless_parent_receipt"
+                    | "set_acceptance"
+                    | "get_acceptance"
             ),
             "unexpected non-TS command type: {extra}"
         );

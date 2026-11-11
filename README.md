@@ -50,6 +50,7 @@ bend PROOF.bend  # check every law
 - [Eukhe RLM](spec/rlm/) forks Prime Agent's REPL subagents: every spawn must say why.
 - [Eukhe Memory](spec/memory/) is OptChat, split into one thread per session.
 - [Eukhe Hierarchy](spec/agents/) keeps agents in a tree: each talks only to its parent and children.
+- [Eukhe Verified](spec/verified/) treats "done" as a claim: the acceptance checks of a task (`/accept`, `--accept-cmd`, `--accept-judge`, `--accept-intent`, the `set_acceptance` command, a parent's `spawn(accept=...)`) must pass on the final state before a run reports success; an independent judge reads the user's messages and decides whether the final state meets what they ask for now.
 
 ## Limitations
 

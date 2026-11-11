@@ -225,6 +225,10 @@ impl Worker {
                 .view
                 .as_ref()
                 .map_or(Value::Null, |view| view.goal.clone()),
+            acceptance: core
+                .view
+                .as_ref()
+                .map_or(Value::Null, |view| view.acceptance.clone()),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,
@@ -800,6 +804,7 @@ mod tests {
             inbox,
             active: None,
             goal: Value::Null,
+            acceptance: Value::Null,
             workers: Vec::new(),
             paused: false,
         });

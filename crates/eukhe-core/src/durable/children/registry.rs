@@ -4,7 +4,7 @@
 //! plus the `eukhe.child-usage-attributed` rows that name the spawning
 //! assistant row.
 
-use super::host::RlmChildIdentity;
+use super::host::{RlmChildIdentity, RlmChildVerdict};
 use crate::child_workspace::Handback;
 use crate::durable::observe::rlm_usage::{
     attributed_aggregate, attribution_draft, entry_assistant_usage, CHILD_USAGE_ATTRIBUTED_KIND,
@@ -13,6 +13,7 @@ use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
+use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
     ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, LatestFork,
@@ -164,6 +165,11 @@ pub(crate) struct ChildRow {
     /// worker tools reach it, and main's summary lists it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) worker: bool,
+    /// The child's acceptance, when its parent gave it checks: pending
+    /// from the spawn, then the verdict on its final state that its
+    /// harness read when its run settled. `None`: the child has no checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) acceptance: Option<RlmChildVerdict>,
 }
 
 /// The persisted result of handing an isolated child's workspace back.
@@ -280,6 +286,42 @@ pub(crate) async fn read_children(
     cx: &Context,
 ) -> SessionResult<ChildrenState> {
     decode_state(reader.snapshot(&CHILDREN_DOC, conversation_id, cx).await?)
+}
+
+/// The verdicts of the children of `conversation_id` that carry checks,
+/// one line per child: `child <name>: <label> (<k>/<n> checks confirmed
+/// on its final state)`, then the checks not confirmed, and a note when
+/// the child has not ended. A child's verdict is what its harness read
+/// from its acceptance, never the child's words. One document read; none
+/// with no children.
+///
+/// # Errors
+///
+/// Document read failures.
+pub(crate) async fn children_verdicts(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<Vec<String>> {
+    let state = read_children(harness, conversation_id, cx).await?;
+    Ok(state
+        .children
+        .values()
+        .filter(|row| !row.is_deleted())
+        .filter_map(|row| {
+            let verdict = row.acceptance.as_ref()?;
+            let ended = if row.status.is_terminal() {
+                ""
+            } else {
+                "; it has not ended yet"
+            };
+            Some(format!(
+                "child {}: {}{ended}",
+                row.session_name,
+                verdict.summary()
+            ))
+        })
+        .collect())
 }
 
 /// Whether any child of `conversation_id` is unsettled: its

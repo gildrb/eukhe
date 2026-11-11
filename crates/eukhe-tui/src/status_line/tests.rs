@@ -406,3 +406,96 @@ fn the_title_and_the_speed_yield_before_the_fixed_segments() {
         );
     }
 }
+
+/// The verification segment shows only while the task has acceptance
+/// checks: the label in its tone, `checking...` while a claim waits, and
+/// the checks confirmed on the state now (a verdict on an older state
+/// does not count).
+#[test]
+fn verification_segment_shows_the_label() {
+    use eukhe_types::acceptance::{AcceptanceCheck, CheckResult, CheckSpec};
+    let theme = theme();
+    let check = |verdict: CheckVerdict, at: u64| AcceptanceCheck {
+        spec: CheckSpec::intent(),
+        protected: Vec::new(),
+        result: Some(CheckResult {
+            verdict,
+            at,
+            summary: String::new(),
+            evidence: String::new(),
+            judged_at: 0,
+        }),
+    };
+    let failed = AcceptanceState {
+        label: AcceptanceLabel::Failed,
+        state: 7,
+        checks: vec![
+            check(CheckVerdict::Confirmed, 7),
+            check(CheckVerdict::Refuted, 7),
+            check(CheckVerdict::Confirmed, 3),
+        ],
+        ..AcceptanceState::default()
+    };
+    let render = |acceptance: &AcceptanceState| {
+        let state = ChromeState {
+            verification: Verification::of(acceptance),
+            context: None,
+            git: None,
+            ..base()
+        };
+        render_status_line(&state, Detail::Overview, &theme, 120)
+    };
+    let tone = |line: &Line, needle: &str| {
+        line.iter()
+            .find(|span| span.content == needle)
+            .unwrap_or_else(|| panic!("missing span {needle:?}"))
+            .style
+            .fg
+    };
+
+    let line = render(&failed);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - x failed 1/3");
+    assert_eq!(
+        tone(&line, "x failed 1/3"),
+        theme.fg_style(ThemeColor::Error).fg
+    );
+
+    let checking = AcceptanceState {
+        claimed: true,
+        ..failed.clone()
+    };
+    let line = render(&checking);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - checking... 1/3");
+    assert_eq!(
+        tone(&line, "checking... 1/3"),
+        theme.fg_style(ThemeColor::Accent).fg
+    );
+
+    let verified = AcceptanceState {
+        label: AcceptanceLabel::Verified,
+        checks: vec![check(CheckVerdict::Confirmed, 7); 2],
+        ..failed.clone()
+    };
+    let line = render(&verified);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - ok verified 2/2");
+    assert_eq!(
+        tone(&line, "ok verified 2/2"),
+        theme.fg_style(ThemeColor::Success).fg
+    );
+
+    let unverified = AcceptanceState {
+        label: AcceptanceLabel::Unverified,
+        ..failed
+    };
+    let line = render(&unverified);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - unverified 1/3");
+    assert_eq!(
+        tone(&line, "unverified 1/3"),
+        theme.fg_style(ThemeColor::Muted).fg
+    );
+
+    // No checks: no segment.
+    assert_eq!(Verification::of(&AcceptanceState::default()), None);
+    let line = render(&AcceptanceState::default());
+    assert_eq!(text(&line), " [M] mock - [D] eukhe");
+}

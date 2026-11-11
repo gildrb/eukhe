@@ -108,7 +108,9 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "get_memory"
         | "get_memory_tree"
         | "get_tool_definition"
-        | "set_session_entry_label" => Session,
+        | "set_session_entry_label"
+        | "set_acceptance"
+        | "get_acceptance" => Session,
         _ => Control,
     }
 }

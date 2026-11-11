@@ -82,6 +82,9 @@ pub(crate) struct ShownView {
     pub(crate) active: Option<eukhe_types::daemon::SessionActionActive>,
     /// The served goal (`goal_update` payload); `Null` without a goal.
     pub(crate) goal: Value,
+    /// The served acceptance (`acceptance_update` payload); `Null` while
+    /// the conversation has no checks and no claim.
+    pub(crate) acceptance: Value,
     /// Main's workers (summary `workers`), in creation order.
     pub(crate) workers: Vec<SessionWorker>,
     /// This session's run is paused (summary `isPaused`).
@@ -214,6 +217,7 @@ impl EventBridge {
                 inbox,
                 active: None,
                 goal: Value::Null,
+                acceptance: Value::Null,
                 workers: Vec::new(),
                 paused: shape.pause.view().paused,
             });
@@ -236,6 +240,13 @@ impl EventBridge {
             .tasks
             .push(tokio::spawn(flush_loop(epoch, sink.clone())));
         bridge.tasks.push(tokio::spawn(goal_loop(
+            harness.clone(),
+            epoch,
+            conversation_id,
+            sink.clone(),
+            cx.clone(),
+        )));
+        bridge.tasks.push(tokio::spawn(acceptance_loop(
             harness.clone(),
             epoch,
             conversation_id,
@@ -513,6 +524,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::AcceptanceUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }
@@ -568,6 +580,49 @@ async fn goal_loop(
             &mut core,
             &sink.events,
             SessionEvent::GoalUpdate { goal },
+        );
+    }
+}
+
+/// The conversation's acceptance on the core (state `acceptance`): each
+/// change lands on the view and goes out as `acceptance_update`. A
+/// conversation with no checks and no claim shows `Null` and says nothing.
+async fn acceptance_loop(
+    harness: Harness,
+    epoch: u64,
+    conversation_id: ConversationId,
+    sink: BridgeSink,
+    cx: Context,
+) {
+    let mut updates = match eukhe_core::durable::acceptance::watch_acceptance_updates(
+        &harness,
+        conversation_id,
+        &cx,
+    ) {
+        Ok(updates) => updates,
+        Err(error) => {
+            eprintln!("eukhe-daemon worker: acceptance updates unavailable: {error}");
+            return;
+        }
+    };
+    while let Some(acceptance) = updates.next().await {
+        let mut core = lock(&sink.core);
+        let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+            return;
+        };
+        let wire = if acceptance.checks.is_empty() && !acceptance.claimed {
+            Value::Null
+        } else {
+            json!(acceptance)
+        };
+        if view.acceptance == wire {
+            continue;
+        }
+        view.acceptance = wire;
+        crate::worker::emit_event_locked(
+            &mut core,
+            &sink.events,
+            SessionEvent::AcceptanceUpdate { acceptance },
         );
     }
 }

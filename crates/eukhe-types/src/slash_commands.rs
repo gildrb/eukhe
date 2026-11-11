@@ -14,10 +14,11 @@ use std::collections::HashMap;
 use crate::model_roles::ModelRole;
 
 /// Session-executed commands (their behavior lives in the session engine).
-pub const SESSION_SLASH_COMMAND_NAMES: [&str; 8] = [
+pub const SESSION_SLASH_COMMAND_NAMES: [&str; 9] = [
     "compact",
     "refine",
     "goal",
+    "accept",
     "autonomous",
     "remind",
     "force",
@@ -180,6 +181,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "compact", description: "Compact the session context; optional instructions focus the summary", execution: SlashCommandExecution::Session, argument_hint: Some("[instructions]"), aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "refine", description: "Refine continual harness prompt notes, skills, subagents, and memory", execution: SlashCommandExecution::Session, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "goal", description: "Set or view a persistent goal; supports pause, resume, and clear", execution: SlashCommandExecution::Session, argument_hint: Some("[objective]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "accept", description: "Set or view the acceptance checks that must pass before a task is reported done", execution: SlashCommandExecution::Session, argument_hint: Some("[status|clear|cmd <command>|judge <condition>|until <command>|returns <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "autonomous", description: "Set or view autonomous mode with an optional budget", execution: SlashCommandExecution::Session, argument_hint: Some("[status|off|on [--max-continuations <n>] [--max-turns <n>] [--max-tokens <n>] [--timeout-ms <n>] [--gate <command>]]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "remind", description: "Put a reminder on the Director stack; its text leads the next continuation", execution: SlashCommandExecution::Session, argument_hint: Some("<text>"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "force", description: "Force the next requests to call a tool until the model calls it", execution: SlashCommandExecution::Session, argument_hint: Some("<tool> [--tries <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },

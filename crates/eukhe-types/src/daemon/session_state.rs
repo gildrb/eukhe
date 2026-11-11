@@ -366,6 +366,10 @@ pub struct AgentConnectionState {
     pub session_actions: SessionActionSnapshot,
     pub compaction_count: u32,
     pub goal: Value,
+    /// The conversation's acceptance (`acceptance_update` payload); `Null`
+    /// while it has no checks and no claim.
+    #[serde(default)]
+    pub acceptance: Value,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]

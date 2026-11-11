@@ -35,14 +35,15 @@ use eukhe_durable::types::{
     EntryId, SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError,
     TaskOwnership,
 };
+use eukhe_types::acceptance::AcceptanceSeed;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
     ChildMessageKind, RlmChildCancelRequest, RlmChildHandbackRequest, RlmChildObservation,
-    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmSubagentHost,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildVerdict,
+    RlmChildWaitRequest, RlmSubagentHost,
 };
 use super::notice::{ChildReport, DELETED_BY_PARENT};
 use super::registry::{
@@ -143,6 +144,10 @@ pub(crate) struct ChildTaskInput {
     /// doctrine, and main's worker tools reach it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) worker: bool,
+    /// The checks the child's task starts with (`rlm.spawn`'s `accept`),
+    /// set by this parent as their owner when the child is created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) accept: Option<AcceptanceSeed>,
 }
 
 #[expect(
@@ -598,6 +603,7 @@ async fn spawn(
         parent_task_id: task_id.to_string(),
         workspace: task.input.workspace.unwrap_or_default(),
         worker: task.input.worker,
+        acceptance: task.input.accept.clone(),
     };
     let spawned = services.host.spawn(request).await;
     let conversation_id = task.conversation_id;
@@ -720,6 +726,7 @@ async fn prompt(
                         failure: Some(ChildFailure::Undelivered),
                         error,
                         handback: None,
+                        acceptance: None,
                     }),
                     ReportMode::Silent => NextTaskState::Terminal {
                         outcome: TaskOutcome::Completed {
@@ -752,9 +759,13 @@ enum Seen {
     Failed {
         failure: ChildFailure,
         error: String,
+        acceptance: Option<RlmChildVerdict>,
     },
     /// The child's run answered.
-    Answered { answer_preview: Option<String> },
+    Answered {
+        answer_preview: Option<String>,
+        acceptance: Option<RlmChildVerdict>,
+    },
 }
 
 impl Seen {
@@ -785,9 +796,9 @@ fn gives_up(call: &Call) -> Option<Report> {
 
 /// The task's next state after the watch's poll `poll`, which ended at
 /// `now`, read `seen` and got `call` (`verdict` in `bend/child.bend`):
-/// watch on, report, or end; `row` takes the child's end. A child that
-/// answered through an agent message, and every child of a silent task,
-/// owes no notice.
+/// watch on, report, or end; `row` takes the child's end and the verdict
+/// of its acceptance. A child that answered through an agent message, and
+/// every child of a silent task, owes no notice.
 fn watched_next(
     call: Call,
     seen: Seen,
@@ -817,22 +828,33 @@ fn watched_next(
         ))
     };
     let report = match seen {
-        Seen::Answered { answer_preview } => match why {
+        Seen::Answered {
+            answer_preview,
+            acceptance,
+        } => match why {
             None | Some(Report::Completed) => {
                 row.status = ChildStatus::Done;
                 row.answer_preview.clone_from(&answer_preview);
+                if acceptance.is_some() {
+                    row.acceptance.clone_from(&acceptance);
+                }
                 ChildReport::CompletedWithoutReply {
                     session_name: row.session_name.clone(),
                     last_assistant_text_preview: answer_preview,
                     handback: row.handback.clone(),
+                    acceptance,
                 }
             }
             Some(Report::Failed | Report::Cancelled | Report::Stalled | Report::Unreachable) => {
                 return Err(misfit(why))
             }
         },
-        Seen::Failed { failure, error } => match why {
-            Some(Report::Failed) => watch_failed(row, failure, error),
+        Seen::Failed {
+            failure,
+            error,
+            acceptance,
+        } => match why {
+            Some(Report::Failed) => watch_failed(row, failure, error, acceptance),
             None
             | Some(
                 Report::Completed | Report::Cancelled | Report::Stalled | Report::Unreachable,
@@ -848,6 +870,7 @@ fn watched_next(
                     "RLM child showed no progress for {} s and was stopped",
                     stall.as_secs_f64()
                 ),
+                None,
             )
         }
         Seen::Unreached { error } if matches!(why, Some(Report::Unreachable)) => watch_failed(
@@ -856,6 +879,7 @@ fn watched_next(
             format!(
                 "RLM child could not be reached in {CHILD_POLL_FAILURES} polls in a row and was stopped: {error:#}"
             ),
+            None,
         ),
         Seen::Unsettled | Seen::Unreached { .. } => return Err(misfit(why)),
     };
@@ -870,16 +894,26 @@ fn watched_next(
 }
 
 /// The row of a child the watch ends as failed with `failure`, and the
-/// report of it.
-fn watch_failed(row: &mut ChildRow, failure: ChildFailure, error: String) -> ChildReport {
+/// report of it; `acceptance` is the verdict on the child's final state
+/// its harness read, when it read one.
+fn watch_failed(
+    row: &mut ChildRow,
+    failure: ChildFailure,
+    error: String,
+    acceptance: Option<RlmChildVerdict>,
+) -> ChildReport {
     row.status = ChildStatus::Error;
     row.error = Some(error.clone());
     row.failure = Some(failure);
+    if acceptance.is_some() {
+        row.acceptance.clone_from(&acceptance);
+    }
     ChildReport::Failed {
         session_name: row.session_name.clone(),
         failure: Some(failure),
         error,
         handback: row.handback.clone(),
+        acceptance,
     }
 }
 
@@ -991,12 +1025,20 @@ async fn watch(
             progress,
             answer: full,
             paused: _,
+            acceptance,
         }) => {
             answer = full;
             let seen = match state {
                 RlmChildRunState::Running | RlmChildRunState::Idle { .. } => Seen::Unsettled,
-                RlmChildRunState::Answered { answer_preview } => Seen::Answered { answer_preview },
-                RlmChildRunState::Failed { failure, error } => Seen::Failed { failure, error },
+                RlmChildRunState::Answered { answer_preview } => Seen::Answered {
+                    answer_preview,
+                    acceptance,
+                },
+                RlmChildRunState::Failed { failure, error } => Seen::Failed {
+                    failure,
+                    error,
+                    acceptance,
+                },
             };
             (usage, progress, seen)
         }

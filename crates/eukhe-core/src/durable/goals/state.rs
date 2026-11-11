@@ -120,15 +120,16 @@ pub(crate) fn resumed(state: &GoalState) -> Option<GoalState> {
     })
 }
 
-/// The completed goal; `None` when there is no goal.
+/// The completed goal, with why it counts as achieved (`reason` names
+/// whether an acceptance check verified it); `None` when there is no goal.
 #[must_use]
-pub(crate) fn completed(state: &GoalState) -> Option<GoalState> {
+pub(crate) fn completed(state: &GoalState, reason: &str) -> Option<GoalState> {
     if state.objective.is_none() || state.status == GoalStatus::Idle {
         return None;
     }
     Some(GoalState {
         status: GoalStatus::Complete,
-        last_reason: Some("Goal achieved".to_owned()),
+        last_reason: Some(reason.to_owned()),
         last_error: None,
         ..state.clone()
     })

@@ -13,6 +13,7 @@
 //! typed value, serialize it back, and require the re-parsed JSON to equal the
 //! original parsed JSON.
 
+pub mod acceptance;
 pub mod ai;
 pub mod custom_type;
 pub mod cvar;

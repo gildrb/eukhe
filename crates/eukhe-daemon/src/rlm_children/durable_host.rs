@@ -407,6 +407,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         Some(runtime_metadata),
                         &identity,
                         Some(&session_id),
+                        request.acceptance.as_ref(),
                     )
                     .await?;
                 this.durable_calls().cohorts.insert(
@@ -555,6 +556,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     progress,
                     answer,
                     paused: false,
+                    acceptance: None,
                 }
             };
             let seen_running = || {
@@ -644,7 +646,12 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         state
                     }
                 };
-                Ok(observe(state, outcome.progress, outcome.answer).await)
+                // A settled run carries the verdict of the child's
+                // acceptance on its final state, as its harness read it.
+                Ok(durable::RlmChildObservation {
+                    acceptance: outcome.acceptance,
+                    ..observe(state, outcome.progress, outcome.answer).await
+                })
             }
             .await;
             let probe_error = match observed {

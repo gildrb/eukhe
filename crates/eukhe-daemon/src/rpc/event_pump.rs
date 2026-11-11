@@ -8,6 +8,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::Context;
+use eukhe_core::durable::acceptance::watch_acceptance_updates;
 use eukhe_core::durable::goals::watch_goal_updates;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
@@ -39,6 +40,7 @@ pub(crate) struct EventPump {
     translation: Arc<Mutex<Translation>>,
     outputs: ConnectionOutputs,
     goals: JoinHandle<()>,
+    acceptance: JoinHandle<()>,
 }
 
 impl EventPump {
@@ -91,11 +93,24 @@ impl EventPump {
                 }
             }
         });
+        // The acceptance: the watch's first value is the state at attach
+        // (`get_state` answers it); every change after it is a frame.
+        let mut changes = watch_acceptance_updates(session.harness(), conversation_id, cx)?;
+        let acceptance_outputs = outputs.clone();
+        let acceptance = tokio::spawn(async move {
+            if changes.next().await.is_none() {
+                return;
+            }
+            while let Some(acceptance) = changes.next().await {
+                acceptance_outputs.write_events([SessionEvent::AcceptanceUpdate { acceptance }]);
+            }
+        });
         Ok(Self {
             stream,
             translation,
             outputs: outputs.clone(),
             goals,
+            acceptance,
         })
     }
 
@@ -113,5 +128,6 @@ impl EventPump {
             .flush();
         self.outputs.write_events(held);
         self.goals.abort();
+        self.acceptance.abort();
     }
 }

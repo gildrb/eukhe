@@ -7,6 +7,7 @@ use super::{
     AgentMessage, DaemonClientCapability, DaemonClientId, DaemonCommandId, DaemonProtocolInfo,
     DaemonResumeCursor, Deserialize, JsonMap, Serialize, Value,
 };
+use crate::acceptance::CheckSpec;
 
 // ---------------------------------------------------------------------------
 // Commands (client/worker -> supervisor/worker)
@@ -1360,6 +1361,37 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native: set the acceptance checks of the session's task as
+    /// its owner (an SDK client). The checks replace the current ones
+    /// (none clears them) and every verdict starts over; the intent check
+    /// joins them unless `intent` is false. Answers the new
+    /// `AcceptanceState`.
+    SetAcceptance {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        /// The explicit checks.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        checks: Vec<CheckSpec>,
+        /// The most returns in a row; the current cap when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_returns: Option<u64>,
+        /// Whether the intent check joins the explicit ones; absent is
+        /// true.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intent: Option<bool>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: the acceptance of the session's task (its
+    /// `AcceptanceState`).
+    GetAcceptance {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetSystemPrompt {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1681,5 +1713,37 @@ mod tests {
         );
         rt::<DaemonCommand>(r#"{"type":"subscribe_state_tree","activeSessionId":"s1","since":3}"#);
         rt::<DaemonCommand>(r#"{"type":"unsubscribe_state_tree","activeSessionId":"s1"}"#);
+    }
+
+    #[test]
+    fn set_and_get_acceptance_roundtrip() {
+        rt::<DaemonCommand>(
+            r#"{"type":"set_acceptance","activeSessionId":"s1","checks":[{"kind":"command","command":"cargo test","expect":0,"timeoutMs":60000,"protect":["tests/a.rs"]},{"kind":"judge","condition":"the README says how","evidence":["cat README.md"]}],"maxReturns":2,"intent":false}"#,
+        );
+        rt::<DaemonCommand>(r#"{"type":"set_acceptance","activeSessionId":"s1"}"#);
+        rt::<DaemonCommand>(r#"{"type":"get_acceptance","activeSessionId":"s1"}"#);
+        let command: DaemonCommand = serde_json::from_str(
+            r#"{"type":"set_acceptance","activeSessionId":"s1","checks":[{"kind":"command","command":"true"}]}"#,
+        )
+        .expect("a set_acceptance command");
+        let DaemonCommand::SetAcceptance {
+            checks,
+            max_returns,
+            intent,
+            ..
+        } = command
+        else {
+            panic!("expected a set_acceptance command");
+        };
+        assert_eq!(
+            checks,
+            vec![CheckSpec::Command {
+                command: "true".to_owned(),
+                expect: 0,
+                timeout_ms: None,
+                protect: Vec::new(),
+            }]
+        );
+        assert_eq!((max_returns, intent), (None, None));
     }
 }

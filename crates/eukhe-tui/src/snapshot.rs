@@ -68,6 +68,9 @@ pub struct Reconstructed {
     /// The session's goal state (`state.goal`), when the snapshot reports
     /// one (TS `snapshot.ts: goal: session.goalState`).
     pub goal: Option<eukhe_types::goal::GoalState>,
+    /// The acceptance of the session's task (`state.acceptance`), when the
+    /// snapshot reports one.
+    pub acceptance: Option<eukhe_types::acceptance::AcceptanceState>,
     pub last_event_sequence: u64,
     /// Whether the attach supplied the resume cursor (the event
     /// sequence AND the generation): the reconstruction collapses an
@@ -517,6 +520,12 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     let goal = state
         .and_then(|state| state.get("goal"))
         .and_then(|goal| serde_json::from_value::<eukhe_types::goal::GoalState>(goal.clone()).ok());
+    let acceptance = state
+        .and_then(|state| state.get("acceptance"))
+        .and_then(|acceptance| {
+            serde_json::from_value::<eukhe_types::acceptance::AcceptanceState>(acceptance.clone())
+                .ok()
+        });
     let queued = match state.and_then(|state| state.get("sessionActions")) {
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
         None => crate::queued::QueuedMessages::default(),
@@ -549,6 +558,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         session_id,
         event_generation,
         goal,
+        acceptance,
         last_event_sequence,
         cursor_present,
         queued,

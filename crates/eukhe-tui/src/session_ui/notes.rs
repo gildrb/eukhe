@@ -67,6 +67,7 @@ impl SessionUi {
     pub(crate) fn rebuild_tray(&mut self, view: &mut AgentView) {
         view.chrome.context = self.context;
         view.chrome.memory = self.memory;
+        view.chrome.verification = self.verification;
         view.chrome.session_name.clone_from(&self.session_name);
         self.dirty = true;
     }

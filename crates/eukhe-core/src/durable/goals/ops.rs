@@ -385,8 +385,43 @@ pub async fn clear_goal(
     Ok(cleared.load(std::sync::atomic::Ordering::SeqCst))
 }
 
-/// `goal.complete()` / completion: complete the goal; `None` when there is
-/// no goal.
+/// How the acceptance verifier ends the claim of a goal
+/// (`crate::durable::acceptance`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ClaimEnd {
+    /// Every acceptance check is confirmed on the final state: the goal
+    /// completes with this reason.
+    Complete(String),
+    /// The claim was not verified: an active goal pauses with this reason.
+    Pause(String),
+}
+
+/// End the claim of the goal of `conversation_id` inside `tx`, the
+/// verifier's commit: a verified claim completes the goal, any other end
+/// pauses an active goal. With no goal nothing is written.
+///
+/// # Errors
+///
+/// Transaction failures.
+pub(crate) async fn end_claimed_goal(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    end: &ClaimEnd,
+) -> SessionResult<()> {
+    let now = now_millis();
+    let (draft, current) = open_doc(tx, &GOAL_DOC, conversation_id).await?;
+    let next = match end {
+        ClaimEnd::Complete(reason) => completed(&current, reason),
+        ClaimEnd::Pause(reason) => paused(&current, reason),
+    };
+    if let Some(next) = next {
+        write_doc(&draft, &stamp(next, now))?;
+    }
+    Ok(())
+}
+
+/// The owner's completion of the goal (no claim, no acceptance check):
+/// complete the goal; `None` when there is no goal.
 ///
 /// # Errors
 ///
@@ -397,7 +432,7 @@ pub async fn complete_goal(
 ) -> SessionResult<Option<GoalState>> {
     let (goal, _) = update_goal(
         conversation,
-        |current, _| Ok(completed(current).map(|goal| (goal, None))),
+        |current, _| Ok(completed(current, "Goal achieved").map(|goal| (goal, None))),
         cx,
     )
     .await?;

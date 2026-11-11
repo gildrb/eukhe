@@ -28,7 +28,8 @@ A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.q
 2. Brief fully: goal, exact paths and facts, constraints, what done means. A child never sees this conversation.
 3. Ask for a compact hand-back: the answer, decisions and paths, not transcripts. Bulky output goes to a file; the reply names it.
 4. Pass `why` and a short unique `name`; keep the handle. Children that edit one tree in parallel get `workspace="isolated"`.
-5. Several children: one `rlm.spawn_batch` call.
+5. When done is checkable, pass `accept=[{"kind": "command", "command": "pytest -q", "expect": 0}]`: the harness confirms the checks on the child's final state and its report carries the verdict (`verified`, `failed`, `unverified`). Trust that verdict over the child's words.
+6. Several children: one `rlm.spawn_batch` call.
 
 ## Collect
 
