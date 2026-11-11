@@ -246,23 +246,34 @@ async fn sets_strict_mode_explicitly_for_cloudflare_openai_responses_tools() {
     );
 }
 
+/// Thinking off sends omp's disable mode (`catalog/src/compat/resolve.ts:301-318`,
+/// `ai/src/providers/openai-shared.ts:1064-1080, 4302-4316`): `none` for
+/// `OpenAI`'s GPT-5.6 generation (`rules/providers/openai.kdl:121-123`,
+/// `none-effort`), else the lowest effort the model offers
+/// (`lowest-effort`), also on hosts without the explicit `none`
+/// (GitHub Copilot) and on xAI.
 #[tokio::test]
-async fn sends_none_reasoning_effort_for_openai_when_no_reasoning_is_requested() {
-    for model_id in [
-        "gpt-5.1",
-        "gpt-5.2",
-        "gpt-5.3-codex",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-        "gpt-5.5",
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-        "gpt-6-sol",
-        "gpt-6-luna",
+async fn sends_omps_off_effort_when_no_reasoning_is_requested() {
+    for (provider, model_id, effort) in [
+        ("openai", "gpt-5.1", "low"),
+        ("openai", "gpt-5.2", "low"),
+        ("openai", "gpt-5.3-codex", "low"),
+        ("openai", "gpt-5.4", "low"),
+        ("openai", "gpt-5.4-mini", "low"),
+        ("openai", "gpt-5.4-nano", "low"),
+        ("openai", "gpt-5.5", "low"),
+        ("openai", "gpt-5.6-sol", "none"),
+        ("openai", "gpt-5.6-terra", "none"),
+        ("openai", "gpt-5.6-luna", "none"),
+        ("openai", "gpt-6-sol", "low"),
+        ("openai", "gpt-6-luna", "low"),
+        ("opencode", "gpt-6-luna", "low"),
+        ("opencode-go", "gpt-6-luna", "low"),
+        ("github-copilot", "gpt-6-luna", "low"),
+        ("github-copilot", "gpt-6-sol", "low"),
+        ("xai", "grok-4.3", "low"),
     ] {
-        let model = model("openai", model_id);
+        let model = model(provider, model_id);
         let (request, _) = run(
             &model,
             &sys_hi_context(),
@@ -271,11 +282,9 @@ async fn sends_none_reasoning_effort_for_openai_when_no_reasoning_is_requested()
         )
         .await;
 
-        assert_eq!(
-            request.body["reasoning"]["effort"],
-            json!("none"),
-            "{model_id}"
-        );
+        let reasoning = &request.body["reasoning"];
+        assert_eq!(reasoning["effort"], json!(effort), "{provider}/{model_id}");
+        assert!(reasoning.get("summary").is_none(), "{provider}/{model_id}");
     }
 }
 

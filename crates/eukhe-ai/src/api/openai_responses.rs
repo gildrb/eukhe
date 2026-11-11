@@ -23,7 +23,7 @@ use super::openai_sdk::{
 use super::simple_options::{build_base_options, resolve_sampling_params};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
-use crate::models::{clamp_thinking_level, thinking_level_map};
+use crate::models::{clamp_thinking_level, get_supported_thinking_levels, thinking_level_map};
 use crate::quirks::Quirks;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
@@ -390,7 +390,7 @@ fn build_params(
         let quirks = Quirks::of(model);
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else if model_facts::flag(quirks.reasoning_off_field(), true) {
+        } else {
             insert_reasoning_off(model, &mut params);
         }
         if model_facts::flag(quirks.encrypted_reasoning(), false) {
@@ -454,19 +454,49 @@ pub(crate) fn insert_reasoning(
     params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
 }
 
-/// The `reasoning` of a request without a reasoning effort: the model's
-/// `off` level (default `"none"`), unless the map marks `off` unsupported.
-pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
-    let off = thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off));
-    match off {
-        Some(None) => {}
-        Some(Some(value)) => {
-            params.insert("reasoning".to_owned(), json!({ "effort": value }));
-        }
-        None => {
-            params.insert("reasoning".to_owned(), json!({ "effort": "none" }));
-        }
+/// The `reasoning.effort` of a request without a reasoning effort
+/// (thinking off), after omp's reasoning disable modes
+/// (`catalog/src/compat/resolve.ts:301-318`,
+/// `ai/src/providers/openai-shared.ts:1064-1080`): the model's `off` wire
+/// value when it names an effort; `"none"` when the rulebook's
+/// `reasoning_off_none` marks the model (omp `none-effort`); else the
+/// wire value of the lowest level the model offers (omp `lowest-effort`,
+/// the Responses default). `None` when the map marks `off` unsupported.
+pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
+    let map = thinking_level_map(model);
+    let off = match map.and_then(|map| map.get(&ModelThinkingLevel::Off)) {
+        Some(None) => return None,
+        Some(Some(value)) => value.as_str(),
+        None => "none",
+    };
+    if off != "none" || model_facts::flag(Quirks::of(model).reasoning_off_none(), false) {
+        return Some(off.to_owned());
     }
+    let Some(lowest) = get_supported_thinking_levels(model)
+        .into_iter()
+        .find(|level| *level != ModelThinkingLevel::Off)
+    else {
+        return Some(off.to_owned());
+    };
+    Some(
+        map.and_then(|map| map.get(&lowest))
+            .cloned()
+            .flatten()
+            .unwrap_or_else(|| lowest.as_str().to_owned()),
+    )
+}
+
+/// The `reasoning` of a request without a reasoning effort
+/// ([`reasoning_off_effort`]). A host without the explicit off (the
+/// rulebook's `reasoning_off_field`) gets no `reasoning` for `"none"`.
+pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
+    let Some(effort) = reasoning_off_effort(model) else {
+        return;
+    };
+    if effort == "none" && !model_facts::flag(Quirks::of(model).reasoning_off_field(), true) {
+        return;
+    }
+    params.insert("reasoning".to_owned(), json!({ "effort": effort }));
 }
 
 fn new_output(model: &Model) -> AssistantMessage {

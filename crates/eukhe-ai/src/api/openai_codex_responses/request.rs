@@ -13,6 +13,7 @@ use eukhe_types::pi_ai::{
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::json;
 
+use crate::api::openai_responses::reasoning_off_effort;
 use crate::api::openai_responses_shared::{
     convert_responses_messages, convert_responses_tools, ConvertResponsesMessagesOptions,
     ConvertResponsesToolsOptions,
@@ -165,12 +166,21 @@ pub(crate) fn build_request_body(
                 }),
             );
         }
-    } else if model.reasoning && !matches!(off_mapping, Some(None)) {
-        let effort = off_mapping
-            .cloned()
-            .flatten()
-            .unwrap_or_else(|| "none".to_owned());
-        body.insert("reasoning".into(), json!({ "effort": effort }));
+    } else if model.reasoning {
+        // Thinking off (omp `request-transformer.ts:483-492`): the lowest
+        // offered effort goes out as a requested effort, with its summary;
+        // `none` alone.
+        if let Some(effort) = reasoning_off_effort(model) {
+            let reasoning = if effort == "none" {
+                json!({ "effort": effort })
+            } else {
+                json!({
+                    "effort": effort,
+                    "summary": nullish_or(options.reasoning_summary.as_ref(), json!("auto")),
+                })
+            };
+            body.insert("reasoning".into(), reasoning);
+        }
     }
 
     Ok(JsonValue::Object(body))
