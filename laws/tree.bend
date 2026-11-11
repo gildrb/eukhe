@@ -8,6 +8,59 @@ import ../bend/wire.bend as Wr
 import ../spec/durable/tree.bend as TS
 import ./base.bend as LawsBase
 
+# Requirements
+# ------------
+# The tags the laws below answer to, each with its source. S1, T1-T7 and
+# S5 keep their earlier names; R1-R5 are stated in the Rust tree, A1-A2
+# are inferred.
+#
+# S1  the session tree (bend/tree.bend:1-20, crates/eukhe-durable/src/
+#     tree/mod.rs:10-16): one tree holds the state of a session, the
+#     journal is its records, a replay of the journal makes the tree, a
+#     replay of a prefix is a snapshot; its rules are T1-T7
+# T1-T7  spec/durable/tree.bend:5-26: T1 a valid tree, T2 a put, T3 a
+#     delete, T4 a rewind, T5 a journal's tree, T6 the rewind from a to
+#     b, T7 the answer to a record and the work of a plan
+# S5  the Director stack lives in the tree and a rewind restores it
+#     (bend/director.bend; section S5 below)
+# R1  a question (a rewind plan, a snapshot) leaves the core as it was:
+#     the journal asks it through &self (crates/eukhe-durable/src/tree/
+#     journal.rs:79-83)
+# R2  the snapshot after the first n records is their replay; all the
+#     records when n is past their count (journal.rs:184-185, 209-211)
+# R3  the rewind plan from the live tree to the snapshot after the first
+#     n records: a stop for each node the snapshot does not have, then a
+#     start or a restore for each node of the snapshot the live tree does
+#     not have the same, in id order (journal.rs:195-199); a start for a
+#     node that is new, a restore for one that changes (mod.rs:100-107)
+# R4  the entry (bend/ffi_tree.bend:1-19): an open reads the halves, a
+#     list of Nats, and answers nothing; a step reads one ask and answers
+#     the core's answer; a malformed input or one with input left over
+#     answers the error form and keeps the core; a malformed open opens the
+#     refused state, which answers every step with the error form
+# R5  the bytes Rust writes and reads (journal.rs:47-58 ops, 128-142
+#     records, 209-217 questions, 257-298 answers), anchored by the Rust
+#     test the_live_tree_follows_the_core (journal.rs:326-390)
+# A1  a client that holds the snapshot after n records and replays the
+#     records after it holds the live tree
+# A2  every halves: Rust opens the core with 2^46, ..., 2, 1
+#     (journal.rs:17-22); the laws hold for any halves
+#
+# Coverage (requirement laws; *_example and *_exists laws are anchors and
+# witnesses, never coverage):
+#   T1 tree_apply_sound, tree_replay_sound; T2 tree_put_sets,
+#   tree_put_keeps_others; T3 tree_delete_removes, tree_delete_only_below,
+#   tree_delete_within; T4 tree_rewind_reaches; T6 tree_rewind_reaches,
+#   tree_rewind_still, tree_rewind_minimal; T1-T5 tree_replay_spec; T5-T7
+#   tree_core_tree, tree_core_answer, tree_ffi_step_spec; R1
+#   tree_core_questions_keep; R2 tree_core_snap; R3 tree_core_plan; A1
+#   tree_snapshot_catches_up; R4 tree_ffi_open, tree_ffi_open_left_over,
+#   tree_ffi_open_reads_only_halves, tree_ffi_open_malformed_unless_halves,
+#   tree_ffi_refused_stays, tree_ffi_ask_round_trip and the tree_ffi_*
+#   laws of section "The spelled entry"; R5 the same spelled laws; S5
+#   dir_encode_sound, dir_rewind_restores; A2: every law on the core is for
+#   all halves hs.
+
 # (S1) The session tree
 # ---------------------
 # the model in bend/tree.bend. One tree holds the
@@ -26,14 +79,6 @@ law tree_apply_sound:
 law tree_replay_sound:
   for rs: List<&2, Tr.Rec>
   {Tr.sound(Tr.replay(rs)) == True{} : Bool}
-
-# LAW tree_snapshot: a snapshot after any prefix of the journal, with the records after
-# it, makes the tree of the whole journal. So a client that holds a
-# snapshot and gets the records after it holds the live tree.
-law tree_snapshot:
-  for +pre: List<&2, Tr.Rec>
-  for post: List<&2, Tr.Rec>
-  {Tr.go(post, Tr.replay(pre)) == Tr.replay(List.append(&2, Tr.Rec, pre, post)) : List<&2, Tr.Ent>}
 
 # LAW tree_rewind_reaches: a rewind with diff(current, target) makes the target, exactly
 law tree_rewind_reaches:
@@ -148,25 +193,86 @@ def tree.answer(+t: List<&2, Tr.Ent>, r: Tr.Rec) -> Tr.Ans:
     case Tr.Rewind{ops}:
       tree.took(Tr.sound(Tr.patch(ops, t)))
 
-def tree.effect(held: Bool, k: Nat) -> Tr.Eff:
+# R3, from the Rust doc (journal.rs:195-199, mod.rs:100-107), not from
+# the code's diff and effects: the plan of a rewind from now to tgt, read
+# with the spec's lookups (TS.get, TS.has, TS.same)
+def tree.stop.at(held: Bool, k: Nat, rest: List<&2, Tr.Eff>) -> List<&2, Tr.Eff>:
   match held:
     case True{}:
-      Tr.Restore{k}
+      rest
     case False{}:
-      Tr.Start{k}
+      Tr.Stop{k} <> rest
 
-# what the ops of a rewind of t do to the work of each node: a Del stops
-# it; a Put restores a node t has and starts one t does not have
-def tree.effects(ops: List<&2, Tr.Op>, +t: List<&2, Tr.Ent>) -> List<&2, Tr.Eff>:
-  match ops:
+# a stop for each node of now (in key order) whose key tgt does not have
+def tree.stops(now: List<&2, Tr.Ent>, +tgt: List<&2, Tr.Ent>) -> List<&2, Tr.Eff>:
+  match now:
     case Nil{}:
       Nil{}
-    case o <> rest:
-      match o:
-        case Tr.Del{k}:
-          Tr.Stop{k} <> tree.effects(rest, t)
-        case Tr.Put{+k, p, v}:
-          tree.effect(Tr.has(t, k), k) <> tree.effects(rest, t)
+    case +e <> rest:
+      tree.stop.at(TS.has(tgt, TS.key(e)), TS.key(e), tree.stops(rest, tgt))
+
+# a node of the target that now holds the same needs nothing; one whose
+# key now has changes (a restore); one whose key now lacks is new (a start)
+def tree.start.at(same: Bool, held: Bool, k: Nat, rest: List<&2, Tr.Eff>) -> List<&2, Tr.Eff>:
+  match same:
+    case True{}:
+      rest
+    case False{}:
+      match held:
+        case True{}:
+          Tr.Restore{k} <> rest
+        case False{}:
+          Tr.Start{k} <> rest
+
+# a start or a restore for each node of tgt (in key order) that now does
+# not have the same
+def tree.starts(+now: List<&2, Tr.Ent>, tgt: List<&2, Tr.Ent>) -> List<&2, Tr.Eff>:
+  match tgt:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      tree.start.at(TS.same(TS.get(now, TS.key(e)), e), TS.has(now, TS.key(e)), TS.key(e), tree.starts(now, rest))
+
+# the plan: the stops, then the starts and restores
+def tree.plan(+now: List<&2, Tr.Ent>, +tgt: List<&2, Tr.Ent>) -> List<&2, Tr.Eff>:
+  List.append(&2, Tr.Eff, tree.stops(now, tgt), tree.starts(now, tgt))
+
+# the core after the asks qs, in order, from s
+def tree.asks(qs: List<&2, Tr.Ask>, s: Tr.St) -> Tr.St:
+  match qs:
+    case Nil{}:
+      s
+    case q <> rest:
+      tree.asks(rest, Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, q)))
+
+# the records of the asks qs, in order (the questions dropped)
+def tree.notes(qs: List<&2, Tr.Ask>) -> List<&2, Tr.Rec>:
+  match qs:
+    case Nil{}:
+      Nil{}
+    case q <> rest:
+      match q:
+        case Tr.Note{r}:
+          r <> tree.notes(rest)
+        case Tr.Plan{n}:
+          tree.notes(rest)
+        case Tr.Snap{n}:
+          tree.notes(rest)
+
+# a client that holds the nodes of a snapshot answer and replays the
+# records post on them (the model's T5 rule); nothing for another answer
+def tree.catch_up(a: Tr.Ans, post: List<&2, Tr.Rec>) -> Maybe<&2, List<&2, Tr.Ent>>:
+  match a:
+    case Tr.Kept{}:
+      None{}
+    case Tr.Took{}:
+      None{}
+    case Tr.Cut{ks}:
+      None{}
+    case Tr.Effects{es}:
+      None{}
+    case Tr.Nodes{es}:
+      Some{Tr.go(post, es)}
 
 # LAW tree_core_tree: the core's tree after any journal is the tree the journal makes
 law tree_core_tree:
@@ -182,21 +288,32 @@ law tree_core_answer:
   for +r: Tr.Rec
   {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Note{r})) == tree.answer(Tr.replay(rs), r) : Tr.Ans}
 
-# LAW tree_core_note: a record steps the core to the core of the journal with the record
-# at its end, so the laws on core.feed hold for the live core
-law tree_core_note:
+# LAW tree_core_questions_keep (R1): from the open with any halves, after any asks (records,
+# plans and snapshots in any order), the core answers every ask as it
+# does after the records alone: a question changes no later answer
+# EXCLUDES: a plan or a snapshot that changes the tree or the journal
+#   (so the &self questions of journal.rs would race a later record), a
+#   record lost, repeated or reordered across a question
+law tree_core_questions_keep:
   for +hs: List<&2, Nat>
-  for +rs: List<&2, Tr.Rec>
-  for +r: Tr.Rec
-  {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Note{r})) == Tr.core.feed(hs, List.append(&2, Tr.Rec, rs, [r])) : Tr.St}
+  for +qs: List<&2, Tr.Ask>
+  for +q: Tr.Ask
+  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(tree.asks(qs, Tr.core.start(hs)), q)) == Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, tree.notes(qs)), q)) : Tr.Ans}
 
-# LAW tree_core_plan: the core's rewind plan to the tree after the first n records is
-# what diff(live tree, that tree) does to the work of each node
+# LAW tree_core_plan (R3): after any journal, the core's rewind plan to the tree after
+# the first n records (all of them when n is past their count) is the plan
+# R3 states from the live tree (the journal's replay) and that tree
+# (tree.plan): a stop for each node that tree lacks, then a start for each
+# node of it the live tree lacks and a restore for each node of it the live
+# tree has otherwise, each part in key order
+# EXCLUDES: a lost, extra, repeated or reordered effect, a start for a node
+#   that changes or a restore for a new one, a stop for a node the target
+#   keeps, a plan to another prefix
 law tree_core_plan:
   for +hs: List<&2, Nat>
   for +rs: List<&2, Tr.Rec>
   for +n: Nat
-  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Plan{n})) == Tr.Effects{tree.effects(Tr.diff(Tr.replay(rs), Tr.replay(List.take(&2, Tr.Rec, rs, n))), Tr.replay(rs))} : Tr.Ans}
+  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Plan{n})) == Tr.Effects{tree.plan(Tr.replay(rs), Tr.replay(List.take(&2, Tr.Rec, rs, n)))} : Tr.Ans}
 
 # LAW tree_core_snap: the core's snapshot after the first n records is their replay
 law tree_core_snap:
@@ -205,19 +322,17 @@ law tree_core_snap:
   for +n: Nat
   {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Snap{n})) == Tr.Nodes{Tr.replay(List.take(&2, Tr.Rec, rs, n))} : Tr.Ans}
 
-# LAW tree_core_plan_keeps: a rewind plan leaves the core as it was
-law tree_core_plan_keeps:
+# LAW tree_snapshot_catches_up (A1): after any journal, a client that holds the core's
+# snapshot after the first n records and replays the records after them
+# holds the core's live tree
+# EXCLUDES: a snapshot of another prefix than the one the records after it
+#   continue, a snapshot that is no Nodes answer, a live tree that drifts
+#   from the journal's
+law tree_snapshot_catches_up:
   for +hs: List<&2, Nat>
   for +rs: List<&2, Tr.Rec>
   for +n: Nat
-  {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Plan{n})) == Tr.core.feed(hs, rs) : Tr.St}
-
-# LAW tree_core_snap_keeps: a snapshot leaves the core as it was
-law tree_core_snap_keeps:
-  for +hs: List<&2, Nat>
-  for +rs: List<&2, Tr.Rec>
-  for +n: Nat
-  {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Snap{n})) == Tr.core.feed(hs, rs) : Tr.St}
+  {tree.catch_up(Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Snap{n})), List.drop(&2, Tr.Rec, rs, n)) == Some{Tr.KMap.read(Tr.St.m(Tr.core.feed(hs, rs)))} : Maybe<&2, List<&2, Tr.Ent>>}
 
 # (S5) The Director stack
 # -----------------------
@@ -286,41 +401,6 @@ law tree_ffi_ask_round_trip:
   for h: {tree.ask_fits(q) == True{} : Bool}
   {Ft.get_ask(Ft.put_ask(q, rest)) == Wr.Got{q, rest} : Wr.Dec<Tr.Ask>}
 
-# LAW tree_ffi_step: a step answers the core's answer to the ask and keeps the core's
-# next state
-# EXCLUDES: an entry that answers anything but the core's decision, or
-#   that drops, repeats or reorders a record of the core's journal
-law tree_ffi_step:
-  for +s: Tr.St
-  for +q: Tr.Ask
-  for h: {tree.ask_fits(q) == True{} : Bool}
-  {Ft.step(Ft.Live{s}, Ft.put_ask(q, "")) == (Ft.Live{Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, q))}, Ft.put_ans(Pair.snd(Tr.St, Tr.Ans, Tr.core.step(s, q)), "")) : Ft.St & String}
-
-# LAW tree_ffi_malformed: malformed input answers the error form and keeps the core
-# EXCLUDES: a default answer, or a changed core, for input that is no ask
-law tree_ffi_malformed:
-  for +s: Tr.St
-  for +input: String
-  for h: {Ft.get_ask(input) == Wr.Bad{} : Wr.Dec<Tr.Ask>}
-  {Ft.step(Ft.Live{s}, input) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
-
-# LAW tree_ffi_trailing: input left after an ask answers the error form and keeps the core
-# EXCLUDES: an answer to an ask followed by garbage
-law tree_ffi_trailing:
-  for +s: Tr.St
-  for +input: String
-  for q: Tr.Ask
-  for rest: String
-  for h: {Ft.get_ask(input) == Wr.Got{q, rest} : Wr.Dec<Tr.Ask>}
-  for left: {Wr.end(rest) == False{} : Bool}
-  {Ft.step(Ft.Live{s}, input) == (Ft.Live{s}, Wr.err("tree: input left after the ask")) : Ft.St & String}
-
-# LAW tree_ffi_refused: a refused open answers every step with the error form
-# EXCLUDES: a core conjured after a refused open
-law tree_ffi_refused:
-  for input: String
-  {Ft.step(Ft.Shut{}, input) == (Ft.Shut{}, Wr.err("tree: the open was refused")) : Ft.St & String}
-
 # LAW tree_ffi_open: an open with halves that fit the wire opens the empty core that
 # splits at those halves, and answers the empty reply
 # EXCLUDES: halves read wrong (a lost, added or changed half), a core that
@@ -330,22 +410,73 @@ law tree_ffi_open:
   for h: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)) == True{} : Bool}
   {Ft.open(Wr.put_list(~Nat, ~Wr.put_nat, hs, "")) == (Ft.Live{Tr.core.start(hs)}, "") : Ft.St & String}
 
-# LAW tree_ffi_open_malformed: an open whose input is no list of halves is refused
-# EXCLUDES: a default core for malformed input
-law tree_ffi_open_malformed:
-  for +input: String
-  for h: {Wr.get_list(~Nat, ~Wr.get_nat, input) == Wr.Bad{} : Wr.Dec<List<&2, Nat>>}
-  {Ft.open(input) == (Ft.Shut{}, Wr.err("tree: malformed halves")) : Ft.St & String}
+# LAW tree_ffi_open_left_over (R4): halves that fit the wire, followed by any more input,
+# open the refused state and answer the error form "tree: input left after
+# the halves"
+# EXCLUDES: trailing input ignored or read as more halves, a core opened
+#   from halves followed by garbage
+law tree_ffi_open_left_over:
+  for +hs: List<&2, Nat>
+  for fits: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {Ft.open(Wr.put_list(~Nat, ~Wr.put_nat, hs, SCon{c, t})) == (Ft.Shut{}, Wr.err("tree: input left after the halves")) : Ft.St & String}
 
-# LAW tree_ffi_open_trailing: an open with input left after the halves is refused
-# EXCLUDES: a core opened from halves followed by garbage
-law tree_ffi_open_trailing:
+# LAW tree_ffi_open_reads_only_halves (R4): an open answered with anything but the error
+# form had exactly a list of halves for input, each half and the count
+# within the wire, nothing after it, and opened the empty core that splits
+# at those halves, answering nothing
+# EXCLUDES: an open that accepts a malformed, non-canonical or overlong
+#   list, or input left over, and opens a core anyway (a default instead of
+#   the refused state)
+law tree_ffi_open_reads_only_halves:
   for +input: String
-  for hs: List<&2, Nat>
-  for rest: String
-  for h: {Wr.get_list(~Nat, ~Wr.get_nat, input) == Wr.Got{hs, rest} : Wr.Dec<List<&2, Nat>>}
-  for left: {Wr.end(rest) == False{} : Bool}
-  {Ft.open(input) == (Ft.Shut{}, Wr.err("tree: input left after the halves")) : Ft.St & String}
+  for ok: {LawsBase.wire_opens_err(Pair.snd(Ft.St, String, Ft.open(input))) == False{} : Bool}
+  exs hs: List<&2, Nat>
+  {(input, (Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)), Ft.open(input))) == (Wr.put_list(~Nat, ~Wr.put_nat, hs, ""), (True{}, (Ft.Live{Tr.core.start(hs)}, ""))) : String & (Bool & (Ft.St & String))}
+
+# LAW tree_ffi_open_malformed_unless_halves (R4): every open answer but the error form
+# "tree: malformed halves" comes from an input that begins with a list of
+# halves within the wire
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a list of halves, the malformed error spelled with another
+#   text
+law tree_ffi_open_malformed_unless_halves:
+  for +input: String
+  for other: {String.eq(Pair.snd(Ft.St, String, Ft.open(input)), Wr.err("tree: malformed halves")) == False{} : Bool}
+  exs hs: List<&2, Nat>
+  exs rest: String
+  {(input, Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs))) == (Wr.put_list(~Nat, ~Wr.put_nat, hs, rest), True{}) : String & Bool}
+
+# the reply p (an open's, or a step's), then the replies of the steps on
+# the inputs ins, in order, from the state p left
+def tree.trace(ins: List<&2, String>, p: Ft.St & String) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      [Pair.snd(Ft.St, String, p)]
+    case i <> rest:
+      (s, a) = p
+      a <> tree.trace(rest, Ft.step(s, i))
+
+# one refusal "tree: the open was refused" per input
+def tree.refusals(ins: List<&2, String>) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case i <> rest:
+      Wr.err("tree: the open was refused") <> tree.refusals(rest)
+
+# LAW tree_ffi_refused_stays (R4): an open answered with the error form opens no core: every
+# step after it, whatever the inputs and however many, answers the error
+# form "tree: the open was refused"
+# EXCLUDES: a core conjured after a refused open (on a later step, or by
+#   an open that answers an error but keeps a live core), a step of the
+#   refused state answered with another text or with a value
+law tree_ffi_refused_stays:
+  for +input: String
+  for bad: {LawsBase.wire_opens_err(Pair.snd(Ft.St, String, Ft.open(input))) == True{} : Bool}
+  for +ins: List<&2, String>
+  {tree.trace(ins, Ft.open(input)) == Pair.snd(Ft.St, String, Ft.open(input)) <> tree.refusals(ins) : List<&2, String>}
 
 # LAW tree_ffi_fits_exists: witness: asks and halves that fit exist (the premises above)
 # EXCLUDES: a vacuous tree.ask_fits or open premise
@@ -354,11 +485,21 @@ law tree_ffi_fits_exists:
   exs hs: List<&2, Nat>
   {Bool.and(tree.ask_fits(q), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs))) == True{} : Bool}
 
-# LAW tree_ffi_example: anchors of the encodings Rust writes and reads (crates/eukhe-durable
-# src/tree/journal.rs): an ask of each kind, and an answer of each kind
-# EXCLUDES: a field order or a tag that differs from the Rust side
-law tree_ffi_example:
-  {[Ft.put_ask(Tr.Note{Tr.Do{Tr.Put{2n, 1n, 7n}}}, ""), Ft.put_ask(Tr.Note{Tr.Do{Tr.Del{2n}}}, ""), Ft.put_ask(Tr.Note{Tr.Rewind{[Tr.Del{3n}, Tr.Put{2n, 1n, 0n}]}}, ""), Ft.put_ask(Tr.Plan{4n}, ""), Ft.put_ask(Tr.Snap{5n}, ""), Ft.put_ans(Tr.Kept{}, ""), Ft.put_ans(Tr.Took{}, ""), Ft.put_ans(Tr.Cut{[2n, 3n]}, ""), Ft.put_ans(Tr.Effects{[Tr.Start{1n}, Tr.Stop{2n}, Tr.Restore{3n}]}, ""), Ft.put_ans(Tr.Nodes{[Tr.Ent{1n, 0n, 9n}]}, "")] == ["0,0,0,2,1,7,", "0,0,1,2,", "0,1,2,1,3,0,2,1,0,", "1,4,", "2,5,", "0,", "1,", "2,2,2,3,", "3,3,0,1,1,2,2,3,", "4,1,1,0,9,"] : List<&2, String>}
+# LAW tree_ffi_journal_example (R5): anchor: the Rust test the_live_tree_follows_the_core
+# (crates/eukhe-durable/src/tree/journal.rs:326-390) through the entry, in
+# the bytes the journal writes (journal.rs:47-58, 128-142, 209-217) with
+# its value indexes (10, 20, 30, 40, 21, 50 are 0, 1, 2, 3, 4, 5): the puts
+# of 1 under 0, 2 under 1, 3 under 2 take, 4 under 9 is kept, 2 again with
+# 21 and then 20 take; the plan to 2 records stops 3; the delete of 2 cuts
+# 2 and 3; the rewind deleting 1 and putting 5 under 0 takes; the snapshot
+# after 3 records is 1, 2, 3; the plan to 3 records stops 5 and starts 1,
+# 2, 3; the snapshot after all 8 records is 5. The core opens with the
+# halves 4, 2, 1 and answers nothing (Rust: 2^46, ..., 2, 1; the answers
+# do not depend on the halves, A2)
+# EXCLUDES: a tag, field order or count that differs from the bytes the
+#   Rust test drives, a question that changes a later answer
+law tree_ffi_journal_example:
+  {tree.trace(["0,0,0,1,0,0,", "0,0,0,2,1,1,", "0,0,0,3,2,2,", "0,0,0,4,9,3,", "0,0,0,2,1,4,", "0,0,0,2,1,1,", "1,2,", "0,0,1,2,", "0,1,2,1,1,0,5,0,5,", "2,3,", "1,3,", "2,8,"], Ft.open("3,4,2,1,")) == ["", "1,", "1,", "1,", "0,", "1,", "1,", "3,1,1,3,", "2,2,2,3,", "1,", "4,3,1,0,0,2,1,1,3,2,2,", "3,4,1,5,0,1,0,2,0,3,", "4,1,5,0,5,"] : List<&2, String>}
 
 # The spelled entry
 # -----------------
@@ -372,7 +513,7 @@ law tree_ffi_example:
 # the malformed error (tree_ffi_malformed_unless_ask), and every error
 # keeps the core (tree_ffi_error_keeps). The open is pinned by
 # tree_ffi_open* on the wire's own list of Nats, a refused open by
-# tree_ffi_refused.
+# tree_ffi_refused_stays.
 
 # an op: 0, key, parent, value (put) | 1, key (delete)
 def tree.spell_op(o: Tr.Op, rest: String) -> String:
@@ -568,229 +709,6 @@ law tree_ffi_error_keeps:
 law tree_ffi_tags_example:
   {[Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,0,0,1,0,7,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,0,1,0,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,0,1,1,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,0,0,2,0,3,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,0,0,2,5,3,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,1,1,1,1,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "1,0,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "2,1,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "3,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,2,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,0,2,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,1,1,2,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "1,4,x")), Pair.snd(Ft.St, String, Ft.open("2,2,1,")), Pair.snd(Ft.St, String, Ft.open("2,2,")), Pair.snd(Ft.St, String, Ft.open("0,x"))] == ["1,", "0,", "2,1,1,", "1,", "0,", "1,", "3,1,1,1,", "4,1,1,0,7,", Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: input left after the ask"), "", Wr.err("tree: malformed halves"), Wr.err("tree: input left after the halves")] : List<&2, String>}
 
-
-# The whole stepper, every input
-# ------------------------------
-# The open and each step as the wire grammar of WIRE.md (the header of
-# bend/ffi_tree.bend), read and spelled with the wire primitives alone
-# (never the entry's own codec): an ask and its answer
-#   Ask  0, Rec (note) | 1, n (plan) | 2, n (snap)
-#   Rec  0, Op (do) | 1, a count, then that many Ops (rewind)
-#   Op   0, k, p, v (put) | 1, k (del)
-#   Ans  0 (kept) | 1 (took) | 2, a count, then the cut keys | 3, a count,
-#        then each effect: 0 start | 1 stop | 2 restore, then the key |
-#        4, a count, then each node: key, parent, value
-# The state machine the steps run is the core of bend/tree.bend
-# (Tr.core.step), which the laws tree_core_* above pin, after any journal,
-# to the session tree the journal makes (Tr.replay) and its rewind plans
-# and snapshots.
-
-def tt_read_op.v(k: Nat, p: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
-  match r:
-    case Wr.Got{v, s}:
-      Wr.Got{Tr.Put{k, p, v}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_op.p(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
-  match r:
-    case Wr.Got{p, s}:
-      tt_read_op.v(k, p, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_op.put(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
-  match r:
-    case Wr.Got{k, s}:
-      tt_read_op.p(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_op.del(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
-  match r:
-    case Wr.Got{k, s}:
-      Wr.Got{Tr.Del{k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_op.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          tt_read_op.put(Wr.get_nat(s))
-        case 1n:
-          tt_read_op.del(Wr.get_nat(s))
-        case 2n+x:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# an op at the head of s
-def tt_read_op(s: String) -> Wr.Dec<Tr.Op>:
-  tt_read_op.tag(Wr.get_nat(s))
-
-def tt_read_rec.do(r: Wr.Dec<Tr.Op>) -> Wr.Dec<Tr.Rec>:
-  match r:
-    case Wr.Got{o, s}:
-      Wr.Got{Tr.Do{o}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_rec.rewind(r: Wr.Dec<List<&2, Tr.Op>>) -> Wr.Dec<Tr.Rec>:
-  match r:
-    case Wr.Got{ops, s}:
-      Wr.Got{Tr.Rewind{ops}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_rec.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Rec>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          tt_read_rec.do(tt_read_op(s))
-        case 1n:
-          tt_read_rec.rewind(LawsBase.wire_read_list(~Tr.Op, ~tt_read_op, s))
-        case 2n+x:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_ask.note(r: Wr.Dec<Tr.Rec>) -> Wr.Dec<Tr.Ask>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Tr.Note{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_ask.plan(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Ask>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Tr.Plan{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_ask.snap(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Ask>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Tr.Snap{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tt_read_ask.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Ask>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          tt_read_ask.note(tt_read_rec.tag(Wr.get_nat(s)))
-        case 1n:
-          tt_read_ask.plan(Wr.get_nat(s))
-        case 2n:
-          tt_read_ask.snap(Wr.get_nat(s))
-        case 3n+x:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the ask at the head of s, and the input after it
-def tt_read_ask(s: String) -> Wr.Dec<Tr.Ask>:
-  tt_read_ask.tag(Wr.get_nat(s))
-
-def tt_spell_eff(e: Tr.Eff, rest: String) -> String:
-  match e:
-    case Tr.Start{k}:
-      Wr.put_nat(0n, Wr.put_nat(k, rest))
-    case Tr.Stop{k}:
-      Wr.put_nat(1n, Wr.put_nat(k, rest))
-    case Tr.Restore{k}:
-      Wr.put_nat(2n, Wr.put_nat(k, rest))
-
-def tt_spell_ent(e: Tr.Ent, rest: String) -> String:
-  match e:
-    case Tr.Ent{k, p, v}:
-      Wr.put_nat(k, Wr.put_nat(p, Wr.put_nat(v, rest)))
-
-# an answer on the wire
-def tt_spell_ans(a: Tr.Ans) -> String:
-  match a:
-    case Tr.Kept{}:
-      Wr.put_nat(0n, "")
-    case Tr.Took{}:
-      Wr.put_nat(1n, "")
-    case Tr.Cut{ks}:
-      Wr.put_nat(2n, Wr.put_list(~Nat, ~Wr.put_nat, ks, ""))
-    case Tr.Effects{es}:
-      Wr.put_nat(3n, Wr.put_list(~Tr.Eff, ~tt_spell_eff, es, ""))
-    case Tr.Nodes{es}:
-      Wr.put_nat(4n, Wr.put_list(~Tr.Ent, ~tt_spell_ent, es, ""))
-
-def tt_step.ans(r: Tr.St & Tr.Ans) -> Ft.St & String:
-  (s, a) = r
-  (Ft.Live{s}, tt_spell_ans(a))
-
-def tt_step.ask(s: Tr.St, d: Wr.Dec<Tr.Ask>) -> Ft.St & String:
-  match d:
-    case Wr.Got{q, r}:
-      match r:
-        case SNil{}:
-          tt_step.ans(Tr.core.step(s, q))
-        case SCon{c, t}:
-          (Ft.Live{s}, Wr.err("tree: input left after the ask"))
-    case Wr.Bad{}:
-      (Ft.Live{s}, Wr.err("tree: malformed ask"))
-
-# a step of a live core s on input: the core's next state and its answer
-# to the ask; the core kept and an error for anything else
-def tt_step(s: Tr.St, input: String) -> Ft.St & String:
-  tt_step.ask(s, tt_read_ask(input))
-
-# an open: the empty core that splits at the halves, or refused
-def tt_open.of(d: Wr.Dec<List<&2, Nat>>) -> Ft.St & String:
-  match d:
-    case Wr.Got{hs, r}:
-      match r:
-        case SNil{}:
-          (Ft.Live{Tr.core.start(hs)}, "")
-        case SCon{c, t}:
-          (Ft.Shut{}, Wr.err("tree: input left after the halves"))
-    case Wr.Bad{}:
-      (Ft.Shut{}, Wr.err("tree: malformed halves"))
-
-# LAW tree_ffi_step_exact: for every live core and every input, a step answers exactly: on an
-# ask (as the wire primitives read it) with nothing after it, the core's
-# next state and its answer spelled on the wire; on an ask with input after
-# it, the core kept and the error form "tree: input left after the ask";
-# on any other input, the core kept and the error form "tree: malformed
-# ask"
-# EXCLUDES: a misread op, record or ask (a field in the wrong slot, a tag
-#   read as another, a lost, added or reordered op of a rewind), an answer
-#   spelled otherwise, a core changed by garbage or by an ask with input
-#   after it, another error text, a codec of the entry wrong both ways (the
-#   spec never calls it)
-law tree_ffi_step_exact:
-  for +s: Tr.St
-  for +input: String
-  {Ft.step(Ft.Live{s}, input) == tt_step(s, input) : Ft.St & String}
-
-# LAW tree_ffi_open_exact: for every input, the open answers exactly: on a list of halves (the
-# wire's list of Nats) with nothing after it, the empty core that splits at
-# them and the empty reply; with input after it, the refused state and
-# "tree: input left after the halves"; on any other input, the refused
-# state and "tree: malformed halves"
-# EXCLUDES: halves read wrong, a core opened from garbage or from halves
-#   followed by input, another error text
-law tree_ffi_open_exact:
-  for +input: String
-  {Ft.open(input) == tt_open.of(Wr.get_list(~Nat, ~Wr.get_nat, input)) : Ft.St & String}
-
-# LAW tree_ffi_exact_example: anchor: the spec's spelling of an answer of each kind and its
-# reading of the asks Rust writes (those of tree_ffi_example)
-# EXCLUDES: a spec whose field order or tags differ from the Rust side
-law tree_ffi_exact_example:
-  {[tt_spell_ans(Tr.Kept{}), tt_spell_ans(Tr.Took{}), tt_spell_ans(Tr.Cut{[2n, 3n]}), tt_spell_ans(Tr.Effects{[Tr.Start{1n}, Tr.Stop{2n}, Tr.Restore{3n}]}), tt_spell_ans(Tr.Nodes{[Tr.Ent{1n, 0n, 9n}]})] == ["0,", "1,", "2,2,2,3,", "3,3,0,1,1,2,2,3,", "4,1,1,0,9,"] : List<&2, String>} &
-  {[tt_read_ask("0,0,0,2,1,7,"), tt_read_ask("0,0,1,2,"), tt_read_ask("0,1,2,1,3,0,2,1,0,"), tt_read_ask("1,4,"), tt_read_ask("2,5,x"), tt_read_ask("3,")] == [Wr.Got{Tr.Note{Tr.Do{Tr.Put{2n, 1n, 7n}}}, ""}, Wr.Got{Tr.Note{Tr.Do{Tr.Del{2n}}}, ""}, Wr.Got{Tr.Note{Tr.Rewind{[Tr.Del{3n}, Tr.Put{2n, 1n, 0n}]}}, ""}, Wr.Got{Tr.Plan{4n}, ""}, Wr.Got{Tr.Snap{5n}, "x"}, Wr.Bad{}] : List<&2, Wr.Dec<Tr.Ask>>}
-
 # The session tree against its spec (S1)
 # ---------------------------------------
 # spec/durable/tree.bend restates S1 (T1-T7) without the code of
@@ -812,16 +730,6 @@ law tree_replay_spec:
   for +rs: List<&2, Tr.Rec>
   {Tr.replay(rs) == TS.replay(rs) : List<&2, Tr.Ent>}
 
-# LAW tree_diff_spec (S1): the rewind from any tree to any tree is the spec's (T6): the
-# deletes of the nodes the target lacks, then the puts of the nodes the
-# current tree does not hold the same, each in key order
-# EXCLUDES: a lost, extra or reordered op, a put of a node already held
-#   the same
-law tree_diff_spec:
-  for +a: List<&2, Tr.Ent>
-  for +b: List<&2, Tr.Ent>
-  {Tr.diff(a, b) == TS.diff(a, b) : List<&2, Tr.Op>}
-
 # LAW tree_spec_example (S1): anchor: the spec on a journal: a child, a delete of its parent
 # that cuts it and its own child, a put under a deleted node refused, a
 # rewind whose result is no valid tree kept out, one that is valid taken
@@ -834,66 +742,37 @@ law tree_spec_example:
 # The stepper as a machine over journals: the state the entry holds after
 # an open with halves hs and the records rs is the core fed rs
 # (Tr.core.feed, the only states the entry reaches); a step answers from
-# the spec's tree of that journal.
+# the spec's tree of that journal, its answer spelled by the grammar of
+# section "The spelled entry".
 
-def ts_step.q(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>, q: Tr.Ask) -> Ft.St & String:
+# the step of the entry after the journal rs on the ask q: its next state
+# and the spec's answer, spelled
+def ts_step(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>, q: Tr.Ask) -> Ft.St & String:
   match q:
     case Tr.Note{+r}:
-      (Ft.Live{Tr.core.feed(hs, List.append(&2, Tr.Rec, rs, [r]))}, tt_spell_ans(TS.answer(TS.replay(rs), r)))
+      (Ft.Live{Tr.core.feed(hs, List.append(&2, Tr.Rec, rs, [r]))}, tree.spell_ans(TS.answer(TS.replay(rs), r), ""))
     case Tr.Plan{+n}:
       +now = TS.replay(rs)
-      (Ft.Live{Tr.core.feed(hs, rs)}, tt_spell_ans(Tr.Effects{TS.effects(TS.diff(now, TS.replay(List.take(&2, Tr.Rec, rs, n))), now)}))
+      (Ft.Live{Tr.core.feed(hs, rs)}, tree.spell_ans(Tr.Effects{TS.effects(TS.diff(now, TS.replay(List.take(&2, Tr.Rec, rs, n))), now)}, ""))
     case Tr.Snap{+n}:
-      (Ft.Live{Tr.core.feed(hs, rs)}, tt_spell_ans(Tr.Nodes{TS.replay(List.take(&2, Tr.Rec, rs, n))}))
+      (Ft.Live{Tr.core.feed(hs, rs)}, tree.spell_ans(Tr.Nodes{TS.replay(List.take(&2, Tr.Rec, rs, n))}, ""))
 
-def ts_step.ask(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>, d: Wr.Dec<Tr.Ask>) -> Ft.St & String:
-  match d:
-    case Wr.Got{q, r}:
-      match r:
-        case SNil{}:
-          ts_step.q(hs, rs, q)
-        case SCon{c, t}:
-          (Ft.Live{Tr.core.feed(hs, rs)}, Wr.err("tree: input left after the ask"))
-    case Wr.Bad{}:
-      (Ft.Live{Tr.core.feed(hs, rs)}, Wr.err("tree: malformed ask"))
-
-# a step of the entry after the journal rs, on input
-def ts_step(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>, input: String) -> Ft.St & String:
-  ts_step.ask(hs, rs, tt_read_ask(input))
-
-def ts_open.of(d: Wr.Dec<List<&2, Nat>>) -> Ft.St & String:
-  match d:
-    case Wr.Got{hs, r}:
-      match r:
-        case SNil{}:
-          (Ft.Live{Tr.core.feed(hs, Nil{})}, "")
-        case SCon{c, t}:
-          (Ft.Shut{}, Wr.err("tree: input left after the halves"))
-    case Wr.Bad{}:
-      (Ft.Shut{}, Wr.err("tree: malformed halves"))
-
-# LAW tree_ffi_step_spec (S1): after any open and any journal, a step answers exactly: on an ask
-# (as the wire primitives read it) with nothing after it, a record moves to
-# the journal with it at its end and answers the spec's answer to it on the
-# spec's tree (T7); a plan keeps the journal and answers the spec's work of
-# the spec's rewind from the spec's tree to the tree after the first n
-# records; a snapshot keeps the journal and answers the spec's tree after
-# the first n records; each answer spelled on the wire; any other input
-# keeps the journal and answers the error form (input left after the ask,
-# or a malformed ask)
+# LAW tree_ffi_step_spec (S1, T5-T7): after any open and any journal, an ask spelled by the
+# grammar, every number within the wire, steps the entry as the spec says:
+# a record moves to the journal with it at its end and answers the spec's
+# answer to it on the spec's tree (T7); a plan keeps the journal and
+# answers the spec's work of the spec's rewind (T6) from the spec's tree to
+# the tree after the first n records; a snapshot keeps the journal and
+# answers the spec's tree after the first n records; each answer spelled by
+# the grammar. Every other input (left over, malformed) is pinned in every
+# state by tree_ffi_reads_only_asks, tree_ffi_malformed_unless_ask,
+# tree_ffi_left_over_spelled and tree_ffi_error_keeps.
 # EXCLUDES: an answer, a plan or a snapshot other than the spec's, a
-#   journal that drops, repeats or reorders a record or moves on a plan, a
-#   snapshot or garbage, a misread ask, another spelling or error text
+#   journal that drops, repeats or reorders a record or moves on a plan or
+#   a snapshot, another spelling
 law tree_ffi_step_spec:
   for +hs: List<&2, Nat>
   for +rs: List<&2, Tr.Rec>
-  for +input: String
-  {Ft.step(Ft.Live{Tr.core.feed(hs, rs)}, input) == ts_step(hs, rs, input) : Ft.St & String}
-
-# LAW tree_ffi_open_spec (S1): every open answers exactly: on the wire's list of halves with
-# nothing after it, the stepper at the empty journal with those halves and
-# the empty reply; else the refused state and its error form
-# EXCLUDES: an open that starts with a record, another error text
-law tree_ffi_open_spec:
-  for +input: String
-  {Ft.open(input) == ts_open.of(Wr.get_list(~Nat, ~Wr.get_nat, input)) : Ft.St & String}
+  for +q: Tr.Ask
+  for fits: {tree.ask_fits(q) == True{} : Bool}
+  {Ft.step(Ft.Live{Tr.core.feed(hs, rs)}, tree.spell_ask(q, "")) == ts_step(hs, rs, q) : Ft.St & String}

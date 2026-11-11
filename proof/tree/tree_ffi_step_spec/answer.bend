@@ -1,6 +1,5 @@
 # eukhe: lemmas of LAW tree_ffi_step_spec: on a valid tree the laws'
-# answer to a record (tree.answer) and the work of a plan (tree.effects)
-# are the spec's (TS.answer, TS.effects).
+# answer to a record (tree.answer) is the spec's (TS.answer).
 
 import Base
 import ../../../bend/tree.bend as Tr
@@ -57,26 +56,3 @@ def ta.answer(+t: List<&2, Tr.Ent>, r: Tr.Rec, +good: {Tr.sound(t) == True{} : B
       %LS.ts.patch(ops, t, st) : {Tree.tree.took(Tr.sound(Tr.patch(ops, t))) == TS.took(TS.valid(_)) : Tr.Ans}
       %LB.ts.sound(Tr.patch(ops, t)) : {Tree.tree.took(Tr.sound(Tr.patch(ops, t))) == TS.took(_) : Tr.Ans}
       ta.took(Tr.sound(Tr.patch(ops, t)))
-
-def ta.effect(b: Bool, k: Nat) -> {Tree.tree.effect(b, k) == TS.effect(b, k) : Tr.Eff}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-# the laws' work of a plan is the spec's
-def ta.effects(ops: List<&2, Tr.Op>, +t: List<&2, Tr.Ent>) -> {Tree.tree.effects(ops, t) == TS.effects(ops, t) : List<&2, Tr.Eff>}:
-  match ops:
-    case Nil{}:
-      {==}
-    case o <> rest:
-      match o:
-        case Tr.Del{k}:
-          %ta.effects(rest, t) : {Tr.Stop{k} <> Tree.tree.effects(rest, t) == Tr.Stop{k} <> _ : List<&2, Tr.Eff>}
-          {==}
-        case Tr.Put{+k, p, v}:
-          %ta.effects(rest, t) : {Tree.tree.effect(Tr.has(t, k), k) <> Tree.tree.effects(rest, t) == TS.effect(TS.has(t, k), k) <> _ : List<&2, Tr.Eff>}
-          %LB.ts.has(t, k) : {Tree.tree.effect(Tr.has(t, k), k) <> Tree.tree.effects(rest, t) == TS.effect(_, k) <> Tree.tree.effects(rest, t) : List<&2, Tr.Eff>}
-          %ta.effect(Tr.has(t, k), k) : {Tree.tree.effect(Tr.has(t, k), k) <> Tree.tree.effects(rest, t) == _ <> Tree.tree.effects(rest, t) : List<&2, Tr.Eff>}
-          {==}

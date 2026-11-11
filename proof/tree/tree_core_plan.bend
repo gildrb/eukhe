@@ -1,8 +1,16 @@
 # eukhe: the proof of LAW tree_core_plan
+#
+# PROOF: the core's merge (diff.m) over its key maps read back is the
+# model's diff of the live tree and the tree after n records (tc.diff_m,
+# both sorted), which is the spec's rewind (TD.td.diff); the core's work of
+# its ops (effects over KMap.has) is the spec's work over the live tree
+# (tc.effects); and the spec's work of the spec's rewind is the plan R3
+# states (PL.pl.plan).
 
 import Base
 import ../../bend/tree.bend as Tr
 import ../../laws/tree.bend as Tree
+import ../../spec/durable/tree.bend as TS
 import ../base/bool.bend as LBool
 import ../base/logic/bool.bend as LLogicBool
 import ../base/nat.bend as LNat
@@ -13,6 +21,9 @@ import ./base/tree/get.bend as LATreeGet
 import ./base/tree/has.bend as LATreeHas
 import ./base/tree/sound.bend as LATreeSound
 import ./base/tree/unset.bend as LATreeUnset
+import ./tree_replay_spec/basic.bend as LB
+import ./tree_core_plan/diff.bend as TD
+import ./tree_core_plan/plan.bend as PL
 
 # The plan: the merge is diff
 
@@ -204,24 +215,27 @@ def tc.diff_m(+a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +sa: {Tr.sorted(a) == 
   %Equal.sym(List<&2, Tr.Op>, Tr.puts.m(b, a), Tr.puts(a, b), tc.puts_m(b, a, sa, sb)) : {List.append(&2, Tr.Op, Tr.dels(a, b), _) == Tr.diff(a, b) : List<&2, Tr.Op>}
   {==}
 
-def tc.eff_cons(h: Bool, +k: Nat, +X: List<&2, Tr.Eff>, +Y: List<&2, Tr.Eff>, +e: {X == Y : List<&2, Tr.Eff>}) -> {Tr.eff.put(h, k) <> X == Tree.tree.effect(h, k) <> Y : List<&2, Tr.Eff>}:
+def tc.eff_cons(h: Bool, +k: Nat, -X: List<&2, Tr.Eff>, -Y: List<&2, Tr.Eff>, e: {X == Y : List<&2, Tr.Eff>}) -> {Tr.eff.put(h, k) <> X == TS.effect(h, k) <> Y : List<&2, Tr.Eff>}:
   match h:
     case True{}:
       Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Restore{k} <> ys, X, Y, e)
     case False{}:
       Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Start{k} <> ys, X, Y, e)
 
-def tc.effects(ops: List<&2, Tr.Op>, +m: Tr.KMap, +bt: {LLogicBool.tc.bst(m) == True{} : Bool}) -> {Tr.effects(ops, m) == Tree.tree.effects(ops, Tr.KMap.read(m)) : List<&2, Tr.Eff>}:
+# the core's work of ops over its key map is the spec's over the tree it holds
+def tc.effects(ops: List<&2, Tr.Op>, +m: Tr.KMap, +bt: {LLogicBool.tc.bst(m) == True{} : Bool}) -> {Tr.effects(ops, m) == TS.effects(ops, Tr.KMap.read(m)) : List<&2, Tr.Eff>}:
   match ops:
     case Nil{}:
       {==}
     case o <> +rest:
       match o:
         case Tr.Del{+k}:
-          Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Stop{k} <> ys, Tr.effects(rest, m), Tree.tree.effects(rest, Tr.KMap.read(m)), tc.effects(rest, m, bt))
+          Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Stop{k} <> ys, Tr.effects(rest, m), TS.effects(rest, Tr.KMap.read(m)), tc.effects(rest, m, bt))
         case Tr.Put{+k, p, v}:
-          %Equal.sym(Bool, Tr.KMap.has(m, k), Tr.has(Tr.KMap.read(m), k), LATreeGet.tc.has(m, k, bt)) : {Tr.eff.put(_, k) <> Tr.effects(rest, m) == Tree.tree.effect(Tr.has(Tr.KMap.read(m), k), k) <> Tree.tree.effects(rest, Tr.KMap.read(m)) : List<&2, Tr.Eff>}
-          tc.eff_cons(Tr.has(Tr.KMap.read(m), k), k, Tr.effects(rest, m), Tree.tree.effects(rest, Tr.KMap.read(m)), tc.effects(rest, m, bt))
+          +R = Tr.KMap.read(m)
+          %Equal.sym(Bool, Tr.KMap.has(m, k), Tr.has(R, k), LATreeGet.tc.has(m, k, bt)) : {Tr.eff.put(_, k) <> Tr.effects(rest, m) == TS.effect(TS.has(R, k), k) <> TS.effects(rest, R) : List<&2, Tr.Eff>}
+          %LB.ts.has(R, k) : {Tr.eff.put(Tr.has(R, k), k) <> Tr.effects(rest, m) == TS.effect(_, k) <> TS.effects(rest, R) : List<&2, Tr.Eff>}
+          tc.eff_cons(Tr.has(R, k), k, Tr.effects(rest, m), TS.effects(rest, R), tc.effects(rest, m, bt))
 
 def Tree.tree_core_plan(hs, rs, n):
   +M = Tr.KMap.go(rs, hs, Tr.KNil{})
@@ -229,16 +243,19 @@ def Tree.tree_core_plan(hs, rs, n):
   +T = Tr.St.at(L, hs, n)
   +R = Tr.replay(rs)
   +R2 = Tr.replay(List.take(&2, Tr.Rec, rs, n))
+  +P = Tree.tree.plan(R, R2)
   +bm = LATreeKMap.tc.live_bst(hs, rs)
   +e1 = Equal.trans(List<&2, Tr.Ent>, Tr.KMap.onto(M, Nil{}), Tr.KMap.read(M), R, LATreeKMap.tc.onto_nil(M), LATreeUnset.tc.live_read(hs, rs))
   +e2 = Equal.trans(List<&2, Tr.Ent>, Tr.KMap.onto(T, Nil{}), Tr.KMap.read(T), R2, LATreeKMap.tc.onto_nil(T), LATreeUnset.tc.at_read(hs, rs, n))
   +sR = LLogicBool.tree.pt.and_l(Tr.sorted(R), Tr.rooted(R), LATreeSound.replay_sound(rs))
   +sR2 = LLogicBool.tree.pt.and_l(Tr.sorted(R2), Tr.rooted(R2), LATreeSound.replay_sound(List.take(&2, Tr.Rec, rs, n)))
-  +D = Tr.diff(R, R2)
-  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, LATreeCore.tc.feed(hs, rs)) : {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Plan{n})) == Tr.Effects{Tree.tree.effects(D, R)} : Tr.Ans}
-  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(M, Nil{}), R, e1) : {Tr.Effects{Tr.effects(Tr.diff.m(_, Tr.KMap.onto(T, Nil{})), M)} == Tr.Effects{Tree.tree.effects(D, R)} : Tr.Ans}
-  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(T, Nil{}), R2, e2) : {Tr.Effects{Tr.effects(Tr.diff.m(R, _), M)} == Tr.Effects{Tree.tree.effects(D, R)} : Tr.Ans}
-  %Equal.sym(List<&2, Tr.Op>, Tr.diff.m(R, R2), D, tc.diff_m(R, R2, sR, sR2)) : {Tr.Effects{Tr.effects(_, M)} == Tr.Effects{Tree.tree.effects(D, R)} : Tr.Ans}
+  +D = TS.diff(R, R2)
+  +eD = Equal.trans(List<&2, Tr.Op>, Tr.diff.m(R, R2), Tr.diff(R, R2), D, tc.diff_m(R, R2, sR, sR2), TD.td.diff(R, R2))
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, LATreeCore.tc.feed(hs, rs)) : {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Plan{n})) == Tr.Effects{P} : Tr.Ans}
+  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(M, Nil{}), R, e1) : {Tr.Effects{Tr.effects(Tr.diff.m(_, Tr.KMap.onto(T, Nil{})), M)} == Tr.Effects{P} : Tr.Ans}
+  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(T, Nil{}), R2, e2) : {Tr.Effects{Tr.effects(Tr.diff.m(R, _), M)} == Tr.Effects{P} : Tr.Ans}
+  %Equal.sym(List<&2, Tr.Op>, Tr.diff.m(R, R2), D, eD) : {Tr.Effects{Tr.effects(_, M)} == Tr.Effects{P} : Tr.Ans}
   +s1 = tc.effects(D, M, bm)
-  +s2 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Eff>, z => Tree.tree.effects(D, z), Tr.KMap.read(M), R, LATreeUnset.tc.live_read(hs, rs))
-  Equal.cong(List<&2, Tr.Eff>, Tr.Ans, z => Tr.Effects{z}, Tr.effects(D, M), Tree.tree.effects(D, R), Equal.trans(List<&2, Tr.Eff>, Tr.effects(D, M), Tree.tree.effects(D, Tr.KMap.read(M)), Tree.tree.effects(D, R), s1, s2))
+  +s2 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Eff>, z => TS.effects(D, z), Tr.KMap.read(M), R, LATreeUnset.tc.live_read(hs, rs))
+  +s3 = PL.pl.plan(R, R2)
+  Equal.cong(List<&2, Tr.Eff>, Tr.Ans, z => Tr.Effects{z}, Tr.effects(D, M), P, Equal.trans(List<&2, Tr.Eff>, Tr.effects(D, M), TS.effects(D, Tr.KMap.read(M)), P, s1, Equal.trans(List<&2, Tr.Eff>, TS.effects(D, Tr.KMap.read(M)), TS.effects(D, R), P, s2, s3)))

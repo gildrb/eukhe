@@ -1,15 +1,13 @@
-# eukhe: the proof of LAW tree_diff_spec
-#
-# PROOF: the model's deletes keep the nodes of a whose key b lacks, its
-# puts the nodes of b that a does not hold the same, as the spec's filters
-# do: the lookups and the sameness are the spec's (LB.ts.has, LB.ts.get,
-# LB.ts.same).
+# eukhe: lemma of LAW tree_core_plan: the model's rewind ops (Tr.diff) are
+# the spec's (TS.diff, T6): its deletes keep the nodes of a whose key b
+# lacks, its puts the nodes of b that a does not hold the same, as the
+# spec's filters do; the lookups and the sameness are the spec's
+# (LB.ts.has, LB.ts.get, LB.ts.same).
 
 import Base
-import ../../bend/tree.bend as Tr
-import ../../laws/tree.bend as Tree
-import ../../spec/durable/tree.bend as TS
-import ./tree_replay_spec/basic.bend as LB
+import ../../../bend/tree.bend as Tr
+import ../../../spec/durable/tree.bend as TS
+import ../tree_replay_spec/basic.bend as LB
 
 def td.dels_at(c: Bool, +k: Nat, +p: Nat, +v: Nat, +rest: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, ih: {Tr.dels(rest, b) == TS.diff.dels(rest, b) : List<&2, Tr.Op>}) -> {Tr.dels.go(Tr.Ent{k, p, v} <> rest, b, c) == TS.op.if(Bool.not(c), Tr.Del{k}, TS.diff.dels(rest, b)) : List<&2, Tr.Op>}:
   match c:
@@ -49,7 +47,8 @@ def td.puts(+a: List<&2, Tr.Ent>, s: List<&2, Tr.Ent>) -> {Tr.puts(a, s) == TS.d
           %LB.ts.same(Tr.get(a, k), E) : {Tr.puts.go(a, E <> rest, Tr.same(Tr.get(a, k), Some{E})) == TS.op.if(Bool.not(_), Tr.Put{k, p, v}, TS.diff.puts(a, rest)) : List<&2, Tr.Op>}
           td.puts_at(Tr.same(Tr.get(a, k), Some{E}), a, k, p, v, rest, td.puts(a, rest))
 
-def Tree.tree_diff_spec(a, b):
+# the model's rewind from a to b is the spec's
+def td.diff(+a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>) -> {Tr.diff(a, b) == TS.diff(a, b) : List<&2, Tr.Op>}:
   %td.dels(a, b) : {List.append(&2, Tr.Op, Tr.dels(a, b), Tr.puts(a, b)) == List.append(&2, Tr.Op, _, TS.diff.puts(a, b)) : List<&2, Tr.Op>}
   %td.puts(a, b) : {List.append(&2, Tr.Op, Tr.dels(a, b), Tr.puts(a, b)) == List.append(&2, Tr.Op, Tr.dels(a, b), _) : List<&2, Tr.Op>}
   {==}
