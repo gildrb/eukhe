@@ -1,4 +1,4 @@
-# eukhe: the proof of LAW bound_keep_exact: the model's keep is the spec's, by the count of lines that fit
+# eukhe: the proof of LAW bound_skip_tail_clears: a tail's skip of some bytes computes
 
 import Base
 import ../../bend/bound.bend as Bd
@@ -7,5 +7,5 @@ import ../../bend/wire.bend as Wr
 import ../../laws/bound.bend as Bound
 import ./base.bend as LBound
 
-def Bound.bound_keep_exact(xs, k, b, c):
-  LBound.bnd.keep(xs, k, b, c)
+def Bound.bound_skip_tail_clears(b, l, bs, nl, op, sd, p, k, o):
+  {==}

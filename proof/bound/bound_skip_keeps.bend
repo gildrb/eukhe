@@ -1,4 +1,4 @@
-# eukhe: the proof of LAW bound_margin_exact: the margin's lines, reverse and least are the spec's
+# eukhe: the proof of LAW bound_skip_keeps: a head's skip, and a skip of no byte, compute
 
 import Base
 import ../../bend/bound.bend as Bd
@@ -7,5 +7,5 @@ import ../../bend/wire.bend as Wr
 import ../../laws/bound.bend as Bound
 import ./base.bend as LBound
 
-def Bound.bound_margin_exact(c, x):
-  LBound.bnd.margin(c, x)
+def Bound.bound_skip_keeps(b, l, bs, nl, op, sd, n, k, o):
+  ({==}, {==})

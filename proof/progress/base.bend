@@ -1,8 +1,14 @@
 # eukhe: lemmas the proofs of area progress share
 
 import Base
+import ../../bend/ffi_progress.bend as FPr
 import ../../bend/progress.bend as Pr
+import ../../laws/base.bend as LawsBase
+import ../../laws/progress.bend as Progress
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
 import ../base/nat.bend as LNat
+import ./goal_entry.bend as PGoalEntry
 
 # ---- progress ----
 
@@ -289,3 +295,46 @@ def pp.lt_is_le(a: Nat, b: Nat) -> {Nat.is_lt(a, b) == Nat.is_le(1n+a, b) : Bool
       {==}
     case 1n+ap 1n+bp:
       pp.lt_is_le(ap, bp)
+
+# 1 + s <= t when s < t
+def pp.lt_le_succ(s: Nat, t: Nat, h: {Nat.is_lt(s, t) == True{} : Bool}) -> {Nat.is_le(1n+s, t) == True{} : Bool}:
+  %pp.lt_is_le(s, t) : {_ == True{} : Bool}
+  h
+
+# s <= t - 1 when s < t
+def pp.lt_pred(s: Nat, t: Nat, h: {Nat.is_lt(s, t) == True{} : Bool}) -> {Nat.is_le(s, Nat.sub(t, 1n)) == True{} : Bool}:
+  match s t:
+    case 0n 0n:
+      LLogicLogic.pj.absurdF({Nat.is_le(0n, Nat.sub(0n, 1n)) == True{} : Bool}, h)
+    case 0n 1n+tp:
+      LNat.pj.le0(Nat.sub(1n+tp, 1n))
+    case 1n+sp 0n:
+      LLogicLogic.pj.absurdF({Nat.is_le(1n+sp, Nat.sub(0n, 1n)) == True{} : Bool}, h)
+    case 1n+sp 1n++tp:
+      %LNat.pj.sub_zero(tp) : {Nat.is_le(1n+sp, _) == True{} : Bool}
+      pp.lt_le_succ(sp, tp, h)
+
+# The entry
+# ---------
+
+# the spelled request (WIRE.md) is the request Rust's writer and the
+# entry's own encoder spell
+def pe.spell(+t: Nat, +cap: Nat, p: Maybe<&2, Pr.Prior>, +work: Nat) -> {Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work}) == FPr.put_req(t, cap, p, work) : String}:
+  match p:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Pr.Prior{s, w}:
+          {==}
+
+# a spelled request that fits answers the spelled verdict of judge
+def pe.answer(+t: Nat, +cap: Nat, +p: Maybe<&2, Pr.Prior>, +work: Nat, +h: {Progress.gs_fits(Progress.gs.Req{t, cap, p, work}) == True{} : Bool}) -> {FPr.put_goal(Pr.judge(t, cap, p, work), "") == FPr.ffi(Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work})) : String}:
+  +r1 = LLogicBool.wr_and_r(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work))), h)
+  +r2 = LLogicBool.wr_and_r(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work)), r1)
+  +ht = LLogicBool.wr_and_l(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work))), h)
+  +hc = LLogicBool.wr_and_l(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work)), r1)
+  +hp = LLogicBool.wr_and_l(Progress.wire_prior_fits(p), LawsBase.wire_fits(work), r2)
+  +hw = LLogicBool.wr_and_r(Progress.wire_prior_fits(p), LawsBase.wire_fits(work), r2)
+  %Equal.sym(String, Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work}), FPr.put_req(t, cap, p, work), pe.spell(t, cap, p, work)) : {FPr.put_goal(Pr.judge(t, cap, p, work), "") == FPr.ffi(_) : String}
+  Equal.sym(String, FPr.ffi(FPr.put_req(t, cap, p, work)), FPr.put_goal(Pr.judge(t, cap, p, work), ""), Progress.goal_entry(t, cap, p, work, ht, hc, hp, hw))
