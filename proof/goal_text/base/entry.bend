@@ -89,9 +89,6 @@ def gte.req_rt(q: FGt.Req, +rest: String, h: {GoalText.gt_fit_req(q) == True{} :
         case Gt.KContinuation{}:
           %Equal.sym(Wr.Dec<Gt.Goal>, FGt.get_goal(GoalText.gt_w_goal(g, rest)), Wr.Got{g, rest}, gte.goal_rt(g, rest, h)) : {FGt.get_prompt(Gt.KContinuation{}, _) == Wr.Got{FGt.QPrompt{Gt.KContinuation{}, g}, rest} : Wr.Dec<FGt.Req>}
           {==}
-        case Gt.KBudgetLimit{}:
-          %Equal.sym(Wr.Dec<Gt.Goal>, FGt.get_goal(GoalText.gt_w_goal(g, rest)), Wr.Got{g, rest}, gte.goal_rt(g, rest, h)) : {FGt.get_prompt(Gt.KBudgetLimit{}, _) == Wr.Got{FGt.QPrompt{Gt.KBudgetLimit{}, g}, rest} : Wr.Dec<FGt.Req>}
-          {==}
         case Gt.KObjectiveUpdated{}:
           %Equal.sym(Wr.Dec<Gt.Goal>, FGt.get_goal(GoalText.gt_w_goal(g, rest)), Wr.Got{g, rest}, gte.goal_rt(g, rest, h)) : {FGt.get_prompt(Gt.KObjectiveUpdated{}, _) == Wr.Got{FGt.QPrompt{Gt.KObjectiveUpdated{}, g}, rest} : Wr.Dec<FGt.Req>}
           {==}
@@ -256,10 +253,8 @@ def gtx.kind.of(t: Nat, -s: String, +s2: String, pre2: {s == Wr.put_nat(0n, Wr.p
     case 0n:
       gtx.prompt(s, Gt.KContinuation{}, s2, pre2, FGt.get_goal(s2), gtx.goal(s2))
     case 1n:
-      gtx.prompt(s, Gt.KBudgetLimit{}, s2, pre2, FGt.get_goal(s2), gtx.goal(s2))
-    case 2n:
       gtx.prompt(s, Gt.KObjectiveUpdated{}, s2, pre2, FGt.get_goal(s2), gtx.goal(s2))
-    case 3n+u:
+    case 2n+u:
       Unit{}
 
 def gtx.kind(-s: String, -s1: String, pre: {s == Wr.put_nat(0n, s1) : String}, d: Wr.Dec<Nat>, np: LE.dcw.NP(s1, d)) -> gtx.RP(s, FGt.get_kind(d)):
