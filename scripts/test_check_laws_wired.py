@@ -57,6 +57,17 @@ class LayoutTestCase(unittest.TestCase):
     def test_the_layout_passes(self) -> None:
         self.assertEqual(gaps_of(self.tree({})), [])
 
+    def test_the_site_laws_are_skipped(self) -> None:
+        site_law = "import Base\n\nlaw site_one:\n  {1n == 1n : Nat}\n"
+        site_fill = "import Base\nimport ../../laws/v.bend as V\n\ndef V.site_one():\n  {==}\n"
+        root = self.tree({
+            "site/LAWS.bend": "import Base\nimport ./laws/v.bend as V\n",
+            "site/PROOF.bend": "import Base\nimport ./LAWS.bend as Laws\nimport ./proof/v/site_one.bend as P\n",
+            "site/laws/v.bend": site_law,
+            "site/proof/v/site_one.bend": site_fill,
+        })
+        self.assertEqual(gaps_of(root), [])
+
     def test_laws_in_laws_bend_pass(self) -> None:
         laws = "import Base\nimport ./bend/m.bend as Mm\n\nlaw m_one:\n  {Mm.one == 1n : Nat}\n"
         fill = "import Base\nimport ../../LAWS.bend as Laws\n\ndef Laws.m_one():\n  {==}\n"

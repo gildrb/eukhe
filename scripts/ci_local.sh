@@ -128,26 +128,30 @@ docs_only() {
 }
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
-# files, the agent rules, docs/, and the laws and proofs (the proofs gate
-# checks them). (scripts/release/ and
+# files, the agent rules, docs/, the laws and proofs (the proofs gate
+# checks them), and site/ (the website: no gate runs on it; `make
+# site-check` is its own check). (scripts/release/ and
 # README.md stay code: eukhe-cli's packaging tests run and copy them.)
 outside_crates() {
   case "$1" in
     "" | .github/* | nix/* | docs/* | scripts/ci_* | scripts/test_ci_* | \
       scripts/bend_proofs.py | scripts/test_bend_proofs.py | .config/nextest.toml | mise.toml | \
       .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | Makefile | flake.nix | flake.lock | \
-      LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/*) return 0 ;;
+      LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/* | site/*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 # A change the proofs gate must check: a Bend file, the generated core and
-# its entry list, or the scripts and toolchain pin the gate runs.
+# its entry list, or the scripts and toolchain pin the gate runs. The Bend
+# files of site/ are the website's (its own laws and proofs, `make
+# site-check`): no gate checks them.
 bend_touched() {
   local path old p
   while IFS=$'\t' read -r path old; do
     for p in "${path}" "${old}"; do
       case "${p}" in
+        site/*) ;;
         *.bend | bend/* | crates/eukhe-bend/* | scripts/bend_core.py | scripts/bend_proofs.py | \
           scripts/check_laws_wired.py | scripts/pinned_bend.sh | scripts/toolchain.env) return 0 ;;
       esac
