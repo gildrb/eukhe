@@ -117,7 +117,9 @@ async fn marks(conversation: &Conversation, cx: &Context) -> SessionResult<Marks
 
 /// The state of `conversation` now, with `workspace` fingerprinted when
 /// given: a number from 1 to 99999999999999 that changes with the newest
-/// effect, the newest user message and the workspace.
+/// effect, the newest user message and the workspace; 0 while there is
+/// none of them (no effect, no user message, no workspace), the state of
+/// a conversation that never had an acceptance or a turn.
 ///
 /// # Errors
 ///
@@ -130,6 +132,7 @@ pub(crate) async fn state_now(
     let marks = marks(conversation, cx).await?;
     let print = match workspace {
         Some(cwd) => fingerprint(cwd).await,
+        None if marks == Marks::default() => return Ok(0),
         None => [0; 32],
     };
     let mut hasher = Sha256::new();

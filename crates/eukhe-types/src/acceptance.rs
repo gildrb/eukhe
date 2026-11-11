@@ -197,7 +197,8 @@ pub struct AcceptanceState {
     /// The label of the result on the conversation's state now: the
     /// compiled core's. `unverified` with no checks.
     pub label: AcceptanceLabel,
-    /// The conversation's state now (its newest tool result).
+    /// The conversation's state now: it moves with the newest effect, the
+    /// newest user message and the workspace; 0 before any of them.
     pub state: u64,
     /// The revision of the checks: it grows each time the owner sets them.
     pub revision: u64,
