@@ -1,6 +1,7 @@
 //! Shared chat framing decisions.
 use super::{AssistantMessage, Detail, MessageBlock};
 use crate::markdown::MarkdownStyle;
+use crate::style::Modifier;
 use crate::theme::{Theme, ThemeColor};
 
 pub(super) fn user_mask(text: &str) -> crate::prompt_highlight::PromptTokenMask {
@@ -26,25 +27,29 @@ pub(super) fn is_blank_row(line: &[crate::Span]) -> bool {
     line.iter().all(|span| span.content.trim().is_empty())
 }
 
-/// The cache tag the dim thinking block renders under.
-pub(super) const THINKING_CACHE_TAG: &str = "dim";
+/// The cache tag the thinking block renders under.
+pub(super) const THINKING_CACHE_TAG: &str = "thinking";
 
+/// The thinking block's style: the theme's `thinkingText` colour, italic
+/// (omp `AssistantMessageComponent.#createMarkdown("thinking")`), on every
+/// markdown element, so reasoning never reads as answer text.
 pub(super) fn thinking_style(md: &MarkdownStyle, theme: &Theme) -> MarkdownStyle {
     let mut md = md.clone();
-    let dim = theme.fg_style(ThemeColor::Dim);
-    // TS `getThinkingMarkdownTheme` replaces `highlightCode` with uniform
-    // dim lines: the thinking code blocks never highlight.
+    let thinking = theme
+        .fg_style(ThemeColor::ThinkingText)
+        .add_modifier(Modifier::ITALIC);
+    // The thinking code blocks never highlight: one quiet style throughout.
     md.syntax = None;
-    md.body = dim;
-    md.heading = dim;
-    md.link = dim;
-    md.link_url = dim;
-    md.code = dim;
-    md.code_block = dim;
-    md.code_block_border = dim;
-    md.quote = dim;
-    md.quote_border = dim;
-    md.hr = dim;
-    md.list_bullet = dim;
+    md.body = thinking;
+    md.heading = thinking;
+    md.link = thinking;
+    md.link_url = thinking;
+    md.code = thinking;
+    md.code_block = thinking;
+    md.code_block_border = thinking;
+    md.quote = thinking;
+    md.quote_border = thinking;
+    md.hr = thinking;
+    md.list_bullet = thinking;
     md
 }
