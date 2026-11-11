@@ -1,7 +1,6 @@
 //! The stream concern: the working loader's activity and token accounting
 //! over provider stream events, plus the `/speed` readout and the
 //! streaming/running/resume hint helpers.
-use eukhe_types::token_estimate::chars_to_tokens;
 
 use super::{AgentView, SessionUi, Value, WorkingState};
 use crate::activity::TurnPhase;
@@ -10,8 +9,8 @@ use crate::glyphs::WARN;
 
 /// The loader's token accounting (TS `AgentActivityTracker`): the live
 /// count is completed-message output tokens plus max(reported usage, the
-/// content at the one token estimate), reported monotonically within a
-/// run. The live count derives from the streamed message itself -- never
+/// worker's count of the streamed content), reported monotonically within
+/// a run. The live count derives from the streamed message itself -- never
 /// from per-delta sums -- because the worker coalesces provider deltas into
 /// latest-snapshot frames and a delta sum would undercount.
 #[derive(Debug, Default)]
@@ -22,10 +21,9 @@ pub(super) struct LoaderTokenTracker {
     /// The streaming message's reported `usage.output` (TS
     /// `streamingUsageTokens`).
     streaming_usage: u64,
-    /// The streaming message's content size in chars, UTF-16 code units
-    /// (TS accumulates the same value as a delta sum; the snapshot message
-    /// carries it directly).
-    streaming_chars: u64,
+    /// The streaming message's output tokens as the worker last counted
+    /// them (`message_update.outputTokens`, kept between counted frames).
+    streaming_counted: u64,
 }
 
 impl LoaderTokenTracker {
@@ -39,36 +37,42 @@ impl LoaderTokenTracker {
     /// empty -- its reported usage only counts from the first update.
     pub(super) fn start_message(&mut self) {
         self.streaming_usage = 0;
-        self.streaming_chars = 0;
+        self.streaming_counted = 0;
     }
 
-    /// TS `message_update`: adopt the message's reported usage and size,
-    /// returning the live count.
-    pub(super) fn apply_streaming(&mut self, usage_output: u64, content_chars: u64) -> u64 {
+    /// TS `message_update`: adopt the message's reported usage and, on a
+    /// frame the worker counted at, its output tokens; returns the live
+    /// count.
+    pub(super) fn apply_streaming(&mut self, usage_output: u64, counted: Option<u64>) -> u64 {
         self.streaming_usage = usage_output;
-        self.streaming_chars = content_chars;
+        if let Some(counted) = counted {
+            self.streaming_counted = counted;
+        }
         self.current()
     }
 
     /// TS `message_end`: bank the message's tokens into the completed
-    /// count (authoritative usage when reported, else the live estimate)
-    /// and clear the live state.
+    /// count (authoritative usage when reported, else the worker's last
+    /// count) and clear the live state.
     pub(super) fn settle(&mut self, usage_output: u64) {
         self.completed_tokens += if usage_output > 0 {
             usage_output
         } else {
-            chars_to_tokens(self.streaming_chars)
+            self.streaming_counted
         };
         self.start_message();
     }
 
-    /// TS `currentTokens`: completed tokens plus max(reported usage, the
-    /// content at the one token estimate).
+    /// The streaming message's output so far: max(reported usage, the
+    /// worker's count).
+    pub(super) fn streaming_tokens(&self) -> u64 {
+        self.streaming_usage.max(self.streaming_counted)
+    }
+
+    /// TS `currentTokens`: completed tokens plus the streaming message's
+    /// output so far.
     fn current(&self) -> u64 {
-        self.completed_tokens
-            + self
-                .streaming_usage
-                .max(chars_to_tokens(self.streaming_chars))
+        self.completed_tokens + self.streaming_tokens()
     }
 }
 
@@ -354,29 +358,29 @@ mod loader_token_tests {
 
     /// The live count derives from the streamed message, so coalesced
     /// frames (one latest-snapshot wire frame per flush tick) count the
-    /// full streamed size -- a per-delta sum would undercount them ~20x.
+    /// full streamed output -- a per-delta sum would undercount them ~20x.
     #[test]
     fn coalesced_frames_count_from_the_message_not_deltas() {
         let mut tracker = LoaderTokenTracker::default();
         tracker.reset();
-        // A message streams to 400 chars; the coalesced wire frame carries
-        // the full snapshot but only the final provider delta. 400 chars
-        // at 3.5 chars per token are 115 tokens (chars/4 made 100).
-        assert_eq!(tracker.apply_streaming(0, 400), 115);
-        // A provider that reports usage upfront wins over the estimate.
-        assert_eq!(tracker.apply_streaming(600, 400), 600);
+        // The worker counted the message's output at 115 tokens.
+        assert_eq!(tracker.apply_streaming(0, Some(115)), 115);
+        // A frame the worker did not count keeps the last count.
+        assert_eq!(tracker.apply_streaming(0, None), 115);
+        // A provider that reports usage upfront wins over a lower count.
+        assert_eq!(tracker.apply_streaming(600, Some(130)), 600);
         // Settle banks the reported usage, then the live state is empty.
         tracker.settle(600);
         assert_eq!(tracker.current(), 600);
     }
 
-    /// Settling without reported usage banks the live estimate (TS
+    /// Settling without reported usage banks the worker's last count (TS
     /// `usage.output > 0 ? usage.output : estimatedStreamingTokens()`).
     #[test]
-    fn settle_without_usage_banks_the_estimate() {
+    fn settle_without_usage_banks_the_last_count() {
         let mut tracker = LoaderTokenTracker::default();
         tracker.reset();
-        assert_eq!(tracker.apply_streaming(0, 404), 116);
+        assert_eq!(tracker.apply_streaming(0, Some(116)), 116);
         tracker.settle(0);
         assert_eq!(tracker.current(), 116);
     }
@@ -387,12 +391,12 @@ mod loader_token_tests {
     fn message_start_resets_the_live_state_and_agent_start_the_run() {
         let mut tracker = LoaderTokenTracker::default();
         tracker.reset();
-        assert_eq!(tracker.apply_streaming(0, 800), 229);
+        assert_eq!(tracker.apply_streaming(0, Some(229)), 229);
         tracker.settle(0);
         tracker.start_message();
         // The live count rides on the run's completed count: 229 banked
         // plus the new message's reported 50.
-        assert_eq!(tracker.apply_streaming(50, 8), 279);
+        assert_eq!(tracker.apply_streaming(50, Some(2)), 279);
         tracker.settle(50);
         assert_eq!(tracker.current(), 279);
         tracker.reset();

@@ -946,6 +946,7 @@ dependencies = [
  "eukhe-build-info",
  "eukhe-client",
  "eukhe-theme",
+ "eukhe-tokens",
  "eukhe-types",
  "fancy-regex 0.14.0",
  "ignore",

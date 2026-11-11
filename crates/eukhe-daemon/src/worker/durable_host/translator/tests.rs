@@ -365,6 +365,131 @@ fn immediate_mode_ends_each_block_once() {
     assert_eq!(frames[1]["message"], message);
 }
 
+/// The test answers' tokenizer (`faux`/`m`: no catalog tokenizer, so
+/// `o200k_base`).
+fn answer_tokenizer() -> Arc<Tokenizer> {
+    Tokenizer::for_model(ModelRef {
+        id: "m",
+        provider: "faux",
+        api: "faux",
+    })
+}
+
+/// Each frame's `outputTokens`, `None` where it carries none.
+fn output_counts(frames: &[Value]) -> Vec<Option<u64>> {
+    frames
+        .iter()
+        .map(|frame| {
+            frame
+                .get("outputTokens")
+                .map(|tokens| tokens.as_u64().unwrap())
+        })
+        .collect()
+}
+
+/// A streaming answer's updates carry its output tokens counted with the
+/// model's tokenizer at its first update, its first update with output and
+/// each block end; the deltas between, within the recount interval (here
+/// never over), carry none.
+#[test]
+fn message_updates_carry_output_tokens_at_the_first_output_and_block_ends() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    translator.count_interval = Duration::MAX;
+    start_streaming(&mut translator);
+    let frames = translator.translate_wire(&update(json!([
+        { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
+        { "type": "text_delta", "contentIndex": 0, "delta": "Hello" },
+        { "type": "text_delta", "contentIndex": 0, "delta": ", world" },
+        { "type": "block", "contentIndex": 0, "block": { "type": "text", "text": "Hello, world" } },
+        { "type": "toolcall_start", "contentIndex": 1,
+          "block": { "type": "toolCall", "id": "c1", "name": "bash", "arguments": { "command": "" } } },
+        { "type": "toolcall_delta", "contentIndex": 1, "path": ["command"], "delta": "ls -la" },
+        { "type": "block", "contentIndex": 1,
+          "block": { "type": "toolCall", "id": "c1", "name": "bash", "arguments": { "command": "ls -la" } } },
+    ])));
+    let tokenizer = answer_tokenizer();
+    let text = tokenizer.count_text("Hello, world");
+    let call = tokenizer.count_fragments(&["bash", r#"{"command":"ls -la"}"#]);
+    assert_eq!(
+        output_counts(&frames),
+        [
+            Some(0),
+            Some(tokenizer.count_text("Hello")),
+            None,
+            Some(text),
+            None,
+            None,
+            Some(text + call)
+        ]
+    );
+}
+
+/// Once the recount interval is over (here at once), every delta carries
+/// the count of the partial so far.
+#[test]
+fn a_delta_past_the_recount_interval_carries_the_count() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    translator.count_interval = Duration::ZERO;
+    start_streaming(&mut translator);
+    let frames = translator.translate_wire(&update(json!([
+        { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
+        { "type": "text_delta", "contentIndex": 0, "delta": "Hello" },
+        { "type": "text_delta", "contentIndex": 0, "delta": ", world" },
+    ])));
+    let tokenizer = answer_tokenizer();
+    assert_eq!(
+        output_counts(&frames),
+        [
+            Some(0),
+            Some(tokenizer.count_text("Hello")),
+            Some(tokenizer.count_text("Hello, world")),
+        ]
+    );
+}
+
+/// A coalesced update counts when it goes out: the first flush, then not
+/// again within the recount interval (here never over), and the message's
+/// last update (the flush before its `message_end`) always, over
+/// everything merged into it.
+#[test]
+fn a_coalesced_update_carries_the_count_of_the_partial_it_sends() {
+    let mut translator = translator(CoalesceMode::Coalesced);
+    translator.count_interval = Duration::MAX;
+    start_streaming(&mut translator);
+    translator.translate_wire(&update(json!([
+        { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
+        { "type": "text_delta", "contentIndex": 0, "delta": "Hello" },
+    ])));
+    let first = translator.flush_wire().unwrap();
+    translator.translate_wire(&update(json!([
+        { "type": "text_delta", "contentIndex": 0, "delta": ", world" },
+    ])));
+    let second = translator.flush_wire().unwrap();
+    translator.translate_wire(&update(json!([
+        { "type": "text_delta", "contentIndex": 0, "delta": " and" },
+        { "type": "text_delta", "contentIndex": 0, "delta": " more" },
+    ])));
+    let message = assistant(
+        json!([{ "type": "text", "text": "Hello, world and more" }]),
+        "stop",
+        9,
+    );
+    let end = translator.translate_wire(&event(json!({
+        "type": "message_end",
+        "entry": entry(10, "pi.assistant", Some(message), None),
+    })));
+    assert_eq!(types(&end), ["message_update", "message_end"]);
+    let tokenizer = answer_tokenizer();
+    assert_eq!(
+        output_counts(&[first, second, end[0].clone()]),
+        [
+            Some(tokenizer.count_text("Hello")),
+            None,
+            Some(tokenizer.count_text("Hello, world and more")),
+        ]
+    );
+}
+
 #[test]
 fn user_messages_go_out_from_their_message_end() {
     let mut translator = translator(CoalesceMode::Immediate);

@@ -76,6 +76,7 @@ fn streamed(content: &Value, event: Option<StreamUpdate>) -> TurnUpdate {
         message: Box::new(assistant(content, "toolUse")),
         streaming: true,
         stream_event: event,
+        output_tokens: None,
     }
 }
 

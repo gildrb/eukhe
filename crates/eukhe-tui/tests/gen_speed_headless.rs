@@ -163,8 +163,9 @@ fn assistant(text: &str, timestamp: i64) -> Value {
 }
 
 /// The scripted provider turn: 600 ms of prefill, the server's progress,
-/// 600 ms more, then a delta every 100 ms for 800 ms, then the settled
-/// message with its usage and stream marks.
+/// 600 ms more, then a delta every 100 ms for 800 ms, each carrying the
+/// worker's count of the output so far, then the settled message with its
+/// usage and stream marks.
 fn play_turn(writer: &Writer) {
     let event = |payload: Value| {
         write_json(
@@ -186,12 +187,13 @@ fn play_turn(writer: &Writer) {
         "assistantMessageEvent": { "type": "start" },
     }));
     let mut text = String::new();
-    for _ in 0..8 {
+    for round in 1..=8_u64 {
         text.push_str("tok tok tok tok tok tok tok tok ");
         event(json!({
             "type": "message_update",
             "message": assistant(&text, started),
             "assistantMessageEvent": { "type": "text_delta", "delta": "tok " },
+            "outputTokens": 8 * round,
         }));
         std::thread::sleep(Duration::from_millis(100));
     }

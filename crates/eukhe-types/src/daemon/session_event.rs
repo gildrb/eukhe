@@ -54,6 +54,12 @@ pub enum SessionEvent {
     MessageUpdate {
         message: AgentMessage,
         assistant_message_event: StreamUpdate,
+        /// The partial's output tokens so far (text, thinking, tool-call
+        /// name and arguments), counted with its model's tokenizer; on the
+        /// updates the worker recounted at (at most every 250 ms, and at
+        /// each block end), absent on the others.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_tokens: Option<u64>,
     },
     /// A message settled.
     MessageEnd {

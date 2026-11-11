@@ -596,6 +596,7 @@ fn json_message_update_carries_only_the_change() {
         let event = SessionEvent::MessageUpdate {
             message: partial.clone(),
             assistant_message_event: update,
+            output_tokens: Some(12),
         };
         assert_eq!(
             json_line(&event).expect("serializes"),
@@ -614,6 +615,7 @@ fn json_message_replacement_and_end_carry_the_message() {
     let replaced = SessionEvent::MessageUpdate {
         message: message.clone(),
         assistant_message_event: StreamUpdate::Message,
+        output_tokens: Some(4),
     };
     assert_eq!(line(&replaced), serde_json::to_value(&replaced).unwrap());
     assert_eq!(line(&replaced)["message"]["summary"], "replaced");
