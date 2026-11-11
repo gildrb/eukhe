@@ -648,35 +648,35 @@ def approvals.pa.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 #   `Nat.max_ge_r` gives that it is at least s. A refused wait sends no
 #   retry.
 # - retry_refuses_past_cap: the two premises make the refusal test True.
-# - The failover laws: each pick (`pick.fresh`, `pick.back`) is shown, by
-#   induction on its order list, to give only a switch that satisfies its
-#   own Bool condition (the equation of the condition goes into
-#   `pick.sel`); its switch is never the last provider, since the order
-#   holds no last (`rp.order_notin`: the order's first part is above
-#   last, its second part below it). `next` then goes through `next.last`, `next.budget` and
-#   `next.mode` with the equations of the last attempt, the budget and
-#   the all-seen test. From these facts, `good` gets the five `Switch`
-#   checks together; each failover law takes one of them.
-# - deferred_pays_once, deferred_bounded_in_time: a step never sends
-#   while the job is live, and never polls a live job with 0 ms left.
-#   Induction over the replies, with any start tally, shows that the run
-#   adds 0 to each count.
-# - deferred_failed_poll_repolls: the two premises make the repoll test
-#   True.
+# - The failover laws (proof/retry/base/walk.bend): each pick
+#   (`pick.fresh`, `pick.back`) is shown, by induction on its order list,
+#   to give only a switch that satisfies its own Bool condition; its
+#   switch is never the last provider, since the order holds no last
+#   (`rp.order_notin`). `next` goes through `next.last`, `next.budget` and
+#   `next.mode` (fw.split): a switch is the fresh or the return pick over
+#   the order. The order holds every provider of the chain but the last,
+#   each at its laws-side rank (fw.order_mem, fw.order_ranked), and none
+#   past the chain (fw.order_below); a pick is the first provider its
+#   condition allows (fw.fresh_nearest, fw.back_nearest, fw.fresh_some,
+#   fw.back_some). The model's helpers are the laws' (fw.tried, fw.wait,
+#   fw.count, fw.newest, fw.all_seen, fw.return_wait).
+# - The deferred laws (laws/retry/deferred.bend): by cases on the job,
+#   the reply and the step's Bool tests, each test taken with its
+#   equation.
 # - stall_retry_extends: idle < idle + idle when idle > 0.
 # - stall_detection_bounded: induction over the events, with any start
 #   time: a stall ends at the last event plus the deadline, a close at
 #   the last event, which is at most it plus the deadline.
-# - stall_silent_ends_at_deadline: by computation.
-# - The exact laws (retry_classifier_exact, retry_wait_*, retry_step_exact,
-#   retry_jitter_*, failover_exact, the saturation laws, the anchors):
-#   each model helper is shown equal to its spec helper of LAWS.bend by
-#   induction (rx.tried, rx.wait, rx.fresh, rx.back, ...). The bounded
-#   doubling `R.double` is min(rs.twice, cap) (rx.double): a halted step
-#   has b + b past cap, and twice(j, b + b) >= b + b. A saturated server
-#   wait (min(w, c), c above max) keeps every wait at most max and keeps
-#   every wait past max past max (rx.cw_sel); a saturated base at or past
-#   max doubles to max either way (rx.base_sat).
+# - stall_ends_exact, stall_life_sums_calm: induction over the events,
+#   with any start time, against the sums of the gaps read whole.
+# - The wait laws: the bounded doubling `R.double` is min(rs.twice, cap)
+#   (rx.double): a halted step has b + b past cap, and twice(j, b + b) >=
+#   b + b; the jitter is Nat.mod's remainder, which wraps after a whole
+#   step (rx.dm_wrap) and counts a draw below it (rx.dm_small). A
+#   saturated server wait (min(w, c), c above max) keeps every wait at
+#   most max and keeps every wait past max past max (rx.cw_sel); a
+#   saturated base at or past max doubles to max either way
+#   (rx.base_sat).
 
 # Clashes
 # -------

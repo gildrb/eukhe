@@ -94,6 +94,7 @@ import ./laws/facts/entry.bend as FactsEntry
 import ./laws/facts/adaptive.bend as FactsAdaptive
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
+import ./laws/retry/deferred.bend as RetryDeferred
 import ./laws/retry_idle.bend as RetryIdle
 import ./laws/retry_ffi.bend as RetryFfi
 import ./laws/dash.bend as Dash

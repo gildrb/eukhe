@@ -25,56 +25,118 @@ def rp.add_none(+s: Nat, +x: Nat, e: {x == 0n : Nat}) -> {Nat.add(s, x) == s : N
   %Equal.sym(Nat, x, 0n, e) : {Nat.add(s, _) == s : Nat}
   rp.add_zero(s)
 
-# (R4) The deferred job
-# ---------------------
+# (R2) The jitter: the remainder of a draw
+# ----------------------------------------
+# Nat.mod(a, 1+p) is the remainder Nat.divmod.go(a, p, 0, 0) counts: r
+# counts the units since the last wrap, m the units left before the next.
 
-# a deferred reply with ms left
-def rp.job_later(+ms: Nat, +gap: Nat) -> {R.live.pending(Nat.is_eq(ms, 0n), ms, gap) == Retry.rs.job.later(ms, gap) : R.Step}:
-  match ms:
+# the remainder does not read the quotient
+def rx.dm_snd(n: Nat, +m: Nat, +d: Nat, +e: Nat, +r: Nat) -> {Pair.snd(Nat, Nat, Nat.divmod.go(n, m, d, r)) == Pair.snd(Nat, Nat, Nat.divmod.go(n, m, e, r)) : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+np:
+      match m:
+        case 0n:
+          rx.dm_snd(np, r, 1n+d, 1n+e, 0n)
+        case 1n+mp:
+          rx.dm_snd(np, mp, d, e, 1n+r)
+
+# 1 + m more units (m: the units left before the wrap) wrap the remainder
+# to 0, with m + r left before the next wrap
+def rx.dm_wrap(m: Nat, x: Nat, +d: Nat, +r: Nat) -> {Nat.divmod.go(Nat.add(1n+m, x), m, d, r) == Nat.divmod.go(x, Nat.add(m, r), 1n+d, 0n) : Nat & Nat}:
+  match m:
+    case 0n:
+      {==}
+    case 1n++mp:
+      %LNat.add_succ(mp, r) : {Nat.divmod.go(Nat.add(1n+mp, x), mp, d, 1n+r) == Nat.divmod.go(x, _, 1n+d, 0n) : Nat & Nat}
+      rx.dm_wrap(mp, x, d, 1n+r)
+
+# j units, no more than the m left before the wrap, add j to the remainder
+def rx.dm_small(j: Nat, m: Nat, +d: Nat, +r: Nat, h: {Nat.is_le(j, m) == True{} : Bool}) -> {Pair.snd(Nat, Nat, Nat.divmod.go(j, m, d, r)) == Nat.add(j, r) : Nat}:
+  match j m:
+    case 0n m:
+      {==}
+    case 1n+jp 0n:
+      LLogicLogic.rp.absurdF({Pair.snd(Nat, Nat, Nat.divmod.go(1n+jp, 0n, d, r)) == Nat.add(1n+jp, r) : Nat}, h)
+    case 1n++jp 1n+mp:
+      %LNat.add_succ(jp, r) : {Pair.snd(Nat, Nat, Nat.divmod.go(jp, mp, d, 1n+r)) == _ : Nat}
+      rx.dm_small(jp, mp, d, 1n+r, h)
+
+# the remainder never passes p, the units of a whole turn less one
+def rx.dm_below(n: Nat, m: Nat, +d: Nat, +r: Nat, +p: Nat, e: {Nat.add(m, r) == p : Nat}) -> {Nat.is_le(Pair.snd(Nat, Nat, Nat.divmod.go(n, m, d, r)), p) == True{} : Bool}:
+  match n:
+    case 0n:
+      %e : {Nat.is_le(r, _) == True{} : Bool}
+      LNat.child.pc.le_add(m, r)
+    case 1n+np:
+      match m:
+        case 0n:
+          rx.dm_below(np, r, 1n+d, 0n, p, Equal.trans(Nat, Nat.add(r, 0n), r, p, LNat.add_zero(r), e))
+        case 1n++mp:
+          rx.dm_below(np, mp, d, 1n+r, p, Equal.trans(Nat, Nat.add(mp, 1n+r), 1n+Nat.add(mp, r), p, LNat.add_succ(mp, r), e))
+
+# a draw j below 1 + p is its own remainder
+def rx.mod_small(+j: Nat, +p: Nat, h: {Nat.is_le(j, p) == True{} : Bool}) -> {Nat.mod(j, 1n+p) == j : Nat}:
+  Equal.trans(Nat, Pair.snd(Nat, Nat, Nat.divmod.go(j, p, 0n, 0n)), Nat.add(j, 0n), j, rx.dm_small(j, p, 0n, 0n, h), LNat.add_zero(j))
+
+# a draw 1 + p later has the same remainder
+def rx.mod_period(+p: Nat, +x: Nat) -> {Nat.mod(Nat.add(1n+p, x), 1n+p) == Nat.mod(x, 1n+p) : Nat}:
+  +w = Equal.cong(Nat & Nat, Nat, q => Pair.snd(Nat, Nat, q), Nat.divmod.go(Nat.add(1n+p, x), p, 0n, 0n), Nat.divmod.go(x, Nat.add(p, 0n), 1n, 0n), rx.dm_wrap(p, x, 0n, 0n))
+  +z = Equal.cong(Nat, Nat, k => Pair.snd(Nat, Nat, Nat.divmod.go(x, k, 1n, 0n)), Nat.add(p, 0n), p, LNat.add_zero(p))
+  Equal.trans(Nat, Pair.snd(Nat, Nat, Nat.divmod.go(Nat.add(1n+p, x), p, 0n, 0n)), Pair.snd(Nat, Nat, Nat.divmod.go(x, Nat.add(p, 0n), 1n, 0n)), Pair.snd(Nat, Nat, Nat.divmod.go(x, p, 0n, 0n)), w, Equal.trans(Nat, Pair.snd(Nat, Nat, Nat.divmod.go(x, Nat.add(p, 0n), 1n, 0n)), Pair.snd(Nat, Nat, Nat.divmod.go(x, p, 1n, 0n)), Pair.snd(Nat, Nat, Nat.divmod.go(x, p, 0n, 0n)), z, rx.dm_snd(x, p, 1n, 0n, 0n)))
+
+# the remainder of a draw under 1 + p is at most p
+def rx.mod_below(+x: Nat, +p: Nat) -> {Nat.is_le(Nat.mod(x, 1n+p), p) == True{} : Bool}:
+  rx.dm_below(x, p, 0n, 0n, p, LNat.add_zero(p))
+
+def rx.lt_zero(i: Nat) -> {Nat.is_lt(i, 0n) == False{} : Bool}:
+  match i:
     case 0n:
       {==}
     case 1n+k:
       {==}
 
-# a retryable failed poll of a live job, below: under retry.maxRetries
-def rp.job_again(below: Bool, +failed: Nat, +left: Nat, +gap: Nat) -> {R.live.failed(Bool.and(below, Nat.is_gt(left, 0n)), failed, left, gap) == Retry.rs.job.again(below, failed, left, gap) : R.Step}:
-  match below:
-    case True{}:
-      match left:
+# j < 1 + p is j <= p
+def rx.lt_succ(j: Nat, p: Nat) -> {Nat.is_lt(j, 1n+p) == Nat.is_le(j, p) : Bool}:
+  match j:
+    case 0n:
+      match p:
         case 0n:
           {==}
-        case 1n+k:
+        case 1n+q:
           {==}
-    case False{}:
-      {==}
+    case 1n+i:
+      match p:
+        case 0n:
+          rx.lt_zero(i)
+        case 1n+q:
+          rx.lt_succ(i, q)
 
-# the step is the spec's step (law deferred_step_exact)
-def rp.job_step(+fails: Nat, +budget: Nat, +job: R.Job, +got: R.Got) -> {R.step(fails, budget, job, got) == Retry.rs.job_step(fails, budget, job, got) : R.Step}:
-  match job:
-    case R.NoJob{}:
-      match got:
-        case R.Answer{}:
-          {==}
-        case R.Later{+gap}:
-          rp.job_later(budget, gap)
-        case R.Broke{r, +gap}:
-          match r:
-            case True{}:
-              {==}
-            case False{}:
-              {==}
-    case R.Live{+failed, +left}:
-      match got:
-        case R.Answer{}:
-          {==}
-        case R.Later{+gap}:
-          rp.job_later(left, gap)
-        case R.Broke{r, +gap}:
-          match r:
-            case True{}:
-              rp.job_again(Nat.is_lt(failed, fails), failed, left, gap)
-            case False{}:
-              {==}
+# the jitter of a draw under a positive step is below the step
+def rx.jit_below(S: Nat, +d: Nat, pos: {Nat.is_gt(S, 0n) == True{} : Bool}) -> {Nat.is_lt(R.jitter.draw(S, d), S) == True{} : Bool}:
+  match S:
+    case 0n:
+      LLogicLogic.rp.absurdF({Nat.is_lt(R.jitter.draw(0n, d), 0n) == True{} : Bool}, pos)
+    case 1n++p:
+      %Equal.sym(Bool, Nat.is_lt(Nat.mod(d, 1n+p), 1n+p), Nat.is_le(Nat.mod(d, 1n+p), p), rx.lt_succ(Nat.mod(d, 1n+p), p)) : {_ == True{} : Bool}
+      rx.mod_below(d, p)
+
+# a draw below the step is its own jitter
+def rx.jit_small(S: Nat, +j: Nat, h: {Nat.is_lt(j, S) == True{} : Bool}) -> {R.jitter.draw(S, j) == j : Nat}:
+  match S:
+    case 0n:
+      LLogicLogic.rp.absurdF({R.jitter.draw(0n, j) == j : Nat}, Equal.trans(Bool, False{}, Nat.is_lt(j, 0n), True{}, LNat.pu.lt_zero_f(j), h))
+    case 1n++p:
+      rx.mod_small(j, p, Equal.trans(Bool, Nat.is_le(j, p), Nat.is_lt(j, 1n+p), True{}, Equal.sym(Bool, Nat.is_lt(j, 1n+p), Nat.is_le(j, p), rx.lt_succ(j, p)), h))
+
+# a draw one step later has the same jitter
+def rx.jit_period(S: Nat, +d: Nat) -> {R.jitter.draw(S, Nat.add(S, d)) == R.jitter.draw(S, d) : Nat}:
+  match S:
+    case 0n:
+      {==}
+    case 1n+p:
+      rx.mod_period(p, d)
 
 # (R6) The idle deadline
 # ----------------------
@@ -260,6 +322,15 @@ def rx.double_go(k: Nat, h: Bool, +b: Nat, +cap: Nat, eh: {R.double.halt(b, cap)
 def rx.double(k: Nat, +b: Nat, +cap: Nat) -> {R.double(k, b, cap) == Nat.min(Retry.rs.twice(k, b), cap) : Nat}:
   rx.double_go(k, R.double.halt(b, cap), b, cap, {==})
 
+# the step of the model is the step R2 states (retry_step_exact's lemma)
+def rx.step(+base: Nat, +attempt: Nat, +cap: Nat) -> {R.jitter.step(base, attempt, cap) == Retry.rs.step(base, attempt, cap) : Nat}:
+  rx.double(Nat.sub(attempt, 1n), base, cap)
+
+# the wait with no server wait is the jitter under R2's step
+def rx.wait_of(+base: Nat, +attempt: Nat, +cap: Nat, +draw: Nat) -> {R.retry_wait(base, attempt, cap, draw, None{}) == R.After{R.jitter.draw(Retry.rs.step(base, attempt, cap), draw)} : R.Delay}:
+  %Equal.sym(Nat, R.jitter.step(base, attempt, cap), Retry.rs.step(base, attempt, cap), rx.step(base, attempt, cap)) : {R.After{R.jitter.draw(_, draw)} == R.After{R.jitter.draw(Retry.rs.step(base, attempt, cap), draw)} : R.Delay}
+  {==}
+
 # the Nat and Bool round trips, turned for rewriting
 def rw.rt(+n: Nat, +rest: String, h: {LawsBase.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
   Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, h))
@@ -428,10 +499,19 @@ def rw.list_start(ts: List<&2, R.Tried>, +rest: String, +hf: {Retry.rs.tried_fit
     case +t <> +r:
       rw.list_go(r, t, rest, hf)
 
+# the model's count of attempts is the list's length
+def rw.len(ts: List<&2, R.Tried>) -> {R.length(ts) == List.length(&2, R.Tried, ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> rest:
+      %rw.len(rest) : {1n+R.length(rest) == 1n+_ : Nat}
+      {==}
+
 # a list of attempts that fits reads back
-def rw.list_rt(+ts: List<&2, R.Tried>, +rest: String, hl: {LawsBase.wire_fits(R.length(ts)) == True{} : Bool}, +hf: {Retry.rs.tried_fit(ts) == True{} : Bool}) -> {Wr.get_list(~R.Tried, ~Fr.get_tried, Wr.put_list(~R.Tried, ~Fr.put_tried, ts, rest)) == Wr.Got{ts, rest} : Wr.Dec<List<&2, R.Tried>>}:
+def rw.list_rt(+ts: List<&2, R.Tried>, +rest: String, hl: {LawsBase.wire_fits(List.length(&2, R.Tried, ts)) == True{} : Bool}, +hf: {Retry.rs.tried_fit(ts) == True{} : Bool}) -> {Wr.get_list(~R.Tried, ~Fr.get_tried, Wr.put_list(~R.Tried, ~Fr.put_tried, ts, rest)) == Wr.Got{ts, rest} : Wr.Dec<List<&2, R.Tried>>}:
   %Equal.sym(String, Wr.put_list(~R.Tried, ~Fr.put_tried, ts, rest), Wr.put_nat(R.length(ts), rw.items(ts, rest)), rw.put_list(ts, rest)) : {Wr.get_list(~R.Tried, ~Fr.get_tried, _) == Wr.Got{ts, rest} : Wr.Dec<List<&2, R.Tried>>}
-  %rw.rt(R.length(ts), rw.items(ts, rest), hl) : {Wr.get_list.start(~R.Tried, ~Fr.get_tried, _) == Wr.Got{ts, rest} : Wr.Dec<List<&2, R.Tried>>}
+  %rw.rt(R.length(ts), rw.items(ts, rest), Equal.trans(Bool, LawsBase.wire_fits(R.length(ts)), LawsBase.wire_fits(List.length(&2, R.Tried, ts)), True{}, Equal.cong(Nat, Bool, k => LawsBase.wire_fits(k), R.length(ts), List.length(&2, R.Tried, ts), rw.len(ts)), hl)) : {Wr.get_list.start(~R.Tried, ~Fr.get_tried, _) == Wr.Got{ts, rest} : Wr.Dec<List<&2, R.Tried>>}
   rw.list_start(ts, rest, hf)
 
 def rw.req_rt(q: Fr.Req, +rest: String, +h: {Retry.rs.req_fits(q) == True{} : Bool}) -> {Fr.get_req(Fr.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}:
@@ -456,18 +536,18 @@ def rw.req_rt(q: Fr.Req, +rest: String, +h: {Retry.rs.req_fits(q) == True{} : Bo
     case Fr.QFailover{+len, +ts, p}:
       match p:
         case R.Policy{+sw, +b, +m}:
-          +A = Bool.and(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)))
+          +A = Bool.and(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(List.length(&2, R.Tried, ts)), Retry.rs.tried_fit(ts)))
           +B = Bool.and(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)))
           +ha = LLogicBool.rp.and_l(A, B, h)
           +hb = LLogicBool.rp.and_r(A, B, h)
-          +hts = LLogicBool.rp.and_r(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)), ha)
+          +hts = LLogicBool.rp.and_r(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(List.length(&2, R.Tried, ts)), Retry.rs.tried_fit(ts)), ha)
           +hbm = LLogicBool.rp.and_r(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)), hb)
           +Q = {Fr.QFailover{len, ts, R.Policy{sw, b, m}} : Fr.Req}
           +s3 = Fr.put_policy(R.Policy{sw, b, m}, rest)
           +s2 = Wr.put_list(~R.Tried, ~Fr.put_tried, ts, s3)
           %rw.rt(2n, Wr.put_nat(len, s2), {==}) : {Fr.get_req.start(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %rw.rt(len, s2, LLogicBool.rp.and_l(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)), ha)) : {Fr.get_failover(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %Equal.sym(Wr.Dec<List<&2, R.Tried>>, Wr.get_list(~R.Tried, ~Fr.get_tried, s2), Wr.Got{ts, s3}, rw.list_rt(ts, s3, LLogicBool.rp.and_l(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts), hts), LLogicBool.rp.and_r(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts), hts))) : {Fr.get_failover.tried(len, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %rw.rt(len, s2, LLogicBool.rp.and_l(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(List.length(&2, R.Tried, ts)), Retry.rs.tried_fit(ts)), ha)) : {Fr.get_failover(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %Equal.sym(Wr.Dec<List<&2, R.Tried>>, Wr.get_list(~R.Tried, ~Fr.get_tried, s2), Wr.Got{ts, s3}, rw.list_rt(ts, s3, LLogicBool.rp.and_l(LawsBase.wire_fits(List.length(&2, R.Tried, ts)), Retry.rs.tried_fit(ts), hts), LLogicBool.rp.and_r(LawsBase.wire_fits(List.length(&2, R.Tried, ts)), Retry.rs.tried_fit(ts), hts))) : {Fr.get_failover.tried(len, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
           %rw.rt(sw, Wr.put_nat(b, Wr.put_nat(m, rest)), LLogicBool.rp.and_l(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)), hb)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.switches(_)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
           %rw.rt(b, Wr.put_nat(m, rest), LLogicBool.rp.and_l(LawsBase.wire_fits(b), LawsBase.wire_fits(m), hbm)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.base(sw, _)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
           %rw.rt(m, rest, LLogicBool.rp.and_r(LawsBase.wire_fits(b), LawsBase.wire_fits(m), hbm)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.max(sw, b, _)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}

@@ -18,19 +18,19 @@ def rp.cmp_ge(c: Cmp, e: {Cmp.is_lt(c) == False{} : Bool}) -> {Cmp.is_ge(c) == T
 def rp.ge_of_not_lt(+a: Nat, +b: Nat, e: {Nat.is_lt(a, b) == False{} : Bool}) -> {Nat.is_ge(a, b) == True{} : Bool}:
   rp.cmp_ge(Nat.cmp(a, b), e)
 
-def rp.only(lt: Bool, +s: Nat, elt: {Nat.is_lt(s, 500n) == lt : Bool}, r: {R.status.ok.go(lt, s) == True{} : Bool}) -> {Bool.or(Nat.is_ge(s, 500n), R.status.listed(s)) == True{} : Bool}:
+def rp.only(lt: Bool, +s: Nat, elt: {Nat.is_lt(s, 500n) == lt : Bool}, r: {R.status.ok.go(lt, s) == True{} : Bool}) -> {Bool.or(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n)))) == True{} : Bool}:
   match lt:
     case True{}:
-      LBool.rp.or_r(Nat.is_ge(s, 500n), R.status.listed(s), r)
+      LBool.rp.or_r(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n))), r)
     case False{}:
-      LBool.rp.or_l(Nat.is_ge(s, 500n), R.status.listed(s), rp.ge_of_not_lt(s, 500n, elt))
+      LBool.rp.or_l(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n))), rp.ge_of_not_lt(s, 500n, elt))
 
-def only_retryable(parked: Bool, limit: Bool, kind: Maybe<&2, R.Cause>, text: Bool, +s: Nat, retried: {R.retryable(R.Facts{parked, limit, Some{s}, kind, text}) == True{} : Bool}) -> {Bool.or(Nat.is_ge(s, 500n), R.status.listed(s)) == True{} : Bool}:
+def only_retryable(parked: Bool, limit: Bool, kind: Maybe<&2, R.Cause>, text: Bool, +s: Nat, retried: {R.retryable(R.Facts{parked, limit, Some{s}, kind, text}) == True{} : Bool}) -> {Bool.or(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n)))) == True{} : Bool}:
   match parked limit:
     case True{} l:
-      LLogicLogic.rp.absurdF({Bool.or(Nat.is_ge(s, 500n), R.status.listed(s)) == True{} : Bool}, retried)
+      LLogicLogic.rp.absurdF({Bool.or(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n)))) == True{} : Bool}, retried)
     case False{} True{}:
-      LLogicLogic.rp.absurdF({Bool.or(Nat.is_ge(s, 500n), R.status.listed(s)) == True{} : Bool}, retried)
+      LLogicLogic.rp.absurdF({Bool.or(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n)))) == True{} : Bool}, retried)
     case False{} False{}:
       rp.only(Nat.is_lt(s, 500n), s, {==}, retried)
 
