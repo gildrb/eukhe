@@ -2732,6 +2732,7 @@
     "laws/stop.bend::stop_verdict_exact": "c0d47a1ce8bd2bd3c431b345af7cb25b593c9ccf5e618dc021c5b386546b2ee5",
     "laws/stop.bend::stop_walk_example": "eafadd8bc74631e613d051ca31dadc5362ce31359796cf0cd65e1571b6666cab",
     "laws/stop.bend::stop_walk_refines": "e3bcf3ad08c255583c0fda67f21f40e1a69e6a1d17f6165c9411553027e61170",
+    "laws/stop.bend::stop_whole_text_answers": "8be0ec10c1a87d3c17bd4cd0c55841a9a4107810eb66805f6b0d009187fa489b",
     "laws/stop/cut.bend::stop_cut_dropped_ends_the_run": "9a93520c324ebe16f1c41d0cd9064f2cad46b4cf34a9c08443a1ee28ab47717c",
     "laws/stop/cut.bend::stop_cut_empty_never_stands": "8935376c958212595ca0973bdee80711d39c20359c3a760a33e224a505356fd5",
     "laws/stop/cut.bend::stop_cut_example": "b74f77d51934add935f347fb2b602d8c51b333cfae75bf72868222501f4d547c",
@@ -3550,7 +3551,7 @@
     "laws/workflow/model.bend": "3f8421fee539572a1be5971fdcda1d5ffe980efcd268c75adfa6da0de42bbe7e"
   },
   "spec_files": {
-    "spec/README.md": "8889437f6c3003d919bd0587a816d63c08777cfac8299d7a591cef7b640e8b72",
+    "spec/README.md": "cd81f2a4ecb0ad8ee1e94c0dfb64a28255d1331b1b18bde8e4a86d394233f9fc",
     "spec/agents/kin.bend": "3637a9eedbb127a412b8646da7e0ab8d881681ec5710670aecf852afd98f0429",
     "spec/autoresearch/decimal.bend": "74a60228e250a0b414769e76d0814ea460e131a1e41165e023e3138e3ae0f99e",
     "spec/autoresearch/metric_line.bend": "8ffb9ca922253c2413273e839a5c9ed7780258d32b51a13ee1db04f8bd3b158b",

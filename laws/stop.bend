@@ -915,6 +915,31 @@ law stop_stand_sends_no_request:
   for +t: RnRequest.Reqs
   {RnRequest.reqs.go(RnState.Go{stop_reply(S.walk(f), f, rc, k, row, w, ca, pr, o, cu, lo), fin, got} <> more, cfg, RnState.St{RnState.Call{}, r, c, a, n, p}, t) == t : RnRequest.Reqs}
 
+# LAW stop_whole_text_answers (R8): a whole, readable reply with text
+# stands with the reply and is read as the run's answer (the reply
+# Plain), work pending or not and whatever its window facts (Rust writes
+# no window for a reply that was not cut, and the entry reads that window
+# of 0 as spent), any recovery state and ladder facts: the facts the walk
+# reads, and the text the reply carries, are the reply's own
+# EXCLUDES: a whole final answer read as a retry, a failure or a drop
+#   because its window facts say spent; a text fact other than the
+#   reply's
+law stop_whole_text_answers:
+  for p: Bool
+  for sp: Bool
+  for cu: Bool
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +w: Nat
+  for +ca: Nat
+  for +pr: Nat
+  for +o: Nat
+  for +wc: Bool
+  for +lo: Bool
+  {S.walk(S.Facts{False{}, True{}, False{}, p, sp, cu}) == S.Stands{} : S.Pick} &
+  {stop_reply(S.walk(S.Facts{False{}, True{}, False{}, p, sp, cu}), S.Facts{False{}, True{}, False{}, p, sp, cu}, rc, k, row, w, ca, pr, o, wc, lo) == RnState.Plain{} : RnState.Reply}
+
 # LAW stop_goes_never_answers (R8): at every reply of every live run, a
 # stop the walk does not let stand never answers the run, whatever the
 # recovery state and the ladder's facts: its reply is a retry (noted or

@@ -3498,6 +3498,7 @@ import ./proof/stop/stop_think_notes.bend as PStopThinkNotes
 import ./proof/stop/stop_verdict_exact.bend as PStopVerdictExact
 import ./proof/stop/stop_walk_example.bend as PStopWalkExample
 import ./proof/stop/stop_walk_refines.bend as PStopWalkRefines
+import ./proof/stop/stop_whole_text_answers.bend as PStopWholeTextAnswers
 import ./proof/stop/base/entry.bend as LAStopEntry
 import ./proof/stop/stop_entry_exact.bend as PStopEntryExact
 import ./proof/stop/stop_entry_reads.bend as PStopEntryReads
