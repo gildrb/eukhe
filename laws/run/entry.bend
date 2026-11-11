@@ -1,4 +1,4 @@
-# eukhe: the laws of area run: the compiled entry (H4.10)
+# eukhe: the laws of area run: the compiled entry (docs/harness.md H4, Tie)
 
 import Base
 import ../../bend/ffi_run.bend as FRn
@@ -10,7 +10,7 @@ import ../base.bend as LawsBase
 
 # ---- run_ffi ----
 
-# LAWS (H4.10): the entry of the run's decisions in the compiled core
+# LAWS (H4, Tie: `laws/run/entry.bend` proves the codec): the entry of the run's decisions in the compiled core
 # (bend/ffi_run.bend). Each law is an open claim; PROOF.bend proves them
 # (as Run.<law>) in proof/run/ from the laws of laws/wire.bend.
 # bend/ffi_run.bend: Rust writes a request (the decision's tag and its

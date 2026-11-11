@@ -6,4 +6,4 @@ import ../../bend/wire.bend as Wr
 import ../../laws/echo.bend as Echo
 
 def Echo.echo_example():
-  ({==}, {==}, {==})
+  ({==}, {==})

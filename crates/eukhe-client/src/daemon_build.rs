@@ -16,10 +16,10 @@
 //! client never replaces a daemon, and two builds cannot replace each other
 //! in turn. The rule runs as its Bend model, `bend/replace.bend`, through
 //! the compiled core's entry `bend/ffi_replace.bend`; `laws/replace.bend`
-//! states `replace_never_downgrades`, `replacement_terminates`,
-//! `background_never_replaces`, and pins the reading of a version
-//! (`replace_rank_reads_semver`) and the entry (`replace_ffi_relation`,
-//! `replace_ffi_verdict`).
+//! states `replace_never_downgrades_spec`, `replacement_terminates`,
+//! `background_never_replaces`, the `replace_after_*` laws, and pins the
+//! reading of a version (`replace_rank_reads_semver`) and the entry
+//! (`replace_ffi_relation`, `replace_ffi_verdict`).
 
 use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::Entry;
