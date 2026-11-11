@@ -5,6 +5,10 @@
 # values K·n (lrs.mul, the leaves' product facts), so the gray of c has
 # luminance (K1 + K2 + K3)·n = 10000·n (clw.gray), and (K·n)·10000 =
 # (10000·n)·K is Nat algebra (clw.swap): no closed check of its own.
+# The weights meet their literals by rewriting (clw.ten, clw.k1-k3), each
+# closed check comparing at most 3576 successors: the checker compares
+# naturals one successor per stack frame, and comparing K1 + K2 + K3 with
+# 10000n in one step came near bend's 5 MB checker stack.
 
 import Base
 import ../../bend/color.bend as Co
@@ -73,14 +77,64 @@ def clw.w(+k: U32, +m: U32, +c: U32, h: {LCl.cl.mterm(k, m, Co.lin(c)) == True{}
   %Equal.sym(Nat, g, Nat.mul(s, n), clw.gray(c)) : {Nat.mul(Nat.mul(kk, n), s) == Nat.mul(_, kk) : Nat}
   clw.swap(kk, n, s)
 
+# The weights' literals
+# ---------------------
+
+# each closed check below compares at most 3576 successors
+def clw.k1() -> {U32.to_nat(2126) == 2126n : Nat}:
+  {==}
+
+def clw.k3() -> {U32.to_nat(722) == 722n : Nat}:
+  {==}
+
+def clw.k3576() -> {U32.to_nat(3576) == 3576n : Nat}:
+  {==}
+
+def clw.p2() -> {(2 * 3576 : U32) == 7152 : U32}:
+  {==}
+
+def clw.add0(x: Nat) -> {Nat.add(x, 0n) == x : Nat}:
+  match x:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, z => 1n+z, Nat.add(p, 0n), p, clw.add0(p))
+
+# 2·x = x + x
+def clw.dbl(+x: Nat) -> {Nat.mul(2n, x) == Nat.add(x, x) : Nat}:
+  Equal.cong(Nat, Nat, z => Nat.add(x, z), Nat.mul(1n, x), x, clw.add0(x))
+
+# 7152 = 2·3576, a product of values (lrs.mul), and 3576 + 3576 = 7152
+def clw.k2() -> {U32.to_nat(7152) == 7152n : Nat}:
+  %clw.p2() : {U32.to_nat(_) == 7152n : Nat}
+  %Equal.sym(Nat, U32.to_nat((2 * 3576 : U32)), Nat.mul(U32.to_nat(2), U32.to_nat(3576)), PColorLumRises.lrs.mul(2, 7152, 3576, {==})) : {_ == 7152n : Nat}
+  %Equal.sym(Nat, U32.to_nat(3576), 3576n, clw.k3576()) : {Nat.mul(U32.to_nat(2), _) == 7152n : Nat}
+  %Equal.sym(Nat, U32.to_nat(2), 2n, {==}) : {Nat.mul(_, 3576n) == 7152n : Nat}
+  %Equal.sym(Nat, Nat.mul(2n, 3576n), Nat.add(3576n, 3576n), clw.dbl(3576n)) : {_ == 7152n : Nat}
+  {==}
+
+# K1 + K2 + K3 = 722 + (2126 + 7152) = 10000
+def clw.ten() -> {Nat.add(Nat.add(U32.to_nat(2126), U32.to_nat(7152)), U32.to_nat(722)) == 10000n : Nat}:
+  %Equal.sym(Nat, U32.to_nat(2126), 2126n, clw.k1()) : {Nat.add(Nat.add(_, U32.to_nat(7152)), U32.to_nat(722)) == 10000n : Nat}
+  %Equal.sym(Nat, U32.to_nat(7152), 7152n, clw.k2()) : {Nat.add(Nat.add(2126n, _), U32.to_nat(722)) == 10000n : Nat}
+  %Equal.sym(Nat, U32.to_nat(722), 722n, clw.k3()) : {Nat.add(Nat.add(2126n, 7152n), _) == 10000n : Nat}
+  %LNat.add_comm(722n, Nat.add(2126n, 7152n)) : {_ == 10000n : Nat}
+  {==}
+
 # 10000 times each weighted product is its weight times the gray's luminance
 def clw.red(+c: U32) -> {Nat.mul(U32.to_nat((2126 * Co.lin(c) : U32)), 10000n) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), 2126n) : Nat}:
+  %clw.ten() : {Nat.mul(U32.to_nat((2126 * Co.lin(c) : U32)), _) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), 2126n) : Nat}
+  %clw.k1() : {Nat.mul(U32.to_nat((2126 * Co.lin(c) : U32)), Nat.add(Nat.add(U32.to_nat(2126), U32.to_nat(7152)), U32.to_nat(722))) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), _) : Nat}
   clw.w(2126, 21260000, c, PColorLumRises.lrs.m1(Co.lin(c), PColorLumRises.lrs.term(c)))
 
 def clw.green(+c: U32) -> {Nat.mul(U32.to_nat((7152 * Co.lin(c) : U32)), 10000n) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), 7152n) : Nat}:
+  %clw.ten() : {Nat.mul(U32.to_nat((7152 * Co.lin(c) : U32)), _) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), 7152n) : Nat}
+  %clw.k2() : {Nat.mul(U32.to_nat((7152 * Co.lin(c) : U32)), Nat.add(Nat.add(U32.to_nat(2126), U32.to_nat(7152)), U32.to_nat(722))) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), _) : Nat}
   clw.w(7152, 71520000, c, PColorLumRises.lrs.m2(Co.lin(c), PColorLumRises.lrs.term(c)))
 
 def clw.blue(+c: U32) -> {Nat.mul(U32.to_nat((722 * Co.lin(c) : U32)), 10000n) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), 722n) : Nat}:
+  %clw.ten() : {Nat.mul(U32.to_nat((722 * Co.lin(c) : U32)), _) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), 722n) : Nat}
+  %clw.k3() : {Nat.mul(U32.to_nat((722 * Co.lin(c) : U32)), Nat.add(Nat.add(U32.to_nat(2126), U32.to_nat(7152)), U32.to_nat(722))) == Nat.mul(U32.to_nat(Co.lum(Co.Rgb{c, c, c})), _) : Nat}
   clw.w(722, 7220000, c, PColorLumRises.lrs.m3(Co.lin(c), PColorLumRises.lrs.term(c)))
 
 # The sum
