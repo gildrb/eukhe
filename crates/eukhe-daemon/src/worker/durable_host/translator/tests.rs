@@ -1269,6 +1269,54 @@ fn auto_retry_frames() {
     assert_eq!(retry_delay_ms(1_000.0, 2_500.0), 0);
 }
 
+/// A streamed attempt that is retried ends the message it started.
+/// pi-durable commits the attempt's entry with its retry wait and lists the
+/// wait first; the wire carries the attempt's `message_end`, then
+/// `auto_retry_start`, and no second `message_start` for that attempt.
+#[test]
+fn a_retried_attempt_ends_its_streamed_message_before_the_retry_starts() {
+    for mode in [CoalesceMode::Coalesced, CoalesceMode::Immediate] {
+        let mut translator = translator(mode);
+        start_streaming(&mut translator);
+        translator.translate_wire(&update(json!([
+            { "type": "thinking_start", "contentIndex": 0, "block": { "type": "thinking", "thinking": "" } },
+            { "type": "thinking_delta", "contentIndex": 0, "delta": "plan" },
+        ])));
+        // A reply cut at the output limit while still reasoning.
+        let cut = assistant(
+            json!([{ "type": "thinking", "thinking": "plan" }]),
+            "length",
+            3,
+        );
+        let frames = translator.translate_batch_wire(&[
+            event(json!({
+                "type": "auto_retry_start", "attempt": 1, "at": 0.0, "errorMessage": "cut",
+            })),
+            event(json!({
+                "type": "message_end", "entry": entry(4, "pi.assistant", Some(cut), None),
+            })),
+        ]);
+        // Coalesced: the parked thinking delta; immediate: the block's end.
+        assert_eq!(
+            types(&frames),
+            ["message_update", "message_end", "auto_retry_start"],
+            "{mode:?}: {frames:?}"
+        );
+        assert_eq!(frames[1]["message"]["stopReason"], "length");
+        assert_eq!(translator.mirror().partial, None);
+        // The retry's answer closes the episode recovered.
+        let answer = assistant(json!([{ "type": "text", "text": "ok" }]), "stop", 1);
+        let frames = translator.translate_wire(&event(json!({
+            "type": "message_end", "entry": entry(5, "pi.assistant", Some(answer), None),
+        })));
+        assert_eq!(
+            frames.last(),
+            Some(&json!({ "type": "auto_retry_end", "success": true, "attempt": 1 })),
+            "{mode:?}"
+        );
+    }
+}
+
 /// The serving server's prompt progress goes out at once as its own frame,
 /// never parked with the coalesced message updates.
 #[test]
