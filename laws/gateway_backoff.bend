@@ -24,22 +24,6 @@ import ./base.bend as LawsBase
 # Spec helpers
 # ------------
 
-def gb_cap(b: Bool, x: Nat) -> Nat:
-  match b:
-    case True{}:
-      x
-    case False{}:
-      10000n
-
-# R1, R2: the wait after `last`
-def gb_wait(last: Maybe<&2, Nat>) -> Nat:
-  match last:
-    case None{}:
-      250n
-    case Some{d}:
-      +x = Nat.mul(2n, d)
-      gb_cap(Nat.is_le(x, 10000n), x)
-
 def gb_w_req(m: Maybe<&2, Nat>, rest: String) -> String:
   match m:
     case None{}:
@@ -58,13 +42,28 @@ def gb_fit(m: Maybe<&2, Nat>) -> Bool:
 # Laws: the wait
 # --------------
 
-# LAW gateway_backoff_spec (R1, R2): the wait after every last wait is the
-# spec's: 250 ms first, then the last one doubled, at most 10 s
-# EXCLUDES: another first wait, a wait that does not grow, a cap other
-#   than 10 s, a doubled wait kept past the cap
-law gateway_backoff_spec:
-  for m: Maybe<&2, Nat>
-  {Gb.next(m) == gb_wait(m) : Nat}
+# LAW gateway_backoff_first (R1): with no last wait, the wait is 250 ms
+# EXCLUDES: another first wait, a first wait taken from the cap
+law gateway_backoff_first:
+  {Gb.next(None{}) == 250n : Nat}
+
+# LAW gateway_backoff_doubles (R2): after every last wait d whose double is
+# at most 10000 ms, the wait is exactly 2 * d
+# EXCLUDES: a wait that does not grow, grows by another factor or adds a
+#   step, a cap applied below 10 s
+law gateway_backoff_doubles:
+  for +d: Nat
+  for small: {Nat.is_le(Nat.mul(2n, d), 10000n) == True{} : Bool}
+  {Gb.next(Some{d}) == Nat.mul(2n, d) : Nat}
+
+# LAW gateway_backoff_capped (R2): after every last wait d whose double
+# passes 10000 ms, the wait is exactly 10000 ms
+# EXCLUDES: a cap other than 10 s, a doubled wait kept past the cap, a
+#   large last wait answered with the first wait
+law gateway_backoff_capped:
+  for +d: Nat
+  for big: {Nat.is_le(Nat.mul(2n, d), 10000n) == False{} : Bool}
+  {Gb.next(Some{d}) == 10000n : Nat}
 
 # LAW gateway_backoff_bounded (R2): no wait passes 10 s, whatever the last
 # one was
@@ -83,12 +82,14 @@ law gateway_backoff_example:
 # --------------------
 
 # LAW gateway_backoff_entry_answers (R3): the entry answers every request
-# Rust spells (a last wait within the wire) with the spec's wait
+# Rust spells (a last wait within the wire) with the model's wait Gb.next
+# (pinned by gateway_backoff_first, _doubles and _capped), spelled as a
+# wire number
 # EXCLUDES: the last wait misread, a default, a first wait for a last one
 law gateway_backoff_entry_answers:
   for +m: Maybe<&2, Nat>
   for h: {gb_fit(m) == True{} : Bool}
-  {FGb.ffi(gb_w_req(m, "")) == Wr.put_nat(gb_wait(m), "") : String}
+  {FGb.ffi(gb_w_req(m, "")) == Wr.put_nat(Gb.next(m), "") : String}
 
 # LAW gateway_backoff_entry_reads (R3): the entry's decoder reads a spelled
 # request back whole and leaves the input after it untouched

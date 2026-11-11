@@ -35,7 +35,8 @@ import ./base.bend as LawsBase
 # Spec helpers
 # ------------
 
-# R2, R5: Rust's whitespace, by code point
+# R2, R5: Rust's whitespace (`char::is_whitespace`: the Unicode
+# White_Space property, 25 code points), by code point
 def ga_ws() -> List<&2, U32>:
   [9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288]
 
@@ -57,116 +58,102 @@ def ga_empty(s: String) -> Bool:
     case SCon{c, t}:
       Bool.and(ga_white(c), ga_empty(t))
 
-# a word starts s
-def ga_opens(s: String) -> Bool:
+# R5: s holds no whitespace char
+def ga_dense(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Bool.not(ga_white(c)), ga_dense(t))
+
+# R5: a word: one char or more, none of them whitespace
+def ga_word(s: String) -> Bool:
   match s:
     case SNil{}:
       False{}
     case SCon{c, t}:
-      Bool.not(ga_white(c))
+      ga_dense(SCon{c, t})
 
-def ga_onto(c: Char, ws: List<&2, String>) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      [SCon{c, SNil{}}]
-    case w <> rest:
-      SCon{c, w} <> rest
-
-def ga_split.at(white: Bool, more: Bool, c: Char, ws: List<&2, String>) -> List<&2, String>:
-  match white more:
-    case True{} True{}:
-      ws
-    case True{} False{}:
-      ws
-    case False{} True{}:
-      ga_onto(c, ws)
-    case False{} False{}:
-      SCon{c, SNil{}} <> ws
-
-# R5: the words of s (Rust `split_whitespace`): a char that is no
-# whitespace joins the word that follows it, if one starts right after it
-def ga_split(s: String) -> List<&2, String>:
+# s is not empty
+def ga_filled(s: String) -> Bool:
   match s:
     case SNil{}:
+      False{}
+    case SCon{c, t}:
+      True{}
+
+# R5 (and gateway_commands R1): a text written as its whitespace runs and
+# the words between them
+type GaText is Data:
+  # the whitespace after the last word
+  GaEnd{gap: String}
+  # whitespace, then a word, then the rest of the text
+  GaWord{gap: String, word: String, more: GaText}
+
+# the text t writes
+def ga_spell(t: GaText) -> String:
+  match t:
+    case GaEnd{g}:
+      g
+    case GaWord{g, w, m}:
+      String.append(g, String.append(w, ga_spell(m)))
+
+# the words of t, in order
+def ga_words_of(t: GaText) -> List<&2, String>:
+  match t:
+    case GaEnd{g}:
       Nil{}
-    case SCon{+c, +t}:
-      ga_split.at(ga_white(c), ga_opens(t), c, ga_split(t))
+    case GaWord{g, w, m}:
+      w <> ga_words_of(m)
 
-def ga_glue.more(+sep: String, ws: List<&2, String>) -> String:
-  match ws:
-    case Nil{}:
-      SNil{}
-    case w <> rest:
-      String.append(sep, String.append(w, ga_glue.more(sep, rest)))
+# t holds a word
+def ga_has_word(t: GaText) -> Bool:
+  match t:
+    case GaEnd{g}:
+      False{}
+    case GaWord{g, w, m}:
+      True{}
 
-# ws joined by sep (Rust `join`)
-def ga_glue(+sep: String, ws: List<&2, String>) -> String:
-  match ws:
-    case Nil{}:
-      SNil{}
-    case w <> rest:
-      String.append(w, ga_glue.more(sep, rest))
-
-def ga_line.pick(+s: String, blank: Bool) -> String:
-  match blank:
+# the gap before a word: whitespace only, and not empty after a word
+# (first: no word before it)
+def ga_gap(first: Bool, +g: String) -> Bool:
+  match first:
     case True{}:
-      "the model request failed"
+      ga_empty(g)
     case False{}:
-      ga_glue(" ", ga_split(s))
+      Bool.and(ga_empty(g), ga_filled(g))
 
-# R5
-def ga_line(m: Maybe<&2, String>) -> String:
+# t is well formed: its gaps as ga_gap says, its words words, its last
+# gap whitespace only (empty allowed). Every string is the spelling of one
+# well formed text, whose words are its `split_whitespace` words.
+def ga_well(t: GaText, first: Bool) -> Bool:
+  match t:
+    case GaEnd{g}:
+      ga_empty(g)
+    case GaWord{g, w, m}:
+      Bool.and(ga_gap(first, g), Bool.and(ga_word(w), ga_well(m, False{})))
+
+# R2: an assistant message that stopped (on stop or on length)
+def ga_settled(s: Ga.Stop) -> Bool:
+  match s:
+    case Ga.SStop{}:
+      True{}
+    case Ga.SLength{}:
+      True{}
+    case Ga.SError{}:
+      False{}
+    case Ga.SAborted{}:
+      False{}
+    case Ga.SToolUse{}:
+      False{}
+
+# R5: a reason that names nothing: missing, empty or whitespace only
+def ga_no_reason(m: Maybe<&2, String>) -> Bool:
   match m:
     case None{}:
-      "the model request failed"
-    case Some{+s}:
-      ga_line.pick(s, ga_empty(s))
-
-def ga_text.pick(+t: String, blank: Bool) -> Ga.Answer:
-  match blank:
-    case True{}:
-      Ga.ANone{}
-    case False{}:
-      Ga.AText{t}
-
-# R2
-def ga_text(ts: List<&2, String>) -> Ga.Answer:
-  +t = ga_glue("\n\n", ts)
-  ga_text.pick(t, ga_empty(t))
-
-# R1-R4: the answer of an event
-def ga_answer(ev: Ga.Ev) -> Ga.Answer:
-  match ev:
-    case Ga.EAgentEnd{a}:
-      match a:
-        case True{}:
-          Ga.ANone{}
-        case False{}:
-          Ga.AFailed{"the turn ended before the model answered. Send /status to see the model"}
-    case Ga.EAssistant{s, ts, e}:
-      match s:
-        case Ga.SStop{}:
-          ga_text(ts)
-        case Ga.SLength{}:
-          ga_text(ts)
-        case Ga.SError{}:
-          Ga.AFailed{ga_line(e)}
-        case Ga.SAborted{}:
-          Ga.AStopped{}
-        case Ga.SToolUse{}:
-          Ga.ANone{}
-    case Ga.ETurnEnd{a, e}:
-      match a:
-        case True{}:
-          Ga.ANone{}
-        case False{}:
-          match e:
-            case None{}:
-              Ga.ANone{}
-            case Some{r}:
-              Ga.AFailed{ga_line(Some{r})}
-    case Ga.EOther{}:
-      Ga.ANone{}
+      True{}
+    case Some{r}:
+      ga_empty(r)
 
 # R6: the spelling of a request and of its reply
 
@@ -241,21 +228,108 @@ def ga_fit(ev: Ga.Ev) -> Bool:
 # Laws: the answers
 # -----------------
 
-# LAW gateway_answer_spec (R1-R5): the answer of every event is the spec's
-# EXCLUDES: a silent phone after a run with no model, a blank text sent,
-#   text blocks joined otherwise or dropped, a thinking block sent, an
-#   error on several lines or with its spacing kept, a blank error sent as
-#   is, a second reply for a turn that carries its message, a stop taken
-#   for a failure
-law gateway_answer_spec:
-  for ev: Ga.Ev
-  {Ga.answer(ev) == ga_answer(ev) : Ga.Answer}
+# LAW gateway_answer_run_end (R1): of the two run ends (the whole domain),
+# the one with no assistant message answers the failure "the turn ended
+# before the model answered. Send /status to see the model", the one with
+# an assistant message answers nothing
+# EXCLUDES: a silent phone after a run with no model, a second reply after
+#   a run that answered, another failure text
+law gateway_answer_run_end:
+  {[Ga.answer(Ga.EAgentEnd{False{}}), Ga.answer(Ga.EAgentEnd{True{}})] == [Ga.AFailed{"the turn ended before the model answered. Send /status to see the model"}, Ga.ANone{}] : List<&2, Ga.Answer>}
 
-# LAW gateway_answer_example (R1-R5): anchor: Rust's vectors: a run with
-# no assistant message, a faulted turn, a failed request and the turn end
-# that carries it; texts joined, a whitespace-only text, a blank error, an
-# abort, a tool-use step
-# EXCLUDES: a spec that drifts from the Rust it replaced
+# LAW gateway_answer_text (R2): an assistant message that stopped (stop or
+# length), with every text blocks ts and every error, whose blocks joined
+# by a blank line (Base String.join with "\n\n") hold a char that is no
+# whitespace, answers exactly that joined text
+# EXCLUDES: blocks joined otherwise, dropped, reordered or trimmed; a text
+#   lost on length; the error sent instead of the text
+law gateway_answer_text:
+  for +s: Ga.Stop
+  for +ts: List<&2, String>
+  for e: Maybe<&2, String>
+  for st: {ga_settled(s) == True{} : Bool}
+  for full: {ga_empty(String.join(ts, "\n\n")) == False{} : Bool}
+  {Ga.answer(Ga.EAssistant{s, ts, e}) == Ga.AText{String.join(ts, "\n\n")} : Ga.Answer}
+
+# LAW gateway_answer_blank (R2): an assistant message that stopped (stop or
+# length), with every error, whose blocks joined by a blank line are empty
+# or whitespace only, answers nothing
+# EXCLUDES: a blank or whitespace-only text sent, a whitespace test that
+#   misses a Unicode space
+law gateway_answer_blank:
+  for +s: Ga.Stop
+  for +ts: List<&2, String>
+  for e: Maybe<&2, String>
+  for st: {ga_settled(s) == True{} : Bool}
+  for blank: {ga_empty(String.join(ts, "\n\n")) == True{} : Bool}
+  {Ga.answer(Ga.EAssistant{s, ts, e}) == Ga.ANone{} : Ga.Answer}
+
+# LAW gateway_answer_failed_line (R3, R5): a failed assistant message, with
+# every text blocks, whose error is any text with at least one word (t: its
+# whitespace runs and words, well formed) answers the failure of those
+# words joined by single spaces (Base String.join with " ")
+# EXCLUDES: an error on several lines or with its spacing kept, words
+#   split at ASCII spaces only, a word dropped or reordered, the text
+#   blocks sent instead of the error
+law gateway_answer_failed_line:
+  for ts: List<&2, String>
+  for +t: GaText
+  for +well: {ga_well(t, True{}) == True{} : Bool}
+  for some: {ga_has_word(t) == True{} : Bool}
+  {Ga.answer(Ga.EAssistant{Ga.SError{}, ts, Some{ga_spell(t)}}) == Ga.AFailed{String.join(ga_words_of(t), " ")} : Ga.Answer}
+
+# LAW gateway_answer_failed_blank (R3, R5): a failed assistant message,
+# with every text blocks, whose error is missing, empty or whitespace only
+# answers the failure "the model request failed"
+# EXCLUDES: a blank error sent as is, a failure answered with nothing
+law gateway_answer_failed_blank:
+  for ts: List<&2, String>
+  for +e: Maybe<&2, String>
+  for none: {ga_no_reason(e) == True{} : Bool}
+  {Ga.answer(Ga.EAssistant{Ga.SError{}, ts, e}) == Ga.AFailed{"the model request failed"} : Ga.Answer}
+
+# LAW gateway_answer_aborted (R3): an aborted assistant message, with every
+# text blocks and every error, answers a stop
+# EXCLUDES: a stop taken for a failure or sent as text
+law gateway_answer_aborted:
+  for ts: List<&2, String>
+  for e: Maybe<&2, String>
+  {Ga.answer(Ga.EAssistant{Ga.SAborted{}, ts, e}) == Ga.AStopped{} : Ga.Answer}
+
+# LAW gateway_answer_tool_use (R3): a tool-use step, with every text blocks
+# and every error, answers nothing
+# EXCLUDES: the text before a tool call sent to the phone
+law gateway_answer_tool_use:
+  for ts: List<&2, String>
+  for e: Maybe<&2, String>
+  {Ga.answer(Ga.EAssistant{Ga.SToolUse{}, ts, e}) == Ga.ANone{} : Ga.Answer}
+
+# LAW gateway_answer_turn_failed (R4, R5): a turn end with no assistant
+# message and an error r answers what a failed assistant message with
+# error r answers (its line: gateway_answer_failed_line, _failed_blank),
+# for every r
+# EXCLUDES: a turn error kept on several lines, a blank turn error sent as
+#   is, a faulted turn answered with nothing
+law gateway_answer_turn_failed:
+  for +r: String
+  {Ga.answer(Ga.ETurnEnd{False{}, Some{r}}) == Ga.answer(Ga.EAssistant{Ga.SError{}, [], Some{r}}) : Ga.Answer}
+
+# LAW gateway_answer_quiet (R4): a turn end that carries its assistant
+# message (every error), a turn end with neither message nor error, and
+# every other event answer nothing
+# EXCLUDES: a second reply for a turn that carries its message, a reply to
+#   a quiet turn or to another event
+law gateway_answer_quiet:
+  for e: Maybe<&2, String>
+  {[Ga.answer(Ga.ETurnEnd{True{}, e}), Ga.answer(Ga.ETurnEnd{False{}, None{}}), Ga.answer(Ga.EOther{})] == [Ga.ANone{}, Ga.ANone{}, Ga.ANone{}] : List<&2, Ga.Answer>}
+
+# LAW gateway_answer_example (R1-R5): anchor: the two reasons of Rust's
+# answer test (crates/eukhe-gateway/src/answer/tests.rs: the cloudflare
+# key error and the faulted turn "worker\ncrashed") and ten more events: a
+# run with no assistant message and one with, the turn end that carries its
+# message, texts joined, a whitespace-only text, a blank error, an abort, a
+# tool-use step, a quiet turn, another event
+# EXCLUDES: a code that drifts from these vectors
 law gateway_answer_example:
   {[Ga.answer(Ga.EAgentEnd{False{}}), Ga.answer(Ga.EAgentEnd{True{}}), Ga.answer(Ga.ETurnEnd{False{}, Some{"worker\ncrashed"}}), Ga.answer(Ga.EAssistant{Ga.SError{}, [], Some{"No API key for provider: cloudflare-ai-gateway"}}), Ga.answer(Ga.ETurnEnd{True{}, None{}}), Ga.answer(Ga.EAssistant{Ga.SStop{}, ["a", " b  c "], None{}}), Ga.answer(Ga.EAssistant{Ga.SLength{}, [" ", "\n"], None{}}), Ga.answer(Ga.EAssistant{Ga.SError{}, [], Some{" \t"}}), Ga.answer(Ga.EAssistant{Ga.SAborted{}, ["x"], None{}}), Ga.answer(Ga.EAssistant{Ga.SToolUse{}, ["x"], None{}}), Ga.answer(Ga.ETurnEnd{False{}, None{}}), Ga.answer(Ga.EOther{})] == [Ga.AFailed{"the turn ended before the model answered. Send /status to see the model"}, Ga.ANone{}, Ga.AFailed{"worker crashed"}, Ga.AFailed{"No API key for provider: cloudflare-ai-gateway"}, Ga.ANone{}, Ga.AText{"a\n\n b  c "}, Ga.ANone{}, Ga.AFailed{"the model request failed"}, Ga.AStopped{}, Ga.ANone{}, Ga.ANone{}, Ga.ANone{}] : List<&2, Ga.Answer>}
 
@@ -264,13 +338,13 @@ law gateway_answer_example:
 
 # LAW gateway_answer_entry_answers (R6): the entry answers every request
 # Rust spells, every length within the wire, with the spelled answer of
-# the spec
+# the model Ga.answer (pinned by the laws of R1-R5 above)
 # EXCLUDES: a field misread, swapped or dropped; a stop tag read as
 #   another; a default
 law gateway_answer_entry_answers:
   for +ev: Ga.Ev
   for h: {ga_fit(ev) == True{} : Bool}
-  {FGa.ffi(ga_w_req(ev, "")) == ga_w_reply(ga_answer(ev)) : String}
+  {FGa.ffi(ga_w_req(ev, "")) == ga_w_reply(Ga.answer(ev)) : String}
 
 # LAW gateway_answer_entry_reads (R6): the entry's decoder reads a spelled
 # request back whole and leaves the input after it untouched
