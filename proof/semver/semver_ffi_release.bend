@@ -3,16 +3,17 @@
 import Base
 import ../../bend/ffi_semver.bend as FSv
 import ../../bend/semver.bend as Sv
-import ../../bend/wire.bend as Wr
 import ../../laws/semver.bend as Semver
 import ./base.bend as LASemver
 
-# PROOF of LAW semver_ffi_release: the request reads back whole
-# (sv_dec_release); no read text holds 7 digits in a row, so the guard
-# passes (sv_req_release); the model's release, or why there is none,
-# is spelled as the spec spells it (sv_put).
+# PROOF of LAW semver_ffi_release: the request reads back whole and passes
+# the 7-digit guard (svr.reply); the model's release is r, which the entry
+# writes as its version, Tag.of and Rel.title: `eukhe-v` and `Eukhe v`
+# before the version written.
 
-def Semver.semver_ffi_release(c, ts, fit, few):
-  %Equal.sym(Wr.Dec<FSv.Req>, FSv.get_req(Semver.spell_release(c, ts)), Wr.Got{FSv.QRelease{c, ts}, ""}, LASemver.sv_dec_release(c, ts, fit)) : {FSv.ffi.got(_) == Semver.release_spec(c, ts) : String}
-  %Equal.sym(Bool, FSv.short.req(FSv.QRelease{c, ts}), True{}, LASemver.sv_not_false(FSv.short.req(FSv.QRelease{c, ts}), Bool.or(Semver.seven_spec(c), Semver.seven_tags(ts)), LASemver.sv_req_release(c, ts), few)) : {FSv.ffi.short(FSv.QRelease{c, ts}, _) == Semver.release_spec(c, ts) : String}
-  LASemver.sv_put(Sv.Rel.release(c, ts), c, ts)
+def pfr.put(+c: String, +ts: List<&2, String>, +r: Sv.Ver, rel: {Sv.Rel.release(c, ts) == Some{r} : Maybe<&2, Sv.Ver>}) -> {FSv.release.put(Sv.Rel.release(c, ts), c, ts) == Semver.spell_rel(r) : String}:
+  %Equal.sym(Maybe<&2, Sv.Ver>, Sv.Rel.release(c, ts), Some{r}, rel) : {FSv.release.put(_, c, ts) == Semver.spell_rel(r) : String}
+  {==}
+
+def Semver.semver_ffi_release(c, ts, fit, few, r, rel):
+  LASemver.svr.reply(c, ts, fit, few, Semver.spell_rel(r), pfr.put(c, ts, r, rel))

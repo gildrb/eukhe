@@ -10,7 +10,6 @@ import ../../laws/wire.bend as Wire
 import ../wire/wire_nat_exact.bend as PWireNatExact
 import ../wire/wire_str_exact.bend as PWireStrExact
 import ../base/wire.bend as LWire
-import ./semver_show_decimal.bend as PSemverShowDecimal
 import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/logic.bend as LLogicLogic
 import ../base/logic/nat.bend as LLogicNat
@@ -455,65 +454,15 @@ def sv_not_true(-a: Bool, -x: Bool, e: {a == Bool.not(x) : Bool}, h: {x == True{
   %h : {a == Bool.not(_) : Bool}
   e
 
-# The replies are the spec's
-# --------------------------
+# The release question's reply
+# ----------------------------
 
-def sv_keep_not(b: Bool, -t: String, -rest: List<&2, String>) -> {FSv.newer.keep(Bool.not(b), t, rest) == Semver.newer_spec.pick(b, t, rest) : List<&2, String>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def sv_newer_keep(m: Maybe<&2, Sv.Ver>, +n: Sv.Ver, -t: String, -rest: List<&2, String>) -> {FSv.newer.keep(Sv.Rel.older(n, m), t, rest) == Semver.newer_spec.keep(m, n, t, rest) : List<&2, String>}:
-  match m:
-    case None{}:
-      {==}
-    case Some{+v}:
-      sv_keep_not(Sv.Ver.le(n, v), t, rest)
-
-def sv_newer(+n: Sv.Ver, ts: List<&2, String>) -> {FSv.newer(n, ts) == Semver.newer_spec(n, ts) : List<&2, String>}:
-  match ts:
-    case Nil{}:
-      {==}
-    case +t <> +r:
-      %sv_newer(n, r) : {FSv.newer(n, t <> r) == Semver.newer_spec.keep(Sv.Tag.ver(t), n, t, _) : List<&2, String>}
-      sv_newer_keep(Sv.Tag.ver(t), n, t, FSv.newer(n, r))
-
-def sv_show(v: Sv.Ver) -> {Sv.Ver.show(v) == Semver.show_spec(v) : String}:
-  match v:
-    case Sv.Ver{a, b, c}:
-      Semver.semver_show_decimal(a, b, c)
-
-def sv_put_rel(+v: Sv.Ver) -> {Wr.put_nat(3n, FSv.put_rel(v, "")) == Semver.spell_rel(v) : String}:
-  %sv_show(v) : {Wr.put_nat(3n, FSv.put_rel(v, "")) == Wr.put_nat(3n, Wr.put_str(_, Wr.put_str(String.append("eukhe-v", _), Wr.put_str(String.append("Eukhe v", _), "")))) : String}
-  {==}
-
-def sv_patch(+a: Nat, +b: Nat, c: Nat, +ts: List<&2, String>) -> {FSv.release.patch(a, b, c, ts) == Semver.why_spec.patch(a, b, c, ts) : String}:
-  match c:
-    case 0n:
-      +n = Sv.Rel.next(Sv.Ver{a, b, 0n}, ts)
-      %sv_newer(n, ts) : {FSv.release.patch(a, b, 0n, ts) == Wr.put_nat(2n, Wr.put_str(Semver.show_spec(n), Semver.spell_tags(_, ""))) : String}
-      %sv_show(n) : {FSv.release.patch(a, b, 0n, ts) == Wr.put_nat(2n, Wr.put_str(_, Semver.spell_tags(FSv.newer(n, ts), ""))) : String}
-      {==}
-    case 1n+z:
-      {==}
-
-def sv_miss(m: Maybe<&2, Sv.Ver>, +ts: List<&2, String>) -> {FSv.release.miss(m, ts) == Semver.why_spec(m, ts) : String}:
-  match m:
-    case None{}:
-      {==}
-    case Some{v}:
-      match v:
-        case Sv.Ver{+a, +b, c}:
-          sv_patch(a, b, c, ts)
-
-def sv_put(r: Maybe<&2, Sv.Ver>, +c: String, +ts: List<&2, String>) -> {FSv.release.put(r, c, ts) == Semver.release_spec.of(r, c, ts) : String}:
-  match r:
-    case Some{+v}:
-      sv_put_rel(v)
-    case None{}:
-      sv_miss(Sv.Ver.parse(c), ts)
+# a release question that fits, with no 7-digit run, answers what
+# release.put answers for the model's release
+def svr.reply(+c: String, +ts: List<&2, String>, +fit: {Semver.release_fits(c, ts) == True{} : Bool}, few: {Bool.or(Semver.seven_spec(c), Semver.seven_tags(ts)) == False{} : Bool}, -R: String, h: {FSv.release.put(Sv.Rel.release(c, ts), c, ts) == R : String}) -> {FSv.ffi(Semver.spell_release(c, ts)) == R : String}:
+  %Equal.sym(Wr.Dec<FSv.Req>, FSv.get_req(Semver.spell_release(c, ts)), Wr.Got{FSv.QRelease{c, ts}, ""}, sv_dec_release(c, ts, fit)) : {FSv.ffi.got(_) == R : String}
+  %Equal.sym(Bool, FSv.short.req(FSv.QRelease{c, ts}), True{}, sv_not_false(FSv.short.req(FSv.QRelease{c, ts}), Bool.or(Semver.seven_spec(c), Semver.seven_tags(ts)), sv_req_release(c, ts), few)) : {FSv.ffi.short(FSv.QRelease{c, ts}, _) == R : String}
+  h
 
 def sv_series_in(b: Bool) -> {Wr.put_nat(FSv.series.in(b), "") == Semver.series_spec.in(b) : String}:
   match b:
