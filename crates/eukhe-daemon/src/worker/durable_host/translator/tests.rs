@@ -1270,8 +1270,8 @@ fn auto_retry_frames() {
 }
 
 /// A streamed attempt that is retried ends the message it started.
-/// pi-durable commits the attempt's entry with its retry wait and lists the
-/// wait first; the wire carries the attempt's `message_end`, then
+/// The durable runtime commits the attempt's entry with its retry wait and
+/// lists the wait first; the wire carries the attempt's `message_end`, then
 /// `auto_retry_start`, and no second `message_start` for that attempt.
 #[test]
 fn a_retried_attempt_ends_its_streamed_message_before_the_retry_starts() {

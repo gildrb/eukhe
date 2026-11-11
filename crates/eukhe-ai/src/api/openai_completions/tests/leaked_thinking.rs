@@ -1,7 +1,6 @@
 //! Reasoning leaked into `delta.content`: a server that does not split
 //! reasoning into its own field streams the chat template's reasoning
-//! section as content. omp turns it into thinking (`ThinkingInbandScanner`,
-//! `LeakedThinkingProjector`); so does this stream.
+//! section as content. The stream turns it into thinking.
 
 use serde_json::{json, Value as JsonValue};
 

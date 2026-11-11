@@ -152,7 +152,7 @@ async fn sends_explicit_max_tokens() {
 }
 
 /// The room is the window less the prompt (2286 estimated tokens, a tenth
-/// on top, 16 of framing) and omp's 64 tokens of headway.
+/// on top, 16 of framing) and 64 tokens of headway.
 #[tokio::test]
 async fn clamps_default_max_tokens_to_remaining_context() {
     let model = gpt_4o_mini_completions(&json!({ "contextWindow": 10000, "maxTokens": 8000 }));
@@ -205,9 +205,9 @@ async fn loopback_custom_models_omit_the_store_field() {
     assert_eq!(params.get("store"), Some(&json!(false)));
 }
 
-/// A Qwen-family model sends no `store` on any host (omp `supportsStore`:
-/// `isQwen` is a non-standard host class): a self-hosted server with a
-/// strict request schema rejects the field with a 400.
+/// A Qwen-family model sends no `store` on any host (a Qwen model counts as
+/// a non-standard host): a self-hosted server with a strict request schema
+/// rejects the field with a 400.
 #[tokio::test]
 async fn qwen_models_omit_the_store_field_on_any_host() {
     let qwen = gpt_4o_mini_completions(&json!({
@@ -240,7 +240,7 @@ async fn qwen_models_omit_the_store_field_on_any_host() {
 /// A reasoning model on a self-hosted server sends its system prompt as
 /// `system`, on any address: vLLM/SGLang reject the `developer` role with
 /// a 400 ("Supported message roles: system, user, assistant, tool"), and
-/// only the `OpenAI` host takes it (omp `supportsDeveloperRole`).
+/// only the `OpenAI` host takes it.
 #[tokio::test]
 async fn self_hosted_reasoning_models_send_the_system_role() {
     let system_role = |base_url: &str| {

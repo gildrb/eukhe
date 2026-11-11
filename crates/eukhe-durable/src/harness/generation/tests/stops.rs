@@ -111,14 +111,13 @@ const CUT: [&str; 2] = [
 ];
 
 /// The Rust side of laws `stop_cut_text_stands_with_room` and
-/// `stop_cut_kept_answers_once` (laws/stop/cut.bend; omp
-/// `session-maintenance.ts` keeps a truncated turn that delivered text
-/// while the window has room). Regression (v0.10.67): the harness failed
-/// such a reply ("did not take the cut text as the answer") and asked
-/// again with a note. The run ends after its one request: its one
-/// assistant message keeps the cut text and the stop reason length, with
-/// no error, whatever else the text holds, and no request with a note
-/// follows (the scripted second reply stays unused).
+/// `stop_cut_kept_answers_once` (laws/stop/cut.bend: a truncated turn that
+/// delivered text is kept while the window has room). Regression
+/// (v0.10.67): the harness failed such a reply ("did not take the cut text
+/// as the answer") and asked again with a note. The run ends after its one
+/// request: its one assistant message keeps the cut text and the stop
+/// reason length, with no error, whatever else the text holds, and no
+/// request with a note follows (the scripted second reply stays unused).
 #[tokio::test]
 async fn a_reply_cut_at_the_output_limit_with_room_in_the_window_is_kept_as_the_answer() {
     for cut in CUT {

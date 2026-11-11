@@ -78,8 +78,8 @@ pub struct OpenAICompletionsCompat {
     /// Which field to use for max tokens. Default: auto-detected from URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_field: Option<MaxTokensField>,
-    /// Whether the host takes an output cap up to the model's `maxTokens`
-    /// (omp `clampOutputToModelMax`). False: the cap is at most 64000.
+    /// Whether the host takes an output cap up to the model's `maxTokens`.
+    /// False: the cap is at most 64000.
     /// Default: true for a local backend, else false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clamp_output_to_model_max: Option<bool>,

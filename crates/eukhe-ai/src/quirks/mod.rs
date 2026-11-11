@@ -223,18 +223,16 @@ pub enum Directive {
     StopsOutputAtWindow,
     /// A request without a caller's cap carries the model's max as its
     /// output cap. `false`: the host leaves that default out, so each of
-    /// its upstreams applies its own max (omp `isOpenRouterHost` in
-    /// `resolveOpenAIOutputTokenParam`); a caller's cap is still sent. No
+    /// its upstreams applies its own max; a caller's cap is still sent. No
     /// rule: it does.
     DefaultOutputCap,
     /// Model id prefixes that carry the default output cap on this host
-    /// even when `default_output_cap` is false (omp `alwaysSendMaxTokens`:
-    /// Kimi derives its rate limits from the cap).
+    /// even when `default_output_cap` is false (Kimi derives its rate
+    /// limits from the cap).
     DefaultOutputCapPrefixes,
     /// `OpenAI`-family wire APIs: the host takes an output cap up to the
-    /// model's max. `false`: at most 64000 (omp
-    /// `OPENAI_MAX_OUTPUT_TOKENS`). No rule: a local backend does, any
-    /// other host does not (omp `clampOutputToModelMax`).
+    /// model's max. `false`: at most 64000. No rule: a local backend does,
+    /// any other host does not.
     ClampOutputToModelMax,
     /// Model id prefixes whose output cap goes up to the model's max on
     /// this host even when `clamp_output_to_model_max` is false.

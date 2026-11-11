@@ -62,18 +62,16 @@ import ../spec/harness/stop.bend as StSpec
 #     starts with no note and no round; each row is within its cap (the
 #     length notes one past theirs, Free none); the rounds in a row are one
 #     more after a round of the same calls, else 1.
-# R10: a reply cut at the output limit, as omp treats it (omp at c28b3e3,
-#     packages/coding-agent/src/session/session-maintenance.ts:3399-3534).
-#     With no text it never stands. With text it stands exactly when the
-#     window has room (S5: not spent; an unknown window is spent, as omp
-#     counts it: :3412-3415): the truncated reply is kept as the run's
-#     answer, whatever else its text holds; it answers the run once and
-#     the run sends no further request. With text and a spent window, the
-#     run compacts (the overflow's compaction) when a compaction can run,
-#     then the request goes again; when none can, the reply is dropped
-#     (:3528-3533): the run ends with no further request, the reply stays
-#     in the transcript but leaves the model's context, and no warning
-#     follows it (Rust: generation/round.rs `answer`). Its laws:
+# R10: a reply cut at the output limit. With no text it never stands.
+#     With text it stands exactly when the window has room (S5: not
+#     spent; an unknown window is spent): the truncated reply is kept as
+#     the run's answer, whatever else its text holds; it answers the run
+#     once and the run sends no further request. With text and a spent
+#     window, the run compacts (the overflow's compaction) when a
+#     compaction can run, then the request goes again; when none can, the
+#     reply is dropped: the run ends with no further request, the reply
+#     stays in the transcript but leaves the model's context, and no
+#     warning follows it (Rust: generation/round.rs `answer`). Its laws:
 #     laws/stop/cut.bend.
 
 # Spec helpers
@@ -761,7 +759,7 @@ law stop_shrink_compacts_once:
   {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass), r, 1n+c, a, n, p) == RnState.St{RnState.Compact{True{}}, r, c, a, n, p} : RnState.St}
 
 # LAW stop_bound_exact (R7): the window ran out exactly as the spec says
-# (an unknown window counts as run out, as omp counts it)
+# (an unknown window counts as run out)
 # EXCLUDES: a compaction when the catalog cap stopped the reply; none
 #   when the reply filled the window, or when the window is unknown
 law stop_bound_exact:

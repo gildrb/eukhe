@@ -265,7 +265,7 @@ def margin() -> Nat:
   8192n
 
 # a length stop ran into the context window: the window is unknown (0:
-# omp counts it as run out, there is no evidence it had room), or the
+# it counts as run out, there is no evidence it had room), or the
 # reply's output is below the model's catalog max output (so that cap did
 # not stop it) and its prompt and output reach the window, within the
 # margin

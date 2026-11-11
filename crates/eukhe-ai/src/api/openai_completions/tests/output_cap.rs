@@ -1,8 +1,6 @@
-//! The output cap of an `openai-completions` request, as omp sends it: the
-//! caller's cap, else the model's max, fitted to the window (the compiled
-//! `Fx.cap`, `laws/facts.bend` `facts_cap_*`; omp
-//! `fitOutputTokensToContextWindow`), then held under the host's ceiling
-//! (omp `resolveOpenAIOutputTokenParam`).
+//! The output cap of an `openai-completions` request: the caller's cap,
+//! else the model's max, fitted to the window (the compiled `Fx.cap`,
+//! `laws/facts.bend` `facts_cap_*`), then held under the host's ceiling.
 
 use std::sync::PoisonError;
 
@@ -16,9 +14,9 @@ use crate::types::{
 };
 use crate::utils::estimate::estimate_context_tokens;
 
-/// The prompt size of a one-message context as omp sizes it
-/// (`countPromptTokens`, `packages/agent/src/output-budget.ts:133-144`):
-/// the local estimate with a tenth on top and 16 tokens of framing.
+/// The prompt size of a one-message context as Eukhe sizes it for the
+/// output cap: the local estimate with a tenth on top and 16 tokens of
+/// framing.
 fn prompt_tokens(context: &TranscriptContext) -> u64 {
     let estimate = estimate_context_tokens(context.messages()).tokens;
     estimate + estimate.div_ceil(10) + 16
@@ -93,11 +91,9 @@ fn caps(params: &JsonValue) -> (Option<u64>, Option<u64>) {
 
 /// Regression (user report): the local model `elpis/qwen3.8-27b` sent no
 /// output cap, the server cut every reply at its own default (4096) and
-/// the model began to write in small pieces. omp sends the model's max on
-/// every request (`packages/ai/src/stream.ts:1802`), at most 64000 on a
-/// host that is no local backend
-/// (`packages/ai/src/providers/openai-shared.ts:711-715`): for the same
-/// definition `max_completion_tokens: 64000`, and the configured
+/// the model began to write in small pieces. Every request carries the
+/// model's max, at most 64000 on a host that is no local backend: for the
+/// same definition `max_completion_tokens: 64000`, and the configured
 /// `maxTokens` when it is lower.
 #[tokio::test]
 async fn a_custom_model_sends_its_max_as_the_output_cap() {
@@ -124,8 +120,7 @@ async fn a_custom_model_sends_its_max_as_the_output_cap() {
     );
 }
 
-/// omp `clampOutputToModelMax` (`packages/catalog/src/compat/resolve.ts:605`):
-/// a local backend (a base URL on this machine or a private network) and a
+/// A local backend (a base URL on this machine or a private network) and a
 /// model whose compat says so take the model's whole max; any other host
 /// at most 64000.
 #[tokio::test]
@@ -160,11 +155,9 @@ async fn only_a_local_backend_takes_a_cap_above_64000() {
     );
 }
 
-/// omp `fitOutputTokensToContextWindow`
-/// (`packages/agent/src/output-budget.ts:81-96`): a max the window cannot
-/// hold beside the prompt is sent as the room the window leaves after the
-/// prompt and 64 tokens of headway, never below 1024; a max at the window
-/// is such a max on every request.
+/// A max the window cannot hold beside the prompt is sent as the room the
+/// window leaves after the prompt and 64 tokens of headway, never below
+/// 1024; a max at the window is such a max on every request.
 #[tokio::test]
 async fn a_cap_the_window_cannot_hold_shrinks_to_the_room() {
     let short = user_context("Hi");
@@ -206,10 +199,9 @@ async fn a_cap_the_window_cannot_hold_shrinks_to_the_room() {
     );
 }
 
-/// omp `resolveOpenAIOutputTokenParam`
-/// (`packages/ai/src/providers/openai-shared.ts:706-710`): `OpenRouter`
-/// leaves the model's default cap out, so each upstream applies its own
-/// max; a caller's cap is sent, and a Kimi model always carries its cap.
+/// `OpenRouter` leaves the model's default cap out, so each upstream
+/// applies its own max; a caller's cap is sent, and a Kimi model always
+/// carries its cap.
 #[tokio::test]
 async fn openrouter_sends_no_default_cap() {
     let context = user_context("Hi");
@@ -232,9 +224,7 @@ async fn openrouter_sends_no_default_cap() {
 }
 
 /// The rulebook's `clamp_output_to_model_max`: Z.AI and `DeepSeek`'s Flash
-/// models take their whole max (omp `rules/providers/deepseek.kdl:34-35`;
-/// omp's Z.AI requests carry the model's max), `DeepSeek`'s other models at
-/// most 64000.
+/// models take their whole max, `DeepSeek`'s other models at most 64000.
 #[tokio::test]
 async fn a_host_rule_lifts_the_64000_ceiling() {
     let context = user_context("Hi");

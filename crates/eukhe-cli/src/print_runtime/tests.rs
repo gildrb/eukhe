@@ -191,7 +191,7 @@ async fn a_print_run_sends_no_request_after_its_final_answer() {
 }
 
 /// A reply that hit the output limit with room left in the window is the
-/// run's answer (the stop Directors keep it, as omp keeps such a turn):
+/// run's answer (the stop Directors keep such a turn):
 /// the truncated answer is the primary, the warning row that trails it is
 /// reported with it and never taken for the result, and the run sends no
 /// second request.
@@ -231,11 +231,10 @@ async fn a_truncated_answer_is_the_result_and_its_warning_trails_it() {
 }
 
 /// A reply that hit the output limit with text in a window that is
-/// unknown (0, which counts as run out, as omp counts it) and no
-/// compaction to make is dropped: omp removes the turn from its active
-/// context and ends the run with no notice (`session-maintenance.ts`
-/// :3412-3415, :3528-3533), so its print mode prints no result. The run
-/// has no primary, no warning and no failure, and sends no second request.
+/// unknown (0, which counts as run out) and no compaction to make is
+/// dropped: the turn leaves the model's context and the run ends with no
+/// notice, so print mode prints no result. The run has no primary, no
+/// warning and no failure, and sends no second request.
 #[tokio::test]
 async fn a_dropped_truncated_reply_is_no_result_and_has_no_warning() {
     let dir = tempfile::TempDir::new().expect("tempdir");

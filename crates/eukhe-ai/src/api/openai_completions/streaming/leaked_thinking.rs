@@ -1,9 +1,8 @@
 //! Reasoning a model leaked into its visible text: a server that does not
 //! split reasoning into its own field streams the chat template's reasoning
 //! section (`<think>...</think>`, ...) as `delta.content`. The scanner
-//! splits that content into visible text and reasoning, live, as omp does
-//! (`ThinkingInbandScanner`, packages/ai/src/dialect/thinking.ts; the
-//! Gemini ` ```thinking ` fence is not ported).
+//! splits that content into visible text and reasoning, live (the Gemini
+//! ` ```thinking ` fence is not recognized).
 
 /// One piece of scanned content, in stream order.
 pub(crate) enum Scanned {
@@ -22,7 +21,7 @@ struct Tag {
     close: &'static str,
 }
 
-/// Every in-band reasoning section, in omp's order (`TAGS`).
+/// Every in-band reasoning section, in the order the scanner tries them.
 static TAGS: [Tag; 6] = [
     // deepseek, glm, hermes, kimi, qwen3.
     Tag {

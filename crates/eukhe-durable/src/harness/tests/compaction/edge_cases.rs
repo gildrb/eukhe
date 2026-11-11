@@ -277,9 +277,8 @@ async fn treats_a_length_stop_with_room_in_the_window_as_the_answer_not_an_overf
 /// 9000-token window; its prompt and 600 output tokens within 8192 of it,
 /// below the catalog max of 900) is not kept: the window is what ran out,
 /// so the run compacts and sends the request again, with no note (law
-/// `stop_cut_full_compacts`; omp drops such a turn, compacts and
-/// retries). The cut reply fails with its reason and is not sent again;
-/// the next reply answers.
+/// `stop_cut_full_compacts`). The cut reply fails with its reason and is
+/// not sent again; the next reply answers.
 #[tokio::test]
 async fn compacts_when_a_length_stop_with_text_ran_into_the_window() {
     let chat = open(OpenOptions {
@@ -347,11 +346,11 @@ async fn compacts_when_a_length_stop_with_text_ran_into_the_window() {
 }
 
 /// A length stop with text in a window that is unknown (0) compacts and
-/// sends the request again, as one that ran into a known window does: omp
-/// counts an unknown window as exhausted (`session-maintenance.ts`
-/// :3412-3415; law `stop_cut_unknown_window_never_kept`), so the cut reply
-/// is never kept as the answer there. The cut reply fails with its reason;
-/// the next reply answers.
+/// sends the request again, as one that ran into a known window does: an
+/// unknown window counts as exhausted (law
+/// `stop_cut_unknown_window_never_kept`), so the cut reply is never kept as
+/// the answer there. The cut reply fails with its reason; the next reply
+/// answers.
 #[tokio::test]
 async fn compacts_when_a_length_stop_with_text_has_an_unknown_window() {
     let chat = open(OpenOptions {
@@ -405,13 +404,12 @@ async fn compacts_when_a_length_stop_with_text_has_an_unknown_window() {
 /// A length stop with text whose window ran out (a 9000-token window, its
 /// prompt and 600 output tokens within 8192 of it, below the catalog max
 /// of 900), or is unknown (0), when no compaction can run (compaction off)
-/// is dropped: omp removes the turn from its active context, keeps it on
-/// the branch and ends the run with no notice (`session-maintenance.ts`
-/// :3412-3415, :3528-3533; law `stop_cut_dropped_ends_the_run`). The run
-/// ends after its one request with no compaction; the cut reply stays in
-/// the transcript, its stop reason length and no error, followed by the
-/// `pi.drop` entry that omits it from the model's context; the context
-/// and the next turn's request leave it out.
+/// is dropped: the turn leaves the model's context, stays on the branch
+/// and the run ends with no notice (law `stop_cut_dropped_ends_the_run`).
+/// The run ends after its one request with no compaction; the cut reply
+/// stays in the transcript, its stop reason length and no error, followed
+/// by the `pi.drop` entry that omits it from the model's context; the
+/// context and the next turn's request leave it out.
 #[tokio::test]
 async fn drops_a_length_stop_with_text_whose_window_ran_out_when_no_compaction_can_run() {
     for window in [9_000, 0] {

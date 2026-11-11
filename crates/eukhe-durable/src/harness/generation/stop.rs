@@ -68,8 +68,7 @@ pub(crate) enum Pick {
     /// The stop stands without the reply: a cut reply with text whose
     /// window ran out with no compaction to make. The run ends; the reply
     /// stays in the transcript, out of the model's context, with no
-    /// warning (omp `session-maintenance.ts` removes such a turn from its
-    /// active context and ends with no notice).
+    /// warning.
     Drops,
     /// A Director continues the run: the recovery that caps it.
     Goes(Stuck),

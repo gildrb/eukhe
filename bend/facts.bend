@@ -254,9 +254,7 @@ def cap.none(omit: Bool, +mm: Nat, win: Win) -> Maybe<&2, Nat>:
 # for a host whose rulebook rule leaves the default cap out (the
 # rulebook's `default_output_cap` false: OpenRouter). The field is left
 # out only then, whatever the max and the window; a caller's cap is always
-# sent (omp packages/ai/src/stream.ts:1802,
-# packages/agent/src/output-budget.ts:81-103,
-# packages/ai/src/providers/openai-shared.ts:703-718)
+# sent
 def cap(caller: Maybe<&2, Nat>, +mm: Nat, needs: Bool, +win: Win) -> Maybe<&2, Nat>:
   match caller:
     case Some{x}:

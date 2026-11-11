@@ -14,18 +14,17 @@
 # - Yield: the stop stands;
 # - Drop: the stop stands without the reply: the run ends, the reply
 #   stays in the transcript but leaves the model's context, and no
-#   warning follows it (omp removes such a turn from its active context).
+#   warning follows it.
 #
 # With every Director passing, the stop stands: the reply is the final
 # answer, whatever its text says. The Directors, inside to outside:
 #
 # - LengthStop: the reply hit the output limit. With no text nothing was
 #   delivered: the run goes on. A cut reply with text and room left in
-#   the window is kept as it is (omp keeps a truncated turn that delivered
-#   text): the stop stands, whatever else the text holds. With text and
-#   the window run out (an unknown window counts as run out, as in omp),
-#   the run goes on when a compaction can run (the next request needs
-#   one), else the reply is dropped;
+#   the window is kept as it is: the text it delivered is the answer,
+#   whatever else the text holds. With text and the window run out (an
+#   unknown window counts as run out), the run goes on when a compaction
+#   can run (the next request needs one), else the reply is dropped;
 # - EmptyStop: no text: nothing the user can read (a thinking-only reply);
 # - MarkupStop: tool-call markup in the text that the harness could not
 #   read: a call the model meant to make, never an answer;

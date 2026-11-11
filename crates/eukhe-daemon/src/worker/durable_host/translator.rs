@@ -452,9 +452,9 @@ impl EventTranslator {
     /// faulted tool's `tool_execution_end` and a faulted compaction's
     /// `compaction_end` carry their failure message although the durable
     /// events list failures after those ends. A retried attempt's
-    /// `message_end` goes out before its `auto_retry_start` (TS and omp
-    /// order) although the durable events list the retry wait first: the
-    /// attempt ends the message it streamed, never a second one.
+    /// `message_end` goes out before its `auto_retry_start` although the
+    /// durable events list the retry wait first: the attempt ends the
+    /// message it streamed, never a second one.
     pub fn translate_batch(&mut self, events: &[AgentEvent]) -> Vec<SessionEvent> {
         for event in events {
             if let AgentEvent::TaskFailed {
@@ -477,8 +477,8 @@ impl EventTranslator {
         self.failures_prescanned = true;
         let mut frames = Vec::new();
         let mut ordered = run_start_first(events);
-        // pi-durable commits a retried attempt's entry with its retry wait
-        // and lists the wait (live progress) ahead of the entry.
+        // The durable runtime commits a retried attempt's entry with its
+        // retry wait and lists the wait (live progress) ahead of the entry.
         let retry = ordered
             .iter()
             .position(|event| matches!(event, AgentEvent::AutoRetryStart { .. }));

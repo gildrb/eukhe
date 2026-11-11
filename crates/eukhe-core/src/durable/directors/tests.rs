@@ -586,11 +586,12 @@ async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entr
 
 /// The display row of a kept truncated answer. The stop Directors let a
 /// reply that hit the output limit stand when it has text and the window
-/// has room (laws/stop/cut.bend; omp `session-maintenance.ts` keeps such a
-/// turn and warns). Regression (v0.10.67): the reply was failed and asked
-/// again with a note. The run ends after its one request; the answer keeps
+/// has room (laws/stop/cut.bend: such a turn is kept with a warning).
+/// Regression (v0.10.67): the reply was failed and asked again with a
+/// note. The run ends after its one request; the answer keeps
 /// its text and the stop reason length, with no error; one warning row
-/// with omp's text follows it, shown to the user and never model context.
+/// with the output-limit text follows it, shown to the user and never
+/// model context.
 #[tokio::test]
 async fn a_kept_truncated_answer_is_followed_by_one_warning_row() {
     let setup = setup();

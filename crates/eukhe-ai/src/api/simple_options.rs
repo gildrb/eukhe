@@ -16,20 +16,17 @@ use crate::types::{SimpleStreamOptions, StreamOptions};
 use crate::utils::estimate::estimate_context_tokens;
 
 /// Tokens left free under the context window when the output cap is
-/// shrunk to fit it (omp `OUTPUT_FIT_HEADWAY_TOKENS`).
+/// shrunk to fit it.
 const CONTEXT_SAFETY_TOKENS: u64 = 64;
-/// The smallest output cap a window shrink leaves (omp
-/// `MIN_FITTED_OUTPUT_TOKENS`).
+/// The smallest output cap a window shrink leaves.
 const MIN_MAX_TOKENS: u64 = 1024;
-/// Tokens of chat-template framing counted per locally estimated message
-/// (omp `MESSAGE_FRAMING_TOKENS`).
+/// Tokens of chat-template framing counted per locally estimated message.
 const MESSAGE_FRAMING_TOKENS: u64 = 16;
 /// Tokens a request's thinking budget always leaves the answer under its
 /// response ceiling (omp `OUTPUT_FALLBACK_BUFFER`).
 pub const OUTPUT_FALLBACK_BUFFER: u64 = 4000;
 /// The most output tokens an `OpenAI`-family request asks for on a host
-/// that does not take the model's whole max (omp
-/// `OPENAI_MAX_OUTPUT_TOKENS`, `packages/ai/src/types.ts:73`).
+/// that does not take the model's whole max.
 pub const OPENAI_MAX_OUTPUT_TOKENS: u64 = 64_000;
 
 /// eukhe addition: whether a `streamSimple` request of `model` with
@@ -65,11 +62,10 @@ pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) 
 /// of a shrunk cap, and whether the provider ends the model's output at the
 /// window itself (the rulebook's `stops_output_at_window`).
 ///
-/// The prompt is sized as omp sizes it for the output cap
-/// (`countPromptTokens`, `packages/agent/src/output-budget.ts:133-144`):
-/// the provider's own count at the last assistant reply, plus the local
-/// estimate of the messages after it with a tenth on top (the estimate's
-/// error) and [`MESSAGE_FRAMING_TOKENS`] per message.
+/// The prompt is sized for the output cap as the provider's own count at
+/// the last assistant reply, plus the local estimate of the messages after
+/// it with a tenth on top (the estimate's error) and
+/// [`MESSAGE_FRAMING_TOKENS`] per message.
 fn write_window(writer: &mut Writer, model: &Model, context: &TranscriptContext) {
     let messages = context.messages();
     let estimate = estimate_context_tokens(messages);
@@ -92,12 +88,10 @@ fn write_window(writer: &mut Writer, model: &Model, context: &TranscriptContext)
 }
 
 /// Whether the host of an `OpenAI`-family request takes an output cap up
-/// to the model's max (omp `clampOutputToModelMax`): the quirks rulebook's
-/// `clamp_output_to_model_max` (or the host's id prefixes), else whether
-/// the host is a local backend (omp `isLocalOpenAICompatBackend`,
-/// `packages/catalog/src/compat/resolve.ts:269-299,366-368`: a local
-/// server's provider id, or a base URL on this machine or a private
-/// network).
+/// to the model's max: the quirks rulebook's `clamp_output_to_model_max`
+/// (or the host's id prefixes), else whether the host is a local backend
+/// (a local server's provider id, or a base URL on this machine or a
+/// private network).
 #[must_use]
 pub(crate) fn clamps_output_to_model_max(model: &Model) -> bool {
     let quirks = Quirks::of(model);
@@ -125,10 +119,9 @@ pub(crate) fn clamps_output_to_model_max(model: &Model) -> bool {
 }
 
 /// The output cap an `OpenAI`-family request sends for the request's cap
-/// `cap` (omp `resolveOpenAIOutputTokenParam`,
-/// `packages/ai/src/providers/openai-shared.ts:711-715`): never above the
-/// model's max, and never above [`OPENAI_MAX_OUTPUT_TOKENS`] unless the
-/// host takes the model's whole max (`clamp_to_model_max`).
+/// `cap`: never above the model's max, and never above
+/// [`OPENAI_MAX_OUTPUT_TOKENS`] unless the host takes the model's whole max
+/// (`clamp_to_model_max`).
 #[must_use]
 pub(crate) fn openai_output_cap(model: &Model, cap: u64, clamp_to_model_max: bool) -> u64 {
     let cap = cap.min(model.max_tokens);
@@ -175,10 +168,8 @@ pub fn resolve_sampling_params(
 ///
 /// The output cap is one compiled decision (model `Fx.cap`,
 /// `laws/facts.bend` `facts_cap_*`): the caller's cap, else the catalog's
-/// max (omp `maxTokens: options?.maxTokens ?? model.maxTokens`,
-/// `packages/ai/src/stream.ts:1802`), shrunk only when the prompt and the
-/// cap would pass the context window (never for a model the provider
-/// stops at the window; omp `fitOutputTokensToContextWindow`); `None` (the
+/// max, shrunk only when the prompt and the cap would pass the context
+/// window (never for a model the provider stops at the window); `None` (the
 /// field omitted) only without a caller's cap on a host whose rulebook
 /// rule leaves the default cap out (`default_output_cap` false:
 /// `OpenRouter`, whose upstreams each apply their own max), and never for a

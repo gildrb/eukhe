@@ -210,8 +210,8 @@ pub static COMPACTION_ENTRY: Entry<CompactionData> = Entry::builtin("pi.compacti
 /// A reply taken out of model context and kept in the transcript: `edits`
 /// omit the assistant entry it follows; no `model`, no `data`. Written by
 /// generation after a reply cut at the output limit that the stop walk
-/// drops (laws/stop/cut.bend; omp removes such a turn from its active
-/// context and keeps it on the branch).
+/// drops (laws/stop/cut.bend: such a turn leaves the model's context and
+/// stays on the branch).
 pub static DROP_ENTRY: Entry = Entry::builtin("pi.drop");
 
 #[cfg(test)]

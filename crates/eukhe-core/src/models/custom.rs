@@ -418,9 +418,8 @@ impl ProviderConfig {
                     "cacheWrite": cost.cache_write.unwrap_or(0.0),
                 }),
             );
-            // omp `finalizeCustomModel` (custom-models.ts:137-138): a limit
-            // the definition leaves out is the limit of the built-in
-            // catalog model the id names, else omp's default.
+            // A limit the definition leaves out is the limit of the
+            // built-in catalog model the id names, else the default.
             let reference = super::reference::limits(&definition.id);
             object.insert(
                 "contextWindow".to_owned(),
@@ -770,10 +769,9 @@ mod tests {
         );
     }
 
-    /// omp `finalizeCustomModel` (custom-models.ts:137-138): a definition
-    /// whose id names no catalog model takes omp's default limits (a
-    /// 128000 window, 16384 output tokens) and stays catalog-like: only a
-    /// configured value is explicit.
+    /// A definition whose id names no catalog model takes the default
+    /// limits (a 128000 window, 16384 output tokens) and stays
+    /// catalog-like: only a configured value is explicit.
     #[test]
     fn parses_custom_models_with_defaults() {
         let config = provider(
@@ -797,8 +795,8 @@ mod tests {
     /// Regression (user report: a local `qwen3.8-27b` without `maxTokens`
     /// sent no output cap, the server cut every reply at its own default
     /// of 4096): a definition whose id names a built-in catalog model
-    /// takes the limits it leaves out from that model, as omp does
-    /// (custom-models.ts:112-114,137-138); a configured limit wins.
+    /// takes the limits it leaves out from that model; a configured limit
+    /// wins.
     #[test]
     fn a_custom_model_takes_the_limits_it_leaves_out_from_the_catalog_model_of_its_id() {
         let catalog = crate::models::ModelRegistry::built_in_catalog_models()

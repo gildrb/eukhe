@@ -168,8 +168,8 @@ pub(super) async fn start_next_call(
 
 /// The rows that show the warning of an answer that hit the output limit
 /// and that the stop walk kept (laws/stop/cut.bend): one per
-/// `on_truncated` handler, with the text of omp `session-maintenance.ts`
-/// (its notice of a kept truncated turn). None for a whole answer.
+/// `on_truncated` handler, with the notice of a kept truncated turn. None
+/// for a whole answer.
 async fn truncated_rows(
     runtime: &Runtime,
     message: &AssistantMessage,
@@ -214,9 +214,7 @@ async fn truncated_rows(
 /// ([`truncated_rows`]) follow it in the commit. A `dropped` reply (a cut
 /// reply the stop walk dropped, laws/stop/cut.bend) ends the run the same
 /// way, but stays in the transcript only: a `pi.drop` entry omits it from
-/// the model's context, and no warning row follows it (omp
-/// `session-maintenance.ts` removes such a turn from its active context
-/// and shows no notice).
+/// the model's context, and no warning row follows it.
 pub(super) async fn answer(
     runtime: &Runtime,
     message: AssistantMessage,

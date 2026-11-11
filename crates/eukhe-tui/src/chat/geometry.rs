@@ -30,9 +30,8 @@ pub(super) fn is_blank_row(line: &[crate::Span]) -> bool {
 /// The cache tag the thinking block renders under.
 pub(super) const THINKING_CACHE_TAG: &str = "thinking";
 
-/// The thinking block's style: the theme's `thinkingText` colour, italic
-/// (omp `AssistantMessageComponent.#createMarkdown("thinking")`), on every
-/// markdown element, so reasoning never reads as answer text.
+/// The thinking block's style: the theme's `thinkingText` colour, italic,
+/// on every markdown element, so reasoning never reads as answer text.
 pub(super) fn thinking_style(md: &MarkdownStyle, theme: &Theme) -> MarkdownStyle {
     let mut md = md.clone();
     let thinking = theme

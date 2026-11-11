@@ -1,6 +1,5 @@
-//! The built-in catalog model a models.json model id names (port of omp
-//! `packages/catalog/src/identity/reference.ts` and `identity/id.ts`): a
-//! custom model served through a local server, a proxy or a reseller
+//! The built-in catalog model a models.json model id names: a custom
+//! model served through a local server, a proxy or a reseller
 //! (`qwen3.8-27b`, `[Kiro] claude-opus-4-8`, `gpt-5.4:cloud`,
 //! `vendor/claude-sonnet-4-6-thinking`) takes the limits its definition
 //! leaves out from the catalog model of that id.
@@ -19,16 +18,15 @@ pub(crate) struct ReferenceLimits {
     pub(crate) max_tokens: u64,
 }
 
-/// omp `ModelReferenceIndex`: the reference of each lowercased model id,
+/// The reference index: the reference of each lowercased model id,
 /// and of the longest model-like segment after the last `/` of each id.
 struct ReferenceIndex {
     exact: HashMap<String, ReferenceLimits>,
     suffix_alias: HashMap<String, ReferenceLimits>,
 }
 
-/// Trailing markers a reseller appends without changing the model (omp
-/// `rules.json` `taxonomy.discovery`: `trailingMarkers`, then
-/// `referenceOnlyTrailingMarkers`), each as `-marker` and `:marker`.
+/// Trailing markers a reseller appends without changing the model, each as
+/// `-marker` and `:marker`.
 const TRAILING_MARKERS: &[&str] = &[
     "customtools",
     "cloud",
@@ -52,9 +50,8 @@ const TRAILING_MARKERS: &[&str] = &[
     "search",
 ];
 
-/// Whole suffixes stripped the same way (omp `rules.json`
-/// `taxonomy.discovery.billingVariantSuffixes`, `taxonomy.collapse.suffixes`
-/// and `taxonomy.collapse.routingVariants`).
+/// Whole suffixes stripped the same way (billing, effort and routing
+/// variants).
 const TRAILING_SUFFIXES: &[&str] = &[
     "-free",
     "-contributor",
@@ -70,7 +67,7 @@ const TRAILING_SUFFIXES: &[&str] = &[
     "-wm",
 ];
 
-/// omp `MODEL_FAMILY_PREFIX_PATTERN`: the prefixes of a model-like segment.
+/// The prefixes of a model-like segment.
 const FAMILY_PREFIXES: &[&str] = &[
     "claude", "gemini", "gpt", "grok", "glm", "qwen", "deepseek", "kimi", "mimo", "doubao",
     "ernie", "gemma", "minimax", "step", "command", "jamba", "llama", "o1", "o3", "o4", "o5",
@@ -103,8 +100,8 @@ const fn limits_of(context_window: u64, max_tokens: u64) -> ReferenceLimits {
     }
 }
 
-/// omp `shouldReplaceReference`, for the limits: the larger window wins,
-/// then the larger max (its later tie-breaks choose between equal limits).
+/// Whether `candidate` replaces `existing` as a reference: the larger
+/// window wins, then the larger max; on equal limits the first stays.
 fn replaces(existing: Option<&ReferenceLimits>, candidate: ReferenceLimits) -> bool {
     existing.is_none_or(|existing| {
         (candidate.context_window, candidate.max_tokens)
@@ -112,7 +109,8 @@ fn replaces(existing: Option<&ReferenceLimits>, candidate: ReferenceLimits) -> b
     })
 }
 
-/// omp `buildModelReferenceIndex` and `buildSuffixAliasMap`.
+/// The reference index of `models`: each id exactly, and each id's
+/// longest model-like segment after its last `/` as a suffix alias.
 fn build_index<'a>(models: impl Iterator<Item = (&'a str, ReferenceLimits)>) -> ReferenceIndex {
     let mut exact: HashMap<String, ReferenceLimits> = HashMap::new();
     let mut suffix_alias: HashMap<String, ReferenceLimits> = HashMap::new();
@@ -143,12 +141,12 @@ fn build_index<'a>(models: impl Iterator<Item = (&'a str, ReferenceLimits)>) -> 
     }
 }
 
-/// omp `normalizeModelIdWhitespace`.
+/// `value` with its whitespace runs collapsed to single spaces and trimmed.
 fn normalize_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// omp `getModelLikeIdSegments`: the runs of `[a-z0-9.:-]` of the
+/// The model-like segments of an id: the runs of `[a-z0-9.:-]` of the
 /// lowercased id that start with a model family and hold a digit, longest
 /// first (ties: the smaller segment).
 fn model_like_segments(model_id: &str) -> Vec<String> {
@@ -170,8 +168,8 @@ fn model_like_segments(model_id: &str) -> Vec<String> {
     segments
 }
 
-/// omp `getBracketStrippedModelIdCandidates`: the id without its bracketed
-/// affixes (`[Kiro] claude-opus-4-8`), most stripped first.
+/// The id without its bracketed affixes (`[Kiro] claude-opus-4-8`), most
+/// stripped first.
 fn bracket_stripped(model_id: &str) -> Vec<String> {
     if !model_id.contains(['[', ']', '【', '】']) {
         return Vec::new();
@@ -192,8 +190,8 @@ fn bracket_stripped(model_id: &str) -> Vec<String> {
     candidates
 }
 
-/// omp `stripReferenceTrailingMarker`: the id without its longest trailing
-/// marker or suffix; `None` when it has none or is nothing else.
+/// The id without its longest trailing marker or suffix; `None` when it
+/// has none or is nothing else.
 fn strip_trailing_marker(candidate: &str) -> Option<&str> {
     let lower = candidate.to_lowercase();
     let marker = TRAILING_MARKERS
@@ -213,8 +211,8 @@ fn strip_trailing_marker(candidate: &str) -> Option<&str> {
         .then(|| &candidate[..candidate.len() - length])
 }
 
-/// omp `getReferenceCandidateIds`: the ids a proxied or affixed model id
-/// may be catalogued under, least stripped first.
+/// The ids a proxied or affixed model id may be catalogued under, least
+/// stripped first.
 fn candidate_ids(model_id: &str) -> Vec<String> {
     let mut candidates: Vec<String> = Vec::new();
     let mut queue = vec![model_id.to_owned()];
@@ -252,7 +250,8 @@ fn candidate_ids(model_id: &str) -> Vec<String> {
     candidates
 }
 
-/// omp `resolveModelReference` over `index`.
+/// The limits of the first candidate id of `model_id` that `index` holds,
+/// exactly or as a suffix alias.
 fn resolve(model_id: &str, index: &ReferenceIndex) -> Option<ReferenceLimits> {
     // A gateway wire id (`@provider/model`) is opaque: stripping it would
     // name an unrelated catalog model.
@@ -294,9 +293,9 @@ mod tests {
         )
     }
 
-    /// omp `reference.ts`: an id resolves through its affixes to the
-    /// catalog model with the largest limits; an opaque gateway id and an
-    /// unknown id resolve to nothing.
+    /// An id resolves through its affixes to the catalog model with the
+    /// largest limits; an opaque gateway id and an unknown id resolve to
+    /// nothing.
     #[test]
     fn a_custom_id_takes_the_limits_of_the_catalog_model_it_names() {
         let index = index();

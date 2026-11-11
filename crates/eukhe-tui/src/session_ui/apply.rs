@@ -1083,9 +1083,7 @@ impl SessionUi {
         // one per provider call); later frames update it in place. An
         // entry still streaming at that start never got its message_end:
         // the starting message takes its place, so the chat never keeps
-        // the rows of a message that did not end beside the next one (omp
-        // `#handleMessageStart` removes the abandoned streaming component,
-        // event-controller.ts:1376-1386).
+        // the rows of a message that did not end beside the next one.
         if starts_message
             && !matches!(
                 self.streaming_index.and_then(|index| view.chat.get(index)),

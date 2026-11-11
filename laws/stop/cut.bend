@@ -16,18 +16,16 @@ import ../../bend/run/request.bend as RnRequest
 import ../stop.bend as LawsStop
 import ../../spec/harness/stop.bend as StSpec
 
-# LAWS (R10 of laws/stop.bend): a reply cut at the output limit, as omp
-# treats it (omp at c28b3e3,
-# packages/coding-agent/src/session/session-maintenance.ts:3399-3534).
-# With no text it never stands. With text it stands exactly when the
-# window has room (not spent): the truncated reply is kept as the run's
-# answer, whatever else its text holds; it answers the run once and the
-# run sends no further request. With text and a spent window (an unknown
-# window is spent: omp counts it so, :3412-3415), the run compacts (the
+# LAWS (R10 of laws/stop.bend): a reply cut at the output limit. With no
+# text it never stands. With text it stands exactly when the window has
+# room (not spent): the truncated reply is kept as the run's answer,
+# whatever else its text holds; it answers the run once and the run sends
+# no further request. With text and a spent window (an unknown window is
+# spent: there is no evidence it had room), the run compacts (the
 # overflow's compaction) when a compaction can run, then the request goes
-# again; when none can, the reply is dropped (:3528-3533): the run ends
-# with no further request (Rust keeps the reply in the transcript, out of
-# the model's context, with no warning row).
+# again; when none can, the reply is dropped: the run ends with no
+# further request (Rust keeps the reply in the transcript, out of the
+# model's context, with no warning row).
 
 # Spec helpers
 # ------------
@@ -86,10 +84,9 @@ law stop_cut_text_stands_with_room:
 # LAW stop_cut_spent_never_kept (R10): a cut reply with text whose window
 # is spent never stands with it, whatever else it holds and work pending
 # or not: with a compaction to make LengthStop continues it (to the
-# compaction), with none the reply is dropped (omp
-# session-maintenance.ts:3528-3533: no recovery path, the turn leaves the
-# active context and the run ends)
-# EXCLUDES: a cut reply kept as the answer (with omp's warning) while the
+# compaction), with none the reply is dropped (no recovery path: the
+# reply leaves the model's context and the run ends)
+# EXCLUDES: a cut reply kept as the answer (with its warning row) while the
 #   window is what ran out and no compaction can run; one retried, failed
 #   or compacted with no compaction to make; one dropped while a
 #   compaction can run
@@ -103,11 +100,10 @@ law stop_cut_spent_never_kept:
 # window Rust does not know (0), the stop the entry reads never keeps the
 # reply, whatever else it holds and whatever the catalog cap and the
 # tokens: with text it goes to the compaction when one can run, else it
-# is dropped (omp session-maintenance.ts:3412-3415: an unknown window is
-# exhausted)
+# is dropped (an unknown window counts as run out)
 # EXCLUDES: a reply in an unknown window kept as the answer because the
 #   window test needs a known window (the test before this change); one
-#   retried with a length note where omp compacts
+#   retried with a length note where it compacts
 law stop_cut_unknown_window_never_kept:
   for t: Bool
   for b: Bool
@@ -162,8 +158,7 @@ law stop_cut_kept_answers_once:
 # window test) with no compaction to make is dropped and ends the run: the
 # run ends with its counts as they were and stays so whatever inputs
 # follow, and the requests it sent, cut and will note stay exactly as
-# they were (omp session-maintenance.ts:3528-3533 returns with no
-# continuation, no retry and no notice)
+# they were (no continuation, no retry and no notice)
 # EXCLUDES: a dropped reply retried with a length note, failed with an
 #   error, or followed by a request; a kept reply where the window ran
 #   out; a window test in the entry other than the spec's

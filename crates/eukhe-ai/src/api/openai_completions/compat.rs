@@ -23,8 +23,8 @@ pub(crate) struct ResolvedCompat {
     pub(crate) supports_usage_in_streaming: bool,
     pub(crate) supports_finish_reason: bool,
     pub(crate) max_tokens_field: MaxTokensField,
-    /// The host takes an output cap up to the model's max (omp
-    /// `clampOutputToModelMax`); else at most 64000.
+    /// The host takes an output cap up to the model's max; else at most
+    /// 64000.
     pub(crate) clamp_output_to_model_max: bool,
     pub(crate) requires_tool_result_name: bool,
     pub(crate) requires_assistant_after_tool_result: bool,
@@ -95,10 +95,9 @@ pub(crate) fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool 
 /// else base URL); a setting no rule gives takes the standard
 /// OpenAI-compatible default. Used as the base when `model.compat` is not
 /// set; explicit entries override. The `developer` role is no such
-/// default: only a host the rulebook names takes it (omp
-/// `supportsDeveloperRole`; here the `OpenAI` host and the `OpenRouter`
-/// prefixes), so a self-hosted server on any address gets its system
-/// prompt as `system`.
+/// default: only a host the rulebook names takes it (the `OpenAI` host
+/// and the `OpenRouter` prefixes), so a self-hosted server on any address
+/// gets its system prompt as `system`.
 pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
     let quirks = Quirks::of(model);
     let session_affinity_format = quirks

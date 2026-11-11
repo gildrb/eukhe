@@ -192,9 +192,9 @@ struct Walk {
 impl Walk {
     /// Take the next older entry; true once the selection ended. A reply
     /// a newer entry omits from the model's context (a cut reply the stop
-    /// walk dropped: `pi.drop`) is no result: omp's print mode prints the
-    /// last assistant message of its active context, which no longer
-    /// holds it.
+    /// walk dropped: `pi.drop`) is no result: print mode prints the last
+    /// assistant message of the model's context, which no longer holds
+    /// it.
     fn take(&mut self, entry: EntryRecord) -> bool {
         self.omitted.extend(
             entry
@@ -351,7 +351,7 @@ mod tests {
     /// A cut reply the stop walk dropped stays in the transcript, out of
     /// the model's context (the `pi.drop` entry after it omits it): the
     /// walk passes over it to the user's prompt, so the run has no result
-    /// to print, as omp's print mode prints none.
+    /// to print.
     #[test]
     fn a_dropped_reply_is_no_result() {
         let entries: Vec<EntryRecord> = serde_json::from_value(serde_json::json!([

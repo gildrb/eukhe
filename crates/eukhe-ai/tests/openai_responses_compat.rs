@@ -535,11 +535,9 @@ async fn sends_max_output_tokens_by_default() {
     assert_eq!(request.body["max_output_tokens"], json!(1024));
 }
 
-/// omp `resolveOpenAIOutputTokenParam`
-/// (`packages/ai/src/providers/openai-shared.ts:711-715`): a Responses
-/// request asks for at most 64000 output tokens (`OPENAI_MAX_OUTPUT_TOKENS`)
-/// and never more than the model's max; a local backend takes the model's
-/// whole max (omp `clampOutputToModelMax`).
+/// A Responses request asks for at most 64000 output tokens
+/// (`OPENAI_MAX_OUTPUT_TOKENS`) and never more than the model's max; a
+/// local backend takes the model's whole max.
 #[tokio::test]
 async fn holds_max_output_tokens_under_the_host_ceiling() {
     let hosted = gpt_5_4();

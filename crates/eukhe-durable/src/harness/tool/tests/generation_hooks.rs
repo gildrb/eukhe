@@ -482,10 +482,9 @@ async fn rows_after_a_truncated_reply(setup: &ChatSetup) -> Vec<(String, Option<
 
 /// The warning of a kept truncated answer. The stop walk keeps a reply
 /// that hit the output limit with text and room left in the window
-/// (laws/stop/cut.bend); omp `session-maintenance.ts` emits the same text
-/// for a truncated turn it keeps. The harness writes the warning and asks
-/// each `on_truncated` handler for the row that shows it; the row follows
-/// the answer in the transcript. A whole answer asks no handler.
+/// (laws/stop/cut.bend). The harness writes the warning and asks each
+/// `on_truncated` handler for the row that shows it; the row follows the
+/// answer in the transcript. A whole answer asks no handler.
 #[tokio::test]
 async fn appends_the_on_truncated_row_after_a_kept_truncated_answer() {
     let rows =
@@ -507,10 +506,10 @@ async fn appends_the_on_truncated_row_after_a_kept_truncated_answer() {
 
 /// A truncated reply the stop walk drops (text in a window that is
 /// unknown, 0, which counts as run out, with nothing to compact:
-/// laws/stop/cut.bend) gets no warning: omp `session-maintenance.ts`
-/// removes such a turn from its active context and shows no notice. No
-/// `on_truncated` handler is asked; the `pi.drop` entry that takes the
-/// reply out of the model's context follows it.
+/// laws/stop/cut.bend) gets no warning: such a turn leaves the model's
+/// context with no notice. No `on_truncated` handler is asked; the
+/// `pi.drop` entry that takes the reply out of the model's context follows
+/// it.
 #[tokio::test]
 async fn asks_no_on_truncated_row_for_a_dropped_truncated_reply() {
     let rows = rows_after_a_truncated_reply(&chat_setup(RegisterFauxProviderOptions {

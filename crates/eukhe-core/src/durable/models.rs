@@ -946,8 +946,7 @@ mod tests {
     /// output cap, so the server cut every reply at its own default of
     /// 4096; v0.10.59 had sent a made-up 16384): a models.json model
     /// without `maxTokens` takes the max of the catalog model its id names
-    /// (omp `custom-models.ts:112-114,138`) and the request carries it
-    /// (omp `stream.ts:1802`).
+    /// and the request carries it.
     #[test]
     fn a_models_json_model_without_max_tokens_sends_the_max_of_the_catalog_model_of_its_id() {
         let dir = tempfile::tempdir().unwrap();

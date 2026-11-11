@@ -1,8 +1,8 @@
 # stop (spec): the Directors at a candidate stop of the run loop (omp2
 # ADR 0015: at a stop the loop walks its Directors inside to outside,
-# each saying Pass, Continue or Yield; Drop is eukhe's for omp's
-# truncated turn that leaves the active context), restated without the
-# code (bend/stop.bend): the walk as one decision per case, where the code
+# each saying Pass, Continue or Yield; Drop is eukhe's for a truncated
+# turn that leaves the model's context), restated without the code
+# (bend/stop.bend): the walk as one decision per case, where the code
 # walks a list of Directors and their verdicts. The laws of area stop
 # (laws/stop.bend) state that the code refines it. A spec: the shipped
 # code never calls it.
@@ -15,13 +15,13 @@
 #     fact: a whole, readable reply stands, whatever it says.
 # S2: the verdicts: LengthStop decides every cut reply: it continues one
 #     with no text; at one with text it yields while the window has room
-#     (the truncated reply is kept as the answer, as omp keeps a truncated
-#     turn that delivered text while the window has room), continues when
-#     the window is spent and a compaction can run, and drops it when the
-#     window is spent and none can (omp removes the turn from its active
-#     context and ends the run with no notice); EmptyStop continues a
-#     reply with no text, MarkupStop a broken reply; PendingWork yields
-#     when work is pending. Every other verdict passes.
+#     (the truncated reply is kept as the answer: the text it delivered
+#     while the window has room), continues when the window is spent and
+#     a compaction can run, and drops it when the window is spent and
+#     none can (the turn leaves the model's context and the run ends with
+#     no notice); EmptyStop continues a reply with no text, MarkupStop a
+#     broken reply; PendingWork yields when work is pending. Every other
+#     verdict passes.
 # S3: the walk, inside to outside (LengthStop, EmptyStop, MarkupStop,
 #     PendingWork): the first Director that does not pass decides;
 #     Continue goes on with it, Yield makes the stop stand, Drop makes it
@@ -34,11 +34,11 @@
 #     done (0 at least): the rounds whose results the model still reads.
 #     A note when left <= 10: none left, 1 left, or <left> left.
 # S7: a length stop that LengthStop continues climbs a ladder: when the
-#     window ran out (the window is unknown, as omp counts it, or the
-#     output is below the model's catalog max output and prompt + output
-#     + 8192 >= window) and a compaction can run (full), compact and send
-#     again (no note); else, under the cap of `long` length notes in a
-#     row, the next note; else, once, when a level below the agent's
+#     window ran out (the window is unknown, which counts as run out, or
+#     the output is below the model's catalog max output and prompt +
+#     output + 8192 >= window) and a compaction can run (full), compact
+#     and send again (no note); else, under the cap of `long` length notes
+#     in a row, the next note; else, once, when a level below the agent's
 #     exists, the next note with the request one thinking level lower;
 #     else the run fails. A continued reply with text is full, so it
 #     compacts.

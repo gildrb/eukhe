@@ -157,7 +157,7 @@ pub(crate) struct StreamState<'a> {
     pub(crate) response_service_tier: Option<String>,
     /// Splits reasoning the model leaked into `delta.content` out of the
     /// visible text. Absent on the official `OpenAI` endpoint, which never
-    /// leaks (omp `detectStreamMarkupHealing`, `healLeakedThinking`).
+    /// leaks.
     leaked_thinking: Option<LeakedThinkingScanner>,
     /// The stream carried a reasoning field: reasoning tags in its content
     /// repeat that reasoning.
@@ -336,16 +336,15 @@ impl<'a> StreamState<'a> {
 
     /// Content the leaked-reasoning scanner split, in stream order. Leaked
     /// reasoning is unsigned thinking; in a stream that also carries a
-    /// reasoning field it repeats the field and is dropped (omp
-    /// `suppressHealedThinking`).
+    /// reasoning field it repeats the field and is dropped.
     fn append_scanned(&mut self, pieces: Vec<Scanned>) {
         for piece in pieces {
             match piece {
                 Scanned::Text(text) => self.append_text(&text),
                 Scanned::Thinking(_) if self.has_reasoning_field => {}
                 Scanned::Thinking(thinking) => self.append_thinking(None, &thinking),
-                // omp `#closeImpliedThinking`: text that is all the reply so
-                // far was reasoning; any other bare close is a stray tag.
+                // A bare close tag: text that is all the reply so far was
+                // reasoning; any other bare close is a stray tag.
                 // The stream's blocks only grow, so the text block ends
                 // empty and its text goes on as the thinking block.
                 Scanned::ImpliedClose => {

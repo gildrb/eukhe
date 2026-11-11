@@ -3551,7 +3551,7 @@
     "laws/workflow/model.bend": "3f8421fee539572a1be5971fdcda1d5ffe980efcd268c75adfa6da0de42bbe7e"
   },
   "spec_files": {
-    "spec/README.md": "cd81f2a4ecb0ad8ee1e94c0dfb64a28255d1331b1b18bde8e4a86d394233f9fc",
+    "spec/README.md": "caddb1263f72e35e8c7a062133aaadd7d7933b4b4f12cc1dea2012ed35ec65ad",
     "spec/agents/kin.bend": "3637a9eedbb127a412b8646da7e0ab8d881681ec5710670aecf852afd98f0429",
     "spec/autoresearch/decimal.bend": "74a60228e250a0b414769e76d0814ea460e131a1e41165e023e3138e3ae0f99e",
     "spec/autoresearch/metric_line.bend": "8ffb9ca922253c2413273e839a5c9ed7780258d32b51a13ee1db04f8bd3b158b",
@@ -3576,7 +3576,7 @@
     "spec/harness/privacy_context.bend": "e446146ec19a3bdc0ba132af73a0ba815a22458d4c0239f0bfdd7a51911a533d",
     "spec/harness/privacy_map.bend": "0935a9f623e9e7fcc276784584d06a5f27467f4cd9bf32c0fd79fda485612cf0",
     "spec/harness/rebase.bend": "ed349903fa0e47df320ffc0cf3a7aa5514c825ef5dde68f85e64c66316437366",
-    "spec/harness/stop.bend": "c0dc40f51dc670b5e868a01fa046218d31c06da60e1f3892c2dd50136535b23f",
+    "spec/harness/stop.bend": "f74a1c20b9224587b9eb4326d6af89fb48cc44d614e0cf85f994ae9a2e5a8de4",
     "spec/harness/tool_result.bend": "891464c130fc37cb06f2f9b0e447872b69ac6f88d7939d3db79ab254e348bfac",
     "spec/memory/optchat.bend": "4a01c92a50d9b1da116b5862b63c41d6dbfc9fac29746e95b058ae34483e6b4e",
     "spec/memory/thread.bend": "70e6cf054dce44a6e8e50f7a978b627ce69bace8c1a1ad5c4475aaf1b04b910f",
