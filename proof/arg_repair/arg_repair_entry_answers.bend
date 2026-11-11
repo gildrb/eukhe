@@ -1,9 +1,8 @@
 # eukhe: the proof of LAW arg_repair_entry_answers
 #
 # PROOF: the spelled request reads back whole with nothing left
-# (ae.req_rt), so the entry answers the model's verdict, which is the
-# spec's (arg_repair_spec), encoded by encoders that are the spec spellers
-# (ae.verdict).
+# (ae.req_rt), so the entry answers the model's verdict, encoded by
+# encoders that are the laws' spellers (ae.verdict).
 
 import Base
 import ../../bend/arg_repair.bend as Ar

@@ -1,8 +1,8 @@
 # eukhe: lemmas shared by the proofs of area error_body: the order of
 # 32-bit words (ebw.*: a code past U+FFFF, the pair U+2028/U+2029 as a
-# range), each char test the spec's (ebc.*), the trims, the units, the
-# prefix and the cut the spec's (ebt.*), the body (ebb.*) and the display
-# string (ebs.*) the spec's
+# range), the code's white space is ECMA-262's (ebc.ws), logic and Nat
+# facts (ebl.*, ebn.*), appending texts (ebs.*), the code's UTF-16 units
+# and prefix (ebu.*), the code's trims (ebr.*)
 
 import Base
 import ../../bend/error_body.bend as Eb
@@ -179,239 +179,268 @@ def ebc.ws(c: Char) -> {Eb.is_ws(c) == ErrorBody.sp_ws(c) : Bool}:
     case Chr{+x}:
       Equal.cong(Bool, Bool, z => Bool.or(Bool.and(U32.is_le(9, x), U32.is_le(x, 13)), Bool.or(U32.is_eq(x, 32), Bool.or(U32.is_eq(x, 160), Bool.or(U32.is_eq(x, 5760), Bool.or(Bool.and(U32.is_le(8192, x), U32.is_le(x, 8202)), z))))), Bool.or(U32.is_eq(x, 8232), Bool.or(U32.is_eq(x, 8233), Bool.or(U32.is_eq(x, 8239), Bool.or(U32.is_eq(x, 8287), Bool.or(U32.is_eq(x, 12288), U32.is_eq(x, 65279)))))), Bool.or(ErrorBody.sp_in(x, 8232, 8233), Bool.or(U32.is_eq(x, 8239), Bool.or(U32.is_eq(x, 8287), Bool.or(U32.is_eq(x, 12288), U32.is_eq(x, 65279))))), ebc.ws_tail(x))
 
-def ebc.u_pick(a: Bool) -> {Eb.units1.at(a) == ErrorBody.sp_u.pick(a) : Nat}:
+
+# Logic
+# -----
+
+def ebl.and_l(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
   match a:
     case True{}:
       {==}
     case False{}:
+      LStg.stg.absurdF({False{} == True{} : Bool}, h)
+
+def ebl.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      LStg.stg.absurdF({b == True{} : Bool}, h)
+
+def ebl.not_t(a: Bool, h: {Bool.not(a) == True{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case True{}:
+      LStg.stg.absurdF({True{} == False{} : Bool}, h)
+    case False{}:
       {==}
 
-# the code's UTF-16 units of a char are the spec's
-def ebc.u(c: Char) -> {Eb.units1(c) == ErrorBody.sp_u(c) : Nat}:
-  match c:
-    case Chr{+x}:
-      %Equal.sym(Bool, U32.is_le(65536, x), U32.is_lt(65535, x), ebw.astral(x)) : {Eb.units1.at(_) == ErrorBody.sp_u.pick(U32.is_lt(65535, x)) : Nat}
-      ebc.u_pick(U32.is_lt(65535, x))
+# Nat
+# ---
 
-# Text
-# ----
+def ebn.add_zero(a: Nat) -> {Nat.add(a, 0n) == a : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, z => 1n+z, Nat.add(p, 0n), p, ebn.add_zero(p))
 
-def ebt.start_pick(w: Bool, +c: Char, +t: String, -x: String, -y: String, e: {x == y : String}) -> {Eb.when(w, u => x, SCon{c, t}) == ErrorBody.sp_trim_start.pick(w, c, t, y) : String}:
-  match w:
-    case True{}:
+def ebn.add_succ(a: Nat, -b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, z => 1n+z, Nat.add(p, 1n+b), 1n+Nat.add(p, b), ebn.add_succ(p, b))
+
+def ebn.add_assoc(a: Nat, -b: Nat, -c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, z => 1n+z, Nat.add(Nat.add(p, b), c), Nat.add(p, Nat.add(b, c)), ebn.add_assoc(p, b, c))
+
+def ebn.le0(b: Nat) -> {Nat.is_le(0n, b) == True{} : Bool}:
+  match b:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+# a <= a + b
+def ebn.le_add(a: Nat, +b: Nat) -> {Nat.is_le(a, Nat.add(a, b)) == True{} : Bool}:
+  match a:
+    case 0n:
+      ebn.le0(b)
+    case 1n+p:
+      ebn.le_add(p, b)
+
+# n + z <= x: n <= x
+def ebn.le_add_l(n: Nat, +z: Nat, x: Nat, e: {Nat.is_le(Nat.add(n, z), x) == True{} : Bool}) -> {Nat.is_le(n, x) == True{} : Bool}:
+  match n x:
+    case 0n y:
+      ebn.le0(y)
+    case 1n+p 0n:
+      LStg.stg.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, e)
+    case 1n+p 1n+q:
+      ebn.le_add_l(p, z, q, e)
+
+# n + z <= x: z <= x - n
+def ebn.le_sub(n: Nat, +z: Nat, x: Nat, e: {Nat.is_le(Nat.add(n, z), x) == True{} : Bool}) -> {Nat.is_le(z, Nat.sub(x, n)) == True{} : Bool}:
+  match n x:
+    case 0n 0n:
       e
+    case 0n 1n+q:
+      e
+    case 1n+p 0n:
+      LStg.stg.absurdF({Nat.is_le(z, Nat.sub(0n, 1n+p)) == True{} : Bool}, e)
+    case 1n+p 1n+q:
+      ebn.le_sub(p, z, q, e)
+
+# n <= x and x < n + y: x - n < y
+def ebn.lt_sub(n: Nat, x: Nat, +y: Nat, le: {Nat.is_le(n, x) == True{} : Bool}, lt: {Nat.is_lt(x, Nat.add(n, y)) == True{} : Bool}) -> {Nat.is_lt(Nat.sub(x, n), y) == True{} : Bool}:
+  match n x:
+    case 0n 0n:
+      lt
+    case 0n 1n+q:
+      lt
+    case 1n+p 0n:
+      LStg.stg.absurdF({Nat.is_lt(Nat.sub(0n, 1n+p), y) == True{} : Bool}, le)
+    case 1n+p 1n+q:
+      ebn.lt_sub(p, q, y, le, lt)
+
+# x < a and a <= b: x < b
+def ebn.lt_le(x: Nat, a: Nat, b: Nat, h1: {Nat.is_lt(x, a) == True{} : Bool}, h2: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_lt(x, b) == True{} : Bool}:
+  match x a b:
+    case 0n 0n w:
+      LStg.stg.absurdF({Nat.is_lt(0n, w) == True{} : Bool}, h1)
+    case 0n 1n+p 0n:
+      LStg.stg.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, h2)
+    case 0n 1n+p 1n+q:
+      {==}
+    case 1n+r 0n w:
+      LStg.stg.absurdF({Nat.is_lt(1n+r, w) == True{} : Bool}, h1)
+    case 1n+r 1n+p 0n:
+      LStg.stg.absurdF({Nat.is_lt(1n+r, 0n) == True{} : Bool}, h2)
+    case 1n+r 1n+p 1n+q:
+      ebn.lt_le(r, p, q, h1, h2)
+
+# x < y: not y <= x
+def ebn.lt_not_le(x: Nat, y: Nat, h: {Nat.is_lt(x, y) == True{} : Bool}) -> {Nat.is_le(y, x) == False{} : Bool}:
+  match x y:
+    case 0n 0n:
+      LStg.stg.absurdF({Nat.is_le(0n, 0n) == False{} : Bool}, h)
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      LStg.stg.absurdF({Nat.is_le(0n, 1n+p) == False{} : Bool}, h)
+    case 1n+p 1n+q:
+      ebn.lt_not_le(p, q, h)
+
+# Texts
+# -----
+
+def ebs.app_nil(a: String) -> {String.append(a, SNil{}) == a : String}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+h, t}:
+      Equal.cong(String, String, z => SCon{h, z}, String.append(t, SNil{}), t, ebs.app_nil(t))
+
+def ebs.app_assoc(a: String, -b: String, -c: String) -> {String.append(String.append(a, b), c) == String.append(a, String.append(b, c)) : String}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+h, t}:
+      Equal.cong(String, String, z => SCon{h, z}, String.append(String.append(t, b), c), String.append(t, String.append(b, c)), ebs.app_assoc(t, b, c))
+
+# `<q> (<s>): ` then m is `<q> (<s>): <m>`
+def ebs.lead(+q: String, +s: String, +m: String) -> {String.concat([q, " (", s, "): ", m]) == String.append(String.concat([q, " (", s, "): "]), m) : String}:
+  +b = String.append(" (", String.append(s, "): "))
+  %Equal.sym(String, String.append(String.append(q, b), m), String.append(q, String.append(b, m)), ebs.app_assoc(q, b, m)) : {String.concat([q, " (", s, "): ", m]) == _ : String}
+  %Equal.sym(String, String.append(String.append(s, "): "), m), String.append(s, String.append("): ", m)), ebs.app_assoc(s, "): ", m)) : {String.concat([q, " (", s, "): ", m]) == String.append(q, String.append(" (", _)) : String}
+  %Equal.sym(String, String.append(m, SNil{}), m, ebs.app_nil(m)) : {String.append(q, String.append(" (", String.append(s, String.append("): ", _)))) == String.append(q, String.append(" (", String.append(s, String.append("): ", m)))) : String}
+  {==}
+
+# `<q> (<s>)`, then `: `, then x is `<q> (<s>): <x>`
+def ebs.label(+q: String, +s: String, +x: String) -> {String.concat([q, " (", s, "): ", x]) == String.concat([String.concat([q, " (", s, ")"]), ": ", x]) : String}:
+  +b = String.append(" (", String.append(s, ")"))
+  +c = String.append(": ", String.append(x, SNil{}))
+  %Equal.sym(String, String.append(String.append(q, b), c), String.append(q, String.append(b, c)), ebs.app_assoc(q, b, c)) : {String.concat([q, " (", s, "): ", x]) == _ : String}
+  %Equal.sym(String, String.append(String.append(s, ")"), c), String.append(s, String.append(")", c)), ebs.app_assoc(s, ")", c)) : {String.concat([q, " (", s, "): ", x]) == String.append(q, String.append(" (", _)) : String}
+  {==}
+
+# UTF-16 units
+# ------------
+
+def ebu.step(a: Bool, l: Nat, -p: Nat, -u: Nat, ih: {u == Nat.add(l, p) : Nat}) -> {Nat.add(Eb.units1.at(a), u) == 1n+Nat.add(l, ErrorBody.sp_pairs.at(a, p)) : Nat}:
+  match a:
+    case True{}:
+      %Equal.sym(Nat, u, Nat.add(l, p), ih) : {Nat.add(2n, _) == 1n+Nat.add(l, 1n+p) : Nat}
+      %Equal.sym(Nat, Nat.add(l, 1n+p), 1n+Nat.add(l, p), ebn.add_succ(l, p)) : {Nat.add(2n, Nat.add(l, p)) == 1n+_ : Nat}
+      {==}
     case False{}:
+      %Equal.sym(Nat, u, Nat.add(l, p), ih) : {Nat.add(1n, _) == 1n+Nat.add(l, p) : Nat}
       {==}
 
-# the code's trim of the start is the spec's
-def ebt.start(s: String) -> {Eb.trim_start(s) == ErrorBody.sp_trim_start(s) : String}:
+# the code's UTF-16 units of a text are its chars and its chars past U+FFFF
+def ebu.units(s: String) -> {Eb.units(s) == ErrorBody.sp_units(s) : Nat}:
   match s:
     case SNil{}:
       {==}
-    case SCon{+c, +t}:
-      %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.when(_, u => Eb.trim_start(t), SCon{c, t}) == ErrorBody.sp_trim_start.pick(ErrorBody.sp_ws(c), c, t, ErrorBody.sp_trim_start(t)) : String}
-      ebt.start_pick(ErrorBody.sp_ws(c), c, t, Eb.trim_start(t), ErrorBody.sp_trim_start(t), ebt.start(t))
+    case SCon{c, +t}:
+      match c:
+        case Chr{+x}:
+          %Equal.sym(Bool, U32.is_le(65536, x), U32.is_lt(65535, x), ebw.astral(x)) : {Nat.add(Eb.units1.at(_), Eb.units(t)) == ErrorBody.sp_units(SCon{Chr{x}, t}) : Nat}
+          ebu.step(U32.is_lt(65535, x), String.length(t), ErrorBody.sp_pairs(t), Eb.units(t), ebu.units(t))
 
-# r is no text
-def ebt.Cons(r: String) -> Type:
-  match r:
+# the code's units of kept, c, rest are those of kept, c and of rest
+def ebu.snoc(kept: String, +c: Char, +rest: String) -> {Eb.units(String.append(kept, SCon{c, rest})) == Nat.add(Eb.units(String.append(kept, SCon{c, SNil{}})), Eb.units(rest)) : Nat}:
+  match kept:
     case SNil{}:
-      {True{} == False{} : Bool}
-    case SCon{d, u}:
-      Unit
-
-# the spec's trim of the end is empty exactly when all is white space
-def ebt.Shape(b: Bool, r: String) -> Type:
-  match b:
-    case True{}:
-      {r == SNil{} : String}
-    case False{}:
-      ebt.Cons(r)
-
-def ebt.shape_pick(b: Bool, +c: Char, -t: String, -r: String) -> ebt.Shape(b, ErrorBody.sp_trim_end.pick(b, c, t, r)):
-  match b:
-    case True{}:
+      %Equal.sym(Nat, Nat.add(Eb.units1(c), 0n), Eb.units1(c), ebn.add_zero(Eb.units1(c))) : {Nat.add(Eb.units1(c), Eb.units(rest)) == Nat.add(_, Eb.units(rest)) : Nat}
       {==}
-    case False{}:
-      Unit{}
+    case SCon{+k, ks}:
+      %Equal.sym(Nat, Eb.units(String.append(ks, SCon{c, rest})), Nat.add(Eb.units(String.append(ks, SCon{c, SNil{}})), Eb.units(rest)), ebu.snoc(ks, c, rest)) : {Nat.add(Eb.units1(k), _) == Nat.add(Nat.add(Eb.units1(k), Eb.units(String.append(ks, SCon{c, SNil{}}))), Eb.units(rest)) : Nat}
+      Equal.sym(Nat, Nat.add(Nat.add(Eb.units1(k), Eb.units(String.append(ks, SCon{c, SNil{}}))), Eb.units(rest)), Nat.add(Eb.units1(k), Nat.add(Eb.units(String.append(ks, SCon{c, SNil{}})), Eb.units(rest))), ebn.add_assoc(Eb.units1(k), Eb.units(String.append(ks, SCon{c, SNil{}})), Eb.units(rest)))
 
-def ebt.shape(s: String) -> ebt.Shape(ErrorBody.sp_all_ws(s), ErrorBody.sp_trim_end(s)):
-  match s:
+# the code's prefix of kept, c, rest within room units is kept, when kept
+# fits and kept then c does not
+def ebu.prefix(kept: String, +c: Char, -rest: String, +room: Nat, +hk: {Nat.is_le(Eb.units(kept), room) == True{} : Bool}, hc: {Nat.is_lt(room, Eb.units(String.append(kept, SCon{c, SNil{}}))) == True{} : Bool}) -> {Eb.prefix(String.append(kept, SCon{c, rest}), room) == kept : String}:
+  match kept:
     case SNil{}:
+      +hc2 = Equal.trans(Bool, Nat.is_lt(room, Eb.units1(c)), Nat.is_lt(room, Nat.add(Eb.units1(c), 0n)), True{}, Equal.cong(Nat, Bool, z => Nat.is_lt(room, z), Eb.units1(c), Nat.add(Eb.units1(c), 0n), Equal.sym(Nat, Nat.add(Eb.units1(c), 0n), Eb.units1(c), ebn.add_zero(Eb.units1(c)))), hc)
+      %Equal.sym(Bool, Nat.is_le(Eb.units1(c), room), False{}, ebn.lt_not_le(room, Eb.units1(c), hc2)) : {Eb.when(_, u => SCon{c, Eb.prefix(rest, Nat.sub(room, Eb.units1(c)))}, SNil{}) == SNil{} : String}
       {==}
-    case SCon{+c, +t}:
-      ebt.shape_pick(ErrorBody.sp_all_ws(SCon{c, t}), c, t, ErrorBody.sp_trim_end(t))
+    case SCon{+k, +ks}:
+      +n = Eb.units1(k)
+      +le = ebn.le_add_l(n, Eb.units(ks), room, hk)
+      %Equal.sym(Bool, Nat.is_le(n, room), True{}, le) : {Eb.when(_, u => SCon{k, Eb.prefix(String.append(ks, SCon{c, rest}), Nat.sub(room, n))}, SNil{}) == SCon{k, ks} : String}
+      Equal.cong(String, String, z => SCon{k, z}, Eb.prefix(String.append(ks, SCon{c, rest}), Nat.sub(room, n)), ks, ebu.prefix(ks, c, rest, Nat.sub(room, n), ebn.le_sub(n, Eb.units(ks), room, hk), ebn.lt_sub(n, room, Eb.units(String.append(ks, SCon{c, SNil{}})), le, hc)))
 
-def ebt.last(w: Bool, +c: Char, -t: String) -> {Eb.trim_end.last(c, w) == ErrorBody.sp_trim_end.pick(Bool.and(w, True{}), c, t, SNil{}) : String}:
-  match w:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
+# Trims
+# -----
 
-def ebt.keep(w: Bool, +c: Char, -t: String, +d: Char, +u: String) -> {SCon{c, SCon{d, u}} == ErrorBody.sp_trim_end.pick(Bool.and(w, False{}), c, t, SCon{d, u}) : String}:
-  match w:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def ebt.end_at(b: Bool, r: String, +c: Char, -t: String, sh: ebt.Shape(b, r)) -> {Eb.trim_end.at(c, r) == ErrorBody.sp_trim_end.pick(Bool.and(ErrorBody.sp_ws(c), b), c, t, r) : String}:
-  match b:
-    case True{}:
-      %Equal.sym(String, r, SNil{}, sh) : {Eb.trim_end.at(c, _) == ErrorBody.sp_trim_end.pick(Bool.and(ErrorBody.sp_ws(c), True{}), c, t, _) : String}
-      %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.trim_end.last(c, _) == ErrorBody.sp_trim_end.pick(Bool.and(ErrorBody.sp_ws(c), True{}), c, t, SNil{}) : String}
-      ebt.last(ErrorBody.sp_ws(c), c, t)
-    case False{}:
-      match r:
-        case SNil{}:
-          LStg.stg.absurd({Eb.trim_end.at(c, SNil{}) == ErrorBody.sp_trim_end.pick(Bool.and(ErrorBody.sp_ws(c), False{}), c, t, SNil{}) : String}, sh)
-        case SCon{+d, +u}:
-          ebt.keep(ErrorBody.sp_ws(c), c, t, d, u)
-
-# the code's trim of the end is the spec's
-def ebt.end(s: String) -> {Eb.trim_end(s) == ErrorBody.sp_trim_end(s) : String}:
-  match s:
-    case SNil{}:
-      {==}
-    case SCon{+c, +t}:
-      %Equal.sym(String, Eb.trim_end(t), ErrorBody.sp_trim_end(t), ebt.end(t)) : {Eb.trim_end.at(c, _) == ErrorBody.sp_trim_end(SCon{c, t}) : String}
-      ebt.end_at(ErrorBody.sp_all_ws(t), ErrorBody.sp_trim_end(t), c, t, ebt.shape(t))
-
-# the code's trim is the spec's
-def ebt.trim(+s: String) -> {Eb.trim(s) == ErrorBody.sp_trim(s) : String}:
-  %Equal.sym(String, Eb.trim_start(s), ErrorBody.sp_trim_start(s), ebt.start(s)) : {Eb.trim_end(_) == ErrorBody.sp_trim(s) : String}
-  ebt.end(ErrorBody.sp_trim_start(s))
-
-# the code's UTF-16 units of a text are the spec's
-def ebt.units(s: String) -> {Eb.units(s) == ErrorBody.sp_units(s) : Nat}:
-  match s:
-    case SNil{}:
-      {==}
-    case SCon{+c, +t}:
-      %Equal.sym(Nat, Eb.units1(c), ErrorBody.sp_u(c), ebc.u(c)) : {Nat.add(_, Eb.units(t)) == Nat.add(ErrorBody.sp_u(c), ErrorBody.sp_units(t)) : Nat}
-      %Equal.sym(Nat, Eb.units(t), ErrorBody.sp_units(t), ebt.units(t)) : {Nat.add(ErrorBody.sp_u(c), _) == Nat.add(ErrorBody.sp_u(c), ErrorBody.sp_units(t)) : Nat}
-      {==}
-
-def ebt.prefix_pick(w: Bool, +c: Char, -x: String, -y: String, e: {x == y : String}) -> {Eb.when(w, u => SCon{c, x}, SNil{}) == ErrorBody.sp_prefix.pick(w, c, y) : String}:
-  match w:
-    case True{}:
-      Equal.cong(String, String, z => SCon{c, z}, x, y, e)
-    case False{}:
-      {==}
-
-# the code's prefix within room units is the spec's
-def ebt.prefix(s: String, +room: Nat) -> {Eb.prefix(s, room) == ErrorBody.sp_prefix(s, room) : String}:
-  match s:
-    case SNil{}:
-      {==}
-    case SCon{+c, +t}:
-      %Equal.sym(Nat, Eb.units1(c), ErrorBody.sp_u(c), ebc.u(c)) : {Eb.when(Nat.is_le(_, room), u => SCon{c, Eb.prefix(t, Nat.sub(room, _))}, SNil{}) == ErrorBody.sp_prefix(SCon{c, t}, room) : String}
-      ebt.prefix_pick(Nat.is_le(ErrorBody.sp_u(c), room), c, Eb.prefix(t, Nat.sub(room, ErrorBody.sp_u(c))), ErrorBody.sp_prefix(t, Nat.sub(room, ErrorBody.sp_u(c))), ebt.prefix(t, Nat.sub(room, ErrorBody.sp_u(c))))
-
-def ebt.cut_at(fits: Bool, +text: String, +max: Nat) -> {Eb.truncate.at(text, max, ErrorBody.sp_units(text), fits) == ErrorBody.sp_truncate.pick(fits, text, max) : String}:
-  match fits:
-    case True{}:
-      {==}
-    case False{}:
-      %Equal.sym(String, Eb.prefix(text, max), ErrorBody.sp_prefix(text, max), ebt.prefix(text, max)) : {String.concat([_, "... [truncated ", Nat.show(Nat.sub(ErrorBody.sp_units(text), max)), " chars]"]) == ErrorBody.sp_truncate.pick(False{}, text, max) : String}
-      {==}
-
-# the code's cut is the spec's
-def ebt.truncate(+text: String, +max: Nat) -> {Eb.truncate(text, max) == ErrorBody.sp_truncate(text, max) : String}:
-  %Equal.sym(Nat, Eb.units(text), ErrorBody.sp_units(text), ebt.units(text)) : {Eb.truncate.at(text, max, _, Nat.is_le(_, max)) == ErrorBody.sp_truncate(text, max) : String}
-  ebt.cut_at(Nat.is_le(ErrorBody.sp_units(text), max), text, max)
-
-# The body
-# --------
-
-def ebb.later(e: Eb.Probe, r: Eb.Probe) -> {Eb.pick.error(e, r) == ErrorBody.sp_pick.later(e, r) : Maybe<&2, String>}:
-  match e r:
-    case Eb.PNone{} Eb.PNone{}:
-      {==}
-    case Eb.PNone{} Eb.PText{x}:
-      {==}
-    case Eb.PNone{} Eb.PObj{x}:
-      {==}
-    case Eb.PText{y} Eb.PNone{}:
-      {==}
-    case Eb.PText{y} Eb.PText{x}:
-      {==}
-    case Eb.PText{y} Eb.PObj{x}:
-      {==}
-    case Eb.PObj{y} Eb.PNone{}:
-      {==}
-    case Eb.PObj{y} Eb.PText{x}:
-      {==}
-    case Eb.PObj{y} Eb.PObj{x}:
-      {==}
-
-# the code's first usable place is the spec's
-def ebb.pick(b: Eb.Probe, e: Eb.Probe, r: Eb.Probe) -> {Eb.pick(b, e, r) == ErrorBody.sp_pick(b, e, r) : Maybe<&2, String>}:
-  match b:
-    case Eb.PText{x}:
-      {==}
-    case Eb.PNone{}:
-      ebb.later(e, r)
-    case Eb.PObj{y}:
-      ebb.later(e, r)
-
-def ebb.of(t: String) -> {Eb.body.of(t) == ErrorBody.sp_body.of(String.is_empty(t), t) : Maybe<&2, String>}:
-  match t:
+# white space only: the code trims its start to nothing
+def ebr.start_ws(x: String, +hx: {ErrorBody.sp_all_ws(x) == True{} : Bool}) -> {Eb.trim_start(x) == SNil{} : String}:
+  match x:
     case SNil{}:
       {==}
     case SCon{+c, +u}:
-      %Equal.sym(String, Eb.truncate(SCon{c, u}, 4000n), ErrorBody.sp_truncate(SCon{c, u}, 4000n), ebt.truncate(SCon{c, u}, 4000n)) : {Some{_} == Some{ErrorBody.sp_truncate(SCon{c, u}, 4000n)} : Maybe<&2, String>}
+      +hc = ebl.and_l(ErrorBody.sp_ws(c), ErrorBody.sp_all_ws(u), hx)
+      +hu = ebl.and_r(ErrorBody.sp_ws(c), ErrorBody.sp_all_ws(u), hx)
+      %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.when(_, v => Eb.trim_start(u), SCon{c, u}) == SNil{} : String}
+      %Equal.sym(Bool, ErrorBody.sp_ws(c), True{}, hc) : {Eb.when(_, v => Eb.trim_start(u), SCon{c, u}) == SNil{} : String}
+      ebr.start_ws(u, hu)
+
+# white space p before t: the code trims the start of p then t as of t
+def ebr.start(p: String, -t: String, +hp: {ErrorBody.sp_all_ws(p) == True{} : Bool}) -> {Eb.trim_start(String.append(p, t)) == Eb.trim_start(t) : String}:
+  match p:
+    case SNil{}:
+      {==}
+    case SCon{+c, +u}:
+      +hc = ebl.and_l(ErrorBody.sp_ws(c), ErrorBody.sp_all_ws(u), hp)
+      +hu = ebl.and_r(ErrorBody.sp_ws(c), ErrorBody.sp_all_ws(u), hp)
+      %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.when(_, v => Eb.trim_start(String.append(u, t)), SCon{c, String.append(u, t)}) == Eb.trim_start(t) : String}
+      %Equal.sym(Bool, ErrorBody.sp_ws(c), True{}, hc) : {Eb.when(_, v => Eb.trim_start(String.append(u, t)), SCon{c, String.append(u, t)}) == Eb.trim_start(t) : String}
+      ebr.start(u, t, hu)
+
+# a text opening with no white space: the code keeps its start
+def ebr.start_keep(+c: Char, +u: String, h: {ErrorBody.sp_ws(c) == False{} : Bool}) -> {Eb.trim_start(SCon{c, u}) == SCon{c, u} : String}:
+  %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.when(_, v => Eb.trim_start(u), SCon{c, u}) == SCon{c, u} : String}
+  %Equal.sym(Bool, ErrorBody.sp_ws(c), False{}, h) : {Eb.when(_, v => Eb.trim_start(u), SCon{c, u}) == SCon{c, u} : String}
+  {==}
+
+# white space only: the code trims its end to nothing
+def ebr.end_ws(q: String, +hq: {ErrorBody.sp_all_ws(q) == True{} : Bool}) -> {Eb.trim_end(q) == SNil{} : String}:
+  match q:
+    case SNil{}:
+      {==}
+    case SCon{+c, +u}:
+      +hc = ebl.and_l(ErrorBody.sp_ws(c), ErrorBody.sp_all_ws(u), hq)
+      +hu = ebl.and_r(ErrorBody.sp_ws(c), ErrorBody.sp_all_ws(u), hq)
+      %Equal.sym(String, Eb.trim_end(u), SNil{}, ebr.end_ws(u, hu)) : {Eb.trim_end.at(c, _) == SNil{} : String}
+      %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.trim_end.last(c, _) == SNil{} : String}
+      %Equal.sym(Bool, ErrorBody.sp_ws(c), True{}, hc) : {Eb.trim_end.last(c, _) == SNil{} : String}
       {==}
 
-def ebb.trim(m: Maybe<&2, String>) -> {Eb.body.trim(m) == ErrorBody.sp_body.trim(m) : Maybe<&2, String>}:
-  match m:
-    case None{}:
+# c then u, its last char no white space, then white space q: the code
+# trims the end to c then u
+def ebr.end_keep(u: String, +c: Char, +q: String, hl: {ErrorBody.sp_ends_ws(u, c) == False{} : Bool}, hq: {ErrorBody.sp_all_ws(q) == True{} : Bool}) -> {Eb.trim_end(String.append(SCon{c, u}, q)) == SCon{c, u} : String}:
+  match u:
+    case SNil{}:
+      %Equal.sym(String, Eb.trim_end(q), SNil{}, ebr.end_ws(q, hq)) : {Eb.trim_end.at(c, _) == SCon{c, SNil{}} : String}
+      %Equal.sym(Bool, Eb.is_ws(c), ErrorBody.sp_ws(c), ebc.ws(c)) : {Eb.trim_end.last(c, _) == SCon{c, SNil{}} : String}
+      %Equal.sym(Bool, ErrorBody.sp_ws(c), False{}, hl) : {Eb.trim_end.last(c, _) == SCon{c, SNil{}} : String}
       {==}
-    case Some{+x}:
-      %Equal.sym(String, Eb.trim(x), ErrorBody.sp_trim(x), ebt.trim(x)) : {Eb.body.of(_) == ErrorBody.sp_body.trim(Some{x}) : Maybe<&2, String>}
-      ebb.of(ErrorBody.sp_trim(x))
-
-# the code's body is the spec's
-def ebb.body(+b: Eb.Probe, +e: Eb.Probe, +r: Eb.Probe) -> {Eb.body(b, e, r) == ErrorBody.sp_body(b, e, r) : Maybe<&2, String>}:
-  %Equal.sym(Maybe<&2, String>, Eb.pick(b, e, r), ErrorBody.sp_pick(b, e, r), ebb.pick(b, e, r)) : {Eb.body.trim(_) == ErrorBody.sp_body(b, e, r) : Maybe<&2, String>}
-  ebb.trim(ErrorBody.sp_pick(b, e, r))
-
-# The display string
-# ------------------
-
-# the code's display string is the spec's
-def ebs.show(c: Bool, st: Maybe<&2, String>, b: Maybe<&2, String>, p: Maybe<&2, String>, +m: String) -> {Eb.show(c, st, b, p, m) == ErrorBody.sp_show(c, st, b, p, m) : String}:
-  match c st b p:
-    case True{} None{} None{} None{}:
-      {==}
-    case True{} None{} None{} Some{q}:
-      {==}
-    case True{} None{} Some{x} None{}:
-      {==}
-    case True{} None{} Some{x} Some{q}:
-      {==}
-    case True{} Some{s} None{} None{}:
-      {==}
-    case True{} Some{s} None{} Some{q}:
-      {==}
-    case True{} Some{s} Some{x} None{}:
-      {==}
-    case True{} Some{s} Some{x} Some{q}:
-      {==}
-    case False{} None{} None{} None{}:
-      {==}
-    case False{} None{} None{} Some{q}:
-      {==}
-    case False{} None{} Some{x} None{}:
-      {==}
-    case False{} None{} Some{x} Some{q}:
-      {==}
-    case False{} Some{s} None{} None{}:
-      {==}
-    case False{} Some{s} None{} Some{q}:
-      {==}
-    case False{} Some{s} Some{x} None{}:
-      {==}
-    case False{} Some{s} Some{x} Some{q}:
+    case SCon{+d, +w}:
+      %Equal.sym(String, Eb.trim_end(String.append(SCon{d, w}, q)), SCon{d, w}, ebr.end_keep(w, d, q, hl, hq)) : {Eb.trim_end.at(c, _) == SCon{c, SCon{d, w}} : String}
       {==}

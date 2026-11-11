@@ -43,12 +43,15 @@ import ./base.bend as LawsBase
 def sp_in(+x: U32, lo: U32, hi: U32) -> Bool:
   Bool.and(U32.is_le(lo, x), U32.is_le(x, hi))
 
-# R2: JS white space and line terminators, as ranges
+# R2: the chars JS `String.prototype.trim` drops (ECMA-262
+# TrimString: WhiteSpace U+0009, U+000B, U+000C, U+FEFF and the Unicode
+# Zs chars U+0020, U+00A0, U+1680, U+2000..U+200A, U+202F, U+205F,
+# U+3000; LineTerminator U+000A, U+000D, U+2028, U+2029), as ranges
 def sp_ws(c: Char) -> Bool:
   +x = Char.to_u32(c)
   Bool.or(sp_in(x, 9, 13), Bool.or(U32.is_eq(x, 32), Bool.or(U32.is_eq(x, 160), Bool.or(U32.is_eq(x, 5760), Bool.or(sp_in(x, 8192, 8202), Bool.or(sp_in(x, 8232, 8233), Bool.or(U32.is_eq(x, 8239), Bool.or(U32.is_eq(x, 8287), Bool.or(U32.is_eq(x, 12288), U32.is_eq(x, 65279))))))))))
 
-# whether every char of s is white space
+# R2: every char of s is white space (the empty text too)
 def sp_all_ws(s: String) -> Bool:
   match s:
     case SNil{}:
@@ -56,150 +59,129 @@ def sp_all_ws(s: String) -> Bool:
     case SCon{c, t}:
       Bool.and(sp_ws(c), sp_all_ws(t))
 
-def sp_trim_start.pick(ws: Bool, +c: Char, +t: String, rest: String) -> String:
-  match ws:
-    case True{}:
-      rest
-    case False{}:
-      SCon{c, t}
-
-# R2: s from its first char that is no white space
-def sp_trim_start(s: String) -> String:
-  match s:
+# R2: the last char of the text c then t is white space
+def sp_ends_ws(t: String, c: Char) -> Bool:
+  match t:
     case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      sp_trim_start.pick(sp_ws(c), c, t, sp_trim_start(t))
+      sp_ws(c)
+    case SCon{d, u}:
+      sp_ends_ws(u, d)
 
-def sp_trim_end.pick(rest_ws: Bool, +c: Char, +t: String, kept: String) -> String:
-  match rest_ws:
-    case True{}:
-      SNil{}
-    case False{}:
-      SCon{c, kept}
-
-# R2: s up to where only white space is left
-def sp_trim_end(s: String) -> String:
-  match s:
+# R2: t is what trim keeps of a text with some char that is no white
+# space: not empty, its first and its last char no white space
+def sp_solid(t: String) -> Bool:
+  match t:
     case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      sp_trim_end.pick(sp_all_ws(SCon{c, t}), c, t, sp_trim_end(t))
+      False{}
+    case SCon{+c, +u}:
+      Bool.and(Bool.not(sp_ws(c)), Bool.not(sp_ends_ws(u, c)))
 
-def sp_trim(s: String) -> String:
-  sp_trim_end(sp_trim_start(s))
-
-def sp_u.pick(astral: Bool) -> Nat:
+def sp_pairs.at(astral: Bool, n: Nat) -> Nat:
   match astral:
     case True{}:
-      2n
+      1n+n
     case False{}:
-      1n
+      n
 
-# R3: the UTF-16 code units of a char
-def sp_u(c: Char) -> Nat:
-  sp_u.pick(U32.is_lt(65535, Char.to_u32(c)))
-
-# R3: the UTF-16 code units of a text
-def sp_units(s: String) -> Nat:
+# R3: the chars of s past U+FFFF (each a surrogate pair in UTF-16)
+def sp_pairs(s: String) -> Nat:
   match s:
     case SNil{}:
       0n
     case SCon{c, t}:
-      Nat.add(sp_u(c), sp_units(t))
+      sp_pairs.at(U32.is_lt(65535, Char.to_u32(c)), sp_pairs(t))
 
-def sp_prefix.pick(fits: Bool, +c: Char, rest: String) -> String:
-  match fits:
-    case True{}:
-      SCon{c, rest}
-    case False{}:
-      SNil{}
+# R3: JS `length` of s: one UTF-16 code unit per char, one more per char
+# past U+FFFF
+def sp_units(+s: String) -> Nat:
+  Nat.add(String.length(s), sp_pairs(s))
 
-# R3: the longest prefix of s within room units that splits no char
-def sp_prefix(s: String, +room: Nat) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, t}:
-      sp_prefix.pick(Nat.is_le(sp_u(c), room), c, sp_prefix(t, Nat.sub(room, sp_u(c))))
-
-def sp_truncate.pick(within: Bool, +text: String, +cap: Nat) -> String:
-  match within:
-    case True{}:
-      text
-    case False{}:
-      String.concat([sp_prefix(text, cap), "... [truncated ", Nat.show(Nat.sub(sp_units(text), cap)), " chars]"])
-
-# R3: text cut to cap units
-def sp_truncate(+text: String, +cap: Nat) -> String:
-  sp_truncate.pick(Nat.is_le(sp_units(text), cap), text, cap)
-
-def sp_pick.later(e: Eb.Probe, r: Eb.Probe) -> Maybe<&2, String>:
-  match e r:
-    case Eb.PObj{x} _:
-      Some{x}
-    case Eb.PNone{} Eb.PText{x}:
-      Some{x}
-    case Eb.PNone{} Eb.PObj{x}:
-      Some{x}
-    case Eb.PNone{} Eb.PNone{}:
-      None{}
-    case Eb.PText{y} Eb.PText{x}:
-      Some{x}
-    case Eb.PText{y} Eb.PObj{x}:
-      Some{x}
-    case Eb.PText{y} Eb.PNone{}:
-      None{}
-
-# R1: the first usable body: a text in `body`, else an object in `error`,
-# else a text or an object in `$response.body`
-def sp_pick(b: Eb.Probe, e: Eb.Probe, r: Eb.Probe) -> Maybe<&2, String>:
-  match b:
+def sp_text(p: Eb.Probe) -> Maybe<&2, String>:
+  match p:
     case Eb.PText{x}:
       Some{x}
     case Eb.PNone{}:
-      sp_pick.later(e, r)
-    case Eb.PObj{y}:
-      sp_pick.later(e, r)
-
-def sp_body.of(empty: Bool, +t: String) -> Maybe<&2, String>:
-  match empty:
-    case True{}:
       None{}
-    case False{}:
-      Some{sp_truncate(t, 4000n)}
+    case Eb.PObj{x}:
+      None{}
 
-def sp_body.trim(m: Maybe<&2, String>) -> Maybe<&2, String>:
+def sp_object(p: Eb.Probe) -> Maybe<&2, String>:
+  match p:
+    case Eb.PObj{x}:
+      Some{x}
+    case Eb.PNone{}:
+      None{}
+    case Eb.PText{x}:
+      None{}
+
+def sp_any(p: Eb.Probe) -> Maybe<&2, String>:
+  match p:
+    case Eb.PText{x}:
+      Some{x}
+    case Eb.PObj{x}:
+      Some{x}
+    case Eb.PNone{}:
+      None{}
+
+# the first place of the list that holds something
+def sp_first(ms: List<&2, Maybe<&2, String>>) -> Maybe<&2, String>:
+  match ms:
+    case Nil{}:
+      None{}
+    case m <> t:
+      match m:
+        case Some{x}:
+          Some{x}
+        case None{}:
+          sp_first(t)
+
+# R1: what each place offers as a body, in the order they are probed:
+# Mistral's `body` as a text, `openai`'s `error` as an object, Bedrock's
+# `$response.body` as either
+def sp_places(b: Eb.Probe, e: Eb.Probe, r: Eb.Probe) -> List<&2, Maybe<&2, String>>:
+  [sp_text(b), sp_object(e), sp_any(r)]
+
+# R1: the body shown for the text x found first (the body of that text
+# alone), none when no place holds one
+def sp_body_of(m: Maybe<&2, String>) -> Maybe<&2, String>:
   match m:
     case None{}:
       None{}
     case Some{x}:
-      +t = sp_trim(x)
-      sp_body.of(String.is_empty(t), t)
+      Eb.body(Eb.PText{x}, Eb.PNone{}, Eb.PNone{})
 
-# R1-R3: the body
-def sp_body(b: Eb.Probe, e: Eb.Probe, r: Eb.Probe) -> Maybe<&2, String>:
-  sp_body.trim(sp_pick(b, e, r))
+# R4: the status with the prefix before it: `<prefix> (<status>)`, or the
+# status alone
+def sp_label(p: Maybe<&2, String>, s: String) -> String:
+  match p:
+    case Some{q}:
+      String.concat([q, " (", s, ")"])
+    case None{}:
+      s
 
-# R4: the display string
-def sp_show(c: Bool, st: Maybe<&2, String>, b: Maybe<&2, String>, p: Maybe<&2, String>, m: String) -> String:
-  match c st b p:
-    case False{} Some{s} Some{x} Some{q}:
-      String.concat([q, " (", s, "): ", x])
-    case False{} Some{s} Some{x} None{}:
-      String.concat([s, ": ", x])
-    case False{} Some{s} None{} Some{q}:
-      String.concat([q, " (", s, "): ", m])
-    case False{} Some{s} None{} None{}:
-      m
-    case False{} None{} _ _:
-      m
-    case True{} Some{s} _ Some{q}:
-      String.concat([q, " (", s, "): ", m])
-    case True{} Some{s} _ None{}:
-      m
-    case True{} None{} _ _:
-      m
+# R4: the display string shows the body: the message does not carry it,
+# and both a status and a body are given
+def sp_shows_body(c: Bool, st: Maybe<&2, String>, b: Maybe<&2, String>) -> Bool:
+  match c st b:
+    case False{} Some{s} Some{x}:
+      True{}
+    case False{} Some{s} None{}:
+      False{}
+    case False{} None{} _:
+      False{}
+    case True{} _ _:
+      False{}
+
+# R4: what stands before the message: `<prefix> (<status>): ` when both
+# are given, else nothing
+def sp_lead(p: Maybe<&2, String>, st: Maybe<&2, String>) -> String:
+  match p st:
+    case Some{q} Some{s}:
+      String.concat([q, " (", s, "): "])
+    case Some{q} None{}:
+      ""
+    case None{} _:
+      ""
 
 # R5: the spelling of a request and of its reply
 
@@ -228,14 +210,16 @@ def sp_w_req(q: FEb.Req, rest: String) -> String:
     case FEb.QTruncate{t, cap}:
       Wr.put_nat(2n, Wr.put_str(t, Wr.put_nat(cap, rest)))
 
+# R5: the reply of a request: the model's answer (bend/error_body.bend,
+# pinned by the laws above), spelled
 def sp_w_reply(q: FEb.Req) -> String:
   match q:
     case FEb.QBody{b, e, r}:
-      sp_w_mstr(sp_body(b, e, r), "")
+      sp_w_mstr(Eb.body(b, e, r), "")
     case FEb.QShow{c, st, b, p, m}:
-      Wr.put_str(sp_show(c, st, b, p, m), "")
+      Wr.put_str(Eb.show(c, st, b, p, m), "")
     case FEb.QTruncate{t, cap}:
-      Wr.put_str(sp_truncate(t, cap), "")
+      Wr.put_str(Eb.truncate(t, cap), "")
 
 def sp_fit_mstr(m: Maybe<&2, String>) -> Bool:
   match m:
@@ -266,44 +250,103 @@ def sp_fit_req(q: FEb.Req) -> Bool:
 # Laws: the body and the display string
 # -------------------------------------
 
-# LAW error_body_body (R1-R3): the body of every three probes is the
-# spec's
+# LAW error_body_first (R1): the body of every three probes is the body
+# of the first place's text, in the order Mistral's `body` (only a text),
+# `openai`'s `error` (only an object), Bedrock's `$response.body` (a text
+# or an object), the body of that text alone; none when no place holds
+# one. A place found first is the body's source even when it trims to
+# nothing (no later place is read)
 # EXCLUDES: the places probed in another order, an object taken from
 #   Mistral's `body` or a text from `openai`'s `error`, a stream or an empty
-#   object read as a body, U+0085 trimmed or U+FEFF kept, a trim of one end
-#   only, an empty body kept, another cap
-law error_body_body:
+#   object read as a body, a later place read after a blank first one
+law error_body_first:
   for +b: Eb.Probe
   for +e: Eb.Probe
   for +r: Eb.Probe
-  {Eb.body(b, e, r) == sp_body(b, e, r) : Maybe<&2, String>}
+  {Eb.body(b, e, r) == sp_body_of(sp_first(sp_places(b, e, r))) : Maybe<&2, String>}
 
-# LAW error_body_truncate (R3): every text cut to every cap is the spec's
-# EXCLUDES: chars counted instead of UTF-16 units, a char past U+FFFF split
-#   or dropped when it would fit, a cut at the cap minus one, a marker that
-#   counts chars or the kept part, a text at the cap marked
-law error_body_truncate:
+# LAW error_body_trimmed (R2, R3): a text t with no white space at either
+# end (and not empty), with any white space p before it and q after it
+# (ECMA-262 TrimString's set, sp_ws), has the body t cut to 4000 UTF-16
+# units (Eb.truncate, pinned by error_body_cut_within/_over)
+# EXCLUDES: U+0085 trimmed or U+FEFF, U+2028, U+3000 kept, a trim of one
+#   end only, a char inside the text dropped, another cap
+law error_body_trimmed:
+  for +p: String
+  for +t: String
+  for +q: String
+  for hp: {sp_all_ws(p) == True{} : Bool}
+  for hq: {sp_all_ws(q) == True{} : Bool}
+  for ht: {sp_solid(t) == True{} : Bool}
+  {Eb.body(Eb.PText{String.append(p, String.append(t, q))}, Eb.PNone{}, Eb.PNone{}) == Some{Eb.truncate(t, 4000n)} : Maybe<&2, String>}
+
+# LAW error_body_blank (R2): a text of white space only (the empty text
+# too) is no body
+# EXCLUDES: an empty or blank body shown
+law error_body_blank:
+  for +x: String
+  for hx: {sp_all_ws(x) == True{} : Bool}
+  {Eb.body(Eb.PText{x}, Eb.PNone{}, Eb.PNone{}) == None{} : Maybe<&2, String>}
+
+# LAW error_body_cut_within (R3): a text of at most cap UTF-16 code units
+# (JS `length`: a char past U+FFFF counts two) stays whole, for every cap
+# EXCLUDES: a text at the cap marked, chars counted as more units than JS
+#   counts
+law error_body_cut_within:
   for +text: String
   for +cap: Nat
-  {Eb.truncate(text, cap) == sp_truncate(text, cap) : String}
+  for h: {Nat.is_le(sp_units(text), cap) == True{} : Bool}
+  {Eb.truncate(text, cap) == text : String}
 
-# LAW error_body_show (R4): the display string of every flag, status, body,
-# prefix and message is the spec's
-# EXCLUDES: the body shown when the message carries it, the status dropped
-#   with a prefix, another separator, the prefix shown without a status
-law error_body_show:
+# LAW error_body_cut_over (R3): a text kept, then a char c, then rest,
+# where kept is within cap UTF-16 units and kept then c is past it (so
+# kept is the longest prefix within the cap that splits no char), is cut
+# to kept then `... [truncated N chars]`, N the units of the whole text
+# past the cap
+# EXCLUDES: chars counted instead of UTF-16 units, a char past U+FFFF split
+#   or dropped when it would fit, a cut at the cap minus one, a marker that
+#   counts chars or the kept part
+law error_body_cut_over:
+  for +kept: String
+  for +c: Char
+  for +rest: String
+  for +cap: Nat
+  for hk: {Nat.is_le(sp_units(kept), cap) == True{} : Bool}
+  for hc: {Nat.is_lt(cap, sp_units(String.append(kept, SCon{c, SNil{}}))) == True{} : Bool}
+  {Eb.truncate(String.append(kept, SCon{c, rest}), cap) == String.concat([kept, "... [truncated ", Nat.show(Nat.sub(sp_units(String.append(kept, SCon{c, rest})), cap)), " chars]"]) : String}
+
+# LAW error_body_show_body (R4): when the message does not carry the body
+# and a status s and a body x are given, the display string is
+# `<prefix> (<s>): <x>`, or `<s>: <x>` without a prefix
+# EXCLUDES: the status dropped with a prefix, another separator, the
+#   message shown instead of the body
+law error_body_show_body:
+  for +s: String
+  for +x: String
+  for +p: Maybe<&2, String>
+  for +m: String
+  {Eb.show(False{}, Some{s}, Some{x}, p, m) == String.concat([sp_label(p, s), ": ", x]) : String}
+
+# LAW error_body_show_message (R4): otherwise (the message carries the
+# body, or no status, or no body) the display string is the message,
+# after `<prefix> (<status>): ` when both a prefix and a status are given
+# EXCLUDES: the body shown when the message carries it, the prefix shown
+#   without a status, the status dropped with a prefix, the message changed
+law error_body_show_message:
   for +c: Bool
   for +st: Maybe<&2, String>
   for +b: Maybe<&2, String>
   for +p: Maybe<&2, String>
   for +m: String
-  {Eb.show(c, st, b, p, m) == sp_show(c, st, b, p, m) : String}
+  for h: {sp_shows_body(c, st, b) == False{} : Bool}
+  {Eb.show(c, st, b, p, m) == String.append(sp_lead(p, st), m) : String}
 
 # LAW error_body_example (R1-R4): anchor: the shapes of the Rust tests,
 # short: Mistral's text body, `openai`'s object, Bedrock's text, a stream
 # (no body), an empty object (no body), a body trimmed of U+FEFF but not
-# U+0085, a white-space text body (no body, the object after it unread), a cut text, a char past U+FFFF kept whole,
-# a carried body, the display strings with and without a prefix
+# U+0085, a white-space text body (no body, the object after it unread), a
+# cut text, a char past U+FFFF kept whole, a carried body, the display
+# strings with and without a prefix
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law error_body_example:
   {([Eb.body(Eb.PText{" w "}, Eb.PObj{"{x}"}, Eb.PNone{}), Eb.body(Eb.PObj{"{y}"}, Eb.PObj{"{x}"}, Eb.PNone{}), Eb.body(Eb.PNone{}, Eb.PText{"t"}, Eb.PText{"b"}), Eb.body(Eb.PNone{}, Eb.PNone{}, Eb.PNone{}), Eb.body(Eb.PText{SCon{Chr{65279}, SCon{'a', SCon{Chr{133}, SNil{}}}}}, Eb.PNone{}, Eb.PNone{}), Eb.body(Eb.PText{" \n"}, Eb.PObj{"{x}"}, Eb.PNone{})], [Eb.truncate("abcdef", 3n), Eb.truncate("abc", 3n), Eb.truncate(SCon{Chr{128512}, "ab"}, 2n), Eb.truncate(SCon{'a', SCon{Chr{128512}, SNil{}}}, 2n), Eb.show(False{}, Some{"403"}, Some{"x"}, Some{"P"}, "m"), Eb.show(False{}, Some{"403"}, Some{"x"}, None{}, "m"), Eb.show(True{}, Some{"403"}, Some{"x"}, Some{"P"}, "m"), Eb.show(True{}, None{}, None{}, Some{"P"}, "m")]) == ([Some{"w"}, Some{"{x}"}, Some{"b"}, None{}, Some{SCon{'a', SCon{Chr{133}, SNil{}}}}, None{}], ["abc... [truncated 3 chars]", "abc", SCon{Chr{128512}, "... [truncated 2 chars]"}, "a... [truncated 1 chars]", "P (403): x", "403: x", "P (403): m", "m"]) : List<&2, Maybe<&2, String>> & List<&2, String>}
@@ -312,10 +355,11 @@ law error_body_example:
 # --------------------
 
 # LAW error_body_entry_answers (R5): the entry answers every request Rust
-# spells, every number and length within the wire, with the spelled answer
-# of the spec
+# spells, every number and length within the wire, with the model's answer
+# spelled (the body, the display string or the cut of bend/error_body.bend,
+# whose answers error_body_first/_trimmed/_blank/_cut_*/_show_* pin)
 # EXCLUDES: the fields read in another order, a probe read as another, a
-#   default
+#   question answered with another one's answer, a default
 law error_body_entry_answers:
   for +q: FEb.Req
   for h: {sp_fit_req(q) == True{} : Bool}

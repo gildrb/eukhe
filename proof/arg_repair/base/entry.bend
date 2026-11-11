@@ -11,7 +11,6 @@ import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../../laws/arg_repair.bend as ArgRepair
 import ../base.bend as AB
-import ../arg_repair_spec.bend as PSpec
 import ../../base/wire.bend as LWire
 import ../../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 import ../../wire/wire_nat_not_err.bend as PWireNatNotErr
@@ -311,11 +310,10 @@ def ae.verdict(v: Ar.Verdict) -> {FAr.put_verdict(v) == ArgRepair.ar_w_verdict(v
         case Ar.Ambiguous{c, f, k}:
           {==}
 
-# the entry answers the spec's verdict, spelled
+# the entry answers the model's verdict, spelled
 def ae.reply(q: FAr.Req) -> {FAr.answer(q) == ArgRepair.ar_w_reply(q) : String}:
   match q:
     case FAr.Req{+sc, +d, +xs}:
-      %ArgRepair.arg_repair_spec(sc, d, xs) : {FAr.put_verdict(Ar.repair(sc, d, xs)) == ArgRepair.ar_w_verdict(_) : String}
       ae.verdict(Ar.repair(sc, d, xs))
 
 def ae.verdict_ok(v: Ar.Verdict) -> {LawsBase.wire_opens_err(FAr.put_verdict(v)) == False{} : Bool}:

@@ -2,7 +2,7 @@
 #
 # PROOF: the first argument's key (not decoded) has no refusal, no
 # declaration and an alias whose canonical name has the refusal's first
-# hint (arg_repair_spec's lookups), so it is read as that name refused
+# hint (the lookups of base/look.bend), so it is read as that name refused
 # (ax.named), its step refuses with it (ax.step), and a refused first step
 # refuses the call.
 
@@ -10,7 +10,7 @@ import Base
 import ../../bend/arg_repair.bend as Ar
 import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 import ./arg_repair_refused_exact.bend as PRefusedExact
 
 # a key's lookups, as the spec's

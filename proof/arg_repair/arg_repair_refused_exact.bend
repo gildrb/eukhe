@@ -1,14 +1,14 @@
 # eukhe: the proof of LAW arg_repair_refused_exact
 #
 # PROOF: the first argument's key (not decoded) has the refusal's first
-# hint (arg_repair_spec's lookup), so its step refuses with it (rx.step),
+# hint (base/look.bend's lookup), so its step refuses with it (rx.step),
 # and a refused first step refuses the call (rx.cons).
 
 import Base
 import ../../bend/arg_repair.bend as Ar
 import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 
 def rx.hint(hr: Maybe<&2, String>, -ps: List<&2, Ar.Prop>, -cl: Bool, -als: List<&2, Ar.KV>, -rs: List<&2, Ar.KV>, -ss: List<&2, Ar.Seen>, -k: String, -h: String, -v: Ar.Val, er: {hr == Some{h} : Maybe<&2, String>}) -> {Ar.step.named(Ar.named.hint(hr, Ar.Schema{ps, cl}, als, rs, k), ps, ss, Nil{}, k, v) == Ar.StepNo{Ar.Refused{k, h}} : Ar.Step}:
   %Equal.sym(Maybe<&2, String>, hr, Some{h}, er) : {Ar.step.named(Ar.named.hint(_, Ar.Schema{ps, cl}, als, rs, k), ps, ss, Nil{}, k, v) == Ar.StepNo{Ar.Refused{k, h}} : Ar.Step}

@@ -183,6 +183,7 @@ import ./laws/call_lift.bend as CallLift
 import ./laws/rlm_query.bend as RlmQuery
 import ./laws/rebase.bend as Rebase
 import ./laws/arg_repair.bend as ArgRepair
+import ./laws/arg_repair/coerce.bend as ArgRepairCoerce
 import ./laws/wait_any.bend as WaitAny
 import ./laws/stop.bend as LawsStop
 import ./laws/stop/entry.bend as StopEntry
