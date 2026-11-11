@@ -5,6 +5,7 @@ import ../bend/slash_suggest.bend as Ss
 import ../bend/ffi_slash_suggest.bend as FSs
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
+import ./skill_load.bend as SkillLoad
 
 # (D1) The command a mistyped slash command meant
 # -----------------------------------------------
@@ -57,67 +58,55 @@ def sp_lev(a: String, b: String) -> Nat:
     case SCon{+c, +t} SCon{+x, +u}:
       sp_min(sp_min(Nat.add(1n, sp_lev(t, SCon{x, u})), Nat.add(1n, sp_lev(SCon{c, t}, u))), Nat.add(sp_lev(t, u), sp_cost(Char.is_eq(c, x))))
 
-# R3: the UTF-8 length of a char and of a text
-def sp_utf8(c: Char) -> Nat:
-  match c:
-    case Chr{+x}:
-      sp_pick(U32.is_lt(x, 128), 1n, sp_pick(U32.is_lt(x, 2048), 2n, sp_pick(U32.is_lt(x, 65536), 3n, 4n)))
+# R3: e edits are within the limit of a name of n bytes: at most 1 when n
+# is at most 3; else at most 2, or at most n divided by 3 (rounded down)
+def sp_ok(+e: Nat, +n: Nat) -> Bool:
+  +small = Nat.is_le(n, 3n)
+  Bool.or(Bool.and(small, Nat.is_le(e, 1n)), Bool.and(Bool.not(small), Bool.or(Nat.is_le(e, 2n), Nat.is_le(e, Nat.div(n, 3n)))))
 
-def sp_bytes(s: String) -> Nat:
-  match s:
-    case SNil{}:
-      0n
-    case SCon{c, t}:
-      Nat.add(sp_utf8(c), sp_bytes(t))
-
-# R3: the most edits a suggestion may take from a name of n bytes
-def sp_limit(+n: Nat) -> Nat:
-  +q = Nat.div(n, 3n)
-  sp_pick(Nat.is_le(n, 3n), 1n, sp_pick(Nat.is_le(2n, q), q, 2n))
-
-# R2: the index and distance of the first candidate of the fewest edits
-def sp_first.won(b: Bool, j: Nat, e: Nat, d: Nat) -> Ss.Near:
-  match b:
-    case True{}:
-      Ss.Near{Nat.add(1n, j), e}
-    case False{}:
-      Ss.Near{0n, d}
-
-def sp_first.of(+d: Nat, m: Maybe<&2, Ss.Near>) -> Ss.Near:
+def sp_low.min(d: Nat, m: Maybe<&2, Nat>) -> Nat:
   match m:
     case None{}:
-      Ss.Near{0n, d}
-    case Some{n}:
-      match n:
-        case Ss.Near{j, +e}:
-          sp_first.won(Nat.is_lt(e, d), j, e, d)
+      d
+    case Some{e}:
+      sp_min(d, e)
 
-def sp_first(+w: String, cs: List<&2, String>) -> Maybe<&2, Ss.Near>:
+# R2: the fewest edits from w to a candidate of cs (none without
+# candidates)
+def sp_low(+w: String, cs: List<&2, String>) -> Maybe<&2, Nat>:
   match cs:
     case Nil{}:
       None{}
     case x <> t:
-      Some{sp_first.of(sp_lev(w, x), sp_first(w, t))}
+      Some{sp_low.min(sp_lev(w, x), sp_low(w, t))}
 
-def sp_within(b: Bool, j: Nat) -> Maybe<&2, Nat>:
+# R2: the index of the first candidate of cs at e edits from w
+def sp_at(+w: String, +e: Nat, cs: List<&2, String>) -> Nat:
+  match cs:
+    case Nil{}:
+      0n
+    case x <> t:
+      sp_pick(Nat.is_eq(sp_lev(w, x), e), 0n, Nat.add(1n, sp_at(w, e, t)))
+
+def sp_suggest.ok(b: Bool, j: Nat) -> Maybe<&2, Nat>:
   match b:
     case True{}:
       Some{j}
     case False{}:
       None{}
 
-# R2, R3: the index of the candidate suggested, if any
-def sp_suggest.of(+w: String, m: Maybe<&2, Ss.Near>) -> Maybe<&2, Nat>:
+def sp_suggest.low(+w: String, cs: List<&2, String>, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match m:
     case None{}:
       None{}
-    case Some{n}:
-      match n:
-        case Ss.Near{j, e}:
-          sp_within(Nat.is_le(e, sp_limit(sp_bytes(w))), j)
+    case Some{+e}:
+      sp_suggest.ok(sp_ok(e, SkillLoad.sl_bytes(w)), sp_at(w, e, cs))
 
-def sp_suggest(+w: String, cs: List<&2, String>) -> Maybe<&2, Nat>:
-  sp_suggest.of(w, sp_first(w, cs))
+# R2, R3, another shape than the code's one pass: first the fewest edits
+# over all candidates, then the first candidate at that many; suggested
+# when within the limit of the typed name's UTF-8 bytes
+def sp_suggest(+w: String, +cs: List<&2, String>) -> Maybe<&2, Nat>:
+  sp_suggest.low(w, cs, sp_low(w, cs))
 
 # R4: the spelling of a request and of its reply
 
@@ -133,10 +122,12 @@ def sp_w_answer(m: Maybe<&2, Nat>) -> String:
     case Some{j}:
       Wr.put_nat(1n, Wr.put_nat(j, ""))
 
+# R4: the reply to q: the spelled suggestion of the code's Ss.suggest
+# (pinned by slash_suggest_first_nearest)
 def sp_w_reply(q: FSs.Req) -> String:
   match q:
     case FSs.QSuggest{w, cs}:
-      sp_w_answer(sp_suggest(w, cs))
+      sp_w_answer(Ss.suggest(w, cs))
 
 # every length of xs fits the wire
 def sp_fit_strs(xs: List<&2, String>) -> Bool:
@@ -164,15 +155,25 @@ law slash_suggest_distance:
   for +b: String
   {Ss.dist(a, b) == sp_lev(a, b) : Nat}
 
-# LAW slash_suggest_spec (R1, R2, R3): the suggestion for every typed name
-# and every list of candidates is the spec's
+# LAW slash_suggest_first_nearest (R1, R2, R3): for every typed name and
+# every list of candidates, the suggestion is: none without candidates;
+# else, with the fewest edits (R1) from the name to a candidate, the index
+# of the first candidate at that many, when that many is within the limit
+# of the name's UTF-8 bytes (R3), and none past it
 # EXCLUDES: a later candidate winning a tie, a farther candidate, a limit
 #   counted in chars, a limit off by one, a suggestion past the limit, an
-#   index shifted by one
-law slash_suggest_spec:
+#   index shifted by one, a near candidate missed behind a far one
+law slash_suggest_first_nearest:
   for +w: String
   for +cs: List<&2, String>
   {Ss.suggest(w, cs) == sp_suggest(w, cs) : Maybe<&2, Nat>}
+
+# LAW slash_suggest_limit_example (R3): anchor: the limit of names of 0 to
+# 9 bytes: 1 up to 3 bytes, 2 up to 8, 3 at 9 (2 edits pass at 4 bytes, 3
+# fail at 8 and pass at 9)
+# EXCLUDES: a limit table that drifts at the boundaries
+law slash_suggest_limit_example:
+  {[sp_ok(1n, 0n), sp_ok(2n, 3n), sp_ok(1n, 3n), sp_ok(2n, 4n), sp_ok(3n, 4n), sp_ok(3n, 8n), sp_ok(3n, 9n), sp_ok(4n, 9n)] == [True{}, False{}, True{}, True{}, False{}, False{}, True{}, False{}] : List<&2, Bool>}
 
 # LAW slash_suggest_example (R1, R2, R3): anchor: Rust's vectors, short:
 # a swapped pair, a far name, a tie, no candidates, names of 2 chars but 4
@@ -192,7 +193,7 @@ law slash_suggest_distance_example:
 
 # LAW slash_suggest_entry_answers (R4): the entry answers every request
 # Rust spells, every length within the wire, with the spelled suggestion of
-# the spec
+# the model (Ss.suggest, pinned by slash_suggest_first_nearest)
 # EXCLUDES: the typed name and the candidates swapped, a candidate dropped,
 #   a default
 law slash_suggest_entry_answers:

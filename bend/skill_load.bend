@@ -46,14 +46,6 @@ def Diag.path(d: Diag) -> Nat:
     case Diag{p, k}:
       p
 
-# c is in cs
-def In(+c: Cand, cs: List<&2, Cand>) -> Type:
-  match cs:
-    case Nil{}:
-      Empty
-    case +x <> rest:
-      Or({c == x : Cand}, In(c, rest))
-
 # The loader
 # ----------
 

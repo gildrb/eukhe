@@ -1,7 +1,9 @@
 //! The checks of a skill file's frontmatter and a prompt template's
 //! description run as the compiled Bend core (`bend/skill_load.bend`
 //! `check` and `summary`, entry `bend/ffi_skill_load.bend`; laws
-//! `skill_ffi_answers` and `skill_ffi_example` in `laws/skill_load.bend`):
+//! `skill_loads_iff_described`, `skill_name_falls_back`, `skill_messages`,
+//! `skill_template_given`, `skill_template_short`, `skill_template_long`
+//! and `skill_ffi_answers` in `laws/skill_load.bend`):
 //! the skill's name, whether it loads and its messages (the Agent Skills
 //! limits: a name of at most 64 bytes of a-z 0-9 '-', its dir's name, a
 //! description of at most 1024 bytes that is not blank); a template's

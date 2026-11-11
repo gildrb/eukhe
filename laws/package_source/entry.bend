@@ -5,7 +5,6 @@ import ../../bend/package_source.bend as Ps
 import ../../bend/ffi_package_source.bend as FPs
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
-import ./model.bend as PackageSource
 
 # (D2) The entry
 # --------------
@@ -16,7 +15,9 @@ import ./model.bend as PackageSource
 #     a defect 0 empty | 1 empty segment | 2 dot segment | 3 drive prefix |
 #     4 backslash | 5 control character | 6 leading dash | 7 slash; a flaw
 #     the part then the defect; every length within the wire) with the
-#     spec's answer (source: 0 then the source: 0 npm: the spec, the name,
+#     model's answer (bend/package_source.bend; R1-R9 are the laws of
+#     laws/package_source/model.bend) spelled (source: 0 then the source:
+#     0 npm: the spec, the name,
 #     pinned | 1 git | 2 local: the text; or 1 then the flaw; git: 0 none |
 #     1 the git | 2 the flaw; a git: the clone URL, the host, the path, the
 #     ref as Maybe<String>, pinned; local: the Bool; npm spec: the name and
@@ -127,22 +128,24 @@ def ps_w_req(q: FPs.Req, rest: String) -> String:
     case FPs.QError{x, f}:
       Wr.put_nat(6n, Wr.put_str(x, ps_w_flaw(f, rest)))
 
+# the reply to q: the model's answer spelled (the model is pinned by the
+# laws of laws/package_source/model.bend)
 def ps_w_reply(q: FPs.Req) -> String:
   match q:
     case FPs.QSource{x}:
-      ps_w_parsed(PackageSource.ps_source(x))
+      ps_w_parsed(Ps.source(x))
     case FPs.QGit{x}:
-      ps_w_gitans(PackageSource.ps_git(x))
+      ps_w_gitans(Ps.git(x))
     case FPs.QLocal{x}:
-      Wr.put_bool(PackageSource.ps_local(x), "")
+      Wr.put_bool(Ps.local(x), "")
     case FPs.QNpm{x}:
-      ps_w_spec(PackageSource.ps_npm_spec(x))
+      ps_w_spec(Ps.npm_spec(x))
     case FPs.QPart{p}:
-      Wr.put_str(PackageSource.ps_part_text(p), "")
+      Wr.put_str(Ps.part_text(p), "")
     case FPs.QDefect{d}:
-      Wr.put_str(PackageSource.ps_defect_text(d), "")
+      Wr.put_str(Ps.defect_text(d), "")
     case FPs.QError{x, f}:
-      Wr.put_str(PackageSource.ps_error_text(x, f), "")
+      Wr.put_str(Ps.error_text(x, f), "")
 
 def ps_fit_str(s: String) -> Bool:
   LawsBase.wire_fits(String.length(s))
@@ -169,7 +172,8 @@ def ps_fit_req(q: FPs.Req) -> Bool:
 # ----
 
 # LAW package_source_entry_answers (R10): the entry answers every request
-# Rust spells, every length within the wire, with the spec's answer spelled
+# Rust spells, every length within the wire, with the model's answer
+# spelled
 # EXCLUDES: fields read in another order, a tag misread, a part or defect
 #   tag swapped, a reply in another constructor, a default
 law package_source_entry_answers:

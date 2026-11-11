@@ -1,7 +1,7 @@
 //! The arguments of the session slash commands `/goal` and `/autonomous`,
 //! a goal objective, and the quote-aware words of a command's argument text
 //! (`bend/slash_args.bend`, entry `bend/ffi_slash_args.bend`;
-//! `laws/slash_args.bend`). Rust sends the text and reads the answer; the
+//! `laws/slash_args/`). Rust sends the text and reads the answer; the
 //! numbers come back as digits the core checked to fit a `u64`.
 
 use crate::wire::{Reader, WireError, Writer};

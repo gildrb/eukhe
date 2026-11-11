@@ -7,4 +7,4 @@ import ../../bend/slash_args.bend as Sa
 import ../../laws/slash_args/model.bend as SlashArgs
 
 def SlashArgs.slash_args_auto_example():
-  {==}
+  ({==}, {==})

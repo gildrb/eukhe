@@ -1,5 +1,5 @@
 //! The package sources of `eukhe package` (`bend/package_source.bend`,
-//! entry `bend/ffi_package_source.bend`; `laws/package_source.bend`): what a
+//! entry `bend/ffi_package_source.bend`; `laws/package_source/`): what a
 //! source string is (an `npm:` spec, a git URL, a local path), the parts a
 //! git or npm source names, why such a part is refused, and the texts. Rust
 //! sends the text and reads the answer.

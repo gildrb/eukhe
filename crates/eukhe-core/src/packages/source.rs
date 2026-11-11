@@ -14,7 +14,7 @@
 //!   quirk is product behavior, not a bug to fix here.
 //!
 //! Every source decision and text is the compiled core's
-//! (`eukhe_bend::rules::package_source`, `laws/package_source.bend`); the
+//! (`eukhe_bend::rules::package_source`, `laws/package_source/`); the
 //! path helpers over `std::path` stay here.
 
 use std::path::{Path, PathBuf};
