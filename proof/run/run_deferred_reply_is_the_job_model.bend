@@ -18,8 +18,8 @@ def rk.run_deferred_reply_is_the_job_model(+l: RnDecision.Lim, +t: RnDecision.At
           +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))
           +n = Nat.sub(most, notes)
           +ph = RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.call(cfg, RnState.Deferred{}, 0n, c, a, n, Nat.sub(wait, waited))))
-          %Equal.sym(RnDecision.Then, ph, Run.rust.wait(Nat.is_lt(waited, wait)), LA.rk.wait(cfg, 0n, c, a, n, wait, waited)) : {Run.rust.later(_) == R.Step.act(R.step(fails, budget, R.Live{failed, Nat.sub(wait, waited)}, R.Later{gap})) : R.Act}
-          %LA.rk.eq0(wait, waited) : {Run.rust.later(Run.rust.wait(Nat.is_lt(waited, wait))) == R.Step.act(R.live.pending(_, Nat.sub(wait, waited), gap)) : R.Act}
+          %Equal.sym(RnDecision.Then, ph, LA.rk.r_wait(Nat.is_lt(waited, wait)), LA.rk.wait(cfg, 0n, c, a, n, wait, waited)) : {Run.rust.later(_) == R.Step.act(R.step(fails, budget, R.Live{failed, Nat.sub(wait, waited)}, R.Later{gap})) : R.Act}
+          %LA.rk.eq0(wait, waited) : {Run.rust.later(LA.rk.r_wait(Nat.is_lt(waited, wait))) == R.Step.act(R.live.pending(_, Nat.sub(wait, waited), gap)) : R.Act}
           LA.rk.later(Nat.is_lt(waited, wait), Nat.sub(wait, waited), gap)
 
 def Run.run_deferred_reply_is_the_job_model(l, t, fails, budget, failed, gap):

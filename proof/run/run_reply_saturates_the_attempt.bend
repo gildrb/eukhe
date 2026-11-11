@@ -61,7 +61,7 @@ def rk.lt_le1(+c: Nat, +x: Nat, +e: {Nat.is_lt(x, c) == True{} : Bool}) -> {Nat.
     case 1n+d:
       Equal.trans(Bool, Nat.is_le(x, d), Nat.is_lt(x, 1n+d), True{}, LA.rk.lt_s(d, x), e)
 
-def rk.sat_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}) -> {Run.rust.after_reply(l, Run.rust.sat_attempt(t, cap), reply) == Run.rust.after_reply(l, t, reply) : RnDecision.Then}:
+def rk.sat_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}) -> {LA.rk.r_reply(l, Run.rust.sat_attempt(t, cap), reply) == LA.rk.r_reply(l, t, reply) : RnDecision.Then}:
   match l:
     case RnDecision.Lim{+rounds, +wait, +retries, +most}:
       match t:
@@ -79,9 +79,9 @@ def rk.sat_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply,
                   {==}
                 case True{} False{}:
                   +m = Nat.min(attempt, cap)
-                  %rk.ss(m, notes) : {Run.rust.retry(Nat.is_lt(_, retries)) == Run.rust.retry(Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)) : RnDecision.Then}
-                  %rk.ss(attempt, notes) : {Run.rust.retry(Nat.is_lt(Nat.sub(m, 1n+notes), retries)) == Run.rust.retry(Nat.is_lt(_, retries)) : RnDecision.Then}
-                  %rk.min_sub(1n+notes, attempt, cap, retries, rk.lt_le1(cap, Nat.add(notes, retries), e)) : {Run.rust.retry(_) == Run.rust.retry(Nat.is_lt(Nat.sub(attempt, 1n+notes), retries)) : RnDecision.Then}
+                  %rk.ss(m, notes) : {LA.rk.r_retry(Nat.is_lt(_, retries)) == LA.rk.r_retry(Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)) : RnDecision.Then}
+                  %rk.ss(attempt, notes) : {LA.rk.r_retry(Nat.is_lt(Nat.sub(m, 1n+notes), retries)) == LA.rk.r_retry(Nat.is_lt(_, retries)) : RnDecision.Then}
+                  %rk.min_sub(1n+notes, attempt, cap, retries, rk.lt_le1(cap, Nat.add(notes, retries), e)) : {LA.rk.r_retry(_) == LA.rk.r_retry(Nat.is_lt(Nat.sub(attempt, 1n+notes), retries)) : RnDecision.Then}
                   {==}
                 case False{} False{}:
                   {==}
@@ -90,7 +90,7 @@ def rk.sat_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply,
 
 def rk.run_reply_saturates_the_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}) -> {RnDecision.decide.reply(l, Run.rust.sat_attempt(t, cap), reply) == RnDecision.decide.reply(l, t, reply) : RnDecision.Then}:
   +t2 = Run.rust.sat_attempt(t, cap)
-  Equal.trans(RnDecision.Then, RnDecision.decide.reply(l, t2, reply), Run.rust.after_reply(l, t2, reply), RnDecision.decide.reply(l, t, reply), LA.rk.run_reply_is_the_rust_rule(l, t2, reply), Equal.trans(RnDecision.Then, Run.rust.after_reply(l, t2, reply), Run.rust.after_reply(l, t, reply), RnDecision.decide.reply(l, t, reply), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(RnDecision.Then, RnDecision.decide.reply(l, t, reply), Run.rust.after_reply(l, t, reply), LA.rk.run_reply_is_the_rust_rule(l, t, reply))))
+  Equal.trans(RnDecision.Then, RnDecision.decide.reply(l, t2, reply), LA.rk.r_reply(l, t2, reply), RnDecision.decide.reply(l, t, reply), LA.rk.reply_rule(l, t2, reply), Equal.trans(RnDecision.Then, LA.rk.r_reply(l, t2, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(RnDecision.Then, RnDecision.decide.reply(l, t, reply), LA.rk.r_reply(l, t, reply), LA.rk.reply_rule(l, t, reply))))
 
 def Run.run_reply_saturates_the_attempt(l, t, reply, cap, e):
   rk.run_reply_saturates_the_attempt(l, t, reply, cap, e)

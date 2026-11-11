@@ -1,8 +1,8 @@
 //! The run's entry of the compiled Bend core (`bend/ffi_run.bend`): the
 //! requests of the decisions of [`super::decide`] and [`super::deferred`]
 //! in the wire format (`crates/eukhe-bend/WIRE.md`), and the reading of
-//! their answers. The decisions are `decide.*` of `bend/run/decision.bend`, which
-//! `laws/run/model.bend` (H4.9) proves equal to the rules they replaced; the
+//! their answers. The decisions are `decide.*` of `bend/run/decision.bend`, whose
+//! requirements `laws/run/model.bend` (H4.9) and `laws/run/recover.bend` (H4.8) state; the
 //! `run_ffi` laws of `laws/run/entry.bend` pin the codec. eukhe encodes every request itself, its u64
 //! counts saturated at [`NAT_MAX`] (laws `run_reply_saturates_the_wait`
 //! and `run_reply_saturates_the_attempt`), so a failure of the core can

@@ -1685,7 +1685,7 @@ async fn classify(
                         None => (reply, None, None),
                     },
                     // At its cap a leak fails the run: markup is never an
-                    // answer (law `rec_leak_gives_up`).
+                    // answer (law `rec_leak_notes_then_fails`).
                     (Stuck::Leak, Act::Quit) => {
                         let error = format!(
                             "The model kept writing tool calls as markup in its text after \

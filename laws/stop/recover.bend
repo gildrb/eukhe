@@ -279,11 +279,11 @@ law stop_shrink_once_a_generation:
 # Laws: the recoveries' helpers other laws read (R9)
 # -------------------------------------------------
 
-# LAW stop_act_runs_only_calls (R9): an act runs tool calls (Act.runs, the
-# test rec_repeat_never_runs reads) exactly when the reply it makes of a
-# plain reply is the calls
-# EXCLUDES: an Act.runs that is never True (rec_repeat_never_runs then
-#   holds vacuously), a retry, a failure or a compaction read as calls
+# LAW stop_act_runs_only_calls (R9): an act runs tool calls (Act.runs of
+# bend/run/recovery.bend) exactly when the reply it makes of a plain reply
+# is the calls
+# EXCLUDES: an Act.runs that is never True or always True, a retry, a
+#   failure or a compaction read as calls
 law stop_act_runs_only_calls:
   for a: RnRecovery.Act
   {RnRecovery.Act.runs(a) == is_calls(RnRecovery.Act.reply(a, RnState.Plain{})) : Bool}

@@ -71,7 +71,7 @@ import ../spec/harness/stop.bend as StSpec
 #     further request and counts one answer, whatever follows. A stop the
 #     walk does not let stand never answers the run: its reply is a noted
 #     retry, a failure or the overflow's compaction.
-# R9: the recoveries' helpers that the laws of laws/run/model.bend read
+# R9: the recoveries' helpers that the laws of laws/run/recover.bend read
 #     are not vacuous: only the act whose reply is the calls runs them
 #     (Act.runs); Pass keeps the reply and every other act helps
 #     (Act.helps) and is never the answer; a row past its cap is not
@@ -97,55 +97,6 @@ def pends(p: S.Pick) -> Bool:
           False{}
         case S.PendingWork{}:
           True{}
-
-# the empty notes in a row that a note of recovery k with row `row` makes
-# (decide.rs `recover` over `NoteCause::row`); with rust_empty and
-# rust_think, read by rec_recover_is_the_rust_rule (laws/run/model.bend)
-def rust_empty_row(k: RnRecovery.Rk, row: Nat) -> Nat:
-  match k:
-    case RnRecovery.Free{}:
-      0n
-    case RnRecovery.Longs{}:
-      0n
-    case RnRecovery.Leaks{}:
-      0n
-    case RnRecovery.Loops{}:
-      0n
-    case RnRecovery.Empties{}:
-      row
-
-def rust_empty.at(under: Bool, row: Nat) -> RnDecision.Help:
-  match under:
-    case True{}:
-      RnDecision.Redoes{1n+row}
-    case False{}:
-      RnDecision.Quits{}
-
-# what `recover` does with an empty reply, after the request whose note
-# counts row notes of the recovery k
-def rust_empty(+k: RnRecovery.Rk, +row: Nat) -> RnDecision.Help:
-  rust_empty.at(Nat.is_lt(rust_empty_row(k, row), StSpec.empty_cap()), rust_empty_row(k, row))
-
-# the length notes in a row that a note of recovery k with row `row`
-# makes (decide.rs `recover` over `NoteCause::row`)
-def rust_long_row(k: RnRecovery.Rk, row: Nat) -> Nat:
-  match k:
-    case RnRecovery.Free{}:
-      0n
-    case RnRecovery.Longs{}:
-      row
-    case RnRecovery.Leaks{}:
-      0n
-    case RnRecovery.Loops{}:
-      0n
-    case RnRecovery.Empties{}:
-      0n
-
-# what `recover` does with a length stop with no text, the cap of length
-# notes `long`, after the request whose note counts row notes of the
-# recovery k
-def rust_think(+long: Nat, +k: RnRecovery.Rk, +row: Nat, +window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool, lower: Bool) -> RnDecision.Help:
-  StSpec.ladder(Bool.and(cuttable, StSpec.ran_out(window, catalog, prompt, out)), lower, rust_long_row(k, row), long)
 
 # the act ends the run
 def quits(a: RnRecovery.Act) -> Bool:
@@ -734,7 +685,7 @@ law stop_stand_sends_no_request:
 # EXCLUDES: a cut, empty or markup reply taken as the answer after a
 #   Director continued it (a Pass from the recoveries reaches Rust as
 #   Quits: decision.bend Help.act; that no stuck reply gets Pass is
-#   rec_stuck_gets_help's, laws/run/model.bend)
+#   rec_stuck_gets_help's, laws/run/recover.bend)
 law stop_goes_never_answers:
   for +cfg: RnState.Cfg
   for +f: S.Facts

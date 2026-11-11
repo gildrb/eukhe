@@ -3,26 +3,14 @@
 import Base
 import ../../bend/stop.bend as Stop
 import ../../bend/run/recovery.bend as RnRecovery
-import ../../laws/run/model.bend as Run
+import ../../laws/run/recover.bend as Run
 import ../base/logic/logic.bend as LLogicLogic
 
-# ---- recover ----
-
-# proof_recover: the H4.8 recovery laws of LAWS.bend about the
-# recoveries (Rec) of bend/run.bend.
-#
-# - the one-step laws (length, leak, repeat, a user message): by
-#   computation, after a rewrite of each cap test with its premise.
-# - stuck_gets_help: by computation on each stuck reply and each value
-#   of its cap tests: no branch passes the reply on as it is.
-# - notes_capped: an invariant of the recoveries, by induction on the
-#   replies. A recovery adds a note only under its cap, so the row of
-#   the next note is at most the cap of its recovery.
-# - never_runs_a_repeat: an invariant, by induction on the replies. Calls
-#   run only when the rounds in a row that they make stay below the
-#   repeat cap (and a round whose results change starts a new row of 1,
-#   which is below the cap too, as the call ran); every other reply keeps
-#   the count or clears it.
+# The rounds in a row (Rec.same) stay below max(repeat, 1): an invariant,
+# by induction on the replies. Calls run only when the rounds in a row
+# that they make stay below the repeat cap (and a round whose results
+# change starts a new row of 1, which is below the cap too, as the call
+# ran); every other reply keeps the count or clears it.
 
 # Numbers
 # -------
