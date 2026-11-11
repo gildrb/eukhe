@@ -223,6 +223,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
             run_internal_agent_command("rename", &rest)
         }
         "state" => run_internal_agent_command("state", &rest),
+        "effects" => run_internal_agent_command("effects", &rest),
         "send" => run_internal_agent_command("send", &rest),
         "schedule" => run_nested_agent_command("schedule", "cron", &rest),
         "status" => run_status(&rest),
@@ -855,6 +856,29 @@ mod incident_dispatch_tests {
         assert!(
             help.contains("Times without a timezone are read as UTC"),
             "{help}"
+        );
+    }
+
+    /// `effects` is a public command with its `resolve` subcommand, both
+    /// with their usage.
+    #[test]
+    fn the_effects_help_names_both_commands() {
+        assert!(public_command_names().contains(&"effects"));
+        let help = format_command_help(&["effects"]).expect("the effects spec");
+        assert!(
+            help.starts_with("Usage:\n  eukhe effects [<agent>] [--json]"),
+            "{help}"
+        );
+        assert!(
+            help.contains("resolve  Settle an interrupted effect after checking whether it ran"),
+            "{help}"
+        );
+        let resolve = format_command_help(&["effects", "resolve"]).expect("the resolve spec");
+        assert!(
+            resolve.starts_with(
+                "Usage:\n  eukhe effects resolve <id> <ran|not-run> [<agent>] [--json]"
+            ),
+            "{resolve}"
         );
     }
 }

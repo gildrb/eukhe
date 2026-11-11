@@ -203,7 +203,8 @@ fn compaction_soak_300_turns() {
     )
     .expect("models.json");
     let socket = dir.path().join("daemon.sock");
-    let _supervisor = Supervisor::start(&socket, &agent_dir, &dir.path().join("supervisor.log"));
+    let _supervisor =
+        Supervisor::start(&socket, &agent_dir, &dir.path().join("supervisor.log"), &[]);
     let mut client = WireClient::connect(&socket);
     let create = |client: &mut WireClient, sessions: &std::path::Path| {
         let created = client.request(

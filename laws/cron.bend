@@ -27,7 +27,9 @@ import ./cron_store.bend as CronStore
 # LAW cron_fires_once: after any events, each job is run by at most one process, and that
 # run holds the claim on record; no occurrence of a job starts twice (the
 # occurrences that started fall strictly, the newest first); a one-shot
-# starts at most once
+# starts at most once at a time: a recovery that clears its claim withdraws
+# its start, and its next fire is the same fire under its original request
+# id (cron_once_refires)
 law cron_fires_once:
   for +evs: List<&2, Cr.Ev>
   Cr.FiresAll(Cr.S.recs(Cr.run(evs)))
@@ -239,6 +241,8 @@ def spell_back(b: CS.Back, rest: String) -> String:
       Wr.put_nat(0n, rest)
     case CS.Interrupted{st, m}:
       Wr.put_nat(1n, spell_status(st, spell_mnat(m, rest)))
+    case CS.Refire{}:
+      Wr.put_nat(2n, rest)
 
 def spell_fin(x: CS.Fin, rest: String) -> String:
   match x:
@@ -656,6 +660,16 @@ def scale_claim(cl: Maybe<&2, Cr.Claim>, +u: Nat) -> Maybe<&2, Cr.Claim>:
         case Cr.Claim{o, w}:
           Some{Cr.Claim{Nat.mul(o, u), w}}
 
+# the occurrence of a claim on record (none: no claim)
+def occ_of(cl: Maybe<&2, Cr.Claim>) -> Maybe<&2, Nat>:
+  match cl:
+    case None{}:
+      None{}
+    case Some{x}:
+      match x:
+        case Cr.Claim{o, w}:
+          Some{o}
+
 def plan_of(s: Cr.Sched, +u: Nat) -> CS.Plan:
   match s:
     case Cr.Once{d}:
@@ -738,7 +752,9 @@ def cleared_of(+p: Nat, +dead: List<&2, Nat>, j: Cr.Job) -> Bool:
             case Cr.Claim{oc, +o}:
               CronStore.clear_spec(who_of.pick(Nat.is_eq(o, p), p, o, rs, dead))
 
-# a recovery, applied: the claim goes when its verdict clears it
+# a recovery, applied: the claim goes when its verdict clears it; a job
+# fired again is active, due at its claim record's occurrence (Rust writes
+# the cleared record's `scheduledFor`)
 def back_view(b: CS.Back, cleared: Bool, j: Cr.Job, +u: Nat) -> View():
   match b:
     case CS.Kept{}:
@@ -749,6 +765,10 @@ def back_view(b: CS.Back, cleared: Bool, j: Cr.Job, +u: Nat) -> View():
       match j:
         case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
           (st2, (CronStore.next_of_spec(m), (k, claim_after(cleared, scale_claim(cl, u)))))
+    case CS.Refire{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, +cl, rs, ss, h}:
+          (Cr.Active{}, (CronStore.next_of_spec(occ_of(scale_claim(cl, u))), (k, claim_after(cleared, scale_claim(cl, u)))))
 
 def ran_of(o: Cr.Out) -> Bool:
   match o:
@@ -822,12 +842,12 @@ law cron_entry_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, CS.Ask>}
   {FC.ffi(s) == SCon{'E', SCon{' ', "cron: malformed request"}} : String}
 
-# LAW cron_entry_example: anchor: the strings Rust sends, with small times (the proven kernel unfolds numbers one by one, so no anchor here runs the failure pause, a count of minutes times 60000 ms: cron_finish_exact pins it for every unit, cron_entry_answers at the entry's minute): a due unclaimed interval job is claimed, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is finished, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
+# LAW cron_entry_example: anchor: the strings Rust sends, with small times (the proven kernel unfolds numbers one by one, so no anchor here runs the failure pause, a count of minutes times 60000 ms: cron_finish_exact pins it for every unit, cron_entry_answers at the entry's minute): a due unclaimed interval job is claimed, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is fired again, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
 law cron_entry_example:
   {FC.ffi("0,0,1,6,1,10,0,F10,10,") == "2,1,16," : String} &
   {FC.ffi("3,0,1,6,1,10,7,TT50,") == "1,1,0,8," : String} &
   {FC.ffi("1,0,F") == "T" : String} &
-  {FC.ffi("2,0,0,1,5,0,T") == "1,2,0," : String} &
+  {FC.ffi("2,0,0,1,5,0,T") == "2," : String} &
   {FC.ffi("3,0,1,6,1,10,0,FF50,") == "2,0,1,56,0," : String} &
   {FC.ffi("4,3,0,0,0,") == "0," : String} &
   {FC.ffi("5,0,0,0,0,9,") == "2," : String} &

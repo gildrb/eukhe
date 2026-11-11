@@ -36,6 +36,7 @@ pub mod mcp_url;
 pub mod model_facts;
 pub mod model_name;
 pub mod model_roles;
+pub mod once;
 pub mod optchat;
 pub mod overflow;
 pub mod package_source;

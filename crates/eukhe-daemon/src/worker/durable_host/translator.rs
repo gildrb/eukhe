@@ -640,6 +640,7 @@ impl EventTranslator {
                 | SessionEvent::ServiceTierChanged { .. }
                 | SessionEvent::SessionActionUpdate { .. }
                 | SessionEvent::GoalUpdate { .. }
+                | SessionEvent::UnknownEffectsUpdate { .. }
                 | SessionEvent::MemoryUpdate { .. }
                 | SessionEvent::BashStart { .. }
                 | SessionEvent::BashOutput { .. }

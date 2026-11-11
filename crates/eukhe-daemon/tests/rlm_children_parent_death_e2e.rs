@@ -25,6 +25,9 @@
 //!    respawned parent's `get_rlm_children` reads empty, and the `list
 //!    --all` surface shows the child as a passive ledger row (the spawn
 //!    edge survived - the close is a stop, not a delete).
+//! 2. Exactly-once spawns: a parent killed at each point of a spawn's life
+//!    (`EUKHE_TEST_KILL_AT=spawn:<point>`) resumes with at most one child,
+//!    never two.
 //!
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
@@ -72,23 +75,30 @@ use daemon::supervisor_command;
 use process::Daemon;
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
-    Daemon::spawn_listening(
-        supervisor_command(socket, agent_dir)
-            // Hermetic agent dir: the ambient environment exports a real
-            // agent dir; point every fallback at the test sandbox instead.
-            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-            .env_remove("PRIME_API_KEY")
-            // A supervisor killed at teardown must not leak its session workers
-            // into later test binaries: the worker's supervisor-lost exit (TS
-            // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
-            // instead of the 5-minute default.
-            .env(
-                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-                "15000",
-            ),
-        socket,
-        Duration::from_secs(15),
-    )
+    spawn_supervisor_with(socket, agent_dir, &[])
+}
+
+/// [`spawn_supervisor`] with `env` set in the supervisor (its workers
+/// inherit it).
+fn spawn_supervisor_with(socket: &Path, agent_dir: &Path, env: &[(&str, String)]) -> Daemon {
+    let mut command = supervisor_command(socket, agent_dir);
+    command
+        // Hermetic agent dir: the ambient environment exports a real
+        // agent dir; point every fallback at the test sandbox instead.
+        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+        .env_remove("PRIME_API_KEY")
+        // A supervisor killed at teardown must not leak its session workers
+        // into later test binaries: the worker's supervisor-lost exit (TS
+        // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
+        // instead of the 5-minute default.
+        .env(
+            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+            "15000",
+        );
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    Daemon::spawn_listening(&mut command, socket, Duration::from_secs(15))
 }
 
 /// JSONL supervisor client (command envelopes, id-matched responses).
@@ -745,4 +755,134 @@ fn child_ledger_session_id(ledger: &[LedgerEvent]) -> String {
             _ => None,
         })
         .expect("the child registered")
+}
+
+/// The child sessions the parent's spawns created: one directory per child
+/// id under the parent's session artifacts.
+fn child_dirs(agent_dir: &Path, parent_session_id: &str) -> Vec<PathBuf> {
+    std::fs::read_dir(agent_dir.join("session-artifacts").join(parent_session_id))
+        .map(|entries| {
+            entries
+                .filter_map(std::result::Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_dir()
+                        && path
+                            .file_name()
+                            .is_some_and(|name| name.to_string_lossy().starts_with("sub-"))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The spawn records of the spawn ledger.
+fn ledger_spawns(agent_dir: &Path) -> usize {
+    std::fs::read_dir(agent_dir.join(eukhe_daemon::rlm_ledger::RLM_LEDGER_DIR))
+        .map(|entries| {
+            entries
+                .filter_map(std::result::Result::ok)
+                .map(|entry| std::fs::read_to_string(entry.path()).unwrap_or_default())
+                .map(|content| content.matches("\"op\":\"spawn\"").count())
+                .sum()
+        })
+        .unwrap_or_default()
+}
+
+/// Exactly-once spawns (spec O1, O2, O7): the parent worker dies by
+/// `SIGKILL` at the spawn's lifecycle point `point` (`EUKHE_TEST_KILL_AT`:
+/// `intended` once the child task and its row are durable, `started` just
+/// before the host spawns, `finished` once the spawn's result is durable).
+/// The supervisor relaunches the parent, whose child task resumes; its
+/// spawn carries the same idempotency key and child identity, so the
+/// parent ends with at most one child however many times the spawn ran,
+/// and the turn ends.
+fn spawn_killed_at(point: &str) -> usize {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let socket = dir.path().join("supervisor.sock");
+    let receipts = dir.path().join("receipts");
+    std::fs::create_dir_all(&receipts).expect("receipts dir");
+    let marker = dir.path().join("killed");
+    let child_script = write_child_script(dir.path());
+    let parent_script = write_parent_script(
+        dir.path(),
+        &spawn_cell(&receipts.join("spawn.json"), &receipts.join("spawn.error")),
+    );
+    let _daemon = spawn_supervisor_with(
+        &socket,
+        &agent_dir,
+        &[(
+            "EUKHE_TEST_KILL_AT",
+            format!("spawn:{point}@{}", marker.display()),
+        )],
+    );
+    let (mut client, hello) = Client::connect(&socket);
+    assert_eq!(hello["type"], "daemon_hello");
+    let parent = create_parent(&mut client, dir.path(), &parent_script, &child_script, "c1");
+    let parent_id = parent["activeSessionId"]
+        .as_str()
+        .or_else(|| parent["id"].as_str())
+        .expect("parent active session id")
+        .to_string();
+    let parent_session_id = parent["sessionId"]
+        .as_str()
+        .expect("parent session id")
+        .to_string();
+    let first_pid = parent_worker_pid(&agent_dir, &socket, &parent_id);
+    client.send_command(
+        "p1",
+        &json!({ "type": "prompt", "activeSessionId": parent_id, "message": "spawn the kid" }),
+    );
+    let deadline = Instant::now() + Duration::from_mins(2);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "spawn:{point} was never reached");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The relaunched parent serves the session again and its turn ends.
+    wait_until(&mut client, Duration::from_mins(2), |_| {
+        let pid =
+            std::panic::catch_unwind(|| parent_worker_pid(&agent_dir, &socket, &parent_id)).ok()?;
+        (pid != first_pid).then_some(())
+    });
+    let mut attempt = 0;
+    wait_until(&mut client, Duration::from_mins(2), |client| {
+        attempt += 1;
+        let id = format!("idle-{attempt}");
+        client.send_command(
+            &id,
+            &json!({ "type": "wait_for_idle", "activeSessionId": parent_id }),
+        );
+        (client.read_response(&id)["success"] == true).then_some(())
+    });
+    // The resumed child task settles: its spawn ran at most once more.
+    std::thread::sleep(Duration::from_secs(2));
+    let children = child_dirs(&agent_dir, &parent_session_id);
+    assert!(
+        children.len() <= 1,
+        "one spawn, at most one child: {children:?}"
+    );
+    assert!(
+        ledger_spawns(&agent_dir) <= 1,
+        "at most one spawn record in the ledger"
+    );
+    let rows = rlm_children_rows(&mut client, "rows", &parent_id);
+    assert!(rows.len() <= 1, "at most one tracked child: {rows:?}");
+    children.len()
+}
+
+#[test]
+fn a_spawn_killed_at_its_intent_creates_at_most_one_child() {
+    spawn_killed_at("intended");
+}
+
+#[test]
+fn a_spawn_killed_before_the_host_spawns_creates_at_most_one_child() {
+    spawn_killed_at("started");
+}
+
+#[test]
+fn a_spawn_killed_after_its_result_creates_exactly_one_child() {
+    assert_eq!(spawn_killed_at("finished"), 1);
 }

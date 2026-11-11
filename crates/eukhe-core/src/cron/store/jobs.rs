@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use crate::cron::JobSource;
+use eukhe_types::platform::kill_point::kill_point;
 use uuid::Uuid;
 
 use super::state::{
@@ -225,7 +226,8 @@ impl AgentCronJobStore {
 
     /// Atomically claim due jobs: advance their schedule and record
     /// dispatches owned by this process. Each claimed dispatch runs until
-    /// its [`RunningDispatch`] drops.
+    /// its [`RunningDispatch`] drops. A claim on record is a fire's intent
+    /// (kill point `fire:intended`).
     ///
     /// # Errors
     ///
@@ -233,6 +235,9 @@ impl AgentCronJobStore {
     pub fn claim_due(&self, due_at: u64, claimed_at: u64) -> anyhow::Result<Vec<RunningDispatch>> {
         let dispatches =
             self.mutate_states(|state| claim_due_in_state(state, due_at, claimed_at, &self.owner))?;
+        if !dispatches.is_empty() {
+            kill_point("fire", "intended");
+        }
         Ok(dispatches
             .into_iter()
             .map(|dispatch| RunningDispatch::new(dispatch, Arc::clone(&self.owner)))
@@ -265,7 +270,8 @@ impl AgentCronJobStore {
     /// cap, pauses the job; a good run sets the count back to 0; a skip
     /// leaves it). With no claim record of the dispatch (cleared by a
     /// recovery), nothing changes. Returns the updated job, or `None` when
-    /// no job counted the result.
+    /// no job counted the result. A counted result on record ends the fire
+    /// (kill point `fire:finished`).
     ///
     /// # Errors
     ///
@@ -324,13 +330,17 @@ impl AgentCronJobStore {
             }
             Vec::new()
         })?;
+        if updated.is_some() {
+            kill_point("fire", "finished");
+        }
         Ok(updated)
     }
 
     /// Clear the claims this process may clear: its own claims with no live
     /// run (their pass unwound), and the claims of dead processes. The live
     /// claim of another process is never cleared. Returns the active jobs
-    /// whose run was interrupted.
+    /// whose run was interrupted (a one-shot among them is due again at its
+    /// cleared claim's occurrence, to fire under its original request id).
     ///
     /// # Errors
     ///
@@ -515,6 +525,63 @@ mod tests {
             recovered[0].last_error.as_deref(),
             Some("Interrupted before scheduled operation completion")
         );
+    }
+
+    /// A one-shot whose claim a recovery clears (its pass unwound before
+    /// its result was recorded) is fired again: it stays active, due at the
+    /// occurrence it was claimed for, its run count kept, so the next claim
+    /// pass fires it under the same request id; its recorded run completes
+    /// it, and no later pass fires it.
+    #[test]
+    fn a_recovered_one_shot_fires_again_under_its_request_id() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = AgentCronJobStore::new(dir.path().join("jobs.json"));
+        let now = 1_700_000_000_000;
+        let job = store.create(&input("tick", "in 10m", now)).unwrap();
+        let first = store.claim_due(now + 600_000, now + 600_000).unwrap();
+        assert_eq!(first.len(), 1);
+        let claimed = first[0].dispatch().job.clone();
+        drop(first);
+        let refired = AgentCronJob {
+            status: JobStatus::Active,
+            next_run_at: job.next_run_at.clone(),
+            last_error: Some("Interrupted before scheduled operation completion".to_string()),
+            updated_at: iso_from_millis(now + 600_001),
+            ..claimed
+        };
+        assert_eq!(
+            store.recover_interrupted_dispatches(now + 600_001).unwrap(),
+            vec![refired.clone()]
+        );
+        assert_eq!(store.list(), vec![refired]);
+        let second = store.claim_due(now + 600_002, now + 600_002).unwrap();
+        assert_eq!(
+            second
+                .iter()
+                .map(|run| (run.dispatch().job.id.clone(), run.dispatch().job.run_count))
+                .collect::<Vec<_>>(),
+            vec![(job.id.clone(), job.run_count)]
+        );
+        let done = store
+            .record_dispatch_result(
+                &second[0].dispatch().id,
+                &DispatchResultOptions {
+                    now: Some(now + 600_003),
+                    outcome: DispatchOutcome::Ran,
+                    error: None,
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (done.status, done.run_count),
+            (JobStatus::Completed, job.run_count + 1)
+        );
+        drop(second);
+        assert!(store
+            .claim_due(now + 1_200_000, now + 1_200_000)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

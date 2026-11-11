@@ -64,7 +64,10 @@ impl From<eukhe_durable::harness::types::WhenBusy> for WithdrawnMode {
 /// not `pi.user`, and origin. `id` is the withdrawn submission's id when the
 /// input had one (an abort withdrew it from the inbox); admissions an input
 /// pause held before their submission carry none and preview by content
-/// alone.
+/// alone. `request` is the request id its resubmission carries, fixed when
+/// it entered the store: a resubmission repeated after a crash (the store
+/// cleared only after it) dedupes onto the admitted one, so the input is
+/// delivered once (spec O7). Inputs a build before it stored carry none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct WithdrawnInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,6 +77,8 @@ pub(crate) struct WithdrawnInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) entry: Option<InputEntry>,
     pub(crate) origin: InputOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) request: Option<String>,
 }
 
 impl From<&QueuedInput> for WithdrawnInput {
@@ -84,8 +89,17 @@ impl From<&QueuedInput> for WithdrawnInput {
             content: input.content.clone(),
             entry: input.entry.clone(),
             origin: input.origin.clone(),
+            request: input.request.clone(),
         }
     }
+}
+
+/// The request id of the resubmission of the withdrawn submission `id`:
+/// one per withdrawn submission, since a resubmitted input is a new
+/// submission with its own id.
+#[must_use]
+pub(crate) fn resubmit_request(id: eukhe_durable::types::SubmissionId) -> String {
+    format!("resubmit:{id}")
 }
 
 impl WithdrawnInput {
@@ -102,6 +116,10 @@ impl WithdrawnInput {
             content: self.content.clone(),
             entry: self.entry.clone(),
             origin: self.origin.clone(),
+            request: self
+                .request
+                .clone()
+                .or_else(|| self.id.map(resubmit_request)),
         }
     }
 }

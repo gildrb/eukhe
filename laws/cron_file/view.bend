@@ -245,6 +245,10 @@ def take_news(rs: List<&2, Cr.Rec>, ts: List<&2, CS.Took>, +p: Nat, +u: Nat) -> 
 def take_file(+ts: List<&2, CS.Took>, +rs: List<&2, Cr.Rec>, rd: List<&2, Nat>, +p: Nat, +u: Nat) -> FFile:
   FFile{take_rows(rs, ts, u), List.append(&2, FClaim, marks_of(rs, u), take_news(rs, ts, p, u)), rd}
 
+# a recovery's answer, applied to a job record: a job fired again is
+# active, due at the occurrence of its cleared claim record (Rust writes
+# that record's `scheduledFor`; in the model's file, the job's one claim
+# record is its claim)
 def back_row(b: CS.Back, j: Cr.Job, +u: Nat) -> FRow:
   match b:
     case CS.Kept{}:
@@ -253,6 +257,10 @@ def back_row(b: CS.Back, j: Cr.Job, +u: Nat) -> FRow:
       match j:
         case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
           FJob{i, st2, CronStore.next_of_spec(m), k}
+    case CS.Refire{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          FJob{i, Cr.Active{}, CronStore.next_of_spec(Cron.occ_of(Cron.scale_claim(cl, u))), k}
 
 def recover_rows(rs: List<&2, Cr.Rec>, bs: List<&2, CS.Back>, +u: Nat) -> List<&2, FRow>:
   match rs:

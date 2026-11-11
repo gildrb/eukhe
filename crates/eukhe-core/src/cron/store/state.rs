@@ -340,8 +340,11 @@ pub(crate) fn claim_due_in_state(
 /// A recovery (the compiled core decides it: `rule::recover_all`, from
 /// whose each claim record is): the claim records it clears go (this
 /// process's own with no live run, a dead owner's); an active job whose
-/// claim was cleared records the interruption, a one-shot is then
-/// completed, as its one run ended.
+/// claim was cleared records the interruption. A one-shot is fired again
+/// (`Back::Refire`): it stays active, due again at the occurrence of its
+/// cleared claim record (`scheduledFor`), its run count kept, so the next
+/// claim pass fires it under its original request id and a session that
+/// already admitted the first fire dedupes this one onto it.
 pub(crate) fn recover_interrupted_in_state(
     state: &mut CronJobsState,
     now: u64,
@@ -362,16 +365,32 @@ pub(crate) fn recover_interrupted_in_state(
         rule::recover_all(&slots_of(&state.jobs, &keys), &claims)
     };
     let mut keep = swept.keep.into_iter();
-    state.dispatches.retain(|_| keep.next().unwrap_or(true));
+    let mut cleared = Vec::new();
+    state.dispatches.retain(|dispatch| {
+        let stays = keep.next().unwrap_or(true);
+        if !stays {
+            cleared.push(dispatch.clone());
+        }
+        stays
+    });
     state
         .unread_dispatches
         .retain(|_| keep.next().unwrap_or(true));
     for (job, back) in state.jobs.iter_mut().zip(swept.jobs) {
-        let Back::Interrupted { status, next } = back else {
-            continue;
-        };
-        job.status = job_status(status);
-        job.next_run_at = next_text_at(job, next);
+        match back {
+            Back::Kept => continue,
+            Back::Interrupted { status, next } => {
+                job.status = job_status(status);
+                job.next_run_at = next_text_at(job, next);
+            }
+            Back::Refire => {
+                job.status = crate::cron::JobStatus::Active;
+                job.next_run_at = cleared
+                    .iter()
+                    .find(|dispatch| dispatch.job_id == job.id)
+                    .map(|dispatch| dispatch.scheduled_for.clone());
+            }
+        }
         job.last_error = Some("Interrupted before scheduled operation completion".to_string());
         job.updated_at = iso_from_millis(now);
         recovered.push(job.clone());

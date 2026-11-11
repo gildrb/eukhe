@@ -77,6 +77,7 @@ fn populated() -> Settings {
         retry: Some(RetrySettings {
             enabled: Some(true),
             max_retries: Some(1),
+            max_resends: Some(1),
             base_delay_ms: Some(1),
             failover: Some(RetryFailoverSettings {
                 enabled: Some(true),

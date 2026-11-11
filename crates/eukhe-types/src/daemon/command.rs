@@ -1360,6 +1360,27 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native: the session's ledger of effects whose outcome a
+    /// restart could not tell, open and resolved (reply:
+    /// [`crate::effects::UnknownEffectsReply`]).
+    GetUnknownEffects {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: settle the open unknown effect `effect_id` after
+    /// looking at the world (reply: [`crate::effects::ResolvedEffectReply`]).
+    ResolveUnknownEffect {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        effect_id: String,
+        resolution: crate::effects::EffectResolution,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetSystemPrompt {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1681,5 +1702,13 @@ mod tests {
         );
         rt::<DaemonCommand>(r#"{"type":"subscribe_state_tree","activeSessionId":"s1","since":3}"#);
         rt::<DaemonCommand>(r#"{"type":"unsubscribe_state_tree","activeSessionId":"s1"}"#);
+    }
+
+    #[test]
+    fn unknown_effect_commands_roundtrip() {
+        rt::<DaemonCommand>(r#"{"type":"get_unknown_effects","activeSessionId":"s1"}"#);
+        rt::<DaemonCommand>(
+            r#"{"type":"resolve_unknown_effect","activeSessionId":"s1","effectId":"tool:c1","resolution":"notRun"}"#,
+        );
     }
 }

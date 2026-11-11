@@ -352,6 +352,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             root: root.clone(),
             main: session.main(),
             deps: Arc::clone(&deps),
+            stored_work,
         })
         .await;
         match started {

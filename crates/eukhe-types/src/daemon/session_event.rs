@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::{MemoryUpdate, SessionActionSnapshot};
 use crate::ai::{ServiceTier, UserContentBlock};
+use crate::effects::UnknownEffect;
 use crate::goal::GoalState;
 use crate::output::OmittedOutput;
 use crate::pi_ai::PromptProgress;
@@ -138,6 +139,12 @@ pub enum SessionEvent {
     GoalUpdate {
         goal: GoalState,
     },
+    /// The session's ledger of effects whose outcome a restart could not
+    /// tell changed (an effect was noted or resolved): the whole ledger,
+    /// oldest first.
+    UnknownEffectsUpdate {
+        effects: Vec<UnknownEffect>,
+    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -206,6 +213,7 @@ impl SessionEvent {
             | Self::ServiceTierChanged { .. }
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
+            | Self::UnknownEffectsUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }
             | Self::BashOutput { .. }
@@ -374,6 +382,14 @@ mod tests {
         );
         rt::<SessionEvent>(
             r#"{"type":"bash_end","exitCode":null,"cancelled":true,"output":"tail","omitted":{"bytes":10,"lines":2,"at":"start"},"artifact":"/tmp/out","transient":true,"runId":"r"}"#,
+        );
+    }
+
+    #[test]
+    fn unknown_effects_update_roundtrips() {
+        // `at` is an f64: a fractional value keeps its JSON number form.
+        rt::<SessionEvent>(
+            r#"{"type":"unknown_effects_update","effects":[{"id":"tool:c1","kind":"tool","what":"bash: make deploy","at":1700000000000.5,"resolution":"ran"},{"id":"job:7","kind":"job","what":"cargo build","at":1700000000001.5}]}"#,
         );
     }
 }

@@ -46,6 +46,10 @@ pub const DEFAULT_MAX_TOOL_ROUNDS: NonZeroU32 = match NonZeroU32::new(250) {
     None => panic!("250 is not zero"),
 };
 
+/// Default `settings.request_resends`: the times a model request a restart
+/// found sent and unanswered is sent again before its run ends.
+pub const DEFAULT_REQUEST_RESENDS: u32 = 2;
+
 /// The reserved section key of the agent's `instructions`.
 pub const INSTRUCTIONS_KEY: &str = "instructions";
 
@@ -146,6 +150,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
             .and_then(|settings| settings.max_tool_rounds)
             .and_then(NonZeroU32::new)
             .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS),
+        request_resends: settings
+            .and_then(|settings| settings.request_resends)
+            .unwrap_or(DEFAULT_REQUEST_RESENDS),
     }
 }
 

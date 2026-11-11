@@ -138,6 +138,45 @@ impl Faults for NoFaults {
     }
 }
 
+/// One change a write is about to make to a file: its real path goes
+/// from `base` to `next` (`None`: no file there).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Change<'a> {
+    pub real: &'a Path,
+    pub base: Option<&'a [u8]>,
+    pub next: Option<&'a [u8]>,
+}
+
+/// The host's record of what a write is about to change, so that after a
+/// crash it can tell whether the change landed: a file write as an
+/// exactly-once effect (`eukhe_bend::rules::once`).
+///
+/// A write calls [`Witness::changing`] under its path locks, after its
+/// checks and before any file can change: once with every change of the
+/// call, then once more for each rebase, with the change it makes of that
+/// file instead (`base`: the bytes another program wrote, `next`: the
+/// rebased bytes). An implementation returns once its record is durable;
+/// an error fails the write, and no file the call had not changed yet
+/// changes.
+pub trait Witness: Sync {
+    /// Record `changes` before any of them happens.
+    ///
+    /// # Errors
+    ///
+    /// The record could not be made durable.
+    fn changing(&self, changes: &[Change<'_>]) -> std::io::Result<()>;
+}
+
+/// The [`Witness`] of writes nobody tells apart after a crash (a kernel's
+/// `fs.*` request, an LSP rename): it records nothing.
+pub struct Unwitnessed;
+
+impl Witness for Unwitnessed {
+    fn changing(&self, _changes: &[Change<'_>]) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// How a publish may treat a file at the target.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Publish<'a> {
@@ -195,13 +234,16 @@ enum Retry {
 /// mode). A replace re-reads the target after the new bytes are synced,
 /// just before the rename, and renames only over its base; over other
 /// bytes it rebases the change onto them and tries again, as the core's
-/// step chooses: a publish never replaces bytes it did not read. An error
-/// means the target did not change.
+/// step chooses: a publish never replaces bytes it did not read. The
+/// caller told `witness` of the change; each rebase tells it the change it
+/// makes instead before that can land. An error means the target did not
+/// change.
 pub(crate) fn publish(
     target: &Path,
     bytes: &[u8],
     permissions: Option<Permissions>,
     mode: Publish<'_>,
+    witness: &dyn Witness,
     faults: &dyn Faults,
 ) -> Result<Placed, PublishError> {
     let directory = target.parent().unwrap_or(Path::new("."));
@@ -270,6 +312,11 @@ pub(crate) fn publish(
                         return Err(PublishError::Changed)
                     }
                 };
+                witness.changing(&[Change {
+                    real: target,
+                    base: Some(head.as_slice()),
+                    next: Some(text.as_bytes()),
+                }])?;
                 restaged = Some((head, text));
                 rebases += 1;
             }
@@ -462,7 +509,7 @@ fn ending_name(ending: LineEnding) -> &'static str {
 
 /// Create or overwrite `absolute` with `content` under its path lock, when
 /// its current bytes are `base`, after `gate` let the write of its real
-/// path.
+/// path and `witness` recorded the change.
 ///
 /// A replaced file keeps its BOM, line endings, and mode, with a warning
 /// when the content had other endings or the file was not UTF-8; a created
@@ -470,12 +517,14 @@ fn ending_name(ending: LineEnding) -> &'static str {
 /// The written text is recorded in `store` with every line seen.
 #[allow(
     clippy::too_many_lines,
-    reason = "one sequence under one path lock: check the base, encode, publish, record"
+    clippy::too_many_arguments,
+    reason = "one sequence under one path lock: check the base, encode, witness, publish, record"
 )]
 pub(crate) fn write_file(
     store: &EditStore,
     lock_dir: &Path,
     gate: &dyn AccessGate,
+    witness: &dyn Witness,
     absolute: &Path,
     display: &str,
     content: &str,
@@ -587,11 +636,19 @@ pub(crate) fn write_file(
             Publish::Create,
         )
     };
+    witness
+        .changing(&[Change {
+            real: &canonical,
+            base: existing.as_ref().map(|(bytes, _)| bytes.as_slice()),
+            next: Some(persisted.as_bytes()),
+        }])
+        .map_err(io)?;
     let placed = publish(
         &canonical,
         persisted.as_bytes(),
         permissions,
         mode,
+        witness,
         &NoFaults,
     )
     .map_err(|error| match error {
@@ -662,13 +719,15 @@ pub(crate) fn write_file(
 /// The [`EditWriter`] of a session: a call lets `gate` check each real
 /// path it changes, takes the path locks of every file it touches, checks
 /// each file's current bytes against the bytes the edit was applied to
-/// (and that each move destination is free), and only then replaces the
-/// files atomically (mode kept), in order. Each replace re-reads its file
-/// just before the rename ([`publish`]): bytes another program wrote since
-/// the check are rebased onto, or the file is not written.
+/// (and that each move destination is free), tells `witness` every change,
+/// and only then replaces the files atomically (mode kept), in order. Each
+/// replace re-reads its file just before the rename ([`publish`]): bytes
+/// another program wrote since the check are rebased onto, or the file is
+/// not written.
 pub(crate) struct LockedWriter<'a> {
     pub(crate) lock_dir: &'a Path,
     pub(crate) gate: &'a dyn AccessGate,
+    pub(crate) witness: &'a dyn Witness,
     pub(crate) faults: &'a dyn Faults,
 }
 
@@ -758,6 +817,7 @@ impl LockedWriter<'_> {
                     Publish::Replace {
                         base: before_raw.as_bytes(),
                     },
+                    self.witness,
                     self.faults,
                 ) {
                     Ok(placed) => Some(placed),
@@ -809,6 +869,7 @@ impl LockedWriter<'_> {
                         content.as_bytes(),
                         Some(permissions),
                         Publish::Create,
+                        self.witness,
                         self.faults,
                     ) {
                         Ok(placed) => Some(placed),
@@ -918,6 +979,60 @@ fn rebased_warning(display: &str) -> String {
     )
 }
 
+impl LockedWriter<'_> {
+    /// Tell the witness every change of the call before any lands: a move
+    /// creates its destination and removes its source.
+    fn witness_all(
+        &self,
+        requests: &[EditWriteRequest<'_>],
+        allowed: &[Allowed],
+    ) -> Result<(), EditError> {
+        let destinations: Vec<Option<PathBuf>> = requests
+            .iter()
+            .zip(allowed)
+            .map(|(request, paths)| match request.op {
+                WriteOp::Move { destination, .. } => Some(
+                    paths
+                        .target
+                        .clone()
+                        .unwrap_or_else(|| real_path(destination)),
+                ),
+                WriteOp::Update { .. } | WriteOp::Delete { .. } => None,
+            })
+            .collect();
+        let mut changes = Vec::with_capacity(requests.len() + destinations.len());
+        for ((request, paths), destination) in requests.iter().zip(allowed).zip(&destinations) {
+            let (before_raw, next) = match request.op {
+                WriteOp::Update {
+                    before_raw,
+                    content,
+                } => (before_raw, Some(content.as_bytes())),
+                WriteOp::Delete { before_raw } | WriteOp::Move { before_raw, .. } => {
+                    (before_raw, None)
+                }
+            };
+            changes.push(Change {
+                real: &paths.source,
+                base: Some(before_raw.as_bytes()),
+                next,
+            });
+            if let (WriteOp::Move { content, .. }, Some(destination)) = (request.op, destination) {
+                changes.push(Change {
+                    real: destination,
+                    base: None,
+                    next: Some(content.as_bytes()),
+                });
+            }
+        }
+        if let (Some(first), Some(paths)) = (requests.first(), allowed.first()) {
+            self.witness
+                .changing(&changes)
+                .map_err(|error| io_error(first.display, &paths.source, error))?;
+        }
+        Ok(())
+    }
+}
+
 impl EditWriter for LockedWriter<'_> {
     fn write_all(&self, requests: &[EditWriteRequest<'_>]) -> Result<Vec<Published>, EditError> {
         let mut allowed = Vec::with_capacity(requests.len());
@@ -999,6 +1114,7 @@ impl EditWriter for LockedWriter<'_> {
                 }
             });
         }
+        self.witness_all(requests, &allowed)?;
         let mut published = Vec::with_capacity(requests.len());
         for ((request, paths), permissions) in requests.iter().zip(&allowed).zip(checked) {
             let permissions =

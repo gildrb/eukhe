@@ -14,8 +14,8 @@ use anyhow::Context as _;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_docs::{
     AccessGate, Documents, EditError, FileChange, GlobError, GlobOutput, GrepError, GrepOutput,
-    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, Row, Url, UrlError,
-    WriteDisposition, WriteError, WriteOutcome,
+    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, Row, Unwitnessed, Url, UrlError,
+    Witness, WriteDisposition, WriteError, WriteOutcome,
 };
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput, ToolExecutionApi};
 use eukhe_types::pi_ai::{ImageContent, JsonObject};
@@ -26,6 +26,7 @@ use serde_json::Value;
 use tokio::task::JoinError;
 
 use super::contract::{EditArgs, Function, GlobArgs, GrepArgs, ReadArgs, WriteArgs};
+use super::probe::ProbeWitness;
 use super::{urls, DocumentsHost};
 use crate::durable::{HostCall, HostRequestRegistry};
 
@@ -585,14 +586,16 @@ fn decode<T: DeserializeOwned>(function: Function, args: JsonObject) -> Result<T
 }
 
 /// Run one call on `documents`, resolving relative paths against `cwd`,
-/// each path access through `gate`. Blocking: file I/O, and the gate may
-/// wait for the user.
+/// each path access through `gate`, each write recorded by `witness`
+/// before it lands. Blocking: file I/O, the gate may wait for the user,
+/// and the witness for its record.
 fn perform_blocking(
     documents: &Documents,
     function: Function,
     cwd: &Path,
     args: JsonObject,
     gate: &dyn AccessGate,
+    witness: &dyn Witness,
 ) -> Result<Done, Rejection> {
     match function {
         Function::Read => {
@@ -605,14 +608,14 @@ fn perform_blocking(
         Function::Write => {
             let args: WriteArgs = decode(function, args)?;
             documents
-                .write(cwd, &args.path, &args.content, gate)
+                .write(cwd, &args.path, &args.content, gate, witness)
                 .map(|outcome| Done::Write(write_reply(outcome)))
                 .map_err(|error| Rejection::new(function, write_rejection(&error), &error))
         }
         Function::Edit => {
             let args: EditArgs = decode(function, args)?;
             documents
-                .edit(cwd, &args.input, gate)
+                .edit(cwd, &args.input, gate, witness)
                 .map(|outcome| Done::Edit(edit_reply(outcome)))
                 .map_err(|error| Rejection::new(function, edit_rejection(&error), &error))
         }
@@ -633,12 +636,22 @@ fn perform_blocking(
     }
 }
 
+/// Who performs a call.
+pub(super) enum Caller {
+    /// A documents tool call: its writes are an exactly-once effect, each
+    /// recorded in the call's task before it lands ([`ProbeWitness`]).
+    Tool(Arc<dyn ToolExecutionApi>),
+    /// A kernel `fs.*` request, from inside the tool call it runs in (if
+    /// any); nothing records its writes.
+    Kernel(Option<Arc<dyn ToolExecutionApi>>),
+}
+
 /// Run one call whose arguments are already in the function's dialect,
 /// resolving relative paths against `cwd`: a `read` of an internal URL
-/// through [`urls::read`] (`api` is the tool call it runs in), the rest on
-/// a blocking thread. Every path access passes the gate of the session's
-/// path policy over `workspace` (the call's agent cwd: never a cwd the
-/// model can change). The outer error is a failed worker.
+/// through [`urls::read`] (the caller's tool call is the one it runs in),
+/// the rest on a blocking thread. Every path access passes the gate of the
+/// session's path policy over `workspace` (the call's agent cwd: never a
+/// cwd the model can change). The outer error is a failed worker.
 #[tracing::instrument(name = "documents.perform", skip_all, fields(function = function.name()))]
 pub(super) async fn perform(
     host: &Arc<DocumentsHost>,
@@ -646,9 +659,13 @@ pub(super) async fn perform(
     cwd: PathBuf,
     workspace: &Path,
     args: JsonObject,
-    api: Option<Arc<dyn ToolExecutionApi>>,
+    caller: Caller,
     cx: &Context,
 ) -> Result<Result<Performed, Rejection>, JoinError> {
+    let (api, witness): (_, Box<dyn Witness + Send>) = match caller {
+        Caller::Tool(api) => (Some(Arc::clone(&api)), Box::new(ProbeWitness::new(api, cx))),
+        Caller::Kernel(api) => (api, Box::new(Unwitnessed)),
+    };
     let gate = host.gate(workspace, api.as_deref());
     let url = match function {
         Function::Read => args
@@ -663,12 +680,12 @@ pub(super) async fn perform(
         None => {
             let host = Arc::clone(host);
             tokio::task::spawn_blocking(move || {
-                perform_blocking(&host.documents, function, &cwd, args, &gate).map(|done| {
-                    Performed {
+                perform_blocking(&host.documents, function, &cwd, args, &gate, &*witness).map(
+                    |done| Performed {
                         done,
                         images: Vec::new(),
-                    }
-                })
+                    },
+                )
             })
             .await
         }
@@ -699,7 +716,7 @@ async fn handle(
             request.cwd,
             &host.workspace,
             repaired.arguments,
-            call.call,
+            Caller::Kernel(call.call),
             &BACKGROUND_CONTEXT,
         )
         .await?

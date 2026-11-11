@@ -443,6 +443,7 @@ type PKey is Data:
 def rules() -> List<&2, Rule>:
   [
     Rule{["retry", "maxRetries"], Proj{Limit{}}},
+    Rule{["retry", "maxResends"], Proj{Limit{}}},
     Rule{["retry", "failover", "maxRetries"], Proj{Limit{}}},
     Rule{["onboardingShown"], Proj{Pref{}}},
     Rule{["onboardingCompleted"], Proj{Pref{}}},

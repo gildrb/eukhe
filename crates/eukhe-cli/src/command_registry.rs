@@ -106,6 +106,25 @@ for a node that comes back, restore for a node that changes.",
     )
     .options(&["--json  Print JSON"]),
     CommandSpec::new(
+        &["effects"],
+        "effects [<agent>] [--json]",
+        "List an agent's interrupted effects whose outcome is unknown",
+    )
+    .description(
+        "A restart that cannot prove whether an effect ran (a tool call, a file write, a model \
+request, a job, a spawn, a scheduled fire, a message delivery) reports it interrupted and keeps it \
+in the session's ledger, never running it again by itself. Each line shows the effect id, its \
+kind, its state (unknown, ran, not-run), and what it is. Without <agent>, the only active agent.",
+    )
+    .options(&["--json  Print JSON"]),
+    CommandSpec::new(
+        &["effects", "resolve"],
+        "effects resolve <id> <ran|not-run> [<agent>] [--json]",
+        "Settle an interrupted effect after checking whether it ran",
+    )
+    .options(&["--json  Print JSON"])
+    .examples(&["effects resolve tool:call_1 not-run worker"]),
+    CommandSpec::new(
         &["send"],
         "send [--from <agent>] <agent> <message>",
         "Send a message to an agent",

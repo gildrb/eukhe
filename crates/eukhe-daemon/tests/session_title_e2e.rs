@@ -74,7 +74,8 @@ impl Session {
         )
         .expect("models.json");
         let socket = dir.path().join("daemon.sock");
-        let supervisor = Supervisor::start(&socket, &agent_dir, &dir.path().join("supervisor.log"));
+        let supervisor =
+            Supervisor::start(&socket, &agent_dir, &dir.path().join("supervisor.log"), &[]);
         let mut client = WireClient::connect(&socket);
         let created = client.request(
             &json!({ "type": "create", "config": {

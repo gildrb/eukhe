@@ -17,6 +17,7 @@ pub mod ai;
 pub mod custom_type;
 pub mod cvar;
 pub mod daemon;
+pub mod effects;
 pub mod goal;
 pub mod incident;
 pub mod input_origin;

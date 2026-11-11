@@ -162,6 +162,8 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "cvar_save",
     "register_headless_parent",
     "headless_parent_receipt",
+    "get_unknown_effects",
+    "resolve_unknown_effect",
 ];
 
 /// Parsed client command envelope.
@@ -888,6 +890,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetRunOutcome {
             active_session_id, ..
         }
+        | DaemonCommand::GetUnknownEffects {
+            active_session_id, ..
+        }
+        | DaemonCommand::ResolveUnknownEffect {
+            active_session_id, ..
+        }
         | DaemonCommand::GetSystemPrompt {
             active_session_id, ..
         }
@@ -1101,6 +1109,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetUserMessagesForForking { .. } => "get_user_messages_for_forking",
         DaemonCommand::GetLastAssistantText { .. } => "get_last_assistant_text",
         DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
+        DaemonCommand::GetUnknownEffects { .. } => "get_unknown_effects",
+        DaemonCommand::ResolveUnknownEffect { .. } => "resolve_unknown_effect",
         DaemonCommand::GetSystemPrompt { .. } => "get_system_prompt",
         DaemonCommand::GetChatView { .. } => "get_chat_view",
         DaemonCommand::GetMemory { .. } => "get_memory",

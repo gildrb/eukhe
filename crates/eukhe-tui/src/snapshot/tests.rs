@@ -1692,6 +1692,89 @@ fn attach_snapshot_carries_the_goal_state() {
     assert_eq!(goal.objective.as_deref(), Some("keep shipping"));
 }
 
+/// An `unknown_effects_update` event decodes to the whole ledger it
+/// carries.
+#[test]
+fn unknown_effects_update_decodes_the_ledger() {
+    let update = event_to_update(&event(json!({
+        "type": "unknown_effects_update",
+        "effects": [
+            { "id": "tool:c1", "kind": "tool", "what": "bash: make deploy", "at": 5.0 },
+            { "id": "job:7", "kind": "job", "what": "cargo build", "at": 6.0, "resolution": "ran" }
+        ]
+    })));
+    let effect = |id: &str, kind, what: &str, at, resolution| eukhe_types::effects::UnknownEffect {
+        id: id.to_owned(),
+        kind,
+        what: what.to_owned(),
+        at,
+        resolution,
+    };
+    assert_eq!(
+        update,
+        TurnUpdate::UnknownEffectsUpdate(vec![
+            effect(
+                "tool:c1",
+                eukhe_types::effects::EffectKind::Tool,
+                "bash: make deploy",
+                5.0,
+                None
+            ),
+            effect(
+                "job:7",
+                eukhe_types::effects::EffectKind::Job,
+                "cargo build",
+                6.0,
+                Some(eukhe_types::effects::EffectResolution::Ran)
+            ),
+        ])
+    );
+}
+
+/// The attach snapshot's `state.unknownEffects` rehydrates the ledger; a
+/// state without it holds none.
+#[test]
+fn attach_snapshot_carries_the_unknown_effects() {
+    let attach = |extra: Value| {
+        let mut state = json!({
+            "activeSessionId": "abc123def456",
+            "cwd": "/tmp",
+            "sessionId": "0199-sess",
+            "isStreaming": false,
+            "isCompacting": false,
+            "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
+        });
+        overlay(&mut state, extra);
+        let data = attach_data_from_response(json!({
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+            "activeSessionId": "abc123def456",
+            "snapshot": {
+                "activeSessionId": "abc123def456",
+                "summary": { "id": "abc123def456", "cwd": "/tmp" },
+                "state": state,
+                "messages": [],
+                "lastEventSequence": 3,
+            },
+            "lastEventSequence": 3
+        }))
+        .unwrap();
+        reconstruct(&data).expect("reconstructs").unknown_effects
+    };
+    assert_eq!(
+        attach(json!({
+            "unknownEffects": [{ "id": "tool:c1", "kind": "tool", "what": "bash: deploy", "at": 5.0 }]
+        })),
+        vec![eukhe_types::effects::UnknownEffect {
+            id: "tool:c1".to_owned(),
+            kind: eukhe_types::effects::EffectKind::Tool,
+            what: "bash: deploy".to_owned(),
+            at: 5.0,
+            resolution: None,
+        }]
+    );
+    assert_eq!(attach(json!({})), Vec::new());
+}
+
 /// The tray's context usage rides the attach snapshot's state: the
 /// reconstruct hands it to the rebuild that follows every attach.
 #[test]

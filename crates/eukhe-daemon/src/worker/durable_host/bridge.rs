@@ -3,9 +3,10 @@
 //! sequence and the attach snapshot's mirror advance together), coalesced
 //! `message_update`s flush every 50 ms, inbox changes become
 //! `session_action_update` (with the queued inputs' previews read from the
-//! `pi.inbox` document), goal document changes become `goal_update`, and
-//! main's workers and the session's run pause land on the view (summary
-//! `workers`, `isPaused`).
+//! `pi.inbox` document), goal document changes become `goal_update`,
+//! changes of the `eukhe.effects` ledger become `unknown_effects_update`,
+//! and main's workers and the session's run pause land on the view
+//! (summary `workers`, `isPaused`).
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,6 +18,7 @@ use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_chord::AttachedReplicatedState;
 use eukhe_core::durable::children::{watch_workers, RunPause};
 use eukhe_core::durable::{ProviderWireEvent, SessionShape};
+use eukhe_durable::harness::effects::watch_unknown_effects;
 use eukhe_durable::harness::types::InputEntry;
 use eukhe_durable::harness::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Conversation, Harness, InboxItem,
@@ -25,6 +27,7 @@ use eukhe_durable::harness::{
 use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
 use eukhe_types::daemon::{SessionEvent, SessionWorker};
+use eukhe_types::effects::UnknownEffect;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
 use eukhe_types::session::AgentMessage;
@@ -32,6 +35,7 @@ use futures::FutureExt as _;
 use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 
+use super::suspended::resubmit_request;
 use super::translator::{CoalesceMode, EventTranslator, RetryPolicySource};
 use crate::worker::{EventPump, SessionCore};
 
@@ -65,6 +69,10 @@ pub(crate) struct QueuedInput {
     /// custom turn's `eukhe.custom` row).
     pub(crate) entry: Option<InputEntry>,
     pub(crate) origin: InputOrigin,
+    /// The request id a resubmission of the input carries
+    /// (`suspended::WithdrawnInput::request`): a queued submission's is
+    /// `resubmit:<id>`; none for a withdrawn input stored without one.
+    pub(crate) request: Option<String>,
 }
 
 /// The shown conversation's state on the session core.
@@ -82,6 +90,9 @@ pub(crate) struct ShownView {
     pub(crate) active: Option<eukhe_types::daemon::SessionActionActive>,
     /// The served goal (`goal_update` payload); `Null` without a goal.
     pub(crate) goal: Value,
+    /// The ledger of effects whose outcome a restart could not tell
+    /// (`unknown_effects_update` payload), oldest first.
+    pub(crate) unknown_effects: Vec<UnknownEffect>,
     /// Main's workers (summary `workers`), in creation order.
     pub(crate) workers: Vec<SessionWorker>,
     /// This session's run is paused (summary `isPaused`).
@@ -214,6 +225,7 @@ impl EventBridge {
                 inbox,
                 active: None,
                 goal: Value::Null,
+                unknown_effects: Vec::new(),
                 workers: Vec::new(),
                 paused: shape.pause.view().paused,
             });
@@ -236,6 +248,13 @@ impl EventBridge {
             .tasks
             .push(tokio::spawn(flush_loop(epoch, sink.clone())));
         bridge.tasks.push(tokio::spawn(goal_loop(
+            harness.clone(),
+            epoch,
+            conversation_id,
+            sink.clone(),
+            cx.clone(),
+        )));
+        bridge.tasks.push(tokio::spawn(effects_loop(
             harness.clone(),
             epoch,
             conversation_id,
@@ -513,6 +532,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
+            | SessionEvent::UnknownEffectsUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }
@@ -568,6 +588,40 @@ async fn goal_loop(
             &mut core,
             &sink.events,
             SessionEvent::GoalUpdate { goal },
+        );
+    }
+}
+
+/// The ledger of `conversation_id` onto the view, each change announced
+/// as `unknown_effects_update` (an empty ledger at the start announces
+/// nothing).
+async fn effects_loop(
+    harness: Harness,
+    epoch: u64,
+    conversation_id: ConversationId,
+    sink: BridgeSink,
+    cx: Context,
+) {
+    let mut updates = match watch_unknown_effects(&harness, conversation_id, &cx) {
+        Ok(updates) => updates,
+        Err(error) => {
+            eprintln!("eukhe-daemon worker: unknown effect updates unavailable: {error}");
+            return;
+        }
+    };
+    while let Some(effects) = updates.next().await {
+        let mut core = lock(&sink.core);
+        let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+            return;
+        };
+        if view.unknown_effects == effects {
+            continue;
+        }
+        view.unknown_effects.clone_from(&effects);
+        crate::worker::emit_event_locked(
+            &mut core,
+            &sink.events,
+            SessionEvent::UnknownEffectsUpdate { effects },
         );
     }
 }
@@ -696,6 +750,7 @@ pub async fn inbox_previews(
                 content,
                 entry,
                 origin,
+                request: Some(resubmit_request(id)),
             }),
             InboxItem::FollowUp {
                 id,
@@ -709,6 +764,7 @@ pub async fn inbox_previews(
                 content,
                 entry,
                 origin,
+                request: Some(resubmit_request(id)),
             }),
             InboxItem::Write { .. } => None,
         })
@@ -757,6 +813,7 @@ mod tests {
             content: UserContent::Text(text.to_owned()),
             entry: None,
             origin: InputOrigin::User,
+            request: None,
         }
     }
 

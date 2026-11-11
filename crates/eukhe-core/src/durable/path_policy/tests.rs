@@ -106,7 +106,7 @@ fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
     };
     let locks = tempfile::tempdir().unwrap();
     let written = Documents::new(locks.path().to_path_buf(), None)
-        .write(&ws, "a/../x", "text", &gate)
+        .write(&ws, "a/../x", "text", &gate, &eukhe_docs::Unwitnessed)
         .map(|outcome| outcome.bytes)
         .map_err(|error| match error {
             WriteError::Refused { reason, .. } => reason.to_string(),

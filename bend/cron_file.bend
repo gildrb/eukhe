@@ -133,7 +133,7 @@ def recover.js(js: List<&2, Slot>, +cs: List<&2, Hold>) -> List<&2, CS.Back>:
           CS.recover(f, cleared(key, cs)) <> recover.js(t, cs)
 
 # the claim records cleared go, and each job whose claim record was
-# cleared records the interruption (CS.recover)
+# cleared records the interruption, or is fired again (CS.recover)
 def recover(js: List<&2, Slot>, +cs: List<&2, Hold>) -> Swept:
   Swept{keeps(cs), recover.js(js, cs)}
 

@@ -60,8 +60,8 @@ use crate::harness::types::{
 use crate::session::{Session, SessionError, SessionResult, Tx};
 use crate::types::{AnyTaskRecord, ConversationId, Storage, TaskOutcome, TaskOutcomeError};
 
-pub(crate) use cascade::ConversationAbortReach;
 pub use cascade::TaskAbortResult;
+pub(crate) use cascade::{ConversationAbortCause, ConversationAbortReach};
 pub use execution::DefinitionKept;
 pub(crate) use invocation::InvocationBinding;
 #[cfg(test)]

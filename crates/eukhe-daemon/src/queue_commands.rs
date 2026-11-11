@@ -15,12 +15,13 @@ use eukhe_durable::harness::AbortSubmissionResult;
 use eukhe_durable::session::SessionResult;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{TextContent, UserContent, UserContentBlock};
+use eukhe_types::platform::kill_point::kill_point;
 use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::bridge::{content_preview, QueuedInput, QueuedMode};
-use crate::worker::durable_host::suspended::{SuspendedState, WithdrawnInput};
-use crate::worker::set_withdrawn;
+use crate::worker::durable_host::suspended::{resubmit_request, SuspendedState, WithdrawnInput};
+use crate::worker::{mutate_withdrawn, set_withdrawn};
 use crate::worker::{HostedSession, Worker};
 
 const COMMAND: &str = "mutate_queued_message";
@@ -251,6 +252,14 @@ impl Worker {
     /// Make the queue `next`: withdraw the inbox submissions from the first
     /// changed position on and admit them again in order; suspended inputs
     /// stay suspended in their new order.
+    ///
+    /// Exactly once (spec O1, O5, O7): before anything is withdrawn, the
+    /// inputs to admit again are stashed in the durable withdrawn store
+    /// under their request ids. A crash after a withdrawal leaves each one
+    /// there, suspended and resumable, never lost; a resume skips one whose
+    /// submission was never withdrawn (still queued), and an admission that
+    /// a crash or a resume repeats dedupes on its request id. The final
+    /// store write drops the stash.
     async fn apply_queue(
         &self,
         hosted: &HostedSession,
@@ -267,7 +276,20 @@ impl Worker {
         // input taken out while a quiesce holds the gate would be lost to
         // the stop that follows it.
         let _admission = crate::worker::RunAdmission::enter(&self.core).await;
+        let stash: Vec<WithdrawnInput> = next[unchanged..]
+            .iter()
+            .filter(|(origin, _)| *origin == Origin::Inbox)
+            .map(|(_, input)| WithdrawnInput::from(input))
+            .collect();
+        let stashed = stash.clone();
+        mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
+            state.suspended.extend(stashed);
+            (state, ())
+        })
+        .await?;
+        kill_point("message", "intended");
         // Withdraw every inbox submission from the first difference on.
+        let mut taken = std::collections::HashSet::new();
         for (origin, input) in &original[unchanged..] {
             if *origin != Origin::Inbox {
                 continue;
@@ -277,15 +299,27 @@ impl Worker {
                 .abort_submission(input.id, Some(main.id()), &BACKGROUND_CONTEXT)
                 .await?
             {
-                AbortSubmissionResult::Aborted => {}
+                AbortSubmissionResult::Aborted => {
+                    taken.insert(input.id);
+                }
                 // A run already placed it: the queue moved under the edit.
+                // The inputs withdrawn so far stay stashed (suspended, for
+                // a resume); the rest leave the stash.
                 AbortSubmissionResult::AlreadyPlaced
                 | AbortSubmissionResult::Settled
                 | AbortSubmissionResult::NotFound => {
+                    mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
+                        state.suspended.retain(|kept| {
+                            !stash.contains(kept) || kept.id.is_some_and(|id| taken.contains(&id))
+                        });
+                        (state, ())
+                    })
+                    .await?;
                     return Ok("rejected");
                 }
             }
         }
+        kill_point("message", "started");
         // The reordered withdrawn inputs keep each one's membership
         // (abort-suspended vs pause-held), and the durable store follows.
         let held_ids: std::collections::HashSet<_> = {
@@ -300,9 +334,12 @@ impl Worker {
             match origin {
                 Origin::Withdrawn => withdrawn.push(input),
                 Origin::Inbox if index >= unchanged => {
+                    // Under the withdrawn submission's request id: an edit
+                    // a client repeats after a lost answer, or a replay of
+                    // this admission, delivers the input once.
                     main.submit(
                         InputSubmissionDraft {
-                            request_id: None,
+                            request_id: Some(resubmit_request(input.id)),
                             content: input.content,
                             when_busy: Some(match input.mode {
                                 QueuedMode::Steer => WhenBusy::Steer,
@@ -326,6 +363,7 @@ impl Worker {
             held: held.iter().map(WithdrawnInput::from).collect(),
         };
         set_withdrawn(hosted, &self.core, &self.events, state).await?;
+        kill_point("message", "finished");
         Ok("applied")
     }
 

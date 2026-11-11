@@ -14,7 +14,9 @@ use crate::harness::agent::configure;
 use crate::harness::context::read_context;
 use crate::harness::live::run::{create_compaction, timestamp, CompactionInput};
 use crate::harness::registry::{RosterChange, RosterFixed};
-use crate::harness::scheduler::{ConversationAbortReach, InvocationBinding, TaskScheduler};
+use crate::harness::scheduler::{
+    ConversationAbortCause, ConversationAbortReach, InvocationBinding, TaskScheduler,
+};
 use crate::harness::submissions::{SubmissionHandle, Submissions};
 use crate::harness::types::{
     Agent, AgentChange, CompactionReason, CompactionResult, ContextOptions, ContextView,
@@ -290,7 +292,12 @@ impl Conversation {
         self.core.tasks.resume();
         self.core
             .tasks
-            .abort_conversation(self.id, reach(options), cx)
+            .abort_conversation(
+                self.id,
+                reach(options),
+                ConversationAbortCause::Requested,
+                cx,
+            )
             .boxed()
     }
 
@@ -298,17 +305,22 @@ impl Conversation {
     /// reopen that must not run the work it reopened): the abort marks are
     /// enqueued on the Session line before scheduling resumes, so they
     /// commit ahead of the first reservation and no marked task runs
-    /// another phase; its abort hook settles it.
+    /// another phase; its abort hook settles it. The marks say a restart
+    /// left the work behind, so each hook reports what its work may have
+    /// done: a tool call whose intent was recorded settles `interrupted`,
+    /// one that never started `abandoned`, never plain `aborted`.
     #[must_use]
     pub fn abort_unresumed(
         &self,
         options: ConversationAbortOptions,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<()>> {
-        let aborted = self
-            .core
-            .tasks
-            .abort_conversation(self.id, reach(options), cx);
+        let aborted = self.core.tasks.abort_conversation(
+            self.id,
+            reach(options),
+            ConversationAbortCause::Restart,
+            cx,
+        );
         self.core.tasks.resume();
         aborted.boxed()
     }
@@ -388,7 +400,12 @@ impl ConversationHandle for BoundConversation {
             return future::ready(Err(error)).boxed();
         }
         self.tasks
-            .abort_conversation(self.id, reach(options), &bind(&self.binding, cx))
+            .abort_conversation(
+                self.id,
+                reach(options),
+                ConversationAbortCause::Requested,
+                &bind(&self.binding, cx),
+            )
             .boxed()
     }
 

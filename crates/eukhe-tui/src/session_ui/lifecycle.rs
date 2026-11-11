@@ -183,6 +183,7 @@ impl SessionUi {
             dirty: true,
             ctrl_c_hint_until: None,
             goal_view: GoalView::new(),
+            unknown_effects: Vec::new(),
             notes,
             compaction_abort_notes,
             prompt_orders: orders_tx,
@@ -611,6 +612,7 @@ impl SessionUi {
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
+        self.unknown_effects = reconstructed.unknown_effects;
         self.streaming_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
@@ -797,6 +799,9 @@ impl SessionUi {
         for row in &self.carried_rows {
             view.push_entry(row.clone());
         }
+        // The interrupted effects nobody settled yet stay in sight on
+        // every rebuilt transcript.
+        self.push_open_effects_notice(view);
         // The rebuild re-registers the live tool cards the way TS
         // `restoreStreamingMessageFromSnapshot` does (the resumed turn's
         // streamed calls re-enter the pending map): a post-reconnect

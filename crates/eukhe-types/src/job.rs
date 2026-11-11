@@ -77,6 +77,10 @@ pub enum CellStatus {
     /// The cell ignored a cancel's interrupt past the grace, so its kernel
     /// was killed: its effects are unknown (ADR 0011).
     Killed,
+    /// The job's process died with the worker that ran it (a crash or a
+    /// restart): it may have partly run, its output is lost, and it is
+    /// never run again (exactly-once effects: interrupted).
+    Interrupted,
 }
 
 impl CellStatus {
@@ -88,6 +92,7 @@ impl CellStatus {
             Self::Error => "error",
             Self::Aborted => "aborted",
             Self::Killed => "killed",
+            Self::Interrupted => "interrupted",
         }
     }
 }

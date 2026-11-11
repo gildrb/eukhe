@@ -14,7 +14,7 @@ use crate::read::{self, ReadError, ReadView};
 use crate::seen_log::SeenJournal;
 use crate::store::EditStore;
 use crate::url::{Located, Url};
-use crate::write::{self, LockedWriter, WriteError, WriteOutcome};
+use crate::write::{self, LockedWriter, Unwitnessed, Witness, WriteError, WriteOutcome};
 
 /// Reads, writes, and edits of one session.
 #[derive(Clone)]
@@ -101,7 +101,7 @@ impl Documents {
 
     /// Create `path` relative to `cwd`, or overwrite it when its bytes on
     /// disk are a version this session saw (a read, a grep, or its own
-    /// write or edit).
+    /// write or edit). `witness` records the change before it can land.
     ///
     /// # Errors
     ///
@@ -113,6 +113,7 @@ impl Documents {
         path: &str,
         content: &str,
         gate: &dyn AccessGate,
+        witness: &dyn Witness,
     ) -> Result<WriteOutcome, WriteError> {
         let absolute = crate::path::resolve(cwd, self.home.as_deref(), path);
         let display = read::display_path(&absolute, cwd, self.home.as_deref());
@@ -120,6 +121,7 @@ impl Documents {
             &self.store,
             &self.lock_dir,
             gate,
+            witness,
             &absolute,
             &display,
             content,
@@ -151,6 +153,7 @@ impl Documents {
             &self.store,
             &self.lock_dir,
             gate,
+            &Unwitnessed,
             &absolute,
             &display,
             content,
@@ -162,7 +165,8 @@ impl Documents {
     /// The seen-line guard is on: an anchor on a line no read or grep
     /// showed is rejected with that line revealed, so a straight retry
     /// works. The writes of one call are all checked against the bytes the
-    /// edit was applied to, under their path locks, before any is written.
+    /// edit was applied to, under their path locks, and recorded by
+    /// `witness`, before any is written.
     ///
     /// # Errors
     ///
@@ -173,6 +177,7 @@ impl Documents {
         cwd: &Path,
         input: &str,
         gate: &dyn AccessGate,
+        witness: &dyn Witness,
     ) -> Result<HashlineOutcome, EditError> {
         let options = HashlineOptions {
             cwd,
@@ -182,6 +187,7 @@ impl Documents {
         let writer = LockedWriter {
             lock_dir: &self.lock_dir,
             gate,
+            witness,
             faults: &write::NoFaults,
         };
         apply_hashline(input, &options, &self.store, &writer)
@@ -242,10 +248,15 @@ mod tests {
         };
         let (h1, h2) = (header(&first), header(&second));
         first
-            .edit(&cwd, &format!("{h1}\nPUT 1.=1:\n+ONE"), &Open)
+            .edit(&cwd, &format!("{h1}\nPUT 1.=1:\n+ONE"), &Open, &Unwitnessed)
             .unwrap();
         second
-            .edit(&cwd, &format!("{h2}\nPUT 3.=3:\n+THREE"), &Open)
+            .edit(
+                &cwd,
+                &format!("{h2}\nPUT 3.=3:\n+THREE"),
+                &Open,
+                &Unwitnessed,
+            )
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(cwd.join("a.txt")).unwrap(),
@@ -276,9 +287,12 @@ mod tests {
         show(&docs, &view);
         let header = view.rendered.lines().next().unwrap().to_owned();
         let payload = format!("{header}\nPUT 9.=9:\n+NINE");
-        let refused = docs.edit(&cwd, &payload, &Open).unwrap_err().to_string();
+        let refused = docs
+            .edit(&cwd, &payload, &Open, &Unwitnessed)
+            .unwrap_err()
+            .to_string();
         let applied = docs
-            .edit(&cwd, &payload, &Open)
+            .edit(&cwd, &payload, &Open, &Unwitnessed)
             .map(|outcome| outcome.files.len());
         assert_eq!(
             (
@@ -308,14 +322,25 @@ mod tests {
                 &cwd,
                 &format!("{header}\nPUT 2.=2:\n+TWO\n+TWO AND A HALF"),
                 &Open,
+                &Unwitnessed,
             )
             .unwrap();
         let header = format!("[a.txt#{}]", first.files[0].tag.clone().unwrap());
         let kept = docs
-            .edit(&cwd, &format!("{header}\nPUT 4.=4:\n+THREE"), &Open)
+            .edit(
+                &cwd,
+                &format!("{header}\nPUT 4.=4:\n+THREE"),
+                &Open,
+                &Unwitnessed,
+            )
             .unwrap();
         let header = format!("[a.txt#{}]", kept.files[0].tag.clone().unwrap());
-        let unseen = docs.edit(&cwd, &format!("{header}\nPUT 9.=9:\n+EIGHT"), &Open);
+        let unseen = docs.edit(
+            &cwd,
+            &format!("{header}\nPUT 9.=9:\n+EIGHT"),
+            &Open,
+            &Unwitnessed,
+        );
         assert_eq!(
             (
                 unseen.is_err(),
@@ -336,6 +361,7 @@ mod tests {
         let writer = LockedWriter {
             lock_dir: &dir.path().join("locks"),
             gate: &Open,
+            witness: &Unwitnessed,
             faults: &write::NoFaults,
         };
         let error = crate::hashline::EditWriter::write_all(
@@ -373,25 +399,25 @@ mod tests {
         let path = cwd.join("a.txt");
         std::fs::write(&path, "theirs\n").unwrap();
         let never_read = docs
-            .write(&cwd, "a.txt", "mine\n", &Open)
+            .write(&cwd, "a.txt", "mine\n", &Open, &Unwitnessed)
             .unwrap_err()
             .to_string();
         docs.read(&cwd, "a.txt", &Open).unwrap();
         std::fs::write(&path, "theirs again\n").unwrap();
         let changed_after_read = docs
-            .write(&cwd, "a.txt", "mine\n", &Open)
+            .write(&cwd, "a.txt", "mine\n", &Open, &Unwitnessed)
             .unwrap_err()
             .to_string();
         let kept = std::fs::read_to_string(&path).unwrap();
         docs.read(&cwd, "a.txt", &Open).unwrap();
         let after_read = docs
-            .write(&cwd, "a.txt", "mine\n", &Open)
+            .write(&cwd, "a.txt", "mine\n", &Open, &Unwitnessed)
             .map(|outcome| outcome.disposition);
         let again = docs
-            .write(&cwd, "a.txt", "mine 2\n", &Open)
+            .write(&cwd, "a.txt", "mine 2\n", &Open, &Unwitnessed)
             .map(|outcome| outcome.disposition);
         let created = docs
-            .write(&cwd, "b.txt", "new\n", &Open)
+            .write(&cwd, "b.txt", "new\n", &Open, &Unwitnessed)
             .map(|outcome| outcome.disposition);
         assert_eq!(
             (
@@ -438,7 +464,7 @@ mod tests {
                         show(&docs, &view);
                         let header = view.rendered.lines().next().unwrap().to_owned();
                         let payload = format!("{header}\nPUT {n}.={n}:\n+LINE {n}");
-                        match docs.edit(cwd, &payload, &Open) {
+                        match docs.edit(cwd, &payload, &Open, &Unwitnessed) {
                             Ok(_) => break,
                             Err(EditError::Apply(_) | EditError::Match(_)) => {}
                             Err(error) => panic!("{error}"),

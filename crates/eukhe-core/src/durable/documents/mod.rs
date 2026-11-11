@@ -9,6 +9,7 @@
 //! process of the session anchors edits to the lines the model saw.
 
 mod contract;
+mod probe;
 mod requests;
 mod seen_log;
 #[cfg(test)]

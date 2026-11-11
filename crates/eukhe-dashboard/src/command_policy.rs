@@ -149,6 +149,8 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetRlmMaxDepthStatus { .. } => "get_rlm_max_depth_status",
         DaemonCommand::SetRlmMaxDepth { .. } => "set_rlm_max_depth",
         DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
+        DaemonCommand::GetUnknownEffects { .. } => "get_unknown_effects",
+        DaemonCommand::ResolveUnknownEffect { .. } => "resolve_unknown_effect",
         DaemonCommand::SubscribeStateTree { .. } => "subscribe_state_tree",
         DaemonCommand::UnsubscribeStateTree { .. } => "unsubscribe_state_tree",
         DaemonCommand::GetStateRewindPlan { .. } => "get_state_rewind_plan",

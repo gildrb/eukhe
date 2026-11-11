@@ -356,22 +356,29 @@ async fn execute(
             )))
         }
         Wait::Detached => {
-            abort_unless_detached.0 = None;
             let id = JobId::new(format!("shell-{}", uuid::Uuid::new_v4().simple()))
                 .map_err(|error| SessionError::error(error.to_string()))?;
+            // The job's start is durable before its detach is reported: a
+            // script whose start is not recorded is stopped by the guard,
+            // never left running unrecorded.
+            let record = deps
+                .jobs
+                .record_start(id.clone(), JobKind::Shell, script.to_owned())
+                .await?;
+            abort_unless_detached.0 = None;
             let job = {
                 let shown = transcript.shown();
-                let job = deps.jobs.start(JobSpec {
-                    id: id.clone(),
-                    kind: JobKind::Shell,
-                    label: script.to_owned(),
-                    truncation: api.truncation(),
-                    written: shown.bounded.bytes(),
-                    kill: {
-                        let task = running.abort_handle();
-                        Box::new(move |_| task.abort())
+                let job = deps.jobs.start(
+                    record,
+                    JobSpec {
+                        truncation: api.truncation(),
+                        written: shown.bounded.bytes(),
+                        kill: {
+                            let task = running.abort_handle();
+                            Box::new(move |_| task.abort())
+                        },
                     },
-                });
+                );
                 let _ = transcript.job.set(job.clone());
                 job
             };

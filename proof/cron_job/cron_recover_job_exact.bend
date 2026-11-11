@@ -14,10 +14,12 @@ def cjr.clears(+p: Nat, +o: Nat, +rs: List<&2, Nat>, +dead: List<&2, Nat>) -> {C
   %LCj.cj.has(o, dead) : {Bool.or(Bool.and(Nat.is_eq(o, p), Bool.not(Cr.has(p, rs))), Cr.has(o, dead)) == Bool.or(Bool.and(Nat.is_eq(o, p), Bool.not(Cr.has(p, rs))), _) : Bool}
   {==}
 
-def cjr.ended(s: Cr.Sched, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +rs: List<&2, Nat>, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>) -> {Cr.recover.end(Cr.is_once(s), i, s, nx, k, rs, ss, h) == CronJob.ended_spec(s, i, nx, k, rs, ss, h) : Cr.Job}:
+def cjr.ended(s: Cr.Sched, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, x: Cr.Claim, +rs: List<&2, Nat>, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>) -> {Cr.recover.end(Cr.is_once(s), i, s, nx, k, x, rs, ss, h) == CronJob.ended_spec(s, i, nx, k, x, rs, ss, h) : Cr.Job}:
   match s:
     case Cr.Once{d}:
-      {==}
+      match x:
+        case Cr.Claim{oc, o}:
+          {==}
     case Cr.Every{n}:
       {==}
 
@@ -28,7 +30,7 @@ def cjr.go(b: Bool, +i: Nat, +s: Cr.Sched, st: Cr.Status, +nx: Maybe<&2, Nat>, +
     case True{}:
       match st:
         case Cr.Active{}:
-          cjr.ended(s, i, nx, k, rs, ss, h)
+          cjr.ended(s, i, nx, k, x, rs, ss, h)
         case Cr.Paused{}:
           {==}
         case Cr.Finished{}:

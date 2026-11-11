@@ -12,6 +12,7 @@ pub mod daemon_socket;
 pub mod dirs;
 pub mod group_journal;
 pub mod identity;
+pub mod kill_point;
 pub mod process;
 pub mod terminal;
 pub mod transport;

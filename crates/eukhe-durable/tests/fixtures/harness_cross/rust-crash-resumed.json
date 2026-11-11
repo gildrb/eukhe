@@ -123,7 +123,7 @@
 					]
 				},
 				"kind": "pi.tool-result",
-				"id": 13,
+				"id": 14,
 				"conversationId": 1,
 				"byTaskId": 12
 			},
@@ -159,9 +159,9 @@
 					}
 				],
 				"kind": "pi.assistant",
-				"id": 15,
+				"id": 16,
 				"conversationId": 1,
-				"byTaskId": 14
+				"byTaskId": 15
 			}
 		],
 		"contributions": [
@@ -526,7 +526,7 @@
 							]
 						},
 						"kind": "pi.tool-result",
-						"id": 13,
+						"id": 14,
 						"conversationId": 1,
 						"byTaskId": 12
 					},
@@ -562,9 +562,9 @@
 							}
 						],
 						"kind": "pi.assistant",
-						"id": 15,
+						"id": 16,
 						"conversationId": 1,
-						"byTaskId": 14
+						"byTaskId": 15
 					}
 				]
 			}
@@ -612,7 +612,7 @@
 						},
 						"result": {
 							"kind": "model",
-							"entryId": 13
+							"entryId": 14
 						}
 					}
 				},
@@ -620,7 +620,7 @@
 				"endedAt": 1000000
 			},
 			{
-				"id": 14,
+				"id": 15,
 				"conversationId": 1,
 				"kind": "pi.generation",
 				"version": 1,
@@ -636,7 +636,7 @@
 					"outcome": {
 						"status": "completed",
 						"result": {
-							"entryId": 15
+							"entryId": 16
 						}
 					}
 				},
@@ -651,7 +651,7 @@
 				"status": "done",
 				"entry": 7,
 				"id": 8,
-				"answer": 15
+				"answer": 16
 			}
 		],
 		"documents": [
@@ -759,6 +759,31 @@
 						"provider": "faux",
 						"modelId": "faux-1"
 					}
+				},
+				"deltasSinceBase": 0
+			},
+			{
+				"record": {
+					"id": 13,
+					"kind": "eukhe.effects",
+					"scope": {
+						"kind": "conversation",
+						"conversationId": 1
+					},
+					"history": "latest",
+					"fork": "initial",
+					"createdAt": 13
+				},
+				"version": 1,
+				"value": {
+					"unknown": [
+						{
+							"id": "tool:call-1",
+							"kind": "tool",
+							"what": "probe {\"target\":\"disk\"}",
+							"at": 1000000
+						}
+					]
 				},
 				"deltasSinceBase": 0
 			}

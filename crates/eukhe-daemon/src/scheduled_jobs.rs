@@ -19,12 +19,20 @@
 //! (TS `promptHeartbeat` / `createHeartbeatPromptMessage`), plain cron jobs
 //! as a follow-up prompt (TS queues a busy session's scheduled prompt as a
 //! follow-up). The submission's request id is `<kind>:<job id>:<run
-//! count>`: a fire repeated after a crash (the store had not yet recorded
-//! the run) dedupes onto the admitted one instead of running twice. A later
-//! heartbeat fire withdraws the still-queued earlier one (the TS
-//! `heartbeat:<id>` queue key). The fire settles when its submission
-//! settles, so the store's run bookkeeping (`lastRunAt`/`runCount`) keeps
-//! the TS record-after-run timing.
+//! count>`: a fire repeated after a crash dedupes onto the admitted one
+//! instead of running twice.
+//! A fire is repeated when the store had not yet recorded its run: a
+//! recovery that clears the claim of a dead process (or of this process's
+//! unwound pass) fires an active one-shot again under its original id (it
+//! stays active, due at its claim's occurrence, its run count kept), so a
+//! one-shot claimed but never run still runs once, and one whose fire was
+//! admitted runs once too. Kill points (kind `fire`): `intended` once the
+//! claim is on record, `started` just before the fire is admitted,
+//! `finished` once its result is on record. A later heartbeat fire
+//! withdraws the still-queued earlier one (the TS `heartbeat:<id>` queue
+//! key). The fire settles when its submission settles, so the store's run
+//! bookkeeping (`lastRunAt`/`runCount`) keeps the TS record-after-run
+//! timing.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -34,6 +42,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::platform::kill_point::kill_point;
 use serde_json::{json, Value};
 
 use eukhe_core::cron::rlm_heartbeat::{KernelCronBinding, KernelCronWiring};
@@ -255,6 +264,7 @@ impl AgentCronSchedulerHooks for QueueHooks {
         // queued one instead of stacking.
         self.remove_queued_heartbeat_follow_up(job).await;
         let request = Self::fire_request(job);
+        kill_point("fire", "started");
         let handle =
             submit_input(&hosted.main()?, &request, &admission, &BACKGROUND_CONTEXT).await?;
         drop(admission);

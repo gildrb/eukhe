@@ -225,6 +225,11 @@ impl Worker {
                 .view
                 .as_ref()
                 .map_or(Value::Null, |view| view.goal.clone()),
+            unknown_effects: core
+                .view
+                .as_ref()
+                .map(|view| view.unknown_effects.clone())
+                .unwrap_or_default(),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,
@@ -776,6 +781,7 @@ mod tests {
             content: eukhe_types::pi_ai::UserContent::Text(text.to_owned()),
             entry: None,
             origin,
+            request: None,
         }
     }
 
@@ -800,6 +806,7 @@ mod tests {
             inbox,
             active: None,
             goal: Value::Null,
+            unknown_effects: Vec::new(),
             workers: Vec::new(),
             paused: false,
         });

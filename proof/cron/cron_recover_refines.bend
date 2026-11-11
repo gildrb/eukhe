@@ -53,7 +53,7 @@ def crv.verdict(b: Bool, +p: Nat, +o: Nat, +rs: List<&2, Nat>, +dead: List<&2, N
       {==}
 
 # with one verdict b, both sides clear the claim, and end the run of an
-# active job: a one-shot is finished
+# active job: a one-shot is fired again at its claim's occurrence
 def crv.go(b: Bool, +v: Nat, +i: Nat, +s: Cr.Sched, +st: Cr.Status, +nx: Maybe<&2, Nat>, +k: Nat, +oc: Nat, +o: Nat, +rs: List<&2, Nat>, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>) -> {Cron.back_view(CronStore.recover_spec(CS.Fact{st, Cron.plan_of(s, 1n+v), Cron.scale_opt(nx, 1n+v), k}, b), b, Cr.Job{i, s, st, nx, k, Some{Cr.Claim{oc, o}}, rs, ss, h}, 1n+v) == Cron.view(Cr.recover.go(b, i, s, st, nx, k, Cr.Claim{oc, o}, rs, ss, h), 1n+v) : Cron.View()}:
   match b:
     case False{}:
