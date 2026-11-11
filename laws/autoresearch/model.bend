@@ -57,6 +57,7 @@ import ../../spec/autoresearch/decimal.bend as SD
 import ../../spec/autoresearch/metric_line.bend as SL
 import ../../spec/autoresearch/segment.bend as SG
 import ../../spec/autoresearch/stats.bend as SS
+import ../../spec/autoresearch/step.bend as SP
 
 # Terms
 # -----
@@ -967,3 +968,54 @@ law confidence_exact:
   for +s: ArS.St
   for wf: {ar_rows_wf(ar_runs(s)) == True{} : Bool}
   {ArT.St.confidence(s) == SS.confidence(ar_vals(ar_runs(s), ar_seg(s)), ArS.St.baseline(s), ArS.St.best(s)) : Maybe<&2, Nat>}
+
+def ar_put(kvs: List<&2, ArL.Kv>, m: Maybe<&2, ArL.Kv>) -> List<&2, ArL.Kv>:
+  match m:
+    case None{}:
+      kvs
+    case Some{ArL.Kv{n, d}}:
+      ArS.put(kvs, n, d)
+
+# LAW line_sets_metric: a line of a running run's output sets the metric
+# it reports, if it is a METRIC line, and changes nothing else
+# EXCLUDES: a non-METRIC line that changes a metric, a metric lost, a
+# line that touches another run, the configuration or the mode
+law line_sets_metric:
+  for +c: Maybe<&2, ArS.Cfg>
+  for +seg: Nat
+  for +mode: ArS.Mode
+  for +runs: List<&2, ArS.Row>
+  for +id: Nat
+  for +kvs: List<&2, ArL.Kv>
+  for +t: String
+  {ArP.step(ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, kvs, None{}}}}, ArS.Line{t}) == ArS.Took{ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, ar_put(kvs, ArL.metric(t)), None{}}}}, ArS.Nothing{}, False{}} : ArS.Res}
+
+# LAW init_sets: an accepted init has a metric name a METRIC line can
+# spell and a cap of at least 1; it sets the configuration and the mode
+# On, abandons the pending run, and opens the next segment only for a
+# new segment of an existing experiment
+# EXCLUDES: a metric no line can report, a cap of 0, a pending run kept
+# across an init, a segment moved without new_segment
+law init_sets:
+  for +s: ArS.St
+  for +c: ArS.Cfg
+  for +fresh: Bool
+  for +harness: Bool
+  for +s2: ArS.St
+  for +eff: ArS.Eff
+  for +stop: Bool
+  for ok: {ArP.step(s, ArS.Init{c, fresh, harness}) == ArS.Took{s2, eff, stop} : ArS.Res}
+  {Bool.and(Bool.and(SL.nonempty(ArS.Cfg.metric(c)), SL.all_name(ArS.Cfg.metric(c))), ar_cap_ok(ArS.Cfg.max(c))) == True{} : Bool} & {s2 == ArS.St{Some{c}, Nat.add(ar_seg(s), ar_bump(s, ArS.Init{c, fresh, harness})), ArS.On{}, ArS.snoc(ar_runs(s), ar_gone(s)), None{}} : ArS.St}
+
+# LAW step_refines_spec: every event on every state answers exactly what
+# spec/autoresearch/step.bend restates from the requirements: the same
+# refusal text, or the same state, effect and stop. The METRIC parser,
+# the order and the printer of metrics are the shipped ones, which
+# metric_line_*, metric_order_* and metric_print_round_trip pin
+# EXCLUDES: a step off the requirements in either direction: an accepted
+# step refused (a start while a run is pending), a refused step accepted,
+# another refusal text, another state, effect or stop
+law step_refines_spec:
+  for +s: ArS.St
+  for +e: ArS.Ev
+  {ArP.step(s, e) == SP.step(~ArD.Dec.cmp, ~ArL.metric, ~ArD.show, s, e) : ArS.Res}

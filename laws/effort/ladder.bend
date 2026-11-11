@@ -332,3 +332,22 @@ law core_effort_malformed_unless_request:
 #   does not, an unknown tag read as a known one
 law core_effort_tags_example:
   {[FEf.ffi("0,TF0,1,0,1,2,2,2,1,0,2,2,4,0,"), FEf.ffi("1,TF0,1,0,1,2,2,2,1,0,2,2,4,0,0,"), FEf.ffi("2,TF0,1,0,1,2,2,2,1,0,2,2,4,0,4,0,"), FEf.ffi("2,TF0,1,0,1,2,2,2,1,0,2,2,4,0,3,1,"), FEf.ffi("0,FF0,0,0,0,"), FEf.ffi("2,FF0,0,0,0,4,0,")] == ["3,2,3,4,", "2,", "1,2,", "1,2,", "0,", "0,"] : List<&2, String>} & {[FEf.ffi("3,FF0,0,0,0,"), FEf.ffi("1,FF0,0,0,0,7,"), FEf.ffi("2,FF0,0,0,0,4,2,"), FEf.ffi("0,FF1,3,0,0,0,0,0,0,0,0,0,"), FEf.ffi("0,FF2,0,0,0,"), FEf.ffi("0,XF0,0,0,0,"), FEf.ffi("0,FF0,0,0,0,x")] == [Wr.err("ladder request: malformed"), Wr.err("ladder request: malformed"), Wr.err("ladder request: malformed"), Wr.err("ladder request: malformed"), Wr.err("ladder request: malformed"), Wr.err("ladder request: malformed"), Wr.err("ladder request: input left over")] : List<&2, String>}
+
+# LAW quirk_ladder_model_offers: the levels a model offers are the S10 ladder of one model, so the
+# S10 laws of the clamp and the cycle hold for every ladder of the
+# rulebook, with any default ladders
+law quirk_ladder_model_offers:
+  for r: Bool
+  for +explicit: Maybe<&2, Ef.LvMap>
+  for +rule: Maybe<&2, Ef.LvMap>
+  for +d: If.Defaults
+  {Ef.offered(If.lad.model(r, explicit, rule, d)) == If.lad.offered(r, explicit, rule, d) : List<&2, Ef.Lv>}
+
+# LAW quirk_ladder_plain_exact: a model without reasoning offers exactly the levels of the plain
+# default ladder, whatever its maps
+law quirk_ladder_plain_exact_orig:
+  for +explicit: Maybe<&2, Ef.LvMap>
+  for +rule: Maybe<&2, Ef.LvMap>
+  for +d: If.Defaults
+  for +l: Ef.Lv
+  {Ef.has(If.lad.offered(False{}, explicit, rule, d), l) == Ef.has(If.Defaults.plain(d), l) : Bool}

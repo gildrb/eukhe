@@ -529,3 +529,61 @@ law command_named_premises_witness:
 # EXCLUDES: a vacuous key law whose premises no line, row or table meets
 law command_keys_premises_witness:
   {(cmd_below(cmd_example_alias_table(), Nil{}, [109n, 101n, 109n], Nil{}), (cmd_below(cmd_example_alias_table(), List.append(&2, Nat, Paths.cmd_example_memory(), [32n]), [109n, 111n], [Paths.cmd_example_memory()]), (cmd_below(cmd_example_alias_table(), List.append(&2, Nat, Paths.cmd_example_memory(), [32n]), [109n], [Paths.cmd_example_memory()]), (cmd_names(Paths.cmd_lower([109n, 111n]), Cmd.Ent{[Paths.cmd_example_memory(), Paths.cmd_example_model()], [[109n]], True{}, True{}, False{}}), (Paths.cmd_row(cmd_example_alias_table(), 0n, [Paths.cmd_example_memory()]), Paths.cmd_opens(Cmd.resolve(cmd_example_alias_table(), [103n, 111n, 97n, 108n, 32n, 120n]))))))) == (True{}, (True{}, (True{}, (False{}, (False{}, False{}))))) : Bool & (Bool & (Bool & (Bool & (Bool & Bool))))} & {(List.get(&2, Cmd.Ent, cmd_example_alias_table(), 2n), cmd_named(cmd_example_alias_table(), [Paths.cmd_example_memory()], [109n])) == (Some{Cmd.Ent{[Paths.cmd_example_memory(), Paths.cmd_example_model()], [[109n]], True{}, True{}, False{}}}, Some{Cmd.Ent{[Paths.cmd_example_memory(), Paths.cmd_example_model()], [[109n]], True{}, True{}, False{}}}) : Maybe<&2, Cmd.Ent> & Maybe<&2, Cmd.Ent>} & {Cmd.resolve([Cmd.Ent{[Paths.cmd_example_memory()], [], False{}, False{}, False{}}, Cmd.Ent{[Paths.cmd_example_memory(), Paths.cmd_example_view()], [], True{}, True{}, False{}}], Paths.cmd_example_memory()) == Cmd.Opens{[Paths.cmd_example_memory()]} : Cmd.Res}
+
+# Tab or Enter with no row: Tab keeps the line and opens its menu; Enter
+# as command_enter_without_row
+def cmd_key_bare(+t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, k: Cmd.Press) -> Cmd.Out:
+  match k:
+    case Cmd.Tab{}:
+      Cmd.Out{line, True{}, False{}}
+    case Cmd.Enter{}:
+      Paths.cmd_enter_bare(Cmd.resolve(t, line), line)
+
+# a selected entry c: the row when it is a child (b) of the path
+def cmd_key_kid(b: Bool, c: Cmd.Ent, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, p: List<&2, Nat>, k: Cmd.Press) -> Cmd.Out:
+  match b:
+    case True{}:
+      match k:
+        case Cmd.Tab{}:
+          Paths.cmd_tab(t, c)
+        case Cmd.Enter{}:
+          Paths.cmd_enter(t, c, p, line)
+    case False{}:
+      cmd_key_bare(t, line, k)
+
+def cmd_key_row(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +line: List<&2, Nat>, p: List<&2, Nat>, k: Cmd.Press) -> Cmd.Out:
+  match m:
+    case None{}:
+      cmd_key_bare(t, line, k)
+    case Some{+c}:
+      cmd_key_kid(Paths.cmd_is_kid(q, Paths.cmd_ent_path(c)), c, t, line, p, k)
+
+# what Tab or Enter does on the line, its last word p typed below the path
+# q: the selected place, when it holds a child of q, is the row (Tab
+# completes it, Enter as on a row); any other selection acts as no row
+def cmd_key_at(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +line: List<&2, Nat>, p: List<&2, Nat>, sel: Cmd.Sel, k: Cmd.Press) -> Cmd.Out:
+  match sel:
+    case Cmd.NoRow{}:
+      cmd_key_bare(t, line, k)
+    case Cmd.Row{i}:
+      cmd_key_row(List.get(&2, Cmd.Ent, t, i), t, q, line, p, k)
+
+# LAW command_key_follows_menu: on a line whose last word p follows a
+# space and whose menu lists the children of q (q typed by any spelling),
+# Tab and Enter act on q: a selected child of q is the row (Tab completes
+# it, Enter as on a row typed p), any other selection acts as no row
+# EXCLUDES: Tab or Enter on a row that act on another path than the menu
+#   shows (an aliased or capitalized path whose row completes elsewhere,
+#   is ignored, or runs the parent), a row honoured that the menu does
+#   not list
+law command_key_follows_menu:
+  for +t: List<&2, Cmd.Ent>
+  for +pre: List<&2, Nat>
+  for +p: List<&2, Nat>
+  for +q: List<&2, List<&2, Nat>>
+  for +xs: List<&2, Nat>
+  for +sel: Cmd.Sel
+  for +k: Cmd.Press
+  for word: {Paths.cmd_spaceless(p) == True{} : Bool}
+  for kids: {Cmd.menu(t, List.append(&2, Nat, pre, 32n <> p)) == Cmd.Kids{q, xs} : Cmd.Menu}
+  {Cmd.key(t, List.append(&2, Nat, pre, 32n <> p), sel, k) == cmd_key_at(t, q, List.append(&2, Nat, pre, 32n <> p), p, sel, k) : Cmd.Out}

@@ -776,3 +776,41 @@ law tree_ffi_step_spec:
   for +q: Tr.Ask
   for fits: {tree.ask_fits(q) == True{} : Bool}
   {Ft.step(Ft.Live{Tr.core.feed(hs, rs)}, tree.spell_ask(q, "")) == ts_step(hs, rs, q) : Ft.St & String}
+
+# LAW tree_diff_spec (S1): the rewind from any tree to any tree is the spec's (T6): the
+# deletes of the nodes the target lacks, then the puts of the nodes the
+# current tree does not hold the same, each in key order
+# EXCLUDES: a lost, extra or reordered op, a put of a node already held
+#   the same
+law tree_diff_spec:
+  for +a: List<&2, Tr.Ent>
+  for +b: List<&2, Tr.Ent>
+  {Tr.diff(a, b) == TS.diff(a, b) : List<&2, Tr.Op>}
+
+def tree.effect(held: Bool, k: Nat) -> Tr.Eff:
+  match held:
+    case True{}:
+      Tr.Restore{k}
+    case False{}:
+      Tr.Start{k}
+
+# what the ops of a rewind of t do to the work of each node: a Del stops
+# it; a Put restores a node t has and starts one t does not have
+def tree.effects(ops: List<&2, Tr.Op>, +t: List<&2, Tr.Ent>) -> List<&2, Tr.Eff>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case o <> rest:
+      match o:
+        case Tr.Del{k}:
+          Tr.Stop{k} <> tree.effects(rest, t)
+        case Tr.Put{+k, p, v}:
+          tree.effect(Tr.has(t, k), k) <> tree.effects(rest, t)
+
+# LAW tree_core_plan: the core's rewind plan to the tree after the first n records is
+# what diff(live tree, that tree) does to the work of each node
+law tree_core_plan_orig:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +n: Nat
+  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Plan{n})) == Tr.Effects{tree.effects(Tr.diff(Tr.replay(rs), Tr.replay(List.take(&2, Tr.Rec, rs, n))), Tr.replay(rs))} : Tr.Ans}

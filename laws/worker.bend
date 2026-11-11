@@ -993,3 +993,12 @@ law worker_ffi_example:
 # EXCLUDES: a vacuous entry law whose premise no request meets
 law worker_ffi_premises_witness:
   {Bool.and(wk_req_fits(FWk.Step{wk_init(), Wk.Pause{}}), Bool.and(wk_req_fits(FWk.Forward{0n, [], None{}}), Bool.and(wk_st_fits(wk_init()), Bool.and(wk_verdict_fits(Wk.Go{}), wk_pick_fits(Wk.Pick{0n, [], ""}))))) == True{} : Bool} & {FWk.ffi("") == Wr.err("worker: malformed request") : String}
+
+# LAW resume_running_noop: a resume of a running tree releases nothing and
+# changes nothing
+# EXCLUDES: a second resume that releases (or drops) messages again
+law resume_running_noop:
+  for +p: Maybe<&2, Nat>
+  for +k: List<&2, Nat>
+  for +n: Nat
+  {Wk.step(Wk.St{Wk.Run{}, p, k, n}, Wk.Resume{}) == (Wk.St{Wk.Run{}, p, k, n}, Wk.Release{Nil{}}) : Wk.St & Wk.Verdict}

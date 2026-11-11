@@ -784,3 +784,63 @@ law guarded_refused_from_the_phone:
   for off: {Tl.elem(auto, 5n) == False{} : Bool}
   for +above: List<&2, Am.Desk>
   {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.GatewayRefused{}} : Am.Gated}
+
+# ys, with y in front unless y is the tool that quits (hit)
+def tr_keep(hit: Bool, y: Nat, ys: List<&2, Nat>) -> List<&2, Nat>:
+  match hit:
+    case True{}:
+      ys
+    case False{}:
+      y <> ys
+
+# the dynamic tools ds without tool t
+def tr_drop(ds: List<&2, Nat>, +t: Nat) -> List<&2, Nat>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case +y <> rest:
+      tr_keep(Nat.is_eq(y, t), y, tr_drop(rest, t))
+
+# the session after event e
+def tr_step(s: Tl.Sess, e: Tl.Ev) -> Tl.Sess:
+  match s:
+    case Tl.Sess{+r, d, x}:
+      match e:
+        case Tl.Join{t}:
+          Tl.Sess{r, t <> d, x}
+        case Tl.Quit{t}:
+          Tl.Sess{r, tr_drop(d, t), x}
+        case Tl.Turn{}:
+          Tl.Sess{r, d, r <> x}
+
+# LAW roster_step_spec (A1): every event moves a session exactly as the
+# spec states: a join puts the tool in front of the dynamic tools, a quit
+# removes every copy of it and keeps the others in order, a request
+# records the roster in front of the rosters sent; the roster never
+# changes
+# EXCLUDES: a join that adds nothing, another tool or a copy too many; a
+#   quit that keeps a copy, drops another tool too (or every tool) or
+#   reorders the rest; a request that records another roster or none; a
+#   step that changes the roster
+law roster_step_spec:
+  for +s: Tl.Sess
+  for +e: Tl.Ev
+  {Tl.step(s, e) == tr_step(s, e) : Tl.Sess}
+
+# the session after the events es from s: one step at a time, in order
+def tr_run(es: List<&2, Tl.Ev>, s: Tl.Sess) -> Tl.Sess:
+  match es:
+    case Nil{}:
+      s
+    case e <> rest:
+      tr_run(rest, tr_step(s, e))
+
+# LAW roster_run_spec (A1): a session after events is the spec's step
+# taken once per event, in order, from where the session started
+# EXCLUDES: a run that ignores its events (`run(es, s) = s`, which
+#   roster_fixed and roster_sent_fixed let pass), skips, repeats or
+#   reorders them, or steps another way than the step
+law roster_run_spec:
+  for +es: List<&2, Tl.Ev>
+  for +s: Tl.Sess
+  {Tl.run(es, s) == tr_run(es, s) : Tl.Sess}

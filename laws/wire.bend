@@ -487,3 +487,9 @@ law wire_list_spells_items:
 # EXCLUDES: a list cut short read as a shorter list
 law wire_list_short_example:
   {Wr.get_list(~List<&2, String>, ~(s => Wr.get_list(~String, ~Wr.get_str, s)), "2,1,1,a") == Wr.Bad{} : Wr.Dec<List<&2, List<&2, String>>>}
+
+# LAW wire_err_example (R4): the error form is 'E ', then the text
+# EXCLUDES: another error spelling the Rust Reader would read as a value
+law wire_err_example_orig:
+  for text: String
+  {Wr.err(text) == SCon{'E', SCon{' ', text}} : String}

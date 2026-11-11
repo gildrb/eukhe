@@ -913,3 +913,165 @@ def mi.swept(s: String, h: {sp_swept(s) == True{} : Bool}) -> mi.MS(s):
       +hc = LStg.stg.and_l(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(w)), hh)
       +hw = LStg.stg.and_r(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(w)), hh)
       mi.swept.cut(c, w, sp_cut(w), mi.cut(w), hw, LStg.stg.char_sound(c, '.', hc))
+
+def rr.met_dir_orig(sw: Bool, m: Bool) -> {Sg.met.dir(sw, m) == Staging.sp_met.dir(sw, m) : Sg.Met}:
+  match sw m:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def rr.met_lock_orig(sw: Bool, th: Bool) -> {Sg.met.lock(sw, th) == Staging.sp_met.lock(sw, th) : Sg.Met}:
+  match sw th:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+# the code's split, as the spec's
+def rr.sp_orig(m: Maybe<&2, Sg.Split>) -> Maybe<&2, Staging.SpCut>:
+  match m:
+    case None{}:
+      None{}
+    case Some{p}:
+      match p:
+        case Sg.Split{b, a}:
+          Some{Staging.SpCut{b, a}}
+
+def rr.cut_put_orig(r: Maybe<&2, Sg.Split>, d: Bool, +c: Char, +t: String) -> {rr.sp_orig(Sg.cut.put(r, d, c, t)) == Staging.sp_cut.put(rr.sp_orig(r), d, c, t) : Maybe<&2, Staging.SpCut>}:
+  match r:
+    case Some{p}:
+      match p:
+        case Sg.Split{b, a}:
+          {==}
+    case None{}:
+      match d:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+def rr.cut_orig(w: String) -> {rr.sp_orig(Sg.cut(w)) == Staging.sp_cut(w) : Maybe<&2, Staging.SpCut>}:
+  match w:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Maybe<&2, Staging.SpCut>, rr.sp_orig(Sg.cut.put(Sg.cut(t), Sg.ch.is(c, 46), c, t)), Staging.sp_cut.put(rr.sp_orig(Sg.cut(t)), Sg.ch.is(c, 46), c, t), rr.cut_put_orig(Sg.cut(t), Sg.ch.is(c, 46), c, t)) : {_ == Staging.sp_cut.put(Staging.sp_cut(t), Char.is_eq(c, '.'), c, t) : Maybe<&2, Staging.SpCut>}
+      %rr.cut_orig(t) : {Staging.sp_cut.put(rr.sp_orig(Sg.cut(t)), Sg.ch.is(c, 46), c, t) == Staging.sp_cut.put(_, Char.is_eq(c, '.'), c, t) : Maybe<&2, Staging.SpCut>}
+      %rr.dot(c) : {Staging.sp_cut.put(rr.sp_orig(Sg.cut(t)), Sg.ch.is(c, 46), c, t) == Staging.sp_cut.put(rr.sp_orig(Sg.cut(t)), _, c, t) : Maybe<&2, Staging.SpCut>}
+      {==}
+
+def rr.kept_orig(ok: Bool, m: Maybe<&2, String>) -> {Sg.kept_if(ok, m) == Staging.sp_if(ok, m) : Maybe<&2, String>}:
+  match ok:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rr.unprefix_orig(p: String, s: String) -> {Sg.unprefix(p, s) == Staging.sp_unprefix(p, s) : Maybe<&2, String>}:
+  match p:
+    case SNil{}:
+      {==}
+    case SCon{+x, +pt}:
+      match s:
+        case SNil{}:
+          {==}
+        case SCon{+y, +st}:
+          %rr.unprefix_orig(pt, st) : {Sg.kept_if(Char.is_eq(x, y), Sg.unprefix(pt, st)) == Staging.sp_if(Char.is_eq(x, y), _) : Maybe<&2, String>}
+          rr.kept_orig(Char.is_eq(x, y), Sg.unprefix(pt, st))
+
+def rr.uuid_orig(m: Maybe<&2, String>) -> {Sg.uuid(m) == Staging.sp_uuid(m) : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{s}:
+      rr.hexn(32n, s)
+
+# the uuid of a label's prefix
+def rr.lab_orig(+p: String, +a: String) -> {Sg.uuid(Sg.unprefix(p, a)) == Staging.sp_uuid(Staging.sp_unprefix(p, a)) : Bool}:
+  %rr.unprefix_orig(p, a) : {Sg.uuid(Sg.unprefix(p, a)) == Staging.sp_uuid(_) : Bool}
+  rr.uuid_orig(Sg.unprefix(p, a))
+
+def rr.tail_orig(+a: String) -> {Sg.tail(a) == Staging.sp_tail(a) : Bool}:
+  +i = Sg.uuid(Sg.unprefix("import-", a))
+  +f = Sg.uuid(Sg.unprefix("fork-", a))
+  +d = Sg.uuid(Sg.unprefix("deleted-", a))
+  +sf = Staging.sp_uuid(Staging.sp_unprefix("fork-", a))
+  +sd = Staging.sp_uuid(Staging.sp_unprefix("deleted-", a))
+  %rr.lab_orig("import-", a) : {Bool.or(i, Bool.or(f, d)) == Bool.or(_, Bool.or(sf, sd)) : Bool}
+  %rr.lab_orig("fork-", a) : {Bool.or(i, Bool.or(f, d)) == Bool.or(i, Bool.or(_, sd)) : Bool}
+  %rr.lab_orig("deleted-", a) : {Bool.or(i, Bool.or(f, d)) == Bool.or(i, Bool.or(f, _)) : Bool}
+  {==}
+
+def rr.swept_cut_orig(m: Maybe<&2, Sg.Split>) -> {Sg.swept.cut(m) == Staging.sp_swept.cut(rr.sp_orig(m)) : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{p}:
+      match p:
+        case Sg.Split{+b, +a}:
+          %rr.tail_orig(a) : {Bool.and(Bool.not(String.is_empty(b)), Sg.tail(a)) == Bool.and(Bool.not(String.is_empty(b)), _) : Bool}
+          {==}
+
+def rr.swept_orig(s: String) -> {Sg.swept(s) == Staging.sp_swept(s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      +x = Sg.swept.cut(Sg.cut(t))
+      %rr.cut_orig(t) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(Char.is_eq(c, '.'), Staging.sp_swept.cut(_)) : Bool}
+      %rr.swept_cut_orig(Sg.cut(t)) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(Char.is_eq(c, '.'), _) : Bool}
+      %rr.dot(c) : {Bool.and(Sg.ch.is(c, 46), x) == Bool.and(_, x) : Bool}
+      {==}
+
+def rr.met_file_orig(m: Maybe<&2, String>, +all: List<&2, Sg.Seen>) -> {Sg.met.file(m, all) == Staging.sp_met.file(m, all) : Sg.Met}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %rr.swept_orig(x) : {Sg.met.lock(Sg.swept(x), Sg.has_name(x, all)) == Staging.sp_met.lock(_, LawsBase.text_has_name(x, all)) : Sg.Met}
+      %LStg.stg.has_name(x, all) : {Sg.met.lock(Sg.swept(x), Sg.has_name(x, all)) == Staging.sp_met.lock(Sg.swept(x), _) : Sg.Met}
+      rr.met_lock_orig(Sg.swept(x), Sg.has_name(x, all))
+
+def rr.met_utf_orig(k: Sg.Form, +s: String, +all: List<&2, Sg.Seen>) -> {Sg.met.utf(k, s, all) == Staging.sp_met.utf(k, s, all) : Sg.Met}:
+  match k:
+    case Sg.KDir{+main}:
+      %rr.swept_orig(s) : {Sg.met.dir(Sg.swept(s), main) == Staging.sp_met.dir(_, main) : Sg.Met}
+      rr.met_dir_orig(Sg.swept(s), main)
+    case Sg.KFile{}:
+      %LStg.stg.unsuffix(".lock", s) : {Sg.met.file(Sg.unsuffix(".lock", s), all) == Staging.sp_met.file(_, all) : Sg.Met}
+      rr.met_file_orig(Sg.unsuffix(".lock", s), all)
+    case Sg.KOther{}:
+      {==}
+
+def rr.met_orig(e: Sg.Seen, +all: List<&2, Sg.Seen>) -> {Sg.met(e, all) == Staging.sp_met(e, all) : Sg.Met}:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          rr.met_utf_orig(k, s, all)
+        case Sg.Raw{}:
+          match k:
+            case Sg.KDir{main}:
+              rr.met_dir_orig(False{}, main)
+            case Sg.KFile{}:
+              {==}
+            case Sg.KOther{}:
+              {==}
+
+def rr.meet_go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Sg.meet.go(es, all) == Staging.sp_meet.go(es, all) : List<&2, Sg.Met>}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      %rr.met_orig(e, all) : {Sg.met(e, all) <> Sg.meet.go(rest, all) == _ <> Staging.sp_meet.go(rest, all) : List<&2, Sg.Met>}
+      %rr.meet_go(rest, all) : {Sg.met(e, all) <> Sg.meet.go(rest, all) == Sg.met(e, all) <> _ : List<&2, Sg.Met>}
+      {==}

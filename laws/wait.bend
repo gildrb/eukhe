@@ -551,3 +551,101 @@ law wait_go_exact:
   for +xs: List<&2, Wt.Sig>
   for +w: Wt.W
   {Wt.go(xs, w) == go_spec(xs, w) : List<&2, Wt.End>}
+
+def arrive_spec(xs: List<&2, Wt.Sig>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          True{}
+        case Wt.Tick{}:
+          arrive_spec(rest)
+        case Wt.Cancel{}:
+          arrive_spec(rest)
+
+def cancel_spec(xs: List<&2, Wt.Sig>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          cancel_spec(rest)
+        case Wt.Tick{}:
+          cancel_spec(rest)
+        case Wt.Cancel{}:
+          True{}
+
+def once_spec(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+def reached_spec(dl: Maybe<&2, Nat>, k: Nat) -> Bool:
+  match dl:
+    case None{}:
+      False{}
+    case Some{d}:
+      Nat.is_le(d, k)
+
+def ticks_spec(xs: List<&2, Wt.Sig>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          ticks_spec(rest)
+        case Wt.Tick{}:
+          1n+ticks_spec(rest)
+        case Wt.Cancel{}:
+          ticks_spec(rest)
+
+# LAW wait_terms_exact: the model's terms the laws above read mean what they say: an event
+# came, a cancel came, the ticks counted, the deadline reached, a stop (a cancel or the
+# deadline), an exit (an event or a stop), and how many ends a wait that exits reports
+# EXCLUDES: terms that make the laws above vacuous (exits always true, once always 0)
+law wait_terms_exact:
+  for +dl: Maybe<&2, Nat>
+  for +xs: List<&2, Wt.Sig>
+  for +k: Nat
+  for +b: Bool
+  {Wt.has_arrive(xs) == arrive_spec(xs) : Bool} & {Wt.has_cancel(xs) == cancel_spec(xs) : Bool} & {Wt.ticks(xs) == ticks_spec(xs) : Nat} & {Wt.reached(dl, k) == reached_spec(dl, k) : Bool} & {Wt.stops(dl, xs) == Bool.or(cancel_spec(xs), reached_spec(dl, ticks_spec(xs))) : Bool} & {Wt.exits(dl, xs) == Bool.or(arrive_spec(xs), Bool.or(cancel_spec(xs), reached_spec(dl, ticks_spec(xs)))) : Bool} & {Wt.once(b) == once_spec(b) : Nat}
+
+# LAW wait_ends_once: a wait ends exactly once when its event, its cancel or its
+# deadline comes, and never otherwise
+law wait_ends_once_orig:
+  for +dl: Maybe<&2, Nat>
+  for +xs: List<&2, Wt.Sig>
+  {List.length(&2, Wt.End, Wt.run(dl, xs)) == Wt.once(Wt.exits(dl, xs)) : Nat}
+
+# LAW wait_end_is_final: once the cancel or the deadline came, the wait's end is final:
+# what comes after changes nothing
+law wait_end_is_final_orig:
+  for +dl: Maybe<&2, Nat>
+  for +pre: List<&2, Wt.Sig>
+  for +post: List<&2, Wt.Sig>
+  for stop: {Wt.stops(dl, pre) == True{} : Bool}
+  {Wt.run(dl, List.append(&2, Wt.Sig, pre, post)) == Wt.run(dl, pre) : List<&2, Wt.End>}
+
+# LAW wait_arrival_wins: an event that comes before the cancel and the deadline ends the
+# wait with the event
+law wait_arrival_wins_orig:
+  for +dl: Maybe<&2, Nat>
+  for +pre: List<&2, Wt.Sig>
+  for +post: List<&2, Wt.Sig>
+  for calm: {Wt.exits(dl, pre) == False{} : Bool}
+  {Wt.run(dl, List.append(&2, Wt.Sig, pre, Wt.Arrive{} <> post)) == [Wt.Arrived{}] : List<&2, Wt.End>}
+
+# LAW wait_cancel_wins: a cancel that comes before the event and the deadline ends the
+# wait as cancelled
+law wait_cancel_wins_orig:
+  for +dl: Maybe<&2, Nat>
+  for +pre: List<&2, Wt.Sig>
+  for +post: List<&2, Wt.Sig>
+  for calm: {Wt.exits(dl, pre) == False{} : Bool}
+  {Wt.run(dl, List.append(&2, Wt.Sig, pre, Wt.Cancel{} <> post)) == [Wt.Cancelled{}] : List<&2, Wt.End>}

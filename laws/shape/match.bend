@@ -727,3 +727,19 @@ law shape_split_complete:
   for +r: S.St
   for h: {sp_split(ws, ps, 0n, Some{s}) == Some{r} : Maybe<&2, S.St>}
   sp_reached(r, ps, s)
+
+# LAW shape_first_reading (R1-R5): at every place, for every fuel, list of
+# pieces and end condition, the matcher answers the first reading of the
+# priority-ordered list of every reading whose end condition holds
+# EXCLUDES: a run that is not longest first or gives back too much, an
+#   option skipped before it is tried, options in another order, fewer
+#   rounds tried before more, a reading whose end condition fails taken,
+#   a capture numbered or taken another way, a char of another class
+#   taken, a case fold where none is asked, a word boundary of another
+#   kind
+law shape_first_reading:
+  for +f: Nat
+  for +ps: List<&2, S.Piece>
+  for +ends: Bool
+  for +s: S.St
+  {S.at(f, ps, ends, s) == sp_answer(f, ps, ends, s) : Maybe<&2, S.St>}

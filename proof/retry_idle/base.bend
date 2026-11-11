@@ -12,6 +12,7 @@ import ../wire/wire_nat_exact.bend as PWireNatExact
 import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
 import ../wire/wire_bool_exact.bend as PWireBoolExact
 import ../wire/wire_nat_not_err.bend as PWireNatNotErr
+import ./idle_wake_exact.bend as PIdleWakeExact
 
 # Nat facts
 # ---------
@@ -641,3 +642,41 @@ def ri.reply_ok(p: R.IdleSt & Maybe<&2, R.Wake>) -> {LawsBase.wire_opens_err(Ret
   match p:
     case (st, m):
       ri.put_reply_ok(m)
+
+def ri.fired(+d: Nat, +last: Nat, +holds: Nat, w: R.Wake) -> {R.idle.fired(d, last, holds, w) == RetryIdle.step_spec.fire(d, last, holds, w) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match w:
+    case R.WakeStall{}:
+      {==}
+    case R.WakeSleep{us}:
+      {==}
+
+def ri.fire(+d: Nat, +last: Nat, holds: Nat, +now: Nat) -> {R.idle.fired(d, last, holds, R.idle.wake(R.idle.held(holds), Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, holds, RetryIdle.wake_spec(Nat.is_gt(holds, 0n), Nat.sub(now, last), d)) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match holds:
+    case 0n:
+      %RetryIdle.idle_wake_exact(False{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, 0n, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      ri.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d))
+    case 1n+p:
+      %RetryIdle.idle_wake_exact(True{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, 1n+p, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      ri.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d))
+
+def ri.live(+d: Nat, +last: Nat, e: R.IdleEv, +holds: Nat) -> {R.idle.live(d, last, holds, e) == RetryIdle.step_spec.live(d, last, holds, e) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match e:
+    case R.IdleLife{now}:
+      {==}
+    case R.IdleHold{}:
+      {==}
+    case R.IdleFree{now}:
+      %ri.drop(holds) : {(R.IdleSt{d, Nat.max(last, now), R.idle.drop(holds), False{}}, None{}) == (R.IdleSt{d, Nat.max(last, now), _, False{}}, None{}) : R.IdleSt & Maybe<&2, R.Wake>}
+      {==}
+    case R.IdleFire{now}:
+      ri.fire(d, last, holds, now)
+
+# the model's step is the laws' step_spec
+def ri.step(s: R.IdleSt, e: R.IdleEv) -> {R.idle.step(s, e) == RetryIdle.step_spec(s, e) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match s:
+    case R.IdleSt{d, last, holds, over}:
+      match over:
+        case True{}:
+          {==}
+        case False{}:
+          ri.live(d, last, e, holds)

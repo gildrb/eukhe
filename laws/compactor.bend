@@ -792,3 +792,336 @@ law compactor_ffi_example:
   {FC.ffi("2,1,2,2,") == "1,2," : String} &
   {FC.ffi("3,") == SCon{'E', SCon{' ', "compactor: malformed request"}} : String} &
   {FC.ffi("0,5,x") == SCon{'E', SCon{' ', "compactor: malformed request"}} : String}
+
+def open_spec(t: Nat, n: Nat, i: List<&2, C.W>) -> C.Next:
+  match t:
+    case 0n:
+      C.Ends{0n, C.CutInput{i}}
+    case 1n+q:
+      C.Asks{C.Lst{1n+q, 0n, n, None{}, 0n, i}}
+
+# LAW line_open_exact: a line opens with exactly its tries, no call made and no best reply, or with no tries ends at once with the input cut
+law line_open_exact:
+  for t: Nat
+  for n: Nat
+  for i: List<&2, C.W>
+  {C.line.open(t, n, i) == open_spec(t, n, i) : C.Next}
+
+# The model's own terms, independently: a line opens with its tries, or
+# ends at once with the input cut; a reply with tries left ends the line
+# when it is an error (failed), empty (the best, else the input, cut),
+# within the node (whole), not shorter than the best (the best cut) or the
+# last try (cut), and else asks again with one try less and it as the
+# best; with no try left the line ends with the best, else the input, cut
+def end_spec(b: Maybe<&2, List<&2, C.W>>, i: List<&2, C.W>) -> C.Fin:
+  match b:
+    case None{}:
+      C.CutInput{i}
+    case Some{t}:
+      C.CutBest{t}
+
+# the reply is shorter than the best (always, before the first)
+def shorter_spec(b: Maybe<&2, List<&2, C.W>>, bl: Nat, len: Nat) -> Bool:
+  match b:
+    case None{}:
+      True{}
+    case Some{t}:
+      Nat.is_lt(len, bl)
+
+def step_spec.long(shorter: Bool, q: Nat, m: Nat, n: Nat, b: Maybe<&2, List<&2, C.W>>, i: List<&2, C.W>, ws: List<&2, C.W>, len: Nat) -> C.Next:
+  match shorter:
+    case False{}:
+      C.Ends{1n+m, end_spec(b, i)}
+    case True{}:
+      match q:
+        case 0n:
+          C.Ends{1n+m, C.CutReply{ws}}
+        case 1n+k:
+          C.Asks{C.Lst{1n+k, 1n+m, n, Some{ws}, len, i}}
+
+def step_spec.text(fits: Bool, shorter: Bool, q: Nat, m: Nat, n: Nat, b: Maybe<&2, List<&2, C.W>>, i: List<&2, C.W>, ws: List<&2, C.W>, len: Nat) -> C.Next:
+  match fits:
+    case True{}:
+      C.Ends{1n+m, C.Whole{ws}}
+    case False{}:
+      step_spec.long(shorter, q, m, n, b, i, ws, len)
+
+def step_spec(st: C.Lst, r: C.Reply) -> C.Next:
+  match st:
+    case C.Lst{l, m, +n, +b, +bl, +i}:
+      match l:
+        case 0n:
+          C.Ends{m, end_spec(b, i)}
+        case 1n+q:
+          match r:
+            case C.Erred{}:
+              C.Ends{1n+m, C.Errored{}}
+            case C.Says{ws}:
+              match ws:
+                case Nil{}:
+                  C.Ends{1n+m, end_spec(b, i)}
+                case +c <> +t:
+                  +len = bytes(c <> t)
+                  step_spec.text(Nat.is_le(len, n), shorter_spec(b, bl, len), q, m, n, b, i, c <> t, len)
+
+# LAW line_step_exact: one reply to a line is exactly: with no try left the best (else the input) cut; an error fails the call; an empty reply ends with the best (else the input) cut; a reply within the node's bytes is the line; one not shorter than the best ends with the best cut; the last try ends cut; else the next call goes with one try less, one more call and the reply (its length in bytes) as the best
+law line_step_exact:
+  for st: C.Lst
+  for r: C.Reply
+  {C.line.step(st, r) == step_spec(st, r) : C.Next}
+
+# Reader: the requests the entry accepts, read with the wire primitives;
+# a request as its numbers: 0 open | 1 a reply | 2 an ended call
+type Ask_orig is Data:
+  AOpen_orig{t: Nat}
+  AStep_orig{l: Nat, m: Nat, n: Nat, b: Maybe<&2, Nat>, r: Maybe<&2, Nat>}
+  AAfter_orig{p: C.Pend, o: Nat}
+
+def read_after.how.tag(p: C.Pend, t: Nat, s: String) -> Wr.Dec<Ask_orig>:
+  match t:
+    case 0n:
+      Wr.Got{AAfter_orig{p, 0n}, s}
+    case 1n:
+      Wr.Got{AAfter_orig{p, 1n}, s}
+    case 2n:
+      Wr.Got{AAfter_orig{p, 2n}, s}
+    case 3n:
+      Wr.Got{AAfter_orig{p, 3n}, s}
+    case 4n+q:
+      Wr.Bad{}
+
+def read_after.how(p: C.Pend, r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{t, s}:
+      read_after.how.tag(p, t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_after.owed(r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{n, s}:
+      read_after.how(C.Owed{n}, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_after.tag(t: Nat, s: String) -> Wr.Dec<Ask_orig>:
+  match t:
+    case 0n:
+      read_after.how(C.Made{}, Wr.get_nat(s))
+    case 1n:
+      read_after.owed(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def read_after(r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{t, s}:
+      read_after.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_open(r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{t, s}:
+      Wr.Got{AOpen_orig{t}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_m.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Some{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_m.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      read_m.some(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+# a Maybe<Nat>: 0 none | 1 and the Nat (a reply: 0 an error | 1 and its length)
+def read_m(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      read_m.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_step.reply(l: Nat, m: Nat, n: Nat, b: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{AStep_orig{l, m, n, b, x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_step.best(l: Nat, m: Nat, n: Nat, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{b, s}:
+      read_step.reply(l, m, n, b, read_m(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_step.node(l: Nat, m: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{n, s}:
+      read_step.best(l, m, n, read_m(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_step.made(l: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{m, s}:
+      read_step.node(l, m, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_step(r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{l, s}:
+      read_step.made(l, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.tag(t: Nat, s: String) -> Wr.Dec<Ask_orig>:
+  match t:
+    case 0n:
+      read_open(Wr.get_nat(s))
+    case 1n:
+      read_step(Wr.get_nat(s))
+    case 2n:
+      read_after(Wr.get_nat(s))
+    case 3n+p:
+      Wr.Bad{}
+
+def read_ask.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ask_orig>:
+  match r:
+    case Wr.Got{t, s}:
+      read_ask.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.end(whole: Bool, a: Ask_orig) -> Maybe<&2, Ask_orig>:
+  match whole:
+    case True{}:
+      Some{a}
+    case False{}:
+      None{}
+
+def read_ask.whole(r: Wr.Dec<Ask_orig>) -> Maybe<&2, Ask_orig>:
+  match r:
+    case Wr.Got{a, s}:
+      read_ask.end(Wr.end(s), a)
+    case Wr.Bad{}:
+      None{}
+
+# the request s is, when s is exactly one request
+def read_ask(s: String) -> Maybe<&2, Ask_orig>:
+  read_ask.whole(read_ask.go(Wr.get_nat(s)))
+
+# a pending line after one of its calls: a saved line builds it, a failed
+# call with no failures left builds it (from its input) and with some
+# left counts one down; a disk error and a stop change nothing; a built
+# line stays built
+def after_spec.failed(k: Nat) -> C.Pend:
+  match k:
+    case 0n:
+      C.Made{}
+    case 1n+j:
+      C.Owed{j}
+
+def after_spec(p: C.Pend, o: C.Outcome) -> C.Pend:
+  match p:
+    case C.Made{}:
+      C.Made{}
+    case C.Owed{k}:
+      match o:
+        case C.Built{}:
+          C.Made{}
+        case C.Failed{}:
+          after_spec.failed(k)
+        case C.Disk{}:
+          C.Owed{k}
+        case C.Stopped{}:
+          C.Owed{k}
+
+# a text of n bytes, one-byte characters
+def ones(n: Nat) -> List<&2, C.W>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      C.W1{} <> ones(k)
+
+# the shortest reply so far as read: 0 none | 1 a text of that length
+def ask_best(b: Maybe<&2, Nat>) -> Maybe<&2, List<&2, C.W>>:
+  match b:
+    case None{}:
+      None{}
+    case Some{k}:
+      Some{ones(k)}
+
+def ask_bl(b: Maybe<&2, Nat>) -> Nat:
+  match b:
+    case None{}:
+      0n
+    case Some{k}:
+      k
+
+# how a call ended as read: 0 saved, 1 failed, 2 the disk, 3 stopped (the
+# reader reads no other tag)
+def ask_outcome(o: Nat) -> C.Outcome:
+  match o:
+    case 0n:
+      C.Built{}
+    case 1n:
+      C.Failed{}
+    case 2n:
+      C.Disk{}
+    case 3n+q:
+      C.Stopped{}
+
+# the reply as read: 0 a provider error | 1 a text of that length
+def ask_reply(x: Maybe<&2, Nat>) -> C.Reply:
+  match x:
+    case None{}:
+      C.Erred{}
+    case Some{k}:
+      C.Says{ones(k)}
+
+# the answer to a request read: a line opens (open_spec), a reply to a
+# line (step_spec, the line's input left out: Rust keeps it), a call of a
+# pending line ended (after_spec)
+def spec_answer(a: Ask_orig) -> String:
+  match a:
+    case AOpen_orig{t}:
+      spell_next(open_spec(t, 0n, Nil{}))
+    case AStep_orig{l, m, n, +b, x}:
+      spell_next(step_spec(C.Lst{l, m, n, ask_best(b), ask_bl(b), Nil{}}, ask_reply(x)))
+    case AAfter_orig{p, o}:
+      spell_pend(after_spec(p, ask_outcome(o)), "")
+
+# the answer to an input: no whole request, the error form
+def spec_entry(m: Maybe<&2, Ask_orig>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "compactor: malformed request"}}
+    case Some{a}:
+      spec_answer(a)
+
+# LAW compactor_ffi_spec: every input is answered from the spec alone: exactly one request (read_ask) gets the decision open_spec, step_spec or after_spec takes on the numbers it carries, every other input exactly the error form 'E ', then "compactor: malformed request"
+# EXCLUDES: an input other than one whole request answered with a value (a
+#   second spelling, input left over), a decision on a read request that
+#   is not the spec's, a reply that depends on anything but the input
+law compactor_ffi_spec:
+  for +s: String
+  {FC.ffi(s) == spec_entry(read_ask(s)) : String}
+
+# LAW compactor_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "compactor: malformed request"
+law compactor_ffi_malformed_exact:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, Ask_orig>}
+  {FC.ffi(s) == SCon{'E', SCon{' ', "compactor: malformed request"}} : String}

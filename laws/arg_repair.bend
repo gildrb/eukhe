@@ -996,3 +996,24 @@ law arg_repair_entry_refuses:
 # EXCLUDES: another spelling of a request or of a reply
 law arg_repair_entry_example:
   {[FAr.ffi("3,4,path1,6,string0,4,case1,7,boolean0,4,skip1,7,integer0,T1,9,file_path4,path1,10,old_string21,send a hashline patch3,9,file_path0,3,1,4,a.rs0,0,4,case0,3,1,5,False0,0,4,skip0,3,1,3, 3 0,0,"), FAr.ffi("0,F0,0,1,4,text0,3,0,0,0,"), FAr.ffi("0,T0,0,1,4,text0,0,"), FAr.ffi("0,F0,0,0,x"), FAr.ffi("0,F0,0,1,4,text0,6,")] == ["0,3,4,path0,4,case1,0,F4,skip1,1,1,33,0,9,file_path4,path1,4,case1,4,skip", "0,1,4,text0,0,", "1,1,4,text0,", Wr.err("arg_repair: malformed request"), Wr.err("arg_repair: malformed request")] : List<&2, String>}
+
+# LAW arg_repair_spec (R1): the verdict on every call is the spec's
+# EXCLUDES: a key decoded though the decoding is sent too, a refused key
+#   read as an alias, an alias read over a declared key, an unknown key kept
+#   by a closed schema, refusals out of argument order, a value read as
+#   another type, records out of order
+law arg_repair_spec:
+  for +sc: Ar.Schema
+  for +d: Ar.Dialect
+  for +args: List<&2, Ar.Arg>
+  {Ar.repair(sc, d, args) == ArgSpec.repair(sc, d, args) : Ar.Verdict}
+
+# LAW arg_repair_coerce_spec (R7): every value is read as the spec's S4
+# reads it, for every declared argument
+# EXCLUDES: a boolean word in another case set, padding not trimmed, an
+#   integer past i64 or with a sign doubled, a lone string wrapped for
+#   items of another type, `[...]` text wrapped instead of read
+law arg_repair_coerce_spec:
+  for +p: Maybe<&2, Ar.Prop>
+  for +v: Ar.Val
+  {Ar.coerce(p, v) == ArgSpec.read(p, v) : Maybe<&2, Ar.To>}

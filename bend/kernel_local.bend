@@ -270,3 +270,60 @@ def keeps(ls: List<&2, Left>) -> List<&2, Bool>:
       Nil{}
     case +l <> rest:
       keep(l) <> keeps(rest)
+
+type Answer is Data:
+  # the tool ran
+  Ran{}
+  # the tool answered with the install command
+  NamesInstall{}
+
+# a tool call: the ipython tool, or any other tool (by its number)
+type KlTool is Data:
+  Python{}
+  Other{n: Nat}
+
+type Kernel is Data:
+  Up{}
+  # the setup failed: the error names `eukhe kernel install`
+  Missing{}
+
+def answer(t: KlTool, k: Kernel) -> Answer:
+  match t:
+    case Python{}:
+      match k:
+        case Up{}:
+          Ran{}
+        case Missing{}:
+          NamesInstall{}
+    case Other{n}:
+      Ran{}
+
+# the kernel after a setup that finds f; ok: the sync or the build worked
+def start(f: Found, ok: Bool) -> Kernel:
+  match f:
+    case Current{}:
+      Up{}
+    case Skills{}:
+      match ok:
+        case True{}:
+          Up{}
+        case False{}:
+          Missing{}
+    case Stale{}:
+      match ok:
+        case True{}:
+          Up{}
+        case False{}:
+          Missing{}
+
+# the attempt's own candidates left after it ends
+def own_left(e: End) -> Nat:
+  match e:
+    case Got{}:
+      0n
+    case Busy{}:
+      0n
+    case Freed{}:
+      0n
+    case Crash{}:
+      1n

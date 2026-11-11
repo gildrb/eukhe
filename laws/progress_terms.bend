@@ -205,3 +205,66 @@ law progress_watch_repeat_keeps_token:
   for +ps: List<&2, Pr.Peek>
   for within: Pr.Within(seg, hist)
   {Pr.watch(Pr.Peek{seg, dt} <> ps, cfg, hist, Ch.Watch{w}) == Pr.watch(ps, cfg, List.append(&2, Nat, hist, seg), Ch.look(cfg, w, 1n+dt, Ch.Busy{Some{Pr.work(hist)}})) : Ch.Next}
+
+# the goal loop: a check at each continuation on the acts so far; a
+# stopped goal stays stopped
+def goal_spec(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, g: Pr.Goal) -> Pr.Goal:
+  match segs:
+    case Nil{}:
+      g
+    case +seg <> rest:
+      match g:
+        case Pr.Go{s}:
+          goal_spec(rest, cap, List.append(&2, Nat, hist, seg), Pr.check(cap, s, Pr.grew(hist, seg)))
+        case Pr.Stop{s}:
+          Pr.Stop{s}
+
+# x is one of xs
+def mem_spec(+x: Nat, xs: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case h <> t:
+      Bool.or(Nat.is_eq(h, x), mem_spec(x, t))
+
+def stalls_spec(g: Pr.Goal) -> Nat:
+  match g:
+    case Pr.Go{s}:
+      s
+    case Pr.Stop{s}:
+      s
+
+def watch_spec.at(+cfg: Ch.Cfg, t: Nat, +dt: Nat, x: Ch.Next) -> Ch.Next:
+  match x:
+    case Ch.Watch{w}:
+      Ch.look(cfg, w, 1n+dt, Ch.Busy{Some{t}})
+    case Ch.Owe{k}:
+      Ch.Owe{k}
+    case Ch.Quiet{}:
+      Ch.Quiet{}
+
+# the watch: at each poll, a watching verdict looks again with the work so
+# far and one more interval; a verdict that owes or is quiet stays
+def watch_spec(ps: List<&2, Pr.Peek>, +cfg: Ch.Cfg, +hist: List<&2, Nat>, x: Ch.Next) -> Ch.Next:
+  match ps:
+    case Nil{}:
+      x
+    case p <> rest:
+      match p:
+        case Pr.Peek{+seg, +dt}:
+          watch_spec(rest, cfg, List.append(&2, Nat, hist, seg), watch_spec.at(cfg, Pr.work(List.append(&2, Nat, hist, seg)), dt, x))
+
+# LAW progress_terms_exact: the model's membership, the stall count of a verdict, the goal loop
+# and the child watch are what the progress laws read them as
+# EXCLUDES: terms that make the goal and child laws vacuous or say less than their names
+law progress_terms_exact:
+  for +x: Nat
+  for +xs: List<&2, Nat>
+  for +g: Pr.Goal
+  for +segs: List<&2, List<&2, Nat>>
+  for +cap: Nat
+  for +hist: List<&2, Nat>
+  for +ps: List<&2, Pr.Peek>
+  for +cfg: Ch.Cfg
+  for +v: Ch.Next
+  {Pr.mem(x, xs) == mem_spec(x, xs) : Bool} & {Pr.Goal.stalls(g) == stalls_spec(g) : Nat} & {Pr.goal(segs, cap, hist, g) == goal_spec(segs, cap, hist, g) : Pr.Goal} & {Pr.watch(ps, cfg, hist, v) == watch_spec(ps, cfg, hist, v) : Ch.Next}

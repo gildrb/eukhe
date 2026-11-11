@@ -971,3 +971,125 @@ law tui_roles_resolve:
   for f: TFile.Th
   for v: {TToken.valid(f) == True{} : Bool}
   {TC.resolves(TPalette.palette(f), TC.roles()) == True{} : Bool}
+
+# LAW theme_mode_background: two theme files with the same background have the same mode, light
+# or dark
+law theme_mode_background:
+  for f: TFile.Th
+  for g: TFile.Th
+  for same: {TPalette.bg(f) == TPalette.bg(g) : Co.Rgb}
+  {TPalette.light(f) == TPalette.light(g) : Bool}
+
+# LAW theme_palette_name_free: the name of a theme file never changes its palette
+law theme_palette_name_free:
+  for f: TFile.Th
+  for n: String
+  {TPalette.palette(TPalette.rename(f, n)) == TPalette.palette(f) : List<&2, Maybe<&2, TFile.Val>>}
+
+# LAW theme_mode_name_free: the name of a theme file never changes its mode
+law theme_mode_name_free:
+  for f: TFile.Th
+  for n: String
+  {TPalette.light(TPalette.rename(f, n)) == TPalette.light(f) : Bool}
+
+# LAW theme_entry_unknown (R3): a color key that names no token is that error
+# EXCLUDES: skipping an unknown key
+law theme_entry_unknown:
+  for +vars: List<&2, TFile.Var>
+  for +k: String
+  for +j: TFile.Json
+  {TReader.entry(vars, TFile.REnt{k, None{}, j}) == TReader.Bad{TFile.Unknown{k}} : TReader.EntR}
+
+# LAW theme_entry_color (R3): a token's color is its value resolved
+# EXCLUDES: a color stored under another token or with another value
+law theme_entry_color:
+  for +vars: List<&2, TFile.Var>
+  for +k: String
+  for +t: U32
+  for +j: TFile.Json
+  for +v: TFile.Val
+  for h: {TChase.chase(vars, j) == TChase.Hit{v} : TChase.Got}
+  {TReader.entry(vars, TFile.REnt{k, Some{t}, j}) == TReader.Good{TFile.Ent{t, v}} : TReader.EntR}
+
+# LAW theme_entry_invalid (R3): a token whose value is no color is that error, under its key
+# EXCLUDES: an error that loses its key or its cause
+law theme_entry_invalid:
+  for +vars: List<&2, TFile.Var>
+  for +k: String
+  for +t: U32
+  for +j: TFile.Json
+  for +why: TFile.Why
+  for h: {TChase.chase(vars, j) == TChase.Miss{why} : TChase.Got}
+  {TReader.entry(vars, TFile.REnt{k, Some{t}, j}) == TReader.Bad{TFile.InColor{k, why}} : TReader.EntR}
+
+# the file's own background as #rrggbb: an index or "" is none
+def th.own(m: Maybe<&2, TFile.Val>) -> Maybe<&2, Co.Rgb>:
+  match m:
+    case None{}:
+      None{}
+    case Some{v}:
+      match v:
+        case TFile.Dflt{}:
+          None{}
+        case TFile.Idx{i}:
+          None{}
+        case TFile.Hex{c}:
+          Some{c}
+
+# LAW theme_parse_painted (R4): a file that reads gives its palette, its mode, its own #rrggbb
+# background and its export backgrounds
+# EXCLUDES: a palette, mode or export color of another file, a declared
+#   background from an index
+law theme_parse_painted:
+  for +f: TFile.RFile
+  for +nm: String
+  for +cols: List<&2, TFile.Ent>
+  for +pg: Maybe<&2, Co.Rgb>
+  for +cd: Maybe<&2, Co.Rgb>
+  for +io: Maybe<&2, Co.Rgb>
+  for h: {TReader.read(f) == TReader.Loaded{TFile.Th{nm, cols, pg, cd, io}} : TReader.Read}
+  {TPalette.parse(f) == TPalette.Painted{TPalette.vals(TPalette.palette(TFile.Th{nm, cols, pg, cd, io})), TPalette.light(TFile.Th{nm, cols, pg, cd, io}), th.own(TToken.get(cols, 57)), pg, cd, io} : TPalette.Parsed}
+
+# LAW theme_palette_tokens (R4): the palette fills every token in token order
+# EXCLUDES: a palette in another order, or that skips a token
+law theme_palette_tokens:
+  for +nm: String
+  for +cols: List<&2, TFile.Ent>
+  for +pg: Maybe<&2, Co.Rgb>
+  for +cd: Maybe<&2, Co.Rgb>
+  for +io: Maybe<&2, Co.Rgb>
+  {TPalette.palette(TFile.Th{nm, cols, pg, cd, io}) == TPalette.fill.map(cols, TPalette.background(cols, pg), TToken.toks()) : List<&2, Maybe<&2, TFile.Val>>}
+
+# LAW theme_defaults_shipped (R4): the builtins whose values fill a file: the default theme for a
+# dark background, light for a light one
+# EXCLUDES: fallbacks from the wrong builtin
+law theme_defaults_shipped:
+  {[TPalette.defaults(False{}), TPalette.defaults(True{})] == [TBundled.table(TBundled.Eukhe{}), TBundled.table(TBundled.Light{})] : List<&2, List<&2, Co.Rgb>>}
+
+# LAW theme_light_spec (R4): a file is light when its background is (Co.light), and its
+# background is the completed one
+# EXCLUDES: a constant mode, a mode from another color than the background
+law theme_light_spec:
+  for +nm: String
+  for +cols: List<&2, TFile.Ent>
+  for +pg: Maybe<&2, Co.Rgb>
+  for +cd: Maybe<&2, Co.Rgb>
+  for +io: Maybe<&2, Co.Rgb>
+  {TPalette.light(TFile.Th{nm, cols, pg, cd, io}) == Co.light(TPalette.background(cols, pg)) : Bool} & {TPalette.bg(TFile.Th{nm, cols, pg, cd, io}) == TPalette.background(cols, pg) : Co.Rgb}
+
+# LAW theme_legible_spec (R4): a table is legible exactly when every ink token meets its
+# contrast on its surface (the pairs of spec/theme/rules.bend), for every
+# table
+# EXCLUDES: an empty or shortened pair list, a constant legibility test
+#   (theme_shipped_legible made vacuous)
+law theme_legible_spec:
+  for +xs: List<&2, Co.Rgb>
+  {TBundled.legible(xs) == Ts.legible(xs) : Bool}
+
+# LAW theme_status_distinct_spec (R4): the status test is exactly: accent, success, warning and
+# error pairwise distinct in a 256-color terminal, for every table
+# EXCLUDES: a constant status test (theme_shipped_status_distinct made
+#   vacuous), other tokens compared
+law theme_status_distinct_spec:
+  for +xs: List<&2, Co.Rgb>
+  {TBundled.status_distinct(xs) == Ts.status_distinct(xs) : Bool}

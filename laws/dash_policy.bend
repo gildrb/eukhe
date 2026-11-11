@@ -170,3 +170,12 @@ law dash_policy_entry_refuses:
 # EXCLUDES: tags in another order, a length in bytes
 law dash_policy_entry_example:
   {[FDp.ffi("9,get_state"), FDp.ffi("9,cron_list"), FDp.ffi("6,create"), FDp.ffi("9,get_stat"), FDp.ffi("9,get_stateX")] == ["0,", "1,", "2,", Wr.err("dash_policy: malformed request"), Wr.err("dash_policy: malformed request")] : List<&2, String>}
+
+# LAW dash_policy_entry_reads (R4): the entry's decoder reads a spelled
+# request back whole and leaves the input after it untouched
+# EXCLUDES: a decoder that eats or skips input after the request
+law dash_policy_entry_reads:
+  for +n: String
+  for +rest: String
+  for h: {LawsBase.wire_fits(String.length(n)) == True{} : Bool}
+  {FDp.get_req(Wr.put_str(n, rest)) == Wr.Got{n, rest} : Wr.Dec<String>}

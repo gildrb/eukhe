@@ -795,3 +795,25 @@ law screen_ffi_malformed_unless_request:
 #   does not, a reversed full flag, an unknown tag read as a known one
 law screen_ffi_tags_example:
   {[FSc.ffi("0,2,5,1,0,6,0,0,7,4,5,0,1,5,2,2,6,3,4,9,"), FSc.ffi("1,1,2,5,1,3,"), FSc.ffi("2,2,1,3,1,3,"), FSc.ffi("3,1,T"), FSc.ffi("3,1,F"), FSc.ffi("3,3,FFT"), FSc.ffi("3,3,FFF"), FSc.ffi("4,"), FSc.ffi("0,1,0,3,0,0,0,0,"), FSc.ffi("0,0,0,0,1,5,"), FSc.ffi("3,4,FFFF"), FSc.ffi("1,1,2,5,1,3,x")] == ["3,5,2,0,6,2,0,7,0,0,8,9,", "8,3,", "2,1,1,2,1,", "1,0,F", "0,", "2,2,", "3,0,", Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: more than three checks"), Wr.err("screen: input left over")] : List<&2, String>}
+
+# LAW screen_ffi_pace: the entry paces a frame as the model: n characters arrive, then a
+# frame shows its share
+# EXCLUDES: an entry that swaps the minimum and the lag, reads recv and
+# shown the wrong way round, or frames before the characters arrive
+law screen_ffi_pace:
+  for +min: Nat
+  for +k: Nat
+  for +r: Nat
+  for +s: Nat
+  for +n: Nat
+  for +f: {Bool.and(Bool.and(LawsBase.wire_fits(min), LawsBase.wire_fits(k)), Bool.and(Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(s)), LawsBase.wire_fits(n))) == True{} : Bool}
+  {FSc.ffi(FSc.put_req(FSc.ReqPace{min, k, Sc.Pace{r, s}, n}, "")) == FSc.put_pace(Sc.pace.run([Sc.Chunk{n}, Sc.Frame{}], min, k, Sc.Pace{r, s}), "") : String}
+
+# LAW screen_ffi_stack: the entry stacks children as the model
+# EXCLUDES: an entry that misreads a height, the start row or the rows
+law screen_ffi_stack:
+  for +hs: List<&2, Nat>
+  for +y: Nat
+  for +rows: Nat
+  for +f: {Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)), Bool.and(LawsBase.wire_fits(y), LawsBase.wire_fits(rows))) == True{} : Bool}
+  {FSc.ffi(FSc.put_req(FSc.ReqStack{hs, y, rows}, "")) == Wr.put_list(~Sc.Rect, ~FSc.put_rect, Sc.vstack(hs, y, rows), "") : String}

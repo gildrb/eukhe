@@ -10,6 +10,7 @@ import ../base/logic/nat.bend as LLogicNat
 import ../base/nat.bend as LNat
 import ../base/retry.bend as LRetry
 import ./base/walk.bend as LW
+import ../base/logic/logic.bend as LLogicLogic
 
 def dc.mode(all: Bool, +len: Nat, +ts: List<&2, R.Tried>, +last: Nat, +sw: Nat, +b: Nat, +m: Nat, +to: Nat, +w: Nat, M: LW.fw.Mode(all, len, ts, last, R.Policy{sw, b, m}, to, w)) -> {Nat.is_le(w, m) == True{} : Bool}:
   match all:

@@ -835,3 +835,18 @@ def pc.e_req(+q: FEf.Req, +rest: String, h: {EffortLadder.core_effort_fits(q) ==
       +e2 = pc.seqFEf(~FEf.P2<FEf.Facts, Ef.Lv>, ~Ef.Dir, ~FEf.get_dir, FEf.P2{f, l}, r2, d, rest, d1, e1, pc.e_dir(d, rest))
       %e2 : {Wr.Got{FEf.Cycle{f, l, d}, rest} == FEf.get_cycle.of(_) : Wr.Dec<FEf.Req>}
       {==}
+
+def pe.effort_offered_kept(+map: Ef.LvMap, +l: Ef.Lv, k: {Ef.keep(map, l) == True{} : Bool}) -> {Ef.has(Ef.offered(Ef.Mdl{True{}, map}), l) == True{} : Bool}:
+  +ladder = Ef.ladder()
+  pe.offer_keep(map, ladder, l, pe.kat(map, ladder), {==}, Ef.at(ladder, l), {==}, k, pe.on_ladder(l))
+
+def pq.lad_has_keep.at_orig(+map: Ef.LvMap, +l: Ef.Lv, b: Bool, eb: {Ef.keep(map, l) == b : Bool}) -> {Ef.has(Ef.offer(map, Ef.ladder()), l) == b : Bool}:
+  match b:
+    case True{}:
+      pe.effort_offered_kept(map, l, eb)
+    case False{}:
+      pe.offer_out(map, Ef.ladder(), l, pe.kat(map, Ef.ladder()), {==}, Ef.at(Ef.ladder(), l), {==}, eb)
+
+# a level is in the offer of a map exactly when the map keeps it
+def pq.lad_has_keep_orig(+map: Ef.LvMap, +l: Ef.Lv) -> {Ef.has(Ef.offer(map, Ef.ladder()), l) == Ef.keep(map, l) : Bool}:
+  pq.lad_has_keep.at_orig(map, l, Ef.keep(map, l), {==})

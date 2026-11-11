@@ -589,3 +589,19 @@ law quirks_premises_example:
 # EXCLUDES: a lower layer winning over a host rule
 law quirks_host_wins_example:
   {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "4,1,2,3,0,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "1,9,") : FQ.St & String} & {FQ.open("1,0,12,0,1,0,5,1,2,0,7,2,3,0,9,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "T3,0,0,0,") : FQ.St & String}
+
+# the answer is a value
+def qs_known(a: If.Ans) -> Bool:
+  match a:
+    case If.Known{v}:
+      True{}
+    case If.Unknown{}:
+      False{}
+
+# LAW quirks_known_exact: the model's is_known (which quirk_known_when_some reads) says Known
+# exactly for a Known answer
+# EXCLUDES: an is_known that always says yes, making quirk_known_when_some
+#   vacuous (a mutant's)
+law quirks_known_exact:
+  for a: If.Ans
+  {If.is_known(a) == qs_known(a) : Bool}

@@ -152,3 +152,83 @@ def cst.fill(st: C.Lst, +r: C.Reply, +fits: {Compactor.step_fits(st, r) == True{
 
 def Compactor.compactor_ffi_step(st, r, fits):
   cst.fill(st, r, fits)
+
+# A reply that fits or not, shorter or not, with p more tries: the end the
+# model takes names the same tag with texts or without
+def cst.says_none_orig(fit: Bool, less: Bool, p: Nat, +m: Nat, +node: Nat, -i: List<&2, C.W>, -ws: List<&2, C.W>, +len: Nat) -> {FC.put_next(C.line.says(fit, less, p, m, node, None{}, Nil{}, Nil{}, len)) == Compactor.spell_next(Compactor.step_spec.text(fit, less, p, m, node, None{}, i, ws, len)) : String}:
+  match fit less:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      match p:
+        case 0n:
+          {==}
+        case 1n+q:
+          {==}
+
+def cst.says_some_orig(fit: Bool, less: Bool, p: Nat, +m: Nat, +node: Nat, -bt: List<&2, C.W>, -i: List<&2, C.W>, -ws: List<&2, C.W>, +len: Nat) -> {FC.put_next(C.line.says(fit, less, p, m, node, Some{Nil{}}, Nil{}, Nil{}, len)) == Compactor.spell_next(Compactor.step_spec.text(fit, less, p, m, node, Some{bt}, i, ws, len)) : String}:
+  match fit less:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      match p:
+        case 0n:
+          {==}
+        case 1n+q:
+          {==}
+
+# a text that is not empty: by its first character's width
+def cst.text_orig(p: Nat, +m: Nat, +node: Nat, b: Maybe<&2, List<&2, C.W>>, +bl: Nat, -i: List<&2, C.W>, w: C.W, +t: List<&2, C.W>) -> {FC.put_next(FC.reply(1n+p, m, node, cst.mb(b, bl), cst.rep(C.Says{w <> t}))) == Compactor.spell_next(Compactor.step_spec(C.Lst{1n+p, m, node, b, bl, i}, C.Says{w <> t})) : String}:
+  match b:
+    case None{}:
+      match w:
+        case C.W1{}:
+          cst.says_none_orig(Nat.is_le(Compactor.bytes(C.W1{} <> t), node), True{}, p, m, node, i, C.W1{} <> t, Compactor.bytes(C.W1{} <> t))
+        case C.W2{}:
+          cst.says_none_orig(Nat.is_le(Compactor.bytes(C.W2{} <> t), node), True{}, p, m, node, i, C.W2{} <> t, Compactor.bytes(C.W2{} <> t))
+        case C.W3{}:
+          cst.says_none_orig(Nat.is_le(Compactor.bytes(C.W3{} <> t), node), True{}, p, m, node, i, C.W3{} <> t, Compactor.bytes(C.W3{} <> t))
+        case C.W4{}:
+          cst.says_none_orig(Nat.is_le(Compactor.bytes(C.W4{} <> t), node), True{}, p, m, node, i, C.W4{} <> t, Compactor.bytes(C.W4{} <> t))
+    case Some{bt}:
+      match w:
+        case C.W1{}:
+          cst.says_some_orig(Nat.is_le(Compactor.bytes(C.W1{} <> t), node), Nat.is_lt(Compactor.bytes(C.W1{} <> t), bl), p, m, node, bt, i, C.W1{} <> t, Compactor.bytes(C.W1{} <> t))
+        case C.W2{}:
+          cst.says_some_orig(Nat.is_le(Compactor.bytes(C.W2{} <> t), node), Nat.is_lt(Compactor.bytes(C.W2{} <> t), bl), p, m, node, bt, i, C.W2{} <> t, Compactor.bytes(C.W2{} <> t))
+        case C.W3{}:
+          cst.says_some_orig(Nat.is_le(Compactor.bytes(C.W3{} <> t), node), Nat.is_lt(Compactor.bytes(C.W3{} <> t), bl), p, m, node, bt, i, C.W3{} <> t, Compactor.bytes(C.W3{} <> t))
+        case C.W4{}:
+          cst.says_some_orig(Nat.is_le(Compactor.bytes(C.W4{} <> t), node), Nat.is_lt(Compactor.bytes(C.W4{} <> t), bl), p, m, node, bt, i, C.W4{} <> t, Compactor.bytes(C.W4{} <> t))
+
+# the decision on the request's values is the model's line.step
+def cst.decide_orig(l: Nat, +m: Nat, +node: Nat, i: List<&2, C.W>, r: C.Reply, b: Maybe<&2, List<&2, C.W>>, +bl: Nat) -> {FC.put_next(FC.reply(l, m, node, cst.mb(b, bl), cst.rep(r))) == Compactor.spell_next(Compactor.step_spec(C.Lst{l, m, node, b, bl, i}, r)) : String}:
+  match l:
+    case 0n:
+      match b:
+        case None{}:
+          {==}
+        case Some{bt}:
+          {==}
+    case 1n+p:
+      match r:
+        case C.Erred{}:
+          {==}
+        case C.Says{ws}:
+          match ws:
+            case Nil{}:
+              match b:
+                case None{}:
+                  {==}
+                case Some{bt}:
+                  {==}
+            case w <> t:
+              cst.text_orig(p, m, node, b, bl, i, w, t)

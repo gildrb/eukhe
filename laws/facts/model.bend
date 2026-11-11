@@ -832,3 +832,15 @@ law facts_reasoning_example:
   {Fx.reasoning(None{}, Some{Some{0n}}, Fx.EHigh{}) == Fx.RNone{} : Fx.RFields} &
   {Fx.shape.old(True{}, True{}, True{}) == Some{Fx.SClaude{}} : Maybe<&2, Fx.Shape>} &
   {Fx.shape.old(False{}, True{}, True{}) == Some{Fx.SGptOss{}} : Maybe<&2, Fx.Shape>}
+
+# LAW facts_bedrock_reasoning_oracle: for every model the old name checks place (a name with "claude",
+# "gpt-oss", "gpt-"), the fields of the shape the rulebook gives it are the fields the old code sent
+# EXCLUDES: the shape data ordered differently from the old checks (gpt-oss
+#   read as GPT, Claude as GPT), the effort tables changed by the move
+law facts_bedrock_reasoning_oracle:
+  for cl: Bool
+  for oss: Bool
+  for gpt: Bool
+  for e: Maybe<&2, Maybe<&2, Nat>>
+  for +l: Fx.ELv
+  {Fx.reasoning.old(cl, oss, gpt, e, l) == Fx.reasoning(Fx.shape.old(cl, oss, gpt), e, l) : Fx.RFields}

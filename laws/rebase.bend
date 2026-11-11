@@ -361,3 +361,18 @@ law rebase_entry_refuses:
 # EXCLUDES: another spelling of a request or of a reply
 law rebase_entry_example:
   {[FR.ffi("3,1,2,3,3,4,2,3,4,2,3,1,5,"), FR.ffi("3,1,2,3,3,1,6,3,4,1,2,1,7,"), FR.ffi("2,1,2,2,1,2,2,1,1,"), FR.ffi("2,1,2,2,1,2,0,x"), FR.ffi("0,0,0,")] == ["0,4,2,3,1,5,", "1,1,0,", Wr.err("rebase: malformed request"), Wr.err("rebase: malformed request"), "0,0,"] : List<&2, String>}
+
+# LAW rebase_refines (R1): every rebase of every base, head and edits is
+# the spec's
+# EXCLUDES: a scan that stops before the second copy and calls one copy
+#   unique, a scan that misses the copy at the file's end, the anchors
+#   ignored or swapped, the floor of an insertion taken as its end (two
+#   insertions at one place passed), the base's copies not counted, a
+#   context skipped, fewer or more than 8, an edit landing off its window
+#   by the context before it, a conflict at a later index, edits that
+#   cross returned, a head equal to the base still searched
+law rebase_refines:
+  for +b: List<&2, Nat>
+  for +h: List<&2, Nat>
+  for +es: List<&2, R.Edit>
+  {R.rebase(b, h, es) == RbSpec.rebase(b, h, es) : R.Outcome}

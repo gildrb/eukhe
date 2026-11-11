@@ -724,3 +724,85 @@ law stop_goes_never_answers:
 #   exist), a stop_reply that drifts from the shipped walk
 law stop_stand_example:
   {[stop_reply(S.walk(S.Facts{False{}, True{}, False{}, False{}}), S.Facts{False{}, True{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, True{}, False{}, True{}}), S.Facts{False{}, True{}, False{}, True{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{True{}, True{}, False{}, False{}}), S.Facts{True{}, True{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Empties{}, 3n, 0n, 0n, 0n, 0n, False{}, False{})] == [RnState.Plain{}, RnState.Plain{}, RnState.Error{False{}, True{}}, RnState.Error{False{}, True{}}, RnState.Error{False{}, False{}}] : List<&2, RnState.Reply>}
+
+# LAW stop_verdict_exact (R2): every Director's verdict at every stop is
+# the spec's: Continue, Pass or Yield exactly
+# EXCLUDES: a Director that yields where it should continue (or the
+#   reverse), one that reads another fact
+law stop_verdict_exact:
+  for +d: S.Dir
+  for +f: S.Facts
+  {S.verdict(d, f) == StSpec.verdict(d, f) : S.Verdict}
+
+# LAW stop_empty_redoes (R4): an empty reply under the cap is retried
+# with the next empty note
+# EXCLUDES: an empty reply that ends the run before its cap, a row that
+#   does not count
+law stop_empty_redoes:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for under: {RnRecovery.below(RnRecovery.Rk.empties(k, row), StSpec.empty_cap()) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Empties{}, 1n+RnRecovery.Rk.empties(k, row), same, last}} : RnRecovery.Dec}
+
+# R9: the reply the run's steps read after the act; pass: the reply as
+# it was
+def spec_act_reply(a: RnRecovery.Act, pass: RnState.Reply) -> RnState.Reply:
+  match a:
+    case RnRecovery.Pass{}:
+      pass
+    case RnRecovery.Exec{}:
+      RnState.Calls{}
+    case RnRecovery.Redo{}:
+      RnState.Error{False{}, True{}}
+    case RnRecovery.Quit{}:
+      RnState.Error{False{}, False{}}
+    case RnRecovery.Shrink{}:
+      RnState.Overflow{True{}}
+    case RnRecovery.Lower{}:
+      RnState.Error{False{}, True{}}
+
+# LAW stop_act_reply_exact (R9): the reply each act makes, for every reply
+# as it was, is the spec's: Pass keeps it, Exec runs the calls
+# EXCLUDES: a passed reply turned into an error or an overflow, calls
+#   that do not run (only Redo, Quit, Shrink and Lower were pinned)
+law stop_act_reply_exact:
+  for a: RnRecovery.Act
+  for pass: RnState.Reply
+  {RnRecovery.Act.reply(a, pass) == spec_act_reply(a, pass) : RnState.Reply}
+
+# LAW stop_rec_init_exact (R9): a run starts with no note, no row and no
+# round
+# EXCLUDES: a run that starts one note into a row, or with a round counted
+law stop_rec_init_exact:
+  {RnRecovery.Rec.init() == RnRecovery.Rec{RnRecovery.Free{}, 0n, 0n, 0n} : RnRecovery.Rec}
+
+# LAW stop_think_notes (R7): with no compaction to make, under the cap a
+# length stop with no text is retried with the next length note, at the
+# agent's thinking level
+# EXCLUDES: a ladder that skips the notes, a level dropped before the
+#   notes run out, a row that does not count
+law stop_think_notes:
+  for +rc: RnRecovery.RCfg
+  for lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for under: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, lower}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
+
+# LAW stop_think_lowers_last (R7): at the cap, when a level below the
+# agent's exists, the last rung retries once more with the next length
+# note, one thinking level lower
+# EXCLUDES: a run failed while the lower level was still untried
+law stop_think_lowers_last:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +at: {Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, True{}}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Lower{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}

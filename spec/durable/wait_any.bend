@@ -159,3 +159,76 @@ def moved.of(b: Bool) -> Nat:
 # moves from not sent to sent
 def moved(+a: M.Phase, +b: M.Phase) -> Nat:
   moved.of(Bool.and(Bool.not(is_sent(a)), is_sent(b)))
+
+# the phase of a result placed by the route r
+def placed(r: M.Route) -> M.Phase:
+  match r:
+    case M.ToNotice{}:
+      M.Sent{}
+    case M.ToWaiter{}:
+      M.Kept{}
+
+# a wait watches a job of w watchers when it has one
+def watching(+w: Nat) -> Bool:
+  Nat.is_gt(w, 0n)
+
+# the phase after event e, from phase p, with w watchers after the event
+def next(+wake: Bool, +w: Nat, e: M.Ev, p: M.Phase) -> M.Phase:
+  match e:
+    case M.Watch{}:
+      p
+    case M.Unwatch{}:
+      match p:
+        case M.Live{}:
+          M.Live{}
+        case M.Kept{}:
+          placed(route(watching(w), wake))
+        case M.Sent{}:
+          M.Sent{}
+    case M.Settles{}:
+      match p:
+        case M.Live{}:
+          placed(route(watching(w), wake))
+        case M.Kept{}:
+          M.Kept{}
+        case M.Sent{}:
+          M.Sent{}
+    case M.Taken{}:
+      match p:
+        case M.Live{}:
+          M.Live{}
+        case M.Kept{}:
+          M.Sent{}
+        case M.Sent{}:
+          M.Sent{}
+
+def step.at(+wake: Bool, +w: Nat, +p: M.Phase, +e: M.Ev) -> M.Out:
+  +p2 = next(wake, w, e, p)
+  M.Out{M.D{w, p2}, moved(p, p2)}
+
+# the watchers after event e
+def watchers(+w: Nat, e: M.Ev) -> Nat:
+  match e:
+    case M.Watch{}:
+      1n+w
+    case M.Unwatch{}:
+      Nat.sub(w, 1n)
+    case M.Settles{}:
+      w
+    case M.Taken{}:
+      w
+
+# one event: the job's delivery state after it, and the deliveries it made
+def step(+wake: Bool, d: M.D, +e: M.Ev) -> M.Out:
+  match d:
+    case M.D{+w, +p}:
+      step.at(wake, watchers(w, e), p, e)
+
+# every delivery the events es make from d
+def deliveries(es: List<&2, M.Ev>, +wake: Bool, d: M.D) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case Con{e, rest}:
+      +o = step(wake, d, e)
+      Nat.add(out_k(o), deliveries(rest, wake, out_d(o)))

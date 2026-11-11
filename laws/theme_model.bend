@@ -26,6 +26,9 @@ import ../bend/theme/token.bend as TToken
 import ../bend/theme/reader.bend as TReader
 import ../bend/theme/palette.bend as TPalette
 import ../bend/theme/name.bend as TName
+import ../spec/theme/model.bend as Tm
+import ../spec/theme/rules.bend as Ts
+import ../bend/theme/bundled.bend as TBundled
 
 # LAW theme_tok_get_append (R4): a file's value of token t over two runs of entries is the value the first run gives, else the second's, for every file and token
 # EXCLUDES: a later entry winning over an earlier one, an entry dropped
@@ -156,3 +159,44 @@ def blank() -> TFile.RFile:
 # EXCLUDES: a reading of the laws above the human did not mean
 law theme_valid_example:
   {Maybe.is_some(&2, TFile.Th, TReader.load(blank())) == True{} : Bool} & {TToken.valid(TFile.Th{"e", [], None{}, None{}, None{}}) == False{} : Bool} & {[TPalette.complete([Some{TFile.Dflt{}}, None{}]), TPalette.complete([Some{TFile.Dflt{}}])] == [False{}, True{}] : List<&2, Bool>}
+
+# LAW theme_required_spec (R3): a token is required exactly when it is none of refinementHeader,
+# refinementSummary, mdBody, background, foreground, for every token
+# EXCLUDES: an optional token made required or the reverse, past token 58
+#   too
+law theme_required_spec:
+  for +t: U32
+  {TReader.required(t) == Tm.required(t) : Bool}
+
+# LAW theme_at_spec (R4): token k of a table is its k-th color (black past its end)
+# EXCLUDES: a color of another token
+law theme_at_spec:
+  for xs: List<&2, Co.Rgb>
+  for k: Nat
+  {TPalette.at(xs, k) == Ts.get(xs, k) : Co.Rgb}
+
+# LAW theme_tables_spec (R4): the colors every token of the shipped themes eukhe, dark and
+# light paint
+# EXCLUDES: a shipped color changed (a Rust test checks the bundled files
+#   paint these)
+law theme_tables_spec:
+  {[TBundled.table(TBundled.Eukhe{}), TBundled.table(TBundled.Dark{}), TBundled.table(TBundled.Light{})] == [Tm.eukhe(), Tm.dark(), Tm.light()] : List<&2, List<&2, Co.Rgb>>}
+
+# LAW theme_load_spec (R3): a file loads exactly when it reads, to what it reads
+# EXCLUDES: a load that never answers (theme_load_valid made vacuous), a
+#   load of a file that does not read
+law theme_load_spec:
+  for f: TFile.RFile
+  {TReader.load(f) == Tm.loaded(TReader.read(f)) : Maybe<&2, TFile.Th>}
+
+# LAW theme_rename_spec (R4): renaming a file changes its name only
+# EXCLUDES: a rename that changes the colors or the export backgrounds
+#   (theme_palette_name_free, theme_mode_name_free made vacuous)
+law theme_rename_spec:
+  for nm: String
+  for cols: List<&2, TFile.Ent>
+  for pg: Maybe<&2, Co.Rgb>
+  for cd: Maybe<&2, Co.Rgb>
+  for io: Maybe<&2, Co.Rgb>
+  for n: String
+  {TPalette.rename(TFile.Th{nm, cols, pg, cd, io}, n) == TFile.Th{n, cols, pg, cd, io} : TFile.Th}

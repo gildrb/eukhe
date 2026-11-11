@@ -526,3 +526,39 @@ law reload_sees_exactly_the_live_records:
 # EXCLUDES: a reload that matches every version, or none
 law reload_example:
   {Ds.restored(Ds.reload(5n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}, Ds.Rec{5n, [Ds.Iv{9n, 9n}]}])) == [Ds.Iv{1n, 3n}, Ds.Iv{9n, 9n}] : List<&2, Ds.Iv>} & {Ds.reload(9n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}]) == [] : List<&2, Ds.Rec>}
+
+def seen.After.go(whole: Bool, u: List<&2, Ds.Iv>, seen: List<&2, Ds.Iv>) -> List<&2, Ds.Iv>:
+  match whole:
+    case True{}:
+      List.append(&2, Ds.Iv, u, seen)
+    case False{}:
+      seen
+
+# each line of xs as a run of one line
+def seen.Points(xs: List<&2, Nat>) -> List<&2, Ds.Iv>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +x <> rest:
+      Ds.Iv{x, x} <> seen.Points(rest)
+
+# a rejection shows every anchor in us whole: at most `cap` of them, each
+# shown whole
+def seen.Whole(+us: List<&2, Ds.At>) -> Bool:
+  Bool.and(Nat.is_le(List.length(&2, Ds.At, us), Ds.cap), seen.Fits(us))
+
+# the seen lines after an edit whose unseen anchors are us: they join
+# the seen lines when the rejection showed them whole, else nothing
+# changes (and an edit with no unseen anchor changes nothing)
+def seen.After(+seen: List<&2, Ds.Iv>, +us: List<&2, Ds.At>) -> List<&2, Ds.Iv>:
+  seen.After.go(seen.Whole(us), seen.Points(Ds.lines(us)), seen)
+
+# LAW edit_marks_whole_reveal: after any edit, the unseen anchors join the seen lines exactly
+# when the rejection showed them whole (at most `cap`, each a line of at
+# most `cols` characters); else the seen lines stay as they were
+# EXCLUDES: marking seen a line past the end or a line shown cut, a
+# reveal that marks nothing, a reveal past `cap`
+law edit_marks_whole_reveal:
+  for +seen: List<&2, Ds.Iv>
+  for +ats: List<&2, Ds.At>
+  {Ds.Step.seen(Ds.edit(seen, ats)) == seen.After(seen, seen.Unseen(seen, ats)) : List<&2, Ds.Iv>}

@@ -583,3 +583,78 @@ law infer_threshold_ffi_example:
   {FT.ffi("T5,5,0,0,2,0,3,9,1,2,1,1,1,1,") == "0,0," : String} &
   {FT.ffi("T5,5,10,0,2,2,3,9,2,2,1,3,1,1,") == SCon{'E', SCon{' ', "infer_threshold: malformed request"}} : String} &
   {FT.ffi("T5,5,10,0,2,0,3,9,2,2,1,3,1,1,x") == SCon{'E', SCon{' ', "infer_threshold: malformed request"}} : String}
+
+def is_blocks(o: M.Over) -> Bool:
+  match o:
+    case M.Blocks{}:
+      True{}
+    case M.Early{}:
+      False{}
+    case M.Under{}:
+      False{}
+
+# the first context of xs is over the blocking threshold (b) or any
+# threshold
+def head.blocks(xs: List<&2, Nat>, +w: Nat, +r: M.Z, +m: M.Z) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      is_blocks(M.over(True{}, x, w, r, m))
+
+# the requests of a run as the harness asks them, the first at index i:
+# the index of the first over the blocking threshold (hit: the first of
+# xs is), or over any threshold
+def first_blocks(xs: List<&2, Nat>, +i: Nat, +w: Nat, +r: M.Z, +m: M.Z, hit: Bool) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case x <> +rest:
+      match hit:
+        case True{}:
+          Some{i}
+        case False{}:
+          first_blocks(rest, 1n+i, w, r, m, head.blocks(rest, w, r, m))
+
+# LAW infer_threshold_blocks_steps: over a run of requests (context sizes xs), with a known window, the first the entry finds over the blocking threshold is `first_at` at the limit window - reserve + 1, whatever the margin
+law infer_threshold_blocks_steps:
+  for +xs: List<&2, Nat>
+  for +v: Nat
+  for +r: M.Z
+  for +m: M.Z
+  {first_blocks(xs, 0n, 1n+v, r, m, head.blocks(xs, 1n+v, r, m)) == If.first_at(xs, lim_spec(1n+v, r), 0n) : Maybe<&2, Nat>}
+
+def is_over(o: M.Over) -> Bool:
+  match o:
+    case M.Blocks{}:
+      True{}
+    case M.Early{}:
+      True{}
+    case M.Under{}:
+      False{}
+
+def head.over(xs: List<&2, Nat>, +w: Nat, +r: M.Z, +m: M.Z) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      is_over(M.over(True{}, x, w, r, m))
+
+def first_over(xs: List<&2, Nat>, +i: Nat, +w: Nat, +r: M.Z, +m: M.Z, hit: Bool) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case x <> +rest:
+      match hit:
+        case True{}:
+          Some{i}
+        case False{}:
+          first_over(rest, 1n+i, w, r, m, head.over(rest, w, r, m))
+
+# LAW infer_threshold_early_steps: with a positive margin c, the first request the entry finds over any threshold is `first_at` at the background threshold window - reserve - c + 1: so every law of `first_at` (compact_starts_early) holds for them
+law infer_threshold_early_steps:
+  for +xs: List<&2, Nat>
+  for +v: Nat
+  for +r: M.Z
+  for +b: Nat
+  {first_over(xs, 0n, 1n+v, r, M.Up{1n+b}, head.over(xs, 1n+v, r, M.Up{1n+b})) == If.first_at(xs, Nat.sub(lim_spec(1n+v, r), 1n+b), 0n) : Maybe<&2, Nat>}

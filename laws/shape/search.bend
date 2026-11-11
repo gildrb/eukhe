@@ -387,3 +387,15 @@ law shape_fuel_enough:
   for +s: S.St
   for h: {Nat.is_lt(ShapeMatch.sp_left(s), f) == True{} : Bool}
   {S.go(f, ps, [s], 0n) == S.go(1n+ShapeMatch.sp_left(s), ps, [s], 0n) : List<&2, S.St>}
+
+# LAW shape_find (R7): from every place, for every fuel and shape, the
+# search answers the first place (only the first for AtStart) where the
+# shape has an answer, every place with all captures untaken
+# EXCLUDES: a place skipped, a later place preferred, an anywhere shape
+#   searched only at the start or an AtStart one past it, captures carried
+#   from a failed place, a place's word char or counts off by one
+law shape_find:
+  for +f: Nat
+  for +sh: S.Shape
+  for +a: S.At
+  {S.find(f, sh, a) == sp_find(f, sh, a) : Maybe<&2, S.Hit>}

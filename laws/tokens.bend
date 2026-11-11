@@ -682,3 +682,226 @@ law tokens_px_in_range:
 # LAW tokens_type_in_range: every type size and line height is at most 10000px, the largest font size a browser renders, so ascending sizes stay ascending on screen
 law tokens_type_in_range:
   {steps_at_most(List.append(&2, Tk.Step, Tk.sizes(), Tk.lines()), 10000) == True{} : Bool}
+
+def spec.hex(n: Nat) -> Char:
+  Maybe.default(&2, Char, String.get("0123456789abcdef", n), '?')
+
+def spec.units(u: Nat) -> String:
+  match u:
+    case 0n:
+      ""
+    case 1n+k:
+      String.from_list([spec.hex(1n+k)])
+
+# an alpha in hundredths: 0.<tens>, then the units digit unless it is 0
+def spec.alpha(a: U32) -> String:
+  +n = U32.to_nat(a)
+  String.concat(["0.", String.from_list([spec.hex(Nat.div(n, 10n))]), spec.units(Nat.mod(n, 10n))])
+
+def spec.byte(x: U32, rest: String) -> String:
+  +n = U32.to_nat(x)
+  SCon{spec.hex(Nat.div(n, 16n)), SCon{spec.hex(Nat.mod(n, 16n)), rest}}
+
+def spec.css.of(opaque: Bool, +r: U32, +g: U32, +b: U32, a: U32) -> String:
+  match opaque:
+    case True{}:
+      SCon{'#', spec.byte(r, spec.byte(g, spec.byte(b, "")))}
+    case False{}:
+      String.concat(["rgb(", U32.show(r), " ", U32.show(g), " ", U32.show(b), " / ", spec.alpha(a), ")"])
+
+# a color: opaque (alpha 100) as #rrggbb, a tint as rgb(R G B / alpha)
+def spec.css(c: Tk.Col) -> String:
+  match c:
+    case Tk.Col{Co.Rgb{r, g, b}, +a}:
+      spec.css.of(Nat.is_eq(U32.to_nat(a), 100n), r, g, b, a)
+
+def spec.key(k: String, v: String) -> String:
+  String.concat(["  ", k, ": ", v, ","])
+
+def spec.palette(es: List<&2, Tk.Entry>) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case Tk.Entry{t, c} <> rest:
+      spec.key(Tk.Tone.name(t), String.concat(["\"", spec.css(c), "\""])) <> spec.palette(rest)
+
+def spec.px(xs: List<&2, Tk.Step>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Tk.Step{n, v} <> rest:
+      spec.key(n, String.concat(["\"", U32.show(v), "px\""])) <> spec.px(rest)
+
+def spec.z(xs: List<&2, Tk.Step>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Tk.Step{n, v} <> rest:
+      spec.key(n, U32.show(v)) <> spec.z(rest)
+
+# a block's lines: the line count, then each line as a string. spec.palette
+# writes each tone's key with Tk.Tone.name, which tokens_names_exact pins to
+# name_spec for every tone; the values are the model's tables, which the
+# laws below pin (every tone once, in order; channels, alphas and scales in
+# range; the scales ascending; the pairs legible).
+def spell_lines(ls: List<&2, String>, rest: String) -> String:
+  Wr.put_list(~String, ~Wr.put_str, ls, rest)
+
+# the reply: five blocks, each its name and its lines
+def spell_blocks() -> String:
+  Wr.put_nat(5n, Wr.put_str("lightPalette", spell_lines(spec.palette(Tk.palette(Tk.Light{})), Wr.put_str("darkPalette", spell_lines(spec.palette(Tk.palette(Tk.Dark{})), Wr.put_str("space", spell_lines(spec.px(Tk.space()), Wr.put_str("type", spell_lines(List.append(&2, String, spec.px(Tk.sizes()), spec.px(Tk.lines())), Wr.put_str("layer", spell_lines(spec.z(Tk.layers()), "")))))))))))
+
+# LAW tokens_ffi_blocks: the request Rust writes gets the token tables of bend/tokens.bend as the lines of tokens.stylex.ts: both palettes in palette order (opaque colors as #rrggbb, tints as rgb(R G B / 0.A)), the spacing steps, the type sizes then the line heights as px, the layers as z-indexes
+law tokens_ffi_blocks:
+  {FT.ffi(Wr.put_nat(0n, "")) == spell_blocks() : String}
+
+# the request s is exactly the one request (tag 0)
+def read_req.tag(t: Nat, s: String) -> Bool:
+  match t:
+    case 0n:
+      Wr.end(s)
+    case 1n+p:
+      False{}
+
+def read_req.go(r: Wr.Dec<Nat>) -> Bool:
+  match r:
+    case Wr.Got{t, s}:
+      read_req.tag(t, s)
+    case Wr.Bad{}:
+      False{}
+
+def read_req(s: String) -> Bool:
+  read_req.go(Wr.get_nat(s))
+
+# the answer to an input: the token tables when it is exactly the one
+# request, else the error form
+def spec_entry.of(whole: Bool) -> String:
+  match whole:
+    case True{}:
+      spell_blocks()
+    case False{}:
+      SCon{'E', SCon{' ', "tokens: malformed request"}}
+
+# LAW tokens_ffi_spec: every input is answered from the spec alone: exactly the one request (tag 0, then nothing) gets the token tables as spell_blocks writes them, every other input exactly the error form 'E ', then "tokens: malformed request"
+# EXCLUDES: an input other than the one request answered with the tables
+#   (a second spelling of tag 0, input left over), a reply that depends on
+#   anything but the input
+law tokens_ffi_spec:
+  for +s: String
+  {FT.ffi(s) == spec_entry.of(read_req(s)) : String}
+
+# each value of xs is below the next one
+def ascends_spec(xs: List<&2, Tk.Step>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Tk.Step{n, v} <> rest:
+      match rest:
+        case Nil{}:
+          True{}
+        case Tk.Step{+m, +w} <> more:
+          Bool.and(U32.is_lt(v, w), ascends_spec(Tk.Step{m, w} <> more))
+
+# LAW tokens_ascends_exact: the ordering the scale laws read is exactly: every step's value is below the next step's
+law tokens_ascends_exact:
+  for xs: List<&2, Tk.Step>
+  {Tk.ascends(xs) == ascends_spec(xs) : Bool}
+
+# A tone's place in the palette type
+def idx_spec(t: Tk.Tone) -> Nat:
+  match t:
+    case Tk.Bg{}:
+      0n
+    case Tk.Sidebar{}:
+      1n
+    case Tk.Raised{}:
+      2n
+    case Tk.Surface{}:
+      3n
+    case Tk.Hover{}:
+      4n
+    case Tk.Primary{}:
+      5n
+    case Tk.Secondary{}:
+      6n
+    case Tk.Tertiary{}:
+      7n
+    case Tk.Hairline{}:
+      8n
+    case Tk.Scrim{}:
+      9n
+    case Tk.Danger{}:
+      10n
+    case Tk.Selection{}:
+      11n
+    case Tk.Scrollbar{}:
+      12n
+    case Tk.ShadowNear{}:
+      13n
+    case Tk.ShadowFar{}:
+      14n
+    case Tk.ShadowDrawer{}:
+      15n
+    case Tk.ShadowLatest{}:
+      16n
+
+def find_spec_orig(+t: Tk.Tone, xs: List<&2, Tk.Entry>) -> Maybe<&2, Tk.Col>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Tk.Entry{k, c} <> rest:
+      find_spec.at(Nat.is_eq(idx_spec(k), idx_spec(t)), c, find_spec_orig(t, rest))
+
+# LAW tokens_find_exact: the color of a tone the legibility laws read is exactly its first entry in the palette
+law tokens_find_exact:
+  for +t: Tk.Tone
+  for xs: List<&2, Tk.Entry>
+  {Tk.find(t, xs) == find_spec_orig(t, xs) : Maybe<&2, Tk.Col>}
+
+# LAW tokens_pairs_exact: the pairs that must be legible are exactly: primary, secondary and danger text on every ground; tertiary on the grounds and as a caption on the fills; the ground's color on the primary, secondary and danger fills
+law tokens_pairs_exact:
+  {Tk.pairs() == [Tk.Ink{Tk.Primary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Surface{}, Tk.Caption{}}, Tk.Ink{Tk.Tertiary{}, Tk.Hover{}, Tk.Caption{}}, Tk.Ink{Tk.Bg{}, Tk.Primary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Secondary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Danger{}, Tk.Prose{}}] : List<&2, Tk.Ink>}
+
+# the key of each color token in tokens.stylex.ts (the web app reads the
+# tokens by these keys)
+def name_spec(t: Tk.Tone) -> String:
+  match t:
+    case Tk.Bg{}:
+      "bg"
+    case Tk.Sidebar{}:
+      "sidebar"
+    case Tk.Raised{}:
+      "raised"
+    case Tk.Surface{}:
+      "surface"
+    case Tk.Hover{}:
+      "hover"
+    case Tk.Primary{}:
+      "primary"
+    case Tk.Secondary{}:
+      "secondary"
+    case Tk.Tertiary{}:
+      "tertiary"
+    case Tk.Hairline{}:
+      "hairline"
+    case Tk.Scrim{}:
+      "scrim"
+    case Tk.Danger{}:
+      "danger"
+    case Tk.Selection{}:
+      "selection"
+    case Tk.Scrollbar{}:
+      "scrollbar"
+    case Tk.ShadowNear{}:
+      "shadowNear"
+    case Tk.ShadowFar{}:
+      "shadowFar"
+    case Tk.ShadowDrawer{}:
+      "shadowDrawer"
+    case Tk.ShadowLatest{}:
+      "shadowLatest"
+
+# LAW tokens_names_exact: every color token is written under its own key (bg, sidebar, raised, surface, hover, primary, secondary, tertiary, hairline, scrim, danger, selection, scrollbar, shadowNear, shadowFar, shadowDrawer, shadowLatest), never another token's
+law tokens_names_exact:
+  for t: Tk.Tone
+  {Tk.Tone.name(t) == name_spec(t) : String}

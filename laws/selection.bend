@@ -914,3 +914,49 @@ law selection_ffi_open:
 # EXCLUDES: a codec in another order than the header's
 law selection_ffi_example:
   {F.step(F.Live{M.St{M.Idle{}, None{}}}, "0,3,3,1000,7,1,1,0,1,1,0,0,") == (F.Live{M.St{M.Pressed{M.Cell{3n, 3n}}, Some{M.Click{M.Cell{3n, 3n}, 1000n, 1n}}}}, "0,0,0,F") : F.St & String} & {F.step(F.Live{M.St{M.Pressed{M.Cell{3n, 3n}}, None{}}}, "1,3,6,2,9,") == (F.Live{M.St{M.Selecting{M.Cell{3n, 3n}, M.Cell{3n, 6n}}, None{}}}, "1,3,3,3,6,0,0,F") : F.St & String} & {F.step(F.Live{M.St{M.Selecting{M.Cell{3n, 3n}, M.Cell{3n, 6n}}, None{}}}, "2,1,0,7,1,1,0,1,1,0,0,") == (F.Live{M.St{M.Shown{M.Rng{M.Cell{3n, 3n}, M.Cell{3n, 6n}}}, None{}}}, "1,3,3,3,6,1,1,0,3,5,F0,F") : F.St & String} & {F.step(F.Live{M.St{M.Idle{}, None{}}}, "9,") == (F.Live{M.St{M.Idle{}, None{}}}, "E selection: malformed event") : F.St & String}
+
+# a drag's cell with its row kept within the rows lo..hi on screen
+def sl_clamp(at: M.Cell, +lo: Nat, +hi: Nat) -> M.Cell:
+  match at:
+    case M.Cell{+r, c}:
+      M.Cell{Bool.pick(Nat, Nat.is_lt(r, lo), lo, Bool.pick(Nat, Nat.is_lt(hi, r), hi, r)), c}
+
+# one step up past the first row on screen, down past the last, else none
+def sl_pan(at: M.Cell, +lo: Nat, +hi: Nat) -> M.Pan:
+  match at:
+    case M.Cell{+r, c}:
+      Bool.pick(M.Pan, Nat.is_lt(r, lo), M.PanUp{}, Bool.pick(M.Pan, Nat.is_lt(hi, r), M.PanDown{}, M.PanNone{}))
+
+# a drag: the head moves to the drag's cell kept on screen, the anchor
+# stays (a picked word or row anchors at the end away from the head); a
+# drag back onto the pressed cell selects nothing; the last press is
+# forgotten
+def sl_drag(m: M.Mode, +at: M.Cell, +lo: Nat, +hi: Nat) -> M.Res:
+  match m:
+    case M.Idle{}:
+      sl_quiet(M.Idle{}, None{})
+    case M.Pressed{+a}:
+      +h = sl_clamp(at, lo, hi)
+      Bool.pick(M.Res, sl_same(a, h), sl_moved(M.Pressed{a}, sl_pan(at, lo, hi)), sl_moved(M.Selecting{a, h}, sl_pan(at, lo, hi)))
+    case M.Selecting{a, h}:
+      sl_moved(M.Selecting{a, sl_clamp(at, lo, hi)}, sl_pan(at, lo, hi))
+    case M.Picked{r}:
+      match r:
+        case M.Rng{+s, +e}:
+          +h = sl_clamp(at, lo, hi)
+          sl_moved(M.Selecting{Bool.pick(M.Cell, sl_le(s, h), s, e), h}, sl_pan(at, lo, hi))
+    case M.Shown{r}:
+      sl_quiet(M.Shown{r}, None{})
+
+# LAW sel_drag_moves_head: a drag moves the head of the selection being made to its cell,
+# kept within the rows on screen, and keeps the anchor (sl_drag)
+# EXCLUDES: a head on a row off screen (the dock's rows), a moved
+#   anchor, a drag that starts a selection with no press, a drag that
+#   changes a shown selection
+law sel_drag_moves_head:
+  for +m: M.Mode
+  for +last: Maybe<&2, M.Click>
+  for +at: M.Cell
+  for +lo: Nat
+  for +hi: Nat
+  {M.step(M.St{m, last}, M.EvDrag{at, lo, hi}) == sl_drag(m, at, lo, hi) : M.Res}

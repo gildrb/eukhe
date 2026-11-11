@@ -293,3 +293,166 @@ law flight_step_progresses:
   for at: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{l} : Maybe<&2, F.Leg>}
   for moves: {af_moves(l, F.W.landed(F.St.w(s))) == True{} : Bool}
   {Nat.is_lt(af_mrank(List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k)), af_rank(l)) == True{} : Bool}
+
+# LAW flight_landed_serves: a caller that joined flight f takes its outcome at its next step
+# once flight f landed
+law flight_landed_serves:
+  for +s: F.St
+  for +k: Nat
+  for +f: Nat
+  for +o: F.Out
+  for +ok: Bool
+  for waits: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}
+  for landed: {List.get(&2, F.Out, F.W.landed(F.St.w(s)), f) == Some{o} : Maybe<&2, F.Out>}
+  {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>}
+
+# LAW flight_land_ends: a leader that lands flight f with outcome o is served o, the flight is
+# no longer in flight, and o is landed after the outcomes landed before
+# EXCLUDES: a land that leaves the flight in flight (every later expired
+#   caller would join a flight nobody leads and wait forever), a land that
+#   records no outcome, records it at another index or serves another one
+law flight_land_ends:
+  for +s: F.St
+  for +k: Nat
+  for +f: Nat
+  for +o: F.Out
+  for +ok: Bool
+  for lands: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Land{f, o}} : Maybe<&2, F.Leg>}
+  {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>} & {F.W.fl(F.St.w(F.step(s, F.Step{k, ok}))) == False{} : Bool} & {F.W.landed(F.St.w(F.step(s, F.Step{k, ok}))) == List.append(&2, F.Out, F.W.landed(F.St.w(s)), [o]) : List<&2, F.Out>}
+
+def am_board(fl: Bool, sto: F.Sto, +ld: List<&2, F.Out>, n: Nat) -> F.Adv:
+  match fl:
+    case True{}:
+      F.Adv{F.Waiting{List.length(&2, F.Out, ld)}, F.W{sto, True{}, ld, n}}
+    case False{}:
+      F.Adv{F.Check{List.length(&2, F.Out, ld)}, F.W{sto, True{}, ld, n}}
+
+def am_check(fresh: Bool, +f: Nat, +c: Nat, w: F.W) -> F.Adv:
+  match fresh:
+    case True{}:
+      F.Adv{F.Land{f, F.Ok{c}}, w}
+    case False{}:
+      F.Adv{F.Fetch{f}, w}
+
+def am_fetch(ok: Bool, +f: Nat, sto: F.Sto, fl: Bool, ld: List<&2, F.Out>, +n: Nat) -> F.Adv:
+  match ok:
+    case True{}:
+      F.Adv{F.Store{f, 1n+n}, F.W{sto, fl, ld, 1n+n}}
+    case False{}:
+      F.Adv{F.Land{f, F.Err{1n+n}}, F.W{sto, fl, ld, 1n+n}}
+
+def am_load(fresh: Bool, +c: Nat, w: F.W) -> F.Adv:
+  match fresh:
+    case True{}:
+      F.Adv{F.Served{None{}, F.Ok{c}}, w}
+    case False{}:
+      F.Adv{F.Board{}, w}
+
+def am_store(fresh: Bool, +f: Nat, +c: Nat, +p: Nat, fl: Bool, ld: List<&2, F.Out>, n: Nat) -> F.Adv:
+  match fresh:
+    case True{}:
+      F.Adv{F.Land{f, F.Ok{p}}, F.W{F.Sto{p, True{}}, fl, ld, n}}
+    case False{}:
+      F.Adv{F.Land{f, F.Ok{c}}, F.W{F.Sto{c, True{}}, fl, ld, n}}
+
+def am_wait(m: Maybe<&2, F.Out>, +f: Nat, w: F.W) -> F.Adv:
+  match m:
+    case None{}:
+      F.Adv{F.Waiting{f}, w}
+    case Some{o}:
+      F.Adv{F.Served{Some{f}, o}, w}
+
+# a caller's step from leg l in the world W{Sto{c, fresh}, fl, ld, n} (a
+# fetch at it succeeds when ok): a load serves a fresh credential and
+# boards on an expired one; a board joins the flight in flight or leads
+# flight |ld|, and a flight is in flight; the leader's check lands on a
+# fresh credential and fetches otherwise; a fetch is the next credential
+# or failure; a store keeps a peer's fresh credential, else stores the
+# fetched one, and lands; a land serves its outcome, ends the flight and
+# appends the outcome; a wait takes its flight's landed outcome; a served
+# caller stays served
+def am_adv(l: F.Leg, ok: Bool, +c: Nat, +fresh: Bool, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat) -> F.Adv:
+  match l:
+    case F.Load{}:
+      am_load(fresh, c, F.W{F.Sto{c, fresh}, fl, ld, n})
+    case F.Board{}:
+      am_board(fl, F.Sto{c, fresh}, ld, n)
+    case F.Check{f}:
+      am_check(fresh, f, c, F.W{F.Sto{c, fresh}, fl, ld, n})
+    case F.Fetch{f}:
+      am_fetch(ok, f, F.Sto{c, fresh}, fl, ld, n)
+    case F.Store{f, p}:
+      am_store(fresh, f, p, c, fl, ld, n)
+    case F.Land{f, +o}:
+      F.Adv{F.Served{Some{f}, o}, F.W{F.Sto{c, fresh}, False{}, List.append(&2, F.Out, ld, [o]), n}}
+    case F.Waiting{+f}:
+      am_wait(List.get(&2, F.Out, ld, f), f, F.W{F.Sto{c, fresh}, fl, ld, n})
+    case F.Served{v, o}:
+      F.Adv{F.Served{v, o}, F.W{F.Sto{c, fresh}, fl, ld, n}}
+
+# caller k takes the leg of its step, the others keep theirs
+def am_put(+k: Nat, a: F.Adv, +cs: List<&2, F.Leg>) -> F.St:
+  match a:
+    case F.Adv{l, w}:
+      F.St{w, List.append(&2, F.Leg, List.take(&2, F.Leg, cs, k), l <> List.drop(&2, F.Leg, cs, 1n+k))}
+
+def am_at(m: Maybe<&2, F.Leg>, +k: Nat, ok: Bool, +c: Nat, +fresh: Bool, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat, +cs: List<&2, F.Leg>) -> F.St:
+  match m:
+    case None{}:
+      F.St{F.W{F.Sto{c, fresh}, fl, ld, n}, cs}
+    case Some{l}:
+      am_put(k, am_adv(l, ok, c, fresh, fl, ld, n), cs)
+
+# the model's state after event e: a caller arrives at its load; caller k
+# (when there is one) takes its step; a peer stores a fresh credential
+# one newer than the stored one; the stored credential expires
+def am_step(s: F.St, e: F.Ev) -> F.St:
+  match s:
+    case F.St{w, +cs}:
+      match w:
+        case F.W{sto, +fl, +ld, +n}:
+          match sto:
+            case F.Sto{+c, +fresh}:
+              match e:
+                case F.Arrive{}:
+                  F.St{F.W{F.Sto{c, fresh}, fl, ld, n}, List.append(&2, F.Leg, cs, [F.Load{}])}
+                case F.Step{+k, ok}:
+                  am_at(List.get(&2, F.Leg, cs, k), k, ok, c, fresh, fl, ld, n, cs)
+                case F.Peer{}:
+                  F.St{F.W{F.Sto{1n+c, True{}}, fl, ld, n}, cs}
+                case F.Expire{}:
+                  F.St{F.W{F.Sto{c, False{}}, fl, ld, n}, cs}
+
+# LAW flight_step_exact: every event moves the model exactly as stated on its own (am_step):
+# every caller's step, every arrival, peer write and expiry, from any state
+# EXCLUDES: a step the A1 laws do not reach (a board, land, check, fetch,
+#   store or wait that strands callers, an arrival that skips the load, a
+#   peer write or expiry that does nothing), so a wrong model cannot pass
+#   the A1 laws by never reaching the states they speak of
+law flight_step_exact:
+  for +s: F.St
+  for +e: F.Ev
+  {F.step(s, e) == am_step(s, e) : F.St}
+
+# LAW flight_store_terms_exact: the store's accessors the A1 laws read (flight_after_end_served's
+# premise) are its fields: the stored credential and whether it is fresh
+# EXCLUDES: flight_after_end_served made vacuous by a `Sto.fresh` that is
+#   never True
+law flight_store_terms_exact:
+  for +c: Nat
+  for +f: Bool
+  {F.Sto.fresh(F.Sto{c, f}) == f : Bool} & {F.Sto.c(F.Sto{c, f}) == c : Nat}
+
+# LAW flight_after_end_served: a caller after the end sees the stored credential: once caller k
+# lands flight f with credential c, a caller that arrives while the store
+# is fresh is served the stored credential, c or a newer one
+law flight_after_end_served_orig:
+  for +evs: List<&2, F.Ev>
+  for +k: Nat
+  for +f: Nat
+  for +c: Nat
+  for lands: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Land{f, F.Ok{c}}} : Maybe<&2, F.Leg>}
+  for +ok: Bool
+  for +ok2: Bool
+  for fresh: {F.Sto.fresh(F.W.sto(F.St.w(F.step(F.run(evs), F.Step{k, ok})))) == True{} : Bool}
+  F.After(c, F.step(F.run(evs), F.Step{k, ok}), ok2)

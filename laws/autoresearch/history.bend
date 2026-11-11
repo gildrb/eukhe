@@ -383,3 +383,32 @@ def ar_ex_seg_best() -> ArS.St:
 # EXCLUDES: a best or confidence taken from an earlier segment
 law best_segment_example:
   {(ArM.ar_seg(ar_ex_seg_best()), ArS.St.baseline(ar_ex_seg_best()), ArS.St.best(ar_ex_seg_best()), ArS.St.logged(ar_ex_seg_best()), ArT.St.confidence(ar_ex_seg_best())) == (1n, Some{ArD.Dec{False{}, [1n, 0n], 0n}}, Some{ArD.Dec{False{}, [9n], 0n}}, 3n, Some{10n}) : Nat & Maybe<&2, ArD.Dec> & Maybe<&2, ArD.Dec> & Nat & Maybe<&2, Nat>}
+
+# LAW logged_is_segment: in every state (so after every history), the
+# logged count (the snapshot's, and the one cap_stops reads) is the
+# number of runs of the current segment that were logged (a status set;
+# abandoned rows have none), flagged ones included
+# (spec/autoresearch/segment.bend logged_count). With cap_stops (an
+# equation for the stop), the cap is per segment: a step stops exactly
+# when the current segment's logged runs reach max_iterations
+# EXCLUDES: a count over every segment (a new segment that starts with
+# the old segment's budget spent), abandoned runs counted, flagged runs
+# left out of the cap
+law logged_is_segment:
+  for +s: ArS.St
+  {ArS.St.logged(s) == SG.logged_count(ArM.ar_runs(s), ArM.ar_seg(s)) : Nat}
+
+# LAW baseline_is_first: in every state (so after every history), the
+# baseline is the metric of the first (oldest) kept run of the current
+# segment that is not flagged, none when the current segment kept no
+# such run (spec/autoresearch/segment.bend first_kept). confidence_exact
+# reads the state's own baseline, so this also ties the confidence to
+# the current segment
+# EXCLUDES: a baseline carried over from an earlier segment (a new
+# segment that keeps the old baseline, and the confidence built on it),
+# a baseline from a later keep (the best, the last keep), a flagged,
+# discarded, crashed or abandoned run as the baseline, a baseline with
+# nothing kept in the segment
+law baseline_is_first:
+  for +s: ArS.St
+  {ArS.St.baseline(s) == SG.first_kept(ArM.ar_runs(s), ArM.ar_seg(s)) : Maybe<&2, ArD.Dec>}

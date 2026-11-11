@@ -154,3 +154,31 @@ law cvar_toggle_values:
 law cvar_terms_example:
   {[Cv.unique([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}, Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}]), Cv.all_typed([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VBool{True{}}}]), Cv.typed.at(None{}, Some{Cv.VNat{0n}}), Cv.typed.at(Some{Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}}, None{}), Cv.typed.at(Some{Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}}, Some{Cv.VBool{True{}}}), Cv.all_flag([Cv.Bind{0n, Cv.VNat{1n}}], [Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}], Cv.Persist{}), Cv.Exp.plain(Cv.Flat{[Cv.CRun{0n}]}), Cv.Exp.plain(Cv.Flat{[Cv.CGone{0n}]})] == [False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}] : List<&2, Bool>} &
   {[Cv.unique([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}, Cv.Decl{1n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}]), Cv.all_typed([Cv.Decl{0n, Cv.TBool{}, Cv.Local{}, False{}, False{}, Cv.VBool{True{}}}]), Cv.typed.at(Some{Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, False{}, False{}, Cv.VNat{0n}}}, Some{Cv.VNat{3n}}), Cv.all_flag([Cv.Bind{0n, Cv.VNat{1n}}], [Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, False{}, Cv.VNat{0n}}], Cv.Persist{}), Cv.Exp.plain(Cv.Flat{[Cv.CToggle{0n}]})] == [True{}, True{}, True{}, True{}, True{}] : List<&2, Bool>}
+
+# agent a after a toggle with verdict t: the set it names after a's own
+# sets; a refused toggle leaves a as it was
+def spec_tog_apply(a: Cv.Ag, t: Cv.Tog) -> Cv.Ag:
+  match a:
+    case Cv.Ag{p, ss}:
+      match t:
+        case Cv.TgUndeclared{}:
+          Cv.Ag{p, ss}
+        case Cv.TgGlobal{}:
+          Cv.Ag{p, ss}
+        case Cv.TgNotBool{}:
+          Cv.Ag{p, ss}
+        case Cv.TgFlip{s}:
+          Cv.Ag{p, List.append(&2, Cv.Bind, ss, [s])}
+
+# LAW cvar_toggle_exact (S4): a toggle of x by agent a, the last of the family chain, adds to a's own sets, last, the set the toggle verdict names (Cvar.spec_tog read with no layer restriction, the Config verdict) and changes nothing else: the set of the opposite of the Bool value a has, inherited values included; an undeclared or non-Bool cvar leaves a as it was. The model's toggle takes no layer: the flip of a Global cvar is added and every agent layer ignores it (cvar_layered_exact), so a's value stays, as cvar_toggle_twice reads it
+# EXCLUDES: a toggle that leaves the agent as it was (the audit's: it
+#   keeps cvar_toggle_twice true), one that sets the same value, ignores
+#   the parent's value, flips a non-Bool, changes the profile or the
+#   other sets, or puts the set anywhere but last
+law cvar_toggle_exact:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +a: Cv.Ag
+  for +x: Nat
+  {Cv.toggle(ds, cfg, fam, a, x) == spec_tog_apply(a, Cvar.spec_tog(ds, cfg, List.append(&2, Cv.Ag, fam, [a]), Cv.Config{}, x)) : Cv.Ag}

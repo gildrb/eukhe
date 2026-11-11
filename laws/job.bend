@@ -639,3 +639,55 @@ def wt_poll_spec(due: Bool, ready: Bool) -> Jb.Turn:
       Jb.Settles{}
     case False{} False{}:
       Jb.Waits{}
+
+# LAW job_wait_poll_exact: one poll of a blocking wait: a passed deadline detaches, even when the job's end is ready; else a ready end settles; else the call waits
+law job_wait_poll_exact:
+  for due: Bool
+  for ready: Bool
+  {Jb.poll(due, ready) == wt_poll_spec(due, ready) : Jb.Turn}
+
+# the end an event brings, when it ends the job
+def wt_end_of(e: Jb.JEv) -> Maybe<&2, Jb.End>:
+  match e:
+    case Jb.Out{n}:
+      None{}
+    case Jb.Quit{c}:
+      Some{Jb.Exited{c}}
+    case Jb.Kill{}:
+      Some{Jb.Killed{}}
+    case Jb.Tick{}:
+      None{}
+
+# what the call does on a turn: it detaches; it settles with the end the
+# event brought; or it goes on to its answer after the event (next)
+def wt_take(t: Jb.Turn, x: Maybe<&2, Jb.End>, next: Maybe<&2, Jb.Wait>) -> Maybe<&2, Jb.Wait>:
+  match t:
+    case Jb.Waits{}:
+      next
+    case Jb.Settles{}:
+      match x:
+        case None{}:
+          None{}
+        case Some{e}:
+          Some{Jb.Settled{e}}
+    case Jb.Detaches{}:
+      Some{Jb.Detached{}}
+
+# the ticks of budget an event spends
+def wt_ticks_of(e: Jb.JEv) -> Nat:
+  match e:
+    case Jb.Out{n}:
+      0n
+    case Jb.Quit{c}:
+      0n
+    case Jb.Kill{}:
+      0n
+    case Jb.Tick{}:
+      1n
+
+# LAW job_wait_polls_each_event: the blocking call (the model's `wait`) is the poll at each event: the deadline is due when no tick of budget is left, the end is ready when the event ends the job; on a wait it goes on after the event, with the event's ticks spent
+law job_wait_polls_each_event:
+  for +e: Jb.JEv
+  for rest: List<&2, Jb.JEv>
+  for +left: Nat
+  {Jb.wait(e <> rest, left) == wt_take(Jb.poll(Nat.is_eq(left, 0n), Maybe.is_some(&2, Jb.End, wt_end_of(e))), wt_end_of(e), Jb.wait(rest, Nat.sub(left, wt_ticks_of(e)))) : Maybe<&2, Jb.Wait>}

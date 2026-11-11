@@ -7,6 +7,8 @@ import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
 import ./base/walk.bend as LW
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/retry.bend as LRetry
 
 def bd.split(+len: Nat, +t: R.Tried, +rest: List<&2, R.Tried>, +last: Nat, +sw: Nat, +b: Nat, +m: Nat, +to: Nat, +w: Nat, sp: LW.fw.Split(len, t <> rest, last, R.Policy{sw, b, m}, to, w)) -> {Nat.is_lt(R.length(rest), sw) == True{} : Bool}:
   (B, S) = sp

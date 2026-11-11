@@ -103,3 +103,53 @@ def gt.at(bl: Bool, +w: Nat, +r: M.Z, m: M.Z, +t: Nat) -> {M.over.at(bl, M.limit
       {==}
     case False{}:
       gt.margin(w, r, m, t)
+
+def gt.nb_early(b: Bool) -> {InferThreshold.is_blocks(M.over.early(b)) == False{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def gt.nb(lim: Nat, t: Nat, m: M.Z) -> {InferThreshold.is_blocks(M.over.margin(lim, t, m)) == False{} : Bool}:
+  match m:
+    case M.Up{c}:
+      match c:
+        case 0n:
+          {==}
+        case 1n+b:
+          gt.nb_early(Nat.is_le(Nat.sub(lim, 1n+b), t))
+    case M.Down{c}:
+      {==}
+
+def gt.blocks_at(bl: Bool, lim: Nat, t: Nat, m: M.Z) -> {InferThreshold.is_blocks(M.over.at(bl, lim, t, m)) == bl : Bool}:
+  match bl:
+    case True{}:
+      {==}
+    case False{}:
+      gt.nb(lim, t, m)
+
+# a context is over the blocking threshold exactly when it reaches the limit
+def gt.blocks(+w: Nat, +r: M.Z, m: M.Z, +x: Nat) -> {InferThreshold.is_blocks(M.over.at(Nat.is_le(M.limit_at(w, r), x), M.limit_at(w, r), x, m)) == Nat.is_le(InferThreshold.lim_spec(w, r), x) : Bool}:
+  %gt.lim(w, r) : {InferThreshold.is_blocks(M.over.at(Nat.is_le(M.limit_at(w, r), x), M.limit_at(w, r), x, m)) == Nat.is_le(_, x) : Bool}
+  gt.blocks_at(Nat.is_le(M.limit_at(w, r), x), M.limit_at(w, r), x, m)
+
+def gt.oe(b: Bool) -> {InferThreshold.is_over(M.over.early(b)) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def gt.over_at(bl: Bool, +lim: Nat, +x: Nat, +b: Nat, e: {Nat.is_le(lim, x) == bl : Bool}) -> {InferThreshold.is_over(M.over.at(bl, lim, x, M.Up{1n+b})) == Nat.is_le(Nat.sub(lim, 1n+b), x) : Bool}:
+  match bl:
+    case True{}:
+      +up = LNat.wn_le_add(1n+b, lim, x, e)
+      Equal.sym(Bool, Nat.is_le(Nat.sub(lim, 1n+b), x), True{}, Equal.trans(Bool, Nat.is_le(Nat.sub(lim, 1n+b), x), Nat.is_le(lim, Nat.add(1n+b, x)), True{}, gt.sub(lim, 1n+b, x), up))
+    case False{}:
+      gt.oe(Nat.is_le(Nat.sub(lim, 1n+b), x))
+
+# a context is over any threshold exactly when it reaches the background one
+def gt.over(+w: Nat, +r: M.Z, +b: Nat, +x: Nat) -> {InferThreshold.is_over(M.over.at(Nat.is_le(M.limit_at(w, r), x), M.limit_at(w, r), x, M.Up{1n+b})) == Nat.is_le(Nat.sub(InferThreshold.lim_spec(w, r), 1n+b), x) : Bool}:
+  %gt.lim(w, r) : {InferThreshold.is_over(M.over.at(Nat.is_le(M.limit_at(w, r), x), M.limit_at(w, r), x, M.Up{1n+b})) == Nat.is_le(Nat.sub(_, 1n+b), x) : Bool}
+  gt.over_at(Nat.is_le(M.limit_at(w, r), x), M.limit_at(w, r), x, b, {==})

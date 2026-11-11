@@ -921,3 +921,342 @@ law retry_ffi_fits_exists:
 # EXCLUDES: a field order or a tag of these encoders other than the strings shown
 law retry_ffi_example:
   {[Fr.put_req(Fr.QClassify{R.Facts{False{}, True{}, Some{42n}, Some{R.Unknown{}}, True{}}}, ""), Fr.put_req(Fr.QWait{100n, 4n, 200n, 7n, None{}}, ""), Fr.put_req(Fr.QFailover{3n, [R.Tried{0n, None{}}, R.Tried{1n, Some{70n}}], R.Policy{8n, 10n, 200n}}, ""), Fr.put_req(Fr.QStall{30n}, ""), Fr.put_delay(R.After{45n}, ""), Fr.put_delay(R.Refused{90n, 40n}, ""), Fr.put_switch(None{}, ""), Fr.put_switch(Some{R.Switch{1n, 20n}}, "")] == ["0,FT1,42,1,13,T", "1,100,4,200,7,0,", "2,3,2,0,0,1,1,70,8,10,200,", "3,30,", "0,45,", "1,90,40,", "0,", "1,1,20,"] : List<&2, String>}
+
+# LAW retry_wait_plain: with no server wait the retry waits its jitter
+# EXCLUDES: a wait invented from nothing, a refusal with no server wait
+law retry_wait_plain:
+  for jitter: Nat
+  for cap: Nat
+  {R.wait(jitter, None{}, cap) == R.After{jitter} : R.Delay}
+
+# LAW retry_wait_uncapped: with no cap (0) the retry waits the longer of its jitter and the
+# server's wait, whatever the server asked
+# EXCLUDES: a refusal with no cap, a wait longer than both
+law retry_wait_uncapped:
+  for jitter: Nat
+  for s: Nat
+  {R.wait(jitter, Some{s}, 0n) == R.After{Nat.max(jitter, s)} : R.Delay}
+
+# the chain in order after the provider `last`, never `last` itself:
+# last+1 .. len-1, then 0 .. last-1
+def rs.after(+last: Nat, +len: Nat) -> List<&2, Nat>:
+  List.append(&2, Nat, rs.ints(Nat.sub(len, 1n+last), 1n+last), rs.ints(Nat.min(last, len), 0n))
+
+# s when ok, else the pick of the rest
+def rs.first(ok: Bool, +s: R.Switch, rest: Maybe<&2, R.Switch>) -> Maybe<&2, R.Switch>:
+  match ok:
+    case True{}:
+      Some{s}
+    case False{}:
+      rest
+
+# the first provider of xs whose return wait (the backoff b, never less
+# than its server's wait) is positive and at most max
+def rs.back(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +b: Nat, +max: Nat) -> Maybe<&2, R.Switch>:
+  match xs:
+    case Nil{}:
+      None{}
+    case +x <> rest:
+      +d = Nat.max(b, rs.wait(x, ts, 0n))
+      rs.first(Bool.and(Nat.is_gt(d, 0n), Nat.is_le(d, max)), R.Switch{x, d}, rs.back(rest, ts, b, max))
+
+# the first provider of xs not tried, at once
+def rs.fresh(xs: List<&2, Nat>, +ts: List<&2, R.Tried>) -> Maybe<&2, R.Switch>:
+  match xs:
+    case Nil{}:
+      None{}
+    case +x <> rest:
+      rs.first(Bool.not(rs.tried(x, ts)), R.Switch{x, 0n}, rs.fresh(rest, ts))
+
+# once every provider was tried: the backoff of the next return is the
+# base doubled per earlier return (the attempts past the first len), at
+# most max
+def rs.returns(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> Maybe<&2, R.Switch>:
+  match all:
+    case True{}:
+      rs.back(rs.after(last, len), ts, Nat.min(rs.twice(Nat.sub(rs.count(ts), len), R.Policy.base(p)), R.Policy.max(p)), R.Policy.max(p))
+    case False{}:
+      rs.fresh(rs.after(last, len), ts)
+
+# while the switches made (the attempts but the first) are below the
+# budget: a fresh provider while one is left, else a return
+def rs.budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> Maybe<&2, R.Switch>:
+  match ok:
+    case True{}:
+      rs.returns(rs.all_tried(rs.ints(len, 0n), ts), last, len, ts, p)
+    case False{}:
+      None{}
+
+# `next_switch`, as the Rust states it: no attempt, no switch
+def rs.next(+len: Nat, ts: List<&2, R.Tried>, +p: R.Policy) -> Maybe<&2, R.Switch>:
+  match ts:
+    case Nil{}:
+      None{}
+    case +t <> +rest:
+      rs.budget(Nat.is_lt(rs.count(rest), R.Policy.switches(p)), rs.newest(rest, t), len, t <> rest, p)
+
+# LAW failover_exact: the walk decides exactly as `next_switch` states it, for every
+# chain, every failed attempt list and every policy
+# EXCLUDES: no failover at all (always None), a fresh provider skipped or
+#   taken out of chain order, a return before every provider was tried, a
+#   backoff that does not double per return or ignores max, a switch past
+#   the budget or one short of it, a server wait read from the wrong attempt
+law failover_exact:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.next(len, ts, p) == rs.next(len, ts, p) : Maybe<&2, R.Switch>}
+
+# a poll of a live job with no ms left (at or after its deadline) counts
+# one late poll
+def rs.job.late(a: R.Act, j: R.Job) -> Nat:
+  match a:
+    case R.Send{}:
+      0n
+    case R.Poll{}:
+      match j:
+        case R.NoJob{}:
+          0n
+        case R.Live{failed, left}:
+          match left:
+            case 0n:
+              1n
+            case 1n+k:
+              0n
+    case R.Cancel{}:
+      0n
+    case R.Settle{}:
+      0n
+    case R.Quit{}:
+      0n
+
+# a request sent while the job before it was live counts one send
+def rs.job.sent(j: R.Job, a: R.Act) -> Nat:
+  match j:
+    case R.NoJob{}:
+      0n
+    case R.Live{failed, left}:
+      match a:
+        case R.Send{}:
+          1n
+        case R.Poll{}:
+          0n
+        case R.Cancel{}:
+          0n
+        case R.Settle{}:
+          0n
+        case R.Quit{}:
+          0n
+
+def rs.job.count(t: R.Tally, +a: R.Act, +j: R.Job) -> R.Tally:
+  match t:
+    case R.Tally{sends, late}:
+      R.Tally{Nat.add(sends, rs.job.sent(j, a)), Nat.add(late, rs.job.late(a, j))}
+
+def rs.job.cancel() -> R.Step:
+  R.Step{R.Cancel{}, R.NoJob{}}
+
+# a retryable failed poll of a live job: below, the failures in a row are
+# below retry.maxRetries
+def rs.job.again(below: Bool, +failed: Nat, +left: Nat, +gap: Nat) -> R.Step:
+  match below:
+    case True{}:
+      match left:
+        case 0n:
+          rs.job.cancel()
+        case 1n+k:
+          R.Step{R.Poll{}, R.Live{1n+failed, Nat.sub(1n+k, 1n+gap)}}
+    case False{}:
+      rs.job.cancel()
+
+# a failed poll of a live job
+def rs.job.broke(retryable: Bool, +fails: Nat, +failed: Nat, +left: Nat, +gap: Nat) -> R.Step:
+  match retryable:
+    case True{}:
+      rs.job.again(Nat.is_lt(failed, fails), failed, left, gap)
+    case False{}:
+      rs.job.cancel()
+
+# a failure with no job
+def rs.job.fresh(retryable: Bool) -> R.Step:
+  match retryable:
+    case True{}:
+      R.Step{R.Send{}, R.NoJob{}}
+    case False{}:
+      R.Step{R.Quit{}, R.NoJob{}}
+
+# a deferred reply with ms left before the job's deadline
+def rs.job.later(+ms: Nat, +gap: Nat) -> R.Step:
+  match ms:
+    case 0n:
+      rs.job.cancel()
+    case 1n+k:
+      R.Step{R.Poll{}, R.Live{0n, Nat.sub(1n+k, 1n+gap)}}
+
+# the deferred job's step: fails, retry.maxRetries; budget, the ms a new
+# job may run; the job before the reply; the reply
+def rs.job_step(+fails: Nat, +budget: Nat, job: R.Job, got: R.Got) -> R.Step:
+  match job:
+    case R.NoJob{}:
+      match got:
+        case R.Answer{}:
+          R.Step{R.Settle{}, R.NoJob{}}
+        case R.Later{gap}:
+          rs.job.later(budget, gap)
+        case R.Broke{retryable, gap}:
+          rs.job.fresh(retryable)
+    case R.Live{failed, left}:
+      match got:
+        case R.Answer{}:
+          R.Step{R.Settle{}, R.NoJob{}}
+        case R.Later{gap}:
+          rs.job.later(left, gap)
+        case R.Broke{retryable, gap}:
+          rs.job.broke(retryable, fails, failed, left, gap)
+
+def rs.step.act(s: R.Step) -> R.Act:
+  match s:
+    case R.Step{act, job}:
+      act
+
+def rs.step.job(s: R.Step) -> R.Job:
+  match s:
+    case R.Step{act, job}:
+      job
+
+# the replies gots folded through the job's step from the job before them,
+# each counted with the job before it
+def rs.job_run.go(gots: List<&2, R.Got>, +fails: Nat, +budget: Nat, +job: R.Job, +t: R.Tally) -> R.Tally:
+  match gots:
+    case Nil{}:
+      t
+    case g <> rest:
+      +st = rs.job_step(fails, budget, job, g)
+      rs.job_run.go(rest, fails, budget, rs.step.job(st), rs.job.count(t, rs.step.act(st), job))
+
+# a request's replies from its first, with no job and nothing counted
+def rs.job_run(+fails: Nat, +budget: Nat, gots: List<&2, R.Got>) -> R.Tally:
+  rs.job_run.go(gots, fails, budget, R.NoJob{}, R.Tally{0n, 0n})
+
+# LAW deferred_run_exact (R4): a request's replies, from its first, run as the fold of the
+# job's step of section 4: the whole tally of sends while a job is live
+# and of polls at or after its deadline
+# EXCLUDES: a run that drops or reorders replies, starts from a live job,
+#   counts from a nonzero tally, counts with the job after a step instead
+#   of the one before it, or answers a constant tally
+law deferred_run_exact:
+  for +fails: Nat
+  for +budget: Nat
+  for gots: List<&2, R.Got>
+  {R.run(fails, budget, gots) == rs.job_run(fails, budget, gots) : R.Tally}
+
+def rs.by_kind(c: Maybe<&2, Bool>, text: Bool) -> Bool:
+  match c:
+    case Some{b}:
+      b
+    case None{}:
+      text
+
+# what a retry may cure by a recorded kind (`retryable_kind`): Some{True}
+# for a transient kind, Some{False} for a permanent one, None for Unknown
+# (the text decides)
+def rs.kind(k: R.Cause) -> Maybe<&2, Bool>:
+  match k:
+    case R.Overloaded{}:
+      Some{True{}}
+    case R.RateLimit{}:
+      Some{True{}}
+    case R.ServerError{}:
+      Some{True{}}
+    case R.StreamDrop{}:
+      Some{True{}}
+    case R.StreamStalled{}:
+      Some{True{}}
+    case R.StreamRepeating{}:
+      Some{True{}}
+    case R.Refusal{}:
+      Some{False{}}
+    case R.Safety{}:
+      Some{False{}}
+    case R.PaymentRequired{}:
+      Some{False{}}
+    case R.Auth{}:
+      Some{False{}}
+    case R.Permission{}:
+      Some{False{}}
+    case R.InvalidRequest{}:
+      Some{False{}}
+    case R.MalformedResponse{}:
+      Some{False{}}
+    case R.Unknown{}:
+      None{}
+
+# a status a retry may cure (`retryable_status`): 408, 409, 429, or 500
+# and above
+def rs.status(+s: Nat) -> Bool:
+  Bool.or(Nat.is_ge(s, 500n), Bool.or(Nat.is_eq(s, 408n), Bool.or(Nat.is_eq(s, 409n), Nat.is_eq(s, 429n))))
+
+# with no park and no limit: the recorded status; with none, the recorded
+# kind; with neither (or Unknown), the text
+def rs.recorded(status: Maybe<&2, Nat>, kind: Maybe<&2, R.Cause>, text: Bool) -> Bool:
+  match status kind:
+    case Some{s} k:
+      rs.status(s)
+    case None{} Some{k}:
+      rs.by_kind(rs.kind(k), text)
+    case None{} None{}:
+      text
+
+# `FailureFacts::retryable`, as the Rust states it
+def rs.retryable(f: R.Facts) -> Bool:
+  match f:
+    case R.Facts{parked, limit, status, kind, text}:
+      Bool.and(Bool.not(Bool.or(parked, limit)), rs.recorded(status, kind, text))
+
+# LAW retry_classifier_exact: the classifier decides exactly as the Rust rule: never after a park
+# or a limit; else by the recorded status (408, 409, 429, 500 and above);
+# else by the recorded kind (transient yes, permanent no); else (no kind,
+# or Unknown) by the text
+# EXCLUDES: a listed status (408, 409, 429) not retried, a transient kind
+#   not retried, a permanent kind retried, an Unknown kind that does not
+#   fall to the text, a text read when a status or a known kind exists
+law retry_classifier_exact:
+  for f: R.Facts
+  {R.retryable(f) == rs.retryable(f) : Bool}
+
+# LAW failover_visits_once: a request goes back to a provider it tried only after it tried
+# every provider of its chain
+law failover_visits_once_orig:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.fresh_first(R.next(len, ts, p), len, ts) == True{} : Bool}
+
+# LAW failover_never_twice_in_a_row: the next attempt never goes to the provider that just failed
+law failover_never_twice_in_a_row_orig:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.not_last(R.next(len, ts, p), ts) == True{} : Bool}
+
+# LAW failover_return_waits: a return to a provider the request tried waits a positive time,
+# never less than the server's wait of that provider's last failure
+law failover_return_waits_orig:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.return_waits(R.next(len, ts, p), ts) == True{} : Bool}
+
+# LAW failover_delay_capped: no switch waits longer than retry.failover.maxDelayMs
+law failover_delay_capped_orig:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.capped(R.next(len, ts, p), R.Policy.max(p)) == True{} : Bool}
+
+# LAW failover_bounded: a request makes at most retry.failover.maxRetries switches
+law failover_bounded_orig:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.within(R.next(len, ts, p), ts, p) == True{} : Bool}

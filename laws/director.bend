@@ -767,3 +767,68 @@ law dir_ffi_malformed_unless_request:
 #   does not, a stack read bottom first, an unknown tag read as a known one
 law dir_ffi_tags_example:
   {[FDr.ffi("4,3,2,1,0,0,5,0,2,6,1,"), FDr.ffi("4,3,2,1,0,0,5,0,2,6,2,"), FDr.ffi("1,3,1,0,5,0,1,3,1,1,"), FDr.ffi("4,3,0,1,2,1,1,"), FDr.ffi("4,3,0,0,1,7,"), FDr.ffi("4,3,0,2,0,"), FDr.ffi("4,3,0,1,3,0,"), FDr.ffi("4,3,0,0,0,x")] == ["2,1,0,4,0,", "3,2,1,0,0,5,1,1,", "3,1,0,4,1,2,", "3,0,1,2,", Wr.err("director: malformed request"), Wr.err("director: malformed request"), Wr.err("director: malformed request"), Wr.err("director: input left over")] : List<&2, String>}
+
+# LAW dir_end_is_final: an ended loop stays as it ended
+law dir_end_is_final:
+  for +cap: Nat
+  for +l: Dr.Loop
+  for done: {Dr.ended(l) == True{} : Bool}
+  for vs: List<&2, Dr.Verdict>
+  {Dr.tick(cap, l, vs) == l : Dr.Loop}
+
+# LAW dir_tick_out_of_steps: a continue with no step left yields; a layer that leads stays
+law dir_tick_out_of_steps:
+  for +cap: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for go: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Cont{} : Dr.Out}
+  {Dr.tick(cap, Dr.Loop{0n, s, None{}}, vs) == Dr.Loop{0n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_tick_hands_back: a hand back ends the loop with its steps left; a layer that leads
+# stays
+law dir_tick_hands_back:
+  for +cap: Nat
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for h: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Hand{} : Dr.Out}
+  {Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_tick_fails: a failure ends the loop with its steps left; a layer that leads
+# stays
+law dir_tick_fails:
+  for +cap: Nat
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for f: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Failed{} : Dr.Out}
+  {Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Failed{}}} : Dr.Loop}
+
+# LAW dir_loop_ends: the loop ends (hands back or fails) after at most n + 1 steps,
+# with n its global budget, whatever every layer says: no Director keeps
+# the loop going for ever
+law dir_loop_ends_orig:
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vss: List<&2, List<&2, Dr.Verdict>>
+  for +cap: Nat
+  for long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}
+  {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
+
+# LAW dir_lead_leaves_with_the_continuation: a step that goes on is the step where every layer that leads
+# leaves
+law dir_lead_leaves_with_the_continuation_orig:
+  for +cap: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  for on: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
+  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{})) : Dr.Loop}
+
+# LAW dir_lead_stays_when_the_loop_ends: a step that ends the loop is the step where every layer that leads
+# stays (defers): a reminder never leaves without its continuation
+law dir_lead_stays_when_the_loop_ends_orig:
+  for +cap: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  for ends: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
+  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Defer{})) : Dr.Loop}

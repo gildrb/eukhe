@@ -415,3 +415,10 @@ law launcher_ffi_example:
 # LAW launcher_closed_gate_waits_example (A1): anchor: an idle worker quiesced, then prompted, does not start the run
 law launcher_closed_gate_waits_example:
   {La.run([False{}], [La.Quiesce{0n}, La.Prompt{0n}]) == La.St{[La.Wk{False{}, True{}}], 0n, False{}} : La.St}
+
+# LAW idle_shutdown_never_aborts: an idle shutdown never aborts a run, in any order of prompts, run
+# ends, quiesces, releases and commits on any workers
+law idle_shutdown_never_aborts_orig:
+  for +bs: List<&2, Bool>
+  for +ops: List<&2, La.Op>
+  {La.St.aborted(La.run(bs, ops)) == 0n : Nat}

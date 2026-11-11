@@ -369,3 +369,65 @@ law core_facts_malformed_unless_request:
 #   tag read as a known one, the two error texts swapped
 law core_facts_tags_example:
   {[FFx.ffi("0,4,0,0,0,0,1,2,3,4,"), FFx.ffi("0,2,0,0,1,7,0,1,2,3,4,"), FFx.ffi("1,9,8,3,"), FFx.ffi("2,1,3,9,1,0,0,0,0,1,2,3,4,2,0,0,0,0,F"), FFx.ffi("2,0,6,3,0,0,0,1,7,1,2,3,4,2,0,0,0,0,F"), FFx.ffi("3,0,0,0,0,0,2,"), FFx.ffi("3,1,1,2,3,4,0,1,9,0,0,1,"), FFx.ffi("3,1,4,3,2,1,0,0,0,0,0,"), FFx.ffi("4,0,0,0,0,1,2,3,4,2,9,"), FFx.ffi("4,0,0,0,0,1,2,3,4,2,5,"), FFx.ffi("6,"), FFx.ffi("0,6,"), FFx.ffi("3,2,"), FFx.ffi("3,0,0,0,0,0,4,"), FFx.ffi(""), FFx.ffi("1,9,8,3,x")] == ["4,", "7,", "5,", "5,2,", "6,4,", "0,", "1,4,", "2,", "6,", "5,", Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: input left over")] : List<&2, String>}
+
+# LAW core_facts_level (R2): the level request answers the level's budget
+# EXCLUDES: the default budget over the user's, another level's budget
+law core_facts_level:
+  for +l: Fx.ELv
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for h: {core_facts_req_fits(FFx.Level{l, c, d}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Level{l, c, d}, "")) == Wr.put_nat(Fx.budget(c, d, Fx.Lv.of(l)), "") : String}
+
+# LAW core_facts_room (R2): the room request answers the budget under the answer's room
+# EXCLUDES: the budget, the ceiling and the answer's tokens swapped
+law core_facts_room:
+  for +b: Nat
+  for +m: Nat
+  for +a: Nat
+  for h: {core_facts_req_fits(FFx.Room{b, m, a}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Room{b, m, a}, "")) == Wr.put_nat(Fx.room(b, m, a), "") : String}
+
+# LAW core_facts_adjust (R2): the adjust request answers the fitted ceiling and budget
+# EXCLUDES: the caller's cap read as none, the model's cap and the answer's
+#   tokens swapped, the ceiling and the budget swapped in the reply, the
+#   window facts lost or misread
+law core_facts_adjust:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +l: Fx.ELv
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for +a: Nat
+  for +w: Fx.Win
+  for h: {core_facts_req_fits(FFx.Adjust{base, mm, l, c, d, a, w}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Adjust{base, mm, l, c, d, a, w}, "")) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a, w), "") : String}
+
+# LAW core_facts_google (R2): the Google request answers the Google budget, the refusal of an
+# unordered rule included
+# EXCLUDES: a rule read as none, a dynamic budget for an unordered rule
+law core_facts_google:
+  for +rule: Maybe<&2, Fx.Budgets>
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for h: {core_facts_req_fits(FFx.Google{rule, c, l}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Google{rule, c, l}, "")) == FFx.put_gb(Fx.gbudget(rule, c, l), "") : String}
+
+# LAW core_facts_aux (R2): the aux request answers the auxiliary call's output cap
+# EXCLUDES: the answer's tokens and the top swapped, a cap past the top
+law core_facts_aux:
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for +a: Nat
+  for +top: Nat
+  for h: {core_facts_req_fits(FFx.Aux{c, d, a, top}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Aux{c, d, a, top}, "")) == Wr.put_nat(Fx.aux(c, d, a, top), "") : String}
+
+# LAW core_facts_round_trip (R1): a budget request that fits reads back, and the rest is untouched
+# EXCLUDES: a level, a user's budget, a default budget, a cap or the
+#   answer's room lost, swapped or misread; a user's budget read as none
+law core_facts_round_trip_orig:
+  for +q: FFx.Req
+  for rest: String
+  for h: {core_facts_req_fits(q) == True{} : Bool}
+  {FFx.get_req(FFx.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FFx.Req>}

@@ -10,6 +10,7 @@ import ../../laws/retry.bend as Retry
 import ../base/logic/bool.bend as LLogicBool
 import ../base/retry.bend as LRetry
 import ./base/walk.bend as LW
+import ../base/logic/logic.bend as LLogicLogic
 
 def nt.mode(all: Bool, +len: Nat, +ts: List<&2, R.Tried>, +last: Nat, +p: R.Policy, +to: Nat, +w: Nat, M: LW.fw.Mode(all, len, ts, last, p, to, w)) -> {Nat.is_eq(to, last) == False{} : Bool}:
   match all:

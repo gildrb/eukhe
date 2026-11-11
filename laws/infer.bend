@@ -920,3 +920,16 @@ law facts_rulebook_default:
   for dflt: Bool
   for none: {If.any_at(rs, q, d, 0n) == False{} : Bool}
   {Fx.decide(rs, q, d, dflt) == dflt : Bool}
+
+# LAW strict_no_cap: with no cap every tool keeps its strict schema
+law strict_no_cap:
+  for +ts: List<&2, If.ToolPrio>
+  {If.strict.of(None{}, ts) == (ts, []) : List<&2, If.ToolPrio> & List<&2, If.ToolPrio>}
+
+# LAW quirk_known_when_some: a rule that applies always gives an answer
+law quirk_known_when_some_orig:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for some: {If.any_at(rs, q, d, 0n) == True{} : Bool}
+  {If.is_known(If.lookup(rs, q, d)) == True{} : Bool}

@@ -258,3 +258,49 @@ def stb.sub_past(k: Nat, -x: Nat) -> {Nat.sub(k, 1n+Nat.add(k, x)) == 0n : Nat}:
       {==}
     case 1n+j:
       stb.sub_past(j, x)
+
+def stb.on(b: Bool) -> {S.on(b) == StSpec.go_if(b) : S.Verdict}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f) : S.Verdict}:
+  match d:
+    case S.LengthStop{}:
+      match f:
+        case S.Facts{c, t, b, p}:
+          stb.on(c)
+    case S.EmptyStop{}:
+      match f:
+        case S.Facts{c, t, b, p}:
+          match t:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+    case S.MarkupStop{}:
+      match f:
+        case S.Facts{c, t, b, p}:
+          stb.on(b)
+    case S.PendingWork{}:
+      match f:
+        case S.Facts{c, t, b, p}:
+          match p:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+
+# a row at the cap is not under it
+def stb.eq_not_below(+a: Nat, +b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {RnRecovery.below(a, b) == False{} : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      stb.absurd({RnRecovery.below(0n, 1n+q) == False{} : Bool}, h)
+    case 1n+p 0n:
+      stb.absurd({RnRecovery.below(1n+p, 0n) == False{} : Bool}, h)
+    case 1n+p 1n+q:
+      stb.eq_not_below(p, q, h)

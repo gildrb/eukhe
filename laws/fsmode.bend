@@ -345,3 +345,61 @@ law fsmode_ffi_example:
   {FFs.ffi("3,1,0,2,") == "1," : String} &
   {FFs.ffi("3,1,4,/tmp1,") == "3," : String} &
   {FFs.ffi("1,5,5,x") == "E fsmode: malformed request" : String}
+
+# LAW cwd_is_explicit: an accepted session create runs in the dir it named, and that dir
+# exists
+law cwd_is_explicit:
+  for c: Fs.Cwd
+  for p: Nat
+  for ok: {Fs.open(c) == Fs.Opened{p} : Fs.Open}
+  {c == Fs.DirCwd{p} : Fs.Cwd}
+
+# LAW cwd_gone_refused: a create whose working dir is gone is refused, and the refusal
+# names that dir
+law cwd_gone_refused:
+  for p: Nat
+  {Fs.open(Fs.GoneCwd{p}) == Fs.Gone{p} : Fs.Open}
+
+# LAW cwd_file_refused: a create whose working dir is a file is refused, and the refusal
+# names that path
+law cwd_file_refused:
+  for p: Nat
+  {Fs.open(Fs.FileCwd{p}) == Fs.NotDir{p} : Fs.Open}
+
+# LAW cwd_dir_opens: a create that names an existing dir runs in it
+law cwd_dir_opens:
+  for p: Nat
+  {Fs.open(Fs.DirCwd{p}) == Fs.Opened{p} : Fs.Open}
+
+# a digit with any bit set
+def set_spec(d: Nat) -> Bool:
+  match d:
+    case 0n:
+      False{}
+    case 1n+p:
+      True{}
+
+# LAW fsmode_modes_exact: eukhe creates a dir with mode 0700 and a file with 0600; a mode is loose exactly when its group or other digit has a bit set
+law fsmode_modes_exact:
+  for u: Nat
+  for g: Nat
+  for o: Nat
+  {Fs.made_mode(Fs.DirMade{}) == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.made_mode(Fs.FileMade{}) == Fs.Mode{6n, 0n, 0n} : Fs.Mode} & {Fs.dir_mode() == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.Mode.loose(Fs.Mode{u, g, o}) == Bool.or(set_spec(g), set_spec(o)) : Bool}
+
+# what the check finds at a dir the daemon just created with mode m: a
+# real dir, this uid's, loose when m has a group- or other-write bit (the
+# rule `look` reads from Rust's permission bits: read and search bits are
+# harmless)
+def made_spec(m: Fs.Mode) -> Fs.Seen:
+  match m:
+    case Fs.Mode{u, g, o}:
+      Fs.Seen{Fs.Dir{}, True{}, Bool.or(wbit(g, 2n), wbit(o, 2n))}
+
+# LAW fsmode_made_exact (G1): the dir the daemon creates with mode m is found as a real dir this uid owns, loose exactly when m has a group- or other-write bit, for every mode
+# EXCLUDES: a created dir found safe whatever its mode
+#   (socket_dir_created_used made vacuous: made(m) = Seen{Dir, True,
+#   False}), found as another node or another owner's, loose by another
+#   digit, or loose by a read or search bit (0750 is safe, 0770 is not)
+law fsmode_made_exact:
+  for m: Fs.Mode
+  {Fs.made(m) == made_spec(m) : Fs.Seen}

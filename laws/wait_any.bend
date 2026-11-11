@@ -305,3 +305,25 @@ law wait_any_entry_refuses:
 # EXCLUDES: a vacuous entry law whose premise no input meets
 law wait_any_entry_premises_witness:
   {[SpW.fit(FWa.QTimeout{None{}}), LawsBase.wire_opens_err(FWa.ffi("3,")), LawsBase.wire_opens_err(FWa.ffi("2,0,"))] == [True{}, True{}, False{}] : List<&2, Bool>}
+
+# LAW wait_any_deliveries_spec (R4, S5): the code's count of deliveries
+# is the spec's sum over every step
+# EXCLUDES: a count that stops at the first delivery (a second delivery
+#   unseen by wait_any_once)
+law wait_any_deliveries_spec:
+  for +es: List<&2, Wa.Ev>
+  for +wake: Bool
+  for +d: Wa.D
+  {Wa.deliveries(es, wake, d) == WaSpec.deliveries(es, wake, d) : Nat}
+
+# LAW wait_any_step_spec (R2, R4, S3, S5): every step of a job's delivery,
+# from any watchers and phase, is the spec's: the watchers, the phase and
+# the deliveries
+# EXCLUDES: a sent result delivered again (a second take), a result
+#   watched by two or more waits sent to the notice, a watcher count off by
+#   one, a settle that ignores the wake path, a held result lost
+law wait_any_step_spec:
+  for +wake: Bool
+  for +d: Wa.D
+  for +e: Wa.Ev
+  {Wa.step(wake, d, e) == WaSpec.step(wake, d, e) : Wa.Out}

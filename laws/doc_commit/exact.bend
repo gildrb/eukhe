@@ -155,3 +155,42 @@ law edit_reply_conflict:
 law edit_reply_exact:
   for +ds: List<&2, SpFile>
   {Cm.reply(sp_clean(ds)) == sp_reply.fates(DocCommit.sp_fates(sp_clean(ds))) : Cm.Reply}
+
+def sp_get.of(b: Bool, g: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match b:
+    case True{}:
+      Some{g}
+    case False{}:
+      rest
+
+# F5: the content of the first file named n (none when no file is)
+def sp_get(+n: Nat, es: List<&2, Cm.Entry>) -> Maybe<&2, Nat>:
+  match es:
+    case Nil{}:
+      None{}
+    case e <> rest:
+      match e:
+        case Cm.Entry{m, g}:
+          sp_get.of(Nat.is_eq(m, n), g, sp_get(n, rest))
+
+# F5: some file is named n
+def sp_has(+n: Nat, es: List<&2, Cm.Entry>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      match e:
+        case Cm.Entry{m, g}:
+          Bool.or(Nat.is_eq(m, n), sp_has(n, rest))
+
+# LAW move_tests_exact (F5): a file named n is there exactly when some
+# file has that name, and the content of n is the content of the first
+# file so named (none when no file is)
+# EXCLUDES: a has that is always False (move_never_overwrites and
+#   move_moves vacuous: an MV over an existing file) or always True; a has
+#   or get that reads only one file; a get that answers another file's
+#   content, the last match, or a content for a missing name
+law move_tests_exact:
+  for +n: Nat
+  for +es: List<&2, Cm.Entry>
+  {Cm.has(n, es) == sp_has(n, es) : Bool} & {Cm.get(n, es) == sp_get(n, es) : Maybe<&2, Nat>}

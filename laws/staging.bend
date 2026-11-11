@@ -757,3 +757,229 @@ law staging_entry_errors_example:
 # EXCLUDES: tags in another order, a field order other than Rust's
 law staging_entry_example:
   {FSg.ffi("0,T") == "1," : String} & {FSg.ffi("0,F") == "0," : String} & {FSg.ffi("1,2,0,43,.s1.import-0123456789abcdef0123456789abcdef0,F0,9,session-10,F") == "2,2,1," : String} & {FSg.ffi("2,0,1,200000,0,113600,0,1,50000,0,") == "2," : String} & {FSg.ffi("3,2,0,9,durable-10,T0,14,legacy-1.jsonl1,") == "2,1,9,durable-12,8,legacy-1" : String} & {FSg.ffi("4,1,0,1,a0,T1,2,/p1,30,5,") == "1,0,1,1,a30,5," : String}
+
+# LAW publish_never_overwrites: a publish to a name that an entry has fails and changes nothing:
+# a rename never replaces an existing target, not even an empty directory
+law publish_never_overwrites:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  for taken: {Sg.has(t, es) == True{} : Bool}
+  {Sg.publish(s, t, es) == Sg.Pub{False{}, es} : Sg.Pub}
+
+# LAW publish_moves: a publish to a free name moves the storage
+law publish_moves:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  for free: {Sg.has(t, es) == False{} : Bool}
+  {Sg.Pub.ok(Sg.publish(s, t, es)) == True{} : Bool}
+
+def sp_moved(v: Sg.Verdict) -> Bool:
+  match v:
+    case Sg.Moved{}:
+      True{}
+    case Sg.Taken{}:
+      False{}
+
+# LAW publish_settle_refines (R1): the verdict of a rename that met the entries es of the
+# parent is the model's publish: moved exactly when the model moves
+# EXCLUDES: a real verdict that differs from the model the laws
+#   publish_never_overwrites and publish_moves are about
+law publish_settle_refines:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  {sp_moved(Sg.settle(Sg.has(t, es))) == Sg.Pub.ok(Sg.publish(s, t, es)) : Bool}
+
+def sp_met.dir(sw: Bool, main: Bool) -> Sg.Met:
+  match sw:
+    case True{}:
+      Sg.MLeftover{}
+    case False{}:
+      match main:
+        case True{}:
+          Sg.MKeep{}
+        case False{}:
+          Sg.MDescend{}
+
+def sp_met.raw(k: Sg.Form) -> Sg.Met:
+  match k:
+    case Sg.KDir{main}:
+      sp_met.dir(False{}, main)
+    case Sg.KFile{}:
+      Sg.MKeep{}
+    case Sg.KOther{}:
+      Sg.MKeep{}
+
+def sp_met.lock(sw: Bool, there: Bool) -> Sg.Met:
+  match sw:
+    case True{}:
+      match there:
+        case True{}:
+          Sg.MKeep{}
+        case False{}:
+          Sg.MOrphan{}
+    case False{}:
+      Sg.MKeep{}
+
+# the text before the last '.' of a text, and the text after it
+type SpCut is Data:
+  SpCut{before: String, after: String}
+
+def sp_cut.cons(c: Char, p: SpCut) -> Maybe<&2, SpCut>:
+  match p:
+    case SpCut{b, a}:
+      Some{SpCut{SCon{c, b}, a}}
+
+def sp_cut.dot(d: Bool, t: String) -> Maybe<&2, SpCut>:
+  match d:
+    case True{}:
+      Some{SpCut{SNil{}, t}}
+    case False{}:
+      None{}
+
+def sp_cut.put(r: Maybe<&2, SpCut>, d: Bool, c: Char, t: String) -> Maybe<&2, SpCut>:
+  match r:
+    case Some{p}:
+      sp_cut.cons(c, p)
+    case None{}:
+      sp_cut.dot(d, t)
+
+# w split at its last '.'
+def sp_cut(w: String) -> Maybe<&2, SpCut>:
+  match w:
+    case SNil{}:
+      None{}
+    case SCon{+c, +t}:
+      sp_cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t)
+
+def sp_if(ok: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match ok:
+    case True{}:
+      m
+    case False{}:
+      None{}
+
+# s after the prefix p, when s starts with p
+def sp_unprefix(p: String, s: String) -> Maybe<&2, String>:
+  match p:
+    case SNil{}:
+      Some{s}
+    case SCon{x, pt}:
+      match s:
+        case SNil{}:
+          None{}
+        case SCon{y, st}:
+          sp_if(Char.is_eq(x, y), sp_unprefix(pt, st))
+
+def sp_uuid(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{s}:
+      sp_hexn(32n, s)
+
+# the part after the last '.': `import-`, `fork-` or `deleted-`, then a uuid
+def sp_tail(+a: String) -> Bool:
+  Bool.or(sp_uuid(sp_unprefix("import-", a)), Bool.or(sp_uuid(sp_unprefix("fork-", a)), sp_uuid(sp_unprefix("deleted-", a))))
+
+def sp_swept.cut(m: Maybe<&2, SpCut>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      match p:
+        case SpCut{b, a}:
+          Bool.and(Bool.not(String.is_empty(b)), sp_tail(a))
+
+# s is `.<target>.<label>-<uuid>`, the target not empty
+def sp_swept(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Bool.and(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(t)))
+
+def sp_met.file(m: Maybe<&2, String>, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match m:
+    case None{}:
+      Sg.MKeep{}
+    case Some{+x}:
+      sp_met.lock(sp_swept(x), LawsBase.text_has_name(x, all))
+
+def sp_met.utf(k: Sg.Form, +s: String, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match k:
+    case Sg.KDir{main}:
+      sp_met.dir(sp_swept(s), main)
+    case Sg.KFile{}:
+      sp_met.file(LawsBase.text_unsuffix(".lock", s), all)
+    case Sg.KOther{}:
+      Sg.MKeep{}
+
+# what the sweep does with the entry e of the listing all (R3): a
+# directory with a swept name is judged; any other directory is kept when
+# it holds main.jsonl and entered otherwise; a file `<x>.lock`, x a swept
+# name, is judged when no entry has the name x; everything else is kept
+def sp_met(e: Sg.Seen, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          sp_met.utf(k, s, all)
+        case Sg.Raw{}:
+          sp_met.raw(k)
+
+def sp_meet.go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> List<&2, Sg.Met>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      sp_met(e, all) <> sp_meet.go(rest, all)
+
+def sp_meet(+es: List<&2, Sg.Seen>) -> List<&2, Sg.Met>:
+  sp_meet.go(es, es)
+
+# LAW meet_exact (R3): the sweep's class of every entry of a listing is the spec's, in order
+# EXCLUDES: a storage entered, a symlink followed, a leftover entered or
+#   kept, a staging name misread (another label, an uppercase or short
+#   uuid, an empty target), a lock file judged beside its directory or a
+#   Raw name judged, an entry lost, added or moved
+law meet_exact:
+  for +es: List<&2, Sg.Seen>
+  {Sg.meet(es) == sp_meet(es) : List<&2, Sg.Met>}
+
+# a plain directory: no swept name, no main.jsonl (R3)
+def sp_plain.k(k: Sg.Form, sw: Bool) -> Bool:
+  match k:
+    case Sg.KDir{main}:
+      Bool.and(Bool.not(sw), Bool.not(main))
+    case Sg.KFile{}:
+      False{}
+    case Sg.KOther{}:
+      False{}
+
+def sp_plain(e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          sp_plain.k(k, sp_swept(s))
+        case Sg.Raw{}:
+          sp_plain.k(k, False{})
+
+def sp_plains(es: List<&2, Sg.Seen>) -> List<&2, Bool>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      sp_plain(e) <> sp_plains(rest)
+
+# LAW sweep_stays_out_real (R3): the walk enters exactly the plain directories: never a
+# storage, a symlink, a file or a leftover (sweep_stays_out, on the real
+# listing)
+# EXCLUDES: a walk into a storage or behind a symlink, a plain directory
+#   left unwalked (sweep_reaches_every_depth)
+law sweep_stays_out_real_orig:
+  for +es: List<&2, Sg.Seen>
+  {sp_descends(Sg.meet(es)) == sp_plains(es) : List<&2, Bool>}

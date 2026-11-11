@@ -866,3 +866,196 @@ law admission_live_run:
 # EXCLUDES: an ended ticket kept, tickets renumbered when one leaves
 law admission_live_example:
   {adl_run([Ad.Admit{Ad.Ia{}}, Ad.Admit{Ad.Ia{}}, Ad.Release{0n}], Ad.Live{Ad.Cap{0n}, 1n, Nil{}, 0n}) == Ad.Live{Ad.Cap{0n}, 1n, [Ad.Lv{1n, Ad.Ia{}, Ad.Granted{}}], 2n} : Ad.Live}
+
+def ads_bg_status(free: Bool) -> Ad.Sts:
+  match free:
+    case True{}:
+      Ad.Held{}
+    case False{}:
+      Ad.Queued{}
+
+# a new background request: a slot when no interactive request holds one
+# or waits, no request waits and a slot is free; else it waits (never
+# rejected)
+def ads_admit_bg(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  List.append(&2, Ad.Tk, ts, [Ad.Tk{Ad.Bg{}, ads_bg_status(Bool.and(Nat.is_eq(ads_held(Ad.Ia{}, ts), 0n), Bool.and(Nat.is_eq(ads_queued(Ad.Ia{}, ts), 0n), Bool.and(Nat.is_eq(ads_queued(Ad.Bg{}, ts), 0n), ads_room(l, ads_busy(ts))))))}])
+
+# a new interactive request: a slot when one is free for it (the
+# interactive slots below the limit) and no interactive request waits;
+# else rejected (ended) once q interactive requests wait; else it waits
+def ads_ia_status(free: Bool, full: Bool) -> Ad.Sts:
+  match free:
+    case True{}:
+      Ad.Held{}
+    case False{}:
+      match full:
+        case True{}:
+          Ad.Ended{}
+        case False{}:
+          Ad.Queued{}
+
+# an interactive request frees every background slot: a granted waiter
+# waits again, a collected permit is preempted
+def ads_preempt1(t: Ad.Tk) -> Ad.Tk:
+  match t:
+    case Ad.Tk{c, s}:
+      match c:
+        case Ad.Ia{}:
+          Ad.Tk{Ad.Ia{}, s}
+        case Ad.Bg{}:
+          match s:
+            case Ad.Queued{}:
+              Ad.Tk{Ad.Bg{}, Ad.Queued{}}
+            case Ad.Granted{}:
+              Ad.Tk{Ad.Bg{}, Ad.Queued{}}
+            case Ad.Held{}:
+              Ad.Tk{Ad.Bg{}, Ad.Preempted{}}
+            case Ad.Preempted{}:
+              Ad.Tk{Ad.Bg{}, Ad.Preempted{}}
+            case Ad.Ended{}:
+              Ad.Tk{Ad.Bg{}, Ad.Ended{}}
+
+def ads_preempt(ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case h <> r:
+      ads_preempt1(h) <> ads_preempt(r)
+
+# what an interactive request does to the tickets before it: on a capped
+# provider it frees every background slot; on an unlimited one, which has
+# a slot for every request, it leaves them
+def ads_yield(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  match l:
+    case Ad.Unl{}:
+      ts
+    case Ad.Cap{p}:
+      ads_preempt(ts)
+
+def ads_admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  +wi = ads_queued(Ad.Ia{}, ts)
+  List.append(&2, Ad.Tk, ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, ads_ia_status(Bool.and(Nat.is_eq(wi, 0n), ads_room(l, ads_held(Ad.Ia{}, ts))), Nat.is_le(q, wi))}])
+
+# ticket k gets status x (no ticket k: nothing changes)
+def ads_set(ts: List<&2, Ad.Tk>, k: Nat, x: Ad.Sts) -> List<&2, Ad.Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Ad.Tk{c, s} <> r:
+      match k:
+        case 0n:
+          Ad.Tk{c, x} <> r
+        case 1n+j:
+          Ad.Tk{c, s} <> ads_set(r, j, x)
+
+# a waiter polls: a granted permit is collected; nothing else changes
+def ads_collect(m: Maybe<&2, Ad.Tk>, l: Ad.Lim, q: Nat, ts: List<&2, Ad.Tk>, k: Nat) -> Ad.St:
+  match m:
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      Ad.St{l, q, ads_set(ts, k, Ad.Held{})}
+    case _:
+      Ad.St{l, q, ts}
+
+# a waiter drops (granted or not): it ends and a slot it was granted goes
+# to the waiters; nothing else changes
+def ads_leave(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, q: Nat, ts: List<&2, Ad.Tk>, k: Nat) -> Ad.St:
+  match m:
+    case Some{Ad.Tk{c, Ad.Queued{}}}:
+      Ad.St{l, q, ads_grant(l, ads_set(ts, k, Ad.Ended{}))}
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      Ad.St{l, q, ads_grant(l, ads_set(ts, k, Ad.Ended{}))}
+    case _:
+      Ad.St{l, q, ts}
+
+# a collected permit drops: it ends and its slot goes to the waiters; a
+# preempted one ends (its slot was freed); nothing else changes
+def ads_release(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, q: Nat, ts: List<&2, Ad.Tk>, k: Nat) -> Ad.St:
+  match m:
+    case Some{Ad.Tk{c, Ad.Held{}}}:
+      Ad.St{l, q, ads_grant(l, ads_set(ts, k, Ad.Ended{}))}
+    case Some{Ad.Tk{c, Ad.Preempted{}}}:
+      Ad.St{l, q, ads_set(ts, k, Ad.Ended{})}
+    case _:
+      Ad.St{l, q, ts}
+
+# one op on the controller (ticket k is the k-th admitted, oldest 0)
+def ads_step(s: Ad.St, o: Ad.Op) -> Ad.St:
+  match s:
+    case Ad.St{+l, +q, +ts}:
+      match o:
+        case Ad.Admit{c}:
+          match c:
+            case Ad.Ia{}:
+              Ad.St{l, q, ads_admit_ia(l, q, ts)}
+            case Ad.Bg{}:
+              Ad.St{l, q, ads_admit_bg(l, ts)}
+        case Ad.Collect{+k}:
+          ads_collect(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
+        case Ad.Release{+k}:
+          ads_release(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
+        case Ad.Depart{+k}:
+          ads_leave(List.get(&2, Ad.Tk, ts, k), l, q, ts, k)
+        case Ad.Limit{+l2, q2}:
+          Ad.St{l2, q2, ads_grant(l2, ts)}
+
+# LAW admission_step_exact: every op on every state of the model is the spec's: an interactive admit on a capped provider preempts every background slot (on an unlimited one it changes no ticket) and holds a slot when one is free for it and no interactive request waits, is rejected once q of them wait, else waits; a background admit holds a slot only when no interactive request holds or waits, none waits and a slot is free, else waits; a collect takes a granted permit; a release ends a collected or preempted permit, and a collected one's slot is granted; a leave ends a waiter and its grant is granted; new limits take effect; each grant gives the free slots to the interactive waiters oldest first, then, while no interactive request holds or waits, to the background waiters oldest first
+# EXCLUDES: a wrong grant, preemption, rejection or status, a slot left
+#   free while a waiter may take it, a ticket other than the op's changed
+law admission_step_exact:
+  for +s: Ad.St
+  for +o: Ad.Op
+  {Ad.step(s, o) == ads_step(s, o) : Ad.St}
+
+# what fits the wire: every Nat (and every list length) at most 14 digits
+def adw_lim_fits(l: Ad.Lim) -> Bool:
+  match l:
+    case Ad.Unl{}:
+      True{}
+    case Ad.Cap{p}:
+      LawsBase.wire_fits(p)
+
+def adw_op_fits(o: Ad.Op) -> Bool:
+  match o:
+    case Ad.Admit{c}:
+      True{}
+    case Ad.Collect{k}:
+      LawsBase.wire_fits(k)
+    case Ad.Release{k}:
+      LawsBase.wire_fits(k)
+    case Ad.Depart{k}:
+      LawsBase.wire_fits(k)
+    case Ad.Limit{l, q}:
+      Bool.and(adw_lim_fits(l), LawsBase.wire_fits(q))
+
+# LAW adw_step_answers (R2): an encoded op runs the model's step on the kept controller: the
+# new controller, and its encoding as the reply
+# EXCLUDES: a step that drops or reorders ops, a state that drifts from
+#   the model, a reply that is not the state kept
+law adw_step_answers:
+  for +x: Ad.Live
+  for +o: Ad.Op
+  for h: {adw_op_fits(o) == True{} : Bool}
+  {FAd.step(FAd.Running{x}, FAd.put_op(o, "")) == (FAd.Running{Ad.Live.step(x, o)}, FAd.put_live(Ad.Live.step(x, o), "")) : FAd.St & String}
+
+# LAW adw_op_round_trip (R1): the request of a step, an op that fits, reads back
+# EXCLUDES: one op read as another, a misread ticket number or limit
+law adw_op_round_trip:
+  for +o: Ad.Op
+  for rest: String
+  for h: {adw_op_fits(o) == True{} : Bool}
+  {FAd.get_op(FAd.put_op(o, rest)) == Wr.Got{o, rest} : Wr.Dec<Ad.Op>}
+
+# LAW adw_cls_round_trip (R1): a ticket's class reads back, and the rest is untouched
+# EXCLUDES: swapped class tags, a class that eats the rest
+law adw_cls_round_trip:
+  for c: Ad.Cls
+  for rest: String
+  {FAd.get_cls(FAd.put_cls(c, rest)) == Wr.Got{c, rest} : Wr.Dec<Ad.Cls>}
+
+# LAW adw_lim_round_trip (R1): a limit that fits reads back, and the rest is untouched
+# EXCLUDES: a cap read as unlimited, a misread slot count
+law adw_lim_round_trip:
+  for +l: Ad.Lim
+  for rest: String
+  for h: {adw_lim_fits(l) == True{} : Bool}
+  {FAd.get_lim(FAd.put_lim(l, rest)) == Wr.Got{l, rest} : Wr.Dec<Ad.Lim>}

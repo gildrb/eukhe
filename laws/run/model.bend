@@ -80,6 +80,7 @@ import ../../bend/run/request.bend as RnRequest
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
 import ../../bend/wire.bend as Wr
+import ../../bend/run/recovery.bend as RnRecovery
 
 # (H4) Every run ends
 # -------------------
@@ -825,3 +826,39 @@ law run_reply_saturates_the_attempt:
 #   empty reply redone past its cap
 law run_entry_example:
   {[FRn.ffi("5,3,2,2,5,3,4,3,"), FRn.ffi("5,3,2,2,5,3,4,2,"), FRn.ffi("0,250,600000,3,4,1,0,10,F2,"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("3,F1,"), FRn.ffi("4,250,600000,3,4,7,FF"), FRn.ffi("6,T2,3,"), FRn.ffi("5,3,2,2,5,3,4,3,x"), FRn.ffi("7,")] == ["2,", "1,3,", "2,", "3,FT", "0,", "T", "3,8,", "T", Wr.err("run: input left over after the request"), Wr.err("run: malformed request")] : List<&2, String>}
+
+# LAW rec_calls_run: tool calls that make fewer than `repeat` rounds in a row run: the
+# recoveries never stop a call that is not a repeat. The rounds in a row
+# grow when the results are those of the last round; when the results
+# change (a poll of a job that makes progress), a new row of 1 starts
+law rec_calls_run:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for fresh: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Exec{}, RnRecovery.Rec{RnRecovery.Free{}, 0n, RnRecovery.ran.same(kept, RnRecovery.again(same, last, h)), h}} : RnRecovery.Dec}
+
+# LAW rec_repeat_redirects: such a repeat, under the cap, is retried with the next redirect
+# note
+law rec_repeat_redirects:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for rep: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == False{} : Bool}
+  for under: {RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Loops{}, 1n+RnRecovery.Rk.loops(k, row), same, last}} : RnRecovery.Dec}
+
+# LAW rec_redo_is_noted: a recovery's retry is a noted error, so its request ends with the
+# note of the next attempt (run_cut_names_the_request): it never sends
+# the request again (run_retry_sends_a_new_request)
+law rec_redo_is_noted:
+  for -pass: RnState.Reply
+  {RnRecovery.Act.reply(RnRecovery.Redo{}, pass) == RnState.Error{False{}, True{}} : RnState.Reply}

@@ -11,3 +11,10 @@ def AdmissionWire.adw_cls_round_trip(c, rest):
       {==}
     case Ad.Bg{}:
       {==}
+
+def Admission.adw_cls_round_trip(c, rest):
+  match c:
+    case Ad.Ia{}:
+      {==}
+    case Ad.Bg{}:
+      {==}

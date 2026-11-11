@@ -597,3 +597,330 @@ def ae.answers_r(+d: F.Desk, +e: F.DEv, fits: {AuthFlightEntry.af_ev_fits(e) == 
 # a premise on the first live caller numbered k, turned around
 def ae.at_r(+k: Nat, +cs: List<&2, F.Cl>, +x: F.Cl, at: {AuthFlightEntry.af_find(k, cs) == Some{x} : Maybe<&2, F.Cl>}) -> {Some{x} == AuthFlightEntry.af_find(k, cs) : Maybe<&2, F.Cl>}:
   Equal.sym(Maybe<&2, F.Cl>, AuthFlightEntry.af_find(k, cs), Some{x}, at)
+
+def ae.set_at_orig(hit: Bool, x: F.Cl, +a: F.At, t: List<&2, F.Cl>, r: List<&2, F.Cl>) -> {F.set.at(hit, x, a, t, r) == AuthFlightEntry.af_set.pick(hit, x, a, t, r) : List<&2, F.Cl>}:
+  match hit:
+    case True{}:
+      match x:
+        case F.Cl{j, p, o}:
+          {==}
+    case False{}:
+      {==}
+
+def ae.set_orig(+k: Nat, +a: F.At, cs: List<&2, F.Cl>) -> {F.set(k, a, cs) == AuthFlightEntry.af_set(k, a, cs) : List<&2, F.Cl>}:
+  match cs:
+    case Nil{}:
+      {==}
+    case x <> +t:
+      match x:
+        case F.Cl{+j, +p, +o}:
+          %ae.set_orig(k, a, t) : {F.set.at(Nat.is_eq(j, k), F.Cl{j, p, o}, a, t, F.set(k, a, t)) == AuthFlightEntry.af_set.pick(Nat.is_eq(j, k), F.Cl{j, p, o}, a, t, _) : List<&2, F.Cl>}
+          ae.set_at_orig(Nat.is_eq(j, k), F.Cl{j, p, o}, a, t, F.set(k, a, t))
+
+def ae.board_orig(fl: Bool, +k: Nat, +cs: List<&2, F.Cl>, +m: Nat) -> {F.board(fl, k, cs, m) == AuthFlightEntry.af_board(fl, k, cs, m) : F.DRes}:
+  match fl:
+    case True{}:
+      %ae.set_orig(k, F.Waits{}, cs) : {F.board(True{}, k, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{[F.To{k, F.DoWait{}}]}} : F.DRes}
+      {==}
+    case False{}:
+      %ae.set_orig(k, F.Checks{}, cs) : {F.board(False{}, k, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{[F.To{k, F.DoCheck{}}]}} : F.DRes}
+      {==}
+
+def ae.cut_at_orig(hit: Bool, x: F.Cl, t: List<&2, F.Cl>, r: List<&2, F.Cl>) -> {F.cut.at(hit, x, t, r) == AuthFlightEntry.af_cut.pick(hit, x, t, r) : List<&2, F.Cl>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def ae.cut_orig(+k: Nat, cs: List<&2, F.Cl>) -> {F.cut(k, cs) == AuthFlightEntry.af_cut(k, cs) : List<&2, F.Cl>}:
+  match cs:
+    case Nil{}:
+      {==}
+    case x <> +t:
+      match x:
+        case F.Cl{+j, +p, +o}:
+          %ae.cut_orig(k, t) : {F.cut.at(Nat.is_eq(j, k), F.Cl{j, p, o}, t, F.cut(k, t)) == AuthFlightEntry.af_cut.pick(Nat.is_eq(j, k), F.Cl{j, p, o}, t, _) : List<&2, F.Cl>}
+          ae.cut_at_orig(Nat.is_eq(j, k), F.Cl{j, p, o}, t, F.cut(k, t))
+
+def ae.unwait_at_orig(hit: Bool, x: F.Cl, r: List<&2, F.Cl>) -> {F.unwait.at(hit, x, r) == AuthFlightEntry.af_unwait.pick(hit, x, r) : List<&2, F.Cl>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def ae.unwait_orig(+p: String, cs: List<&2, F.Cl>) -> {F.unwait(p, cs) == AuthFlightEntry.af_unwait(p, cs) : List<&2, F.Cl>}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      %ae.unwait_orig(p, t) : {F.unwait.at(F.waits(p, x), x, F.unwait(p, t)) == AuthFlightEntry.af_unwait.pick(AuthFlightEntry.af_waits(p, x), x, _) : List<&2, F.Cl>}
+      %ae.waits(p, x) : {F.unwait.at(F.waits(p, x), x, F.unwait(p, t)) == AuthFlightEntry.af_unwait.pick(_, x, F.unwait(p, t)) : List<&2, F.Cl>}
+      ae.unwait_at_orig(F.waits(p, x), x, F.unwait(p, t))
+
+def ae.wake_at_orig(hit: Bool, x: F.Cl, +a: F.Act, r: List<&2, F.To>) -> {F.wake.at(hit, x, a, r) == AuthFlightEntry.af_wake.pick(hit, x, a, r) : List<&2, F.To>}:
+  match hit:
+    case True{}:
+      match x:
+        case F.Cl{j, q, o}:
+          {==}
+    case False{}:
+      {==}
+
+def ae.wake_orig(+p: String, +a: F.Act, cs: List<&2, F.Cl>) -> {F.wake(p, a, cs) == AuthFlightEntry.af_wake(p, a, cs) : List<&2, F.To>}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      %ae.wake_orig(p, a, t) : {F.wake.at(F.waits(p, x), x, a, F.wake(p, a, t)) == AuthFlightEntry.af_wake.pick(AuthFlightEntry.af_waits(p, x), x, a, _) : List<&2, F.To>}
+      %ae.waits(p, x) : {F.wake.at(F.waits(p, x), x, a, F.wake(p, a, t)) == AuthFlightEntry.af_wake.pick(_, x, a, F.wake(p, a, t)) : List<&2, F.To>}
+      ae.wake_at_orig(F.waits(p, x), x, a, F.wake(p, a, t))
+
+def ae.land_orig(+k: Nat, +p: String, +cs: List<&2, F.Cl>, +m: Nat) -> {F.land(k, p, cs, m) == AuthFlightEntry.af_land(k, p, cs, m) : F.DRes}:
+  %ae.cut_orig(k, cs) : {F.land(k, p, cs, m) == F.DRes{F.Desk{AuthFlightEntry.af_unwait(p, _), m}, F.Acts{F.To{k, F.DoDone{}} <> AuthFlightEntry.af_wake(p, F.DoDone{}, _)}} : F.DRes}
+  %ae.unwait_orig(p, F.cut(k, cs)) : {F.land(k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{F.To{k, F.DoDone{}} <> AuthFlightEntry.af_wake(p, F.DoDone{}, F.cut(k, cs))}} : F.DRes}
+  %ae.wake_orig(p, F.DoDone{}, F.cut(k, cs)) : {F.land(k, p, cs, m) == F.DRes{F.Desk{F.unwait(p, F.cut(k, cs)), m}, F.Acts{F.To{k, F.DoDone{}} <> _}} : F.DRes}
+  {==}
+
+def ae.found_go_orig(fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +m: Nat) -> {F.found.go(fd, k, p, cs, m) == AuthFlightEntry.af_found(fd, k, p, cs, m) : F.DRes}:
+  match fd:
+    case F.LoadFresh{}:
+      %ae.cut_orig(k, cs) : {F.found.go(F.LoadFresh{}, k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{[F.To{k, F.DoDone{}}]}} : F.DRes}
+      {==}
+    case F.LoadExpired{}:
+      %ae.inflight(p, cs) : {F.found.go(F.LoadExpired{}, k, p, cs, m) == AuthFlightEntry.af_board(_, k, cs, m) : F.DRes}
+      ae.board_orig(F.inflight(p, cs), k, cs, m)
+    case F.LoadFailed{}:
+      %ae.cut_orig(k, cs) : {F.found.go(F.LoadFailed{}, k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{[F.To{k, F.DoDone{}}]}} : F.DRes}
+      {==}
+    case F.CheckFresh{}:
+      ae.land_orig(k, p, cs, m)
+    case F.CheckExpired{}:
+      %ae.set_orig(k, F.Fetches{}, cs) : {F.found.go(F.CheckExpired{}, k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{[F.To{k, F.DoFetch{}}]}} : F.DRes}
+      {==}
+    case F.FetchOk{}:
+      %ae.set_orig(k, F.Stores{}, cs) : {F.found.go(F.FetchOk{}, k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{[F.To{k, F.DoStore{}}]}} : F.DRes}
+      {==}
+    case F.FetchFailed{}:
+      ae.land_orig(k, p, cs, m)
+    case F.Stored{}:
+      ae.land_orig(k, p, cs, m)
+
+def ae.found_fit_orig(fit: Bool, fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +m: Nat) -> {F.found.fit(fit, fd, k, p, cs, m) == AuthFlightEntry.af_found_fit(fit, fd, k, p, cs, m) : F.DRes}:
+  match fit:
+    case True{}:
+      ae.found_go_orig(fd, k, p, cs, m)
+    case False{}:
+      {==}
+
+def ae.d_found_orig(r: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +m: Nat) -> {F.found(r, fd, k, cs, m) == AuthFlightEntry.af_found_at(r, fd, k, cs, m) : F.DRes}:
+  match r:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case F.Cl{j, +p, +a}:
+          %ae.takes(a, fd) : {F.found.fit(Nat.is_eq(F.At.tag(a), F.Fd.tag(fd)), fd, k, p, cs, m) == AuthFlightEntry.af_found_fit(_, fd, k, p, cs, m) : F.DRes}
+          ae.found_fit_orig(Nat.is_eq(F.At.tag(a), F.Fd.tag(fd)), fd, k, p, cs, m)
+
+def ae.joined_orig(+p: String, cs: List<&2, F.Cl>) -> {F.joined(p, cs) == AuthFlightEntry.af_joined(p, cs) : Nat}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      %ae.joined_orig(p, t) : {F.joined.at(F.waits(p, x), F.joined(p, t)) == Nat.add(AuthFlightEntry.af_bit(AuthFlightEntry.af_waits(p, x)), _) : Nat}
+      %ae.waits(p, x) : {F.joined.at(F.waits(p, x), F.joined(p, t)) == Nat.add(AuthFlightEntry.af_bit(_), F.joined(p, t)) : Nat}
+      ae.joined_at(F.waits(p, x), F.joined(p, t))
+
+def ae.d_joiners_orig(fl: Bool, +p: String, +cs: List<&2, F.Cl>) -> {F.joiners(fl, p, cs) == AuthFlightEntry.af_joiners(fl, p, cs) : Maybe<&2, Nat>}:
+  match fl:
+    case True{}:
+      %ae.joined_orig(p, cs) : {F.joiners(True{}, p, cs) == Some{_} : Maybe<&2, Nat>}
+      {==}
+    case False{}:
+      {==}
+
+def ae.unwind_at_orig(lead: Bool, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +m: Nat) -> {F.unwind.at(lead, k, p, cs, m) == AuthFlightEntry.af_unwind_lead(lead, k, p, cs, m) : F.DRes}:
+  match lead:
+    case True{}:
+      %ae.cut_orig(k, cs) : {F.unwind.at(True{}, k, p, cs, m) == F.DRes{F.Desk{AuthFlightEntry.af_unwait(p, _), m}, F.Acts{AuthFlightEntry.af_wake(p, F.DoFail{AuthFlightEntry.af_gone(p)}, _)}} : F.DRes}
+      %ae.unwait_orig(p, F.cut(k, cs)) : {F.unwind.at(True{}, k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{AuthFlightEntry.af_wake(p, F.DoFail{AuthFlightEntry.af_gone(p)}, F.cut(k, cs))}} : F.DRes}
+      %ae.wake_orig(p, F.DoFail{AuthFlightEntry.af_gone(p)}, F.cut(k, cs)) : {F.unwind.at(True{}, k, p, cs, m) == F.DRes{F.Desk{F.unwait(p, F.cut(k, cs)), m}, F.Acts{_}} : F.DRes}
+      {==}
+    case False{}:
+      %ae.cut_orig(k, cs) : {F.unwind.at(False{}, k, p, cs, m) == F.DRes{F.Desk{_, m}, F.Acts{Nil{}}} : F.DRes}
+      {==}
+
+def ae.d_unwind_orig(r: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +m: Nat) -> {F.unwind(r, k, cs, m) == AuthFlightEntry.af_unwind_at(r, k, cs, m) : F.DRes}:
+  match r:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case F.Cl{j, +p, +a}:
+          %ae.leads(a) : {F.unwind.at(F.leads(a), k, p, cs, m) == AuthFlightEntry.af_unwind_lead(_, k, p, cs, m) : F.DRes}
+          ae.unwind_at_orig(F.leads(a), k, p, cs, m)
+
+# the entry's desk is the laws' desk
+def ae.desk_orig(d: F.Desk, e: F.DEv) -> {F.desk.step(d, e) == AuthFlightEntry.af_desk(d, e) : F.DRes}:
+  match d:
+    case F.Desk{+cs, +m}:
+      match e:
+        case F.Comes{p}:
+          {==}
+        case F.Found{+k, +fd}:
+          %ae.find(k, cs) : {F.found(F.find(k, cs), fd, k, cs, m) == AuthFlightEntry.af_found_at(_, fd, k, cs, m) : F.DRes}
+          ae.d_found_orig(F.find(k, cs), fd, k, cs, m)
+        case F.Unwinds{+k}:
+          %ae.find(k, cs) : {F.unwind(F.find(k, cs), k, cs, m) == AuthFlightEntry.af_unwind_at(_, k, cs, m) : F.DRes}
+          ae.d_unwind_orig(F.find(k, cs), k, cs, m)
+        case F.Joiners{+p}:
+          %ae.inflight(p, cs) : {F.DRes{F.Desk{cs, m}, F.Joined{F.joiners(F.inflight(p, cs), p, cs)}} == F.DRes{F.Desk{cs, m}, F.Joined{AuthFlightEntry.af_joiners(_, p, cs)}} : F.DRes}
+          %ae.d_joiners_orig(F.inflight(p, cs), p, cs) : {F.DRes{F.Desk{cs, m}, F.Joined{F.joiners(F.inflight(p, cs), p, cs)}} == F.DRes{F.Desk{cs, m}, F.Joined{_}} : F.DRes}
+          {==}
+
+def ae.what(k: Nat, t: Nat, s: String) -> {AuthFlightEntry.af_read_ev.what(k, t, s) == FA.get_ev.what(k, t, s) : Wr.Dec<F.DEv>}:
+  match t:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      {==}
+    case 3n:
+      {==}
+    case 4n:
+      {==}
+    case 5n:
+      {==}
+    case 6n:
+      {==}
+    case 7n:
+      {==}
+    case 8n+q:
+      {==}
+
+def ae.found(k: Nat, r: Wr.Dec<Nat>) -> {AuthFlightEntry.af_read_ev.found(k, r) == FA.get_ev.found(k, r) : Wr.Dec<F.DEv>}:
+  match r:
+    case Wr.Got{t, s}:
+      ae.what(k, t, s)
+    case Wr.Bad{}:
+      {==}
+
+def ae.caller(r: Wr.Dec<Nat>) -> {AuthFlightEntry.af_read_ev.caller(r) == FA.get_ev.caller(r) : Wr.Dec<F.DEv>}:
+  match r:
+    case Wr.Got{k, s}:
+      ae.found(k, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def ae.comes(r: Wr.Dec<String>) -> {AuthFlightEntry.af_read_ev.comes(r) == FA.get_ev.comes(r) : Wr.Dec<F.DEv>}:
+  match r:
+    case Wr.Got{p, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def ae.joiners(r: Wr.Dec<String>) -> {AuthFlightEntry.af_read_ev.joiners(r) == FA.get_ev.joiners(r) : Wr.Dec<F.DEv>}:
+  match r:
+    case Wr.Got{p, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def ae.unwind(r: Wr.Dec<Nat>) -> {AuthFlightEntry.af_read_ev.unwind(r) == FA.get_ev.unwind(r) : Wr.Dec<F.DEv>}:
+  match r:
+    case Wr.Got{k, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def ae.tag(t: Nat, s: String) -> {AuthFlightEntry.af_read_ev.tag(t, s) == FA.get_ev.tag(t, s) : Wr.Dec<F.DEv>}:
+  match t:
+    case 0n:
+      ae.comes(Wr.get_str(s))
+    case 1n:
+      ae.caller(Wr.get_nat(s))
+    case 2n:
+      ae.unwind(Wr.get_nat(s))
+    case 3n:
+      ae.joiners(Wr.get_str(s))
+    case 4n+p:
+      {==}
+
+# the entry reads every event as the laws' reader does
+def ae.ev(r: Wr.Dec<Nat>) -> {AuthFlightEntry.af_read_ev.go(r) == FA.get_ev(r) : Wr.Dec<F.DEv>}:
+  match r:
+    case Wr.Got{t, s}:
+      ae.tag(t, s)
+    case Wr.Bad{}:
+      {==}
+
+def ae.some_inj(-A: Data, +d: A, -x: A, -y: A, e: {Some{x} == Some{y} : Maybe<&2, A>}) -> {x == y : A}:
+  Equal.cong(Maybe<&2, A>, A, m => Maybe.default(&2, A, m, d), Some{x}, Some{y}, e)
+
+def ae.step_fin(b: Bool, +d: F.Desk, +x: F.DEv, -e: F.DEv, got: {AuthFlightEntry.af_whole(F.DEv, b, x) == Some{e} : Maybe<&2, F.DEv>}) -> {FA.step.fin(b, d, x) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}:
+  match b:
+    case True{}:
+      %ae.some_inj(F.DEv, x, x, e, got) : {FA.step.put(F.desk.step(d, x)) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, _)) : FA.St & String}
+      %ae.desk_orig(d, x) : {FA.step.put(F.desk.step(d, x)) == AuthFlightEntry.af_step_of(_) : FA.St & String}
+      ae.put(F.desk.step(d, x))
+    case False{}:
+      ae.none_some(F.DEv, {FA.step.fin(False{}, d, x) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}, e, got)
+
+def ae.step_got(r: Wr.Dec<F.DEv>, +d: F.Desk, -e: F.DEv, got: {AuthFlightEntry.af_read_ev.whole(r) == Some{e} : Maybe<&2, F.DEv>}) -> {FA.step.go(d, r) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}:
+  match r:
+    case Wr.Got{x, s}:
+      ae.step_fin(Wr.end(s), d, x, e, got)
+    case Wr.Bad{}:
+      ae.none_some(F.DEv, {FA.step.go(d, Wr.Bad{}) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}, e, got)
+
+# a whole event steps the desk as the laws' desk
+def ae.step_reads(+d: F.Desk, +s: String, -e: F.DEv, got: {AuthFlightEntry.af_read_ev(s) == Some{e} : Maybe<&2, F.DEv>}) -> {FA.step(FA.Open{d}, s) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}:
+  %ae.ev(Wr.get_nat(s)) : {FA.step.go(d, _) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}
+  ae.step_got(AuthFlightEntry.af_read_ev.go(Wr.get_nat(s)), d, e, got)
+
+# every event Rust writes reads back
+def ae.read_what(+k: Nat, fd: F.Fd) -> {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.what(k, AuthFlightEntry.af_what(fd), "")) == Some{F.Found{k, fd}} : Maybe<&2, F.DEv>}:
+  match fd:
+    case F.LoadFresh{}:
+      {==}
+    case F.LoadExpired{}:
+      {==}
+    case F.LoadFailed{}:
+      {==}
+    case F.CheckFresh{}:
+      {==}
+    case F.CheckExpired{}:
+      {==}
+    case F.FetchOk{}:
+      {==}
+    case F.FetchFailed{}:
+      {==}
+    case F.Stored{}:
+      {==}
+
+def ae.read_ev_spell(e: F.DEv, +fits: {AuthFlightEntry.af_ev_fits(e) == True{} : Bool}) -> {AuthFlightEntry.af_read_ev(AuthFlightEntry.af_spell_ev_orig(e)) == Some{e} : Maybe<&2, F.DEv>}:
+  match e:
+    case F.Comes{+p}:
+      %LWire.pw6.nat(0n, Wr.put_str(p, ""), {==}) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.go(_)) == Some{F.Comes{p}} : Maybe<&2, F.DEv>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(p, "")), Wr.Got{p, ""}, Wire.wire_str_round_trip(p, "", fits)) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.comes(_)) == Some{F.Comes{p}} : Maybe<&2, F.DEv>}
+      {==}
+    case F.Found{+k, +fd}:
+      %LWire.pw6.nat(1n, Wr.put_nat(k, Wr.put_nat(AuthFlightEntry.af_what(fd), "")), {==}) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.go(_)) == Some{F.Found{k, fd}} : Maybe<&2, F.DEv>}
+      %LWire.pw6.nat(k, Wr.put_nat(AuthFlightEntry.af_what(fd), ""), fits) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.caller(_)) == Some{F.Found{k, fd}} : Maybe<&2, F.DEv>}
+      %LWire.pw6.nat(AuthFlightEntry.af_what(fd), "", ae.what_fits(fd)) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.found(k, _)) == Some{F.Found{k, fd}} : Maybe<&2, F.DEv>}
+      ae.read_what(k, fd)
+    case F.Unwinds{+k}:
+      %LWire.pw6.nat(2n, Wr.put_nat(k, ""), {==}) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.go(_)) == Some{F.Unwinds{k}} : Maybe<&2, F.DEv>}
+      %LWire.pw6.nat(k, "", fits) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.unwind(_)) == Some{F.Unwinds{k}} : Maybe<&2, F.DEv>}
+      {==}
+    case F.Joiners{+p}:
+      %LWire.pw6.nat(3n, Wr.put_str(p, ""), {==}) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.go(_)) == Some{F.Joiners{p}} : Maybe<&2, F.DEv>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(p, "")), Wr.Got{p, ""}, Wire.wire_str_round_trip(p, "", fits)) : {AuthFlightEntry.af_read_ev.whole(AuthFlightEntry.af_read_ev.joiners(_)) == Some{F.Joiners{p}} : Maybe<&2, F.DEv>}
+      {==}
+
+# a spelled event that fits steps the desk as the laws' desk
+def ae.answers_orig(+d: F.Desk, +e: F.DEv, fits: {AuthFlightEntry.af_ev_fits(e) == True{} : Bool}) -> {FA.step(FA.Open{d}, AuthFlightEntry.af_spell_ev_orig(e)) == AuthFlightEntry.af_step_of(AuthFlightEntry.af_desk(d, e)) : FA.St & String}:
+  ae.step_reads(d, AuthFlightEntry.af_spell_ev_orig(e), e, ae.read_ev_spell(e, fits))

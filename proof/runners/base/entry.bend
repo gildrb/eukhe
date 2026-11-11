@@ -96,3 +96,112 @@ def rn.rt(q: FRu.Req, +rest: String, fits: {Runners.req_fits(q) == True{} : Bool
       {==}
     case FRu.QMain{h}:
       rn.rt_main(h, rest)
+
+def rn.says(r: Wr.Dec<Bool>) -> {Runners.read_says(r) == FRu.get_says(r) : Wr.Dec<Ru.Asker>}:
+  match r:
+    case Wr.Got{y, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def rn.asker_tag(t: Nat, s: String) -> {Runners.read_asker.tag(t, s) == FRu.get_asker.tag(t, s) : Wr.Dec<Ru.Asker>}:
+  match t:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      rn.says(Wr.get_bool(s))
+    case 3n+u:
+      {==}
+
+def rn.asker(r: Wr.Dec<Nat>) -> {Runners.read_asker(r) == FRu.get_asker(r) : Wr.Dec<Ru.Asker>}:
+  match r:
+    case Wr.Got{t, s}:
+      rn.asker_tag(t, s)
+    case Wr.Bad{}:
+      {==}
+
+def rn.cell_asker(c: List<&2, Nat>, a: List<&2, Nat>, r: Wr.Dec<Ru.Asker>) -> {Runners.read_cell.asker(c, a, r) == FRu.get_cell.asker(c, a, r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{k, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def rn.cell_auto(+c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> {Runners.read_cell.auto(c, r) == FRu.get_cell.auto(c, r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{+a, +s}:
+      %rn.asker(Wr.get_nat(s)) : {Runners.read_cell.asker(c, a, Runners.read_asker(Wr.get_nat(s))) == FRu.get_cell.asker(c, a, _) : Wr.Dec<FRu.Req>}
+      rn.cell_asker(c, a, Runners.read_asker(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      {==}
+
+def rn.cell(r: Wr.Dec<List<&2, Nat>>) -> {Runners.read_cell(r) == FRu.get_cell(r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{c, s}:
+      rn.cell_auto(c, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      {==}
+
+def rn.main(r: Wr.Dec<Bool>) -> {Runners.read_main(r) == FRu.get_main(r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{h, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def rn.within_auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> {Runners.read_within.auto(c, r) == FRu.get_within.auto(c, r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{a, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def rn.within(r: Wr.Dec<List<&2, Nat>>) -> {Runners.read_within(r) == FRu.get_within(r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{c, s}:
+      rn.within_auto(c, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      {==}
+
+def rn.tag(t: Nat, s: String) -> {Runners.read_req.tag(t, s) == FRu.get_req.tag(t, s) : Wr.Dec<FRu.Req>}:
+  match t:
+    case 0n:
+      rn.within(Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case 1n:
+      rn.cell(Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case 2n:
+      {==}
+    case 3n:
+      rn.main(Wr.get_bool(s))
+    case 4n+u:
+      {==}
+
+def rn.go(r: Wr.Dec<Nat>) -> {Runners.read_req.go(r) == FRu.get_req.go(r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{t, s}:
+      rn.tag(t, s)
+    case Wr.Bad{}:
+      {==}
+
+def rn.req(s: String) -> {Runners.read_req(s) == FRu.get_req(s) : Wr.Dec<FRu.Req>}:
+  rn.go(Wr.get_nat(s))
+
+def rn.end(b: Bool, q: FRu.Req) -> {FRu.run.end(b, q) == Runners.spec.end(b, q) : String}:
+  match b:
+    case True{}:
+      rn.reply(q)
+    case False{}:
+      {==}
+
+def rn.run(r: Wr.Dec<FRu.Req>) -> {FRu.run(r) == Runners.spec.run(r) : String}:
+  match r:
+    case Wr.Got{q, s}:
+      rn.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      {==}
+
+def rn.exact(+s: String) -> {FRu.ffi(s) == Runners.spec(s) : String}:
+  %rn.req(s) : {FRu.run(_) == Runners.spec(s) : String}
+  rn.run(Runners.read_req(s))

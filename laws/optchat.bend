@@ -743,3 +743,10 @@ def oc_small() -> String:
 # query that ignores its due mark
 law optchat_entry_example:
   {[oc_reply_of(FOc.open(oc_small())), oc_reply_of(FOc.open("x")), oc_reply_of(FOc.step(oc_state(FOc.open("x")), "0,"))] == ["0,", SCon{'E', SCon{' ', "optchat: malformed open"}}, SCon{'E', SCon{' ', "optchat: the open was refused"}}] : List<&2, String>} & {oc_answers(["5,0,", "5,2,", "6,2,", "2,1,0,", "8,", "4,", "8,", "1,1,0,1,", "0,", "0,", "7,0,3,", "9,", "5,", "0,x"], oc_state(FOc.open(oc_small()))) == ["0,", "1,1,0,", "0,", "0,", "1,", "1,1,0,", "0,", "0,", "0,", "1,1,1,0,3,1,0,0,2,0,3,T", "1,1,0,", SCon{'E', SCon{' ', "optchat: malformed event"}}, SCon{'E', SCon{' ', "optchat: malformed event"}}, SCon{'E', SCon{' ', "optchat: malformed event"}}] : List<&2, String>}
+
+# LAW optchat_entry_shut: a refused open answers every step with exactly
+# the error form 'E ' + "optchat: the open was refused"
+# EXCLUDES: a refused stepper that answers a batch or nodes to start
+law optchat_entry_shut:
+  for +i: String
+  {FOc.step(FOc.Refused{}, i) == (FOc.Refused{}, SCon{'E', SCon{' ', "optchat: the open was refused"}}) : FOc.St & String}

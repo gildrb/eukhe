@@ -270,3 +270,50 @@ law job_kept_unheld_free:
   for +keep: List<&2, Nat>
   for free: {Jb.elem(keep, i) == False{} : Bool}
   {Jb.kept([Jb.Slot{i, r}], [s], keep) == True{} : Bool}
+
+# LAW job_step_out_live: output never ends a job
+law job_step_out_live:
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +n: Nat
+  {Jb.J.done(Jb.step(cap, Jb.Live{k, d}, Jb.Out{n})) == False{} : Bool}
+
+def done_spec(j: Jb.J) -> Bool:
+  match j:
+    case Jb.Live{k, d}:
+      False{}
+    case Jb.Ended{k, d, e}:
+      True{}
+
+def dropped_spec(j: Jb.J) -> Nat:
+  match j:
+    case Jb.Live{k, d}:
+      d
+    case Jb.Ended{k, d, e}:
+      d
+
+def kept_spec(j: Jb.J) -> Nat:
+  match j:
+    case Jb.Live{k, d}:
+      k
+    case Jb.Ended{k, d, e}:
+      k
+
+# LAW job_terms_exact: the model's accessors the laws read are the fields they name: the bytes
+# kept, the bytes dropped, their sum, and whether the job ended
+# EXCLUDES: an accessor that hides an end or reports other counts than the job holds (an output
+#   that ends the job passing job_step_out_live)
+law job_terms_exact:
+  for +j: Jb.J
+  {Jb.J.kept(j) == kept_spec(j) : Nat} & {Jb.J.dropped(j) == dropped_spec(j) : Nat} & {Jb.J.total(j) == Nat.add(kept_spec(j), dropped_spec(j)) : Nat} & {Jb.J.done(j) == done_spec(j) : Bool}
+
+# LAW job_runs_are_steps: the model's runs, which the S2 laws state, are the steps one event at a
+# time from a new job, and the ends they report are the ends each step reports, in order
+# EXCLUDES: S2 laws that hold of a run that is not the step Rust runs
+law job_runs_are_steps:
+  for +cap: Maybe<&2, Nat>
+  for +j: Jb.J
+  for +e: Jb.JEv
+  for +es: List<&2, Jb.JEv>
+  {Jb.go(Nil{}, cap, j) == j : Jb.J} & {Jb.go(e <> es, cap, j) == Jb.go(es, cap, Jb.step(cap, j, e)) : Jb.J} & {Jb.ends.go(Nil{}, cap, j) == Nil{} : List<&2, Jb.End>} & {Jb.ends.go(e <> es, cap, j) == List.append(&2, Jb.End, Jb.ends.of(j, e), Jb.ends.go(es, cap, Jb.step(cap, j, e))) : List<&2, Jb.End>} & {Jb.run(cap, es) == Jb.go(es, cap, Jb.Live{0n, 0n}) : Jb.J} & {Jb.ends(cap, es) == Jb.ends.go(es, cap, Jb.Live{0n, 0n}) : List<&2, Jb.End>}

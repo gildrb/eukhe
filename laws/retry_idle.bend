@@ -710,3 +710,178 @@ law idle_model_stalls:
   for within: {gaps_within(pre, d) == True{} : Bool}
   for late: {Nat.is_gt(g, d) == True{} : Bool}
   {R.idle(List.append(&2, Nat, pre, g <> rest), d) == R.IdleStall{Nat.add(gaps_sum(pre), d)} : R.Idle} & {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}
+
+def wake_spec.free(early: Bool, left: Nat) -> R.Wake:
+  match early:
+    case True{}:
+      R.WakeSleep{left}
+    case False{}:
+      R.WakeStall{}
+
+# what the timer decides when it fires `since` after the last life of a
+# stream under a deadline of d: a held clock sleeps a whole deadline; a
+# free one sleeps what is left of d, and stalls once d has passed
+def wake_spec(held: Bool, +since: Nat, +d: Nat) -> R.Wake:
+  match held:
+    case True{}:
+      R.WakeSleep{d}
+    case False{}:
+      wake_spec.free(Nat.is_lt(since, d), Nat.sub(d, since))
+
+# LAW idle_wake_exact: when the deadline's timer fires, a held clock sleeps a whole deadline (a queue is not a stall); a free clock stalls once the deadline has passed since the stream's last life, and else sleeps exactly what is left of it
+# EXCLUDES: a stall while held, a stall before the deadline, a re-arm past
+#   the deadline or short of it, a timer that never stalls
+law idle_wake_exact:
+  for held: Bool
+  for since: Nat
+  for d: Nat
+  {R.idle.wake(held, since, d) == wake_spec(held, since, d) : R.Wake}
+
+def step_spec.fire(+d: Nat, +last: Nat, +holds: Nat, w: R.Wake) -> R.IdleSt & Maybe<&2, R.Wake>:
+  match w:
+    case R.WakeStall{}:
+      (R.IdleSt{d, last, holds, True{}}, Some{R.WakeStall{}})
+    case R.WakeSleep{us}:
+      (R.IdleSt{d, last, holds, False{}}, Some{R.WakeSleep{us}})
+
+def step_spec.live(+d: Nat, +last: Nat, +holds: Nat, e: R.IdleEv) -> R.IdleSt & Maybe<&2, R.Wake>:
+  match e:
+    case R.IdleLife{now}:
+      (R.IdleSt{d, Nat.max(last, now), holds, False{}}, None{})
+    case R.IdleHold{}:
+      (R.IdleSt{d, last, 1n+holds, False{}}, None{})
+    case R.IdleFree{now}:
+      (R.IdleSt{d, Nat.max(last, now), Nat.sub(holds, 1n), False{}}, None{})
+    case R.IdleFire{now}:
+      step_spec.fire(d, last, holds, wake_spec(Nat.is_gt(holds, 0n), Nat.sub(now, last), d))
+
+def step_spec(s: R.IdleSt, e: R.IdleEv) -> R.IdleSt & Maybe<&2, R.Wake>:
+  match s:
+    case R.IdleSt{d, last, holds, over}:
+      match over:
+        case True{}:
+          (R.IdleSt{d, last, holds, True{}}, None{})
+        case False{}:
+          step_spec.live(d, last, holds, e)
+
+# LAW idle_step_exact: the model's step is section 6 as stated: a life or the end of a hold moves the latest life to the later time, a hold counts, the end of a hold uncounts (never below none), a fire answers the timer's decision from the latest life with the clock held while a hold is alive and a stall ends the deadline; only a fire answers, and an ended deadline answers nothing
+# EXCLUDES: a life that moves the clock back (events out of order), a
+#   hold that is lost or never ends, a fire that answers from the timer
+#   instead of the latest life, a second stall, a stall revived
+law idle_step_exact:
+  for +s: R.IdleSt
+  for +e: R.IdleEv
+  {R.idle.step(s, e) == step_spec(s, e) : R.IdleSt & Maybe<&2, R.Wake>}
+
+def read_ev.fin(whole: Bool, e: R.IdleEv) -> Maybe<&2, R.IdleEv>:
+  match whole:
+    case True{}:
+      Some{e}
+    case False{}:
+      None{}
+
+def read_ev.end(s: String, e: R.IdleEv) -> Maybe<&2, R.IdleEv>:
+  read_ev.fin(Wr.end(s), e)
+
+def read_ev.fire(r: Wr.Dec<Nat>) -> Maybe<&2, R.IdleEv>:
+  match r:
+    case Wr.Got{now, s}:
+      read_ev.end(s, R.IdleFire{now})
+    case Wr.Bad{}:
+      None{}
+
+def read_ev.free(r: Wr.Dec<Nat>) -> Maybe<&2, R.IdleEv>:
+  match r:
+    case Wr.Got{now, s}:
+      read_ev.end(s, R.IdleFree{now})
+    case Wr.Bad{}:
+      None{}
+
+def read_ev.life(r: Wr.Dec<Nat>) -> Maybe<&2, R.IdleEv>:
+  match r:
+    case Wr.Got{now, s}:
+      read_ev.end(s, R.IdleLife{now})
+    case Wr.Bad{}:
+      None{}
+
+def read_ev.tag(t: Nat, s: String) -> Maybe<&2, R.IdleEv>:
+  match t:
+    case 0n:
+      read_ev.life(Wr.get_nat(s))
+    case 1n:
+      read_ev.end(s, R.IdleHold{})
+    case 2n:
+      read_ev.free(Wr.get_nat(s))
+    case 3n:
+      read_ev.fire(Wr.get_nat(s))
+    case 4n+p:
+      None{}
+
+def read_ev.go(r: Wr.Dec<Nat>) -> Maybe<&2, R.IdleEv>:
+  match r:
+    case Wr.Got{t, s}:
+      read_ev.tag(t, s)
+    case Wr.Bad{}:
+      None{}
+
+# the event s is, when s is exactly one event
+def read_ev(s: String) -> Maybe<&2, R.IdleEv>:
+  read_ev.go(Wr.get_nat(s))
+
+def read_open.end(whole: Bool, o: Fi.Open) -> Maybe<&2, Fi.Open>:
+  match whole:
+    case True{}:
+      Some{o}
+    case False{}:
+      None{}
+
+def read_open.d(nan: Bool, neg: Bool, whole: Nat, frac: Bool, r: Wr.Dec<Nat>) -> Maybe<&2, Fi.Open>:
+  match r:
+    case Wr.Got{d, s}:
+      read_open.end(Wr.end(s), Fi.Open{nan, neg, whole, frac, d})
+    case Wr.Bad{}:
+      None{}
+
+def read_open.frac(nan: Bool, neg: Bool, whole: Nat, r: Wr.Dec<Bool>) -> Maybe<&2, Fi.Open>:
+  match r:
+    case Wr.Got{frac, s}:
+      read_open.d(nan, neg, whole, frac, Wr.get_nat(s))
+    case Wr.Bad{}:
+      None{}
+
+def read_open.whole(nan: Bool, neg: Bool, r: Wr.Dec<Nat>) -> Maybe<&2, Fi.Open>:
+  match r:
+    case Wr.Got{whole, s}:
+      read_open.frac(nan, neg, whole, Wr.get_bool(s))
+    case Wr.Bad{}:
+      None{}
+
+def read_open.neg(nan: Bool, r: Wr.Dec<Bool>) -> Maybe<&2, Fi.Open>:
+  match r:
+    case Wr.Got{neg, s}:
+      read_open.whole(nan, neg, Wr.get_nat(s))
+    case Wr.Bad{}:
+      None{}
+
+def read_open.go(r: Wr.Dec<Bool>) -> Maybe<&2, Fi.Open>:
+  match r:
+    case Wr.Got{nan, s}:
+      read_open.neg(nan, Wr.get_bool(s))
+    case Wr.Bad{}:
+      None{}
+
+# the open s is, when s is exactly one open
+def read_open(s: String) -> Maybe<&2, Fi.Open>:
+  read_open.go(Wr.get_bool(s))
+
+# LAW retry_idle_entry_malformed_exact: in every state, an input the laws' reader does not read as exactly one event keeps the state and answers exactly the error form 'E ', then "retry_idle: malformed event"; an open it does not read is shut with "retry_idle: malformed open"; a shut stepper answers every step "retry_idle: no deadline"
+# EXCLUDES: a guessed event or deadline for garbage, trailing input
+#   ignored, a state moved by garbage, another error text
+law retry_idle_entry_malformed_exact:
+  for +s: R.IdleSt
+  for +i: String
+  for no: {read_ev(i) == None{} : Maybe<&2, R.IdleEv>}
+  for +o: String
+  for no_open: {read_open(o) == None{} : Maybe<&2, Fi.Open>}
+  for +x: String
+  {Fi.step(Fi.Live{s}, i) == (Fi.Live{s}, SCon{'E', SCon{' ', "retry_idle: malformed event"}}) : Fi.St & String} & {Fi.open(o) == (Fi.Shut{}, SCon{'E', SCon{' ', "retry_idle: malformed open"}}) : Fi.St & String} & {Fi.step(Fi.Shut{}, x) == (Fi.Shut{}, SCon{'E', SCon{' ', "retry_idle: no deadline"}}) : Fi.St & String}

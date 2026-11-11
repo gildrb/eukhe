@@ -334,3 +334,107 @@ law goal_entry_example:
 # prior (the goal_entry_* laws are not vacuous)
 law goal_req_fits_example:
   {[gs_fits(gs.Req{5n, 3n, None{}, 5n}), gs_fits(gs.Req{5n, 3n, Some{Pr.Prior{2n, 5n}}, 5n})] == [True{}, True{}] : List<&2, Bool>}
+
+# LAW goal_stopped_exact: a verdict is stopped exactly when it is Stop, whatever its count
+# EXCLUDES: a constant Goal.stopped (goal_stops_without_progress would then
+#   say nothing about the goal loop)
+law goal_stopped_exact:
+  for +s: Nat
+  {[Pr.Goal.stopped(Pr.Go{s}), Pr.Goal.stopped(Pr.Stop{s})] == [False{}, True{}] : List<&2, Bool>}
+
+# one more continuation with no new work after n of them: the goal stops
+# when the count reaches the cap
+def gj_stall.at(stop: Bool, n: Nat) -> Pr.Goal:
+  match stop:
+    case True{}:
+      Pr.Stop{n}
+    case False{}:
+      Pr.Go{n}
+
+def gj_stall(+cap: Nat, +n: Nat) -> Pr.Goal:
+  gj_stall.at(Nat.is_le(cap, 1n+n), 1n+n)
+
+def gj_grew(grew: Bool, +cap: Nat, +n: Nat) -> Pr.Goal:
+  match grew:
+    case True{}:
+      Pr.Go{0n}
+    case False{}:
+      gj_stall(cap, n)
+
+# the stalls the check counts on from: s, held below t (t - 1 when s
+# reaches t; 0 when t is 0)
+def gj_pred(t: Nat) -> Nat:
+  match t:
+    case 0n:
+      0n
+    case 1n+u:
+      u
+
+def gj_held.at(below: Bool, s: Nat, +t: Nat) -> Nat:
+  match below:
+    case True{}:
+      s
+    case False{}:
+      gj_pred(t)
+
+def gj_held(+t: Nat, +s: Nat) -> Nat:
+  gj_held.at(Nat.is_lt(s, t), s, t)
+
+# the goal's check: the first one starts the count; a later one clears it
+# when the work grew, else counts one more stall on the prior's (held below
+# t) and stops at the cap
+def gj_spec(+t: Nat, +cap: Nat, p: Maybe<&2, Pr.Prior>, +work: Nat) -> Pr.Goal:
+  match p:
+    case None{}:
+      Pr.Go{0n}
+    case Some{x}:
+      match x:
+        case Pr.Prior{+s, w}:
+          gj_grew(Nat.is_lt(w, work), cap, gj_held(t, s))
+
+# LAW goal_judge_exact: the check is exactly the goal's check: the first one starts the
+# count; a later one goes on with no stalls when the work's count grew,
+# else with one more stall than the prior's (held below t), and stops
+# when that count reaches the cap
+# EXCLUDES: a goal stopped before the cap (or after it), a count that
+#   grows by more or less than one, a stall count kept or cleared on the
+#   wrong side, a prior past t read as another count
+law goal_judge_exact:
+  for +t: Nat
+  for +cap: Nat
+  for +p: Maybe<&2, Pr.Prior>
+  for +work: Nat
+  {Pr.judge(t, cap, p, work) == gj_spec(t, cap, p, work) : Pr.Goal}
+
+def gc_same(b: Bool, +t: Nat, +cap: Nat, +s: Nat, +w: Nat, +work: Nat) -> Pr.Goal:
+  match b:
+    case True{}:
+      Pr.judge(t, cap, Some{Pr.Prior{s, w}}, work)
+    case False{}:
+      Pr.Go{0n}
+
+# the goal's check after the last check m: the check against m's stalls
+# and work when m was of the same run and the same goal (G2), else a check
+# that starts the count
+def gc_spec(+t: Nat, +cap: Nat, m: Maybe<&2, Pr.Last>, +work: Nat) -> Pr.Goal:
+  match m:
+    case None{}:
+      Pr.Go{0n}
+    case Some{x}:
+      match x:
+        case Pr.Last{r, g, s, w}:
+          gc_same(Bool.and(r, g), t, cap, s, w, work)
+
+# LAW goal_compared_check (G2): the prior the work entry's call answers (`compared`), then
+# the check, is the goal's check: against the last check's stalls and work
+# when it was of the same run and the same goal, else a check that starts
+# the count; with goal_judge_is_check, below the bound that is the
+# progress check on whether the work's count grew
+# EXCLUDES: a check that compares with another run's or goal's work, or
+#   restarts the count of the same run and goal
+law goal_compared_check:
+  for +t: Nat
+  for +cap: Nat
+  for +m: Maybe<&2, Pr.Last>
+  for +work: Nat
+  {Pr.judge(t, cap, Pr.compared(m), work) == gc_spec(t, cap, m, work) : Pr.Goal}

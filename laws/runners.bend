@@ -485,3 +485,231 @@ law bash_gated_each_step:
 #   tool moved
 law runners_main_names:
   {[ru_names(Ru.main_roster(True{})), ru_names(Ru.main_roster(False{}))] == [["zoom", "date", "worker_assign", "worker_forward", "worker_status", "read", "grep", "glob"], ["worker_assign", "worker_forward", "worker_status", "read", "grep", "glob"]] : List<&2, List<&2, String>>}
+
+# LAW cell_within_runs_unasked: a call whose caps are within the auto set runs, unasked
+law cell_within_runs_unasked:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  for free: {Ru.within(caps, auto) == True{} : Bool}
+  {Ru.cell(caps, auto, a) == Ru.Out{False{}, Ru.Ran{Ru.Auto{}}} : Ru.Out}
+
+# R4: how a gated call goes; free: it runs unasked (R3)
+def ru_cell(free: Bool, a: Ru.Asker) -> Ru.Out:
+  match free:
+    case True{}:
+      Ru.Out{False{}, Ru.Ran{Ru.Auto{}}}
+    case False{}:
+      match a:
+        case Ru.NoClient{}:
+          Ru.Out{False{}, Ru.Refused{Ru.Unanswered{}}}
+        case Ru.Silent{}:
+          Ru.Out{True{}, Ru.Refused{Ru.Unanswered{}}}
+        case Ru.Says{y}:
+          match y:
+            case True{}:
+              Ru.Out{True{}, Ru.Ran{Ru.Approved{}}}
+            case False{}:
+              Ru.Out{True{}, Ru.Refused{Ru.Denied{}}}
+
+# R3: an auto set may hold effect c (0 to 5)
+def ru_grantable(c: Nat) -> Bool:
+  Nat.is_lt(c, 6n)
+
+# R3: every cap is grantable and in the auto set
+def ru_within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match caps:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(ru_grantable(c), ru_has(auto, c)), ru_within(rest, auto))
+
+# LAW runners_cell_spec: a gated call within the auto set runs unasked; outside it, no client ends unanswered unasked, a silent client unanswered asked, a yes runs approved, a no is denied
+# EXCLUDES: a call asked without a client, a silent client read as a
+#   denial or a yes, an asked flag lost, a denial that runs
+law runners_cell_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  {Ru.cell(caps, auto, a) == ru_cell(ru_within(caps, auto), a) : Ru.Out}
+
+# LAW runners_within_spec: a call runs unasked exactly when each cap is a grantable effect (0 to 5) in the auto set
+# EXCLUDES: a cap outside the auto set run unasked, the secret effect run
+#   unasked, a cap in the auto set asked
+law runners_within_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  {Ru.within(caps, auto) == ru_within(caps, auto) : Bool}
+
+def read_says(r: Wr.Dec<Bool>) -> Wr.Dec<Ru.Asker>:
+  match r:
+    case Wr.Got{y, s}:
+      Wr.Got{Ru.Says{y}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_asker.tag(t: Nat, s: String) -> Wr.Dec<Ru.Asker>:
+  match t:
+    case 0n:
+      Wr.Got{Ru.NoClient{}, s}
+    case 1n:
+      Wr.Got{Ru.Silent{}, s}
+    case 2n:
+      read_says(Wr.get_bool(s))
+    case 3n+u:
+      Wr.Bad{}
+
+def read_asker(r: Wr.Dec<Nat>) -> Wr.Dec<Ru.Asker>:
+  match r:
+    case Wr.Got{t, s}:
+      read_asker.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_cell.asker(c: List<&2, Nat>, a: List<&2, Nat>, r: Wr.Dec<Ru.Asker>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{k, s}:
+      Wr.Got{FRu.QCell{c, a, k}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_cell.auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{a, s}:
+      read_cell.asker(c, a, read_asker(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ns(s: String) -> Wr.Dec<List<&2, Nat>>:
+  Wr.get_list(~Nat, ~Wr.get_nat, s)
+
+def read_cell(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      read_cell.auto(c, read_ns(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_main(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{h, s}:
+      Wr.Got{FRu.QMain{h}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_within.auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{a, s}:
+      Wr.Got{FRu.QWithin{c, a}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_within(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      read_within.auto(c, read_ns(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_req.tag(t: Nat, s: String) -> Wr.Dec<FRu.Req>:
+  match t:
+    case 0n:
+      read_within(read_ns(s))
+    case 1n:
+      read_cell(read_ns(s))
+    case 2n:
+      Wr.Got{FRu.QRegistry{}, s}
+    case 3n:
+      read_main(Wr.get_bool(s))
+    case 4n+u:
+      Wr.Bad{}
+
+def read_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      read_req.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s starts with, and what follows it
+def read_req(s: String) -> Wr.Dec<FRu.Req>:
+  read_req.go(Wr.get_nat(s))
+
+# R5: a tool that runs no code of its own
+def ru_plain(n: String) -> Ru.ToolReg:
+  Ru.ToolReg{n, Nil{}, Ru.Ungated{}}
+
+# R6: main's roster, with chat memory or without
+def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
+  match chat:
+    case True{}:
+      [ru_plain("zoom"), ru_plain("date"), ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
+    case False{}:
+      [ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
+
+# R5: every tool a session installs
+def ru_registry() -> List<&2, Ru.ToolReg>:
+  [Ru.ToolReg{"ipython", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
+
+# the reply R3-R6 give a request
+def ru_reply(q: FRu.Req) -> String:
+  match q:
+    case FRu.QWithin{c, +a}:
+      Wr.put_bool(ru_within(c, a), "")
+    case FRu.QCell{c, +a, k}:
+      spell_out(ru_cell(ru_within(c, a), k))
+    case FRu.QRegistry{}:
+      Wr.put_list(~Ru.ToolReg, ~spell_tool, ru_registry(), "")
+    case FRu.QMain{h}:
+      Wr.put_list(~Ru.ToolReg, ~spell_tool, ru_main_roster(h), "")
+
+def ru_spec.end(whole: Bool, q: FRu.Req) -> String:
+  match whole:
+    case True{}:
+      ru_reply(q)
+    case False{}:
+      malformed()
+
+def ru_spec.run(r: Wr.Dec<FRu.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      ru_spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply R1-R5 give the input s: the reply to the request s is exactly,
+# else the error form
+def ru_spec(s: String) -> String:
+  ru_spec.run(read_req(s))
+
+# LAW runners_ffi_spec: on every input the entry answers the reply R3-R5 give the request the input is exactly, and the error form on any other input
+# EXCLUDES: a decision the model computes wrong (a call run unasked
+#   outside the auto set, a denial run, a tool lost from the registry), a
+#   default for malformed input, input left over ignored
+law runners_ffi_spec:
+  for +s: String
+  {FRu.ffi(s) == ru_spec(s) : String}
+
+# LAW runners_registry_spec: a session installs exactly the R5 tools, in order
+# EXCLUDES: a tool lost, added or moved; a caps list or gate changed
+law runners_registry_spec:
+  {Ru.registry() == ru_registry() : List<&2, Ru.ToolReg>}
+
+def spec.end(whole: Bool, q: FRu.Req) -> String:
+  match whole:
+    case True{}:
+      spell_answer(q)
+    case False{}:
+      malformed()
+
+def spec.run(r: Wr.Dec<FRu.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply to s: the model's decision on the request s is exactly, else
+# the error form
+def spec(s: String) -> String:
+  spec.run(read_req(s))

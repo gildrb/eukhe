@@ -568,3 +568,323 @@ law flight_step_example:
   {af_feed(["0,1,x", "1,0,1,", "0,1,x", "1,1,1,", "3,1,x", "1,0,3,", "1,1,4,", "2,9,"], FA.open("")) == ["", "1,0,0,", "1,0,1,", "1,1,0,", "1,1,4,", "1,1,", "2,0,5,1,5,", "E auth_flight: out of turn", "E auth_flight: out of turn"] : List<&2, String>} &
   {af_feed(["0,1,y", "1,0,1,", "0,1,y", "1,1,1,", "2,0,", "0,1,y", "1,2,7,", "4,", "1,2,8,", "2,2,x"], FA.open("")) == ["", "1,0,0,", "1,0,1,", "1,1,0,", "1,1,4,", "1,1,6,47,the token refresh of y ended without an outcome", "1,2,0,", "E auth_flight: out of turn", "E auth_flight: malformed event", "E auth_flight: malformed event", "E auth_flight: malformed event"] : List<&2, String>} &
   {[af_ev_fits(F.Found{1n, F.Stored{}}), af_takes(F.Loads{}, F.LoadFresh{}), af_lands(F.Checks{}, F.CheckFresh{})] == [True{}, True{}, True{}] : List<&2, Bool>}
+
+def af_set.pick(hit: Bool, x: F.Cl, +a: F.At, t: List<&2, F.Cl>, r: List<&2, F.Cl>) -> List<&2, F.Cl>:
+  match hit:
+    case True{}:
+      match x:
+        case F.Cl{j, p, o}:
+          F.Cl{j, p, a} <> t
+    case False{}:
+      x <> r
+
+# the callers with the first numbered k standing at a
+def af_set(+k: Nat, +a: F.At, cs: List<&2, F.Cl>) -> List<&2, F.Cl>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case x <> +t:
+      match x:
+        case F.Cl{+j, +p, +o}:
+          af_set.pick(Nat.is_eq(j, k), F.Cl{j, p, o}, a, t, af_set(k, a, t))
+
+# caller k's credential expired: it joins p's flight in flight (fl) and
+# waits, or leads a new one and checks
+def af_board(fl: Bool, +k: Nat, cs: List<&2, F.Cl>, n: Nat) -> F.DRes:
+  match fl:
+    case True{}:
+      F.DRes{F.Desk{af_set(k, F.Waits{}, cs), n}, F.Acts{[F.To{k, F.DoWait{}}]}}
+    case False{}:
+      F.DRes{F.Desk{af_set(k, F.Checks{}, cs), n}, F.Acts{[F.To{k, F.DoCheck{}}]}}
+
+def af_cut.pick(hit: Bool, x: F.Cl, t: List<&2, F.Cl>, r: List<&2, F.Cl>) -> List<&2, F.Cl>:
+  match hit:
+    case True{}:
+      t
+    case False{}:
+      x <> r
+
+# the callers without the first numbered k
+def af_cut(+k: Nat, cs: List<&2, F.Cl>) -> List<&2, F.Cl>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case x <> +t:
+      match x:
+        case F.Cl{+j, +p, +o}:
+          af_cut.pick(Nat.is_eq(j, k), F.Cl{j, p, o}, t, af_cut(k, t))
+
+def af_unwait.pick(hit: Bool, x: F.Cl, r: List<&2, F.Cl>) -> List<&2, F.Cl>:
+  match hit:
+    case True{}:
+      r
+    case False{}:
+      x <> r
+
+# the callers without those waiting on p's flight
+def af_unwait(+p: String, cs: List<&2, F.Cl>) -> List<&2, F.Cl>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case +x <> t:
+      af_unwait.pick(af_waits(p, x), x, af_unwait(p, t))
+
+def af_wake.pick(hit: Bool, x: F.Cl, +a: F.Act, r: List<&2, F.To>) -> List<&2, F.To>:
+  match hit:
+    case True{}:
+      match x:
+        case F.Cl{j, q, o}:
+          F.To{j, a} <> r
+    case False{}:
+      r
+
+# each caller waiting on p's flight, in order, does a
+def af_wake(+p: String, +a: F.Act, cs: List<&2, F.Cl>) -> List<&2, F.To>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case +x <> t:
+      af_wake.pick(af_waits(p, x), x, a, af_wake(p, a, t))
+
+# the leader k of p's flight lands it: k, then each caller waiting on the
+# flight, is done with this event's payload, and all of them leave
+def af_land(+k: Nat, +p: String, cs: List<&2, F.Cl>, n: Nat) -> F.DRes:
+  +rest = af_cut(k, cs)
+  F.DRes{F.Desk{af_unwait(p, rest), n}, F.Acts{F.To{k, F.DoDone{}} <> af_wake(p, F.DoDone{}, rest)}}
+
+# caller k of p found fd at the step it is on: a fresh credential at the
+# load, or no refresh at all, is done and leaves; an expired one joins p's
+# flight in flight (wait) or leads a new one (check); the check lands on a
+# fresh credential and fetches otherwise; a fetched credential is stored,
+# a failed fetch lands; the store's outcome lands
+def af_found(fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat) -> F.DRes:
+  match fd:
+    case F.LoadFresh{}:
+      F.DRes{F.Desk{af_cut(k, cs), n}, F.Acts{[F.To{k, F.DoDone{}}]}}
+    case F.LoadExpired{}:
+      af_board(af_inflight(p, cs), k, cs, n)
+    case F.LoadFailed{}:
+      F.DRes{F.Desk{af_cut(k, cs), n}, F.Acts{[F.To{k, F.DoDone{}}]}}
+    case F.CheckFresh{}:
+      af_land(k, p, cs, n)
+    case F.CheckExpired{}:
+      F.DRes{F.Desk{af_set(k, F.Fetches{}, cs), n}, F.Acts{[F.To{k, F.DoFetch{}}]}}
+    case F.FetchOk{}:
+      F.DRes{F.Desk{af_set(k, F.Stores{}, cs), n}, F.Acts{[F.To{k, F.DoStore{}}]}}
+    case F.FetchFailed{}:
+      af_land(k, p, cs, n)
+    case F.Stored{}:
+      af_land(k, p, cs, n)
+
+def af_found_fit(fit: Bool, fd: F.Fd, +k: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat) -> F.DRes:
+  match fit:
+    case True{}:
+      af_found(fd, k, p, cs, n)
+    case False{}:
+      F.DRes{F.Desk{cs, n}, F.Off{}}
+
+def af_found_at(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat) -> F.DRes:
+  match m:
+    case None{}:
+      F.DRes{F.Desk{cs, n}, F.Off{}}
+    case Some{x}:
+      match x:
+        case F.Cl{j, p, a}:
+          af_found_fit(af_takes(a, fd), fd, k, p, cs, n)
+
+# how many wait on p's flight
+def af_joined(+p: String, cs: List<&2, F.Cl>) -> Nat:
+  match cs:
+    case Nil{}:
+      0n
+    case +x <> t:
+      Nat.add(af_bit(af_waits(p, x)), af_joined(p, t))
+
+def af_joiners(fl: Bool, +p: String, cs: List<&2, F.Cl>) -> Maybe<&2, Nat>:
+  match fl:
+    case True{}:
+      Some{af_joined(p, cs)}
+    case False{}:
+      None{}
+
+# caller k of p unwinds: a leader's flight lands with af_gone(p), served
+# to each caller waiting on it, who leave with it; any other caller just
+# leaves
+def af_unwind_lead(lead: Bool, +k: Nat, +p: String, cs: List<&2, F.Cl>, n: Nat) -> F.DRes:
+  match lead:
+    case True{}:
+      +rest = af_cut(k, cs)
+      F.DRes{F.Desk{af_unwait(p, rest), n}, F.Acts{af_wake(p, F.DoFail{af_gone(p)}, rest)}}
+    case False{}:
+      F.DRes{F.Desk{af_cut(k, cs), n}, F.Acts{Nil{}}}
+
+def af_unwind_at(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat) -> F.DRes:
+  match m:
+    case None{}:
+      F.DRes{F.Desk{cs, n}, F.Off{}}
+    case Some{x}:
+      match x:
+        case F.Cl{j, p, a}:
+          af_unwind_lead(af_leads(a), k, p, cs, n)
+
+# the desk after event e, and its answer: an arrival is caller n (the
+# next number), asked to load, newest first; a found or an unwind of a
+# live caller as above; one naming no live caller, or a found the
+# caller's step does not give, is out of turn and keeps the desk;
+# joiners counts the callers waiting on p's flight, none when p has no
+# flight in flight
+def af_desk(d: F.Desk, e: F.DEv) -> F.DRes:
+  match d:
+    case F.Desk{+cs, +n}:
+      match e:
+        case F.Comes{p}:
+          F.DRes{F.Desk{F.Cl{n, p, F.Loads{}} <> cs, 1n+n}, F.Acts{[F.To{n, F.DoLoad{}}]}}
+        case F.Found{+k, fd}:
+          af_found_at(af_find(k, cs), fd, k, cs, n)
+        case F.Unwinds{+k}:
+          af_unwind_at(af_find(k, cs), k, cs, n)
+        case F.Joiners{+p}:
+          F.DRes{F.Desk{cs, n}, F.Joined{af_joiners(af_inflight(p, cs), p, cs)}}
+
+# LAW flight_desk_is_entry: the desk the safety laws run (F.desk.step) is
+# the laws' desk (af_desk), the one the entry's step is pinned to
+# (flight_step_answers, flight_step_reads), for every desk and every
+# event: the laws over runs of F.desk.step speak of the desk the entry
+# steps
+# EXCLUDES: safety laws made vacuous by a F.desk.step the entry does not
+#   run (a desk that never changes while the entry steps another one)
+law flight_desk_is_entry:
+  for +d: F.Desk
+  for +e: F.DEv
+  {F.desk.step(d, e) == af_desk(d, e) : F.DRes}
+
+def af_read_ev.what(k: Nat, t: Nat, s: String) -> Wr.Dec<F.DEv>:
+  match t:
+    case 0n:
+      Wr.Got{F.Found{k, F.LoadFresh{}}, s}
+    case 1n:
+      Wr.Got{F.Found{k, F.LoadExpired{}}, s}
+    case 2n:
+      Wr.Got{F.Found{k, F.LoadFailed{}}, s}
+    case 3n:
+      Wr.Got{F.Found{k, F.CheckFresh{}}, s}
+    case 4n:
+      Wr.Got{F.Found{k, F.CheckExpired{}}, s}
+    case 5n:
+      Wr.Got{F.Found{k, F.FetchOk{}}, s}
+    case 6n:
+      Wr.Got{F.Found{k, F.FetchFailed{}}, s}
+    case 7n:
+      Wr.Got{F.Found{k, F.Stored{}}, s}
+    case 8n+q:
+      Wr.Bad{}
+
+def af_read_ev.found(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<F.DEv>:
+  match r:
+    case Wr.Got{t, s}:
+      af_read_ev.what(k, t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def af_read_ev.caller(r: Wr.Dec<Nat>) -> Wr.Dec<F.DEv>:
+  match r:
+    case Wr.Got{k, s}:
+      af_read_ev.found(k, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def af_read_ev.comes(r: Wr.Dec<String>) -> Wr.Dec<F.DEv>:
+  match r:
+    case Wr.Got{p, s}:
+      Wr.Got{F.Comes{p}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def af_read_ev.joiners(r: Wr.Dec<String>) -> Wr.Dec<F.DEv>:
+  match r:
+    case Wr.Got{p, s}:
+      Wr.Got{F.Joiners{p}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def af_read_ev.unwind(r: Wr.Dec<Nat>) -> Wr.Dec<F.DEv>:
+  match r:
+    case Wr.Got{k, s}:
+      Wr.Got{F.Unwinds{k}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def af_read_ev.tag(t: Nat, s: String) -> Wr.Dec<F.DEv>:
+  match t:
+    case 0n:
+      af_read_ev.comes(Wr.get_str(s))
+    case 1n:
+      af_read_ev.caller(Wr.get_nat(s))
+    case 2n:
+      af_read_ev.unwind(Wr.get_nat(s))
+    case 3n:
+      af_read_ev.joiners(Wr.get_str(s))
+    case 4n+p:
+      Wr.Bad{}
+
+def af_read_ev.go(r: Wr.Dec<Nat>) -> Wr.Dec<F.DEv>:
+  match r:
+    case Wr.Got{t, s}:
+      af_read_ev.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def af_whole(-A: Data, whole: Bool, x: A) -> Maybe<&2, A>:
+  match whole:
+    case True{}:
+      Some{x}
+    case False{}:
+      None{}
+
+def af_read_ev.whole(r: Wr.Dec<F.DEv>) -> Maybe<&2, F.DEv>:
+  match r:
+    case Wr.Got{e, s}:
+      af_whole(F.DEv, Wr.end(s), e)
+    case Wr.Bad{}:
+      None{}
+
+# the event s is, when s is exactly one event
+def af_read_ev(s: String) -> Maybe<&2, F.DEv>:
+  af_read_ev.whole(af_read_ev.go(Wr.get_nat(s)))
+
+# LAW flight_step_reads: every input that is exactly one event (as the
+# wire primitives read it) steps the desk as that event
+# EXCLUDES: a decision on another reading of the input
+law flight_step_reads:
+  for +d: F.Desk
+  for +s: String
+  for +e: F.DEv
+  for got: {af_read_ev(s) == Some{e} : Maybe<&2, F.DEv>}
+  {FA.step(FA.Open{d}, s) == af_step_of(af_desk(d, e)) : FA.St & String}
+
+# the event Rust writes
+def af_spell_ev_orig(e: F.DEv) -> String:
+  match e:
+    case F.Comes{p}:
+      Wr.put_nat(0n, Wr.put_str(p, ""))
+    case F.Found{k, fd}:
+      Wr.put_nat(1n, Wr.put_nat(k, Wr.put_nat(af_what(fd), "")))
+    case F.Unwinds{k}:
+      Wr.put_nat(2n, Wr.put_nat(k, ""))
+    case F.Joiners{p}:
+      Wr.put_nat(3n, Wr.put_str(p, ""))
+
+# LAW flight_step_answers: on every event Rust writes (within the wire),
+# from every desk, the stepper's desk and reply are the desk's (af_desk),
+# spelled
+# EXCLUDES: a misread event, caller, provider or found; a board that leads
+#   while the provider is in flight or joins while it is not; a land that
+#   keeps a caller of the flight, wakes another provider's caller or
+#   serves another payload; an unwind that strands the joiners or wakes
+#   others; a caller number reused; an out-of-turn event that changes the
+#   desk; a wrong count; a reply in another order or tag
+law flight_step_answers_orig:
+  for +d: F.Desk
+  for +e: F.DEv
+  for fits: {af_ev_fits(e) == True{} : Bool}
+  {FA.step(FA.Open{d}, af_spell_ev_orig(e)) == af_step_of(af_desk(d, e)) : FA.St & String}

@@ -656,3 +656,215 @@ law kernel_ffi_example:
   {FKL.ffi("2,3,1,30001,") == "2," : String} &
   {FKL.ffi("2,2,T") == "1," : String} &
   {LawsBase.wire_opens_err(FKL.ffi("2,2,Tx")) == True{} : Bool}
+
+# LAW kernel_missing_spares_tools: a missing kernel never blocks another tool: it runs whatever the
+# setup found and whether the setup worked
+law kernel_missing_spares_tools:
+  for n: Nat
+  for f: KL.Found
+  for ok: Bool
+  {KL.answer(KL.Other{n}, KL.start(f, ok)) == KL.Ran{} : KL.Answer}
+
+# LAW kernel_missing_names_install: when the setup of a venv that is not current fails, the ipython
+# tool answers with the install command
+law kernel_missing_names_install:
+  for f: KL.Found
+  for failed: {KL.start(f, False{}) == KL.Missing{} : KL.Kernel}
+  {KL.answer(KL.Python{}, KL.start(f, False{})) == KL.NamesInstall{} : KL.Answer}
+
+def start_spec.ok(ok: Bool) -> KL.Kernel:
+  match ok:
+    case True{}:
+      KL.Up{}
+    case False{}:
+      KL.Missing{}
+
+# the kernel after a setup that finds f: up when the venv is current or
+# the sync or build worked, missing otherwise
+def start_spec(f: KL.Found, ok: Bool) -> KL.Kernel:
+  match f:
+    case KL.Current{}:
+      KL.Up{}
+    case KL.Skills{}:
+      start_spec.ok(ok)
+    case KL.Stale{}:
+      start_spec.ok(ok)
+
+# LAW kernel_start_exact: the kernel is up after a setup that finds a current venv or whose sync or build worked, and missing only when the sync or build of a venv that is not current failed
+law kernel_start_exact:
+  for f: KL.Found
+  for ok: Bool
+  {KL.start(f, ok) == start_spec(f, ok) : KL.Kernel}
+
+# a tool's answer: only the ipython tool on a missing kernel names the
+# install; every other call runs
+def answer_spec(t: KL.KlTool, k: KL.Kernel) -> KL.Answer:
+  match t:
+    case KL.Python{}:
+      match k:
+        case KL.Up{}:
+          KL.Ran{}
+        case KL.Missing{}:
+          KL.NamesInstall{}
+    case KL.Other{n}:
+      KL.Ran{}
+
+# LAW kernel_answer_exact: the ipython tool runs on an up kernel and names the install on a missing one; every other tool runs either way
+law kernel_answer_exact:
+  for t: KL.KlTool
+  for k: KL.Kernel
+  {KL.answer(t, k) == answer_spec(t, k) : KL.Answer}
+
+# some action fetches
+def fetching_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.Fetch{h}:
+          True{}
+        case KL.Offline{}:
+          fetching_spec(t)
+        case KL.Check{}:
+          fetching_spec(t)
+        case KL.Run{}:
+          fetching_spec(t)
+
+# an attempt leaves a candidate of its own only when its process died in it
+def own_left_spec(e: KL.End) -> Nat:
+  match e:
+    case KL.Got{}:
+      0n
+    case KL.Busy{}:
+      0n
+    case KL.Freed{}:
+      0n
+    case KL.Crash{}:
+      1n
+
+# some action starts the kernel
+def runs_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.Fetch{h}:
+          runs_spec(t)
+        case KL.Offline{}:
+          runs_spec(t)
+        case KL.Check{}:
+          runs_spec(t)
+        case KL.Run{}:
+          True{}
+
+# every fetch is hashed, and every start comes after a check that follows
+# the last fetch before it (clean: no fetch since the last check)
+def verified_spec(xs: List<&2, KL.Act>, clean: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      match x:
+        case KL.Fetch{h}:
+          match h:
+            case True{}:
+              verified_spec(t, False{})
+            case False{}:
+              False{}
+        case KL.Offline{}:
+          verified_spec(t, clean)
+        case KL.Check{}:
+          verified_spec(t, True{})
+        case KL.Run{}:
+          match clean:
+            case True{}:
+              verified_spec(t, True{})
+            case False{}:
+              False{}
+
+# LAW kernel_terms_exact: the model's predicates mean what the laws above read them as: a list fetches when some action is a fetch, runs when some action is the start, is verified when every fetch is hashed and every start follows a check after the last fetch; an attempt leaves its own candidate only when its process died inside it
+law kernel_terms_exact:
+  for xs: List<&2, KL.Act>
+  for c: Bool
+  for e: KL.End
+  {KL.acts.fetching(xs) == fetching_spec(xs) : Bool} & {KL.acts.runs(xs) == runs_spec(xs) : Bool} & {KL.acts.verified(xs, c) == verified_spec(xs, c) : Bool} & {KL.own_left(e) == own_left_spec(e) : Nat}
+
+# 1 for a leftover of a dead attempt: a candidate or a set-aside lock of a
+# dead owner
+def dead_one(l: KL.Left) -> Nat:
+  match l:
+    case KL.Left{k, o}:
+      match k:
+        case KL.Cand{}:
+          match o:
+            case KL.Alive{}:
+              0n
+            case KL.Dead{}:
+              1n
+        case KL.Aside{}:
+          match o:
+            case KL.Alive{}:
+              0n
+            case KL.Dead{}:
+              1n
+        case KL.Foreign{}:
+          0n
+
+# the leftovers of dead attempts
+def dead_spec(ls: List<&2, KL.Left>) -> Nat:
+  match ls:
+    case Nil{}:
+      0n
+    case l <> t:
+      Nat.add(dead_one(l), dead_spec(t))
+
+# the files the sweep must keep
+def live_spec(ls: List<&2, KL.Left>) -> Nat:
+  match ls:
+    case Nil{}:
+      0n
+    case l <> t:
+      Nat.add(Nat.sub(1n, dead_one(l)), live_spec(t))
+
+def keep_spec.owner(o: KL.Owner) -> Bool:
+  match o:
+    case KL.Alive{}:
+      True{}
+    case KL.Dead{}:
+      False{}
+
+# the sweep's verdict on a file: it removes an attempt's candidate or a
+# stale lock renamed aside whose owner is dead; it keeps a live owner's
+# and every other file
+def keep_spec(l: KL.Left) -> Bool:
+  match l:
+    case KL.Left{k, o}:
+      match k:
+        case KL.Cand{}:
+          keep_spec.owner(o)
+        case KL.Aside{}:
+          keep_spec.owner(o)
+        case KL.Foreign{}:
+          True{}
+
+def sweep_spec.cons(b: Bool, l: KL.Left, t: List<&2, KL.Left>) -> List<&2, KL.Left>:
+  match b:
+    case True{}:
+      l <> t
+    case False{}:
+      t
+
+# the files the sweep keeps, in order
+def sweep_spec(ls: List<&2, KL.Left>) -> List<&2, KL.Left>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> t:
+      sweep_spec.cons(keep_spec(l), l, sweep_spec(t))
+
+# LAW kernel_sweep_terms_exact: the model's sweep keeps exactly the files whose verdict is keep, in order, and its counts are the dead attempts' leftovers and the files to keep
+law kernel_sweep_terms_exact:
+  for ls: List<&2, KL.Left>
+  {KL.sweep(ls) == sweep_spec(ls) : List<&2, KL.Left>} & {KL.lefts.dead(ls) == dead_spec(ls) : Nat} & {KL.lefts.live(ls) == live_spec(ls) : Nat}

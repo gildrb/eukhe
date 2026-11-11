@@ -147,3 +147,39 @@ def sv.sets_drop(g: List<&2, Cv.Bind>, +x: Nat) -> {Cvar.spec_sets_of(Cv.drop(g,
       {==}
     case Cv.Bind{+i, +w} <> +r:
       sv.sets_drop_at(Nat.is_eq(i, x), i, w, x, Cv.drop(r, x), {==}, sv.sets_drop(r, x))
+
+# a set whose id is x misses every other cvar y
+def sv.miss_id(+s: Cv.Bind, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +x: Nat, +y: Nat, eb: {Nat.is_eq(Cv.Bind.id(s), x) == True{} : Bool}, ne: {Nat.is_eq(x, y) == False{} : Bool}) -> {Cv.hit.at([s], ds, l, y) == False{} : Bool}:
+  %Equal.sym(Nat, Cv.Bind.id(s), x, LA.pv.eq_true(Cv.Bind.id(s), x, eb)) : {Cv.hit.when(Nat.is_eq(_, y), ds, l, s) == False{} : Bool}
+  %Equal.sym(Bool, Nat.is_eq(x, y), False{}, ne) : {Cv.hit.when(_, ds, l, s) == False{} : Bool}
+  {==}
+
+def sv.drop_step(b: Bool, +s: Cv.Bind, +r: List<&2, Cv.Bind>, +x: Nat, +y: Nat, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +cur: Maybe<&2, Cv.Val>, eb: {Nat.is_eq(Cv.Bind.id(s), x) == b : Bool}, ne: {Nat.is_eq(x, y) == False{} : Bool},
+  ih0: {Cv.layer(Cv.drop(r, x), ds, l, y, cur) == Cv.layer(r, ds, l, y, cur) : Maybe<&2, Cv.Val>},
+  ih1: {Cv.layer(Cv.drop(r, x), ds, l, y, Cv.layer([s], ds, l, y, cur)) == Cv.layer(r, ds, l, y, Cv.layer([s], ds, l, y, cur)) : Maybe<&2, Cv.Val>})
+  -> {Cv.layer(Cv.drop.at(b, s, Cv.drop(r, x)), ds, l, y, cur) == Cv.layer(s <> r, ds, l, y, cur) : Maybe<&2, Cv.Val>}:
+  match b:
+    case True{}:
+      %Equal.sym(Maybe<&2, Cv.Val>, Cv.layer(s <> r, ds, l, y, cur), Cv.layer(r, ds, l, y, Cv.layer([s], ds, l, y, cur)), LA.pv.layer_cons(s, r, ds, l, y, cur)) : {Cv.layer(Cv.drop(r, x), ds, l, y, cur) == _ : Maybe<&2, Cv.Val>}
+      %Equal.sym(Maybe<&2, Cv.Val>, Cv.layer([s], ds, l, y, cur), cur, LA.pv.layer_miss(s, ds, l, y, cur, sv.miss_id(s, ds, l, x, y, eb, ne))) : {Cv.layer(Cv.drop(r, x), ds, l, y, cur) == Cv.layer(r, ds, l, y, _) : Maybe<&2, Cv.Val>}
+      ih0
+    case False{}:
+      %Equal.sym(Maybe<&2, Cv.Val>, Cv.layer(s <> Cv.drop(r, x), ds, l, y, cur), Cv.layer(Cv.drop(r, x), ds, l, y, Cv.layer([s], ds, l, y, cur)), LA.pv.layer_cons(s, Cv.drop(r, x), ds, l, y, cur)) : {_ == Cv.layer(s <> r, ds, l, y, cur) : Maybe<&2, Cv.Val>}
+      %Equal.sym(Maybe<&2, Cv.Val>, Cv.layer(s <> r, ds, l, y, cur), Cv.layer(r, ds, l, y, Cv.layer([s], ds, l, y, cur)), LA.pv.layer_cons(s, r, ds, l, y, cur)) : {Cv.layer(Cv.drop(r, x), ds, l, y, Cv.layer([s], ds, l, y, cur)) == _ : Maybe<&2, Cv.Val>}
+      ih1
+
+# dropping the sets of x keeps the layer of every other cvar y
+def sv.drop_keeps(g: List<&2, Cv.Bind>, +x: Nat, +y: Nat, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +cur: Maybe<&2, Cv.Val>, +ne: {Nat.is_eq(x, y) == False{} : Bool}) -> {Cv.layer(Cv.drop(g, x), ds, l, y, cur) == Cv.layer(g, ds, l, y, cur) : Maybe<&2, Cv.Val>}:
+  match g:
+    case Nil{}:
+      {==}
+    case +s <> +r:
+      sv.drop_step(Nat.is_eq(Cv.Bind.id(s), x), s, r, x, y, ds, l, cur, {==}, ne, sv.drop_keeps(r, x, y, ds, l, cur, ne), sv.drop_keeps(r, x, y, ds, l, Cv.layer([s], ds, l, y, cur), ne))
+
+# a write of x leaves the store's layer of every other cvar y
+def sv.save_keeps(+g: List<&2, Cv.Bind>, +x: Nat, +v: Cv.Val, +y: Nat, +ds: List<&2, Cv.Decl>, +cur: Maybe<&2, Cv.Val>, +ne: {Nat.is_eq(x, y) == False{} : Bool}) -> {Cv.layer(Cv.save(g, Cv.Bind{x, v}), ds, Cv.Config{}, y, cur) == Cv.layer(g, ds, Cv.Config{}, y, cur) : Maybe<&2, Cv.Val>}:
+  +b = {Cv.Bind{x, v} : Cv.Bind}
+  +d = Cv.drop(g, x)
+  %Equal.sym(Maybe<&2, Cv.Val>, Cv.layer(Cv.save(g, b), ds, Cv.Config{}, y, cur), Cv.layer([b], ds, Cv.Config{}, y, Cv.layer(d, ds, Cv.Config{}, y, cur)), LA.pv.layer_snoc(d, b, ds, Cv.Config{}, y, cur)) : {_ == Cv.layer(g, ds, Cv.Config{}, y, cur) : Maybe<&2, Cv.Val>}
+  %Equal.sym(Maybe<&2, Cv.Val>, Cv.layer([b], ds, Cv.Config{}, y, Cv.layer(d, ds, Cv.Config{}, y, cur)), Cv.layer(d, ds, Cv.Config{}, y, cur), LA.pv.layer_miss(b, ds, Cv.Config{}, y, Cv.layer(d, ds, Cv.Config{}, y, cur), sv.miss_other(ds, Cv.Config{}, x, v, y, ne))) : {_ == Cv.layer(g, ds, Cv.Config{}, y, cur) : Maybe<&2, Cv.Val>}
+  sv.drop_keeps(g, x, y, ds, Cv.Config{}, cur, ne)

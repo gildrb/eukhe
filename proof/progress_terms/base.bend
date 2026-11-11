@@ -163,3 +163,42 @@ def pgt.succ_le(n: Nat) -> {Nat.is_le(1n+n, n) == False{} : Bool}:
 def pgt.no_growth(+hist: List<&2, Nat>, +seg: List<&2, Nat>, w: Pr.Within(seg, hist)) -> {Pr.grew(hist, seg) == False{} : Bool}:
   %Equal.sym(Nat, Pr.work(List.append(&2, Nat, hist, seg)), Pr.work(hist), LA.pp.repeat(hist, seg, w)) : {Nat.is_le(1n+Pr.work(hist), _) == False{} : Bool}
   pgt.succ_le(Pr.work(hist))
+
+def pg.goal(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, g: Pr.Goal) -> {ProgressTerms.goal_spec(segs, cap, hist, g) == Pr.goal(segs, cap, hist, g) : Pr.Goal}:
+  match segs:
+    case Nil{}:
+      {==}
+    case +seg <> rest:
+      match g:
+        case Pr.Go{s}:
+          pg.goal(rest, cap, List.append(&2, Nat, hist, seg), Pr.check(cap, s, Pr.grew(hist, seg)))
+        case Pr.Stop{s}:
+          {==}
+
+def pg.mem(+x: Nat, xs: List<&2, Nat>) -> {ProgressTerms.mem_spec(x, xs) == Pr.mem(x, xs) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      %pg.mem(x, t) : {Bool.or(Nat.is_eq(h, x), ProgressTerms.mem_spec(x, t)) == Bool.or(Nat.is_eq(h, x), _) : Bool}
+      {==}
+
+def pg.at(+cfg: Ch.Cfg, +t: Nat, +dt: Nat, x: Ch.Next) -> {ProgressTerms.watch_spec.at(cfg, t, dt, x) == Pr.watch.step(cfg, t, dt, x) : Ch.Next}:
+  match x:
+    case Ch.Watch{w}:
+      {==}
+    case Ch.Owe{k}:
+      {==}
+    case Ch.Quiet{}:
+      {==}
+
+def pg.watch(ps: List<&2, Pr.Peek>, +cfg: Ch.Cfg, +hist: List<&2, Nat>, +x: Ch.Next) -> {ProgressTerms.watch_spec(ps, cfg, hist, x) == Pr.watch(ps, cfg, hist, x) : Ch.Next}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      match p:
+        case Pr.Peek{+seg, +dt}:
+          +now = List.append(&2, Nat, hist, seg)
+          %pg.at(cfg, Pr.work(now), dt, x) : {ProgressTerms.watch_spec(rest, cfg, now, ProgressTerms.watch_spec.at(cfg, Pr.work(now), dt, x)) == Pr.watch(rest, cfg, now, _) : Ch.Next}
+          pg.watch(rest, cfg, now, ProgressTerms.watch_spec.at(cfg, Pr.work(now), dt, x))

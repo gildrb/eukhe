@@ -545,3 +545,203 @@ law env_ffi_malformed_unless_request:
 #   name kept, the base's value over the overlay's
 law env_ffi_tags_example:
   {[FEnv.ffi("1,1,X0,2,1,X1,01,P1,11,1,P1,2"), FEnv.ffi("0,0,0,0,"), FEnv.ffi("2,1,X"), FEnv.ffi("1,2,X"), FEnv.ffi("0,0,0,"), FEnv.ffi("0,0,0,0,x")] == ["1,1,P1,2", "0,", Wr.err("child_env: malformed request"), Wr.err("child_env: malformed request"), Wr.err("child_env: malformed request"), Wr.err("child_env: input left over")] : List<&2, String>}
+
+# u is one of the names ns, char for char
+def ce_has(ns: List<&2, String>, +u: String) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case r <> t:
+      Bool.or(String.eq(r, u), ce_has(t, u))
+
+# u contains one of the patterns ps
+def ce_hits(ps: List<&2, String>, +u: String) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> t:
+      Bool.or(String.contains(u, p), ce_hits(t, u))
+
+# the secret patterns of env_api_keys.rs
+def ce_pats() -> List<&2, String>:
+  ["API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "PRIVATE_KEY", "ACCESS_KEY"]
+
+# the ASCII upper case of s: a to z become A to Z (Base's Char.to_upper),
+# every other char stays
+def ce_up(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{c, t}:
+      SCon{Char.to_upper(c), ce_up(t)}
+
+# n is a credential name: its upper case is a provider name, or contains
+# a secret pattern
+def ce_cred(+reg: List<&2, String>, n: String) -> Bool:
+  +u = ce_up(n)
+  Bool.or(ce_has(reg, u), ce_hits(ce_pats(), u))
+
+# x is a variable of xs
+def ce_in(+x: Env.Var, xs: List<&2, Env.Var>) -> Type:
+  match xs:
+    case Nil{}:
+      Empty
+    case +w <> t:
+      Or({x == w : Env.Var}, ce_in(x, t))
+
+def ce_hidden.pick(hit: Bool, v: Env.Var, r: List<&2, Env.Var>) -> List<&2, Env.Var>:
+  match hit:
+    case True{}:
+      r
+    case False{}:
+      v <> r
+
+# n is the name of a variable of xs
+def ce_named(+n: String, xs: List<&2, Env.Var>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Env.Var{m, x} <> t:
+      Bool.or(String.eq(m, n), ce_named(n, t))
+
+# the variables of base, in order, whose name the overlay does not name
+def ce_hidden(base: List<&2, Env.Var>, +over: List<&2, Env.Var>) -> List<&2, Env.Var>:
+  match base:
+    case Nil{}:
+      Nil{}
+    case Env.Var{+m, +x} <> t:
+      ce_hidden.pick(ce_named(m, over), Env.Var{m, x}, ce_hidden(t, over))
+
+# the overlay over the base: the overlay, then the base's variables it
+# does not hide
+def ce_merge(base: List<&2, Env.Var>, +over: List<&2, Env.Var>) -> List<&2, Env.Var>:
+  List.append(&2, Env.Var, over, ce_hidden(base, over))
+
+# n is a provider name: its upper case is a name of the registry
+def ce_provider(reg: List<&2, String>, n: String) -> Bool:
+  ce_has(reg, ce_up(n))
+
+# LAW env_terms_exact: the model's terms the laws above read mean what the spec says: cred, registered, listed, merge and In
+# EXCLUDES: a credential, provider or membership test that makes the G3
+#   laws above hold vacuously (always False, case-sensitive, a merge that
+#   drops the overlay)
+law env_terms_exact:
+  for +reg: List<&2, String>
+  for +ns: List<&2, String>
+  for +n: String
+  for +base: List<&2, Env.Var>
+  for +over: List<&2, Env.Var>
+  for +v: Env.Var
+  {Env.cred(reg, n) == ce_cred(reg, n) : Bool} & {Env.registered(reg, n) == ce_provider(reg, n) : Bool} & {Env.listed(ns, n) == ce_has(ns, n) : Bool} & {Env.merge(base, over) == ce_merge(base, over) : List<&2, Env.Var>} & {Env.In(v, over) == ce_in(v, over) : Type}
+
+def ce_keep.pick(ok: Bool, v: Env.Var, r: List<&2, Env.Var>) -> List<&2, Env.Var>:
+  match ok:
+    case True{}:
+      v <> r
+    case False{}:
+      r
+
+# n reaches the child: it is no credential, or it is no provider name and
+# the keep list holds it
+def ce_passes(+reg: List<&2, String>, keep: List<&2, String>, +n: String) -> Bool:
+  Bool.or(Bool.not(ce_cred(reg, n)), Bool.and(Bool.not(ce_provider(reg, n)), ce_has(keep, n)))
+
+# the variables of xs, in order, whose name passes
+def ce_keep(+reg: List<&2, String>, +keep: List<&2, String>, xs: List<&2, Env.Var>) -> List<&2, Env.Var>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Env.Var{+m, +x} <> t:
+      ce_keep.pick(ce_passes(reg, keep, m), Env.Var{m, x}, ce_keep(reg, keep, t))
+
+# the environment of a child: the overlay over the base, less every
+# variable whose name does not pass
+def ce_child(+reg: List<&2, String>, +keep: List<&2, String>, base: List<&2, Env.Var>, over: List<&2, Env.Var>) -> List<&2, Env.Var>:
+  ce_keep(reg, keep, ce_merge(base, over))
+
+def ce_spell_var(v: Env.Var, rest: String) -> String:
+  match v:
+    case Env.Var{n, x}:
+      Wr.put_str(n, Wr.put_str(x, rest))
+
+# the reply to q: the variables of the spec's environment of the child
+def ce_reply(q: FEnv.Req) -> String:
+  match q:
+    case FEnv.Req{r, k, b, o}:
+      Wr.put_list(~Env.Var, ~ce_spell_var, ce_child(r, k, b, o), "")
+
+def ce_entry.end(done: Bool, q: FEnv.Req) -> String:
+  match done:
+    case True{}:
+      ce_reply(q)
+    case False{}:
+      Wr.err("child_env: input left over")
+
+def ce_entry.go(d: Wr.Dec<FEnv.Req>) -> String:
+  match d:
+    case Wr.Got{q, s}:
+      ce_entry.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      Wr.err("child_env: malformed request")
+
+def ce_read_req.over(r: List<&2, String>, k: List<&2, String>, b: List<&2, Env.Var>, d: Wr.Dec<List<&2, Env.Var>>) -> Wr.Dec<FEnv.Req>:
+  match d:
+    case Wr.Got{o, s}:
+      Wr.Got{FEnv.Req{r, k, b, o}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ce_read_var.value(n: String, d: Wr.Dec<String>) -> Wr.Dec<Env.Var>:
+  match d:
+    case Wr.Got{x, s}:
+      Wr.Got{Env.Var{n, x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ce_read_var.name(d: Wr.Dec<String>) -> Wr.Dec<Env.Var>:
+  match d:
+    case Wr.Got{n, s}:
+      ce_read_var.value(n, Wr.get_str(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a variable: its name, then its value
+def ce_read_var(s: String) -> Wr.Dec<Env.Var>:
+  ce_read_var.name(Wr.get_str(s))
+
+def ce_read_req.base(r: List<&2, String>, k: List<&2, String>, d: Wr.Dec<List<&2, Env.Var>>) -> Wr.Dec<FEnv.Req>:
+  match d:
+    case Wr.Got{b, s}:
+      ce_read_req.over(r, k, b, Wr.get_list(~Env.Var, ~ce_read_var, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ce_read_req.keep(r: List<&2, String>, d: Wr.Dec<List<&2, String>>) -> Wr.Dec<FEnv.Req>:
+  match d:
+    case Wr.Got{k, s}:
+      ce_read_req.base(r, k, Wr.get_list(~Env.Var, ~ce_read_var, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ce_read_req.reg(d: Wr.Dec<List<&2, String>>) -> Wr.Dec<FEnv.Req>:
+  match d:
+    case Wr.Got{r, s}:
+      ce_read_req.keep(r, Wr.get_list(~String, ~Wr.get_str, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request at the start of s: the registry, the keep list, the base,
+# the overlay
+def ce_read_req(s: String) -> Wr.Dec<FEnv.Req>:
+  ce_read_req.reg(Wr.get_list(~String, ~Wr.get_str, s))
+
+# the entry's answer to s: the reply to the request s is, when nothing is
+# left after it; else one of the two error texts
+def ce_entry(s: String) -> String:
+  ce_entry.go(ce_read_req(s))
+
+# the request Rust writes for q, then rest
+def ce_spell_req(q: FEnv.Req, rest: String) -> String:
+  match q:
+    case FEnv.Req{r, k, b, o}:
+      Wr.put_list(~String, ~Wr.put_str, r, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~ce_spell_var, b, Wr.put_list(~Env.Var, ~ce_spell_var, o, rest))))

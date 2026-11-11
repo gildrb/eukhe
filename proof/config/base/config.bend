@@ -6,6 +6,7 @@ import ../../../laws/config.bend as Config
 import ../../base/logic/logic.bend as LLogicLogic
 import ../../base/nat.bend as LNat
 import ../../base/logic/nat.bend as LLogicNat
+import ../../../spec/settings/config_rules.bend as CR
 
 # ---- config ----
 
@@ -232,3 +233,165 @@ def pcf.mf.merged(+g: List<&2, Cf.Named>, p: List<&2, Cf.Named>, +n: Nat) -> {Cf
         case Cf.Named{+m, fs}:
           pcf.mf.first(Nat.is_eq(m, n), fs, Cf.find(Cf.merge(g, rest), n), Config.cf_find(rest, n), Config.cf_find(g, n), pcf.mf.merged(g, rest, n))
 
+def pcf.cl.head(p: List<&2, String>) -> {Cf.first_name(p) == Config.cf_head(p) : String}:
+  match p:
+    case Nil{}:
+      {==}
+    case x <> xs:
+      {==}
+
+def pcf.cl.join.go(xs: List<&2, String>, +x: String) -> {Cf.join(x <> xs) == Config.cf_join.go(xs, x) : String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +y <> +ys:
+      %pcf.cl.join.go(ys, y) : {String.append(x, SCon{'.', Cf.join(y <> ys)}) == String.append(x, SCon{'.', _}) : String}
+      {==}
+
+# the model joins a path as the laws do
+def pcf.cl.join(p: List<&2, String>) -> {Cf.join(p) == Config.cf_join(p) : String}:
+  match p:
+    case Nil{}:
+      {==}
+    case x <> xs:
+      pcf.cl.join.go(xs, x)
+
+def pcf.cl.pick(b: Bool, +q: List<&2, String>, s: Cf.Scope, x: Cf.Hit, y: Cf.Hit, ih: {x == y : Cf.Hit}) -> {Cf.classify.pick(b, q, s, x) == Config.cf_hit.pick(b, q, s, y) : Cf.Hit}:
+  match b:
+    case True{}:
+      %pcf.cl.join(q) : {Cf.Hit{Cf.join(q), s} == Cf.Hit{_, s} : Cf.Hit}
+      {==}
+    case False{}:
+      ih
+
+def pcf.cl.prefix(a: List<&2, String>, b: List<&2, String>) -> {Cf.prefix(a, b) == Config.cf_prefix(a, b) : Bool}:
+  match a:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      match b:
+        case Nil{}:
+          {==}
+        case +y <> +ys:
+          %pcf.cl.prefix(xs, ys) : {Bool.and(String.eq(x, y), Cf.prefix(xs, ys)) == Bool.and(String.eq(x, y), _) : Bool}
+          {==}
+
+# the first rule whose path is a prefix, over any table
+def pcf.cl.go(rs: List<&2, Cf.Rule>, +p: List<&2, String>) -> {Cf.classify.go(rs, p) == Config.cf_hit(rs, p) : Cf.Hit}:
+  match rs:
+    case Nil{}:
+      %pcf.cl.head(p) : {Cf.Hit{Cf.first_name(p), Cf.Proj{Cf.Code{}}} == Cf.Hit{_, Cf.Proj{Cf.Code{}}} : Cf.Hit}
+      {==}
+    case r <> +rest:
+      match r:
+        case Cf.Rule{+q, s}:
+          %pcf.cl.prefix(q, p) : {Cf.classify.pick(Cf.prefix(q, p), q, s, Cf.classify.go(rest, p)) == Config.cf_hit.pick(_, q, s, Config.cf_hit(rest, p)) : Cf.Hit}
+          pcf.cl.pick(Cf.prefix(q, p), q, s, Cf.classify.go(rest, p), Config.cf_hit(rest, p), pcf.cl.go(rest, p))
+
+def pcf.cl.rules() -> {Cf.rules() == Config.cf_rules() : List<&2, Cf.Rule>}:
+  {==}
+
+# the model classifies a path as the laws do
+def pcf.classify(+p: List<&2, String>) -> {Cf.classify(p) == Config.cf_hit(Config.cf_rules(), p) : Cf.Hit}:
+  %pcf.cl.rules() : {Cf.classify.go(Cf.rules(), p) == Config.cf_hit(_, p) : Cf.Hit}
+  pcf.cl.go(Cf.rules(), p)
+
+# the model's verdict on a scope is the laws'
+def pcf.applies(t: Cf.Trust, s: Cf.Scope) -> {Cf.applies(t, s) == Config.cf_applies(t, s) : Bool}:
+  match t:
+    case Cf.Trusted{}:
+      match s:
+        case Cf.Proj{c}:
+          {==}
+        case Cf.GlobalOnly{}:
+          {==}
+    case Cf.Untrusted{}:
+      match s:
+        case Cf.Proj{c}:
+          match c:
+            case Cf.Pref{}:
+              {==}
+            case Cf.Limit{}:
+              {==}
+            case Cf.Prompt{}:
+              {==}
+            case Cf.Credential{}:
+              {==}
+            case Cf.Code{}:
+              {==}
+        case Cf.GlobalOnly{}:
+          {==}
+
+# d has key k when its keys hold k
+def pcf.wx.has(d: List<&2, Cf.Entry>, +k: Nat) -> {Cf.has_key(d, k) == Config.cf_mem(Config.cf_keys(d), k) : Bool}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +rest:
+      match e:
+        case Cf.Entry{+j, v}:
+          %pcf.wx.has(rest, k) : {Bool.or(Nat.is_eq(j, k), Cf.has_key(rest, k)) == Bool.or(Nat.is_eq(j, k), _) : Bool}
+          {==}
+
+def pcf.wx.pv(b: Bool, v: Nat, w: Nat) -> {Cf.pick_v(b, v, w) == Config.cf_put_v(b, v, w) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the model's replace is the laws'
+def pcf.wx.rep(d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.replace(d, k, v) == Config.cf_replace(d, k, v) : List<&2, Cf.Entry>}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +t:
+      match e:
+        case Cf.Entry{+j, +w}:
+          %pcf.wx.pv(Nat.is_eq(j, k), v, w) : {Cf.Entry{j, Cf.pick_v(Nat.is_eq(j, k), v, w)} <> Cf.replace(t, k, v) == Cf.Entry{j, _} <> Config.cf_replace(t, k, v) : List<&2, Cf.Entry>}
+          %pcf.wx.rep(t, k, v) : {Cf.Entry{j, Cf.pick_v(Nat.is_eq(j, k), v, w)} <> Cf.replace(t, k, v) == Cf.Entry{j, Cf.pick_v(Nat.is_eq(j, k), v, w)} <> _ : List<&2, Cf.Entry>}
+          {==}
+
+def pcf.wx.set(b: Bool, +d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.set.go(b, d, k, v) == Config.cf_set_in(b, d, k, v) : List<&2, Cf.Entry>}:
+  match b:
+    case True{}:
+      pcf.wx.rep(d, k, v)
+    case False{}:
+      {==}
+
+# a set is the laws' edit of a Set
+def pcf.set_spec(+d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.set(d, k, v) == Config.cf_edited(d, Cf.Set{k, v}) : List<&2, Cf.Entry>}:
+  %pcf.wx.has(d, k) : {Cf.set.go(Cf.has_key(d, k), d, k, v) == Config.cf_set_in(_, d, k, v) : List<&2, Cf.Entry>}
+  pcf.wx.set(Cf.has_key(d, k), d, k, v)
+
+def pcf.lk.pick(b: Bool, v: Nat, x: Maybe<&2, Nat>, y: Maybe<&2, Nat>, ih: {x == y : Maybe<&2, Nat>}) -> {Cf.pick(b, v, x) == CR.cr_first(b, v, y) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+def pcf.lookup(d: List<&2, Cf.Entry>, +j: Nat) -> {Cf.lookup(d, j) == CR.cr_lookup(d, j) : Maybe<&2, Nat>}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +t:
+      match e:
+        case Cf.Entry{k, v}:
+          pcf.lk.pick(Nat.is_eq(k, j), v, Cf.lookup(t, j), CR.cr_lookup(t, j), pcf.lookup(t, j))
+
+def pcf.sl.pick(b: Bool, v: Cf.Val, x: Maybe<&2, Cf.Val>, y: Maybe<&2, Cf.Val>, ih: {x == y : Maybe<&2, Cf.Val>}) -> {Cf.slot.pick(b, v, x) == CR.cr_slot.pick(b, v, y) : Maybe<&2, Cf.Val>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+def pcf.slot(es: List<&2, Cf.Slot>, +p: Nat) -> {Cf.slot(es, p) == CR.cr_slot(es, p) : Maybe<&2, Cf.Val>}:
+  match es:
+    case Nil{}:
+      {==}
+    case x <> +t:
+      match x:
+        case Cf.Slot{q, v}:
+          pcf.sl.pick(Nat.is_eq(q, p), v, Cf.slot(t, p), CR.cr_slot(t, p), pcf.slot(t, p))

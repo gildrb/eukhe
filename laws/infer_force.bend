@@ -146,3 +146,162 @@ law infer_force_ffi_example:
   {FF.ffi("1,2,2,T") == "0," : String} &
   {FF.ffi("2,") == SCon{'E', SCon{' ', "infer_force: malformed request"}} : String} &
   {FF.ffi("0,0,TTT") == SCon{'E', SCon{' ', "infer_force: malformed request"}} : String}
+
+def after_spec.miss(within: Bool) -> M.Next:
+  match within:
+    case True{}:
+      M.Again{}
+    case False{}:
+      M.Fails{}
+
+def after_spec(i: Nat, r: Nat, c: Bool) -> M.Next:
+  match c:
+    case True{}:
+      M.Hit{}
+    case False{}:
+      after_spec.miss(Nat.is_le(1n+i, r))
+
+# LAW infer_force_after_exact: the step after a reply is exactly: a call ends the forced call; a miss retries when the attempt (counted from 1) is within the retries, else the call fails
+law infer_force_after_exact:
+  for +i: Nat
+  for +r: Nat
+  for c: Bool
+  {M.after(i, r, c) == after_spec(i, r, c) : M.Next}
+
+# Reader: the requests the entry accepts, read with the wire primitives
+type Ask is Data:
+  AFlag{i: Nat, sup: Bool, free: Bool}
+  AAfter{i: Nat, r: Nat, c: Bool}
+
+# The steps, independently: the first attempt (0) sets the native flag
+# only when the provider supports it and it is free, a retry whenever the
+# provider supports it; a reply that calls the tool ends the call, a miss
+# on attempt i (counted from 0) retries when attempt i + 1 (counted from
+# 1) is within the retries, else the call fails
+def flag_spec(i: Nat, sup: Bool, free: Bool) -> Bool:
+  match i:
+    case 0n:
+      match sup:
+        case True{}:
+          free
+        case False{}:
+          False{}
+    case 1n+j:
+      sup
+
+# the reply to the request a: its native flag, or the step after its reply
+def reply_spec(a: Ask) -> String:
+  match a:
+    case AFlag{i, sup, free}:
+      Wr.put_bool(flag_spec(i, sup, free), "")
+    case AAfter{i, r, c}:
+      spell_next(after_spec(i, r, c))
+
+def entry_spec.of(m: Maybe<&2, Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "infer_force: malformed request"}}
+    case Some{a}:
+      reply_spec(a)
+
+def read_after.called(i: Nat, r: Nat, d: Wr.Dec<Bool>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{c, s}:
+      Wr.Got{AAfter{i, r, c}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_after.retries(i: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{r, s}:
+      read_after.called(i, r, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_after(d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{i, s}:
+      read_after.retries(i, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_flag.free(i: Nat, sup: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{free, s}:
+      Wr.Got{AFlag{i, sup, free}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_flag.sup(i: Nat, d: Wr.Dec<Bool>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{sup, s}:
+      read_flag.free(i, sup, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_flag(d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{i, s}:
+      read_flag.sup(i, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.tag(t: Nat, s: String) -> Wr.Dec<Ask>:
+  match t:
+    case 0n:
+      read_flag(Wr.get_nat(s))
+    case 1n:
+      read_after(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def read_ask.go(d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
+  match d:
+    case Wr.Got{t, s}:
+      read_ask.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.end(whole: Bool, a: Ask) -> Maybe<&2, Ask>:
+  match whole:
+    case True{}:
+      Some{a}
+    case False{}:
+      None{}
+
+def read_ask.whole(d: Wr.Dec<Ask>) -> Maybe<&2, Ask>:
+  match d:
+    case Wr.Got{a, s}:
+      read_ask.end(Wr.end(s), a)
+    case Wr.Bad{}:
+      None{}
+
+# the request s is, when s is exactly one request
+def read_ask(s: String) -> Maybe<&2, Ask>:
+  read_ask.whole(read_ask.go(Wr.get_nat(s)))
+
+# the answer to the input s: the spec's reply to the one request s is,
+# else the error form
+def entry_spec(s: String) -> String:
+  entry_spec.of(read_ask(s))
+
+# LAW infer_force_ffi_spec: for every input, the entry answers exactly the spec's: the native flag of attempt i (flag_spec) or the step after a reply (after_spec) when the input is exactly one request, else the error form 'E ', then "infer_force: malformed request"
+# EXCLUDES: an answer for an input that is not exactly one request (input
+#   left over, an unknown tag, a malformed field), a flag or step other
+#   than the spec's for any request, numbers too long for the wire included
+law infer_force_ffi_spec:
+  for +s: String
+  {FF.ffi(s) == entry_spec(s) : String}
+
+# LAW infer_force_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "infer_force: malformed request"
+law infer_force_ffi_malformed_exact:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, Ask>}
+  {FF.ffi(s) == SCon{'E', SCon{' ', "infer_force: malformed request"}} : String}
+
+# LAW infer_force_flag_exact: the native flag of attempt i is exactly: on the first attempt the provider's support and the flag being free, on every retry the provider's support
+law infer_force_flag_exact:
+  for i: Nat
+  for sup: Bool
+  for free: Bool
+  {M.flag(i, sup, free) == flag_spec(i, sup, free) : Bool}

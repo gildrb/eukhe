@@ -938,3 +938,59 @@ law glob_match_example:
 # EXCLUDES: an allowlist that drifts from the Rust one it replaced
 law glob_allow_example:
   {[GQuery.allowed("p/i/g", ["p/i/g"]), GQuery.allowed("p/i/g", ["i/g"]), GQuery.allowed("p/i/g", ["g"]), GQuery.allowed("p/i/g", ["p/*"]), GQuery.allowed("p/i/g", [" i/* "]), GQuery.allowed("z/g", ["p/*"]), GQuery.allowed("z/g5", ["z/g?"]), GQuery.allowed("p/i/g", []), GQuery.allowed("p/i/g", ["  "]), GQuery.allowed("p/i/g", ["["])] == [True{}, True{}, False{}, True{}, True{}, False{}, True{}, False{}, False{}, False{}] : List<&2, Bool>}
+
+# the continuation byte 10xxxxxx of the six bits of x above its k lowest
+def sp_utf8.cont(+x: U32, k: Nat) -> U32:
+  U32.or(128, U32.and(U32.shrn(x, k), 63))
+
+# the n continuation bytes of x, the high bits first, before rest
+def sp_utf8.conts(+n: Nat, +x: U32, rest: List<&2, U32>) -> List<&2, U32>:
+  match n:
+    case 0n:
+      rest
+    case 1n+m:
+      sp_utf8.cont(x, Nat.mul(6n, m)) <> sp_utf8.conts(m, x, rest)
+
+# the bytes of x when it takes n continuation bytes: the lead byte (n + 1
+# high bits set, then a 0, then the code's top bits; x itself for n = 0)
+def sp_utf8.at(n: Nat, +x: U32, rest: List<&2, U32>) -> List<&2, U32>:
+  match n:
+    case 0n:
+      x <> rest
+    case 1n:
+      U32.or(192, U32.shrn(x, 6n)) <> sp_utf8.conts(1n, x, rest)
+    case 2n:
+      U32.or(224, U32.shrn(x, 12n)) <> sp_utf8.conts(2n, x, rest)
+    case 3n+k:
+      U32.or(240, U32.shrn(x, 18n)) <> sp_utf8.conts(3n, x, rest)
+
+# how many continuation bytes a code takes: below 0x80 (one), 0x800
+# (two), 0x10000 (three)
+def sp_utf8.more(one: Bool, two: Bool, three: Bool) -> Nat:
+  match one:
+    case True{}:
+      0n
+    case False{}:
+      match two:
+        case True{}:
+          1n
+        case False{}:
+          match three:
+            case True{}:
+              2n
+            case False{}:
+              3n
+
+def sp_utf8(+x: U32, rest: List<&2, U32>) -> List<&2, U32>:
+  sp_utf8.at(sp_utf8.more(U32.is_lt(x, 128), U32.is_lt(x, 2048), U32.is_lt(x, 65536)), x, rest)
+
+# LAW glob_utf8 (R2, R4): every code's bytes, before every rest, are its
+# UTF-8 bytes as RFC 3629 lays them out (sp_utf8); with glob_bytes, the
+# bytes of every text are pinned to that spec
+# EXCLUDES: a length boundary off by one, a lead byte with another marker,
+#   a continuation byte that takes other bits or drops the marker, bytes
+#   reordered, the rest lost or changed
+law glob_utf8:
+  for +x: U32
+  for +rest: List<&2, U32>
+  {GItems.utf8(x, rest) == sp_utf8(x, rest) : List<&2, U32>}

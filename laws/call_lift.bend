@@ -6,6 +6,7 @@ import ../bend/ffi_call_lift.bend as FCl
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 import ../spec/harness/lift_wire.bend as SpW
+import ../spec/harness/lift.bend as Sp
 
 # (H1) Stored calls lifted to the current dialect
 # -----------------------------------------------
@@ -662,3 +663,29 @@ law call_lift_entry_example:
 # EXCLUDES: a list of calls cut short answered as a shorter list
 law call_lift_entry_short_example:
   {[FCl.ffi("2,4,zoom1,10,"), FCl.ffi("3,4,zoom1,13,1,i2,id1,n4,bash1,11,1,i")] == [Wr.err("call_lift: malformed request"), Wr.err("call_lift: malformed request")] : List<&2, String>}
+
+# LAW call_lift_refines_spec (R1): the lift of every call by every table is
+# the spec's
+# EXCLUDES: a family found by a later row or another name, a step taken
+#   from another rev, a chain that loops past the family's steps, ops out
+#   of order, a rename of every argument named `from` or onto a taken
+#   name, a fill over a present argument, a receipt dropped or reordered,
+#   a lifted call that keeps its old rev
+law call_lift_refines_spec:
+  for +t: List<&2, Cl.Fam>
+  for +c: Cl.Call
+  {Cl.lift(t, c) == Sp.lift_spec(t, c) : Cl.Lift}
+
+# The shipped table, frozen: every family a eukhe tool stamps, its current
+# rev and its steps, as bend/call_lift.bend ships them. A new family, a rev
+# bump or a new step changes this constant, and so needs a law change.
+def cl_shipped_table() -> List<&2, Cl.Fam>:
+  [Cl.Fam{"bash", "1", []}, Cl.Fam{"read", "1", []}, Cl.Fam{"write", "1", []}, Cl.Fam{"edit", "hl.1", []}, Cl.Fam{"grep", "1", []}, Cl.Fam{"glob", "1", []}, Cl.Fam{"ipython", "1", []}, Cl.Fam{"dyn", "1", []}, Cl.Fam{"zoom", "2", [Cl.Step{"1", "2", []}]}, Cl.Fam{"date", "1", []}, Cl.Fam{"remote", "1", []}]
+
+# LAW call_lift_table_exact (R2, R4): the shipped table is exactly the frozen
+# one above: its families in order, each current rev, each step and its ops
+# EXCLUDES: a foreign family (an MCP tool) added to the table, so its calls
+#   are rewritten; a step or an op added, dropped or changed; a current rev
+#   moved; a family dropped, renamed or reordered
+law call_lift_table_exact:
+  {Cl.table() == cl_shipped_table() : List<&2, Cl.Fam>}

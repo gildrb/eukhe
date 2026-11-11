@@ -630,3 +630,68 @@ def price.old.codex(m: Nat, t: Nat) -> Nat:
               price.old.g(m)
             case 1n+c:
               100n
+
+# `OPENAI_GPT_EFFORT` of the Bedrock code
+def reasoning.old.table(l: ELv) -> Nat:
+  match l:
+    case EMinimal{}:
+      2n
+    case ELow{}:
+      2n
+    case EMedium{}:
+      3n
+    case EHigh{}:
+      4n
+    case EXhigh{}:
+      5n
+    case EMax{}:
+      6n
+
+def reasoning.old.gpt(e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> Nat:
+  match e:
+    case Some{w}:
+      match w:
+        case Some{v}:
+          v
+        case None{}:
+          reasoning.old.table(l)
+    case None{}:
+      reasoning.old.table(l)
+
+# `OPENAI_GPT_OSS_EFFORT` of the Bedrock code
+def reasoning.old.oss(l: ELv) -> Nat:
+  match l:
+    case EMinimal{}:
+      2n
+    case ELow{}:
+      2n
+    case EMedium{}:
+      3n
+    case EHigh{}:
+      4n
+    case EXhigh{}:
+      4n
+    case EMax{}:
+      4n
+
+def reasoning.old.rest(oss: Bool, gpt: Bool, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
+  match oss:
+    case True{}:
+      RFlat{reasoning.old.oss(l)}
+    case False{}:
+      match gpt:
+        case True{}:
+          RNested{reasoning.old.gpt(e, l)}
+        case False{}:
+          RNone{}
+
+# the Bedrock reasoning fields before the rulebook held the shape: a name
+# with "claude" (cl) sends Claude's fields; else a name with "gpt-oss"
+# (oss) the flat effort; else a name with "gpt-" (gpt) the nested effort;
+# else none (`build_additional_model_request_fields`)
+def reasoning.old(cl: Bool, oss: Bool, gpt: Bool, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
+  match cl:
+    case True{}:
+      RClaude{}
+    case False{}:
+      reasoning.old.rest(oss, gpt, e, l)

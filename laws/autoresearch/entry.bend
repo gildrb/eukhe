@@ -15,6 +15,7 @@ import ../../bend/autoresearch/step.bend as ArP
 import ../../bend/autoresearch/stats.bend as ArT
 import ../base.bend as LawsBase
 import ./model.bend as ArM
+import ../../spec/autoresearch/metric_line.bend as SL
 
 # Requests
 # --------
@@ -391,3 +392,17 @@ law autoresearch_step_is_model:
 # EXCLUDES: an entry that answers other bytes than the grammar's
 law autoresearch_entry_example:
   {ar_reply_of(FAr.open("")) == "T" : String} & {ar_replies([FAr.QEv{ArS.Begin{1n}}, FAr.QEv{ArS.Init{ArS.Cfg{"n", "g", "ms", "", ArS.Lower{}, [], [], [], Some{2n}}, False{}, True{}}}, FAr.QEv{ArS.Begin{1n}}, FAr.QEv{ArS.Line{"METRIC ms=1.5"}}, FAr.QEv{ArS.Finish{False{}, 0n, False{}}}, FAr.QEv{ArS.Log{ArS.Keep{}, "d", None{}, 0n}}, FAr.QSnap{}], ar_state(FAr.open(""))) == ["1,63,autoresearch: no experiment yet; call autoresearch.init() first", "0,0,F", "0,0,F", "0,0,F", "0,0,F", "0,1,F", "1,1,n1,g2,ms0,0,0,0,0,1,2,0,0,1,1,0,1,0,FT1,F2,1,5,1,0,TF1,d0,1,F2,1,5,1,1,F2,1,5,1,1,0,"] : List<&2, String>} & {[ar_reply_of(FAr.step(ar_state(FAr.open("")), "8,")), ar_reply_of(FAr.step(ar_state(FAr.open("")), "7,x")), ar_reply_of(FAr.step(FAr.Refused{}, "7,"))] == [ar_malformed(), ar_malformed(), Wr.err("autoresearch: the open was refused")] : List<&2, String>}
+
+# LAW metric_show_spec: every decimal a refusal names (a metric not
+# better than the best kept, and that best) prints as the value's
+# spelling in the METRIC grammar (spec/autoresearch/metric_line.bend
+# value_text): 0 for zero; else its sign, the digits before the point (0
+# when there are none) and, at a scale above 0, the point and the last
+# scale digits, zeros first: 3, -12.5, 0.005 (the step laws pass the
+# shipped printer to spec/autoresearch/step.bend; metric_print_round_trip
+# reads its text back)
+# EXCLUDES: another spelling of the right value (01.5, 1.50, .5, +1.5), the
+# point at the wrong place, a zero lost after the point, a sign lost
+law metric_show_spec:
+  for +d: ArD.Dec
+  {ArD.show(d) == SL.value_text(d) : String}

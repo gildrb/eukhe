@@ -690,3 +690,34 @@ def judge(q: Query) -> Verdict:
           judge.none(a)
         case Oauth{exp}:
           judge.fresh(a, Nat.is_lt(now, exp))
+
+def le(a: Nat, b: Nat) -> Bool:
+  match a b:
+    case 0n _:
+      True{}
+    case 1n+p 0n:
+      False{}
+    case 1n+p 1n+q:
+      le(p, q)
+
+# a caller that arrives in s and takes a step is served the stored
+# credential, and it is c or a newer one
+def After(+c: Nat, +s: St, ok: Bool) -> Type:
+  +k = List.length(&2, Leg, St.cs(s))
+  +stored = Sto.c(W.sto(St.w(s)))
+  ({List.get(&2, Leg, St.cs(step(step(s, Arrive{}), Step{k, ok})), k) == Some{Served{None{}, Ok{stored}}} : Maybe<&2, Leg>} & {le(c, stored) == True{} : Bool})
+
+# no caller yet; the store holds credential 0, expired
+def St.new() -> St:
+  St{W{Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}}
+
+# the state after evs, from s
+def go(evs: List<&2, Ev>, s: St) -> St:
+  match evs:
+    case Nil{}:
+      s
+    case e <> rest:
+      go(rest, step(s, e))
+
+def run(evs: List<&2, Ev>) -> St:
+  go(evs, St.new())

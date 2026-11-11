@@ -637,3 +637,555 @@ law refine_plan_incomplete_example:
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law refine_plan_fit_example:
   {[Rp.fit(Rp.Win{2100n, 100n, 64n, 0n}, 0n, Rp.SFull{}, 500n), Rp.fit(Rp.Win{2100n, 100n, 64n, 0n}, 40n, Rp.SFull{}, 1100n), Rp.fit(Rp.Win{2100n, 100n, 64n, 0n}, 40n, Rp.SProbe{0n, 40n, 20n}, 1000n), Rp.fit(Rp.Win{2100n, 100n, 64n, 0n}, 40n, Rp.SProbe{20n, 40n, 30n}, 1020n), Rp.fit(Rp.Win{2100n, 100n, 64n, 0n}, 40n, Rp.SProbe{20n, 21n, 21n}, 1000n), Rp.fit(Rp.Win{2100n, 100n, 64n, 0n}, 40n, Rp.SFinal{}, 1000n), Rp.fit(Rp.Win{1000n, 100n, 64n, 0n}, 0n, Rp.SFull{}, 10n)] == [Rp.TOk{100n}, Rp.TTry{20n, Rp.SProbe{0n, 40n, 20n}}, Rp.TTry{30n, Rp.SProbe{20n, 40n, 30n}}, Rp.TTry{25n, Rp.SProbe{20n, 29n, 25n}}, Rp.TTry{21n, Rp.SFinal{}}, Rp.TOk{76n}, Rp.TNo{"Refinement prompt leaves no room for output in the model's context window; retry with a smaller request."}] : List<&2, Rp.Step>}
+
+# a proposal's texts: each string given, else its default
+def rp_norm(s: Maybe<&2, String>, r: Maybe<&2, String>, o: Maybe<&2, String>) -> Rp.Texts:
+  Rp.Texts{Maybe.default(&2, String, s, "Refined continual harness state"), Maybe.default(&2, String, r, ""), Maybe.default(&2, String, o, "")}
+
+# LAW refine_plan_norm_spec (R6): every proposal's texts are the spec's
+# EXCLUDES: another default, a default over a given text
+law refine_plan_norm_spec:
+  for +s: Maybe<&2, String>
+  for +r: Maybe<&2, String>
+  for +o: Maybe<&2, String>
+  {Rp.norm(s, r, o) == rp_norm(s, r, o) : Rp.Texts}
+
+def rp_back.restore(after: Bool) -> Rp.Verb:
+  match after:
+    case True{}:
+      Rp.AUpdate{}
+    case False{}:
+      Rp.ACreate{}
+
+def rp_back.pick.at(applied: Bool, before: Bool, +after: Bool, at: Nat) -> List<&2, Rp.Pick>:
+  match applied:
+    case False{}:
+      []
+    case True{}:
+      match before:
+        case True{}:
+          [Rp.Pick{at, rp_back.restore(after)}]
+        case False{}:
+          match after:
+            case True{}:
+              [Rp.Pick{at, Rp.ADelete{}}]
+            case False{}:
+              []
+
+def rp_back.pick(w: Rp.Was, at: Nat) -> List<&2, Rp.Pick>:
+  match w:
+    case Rp.Was{applied, before, after}:
+      rp_back.pick.at(applied, before, after, at)
+
+def rp_back.fwd(was: List<&2, Rp.Was>, +at: Nat) -> List<&2, Rp.Pick>:
+  match was:
+    case Nil{}:
+      Nil{}
+    case w <> t:
+      List.append(&2, Rp.Pick, rp_back.pick(w, at), rp_back.fwd(t, 1n+at))
+
+# the rollback of a result: its applied rows last first, a stored before
+# restored (updated when the row wrote an after, else created), a written
+# entry without a before deleted
+def rp_back(+id: String, was: List<&2, Rp.Was>) -> Rp.Back:
+  Rp.Back{String.concat(["Rollback refinement ", id]), String.concat(["Restores continual harness state snapshots from refinement ", id, "."]), "Faulty refinement edits are reverted.", String.concat(["Rollback ", id]), List.reverse(&2, Rp.Pick, rp_back.fwd(was, 0n))}
+
+def rp_change.out(x: Rp.Out, v: Rp.Verb, c: Rp.Comp, id: String, r: List<&2, String>) -> List<&2, String>:
+  match x:
+    case Rp.OInvalid{m}:
+      r
+    case Rp.ORefused{m}:
+      r
+    case Rp.ORemoved{}:
+      String.concat([rp_verb_name(v), " ", rp_comp_name(c), ":", id]) <> r
+    case Rp.OWritten{}:
+      String.concat([rp_verb_name(v), " ", rp_comp_name(c), ":", id]) <> r
+
+def rp_change(w: Rp.Row, r: List<&2, String>) -> List<&2, String>:
+  match w:
+    case Rp.Row{v, c, id, x}:
+      rp_change.out(x, v, c, id, r)
+
+# the change line of every applied row: `<action> <kind>:<id>`
+def rp_changes(rows: List<&2, Rp.Row>) -> List<&2, String>:
+  match rows:
+    case Nil{}:
+      Nil{}
+    case w <> t:
+      rp_change(w, rp_changes(t))
+
+def rp_check.at(+v: Rp.Verb, +c: Rp.Comp, r: Maybe<&2, String>) -> Rp.Check:
+  match r:
+    case None{}:
+      Rp.COk{v, c}
+    case Some{msg}:
+      Rp.CBad{msg}
+
+def rp_first(b: Bool, msg: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
+  match b:
+    case True{}:
+      Some{msg}
+    case False{}:
+      r
+
+def rp_present(v: Rp.Val) -> Bool:
+  match v:
+    case Rp.VMissing{}:
+      False{}
+    case Rp.VNull{}:
+      False{}
+    case Rp.VObject{}:
+      True{}
+    case Rp.VOther{}:
+      True{}
+
+def rp_is_object(v: Rp.Val) -> Bool:
+  match v:
+    case Rp.VMissing{}:
+      False{}
+    case Rp.VNull{}:
+      False{}
+    case Rp.VObject{}:
+      True{}
+    case Rp.VOther{}:
+      False{}
+
+def rp_spec_object(m: Bool, dag: Rp.Val, machine: Rp.Val) -> Bool:
+  match m:
+    case True{}:
+      rp_is_object(machine)
+    case False{}:
+      rp_is_object(dag)
+
+def rp_factory.keys(+dag: Rp.Val, +machine: Rp.Val) -> Maybe<&2, String>:
+  rp_first(Bool.and(rp_present(dag), rp_present(machine)), "pass either dag or machine form, not both", rp_first(Bool.not(rp_spec_object(rp_present(machine), dag, machine)), "factory entry requires a dag or machine object in arguments", None{}))
+
+# a factory create, or an update with arguments: one spec form, an object
+def rp_factory(args: Maybe<&2, Rp.Args>) -> Maybe<&2, String>:
+  match args:
+    case None{}:
+      rp_factory.keys(Rp.VMissing{}, Rp.VMissing{})
+    case Some{a}:
+      match a:
+        case Rp.Args{dag, machine}:
+          rp_factory.keys(dag, machine)
+
+def rp_comp_eq(a: Rp.Comp, b: Rp.Comp) -> Bool:
+  String.eq(rp_comp_name(a), rp_comp_name(b))
+
+def rp_is_comp(c: Rp.Comp, d: Rp.Comp) -> Bool:
+  rp_comp_eq(c, d)
+
+def rp_is_text(m: Maybe<&2, String>, x: String) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{y}:
+      String.eq(y, x)
+
+def rp_is_verb(v: Rp.Verb, w: Rp.Verb) -> Bool:
+  String.eq(rp_verb_name(v), rp_verb_name(w))
+
+def rp_filled(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{y}:
+      Bool.not(String.is_empty(y))
+
+def rp_skill.fields(+vn: String, r: Rp.Pyref) -> Maybe<&2, String>:
+  match r:
+    case Rp.Pyref{ty, imp, pyimp, call, pat}:
+      rp_first(Bool.not(rp_is_text(ty, "python")), String.concat([vn, " skill reference.type must be python"]), rp_first(Bool.not(Bool.or(rp_filled(imp), rp_filled(pyimp))), String.concat([vn, " skill requires python import"]), rp_first(Bool.not(Bool.or(rp_filled(call), rp_filled(pat))), String.concat([vn, " skill requires callable or call_pattern"]), None{})))
+
+def rp_skill.ref(+vn: String, m: Maybe<&2, Rp.Pyref>) -> Maybe<&2, String>:
+  match m:
+    case None{}:
+      Some{String.concat([vn, " skill requires python reference"])}
+    case Some{r}:
+      rp_skill.fields(vn, r)
+
+# a skill create or update: arguments, a python reference with an import
+# and a callable
+def rp_skill(+vn: String, args: Maybe<&2, Rp.Args>, m: Maybe<&2, Rp.Pyref>) -> Maybe<&2, String>:
+  rp_first(Maybe.is_none(&2, Rp.Args, args), String.concat([vn, " skill requires arguments"]), rp_skill.ref(vn, m))
+
+def rp_when(b: Bool, m: Maybe<&2, String>, r: Maybe<&2, String>) -> Maybe<&2, String>:
+  match b:
+    case True{}:
+      m
+    case False{}:
+      r
+
+# the first rule an action and kind break, in Rust's order
+def rp_rules(+v: Rp.Verb, +c: Rp.Comp, +id: Maybe<&2, String>, cid: Maybe<&2, String>, titled: Bool, content: Bool, m: Maybe<&2, Rp.Pyref>, +args: Maybe<&2, Rp.Args>) -> Maybe<&2, String>:
+  +vn = rp_verb_name(v)
+  +edit = Bool.not(rp_is_verb(v, Rp.ADelete{}))
+  rp_first(Bool.and(rp_is_comp(c, Rp.KPrompt{}), Bool.or(rp_is_text(id, "base_system_prompt"), rp_is_text(cid, "base_system_prompt"))), "base system prompt is not editable", rp_first(Bool.and(Bool.not(rp_is_verb(v, Rp.ACreate{})), Maybe.is_none(&2, String, id)), String.concat([vn, " requires id"]), rp_first(Bool.and(edit, Bool.not(Bool.and(titled, content))), String.concat([vn, " requires title and content"]), rp_when(Bool.and(edit, rp_is_comp(c, Rp.KSkill{})), rp_skill(vn, args, m), rp_when(Bool.and(edit, Bool.and(rp_is_comp(c, Rp.KFactory{}), Bool.or(rp_is_verb(v, Rp.ACreate{}), Maybe.is_some(&2, Rp.Args, args)))), rp_factory(args), None{})))))
+
+def rp_check.comp(+v: Rp.Verb, m: Maybe<&2, Rp.Comp>, +id: Maybe<&2, String>, cid: Maybe<&2, String>, titled: Bool, content: Bool, p: Maybe<&2, Rp.Pyref>, args: Maybe<&2, Rp.Args>) -> Rp.Check:
+  match m:
+    case None{}:
+      Rp.CBad{"unsupported kind"}
+    case Some{+c}:
+      rp_check.at(v, c, rp_rules(v, c, id, cid, titled, content, p, args))
+
+def rp_check.verb(m: Maybe<&2, Rp.Verb>, k: Maybe<&2, Rp.Comp>, id: Maybe<&2, String>, cid: Maybe<&2, String>, titled: Bool, content: Bool, p: Maybe<&2, Rp.Pyref>, args: Maybe<&2, Rp.Args>) -> Rp.Check:
+  match m:
+    case None{}:
+      Rp.CBad{"unsupported action"}
+    case Some{v}:
+      rp_check.comp(v, k, id, cid, titled, content, p, args)
+
+# an edit's validation, its computed id given (TS-mirrored messages)
+def rp_check(e: Rp.Ed, cid: Maybe<&2, String>) -> Rp.Check:
+  match e:
+    case Rp.Ed{verb, comp, id, title, content, pyref, args, exists, differs, held}:
+      rp_check.verb(verb, comp, id, cid, Maybe.is_some(&2, String, title), content, pyref, args)
+
+def rp_comp_or_memory(m: Maybe<&2, Rp.Comp>) -> Rp.Comp:
+  match m:
+    case None{}:
+      Rp.KMemory{}
+    case Some{c}:
+      c
+
+def rp_comp_of(e: Rp.Ed) -> Rp.Comp:
+  match e:
+    case Rp.Ed{verb, comp, id, title, content, pyref, args, exists, differs, held}:
+      rp_comp_or_memory(comp)
+
+def rp_slug.lead.at(b: Bool, c: Char, t: String, r: String) -> String:
+  match b:
+    case True{}:
+      r
+    case False{}:
+      SCon{c, t}
+
+# s without its leading `_`s
+def rp_slug.lead(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +t}:
+      rp_slug.lead.at(Char.is_eq(c, '_'), c, t, rp_slug.lead(t))
+
+def rp_slug.put.at(alnum: Bool, upper: Bool, dotted: Bool, kelvin: Bool, +c: Char, +r: String) -> String:
+  match alnum:
+    case True{}:
+      SCon{c, r}
+    case False{}:
+      match upper:
+        case True{}:
+          SCon{Char.to_lower(c), r}
+        case False{}:
+          match dotted:
+            case True{}:
+              SCon{'i', SCon{'_', r}}
+            case False{}:
+              match kelvin:
+                case True{}:
+                  SCon{'k', r}
+                case False{}:
+                  SCon{'_', r}
+
+# each char lowercased, then every char not an ASCII lowercase letter or
+# digit a `_` (U+0130 lowercases to `i` and U+0307, U+212A to `k`)
+def rp_slug.marks(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, t}:
+      rp_slug.put.at(Bool.or(Char.is_lower(c), Char.is_digit(c)), Char.is_upper(c), U32.is_eq(Char.to_u32(c), 304), U32.is_eq(Char.to_u32(c), 8490), c, rp_slug.marks(t))
+
+def rp_slug.pick(e: Bool, s: String, fb: String) -> String:
+  match e:
+    case True{}:
+      fb
+    case False{}:
+      s
+
+def rp_slug.squeeze.at(dup: Bool, c: Char, r: String) -> String:
+  match dup:
+    case True{}:
+      r
+    case False{}:
+      SCon{c, r}
+
+# every run of `_` one `_`
+def rp_slug.squeeze(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +t}:
+      rp_slug.squeeze.at(Bool.and(Char.is_eq(c, '_'), String.starts_with(t, "_")), c, rp_slug.squeeze(t))
+
+# the slug of a title: marked, squeezed, `_` trimmed at both ends, its
+# first 80 chars; the fallback when empty
+def rp_slug(raw: String, fb: String) -> String:
+  +t = String.take(String.reverse(rp_slug.lead(String.reverse(rp_slug.lead(rp_slug.squeeze(rp_slug.marks(raw)))))), 80n)
+  rp_slug.pick(String.is_empty(t), t, fb)
+
+def rp_computed.at(create: Bool, title: Maybe<&2, String>, +name: String) -> Maybe<&2, String>:
+  match create:
+    case True{}:
+      Some{rp_slug(Maybe.default(&2, String, title, name), name)}
+    case False{}:
+      None{}
+
+def rp_is_create(m: Maybe<&2, Rp.Verb>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{v}:
+      match v:
+        case Rp.ACreate{}:
+          True{}
+        case Rp.AUpdate{}:
+          False{}
+        case Rp.ADelete{}:
+          False{}
+
+# the id an edit names: its id, else a create's slug of its title (none:
+# its kind's name), the kind's name the fallback (no kind: memory)
+def rp_computed(e: Rp.Ed) -> Maybe<&2, String>:
+  match e:
+    case Rp.Ed{verb, comp, id, title, content, pyref, args, exists, differs, held}:
+      Maybe.or(&2, String, id, rp_computed.at(rp_is_create(verb), title, rp_comp_name(rp_comp_or_memory(comp))))
+
+def rp_out.final(v: Rp.Verb, +p: Bool) -> Rp.Out:
+  match v:
+    case Rp.ACreate{}:
+      match p:
+        case True{}:
+          Rp.ORefused{"entry already exists"}
+        case False{}:
+          Rp.OWritten{}
+    case Rp.AUpdate{}:
+      match p:
+        case True{}:
+          Rp.OWritten{}
+        case False{}:
+          Rp.ORefused{"entry not found"}
+    case Rp.ADelete{}:
+      match p:
+        case True{}:
+          Rp.ORemoved{}
+        case False{}:
+          Rp.ORefused{"entry not found"}
+
+def rp_out.first(b: Bool, msg: String, r: Rp.Out) -> Rp.Out:
+  match b:
+    case True{}:
+      Rp.ORefused{msg}
+    case False{}:
+      r
+
+# a valid edit's outcome: a baseline change, the factory opt-in, the
+# session's memory, then the entry's presence
+def rp_decide(o: Rp.Opts, e: Rp.Ed, +v: Rp.Verb, +c: Rp.Comp, +look: Maybe<&2, Bool>) -> Rp.Out:
+  match o:
+    case Rp.Opts{factory, baseline}:
+      match e:
+        case Rp.Ed{verb, comp, id, title, content, pyref, args, exists, differs, held}:
+          rp_out.first(Bool.and(baseline, Bool.and(Maybe.is_none(&2, Bool, look), differs)), "entry changed during refinement planning", rp_out.first(Bool.and(rp_is_comp(c, Rp.KFactory{}), Bool.and(Bool.not(rp_is_verb(v, Rp.ADelete{})), Bool.not(factory))), "the factory is disabled; run /factory on to enable it", rp_out.first(Bool.not(held), "eukhe's memory is the chat: say it in your reply", rp_out.final(v, Maybe.default(&2, Bool, look, exists)))))
+
+def rp_fit.probe.at(b: Bool, +low: Nat, +high: Nat) -> Rp.Step:
+  match b:
+    case True{}:
+      +mid = Nat.div(Nat.add(Nat.add(low, high), 1n), 2n)
+      Rp.TTry{mid, Rp.SProbe{low, high, mid}}
+    case False{}:
+      Rp.TTry{low, Rp.SFinal{}}
+
+# the next length the binary search measures, or the final one
+def rp_fit.probe(+low: Nat, +high: Nat) -> Rp.Step:
+  rp_fit.probe.at(Nat.is_lt(low, high), low, high)
+
+def rp_fit.full(trim: Bool, conv: Nat, r: Rp.Step) -> Rp.Step:
+  match trim:
+    case True{}:
+      rp_fit.probe(0n, conv)
+    case False{}:
+      r
+
+def rp_fit.narrow(fits: Bool, low: Nat, +high: Nat, +len: Nat) -> Rp.Step:
+  match fits:
+    case True{}:
+      rp_fit.probe(len, high)
+    case False{}:
+      rp_fit.probe(low, Nat.sub(len, 1n))
+
+def rp_fit.room.at(z: Bool, m: Nat) -> Rp.Step:
+  match z:
+    case True{}:
+      Rp.TNo{"Refinement prompt leaves no room for output in the model's context window; retry with a smaller request."}
+    case False{}:
+      Rp.TOk{m}
+
+def rp_fit.room(+m: Nat) -> Rp.Step:
+  rp_fit.room.at(Nat.is_eq(m, 0n), m)
+
+def rp_fit.at(st: Rp.Search, +conv: Nat, +plen: Nat, +sysr: Nat, +budget: Nat, +mx: Nat, +cw: Nat) -> Rp.Step:
+  match st:
+    case Rp.SFull{}:
+      rp_fit.full(Bool.and(Bool.not(Nat.is_le(Nat.add(sysr, plen), budget)), Bool.not(Nat.is_eq(conv, 0n))), conv, rp_fit.room(Nat.min(mx, Nat.sub(cw, Nat.add(sysr, plen)))))
+    case Rp.SProbe{low, high, len}:
+      rp_fit.narrow(Nat.is_le(Nat.add(sysr, plen), budget), low, high, len)
+    case Rp.SFinal{}:
+      rp_fit.room(Nat.min(mx, Nat.sub(cw, Nat.add(sysr, plen))))
+
+# the fit of a refinement request: the window, the conversation's length,
+# where the search is and the length of the prompt it measured (lengths in
+# UTF-8 bytes, one token each)
+def rp_fit(w: Rp.Win, conv: Nat, st: Rp.Search, plen: Nat) -> Rp.Step:
+  match w:
+    case Rp.Win{+cw, +mx, res, sys}:
+      rp_fit.at(st, conv, plen, Nat.add(sys, 1024n), Nat.sub(cw, Nat.min(Nat.min(mx, res), Nat.div(cw, 2n))), mx, cw)
+
+# the id of every edit
+def rp_ids(eds: List<&2, Rp.Ed>) -> List<&2, Maybe<&2, String>>:
+  match eds:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      rp_computed(e) <> rp_ids(t)
+
+def rp_scan.code(+c: Char, x: U32) -> Bool:
+  U32.is_eq(Char.to_u32(c), x)
+
+def rp_scan.out(ins: Bool, +bs: Bool, +q: Bool, op: Bool, cl: Bool, +o: Nat, +k: Nat) -> Rp.Scan:
+  match ins:
+    case True{}:
+      match bs:
+        case True{}:
+          Rp.Scan{True{}, True{}, o, k}
+        case False{}:
+          match q:
+            case True{}:
+              Rp.Scan{False{}, False{}, o, k}
+            case False{}:
+              Rp.Scan{True{}, False{}, o, k}
+    case False{}:
+      match q:
+        case True{}:
+          Rp.Scan{True{}, False{}, o, k}
+        case False{}:
+          match op:
+            case True{}:
+              Rp.Scan{False{}, False{}, 1n+o, k}
+            case False{}:
+              match cl:
+                case True{}:
+                  Rp.Scan{False{}, False{}, o, 1n+k}
+                case False{}:
+                  Rp.Scan{False{}, False{}, o, k}
+
+def rp_scan.at(esc: Bool, +ins: Bool, +c: Char, +o: Nat, +k: Nat) -> Rp.Scan:
+  match esc:
+    case True{}:
+      Rp.Scan{ins, False{}, o, k}
+    case False{}:
+      rp_scan.out(ins, rp_scan.code(c, 92), rp_scan.code(c, 34), Bool.or(rp_scan.code(c, 123), rp_scan.code(c, 91)), Bool.or(rp_scan.code(c, 125), rp_scan.code(c, 93)), o, k)
+
+# the scan after a char
+def rp_scan.step(st: Rp.Scan, +c: Char) -> Rp.Scan:
+  match st:
+    case Rp.Scan{ins, esc, o, k}:
+      rp_scan.at(esc, ins, c, o, k)
+
+def rp_scan(s: String, st: Rp.Scan) -> Rp.Scan:
+  match s:
+    case SNil{}:
+      st
+    case SCon{+c, t}:
+      rp_scan(t, rp_scan.step(st, c))
+
+def rp_scan.done(st: Rp.Scan) -> Bool:
+  match st:
+    case Rp.Scan{ins, esc, o, k}:
+      Bool.or(ins, Nat.is_gt(o, k))
+
+# whether a JSON candidate ends mid-value: in a string, or more brackets
+# opened than closed (outside strings; a backslash escapes the next char)
+def rp_incomplete(text: String) -> Bool:
+  rp_scan.done(rp_scan(text, Rp.Scan{False{}, False{}, 0n, 0n}))
+
+def rp_invalid_verb.at(comp: Maybe<&2, Rp.Comp>, verb: Maybe<&2, Rp.Verb>) -> Rp.Verb:
+  match comp:
+    case None{}:
+      Rp.ACreate{}
+    case Some{c}:
+      match verb:
+        case None{}:
+          Rp.ACreate{}
+        case Some{v}:
+          v
+
+# an invalid edit's action: create without a kind, else its action (none:
+# create)
+def rp_invalid_verb(e: Rp.Ed) -> Rp.Verb:
+  match e:
+    case Rp.Ed{verb, comp, id, title, content, pyref, args, exists, differs, held}:
+      rp_invalid_verb.at(comp, verb)
+
+def rp_lookup.at(hit: Bool, p: Bool, r: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
+  match hit:
+    case True{}:
+      Some{p}
+    case False{}:
+      r
+
+def rp_lookup.touch(t: Rp.Touch, +c: Rp.Comp, +id: String, r: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
+  match t:
+    case Rp.Touch{tc, tid, p}:
+      rp_lookup.at(Bool.and(rp_comp_eq(tc, c), String.eq(tid, id)), p, r)
+
+# whether the latest earlier edit of the entry left it present (none: no
+# earlier edit wrote or removed it)
+def rp_lookup(ts: List<&2, Rp.Touch>, +c: Rp.Comp, +id: String) -> Maybe<&2, Bool>:
+  match ts:
+    case Nil{}:
+      None{}
+    case t <> rest:
+      rp_lookup.touch(t, c, id, rp_lookup(rest, c, id))
+
+def rp_row.at(+o: Rp.Opts, +e: Rp.Ed, +ts: List<&2, Rp.Touch>, +id: String, k: Rp.Check) -> Rp.Row:
+  match k:
+    case Rp.CBad{msg}:
+      Rp.Row{rp_invalid_verb(e), rp_comp_of(e), id, Rp.OInvalid{msg}}
+    case Rp.COk{+v, +c}:
+      Rp.Row{v, c, id, rp_decide(o, e, v, c, rp_lookup(ts, c, id))}
+
+# an edit's row, the earlier edits' writes and removals given
+def rp_row(+o: Rp.Opts, +e: Rp.Ed, +ts: List<&2, Rp.Touch>) -> Rp.Row:
+  rp_row.at(o, e, ts, Maybe.default(&2, String, rp_computed(e), ""), rp_check(e, rp_computed(e)))
+
+def rp_touch.out(x: Rp.Out, +c: Rp.Comp, +id: String, ts: List<&2, Rp.Touch>) -> List<&2, Rp.Touch>:
+  match x:
+    case Rp.OInvalid{m}:
+      ts
+    case Rp.ORefused{m}:
+      ts
+    case Rp.ORemoved{}:
+      Rp.Touch{c, id, False{}} <> ts
+    case Rp.OWritten{}:
+      Rp.Touch{c, id, True{}} <> ts
+
+# the writes and removals after a row
+def rp_touch(r: Rp.Row, ts: List<&2, Rp.Touch>) -> List<&2, Rp.Touch>:
+  match r:
+    case Rp.Row{v, c, id, x}:
+      rp_touch.out(x, c, id, ts)
+
+def rp_plan.rows(+o: Rp.Opts, eds: List<&2, Rp.Ed>, +ts: List<&2, Rp.Touch>) -> List<&2, Rp.Row>:
+  match eds:
+    case Nil{}:
+      Nil{}
+    case +e <> t:
+      rp_row(o, e, ts) <> rp_plan.rows(o, t, rp_touch(rp_row(o, e, ts), ts))
+
+# a proposal's rows and change lines
+def rp_plan(+o: Rp.Opts, eds: List<&2, Rp.Ed>) -> Rp.Plan:
+  +rows = rp_plan.rows(o, eds, [])
+  Rp.Plan{rows, rp_changes(rows)}

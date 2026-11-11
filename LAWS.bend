@@ -13,6 +13,7 @@ import ./laws/child/entry.bend as ChildEntry
 import ./laws/child/exact.bend as ChildExact
 import ./laws/child/run.bend as ChildRun
 import ./laws/admission.bend as Admission
+import ./laws/admission/entry.bend as AdmissionEntry
 import ./laws/admission/wire.bend as AdmissionWire
 import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
@@ -24,11 +25,13 @@ import ./laws/cvar/entry.bend as CvarEntry
 import ./laws/cvar/resolution.bend as CvarResolution
 import ./laws/cvar/whole.bend as CvarWhole
 import ./laws/cvar_layers.bend as CvarLayers
+import ./laws/cvar_entry.bend as CvarEntrySpec
 import ./laws/director.bend as Director
 import ./laws/infer.bend as Infer
 import ./laws/quirks.bend as Quirks
 import ./laws/tools.bend as Tools
 import ./laws/screen/interface.bend as Screen
+import ./laws/screen/requirement.bend as ScreenRequirement
 import ./laws/screen/events.bend as ScreenEvents
 import ./laws/screen/recover.bend as ScreenRecover
 import ./laws/tiny/pick.bend as Tiny
@@ -39,6 +42,7 @@ import ./laws/effort/ladder.bend as EffortLadder
 import ./laws/effort/entry.bend as EffortEntry
 import ./laws/run/model.bend as Run
 import ./laws/run/entry.bend as RunEntry
+import ./laws/run/machine.bend as RunMachine
 import ./laws/run/recover.bend as RunRecover
 import ./laws/semver.bend as Semver
 import ./laws/theme.bend as Theme

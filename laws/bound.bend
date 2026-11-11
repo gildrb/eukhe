@@ -987,3 +987,156 @@ law bound_step_refuses:
 # EXCLUDES: a codec that reads other fields or writes another reply
 law bound_entry_example:
   {[FBd.ffi("10,0,5,10,0,0,5,4,7,3,4,"), FBd.ffi("10,0,5,10,1,0,5,4,7,3,4,"), FBd.ffi("4,1,1,4,1,"), FBd.ffi("4,1,0,4,0,"), FBd.ffi("4,1,2,4,1,"), FBd.ffi("4,1,1,4,1,x")] == ["4,0,3,4,1,", "4,3,7,3,1,", "1,1,", "0,", Wr.err("bound: malformed request"), Wr.err("bound: malformed request")] : List<&2, String>} & {FBd.open("3,5,10,1,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "4,0,3,1,0,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 3n, 1n, False{}, 3n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 3n, 1n, False{}, 3n}}, "4,0,30,0,1,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 33n, 1n, True{}, 33n}}, "1,2,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 33n, 1n, True{}, 33n}}, "7,2,1,5,5,6,3,30,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 33n, 1n, True{}, 6n}}, "5,28,33,28,1,27,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 3n, 1n, False{}, 3n}}, "4,0,3,1,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 6n, 2n, False{}, 6n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 101n, 2n, False{}, 101n}}, "4,0,3,1,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 104n, 3n, False{}, 101n}}, "1,0,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "4,0,9,1,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 9n, 1n, False{}, 9n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 200n, 0n, False{}, 200n}}, "4,0,8,0,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 208n, 0n, False{}, 208n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 200n, 0n, False{}, 200n}}, "4,0,9,0,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 209n, 0n, False{}, 209n}}, "1,2,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "4,0,3,1,2,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, Wr.err("bound: malformed event")) : FBd.St & String}
+
+def bd_least(le: Bool, a: Nat, b: Nat) -> Nat:
+  match le:
+    case True{}:
+      a
+    case False{}:
+      b
+
+def bd_margin.go(+mc: Nat, +ml: Nat) -> Nat:
+  bd_least(Nat.is_le(mc, ml), mc, ml)
+
+def bd_margin.lines(m: Maybe<&2, Nat>, +len: Nat) -> Nat:
+  match m:
+    case None{}:
+      len
+    case Some{v}:
+      v
+
+def bd_mline.go(more: Bool, +rs: List<&2, Nat>, +q: Nat) -> Maybe<&2, Nat>:
+  match more:
+    case True{}:
+      Some{Nat.add(bd_total(bd_take(rs, q)), 1n)}
+    case False{}:
+      None{}
+
+# the bytes from the newline of line q+1 of rs (lines from the end) to the
+# end, its newline included: none when rs has q lines or fewer
+def bd_mline(+rs: List<&2, Nat>, +q: Nat) -> Maybe<&2, Nat>:
+  bd_mline.go(Nat.is_lt(q, List.length(&2, Nat, rs)), rs, q)
+
+# the end of a body a tail keeps stored: the shorter of its margin cut (the
+# shortest end past the cap's bytes) and its end from the newline after
+# which it holds more lines than the cap's (counting a last open line)
+def bd_margin(c: Bd.Cap, x: Bd.Body) -> Nat:
+  match c:
+    case Bd.Cap{b, k, t}:
+      match x:
+        case Bd.Body{+xs, o, hc, tc, mc}:
+          bd_margin.go(mc, bd_margin.lines(bd_mline(bd_rev(xs), bd_lines(k, o)), bd_total(xs)))
+
+# LAW bound_margin_exact: a tail keeps stored exactly the shorter of the stored text's margin cut and its end from the newline before its last lines past the cap's
+# EXCLUDES: a trim that cuts into a later window
+law bound_margin_exact:
+  for +c: Bd.Cap
+  for +x: Bd.Body
+  {Bd.margin(c, x) == bd_margin(c, x) : Nat}
+
+def bd_look.cut(t: Bool, +c: Bd.Cap, +x: Bd.Body, +len: Nat) -> Nat:
+  match t:
+    case False{}:
+      0n
+    case True{}:
+      Nat.sub(len, bd_margin(c, x))
+
+def bd_span(t: Bool, +len: Nat, +kept: Nat) -> Bd.Span:
+  match t:
+    case False{}:
+      Bd.Span{0n, kept}
+    case True{}:
+      Bd.Span{Nat.sub(len, kept), len}
+
+def bd_look.of(+c: Bd.Cap, +b: Nat, +nl: Nat, +op: Bool, +x: Bd.Body, +len: Nat, w: Bd.Win) -> Bd.St & Bd.Seen:
+  match w:
+    case Bd.Win{+kb, kl}:
+      +cut = bd_look.cut(bd_cap_tail(c), c, x, len)
+      (Bd.St{c, b, nl, op, Nat.sub(len, cut)}, Bd.Seen{bd_span(bd_cap_tail(c), len, kb), Nat.sub(b, kb), Nat.sub(bd_lines(nl, op), kl), cut})
+
+def bd_count.pick(fits: Bool, m: Nat) -> Nat:
+  match fits:
+    case True{}:
+      1n+m
+    case False{}:
+      0n
+
+# how many of the first lines of xs, at most k, fit within b bytes
+def bd_count(xs: List<&2, Nat>, k: Nat, +b: Nat) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case +x <> rest:
+      match k:
+        case 0n:
+          0n
+        case 1n+j:
+          bd_count.pick(Nat.is_le(x, b), bd_count(rest, j, Nat.sub(b, x)))
+
+# the first line cut to c bytes: no line when c is 0
+def bd_cut(c: Nat) -> Bd.Win:
+  match c:
+    case 0n:
+      Bd.Win{0n, 0n}
+    case 1n+p:
+      Bd.Win{1n+p, 1n}
+
+def bd_keep.none(xs: List<&2, Nat>, c: Nat) -> Bd.Win:
+  match xs:
+    case Nil{}:
+      Bd.Win{0n, 0n}
+    case x <> rest:
+      bd_cut(c)
+
+def bd_keep.lines(m: Nat, +xs: List<&2, Nat>, c: Nat) -> Bd.Win:
+  match m:
+    case 0n:
+      bd_keep.none(xs, c)
+    case 1n++p:
+      Bd.Win{bd_total(bd_take(xs, 1n+p)), 1n+p}
+
+# the window of the lines xs (from the end the cap keeps) under k lines,
+# b bytes and the cut c: the first m lines when m of them fit (the most,
+# at most k), else the first line cut to c; nothing for no line or no byte
+def bd_keep(+xs: List<&2, Nat>, k: Nat, b: Nat, c: Nat) -> Bd.Win:
+  match k:
+    case 0n:
+      Bd.Win{0n, 0n}
+    case 1n+j:
+      match b:
+        case 0n:
+          Bd.Win{0n, 0n}
+        case 1n+q:
+          bd_keep.lines(bd_count(xs, 1n+j, 1n+q), xs, c)
+
+def bd_window.go(t: Bool, +k: Nat, +b: Nat, xs: List<&2, Nat>, hc: Nat, tc: Nat) -> Bd.Win:
+  match t:
+    case False{}:
+      bd_keep(xs, k, b, hc)
+    case True{}:
+      bd_keep(bd_rev(xs), k, b, tc)
+
+# the window of a body: of its lines from the first (head) with its head
+# cut, or from the last (tail) with its tail cut
+def bd_window(c: Bd.Cap, x: Bd.Body) -> Bd.Win:
+  match c:
+    case Bd.Cap{b, k, t}:
+      match x:
+        case Bd.Body{xs, o, hc, tc, mc}:
+          bd_window.go(t, k, b, xs, hc, tc)
+
+# the stored text Rust sends: the window of the whole output is that
+# text's window; the output dropped its bytes and lines less the
+# window's; a head keeps the text stored, a tail keeps its margin
+def bd_look(s: Bd.St, +x: Bd.Body) -> Bd.St & Bd.Seen:
+  match s:
+    case Bd.St{+c, +b, +nl, +op, sd}:
+      bd_look.of(c, b, nl, op, x, bd_total(bd_body_lines(x)), bd_window(c, x))
+
+# LAW bound_look_exact: the stored text Rust sends gives exactly: where its window lies, the whole output's bytes and lines less the window's, and where the stored text now starts (all of it for a head, its margin for a tail)
+# EXCLUDES: dropped counts of the stored text instead of the whole output,
+#   a trim of a head, a stored size the next text cannot grow from
+law bound_look_exact:
+  for +s: Bd.St
+  for +x: Bd.Body
+  {Bd.look(s, x) == bd_look(s, x) : Bd.St & Bd.Seen}
