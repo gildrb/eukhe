@@ -16,6 +16,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   - `make catalog-pin` moves `scripts/release/catalog-pin.json` to the catalog repo's newest commit; review the diff, commit it.
 - `site/` is the website (eukhe.com, `site/README.md`), apart from eukhe but for its build reading the repository's files (`README.md` and what it links to). Its own toolchain (npm), laws (`site/LAWS.bend`, `site/LAWS.lock`) and check (`make site-check`); no gate, hook, nightly run or release runs it, and eukhe's `LAWS.lock` and proofs never hold its files. Deploy only by hand: `make site-deploy`.
 - Prime Intellect stays only as a third-party service: provider `prime-inference`, `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`, catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Every product name is eukhe.
+- Product text never names another agent harness (omp, oh-my-pi, pi, Codex, Claude Code, …) and never compares eukhe with one. Those names belong only in README.md's Credits and in THIRD-PARTY-NOTICES. The rule covers `spec/`, laws and their comments, code comments, docs, help text and commit messages. Say what eukhe does. Wrong: "exactly-once effects, an intent journal per effect (omp has none: its --restore re-runs an interrupted batch)". Right: "exactly-once effects: an intent journal per effect".
 
 ## Style and structure
 

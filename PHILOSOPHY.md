@@ -88,6 +88,8 @@ So good laws are the spec, formalized. A trivial law proves nothing and costs ch
 
 Eukhe is a core with an SDK. A product embeds it and gets everything above. The `eukhe` command is one product built on it. The goal is for Eukhe to be what other harnesses and interfaces are built on.
 
+The core runs in one of two places. As a library it runs inside the product's own process, and the product's tools are plain functions. In the daemon, sessions survive crashes and app restarts, several interfaces can share one session, and the agent's work is kept apart from the product. The SDK is planned to offer one API for both: the product picks one in its configuration and can switch later without rewriting code, and its tools, approvals, budgets and cancellation work the same way in either. Today the two have separate APIs.
+
 ## Reproducible
 
 The same inputs give the same behavior on every machine: one pinned toolchain, one pinned Python for the kernel, locked package versions. Results that depend on what happens to be installed can't be guaranteed.
