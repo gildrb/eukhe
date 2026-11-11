@@ -30,7 +30,9 @@ pub const OUTPUT_FALLBACK_BUFFER: u64 = 4000;
 /// (`Required`, `Tool`) in the provider's native form. The pi protocol has
 /// none, and an API without a built-in module is unknown. An
 /// Anthropic-family request under manual extended thinking omits it
-/// (the provider rejects it there): the same predicate decides the wire.
+/// (the provider rejects it there), and a Bedrock request of a prefix-bound
+/// model whose thinking is not disabled sends `auto` instead: the same
+/// predicates decide the wire.
 #[must_use]
 pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
     match KnownApi::parse(&model.api) {
@@ -38,7 +40,7 @@ pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) 
             !crate::api::anthropic_messages::manual_thinking(model, reasoning)
         }
         Some(KnownApi::BedrockConverseStream) => {
-            !crate::api::bedrock_converse_stream::manual_thinking(model, reasoning)
+            crate::api::bedrock_converse_stream::keeps_forced_tool_choice(model, reasoning)
         }
         Some(
             KnownApi::OpenAICompletions

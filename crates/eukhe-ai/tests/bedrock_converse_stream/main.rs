@@ -12,6 +12,7 @@ mod credentials;
 mod custom_headers;
 mod endpoint_resolution;
 mod error_metadata;
+mod forced_tool_choice;
 mod raw_stop_reason;
 mod redacted_reasoning;
 mod response_headers;
