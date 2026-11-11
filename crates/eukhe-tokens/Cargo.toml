@@ -1,0 +1,46 @@
+[package]
+name = "eukhe-tokens"
+version.workspace = true
+# Edition 2024: the tokenizer port from omp's pi-natives keeps its let-chains.
+edition = "2024"
+license.workspace = true
+publish.workspace = true
+description = "Token counts with the models' real tokenizers (port of omp's utok), model-to-tokenizer policy, image token pricing, message counting."
+
+[dependencies]
+eukhe-types.workspace = true
+serde_json.workspace = true
+# Parallel batch counting (omp's `countTokens` array form fans out at 16+
+# fragments) (Apache-2.0 OR MIT).
+rayon = "1.12"
+# Deserializes the embedded omp identity rules (src/policy/taxonomy.json)
+# (MIT OR Apache-2.0).
+serde.workspace = true
+# General Category lookups for the pre-tokenizer scanners and the Claude
+# normalizer, UCD 16.0.0 like the reference regex engines (Apache-2.0).
+# omp reads these from xutf, which needs nightly (`portable_simd`).
+unicode-general-category = "1.1"
+# NFC, its quick check and canonical combining classes (Apache-2.0 OR MIT;
+# already in the lock).
+unicode-normalization = "0.1.25"
+# `\p{Han}` (Script) for the Kimi scanner; pinned to the last UCD 16.0.0
+# release, as 0.5.8 moves to 17.0.0 and would re-split text against the
+# reference regex engines (Apache-2.0 OR MIT).
+unicode-script = "=0.5.7"
+# Decodes the embedded zstd vocabulary blobs on first use (MIT; already in
+# the lock).
+zstd = "0.14"
+
+[dev-dependencies]
+# Regex-chain differential oracle for the hand-written split scanners
+# (MIT; already in the lock).
+fancy-regex = "0.14"
+# Unicode property tables the scanner class tests compare against
+# (Apache-2.0 OR MIT; already in the lock).
+regex = "1"
+# Differential oracle for the OpenAI encodings; embeds its BPE files, no
+# network at test time (MIT).
+tiktoken-rs = "0.12"
+
+[lints]
+workspace = true
