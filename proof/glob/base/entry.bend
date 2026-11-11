@@ -14,7 +14,7 @@ import ../../../bend/ffi_glob.bend as FG
 import ../../../bend/wire.bend as Wr
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
-import ../../../laws/glob.bend as Glob
+import ../../../laws/glob/entry.bend as Glob
 import ../../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 import ../../wire/wire_strs_round_trip.bend as PWireStrsRoundTrip
 import ../../wire/wire_strs_spells.bend as PWireStrsSpells
@@ -32,10 +32,6 @@ import ../../base/logic/bool.bend as LLogicBool
 import ../../base/bool.bend as LBool
 import ../../base/staging.bend as LStg
 import ../../base/wire_dec.bend as LE
-import ../glob_groups.bend as PGlobGroups
-import ../glob_allowed.bend as PGlobAllowed
-import ../glob_rules.bend as PGlobRules
-import ../glob_ignored.bend as PGlobIgnored
 
 # Reading a spelled request
 # -------------------------
@@ -148,19 +144,13 @@ def ge.reply(q: FG.Req) -> {FG.answer(q) == Glob.sp_w_reply(q) : String}:
     case FG.QCheck{p}:
       ge.check(GParse.parse(p))
     case FG.QMatch{+sep, +fold, +ps, +ss, +ks}:
-      +o = {GItems.Opts{sep, fold} : GItems.Opts}
-      %Equal.sym(List<&2, Bool>, GQuery.match_groups(o, ps, ss, ks), Glob.sp_groups(ks, Glob.sp_compile(o, ps), ss), Glob.glob_groups(o, ps, ss, ks)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QMatch{sep, fold, ps, ss, ks}) : String}
-      ge.bools(Glob.sp_groups(ks, Glob.sp_compile(o, ps), ss))
-    case FG.QAllow{+sel, +ps}:
-      %Equal.sym(Bool, GQuery.allowed(sel, ps), Glob.sp_allowed(sel, ps), Glob.glob_allowed(sel, ps)) : {Wr.put_bool(_, "") == Glob.sp_w_reply(FG.QAllow{sel, ps}) : String}
+      ge.bools(GQuery.match_groups(GItems.Opts{sep, fold}, ps, ss, ks))
+    case FG.QAllow{sel, ps}:
       {==}
     case FG.QRules{+sep, +fold, +ps, +ss, +ks}:
-      +o = {GItems.Opts{sep, fold} : GItems.Opts}
-      %Equal.sym(List<&2, Bool>, GQuery.rules(ks, o, ps, ss), Glob.sp_rules(ks, o, ps, ss), Glob.glob_rules(ks, o, ps, ss)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QRules{sep, fold, ps, ss, ks}) : String}
-      ge.bools(Glob.sp_rules(ks, o, ps, ss))
+      ge.bools(GQuery.rules(ks, GItems.Opts{sep, fold}, ps, ss))
     case FG.QIgnore{+ps, +cs, +es}:
-      %Equal.sym(List<&2, Bool>, GQuery.ignored(ps, cs, es), Glob.sp_ignored(ps, cs, es), Glob.glob_ignored(ps, cs, es)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QIgnore{ps, cs, es}) : String}
-      ge.bools(Glob.sp_ignored(ps, cs, es))
+      ge.bools(GQuery.ignored(ps, cs, es))
 
 # Answers are values
 # ------------------

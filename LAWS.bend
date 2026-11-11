@@ -148,6 +148,7 @@ import ./laws/package_source/entry.bend as PackageSourceEntry
 import ./laws/refine_plan/model.bend as RefinePlan
 import ./laws/refine_plan/entry.bend as RefinePlanEntry
 import ./laws/glob.bend as Glob
+import ./laws/glob/entry.bend as GlobEntry
 import ./laws/phrase.bend as Phrase
 import ./laws/err_text.bend as ErrText
 import ./laws/job_wait.bend as JobWait
