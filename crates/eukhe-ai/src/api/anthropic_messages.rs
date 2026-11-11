@@ -293,6 +293,24 @@ fn supports_mid_convo_effort(model: &Model) -> bool {
 /// it (omp's `effortMap` value `"adaptive"`).
 pub(crate) const ADAPTIVE_TAG_EFFORT: &str = "adaptive";
 
+/// Whether `model` takes the adaptive tag alone: an adaptive model whose
+/// ladder maps every level it names to [`ADAPTIVE_TAG_EFFORT`] (omp
+/// `usesAdaptiveThinkingTagOnly`).
+fn adaptive_tag_only(model: &Model) -> bool {
+    thinking_level_map(model).is_some_and(|map| {
+        let mut values = map.values().flatten().peekable();
+        values.peek().is_some() && values.all(|value| value == ADAPTIVE_TAG_EFFORT)
+    })
+}
+
+/// Whether `model` is adaptive-only (omp `isAdaptiveOnlyThinking`: Claude
+/// Opus/Sonnet 4.6 and later, Fable/Mythos 5): adaptive thinking that an
+/// omitted `thinking` field turns on, so thinking off omits it and pins
+/// the lowest effort. A model of the adaptive tag alone is not.
+pub(crate) fn adaptive_only_thinking(model: &Model) -> bool {
+    adaptive_thinking(model) && !adaptive_tag_only(model)
+}
+
 /// TS `mergeHeaders` (`Object.assign`: case-sensitive keys, a repeated key
 /// keeps its first position) after `{ "User-Agent": getPiUserAgent() }`.
 fn merge_client_headers(sources: &[Option<&ProviderHeaders>]) -> ProviderHeaders {

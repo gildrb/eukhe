@@ -54,6 +54,37 @@ async fn adaptive_thinking_display_rides_on_claude_4_7_and_later_only() {
     );
 }
 
+/// Thinking off on an adaptive-only Claude model (Opus/Sonnet 4.6 and
+/// later) omits `thinking`, which the API reads as adaptive, and pins the
+/// lowest effort (omp `anthropic.ts` `buildParams`, `isAdaptiveOnlyThinking`
+/// branch). Haiku 5.5 takes an explicit `disabled` (omp
+/// `compat.disabledThinking`), and a budget model keeps `disabled`.
+#[tokio::test]
+async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
+    let low = [JsonValue::Null, json!({ "effort": "low" })];
+    let disabled = [json!({ "type": "disabled" }), JsonValue::Null];
+    assert_eq!(
+        [
+            wire("anthropic", "claude-opus-4-6", None).await,
+            wire("github-copilot", "claude-opus-4.7", None).await,
+            wire("cloudflare-ai-gateway", "claude-sonnet-5", None).await,
+            wire("vercel-ai-gateway", "anthropic/claude-opus-4.8", None).await,
+            wire("opencode", "claude-haiku-5-5", None).await,
+            wire("github-copilot", "claude-haiku-5.5", None).await,
+            wire("anthropic", "claude-sonnet-4-5", None).await,
+        ],
+        [
+            low.clone(),
+            low.clone(),
+            low.clone(),
+            low,
+            disabled.clone(),
+            disabled.clone(),
+            disabled,
+        ]
+    );
+}
+
 /// `MiniMax` drives thinking with the `thinking.type: adaptive` tag alone:
 /// no effort and no display, at every level (omp catalog `effortMap`
 /// `"adaptive"`, `anthropic.ts` `usesAdaptiveThinkingTagOnly`); its

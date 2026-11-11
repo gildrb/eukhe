@@ -13,8 +13,8 @@ use eukhe_types::pi_ai::{
 use serde_json::json;
 
 use super::{
-    billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
-    ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
+    adaptive_only_thinking, billing, get_anthropic_compat, model_compat, AnthropicOptions,
+    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
 use crate::api::cache_breakpoints::{
     has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
@@ -1082,11 +1082,17 @@ pub(crate) fn build_params(
                     json!({ "type": "enabled", "budget_tokens": budget, "display": display }),
                 );
             }
-        } else if options.thinking_enabled == Some(false)
-            && thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
+        } else if options.thinking_enabled == Some(false) {
+            if adaptive_only_thinking(model) && quirks.disabled_thinking() != Some(true) {
+                // omp: an adaptive-only model rejects `disabled`; an
+                // omitted `thinking` is adaptive, so the lowest effort is
+                // pinned.
+                params.insert("output_config".into(), json!({ "effort": "low" }));
+            } else if thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
                 != Some(&None)
-        {
-            params.insert("thinking".into(), json!({ "type": "disabled" }));
+            {
+                params.insert("thinking".into(), json!({ "type": "disabled" }));
+            }
         }
     }
 
