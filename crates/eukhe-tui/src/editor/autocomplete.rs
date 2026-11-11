@@ -356,25 +356,7 @@ impl Editor {
             self.emit(EditorEvent::Changed(self.get_text()));
             return;
         }
-        let matching_prefix =
-            if suggestions.kind == Some(crate::autocomplete::SuggestionKind::SlashCommand) {
-                suggestions
-                    .prefix
-                    .strip_prefix('/')
-                    .unwrap_or(&suggestions.prefix)
-                    .to_string()
-            } else {
-                suggestions.prefix.clone()
-            };
-        let mut state = crate::autocomplete::AutocompleteState::new(
-            suggestions.items,
-            5,
-            suggestions.prefix.clone(),
-            suggestions.kind,
-        );
-        if let Some(idx) = state.best_match_index(&matching_prefix) {
-            state.set_selected_index(idx);
-        }
+        let state = menu_with_best_match(suggestions, 5);
         let was_showing = self.autocomplete.is_some();
         self.autocomplete = Some(state);
         if was_showing != self.autocomplete.is_some() {
@@ -382,6 +364,53 @@ impl Editor {
                 self.autocomplete.is_some(),
             ));
         }
+    }
+
+    /// The provider's command table was rebuilt (the session's skill
+    /// catalog landed, an argument list changed) while a menu may be
+    /// open. omp swaps the provider and leaves the open list alone
+    /// (`packages/tui/src/components/editor.ts:1021-1023`:
+    /// `setAutocompleteProvider` only assigns the provider; the next
+    /// keystroke queries the new one). A slash row here carries its place
+    /// in the table (`path_row`), and a rebuild moves the places, so the
+    /// open slash menu reads its rows again from the new table: it stays
+    /// open, the selected row stays selected while the new rows still
+    /// hold it (else the best match), and it closes only when the new
+    /// table has no row for the typed text. A file menu has no table rows
+    /// and is left as it is. A parked request is not touched.
+    pub(crate) fn refresh_open_slash_menu(&mut self) {
+        let Some(open) = self.autocomplete.as_ref() else {
+            return;
+        };
+        if open.kind != Some(crate::autocomplete::SuggestionKind::SlashCommand) {
+            return;
+        }
+        let selected = open.selected_item().map(|item| item.value);
+        let (max_visible, forced) = (open.max_visible, open.forced);
+        let lookup = self.autocomplete_provider.as_ref().and_then(|provider| {
+            provider.get_suggestions(&self.lines, self.cursor_line, self.cursor_col, forced)
+        });
+        let rows = match lookup {
+            Some(crate::autocomplete::SuggestionLookup::Ready(rows))
+                if rows.kind == Some(crate::autocomplete::SuggestionKind::SlashCommand)
+                    && !rows.items.is_empty() =>
+            {
+                rows
+            }
+            _ => {
+                self.autocomplete = None;
+                self.emit(EditorEvent::AutocompleteToggled(false));
+                return;
+            }
+        };
+        let mut state = menu_with_best_match(rows, max_visible);
+        state.forced = forced;
+        let kept =
+            selected.and_then(|value| state.items.iter().position(|item| item.value == value));
+        if let Some(index) = kept {
+            state.set_selected_index(index);
+        }
+        self.autocomplete = Some(state);
     }
 
     pub(crate) fn refresh_autocomplete_after_edit(&mut self, retrigger: bool) {
@@ -419,4 +448,32 @@ impl Editor {
     }
 
     // ---- layout / rendering ------------------------------------------------
+}
+
+/// The dropdown of a resolved lookup, with the best match for the typed
+/// prefix selected.
+fn menu_with_best_match(
+    suggestions: crate::autocomplete::Suggestions,
+    max_visible: usize,
+) -> crate::autocomplete::AutocompleteState {
+    let matching_prefix =
+        if suggestions.kind == Some(crate::autocomplete::SuggestionKind::SlashCommand) {
+            suggestions
+                .prefix
+                .strip_prefix('/')
+                .unwrap_or(&suggestions.prefix)
+                .to_string()
+        } else {
+            suggestions.prefix.clone()
+        };
+    let mut state = crate::autocomplete::AutocompleteState::new(
+        suggestions.items,
+        max_visible,
+        suggestions.prefix,
+        suggestions.kind,
+    );
+    if let Some(index) = state.best_match_index(&matching_prefix) {
+        state.set_selected_index(index);
+    }
+    state
 }

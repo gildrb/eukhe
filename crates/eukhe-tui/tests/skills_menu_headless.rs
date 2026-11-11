@@ -43,6 +43,11 @@ struct MockSupervisor {
     /// Every recorded `prompt` request payload (the bare-skill guard
     /// proof: a blocked submission never reaches the wire).
     prompt_requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    /// Hold the `get_commands` answer until the client's
+    /// `cycle_thinking_level` request (a key the plan presses): the
+    /// catalog then lands at a point the plan chooses, not at the
+    /// fetch's own pace.
+    hold_commands: bool,
 }
 
 impl MockSupervisor {
@@ -50,6 +55,7 @@ impl MockSupervisor {
         MockSupervisor {
             listener: UnixListener::bind(socket).expect("bind mock socket"),
             prompt_requests: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            hold_commands: false,
         }
     }
 
@@ -69,6 +75,7 @@ impl MockSupervisor {
         });
         write_json(&mut writer, &hello);
 
+        let mut held_commands: Option<String> = None;
         let mut line = String::new();
         loop {
             line.clear();
@@ -104,35 +111,28 @@ impl MockSupervisor {
                         }),
                     );
                 }
+                "get_commands" if self.hold_commands => {
+                    held_commands = Some(id.to_string());
+                }
                 "get_commands" => {
-                    // TS `createAgentConnectionCommands`: the skills ride
-                    // the command catalog as `skill:<name>` entries with
-                    // their description and source info.
+                    write_json(&mut writer, &commands_data(id));
+                }
+                "cycle_thinking_level" => {
+                    // No other level (the `null` answer); the held
+                    // catalog follows it on the wire.
                     write_json(
                         &mut writer,
                         &json!({
                             "type": "response",
                             "id": id,
-                            "command": "get_commands",
+                            "command": "cycle_thinking_level",
                             "success": true,
-                            "data": {
-                                "commands": [
-                                    {
-                                        "name": "skill:web-search",
-                                        "description": "Search the web for answers",
-                                        "source": "skill",
-                                        "sourceInfo": {
-                                            "path": "/tmp/skills/web-search/SKILL.md",
-                                            "source": "local",
-                                            "scope": "user",
-                                            "origin": "top-level",
-                                            "baseDir": "/tmp/skills/web-search",
-                                        },
-                                    },
-                                ]
-                            },
+                            "data": null,
                         }),
                     );
+                    if let Some(held) = held_commands.take() {
+                        write_json(&mut writer, &commands_data(&held));
+                    }
                 }
                 "attach" => {
                     write_json(&mut writer, &attach_data(id));
@@ -242,6 +242,34 @@ fn write_session_event(writer: &mut UnixStream, event: &Value) {
             "event": event,
         }),
     );
+}
+
+/// TS `createAgentConnectionCommands`: the skills ride the command
+/// catalog as `skill:<name>` entries with their description and source
+/// info.
+fn commands_data(id: &str) -> Value {
+    json!({
+        "type": "response",
+        "id": id,
+        "command": "get_commands",
+        "success": true,
+        "data": {
+            "commands": [
+                {
+                    "name": "skill:web-search",
+                    "description": "Search the web for answers",
+                    "source": "skill",
+                    "sourceInfo": {
+                        "path": "/tmp/skills/web-search/SKILL.md",
+                        "source": "local",
+                        "scope": "user",
+                        "origin": "top-level",
+                        "baseDir": "/tmp/skills/web-search",
+                    },
+                },
+            ]
+        },
+    })
 }
 
 /// The slim attach result: one empty session.
@@ -635,6 +663,67 @@ fn disabled_skill_commands_stay_out_of_the_menu() {
     assert!(
         !all.contains("skill:web-search"),
         "the setting hides the skill commands: {all}"
+    );
+}
+
+/// The catalog lands under an open menu (the user typed right after the
+/// start, the `get_commands` answer came later): the menu stays open
+/// and lists the skill. The mock holds the catalog until the plan's
+/// Shift+Tab (`cycle_thinking_level`, a key the open menu does not
+/// take), so the menu is open first on every run.
+#[test]
+fn a_catalog_landing_under_an_open_menu_keeps_it_open() {
+    std::env::remove_var("TMUX");
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("tui.sock");
+    let mut supervisor = MockSupervisor::bind(&socket);
+    supervisor.hold_commands = true;
+    let handle = std::thread::spawn(move || supervisor.serve());
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let plan = HeadlessPlan {
+        steps: vec![
+            // `/sea` matches one builtin (`autoresearch`) and the skill.
+            HeadlessStep::Type("/sea".to_string()),
+            HeadlessStep::SettleIdle,
+            HeadlessStep::WaitRender {
+                needle: "autoresearch".to_string(),
+                timeout_ms: 5_000,
+            },
+            HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::BackTab,
+                crossterm::event::KeyModifiers::SHIFT,
+            )),
+            HeadlessStep::WaitRender {
+                needle: "skill:web-search".to_string(),
+                timeout_ms: 5_000,
+            },
+        ],
+        width: 100,
+        height: 30,
+    };
+    let outcome = runtime
+        .block_on(run_interactive(options(socket), UiMode::Headless(plan)))
+        .expect("interactive run");
+    handle.join().expect("mock supervisor finished");
+    let frames = outcome.frames;
+    let opened = frames
+        .iter()
+        .position(|frame| frame.contains("autoresearch") && !frame.contains("skill:web-search"))
+        .expect("the menu opened before the catalog landed");
+    let last = frames.last().expect("a frame was captured");
+    assert!(
+        last.contains("skill:web-search") && last.contains("autoresearch"),
+        "the open menu lists the landed skill beside the builtin: {last}"
+    );
+    assert!(
+        frames[opened..]
+            .iter()
+            .all(|frame| frame.contains("autoresearch")),
+        "the menu never closed between the open and the landing"
     );
 }
 
