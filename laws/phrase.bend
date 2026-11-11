@@ -120,9 +120,11 @@ def sp_start_ok(e: P.Edge, a: String) -> Bool:
     case P.EText{}:
       String.is_empty(a)
 
-# R5: whether one of the phrases is found in s. P.found is the code's,
-# pinned for every text and phrase by phrase_search_sound and
-# phrase_search_complete: true exactly when R5's split exists.
+# R5: whether one of the phrases is found in s, phrase by phrase. P.found is
+# the code's, pinned for every text and phrase by phrase_search_sound and
+# phrase_search_complete: true exactly when R5's split exists. (P.any is
+# another algorithm: one pass over the text, every phrase tried at each
+# place.)
 def sp_any(+s: String, phs: List<&2, P.Ph>) -> Bool:
   match phs:
     case Nil{}:
@@ -133,21 +135,21 @@ def sp_any(+s: String, phs: List<&2, P.Ph>) -> Bool:
 # Laws
 # ----
 
-# LAW phrase_class (R1): every char is of a class exactly as R1 says
-# EXCLUDES: a range end left out or a char past it taken, a listed char
-#   taken by COut or an unlisted one refused, a class compared
-#   case-insensitively
-law phrase_class:
-  for k: P.Cls
-  for +x: Char
-  {P.is1(k, x) == sp_cls(k, x) : Bool}
+# the phrase `x` followed by a whole-word edge: found in `x` then c exactly
+# when c is no word char (R2)
+def sp_x_word() -> P.Ph:
+  P.Ph{P.EFree{}, [P.One{P.CIn{120, 120}}], P.EWord{}}
 
-# LAW phrase_word (R2): every char is a word char exactly as R2 says
-# EXCLUDES: `_` or a digit read as no word char, a char past ASCII or a
-#   punctuation char read as one, a range off by one
-law phrase_word:
-  for x: Char
-  {P.is_word(x) == sp_word(x) : Bool}
+# LAW phrase_class_example (R1, R2): anchor: the boundaries of the ASCII word
+# chars, as Rust regex-syntax's ASCII `\w` class [0-9A-Za-z_] draws them
+# ('/' ':' '@' '[' '`' '{' around the ranges, '_' inside), two non-ASCII
+# chars (U+00E9, and U+0660, a Unicode digit) outside; a CIn range at and
+# past both its ends; COut refusing each listed char
+# EXCLUDES: a word range off by one at either end, `_` left out, Unicode
+#   letters or digits read as word chars, a range end left out, a listed
+#   char taken by COut
+law phrase_class_example:
+  {[P.found("x/", sp_x_word()), P.found("x0", sp_x_word()), P.found("x9", sp_x_word()), P.found("x:", sp_x_word()), P.found("x@", sp_x_word()), P.found("xA", sp_x_word()), P.found("xZ", sp_x_word()), P.found("x[", sp_x_word()), P.found("x`", sp_x_word()), P.found("xa", sp_x_word()), P.found("xz", sp_x_word()), P.found("x{", sp_x_word()), P.found("x_", sp_x_word()), P.found(SCon{'x', SCon{Chr{233}, ""}}, sp_x_word()), P.found(SCon{'x', SCon{Chr{1632}, ""}}, sp_x_word()), P.found("a", P.Ph{P.EFree{}, [P.One{P.CIn{98, 100}}], P.EFree{}}), P.found("b", P.Ph{P.EFree{}, [P.One{P.CIn{98, 100}}], P.EFree{}}), P.found("d", P.Ph{P.EFree{}, [P.One{P.CIn{98, 100}}], P.EFree{}}), P.found("e", P.Ph{P.EFree{}, [P.One{P.CIn{98, 100}}], P.EFree{}}), P.found("b", P.Ph{P.EFree{}, [P.One{P.COut{['b', 'c']}}], P.EFree{}}), P.found("c", P.Ph{P.EFree{}, [P.One{P.COut{['b', 'c']}}], P.EFree{}}), P.found("d", P.Ph{P.EFree{}, [P.One{P.COut{['b', 'c']}}], P.EFree{}})] == [True{}, False{}, False{}, True{}, True{}, False{}, False{}, True{}, True{}, False{}, False{}, True{}, False{}, True{}, True{}, False{}, True{}, True{}, False{}, False{}, False{}, True{}] : List<&2, Bool>}
 
 # LAW phrase_prefix_complete (R3-R5): a text that begins with a part that
 # matches the items, followed by a rest the end edge holds for, passes the
@@ -215,9 +217,11 @@ law phrase_search_sound:
   {s == String.append(a, String.append(u, b)) : String} & ({sp_lang(u, its) == True{} : Bool} & ({sp_start_ok(st, a) == True{} : Bool} & {sp_end_ok(en, b) == True{} : Bool}))
 
 # LAW phrase_any (R5): a list of phrases is found in every text exactly
-# when one of them is
+# when one of them is: the code's one-pass search (every phrase tried at
+# each place) equals the search phrase by phrase with P.found, which the
+# phrase_search_* laws pin to R5's split
 # EXCLUDES: a phrase of the list skipped, a list found by a phrase it does
-#   not hold
+#   not hold, a place skipped for a later phrase after an earlier one failed
 law phrase_any:
   for +s: String
   for +phs: List<&2, P.Ph>

@@ -12,6 +12,25 @@ import ./base.bend as LawsBase
 # tagged by a read or a mismatch error (any runs of lines, so any set of
 # lines), any anchors, each with any width of its line in the snapshot
 # or no line there (line 0, past the end).
+#
+# F11 (bend/doc_seen.bend header; omp crates/pi-edit/src/modes/hashline/
+# patcher.rs `assert_seen_lines`), split:
+# R1: an edit applies exactly when every anchor is a seen line.
+# R2: a rejected edit names its unseen anchors, in order.
+# R3: a rejection shows, of its first 40 unseen anchors
+#     (SEEN_LINE_REVEAL_CAP = 40 in omp's patcher.rs), each one that is a
+#     line of the snapshot, in order: whole when it has at most 512
+#     characters (SEEN_LINE_REVEAL_MAX_COLUMNS = 512), else its first 512.
+# R4: the rejection is whole when it has at most 40 unseen anchors, each a
+#     line of at most 512 characters; exactly then its unseen anchors join
+#     the seen lines (else nothing changes), so a straight retry applies
+#     exactly then.
+# R5: a reload keeps exactly the log records of the version the file holds,
+#     in order; the seen lines are then the runs of those records.
+# A1: the guard's entry answers, for the request Rust spells, the verdict
+#     of R1-R4 spelled back, and refuses anything else with its error form.
+# (omp differs on one point: it rejects an unseen line longer than 512
+# characters without a reveal; eukhe shows its first 512 characters.)
 
 # line n is in the run iv: lo <= n <= hi
 def seen.Inside(+n: Nat, iv: Ds.Iv) -> Bool:
@@ -35,13 +54,13 @@ def seen.Sub(xs: List<&2, Nat>, +ivs: List<&2, Ds.Iv>) -> Bool:
     case x <> rest:
       Bool.and(seen.In(x, ivs), seen.Sub(rest, ivs))
 
-# each line of xs as a run of one line
-def seen.Points(xs: List<&2, Nat>) -> List<&2, Ds.Iv>:
+# line n is one of xs
+def seen.NatIn(+n: Nat, xs: List<&2, Nat>) -> Bool:
   match xs:
     case Nil{}:
-      Nil{}
-    case +x <> rest:
-      Ds.Iv{x, x} <> seen.Points(rest)
+      False{}
+    case x <> rest:
+      Bool.or(Nat.is_eq(x, n), seen.NatIn(n, rest))
 
 # the anchors of ats whose line is not seen, in order
 def seen.Unseen.keep(+a: Ds.At, rest: List<&2, Ds.At>, s: Bool) -> List<&2, Ds.At>:
@@ -77,50 +96,6 @@ def seen.Fits(us: List<&2, Ds.At>) -> Bool:
         case Ds.At{n, w}:
           Bool.and(seen.Fit(w), seen.Fits(rest))
 
-# a rejection shows every anchor in us whole: at most `cap` of them, each
-# shown whole
-def seen.Whole(+us: List<&2, Ds.At>) -> Bool:
-  Bool.and(Nat.is_le(List.length(&2, Ds.At, us), Ds.cap), seen.Fits(us))
-
-# how a line is shown: whole (None), or its first `cols` characters
-def seen.Cut(whole: Bool) -> Maybe<&2, Nat>:
-  match whole:
-    case True{}:
-      None{}
-    case False{}:
-      Some{Ds.cols}
-
-def seen.Shown.at(+n: Nat, w: Maybe<&2, Nat>, rest: List<&2, Ds.Show>) -> List<&2, Ds.Show>:
-  match w:
-    case None{}:
-      rest
-    case Some{x}:
-      Ds.Show{n, seen.Cut(Nat.is_le(x, Ds.cols))} <> rest
-
-# the lines a rejection shows for the anchors in us: each anchor that is
-# a line of the snapshot, in order, cut when it is longer than `cols`
-def seen.Shown(us: List<&2, Ds.At>) -> List<&2, Ds.Show>:
-  match us:
-    case Nil{}:
-      Nil{}
-    case a <> rest:
-      match a:
-        case Ds.At{n, w}:
-          seen.Shown.at(n, w, seen.Shown(rest))
-
-def seen.After.go(whole: Bool, u: List<&2, Ds.Iv>, seen: List<&2, Ds.Iv>) -> List<&2, Ds.Iv>:
-  match whole:
-    case True{}:
-      List.append(&2, Ds.Iv, u, seen)
-    case False{}:
-      seen
-
-# the seen lines after an edit whose unseen anchors are us: they join
-# the seen lines when the rejection showed them whole, else nothing
-# changes (and an edit with no unseen anchor changes nothing)
-def seen.After(+seen: List<&2, Ds.Iv>, +us: List<&2, Ds.At>) -> List<&2, Ds.Iv>:
-  seen.After.go(seen.Whole(us), seen.Points(Ds.lines(us)), seen)
-
 # LAW edit_only_seen_lines: an edit applies only when every anchor is a seen line: a line
 # number the model never saw is never an address
 # EXCLUDES: an edit that applies on an unseen anchor (a guard that skips
@@ -152,15 +127,17 @@ law reveal_then_retry:
   for few: {Nat.is_le(List.length(&2, Ds.At, ats), Ds.cap) == True{} : Bool}
   {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit(seen, ats)), ats)) == seen.Fits(seen.Unseen(seen, ats)) : Bool}
 
-# LAW edit_marks_whole_reveal: after any edit, the unseen anchors join the seen lines exactly
-# when the rejection showed them whole (at most `cap`, each a line of at
-# most `cols` characters); else the seen lines stay as they were
-# EXCLUDES: marking seen a line past the end or a line shown cut, a
-# reveal that marks nothing, a reveal past `cap`
-law edit_marks_whole_reveal:
+# LAW edit_reveal_marks (R4): after any edit, a line is seen exactly when it
+# was seen before, or the rejection was whole and the line is one of its
+# unseen anchors (the verdict's fields are pinned by the reject_* laws)
+# EXCLUDES: marking seen a line past the end, a line shown cut or a line of
+#   a reveal past 40, a whole reveal that marks nothing or only some of its
+#   lines, an edit that forgets lines seen before
+law edit_reveal_marks:
   for +seen: List<&2, Ds.Iv>
   for +ats: List<&2, Ds.At>
-  {Ds.Step.seen(Ds.edit(seen, ats)) == seen.After(seen, seen.Unseen(seen, ats)) : List<&2, Ds.Iv>}
+  for +n: Nat
+  {seen.In(n, Ds.Step.seen(Ds.edit(seen, ats))) == Bool.or(seen.In(n, seen), Bool.and(Ds.Check.whole(Ds.check(seen, ats)), seen.NatIn(n, Ds.Check.unseen(Ds.check(seen, ats))))) : Bool}
 
 # LAW reject_names_unseen: the guard names exactly the anchors that are not seen, in order
 # (none: the edit applies)
@@ -170,23 +147,85 @@ law reject_names_unseen:
   for +ats: List<&2, Ds.At>
   {Ds.Check.unseen(Ds.check(seen, ats)) == Ds.lines(seen.Unseen(seen, ats)) : List<&2, Nat>}
 
-# LAW reject_shows_lines: a rejection shows, of its first `cap` unseen anchors, each one
-# that is a line of the snapshot, in order, cut to `cols` characters
-# when it is longer
-# EXCLUDES: showing a seen line, a line past the end, more than `cap`
-# lines, a long line whole, a short line cut
-law reject_shows_lines:
+# LAW reject_one_seen (R1-R4): the verdict on an edit whose one anchor is a
+# seen line: nothing unseen, nothing shown, whole (it applies), whatever
+# the snapshot holds there
+# EXCLUDES: a seen anchor named or shown, a seen anchor whose width matters
+law reject_one_seen:
   for +seen: List<&2, Ds.Iv>
-  for +ats: List<&2, Ds.At>
-  {Ds.Check.shown(Ds.check(seen, ats)) == seen.Shown(List.take(&2, Ds.At, seen.Unseen(seen, ats), Ds.cap)) : List<&2, Ds.Show>}
+  for +n: Nat
+  for w: Maybe<&2, Nat>
+  for s: {seen.In(n, seen) == True{} : Bool}
+  {Ds.check(seen, [Ds.At{n, w}]) == Ds.Check{[], [], True{}} : Ds.Check}
 
-# LAW reject_whole_exact: a rejection says it showed its unseen anchors whole exactly when
-# they are at most `cap` and each is a line of at most `cols` characters
-# EXCLUDES: a reveal called whole with a line missing or cut
-law reject_whole_exact:
+# LAW reject_one_past_end (R2-R4): the verdict on an edit whose one anchor
+# is an unseen line the snapshot does not have: named, not shown, not whole
+# EXCLUDES: a line past the end shown, or counted as shown whole
+law reject_one_past_end:
+  for +seen: List<&2, Ds.Iv>
+  for +n: Nat
+  for u: {seen.In(n, seen) == False{} : Bool}
+  {Ds.check(seen, [Ds.At{n, None{}}]) == Ds.Check{[n], [], False{}} : Ds.Check}
+
+# LAW reject_one_short (R2-R4): the verdict on an edit whose one anchor is
+# an unseen line of at most 512 characters: named, shown whole, whole
+# EXCLUDES: a short line cut, a whole reveal called partial, another limit
+#   than 512 (a line of exactly 512 characters cut)
+law reject_one_short:
+  for +seen: List<&2, Ds.Iv>
+  for +n: Nat
+  for +x: Nat
+  for u: {seen.In(n, seen) == False{} : Bool}
+  for short: {Nat.is_le(x, 512n) == True{} : Bool}
+  {Ds.check(seen, [Ds.At{n, Some{x}}]) == Ds.Check{[n], [Ds.Show{n, None{}}], True{}} : Ds.Check}
+
+# LAW reject_one_long (R2-R4): the verdict on an edit whose one anchor is
+# an unseen line of more than 512 characters: named, shown cut to its
+# first 512, not whole
+# EXCLUDES: a long line shown whole or cut elsewhere than 512, a long line
+#   marked seen
+law reject_one_long:
+  for +seen: List<&2, Ds.Iv>
+  for +n: Nat
+  for +x: Nat
+  for u: {seen.In(n, seen) == False{} : Bool}
+  for long: {Nat.is_le(x, 512n) == False{} : Bool}
+  {Ds.check(seen, [Ds.At{n, Some{x}}]) == Ds.Check{[n], [Ds.Show{n, Some{512n}}], False{}} : Ds.Check}
+
+# LAW reject_joins (R3, R4): when an edit has at most 40 unseen anchors, its
+# rejection shows the lines of its first anchors' rejection, then those of
+# the rest's, and is whole exactly when both are (with reject_one_* this
+# fixes the lines shown and the whole flag of every edit of at most 40
+# unseen anchors)
+# EXCLUDES: lines shown out of order, dropped or repeated, a reveal cap
+#   below 40, a whole flag that looks at one anchor only
+law reject_joins:
+  for +seen: List<&2, Ds.Iv>
+  for +xs: List<&2, Ds.At>
+  for +ys: List<&2, Ds.At>
+  for few: {Nat.is_le(List.length(&2, Ds.At, seen.Unseen(seen, List.append(&2, Ds.At, xs, ys))), 40n) == True{} : Bool}
+  {Ds.Check.shown(Ds.check(seen, List.append(&2, Ds.At, xs, ys))) == List.append(&2, Ds.Show, Ds.Check.shown(Ds.check(seen, xs)), Ds.Check.shown(Ds.check(seen, ys))) : List<&2, Ds.Show>} & {Ds.Check.whole(Ds.check(seen, List.append(&2, Ds.At, xs, ys))) == Bool.and(Ds.Check.whole(Ds.check(seen, xs)), Ds.Check.whole(Ds.check(seen, ys))) : Bool}
+
+# LAW reject_shows_first_40 (R3): once the first anchors of an edit hold 40
+# unseen anchors, the anchors after them change nothing the rejection
+# shows (with reject_joins this fixes the lines shown of every edit)
+# EXCLUDES: a reveal past 40 unseen anchors, a reveal cap above 40
+law reject_shows_first_40:
+  for +seen: List<&2, Ds.Iv>
+  for +xs: List<&2, Ds.At>
+  for +ys: List<&2, Ds.At>
+  for full: {List.length(&2, Ds.At, seen.Unseen(seen, xs)) == 40n : Nat}
+  {Ds.Check.shown(Ds.check(seen, List.append(&2, Ds.At, xs, ys))) == Ds.Check.shown(Ds.check(seen, xs)) : List<&2, Ds.Show>}
+
+# LAW reject_many_not_whole (R4): an edit with more than 40 unseen anchors
+# is not whole (with reject_joins this fixes the whole flag of every edit)
+# EXCLUDES: a whole reveal of more than 40 unseen anchors (lines marked
+#   seen that the rejection never showed)
+law reject_many_not_whole:
   for +seen: List<&2, Ds.Iv>
   for +ats: List<&2, Ds.At>
-  {Ds.Check.whole(Ds.check(seen, ats)) == seen.Whole(seen.Unseen(seen, ats)) : Bool}
+  for many: {Nat.is_le(List.length(&2, Ds.At, seen.Unseen(seen, ats)), 40n) == False{} : Bool}
+  {Ds.Check.whole(Ds.check(seen, ats)) == False{} : Bool}
 
 # LAW reveal_example (anchor): line 1 is seen; line 2 is past the end, line 3 is longer
 # than 512 characters, line 4 has exactly 512
@@ -222,12 +261,6 @@ law retry_rejected_example:
 law seen_runs_example:
   {Ds.Check.unseen(Ds.check([Ds.Iv{9n, 2n}, Ds.Iv{1n, 3n}, Ds.Iv{7n, 9n}], [Ds.At{1n, None{}}, Ds.At{2n, None{}}, Ds.At{3n, None{}}, Ds.At{4n, None{}}, Ds.At{6n, None{}}, Ds.At{7n, None{}}, Ds.At{8n, None{}}, Ds.At{9n, None{}}, Ds.At{10n, None{}}])) == [4n, 6n, 10n] : List<&2, Nat>}
 
-# LAW reveal_bounds: a rejection shows at most 40 unseen anchors, and a line of at most
-# 512 characters whole (the single source of both numbers: the Rust
-# renders what `check` answers)
-# EXCLUDES: a changed reveal cap or column limit
-law reveal_bounds:
-  {Ds.cap == 40n : Nat} & {Ds.cols == 512n : Nat}
 
 # a run fits the wire: both ends do
 def seen.IvFit(iv: Ds.Iv) -> Bool:
@@ -430,29 +463,11 @@ law seen_entry_malformed_unless_anchors:
 law seen_entry_tags_example:
   {[Fds.ffi("1,1,1,4,1,1,3,2,0,3,1,513,4,1,512,"), Fds.ffi("1,1,3,1,2,1,5,"), Fds.ffi("0,1,2,1,3,"), Fds.ffi("1,1,"), Fds.ffi("0,1,2,2,0,"), Fds.ffi("0,"), Fds.ffi("0,0,0,")] == ["3,2,3,4,2,3,1,512,4,0,F", "0,0,T", "1,2,1,2,0,T", Wr.err("doc_seen: malformed seen runs"), Wr.err("doc_seen: malformed anchors"), Wr.err("doc_seen: malformed anchors"), Wr.err("doc_seen: input left over")] : List<&2, String>}
 
-
 # Reload
 # ------
 # bend/doc_seen.bend `reload` and `restored`: every input is free: any
 # log of one file (any records, each of any version with any runs), any
 # version the file holds when a later process of the session edits it.
-
-def seen.Live.keep(+r: Ds.Rec, rest: List<&2, Ds.Rec>, same: Bool) -> List<&2, Ds.Rec>:
-  match same:
-    case True{}:
-      r <> rest
-    case False{}:
-      rest
-
-# the records of log whose version is live, in order
-def seen.Live(+live: Nat, log: List<&2, Ds.Rec>) -> List<&2, Ds.Rec>:
-  match log:
-    case Nil{}:
-      Nil{}
-    case +r <> rest:
-      match r:
-        case Ds.Rec{t, s}:
-          seen.Live.keep(Ds.Rec{t, s}, seen.Live(live, rest), Nat.is_eq(t, live))
 
 # line n is held by a record of log whose version is live
 def seen.HeldLive(+n: Nat, +live: Nat, log: List<&2, Ds.Rec>) -> Bool:
@@ -464,16 +479,35 @@ def seen.HeldLive(+n: Nat, +live: Nat, log: List<&2, Ds.Rec>) -> Bool:
         case Ds.Rec{t, s}:
           Bool.or(Bool.and(Nat.is_eq(t, live), seen.In(n, s)), seen.HeldLive(n, live, rest))
 
-# LAW reload_keeps_exactly_the_live_version: a reload keeps exactly the records of the
-# version the file holds, in order: none of another version (the file
-# changed since, or changed back and forth: those lines were not seen of
-# this text) and every one of this version
-# EXCLUDES: restoring by path alone, keeping only the last record or the
-# first, dropping a record of the live version, keeping a stale one
-law reload_keeps_exactly_the_live_version:
+# LAW reload_splits (R5): a reload of a log is the reload of its first
+# records, then the reload of the rest: each record is kept or dropped on
+# its own, in order
+# EXCLUDES: keeping only the last record or the first, reordering records,
+#   a record kept or dropped by what other records hold
+law reload_splits:
   for +live: Nat
-  for +log: List<&2, Ds.Rec>
-  {Ds.reload(live, log) == seen.Live(live, log) : List<&2, Ds.Rec>}
+  for +xs: List<&2, Ds.Rec>
+  for +ys: List<&2, Ds.Rec>
+  {Ds.reload(live, List.append(&2, Ds.Rec, xs, ys)) == List.append(&2, Ds.Rec, Ds.reload(live, xs), Ds.reload(live, ys)) : List<&2, Ds.Rec>}
+
+# LAW reload_keeps_live (R5): a record of the version the file holds is
+# kept, its runs whole
+# EXCLUDES: dropping a record of the live version, changing its runs
+law reload_keeps_live:
+  for +live: Nat
+  for +s: List<&2, Ds.Iv>
+  {Ds.reload(live, [Ds.Rec{live, s}]) == [Ds.Rec{live, s}] : List<&2, Ds.Rec>}
+
+# LAW reload_drops_stale (R5): a record of another version is dropped (the
+# file changed since, or changed back and forth: those lines were not seen
+# of this text)
+# EXCLUDES: restoring by path alone, keeping a stale record
+law reload_drops_stale:
+  for +live: Nat
+  for +t: Nat
+  for +s: List<&2, Ds.Iv>
+  for ne: {Nat.is_eq(t, live) == False{} : Bool}
+  {Ds.reload(live, [Ds.Rec{t, s}]) == [] : List<&2, Ds.Rec>}
 
 # LAW reload_sees_exactly_the_live_records: after a reload, a line is seen exactly when a
 # record of the version the file holds names it: the guard then lets an
@@ -492,149 +526,3 @@ law reload_sees_exactly_the_live_records:
 # EXCLUDES: a reload that matches every version, or none
 law reload_example:
   {Ds.restored(Ds.reload(5n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}, Ds.Rec{5n, [Ds.Iv{9n, 9n}]}])) == [Ds.Iv{1n, 3n}, Ds.Iv{9n, 9n}] : List<&2, Ds.Iv>} & {Ds.reload(9n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}]) == [] : List<&2, Ds.Rec>}
-
-# The entry from the requirement
-# ------------------------------
-# The spec of the whole entry, written from the requirement (F11, the
-# rules above) and the wire's primitives only: no function of
-# bend/doc_seen.bend or bend/ffi_doc_seen.bend (their types only; `cap`
-# and `cols` through seen.Shown and seen.Whole, which reveal_bounds pins to
-# 40 and 512).
-
-# the anchors of ats whose line is not seen, in order
-def seen.sp_unseen(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>) -> List<&2, Ds.At>:
-  match ats:
-    case Nil{}:
-      Nil{}
-    case a <> rest:
-      match a:
-        case Ds.At{+n, +w}:
-          seen.Unseen.keep(Ds.At{n, w}, seen.sp_unseen(seen, rest), seen.In(n, seen))
-
-# the line numbers of the anchors us, in order
-def seen.sp_lines(us: List<&2, Ds.At>) -> List<&2, Nat>:
-  match us:
-    case Nil{}:
-      Nil{}
-    case a <> rest:
-      match a:
-        case Ds.At{n, w}:
-          n <> seen.sp_lines(rest)
-
-# a Maybe<Nat> on the wire: 0, or 1 then the Nat
-def seen.sp_put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
-  match m:
-    case None{}:
-      Wr.put_nat(0n, rest)
-    case Some{x}:
-      Wr.put_nat(1n, Wr.put_nat(x, rest))
-
-def seen.sp_put_show(x: Ds.Show, rest: String) -> String:
-  match x:
-    case Ds.Show{n, c}:
-      Wr.put_nat(n, seen.sp_put_mnat(c, rest))
-
-# the verdict on the unseen anchors us: their lines, the lines a
-# rejection shows, whether it showed them whole
-def seen.sp_verdict(+us: List<&2, Ds.At>) -> String:
-  Wr.put_list(~Nat, ~Wr.put_nat, seen.sp_lines(us), Wr.put_list(~Ds.Show, ~seen.sp_put_show, seen.Shown(List.take(&2, Ds.At, us, 40n)), Wr.put_bool(seen.Whole(us), "")))
-
-def seen.sp_mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def seen.sp_mnat.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{None{}, s}
-        case 1n:
-          seen.sp_mnat.some(Wr.get_nat(s))
-        case 2n+p:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a Maybe<Nat>: the tag 0 (none) or 1 then the Nat
-def seen.sp_mnat(s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  seen.sp_mnat.tag(Wr.get_nat(s))
-
-def seen.sp_iv.hi(lo: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ds.Iv>:
-  match r:
-    case Wr.Got{hi, s}:
-      Wr.Got{Ds.Iv{lo, hi}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def seen.sp_iv.lo(r: Wr.Dec<Nat>) -> Wr.Dec<Ds.Iv>:
-  match r:
-    case Wr.Got{lo, s}:
-      seen.sp_iv.hi(lo, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a run of seen lines: lo, then hi
-def seen.sp_iv(s: String) -> Wr.Dec<Ds.Iv>:
-  seen.sp_iv.lo(Wr.get_nat(s))
-
-def seen.sp_at.w(n: Nat, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ds.At>:
-  match r:
-    case Wr.Got{w, s}:
-      Wr.Got{Ds.At{n, w}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def seen.sp_at.n(r: Wr.Dec<Nat>) -> Wr.Dec<Ds.At>:
-  match r:
-    case Wr.Got{n, s}:
-      seen.sp_at.w(n, seen.sp_mnat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# an anchor: its line, then its width (a Maybe<Nat>)
-def seen.sp_at(s: String) -> Wr.Dec<Ds.At>:
-  seen.sp_at.n(Wr.get_nat(s))
-
-def seen.sp_done(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, whole: Bool) -> String:
-  match whole:
-    case True{}:
-      seen.sp_verdict(seen.sp_unseen(seen, ats))
-    case False{}:
-      Wr.err("doc_seen: input left over")
-
-def seen.sp_ats(+seen: List<&2, Ds.Iv>, r: Wr.Dec<List<&2, Ds.At>>) -> String:
-  match r:
-    case Wr.Got{ats, s}:
-      seen.sp_done(seen, ats, Wr.end(s))
-    case Wr.Bad{}:
-      Wr.err("doc_seen: malformed anchors")
-
-def seen.sp_seen(r: Wr.Dec<List<&2, Ds.Iv>>) -> String:
-  match r:
-    case Wr.Got{seen, s}:
-      seen.sp_ats(seen, Wr.get_list(~Ds.At, ~seen.sp_at, s))
-    case Wr.Bad{}:
-      Wr.err("doc_seen: malformed seen runs")
-
-# the entry's answer to the input s: the seen runs, then the anchors
-def seen.sp_entry(s: String) -> String:
-  seen.sp_seen(Wr.get_list(~Ds.Iv, ~seen.sp_iv, s))
-
-# LAW doc_seen_ffi_exact (compiled core): on every input the guard's entry answers the
-# spec's verdict on the seen runs and the anchors the input is exactly
-# (the unseen anchors' lines in order; the first 40 of them that are
-# lines of the snapshot, each cut to 512 characters when longer; whether
-# they are at most 40 and each a line of at most 512 characters), and
-# exactly the error form for malformed seen runs, malformed anchors, or
-# input left over
-# EXCLUDES: a seen anchor named or an unseen one dropped, a line shown cut
-#   or whole by another rule, a whole reveal with a line missing or cut, a
-#   run or an anchor misread, a reply spelled otherwise, a default for
-#   malformed input, input left over ignored, another error text
-law doc_seen_ffi_exact:
-  for +s: String
-  {Fds.ffi(s) == seen.sp_entry(s) : String}

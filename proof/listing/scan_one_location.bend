@@ -7,12 +7,11 @@ import ../../laws/listing.bend as Listing
 import ../../laws/base.bend as LawsBase
 import ../base/staging.bend as LStg
 import ./base/scan.bend as LA
-import ./scan_exact.bend as PScanExact
 
 # a name listed as a storage has an entry; one listed as a legacy file has
 # none: not both
-def ol.go(+n: String, +es: List<&2, Sg.Seen>, a: Bool, ea: {Listing.sp_has_store(n, Listing.sp_scan.go(es, es)) == a : Bool},
-  b: Bool, eb: {Listing.sp_has_legacy(n, Listing.sp_scan.go(es, es)) == b : Bool}) -> {Bool.and(a, b) == False{} : Bool}:
+def ol.go(+n: String, +es: List<&2, Sg.Seen>, a: Bool, ea: {Listing.sp_has_store(n, LA.ls.sp_scan.go(es, es)) == a : Bool},
+  b: Bool, eb: {Listing.sp_has_legacy(n, LA.ls.sp_scan.go(es, es)) == b : Bool}) -> {Bool.and(a, b) == False{} : Bool}:
   match a:
     case False{}:
       {==}
@@ -25,5 +24,5 @@ def ol.go(+n: String, +es: List<&2, Sg.Seen>, a: Bool, ea: {Listing.sp_has_store
             Equal.sym(Bool, LawsBase.text_has_name(n, es), True{}, LA.ls.has_store_named(n, es, es, ea)), LA.ls.has_legacy_free(n, es, es, eb)))
 
 def Listing.scan_one_location(es, n):
-  %Equal.sym(List<&2, Ls.Pick>, Ls.scan(es), Listing.sp_scan(es), Listing.scan_exact(es)) : {Bool.and(Listing.sp_has_store(n, _), Listing.sp_has_legacy(n, _)) == False{} : Bool}
-  ol.go(n, es, Listing.sp_has_store(n, Listing.sp_scan.go(es, es)), {==}, Listing.sp_has_legacy(n, Listing.sp_scan.go(es, es)), {==})
+  %Equal.sym(List<&2, Ls.Pick>, Ls.scan.go(es, es), LA.ls.sp_scan.go(es, es), LA.ls.scan_go(es, es)) : {Bool.and(Listing.sp_has_store(n, _), Listing.sp_has_legacy(n, _)) == False{} : Bool}
+  ol.go(n, es, Listing.sp_has_store(n, LA.ls.sp_scan.go(es, es)), {==}, Listing.sp_has_legacy(n, LA.ls.sp_scan.go(es, es)), {==})

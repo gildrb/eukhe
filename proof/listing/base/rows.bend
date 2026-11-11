@@ -2,12 +2,10 @@
 #
 # Ls.rows makes the row of each listed entry (rows.go: place k for the
 # k-th entry), then sorts them by insertion (Ls.sort, Ls.ins). Insertion
-# keeps the count of every place (lr.count_ins, lr.count_sort) and every
-# row's being its entry's row (lr.G, lr.G_ins, lr.G_sort); it keeps the
-# rows in order when every place is fresh (lr.sorted_ins, by the strict
-# order of proof/listing/base/order.bend). rows.go makes one row per
-# listed entry (lr.count_go), at places from k on (lr.below_go), each its
-# entry's row (lr.G_go).
+# keeps the count of every place (lr.count_ins, lr.count_sort); it keeps
+# the rows in order when every place is fresh (lr.sorted_ins, by the
+# strict order of proof/listing/base/order.bend). rows.go makes one row
+# per listed entry (lr.count_go), at places from k on (lr.below_go).
 
 import Base
 import ../../../bend/staging.bend as Sg
@@ -370,162 +368,6 @@ def lr.dist_go(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, +k: Nat) -> {lr.Di
     case +o <> +rest:
       +fr = Equal.trans(Nat, Listing.sp_count(k, Listing.sp_ats(Ls.rows.go(rest, all, 1n+k))), Listing.sp_count_listed(rest, all, 1n+k, k), 0n, lr.count_go(rest, all, 1n+k, k), lr.below(rest, all, 1n+k, k, lr.lt_self(k)))
       lr.dist_put(Ls.row(o, all, k), Ls.rows.go(rest, all, 1n+k), k, Listing.sp_listed(o, all), lr.row_rel(o, all, k), lr.dist_go(rest, all, 1n+k), fr)
-
-# Every row is its entry's row
-# ----------------------------
-
-def lr.lt_irrefl(k: Nat) -> {Nat.is_lt(k, k) == False{} : Bool}:
-  match k:
-    case 0n:
-      {==}
-    case 1n+p:
-      lr.lt_irrefl(p)
-
-def lr.lp(b: Bool, -t: Sg.Time, -u: Sg.Time) -> {Ls.later.pick(b, t, u) == Listing.sp_later.pick(b, t, u) : Sg.Time}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def lr.later(t: Sg.Time, u: Sg.Time) -> {Ls.later(t, u) == Listing.sp_later.pick(Listing.sp_earlier(t, u), t, u) : Sg.Time}:
-  match t u:
-    case Sg.Time{+s1, +n1} Sg.Time{+s2, +n2}:
-      lr.lp(Ls.lex([s1, n1], [s2, n2]), Sg.Time{s1, n1}, Sg.Time{s2, n2})
-
-def lr.newest(ts: List<&2, Sg.Time>, +t: Sg.Time) -> {Ls.newest(ts, t) == Listing.sp_newest(ts, t) : Sg.Time}:
-  match ts:
-    case Nil{}:
-      {==}
-    case +u <> +rest:
-      %Equal.sym(Sg.Time, Ls.later(t, u), Listing.sp_later.pick(Listing.sp_earlier(t, u), t, u), lr.later(t, u)) : {Ls.newest(rest, _) == Listing.sp_newest(rest, Listing.sp_later.pick(Listing.sp_earlier(t, u), t, u)) : Sg.Time}
-      lr.newest(rest, Listing.sp_later.pick(Listing.sp_earlier(t, u), t, u))
-
-def lr.RowIs(m: Maybe<&2, Ls.Row>, r: Ls.Row) -> Type:
-  match m:
-    case None{}:
-      Unit
-    case Some{x}:
-      {x == r : Ls.Row}
-
-def lr.rv_t(+p: Ls.Pick, +k: Nat, ts: List<&2, Sg.Time>) -> lr.RowIs(Ls.row.times(p, k, ts), Ls.Row{k, p, Listing.sp_top(ts)}):
-  match ts:
-    case Nil{}:
-      Unit{}
-    case +t <> +rest:
-      Equal.cong(Sg.Time, Ls.Row, x => Ls.Row{k, p, x}, Ls.newest(rest, t), Listing.sp_newest(rest, t), lr.newest(rest, t))
-
-def lr.rv_c(ok: Bool, +p: Ls.Pick, +k: Nat, ts: List<&2, Sg.Time>) -> lr.RowIs(Ls.row.cwd(ok, p, k, ts), Ls.Row{k, p, Listing.sp_top(ts)}):
-  match ok:
-    case True{}:
-      lr.rv_t(p, k, ts)
-    case False{}:
-      Unit{}
-
-def lr.rv_p(p: Ls.Pick, +k: Nat, ok: Bool, ts: List<&2, Sg.Time>) -> lr.RowIs(Ls.row.pick(p, k, ok, ts), Ls.Row{k, p, Listing.sp_top(ts)}):
-  match p:
-    case Ls.PSkip{}:
-      Unit{}
-    case Ls.PStore{+s}:
-      lr.rv_c(ok, Ls.PStore{s}, k, ts)
-    case Ls.PLegacy{+s}:
-      lr.rv_c(ok, Ls.PLegacy{s}, k, ts)
-
-def lr.row_val(o: Ls.Obs, +all: List<&2, Sg.Seen>, +k: Nat) -> lr.RowIs(Ls.row(o, all, k), Listing.sp_row(o, all, k)):
-  match o:
-    case Ls.Obs{+e, c, +ts}:
-      %LS.ls.pick(e, all) : lr.RowIs(Ls.row(Ls.Obs{e, c, ts}, all, k), Ls.Row{k, _, Listing.sp_top(ts)})
-      lr.rv_p(Ls.pick(e, all), k, Ls.cwd_ok(c), ts)
-
-# every row x of xs is the row of the entry at its place in os (the first
-# at place k), not below k
-def lr.Gk(xs: List<&2, Ls.Row>, os: List<&2, Ls.Obs>, all: List<&2, Sg.Seen>, k: Nat) -> Type:
-  match xs:
-    case Nil{}:
-      Unit
-    case x <> rest:
-      ({x == Listing.sp_row_at(os, all, k, LO.lo.at(x)) : Ls.Row} & {Nat.is_lt(LO.lo.at(x), k) == False{} : Bool}) & lr.Gk(rest, os, all, k)
-
-def lr.at_next(-x: Ls.Row, -o: Ls.Obs, -rest: List<&2, Ls.Obs>, -all: List<&2, Sg.Seen>, -k: Nat, -i: Nat, neq: {Nat.is_eq(k, i) == False{} : Bool}, e: {x == Listing.sp_row_at(rest, all, 1n+k, i) : Ls.Row}) -> {x == Listing.sp_row_at(o <> rest, all, k, i) : Ls.Row}:
-  %Equal.sym(Bool, Nat.is_eq(k, i), False{}, neq) : {x == Listing.sp_choose(_, Listing.sp_row(o, all, i), Listing.sp_row_at(rest, all, 1n+k, i)) : Ls.Row}
-  e
-
-def lr.gk_head(-x: Ls.Row, -o: Ls.Obs, -rest: List<&2, Ls.Obs>, -all: List<&2, Sg.Seen>, +k: Nat, +i: Nat, e: {x == Listing.sp_row_at(rest, all, 1n+k, i) : Ls.Row}, +nl: {Nat.is_lt(i, 1n+k) == False{} : Bool}) -> ({x == Listing.sp_row_at(o <> rest, all, k, i) : Ls.Row} & {Nat.is_lt(i, k) == False{} : Bool}):
-  (lr.at_next(x, o, rest, all, k, i, lr.ge_succ_eq(i, k, nl), e), lr.ge_succ_lt(i, k, nl))
-
-def lr.Gk_lift(xs: List<&2, Ls.Row>, +o: Ls.Obs, +rest: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, +k: Nat, g: lr.Gk(xs, rest, all, 1n+k)) -> lr.Gk(xs, o <> rest, all, k):
-  match xs:
-    case Nil{}:
-      Unit{}
-    case x <> r:
-      match x:
-        case Ls.Row{+i, +p, +t}:
-          (h, gr) = g
-          (e, nl) = h
-          (lr.gk_head(Ls.Row{i, p, t}, o, rest, all, k, i, e, nl), lr.Gk_lift(r, o, rest, all, k, gr))
-
-def lr.here_eq(-x: Ls.Row, -o: Ls.Obs, -rest: List<&2, Ls.Obs>, -all: List<&2, Sg.Seen>, +k: Nat, -i: Nat, ea: {i == k : Nat}, rv: {x == Listing.sp_row(o, all, k) : Ls.Row}) -> {x == Listing.sp_row_at(o <> rest, all, k, i) : Ls.Row}:
-  %Equal.sym(Nat, i, k, ea) : {x == Listing.sp_row_at(o <> rest, all, k, _) : Ls.Row}
-  %Equal.sym(Bool, Nat.is_eq(k, k), True{}, lr.eq_refl(k)) : {x == Listing.sp_choose(_, Listing.sp_row(o, all, k), Listing.sp_row_at(rest, all, 1n+k, k)) : Ls.Row}
-  rv
-
-def lr.here_lt(+k: Nat, -i: Nat, ea: {i == k : Nat}) -> {Nat.is_lt(i, k) == False{} : Bool}:
-  %Equal.sym(Nat, i, k, ea) : {Nat.is_lt(_, k) == False{} : Bool}
-  lr.lt_irrefl(k)
-
-def lr.Gk_put(m: Maybe<&2, Ls.Row>, R: List<&2, Ls.Row>, +o: Ls.Obs, +rest: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, +k: Nat, -b: Bool, rel: lr.MRow(m, k, b), rv: lr.RowIs(m, Listing.sp_row(o, all, k)), gR: lr.Gk(R, rest, all, 1n+k)) -> lr.Gk(Ls.row.put(m, R), o <> rest, all, k):
-  match m:
-    case None{}:
-      lr.Gk_lift(R, o, rest, all, k, gR)
-    case Some{x}:
-      match x:
-        case Ls.Row{+i, +p, +t}:
-          (ea, eb) = rel
-          +ea2 = ea
-          ((lr.here_eq(Ls.Row{i, p, t}, o, rest, all, k, i, ea2, rv), lr.here_lt(k, i, ea2)), lr.Gk_lift(R, o, rest, all, k, gR))
-
-# every row of rows.go is its entry's row
-def lr.Gk_go(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, +k: Nat) -> lr.Gk(Ls.rows.go(os, all, k), os, all, k):
-  match os:
-    case Nil{}:
-      Unit{}
-    case +o <> +rest:
-      lr.Gk_put(Ls.row(o, all, k), Ls.rows.go(rest, all, 1n+k), o, rest, all, k, Listing.sp_listed(o, all), lr.row_rel(o, all, k), lr.row_val(o, all, k), lr.Gk_go(rest, all, 1n+k))
-
-def lr.Gk_ins(ys: List<&2, Ls.Row>, +x: Ls.Row, h: Bool, -os: List<&2, Ls.Obs>, -all: List<&2, Sg.Seen>, -k: Nat,
-  gx: ({x == Listing.sp_row_at(os, all, k, LO.lo.at(x)) : Ls.Row} & {Nat.is_lt(LO.lo.at(x), k) == False{} : Bool}), gy: lr.Gk(ys, os, all, k)) -> lr.Gk(Ls.ins(ys, x, h), os, all, k):
-  match ys:
-    case Nil{}:
-      (gx, Unit{})
-    case y <> +rest:
-      match h:
-        case True{}:
-          (gx, gy)
-        case False{}:
-          (hy, gr) = gy
-          (hy, lr.Gk_ins(rest, x, Ls.ins.head(x, rest), os, all, k, gx, gr))
-
-def lr.Gk_sort(xs: List<&2, Ls.Row>, -os: List<&2, Ls.Obs>, -all: List<&2, Sg.Seen>, -k: Nat, g: lr.Gk(xs, os, all, k)) -> lr.Gk(Ls.sort(xs), os, all, k):
-  match xs:
-    case Nil{}:
-      Unit{}
-    case +x <> +rest:
-      (gx, gr) = g
-      lr.Gk_ins(Ls.sort(rest), x, Ls.ins.head(x, Ls.sort(rest)), os, all, k, gx, lr.Gk_sort(rest, os, all, k, gr))
-
-# rows that are each their entry's row are the rows of their places
-def lr.fill(xs: List<&2, Ls.Row>, +os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, g: lr.Gk(xs, os, all, 0n)) -> {xs == Listing.sp_fill(Listing.sp_ats(xs), os, all) : List<&2, Ls.Row>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case x <> rest:
-      match x:
-        case Ls.Row{+i, +p, +t}:
-          (h, gr) = g
-          (e, nl) = h
-          %e : {Ls.Row{i, p, t} <> rest == _ <> Listing.sp_fill(Listing.sp_ats(rest), os, all) : List<&2, Ls.Row>}
-          %lr.fill(rest, os, all, gr) : {Ls.Row{i, p, t} <> rest == Ls.Row{i, p, t} <> _ : List<&2, Ls.Row>}
-          {==}
 
 # The entries the scan skips
 # --------------------------

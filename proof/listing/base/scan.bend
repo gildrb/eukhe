@@ -7,7 +7,20 @@ import ../../../laws/listing.bend as Listing
 import ../../../laws/base.bend as LawsBase
 import ../../base/staging.bend as LStg
 
-# ---- the scan: the code is its spec ----
+# ---- the scan: the code is the spec's verdicts ----
+
+# the spec's verdicts on es, each entry read against the listing all
+# (sp_pick of each)
+def ls.sp_scan.go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> List<&2, Ls.Pick>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      Listing.sp_pick(e, all) <> ls.sp_scan.go(rest, all)
+
+def ls.sp_scan(+es: List<&2, Sg.Seen>) -> List<&2, Ls.Pick>:
+  ls.sp_scan.go(es, es)
+
 
 def ls.hidden(s: String) -> {Ls.hidden(s) == Listing.sp_hidden(s) : Bool}:
   match s:
@@ -70,12 +83,12 @@ def ls.pick(e: Sg.Seen, +all: List<&2, Sg.Seen>) -> {Ls.pick(e, all) == Listing.
         case Sg.Raw{}:
           {==}
 
-def ls.scan_go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Ls.scan.go(es, all) == Listing.sp_scan.go(es, all) : List<&2, Ls.Pick>}:
+def ls.scan_go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Ls.scan.go(es, all) == ls.sp_scan.go(es, all) : List<&2, Ls.Pick>}:
   match es:
     case Nil{}:
       {==}
     case +e <> +rest:
-      %ls.pick(e, all) : {Ls.pick(e, all) <> Ls.scan.go(rest, all) == _ <> Listing.sp_scan.go(rest, all) : List<&2, Ls.Pick>}
+      %ls.pick(e, all) : {Ls.pick(e, all) <> Ls.scan.go(rest, all) == _ <> ls.sp_scan.go(rest, all) : List<&2, Ls.Pick>}
       %ls.scan_go(rest, all) : {Ls.pick(e, all) <> Ls.scan.go(rest, all) == Ls.pick(e, all) <> _ : List<&2, Ls.Pick>}
       {==}
 
@@ -149,8 +162,8 @@ def ls.store_named(+n: String, e: Sg.Seen, +all: List<&2, Sg.Seen>, h: {Listing.
           LStg.stg.absurdF({False{} == True{} : Bool}, h)
 
 def ls.hsn.at(+n: String, x: Sg.Seen, -r: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>, b: Bool, eb: {Listing.sp_is_store(n, Listing.sp_pick(x, all)) == b : Bool},
-  h: {Bool.or(b, Listing.sp_has_store(n, Listing.sp_scan.go(r, all))) == True{} : Bool},
-  ih: {Listing.sp_has_store(n, Listing.sp_scan.go(r, all)) == True{} : Bool} -> {LawsBase.text_has_name(n, r) == True{} : Bool}) -> {LawsBase.text_has_name(n, x <> r) == True{} : Bool}:
+  h: {Bool.or(b, Listing.sp_has_store(n, ls.sp_scan.go(r, all))) == True{} : Bool},
+  ih: {Listing.sp_has_store(n, ls.sp_scan.go(r, all)) == True{} : Bool} -> {LawsBase.text_has_name(n, r) == True{} : Bool}) -> {LawsBase.text_has_name(n, x <> r) == True{} : Bool}:
   match x:
     case Sg.Seen{+nm, +k}:
       match b:
@@ -162,7 +175,7 @@ def ls.hsn.at(+n: String, x: Sg.Seen, -r: List<&2, Sg.Seen>, +all: List<&2, Sg.S
           ls.or_true(LawsBase.text_named(n, nm))
 
 # a name listed as a storage is the name of an entry
-def ls.has_store_named(+n: String, xs: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>, h: {Listing.sp_has_store(n, Listing.sp_scan.go(xs, all)) == True{} : Bool}) -> {LawsBase.text_has_name(n, xs) == True{} : Bool}:
+def ls.has_store_named(+n: String, xs: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>, h: {Listing.sp_has_store(n, ls.sp_scan.go(xs, all)) == True{} : Bool}) -> {LawsBase.text_has_name(n, xs) == True{} : Bool}:
   match xs:
     case Nil{}:
       LStg.stg.absurdF({LawsBase.text_has_name(n, Nil{}) == True{} : Bool}, h)
@@ -206,8 +219,8 @@ def ls.legacy_free(+n: String, e: Sg.Seen, +all: List<&2, Sg.Seen>, h: {Listing.
           LStg.stg.absurdF({LawsBase.text_has_name(n, all) == False{} : Bool}, h)
 
 def ls.hlf.at(+n: String, x: Sg.Seen, -r: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>, b: Bool, eb: {Listing.sp_is_legacy(n, Listing.sp_pick(x, all)) == b : Bool},
-  h: {Bool.or(b, Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all))) == True{} : Bool},
-  ih: {Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all)) == True{} : Bool} -> {LawsBase.text_has_name(n, all) == False{} : Bool}) -> {LawsBase.text_has_name(n, all) == False{} : Bool}:
+  h: {Bool.or(b, Listing.sp_has_legacy(n, ls.sp_scan.go(r, all))) == True{} : Bool},
+  ih: {Listing.sp_has_legacy(n, ls.sp_scan.go(r, all)) == True{} : Bool} -> {LawsBase.text_has_name(n, all) == False{} : Bool}) -> {LawsBase.text_has_name(n, all) == False{} : Bool}:
   match b:
     case True{}:
       ls.legacy_free(n, x, all, eb)
@@ -215,7 +228,7 @@ def ls.hlf.at(+n: String, x: Sg.Seen, -r: List<&2, Sg.Seen>, +all: List<&2, Sg.S
       ih(h)
 
 # a name listed as a legacy file is the name of no entry
-def ls.has_legacy_free(+n: String, xs: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>, h: {Listing.sp_has_legacy(n, Listing.sp_scan.go(xs, all)) == True{} : Bool}) -> {LawsBase.text_has_name(n, all) == False{} : Bool}:
+def ls.has_legacy_free(+n: String, xs: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>, h: {Listing.sp_has_legacy(n, ls.sp_scan.go(xs, all)) == True{} : Bool}) -> {LawsBase.text_has_name(n, all) == False{} : Bool}:
   match xs:
     case Nil{}:
       LStg.stg.absurdF({LawsBase.text_has_name(n, all) == False{} : Bool}, h)
@@ -241,23 +254,23 @@ def ls.has_name_app(+s: String, xs: List<&2, Sg.Seen>, +ys: List<&2, Sg.Seen>) -
           %Equal.sym(Bool, LawsBase.text_has_name(s, List.append(&2, Sg.Seen, r, ys)), Bool.or(LawsBase.text_has_name(s, r), LawsBase.text_has_name(s, ys)), ls.has_name_app(s, r, ys)) : {Bool.or(LawsBase.text_named(s, nm), _) == Bool.or(Bool.or(LawsBase.text_named(s, nm), LawsBase.text_has_name(s, r)), LawsBase.text_has_name(s, ys)) : Bool}
           ls.or_assoc(LawsBase.text_named(s, nm), LawsBase.text_has_name(s, r), LawsBase.text_has_name(s, ys))
 
-def ls.store_app(+n: String, xs: List<&2, Sg.Seen>, +ys: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Listing.sp_has_store(n, Listing.sp_scan.go(List.append(&2, Sg.Seen, xs, ys), all)) == Bool.or(Listing.sp_has_store(n, Listing.sp_scan.go(xs, all)), Listing.sp_has_store(n, Listing.sp_scan.go(ys, all))) : Bool}:
+def ls.store_app(+n: String, xs: List<&2, Sg.Seen>, +ys: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Listing.sp_has_store(n, ls.sp_scan.go(List.append(&2, Sg.Seen, xs, ys), all)) == Bool.or(Listing.sp_has_store(n, ls.sp_scan.go(xs, all)), Listing.sp_has_store(n, ls.sp_scan.go(ys, all))) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case +x <> +r:
       +a = Listing.sp_is_store(n, Listing.sp_pick(x, all))
-      %Equal.sym(Bool, Listing.sp_has_store(n, Listing.sp_scan.go(List.append(&2, Sg.Seen, r, ys), all)), Bool.or(Listing.sp_has_store(n, Listing.sp_scan.go(r, all)), Listing.sp_has_store(n, Listing.sp_scan.go(ys, all))), ls.store_app(n, r, ys, all)) : {Bool.or(a, _) == Bool.or(Bool.or(a, Listing.sp_has_store(n, Listing.sp_scan.go(r, all))), Listing.sp_has_store(n, Listing.sp_scan.go(ys, all))) : Bool}
-      ls.or_assoc(a, Listing.sp_has_store(n, Listing.sp_scan.go(r, all)), Listing.sp_has_store(n, Listing.sp_scan.go(ys, all)))
+      %Equal.sym(Bool, Listing.sp_has_store(n, ls.sp_scan.go(List.append(&2, Sg.Seen, r, ys), all)), Bool.or(Listing.sp_has_store(n, ls.sp_scan.go(r, all)), Listing.sp_has_store(n, ls.sp_scan.go(ys, all))), ls.store_app(n, r, ys, all)) : {Bool.or(a, _) == Bool.or(Bool.or(a, Listing.sp_has_store(n, ls.sp_scan.go(r, all))), Listing.sp_has_store(n, ls.sp_scan.go(ys, all))) : Bool}
+      ls.or_assoc(a, Listing.sp_has_store(n, ls.sp_scan.go(r, all)), Listing.sp_has_store(n, ls.sp_scan.go(ys, all)))
 
-def ls.legacy_app(+n: String, xs: List<&2, Sg.Seen>, +ys: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Listing.sp_has_legacy(n, Listing.sp_scan.go(List.append(&2, Sg.Seen, xs, ys), all)) == Bool.or(Listing.sp_has_legacy(n, Listing.sp_scan.go(xs, all)), Listing.sp_has_legacy(n, Listing.sp_scan.go(ys, all))) : Bool}:
+def ls.legacy_app(+n: String, xs: List<&2, Sg.Seen>, +ys: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Listing.sp_has_legacy(n, ls.sp_scan.go(List.append(&2, Sg.Seen, xs, ys), all)) == Bool.or(Listing.sp_has_legacy(n, ls.sp_scan.go(xs, all)), Listing.sp_has_legacy(n, ls.sp_scan.go(ys, all))) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case +x <> +r:
       +a = Listing.sp_is_legacy(n, Listing.sp_pick(x, all))
-      %Equal.sym(Bool, Listing.sp_has_legacy(n, Listing.sp_scan.go(List.append(&2, Sg.Seen, r, ys), all)), Bool.or(Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all)), Listing.sp_has_legacy(n, Listing.sp_scan.go(ys, all))), ls.legacy_app(n, r, ys, all)) : {Bool.or(a, _) == Bool.or(Bool.or(a, Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all))), Listing.sp_has_legacy(n, Listing.sp_scan.go(ys, all))) : Bool}
-      ls.or_assoc(a, Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all)), Listing.sp_has_legacy(n, Listing.sp_scan.go(ys, all)))
+      %Equal.sym(Bool, Listing.sp_has_legacy(n, ls.sp_scan.go(List.append(&2, Sg.Seen, r, ys), all)), Bool.or(Listing.sp_has_legacy(n, ls.sp_scan.go(r, all)), Listing.sp_has_legacy(n, ls.sp_scan.go(ys, all))), ls.legacy_app(n, r, ys, all)) : {Bool.or(a, _) == Bool.or(Bool.or(a, Listing.sp_has_legacy(n, ls.sp_scan.go(r, all))), Listing.sp_has_legacy(n, ls.sp_scan.go(ys, all))) : Bool}
+      ls.or_assoc(a, Listing.sp_has_legacy(n, ls.sp_scan.go(r, all)), Listing.sp_has_legacy(n, ls.sp_scan.go(ys, all)))
 
 def ls.not_store_s(+n: String, hid: Bool, +s: String, ne: {LawsBase.text_same(s, n) == False{} : Bool}) -> {Listing.sp_is_store(n, Listing.sp_dir(True{}, hid, s)) == False{} : Bool}:
   match hid:
@@ -291,13 +304,13 @@ def ls.ks_one(+n: String, x: Sg.Seen, +es: List<&2, Sg.Seen>, +all: List<&2, Sg.
         case Sg.Raw{}:
           {==}
 
-def ls.ks_go(+n: String, xs: List<&2, Sg.Seen>, +es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Listing.sp_has_store(n, Listing.sp_scan.go(xs, all)) == Listing.sp_has_store(n, Listing.sp_scan.go(xs, es)) : Bool}:
+def ls.ks_go(+n: String, xs: List<&2, Sg.Seen>, +es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> {Listing.sp_has_store(n, ls.sp_scan.go(xs, all)) == Listing.sp_has_store(n, ls.sp_scan.go(xs, es)) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case +x <> +r:
-      %ls.ks_one(n, x, es, all) : {Bool.or(Listing.sp_is_store(n, Listing.sp_pick(x, all)), Listing.sp_has_store(n, Listing.sp_scan.go(r, all))) == Bool.or(_, Listing.sp_has_store(n, Listing.sp_scan.go(r, es))) : Bool}
-      %ls.ks_go(n, r, es, all) : {Bool.or(Listing.sp_is_store(n, Listing.sp_pick(x, all)), Listing.sp_has_store(n, Listing.sp_scan.go(r, all))) == Bool.or(Listing.sp_is_store(n, Listing.sp_pick(x, all)), _) : Bool}
+      %ls.ks_one(n, x, es, all) : {Bool.or(Listing.sp_is_store(n, Listing.sp_pick(x, all)), Listing.sp_has_store(n, ls.sp_scan.go(r, all))) == Bool.or(_, Listing.sp_has_store(n, ls.sp_scan.go(r, es))) : Bool}
+      %ls.ks_go(n, r, es, all) : {Bool.or(Listing.sp_is_store(n, Listing.sp_pick(x, all)), Listing.sp_has_store(n, ls.sp_scan.go(r, all))) == Bool.or(Listing.sp_is_store(n, Listing.sp_pick(x, all)), _) : Bool}
       {==}
 
 def ls.kl_at(+n: String, +base: Bool, +hn: Bool, c: Bool, +st: String, +s: String, ec: {LawsBase.text_same(s, st) == c : Bool}, ne: {LawsBase.text_same(s, n) == False{} : Bool})
@@ -340,12 +353,12 @@ def ls.kl_one(+n: String, x: Sg.Seen, +es: List<&2, Sg.Seen>, +s: String, +ne: {
           {==}
 
 def ls.kl_go(+n: String, xs: List<&2, Sg.Seen>, +es: List<&2, Sg.Seen>, +s: String, +ne: {LawsBase.text_same(s, n) == False{} : Bool})
-  -> {Listing.sp_has_legacy(n, Listing.sp_scan.go(xs, List.append(&2, Sg.Seen, es, [Sg.Seen{Sg.Utf{s}, Sg.KDir{True{}}}]))) == Listing.sp_has_legacy(n, Listing.sp_scan.go(xs, es)) : Bool}:
+  -> {Listing.sp_has_legacy(n, ls.sp_scan.go(xs, List.append(&2, Sg.Seen, es, [Sg.Seen{Sg.Utf{s}, Sg.KDir{True{}}}]))) == Listing.sp_has_legacy(n, ls.sp_scan.go(xs, es)) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case +x <> +r:
       +all = List.append(&2, Sg.Seen, es, [Sg.Seen{Sg.Utf{s}, Sg.KDir{True{}}}])
-      %ls.kl_one(n, x, es, s, ne) : {Bool.or(Listing.sp_is_legacy(n, Listing.sp_pick(x, all)), Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all))) == Bool.or(_, Listing.sp_has_legacy(n, Listing.sp_scan.go(r, es))) : Bool}
-      %ls.kl_go(n, r, es, s, ne) : {Bool.or(Listing.sp_is_legacy(n, Listing.sp_pick(x, all)), Listing.sp_has_legacy(n, Listing.sp_scan.go(r, all))) == Bool.or(Listing.sp_is_legacy(n, Listing.sp_pick(x, all)), _) : Bool}
+      %ls.kl_one(n, x, es, s, ne) : {Bool.or(Listing.sp_is_legacy(n, Listing.sp_pick(x, all)), Listing.sp_has_legacy(n, ls.sp_scan.go(r, all))) == Bool.or(_, Listing.sp_has_legacy(n, ls.sp_scan.go(r, es))) : Bool}
+      %ls.kl_go(n, r, es, s, ne) : {Bool.or(Listing.sp_is_legacy(n, Listing.sp_pick(x, all)), Listing.sp_has_legacy(n, ls.sp_scan.go(r, all))) == Bool.or(Listing.sp_is_legacy(n, Listing.sp_pick(x, all)), _) : Bool}
       {==}
