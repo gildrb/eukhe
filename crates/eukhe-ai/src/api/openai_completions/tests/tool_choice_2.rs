@@ -492,8 +492,10 @@ async fn replays_xiaomi_mimo_assistant_tool_calls_with_empty_reasoning_content_w
         replayed_assistant,
         &json!({ "role": "assistant", "reasoning_content": "" }),
     );
+    // omp: MiMo on the Xiaomi hosts takes the thinking object alone
+    // (catalog `compat/resolve.ts` `supportsReasoningEffort: !isXiaomiMimo`).
     assert_eq!(params["thinking"], json!({ "type": "enabled" }));
-    assert_eq!(params["reasoning_effort"], json!("high"));
+    assert!(params.get("reasoning_effort").is_none());
 }
 
 #[tokio::test]
