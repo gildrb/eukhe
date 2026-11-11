@@ -24,9 +24,12 @@
 #     tiny_run_entry_refuses]; a refused open stays refused
 #     [tiny_run_entry_refused_stays]. Anchors: tiny_run_entry_example,
 #     tiny_run_fits_example (the premises are satisfiable). The reply
-#     spelling sp_w_do follows the Do table of bend/ffi_tiny_run.bend's
-#     header, which crates/eukhe-tiny/src/election.rs `read_do` reads; the
-#     raw strings of tiny_run_entry_example pin it against Rust's.
+#     spelling sp_w_do (with sp_w_got, sp_w_why) is the wire contract with
+#     its one reader, crates/eukhe-tiny/src/election.rs `read_do`: a table
+#     whose every row cites the reader's arm that decides it (the tag Rust
+#     maps to that decision), so the table is external, not a copy of the
+#     entry's encoder (bend/ffi_tiny_run.bend); a tag Rust reads as
+#     another decision breaks the row.
 
 import Base
 import ../../bend/ffi_tiny_run.bend as FTr
@@ -64,27 +67,31 @@ def sp_w_heard(h: Tn.Heard) -> Nat:
     case Tn.Dropped{}:
       3n
 
+# what a need got, as read_do reads it (election.rs `read_do`, the tag of
+# "what a need got")
 def sp_w_got(g: Tn.Got) -> Nat:
   match g:
     case Tn.Started{}:
-      0n
+      0n  # election.rs:223 0 => Got::Started
     case Tn.Joined{}:
-      1n
+      1n  # election.rs:224 1 => Got::Joined
     case Tn.Replaced{}:
-      2n
+      2n  # election.rs:225 2.. => Got::Replaced
 
+# why a need failed, as read_do reads it (election.rs `read_do`, the tag of
+# "why a need failed")
 def sp_w_why(w: Tn.Why) -> Nat:
   match w:
     case Tn.WhyIo{}:
-      0n
+      0n  # election.rs:228 0 => Why::Io
     case Tn.WhyProtocol{}:
-      1n
+      1n  # election.rs:229 1 => Why::Protocol
     case Tn.WhyMistagged{}:
-      2n
+      2n  # election.rs:230 2 => Why::Mistagged
     case Tn.WhyVacant{}:
-      3n
+      3n  # election.rs:231 3 => Why::Vacant
     case Tn.WhySpawn{}:
-      4n
+      4n  # election.rs:232 4.. => Why::Spawn
 
 def sp_w_launch(l: Tn.Launch) -> Nat:
   match l:
@@ -113,29 +120,31 @@ def sp_w_open(o: FTr.Open, rest: String) -> String:
     case FTr.OSeat{}:
       Wr.put_nat(1n, rest)
 
-# the reply Rust reads
+# the reply Rust reads: each row the arm of election.rs `read_do` that
+# reads it as that decision (the tag of "what to do next", then the
+# decision's field, then the end of the reply)
 def sp_w_do(d: Tn.Do) -> String:
   match d:
     case Tn.DoPing{}:
-      Wr.put_nat(0n, "")
+      Wr.put_nat(0n, "")  # election.rs:219 0 => Do::Ping
     case Tn.DoShutdown{}:
-      Wr.put_nat(1n, "")
+      Wr.put_nat(1n, "")  # election.rs:220 1 => Do::Shutdown
     case Tn.DoLaunch{}:
-      Wr.put_nat(2n, "")
+      Wr.put_nat(2n, "")  # election.rs:221 2 => Do::Launch
     case Tn.DoUse{g}:
-      Wr.put_nat(3n, Wr.put_nat(sp_w_got(g), ""))
+      Wr.put_nat(3n, Wr.put_nat(sp_w_got(g), ""))  # election.rs:222 3 => Do::Use(got)
     case Tn.DoFail{w}:
-      Wr.put_nat(4n, Wr.put_nat(sp_w_why(w), ""))
+      Wr.put_nat(4n, Wr.put_nat(sp_w_why(w), ""))  # election.rs:227 4 => Do::Fail(why)
     case Tn.DoLock{}:
-      Wr.put_nat(5n, "")
+      Wr.put_nat(5n, "")  # election.rs:234 5 => Do::Lock
     case Tn.DoAdopt{}:
-      Wr.put_nat(6n, "")
+      Wr.put_nat(6n, "")  # election.rs:235 6 => Do::Adopt
     case Tn.DoTake{}:
-      Wr.put_nat(7n, "")
+      Wr.put_nat(7n, "")  # election.rs:236 7 => Do::Take
     case Tn.DoFault{}:
-      Wr.put_nat(8n, "")
+      Wr.put_nat(8n, "")  # election.rs:237 8 => Do::Fault
     case Tn.DoNothing{}:
-      Wr.put_nat(9n, "")
+      Wr.put_nat(9n, "")  # election.rs:238 9.. => Do::Nothing
 
 def sp_w_dos(ds: List<&2, Tn.Do>) -> List<&2, String>:
   match ds:
