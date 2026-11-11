@@ -203,11 +203,12 @@ async fn loopback_custom_models_omit_the_store_field() {
     assert_eq!(params.get("store"), Some(&json!(false)));
 }
 
-/// eukhe addition: a reasoning model on a loopback server sends its system
-/// prompt as `system` — vLLM/SGLang reject the `developer` role with a 400
-/// ("Supported message roles: system, user, assistant, tool").
+/// A reasoning model on a self-hosted server sends its system prompt as
+/// `system`, on any address: vLLM/SGLang reject the `developer` role with
+/// a 400 ("Supported message roles: system, user, assistant, tool"), and
+/// only the `OpenAI` host takes it (omp `supportsDeveloperRole`).
 #[tokio::test]
-async fn loopback_reasoning_models_send_the_system_role() {
+async fn self_hosted_reasoning_models_send_the_system_role() {
     let system_role = |base_url: &str| {
         let model = gpt_4o_mini_completions(&json!({
             "provider": "local",
@@ -223,17 +224,20 @@ async fn loopback_reasoning_models_send_the_system_role() {
         }
     };
     assert_eq!(
-        system_role("http://127.0.0.1:18020/v1").await,
-        json!("system")
-    );
-    assert_eq!(
-        system_role("http://localhost:18020/v1").await,
-        json!("system")
-    );
-    // A non-loopback standard endpoint keeps the detected developer role.
-    assert_eq!(
-        system_role("http://10.0.0.7:18020/v1").await,
-        json!("developer")
+        [
+            system_role("http://127.0.0.1:18020/v1").await,
+            system_role("http://localhost:18020/v1").await,
+            system_role("http://10.0.0.7:18020/v1").await,
+            system_role("https://server.example.ts.net/v1").await,
+            system_role("https://api.openai.com/v1").await,
+        ],
+        [
+            json!("system"),
+            json!("system"),
+            json!("system"),
+            json!("system"),
+            json!("developer"),
+        ]
     );
 }
 

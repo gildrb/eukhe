@@ -105,7 +105,7 @@
     { "layer": "host", "target": "mistral", "set": { "strict_tools": true, "list_models": "openai", "embed": "openai" } },
     { "layer": "host", "target": "moonshot", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens" } },
     { "layer": "host", "target": "nvidia", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "long_cache_retention": false } },
-    { "layer": "host", "target": "openai", "set": { "count_tokens": "openai", "list_models": "openai", "embed": "openai", "generate_image": "openai", "web_search": "openai", "compact": "openai", "tool_call_id_limit": 40, "compound_tool_call_ids": true } },
+    { "layer": "host", "target": "openai", "set": { "developer_role": true, "count_tokens": "openai", "list_models": "openai", "embed": "openai", "generate_image": "openai", "web_search": "openai", "compact": "openai", "tool_call_id_limit": 40, "compound_tool_call_ids": true } },
     { "layer": "host", "target": "openai-codex-responses", "set": { "strict_tools": true, "compound_tool_call_ids": true } },
     { "layer": "host", "target": "opencode", "set": { "stops_output_at_window": false, "store": false, "developer_role": false, "compound_tool_call_ids": true } },
     { "layer": "host", "target": "opencode-go", "set": { "stops_output_at_window": false, "store": false, "developer_role": false, "reasoning_content_signature": true } },
