@@ -571,25 +571,39 @@ def digit_spec.of(y: Sv.Sym) -> Bool:
     case Sv.Other{}:
       False{}
 
-# s starts with n digits
-def run_spec(n: Nat, s: String) -> Bool:
-  match n:
-    case 0n:
-      True{}
-    case 1n+m:
-      match s:
-        case SNil{}:
-          False{}
-        case SCon{c, t}:
-          Bool.and(digit_spec.of(Sv.Sym.of(c)), run_spec(m, t))
-
-# s holds 7 digits in a row
-def seven_spec(s: String) -> Bool:
+# for each char of s, whether the model reads it as a digit
+def seven_spec.marks(s: String) -> List<&2, Bool>:
   match s:
     case SNil{}:
+      Nil{}
+    case SCon{c, t}:
+      digit_spec.of(Sv.Sym.of(c)) <> seven_spec.marks(t)
+
+# one pass that counts down: `need` more digits in a row make a run of 7;
+# a digit takes one off (the last one answers yes), any other char starts
+# the count again at 7, and the end of the text answers no
+def seven_spec.go(ds: List<&2, Bool>, need: Nat) -> Bool:
+  match ds:
+    case Nil{}:
       False{}
-    case SCon{+c, +t}:
-      Bool.or(run_spec(7n, SCon{c, t}), seven_spec(t))
+    case d <> t:
+      match d:
+        case False{}:
+          seven_spec.go(t, 7n)
+        case True{}:
+          match need:
+            case 0n:
+              True{}
+            case 1n+m:
+              match m:
+                case 0n:
+                  True{}
+                case 1n+k:
+                  seven_spec.go(t, 1n+k)
+
+# s holds 7 digits in a row: a count of the digits in a row reaches 7
+def seven_spec(s: String) -> Bool:
+  seven_spec.go(seven_spec.marks(s), 7n)
 
 def seven_tag.of(m: Maybe<&2, String>) -> Bool:
   match m:

@@ -376,36 +376,100 @@ def sv_dec_series(+w: String, +r: String, +h: {Semver.series_fits(w, r) == True{
 # The guard is the spec's
 # -----------------------
 
-def sv_digit(y: Sv.Sym) -> {FSv.digit.of(y) == Semver.digit_spec.of(y) : Bool}:
+# a digit and x, or the digit and y, is the digit and x when y adds nothing to x
+def sv_and_dup(d: Bool, x: Bool, y: Bool, h: {Bool.or(x, y) == x : Bool}) -> {Bool.or(Bool.and(d, x), Bool.and(d, y)) == Bool.and(d, x) : Bool}:
+  match d:
+    case True{}:
+      h
+    case False{}:
+      {==}
+
+# a text that starts with b digits starts with a digits, for a <= b
+def sv_lead_mono(a: Nat, b: Nat, t: String, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Bool.or(FSv.lead(a, t), FSv.lead(b, t)) == FSv.lead(a, t) : Bool}:
+  match a b t:
+    case 0n _ _:
+      {==}
+    case 1n++p 0n _:
+      LLogicLogic.semver.ps.absurdF({Bool.or(FSv.lead(1n+p, t), FSv.lead(0n, t)) == FSv.lead(1n+p, t) : Bool}, h)
+    case 1n++p 1n++q SNil{}:
+      {==}
+    case 1n++p 1n++q SCon{c, +u}:
+      sv_and_dup(FSv.digit(c), FSv.lead(p, u), FSv.lead(q, u), sv_lead_mono(p, q, u, h))
+
+# a or (b or g) is a or g when b adds nothing to a
+def sv_or_absorb(a: Bool, b: Bool, g: Bool, h: {Bool.or(a, b) == a : Bool}) -> {Bool.or(a, Bool.or(b, g)) == Bool.or(a, g) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      %Equal.sym(Bool, b, False{}, h) : {Bool.or(_, g) == g : Bool}
+      {==}
+
+def sv_or_dup(a: Bool, g: Bool) -> {Bool.or(a, Bool.or(a, g)) == Bool.or(a, g) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# a run of 7 digits at the start is a run of 7 digits somewhere
+def sv_lead7_long(t: String) -> {Bool.or(FSv.lead(7n, t), FSv.long(t)) == FSv.long(t) : Bool}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{+c, +u}:
+      sv_or_dup(FSv.lead(7n, SCon{c, u}), FSv.long(u))
+
+def sv_le_down(k: Nat, n: Nat, h: {Nat.is_le(1n+k, n) == True{} : Bool}) -> {Nat.is_le(k, n) == True{} : Bool}:
+  match k n:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      LLogicLogic.semver.ps.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h)
+    case 1n+p 1n+q:
+      sv_le_down(p, q, h)
+
+# after a char that is no digit the count starts again at 7
+def sv_go.off(+t: String, ih6: {Semver.seven_spec.go(Semver.seven_spec.marks(t), 7n) == Bool.or(FSv.lead(7n, t), FSv.long(t)) : Bool}) -> {Semver.seven_spec.go(Semver.seven_spec.marks(t), 7n) == FSv.long(t) : Bool}:
+  Equal.trans(Bool, Semver.seven_spec.go(Semver.seven_spec.marks(t), 7n), Bool.or(FSv.lead(7n, t), FSv.long(t)), FSv.long(t), ih6, sv_lead7_long(t))
+
+# the count needs one more digit: a digit ends the run of 7
+def sv_go.one(y: Sv.Sym, +t: String, ih6: {Semver.seven_spec.go(Semver.seven_spec.marks(t), 7n) == Bool.or(FSv.lead(7n, t), FSv.long(t)) : Bool}) -> {Semver.seven_spec.go(Semver.digit_spec.of(y) <> Semver.seven_spec.marks(t), 1n) == Bool.or(Bool.and(FSv.digit.of(y), FSv.lead(0n, t)), Bool.or(Bool.and(FSv.digit.of(y), FSv.lead(6n, t)), FSv.long(t))) : Bool}:
   match y:
     case Sv.Digit{d}:
       {==}
     case Sv.Dot{}:
-      {==}
+      sv_go.off(t, ih6)
     case Sv.Other{}:
-      {==}
+      sv_go.off(t, ih6)
 
-def sv_lead(n: Nat, s: String) -> {FSv.lead(n, s) == Semver.run_spec(n, s) : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+m:
-      match s:
-        case SNil{}:
-          {==}
-        case SCon{c, +t}:
-          %sv_lead(m, t) : {FSv.lead(1n+m, SCon{c, t}) == Bool.and(Semver.digit_spec.of(Sv.Sym.of(c)), _) : Bool}
-          %sv_digit(Sv.Sym.of(c)) : {Bool.and(FSv.digit(c), FSv.lead(m, t)) == Bool.and(_, FSv.lead(m, t)) : Bool}
-          {==}
+# the count needs 2 + k more digits (k <= 5): a digit takes one off
+def sv_go.more(y: Sv.Sym, +t: String, +k: Nat, hk: {Nat.is_le(1n+k, 6n) == True{} : Bool}, ih6: {Semver.seven_spec.go(Semver.seven_spec.marks(t), 7n) == Bool.or(FSv.lead(7n, t), FSv.long(t)) : Bool}, ihk: {Semver.seven_spec.go(Semver.seven_spec.marks(t), 1n+k) == Bool.or(FSv.lead(1n+k, t), FSv.long(t)) : Bool}) -> {Semver.seven_spec.go(Semver.digit_spec.of(y) <> Semver.seven_spec.marks(t), 2n+k) == Bool.or(Bool.and(FSv.digit.of(y), FSv.lead(1n+k, t)), Bool.or(Bool.and(FSv.digit.of(y), FSv.lead(6n, t)), FSv.long(t))) : Bool}:
+  match y:
+    case Sv.Digit{d}:
+      Equal.trans(Bool, Semver.seven_spec.go(Semver.seven_spec.marks(t), 1n+k), Bool.or(FSv.lead(1n+k, t), FSv.long(t)), Bool.or(FSv.lead(1n+k, t), Bool.or(FSv.lead(6n, t), FSv.long(t))), ihk, Equal.sym(Bool, Bool.or(FSv.lead(1n+k, t), Bool.or(FSv.lead(6n, t), FSv.long(t))), Bool.or(FSv.lead(1n+k, t), FSv.long(t)), sv_or_absorb(FSv.lead(1n+k, t), FSv.lead(6n, t), FSv.long(t), sv_lead_mono(1n+k, 6n, t, hk))))
+    case Sv.Dot{}:
+      sv_go.off(t, ih6)
+    case Sv.Other{}:
+      sv_go.off(t, ih6)
 
-def sv_long(s: String) -> {FSv.long(s) == Semver.seven_spec(s) : Bool}:
-  match s:
-    case SNil{}:
+# the count scan with 1 + m digits still needed (m <= 6) answers whether
+# s starts with 1 + m digits or holds 7 digits in a row anywhere
+def sv_go(s: String, m: Nat, +hm: {Nat.is_le(m, 6n) == True{} : Bool}) -> {Semver.seven_spec.go(Semver.seven_spec.marks(s), 1n+m) == Bool.or(FSv.lead(1n+m, s), FSv.long(s)) : Bool}:
+  match s m:
+    case SNil{} _:
       {==}
-    case SCon{+c, +t}:
-      %sv_long(t) : {Bool.or(FSv.lead(7n, SCon{c, t}), FSv.long(t)) == Bool.or(Semver.run_spec(7n, SCon{c, t}), _) : Bool}
-      %sv_lead(7n, SCon{c, t}) : {Bool.or(FSv.lead(7n, SCon{c, t}), FSv.long(t)) == Bool.or(_, FSv.long(t)) : Bool}
-      {==}
+    case SCon{c, +t} 0n:
+      sv_go.one(Sv.Sym.of(c), t, sv_go(t, 6n, {==}))
+    case SCon{c, +t} 1n++k:
+      sv_go.more(Sv.Sym.of(c), t, k, hm, sv_go(t, 6n, {==}), sv_go(t, k, sv_le_down(k, 6n, hm)))
+
+# the code's guard (some run holds more than digits() digits) is the
+# spec's count scan from 7
+def sv_long(+s: String) -> {FSv.long(s) == Semver.seven_spec(s) : Bool}:
+  Equal.sym(Bool, Semver.seven_spec(s), FSv.long(s), Equal.trans(Bool, Semver.seven_spec.go(Semver.seven_spec.marks(s), 7n), Bool.or(FSv.lead(7n, s), FSv.long(s)), FSv.long(s), sv_go(s, 6n, {==}), sv_lead7_long(s)))
 
 # not a and not b is not (a or b)
 def sv_dm(a: Bool, -b: Bool) -> {Bool.and(Bool.not(a), Bool.not(b)) == Bool.not(Bool.or(a, b)) : Bool}:
