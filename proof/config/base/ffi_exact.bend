@@ -46,16 +46,18 @@ def pxe.step(~A: Data, ~put: A -> String -> String, -s: String, +x: A, +s3: Stri
     case Wr.Bad{}:
       Unit{}
 
-# the item loop accepts only items that are spellings
-def pxe.loop(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String, ~h: @+s: String -> pxe.I(~A, ~put, s, get(s)),
-  m: Nat, cur: Wr.Dec<A>, +s: String, pc: pxe.I(~A, ~put, s, cur)) -> pxe.L(~A, ~put, s, m, Wr.get_list.go(~A, ~get, m, cur)):
+# the item loop accepts only items that are spellings: h says each item
+# get reads is spelled by put, and ec that cur is what get reads at s
+def pxe.loop(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String,
+  ~h: @+s: String -> @+x: A -> @+r: String -> {get(s) == Wr.Got{x, r} : Wr.Dec<A>} -> {s == put(x, r) : String},
+  m: Nat, cur: Wr.Dec<A>, +s: String, ec: {get(s) == cur : Wr.Dec<A>}) -> pxe.L(~A, ~put, s, m, Wr.get_list.go(~A, ~get, m, cur)):
   match m cur:
     case 0n Wr.Got{+x, +s3}:
-      (pc, {==})
+      (h(s, x, s3, ec), {==})
     case 0n Wr.Bad{}:
       Unit{}
     case 1n++k Wr.Got{+x, +s3}:
-      pxe.step(~A, ~put, s, x, s3, k, pc, Wr.get_list.go(~A, ~get, k, get(s3)), pxe.loop(~A, ~get, ~put, ~h, k, get(s3), s3, h(s3)))
+      pxe.step(~A, ~put, s, x, s3, k, h(s, x, s3, ec), Wr.get_list.go(~A, ~get, k, get(s3)), pxe.loop(~A, ~get, ~put, ~h, k, get(s3), s3, {==}))
     case 1n++k Wr.Bad{}:
       Unit{}
 
@@ -78,15 +80,17 @@ def pxe.conv(~A: Data, ~put: A -> String -> String, +s: String, +s2: String, -m:
     case Wr.Bad{}:
       Unit{}
 
-def pxe.nat(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String, ~h: @+s: String -> pxe.I(~A, ~put, s, get(s)),
+def pxe.nat(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String,
+  ~h: @+s: String -> @+x: A -> @+r: String -> {get(s) == Wr.Got{x, r} : Wr.Dec<A>} -> {s == put(x, r) : String},
   +s: String, n: Nat, +s2: String, en: {s == Wr.put_nat(n, s2) : String}) -> pxe.LS(~A, ~put, s, Wr.get_list.start(~A, ~get, Wr.Got{n, s2})):
   match n:
     case 0n:
       en
     case 1n++m:
-      pxe.conv(~A, ~put, s, s2, m, en, Wr.get_list.go(~A, ~get, m, get(s2)), pxe.loop(~A, ~get, ~put, ~h, m, get(s2), s2, h(s2)))
+      pxe.conv(~A, ~put, s, s2, m, en, Wr.get_list.go(~A, ~get, m, get(s2)), pxe.loop(~A, ~get, ~put, ~h, m, get(s2), s2, {==}))
 
-def pxe.top(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String, ~h: @+s: String -> pxe.I(~A, ~put, s, get(s)),
+def pxe.top(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String,
+  ~h: @+s: String -> @+x: A -> @+r: String -> {get(s) == Wr.Got{x, r} : Wr.Dec<A>} -> {s == put(x, r) : String},
   +s: String, r: Wr.Dec<Nat>, er: {Wr.get_nat(s) == r : Wr.Dec<Nat>}) -> pxe.LS(~A, ~put, s, Wr.get_list.start(~A, ~get, r)):
   match r:
     case Wr.Got{+n, +s2}:
@@ -95,7 +99,8 @@ def pxe.top(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String, ~h
       Unit{}
 
 # a list read is its count, then the spelling of each item
-def pxe.list(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String, ~h: @+s: String -> pxe.I(~A, ~put, s, get(s)), +s: String) ->
+def pxe.list(~A: Data, ~get: String -> Wr.Dec<A>, ~put: A -> String -> String,
+  ~h: @+s: String -> @+x: A -> @+r: String -> {get(s) == Wr.Got{x, r} : Wr.Dec<A>} -> {s == put(x, r) : String}, +s: String) ->
   pxe.LS(~A, ~put, s, Wr.get_list(~A, ~get, s)):
   pxe.top(~A, ~get, ~put, ~h, s, Wr.get_nat(s), {==})
 
@@ -111,6 +116,10 @@ def pxe.str.d(+s: String, d: Wr.Dec<String>, ed: {Wr.get_str(s) == d : Wr.Dec<St
 
 def pxe.str(+s: String) -> pxe.I(~String, ~Wr.put_str, s, Wr.get_str(s)):
   pxe.str.d(s, Wr.get_str(s), {==})
+
+def pxe.str.got(+s: String, +x: String, +r: String, e: {Wr.get_str(s) == Wr.Got{x, r} : Wr.Dec<String>}) -> {s == Wr.put_str(x, r) : String}:
+  %e : pxe.I(~String, ~Wr.put_str, s, _)
+  pxe.str(s)
 
 def pxe.ss_items(xs: List<&2, String>, -r: String) -> {LawsBase.wire_put_items(~String, ~Wr.put_str, xs, r) == LFS.pfs.ss_items(xs, r) : String}:
   match xs:
@@ -145,6 +154,10 @@ def pxe.entry.k(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat
 def pxe.entry(+s: String) -> pxe.I(~Cf.Entry, ~CS.cf_w_entry, s, CS.cf_r_entry(s)):
   pxe.entry.k(s, Wr.get_nat(s), {==})
 
+def pxe.entry.got(+s: String, +x: Cf.Entry, +r: String, e: {CS.cf_r_entry(s) == Wr.Got{x, r} : Wr.Dec<Cf.Entry>}) -> {s == CS.cf_w_entry(x, r) : String}:
+  %e : pxe.I(~Cf.Entry, ~CS.cf_w_entry, s, _)
+  pxe.entry(s)
+
 def pxe.entries_items(d: List<&2, Cf.Entry>, -r: String) -> {LawsBase.wire_put_items(~Cf.Entry, ~CS.cf_w_entry, d, r) == CS.cf_w_entries.items(d, r) : String}:
   match d:
     case Nil{}:
@@ -170,7 +183,7 @@ def pxe.ents.of(+s: String, d: Wr.Dec<List<&2, Cf.Entry>>, h: pxe.LS(~Cf.Entry, 
 
 # a list of entries read is its count, then each entry
 def pxe.entries(+s: String) -> pxe.Ents(s, CS.cf_r_entries(s)):
-  pxe.ents.of(s, CS.cf_r_entries(s), pxe.list(~Cf.Entry, ~CS.cf_r_entry, ~CS.cf_w_entry, ~pxe.entry, s))
+  pxe.ents.of(s, CS.cf_r_entries(s), pxe.list(~Cf.Entry, ~CS.cf_r_entry, ~CS.cf_w_entry, ~pxe.entry.got, s))
 
 # a leaf read is its path, then its outcome's tag
 def pxe.leaf.tag(+s: String, +p: Nat, +s1: String, ep: {s == Wr.put_nat(p, s1) : String}, t: Nat, +s2: String, et: {s1 == Wr.put_nat(t, s2) : String}) -> pxe.I(~Cf.Leaf, ~CS.cf_w_leaf, s, CS.cf_r_leaf.tag(p, t, s2)):
@@ -203,6 +216,10 @@ def pxe.leaf.p(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>
 
 def pxe.leaf(+s: String) -> pxe.I(~Cf.Leaf, ~CS.cf_w_leaf, s, CS.cf_r_leaf(s)):
   pxe.leaf.p(s, Wr.get_nat(s), {==})
+
+def pxe.leaf.got(+s: String, +x: Cf.Leaf, +r: String, e: {CS.cf_r_leaf(s) == Wr.Got{x, r} : Wr.Dec<Cf.Leaf>}) -> {s == CS.cf_w_leaf(x, r) : String}:
+  %e : pxe.I(~Cf.Leaf, ~CS.cf_w_leaf, s, _)
+  pxe.leaf(s)
 
 def pxe.leaves_items(ls: List<&2, Cf.Leaf>, -r: String) -> {LawsBase.wire_put_items(~Cf.Leaf, ~CS.cf_w_leaf, ls, r) == CS.cf_w_leaves(ls, r) : String}:
   match ls:
@@ -249,6 +266,10 @@ def pxe.slot.p(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>
 def pxe.slot(+s: String) -> pxe.I(~Cf.Slot, ~CS.cf_w_slot, s, CS.cf_r_slot(s)):
   pxe.slot.p(s, Wr.get_nat(s), {==})
 
+def pxe.slot.got(+s: String, +x: Cf.Slot, +r: String, e: {CS.cf_r_slot(s) == Wr.Got{x, r} : Wr.Dec<Cf.Slot>}) -> {s == CS.cf_w_slot(x, r) : String}:
+  %e : pxe.I(~Cf.Slot, ~CS.cf_w_slot, s, _)
+  pxe.slot(s)
+
 def pxe.slots_items(xs: List<&2, Cf.Slot>, -r: String) -> {LawsBase.wire_put_items(~Cf.Slot, ~CS.cf_w_slot, xs, r) == CS.cf_w_slots(xs, r) : String}:
   match xs:
     case Nil{}:
@@ -277,12 +298,16 @@ def pxe.pkey.p(+s: String, +k: Nat, +s1: String, ek: {s == Wr.put_nat(k, s1) : S
 def pxe.pkey.k(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> pxe.I(~Cf.PKey, ~CS.cf_w_pkey, s, CS.cf_r_pkey.k(d)):
   match d:
     case Wr.Got{+k, +s1}:
-      pxe.pkey.p(s, k, s1, Wire.wire_nat_exact(s, k, s1, ed), Wr.get_list(~String, ~Wr.get_str, s1), pxe.list(~String, ~Wr.get_str, ~Wr.put_str, ~pxe.str, s1))
+      pxe.pkey.p(s, k, s1, Wire.wire_nat_exact(s, k, s1, ed), Wr.get_list(~String, ~Wr.get_str, s1), pxe.list(~String, ~Wr.get_str, ~Wr.put_str, ~pxe.str.got, s1))
     case Wr.Bad{}:
       Unit{}
 
 def pxe.pkey(+s: String) -> pxe.I(~Cf.PKey, ~CS.cf_w_pkey, s, CS.cf_r_pkey(s)):
   pxe.pkey.k(s, Wr.get_nat(s), {==})
+
+def pxe.pkey.got(+s: String, +x: Cf.PKey, +r: String, e: {CS.cf_r_pkey(s) == Wr.Got{x, r} : Wr.Dec<Cf.PKey>}) -> {s == CS.cf_w_pkey(x, r) : String}:
+  %e : pxe.I(~Cf.PKey, ~CS.cf_w_pkey, s, _)
+  pxe.pkey(s)
 
 def pxe.pkeys_items(xs: List<&2, Cf.PKey>, -r: String) -> {LawsBase.wire_put_items(~Cf.PKey, ~CS.cf_w_pkey, xs, r) == CS.cf_w_pkeys(xs, r) : String}:
   match xs:
@@ -311,6 +336,10 @@ def pxe.named.n(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat
 def pxe.named(+s: String) -> pxe.I(~Cf.Named, ~CS.cf_w_named, s, CS.cf_r_named(s)):
   pxe.named.n(s, Wr.get_nat(s), {==})
 
+def pxe.named.got(+s: String, +x: Cf.Named, +r: String, e: {CS.cf_r_named(s) == Wr.Got{x, r} : Wr.Dec<Cf.Named>}) -> {s == CS.cf_w_named(x, r) : String}:
+  %e : pxe.I(~Cf.Named, ~CS.cf_w_named, s, _)
+  pxe.named(s)
+
 def pxe.nameds_items(xs: List<&2, Cf.Named>, -r: String) -> {LawsBase.wire_put_items(~Cf.Named, ~CS.cf_w_named, xs, r) == CS.cf_w_nameds(xs, r) : String}:
   match xs:
     case Nil{}:
@@ -336,7 +365,7 @@ def pxe.nds.of(+s: String, d: Wr.Dec<List<&2, Cf.Named>>, h: pxe.LS(~Cf.Named, ~
 
 # a list of named entries read is its count, then each entry
 def pxe.nameds(+s: String) -> pxe.Nds(s, CS.cf_r_nameds(s)):
-  pxe.nds.of(s, CS.cf_r_nameds(s), pxe.list(~Cf.Named, ~CS.cf_r_named, ~CS.cf_w_named, ~pxe.named, s))
+  pxe.nds.of(s, CS.cf_r_nameds(s), pxe.list(~Cf.Named, ~CS.cf_r_named, ~CS.cf_w_named, ~pxe.named.got, s))
 
 # a read of a document read
 def pxe.Rd(s: String, d: Wr.Dec<Cf.Read>) -> Type:
@@ -449,7 +478,7 @@ def pxe.inf.tag(+s: String, t: Nat, +s1: String, es: {s == Wr.put_nat(t, s1) : S
     case 0n:
       es
     case 1n:
-      pxe.inf.map(s, s1, es, Wr.get_list(~Cf.Slot, ~CS.cf_r_slot, s1), pxe.list(~Cf.Slot, ~CS.cf_r_slot, ~CS.cf_w_slot, ~pxe.slot, s1))
+      pxe.inf.map(s, s1, es, Wr.get_list(~Cf.Slot, ~CS.cf_r_slot, s1), pxe.list(~Cf.Slot, ~CS.cf_r_slot, ~CS.cf_w_slot, ~pxe.slot.got, s1))
     case 2n:
       es
     case 3n+p:
@@ -557,9 +586,9 @@ def pxe.trust.ks(+s: String, +tr: Cf.Trust, +s1: String, +s2: String, es: {s == 
 def pxe.trust.tag(+s: String, +s1: String, es: {s == Wr.put_nat(3n, s1) : String}, t: Nat, +s2: String, et: {s1 == Wr.put_nat(t, s2) : String}) -> pxe.Ask(s, CS.cf_r_trust.tag(t, s2)):
   match t:
     case 0n:
-      pxe.trust.ks(s, Cf.Trusted{}, s1, s2, es, et, Wr.get_list(~Cf.PKey, ~CS.cf_r_pkey, s2), pxe.list(~Cf.PKey, ~CS.cf_r_pkey, ~CS.cf_w_pkey, ~pxe.pkey, s2))
+      pxe.trust.ks(s, Cf.Trusted{}, s1, s2, es, et, Wr.get_list(~Cf.PKey, ~CS.cf_r_pkey, s2), pxe.list(~Cf.PKey, ~CS.cf_r_pkey, ~CS.cf_w_pkey, ~pxe.pkey.got, s2))
     case 1n:
-      pxe.trust.ks(s, Cf.Untrusted{}, s1, s2, es, et, Wr.get_list(~Cf.PKey, ~CS.cf_r_pkey, s2), pxe.list(~Cf.PKey, ~CS.cf_r_pkey, ~CS.cf_w_pkey, ~pxe.pkey, s2))
+      pxe.trust.ks(s, Cf.Untrusted{}, s1, s2, es, et, Wr.get_list(~Cf.PKey, ~CS.cf_r_pkey, s2), pxe.list(~Cf.PKey, ~CS.cf_r_pkey, ~CS.cf_w_pkey, ~pxe.pkey.got, s2))
     case 2n+p:
       Unit{}
 
@@ -599,7 +628,7 @@ def pxe.ask.tag(+s: String, t: Nat, +s1: String, es: {s == Wr.put_nat(t, s1) : S
     case 0n:
       pxe.rmw(s, s1, es, CS.cf_r_read(Wr.get_nat(s1)), pxe.read(s1, Wr.get_nat(s1), {==}))
     case 1n:
-      pxe.leaves(s, s1, es, Wr.get_list(~Cf.Leaf, ~CS.cf_r_leaf, s1), pxe.list(~Cf.Leaf, ~CS.cf_r_leaf, ~CS.cf_w_leaf, ~pxe.leaf, s1))
+      pxe.leaves(s, s1, es, Wr.get_list(~Cf.Leaf, ~CS.cf_r_leaf, s1), pxe.list(~Cf.Leaf, ~CS.cf_r_leaf, ~CS.cf_w_leaf, ~pxe.leaf.got, s1))
     case 2n:
       pxe.limits(s, s1, es, CS.cf_r_inflight(Wr.get_nat(s1)), pxe.inf(s1, Wr.get_nat(s1), {==}))
     case 3n:
