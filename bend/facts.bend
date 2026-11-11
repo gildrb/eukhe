@@ -14,7 +14,8 @@
 #    Google budget held inside the model's range (an unordered budget rule
 #    is refused, never clamped), the output cap of a request (the
 #    caller's cap or the catalog's max, shrunk only on a real conflict
-#    with the context window, omitted only when the max is unknown), the
+#    with the context window, left out only without a caller's cap for a
+#    host whose rule leaves the default cap out), the
 #    fit of a budget on top of the answer cap, and the answer room of an
 #    auxiliary call. The Rust caller saturates every
 #    budget, cap and size at the wire's largest Nat (10^14-1, below the
@@ -213,11 +214,6 @@ def gbudget(rule: Maybe<&2, Budgets>, c: Customs, l: Lv) -> GB:
 type Win is Data:
   Win{window: Nat, prompt: Nat, safety: Nat, floor: Nat, stops: Bool}
 
-def Win.window(w: Win) -> Nat:
-  match w:
-    case Win{n, p, s, f, st}:
-      n
-
 # the window w is below p + s + x, decided without forming the sum: the
 # window below the prompt, the rest below the safety, or the room left
 # below x
@@ -242,11 +238,9 @@ def cap.shrink(+x: Nat, win: Win) -> Nat:
     case Win{+w, +p, +s, +f, st}:
       cap.fit(Bool.and(Bool.not(st), Bool.and(Nat.is_lt(0n, w), cap.over(w, p, s, x))), x, w, p, s, f)
 
-# the catalog's max mm says nothing beyond a known window w: the max is
-# unknown
-def cap.unknown(+w: Nat, +mm: Nat) -> Bool:
-  Bool.and(Nat.is_lt(0n, w), Nat.is_le(w, mm))
-
+# the default cap of a request without a caller's cap: the catalog's max
+# mm, after the window; none when the host leaves the default cap out
+# (omit)
 def cap.none(omit: Bool, +mm: Nat, win: Win) -> Maybe<&2, Nat>:
   match omit:
     case True{}:
@@ -255,15 +249,20 @@ def cap.none(omit: Bool, +mm: Nat, win: Win) -> Maybe<&2, Nat>:
       Some{cap.shrink(mm, win)}
 
 # the output cap of a request (`build_base_options`): the caller's cap,
-# else the catalog's max mm, after the window; none (the field omitted,
-# the provider's own max applies) only without a caller's cap, for a
-# wire API that does not need the field (needs), when the max is unknown
+# else the catalog's max mm, after the window. needs: the request carries
+# a default cap (the catalog's max) when the caller gave none; false only
+# for a host whose rulebook rule leaves the default cap out (the
+# rulebook's `default_output_cap` false: OpenRouter). The field is left
+# out only then, whatever the max and the window; a caller's cap is always
+# sent (omp packages/ai/src/stream.ts:1802,
+# packages/agent/src/output-budget.ts:81-103,
+# packages/ai/src/providers/openai-shared.ts:703-718)
 def cap(caller: Maybe<&2, Nat>, +mm: Nat, needs: Bool, +win: Win) -> Maybe<&2, Nat>:
   match caller:
     case Some{x}:
       Some{cap.shrink(x, win)}
     case None{}:
-      cap.none(Bool.and(Bool.not(needs), cap.unknown(Win.window(win), mm)), mm, win)
+      cap.none(Bool.not(needs), mm, win)
 
 # a response ceiling and the thinking budget under it
 type Fit is Data:
@@ -304,7 +303,7 @@ def fit.cap(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat) -> Nat:
 
 # the budget b fitted under the thinking ceiling
 # (`adjust_max_tokens_for_thinking`): the ceiling through the output cap
-# (a thinking request needs its cap), then the budget capped so that a
+# (a thinking request always carries its ceiling), then the budget capped so that a
 # tokens stay for the answer
 def fit(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat, win: Win) -> Fit:
   +m = cap.shrink(fit.cap(base, mm, b), win)

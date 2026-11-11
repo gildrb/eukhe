@@ -1,6 +1,6 @@
 # every number at its largest: a level, a room, an adjust (the caller's cap and
 # the budget at their largest, a long prompt), a Google budget (ordered,
-# unordered, free), an aux cap, an output cap (a caller's, a needed, an omitted)
+# unordered, free), an aux cap, an output cap (a caller's, a default, a default left out)
 call 0,5,1,{MAX},1,{MAX},1,{MAX},1,{MAX},{MAX},{MAX},{MAX},{MAX},
 call 1,{MAX},{MAX},{MAX},
 call 1,{MAX},{MAX},0,

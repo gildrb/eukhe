@@ -1676,7 +1676,8 @@ import ./proof/facts/facts_cap_keeps_the_want.bend as PFactsCapKeepsTheWant
 import ./proof/facts/facts_cap_shrinks_on_conflict.bend as PFactsCapShrinksOnConflict
 import ./proof/facts/facts_cap_never_below_floor.bend as PFactsCapNeverBelowFloor
 import ./proof/facts/facts_cap_stops_never_shrinks.bend as PFactsCapStopsNeverShrinks
-import ./proof/facts/facts_cap_omits_unknown.bend as PFactsCapOmitsUnknown
+import ./proof/facts/facts_cap_omits_only_the_default.bend as PFactsCapOmitsOnlyTheDefault
+import ./proof/facts/facts_cap_omission_ignores_window_and_max.bend as PFactsCapOmissionIgnoresWindowAndMax
 import ./proof/facts/facts_cap_needs_never_omits.bend as PFactsCapNeedsNeverOmits
 import ./proof/facts/facts_cap_example.bend as PFactsCapExample
 import ./proof/model_facts/base.bend as LAModelFacts

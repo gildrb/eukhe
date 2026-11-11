@@ -235,8 +235,8 @@ law facts_fit_saturated_budget:
   for +hf: {Nat.is_le(f, mm) == True{} : Bool}
   {Fx.fit(base, mm, b1, a, Fx.Win{w, p, s, f, st}) == Fx.fit(base, mm, b2, a, Fx.Win{w, p, s, f, st}) : Fx.Fit}
 
-# LAW facts_fit_ceiling_on_the_cap: the thinking ceiling is the output cap of a request that needs
-# its cap, with the thinking ceiling as the caller's cap: one decision
+# LAW facts_fit_ceiling_on_the_cap: the thinking ceiling is the output cap of a request with the
+# thinking ceiling as the caller's cap: one decision
 # EXCLUDES: a second window clamp of the thinking ceiling (the double clamp
 #   of the Anthropic path), a thinking ceiling that bypasses the cap rule
 law facts_fit_ceiling_on_the_cap:
@@ -293,16 +293,14 @@ def cap_room(win: Fx.Win) -> Nat:
     case Fx.Win{w, p, s, f, st}:
       Nat.max(f, Nat.sub(w, Nat.add(p, s)))
 
-# the max is unknown: no caller's cap, a wire API that does not need the
-# field, a known window the catalog's max does not go past
-def cap_unknown(caller: Maybe<&2, Nat>, mm: Nat, needs: Bool, win: Fx.Win) -> Bool:
+# the cap is left out: no caller's cap, and a host whose rule leaves the
+# default cap out (needs false)
+def cap_left_out(caller: Maybe<&2, Nat>, needs: Bool) -> Bool:
   match caller:
     case Some{x}:
       False{}
     case None{}:
-      match win:
-        case Fx.Win{+w, p, s, f, st}:
-          Bool.and(Bool.not(needs), Bool.and(Nat.is_lt(0n, w), Nat.is_le(w, mm)))
+      Bool.not(needs)
 
 def cap_present(m: Maybe<&2, Nat>) -> Bool:
   match m:
@@ -311,36 +309,44 @@ def cap_present(m: Maybe<&2, Nat>) -> Bool:
     case None{}:
       False{}
 
-# LAW facts_cap_keeps_the_want: without a window conflict, the request carries its wish: the
-# caller's cap, else the catalog's max
-# EXCLUDES: a made-up default cap (16384) or any cap below the catalog's
-#   max while the window has room (a reasoning model cut short: stop
-#   reason length, thinking only); a shrink with no conflict
+# LAW facts_cap_keeps_the_want: without a window conflict, a request whose cap is not left out
+# (a caller's cap, or a host that takes the default cap) carries its wish:
+# the caller's cap, else the catalog's max, a max at or past the window
+# included
+# EXCLUDES: a default cap other than the catalog's max (a fixed 16384) or
+#   any cap below the catalog's max while the window has room (a reasoning
+#   model cut short: stop reason length, thinking only); a max at or past
+#   the window left out; a shrink with no conflict
 law facts_cap_keeps_the_want:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
   for +needs: Bool
   for +win: Fx.Win
-  for h1: {cap_unknown(caller, mm, needs, win) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   for h2: {cap_conflict(cap_want(caller, mm), win) == False{} : Bool}
   {Fx.cap(caller, mm, needs, win) == Some{cap_want(caller, mm)} : Maybe<&2, Nat>}
 
-# LAW facts_cap_shrinks_on_conflict: on a real window conflict, the cap is the room the window leaves
-# after the prompt and the safety, at least the floor
+# LAW facts_cap_shrinks_on_conflict: on a real window conflict, the cap of a request whose cap is
+# not left out is the room the window leaves after the prompt and the
+# safety, at least the floor; a catalog max at or past the window
+# included: it is sent, shrunk to the room
 # EXCLUDES: a request past the window (the provider refuses it), a shrink
-#   to less than the room, a shrink below the floor
+#   to less than the room, a shrink below the floor, a max at or past the
+#   window left out instead of shrunk to the room
 law facts_cap_shrinks_on_conflict:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
   for +needs: Bool
   for +win: Fx.Win
-  for h1: {cap_unknown(caller, mm, needs, win) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   for h2: {cap_conflict(cap_want(caller, mm), win) == True{} : Bool}
   {Fx.cap(caller, mm, needs, win) == Some{cap_room(win)} : Maybe<&2, Nat>}
 
-# LAW facts_cap_never_below_floor: a cap the window shrinks is at least the floor
+# LAW facts_cap_never_below_floor: a cap the window shrinks (of a request whose cap is not left
+# out) is at least the floor; no cap counts as 0
 # EXCLUDES: a cap of 0 (or below the floor) for a prompt that fills the
-#   window
+#   window; a max at or past the window left out where the floor is above
+#   0
 law facts_cap_never_below_floor:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
@@ -350,14 +356,15 @@ law facts_cap_never_below_floor:
   for +s: Nat
   for +f: Nat
   for +st: Bool
-  for h1: {cap_unknown(caller, mm, needs, Fx.Win{w, p, s, f, st}) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   for h2: {cap_conflict(cap_want(caller, mm), Fx.Win{w, p, s, f, st}) == True{} : Bool}
   {Nat.is_le(f, Maybe.default(&2, Nat, Fx.cap(caller, mm, needs, Fx.Win{w, p, s, f, st}), 0n)) == True{} : Bool}
 
 # LAW facts_cap_stops_never_shrinks: a model that ends its output at the window itself is never
-# shrunk: the request carries its wish whatever the prompt
+# shrunk: a request whose cap is not left out carries its wish whatever
+# the prompt, a catalog max at or past the window included
 # EXCLUDES: a shrink of a model the provider stops at the window (Claude
-#   4.5+ on the Claude API)
+#   4.5+ on the Claude API); its max at or past the window left out
 law facts_cap_stops_never_shrinks:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
@@ -366,43 +373,64 @@ law facts_cap_stops_never_shrinks:
   for +p: Nat
   for +s: Nat
   for +f: Nat
-  for h1: {cap_unknown(caller, mm, needs, Fx.Win{w, p, s, f, True{}}) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   {Fx.cap(caller, mm, needs, Fx.Win{w, p, s, f, True{}}) == Some{cap_want(caller, mm)} : Maybe<&2, Nat>}
 
-# LAW facts_cap_omits_unknown: with an unknown max (no caller's cap, a wire API that does not need
-# the field, a catalog max at or past the window) the field is omitted:
-# the provider's own max applies
-# EXCLUDES: a made-up cap sent for a model whose max the catalog does not
-#   know (a models.json model without maxTokens)
-law facts_cap_omits_unknown:
+# LAW facts_cap_omits_only_the_default: a host whose rule leaves the default cap out (needs false)
+# omits only the default: its request carries a cap exactly when the
+# caller gave one, whatever the catalog's max and the window facts
+# EXCLUDES: the catalog's max sent to such a host (OpenRouter); a default
+#   left out only for some max or window (a max at or past the window) and
+#   sent for the others; a caller's cap dropped with the default
+law facts_cap_omits_only_the_default:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
-  for +needs: Bool
   for +win: Fx.Win
-  for h: {cap_unknown(caller, mm, needs, win) == True{} : Bool}
-  {Fx.cap(caller, mm, needs, win) == None{} : Maybe<&2, Nat>}
+  {cap_present(Fx.cap(caller, mm, False{}, win)) == cap_present(caller) : Bool}
 
-# LAW facts_cap_needs_never_omits: a wire API that needs the field (Anthropic Messages, Bedrock
-# Claude) always carries a cap
-# EXCLUDES: a request the provider refuses for a missing max_tokens
+# LAW facts_cap_omission_ignores_window_and_max: whether a request carries a cap never depends on the
+# catalog's max or the window facts: two requests with the same caller's
+# cap and the same needs both carry a cap or both carry none
+# EXCLUDES: a default cap left out when the catalog's max is at or past
+#   the window and sent when it is below; a cap left out for an unknown
+#   window (0) or a prompt that fills the window
+law facts_cap_omission_ignores_window_and_max:
+  for +caller: Maybe<&2, Nat>
+  for +needs: Bool
+  for +mm1: Nat
+  for +win1: Fx.Win
+  for +mm2: Nat
+  for +win2: Fx.Win
+  {cap_present(Fx.cap(caller, mm1, needs, win1)) == cap_present(Fx.cap(caller, mm2, needs, win2)) : Bool}
+
+# LAW facts_cap_needs_never_omits: a request to a host that takes the default cap (needs true)
+# always carries a cap
+# EXCLUDES: a request without max_tokens that the provider refuses
+#   (Anthropic Messages, Bedrock Claude) or cuts at its own small default
+#   (a local server)
 law facts_cap_needs_never_omits:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
   for +win: Fx.Win
   {cap_present(Fx.cap(caller, mm, True{}, win)) == True{} : Bool}
 
-# LAW facts_cap_example: anchor: the user's case and its neighbours at small scale: a catalog max
-# at the window without a caller's cap is omitted; a max far below the
-# window is sent whole; a long prompt shrinks it to the room; a model that
-# stops at the window is not shrunk; a wire API that needs the field
-# shrinks a max at the window
+# LAW facts_cap_example: anchor: the user's case and its neighbours at small scale. A host
+# that leaves the default cap out carries none, with a catalog max at the
+# window and with one far below it. A host that takes the default cap: a
+# max far below the window is sent whole; a long prompt shrinks it to the
+# room; a model that stops at the window is not shrunk; a max at the
+# window is sent, shrunk to the room, after a long prompt and after a
+# short one (the user's case). A caller's cap is sent to a host that
+# leaves the default cap out, here shrunk to the floor
 # EXCLUDES: a spec that is wrong on the cases the Rust tests pin
 law facts_cap_example:
   {Fx.cap(None{}, 64n, False{}, Fx.Win{64n, 30n, 4n, 1n, False{}}) == None{} : Maybe<&2, Nat>} &
-  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == Some{20n} : Maybe<&2, Nat>} &
-  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 90n, 4n, 1n, False{}}) == Some{6n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == None{} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == Some{20n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 90n, 4n, 1n, False{}}) == Some{6n} : Maybe<&2, Nat>} &
   {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 90n, 4n, 1n, True{}}) == Some{20n} : Maybe<&2, Nat>} &
   {Fx.cap(None{}, 64n, True{}, Fx.Win{64n, 30n, 4n, 1n, False{}}) == Some{30n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 64n, True{}, Fx.Win{64n, 3n, 4n, 1n, False{}}) == Some{57n} : Maybe<&2, Nat>} &
   {Fx.cap(Some{8n}, 64n, False{}, Fx.Win{64n, 99n, 4n, 1n, False{}}) == Some{1n} : Maybe<&2, Nat>}
 
 # LAW facts_aux_cap_within (the Nat range): : the compactor's cap is the thinking budget plus the
