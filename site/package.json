@@ -1,0 +1,39 @@
+{
+  "name": "eukhe-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "npm run eukhe -- --check && npm run bend && vp build",
+    "check": "vp check",
+    "deploy": "npm run build && npx wrangler deploy",
+    "prepare": "vp config",
+    "bend": "bend vim/vim.bend -o src/vim.mjs",
+    "eukhe": "node scripts/eukhe.ts"
+  },
+  "dependencies": {
+    "@stylexjs/stylex": "^0.19.1",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260923.1",
+    "@stylexjs/unplugin": "^0.19.1",
+    "@types/node": "^26.6.2",
+    "preact-render-to-string": "^6.7.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+    "vite-plus": "1.4.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0"
+  },
+  "browserslist": [
+    "baseline widely available"
+  ],
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "11.19.1",
+      "onFail": "download"
+    }
+  }
+}

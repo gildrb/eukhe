@@ -1,0 +1,19 @@
+// Deploy: `npm run deploy` (builds `dist/`, then `wrangler deploy`).
+// eukhe.gildrb.com stays on gildrb.com's gildrb-products Worker and redirects here.
+{
+  "name": "eukhe-site",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "eukhe.com/*", "zone_name": "eukhe.com" },
+    { "pattern": "www.eukhe.com/*", "zone_name": "eukhe.com" },
+  ],
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // Every path: www.eukhe.com redirects whatever it is asked for.
+    "run_worker_first": true,
+  },
+}
