@@ -262,7 +262,15 @@ impl WorkerPane {
         stream_event: Option<&StreamUpdate>,
     ) {
         let (blocks, tool_calls) = crate::snapshot::assistant_message_parts(message);
-        if matches!(stream_event, Some(StreamUpdate::Start)) {
+        // An entry still streaming at a message_start never got its
+        // message_end: the starting message takes its place (see
+        // `SessionUi::apply_assistant_message`).
+        if matches!(stream_event, Some(StreamUpdate::Start))
+            && !matches!(
+                self.streaming_index.and_then(|index| self.view.chat.get(index)),
+                Some(ChatEntry::Assistant(open)) if open.streaming
+            )
+        {
             self.streaming_index = None;
         }
         let error = if streaming {

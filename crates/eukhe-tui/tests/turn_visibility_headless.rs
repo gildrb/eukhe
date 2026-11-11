@@ -1051,3 +1051,124 @@ fn a_turn_resumed_after_a_worker_restart_leaves_no_end_row() {
     assert_loader_until(&frames, ANSWER);
     assert_eq!(loader(frames.last().expect("a frame")), None);
 }
+
+/// The wire of a turn whose first attempt streamed `streamed`, settled as
+/// `settled` and was retried, as the 0.10.67 daemon sent it: the attempt's
+/// `message_start` and update, the `auto_retry_start`, then the settled
+/// attempt again under a second `message_start` -- the streamed one never
+/// gets a `message_end`. The retry answers.
+fn retried_attempt_turn(streamed: &Value, update: &Value, settled: &Value) -> Vec<Act> {
+    let mut script = vec![Act::Prompt, Act::Admit, run_start(), ev("turn_start")];
+    script.extend(user_message());
+    // The streamed attempt's last partial: the settled content, still open.
+    let mut partial = settled.clone();
+    partial["stopReason"] = json!("stop");
+    if let Some(fields) = partial.as_object_mut() {
+        fields.remove("errorMessage");
+    }
+    script.push(Act::Event(json!({
+        "type": "message_start",
+        "message": streamed,
+        "assistantMessageEvent": { "type": "start" },
+    })));
+    script.push(Act::Event(json!({
+        "type": "message_update",
+        "message": partial,
+        "assistantMessageEvent": update,
+    })));
+    // The frames show the streamed attempt before its retry starts.
+    script.push(Act::Hold(200));
+    script.push(Act::Event(json!({
+        "type": "auto_retry_start",
+        "attempt": 1,
+        "maxAttempts": 3,
+        "delayMs": 0,
+        "errorMessage": "the attempt is retried",
+    })));
+    script.extend(message(settled));
+    script.push(Act::Hold(200));
+    script.extend(message(&answer_message()));
+    script.push(Act::Event(
+        json!({ "type": "auto_retry_end", "success": true, "attempt": 1 }),
+    ));
+    script.push(turn_end(&answer_message()));
+    script.push(run_end());
+    script
+}
+
+/// How many of `frame`'s rows show `needle`.
+fn rows_showing(frame: &str, needle: &str) -> usize {
+    frame.lines().filter(|line| line.contains(needle)).count()
+}
+
+/// A reply that streamed text, failed and was retried shows that text
+/// once: the settled attempt takes the place of the rows it streamed.
+#[test]
+fn a_retried_reply_that_streamed_text_shows_it_once() {
+    const CUT: &str = "Here is the pl";
+    let streamed = assistant(text("Here is"), "stop", None);
+    let settled = assistant(text(CUT), "error", Some("529 overloaded"));
+    let frames = run(
+        Snapshot::idle(Vec::new()),
+        retried_attempt_turn(
+            &streamed,
+            &json!({ "type": "text_delta", "delta": " the pl" }),
+            &settled,
+        ),
+        vec![wait_for(ANSWER), HeadlessStep::WaitMs(300)],
+    );
+    let shown = frames
+        .iter()
+        .map(|frame| rows_showing(frame, CUT))
+        .max()
+        .expect("a frame");
+    assert_eq!(
+        shown,
+        1,
+        "the retried reply's text shows once in every frame:\n{}",
+        all_frames(&frames)
+    );
+    let last = frames.last().expect("a final frame");
+    assert_eq!(rows_showing(last, ANSWER), 1, "{last}");
+    assert_eq!(loader(last), None);
+}
+
+/// A reply cut at the output limit while the model was still reasoning is
+/// retried: its reasoning shows once (the chat is at the `details` level,
+/// which shows thinking), then the retry's answer.
+#[test]
+fn a_retried_reasoning_only_cut_shows_its_thinking_once() {
+    const THOUGHT: &str = "I keep planning the report";
+    let thinking = |text: &str| {
+        json!([
+            { "type": "thinking", "thinking": text, "thinkingSignature": "reasoning_content" },
+        ])
+    };
+    let streamed = assistant(thinking("I keep planning"), "stop", None);
+    let settled = assistant(thinking(THOUGHT), "length", None);
+    let frames = run(
+        Snapshot::idle(Vec::new()),
+        retried_attempt_turn(
+            &streamed,
+            &json!({ "type": "thinking_delta", "delta": " the report" }),
+            &settled,
+        ),
+        vec![
+            // Ctrl+O: `overview` (thinking hidden) to `details`.
+            HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('o'),
+                crossterm::event::KeyModifiers::CONTROL,
+            )),
+            wait_for(ANSWER),
+            HeadlessStep::WaitMs(300),
+        ],
+    );
+    let last = frames.last().expect("a final frame");
+    assert_eq!(
+        rows_showing(last, THOUGHT),
+        1,
+        "the retried attempt's thinking shows once:\n{last}"
+    );
+    assert_eq!(rows_showing(last, ANSWER), 1, "{last}");
+    assert_eq!(loader(last), None);
+}
