@@ -239,14 +239,14 @@ pub enum Directive {
     /// so the output cap is never shrunk to fit the window. No rule: it
     /// does not.
     StopsOutputAtWindow,
-    /// `OpenAI` Responses: the host accepts `reasoning.summary` (omp
-    /// `supportsReasoningSummary`; `api.x.ai` rejects it). No rule: it
+    /// `OpenAI` Responses: the host accepts `reasoning.summary` (`api.x.ai`
+    /// rejects it). No rule: it
     /// does.
     ReasoningSummary,
     /// `OpenAI` Responses (and its Azure and Codex dialects): thinking off
-    /// sends `reasoning.effort: "none"` (omp `reasoning-disable-mode
-    /// none-effort`, the GPT-5.6 generation on `OpenAI`). No rule: off
-    /// sends the lowest effort the model offers (omp `lowest-effort`).
+    /// sends `reasoning.effort: "none"` (the `none-effort` disable mode, the
+    /// GPT-5.6 generation on `OpenAI`). No rule: off sends the lowest effort
+    /// the model offers (`lowest-effort`).
     ReasoningOffNone,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.

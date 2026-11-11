@@ -16,9 +16,8 @@ use crate::auth::{env_api_key_auth, lazy_oauth, LazyOAuthInput, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
 use crate::types::{Model, ModelCompat, OpenAIResponsesCompat};
 
-/// omp streams every `OpenRouter` chat model over `OpenRouter`'s Responses API
-/// (`ai/src/stream.ts:925`, `api === "openrouter"` → `streamOpenAIResponses`
-/// unless `PI_OPENROUTER_RESPONSES=0`), the Anthropic models included. The
+/// Every `OpenRouter` chat model streams over `OpenRouter`'s Responses API,
+/// the Anthropic models included. The
 /// catalog names chat completions, or Anthropic Messages at `/api` for the
 /// `anthropic/` models; every request goes out as a Responses request at
 /// `/api/v1`, with the settings the catalog and the rulebook give the model

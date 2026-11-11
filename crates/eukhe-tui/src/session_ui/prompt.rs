@@ -72,8 +72,7 @@ pub(crate) enum SubmitAccepted {
     /// Admitted or queued as input, or a session command that ran.
     Admitted,
     /// A `/compact` sent with the follow-up key while a turn runs: the
-    /// daemon runs it once the turn yields (omp's queued compaction,
-    /// builtin-lifecycle.ts:305-316).
+    /// daemon runs it once the turn yields (a queued compaction).
     CompactionQueued,
 }
 
@@ -1061,8 +1060,8 @@ impl SessionUi {
         }
         match note.result {
             Ok(accepted) => {
-                // omp's `showStatus` for a `/compact` queued behind the
-                // running turn (builtin-lifecycle.ts:313).
+                // The status note for a `/compact` queued behind the
+                // running turn.
                 if accepted == SubmitAccepted::CompactionQueued {
                     self.note("Queued compaction for when the agent yields", view);
                 }

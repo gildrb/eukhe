@@ -607,8 +607,8 @@ async fn clamps_minimal_reasoning_effort_to_low() {
 }
 
 /// Thinking off on Codex sends the lowest offered effort with its summary
-/// (omp `reasoning-disable-mode lowest-effort`, `request-transformer.ts:483-492`;
-/// the Codex catalog rules set no `none-effort`), also for a map whose
+/// (the lowest-effort disable mode; the Codex models never send `none` as
+/// the off effort), also for a map whose
 /// `off` is `none`.
 #[tokio::test]
 async fn sends_the_lowest_effort_with_its_summary_when_thinking_is_off() {

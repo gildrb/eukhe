@@ -156,9 +156,9 @@ async fn sends_block_binding_and_the_binding_beta_for_claude_opus_5_5() {
     );
 }
 
-/// Bedrock rejects `block_binding` on 4.6 models (#10324), and omp sends
-/// adaptive Opus 4.6 no `display` (catalog `compat/resolve.ts`
-/// `defaultSupportsDisplay`: adaptive generation 4.7 and later only).
+/// Bedrock rejects `block_binding` on 4.6 models (#10324), and adaptive
+/// Opus 4.6 gets no `display` (only adaptive generation 4.7 and later
+/// takes it).
 #[tokio::test]
 async fn omits_block_binding_and_display_for_opus_4_6() {
     let model = get_model("amazon-bedrock", "global.anthropic.claude-opus-4-6-v1");
@@ -476,9 +476,7 @@ async fn off_fields(model_id: &str) -> Option<Value> {
     payload.get("additionalModelRequestFields").cloned()
 }
 
-/// omp with thinking off (`amazon-bedrock.ts`
-/// `buildAdditionalModelRequestFields` and the binding step of
-/// `streamBedrock`): Claude Haiku 5.5 takes the explicit `disabled` with
+/// Thinking off: Claude Haiku 5.5 takes the explicit `disabled` with
 /// the lowest effort (`compat.disabledThinking`); the other prefix-bound
 /// models think adaptively without a thinking field, so they send the bare
 /// adaptive tag with the block binding and its beta; the rest send nothing.

@@ -234,15 +234,14 @@ pub(crate) async fn abort_compactions(
     Ok(tasks)
 }
 
-/// omp's auto-continue prompt (prompts/system/auto-continue.md): the input
+/// The auto-continue prompt: the input
 /// that resumes a turn a manual compaction interrupted when nothing queued
 /// drives it.
 pub(crate) const AUTO_CONTINUE_PROMPT: &str = "Resume the user's latest intent. Re-read kept recent messages above the summary to confirm the latest request. If it supersedes earlier plans in the summary, follow it. If no work remains, say so briefly; do not invent work.";
 
-/// Abort the running turn of `conversation` for a manual compaction (omp
-/// `compact()`, session-maintenance.ts:1303-1312) and answer the inputs
-/// queued behind it. The abort withdraws them, but a compaction keeps the
-/// queues (omp session-maintenance.ts:1725-1731): the caller submits them
+/// Abort the running turn of `conversation` for a manual compaction and
+/// answer the inputs queued behind it. The abort withdraws them, but a
+/// compaction keeps the queues: the caller submits them
 /// again once the compaction ended (`resubmit_queued`).
 ///
 /// # Errors
@@ -262,19 +261,16 @@ pub(crate) async fn interrupt_turn(
 
 /// Whether a manual compaction that interrupted a turn resumes it: one
 /// that compacted, or was skipped as a no-op (too short, already
-/// compacted); a cancel or a failure leaves the turn stopped (omp
-/// session-maintenance.ts:1262-1265, 1680, 1739).
+/// compacted); a cancel or a failure leaves the turn stopped.
 pub(crate) fn resumes_interrupted_turn(
     outcome: &Result<eukhe_types::daemon::CompactionResult, ManualCompactionError>,
 ) -> bool {
     matches!(outcome, Ok(_) | Err(ManualCompactionError::Skipped(_)))
 }
 
-/// Resume the turn a manual compaction interrupted with omp's
-/// auto-continue prompt (`#scheduleInterruptedTurnResume` ->
-/// `#scheduleAutoContinuePrompt`, session-maintenance.ts:2149-2156,
-/// agent-session.ts:5650-5714). Queued input drives the resume instead
-/// (agent-session.ts:5657-5665, 5701-5707): the prompt is admitted only on
+/// Resume the turn a manual compaction interrupted with the
+/// auto-continue prompt. Queued input drives the resume instead: the
+/// prompt is admitted only on
 /// an idle conversation with nothing queued, so the resubmitted inputs, a
 /// goal continuation, or a prompt sent during the compaction take the
 /// session first. Answers whether the prompt was admitted.

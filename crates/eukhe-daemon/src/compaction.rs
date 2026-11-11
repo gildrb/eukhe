@@ -41,8 +41,7 @@ pub(crate) struct CompactionManager {
 /// What a manual compaction does to a turn running when it starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunningTurn {
-    /// Interrupt it (omp `compact()`, session-maintenance.ts:1303-1316,
-    /// 1724-1749): abort it, compact, submit the inputs queued behind it
+    /// Interrupt it: abort it, compact, submit the inputs queued behind it
     /// again, then resume it when the compaction compacted or was a no-op.
     /// The `compact` command and a `/compact` sent with Enter.
     Interrupt,
@@ -110,8 +109,8 @@ impl CompactionManager {
         let main = hosted
             .main()
             .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
-        // omp `compact()` aborts the live turn first: the compaction
-        // summarizes a settled transcript.
+        // The live turn is aborted first: the compaction summarizes a
+        // settled transcript.
         let busy = self.core.lock().unwrap().is_busy();
         let interrupted = if busy && running_turn == RunningTurn::Interrupt {
             Some(
@@ -198,8 +197,8 @@ impl CompactionManager {
                 );
             }
         }
-        // omp `compact()`'s `finally` (session-maintenance.ts:1724-1749):
-        // the interrupted turn's queued inputs come back and drive its
+        // However the compaction ended, the interrupted turn's queued
+        // inputs come back and drive its
         // resume; without them an active goal's continuation or the
         // auto-continue prompt does.
         let resume = interrupted.is_some() && resumes_interrupted_turn(&outcome);

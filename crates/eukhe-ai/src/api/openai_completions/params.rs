@@ -366,7 +366,7 @@ fn apply_thinking_format(
         }
         ThinkingFormat::Deepseek => {
             if effort.is_some() {
-                // omp: `thinkingKeep` rides the enabled thinking object
+                // `thinkingKeep` rides the enabled thinking object
                 // (Moonshot Kimi K2.6 preserved thinking).
                 let mut thinking = json!({ "type": "enabled" });
                 if let Some(keep) = &compat.thinking_keep {
@@ -449,7 +449,7 @@ fn apply_thinking_format(
                     json!({ "enable_thinking": effort.is_some() }),
                 );
             }
-            // The template toggle is that model's off control (omp's qwen
+            // The template toggle is that model's off control (the qwen
             // dialect: off sends the toggle and no effort).
             if effort.is_some() || !template_toggle {
                 apply_openai_reasoning_effort(model, effort, compat, params);
@@ -479,9 +479,8 @@ fn apply_openai_reasoning_effort(
         None => match level_map(model, ModelThinkingLevel::Off) {
             Some(Some(off)) => insert(params, "reasoning_effort", json!(off)),
             Some(None) => {}
-            // omp's `lowest-effort` disable mode (`openai-shared.ts`
-            // `resolveOpenAICompatPolicy` / `applyChatCompletionsCompatPolicy`):
-            // a model with no `off` entry sends its lowest offered effort.
+            // The `lowest-effort` disable mode: a model with no `off` entry
+            // sends its lowest offered effort.
             None => {
                 if let Some(lowest) = get_supported_thinking_levels(model)
                     .into_iter()

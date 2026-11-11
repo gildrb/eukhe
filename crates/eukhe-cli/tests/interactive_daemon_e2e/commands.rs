@@ -1155,11 +1155,10 @@ async fn tui_compact_slower_than_the_submit_ack_cap_settles_without_a_timeout_ro
     drop(supervisor);
 }
 
-/// Esc while `/compact` summarizes cancels it with one notice, as omp's
-/// `executeCompaction` shows one `Compaction cancelled` error and never
-/// returns the command to the editor (command-controller.ts:2297-2300,
-/// builtin-lifecycle.ts:290): no `Command failed` result row, no refused
-/// prompt row, no `/compact` back in the editor.
+/// Esc while `/compact` summarizes cancels it with one notice, a single
+/// `Compaction cancelled` error, and never returns the command to the
+/// editor: no `Command failed` result row, no refused prompt row, no
+/// `/compact` back in the editor.
 #[tokio::test]
 async fn tui_compact_cancelled_by_esc_shows_one_notice() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -1245,10 +1244,8 @@ async fn tui_compact_cancelled_by_esc_shows_one_notice() {
 }
 
 /// `/compact` sent with Enter while a reply streams interrupts the turn,
-/// compacts, then resumes it with omp's auto-continue prompt, so a reply
-/// arrives after the compaction (omp `compact()`: abort, compact, resume,
-/// session-maintenance.ts:1303-1316, 1739-1748, 2149-2156;
-/// agent-session.ts:5650-5714).
+/// compacts, then resumes it with the auto-continue prompt, so a reply
+/// arrives after the compaction (abort, compact, resume).
 #[tokio::test]
 async fn tui_compact_during_a_turn_compacts_then_resumes_the_turn() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -1336,16 +1333,15 @@ async fn tui_compact_during_a_turn_compacts_then_resumes_the_turn() {
             .chat_texts()
             .iter()
             .any(|text| text.starts_with("Resume the user's latest intent.")),
-        "the resume carries omp's auto-continue prompt: {:?}",
+        "the resume carries the auto-continue prompt: {:?}",
         transcript.chat_texts()
     );
     drop(supervisor);
 }
 
 /// `/compact` sent with the follow-up key while a turn runs never touches
-/// the turn: omp queues it "for when the agent yields"
-/// (builtin-lifecycle.ts:296, 305-316), so the turn ends with its whole
-/// reply and the compaction runs after it.
+/// the turn: it is queued "for when the agent yields", so the turn ends
+/// with its whole reply and the compaction runs after it.
 #[tokio::test]
 async fn tui_follow_up_compact_during_a_turn_waits_for_the_turn_to_end() {
     let dir = tempfile::TempDir::new().expect("temp dir");

@@ -214,14 +214,12 @@ fn session_actions_snapshot(items: &[InboxItem], streaming: bool) -> Value {
     snapshot
 }
 
-/// `compact` (TS `session.compact(customInstructions)`, omp rpc-mode.ts:
-/// 2596-2598): interrupt the running turn, run a manual durable compaction
+/// `compact`: interrupt the running turn, run a manual durable compaction
 /// and answer with the TS `CompactionResult`; a skip answers the TS
 /// `CompactionSkippedError` message with the compaction frames around it
 /// (a compaction that ran publishes its own frames through the event
 /// pump). The interrupted turn gets its queued inputs back and resumes
-/// when the compaction compacted or was a no-op (omp `compact()`,
-/// session-maintenance.ts:1303-1316, 1724-1749).
+/// when the compaction compacted or was a no-op.
 async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, RpcCommandError> {
     let instructions = payload
         .get("customInstructions")

@@ -1,7 +1,6 @@
 //! The `thinking` / `output_config` forms of the shipped Anthropic Messages
-//! models match what omp sends for the same model and level (omp
-//! `packages/ai/src/providers/anthropic.ts` `buildParams`, its catalog's
-//! thinking facts).
+//! models: what each model is sent at each thinking level, per the
+//! catalog's thinking facts for that model.
 
 mod anthropic_support;
 
@@ -21,11 +20,9 @@ async fn wire(provider: &str, id: &str, level: Option<ThinkingLevel>) -> [JsonVa
     ["thinking", "output_config"].map(|key| payload.get(key).cloned().unwrap_or(JsonValue::Null))
 }
 
-/// omp sends `thinking.display` on adaptive thinking only where the model
-/// accepts it, adaptive Claude 4.7 and later (its catalog's
-/// `supportsDisplay`, `compat/resolve.ts` `defaultSupportsDisplay`;
-/// `anthropic.ts` "Opus 4.6 / Sonnet 4.6+ reject it with a 400"). Budget
-/// thinking keeps it.
+/// `thinking.display` goes out on adaptive thinking only where the model
+/// accepts it, adaptive Claude 4.7 and later (Opus 4.6 and Sonnet 4.6+
+/// reject it with a 400). Budget thinking keeps it.
 #[tokio::test]
 async fn adaptive_thinking_display_rides_on_claude_4_7_and_later_only() {
     let high = Some(ThinkingLevel::High);
@@ -56,9 +53,8 @@ async fn adaptive_thinking_display_rides_on_claude_4_7_and_later_only() {
 
 /// Thinking off on an adaptive-only Claude model (Opus/Sonnet 4.6 and
 /// later) omits `thinking`, which the API reads as adaptive, and pins the
-/// lowest effort (omp `anthropic.ts` `buildParams`, `isAdaptiveOnlyThinking`
-/// branch). Haiku 5.5 takes an explicit `disabled` (omp
-/// `compat.disabledThinking`), and a budget model keeps `disabled`.
+/// lowest effort. Haiku 5.5 takes an explicit `disabled` (its compat
+/// `disabledThinking`), and a budget model keeps `disabled`.
 #[tokio::test]
 async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
     let low = [JsonValue::Null, json!({ "effort": "low" })];
@@ -86,8 +82,8 @@ async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
 }
 
 /// Thinking off on Claude Sonnet 5.5, which rejects `disabled`, is its
-/// lowest setting `between_tools`, with no effort pinned (omp
-/// `anthropic.ts` `buildParams`, `compat.supportsBetweenToolsThinking`).
+/// lowest setting `between_tools`, with no effort pinned (its compat
+/// `supportsBetweenToolsThinking`).
 #[tokio::test]
 async fn thinking_off_on_claude_sonnet_5_5_is_between_tools() {
     let between = [json!({ "type": "between_tools" }), JsonValue::Null];
@@ -102,10 +98,8 @@ async fn thinking_off_on_claude_sonnet_5_5_is_between_tools() {
 }
 
 /// Claude Opus 4.5 thinks on a budget and also takes the level as
-/// `output_config.effort`, `minimal` as `low` (omp catalog
-/// `classes/anthropic.kdl` `thinking-mode "anthropic-budget-effort"`,
-/// `anthropic.ts` `buildParams`, `model-thinking.ts`
-/// `mapEffortToAnthropicAdaptiveEffort`). Other budget models take none.
+/// `output_config.effort`, `minimal` as `low` (its thinking mode
+/// `anthropic-budget-effort`). Other budget models take none.
 #[tokio::test]
 async fn claude_opus_4_5_sends_its_budget_with_the_effort() {
     let budget = |tokens: u64| json!({ "type": "enabled", "budget_tokens": tokens, "display": "summarized" });
@@ -131,8 +125,8 @@ async fn claude_opus_4_5_sends_its_budget_with_the_effort() {
 }
 
 /// `MiniMax` drives thinking with the `thinking.type: adaptive` tag alone:
-/// no effort and no display, at every level (omp catalog `effortMap`
-/// `"adaptive"`, `anthropic.ts` `usesAdaptiveThinkingTagOnly`); its
+/// no effort and no display, at every level (its catalog `effortMap`
+/// `"adaptive"`); its
 /// thinking off stays an explicit `disabled`.
 #[tokio::test]
 async fn minimax_thinks_by_the_adaptive_tag_alone() {

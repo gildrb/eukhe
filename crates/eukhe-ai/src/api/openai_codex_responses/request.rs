@@ -167,7 +167,7 @@ pub(crate) fn build_request_body(
             );
         }
     } else if model.reasoning {
-        // Thinking off (omp `request-transformer.ts:483-492`): the lowest
+        // Thinking off: the lowest
         // offered effort goes out as a requested effort, with its summary;
         // `none` alone.
         if let Some(effort) = reasoning_off_effort(model) {

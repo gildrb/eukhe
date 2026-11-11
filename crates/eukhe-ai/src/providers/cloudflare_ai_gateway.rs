@@ -13,10 +13,9 @@ use crate::auth::ProviderAuth;
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
 use crate::types::{MaxTokensField, Model, ModelCompat, OpenAICompletionsCompat};
 
-/// omp's `api-routes provider="cloudflare-ai-gateway"`: the gateway's
-/// `openai/` namespace rides chat completions (`route "openai-completions"
-/// prefix="openai/" strip-prefix=#true`, `runtime/behavior.kdl:137-141`) at
-/// the `OpenAI` endpoint (`registry/cloudflare-ai-gateway.ts:57-82`). The
+/// The API route of `cloudflare-ai-gateway`: the gateway's `openai/`
+/// namespace rides chat completions (the `openai/` prefix stripped) at the
+/// `OpenAI` endpoint. The
 /// catalog's `OpenAI` models (bare ids at `/openai`) name `openai-responses`;
 /// every request of them goes out as an `OpenAI` chat-completions request:
 /// `store: false`, `reasoning_effort`, `max_completion_tokens`, the

@@ -1,6 +1,6 @@
 //! `OpenCode` Go's `DeepSeek` V4 Flash rides the gateway's Responses endpoint
-//! like omp's `api-routes provider="opencode-go"` (`route "openai-responses"
-//! exact="deepseek-v4-flash"`, `catalog/src/compat/rules/runtime/behavior.kdl:294-304`).
+//! (the provider's API route sends exactly `deepseek-v4-flash` to
+//! `openai-responses`).
 
 mod openai_responses_support;
 

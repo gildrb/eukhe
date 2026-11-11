@@ -246,14 +246,12 @@ async fn sets_strict_mode_explicitly_for_cloudflare_openai_responses_tools() {
     );
 }
 
-/// Thinking off sends omp's disable mode (`catalog/src/compat/resolve.ts:301-318`,
-/// `ai/src/providers/openai-shared.ts:1064-1080, 4302-4316`): `none` for
-/// `OpenAI`'s GPT-5.6 generation (`rules/providers/openai.kdl:121-123`,
-/// `none-effort`), else the lowest effort the model offers
-/// (`lowest-effort`), also on hosts without the explicit `none`
+/// Thinking off sends the model's disable mode: `none` for `OpenAI`'s
+/// GPT-5.6 generation (`none-effort`), else the lowest effort the model
+/// offers (`lowest-effort`), also on hosts without the explicit `none`
 /// (GitHub Copilot) and on xAI.
 #[tokio::test]
-async fn sends_omps_off_effort_when_no_reasoning_is_requested() {
+async fn sends_the_off_effort_when_no_reasoning_is_requested() {
     for (provider, model_id, effort) in [
         ("openai", "gpt-5.1", "low"),
         ("openai", "gpt-5.2", "low"),

@@ -1,9 +1,8 @@
-//! Headless e2e for the Escape interrupt (robustness findings F2-F4),
-//! matched to omp's `handleEscape` (input-controller.ts:629-682): a double
-//! Escape during a stream stops the turn and never opens the session tree
-//! over the next prompt (F2); Escape returns the user's parked messages to
-//! the editor instead of starting the turn the user just stopped (F3,
-//! `restoreQueuedMessagesToEditor({ abort: true })`); and a run stopped
+//! Headless e2e for the Escape interrupt (robustness findings F2-F4): a
+//! double Escape during a stream stops the turn and never opens the session
+//! tree over the next prompt (F2); Escape returns the user's parked messages
+//! to the editor instead of starting the turn the user just stopped (F3);
+//! and a run stopped
 //! during its tools says "Operation aborted", not "ended without a reply"
 //! (F4). Each test replays a run against the real interactive loop and a
 //! scripted mock daemon that waits for the client's requests.

@@ -1,9 +1,8 @@
-//! Per-model wire API routing of a provider (omp's `api-routes` behavior
-//! rules, `catalog/src/compat/rules/runtime/behavior.kdl`, applied per
-//! request like omp's provider `prepareModel`). A catalog entry names one
+//! Per-model wire API routing of a provider (per-provider API routes,
+//! applied per request). A catalog entry names one
 //! API (`model.api`), and the bundled catalog snapshot can restate it; a
 //! route moves the request of a matching model to another API at dispatch,
-//! so the request follows omp whatever API the catalog names.
+//! so the request takes the routed API whatever API the catalog names.
 
 use std::sync::Arc;
 

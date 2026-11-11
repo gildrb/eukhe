@@ -1,7 +1,6 @@
-//! Cloudflare AI Gateway's `OpenAI` models ride chat completions like omp's
-//! `api-routes provider="cloudflare-ai-gateway"` (`route "openai-completions"
-//! prefix="openai/"`, `catalog/src/compat/rules/runtime/behavior.kdl:137-141`;
-//! `ai/src/registry/cloudflare-ai-gateway.ts:57-82`).
+//! Cloudflare AI Gateway's `OpenAI` models ride chat completions: the
+//! provider's API route sends the ids prefixed `openai/` to
+//! `openai-completions`.
 
 mod openai_responses_support;
 

@@ -1,7 +1,7 @@
 //! The reasoning fields of the shipped `openai-completions` models match
-//! what oh-my-pi (omp) sends for the same provider, model and thinking
-//! level (the omp-vs-eukhe wire comparison). Each table row is one
-//! catalog model at one level; only the effort fields are compared.
+//! the expected wire fields for each provider, model and thinking level.
+//! Each table row is one catalog model at one level; only the effort
+//! fields are compared.
 
 use std::sync::PoisonError;
 
@@ -98,7 +98,7 @@ async fn assert_rows(rows: &[(&str, &str, &str)], expected: impl Fn(&str) -> Jso
         let want = expected(level_name);
         if sent != want {
             mismatches.push(format!(
-                "{provider}/{id} {level_name}: sent {sent}, omp {want}"
+                "{provider}/{id} {level_name}: sent {sent}, expected {want}"
             ));
         }
     }
@@ -133,9 +133,9 @@ fn borrowed<'a>(rows: &'a [(&'a str, String, &'a str)]) -> Vec<(&'a str, &'a str
 
 const THINKING_LEVELS: [&str; 6] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
-/// omp: Xiaomi `MiMo` on the first-party hosts (`xiaomi`, the token plans)
-/// resolves `supportsReasoningEffort: false` (catalog `compat/resolve.ts`
-/// `isXiaomiMimo`) with the `zai` dialect, so a thinking level sends only
+/// Xiaomi `MiMo` on the first-party hosts (`xiaomi`, the token plans) takes
+/// no `reasoning_effort` and speaks the `zai` dialect, so a thinking level
+/// sends only
 /// `thinking: { type: "enabled" }` and off sends `{ type: "disabled" }`.
 #[tokio::test]
 async fn xiaomi_mimo_sends_thinking_without_reasoning_effort() {
@@ -159,10 +159,9 @@ async fn xiaomi_mimo_sends_thinking_without_reasoning_effort() {
     .await;
 }
 
-/// omp: Moonshot-native Kimi (`moonshot` provider, the `zai` dialect of
-/// `classes/kimi.kdl` / `providers/moonshot.kdl`) supports
-/// `reasoning_effort` (catalog `compat/resolve.ts`: only Grok, Xiaomi `MiMo`
-/// and pre-5.2 Z.AI GLM lack it). K2.6 keeps every earlier turn's thinking
+/// Moonshot-native Kimi (`moonshot` provider, the `zai` dialect) supports
+/// `reasoning_effort` (only Grok, Xiaomi `MiMo` and pre-5.2 Z.AI GLM lack
+/// it). K2.6 keeps every earlier turn's thinking
 /// (`thinkingKeep: "all"`): a level sends
 /// `thinking: { type: "enabled", keep: "all" }` plus `reasoning_effort`.
 /// K2.7 Code always thinks (`requiresEnabledThinking`, disable mode
@@ -195,8 +194,7 @@ async fn moonshot_kimi_sends_reasoning_effort_and_k2_6_keeps_thinking() {
     }
 }
 
-/// omp: a Kimi model always sends an output cap (catalog
-/// `compat/resolve.ts` `alwaysSendMaxTokens: facts.is("kimi")`), also where
+/// A Kimi model always sends an output cap, also where
 /// the catalog max is the whole window and the cap would otherwise be left
 /// to the provider.
 #[tokio::test]
@@ -226,11 +224,9 @@ fn is_qwen_chat(model: &Model) -> bool {
         && model.id.to_ascii_lowercase().contains("qwen")
 }
 
-/// omp: Qwen on Hugging Face, Cloudflare Workers AI and `OpenCode` resolves
-/// the `qwen` dialect (catalog `compat/resolve.ts` `thinkingFormat`: Qwen
-/// off Fireworks/Venice/NVIDIA is `qwen`) whose disable mode is
-/// `qwen-enable-thinking-false` (`ai/src/providers/openai-shared.ts`
-/// `applyChatCompletionsCompatPolicy`): a level sends
+/// Qwen on Hugging Face, Cloudflare Workers AI and `OpenCode` speaks the
+/// `qwen` dialect (Qwen off Fireworks/Venice/NVIDIA is `qwen`) whose
+/// disable mode is `qwen-enable-thinking-false`: a level sends
 /// `enable_thinking: true` and no `reasoning_effort`; off sends `false`.
 #[tokio::test]
 async fn qwen_sends_enable_thinking_without_reasoning_effort() {
@@ -256,10 +252,9 @@ async fn qwen_sends_enable_thinking_without_reasoning_effort() {
     .await;
 }
 
-/// omp: Cloudflare Workers AI chat models (Qwen aside) take `OpenAI`-style
-/// `reasoning_effort` (catalog `compat/resolve.ts`: `supportsReasoningEffort`
-/// is false only for Grok, Xiaomi `MiMo` and pre-5.2 Z.AI GLM; the dialect is
-/// `openai`, `DeepSeek` included).
+/// Cloudflare Workers AI chat models (Qwen aside) take `OpenAI`-style
+/// `reasoning_effort` (only Grok, Xiaomi `MiMo` and pre-5.2 Z.AI GLM lack
+/// it; the dialect is `openai`, `DeepSeek` included).
 #[tokio::test]
 async fn cloudflare_workers_ai_sends_reasoning_effort() {
     let rows = catalog_rows(
@@ -276,12 +271,11 @@ async fn cloudflare_workers_ai_sends_reasoning_effort() {
     assert_rows(&borrowed(&rows), |_| json!({ "reasoning_effort": "high" })).await;
 }
 
-/// omp: `OpenCode`'s Kimi K2.6 and `OpenCode` Go's `DeepSeek` lanes speak the
-/// `openai` dialect (catalog `compat/resolve.ts` `thinkingFormat`: `zai`
-/// only for Moonshot-native Kimi, Z.AI, Zhipu and Xiaomi `MiMo`): a level
-/// sends `reasoning_effort` alone, no `thinking` object. `OpenCode` Go's
-/// `LongCat` 2.5 Preview has no effort tiers (`providers/opencode-go.kdl`
-/// `supports-reasoning-effort #false`): a level sends no effort.
+/// `OpenCode`'s Kimi K2.6 and `OpenCode` Go's `DeepSeek` lanes speak the
+/// `openai` dialect (`zai` is only for Moonshot-native Kimi, Z.AI, Zhipu and
+/// Xiaomi `MiMo`): a level sends `reasoning_effort` alone, no `thinking`
+/// object. `OpenCode` Go's `LongCat` 2.5 Preview has no effort tiers: a
+/// level sends no effort.
 #[tokio::test]
 async fn opencode_kimi_and_deepseek_send_reasoning_effort_only() {
     assert_rows(
@@ -301,11 +295,8 @@ async fn opencode_kimi_and_deepseek_send_reasoning_effort_only() {
     .await;
 }
 
-/// omp: off on a model of the `openai` dialect (disable mode
-/// `lowest-effort`, catalog `compat/resolve.ts`
-/// `resolveReasoningDisableMode`) sends the model's lowest offered effort
-/// (`ai/src/providers/openai-shared.ts` `resolveOpenAICompatPolicy`,
-/// `applyChatCompletionsCompatPolicy`), not nothing, and not `"none"` where
+/// Off on a model of the `openai` dialect (disable mode `lowest-effort`)
+/// sends the model's lowest offered effort, not nothing, and not `"none"` where
 /// that lowest effort matches the model's ladder.
 #[tokio::test]
 async fn off_sends_the_lowest_offered_effort() {
@@ -330,8 +321,8 @@ async fn off_sends_the_lowest_offered_effort() {
     .await;
 }
 
-/// omp: Fireworks is a chat-completions provider (`providers/fireworks.kdl`
-/// has no Anthropic route; `thinking-mode "effort"`) whose effort map sends
+/// Fireworks is a chat-completions provider (no Anthropic route; effort
+/// thinking) whose effort map sends
 /// minimal as `"none"`: every catalog model is `openai-completions` and a
 /// level sends `reasoning_effort` (off: the lowest offered effort).
 #[tokio::test]
@@ -361,9 +352,8 @@ async fn fireworks_models_send_chat_completions_reasoning_effort() {
     }
 }
 
-/// omp: `OpenCode` Go serves `MiniMax` M3 on chat completions with
-/// `reasoning_effort` (`providers/opencode-go.kdl` `thinking-mode "effort"`),
-/// not as an Anthropic body.
+/// `OpenCode` Go serves `MiniMax` M3 on chat completions with
+/// `reasoning_effort`, not as an Anthropic body.
 #[tokio::test]
 async fn opencode_go_minimax_m3_sends_chat_completions_reasoning_effort() {
     assert_eq!(model("opencode-go", "minimax-m3").api, "openai-completions");
@@ -381,14 +371,13 @@ fn cap_field(payload: &JsonValue) -> Option<&'static str> {
         .find(|key| payload.get(*key).is_some())
 }
 
-/// omp: the output-cap field is `max_tokens` on Fireworks (catalog
-/// `compat/resolve.ts` `useMaxTokens`: `isFireworks`) and on the `OpenCode` Go
-/// `DeepSeek` V4 Flash/Pro lanes (`providers/opencode-go.kdl`
-/// `max-tokens-field`), else `max_completion_tokens` (Cloudflare Workers AI,
+/// The output-cap field is `max_tokens` on Fireworks and on the `OpenCode`
+/// Go `DeepSeek` V4 Flash/Pro lanes, else `max_completion_tokens` (Cloudflare
+/// Workers AI,
 /// `OpenCode`, `OpenCode` Go).
 #[tokio::test]
-async fn output_cap_field_matches_omp() {
-    let omp_field = |provider: &str, id: &str| match (provider, id) {
+async fn output_cap_field_matches_the_reference() {
+    let expected_field = |provider: &str, id: &str| match (provider, id) {
         ("fireworks", _) | ("opencode-go", "deepseek-v4-flash" | "deepseek-v4-pro") => "max_tokens",
         _ => "max_completion_tokens",
     };
@@ -405,9 +394,12 @@ async fn output_cap_field_matches_omp() {
             }
             let payload = payload(&model, level("high").filter(|_| model.reasoning)).await;
             let sent = cap_field(&payload);
-            let field = omp_field(provider, &model.id);
+            let field = expected_field(provider, &model.id);
             if sent.is_some_and(|sent| sent != field) {
-                wrong.push(format!("{provider}/{}: {sent:?}, omp {field}", model.id));
+                wrong.push(format!(
+                    "{provider}/{}: {sent:?}, expected {field}",
+                    model.id
+                ));
             }
         }
     }

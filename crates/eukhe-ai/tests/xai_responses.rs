@@ -367,9 +367,8 @@ async fn uses_responses_for_grok_4_3() {
     );
 }
 
-/// `api.x.ai` rejects `reasoning.summary`: an effort goes out alone (omp
-/// `catalog/src/compat/resolve.ts:757` `supportsReasoningSummary: !isXaiHost`,
-/// `rules/providers/xai.kdl:51`).
+/// `api.x.ai` rejects `reasoning.summary`: an effort goes out alone (the
+/// xAI host turns `supportsReasoningSummary` off).
 #[tokio::test]
 async fn sends_no_reasoning_summary_to_xai() {
     for (id, effort) in [

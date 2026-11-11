@@ -290,12 +290,11 @@ fn supports_mid_convo_effort(model: &Model) -> bool {
 
 /// The ladder value of a model whose `thinking.type: adaptive` tag is the
 /// whole thinking control (MiniMax): no `output_config.effort` rides with
-/// it (omp's `effortMap` value `"adaptive"`).
+/// it (the ladder value `"adaptive"`).
 pub(crate) const ADAPTIVE_TAG_EFFORT: &str = "adaptive";
 
 /// Whether `model` takes the adaptive tag alone: an adaptive model whose
-/// ladder maps every level it names to [`ADAPTIVE_TAG_EFFORT`] (omp
-/// `usesAdaptiveThinkingTagOnly`).
+/// ladder maps every level it names to [`ADAPTIVE_TAG_EFFORT`].
 fn adaptive_tag_only(model: &Model) -> bool {
     thinking_level_map(model).is_some_and(|map| {
         let mut values = map.values().flatten().peekable();
@@ -303,7 +302,7 @@ fn adaptive_tag_only(model: &Model) -> bool {
     })
 }
 
-/// Whether `model` is adaptive-only (omp `isAdaptiveOnlyThinking`: Claude
+/// Whether `model` is adaptive-only (Claude
 /// Opus/Sonnet 4.6 and later, Fable/Mythos 5): adaptive thinking that an
 /// omitted `thinking` field turns on, so thinking off omits it and pins
 /// the lowest effort. A model of the adaptive tag alone is not.

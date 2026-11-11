@@ -153,10 +153,8 @@ async fn clamps_thinking_levels_the_deployment_does_not_accept() {
     );
 }
 
-/// omp's openai dialect disables reasoning by the lowest offered effort
-/// (catalog `compat/resolve.ts` `resolveReasoningDisableMode`: `lowest-effort`;
-/// `ai/src/providers/openai-shared.ts` `resolveOpenAICompatPolicy`), never by
-/// `DeepSeek`'s thinking field.
+/// The openai dialect disables reasoning by the lowest offered effort (the
+/// `lowest-effort` disable mode), never by `DeepSeek`'s thinking field.
 #[tokio::test]
 async fn sends_the_lowest_offered_effort_when_no_thinking_level_is_requested() {
     let azure = azure_provider();

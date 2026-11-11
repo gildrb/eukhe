@@ -63,9 +63,8 @@ pub(crate) enum ParkedOnInterrupt {
     /// They deliver behind the aborted turn (`abort_and_send_queued`).
     Deliver,
     /// The user's own messages return to the editor instead of starting a
-    /// turn the user just stopped (omp's Escape,
-    /// `restoreQueuedMessagesToEditor({ abort: true })`,
-    /// input-controller.ts:637,2274); internal prompts deliver as before.
+    /// turn the user just stopped (Escape); internal prompts deliver as
+    /// before.
     ReturnToEditor,
 }
 
@@ -261,8 +260,8 @@ impl SessionUi {
 
     /// Apply one background interrupt note: a failed abort request's
     /// transcript note, or the withdrawn parked messages, which go back
-    /// into the editor ahead of the draft (omp `#restoreEntriesToEditor`,
-    /// input-controller.ts:2362: oldest first, blank-line separated) --
+    /// into the editor ahead of the draft (oldest first, blank-line
+    /// separated) --
     /// only while the view still holds the session they were parked in.
     pub(crate) fn apply_background_note(&mut self, note: InterruptNote, view: &mut AgentView) {
         match note {
@@ -1053,8 +1052,8 @@ impl SessionUi {
                 // its stored transcript. A run this client interrupted
                 // ended by that abort instead (the engine settles a run
                 // aborted during its tools with no aborted message of its
-                // own; omp's loop closes such a run with one, rendered
-                // "Operation aborted", agent-loop.ts:1250,2836). A run
+                // own; the chat closes such a run with one, rendered
+                // "Operation aborted"). A run
                 // that made no request stored no prompt for a rebuild to
                 // fold, so only this view holds the row.
                 if self.run_open && self.run_awaits_turn && !self.turn_error_shown {

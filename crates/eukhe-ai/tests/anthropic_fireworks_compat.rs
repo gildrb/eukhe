@@ -1,8 +1,8 @@
 //! Port of the "Anthropic-compatible session affinity and tool compat" suite
 //! of `test/fireworks-models.test.ts` (an Anthropic-compatible Fireworks
 //! model built here; the catalog's Fireworks models are chat-completions
-//! as in omp, their payloads are checked in the `openai-completions`
-//! module's `omp_wire` tests).
+//! models, their payloads are checked in the `openai-completions`
+//! module's wire tests).
 //!
 //! The TS local HTTP server that captures the request (and answers an empty
 //! SSE body) is the fetch mock.

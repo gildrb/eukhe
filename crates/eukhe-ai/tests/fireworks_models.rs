@@ -45,7 +45,7 @@ fn value<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).expect("serialize")
 }
 
-/// omp: Fireworks is a chat-completions provider (no Anthropic route).
+/// Fireworks is a chat-completions provider (no Anthropic route).
 #[test]
 fn registers_non_glm_non_kimi_k3_models_via_the_openai_compatible_chat_api() {
     let model = fireworks("accounts/fireworks/models/deepseek-v4p1-flash");
@@ -110,7 +110,7 @@ fn routes_kimi_k3_through_the_openai_compatible_api_with_native_effort_controls(
 }
 
 /// Regression for #9323: the native effort levels each model offers (now
-/// on the chat-completions route, as omp).
+/// on the chat-completions route).
 fn offers_native_effort_levels_for(model_id: &str, levels: &Value) {
     let model = fireworks(model_id);
     assert_eq!(model.api, "openai-completions");
@@ -170,7 +170,7 @@ fn exposes_distinct_native_effort_levels_for_kimi_k3_fast() {
 }
 
 /// A model without a verified ladder offers the default levels and sends
-/// minimal as `"none"` (omp `providers/fireworks.kdl` effort map).
+/// minimal as `"none"` (the provider's effort map).
 #[test]
 fn sends_minimal_as_none_for_models_without_a_ladder() {
     let model = fireworks("accounts/fireworks/models/nemotron-3-ultra-nvfp4");

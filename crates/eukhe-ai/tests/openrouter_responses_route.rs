@@ -1,9 +1,8 @@
-//! `OpenRouter` chat models ride `OpenRouter`'s Responses API like omp's
-//! (`ai/src/stream.ts:925`: `api === "openrouter"` → `streamOpenAIResponses`),
-//! the Anthropic models included: the reasoning summary, `reasoning:
-//! {enabled: false}` for thinking off (`catalog/src/compat/resolve.ts:305-306`,
-//! `ai/src/providers/openai-shared.ts:4302-4306`), and the top-level
-//! `cache_control` of the Anthropic models (`ai/src/providers/openai-responses.ts:674-682`).
+//! `OpenRouter` chat models ride `OpenRouter`'s Responses API (the
+//! provider routes them to `openai-responses`), the Anthropic
+//! models included: the reasoning summary, `reasoning: {enabled: false}`
+//! for thinking off, and the top-level `cache_control` of the Anthropic
+//! models.
 
 mod openai_responses_support;
 

@@ -204,9 +204,9 @@ fn unsettled_text(state: &eukhe_durable::types::SubmissionState) -> String {
 /// command's manual compaction with its frame pair (the loader's
 /// `compaction_start` carries the instructions; a skip ends with its
 /// warning, a cancel with its aborted end). A skip or a cancel succeeds:
-/// the end frame is the one report, as omp's `executeCompaction` shows one
-/// `Compaction cancelled` error and keeps the command out of the editor
-/// (command-controller.ts:2297-2300). A failure records the
+/// the end frame is the one report (a cancel shows one `Compaction
+/// cancelled` error) and the command stays out of the editor. A failure
+/// records the
 /// `Command failed: <e>` result row and answers the error. The caller
 /// passed the run gate (`admission`).
 async fn compact_session_command(
@@ -490,14 +490,13 @@ impl Worker {
         }
     }
 
-    /// `/compact [instructions]`, as omp's TUI `/compact`
-    /// (builtin-lifecycle.ts:288-318). Sent with the follow-up key
+    /// `/compact [instructions]`. Sent with the follow-up key
     /// (`queue_behind_turn`) while a turn runs, it waits for the turn to
     /// yield and never touches it ("Queued compaction for when the agent
-    /// yields", :305-316): a `prompt` answers at once with
+    /// yields"): a `prompt` answers at once with
     /// `compactionQueued` and the compaction runs in the background once
     /// the conversation is idle; a `prompt_and_wait` answers once it ran.
-    /// Otherwise it runs now (`handleCompactCommand`, :318), interrupting a
+    /// Otherwise it runs now, interrupting a
     /// running turn and resuming it after ([`RunningTurn::Interrupt`]).
     async fn run_compact_command(
         &self,

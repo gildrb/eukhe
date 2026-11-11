@@ -426,8 +426,7 @@ pub(crate) fn reasoning_effort_of(api: &OpenAIResponsesOptions) -> Option<Thinki
 
 /// The `reasoning` (and `include`) of a request with a reasoning effort.
 /// A host that rejects `reasoning.summary` (the rulebook's
-/// `reasoning_summary`) gets the effort alone (omp
-/// `resolveReasoningSummaryOption`, `openai-shared.ts:4264-4270`).
+/// `reasoning_summary`) gets the effort alone.
 pub(crate) fn insert_reasoning(
     model: &Model,
     api: &OpenAIResponsesOptions,
@@ -456,12 +455,10 @@ pub(crate) fn insert_reasoning(
 }
 
 /// The `reasoning.effort` of a request without a reasoning effort
-/// (thinking off), after omp's reasoning disable modes
-/// (`catalog/src/compat/resolve.ts:301-318`,
-/// `ai/src/providers/openai-shared.ts:1064-1080`): the model's `off` wire
+/// (thinking off), by the reasoning disable modes: the model's `off` wire
 /// value when it names an effort; `"none"` when the rulebook's
-/// `reasoning_off_none` marks the model (omp `none-effort`); else the
-/// wire value of the lowest level the model offers (omp `lowest-effort`,
+/// `reasoning_off_none` marks the model (`none-effort`); else the
+/// wire value of the lowest level the model offers (`lowest-effort`,
 /// the Responses default). `None` when the map marks `off` unsupported.
 pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
     let map = thinking_level_map(model);
@@ -491,9 +488,7 @@ pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
 /// ([`reasoning_off_effort`]). A host without the explicit off (the
 /// rulebook's `reasoning_off_field`) gets no `reasoning` for `"none"`.
 /// `OpenRouter` (the rulebook's `thinking_format: openrouter`) turns
-/// reasoning off with `reasoning: {enabled: false}` (omp
-/// `openrouter-enabled-false`, `catalog/src/compat/resolve.ts:305-306`,
-/// `ai/src/providers/openai-shared.ts:4302-4306`).
+/// reasoning off with `reasoning: {enabled: false}`.
 pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
     let Some(effort) = reasoning_off_effort(model) else {
         return;
@@ -511,10 +506,7 @@ pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
 
 /// `OpenRouter`'s Anthropic models (the rulebook's
 /// `anthropic_cache_control_prefixes`) get a top-level `cache_control`
-/// while caching is on (omp `maybeAddOpenRouterAnthropicCacheControl`,
-/// `ai/src/providers/openai-responses.ts:674-682`; `cacheControlFormat:
-/// "anthropic"` for `OpenRouter`'s Anthropic models,
-/// `catalog/src/compat/resolve.ts:815`).
+/// while caching is on.
 fn insert_anthropic_cache_control(
     model: &Model,
     cache_retention: CacheRetention,

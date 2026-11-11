@@ -504,14 +504,12 @@ impl SessionUi {
             }
             // A press that stops running work (the turn, a compaction, a
             // user bash) only stops it: the tree and clear actions arm on
-            // an idle press alone (omp `handleEscape`,
-            // input-controller.ts:629-682 -- the double-Escape action runs
-            // only once nothing streams), so the second Escape of an
+            // an idle press alone (the double-Escape action runs only once
+            // nothing streams), so the second Escape of an
             // interrupt never opens the tree over the stopped turn, where
             // the next prompt would land in its search box. The user's
-            // parked messages return to the editor (omp
-            // `restoreQueuedMessagesToEditor({ abort: true })`) instead of
-            // starting the turn the user just stopped. A running worker
+            // parked messages return to the editor instead of starting the
+            // turn the user just stopped. A running worker
             // still arms its pause.
             if self.turn_active || view.compaction.is_some() || self.user_bash_running {
                 if self.worker_running() {

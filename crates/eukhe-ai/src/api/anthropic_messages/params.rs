@@ -1054,7 +1054,7 @@ pub(crate) fn build_params(
         let quirks = Quirks::of(model);
         if options.thinking_enabled == Some(true) {
             if adaptive_thinking(model) {
-                // omp `buildParams`: `display` only where the model takes
+                // `display` only where the model takes
                 // it (Claude 4.7 and later; 4.6 rejects it with a 400).
                 let mut thinking = json!({ "type": "adaptive" });
                 if quirks.thinking_display() == Some(true) {
@@ -1081,7 +1081,7 @@ pub(crate) fn build_params(
                     "thinking".into(),
                     json!({ "type": "enabled", "budget_tokens": budget, "display": display }),
                 );
-                // omp `anthropic-budget-effort` (Opus 4.5): the level rides
+                // Budget thinking with an effort (Opus 4.5): the level rides
                 // along as the effort.
                 if let Some(effort) = options
                     .effort
@@ -1093,11 +1093,11 @@ pub(crate) fn build_params(
             }
         } else if options.thinking_enabled == Some(false) {
             if quirks.between_tools_thinking() == Some(true) {
-                // omp: Sonnet 5.5 rejects `disabled`; `between_tools` is
+                // Sonnet 5.5 rejects `disabled`; `between_tools` is
                 // its lowest setting and pins no effort.
                 params.insert("thinking".into(), json!({ "type": "between_tools" }));
             } else if adaptive_only_thinking(model) && quirks.disabled_thinking() != Some(true) {
-                // omp: an adaptive-only model rejects `disabled`; an
+                // An adaptive-only model rejects `disabled`; an
                 // omitted `thinking` is adaptive, so the lowest effort is
                 // pinned.
                 params.insert("output_config".into(), json!({ "effort": "low" }));

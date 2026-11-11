@@ -115,7 +115,7 @@ async fn sends_thinking_type_disabled_for_budget_based_reasoning_models_when_thi
     assert_eq!(payload.get("output_config"), None);
 }
 
-/// omp: an adaptive-only model rejects `disabled`; thinking off omits
+/// An adaptive-only model rejects `disabled`; thinking off omits
 /// `thinking` and pins the lowest effort.
 #[tokio::test]
 async fn pins_the_lowest_effort_for_adaptive_reasoning_models_when_thinking_is_off() {

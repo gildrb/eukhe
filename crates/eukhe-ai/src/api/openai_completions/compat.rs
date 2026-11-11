@@ -90,10 +90,8 @@ fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
     })
 }
 
-/// omp: a Kimi model always sends its output cap (catalog
-/// `compat/resolve.ts` `alwaysSendMaxTokens: facts.is("kimi")`, applied in
-/// `ai/src/providers/openai-shared.ts` `resolveOpenAIOutputTokenParam`),
-/// even where the cap would otherwise be left to the provider.
+/// A Kimi model always sends its output cap, even where the cap would
+/// otherwise be left to the provider.
 pub(crate) fn always_sends_max_tokens(model: &Model) -> bool {
     model.id.to_ascii_lowercase().contains("kimi")
 }

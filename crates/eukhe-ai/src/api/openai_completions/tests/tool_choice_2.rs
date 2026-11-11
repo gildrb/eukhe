@@ -492,8 +492,8 @@ async fn replays_xiaomi_mimo_assistant_tool_calls_with_empty_reasoning_content_w
         replayed_assistant,
         &json!({ "role": "assistant", "reasoning_content": "" }),
     );
-    // omp: MiMo on the Xiaomi hosts takes the thinking object alone
-    // (catalog `compat/resolve.ts` `supportsReasoningEffort: !isXiaomiMimo`).
+    // MiMo on the Xiaomi hosts takes the thinking object alone (no
+    // `reasoning_effort`).
     assert_eq!(params["thinking"], json!({ "type": "enabled" }));
     assert!(params.get("reasoning_effort").is_none());
 }
@@ -606,9 +606,9 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
     assert!(messages[0].get("reasoning").is_none());
 }
 
-/// omp: the `OpenCode` hosts speak the openai dialect (catalog
-/// `compat/resolve.ts`: the thinking object is for Moonshot-native Kimi,
-/// Z.AI, Zhipu and Xiaomi `MiMo` only), so Kimi K2.6 there sends no
+/// The `OpenCode` hosts speak the openai dialect (the thinking object is
+/// for Moonshot-native Kimi, Z.AI, Zhipu and Xiaomi `MiMo` only), so Kimi
+/// K2.6 there sends no
 /// thinking object; off is its lowest offered effort.
 #[tokio::test]
 async fn sends_the_lowest_effort_for_opencode_kimi_k2_6_when_thinking_is_off() {
@@ -671,10 +671,8 @@ async fn assert_sends_max_tokens(model: &crate::types::Model) {
     );
 }
 
-/// omp: the `OpenCode` hosts take `max_completion_tokens` (catalog
-/// `compat/resolve.ts` `useMaxTokens` does not name them; only the Go
-/// gateway's `DeepSeek` V4 Flash/Pro lanes take `max_tokens`,
-/// `providers/opencode-go.kdl`).
+/// The `OpenCode` hosts take `max_completion_tokens` (only the Go gateway's
+/// `DeepSeek` V4 Flash/Pro lanes take `max_tokens`).
 #[tokio::test]
 async fn sends_max_completion_tokens_for_opencode_completions_models() {
     for model in [

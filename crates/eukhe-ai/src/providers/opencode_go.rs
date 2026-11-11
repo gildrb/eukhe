@@ -11,9 +11,9 @@ use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
 use crate::types::{Model, ModelCompat, OpenAIResponsesCompat};
 
-/// omp's `api-routes provider="opencode-go"` (`route "openai-responses"
-/// exact="deepseek-v4-flash"`, `catalog/src/compat/rules/runtime/behavior.kdl:294-304`,
-/// gateway-verified 2026-08-08): `DeepSeek` V4 Flash rides the gateway's
+/// The API route of `opencode-go` (`deepseek-v4-flash` exactly, to
+/// `openai-responses`; gateway-verified 2026-08-08): `DeepSeek` V4 Flash
+/// rides the gateway's
 /// Responses endpoint, whatever API its catalog entry names.
 fn responses_route(model: &Model) -> Option<Model> {
     if model.id != "deepseek-v4-flash" {
