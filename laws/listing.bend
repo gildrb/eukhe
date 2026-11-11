@@ -452,6 +452,34 @@ def sp_blank(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>) -> List<&2, Ls.Obs>:
         case Ls.Obs{+e, c, ts}:
           sp_blank.o(sp_skip(sp_pick(e, all)), e, c, ts) <> sp_blank(rest, all)
 
+# the verdict at place k of ps (from 0), if any
+def sp_nth(ps: List<&2, Ls.Pick>, k: Nat) -> Maybe<&2, Ls.Pick>:
+  match ps:
+    case Nil{}:
+      None{}
+    case p <> rest:
+      match k:
+        case 0n:
+          Some{p}
+        case 1n+j:
+          sp_nth(rest, j)
+
+# the verdict m lists n as a storage
+def sp_is_store.at(+n: String, m: Maybe<&2, Ls.Pick>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      sp_is_store(n, p)
+
+# the verdict m lists n as a legacy file
+def sp_is_legacy.at(+n: String, m: Maybe<&2, Ls.Pick>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      sp_is_legacy(n, p)
+
 # Laws: the listing (R5, R6, R7)
 # ------------------------------
 
@@ -459,8 +487,7 @@ def sp_blank(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>) -> List<&2, Ls.Obs>:
 # of the sessions directory, in order, each about its own entry: a
 # storage only for a directory that holds main.jsonl, is not hidden and
 # has the id as its name; a legacy file only for the file `<id>.jsonl`
-# (with the names of a directory listing all distinct, this and
-# scan_lists_stores / scan_lists_legacy fix every verdict)
+# (which verdict each entry gets: scan_verdict_at_entry)
 # EXCLUDES: an entry lost, moved or answered twice, a verdict about
 #   another entry, a hidden or main-less directory or a symlink or a Raw
 #   name listed, a stem cut wrong
@@ -488,6 +515,19 @@ law scan_lists_legacy:
   for +es: List<&2, Sg.Seen>
   for +n: String
   {sp_has_legacy(n, Ls.scan(es)) == Bool.and(sp_file_named(n, es), sp_legacy_free(n, es)) : Bool}
+
+# LAW scan_verdict_at_entry (R5): the verdict at each entry of the sessions directory, whatever the other entries are named (duplicate names included, so no distinct-names premise is needed): with the entry e at place k (es = pre ++ [e] ++ post, k the length of pre), the verdict at place k lists an id n as a storage exactly when e is a directory that holds main.jsonl, is not hidden and is named n, and as a legacy file exactly when e is the file `<n>.jsonl`, n is not empty, "." or "..", and no entry of es is named n; it lists no other id (so a skipped entry gets no verdict that lists anything)
+# EXCLUDES: a verdict given to the wrong place (a storage or legacy file
+#   listed at the place of another entry that has its name), an entry
+#   whose verdict depends on where it stands, a legacy file listed beside
+#   its storage directory at its own place, a storage listed under
+#   another name
+law scan_verdict_at_entry:
+  for +pre: List<&2, Sg.Seen>
+  for +e: Sg.Seen
+  for +post: List<&2, Sg.Seen>
+  for +n: String
+  {(sp_is_store.at(n, sp_nth(Ls.scan(List.append(&2, Sg.Seen, pre, e <> post)), List.length(&2, Sg.Seen, pre))), sp_is_legacy.at(n, sp_nth(Ls.scan(List.append(&2, Sg.Seen, pre, e <> post)), List.length(&2, Sg.Seen, pre)))) == (sp_store_entry(n, e), Bool.and(sp_file_entry(n, e), sp_legacy_free(n, List.append(&2, Sg.Seen, pre, e <> post)))) : Bool & Bool}
 
 # LAW scan_one_location (R5): no id is listed both as a storage and as a legacy file
 # (list_one_location, on the real listing)

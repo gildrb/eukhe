@@ -1172,6 +1172,7 @@ import ./proof/listing/rows_newest_first.bend as PRowsNewestFirst
 import ./proof/listing/scan_names_own_entry.bend as PScanNamesOwnEntry
 import ./proof/listing/scan_lists_stores.bend as PScanListsStores
 import ./proof/listing/scan_lists_legacy.bend as PScanListsLegacy
+import ./proof/listing/scan_verdict_at_entry.bend as PScanVerdictAtEntry
 import ./proof/listing/scan_example.bend as PScanExample
 import ./proof/listing/scan_import_keeps_others.bend as PScanImportKeepsOthers
 import ./proof/listing/scan_import_lists_storage.bend as PScanImportListsStorage
