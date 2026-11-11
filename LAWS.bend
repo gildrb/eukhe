@@ -24,7 +24,6 @@ import ./laws/cvar/entry.bend as CvarEntry
 import ./laws/cvar/resolution.bend as CvarResolution
 import ./laws/cvar/whole.bend as CvarWhole
 import ./laws/cvar_layers.bend as CvarLayers
-import ./laws/cvar_entry.bend as CvarEntrySpec
 import ./laws/director.bend as Director
 import ./laws/infer.bend as Infer
 import ./laws/quirks.bend as Quirks

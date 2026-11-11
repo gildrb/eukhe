@@ -58,7 +58,8 @@ fn the_table_is_a_registry() {
 }
 
 /// The registry request reaches the core and its refusal names the id
-/// (which declaration it refuses is pinned by `cvar_refusal_exact`).
+/// (which declaration it refuses is stated by `cvar_refusal_first_drop`
+/// and `cvar_refusal_accepts`).
 #[test]
 fn a_registry_refusal_names_the_cvar() {
     static DUPLICATE: &[Decl] = &[FLAG, LIMIT, FLAG];
@@ -126,8 +127,8 @@ fn a_choice_list_admits_only_its_options() {
 
 /// The document, check and values requests reach the core, and the
 /// values they refer to (texts, numbers, defaults) map back (the layering
-/// itself is pinned by `cvar_value_exact`, `cvar_document_exact`,
-/// `cvar_check_exact`).
+/// itself is stated by `cvar_layered_last`, `cvar_value_from_layers`,
+/// `cvar_document_per_cvar`, `cvar_check_fine`).
 #[test]
 fn layers_resolve_default_config_profile_and_sets_in_order() {
     let config = document_sets(
@@ -182,7 +183,8 @@ fn layers_resolve_default_config_profile_and_sets_in_order() {
 }
 
 /// The toggle request reaches the core: each verdict maps back to its
-/// set or its error (the rule is pinned by `cvar_tog_exact`).
+/// set or its error (the rule is stated by `cvar_tog_flips`,
+/// `cvar_tog_not_bool`, `cvar_tog_global`, `cvar_tog_undeclared`).
 #[test]
 fn a_toggle_flips_a_bool_and_names_why_it_cannot() {
     let mut cvars = Cvars::new(&TEST_REGISTRY, Sets::default());
@@ -212,7 +214,8 @@ fn a_toggle_flips_a_bool_and_names_why_it_cannot() {
 }
 
 /// The written request reaches the core and its sets map back to their
-/// ids and values (which sets is pinned by `cvar_written_exact`).
+/// ids and values (which sets is stated by `cvar_written_one` and
+/// `cvar_written_append`).
 #[test]
 fn the_written_sets_map_back_to_their_values() {
     let mut agent = Cvars::new(&TEST_REGISTRY, Sets::default());

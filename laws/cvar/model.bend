@@ -9,6 +9,37 @@ import ../../bend/cvar.bend as Cv
 # any declarations (duplicate ids, wrong defaults), any config.cfg, any
 # family of agents with any profiles and sets (wrong types, Global cvars,
 # undeclared ids), any alias table.
+#
+# Requirements (stated: bend/cvar.bend header, crates/eukhe-bend/src/
+# rules/cvar.rs and cvar_layers.rs, crates/eukhe-core/src/settings/cvar;
+# laws/cvar/resolution.bend, whole.bend and entry.bend cite them):
+# R1  a cvar's declaration is its first declaration; the registry keeps,
+#     of each id, its first declaration whose default has its type, in
+#     order, and nothing else.
+# R2  the registry's refusal names the first declaration it drops and why
+#     (an id declared before; else a default of the wrong type).
+# R3  values come in layers, a later layer winning: default < config.cfg
+#     < each agent of the family chain, root first, its profile, then its
+#     own sets; a subagent starts from its parent's values.
+# R4  a set counts only for a declared cvar, with a value of its type,
+#     and in an agent's layers only for a Local cvar (a Global cvar has
+#     one value per family); the verdict on a set says which rule fails.
+# R5  a toggle flips the Bool value the agent has (inherited included)
+#     and nothing else; its verdict says why it cannot.
+# R6  an agent writes (persist) or replicates exactly its sets that count
+#     of cvars with that flag, in order.
+# R7  the config sets of a settings document: per declared cvar, in the
+#     order of its first declaration, the value its source sets (the
+#     merged document for a Local cvar, the global one for a Global cvar).
+# R8  the model write Cv.save of a setting into the global config.cfg
+#     reads back, keeps every other cvar, and leaves one set of the cvar.
+# R9  an expansion runs a run's alias body (the first alias of the name),
+#     keeps every set and toggle, in order; a missing alias is unknown, a
+#     nest deeper than the table a cycle; the first error stops it.
+# R10 a key press runs the commands of the key's first bind, else nothing.
+# R11 the entries bend/ffi_cvar.bend and bend/ffi_cvar_layers.bend answer
+#     every input as their grammar says (laws/cvar/entry.bend; R1, R2 of
+#     laws/cvar_layers.bend).
 
 # LAW cvar_registry_unique: the registry holds each id once: a second declaration is rejected
 law cvar_registry_unique:

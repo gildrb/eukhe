@@ -5,114 +5,214 @@ import ../../bend/cvar.bend as Cv
 import ../../bend/ffi_cvar.bend as FCv
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
-import ./model.bend as CvarModel
 
 # ---- cvar expansion ----
 
-# This section closes the model's section (laws/cvar/model.bend) and lives
-# here so that one module holds both the spec of the expansion and the
-# wire's fit tests: laws/cvar_entry.bend reads both under one alias.
+# This section closes the model's section (laws/cvar/model.bend): the
+# alias table and the key binds (R9, R10 of laws/cvar/model.bend), stated
+# from the requirement (crates/eukhe-bend/src/rules/cvar.rs `expand`: a
+# run of an alias runs the body of its first alias; a run of an alias that
+# does not exist is unknown; the first error, left to right, stops it; a
+# press runs the commands of its key's first bind), never by a copy of the
+# model's depth-bounded walk. The premises are the laws' own checks on the
+# table, never the model's lookups.
 
-# The expansion and a press, whole
-# --------------------------------
-# Written from the requirement (crates/eukhe-bend/src/rules/cvar.rs
-# `expand`: a run of an alias runs its body; a nest deeper than the table
-# is a cycle, named by the run at which it ran out; a run of an alias that
-# does not exist is unknown; the first error, left to right, stops it),
-# never calling the model. The laws above pin properties; these pin every
-# expansion, press, body and bind.
-
-def spec_body.pick(hit: Bool, b: List<&2, Cv.Cmd>, r: List<&2, Cv.Cmd>) -> List<&2, Cv.Cmd>:
-  match hit:
-    case True{}:
-      b
-    case False{}:
-      r
-
-# the body of the first alias named n, else the run of a missing alias
-def spec_body(as: List<&2, Cv.Alias>, +n: Nat) -> List<&2, Cv.Cmd>:
+# no alias of as is named n
+def spec_no_alias(as: List<&2, Cv.Alias>, +n: Nat) -> Bool:
   match as:
     case Nil{}:
-      [Cv.CGone{n}]
+      True{}
     case Cv.Alias{m, b} <> rest:
-      spec_body.pick(Nat.is_eq(m, n), b, spec_body(rest, n))
+      Bool.and(Bool.not(Nat.is_eq(m, n)), spec_no_alias(rest, n))
 
-# cs expanded with d levels of alias nesting left: a command that runs no
-# alias stays; a run runs the alias's body one level deeper, or is a cycle
-# with no level left; a run of a missing alias is unknown; the commands of
-# the parts in order, the first error stopping the rest (cvar_cat)
-def spec_expand.go(d: Nat, cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> Cv.Exp:
-  match d:
-    case 0n:
-      match cs:
-        case Nil{}:
-          Cv.Flat{Nil{}}
-        case c <> rest:
-          match c:
-            case Cv.CSet{i, v}:
-              CvarModel.cvar_cat(Cv.Flat{[Cv.CSet{i, v}]}, spec_expand.go(0n, rest, as))
-            case Cv.CToggle{i}:
-              CvarModel.cvar_cat(Cv.Flat{[Cv.CToggle{i}]}, spec_expand.go(0n, rest, as))
-            case Cv.CRun{n}:
-              Cv.Cycle{n}
-            case Cv.CGone{n}:
-              Cv.Unknown{n}
-    case 1n+(+e):
-      match cs:
-        case Nil{}:
-          Cv.Flat{Nil{}}
-        case c <> rest:
-          match c:
-            case Cv.CSet{i, v}:
-              CvarModel.cvar_cat(Cv.Flat{[Cv.CSet{i, v}]}, spec_expand.go(1n+e, rest, as))
-            case Cv.CToggle{i}:
-              CvarModel.cvar_cat(Cv.Flat{[Cv.CToggle{i}]}, spec_expand.go(1n+e, rest, as))
-            case Cv.CRun{+n}:
-              CvarModel.cvar_cat(spec_expand.go(e, spec_body(as, n), as), spec_expand.go(1n+e, rest, as))
-            case Cv.CGone{n}:
-              Cv.Unknown{n}
+# the command c sets or toggles a cvar
+def spec_sets(c: Cv.Cmd) -> Bool:
+  match c:
+    case Cv.CSet{i, v}:
+      True{}
+    case Cv.CToggle{i}:
+      True{}
+    case Cv.CRun{n}:
+      False{}
+    case Cv.CGone{n}:
+      False{}
 
-# cs expanded with the table as: the top level and one level per alias
-def spec_expand(cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> Cv.Exp:
-  spec_expand.go(1n+List.length(&2, Cv.Alias, as), cs, as)
+# every command of cs sets or toggles a cvar: none runs an alias
+def spec_sets_only(cs: List<&2, Cv.Cmd>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      Bool.and(spec_sets(c), spec_sets_only(rest))
 
-def spec_bound.pick(hit: Bool, c: List<&2, Cv.Cmd>, r: List<&2, Cv.Cmd>) -> List<&2, Cv.Cmd>:
+# no bind of bs is for key k
+def spec_no_bind(bs: List<&2, Cv.KeyBind>, +k: Nat) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case Cv.KeyBind{j, c} <> rest:
+      Bool.and(Bool.not(Nat.is_eq(j, k)), spec_no_bind(rest, k))
+
+# LAW alias_sets_stay: a list of commands that only set or toggle cvars expands to exactly itself, in order, whatever the alias table
+# EXCLUDES: a set or toggle lost, added, reordered or changed by the
+#   expansion, a list without runs refused or reported as a cycle
+law alias_sets_stay:
+  for +cs: List<&2, Cv.Cmd>
+  for +as: List<&2, Cv.Alias>
+  for only: {spec_sets_only(cs) == True{} : Bool}
+  {Cv.expand(cs, as) == Cv.Flat{cs} : Cv.Exp}
+
+# LAW alias_gone_reported: a list whose first command names a missing alias (CGone n) expands to "unknown n", whatever follows it and whatever the table
+# EXCLUDES: a missing alias skipped, reported under another name, or a
+#   later command looked at after it
+law alias_gone_reported:
+  for +n: Nat
+  for +rest: List<&2, Cv.Cmd>
+  for +as: List<&2, Cv.Alias>
+  {Cv.expand(Cv.CGone{n} <> rest, as) == Cv.Unknown{n} : Cv.Exp}
+
+# LAW alias_runs_first_of_name: a run of alias n runs the body of the first alias named n: in pre ++ [Alias{n, b}] ++ post, where no alias of pre is named n and b only sets or toggles cvars, [run n] expands to exactly b, whatever post holds (a later alias named n included)
+# EXCLUDES: a later alias of the name used, an alias of another name run,
+#   a body lost, reordered or changed
+law alias_runs_first_of_name:
+  for +pre: List<&2, Cv.Alias>
+  for +n: Nat
+  for +b: List<&2, Cv.Cmd>
+  for +post: List<&2, Cv.Alias>
+  for fresh: {spec_no_alias(pre, n) == True{} : Bool}
+  for only: {spec_sets_only(b) == True{} : Bool}
+  {Cv.expand([Cv.CRun{n}], List.append(&2, Cv.Alias, pre, Cv.Alias{n, b} <> post)) == Cv.Flat{b} : Cv.Exp}
+
+# LAW alias_missing_unknown: a run of a name no alias of the table has expands to "unknown", naming it
+# EXCLUDES: a run of a missing alias that runs nothing, runs another
+#   alias, or is reported as a cycle or under another name
+law alias_missing_unknown:
+  for +n: Nat
+  for +as: List<&2, Cv.Alias>
+  for none: {spec_no_alias(as, n) == True{} : Bool}
+  {Cv.expand([Cv.CRun{n}], as) == Cv.Unknown{n} : Cv.Exp}
+
+def spec_alias.pick(hit: Bool, b: List<&2, Cv.Cmd>, r: Maybe<&2, List<&2, Cv.Cmd>>) -> Maybe<&2, List<&2, Cv.Cmd>>:
   match hit:
     case True{}:
-      c
+      Some{b}
     case False{}:
       r
 
-# the commands of the first bind of key k, else none
-def spec_bound(bs: List<&2, Cv.KeyBind>, +k: Nat) -> List<&2, Cv.Cmd>:
-  match bs:
+# the body of the first alias named n in as, if any (the premises' own
+# reading of the table: which alias a name means)
+def spec_alias(as: List<&2, Cv.Alias>, +n: Nat) -> Maybe<&2, List<&2, Cv.Cmd>>:
+  match as:
     case Nil{}:
-      Nil{}
-    case Cv.KeyBind{j, c} <> rest:
-      spec_bound.pick(Nat.is_eq(j, k), c, spec_bound(rest, k))
+      None{}
+    case Cv.Alias{m, b} <> rest:
+      spec_alias.pick(Nat.is_eq(m, n), b, spec_alias(rest, n))
 
-# a press of key k: its commands expanded with the table as
-def spec_press(+bs: List<&2, Cv.KeyBind>, +k: Nat, +as: List<&2, Cv.Alias>) -> Cv.Exp:
-  spec_expand(spec_bound(bs, k), as)
-
-# LAW alias_expand_exact: every expansion is the spec's: a command that runs no alias stays, a run runs the body of the first alias of its name one nesting level deeper, a nest deeper than the table is a cycle named by the run at which it ran out, a run of a missing alias is unknown, and the first error, left to right, is the outcome; the body of an alias is the first one's of its name, else the run of a missing alias
-# EXCLUDES: a command lost, added, reordered or changed, a cycle or an
-#   unknown alias reported otherwise, a nesting bound other than the
-#   table's size, a later alias of a name used
-law alias_expand_exact:
-  for +cs: List<&2, Cv.Cmd>
+# LAW alias_runs_nested: a run of an alias whose body runs another alias expands that alias's body in place: when the first alias named a has the body ps ++ [run b] and the first alias named b has the body qs, where ps and qs only set or toggle (so b is not a), a run of a expands to exactly ps ++ qs, whatever else the table holds and wherever the two aliases stand in it
+# EXCLUDES: a nested run lost, run before the outer commands, refused for
+#   a nesting bound too small (a false cycle), or run with a later alias
+#   of the inner name
+law alias_runs_nested:
   for +as: List<&2, Cv.Alias>
-  for +n: Nat
-  {Cv.expand(cs, as) == spec_expand(cs, as) : Cv.Exp} & {Cv.body(as, n) == spec_body(as, n) : List<&2, Cv.Cmd>}
+  for +a: Nat
+  for +b: Nat
+  for +ps: List<&2, Cv.Cmd>
+  for +qs: List<&2, Cv.Cmd>
+  for fp: {spec_sets_only(ps) == True{} : Bool}
+  for fq: {spec_sets_only(qs) == True{} : Bool}
+  for ha: {spec_alias(as, a) == Some{List.append(&2, Cv.Cmd, ps, [Cv.CRun{b}])} : Maybe<&2, List<&2, Cv.Cmd>>}
+  for hb: {spec_alias(as, b) == Some{qs} : Maybe<&2, List<&2, Cv.Cmd>>}
+  {Cv.expand([Cv.CRun{a}], as) == Cv.Flat{List.append(&2, Cv.Cmd, ps, qs)} : Cv.Exp}
 
-# LAW bind_press_exact: every press of a key is the spec's: the commands of the key's first bind (none for an unbound key), expanded
-# EXCLUDES: a later bind of a key used, a bind of another key run, an
-#   unbound key that runs anything
-law bind_press_exact:
+# n is one of ns
+def spec_in(ns: List<&2, Nat>, +n: Nat) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case +m <> rest:
+      Bool.or(Nat.is_eq(m, n), spec_in(rest, n))
+
+# cs sets or toggles, then runs an alias named in ns (what follows that
+# run is free)
+def spec_runs_into(cs: List<&2, Cv.Cmd>, +ns: List<&2, Nat>) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case c <> rest:
+      match c:
+        case Cv.CSet{i, v}:
+          spec_runs_into(rest, ns)
+        case Cv.CToggle{i}:
+          spec_runs_into(rest, ns)
+        case Cv.CRun{m}:
+          spec_in(ns, m)
+        case Cv.CGone{m}:
+          False{}
+
+def spec_runs_into.at(m: Maybe<&2, List<&2, Cv.Cmd>>, +ns: List<&2, Nat>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{cs}:
+      spec_runs_into(cs, ns)
+
+# every name of xs has an alias whose first body runs into ns
+def spec_closed(+as: List<&2, Cv.Alias>, xs: List<&2, Nat>, +ns: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(spec_runs_into.at(spec_alias(as, x), ns), spec_closed(as, rest, ns))
+
+# the expansion is a cycle named in ns
+def spec_cycle_in(e: Cv.Exp, +ns: List<&2, Nat>) -> Bool:
+  match e:
+    case Cv.Flat{cs}:
+      False{}
+    case Cv.Cycle{n}:
+      spec_in(ns, n)
+    case Cv.Unknown{n}:
+      False{}
+
+# LAW alias_cycle_closed: any cycle of aliases, of any length, is reported as a cycle named by one of its aliases: when every name of ns has an alias whose first body sets or toggles and then runs an alias named in ns (a cycle through the names of ns, whatever follows each run, whatever else the table holds), a run of any name of ns expands to a cycle named in ns
+# EXCLUDES: a cycle through two or more aliases expanded without end,
+#   reported as a flat list or an unknown alias, or named after an alias
+#   outside the cycle
+law alias_cycle_closed:
+  for +as: List<&2, Cv.Alias>
+  for +ns: List<&2, Nat>
+  for +n: Nat
+  for one: {spec_in(ns, n) == True{} : Bool}
+  for closed: {spec_closed(as, ns, ns) == True{} : Bool}
+  {spec_cycle_in(Cv.expand([Cv.CRun{n}], as), ns) == True{} : Bool}
+
+# LAW alias_nesting_example: anchor: the premises of alias_runs_nested and alias_cycle_closed hold of real tables: alias 3 = [toggle 1, run 4], alias 4 = [toggle 2] runs as [toggle 1, toggle 2]; aliases 0 = [toggle 9, run 1] and 1 = [run 0, toggle 8] beside an unrelated alias 2 close {0, 1}, and a run of 0 is the cycle at 0
+# EXCLUDES: vacuous alias_runs_nested or alias_cycle_closed (premises no
+#   table meets)
+law alias_nesting_example:
+  {(spec_alias([Cv.Alias{3n, [Cv.CToggle{1n}, Cv.CRun{4n}]}, Cv.Alias{4n, [Cv.CToggle{2n}]}], 3n), Cv.expand([Cv.CRun{3n}], [Cv.Alias{3n, [Cv.CToggle{1n}, Cv.CRun{4n}]}, Cv.Alias{4n, [Cv.CToggle{2n}]}])) == (Some{[Cv.CToggle{1n}, Cv.CRun{4n}]}, Cv.Flat{[Cv.CToggle{1n}, Cv.CToggle{2n}]}) : Maybe<&2, List<&2, Cv.Cmd>> & Cv.Exp} &
+  {(spec_closed([Cv.Alias{0n, [Cv.CToggle{9n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{0n}, Cv.CToggle{8n}]}, Cv.Alias{2n, [Cv.CToggle{7n}]}], [0n, 1n], [0n, 1n]), Cv.expand([Cv.CRun{0n}], [Cv.Alias{0n, [Cv.CToggle{9n}, Cv.CRun{1n}]}, Cv.Alias{1n, [Cv.CRun{0n}, Cv.CToggle{8n}]}, Cv.Alias{2n, [Cv.CToggle{7n}]}])) == (True{}, Cv.Cycle{0n}) : Bool & Cv.Exp}
+
+# LAW bind_absent_runs_nothing: a press of a key no bind of the table names runs nothing
+# EXCLUDES: an unbound key that runs a default or another key's commands
+law bind_absent_runs_nothing:
   for +bs: List<&2, Cv.KeyBind>
   for +k: Nat
   for +as: List<&2, Cv.Alias>
-  {Cv.press(bs, k, as) == spec_press(bs, k, as) : Cv.Exp} & {Cv.bound(bs, k) == spec_bound(bs, k) : List<&2, Cv.Cmd>}
+  for +none: {spec_no_bind(bs, k) == True{} : Bool}
+  {Cv.press(bs, k, as) == Cv.Flat{Nil{}} : Cv.Exp}
+
+# LAW bind_other_key_skipped: a bind of another key does not change a press: a press of k on KeyBind{j, c} <> bs, j not k, is the press of k on bs (with bind_first_wins and bind_absent_runs_nothing: a press runs the commands of its key's first bind, else nothing)
+# EXCLUDES: a press that runs the first bind whatever its key, or a bind
+#   of another key
+law bind_other_key_skipped:
+  for +j: Nat
+  for +c: List<&2, Cv.Cmd>
+  for +bs: List<&2, Cv.KeyBind>
+  for +k: Nat
+  for +as: List<&2, Cv.Alias>
+  for other: {Nat.is_eq(j, k) == False{} : Bool}
+  {Cv.press(Cv.KeyBind{j, c} <> bs, k, as) == Cv.press(bs, k, as) : Cv.Exp}
 
 # ---- cvar_entry ----
 
