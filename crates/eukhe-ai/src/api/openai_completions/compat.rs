@@ -23,6 +23,9 @@ pub(crate) struct ResolvedCompat {
     pub(crate) supports_usage_in_streaming: bool,
     pub(crate) supports_finish_reason: bool,
     pub(crate) max_tokens_field: MaxTokensField,
+    /// The host takes an output cap up to the model's max (omp
+    /// `clampOutputToModelMax`); else at most 64000.
+    pub(crate) clamp_output_to_model_max: bool,
     pub(crate) requires_tool_result_name: bool,
     pub(crate) requires_assistant_after_tool_result: bool,
     pub(crate) requires_thinking_as_text: bool,
@@ -80,7 +83,7 @@ pub(crate) fn is_custom_qwen_template_model(model: &Model) -> bool {
 }
 
 /// Whether `model`'s id starts with one of `prefixes`.
-fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
+pub(crate) fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
     prefixes.is_some_and(|prefixes| {
         prefixes
             .iter()
@@ -111,6 +114,7 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
         max_tokens_field: quirks
             .max_tokens_field()
             .unwrap_or(MaxTokensField::MaxCompletionTokens),
+        clamp_output_to_model_max: crate::api::simple_options::clamps_output_to_model_max(model),
         requires_tool_result_name: false,
         requires_assistant_after_tool_result: false,
         requires_thinking_as_text: false,
@@ -163,6 +167,9 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .supports_finish_reason
             .unwrap_or(detected.supports_finish_reason),
         max_tokens_field: compat.max_tokens_field.unwrap_or(detected.max_tokens_field),
+        clamp_output_to_model_max: compat
+            .clamp_output_to_model_max
+            .unwrap_or(detected.clamp_output_to_model_max),
         requires_tool_result_name: compat
             .requires_tool_result_name
             .unwrap_or(detected.requires_tool_result_name),

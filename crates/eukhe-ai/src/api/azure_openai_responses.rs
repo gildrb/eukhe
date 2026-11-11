@@ -25,7 +25,9 @@ use super::openai_responses_shared::{
     ConvertResponsesToolsOptions, GrammarToolInputProperties, OpenAIResponsesStreamOptions,
 };
 use super::openai_sdk::{OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions};
-use super::simple_options::{build_base_options, resolve_sampling_params};
+use super::simple_options::{
+    build_base_options, clamps_output_to_model_max, openai_output_cap, resolve_sampling_params,
+};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::clamp_thinking_level;
@@ -155,6 +157,7 @@ fn build_params(
     params.insert("store".to_owned(), json!(false));
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
+        let max_tokens = openai_output_cap(model, max_tokens, clamps_output_to_model_max(model));
         params.insert(
             "max_output_tokens".to_owned(),
             json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),

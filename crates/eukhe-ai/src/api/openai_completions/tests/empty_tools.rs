@@ -151,6 +151,8 @@ async fn sends_explicit_max_tokens() {
     assert_eq!(params.get("max_completion_tokens"), Some(&json!(1234)));
 }
 
+/// The room is the window less the prompt (2286 estimated tokens, a tenth
+/// on top, 16 of framing) and omp's 64 tokens of headway.
 #[tokio::test]
 async fn clamps_default_max_tokens_to_remaining_context() {
     let model = gpt_4o_mini_completions(&json!({ "contextWindow": 10000, "maxTokens": 8000 }));
@@ -160,7 +162,7 @@ async fn clamps_default_max_tokens_to_remaining_context() {
     let params = simple_payload(&model, &ctx, None).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(7405)));
 }
 
 #[tokio::test]
@@ -169,10 +171,10 @@ async fn clamps_explicit_max_tokens_to_remaining_context() {
     let ctx = context(json!({
         "messages": [{ "role": "user", "content": "x".repeat(8000), "timestamp": 1 }],
     }));
-    let params = simple_payload(&model, &ctx, Some(7000)).await;
+    let params = simple_payload(&model, &ctx, Some(7800)).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(7405)));
 }
 
 /// eukhe addition: a custom model on a loopback OpenAI-compatible server

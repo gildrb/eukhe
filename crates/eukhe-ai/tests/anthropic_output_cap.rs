@@ -97,7 +97,10 @@ async fn a_budget_mode_request_sends_the_catalog_max_and_leaves_the_answer_4000_
 async fn a_model_the_claude_api_stops_at_the_window_is_not_shrunk() {
     let context = user(&"word ".repeat(2_000));
     let prompt = estimate_context_tokens(context.messages()).tokens;
-    let window = prompt + 4096 + 10_000;
+    // The request's prompt size as omp sizes it: a tenth on top of the
+    // local estimate, 16 tokens of framing for the one message; then 64
+    // tokens of headway.
+    let window = prompt + prompt.div_ceil(10) + 16 + 64 + 10_000;
     let shrunk = payload(
         &claude("claude-opus-4-1", window, 32_000),
         &context,

@@ -20,7 +20,9 @@ use super::openai_responses_shared::{
 use super::openai_sdk::{
     stream_failure_of, OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions,
 };
-use super::simple_options::{build_base_options, resolve_sampling_params};
+use super::simple_options::{
+    build_base_options, clamps_output_to_model_max, openai_output_cap, resolve_sampling_params,
+};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::{clamp_thinking_level, thinking_level_map};
@@ -352,6 +354,8 @@ fn build_params(
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
         if compat.supports_max_output_tokens && !omit_unsupported_fields {
+            let max_tokens =
+                openai_output_cap(model, max_tokens, clamps_output_to_model_max(model));
             params.insert(
                 "max_output_tokens".to_owned(),
                 json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),

@@ -97,7 +97,7 @@
     { "layer": "host", "target": "chutes", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens" } },
     { "layer": "host", "target": "cloudflare-ai-gateway", "set": { "stops_output_at_window": false, "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "long_cache_retention": false } },
     { "layer": "host", "target": "cloudflare-workers-ai", "set": { "store": false, "developer_role": false, "long_cache_retention": false } },
-    { "layer": "host", "target": "deepseek", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "thinking_format": "deepseek", "reasoning_content_on_assistant": true, "list_models": "openai", "usage": "deepseek" } },
+    { "layer": "host", "target": "deepseek", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "clamp_output_to_model_max_prefixes": ["deepseek-flash", "deepseek-v4-flash"], "thinking_format": "deepseek", "reasoning_content_on_assistant": true, "list_models": "openai", "usage": "deepseek" } },
     { "layer": "host", "target": "github-copilot", "set": { "stops_output_at_window": false, "service_tier_field": false, "reasoning_off_field": false } },
     { "layer": "host", "target": "google", "set": { "count_tokens": "google", "list_models": "google", "embed": "google", "web_search": "google" } },
     { "layer": "host", "target": "llama-cpp", "set": { "count_tokens": "llama-cpp", "list_models": "openai", "embed": "openai", "tokenize": "llama-cpp", "prompt_progress": true } },
@@ -109,12 +109,12 @@
     { "layer": "host", "target": "openai-codex-responses", "set": { "strict_tools": true, "compound_tool_call_ids": true } },
     { "layer": "host", "target": "opencode", "set": { "stops_output_at_window": false, "store": false, "developer_role": false, "compound_tool_call_ids": true } },
     { "layer": "host", "target": "opencode-go", "set": { "stops_output_at_window": false, "store": false, "developer_role": false, "reasoning_content_signature": true } },
-    { "layer": "host", "target": "openrouter", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "anthropic_cache_control_prefixes": ["anthropic/"], "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
-    { "layer": "host", "target": "openrouter-url", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
+    { "layer": "host", "target": "openrouter", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "default_output_cap": false, "default_output_cap_prefixes": ["moonshotai/kimi-"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "anthropic_cache_control_prefixes": ["anthropic/"], "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
+    { "layer": "host", "target": "openrouter-url", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "default_output_cap": false, "default_output_cap_prefixes": ["moonshotai/kimi-"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
     { "layer": "host", "target": "prime-inference", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "anthropic_cache_control_prefixes": ["anthropic/"], "list_models": "openai" } },
     { "layer": "host", "target": "together", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "together", "long_cache_retention": false } },
     { "layer": "host", "target": "xai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "list_models": "openai", "tokenize": "xai", "generate_image": "openai", "encrypted_reasoning": true } },
-    { "layer": "host", "target": "zai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "zai" } }
+    { "layer": "host", "target": "zai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "clamp_output_to_model_max": true, "thinking_format": "zai" } }
   ],
   "service_tiers": [
     { "provider": "openrouter", "api": "openai-completions", "tiers": ["flex", "priority"] },

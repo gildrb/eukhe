@@ -221,6 +221,24 @@ pub enum Directive {
     /// so the output cap is never shrunk to fit the window. No rule: it
     /// does not.
     StopsOutputAtWindow,
+    /// A request without a caller's cap carries the model's max as its
+    /// output cap. `false`: the host leaves that default out, so each of
+    /// its upstreams applies its own max (omp `isOpenRouterHost` in
+    /// `resolveOpenAIOutputTokenParam`); a caller's cap is still sent. No
+    /// rule: it does.
+    DefaultOutputCap,
+    /// Model id prefixes that carry the default output cap on this host
+    /// even when `default_output_cap` is false (omp `alwaysSendMaxTokens`:
+    /// Kimi derives its rate limits from the cap).
+    DefaultOutputCapPrefixes,
+    /// `OpenAI`-family wire APIs: the host takes an output cap up to the
+    /// model's max. `false`: at most 64000 (omp
+    /// `OPENAI_MAX_OUTPUT_TOKENS`). No rule: a local backend does, any
+    /// other host does not (omp `clampOutputToModelMax`).
+    ClampOutputToModelMax,
+    /// Model id prefixes whose output cap goes up to the model's max on
+    /// this host even when `clamp_output_to_model_max` is false.
+    ClampOutputToModelMaxPrefixes,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -264,6 +282,10 @@ impl Directive {
         Self::EncryptedReasoning,
         Self::ReasoningContentSignature,
         Self::StopsOutputAtWindow,
+        Self::DefaultOutputCap,
+        Self::DefaultOutputCapPrefixes,
+        Self::ClampOutputToModelMax,
+        Self::ClampOutputToModelMaxPrefixes,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -313,6 +335,10 @@ impl Directive {
             Self::EncryptedReasoning => "encrypted_reasoning",
             Self::ReasoningContentSignature => "reasoning_content_signature",
             Self::StopsOutputAtWindow => "stops_output_at_window",
+            Self::DefaultOutputCap => "default_output_cap",
+            Self::DefaultOutputCapPrefixes => "default_output_cap_prefixes",
+            Self::ClampOutputToModelMax => "clamp_output_to_model_max",
+            Self::ClampOutputToModelMaxPrefixes => "clamp_output_to_model_max_prefixes",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -376,7 +402,11 @@ impl Directive {
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
             | Self::ReasoningContentSignature
-            | Self::StopsOutputAtWindow => None,
+            | Self::StopsOutputAtWindow
+            | Self::DefaultOutputCap
+            | Self::DefaultOutputCapPrefixes
+            | Self::ClampOutputToModelMax
+            | Self::ClampOutputToModelMaxPrefixes => None,
         }
     }
 
@@ -408,10 +438,13 @@ impl Directive {
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
             | Self::ReasoningContentSignature
-            | Self::StopsOutputAtWindow => ValueKind::Bool,
-            Self::DeveloperRolePrefixes | Self::AnthropicCacheControlPrefixes => {
-                ValueKind::Prefixes
-            }
+            | Self::StopsOutputAtWindow
+            | Self::DefaultOutputCap
+            | Self::ClampOutputToModelMax => ValueKind::Bool,
+            Self::DeveloperRolePrefixes
+            | Self::AnthropicCacheControlPrefixes
+            | Self::DefaultOutputCapPrefixes
+            | Self::ClampOutputToModelMaxPrefixes => ValueKind::Prefixes,
             Self::MaxTokensField => ValueKind::MaxTokensField,
             Self::ThinkingFormat => ValueKind::ThinkingFormat,
             Self::SessionAffinityFormat => ValueKind::SessionAffinityFormat,
@@ -1689,6 +1722,30 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn stops_output_at_window(&self) -> Option<bool> {
         self.flag(Directive::StopsOutputAtWindow)
+    }
+
+    /// [`Directive::DefaultOutputCap`].
+    #[must_use]
+    pub fn default_output_cap(&self) -> Option<bool> {
+        self.flag(Directive::DefaultOutputCap)
+    }
+
+    /// [`Directive::DefaultOutputCapPrefixes`].
+    #[must_use]
+    pub fn default_output_cap_prefixes(&self) -> Option<&'static [String]> {
+        self.prefixes(Directive::DefaultOutputCapPrefixes)
+    }
+
+    /// [`Directive::ClampOutputToModelMax`].
+    #[must_use]
+    pub fn clamp_output_to_model_max(&self) -> Option<bool> {
+        self.flag(Directive::ClampOutputToModelMax)
+    }
+
+    /// [`Directive::ClampOutputToModelMaxPrefixes`].
+    #[must_use]
+    pub fn clamp_output_to_model_max_prefixes(&self) -> Option<&'static [String]> {
+        self.prefixes(Directive::ClampOutputToModelMaxPrefixes)
     }
 
     /// [`Directive::ThinkingBlockBinding`].

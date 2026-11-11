@@ -551,6 +551,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         supports_usage_in_streaming: true,
         supports_finish_reason: true,
         max_tokens_field: MaxTokensField::MaxCompletionTokens,
+        clamp_output_to_model_max: false,
         requires_tool_result_name: false,
         requires_assistant_after_tool_result: false,
         requires_thinking_as_text: false,
