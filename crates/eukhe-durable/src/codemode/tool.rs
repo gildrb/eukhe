@@ -87,8 +87,8 @@ pub struct CodemodeToolOptions {
     /// Groups of tools by name prefix, such as MCP servers, for the
     /// `codemode` section and tool search.
     pub namespaces: Vec<CodemodeNamespace>,
-    /// Estimated tokens the tool declarations in the `codemode` section may
-    /// use.
+    /// Tokens (of the request model's tokenizer) the tool declarations in
+    /// the `codemode` section may use.
     pub inline_budget: usize,
     /// Whether scripts get `models.*`: the model catalog, classifiers, and
     /// image generation.
@@ -186,7 +186,12 @@ pub fn create_codemode_extension(options: CodemodeToolOptions) -> Arc<Extension>
                 })
                 .cloned()
                 .collect();
-            let text = codemode_section(&callable, &shared.namespaces, shared.inline_budget);
+            let text = codemode_section(
+                &callable,
+                &shared.namespaces,
+                shared.inline_budget,
+                &input.tokenizer,
+            );
             async move { Ok(text) }.boxed()
         },
         None,
