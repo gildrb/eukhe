@@ -1,4 +1,4 @@
-//! Embed the Eukhe session engine in-process.
+//! Eukhe SDK: embed the harness in a product, in-process.
 //!
 //! A host that runs sessions in its own process (no daemon, no wire) opens
 //! them here. The facade is thin: the engine's own types are re-exported
