@@ -532,7 +532,7 @@ fn the_shipped_rules_give_the_former_host_and_family_checks() {
         (
             Some(true),
             Some(SessionAffinityFormat::OpenRouter),
-            Some(["anthropic/".to_owned()].as_slice()),
+            Some(["anthropic/".to_owned(), "~anthropic/".to_owned()].as_slice()),
         )
     );
 }

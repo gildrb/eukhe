@@ -28,8 +28,8 @@ use crate::quirks::Quirks;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
     Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders, ProviderResponse,
-    ProviderStreamOptions, SimpleStreamOptions, StopReason, ThinkingLevel, TranscriptContext,
-    Usage,
+    ProviderStreamOptions, SimpleStreamOptions, StopReason, ThinkingFormat, ThinkingLevel,
+    TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -349,6 +349,7 @@ fn build_params(
         }
     }
     params.insert("store".to_owned(), json!(false));
+    insert_anthropic_cache_control(model, cache_retention, &mut params);
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
         if compat.supports_max_output_tokens && !omit_unsupported_fields {
@@ -489,14 +490,55 @@ pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
 /// The `reasoning` of a request without a reasoning effort
 /// ([`reasoning_off_effort`]). A host without the explicit off (the
 /// rulebook's `reasoning_off_field`) gets no `reasoning` for `"none"`.
+/// `OpenRouter` (the rulebook's `thinking_format: openrouter`) turns
+/// reasoning off with `reasoning: {enabled: false}` (omp
+/// `openrouter-enabled-false`, `catalog/src/compat/resolve.ts:305-306`,
+/// `ai/src/providers/openai-shared.ts:4302-4306`).
 pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
     let Some(effort) = reasoning_off_effort(model) else {
         return;
     };
-    if effort == "none" && !model_facts::flag(Quirks::of(model).reasoning_off_field(), true) {
+    let quirks = Quirks::of(model);
+    if quirks.thinking_format() == Some(ThinkingFormat::OpenRouter) {
+        params.insert("reasoning".to_owned(), json!({ "enabled": false }));
+        return;
+    }
+    if effort == "none" && !model_facts::flag(quirks.reasoning_off_field(), true) {
         return;
     }
     params.insert("reasoning".to_owned(), json!({ "effort": effort }));
+}
+
+/// `OpenRouter`'s Anthropic models (the rulebook's
+/// `anthropic_cache_control_prefixes`) get a top-level `cache_control`
+/// while caching is on (omp `maybeAddOpenRouterAnthropicCacheControl`,
+/// `ai/src/providers/openai-responses.ts:674-682`; `cacheControlFormat:
+/// "anthropic"` for `OpenRouter`'s Anthropic models,
+/// `catalog/src/compat/resolve.ts:815`).
+fn insert_anthropic_cache_control(
+    model: &Model,
+    cache_retention: CacheRetention,
+    params: &mut JsonObject,
+) {
+    if cache_retention == CacheRetention::None {
+        return;
+    }
+    let anthropic = Quirks::of(model)
+        .anthropic_cache_control_prefixes()
+        .is_some_and(|prefixes| {
+            prefixes
+                .iter()
+                .any(|prefix| model.id.starts_with(prefix.as_str()))
+        });
+    if !anthropic {
+        return;
+    }
+    let cache_control = if cache_retention == CacheRetention::Long {
+        json!({ "type": "ephemeral", "ttl": "1h" })
+    } else {
+        json!({ "type": "ephemeral" })
+    };
+    params.insert("cache_control".to_owned(), cache_control);
 }
 
 fn new_output(model: &Model) -> AssistantMessage {
