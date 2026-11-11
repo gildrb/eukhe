@@ -4,4 +4,4 @@ import Base
 import ../../laws/theme_model.bend as ThemeModel
 
 def ThemeModel.theme_vals_example():
-  ({==}, {==})
+  {==}

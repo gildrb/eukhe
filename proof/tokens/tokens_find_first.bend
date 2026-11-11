@@ -1,12 +1,45 @@
-# eukhe: the proof of LAW tokens_find_exact
-# Induction on the entries; two tones are equal exactly when their places
-# are (tfe.eq, by cases).
+# eukhe: the proof of LAW tokens_find_first
+# Induction on the entries before t's: each has another tone, so the
+# code's tone test (Tone.eq, equal to tone_same by cases: tff.eq) misses
+# it; at t's entry the test hits (tff.here, by cases).
 
 import Base
 import ../../bend/tokens.bend as Tk
 import ../../laws/tokens.bend as Tokens
 
-def tfe.eq(k: Tk.Tone, t: Tk.Tone) -> {Tk.Tone.eq(k, t) == Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)) : Bool}:
+def tff.BD(b: Bool, t: Type, f: Type) -> Type:
+  match b:
+    case True{}:
+      t
+    case False{}:
+      f
+
+def tff.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
+  %e : tff.BD(_, A, Unit)
+  Unit{}
+
+def tff.and_l(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      tff.absurdF({False{} == True{} : Bool}, h)
+
+def tff.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      tff.absurdF({b == True{} : Bool}, h)
+
+def tff.not_true(b: Bool, e: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case True{}:
+      tff.absurdF({True{} == False{} : Bool}, e)
+    case False{}:
+      {==}
+
+def tff.eq(k: Tk.Tone, t: Tk.Tone) -> {Tk.Tone.eq(k, t) == Tokens.tone_same(k, t) : Bool}:
   match k:
     case Tk.Bg{}:
       match t:
@@ -621,21 +654,54 @@ def tfe.eq(k: Tk.Tone, t: Tk.Tone) -> {Tk.Tone.eq(k, t) == Nat.is_eq(Tokens.idx_
         case Tk.ShadowLatest{}:
           {==}
 
-def tfe.at(b: Bool, -c: Tk.Col, -later: Maybe<&2, Tk.Col>) -> {Maybe.or(&2, Tk.Col, Tk.hit(b, c), later) == Tokens.find_spec.at(b, c, later) : Maybe<&2, Tk.Col>}:
-  match b:
-    case True{}:
+def tff.here(t: Tk.Tone, -c: Tk.Col, -post: List<&2, Tk.Entry>) -> {Tk.find(t, Tk.Entry{t, c} <> post) == Some{c} : Maybe<&2, Tk.Col>}:
+  match t:
+    case Tk.Bg{}:
       {==}
-    case False{}:
+    case Tk.Sidebar{}:
+      {==}
+    case Tk.Raised{}:
+      {==}
+    case Tk.Surface{}:
+      {==}
+    case Tk.Hover{}:
+      {==}
+    case Tk.Primary{}:
+      {==}
+    case Tk.Secondary{}:
+      {==}
+    case Tk.Tertiary{}:
+      {==}
+    case Tk.Hairline{}:
+      {==}
+    case Tk.Scrim{}:
+      {==}
+    case Tk.Danger{}:
+      {==}
+    case Tk.Selection{}:
+      {==}
+    case Tk.Scrollbar{}:
+      {==}
+    case Tk.ShadowNear{}:
+      {==}
+    case Tk.ShadowFar{}:
+      {==}
+    case Tk.ShadowDrawer{}:
+      {==}
+    case Tk.ShadowLatest{}:
       {==}
 
-def tfe.go(+t: Tk.Tone, xs: List<&2, Tk.Entry>) -> {Tk.find(t, xs) == Tokens.find_spec(t, xs) : Maybe<&2, Tk.Col>}:
-  match xs:
+def tff.go(+t: Tk.Tone, +pre: List<&2, Tk.Entry>, +c: Tk.Col, +post: List<&2, Tk.Entry>, +no: {Tokens.absent(t, pre) == True{} : Bool}) -> {Tk.find(t, List.append(&2, Tk.Entry, pre, Tk.Entry{t, c} <> post)) == Some{c} : Maybe<&2, Tk.Col>}:
+  match pre:
     case Nil{}:
-      {==}
-    case Tk.Entry{+k, +c} <> +rest:
-      %Equal.sym(Maybe<&2, Tk.Col>, Tk.find(t, rest), Tokens.find_spec(t, rest), tfe.go(t, rest)) : {Maybe.or(&2, Tk.Col, Tk.hit(Tk.Tone.eq(k, t), c), _) == Tokens.find_spec(t, Tk.Entry{k, c} <> rest) : Maybe<&2, Tk.Col>}
-      %Equal.sym(Bool, Tk.Tone.eq(k, t), Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)), tfe.eq(k, t)) : {Maybe.or(&2, Tk.Col, Tk.hit(_, c), Tokens.find_spec(t, rest)) == Tokens.find_spec(t, Tk.Entry{k, c} <> rest) : Maybe<&2, Tk.Col>}
-      tfe.at(Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)), c, Tokens.find_spec(t, rest))
+      tff.here(t, c, post)
+    case Con{e, rest}:
+      match e:
+        case Tk.Entry{+k, d}:
+          +ne = tff.not_true(Tokens.tone_same(k, t), tff.and_l(Bool.not(Tokens.tone_same(k, t)), Tokens.absent(t, rest), no))
+          +neq = Equal.trans(Bool, Tk.Tone.eq(k, t), Tokens.tone_same(k, t), False{}, tff.eq(k, t), ne)
+          %Equal.sym(Bool, Tk.Tone.eq(k, t), False{}, neq) : {Maybe.or(&2, Tk.Col, Tk.hit(_, d), Tk.find(t, List.append(&2, Tk.Entry, rest, Tk.Entry{t, c} <> post))) == Some{c} : Maybe<&2, Tk.Col>}
+          tff.go(t, rest, c, post, tff.and_r(Bool.not(Tokens.tone_same(k, t)), Tokens.absent(t, rest), no))
 
-def Tokens.tokens_find_exact(t, xs):
-  tfe.go(t, xs)
+def Tokens.tokens_find_first(t, pre, c, post, no):
+  tff.go(t, pre, c, post, no)
