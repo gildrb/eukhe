@@ -12,20 +12,30 @@ import ../base.bend as LawsBase
 # (bend/ffi_approvals.bend over bend/approvals.bend; Rust: crates/
 # eukhe-bend/src/rules/approvals.rs, driven by crates/eukhe-daemon/src/
 # shell_approval.rs). Each law is an open claim about the functions the
-# core runs (FAm.ffi, FAm.open, FAm.step), stated with spec spellers and a
-# reader built only from the wire primitives of bend/wire.bend:
+# core runs (FAm.ffi, FAm.open, FAm.step, and the decoder FAm.get_ev that
+# FAm.step runs), stated with spec spellers built only from the wire
+# primitives of bend/wire.bend (the grammar of the header of
+# bend/ffi_approvals.bend, as the Rust writer crates/eukhe-bend/src/rules/
+# approvals.rs spells it):
 #
 # R1: the call with no input answers the default auto set
 #     (`Am.default_auto`); any other input answers exactly the error form
-#     "approvals: malformed request".
+#     "approvals: malformed request" (approvals_ffi_left_over; the one
+#     input with no text: the anchor approvals_ffi_example; what the set
+#     holds: laws/tools.bend default_auto_is_grantable).
 # R2: the desk opens empty (the first key next) on no input; an open with
 #     input opens the refused state, which answers every step "approvals:
-#     the open was refused".
-# R3: a live desk answers every input that is exactly one event (the
-#     grammar of bend/ffi_approvals.bend, restated by `read_ev`) with the
-#     model desk's step (`Am.dstep`, laws/approvals/desk.bend), spelled: an
-#     ask's key, then the acts; any other input answers exactly the error
-#     form "approvals: malformed event" and keeps the desk.
+#     the open was refused" (approvals_desk_entry_open_refused,
+#     approvals_desk_entry_refused_stays, approvals_desk_entry_history; the
+#     open with no input: the anchor approvals_desk_entry_open).
+# R3: a live desk answers every input that is exactly one event Rust
+#     spells (`spell_ev`, every length and number within the wire) with
+#     the model desk's step (`Am.dstep`, laws/approvals/desk.bend),
+#     spelled: an ask's key, then the acts; any other input answers
+#     exactly the error form "approvals: malformed event" and keeps the
+#     desk (approvals_desk_entry_reads, approvals_desk_entry_answers,
+#     approvals_desk_entry_only_events, approvals_desk_entry_left_over,
+#     approvals_desk_entry_history).
 # Every input is free: any request ids, effects, sessions, answers,
 # detaches, keys, fates, any text, from any desk.
 
@@ -154,165 +164,6 @@ def dk_reply(e: Am.Ev, +n: Nat, r: Am.D & List<&2, Am.Act>) -> FAm.St & String:
   (d2, as) = r
   (FAm.Live{d2}, spell_reply(e, n, as))
 
-# Reader: the events, read with the wire primitives
-# -------------------------------------------------
-
-def read_here(r: Wr.Dec<Nat>) -> Wr.Dec<Am.Here>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Am.Nobody{}, s}
-        case 1n:
-          Wr.Got{Am.GatewayOnly{}, s}
-        case 2n:
-          Wr.Got{Am.Clients{}, s}
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_fate(r: Wr.Dec<Nat>) -> Wr.Dec<Am.Fate>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Am.Runs{}, s}
-        case 1n:
-          Wr.Got{Am.Denied{}, s}
-        case 2n:
-          Wr.Got{Am.Unheard{}, s}
-        case 3n:
-          Wr.Got{Am.GatewayRefused{}, s}
-        case 4n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.parent(id: String, es: List<&2, Nat>, h: Am.Here, r: Wr.Dec<Bool>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{p, s}:
-      Wr.Got{Am.EAsk{id, es, h, p}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.here(id: String, es: List<&2, Nat>, r: Wr.Dec<Am.Here>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{h, s}:
-      read_ask.parent(id, es, h, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.effs(id: String, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{es, s}:
-      read_ask.here(id, es, read_here(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.id(r: Wr.Dec<String>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{id, s}:
-      read_ask.effs(id, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_answer.yes(id: String, r: Wr.Dec<Bool>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{y, s}:
-      Wr.Got{Am.EAnswer{id, y}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_answer.id(r: Wr.Dec<String>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{id, s}:
-      read_answer.yes(id, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_detach.parent(h: Am.Here, r: Wr.Dec<Bool>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{p, s}:
-      Wr.Got{Am.EDetach{h, p}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_detach.here(r: Wr.Dec<Am.Here>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{h, s}:
-      read_detach.parent(h, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cancel.key(r: Wr.Dec<Nat>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{k, s}:
-      Wr.Got{Am.ECancel{k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_back.fate(k: Nat, r: Wr.Dec<Am.Fate>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{f, s}:
-      Wr.Got{Am.EBack{k, f}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_back.key(r: Wr.Dec<Nat>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{k, s}:
-      read_back.fate(k, read_fate(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ev.tag(t: Nat, s: String) -> Wr.Dec<Am.Ev>:
-  match t:
-    case 0n:
-      read_ask.id(Wr.get_str(s))
-    case 1n:
-      read_answer.id(Wr.get_str(s))
-    case 2n:
-      read_detach.here(read_here(Wr.get_nat(s)))
-    case 3n:
-      read_cancel.key(Wr.get_nat(s))
-    case 4n:
-      read_back.key(Wr.get_nat(s))
-    case 5n+u:
-      Wr.Bad{}
-
-def read_ev.go(r: Wr.Dec<Nat>) -> Wr.Dec<Am.Ev>:
-  match r:
-    case Wr.Got{t, s}:
-      read_ev.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the event s starts with, and what follows it
-def read_ev(s: String) -> Wr.Dec<Am.Ev>:
-  read_ev.go(Wr.get_nat(s))
-
-def dspec.end(whole: Bool, +d: Am.D, +e: Am.Ev) -> FAm.St & String:
-  match whole:
-    case True{}:
-      dk_reply(e, dk_next(d), Am.dstep(d, e))
-    case False{}:
-      (FAm.Live{d}, malformed_event())
-
-def dspec.run(+d: Am.D, r: Wr.Dec<Am.Ev>) -> FAm.St & String:
-  match r:
-    case Wr.Got{e, s}:
-      dspec.end(Wr.end(s), d, e)
-    case Wr.Bad{}:
-      (FAm.Live{d}, malformed_event())
-
-# the step of a live desk d on s: the model desk's step on the event s is
-# exactly, spelled; else the error form, the desk kept. The model's step
-# `Am.dstep` is the spec's table `sp_dstep` (laws/approvals/desk.bend) for
-# every desk and event: approvals_desk_step_spec
-def dspec(+d: Am.D, s: String) -> FAm.St & String:
-  dspec.run(d, read_ev(s))
-
 # the reply of r, then the shipped stepper's replies to es spelled, from
 # the state of r
 def dk_feed(es: List<&2, Am.Ev>, r: FAm.St & String) -> List<&2, String>:
@@ -350,29 +201,26 @@ def dk_replies(es: List<&2, Am.Ev>, +d: Am.D) -> List<&2, String>:
     case +e <> t:
       spell_reply(e, dk_next(d), dk_acts(Am.dstep(d, e))) <> dk_replies(t, dk_desk(Am.dstep(d, e)))
 
+# the error form a refused desk answers every step with
+def refused() -> String:
+  SCon{'E', SCon{' ', "approvals: the open was refused"}}
+
+# the refused desk's replies to the inputs ins: the error form, once each
+def dk_refusals(ins: List<&2, String>) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case i <> t:
+      refused() <> dk_refusals(t)
+
+# a live desk d refuses the input s with the error form and keeps d, or s
+# is exactly one event Rust spells, every length and number within the
+# wire
+def dk_refused_or_event(+d: Am.D, +s: String) -> Type:
+  {FAm.step(FAm.Live{d}, s) == (FAm.Live{d}, malformed_event()) : FAm.St & String} | (&e: Am.Ev -> ({spell_ev(e, "") == s : String} & {ev_fits(e) == True{} : Bool}))
+
 # The call
 # --------
-
-# the call's reply: `Am.default_auto` spelled, whose bytes
-# approvals_ffi_example pins ("7,0,1,2,3,4,5,6,": every effect)
-def spec.end(whole: Bool) -> String:
-  match whole:
-    case True{}:
-      spell_ns(Am.default_auto(), "")
-    case False{}:
-      malformed()
-
-# LAW approvals_ffi_exact: on every input the call answers the default auto set when the input is empty (nothing but the call), and exactly the error form "approvals: malformed request" on any other input
-# EXCLUDES: another default auto set, a default for malformed input,
-#   input ignored
-law approvals_ffi_exact:
-  for +s: String
-  {FAm.ffi(s) == spec.end(Wr.end(s)) : String}
-
-# LAW approvals_ffi_answers: the call Rust makes (no input) answers the default auto set
-# EXCLUDES: the call Rust makes refused or answered otherwise
-law approvals_ffi_answers:
-  {FAm.ffi("") == spell_ns(Am.default_auto(), "") : String}
 
 # LAW approvals_ffi_left_over: a call with input gets exactly the error form
 # EXCLUDES: input read past or ignored
@@ -405,35 +253,57 @@ law approvals_desk_entry_open_refused:
   for h: {String.is_empty(s) == False{} : Bool}
   {FAm.open(s) == (FAm.Refused{}, SCon{'E', SCon{' ', "approvals: the open takes no input"}}) : FAm.St & String}
 
-# LAW approvals_desk_entry_shut (R2): a refused open answers every step
-# with its error form
-# EXCLUDES: a refused desk that shows, relays or wakes
-law approvals_desk_entry_shut:
+# LAW approvals_desk_entry_refused_stays (R2): an open with input (any
+# non-empty s) answers its error form, and every input fed to the state it
+# opens after that, whatever the input, answers exactly "approvals: the
+# open was refused", once per input: the refused state never shows,
+# relays, wakes or opens a desk
+# EXCLUDES: a refused desk that takes an event (or one kind of event, or
+#   the first only), that answers another text, or that a later input
+#   revives
+law approvals_desk_entry_refused_stays:
   for +s: String
-  {FAm.step(FAm.Refused{}, s) == (FAm.Refused{}, SCon{'E', SCon{' ', "approvals: the open was refused"}}) : FAm.St & String}
+  for some: {String.is_empty(s) == False{} : Bool}
+  for +ins: List<&2, String>
+  {dk_raw(ins, FAm.open(s)) == SCon{'E', SCon{' ', "approvals: the open takes no input"}} <> dk_refusals(ins) : List<&2, String>}
 
-# LAW approvals_desk_entry_exact (R3): on every input, from every desk,
-# the entry answers the model desk's step on the event the input is
-# exactly (as the wire's reader reads it), spelled; on any other input
-# exactly the error form "approvals: malformed event", the desk kept
-# EXCLUDES: a field misread, a tag read as another, an act or a key in
-#   another spelling, a desk changed by a malformed event, input left over
-#   ignored, another error text
-law approvals_desk_entry_exact:
-  for +d: Am.D
-  for +s: String
-  {FAm.step(FAm.Live{d}, s) == dspec(d, s) : FAm.St & String}
-
-# LAW approvals_desk_entry_reads (R3): the reader reads back every event
-# Rust spells (every length and number within the wire), leaving the rest
-# untouched
-# EXCLUDES: a reader that refuses or misreads an event Rust sends, which
-#   would make approvals_desk_entry_exact answer the error form for it
+# LAW approvals_desk_entry_reads (R3): the decoder the stepper runs
+# (FAm.get_ev) reads back every event Rust spells (spell_ev, every length
+# and number within the wire), leaving the rest untouched
+# EXCLUDES: a decoder that refuses or misreads an event Rust sends (a field
+#   misread, a tag read as another), or eats the input after it
 law approvals_desk_entry_reads:
   for +e: Am.Ev
   for +rest: String
   for h: {ev_fits(e) == True{} : Bool}
-  {read_ev(spell_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Am.Ev>}
+  {FAm.get_ev(spell_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Am.Ev>}
+
+# LAW approvals_desk_entry_only_events (R3): from every desk d, every input
+# s is either refused with exactly the error form "approvals: malformed
+# event", the desk kept, or is exactly one event Rust spells (spell_ev,
+# nothing after it), every length and number within the wire (which
+# approvals_desk_entry_answers then answers)
+# EXCLUDES: garbage read as an event (a guessed ask, answer or detach), a
+#   second spelling of an event accepted, input left over ignored, a desk
+#   moved by a malformed input, another error text
+law approvals_desk_entry_only_events:
+  for +d: Am.D
+  for +s: String
+  dk_refused_or_event(d, s)
+
+# LAW approvals_desk_entry_left_over (R3): from every desk d, an event Rust
+# spells (every length and number within the wire) followed by more input
+# (any non-empty rest) is refused with exactly the error form
+# "approvals: malformed event", the desk kept
+# EXCLUDES: input left over after an event ignored (the event taken), a
+#   desk moved by it
+law approvals_desk_entry_left_over:
+  for +d: Am.D
+  for +e: Am.Ev
+  for +rest: String
+  for fits: {ev_fits(e) == True{} : Bool}
+  for more: {String.is_empty(rest) == False{} : Bool}
+  {FAm.step(FAm.Live{d}, spell_ev(e, rest)) == (FAm.Live{d}, malformed_event()) : FAm.St & String}
 
 # LAW approvals_desk_entry_answers (R3): from every desk, every event Rust
 # spells moves the desk as the model's step does and answers its spelled
