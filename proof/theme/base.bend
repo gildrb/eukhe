@@ -91,22 +91,85 @@ def theme_tokens_complete(f: TFile.Th, v: {TToken.valid(f) == True{} : Bool}) ->
     case TFile.Th{name, +cols, +page, card, info}:
       pt.complete(cols, TPalette.background(cols, page), TToken.toks(), v)
 
-def pt.cons_all(r: TReader.EntR, es: List<&2, TFile.Ent>, hg: {Theme.th.good(r) == True{} : Bool}) -> {TReader.ents.cons(r, TReader.All{es}) == TReader.All{Theme.th.ent(r) <> es} : TReader.Ents}:
-  match r:
-    case TReader.Good{e}:
+# Reading a file
+# --------------
+# The reader's entry is the laws' fault and color of an entry: a key
+# that names no token is unknown, a value the chase resolves gives its
+# token and value, one it does not is that value's error under its key.
+
+def pt.got_good(+k: String, +x: U32, g: TChase.Got, h: {Theme.th.none(Theme.th.miss(k, g)) == True{} : Bool}) -> {TReader.entry.got(k, x, g) == TReader.Good{Theme.th.ent.got(x, g)} : TReader.EntR}:
+  match g:
+    case TChase.Hit{v}:
       {==}
-    case TReader.Bad{x}:
-      themes.pt.absurdF({TReader.ents.cons(TReader.Bad{x}, TReader.All{es}) == TReader.All{Theme.th.ent(TReader.Bad{x}) <> es} : TReader.Ents}, hg)
+    case TChase.Miss{why}:
+      themes.pt.absurdF({TReader.entry.got(k, x, TChase.Miss{why}) == TReader.Good{Theme.th.ent.got(x, TChase.Miss{why})} : TReader.EntR}, h)
+
+def pt.entry_good(+vars: List<&2, TFile.Var>, e: TFile.REnt, h: {Theme.th.none(Theme.th.fault(vars, e)) == True{} : Bool}) -> {TReader.entry(vars, e) == TReader.Good{Theme.th.ent(vars, e)} : TReader.EntR}:
+  match e:
+    case TFile.REnt{+k, t, j}:
+      match t:
+        case None{}:
+          themes.pt.absurdF({TReader.entry(vars, TFile.REnt{k, None{}, j}) == TReader.Good{Theme.th.ent(vars, TFile.REnt{k, None{}, j})} : TReader.EntR}, h)
+        case Some{+x}:
+          pt.got_good(k, x, TChase.chase(vars, j), h)
+
+def pt.unfault(m: Maybe<&2, TFile.Fault>) -> TFile.Fault:
+  match m:
+    case None{}:
+      TFile.Unknown{""}
+    case Some{x}:
+      x
+
+# Some{a} == Some{f}: the reader's error a is f
+def pt.bad_eq(-a: TFile.Fault, -f: TFile.Fault, h: {Some{a} == Some{f} : Maybe<&2, TFile.Fault>}) -> {TReader.Bad{a} == TReader.Bad{f} : TReader.EntR}:
+  Equal.cong(Maybe<&2, TFile.Fault>, TReader.EntR, m => TReader.Bad{pt.unfault(m)}, Some{a}, Some{f}, h)
+
+def pt.MIf(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      G
+
+def pt.none_some(-A: Data, -b: A, -G: Type, e: {None{} == Some{b} : Maybe<&2, A>}) -> G:
+  %e : pt.MIf(A, _, G)
+  Unit{}
+
+def pt.got_bad(+k: String, +x: U32, g: TChase.Got, -f: TFile.Fault, h: {Theme.th.miss(k, g) == Some{f} : Maybe<&2, TFile.Fault>}) -> {TReader.entry.got(k, x, g) == TReader.Bad{f} : TReader.EntR}:
+  match g:
+    case TChase.Hit{v}:
+      pt.none_some(TFile.Fault, f, {TReader.entry.got(k, x, TChase.Hit{v}) == TReader.Bad{f} : TReader.EntR}, h)
+    case TChase.Miss{why}:
+      pt.bad_eq(TFile.InColor{k, why}, f, h)
+
+# an entry with a fault reads to that fault
+def pt.entry_bad(+vars: List<&2, TFile.Var>, e: TFile.REnt, -f: TFile.Fault, h: {Theme.th.fault(vars, e) == Some{f} : Maybe<&2, TFile.Fault>}) -> {TReader.entry(vars, e) == TReader.Bad{f} : TReader.EntR}:
+  match e:
+    case TFile.REnt{+k, t, j}:
+      match t:
+        case None{}:
+          pt.bad_eq(TFile.Unknown{k}, f, h)
+        case Some{+x}:
+          pt.got_bad(k, x, TChase.chase(vars, j), f, h)
+
+def pt.cons_all(+vars: List<&2, TFile.Var>, x: TFile.REnt, es: List<&2, TFile.Ent>, hg: {Theme.th.none(Theme.th.fault(vars, x)) == True{} : Bool}) -> {TReader.ents.cons(TReader.entry(vars, x), TReader.All{es}) == TReader.All{Theme.th.ent(vars, x) <> es} : TReader.Ents}:
+  %Equal.sym(TReader.EntR, TReader.entry(vars, x), TReader.Good{Theme.th.ent(vars, x)}, pt.entry_good(vars, x, hg)) : {TReader.ents.cons(_, TReader.All{es}) == TReader.All{Theme.th.ent(vars, x) <> es} : TReader.Ents}
+  {==}
 
 def pt.ents_all(+vars: List<&2, TFile.Var>, +cols: List<&2, TFile.REnt>, +ok: {Theme.th.clean(vars, cols) == True{} : Bool}) -> {TReader.ents(TChase.index(vars), cols) == TReader.All{Theme.th.goods(vars, cols)} : TReader.Ents}:
   match cols:
     case Nil{}:
       {==}
     case Con{+x, rest}:
-      +hg = themes.pt.and_l(Theme.th.good(TReader.entry(vars, x)), Theme.th.clean(vars, rest), ok)
-      +ih = pt.ents_all(vars, rest, themes.pt.and_r(Theme.th.good(TReader.entry(vars, x)), Theme.th.clean(vars, rest), ok))
-      %Equal.sym(TReader.Ents, TReader.ents(TChase.index(vars), rest), TReader.All{Theme.th.goods(vars, rest)}, ih) : {TReader.ents.cons(TReader.entry(vars, x), _) == TReader.All{Theme.th.ent(TReader.entry(vars, x)) <> Theme.th.goods(vars, rest)} : TReader.Ents}
-      pt.cons_all(TReader.entry(vars, x), Theme.th.goods(vars, rest), hg)
+      +hg = themes.pt.and_l(Theme.th.none(Theme.th.fault(vars, x)), Theme.th.clean(vars, rest), ok)
+      +ih = pt.ents_all(vars, rest, themes.pt.and_r(Theme.th.none(Theme.th.fault(vars, x)), Theme.th.clean(vars, rest), ok))
+      %Equal.sym(TReader.Ents, TReader.ents(TChase.index(vars), rest), TReader.All{Theme.th.goods(vars, rest)}, ih) : {TReader.ents.cons(TReader.entry(vars, x), _) == TReader.All{Theme.th.ent(vars, x) <> Theme.th.goods(vars, rest)} : TReader.Ents}
+      pt.cons_all(vars, x, Theme.th.goods(vars, rest), hg)
+
+# a file that reads to a fault is rejected with it
+def pt.parse_failed(+f: TFile.RFile, -x: TFile.Fault, h: {TReader.read(f) == TReader.Failed{x} : TReader.Read}) -> {TPalette.parse(f) == TPalette.Rejected{x} : TPalette.Parsed}:
+  %Equal.sym(TReader.Read, TReader.read(f), TReader.Failed{x}, h) : {TPalette.parse.of(_) == TPalette.Rejected{x} : TPalette.Parsed}
+  {==}
 
 def pt.keeps(c: Bool, +t: U32, -m: List<&2, U32>, -a: List<&2, U32>, ih: {m == a : List<&2, U32>}) -> {TReader.missing.keep(c, t, m) == Theme.th.keep(c, t, a) : List<&2, U32>}:
   match c:
@@ -163,74 +226,3 @@ def pt.surf_fine(+vars: List<&2, TFile.Var>, at: TFile.Surf, m: Maybe<&2, TFile.
     case Some{j}:
       pt.surf_hit(at, TChase.chase(vars, j), h)
 
-# Picking a theme
-# ---------------
-# The model's candidates, cause, broken list and clashes are the rule's,
-# step by step; the theme picked is the resolution over the candidates.
-
-def pt.cand(l: TChoice.Ld, +c: Bool, +at: Nat, rest: List<&2, TName.Cand>) -> {TChoice.cands.of(l, c, at, rest) == List.append(&2, TName.Cand, Theme.th.cand(l, c, at), rest) : List<&2, TName.Cand>}:
-  match l:
-    case TChoice.Fine{nm, k}:
-      match k:
-        case True{}:
-          match c:
-            case True{}:
-              {==}
-            case False{}:
-              {==}
-        case False{}:
-          match c:
-            case True{}:
-              {==}
-            case False{}:
-              {==}
-    case TChoice.Broke{nm, st}:
-      {==}
-
-def pt.cands(ls: List<&2, TChoice.Ld>, +c: Bool, +at: Nat) -> {TChoice.cands(ls, c, at) == Theme.th.cands(ls, c, at) : List<&2, TName.Cand>}:
-  match ls:
-    case Nil{}:
-      {==}
-    case Con{+l, +rest}:
-      %Equal.sym(List<&2, TName.Cand>, TChoice.cands(rest, c, 1n+at), Theme.th.cands(rest, c, 1n+at), pt.cands(rest, c, 1n+at)) : {TChoice.cands.of(l, c, at, _) == List.append(&2, TName.Cand, Theme.th.cand(l, c, at), Theme.th.cands(rest, c, 1n+at)) : List<&2, TName.Cand>}
-      pt.cand(l, c, at, Theme.th.cands(rest, c, 1n+at))
-
-def pt.pickres(+ls: List<&2, TChoice.Ld>, +n: String) -> {TChoice.pick.res(ls, n) == Theme.th.pick(ls, n) : TName.Res}:
-  %Equal.sym(List<&2, TName.Cand>, TChoice.cands(ls, False{}, 0n), Theme.th.cands(ls, False{}, 0n), pt.cands(ls, False{}, 0n)) : {TName.resolve.name(TName.sources(_, TChoice.cands(ls, True{}, 0n)), n) == Theme.th.pick(ls, n) : TName.Res}
-  %Equal.sym(List<&2, TName.Cand>, TChoice.cands(ls, True{}, 0n), Theme.th.cands(ls, True{}, 0n), pt.cands(ls, True{}, 0n)) : {TName.resolve.name(TName.sources(Theme.th.cands(ls, False{}, 0n), _), n) == Theme.th.pick(ls, n) : TName.Res}
-  {==}
-
-def pt.blames(l: TChoice.Ld, +n: String) -> {TChoice.blames(l, n) == Theme.th.blames(l, n) : Bool}:
-  match l:
-    case TChoice.Fine{nm, c}:
-      {==}
-    case TChoice.Broke{nm, st}:
-      match nm:
-        case Some{x}:
-          {==}
-        case None{}:
-          match st:
-            case Some{s}:
-              {==}
-            case None{}:
-              {==}
-
-def pt.first_if(hit: Bool, at: Nat, -a: Maybe<&2, Nat>, -b: Maybe<&2, Nat>, e: {a == b : Maybe<&2, Nat>}) -> {TChoice.first.pick(hit, at, a) == Theme.th.at.if(hit, at, b) : Maybe<&2, Nat>}:
-  match hit:
-    case True{}:
-      {==}
-    case False{}:
-      e
-
-def pt.cause_go(ls: List<&2, TChoice.Ld>, +n: String, +at: Nat) -> {TChoice.cause.go(ls, n, at) == Theme.th.blame(ls, n, at) : Maybe<&2, Nat>}:
-  match ls:
-    case Nil{}:
-      {==}
-    case Con{+l, +rest}:
-      %Equal.sym(Bool, TChoice.blames(l, n), Theme.th.blames(l, n), pt.blames(l, n)) : {TChoice.first.pick(_, at, TChoice.cause.go(rest, n, 1n+at)) == Theme.th.at.if(Theme.th.blames(l, n), at, Theme.th.blame(rest, n, 1n+at)) : Maybe<&2, Nat>}
-      pt.first_if(Theme.th.blames(l, n), at, TChoice.cause.go(rest, n, 1n+at), Theme.th.blame(rest, n, 1n+at), pt.cause_go(rest, n, 1n+at))
-
-def pt.pick_w(+ls: List<&2, TChoice.Ld>, +n: String, +id: U32, +w: Bool, +h: {Theme.th.pick(ls, n) == TName.Res{id, w} : TName.Res}) -> {TChoice.pick(ls, n) == TChoice.pick.warn(w, id, ls, n) : TChoice.Pick}:
-  +e = Equal.trans(TName.Res, TChoice.pick.res(ls, n), Theme.th.pick(ls, n), TName.Res{id, w}, pt.pickres(ls, n), h)
-  %Equal.sym(TName.Res, TChoice.pick.res(ls, n), TName.Res{id, w}, e) : {TChoice.pick.go(_, ls, n) == TChoice.pick.warn(w, id, ls, n) : TChoice.Pick}
-  {==}

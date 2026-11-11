@@ -42,6 +42,7 @@ import ./laws/run/entry.bend as RunEntry
 import ./laws/run/recover.bend as RunRecover
 import ./laws/semver.bend as Semver
 import ./laws/theme.bend as Theme
+import ./laws/theme_pick.bend as ThemePick
 import ./laws/color/text.bend as ColorText
 import ./laws/color/math.bend as Color
 import ./laws/color/entry.bend as ColorEntry

@@ -12,9 +12,9 @@ type Got is Data:
   Hit{v: TFile.Val}
   Miss{why: TFile.Why}
 
-# one step along a chain of variables, as the rule (LAWS.bend th.next)
-# takes it: its end, or the next value to read with the variables met so
-# far
+# one step along a chain of variables (laws/theme.bend theme_chase_chain
+# states where a chain ends): its end, or the next value to read with the
+# variables met so far
 type Step is Data:
   Stop{g: Got}
   Go{seen: List<&2, Nat>, j: TFile.Json}

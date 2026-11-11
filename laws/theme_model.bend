@@ -67,7 +67,7 @@ law theme_or_base:
   for d: A
   {TPalette.or(A, a, b) == Maybe.or(&2, A, a, b) : Maybe<&2, A>} & {TPalette.or_else(A, a, d) == Maybe.default(&2, A, a, d) : A}
 
-# LAW theme_concrete_of_base (R4): the color an optional value paints is none when unset, else the color of the value (TToken.concrete, laws/theme.bend theme_concrete_spec): Base Maybe.bind
+# LAW theme_concrete_of_base (R4): the color an optional value paints is none when unset, else the color of the value (TToken.concrete; spec/theme/rules.bend concrete): Base Maybe.bind
 # EXCLUDES: an unset value painting a color, a set one ignored
 law theme_concrete_of_base:
   for m: Maybe<&2, TFile.Val>
@@ -81,7 +81,7 @@ law theme_at_index:
   for post: List<&2, Co.Rgb>
   {TPalette.at(List.append(&2, Co.Rgb, pre, c <> post), List.length(&2, Co.Rgb, pre)) == c : Co.Rgb}
 
-# LAW theme_fill_map_each (R4): the palette of a token list is the palette of each token, in order: two runs of tokens fill as the first run's values then the second's, and one token fills as its own value (TPalette.fill, laws/theme.bend theme_fill_*)
+# LAW theme_fill_map_each (R4): the palette of a token list is the palette of each token, in order: two runs of tokens fill as the first run's values then the second's, and one token fills as its own value (TPalette.fill; laws/theme.bend theme_parse_written, theme_parse_md, theme_parse_refinement, theme_parse_foreground, theme_parse_background)
 # EXCLUDES: a token skipped, doubled, reordered or filled with another's
 #   value
 law theme_fill_map_each:
