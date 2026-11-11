@@ -17,21 +17,9 @@ def rvb.if_some(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
     case Some{x}:
       G
 
-def rvb.if_none(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
-  match m:
-    case None{}:
-      G
-    case Some{x}:
-      Unit
-
 # a None that is a Some proves anything
 def rvb.none_some(-A: Data, -x: A, -G: Type, e: {None{} == Some{x} : Maybe<&2, A>}) -> G:
   %e : rvb.if_some(A, _, G)
-  Unit{}
-
-# a Some that is None proves anything
-def rvb.some_none(-A: Data, -x: A, -G: Type, e: {Some{x} == None{} : Maybe<&2, A>}) -> G:
-  %e : rvb.if_none(A, _, G)
   Unit{}
 
 def rvb.or(m: Maybe<&2, Rv.Facts>, d: Rv.Facts) -> Rv.Facts:

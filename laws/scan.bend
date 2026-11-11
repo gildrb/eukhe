@@ -47,18 +47,7 @@ def invalid_spec() -> String:
 def mismatch_spec(o: Sc.Order, a: Sc.Order) -> String:
   String.concat(["The cursor continues a ", name_spec(o), " scan; the query asks for ", name_spec(a)])
 
-# the order a cursor was written with, if it names one; else a bad mark
-def mark_order_spec(m: Sc.Mark, fallback: Sc.Order) -> Maybe<&2, Sc.Order>:
-  match m:
-    case Sc.NoMark{}:
-      Some{fallback}
-    case Sc.AscMark{}:
-      Some{Sc.Asc{}}
-    case Sc.DescMark{}:
-      Some{Sc.Desc{}}
-    case Sc.BadMark{}:
-      None{}
-
+# R4: two orders are the same
 def eq_spec(a: Sc.Order, b: Sc.Order) -> Bool:
   match a b:
     case Sc.Asc{} Sc.Asc{}:
@@ -70,28 +59,7 @@ def eq_spec(a: Sc.Order, b: Sc.Order) -> Bool:
     case Sc.Desc{} Sc.Desc{}:
       True{}
 
-def go_on_spec.cmp(b: Bool, +o: Sc.Order, +a: Sc.Order) -> Sc.Start:
-  match b:
-    case True{}:
-      Sc.Begin{o, True{}}
-    case False{}:
-      Sc.Refuse{mismatch_spec(o, a)}
-
-# a cursor of order o goes on, unless the query asks for another
-def go_on_spec(asked: Maybe<&2, Sc.Order>, +o: Sc.Order) -> Sc.Start:
-  match asked:
-    case None{}:
-      Sc.Begin{o, True{}}
-    case Some{+a}:
-      go_on_spec.cmp(eq_spec(o, a), o, a)
-
-def with_order_spec(asked: Maybe<&2, Sc.Order>, m: Maybe<&2, Sc.Order>) -> Sc.Start:
-  match m:
-    case None{}:
-      Sc.Refuse{invalid_spec()}
-    case Some{o}:
-      go_on_spec(asked, o)
-
+# R3: an `after` field that is a safe integer
 def safe_spec(a: Sc.After) -> Bool:
   match a:
     case Sc.NoAfter{}:
@@ -101,42 +69,23 @@ def safe_spec(a: Sc.After) -> Bool:
     case Sc.SafeAfter{}:
       True{}
 
-def with_cursor_spec(b: Bool, asked: Maybe<&2, Sc.Order>, m: Sc.Mark, fallback: Sc.Order) -> Sc.Start:
-  match b:
-    case True{}:
-      with_order_spec(asked, mark_order_spec(m, fallback))
-    case False{}:
-      Sc.Refuse{invalid_spec()}
-
-def first_spec(asked: Maybe<&2, Sc.Order>, fallback: Sc.Order) -> Sc.Order:
-  match asked:
-    case None{}:
-      fallback
-    case Some{a}:
-      a
-
-# where a scan starts: R1-R4
-def start_spec(asked: Maybe<&2, Sc.Order>, c: Maybe<&2, Sc.Cursor>, fallback: Sc.Order) -> Sc.Start:
-  match c:
-    case None{}:
-      Sc.Begin{first_spec(asked, fallback), False{}}
-    case Some{k}:
-      match k:
-        case Sc.Cursor{a, m}:
-          with_cursor_spec(safe_spec(a), asked, m, fallback)
-
-# the cursor id of a backend: R5
+# the cursor id of a backend: R5, row by row as TS `cursorId` gives it
+# (crates/eukhe-durable/src/storage/common.rs:76-78 ports it)
 def id_spec(c: Maybe<&2, Sc.After>) -> Sc.Id:
   match c:
     case None{}:
+      # R5: no cursor: no id
       Sc.NoId{}
     case Some{a}:
       match a:
         case Sc.NoAfter{}:
+          # R5: a cursor without `after`: no id
           Sc.NoId{}
         case Sc.BadAfter{}:
+          # R5: `after` not a safe integer: "Invalid storage cursor"
           Sc.RefuseId{invalid_spec()}
         case Sc.SafeAfter{}:
+          # R5: a safe integer: the id (Rust test crates/eukhe-bend/src/rules/scan.rs:195)
           Sc.UseId{}
 
 # the order of a start, when it starts
@@ -158,16 +107,73 @@ def mark_of(o: Sc.Order) -> Sc.Mark:
 # Laws
 # ----
 
-# LAW scan_start_exact: a scan starts as R1-R4 say: no cursor, at the beginning in the order asked or the default; a cursor, after its id in its own order (the default when it names none), unless a field is bad (refused as invalid) or the query asks for another order (refused, naming both)
-# EXCLUDES: a cursor's order overridden by the query, a cursor without an
-#   order read as ascending, a bad field accepted or defaulted, a cursor
-#   whose id is absent continuing from the start, another refusal text,
-#   the two orders swapped in the refusal
-law scan_start_exact:
+# LAW scan_start_fresh (R1): with no cursor, for every default order, a
+# scan starts at the beginning (not after an id) in the order the query
+# asks for, or in the default when it asks for none
+# EXCLUDES: a fresh scan that skips items, the default preferred to the
+#   order asked, the asked order ignored
+law scan_start_fresh:
+  for +a: Sc.Order
+  for +fallback: Sc.Order
+  {Sc.start(None{}, None{}, fallback) == Sc.Begin{fallback, False{}} : Sc.Start} &
+  {Sc.start(Some{a}, None{}, fallback) == Sc.Begin{a, False{}} : Sc.Start}
+
+# LAW scan_start_continues (R2): a cursor with a safe `after` written with
+# order o continues after its id in o, whether the query names no order or
+# o, whatever the default
+# EXCLUDES: a cursor's order overridden by the default, a continued scan
+#   restarted from the beginning
+law scan_start_continues:
+  for +o: Sc.Order
+  for +fallback: Sc.Order
+  {Sc.start(None{}, Some{Sc.Cursor{Sc.SafeAfter{}, mark_of(o)}}, fallback) == Sc.Begin{o, True{}} : Sc.Start} &
+  {Sc.start(Some{o}, Some{Sc.Cursor{Sc.SafeAfter{}, mark_of(o)}}, fallback) == Sc.Begin{o, True{}} : Sc.Start}
+
+# LAW scan_start_old_cursor (R2): a cursor with a safe `after` and no
+# `order` (written before scans had one) continues after its id in the
+# default order, whether the query names no order or that one
+# EXCLUDES: an old cursor read as ascending, an old cursor refused
+law scan_start_old_cursor:
+  for +fallback: Sc.Order
+  {Sc.start(None{}, Some{Sc.Cursor{Sc.SafeAfter{}, Sc.NoMark{}}}, fallback) == Sc.Begin{fallback, True{}} : Sc.Start} &
+  {Sc.start(Some{fallback}, Some{Sc.Cursor{Sc.SafeAfter{}, Sc.NoMark{}}}, fallback) == Sc.Begin{fallback, True{}} : Sc.Start}
+
+# LAW scan_start_bad_after (R3): a cursor whose `after` is absent or not a
+# safe integer is refused with exactly "Invalid storage cursor", whatever
+# its order field, the order asked and the default
+# EXCLUDES: an absent id continuing from the start, a bad id accepted,
+#   another refusal text
+law scan_start_bad_after:
   for asked: Maybe<&2, Sc.Order>
-  for c: Maybe<&2, Sc.Cursor>
+  for m: Sc.Mark
   for fallback: Sc.Order
-  {Sc.start(asked, c, fallback) == start_spec(asked, c, fallback) : Sc.Start}
+  for +a: Sc.After
+  for bad: {safe_spec(a) == False{} : Bool}
+  {Sc.start(asked, Some{Sc.Cursor{a, m}}, fallback) == Sc.Refuse{"Invalid storage cursor"} : Sc.Start}
+
+# LAW scan_start_bad_mark (R3): a cursor with a safe `after` whose `order`
+# is anything but absent, "ascending" or "descending" is refused with
+# exactly "Invalid storage cursor", whatever the order asked and the
+# default
+# EXCLUDES: a bad order field defaulted or read as an order
+law scan_start_bad_mark:
+  for asked: Maybe<&2, Sc.Order>
+  for fallback: Sc.Order
+  {Sc.start(asked, Some{Sc.Cursor{Sc.SafeAfter{}, Sc.BadMark{}}}, fallback) == Sc.Refuse{"Invalid storage cursor"} : Sc.Start}
+
+# LAW scan_start_mismatch (R4): a query asking for order a on a cursor of
+# order o != a (written with o, or written with none when the default is
+# o) is refused with exactly "The cursor continues a <o> scan; the query
+# asks for <a>"
+# EXCLUDES: a cursor's order overridden by the query, the two orders
+#   swapped in the refusal, another refusal text
+law scan_start_mismatch:
+  for +o: Sc.Order
+  for +a: Sc.Order
+  for +fallback: Sc.Order
+  for other: {eq_spec(o, a) == False{} : Bool}
+  {Sc.start(Some{a}, Some{Sc.Cursor{Sc.SafeAfter{}, mark_of(o)}}, fallback) == Sc.Refuse{mismatch_spec(o, a)} : Sc.Start} &
+  {Sc.start(Some{a}, Some{Sc.Cursor{Sc.SafeAfter{}, Sc.NoMark{}}}, o) == Sc.Refuse{mismatch_spec(o, a)} : Sc.Start}
 
 # LAW scan_cursor_keeps_its_order: a scan that continues a cursor runs in the order the cursor names, whether the query names no order or the same one, whatever the default
 # EXCLUDES: pages of one scan in two orders (items skipped or repeated)
@@ -177,9 +183,15 @@ law scan_cursor_keeps_its_order:
   {order_of(Sc.start(None{}, Some{Sc.Cursor{Sc.SafeAfter{}, mark_of(o)}}, fallback)) == Some{o} : Maybe<&2, Sc.Order>} &
   {order_of(Sc.start(Some{o}, Some{Sc.Cursor{Sc.SafeAfter{}, mark_of(o)}}, fallback)) == Some{o} : Maybe<&2, Sc.Order>}
 
-# LAW scan_id_exact: a backend's cursor id is none without a cursor or `after`, the id for a safe integer, else refused as invalid
+# LAW scan_id_exact (R5): a backend's cursor id is id_spec's row for each of
+# the four inputs (the whole domain): none without a cursor or `after`, the
+# id for a safe integer, "Invalid storage cursor" otherwise; each row cites
+# R5 and TS `cursorId` (crates/eukhe-durable/src/storage/common.rs:76-78)
 # EXCLUDES: a bad id read as none (the scan restarts), an absent id
 #   refused, another refusal text
+# waive L10-mirror: pin; the four rows of R5 / TS cursorId (pi-durable,
+#   ported in crates/eukhe-durable/src/storage/common.rs:76-91), the safe
+#   row also the Rust test crates/eukhe-bend/src/rules/scan.rs:195
 law scan_id_exact:
   for c: Maybe<&2, Sc.After>
   {Sc.cursor_id(c) == id_spec(c) : Sc.Id}
@@ -285,18 +297,19 @@ def spell_id(x: Sc.Id) -> String:
     case Sc.RefuseId{t}:
       Wr.put_nat(2n, Wr.put_str(t, ""))
 
-# the reply to a request: R1-R5
+# the reply to a request: the model's answer (Sc.start, Sc.cursor_id:
+# pinned by the laws of R1-R5), spelled
 def spell_reply(q: FSc.Req) -> String:
   match q:
     case FSc.QStart{asked, c, f}:
-      spell_start(start_spec(asked, c, f))
+      spell_start(Sc.start(asked, c, f))
     case FSc.QId{c}:
-      spell_id(id_spec(c))
+      spell_id(Sc.cursor_id(c))
 
 # Laws
 # ----
 
-# LAW scan_ffi_answers: every spelled request answers its spelled answer of R1-R5
+# LAW scan_ffi_answers: every spelled request answers the spelled answer of the model (Sc.start, Sc.cursor_id: pinned by the laws of R1-R5)
 # EXCLUDES: a field misread or swapped (the order asked and the default),
 #   a tag of another field value, an answer in another spelling
 law scan_ffi_answers:
@@ -329,171 +342,15 @@ law scan_ffi_example:
   {FSc.ffi("0,0,1,2,4,1,") == Wr.err("scan: malformed request") : String} &
   {FSc.ffi("2,") == Wr.err("scan: malformed request") : String}
 
-# Spec reader
-# -----------
-# The request an input spells, read with the wire primitives alone, and the
-# input after it; Bad when the input spells no request.
-
-# an `after` field: 0 absent, 1 not a safe integer, 2 a safe integer
-def read_after(r: Wr.Dec<Nat>) -> Wr.Dec<Sc.After>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Sc.NoAfter{}, s}
-        case 1n:
-          Wr.Got{Sc.BadAfter{}, s}
-        case 2n:
-          Wr.Got{Sc.SafeAfter{}, s}
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# an `order` field: 0 absent, 1 ascending, 2 descending, 3 other
-def read_mark(r: Wr.Dec<Nat>) -> Wr.Dec<Sc.Mark>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Sc.NoMark{}, s}
-        case 1n:
-          Wr.Got{Sc.AscMark{}, s}
-        case 2n:
-          Wr.Got{Sc.DescMark{}, s}
-        case 3n:
-          Wr.Got{Sc.BadMark{}, s}
-        case 4n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# an order: 0 ascending, 1 descending
-def read_order(r: Wr.Dec<Nat>) -> Wr.Dec<Sc.Order>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Sc.Asc{}, s}
-        case 1n:
-          Wr.Got{Sc.Desc{}, s}
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the order asked: 0 none, 1 ascending, 2 descending
-def read_asked(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Sc.Order>>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{None{}, s}
-        case 1n:
-          Wr.Got{Some{Sc.Asc{}}, s}
-        case 2n:
-          Wr.Got{Some{Sc.Desc{}}, s}
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cursor.mark(a: Sc.After, m: Wr.Dec<Sc.Mark>) -> Wr.Dec<Maybe<&2, Sc.Cursor>>:
-  match m:
-    case Wr.Bad{}:
-      Wr.Bad{}
-    case Wr.Got{k, s}:
-      Wr.Got{Some{Sc.Cursor{a, k}}, s}
-
-def read_cursor.after(m: Wr.Dec<Sc.After>) -> Wr.Dec<Maybe<&2, Sc.Cursor>>:
-  match m:
-    case Wr.Bad{}:
-      Wr.Bad{}
-    case Wr.Got{a, s}:
-      read_cursor.mark(a, read_mark(Wr.get_nat(s)))
-
-# a cursor: 0 none; 1, its `after` field, its `order` field
-def read_cursor(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Sc.Cursor>>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{None{}, s}
-        case 1n:
-          read_cursor.after(read_after(Wr.get_nat(s)))
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_start.order(asked: Maybe<&2, Sc.Order>, c: Maybe<&2, Sc.Cursor>, m: Wr.Dec<Sc.Order>) -> Wr.Dec<FSc.Req>:
-  match m:
-    case Wr.Bad{}:
-      Wr.Bad{}
-    case Wr.Got{f, s}:
-      Wr.Got{FSc.QStart{asked, c, f}, s}
-
-def read_start.cursor(asked: Maybe<&2, Sc.Order>, m: Wr.Dec<Maybe<&2, Sc.Cursor>>) -> Wr.Dec<FSc.Req>:
-  match m:
-    case Wr.Bad{}:
-      Wr.Bad{}
-    case Wr.Got{c, s}:
-      read_start.order(asked, c, read_order(Wr.get_nat(s)))
-
-def read_start(m: Wr.Dec<Maybe<&2, Sc.Order>>) -> Wr.Dec<FSc.Req>:
-  match m:
-    case Wr.Bad{}:
-      Wr.Bad{}
-    case Wr.Got{asked, s}:
-      read_start.cursor(asked, read_cursor(Wr.get_nat(s)))
-
-def read_id.after(m: Wr.Dec<Sc.After>) -> Wr.Dec<FSc.Req>:
-  match m:
-    case Wr.Bad{}:
-      Wr.Bad{}
-    case Wr.Got{a, s}:
-      Wr.Got{FSc.QId{Some{a}}, s}
-
-def read_id(r: Wr.Dec<Nat>) -> Wr.Dec<FSc.Req>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{FSc.QId{None{}}, s}
-        case 1n:
-          read_id.after(read_after(Wr.get_nat(s)))
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_spec.tag(r: Wr.Dec<Nat>) -> Wr.Dec<FSc.Req>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          read_start(read_asked(Wr.get_nat(s)))
-        case 1n:
-          read_id(Wr.get_nat(s))
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s spells and the input after it, or Bad
-def read_spec(s: String) -> Wr.Dec<FSc.Req>:
-  read_spec.tag(Wr.get_nat(s))
-
-# LAW scan_ffi_malformed_exact: every input that spells no request (an unknown tag, a missing field) answers exactly the error form "scan: malformed request"
-# EXCLUDES: another error text for a malformed request (the left-over text,
-#   a made-up one), a default answer
-law scan_ffi_malformed_exact:
+# LAW scan_ffi_malformed_unless_request: every answer but the error form
+# "scan: malformed request" comes from an input that is a spelled request
+# (then, by scan_ffi_exact and scan_ffi_left_over, answered or refused as
+# left over)
+# EXCLUDES: a default answer or another error text for an input that
+#   spells no request (an unknown tag, a missing field)
+law scan_ffi_malformed_unless_request:
   for +s: String
-  for no: {read_spec(s) == Wr.Bad{} : Wr.Dec<FSc.Req>}
-  {FSc.ffi(s) == Wr.err("scan: malformed request") : String}
-
-# LAW scan_ffi_read_example: anchor: the spec reader reads a spelled request and leaves the rest, and refuses an unknown tag
-# EXCLUDES: a vacuous scan_ffi_malformed_exact (a reader that never reads)
-law scan_ffi_read_example:
-  {read_spec("1,1,2,x") == Wr.Got{FSc.QId{Some{Sc.SafeAfter{}}}, "x"} : Wr.Dec<FSc.Req>} &
-  {read_spec("0,3,") == Wr.Bad{} : Wr.Dec<FSc.Req>}
+  for other: {String.eq(FSc.ffi(s), Wr.err("scan: malformed request")) == False{} : Bool}
+  exs q: FSc.Req
+  exs rest: String
+  {s == spell_req(q, rest) : String}
