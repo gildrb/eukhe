@@ -12,10 +12,12 @@ import ./base.bend as LawsBase
 # LAWS (G2, compiled core): the approval gate of a shell step runs as the
 # compiled model (bend/ffi_shell.bend over bend/tools.bend part 4; Rust:
 # crates/eukhe-bend/src/rules/shell.rs, called by crates/eukhe-shell/src/
-# run.rs for each step and by the document tools' gate). Each law is an
-# open claim about FSh.ffi, the function the core runs, stated with spec
-# spellers built only from the wire primitives of bend/wire.bend and
-# bend/wire_flat.bend (their round trips: laws/wire.bend).
+# run.rs for each step and by the document tools' gate). The entry laws
+# are open claims about FSh.ffi, stated with spec spellers built only from
+# the wire primitives of bend/wire.bend and bend/wire_flat.bend (their
+# round trips: laws/wire.bend); the decision laws (R3-R5) state what the
+# model's decision is, by properties written from the requirement, never
+# by a copy of the model.
 #
 # R1: a request Rust writes reads back whole and the entry answers it with
 #     the model's decision: a step's effects (`Tl.join` of its parts'
@@ -24,6 +26,19 @@ import ./base.bend as LawsBase
 # R2: every other input (an unknown tag, a part with no flag or a flag
 #     past 1, a number past the wire, a short list, input left over)
 #     answers exactly the error form "shell: malformed request".
+# R3: a step's effects are, part by part in order, the secret effect (6)
+#     when the part names a path that is or holds a secret, then the
+#     part's own codes other than 6, in order (only a named secret path
+#     gives 6).
+# R4: effects run unasked exactly when each is an effect code (0 read, 1
+#     write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret: an auto set
+#     may hold any of them) and is in the auto set.
+# R5: the answer yes to a gated step lets it run (0); no stops the script
+#     at it (1, its id).
+# R6: the parts of a step travel as one flat list of Nats (bend/
+#     wire_flat.bend): each inner list's items as 1 + item, then the end
+#     mark 0; a flat list is read back exactly when it is such a spelling,
+#     as the lists it spells.
 # Every input is free: any auto set, any parts, any effects, any step id,
 # any answer, any text.
 
@@ -102,152 +117,8 @@ def spell_answer(q: FSh.Req) -> String:
 def malformed() -> String:
   SCon{'E', SCon{' ', "shell: malformed request"}}
 
-# Reader: the requests, read with the wire primitives
-# ---------------------------------------------------
-
-def read_ns(s: String) -> Wr.Dec<List<&2, Nat>>:
-  Wr.get_list(~Nat, ~Wr.get_nat, s)
-
-# the part an inner list spells: flag 0 or 1, then its own codes
-def read_part(xs: List<&2, Nat>) -> Maybe<&2, Tl.Part>:
-  match xs:
-    case Nil{}:
-      None{}
-    case f <> o:
-      match f:
-        case 0n:
-          Some{Tl.Part{o, False{}}}
-        case 1n:
-          Some{Tl.Part{o, True{}}}
-        case 2n+g:
-          None{}
-
-def read_parts.cons(m: Maybe<&2, Tl.Part>, ms: Maybe<&2, List<&2, Tl.Part>>) -> Maybe<&2, List<&2, Tl.Part>>:
-  match m:
-    case None{}:
-      None{}
-    case Some{p}:
-      match ms:
-        case None{}:
-          None{}
-        case Some{ps}:
-          Some{p <> ps}
-
-def read_parts(xss: List<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Tl.Part>>:
-  match xss:
-    case Nil{}:
-      Some{Nil{}}
-    case xs <> rest:
-      read_parts.cons(read_part(xs), read_parts(rest))
-
-def read_parts.flat(m: Maybe<&2, List<&2, List<&2, Nat>>>) -> Maybe<&2, List<&2, Tl.Part>>:
-  match m:
-    case None{}:
-      None{}
-    case Some{xss}:
-      read_parts(xss)
-
-def read_step.parts(a: List<&2, Nat>, m: Maybe<&2, List<&2, Tl.Part>>, s: String) -> Wr.Dec<FSh.Req>:
-  match m:
-    case None{}:
-      Wr.Bad{}
-    case Some{ps}:
-      Wr.Got{FSh.QStep{a, ps}, s}
-
-def read_step.flat(a: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{ns, s}:
-      read_step.parts(a, read_parts.flat(Fl.unflat(ns)), s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_step(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      read_step.flat(a, read_ns(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_allows.effs(a: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{es, s}:
-      Wr.Got{FSh.QAllows{a, es}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_allows(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      read_allows.effs(a, read_ns(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_answer.yes(i: Nat, r: Wr.Dec<Bool>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{y, s}:
-      Wr.Got{FSh.QAnswer{i, y}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_answer(r: Wr.Dec<Nat>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{i, s}:
-      read_answer.yes(i, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_req.tag(t: Nat, s: String) -> Wr.Dec<FSh.Req>:
-  match t:
-    case 0n:
-      read_step(read_ns(s))
-    case 1n:
-      read_allows(read_ns(s))
-    case 2n:
-      read_answer(Wr.get_nat(s))
-    case 3n+u:
-      Wr.Bad{}
-
-def read_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FSh.Req>:
-  match r:
-    case Wr.Got{t, s}:
-      read_req.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s starts with, and what follows it
-def read_req(s: String) -> Wr.Dec<FSh.Req>:
-  read_req.go(Wr.get_nat(s))
-
-def spec.end(whole: Bool, q: FSh.Req) -> String:
-  match whole:
-    case True{}:
-      spell_answer(q)
-    case False{}:
-      malformed()
-
-def spec.run(r: Wr.Dec<FSh.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      spec.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      malformed()
-
-# the reply to s: the model's decision on the request s is exactly, else
-# the error form
-def spec(s: String) -> String:
-  spec.run(read_req(s))
-
-# Laws
-# ----
-
-# LAW shell_ffi_exact: on every input the entry answers the model's decision on the request the input is exactly (a step's effects and whether it runs unasked; whether effects run unasked; what an answer does), and exactly the error form "shell: malformed request" on any other input
-# EXCLUDES: a decision other than the model's, a default for malformed
-#   input, a request misread (a field dropped, swapped, a flag past 1 read
-#   as a flag, a number past the wire read), input left over ignored,
-#   another error text
-law shell_ffi_exact:
-  for +s: String
-  {FSh.ffi(s) == spec(s) : String}
+# Laws: the entry (R1, R2, R5)
+# ----------------------------
 
 # LAW shell_ffi_answers: every request Rust writes (every number within the wire) gets the model's decision
 # EXCLUDES: a request Rust writes refused or misread (the reader and the
@@ -266,6 +137,32 @@ law shell_ffi_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FSh.ffi(spell_req(q, more)) == malformed() : String}
 
+# LAW shell_ffi_reads_only_requests (R2): every input the entry does not answer with an error is exactly one request Rust writes (spelled by spell_req from the wire primitives, nothing after it) whose every number fits the wire
+# EXCLUDES: an answer for input that is no request: an unknown tag (3 or
+#   more), a part with no flag or a flag past 1, a short list, a number
+#   past the wire, a Bool that is no T or F, input left over
+law shell_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FSh.ffi(s)) == False{} : Bool}
+  exs q: FSh.Req
+  {s == spell_req(q, "") : String} & {req_fits(q) == True{} : Bool}
+
+# LAW shell_ffi_refuses (R2): every error the entry answers is exactly the error form "shell: malformed request"
+# EXCLUDES: an error text that varies with the input, a second error form
+law shell_ffi_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FSh.ffi(s)) == True{} : Bool}
+  {FSh.ffi(s) == malformed() : String}
+
+# LAW shell_answer_ends (R5): the entry answers the user's yes to the gated step i (i within the wire) with 0 (the step runs), and a no with 1 then i (the script stops at step i)
+# EXCLUDES: a yes that stops the script, a no that lets the step run, a
+#   stop at another step than the one asked
+law shell_answer_ends:
+  for +i: Nat
+  for fits: {LawsBase.wire_fits(i) == True{} : Bool}
+  {FSh.ffi(spell_req(FSh.QAnswer{i, True{}}, "")) == Wr.put_nat(0n, "") : String} &
+  {FSh.ffi(spell_req(FSh.QAnswer{i, False{}}, "")) == Wr.put_nat(1n, Wr.put_nat(i, "")) : String}
+
 # LAW shell_ffi_example: anchor: the strings Rust sends: a step of a part {read, exec} and a part {read} that names a secret, under the auto set {write}; effects {read} under {read}; a denied and an approved answer to step 4; a part with flag 2 and an unknown tag are refused
 # EXCLUDES: another spelling of a request or a reply
 law shell_ffi_example:
@@ -276,180 +173,136 @@ law shell_ffi_example:
   {FSh.ffi("0,0,2,3,0,") == malformed() : String} &
   {FSh.ffi("3,") == malformed() : String}
 
-# ---- shell: the decision and the flat parts, pinned to the requirement ----
+# Laws: a step's effects (R3)
+# ---------------------------
+# The effects the entry answers for a step of parts ps are
+# Tl.join(Tl.parts.effs(ps)) (shell_ffi_answers). These five laws fix that
+# list for every ps: the effects of parts in a row are each part's in turn;
+# a part's are 6 first when it names a secret path, then its own codes'
+# effects, which are code by code each code other than 6.
 
-# LAWS (G2, the decision): the decision the entry answers and the flat
-# list its parts travel in, stated with spec functions written from the
-# requirement (bend/tools.bend part 4, crates/eukhe-bend/WIRE.md), never
-# the model's own, so R1's "the model's decision" is itself pinned.
-#
-# R3: a step's effects are, part by part in order, the secret effect (6)
-#     when the part names a path that is or holds a secret, then the
-#     part's own codes other than 6 (only a named secret path gives 6).
-# R4: effects run unasked exactly when each is an effect code (0 read, 1
-#     write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret: an auto set
-#     may hold any of them) and is in the auto set.
-# R5: the answer yes to a gated step lets it run (0); no stops the script
-#     at it (1, its id).
-# R6: the parts of a step travel as one flat list of Nats: each inner
-#     list's items as 1 + item, then the end mark 0; a flat list is read
-#     back exactly when it is such a spelling, as the lists it spells.
+# LAW shell_effects_concat (R3): the effects of the parts ps then qs are the effects of ps, then those of qs
+# EXCLUDES: a part's effects lost, reordered or duplicated across parts, a
+#   deduplication across parts
+law shell_effects_concat:
+  for +ps: List<&2, Tl.Part>
+  for +qs: List<&2, Tl.Part>
+  {Tl.join(Tl.parts.effs(List.append(&2, Tl.Part, ps, qs))) == List.append(&2, Nat, Tl.join(Tl.parts.effs(ps)), Tl.join(Tl.parts.effs(qs))) : List<&2, Nat>}
 
-# Spec functions
-# --------------
+# LAW shell_effects_secret_first (R3): a part that names a secret path has the secret effect 6 first, then exactly the effects the same part has when it names none
+# EXCLUDES: a named secret path without the secret effect, the secret
+#   effect after the own codes, a named secret that changes the other codes
+law shell_effects_secret_first:
+  for +o: List<&2, Nat>
+  {Tl.join(Tl.parts.effs([Tl.Part{o, True{}}])) == 6n <> Tl.join(Tl.parts.effs([Tl.Part{o, False{}}])) : List<&2, Nat>}
 
-# R6: the items of xs (each 1 + item), its end mark 0, then rest
-def sh_flat_one(xs: List<&2, Nat>, rest: List<&2, Nat>) -> List<&2, Nat>:
-  match xs:
-    case Nil{}:
-      0n <> rest
-    case x <> t:
-      {1n+x : Nat} <> sh_flat_one(t, rest)
+# LAW shell_effects_own_split (R3): a part (naming no secret path) whose own codes are xs then ys has the effects of a part with own codes xs, then those of a part with own codes ys
+# EXCLUDES: own codes reordered, deduplicated or lost within a part
+law shell_effects_own_split:
+  for +xs: List<&2, Nat>
+  for +ys: List<&2, Nat>
+  {Tl.join(Tl.parts.effs([Tl.Part{List.append(&2, Nat, xs, ys), False{}}])) == List.append(&2, Nat, Tl.join(Tl.parts.effs([Tl.Part{xs, False{}}])), Tl.join(Tl.parts.effs([Tl.Part{ys, False{}}]))) : List<&2, Nat>}
 
-# R6: every list of xss, in order, flat
-def sh_flat(xss: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
-  match xss:
-    case Nil{}:
-      Nil{}
-    case xs <> t:
-      sh_flat_one(xs, sh_flat(t))
+# LAW shell_effects_own_code (R3): a part naming no secret path whose one own code c is not 6 has exactly the effect c
+# EXCLUDES: an own code dropped, changed or doubled
+law shell_effects_own_code:
+  for +c: Nat
+  for not6: {Nat.is_eq(c, 6n) == False{} : Bool}
+  {Tl.join(Tl.parts.effs([Tl.Part{[c], False{}}])) == [c] : List<&2, Nat>}
 
-# R4: x is an item of xs
-def sh_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case y <> rest:
-      Bool.or(Nat.is_eq(y, x), sh_has(rest, x))
+# LAW shell_effects_own_six (R3): a part naming no secret path has no effect from an own code 6, nor from no own code
+# EXCLUDES: the secret effect from a part's own codes (only a named secret
+#   path gives it), an effect invented for a part with no codes
+law shell_effects_own_six:
+  {Tl.join(Tl.parts.effs([Tl.Part{[6n], False{}}])) == Nil{} : List<&2, Nat>} &
+  {Tl.join(Tl.parts.effs([Tl.Part{Nil{}, False{}}])) == Nil{} : List<&2, Nat>}
 
-# R4: c is an effect code (0 to 6)
-def sh_code(c: Nat) -> Bool:
-  Nat.is_lt(c, 7n)
+# Laws: whether effects run unasked (R4)
+# --------------------------------------
+# The entry answers Tl.within(es, auto) (shell_ffi_answers). These laws
+# fix it for every es and auto: no effect runs unasked; effects in a row
+# run unasked when each part of the row does; one effect c runs unasked
+# exactly when c is a code 0 to 6 and auto holds c somewhere.
 
-# R4: every effect of es is an effect code in the auto set
-def sh_within(es: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
-  match es:
-    case Nil{}:
-      True{}
-    case +c <> rest:
-      Bool.and(Bool.and(sh_code(c), sh_has(auto, c)), sh_within(rest, auto))
+# LAW shell_within_concat (R4): the effects es then fs run unasked exactly when es runs unasked and fs runs unasked
+# EXCLUDES: one effect outside the auto set run unasked when others are
+#   inside, only the first or last effect checked
+law shell_within_concat:
+  for +es: List<&2, Nat>
+  for +fs: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  {Tl.within(List.append(&2, Nat, es, fs), auto) == Bool.and(Tl.within(es, auto), Tl.within(fs, auto)) : Bool}
 
-def sh_plain.keep(six: Bool, c: Nat, r: List<&2, Nat>) -> List<&2, Nat>:
-  match six:
-    case True{}:
-      r
-    case False{}:
-      c <> r
+# LAW shell_within_none (R4): no effect runs unasked under every auto set
+# EXCLUDES: a step with no effect asked
+law shell_within_none:
+  for auto: List<&2, Nat>
+  {Tl.within(Nil{}, auto) == True{} : Bool}
 
-# R3: the codes of cs other than 6, then rest
-def sh_plain(cs: List<&2, Nat>, rest: List<&2, Nat>) -> List<&2, Nat>:
-  match cs:
-    case Nil{}:
-      rest
-    case +c <> t:
-      sh_plain.keep(Nat.is_eq(c, 6n), c, sh_plain(t, rest))
+# LAW shell_within_one_in (R4): an effect code c from 0 to 6 that the auto set holds (at any place: auto is pre, c, post) runs unasked
+# EXCLUDES: an effect in the auto set asked, an auto set read only up to
+#   its first or from its last item, a code 4 to 6 never granted
+law shell_within_one_in:
+  for +c: Nat
+  for +pre: List<&2, Nat>
+  for +post: List<&2, Nat>
+  for code: {Nat.is_lt(c, 7n) == True{} : Bool}
+  {Tl.within([c], List.append(&2, Nat, pre, c <> post)) == True{} : Bool}
 
-# R3: the secret effect when the part names a secret path, then rest
-def sh_secret(s: Bool, rest: List<&2, Nat>) -> List<&2, Nat>:
-  match s:
-    case True{}:
-      6n <> rest
-    case False{}:
-      rest
+# LAW shell_within_one_out (R4): an effect c that runs unasked is an effect code (below 7) that the auto set holds: auto is pre, c, post for some pre and post
+# EXCLUDES: an effect outside the auto set run unasked, an unknown code (7
+#   or more) run unasked though an auto set holds it
+law shell_within_one_out:
+  for +c: Nat
+  for +auto: List<&2, Nat>
+  for runs: {Tl.within([c], auto) == True{} : Bool}
+  exs pre: List<&2, Nat>
+  exs post: List<&2, Nat>
+  {auto == List.append(&2, Nat, pre, c <> post) : List<&2, Nat>} & {Nat.is_lt(c, 7n) == True{} : Bool}
 
-# R3: the effects of a step made of the parts ps
-def sh_effs(ps: List<&2, Tl.Part>) -> List<&2, Nat>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case p <> t:
-      match p:
-        case Tl.Part{o, s}:
-          sh_secret(s, sh_plain(o, sh_effs(t)))
+# Laws: the flat parts (R6)
+# -------------------------
 
-# R5: what the answer y to the gated step i does, spelled
-def sh_end(i: Nat, y: Bool) -> String:
-  match y:
-    case True{}:
-      Wr.put_nat(0n, "")
-    case False{}:
-      Wr.put_nat(1n, Wr.put_nat(i, ""))
-
-# the reply R3-R5 give a request
-def sh_reply(q: FSh.Req) -> String:
-  match q:
-    case FSh.QStep{+a, ps}:
-      +es = sh_effs(ps)
-      spell_ns(es, Wr.put_bool(sh_within(es, a), ""))
-    case FSh.QAllows{+a, es}:
-      Wr.put_bool(sh_within(es, a), "")
-    case FSh.QAnswer{i, y}:
-      sh_end(i, y)
-
-def sh_spec.end(whole: Bool, q: FSh.Req) -> String:
-  match whole:
-    case True{}:
-      sh_reply(q)
-    case False{}:
-      malformed()
-
-def sh_spec.run(r: Wr.Dec<FSh.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      sh_spec.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      malformed()
-
-# the reply R1-R6 give the input s: the reply to the request s is exactly
-# (read by read_req, whose flat list reader Fl.unflat shell_unflat_reads
-# and shell_unflat_exact pin to sh_flat), else the error form
-def sh_spec(s: String) -> String:
-  sh_spec.run(read_req(s))
-
-# Laws
-# ----
-
-# LAW shell_flat_spelled: the flat list of a step's parts is the R6 spelling: each inner list's items as 1 + item, then 0
-# EXCLUDES: an item written without its offset, a lost end mark, lists
-#   reordered (spell_req would then spell what Rust does not write)
-law shell_flat_spelled:
+# LAW shell_flat_concat (R6): the flat list of lists xss then yss is the flat list of xss, then that of yss
+# EXCLUDES: lists reordered, merged, or an end mark shared between two
+#   lists
+law shell_flat_concat:
   for +xss: List<&2, List<&2, Nat>>
-  {Fl.flat(xss) == sh_flat(xss) : List<&2, Nat>}
+  for +yss: List<&2, List<&2, Nat>>
+  {Fl.flat(List.append(&2, List<&2, Nat>, xss, yss)) == List.append(&2, Nat, Fl.flat(xss), Fl.flat(yss)) : List<&2, Nat>}
 
-# LAW shell_unflat_reads: the flat list reader reads every R6 spelling back as the lists it spells
+# LAW shell_flat_one_items (R6): in the flat list of one list xs, the item at each place i of xs is there at the same place as 1 + item
+# EXCLUDES: an item written without its offset, items reordered or shifted
+law shell_flat_one_items:
+  for +xs: List<&2, Nat>
+  for +i: Nat
+  for +x: Nat
+  for at: {List.get(&2, Nat, xs, i) == Some{x} : Maybe<&2, Nat>}
+  {List.get(&2, Nat, Fl.flat([xs]), i) == Some{1n+x} : Maybe<&2, Nat>}
+
+# LAW shell_flat_one_end (R6): the flat list of one list xs is one longer than xs and ends with the end mark 0 (at the place length of xs)
+# EXCLUDES: a lost end mark, an extra item, an end mark not last
+law shell_flat_one_end:
+  for +xs: List<&2, Nat>
+  {List.length(&2, Nat, Fl.flat([xs])) == 1n+List.length(&2, Nat, xs) : Nat} &
+  {List.get(&2, Nat, Fl.flat([xs]), List.length(&2, Nat, xs)) == Some{0n} : Maybe<&2, Nat>}
+
+# LAW shell_flat_example (R6): anchor: the example of bend/wire_flat.bend's doc: [[4], [], [0, 7]] is [5, 0, 0, 1, 8, 0]
+# EXCLUDES: another spelling of the flat parts
+law shell_flat_example:
+  {Fl.flat([[4n], Nil{}, [0n, 7n]]) == [5n, 0n, 0n, 1n, 8n, 0n] : List<&2, Nat>}
+
+# LAW shell_unflat_reads (R6): the flat list reader reads every flat list back as the lists it spells
 # EXCLUDES: a spelled list refused, misread, cut or merged with the next
 law shell_unflat_reads:
   for +xss: List<&2, List<&2, Nat>>
-  {Fl.unflat(sh_flat(xss)) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
+  {Fl.unflat(Fl.flat(xss)) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
 
-# LAW shell_unflat_exact: the flat list reader reads a list only when it is the R6 spelling of what it reads
+# LAW shell_unflat_exact (R6): the flat list reader reads a list only when it is the flat spelling of what it reads
 # EXCLUDES: items after the last end mark read as a list, a 0 item read as
 #   an item, any list read as something it does not spell
 law shell_unflat_exact:
   for +ns: List<&2, Nat>
   for +xss: List<&2, List<&2, Nat>>
   for h: {Fl.unflat(ns) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
-  {ns == sh_flat(xss) : List<&2, Nat>}
-
-# LAW shell_effects_spec: a step's effects are, part by part, 6 when the part names a secret path, then its own codes other than 6
-# EXCLUDES: a part's effect lost, reordered or duplicated; the secret
-#   effect from a part's own codes or missing for a named secret path
-law shell_effects_spec:
-  for +ps: List<&2, Tl.Part>
-  {Tl.join(Tl.parts.effs(ps)) == sh_effs(ps) : List<&2, Nat>}
-
-# LAW shell_within_spec: effects run unasked exactly when each is an effect code (0 to 6) in the auto set
-# EXCLUDES: one effect outside the auto set run unasked, an unknown code
-#   run unasked, an effect in the auto set asked
-law shell_within_spec:
-  for +es: List<&2, Nat>
-  for +auto: List<&2, Nat>
-  {Tl.within(es, auto) == sh_within(es, auto) : Bool}
-
-# LAW shell_ffi_spec: on every input the entry answers the reply R3-R6 give the request the input is exactly, and the error form on any other input
-# EXCLUDES: a decision the model computes wrong (an effect lost or added,
-#   a step run unasked outside the auto set, a denial that does not stop
-#   at the step), a default for malformed input, input left over ignored
-law shell_ffi_spec:
-  for +s: String
-  {FSh.ffi(s) == sh_spec(s) : String}
+  {ns == Fl.flat(xss) : List<&2, Nat>}
