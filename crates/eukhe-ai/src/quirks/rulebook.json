@@ -138,7 +138,7 @@
     { "layer": "host", "target": "openrouter-url", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
     { "layer": "host", "target": "prime-inference", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "anthropic_cache_control_prefixes": ["anthropic/"], "list_models": "openai" } },
     { "layer": "host", "target": "together", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "together", "long_cache_retention": false } },
-    { "layer": "host", "target": "xai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "list_models": "openai", "tokenize": "xai", "generate_image": "openai", "encrypted_reasoning": true } },
+    { "layer": "host", "target": "xai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "list_models": "openai", "tokenize": "xai", "generate_image": "openai", "encrypted_reasoning": true, "reasoning_summary": false } },
     { "layer": "host", "target": "zai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "zai" } }
   ],
   "service_tiers": [

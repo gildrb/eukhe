@@ -424,6 +424,9 @@ pub(crate) fn reasoning_effort_of(api: &OpenAIResponsesOptions) -> Option<Thinki
 }
 
 /// The `reasoning` (and `include`) of a request with a reasoning effort.
+/// A host that rejects `reasoning.summary` (the rulebook's
+/// `reasoning_summary`) gets the effort alone (omp
+/// `resolveReasoningSummaryOption`, `openai-shared.ts:4264-4270`).
 pub(crate) fn insert_reasoning(
     model: &Model,
     api: &OpenAIResponsesOptions,
@@ -437,15 +440,17 @@ pub(crate) fn insert_reasoning(
             .unwrap_or_else(|| requested.as_str().to_owned()),
         None => effort.as_str().to_owned(),
     };
-    let summary = api
-        .reasoning_summary
-        .as_deref()
-        .filter(|summary| !summary.is_empty())
-        .unwrap_or("auto");
-    params.insert(
-        "reasoning".to_owned(),
-        json!({ "effort": effort, "summary": summary }),
-    );
+    let reasoning = if model_facts::flag(Quirks::of(model).reasoning_summary(), true) {
+        let summary = api
+            .reasoning_summary
+            .as_deref()
+            .filter(|summary| !summary.is_empty())
+            .unwrap_or("auto");
+        json!({ "effort": effort, "summary": summary })
+    } else {
+        json!({ "effort": effort })
+    };
+    params.insert("reasoning".to_owned(), reasoning);
     params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
 }
 
