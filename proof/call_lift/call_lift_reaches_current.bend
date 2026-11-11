@@ -1,52 +1,15 @@
 # eukhe: the proof of LAW call_lift_reaches_current
 #
-# PROOF: the lift is the spec's (call_lift_refines_spec); a known rev has a family (else known is False), and there either it is the current rev (current, at the current rev) or its chain arrives (else known is False), so the spec lifts the call to the current rev, which is the family's current rev by String.eq reflexivity (clm.str_refl).
+# PROOF: the lookup finds the family (cll.fam_found); the call is not at its current rev (the premise), and the walk from the step leaving r follows the chain ys (cll.walk_chain, induction on ys and the fuel: each step found arrives at the chain's next rev, String.eq soundness turning the test into that rev; the current rev ends it, else the walk goes on), answering the chain's ops; the lift applies them to the stored arguments (kept == stored, cll.kept_stored) and stamps the current rev (cll.done_as).
 
 import Base
 import ../../bend/call_lift.bend as Cl
-import ../../spec/harness/lift.bend as Sp
 import ../../laws/call_lift.bend as CallLift
-import ./base/string.bend as LCallLiftString
-import ./call_lift_refines_spec.bend as PCallLiftRefinesSpec
+import ./base/lookup.bend as LCallLiftLookup
 
-def clm.rc.If(b: Bool, G: Type) -> Type:
-  match b:
-    case True{}:
-      Unit
-    case False{}:
-      G
-
-def clm.rc.absurd(-G: Type, e: {False{} == True{} : Bool}) -> G:
-  %Equal.sym(Bool, False{}, True{}, e) : clm.rc.If(_, G)
-  Unit{}
-
-def clm.rc.done(+cur: String, st: Cl.St, +t: List<&2, Cl.Fam>, +f: String, e: {Some{cur} == Sp.current(t, f) : Maybe<&2, String>}) -> {Sp.at_current(t, f, Sp.lift_spec.done(cur, st)) == True{} : Bool}:
-  match st:
-    case Cl.St{a, rs}:
-      %e : {Sp.same_rev(cur, _) == True{} : Bool}
-      LCallLiftString.clm.str_refl(cur)
-
-def clm.rc.p(p: Maybe<&2, List<&2, Cl.Step>>, +cur: String, +ks: List<&2, String>, +t: List<&2, Cl.Fam>, +f: String, e: {Some{cur} == Sp.current(t, f) : Maybe<&2, String>}) -> {Sp.arrives(p) == True{} : Bool} -> {Sp.at_current(t, f, Sp.lift_spec.chain(cur, ks, p)) == True{} : Bool}:
-  match p:
-    case None{}:
-      k => clm.rc.absurd({Sp.at_current(t, f, Cl.Stranded{}) == True{} : Bool}, k)
-    case Some{path}:
-      k => clm.rc.done(cur, Sp.ops(Sp.ops_of(path), Cl.St{Sp.stored(ks, 0n), []}), t, f, e)
-
-def clm.rc.at(at: Bool, +cur: String, +ks: List<&2, String>, p: Maybe<&2, List<&2, Cl.Step>>, +t: List<&2, Cl.Fam>, +f: String, e: {Some{cur} == Sp.current(t, f) : Maybe<&2, String>}) -> {Bool.or(at, Sp.arrives(p)) == True{} : Bool} -> {Sp.at_current(t, f, Sp.lift_spec.at(at, cur, ks, p)) == True{} : Bool}:
-  match at:
-    case True{}:
-      k => {==}
-    case False{}:
-      k => clm.rc.p(p, cur, ks, t, f, e)(k)
-
-def clm.rc.m(m: Maybe<&2, String>, +r: String, +ks: List<&2, String>, +t: List<&2, Cl.Fam>, +f: String) -> {m == Sp.current(t, f) : Maybe<&2, String>} -> {Sp.known.at(r, m, Sp.steps_of(t, f)) == True{} : Bool} -> {Sp.at_current(t, f, Sp.lift_spec.cur(r, ks, m, Sp.steps_of(t, f))) == True{} : Bool}:
-  match m:
-    case None{}:
-      e => k => clm.rc.absurd({Sp.at_current(t, f, Cl.Unknown{}) == True{} : Bool}, k)
-    case Some{+cur}:
-      e => k => clm.rc.at(String.eq(r, cur), cur, ks, Sp.chain(List.length(&2, Cl.Step, Sp.steps_of(t, f)), Sp.steps_of(t, f), cur, Sp.next(Sp.steps_of(t, f), r)), t, f, e)(k)
-
-def CallLift.call_lift_reaches_current(t, f, r, ks, known):
-  %Equal.sym(Cl.Lift, Cl.lift(t, Cl.Call{f, r, ks}), Sp.lift_spec(t, Cl.Call{f, r, ks}), CallLift.call_lift_refines_spec(t, Cl.Call{f, r, ks})) : {Sp.at_current(t, f, _) == True{} : Bool}
-  clm.rc.m(Sp.current(t, f), r, ks, t, f)({==})(known)
+def CallLift.call_lift_reaches_current(pre, post, f, cur, ss, r, ks, ys, first, old, chain, short):
+  %Equal.sym(Maybe<&2, Cl.Fam>, Cl.fam_of(List.append(&2, Cl.Fam, pre, Cl.Fam{f, cur, ss} <> post), f), Some{Cl.Fam{f, cur, ss}}, LCallLiftLookup.cll.fam_found(pre, post, f, cur, ss, first)) : {Cl.lift.fam(r, ks, _) == CallLift.lifted_as(cur, Cl.apply_ops(CallLift.chain_ops(ys, ss, r), Cl.St{CallLift.stored(ks, 0n), []})) : Cl.Lift}
+  %Equal.sym(Bool, String.eq(r, cur), False{}, old) : {Cl.lift.at(_, cur, ks, Cl.walk(List.length(&2, Cl.Step, ss), ss, cur, Cl.step_of(ss, r))) == CallLift.lifted_as(cur, Cl.apply_ops(CallLift.chain_ops(ys, ss, r), Cl.St{CallLift.stored(ks, 0n), []})) : Cl.Lift}
+  %Equal.sym(Maybe<&2, List<&2, Cl.Op>>, Cl.walk(List.length(&2, Cl.Step, ss), ss, cur, Cl.step_of(ss, r)), Some{CallLift.chain_ops(ys, ss, r)}, LCallLiftLookup.cll.walk_chain(ys, List.length(&2, Cl.Step, ss), ss, cur, r, chain, short)) : {Cl.lift.path(cur, ks, _) == CallLift.lifted_as(cur, Cl.apply_ops(CallLift.chain_ops(ys, ss, r), Cl.St{CallLift.stored(ks, 0n), []})) : Cl.Lift}
+  %LCallLiftLookup.cll.kept_stored(ks, 0n) : {Cl.lift.done(cur, Cl.apply_ops(CallLift.chain_ops(ys, ss, r), Cl.St{_, []})) == CallLift.lifted_as(cur, Cl.apply_ops(CallLift.chain_ops(ys, ss, r), Cl.St{CallLift.stored(ks, 0n), []})) : Cl.Lift}
+  LCallLiftLookup.cll.done_as(cur, Cl.apply_ops(CallLift.chain_ops(ys, ss, r), Cl.St{CallLift.stored(ks, 0n), []}))

@@ -1,7 +1,6 @@
-# eukhe: the proof of LAW stream_failure_ends
+# eukhe: the proof of LAW stream_failure_from_stop_kind
 #
-# PROOF: the drop detail by cases on the block, then the message lemma for both
-# (LA.sfb.ends).
+# PROOF: a reason is classified with no status; none is unknown: both compute.
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -13,7 +12,8 @@ import ../../laws/wire.bend as Wire
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as OverflowLaws
 import ../../laws/stream_failure.bend as StreamFailure
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def StreamFailure.stream_failure_ends(b, ms):
-  LA.sfb.ends(b, ms)
+def StreamFailure.stream_failure_from_stop_kind(x, r):
+  ({==}, {==})

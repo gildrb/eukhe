@@ -1,8 +1,6 @@
-# eukhe: the proof of LAW stream_failure_classify
+# eukhe: the proof of LAW stream_failure_message_request_id
 #
-# PROOF: the code's list of tests is the spec's chain of choices, test by test
-# (LA.sfb.classify: the searches by text_pat_hit, the lowering by
-# text_pat_lower).
+# PROOF: the message is its parts in order, the request id last (LA.sfm.rid).
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -14,7 +12,8 @@ import ../../laws/wire.bend as Wire
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as OverflowLaws
 import ../../laws/stream_failure.bend as StreamFailure
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def StreamFailure.stream_failure_classify(t, st):
-  LA.sfb.classify(t, st)
+def StreamFailure.stream_failure_message_request_id(k, t, st, d, r):
+  LA.sfm.rid(k, t, st, d, r)

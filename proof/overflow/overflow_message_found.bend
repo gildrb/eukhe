@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW overflow_message_found
 #
-# PROOF: the code's message test is the spec's (LA.ovb.message). The
+# PROOF: the code's message test is its strict form (LA.ovb.message). The
 # message is not empty (its fold holds the part u, and u is not), no calm
 # pattern is found (the premise), and an overflow pattern is: the part u
 # matches its alternative, so the search finds it in a ++ u ++ b
@@ -105,5 +105,5 @@ def omf.hit(+f: String, +pre: List<&2, Tp.Pat>, +apre: List<&2, List<&2, Tp.It>>
 
 def Overflow.overflow_message_found(msg, provider, a, u, b, pre, apre, its, apost, post, hp, hf, hu, hn, hc):
   +f = TextPat.sp_fold(msg)
-  %Equal.sym(Bool, O.message_overflow(msg, provider), Overflow.sp_message(msg, provider), LA.ovb.message(msg, provider)) : {_ == True{} : Bool}
+  %Equal.sym(Bool, O.message_overflow(msg, provider), LA.ovb.strict(msg, provider), LA.ovb.message(msg, provider)) : {_ == True{} : Bool}
   omf.pick(String.is_empty(msg), TextPat.sp_any(f, Overflow.sp_calm_pats()), TextPat.sp_any(f, Overflow.sp_overflow_pats()), Bool.and(String.eq(provider, "cerebras"), TextPat.sp_any(f, [Overflow.sp_cerebras()])), omf.ne(msg, String.append(a, String.append(u, b)), hf, omf.app3_ne(a, u, b, hn)), hc, omf.hit(f, pre, apre, its, apost, post, hp, omf.occ(msg, a, u, b, its, hf, hu)))

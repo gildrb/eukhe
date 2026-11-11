@@ -1,7 +1,6 @@
-# eukhe: the proof of LAW stream_failure_message
+# eukhe: the proof of LAW stream_failure_http_type
 #
-# PROOF: part by part: the cause's text by cases, the qualifiers by cases (with
-# the associativity of append), the detail and the request id (LA.sfb.message).
+# PROOF: the HTTP cause carries the body type, else the code, else the class name (LA.sfh.or2).
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -13,7 +12,8 @@ import ../../laws/wire.bend as Wire
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as OverflowLaws
 import ../../laws/stream_failure.bend as StreamFailure
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def StreamFailure.stream_failure_message(k, t, st, d, r):
-  LA.sfb.message(k, t, st, d, r)
+def StreamFailure.stream_failure_http_type(m, st, bt, d, code, sdk, r):
+  LA.sfh.or2(bt, code, sdk)

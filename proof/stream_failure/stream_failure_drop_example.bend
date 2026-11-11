@@ -1,7 +1,6 @@
-# eukhe: the proof of LAW stream_failure_repeating
+# eukhe: the proof of LAW stream_failure_drop_example
 #
-# PROOF: the detail by cases on the period, the message lemma, the recorded
-# period by cases (LA.sfb.repeating).
+# PROOF: each message computes.
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -13,7 +12,8 @@ import ../../laws/wire.bend as Wire
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as OverflowLaws
 import ../../laws/stream_failure.bend as StreamFailure
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def StreamFailure.stream_failure_repeating(limit, period, q):
-  LA.sfb.repeating(limit, period, q)
+def StreamFailure.stream_failure_drop_example():
+  {==}

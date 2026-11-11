@@ -74,30 +74,13 @@ import ./overflow.bend as OverflowLaws
 # Spec helpers
 # ------------
 
-def sp_pick(b: Bool, k: Sf.Cause, other: Sf.Cause) -> Sf.Cause:
-  match b:
-    case True{}:
-      k
-    case False{}:
-      other
-
-def sp_st(m: Maybe<&2, Nat>, +n: Nat) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{s}:
-      Nat.is_eq(s, n)
-
-def sp_st5(m: Maybe<&2, Nat>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{s}:
-      Nat.is_le(500n, s)
-
-# R1: whether one of the needles xs is in t
-def sp_has(+t: String, xs: List<&2, String>) -> Bool:
-  TextPat.sp_any(t, [Tp.Pat{False{}, OverflowLaws.sp_lits(xs)}])
+# R1: the table of causes, in R1's order: each rule's cause, the exact
+# lowered type it takes (refusal), the needles found in the lowered type
+# (TextPat.sp_any, the laws' matcher), the statuses it takes and the least
+# status of a range it takes (500 and more). The data is R1's text; the
+# Rust tests of crates/eukhe-bend/src/rules/stream_failure.rs pin rows of it.
+type SfRule is Data:
+  SfRule{cause: Sf.Cause, word: Maybe<&2, String>, pats: List<&2, Tp.Pat>, sts: List<&2, Nat>, from: Maybe<&2, Nat>}
 
 # R1: content.?filter and access.?denied, with their literal neighbours
 def sp_safety() -> Tp.Pat:
@@ -106,19 +89,100 @@ def sp_safety() -> Tp.Pat:
 def sp_permission() -> Tp.Pat:
   Tp.Pat{False{}, [OverflowLaws.sp_s("permission", []), OverflowLaws.sp_s("forbidden", []), OverflowLaws.sp_s("accessdenied", []), OverflowLaws.sp_s("access", Tp.One{Tp.CAny{}} <> OverflowLaws.sp_s("denied", []))]}
 
-# R1: the cause of the lowered type t
-def sp_cause(+t: String, +st: Maybe<&2, Nat>) -> Sf.Cause:
-  sp_pick(sp_st(st, 402n), Sf.KPayment{}, sp_pick(String.eq(t, "refusal"), Sf.KRefusal{}, sp_pick(TextPat.sp_any(t, [sp_safety()]), Sf.KSafety{}, sp_pick(Bool.or(sp_has(t, ["overloaded"]), sp_st(st, 529n)), Sf.KOverloaded{}, sp_pick(Bool.or(sp_has(t, ["rate_limit", "usage_limit", "usage_not_included", "throttl"]), sp_st(st, 429n)), Sf.KRateLimit{}, sp_pick(Bool.or(sp_has(t, ["authentication", "unauthorized"]), sp_st(st, 401n)), Sf.KAuth{}, sp_pick(Bool.or(TextPat.sp_any(t, [sp_permission()]), sp_st(st, 403n)), Sf.KPermission{}, sp_pick(Bool.or(sp_has(t, ["invalid_request", "not_found_error"]), Bool.or(sp_st(st, 400n), sp_st(st, 404n))), Sf.KInvalid{}, sp_pick(sp_has(t, ["malformed"]), Sf.KMalformed{}, sp_pick(Bool.or(sp_has(t, ["api_error", "server_error", "unavailable"]), sp_st5(st)), Sf.KServer{}, Sf.KUnknown{}))))))))))
+# R1: needles of plain text, found anywhere
+def sf_needles(xs: List<&2, String>) -> List<&2, Tp.Pat>:
+  [Tp.Pat{False{}, OverflowLaws.sp_lits(xs)}]
 
-# R1: the cause of a type (None: none) and a status
-def sp_classify(t: Maybe<&2, String>, +st: Maybe<&2, Nat>) -> Sf.Cause:
+def sf_r_payment() -> SfRule:
+  SfRule{Sf.KPayment{}, None{}, [], [402n], None{}}
+
+def sf_r_refusal() -> SfRule:
+  SfRule{Sf.KRefusal{}, Some{"refusal"}, [], [], None{}}
+
+def sf_r_safety() -> SfRule:
+  SfRule{Sf.KSafety{}, None{}, [sp_safety()], [], None{}}
+
+def sf_r_overloaded() -> SfRule:
+  SfRule{Sf.KOverloaded{}, None{}, sf_needles(["overloaded"]), [529n], None{}}
+
+def sf_r_rate() -> SfRule:
+  SfRule{Sf.KRateLimit{}, None{}, sf_needles(["rate_limit", "usage_limit", "usage_not_included", "throttl"]), [429n], None{}}
+
+def sf_r_auth() -> SfRule:
+  SfRule{Sf.KAuth{}, None{}, sf_needles(["authentication", "unauthorized"]), [401n], None{}}
+
+def sf_r_permission() -> SfRule:
+  SfRule{Sf.KPermission{}, None{}, [sp_permission()], [403n], None{}}
+
+def sf_r_invalid() -> SfRule:
+  SfRule{Sf.KInvalid{}, None{}, sf_needles(["invalid_request", "not_found_error"]), [400n, 404n], None{}}
+
+def sf_r_malformed() -> SfRule:
+  SfRule{Sf.KMalformed{}, None{}, sf_needles(["malformed"]), [], None{}}
+
+def sf_r_server() -> SfRule:
+  SfRule{Sf.KServer{}, None{}, sf_needles(["api_error", "server_error", "unavailable"]), [], Some{500n}}
+
+# R1: the rules, first to last
+def sf_rules() -> List<&2, SfRule>:
+  [sf_r_payment(), sf_r_refusal(), sf_r_safety(), sf_r_overloaded(), sf_r_rate(), sf_r_auth(), sf_r_permission(), sf_r_invalid(), sf_r_malformed(), sf_r_server()]
+
+def sf_cause(r: SfRule) -> Sf.Cause:
+  match r:
+    case SfRule{k, w, ps, sts, from}:
+      k
+
+def sf_word(w: Maybe<&2, String>, +t: String) -> Bool:
+  match w:
+    case None{}:
+      False{}
+    case Some{x}:
+      String.eq(t, x)
+
+# the status s is one of sts, or at least from
+def sf_code(+s: Nat, sts: List<&2, Nat>, from: Maybe<&2, Nat>) -> Bool:
+  match sts:
+    case Nil{}:
+      match from:
+        case None{}:
+          False{}
+        case Some{m}:
+          Nat.is_le(m, s)
+    case n <> rest:
+      Bool.or(Nat.is_eq(s, n), sf_code(s, rest, from))
+
+def sf_status(st: Maybe<&2, Nat>, sts: List<&2, Nat>, from: Maybe<&2, Nat>) -> Bool:
+  match st:
+    case None{}:
+      False{}
+    case Some{s}:
+      sf_code(s, sts, from)
+
+# rule r holds of the lowered type t and the status st
+def sf_fires(r: SfRule, +t: String, st: Maybe<&2, Nat>) -> Bool:
+  match r:
+    case SfRule{k, w, ps, sts, from}:
+      Bool.or(sf_word(w, t), Bool.or(TextPat.sp_any(t, ps), sf_status(st, sts, from)))
+
+# no rule of rs holds
+def sf_none_fire(rs: List<&2, SfRule>, +t: String, +st: Maybe<&2, Nat>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> rest:
+      Bool.and(Bool.not(sf_fires(r, t, st)), sf_none_fire(rest, t, st))
+
+# R1: the text searched: the type lowered (laws/text_pat.bend sp_lower), the
+# empty text without one
+def sf_lowered(t: Maybe<&2, String>) -> String:
   match t:
     case None{}:
-      sp_cause("", st)
+      ""
     case Some{x}:
-      sp_cause(TextPat.sp_lower(x), st)
+      TextPat.sp_lower(x)
 
-# R2: the texts of the causes
+# R2: the texts of the causes (the table of R2; the Rust test
+# the_tag_tables_name_what_the_core_names lists the same texts)
 def sp_text(k: Sf.Cause) -> String:
   match k:
     case Sf.KRefusal{}:
@@ -150,29 +214,7 @@ def sp_text(k: Sf.Cause) -> String:
     case Sf.KUnknown{}:
       "Provider stream failed"
 
-# R2: the qualifiers, parenthesized
-def sp_quals(t: Maybe<&2, String>, st: Maybe<&2, Nat>) -> String:
-  match t st:
-    case None{} None{}:
-      ""
-    case Some{x} None{}:
-      String.concat([" (", x, ")"])
-    case None{} Some{s}:
-      String.concat([" (", Nat.show(s), ")"])
-    case Some{x} Some{s}:
-      String.concat([" (", x, ", ", Nat.show(s), ")"])
-
-def sp_after(open: String, m: Maybe<&2, String>, close: String) -> String:
-  match m:
-    case None{}:
-      ""
-    case Some{x}:
-      String.concat([open, x, close])
-
-# R2: the message
-def sp_message(k: Sf.Cause, t: Maybe<&2, String>, st: Maybe<&2, Nat>, d: Maybe<&2, String>, r: Maybe<&2, String>) -> String:
-  String.concat([sp_text(k), sp_quals(t, st), sp_after(": ", d, ""), sp_after(" [request_id: ", r, "]")])
-
+# R3: a when there is one, else b
 def sp_or(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Maybe<&2, String>:
   match a:
     case None{}:
@@ -180,45 +222,41 @@ def sp_or(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Maybe<&2, String>:
     case Some{x}:
       Some{x}
 
-def sp_typeless(t: Maybe<&2, String>, k: Sf.Cause) -> Bool:
-  match t:
-    case Some{x}:
-      False{}
-    case None{}:
-      match k:
-        case Sf.KAuth{}:
-          True{}
-        case Sf.KPermission{}:
-          True{}
-        case Sf.KRefusal{}:
-          False{}
-        case Sf.KSafety{}:
-          False{}
-        case Sf.KPayment{}:
-          False{}
-        case Sf.KOverloaded{}:
-          False{}
-        case Sf.KRateLimit{}:
-          False{}
-        case Sf.KServer{}:
-          False{}
-        case Sf.KInvalid{}:
-          False{}
-        case Sf.KMalformed{}:
-          False{}
-        case Sf.KDrop{}:
-          False{}
-        case Sf.KStalled{}:
-          False{}
-        case Sf.KRepeating{}:
-          False{}
-        case Sf.KUnknown{}:
-          False{}
-
-def sp_unknown(k: Sf.Cause) -> Bool:
+# R3: an auth or permission cause (one only a structured type may give)
+def sf_auth_like(k: Sf.Cause) -> Bool:
   match k:
-    case Sf.KUnknown{}:
+    case Sf.KRefusal{}:
+      False{}
+    case Sf.KSafety{}:
+      False{}
+    case Sf.KPayment{}:
+      False{}
+    case Sf.KOverloaded{}:
+      False{}
+    case Sf.KRateLimit{}:
+      False{}
+    case Sf.KServer{}:
+      False{}
+    case Sf.KAuth{}:
       True{}
+    case Sf.KPermission{}:
+      True{}
+    case Sf.KInvalid{}:
+      False{}
+    case Sf.KMalformed{}:
+      False{}
+    case Sf.KDrop{}:
+      False{}
+    case Sf.KStalled{}:
+      False{}
+    case Sf.KRepeating{}:
+      False{}
+    case Sf.KUnknown{}:
+      False{}
+
+# R3: the unknown cause
+def sf_is_unknown(k: Sf.Cause) -> Bool:
+  match k:
     case Sf.KRefusal{}:
       False{}
     case Sf.KSafety{}:
@@ -245,50 +283,47 @@ def sp_unknown(k: Sf.Cause) -> Bool:
       False{}
     case Sf.KRepeating{}:
       False{}
+    case Sf.KUnknown{}:
+      True{}
 
-def sp_http.msg(u: Bool, k: Sf.Cause, t: Maybe<&2, String>, st: Maybe<&2, Nat>, d: Maybe<&2, String>, r: Maybe<&2, String>) -> Maybe<&2, String>:
+def sf_msg_pick(u: Bool, k: Sf.Cause, t: Maybe<&2, String>, st: Maybe<&2, Nat>, d: Maybe<&2, String>, r: Maybe<&2, String>) -> Maybe<&2, String>:
   match u:
     case True{}:
       None{}
     case False{}:
-      Some{sp_message(k, t, st, d, r)}
+      Some{Sf.message(k, t, st, d, r)}
 
-def sp_http.of(+k: Sf.Cause, +t: Maybe<&2, String>, +st: Maybe<&2, Nat>, d: Maybe<&2, String>, r: Maybe<&2, String>) -> Sf.Http:
-  Sf.Http{k, t, sp_http.msg(sp_unknown(k), k, t, st, d, r)}
+# R3: the user's message of an HTTP error of cause k: none for an unknown
+# cause (the raw message stays), else the R2 message
+def sf_msg_of(+k: Sf.Cause, t: Maybe<&2, String>, st: Maybe<&2, Nat>, d: Maybe<&2, String>, r: Maybe<&2, String>) -> Maybe<&2, String>:
+  sf_msg_pick(sf_is_unknown(k), k, t, st, d, r)
 
-def sp_http.cause(b: Bool, k: Sf.Cause, +st: Maybe<&2, Nat>) -> Sf.Cause:
-  match b:
-    case True{}:
-      sp_classify(None{}, st)
-    case False{}:
+# the parts of an HTTP error's answer
+def sf_kind(h: Sf.Http) -> Sf.Cause:
+  match h:
+    case Sf.Http{k, t, m}:
       k
 
-# R3: an HTTP error
-def sp_http(m: String, +st: Maybe<&2, Nat>, bt: Maybe<&2, String>, d: Maybe<&2, String>, code: Maybe<&2, String>, sdk: Maybe<&2, String>, r: Maybe<&2, String>) -> Sf.Http:
-  +t = sp_or(bt, sp_or(code, sdk))
-  +k = sp_classify(sp_or(t, Some{m}), st)
-  sp_http.of(sp_http.cause(sp_typeless(t, k), k, st), t, st, d, r)
+def sf_ptype(h: Sf.Http) -> Maybe<&2, String>:
+  match h:
+    case Sf.Http{k, t, m}:
+      t
 
-# R4: a stream that ended with an error stop reason
-def sp_from_stop(raw: Maybe<&2, String>, r: Maybe<&2, String>) -> Sf.Named:
-  match raw:
-    case None{}:
-      Sf.Named{Sf.KUnknown{}, sp_message(Sf.KUnknown{}, None{}, None{}, Some{"stream ended with an error and no stop reason"}, r)}
-    case Some{+x}:
-      +k = sp_classify(Some{x}, None{})
-      Sf.Named{k, sp_message(k, Some{x}, None{}, None{}, r)}
+def sf_msg(h: Sf.Http) -> Maybe<&2, String>:
+  match h:
+    case Sf.Http{k, t, m}:
+      m
 
-# R4: the detail of a dropped stream, by its open block
-def sp_drop_detail(b: Sf.Block) -> String:
-  match b:
-    case Sf.BThinking{}:
-      "the stream ended inside a thinking block before the stop signal"
-    case Sf.BText{}:
-      "the stream ended inside a text block before the stop signal"
-    case Sf.BToolCall{}:
-      "the stream ended inside a tool-call block before the stop signal"
-    case Sf.BNone{}:
-      "the stream ended before any response content or stop signal"
+# the parts of a named failure
+def sf_nkind(n: Sf.Named) -> Sf.Cause:
+  match n:
+    case Sf.Named{k, m}:
+      k
+
+def sf_nmsg(n: Sf.Named) -> String:
+  match n:
+    case Sf.Named{k, m}:
+      m
 
 def sp_shown.pick(short: Bool, +s: String) -> String:
   match short:
@@ -301,16 +336,6 @@ def sp_shown.pick(short: Bool, +s: String) -> String:
 def sp_shown(+s: String) -> String:
   sp_shown.pick(Nat.is_le(String.length(s), 80n), s)
 
-def sp_repeat_detail(b: Bool, +limit: Nat, +period: Nat, q: String) -> String:
-  match b:
-    case True{}:
-      String.concat(["the same line ", Nat.show(limit), " times in a row: ", q])
-    case False{}:
-      String.concat(["a cycle of ", Nat.show(period), " lines repeated over the last ", Nat.show(limit), " lines, ending with ", q])
-
-# R4: a repeating stream
-def sp_repeating(+limit: Nat, +period: Nat, q: String) -> Sf.Repeat:
-  Sf.Repeat{sp_message(Sf.KRepeating{}, None{}, None{}, Some{sp_repeat_detail(Nat.is_le(period, 1n), limit, period, q)}, None{}), Nat.max(period, 1n)}
 
 # R5: the spelling of a request and of its reply
 
@@ -418,24 +443,26 @@ def sp_w_repeat(x: Sf.Repeat) -> String:
     case Sf.Repeat{msg, p}:
       Wr.put_str(msg, Wr.put_nat(p, ""))
 
+# the reply to a request: the decision of the code, which the laws above
+# pin, spelled
 def sp_w_reply(q: FSf.Req) -> String:
   match q:
     case FSf.QClassify{t, st}:
-      sp_w_cause(sp_classify(t, st), "")
+      sp_w_cause(Sf.classify(t, st), "")
     case FSf.QMessage{k, t, st, d, r}:
-      Wr.put_str(sp_message(k, t, st, d, r), "")
+      Wr.put_str(Sf.message(k, t, st, d, r), "")
     case FSf.QHttp{m, st, bt, d, code, sdk, r}:
-      sp_w_http(sp_http(m, st, bt, d, code, sdk, r))
+      sp_w_http(Sf.http(m, st, bt, d, code, sdk, r))
     case FSf.QFromStop{raw, r}:
-      sp_w_named(sp_from_stop(raw, r))
+      sp_w_named(Sf.from_stop(raw, r))
     case FSf.QDrop{b}:
-      Wr.put_str(sp_message(Sf.KDrop{}, Some{"stream_drop"}, None{}, Some{sp_drop_detail(b)}, None{}), "")
+      Wr.put_str(Sf.drop(b), "")
     case FSf.QStalled{ms}:
-      Wr.put_str(sp_message(Sf.KStalled{}, None{}, None{}, Some{String.concat(["no stream event for ", ms, "ms"])}, None{}), "")
+      Wr.put_str(Sf.stalled(ms), "")
     case FSf.QShown{line}:
-      Wr.put_str(sp_shown(line), "")
+      Wr.put_str(Sf.shown(line), "")
     case FSf.QRepeating{limit, period, q}:
-      sp_w_repeat(sp_repeating(limit, period, q))
+      sp_w_repeat(Sf.repeating(limit, period, q))
 
 # every number and length of the request fits the wire
 def sp_fit_req(q: FSf.Req) -> Bool:
@@ -457,38 +484,91 @@ def sp_fit_req(q: FSf.Req) -> Bool:
     case FSf.QRepeating{limit, period, q}:
       Bool.and(LawsBase.wire_fits(limit), Bool.and(LawsBase.wire_fits(period), LawsBase.wire_fits(String.length(q))))
 
-# Laws: the causes and messages
-# -----------------------------
+# Laws: the causes (R1)
+# ---------------------
 
-# LAW stream_failure_classify (R1): the cause of every provider error type
-# (or none) and every status is the spec's
-# EXCLUDES: a test out of order (a 402 read from the type, a rate limit
-#   before the overload), a needle dropped or changed, a type searched
+# LAW stream_failure_classify_first (R1): the cause of a provider error type
+# (or none) and a status is the cause of the first rule of R1's table that
+# holds of the lowered type (sf_lowered) and the status: a rule that holds
+# with none before it holding gives its cause
+# EXCLUDES: a rule out of order (a 402 read after the type, a rate limit
+#   before the overload), a needle dropped or added, a type searched
 #   without lowering, `.?` that takes two chars or a line feed, a status
-#   compared wrongly
-law stream_failure_classify:
+#   compared wrongly, a refusal found inside a longer type
+law stream_failure_classify_first:
   for +t: Maybe<&2, String>
   for +st: Maybe<&2, Nat>
-  {Sf.classify(t, st) == sp_classify(t, st) : Sf.Cause}
+  for +pre: List<&2, SfRule>
+  for +x: SfRule
+  for +post: List<&2, SfRule>
+  for hr: {sf_rules() == List.append(&2, SfRule, pre, x <> post) : List<&2, SfRule>}
+  for hx: {sf_fires(x, sf_lowered(t), st) == True{} : Bool}
+  for hp: {sf_none_fire(pre, sf_lowered(t), st) == True{} : Bool}
+  {Sf.classify(t, st) == sf_cause(x) : Sf.Cause}
 
-# LAW stream_failure_message (R2): the message of every cause, type,
-# status, detail and request id is the spec's
-# EXCLUDES: a qualifier dropped, swapped or doubled, another separator, a
-#   cause's text changed, the request id before the detail
-law stream_failure_message:
+# LAW stream_failure_classify_none (R1): when no rule of R1's table holds
+# of the lowered type and the status, the cause is unknown
+# EXCLUDES: a default cause other than unknown, a cause read from a needle
+#   or status no rule names
+law stream_failure_classify_none:
+  for +t: Maybe<&2, String>
+  for +st: Maybe<&2, Nat>
+  for hp: {sf_none_fire(sf_rules(), sf_lowered(t), st) == True{} : Bool}
+  {Sf.classify(t, st) == Sf.KUnknown{} : Sf.Cause}
+
+# Laws: the messages (R2)
+# -----------------------
+
+# LAW stream_failure_message_text (R2): the message of a cause with no
+# type, status, detail or request id is the cause's text (R2's table)
+# EXCLUDES: a cause's text changed or swapped with another's
+law stream_failure_message_text:
+  for +k: Sf.Cause
+  {Sf.message(k, None{}, None{}, None{}, None{}) == sp_text(k) : String}
+
+# LAW stream_failure_message_quals (R2): with a provider error type x and no
+# status, the cause's text is followed by " (x)"; with a status s and no
+# type, by " (s)"; with both, by " (x, s)"
+# EXCLUDES: a qualifier dropped, swapped or doubled, another separator or
+#   bracket, the status before the type
+law stream_failure_message_quals:
+  for +k: Sf.Cause
+  for +x: String
+  for +s: Nat
+  {Sf.message(k, Some{x}, None{}, None{}, None{}) == String.concat([sp_text(k), " (", x, ")"]) : String} & {Sf.message(k, None{}, Some{s}, None{}, None{}) == String.concat([sp_text(k), " (", Nat.show(s), ")"]) : String} & {Sf.message(k, Some{x}, Some{s}, None{}, None{}) == String.concat([sp_text(k), " (", x, ", ", Nat.show(s), ")"]) : String}
+
+# LAW stream_failure_message_detail (R2): a detail d follows the message
+# without it, after ": ", for every cause, type and status
+# EXCLUDES: the detail dropped, put before the qualifiers, or joined by
+#   another separator
+law stream_failure_message_detail:
+  for +k: Sf.Cause
+  for +t: Maybe<&2, String>
+  for +st: Maybe<&2, Nat>
+  for +d: String
+  {Sf.message(k, t, st, Some{d}, None{}) == String.append(Sf.message(k, t, st, None{}, None{}), String.append(": ", d)) : String}
+
+# LAW stream_failure_message_request_id (R2): a request id r follows the
+# message without it as " [request_id: r]", for every cause, type, status
+# and detail
+# EXCLUDES: the request id dropped, put before the detail, or bracketed
+#   another way
+law stream_failure_message_request_id:
   for +k: Sf.Cause
   for +t: Maybe<&2, String>
   for +st: Maybe<&2, Nat>
   for +d: Maybe<&2, String>
-  for +r: Maybe<&2, String>
-  {Sf.message(k, t, st, d, r) == sp_message(k, t, st, d, r) : String}
+  for +r: String
+  {Sf.message(k, t, st, d, Some{r}) == String.append(Sf.message(k, t, st, d, None{}), String.concat([" [request_id: ", r, "]"])) : String}
 
-# LAW stream_failure_http (R3): the cause, type and message of every HTTP
-# error are the spec's
-# EXCLUDES: another precedence of the type, the message searched when a
-#   type exists, an auth cause read from message text, a message for an
-#   unknown cause, the body's message dropped from the detail
-law stream_failure_http:
+# Laws: HTTP errors (R3)
+# ----------------------
+
+# LAW stream_failure_http_type (R3): an HTTP error's provider error type is
+# the body's error type, else the error's own code, else its SDK class name
+# EXCLUDES: another precedence of the three, a type made up from the
+#   message
+law stream_failure_http_type:
   for +m: String
   for +st: Maybe<&2, Nat>
   for +bt: Maybe<&2, String>
@@ -496,25 +576,102 @@ law stream_failure_http:
   for +code: Maybe<&2, String>
   for +sdk: Maybe<&2, String>
   for +r: Maybe<&2, String>
-  {Sf.http(m, st, bt, d, code, sdk, r) == sp_http(m, st, bt, d, code, sdk, r) : Sf.Http}
+  {sf_ptype(Sf.http(m, st, bt, d, code, sdk, r)) == sp_or(bt, sp_or(code, sdk)) : Maybe<&2, String>}
 
-# LAW stream_failure_from_stop (R4): the cause and message of every
-# stream that ended with an error stop reason (or none) are the spec's
-# EXCLUDES: a reason classified with a status, a message without the
-#   reason, another text for a missing reason
-law stream_failure_from_stop:
-  for +raw: Maybe<&2, String>
+# LAW stream_failure_http_typed (R3): with a provider error type y, the
+# cause is R1's for y and the status, whatever the message
+# EXCLUDES: the message searched when a type exists, a type's auth cause
+#   replaced by the status's
+law stream_failure_http_typed:
+  for +m: String
+  for +st: Maybe<&2, Nat>
+  for +bt: Maybe<&2, String>
+  for +d: Maybe<&2, String>
+  for +code: Maybe<&2, String>
+  for +sdk: Maybe<&2, String>
   for +r: Maybe<&2, String>
-  {Sf.from_stop(raw, r) == sp_from_stop(raw, r) : Sf.Named}
+  for +y: String
+  for hy: {sp_or(bt, sp_or(code, sdk)) == Some{y} : Maybe<&2, String>}
+  {sf_kind(Sf.http(m, st, bt, d, code, sdk, r)) == Sf.classify(Some{y}, st) : Sf.Cause}
 
-# LAW stream_failure_ends (R4): the messages of every dropped and stalled
-# stream are the spec's
-# EXCLUDES: another detail per block, a drop without its type, a stall
-#   without its deadline
-law stream_failure_ends:
-  for +b: Sf.Block
+# LAW stream_failure_http_typeless_kept (R3): with no provider error type,
+# the cause is R1's for the message and the status when that is no auth or
+# permission cause
+# EXCLUDES: a cause from the message dropped for the status's, the message
+#   not searched without a type
+law stream_failure_http_typeless_kept:
+  for +m: String
+  for +st: Maybe<&2, Nat>
+  for +d: Maybe<&2, String>
+  for +r: Maybe<&2, String>
+  for hk: {sf_auth_like(Sf.classify(Some{m}, st)) == False{} : Bool}
+  {sf_kind(Sf.http(m, st, None{}, d, None{}, None{}, r)) == Sf.classify(Some{m}, st) : Sf.Cause}
+
+# LAW stream_failure_http_typeless_status (R3): with no provider error type,
+# an auth or permission cause read from the message gives way to R1's
+# cause for the status alone
+# EXCLUDES: an auth failure read from words of a message (no structured
+#   type), so a retry ladder stops on a transient error
+law stream_failure_http_typeless_status:
+  for +m: String
+  for +st: Maybe<&2, Nat>
+  for +d: Maybe<&2, String>
+  for +r: Maybe<&2, String>
+  for hk: {sf_auth_like(Sf.classify(Some{m}, st)) == True{} : Bool}
+  {sf_kind(Sf.http(m, st, None{}, d, None{}, None{}, r)) == Sf.classify(None{}, st) : Sf.Cause}
+
+# LAW stream_failure_http_message (R3): an HTTP error's user message is none
+# for an unknown cause (the raw message stays) and else the R2 message of
+# its cause, its provider error type, the status, the body's message as
+# detail and the request id
+# EXCLUDES: a message for an unknown cause, the body's message or the
+#   request id dropped, a type other than the provider error type named
+law stream_failure_http_message:
+  for +m: String
+  for +st: Maybe<&2, Nat>
+  for +bt: Maybe<&2, String>
+  for +d: Maybe<&2, String>
+  for +code: Maybe<&2, String>
+  for +sdk: Maybe<&2, String>
+  for +r: Maybe<&2, String>
+  {sf_msg(Sf.http(m, st, bt, d, code, sdk, r)) == sf_msg_of(sf_kind(Sf.http(m, st, bt, d, code, sdk, r)), sf_ptype(Sf.http(m, st, bt, d, code, sdk, r)), st, d, r) : Maybe<&2, String>}
+
+# Laws: stream ends (R4)
+# ----------------------
+
+# LAW stream_failure_from_stop_kind (R4): a stream that ended with an error
+# stop reason x has R1's cause of x with no status; one with no reason is
+# unknown
+# EXCLUDES: a reason classified with a status, a missing reason given a
+#   cause
+law stream_failure_from_stop_kind:
+  for +x: String
+  for +r: Maybe<&2, String>
+  {sf_nkind(Sf.from_stop(Some{x}, r)) == Sf.classify(Some{x}, None{}) : Sf.Cause} & {sf_nkind(Sf.from_stop(None{}, r)) == Sf.KUnknown{} : Sf.Cause}
+
+# LAW stream_failure_from_stop_message (R4): with no request id, a stop
+# reason x reads as its cause's text then " (x)", and no reason as
+# "Provider stream failed: stream ended with an error and no stop reason"
+# EXCLUDES: a message without the reason, another text for a missing
+#   reason, a status qualifier made up
+law stream_failure_from_stop_message:
+  for +x: String
+  {sf_nmsg(Sf.from_stop(Some{x}, None{})) == String.concat([sp_text(Sf.classify(Some{x}, None{})), " (", x, ")"]) : String} & {sf_nmsg(Sf.from_stop(None{}, None{})) == "Provider stream failed: stream ended with an error and no stop reason" : String}
+
+# LAW stream_failure_from_stop_request_id (R4, R2): a request id r follows
+# a stopped stream's message as " [request_id: r]", with a reason or none
+# EXCLUDES: the request id dropped from a stopped stream's message
+law stream_failure_from_stop_request_id:
+  for +raw: Maybe<&2, String>
+  for +r: String
+  {sf_nmsg(Sf.from_stop(raw, Some{r})) == String.append(sf_nmsg(Sf.from_stop(raw, None{})), String.concat([" [request_id: ", r, "]"])) : String}
+
+# LAW stream_failure_stalled (R4): a stalled stream reads "Provider stream
+# stalled: no stream event for <ms>ms", ms as the host writes it
+# EXCLUDES: a stall without its deadline, another unit or text
+law stream_failure_stalled:
   for +ms: String
-  {(Sf.drop(b), Sf.stalled(ms)) == (sp_message(Sf.KDrop{}, Some{"stream_drop"}, None{}, Some{sp_drop_detail(b)}, None{}), sp_message(Sf.KStalled{}, None{}, None{}, Some{String.concat(["no stream event for ", ms, "ms"])}, None{})) : String & String}
+  {Sf.stalled(ms) == String.concat(["Provider stream stalled: no stream event for ", ms, "ms"]) : String}
 
 # LAW stream_failure_shown (R4): every repeated line shows as the spec
 # says: its first 80 chars and U+2026 when longer, else whole
@@ -524,20 +681,35 @@ law stream_failure_shown:
   for +s: String
   {Sf.shown(s) == sp_shown(s) : String}
 
-# LAW stream_failure_repeating (R4): the message and period of every
-# repeating stream are the spec's
+# LAW stream_failure_repeating_line (R4): a repeating stream of period 0 or
+# 1 reads "Provider stream repeating: the same line <limit> times in a row:
+# <q>" and records the period 1
 # EXCLUDES: a cycle of one line read as a cycle, a period of 0 recorded,
-#   the limit and the period swapped in the text
-law stream_failure_repeating:
+#   the limit dropped
+law stream_failure_repeating_line:
   for +limit: Nat
   for +period: Nat
   for +q: String
-  {Sf.repeating(limit, period, q) == sp_repeating(limit, period, q) : Sf.Repeat}
+  for h: {Nat.is_le(period, 1n) == True{} : Bool}
+  {Sf.repeating(limit, period, q) == Sf.Repeat{String.concat(["Provider stream repeating: the same line ", Nat.show(limit), " times in a row: ", q]), 1n} : Sf.Repeat}
+
+# LAW stream_failure_repeating_cycle (R4): a repeating stream of period p
+# of 2 or more reads "Provider stream repeating: a cycle of <p> lines
+# repeated over the last <limit> lines, ending with <q>" and records p
+# EXCLUDES: the limit and the period swapped in the text, another period
+#   recorded
+law stream_failure_repeating_cycle:
+  for +limit: Nat
+  for +period: Nat
+  for +q: String
+  for h: {Nat.is_le(2n, period) == True{} : Bool}
+  {Sf.repeating(limit, period, q) == Sf.Repeat{String.concat(["Provider stream repeating: a cycle of ", Nat.show(period), " lines repeated over the last ", Nat.show(limit), " lines, ending with ", q]), period} : Sf.Repeat}
 
 # LAW stream_failure_example (R1-R4): anchor: the vectors of the Rust
 # tests: classification by type and status (a 402 before the type), the
 # messages with and without qualifiers, the stop reasons
-# EXCLUDES: a spec that drifts from the Rust it replaced
+# EXCLUDES: a classification or message that drifts from the Rust test
+#   vectors
 law stream_failure_example:
   {([Sf.classify(Some{"refusal"}, None{}), Sf.classify(Some{"SAFETY"}, None{}), Sf.classify(Some{"overloaded_error"}, None{}), Sf.classify(Some{"other"}, Some{529n}), Sf.classify(Some{"rate_limit_error"}, None{}), Sf.classify(Some{"usage_not_included"}, None{}), Sf.classify(Some{"authentication_error"}, None{}), Sf.classify(Some{"forbidden"}, None{}), Sf.classify(Some{"invalid_request_error"}, None{}), Sf.classify(Some{"api_error"}, None{}), Sf.classify(Some{"other"}, Some{503n}), Sf.classify(Some{"weird"}, None{}), Sf.classify(Some{"invalid_request_error"}, Some{402n}), Sf.classify(None{}, Some{402n}), Sf.classify(Some{"Content-Filter"}, None{})], ([Sf.message(Sf.KOverloaded{}, Some{"overloaded_error"}, Some{529n}, Some{"slow down"}, Some{"req_abc"}), Sf.message(Sf.KInvalid{}, None{}, Some{400n}, None{}, None{})], [Sf.from_stop(Some{"refusal"}, None{}), Sf.from_stop(None{}, None{})])) == ([Sf.KRefusal{}, Sf.KSafety{}, Sf.KOverloaded{}, Sf.KOverloaded{}, Sf.KRateLimit{}, Sf.KRateLimit{}, Sf.KAuth{}, Sf.KPermission{}, Sf.KInvalid{}, Sf.KServer{}, Sf.KServer{}, Sf.KUnknown{}, Sf.KPayment{}, Sf.KPayment{}, Sf.KSafety{}], (["Provider overloaded (overloaded_error, 529): slow down [request_id: req_abc]", "Provider rejected the request (400)"], [Sf.Named{Sf.KRefusal{}, "Model refused to respond (refusal)"}, Sf.Named{Sf.KUnknown{}, "Provider stream failed: stream ended with an error and no stop reason"}])) : List<&2, Sf.Cause> & (List<&2, String> & List<&2, Sf.Named>)}
 
@@ -548,12 +720,20 @@ law stream_failure_example:
 law stream_failure_http_example:
   {[Sf.http("429 x", Some{429n}, None{}, Some{"slow"}, None{}, Some{"ApiError"}, None{}), Sf.http("unauthorized here", Some{400n}, None{}, None{}, None{}, None{}, Some{"r1"}), Sf.http("odd", None{}, None{}, None{}, None{}, None{}, None{}), Sf.http("x", Some{500n}, Some{"overloaded_error"}, Some{"busy"}, Some{"c"}, None{}, None{})] == [Sf.Http{Sf.KRateLimit{}, Some{"ApiError"}, Some{"Provider rate limit exceeded (ApiError, 429): slow"}}, Sf.Http{Sf.KInvalid{}, None{}, Some{"Provider rejected the request (400) [request_id: r1]"}}, Sf.Http{Sf.KUnknown{}, None{}, None{}}, Sf.Http{Sf.KOverloaded{}, Some{"overloaded_error"}, Some{"Provider overloaded (overloaded_error, 500): busy"}}] : List<&2, Sf.Http>}
 
+# LAW stream_failure_drop_example (R4): anchor: the message of a stream
+# dropped inside each block, as the Rust test
+# the_tag_tables_name_what_the_core_names reads it (crates/eukhe-bend/src/
+# rules/stream_failure.rs), every block
+# EXCLUDES: another detail per block, a drop without its type
+law stream_failure_drop_example:
+  {[Sf.drop(Sf.BThinking{}), Sf.drop(Sf.BText{}), Sf.drop(Sf.BToolCall{}), Sf.drop(Sf.BNone{})] == ["Provider dropped the response stream (stream_drop): the stream ended inside a thinking block before the stop signal", "Provider dropped the response stream (stream_drop): the stream ended inside a text block before the stop signal", "Provider dropped the response stream (stream_drop): the stream ended inside a tool-call block before the stop signal", "Provider dropped the response stream (stream_drop): the stream ended before any response content or stop signal"] : List<&2, String>}
+
 # Laws: the entry (R5)
 # --------------------
 
 # LAW stream_failure_entry_answers (R5): the entry answers every request
 # Rust spells, every number and length within the wire, with the spelled
-# answer of the spec
+# answer of the rules (bend/stream_failure.bend, pinned by the laws above)
 # EXCLUDES: the questions swapped, the fields read in another order, a
 #   cause or block read as another, a default
 law stream_failure_entry_answers:

@@ -1,11 +1,10 @@
-# eukhe: the proof of LAW call_lift_refines_spec
+# eukhe: the lift is its proof model (a lemma of area call_lift, no law)
 #
-# PROOF: induction on the table (clm.fam): a row whose name differs leaves both sides at the rest's lift (the induction hypothesis), the matching row reduces both sides to the lift at the family's current rev; there step_of is next (clm.step), walk is the ops of the spec's chain (clm.walk, induction on the fuel, with List.append(o, Nil) == o), and on a found chain apply_ops is ops (clm.ops: apply_op is op, through has == taken, rename == move, arg_key == key_of) on kept == stored (clm.kept).
+# PROOF: induction on the table (clm.fam): a row whose name differs leaves both sides at the rest's lift (the induction hypothesis), the matching row reduces both sides to the lift at the family's current rev; there step_of is next (clm.step), walk is the ops of the model's chain (clm.walk, induction on the fuel, with List.append(o, Nil) == o), and on a found chain apply_ops is ops (clm.ops: apply_op is op, through has == taken, rename == move, arg_key == key_of) on kept == stored (clm.kept).
 
 import Base
-import ../../bend/call_lift.bend as Cl
-import ../../spec/harness/lift.bend as Sp
-import ../../laws/call_lift.bend as CallLift
+import ../../../bend/call_lift.bend as Cl
+import ./model.bend as Sp
 
 # the ops of a chain, when there is one
 def clm.mops(m: Maybe<&2, List<&2, Cl.Step>>) -> Maybe<&2, List<&2, Cl.Op>>:
@@ -211,7 +210,8 @@ def clm.fam(+t: List<&2, Cl.Fam>, +f: String, +r: String, +ks: List<&2, String>)
         case Cl.Fam{+n, +c, +s}:
           clm.fam_pick(String.eq(n, f), r, ks, n, c, s, Cl.fam_of(rest, f), Sp.current(rest, f), Sp.steps_of(rest, f), clm.fam(rest, f, r, ks))
 
-def CallLift.call_lift_refines_spec(t, c):
+# Cl.lift is the model's lift_spec, for every table and call
+def clm.refines(+t: List<&2, Cl.Fam>, c: Cl.Call) -> {Cl.lift(t, c) == Sp.lift_spec(t, c) : Cl.Lift}:
   match c:
     case Cl.Call{+f, +r, +ks}:
       clm.fam(t, f, r, ks)

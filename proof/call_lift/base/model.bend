@@ -1,11 +1,11 @@
-# harness (spec): a stored tool call lifted to the current dialect of its
-# family (area call_lift), as omp² states it ("version everything the
-# model sees": every call is stamped `family@rev`; old calls lift into the
-# current dialect so histories stay coherent across model switches;
-# replay at the same rev is byte-stable), restated without the code of
-# bend/call_lift.bend. spec/harness/lift_wire.bend holds the wire of the
-# entry. The laws of area call_lift (laws/call_lift.bend) state that the
-# code refines it. A spec: the shipped code never calls it.
+# eukhe: a proof model of area call_lift (no law states it)
+#
+# The lift of bend/call_lift.bend restated function by function, with the
+# family lookup split in two (current, steps_of) and the chain collected
+# as steps before their ops are joined (ops_of): a copy of the code, not
+# a spec. ./refines.bend proves Cl.lift equal to lift_spec, and the
+# proofs of call_lift_idempotent and call_lift_preserves_unmapped reason
+# on this model. The laws (laws/call_lift.bend) never use it.
 #
 # L1: a call's family is the first of the table with its name; a family
 #     the table lacks leaves the call unknown (untouched).
@@ -24,7 +24,7 @@
 # L5: a lifted call takes the current rev of its family.
 
 import Base
-import ../../bend/call_lift.bend as Cl
+import ../../../bend/call_lift.bend as Cl
 
 # The family (L1)
 # ---------------
@@ -239,162 +239,3 @@ def lift_spec(+t: List<&2, Cl.Fam>, c: Cl.Call) -> Cl.Lift:
   match c:
     case Cl.Call{+f, r, ks}:
       lift_spec.cur(r, ks, current(t, f), steps_of(t, f))
-
-# Terms of the laws
-# -----------------
-
-def arrives(p: Maybe<&2, List<&2, Cl.Step>>) -> Bool:
-  match p:
-    case None{}:
-      False{}
-    case Some{x}:
-      True{}
-
-def known.at(+r: String, m: Maybe<&2, String>, +ss: List<&2, Cl.Step>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{+cur}:
-      Bool.or(String.eq(r, cur), arrives(chain(List.length(&2, Cl.Step, ss), ss, cur, next(ss, r))))
-
-# rev r of family f is known to table t: the current rev, or one whose
-# chain arrives at it
-def known(+t: List<&2, Cl.Fam>, +f: String, +r: String) -> Bool:
-  known.at(r, current(t, f), steps_of(t, f))
-
-def same_rev(rev: String, m: Maybe<&2, String>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{c}:
-      String.eq(rev, c)
-
-# a lift leaves the call at the current rev of family f: already there, or
-# lifted to it
-def at_current(t: List<&2, Cl.Fam>, +f: String, l: Cl.Lift) -> Bool:
-  match l:
-    case Cl.Unknown{}:
-      False{}
-    case Cl.Current{}:
-      True{}
-    case Cl.Stranded{}:
-      False{}
-    case Cl.Lifted{rev, a, rs}:
-      same_rev(rev, current(t, f))
-
-def keys_of(a: List<&2, Cl.Arg>) -> List<&2, String>:
-  match a:
-    case Nil{}:
-      Nil{}
-    case Con{x, rest}:
-      key_of(x) <> keys_of(rest)
-
-def applied.l(f: String, r: String, ks: List<&2, String>, l: Cl.Lift) -> Cl.Call:
-  match l:
-    case Cl.Unknown{}:
-      Cl.Call{f, r, ks}
-    case Cl.Current{}:
-      Cl.Call{f, r, ks}
-    case Cl.Stranded{}:
-      Cl.Call{f, r, ks}
-    case Cl.Lifted{rev, a, rs}:
-      Cl.Call{f, rev, keys_of(a)}
-
-# the call a lift leaves: its family at the lifted rev with the lifted
-# argument names, or the call as stored
-def applied(c: Cl.Call, l: Cl.Lift) -> Cl.Call:
-  match c:
-    case Cl.Call{f, r, ks}:
-      applied.l(f, r, ks, l)
-
-# what a second lift of the applied call answers: a lifted call is current
-def settled(l: Cl.Lift) -> Cl.Lift:
-  match l:
-    case Cl.Unknown{}:
-      Cl.Unknown{}
-    case Cl.Current{}:
-      Cl.Current{}
-    case Cl.Stranded{}:
-      Cl.Stranded{}
-    case Cl.Lifted{rev, a, rs}:
-      Cl.Current{}
-
-# the stored indices, in order, of the kept arguments
-def kept_indices(a: List<&2, Cl.Arg>) -> List<&2, Nat>:
-  match a:
-    case Nil{}:
-      Nil{}
-    case Con{x, rest}:
-      match x:
-        case Cl.Kept{i, k}:
-          i <> kept_indices(rest)
-        case Cl.Added{k, j}:
-          kept_indices(rest)
-
-# the indices i, i+1, ... of the names ks
-def upto(ks: List<&2, String>, +i: Nat) -> List<&2, Nat>:
-  match ks:
-    case Nil{}:
-      Nil{}
-    case Con{k, rest}:
-      i <> upto(rest, 1n+i)
-
-# the stored indices a lift keeps: those of its arguments, every one of a
-# call kept as stored
-def kept_of(ks: List<&2, String>, l: Cl.Lift) -> List<&2, Nat>:
-  match l:
-    case Cl.Unknown{}:
-      upto(ks, 0n)
-    case Cl.Current{}:
-      upto(ks, 0n)
-    case Cl.Stranded{}:
-      upto(ks, 0n)
-    case Cl.Lifted{rev, a, rs}:
-      kept_indices(a)
-
-def added_count(a: List<&2, Cl.Arg>) -> Nat:
-  match a:
-    case Nil{}:
-      0n
-    case Con{x, rest}:
-      match x:
-        case Cl.Kept{i, k}:
-          added_count(rest)
-        case Cl.Added{k, j}:
-          1n+added_count(rest)
-
-def filled_count(rs: List<&2, Cl.Receipt>) -> Nat:
-  match rs:
-    case Nil{}:
-      0n
-    case Con{x, rest}:
-      match x:
-        case Cl.Renamed{a, b}:
-          filled_count(rest)
-        case Cl.Clashed{a, b}:
-          filled_count(rest)
-        case Cl.Filled{k}:
-          1n+filled_count(rest)
-
-# the arguments a lift added, and its filled receipts
-def added_of(l: Cl.Lift) -> Nat:
-  match l:
-    case Cl.Unknown{}:
-      0n
-    case Cl.Current{}:
-      0n
-    case Cl.Stranded{}:
-      0n
-    case Cl.Lifted{rev, a, rs}:
-      added_count(a)
-
-def filled_of(l: Cl.Lift) -> Nat:
-  match l:
-    case Cl.Unknown{}:
-      0n
-    case Cl.Current{}:
-      0n
-    case Cl.Stranded{}:
-      0n
-    case Cl.Lifted{rev, a, rs}:
-      filled_count(rs)

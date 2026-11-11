@@ -1,16 +1,14 @@
 # eukhe: the proof of LAW call_lift_current_is_identity
 #
-# PROOF: the lift is the spec's (call_lift_refines_spec); the spec finds the family's current rev, which the premise says is the call's own rev r, and String.eq(r, r) holds (clm.str_refl), so it answers current.
+# PROOF: the lookup finds the family (cll.fam_found: the rows before it are named otherwise), whose current rev is the call's own rev r; String.eq(r, r) holds (clm.str_refl), so the lift answers current.
 
 import Base
 import ../../bend/call_lift.bend as Cl
-import ../../spec/harness/lift.bend as Sp
 import ../../laws/call_lift.bend as CallLift
 import ./base/string.bend as LCallLiftString
-import ./call_lift_refines_spec.bend as PCallLiftRefinesSpec
+import ./base/lookup.bend as LCallLiftLookup
 
-def CallLift.call_lift_current_is_identity(t, f, r, ks, cur):
-  %Equal.sym(Cl.Lift, Cl.lift(t, Cl.Call{f, r, ks}), Sp.lift_spec(t, Cl.Call{f, r, ks}), CallLift.call_lift_refines_spec(t, Cl.Call{f, r, ks})) : {_ == Cl.Current{} : Cl.Lift}
-  %Equal.sym(Maybe<&2, String>, Sp.current(t, f), Some{r}, cur) : {Sp.lift_spec.cur(r, ks, _, Sp.steps_of(t, f)) == Cl.Current{} : Cl.Lift}
-  %LCallLiftString.clm.str_refl_sym(r) : {Sp.lift_spec.at(_, r, ks, Sp.chain(List.length(&2, Cl.Step, Sp.steps_of(t, f)), Sp.steps_of(t, f), r, Sp.next(Sp.steps_of(t, f), r))) == Cl.Current{} : Cl.Lift}
+def CallLift.call_lift_current_is_identity(pre, post, f, r, ss, ks, first):
+  %Equal.sym(Maybe<&2, Cl.Fam>, Cl.fam_of(List.append(&2, Cl.Fam, pre, Cl.Fam{f, r, ss} <> post), f), Some{Cl.Fam{f, r, ss}}, LCallLiftLookup.cll.fam_found(pre, post, f, r, ss, first)) : {Cl.lift.fam(r, ks, _) == Cl.Current{} : Cl.Lift}
+  %LCallLiftString.clm.str_refl_sym(r) : {Cl.lift.at(_, r, ks, Cl.walk(List.length(&2, Cl.Step, ss), ss, r, Cl.step_of(ss, r))) == Cl.Current{} : Cl.Lift}
   {==}

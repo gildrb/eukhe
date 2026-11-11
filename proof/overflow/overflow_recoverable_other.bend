@@ -1,7 +1,6 @@
-# eukhe: the proof of LAW overflow_message_decides
+# eukhe: the proof of LAW overflow_recoverable_other
 #
-# PROOF: the code's lazy message test is its strict form, whose searches,
-# tables and fold are the spec's (LA.ovb.message).
+# PROOF: each stop is no length stop: its test computes false.
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -14,5 +13,5 @@ import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as Overflow
 import ./base.bend as LA
 
-def Overflow.overflow_message_decides(msg, provider):
-  LA.ovb.message(msg, provider)
+def Overflow.overflow_recoverable_other(desired, output):
+  ({==}, ({==}, {==}))

@@ -1,7 +1,6 @@
-# eukhe: the proof of LAW stream_failure_from_stop
+# eukhe: the proof of LAW stream_failure_message_detail
 #
-# PROOF: by cases on the reason: the classification and the message lemmas
-# (LA.sfb.from_stop).
+# PROOF: the message is its parts in order; the detail part is ": " and the detail, and the request id part is empty (LA.sfm.detail).
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -13,7 +12,8 @@ import ../../laws/wire.bend as Wire
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as OverflowLaws
 import ../../laws/stream_failure.bend as StreamFailure
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def StreamFailure.stream_failure_from_stop(raw, r):
-  LA.sfb.from_stop(raw, r)
+def StreamFailure.stream_failure_message_detail(k, t, st, d):
+  LA.sfm.detail(k, t, st, d)

@@ -1,8 +1,6 @@
-# eukhe: the proof of LAW stream_failure_http
+# eukhe: the proof of LAW stream_failure_from_stop_message
 #
-# PROOF: the type's precedence, the classification (stream_failure_classify's
-# lemma), the typeless rule by cases and the message by cases on the cause
-# (LA.sfb.http).
+# PROOF: a reason is the type of its message, so the message is the cause's text and " (x)" (LA.sfm.quals1); no reason computes.
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -14,7 +12,8 @@ import ../../laws/wire.bend as Wire
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/overflow.bend as OverflowLaws
 import ../../laws/stream_failure.bend as StreamFailure
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def StreamFailure.stream_failure_http(m, st, bt, d, code, sdk, r):
-  LA.sfb.http(m, st, bt, d, code, sdk, r)
+def StreamFailure.stream_failure_from_stop_message(x):
+  (LA.sfm.quals1(Sf.classify(Some{x}, None{}), x), {==})

@@ -45,41 +45,59 @@ def settled_spec(s: Sb.Sub) -> Bool:
     case Sb.WrDropped{}:
       True{}
 
-# placing an unsettled submission at entry e
-def place_spec(s: Sb.Sub, e: Nat) -> Sb.Out:
+# s is queued: an input or a write not yet placed (R2)
+def queued_spec(s: Sb.Sub) -> Bool:
   match s:
     case Sb.InQueued{}:
-      Sb.Moves{Sb.InPlaced{e}}
-    case Sb.WrQueued{}:
-      Sb.Moves{Sb.WrPlaced{e}}
-    case Sb.InPlaced{f}:
-      Sb.Refused{Sb.NotQueued{}}
-    case Sb.InAnswered{f, a}:
-      Sb.Refused{Sb.NotQueued{}}
-    case Sb.InDropped{m}:
-      Sb.Refused{Sb.NotQueued{}}
-    case Sb.WrPlaced{f}:
-      Sb.Refused{Sb.NotQueued{}}
-    case Sb.WrDropped{}:
-      Sb.Refused{Sb.NotQueued{}}
-
-# answering an unsettled submission with the answer entry a
-def answer_spec(s: Sb.Sub, a: Nat) -> Sb.Out:
-  match s:
+      True{}
     case Sb.InPlaced{e}:
-      Sb.Moves{Sb.InAnswered{e, a}}
-    case Sb.InQueued{}:
-      Sb.Refused{Sb.NotPlacedInput{}}
-    case Sb.WrQueued{}:
-      Sb.Refused{Sb.NotPlacedInput{}}
-    case Sb.InAnswered{f, b}:
-      Sb.Refused{Sb.NotPlacedInput{}}
+      False{}
+    case Sb.InAnswered{e, a}:
+      False{}
     case Sb.InDropped{m}:
-      Sb.Refused{Sb.NotPlacedInput{}}
-    case Sb.WrPlaced{f}:
-      Sb.Refused{Sb.NotPlacedInput{}}
+      False{}
+    case Sb.WrQueued{}:
+      True{}
+    case Sb.WrPlaced{e}:
+      False{}
     case Sb.WrDropped{}:
-      Sb.Refused{Sb.NotPlacedInput{}}
+      False{}
+
+# s is an input placed at its user entry and not yet settled (R3)
+def placed_input_spec(s: Sb.Sub) -> Bool:
+  match s:
+    case Sb.InQueued{}:
+      False{}
+    case Sb.InPlaced{e}:
+      True{}
+    case Sb.InAnswered{e, a}:
+      False{}
+    case Sb.InDropped{m}:
+      False{}
+    case Sb.WrQueued{}:
+      False{}
+    case Sb.WrPlaced{e}:
+      False{}
+    case Sb.WrDropped{}:
+      False{}
+
+# s is settled unanswered (R4)
+def unanswered_spec(s: Sb.Sub) -> Bool:
+  match s:
+    case Sb.InQueued{}:
+      False{}
+    case Sb.InPlaced{e}:
+      False{}
+    case Sb.InAnswered{e, a}:
+      False{}
+    case Sb.InDropped{m}:
+      True{}
+    case Sb.WrQueued{}:
+      False{}
+    case Sb.WrPlaced{e}:
+      False{}
+    case Sb.WrDropped{}:
+      True{}
 
 # the user entry of an input, when it has one
 def entry_spec(s: Sb.Sub) -> Maybe<&2, Nat>:
@@ -116,37 +134,6 @@ def input_spec(s: Sb.Sub) -> Bool:
       False{}
     case Sb.WrDropped{}:
       False{}
-
-# settling an unsettled submission unanswered: an input keeps its entry
-def drop_spec.kind(input: Bool, m: Maybe<&2, Nat>) -> Sb.Out:
-  match input:
-    case True{}:
-      Sb.Moves{Sb.InDropped{m}}
-    case False{}:
-      Sb.Moves{Sb.WrDropped{}}
-
-def drop_spec(+s: Sb.Sub) -> Sb.Out:
-  drop_spec.kind(input_spec(s), entry_spec(s))
-
-def change_spec(+s: Sb.Sub, c: Sb.Change) -> Sb.Out:
-  match c:
-    case Sb.Place{e}:
-      place_spec(s, e)
-    case Sb.Answer{a}:
-      answer_spec(s, a)
-    case Sb.Drop{}:
-      drop_spec(s)
-
-def step_spec.settled(b: Bool, +s: Sb.Sub, c: Sb.Change) -> Sb.Out:
-  match b:
-    case True{}:
-      Sb.Stays{}
-    case False{}:
-      change_spec(s, c)
-
-# the outcome of change c on s: a settled submission stays; else the change
-def step_spec(+s: Sb.Sub, c: Sb.Change) -> Sb.Out:
-  step_spec.settled(settled_spec(s), s, c)
 
 # how far s is: 0 queued, 1 placed input, 2 settled
 def rank_spec(s: Sb.Sub) -> Nat:
@@ -195,15 +182,59 @@ def moves_ok(+s: Sb.Sub, o: Sb.Out) -> Bool:
 # Laws
 # ----
 
-# LAW submission_step_exact: a settled submission stays; else placing, answering or settling unanswered gives the outcome of R2-R4
-# EXCLUDES: a settled submission reopened or refused, a placed input
-#   placed again, an answer to a queued input or a write, a lost or swapped
-#   entry or answer id, an unanswered input that loses its user entry,
-#   the two refusals swapped
-law submission_step_exact:
+# LAW submission_place (R2): placing a queued input at entry e places it
+# at e, and placing a queued write at e settles it written at e, for every e
+# EXCLUDES: a placed entry other than the change's, an input placed as a
+#   write or a write left placed-but-open, a placing refused
+law submission_place:
+  for e: Nat
+  {Sb.step(Sb.InQueued{}, Sb.Place{e}) == Sb.Moves{Sb.InPlaced{e}} : Sb.Out} & {Sb.step(Sb.WrQueued{}, Sb.Place{e}) == Sb.Moves{Sb.WrPlaced{e}} : Sb.Out}
+
+# LAW submission_place_refused (R2): placing a submission that is neither
+# settled nor queued (a placed input) is refused as not queued, at every
+# entry
+# EXCLUDES: a placed input placed again (moved to another entry), the
+#   other refusal reason
+law submission_place_refused:
   for +s: Sb.Sub
-  for c: Sb.Change
-  {Sb.step(s, c) == step_spec(s, c) : Sb.Out}
+  for e: Nat
+  for open: {settled_spec(s) == False{} : Bool}
+  for nq: {queued_spec(s) == False{} : Bool}
+  {Sb.step(s, Sb.Place{e}) == Sb.Refused{Sb.NotQueued{}} : Sb.Out}
+
+# LAW submission_answer (R3): answering an input placed at entry e with the
+# answer entry a settles it answered at e with a, for every e and a
+# EXCLUDES: the user entry lost or swapped with the answer, a placed input
+#   answered with a refusal
+law submission_answer:
+  for e: Nat
+  for a: Nat
+  {Sb.step(Sb.InPlaced{e}, Sb.Answer{a}) == Sb.Moves{Sb.InAnswered{e, a}} : Sb.Out}
+
+# LAW submission_answer_refused (R3): answering a submission that is
+# neither settled nor a placed input (a queued input, a queued write) is
+# refused as not a placed input, for every answer entry
+# EXCLUDES: an answer to a queued input or a write accepted, the other
+#   refusal reason
+law submission_answer_refused:
+  for +s: Sb.Sub
+  for a: Nat
+  for open: {settled_spec(s) == False{} : Bool}
+  for np: {placed_input_spec(s) == False{} : Bool}
+  {Sb.step(s, Sb.Answer{a}) == Sb.Refused{Sb.NotPlacedInput{}} : Sb.Out}
+
+# LAW submission_drop (R4): settling unanswered a submission that is not
+# settled moves it to a submission settled unanswered of the same type
+# (input or write) with the same user entry (the placed input's entry,
+# none for a queued one); type, unanswered and entry fix that submission
+# EXCLUDES: a drop refused, an input dropped as a write, a placed input
+#   that loses its user entry, a queued input that gains one, a drop
+#   recorded as answered
+law submission_drop:
+  for +s: Sb.Sub
+  for open: {settled_spec(s) == False{} : Bool}
+  exs n: Sb.Sub
+  {Sb.step(s, Sb.Drop{}) == Sb.Moves{n} : Sb.Out} & {unanswered_spec(n) == True{} : Bool} & {input_spec(n) == input_spec(s) : Bool} & {entry_spec(n) == entry_spec(s) : Maybe<&2, Nat>}
 
 # LAW submission_settled_stays: a settled submission stays, whatever the change
 # EXCLUDES: a settled record rewritten (an answer changed, an unanswered
@@ -223,7 +254,7 @@ law submission_moves_forward:
   {moves_ok(s, Sb.step(s, c)) == True{} : Bool}
 
 # LAW submission_example: anchor: a queued input is placed at entry 7, then answered by 9; a queued write placed is settled; a placed write refuses an answer by staying
-# EXCLUDES: a spec that is wrong on the session's sequence
+# EXCLUDES: a step that is wrong on the session's sequence
 law submission_example:
   {Sb.step(Sb.InQueued{}, Sb.Place{7n}) == Sb.Moves{Sb.InPlaced{7n}} : Sb.Out} &
   {Sb.step(Sb.InPlaced{7n}, Sb.Answer{9n}) == Sb.Moves{Sb.InAnswered{7n, 9n}} : Sb.Out} &
@@ -339,15 +370,18 @@ def change_fits(c: Sb.Change) -> Bool:
 # Laws
 # ----
 
-# LAW submission_ffi_answers: a spelled request whose ids fit the wire answers the spelled outcome of R1-R4
+# LAW submission_ffi_answers (R5): a spelled request whose ids fit the
+# wire answers the spelled outcome of the step (whose outcomes R1-R4 and
+# the laws above pin)
 # EXCLUDES: a field misread or swapped (entry and answer), a tag of
-#   another submission or change, an outcome in another spelling
+#   another submission or change, an outcome in another spelling, an
+#   outcome other than the step's
 law submission_ffi_answers:
   for +s: Sb.Sub
   for +c: Sb.Change
   for sf: {sub_fits(s) == True{} : Bool}
   for cf: {change_fits(c) == True{} : Bool}
-  {FSb.ffi(spell_req(s, c, "")) == spell_out(step_spec(s, c)) : String}
+  {FSb.ffi(spell_req(s, c, "")) == spell_out(Sb.step(s, c)) : String}
 
 # LAW submission_ffi_exact: every input the entry answers with a value (not the error form) is a spelled request
 # EXCLUDES: a default outcome for a malformed request (an unknown tag, a
@@ -379,127 +413,35 @@ law submission_ffi_example:
   {FSb.ffi("0,3,") == Wr.err("submission: malformed request") : String} &
   {FSb.ffi("0,") == Wr.err("submission: malformed request") : String}
 
-# Spec reader
-# -----------
-# The request an input spells, read with the wire primitives alone, and the
-# input after it; Bad when the input spells no request.
-
-# a request: the submission and the change
-type SpecReq is Data:
-  SpecReq{sub: Sb.Sub, change: Sb.Change}
-
-# a submission with one id: k 0 placed input, 1 input unanswered at its
-# entry, 2 placed write
-def read_sub.one(r: Wr.Dec<Nat>, k: Nat) -> Wr.Dec<Sb.Sub>:
-  match r:
-    case Wr.Got{e, s}:
-      match k:
-        case 0n:
-          Wr.Got{Sb.InPlaced{e}, s}
-        case 1n:
-          Wr.Got{Sb.InDropped{Some{e}}, s}
-        case 2n+u:
-          Wr.Got{Sb.WrPlaced{e}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_sub.answer(e: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Sub>:
-  match r:
-    case Wr.Got{a, s}:
-      Wr.Got{Sb.InAnswered{e, a}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_sub.two(r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Sub>:
-  match r:
-    case Wr.Got{e, s}:
-      read_sub.answer(e, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a submission: its tag (0 to 7, as R5 lists them), then its ids
-def read_sub(r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Sub>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Sb.InQueued{}, s}
-        case 1n:
-          read_sub.one(Wr.get_nat(s), 0n)
-        case 2n:
-          read_sub.two(Wr.get_nat(s))
-        case 3n:
-          Wr.Got{Sb.InDropped{None{}}, s}
-        case 4n:
-          read_sub.one(Wr.get_nat(s), 1n)
-        case 5n:
-          Wr.Got{Sb.WrQueued{}, s}
-        case 6n:
-          read_sub.one(Wr.get_nat(s), 2n)
-        case 7n:
-          Wr.Got{Sb.WrDropped{}, s}
-        case 8n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a change with one id: k 0 place, 1 answer
-def read_change.one(r: Wr.Dec<Nat>, k: Nat) -> Wr.Dec<Sb.Change>:
-  match r:
-    case Wr.Got{n, s}:
-      match k:
-        case 0n:
-          Wr.Got{Sb.Place{n}, s}
-        case 1n+u:
-          Wr.Got{Sb.Answer{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a change: 0 place and the entry, 1 answer and the answer entry, 2 settle
-# unanswered
-def read_change(r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Change>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          read_change.one(Wr.get_nat(s), 0n)
-        case 1n:
-          read_change.one(Wr.get_nat(s), 1n)
-        case 2n:
-          Wr.Got{Sb.Drop{}, s}
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_req.change(x: Sb.Sub, r: Wr.Dec<Sb.Change>) -> Wr.Dec<SpecReq>:
-  match r:
-    case Wr.Got{c, s}:
-      Wr.Got{SpecReq{x, c}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_req(r: Wr.Dec<Sb.Sub>) -> Wr.Dec<SpecReq>:
-  match r:
-    case Wr.Got{x, s}:
-      read_req.change(x, read_change(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s spells and the input after it, or Bad
-def read_spec(s: String) -> Wr.Dec<SpecReq>:
-  read_req(read_sub(Wr.get_nat(s)))
-
-# LAW submission_ffi_malformed_exact: every input that spells no request (an unknown tag, a missing id or change) answers exactly the error form "submission: malformed request"
-# EXCLUDES: another error text for a malformed request (the left-over text,
-#   a made-up one), a default outcome
-law submission_ffi_malformed_exact:
+# LAW submission_ffi_bad_submission (R5): input that opens with a
+# submission tag past 7 (fitting the wire) answers exactly the malformed
+# error form, whatever follows
+# EXCLUDES: an unknown submission tag read as a known one (a default
+#   submission), another error text
+law submission_ffi_bad_submission:
+  for +k: Nat
   for +x: String
-  for no: {read_spec(x) == Wr.Bad{} : Wr.Dec<SpecReq>}
-  {FSb.ffi(x) == Wr.err("submission: malformed request") : String}
+  for fit: {LawsBase.wire_fits(8n+k) == True{} : Bool}
+  {FSb.ffi(Wr.put_nat(8n+k, x)) == Wr.err("submission: malformed request") : String}
 
-# LAW submission_ffi_read_example: anchor: the spec reader reads a spelled request and leaves the rest, and refuses an unknown change
-# EXCLUDES: a vacuous submission_ffi_malformed_exact (a reader that never reads)
-law submission_ffi_read_example:
-  {read_spec("1,7,1,9,x") == Wr.Got{SpecReq{Sb.InPlaced{7n}, Sb.Answer{9n}}, "x"} : Wr.Dec<SpecReq>} &
-  {read_spec("0,3,") == Wr.Bad{} : Wr.Dec<SpecReq>}
+# LAW submission_ffi_bad_change (R5): a spelled submission whose ids fit,
+# then a change tag past 2 (fitting the wire), answers exactly the
+# malformed error form, whatever follows
+# EXCLUDES: an unknown change tag read as a known change (a default
+#   change), the left-over error text for it
+law submission_ffi_bad_change:
+  for +s: Sb.Sub
+  for +k: Nat
+  for +x: String
+  for sf: {sub_fits(s) == True{} : Bool}
+  for fit: {LawsBase.wire_fits(3n+k) == True{} : Bool}
+  {FSb.ffi(spell_sub(s, Wr.put_nat(3n+k, x))) == Wr.err("submission: malformed request") : String}
+
+# LAW submission_ffi_no_change (R5): a spelled submission whose ids fit
+# and nothing after it (the change missing) answers exactly the malformed
+# error form
+# EXCLUDES: a default change for a request cut after its submission
+law submission_ffi_no_change:
+  for +s: Sb.Sub
+  for sf: {sub_fits(s) == True{} : Bool}
+  {FSb.ffi(spell_sub(s, "")) == Wr.err("submission: malformed request") : String}

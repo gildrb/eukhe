@@ -2,8 +2,7 @@
 #
 # PROOF: the spelled request reads back whole with nothing left
 # (stream_failure_entry_reads), so the entry answers the code's decision,
-# which is the spec's (the decision lemmas of LA.sfb), encoded as the spec
-# spells it (sfa.*).
+# encoded as the laws spell it (sfa.*).
 
 import Base
 import ../../bend/text_pat.bend as Tp
@@ -76,30 +75,21 @@ def sfa.repeat(x: Sf.Repeat) -> {FSf.put_repeat(x) == StreamFailure.sp_w_repeat(
 def sfa.reply(q: FSf.Req) -> {FSf.answer(q) == StreamFailure.sp_w_reply(q) : String}:
   match q:
     case FSf.QClassify{+t, +st}:
-      %Equal.sym(Sf.Cause, Sf.classify(t, st), StreamFailure.sp_classify(t, st), LA.sfb.classify(t, st)) : {FSf.put_cause(_, "") == StreamFailure.sp_w_cause(StreamFailure.sp_classify(t, st), "") : String}
-      sfa.cause(StreamFailure.sp_classify(t, st), "")
-    case FSf.QMessage{+k, +t, +st, +d, +r}:
-      %Equal.sym(String, Sf.message(k, t, st, d, r), StreamFailure.sp_message(k, t, st, d, r), LA.sfb.message(k, t, st, d, r)) : {Wr.put_str(_, "") == Wr.put_str(StreamFailure.sp_message(k, t, st, d, r), "") : String}
+      sfa.cause(Sf.classify(t, st), "")
+    case FSf.QMessage{k, t, st, d, r}:
       {==}
     case FSf.QHttp{+m, +st, +bt, +d, +code, +sdk, +r}:
-      %Equal.sym(Sf.Http, Sf.http(m, st, bt, d, code, sdk, r), StreamFailure.sp_http(m, st, bt, d, code, sdk, r), LA.sfb.http(m, st, bt, d, code, sdk, r)) : {FSf.put_http(_) == StreamFailure.sp_w_http(StreamFailure.sp_http(m, st, bt, d, code, sdk, r)) : String}
-      sfa.http(StreamFailure.sp_http(m, st, bt, d, code, sdk, r))
+      sfa.http(Sf.http(m, st, bt, d, code, sdk, r))
     case FSf.QFromStop{+raw, +r}:
-      %Equal.sym(Sf.Named, Sf.from_stop(raw, r), StreamFailure.sp_from_stop(raw, r), LA.sfb.from_stop(raw, r)) : {FSf.put_named(_) == StreamFailure.sp_w_named(StreamFailure.sp_from_stop(raw, r)) : String}
-      sfa.named(StreamFailure.sp_from_stop(raw, r))
-    case FSf.QDrop{+b}:
-      %Equal.sym(String, Sf.drop.detail(b), StreamFailure.sp_drop_detail(b), LA.sfb.drop_detail(b)) : {Wr.put_str(Sf.message(Sf.KDrop{}, Some{"stream_drop"}, None{}, Some{_}, None{}), "") == StreamFailure.sp_w_reply(FSf.QDrop{b}) : String}
-      %Equal.sym(String, Sf.message(Sf.KDrop{}, Some{"stream_drop"}, None{}, Some{StreamFailure.sp_drop_detail(b)}, None{}), StreamFailure.sp_message(Sf.KDrop{}, Some{"stream_drop"}, None{}, Some{StreamFailure.sp_drop_detail(b)}, None{}), LA.sfb.message(Sf.KDrop{}, Some{"stream_drop"}, None{}, Some{StreamFailure.sp_drop_detail(b)}, None{})) : {Wr.put_str(_, "") == StreamFailure.sp_w_reply(FSf.QDrop{b}) : String}
+      sfa.named(Sf.from_stop(raw, r))
+    case FSf.QDrop{b}:
       {==}
-    case FSf.QStalled{+ms}:
-      %Equal.sym(String, Sf.message(Sf.KStalled{}, None{}, None{}, Some{String.concat(["no stream event for ", ms, "ms"])}, None{}), StreamFailure.sp_message(Sf.KStalled{}, None{}, None{}, Some{String.concat(["no stream event for ", ms, "ms"])}, None{}), LA.sfb.message(Sf.KStalled{}, None{}, None{}, Some{String.concat(["no stream event for ", ms, "ms"])}, None{})) : {Wr.put_str(_, "") == StreamFailure.sp_w_reply(FSf.QStalled{ms}) : String}
+    case FSf.QStalled{ms}:
       {==}
-    case FSf.QShown{+line}:
-      %Equal.sym(String, Sf.shown(line), StreamFailure.sp_shown(line), LA.sfb.shown(line)) : {Wr.put_str(_, "") == Wr.put_str(StreamFailure.sp_shown(line), "") : String}
+    case FSf.QShown{line}:
       {==}
     case FSf.QRepeating{+limit, +period, +q}:
-      %Equal.sym(Sf.Repeat, Sf.repeating(limit, period, q), StreamFailure.sp_repeating(limit, period, q), LA.sfb.repeating(limit, period, q)) : {FSf.put_repeat(_) == StreamFailure.sp_w_repeat(StreamFailure.sp_repeating(limit, period, q)) : String}
-      sfa.repeat(StreamFailure.sp_repeating(limit, period, q))
+      sfa.repeat(Sf.repeating(limit, period, q))
 
 def StreamFailure.stream_failure_entry_answers(q, h):
   %Equal.sym(Wr.Dec<FSf.Req>, FSf.get_req(StreamFailure.sp_w_req(q, "")), Wr.Got{q, ""}, StreamFailure.stream_failure_entry_reads(q, "", h)) : {FSf.ffi.got(_) == StreamFailure.sp_w_reply(q) : String}

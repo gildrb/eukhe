@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW call_lift_entry_exact
 #
-# PROOF: the entry reads a request as the laws' reader (cle.req), whose
-# list reader is LawsBase.wire_read_list (wire_list_reads_items): the
+# PROOF: the entry's request reader (FCl.get_req, a list of FCl.get_call)
+# is LawsBase.wire_read_list (wire_list_reads_items): the
 # count, then exactly that many calls. Each stage answers Got{x, rest}
 # only for an input that is the spec's spelling of x before rest, with
 # every count and length within the wire (clx.*: a predicate per decoder
@@ -28,7 +28,6 @@ import ../wire/wire_strs_decoded_fit.bend as PWireStrsDecodedFit
 import ../wire/wire_strs_spells.bend as PWireStrsSpells
 import ../base/staging.bend as LStg
 import ../base/bool.bend as LBool
-import ./base/read.bend as LCallLiftRead
 
 # Calls
 # -----
@@ -41,7 +40,7 @@ def clx.CP(s: String, d: Wr.Dec<Cl.Call>) -> Type:
     case Wr.Bad{}:
       Unit
 
-def clx.keys(-s: String, +f: String, +r: String, +s2: String, e: {s == Wr.put_str(f, Wr.put_str(r, s2)) : String}, ff: {LawsBase.wire_fits(String.length(f)) == True{} : Bool}, fr: {LawsBase.wire_fits(String.length(r)) == True{} : Bool}, d: Wr.Dec<List<&2, String>>, ed: {Wr.get_list(~String, ~Wr.get_str, s2) == d : Wr.Dec<List<&2, String>>}) -> clx.CP(s, SpW.r_call.keys(f, r, d)):
+def clx.keys(-s: String, +f: String, +r: String, +s2: String, e: {s == Wr.put_str(f, Wr.put_str(r, s2)) : String}, ff: {LawsBase.wire_fits(String.length(f)) == True{} : Bool}, fr: {LawsBase.wire_fits(String.length(r)) == True{} : Bool}, d: Wr.Dec<List<&2, String>>, ed: {Wr.get_list(~String, ~Wr.get_str, s2) == d : Wr.Dec<List<&2, String>>}) -> clx.CP(s, FCl.get_call.keys(f, r, d)):
   match d:
     case Wr.Got{+ks, +rest}:
       +e2 = ed
@@ -51,7 +50,7 @@ def clx.keys(-s: String, +f: String, +r: String, +s2: String, e: {s == Wr.put_st
     case Wr.Bad{}:
       Unit{}
 
-def clx.rev(-s: String, +f: String, +s1: String, ef: {s == Wr.put_str(f, s1) : String}, ff: {LawsBase.wire_fits(String.length(f)) == True{} : Bool}, d: Wr.Dec<String>, ed: {Wr.get_str(s1) == d : Wr.Dec<String>}) -> clx.CP(s, SpW.r_call.rev(f, d)):
+def clx.rev(-s: String, +f: String, +s1: String, ef: {s == Wr.put_str(f, s1) : String}, ff: {LawsBase.wire_fits(String.length(f)) == True{} : Bool}, d: Wr.Dec<String>, ed: {Wr.get_str(s1) == d : Wr.Dec<String>}) -> clx.CP(s, FCl.get_call.rev(f, d)):
   match d:
     case Wr.Got{+r, +s2}:
       +e2 = ed
@@ -60,7 +59,7 @@ def clx.rev(-s: String, +f: String, +s1: String, ef: {s == Wr.put_str(f, s1) : S
     case Wr.Bad{}:
       Unit{}
 
-def clx.fam(+s: String, d: Wr.Dec<String>, ed: {Wr.get_str(s) == d : Wr.Dec<String>}) -> clx.CP(s, SpW.r_call.fam(d)):
+def clx.fam(+s: String, d: Wr.Dec<String>, ed: {Wr.get_str(s) == d : Wr.Dec<String>}) -> clx.CP(s, FCl.get_call.fam(d)):
   match d:
     case Wr.Got{+f, +s1}:
       +e = ed
@@ -69,10 +68,10 @@ def clx.fam(+s: String, d: Wr.Dec<String>, ed: {Wr.get_str(s) == d : Wr.Dec<Stri
       Unit{}
 
 # the call reader accepts only spelled calls that fit
-def clx.call(+s: String) -> clx.CP(s, SpW.r_call(s)):
+def clx.call(+s: String) -> clx.CP(s, FCl.get_call(s)):
   clx.fam(s, Wr.get_str(s), {==})
 
-def clx.call_at(+s: String, -d: Wr.Dec<Cl.Call>, ed: {SpW.r_call(s) == d : Wr.Dec<Cl.Call>}) -> clx.CP(s, d):
+def clx.call_at(+s: String, -d: Wr.Dec<Cl.Call>, ed: {FCl.get_call(s) == d : Wr.Dec<Cl.Call>}) -> clx.CP(s, d):
   %ed : clx.CP(s, _)
   clx.call(s)
 
@@ -98,23 +97,23 @@ def clx.cons(-s: String, +c: Cl.Call, +r1: String, -n: Nat, d: Wr.Dec<List<&2, C
       Unit{}
 
 # m + 1 calls, the first read from s as cur
-def clx.items(m: Nat, cur: Wr.Dec<Cl.Call>, +s: String, er: {SpW.r_call(s) == cur : Wr.Dec<Cl.Call>}) -> clx.IP(s, 1n+m, LawsBase.wire_items.then(Cl.Call, cur, r => LawsBase.wire_items(~Cl.Call, ~SpW.r_call, m, r))):
+def clx.items(m: Nat, cur: Wr.Dec<Cl.Call>, +s: String, er: {FCl.get_call(s) == cur : Wr.Dec<Cl.Call>}) -> clx.IP(s, 1n+m, LawsBase.wire_items.then(Cl.Call, cur, r => LawsBase.wire_items(~Cl.Call, ~FCl.get_call, m, r))):
   match m cur:
     case 0n Wr.Got{+c, +r1}:
       clx.cons(s, c, r1, 0n, Wr.Got{Nil{}, r1}, ({==}, ({==}, {==})), clx.call_at(s, Wr.Got{c, r1}, er))
     case 0n Wr.Bad{}:
       Unit{}
     case 1n++k Wr.Got{+c, +r1}:
-      clx.cons(s, c, r1, 1n+k, LawsBase.wire_items.then(Cl.Call, SpW.r_call(r1), r => LawsBase.wire_items(~Cl.Call, ~SpW.r_call, k, r)), clx.items(k, SpW.r_call(r1), r1, {==}), clx.call_at(s, Wr.Got{c, r1}, er))
+      clx.cons(s, c, r1, 1n+k, LawsBase.wire_items.then(Cl.Call, FCl.get_call(r1), r => LawsBase.wire_items(~Cl.Call, ~FCl.get_call, k, r)), clx.items(k, FCl.get_call(r1), r1, {==}), clx.call_at(s, Wr.Got{c, r1}, er))
     case 1n++k Wr.Bad{}:
       Unit{}
 
-def clx.items_of(n: Nat, +s: String) -> clx.IP(s, n, LawsBase.wire_items(~Cl.Call, ~SpW.r_call, n, s)):
+def clx.items_of(n: Nat, +s: String) -> clx.IP(s, n, LawsBase.wire_items(~Cl.Call, ~FCl.get_call, n, s)):
   match n:
     case 0n:
       ({==}, ({==}, {==}))
     case 1n+m:
-      clx.items(m, SpW.r_call(s), s, {==})
+      clx.items(m, FCl.get_call(s), s, {==})
 
 # The request
 # -----------
@@ -140,11 +139,11 @@ def clx.list(-s: String, +n: Nat, +s1: String, en: {s == Wr.put_nat(n, s1) : Str
     case Wr.Bad{}:
       Unit{}
 
-def clx.count(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> clx.RP(s, LawsBase.wire_read_list.count(~Cl.Call, ~SpW.r_call, d)):
+def clx.count(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> clx.RP(s, LawsBase.wire_read_list.count(~Cl.Call, ~FCl.get_call, d)):
   match d:
     case Wr.Got{+n, +s1}:
       +e = ed
-      clx.list(s, n, s1, Wire.wire_nat_exact(s, n, s1, e), Wire.wire_nat_decoded_fits(s, n, s1, e), LawsBase.wire_items(~Cl.Call, ~SpW.r_call, n, s1), clx.items_of(n, s1))
+      clx.list(s, n, s1, Wire.wire_nat_exact(s, n, s1, e), Wire.wire_nat_decoded_fits(s, n, s1, e), LawsBase.wire_items(~Cl.Call, ~FCl.get_call, n, s1), clx.items_of(n, s1))
     case Wr.Bad{}:
       Unit{}
 
@@ -161,7 +160,7 @@ def clx.top(-s: String, d: Wr.Dec<List<&2, Cl.Call>>, rp: clx.RP(s, d), ok: {Law
       LStg.stg.absurd(Sigma<&1, &1, List<&2, Cl.Call>, c2 => {s == SpW.w_req(c2, "") : String} & {SpW.fit_req(c2) == True{} : Bool}>, ok)
 
 def CallLift.call_lift_entry_exact(s, ok):
-  +rd = LawsBase.wire_read_list(~Cl.Call, ~SpW.r_call, s)
-  +e = Equal.trans(Wr.Dec<List<&2, Cl.Call>>, FCl.get_req(s), Wr.get_list(~Cl.Call, ~SpW.r_call, s), rd, LCallLiftRead.cle.req(s), Wire.wire_list_reads_items(~Cl.Call, ~SpW.r_call, s))
+  +rd = LawsBase.wire_read_list(~Cl.Call, ~FCl.get_call, s)
+  +e = Wire.wire_list_reads_items(~Cl.Call, ~FCl.get_call, s)
   +ok2 = Equal.trans(Bool, LawsBase.wire_opens_err(FCl.ffi.got(rd)), LawsBase.wire_opens_err(FCl.ffi.got(FCl.get_req(s))), False{}, Equal.cong(Wr.Dec<List<&2, Cl.Call>>, Bool, z => LawsBase.wire_opens_err(FCl.ffi.got(z)), rd, FCl.get_req(s), Equal.sym(Wr.Dec<List<&2, Cl.Call>>, FCl.get_req(s), rd, e)), ok)
   clx.top(s, rd, clx.count(s, Wr.get_nat(s), {==}), ok2)
