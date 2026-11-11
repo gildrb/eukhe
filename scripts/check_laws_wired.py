@@ -18,6 +18,8 @@ proof/<area>/base.bend and proof/base.bend for shared lemmas):
 - no laws/ file but those LAWS.bend imports; no proof*.bend file but
   PROOF.bend;
 - no other .bend file declares a `law` or fills one.
+site/ (the website) is skipped: its laws and proofs are its own (site/LAWS.bend,
+site/PROOF.bend, site/LAWS.lock; `make site-check`).
 Exit 1 with the list of gaps."""
 import re
 import subprocess
@@ -28,19 +30,23 @@ IMPORT = re.compile(r"^import\s+(\S+\.bend)\s+as\s+(\S+)", re.M)
 LAW = re.compile(r"^law (\w+)", re.M)
 DEF = re.compile(r"^def ", re.M)
 SKIP = {".git", "target", "node_modules", "vendor"}
+# The website's tree: its laws are not eukhe's.
+SITE = "site"
 
 
 def bend_files(root: Path) -> list[Path]:
-    """Every .bend file of the tree: tracked and untracked, not ignored."""
+    """Every .bend file of the tree outside site/: tracked and untracked, not ignored."""
     try:
         out = subprocess.run(
-            ["git", "ls-files", "-co", "--exclude-standard", "--", "*.bend"],
+            ["git", "ls-files", "-co", "--exclude-standard", "--", "*.bend", f":(exclude){SITE}/"],
             cwd=root, capture_output=True, text=True, check=True,
         ).stdout
         return sorted(root / p for p in out.splitlines() if (root / p).exists())
     except (OSError, subprocess.CalledProcessError):
         return sorted(
-            p for p in root.rglob("*.bend") if not SKIP & set(p.relative_to(root).parts)
+            p
+            for p in root.rglob("*.bend")
+            if not SKIP & set(p.relative_to(root).parts) and p.relative_to(root).parts[0] != SITE
         )
 
 

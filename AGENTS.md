@@ -14,6 +14,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   - `scripts/toolchain.env` pins the Bend and Lean releases.
   - Nightly, a systemd user timer runs `scripts/ci_nightly.sh run`: full gate (`make ci-local`, < 30 min: every test, nextest profile `nightly`, and the doctests; `bend PROOF.bend --verdict`) on origin/main. A test failing once then passing is flaky: named in the summary, not red; failing twice is red. Green only: starts `eukhe-release.yml` for that commit, which releases `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`. Red releases nothing; `make nightly-status` shows why.
   - `make catalog-pin` moves `scripts/release/catalog-pin.json` to the catalog repo's newest commit; review the diff, commit it.
+- `site/` is the website (eukhe.com, `site/README.md`), apart from eukhe but for its build reading the repository's files (`README.md` and what it links to). Its own toolchain (npm), laws (`site/LAWS.bend`, `site/LAWS.lock`) and check (`make site-check`); no gate, hook, nightly run or release runs it, and eukhe's `LAWS.lock` and proofs never hold its files. Deploy only by hand: `make site-deploy`.
 - Prime Intellect stays only as a third-party service: provider `prime-inference`, `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`, catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Every product name is eukhe.
 
 ## Style and structure

@@ -271,4 +271,18 @@ bench-quick: bench-build
 	python3 bench/batch.py --tools eukhe --tasks $(BENCH_QUICK_TASKS) --runs 1 --par $(BENCH_PAR) --model haiku --rerun $(BENCH_FLAGS)
 	python3 bench/report.py --tasks $(BENCH_QUICK_TASKS) --labels eukhe-haiku $(BENCH_FLAGS)
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick
+# The website (site/, eukhe.com; site/README.md): apart from eukhe but for
+# reading the repository's files (README.md and what it links to) when it
+# builds. Its own toolchain (npm, site/package-lock.json), laws
+# (site/LAWS.bend, site/LAWS.lock) and check; no gate, hook, nightly run or
+# release runs these. site-check: install, format/lint/types, the site's
+# laws, the build. site-deploy: install, the build, then `wrangler deploy`
+# (site/wrangler.jsonc: the eukhe-site Worker on eukhe.com and
+# www.eukhe.com). A deploy happens only here, by hand.
+site-check:
+	cd site && npm ci --no-audit --no-fund && npm run check && npm run laws && npm run build
+
+site-deploy:
+	cd site && npm ci --no-audit --no-fund && npm run deploy
+
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick site-check site-deploy
