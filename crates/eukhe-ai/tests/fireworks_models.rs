@@ -80,6 +80,7 @@ fn routes_kimi_k3_through_the_openai_compatible_api_with_native_effort_controls(
     let compat = json!({
         "supportsStore": false,
         "supportsDeveloperRole": false,
+        "maxTokensField": "max_tokens",
         "supportsStrictMode": true,
         "requiresReasoningContentOnAssistantMessages": true,
         "thinkingFormat": "openai",

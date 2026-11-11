@@ -373,3 +373,43 @@ async fn opencode_go_minimax_m3_sends_chat_completions_reasoning_effort() {
     )
     .await;
 }
+
+/// The output-cap field `payload` carries, if any.
+fn cap_field(payload: &JsonValue) -> Option<&'static str> {
+    ["max_tokens", "max_completion_tokens"]
+        .into_iter()
+        .find(|key| payload.get(*key).is_some())
+}
+
+/// omp: the output-cap field is `max_tokens` on Fireworks (catalog
+/// `compat/resolve.ts` `useMaxTokens`: `isFireworks`) and on the `OpenCode` Go
+/// `DeepSeek` V4 Flash/Pro lanes (`providers/opencode-go.kdl`
+/// `max-tokens-field`), else `max_completion_tokens` (Cloudflare Workers AI,
+/// `OpenCode`, `OpenCode` Go).
+#[tokio::test]
+async fn output_cap_field_matches_omp() {
+    let omp_field = |provider: &str, id: &str| match (provider, id) {
+        ("fireworks", _) | ("opencode-go", "deepseek-v4-flash" | "deepseek-v4-pro") => "max_tokens",
+        _ => "max_completion_tokens",
+    };
+    let mut wrong = Vec::new();
+    for (provider, prefix) in [
+        ("fireworks", ""),
+        ("cloudflare-ai-gateway", "workers-ai/"),
+        ("opencode", ""),
+        ("opencode-go", ""),
+    ] {
+        for model in crate::providers::all::get_builtin_models(provider) {
+            if model.api != "openai-completions" || !model.id.starts_with(prefix) {
+                continue;
+            }
+            let payload = payload(&model, level("high").filter(|_| model.reasoning)).await;
+            let sent = cap_field(&payload);
+            let field = omp_field(provider, &model.id);
+            if sent.is_some_and(|sent| sent != field) {
+                wrong.push(format!("{provider}/{}: {sent:?}, omp {field}", model.id));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

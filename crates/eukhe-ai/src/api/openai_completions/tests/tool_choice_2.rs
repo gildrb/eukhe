@@ -671,12 +671,26 @@ async fn assert_sends_max_tokens(model: &crate::types::Model) {
     );
 }
 
+/// omp: the `OpenCode` hosts take `max_completion_tokens` (catalog
+/// `compat/resolve.ts` `useMaxTokens` does not name them; only the Go
+/// gateway's `DeepSeek` V4 Flash/Pro lanes take `max_tokens`,
+/// `providers/opencode-go.kdl`).
 #[tokio::test]
-async fn sends_max_tokens_for_opencode_completions_models() {
+async fn sends_max_completion_tokens_for_opencode_completions_models() {
     for model in [
         catalog_model("opencode-go", "kimi-k3"),
         catalog_model("opencode", "kimi-k2.6"),
     ] {
+        assert_eq!(
+            compat_json(&model)["maxTokensField"],
+            json!("max_completion_tokens")
+        );
+        let params = simple_payload(&model, &ctx("Hi", None, None), max_tokens_options()).await;
+        assert_eq!(params["max_completion_tokens"], json!(123), "{}", model.id);
+        assert!(params.get("max_tokens").is_none(), "{}", model.id);
+    }
+    for model_id in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let model = catalog_model("opencode-go", model_id);
         assert_eq!(compat_json(&model)["maxTokensField"], json!("max_tokens"));
         assert_sends_max_tokens(&model).await;
     }

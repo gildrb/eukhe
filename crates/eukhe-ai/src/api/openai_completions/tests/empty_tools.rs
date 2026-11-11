@@ -259,8 +259,10 @@ async fn uses_conservative_openai_compatible_fields_for_cloudflare_ai_gateway_co
 
     let params = request.json();
     assert_eq!(params["messages"][0]["role"], json!("system"));
-    assert_eq!(params.get("max_tokens"), Some(&json!(1234)));
-    assert_eq!(params.get("max_completion_tokens"), None);
+    // omp: Cloudflare is not a `max_tokens` host (catalog
+    // `compat/resolve.ts` `useMaxTokens`).
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(1234)));
+    assert_eq!(params.get("max_tokens"), None);
     // omp: Workers AI takes `reasoning_effort` (catalog `compat/resolve.ts`
     // `supportsReasoningEffort`).
     assert_eq!(params.get("reasoning_effort"), Some(&json!("high")));
