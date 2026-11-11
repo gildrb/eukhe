@@ -1,9 +1,9 @@
 //! Scripted in-process provider for tests. Port of `providers/faux.ts`.
 //!
 //! Responses are queued with [`FauxProviderHandle::set_responses`] and
-//! streamed in token-sized chunks. Usage is estimated from the serialized
-//! transcript (4 UTF-16 code units per token), with per-session prompt-cache
-//! simulation. Deferred requests return a handle that
+//! streamed in chunks. Usage counts the serialized transcript and the
+//! answer with the model's tokenizer (`eukhe-tokens`), with per-session
+//! prompt-cache simulation. Deferred requests return a handle that
 //! [`fetch_deferred`](crate::models::Models::fetch_deferred) resolves.
 //!
 //! Event `partial` values are snapshots at emission time; TS shares one live
@@ -14,6 +14,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use eukhe_chord::context::AbortSignal;
+use eukhe_tokens::{ModelRef, Tokenizer};
 use eukhe_types::pi_ai::{
     AnyModel, AssistantContentBlock, AssistantMessage, AssistantMessageEvent, CacheRetention,
     DeferredHandle, DoneReason, ErrorReason, JsonObject, JsonValue, Message, Modality, Model,
@@ -258,7 +259,8 @@ pub struct FauxDeferredOptions {
     pub poll_after_ms: Option<f64>,
 }
 
-/// Token chunk sizes of streamed deltas.
+/// Chunk sizes of streamed deltas (TS `tokenSize`): a pacing knob, each
+/// unit 4 UTF-16 code units of text, not a token count.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FauxTokenSize {
     pub min: Option<u64>,
@@ -297,17 +299,14 @@ fn random_unit() -> f64 {
     rand::random()
 }
 
-/// The faux server's own token count (TS faux provider: `Math.ceil(length
-/// / 4)` over a UTF-16 length). It stands for a provider's tokenizer, the
-/// usage a server reports, not the client's estimate
-/// (`eukhe_types::token_estimate`), so it keeps its own ratio: a test whose
-/// reported usage equals the estimate could not tell them apart.
-fn estimate_tokens_from_units(units: usize) -> u64 {
-    u64::try_from(units.div_ceil(4)).unwrap_or(u64::MAX)
-}
-
-fn estimate_tokens(text: &str) -> u64 {
-    estimate_tokens_from_units(utf16_len(text))
+/// The faux server's tokenizer: the answering model's (`o200k_base` for
+/// a model the catalog does not know).
+fn message_tokenizer(message: &AssistantMessage) -> Arc<Tokenizer> {
+    Tokenizer::for_model(ModelRef {
+        id: &message.model,
+        provider: &message.provider,
+        api: &message.api,
+    })
 }
 
 /// JS `JSON.stringify` of a serializable value.
@@ -384,72 +383,36 @@ fn message_to_text(message: &Message) -> String {
     }
 }
 
-/// One UTF-16 prompt text per message; the whole prompt joins them with blank lines.
-type PromptMessages = Vec<Vec<u16>>;
-
-/// `"\n\n"` in UTF-16.
-const BLANK_LINE: [u16; 2] = [0x0A, 0x0A];
-
-/// Length of the prompt text that joins the first `count` of `messages` with blank lines.
-fn joined_length(messages: &[Vec<u16>], count: usize) -> usize {
-    let separators = count.saturating_sub(1) * BLANK_LINE.len();
-    separators + messages[..count].iter().map(Vec::len).sum::<usize>()
-}
-
-/// Common prefix length in UTF-16 code units.
-fn common_prefix_length(a: &[u16], b: &[u16]) -> usize {
-    a.iter()
-        .zip(b)
+/// The bytes `previous` and `current` share at their start, ending on a
+/// character boundary of `current`.
+fn common_prefix_len(previous: &str, current: &str) -> usize {
+    previous
+        .chars()
+        .zip(current.chars())
         .take_while(|(left, right)| left == right)
-        .count()
+        .map(|(character, _)| character.len_utf8())
+        .sum()
 }
 
-/// Length of the common prefix of the two joined prompts. Equal messages are compared whole; characters are compared
-/// only from the first message that differs.
-fn common_prompt_prefix_length(previous: &[Vec<u16>], current: &[Vec<u16>]) -> usize {
-    let index = previous
-        .iter()
-        .zip(current)
-        .take_while(|(left, right)| left == right)
-        .count();
-    let rest = |messages: &[Vec<u16>]| -> Vec<u16> {
-        if index == messages.len() {
-            return Vec::new();
-        }
-        let mut text = Vec::new();
-        if index > 0 {
-            text.extend_from_slice(&BLANK_LINE);
-        }
-        for (offset, message) in messages[index..].iter().enumerate() {
-            if offset > 0 {
-                text.extend_from_slice(&BLANK_LINE);
-            }
-            text.extend_from_slice(message);
-        }
-        text
-    };
-    joined_length(previous, index) + common_prefix_length(&rest(previous), &rest(current))
-}
-
-fn with_usage_estimate(
+/// `message` with the usage the faux server reports: the prompt (one text
+/// per message, joined with blank lines) and the answer counted with the
+/// model's tokenizer; within a session the prompt's common prefix with the
+/// previous one is the cache read, the rest the cache write.
+fn with_usage(
     mut message: AssistantMessage,
     context: &TranscriptContext,
     options: Option<&StreamOptions>,
-    prompt_cache: &Mutex<HashMap<String, PromptMessages>>,
+    prompt_cache: &Mutex<HashMap<String, String>>,
 ) -> AssistantMessage {
-    // One text per message; the whole prompt joins them with blank lines.
-    let prompt: PromptMessages = context
+    let tokenizer = message_tokenizer(&message);
+    let prompt = context
         .messages()
         .iter()
-        .map(|message| {
-            format!("{}:{}", message.role(), message_to_text(message))
-                .encode_utf16()
-                .collect()
-        })
-        .collect();
-    let prompt_length = joined_length(&prompt, prompt.len());
-    let prompt_tokens = estimate_tokens_from_units(prompt_length);
-    let output_tokens = estimate_tokens(&assistant_content_to_text(&message.content));
+        .map(|message| format!("{}:{}", message.role(), message_to_text(message)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let prompt_tokens = tokenizer.count_text(&prompt);
+    let output_tokens = tokenizer.count_text(&assistant_content_to_text(&message.content));
     let mut input = prompt_tokens;
     let mut cache_read = 0;
     let mut cache_write = 0;
@@ -462,9 +425,10 @@ fn with_usage_estimate(
             let mut cache = prompt_cache.lock().unwrap_or_else(PoisonError::into_inner);
             match cache.get(&session_id) {
                 Some(previous_prompt) => {
-                    let cached_units = common_prompt_prefix_length(previous_prompt, &prompt);
-                    cache_read = estimate_tokens_from_units(cached_units);
-                    cache_write = estimate_tokens_from_units(prompt_length - cached_units);
+                    let (cached, uncached) =
+                        prompt.split_at(common_prefix_len(previous_prompt, &prompt));
+                    cache_read = tokenizer.count_text(cached);
+                    cache_write = tokenizer.count_text(uncached);
                     input = prompt_tokens.saturating_sub(cache_read);
                 }
                 None => cache_write = prompt_tokens,
@@ -484,20 +448,22 @@ fn with_usage_estimate(
     message
 }
 
-/// Splits `text` into chunks of `token_size * 4` UTF-16 code units, never
-/// inside a character.
-fn split_string_by_token_size(text: &str, min_token_size: u64, max_token_size: u64) -> Vec<String> {
+/// Splits `text` into stream chunks of `chunk_size * 4` UTF-16 code units
+/// (`chunk_size` drawn from `min_chunk_size..=max_chunk_size`), never inside
+/// a character. The size is a pacing knob ([`FauxTokenSize`]: how much text
+/// one delta carries), not a token count.
+fn split_string_by_token_size(text: &str, min_chunk_size: u64, max_chunk_size: u64) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut rest = text;
     while !rest.is_empty() {
-        let span = max_token_size - min_token_size + 1;
+        let span = max_chunk_size - min_chunk_size + 1;
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             clippy::cast_precision_loss
         )]
-        let token_size = min_token_size + (random_unit() * span as f64).floor() as u64;
-        let char_size = usize::try_from((token_size * 4).max(1)).unwrap_or(usize::MAX);
+        let chunk_size = min_chunk_size + (random_unit() * span as f64).floor() as u64;
+        let char_size = usize::try_from((chunk_size * 4).max(1)).unwrap_or(usize::MAX);
         let mut units = 0;
         let mut end = rest.len();
         for (index, character) in rest.char_indices() {
@@ -586,12 +552,14 @@ fn create_aborted_message(partial: &AssistantMessage) -> AssistantMessage {
     }
 }
 
-async fn schedule_chunk(chunk: &str, tokens_per_second: Option<f64>) {
+/// Wait out one chunk: its tokens (under `tokenizer`) at
+/// `tokens_per_second`, or one yield without a rate.
+async fn schedule_chunk(chunk: &str, tokenizer: &Tokenizer, tokens_per_second: Option<f64>) {
     match tokens_per_second.filter(|rate| *rate > 0.0) {
         None => tokio::task::yield_now().await,
         Some(rate) => {
-            #[allow(clippy::cast_precision_loss)] // Token estimates are far below 2^53.
-            let delay_ms = (estimate_tokens(chunk) as f64 / rate) * 1000.0;
+            #[allow(clippy::cast_precision_loss)] // A chunk's tokens are far below 2^53.
+            let delay_ms = (tokenizer.count_text(chunk) as f64 / rate) * 1000.0;
             tokio::time::sleep(timer_duration(delay_ms)).await;
         }
     }
@@ -630,6 +598,7 @@ async fn stream_with_deltas(
     pacing: Pacing,
     signal: Option<&AbortSignal>,
 ) -> Result<(), Thrown> {
+    let tokenizer = message_tokenizer(&message);
     let mut partial = AssistantMessage {
         content: Vec::new(),
         stop_reason: StopReason::Pending,
@@ -659,7 +628,7 @@ async fn stream_with_deltas(
                     pacing.min_token_size,
                     pacing.max_token_size,
                 ) {
-                    schedule_chunk(&chunk, pacing.tokens_per_second).await;
+                    schedule_chunk(&chunk, &tokenizer, pacing.tokens_per_second).await;
                     if aborted(signal) {
                         end_aborted(stream, &partial);
                         return Ok(());
@@ -692,7 +661,7 @@ async fn stream_with_deltas(
                     pacing.min_token_size,
                     pacing.max_token_size,
                 ) {
-                    schedule_chunk(&chunk, pacing.tokens_per_second).await;
+                    schedule_chunk(&chunk, &tokenizer, pacing.tokens_per_second).await;
                     if aborted(signal) {
                         end_aborted(stream, &partial);
                         return Ok(());
@@ -733,7 +702,7 @@ async fn stream_with_deltas(
                     pacing.min_token_size,
                     pacing.max_token_size,
                 ) {
-                    schedule_chunk(&chunk, pacing.tokens_per_second).await;
+                    schedule_chunk(&chunk, &tokenizer, pacing.tokens_per_second).await;
                     if aborted(signal) {
                         end_aborted(stream, &partial);
                         return Ok(());
@@ -813,7 +782,8 @@ struct FauxCoreInner {
     models: Vec<Model>,
     pending_responses: Mutex<Vec<FauxResponseStep>>,
     state: Mutex<FauxProviderState>,
-    prompt_cache: Mutex<HashMap<String, PromptMessages>>,
+    /// Each session's previous prompt text (the simulated prompt cache).
+    prompt_cache: Mutex<HashMap<String, String>>,
     deferred_responses: Mutex<HashMap<String, DeferredEntry>>,
 }
 
@@ -1001,7 +971,7 @@ impl FauxCore {
                 factory(context, options, &state, request_model).await?
             }
         };
-        Ok(with_usage_estimate(
+        Ok(with_usage(
             clone_message(
                 &resolved,
                 &self.inner.api,
@@ -1027,7 +997,7 @@ impl FauxCore {
         }
         let Some(step) = step else {
             let error = ErrorObject::new("No more faux responses queued").thrown();
-            let message = with_usage_estimate(
+            let message = with_usage(
                 create_error_message(
                     &error,
                     &self.inner.api,

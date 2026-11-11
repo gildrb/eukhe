@@ -251,7 +251,11 @@ async fn resends_an_interrupted_summarization_once_and_counts_only_the_answered_
     );
     let after = usage(&chat).await.models["faux/faux-1"];
     assert!(after.input > before.input);
-    assert_eq!(after.output - before.output, 2);
+    // One answer's output: "SUMMARY" in the faux model's tokenizer.
+    assert_eq!(
+        after.output - before.output,
+        u64::from(eukhe_tokens::Encoding::O200kBase.count("SUMMARY"))
+    );
     chat.harness.close(context()).await.unwrap();
 }
 

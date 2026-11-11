@@ -955,15 +955,15 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     // threshold while its own request stays inside the window: the
     // blocking threshold is 24k window - 10k reserve = 14k tokens. The
     // thresholds read the context the last turn reached, as the provider
-    // counted it (the faux provider estimates usage from the serialized
-    // context): the ~5k-token seed turn stays below it, the ~11k-token
-    // crossing message takes the crossing turn (~16k) past it without
-    // putting its request past the window (which would compact inside the
-    // crossing run), and the next run compacts before its first request.
-    // That window's summarizer input budget is its floor (3k tokens, omp
-    // `minSummaryInputTokens`), so the summary runs one call per window
-    // (omp `generateSummary`): the seed turn, the crossing message alone
-    // (clamped to the budget), and the crossing reply.
+    // counted it (the faux provider counts the serialized context with
+    // o200k_base): the seed turn stays below it, the ~12k-token crossing
+    // message (one token per " history") takes the crossing turn past it
+    // without putting its request past the window (which would compact
+    // inside the crossing run), and the next run compacts before its
+    // first request. That window's summarizer input budget is its floor
+    // (3k tokens, omp `minSummaryInputTokens`), so the summary runs one
+    // call per window (omp `generateSummary`): the seed turn, the crossing
+    // message alone (clamped to the budget), and the crossing reply.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [
@@ -976,7 +976,7 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
         ]
     });
     let first = "seed turn".to_string();
-    let second = format!("crossing turn {}", "x".repeat(44_000));
+    let second = format!("crossing turn {}", "history ".repeat(12_000));
     let third = "after the crossing".to_string();
     let (stdout, stderr, code) = run_in_home(
         home.path(),
