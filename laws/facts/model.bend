@@ -684,8 +684,7 @@ law facts_aux_exact:
 # ----------------------------------------------------------------
 # Rust reads the rulebook's `bedrock_reasoning` (the shape a family of
 # rulebook.json names: `claude`, `gpt`) and the map's entry of the level;
-# the model decides the fields (omp `amazon-bedrock.ts`
-# `buildAdditionalModelRequestFields`: effort mode sends `reasoning.effort`,
+# the model decides the fields (effort mode sends `reasoning.effort`,
 # every other reasoning model Anthropic's thinking block). The model's
 # terms, independently: a level's rank (minimal 0 .. max 5); GPT sends the
 # map's wire value, else the larger of low (2) and the rank plus one; a
@@ -740,7 +739,7 @@ law facts_reasoning_exact:
   for +l: Fx.ELv
   {Fx.reasoning(s, e, l) == reasoning_spec(s, e, l) : Fx.RFields}
 
-# LAW facts_reasoning_example: anchor: Claude (`anthropic.claude-opus-4-7`) sends the thinking block; GPT (`openai.gpt-5.4`) sends xhigh and max as named, its map's string first, the default at a null entry; no shape (`amazon.nova-2-lite-v1:0`, `openai.gpt-oss-120b-1:0`) sends the thinking block, as omp does
+# LAW facts_reasoning_example: anchor: Claude (`anthropic.claude-opus-4-7`) sends the thinking block; GPT (`openai.gpt-5.4`) sends xhigh and max as named, its map's string first, the default at a null entry; no shape (`amazon.nova-2-lite-v1:0`, `openai.gpt-oss-120b-1:0`) sends the thinking block
 # EXCLUDES: a spec that is wrong on the cases the Rust tests pin
 law facts_reasoning_example:
   {Fx.reasoning(Some{Fx.SClaude{}}, None{}, Fx.EHigh{}) == Fx.RThinking{} : Fx.RFields} &

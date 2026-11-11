@@ -1,6 +1,6 @@
 //! Every model `eukhe model list` lists resolves as `--provider <p>
 //! --model <id>` in a session, the bundled snapshot's models the compiled
-//! catalog lacks included: omp's one model registry serves both its model
+//! catalog lacks included: one model registry serves both the model
 //! list and `--model` resolution.
 //!
 //! Its own test binary: the process-wide built-in catalog reads the
@@ -102,8 +102,7 @@ async fn every_listed_model_resolves_in_a_session() {
 
     // Every listed model resolves to itself as `--provider <p> --model
     // <id>`, but an id that starts with its own provider (`openrouter/auto`):
-    // like omp (model-resolver.ts `resolveCliModelInScope`), an explicit
-    // provider's prefix is stripped from the selector.
+    // an explicit provider's prefix is stripped from the selector.
     let session_models: Vec<eukhe_types::ai::Model> = session
         .models
         .get_models(None)

@@ -1,8 +1,7 @@
 //! A rebuilt command table under an open menu: the session's skill
 //! catalog (`get_commands`) and the argument lists land whenever their
-//! fetch answers, so the user may already have a menu open. omp swaps
-//! the provider and leaves the open list alone
-//! (`packages/tui/src/components/editor.ts:1021-1023`); here the open
+//! fetch answers, so the user may already have a menu open. Rather than
+//! keep the open list as it was until the next keystroke, the open
 //! slash menu reads its rows again from the new table and stays open.
 
 use super::{Editor, EditorEvent};

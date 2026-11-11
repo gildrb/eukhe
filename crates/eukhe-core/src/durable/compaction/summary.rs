@@ -182,7 +182,7 @@ async fn decide(
     let signal = cx.abort_signal();
     options.options.stream.request.signal.clone_from(&signal);
 
-    // The summary windows (omp `generateSummary`): the whole conversation
+    // The summary windows: the whole conversation
     // in one call when it fits the summarizer's input budget, else windows
     // that each fit it, each folding into the summary carried out of the
     // one before. A window that is one message above the budget (an
@@ -309,7 +309,7 @@ async fn decide(
     }))
 }
 
-/// One planned summarization call (omp `SummaryWindow`): its messages,
+/// One planned summarization call: its messages,
 /// already converted for the model, the budget they were packed for, and
 /// their serialization when the fit check already made it.
 struct SummaryWindow {

@@ -891,8 +891,8 @@ async fn wait_gone(pid: u32, budget: Duration, what: &str) {
 
 /// F5: a root its client left for another session (`/new`, `/resume`: a
 /// `detach` with reason `switch`) releases its worker once idle after the
-/// left grace, not after the 90-minute idle threshold (omp disposes the
-/// session it leaves), and resumes by its durable id with its transcript.
+/// left grace, not after the 90-minute idle threshold (a left session is
+/// not kept running), and resumes by its durable id with its transcript.
 /// A left root with a turn in flight keeps its worker until the turn ends.
 #[tokio::test]
 async fn a_root_left_for_another_session_releases_its_worker_once_idle() {

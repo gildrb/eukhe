@@ -171,8 +171,7 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
     });
     match served {
         // Ctrl+C is how a foreground server is meant to stop: a clean exit
-        // (omp's serve commands exit 0 on SIGINT, e.g. `auth-broker-cli.ts`
-        // `runServe`).
+        // 0 on SIGINT.
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");

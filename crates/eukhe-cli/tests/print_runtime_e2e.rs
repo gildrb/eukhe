@@ -625,7 +625,7 @@ fn print_mode_provider_retry_recovers_the_answer() {
 
 /// An overflow with nothing compactable ends the run on the provider error
 /// (pi-durable keeps the error turn): stderr carries the error, then the
-/// skip warning row that names the oversized turn and its remedies (omp's
+/// skip warning row that names the oversized turn and its remedies (the
 /// compaction dead-end warning), exit 1.
 #[test]
 fn print_mode_overflow_skip_surfaces_the_warning_row() {
@@ -883,7 +883,7 @@ fn print_mode_json_streams_the_message_update_deltas() {
 }
 
 /// An answer that settles before the 100 ms partial throttle commits its
-/// last changes still streams to its end (omp print json emits every
+/// last changes still streams to its end (print json emits every
 /// `message_update`): the `message_start` partial plus the `text_delta`s
 /// rebuild the answer, a `text_end` closes the block, then the settled
 /// `message_end`.
@@ -937,7 +937,7 @@ fn print_mode_json_streams_a_fast_answer_start_to_end() {
     );
 }
 
-/// The threshold compaction (pi-durable's pre-request check): once a turn's
+/// The threshold compaction (the pre-request check): once a turn's
 /// context crossed the reserve headroom, the next run compacts before its
 /// first request, so the `compaction_start`/`compaction_end` pair with the
 /// `threshold` reason, the client-facing result, and `willRetry: false`
@@ -960,9 +960,9 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     // crossing message takes the crossing turn (~16k) past it without
     // putting its request past the window (which would compact inside the
     // crossing run), and the next run compacts before its first request.
-    // That window's summarizer input budget is its floor (3k tokens, omp
-    // `minSummaryInputTokens`), so the summary runs one call per window
-    // (omp `generateSummary`): the seed turn, the crossing message alone
+    // That window's summarizer input budget is its floor (3k tokens,
+    // `min_summary_input_tokens`), so the summary runs one call per
+    // window: the seed turn, the crossing message alone
     // (clamped to the budget), and the crossing reply.
     let script = serde_json::json!({
         "contextWindow": 24000,

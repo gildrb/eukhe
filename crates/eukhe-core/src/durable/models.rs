@@ -227,10 +227,10 @@ pub struct SessionModels {
     pub diagnostics: Vec<String>,
 }
 
-/// `eukhe_ai::models::Models` with every built-in pi-ai provider serving
+/// `eukhe_ai::models::Models` with every built-in provider serving
 /// the built-in catalog, credentials from eukhe's auth storage, custom
 /// providers/models from eukhe `models.json`, and Prime Inference through
-/// the pi-ai `prime-inference` provider's compiled catalog. See the module
+/// the built-in `prime-inference` provider's compiled catalog. See the module
 /// docs.
 #[must_use]
 pub fn create_models(agent_dir: &Path) -> SessionModels {

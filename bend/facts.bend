@@ -401,7 +401,7 @@ def effort(+m: EMap, +l: ELv) -> Nat:
 # request shape of a model on Bedrock: Claude's, or the nested
 # `reasoning.effort` of the effort-mode models (OpenAI GPT, Grok 4.6+,
 # Kimi K3); a model no rule names takes Anthropic's thinking block like
-# Claude (omp's default budget thinking mode).
+# Claude (the default: budget thinking mode).
 type Shape is Data:
   SClaude{}
   SGpt{}

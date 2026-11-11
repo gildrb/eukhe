@@ -1128,8 +1128,7 @@ async fn turn_aborted(harness: &Harness, call: &HostCall) -> anyhow::Result<bool
 
 /// Cancel the children of `task_ids` still running: the turn whose cell
 /// waited on them was aborted, and an aborted wait cancels every handle it
-/// awaited, then waits for each to settle (omp `runEvalWait`,
-/// `eval/handle-bridge.ts:281-286`). Each child task's abort cancels the
+/// awaited, then waits for each to settle. Each child task's abort cancels the
 /// child's run at the host and marks its row cancelled, owing no report
 /// (`task::abort`); a child that reached its verdict keeps it.
 async fn cancel_waited(

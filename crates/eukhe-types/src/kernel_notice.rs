@@ -7,10 +7,8 @@
 //! interactive client shows that as a notification once per install
 //! state: the first attach that finds the kernel unavailable shows it,
 //! later ones do not, until a top-level session opens with a usable
-//! kernel and a later one finds it gone again. omp does the same on a
-//! fresh install's first interactive launch
-//! (`resolveFirstLaunchPythonEvalWarning`, shown through the UI's startup
-//! notifications). The marker file lives in the agent state directory
+//! kernel and a later one finds it gone again. The marker file lives in
+//! the agent state directory
 //! (`~/.eukhe`): the client that shows the notification writes it
 //! ([`first_showing`]), the session open that finds the kernel usable
 //! removes it ([`forget`]).

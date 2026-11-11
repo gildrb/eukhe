@@ -832,11 +832,10 @@ fn a_family_outside_others_takes_only_what_they_leave() {
     );
 }
 
-/// The Anthropic thinking forms of omp's catalog: `thinking.display` on
-/// adaptive Claude 4.7 and later only (omp `compat/resolve.ts`
-/// `defaultSupportsDisplay`), budget thinking with an effort on Opus 4.5
-/// (`classes/anthropic.kdl` `anthropic-budget-effort`), `between_tools` as
-/// Sonnet 5.5's off and an explicit `disabled` as Haiku 5.5's
+/// The Anthropic thinking forms of the shipped catalog: `thinking.display`
+/// on adaptive Claude 4.7 and later only, budget thinking with an effort on
+/// Opus 4.5, `between_tools` as Sonnet 5.5's off and an explicit `disabled`
+/// as Haiku 5.5's
 /// (`compat.supportsBetweenToolsThinking`, `compat.disabledThinking`).
 #[test]
 fn the_shipped_anthropic_thinking_forms_follow_omp() {

@@ -368,10 +368,8 @@ impl Editor {
 
     /// The provider's command table was rebuilt (the session's skill
     /// catalog landed, an argument list changed) while a menu may be
-    /// open. omp swaps the provider and leaves the open list alone
-    /// (`packages/tui/src/components/editor.ts:1021-1023`:
-    /// `setAutocompleteProvider` only assigns the provider; the next
-    /// keystroke queries the new one). A slash row here carries its place
+    /// open. Swapping the provider alone would leave the open list as
+    /// it was until the next keystroke. A slash row here carries its place
     /// in the table (`path_row`), and a rebuild moves the places, so the
     /// open slash menu reads its rows again from the new table: it stays
     /// open, the selected row stays selected while the new rows still

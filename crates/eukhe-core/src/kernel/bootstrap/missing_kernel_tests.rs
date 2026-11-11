@@ -237,7 +237,7 @@ async fn a_missing_kernel_names_the_install_and_spares_the_other_tools() {
 /// answer with the install command. Now the probe at open finds no kernel
 /// venv: the model is offered no ipython tool and its prompt says the
 /// session has no Python REPL. The user is told by a notification naming
-/// the install, once per install state (omp's first-launch warning): at
+/// the install, once per install state (a first-launch warning): at
 /// the first interactive session, not the second, not once the venv
 /// appears, and once more at the first session after it is gone again. A
 /// reopened session does not show it again either, and a headless run

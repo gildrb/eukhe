@@ -1,6 +1,6 @@
-//! Port of `test/anthropic-mid-conversation-effort.test.ts`, on omp's
-//! effort plan (`planAnthropicEffortControls`): the top-level effort is the
-//! first request's and per-message controls carry only the changes.
+//! Port of `test/anthropic-mid-conversation-effort.test.ts`, on Eukhe's
+//! effort plan: the top-level effort is the first request's and
+//! per-message controls carry only the changes.
 
 mod anthropic_support;
 
@@ -130,7 +130,7 @@ fn bound_adaptive() -> JsonValue {
     })
 }
 
-/// omp: the first request sends its effort top-level; a later change keeps
+/// The first request sends its effort top-level; a later change keeps
 /// the top-level effort byte-stable and goes as a control before the turn's
 /// user message, so the earlier request's messages stay a prefix.
 #[tokio::test]
@@ -271,7 +271,7 @@ async fn sends_the_requested_effort_top_level_max() {
     sends_the_requested_effort_top_level("max").await;
 }
 
-/// omp: no effort named leaves the API's per-model default; the reply
+/// No effort named leaves the API's per-model default; the reply
 /// records that none is in force.
 #[tokio::test]
 async fn an_omitted_effort_sends_none_and_still_enables_drop_block() {
@@ -309,7 +309,7 @@ async fn does_not_invent_markers_for_legacy_or_other_provider_assistants() {
     );
 }
 
-/// omp (anthropic-haiku-thinking-off.test.ts): Haiku 5.5 turns thinking off
+/// Haiku 5.5 turns thinking off
 /// with `disabled`, no effort, no control.
 #[tokio::test]
 async fn off_sends_disabled_thinking_on_a_model_that_accepts_it() {
@@ -353,7 +353,7 @@ async fn off_sends_disabled_thinking_on_a_model_that_accepts_it() {
     assert_eq!(effort_messages(&payload), Vec::<JsonValue>::new());
 }
 
-/// omp: `disabled` is a 400 above `high` and with a per-message control in
+/// Thinking `disabled` is a 400 above `high` and with a per-message control in
 /// the history; off falls back to lowest-effort adaptive.
 #[tokio::test]
 async fn off_falls_back_to_the_lowest_adaptive_effort_when_the_history_forbids_disabled() {
@@ -396,7 +396,7 @@ async fn off_falls_back_to_the_lowest_adaptive_effort_when_the_history_forbids_d
     );
 }
 
-/// omp: an adaptive-only model (Fable, Opus 5.x) cannot turn thinking off;
+/// An adaptive-only model (Fable, Opus 5.x) cannot turn thinking off;
 /// off pins the lowest effort.
 #[tokio::test]
 async fn off_pins_the_lowest_effort_on_an_adaptive_only_model() {
@@ -448,7 +448,7 @@ async fn off_pins_the_lowest_effort_on_an_adaptive_only_model() {
     );
 }
 
-/// omp: Sonnet 5.5 turns thinking off with `between_tools`, except while
+/// Sonnet 5.5 turns thinking off with `between_tools`, except while
 /// an `xhigh`/`max` effort is in force (a 400 there).
 #[tokio::test]
 async fn off_sends_between_tools_on_a_model_that_has_it() {
@@ -479,7 +479,7 @@ async fn off_sends_between_tools_on_a_model_that_has_it() {
     );
 }
 
-/// omp `anthropicEffortInsertIndex`: a change in a tool loop goes at the
+/// A change in a tool loop goes at the
 /// end, after the tool results, never between `tool_use` and `tool_result`.
 #[tokio::test]
 async fn a_change_in_a_tool_loop_goes_after_the_tool_results() {
@@ -509,8 +509,8 @@ async fn a_change_in_a_tool_loop_goes_after_the_tool_results() {
     assert_eq!(messages[3], control("high"));
 }
 
-/// The built-in models' first request at each `--thinking` level, as omp
-/// sends it (omp 18.18.1 against a stub provider): Haiku 5.5 turns
+/// The built-in models' first request at each `--thinking` level (against
+/// a stub provider): Haiku 5.5 turns
 /// thinking off with `disabled`, Fable 5.1 pins `low`, Sonnet 5.5 sends
 /// `between_tools`, Opus 5 omits `thinking`; every other level sends its
 /// own effort top-level. Regression: every level sent effort `high`

@@ -175,8 +175,7 @@ pub const fn to_google_sdk_thinking_level(level: GoogleApiThinkingLevel) -> &'st
 
 /// TS `getDisabledGoogleThinkingConfig`: the `ThinkingConfig` that turns
 /// thinking off (or as low as the model allows). A zero budget sends no
-/// thought summaries (`includeThoughts: false`, omp `google-shared.ts`
-/// `buildParams` with `stream.ts` `resolveGoogleThinkingOff`).
+/// thought summaries (`includeThoughts: false`).
 ///
 /// # Errors
 ///

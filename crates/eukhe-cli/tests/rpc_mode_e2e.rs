@@ -416,7 +416,7 @@ fn rpc_get_state_answers_the_fresh_session() {
 /// Regression: in the first session of an install without the Python
 /// kernel the open wrote a `kernel_unavailable` row, so a fresh session
 /// answered `messageCount: 1` (eukhe-v0.10.67: 0). The kernel's absence
-/// is a notification of the interactive client (omp `main.ts:2855-2857`),
+/// is a notification of the interactive client (its startup notifications),
 /// never a session entry: rpc mode counts no message.
 #[test]
 fn rpc_fresh_session_without_a_kernel_counts_no_message() {
@@ -1150,8 +1150,8 @@ fn rpc_sigterm_during_replacement_exits_promptly() {
     client.spawn_stderr = None;
 }
 
-/// A faux context window whose summarizer input budget (omp
-/// `summaryInputBudgetTokens`: 0.8 of the window less the output reserves)
+/// A faux context window whose summarizer input budget (0.8 of the window
+/// less the output reserves)
 /// holds a whole 10 MiB corpus (about 3M estimated tokens), so its history
 /// summary is one summarizer call.
 const CORPUS_CONTEXT_WINDOW: u64 = 8_000_000;
@@ -1592,7 +1592,7 @@ fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
         // makes two concurrent summarizer calls, so the script queues
         // one response each. The window holds the whole corpus in one
         // summarizer input budget, so the history summary is one call
-        // rather than one per window (omp `generateSummary`).
+        // rather than one per window.
         "contextWindow": CORPUS_CONTEXT_WINDOW,
         "responses": [
             { "text": "corpus history summary: the scale corpus ran" },

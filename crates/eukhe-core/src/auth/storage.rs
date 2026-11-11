@@ -275,9 +275,9 @@ impl AuthStorageBackend for FileAuthStorageBackend {
             }
             // A writer holds the lock past the retry budget. Every writer of
             // the protocol replaces the document by atomic rename, so the
-            // file as it stands is the last whole document: serve it, as
-            // omp's credential store answers a read while a writer holds its
-            // lock (WAL: the read sees the last commit and never waits for
+            // file as it stands is the last whole document: serve it, so
+            // a read is answered while a writer holds the lock (as under a
+            // WAL, the read sees the last commit and never waits for
             // the writer). It is cached like a locked read, so the reads
             // after it (one per provider at a session's create) hit the
             // cache instead of each waiting out the retry budget. Content

@@ -17,11 +17,10 @@
 //! session of an install without the kernel is therefore as empty as any
 //! other new session. A host with no notification surface (print, json
 //! and rpc mode) shows nothing and leaves the notification to the next
-//! interactive client. omp parity: `resolveAdvertisedEvalBackends` drops
-//! the Python backend after a definitive failed probe;
-//! `resolveFirstLaunchPythonEvalWarning` runs on interactive launches
-//! only and its text goes to the UI's startup notifications
-//! (`main.ts:2598-2612`, `main.ts:2855-2857`), never into the session.
+//! interactive client. The Python backend is dropped after a definitive
+//! failed probe, and the first-launch Python warning is raised on
+//! interactive launches only; its text goes to the UI's startup
+//! notifications, never into the session.
 
 use std::path::Path;
 

@@ -144,8 +144,8 @@ pub(crate) fn live_session_summary(data: &Value) -> Option<&Value> {
 /// The shared CLI table renderer (TS `formatTable`): every column pads to
 /// the widest cell's terminal display width, so a wide glyph (CJK, emoji)
 /// cannot drift the columns after it, with two spaces between columns.
-/// Piped stdout gets the same padded layout (omp `ps-cli.ts` `printTable`
-/// keeps padding when piped), so scripts can split it on spaces.
+/// Piped stdout gets the same padded layout (padding is kept when piped,
+/// never swapped for tabs), so scripts can split it on spaces.
 pub(crate) fn format_table<const N: usize>(headers: &[&str; N], rows: &[[String; N]]) -> String {
     let widths: [usize; N] = std::array::from_fn(|column| {
         rows.iter()

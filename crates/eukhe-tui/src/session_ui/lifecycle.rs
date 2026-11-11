@@ -455,10 +455,9 @@ impl SessionUi {
         self.resync_bash = Some(resync_bash);
         // The session's kernel cannot start (the state's
         // `kernelUnavailable` text: no `ipython` tool, and the fix): this
-        // view says so once per install state. omp pushes its Python
-        // warning to the UI's startup notifications (`main.ts:2855-2857`),
-        // never into the session; the next rebuild shows it the same way,
-        // as a warning row of this view.
+        // view says so once per install state, as a notification, never
+        // into the session; the next rebuild shows it the same way, as a
+        // warning row of this view.
         if let Some(notice) = state
             .and_then(|state| state.get("kernelUnavailable"))
             .and_then(Value::as_str)
@@ -497,7 +496,7 @@ impl SessionUi {
         // captured previous id (the detach must target the OLD address,
         // not the id the pane just adopted). Leaving one session for
         // another (`/new`, `/resume`) says so: the left session's worker
-        // is released once idle (omp disposes the session it leaves).
+        // is released once idle (a left session is not kept running).
         if !previous.is_empty() && previous != self.active_session_id {
             let _ = self
                 .bounded_request(

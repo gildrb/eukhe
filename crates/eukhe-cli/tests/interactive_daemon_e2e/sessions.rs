@@ -308,8 +308,8 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
 /// the new session was not empty: the start banner (version, model, cwd)
 /// was gone, `/tree` opened an empty panel instead of saying "No entries
 /// in session", and the state counted one message. The kernel's absence
-/// is a notification of the interactive client (omp `main.ts:2855-2857`
-/// pushes its Python warning to the UI's startup notifications), shown
+/// is a notification of the interactive client (the Python warning goes
+/// to the UI's startup notifications), shown
 /// once per install state: the first TUI shows it beside the banner and
 /// the session stays empty; a second TUI on a second session of the same
 /// install shows nothing.

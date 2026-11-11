@@ -690,8 +690,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
     }
 
     /// Abort the child's run and kill its background jobs (`rlmCancel`): a
-    /// cancelled subagent's own jobs end with it (omp
-    /// `cancelAndReapOwnerJobs`, task/executor.ts:5375-5385).
+    /// cancelled subagent's own jobs end with it.
     fn cancel(&self, request: durable::RlmChildCancelRequest) -> durable::RlmHostFuture<'_, ()> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {

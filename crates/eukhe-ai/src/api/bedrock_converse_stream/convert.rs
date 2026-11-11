@@ -116,8 +116,7 @@ pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
 
 /// Whether a reasoning request of `model` sends a thinking budget: a
 /// reasoning model neither adaptive nor of the rulebook's effort shape
-/// (`gpt`), Claude or not (omp `stream.ts` bedrock `mapOptionsForApi`, the
-/// budget path).
+/// (`gpt`), Claude or not (the budget path).
 pub(crate) fn budget_thinking(model: &Model) -> bool {
     model.reasoning
         && !adaptive_thinking(model)
@@ -618,8 +617,7 @@ pub(crate) fn build_additional_model_request_fields(
         return Some(json!({ "reasoning": { "effort": gpt_effort(effort) } }));
     }
     // Anthropic's thinking block: Claude's, and every other reasoning model
-    // the rulebook gives no effort shape (omp's default budget thinking,
-    // `amazon-bedrock.ts` `buildAdditionalModelRequestFields`).
+    // the rulebook gives no effort shape (budget thinking is the default).
     // GovCloud Bedrock rejects the Claude thinking.display field and block
     // binding.
     let is_gov_cloud = is_gov_cloud_bedrock_target(model, options);
@@ -672,8 +670,7 @@ pub(crate) fn build_additional_model_request_fields(
             thinking.insert("display".to_owned(), display.as_str().into());
         }
         result.insert("thinking".to_owned(), JsonValue::Object(thinking));
-        // Only a caller's explicit `interleavedThinking` adds the beta (omp
-        // `amazon-bedrock.ts` `buildAdditionalModelRequestFields`).
+        // Only a caller's explicit `interleavedThinking` adds the beta.
         if options.interleaved_thinking == Some(true) {
             result.insert(
                 "anthropic_beta".to_owned(),

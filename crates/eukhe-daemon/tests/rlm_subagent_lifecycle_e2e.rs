@@ -590,8 +590,8 @@ fn kid_status(client: &mut Client, parent: &str) -> Option<Value> {
 }
 
 /// Esc on a parent whose cell waits on its child in `rlm.collect` reaches
-/// the child it waits on (omp `eval/handle-bridge.ts:281-286`: an aborted
-/// wait cancels the agents it awaited): the child's run stops with its
+/// the child it waits on (an aborted wait cancels the agents it
+/// awaited): the child's run stops with its
 /// `sleep`, the roster reads it cancelled, no report wakes the parent, and
 /// the parent's next prompt runs.
 #[test]
@@ -647,8 +647,8 @@ fn aborting_a_parent_waiting_in_collect_cancels_the_child() {
 
 /// A child whose `bash` step outlived its blocking budget keeps it as a
 /// background job after its turn: Esc on the parent waiting on it cancels
-/// the child, and the cancel kills that job's process too (omp reaps a
-/// cancelled subagent's own jobs, task/executor.ts:5375-5385).
+/// the child, and the cancel kills that job's process too (a cancelled
+/// subagent's own jobs end with it).
 #[test]
 fn aborting_a_parent_waiting_in_collect_kills_the_child_s_background_job() {
     const SLEEP_SECS: u32 = 1795;
@@ -720,13 +720,11 @@ fn aborting_a_parent_waiting_in_collect_kills_the_child_s_background_job() {
 const READ_CANCELLED_KID: &str = "listed = [[job.kind, job.state] for job in await jobs.list() if job.kind == \"child\"]\nroster = await rlm.list_subagents()\nsnapshot = await rlm.collect(\"kid\")\nwaited = await jobs.wait(roster[0], timeout_s=5)\ndeleted = await jobs.cancel(roster[0])\nrecord({\"jobs\": listed, \"roster\": [[row.session_name, row.status] for row in roster], \"collect\": [[r.status, r.settled] for r in snapshot], \"waited\": [waited.kind, waited.state], \"deleted\": [deleted.kind, deleted.state], \"after\": [row.session_name for row in await rlm.list_subagents()]})";
 
 /// The child an aborted wait cancelled stays in the parent's roster, its
-/// status `cancelled` (omp's word for a cancelled agent job,
-/// `async/job-manager.ts:106,643`, printed as is by its job list,
-/// `internal-urls/proc-protocol.ts:196`), and the parent's next cell reads
-/// it: `jobs.list()` lists the child `aborted`, the roster and
-/// `rlm.collect` read it cancelled and settled, a wait on it returns at
-/// once (a cancelled agent is settled for omp's waiter too,
-/// `eval/handle-bridge.ts:95-97,183-190`), and `jobs.cancel` deletes it.
+/// status `cancelled` (the status a cancelled agent job reports), and the
+/// parent's next cell reads it: `jobs.list()` lists the child `aborted`,
+/// the roster and `rlm.collect` read it cancelled and settled, a wait on
+/// it returns at once (a cancelled agent is settled for every waiter), and
+/// `jobs.cancel` deletes it.
 #[test]
 fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
     const SLEEP_SECS: u32 = 1796;
@@ -824,7 +822,7 @@ fn cancelling_a_running_child_as_a_job_returns_it_aborted() {
 
 /// A wait an earlier cell left running in a task is not the aborted
 /// cell's: Esc on a later cell leaves the child that task waits on running
-/// (omp aborts only the waits of the cancelled run).
+/// (an abort ends only the waits of the cancelled run).
 #[test]
 fn aborting_a_later_cell_leaves_a_background_wait_s_child_running() {
     const SLEEP_SECS: u32 = 1794;

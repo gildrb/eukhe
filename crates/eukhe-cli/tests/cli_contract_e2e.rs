@@ -201,8 +201,8 @@ fn empty_results_are_silent_success_or_plain_zero_lines() {
     }
 }
 
-/// Piped management tables keep the terminal's space-padded columns (omp
-/// `ps-cli.ts` `printTable`): no tabs, the header padded to its column.
+/// Piped management tables keep the terminal's space-padded columns: no
+/// tabs, the header padded to its column.
 #[test]
 fn piped_tables_stay_space_padded() {
     let fixture = Fixture::new("piped-tables");
@@ -241,7 +241,7 @@ fn piped_tables_stay_space_padded() {
 }
 
 /// `status --json` and `doctor --json` print the services as a top-level
-/// array (omp `ps-cli.ts` `runList`), each row with its pid and status.
+/// array (no wrapping object), each row with its pid and status.
 #[test]
 fn status_and_doctor_json_are_the_service_array() {
     let fixture = Fixture::new("status-json");
@@ -316,8 +316,8 @@ fn a_json_usage_failure_exits_2() {
     assert_eq!(parsed["reason"], "invalid_arguments");
 }
 
-/// `tiny-models` names its models dir on stdout, after the table (omp
-/// `tiny-models-cli.ts` lists the model dir on stdout).
+/// `tiny-models` names its models dir on stdout, after the table, as part
+/// of the listing.
 #[test]
 fn tiny_models_names_its_dir_on_stdout() {
     let fixture = Fixture::new("tiny-models-dir");
@@ -333,8 +333,8 @@ fn tiny_models_names_its_dir_on_stdout() {
     assert_eq!(stderr(&output), "");
 }
 
-/// Ctrl+C is how the foreground dashboard stops: a clean exit 0 (omp's
-/// serve commands exit 0 on SIGINT).
+/// Ctrl+C is how the foreground dashboard stops: a clean exit 0 on
+/// SIGINT.
 #[test]
 fn the_dashboard_stops_cleanly_on_ctrl_c() {
     use std::io::{BufRead, BufReader};

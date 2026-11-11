@@ -156,8 +156,8 @@ impl Activity {
 /// is a live threshold, `None` otherwise (attached sessions, `"off"`, a
 /// held pause, and a child worker stay parked without a timer — the
 /// child's residency is the kernel release's business). A session its
-/// client left for another one (`/new`, `/resume`: omp disposes the
-/// session it leaves) waits at most [`LEFT_SESSION_GRACE`], counted from
+/// client left for another one (`/new`, `/resume`: a left session is not
+/// kept running) waits at most [`LEFT_SESSION_GRACE`], counted from
 /// the leave or its last run end, whichever is later; work holds it as it
 /// holds any idle session.
 pub(crate) fn idle_window(

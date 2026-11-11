@@ -88,8 +88,8 @@ fn print_list(home: &TinyHome) {
             .collect();
         println!("{}", line.join("  ").trim_end());
     }
-    // The models dir belongs to the listing (omp `tiny-models-cli.ts`
-    // prints the model dir on stdout with the list).
+    // The models dir belongs to the listing, so it goes to stdout with the
+    // list.
     println!("Models dir: {}", home.models.display());
 }
 

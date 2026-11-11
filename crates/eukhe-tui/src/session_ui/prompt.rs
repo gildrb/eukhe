@@ -741,8 +741,8 @@ impl SessionUi {
         // The re-attach window expired (TS terminal close) with the session
         // unreachable: the submit tries once more, since the supervisor
         // reopens the session from storage once it can (a session outlives
-        // a failure it could not write through, like omp's, whose next
-        // entry retries the write: session-manager.ts:1954-1960). Only a
+        // a failure it could not write through: its next entry retries the
+        // write). Only a
         // failed attempt keeps the session closed: nothing dispatches, the
         // error row surfaces the cause, and the draft returns to the editor
         // (TS keeps the input buffer on a failed submit).

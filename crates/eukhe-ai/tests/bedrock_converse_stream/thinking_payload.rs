@@ -66,9 +66,8 @@ async fn maps_xhigh_reasoning_to_effort_xhigh_for_claude_opus_4_8() {
     assert_adaptive(&opus_48().id, "xhigh", "xhigh").await;
 }
 
-/// Adaptive thinking without block binding: omp binds only prefix-bound
-/// models (`classes/anthropic.kdl` `thinking-prefix-binding`: Fable 5.1+,
-/// Opus, Sonnet and Haiku 5.5).
+/// Adaptive thinking without block binding: only prefix-bound models bind
+/// (Fable 5.1+, Opus, Sonnet and Haiku 5.5).
 async fn assert_adaptive(model_id: &str, reasoning: &str, effort: &str) {
     let model = get_model("amazon-bedrock", model_id);
     let payload = capture_payload(&model, json!({ "reasoning": reasoning })).await;
@@ -107,7 +106,7 @@ async fn maps_xhigh_reasoning_to_effort_xhigh_for_claude_fable_5() {
     assert_adaptive("global.anthropic.claude-fable-5", "xhigh", "xhigh").await;
 }
 
-/// omp binds signed thinking only on prefix-bound models (Fable 5.1+, Opus,
+/// Signed thinking binds only on prefix-bound models (Fable 5.1+, Opus,
 /// Sonnet and Haiku 5.5); the 4.7 to 5 line sends no `block_binding` and
 /// no binding beta.
 #[tokio::test]
@@ -169,10 +168,8 @@ async fn omits_block_binding_for_opus_4_6() {
     assert!(fields(&payload).get("anthropic_beta").is_none());
 }
 
-/// omp makes only Opus 4.6 adaptive on Bedrock (`amazon-bedrock.kdl`
-/// `thinking-mode "anthropic-adaptive"` under `family "opus"`, revision
-/// 4.6): Sonnet 4.6 there, regional profiles included, takes budget
-/// thinking.
+/// Only Opus 4.6 is adaptive on Bedrock: Sonnet 4.6 there, regional
+/// profiles included, takes budget thinking.
 #[tokio::test]
 async fn sonnet_4_6_takes_budget_thinking_on_bedrock() {
     for model_id in [
@@ -338,9 +335,8 @@ async fn falls_back_to_fixed_budget_thinking_for_non_adaptive_claude_via_model_n
     assert!(fields(&payload).get("anthropic_beta").is_none());
 }
 
-/// omp (`amazon-bedrock.ts` `buildAdditionalModelRequestFields`) adds the
-/// interleaved-thinking beta to budget thinking only when the caller sets
-/// `interleavedThinking`; its agent never does.
+/// Budget thinking carries the interleaved-thinking beta only when the
+/// caller sets `interleavedThinking`.
 #[tokio::test]
 async fn budget_thinking_sends_the_interleaved_beta_only_when_asked() {
     let model = get_model(
@@ -406,10 +402,10 @@ fn budget_thinking(budget: u64) -> Value {
     json!({ "thinking": { "type": "enabled", "budget_tokens": budget, "display": "summarized" } })
 }
 
-/// omp (`amazon-bedrock.ts` `buildAdditionalModelRequestFields`) sends
-/// every reasoning model outside the adaptive and effort modes Anthropic's
-/// budget thinking block: gpt-oss, Nova, `DeepSeek`, GLM, Grok before 4.6 and
-/// the rest, with the default budget of the level (high past high).
+/// Every reasoning model outside the adaptive and effort modes sends
+/// Anthropic's budget thinking block: gpt-oss, Nova, `DeepSeek`, GLM, Grok
+/// before 4.6 and the rest, with the default budget of the level (high past
+/// high).
 #[tokio::test]
 async fn non_claude_budget_models_send_the_thinking_budget() {
     for model_id in [
@@ -431,7 +427,7 @@ async fn non_claude_budget_models_send_the_thinking_budget() {
     }
 }
 
-/// omp's effort mode on Bedrock (`amazon-bedrock.kdl`: Grok 4.6+, the
+/// The effort mode on Bedrock (Grok 4.6+, the
 /// `*.moonshotai.kimi-k3` profiles) sends `reasoning.effort`.
 #[tokio::test]
 async fn effort_mode_models_send_a_nested_reasoning_effort() {

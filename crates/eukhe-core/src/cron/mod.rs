@@ -265,10 +265,9 @@ pub fn is_heartbeat_cron_job(job: &AgentCronJob) -> bool {
 /// session compacts, retries, runs a user bash command, holds suspended
 /// work, or has unfinished actions outside a run. A streaming turn takes a
 /// heartbeat in either delivery mode: a steer joins the turn, a follow-up
-/// queues behind it and is delivered when the turn ends (omp
-/// `Agent.followUp`, packages/agent/src/agent.ts:1494-1501; a prompt sent
-/// while streaming queues on its `streamingBehavior`,
-/// packages/coding-agent/src/session/agent-session.ts:8805-8833).
+/// queues behind it and is delivered when the turn ends (a prompt sent
+/// while streaming queues as the steer or follow-up its delivery mode
+/// names).
 #[must_use]
 pub fn should_defer_heartbeat_cron_job(
     job: &AgentCronJob,
@@ -727,7 +726,7 @@ mod tests {
             &streaming
         ));
         // A streaming turn takes a heartbeat in either mode: a steer joins
-        // the turn, a follow-up queues behind it (omp `Agent.followUp`).
+        // the turn, a follow-up queues behind it.
         assert!(!should_defer_heartbeat_cron_job(
             &job(JobSource::Heartbeat, Some(DeliveryMode::Steer)),
             &streaming

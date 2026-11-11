@@ -694,9 +694,8 @@ impl SessionUi {
                 // turn; so does a turn the engine reported nothing for (a
                 // restarted worker ends its interrupted turn that way and
                 // resumes it): whether the turn ended without a reply is
-                // known only when the run ends owing it (`Idle`), as omp
-                // settles a turn's end only once it knows no re-run follows
-                // (event-controller.ts:1917-1929).
+                // known only when the run ends owing it (`Idle`): a turn's end
+                // settles only once it is known that no re-run follows.
                 self.run_awaits_turn =
                     matches!(outcome, TurnOutcome::Continues | TurnOutcome::Unreported);
                 match outcome {

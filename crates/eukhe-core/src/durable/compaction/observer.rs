@@ -60,8 +60,8 @@ pub const OVERFLOW_RECOVERY_FAILED: &str = "Context overflow recovery failed aft
 
 /// The reported skip of a run that ended on a context overflow with
 /// nothing to cut: its newest turn alone does not fit, so the user must
-/// shrink it or switch models (omp's compaction dead-end warning,
-/// `#compactionDeadEndWarning` with the remedies of `runAutoCompaction`).
+/// shrink it or switch models (the compaction dead-end warning, naming
+/// both remedies).
 pub const OVERFLOW_TURN_TOO_LARGE: &str = "Auto-compaction skipped: The most recent turn alone is too large to reduce further; shrink it (e.g. clear large tool output) or switch to a larger-context model.";
 
 static OUTCOMES_DOC: ConversationDoc<OutcomesState> = match ConversationDoc::define(

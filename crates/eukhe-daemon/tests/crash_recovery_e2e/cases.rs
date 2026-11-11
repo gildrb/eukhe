@@ -288,8 +288,8 @@ fn run_case(phase: Phase, target: Target) {
         }
         Phase::Compaction => {
             // One summarizer call per summary window: a span past the
-            // summarizer's input budget is summarized in windows (omp
-            // `generateSummary`), so a run is a sequence of distinct calls.
+            // summarizer's input budget is summarized in windows, so a run is
+            // a sequence of distinct calls.
             let summarizers = |entries: &[Logged]| {
                 entries
                     .iter()

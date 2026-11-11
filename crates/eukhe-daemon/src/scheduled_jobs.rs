@@ -249,11 +249,9 @@ impl AgentCronSchedulerHooks for QueueHooks {
             return Ok(Some("skipped"));
         }
         // A follow-up heartbeat due while a turn streams queues behind the
-        // turn and is delivered when it ends (omp `Agent.followUp`,
-        // packages/agent/src/agent.ts:1494-1501). Its fire is a run once
-        // queued, as a prompt queued while streaming resolves once queued
-        // (packages/coding-agent/src/session/agent-session.ts:8805-8833):
-        // the scheduler never waits out the turn.
+        // turn and is delivered when it ends, like any follow-up prompt. Its
+        // fire is a run once queued, as a prompt queued while streaming
+        // resolves once queued: the scheduler never waits out the turn.
         let queued_behind_turn = is_heartbeat_cron_job(job)
             && job.delivery_mode == Some(DeliveryMode::FollowUp)
             && activity.is_streaming;

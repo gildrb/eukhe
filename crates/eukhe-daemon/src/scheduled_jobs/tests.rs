@@ -235,7 +235,7 @@ async fn a_later_heartbeat_fire_replaces_the_queued_one() {
 }
 
 /// A follow-up heartbeat due while a turn streams queues behind the turn
-/// (omp `Agent.followUp`) instead of being skipped: the fire is a run once
+/// (like any follow-up prompt) instead of being skipped: the fire is a run once
 /// queued and never waits out the turn, a later fire while it still waits
 /// coalesces into it (a skip, nothing new queued), and the turn's end
 /// delivers it once.

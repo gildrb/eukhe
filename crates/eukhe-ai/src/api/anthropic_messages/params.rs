@@ -1,5 +1,5 @@
 //! Request construction: TS `getCacheControl`, `getBetaFeatures`,
-//! `buildParams`, `convertMessages`, omp `planAnthropicEffortControls`,
+//! `buildParams`, `convertMessages`, the per-message effort plan,
 //! `convertTools`, and the content/tool helpers they use.
 
 use std::borrow::Borrow;
@@ -200,8 +200,8 @@ pub(crate) fn is_anthropic_effort(value: &str) -> bool {
 }
 
 /// What a reply of a per-message-effort model records in
-/// `providerThinkingLevel` when its request left no effort in force (omp
-/// records `{topLevel: null, tail: null}`); otherwise it records the effort.
+/// `providerThinkingLevel` when its request left no effort in force;
+/// otherwise it records the effort.
 pub(crate) const NO_EFFORT: &str = "none";
 
 /// A reply of the managed provider whose request recorded its effort
@@ -452,7 +452,7 @@ fn convert_messages(
     })
 }
 
-/// omp `planAnthropicEffortControls`: the request's effort controls.
+/// The effort plan: the request's effort controls.
 struct EffortPlan {
     /// Top-level `output_config.effort`: byte-stable across a conversation,
     /// the first recorded request's effort, or this request's when none is
@@ -465,7 +465,7 @@ struct EffortPlan {
     tail: Option<String>,
 }
 
-/// omp `planAnthropicEffortControls`: top-level effort stays the first
+/// Plans the effort controls: top-level effort stays the first
 /// recorded request's, every recorded change replays as a per-message
 /// control before the reply of the request that made it, and this request's
 /// own change (`current`) goes last.
@@ -516,7 +516,7 @@ fn plan_effort_controls(
     }
 }
 
-/// omp `anthropicEffortInsertIndex`: the slot of an effort control for the
+/// The slot of an effort control for the
 /// reply that lands at `end`: before the turn's user message, where
 /// Anthropic applies it to that reply, or at `end` when the request
 /// continues a tool loop, so it never lands between a `tool_use` and its
@@ -533,8 +533,8 @@ fn effort_insert_index(messages: &[JsonValue], end: usize) -> usize {
     end
 }
 
-/// Whether a wire `user` message carries tool results only (omp's
-/// `toolResult` messages).
+/// Whether a wire `user` message carries tool results only (the wire form
+/// of `toolResult` messages).
 fn is_tool_results(message: &JsonValue) -> bool {
     message
         .get("content")
@@ -547,7 +547,7 @@ fn is_tool_results(message: &JsonValue) -> bool {
         })
 }
 
-/// omp `effortControlsBlockDisabledThinking`: Anthropic rejects a
+/// Whether the history forbids `disabled` thinking: Anthropic rejects a
 /// per-message effort control with thinking off, and `disabled` above
 /// `high` effort; both outlive a thinking toggle.
 fn effort_controls_block_disabled_thinking(
@@ -580,7 +580,7 @@ fn insert_effort_controls(
     wire
 }
 
-/// omp `buildParams` for a per-message-effort model: the request's own
+/// For a per-message-effort model: the request's own
 /// `thinking` (before the prefix binding) and the effort it asks for.
 fn per_message_effort_thinking(
     options: &AnthropicOptions,
@@ -800,7 +800,7 @@ fn get_beta_features(
     if compat.and_then(|compat| compat.supports_mid_convo_effort) == Some(true) {
         features.push(MID_CONVERSATION_OUTPUT_CONFIG_BETA.into());
     }
-    // omp: the binding beta follows the body's `thinking.block_binding`.
+    // The binding beta follows the body's `thinking.block_binding`.
     if thinking_binding {
         features.push(THINKING_BINDING_CONTROLS_BETA.into());
     }
@@ -896,7 +896,7 @@ pub(crate) fn build_params(
         .thinking_display
         .clone()
         .unwrap_or_else(|| "summarized".to_owned());
-    // omp `buildParams` of a per-message-effort model: the request's own
+    // A per-message-effort model: the request's own
     // thinking and effort, the prefix binding, then the effort plan.
     let mut effort_thinking: Option<JsonValue> = None;
     let mut effort_plan: Option<EffortPlan> = None;

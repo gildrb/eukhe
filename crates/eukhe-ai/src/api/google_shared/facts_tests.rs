@@ -49,12 +49,12 @@ const fn entry(budgets: [i64; 4], level: ResolvedGoogleThinkingLevel) -> i64 {
     }
 }
 
-/// omp's default ladder: the budgets omp 18.18.1 sends a Google budget
+/// The default ladder: the budgets sent for a Google budget
 /// model with no Gemini 2.5 table (deep research, Gemini before 2.5 such
 /// as `gemini-2.5-computer-use`'s legacy line, the `-latest` aliases).
 const LADDER: [i64; 4] = [1024, 2048, 8192, 16384];
 
-/// Whether `model` takes omp's default ladder (no Gemini 2.5 table).
+/// Whether `model` takes the default ladder (no Gemini 2.5 table).
 fn takes_the_ladder(model: &Model) -> bool {
     let id = model.id.to_lowercase();
     id.starts_with("deep-research-")
@@ -64,7 +64,7 @@ fn takes_the_ladder(model: &Model) -> bool {
 }
 
 /// The Gemini API budget rule (no custom budgets): the old 2.5 tables,
-/// omp's ladder for the other budget models.
+/// the default ladder for the other budget models.
 fn old_generative_ai_budget(model: &Model, level: ResolvedGoogleThinkingLevel) -> i64 {
     let budgets: [i64; 4] = if model.id.contains("2.5-pro") {
         [128, 2048, 8192, 32768]
@@ -142,8 +142,7 @@ fn the_thinking_format_is_the_rulebook_answer_of_the_old_rule_up_to_gemini_3() {
     differences.dedup();
     // Gemini 4 and every Gemini 3 model take `thinkingLevel` now; the old
     // regex stopped at major 3 Pro/Flash. The `-latest` aliases take
-    // `thinkingBudget`, as omp sends them (`providers/google.kdl` `models
-    // "*latest"`: `thinking-mode "budget"`).
+    // `thinkingBudget`.
     assert_eq!(
         differences,
         vec![

@@ -742,11 +742,10 @@ async fn compaction_outcome_rows(session: &EukheSession) -> Vec<String> {
 
 /// An oversized prompt the provider counts past its window while the local
 /// estimate does not (CJK text) ends its run on the overflow with a skip
-/// row that names the oversized turn and the way out (omp's compaction
+/// row that names the oversized turn and the way out (the compaction
 /// dead-end warning). The next prompt's overflow compaction summarizes the
 /// oversized message: the whole of it overflows the summarizer too, so
-/// the budget halves and the message is clamped to it (omp
-/// `generateSummary`, `clampConversationToBudget`), and the retried
+/// the budget halves and the message is clamped to it, and the retried
 /// request is answered. The session stays usable without a new one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_oversized_prompt_leaves_the_session_usable() {

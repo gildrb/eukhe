@@ -278,9 +278,7 @@ impl Worker {
 
     /// A parent cancelled this RLM child: its background jobs (detached
     /// shells and cells, with their process trees) end with its run, through
-    /// each job's own kill (omp `cancelAndReapOwnerJobs`,
-    /// task/executor.ts:5375-5385). A child that settles on its own keeps
-    /// them.
+    /// each job's own kill. A child that settles on its own keeps them.
     fn kill_background_jobs(&self) {
         if let Some(hosted) = self.session.get() {
             for job in hosted.deps().jobs.jobs() {

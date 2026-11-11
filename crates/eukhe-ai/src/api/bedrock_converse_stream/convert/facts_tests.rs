@@ -164,8 +164,7 @@ fn a_row_without_native_xhigh_in_its_map_is_sent_high() {
     );
 }
 
-/// omp's prefix-bound models (`classes/anthropic.kdl`
-/// `thinking-prefix-binding`: Fable 5.1+, Opus, Sonnet and Haiku 5.5), the
+/// The prefix-bound models (Fable 5.1+, Opus, Sonnet and Haiku 5.5), the
 /// only ones that take block binding.
 const PREFIX_BOUND: [&str; 12] = [
     "opus-5-5",
@@ -182,9 +181,8 @@ const PREFIX_BOUND: [&str; 12] = [
     "fable-5-9",
 ];
 
-/// The old adaptive list (less Bedrock's Sonnet 4.6, budget thinking in
-/// omp's `amazon-bedrock.kdl`) and omp's prefix-bound list of block
-/// binding.
+/// The old adaptive list (less Bedrock's Sonnet 4.6, which takes budget
+/// thinking on Bedrock) and the prefix-bound list of block binding.
 #[test]
 fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists() {
     let models: Vec<Model> = bedrock()
@@ -284,7 +282,7 @@ fn old_is_claude(model: &Model) -> bool {
 
 /// Every model of the compiled catalog and crafted ids: the rulebook's
 /// `bedrock_reasoning` gives the old Claude check (the reasoning fields
-/// follow omp since, `tests/bedrock_converse_stream/thinking_payload.rs`).
+/// have changed since, `tests/bedrock_converse_stream/thinking_payload.rs`).
 #[test]
 fn the_claude_shape_is_the_rulebook_answer_of_the_old_name_check() {
     let template = bedrock().remove(0);

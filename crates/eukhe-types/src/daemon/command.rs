@@ -110,8 +110,8 @@ pub enum DaemonClientKind {
 pub enum DetachReason {
     /// The client left the session for another one (`/new`, `/resume`).
     /// Once no client is attached and the session has no work, its worker
-    /// is released after a short grace (omp disposes the session it
-    /// leaves); the session stays saved, and the next open or prompt
+    /// is released after a short grace (a left session is not kept
+    /// running); the session stays saved, and the next open or prompt
     /// starts a worker over it again.
     Switch,
 }

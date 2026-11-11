@@ -130,7 +130,7 @@ pub fn build_summarization_request(
 }
 
 /// [`build_summarization_request`] over an already serialized
-/// conversation (one summary window, omp `summarizeConversationWindow`).
+/// conversation (one summary window).
 #[must_use]
 pub(crate) fn build_summarization_request_for_text(
     conversation_text: &str,
@@ -205,15 +205,14 @@ pub(crate) fn turn_prefix_summary_completion_budget(reserve_tokens: u64) -> u64 
 }
 
 /// The summarizer window of a model whose catalog entry carries no usable
-/// context window (omp `DEFAULT_SUMMARY_INPUT_WINDOW`).
+/// context window.
 const DEFAULT_SUMMARY_INPUT_WINDOW: u64 = 200_000;
 
 /// The floor of one summarization window, so a tiny model still makes
-/// progress (omp `MIN_SUMMARY_INPUT_TOKENS`).
+/// progress.
 const MIN_SUMMARY_INPUT_TOKENS: u64 = 16_384;
 
-/// The most a summary may emit (omp `MAX_SUMMARY_TOKENS`, its default
-/// reserve).
+/// The most a summary may emit (the default summary reserve).
 const MAX_SUMMARY_TOKENS: u64 = 16_384;
 
 fn summary_input_window(context_window: u64) -> u64 {
@@ -225,14 +224,13 @@ fn summary_input_window(context_window: u64) -> u64 {
 }
 
 /// The smallest summarization window worth planning for a model of
-/// `context_window` tokens; below it, overflow recovery gives up (omp
-/// `minSummaryInputTokens`).
+/// `context_window` tokens; below it, overflow recovery gives up.
 pub(crate) fn min_summary_input_tokens(context_window: u64) -> u64 {
     MIN_SUMMARY_INPUT_TOKENS.min((summary_input_window(context_window) / 8).max(1_024))
 }
 
-/// The conversation input of ONE summarization call (omp
-/// `summaryInputBudgetTokens`): the summarizer's window, discounted to 0.8
+/// The conversation input of ONE summarization call: the summarizer's
+/// window, discounted to 0.8
 /// because the provider's tokenizer disagrees with the local estimate,
 /// minus the summary it emits (`max_tokens`) and the previous summary and
 /// prompt it carries.
@@ -245,7 +243,7 @@ pub(crate) fn summary_input_budget_tokens(context_window: u64, max_tokens: u64) 
 }
 
 /// Clamp one serialized window of `tokens` estimated tokens to
-/// `budget_tokens` (omp `clampConversationToBudget`): only a single message
+/// `budget_tokens`: only a single message
 /// above the budget (an oversized paste) gets here, and the alternative is
 /// a summarizer rejection no retry can clear, which strands the session
 /// with a full window. Lengths count UTF-16 code units like the TS slice;
@@ -286,7 +284,7 @@ pub(crate) fn clamp_conversation_to_budget(
 
 /// Partition `messages` (already converted for the model) into windows
 /// whose serializations each fit `budget_tokens`, splitting on message
-/// boundaries (omp `planSummaryWindows`); a single message above the
+/// boundaries; a single message above the
 /// budget is a window of its own.
 pub(crate) fn plan_summary_windows(
     messages: Vec<AgentMessage>,
@@ -403,7 +401,7 @@ mod tests {
     }
 
     /// A window above its budget keeps the share of its characters the
-    /// budget allows (omp `clampConversationToBudget`: 95% of the
+    /// budget allows (95% of the
     /// proportional length, at least 1024), never splitting a character,
     /// and says how many it dropped; one within its budget is unchanged.
     #[test]
@@ -438,10 +436,9 @@ mod tests {
     }
 
     /// Windows split on message boundaries under the budget; a message
-    /// above it is a window of its own (omp `planSummaryWindows`). The
+    /// above it is a window of its own. The
     /// input budget is 0.8 of the window less the summary's and the
-    /// carried summary's reserves, never below the floor (omp
-    /// `summaryInputBudgetTokens`, `minSummaryInputTokens`).
+    /// carried summary's reserves, never below the floor.
     #[test]
     fn summary_windows_fit_their_budget() {
         let small = || user(&"x".repeat(35));
