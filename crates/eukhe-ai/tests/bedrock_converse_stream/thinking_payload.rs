@@ -157,16 +157,20 @@ async fn sends_block_binding_and_the_binding_beta_for_claude_opus_5_5() {
     );
 }
 
-// Bedrock rejects block_binding on 4.6 models (#10324).
+/// Bedrock rejects `block_binding` on 4.6 models (#10324), and omp sends
+/// adaptive Opus 4.6 no `display` (catalog `compat/resolve.ts`
+/// `defaultSupportsDisplay`: adaptive generation 4.7 and later only).
 #[tokio::test]
-async fn omits_block_binding_for_opus_4_6() {
+async fn omits_block_binding_and_display_for_opus_4_6() {
     let model = get_model("amazon-bedrock", "global.anthropic.claude-opus-4-6-v1");
     let payload = capture_payload(&model, json!({})).await;
     assert_eq!(
-        fields(&payload)["thinking"],
-        json!({ "type": "adaptive", "display": "summarized" })
+        fields(&payload),
+        &json!({
+            "thinking": { "type": "adaptive" },
+            "output_config": { "effort": "high" },
+        })
     );
-    assert!(fields(&payload).get("anthropic_beta").is_none());
 }
 
 /// omp makes only Opus 4.6 adaptive on Bedrock (`amazon-bedrock.kdl`
@@ -263,10 +267,7 @@ fn profile_model(name: &str, base: &str) -> Model {
 async fn uses_adaptive_thinking_when_model_name_contains_the_model_name_but_arn_does_not() {
     let model = profile_model("Claude Opus 4.6", "global.anthropic.claude-opus-4-6-v1");
     let payload = capture_payload(&model, json!({})).await;
-    assert_eq!(
-        fields(&payload)["thinking"],
-        json!({ "type": "adaptive", "display": "summarized" })
-    );
+    assert_eq!(fields(&payload)["thinking"], json!({ "type": "adaptive" }));
     assert_eq!(
         fields(&payload)["output_config"],
         json!({ "effort": "high" })

@@ -666,11 +666,15 @@ pub(crate) fn build_additional_model_request_fields(
     let adaptive = adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
+        let quirks = Quirks::of(model);
         let use_block_binding =
-            !is_gov_cloud && model_facts::flag(Quirks::of(model).thinking_block_binding(), false);
+            !is_gov_cloud && model_facts::flag(quirks.thinking_block_binding(), false);
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
-        if let Some(display) = display {
+        // omp sends `display` only where the model takes it (the rulebook's
+        // `thinking_display`: adaptive Claude 4.7 and later; Opus 4.6 does
+        // not).
+        if let Some(display) = display.filter(|_| quirks.thinking_display() == Some(true)) {
             thinking.insert("display".to_owned(), display.as_str().into());
         }
         if use_block_binding {
