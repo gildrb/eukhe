@@ -150,9 +150,12 @@ import ./proof/child/base.bend as LAChild
 import ./proof/child/child_stalls_in_time.bend as PChildStallsInTime
 import ./proof/child/child_unreachable_in_time.bend as PChildUnreachableInTime
 import ./proof/child/child_clock_bounded.bend as PChildClockBounded
+import ./proof/child/child_first_token_is_progress.bend as PChildFirstTokenIsProgress
 import ./proof/child/child_progress_is_not_a_stall.bend as PChildProgressIsNotAStall
 import ./proof/child/child_quiet_poll_spends_time.bend as PChildQuietPollSpendsTime
+import ./proof/child/child_tokenless_poll_spends_time.bend as PChildTokenlessPollSpendsTime
 import ./proof/child/child_failed_poll_spends_try_and_time.bend as PChildFailedPollSpendsTryAndTime
+import ./proof/child/child_settled_poll.bend as PChildSettledPoll
 import ./proof/child/child_quiet_poll_example.bend as PChildQuietPollExample
 import ./proof/child/child_one_live.bend as PChildOneLive
 import ./proof/child/child_report_once.bend as PChildReportOnce
@@ -436,15 +439,28 @@ import ./proof/sandbox/cow_conflict_reported.bend as PCowConflictReported
 import ./proof/sandbox/cow_conflict_is_real.bend as PCowConflictIsReal
 import ./proof/sandbox/cow_same_means_equal.bend as PCowSameMeansEqual
 import ./proof/sandbox/cow_equal_is_same.bend as PCowEqualIsSame
+import ./proof/sandbox/sandbox_elem_listed.bend as PSandboxElemListed
+import ./proof/sandbox/sandbox_elem_only_listed.bend as PSandboxElemOnlyListed
+import ./proof/sandbox/sandbox_read_empty.bend as PSandboxReadEmpty
+import ./proof/sandbox/sandbox_read_first.bend as PSandboxReadFirst
+import ./proof/sandbox/sandbox_read_skips.bend as PSandboxReadSkips
+import ./proof/sandbox/sandbox_back_parts.bend as PSandboxBackParts
+import ./proof/sandbox/proto_frame_ids.bend as PProtoFrameIds
+import ./proof/sandbox/proto_reply_ids.bend as PProtoReplyIds
+import ./proof/sandbox/proto_all_ok_each.bend as PProtoAllOkEach
+import ./proof/sandbox/proto_all_ok_when.bend as PProtoAllOkWhen
+import ./proof/sandbox/proto_oks_adds.bend as PProtoOksAdds
+import ./proof/sandbox/proto_oks_one.bend as PProtoOksOne
+import ./proof/sandbox/proto_host_parts.bend as PProtoHostParts
 import ./proof/sandbox/cow_plan.bend as PCowPlan
 import ./proof/sandbox/cow_plan_is_merge.bend as PCowPlanIsMerge
 import ./proof/sandbox/cow_entry.bend as PCowEntry
 import ./proof/sandbox/base/cow.bend as LASandboxCow
 import ./proof/sandbox/cow_entry_answers_spelled.bend as PCowEntryAnswersSpelled
 import ./proof/sandbox/cow_entry_left_over.bend as PCowEntryLeftOver
-import ./proof/sandbox/cow_entry_bad_parent.bend as PCowEntryBadParent
-import ./proof/sandbox/cow_entry_bad_base.bend as PCowEntryBadBase
-import ./proof/sandbox/cow_entry_bad_child.bend as PCowEntryBadChild
+import ./proof/sandbox/cow_entry_malformed_unless_parent.bend as PCowEntryMalformedUnlessParent
+import ./proof/sandbox/cow_entry_malformed_unless_base.bend as PCowEntryMalformedUnlessBase
+import ./proof/sandbox/cow_entry_malformed_unless_child.bend as PCowEntryMalformedUnlessChild
 import ./proof/sandbox/cow_entry_malformed_unless_request.bend as PCowEntryMalformedUnlessRequest
 import ./proof/sandbox/cow_entry_tags_example.bend as PCowEntryTagsExample
 import ./proof/sandbox/cow_same_exact.bend as PCowSameExact
@@ -491,7 +507,7 @@ import ./proof/cvar/cvar_open_reads_only_tables.bend as PCvarOpenReadsOnlyTables
 import ./proof/cvar/cvar_open_malformed_unless_table.bend as PCvarOpenMalformedUnlessTable
 import ./proof/cvar/cvar_step_answers_spelled.bend as PCvarStepAnswersSpelled
 import ./proof/cvar/cvar_step_left_over_spelled.bend as PCvarStepLeftOverSpelled
-import ./proof/cvar/cvar_step_keeps_table.bend as PCvarStepKeepsTable
+import ./proof/cvar/cvar_history_keeps_table.bend as PCvarHistoryKeepsTable
 import ./proof/cvar/cvar_step_reads_only_keys.bend as PCvarStepReadsOnlyKeys
 import ./proof/cvar/cvar_step_malformed_unless_key.bend as PCvarStepMalformedUnlessKey
 import ./proof/cvar/cvar_tags_example.bend as PCvarTagsExample
@@ -594,6 +610,10 @@ import ./proof/tools/schema_keeps_params.bend as PSchemaKeepsParams
 import ./proof/tools/schema_build_idempotent.bend as PSchemaBuildIdempotent
 import ./proof/tools/path_rejects_escape.bend as PPathRejectsEscape
 import ./proof/tools/path_resolves_inside.bend as PPathResolvesInside
+import ./proof/tools/path_up_cancels.bend as PPathUpCancels
+import ./proof/tools/path_here_drops.bend as PPathHereDrops
+import ./proof/tools/path_names_plain.bend as PPathNamesPlain
+import ./proof/tools/path_up_at_root.bend as PPathUpAtRoot
 import ./proof/tools/tools_ffi_request_round_trip.bend as PToolsFfiRequestRoundTrip
 import ./proof/tools/tools_ffi_answers.bend as PToolsFfiAnswers
 import ./proof/tools/tools_ffi_rejects_malformed.bend as PToolsFfiRejectsMalformed
@@ -1267,6 +1287,7 @@ import ./proof/supervise/restart_ffi_exact.bend as PRestartFfiExact
 import ./proof/supervise/restart_ffi_exact_spec.bend as PRestartFfiExactSpec
 import ./proof/supervise/restart_ffi_answers_spelled.bend as PRestartFfiAnswersSpelled
 import ./proof/supervise/restart_ffi_left_over_spelled.bend as PRestartFfiLeftOverSpelled
+import ./proof/supervise/restart_ffi_malformed_unless_request.bend as PRestartFfiMalformedUnlessRequest
 import ./proof/supervise/restart_ffi_tags_example.bend as PRestartFfiTagsExample
 import ./proof/supervise/restart_ffi_exact_example.bend as PRestartFfiExactExample
 import ./proof/supervise/timeouts_ordered.bend as PTimeoutsOrdered
@@ -1311,6 +1332,7 @@ import ./proof/orphan/orphan_live_not_due.bend as POrphanLiveNotDue
 import ./proof/orphan/orphan_exits_when_due.bend as POrphanExitsWhenDue
 import ./proof/orphan/orphan_exit_holds_work.bend as POrphanExitHoldsWork
 import ./proof/orphan/orphan_exited_stays.bend as POrphanExitedStays
+import ./proof/orphan/orphan_starts_live.bend as POrphanStartsLive
 import ./proof/orphan/orphan_history_example.bend as POrphanHistoryExample
 import ./proof/orphan/orphan_ffi_answers_spelled.bend as POrphanFfiAnswersSpelled
 import ./proof/orphan/orphan_ffi_left_over_spelled.bend as POrphanFfiLeftOverSpelled
@@ -1337,7 +1359,6 @@ import ./proof/launcher/launcher_ffi_reads.bend as PLauncherFfiReads
 import ./proof/launcher/launcher_go_exact.bend as PLauncherGoExact
 import ./proof/launcher/launcher_run_exact.bend as PLauncherRunExact
 import ./proof/replace/base.bend as LAReplace
-import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates
 import ./proof/replace/replacement_terminates_any.bend as PReplacementTerminatesAny
 import ./proof/replace/replacement_terminates_example.bend as PReplacementTerminatesExample
@@ -1358,6 +1379,12 @@ import ./proof/replace/replace_verdict_exact.bend as PReplaceVerdictExact
 import ./proof/replace/replace_ping_pong_example.bend as PReplacePingPongExample
 import ./proof/replace/replace_after_exact.bend as PReplaceAfterExact
 import ./proof/replace/replace_daemons_exact.bend as PReplaceDaemonsExact
+import ./proof/replace/replace_after_client_or_running.bend as PReplaceAfterClientOrRunning
+import ./proof/replace/replace_after_same_build.bend as PReplaceAfterSameBuild
+import ./proof/replace/replace_after_not_lower.bend as PReplaceAfterNotLower
+import ./proof/replace/replace_after_lower.bend as PReplaceAfterLower
+import ./proof/replace/replace_daemons_snoc.bend as PReplaceDaemonsSnoc
+import ./proof/replace/replace_daemons_length.bend as PReplaceDaemonsLength
 import ./proof/replace/replace_replaces_new_daemon.bend as PReplaceReplacesNewDaemon
 import ./proof/replace/replace_replaces_background.bend as PReplaceReplacesBackground
 import ./proof/replace/replace_replaces_example.bend as PReplaceReplacesExample
@@ -1367,6 +1394,8 @@ import ./proof/replace/replace_after_exact_spec.bend as PReplaceAfterExactSpec
 import ./proof/replace/replace_daemons_exact_spec.bend as PReplaceDaemonsExactSpec
 import ./proof/replace/replace_replaced_exact_spec.bend as PReplaceReplacedExactSpec
 import ./proof/replace/replace_never_back_exact_spec.bend as PReplaceNeverBackExactSpec
+
+import ./proof/replace/replace_replaced_counts_changes.bend as PReplaceReplacedCountsChanges
 import ./proof/replace/replace_never_downgrades_spec.bend as PReplaceNeverDowngradesSpec
 import ./proof/replace/replace_history_example.bend as PReplaceHistoryExample
 import ./proof/replace/replace_rank_cut.bend as PReplaceRankCut
@@ -1480,7 +1509,8 @@ import ./proof/path_policy/path_policy_ffi_request_round_trip.bend as PPathPolic
 import ./proof/path_policy/path_policy_ffi_answers.bend as PPathPolicyFfiAnswers
 import ./proof/path_policy/path_policy_ffi_rejects_malformed.bend as PPathPolicyFfiRejectsMalformed
 import ./proof/path_policy/path_policy_ffi_rejects_left_over.bend as PPathPolicyFfiRejectsLeftOver
-import ./proof/path_policy/path_judge_secret_exact.bend as PPathJudgeSecretExact
+import ./proof/path_policy/path_judge_secret_under.bend as PPathJudgeSecretUnder
+import ./proof/path_policy/path_judge_secret_has_entry.bend as PPathJudgeSecretHasEntry
 import ./proof/path_policy/path_holds_at_or_under_secret.bend as PPathHoldsAtOrUnderSecret
 import ./proof/path_policy/path_holds_above_secret.bend as PPathHoldsAboveSecret
 import ./proof/path_policy/path_holds_only_with_secret.bend as PPathHoldsOnlyWithSecret
@@ -1510,7 +1540,8 @@ import ./proof/path_policy/path_real_up_at_root.bend as PPathRealUpAtRoot
 import ./proof/path_policy/path_real_link_followed.bend as PPathRealLinkFollowed
 import ./proof/path_policy/path_real_chain_within.bend as PPathRealChainWithin
 import ./proof/path_policy/path_real_chain_past.bend as PPathRealChainPast
-import ./proof/path_policy/path_real_no_links_exact.bend as PPathRealNoLinksExact
+import ./proof/path_policy/path_real_no_link_never_loops.bend as PPathRealNoLinkNeverLoops
+import ./proof/path_policy/path_real_names_resolve.bend as PPathRealNamesResolve
 import ./proof/path_policy/path_real_dots_example.bend as PPathRealDotsExample
 import ./proof/path_policy/path_safe_is_inside.bend as PPathSafeIsInside
 import ./proof/path_policy/path_class_example.bend as PPathClassExample
@@ -2208,7 +2239,6 @@ import ./proof/workflow/wfw_unknown_prior_sts.bend as PWfwUnknownPriorSts
 import ./proof/workflow/wfw_unknown_row_sts.bend as PWfwUnknownRowSts
 import ./proof/workflow/wfw_reads_only_requests.bend as PWfwReadsOnlyRequests
 import ./proof/workflow/wfw_malformed_unless_request.bend as PWfwMalformedUnlessRequest
-import ./proof/workflow/wfw_reader_unknown_decision.bend as PWfwReaderUnknownDecision
 import ./proof/workflow/wfw_ffi_tags_example.bend as PWfwFfiTagsExample
 import ./proof/workflow/wfw_ffi_exact.bend as PWfwFfiExact
 import ./proof/workflow/wfw_ffi_exact_example.bend as PWfwFfiExactExample
@@ -2452,7 +2482,6 @@ import ./proof/wire_ffi/wire_ffi_refuses.bend as PWireFfiRefuses
 import ./proof/wire_ffi/wire_ffi_example.bend as PWireFfiExample
 import ./proof/wire_ffi/wire_ffi_fits_witness.bend as PWireFfiFitsWitness
 import ./proof/echo/base.bend as LAEcho
-import ./proof/echo/echo_ffi_identity.bend as PEchoFfiIdentity
 import ./proof/echo/echo_stepper_counts.bend as PEchoStepperCounts
 import ./proof/echo/echo_stepper_refused.bend as PEchoStepperRefused
 import ./proof/echo/echo_example.bend as PEchoExample
@@ -2646,6 +2675,7 @@ import ./proof/color/color_light_orange_example.bend as PColorLightOrangeExample
 import ./proof/color/color_lum_grey.bend as PColorLumGrey
 import ./proof/color/color_lum_order.bend as PColorLumOrder
 import ./proof/color/color_lum_rises.bend as PColorLumRises
+import ./proof/color/color_lum_weights.bend as PColorLumWeights
 import ./proof/color/color_lum_wcag_example.bend as PColorLumWcagExample
 import ./proof/color/color_contrast_wcag_example.bend as PColorContrastWcagExample
 import ./proof/color/color_flare_example.bend as PColorFlareExample

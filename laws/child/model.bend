@@ -50,6 +50,21 @@ law child_progress_is_not_a_stall:
   for news: {Ch.moved(Ch.W.tok(w), Some{x}) == True{} : Bool}
   {Ch.look(cfg, w, e, Ch.Busy{Some{x}}) == Ch.Watch{Ch.W.fresh(cfg, Some{x})} : Ch.Next}
 
+# LAW child_first_token_is_progress: a busy poll that reads a token x
+# while the watch holds none (the child's first work) is progress: the
+# watch goes on holding x with the clock full from the settings (s ms, f
+# tries), whatever was left and however long the poll took
+# EXCLUDES: a first token that is no progress (a child that works from
+#   its first poll on stalled), a full clock not from the settings
+law child_first_token_is_progress:
+  for +s: Nat
+  for +f: Nat
+  for +l: Nat
+  for +n: Nat
+  for +e: Nat
+  for +x: Nat
+  {Ch.look(Ch.Cfg{s, f}, Ch.W{None{}, l, n}, e, Ch.Busy{Some{x}}) == Ch.Watch{Ch.W{Some{x}, s, f}} : Ch.Next}
+
 # the clock after a poll with no progress that took e ms, the watch
 # holding token tok with l ms left, `over` when e reached l: a stall; else
 # the watch goes on holding tok with e ms fewer left and n failed polls left
@@ -78,6 +93,21 @@ law child_quiet_poll_spends_time:
   for +w: Ch.W
   for +e: Nat
   {Ch.look(cfg, w, e, Ch.Busy{Ch.W.tok(w)}) == ChildSpends(Ch.W.tok(w), Ch.W.left(w), e, Ch.Cfg.fails(cfg)) : Ch.Next}
+
+# LAW child_tokenless_poll_spends_time: a poll that reads the child
+# unsettled with no token (the host read none) is no progress, whatever
+# token the watch holds: it spends its e ms as a quiet poll does, the
+# held token kept and the failed polls in a row back to full (f)
+# EXCLUDES: a poll with no token read as progress (refills the clock or
+#   drops the held token), or one that keeps the clock
+law child_tokenless_poll_spends_time:
+  for +s: Nat
+  for +f: Nat
+  for +tok: Maybe<&2, Nat>
+  for +l: Nat
+  for +n: Nat
+  for +e: Nat
+  {Ch.look(Ch.Cfg{s, f}, Ch.W{tok, l, n}, e, Ch.Busy{None{}}) == ChildSpends(tok, l, e, f) : Ch.Next}
 
 # the verdict on a failed poll that took e ms, the watch holding token
 # tok, l ms and n tries left, `last` when at most one try is left:
@@ -110,6 +140,21 @@ law child_failed_poll_spends_try_and_time:
   for +w: Ch.W
   for +e: Nat
   {Ch.look(cfg, w, e, Ch.Lost{}) == ChildMisses(w, e) : Ch.Next}
+
+# LAW child_settled_poll: a poll that reads the child settled ends the
+# watch with the child's one end, whatever the settings, clock and time.
+# Rows: answered after the child already replied to its parent, no
+# report (H5.1: none if it already replied); answered with no reply, a
+# completed report (H5.1); its run failed, a failed report (H5.1); its
+# worker gone, a failed report (H5.3: a gone worker settles at once)
+# EXCLUDES: a second report for a child that replied, no report for one
+#   that did not, an answered child reported failed, a failed or gone
+#   child reported completed or not at all
+law child_settled_poll:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  {[Ch.look(cfg, w, e, Ch.Answered{True{}}), Ch.look(cfg, w, e, Ch.Answered{False{}}), Ch.look(cfg, w, e, Ch.Broke{}), Ch.look(cfg, w, e, Ch.Gone{})] == [Ch.Quiet{}, Ch.Owe{Ch.Completed{}}, Ch.Owe{Ch.Failed{}}, Ch.Owe{Ch.Failed{}}] : List<&2, Ch.Next>}
 
 # The report laws hold after any events: task steps (polls), the parent's
 # deliveries and withdrawals of any submission id, its aborts, closes and

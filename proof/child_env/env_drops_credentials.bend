@@ -19,7 +19,7 @@ def pce.env_drops_credentials(+reg: List<&2, String>, base: List<&2, Env.Var>, o
   +n = Env.Var.name(v)
   LA.pce.not_t(Env.cred(reg, n), pce.or_false(Bool.not(Env.cred(reg, n)), LA.pce.spec_of(reg, Nil{}, n, LA.pce.child_passes(reg, Nil{}, Env.merge(base, over), v, i))))
 
-# (G3) No credential reaches a child
+# (docs/tools.md S7 item 7) No credential reaches a child
 
 def ChildEnv.env_drops_credentials(reg, base, over, v, i):
   pce.env_drops_credentials(reg, base, over, v, i)

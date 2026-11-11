@@ -110,6 +110,133 @@ law cow_equal_is_same:
   for +a: Maybe<&2, Nat>
   {Sb.m.eq(a, a) == True{} : Bool}
 
+# The laws above read the model through its helpers: list membership
+# (Sb.elem), the content of a path in a workspace (Sb.read), the ids of
+# frames and replies, the accepted frames (Sb.all_ok, Sb.oks) and the
+# parts of a Host and a Back. The laws below pin each helper by what it
+# means, over constructors, so the laws above speak of real membership,
+# contents, ids and counts (a fresh blind adversary's `elem` that is
+# never true made the hand-back laws vacuous and the protocol model
+# accept no frame).
+
+# LAW sandbox_elem_listed: a value listed anywhere in a list is a member of it
+# EXCLUDES: a membership test that misses a listed value (no frame of an
+#   allowed kind accepted, a listed path left out of the hand-back)
+law sandbox_elem_listed:
+  for +pre: List<&2, Nat>
+  for +x: Nat
+  for +post: List<&2, Nat>
+  {Sb.elem(List.append(&2, Nat, pre, x <> post), x) == True{} : Bool}
+
+# LAW sandbox_elem_only_listed: a value is a member of a list only where the list lists it
+# EXCLUDES: a membership test that finds a value the list does not hold
+law sandbox_elem_only_listed:
+  for +xs: List<&2, Nat>
+  for +x: Nat
+  for h: {Sb.elem(xs, x) == True{} : Bool}
+  exs pre: List<&2, Nat>
+  exs post: List<&2, Nat>
+  {xs == List.append(&2, Nat, pre, x <> post) : List<&2, Nat>}
+
+# LAW sandbox_read_empty: an empty workspace has no file at any path
+# EXCLUDES: a content read out of nothing
+law sandbox_read_empty:
+  for +p: Nat
+  {Sb.read(Nil{}, p) == None{} : Maybe<&2, Nat>}
+
+# LAW sandbox_read_first: a workspace whose first file is at path p has that file's content at p
+# EXCLUDES: a read that misses a file, or answers another content
+law sandbox_read_first:
+  for +p: Nat
+  for +b: Nat
+  for +rest: List<&2, Sb.Doc>
+  {Sb.read(Sb.Doc{p, b} <> rest, p) == Some{b} : Maybe<&2, Nat>}
+
+# LAW sandbox_read_skips: a file at another path does not change what a path reads
+# EXCLUDES: a read that answers the first file whatever its path
+law sandbox_read_skips:
+  for +q: Nat
+  for +b: Nat
+  for +rest: List<&2, Sb.Doc>
+  for +p: Nat
+  for other: {Nat.is_eq(q, p) == False{} : Bool}
+  {Sb.read(Sb.Doc{q, b} <> rest, p) == Sb.read(rest, p) : Maybe<&2, Nat>}
+
+# LAW sandbox_back_parts: a hand-back's workspace and conflicts are the ones it was built with
+# EXCLUDES: a hand-back read as another workspace or no conflicts
+law sandbox_back_parts:
+  for +w: List<&2, Sb.Doc>
+  for +c: List<&2, Nat>
+  {Sb.Back.ws(Sb.Back{w, c}) == w : List<&2, Sb.Doc>} & {Sb.Back.clashes(Sb.Back{w, c}) == c : List<&2, Nat>}
+
+# LAW proto_frame_ids: the ids of frames are each frame's id, in order: the ids of two lists
+# joined are their ids joined, and a frame's id is its own
+# EXCLUDES: ids dropped, invented, reordered or read from another field
+law proto_frame_ids:
+  for +a: List<&2, Sb.Frame>
+  for +b: List<&2, Sb.Frame>
+  for +i: Nat
+  for +l: Nat
+  for +k: Nat
+  {Sb.frame.ids(List.append(&2, Sb.Frame, a, b)) == List.append(&2, Nat, Sb.frame.ids(a), Sb.frame.ids(b)) : List<&2, Nat>} & {Sb.frame.ids([Sb.Frame{i, l, k}]) == [i] : List<&2, Nat>}
+
+# LAW proto_reply_ids: the ids of replies are each reply's id, an Ok's or an Err's, in order
+# EXCLUDES: ids dropped, invented or reordered, an Err's id lost
+law proto_reply_ids:
+  for +a: List<&2, Sb.Reply>
+  for +b: List<&2, Sb.Reply>
+  for +i: Nat
+  {Sb.reply.ids(List.append(&2, Sb.Reply, a, b)) == List.append(&2, Nat, Sb.reply.ids(a), Sb.reply.ids(b)) : List<&2, Nat>} & ({Sb.reply.ids([Sb.Ok{i}]) == [i] : List<&2, Nat>} & {Sb.reply.ids([Sb.Err{i}]) == [i] : List<&2, Nat>})
+
+# LAW proto_all_ok_each: every frame of a list that is all accepted is accepted
+# EXCLUDES: a refused frame counted as accepted (a host that runs it passes
+#   proto_runs_only_accepted)
+law proto_all_ok_each:
+  for +pre: List<&2, Sb.Frame>
+  for +f: Sb.Frame
+  for +post: List<&2, Sb.Frame>
+  for +max: Nat
+  for +allowed: List<&2, Nat>
+  for h: {Sb.all_ok(List.append(&2, Sb.Frame, pre, f <> post), max, allowed) == True{} : Bool}
+  {Sb.accepts(max, allowed, f) == True{} : Bool}
+
+# LAW proto_all_ok_when: a list that is not all accepted holds a refused frame
+# EXCLUDES: a list of accepted frames (or none) counted as not all accepted
+law proto_all_ok_when:
+  for +fs: List<&2, Sb.Frame>
+  for +max: Nat
+  for +allowed: List<&2, Nat>
+  for h: {Sb.all_ok(fs, max, allowed) == False{} : Bool}
+  exs pre: List<&2, Sb.Frame>
+  exs f: Sb.Frame
+  exs post: List<&2, Sb.Frame>
+  {fs == List.append(&2, Sb.Frame, pre, f <> post) : List<&2, Sb.Frame>} & {Sb.accepts(max, allowed, f) == False{} : Bool}
+
+# LAW proto_oks_adds: the accepted frames of two lists joined are those of each, added
+# EXCLUDES: a count that drops or doubles frames of a longer list
+law proto_oks_adds:
+  for +a: List<&2, Sb.Frame>
+  for +b: List<&2, Sb.Frame>
+  for +max: Nat
+  for +allowed: List<&2, Nat>
+  {Sb.oks(List.append(&2, Sb.Frame, a, b), max, allowed) == Nat.add(Sb.oks(a, max, allowed), Sb.oks(b, max, allowed)) : Nat}
+
+# LAW proto_oks_one: one frame counts once when it is accepted, and not at all when it is refused
+# EXCLUDES: a refused frame counted (a host that runs it passes
+#   proto_runs_every_accepted), an accepted frame not counted
+law proto_oks_one:
+  for +f: Sb.Frame
+  for +max: Nat
+  for +allowed: List<&2, Nat>
+  {Sb.oks([f], max, allowed) == Bool.pick(Nat, Sb.accepts(max, allowed, f), 1n, 0n) : Nat}
+
+# LAW proto_host_parts: a host's replies and the frames it ran are the ones it was built with
+# EXCLUDES: a host read as other replies or no frames run
+law proto_host_parts:
+  for +r: List<&2, Sb.Reply>
+  for +x: List<&2, Sb.Frame>
+  {Sb.Host.replies(Sb.Host{r, x}) == r : List<&2, Sb.Reply>} & {Sb.Host.ran(Sb.Host{r, x}) == x : List<&2, Sb.Frame>}
+
 # The plan of one path the Rust hand-back runs (bend/sandbox.bend
 # `plan`): the parent's content stays (taken: both made the same change),
 # a conflict, the child's file goes in, or the child's removal does.
@@ -381,32 +508,42 @@ law cow_entry_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FSb.ffi(cow_spell_req(p, b, c, more)) == Wr.err("sandbox: input left over") : String}
 
-# LAW cow_entry_bad_parent: an input that does not start with a content answers "sandbox: bad parent content"
-# EXCLUDES: a default parent content, another error text for it
-law cow_entry_bad_parent:
+# LAW cow_entry_malformed_unless_parent: every answer but "sandbox: bad parent content" comes from input that begins with a spelled content (0 no file, or 1 then an id within the wire)
+# EXCLUDES: a malformed parent content (a tag past 1, a leading zero, an id
+#   past the wire, a cut field, no input) read as a content or answered with
+#   a plan, the base's, the child's or the left-over error
+law cow_entry_malformed_unless_parent:
   for +s: String
-  for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
-  {FSb.ffi(s) == Wr.err("sandbox: bad parent content") : String}
+  for other: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad parent content")) == False{} : Bool}
+  exs m: Maybe<&2, Nat>
+  exs rest: String
+  {s == cow_spell_doc(m, rest) : String} & {LawsBase.wire_mfits(m) == True{} : Bool}
 
-# LAW cow_entry_bad_base: a parent content Rust writes followed by input that does not start with a content answers "sandbox: bad base content"
-# EXCLUDES: a default base content, the parent's or the child's error for it
-law cow_entry_bad_base:
+# LAW cow_entry_malformed_unless_base: after a spelled parent content that fits, every answer but "sandbox: bad base content" comes from input that goes on with a spelled content
+# EXCLUDES: a malformed base content read as a content or answered with a
+#   plan, the parent's, the child's or the left-over error
+law cow_entry_malformed_unless_base:
   for +p: Maybe<&2, Nat>
   for hp: {LawsBase.wire_mfits(p) == True{} : Bool}
-  for +s: String
-  for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
-  {FSb.ffi(cow_spell_doc(p, s)) == Wr.err("sandbox: bad base content") : String}
+  for +t: String
+  for other: {String.eq(FSb.ffi(cow_spell_doc(p, t)), Wr.err("sandbox: bad base content")) == False{} : Bool}
+  exs m: Maybe<&2, Nat>
+  exs rest: String
+  {t == cow_spell_doc(m, rest) : String} & {LawsBase.wire_mfits(m) == True{} : Bool}
 
-# LAW cow_entry_bad_child: a parent's and a base's content Rust writes followed by input that does not start with a content answers "sandbox: bad child content"
-# EXCLUDES: a default child content, the parent's or the base's error for it
-law cow_entry_bad_child:
+# LAW cow_entry_malformed_unless_child: after spelled parent and base contents that fit, every answer but "sandbox: bad child content" comes from input that goes on with a spelled content
+# EXCLUDES: a malformed child content read as a content or answered with a
+#   plan, the parent's, the base's or the left-over error
+law cow_entry_malformed_unless_child:
   for +p: Maybe<&2, Nat>
   for hp: {LawsBase.wire_mfits(p) == True{} : Bool}
   for +b: Maybe<&2, Nat>
   for hb: {LawsBase.wire_mfits(b) == True{} : Bool}
-  for +s: String
-  for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
-  {FSb.ffi(cow_spell_doc(p, cow_spell_doc(b, s))) == Wr.err("sandbox: bad child content") : String}
+  for +t: String
+  for other: {String.eq(FSb.ffi(cow_spell_doc(p, cow_spell_doc(b, t))), Wr.err("sandbox: bad child content")) == False{} : Bool}
+  exs m: Maybe<&2, Nat>
+  exs rest: String
+  {t == cow_spell_doc(m, rest) : String} & {LawsBase.wire_mfits(m) == True{} : Bool}
 
 # LAW cow_entry_malformed_unless_request: every answer but the three field errors ("sandbox: bad parent content", "bad base content", "bad child content") answers an input that begins with a request Rust writes: three contents, every id within the wire, then any rest
 # EXCLUDES: a malformed content read and answered (a tag past 1, a leading

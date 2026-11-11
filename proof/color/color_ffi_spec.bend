@@ -20,6 +20,7 @@ import ./color_to256_spec.bend as PTo256Spec
 import ./color_light_spec.bend as PLightSpec
 import ./color_lin_spec.bend as PLinSpec
 import ./color_ansi256_spec.bend as PAnsi256Spec
+import ./color_ffi_answers.bend as PFfiAnswers
 
 # Logic
 # -----
@@ -225,14 +226,16 @@ def cfs.lights(cs: List<&2, Co.Rgb>, -rest: String) -> {FCo.put_lights.items(cs,
       %cfs.lights(t, rest) : {Wr.put_bool(U32.is_gt(ColorMath.th.lum(c), 50000000), FCo.put_lights.items(t, rest)) == Wr.put_bool(U32.is_gt(ColorMath.th.lum(c), 50000000), _) : String}
       {==}
 
-def cfs.table(k: Nat, +i: U32, +rest: String) -> {FCo.put_table(k, i, rest) == ColorSpec.cx_table(k, i, rest) : String}:
+# the laws' palette spelling over Co.ansi256 is the spec's over
+# th.ansi_any (color_ansi256_spec), index by index
+def cfs.spell(k: Nat, +i: U32, +rest: String) -> {Color.co_spell_table(k, i, rest) == ColorSpec.cx_table(k, i, rest) : String}:
   match k:
     case 0n:
       {==}
     case 1n++m:
-      %ColorMath.color_ansi256_spec(i) : {FCo.put_rgb(Co.ansi256(i), FCo.put_table(m, (i + 1 : U32), rest)) == Color.co_spell_rgb(_, ColorSpec.cx_table(m, (i + 1 : U32), rest)) : String}
-      %cfs.table(m, (i + 1 : U32), rest) : {FCo.put_rgb(Co.ansi256(i), FCo.put_table(m, (i + 1 : U32), rest)) == Color.co_spell_rgb(Co.ansi256(i), _) : String}
-      LCo.ce.rgb_w(Co.ansi256(i), FCo.put_table(m, (i + 1 : U32), rest))
+      %ColorMath.color_ansi256_spec(i) : {Color.co_spell_rgb(Co.ansi256(i), Color.co_spell_table(m, (i + 1 : U32), rest)) == Color.co_spell_rgb(_, ColorSpec.cx_table(m, (i + 1 : U32), rest)) : String}
+      %cfs.spell(m, (i + 1 : U32), rest) : {Color.co_spell_rgb(Co.ansi256(i), Color.co_spell_table(m, (i + 1 : U32), rest)) == Color.co_spell_rgb(Co.ansi256(i), _) : String}
+      {==}
 
 def cfs.reply(r: FCo.Req, h: {cfs.req_fits(r) == True{} : Bool}) -> {FCo.reply(r) == ColorSpec.cx_answer(r) : String}:
   match r:
@@ -243,7 +246,8 @@ def cfs.reply(r: FCo.Req, h: {cfs.req_fits(r) == True{} : Bool}) -> {FCo.reply(r
       %cfs.lights(cs, "") : {Wr.put_nat(List.length(&2, Co.Rgb, cs), FCo.put_lights.items(cs, "")) == Wr.put_nat(List.length(&2, Co.Rgb, cs), _) : String}
       {==}
     case FCo.Table{}:
-      %cfs.table(256n, 0, "") : {Wr.put_nat(256n, FCo.put_table(256n, 0, "")) == Wr.put_nat(256n, _) : String}
+      %cfs.spell(256n, 0, "") : {Wr.put_nat(256n, FCo.put_table("")) == Wr.put_nat(256n, _) : String}
+      %PFfiAnswers.cp.table("") : {Wr.put_nat(256n, FCo.put_table("")) == Wr.put_nat(256n, _) : String}
       {==}
 
 def cfs.end(b: Bool, r: FCo.Req, h: {cfs.req_fits(r) == True{} : Bool}) -> {FCo.run.end(b, r) == ColorSpec.cx_entry(Color.co_read_req.end(b, r)) : String}:

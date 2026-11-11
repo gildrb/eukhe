@@ -401,5 +401,5 @@ def prw.up_to(G: Nat, +g: Nat, +segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, 
           le => h => h
         case 1n+k:
           le => h => LA.pp.absurdF({Pp.go(0n, segs, ls, at, False{}, look) == Pp.Res{x, False{}} : Pp.Res}, le)
-    case 1n++H:
-      le => h => prw.up_pick(Nat.is_eq(1n+H, g), H, g, segs, ls, at, look, x, {==}, prw.up_to(H, g, segs, ls, at, look, x), le, h)
+    case 1n++m:
+      le => h => prw.up_pick(Nat.is_eq(1n+m, g), m, g, segs, ls, at, look, x, {==}, prw.up_to(m, g, segs, ls, at, look, x), le, h)

@@ -291,7 +291,13 @@ law afw_malformed_example:
 # The entry, spelled by the grammar Rust writes and reads
 # (crates/eukhe-core/src/durable/compaction/auxiliary_model.rs `gate` and
 # `settle`; the header of bend/ffi_aux_fallback.bend), not by the entry's
-# own encoders, and the decision spelled from a spec of its own
+# own encoders. The answer spelled is the model's own decision (Af.gate,
+# Af.settle, Af.put, Af.after), as in the other entries of the compiled
+# core: these laws pin the bytes and that the entry answers the model on
+# the request it read; the decision itself is pinned by the M5 laws above
+# (fallback_gate_other, fallback_gate_session, fallback_miss_keeps_reason,
+# fallback_window_fits, fallback_window_small, fallback_is_reported,
+# fallback_quiet_when_*), never by a second copy of it here.
 
 # a key: the purpose, the selector, the reason
 def afw_spell_key(k: Af.Key, rest: String) -> String:
@@ -358,112 +364,53 @@ def afw_spell_req(x: FAf.Req, rest: String) -> String:
     case FAf.PassReq{r, sh}:
       Wr.put_nat(2n, afw_spell_route(r, afw_spell_keys(sh, rest)))
 
-# the spelled gate of a pass for purpose p, selector sel, allowedModels
-# admitting it or not (ok): unset or the session model keep the session
-# (0, 0); another selector admitted is looked up (1, p, s); one not
-# admitted falls back with the reason 0 (0, 2, p, s, 0)
-def afw_spell_gate_answer(p: Nat, sel: Af.Sel, ok: Bool) -> String:
-  match sel:
-    case Af.Unset{}:
-      Wr.put_nat(0n, Wr.put_nat(0n, ""))
-    case Af.Same{}:
-      Wr.put_nat(0n, Wr.put_nat(0n, ""))
-    case Af.Other{s}:
-      match ok:
-        case True{}:
-          Wr.put_nat(1n, Wr.put_nat(p, Wr.put_nat(s, "")))
-        case False{}:
-          Wr.put_nat(0n, Wr.put_nat(2n, afw_spell_key(Af.K{p, s, 0n}, "")))
+# an event: 0 stay | 1 went | 2, then the key (substitution) | 3, then the
+# key (notice)
+def afw_spell_ev(e: Af.Ev, rest: String) -> String:
+  match e:
+    case Af.Stay{}:
+      Wr.put_nat(0n, rest)
+    case Af.Went{}:
+      Wr.put_nat(1n, rest)
+    case Af.Sub{k}:
+      Wr.put_nat(2n, afw_spell_key(k, rest))
+    case Af.Note{k}:
+      Wr.put_nat(3n, afw_spell_key(k, rest))
 
-# a known window smaller than the request (small) falls back with the
-# reason 5, else the pass is routed
-def afw_spell_small(small: Bool, p: Nat, s: Nat) -> String:
-  match small:
-    case True{}:
-      Wr.put_nat(2n, afw_spell_key(Af.K{p, s, 5n}, ""))
-    case False{}:
-      Wr.put_nat(1n, "")
-
-# a found model of window w (0: unknown, fits) for a request of need
-def afw_spell_hit(p: Nat, s: Nat, w: Nat, +need: Nat) -> String:
-  match w:
-    case 0n:
-      Wr.put_nat(1n, "")
-    case 1n+x:
-      afw_spell_small(Nat.is_lt(1n+x, need), p, s)
-
-# the spelled route of a gate settled with what the lookups found: a
-# decided gate keeps its route; a lookup that found nothing usable falls
-# back with its reason; a found model routes unless its window is small
-def afw_spell_settle_answer(g: Af.Gate, look: Af.Look, +need: Nat) -> String:
-  match g:
-    case Af.Known{r}:
-      afw_spell_route(r, "")
-    case Af.Lookup{p, s}:
-      match look:
-        case Af.Miss{r}:
-          Wr.put_nat(2n, afw_spell_key(Af.K{p, s, r}, ""))
-        case Af.Hit{w}:
-          afw_spell_hit(p, s, w, need)
-
-# a and b are the same key: purpose, selector and reason
-def afw_same_key(a: Af.Key, b: Af.Key) -> Bool:
-  match a:
-    case Af.K{ap, as1, ar}:
-      match b:
-        case Af.K{bp, bs1, br}:
-          Bool.and(Nat.is_eq(ap, bp), Bool.and(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br)))
-
-# the session has shown the key k: it is one of ks
-def afw_has_key(ks: List<&2, Af.Key>, +k: Af.Key) -> Bool:
-  match ks:
+# the events es, each spelled, then rest
+def afw_spell_ev_items(es: List<&2, Af.Ev>, rest: String) -> String:
+  match es:
     case Nil{}:
-      False{}
-    case Con{x, t}:
-      Bool.or(afw_same_key(x, k), afw_has_key(t, k))
+      rest
+    case Con{e, t}:
+      afw_spell_ev(e, afw_spell_ev_items(t, rest))
 
-# a fallback pass of key k, the session having shown sh: one event, the
-# substitution (2, k), when it showed k (seen), the keys unchanged; else
-# two, the substitution and its notice (3, k), and k joins the keys first
-def afw_spell_fallback(seen: Bool, +k: Af.Key, +sh: List<&2, Af.Key>) -> String:
-  match seen:
-    case True{}:
-      Wr.put_nat(1n, Wr.put_nat(2n, afw_spell_key(k, afw_spell_keys(sh, ""))))
-    case False{}:
-      Wr.put_nat(2n, Wr.put_nat(2n, afw_spell_key(k, Wr.put_nat(3n, afw_spell_key(k, afw_spell_keys(k <> sh, ""))))))
+# a list of events: its count, then the events
+def afw_spell_evs(+es: List<&2, Af.Ev>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Af.Ev, es), afw_spell_ev_items(es, rest))
 
-# the spelled reply to a pass routed r, the session having shown sh: its
-# events (a count, then each), then the keys shown after it; the session
-# route is one stay (0), the routed one one went (1), keys unchanged
-def afw_spell_pass_answer(r: Af.Route, +sh: List<&2, Af.Key>) -> String:
-  match r:
-    case Af.Session{}:
-      Wr.put_nat(1n, Wr.put_nat(0n, afw_spell_keys(sh, "")))
-    case Af.Routed{}:
-      Wr.put_nat(1n, Wr.put_nat(1n, afw_spell_keys(sh, "")))
-    case Af.Fallback{+k}:
-      afw_spell_fallback(afw_has_key(sh, k), k, sh)
-
-# the spelled answer of the spec's decision on request x
+# the reply Rust reads to request x: the model's gate (Gate), the model's
+# route (Settle), or the model's events of the pass then the keys shown
+# after it (Pass), each spelled by the grammar
 def afw_spell_answer(x: FAf.Req) -> String:
   match x:
     case FAf.GateReq{p, sel, ok}:
-      afw_spell_gate_answer(p, sel, ok)
+      afw_spell_gate(Af.gate(p, sel, ok), "")
     case FAf.SettleReq{g, look, need}:
-      afw_spell_settle_answer(g, look, need)
-    case FAf.PassReq{r, sh}:
-      afw_spell_pass_answer(r, sh)
+      afw_spell_route(Af.settle(g, look, need), "")
+    case FAf.PassReq{+r, +sh}:
+      afw_spell_evs(Af.put(r, sh, Nil{}), afw_spell_keys(Af.after(r, sh), ""))
 
 # LAW afw_answers_spelled: a request spelled by the grammar, every number within the wire,
-# answers the grammar's spelling of the spec's decision: a gate (session,
-# look up, or fallback reason 0), a settled route (the decided route, the
-# lookup's reason, routed, or reason 5 for a known window smaller than the
-# request), or a pass's events (stay, went, the substitution and its
-# notice once per key) and the keys shown after it
+# answers the grammar's spelling of the model's decision on that request:
+# the gate of its purpose, selector and allowedModels flag, the route of
+# its gate settled with its lookups, or the events of its pass then the
+# keys shown after it
 # EXCLUDES: a tag, field order or reason that drifts from the grammar Rust
-#   reads and writes (swapped on both sides of the entry alike), a reversed
-#   allowedModels flag, a window compared the wrong way, a notice repeated
-#   or lost, a field lost, swapped or defaulted
+#   reads and writes (swapped on both sides of the entry alike), a request
+#   field lost, swapped or defaulted on its way to the model (the model
+#   called with another selector, flag, gate, lookup, need, route or shown
+#   keys), the two lists of a pass's reply swapped or cut
 law afw_answers_spelled:
   for +x: FAf.Req
   for fits: {afw_req_fits(x) == True{} : Bool}
@@ -482,7 +429,7 @@ law afw_left_over_spelled:
 
 # LAW afw_reads_only_requests: an answer that is not the error form answers a request: the
 # input is exactly the spelling of a request whose numbers fit the wire,
-# and the answer is the spelled answer of the spec's decision on it
+# and the answer is the spelled answer of the model's decision on it
 # EXCLUDES: a decoder that accepts an unknown tag (request, selector, gate,
 #   lookup, route), a missing or extra field, or input left over, and
 #   answers it anyway (a default instead of the error form)

@@ -83,10 +83,156 @@ def oe.answer(q: FO.Req) -> {FO.put_reply(FO.decide(q), "") == Orphan.orphan_spe
 def oh.snoc(xs: List<&2, Or.Ev>, e: Or.Ev) -> List<&2, Or.Ev>:
   List.append(&2, Or.Ev, xs, [e])
 
+# The machine's state, field by field: one left fold per field over the
+# history, each step the machine's step on that field (oh.agree equates
+# them with the declared state of laws/orphan.bend)
+
+# a run: a run start opens it, a run end closes it, any other event keeps it
+def oh.run_ev(open: Bool, e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      True{}
+    case Or.RunEnd{}:
+      False{}
+    case Or.Queue{}:
+      open
+    case Or.Drain{}:
+      open
+    case Or.CompactStart{}:
+      open
+    case Or.CompactEnd{}:
+      open
+    case Or.Gone{g}:
+      open
+    case Or.Back{}:
+      open
+
+def oh.run_fold(evs: List<&2, Or.Ev>, open: Bool) -> Bool:
+  match evs:
+    case Nil{}:
+      open
+    case e <> rest:
+      oh.run_fold(rest, oh.run_ev(open, e))
+
+# whether a run is open after the history evs, from `open` (a left fold)
+def oh.run_open(open: Bool, evs: List<&2, Or.Ev>) -> Bool:
+  oh.run_fold(evs, open)
+
+# a compaction: a compaction start opens it, a compaction end closes it,
+# any other event keeps it
+def oh.compact_ev(open: Bool, e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      open
+    case Or.RunEnd{}:
+      open
+    case Or.Queue{}:
+      open
+    case Or.Drain{}:
+      open
+    case Or.CompactStart{}:
+      True{}
+    case Or.CompactEnd{}:
+      False{}
+    case Or.Gone{g}:
+      open
+    case Or.Back{}:
+      open
+
+def oh.compact_fold(evs: List<&2, Or.Ev>, open: Bool) -> Bool:
+  match evs:
+    case Nil{}:
+      open
+    case e <> rest:
+      oh.compact_fold(rest, oh.compact_ev(open, e))
+
+# whether a compaction is open after the history evs, from `open`
+def oh.compact_open(open: Bool, evs: List<&2, Or.Ev>) -> Bool:
+  oh.compact_fold(evs, open)
+
+# the queued inputs: a queue adds one, a drain takes one (none stay none),
+# any other event keeps them
+def oh.queued_ev(q: Nat, e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      q
+    case Or.RunEnd{}:
+      q
+    case Or.Queue{}:
+      1n+q
+    case Or.Drain{}:
+      Nat.sub(q, 1n)
+    case Or.CompactStart{}:
+      q
+    case Or.CompactEnd{}:
+      q
+    case Or.Gone{g}:
+      q
+    case Or.Back{}:
+      q
+
+def oh.queued_fold(evs: List<&2, Or.Ev>, q: Nat) -> Nat:
+  match evs:
+    case Nil{}:
+      q
+    case e <> rest:
+      oh.queued_fold(rest, oh.queued_ev(q, e))
+
+# the inputs queued after the history evs, from q
+def oh.queued(q: Nat, evs: List<&2, Or.Ev>) -> Nat:
+  oh.queued_fold(evs, q)
+
+# the ms absent: the supervisor's g more ms add g, its answer resets them
+# to 0, any other event keeps them
+def oh.absent_ev(a: Nat, e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      a
+    case Or.RunEnd{}:
+      a
+    case Or.Queue{}:
+      a
+    case Or.Drain{}:
+      a
+    case Or.CompactStart{}:
+      a
+    case Or.CompactEnd{}:
+      a
+    case Or.Gone{g}:
+      Nat.add(g, a)
+    case Or.Back{}:
+      0n
+
+def oh.absent_fold(evs: List<&2, Or.Ev>, a: Nat) -> Nat:
+  match evs:
+    case Nil{}:
+      a
+    case e <> rest:
+      oh.absent_fold(rest, oh.absent_ev(a, e))
+
+# the ms absent after the history evs, from a
+def oh.absent(a: Nat, evs: List<&2, Or.Ev>) -> Nat:
+  oh.absent_fold(evs, a)
+
+# whether the worker holds work after the history: a run open, a
+# compaction open, or an input queued
+def oh.folds_busy(+evs: List<&2, Or.Ev>) -> Bool:
+  Bool.or(oh.run_open(False{}, evs), Bool.or(oh.compact_open(False{}, evs), Nat.is_lt(0n, oh.queued(0n, evs))))
+
+# whether the exit check after the history's last event is due, by the Nat
+# arithmetic above on every non-empty history (no event, no exit check yet:
+# the empty history is False)
+def oh.due_at(+window: Nat, evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      False{}
+    case +e <> +rest:
+      Orphan.orphan_due_by(window, oh.folds_busy(e <> rest), oh.absent(0n, e <> rest))
+
 # the state the machine's per-field folds give a history, from a fresh
 # worker
 def oh.state(+evs: List<&2, Or.Ev>) -> Or.W:
-  Or.W{Orphan.orphan_run_open(False{}, evs), Orphan.orphan_queued(0n, evs), Orphan.orphan_compact_open(False{}, evs), Orphan.orphan_absent(0n, evs)}
+  Or.W{oh.run_open(False{}, evs), oh.queued(0n, evs), oh.compact_open(False{}, evs), oh.absent(0n, evs)}
 
 # due: the exit with the work held; not due: the worker lives on in w
 def oh.after_by(due: Bool, +busy: Bool, w: Or.W) -> Or.St:
@@ -98,7 +244,7 @@ def oh.after_by(due: Bool, +busy: Bool, w: Or.W) -> Or.St:
 
 # the worker after the history evs, when it was live before its last event
 def oh.after(+window: Nat, +evs: List<&2, Or.Ev>) -> Or.St:
-  oh.after_by(Orphan.orphan_due(window, evs), Orphan.orphan_busy(evs), oh.state(evs))
+  oh.after_by(oh.due_at(window, evs), oh.folds_busy(evs), oh.state(evs))
 
 # the machine over a history and one more event: one more step
 def oh.go_snoc(+window: Nat, xs: List<&2, Or.Ev>, +e: Or.Ev, s: Or.St) -> {Or.go(window, oh.snoc(xs, e), s) == Or.step(window, Or.go(window, xs, s), e) : Or.St}:
@@ -109,33 +255,33 @@ def oh.go_snoc(+window: Nat, xs: List<&2, Or.Ev>, +e: Or.Ev, s: Or.St) -> {Or.go
       oh.go_snoc(window, t, e, Or.step(window, s, h))
 
 # each fold over a history and one more event: its step on the fold
-def oh.run_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, o: Bool) -> {Orphan.orphan_run_fold(oh.snoc(xs, e), o) == Orphan.orphan_run_ev(Orphan.orphan_run_fold(xs, o), e) : Bool}:
+def oh.run_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, o: Bool) -> {oh.run_fold(oh.snoc(xs, e), o) == oh.run_ev(oh.run_fold(xs, o), e) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case h <> t:
-      oh.run_snoc(t, e, Orphan.orphan_run_ev(o, h))
+      oh.run_snoc(t, e, oh.run_ev(o, h))
 
-def oh.compact_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, o: Bool) -> {Orphan.orphan_compact_fold(oh.snoc(xs, e), o) == Orphan.orphan_compact_ev(Orphan.orphan_compact_fold(xs, o), e) : Bool}:
+def oh.compact_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, o: Bool) -> {oh.compact_fold(oh.snoc(xs, e), o) == oh.compact_ev(oh.compact_fold(xs, o), e) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case h <> t:
-      oh.compact_snoc(t, e, Orphan.orphan_compact_ev(o, h))
+      oh.compact_snoc(t, e, oh.compact_ev(o, h))
 
-def oh.queued_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, q: Nat) -> {Orphan.orphan_queued_fold(oh.snoc(xs, e), q) == Orphan.orphan_queued_ev(Orphan.orphan_queued_fold(xs, q), e) : Nat}:
+def oh.queued_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, q: Nat) -> {oh.queued_fold(oh.snoc(xs, e), q) == oh.queued_ev(oh.queued_fold(xs, q), e) : Nat}:
   match xs:
     case Nil{}:
       {==}
     case h <> t:
-      oh.queued_snoc(t, e, Orphan.orphan_queued_ev(q, h))
+      oh.queued_snoc(t, e, oh.queued_ev(q, h))
 
-def oh.absent_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, a: Nat) -> {Orphan.orphan_absent_fold(oh.snoc(xs, e), a) == Orphan.orphan_absent_ev(Orphan.orphan_absent_fold(xs, a), e) : Nat}:
+def oh.absent_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev, a: Nat) -> {oh.absent_fold(oh.snoc(xs, e), a) == oh.absent_ev(oh.absent_fold(xs, a), e) : Nat}:
   match xs:
     case Nil{}:
       {==}
     case h <> t:
-      oh.absent_snoc(t, e, Orphan.orphan_absent_ev(a, h))
+      oh.absent_snoc(t, e, oh.absent_ev(a, h))
 
 def oh.w_eq(-r1: Bool, -r2: Bool, -q1: Nat, -q2: Nat, -c1: Bool, -c2: Bool, -a1: Nat, -a2: Nat, er: {r1 == r2 : Bool}, eq: {q1 == q2 : Nat}, ec: {c1 == c2 : Bool}, ea: {a1 == a2 : Nat}) -> {Or.W{r1, q1, c1, a1} == Or.W{r2, q2, c2, a2} : Or.W}:
   %er : {Or.W{r1, q1, c1, a1} == Or.W{_, q2, c2, a2} : Or.W}
@@ -160,7 +306,7 @@ def oh.drain(q: Nat) -> {Nat.sub(q, 1n) == Or.dec(q) : Nat}:
       oh.sub_zero(p)
 
 # the spec's steps on each field are the machine's step on the state
-def oh.apply_ev(e: Or.Ev, +r: Bool, +q: Nat, +c: Bool, +a: Nat) -> {Or.W{Orphan.orphan_run_ev(r, e), Orphan.orphan_queued_ev(q, e), Orphan.orphan_compact_ev(c, e), Orphan.orphan_absent_ev(a, e)} == Or.apply(Or.W{r, q, c, a}, e) : Or.W}:
+def oh.apply_ev(e: Or.Ev, +r: Bool, +q: Nat, +c: Bool, +a: Nat) -> {Or.W{oh.run_ev(r, e), oh.queued_ev(q, e), oh.compact_ev(c, e), oh.absent_ev(a, e)} == Or.apply(Or.W{r, q, c, a}, e) : Or.W}:
   match e:
     case Or.RunStart{}:
       {==}
@@ -183,14 +329,14 @@ def oh.apply_ev(e: Or.Ev, +r: Bool, +q: Nat, +c: Bool, +a: Nat) -> {Or.W{Orphan.
 # history's state
 def oh.state_snoc(+xs: List<&2, Or.Ev>, +e: Or.Ev) -> {oh.state(oh.snoc(xs, e)) == Or.apply(oh.state(xs), e) : Or.W}:
   Equal.trans(Or.W, oh.state(oh.snoc(xs, e)),
-    Or.W{Orphan.orphan_run_ev(Orphan.orphan_run_fold(xs, False{}), e), Orphan.orphan_queued_ev(Orphan.orphan_queued_fold(xs, 0n), e), Orphan.orphan_compact_ev(Orphan.orphan_compact_fold(xs, False{}), e), Orphan.orphan_absent_ev(Orphan.orphan_absent_fold(xs, 0n), e)},
+    Or.W{oh.run_ev(oh.run_fold(xs, False{}), e), oh.queued_ev(oh.queued_fold(xs, 0n), e), oh.compact_ev(oh.compact_fold(xs, False{}), e), oh.absent_ev(oh.absent_fold(xs, 0n), e)},
     Or.apply(oh.state(xs), e),
-    oh.w_eq(Orphan.orphan_run_fold(oh.snoc(xs, e), False{}), Orphan.orphan_run_ev(Orphan.orphan_run_fold(xs, False{}), e),
-      Orphan.orphan_queued_fold(oh.snoc(xs, e), 0n), Orphan.orphan_queued_ev(Orphan.orphan_queued_fold(xs, 0n), e),
-      Orphan.orphan_compact_fold(oh.snoc(xs, e), False{}), Orphan.orphan_compact_ev(Orphan.orphan_compact_fold(xs, False{}), e),
-      Orphan.orphan_absent_fold(oh.snoc(xs, e), 0n), Orphan.orphan_absent_ev(Orphan.orphan_absent_fold(xs, 0n), e),
+    oh.w_eq(oh.run_fold(oh.snoc(xs, e), False{}), oh.run_ev(oh.run_fold(xs, False{}), e),
+      oh.queued_fold(oh.snoc(xs, e), 0n), oh.queued_ev(oh.queued_fold(xs, 0n), e),
+      oh.compact_fold(oh.snoc(xs, e), False{}), oh.compact_ev(oh.compact_fold(xs, False{}), e),
+      oh.absent_fold(oh.snoc(xs, e), 0n), oh.absent_ev(oh.absent_fold(xs, 0n), e),
       oh.run_snoc(xs, e, False{}), oh.queued_snoc(xs, e, 0n), oh.compact_snoc(xs, e, False{}), oh.absent_snoc(xs, e, 0n)),
-    oh.apply_ev(e, Orphan.orphan_run_fold(xs, False{}), Orphan.orphan_queued_fold(xs, 0n), Orphan.orphan_compact_fold(xs, False{}), Orphan.orphan_absent_fold(xs, 0n)))
+    oh.apply_ev(e, oh.run_fold(xs, False{}), oh.queued_fold(xs, 0n), oh.compact_fold(xs, False{}), oh.absent_fold(xs, 0n)))
 
 # the work the machine sees in a state, as the spec's busy flag
 def oh.busy(r: Bool, c: Bool, q: Nat) -> Bool:
@@ -237,7 +383,7 @@ def oh.check(+window: Nat, +r: Bool, +c: Bool, +q: Nat, +a: Nat) -> {Or.check(wi
   oh.put(Orphan.orphan_due_by(window, oh.busy(r, c, q), a), r, c, q, a)
 
 # a history and one more event is never empty: its exit check is the test
-def oh.due_snoc(+window: Nat, xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_due_by(window, Orphan.orphan_busy(oh.snoc(xs, e)), Orphan.orphan_absent(0n, oh.snoc(xs, e))) == Orphan.orphan_due(window, oh.snoc(xs, e)) : Bool}:
+def oh.due_snoc(+window: Nat, xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_due_by(window, oh.folds_busy(oh.snoc(xs, e)), oh.absent(0n, oh.snoc(xs, e))) == oh.due_at(window, oh.snoc(xs, e)) : Bool}:
   match xs:
     case Nil{}:
       {==}
@@ -247,18 +393,18 @@ def oh.due_snoc(+window: Nat, xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_
 # the machine's step after a history's state is the spec's after
 def oh.next(+window: Nat, +xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Or.check(window, Or.apply(oh.state(xs), e)) == oh.after(window, oh.snoc(xs, e)) : Or.St}:
   %oh.state_snoc(xs, e) : {Or.check(window, _) == oh.after(window, oh.snoc(xs, e)) : Or.St}
-  %oh.due_snoc(window, xs, e) : {Or.check(window, oh.state(oh.snoc(xs, e))) == oh.after_by(_, Orphan.orphan_busy(oh.snoc(xs, e)), oh.state(oh.snoc(xs, e))) : Or.St}
-  oh.check(window, Orphan.orphan_run_fold(oh.snoc(xs, e), False{}), Orphan.orphan_compact_fold(oh.snoc(xs, e), False{}), Orphan.orphan_queued_fold(oh.snoc(xs, e), 0n), Orphan.orphan_absent_fold(oh.snoc(xs, e), 0n))
+  %oh.due_snoc(window, xs, e) : {Or.check(window, oh.state(oh.snoc(xs, e))) == oh.after_by(_, oh.folds_busy(oh.snoc(xs, e)), oh.state(oh.snoc(xs, e))) : Or.St}
+  oh.check(window, oh.run_fold(oh.snoc(xs, e), False{}), oh.compact_fold(oh.snoc(xs, e), False{}), oh.queued_fold(oh.snoc(xs, e), 0n), oh.absent_fold(oh.snoc(xs, e), 0n))
 
 # a live state is the history's state, and its last exit check was not due
 def oh.Inv(+window: Nat, +evs: List<&2, Or.Ev>, s: Or.St) -> Type:
   match s:
     case Or.Live{w}:
-      {w == oh.state(evs) : Or.W} & {Orphan.orphan_due(window, evs) == False{} : Bool}
+      {w == oh.state(evs) : Or.W} & {oh.due_at(window, evs) == False{} : Bool}
     case Or.Exited{d}:
       Unit
 
-def oh.after_inv(d: Bool, +window: Nat, +ys: List<&2, Or.Ev>, h: {Orphan.orphan_due(window, ys) == d : Bool}) -> oh.Inv(window, ys, oh.after_by(d, Orphan.orphan_busy(ys), oh.state(ys))):
+def oh.after_inv(d: Bool, +window: Nat, +ys: List<&2, Or.Ev>, h: {oh.due_at(window, ys) == d : Bool}) -> oh.Inv(window, ys, oh.after_by(d, oh.folds_busy(ys), oh.state(ys))):
   match d:
     case True{}:
       Unit{}
@@ -271,7 +417,7 @@ def oh.step_inv(+window: Nat, +xs: List<&2, Or.Ev>, +e: Or.Ev, s: Or.St, ok: oh.
       (ew, nd) = ok
       %Equal.sym(Or.W, w, oh.state(xs), ew) : oh.Inv(window, oh.snoc(xs, e), Or.check(window, Or.apply(_, e)))
       %Equal.sym(Or.St, Or.check(window, Or.apply(oh.state(xs), e)), oh.after(window, oh.snoc(xs, e)), oh.next(window, xs, e)) : oh.Inv(window, oh.snoc(xs, e), _)
-      oh.after_inv(Orphan.orphan_due(window, oh.snoc(xs, e)), window, oh.snoc(xs, e), {==})
+      oh.after_inv(oh.due_at(window, oh.snoc(xs, e)), window, oh.snoc(xs, e), {==})
     case Or.Exited{d}:
       Unit{}
 
@@ -307,7 +453,7 @@ def oh.inv_state(+window: Nat, +evs: List<&2, Or.Ev>, -w: Or.W, p: oh.Inv(window
   (ew, nd) = p
   ew
 
-def oh.inv_due(+window: Nat, +evs: List<&2, Or.Ev>, -w: Or.W, p: oh.Inv(window, evs, Or.Live{w})) -> {Orphan.orphan_due(window, evs) == False{} : Bool}:
+def oh.inv_due(+window: Nat, +evs: List<&2, Or.Ev>, -w: Or.W, p: oh.Inv(window, evs, Or.Live{w})) -> {oh.due_at(window, evs) == False{} : Bool}:
   (ew, nd) = p
   nd
 
@@ -494,7 +640,7 @@ def oh.no_answer_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_no_answe
       oh.and_assoc(Bool.not(Orphan.orphan_answers(h)), Orphan.orphan_no_answer(t), Bool.not(Orphan.orphan_answers(e)))
 
 # a run open after one event from a fresh worker
-def oh.run_unended_one(e: Or.Ev) -> {Orphan.orphan_run_unended([e]) == Orphan.orphan_run_ev(False{}, e) : Bool}:
+def oh.run_unended_one(e: Or.Ev) -> {Orphan.orphan_run_unended([e]) == oh.run_ev(False{}, e) : Bool}:
   match e:
     case Or.RunStart{}:
       {==}
@@ -513,7 +659,7 @@ def oh.run_unended_one(e: Or.Ev) -> {Orphan.orphan_run_unended([e]) == Orphan.or
     case Or.Back{}:
       {==}
 
-def oh.run_unended_step(e: Or.Ev, a: Bool, n: Bool, u: Bool) -> {Bool.or(Bool.and(a, Bool.and(n, Bool.not(Orphan.orphan_ends_run(e)))), Orphan.orphan_run_ev(u, e)) == Orphan.orphan_run_ev(Bool.or(Bool.and(a, n), u), e) : Bool}:
+def oh.run_unended_step(e: Or.Ev, a: Bool, n: Bool, u: Bool) -> {Bool.or(Bool.and(a, Bool.and(n, Bool.not(Orphan.orphan_ends_run(e)))), oh.run_ev(u, e)) == oh.run_ev(Bool.or(Bool.and(a, n), u), e) : Bool}:
   match e:
     case Or.RunStart{}:
       oh.or_true_r(Bool.and(a, Bool.and(n, True{})))
@@ -533,16 +679,16 @@ def oh.run_unended_step(e: Or.Ev, a: Bool, n: Bool, u: Bool) -> {Bool.or(Bool.an
       oh.b_kept(a, n, u)
 
 # a run open after a history and one more event: the machine's run step
-def oh.run_unended_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_run_unended(oh.snoc(xs, e)) == Orphan.orphan_run_ev(Orphan.orphan_run_unended(xs), e) : Bool}:
+def oh.run_unended_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_run_unended(oh.snoc(xs, e)) == oh.run_ev(Orphan.orphan_run_unended(xs), e) : Bool}:
   match xs:
     case Nil{}:
       oh.run_unended_one(e)
     case +h <> +t:
-      %Equal.sym(Bool, Orphan.orphan_no_run_end(oh.snoc(t, e)), Bool.and(Orphan.orphan_no_run_end(t), Bool.not(Orphan.orphan_ends_run(e))), oh.no_run_end_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_run(h), _), Orphan.orphan_run_unended(oh.snoc(t, e))) == Orphan.orphan_run_ev(Orphan.orphan_run_unended(h <> t), e) : Bool}
-      %Equal.sym(Bool, Orphan.orphan_run_unended(oh.snoc(t, e)), Orphan.orphan_run_ev(Orphan.orphan_run_unended(t), e), oh.run_unended_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_run(h), Bool.and(Orphan.orphan_no_run_end(t), Bool.not(Orphan.orphan_ends_run(e)))), _) == Orphan.orphan_run_ev(Orphan.orphan_run_unended(h <> t), e) : Bool}
+      %Equal.sym(Bool, Orphan.orphan_no_run_end(oh.snoc(t, e)), Bool.and(Orphan.orphan_no_run_end(t), Bool.not(Orphan.orphan_ends_run(e))), oh.no_run_end_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_run(h), _), Orphan.orphan_run_unended(oh.snoc(t, e))) == oh.run_ev(Orphan.orphan_run_unended(h <> t), e) : Bool}
+      %Equal.sym(Bool, Orphan.orphan_run_unended(oh.snoc(t, e)), oh.run_ev(Orphan.orphan_run_unended(t), e), oh.run_unended_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_run(h), Bool.and(Orphan.orphan_no_run_end(t), Bool.not(Orphan.orphan_ends_run(e)))), _) == oh.run_ev(Orphan.orphan_run_unended(h <> t), e) : Bool}
       oh.run_unended_step(e, Orphan.orphan_starts_run(h), Orphan.orphan_no_run_end(t), Orphan.orphan_run_unended(t))
 
-def oh.compaction_unended_one(e: Or.Ev) -> {Orphan.orphan_compaction_unended([e]) == Orphan.orphan_compact_ev(False{}, e) : Bool}:
+def oh.compaction_unended_one(e: Or.Ev) -> {Orphan.orphan_compaction_unended([e]) == oh.compact_ev(False{}, e) : Bool}:
   match e:
     case Or.RunStart{}:
       {==}
@@ -561,7 +707,7 @@ def oh.compaction_unended_one(e: Or.Ev) -> {Orphan.orphan_compaction_unended([e]
     case Or.Back{}:
       {==}
 
-def oh.compaction_unended_step(e: Or.Ev, a: Bool, n: Bool, u: Bool) -> {Bool.or(Bool.and(a, Bool.and(n, Bool.not(Orphan.orphan_ends_compaction(e)))), Orphan.orphan_compact_ev(u, e)) == Orphan.orphan_compact_ev(Bool.or(Bool.and(a, n), u), e) : Bool}:
+def oh.compaction_unended_step(e: Or.Ev, a: Bool, n: Bool, u: Bool) -> {Bool.or(Bool.and(a, Bool.and(n, Bool.not(Orphan.orphan_ends_compaction(e)))), oh.compact_ev(u, e)) == oh.compact_ev(Bool.or(Bool.and(a, n), u), e) : Bool}:
   match e:
     case Or.RunStart{}:
       oh.b_kept(a, n, u)
@@ -582,13 +728,13 @@ def oh.compaction_unended_step(e: Or.Ev, a: Bool, n: Bool, u: Bool) -> {Bool.or(
 
 # a compaction open after a history and one more event: the machine's
 # compaction step
-def oh.compaction_unended_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_compaction_unended(oh.snoc(xs, e)) == Orphan.orphan_compact_ev(Orphan.orphan_compaction_unended(xs), e) : Bool}:
+def oh.compaction_unended_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_compaction_unended(oh.snoc(xs, e)) == oh.compact_ev(Orphan.orphan_compaction_unended(xs), e) : Bool}:
   match xs:
     case Nil{}:
       oh.compaction_unended_one(e)
     case +h <> +t:
-      %Equal.sym(Bool, Orphan.orphan_no_compaction_end(oh.snoc(t, e)), Bool.and(Orphan.orphan_no_compaction_end(t), Bool.not(Orphan.orphan_ends_compaction(e))), oh.no_compaction_end_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_compaction(h), _), Orphan.orphan_compaction_unended(oh.snoc(t, e))) == Orphan.orphan_compact_ev(Orphan.orphan_compaction_unended(h <> t), e) : Bool}
-      %Equal.sym(Bool, Orphan.orphan_compaction_unended(oh.snoc(t, e)), Orphan.orphan_compact_ev(Orphan.orphan_compaction_unended(t), e), oh.compaction_unended_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_compaction(h), Bool.and(Orphan.orphan_no_compaction_end(t), Bool.not(Orphan.orphan_ends_compaction(e)))), _) == Orphan.orphan_compact_ev(Orphan.orphan_compaction_unended(h <> t), e) : Bool}
+      %Equal.sym(Bool, Orphan.orphan_no_compaction_end(oh.snoc(t, e)), Bool.and(Orphan.orphan_no_compaction_end(t), Bool.not(Orphan.orphan_ends_compaction(e))), oh.no_compaction_end_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_compaction(h), _), Orphan.orphan_compaction_unended(oh.snoc(t, e))) == oh.compact_ev(Orphan.orphan_compaction_unended(h <> t), e) : Bool}
+      %Equal.sym(Bool, Orphan.orphan_compaction_unended(oh.snoc(t, e)), oh.compact_ev(Orphan.orphan_compaction_unended(t), e), oh.compaction_unended_snoc(t, e)) : {Bool.or(Bool.and(Orphan.orphan_starts_compaction(h), Bool.and(Orphan.orphan_no_compaction_end(t), Bool.not(Orphan.orphan_ends_compaction(e)))), _) == oh.compact_ev(Orphan.orphan_compaction_unended(h <> t), e) : Bool}
       oh.compaction_unended_step(e, Orphan.orphan_starts_compaction(h), Orphan.orphan_no_compaction_end(t), Orphan.orphan_compaction_unended(t))
 
 # the queues and drains of a history and one more event
@@ -658,7 +804,7 @@ def oh.most_drain(+q: Nat, +d: Nat, +p: Nat) -> {Nat.max(Nat.sub(q, 1n+d), Nat.s
   %Equal.sym(Nat, Nat.sub(q, 1n+d), Nat.sub(Nat.sub(q, d), 1n), oh.sub_succ(q, d)) : {Nat.max(_, Nat.sub(p, 1n)) == Nat.sub(Nat.max(Nat.sub(q, d), p), 1n) : Nat}
   oh.max_pred(Nat.sub(q, d), p)
 
-def oh.most_one(e: Or.Ev) -> {Orphan.orphan_queued_most([e]) == Orphan.orphan_queued_ev(0n, e) : Nat}:
+def oh.most_one(e: Or.Ev) -> {Orphan.orphan_queued_most([e]) == oh.queued_ev(0n, e) : Nat}:
   match e:
     case Or.RunStart{}:
       {==}
@@ -677,7 +823,7 @@ def oh.most_one(e: Or.Ev) -> {Orphan.orphan_queued_most([e]) == Orphan.orphan_qu
     case Or.Back{}:
       {==}
 
-def oh.most_step(e: Or.Ev, +q: Nat, +d: Nat, +p: Nat) -> {Nat.max(Nat.sub(Nat.add(Orphan.orphan_one_queue(e), q), Nat.add(Orphan.orphan_one_drain(e), d)), Orphan.orphan_queued_ev(p, e)) == Orphan.orphan_queued_ev(Nat.max(Nat.sub(q, d), p), e) : Nat}:
+def oh.most_step(e: Or.Ev, +q: Nat, +d: Nat, +p: Nat) -> {Nat.max(Nat.sub(Nat.add(Orphan.orphan_one_queue(e), q), Nat.add(Orphan.orphan_one_drain(e), d)), oh.queued_ev(p, e)) == oh.queued_ev(Nat.max(Nat.sub(q, d), p), e) : Nat}:
   match e:
     case Or.RunStart{}:
       {==}
@@ -698,17 +844,17 @@ def oh.most_step(e: Or.Ev, +q: Nat, +d: Nat, +p: Nat) -> {Nat.max(Nat.sub(Nat.ad
 
 # the inputs queued after a history and one more event: the machine's
 # queue step
-def oh.most_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_queued_most(oh.snoc(xs, e)) == Orphan.orphan_queued_ev(Orphan.orphan_queued_most(xs), e) : Nat}:
+def oh.most_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_queued_most(oh.snoc(xs, e)) == oh.queued_ev(Orphan.orphan_queued_most(xs), e) : Nat}:
   match xs:
     case Nil{}:
       oh.most_one(e)
     case +h <> +t:
-      %Equal.sym(Nat, Orphan.orphan_queues(oh.snoc(h <> t, e)), Nat.add(Orphan.orphan_one_queue(e), Orphan.orphan_queues(h <> t)), oh.queues_snoc(h <> t, e)) : {Nat.max(Nat.sub(_, Orphan.orphan_drains(oh.snoc(h <> t, e))), Orphan.orphan_queued_most(oh.snoc(t, e))) == Orphan.orphan_queued_ev(Orphan.orphan_queued_most(h <> t), e) : Nat}
-      %Equal.sym(Nat, Orphan.orphan_drains(oh.snoc(h <> t, e)), Nat.add(Orphan.orphan_one_drain(e), Orphan.orphan_drains(h <> t)), oh.drains_snoc(h <> t, e)) : {Nat.max(Nat.sub(Nat.add(Orphan.orphan_one_queue(e), Orphan.orphan_queues(h <> t)), _), Orphan.orphan_queued_most(oh.snoc(t, e))) == Orphan.orphan_queued_ev(Orphan.orphan_queued_most(h <> t), e) : Nat}
-      %Equal.sym(Nat, Orphan.orphan_queued_most(oh.snoc(t, e)), Orphan.orphan_queued_ev(Orphan.orphan_queued_most(t), e), oh.most_snoc(t, e)) : {Nat.max(Nat.sub(Nat.add(Orphan.orphan_one_queue(e), Orphan.orphan_queues(h <> t)), Nat.add(Orphan.orphan_one_drain(e), Orphan.orphan_drains(h <> t))), _) == Orphan.orphan_queued_ev(Orphan.orphan_queued_most(h <> t), e) : Nat}
+      %Equal.sym(Nat, Orphan.orphan_queues(oh.snoc(h <> t, e)), Nat.add(Orphan.orphan_one_queue(e), Orphan.orphan_queues(h <> t)), oh.queues_snoc(h <> t, e)) : {Nat.max(Nat.sub(_, Orphan.orphan_drains(oh.snoc(h <> t, e))), Orphan.orphan_queued_most(oh.snoc(t, e))) == oh.queued_ev(Orphan.orphan_queued_most(h <> t), e) : Nat}
+      %Equal.sym(Nat, Orphan.orphan_drains(oh.snoc(h <> t, e)), Nat.add(Orphan.orphan_one_drain(e), Orphan.orphan_drains(h <> t)), oh.drains_snoc(h <> t, e)) : {Nat.max(Nat.sub(Nat.add(Orphan.orphan_one_queue(e), Orphan.orphan_queues(h <> t)), _), Orphan.orphan_queued_most(oh.snoc(t, e))) == oh.queued_ev(Orphan.orphan_queued_most(h <> t), e) : Nat}
+      %Equal.sym(Nat, Orphan.orphan_queued_most(oh.snoc(t, e)), oh.queued_ev(Orphan.orphan_queued_most(t), e), oh.most_snoc(t, e)) : {Nat.max(Nat.sub(Nat.add(Orphan.orphan_one_queue(e), Orphan.orphan_queues(h <> t)), Nat.add(Orphan.orphan_one_drain(e), Orphan.orphan_drains(h <> t))), _) == oh.queued_ev(Orphan.orphan_queued_most(h <> t), e) : Nat}
       oh.most_step(e, Orphan.orphan_queues(h <> t), Orphan.orphan_drains(h <> t), Orphan.orphan_queued_most(t))
 
-def oh.unanswered_one(e: Or.Ev) -> {Orphan.orphan_unanswered_ms([e]) == Orphan.orphan_absent_ev(0n, e) : Nat}:
+def oh.unanswered_one(e: Or.Ev) -> {Orphan.orphan_unanswered_ms([e]) == oh.absent_ev(0n, e) : Nat}:
   match e:
     case Or.RunStart{}:
       {==}
@@ -751,7 +897,7 @@ def oh.ms_kept(nb: Bool, m: Nat, a: Nat) -> {Nat.add(Bool.pick(Nat, Bool.and(nb,
     case True{}:
       {==}
 
-def oh.unanswered_step(e: Or.Ev, nb: Bool, +m: Nat, +a: Nat) -> {Nat.add(Bool.pick(Nat, Bool.and(nb, Bool.not(Orphan.orphan_answers(e))), m, 0n), Orphan.orphan_absent_ev(a, e)) == Orphan.orphan_absent_ev(Nat.add(Bool.pick(Nat, nb, m, 0n), a), e) : Nat}:
+def oh.unanswered_step(e: Or.Ev, nb: Bool, +m: Nat, +a: Nat) -> {Nat.add(Bool.pick(Nat, Bool.and(nb, Bool.not(Orphan.orphan_answers(e))), m, 0n), oh.absent_ev(a, e)) == oh.absent_ev(Nat.add(Bool.pick(Nat, nb, m, 0n), a), e) : Nat}:
   match e:
     case Or.RunStart{}:
       oh.ms_kept(nb, m, a)
@@ -772,25 +918,25 @@ def oh.unanswered_step(e: Or.Ev, nb: Bool, +m: Nat, +a: Nat) -> {Nat.add(Bool.pi
 
 # the ms absent after a history and one more event: the machine's absence
 # step
-def oh.unanswered_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_unanswered_ms(oh.snoc(xs, e)) == Orphan.orphan_absent_ev(Orphan.orphan_unanswered_ms(xs), e) : Nat}:
+def oh.unanswered_snoc(xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_unanswered_ms(oh.snoc(xs, e)) == oh.absent_ev(Orphan.orphan_unanswered_ms(xs), e) : Nat}:
   match xs:
     case Nil{}:
       oh.unanswered_one(e)
     case +h <> +t:
-      %Equal.sym(Bool, Orphan.orphan_no_answer(oh.snoc(t, e)), Bool.and(Orphan.orphan_no_answer(t), Bool.not(Orphan.orphan_answers(e))), oh.no_answer_snoc(t, e)) : {Nat.add(Bool.pick(Nat, _, Orphan.orphan_gone_ms(h), 0n), Orphan.orphan_unanswered_ms(oh.snoc(t, e))) == Orphan.orphan_absent_ev(Orphan.orphan_unanswered_ms(h <> t), e) : Nat}
-      %Equal.sym(Nat, Orphan.orphan_unanswered_ms(oh.snoc(t, e)), Orphan.orphan_absent_ev(Orphan.orphan_unanswered_ms(t), e), oh.unanswered_snoc(t, e)) : {Nat.add(Bool.pick(Nat, Bool.and(Orphan.orphan_no_answer(t), Bool.not(Orphan.orphan_answers(e))), Orphan.orphan_gone_ms(h), 0n), _) == Orphan.orphan_absent_ev(Orphan.orphan_unanswered_ms(h <> t), e) : Nat}
+      %Equal.sym(Bool, Orphan.orphan_no_answer(oh.snoc(t, e)), Bool.and(Orphan.orphan_no_answer(t), Bool.not(Orphan.orphan_answers(e))), oh.no_answer_snoc(t, e)) : {Nat.add(Bool.pick(Nat, _, Orphan.orphan_gone_ms(h), 0n), Orphan.orphan_unanswered_ms(oh.snoc(t, e))) == oh.absent_ev(Orphan.orphan_unanswered_ms(h <> t), e) : Nat}
+      %Equal.sym(Nat, Orphan.orphan_unanswered_ms(oh.snoc(t, e)), oh.absent_ev(Orphan.orphan_unanswered_ms(t), e), oh.unanswered_snoc(t, e)) : {Nat.add(Bool.pick(Nat, Bool.and(Orphan.orphan_no_answer(t), Bool.not(Orphan.orphan_answers(e))), Orphan.orphan_gone_ms(h), 0n), _) == oh.absent_ev(Orphan.orphan_unanswered_ms(h <> t), e) : Nat}
       oh.unanswered_step(e, Orphan.orphan_no_answer(t), Orphan.orphan_gone_ms(h), Orphan.orphan_unanswered_ms(t))
 
 # the declared state of a history and one more event: the machine's step
 # on the history's declared state
 def oh.declared_snoc(+xs: List<&2, Or.Ev>, +e: Or.Ev) -> {Orphan.orphan_declared(oh.snoc(xs, e)) == Or.apply(Orphan.orphan_declared(xs), e) : Or.W}:
   Equal.trans(Or.W, Orphan.orphan_declared(oh.snoc(xs, e)),
-    Or.W{Orphan.orphan_run_ev(Orphan.orphan_run_unended(xs), e), Orphan.orphan_queued_ev(Orphan.orphan_queued_most(xs), e), Orphan.orphan_compact_ev(Orphan.orphan_compaction_unended(xs), e), Orphan.orphan_absent_ev(Orphan.orphan_unanswered_ms(xs), e)},
+    Or.W{oh.run_ev(Orphan.orphan_run_unended(xs), e), oh.queued_ev(Orphan.orphan_queued_most(xs), e), oh.compact_ev(Orphan.orphan_compaction_unended(xs), e), oh.absent_ev(Orphan.orphan_unanswered_ms(xs), e)},
     Or.apply(Orphan.orphan_declared(xs), e),
-    oh.w_eq(Orphan.orphan_run_unended(oh.snoc(xs, e)), Orphan.orphan_run_ev(Orphan.orphan_run_unended(xs), e),
-      Orphan.orphan_queued_most(oh.snoc(xs, e)), Orphan.orphan_queued_ev(Orphan.orphan_queued_most(xs), e),
-      Orphan.orphan_compaction_unended(oh.snoc(xs, e)), Orphan.orphan_compact_ev(Orphan.orphan_compaction_unended(xs), e),
-      Orphan.orphan_unanswered_ms(oh.snoc(xs, e)), Orphan.orphan_absent_ev(Orphan.orphan_unanswered_ms(xs), e),
+    oh.w_eq(Orphan.orphan_run_unended(oh.snoc(xs, e)), oh.run_ev(Orphan.orphan_run_unended(xs), e),
+      Orphan.orphan_queued_most(oh.snoc(xs, e)), oh.queued_ev(Orphan.orphan_queued_most(xs), e),
+      Orphan.orphan_compaction_unended(oh.snoc(xs, e)), oh.compact_ev(Orphan.orphan_compaction_unended(xs), e),
+      Orphan.orphan_unanswered_ms(oh.snoc(xs, e)), oh.absent_ev(Orphan.orphan_unanswered_ms(xs), e),
       oh.run_unended_snoc(xs, e), oh.most_snoc(xs, e), oh.compaction_unended_snoc(xs, e), oh.unanswered_snoc(xs, e)),
     oh.apply_ev(e, Orphan.orphan_run_unended(xs), Orphan.orphan_queued_most(xs), Orphan.orphan_compaction_unended(xs), Orphan.orphan_unanswered_ms(xs)))
 
@@ -827,11 +973,11 @@ def oh.w_absent(w: Or.W) -> Nat:
       a
 
 # the folds' work is the declared work
-def oh.busy_eq(+ys: List<&2, Or.Ev>) -> {Orphan.orphan_busy(ys) == Orphan.orphan_declared_busy(ys) : Bool}:
+def oh.busy_eq(+ys: List<&2, Or.Ev>) -> {oh.folds_busy(ys) == Orphan.orphan_declared_busy(ys) : Bool}:
   Equal.cong(Or.W, Bool, w => oh.w_busy(w), oh.state(ys), Orphan.orphan_declared(ys), oh.agree(ys))
 
 # the folds' absence is the declared absence
-def oh.absent_eq(+ys: List<&2, Or.Ev>) -> {Orphan.orphan_absent(0n, ys) == Orphan.orphan_unanswered_ms(ys) : Nat}:
+def oh.absent_eq(+ys: List<&2, Or.Ev>) -> {oh.absent(0n, ys) == Orphan.orphan_unanswered_ms(ys) : Nat}:
   Equal.cong(Or.W, Nat, w => oh.w_absent(w), oh.state(ys), Orphan.orphan_declared(ys), oh.agree(ys))
 
 # The exit after one more event

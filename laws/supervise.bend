@@ -241,8 +241,11 @@ law restart_ffi_left_over:
 # R2: any other input answers exactly the error form: "supervise: input
 #     left over" when a whole request is followed by more input, else
 #     "supervise: malformed request".
-# The spellers and the reader below are built from the wire primitives
-# of bend/wire.bend only, never from the entry's put_*/get_*.
+# The spellers below are built from the wire primitives of bend/wire.bend
+# only, never from the entry's put_*/get_*. R1 is
+# restart_ffi_answers_spelled; R2 is restart_ffi_left_over_spelled and
+# restart_ffi_malformed_unless_request; together they pin the entry's
+# answer to every input.
 
 # the configuration: give up after k, the window w, the base pause b, the
 # longest pause m
@@ -389,6 +392,21 @@ law restart_ffi_left_over_spelled:
   for fits: {rs_req_fits(q) == True{} : Bool}
   for some: {String.is_empty(more) == False{} : Bool}
   {FS.ffi(rs_spell_req(q, more)) == rs_left_over() : String}
+
+# LAW restart_ffi_malformed_unless_request: every answer but the error form "supervise: malformed
+# request" comes from an input that begins with a request Rust writes (every number within the
+# wire); with restart_ffi_answers_spelled and restart_ffi_left_over_spelled this pins the entry's
+# answer to every input
+# EXCLUDES: a lenient reader (a leading zero, a list shorter than its
+#   count, a missing gap, a number past the wire accepted) answering a
+#   verdict or the left-over error, a default verdict on garbage, the
+#   malformed error spelled with another text
+law restart_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FS.ffi(s), rs_malformed()) == False{} : Bool}
+  exs q: FS.Req
+  exs rest: String
+  {(s, rs_req_fits(q)) == (rs_spell_req(q, rest), True{}) : String & Bool}
 
 # LAW restart_ffi_tags_example: anchor: the bytes Rust sends and reads: a failure 3 ms after two
 # failures (ages 5 and 98) with give-up after 2 in a 100 ms window, base pause 10, cap 50: the old
