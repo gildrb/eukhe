@@ -13,8 +13,8 @@ use eukhe_types::pi_ai::{
 use serde_json::json;
 
 use super::{
-    billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
-    CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
+    adaptive_only_thinking, billing, get_anthropic_compat, model_compat, AnthropicOptions,
+    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
 use crate::api::cache_breakpoints::{
     has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
@@ -26,6 +26,7 @@ use crate::api::simple_options::thinking_budget_for_level;
 use crate::api::tool_result_content::sent_blocks;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
+use crate::quirks::Quirks;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -1050,13 +1051,23 @@ pub(crate) fn build_params(
         None
     };
     if !mid_convo_effort && model.reasoning {
+        let quirks = Quirks::of(model);
         if options.thinking_enabled == Some(true) {
             if adaptive_thinking(model) {
-                params.insert(
-                    "thinking".into(),
-                    json!({ "type": "adaptive", "display": display }),
-                );
-                if let Some(effort) = options.effort.as_ref().filter(|effort| !effort.is_empty()) {
+                // omp `buildParams`: `display` only where the model takes
+                // it (Claude 4.7 and later; 4.6 rejects it with a 400).
+                let mut thinking = json!({ "type": "adaptive" });
+                if quirks.thinking_display() == Some(true) {
+                    thinking["display"] = display.into();
+                }
+                params.insert("thinking".into(), thinking);
+                // `adaptive`: the thinking tag is the only control
+                // (MiniMax), no effort.
+                if let Some(effort) = options
+                    .effort
+                    .as_ref()
+                    .filter(|effort| !effort.is_empty() && *effort != ADAPTIVE_TAG_EFFORT)
+                {
                     params.insert("output_config".into(), json!({ "effort": effort }));
                 }
             } else {
@@ -1070,12 +1081,31 @@ pub(crate) fn build_params(
                     "thinking".into(),
                     json!({ "type": "enabled", "budget_tokens": budget, "display": display }),
                 );
+                // omp `anthropic-budget-effort` (Opus 4.5): the level rides
+                // along as the effort.
+                if let Some(effort) = options
+                    .effort
+                    .as_ref()
+                    .filter(|effort| !effort.is_empty() && quirks.budget_effort() == Some(true))
+                {
+                    params.insert("output_config".into(), json!({ "effort": effort }));
+                }
             }
-        } else if options.thinking_enabled == Some(false)
-            && thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
+        } else if options.thinking_enabled == Some(false) {
+            if quirks.between_tools_thinking() == Some(true) {
+                // omp: Sonnet 5.5 rejects `disabled`; `between_tools` is
+                // its lowest setting and pins no effort.
+                params.insert("thinking".into(), json!({ "type": "between_tools" }));
+            } else if adaptive_only_thinking(model) && quirks.disabled_thinking() != Some(true) {
+                // omp: an adaptive-only model rejects `disabled`; an
+                // omitted `thinking` is adaptive, so the lowest effort is
+                // pinned.
+                params.insert("output_config".into(), json!({ "effort": "low" }));
+            } else if thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
                 != Some(&None)
-        {
-            params.insert("thinking".into(), json!({ "type": "disabled" }));
+            {
+                params.insert("thinking".into(), json!({ "type": "disabled" }));
+            }
         }
     }
 

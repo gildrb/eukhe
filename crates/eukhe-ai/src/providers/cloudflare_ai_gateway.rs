@@ -3,13 +3,36 @@
 
 use eukhe_types::pi_ai::IndexMap;
 
+use super::api_route::moved_streams;
 use super::cloudflare_ai_gateway_models::CLOUDFLARE_AI_GATEWAY_MODELS;
 use super::cloudflare_auth::cloudflare_ai_gateway_auth;
 use super::cloudflare_stream::cloudflare_streams;
 use super::{builtin_baseline, chat_models};
-use crate::api::builtin::{anthropic_messages_api, openai_completions_api, openai_responses_api};
+use crate::api::builtin::{anthropic_messages_api, openai_completions_api};
 use crate::auth::ProviderAuth;
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
+use crate::types::{MaxTokensField, Model, ModelCompat, OpenAICompletionsCompat};
+
+/// omp's `api-routes provider="cloudflare-ai-gateway"`: the gateway's
+/// `openai/` namespace rides chat completions (`route "openai-completions"
+/// prefix="openai/" strip-prefix=#true`, `runtime/behavior.kdl:137-141`) at
+/// the `OpenAI` endpoint (`registry/cloudflare-ai-gateway.ts:57-82`). The
+/// catalog's `OpenAI` models (bare ids at `/openai`) name `openai-responses`;
+/// every request of them goes out as an `OpenAI` chat-completions request:
+/// `store: false`, `reasoning_effort`, `max_completion_tokens`, the
+/// `system` role.
+fn openai_chat_completions(model: &Model) -> Model {
+    let mut routed = model.clone();
+    "openai-completions".clone_into(&mut routed.api);
+    routed.compat = Some(ModelCompat::OpenAICompletions(OpenAICompletionsCompat {
+        supports_store: Some(true),
+        supports_developer_role: Some(false),
+        supports_reasoning_effort: Some(true),
+        max_tokens_field: Some(MaxTokensField::MaxCompletionTokens),
+        ..OpenAICompletionsCompat::default()
+    }));
+    routed
+}
 
 /// TS `cloudflareAIGatewayProvider()`.
 ///
@@ -40,7 +63,10 @@ pub fn cloudflare_ai_gateway_provider() -> Provider {
             ),
             (
                 "openai-responses".to_owned(),
-                cloudflare_streams(openai_responses_api()),
+                cloudflare_streams(moved_streams(
+                    openai_completions_api(),
+                    openai_chat_completions,
+                )),
             ),
         ]))),
         ..CreateProviderOptions::default()

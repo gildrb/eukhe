@@ -109,6 +109,11 @@ pub struct OpenAICompletionsCompat {
     /// Whether z.ai supports top-level `tool_stream: true`. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zai_tool_stream: Option<bool>,
+    /// Sent as `thinking.keep` next to an enabled `thinking` object of the
+    /// `deepseek` thinking format (Moonshot Kimi preserved thinking: `"all"`
+    /// keeps the reasoning of every earlier turn). Default: not sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_keep: Option<String>,
     /// Top-level request field used to cap reasoning tokens from `thinkingBudgets`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_token_budget_field: Option<ThinkingTokenBudgetField>,

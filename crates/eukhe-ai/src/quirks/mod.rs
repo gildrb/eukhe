@@ -239,6 +239,15 @@ pub enum Directive {
     /// so the output cap is never shrunk to fit the window. No rule: it
     /// does not.
     StopsOutputAtWindow,
+    /// `OpenAI` Responses: the host accepts `reasoning.summary` (omp
+    /// `supportsReasoningSummary`; `api.x.ai` rejects it). No rule: it
+    /// does.
+    ReasoningSummary,
+    /// `OpenAI` Responses (and its Azure and Codex dialects): thinking off
+    /// sends `reasoning.effort: "none"` (omp `reasoning-disable-mode
+    /// none-effort`, the GPT-5.6 generation on `OpenAI`). No rule: off
+    /// sends the lowest effort the model offers (omp `lowest-effort`).
+    ReasoningOffNone,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -286,6 +295,8 @@ impl Directive {
         Self::EncryptedReasoning,
         Self::ReasoningContentSignature,
         Self::StopsOutputAtWindow,
+        Self::ReasoningSummary,
+        Self::ReasoningOffNone,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -339,6 +350,8 @@ impl Directive {
             Self::EncryptedReasoning => "encrypted_reasoning",
             Self::ReasoningContentSignature => "reasoning_content_signature",
             Self::StopsOutputAtWindow => "stops_output_at_window",
+            Self::ReasoningSummary => "reasoning_summary",
+            Self::ReasoningOffNone => "reasoning_off_none",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -406,7 +419,9 @@ impl Directive {
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
             | Self::ReasoningContentSignature
-            | Self::StopsOutputAtWindow => None,
+            | Self::StopsOutputAtWindow
+            | Self::ReasoningSummary
+            | Self::ReasoningOffNone => None,
         }
     }
 
@@ -442,7 +457,9 @@ impl Directive {
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
             | Self::ReasoningContentSignature
-            | Self::StopsOutputAtWindow => ValueKind::Bool,
+            | Self::StopsOutputAtWindow
+            | Self::ReasoningSummary
+            | Self::ReasoningOffNone => ValueKind::Bool,
             Self::DeveloperRolePrefixes | Self::AnthropicCacheControlPrefixes => {
                 ValueKind::Prefixes
             }
@@ -1876,6 +1893,18 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn encrypted_reasoning(&self) -> Option<bool> {
         self.flag(Directive::EncryptedReasoning)
+    }
+
+    /// [`Directive::ReasoningSummary`].
+    #[must_use]
+    pub fn reasoning_summary(&self) -> Option<bool> {
+        self.flag(Directive::ReasoningSummary)
+    }
+
+    /// [`Directive::ReasoningOffNone`].
+    #[must_use]
+    pub fn reasoning_off_none(&self) -> Option<bool> {
+        self.flag(Directive::ReasoningOffNone)
     }
 
     /// [`Directive::ReasoningContentSignature`].

@@ -1,119 +1,19 @@
-//! Port of the `anthropic-messages` halves of `test/fireworks-models.test.ts`
-//! (the catalog halves live in `fireworks_models.rs`): the native-effort and
-//! toggle-only payload assertions and the "Anthropic-compatible session
-//! affinity and tool compat" suite.
+//! Port of the "Anthropic-compatible session affinity and tool compat" suite
+//! of `test/fireworks-models.test.ts` (an Anthropic-compatible Fireworks
+//! model built here; the catalog's Fireworks models are chat-completions
+//! as in omp, their payloads are checked in the `openai-completions`
+//! module's `omp_wire` tests).
 //!
-//! The TS `onPayload` throws "payload captured" to stop before the request;
-//! here it records the payload and the fetch mock answers instead. The TS
-//! local HTTP server that captures the request (and answers an empty SSE
-//! body) is the fetch mock.
+//! The TS local HTTP server that captures the request (and answers an empty
+//! SSE body) is the fetch mock.
 
 mod anthropic_support;
 
-use std::sync::{Arc, Mutex, PoisonError};
-
-use anthropic_support::{
-    context, minimal_sse, mock_fetch, requests, CapturedRequest, MockResponse,
-};
-use eukhe_ai::api::anthropic_messages::{stream, stream_simple};
-use eukhe_ai::providers::all::get_builtin_model;
-use eukhe_ai::types::{OnPayload, ProviderStreamOptions, SimpleStreamOptions};
-use eukhe_types::pi_ai::{CacheRetention, JsonValue, Model, ThinkingLevel};
+use anthropic_support::{context, mock_fetch, requests, CapturedRequest, MockResponse};
+use eukhe_ai::api::anthropic_messages::stream;
+use eukhe_ai::types::ProviderStreamOptions;
+use eukhe_types::pi_ai::{CacheRetention, Model};
 use serde_json::{json, Value};
-
-// --- Fireworks models (payload halves) ---
-
-/// The `onPayload` params of one `streamSimple` call.
-async fn simple_payload(model: &Model, reasoning: Option<&str>) -> Value {
-    let captured: Arc<Mutex<Option<JsonValue>>> = Arc::default();
-    let sink = Arc::clone(&captured);
-    let on_payload: OnPayload<Model> = Arc::new(move |payload, _model| {
-        *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(payload);
-        Box::pin(async { Ok(None) })
-    });
-    let (fetch, _) = mock_fetch(minimal_sse());
-    let mut options = SimpleStreamOptions::default();
-    options.stream.request.api_key = Some("test-fireworks-key".into());
-    options.stream.request.fetch = Some(fetch);
-    options.stream.request.on_payload = Some(on_payload);
-    options.reasoning = reasoning.map(|level| {
-        serde_json::from_value::<ThinkingLevel>(json!(level)).expect("thinking level")
-    });
-    let context =
-        context(&json!({ "messages": [{ "role": "user", "content": "test", "timestamp": 0 }] }));
-    stream_simple(model, &context, &options).result().await;
-    let payload = captured
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    payload.expect("payload captured")
-}
-
-/// Regression for #9323: native effort must reach Messages without
-/// budget-based fallback.
-async fn sends_native_messages_effort_levels_for(model_id: &str, levels: &[&str]) {
-    let model = get_builtin_model("fireworks", model_id).expect("fireworks model");
-    for level in levels {
-        let payload = simple_payload(&model, (*level != "off").then_some(*level)).await;
-        let (thinking, output_config) = if *level == "off" {
-            (json!({ "type": "disabled" }), None)
-        } else {
-            (
-                json!({ "type": "adaptive", "display": "summarized" }),
-                Some(json!({ "effort": level })),
-            )
-        };
-        assert_eq!(payload["thinking"], thinking, "{model_id} {level}");
-        assert_eq!(
-            payload.get("output_config").cloned(),
-            output_config,
-            "{model_id} {level}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn sends_native_messages_effort_levels_for_deepseek_v4p1_flash() {
-    sends_native_messages_effort_levels_for(
-        "accounts/fireworks/models/deepseek-v4p1-flash",
-        &["off", "low", "high", "max"],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn sends_native_messages_effort_levels_for_qwen3p8_max() {
-    sends_native_messages_effort_levels_for(
-        "accounts/fireworks/models/qwen3p8-max",
-        &["off", "low", "medium", "xhigh"],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn sends_native_messages_effort_levels_for_qwen3p8_2p4t_a95b() {
-    sends_native_messages_effort_levels_for(
-        "accounts/fireworks/models/qwen3p8-2p4t-a95b",
-        &["off", "low", "medium", "xhigh"],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn keeps_toggle_only_messages_models_without_a_verified_fallback_on_budget_based_thinking() {
-    let model = get_builtin_model(
-        "fireworks",
-        "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
-    )
-    .expect("fireworks model");
-    let payload = simple_payload(&model, Some("high")).await;
-
-    assert_eq!(
-        payload["thinking"],
-        json!({ "type": "enabled", "budget_tokens": 16384, "display": "summarized" })
-    );
-    assert_eq!(payload.get("output_config"), None);
-}
 
 // --- Anthropic-compatible session affinity and tool compat ---
 

@@ -49,9 +49,11 @@ async fn sends_adaptive_thinking_payload_when_compat_force_adaptive_thinking_is_
     )
     .await;
 
+    // omp sends `display` only to adaptive Claude 4.7 and later (catalog
+    // `compat/resolve.ts` `defaultSupportsDisplay`).
     assert_eq!(
         payload.get("thinking"),
-        Some(&json!({ "type": "adaptive", "display": "summarized" }))
+        Some(&json!({ "type": "adaptive" }))
     );
     assert_eq!(
         payload.get("output_config"),
@@ -88,9 +90,10 @@ async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding(
     )
     .await;
 
+    // omp: Kimi rejects `display`.
     assert_eq!(
         payload.get("thinking"),
-        Some(&json!({ "type": "adaptive", "display": "summarized" }))
+        Some(&json!({ "type": "adaptive" }))
     );
     assert_eq!(
         payload.get("output_config"),
@@ -142,17 +145,20 @@ async fn allows_built_in_adaptive_models_to_opt_out_with_compat_force_adaptive_t
     assert_eq!(payload.get("output_config"), None);
 }
 
+/// omp: an adaptive model rejects `thinking: {type: disabled}`; off omits
+/// `thinking` and pins the lowest effort (`ai/providers/anthropic.ts`
+/// `isAdaptiveOnlyThinking`).
 #[tokio::test]
-async fn preserves_thinking_type_disabled_when_reasoning_is_off_regardless_of_override() {
+async fn omits_thinking_and_pins_the_lowest_effort_when_reasoning_is_off_under_the_override() {
     let payload = capture_simple_payload(
         &make_custom_model(Some(json!({ "forceAdaptiveThinking": true }))),
         SimpleStreamOptions::default(),
     )
     .await;
 
+    assert_eq!(payload.get("thinking"), None);
     assert_eq!(
-        payload.get("thinking"),
-        Some(&json!({ "type": "disabled" }))
+        payload.get("output_config"),
+        Some(&json!({ "effort": "low" }))
     );
-    assert_eq!(payload.get("output_config"), None);
 }

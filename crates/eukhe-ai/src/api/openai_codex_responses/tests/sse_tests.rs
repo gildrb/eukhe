@@ -606,6 +606,49 @@ async fn clamps_minimal_reasoning_effort_to_low() {
     }
 }
 
+/// Thinking off on Codex sends the lowest offered effort with its summary
+/// (omp `reasoning-disable-mode lowest-effort`, `request-transformer.ts:483-492`;
+/// the Codex catalog rules set no `none-effort`), also for a map whose
+/// `off` is `none`.
+#[tokio::test]
+async fn sends_the_lowest_effort_with_its_summary_when_thinking_is_off() {
+    let cases = [
+        (
+            get_builtin_model("openai-codex", "gpt-6-luna").expect("catalog model"),
+            json!({ "effort": "low", "summary": "auto" }),
+        ),
+        (
+            get_builtin_model("openai-codex", "gpt-6-sol").expect("catalog model"),
+            json!({ "effort": "low", "summary": "auto" }),
+        ),
+        (
+            model_with(
+                json!({ "id": "gpt-5.5", "name": "gpt-5.5", "thinkingLevelMap": { "off": "none", "minimal": null } }),
+            ),
+            json!({ "effort": "low", "summary": "auto" }),
+        ),
+    ];
+    for (model, expected) in cases {
+        let _isolation = isolate().await;
+        let (fetch, calls) = completed_fetch();
+
+        stream(
+            &model,
+            &say_hello(),
+            provider_options(sse_options(fetch), json!({})),
+        )
+        .result()
+        .await;
+
+        assert_eq!(
+            last_body(&calls.calls())["reasoning"],
+            expected,
+            "{}",
+            model.id
+        );
+    }
+}
+
 #[tokio::test]
 async fn uses_the_client_sent_service_tier_when_codex_echoes_default() {
     for (model_id, service_tier, multiplier) in [

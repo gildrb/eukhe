@@ -492,8 +492,10 @@ async fn replays_xiaomi_mimo_assistant_tool_calls_with_empty_reasoning_content_w
         replayed_assistant,
         &json!({ "role": "assistant", "reasoning_content": "" }),
     );
+    // omp: MiMo on the Xiaomi hosts takes the thinking object alone
+    // (catalog `compat/resolve.ts` `supportsReasoningEffort: !isXiaomiMimo`).
     assert_eq!(params["thinking"], json!({ "type": "enabled" }));
-    assert_eq!(params["reasoning_effort"], json!("high"));
+    assert!(params.get("reasoning_effort").is_none());
 }
 
 #[tokio::test]
@@ -559,6 +561,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         chat_template_kwargs: IndexMap::new(),
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
+        thinking_keep: None,
         supports_thinking_token_budget: None,
         thinking_token_budget_field: None,
         supports_strict_mode: true,
@@ -603,17 +606,21 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
     assert!(messages[0].get("reasoning").is_none());
 }
 
+/// omp: the `OpenCode` hosts speak the openai dialect (catalog
+/// `compat/resolve.ts`: the thinking object is for Moonshot-native Kimi,
+/// Z.AI, Zhipu and Xiaomi `MiMo` only), so Kimi K2.6 there sends no
+/// thinking object; off is its lowest offered effort.
 #[tokio::test]
-async fn sends_thinking_disabled_for_opencode_kimi_k2_6_when_thinking_is_off() {
+async fn sends_the_lowest_effort_for_opencode_kimi_k2_6_when_thinking_is_off() {
     let model = catalog_model("opencode", "kimi-k2.6");
     let params = simple_payload(&model, &ctx("Hi", None, None), simple_options()).await;
 
-    assert_eq!(params["thinking"], json!({ "type": "disabled" }));
-    assert!(params.get("reasoning_effort").is_none());
+    assert!(params.get("thinking").is_none());
+    assert_eq!(params["reasoning_effort"], json!("minimal"));
 }
 
 #[tokio::test]
-async fn sends_thinking_enabled_for_opencode_kimi_k2_6_when_thinking_is_enabled() {
+async fn sends_reasoning_effort_alone_for_opencode_kimi_k2_6_when_thinking_is_enabled() {
     let model = catalog_model("opencode", "kimi-k2.6");
     let params = simple_payload(
         &model,
@@ -622,8 +629,8 @@ async fn sends_thinking_enabled_for_opencode_kimi_k2_6_when_thinking_is_enabled(
     )
     .await;
 
-    assert_eq!(params["thinking"], json!({ "type": "enabled" }));
-    assert!(params.get("reasoning_effort").is_none());
+    assert!(params.get("thinking").is_none());
+    assert_eq!(params["reasoning_effort"], json!("high"));
 }
 
 #[tokio::test]
@@ -664,12 +671,26 @@ async fn assert_sends_max_tokens(model: &crate::types::Model) {
     );
 }
 
+/// omp: the `OpenCode` hosts take `max_completion_tokens` (catalog
+/// `compat/resolve.ts` `useMaxTokens` does not name them; only the Go
+/// gateway's `DeepSeek` V4 Flash/Pro lanes take `max_tokens`,
+/// `providers/opencode-go.kdl`).
 #[tokio::test]
-async fn sends_max_tokens_for_opencode_completions_models() {
+async fn sends_max_completion_tokens_for_opencode_completions_models() {
     for model in [
         catalog_model("opencode-go", "kimi-k3"),
         catalog_model("opencode", "kimi-k2.6"),
     ] {
+        assert_eq!(
+            compat_json(&model)["maxTokensField"],
+            json!("max_completion_tokens")
+        );
+        let params = simple_payload(&model, &ctx("Hi", None, None), max_tokens_options()).await;
+        assert_eq!(params["max_completion_tokens"], json!(123), "{}", model.id);
+        assert!(params.get("max_tokens").is_none(), "{}", model.id);
+    }
+    for model_id in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let model = catalog_model("opencode-go", model_id);
         assert_eq!(compat_json(&model)["maxTokensField"], json!("max_tokens"));
         assert_sends_max_tokens(&model).await;
     }

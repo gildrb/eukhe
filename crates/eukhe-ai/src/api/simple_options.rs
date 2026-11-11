@@ -105,8 +105,8 @@ pub fn resolve_sampling_params(
 /// window (never for a model the provider stops at the window); `None`
 /// (the field omitted: the provider's own max applies) only without a
 /// caller's cap, for a wire API that does not require the field (all but
-/// Anthropic Messages and Claude on Bedrock), when the catalog's max is not
-/// below the window (the max is unknown).
+/// Anthropic Messages, Claude on Bedrock and Kimi on chat completions),
+/// when the catalog's max is not below the window (the max is unknown).
 ///
 /// Every other field is copied from `options.stream`; this includes the
 /// eukhe addition `service_tier`.
@@ -129,9 +129,11 @@ pub fn build_base_options(
         Some(KnownApi::BedrockConverseStream) => {
             crate::api::bedrock_converse_stream::convert::is_anthropic_claude_model(model)
         }
+        Some(KnownApi::OpenAICompletions) => {
+            crate::api::openai_completions::compat::always_sends_max_tokens(model)
+        }
         Some(
-            KnownApi::OpenAICompletions
-            | KnownApi::MistralConversations
+            KnownApi::MistralConversations
             | KnownApi::OpenAIResponses
             | KnownApi::AzureOpenAIResponses
             | KnownApi::OpenAICodexResponses

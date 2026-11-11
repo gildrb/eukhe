@@ -31,6 +31,8 @@ pub(crate) struct ResolvedCompat {
     pub(crate) chat_template_kwargs: IndexMap<String, ChatTemplateKwargValue>,
     pub(crate) chat_template_args: IndexMap<String, ChatTemplateKwargValue>,
     pub(crate) zai_tool_stream: bool,
+    /// `thinking.keep` sent with an enabled `deepseek`-format `thinking`.
+    pub(crate) thinking_keep: Option<String>,
     pub(crate) supports_thinking_token_budget: Option<bool>,
     pub(crate) thinking_token_budget_field: Option<ThinkingTokenBudgetField>,
     pub(crate) supports_strict_mode: bool,
@@ -88,6 +90,14 @@ fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
     })
 }
 
+/// omp: a Kimi model always sends its output cap (catalog
+/// `compat/resolve.ts` `alwaysSendMaxTokens: facts.is("kimi")`, applied in
+/// `ai/src/providers/openai-shared.ts` `resolveOpenAIOutputTokenParam`),
+/// even where the cap would otherwise be left to the provider.
+pub(crate) fn always_sends_max_tokens(model: &Model) -> bool {
+    model.id.to_ascii_lowercase().contains("kimi")
+}
+
 /// The settings the quirks rulebook gives the model's host (provider id,
 /// else base URL); a setting no rule gives takes the standard
 /// OpenAI-compatible default. Used as the base when `model.compat` is not
@@ -117,6 +127,7 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
         chat_template_kwargs: IndexMap::new(),
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
+        thinking_keep: None,
         supports_thinking_token_budget: Some(false),
         thinking_token_budget_field: None,
         // OpenAI compatibility alone does not imply strict JSON-schema tool support.
@@ -181,6 +192,7 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .clone()
             .unwrap_or(detected.chat_template_args),
         zai_tool_stream: compat.zai_tool_stream.unwrap_or(detected.zai_tool_stream),
+        thinking_keep: compat.thinking_keep.clone(),
         supports_thinking_token_budget: compat
             .supports_thinking_token_budget
             .or(detected.supports_thinking_token_budget),

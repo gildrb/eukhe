@@ -23,13 +23,13 @@ use super::openai_sdk::{
 use super::simple_options::{build_base_options, resolve_sampling_params};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
-use crate::models::{clamp_thinking_level, thinking_level_map};
+use crate::models::{clamp_thinking_level, get_supported_thinking_levels, thinking_level_map};
 use crate::quirks::Quirks;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
     Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders, ProviderResponse,
-    ProviderStreamOptions, SimpleStreamOptions, StopReason, ThinkingLevel, TranscriptContext,
-    Usage,
+    ProviderStreamOptions, SimpleStreamOptions, StopReason, ThinkingFormat, ThinkingLevel,
+    TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -349,6 +349,7 @@ fn build_params(
         }
     }
     params.insert("store".to_owned(), json!(false));
+    insert_anthropic_cache_control(model, cache_retention, &mut params);
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
         if compat.supports_max_output_tokens && !omit_unsupported_fields {
@@ -390,7 +391,7 @@ fn build_params(
         let quirks = Quirks::of(model);
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else if model_facts::flag(quirks.reasoning_off_field(), true) {
+        } else {
             insert_reasoning_off(model, &mut params);
         }
         if model_facts::flag(quirks.encrypted_reasoning(), false) {
@@ -424,6 +425,9 @@ pub(crate) fn reasoning_effort_of(api: &OpenAIResponsesOptions) -> Option<Thinki
 }
 
 /// The `reasoning` (and `include`) of a request with a reasoning effort.
+/// A host that rejects `reasoning.summary` (the rulebook's
+/// `reasoning_summary`) gets the effort alone (omp
+/// `resolveReasoningSummaryOption`, `openai-shared.ts:4264-4270`).
 pub(crate) fn insert_reasoning(
     model: &Model,
     api: &OpenAIResponsesOptions,
@@ -437,31 +441,104 @@ pub(crate) fn insert_reasoning(
             .unwrap_or_else(|| requested.as_str().to_owned()),
         None => effort.as_str().to_owned(),
     };
-    let summary = api
-        .reasoning_summary
-        .as_deref()
-        .filter(|summary| !summary.is_empty())
-        .unwrap_or("auto");
-    params.insert(
-        "reasoning".to_owned(),
-        json!({ "effort": effort, "summary": summary }),
-    );
+    let reasoning = if model_facts::flag(Quirks::of(model).reasoning_summary(), true) {
+        let summary = api
+            .reasoning_summary
+            .as_deref()
+            .filter(|summary| !summary.is_empty())
+            .unwrap_or("auto");
+        json!({ "effort": effort, "summary": summary })
+    } else {
+        json!({ "effort": effort })
+    };
+    params.insert("reasoning".to_owned(), reasoning);
     params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
 }
 
-/// The `reasoning` of a request without a reasoning effort: the model's
-/// `off` level (default `"none"`), unless the map marks `off` unsupported.
-pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
-    let off = thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off));
-    match off {
-        Some(None) => {}
-        Some(Some(value)) => {
-            params.insert("reasoning".to_owned(), json!({ "effort": value }));
-        }
-        None => {
-            params.insert("reasoning".to_owned(), json!({ "effort": "none" }));
-        }
+/// The `reasoning.effort` of a request without a reasoning effort
+/// (thinking off), after omp's reasoning disable modes
+/// (`catalog/src/compat/resolve.ts:301-318`,
+/// `ai/src/providers/openai-shared.ts:1064-1080`): the model's `off` wire
+/// value when it names an effort; `"none"` when the rulebook's
+/// `reasoning_off_none` marks the model (omp `none-effort`); else the
+/// wire value of the lowest level the model offers (omp `lowest-effort`,
+/// the Responses default). `None` when the map marks `off` unsupported.
+pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
+    let map = thinking_level_map(model);
+    let off = match map.and_then(|map| map.get(&ModelThinkingLevel::Off)) {
+        Some(None) => return None,
+        Some(Some(value)) => value.as_str(),
+        None => "none",
+    };
+    if off != "none" || model_facts::flag(Quirks::of(model).reasoning_off_none(), false) {
+        return Some(off.to_owned());
     }
+    let Some(lowest) = get_supported_thinking_levels(model)
+        .into_iter()
+        .find(|level| *level != ModelThinkingLevel::Off)
+    else {
+        return Some(off.to_owned());
+    };
+    Some(
+        map.and_then(|map| map.get(&lowest))
+            .cloned()
+            .flatten()
+            .unwrap_or_else(|| lowest.as_str().to_owned()),
+    )
+}
+
+/// The `reasoning` of a request without a reasoning effort
+/// ([`reasoning_off_effort`]). A host without the explicit off (the
+/// rulebook's `reasoning_off_field`) gets no `reasoning` for `"none"`.
+/// `OpenRouter` (the rulebook's `thinking_format: openrouter`) turns
+/// reasoning off with `reasoning: {enabled: false}` (omp
+/// `openrouter-enabled-false`, `catalog/src/compat/resolve.ts:305-306`,
+/// `ai/src/providers/openai-shared.ts:4302-4306`).
+pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
+    let Some(effort) = reasoning_off_effort(model) else {
+        return;
+    };
+    let quirks = Quirks::of(model);
+    if quirks.thinking_format() == Some(ThinkingFormat::OpenRouter) {
+        params.insert("reasoning".to_owned(), json!({ "enabled": false }));
+        return;
+    }
+    if effort == "none" && !model_facts::flag(quirks.reasoning_off_field(), true) {
+        return;
+    }
+    params.insert("reasoning".to_owned(), json!({ "effort": effort }));
+}
+
+/// `OpenRouter`'s Anthropic models (the rulebook's
+/// `anthropic_cache_control_prefixes`) get a top-level `cache_control`
+/// while caching is on (omp `maybeAddOpenRouterAnthropicCacheControl`,
+/// `ai/src/providers/openai-responses.ts:674-682`; `cacheControlFormat:
+/// "anthropic"` for `OpenRouter`'s Anthropic models,
+/// `catalog/src/compat/resolve.ts:815`).
+fn insert_anthropic_cache_control(
+    model: &Model,
+    cache_retention: CacheRetention,
+    params: &mut JsonObject,
+) {
+    if cache_retention == CacheRetention::None {
+        return;
+    }
+    let anthropic = Quirks::of(model)
+        .anthropic_cache_control_prefixes()
+        .is_some_and(|prefixes| {
+            prefixes
+                .iter()
+                .any(|prefix| model.id.starts_with(prefix.as_str()))
+        });
+    if !anthropic {
+        return;
+    }
+    let cache_control = if cache_retention == CacheRetention::Long {
+        json!({ "type": "ephemeral", "ttl": "1h" })
+    } else {
+        json!({ "type": "ephemeral" })
+    };
+    params.insert("cache_control".to_owned(), cache_control);
 }
 
 fn new_output(model: &Model) -> AssistantMessage {

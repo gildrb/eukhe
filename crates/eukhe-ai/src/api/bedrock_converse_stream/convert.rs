@@ -591,15 +591,46 @@ fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool 
     model_id.starts_with("us-gov.") || model_id.starts_with("arn:aws-us-gov:")
 }
 
+/// The fields of a reasoning model with thinking off (omp
+/// `amazon-bedrock.ts`). A model that takes the explicit disabled form
+/// (the rulebook's `disabled_thinking`: Claude Haiku 5.5) sends it with
+/// the lowest effort. A prefix-bound model thinks adaptively when no
+/// thinking field is sent, so it still binds its signed thinking (omp
+/// `applyBedrockThinkingBinding` on no fields). Every other model sends
+/// nothing.
+fn thinking_off_fields(model: &Model, options: &BedrockOptions) -> Option<JsonValue> {
+    let quirks = Quirks::of(model);
+    if quirks.disabled_thinking() == Some(true) {
+        return Some(json!({
+            "thinking": { "type": "disabled" },
+            "output_config": { "effort": "low" },
+        }));
+    }
+    // GovCloud Bedrock rejects the block binding.
+    let bound = !is_gov_cloud_bedrock_target(model, options)
+        && model_facts::flag(quirks.thinking_block_binding(), false);
+    bound.then(|| {
+        json!({
+            "thinking": {
+                "type": "adaptive",
+                "block_binding": { "prefix_mismatch_behavior": "drop_block" },
+            },
+            "anthropic_beta": [THINKING_BINDING_CONTROLS_BETA],
+        })
+    })
+}
+
 /// TS `buildAdditionalModelRequestFields`.
 pub(crate) fn build_additional_model_request_fields(
     model: &Model,
     options: &BedrockOptions,
 ) -> Option<JsonValue> {
-    let reasoning = options.reasoning?;
     if !model.reasoning {
         return None;
     }
+    let Some(reasoning) = options.reasoning else {
+        return thinking_off_fields(model, options);
+    };
     let fields = model_facts::reasoning(
         Quirks::of(model).bedrock_reasoning(),
         map_entry(model, ModelThinkingLevel::from(reasoning)),
@@ -633,11 +664,15 @@ pub(crate) fn build_additional_model_request_fields(
     let adaptive = adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
+        let quirks = Quirks::of(model);
         let use_block_binding =
-            !is_gov_cloud && model_facts::flag(Quirks::of(model).thinking_block_binding(), false);
+            !is_gov_cloud && model_facts::flag(quirks.thinking_block_binding(), false);
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
-        if let Some(display) = display {
+        // omp sends `display` only where the model takes it (the rulebook's
+        // `thinking_display`: adaptive Claude 4.7 and later; Opus 4.6 does
+        // not).
+        if let Some(display) = display.filter(|_| quirks.thinking_display() == Some(true)) {
             thinking.insert("display".to_owned(), display.as_str().into());
         }
         if use_block_binding {
