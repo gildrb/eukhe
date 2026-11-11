@@ -17,11 +17,13 @@ import ./base.bend as LawsBase
 # bend/ffi_progress.bend, laws/progress.bend). Rust writes the events and
 # requests and fingerprints bytes: a tool call's name and arguments, a
 # result's tool name, content and error flag, the key of a call id, a
-# progress note's text. The entry decides the rest. The events below are
-# spelled from the primitives of bend/wire.bend, never with the entry's own
-# encoders; the readers are the laws' own. Every input is free: any
-# fingerprints, keys, ids, entries, views, pages, notes and checks, in any
-# order. The model is bend/progress.bend (`next`, `compared`).
+# progress note's text. The entry decides the rest. The events and
+# requests below are spelled from the primitives of bend/wire.bend, never
+# with the entry's own encoders; the replies as the Rust readers read them
+# (children/work.rs `send`, goals/state.rs `compared_call`). Every input is
+# free: any fingerprints, keys, ids, entries, views, pages, notes and
+# checks, in any order. The model is bend/progress.bend (`next`,
+# `compared`).
 #
 # W1: an act is a tool result with the call of its id that waited for it,
 #     or a progress note; text, thinking, user and system messages are no
@@ -71,7 +73,9 @@ def pe_answer.goal(g: Bool, +s: Nat, +w: Nat) -> String:
       Wr.put_nat(0n, "")
 
 # the reply: the last check's stalls and work when it was of the same run
-# and the same goal, else none (W7)
+# and the same goal, else none (W7); spelled as goals/state.rs
+# `compared_call` reads it: Some (1,) then stalls and work, or None (0,)
+# (the decision is W7's sentence itself)
 def pe_answer(m: Maybe<&2, Pr.Last>) -> String:
   match m:
     case None{}:
@@ -93,68 +97,6 @@ def pe_fits(m: Maybe<&2, Pr.Last>) -> Bool:
       match x:
         case Pr.Last{r, g, s, w}:
           Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(w))
-
-def pe_read.work(r: Bool, g: Bool, +n: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Pr.Last>>:
-  match d:
-    case Wr.Got{w, s}:
-      Wr.Got{Some{Pr.Last{r, g, n, w}}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def pe_read.stalls(r: Bool, g: Bool, d: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Pr.Last>>:
-  match d:
-    case Wr.Got{+n, s}:
-      pe_read.work(r, g, n, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def pe_read.goal(r: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Maybe<&2, Pr.Last>>:
-  match d:
-    case Wr.Got{g, s}:
-      pe_read.stalls(r, g, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def pe_read.run(d: Wr.Dec<Bool>) -> Wr.Dec<Maybe<&2, Pr.Last>>:
-  match d:
-    case Wr.Got{r, s}:
-      pe_read.goal(r, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def pe_read.tag(n: Nat, s: String) -> Wr.Dec<Maybe<&2, Pr.Last>>:
-  match n:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      pe_read.run(Wr.get_bool(s))
-    case 2n+q:
-      Wr.Bad{}
-
-def pe_read.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Pr.Last>>:
-  match r:
-    case Wr.Got{n, s}:
-      pe_read.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def pe_read.end(whole: Bool, m: Maybe<&2, Pr.Last>) -> Maybe<&2, Maybe<&2, Pr.Last>>:
-  match whole:
-    case True{}:
-      Some{m}
-    case False{}:
-      None{}
-
-def pe_read.whole(r: Wr.Dec<Maybe<&2, Pr.Last>>) -> Maybe<&2, Maybe<&2, Pr.Last>>:
-  match r:
-    case Wr.Got{m, s}:
-      pe_read.end(Wr.end(s), m)
-    case Wr.Bad{}:
-      None{}
-
-# the request s is, when s is exactly one request
-def pe_read(s: String) -> Maybe<&2, Maybe<&2, Pr.Last>>:
-  pe_read.whole(pe_read.go(Wr.get_nat(s)))
 
 # Spec helpers: the work ledger (the stepper)
 # -------------------------------------------
@@ -225,19 +167,42 @@ def wk_blks(bs: List<&2, Pr.Blk>, st: wk.S) -> wk.S:
     case b <> t:
       wk_blks(t, wk_blk(st, b))
 
-def wk_ent(st: wk.S, e: Pr.Ent) -> wk.S:
-  match st:
-    case wk.S{a, p, r, z}:
-      match e:
-        case Pr.Ent{i, bs}:
-          wk_blks(bs, wk.S{a, p, r, Some{i}})
-
-def wk_ents(es: List<&2, Pr.Ent>, st: wk.S) -> wk.S:
+# the blocks of the entries es, in order: each entry's blocks in turn
+def wk_flat(es: List<&2, Pr.Ent>) -> List<&2, Pr.Blk>:
   match es:
     case Nil{}:
-      st
+      Nil{}
     case e <> t:
-      wk_ents(t, wk_ent(st, e))
+      match e:
+        case Pr.Ent{i, bs}:
+          List.append(&2, Pr.Blk, bs, wk_flat(t))
+
+# the id of the last entry of es; z when es is empty
+def wk_final(es: List<&2, Pr.Ent>, z: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match es:
+    case Nil{}:
+      z
+    case e <> t:
+      match e:
+        case Pr.Ent{i, bs}:
+          wk_final(t, Some{i})
+
+def wk_last(st: wk.S) -> Maybe<&2, Nat>:
+  match st:
+    case wk.S{a, p, r, z}:
+      z
+
+# the ledger st, its last entry read set to z
+def wk_mark(st: wk.S, z: Maybe<&2, Nat>) -> wk.S:
+  match st:
+    case wk.S{a, p, r, y}:
+      wk.S{a, p, r, z}
+
+# the ledger after it read the entries es (W5): every block of them, in
+# order (one stream, not entry by entry); then the last of them is the
+# last entry read
+def wk_reads(+es: List<&2, Pr.Ent>, +st: wk.S) -> wk.S:
+  wk_mark(wk_blks(wk_flat(es), st), wk_final(es, wk_last(st)))
 
 # an entry of id i comes after the last entry read
 def wk_after(z: Maybe<&2, Nat>, +i: Nat) -> Bool:
@@ -252,26 +217,32 @@ def wk_id(e: Pr.Ent) -> Nat:
     case Pr.Ent{i, bs}:
       i
 
-def wk_last(st: wk.S) -> Maybe<&2, Nat>:
-  match st:
-    case wk.S{a, p, r, z}:
-      z
+# every id of xs is below i
+def wk_below(xs: List<&2, Nat>, +i: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      Bool.and(Nat.is_lt(x, i), wk_below(t, i))
 
-def wk_page.at(b: Bool, st: wk.S, e: Pr.Ent) -> wk.S:
+def wk_fresh.at(b: Bool, e: Pr.Ent, rest: List<&2, Pr.Ent>) -> List<&2, Pr.Ent>:
   match b:
     case True{}:
-      wk_ent(st, e)
+      e <> rest
     case False{}:
-      st
+      rest
 
-# a page reads the entries that come after the last entry read (W5)
-def wk_page(es: List<&2, Pr.Ent>, st: wk.S) -> wk.S:
+# the entries of the page es a ledger whose last entry read is z reads
+# (W5): each entry newer than z and than every entry before it in the page
+# (ids: the ids of the entries of the page before es). For a page in id
+# order: the entries newer than the last entry read.
+def wk_fresh(es: List<&2, Pr.Ent>, +z: Maybe<&2, Nat>, +ids: List<&2, Nat>) -> List<&2, Pr.Ent>:
   match es:
     case Nil{}:
-      st
+      Nil{}
     case +e <> t:
-      +s = st
-      wk_page(t, wk_page.at(wk_after(wk_last(s), wk_id(e)), s, e))
+      +i = wk_id(e)
+      wk_fresh.at(Bool.and(wk_after(z, i), wk_below(ids, i)), e, wk_fresh(t, z, i <> ids))
 
 def wk_same(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Bool:
   match a:
@@ -300,7 +271,8 @@ def wk_spell_at(m: Maybe<&2, Nat>, rest: String) -> String:
     case Some{x}:
       Wr.put_nat(1n, Wr.put_nat(x, rest))
 
-# an answer of the ledger as Rust reads it
+# an answer of the ledger as Rust reads it (children/work.rs `send`: tag
+# 0, then work, read and the last entry as a Maybe; tag 1: Again)
 def wk_spell_out(o: Pr.Out) -> String:
   match o:
     case Pr.Read{w, r, z}:
@@ -338,10 +310,12 @@ def wk_seen(st: wk.S, n: Nat) -> wk.S:
     case wk.S{a, p, r, z}:
       wk.S{a, p, Nat.add(r, n), z}
 
+# a view that still holds what the ledger read is read whole, and its
+# entries counted read; else the ledger starts over and answers Again (W5)
 def wk_view(b: Bool, +es: List<&2, Pr.Ent>, st: wk.S) -> wk.S & String:
   match b:
     case True{}:
-      wk_done(wk_seen(wk_ents(es, st), List.length(&2, Pr.Ent, es)))
+      wk_done(wk_seen(wk_reads(es, st), List.length(&2, Pr.Ent, es)))
     case False{}:
       (wk_start(), wk_spell_out(Pr.Again{}))
 
@@ -353,7 +327,7 @@ def wk_next(st: wk.S, e: Pr.Ev) -> wk.S & String:
         case Pr.View{at, es}:
           wk_view(wk_holds(r, at, z), es, wk.S{a, p, r, z})
         case Pr.Page{es}:
-          wk_done(wk_page(es, wk.S{a, p, r, z}))
+          wk_done(wk_reads(wk_fresh(es, z, Nil{}), wk.S{a, p, r, z}))
         case Pr.Note{x}:
           wk_done(wk.S{List.append(&2, Pr.Act, a, [Pr.ANote{x}]), p, r, z})
 
@@ -404,6 +378,11 @@ def wk_spell_ev(e: Pr.Ev, rest: String) -> String:
 def wk_spell_step(r: Pr.Led & Pr.Out) -> FW.St & String:
   (l, o) = r
   (FW.Live{l}, wk_spell_out(o))
+
+# the reply of a step
+def wk_reply(r: FW.St & String) -> String:
+  (st, out) = r
+  out
 
 def wk_blk_fits(b: Pr.Blk) -> Bool:
   match b:
@@ -477,168 +456,6 @@ def wk_feed(ins: List<&2, String>, r: FW.St & String) -> List<&2, String>:
       (st, out) = r
       out <> wk_feed(t, FW.step(st, i))
 
-# The laws' reader of an event
-# ----------------------------
-
-def wk_read_blk.res(+k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Blk>:
-  match r:
-    case Wr.Got{f, s}:
-      Wr.Got{Pr.Res{k, f}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_blk.call(+k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Blk>:
-  match r:
-    case Wr.Got{f, s}:
-      Wr.Got{Pr.Call{k, f}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_blk.rkey(r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Blk>:
-  match r:
-    case Wr.Got{+k, s}:
-      wk_read_blk.res(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_blk.ckey(r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Blk>:
-  match r:
-    case Wr.Got{+k, s}:
-      wk_read_blk.call(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_blk.tag(n: Nat, s: String) -> Wr.Dec<Pr.Blk>:
-  match n:
-    case 0n:
-      wk_read_blk.ckey(Wr.get_nat(s))
-    case 1n:
-      wk_read_blk.rkey(Wr.get_nat(s))
-    case 2n:
-      Wr.Got{Pr.Txt{}, s}
-    case 3n:
-      Wr.Got{Pr.Think{}, s}
-    case 4n:
-      Wr.Got{Pr.User{}, s}
-    case 5n:
-      Wr.Got{Pr.Sys{}, s}
-    case 6n+q:
-      Wr.Bad{}
-
-def wk_read_blk.go(r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Blk>:
-  match r:
-    case Wr.Got{n, s}:
-      wk_read_blk.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_blk(s: String) -> Wr.Dec<Pr.Blk>:
-  wk_read_blk.go(Wr.get_nat(s))
-
-def wk_read_ent.bs(+i: Nat, r: Wr.Dec<List<&2, Pr.Blk>>) -> Wr.Dec<Pr.Ent>:
-  match r:
-    case Wr.Got{bs, s}:
-      Wr.Got{Pr.Ent{i, bs}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ent.go(r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Ent>:
-  match r:
-    case Wr.Got{+i, s}:
-      wk_read_ent.bs(i, Wr.get_list(~Pr.Blk, ~wk_read_blk, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ent(s: String) -> Wr.Dec<Pr.Ent>:
-  wk_read_ent.go(Wr.get_nat(s))
-
-def wk_read_at.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_at.tag(n: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  match n:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      wk_read_at.some(Wr.get_nat(s))
-    case 2n+q:
-      Wr.Bad{}
-
-def wk_read_at.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{n, s}:
-      wk_read_at.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ev.view(at: Maybe<&2, Nat>, r: Wr.Dec<List<&2, Pr.Ent>>) -> Wr.Dec<Pr.Ev>:
-  match r:
-    case Wr.Got{es, s}:
-      Wr.Got{Pr.View{at, es}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ev.at(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Pr.Ev>:
-  match r:
-    case Wr.Got{at, s}:
-      wk_read_ev.view(at, Wr.get_list(~Pr.Ent, ~wk_read_ent, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ev.page(r: Wr.Dec<List<&2, Pr.Ent>>) -> Wr.Dec<Pr.Ev>:
-  match r:
-    case Wr.Got{es, s}:
-      Wr.Got{Pr.Page{es}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ev.note(r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Ev>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Pr.Note{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read_ev.tag(n: Nat, s: String) -> Wr.Dec<Pr.Ev>:
-  match n:
-    case 0n:
-      wk_read_ev.at(wk_read_at.go(Wr.get_nat(s)))
-    case 1n:
-      wk_read_ev.page(Wr.get_list(~Pr.Ent, ~wk_read_ent, s))
-    case 2n:
-      wk_read_ev.note(Wr.get_nat(s))
-    case 3n+q:
-      Wr.Bad{}
-
-def wk_read_ev.go(r: Wr.Dec<Nat>) -> Wr.Dec<Pr.Ev>:
-  match r:
-    case Wr.Got{n, s}:
-      wk_read_ev.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def wk_read.end(whole: Bool, e: Pr.Ev) -> Maybe<&2, Pr.Ev>:
-  match whole:
-    case True{}:
-      Some{e}
-    case False{}:
-      None{}
-
-def wk_read.whole(r: Wr.Dec<Pr.Ev>) -> Maybe<&2, Pr.Ev>:
-  match r:
-    case Wr.Got{e, s}:
-      wk_read.end(Wr.end(s), e)
-    case Wr.Bad{}:
-      None{}
-
-# the event s is, when s is exactly one event
-def wk_read(s: String) -> Maybe<&2, Pr.Ev>:
-  wk_read.whole(wk_read_ev.go(Wr.get_nat(s)))
-
 # Laws: the prior check compared with (the call)
 # ----------------------------------------------
 
@@ -652,18 +469,30 @@ law prior_entry_answers:
   for h: {pe_fits(m) == True{} : Bool}
   {FW.ffi(pe_spell_req(m)) == pe_answer(m) : String}
 
-# LAW prior_entry_malformed_exact (W7): every input that is not exactly one request (the laws'
-# reader) answers exactly the error form 'E ' then "work: malformed request"
-# EXCLUDES: a default prior for malformed input, input left over ignored,
-#   another error text
-law prior_entry_malformed_exact:
+# LAW prior_entry_reads_only_requests (W7): a call answered other than
+# with the error form read exactly one request Rust spells whose numbers
+# fit the wire (its answer is then prior_entry_answers')
+# EXCLUDES: a decoder that accepts an unknown tag, a missing or extra
+#   field, a number past the wire or input left over, and answers a prior
+#   anyway (a default instead of the error form)
+law prior_entry_reads_only_requests:
   for +s: String
-  for no: {pe_read(s) == None{} : Maybe<&2, Maybe<&2, Pr.Last>>}
-  {FW.ffi(s) == SCon{'E', SCon{' ', "work: malformed request"}} : String}
+  for ok: {LawsBase.wire_opens_err(FW.ffi(s)) == False{} : Bool}
+  exs m: Maybe<&2, Pr.Last>
+  {(s, pe_fits(m)) == (pe_spell_req(m), True{}) : String & Bool}
 
-# LAW prior_entry_example (W7): anchor: the requests Rust sends: no last check; one of the
-# same run and goal; another goal; another run; input left over
-# EXCLUDES: another spelling of the requests or the replies Rust reads
+# LAW prior_entry_refuses_malformed (W7): a call answered with the error
+# form answers exactly 'E ' then "work: malformed request"
+# EXCLUDES: another error text
+law prior_entry_refuses_malformed:
+  for +s: String
+  for err: {LawsBase.wire_opens_err(FW.ffi(s)) == True{} : Bool}
+  {FW.ffi(s) == Wr.err("work: malformed request") : String}
+
+# LAW prior_entry_example (W7): anchor: the requests of the grammar of
+# bend/ffi_work.bend (no Rust test produces these bytes): no last check;
+# one of the same run and goal; another goal; another run; input left over
+# EXCLUDES: request or reply tags in another order than the grammar's
 law prior_entry_example:
   {[FW.ffi("0,"), FW.ffi("1,TT2,5,"), FW.ffi("1,TF2,5,"), FW.ffi("1,FT2,5,"), FW.ffi("1,TT2,5,x")] == ["0,", "1,2,5,", "0,", "0,", Wr.err("work: malformed request")] : List<&2, String>}
 
@@ -705,28 +534,47 @@ law work_entry_answers:
   for h: {wk_ev_fits(e) == True{} : Bool}
   {FW.step(FW.Live{l}, wk_spell_ev(e, "")) == wk_spell_step(Pr.next(l, e)) : FW.St & String}
 
-# LAW work_entry_malformed_exact (W6): every input that is not exactly one event (the laws'
-# reader) answers exactly the error form 'E ' then "work: malformed event",
-# and keeps the ledger
-# EXCLUDES: a malformed or trailing event read as an act, a ledger changed
-#   or lost by one, another error text
-law work_entry_malformed_exact:
+# LAW work_entry_reads_only_events (W6): a step answered other than with
+# the error form read exactly one event Rust spells whose numbers fit the
+# wire (its step is then work_entry_answers')
+# EXCLUDES: a decoder that accepts an unknown tag (event, block, place), a
+#   missing or extra field, a list cut short, a number past the wire or
+#   input left over, and steps the ledger anyway
+law work_entry_reads_only_events:
   for +l: Pr.Led
   for +s: String
-  for no: {wk_read(s) == None{} : Maybe<&2, Pr.Ev>}
-  {FW.step(FW.Live{l}, s) == (FW.Live{l}, SCon{'E', SCon{' ', "work: malformed event"}}) : FW.St & String}
+  for ok: {LawsBase.wire_opens_err(wk_reply(FW.step(FW.Live{l}, s))) == False{} : Bool}
+  exs e: Pr.Ev
+  {(s, wk_ev_fits(e)) == (wk_spell_ev(e, ""), True{}) : String & Bool}
 
-# LAW work_entry_history (W1, W2, W4, W5, W6): the shipped stepper, opened with no input and
-# fed any events Rust spells, answers each what the spec ledger answers:
-# the number of distinct acts since it started (`Pr.work` of their numbers), each act a
-# result with the newest call of its id that waited for it, or a note;
-# the entries of the view read; the last entry read; Again when the view
-# no longer holds what it read
+# LAW work_entry_refused_keeps (W6): a step answered with the error form
+# keeps the ledger and answers exactly 'E ' then "work: malformed event"
+# EXCLUDES: a ledger changed or lost by a malformed event, another error
+#   text
+law work_entry_refused_keeps:
+  for +l: Pr.Led
+  for +s: String
+  for err: {LawsBase.wire_opens_err(wk_reply(FW.step(FW.Live{l}, s))) == True{} : Bool}
+  {FW.step(FW.Live{l}, s) == (FW.Live{l}, Wr.err("work: malformed event")) : FW.St & String}
+
+# LAW work_entry_history (W1, W2, W4, W5, W6): the shipped stepper, opened
+# with no input and fed any events Rust spells whose numbers fit the wire,
+# answers each what the spec ledger wk_spec answers. Its work is the
+# number of distinct acts read since it started (`Pr.work` of their
+# numbers), each act a result with the newest call of its id that waited
+# for it (a newest-first scan of the blocks read), or a note. A view that
+# still holds the last entry read at its place (it read none of the view,
+# or the view's entry there is that entry) is read whole: every block of
+# its entries as one stream, its entries counted read, its last entry the
+# last read; one that does not starts the ledger over and answers Again. A
+# page reads each entry newer than the last entry read before the page and
+# than every entry before it in the page, and counts none read.
 # EXCLUDES: a work count that counts a repeat, misses a new act, counts a
 #   call, text, thinking, user or system message, pairs a result with
 #   another call or with a call that already had its result, keeps the work
-#   of a replaced view, reads a view's entries again, or reads a page's
-#   entries the ledger read before
+#   of a replaced view, reads a view's entries again or counts them
+#   otherwise, or reads a page entry not newer than every entry read
+#   before it
 law work_entry_history:
   for +evs: List<&2, Pr.Ev>
   for h: {wk_evs_fit(evs) == True{} : Bool}
@@ -778,10 +626,12 @@ law work_note_apart:
 law work_entry_example:
   {wk_feed(["0,0,1,1,3,0,7,11,2,1,7,13,", "2,99,", "2,99,", "0,1,1,1,2,2,0,8,11,1,8,13,", "0,1,2,1,3,2,0,9,11,1,9,14,", "0,1,7,0,", "0,0,1,1,3,0,7,11,2,1,7,13,", "1,2,1,0,13,2,0,7,12,1,7,14,", "3,", "2,5,x"], FW.open("")) == ["", "0,1,1,1,1,", "0,2,1,1,1,", "0,2,1,1,1,", "0,2,2,1,2,", "0,3,3,1,3,", "1,", "0,1,1,1,1,", "0,2,1,1,13,", Wr.err("work: malformed event"), Wr.err("work: malformed event")] : List<&2, String>}
 
-# LAW work_spell_example (W6): anchor: the events eukhe's ledger writes, spelled: a view of
-# one entry (a call, text, its result), a page of one entry, a note
-# EXCLUDES: a speller other than the one Rust writes (field order, tags,
-#   counts)
+# LAW work_spell_example (W6): anchor: the laws' event speller
+# wk_spell_ev spells the grammar's bytes of bend/ffi_work.bend (those
+# work_entry_example feeds the entry; no Rust test produces them): a view
+# of one entry (a call, text, its result), a page of one entry, a note
+# EXCLUDES: a laws-side speller that drifts from the grammar (field order,
+#   tags, counts)
 law work_spell_example:
   {[wk_spell_ev(Pr.View{None{}, [Pr.Ent{1n, [Pr.Call{7n, 11n}, Pr.Txt{}, Pr.Res{7n, 13n}]}]}, ""), wk_spell_ev(Pr.Page{[Pr.Ent{4n, [Pr.User{}, Pr.Sys{}, Pr.Think{}]}]}, ""), wk_spell_ev(Pr.Note{99n}, "")] == ["0,0,1,1,3,0,7,11,2,1,7,13,", "1,1,4,3,4,5,3,", "2,99,"] : List<&2, String>}
 

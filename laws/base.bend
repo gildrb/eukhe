@@ -12,22 +12,9 @@ def rank_spec.short(+x: Nat) -> Bool:
 
 # ---- wire ----
 
-# LAWS (the wire format of the compiled Bend core): every entry of
-# bend/core.bend reads its input and writes its reply in the format of
-# bend/wire.bend (grammar: crates/eukhe-bend/WIRE.md). Each law is an open
-# claim about bend/wire.bend; PROOF.bend proves them (as Wire.<law>) with
-# the lemmas of proof/wire/.
-#
-# R1: a decoder reads back what its encoder wrote, and leaves the input
-#     after it untouched (so values compose: the laws quantify `rest`).
-# R2: a decoder accepts only an encoder's output: any other input is
-#     Bad{}, never a default (leading zeros, a missing ',', a short
-#     string, a wrong count, an unknown char).
-# R3: a Nat has at most 14 digits, decided while reading, so no input can
-#     push a Nat past the runtime's 2^48-1 bound; a longer encoding is
-#     refused, never misread.
-# R4: no encoding starts with 'E', so a reply is either a value or the
-#     error form 'E ' + text.
+# The spec helpers of the wire format (bend/wire.bend, grammar
+# crates/eukhe-bend/WIRE.md) that laws of two or more areas use. The
+# wire's requirements R1-R5 and its laws are in laws/wire.bend.
 
 # Spec helpers
 # ------------
@@ -187,8 +174,8 @@ def wire_read_list.count(~A: Data, ~get: String -> Wr.Dec<A>, d: Wr.Dec<Nat>) ->
       Wr.Bad{}
 
 # a list read with the item reader get: its count (a Nat, read by the Nat
-# reader, which wire_nat_exact, wire_nat_decimal, wire_nat_decoded_fits and
-# wire_nat_reads_decimal pin to the decimal spelling wire_dec), then
+# reader, which wire_nat_exact, wire_nat_decoded_fits and
+# wire_nat_spells_digits pin to the decimal numeral of the count), then
 # exactly that many items, then the rest
 def wire_read_list(~A: Data, ~get: String -> Wr.Dec<A>, s: String) -> Wr.Dec<List<&2, A>>:
   wire_read_list.count(~A, ~get, Wr.get_nat(s))

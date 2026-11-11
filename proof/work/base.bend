@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of area work share: the entry reads back what
 # the laws' spellers write (wk.*_rt), its reply writer writes what the
-# laws' speller writes, and its reader answers what the laws' reader
-# answers on every input (wq.*).
+# laws' speller writes, and the numbers of the acts (wt.*). Its decoder
+# accepts only spelled events: base/exact.bend (wre.*).
 
 import Base
 import ../../bend/ffi_work.bend as FW

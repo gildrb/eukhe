@@ -2,7 +2,11 @@
 # The spec's ledger, mapped onto the model's state (its acts to their
 # distinct acts, its blocks to the calls that wait after them), moves as
 # the model moves at every event, with the same reply (wh.next); the
-# entry runs the model on every spelled event (work_entry_answers).
+# entry runs the model on every spelled event (work_entry_answers). The
+# spec reads a view's entries as one stream of blocks and marks the last
+# entry after (wh.reads); its page keeps the entries newer than the last
+# entry read before the page and every entry before them, which is the
+# model's running last entry, the largest of those (wh.fresh, wh.newer_mx).
 
 import Base
 import ../../laws/work.bend as Work
@@ -11,6 +15,8 @@ import ../../bend/progress.bend as Pr
 import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/nat.bend as LLogicNat
 import ./base.bend as LWork
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 
 # The spec's ledger as the model's: the distinct acts of its acts, the
 # calls that wait after its blocks
@@ -231,47 +237,309 @@ def wh.blks(bs: List<&2, Pr.Blk>, +st: Work.wk.S) -> {wh.abs(Work.wk_blks(bs, st
       %wh.blk(st, b) : {wh.abs(Work.wk_blks(t, Work.wk_blk(st, b))) == Pr.Led.blks(t, _) : Pr.Led}
       wh.blks(t, Work.wk_blk(st, b))
 
-def wh.ent(st: Work.wk.S, e: Pr.Ent) -> {wh.abs(Work.wk_ent(st, e)) == Pr.Led.ent(wh.abs(st), e) : Pr.Led}:
-  match st:
-    case Work.wk.S{a, p, r, z}:
-      match e:
-        case Pr.Ent{i, bs}:
-          wh.blks(bs, Work.wk.S{a, p, r, Some{i}})
+# Reading entries: one stream of blocks, then the last entry
+# ----------------------------------------------------------
 
-def wh.ents(es: List<&2, Pr.Ent>, +st: Work.wk.S) -> {wh.abs(Work.wk_ents(es, st)) == Pr.Led.ents(es, wh.abs(st)) : Pr.Led}:
-  match es:
+def wh.mark_blk(st: Work.wk.S, +b: Pr.Blk, z: Maybe<&2, Nat>) -> {Work.wk_blk(Work.wk_mark(st, z), b) == Work.wk_mark(Work.wk_blk(st, b), z) : Work.wk.S}:
+  match st:
+    case Work.wk.S{a, p, r, y}:
+      {==}
+
+# blocks never move the last entry read
+def wh.mark_blks(bs: List<&2, Pr.Blk>, +st: Work.wk.S, +z: Maybe<&2, Nat>) -> {Work.wk_blks(bs, Work.wk_mark(st, z)) == Work.wk_mark(Work.wk_blks(bs, st), z) : Work.wk.S}:
+  match bs:
     case Nil{}:
       {==}
-    case +e <> +t:
-      %wh.ent(st, e) : {wh.abs(Work.wk_ents(t, Work.wk_ent(st, e))) == Pr.Led.ents(t, _) : Pr.Led}
-      wh.ents(t, Work.wk_ent(st, e))
+    case +b <> +t:
+      %Equal.sym(Work.wk.S, Work.wk_blk(Work.wk_mark(st, z), b), Work.wk_mark(Work.wk_blk(st, b), z), wh.mark_blk(st, b, z)) : {Work.wk_blks(t, _) == Work.wk_mark(Work.wk_blks(t, Work.wk_blk(st, b)), z) : Work.wk.S}
+      wh.mark_blks(t, Work.wk_blk(st, b), z)
 
-def wh.after(z: Maybe<&2, Nat>, e: Pr.Ent) -> {Work.wk_after(z, Work.wk_id(e)) == Pr.newer(z, Pr.Ent.id(e)) : Bool}:
-  match z:
-    case None{}:
+def wh.blks_app(xs: List<&2, Pr.Blk>, ys: List<&2, Pr.Blk>, st: Work.wk.S) -> {Work.wk_blks(List.append(&2, Pr.Blk, xs, ys), st) == Work.wk_blks(ys, Work.wk_blks(xs, st)) : Work.wk.S}:
+  match xs:
+    case Nil{}:
       {==}
-    case Some{x}:
-      match e:
-        case Pr.Ent{i, bs}:
-          {==}
+    case +x <> t:
+      wh.blks_app(t, ys, Work.wk_blk(st, x))
 
-def wh.page_at(b: Bool, st: Work.wk.S, e: Pr.Ent) -> {wh.abs(Work.wk_page.at(b, st, e)) == Pr.Led.page.at(b, wh.abs(st), e) : Pr.Led}:
+def wh.last_blk(st: Work.wk.S, b: Pr.Blk) -> {Work.wk_last(Work.wk_blk(st, b)) == Work.wk_last(st) : Maybe<&2, Nat>}:
+  match st:
+    case Work.wk.S{a, p, r, z}:
+      {==}
+
+def wh.last_blks(bs: List<&2, Pr.Blk>, +st: Work.wk.S) -> {Work.wk_last(Work.wk_blks(bs, st)) == Work.wk_last(st) : Maybe<&2, Nat>}:
+  match bs:
+    case Nil{}:
+      {==}
+    case +b <> +t:
+      Equal.trans(Maybe<&2, Nat>, Work.wk_last(Work.wk_blks(t, Work.wk_blk(st, b))), Work.wk_last(Work.wk_blk(st, b)), Work.wk_last(st), wh.last_blks(t, Work.wk_blk(st, b)), wh.last_blk(st, b))
+
+def wh.last_mark(st: Work.wk.S, z: Maybe<&2, Nat>) -> {Work.wk_last(Work.wk_mark(st, z)) == z : Maybe<&2, Nat>}:
+  match st:
+    case Work.wk.S{a, p, r, y}:
+      {==}
+
+def wh.mark_mark(st: Work.wk.S, y: Maybe<&2, Nat>, z: Maybe<&2, Nat>) -> {Work.wk_mark(Work.wk_mark(st, y), z) == Work.wk_mark(st, z) : Work.wk.S}:
+  match st:
+    case Work.wk.S{a, p, r, x}:
+      {==}
+
+def wh.reads_nil(st: Work.wk.S) -> {wh.abs(Work.wk_reads(Nil{}, st)) == wh.abs(st) : Pr.Led}:
+  match st:
+    case Work.wk.S{a, p, r, z}:
+      {==}
+
+# an entry first: its blocks, it the last entry read, then the rest
+def wh.reads_cons(+i: Nat, +bs: List<&2, Pr.Blk>, +t: List<&2, Pr.Ent>, +st: Work.wk.S) -> {Work.wk_reads(Pr.Ent{i, bs} <> t, st) == Work.wk_reads(t, Work.wk_blks(bs, Work.wk_mark(st, Some{i}))) : Work.wk.S}:
+  +x = Work.wk_blks(bs, Work.wk_mark(st, Some{i}))
+  +ab = List.append(&2, Pr.Blk, bs, Work.wk_flat(t))
+  +y = Work.wk_blks(ab, st)
+  +f = Work.wk_final(t, Some{i})
+  +e1 = Equal.trans(Maybe<&2, Nat>, Work.wk_last(x), Work.wk_last(Work.wk_mark(st, Some{i})), Some{i}, wh.last_blks(bs, Work.wk_mark(st, Some{i})), wh.last_mark(st, Some{i}))
+  +e2 = Equal.trans(Work.wk.S, Work.wk_blks(Work.wk_flat(t), x), Work.wk_blks(ab, Work.wk_mark(st, Some{i})), Work.wk_mark(y, Some{i}),
+    Equal.sym(Work.wk.S, Work.wk_blks(ab, Work.wk_mark(st, Some{i})), Work.wk_blks(Work.wk_flat(t), x), wh.blks_app(bs, Work.wk_flat(t), Work.wk_mark(st, Some{i}))),
+    wh.mark_blks(ab, st, Some{i}))
+  +c1 = Equal.cong(Work.wk.S, Work.wk.S, v => Work.wk_mark(v, Work.wk_final(t, Work.wk_last(x))), Work.wk_blks(Work.wk_flat(t), x), Work.wk_mark(y, Some{i}), e2)
+  +c2 = Equal.cong(Maybe<&2, Nat>, Work.wk.S, v => Work.wk_mark(Work.wk_mark(y, Some{i}), Work.wk_final(t, v)), Work.wk_last(x), Some{i}, e1)
+  +c3 = wh.mark_mark(y, Some{i}, f)
+  Equal.sym(Work.wk.S, Work.wk_reads(t, x), Work.wk_mark(y, f),
+    Equal.trans(Work.wk.S, Work.wk_reads(t, x), Work.wk_mark(Work.wk_mark(y, Some{i}), Work.wk_final(t, Work.wk_last(x))), Work.wk_mark(y, f), c1,
+      Equal.trans(Work.wk.S, Work.wk_mark(Work.wk_mark(y, Some{i}), Work.wk_final(t, Work.wk_last(x))), Work.wk_mark(Work.wk_mark(y, Some{i}), f), Work.wk_mark(y, f), c2, c3)))
+
+def wh.reads_ent(+i: Nat, +bs: List<&2, Pr.Blk>, +t: List<&2, Pr.Ent>, st: Work.wk.S, ih: {wh.abs(Work.wk_reads(t, Work.wk_blks(bs, Work.wk_mark(st, Some{i})))) == Pr.Led.ents(t, wh.abs(Work.wk_blks(bs, Work.wk_mark(st, Some{i})))) : Pr.Led}) -> {wh.abs(Work.wk_reads(Pr.Ent{i, bs} <> t, st)) == Pr.Led.ents(Pr.Ent{i, bs} <> t, wh.abs(st)) : Pr.Led}:
+  match st:
+    case Work.wk.S{+a, +p, +r, +z}:
+      +s0 = {Work.wk.S{a, p, r, z} : Work.wk.S}
+      +s1 = {Work.wk.S{a, p, r, Some{i}} : Work.wk.S}
+      +x = Work.wk_blks(bs, s1)
+      +eab = Equal.cong(Work.wk.S, Pr.Led, v => wh.abs(v), Work.wk_reads(Pr.Ent{i, bs} <> t, s0), Work.wk_reads(t, x), wh.reads_cons(i, bs, t, s0))
+      +ecd = Equal.cong(Pr.Led, Pr.Led, v => Pr.Led.ents(t, v), wh.abs(x), Pr.Led.blks(bs, wh.abs(s1)), wh.blks(bs, s1))
+      Equal.trans(Pr.Led, wh.abs(Work.wk_reads(Pr.Ent{i, bs} <> t, s0)), wh.abs(Work.wk_reads(t, x)), Pr.Led.ents(t, Pr.Led.blks(bs, wh.abs(s1))), eab,
+        Equal.trans(Pr.Led, wh.abs(Work.wk_reads(t, x)), Pr.Led.ents(t, wh.abs(x)), Pr.Led.ents(t, Pr.Led.blks(bs, wh.abs(s1))), ih, ecd))
+
+# reading entries moves the model as the spec reads their blocks as one
+# stream
+def wh.reads(es: List<&2, Pr.Ent>, +st: Work.wk.S) -> {wh.abs(Work.wk_reads(es, st)) == Pr.Led.ents(es, wh.abs(st)) : Pr.Led}:
+  match es:
+    case Nil{}:
+      wh.reads_nil(st)
+    case e <> +t:
+      match e:
+        case Pr.Ent{+i, +bs}:
+          wh.reads_ent(i, bs, t, st, wh.reads(t, Work.wk_blks(bs, Work.wk_mark(st, Some{i}))))
+
+# Pages: the newest of the last entry read and the entries before
+# ---------------------------------------------------------------
+
+def wh.mx1.pick(b: Bool, x: Nat, y: Nat) -> Maybe<&2, Nat>:
   match b:
     case True{}:
-      wh.ent(st, e)
+      Some{x}
+    case False{}:
+      Some{y}
+
+# the larger of the id m (when there is one) and x
+def wh.mx1(m: Maybe<&2, Nat>, +x: Nat) -> Maybe<&2, Nat>:
+  match m:
+    case None{}:
+      Some{x}
+    case Some{+y}:
+      wh.mx1.pick(Nat.is_lt(y, x), x, y)
+
+# the largest of z and the ids
+def wh.mx(ids: List<&2, Nat>, z: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match ids:
+    case Nil{}:
+      z
+    case x <> t:
+      wh.mx1(wh.mx(t, z), x)
+
+def wh.and_f(b: Bool) -> {Bool.and(b, False{}) == False{} : Bool}:
+  match b:
+    case True{}:
+      {==}
     case False{}:
       {==}
 
-def wh.page(es: List<&2, Pr.Ent>, st: Work.wk.S) -> {wh.abs(Work.wk_page(es, st)) == Pr.Led.page(es, wh.abs(st)) : Pr.Led}:
+def wh.and3(a: Bool, b: Bool, x: Bool) -> {Bool.and(Bool.and(a, b), x) == Bool.and(a, Bool.and(x, b)) : Bool}:
+  match a b x:
+    case True{} True{} True{}:
+      {==}
+    case True{} True{} False{}:
+      {==}
+    case True{} False{} True{}:
+      {==}
+    case True{} False{} False{}:
+      {==}
+    case False{} True{} True{}:
+      {==}
+    case False{} True{} False{}:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
+      {==}
+
+# not a < b: b <= a
+def wh.nlt_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == False{} : Bool}) -> {Nat.is_le(b, a) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      LLogicLogic.pt.absurd({Nat.is_le(1n+q, 0n) == True{} : Bool}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      wh.nlt_le(p, q, h)
+
+# y < x: x < i exactly when y < i and x < i
+def wh.n1t(+y: Nat, +x: Nat, +i: Nat, d: Bool, ed: {Nat.is_lt(x, i) == d : Bool}, yx: {Nat.is_lt(y, x) == True{} : Bool}) -> {d == Bool.and(Nat.is_lt(y, i), d) : Bool}:
+  match d:
+    case True{}:
+      +yi = LNat.tc.lt_le(y, x, i, yx, LNat.tc.lt_asym(x, i, ed))
+      %Equal.sym(Bool, Nat.is_lt(y, i), True{}, yi) : {True{} == Bool.and(_, True{}) : Bool}
+      {==}
+    case False{}:
+      Equal.sym(Bool, Bool.and(Nat.is_lt(y, i), False{}), False{}, wh.and_f(Nat.is_lt(y, i)))
+
+# x <= y: y < i exactly when y < i and x < i
+def wh.n1f(+y: Nat, +x: Nat, +i: Nat, e: Bool, ee: {Nat.is_lt(y, i) == e : Bool}, yx: {Nat.is_lt(y, x) == False{} : Bool}) -> {e == Bool.and(e, Nat.is_lt(x, i)) : Bool}:
+  match e:
+    case True{}:
+      +xi = LNat.pc.le_lt_trans(x, y, i, wh.nlt_le(y, x, yx), ee)
+      %Equal.sym(Bool, Nat.is_lt(x, i), True{}, xi) : {True{} == Bool.and(True{}, _) : Bool}
+      {==}
+    case False{}:
+      {==}
+
+def wh.n1(c: Bool, +y: Nat, +x: Nat, +i: Nat, ec: {Nat.is_lt(y, x) == c : Bool}) -> {Pr.newer(wh.mx1.pick(c, x, y), i) == Bool.and(Nat.is_lt(y, i), Nat.is_lt(x, i)) : Bool}:
+  match c:
+    case True{}:
+      wh.n1t(y, x, i, Nat.is_lt(x, i), {==}, ec)
+    case False{}:
+      wh.n1f(y, x, i, Nat.is_lt(y, i), {==}, ec)
+
+# an id is newer than the larger of m and x exactly when newer than both
+def wh.newer_mx1(m: Maybe<&2, Nat>, +x: Nat, +i: Nat) -> {Pr.newer(wh.mx1(m, x), i) == Bool.and(Pr.newer(m, i), Nat.is_lt(x, i)) : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+y}:
+      wh.n1(Nat.is_lt(y, x), y, x, i, {==})
+
+def wh.newer_after(+z0: Maybe<&2, Nat>, +i: Nat) -> {Pr.newer(z0, i) == Bool.and(Work.wk_after(z0, i), True{}) : Bool}:
+  match z0:
+    case None{}:
+      {==}
+    case Some{+x}:
+      Equal.sym(Bool, Bool.and(Nat.is_lt(x, i), True{}), Nat.is_lt(x, i), LWork.wt.and_true(Nat.is_lt(x, i)))
+
+# an id is newer than the largest of z0 and the ids exactly when it is
+# newer than z0 and above every id: the spec's page test is the model's
+def wh.newer_mx(ids: List<&2, Nat>, +z0: Maybe<&2, Nat>, +i: Nat) -> {Pr.newer(wh.mx(ids, z0), i) == Bool.and(Work.wk_after(z0, i), Work.wk_below(ids, i)) : Bool}:
+  match ids:
+    case Nil{}:
+      wh.newer_after(z0, i)
+    case +x <> +t:
+      +m = wh.mx(t, z0)
+      +A = Work.wk_after(z0, i)
+      +B = Work.wk_below(t, i)
+      +X = Nat.is_lt(x, i)
+      Equal.trans(Bool, Pr.newer(wh.mx1(m, x), i), Bool.and(Pr.newer(m, i), X), Bool.and(A, Bool.and(X, B)),
+        wh.newer_mx1(m, x, i),
+        Equal.trans(Bool, Bool.and(Pr.newer(m, i), X), Bool.and(Bool.and(A, B), X), Bool.and(A, Bool.and(X, B)),
+          Equal.cong(Bool, Bool, v => Bool.and(v, X), Pr.newer(m, i), Bool.and(A, B), wh.newer_mx(t, z0, i)),
+          wh.and3(A, B, X)))
+
+def wh.mx1_new(m: Maybe<&2, Nat>, +i: Nat, h: {Pr.newer(m, i) == True{} : Bool}) -> {wh.mx1(m, i) == Some{i} : Maybe<&2, Nat>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+y}:
+      %Equal.sym(Bool, Nat.is_lt(y, i), True{}, h) : {wh.mx1.pick(_, i, y) == Some{i} : Maybe<&2, Nat>}
+      {==}
+
+def wh.mx1_old(m: Maybe<&2, Nat>, +i: Nat, h: {Pr.newer(m, i) == False{} : Bool}) -> {wh.mx1(m, i) == m : Maybe<&2, Nat>}:
+  match m:
+    case None{}:
+      LLogicLogic.pt.absurd({wh.mx1(None{}, i) == None{} : Maybe<&2, Nat>}, h)
+    case Some{+y}:
+      %Equal.sym(Bool, Nat.is_lt(y, i), False{}, h) : {wh.mx1.pick(_, i, y) == Some{y} : Maybe<&2, Nat>}
+      {==}
+
+def wh.blk_lastL(l: Pr.Led, b: Pr.Blk) -> {Pr.Led.last(Pr.Led.blk(l, b)) == Pr.Led.last(l) : Maybe<&2, Nat>}:
+  match l:
+    case Pr.Led{s, +cs, r, z}:
+      match b:
+        case Pr.Call{+k, f}:
+          {==}
+        case Pr.Res{+k, x}:
+          {==}
+        case Pr.Txt{}:
+          {==}
+        case Pr.Think{}:
+          {==}
+        case Pr.User{}:
+          {==}
+        case Pr.Sys{}:
+          {==}
+
+def wh.blks_lastL(bs: List<&2, Pr.Blk>, +l: Pr.Led) -> {Pr.Led.last(Pr.Led.blks(bs, l)) == Pr.Led.last(l) : Maybe<&2, Nat>}:
+  match bs:
+    case Nil{}:
+      {==}
+    case +b <> +t:
+      Equal.trans(Maybe<&2, Nat>, Pr.Led.last(Pr.Led.blks(t, Pr.Led.blk(l, b))), Pr.Led.last(Pr.Led.blk(l, b)), Pr.Led.last(l), wh.blks_lastL(t, Pr.Led.blk(l, b)), wh.blk_lastL(l, b))
+
+# an entry read is the last entry read
+def wh.ent_last(l: Pr.Led, +i: Nat, +bs: List<&2, Pr.Blk>) -> {Pr.Led.last(Pr.Led.ent(l, Pr.Ent{i, bs})) == Some{i} : Maybe<&2, Nat>}:
+  match l:
+    case Pr.Led{s, c, r, z}:
+      wh.blks_lastL(bs, Pr.Led{s, c, r, Some{i}})
+
+# the spec's entries of a page from one entry whose test is b: that entry,
+# then F, read from l, as the model reads F after its step at that entry
+def wh.fresh.s2(b: Bool, e: Pr.Ent, F: List<&2, Pr.Ent>, l: Pr.Led) -> {Pr.Led.ents(Work.wk_fresh.at(b, e, F), l) == Pr.Led.ents(F, Pr.Led.page.at(b, l, e)) : Pr.Led}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# after that step, the model's last entry read is the largest of z0, the
+# ids and the entry's id
+def wh.fresh.s3(b: Bool, +i: Nat, +bs: List<&2, Pr.Blk>, +l: Pr.Led, +z0: Maybe<&2, Nat>, +ids: List<&2, Nat>,
+  +inv: {Pr.Led.last(l) == wh.mx(ids, z0) : Maybe<&2, Nat>}, en: {Pr.newer(Pr.Led.last(l), i) == b : Bool}) ->
+  {Pr.Led.last(Pr.Led.page.at(b, l, Pr.Ent{i, bs})) == wh.mx(i <> ids, z0) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      +m = wh.mx(ids, z0)
+      +hn = Equal.trans(Bool, Pr.newer(m, i), Pr.newer(Pr.Led.last(l), i), True{}, Equal.cong(Maybe<&2, Nat>, Bool, v => Pr.newer(v, i), m, Pr.Led.last(l), Equal.sym(Maybe<&2, Nat>, Pr.Led.last(l), m, inv)), en)
+      Equal.trans(Maybe<&2, Nat>, Pr.Led.last(Pr.Led.ent(l, Pr.Ent{i, bs})), Some{i}, wh.mx1(m, i), wh.ent_last(l, i, bs), Equal.sym(Maybe<&2, Nat>, wh.mx1(m, i), Some{i}, wh.mx1_new(m, i, hn)))
+    case False{}:
+      +m = wh.mx(ids, z0)
+      +hf = Equal.trans(Bool, Pr.newer(m, i), Pr.newer(Pr.Led.last(l), i), False{}, Equal.cong(Maybe<&2, Nat>, Bool, v => Pr.newer(v, i), m, Pr.Led.last(l), Equal.sym(Maybe<&2, Nat>, Pr.Led.last(l), m, inv)), en)
+      Equal.trans(Maybe<&2, Nat>, Pr.Led.last(l), m, wh.mx1(m, i), inv, Equal.sym(Maybe<&2, Nat>, wh.mx1(m, i), m, wh.mx1_old(m, i, hf)))
+
+# the model's page, from a ledger whose last entry read is the largest of
+# z0 and the ids, reads the entries the spec keeps
+def wh.fresh(es: List<&2, Pr.Ent>, +l: Pr.Led, +z0: Maybe<&2, Nat>, +ids: List<&2, Nat>, +inv: {Pr.Led.last(l) == wh.mx(ids, z0) : Maybe<&2, Nat>}) -> {Pr.Led.page(es, l) == Pr.Led.ents(Work.wk_fresh(es, z0, ids), l) : Pr.Led}:
   match es:
     case Nil{}:
       {==}
-    case +e <> +t:
-      match st:
-        case Work.wk.S{+a, +p, +r, +z}:
-          %wh.after(z, e) : {wh.abs(Work.wk_page(t, Work.wk_page.at(Work.wk_after(z, Work.wk_id(e)), Work.wk.S{a, p, r, z}, e))) == Pr.Led.page(t, Pr.Led.page.at(_, wh.abs(Work.wk.S{a, p, r, z}), e)) : Pr.Led}
-          %wh.page_at(Work.wk_after(z, Work.wk_id(e)), Work.wk.S{a, p, r, z}, e) : {wh.abs(Work.wk_page(t, Work.wk_page.at(Work.wk_after(z, Work.wk_id(e)), Work.wk.S{a, p, r, z}, e))) == Pr.Led.page(t, _) : Pr.Led}
-          wh.page(t, Work.wk_page.at(Work.wk_after(z, Work.wk_id(e)), Work.wk.S{a, p, r, z}, e))
+    case e <> +t:
+      match e:
+        case Pr.Ent{+i, +bs}:
+          +E = {Pr.Ent{i, bs} : Pr.Ent}
+          +c = Bool.and(Work.wk_after(z0, i), Work.wk_below(ids, i))
+          +F = Work.wk_fresh(t, z0, i <> ids)
+          +en = Equal.trans(Bool, Pr.newer(Pr.Led.last(l), i), Pr.newer(wh.mx(ids, z0), i), c, Equal.cong(Maybe<&2, Nat>, Bool, v => Pr.newer(v, i), Pr.Led.last(l), wh.mx(ids, z0), inv), wh.newer_mx(ids, z0, i))
+          +L2 = Pr.Led.page.at(c, l, E)
+          +s1 = Equal.cong(Bool, Pr.Led, v => Pr.Led.page.at(v, l, E), Pr.newer(Pr.Led.last(l), i), c, en)
+          +s3 = wh.fresh.s3(c, i, bs, l, z0, ids, inv, en)
+          Equal.trans(Pr.Led, Pr.Led.page(t, Pr.Led.page.at(Pr.newer(Pr.Led.last(l), i), l, E)), Pr.Led.page(t, L2), Pr.Led.ents(Work.wk_fresh.at(c, E, F), l),
+            Equal.cong(Pr.Led, Pr.Led, v => Pr.Led.page(t, v), Pr.Led.page.at(Pr.newer(Pr.Led.last(l), i), l, E), L2, s1),
+            Equal.trans(Pr.Led, Pr.Led.page(t, L2), Pr.Led.ents(F, L2), Pr.Led.ents(Work.wk_fresh.at(c, E, F), l), wh.fresh(t, L2, z0, i <> ids, s3),
+              Equal.sym(Pr.Led, Pr.Led.ents(Work.wk_fresh.at(c, E, F), l), Pr.Led.ents(F, L2), wh.fresh.s2(c, E, F, l))))
 
 # Events
 # ------
@@ -310,9 +578,9 @@ def wh.view(b: Bool, +es: List<&2, Pr.Ent>, +st: Work.wk.S) -> {wh.lift(Work.wk_
   match b:
     case True{}:
       +n = List.length(&2, Pr.Ent, es)
-      %wh.ents(es, st) : {wh.lift(Work.wk_done(Work.wk_seen(Work.wk_ents(es, st), n))) == Work.wk_spell_step(Pr.Led.done(Pr.Led.seen(_, n))) : FW.St & String}
-      %wh.seen(Work.wk_ents(es, st), n) : {wh.lift(Work.wk_done(Work.wk_seen(Work.wk_ents(es, st), n))) == Work.wk_spell_step(Pr.Led.done(_)) : FW.St & String}
-      wh.done(Work.wk_seen(Work.wk_ents(es, st), n))
+      %wh.reads(es, st) : {wh.lift(Work.wk_done(Work.wk_seen(Work.wk_reads(es, st), n))) == Work.wk_spell_step(Pr.Led.done(Pr.Led.seen(_, n))) : FW.St & String}
+      %wh.seen(Work.wk_reads(es, st), n) : {wh.lift(Work.wk_done(Work.wk_seen(Work.wk_reads(es, st), n))) == Work.wk_spell_step(Pr.Led.done(_)) : FW.St & String}
+      wh.done(Work.wk_seen(Work.wk_reads(es, st), n))
     case False{}:
       {==}
 
@@ -326,8 +594,12 @@ def wh.next(st: Work.wk.S, e: Pr.Ev) -> {wh.lift(Work.wk_next(st, e)) == Work.wk
           %wh.holds(r, at, z) : {wh.lift(Work.wk_view(Work.wk_holds(r, at, z), es, Work.wk.S{a, p, r, z})) == Work.wk_spell_step(Pr.Led.view.at(_, es, wh.abs(Work.wk.S{a, p, r, z}))) : FW.St & String}
           wh.view(Work.wk_holds(r, at, z), es, Work.wk.S{a, p, r, z})
         case Pr.Page{+es}:
-          %wh.page(es, Work.wk.S{a, p, r, z}) : {wh.lift(Work.wk_done(Work.wk_page(es, Work.wk.S{a, p, r, z}))) == Work.wk_spell_step(Pr.Led.done(_)) : FW.St & String}
-          wh.done(Work.wk_page(es, Work.wk.S{a, p, r, z}))
+          +s0 = {Work.wk.S{a, p, r, z} : Work.wk.S}
+          +F = Work.wk_fresh(es, z, Nil{})
+          +e1 = Equal.trans(Pr.Led, wh.abs(Work.wk_reads(F, s0)), Pr.Led.ents(F, wh.abs(s0)), Pr.Led.page(es, wh.abs(s0)), wh.reads(F, s0),
+            Equal.sym(Pr.Led, Pr.Led.page(es, wh.abs(s0)), Pr.Led.ents(F, wh.abs(s0)), wh.fresh(es, wh.abs(s0), z, Nil{}, {==})))
+          %e1 : {wh.lift(Work.wk_done(Work.wk_reads(F, s0))) == Work.wk_spell_step(Pr.Led.done(_)) : FW.St & String}
+          wh.done(Work.wk_reads(F, s0))
         case Pr.Note{+x}:
           %wh.snoc(a, Pr.ANote{x}, Nil{}) : {wh.lift(Work.wk_done(Work.wk.S{List.append(&2, Pr.Act, a, [Pr.ANote{x}]), p, r, z})) == Work.wk_spell_step(Pr.Led.done(Pr.Led{_, wh.canon(p), r, z})) : FW.St & String}
           wh.done(Work.wk.S{List.append(&2, Pr.Act, a, [Pr.ANote{x}]), p, r, z})
