@@ -34,6 +34,14 @@ import ./base.bend as LawsBase
 #     rulebook that was not kept answers every lookup with the error form.
 # Every input is free: any known directives, rules, queries and text;
 # every number that fits the wire.
+# R1 is quirks_open_answers (the reply's spelling) with the verdict laws
+# quirks_verdicts_count, _heard, _fine, _clash and _first (each verdict
+# by its properties, which fix it), and quirks_rejected_run; R2 is
+# quirks_faults_iff_rejected; R3 is quirks_lookup_answers and
+# quirks_lookup_exact, with quirks_any_at_found and quirks_any_at_witness
+# for the model's `any_at` the model's laws read; R4 is quirks_open_reads,
+# quirks_open_refuses, quirks_lookup_reads, quirks_lookup_refuses and
+# quirks_rejected_run.
 
 # Spellers: what Rust writes, from the wire primitives
 # ----------------------------------------------------
@@ -171,15 +179,6 @@ def qs_kept(ok: Bool, rs: List<&2, If.Rule>) -> FQ.St:
     case False{}:
       FQ.Shut{}
 
-# every verdict is fine: every directive known, no rule clashes with a
-# later one
-def qs_all_fine(rs: List<&2, If.Rule>, +known: List<&2, Nat>) -> Bool:
-  match rs:
-    case Nil{}:
-      True{}
-    case +r <> +rest:
-      Bool.and(Bool.and(qs_mem(known, qs_dir(r)), Maybe.is_none(&2, Nat, qs_partner(rest, r, 0n))), qs_all_fine(rest, known))
-
 # the answer of a lookup: 0 Unknown, 1 then the value
 def spell_ans(a: If.Ans) -> String:
   match a:
@@ -187,14 +186,6 @@ def spell_ans(a: If.Ans) -> String:
       Wr.put_nat(0n, "")
     case If.Known{v}:
       Wr.put_nat(1n, Wr.put_nat(v, ""))
-
-# the answer is a value
-def qs_known(a: If.Ans) -> Bool:
-  match a:
-    case If.Known{v}:
-      True{}
-    case If.Unknown{}:
-      False{}
 
 # The terms the model's laws read, as a spec
 # ------------------------------------------
@@ -237,15 +228,6 @@ def qs_applies(q: If.Query, r: If.Rule) -> Bool:
   match r:
     case If.Rule{l, t, d, v}:
       Nat.is_eq(t, qs_target(q, l))
-
-# some rule of rs applies to q with directive d at a precedence of k or
-# above
-def qs_any_at(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +k: Nat) -> Bool:
-  match rs:
-    case Nil{}:
-      False{}
-    case +r <> rest:
-      Bool.or(Bool.and(Bool.and(qs_applies(q, r), Nat.is_eq(qs_dir(r), d)), Nat.is_le(k, qs_rule_rank(r))), qs_any_at(rest, q, d, k))
 
 # The lookup, as a spec
 # ---------------------
@@ -298,168 +280,67 @@ def qs_answer(m: Maybe<&2, Nat>) -> If.Ans:
 def qs_lookup(+rs: List<&2, If.Rule>, +q: If.Query, +d: Nat) -> If.Ans:
   qs_answer(qs_or(qs_first(rs, q, d, 2n), qs_or(qs_first(rs, q, d, 1n), qs_first(rs, q, d, 0n))))
 
-# The model's verdicts, as a spec
-# -------------------------------
+# The verdicts, by their properties
+# ---------------------------------
 
-def qs_verdict(known: Bool, p: Maybe<&2, Nat>) -> If.Verdict:
-  match known:
-    case False{}:
-      If.Unheard{}
-    case True{}:
-      match p:
-        case None{}:
-          If.Fine{}
-        case Some{j}:
-          If.ClashAt{j}
-
-# the verdicts on the rules of rs, the first at index i
-def qs_verdicts(rs: List<&2, If.Rule>, +known: List<&2, Nat>, +i: Nat) -> List<&2, If.Verdict>:
-  match rs:
-    case Nil{}:
-      Nil{}
-    case +r <> +rest:
-      qs_verdict(qs_mem(known, qs_dir(r)), qs_partner(rest, r, 1n+i)) <> qs_verdicts(rest, known, 1n+i)
-
-# every verdict of vs is fine
-def qs_fine_all(vs: List<&2, If.Verdict>) -> Bool:
-  match vs:
-    case Nil{}:
-      True{}
-    case v <> rest:
+# the verdict m says the rule's directive is known (fine, or a clash); no
+# verdict says nothing
+def qs_heard(m: Maybe<&2, If.Verdict>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{v}:
       match v:
         case If.Fine{}:
-          qs_fine_all(rest)
+          True{}
         case If.Unheard{}:
           False{}
         case If.ClashAt{j}:
-          False{}
+          True{}
 
-# Readers: the inputs the entry accepts, read with the wire primitives
-# --------------------------------------------------------------------
-
-# an open: the known directives and the rules
-type QsOpen is Data:
-  QsOpen{known: List<&2, Nat>, rs: List<&2, If.Rule>}
-
-# a lookup: the query and the directive
-type QsLookup is Data:
-  QsLookup{q: If.Query, d: Nat}
-
-def read_lay(n: Nat) -> Maybe<&2, If.Lay>:
-  match n:
-    case 0n:
-      Some{If.Fam{}}
-    case 1n:
-      Some{If.Mod{}}
-    case 2n:
-      Some{If.Host{}}
-    case 3n+p:
-      None{}
-
-def read_rules.cons(m: Maybe<&2, If.Lay>, t: Nat, d: Nat, v: Nat, r: Maybe<&2, List<&2, If.Rule>>) -> Maybe<&2, List<&2, If.Rule>>:
+# rule r clashes with the rule m holds (no rule: no clash)
+def qs_clash_at(r: If.Rule, m: Maybe<&2, If.Rule>) -> Bool:
   match m:
     case None{}:
-      None{}
-    case Some{l}:
-      match r:
-        case None{}:
-          None{}
-        case Some{rs}:
-          Some{If.Rule{l, t, d, v} <> rs}
+      False{}
+    case Some{s}:
+      qs_clash(r, s)
 
-# the rules four Nats each spell
-def read_rules(xs: List<&2, Nat>) -> Maybe<&2, List<&2, If.Rule>>:
-  match xs:
+# how many verdicts of vs are not fine
+def qs_faults(vs: List<&2, If.Verdict>) -> Nat:
+  match vs:
     case Nil{}:
-      Some{Nil{}}
-    case l <> a:
-      match a:
-        case Nil{}:
-          None{}
-        case t <> b:
-          match b:
-            case Nil{}:
-              None{}
-            case d <> c:
-              match c:
-                case Nil{}:
-                  None{}
-                case v <> rest:
-                  read_rules.cons(read_lay(l), t, d, v, read_rules(rest))
+      0n
+    case v <> rest:
+      match v:
+        case If.Fine{}:
+          qs_faults(rest)
+        case If.Unheard{}:
+          1n+qs_faults(rest)
+        case If.ClashAt{j}:
+          1n+qs_faults(rest)
 
-def read_open.pair(known: List<&2, Nat>, m: Maybe<&2, List<&2, If.Rule>>) -> Maybe<&2, QsOpen>:
-  match m:
-    case None{}:
-      None{}
-    case Some{rs}:
-      Some{QsOpen{known, rs}}
+# The stepper's run
+# -----------------
 
-def read_open.end(whole: Bool, known: List<&2, Nat>, xs: List<&2, Nat>) -> Maybe<&2, QsOpen>:
-  match whole:
-    case True{}:
-      read_open.pair(known, read_rules(xs))
-    case False{}:
-      None{}
+# an open's reply says the rulebook compiles: it opens with T
+def qs_says_compiles(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Char.is_eq(c, 'T')
 
-def read_open.rules(known: List<&2, Nat>, d: Wr.Dec<List<&2, Nat>>) -> Maybe<&2, QsOpen>:
-  match d:
-    case Wr.Got{xs, s}:
-      read_open.end(Wr.end(s), known, xs)
-    case Wr.Bad{}:
-      None{}
-
-def read_open.known(d: Wr.Dec<List<&2, Nat>>) -> Maybe<&2, QsOpen>:
-  match d:
-    case Wr.Got{known, s}:
-      read_open.rules(known, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      None{}
-
-# the open s spells: the known directives and the rules
-def read_open(s: String) -> Maybe<&2, QsOpen>:
-  read_open.known(Wr.get_list(~Nat, ~Wr.get_nat, s))
-
-# the lookup four Nats spell
-def read_four(xs: List<&2, Nat>) -> Maybe<&2, QsLookup>:
-  match xs:
+# the reply r, then the replies of the stepper fed the lookups ins, one
+# step each from the state of r
+def qs_feed(ins: List<&2, String>, r: FQ.St & String) -> List<&2, String>:
+  match ins:
     case Nil{}:
-      None{}
-    case f <> a:
-      match a:
-        case Nil{}:
-          None{}
-        case m <> b:
-          match b:
-            case Nil{}:
-              None{}
-            case h <> c:
-              match c:
-                case Nil{}:
-                  None{}
-                case d <> e:
-                  match e:
-                    case Nil{}:
-                      Some{QsLookup{If.Query{f, m, h}, d}}
-                    case x <> y:
-                      None{}
-
-def read_lookup.end(whole: Bool, xs: List<&2, Nat>) -> Maybe<&2, QsLookup>:
-  match whole:
-    case True{}:
-      read_four(xs)
-    case False{}:
-      None{}
-
-def read_lookup.got(d: Wr.Dec<List<&2, Nat>>) -> Maybe<&2, QsLookup>:
-  match d:
-    case Wr.Got{xs, s}:
-      read_lookup.end(Wr.end(s), xs)
-    case Wr.Bad{}:
-      None{}
-
-# the lookup s spells
-def read_lookup(s: String) -> Maybe<&2, QsLookup>:
-  read_lookup.got(Wr.get_list(~Nat, ~Wr.get_nat, s))
+      (st, out) = r
+      [out]
+    case i <> t:
+      (st, out) = r
+      out <> qs_feed(t, FQ.step(st, i))
 
 # Laws
 # ----
@@ -476,13 +357,143 @@ law quirks_open_answers:
   for fits: {open_fits(known, rs) == True{} : Bool}
   {FQ.open(spell_open(known, rs)) == (qs_kept(If.compiles(known, rs), rs), Wr.put_bool(If.compiles(known, rs), spell_verdicts(known, rs))) : FQ.St & String}
 
-# LAW quirks_faults_iff_rejected: every verdict is fine exactly when the rulebook compiles
+# LAW quirks_faults_iff_rejected (R2): of the model's verdicts (the ones
+# the entry spells), none is a fault (unknown directive or clash) exactly
+# when the rulebook compiles
 # EXCLUDES: a rejection with no reason, a reason given for a rulebook that
 #   compiles
 law quirks_faults_iff_rejected:
   for +known: List<&2, Nat>
   for +rs: List<&2, If.Rule>
-  {qs_all_fine(rs, known) == If.compiles(known, rs) : Bool}
+  {Nat.is_eq(qs_faults(If.verdicts(known, rs)), 0n) == If.compiles(known, rs) : Bool}
+
+# LAW quirks_verdicts_count (R1): the model gives one verdict per rule
+# EXCLUDES: a verdict lost or added
+law quirks_verdicts_count:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  {List.length(&2, If.Verdict, If.verdicts(known, rs)) == List.length(&2, If.Rule, rs) : Nat}
+
+# LAW quirks_verdict_heard (R1): the verdict on rule i says its directive
+# is unknown (Unheard) exactly when the directive is not one of the known
+# EXCLUDES: an unknown directive reported fine or as a clash, a known one
+#   reported unknown, verdicts shifted against the rules
+law quirks_verdict_heard:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  for +i: Nat
+  for +r: If.Rule
+  for at: {List.get(&2, If.Rule, rs, i) == Some{r} : Maybe<&2, If.Rule>}
+  {qs_heard(List.get(&2, If.Verdict, If.verdicts(known, rs), i)) == qs_mem(known, qs_dir(r)) : Bool}
+
+# LAW quirks_verdict_fine (R1): a rule i reported fine clashes (qs_clash:
+# one layer, target and directive, another value) with no later rule j
+# EXCLUDES: a clash with a later rule reported fine
+law quirks_verdict_fine:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  for +i: Nat
+  for +j: Nat
+  for +r: If.Rule
+  for +s: If.Rule
+  for at: {List.get(&2, If.Rule, rs, i) == Some{r} : Maybe<&2, If.Rule>}
+  for fine: {List.get(&2, If.Verdict, If.verdicts(known, rs), i) == Some{If.Fine{}} : Maybe<&2, If.Verdict>}
+  for later: {List.get(&2, If.Rule, rs, j) == Some{s} : Maybe<&2, If.Rule>}
+  for after: {Nat.is_lt(i, j) == True{} : Bool}
+  {qs_clash(r, s) == False{} : Bool}
+
+# LAW quirks_verdict_clash (R1): a rule i reported as clashing at j clashes
+# with rule j, a later rule
+# EXCLUDES: a clash pointing at an earlier rule, at itself, past the last
+#   rule, or at a rule it does not clash with (an index off by one)
+law quirks_verdict_clash:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  for +i: Nat
+  for +j: Nat
+  for +r: If.Rule
+  for at: {List.get(&2, If.Rule, rs, i) == Some{r} : Maybe<&2, If.Rule>}
+  for clash: {List.get(&2, If.Verdict, If.verdicts(known, rs), i) == Some{If.ClashAt{j}} : Maybe<&2, If.Verdict>}
+  {Nat.is_lt(i, j) == True{} : Bool} & {qs_clash_at(r, List.get(&2, If.Rule, rs, j)) == True{} : Bool}
+
+# LAW quirks_verdict_first (R1): a rule i reported as clashing at j clashes
+# with no rule k between them: j is the first later rule it clashes with
+# EXCLUDES: a clash reported at the last or any other later clashing rule
+#   but the first
+law quirks_verdict_first:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  for +i: Nat
+  for +j: Nat
+  for +k: Nat
+  for +r: If.Rule
+  for +s: If.Rule
+  for at: {List.get(&2, If.Rule, rs, i) == Some{r} : Maybe<&2, If.Rule>}
+  for clash: {List.get(&2, If.Verdict, If.verdicts(known, rs), i) == Some{If.ClashAt{j}} : Maybe<&2, If.Verdict>}
+  for mid: {List.get(&2, If.Rule, rs, k) == Some{s} : Maybe<&2, If.Rule>}
+  for after: {Nat.is_lt(i, k) == True{} : Bool}
+  for before: {Nat.is_lt(k, j) == True{} : Bool}
+  {qs_clash(r, s) == False{} : Bool}
+
+# LAW quirks_open_reads (R4): every open the entry does not answer with
+# the error form (a reply that opens with 'E') is an open Rust writes: the
+# known directives and the rules spelled by spell_open, every number within
+# the wire
+# EXCLUDES: an answer (and a rulebook kept) for input that is no open:
+#   input left over, a layer tag past 2, a rule cut short, a list shorter
+#   than its count, a number past the wire's 14 digits
+law quirks_open_reads:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(Pair.snd(FQ.St, String, FQ.open(s))) == False{} : Bool}
+  exs known: List<&2, Nat>
+  exs rs: List<&2, If.Rule>
+  {s == spell_open(known, rs) : String} & {open_fits(known, rs) == True{} : Bool}
+
+# LAW quirks_open_refuses (R4): an open the entry answers with the error
+# form keeps no rulebook and answers exactly 'E ', then "quirks: malformed
+# rulebook"
+# EXCLUDES: a default rulebook kept for a malformed open, an error text that
+#   varies with the input
+law quirks_open_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(Pair.snd(FQ.St, String, FQ.open(s))) == True{} : Bool}
+  {FQ.open(s) == (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}}) : FQ.St & String}
+
+# LAW quirks_lookup_reads (R4): in a kept rulebook, every lookup the entry
+# does not answer with the error form is a lookup Rust writes (four Nats:
+# family, model, host, directive), every number within the wire
+# EXCLUDES: a guessed query for a list of another length, input left over,
+#   a malformed number
+law quirks_lookup_reads:
+  for +rs: List<&2, If.Rule>
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(Pair.snd(FQ.St, String, FQ.step(FQ.Book{rs}, s))) == False{} : Bool}
+  exs q: If.Query
+  exs d: Nat
+  {s == spell_lookup(q, d) : String} & {lookup_fits(q, d) == True{} : Bool}
+
+# LAW quirks_lookup_refuses (R4): in a kept rulebook, a lookup answered
+# with the error form keeps the rulebook and answers exactly 'E ', then
+# "quirks: malformed lookup"
+# EXCLUDES: a rulebook dropped or changed by a bad lookup, another error
+#   text
+law quirks_lookup_refuses:
+  for +rs: List<&2, If.Rule>
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(Pair.snd(FQ.St, String, FQ.step(FQ.Book{rs}, s))) == True{} : Bool}
+  {FQ.step(FQ.Book{rs}, s) == (FQ.Book{rs}, SCon{'E', SCon{' ', "quirks: malformed lookup"}}) : FQ.St & String}
+
+# LAW quirks_rejected_run (R1, R4): after an open whose reply does not say
+# the rulebook compiles (it opens with F, or is the error form), the
+# stepper answers that reply, then every lookup, whatever its input,
+# exactly 'E ', then "quirks: no rulebook"
+# EXCLUDES: answers from a rulebook that does not compile, or from a
+#   malformed open (a default or partly read rulebook)
+law quirks_rejected_run:
+  for +s: String
+  for +ins: List<&2, String>
+  for no: {qs_says_compiles(Pair.snd(FQ.St, String, FQ.open(s))) == False{} : Bool}
+  {qs_feed(ins, FQ.open(s)) == Pair.snd(FQ.St, String, FQ.open(s)) <> List.replicate(String, List.length(&2, String, ins), SCon{'E', SCon{' ', "quirks: no rulebook"}}) : List<&2, String>}
 
 # LAW quirks_lookup_answers: a lookup Rust writes, in a kept rulebook, answers the model's
 # lookup and keeps the rulebook
@@ -495,29 +506,54 @@ law quirks_lookup_answers:
   for fits: {lookup_fits(q, d) == True{} : Bool}
   {FQ.step(FQ.Book{rs}, spell_lookup(q, d)) == (FQ.Book{rs}, spell_ans(If.lookup(rs, q, d))) : FQ.St & String}
 
-# LAW quirks_open_malformed: an open that is not exactly an open Rust writes answers exactly the
-# error form 'E ' then "quirks: malformed rulebook", and keeps no rulebook
-# EXCLUDES: a default rulebook, input left over or a layer tag past 2 read
-law quirks_open_malformed:
-  for +s: String
-  for no: {read_open(s) == None{} : Maybe<&2, QsOpen>}
-  {FQ.open(s) == (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}}) : FQ.St & String}
-
-# LAW quirks_lookup_malformed: a lookup that is not exactly four Nats answers exactly the error
-# form 'E ' then "quirks: malformed lookup", and keeps the rulebook
-# EXCLUDES: a guessed query, a rulebook dropped or changed by a bad lookup
-law quirks_lookup_malformed:
+# LAW quirks_lookup_exact: the model's lookup is the spec's for every rulebook, query and
+# directive: the value of the first rule of the highest precedence that
+# applies, Unknown when none does
+# EXCLUDES: a lookup wrong on a rulebook the model's laws (quirk_highest_wins
+#   and its premises) leave free, an entry law that holds through a model
+#   function no law fixes for every input
+law quirks_lookup_exact:
   for +rs: List<&2, If.Rule>
-  for +s: String
-  for no: {read_lookup(s) == None{} : Maybe<&2, QsLookup>}
-  {FQ.step(FQ.Book{rs}, s) == (FQ.Book{rs}, SCon{'E', SCon{' ', "quirks: malformed lookup"}}) : FQ.St & String}
+  for +q: If.Query
+  for +d: Nat
+  {If.lookup(rs, q, d) == qs_lookup(rs, q, d) : If.Ans}
 
-# LAW quirks_shut_refuses: a rulebook that was not kept answers every lookup with exactly the
-# error form 'E ' then "quirks: no rulebook"
-# EXCLUDES: answers from a rulebook that does not compile, or from none
-law quirks_shut_refuses:
-  for +s: String
-  {FQ.step(FQ.Shut{}, s) == (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: no rulebook"}}) : FQ.St & String}
+# LAW quirks_any_at_found (R3): the model's `any_at` (which the model's
+# laws quirk_unknown_when_none, quirk_known_when_some and
+# quirk_highest_wins read) says yes whenever some rule i of the rulebook
+# applies to the query (its target is the one the query names at its
+# layer, qs_target), has the directive and a layer of precedence k or
+# above (host 2, model 1, family 0)
+# EXCLUDES: an any_at that misses a rule (the last, a rule of a higher
+#   layer, a rule at exactly precedence k), making those laws' premises
+#   hold where a rule applies
+law quirks_any_at_found:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for +k: Nat
+  for +i: Nat
+  for +r: If.Rule
+  for at: {List.get(&2, If.Rule, rs, i) == Some{r} : Maybe<&2, If.Rule>}
+  for hit: {qs_applies(q, r) == True{} : Bool}
+  for dir: {Nat.is_eq(qs_dir(r), d) == True{} : Bool}
+  for high: {Nat.is_le(k, qs_rule_rank(r)) == True{} : Bool}
+  {If.any_at(rs, q, d, k) == True{} : Bool}
+
+# LAW quirks_any_at_witness (R3): the model's `any_at` says yes only when
+# some rule i of the rulebook applies to the query, has the directive and a
+# layer of precedence k or above
+# EXCLUDES: an any_at that says yes for no rule (a rule of another target,
+#   directive or a lower layer counted), making those laws vacuous
+law quirks_any_at_witness:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for +k: Nat
+  for yes: {If.any_at(rs, q, d, k) == True{} : Bool}
+  exs i: Nat
+  exs r: If.Rule
+  {List.get(&2, If.Rule, rs, i) == Some{r} : Maybe<&2, If.Rule>} & ({qs_applies(q, r) == True{} : Bool} & ({Nat.is_eq(qs_dir(r), d) == True{} : Bool} & {Nat.is_le(k, qs_rule_rank(r)) == True{} : Bool}))
 
 # LAW quirks_open_example: anchor: the strings Rust sends and reads: a rulebook of a family and a
 # model rule compiles; one with two clashing model rules and an unknown
@@ -533,141 +569,23 @@ law quirks_open_example:
 law quirks_lookup_example:
   {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}]}, "4,1,2,0,0,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}]}, "1,7,") : FQ.St & String} & {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}]}, "4,1,9,0,0,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}]}, "1,5,") : FQ.St & String} & {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}]}, "4,1,9,0,1,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}]}, "0,") : FQ.St & String}
 
-# LAW quirks_malformed_example: witness: malformed inputs exist (a layer tag of 3, a rule cut
-# short, input left over, a lookup of three Nats)
-# EXCLUDES: a vacuous quirks_open_malformed or quirks_lookup_malformed
+# LAW quirks_malformed_example: anchor: the entry refuses malformed input (a layer tag of 3, a
+# rule cut short, input left over, a lookup of three Nats)
+# EXCLUDES: a vacuous quirks_open_refuses or quirks_lookup_refuses
 law quirks_malformed_example:
-  {[read_open("1,0,4,3,1,0,5,"), read_open("1,0,3,0,1,0,"), read_open("1,0,0,x")] == [None{}, None{}, None{}] : List<&2, Maybe<&2, QsOpen>>} & {read_lookup("3,1,2,0,") == None{} : Maybe<&2, QsLookup>}
+  {FQ.open("1,0,4,3,1,0,5,") == (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}}) : FQ.St & String} & ({FQ.open("1,0,3,0,1,0,") == (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}}) : FQ.St & String} & ({FQ.open("1,0,0,x") == (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}}) : FQ.St & String} & {FQ.step(FQ.Book{[]}, "3,1,2,0,") == (FQ.Book{[]}, SCon{'E', SCon{' ', "quirks: malformed lookup"}}) : FQ.St & String}))
 
-# LAW quirks_known_exact: the model's is_known (which quirk_known_when_some reads) says Known
-# exactly for a Known answer
-# EXCLUDES: an is_known that always says yes, making quirk_known_when_some
-#   vacuous (a mutant's)
-law quirks_known_exact:
-  for a: If.Ans
-  {If.is_known(a) == qs_known(a) : Bool}
-
-# LAW quirks_premises_example: witness: an open and a lookup that fit the wire exist, and an
-# open with a layer tag of 3 reads as no open
-# EXCLUDES: a vacuous quirks_open_answers, quirks_lookup_answers or
-#   quirks_open_malformed
+# LAW quirks_premises_example: witness: an open and a lookup that fit the wire exist, a rule at
+# index 1 is reported clashing (with rule 2), a rejected open is
+# followed by a lookup, and any_at says yes for a rule that applies
+# EXCLUDES: a vacuous quirks_open_answers, quirks_lookup_answers,
+#   quirks_verdict_clash, quirks_verdict_first, quirks_rejected_run or
+#   quirks_any_at_witness
 law quirks_premises_example:
-  {open_fits([0n], [If.Rule{If.Host{}, 1n, 0n, 5n}]) == True{} : Bool} & {lookup_fits(If.Query{1n, 2n, 3n}, 0n) == True{} : Bool} & {read_open("1,0,4,3,1,0,5,") == None{} : Maybe<&2, QsOpen>}
-
-# LAW quirks_rule_terms_exact: the rank, directive and value the model's laws read of a rule
-# are the spec's: host over model over family
-# EXCLUDES: layers ranked in another order (a fresh adversary's host ranked
-#   below family and model passed quirk_highest_wins, whose rank the code
-#   defined)
-law quirks_rule_terms_exact:
-  for r: If.Rule
-  {If.Rule.rank(r) == qs_rule_rank(r) : Nat} & {If.Rule.dir(r) == qs_dir(r) : Nat} & {If.Rule.val(r) == qs_val(r) : Nat}
-
-# LAW quirks_applies_exact: a rule applies to a query exactly when its target is the one
-# the query names at its layer
-# EXCLUDES: a rule applied for another layer's target, or never applied
-law quirks_applies_exact:
-  for q: If.Query
-  for r: If.Rule
-  {If.applies(q, r) == qs_applies(q, r) : Bool}
-
-# LAW quirks_any_at_exact: the model's "some rule applies at precedence k or above" is the
-# spec's
-# EXCLUDES: quirk_highest_wins or quirk_unknown_when_none made vacuous or
-#   wrong by a test that ignores rules, layers or the directive
-law quirks_any_at_exact:
-  for +rs: List<&2, If.Rule>
-  for +q: If.Query
-  for +d: Nat
-  for +k: Nat
-  {If.any_at(rs, q, d, k) == qs_any_at(rs, q, d, k) : Bool}
+  {open_fits([0n], [If.Rule{If.Host{}, 1n, 0n, 5n}]) == True{} : Bool} & {lookup_fits(If.Query{1n, 2n, 3n}, 0n) == True{} : Bool} & {If.verdicts([0n], [If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Mod{}, 2n, 0n, 8n}]) == [If.Fine{}, If.ClashAt{2n}, If.Fine{}] : List<&2, If.Verdict>} & {qs_says_compiles(Pair.snd(FQ.St, String, FQ.open("1,0,4,3,1,0,5,"))) == False{} : Bool} & {If.any_at([If.Rule{If.Fam{}, 1n, 0n, 5n}], If.Query{1n, 2n, 3n}, 0n, 0n) == True{} : Bool}
 
 # LAW quirks_host_wins_example: anchor: with a family, a model and a host rule that all apply,
 # the host rule answers
 # EXCLUDES: a lower layer winning over a host rule
 law quirks_host_wins_example:
   {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "4,1,2,3,0,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "1,9,") : FQ.St & String} & {FQ.open("1,0,12,0,1,0,5,1,2,0,7,2,3,0,9,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "T3,0,0,0,") : FQ.St & String}
-
-# LAW quirks_verdicts_exact: the model's verdicts are the spec's: for each rule in order, an
-# unknown directive, else the index of the first later rule it clashes
-# with, else fine
-# EXCLUDES: a model verdict off by one or pointing at another rule (a fresh
-#   adversary's clash search from the rule itself passed every law whose
-#   entry did not call the model)
-law quirks_verdicts_exact:
-  for +known: List<&2, Nat>
-  for +rs: List<&2, If.Rule>
-  {If.verdicts(known, rs) == qs_verdicts(rs, known, 0n) : List<&2, If.Verdict>}
-
-# LAW quirks_fine_all_exact: the model's "every verdict is fine" is the spec's
-# EXCLUDES: a rulebook kept (or refused) by a test that ignores a verdict
-law quirks_fine_all_exact:
-  for vs: List<&2, If.Verdict>
-  {If.fine_all(vs) == qs_fine_all(vs) : Bool}
-
-# LAW quirks_lookup_exact: the model's lookup is the spec's for every rulebook, query and
-# directive: the value of the first rule of the highest precedence that
-# applies, Unknown when none does
-# EXCLUDES: a lookup wrong on a rulebook the model's laws (quirk_highest_wins
-#   and its premises) leave free, an entry law that holds through a model
-#   function no law fixes for every input
-law quirks_lookup_exact:
-  for +rs: List<&2, If.Rule>
-  for +q: If.Query
-  for +d: Nat
-  {If.lookup(rs, q, d) == qs_lookup(rs, q, d) : If.Ans}
-
-# The whole stepper, as a spec
-# ----------------------------
-
-# what an open answers: the error form and no rulebook unless the input
-# reads (read_open) as an open; else whether every verdict is fine, the
-# verdicts, and the rulebook kept exactly when every verdict is fine
-def qs_open.of(m: Maybe<&2, QsOpen>) -> FQ.St & String:
-  match m:
-    case None{}:
-      (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}})
-    case Some{o}:
-      match o:
-        case QsOpen{+known, +rs}:
-          (qs_kept(qs_all_fine(rs, known), rs), Wr.put_bool(qs_all_fine(rs, known), spell_verdicts(known, rs)))
-
-def qs_open_entry(s: String) -> FQ.St & String:
-  qs_open.of(read_open(s))
-
-# what a lookup in the kept rulebook rs answers: the error form unless the
-# input reads (read_lookup) as a lookup, else the spec's answer; the
-# rulebook is kept either way
-def qs_step.of(+rs: List<&2, If.Rule>, m: Maybe<&2, QsLookup>) -> FQ.St & String:
-  match m:
-    case None{}:
-      (FQ.Book{rs}, SCon{'E', SCon{' ', "quirks: malformed lookup"}})
-    case Some{l}:
-      match l:
-        case QsLookup{q, d}:
-          (FQ.Book{rs}, spell_ans(qs_lookup(rs, q, d)))
-
-def qs_step_entry(+rs: List<&2, If.Rule>, s: String) -> FQ.St & String:
-  qs_step.of(rs, read_lookup(s))
-
-# LAW quirks_open_total: every open input is answered as the spec stepper answers it: the
-# error form and no rulebook unless it reads as an open, else the
-# verdicts, and the rulebook kept exactly when every verdict is fine
-# EXCLUDES: an input quirks_open_answers and quirks_open_malformed leave
-#   free (an open spelled in a way the speller never writes but the reader
-#   reads, numbers past the wire) answered otherwise
-law quirks_open_total:
-  for +s: String
-  {FQ.open(s) == qs_open_entry(s) : FQ.St & String}
-
-# LAW quirks_step_total: every lookup input in a kept rulebook is answered as the spec
-# stepper answers it: the error form unless it reads as four Nats, else
-# the spec's lookup; the rulebook is kept (with quirks_shut_refuses, every
-# state the entry holds and every input)
-# EXCLUDES: a lookup quirks_lookup_answers and quirks_lookup_malformed leave
-#   free answered otherwise, a lookup answered through a model function no
-#   law fixes for every rulebook
-law quirks_step_total:
-  for +rs: List<&2, If.Rule>
-  for +s: String
-  {FQ.step(FQ.Book{rs}, s) == qs_step_entry(rs, s) : FQ.St & String}

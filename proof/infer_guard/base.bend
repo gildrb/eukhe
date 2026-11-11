@@ -65,33 +65,56 @@ def gb.least(+s: List<&2, Nat>, +k: Nat, n: Nat) -> {M.shortest.go(s, k, n) == I
       %gb.least(s, k, q) : {M.shortest.pick(M.shortest.go(s, k, q), Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), q) == InferGuard.least.pick(_, Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), 1n+q) : Maybe<&2, Nat>}
       gb.pick(M.shortest.go(s, k, q), Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), q)
 
-# periods is the spec's
-# ---------------------
+# The periods: k/4 by its inverse
+# -------------------------------
 
-def gb.quarter(k: Nat) -> {If.quarter(k) == InferGuard.quarter_spec(k) : Nat}:
-  match k:
+def gb.BD(b: Bool, G: Type) -> Type:
+  match b:
+    case True{}:
+      G
+    case False{}:
+      Unit
+
+# a False that is True proves anything
+def gb.absurd_le(-G: Type, e: {False{} == True{} : Bool}) -> G:
+  %e : gb.BD(_, G)
+  Unit{}
+
+# no count is below 0
+def gb.lt_zero(-G: Type, j: Nat, e: {Nat.is_lt(j, 0n) == True{} : Bool}) -> G:
+  match j:
     case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n:
-      {==}
-    case 4n+j:
-      %gb.quarter(j) : {1n+If.quarter(j) == 1n+_ : Nat}
-      {==}
+      gb.absurd_le(G, e)
+    case 1n+i:
+      gb.absurd_le(G, e)
 
-def gb.periods.of(q: Nat) -> {If.periods.of(q) == InferGuard.periods_spec.of(q) : Nat}:
+# 4q <= k < 4(1 + q): k/4 is q
+def gb.quarter_at(q: Nat, k: Nat, lo: {Nat.is_le(Nat.mul(q, 4n), k) == True{} : Bool}, hi: {Nat.is_lt(k, Nat.mul(1n+q, 4n)) == True{} : Bool}) -> {If.quarter(k) == q : Nat}:
   match q:
     case 0n:
-      {==}
-    case 1n+j:
-      {==}
-
-def gb.periods(+k: Nat) -> {If.periods(k) == InferGuard.periods_spec(k) : Nat}:
-  %gb.quarter(k) : {If.periods.of(If.quarter(k)) == InferGuard.periods_spec.of(_) : Nat}
-  gb.periods.of(If.quarter(k))
+      match k:
+        case 0n:
+          {==}
+        case 1n:
+          {==}
+        case 2n:
+          {==}
+        case 3n:
+          {==}
+        case 4n+j:
+          gb.lt_zero({If.quarter(4n+j) == 0n : Nat}, j, hi)
+    case 1n+p:
+      match k:
+        case 0n:
+          gb.absurd_le({If.quarter(0n) == 1n+p : Nat}, lo)
+        case 1n:
+          gb.absurd_le({If.quarter(1n) == 1n+p : Nat}, lo)
+        case 2n:
+          gb.absurd_le({If.quarter(2n) == 1n+p : Nat}, lo)
+        case 3n:
+          gb.absurd_le({If.quarter(3n) == 1n+p : Nat}, lo)
+        case 4n+j:
+          Equal.cong(Nat, Nat, x => 1n+x, If.quarter(j), p, gb.quarter_at(p, j, lo, hi))
 
 # shortest fires as the counters do
 # --------------------------------

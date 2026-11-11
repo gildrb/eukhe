@@ -14,6 +14,32 @@ import ./base.bend as LawsBase
 # which threshold each request's context is over and where a compaction
 # cuts (`plan`). Every input is free: compaction on or off, any token
 # count, window, reserve, margin, keepRecentTokens, sizes and cuts.
+#
+# R1 (S6.6): with compaction on and a known window w, a context of t
+#     tokens is over the blocking threshold when t + reserve > w, else
+#     over the background threshold when the margin c is positive and
+#     t + reserve + c > w, else over none; with compaction off or the
+#     window unknown (0), over none; the thresholds `first_at` reads are
+#     the first counts over them.
+# R2 (S6.6b): a compaction runs once the context the last turn reached
+#     crossed a threshold, never because the request about to go would;
+#     a request past the hard window that has a cut blocks.
+# R3 (S6.7): a compaction keeps the most newest entries that are a cut,
+#     within keepRecentTokens and (with a known window) within the target
+#     less the base, else the newest cut, and none when nothing is left to
+#     summarize; a background compaction runs only when its cut reaches
+#     the target; after a compaction to the target none runs until a turn
+#     crosses a threshold again.
+# R4: the entry answers every request Rust writes (crates/eukhe-durable
+#     compaction/range.rs `plan`) with the model's plan; every other input
+#     gets exactly the error form 'E ', then "infer_threshold: malformed
+#     request".
+# R1 is infer_threshold_over_exact, infer_threshold_limit_at and
+# infer_threshold_start_at; R2 is infer_threshold_turn_under,
+# infer_threshold_past_window_blocks and infer_threshold_plan_exact; R3 is
+# infer_threshold_plan_exact, infer_threshold_cut_within_target and
+# infer_threshold_target_under; R4 is infer_threshold_ffi_answers,
+# infer_threshold_ffi_reads and infer_threshold_ffi_refuses.
 
 # The decision, independently, on whole numbers: with compaction on and
 # a window w > 0, a context of t tokens is over the blocking threshold
@@ -92,80 +118,32 @@ def lim_spec(w: Nat, r: M.Z) -> Nat:
     case M.Down{a}:
       Nat.add(2n+a, w)
 
-def is_blocks(o: M.Over) -> Bool:
-  match o:
-    case M.Blocks{}:
-      True{}
-    case M.Early{}:
-      False{}
-    case M.Under{}:
-      False{}
+# LAW infer_threshold_limit_at (R1): the blocking threshold `first_at`
+# reads, M.limit_at(w, r) (the least whole count over the limit window -
+# reserve), is reached by exactly the contexts over the limit: a context of
+# t tokens is at or past it exactly when t + reserve > w, for every window
+# w, reserve r and t
+# EXCLUDES: a threshold off by one (t + r >= w), a reserve added instead of
+#   taken away, a negative reserve -(1 + n) read as -n, a threshold that
+#   wraps below 0
+law infer_threshold_limit_at:
+  for +w: Nat
+  for r: M.Z
+  for +t: Nat
+  {Nat.is_le(M.limit_at(w, r), t) == above(t, r, w) : Bool}
 
-def is_over(o: M.Over) -> Bool:
-  match o:
-    case M.Blocks{}:
-      True{}
-    case M.Early{}:
-      True{}
-    case M.Under{}:
-      False{}
-
-# the first context of xs is over the blocking threshold (b) or any
-# threshold
-def head.blocks(xs: List<&2, Nat>, +w: Nat, +r: M.Z, +m: M.Z) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case x <> rest:
-      is_blocks(M.over(True{}, x, w, r, m))
-
-def head.over(xs: List<&2, Nat>, +w: Nat, +r: M.Z, +m: M.Z) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case x <> rest:
-      is_over(M.over(True{}, x, w, r, m))
-
-# the requests of a run as the harness asks them, the first at index i:
-# the index of the first over the blocking threshold (hit: the first of
-# xs is), or over any threshold
-def first_blocks(xs: List<&2, Nat>, +i: Nat, +w: Nat, +r: M.Z, +m: M.Z, hit: Bool) -> Maybe<&2, Nat>:
-  match xs:
-    case Nil{}:
-      None{}
-    case x <> +rest:
-      match hit:
-        case True{}:
-          Some{i}
-        case False{}:
-          first_blocks(rest, 1n+i, w, r, m, head.blocks(rest, w, r, m))
-
-def first_over(xs: List<&2, Nat>, +i: Nat, +w: Nat, +r: M.Z, +m: M.Z, hit: Bool) -> Maybe<&2, Nat>:
-  match xs:
-    case Nil{}:
-      None{}
-    case x <> +rest:
-      match hit:
-        case True{}:
-          Some{i}
-        case False{}:
-          first_over(rest, 1n+i, w, r, m, head.over(rest, w, r, m))
-
-# LAW infer_threshold_blocks_steps: over a run of requests (context sizes xs), with a known window, the first the entry finds over the blocking threshold is `first_at` at the limit window - reserve + 1, whatever the margin
-law infer_threshold_blocks_steps:
-  for +xs: List<&2, Nat>
-  for +v: Nat
+# LAW infer_threshold_start_at (R1): the background threshold `first_at`
+# reads with a margin c, M.limit_at(w, r) - c, is reached by exactly the
+# contexts with t + reserve + c > w, for every window w, reserve r, margin
+# c and t
+# EXCLUDES: a background threshold off by one, the margin added to the
+#   limit instead of taken from it, a threshold that wraps below 0
+law infer_threshold_start_at:
+  for +w: Nat
   for +r: M.Z
-  for +m: M.Z
-  {first_blocks(xs, 0n, 1n+v, r, m, head.blocks(xs, 1n+v, r, m)) == If.first_at(xs, lim_spec(1n+v, r), 0n) : Maybe<&2, Nat>}
-
-# LAW infer_threshold_early_steps: with a positive margin c, the first request the entry finds over any threshold is `first_at` at the background threshold window - reserve - c + 1: so every law of `first_at` (compact_starts_early) holds for them
-law infer_threshold_early_steps:
-  for +xs: List<&2, Nat>
-  for +v: Nat
-  for +r: M.Z
-  for +b: Nat
-  {first_over(xs, 0n, 1n+v, r, M.Up{1n+b}, head.over(xs, 1n+v, r, M.Up{1n+b})) == If.first_at(xs, Nat.sub(lim_spec(1n+v, r), 1n+b), 0n) : Maybe<&2, Nat>}
+  for +c: Nat
+  for +t: Nat
+  {Nat.is_le(Nat.sub(M.limit_at(w, r), c), t) == above_by(t, r, c, w) : Bool}
 
 # (S6.6b) After the turn
 # ----------------------
@@ -368,7 +346,7 @@ def plan_spec(on: Bool, +t: Nat, +last: Nat, +w: Nat, +r: M.Z, +m: M.Z, +keep: N
   +c = cut_spec(xs, cuts, budget_spec(w, r, m, keep, base), full)
   M.Plan{gate_spec(due_spec(on, t, last, w, r, m), c, xs, base, target_spec(w, r, m)), c}
 
-# LAW infer_threshold_plan_exact: the plan of every request is exactly: the cut keeps the largest number of the newest entries that is a cut and whose tokens stay within keepRecentTokens and (with a known window) the target less the request's base, else the newest cut, and none when that leaves nothing to summarize; the threshold is blocking for a request past the hard window, else the one the context the last turn reached is over, kept only with a cut, and the background one only when its cut brings base + kept within the target
+# LAW infer_threshold_plan_exact: the plan of every request is exactly: the cut keeps the largest number of the newest entries that is a cut and whose tokens stay within keepRecentTokens and (with a known window) the target less the request's base, else the newest cut, and none when that leaves nothing to summarize; the threshold is the one the request compacts at (blocking for a request past the hard window, else the one the context the last turn reached is over), kept only with a cut (with no cut it is none, for a request past the hard window too), and the background one only when its cut brings base + kept within the target
 # EXCLUDES: a cut that keeps an older entry past the budget (the 8
 #   compactions of bench longmem: each kept the paste that crossed the
 #   keep window, so the next turn compacted again), a cut that keeps
@@ -377,7 +355,7 @@ def plan_spec(on: Bool, +t: Nat, +last: Nat, +w: Nat, +r: M.Z, +m: M.Z, +keep: N
 #   start again, a compaction without a cut, a threshold read off the
 #   request rather than the turn (the 4 compactions of bench longmem: the
 #   context plus the next paste crossed it before any turn did), a
-#   request sent past the window
+#   request that has a cut sent past the window
 law infer_threshold_plan_exact:
   for on: Bool
   for +t: Nat
@@ -464,10 +442,10 @@ law infer_threshold_turn_under:
   for under: {over_spec(True{}, last, 1n+v, r, m) == M.Under{} : M.Over}
   {M.Plan.over(M.plan(True{}, t, last, 1n+v, r, m, keep, full, xs, cuts)) == M.Under{} : M.Over}
 
-# LAW infer_threshold_past_window_blocks: with compaction on and a known window, a request past the hard window that has a cut blocks, whatever its last turn reached: it waits for its compaction and never goes out past the window
-# EXCLUDES: a request sent past the window because the last turn stayed
-#   under every threshold (left to the provider's overflow), a background
-#   compaction beside a request that cannot fit
+# LAW infer_threshold_past_window_blocks: with compaction on and a known window, a request past the hard window that has a cut blocks, whatever its last turn reached: it waits for its compaction rather than going out past the window (a request past the window with no cut compacts at no threshold and is sent: infer_threshold_plan_exact)
+# EXCLUDES: a request that has a cut sent past the window because the
+#   last turn stayed under every threshold (left to the provider's
+#   overflow), a background compaction beside a request that cannot fit
 law infer_threshold_past_window_blocks:
   for +t: Nat
   for +last: Nat
@@ -542,127 +520,17 @@ def nats_fit(+xs: List<&2, Nat>) -> Bool:
 def req_fits(t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, cuts: List<&2, Nat>) -> Bool:
   Bool.and(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(last), Bool.and(LawsBase.wire_fits(w), Bool.and(z_fits(r), Bool.and(z_fits(m), Bool.and(LawsBase.wire_fits(keep), Bool.and(LawsBase.wire_fits(full), Bool.and(nats_fit(xs), nats_fit(cuts)))))))))
 
-# Reader: the requests the entry accepts, read with the wire primitives
-type Ask is Data:
-  Ask{on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, cuts: List<&2, Nat>}
+# a request Rust writes, as the entry's record
+def spell_ask(q: FT.Req) -> String:
+  match q:
+    case FT.Req{on, t, last, w, r, m, keep, full, xs, cuts}:
+      spell_req(on, t, last, w, r, m, keep, full, xs, cuts)
 
-def read_z.up(d: Wr.Dec<Nat>) -> Wr.Dec<M.Z>:
-  match d:
-    case Wr.Got{n, s}:
-      Wr.Got{M.Up{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_z.down(d: Wr.Dec<Nat>) -> Wr.Dec<M.Z>:
-  match d:
-    case Wr.Got{n, s}:
-      Wr.Got{M.Down{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_z.tag(t: Nat, s: String) -> Wr.Dec<M.Z>:
-  match t:
-    case 0n:
-      read_z.up(Wr.get_nat(s))
-    case 1n:
-      read_z.down(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def read_z(d: Wr.Dec<Nat>) -> Wr.Dec<M.Z>:
-  match d:
-    case Wr.Got{t, s}:
-      read_z.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.cuts(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, d: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{cuts, s}:
-      Wr.Got{Ask{on, t, last, w, r, m, keep, full, xs, cuts}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.sizes(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, d: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{xs, s}:
-      read_ask.cuts(on, t, last, w, r, m, keep, full, xs, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.full(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{full, s}:
-      read_ask.sizes(on, t, last, w, r, m, keep, full, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.keep(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{keep, s}:
-      read_ask.full(on, t, last, w, r, m, keep, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.margin(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, d: Wr.Dec<M.Z>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{m, s}:
-      read_ask.keep(on, t, last, w, r, m, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.reserve(on: Bool, t: Nat, last: Nat, w: Nat, d: Wr.Dec<M.Z>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{r, s}:
-      read_ask.margin(on, t, last, w, r, read_z(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.window(on: Bool, t: Nat, last: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{w, s}:
-      read_ask.reserve(on, t, last, w, read_z(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.last(on: Bool, t: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{last, s}:
-      read_ask.window(on, t, last, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.tokens(on: Bool, d: Wr.Dec<Nat>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{t, s}:
-      read_ask.last(on, t, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.go(d: Wr.Dec<Bool>) -> Wr.Dec<Ask>:
-  match d:
-    case Wr.Got{on, s}:
-      read_ask.tokens(on, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_ask.end(whole: Bool, a: Ask) -> Maybe<&2, Ask>:
-  match whole:
-    case True{}:
-      Some{a}
-    case False{}:
-      None{}
-
-def read_ask.whole(d: Wr.Dec<Ask>) -> Maybe<&2, Ask>:
-  match d:
-    case Wr.Got{a, s}:
-      read_ask.end(Wr.end(s), a)
-    case Wr.Bad{}:
-      None{}
-
-# the request s is, when s is exactly one request
-def read_ask(s: String) -> Maybe<&2, Ask>:
-  read_ask.whole(read_ask.go(Wr.get_bool(s)))
+# every number of a request record fits the wire
+def ask_fits(q: FT.Req) -> Bool:
+  match q:
+    case FT.Req{on, t, last, w, r, m, keep, full, xs, cuts}:
+      req_fits(t, last, w, r, m, keep, full, xs, cuts)
 
 # LAW infer_threshold_ffi_answers: for every request whose numbers fit the wire, the entry answers the model's plan: the threshold, then the cut
 law infer_threshold_ffi_answers:
@@ -679,41 +547,27 @@ law infer_threshold_ffi_answers:
   for fits: {req_fits(t, last, w, r, m, keep, full, xs, cuts) == True{} : Bool}
   {FT.ffi(spell_req(on, t, last, w, r, m, keep, full, xs, cuts)) == spell_plan(M.plan(on, t, last, w, r, m, keep, full, xs, cuts)) : String}
 
-# LAW infer_threshold_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "infer_threshold: malformed request"
-law infer_threshold_ffi_malformed_exact:
+# LAW infer_threshold_ffi_reads (R4): every input the entry does not
+# answer with the error form (a reply that opens with 'E') is a request
+# Rust writes, spelled by spell_req (spell_ask of the request), whose
+# numbers fit the wire
+# EXCLUDES: an answer for an input that is no request: input left over, a
+#   sign tag past 1, a list shorter than its count, a short or malformed
+#   field, a number past the wire's 14 digits, a second spelling of a
+#   request
+law infer_threshold_ffi_reads:
   for +s: String
-  for no: {read_ask(s) == None{} : Maybe<&2, Ask>}
+  for ok: {LawsBase.wire_opens_err(FT.ffi(s)) == False{} : Bool}
+  exs q: FT.Req
+  {s == spell_ask(q) : String} & {ask_fits(q) == True{} : Bool}
+
+# LAW infer_threshold_ffi_refuses (R4): every error the entry answers is
+# exactly the error form 'E ', then "infer_threshold: malformed request"
+# EXCLUDES: an error text that varies with the input, a second error form
+law infer_threshold_ffi_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FT.ffi(s)) == True{} : Bool}
   {FT.ffi(s) == SCon{'E', SCon{' ', "infer_threshold: malformed request"}} : String}
-
-# The entry, whole: what it answers to every input, from the spec plan
-# (plan_spec) and the spec reader (read_ask) only, never the entry's codec
-# or the model `plan`
-
-def reply_spec(a: Ask) -> String:
-  match a:
-    case Ask{on, t, last, w, r, m, keep, full, xs, cuts}:
-      spell_plan(plan_spec(on, t, last, w, r, m, keep, full, xs, cuts))
-
-def entry_spec.of(q: Maybe<&2, Ask>) -> String:
-  match q:
-    case None{}:
-      SCon{'E', SCon{' ', "infer_threshold: malformed request"}}
-    case Some{a}:
-      reply_spec(a)
-
-# the answer to the input s: the spec's plan for the one request s is,
-# else the error form
-def entry_spec(s: String) -> String:
-  entry_spec.of(read_ask(s))
-
-# LAW infer_threshold_ffi_spec: for every input, the entry answers exactly the spec's: the plan plan_spec gives (the threshold 0 none, 1 background, 2 blocking, then the cut 0 none or 1 and the entries it keeps) when the input is exactly one request, else the error form 'E ', then "infer_threshold: malformed request"
-# EXCLUDES: an answer for an input that is not exactly one request (input
-#   left over, an unknown sign tag, a short list, a malformed field), a
-#   threshold or a cut other than the spec's for any request, numbers too
-#   long for the wire included
-law infer_threshold_ffi_spec:
-  for +s: String
-  {FT.ffi(s) == entry_spec(s) : String}
 
 # LAW infer_threshold_ffi_example: anchor: the bytes Rust sends and reads, window 10 and reserve 2 (limit 8, start 6, target 3, hard window 10), margin 3, keep 9, two entries (newest first) and a cut that keeps the newest: a request of 5 after a turn of 5 is under; a request of 9 after a turn of 5 is under too (past the limit, within the window); after a turn of 6 a request over the background threshold compacts early when the cut brings it to the target (base 2 + 1), not when it cannot (base 2 + 2); after a turn of 9 it blocks; a request of 11 blocks after any turn; with no cut nothing compacts; compaction off, none; with the window unknown keep alone bounds the cut (keep 2 keeps 2 of 3 sizes 1, 1, 1); a cut that leaves nothing to summarize is none; an unknown tag and input left over are refused
 law infer_threshold_ffi_example:
