@@ -14,7 +14,8 @@ import ../model_facts.bend as ModelFacts
 # false (one rule for Anthropic Messages and Bedrock: Rust
 # `adaptive_thinking`, crates/eukhe-ai/src/models.rs). The flag decision
 # itself (true only at a known 1, an unknown answer the default) is
-# laws/infer.bend facts_rulebook_decides and facts_rulebook_default.
+# laws/model_facts.bend model_facts_ffi_flag_known and
+# model_facts_ffi_flag_unknown_default.
 
 # LAW facts_adaptive_compat_wins: an adaptive-thinking request carrying the model's explicit compat
 # flag b answers b, whatever the rulebook's answer (every number of the

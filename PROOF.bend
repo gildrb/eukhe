@@ -1663,7 +1663,8 @@ import ./proof/facts/facts_price_no_row_none.bend as PFactsPriceNoRowNone
 import ./proof/facts/facts_adaptive_compat_wins.bend as PFactsAdaptiveCompatWins
 import ./proof/facts/facts_adaptive_else_flag.bend as PFactsAdaptiveElseFlag
 import ./proof/model_facts/base.bend as LAModelFacts
-import ./proof/model_facts/model_facts_ffi_flag.bend as PModelFactsFfiFlag
+import ./proof/model_facts/model_facts_ffi_flag_unknown_default.bend as PModelFactsFfiFlagUnknownDefault
+import ./proof/model_facts/model_facts_ffi_flag_known.bend as PModelFactsFfiFlagKnown
 import ./proof/model_facts/model_facts_ffi_adaptive.bend as PModelFactsFfiAdaptive
 import ./proof/model_facts/model_facts_ffi_effort.bend as PModelFactsFfiEffort
 import ./proof/model_facts/model_facts_ffi_price.bend as PModelFactsFfiPrice

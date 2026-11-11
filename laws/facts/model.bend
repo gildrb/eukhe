@@ -27,8 +27,10 @@ import ../../bend/infer.bend as If
 #     compat flag, else the rulebook's flag with the default false
 #     (laws/facts/adaptive.bend facts_adaptive_compat_wins,
 #     facts_adaptive_else_flag); a flag is true only at a known 1, an
-#     unknown one the wire API's default (laws/infer.bend
-#     facts_rulebook_decides, facts_rulebook_default)
+#     unknown one the wire API's default (at the entry: laws/model_facts.bend
+#     model_facts_ffi_flag_known, model_facts_ffi_flag_unknown_default; the
+#     rulebook lookup: laws/infer.bend facts_rulebook_decides,
+#     facts_rulebook_default)
 #   S6.10.2 the thinking budgets stay inside the model's limits: the Google
 #     budget (facts_google_*), the room under a ceiling (facts_room_*), the
 #     fitted ceiling and budget (facts_fit_*), the auxiliary call's cap

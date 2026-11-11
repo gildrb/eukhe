@@ -24,7 +24,9 @@ import ./base.bend as LawsBase
 #   R1  each request Rust spells (a flag, adaptive thinking, the Bedrock
 #       effort, a tier's price, the Bedrock reasoning fields), its numbers
 #       within the wire, answers the model's decision on it:
-#       model_facts_ffi_flag, _adaptive, _effort, _price, _reasoning
+#       model_facts_ffi_flag_unknown_default, _flag_known (S6.10.1: a flag
+#       is true only at a known 1, an unknown one the wire API's default),
+#       model_facts_ffi_adaptive, _effort, _price, _reasoning
 #   R2  the entry answers a value only for an input that is exactly one
 #       such request: model_facts_ffi_reads_only_requests
 #   R3  every other input answers exactly the error form `E model facts:
@@ -220,12 +222,26 @@ law model_facts_ffi_refuses:
   for bad: {LawsBase.wire_opens_err(FMF.ffi(s)) == True{} : Bool}
   {FMF.ffi(s) == Wr.err("model facts: malformed request") : String}
 
-# LAW model_facts_ffi_flag: a flag request answers the model's flag decision
-law model_facts_ffi_flag:
-  for +a: If.Ans
+# LAW model_facts_ffi_flag_unknown_default (S6.10.1): a flag request whose
+# rulebook answer is unknown (no rule applies to the model) answers the
+# wire API's default d, true or false
+# EXCLUDES: an unknown flag always false (or always true), the default
+#   ignored or flipped when no rule applies
+law model_facts_ffi_flag_unknown_default:
   for +d: Bool
-  for fits: {mf.ans_fits(a) == True{} : Bool}
-  {FMF.ffi(spell_flag(a, d)) == Wr.put_bool(Fx.flag(a, d), "") : String}
+  {FMF.ffi(spell_flag(If.Unknown{}, d)) == Wr.put_bool(d, "") : String}
+
+# LAW model_facts_ffi_flag_known (S6.10.1): a flag request whose rulebook
+# answer is a known value v (within the wire) answers true exactly when v
+# is 1, whatever the wire API's default d: the default never overrides a
+# known answer
+# EXCLUDES: the default answered over a known value, a known value other
+#   than 1 read as true, a known 1 read as false
+law model_facts_ffi_flag_known:
+  for +v: Nat
+  for +d: Bool
+  for fits: {LawsBase.wire_fits(v) == True{} : Bool}
+  {FMF.ffi(spell_flag(If.Known{v}, d)) == Wr.put_bool(Nat.is_eq(v, 1n), "") : String}
 
 # LAW model_facts_ffi_adaptive: an adaptive-thinking request answers the model's decision: the compat flag, else the rulebook, else false
 law model_facts_ffi_adaptive:
