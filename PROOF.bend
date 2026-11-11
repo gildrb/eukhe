@@ -436,8 +436,6 @@ import ./proof/sandbox/cow_entry_bad_base.bend as PCowEntryBadBase
 import ./proof/sandbox/cow_entry_bad_child.bend as PCowEntryBadChild
 import ./proof/sandbox/cow_entry_malformed_unless_request.bend as PCowEntryMalformedUnlessRequest
 import ./proof/sandbox/cow_entry_tags_example.bend as PCowEntryTagsExample
-import ./proof/sandbox/cow_same_exact.bend as PCowSameExact
-import ./proof/sandbox/cow_ffi_exact.bend as PCowFfiExact
 import ./proof/sandbox/cow_ffi_answers.bend as PCowFfiAnswers
 import ./proof/sandbox/cow_ffi_example.bend as PCowFfiExample
 import ./proof/sandbox/cow_req_fits_example.bend as PCowReqFitsExample

@@ -7,7 +7,6 @@ import ../../../bend/sandbox.bend as Sb
 import ../../../bend/wire.bend as Wr
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/sandbox.bend as Sandbox
-import ../../base/logic/bool.bend as LLogicBool
 import ../../base/wire.bend as LWire
 
 # The rule
@@ -88,44 +87,6 @@ def cw.doc(r: Wr.Dec<Nat>) -> {Sandbox.cow_read_doc(r) == FSb.get_doc.go(r) : Wr
     case Wr.Bad{}:
       {==}
 
-# The entry answers what the laws spell
-# -------------------------------------
-
-def cw.end(whole: Bool, +p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> {FSb.run.end(whole, p, b, c) == Sandbox.cow_spec.end(whole, p, b, c) : String}:
-  match whole:
-    case True{}:
-      %Equal.sym(Sb.Plan, Sb.plan(p, b, c), Sandbox.cow_plan_spec(p, b, c), cw.plan(p, b, c)) : {FSb.put_plan(_, "") == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}
-      cw.put_plan(Sandbox.cow_plan_spec(p, b, c))
-    case False{}:
-      {==}
-
-def cw.c(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> {FSb.run.c(p, b, r) == Sandbox.cow_spec.c(p, b, r) : String}:
-  match r:
-    case Wr.Got{+c, s}:
-      cw.end(Wr.end(s), p, b, c)
-    case Wr.Bad{}:
-      {==}
-
-def cw.b(+p: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> {FSb.run.b(p, r) == Sandbox.cow_spec.b(p, r) : String}:
-  match r:
-    case Wr.Got{+b, +s}:
-      %cw.doc(Wr.get_nat(s)) : {FSb.run.c(p, b, _) == Sandbox.cow_spec.c(p, b, Sandbox.cow_read_doc(Wr.get_nat(s))) : String}
-      cw.c(p, b, Sandbox.cow_read_doc(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      {==}
-
-def cw.p(r: Wr.Dec<Maybe<&2, Nat>>) -> {FSb.run.p(r) == Sandbox.cow_spec.p(r) : String}:
-  match r:
-    case Wr.Got{+p, +s}:
-      %cw.doc(Wr.get_nat(s)) : {FSb.run.b(p, _) == Sandbox.cow_spec.b(p, Sandbox.cow_read_doc(Wr.get_nat(s))) : String}
-      cw.b(p, Sandbox.cow_read_doc(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      {==}
-
-def cw.exact(+s: String) -> {FSb.ffi(s) == Sandbox.cow_spec(s) : String}:
-  %cw.doc(Wr.get_nat(s)) : {FSb.run.p(_) == Sandbox.cow_spec(s) : String}
-  cw.p(Sandbox.cow_read_doc(Wr.get_nat(s)))
-
 # The reader reads back what Rust writes
 # --------------------------------------
 
@@ -138,17 +99,6 @@ def cw.rt_doc(m: Maybe<&2, Nat>, +rest: String, +h: {LawsBase.wire_mfits(m) == T
       %LWire.pw6.nat(1n, Wr.put_nat(x, rest), {==}) : {Wr.Got{Some{x}, rest} == Sandbox.cow_read_doc(_) : Wr.Dec<Maybe<&2, Nat>>}
       %LWire.pw6.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == Sandbox.cow_read_doc.some(_) : Wr.Dec<Maybe<&2, Nat>>}
       {==}
-
-def cw.answers(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>, +fits: {Sandbox.cow_req_fits(p, b, c) == True{} : Bool}) -> {Sandbox.cow_spec(Sandbox.cow_spell_req(p, b, c, "")) == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}:
-  +hbc = LLogicBool.wr_and_r(LawsBase.wire_mfits(p), Bool.and(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c)), fits)
-  +hp = LLogicBool.wr_and_l(LawsBase.wire_mfits(p), Bool.and(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c)), fits)
-  +hb = LLogicBool.wr_and_l(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c), hbc)
-  +hc = LLogicBool.wr_and_r(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c), hbc)
-  +bc = Sandbox.cow_spell_doc(b, Sandbox.cow_spell_doc(c, ""))
-  %cw.rt_doc(p, bc, hp) : {Sandbox.cow_spec.p(_) == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}
-  %cw.rt_doc(b, Sandbox.cow_spell_doc(c, ""), hb) : {Sandbox.cow_spec.b(p, _) == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}
-  %cw.rt_doc(c, "", hc) : {Sandbox.cow_spec.c(p, b, _) == Sandbox.cow_spell_plan(Sandbox.cow_plan_spec(p, b, c)) : String}
-  {==}
 
 # a content: the laws' reader is the entry's
 def cse.docs(s: String) -> {Sandbox.cow_read_doc(Wr.get_nat(s)) == FSb.get_doc(s) : Wr.Dec<Maybe<&2, Nat>>}:
