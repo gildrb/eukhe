@@ -30,7 +30,8 @@ import ./laws/infer.bend as Infer
 import ./laws/quirks.bend as Quirks
 import ./laws/tools.bend as Tools
 import ./laws/screen/interface.bend as Screen
-import ./laws/screen/requirement.bend as ScreenRequirement
+import ./laws/screen/events.bend as ScreenEvents
+import ./laws/screen/recover.bend as ScreenRecover
 import ./laws/tiny/pick.bend as Tiny
 import ./laws/tiny/elect.bend as TinyElect
 import ./laws/tiny/run.bend as TinyRun

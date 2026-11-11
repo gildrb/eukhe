@@ -1,12 +1,60 @@
-# eukhe: the laws of area screen, section interface: the interface (S8), the recoveries (H4.8), and the entry
-# bend/ffi_screen.bend by its wire and by the grammar's spelling
+# eukhe: the laws of area screen, section interface: the interface (S8) and the entry
+# bend/ffi_screen.bend by its wire and by the grammar's spelling. The other sections:
+# laws/screen/events.bend (each event of the transcript) and laws/screen/recover.bend
+# (the recoveries of H4.8, bend/run/recovery.bend)
 
 import Base
 import ../../bend/ffi_screen.bend as FSc
-import ../../bend/run/recovery.bend as RnRecovery
 import ../../bend/screen.bend as Sc
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
+
+# Requirements (S8, the header of bend/screen.bend; the entry: crates/eukhe-tui
+# view/ledger.rs, pace.rs, view/stack.rs, inline_term.rs). Each with the laws
+# that state it.
+# R1  Open starts a block, active and empty, with the next id; the blocks
+#     stay in the order they opened: tx_ids_count_opens, tx_open_appends_fresh
+#     (events.bend)
+# R2  Grow{x, n}: each active block of id x gets n more characters, up to
+#     2^32 - 1 (a length already past it stays); a final or committed
+#     block's text is fixed; no other block changes: tx_grow_lengthens
+#     (events.bend)
+# R3  Fin{x}: each active block of id x is final; no other change:
+#     tx_fin_finishes (events.bend)
+# R4  Flush commits the final blocks in order, up to the first active one:
+#     tx_flush_settles, tx_flush_only_commits (events.bend), tx_gapless
+# R5  Committed text is never written again: the scrollback only grows, and
+#     the width (a resize) changes no block: tx_scrollback_append_only,
+#     tx_gapless, tx_width_never_matters
+# R6  Committed blocks are inert, so the core runs a frame on the blocks
+#     after the committed prefix alone: tx_committed_inert (anchors
+#     all_comm_example, all_comm_rejects_example)
+# R7  Pacing: a frame shows at least `min` characters of the backlog b and
+#     the share b / (1 + k) when that is more, never more than arrived,
+#     never less than before, all of it within b frames: pace_never_ahead,
+#     pace_never_back, pace_drains, pace_reveal_formula
+# R8  Off-screen verification: the first of the three checks (the frame,
+#     its full redraw, its fresh redraw) that passes picks what reaches the
+#     terminal; all three failed: nothing drawn, the frame kept:
+#     verify_only_checked, paint_picks_first_pass
+# R9  Layout: children one under the other from the start row, each cut at
+#     the viewport's bottom: layout_inside, layout_apart,
+#     layout_whole_when_room, layout_child_at
+# R10 The entry answers each request Rust spells (WIRE.md's grammar) with
+#     the model's decision in the grammar Rust reads, and the error form for
+#     any other input: screen_ffi_answers_spelled,
+#     screen_ffi_left_over_spelled, screen_ffi_unknown_request,
+#     screen_ffi_unknown_state, screen_ffi_unknown_event,
+#     screen_ffi_reads_only_requests, screen_ffi_malformed_unless_request,
+#     screen_ffi_run (anchors screen_ffi_example, screen_ffi_refuses_example,
+#     screen_ffi_tags_example)
+# A1  The paint decision asks for the next check exactly while it is still
+#     needed (inline_term.rs `paint_decision` builds a redraw only when
+#     asked): screen_ffi_paint (anchor screen_ffi_paint_example)
+# A2  (H4.8 of laws/run/model.bend) a recovery's cap counts only its own
+#     notes in a row: rec_length_notes_then_quit,
+#     rec_length_row_starts_fresh, rec_leak_notes_then_quit,
+#     rec_leak_row_starts_fresh (recover.bend)
 
 # (S8) The interface
 # ------------------
@@ -28,11 +76,38 @@ law tx_scrollback_append_only:
   for +w: Nat
   {Sc.pre(Sc.scroll(Sc.Tx.blocks(Sc.run(pre, Sc.Tx{Nil{}, 0n, w}))), Sc.scroll(Sc.Tx.blocks(Sc.run(List.append(&2, Sc.Ev, pre, post), Sc.Tx{Nil{}, 0n, w})))) == True{} : Bool}
 
-# LAW tx_resize_keeps: a resize writes no block again
-law tx_resize_keeps:
-  for +t: Sc.Tx
-  for +w: Nat
-  {Sc.Tx.blocks(Sc.step(t, Sc.Resize{w})) == Sc.Tx.blocks(t) : List<&2, Sc.Blk>}
+# the events es with every resize left out
+def tx_no_resize(es: List<&2, Sc.Ev>) -> List<&2, Sc.Ev>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      match e:
+        case Sc.Open{}:
+          Sc.Open{} <> tx_no_resize(rest)
+        case Sc.Grow{x, k}:
+          Sc.Grow{x, k} <> tx_no_resize(rest)
+        case Sc.Fin{x}:
+          Sc.Fin{x} <> tx_no_resize(rest)
+        case Sc.Flush{}:
+          Sc.Flush{} <> tx_no_resize(rest)
+        case Sc.Resize{v}:
+          tx_no_resize(rest)
+
+# LAW tx_width_never_matters (R5): the width never touches a block: any events
+# on any blocks and next id, under any width, leave the blocks the same events
+# without their resizes leave under any other width. So a resize writes no
+# block again, and no event reads the width
+# EXCLUDES: a resize that rewrites, reflows, drops or commits a block (the
+#   scrollback written again), an event whose effect on a block depends on
+#   the width
+law tx_width_never_matters:
+  for es: List<&2, Sc.Ev>
+  for +bs: List<&2, Sc.Blk>
+  for +n: Nat
+  for w: Nat
+  for v: Nat
+  {Sc.Tx.blocks(Sc.run(es, Sc.Tx{bs, n, w})) == Sc.Tx.blocks(Sc.run(tx_no_resize(es), Sc.Tx{bs, n, v})) : List<&2, Sc.Blk>}
 
 # LAW tx_flush_settles: after a flush no final block waits: the first block not committed
 # is active
@@ -67,8 +142,10 @@ law pace_drains:
   for enough: {Nat.is_le(Nat.sub(Sc.Pace.recv(p), Sc.Pace.shown(p)), n) == True{} : Bool}
   {Sc.Pace.shown(Sc.pace.run(Sc.frames(n), min, k, p)) == Sc.Pace.recv(p) : Nat}
 
-# LAW verify_only_checked: only a frame that passed its check reaches the terminal, and a
-# frame that failed both checks is reported
+# LAW verify_only_checked (R8): present's outcome agrees with the two checks: a
+# diff draw only when the first check passed, a full redraw only when the
+# second passed, the error only when both failed. Which frame is drawn, and
+# that a passing first check wins, are paint_picks_first_pass's
 law verify_only_checked:
   for f: Nat
   for g: Nat
@@ -76,9 +153,11 @@ law verify_only_checked:
   for +ok2: Bool
   {Sc.checked(Sc.present(f, g, ok1, ok2), ok1, ok2) == True{} : Bool}
 
-# spec: the first of the three checks that passes picks the frame drawn
-# (the frame f, its full redraw g, its fresh redraw h on a blank screen);
-# when none passes nothing is drawn and the first frame is kept
+# the paint the entry laws below expect (screen_ffi_paint,
+# screen_ffi_answers_spelled): the first of the three checks that passes
+# picks the frame drawn (the frame f, its full redraw g, its fresh redraw h
+# on a blank screen); when none passes nothing is drawn and the first frame
+# is kept
 def screen_paint_spec(f: Nat, g: Nat, h: Nat, ok1: Bool, ok2: Bool, ok3: Bool) -> Sc.Paint:
   match ok1:
     case True{}:
@@ -94,21 +173,42 @@ def screen_paint_spec(f: Nat, g: Nat, h: Nat, ok1: Bool, ok2: Bool, ok3: Bool) -
             case False{}:
               Sc.Kept{f}
 
-# LAW paint_first_passing_check: the screen never stops: the first check that passes picks what
-# reaches the terminal (the frame, its full redraw, its fresh redraw on a
-# blank screen); when all three fail nothing is drawn, the first frame is
-# kept, and the surface goes on
-# EXCLUDES: a frame drawn after its check failed; a passing redraw left
-# unused; a fresh redraw before both checks failed; an end of the surface
-# (or any outcome but Kept) after three failed checks
-law paint_first_passing_check:
+# p is the paint of the first passing check: the frame f as a diff when the
+# first check passed; its full redraw g when the second passed and the first
+# failed; its fresh redraw h when the third passed and both before failed;
+# f kept when all three failed. For given checks exactly one paint holds it
+def paint_first_pass(+f: Nat, +g: Nat, +h: Nat, +ok1: Bool, +ok2: Bool, +ok3: Bool, p: Sc.Paint) -> Bool:
+  match p:
+    case Sc.Put{x, full}:
+      match full:
+        case False{}:
+          Bool.and(Nat.is_eq(x, f), ok1)
+        case True{}:
+          Bool.and(Nat.is_eq(x, g), Bool.and(Bool.not(ok1), ok2))
+    case Sc.Fresh{x}:
+      Bool.and(Nat.is_eq(x, h), Bool.and(Bool.not(ok1), Bool.and(Bool.not(ok2), ok3)))
+    case Sc.Kept{x}:
+      Bool.and(Nat.is_eq(x, f), Bool.and(Bool.not(ok1), Bool.and(Bool.not(ok2), Bool.not(ok3))))
+
+# LAW paint_picks_first_pass (R8): for any frames and check results, what
+# present then resync send to the terminal is the paint of the first passing
+# check (paint_first_pass: the frame, its full redraw, its fresh redraw on a
+# blank screen, each only when its check passed and every check before it
+# failed); all three failed: nothing drawn, the first frame kept, the
+# surface goes on. Exactly one paint satisfies paint_first_pass, so this
+# pins present and resync
+# EXCLUDES: a frame drawn after its check failed; a frame drawn other than
+#   the one whose check passed; a passing redraw left unused; a full or
+#   fresh redraw before the checks before it failed; any outcome but Kept
+#   of the first frame after three failed checks
+law paint_picks_first_pass:
   for +f: Nat
   for +g: Nat
   for +h: Nat
   for +ok1: Bool
   for +ok2: Bool
   for +ok3: Bool
-  {Sc.resync(Sc.present(f, g, ok1, ok2), h, ok3) == screen_paint_spec(f, g, h, ok1, ok2, ok3) : Sc.Paint}
+  {paint_first_pass(f, g, h, ok1, ok2, ok3, Sc.resync(Sc.present(f, g, ok1, ok2), h, ok3)) == True{} : Bool}
 
 # LAW layout_inside: no child is drawn outside the viewport
 law layout_inside:
@@ -132,6 +232,67 @@ law layout_whole_when_room:
   for fits: {Nat.is_le(Nat.add(y, Sc.sum(hs)), rows) == True{} : Bool}
   {Sc.heights(Sc.vstack(hs, y, rows)) == hs : List<&2, Nat>}
 
+# the i-th rect of rs (from 0), none past the end
+def layout_rect_at(rs: List<&2, Sc.Rect>, i: Nat) -> Maybe<&2, Sc.Rect>:
+  match rs:
+    case Nil{}:
+      None{}
+    case r <> rest:
+      match i:
+        case 0n:
+          Some{r}
+        case 1n+j:
+          layout_rect_at(rest, j)
+
+# the i-th height of hs (from 0), none past the end
+def layout_height_at(hs: List<&2, Nat>, i: Nat) -> Maybe<&2, Nat>:
+  match hs:
+    case Nil{}:
+      None{}
+    case h <> rest:
+      match i:
+        case 0n:
+          Some{h}
+        case 1n+j:
+          layout_height_at(rest, j)
+
+# the rows the first i children of heights hs take, whole
+def layout_above(hs: List<&2, Nat>, i: Nat) -> Nat:
+  match hs:
+    case Nil{}:
+      0n
+    case h <> rest:
+      match i:
+        case 0n:
+          0n
+        case 1n+j:
+          Nat.add(h, layout_above(rest, j))
+
+# a child of height m placed at row top of a viewport of `rows` rows: its
+# rows from top down to the viewport's bottom at most
+def layout_place(m: Maybe<&2, Nat>, +top: Nat, +rows: Nat) -> Maybe<&2, Sc.Rect>:
+  match m:
+    case None{}:
+      None{}
+    case Some{h}:
+      Some{Sc.Rect{top, Nat.min(h, Nat.sub(rows, top))}}
+
+# LAW layout_child_at (R9): for any heights, start row, rows and index i,
+# the i-th rect of the stack is the i-th child placed at the start row plus
+# the whole heights of the children before it, its visible height cut at
+# the viewport's bottom; past the last child there is no rect (one rect per
+# child)
+# EXCLUDES: a gap or an overlap between children, a child placed after the
+#   visible part of the one before (a clipped child's hidden rows dropped),
+#   a partly visible child shown whole or hidden, a rect dropped or added,
+#   children reordered
+law layout_child_at:
+  for +hs: List<&2, Nat>
+  for +y: Nat
+  for +rows: Nat
+  for +i: Nat
+  {layout_rect_at(Sc.vstack(hs, y, rows), i) == layout_place(layout_height_at(hs, i), Nat.add(layout_above(hs, i), y), rows) : Maybe<&2, Sc.Rect>}
+
 # LAW pace_reveal_formula: the guarded share is the plain formula, for every minimum, lag and
 # backlog: a frame reveals min(b, max(min, b / (1 + k)))
 # EXCLUDES: a guard (no 1 + k formed when k >= b) that changes the
@@ -141,18 +302,6 @@ law pace_reveal_formula:
   for +k: Nat
   for +b: Nat
   {Sc.reveal(min, k, b) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}
-
-# LAW pace_lag_at_cap: a lag at least the backlog reveals the minimum (the whole backlog
-# when it is smaller). Rust saturates the lag at the cap of the compiled
-# core's numbers (2^48 - 1), which is at least every backlog it holds: a
-# lag at the cap reveals the minimum
-# EXCLUDES: a capped lag that reveals more than the minimum, or nothing
-law pace_lag_at_cap:
-  for +min: Nat
-  for +k: Nat
-  for +b: Nat
-  for capped: {Nat.is_le(b, k) == True{} : Bool}
-  {Sc.reveal(min, k, b) == Nat.min(b, min) : Nat}
 
 # every block of bs is committed
 def all_comm(bs: List<&2, Sc.Blk>) -> Bool:
@@ -196,68 +345,10 @@ law tx_committed_inert:
 law all_comm_example:
   {all_comm([Sc.Blk{0n, Sc.Comm{}, 3n}, Sc.Blk{1n, Sc.Comm{}, 0n}]) == True{} : Bool}
 
-# LAW all_comm_rejects: a prefix with a final or an active block is not committed
+# LAW all_comm_rejects_example: anchor: a prefix with a final or an active block is not committed
 # EXCLUDES: an all_comm that is always True
-law all_comm_rejects:
+law all_comm_rejects_example:
   {Bool.or(all_comm([Sc.Blk{0n, Sc.Final{}, 0n}]), all_comm([Sc.Blk{0n, Sc.Comm{}, 0n}, Sc.Blk{1n, Sc.Active{}, 0n}])) == False{} : Bool}
-
-# ---- recover ----
-
-# LAWS (H4.8): a stuck model gets a recovery. Each law is an open claim
-# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Screen.<law>)
-# with the lemmas of proof/screen/.
-
-# (H4.8) A stuck model gets a recovery, each with a cap
-# -----------------------------------------------------
-# LAWS.bend H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
-# stop while the model still reasons, tool calls leaked as text, the same
-# tool calls with the same results round after round. Every reply is
-# free, in any order. A Redo is a noted error, so its retry ends its
-# request with a new note (H4.7); the laws of H4 hold for every reply, so
-# they hold for the reply a recovery makes. A recovery does not depend on
-# the retry policy: a note is a new request, not a transient error.
-
-# LAW rec_length_retries_with_a_note: a length stop with no answer under the cap (fewer than `long`
-# length notes in a row) is retried with the next length note
-law rec_length_retries_with_a_note:
-  for +rc: RnRecovery.RCfg
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for under: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
-  {RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
-
-# LAW rec_leak_retries_with_a_note: leaked calls that were not rebuilt, under the cap, are retried with
-# the next leak note
-law rec_leak_retries_with_a_note:
-  for +rc: RnRecovery.RCfg
-  for +h: Nat
-  for kept: Bool
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for under: {RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)) == True{} : Bool}
-  {RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Leaks{}, 1n+RnRecovery.Rk.leaks(k, row), same, last}} : RnRecovery.Dec}
-
-# LAW rec_length_row_exact: the length notes in a row that the next request's note counts
-# are its row when it is a length note, else 0 (decide.rs `NoteCause::row`)
-# EXCLUDES: a count of length notes that stays 0 or resets, so the cap of
-#   rec_length_retries_with_a_note is never reached; a row of another
-#   recovery counted as length notes
-law rec_length_row_exact:
-  for +row: Nat
-  {[RnRecovery.Rk.longs(RnRecovery.Free{}, row), RnRecovery.Rk.longs(RnRecovery.Longs{}, row), RnRecovery.Rk.longs(RnRecovery.Leaks{}, row), RnRecovery.Rk.longs(RnRecovery.Loops{}, row), RnRecovery.Rk.longs(RnRecovery.Empties{}, row)] == [0n, row, 0n, 0n, 0n] : List<&2, Nat>}
-
-# LAW rec_leak_row_exact: the leak notes in a row that the next request's note counts are
-# its row when it is a leak note, else 0 (decide.rs `NoteCause::row`)
-# EXCLUDES: a count of leak notes that stays 0 or resets, so the cap of
-#   rec_leak_retries_with_a_note is never reached; a row of another
-#   recovery counted as leak notes
-law rec_leak_row_exact:
-  for +row: Nat
-  {[RnRecovery.Rk.leaks(RnRecovery.Free{}, row), RnRecovery.Rk.leaks(RnRecovery.Longs{}, row), RnRecovery.Rk.leaks(RnRecovery.Leaks{}, row), RnRecovery.Rk.leaks(RnRecovery.Loops{}, row), RnRecovery.Rk.leaks(RnRecovery.Empties{}, row)] == [0n, 0n, row, 0n, 0n] : List<&2, Nat>}
 
 # ---- screen: the entry ----
 
@@ -269,8 +360,10 @@ law rec_leak_row_exact:
 # numbers fit the wire.
 
 # The compiled core's entry of the interface (bend/ffi_screen.bend): Rust
-# writes a request with FSc.put_req and reads the reply; every Nat of a
-# request fits the wire (at most 14 digits, wire_fits)
+# writes a request in WIRE.md's grammar (spelled below from the wire
+# primitives, screen_spell_req) and reads the reply; FSc.put_req is the
+# entry's own encoder of a request. Every Nat of a request fits the wire
+# (at most 14 digits, wire_fits)
 
 # every Nat of a block fits the wire
 def blk_fits(b: Sc.Blk) -> Bool:
@@ -312,10 +405,15 @@ def tx_fits(t: Sc.Tx) -> Bool:
     case Sc.Tx{+bs, n, w}:
       Bool.and(LawsBase.wire_fits(List.length(&2, Sc.Blk, bs)), Bool.and(blks_fit(bs), Bool.and(LawsBase.wire_fits(n), LawsBase.wire_fits(w))))
 
-# LAW screen_ffi_run: the entry runs a frame's events as the model: the reply to a Run
-# request is the transcript Sc.run gives, encoded
-# EXCLUDES: an entry that misreads a block, an event or the order of the
-# events, that drops or invents an event, or answers another transcript
+# LAW screen_ffi_run (R10): a Run request written by the entry's own encoder
+# (FSc.put_req), every number within the wire, is answered with the
+# transcript Sc.run gives on its events, written by the entry's own encoder
+# (FSc.put_tx): the entry's decoder reads back what its encoder writes, and
+# it runs the events it read. A tag or field order shared wrong by the
+# entry's encoders and decoders passes it; that the codec is the grammar
+# Rust writes and reads is screen_ffi_answers_spelled's
+# EXCLUDES: an entry that drops, invents or reorders the events or blocks
+#   it reads back, or answers another transcript than Sc.run's
 law screen_ffi_run:
   for +t: Sc.Tx
   for +es: List<&2, Sc.Ev>
@@ -323,30 +421,10 @@ law screen_ffi_run:
   for +fe: {Bool.and(LawsBase.wire_fits(List.length(&2, Sc.Ev, es)), evs_fit(es)) == True{} : Bool}
   {FSc.ffi(FSc.put_req(FSc.ReqRun{t, es}, "")) == FSc.put_tx(Sc.run(es, t), "") : String}
 
-# LAW screen_ffi_pace: the entry paces a frame as the model: n characters arrive, then a
-# frame shows its share
-# EXCLUDES: an entry that swaps the minimum and the lag, reads recv and
-# shown the wrong way round, or frames before the characters arrive
-law screen_ffi_pace:
-  for +min: Nat
-  for +k: Nat
-  for +r: Nat
-  for +s: Nat
-  for +n: Nat
-  for +f: {Bool.and(Bool.and(LawsBase.wire_fits(min), LawsBase.wire_fits(k)), Bool.and(Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(s)), LawsBase.wire_fits(n))) == True{} : Bool}
-  {FSc.ffi(FSc.put_req(FSc.ReqPace{min, k, Sc.Pace{r, s}, n}, "")) == FSc.put_pace(Sc.pace.run([Sc.Chunk{n}, Sc.Frame{}], min, k, Sc.Pace{r, s}), "") : String}
-
-# LAW screen_ffi_stack: the entry stacks children as the model
-# EXCLUDES: an entry that misreads a height, the start row or the rows
-law screen_ffi_stack:
-  for +hs: List<&2, Nat>
-  for +y: Nat
-  for +rows: Nat
-  for +f: {Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)), Bool.and(LawsBase.wire_fits(y), LawsBase.wire_fits(rows))) == True{} : Bool}
-  {FSc.ffi(FSc.put_req(FSc.ReqStack{hs, y, rows}, "")) == Wr.put_list(~Sc.Rect, ~FSc.put_rect, Sc.vstack(hs, y, rows), "") : String}
-
-# LAW screen_ffi_example: the requests Rust writes, as text: a frame (blocks 5 and 6 live,
-# open one, finish 5, flush), a pace frame and a stack, with their replies
+# LAW screen_ffi_example: anchor: three requests spelled by hand from WIRE.md's grammar
+# and the request layout (no Rust test holds these bytes): a frame (blocks
+# 5 and 6 live, open one, finish 5, flush), a pace frame and a stack, with
+# their replies
 # EXCLUDES: a request or reply format other than WIRE.md's (tags, field
 # order, counts)
 law screen_ffi_example:
@@ -401,7 +479,8 @@ def screen_paint_step(open: Bool, p: Sc.Paint) -> Maybe<&2, Sc.Paint>:
 # LAW screen_ffi_paint: after any number of checks, the entry asks for the next check
 # exactly while every check run so far failed (and fewer than three ran),
 # and otherwise answers the paint of the first passing check
-# (screen_paint_spec, the spec of paint_first_passing_check), whatever
+# (screen_paint_spec: the first passing check's paint, which
+# paint_picks_first_pass pins for the model's present and resync), whatever
 # the checks not yet run would answer
 # EXCLUDES: a paint decided before the check it depends on ran; a check
 # asked for after the paint is settled (a redraw built for nothing); a
@@ -414,8 +493,9 @@ law screen_ffi_paint:
   for +ok3: Bool
   {FSc.ffi(FSc.put_req(FSc.ReqPaint{screen_paint_checks(ok1, ok2, ok3, k)}, "")) == FSc.put_step(screen_paint_step(screen_paint_open(screen_paint_checks(ok1, ok2, ok3, k)), screen_paint_spec(0n, 1n, 2n, ok1, ok2, ok3)), "") : String}
 
-# LAW screen_ffi_paint_example: the paint requests Rust writes, as text, with their replies; more
-# than three checks is refused
+# LAW screen_ffi_paint_example: anchor: paint requests spelled by hand from WIRE.md's
+# grammar (no Rust test holds these bytes), with their replies; more than
+# three checks is refused
 # EXCLUDES: a request or reply format other than WIRE.md's (Bools as T
 # and F with no comma, the step tags); a reply to a fourth check
 law screen_ffi_paint_example:

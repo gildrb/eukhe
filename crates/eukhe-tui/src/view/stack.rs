@@ -3,7 +3,7 @@
 //! from the top of the viewport, clipped to its height. No child is drawn
 //! outside the viewport, no two overlap, and children that fit are drawn
 //! whole. The placement runs as the Bend model, one call of the compiled
-//! core (`bend/ffi_screen.bend`, law `screen_ffi_stack`).
+//! core (`bend/ffi_screen.bend`, law `screen_ffi_answers_spelled`).
 
 use eukhe_bend::wire::NAT_MAX;
 use eukhe_bend::Entry;
