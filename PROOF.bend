@@ -2838,6 +2838,7 @@ import ./proof/config/trust_unknown_key_is_code.bend as PCfgTrustUnknownKeyIsCod
 import ./proof/config/trust_untrusted_withholds_guarded.bend as PCfgTrustUntrustedWithholdsGuarded
 import ./proof/config/trust_table_example.bend as PTrustTableExample
 import ./proof/config/trust_rust_vectors_example.bend as PCfgTrustRustVectorsExample
+import ./proof/config/trust_global_cvars_example.bend as PCfgTrustGlobalCvarsExample
 import ./proof/config/merge_finds_exact.bend as PMergeFindsExact
 import ./proof/config/merge_find_exact.bend as PMergeFindExact
 import ./proof/config/config_helpers_example.bend as PCfgConfigHelpersExample

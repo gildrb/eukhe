@@ -9,7 +9,7 @@ import ../spec/settings/config.bend as CS
 
 # ---- config ----
 
-# LAWS (config audit H1-H4, M3, M7; entry R1, R2): no config input is lost
+# LAWS (config audit H1-H4, M3, M7, A1; entry R1, R2): no config input is lost
 # in silence. Each law is an open claim about the model in
 # bend/config.bend or its entry bend/ffi_config.bend (the functions the
 # entry calls: Cf.rmw, Cf.applied, Cf.reported, Cf.limits, Cf.project,
@@ -49,6 +49,25 @@ import ../spec/settings/config.bend as CS
 #     a key (a URL, a credential) from the global entry of its name
 #     (settings/merge.rs); a global entry the project does not name stays
 #     whole.
+# A1  (shipped as in eukhe v0.10.67; omp has no global-only settings: a
+#     project merges every key, packages/coding-agent/src/config/
+#     settings.ts:1403-1407, 2706-2728, test/settings-manager.test.ts:
+#     2806-2815) Rust's cvar layer reads every CvarScope::Global cvar
+#     (crates/eukhe-core/src/settings/cvar/table.rs) from the global
+#     settings alone (settings/cvar.rs:1027-1031 document_sets): a project
+#     value of one never takes effect, trusted or not, whatever this model
+#     answers for its key. Of those keys the model classes trustedProjects,
+#     gateway and ssh global-only (M3); for the others it decides only the
+#     warning: an untrusted project's providers.tinyRuntimeLibrary
+#     (credential), factory, privacy and allowedModels (no rule: code) are
+#     named, its preferences (rlmMaxDepth, providerMaxInFlight,
+#     providerMaxQueued, idleEvictionMinutes, sessionArchiveMaxAgeDays,
+#     sessionArchiveMaxSessions, memory.model, memory.thinking) and every
+#     key of a trusted project are not; Rust masks what the model applies,
+#     in silence. The shipped path is pinned by the Rust test
+#     settings/trust.rs `global_cvars_from_a_project_never_apply` (the
+#     value never applies; the warning is v0.10.67's); the model's side by
+#     the anchor trust_global_cvars_example.
 # R1  Every request (the grammar in the entry's header and
 #     crates/eukhe-bend/WIRE.md, every Nat, length and count within the
 #     wire) is answered with the model's decision.
@@ -621,6 +640,33 @@ law trust_rust_vectors_example:
   {(Cf.project(Cf.Untrusted{}, Nil{}, cf_hostile()), Cf.withheld(Cf.Untrusted{}, cf_hostile())) == ([Cf.Entry{0n, 0n}, Cf.Entry{1n, 1n}], ["shellPath", "shellCommandPrefix", "npmCommand", "mcpServers", "packages", "skills", "sessionDir", "unknownKey"]) : List<&2, Cf.Entry> & List<&2, String>} &
   {(List.length(&2, Cf.Entry, Cf.project(Cf.Trusted{}, Nil{}, cf_hostile())), Cf.withheld(Cf.Trusted{}, cf_hostile())) == (11n, Nil{}) : Nat & List<&2, String>} &
   {Cf.withheld(Cf.Untrusted{}, [Cf.PKey{0n, ["npmCommand"], 0n}, Cf.PKey{1n, ["trustedProjects"], 1n}]) == ["npmCommand", "trustedProjects"] : List<&2, String>}
+
+# the leaves of a project document that sets every Global-scope cvar the
+# model does not class global-only (A1), in the order of the Rust test
+# settings/trust.rs global_cvar_projects
+def cf_global_cvars() -> List<&2, Cf.PKey>:
+  [
+    Cf.PKey{0n, ["rlmMaxDepth"], 0n},
+    Cf.PKey{1n, ["providerMaxInFlight", "anthropic"], 1n},
+    Cf.PKey{2n, ["providerMaxQueued"], 2n},
+    Cf.PKey{3n, ["idleEvictionMinutes"], 3n},
+    Cf.PKey{4n, ["sessionArchiveMaxAgeDays"], 4n},
+    Cf.PKey{5n, ["sessionArchiveMaxSessions"], 5n},
+    Cf.PKey{6n, ["memory", "model"], 6n},
+    Cf.PKey{7n, ["memory", "thinking"], 7n},
+    Cf.PKey{8n, ["providers", "tinyRuntimeLibrary"], 8n},
+    Cf.PKey{9n, ["factory", "enabled"], 9n},
+    Cf.PKey{10n, ["privacy", "anonymizeRemote"], 10n},
+    Cf.PKey{11n, ["privacy", "terms"], 11n},
+    Cf.PKey{12n, ["allowedModels"], 12n}
+  ]
+
+# LAW trust_global_cvars_example (A1): anchor: the model's answer for a project setting every Global-scope cvar it does not class global-only (Rust masks every value it applies): untrusted, the eight preferences apply and providers, factory, privacy (once) and allowedModels are named; trusted, all thirteen apply and none is named, as eukhe v0.10.67 ships
+# EXCLUDES: a model that drifts from the warning eukhe shows for these
+#   keys (a new name, a name lost)
+law trust_global_cvars_example:
+  {(Cf.project(Cf.Untrusted{}, Nil{}, cf_global_cvars()), Cf.withheld(Cf.Untrusted{}, cf_global_cvars())) == ([Cf.Entry{0n, 0n}, Cf.Entry{1n, 1n}, Cf.Entry{2n, 2n}, Cf.Entry{3n, 3n}, Cf.Entry{4n, 4n}, Cf.Entry{5n, 5n}, Cf.Entry{6n, 6n}, Cf.Entry{7n, 7n}], ["providers", "factory", "privacy", "allowedModels"]) : List<&2, Cf.Entry> & List<&2, String>} &
+  {(List.length(&2, Cf.Entry, Cf.project(Cf.Trusted{}, Nil{}, cf_global_cvars())), Cf.withheld(Cf.Trusted{}, cf_global_cvars())) == (13n, Nil{}) : Nat & List<&2, String>}
 
 # (M7) Named entries
 # ------------------

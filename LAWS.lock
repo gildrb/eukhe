@@ -712,6 +712,7 @@
     "laws/config.bend::rmw_values_kept": "5d7f739eef750832f78c8e9e303f133cb65b68309fe8d85021d6410f97ce5d07",
     "laws/config.bend::save_ignores_loaded": "870545212bfc6b9cff1af2fb29c0c7f825ae916cfa9c756559a3e15cb1a3e584",
     "laws/config.bend::save_refuses_broken_example": "24e17637eeeaf983c49b22b6d551a750f3f7633a24211b46da6f3b32ed0ec58e",
+    "laws/config.bend::trust_global_cvars_example": "bed80569465981147eb386b947b1cbc838e1a4e01f17b4d1a328c8710ab542e7",
     "laws/config.bend::trust_global_only_never_applies": "bd9d66cfa8d153ef1ce21c02c412935d7146dcbcfa4d9328d04d13245446e06c",
     "laws/config.bend::trust_project_split": "1858fda954d73215c098f08de1f0a166adafd6cc0d2b4ebe3282dd7276464d39",
     "laws/config.bend::trust_rust_vectors_example": "93ec5419ed152158dfa0b37d2e2caed127435103147bc74570d27925279a83be",
@@ -3624,7 +3625,7 @@
     "laws/command/paths.bend": "59e40d7d2bcf16236757a8e830dd5bf2e34d6956391a541c14bb452b395a113c",
     "laws/command/whole.bend": "7b8ef5dff78418b225aa00f010551be0eb033321bbc22f4278a4509b9ea44c76",
     "laws/compactor.bend": "76213a51761542326ebfd8a050952e364f516cd25aa0af032ff8ec2d5948781b",
-    "laws/config.bend": "f00c60635c165799c0245497173285f38e5bb60fd4b3426e54cd7021601fb152",
+    "laws/config.bend": "0ef1a932c2ccff60503b2bc2c1e19d934a0b4922222dbe96545cd47e8e2aa06d",
     "laws/cron.bend": "808fa7795a9f4bb3e409f8280759c316d0412fcc04f9d6f651f07478a745afe9",
     "laws/cron_beats.bend": "10d7032e970cb6ee5c59252234102bb8b039fbbc1631cdf93ec975c2f083f43c",
     "laws/cron_file/entry.bend": "90075594f905fec697c5352247474fac7f597e48efb69195352895db44d690fe",
@@ -3787,7 +3788,7 @@
     "laws/workflow/model.bend": "002f259d5b3553252a4a84cec3022fcbdd75e7c44eccc9f1aa409871f3d9154f"
   },
   "spec_files": {
-    "spec/README.md": "21b2df49431eecdf7bc08e6fb3c0cc38236edb7a35d2ae0dfd093449df531dfd",
+    "spec/README.md": "ae0e77cf7936e05f0b77f7bedb7b40d19af74a9156f92ae5d3e1a719074dbb1b",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "2cb0cd28460da14f60846a80e1d92dd4d66e927c8c497f1a0a660cb346b6605c",
