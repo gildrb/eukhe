@@ -16,6 +16,9 @@ pub enum InputOrigin {
     User,
     /// A goal context the goal engine submitted.
     Goal { context: GoalContextKind },
+    /// An iteration of `/loop`: the loop's prompt, sent as iteration
+    /// `iteration` (the first turn is 1).
+    Loop { iteration: u64 },
     /// An autonomous-mode continuation.
     Autonomous { nudge: AutonomousNudge },
     /// A continuation a Director layer added (a forced tool call that the

@@ -50,6 +50,7 @@ bend PROOF.bend  # check every law
 - [Eukhe RLM](spec/rlm/) forks Prime Agent's REPL subagents: every spawn must say why.
 - [Eukhe Memory](spec/memory/) is OptChat, split into one thread per session.
 - [Eukhe Hierarchy](spec/agents/) keeps agents in a tree: each talks only to its parent and children.
+- [Eukhe Loop](spec/loop/) sends a prompt again after every turn until its condition is met: `/loop 20 --until 'cargo test' fix the failing tests` keeps fixing until the command succeeds. The loop survives a restart; Esc suspends it, `/loop --stop` ends it.
 
 ## Limitations
 

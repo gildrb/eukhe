@@ -23,6 +23,7 @@ mod fork;
 pub mod goals;
 mod import;
 pub mod jobs;
+pub mod loop_mode;
 mod main_conversation;
 pub mod messages;
 mod models;

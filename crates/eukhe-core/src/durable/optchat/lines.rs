@@ -169,8 +169,13 @@ fn user_input_line(message: &Message, origin: &InputOrigin) -> SessionResult<Opt
         return Ok(None);
     }
     Ok(match origin {
-        InputOrigin::User => Some((Kind::User, text, user_images(&user.content))),
-        InputOrigin::Goal { .. }
+        InputOrigin::User | InputOrigin::Loop { iteration: 1 } => {
+            Some((Kind::User, text, user_images(&user.content)))
+        }
+        // A repeat of the loop's prompt says nothing new; harness nudges
+        // are not logged.
+        InputOrigin::Loop { .. }
+        | InputOrigin::Goal { .. }
         | InputOrigin::Autonomous { .. }
         | InputOrigin::Director
         | InputOrigin::QuotaResume => None,
