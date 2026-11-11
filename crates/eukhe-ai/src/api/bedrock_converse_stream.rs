@@ -776,7 +776,7 @@ pub fn stream_simple(
     );
 
     let mut thinking_budgets = options.thinking_budgets.clone();
-    if convert::is_anthropic_claude_model(model) && !adaptive_thinking(model) {
+    if convert::budget_thinking(model) {
         // Thinking on top of the caller's answer cap (`None`: the catalog's
         // max), through the one output cap rule, the answer's room kept.
         let adjusted = adjust_max_tokens_for_thinking(

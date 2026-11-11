@@ -2,16 +2,9 @@
 //! live only here, and each test compares them with the new answers over
 //! the compiled catalog and crafted ids.
 
-use eukhe_types::pi_ai::{
-    JsonValue, Model, ModelThinkingLevel, ProviderEnv, ThinkingBudgets, ThinkingLevel,
-};
-use serde_json::json;
+use eukhe_types::pi_ai::{Model, ModelThinkingLevel, ProviderEnv, ThinkingBudgets, ThinkingLevel};
 
-use super::{
-    build_additional_model_request_fields, is_anthropic_claude_model, map_thinking_level_to_effort,
-    supports_prompt_caching,
-};
-use crate::api::bedrock_converse_stream::BedrockOptions;
+use super::{is_anthropic_claude_model, map_thinking_level_to_effort, supports_prompt_caching};
 use crate::api::simple_options::{clamp_reasoning, thinking_budget_for_level};
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::quirks::{match_candidates, Quirks};
@@ -171,6 +164,27 @@ fn a_row_without_native_xhigh_in_its_map_is_sent_high() {
     );
 }
 
+/// omp's prefix-bound models (`classes/anthropic.kdl`
+/// `thinking-prefix-binding`: Fable 5.1+, Opus, Sonnet and Haiku 5.5), the
+/// only ones that take block binding.
+const PREFIX_BOUND: [&str; 12] = [
+    "opus-5-5",
+    "sonnet-5-5",
+    "haiku-5-5",
+    "fable-5-1",
+    "fable-5-2",
+    "fable-5-3",
+    "fable-5-4",
+    "fable-5-5",
+    "fable-5-6",
+    "fable-5-7",
+    "fable-5-8",
+    "fable-5-9",
+];
+
+/// The old adaptive list (less Bedrock's Sonnet 4.6, budget thinking in
+/// omp's `amazon-bedrock.kdl`) and omp's prefix-bound list of block
+/// binding.
 #[test]
 fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists() {
     let models: Vec<Model> = bedrock()
@@ -192,9 +206,9 @@ fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists
                     .and_then(|compat| compat.force_adaptive_thinking)
                     == Some(true)
             } else {
-                old_adaptive(model)
+                old_adaptive(model) && !model.id.contains("anthropic.claude-sonnet-4-6")
             };
-            let old_binding = old_adaptive && any_candidate(model, &NATIVE_XHIGH);
+            let old_binding = old_adaptive && any_candidate(model, &PREFIX_BOUND);
             let binding = adaptive_thinking(model)
                 && Quirks::of(*model).thinking_block_binding() == Some(true);
             (old_adaptive, old_binding) != (adaptive_thinking(model), binding)
@@ -268,44 +282,11 @@ fn old_is_claude(model: &Model) -> bool {
         || name.contains("claude")
 }
 
-/// The old non-Claude tail of TS `buildAdditionalModelRequestFields`.
-fn old_openai_fields(model: &Model, reasoning: ThinkingLevel) -> Option<JsonValue> {
-    if any_candidate(model, &["gpt-oss"]) {
-        let effort = match reasoning {
-            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-            ThinkingLevel::Medium => "medium",
-            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
-        };
-        return Some(json!({ "reasoning_effort": effort }));
-    }
-    if any_candidate(model, &["gpt-"]) {
-        let mapped = thinking_level_map(model)
-            .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
-            .and_then(Option::as_ref);
-        let effort = mapped.map_or_else(
-            || {
-                match reasoning {
-                    ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-                    ThinkingLevel::Medium => "medium",
-                    ThinkingLevel::High => "high",
-                    ThinkingLevel::Xhigh => "xhigh",
-                    ThinkingLevel::Max => "max",
-                }
-                .to_owned()
-            },
-            Clone::clone,
-        );
-        return Some(json!({ "reasoning": { "effort": effort } }));
-    }
-    None
-}
-
-/// Every model of the compiled catalog (served over Bedrock as a
-/// reasoning model) and crafted ids, at every level: the rulebook's
-/// `bedrock_reasoning` gives the Claude check and the non-Claude reasoning
-/// fields of the old name checks.
+/// Every model of the compiled catalog and crafted ids: the rulebook's
+/// `bedrock_reasoning` gives the old Claude check (the reasoning fields
+/// follow omp since, `tests/bedrock_converse_stream/thinking_payload.rs`).
 #[test]
-fn the_reasoning_shape_is_the_rulebook_answer_of_the_old_name_checks() {
+fn the_claude_shape_is_the_rulebook_answer_of_the_old_name_check() {
     let template = bedrock().remove(0);
     let mut crafted = renamed(
         &template,
@@ -333,31 +314,8 @@ fn the_reasoning_shape_is_the_rulebook_answer_of_the_old_name_checks() {
     let differences: Vec<String> = catalog()
         .into_iter()
         .chain(crafted)
-        .map(|model| Model {
-            reasoning: true,
-            ..model
-        })
-        .flat_map(|model| LEVELS.map(|level| (model.clone(), level)))
-        .filter(|(model, level)| {
-            let old = (
-                old_is_claude(model),
-                (!old_is_claude(model))
-                    .then(|| old_openai_fields(model, *level))
-                    .flatten(),
-            );
-            let options = BedrockOptions {
-                reasoning: Some(*level),
-                ..BedrockOptions::default()
-            };
-            let new = (
-                is_anthropic_claude_model(model),
-                (!is_anthropic_claude_model(model))
-                    .then(|| build_additional_model_request_fields(model, &options))
-                    .flatten(),
-            );
-            old != new
-        })
-        .map(|(model, level)| format!("{}/{} {level:?}", model.provider, model.id))
+        .filter(|model| old_is_claude(model) != is_anthropic_claude_model(model))
+        .map(|model| format!("{}/{}", model.provider, model.id))
         .collect();
     assert_eq!(differences, Vec::<String>::new());
 }

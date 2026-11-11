@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW facts_reasoning_exact
 # By the shape; GPT by the entry, then the level (each default is a
-# literal); gpt-oss by the level.
+# literal); Claude and no shape are the thinking block on both sides.
 
 import Base
 import ../../bend/facts.bend as Fx
@@ -32,21 +32,6 @@ def fre.gpt(e: Maybe<&2, Maybe<&2, Nat>>, +l: Fx.ELv) -> {Fx.RNested{Fx.gpt.of(e
         case Some{v}:
           {==}
 
-def fre.oss(l: Fx.ELv) -> {Fx.RFlat{Fx.oss.effort(l)} == Fx.RFlat{Nat.min(4n, Facts.reasoning_spec.gpt(l))} : Fx.RFields}:
-  match l:
-    case Fx.EMinimal{}:
-      {==}
-    case Fx.ELow{}:
-      {==}
-    case Fx.EMedium{}:
-      {==}
-    case Fx.EHigh{}:
-      {==}
-    case Fx.EXhigh{}:
-      {==}
-    case Fx.EMax{}:
-      {==}
-
 def Facts.facts_reasoning_exact(s, e, l):
   match s:
     case None{}:
@@ -57,5 +42,3 @@ def Facts.facts_reasoning_exact(s, e, l):
           {==}
         case Fx.SGpt{}:
           fre.gpt(e, l)
-        case Fx.SGptOss{}:
-          fre.oss(l)

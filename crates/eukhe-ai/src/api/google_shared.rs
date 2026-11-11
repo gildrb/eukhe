@@ -174,18 +174,21 @@ pub const fn to_google_sdk_thinking_level(level: GoogleApiThinkingLevel) -> &'st
 }
 
 /// TS `getDisabledGoogleThinkingConfig`: the `ThinkingConfig` that turns
-/// thinking off (or as low as the model allows).
+/// thinking off (or as low as the model allows). A zero budget sends no
+/// thought summaries (`includeThoughts: false`, omp `google-shared.ts`
+/// `buildParams` with `stream.ts` `resolveGoogleThinkingOff`).
 ///
 /// # Errors
 ///
 /// When the fallback level has an unsupported mapping.
 pub fn get_disabled_google_thinking_config(model: &Model) -> Result<JsonValue, Thrown> {
+    let off = json!({ "includeThoughts": false, "thinkingBudget": 0 });
     if !uses_google_thinking_level(model) {
-        return Ok(json!({ "thinkingBudget": 0 }));
+        return Ok(off);
     }
     let Some(fallback) = as_thinking_level(clamp_thinking_level(model, ModelThinkingLevel::Off))
     else {
-        return Ok(json!({ "thinkingBudget": 0 }));
+        return Ok(off);
     };
     let resolved = resolve_google_thinking_level(model, fallback)?;
     let api_level = to_google_thinking_level(resolved);

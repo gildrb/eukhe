@@ -93,16 +93,10 @@ def mfb.shape(s: Maybe<&2, Fx.Shape>, -rest: String) -> {Wr.Got{s, rest} == FMF.
           {==}
         case Fx.SGpt{}:
           {==}
-        case Fx.SGptOss{}:
-          {==}
 
 def mfb.rfields(f: Fx.RFields) -> {FMF.put_rfields(f) == ModelFacts.mf.rfields(f) : String}:
   match f:
-    case Fx.RNone{}:
-      {==}
-    case Fx.RClaude{}:
+    case Fx.RThinking{}:
       {==}
     case Fx.RNested{e}:
-      {==}
-    case Fx.RFlat{e}:
       {==}
