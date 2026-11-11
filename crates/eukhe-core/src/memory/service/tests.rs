@@ -906,10 +906,11 @@ impl Summarizer for LosesTheLog {
     }
 }
 
-/// Regression (H1.5): the failure cap builds a node from the input its
-/// failed call had, with no read, so a log that cannot be read by then
-/// does not keep the node unbuilt. The old cap read the message again:
-/// the node stayed unbuilt and the waiting turn got an error.
+/// Regression (laws/compactor.bend R10): the failure cap builds a node
+/// from the input its failed call had, with no read, so a log that cannot
+/// be read by then does not keep the node unbuilt. The old cap read the
+/// message again: the node stayed unbuilt and the waiting turn got an
+/// error.
 #[tokio::test(start_paused = true)]
 async fn the_failure_cap_reads_nothing() {
     let dir = tempfile::tempdir().unwrap();

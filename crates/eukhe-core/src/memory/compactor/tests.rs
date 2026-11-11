@@ -200,7 +200,8 @@ impl Summarizer for Silent {
 }
 
 /// A model call that does not answer within [`CALL_DEADLINE`] fails the
-/// call (H1.5): a call never waits forever.
+/// call (the deadline is Rust's; laws/compactor.bend R2: a failure ends
+/// the call): a call never waits forever.
 #[tokio::test(start_paused = true)]
 async fn a_model_call_past_its_deadline_fails() {
     let asked = tokio::time::Instant::now();

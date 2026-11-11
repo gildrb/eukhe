@@ -86,7 +86,8 @@ enum Calls {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Failure {
-    /// The failed calls the node has left before the cap (H1.5).
+    /// The failed calls the node has left before the cap
+    /// (laws/compactor.bend R10).
     pend: Pend,
     error: String,
     generation: u64,
@@ -676,11 +677,12 @@ impl Actor {
     }
 
     /// A call of node `part` ended without its line; [`Pend::after`] counts
-    /// it (H1.5). A failed model call counts down, and the one with no
-    /// failures left saves the node's input, kept from the call, cut to
-    /// [`NODE`] bytes: only that save can fail, and then the disk did. A
-    /// failed read of the input or save of a line is the disk's and counts
-    /// nothing. Unbuilt, the node stays busy: tried again at the next
+    /// it (laws/compactor.bend R10). A failed model call counts down, and
+    /// the one with no failures left saves the node's input, kept from the
+    /// call, cut to [`NODE`] bytes: only that save can fail, and then the
+    /// disk did. A failed read of the input or save of a line is the
+    /// disk's and counts nothing. Unbuilt, the node stays busy: tried
+    /// again at the next
     /// message or turn, and after [`RETRY`] while a turn waits; an idle
     /// chat makes no call for it.
     fn failed(&mut self, part: Part, error: &anyhow::Error, lost: Lost) {

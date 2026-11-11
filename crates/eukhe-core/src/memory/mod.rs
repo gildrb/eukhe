@@ -78,11 +78,13 @@ pub const JOBS: usize = 8;
 /// follow-up asking for a shorter line would be a second round trip.
 pub const TRIES: usize = 1;
 /// Failed compactor calls of one node before the node is built from its
-/// input, cut to [`NODE`] bytes (H1.5): no node stays unbuilt.
+/// input, cut to [`NODE`] bytes (laws/compactor.bend R10,
+/// `fail_cap_builds`): no node stays unbuilt.
 pub const FAILURES: u32 = 3;
 /// Longest one model call of the compactor may take, its waits for a
 /// provider slot and its preemptions by session requests included; a call
-/// past it fails (H1.5).
+/// past it fails (the deadline is this crate's; the failure it makes
+/// counts as laws/compactor.bend R2 and R10 say).
 pub const CALL_DEADLINE: Duration = Duration::from_secs(600);
 /// Wait before a failed node is tried again while a turn waits for the
 /// view. A new message or a turn's wait tries every failed node again at
