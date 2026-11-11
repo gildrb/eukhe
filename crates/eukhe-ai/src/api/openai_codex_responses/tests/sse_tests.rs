@@ -606,10 +606,11 @@ async fn clamps_minimal_reasoning_effort_to_low() {
     }
 }
 
-/// Thinking off on Codex sends the lowest offered effort with its summary
-/// (the lowest-effort disable mode; the Codex models never send `none` as
-/// the off effort), also for a map whose
-/// `off` is `none`.
+/// Thinking off (the caller turns reasoning off) on Codex sends the lowest
+/// offered effort with its summary (the lowest-effort disable mode; the
+/// Codex models never send `none` as the off effort), also for a map whose
+/// `off` is `none`. A request that names no effort and does not turn
+/// reasoning off sends no `reasoning`.
 #[tokio::test]
 async fn sends_the_lowest_effort_with_its_summary_when_thinking_is_off() {
     let cases = [
@@ -631,7 +632,14 @@ async fn sends_the_lowest_effort_with_its_summary_when_thinking_is_off() {
     for (model, expected) in cases {
         let _isolation = isolate().await;
         let (fetch, calls) = completed_fetch();
-
+        stream(
+            &model,
+            &say_hello(),
+            provider_options(sse_options(fetch), json!({ "disableReasoning": true })),
+        )
+        .result()
+        .await;
+        let (fetch, unset_calls) = completed_fetch();
         stream(
             &model,
             &say_hello(),
@@ -643,6 +651,12 @@ async fn sends_the_lowest_effort_with_its_summary_when_thinking_is_off() {
         assert_eq!(
             last_body(&calls.calls())["reasoning"],
             expected,
+            "{}",
+            model.id
+        );
+        assert_eq!(
+            last_body(&unset_calls.calls()).get("reasoning"),
+            None,
             "{}",
             model.id
         );

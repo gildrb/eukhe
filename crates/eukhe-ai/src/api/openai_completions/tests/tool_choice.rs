@@ -205,10 +205,12 @@ pub(super) async fn simple_payload(
     payload.unwrap_or_else(|| panic!("no payload was built: {:?}", message.error_message))
 }
 
-/// TS `captureSimpleParams(model, reasoning)`.
+/// TS `captureSimpleParams(model, reasoning)`. `None` is thinking off: the
+/// caller turns reasoning off (`disable_reasoning`).
 async fn capture_simple_params(model: &Model, reasoning: Option<ThinkingLevel>) -> JsonValue {
     let options = SimpleStreamOptions {
         reasoning,
+        disable_reasoning: reasoning.is_none(),
         ..simple_options()
     };
     simple_payload(model, &ctx("Hi", None, None), options).await

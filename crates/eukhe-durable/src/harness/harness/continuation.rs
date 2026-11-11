@@ -7,7 +7,7 @@ use std::sync::Arc;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_chord::context::Context;
-use eukhe_types::pi_ai::{Message, Model};
+use eukhe_types::pi_ai::{Message, Model, ModelThinkingLevel};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
@@ -74,6 +74,7 @@ impl Conversation {
             options.stream.session_id =
                 Some(session_provider_session_id(&core.session, id, &cx).await?);
             options.reasoning = reasoning(agent.thinking_level);
+            options.disable_reasoning = matches!(agent.thinking_level, ModelThinkingLevel::Off);
             options.stream.system_cache_breakpoint =
                 system_cache_breakpoint(&agent.sections, &messages);
             Ok(Some(Continuation {

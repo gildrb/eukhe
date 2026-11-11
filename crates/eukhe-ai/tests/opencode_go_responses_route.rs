@@ -12,11 +12,13 @@ use eukhe_types::pi_ai::{Context, ThinkingLevel};
 use openai_responses_support::{mock_fetch, CapturedRequest, MockResponse};
 use serde_json::json;
 
+/// `reasoning: None` is thinking off: the caller turns reasoning off.
 async fn capture(id: &str, reasoning: Option<ThinkingLevel>) -> CapturedRequest {
     let model = OPENCODE_GO_MODELS.get(id).expect("catalog model").clone();
     let (fetch, captured) = mock_fetch(vec![MockResponse::sse("data: [DONE]\n\n")]);
     let mut options = SimpleStreamOptions {
         reasoning,
+        disable_reasoning: reasoning.is_none(),
         ..SimpleStreamOptions::default()
     };
     options.stream.request.api_key = Some("oc-key".to_owned());

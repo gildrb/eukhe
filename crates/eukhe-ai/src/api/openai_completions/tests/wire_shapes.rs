@@ -28,10 +28,12 @@ fn model(provider: &str, id: &str) -> Model {
     get_builtin_model(provider, id).unwrap_or_else(|| panic!("missing model {provider}/{id}"))
 }
 
-/// The thinking levels a row names; `off` sends no reasoning option.
+/// The thinking levels a row names. `off` is the caller turning reasoning
+/// off (no level, `disable_reasoning`); `unset` names no level and does not
+/// turn reasoning off (an internal request without a level).
 fn level(name: &str) -> Option<ThinkingLevel> {
     match name {
-        "off" => None,
+        "off" | "unset" => None,
         other => Some(
             serde_json::from_value(json!(other))
                 .unwrap_or_else(|_| panic!("unknown thinking level {other}")),
@@ -39,9 +41,10 @@ fn level(name: &str) -> Option<ThinkingLevel> {
     }
 }
 
-/// The first payload of one `streamSimple` call at `reasoning`. The env
-/// configures Cloudflare AI Gateway's account and gateway.
-async fn payload(model: &Model, reasoning: Option<ThinkingLevel>) -> JsonValue {
+/// The first payload of one `streamSimple` call at `reasoning`, turning
+/// reasoning off when `disable`. The env configures Cloudflare AI
+/// Gateway's account and gateway.
+async fn payload(model: &Model, reasoning: Option<ThinkingLevel>, disable: bool) -> JsonValue {
     let (fetch, _requests) = sse_fetch(stop_chunks());
     let (hook, seen) = payload_recorder();
     let options = SimpleStreamOptions {
@@ -59,6 +62,7 @@ async fn payload(model: &Model, reasoning: Option<ThinkingLevel>) -> JsonValue {
             ..StreamOptions::default()
         },
         reasoning,
+        disable_reasoning: disable,
         ..SimpleStreamOptions::default()
     };
     let context: Context = serde_json::from_value(json!({
@@ -78,7 +82,7 @@ async fn payload(model: &Model, reasoning: Option<ThinkingLevel>) -> JsonValue {
 
 /// The effort fields of the payload `provider/id` sends at `level_name`.
 async fn effort_fields(provider: &str, id: &str, level_name: &str) -> JsonValue {
-    let payload = payload(&model(provider, id), level(level_name)).await;
+    let payload = payload(&model(provider, id), level(level_name), level_name == "off").await;
     let fields: serde_json::Map<String, JsonValue> = EFFORT_FIELDS
         .iter()
         .filter_map(|key| {
@@ -207,7 +211,8 @@ async fn kimi_always_sends_an_output_cap() {
             "kimi-k3",
         ] {
             for level_name in ["off", "high"] {
-                let payload = payload(&model(provider, id), level(level_name)).await;
+                let payload =
+                    payload(&model(provider, id), level(level_name), level_name == "off").await;
                 assert!(
                     payload.get("max_tokens").is_some_and(JsonValue::is_u64),
                     "{provider}/{id} {level_name}: no max_tokens in {payload}"
@@ -297,7 +302,9 @@ async fn opencode_kimi_and_deepseek_send_reasoning_effort_only() {
 
 /// Off on a model of the `openai` dialect (disable mode `lowest-effort`)
 /// sends the model's lowest offered effort, not nothing, and not `"none"` where
-/// that lowest effort matches the model's ladder.
+/// that lowest effort matches the model's ladder. A request that names no
+/// level without turning reasoning off (an internal call) sends no effort:
+/// only the caller's off is the disable.
 #[tokio::test]
 async fn off_sends_the_lowest_offered_effort() {
     assert_rows(
@@ -317,6 +324,16 @@ async fn off_sends_the_lowest_offered_effort() {
             ("huggingface", "XiaomiMiMo/MiMo-V2.5-Pro", "off"),
         ],
         |_| json!({ "reasoning_effort": "low" }),
+    )
+    .await;
+    assert_rows(
+        &[
+            ("huggingface", "google/gemma-4-26B-A4B-it", "unset"),
+            ("huggingface", "deepseek-ai/DeepSeek-V4.1-Flash", "unset"),
+            ("fireworks", "accounts/fireworks/models/ember-1", "unset"),
+            ("fireworks", "accounts/fireworks/models/inkling", "unset"),
+        ],
+        |_| json!({}),
     )
     .await;
 }
@@ -392,7 +409,7 @@ async fn output_cap_field_matches_the_reference() {
             if model.api != "openai-completions" || !model.id.starts_with(prefix) {
                 continue;
             }
-            let payload = payload(&model, level("high").filter(|_| model.reasoning)).await;
+            let payload = payload(&model, level("high").filter(|_| model.reasoning), false).await;
             let sent = cap_field(&payload);
             let field = expected_field(provider, &model.id);
             if sent.is_some_and(|sent| sent != field) {

@@ -506,6 +506,7 @@ async fn run_side_question(
     loop {
         let mut options = SimpleStreamOptions {
             reasoning: reasoning(agent.thinking_level),
+            disable_reasoning: matches!(agent.thinking_level, ModelThinkingLevel::Off),
             ..SimpleStreamOptions::default()
         };
         options.stream.request.signal = Some(signal.clone());
