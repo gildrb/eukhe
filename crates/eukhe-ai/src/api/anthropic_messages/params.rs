@@ -1081,6 +1081,15 @@ pub(crate) fn build_params(
                     "thinking".into(),
                     json!({ "type": "enabled", "budget_tokens": budget, "display": display }),
                 );
+                // omp `anthropic-budget-effort` (Opus 4.5): the level rides
+                // along as the effort.
+                if let Some(effort) = options
+                    .effort
+                    .as_ref()
+                    .filter(|effort| !effort.is_empty() && quirks.budget_effort() == Some(true))
+                {
+                    params.insert("output_config".into(), json!({ "effort": effort }));
+                }
             }
         } else if options.thinking_enabled == Some(false) {
             if quirks.between_tools_thinking() == Some(true) {

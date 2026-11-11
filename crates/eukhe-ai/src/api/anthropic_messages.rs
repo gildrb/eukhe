@@ -794,6 +794,9 @@ pub fn stream_simple(
             },
             thinking_enabled: Some(adjusted.thinking_budget > 0),
             thinking_budget_tokens: Some(adjusted.thinking_budget),
+            // Sent beside the budget only by a budget-effort model (the
+            // rulebook's `budget_effort`).
+            effort: Some(map_thinking_level_to_effort(model, reasoning)),
             tool_choice,
             ..AnthropicOptions::default()
         },

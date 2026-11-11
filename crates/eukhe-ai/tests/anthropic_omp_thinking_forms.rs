@@ -101,6 +101,35 @@ async fn thinking_off_on_claude_sonnet_5_5_is_between_tools() {
     );
 }
 
+/// Claude Opus 4.5 thinks on a budget and also takes the level as
+/// `output_config.effort`, `minimal` as `low` (omp catalog
+/// `classes/anthropic.kdl` `thinking-mode "anthropic-budget-effort"`,
+/// `anthropic.ts` `buildParams`, `model-thinking.ts`
+/// `mapEffortToAnthropicAdaptiveEffort`). Other budget models take none.
+#[tokio::test]
+async fn claude_opus_4_5_sends_its_budget_with_the_effort() {
+    let budget = |tokens: u64| json!({ "type": "enabled", "budget_tokens": tokens, "display": "summarized" });
+    assert_eq!(
+        [
+            wire("anthropic", "claude-opus-4-5", Some(ThinkingLevel::Minimal)).await,
+            wire("opencode", "claude-opus-4-5", Some(ThinkingLevel::Medium)).await,
+            wire(
+                "vercel-ai-gateway",
+                "anthropic/claude-opus-4.5",
+                Some(ThinkingLevel::High)
+            )
+            .await,
+            wire("anthropic", "claude-sonnet-4-5", Some(ThinkingLevel::Low)).await,
+        ],
+        [
+            [budget(1024), json!({ "effort": "low" })],
+            [budget(8192), json!({ "effort": "medium" })],
+            [budget(16384), json!({ "effort": "high" })],
+            [budget(2048), JsonValue::Null],
+        ]
+    );
+}
+
 /// `MiniMax` drives thinking with the `thinking.type: adaptive` tag alone:
 /// no effort and no display, at every level (omp catalog `effortMap`
 /// `"adaptive"`, `anthropic.ts` `usesAdaptiveThinkingTagOnly`); its
