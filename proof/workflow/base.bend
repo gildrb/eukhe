@@ -13,13 +13,99 @@ import ./wfw_sts_round_trip.bend as PWfwStsRoundTrip
 
 # ---- workflow ----
 
-# proof_workflow: the WF laws (LAWS.bend section workflow) of the dynamic
-# workflow scheduler model in bend/workflow.bend.
+# proof_workflow: the WF laws (laws/workflow/model.bend) of the admission
+# rule W.admit and the limits W.effective of bend/workflow.bend.
 #
-# Taking and giving a unit move it between the two counters of a pool,
-# so the pool's size stays; the counters laws go by induction on the
-# events. The cache laws read the hit; the results law goes by
-# induction on the items before the failed one.
+# The search W.found reads the earlier run's rows one by one. A row the
+# laws' wf_has rejects (not its key, or no answer) is a miss for W.found
+# too (pw.hit: the same test, its two sides swapped and W.serves read as
+# wf_answered), so a list wf_has rejects is searched to its end (pw.miss)
+# and the first row of the key with an answer is found at its position
+# (pw.first). The limits go by the two arms of W.capped.
+
+# Bool and Nat kit
+# ----------------
+
+def pw.If(b: Bool, G: Type) -> Type:
+  match b:
+    case False{}:
+      Unit
+    case True{}:
+      G
+
+# False == True proves anything
+def pw.absurd(-G: Type, e: {False{} == True{} : Bool}) -> G:
+  %e : pw.If(_, G)
+  Unit{}
+
+def pw.and_t(a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      eb
+    case False{}:
+      pw.absurd({False{} == True{} : Bool}, ea)
+
+def pw.or_l(a: Bool, -b: Bool, ea: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      pw.absurd({b == True{} : Bool}, ea)
+
+def pw.or_r(a: Bool, -b: Bool, eb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      eb
+
+def pw.or_f_l(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      {==}
+
+def pw.or_f_r(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case True{}:
+      pw.absurd({b == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
+    case False{}:
+      h
+
+def pw.eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      pw.eq_refl(p)
+
+def pw.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      pw.le_refl(p)
+
+# not a <= b: b <= a
+def pw.le_flip(a: Nat, b: Nat, e: {Nat.is_le(a, b) == False{} : Bool}) -> {Nat.is_le(b, a) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      pw.absurd({False{} == True{} : Bool}, Equal.sym(Bool, True{}, False{}, e))
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      pw.le_flip(p, q, e)
+
+def pw.add_zero(a: Nat) -> {Nat.add(a, 0n) == a : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %pw.add_zero(p) : {1n+Nat.add(p, 0n) == 1n+_ : Nat}
+      {==}
 
 def pw.add_succ(a: Nat, -b: Nat) -> {1n+Nat.add(a, b) == Nat.add(a, 1n+b) : Nat}:
   match a:
@@ -28,15 +114,6 @@ def pw.add_succ(a: Nat, -b: Nat) -> {1n+Nat.add(a, b) == Nat.add(a, 1n+b) : Nat}
     case 1n+p:
       %pw.add_succ(p, b) : {2n+Nat.add(p, b) == 1n+_ : Nat}
       {==}
-
-def pw.take_size(p: W.Pool) -> {W.size(W.take(p)) == W.size(p) : Nat}:
-  match p:
-    case W.Pool{t, l}:
-      match l:
-        case 0n:
-          {==}
-        case 1n+m:
-          pw.add_succ(t, m)
 
 def pw.eq_comm(a: Nat, b: Nat) -> {Nat.is_eq(a, b) == Nat.is_eq(b, a) : Bool}:
   match a b:
@@ -49,7 +126,11 @@ def pw.eq_comm(a: Nat, b: Nat) -> {Nat.is_eq(a, b) == Nat.is_eq(b, a) : Bool}:
     case 1n+x 1n+y:
       pw.eq_comm(x, y)
 
-def pw.serves(s: W.Sts) -> {W.serves(s) == Workflow.wf_serves(s) : Bool}:
+# The search for the first answered row
+# -------------------------------------
+
+# the laws' answered statuses are the ones the code serves from
+def pw.answered(s: W.Sts) -> {Workflow.wf_answered(s) == W.serves(s) : Bool}:
   match s:
     case W.Queued{}:
       {==}
@@ -64,169 +145,37 @@ def pw.serves(s: W.Sts) -> {W.serves(s) == Workflow.wf_serves(s) : Bool}:
     case W.Cached{}:
       {==}
 
-# a first position j of the rows from the i-th
-def pw.off(i: Nat, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match m:
-    case None{}:
-      None{}
-    case Some{j}:
-      Some{Nat.add(j, i)}
+# a row's hit as wf_has tests it is the hit W.found tests
+def pw.hit(+k: Nat, +key: Nat, +s: W.Sts) -> {Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s)) == Bool.and(Nat.is_eq(k, key), W.serves(s)) : Bool}:
+  %pw.eq_comm(key, k) : {Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s)) == Bool.and(_, W.serves(s)) : Bool}
+  %pw.answered(s) : {Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s)) == Bool.and(Nat.is_eq(key, k), _) : Bool}
+  {==}
 
-def pw.found_at(h: Bool, +i: Nat, -rf: Maybe<&2, Nat>, rw: Maybe<&2, Nat>, ih: {rf == pw.off(1n+i, rw) : Maybe<&2, Nat>}) -> {W.found.at(h, i, rf) == pw.off(i, Workflow.wf_first.at(h, rw)) : Maybe<&2, Nat>}:
-  match h:
-    case True{}:
-      {==}
-    case False{}:
-      match rw:
-        case None{}:
-          ih
-        case Some{j}:
-          Equal.trans(Maybe<&2, Nat>, rf, Some{Nat.add(j, 1n+i)}, Some{1n+Nat.add(j, i)}, ih, Equal.cong(Nat, Maybe<&2, Nat>, n => Some{n}, Nat.add(j, 1n+i), 1n+Nat.add(j, i), Equal.sym(Nat, 1n+Nat.add(j, i), Nat.add(j, 1n+i), pw.add_succ(j, i))))
-
-# the model's search from the i-th row is the spec's first position, i on
-def pw.found(rs: List<&2, W.Row>, +k: Nat, +i: Nat) -> {W.found(rs, k, i) == pw.off(i, Workflow.wf_first(rs, k)) : Maybe<&2, Nat>}:
+# no row of rs has key k and an answer: the search from any position finds
+# none
+def pw.miss(rs: List<&2, W.Row>, +k: Nat, +i: Nat, +h: {Workflow.wf_has(rs, k) == False{} : Bool}) -> {W.found(rs, k, i) == None{} : Maybe<&2, Nat>}:
   match rs:
     case Nil{}:
       {==}
     case W.Row{+key, +s} <> +rest:
-      %pw.eq_comm(key, k) : {W.found.at(Bool.and(_, W.serves(s)), i, W.found(rest, k, 1n+i)) == pw.off(i, Workflow.wf_first(W.Row{key, s} <> rest, k)) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, W.serves(s), Workflow.wf_serves(s), pw.serves(s)) : {W.found.at(Bool.and(Nat.is_eq(key, k), _), i, W.found(rest, k, 1n+i)) == pw.off(i, Workflow.wf_first(W.Row{key, s} <> rest, k)) : Maybe<&2, Nat>}
-      pw.found_at(Bool.and(Nat.is_eq(key, k), Workflow.wf_serves(s)), i, W.found(rest, k, 1n+i), Workflow.wf_first(rest, k), pw.found(rest, k, 1n+i))
+      %pw.hit(k, key, s) : {W.found.at(_, i, W.found(rest, k, 1n+i)) == None{} : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s)), False{}, pw.or_f_l(Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s)), Workflow.wf_has(rest, k), h)) : {W.found.at(_, i, W.found(rest, k, 1n+i)) == None{} : Maybe<&2, Nat>}
+      pw.miss(rest, k, 1n+i, pw.or_f_r(Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s)), Workflow.wf_has(rest, k), h))
 
-# one event of the model is the spec's step
-def pw.step_exact(e: W.Ev, p: W.Pool) -> {W.step(e, p) == Workflow.wf_step(e, p) : W.Pool}:
-  match e:
-    case W.Ask{}:
-      match p:
-        case W.Pool{t, l}:
-          match l:
-            case 0n:
-              {==}
-            case 1n+m:
-              {==}
-    case W.Settle{}:
-      match p:
-        case W.Pool{t, l}:
-          match t:
-            case 0n:
-              {==}
-            case 1n+s:
-              {==}
-
-# the model's run is the fold of the spec's step
-def pw.run_exact(es: List<&2, W.Ev>, +p: W.Pool) -> {W.run(es, p) == Workflow.wf_run(es, p) : W.Pool}:
-  match es:
+# rows pre with no row of key k and an answer, then a row of key k with an
+# answer, then post: the search from position i finds that row at i plus
+# the length of pre
+def pw.first(pre: List<&2, W.Row>, +k: Nat, +s: W.Sts, -post: List<&2, W.Row>, +i: Nat, +h: {Workflow.wf_has(pre, k) == False{} : Bool}, a: {Workflow.wf_answered(s) == True{} : Bool}) -> {W.found(List.append(&2, W.Row, pre, W.Row{k, s} <> post), k, i) == Some{Nat.add(List.length(&2, W.Row, pre), i)} : Maybe<&2, Nat>}:
+  match pre:
     case Nil{}:
+      %Equal.sym(Bool, Nat.is_eq(k, k), True{}, pw.eq_refl(k)) : {W.found.at(Bool.and(_, W.serves(s)), i, W.found(post, k, 1n+i)) == Some{i} : Maybe<&2, Nat>}
+      %Equal.trans(Bool, True{}, Workflow.wf_answered(s), W.serves(s), Equal.sym(Bool, Workflow.wf_answered(s), True{}, a), pw.answered(s)) : {W.found.at(_, i, W.found(post, k, 1n+i)) == Some{i} : Maybe<&2, Nat>}
       {==}
-    case +e <> rest:
-      %pw.step_exact(e, p) : {W.run(rest, W.step(e, p)) == Workflow.wf_run(rest, _) : W.Pool}
-      pw.run_exact(rest, W.step(e, p))
-
-# from a spent budget the spec's spawns leave the pool
-def pw.spawns_spent(m: Nat, -t: Nat) -> {Workflow.wf_spawns(m, W.Pool{t, 0n}) == W.Pool{t, 0n} : W.Pool}:
-  match m:
-    case 0n:
-      {==}
-    case 1n+x:
-      {==}
-
-# the model's size is the spec's units
-def pw.size_exact(p: W.Pool) -> {W.size(p) == Workflow.wf_units(p) : Nat}:
-  match p:
-    case W.Pool{t, l}:
-      {==}
-
-# the model's spawns are the spec's
-def pw.spawns_exact(+n: Nat, p: W.Pool) -> {W.spawns(n, p) == Workflow.wf_spawns(n, p) : W.Pool}:
-  match n:
-    case 0n:
-      match p:
-        case W.Pool{t, l}:
-          match l:
-            case 0n:
-              {==}
-            case 1n+k:
-              {==}
-    case 1n+m:
-      match p:
-        case W.Pool{+t, +l}:
-          match l:
-            case 0n:
-              Equal.trans(W.Pool, W.spawns(m, W.Pool{t, 0n}), Workflow.wf_spawns(m, W.Pool{t, 0n}), W.Pool{t, 0n}, pw.spawns_exact(m, W.Pool{t, 0n}), pw.spawns_spent(m, t))
-            case 1n+k:
-              Equal.trans(W.Pool, W.spawns(m, W.Pool{1n+t, k}), Workflow.wf_spawns(m, W.Pool{1n+t, k}), W.Pool{1n+Nat.add(Workflow.wf_min(m, k), t), Nat.sub(k, m)}, pw.spawns_exact(m, W.Pool{1n+t, k}), Equal.cong(Nat, W.Pool, x => W.Pool{x, Nat.sub(k, m)}, Nat.add(Workflow.wf_min(m, k), 1n+t), 1n+Nat.add(Workflow.wf_min(m, k), t), Equal.sym(Nat, 1n+Nat.add(Workflow.wf_min(m, k), t), Nat.add(Workflow.wf_min(m, k), 1n+t), pw.add_succ(Workflow.wf_min(m, k), t))))
-
-# the model's cache lookup is the spec's
-def pw.member(+k: Nat, cache: List<&2, Nat>) -> {W.member(k, cache) == Workflow.wf_cached(k, cache) : Bool}:
-  match cache:
-    case Nil{}:
-      {==}
-    case +c <> +rest:
-      %pw.eq_comm(k, c) : {Bool.or(Nat.is_eq(k, c), W.member(k, rest)) == Bool.or(_, Workflow.wf_cached(k, rest)) : Bool}
-      %pw.member(k, rest) : {Bool.or(Nat.is_eq(k, c), W.member(k, rest)) == Bool.or(Nat.is_eq(k, c), _) : Bool}
-      {==}
-
-def pw.cost_of(h: Bool) -> {W.cost.go(h) == Workflow.wf_cost.of(h) : Nat}:
-  match h:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-# the model's cost of one call is the spec's
-def pw.cost(+k: Nat, +cache: List<&2, Nat>) -> {W.cost(k, cache) == Workflow.wf_cost(k, cache) : Nat}:
-  %pw.member(k, cache) : {W.cost.go(W.member(k, cache)) == Workflow.wf_cost.of(_) : Nat}
-  pw.cost_of(W.member(k, cache))
-
-def pw.resumed_one(h: Bool, -n: Nat) -> {Nat.add(W.cost.go(h), n) == Workflow.wf_resumed.one(h, n) : Nat}:
-  match h:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-# the model's count of a resume's spawns is the spec's
-def pw.resumed(+cache: List<&2, Nat>, keys: List<&2, Nat>) -> {W.resumed(cache, keys) == Workflow.wf_resumed(cache, keys) : Nat}:
-  match keys:
-    case Nil{}:
-      {==}
-    case +k <> +rest:
-      %pw.resumed(cache, rest) : {Nat.add(W.cost(k, cache), W.resumed(cache, rest)) == Workflow.wf_resumed.one(Workflow.wf_cached(k, cache), _) : Nat}
-      %pw.member(k, cache) : {Nat.add(W.cost(k, cache), W.resumed(cache, rest)) == Workflow.wf_resumed.one(_, W.resumed(cache, rest)) : Nat}
-      pw.resumed_one(W.member(k, cache), W.resumed(cache, rest))
-
-def pw.result(o: W.Out) -> {W.result(o) == Workflow.wf_result(o) : Maybe<&2, Nat>}:
-  match o:
-    case W.Answer{n}:
-      {==}
-    case W.Failed{}:
-      {==}
-
-# the model's results are the spec's
-def pw.results(os: List<&2, W.Out>) -> {W.results(os) == Workflow.wf_results(os) : List<&2, Maybe<&2, Nat>>}:
-  match os:
-    case Nil{}:
-      {==}
-    case +o <> +rest:
-      %pw.results(rest) : {W.result(o) <> W.results(rest) == Workflow.wf_result(o) <> _ : List<&2, Maybe<&2, Nat>>}
-      %pw.result(o) : {W.result(o) <> W.results(rest) == _ <> W.results(rest) : List<&2, Maybe<&2, Nat>>}
-      {==}
-
-def pw.cat(xs: List<&2, W.Out>, -ys: List<&2, W.Out>) -> {W.cat(xs, ys) == List.append(&2, W.Out, xs, ys) : List<&2, W.Out>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case +x <> rest:
-      %pw.cat(rest, ys) : {x <> W.cat(rest, ys) == x <> _ : List<&2, W.Out>}
-      {==}
-
-def pw.rcat(xs: List<&2, Maybe<&2, Nat>>, -ys: List<&2, Maybe<&2, Nat>>) -> {W.rcat(xs, ys) == List.append(&2, Maybe<&2, Nat>, xs, ys) : List<&2, Maybe<&2, Nat>>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case +x <> rest:
-      %pw.rcat(rest, ys) : {x <> W.rcat(rest, ys) == x <> _ : List<&2, Maybe<&2, Nat>>}
-      {==}
+    case W.Row{+key, +s2} <> +rest:
+      %pw.hit(k, key, s2) : {W.found.at(_, i, W.found(List.append(&2, W.Row, rest, W.Row{k, s} <> post), k, 1n+i)) == Some{1n+Nat.add(List.length(&2, W.Row, rest), i)} : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s2)), False{}, pw.or_f_l(Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s2)), Workflow.wf_has(rest, k), h)) : {W.found.at(_, i, W.found(List.append(&2, W.Row, rest, W.Row{k, s} <> post), k, 1n+i)) == Some{1n+Nat.add(List.length(&2, W.Row, rest), i)} : Maybe<&2, Nat>}
+      %Equal.sym(Nat, 1n+Nat.add(List.length(&2, W.Row, rest), i), Nat.add(List.length(&2, W.Row, rest), 1n+i), pw.add_succ(List.length(&2, W.Row, rest), i)) : {W.found(List.append(&2, W.Row, rest, W.Row{k, s} <> post), k, 1n+i) == Some{_} : Maybe<&2, Nat>}
+      pw.first(rest, k, s, post, 1n+i, pw.or_f_r(Bool.and(Nat.is_eq(key, k), Workflow.wf_answered(s2)), Workflow.wf_has(rest, k), h), a)
 
 # ---- workflow_wire ----
 

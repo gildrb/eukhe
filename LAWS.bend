@@ -117,7 +117,6 @@ import ./laws/config.bend as Config
 import ./laws/default_model.bend as DefaultModel
 import ./laws/model_roles.bend as ModelRoles
 import ./laws/workflow/model.bend as Workflow
-import ./laws/workflow/entry.bend as WorkflowEntry
 import ./laws/command/paths.bend as Command
 import ./laws/command/entry.bend as CommandEntry
 import ./laws/command/named.bend as CommandNamed

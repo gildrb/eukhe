@@ -1,5 +1,6 @@
-# eukhe: the laws of area workflow, section model: the workflow model (bend/workflow.bend) and the entry
-# bend/ffi_workflow.bend by its wire and by the grammar's spelling
+# eukhe: the laws of area workflow, section model: the admission rule and
+# the limits of bend/workflow.bend, and the entry bend/ffi_workflow.bend by
+# its wire and by the grammar's spelling
 
 import Base
 import ../../bend/ffi_workflow.bend as FW
@@ -9,23 +10,50 @@ import ../base.bend as LawsBase
 
 # ---- workflow ----
 
-# LAWS (WF, dynamic workflows): a run never holds more agents at once
-# than its concurrency, never spawns more than its budget, spawns only
-# the uncached keys when it resumes, and one failed agent never changes
-# its siblings' results. An `agent()` call is admitted by one rule
-# (W.admit, the Rust `admit` of globals.rs): a call whose ordinal the run
-# admitted before never spawns again, a call the earlier run answered
-# reuses the first such answer, and only then the budget decides. A run's
-# concurrency is its size's, at most the subagent cap (W.effective, the
-# Rust `effective_limits`). Each law is an open claim about the model in
-# bend/workflow.bend; PROOF.bend proves them (as Workflow.<law>) with the
-# lemmas of proof/workflow/.
-
-# Spec helpers
+# Requirements
 # ------------
+# WF: the scheduler of a dynamic workflow run
+# (crates/eukhe-core/src/durable/workflow). The compiled core decides two
+# things: the admission of one `agent()` call (W.admit, through FW.ffi;
+# Rust globals.rs `decide` and `admit`) and a run's limits (W.effective,
+# through FW.ffi; Rust size.rs `effective_limits`).
+# WF1  a call whose ordinal already has a row in this run spawns nothing
+#      and takes no budget: an ended row (done, cached, failed or
+#      cancelled) replays its answer, a queued or running row is
+#      reattached (globals.rs `Decision::Ended`, `Decision::Reattach`;
+#      run_doc.rs `snapshot` counts done and cached as done, failed and
+#      cancelled as failed; tests.rs
+#      the_budget_refuses_the_agent_past_max_agents, its rerun)
+# WF2  a new call (no row for its ordinal) whose key has a row with an
+#      answer (done or cached) in the earlier run reuses the first such
+#      row, in ordinal order, and takes no budget (globals.rs
+#      `Decision::Reuse` and `admit`; tests.rs
+#      a_resume_takes_finished_agents_from_the_earlier_run_without_counting_them)
+# WF3  a new call with no such row spawns while the budget has an agent
+#      left, taking one; with none left it is refused and the budget stays
+#      (globals.rs `Decision::Spawn`, `Decision::Refused`; tests.rs
+#      the_budget_refuses_the_agent_past_max_agents)
+# WF4  a run's concurrency is its size's, at most the subagent cap (0: no
+#      cap); its max agents are its size's (size.rs module doc and
+#      `effective_limits` doc)
+# WF5  a run never holds more agents at once than its concurrency
+#      (prelude.js `__wfAcquire`, `__wfRelease`)
+# WF6  a failed agent gives null in its own slot and leaves every
+#      sibling's result as it was (prelude.js `parallel`, `pipeline`)
+# WF5 and WF6 run in prelude.js, which the compiled core does not reach:
+# no law here states them.
+# R1-R3: the wire of the entry bend/ffi_workflow.bend (section below).
+#
+# PROOF.bend proves the laws (as Workflow.<law>) with the lemmas of
+# proof/workflow/.
 
-# a row status that holds a finished answer: done, or served from cache
-def wf_serves(s: W.Sts) -> Bool:
+# Terms
+# -----
+
+# a row whose agent left an answer another call can take: done or served
+# from cache (run_doc.rs `snapshot` counts these two as done; tests.rs
+# reuses a done row and spawns for a failed one)
+def wf_answered(s: W.Sts) -> Bool:
   match s:
     case W.Queued{}:
       False{}
@@ -40,328 +68,163 @@ def wf_serves(s: W.Sts) -> Bool:
     case W.Cached{}:
       True{}
 
-# what a repeated ordinal does: an ended row replays its answer, a
-# queued or running one is reattached
-def wf_again(s: W.Sts) -> W.Admit:
+# a row whose agent failed: failed or cancelled (run_doc.rs `snapshot`
+# counts these two as failed)
+def wf_failed(s: W.Sts) -> Bool:
   match s:
     case W.Queued{}:
-      W.Reattach{}
+      False{}
     case W.Running{}:
-      W.Reattach{}
+      False{}
     case W.Finished{}:
-      W.Ended{}
+      False{}
     case W.Erred{}:
-      W.Ended{}
+      True{}
     case W.Cancelled{}:
-      W.Ended{}
+      True{}
     case W.Cached{}:
-      W.Ended{}
+      False{}
 
-def wf_next(m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match m:
-    case None{}:
-      None{}
-    case Some{i}:
-      Some{1n+i}
+# a row whose agent ended: it answered or it failed
+def wf_ended(+s: W.Sts) -> Bool:
+  Bool.or(wf_answered(s), wf_failed(s))
 
-def wf_first.at(hit: Bool, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match hit:
-    case True{}:
-      Some{0n}
-    case False{}:
-      wf_next(rest)
-
-# the position of the first row of rs with key k and a finished answer
-def wf_first(rs: List<&2, W.Row>, +k: Nat) -> Maybe<&2, Nat>:
+# some row of rs has key k and an answer
+def wf_has(rs: List<&2, W.Row>, +k: Nat) -> Bool:
   match rs:
     case Nil{}:
-      None{}
-    case W.Row{key, s} <> rest:
-      wf_first.at(Bool.and(Nat.is_eq(key, k), wf_serves(s)), wf_first(rest, k))
-
-# the smaller of a and b
-def wf_min(a: Nat, b: Nat) -> Nat:
-  match a b:
-    case 0n _:
-      0n
-    case 1n+x 0n:
-      0n
-    case 1n+x 1n+y:
-      1n+wf_min(x, y)
-
-# what one semaphore event does to a pool: an ask moves a unit from left
-# to taken while one is left (else the pool stays: the call waits), a
-# settle moves a taken unit back to left (with none taken the pool stays)
-def wf_step(e: W.Ev, p: W.Pool) -> W.Pool:
-  match e:
-    case W.Ask{}:
-      match p:
-        case W.Pool{t, l}:
-          match l:
-            case 0n:
-              W.Pool{t, 0n}
-            case 1n+m:
-              W.Pool{1n+t, m}
-    case W.Settle{}:
-      match p:
-        case W.Pool{t, l}:
-          match t:
-            case 0n:
-              W.Pool{0n, l}
-            case 1n+s:
-              W.Pool{s, 1n+l}
-
-# the pool after the events es, in order, from p: the fold of wf_step
-def wf_run(es: List<&2, W.Ev>, p: W.Pool) -> W.Pool:
-  match es:
-    case Nil{}:
-      p
-    case e <> rest:
-      wf_run(rest, wf_step(e, p))
-
-# the units a pool holds in all: the taken ones and the left ones
-def wf_units(p: W.Pool) -> Nat:
-  match p:
-    case W.Pool{t, l}:
-      Nat.add(t, l)
-
-# the budget after n spawn attempts from p: each takes one unit while
-# any is left, so the smaller of n and the units left move from left to
-# taken
-def wf_spawns(+n: Nat, p: W.Pool) -> W.Pool:
-  match p:
-    case W.Pool{t, +l}:
-      W.Pool{Nat.add(wf_min(n, l), t), Nat.sub(l, n)}
-
-# the earlier run finished key k: k is one of the cached keys
-def wf_cached(+k: Nat, cache: List<&2, Nat>) -> Bool:
-  match cache:
-    case Nil{}:
       False{}
-    case c <> rest:
-      Bool.or(Nat.is_eq(c, k), wf_cached(k, rest))
+    case W.Row{key, s} <> rest:
+      Bool.or(Bool.and(Nat.is_eq(key, k), wf_answered(s)), wf_has(rest, k))
 
-def wf_cost.of(hit: Bool) -> Nat:
-  match hit:
-    case True{}:
-      0n
-    case False{}:
-      1n
+# the run's concurrency v under the cap: with no cap (0) v is the size's
+# c; with a cap v is at most the cap and is c or the cap
+def wf_conc_ok(+v: Nat, c: Nat, cap: Nat) -> Bool:
+  match cap:
+    case 0n:
+      Nat.is_eq(v, c)
+    case 1n++x:
+      Bool.and(Nat.is_le(v, 1n+x), Bool.or(Nat.is_eq(v, c), Nat.is_eq(v, 1n+x)))
 
-# the agents one call of a resumed run spawns: none for a cached key, one
-# for another
-def wf_cost(+k: Nat, cache: List<&2, Nat>) -> Nat:
-  wf_cost.of(wf_cached(k, cache))
+# the limits l of a run whose size has concurrency c and max agents m,
+# under the cap: the max agents are m, the concurrency is at most c and
+# wf_conc_ok
+def wf_limits_ok(l: W.Limits, +c: Nat, m: Nat, cap: Nat) -> Bool:
+  match l:
+    case W.Limits{+v, n}:
+      Bool.and(Nat.is_eq(n, m), Bool.and(Nat.is_le(v, c), wf_conc_ok(v, c, cap)))
 
-def wf_resumed.one(hit: Bool, n: Nat) -> Nat:
-  match hit:
-    case True{}:
-      n
-    case False{}:
-      1n+n
+# Laws
+# ----
+# For a call with no row for its ordinal (prior None), either some row of
+# the earlier run has its key and an answer (then the rows split once as
+# pre, the first such row, post: wf_reuses_first_answered) or none has
+# (wf_spawns_within_budget, wf_refused_when_spent, by the agents left); a
+# call with a row for its ordinal is wf_ended_ordinal_replays or
+# wf_live_ordinal_reattaches. Together they fix W.admit on every input.
 
-# the agents a resumed run spawns for its keys: one per key the earlier
-# run did not finish
-def wf_resumed(+cache: List<&2, Nat>, keys: List<&2, Nat>) -> Nat:
-  match keys:
-    case Nil{}:
-      0n
-    case k <> rest:
-      wf_resumed.one(wf_cached(k, cache), wf_resumed(cache, rest))
-
-# what the script gets for one agent: its answer, or null for a failure
-def wf_result(o: W.Out) -> Maybe<&2, Nat>:
-  match o:
-    case W.Answer{n}:
-      Some{n}
-    case W.Failed{}:
-      None{}
-
-# every agent's result, in item order
-def wf_results(os: List<&2, W.Out>) -> List<&2, Maybe<&2, Nat>>:
-  match os:
-    case Nil{}:
-      Nil{}
-    case o <> rest:
-      wf_result(o) <> wf_results(rest)
-
-# LAW wf_running_within_concurrency: after any asks and settles, the running agents and the free slots
-# still add up to the concurrency: running never goes above it
-law wf_running_within_concurrency:
-  for cap: Nat
-  for es: List<&2, W.Ev>
-  {W.size(W.run(es, W.pool(cap))) == cap : Nat}
-
-# LAW wf_spawned_within_budget: after any number of spawn attempts, the spawned agents and the
-# budget left add up to the run's max agents: spawned never goes above it
-law wf_spawned_within_budget:
-  for max: Nat
-  for n: Nat
-  {W.size(W.spawns(n, W.pool(max))) == max : Nat}
-
-# LAW wf_cached_key_spawns_nothing: a resumed call whose key the earlier run finished spawns nothing
-law wf_cached_key_spawns_nothing:
-  for k: Nat
-  for cache: List<&2, Nat>
-  for hit: {W.member(k, cache) == True{} : Bool}
-  {W.cost(k, cache) == 0n : Nat}
-
-# LAW wf_empty_cache_spawns_all: a resume with nothing cached spawns every key
-law wf_empty_cache_spawns_all:
-  for keys: List<&2, Nat>
-  {W.resumed([], keys) == List.length(&2, Nat, keys) : Nat}
-
-# LAW wf_failure_spares_siblings: a failed agent gives null in its own slot and leaves every
-# sibling's result as it was
-law wf_failure_spares_siblings:
-  for xs: List<&2, W.Out>
-  for ys: List<&2, W.Out>
-  {W.results(W.cat(xs, W.Failed{} <> ys)) == W.rcat(W.results(xs), None{} <> W.results(ys)) : List<&2, Maybe<&2, Nat>>}
-
-# LAW wf_admitted_never_respawns: a call whose ordinal the run admitted before (a replay after a
-# restart) spawns nothing and takes no budget: an ended row replays its
-# answer, a queued or running one is reattached
-# EXCLUDES: a second agent for one ordinal, budget charged twice, a
-#   running agent reported as ended or an ended one run again
-law wf_admitted_never_respawns:
-  for s: W.Sts
+# LAW wf_ended_ordinal_replays (WF1): a call whose ordinal has an ended row
+# in this run (done, cached, failed or cancelled) replays it and leaves
+# the budget as it was, whatever its key, the earlier run's rows and the
+# budget
+# EXCLUDES: an ended agent run again or reattached, a second agent for one
+#   ordinal, budget charged for a replay
+law wf_ended_ordinal_replays:
+  for +s: W.Sts
   for k: Nat
   for rs: List<&2, W.Row>
   for p: W.Pool
-  {W.admit(Some{s}, k, rs, p) == (wf_again(s), p) : W.Admit & W.Pool}
+  for ended: {wf_ended(s) == True{} : Bool}
+  {W.admit(Some{s}, k, rs, p) == (W.Ended{}, p) : W.Admit & W.Pool}
 
-# LAW wf_reuses_first_answer: a new call whose key the earlier run answered reuses the first row
-# with that key and a finished answer, and takes no budget
-# EXCLUDES: a cached key spawned again, a failed or unfinished row
-#   reused, a later duplicate reused instead of the first
-law wf_reuses_first_answer:
-  for +k: Nat
-  for +rs: List<&2, W.Row>
+# LAW wf_live_ordinal_reattaches (WF1): a call whose ordinal has a row in
+# this run that has not ended (queued or running) reattaches to it and
+# leaves the budget as it was, whatever its key, the earlier run's rows
+# and the budget
+# EXCLUDES: a running agent reported as ended, a second agent for one
+#   ordinal, budget charged for a reattach
+law wf_live_ordinal_reattaches:
+  for +s: W.Sts
+  for k: Nat
+  for rs: List<&2, W.Row>
   for p: W.Pool
-  for i: Nat
-  for hit: {wf_first(rs, k) == Some{i} : Maybe<&2, Nat>}
-  {W.admit(None{}, k, rs, p) == (W.Reuse{i}, p) : W.Admit & W.Pool}
+  for live: {wf_ended(s) == False{} : Bool}
+  {W.admit(Some{s}, k, rs, p) == (W.Reattach{}, p) : W.Admit & W.Pool}
 
-# LAW wf_spawns_within_budget: a new call with no earlier answer spawns while the budget has an
-# agent left, and takes one agent of it
-# EXCLUDES: refusing a call the budget allows, a spawn that takes no budget
+# LAW wf_reuses_first_answered (WF2): a new call of key k whose earlier
+# run's rows are pre, then a row of key k with an answer (done or cached),
+# then post, where no row of pre has key k and an answer, reuses that row
+# (its index is the length of pre) and leaves the budget as it was, for
+# every budget
+# EXCLUDES: a cached key spawned again or charged to the budget, a failed,
+#   cancelled, queued or running row reused, a later duplicate reused
+#   instead of the first, an index off by one, a row of another key reused
+law wf_reuses_first_answered:
+  for +k: Nat
+  for +pre: List<&2, W.Row>
+  for +s: W.Sts
+  for post: List<&2, W.Row>
+  for p: W.Pool
+  for first: {wf_has(pre, k) == False{} : Bool}
+  for answered: {wf_answered(s) == True{} : Bool}
+  {W.admit(None{}, k, List.append(&2, W.Row, pre, W.Row{k, s} <> post), p) == (W.Reuse{List.length(&2, W.Row, pre)}, p) : W.Admit & W.Pool}
+
+# LAW wf_spawns_within_budget (WF3): a new call when no row of the earlier
+# run has its key and an answer spawns while the budget has an agent
+# left, and takes one agent of it
+# EXCLUDES: refusing a call the budget allows, a spawn that takes no
+#   budget or two agents
 law wf_spawns_within_budget:
   for +k: Nat
   for +rs: List<&2, W.Row>
   for t: Nat
   for l: Nat
-  for miss: {wf_first(rs, k) == None{} : Maybe<&2, Nat>}
+  for miss: {wf_has(rs, k) == False{} : Bool}
   {W.admit(None{}, k, rs, W.Pool{t, 1n+l}) == (W.Spawn{}, W.Pool{1n+t, l}) : W.Admit & W.Pool}
 
-# LAW wf_refused_when_spent: a new call with no earlier answer and no agent left is refused,
-# and the budget stays
+# LAW wf_refused_when_spent (WF3): a new call when no row of the earlier
+# run has its key and an answer, and no agent is left, is refused, and
+# the budget stays
 # EXCLUDES: a spawn past max agents
 law wf_refused_when_spent:
   for +k: Nat
   for +rs: List<&2, W.Row>
   for t: Nat
-  for miss: {wf_first(rs, k) == None{} : Maybe<&2, Nat>}
+  for miss: {wf_has(rs, k) == False{} : Bool}
   {W.admit(None{}, k, rs, W.Pool{t, 0n}) == (W.Refused{}, W.Pool{t, 0n}) : W.Admit & W.Pool}
 
-# LAW wf_first_example (witness): the first answer skips rows of another key and rows
-# without a finished answer, and a key with no answer has none
-# EXCLUDES: a vacuous wf_reuses_first_answer or wf_spawns_within_budget
-law wf_first_example:
-  {(wf_first([W.Row{1n, W.Finished{}}, W.Row{2n, W.Running{}}, W.Row{2n, W.Erred{}}, W.Row{2n, W.Cached{}}, W.Row{2n, W.Finished{}}], 2n), wf_first([W.Row{1n, W.Finished{}}], 2n)) == (Some{3n}, None{}) : Maybe<&2, Nat> & Maybe<&2, Nat>}
+# LAW wf_admit_example (anchor; WF1-WF3): the admissions of the Rust tests
+# of crates/eukhe-core/src/durable/workflow/tests.rs, as the facts globals.rs
+# `admit` sends (the call's key interned as 0):
+# the_budget_refuses_the_agent_past_max_agents (max 2: two spawns, then a
+# refusal; the rerun of a queued ordinal reattaches) and
+# a_resume_takes_finished_agents_from_the_earlier_run_without_counting_them
+# (max 1: the done row of the key is reused, budget kept; a key whose row
+# failed spawns)
+law wf_admit_example:
+  {W.admit(None{}, 0n, [], W.Pool{0n, 2n}) == (W.Spawn{}, W.Pool{1n, 1n}) : W.Admit & W.Pool} & {W.admit(None{}, 0n, [], W.Pool{1n, 1n}) == (W.Spawn{}, W.Pool{2n, 0n}) : W.Admit & W.Pool} & {W.admit(None{}, 0n, [], W.Pool{2n, 0n}) == (W.Refused{}, W.Pool{2n, 0n}) : W.Admit & W.Pool} & {W.admit(Some{W.Queued{}}, 0n, [], W.Pool{2n, 0n}) == (W.Reattach{}, W.Pool{2n, 0n}) : W.Admit & W.Pool} & {W.admit(None{}, 0n, [W.Row{0n, W.Finished{}}, W.Row{1n, W.Erred{}}], W.Pool{0n, 1n}) == (W.Reuse{0n}, W.Pool{0n, 1n}) : W.Admit & W.Pool} & {W.admit(None{}, 0n, [W.Row{1n, W.Finished{}}, W.Row{0n, W.Erred{}}], W.Pool{0n, 1n}) == (W.Spawn{}, W.Pool{1n, 0n}) : W.Admit & W.Pool}
 
-# LAW wf_limits_uncapped: with no subagent cap (0) a run's limits are its size's
-# EXCLUDES: a cap of 0 read as "no agents"
-law wf_limits_uncapped:
-  for c: Nat
-  for m: Nat
-  {W.effective(W.Limits{c, m}, 0n) == W.Limits{c, m} : W.Limits}
-
-# LAW wf_limits_capped: under a subagent cap a run's concurrency is the smaller of its
-# size's and the cap; its max agents stay
-# EXCLUDES: a cap that raises the concurrency, a cap ignored, a cap
-#   applied to the max agents
-law wf_limits_capped:
+# LAW wf_limits_effective (WF4): for every size's concurrency c and max
+# agents m and every subagent cap: the run's max agents are m; its
+# concurrency is at most c; with no cap (0) it is c; with a cap it is at
+# most the cap and is c or the cap (so the smaller of the two)
+# EXCLUDES: a cap that raises the concurrency, a cap ignored, a cap of 0
+#   read as "no agents", a cap applied to the max agents, a concurrency
+#   other than c or the cap
+law wf_limits_effective:
   for +c: Nat
-  for m: Nat
-  for +x: Nat
-  {W.effective(W.Limits{c, m}, 1n+x) == W.Limits{wf_min(c, 1n+x), m} : W.Limits}
-
-# LAW wf_step_exact (WF): one semaphore event moves at most one unit: an
-# ask takes a unit while one is left (else the pool stays and the call
-# waits), a settle gives a taken unit back (with none taken the pool
-# stays)
-# EXCLUDES: a settle that gives nothing back (give(p) = p), an ask that
-#   takes nothing, a unit moved twice, taken and left swapped
-law wf_step_exact:
-  for e: W.Ev
-  for p: W.Pool
-  {W.step(e, p) == wf_step(e, p) : W.Pool}
-
-# LAW wf_run_exact (WF): the semaphore after any asks and settles, from
-# any pool, is the fold of wf_step over them, in order
-# EXCLUDES: a run that drops, repeats or reorders events, a run that
-#   leaves the pool as it was
-law wf_run_exact:
-  for es: List<&2, W.Ev>
-  for p: W.Pool
-  {W.run(es, p) == wf_run(es, p) : W.Pool}
-
-# LAW wf_pool_exact (WF): a run starts with every unit left and none
-# taken, and a pool's size is its taken and left units together
-# EXCLUDES: a run that starts with units taken, a size that counts one
-#   counter only, or a constant
-law wf_pool_exact:
-  for cap: Nat
-  for p: W.Pool
-  {W.pool(cap) == W.Pool{0n, cap} : W.Pool} & {W.size(p) == wf_units(p) : Nat}
-
-# LAW wf_spawns_exact (WF): n spawn attempts take one unit each while
-# any is left: the smaller of n and the units left move to taken
-# EXCLUDES: spawns(n, p) = p, a spawn that takes no budget or two
-#   units, a spawn past the budget, taken and left swapped
-law wf_spawns_exact:
-  for n: Nat
-  for p: W.Pool
-  {W.spawns(n, p) == wf_spawns(n, p) : W.Pool}
-
-# LAW wf_resume_exact (WF): a key is cached exactly when the earlier run
-# finished it; one call of a resumed run spawns none for a cached key and
-# one for another; a resumed run spawns one agent per uncached key
-# EXCLUDES: member = False (a cached key spawned again, which leaves
-#   wf_cached_key_spawns_nothing vacuous), member = True, a cost of 1 for
-#   a cached key, a resume that counts every key, none, or a key twice
-law wf_resume_exact:
-  for +k: Nat
-  for +cache: List<&2, Nat>
-  for keys: List<&2, Nat>
-  {W.member(k, cache) == wf_cached(k, cache) : Bool} & {W.cost(k, cache) == wf_cost(k, cache) : Nat} & {W.resumed(cache, keys) == wf_resumed(cache, keys) : Nat}
-
-# LAW wf_results_exact (WF): an answered agent gives its answer, a failed
-# one null, and `parallel` and `pipeline` give every item's result in
-# item order
-# EXCLUDES: result(Answer{n}) = None (every agent read as failed), an
-#   answer changed, results dropped, added or reordered
-law wf_results_exact:
-  for o: W.Out
-  for os: List<&2, W.Out>
-  {W.result(o) == wf_result(o) : Maybe<&2, Nat>} & {W.results(os) == wf_results(os) : List<&2, Maybe<&2, Nat>>}
-
-# LAW wf_cat_exact (WF): the joins wf_failure_spares_siblings reads put
-# the first items, then the second, each kept
-# EXCLUDES: cat(xs, ys) = ys with rcat(xs, ys) = ys (siblings before
-#   the failed agent never checked), items dropped or reordered
-law wf_cat_exact:
-  for xs: List<&2, W.Out>
-  for ys: List<&2, W.Out>
-  for rs: List<&2, Maybe<&2, Nat>>
-  for ss: List<&2, Maybe<&2, Nat>>
-  {W.cat(xs, ys) == List.append(&2, W.Out, xs, ys) : List<&2, W.Out>} & {W.rcat(rs, ss) == List.append(&2, Maybe<&2, Nat>, rs, ss) : List<&2, Maybe<&2, Nat>>}
+  for +m: Nat
+  for +cap: Nat
+  {wf_limits_ok(W.effective(W.Limits{c, m}, cap), c, m, cap) == True{} : Bool}
 
 # The wire codec of bend/ffi_workflow.bend (grammar: that file's header,
 # crates/eukhe-bend/WIRE.md). R1: every request and reply reads back; R2:
 # a well-formed request answers the model's answer (W.admit, W.effective),
 # encoded; R3: a malformed or overlong request answers the error form,
-# never a model answer. Every input is free.
+# never a model answer. Every input is free. R2 and R3 are stated from the
+# grammar's spelling (wfw_answers_spelled, wfw_left_over_spelled,
+# wfw_reads_only_requests, wfw_malformed_unless_request, wfw_unknown_*,
+# below); the round trips here say each encoder is one to one.
 
 # what fits the wire: every Nat (and every list length) at most 14 digits
 def wfw_row_fits(r: W.Row) -> Bool:
@@ -437,7 +300,8 @@ law wfw_rows_round_trip:
   {Wr.get_list(~W.Row, ~FW.get_row, Wr.put_list(~W.Row, ~FW.put_row, rs, rest)) == Wr.Got{rs, rest} : Wr.Dec<List<&2, W.Row>>}
 
 # LAW wfw_pool_round_trip (R1): a pool that fits reads back (request and reply)
-# EXCLUDES: taken and left swapped or misread
+# EXCLUDES: a pool encoder that loses or merges a field (the order taken,
+#   left: wfw_pool_example, wfw_answers_spelled)
 law wfw_pool_round_trip:
   for +p: W.Pool
   for rest: String
@@ -445,7 +309,9 @@ law wfw_pool_round_trip:
   {FW.get_pool(FW.put_pool(p, rest)) == Wr.Got{p, rest} : Wr.Dec<W.Pool>}
 
 # LAW wfw_req_round_trip (R1): a request that fits reads back, of either kind
-# EXCLUDES: one kind read as the other, a field lost, swapped or misread
+# EXCLUDES: a request encoder that is not one to one: one kind read as the
+#   other, a field lost or misread (the field order: wfw_admit_req_example,
+#   wfw_limits_req_example, wfw_answers_spelled)
 law wfw_req_round_trip:
   for +r: FW.Req
   for rest: String
@@ -460,8 +326,13 @@ law wfw_admit_round_trip:
   for h: {wfw_admit_fits(a) == True{} : Bool}
   {FW.get_admit(FW.put_admit(a, rest)) == Wr.Got{a, rest} : Wr.Dec<W.Admit>}
 
-# LAW wfw_decision_round_trip (R1): the reply to an Admit, the decision then the pool, reads back
-# EXCLUDES: a reply that drops the pool or puts it before the decision
+# LAW wfw_decision_round_trip (R1): the reply to an Admit, the decision then the pool, reads
+# back through the reader model FW.get_decision (Bend, not run in production:
+# Rust reads the reply in globals.rs `decide`), so the reply encoder is one
+# to one
+# EXCLUDES: a reply encoder that loses or merges the decision or the pool
+#   (the order, decision then pool: wfw_decision_example,
+#   wfw_answers_spelled)
 law wfw_decision_round_trip:
   for +a: W.Admit
   for +p: W.Pool
@@ -476,33 +347,6 @@ law wfw_limits_round_trip:
   for rest: String
   for h: {wfw_limits_fits(l) == True{} : Bool}
   {FW.get_limits(FW.put_limits(l, rest)) == Wr.Got{l, rest} : Wr.Dec<W.Limits>}
-
-# LAW wfw_answers_admit (R2): an encoded Admit request answers the model's admission, encoded
-# EXCLUDES: an entry that decides other than W.admit, or drops a field
-#   on the way in or out
-law wfw_answers_admit:
-  for prior: Maybe<&2, W.Sts>
-  for +k: Nat
-  for +rows: List<&2, W.Row>
-  for p: W.Pool
-  for h: {wfw_req_fits(FW.AdmitReq{prior, k, rows, p}) == True{} : Bool}
-  {FW.ffi(FW.put_req(FW.AdmitReq{prior, k, rows, p}, "")) == FW.put_decision(W.admit(prior, k, rows, p), "") : String}
-
-# LAW wfw_answers_limits (R2): an encoded Limits request answers the model's limits, encoded
-# EXCLUDES: an entry that ignores the cap or the run's size
-law wfw_answers_limits:
-  for +c: Nat
-  for +m: Nat
-  for +cap: Nat
-  for h: {wfw_req_fits(FW.LimitsReq{c, m, cap}) == True{} : Bool}
-  {FW.ffi(FW.put_req(FW.LimitsReq{c, m, cap}, "")) == FW.put_limits(W.effective(W.Limits{c, m}, cap), "") : String}
-
-# LAW wfw_malformed (R3): a malformed request answers the error form
-# EXCLUDES: a default answer (a spawn, a limit) for a request it cannot read
-law wfw_malformed:
-  for +s: String
-  for h: {FW.get_req(s) == Wr.Bad{} : Wr.Dec<FW.Req>}
-  {FW.ffi(s) == Wr.err("workflow: malformed request") : String}
 
 # LAW wfw_left_over (R3): a request with input left over answers the error form
 # EXCLUDES: an entry that answers a request followed by garbage
@@ -541,14 +385,14 @@ law wfw_pool_example:
   {wfw_pool_fits(W.Pool{1n, 2n}) == True{} : Bool} & {FW.put_pool(W.Pool{1n, 2n}, "") == "1,2," : String}
 
 # LAW wfw_admit_req_example (R1): anchor and witness: an Admit request is 0, prior, key, rows, pool
-# EXCLUDES: a vacuous wfw_req_round_trip or wfw_answers_admit, fields in
-#   another order
+# EXCLUDES: a vacuous wfw_req_round_trip, fields in another order
 law wfw_admit_req_example:
   {wfw_req_fits(FW.AdmitReq{Some{W.Cached{}}, 7n, [W.Row{3n, W.Erred{}}], W.Pool{1n, 2n}}) == True{} : Bool} & {FW.put_req(FW.AdmitReq{Some{W.Cached{}}, 7n, [W.Row{3n, W.Erred{}}], W.Pool{1n, 2n}}, "") == "0,1,5,7,1,3,3,1,2," : String}
 
 # LAW wfw_limits_req_example (R1): anchor and witness: a Limits request is 1, concurrency, max
 # agents, cap
-# EXCLUDES: a vacuous wfw_answers_limits, fields in another order
+# EXCLUDES: a vacuous wfw_req_round_trip for a Limits, fields in another
+#   order
 law wfw_limits_req_example:
   {wfw_req_fits(FW.LimitsReq{4n, 9n, 2n}) == True{} : Bool} & {FW.put_req(FW.LimitsReq{4n, 9n, 2n}, "") == "1,4,9,2," : String}
 
@@ -574,8 +418,9 @@ law wfw_limits_example:
 law wfw_ffi_example:
   {FW.ffi("1,4,9,2,") == "2,9," : String}
 
-# LAW wfw_malformed_example (R3): witness: a request with an unknown kind is malformed
-# EXCLUDES: a vacuous wfw_malformed
+# LAW wfw_malformed_example (R3): anchor: the request reader refuses a request of the unknown
+# kind 2, and the entry answers it with the error form "workflow: malformed request"
+# EXCLUDES: an unknown kind read as an Admit or a Limits, another error text
 law wfw_malformed_example:
   {FW.get_req("2,") == Wr.Bad{} : Wr.Dec<FW.Req>} & {FW.ffi("2,") == Wr.err("workflow: malformed request") : String}
 
