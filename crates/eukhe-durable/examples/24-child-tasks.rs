@@ -382,7 +382,7 @@ pub async fn run(
     let cx: &Context = &BACKGROUND_CONTEXT;
     let console = Console::default();
     let charged = Arc::new(Mutex::new(HashSet::new()));
-    let payment = payment_task(charged, console.clone());
+    let payment = payment_task(Arc::clone(&charged), console.clone());
     let checkout_definition = checkout_task(&payment, console.clone());
 
     let registry = create_registry();
@@ -415,20 +415,22 @@ pub async fn run(
     console.flush(out)?;
 
     console.log("The customer cancels:");
-    let id = checkout(
-        &root,
-        &checkout_definition,
-        &["visa-5", "visa-6", "visa-7", "visa-8"],
-        cx,
-    )
-    .await?;
+    let cards = ["visa-5", "visa-6", "visa-7", "visa-8"];
+    let id = checkout(&root, &checkout_definition, &cards, cx).await?;
     harness.resume()?;
-    // TS waits 20 ms here; waiting until every payment runs shows the same tree on a busy machine too.
+    // TS waits 20 ms here, by when its one event loop has charged every card. A
+    // payment shows as running before its charge phase runs, so this waits until
+    // every payment runs and every card is charged: the same tree and the same
+    // refunds on a busy machine too.
     loop {
         let graph = harness.task_graph(cx).await?;
         let value = graph.value();
         graph.dispose()?;
-        if payments_running(&value, 4)? {
+        let all_charged = {
+            let charged = charged.lock().unwrap_or_else(PoisonError::into_inner);
+            cards.iter().all(|card| charged.contains(*card))
+        };
+        if all_charged && payments_running(&value, 4)? {
             print_graph(&console, &value)?;
             break;
         }
