@@ -4,12 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "build": "npm run eukhe -- --check && npm run bend && vp build",
+    "build": "npm run bend && vp build",
     "check": "vp check",
+    "laws": "sh scripts/laws.sh",
     "deploy": "npm run build && npx wrangler deploy",
-    "prepare": "vp config",
-    "bend": "bend vim/vim.bend -o src/vim.mjs",
-    "eukhe": "node scripts/eukhe.ts"
+    "bend": "bend=\"$(../scripts/pinned_bend.sh)\" && \"$bend\" vim/vim.bend -o src/vim.mjs"
   },
   "dependencies": {
     "@stylexjs/stylex": "^0.19.1",
@@ -28,12 +27,5 @@
   },
   "browserslist": [
     "baseline widely available"
-  ],
-  "devEngines": {
-    "packageManager": {
-      "name": "npm",
-      "version": "11.19.1",
-      "onFail": "download"
-    }
-  }
+  ]
 }

@@ -1,30 +1,35 @@
-# eukhe-site
+# site
 
 eukhe.com: the page for [Eukhe](https://github.com/gildrb/eukhe), the harness for the AGI era, set as visible Markdown in Ioskeley Mono, in gildrb.com's colors. Preact, StyleX, strict TypeScript, Vite+, a Cloudflare Worker.
+
+It lives in `site/` of Eukhe's repository (until November 2026 it was gildrb/eukhe-site, whose history is this folder's) and is apart from Eukhe in all but one thing: its build reads the repository's files (`../README.md` and what it links to). It has its own toolchain (npm, `package-lock.json`), laws (`LAWS.bend`, `laws/`, `proof/`, `LAWS.lock`) and check; no Eukhe gate, hook or release runs it, and a broken site breaks only the site's deploy.
 
 ## Install
 
 ```sh
-vp install  # dependencies
+npm ci  # dependencies (npm, any version)
 ```
+
+The site's Bend (`vim/vim.bend`) builds with the Bend release Eukhe pins (`../scripts/toolchain.env`, found by `../scripts/pinned_bend.sh`).
 
 ## Use
 
 ```sh
-vp dev            # dev server, http://127.0.0.1:5175
-vp check          # format, lint, type check
-vp build          # prerender into dist/
+npm run dev       # dev server, http://127.0.0.1:5175
+npm run check     # format, lint, type check (vp check)
+npm run laws      # the site's proofs (checker and --verdict), then LAWS.lock
+npm run build     # vim/vim.bend -> src/vim.mjs, then prerender into dist/
 npx wrangler dev  # dist/ behind the Worker, http://127.0.0.1:8787
-npm run eukhe     # copy eukhe's README and the files it links to from main into src/content/eukhe/
-npm run deploy    # build (fails while the copy differs from eukhe's main), then wrangler deploy
 ```
+
+From the repository root: `make site-check` (`npm ci`, check, laws, build) and `make site-deploy` (`npm ci`, build, `wrangler deploy`). A deploy happens only when someone runs `make site-deploy`; nothing deploys on a push.
 
 ## Content
 
-- The home page is eukhe's README: `src/content/eukhe/README.md`, a verbatim copy of `README.md` on eukhe's `main`. `src/source.ts` puts `src/content/head.md` (the header, then the motto) above it and a `Source:` line below it.
-- `src/content/eukhe/`: the README and every file its relative links reach, at their paths in eukhe's repository. A linked folder, or a linked `README.md` (its folder's index), brings the whole folder. `npm run eukhe` refreshes them; `npm run build` fails while they differ from `main`.
+- The home page is eukhe's README: the repository's `README.md`, read at build time. `src/source.ts` puts `src/content/head.md` (the header, then the motto) above it and a `Source:` line below it.
+- `scripts/files.ts`: every file the README's relative links reach, read from the repository at build time at their paths in it (its tracked files, `git ls-files`, outside `site/`). A linked folder, or a linked `README.md` (its folder's index), brings the whole folder; the links of each Markdown file reached are followed in turn. A link that leaves the repository or reaches no file fails the build.
 - The editor holds them (`<Space><Space>` finds them); a click on a relative link opens its file or folder there (gf). The site also serves each at its path (`/LICENSE`, `/spec/rlm/family.bend`, text), and each folder as a page (`/spec/rlm/`).
-- `src/epigraphs.ts`: the site's Attic Greek epigraphs, at most one under a README heading, each with its translation and citation. The README's own lines stay as they are.
+- `src/epigraphs.ts`: the site's Attic Greek epigraphs, at most one under a README heading, each with its translation and citation. The README's own lines stay as they are; an epigraph whose heading the README no longer holds is left out (the build names it), so a README edit never breaks the site.
 - `src/content/{about,contact,privacy}.md`: the other pages. Every character shows; the first block is the header, the second the motto.
 - `src/tokens.stylex.ts` `palette`: every color, OKLCH, per theme.
 

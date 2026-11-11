@@ -40,8 +40,11 @@ const stylexPlugin: Plugin & { __stylexCollectCss?: () => string } = stylexVite(
 const site: Plugin = {
   name: "site",
   configureServer(server) {
+    // Vite watches src/ and the files outside site/ the pages import (the repository's README);
+    // the README's linked files are read again on every request.
     server.watcher.on("change", (file) => {
-      if (file.includes(`${path.sep}src${path.sep}`)) server.ws.send({ type: "full-reload" });
+      if (path.relative(root, file).startsWith("..") || file.includes(`${path.sep}src${path.sep}`))
+        server.ws.send({ type: "full-reload" });
     });
     server.middlewares.use((request, response, next) => {
       const { pathname } = new URL(request.url ?? "/", "http://localhost");
@@ -72,7 +75,7 @@ function contentType(name: string): string {
 }
 
 export default defineConfig({
-  staged: { "*": "vp check --fix" },
+  // No `staged` (vp's git hooks): the repository's hooks are Eukhe's; `npm run check` is the site's.
   fmt: { ignorePatterns: ["src/content/**", "public/**", "src/vim.mjs"] },
   lint: {
     ignorePatterns: ["public/**", "src/vim.mjs"],

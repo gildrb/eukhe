@@ -2,7 +2,9 @@
  * The site's epigraphs: Attic Greek the README does not carry, one under a section's heading at
  * most, keyed by that heading's line in the README. Each is the Greek as Perseus prints it (Burnet's
  * Plato, Bywater's Ethics, Ross's Metaphysics and Politics), then a plain English translation and
- * the citation. `source.ts` fails the build when a heading is missing from the README.
+ * the citation. The README is the repository's, read at build time: `source.ts` leaves out (and
+ * names) an epigraph whose heading the README does not hold once, so a README edit never breaks
+ * the site.
  */
 export const epigraphs: ReadonlyMap<string, readonly string[]> = new Map([
   [
