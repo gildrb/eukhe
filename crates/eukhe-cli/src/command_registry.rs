@@ -718,7 +718,9 @@ pub fn format_top_level_help() -> String {
         })
         .collect();
     format!(
-        "{APP_NAME} - AI coding assistant with a Python REPL tool\n\
+        "{APP_NAME} - the harness for the AGI era\n\
+         \n\
+         You say how the agent should do the work (AGENTS.md, --goal, --autonomous-gate), and {APP_NAME} gets it done that way.\n\
          \n\
          Usage:\n\
          \x20 {APP_NAME} [options] [@files...] [message...]\n\

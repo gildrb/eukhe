@@ -1,4 +1,4 @@
-//! Embed the Eukhe session engine in-process.
+//! Run Eukhe sessions inside your own process.
 //!
 //! A host that runs sessions in its own process (no daemon, no wire) opens
 //! them here. The facade is thin: the engine's own types are re-exported

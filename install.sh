@@ -39,7 +39,7 @@ usage() {
   cat <<EOF
 Usage: install.sh [version]
 
-Install the eukhe coding agent from the ${REPO} GitHub releases.
+Install eukhe from the ${REPO} GitHub releases.
 No root. macOS (Apple Silicon) and Linux (x64, arm64).
 
   version   pin one release (0.10.41, v0.10.41 or eukhe-v0.10.41);

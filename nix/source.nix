@@ -67,7 +67,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = "Coding agent with a memory of all things (from source)";
+    description = "Eukhe agent harness (from source)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";
