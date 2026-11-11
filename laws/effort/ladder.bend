@@ -11,9 +11,23 @@ import ../base.bend as LawsBase
 # ---- ladder ----
 
 # LAWS (S6.9): the thinking ladder of a model is rulebook data. Each law
-# is an open claim about the model in bend/infer.bend section 6;
-# PROOF.bend proves them (as Effort.<law>) with the lemmas of
+# is an open claim about the S10 model bend/infer.bend section 6 builds
+# (If.lad.model, the model the entry bend/ffi_effort.bend answers about);
+# PROOF.bend proves them (as EffortLadder.<law>) with the lemmas of
 # proof/effort/.
+#
+# Requirements: S6.9 (crates/eukhe-ai models/ladder.rs module docs, rule
+# 2): a reasoning model offers a level whose chosen entry is a wire
+# string, or that has no entry and the reasoning default ladder lists;
+# never a null one (quirk_ladder_offered_exact); a model without reasoning
+# offers its plain default ladder (quirk_ladder_plain_exact). R1-R3 are the
+# core-entry requirements of laws/base.bend (`core entries`): R1 a request
+# reads back (core_effort_round_trip, core_effort_answers_spelled), R2 the
+# entry answers the model's decision (core_effort_offered, _clamp, _cycle,
+# core_effort_answers_spelled, core_effort_ffi_exact), R3 malformed input or
+# input left over answers the error form (core_effort_left_over,
+# core_effort_left_over_spelled, core_effort_unknown_request,
+# core_effort_reads_only_requests, core_effort_malformed_unless_request).
 
 # (S6.9) The thinking ladder
 # --------------------------
@@ -21,34 +35,35 @@ import ../base.bend as LawsBase
 # bend/infer.bend section 6. Every input is free: any explicit map, any
 # rulebook ladder, any default ladders, any level.
 
-# LAW quirk_ladder_offered_exact: a reasoning model offers a level exactly when its chosen ladder
-# gives the level a wire string, or gives it no entry and the default
-# ladder lists it; no other path offers a level
+# LAW quirk_ladder_offered_exact: the S10 model the entry builds for a reasoning model
+# (If.lad.model, as bend/ffi_effort.bend `model` builds it) offers a level
+# exactly when its chosen ladder (If.lad.chosen: the explicit map, else the
+# rulebook's, else none) gives the level a wire string, or gives it no
+# entry and the reasoning default ladder lists it (If.lad.keep); no other
+# path offers a level. The precedence of the chosen ladder is the code's
+# own (If.lad.chosen on both sides): laws/infer.bend states it
+# EXCLUDES: a null entry offered, a wire entry dropped, a missing entry
+#   read from the plain default ladder or as offered or dropped regardless
+#   of the default ladder; a filled map whose S10 offer drops or adds a
+#   level
 law quirk_ladder_offered_exact:
   for +explicit: Maybe<&2, Ef.LvMap>
   for +rule: Maybe<&2, Ef.LvMap>
   for +d: If.Defaults
   for +l: Ef.Lv
-  {Ef.has(If.lad.offered(True{}, explicit, rule, d), l) == If.lad.keep(l, Ef.entry(l, If.lad.chosen(explicit, rule)), If.Defaults.reasoning(d)) : Bool}
+  {Ef.has(Ef.offered(If.lad.model(True{}, explicit, rule, d)), l) == If.lad.keep(l, Ef.entry(l, If.lad.chosen(explicit, rule)), If.Defaults.reasoning(d)) : Bool}
 
-# LAW quirk_ladder_plain_exact: a model without reasoning offers exactly the levels of the plain
-# default ladder, whatever its maps
+# LAW quirk_ladder_plain_exact: the S10 model the entry builds for a model without reasoning
+# (If.lad.model) offers exactly the levels of the plain default ladder,
+# whatever its maps (which may be none at all: an empty plain ladder)
+# EXCLUDES: a map of a model without reasoning read; the reasoning default
+#   ladder used; a plain level dropped or another added
 law quirk_ladder_plain_exact:
   for +explicit: Maybe<&2, Ef.LvMap>
   for +rule: Maybe<&2, Ef.LvMap>
   for +d: If.Defaults
   for +l: Ef.Lv
-  {Ef.has(If.lad.offered(False{}, explicit, rule, d), l) == Ef.has(If.Defaults.plain(d), l) : Bool}
-
-# LAW quirk_ladder_model_offers: the levels a model offers are the S10 ladder of one model, so the
-# S10 laws of the clamp and the cycle hold for every ladder of the
-# rulebook, with any default ladders
-law quirk_ladder_model_offers:
-  for r: Bool
-  for +explicit: Maybe<&2, Ef.LvMap>
-  for +rule: Maybe<&2, Ef.LvMap>
-  for +d: If.Defaults
-  {Ef.offered(If.lad.model(r, explicit, rule, d)) == If.lad.offered(r, explicit, rule, d) : List<&2, Ef.Lv>}
+  {Ef.has(Ef.offered(If.lad.model(False{}, explicit, rule, d)), l) == Ef.has(If.Defaults.plain(d), l) : Bool}
 
 # (effort) The thinking ladder: bend/ffi_effort.bend
 # --------------------------------------------------
@@ -110,13 +125,6 @@ law core_effort_cycle:
   for h: {core_effort_fits(FEf.Cycle{f, l, d}) == True{} : Bool}
   {FEf.ffi(FEf.put_req(FEf.Cycle{f, l, d}, "")) == FEf.put_mlv(Ef.cycle(core_effort_model(f), l, d), "") : String}
 
-# LAW core_effort_malformed (R3): a malformed ladder request answers the error form
-# EXCLUDES: a default ladder or level for a request it cannot read
-law core_effort_malformed:
-  for +s: String
-  for h: {FEf.get_req(s) == Wr.Bad{} : Wr.Dec<FEf.Req>}
-  {FEf.ffi(s) == Wr.err("ladder request: malformed") : String}
-
 # LAW core_effort_left_over (R3): a ladder request with input left over answers the error form
 # EXCLUDES: an entry that answers a request followed by garbage
 law core_effort_left_over:
@@ -140,8 +148,10 @@ law core_effort_req_example:
 law core_effort_reply_example:
   {FEf.put_lv(Ef.Off{}, FEf.put_lv(Ef.Minimal{}, FEf.put_lv(Ef.Low{}, FEf.put_lv(Ef.Medium{}, FEf.put_lv(Ef.High{}, FEf.put_lv(Ef.Xhigh{}, FEf.put_lv(Ef.Max{}, ""))))))) == "0,1,2,3,4,5,6," : String} & {FEf.put_mlv(None{}, FEf.put_mlv(Some{Ef.High{}}, "")) == "0,1,4," : String}
 
-# LAW core_effort_malformed_example (R3): witness: a malformed ladder request exists (an unknown tag)
-# EXCLUDES: a vacuous core_effort_malformed
+# LAW core_effort_malformed_example (R3): anchor: a request with an unknown tag (3) reads as
+# malformed and answers the error form (core_effort_unknown_request and
+# core_effort_reads_only_requests cover every malformed input)
+# EXCLUDES: an unknown tag read as a request
 law core_effort_malformed_example:
   {FEf.get_req("3,") == Wr.Bad{} : Wr.Dec<FEf.Req>} & {FEf.ffi("3,") == Wr.err("ladder request: malformed") : String}
 

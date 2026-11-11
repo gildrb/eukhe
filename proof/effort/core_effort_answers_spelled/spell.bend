@@ -1,7 +1,7 @@
 # eukhe: the entry's encoders write what the laws spell
 #
 # The entry's put_* (bend/ffi_effort.bend) and the laws' grammar
-# (laws/effort.bend core_effort_spell_*) give the same bytes on every
+# (laws/effort/ladder.bend core_effort_spell_*) give the same bytes on every
 # value, field by field: a level, an entry and a direction tag by tag, a
 # map entry by entry, a list its count then item by item.
 

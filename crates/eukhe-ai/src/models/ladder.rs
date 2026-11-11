@@ -214,9 +214,10 @@ fn offered(facts: &LadderFacts) -> Vec<usize> {
     )
 }
 
-/// The offered rung closest to `rung`: `rung` itself, else the next
-/// offered rung up the ladder, else the next one down; rung 0 (`off`)
-/// when the model offers none (`laws/effort.bend` S10 `effort_clamp_*`).
+/// The offered rung `rung` clamps to: `rung` itself, else the lowest
+/// offered rung up the ladder from it, else the highest one down; rung 0
+/// (`off`) when the model offers none (`laws/effort/depth.bend` S10
+/// `effort_clamp_up_first`, `effort_clamp_none`).
 fn clamp(facts: &LadderFacts, rung: usize) -> usize {
     ladder_call(
         1,
@@ -231,7 +232,8 @@ fn clamp(facts: &LadderFacts, rung: usize) -> usize {
 /// The rung one cycle step moves to (TS `cycleThinkingLevel`): from the
 /// clamp of `rung`, the next offered rung `Forward` or the previous one
 /// `Backward`, wrapping at the ends; `None` when fewer than two rungs are
-/// offered (`laws/effort.bend` S10 `effort_cycle_*`).
+/// offered (`laws/effort/depth.bend` S10 `effort_cycle_moves`,
+/// `effort_cycle_from_clamp`, `effort_cycle_next`, `effort_cycle_prev`).
 fn cycle(facts: &LadderFacts, rung: usize, direction: CycleDirection) -> Option<usize> {
     ladder_call(
         2,

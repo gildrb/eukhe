@@ -50,5 +50,23 @@ def pe.effort_offered_ext(r: Bool, +map: Ef.LvMap, +l: Ef.Lv, x: {Ef.ext(l) == T
       +same = Equal.cong(Ef.Lv, Bool, v => Ef.ext(v), Ef.Off{}, l, LA.pe.lv_true(Ef.Off{}, l, pe.or_false_t(Ef.Lv.eq(Ef.Off{}, l), in)))
       LA.pe.absurdF({Ef.entry(l, map) == Ef.Wire{} : Ef.Ent}, Equal.trans(Bool, False{}, Ef.ext(l), True{}, same, x))
 
-def Effort.effort_offered_ext(r, map, l, x, in):
-  pe.effort_offered_ext(r, map, l, x, in)
+# a level ranked 5 or more is xhigh or max
+def pe.top(l: Ef.Lv, top: {Nat.is_le(5n, Effort.effort_rank(l)) == True{} : Bool}) -> {Ef.ext(l) == True{} : Bool}:
+  match l:
+    case Ef.Off{}:
+      LA.pe.absurdF({Ef.ext(Ef.Off{}) == True{} : Bool}, top)
+    case Ef.Minimal{}:
+      LA.pe.absurdF({Ef.ext(Ef.Minimal{}) == True{} : Bool}, top)
+    case Ef.Low{}:
+      LA.pe.absurdF({Ef.ext(Ef.Low{}) == True{} : Bool}, top)
+    case Ef.Medium{}:
+      LA.pe.absurdF({Ef.ext(Ef.Medium{}) == True{} : Bool}, top)
+    case Ef.High{}:
+      LA.pe.absurdF({Ef.ext(Ef.High{}) == True{} : Bool}, top)
+    case Ef.Xhigh{}:
+      {==}
+    case Ef.Max{}:
+      {==}
+
+def Effort.effort_offered_ext(r, map, l, top, in):
+  pe.effort_offered_ext(r, map, l, pe.top(l, top), in)

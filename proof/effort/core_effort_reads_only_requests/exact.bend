@@ -1,7 +1,7 @@
 # eukhe: the entry's decoders read only spelled values
 #
 # Whatever a decoder of bend/ffi_effort.bend reads is the laws' spelling
-# (laws/effort.bend core_effort_spell_*) of what it read, then its rest,
+# (laws/effort/ladder.bend core_effort_spell_*) of what it read, then its rest,
 # and the counts fit: a tag by the wire's exactness law (wire_nat_exact;
 # an unknown tag is Bad), a Bool by wire_bool_exact, a list by its count
 # (wire_nat_exact, wire_nat_decoded_fits) and item by item, a record (a
