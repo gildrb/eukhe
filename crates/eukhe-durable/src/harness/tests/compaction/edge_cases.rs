@@ -22,7 +22,7 @@ use crate::errors::StorageError;
 use crate::harness::events::{watch_events, AgentEvent};
 use crate::harness::live::{CompactionStatus, LiveState, LIVE_DOC};
 use crate::harness::tests::chat_support::open_chat;
-use crate::harness::tests::chat_support::{all_entries, chat_setup, wait_for};
+use crate::harness::tests::chat_support::{all_entries, chat_setup, text_of, wait_for};
 use crate::harness::tests::support::{add_hooks, add_section, compaction_task, context};
 use crate::harness::tests::task_support::deferred;
 use crate::harness::types::{
@@ -244,11 +244,11 @@ async fn fails_an_overflow_run_with_its_text_when_its_compaction_is_aborted_dire
     }
 }
 
-/// A length stop is no overflow: it starts no compaction. Its cut text is
-/// not the answer either (the `LengthStop` Director): the run asks again,
-/// and the next reply answers.
+/// A length stop is no overflow: it starts no compaction. With text and
+/// room left in the window it is the run's answer (the `LengthStop`
+/// Director lets it stand): the run sends no further request.
 #[tokio::test]
-async fn treats_a_length_stop_as_a_cut_reply_not_an_overflow() {
+async fn treats_a_length_stop_with_room_in_the_window_as_the_answer_not_an_overflow() {
     let chat = open(OpenOptions::default()).await;
     history(&chat).await;
     chat.set_policy(CompactionPolicy {
@@ -259,13 +259,90 @@ async fn treats_a_length_stop_as_a_cut_reply_not_an_overflow() {
         error_message: Some(OVERFLOW.to_owned()),
         ..with_stop("cut short", StopReason::Length)
     });
+    chat.faux.agent(with_stop("unused", StopReason::Stop));
+    let requests = chat.faux.agent_requests().len();
+    let input = submit(&chat, "go").await;
+    assert_eq!(
+        (
+            input.wait(context()).await.unwrap().state.status(),
+            chat.faux.agent_requests().len() - requests,
+            chat.faux.summary_requests().len()
+        ),
+        (SubmissionStatus::Done, 1, 0)
+    );
+    chat.harness.close(context()).await.unwrap();
+}
+
+/// A length stop with text that ran into the context window (a
+/// 9000-token window; its prompt and 600 output tokens within 8192 of it,
+/// below the catalog max of 900) is not kept: the window is what ran out,
+/// so the run compacts and sends the request again, with no note (law
+/// `stop_cut_full_compacts`; omp drops such a turn, compacts and
+/// retries). The cut reply fails with its reason and is not sent again;
+/// the next reply answers.
+#[tokio::test]
+async fn compacts_when_a_length_stop_with_text_ran_into_the_window() {
+    let chat = open(OpenOptions {
+        context_window: Some(9_000),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(CompactionPolicy {
+        enabled: true,
+        ..MANUAL
+    });
+    let cut = text("plan", 600);
+    chat.faux.agent(with_stop(cut.as_str(), StopReason::Length));
+    chat.faux.summary(summary("SUMMARY"));
     chat.faux.agent(with_stop("done", StopReason::Stop));
     let input = submit(&chat, "go").await;
     assert_eq!(
         input.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Done
     );
-    assert!(chat.faux.summary_requests().is_empty());
+    let retry = chat.faux.last_agent_messages();
+    let stops: Vec<_> = all_entries(&chat.root, context())
+        .await
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry.model.iter().flatten())
+        .filter_map(Message::as_assistant)
+        .rev()
+        .take(2)
+        .map(|message| (message.stop_reason, message.error_message.clone()))
+        .collect();
+    assert_eq!(
+        (
+            chat.faux.summary_requests().len(),
+            user_text(
+                retry
+                    .iter()
+                    .rev()
+                    .find(|message| matches!(message, Message::User(_)))
+            ),
+            retry
+                .iter()
+                .any(|message| text_of(Some(message)).as_deref() == Some(cut.as_str())),
+            stops
+        ),
+        (
+            1,
+            "go".to_owned(),
+            false,
+            vec![
+                (StopReason::Stop, None),
+                (
+                    StopReason::Error,
+                    Some(
+                        "The model ran out of the context window before it finished its \
+                         answer; the harness compacts the context and asks again"
+                            .to_owned()
+                    )
+                )
+            ]
+        )
+    );
     chat.harness.close(context()).await.unwrap();
 }
 

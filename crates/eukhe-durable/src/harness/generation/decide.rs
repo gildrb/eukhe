@@ -26,7 +26,7 @@ use super::note::{NoteCause, Recovery, RetryNote};
 /// and rows of different causes can alternate.
 pub(crate) const MAX_NOTES: u32 = 8;
 
-/// Length notes in a row before a length stop with no answer fails the
+/// Length notes in a row before a length stop that is not kept fails the
 /// run (H4.8; omp `INCOMPLETE_RECOVERY_MAX_RETRIES`).
 pub(crate) const LENGTH_NOTES: u32 = 3;
 
@@ -67,9 +67,23 @@ pub(crate) const CAPS: Caps = Caps {
 /// Directors of [`super::stop`] pick the ones with no tool call).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stuck {
-    /// A length stop with text and no tool call (`LengthStop`): the model
-    /// hit the output limit in the middle of its text.
-    Length,
+    /// A length stop with no tool call that `LengthStop` continues: the
+    /// model hit the output limit while it still reasoned (no text), or in
+    /// the middle of its text with the window run out (a reply with text
+    /// and room in the window is no stuck reply: the walk keeps it as the
+    /// answer). Its ladder reads whether the window ran out (the model's
+    /// context window, 0 when unknown, and catalog max output; the reply's
+    /// prompt and output tokens), whether a compaction can run (`cuttable`:
+    /// compaction on, a cut, the generation has not compacted) and whether
+    /// a thinking level below the agent's exists (`lower`).
+    Thought {
+        window: u64,
+        catalog: u64,
+        prompt: u64,
+        output: u64,
+        cuttable: bool,
+        lower: bool,
+    },
     /// Tool-call markup in the text and no tool call, and the harness
     /// could not rebuild every leaked call (`MarkupStop`).
     Leak,
@@ -79,21 +93,6 @@ pub(crate) enum Stuck {
     Calls { rounds: NonZeroU32 },
     /// No text and no tool call (`EmptyStop`): a thinking-only reply.
     Empty,
-    /// A length stop with no text and no tool call (`LengthStop`): the
-    /// model hit the output limit while it still reasoned. Its ladder reads
-    /// whether the window ran out (the model's context window, 0 when
-    /// unknown, and catalog max output; the reply's prompt and output
-    /// tokens), whether a compaction can run (`cuttable`: compaction on, a
-    /// cut, the generation has not compacted) and whether a thinking level
-    /// below the agent's exists (`lower`).
-    Thought {
-        window: u64,
-        catalog: u64,
-        prompt: u64,
-        output: u64,
-        cuttable: bool,
-        lower: bool,
-    },
 }
 
 /// What a recovery does with a stuck reply.
@@ -116,10 +115,9 @@ pub(crate) enum Act {
 
 /// What a recovery does with a stuck reply (H4.8), given the recovery and
 /// the row of notes in a row that the request's note counts (`note`,
-/// [`NoteCause::recovery`]): a length stop with text is redone under its
-/// cap, then quits; a length stop with no text climbs its ladder (compact
-/// when the window ran out and a compaction can run, else a note under the
-/// cap, else once a note one thinking level lower, else quit); leaked calls
+/// [`NoteCause::recovery`]): a length stop climbs its ladder (compact when
+/// the window ran out and a compaction can run, else a note under the cap,
+/// else once a note one thinking level lower, else quit); leaked calls
 /// are redone under their cap, then quit; calls run below the repeat cap,
 /// else are redone under the redirect cap, then quit; an empty reply is
 /// redone under its cap, then quits. A recovery does not read the retry
@@ -135,10 +133,6 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                 .nat(u64::from(caps.redirect))
                 .nat(u64::from(caps.repeat));
             match stuck {
-                Stuck::Length => w.tag(0),
-                Stuck::Leak => w.tag(1),
-                Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
-                Stuck::Empty => w.tag(3),
                 Stuck::Thought {
                     window,
                     catalog,
@@ -147,13 +141,16 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                     cuttable,
                     lower,
                 } => w
-                    .tag(4)
+                    .tag(0)
                     .nat(entry::saturated(window))
                     .nat(entry::saturated(catalog))
                     .nat(entry::saturated(prompt))
                     .nat(entry::saturated(output))
                     .bool(cuttable)
                     .bool(lower),
+                Stuck::Leak => w.tag(1),
+                Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
+                Stuck::Empty => w.tag(3),
             };
             match note {
                 None => w.tag(0).nat(0),

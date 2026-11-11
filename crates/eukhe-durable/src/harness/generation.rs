@@ -60,7 +60,7 @@ use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{
     answer, finish_tool_round, queue_modes, read_calls, start_next_call, start_tool_round,
 };
-use self::stop::Facts;
+use self::stop::{Cut, Facts};
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{
@@ -1433,72 +1433,73 @@ async fn classify(
             calls: !calls.is_empty(),
         }
         .reply();
+        // A reply with no tool call that hit the output limit: the window
+        // the stop walk and the length ladder read (`Cut`): whether it ran
+        // out, whether a compaction can run, and the level one below the
+        // agent's in the model's ladder.
+        let mut lower_level = None;
+        let cut = if message.stop_reason == StopReason::Length && calls.is_empty() {
+            let model = runtime
+                .models()
+                .get_model(&request.model.provider, &request.model.model_id);
+            let (window, catalog) = model
+                .as_ref()
+                .map_or((0, 0), |model| (model.context_window, model.max_tokens));
+            let cuttable = compacted.is_none()
+                && settings.compaction.enabled
+                && select_cut(
+                    &runtime
+                        .context(
+                            conversation_id,
+                            cx,
+                            ContextOptions {
+                                at: Some(request.cutoff),
+                            },
+                        )
+                        .await?,
+                    &settings.compaction,
+                    window,
+                )
+                .is_some();
+            let level = runtime.agent(cx).await?.thinking_level;
+            lower_level = model.as_ref().and_then(|model| {
+                let levels = get_supported_thinking_levels(model);
+                let at = levels.iter().position(|supported| *supported == level)?;
+                at.checked_sub(1)
+                    .and_then(|below| levels.get(below).copied())
+            });
+            let usage = &message.usage;
+            Some(Cut {
+                window,
+                catalog,
+                prompt: usage
+                    .input
+                    .saturating_add(usage.cache_read)
+                    .saturating_add(usage.cache_write),
+                output: usage.output,
+                cuttable,
+                lower: lower_level.is_some(),
+            })
+        } else {
+            None
+        };
         // A stuck reply gets its recovery (H4.8): the note of the request
         // counts the notes of each recovery in a row. A reply with no tool
         // call is a candidate stop: the stop Directors pick the recovery
-        // that continues the run, or let the stop stand (`stop::walk`).
+        // that continues the run, or let the stop stand (`stop::walk`). A
+        // cut reply with text and room left in the window stands: the
+        // truncated reply is kept as the answer (laws/stop/cut.bend).
         let stuck = match reply {
             Reply::Calls => Some(Stuck::Calls {
                 rounds: rounds_in_a_row(context, &calls),
             }),
             Reply::Text | Reply::Error { .. } => stop::walk(Facts {
-                cut: message.stop_reason == StopReason::Length,
+                cut,
                 text,
                 broken: broken.is_some(),
                 pending: stop::pending(runtime, cx).await?,
             }),
             Reply::Deferred(_) | Reply::Overflow { .. } => None,
-        };
-        // A length stop with no text: the model still reasoned. Its ladder
-        // (`Stuck::Thought`) reads whether the window ran out, whether a
-        // compaction can run, and the level one below the agent's in the
-        // model's ladder.
-        let mut lower_level = None;
-        let stuck = match stuck {
-            Some(Stuck::Length) if !text => {
-                let model = runtime
-                    .models()
-                    .get_model(&request.model.provider, &request.model.model_id);
-                let (window, catalog) = model
-                    .as_ref()
-                    .map_or((0, 0), |model| (model.context_window, model.max_tokens));
-                let cuttable = compacted.is_none()
-                    && settings.compaction.enabled
-                    && select_cut(
-                        &runtime
-                            .context(
-                                conversation_id,
-                                cx,
-                                ContextOptions {
-                                    at: Some(request.cutoff),
-                                },
-                            )
-                            .await?,
-                        &settings.compaction,
-                        window,
-                    )
-                    .is_some();
-                let level = runtime.agent(cx).await?.thinking_level;
-                lower_level = model.as_ref().and_then(|model| {
-                    let levels = get_supported_thinking_levels(model);
-                    let at = levels.iter().position(|supported| *supported == level)?;
-                    at.checked_sub(1)
-                        .and_then(|below| levels.get(below).copied())
-                });
-                let usage = &message.usage;
-                Some(Stuck::Thought {
-                    window,
-                    catalog,
-                    prompt: usage
-                        .input
-                        .saturating_add(usage.cache_read)
-                        .saturating_add(usage.cache_write),
-                    output: usage.output,
-                    cuttable,
-                    lower: lower_level.is_some(),
-                })
-            }
-            other => other,
         };
         let thinking: usize = message
             .content
@@ -1521,11 +1522,13 @@ async fn classify(
         // and a retry leaves it out of the next request's context and ends
         // that request with a note (H4.7).
         let (reply, cause, error) = match stuck {
-            // The walk never lets a reply with no text stand (law
-            // `stop_empty_continues`). A stop that stands with text is the
-            // answer: no note, no cause, no further request (laws
-            // `stop_stand_answers_once`, `stop_stand_sends_no_request`;
-            // `stop_reply` in laws/stop.bend models this match).
+            // The walk never lets a reply with no text stand (laws
+            // `stop_empty_continues`, `stop_cut_empty_never_stands`). A
+            // stop that stands with text is the answer, a kept cut reply
+            // too: no note, no cause, no error, no further request (laws
+            // `stop_stand_answers_once`, `stop_stand_sends_no_request`,
+            // `stop_cut_kept_answers_once`; `stop_reply` in laws/stop.bend
+            // models this match).
             None => match reply {
                 Reply::Error { .. } => {
                     (reply, Some(NoteCause::NoAnswer { row: 0 }), Some(no_answer))
@@ -1587,31 +1590,31 @@ async fn classify(
                         );
                         (quit, None, Some(error))
                     }
-                    (Stuck::Length, Act::Redo { row }) => {
-                        let tokens = message.usage.output;
-                        let error = "The model hit the output limit before it finished its \
-                                     answer; the harness did not take the cut text as the answer"
-                            .to_owned();
-                        (redo, Some(NoteCause::Cut { tokens, row }), Some(error))
-                    }
-                    (Stuck::Length, Act::Quit) => {
-                        let error = format!(
-                            "The model hit the output limit before it finished its answer, after \
-                             {LENGTH_NOTES} length notes in a row: use a different model or \
-                             raise the model's max output tokens"
-                        );
-                        (quit, None, Some(error))
-                    }
-                    // The ladder of a length stop with no text: each rung is
-                    // a quiet note (no error on the reply, which the next
-                    // request leaves out); only the last rung's end fails.
+                    // The ladder of a length stop the walk continued. A
+                    // reply with text is one whose window ran out (law
+                    // `stop_cut_full_compacts`): it fails, so the request
+                    // after the compaction leaves its cut text out. Every
+                    // rung of a reply with no text is quiet (no error on
+                    // the reply, which the next request leaves out); only
+                    // the last rung's end fails.
                     (Stuck::Thought { .. }, Act::Compact) => {
-                        shrink = Some(
-                            "The model ran out of the context window while it was still \
-                             reasoning, and compaction could not make room"
-                                .to_owned(),
-                        );
-                        (Reply::Overflow { cut: true }, None, None)
+                        let (ended, error) = if text {
+                            (
+                                "before it finished its answer",
+                                Some(
+                                    "The model ran out of the context window before it finished \
+                                     its answer; the harness compacts the context and asks again"
+                                        .to_owned(),
+                                ),
+                            )
+                        } else {
+                            ("while it was still reasoning", None)
+                        };
+                        shrink = Some(format!(
+                            "The model ran out of the context window {ended}, and compaction \
+                             could not make room"
+                        ));
+                        (Reply::Overflow { cut: true }, None, error)
                     }
                     (Stuck::Thought { lower, .. }, Act::Redo { row }) => {
                         let cause = NoteCause::Length {
@@ -1703,22 +1706,19 @@ async fn classify(
                         );
                         (quit, None, Some(error))
                     }
-                    (
-                        Stuck::Length | Stuck::Leak | Stuck::Empty | Stuck::Thought { .. },
-                        Act::Run,
-                    )
+                    (Stuck::Leak | Stuck::Empty | Stuck::Thought { .. }, Act::Run)
                     | (
-                        Stuck::Length | Stuck::Leak | Stuck::Calls { .. } | Stuck::Empty,
+                        Stuck::Leak | Stuck::Calls { .. } | Stuck::Empty,
                         Act::Compact | Act::Lower { .. },
                     ) => (reply, None, None),
                 }
             }
         };
-        // A run that fails at the length cap ended on the output limit: its
-        // last message keeps the stop reason length (ACP reports
-        // `max_tokens`); every other failed reply is an error.
-        let at_limit =
-            matches!(stuck, Some(Stuck::Length | Stuck::Thought { .. })) && cause.is_none();
+        // A run that fails at the end of the length ladder ended on the
+        // output limit: its last message keeps the stop reason length (ACP
+        // reports `max_tokens`); every other failed reply is an error.
+        let at_limit = matches!(stuck, Some(Stuck::Thought { .. }))
+            && matches!(reply, Reply::Error { noted: false, .. });
         if let Some(error) = error {
             message.error_message = Some(error);
             if !at_limit {

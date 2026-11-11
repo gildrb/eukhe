@@ -210,23 +210,13 @@ law all_comm_rejects:
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
 # LAWS.bend H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
-# stop while the model still reasons, tool calls leaked as text, the same
-# tool calls with the same results round after round. Every reply is
-# free, in any order. A Redo is a noted error, so its retry ends its
-# request with a new note (H4.7); the laws of H4 hold for every reply, so
-# they hold for the reply a recovery makes. A recovery does not depend on
-# the retry policy: a note is a new request, not a transient error.
-
-# LAW rec_length_retries_with_a_note: a length stop with no answer under the cap (fewer than `long`
-# length notes in a row) is retried with the next length note
-law rec_length_retries_with_a_note:
-  for +rc: RnRecovery.RCfg
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for under: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
-  {RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
+# stop the stop walk continues (its ladder: laws/stop.bend R7), tool calls
+# leaked as text, the same tool calls with the same results round after
+# round. Every reply is free, in any order. A Redo is a noted error, so
+# its retry ends its request with a new note (H4.7); the laws of H4 hold
+# for every reply, so they hold for the reply a recovery makes. A
+# recovery does not depend on the retry policy: a note is a new request,
+# not a transient error.
 
 # LAW rec_leak_retries_with_a_note: leaked calls that were not rebuilt, under the cap, are retried with
 # the next leak note
@@ -244,8 +234,8 @@ law rec_leak_retries_with_a_note:
 # LAW rec_length_row_exact: the length notes in a row that the next request's note counts
 # are its row when it is a length note, else 0 (decide.rs `NoteCause::row`)
 # EXCLUDES: a count of length notes that stays 0 or resets, so the cap of
-#   rec_length_retries_with_a_note is never reached; a row of another
-#   recovery counted as length notes
+#   stop_think_notes is never reached; a row of another recovery counted
+#   as length notes
 law rec_length_row_exact:
   for +row: Nat
   {[RnRecovery.Rk.longs(RnRecovery.Free{}, row), RnRecovery.Rk.longs(RnRecovery.Longs{}, row), RnRecovery.Rk.longs(RnRecovery.Leaks{}, row), RnRecovery.Rk.longs(RnRecovery.Loops{}, row), RnRecovery.Rk.longs(RnRecovery.Empties{}, row)] == [0n, row, 0n, 0n, 0n] : List<&2, Nat>}

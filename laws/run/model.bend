@@ -574,22 +574,13 @@ law run_reply_saturates_the_attempt:
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
 # LAWS.bend H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
-# stop while the model still reasons, tool calls leaked as text, the same
-# tool calls with the same results round after round. Every reply is
-# free, in any order. A Redo is a noted error, so its retry ends its
-# request with a new note (H4.7); the laws of H4 hold for every reply, so
-# they hold for the reply a recovery makes. A recovery does not depend on
-# the retry policy: a note is a new request, not a transient error.
-
-# LAW rec_length_gives_up: after `long` length notes in a row, a length stop fails the run
-law rec_length_gives_up:
-  for +rc: RnRecovery.RCfg
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for over: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == False{} : Bool}
-  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+# stop the stop walk continues (its ladder: laws/stop.bend R7), tool calls
+# leaked as text, the same tool calls with the same results round after
+# round. Every reply is free, in any order. A Redo is a noted error, so
+# its retry ends its request with a new note (H4.7); the laws of H4 hold
+# for every reply, so they hold for the reply a recovery makes. A
+# recovery does not depend on the retry policy: a note is a new request,
+# not a transient error.
 
 # LAW rec_leak_rebuilt_is_calls: leaked calls that every parse and name an offered tool are rebuilt:
 # the run reads them as the same calls made as tool calls
@@ -694,7 +685,8 @@ law rec_never_runs_a_repeat:
   {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Rec.run(rc, os)), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}
 
 # LAW rec_stuck_gets_help: the harness never just watches a stuck model: a stuck reply (a
-# length stop with no answer, leaked tool calls, tool calls) always gets
+# length stop the stop walk continues, leaked tool calls, tool calls, a
+# reply with no text) always gets
 # an act that does something: its calls run (no repeat), a retry with a
 # note, an answer, or the end of the run. It is never passed on as it is
 law rec_stuck_gets_help:
@@ -728,21 +720,9 @@ law rec_quit_fails:
 # recovery that the request's note counts (`NoteCause::row`), its cap,
 # and the rounds in a row of calls against REPEAT_CALLS.
 
-# the length notes, leak notes and redirect notes in a row that a note of
-# recovery k with row `row` makes
-def rust.long_row(k: RnRecovery.Rk, row: Nat) -> Nat:
-  match k:
-    case RnRecovery.Free{}:
-      0n
-    case RnRecovery.Longs{}:
-      row
-    case RnRecovery.Leaks{}:
-      0n
-    case RnRecovery.Loops{}:
-      0n
-    case RnRecovery.Empties{}:
-      0n
-
+# the leak notes and redirect notes in a row that a note of recovery k
+# with row `row` makes (the length notes and the empty notes:
+# LawsStop.rust_long_row, LawsStop.rust_empty_row)
 def rust.leak_row(k: RnRecovery.Rk, row: Nat) -> Nat:
   match k:
     case RnRecovery.Free{}:
@@ -790,16 +770,14 @@ def rust.recover(rc: RnRecovery.RCfg, s: RnDecision.Stuck, +k: RnRecovery.Rk, +r
   match rc:
     case RnRecovery.RCfg{long, leak, redirect, repeat}:
       match s:
-        case RnDecision.Truncated{}:
-          rust.redo(Nat.is_lt(rust.long_row(k, row), long), rust.long_row(k, row), RnDecision.Quits{})
+        case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+          LawsStop.rust_think(long, k, row, window, catalog, prompt, out, cuttable, lower)
         case RnDecision.Leaked{}:
           rust.redo(Nat.is_lt(rust.leak_row(k, row), leak), rust.leak_row(k, row), RnDecision.Quits{})
         case RnDecision.Repeats{before}:
           rust.calls(Nat.is_lt(1n+before, repeat), rust.redo(Nat.is_lt(rust.loop_row(k, row), redirect), rust.loop_row(k, row), RnDecision.Quits{}))
         case RnDecision.Emptied{}:
           LawsStop.rust_empty(k, row)
-        case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
-          LawsStop.rust_think(long, k, row, window, catalog, prompt, out, cuttable, lower)
 
 # LAW rec_recover_is_the_rust_rule: what a recovery does with any stuck reply, after any note, under
 # any caps, is what `recover` did: the code that runs is the recoveries

@@ -1,8 +1,9 @@
 # eukhe: lemmas shared by the proofs of area stop: the walk is the
-# spec's case by case (stb.walk), a spelled request reads back (stb.req),
-# the answer is the spelled spec answer (stb.reply), and `recover` on an
-# empty reply and on a length stop with no text is the spec's
-# (stb.empty_recover, stb.think_recover).
+# spec's case by case (stb.walk), the model's window test is the spec's
+# (stb.bound, stb.full), a spelled request reads back (stb.req), the
+# answer is the spelled spec answer (stb.reply), and `recover` on an
+# empty reply and on a length stop is the spec's (stb.empty_recover,
+# stb.think_recover).
 
 import Base
 import ../../bend/stop.bend as S
@@ -59,11 +60,23 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
   match d:
     case S.LengthStop{}:
       match f:
-        case S.Facts{c, t, b, p}:
-          stb.on(c)
+        case S.Facts{c, t, b, p, fu}:
+          match c:
+            case True{}:
+              match t:
+                case True{}:
+                  match fu:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
+                case False{}:
+                  {==}
+            case False{}:
+              {==}
     case S.EmptyStop{}:
       match f:
-        case S.Facts{c, t, b, p}:
+        case S.Facts{c, t, b, p, fu}:
           match t:
             case True{}:
               {==}
@@ -71,11 +84,11 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
               {==}
     case S.MarkupStop{}:
       match f:
-        case S.Facts{c, t, b, p}:
+        case S.Facts{c, t, b, p, fu}:
           stb.on(b)
     case S.PendingWork{}:
       match f:
-        case S.Facts{c, t, b, p}:
+        case S.Facts{c, t, b, p, fu}:
           match p:
             case True{}:
               {==}
@@ -84,10 +97,18 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
 
 def stb.walk(f: S.Facts) -> {S.walk(f) == StSpec.pick(f) : S.Pick}:
   match f:
-    case S.Facts{c, t, b, p}:
+    case S.Facts{c, t, b, p, fu}:
       match c:
         case True{}:
-          {==}
+          match t:
+            case False{}:
+              {==}
+            case True{}:
+              match fu:
+                case True{}:
+                  {==}
+                case False{}:
+                  {==}
         case False{}:
           match t:
             case False{}:
@@ -103,36 +124,55 @@ def stb.walk(f: S.Facts) -> {S.walk(f) == StSpec.pick(f) : S.Pick}:
                     case False{}:
                       {==}
 
+# The window
+# ----------
+
+# the spec's window test is the model's
+def stb.bound(+w: Nat, +c: Nat, +p: Nat, +o: Nat) -> {StSpec.ran_out(w, c, p, o) == RnRecovery.bound(w, c, p, o) : Bool}:
+  match w:
+    case 0n:
+      {==}
+    case 1n+v:
+      {==}
+
+# the spec's full is the model's: the same window test, the same
+# compaction
+def stb.full(+w: Nat, +c: Nat, +p: Nat, +o: Nat, cu: Bool) -> {StSpec.full(w, c, p, o, cu) == RnRecovery.full(w, c, p, o, cu) : Bool}:
+  %stb.bound(w, c, p, o) : {Bool.and(cu, StSpec.ran_out(w, c, p, o)) == Bool.and(cu, _) : Bool}
+  {==}
+
 # The entry
 # ---------
-
-# a spelled note reads back, the rest untouched
-def stb.note(+a: Nat, n: S.Note, +rest: String, +h: {Stop.sp_fit_note(n) == True{} : Bool}) -> {FS.get_cut(a, Wr.get_nat(Stop.sp_w_note(n, rest))) == Wr.Got{FS.AskNote{a, n}, rest} : Wr.Dec<FS.Ask>}:
-  match n:
-    case S.Cut{+t, +r, +k}:
-      +h0 = stb.and_l(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(k)), h)
-      +h1 = stb.and_r(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(k)), h)
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(t, Wr.put_nat(r, Wr.put_nat(k, rest)))), Wr.Got{t, Wr.put_nat(r, Wr.put_nat(k, rest))}, Wire.wire_nat_round_trip(t, Wr.put_nat(r, Wr.put_nat(k, rest)), h0)) : {FS.get_cut(a, _) == Wr.Got{FS.AskNote{a, S.Cut{t, r, k}}, rest} : Wr.Dec<FS.Ask>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(r, Wr.put_nat(k, rest))), Wr.Got{r, Wr.put_nat(k, rest)}, Wire.wire_nat_round_trip(r, Wr.put_nat(k, rest), stb.and_l(LawsBase.wire_fits(r), LawsBase.wire_fits(k), h1))) : {FS.get_cut.row(a, t, _) == Wr.Got{FS.AskNote{a, S.Cut{t, r, k}}, rest} : Wr.Dec<FS.Ask>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(k, rest)), Wr.Got{k, rest}, Wire.wire_nat_round_trip(k, rest, stb.and_r(LawsBase.wire_fits(r), LawsBase.wire_fits(k), h1))) : {FS.get_cut.cap(a, t, r, _) == Wr.Got{FS.AskNote{a, S.Cut{t, r, k}}, rest} : Wr.Dec<FS.Ask>}
-      {==}
 
 # a spelled request that fits reads back, the rest untouched
 def stb.req(q: FS.Ask, +rest: String, +h: {Stop.sp_fit(q) == True{} : Bool}) -> {FS.get_ask(Stop.sp_w_ask(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FS.Ask>}:
   match q:
-    case FS.AskWalk{f}:
-      match f:
-        case S.Facts{+c, +t, +b, +p}:
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest))))), Wr.Got{c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest)))}, Wire.wire_bool_round_trip(c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest))))) : {FS.get_walk(_) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest)))), Wr.Got{t, Wr.put_bool(b, Wr.put_bool(p, rest))}, Wire.wire_bool_round_trip(t, Wr.put_bool(b, Wr.put_bool(p, rest)))) : {FS.get_walk.text(c, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, Wr.put_bool(p, rest))), Wr.Got{b, Wr.put_bool(p, rest)}, Wire.wire_bool_round_trip(b, Wr.put_bool(p, rest))) : {FS.get_walk.broken(c, t, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(p, rest)), Wr.Got{p, rest}, Wire.wire_bool_round_trip(p, rest)) : {FS.get_walk.pending(c, t, b, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
-          {==}
-    case FS.AskNote{+a, +n}:
-      +h0 = stb.and_l(LawsBase.wire_fits(a), Stop.sp_fit_note(n), h)
-      +h1 = stb.and_r(LawsBase.wire_fits(a), Stop.sp_fit_note(n), h)
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(a, Stop.sp_w_note(n, rest))), Wr.Got{a, Stop.sp_w_note(n, rest)}, Wire.wire_nat_round_trip(a, Stop.sp_w_note(n, rest), h0)) : {FS.get_note(_) == Wr.Got{FS.AskNote{a, n}, rest} : Wr.Dec<FS.Ask>}
-      stb.note(a, n, rest, h1)
+    case FS.AskWalk{+c, +t, +b, +p, +w, +ca, +pr, +o, +cu}:
+      +fw = LawsBase.wire_fits(w)
+      +fc = LawsBase.wire_fits(ca)
+      +fp = LawsBase.wire_fits(pr)
+      +fo = LawsBase.wire_fits(o)
+      +ha = stb.and_l(Bool.and(fw, fc), Bool.and(fp, fo), h)
+      +hb = stb.and_r(Bool.and(fw, fc), Bool.and(fp, fo), h)
+      +r8 = Wr.put_bool(cu, rest)
+      +r7 = Wr.put_nat(o, r8)
+      +r6 = Wr.put_nat(pr, r7)
+      +r5 = Wr.put_nat(ca, r6)
+      +r4 = Wr.put_nat(w, r5)
+      +r3 = Wr.put_bool(p, r4)
+      +r2 = Wr.put_bool(b, r3)
+      +r1 = Wr.put_bool(t, r2)
+      +x = {FS.AskWalk{c, t, b, p, w, ca, pr, o, cu} : FS.Ask}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(c, r1)), Wr.Got{c, r1}, Wire.wire_bool_round_trip(c, r1)) : {FS.get_walk(_) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r1), Wr.Got{t, r2}, Wire.wire_bool_round_trip(t, r2)) : {FS.get_walk.text(c, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r2), Wr.Got{b, r3}, Wire.wire_bool_round_trip(b, r3)) : {FS.get_walk.broken(c, t, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r3), Wr.Got{p, r4}, Wire.wire_bool_round_trip(p, r4)) : {FS.get_walk.pending(c, t, b, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r4), Wr.Got{w, r5}, Wire.wire_nat_round_trip(w, r5, stb.and_l(fw, fc, ha))) : {FS.get_walk.window(c, t, b, p, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r5), Wr.Got{ca, r6}, Wire.wire_nat_round_trip(ca, r6, stb.and_r(fw, fc, ha))) : {FS.get_walk.catalog(c, t, b, p, w, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r6), Wr.Got{pr, r7}, Wire.wire_nat_round_trip(pr, r7, stb.and_l(fp, fo, hb))) : {FS.get_walk.prompt(c, t, b, p, w, ca, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r7), Wr.Got{o, r8}, Wire.wire_nat_round_trip(o, r8, stb.and_r(fp, fo, hb))) : {FS.get_walk.out(c, t, b, p, w, ca, pr, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r8), Wr.Got{cu, rest}, Wire.wire_bool_round_trip(cu, rest)) : {FS.get_walk.cuttable(c, t, b, p, w, ca, pr, o, _) == Wr.Got{x, rest} : Wr.Dec<FS.Ask>}
+      {==}
     case FS.AskRounds{+m, +d}:
       +h0 = stb.and_l(LawsBase.wire_fits(m), LawsBase.wire_fits(d), h)
       +h1 = stb.and_r(LawsBase.wire_fits(m), LawsBase.wire_fits(d), h)
@@ -163,18 +203,8 @@ def stb.w_round(m: Maybe<&2, String>) -> {FS.put_text(m, "") == Stop.sp_w_round(
     case Some{t}:
       {==}
 
-# The texts
-# ---------
-
-# every note is the spec's text, once the reported limit (0, more) is split
-def stb.note_text(a: Nat, n: S.Note) -> {S.note(a, n) == StSpec.note(a, n) : String}:
-  match n:
-    case S.Cut{t, r, k}:
-      match t:
-        case 0n:
-          {==}
-        case 1n+u:
-          {==}
+# The round note
+# --------------
 
 def stb.round_text(left: Nat, +max: Nat) -> {S.rounds.text(left, max) == StSpec.round_text(left, max) : String}:
   match left:
@@ -197,14 +227,15 @@ def stb.rounds(+m: Nat, +d: Nat) -> {S.rounds(m, d) == StSpec.rounds(m, d) : May
   +l = Nat.sub(Nat.sub(m, 1n), d)
   stb.round_at(Nat.is_le(l, 10n), l, m)
 
-# the entry's answer to a request is the spelled spec answer
+# the entry's answer to a request is the spelled spec answer: the stop
+# the entry reads from the window is the spec's (stb.full)
 def stb.reply(q: FS.Ask) -> {FS.answer(q) == Stop.sp_w_reply(q) : String}:
   match q:
-    case FS.AskWalk{+f}:
-      %Equal.sym(S.Pick, S.walk(f), StSpec.pick(f), stb.walk(f)) : {FS.put_pick(_, "") == Stop.sp_w_reply(FS.AskWalk{f}) : String}
+    case FS.AskWalk{+c, +t, +b, +p, +w, +ca, +pr, +o, +cu}:
+      +f = {S.Facts{c, t, b, p, StSpec.full(w, ca, pr, o, cu)} : S.Facts}
+      %stb.full(w, ca, pr, o, cu) : {FS.put_pick(S.walk(S.Facts{c, t, b, p, _}), "") == Stop.sp_w_pick(StSpec.pick(f)) : String}
+      %Equal.sym(S.Pick, S.walk(f), StSpec.pick(f), stb.walk(f)) : {FS.put_pick(_, "") == Stop.sp_w_pick(StSpec.pick(f)) : String}
       stb.w_pick(StSpec.pick(f))
-    case FS.AskNote{+a, +n}:
-      Equal.cong(String, String, z => Wr.put_str(z, ""), S.note(a, n), StSpec.note(a, n), stb.note_text(a, n))
     case FS.AskRounds{+m, +d}:
       %Equal.sym(Maybe<&2, String>, S.rounds(m, d), StSpec.rounds(m, d), stb.rounds(m, d)) : {FS.put_text(_, "") == Stop.sp_w_reply(FS.AskRounds{m, d}) : String}
       stb.w_round(StSpec.rounds(m, d))
@@ -329,14 +360,6 @@ def stb.empty_recover(+rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat) -> {Rn
   %stb.below(x, S.empty_cap()) : {RnDecision.Help.of(RnRecovery.rec.empty(_, x, 0n, 0n, r)) == Stop.rust_empty.at(Nat.is_lt(x, S.empty_cap()), x) : RnDecision.Help}
   stb.empty(Nat.is_lt(x, S.empty_cap()), x, 0n, 0n, r)
 
-# the spec's window test is the model's
-def stb.bound(+w: Nat, +c: Nat, +p: Nat, +o: Nat) -> {StSpec.ran_out(w, c, p, o) == RnRecovery.bound(w, c, p, o) : Bool}:
-  match w:
-    case 0n:
-      {==}
-    case 1n+v:
-      {==}
-
 def stb.at_cap(le: Bool, +x: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think.note(False{}, le, x, 0n, 0n, r)) == StSpec.at_cap(le, x) : RnDecision.Help}:
   match le:
     case True{}:
@@ -358,7 +381,7 @@ def stb.think(s: Bool, +lower: Bool, +x: Nat, +long: Nat, +r: RnRecovery.Rec) ->
     case False{}:
       stb.think_note(Nat.is_lt(x, long), lower, x, long, r)
 
-# `recover` on a length stop with no text is the spec's ladder
+# `recover` on a length stop is the spec's ladder
 def stb.think_recover(+long: Nat, +leak: Nat, +redirect: Nat, +repeat: Nat, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +c: Nat, +p: Nat, +o: Nat, +cu: Bool, +lo: Bool) -> {RnDecision.decide.recover(RnRecovery.RCfg{long, leak, redirect, repeat}, RnDecision.Thought{w, c, p, o, cu, lo}, k, row) == Stop.rust_think(long, k, row, w, c, p, o, cu, lo) : RnDecision.Help}:
   +x = RnRecovery.Rk.longs(k, row)
   +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}

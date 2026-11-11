@@ -5,39 +5,56 @@
 //! outside. The first that does not pass decides: a Director that
 //! continues the run is the recovery [`super::decide::recover`] caps
 //! ([`Stuck`]); `PendingWork` yields, so a stop while the session owns
-//! running work is a pause that their ends wake. With every Director
-//! passing, the reply is the answer, whatever its text says. Rust gathers
-//! the facts; the compiled core picks, writes the reminders, and the round
+//! running work is a pause that their ends wake, and `LengthStop` yields
+//! at a reply cut at the output limit with text and room left in the
+//! window, so the truncated reply is kept as the answer. With every
+//! Director passing, the reply is the answer, whatever its text says.
+//! Rust gathers the facts; the compiled core picks, and writes the round
 //! cap's note.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::{call, expect_core, Entry};
 use eukhe_chord::context::Context;
 
 use super::decide::Stuck;
-use super::entry::mismatch;
+use super::entry::{mismatch, saturated};
 use super::Runtime;
 use crate::harness::types::GenerationHooks;
 use crate::session::SessionResult;
 
-/// What a candidate stop holds (`Facts` of `bend/stop.bend`).
+/// What a candidate stop holds, as the stop entry reads it (`AskWalk` of
+/// `bend/ffi_stop.bend`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "the four independent facts of `Facts` in bend/stop.bend, as the entry reads them"
-)]
 pub(crate) struct Facts {
-    /// The reply hit the output limit.
-    pub(crate) cut: bool,
+    /// The reply hit the output limit: what the walk and the ladder of a
+    /// length stop read about its window.
+    pub(crate) cut: Option<Cut>,
     /// The reply has a text block that is not blank.
     pub(crate) text: bool,
     /// Tool-call markup in the text that the harness could not read.
     pub(crate) broken: bool,
     /// The session owns running work whose end wakes it.
     pub(crate) pending: bool,
+}
+
+/// The window at a reply that hit the output limit: the model's context
+/// window (0 when unknown) and catalog max output, the reply's prompt and
+/// output tokens, whether a compaction can run (`cuttable`: compaction on,
+/// a cut, the generation has not compacted) and whether a thinking level
+/// below the agent's exists (`lower`). The walk reads from it whether the
+/// window is what ran out and a compaction makes room (`full` of
+/// `bend/stop.bend`); the ladder reads the same facts ([`Stuck::Thought`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Cut {
+    pub(crate) window: u64,
+    pub(crate) catalog: u64,
+    pub(crate) prompt: u64,
+    pub(crate) output: u64,
+    pub(crate) cuttable: bool,
+    pub(crate) lower: bool,
 }
 
 /// Whether the session owns running work whose end wakes it (the
@@ -65,16 +82,6 @@ pub(super) async fn pending(runtime: &Runtime, cx: &Context) -> SessionResult<bo
     Ok(pending.load(Ordering::Relaxed))
 }
 
-/// The reminder the stop Directors write (`Note` of `bend/stop.bend`): a
-/// length stop with text, its limit (`tokens`, 0: not reported) and the
-/// length note `row` of `cap`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Note {
-    pub(crate) tokens: u64,
-    pub(crate) row: u32,
-    pub(crate) cap: u32,
-}
-
 /// The answer of the stop entry to the request `write` writes, as `read`
 /// reads it (the whole answer). eukhe encodes every request itself, within
 /// the wire's bounds, so a failure can only be an inconsistent build.
@@ -98,38 +105,51 @@ fn ask<T>(
 
 /// The Director that continues the run at the stop `facts`, as the
 /// recovery that caps it; `None`: the stop stands (laws
-/// `stop_walk_refines`, `stop_pending_never_continues`).
+/// `stop_walk_refines`, `stop_pending_never_continues`, and for a reply
+/// that hit the output limit `stop_cut_empty_never_stands`,
+/// `stop_cut_text_stands_unless_full`). A reply that was not cut has no
+/// window: the entry reads 0s.
 pub(crate) fn walk(facts: Facts) -> Option<Stuck> {
+    let window = facts.cut.unwrap_or(Cut {
+        window: 0,
+        catalog: 0,
+        prompt: 0,
+        output: 0,
+        cuttable: false,
+        lower: false,
+    });
     ask(
         |w| {
             w.tag(0)
-                .bool(facts.cut)
+                .bool(facts.cut.is_some())
                 .bool(facts.text)
                 .bool(facts.broken)
-                .bool(facts.pending);
+                .bool(facts.pending)
+                .nat(saturated(window.window))
+                .nat(saturated(window.catalog))
+                .nat(saturated(window.prompt))
+                .nat(saturated(window.output))
+                .bool(window.cuttable);
         },
         |r| match r.tag_of(5, "a stop pick")? {
             0 => Ok(None),
-            1 => Ok(Some(Stuck::Length)),
+            1 => facts
+                .cut
+                .map(|cut| {
+                    Some(Stuck::Thought {
+                        window: cut.window,
+                        catalog: cut.catalog,
+                        prompt: cut.prompt,
+                        output: cut.output,
+                        cuttable: cut.cuttable,
+                        lower: cut.lower,
+                    })
+                })
+                .ok_or_else(|| mismatch("no LengthStop at a reply that was not cut")),
             2 => Ok(Some(Stuck::Empty)),
             3 => Ok(Some(Stuck::Leak)),
             4..=u32::MAX => Err(mismatch("a Director that continues")),
         },
-    )
-}
-
-/// The text of `note` at the end of the request of `attempt` (law
-/// `stop_note_exact`).
-pub(crate) fn note_text(attempt: u64, note: Note) -> String {
-    ask(
-        |w| {
-            w.tag(1)
-                .nat(attempt.min(NAT_MAX))
-                .nat(note.tokens.min(NAT_MAX))
-                .nat(u64::from(note.row))
-                .nat(u64::from(note.cap));
-        },
-        |r| Ok(r.str()?.to_owned()),
     )
 }
 
@@ -139,7 +159,7 @@ pub(crate) fn note_text(attempt: u64, note: Note) -> String {
 pub(crate) fn rounds_note(max: u32, done: u32) -> Option<String> {
     ask(
         |w| {
-            w.tag(2).nat(u64::from(max)).nat(u64::from(done));
+            w.tag(1).nat(u64::from(max)).nat(u64::from(done));
         },
         |r| {
             if r.maybe()? {

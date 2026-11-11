@@ -10,30 +10,33 @@
 #     stop reason is length), text (a text block that is not blank),
 #     broken (tool-call markup in the text that the harness could not
 #     read), pending (the session owns running work: jobs, children,
-#     workflow runs). What the text says is no fact: a whole, readable
-#     reply stands, whatever it says.
-# S2: the verdicts: LengthStop continues a cut reply, EmptyStop a reply
-#     with no text, MarkupStop a broken reply; PendingWork yields when
-#     work is pending. Every other verdict passes.
+#     workflow runs), full (S5). What the text says is no fact: a whole,
+#     readable reply stands, whatever it says.
+# S2: the verdicts: LengthStop decides every cut reply: it continues one
+#     with no text and one that is full, and yields at one with text that
+#     is not full (the truncated reply is kept as the answer, as omp keeps
+#     a truncated turn that delivered text while the window has room);
+#     EmptyStop continues a reply with no text, MarkupStop a broken reply;
+#     PendingWork yields when work is pending. Every other verdict passes.
 # S3: the walk, inside to outside (LengthStop, EmptyStop, MarkupStop,
 #     PendingWork): the first Director that does not pass decides;
 #     Continue goes on with it, Yield makes the stop stand; with all
 #     passing the stop stands.
 # S4: the caps: 3 empty notes in a row.
-# S5: the note: "Harness note, attempt <a>: " then, for a cut reply with
-#     text, "your previous reply hit <limit> before it finished, ..." with
-#     "Length note <row> of <cap>."; <limit> is "the output limit" for 0
-#     tokens, else "the <tokens>-token output limit".
+# S5: full: at a cut reply, the window is what ran out (S7's test) and a
+#     compaction can run. Rust gathers the window's facts only at a cut
+#     reply: no other reply reads them.
 # S6: the round note after `done` tool rounds of `max`: left = max - 1 -
 #     done (0 at least): the rounds whose results the model still reads.
 #     A note when left <= 10: none left, 1 left, or <left> left.
-# S7: a length stop with no text (the model still reasoned) climbs a
-#     ladder: when the window ran out (a window is known, the output is
-#     below the model's catalog max output, prompt + output + 8192 >=
-#     window) and a compaction can run, compact and send again (no note);
-#     else, under the cap of `long` length notes in a row, the next note;
-#     else, once, when a level below the agent's exists, the next note
-#     with the request one thinking level lower; else the run fails.
+# S7: a length stop that LengthStop continues climbs a ladder: when the
+#     window ran out (a window is known, the output is below the model's
+#     catalog max output, prompt + output + 8192 >= window) and a
+#     compaction can run (full), compact and send again (no note); else,
+#     under the cap of `long` length notes in a row, the next note; else,
+#     once, when a level below the agent's exists, the next note with the
+#     request one thinking level lower; else the run fails. A continued
+#     reply with text is full, so it compacts.
 
 import Base
 import ../../bend/stop.bend as S
@@ -49,15 +52,30 @@ def go_if(b: Bool) -> S.Verdict:
     case False{}:
       S.Pass{}
 
+def cut_verdict(text: Bool, full: Bool) -> S.Verdict:
+  match text:
+    case False{}:
+      S.Continue{}
+    case True{}:
+      match full:
+        case True{}:
+          S.Continue{}
+        case False{}:
+          S.Yield{}
+
 def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
   match d:
     case S.LengthStop{}:
       match f:
-        case S.Facts{cut, text, broken, pending}:
-          go_if(cut)
+        case S.Facts{cut, text, broken, pending, full}:
+          match cut:
+            case True{}:
+              cut_verdict(text, full)
+            case False{}:
+              S.Pass{}
     case S.EmptyStop{}:
       match f:
-        case S.Facts{cut, text, broken, pending}:
+        case S.Facts{cut, text, broken, pending, full}:
           match text:
             case True{}:
               S.Pass{}
@@ -65,11 +83,11 @@ def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
               S.Continue{}
     case S.MarkupStop{}:
       match f:
-        case S.Facts{cut, text, broken, pending}:
+        case S.Facts{cut, text, broken, pending, full}:
           go_if(broken)
     case S.PendingWork{}:
       match f:
-        case S.Facts{cut, text, broken, pending}:
+        case S.Facts{cut, text, broken, pending, full}:
           match pending:
             case True{}:
               S.Yield{}
@@ -79,12 +97,24 @@ def verdict(d: S.Dir, f: S.Facts) -> S.Verdict:
 # S3: the walk
 # ------------
 
-def pick(f: S.Facts) -> S.Pick:
-  match f:
-    case S.Facts{cut, text, broken, pending}:
-      match cut:
+# a cut reply: kept (the stop stands) when it has text and is not full
+def cut_pick(text: Bool, full: Bool) -> S.Pick:
+  match text:
+    case False{}:
+      S.Goes{S.LengthStop{}}
+    case True{}:
+      match full:
         case True{}:
           S.Goes{S.LengthStop{}}
+        case False{}:
+          S.Stands{}
+
+def pick(f: S.Facts) -> S.Pick:
+  match f:
+    case S.Facts{cut, text, broken, pending, full}:
+      match cut:
+        case True{}:
+          cut_pick(text, full)
         case False{}:
           match text:
             case False{}:
@@ -101,21 +131,6 @@ def pick(f: S.Facts) -> S.Pick:
 
 def empty_cap() -> Nat:
   3n
-
-# S5: the note
-# ------------
-
-def limit(tokens: Nat) -> String:
-  match tokens:
-    case 0n:
-      "the output limit"
-    case 1n+t:
-      String.concat(["the ", Nat.show(1n+t), "-token output limit"])
-
-def note(a: Nat, n: S.Note) -> String:
-  match n:
-    case S.Cut{t, r, k}:
-      String.concat(["Harness note, attempt ", Nat.show(a), ": your previous reply hit ", limit(t), " before it finished, so the harness did not take its cut text as your answer. Reason only about the next step, then call its tool. For a large answer (a file, a document, a long text), write a minimal working version first, then extend it with further edits in this turn. Length note ", Nat.show(r), " of ", Nat.show(k), "."])
 
 # S6: the round note
 # ------------------
@@ -140,8 +155,8 @@ def rounds(+max: Nat, +done: Nat) -> Maybe<&2, String>:
   +left = Nat.sub(Nat.sub(max, 1n), done)
   round_at(Nat.is_le(left, 10n), left, max)
 
-# S7: the ladder of a length stop with no text
-# --------------------------------------------
+# S7: the ladder of a length stop
+# -------------------------------
 
 # the window ran out: a window is known, the output is below the catalog
 # max output, and the prompt and the output reach the window within 8192
@@ -152,6 +167,15 @@ def ran_out(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat) -> Bool:
       False{}
     case 1n+w:
       Bool.and(Nat.is_lt(out, catalog), Nat.is_le(1n+w, Nat.add(Nat.add(prompt, out), 8192n)))
+
+# S5: full: the window ran out and a compaction can run
+def full(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> Bool:
+  Bool.and(cuttable, ran_out(window, catalog, prompt, out))
+
+# S1, S5: the facts of the stop Rust describes: what the reply holds, and
+# the window's facts at a cut reply
+def facts(cut: Bool, text: Bool, broken: Bool, pending: Bool, +window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> S.Facts:
+  S.Facts{cut, text, broken, pending, full(window, catalog, prompt, out, cuttable)}
 
 def at_cap(lowers: Bool, +n: Nat) -> RnDecision.Help:
   match lowers:

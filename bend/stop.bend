@@ -7,7 +7,8 @@
 #
 # - Pass: the next Director decides;
 # - Continue: the run goes on, with the Director's reminder at the end of
-#   the next request (a harness note, never logged as the user's words);
+#   the next request (a harness note, never logged as the user's words),
+#   or, at a length stop whose window ran out, after a compaction;
 #   bend/run/recovery.bend counts each Director's reminders in a row and
 #   stops it at its cap;
 # - Yield: the stop stands.
@@ -15,8 +16,11 @@
 # With every Director passing, the stop stands: the reply is the final
 # answer, whatever its text says. The Directors, inside to outside:
 #
-# - LengthStop: the reply hit the output limit: its text, if any, was cut,
-#   so it is never the answer;
+# - LengthStop: the reply hit the output limit. With no text nothing was
+#   delivered, and with the window run out (full) the next request needs a
+#   compaction: the run goes on. A cut reply with text and room left in
+#   the window is kept as it is (omp keeps a truncated turn that delivered
+#   text): the stop stands, whatever else the text holds;
 # - EmptyStop: no text: nothing the user can read (a thinking-only reply);
 # - MarkupStop: tool-call markup in the text that the harness could not
 #   read: a call the model meant to make, never an answer;
@@ -26,16 +30,18 @@
 # Pure: no IO, no @unsafe.
 
 import Base
-import ./retry_note.bend as Rn
 
 # The facts of a candidate stop
 # -----------------------------
 
 # cut: the reply hit the output limit (stop reason length); text: a text
 # block that is not blank; broken: tool-call markup in the text that the
-# harness could not read; pending: the session owns running work
+# harness could not read; pending: the session owns running work; full:
+# the window is what ran out at a cut reply and a compaction can run
+# (bend/run/recovery.bend `full`), so a compaction makes room for the
+# reply's request
 type Facts is Data:
-  Facts{cut: Bool, text: Bool, broken: Bool, pending: Bool}
+  Facts{cut: Bool, text: Bool, broken: Bool, pending: Bool, full: Bool}
 
 # The Directors
 type Dir is Data:
@@ -74,29 +80,55 @@ def hold(b: Bool) -> Verdict:
 # the facts, one by one
 def Facts.cut(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending}:
+    case Facts{cut, text, broken, pending, full}:
       cut
 
 def Facts.text(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending}:
+    case Facts{cut, text, broken, pending, full}:
       text
 
 def Facts.broken(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending}:
+    case Facts{cut, text, broken, pending, full}:
       broken
 
 def Facts.pending(f: Facts) -> Bool:
   match f:
-    case Facts{cut, text, broken, pending}:
+    case Facts{cut, text, broken, pending, full}:
       pending
+
+def Facts.full(f: Facts) -> Bool:
+  match f:
+    case Facts{cut, text, broken, pending, full}:
+      full
+
+# LengthStop at a cut reply: it stands when it has text and the window has
+# room; else the run goes on
+def cut.at(text: Bool, full: Bool) -> Verdict:
+  match text:
+    case True{}:
+      match full:
+        case True{}:
+          Continue{}
+        case False{}:
+          Yield{}
+    case False{}:
+      Continue{}
+
+# LengthStop: only a cut reply is its to decide
+def length(cut: Bool, text: Bool, full: Bool) -> Verdict:
+  match cut:
+    case True{}:
+      cut.at(text, full)
+    case False{}:
+      Pass{}
 
 # the verdict of the Director d at the stop f
 def verdict(d: Dir, +f: Facts) -> Verdict:
   match d:
     case LengthStop{}:
-      on(Facts.cut(f))
+      length(Facts.cut(f), Facts.text(f), Facts.full(f))
     case EmptyStop{}:
       on(Bool.not(Facts.text(f)))
     case MarkupStop{}:
@@ -134,26 +166,9 @@ def walk(+f: Facts) -> Pick:
 
 # the reminders in a row of EmptyStop (omp EMPTY_STOP_MAX_RETRIES);
 # LengthStop and MarkupStop keep the caps of their recoveries
-# (LENGTH_NOTES, LEAK_NOTES)
+# (LENGTH_NOTES of the ladder of bend/run/recovery.bend, LEAK_NOTES)
 def empty_cap() -> Nat:
   3n
-
-# The reminders
-# -------------
-
-# the reminder this module writes: a length stop with text (`tokens` the
-# limit, 0: not reported; the length note `row` of `cap`)
-type Note is Data:
-  Cut{tokens: Nat, row: Nat, cap: Nat}
-
-def note.body(n: Note) -> String:
-  match n:
-    case Cut{t, r, k}:
-      String.concat(["your previous reply hit ", Rn.limit(t), " before it finished, so the harness did not take its cut text as your answer. Reason only about the next step, then call its tool. For a large answer (a file, a document, a long text), write a minimal working version first, then extend it with further edits in this turn. Length note ", Nat.show(r), " of ", Nat.show(k), "."])
-
-# the text of the note of the request of `attempt`
-def note(attempt: Nat, n: Note) -> String:
-  String.append("Harness note, attempt ", String.append(Nat.show(attempt), String.append(": ", note.body(n))))
 
 # The round cap
 # -------------

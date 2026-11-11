@@ -23,17 +23,19 @@ def again(same: Nat, +last: Nat, +h: Nat) -> Nat:
 # Recoveries
 # ----------
 # LAWS.bend H4.8. The replies a weaker model gets stuck with get a
-# recovery, each with a cap: a length stop (its text cut, or, with no
-# text, the ladder of rec.think: compact when the window ran out, length
-# notes, then once one thinking level lower), tool calls that it wrote as
-# text (markup in the answer), the same tool calls (names and arguments)
-# round after round, and, from the Directors at a candidate stop
-# (bend/stop.bend), a reply with no text. A recovery turns the reply into
-# one that the steps above already read (Act.reply): a noted error, whose
-# retry ends its request with a note of the recovery (H4.7), an overflow
-# that compacts, calls that run, or the run's failure. Thus every law
-# above holds for a run with the recoveries too: those laws hold for
-# every reply. The Rust side is decide.rs `recover`.
+# recovery, each with a cap: a length stop the stop walk continues (no
+# text, or the window ran out: the ladder of rec.think: compact when the
+# window ran out, length notes, then once one thinking level lower), tool
+# calls that it wrote as text (markup in the answer), the same tool calls
+# (names and arguments) round after round, and, from the Directors at a
+# candidate stop (bend/stop.bend), a reply with no text. A length stop
+# with text and room left in the window is no stuck reply: the stop walk
+# keeps it as the answer. A recovery turns the reply into one that the
+# steps above already read (Act.reply): a noted error, whose retry ends
+# its request with a note of the recovery (H4.7), an overflow that
+# compacts, calls that run, or the run's failure. Thus every law above
+# holds for a run with the recoveries too: those laws hold for every
+# reply. The Rust side is decide.rs `recover`.
 
 # long: LENGTH_NOTES (3), leak: LEAK_NOTES (2), redirect:
 # REDIRECT_NOTES (2), repeat: REPEAT_CALLS (5)
@@ -82,13 +84,11 @@ type Rk is Data:
   Loops{}
   Empties{}
 
-# what a reply holds, as the recoveries read it. Long: a length stop with
-# text and no tool call (the stop walk's LengthStop: its text was cut).
-# Think: a length stop with no text and no tool call, cut while the model
-# still reasoned (LengthStop too); shrink: the window was what ran out
-# (bound below) and a compaction can run (compaction on, a cut, the
-# generation has not compacted); lower: a thinking level below the
-# agent's exists. Leak: tool-call
+# what a reply holds, as the recoveries read it. Think: a length stop with
+# no tool call that the stop walk's LengthStop continues: no text (cut
+# while the model still reasoned), or text with the window run out;
+# shrink: the window was what ran out and a compaction can run (`full`
+# below); lower: a thinking level below the agent's exists. Leak: tool-call
 # markup in its text and no tool call; rebuilt: every leaked call parsed
 # and names a tool that the request offered, so the calls are rebuilt, as
 # Ran (not rebuilt: the stop walk's MarkupStop). Ran: tool calls (any stop
@@ -101,7 +101,6 @@ type Rk is Data:
 # call. Other: any other reply (an error that is not noted, deferred, an
 # overflow). Empty: no text and no tool call (the stop walk's EmptyStop)
 type Out is Data:
-  Long{}
   Leak{rebuilt: Bool, h: Nat, kept: Bool}
   Ran{h: Nat, kept: Bool}
   Noted{}
@@ -231,22 +230,13 @@ def Rk.empties(k: Rk, row: Nat) -> Nat:
     case Empties{}:
       row
 
-# a length stop: under the cap (n notes in a row) a retry with the next
-# length note; at the cap the run fails
-def rec.long(under: Bool, +n: Nat, +same: Nat, +last: Nat, r: Rec) -> Dec:
-  match under:
-    case True{}:
-      Dec{Redo{}, Rec{Longs{}, 1n+n, same, last}}
-    case False{}:
-      Dec{Quit{}, r}
-
-# a length stop with no text (the model still reasoned): the ladder. The
-# window ran out and a compaction can run (shrink): compact, then the
-# request goes again (the row stays: a compaction is no note). Else under
-# the cap (n notes in a row) a retry with the next length note. Else, at
-# the last rung (lowers: a level below the agent's exists and the row is
-# the cap), one retry with the next length note, one thinking level
-# lower. Else every rung was tried: the run fails
+# a length stop the stop walk continues: the ladder. The window ran out
+# and a compaction can run (shrink): compact, then the request goes again
+# (the row stays: a compaction is no note). Else under the cap (n notes in
+# a row) a retry with the next length note. Else, at the last rung
+# (lowers: a level below the agent's exists and the row is the cap), one
+# retry with the next length note, one thinking level lower. Else every
+# rung was tried: the run fails
 def rec.think.note(under: Bool, lowers: Bool, +n: Nat, +same: Nat, +last: Nat, r: Rec) -> Dec:
   match under:
     case True{}:
@@ -277,6 +267,13 @@ def margin() -> Nat:
 # the margin
 def bound(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat) -> Bool:
   Bool.and(Nat.is_lt(0n, window), Bool.and(Nat.is_lt(out, catalog), Nat.is_le(window, Nat.add(Nat.add(prompt, out), margin()))))
+
+# a compaction makes room for a length stop: the window is what ran out
+# (bound) and a compaction can run (cuttable: compaction on, a cut, the
+# generation has not compacted). The stop walk's `full` (bend/stop.bend:
+# a cut reply with text stands unless it holds) and the ladder's `shrink`
+def full(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> Bool:
+  Bool.and(cuttable, bound(window, catalog, prompt, out))
 
 # leaked calls that were not rebuilt: under the cap a retry with the next
 # leak note; at the cap the run fails: markup is never an answer
@@ -311,8 +308,6 @@ def rec.ran(fresh: Bool, under: Bool, kept: Bool, +m: Nat, +h: Nat, +n: Nat, +sa
 
 def rec.go(+rc: RCfg, o: Out, +k: Rk, +row: Nat, +same: Nat, +last: Nat) -> Dec:
   match o:
-    case Long{}:
-      rec.long(below(Rk.longs(k, row), RCfg.long(rc)), Rk.longs(k, row), same, last, Rec{k, row, same, last})
     case Leak{rebuilt, +h, kept}:
       match rebuilt:
         case True{}:
@@ -357,8 +352,8 @@ def Rec.run(+rc: RCfg, os: List<&2, Out>) -> Rec:
   Rec.go(os, rc, Rec.init())
 
 # the row of the next note is at most the cap of its recovery; the length
-# notes may reach one past theirs: the last rung of a length stop with no
-# text (rec.think) is one more note, one thinking level lower
+# notes may reach one past theirs: the last rung of a length stop
+# (rec.think) is one more note, one thinking level lower
 def Rk.capped(+rc: RCfg, k: Rk, row: Nat) -> Bool:
   match k:
     case Free{}:
@@ -393,12 +388,10 @@ def Act.runs(a: Act) -> Bool:
     case Lower{}:
       False{}
 
-# the reply is stuck: a length stop (text cut, or no text), leaked tool
+# the reply is stuck: a length stop the stop walk continues, leaked tool
 # calls, tool calls (which may repeat), no text
 def Out.stuck(o: Out) -> Bool:
   match o:
-    case Long{}:
-      True{}
     case Leak{rebuilt, h, kept}:
       True{}
     case Ran{h, kept}:
