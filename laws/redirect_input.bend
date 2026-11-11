@@ -114,6 +114,47 @@ def ri_wrap_first(s: String) -> Bool:
     case SCon{c, t}:
       ri_wrapper(c)
 
+# R2, R3: the chars that shape a paste: % + & = # ? /
+def ri_marks() -> List<&2, U32>:
+  [37, 43, 38, 61, 35, 63, 47]
+
+# R2, R3: a char a value may hold as it is: no whitespace or zero-width
+# char, no wrapping char, none of % + & = # ? /
+def ri_plain_char(+c: Char) -> Bool:
+  Bool.not(Bool.or(ri_noise(c), Bool.or(ri_wrapper(c), ri_in(Char.to_u32(c), ri_marks()))))
+
+def ri_plain(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(ri_plain_char(c), ri_plain(t))
+
+# R2, R3: a value as Rust's tests generate it (URL-safe tokens): one or
+# more plain chars
+def ri_value(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      ri_plain(SCon{c, t})
+
+# R2: s holds no char of code x
+def ri_lacks(s: String, +x: U32) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Bool.not(U32.is_eq(Char.to_u32(c), x)), ri_lacks(t, x))
+
+# R2: n slashes
+def ri_slashes(n: Nat) -> String:
+  match n:
+    case 0n:
+      SNil{}
+    case 1n+m:
+      SCon{'/', ri_slashes(m)}
+
 # R5: every char of s is whitespace
 def ri_spaces(s: String) -> Bool:
   match s:
@@ -304,11 +345,119 @@ law redirect_input_parse_ignores_wrappers:
   for wrap2: {ri_wrapper(w2) == True{} : Bool}
   {Ri.parse(SCon{w1, String.append(s, SCon{w2, SNil{}})}) == Ri.parse(s) : Ri.Answer}
 
-# R2, R3 over every value are not yet stated by a proven law: the paste's
-# code and state are anchored by redirect_input_parse_example,
-# redirect_input_error_example and redirect_input_decode_example; a paste
-# depends on its cleaned text only (redirect_input_parse_ignores_noise,
-# redirect_input_parse_ignores_wrappers).
+# The paste shapes of Rust's property test (aeabc30d3^:crates/eukhe-core/
+# src/auth/redirect_input.rs `render`: an address with the pairs in its
+# query or its fragment, a bare query, a `code#state` pair, a bare code),
+# each over every value of URL-safe chars (ri_value: one or more chars,
+# none whitespace, zero-width, wrapping or one of % + & = # ? /) and every
+# text around it that the shape allows.
+
+# LAW redirect_input_query (R2, R3): an address b (any text with no `?`), then `?code=` c `&state=` s and n trailing slashes, answers the code c and the state s, for all values c, s
+# EXCLUDES: the code or state read from the address before the query,
+#   fields swapped, a value cut or extended, a trailing slash read into
+#   the state
+law redirect_input_query:
+  for +b: String
+  for +c: String
+  for +s: String
+  for +n: Nat
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", String.append(c, String.append("&state=", String.append(s, ri_slashes(n))))))) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_query_no_state (R2, R3): an address b with no `?`, then `?code=` c, answers the code c and no state
+# EXCLUDES: a state invented (the code, the address or an empty one)
+law redirect_input_query_no_state:
+  for +b: String
+  for +c: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", c))) == Ri.Pasted{c, None{}} : Ri.Answer}
+
+# LAW redirect_input_query_no_code (R2, R3): an address b with no `?`, then `?state=` s, answers that it has no code
+# EXCLUDES: the state, the address or a default taken as the code
+law redirect_input_query_no_code:
+  for +b: String
+  for +s: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?state=", s))) == Ri.Failed{Ri.FMissing{}} : Ri.Answer}
+
+# LAW redirect_input_first_value (R3): in a query `?code=&code=` c `&code=` d (after an address b with no `?`) the code is c: an empty value is skipped and the first non-empty one taken
+# EXCLUDES: an empty code taken, the last value taken
+law redirect_input_first_value:
+  for +b: String
+  for +c: String
+  for +d: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vd: {ri_value(d) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=&code=", String.append(c, String.append("&code=", d))))) == Ri.Pasted{c, None{}} : Ri.Answer}
+
+# LAW redirect_input_plus_space (R3): a `+` in a value is a space: `?code=` c `+` d (after an address b with no `?`) answers the code c, a space, d
+# EXCLUDES: a `+` kept, dropped or read as a separator
+law redirect_input_plus_space:
+  for +b: String
+  for +c: String
+  for +d: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vd: {ri_value(d) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", String.append(c, SCon{'+', d})))) == Ri.Pasted{String.append(c, SCon{' ', d}), None{}} : Ri.Answer}
+
+# LAW redirect_input_error_wins (R3): an address b with no `?`, then `?code=` c `&error=` e `&error_description=` d, answers the provider failure e with the description d, though a code came first
+# EXCLUDES: the code taken over an OAuth error, the description lost or
+#   read from another field
+law redirect_input_error_wins:
+  for +b: String
+  for +c: String
+  for +e: String
+  for +d: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for ve: {ri_value(e) == True{} : Bool}
+  for vd: {ri_value(d) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", String.append(c, String.append("&error=", String.append(e, String.append("&error_description=", d))))))) == Ri.Failed{Ri.FProvider{e, Some{d}}} : Ri.Answer}
+
+# LAW redirect_input_fragment (R2, R3): a scheme b (no `:` or `?`), `://`, an address h (no `?` or `#`), then `#code=` c `&state=` s answers the code c and the state s
+# EXCLUDES: the fragment of an address with a scheme and no query
+#   ignored, the address part read as parameters
+law redirect_input_fragment:
+  for +b: String
+  for +h: String
+  for +c: String
+  for +s: String
+  for nb: {Bool.and(ri_lacks(b, 58), ri_lacks(b, 63)) == True{} : Bool}
+  for nh: {Bool.and(ri_lacks(h, 63), ri_lacks(h, 35)) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("://", String.append(h, String.append("#code=", String.append(c, String.append("&state=", s))))))) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_bare_query (R2, R3): a bare query `code=` c `&state=` s answers the code c and the state s
+# EXCLUDES: a bare query read as a bare code
+law redirect_input_bare_query:
+  for +c: String
+  for +s: String
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append("code=", String.append(c, String.append("&state=", s)))) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_pair (R2): a pair c `#` s of values answers the code c and the state s
+# EXCLUDES: the pair read as one code, the state lost
+law redirect_input_pair:
+  for +c: String
+  for +s: String
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(c, SCon{'#', s})) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_bare_code (R2): a value c alone answers the code c and no state
+# EXCLUDES: a bare code refused, a state invented
+law redirect_input_bare_code:
+  for +c: String
+  for vc: {ri_value(c) == True{} : Bool}
+  {Ri.parse(c) == Ri.Pasted{c, None{}} : Ri.Answer}
 
 # Laws: the state check (R4)
 # --------------------------
