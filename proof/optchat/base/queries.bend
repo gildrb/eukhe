@@ -82,41 +82,6 @@ def oq.has(xs: List<&2, ONode.Node>, +x: ONode.Node) -> {ONode.Nodes.has(xs, x) 
       %Equal.sym(Bool, ONode.Nodes.has(t, x), S.member(t, x), oq.has(t, x)) : {Bool.or(S.same(h, x), _) == S.member(h <> t, x) : Bool}
       {==}
 
-def oq.keep(k: Bool, h: ONode.Node, t: List<&2, ONode.Node>) -> {ONode.Nodes.keep(k, h, t) == S.keep(k, h, t) : List<&2, ONode.Node>}:
-  match k:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def oq.del(xs: List<&2, ONode.Node>, +x: ONode.Node) -> {ONode.Nodes.del(xs, x) == S.busy_del(xs, x) : List<&2, ONode.Node>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case +h <> +t:
-      %Equal.sym(Bool, ONode.Node.eq(h, x), S.same(h, x), oq.eq(h, x)) : {ONode.Nodes.keep(Bool.not(_), h, ONode.Nodes.del(t, x)) == S.busy_del(h <> t, x) : List<&2, ONode.Node>}
-      %Equal.sym(List<&2, ONode.Node>, ONode.Nodes.del(t, x), S.busy_del(t, x), oq.del(t, x)) : {ONode.Nodes.keep(Bool.not(S.same(h, x)), h, _) == S.busy_del(h <> t, x) : List<&2, ONode.Node>}
-      oq.keep(Bool.not(S.same(h, x)), h, S.busy_del(t, x))
-
-def oq.add(+xs: List<&2, ONode.Node>, +x: ONode.Node) -> {ONode.Nodes.add(xs, x) == S.busy_add(xs, x) : List<&2, ONode.Node>}:
-  %Equal.sym(Bool, ONode.Nodes.has(xs, x), S.member(xs, x), oq.has(xs, x)) : {ONode.Nodes.keep(Bool.not(_), x, xs) == S.busy_add(xs, x) : List<&2, ONode.Node>}
-  oq.keep(Bool.not(S.member(xs, x)), x, xs)
-
-def oq.busy_set(s: OState.St, bs: List<&2, ONode.Node>) -> {OStep.busy.set(s, bs) == S.with_busy(s, bs) : OState.St}:
-  match s:
-    case OState.St{t, info, view, shrink, cview, ready, busy}:
-      {==}
-
-# the busy nodes a waiting turn keeps
-def oq.need(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.Node>) -> {OQueue.busy.need(info, v, bs) == S.needed(info, v, bs) : List<&2, ONode.Node>}:
-  match bs:
-    case Nil{}:
-      {==}
-    case +b <> +t:
-      %Equal.sym(Bool, ONode.Nodes.has(v, b), S.member(v, b), oq.has(v, b)) : {ONode.Nodes.keep(Bool.and(_, Bool.not(OInfo.Info.built(info, b))), b, OQueue.busy.need(info, v, t)) == S.needed(info, v, b <> t) : List<&2, ONode.Node>}
-      %Equal.sym(List<&2, ONode.Node>, OQueue.busy.need(info, v, t), S.needed(info, v, t), oq.need(info, v, t)) : {ONode.Nodes.keep(Bool.and(S.member(v, b), Bool.not(OInfo.Info.built(info, b))), b, _) == S.needed(info, v, b <> t) : List<&2, ONode.Node>}
-      oq.keep(Bool.and(S.member(v, b), Bool.not(OInfo.Info.built(info, b))), b, S.needed(info, v, t))
-
 # The work queue
 # --------------
 
@@ -236,22 +201,6 @@ def oq.le(+h: ONode.Node, +bd: List<&2, Bool>) -> {OBits.Bits.le(OCtx.Node.end_b
   %Equal.sym(Cmp, OBits.Bits.cmp(OCtx.Node.end_bits(h), bd), Nat.cmp(OBits.Bits.val(OCtx.Node.end_bits(h)), OBits.Bits.val(bd)), LA.pa.cmp_val(OCtx.Node.end_bits(h), bd)) : {Cmp.is_le(_) == Nat.is_le(S.line_end(h), OBits.Bits.val(bd)) : Bool}
   %Equal.sym(Nat, OBits.Bits.val(OCtx.Node.end_bits(h)), S.line_end(h), oq.end(h)) : {Cmp.is_le(Nat.cmp(_, OBits.Bits.val(bd))) == Nat.is_le(S.line_end(h), OBits.Bits.val(bd)) : Bool}
   {==}
-
-def oq.ctx_keep(k: Bool, h: ONode.Node, t: List<&2, ONode.Node>) -> {OCtx.ctx.keep(k, h, t) == S.upto.keep(k, h, t) : List<&2, ONode.Node>}:
-  match k:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def oq.ctx_go(v: List<&2, ONode.Node>, +info: OInfo.Info, +bd: List<&2, Bool>) -> {OCtx.ctx.go(v, info, bd) == S.upto(v, info, OBits.Bits.val(bd)) : List<&2, ONode.Node>}:
-  match v:
-    case Nil{}:
-      {==}
-    case +h <> +t:
-      %Equal.sym(Bool, OBits.Bits.le(OCtx.Node.end_bits(h), bd), Nat.is_le(S.line_end(h), OBits.Bits.val(bd)), oq.le(h, bd)) : {OCtx.ctx.keep(Bool.and(_, OInfo.Info.built(info, h)), h, OCtx.ctx.go(t, info, bd)) == S.upto(h <> t, info, OBits.Bits.val(bd)) : List<&2, ONode.Node>}
-      %Equal.sym(List<&2, ONode.Node>, OCtx.ctx.go(t, info, bd), S.upto(t, info, OBits.Bits.val(bd)), oq.ctx_go(t, info, bd)) : {OCtx.ctx.keep(Bool.and(Nat.is_le(S.line_end(h), OBits.Bits.val(bd)), OInfo.Info.built(info, h)), h, _) == S.upto(h <> t, info, OBits.Bits.val(bd)) : List<&2, ONode.Node>}
-      oq.ctx_keep(Bool.and(Nat.is_le(S.line_end(h), OBits.Bits.val(bd)), OInfo.Info.built(info, h)), h, S.upto(t, info, OBits.Bits.val(bd)))
 
 # The built nodes' sizes
 # ----------------------

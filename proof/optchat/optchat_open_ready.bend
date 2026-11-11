@@ -1,5 +1,5 @@
 # eukhe: the proof of LAW optchat_open_ready
-# A spelled open opens the laws' open (LAO.oo.opened), which holds the
+# A spelled open opens the open's model (LAO.oo.opened), which holds the
 # ready merges its built nodes note (LAO.oo.holds). A node is in a list a
 # node was inserted into when it is that node or was there before
 # (ro.has_ins: an insert that finds an equal node keeps the list, and
@@ -134,20 +134,20 @@ def ro.note(c: Bool, +par: ONode.Node, +rs: List<&2, ONode.Node>, +p: ONode.Node
 
 # the ready merges after the built nodes bs: those before, and the
 # parents of built pairs of bs that are not built
-def ro.ready(bs: List<&2, FOc.Got>, +info: OInfo.Info, +rs: List<&2, ONode.Node>, +p: ONode.Node) -> {ONode.Nodes.has(Optchat.oc_ready(bs, info, rs), p) == Bool.or(ONode.Nodes.has(rs, p), Optchat.oc_pair_of(info, bs, p)) : Bool}:
+def ro.ready(bs: List<&2, FOc.Got>, +info: OInfo.Info, +rs: List<&2, ONode.Node>, +p: ONode.Node) -> {ONode.Nodes.has(LAO.oo.m.ready(bs, info, rs), p) == Bool.or(ONode.Nodes.has(rs, p), Optchat.oc_pair_of(info, bs, p)) : Bool}:
   match bs:
     case Nil{}:
       ro.or_false(ONode.Nodes.has(rs, p))
     case FOc.Got{+l, +k, z} <> +rest:
       +n = Optchat.oc_node(l, k)
       +note = OStep.ready.note(info, n, rs)
-      %Equal.sym(Bool, ONode.Nodes.has(Optchat.oc_ready(rest, info, note), p), Bool.or(ONode.Nodes.has(note, p), Optchat.oc_pair_of(info, rest, p)), ro.ready(rest, info, note, p)) : {_ == Bool.or(ONode.Nodes.has(rs, p), Optchat.oc_pair_of(info, FOc.Got{l, k, z} <> rest, p)) : Bool}
+      %Equal.sym(Bool, ONode.Nodes.has(LAO.oo.m.ready(rest, info, note), p), Bool.or(ONode.Nodes.has(note, p), Optchat.oc_pair_of(info, rest, p)), ro.ready(rest, info, note, p)) : {_ == Bool.or(ONode.Nodes.has(rs, p), Optchat.oc_pair_of(info, FOc.Got{l, k, z} <> rest, p)) : Bool}
       ro.note(Bool.and(OInfo.Info.built(info, ONode.Node.sibling(n)), Bool.not(OInfo.Info.built(info, ONode.Node.parent(n)))), ONode.Node.parent(n), rs, p, Optchat.oc_pair_of(info, rest, p))
 
 def ro.main(+o: FOc.Open, +p: ONode.Node, fits: {Optchat.oc_open_fits(o) == True{} : Bool}) -> {ONode.Nodes.has(OState.St.ready(Optchat.oc_chat(Optchat.oc_state(FOc.open(Optchat.oc_spell_open(o))))), p) == Optchat.oc_pair_of(Optchat.oc_info(Optchat.oc_built(o), OInfo.Info.empty()), Optchat.oc_built(o), p) : Bool}:
   +info = Optchat.oc_info(Optchat.oc_built(o), OInfo.Info.empty())
-  %Equal.sym(FOc.St & String, FOc.open(Optchat.oc_spell_open(o)), Optchat.oc_open_model(o), LAO.oo.opened(o, fits)) : {ONode.Nodes.has(OState.St.ready(Optchat.oc_chat(Optchat.oc_state(_))), p) == Optchat.oc_pair_of(info, Optchat.oc_built(o), p) : Bool}
-  %Equal.sym(List<&2, ONode.Node>, OState.St.ready(Optchat.oc_chat(Optchat.oc_state(Optchat.oc_open_model(o)))), Optchat.oc_ready(Optchat.oc_built(o), info, Nil{}), LAO.oo.holds(o)) : {ONode.Nodes.has(_, p) == Optchat.oc_pair_of(info, Optchat.oc_built(o), p) : Bool}
+  %Equal.sym(FOc.St & String, FOc.open(Optchat.oc_spell_open(o)), LAO.oo.m.open(o), LAO.oo.opened(o, fits)) : {ONode.Nodes.has(OState.St.ready(Optchat.oc_chat(Optchat.oc_state(_))), p) == Optchat.oc_pair_of(info, Optchat.oc_built(o), p) : Bool}
+  %Equal.sym(List<&2, ONode.Node>, OState.St.ready(Optchat.oc_chat(Optchat.oc_state(LAO.oo.m.open(o)))), LAO.oo.m.ready(Optchat.oc_built(o), info, Nil{}), LAO.oo.holds(o)) : {ONode.Nodes.has(_, p) == Optchat.oc_pair_of(info, Optchat.oc_built(o), p) : Bool}
   ro.ready(Optchat.oc_built(o), info, Nil{}, p)
 
 def Optchat.optchat_open_ready(o, p, fits):

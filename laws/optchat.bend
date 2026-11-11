@@ -1,4 +1,39 @@
 # eukhe: the laws of area optchat
+#
+# The chat memory's planner (Taelin's OptChat gist, §3-§4): the model in
+# bend/optchat/, run as the stepper bend/ffi_optchat.bend. The laws of
+# its queries and moves are in laws/optchat/queries.bend.
+#
+# Requirements (spec/README.md M1, the gist)
+#   R1 the view and the compaction view tile the messages 0..T-1
+#   R2 a merge replaces two sibling lines by their built parent
+#   R3 merges follow Taelin's rollback push: the most due pair of sibling
+#      lines whose parent is built, due = (T - last) / 2^l, the oldest of
+#      equally due pairs
+#   R4 a fit reaches its budget: it merges only while over it, and stops
+#      within it or when no pair may merge
+#   R5 a message's batch: still shrinking or past ceil, the view is fitted
+#      down to floor and the compaction view restarts from it down to
+#      cfloor; else the compaction view keeps its sawtooth (past cceil,
+#      down to cfloor); a merged line is built before it shows
+#   R6 a turn never waits forever on memory
+#   R7 the queue starts a message's line once fewer than jobs lines before
+#      it are unbuilt, a merge once it is ready, never more than jobs calls
+#   R8 a compaction sees the compaction view up to its node
+#   R9 nothing starts that a request may not show yet (the due mark)
+#   A1 the planner runs as the stepper: every spelled event or query that
+#      fits the wire answers as the model; every other input is refused
+#      with the error form and keeps the chat
+#   A2 an open restores the loaded chat (T, sizes, view, shrink, ready
+#      merges, no call), fits its compaction view, and runs a missed
+#      batch once; any other open input is refused
+#   A3 calls: a start makes a node busy once, a free or a build drops it,
+#      a wait stops every call the waiting turn does not need
+#   A4 a build notes the node's size and readies its parent once both
+#      halves are built, keeping the ready merges in level, then index
+#      order, each once
+#   A5 the built sizes are a map from a node to its size
+#   A6 a node index read from the wire is the model's canonical bits
 
 import Base
 import ../bend/compactor.bend as C
@@ -32,24 +67,6 @@ law cview_covers:
   for +evs: List<&2, OState.Ev>
   S.Tiles(0n, S.cview.of(cfg, evs), S.total.of(cfg, evs))
 
-# (b) A message
-# -------------
-
-# LAW message_appends: when no batch runs, a message only appends its own line: the
-# old view is a prefix of the new one (gist §3.2, §3.3)
-law message_appends:
-  for +cfg: OState.Cfg
-  for +s: OState.St
-  for quiet: {OStep.St.batch(cfg, s) == False{} : Bool}
-  {OState.St.view(Pair.fst(OState.St, List<&2, ONode.Node>, OStep.msg(cfg, s))) == List.append(&2, ONode.Node, OState.St.view(s), [ONode.Node.leaf(OState.St.t(s))]) : List<&2, ONode.Node>}
-
-# LAW message_merges_nothing: and it merges nothing
-law message_merges_nothing:
-  for +cfg: OState.Cfg
-  for +s: OState.St
-  for quiet: {OStep.St.batch(cfg, s) == False{} : Bool}
-  {Pair.snd(OState.St, List<&2, ONode.Node>, OStep.msg(cfg, s)) == Nil{} : List<&2, ONode.Node>}
-
 # (c) A merge
 # -----------
 
@@ -75,15 +92,11 @@ law merge_covers:
 # (d) Taelin's push
 # -----------------
 
-# LAW push_agrees: with push's list length as the budget (a line counts 1 byte,
-# every node built), the due order (T - last) / 2^l makes exactly the
-# merges of Taelin's rollback push, at every step t = 0..20,000 (gist
-# §3.2: "checked for t = 0..20,000"). Bounded: proven by computation.
-law push_agrees:
-  {OPush.agree(OFit.Last{}, 20001n) == True{} : Bool}
-
-# LAW push_agrees_always: and at every step t of any number n of pushes: after each push the
-# view and push's list hold the same lines (gist §3.2, for all t)
+# LAW push_agrees_always: with push's list length as the budget (a line
+# counts 1 byte, every node built), the due order (T - last) / 2^l makes
+# exactly the merges of Taelin's rollback push: at every step t of any
+# number n of pushes, the view and push's list hold the same lines (gist
+# §3.2 checks t = 0..20,000; this is every t)
 law push_agrees_always:
   for n: Nat
   {OPush.agree(OFit.Last{}, n) == True{} : Bool}
@@ -130,7 +143,7 @@ law cview_summarized:
 # At T = 10, with the view 0+4, 4+4, 8+1, 9+1 and a budget of 3 lines
 # (gist §3.2):
 
-# LAW last_merges_8_9: due from the pair's last message merges 8-9, as push does
+# LAW last_merges_8_9: anchor: due from the pair's last message merges 8-9
 law last_merges_8_9:
   {OFit.fit.view(OFit.Last{}, S.ten(), 3n, 0n, OInfo.All{1n}, S.view10()) == [ONode.Node{2n, []}, ONode.Node{2n, [True{}]}, ONode.Node{1n, [False{}, False{}, True{}]}] : List<&2, ONode.Node>}
 
@@ -149,13 +162,6 @@ law first_leaves_push:
 # (g) A compaction's view
 # -----------------------
 
-# LAW context_ends_at_node: a compaction's view ends at its node (before the message, or by
-# the merge's last message) and holds only built lines (gist §4)
-law context_ends_at_node:
-  for +s: OState.St
-  for +n: ONode.Node
-  S.Before(OState.St.info(s), OCtx.ctx.bound(n), OCtx.ctx(s, n))
-
 # LAW context_is_prefix: it is the start of the compaction view, so compactions share
 # their cache prefix (gist §4)
 law context_is_prefix:
@@ -163,10 +169,10 @@ law context_is_prefix:
   for +n: ONode.Node
   S.Prefix(OCtx.ctx(s, n), OState.St.cview(s))
 
-# (H2) A turn never waits forever for the memory
+# (R6) A turn never waits forever for the memory
 # ----------------------------------------------
-# LAWS.bend H2: the need-first queue of bend/optchat/queue.bend, the settle
-# of bend/compactor.bend.
+# The need-first queue of bend/optchat/queue.bend (cands.need), the
+# settle of bend/compactor.bend (C.idle).
 
 # LAW need_progress: the queue never stalls a waiting turn: after any events, while
 # fewer than jobs calls run and a view line is neither built nor busy,
@@ -178,7 +184,7 @@ law need_progress:
   for idle: {C.idle(OState.St.info(OStep.run(cfg, evs)), OState.St.view(OStep.run(cfg, evs)), OState.St.busy(OStep.run(cfg, evs))) == True{} : Bool}
   {OBits.Nat.is_pos(List.length(&2, ONode.Node, OQueue.cands.need(cfg, OStep.run(cfg, evs)))) == True{} : Bool}
 
-# (H4) The due mark
+# (R9) The due mark
 # -----------------
 # bend/optchat/queue.bend "The due mark": a line is built once a request
 # may show it, never before. Each query of the nodes to start carries the
@@ -363,22 +369,6 @@ def oc_reply_of(r: FOc.St & String) -> String:
 def oc_node(l: Nat, k: Nat) -> ONode.Node:
   ONode.Node{l, OBits.Bits.of(k)}
 
-# the busy nodes a waiting turn stops: those that are not view lines
-# still unbuilt
-def oc_held.pick(stop: Bool, +b: ONode.Node, rest: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match stop:
-    case True{}:
-      b <> rest
-    case False{}:
-      rest
-
-def oc_held(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match bs:
-    case Nil{}:
-      Nil{}
-    case +b <> rest:
-      oc_held.pick(Bool.not(Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b)))), b, oc_held(info, v, rest))
-
 # a batch, spelled: 0 none ran; 1 one ran: its merged nodes in merge
 # order, the view after it, and whether it is still over its floor
 def oc_spell_batch(ran: Bool, merged: List<&2, ONode.Node>, +s: OState.St) -> String:
@@ -412,22 +402,25 @@ def oc_next(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> OState.St:
     case FOc.QBusy{}:
       s
 
-# the reply to q, as the model answers it: a message answers the batch it
-# ran (OStep.St.batch decides whether one runs, OStep.step makes it); a
-# build, a start, a free answer done (0); a wait answers the calls it
-# stops; the queries answer cands and cands.need under their due mark
-# (OQueue.cands.due, OQueue.cands.need.due), ctx and the busy count.
-# laws/optchat/queries.bend pins cands (optchat_cands_spec), cands.need
-# (optchat_need_spec), ctx (optchat_ctx_spec), St.wait
-# (optchat_wait_spec), a start and a free (optchat_start_spec,
-# optchat_free_spec) and the built sizes (optchat_info_set_get,
-# optchat_info_empty), every fit (optchat_fit_spec), the batch test
-# (optchat_batch_spec), a message (optchat_msg_spec) and a build
-# (optchat_build_spec) to spec/memory/optchat.bend for every state
+# the reply to q, as the model answers it: a message answers whether a
+# batch runs (S.batch: still shrinking, or the message's line takes the
+# view past ceil), and then the merges OStep.step made and the view after
+# them; a build, a start, a free answer done (0); a wait answers the
+# calls it stops (OQueue.St.held); the queries answer cands and
+# cands.need under their due mark (OQueue.cands.due, OQueue.cands.need.due),
+# ctx and the busy count. laws/optchat/queries.bend pins the model's
+# moves and answers: a fit (optchat_fit_chain), a message
+# (optchat_message_counts, optchat_message_quiet, optchat_message_batch),
+# a build (optchat_build_notes, optchat_build_ready,
+# optchat_build_ready_sorted), a start and a free (optchat_start_counts,
+# optchat_free_counts), a wait (optchat_wait_keeps_needed), cands
+# (optchat_cands_spec), cands.need (optchat_need_spec), ctx
+# (optchat_ctx_exact) and the built sizes (optchat_info_set_get,
+# optchat_info_empty)
 def oc_reply(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> String:
   match q:
     case FOc.QMsg{}:
-      oc_spell_batch(OStep.St.batch(cfg, s), Pair.snd(OState.St, List<&2, ONode.Node>, OStep.step(cfg, s, OState.Msg{})), Pair.fst(OState.St, List<&2, ONode.Node>, OStep.step(cfg, s, OState.Msg{})))
+      oc_spell_batch(S.batch(cfg, s), Pair.snd(OState.St, List<&2, ONode.Node>, OStep.step(cfg, s, OState.Msg{})), Pair.fst(OState.St, List<&2, ONode.Node>, OStep.step(cfg, s, OState.Msg{})))
     case FOc.QBuilt{l, k, z}:
       Wr.put_nat(0n, "")
     case FOc.QStart{l, k}:
@@ -435,7 +428,7 @@ def oc_reply(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> String:
     case FOc.QFree{l, k}:
       Wr.put_nat(0n, "")
     case FOc.QWait{}:
-      oc_spell_nodes(oc_held(OState.St.info(s), OState.St.view(s), OState.St.busy(s)), "")
+      oc_spell_nodes(OQueue.St.held(s), "")
     case FOc.QCands{d}:
       oc_spell_nodes(OQueue.cands.due(cfg, s, d), "")
     case FOc.QNeed{d}:
@@ -445,9 +438,10 @@ def oc_reply(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> String:
     case FOc.QBusy{}:
       Wr.put_nat(List.length(&2, ONode.Node, OState.St.busy(s)), "")
 
-# The open, as the model asks it
+# What an open loads
 
-# every built node's size (a later copy of a node wins)
+# the built nodes' sizes, filed one after another into info by the map's
+# set (a later copy of a node wins)
 def oc_info(bs: List<&2, FOc.Got>, info: OInfo.Info) -> OInfo.Info:
   match bs:
     case Nil{}:
@@ -455,52 +449,13 @@ def oc_info(bs: List<&2, FOc.Got>, info: OInfo.Info) -> OInfo.Info:
     case FOc.Got{l, k, z} <> rest:
       oc_info(rest, OInfo.Info.set(info, oc_node(l, k), z))
 
-# the ready merges: each built node noted as a build notes it
-# (OStep.ready.note: its parent, once both halves are built and the parent
-# is not)
-def oc_ready(bs: List<&2, FOc.Got>, +info: OInfo.Info, rs: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match bs:
-    case Nil{}:
-      rs
-    case FOc.Got{l, k, z} <> rest:
-      oc_ready(rest, info, OStep.ready.note(info, oc_node(l, k), rs))
-
+# the view lines, each node(l, k)
 def oc_lines(vs: List<&2, FOc.Line>) -> List<&2, ONode.Node>:
   match vs:
     case Nil{}:
       Nil{}
     case FOc.Line{l, k} <> rest:
       oc_node(l, k) <> oc_lines(rest)
-
-# the opened chat: T, the built nodes, the view and whether it shrinks;
-# the compaction view is the view merged down to its floor (OFit.fit, as
-# every compaction view is); the ready merges; no call runs
-def oc_open_at(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +view: List<&2, ONode.Node>, shrink: Bool, ready: List<&2, ONode.Node>) -> OState.St:
-  OState.St{t, info, view, shrink, OFit.fit.view(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, view), ready, Nil{}}
-
-# a missed batch: the model's message batch (OStep.msg.go when a batch
-# runs): the view merged down to its floor as far as built parents allow,
-# still shrinking while over its floor
-def oc_open_missed(r: List<&2, ONode.Node> & List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, ready: List<&2, ONode.Node>) -> FOc.St & String:
-  (merged, view0) = r
-  +view = view0
-  +s = oc_open_at(cfg, t, info, view, Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, view), OState.Cfg.floor(cfg)), ready)
-  (FOc.Live{cfg, s}, oc_spell_batch(True{}, merged, s))
-
-def oc_open_go(missed: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +view: List<&2, ONode.Node>, shrink: Bool, ready: List<&2, ONode.Node>) -> FOc.St & String:
-  match missed:
-    case False{}:
-      (FOc.Live{cfg, oc_open_at(cfg, t, info, view, shrink, ready)}, Wr.put_nat(0n, ""))
-    case True{}:
-      oc_open_missed(OFit.fit(OFit.Last{}, t, OState.Cfg.floor(cfg), OState.Cfg.ph(cfg), info, view), cfg, t, info, ready)
-
-# the stepper and the reply an open asks: the loaded chat, and its missed
-# batch run now when the log says one is missing
-def oc_open_model(o: FOc.Open) -> FOc.St & String:
-  match o:
-    case FOc.Open{+cfg, t, +bs, vs, sh, m}:
-      +info = oc_info(bs, OInfo.Info.empty())
-      oc_open_go(m, cfg, OBits.Bits.of(t), info, oc_lines(vs), sh, oc_ready(bs, info, Nil{}))
 
 # LAW optchat_entry_answers: in every state, every event or query that
 # fits the wire, spelled, answers what the model answers and moves the
@@ -574,29 +529,87 @@ def oc_chat(st: FOc.St) -> OState.St:
     case FOc.Refused{}:
       OState.St.empty()
 
-# LAW optchat_step_is_model: the stepper opened from any loaded chat and
-# sent any events and queries, in any order, answers each as the model
-# run from the opened chat answers it, over every order
+# LAW optchat_step_is_model: the stepper on any chat, sent any events and
+# queries that fit the wire, in any order, answers each as the model run
+# from that chat answers it (optchat_entry_answers, folded over every
+# order; the open's chat is pinned by optchat_open_loads)
 # EXCLUDES: a stepper whose replies drift from the model's after some
-# order of events, an open that starts the model elsewhere
+# order of events
 law optchat_step_is_model:
-  for +o: FOc.Open
+  for +cfg: OState.Cfg
+  for +s: OState.St
   for +qs: List<&2, FOc.Q>
-  for fits: {Bool.and(oc_open_fits(o), oc_all_fit(qs)) == True{} : Bool}
-  {oc_replies(qs, oc_state(FOc.open(oc_spell_open(o)))) == oc_spec(qs, oc_cfg(o), oc_chat(oc_state(oc_open_model(o)))) : List<&2, String>}
+  for fits: {oc_all_fit(qs) == True{} : Bool}
+  {oc_replies(qs, FOc.Live{cfg, s}) == oc_spec(qs, cfg, s) : List<&2, String>}
 
-# LAW optchat_open_is_model: an open that fits the wire opens the chat as
-# loaded: the built nodes' sizes, the view, T; the compaction view is the
-# view merged down to its floor; the ready merges are the built nodes
-# noted as builds note them; no call runs; a missed batch (the log's last
-# batch is open and older than the last message) runs as a message's
-# batch runs, and is answered; else the open answers none
+def oc_shrink(o: FOc.Open) -> Bool:
+  match o:
+    case FOc.Open{c, t, bs, vs, sh, m}:
+      sh
+
+def oc_missed(o: FOc.Open) -> Bool:
+  match o:
+    case FOc.Open{c, t, bs, vs, sh, m}:
+      m
+
+def oc_size.pick(later: Maybe<&2, Nat>, here: Bool, z: Nat) -> Maybe<&2, Nat>:
+  match later:
+    case None{}:
+      match here:
+        case True{}:
+          Some{z}
+        case False{}:
+          None{}
+    case Some{x}:
+      Some{x}
+
+# the size the open's built nodes give node(l, k): the last copy's
+def oc_size(bs: List<&2, FOc.Got>, +l: Nat, +k: Nat) -> Maybe<&2, Nat>:
+  match bs:
+    case Nil{}:
+      None{}
+    case FOc.Got{l2, k2, z} <> rest:
+      oc_size.pick(oc_size(rest, l, k), Bool.and(Nat.is_eq(l2, l), Nat.is_eq(k2, k)), z)
+
+# the chat st an open o loads, apart from its views: live with o's sizes,
+# T as o's (canonical bits), node(l, k) of the size o gives it, no call
+def oc_loaded(+o: FOc.Open, +st: FOc.St, +l: Nat, +k: Nat) -> Type:
+  ({st == FOc.Live{oc_cfg(o), oc_chat(st)} : FOc.St} & ({OBits.Bits.val(OState.St.t(oc_chat(st))) == oc_t(o) : Nat} & ({S.Bits.canon(OState.St.t(oc_chat(st))) == True{} : Bool} & ({OInfo.Info.get(OState.St.info(oc_chat(st)), oc_node(l, k)) == oc_size(oc_built(o), l, k) : Maybe<&2, Nat>} & {OState.St.busy(oc_chat(st)) == Nil{} : List<&2, ONode.Node>}))))
+
+# the view s opens with, and the reply: the loaded view and shrink, no
+# batch; or, when a batch was missed, the loaded view fitted down to floor
+# (as a message's batch fits it), still shrinking while over floor, that
+# batch answered
+def oc_opened.view(missed: Bool, +o: FOc.Open, +s: OState.St, +reply: String) -> Type:
+  match missed:
+    case False{}:
+      ({OState.St.view(s) == oc_lines(oc_view(o)) : List<&2, ONode.Node>} & ({OState.St.shrink(s) == oc_shrink(o) : Bool} & {reply == Wr.put_nat(0n, "") : String}))
+    case True{}:
+      &ms: List<&2, ONode.Node> -> (S.Chain(OFit.Last{}, OState.St.t(s), OState.St.info(s), OState.Cfg.floor(oc_cfg(o)), OState.Cfg.ph(oc_cfg(o)), oc_lines(oc_view(o)), ms, OState.St.view(s)) & ({OState.St.shrink(s) == Nat.is_gt(S.vsize(OState.Cfg.ph(oc_cfg(o)), OState.St.info(s), OState.St.view(s)), OState.Cfg.floor(oc_cfg(o))) : Bool} & {reply == oc_spell_batch(True{}, ms, s) : String}))
+
+# the views the chat st an open o opens holds, and the open's reply; the
+# compaction view is the view fitted down to cfloor
+def oc_opened(+o: FOc.Open, +st: FOc.St, +reply: String) -> Type:
+  oc_opened.view(oc_missed(o), o, oc_chat(st), reply) & S.Fitted(OFit.Last{}, OState.St.t(oc_chat(st)), OState.St.info(oc_chat(st)), OState.Cfg.cfloor(oc_cfg(o)), OState.Cfg.ph(oc_cfg(o)), OState.St.view(oc_chat(st)), OState.St.cview(oc_chat(st)))
+
+# LAW optchat_open_loads: an open that fits the wire, spelled, opens the
+# chat it loads: live with its sizes; T is the open's; every node(l, k)
+# has the size the open's built nodes give it (the last copy wins), the
+# others none; no call runs; with no missed batch, the view and shrink are
+# the open's and the reply is 0; with a missed batch, the view is the
+# open's fitted down to floor (optchat_fit_chain's chain), shrink says
+# whether it is still over floor, and the reply answers that batch; the
+# compaction view is the view fitted down to cfloor (the ready merges:
+# optchat_open_ready)
 # EXCLUDES: a missed batch lost or run twice, a batch at an open that
-# missed none, a compaction view that starts unfitted, a lost ready merge
-law optchat_open_is_model:
+# missed none, a compaction view that starts unfitted, a size or T lost
+# or misread, a call left running from before the restart
+law optchat_open_loads:
   for +o: FOc.Open
+  for +l: Nat
+  for +k: Nat
   for fits: {oc_open_fits(o) == True{} : Bool}
-  {FOc.open(oc_spell_open(o)) == oc_open_model(o) : FOc.St & String}
+  oc_loaded(o, oc_state(FOc.open(oc_spell_open(o))), l, k) & oc_opened(o, oc_state(FOc.open(oc_spell_open(o))), oc_reply_of(FOc.open(oc_spell_open(o))))
 
 # p is the parent of a built node n of bs whose sibling is built, and is
 # not built itself
@@ -667,295 +680,40 @@ law optchat_bits_of:
   for +n: Nat
   {OBits.Bits.val(OBits.Bits.of(n)) == n : Nat} & {S.Bits.canon(OBits.Bits.of(n)) == True{} : Bool}
 
-# The entry: the laws' reader, from the wire's primitives
+# The entry reads nothing but the spelled requests
 
-def oc_read.k(l: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Line>:
-  match r:
-    case Wr.Got{k, s}:
-      Wr.Got{FOc.Line{l, k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+# the input i is the spelling of an event or a query that fits the wire
+def oc_spelled(+i: String) -> Type:
+  &q: FOc.Q -> ({oc_spell(q) == i : String} & {oc_fits(q) == True{} : Bool})
 
-def oc_read.l(r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Line>:
-  match r:
-    case Wr.Got{l, s}:
-      oc_read.k(l, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a node: two Nats
-def oc_read.line(s: String) -> Wr.Dec<FOc.Line>:
-  oc_read.l(Wr.get_nat(s))
-
-def oc_read.size(n: FOc.Line, r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Got>:
-  match n r:
-    case FOc.Line{l, k} Wr.Got{z, s}:
-      Wr.Got{FOc.Got{l, k, z}, s}
-    case FOc.Line{l, k} Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.got.node(r: Wr.Dec<FOc.Line>) -> Wr.Dec<FOc.Got>:
-  match r:
-    case Wr.Got{n, s}:
-      oc_read.size(n, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a built node: three Nats
-def oc_read.got(s: String) -> Wr.Dec<FOc.Got>:
-  oc_read.got.node(oc_read.line(s))
-
-def oc_read.built(r: Wr.Dec<FOc.Got>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{g, s}:
-      match g:
-        case FOc.Got{l, k, z}:
-          Wr.Got{FOc.QBuilt{l, k, z}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.start(r: Wr.Dec<FOc.Line>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{n, s}:
-      match n:
-        case FOc.Line{l, k}:
-          Wr.Got{FOc.QStart{l, k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.free(r: Wr.Dec<FOc.Line>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{n, s}:
-      match n:
-        case FOc.Line{l, k}:
-          Wr.Got{FOc.QFree{l, k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.ctx(r: Wr.Dec<FOc.Line>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{n, s}:
-      match n:
-        case FOc.Line{l, k}:
-          Wr.Got{FOc.QCtx{l, k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.cands(r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{d, s}:
-      Wr.Got{FOc.QCands{d}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.need(r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{d, s}:
-      Wr.Got{FOc.QNeed{d}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.tag(n: Nat, s: String) -> Wr.Dec<FOc.Q>:
-  match n:
-    case 0n:
-      Wr.Got{FOc.QMsg{}, s}
-    case 1n:
-      oc_read.built(oc_read.got(s))
-    case 2n:
-      oc_read.start(oc_read.line(s))
-    case 3n:
-      oc_read.free(oc_read.line(s))
-    case 4n:
-      Wr.Got{FOc.QWait{}, s}
-    case 5n:
-      oc_read.cands(Wr.get_nat(s))
-    case 6n:
-      oc_read.need(Wr.get_nat(s))
-    case 7n:
-      oc_read.ctx(oc_read.line(s))
-    case 8n:
-      Wr.Got{FOc.QBusy{}, s}
-    case 9n+p:
-      Wr.Bad{}
-
-def oc_read.go(r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Q>:
-  match r:
-    case Wr.Got{n, s}:
-      oc_read.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read.end(whole: Bool, q: FOc.Q) -> Maybe<&2, FOc.Q>:
-  match whole:
-    case True{}:
-      Some{q}
-    case False{}:
-      None{}
-
-def oc_read.whole(d: Wr.Dec<FOc.Q>) -> Maybe<&2, FOc.Q>:
-  match d:
-    case Wr.Got{q, s}:
-      oc_read.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      None{}
-
-# the event or query s is, when s is exactly one
-def oc_read(s: String) -> Maybe<&2, FOc.Q>:
-  oc_read.whole(oc_read.go(Wr.get_nat(s)))
-
-# LAW optchat_entry_reads: in every state, an input the laws' reader reads
-# as exactly one event or query is answered as the model answers it
-# EXCLUDES: an input read otherwise by the entry than by the wire's
-# grammar, a reply or a move other than the model's
-law optchat_entry_reads:
-  for +cfg: OState.Cfg
-  for +s: OState.St
-  for +i: String
-  for +q: FOc.Q
-  for got: {oc_read(i) == Some{q} : Maybe<&2, FOc.Q>}
-  {FOc.step(FOc.Live{cfg, s}, i) == (FOc.Live{cfg, oc_next(cfg, s, q)}, oc_reply(cfg, s, q)) : FOc.St & String}
-
-# LAW optchat_entry_malformed_exact: in every state, an input the laws'
-# reader does not read as exactly one event or query (a bad tag, a short
-# or bad Nat, input left over) keeps the chat and answers exactly the
-# error form 'E ' + "optchat: malformed event"
+# LAW optchat_entry_spelled_or_refused: in every state, every input is
+# the spelling of an event or a query that fits the wire (answered as
+# the model answers it: optchat_entry_answers), or it keeps the chat and
+# answers exactly the error form 'E ' + "optchat: malformed event" (a bad
+# tag, a short or bad Nat, input left over)
 # EXCLUDES: a guessed event (garbage read as a message that runs a batch,
 # as a build, as a wait that stops calls), a chat moved by garbage,
-# another error text
-law optchat_entry_malformed_exact:
+# another error text, an input read otherwise than the wire's grammar
+law optchat_entry_spelled_or_refused:
   for +cfg: OState.Cfg
   for +s: OState.St
   for +i: String
-  for no: {oc_read(i) == None{} : Maybe<&2, FOc.Q>}
-  {FOc.step(FOc.Live{cfg, s}, i) == (FOc.Live{cfg, s}, SCon{'E', SCon{' ', "optchat: malformed event"}}) : FOc.St & String}
+  oc_spelled(i) | {FOc.step(FOc.Live{cfg, s}, i) == (FOc.Live{cfg, s}, Wr.err("optchat: malformed event")) : FOc.St & String}
 
-def oc_read_open.missed(c: OState.Cfg, t: Nat, bs: List<&2, FOc.Got>, vs: List<&2, FOc.Line>, sh: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FOc.Open>:
-  match r:
-    case Wr.Got{m, s}:
-      Wr.Got{FOc.Open{c, t, bs, vs, sh, m}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+# the input i is the spelling of an open that fits the wire
+def oc_open_spelled(+i: String) -> Type:
+  &o: FOc.Open -> ({oc_spell_open(o) == i : String} & {oc_open_fits(o) == True{} : Bool})
 
-def oc_read_open.shrink(c: OState.Cfg, t: Nat, bs: List<&2, FOc.Got>, vs: List<&2, FOc.Line>, r: Wr.Dec<Bool>) -> Wr.Dec<FOc.Open>:
-  match r:
-    case Wr.Got{sh, s}:
-      oc_read_open.missed(c, t, bs, vs, sh, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_open.view(c: OState.Cfg, t: Nat, bs: List<&2, FOc.Got>, r: Wr.Dec<List<&2, FOc.Line>>) -> Wr.Dec<FOc.Open>:
-  match r:
-    case Wr.Got{vs, s}:
-      oc_read_open.shrink(c, t, bs, vs, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_open.built(c: OState.Cfg, t: Nat, r: Wr.Dec<List<&2, FOc.Got>>) -> Wr.Dec<FOc.Open>:
-  match r:
-    case Wr.Got{bs, s}:
-      oc_read_open.view(c, t, bs, Wr.get_list(~FOc.Line, ~oc_read.line, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_open.t(c: OState.Cfg, r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Open>:
-  match r:
-    case Wr.Got{t, s}:
-      oc_read_open.built(c, t, Wr.get_list(~FOc.Got, ~oc_read.got, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_cfg.jobs(a: Nat, b: Nat, c: Nat, d: Nat, e: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<OState.Cfg>:
-  match r:
-    case Wr.Got{f, s}:
-      Wr.Got{OState.Cfg{a, b, c, d, e, f}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_cfg.cfloor(a: Nat, b: Nat, c: Nat, d: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<OState.Cfg>:
-  match r:
-    case Wr.Got{e, s}:
-      oc_read_cfg.jobs(a, b, c, d, e, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_cfg.cceil(a: Nat, b: Nat, c: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<OState.Cfg>:
-  match r:
-    case Wr.Got{d, s}:
-      oc_read_cfg.cfloor(a, b, c, d, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_cfg.floor(a: Nat, b: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<OState.Cfg>:
-  match r:
-    case Wr.Got{c, s}:
-      oc_read_cfg.cceil(a, b, c, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_cfg.ceil(a: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<OState.Cfg>:
-  match r:
-    case Wr.Got{b, s}:
-      oc_read_cfg.floor(a, b, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_cfg.ph(r: Wr.Dec<Nat>) -> Wr.Dec<OState.Cfg>:
-  match r:
-    case Wr.Got{a, s}:
-      oc_read_cfg.ceil(a, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_open.cfg(r: Wr.Dec<OState.Cfg>) -> Wr.Dec<FOc.Open>:
-  match r:
-    case Wr.Got{c, s}:
-      oc_read_open.t(c, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def oc_read_open.end(whole: Bool, o: FOc.Open) -> Maybe<&2, FOc.Open>:
-  match whole:
-    case True{}:
-      Some{o}
-    case False{}:
-      None{}
-
-def oc_read_open.whole(d: Wr.Dec<FOc.Open>) -> Maybe<&2, FOc.Open>:
-  match d:
-    case Wr.Got{o, s}:
-      oc_read_open.end(Wr.end(s), o)
-    case Wr.Bad{}:
-      None{}
-
-# the open s is, when s is exactly one
-def oc_read_open(s: String) -> Maybe<&2, FOc.Open>:
-  oc_read_open.whole(oc_read_open.cfg(oc_read_cfg.ph(Wr.get_nat(s))))
-
-# LAW optchat_entry_open_reads: an open input the laws' reader reads as
-# exactly one open opens the chat that open loads
-# EXCLUDES: an open read otherwise by the entry than by the wire's grammar
-law optchat_entry_open_reads:
-  for +i: String
-  for +o: FOc.Open
-  for got: {oc_read_open(i) == Some{o} : Maybe<&2, FOc.Open>}
-  {FOc.open(i) == oc_open_model(o) : FOc.St & String}
-
-# LAW optchat_entry_open_malformed_exact: an open input the laws' reader
-# does not read as exactly one open opens the refused state and answers
-# exactly the error form 'E ' + "optchat: malformed open"
+# LAW optchat_open_spelled_or_refused: every open input is the spelling
+# of an open that fits the wire (opened as optchat_open_loads says), or
+# it opens the refused state and answers exactly the error form
+# 'E ' + "optchat: malformed open"
 # EXCLUDES: a default chat (an empty one, or garbage sizes) opened for
-# garbage, a batch run for garbage
-law optchat_entry_open_malformed_exact:
+# garbage, a batch run for garbage, an open read otherwise than the
+# wire's grammar
+law optchat_open_spelled_or_refused:
   for +i: String
-  for no: {oc_read_open(i) == None{} : Maybe<&2, FOc.Open>}
-  {FOc.open(i) == (FOc.Refused{}, SCon{'E', SCon{' ', "optchat: malformed open"}}) : FOc.St & String}
-
-# LAW optchat_entry_shut: a refused open answers every step with exactly
-# the error form 'E ' + "optchat: the open was refused"
-# EXCLUDES: a refused stepper that answers a batch or nodes to start
-law optchat_entry_shut:
-  for +i: String
-  {FOc.step(FOc.Refused{}, i) == (FOc.Refused{}, SCon{'E', SCon{' ', "optchat: the open was refused"}}) : FOc.St & String}
+  oc_open_spelled(i) | {FOc.open(i) == (FOc.Refused{}, Wr.err("optchat: malformed open")) : FOc.St & String}
 
 # the replies of the stepper st to the inputs xs, in order
 def oc_answers(xs: List<&2, String>, +st: FOc.St) -> List<&2, String>:

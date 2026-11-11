@@ -1,6 +1,7 @@
 # memory (spec): what the laws of area optchat (laws/optchat.bend) speak
 # of, over the model in bend/optchat/ (Taelin's OptChat gist): Tiles,
-# Merged, Summarized, Before, Prefix, starts_before. A spec: the shipped
+# Merged, Summarized, Prefix, starts_before; and what the planner answers
+# (CtxOf, Chain, Saw, count, copies, Sorted). A spec: the shipped
 # code never calls it. The proofs in proof/optchat/ use it too.
 
 import Base
@@ -10,7 +11,6 @@ import ../../bend/optchat/info.bend as OInfo
 import ../../bend/optchat/fit.bend as OFit
 import ../../bend/optchat/state.bend as OState
 import ../../bend/optchat/step.bend as OStep
-import ../../bend/optchat/ctx.bend as OCtx
 
 # What the laws speak of
 # ----------------------
@@ -70,14 +70,6 @@ def Summarized(+info: OInfo.Info, v: List<&2, ONode.Node>) -> Type:
     case +h <> t:
       ({OBits.Bool.implies(OBits.Nat.is_pos(ONode.Node.lvl(h)), OInfo.Info.built(info, h)) == True{} : Bool} & Summarized(info, t))
 
-# every line of v ends by message b (in binary), and is built
-def Before(+info: OInfo.Info, +b: List<&2, Bool>, v: List<&2, ONode.Node>) -> Type:
-  match v:
-    case Nil{}:
-      Unit
-    case +h <> t:
-      ({OBits.Bits.le(OCtx.Node.end_bits(h), b) == True{} : Bool} & ({OInfo.Info.built(info, h) == True{} : Bool} & Before(info, b, t)))
-
 # p is a prefix of v
 def Prefix(p: List<&2, ONode.Node>, v: List<&2, ONode.Node>) -> Type:
   match p v:
@@ -112,14 +104,6 @@ def Bits.canon(bs: List<&2, Bool>) -> Bool:
     case h <> t:
       Bits.canon.go(t, h)
 
-# every line of v has an index without a high zero bit
-def Canon(v: List<&2, ONode.Node>) -> Bool:
-  match v:
-    case Nil{}:
-      True{}
-    case ONode.Node{l, i} <> rest:
-      Bool.and(Bits.canon(i), Canon(rest))
-
 def view.of(+cfg: OState.Cfg, +evs: List<&2, OState.Ev>) -> List<&2, ONode.Node>:
   OState.St.view(OStep.run(cfg, evs))
 
@@ -135,14 +119,13 @@ def ten() -> List<&2, Bool>:
 def view10() -> List<&2, ONode.Node>:
   [ONode.Node{2n, []}, ONode.Node{2n, [True{}]}, ONode.Node{0n, [False{}, False{}, False{}, True{}]}, ONode.Node{0n, [True{}, False{}, False{}, True{}]}]
 
-
 # What the planner answers (laws/optchat/queries.bend)
 # -----------------------------------------------------
-# The planner's replies to the chat's queries and its busy set after a
-# call starts, is freed or a turn waits, restated from the gist (§4: the
-# work queue, a compaction's view) and LAWS.bend H2 without the code of
-# bend/optchat/queue.bend and ctx.bend. Node indices count by their
-# value (OBits.Bits.val, pinned by optchat_bits_of).
+# The planner's replies to the chat's queries and its moves on each
+# event, restated from the gist (§3.2: a message's batch; §4: the work
+# queue, a compaction's view) and spec/README.md M1 without the code of
+# bend/optchat/. Node indices count by their value (OBits.Bits.val,
+# pinned by optchat_bits_of).
 
 # a and b name one node: one level, one index
 def same(a: ONode.Node, b: ONode.Node) -> Bool:
@@ -218,14 +201,17 @@ def cands(+cfg: OState.Cfg, +s: OState.St) -> List<&2, ONode.Node>:
   take(queue.room(cfg, s), List.append(&2, ONode.Node, queue.lines(OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), OState.St.view(s), 0n), queue.ready(OState.St.busy(s), OState.St.ready(s))))
 
 # the nodes to start while a turn waits for the view: its lines only,
-# the ready merges wait (LAWS.bend H2.1)
+# the ready merges wait (spec/README.md M1: a
+# turn never waits forever on memory)
 def need(+cfg: OState.Cfg, +s: OState.St) -> List<&2, ONode.Node>:
   take(queue.room(cfg, s), queue.lines(OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), OState.St.view(s), 0n))
 
-# A compaction's view (gist §4): the compaction view's lines that end by
-# the node's bound, from the first on, stopping at the first line that
-# does not or is unbuilt. A message's node is bounded by the message
-# (the lines before it); a merge's by its last message.
+# A compaction's view (gist §4)
+# -----------------------------
+# A message's compaction sees the compaction view's lines that end by the
+# message; a merge's those that end by its last message; from the first
+# line on, up to the first line that does not end by then or is not
+# built yet.
 
 # x·2^l
 def sh(l: Nat, x: Nat) -> Nat:
@@ -251,59 +237,56 @@ def ctx_bound(n: ONode.Node) -> Nat:
         case 1n+p:
           sh(1n+p, 1n+OBits.Bits.val(i))
 
-def upto.keep(k: Bool, h: ONode.Node, t: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match k:
-    case True{}:
-      h <> t
-    case False{}:
-      Nil{}
+# the line x may be shown to a compaction bounded by b: it is built and
+# ends by message b
+def shown(+info: OInfo.Info, +b: Nat, +x: ONode.Node) -> Bool:
+  Bool.and(Nat.is_le(line_end(x), b), OInfo.Info.built(info, x))
 
-# the lines of v from the first on that end by b and are built
-def upto(v: List<&2, ONode.Node>, +info: OInfo.Info, +b: Nat) -> List<&2, ONode.Node>:
-  match v:
-    case Nil{}:
-      Nil{}
-    case +h <> t:
-      upto.keep(Bool.and(Nat.is_le(line_end(h), b), OInfo.Info.built(info, h)), h, upto(t, info, b))
+# CtxOf(info, b, c, v): c is the longest start of v whose every line may
+# be shown under b: c is a prefix of v, each of its lines is shown, and
+# the line of v right after it, if any, is not
+def CtxOf(+info: OInfo.Info, +b: Nat, c: List<&2, ONode.Node>, v: List<&2, ONode.Node>) -> Type:
+  match c v:
+    case Nil{} Nil{}:
+      Unit
+    case Nil{} +y <> vr:
+      {shown(info, b, y) == False{} : Bool}
+    case +x <> cr Nil{}:
+      Empty
+    case +x <> cr +y <> vr:
+      ({x == y : ONode.Node} & ({shown(info, b, x) == True{} : Bool} & CtxOf(info, b, cr, vr)))
 
-# the view a compaction of node n sees
-def ctx(+s: OState.St, +n: ONode.Node) -> List<&2, ONode.Node>:
-  upto(OState.St.cview(s), OState.St.info(s), ctx_bound(n))
-
-# The calls: a node whose call starts is busy once; a freed or built
-# node is not; a turn that starts to wait stops every busy node it does
-# not need: it keeps the view's lines still unbuilt.
+# The calls
+# ---------
 
 def with_busy(s: OState.St, bs: List<&2, ONode.Node>) -> OState.St:
   match s:
     case OState.St{t, info, view, shrink, cview, ready, busy}:
       OState.St{t, info, view, shrink, cview, ready, bs}
 
-# busy with n, once
-def busy_add(+busy: List<&2, ONode.Node>, +n: ONode.Node) -> List<&2, ONode.Node>:
-  keep(Bool.not(member(busy, n)), n, busy)
+# n + 1 when b holds
+def one_if(b: Bool, n: Nat) -> Nat:
+  match b:
+    case True{}:
+      1n+n
+    case False{}:
+      n
 
-# busy without n
-def busy_del(busy: List<&2, ONode.Node>, +n: ONode.Node) -> List<&2, ONode.Node>:
-  match busy:
+# 0 when b holds, else n
+def zero_if(b: Bool, n: Nat) -> Nat:
+  match b:
+    case True{}:
+      0n
+    case False{}:
+      n
+
+# how many lines of xs name the node x (by level and index value)
+def count(xs: List<&2, ONode.Node>, +x: ONode.Node) -> Nat:
+  match xs:
     case Nil{}:
-      Nil{}
-    case +h <> t:
-      keep(Bool.not(same(h, n)), h, busy_del(t, n))
-
-# the busy nodes a waiting turn needs: the view's lines still unbuilt
-def needed(+info: OInfo.Info, +view: List<&2, ONode.Node>, busy: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match busy:
-    case Nil{}:
-      Nil{}
-    case +b <> t:
-      keep(Bool.and(member(view, b), Bool.not(OInfo.Info.built(info, b))), b, needed(info, view, t))
-
-# the chat once a turn starts to wait
-def wait(s: OState.St) -> OState.St:
-  match s:
-    case OState.St{t, +info, +view, shrink, cview, ready, busy}:
-      OState.St{t, info, view, shrink, cview, ready, needed(info, view, busy)}
+      0n
+    case h <> t:
+      one_if(same(h, x), count(t, x))
 
 # The built nodes' sizes: a map from a node (its level and its index
 # bits, exactly as the model holds them) to its size.
@@ -344,32 +327,49 @@ def info_pick(hit: Bool, z: Nat, old: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
 def info_after(n: ONode.Node, z: Nat, m: ONode.Node, old: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   info_pick(key_same(n, m), z, old)
 
-# A message's batch and the compaction sawtooth (laws/optchat/queries.bend)
-# --------------------------------------------------------------------------
-# Gist §3.2 and LAWS.bend M1, without bend/optchat/fit.bend and step.bend:
-# a line counts its node's bytes, or the placeholder's while unbuilt; a
-# fit merges, while the view is over its budget, the most due pair of
-# sibling lines whose parent is built (due = (T - last) / 2^l, compared
-# cross-multiplied in numbers; of equally due pairs the oldest), at most
-# once per line; past ceil a message's batch fits the view down to floor
-# and the compaction view restarts from it down to cfloor, else the
-# compaction view keeps its own sawtooth (past cceil, down to cfloor); a
-# built node's parent is ready once its sibling is built and it is not.
+# the sizes are a map of the nodes built (a chat's), not the push
+# comparison's All (every node built, one size)
+def is_map(info: OInfo.Info) -> Bool:
+  match info:
+    case OInfo.All{z}:
+      False{}
+    case OInfo.Lvls{ts}:
+      True{}
 
-def size_of(+ph: Nat, m: Maybe<&2, Nat>) -> Nat:
-  match m:
-    case None{}:
-      ph
-    case Some{z}:
-      z
-
-# the view's bytes
-def vsize(+ph: Nat, +info: OInfo.Info, v: List<&2, ONode.Node>) -> Nat:
-  match v:
+# how many lines of xs are exactly the node x (level and index bits: the
+# key the built sizes are read by)
+def copies(xs: List<&2, ONode.Node>, +x: ONode.Node) -> Nat:
+  match xs:
     case Nil{}:
       0n
+    case h <> t:
+      one_if(key_same(h, x), copies(t, x))
+
+# The ready merges: a list by level, then index value, each once.
+
+# a before b: by level, then index value
+def before(a: ONode.Node, b: ONode.Node) -> Bool:
+  match a b:
+    case ONode.Node{+la, ia} ONode.Node{+lb, ib}:
+      Bool.or(Nat.is_lt(la, lb), Bool.and(Nat.is_eq(la, lb), Nat.is_lt(OBits.Bits.val(ia), OBits.Bits.val(ib))))
+
+def Sorted.go(xs: List<&2, ONode.Node>, +p: ONode.Node) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
     case +h <> t:
-      Nat.add(size_of(ph, OInfo.Info.get(info, h)), vsize(ph, info, t))
+      Bool.and(before(p, h), Sorted.go(t, h))
+
+# every node of xs comes strictly before the next
+def Sorted(xs: List<&2, ONode.Node>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +h <> t:
+      Sorted.go(t, h)
+
+# The tree
+# --------
 
 # an index halved, and its lowest bit
 def half(i: List<&2, Bool>) -> List<&2, Bool>:
@@ -409,6 +409,25 @@ def pair_ok(+info: OInfo.Info, +a: ONode.Node, next: Maybe<&2, ONode.Node>) -> B
     case Some{b}:
       mergeable(info, a, b)
 
+# some line of v and the next may merge
+def mergeable_any(+info: OInfo.Info, v: List<&2, ONode.Node>) -> Bool:
+  match v:
+    case Nil{}:
+      False{}
+    case +x <> +rest:
+      Bool.or(pair_ok(info, x, List.head(&2, ONode.Node, rest)), mergeable_any(info, rest))
+
+# the other half of k's parent: k + 1 for an even k, k - 1 for an odd one
+def other.of(odd: Bool, k: Nat) -> Nat:
+  match odd:
+    case True{}:
+      Nat.sub(k, 1n)
+    case False{}:
+      1n+k
+
+def other(+k: Nat) -> Nat:
+  other.of(Nat.is_eq(Nat.mod(k, 2n), 1n), k)
+
 def lvl(n: ONode.Node) -> Nat:
   match n:
     case ONode.Node{l, i}:
@@ -419,14 +438,40 @@ def idx(n: ONode.Node) -> Nat:
     case ONode.Node{l, i}:
       OBits.Bits.val(i)
 
-# (u - xa) / 2^la > (u - xb) / 2^lb, both sides times 2^(la+lb), the
-# subtractions moved across
+# A message's batch and the compaction sawtooth (gist §3.2, §4)
+# -------------------------------------------------------------
+# A line counts its node's bytes, or the placeholder's while unbuilt. A
+# fit merges, while the view is over its budget, the most due pair of
+# sibling lines whose parent is built: due = (T - last) / 2^l, l the
+# lines' level, last the pair's last message; of equally due pairs the
+# oldest. Past ceil a message's batch fits the view down to floor and the
+# compaction view restarts from it down to cfloor; else the compaction
+# view keeps its own sawtooth (past cceil, down to cfloor).
+
+def size_of(+ph: Nat, m: Maybe<&2, Nat>) -> Nat:
+  match m:
+    case None{}:
+      ph
+    case Some{z}:
+      z
+
+# the view's bytes
+def vsize(+ph: Nat, +info: OInfo.Info, v: List<&2, ONode.Node>) -> Nat:
+  match v:
+    case Nil{}:
+      0n
+    case +h <> t:
+      Nat.add(size_of(ph, OInfo.Info.get(info, h)), vsize(ph, info, t))
+
+# (u - xa) / 2^la > (u - xb) / 2^lb as rationals: both sides times
+# 2^(la+lb), the subtractions moved across (so no Nat subtraction cuts)
 def cross(+u: Nat, +la: Nat, +lb: Nat, xa: Nat, xb: Nat) -> Bool:
   Nat.is_gt(Nat.add(sh(lb, u), sh(la, xb)), Nat.add(sh(la, u), sh(lb, xa)))
 
-# the pair from a on is more due than the pair from b on, at T messages:
-# Last measures from one past the pair's last message ((i+2)·2^l, against
-# T+1), First from its first message (i·2^l, against T)
+# the pair from a on is strictly more due than the pair from b on, at T
+# messages (t): Last measures from one past the pair's last message
+# ((i+2)·2^l, against T+1), First from its first message (i·2^l,
+# against T)
 def more_due(m: OFit.Age, +t: List<&2, Bool>, +a: ONode.Node, +b: ONode.Node) -> Bool:
   match m:
     case OFit.Last{}:
@@ -434,215 +479,87 @@ def more_due(m: OFit.Age, +t: List<&2, Bool>, +a: ONode.Node, +b: ONode.Node) ->
     case OFit.First{}:
       cross(OBits.Bits.val(t), lvl(a), lvl(b), sh(lvl(a), idx(a)), sh(lvl(b), idx(b)))
 
-def best.vs(more: Bool, +a: ONode.Node, c: ONode.Node) -> ONode.Node:
-  match more:
-    case True{}:
-      a
-    case False{}:
-      c
-
-def best.take(+m: OFit.Age, +t: List<&2, Bool>, +a: ONode.Node, cur: Maybe<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
-  match cur:
-    case None{}:
-      Some{a}
-    case Some{+c}:
-      Some{best.vs(more_due(m, t, a, c), a, c)}
-
-def best.pick(ok: Bool, +m: OFit.Age, +t: List<&2, Bool>, +a: ONode.Node, cur: Maybe<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
-  match ok:
-    case False{}:
-      cur
-    case True{}:
-      best.take(m, t, a, cur)
-
-def best.pair(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, +a: ONode.Node, next: Maybe<&2, ONode.Node>, cur: Maybe<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
-  match next:
-    case None{}:
-      cur
-    case Some{b}:
-      best.pick(mergeable(info, a, b), m, t, a, cur)
-
-# the first line of the most due mergeable pair: a later pair wins only
-# when strictly more due
-def best.go(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, v: List<&2, ONode.Node>, cur: Maybe<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
-  match v:
+# no pair of ys that may merge (a line and the next) is more due than the
+# pair from a on
+def NoneMore(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, +a: ONode.Node, ys: List<&2, ONode.Node>) -> Type:
+  match ys:
     case Nil{}:
-      cur
-    case +a <> +rest:
-      best.go(m, t, info, rest, best.pair(m, t, info, a, List.head(&2, ONode.Node, rest), cur))
+      Unit
+    case +y <> +r:
+      ({OBits.Bool.implies(pair_ok(info, y, List.head(&2, ONode.Node, r)), Bool.not(more_due(m, t, y, a))) == True{} : Bool} & NoneMore(m, t, info, a, r))
 
-def merge.pick(hit: Bool, +x: ONode.Node, +y: ONode.Node, more: List<&2, ONode.Node>, rec: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match hit:
-    case True{}:
-      parent(x) <> more
-    case False{}:
-      x <> rec
-
-def merge.here(+info: OInfo.Info, +a: ONode.Node, +x: ONode.Node, rest: List<&2, ONode.Node>, rec: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
+# x is a, x and the next line y may merge, w is v after them, and no
+# pair from y on is more due
+def At.here(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, +a: ONode.Node, +x: ONode.Node, rest: List<&2, ONode.Node>, +z: ONode.Node, +w: List<&2, ONode.Node>) -> Type:
   match rest:
     case Nil{}:
-      [x]
-    case +y <> more:
-      merge.pick(Bool.and(same(x, a), mergeable(info, x, y)), x, y, more, rec)
+      Empty
+    case +y <> +more:
+      ({x == a : ONode.Node} & ({mergeable(info, x, y) == True{} : Bool} & ({z == parent(x) : ONode.Node} & ({w == more : List<&2, ONode.Node>} & NoneMore(m, t, info, a, y <> more)))))
 
-# the first pair (a, y) of v that may merge, replaced by its parent
-def merge(+info: OInfo.Info, v: List<&2, ONode.Node>, +a: ONode.Node) -> List<&2, ONode.Node>:
-  match v:
+# At(m, t, info, a, v, w): w is v with the pair of lines from a on (a and
+# the next line, siblings whose parent is built) replaced by their parent,
+# and nothing else changed; every pair before it that may merge is
+# strictly less due, none after it more due (of equally due pairs, the
+# oldest merges)
+def At(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, +a: ONode.Node, v: List<&2, ONode.Node>, w: List<&2, ONode.Node>) -> Type:
+  match v w:
+    case Nil{} _:
+      Empty
+    case +x <> vr Nil{}:
+      Empty
+    case +x <> +vr +z <> +wr:
+      Or(At.here(m, t, info, a, x, vr, z, wr), ({x == z : ONode.Node} & ({OBits.Bool.implies(pair_ok(info, x, List.head(&2, ONode.Node, vr)), more_due(m, t, a, x)) == True{} : Bool} & At(m, t, info, a, vr, wr))))
+
+# a fit may stop at v: within its budget, or no pair of lines may merge
+def Stop(+info: OInfo.Info, +budget: Nat, +ph: Nat, +v: List<&2, ONode.Node>) -> Type:
+  Or({Nat.is_le(vsize(ph, info, v), budget) == True{} : Bool}, {mergeable_any(info, v) == False{} : Bool})
+
+# Chain(m, t, info, budget, ph, v, ms, w): the fit of v into budget bytes
+# merges the parents ms, in order, and ends at w: each merge, made while
+# the view is over budget, replaces the most due pair (At) by its parent;
+# the view then stops (Stop)
+def Chain(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, +budget: Nat, +ph: Nat, +v: List<&2, ONode.Node>, ms: List<&2, ONode.Node>, +w: List<&2, ONode.Node>) -> Type:
+  match ms:
     case Nil{}:
-      Nil{}
-    case +x <> +rest:
-      merge.here(info, a, x, rest, merge(info, rest, a))
+      ({w == v : List<&2, ONode.Node>} & Stop(info, budget, ph, v))
+    case +p <> rest:
+      ({Nat.is_gt(vsize(ph, info, v), budget) == True{} : Bool} & (&u: List<&2, ONode.Node> -> (&a: ONode.Node -> (({parent(a) == p : ONode.Node} & At(m, t, info, a, v, u)) & Chain(m, t, info, budget, ph, u, rest, w)))))
 
-def choose.if(over: Bool, +m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, v: List<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
+# Fitted(m, t, info, budget, ph, v, w): some fit of v into budget ends at w
+def Fitted(+m: OFit.Age, +t: List<&2, Bool>, +info: OInfo.Info, +budget: Nat, +ph: Nat, +v: List<&2, ONode.Node>, +w: List<&2, ONode.Node>) -> Type:
+  &ms: List<&2, ONode.Node> -> Chain(m, t, info, budget, ph, v, ms, w)
+
+def Saw.if(over: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, +w: List<&2, ONode.Node>) -> Type:
   match over:
     case False{}:
-      None{}
+      {w == cv : List<&2, ONode.Node>}
     case True{}:
-      best.go(m, t, info, v, None{})
+      Fitted(OFit.Last{}, t, info, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), cv, w)
 
-# the next merge: the most due pair, while over budget
-def choose(+m: OFit.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: OInfo.Info, +v: List<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
-  choose.if(Nat.is_gt(vsize(ph, info, v), budget), m, t, info, v)
-
-def fit.cons(n: ONode.Node, r: List<&2, ONode.Node> & List<&2, ONode.Node>) -> List<&2, ONode.Node> & List<&2, ONode.Node>:
-  (ms, out) = r
-  (n <> ms, out)
-
-def fit.go(fuel: Nat, c: Maybe<&2, ONode.Node>, +m: OFit.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: OInfo.Info, +v: List<&2, ONode.Node>) -> List<&2, ONode.Node> & List<&2, ONode.Node>:
-  match fuel c:
-    case 0n _:
-      (Nil{}, v)
-    case 1n+f None{}:
-      (Nil{}, v)
-    case 1n+f Some{+a}:
-      +w = merge(info, v, a)
-      fit.cons(parent(a), fit.go(f, choose(m, t, budget, ph, info, w), m, t, budget, ph, info, w))
-
-# a fit of the view into budget bytes: the merged parents in merge order,
-# and the view (each merge drops a line: the view's length bounds them)
-def fit(+m: OFit.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: OInfo.Info, +v: List<&2, ONode.Node>) -> List<&2, ONode.Node> & List<&2, ONode.Node>:
-  fit.go(List.length(&2, ONode.Node, v), choose(m, t, budget, ph, info, v), m, t, budget, ph, info, v)
-
-def fit.view(+m: OFit.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: OInfo.Info, +v: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  Pair.snd(List<&2, ONode.Node>, List<&2, ONode.Node>, fit(m, t, budget, ph, info, v))
-
-def fitc.if(over: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match over:
-    case False{}:
-      cv
-    case True{}:
-      fit.view(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, cv)
-
-# the compaction view's sawtooth: past cceil, down to cfloor
-def fitc(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  fitc.if(Nat.is_gt(vsize(OState.Cfg.ph(cfg), info, cv), OState.Cfg.cceil(cfg)), cfg, t, info, cv)
-
-# T + 1, in binary (lowest bit first)
-def inc(bs: List<&2, Bool>) -> List<&2, Bool>:
-  match bs:
-    case Nil{}:
-      [True{}]
-    case h <> t:
-      match h:
-        case False{}:
-          True{} <> t
-        case True{}:
-          False{} <> inc(t)
-
-def msg.cview(merged: List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +view: List<&2, ONode.Node>, +cv: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match merged:
-    case Nil{}:
-      fitc(cfg, t, info, cv)
-    case h <> rest:
-      fit.view(OFit.Last{}, t, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), info, view)
-
-def msg.batch(r: List<&2, ONode.Node> & List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, ready: List<&2, ONode.Node>, busy: List<&2, ONode.Node>) -> OState.St & List<&2, ONode.Node>:
-  (merged0, view0) = r
-  +merged = merged0
-  +view = view0
-  (OState.St{t, info, view, Nat.is_gt(vsize(OState.Cfg.ph(cfg), info, view), OState.Cfg.floor(cfg)), msg.cview(merged, cfg, t, info, view, cv), ready, busy}, merged)
-
-def msg.go(grow: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +view: List<&2, ONode.Node>, +cv: List<&2, ONode.Node>, ready: List<&2, ONode.Node>, busy: List<&2, ONode.Node>) -> OState.St & List<&2, ONode.Node>:
-  match grow:
-    case False{}:
-      (OState.St{t, info, view, False{}, fitc(cfg, t, info, cv), ready, busy}, Nil{})
-    case True{}:
-      msg.batch(fit(OFit.Last{}, t, OState.Cfg.floor(cfg), OState.Cfg.ph(cfg), info, view), cfg, t, info, cv, ready, busy)
+# Saw(cfg, t, info, cv, w): the compaction view's sawtooth takes cv to w:
+# past cceil, cv is fitted down to cfloor; else it stays
+def Saw(+cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>, +w: List<&2, ONode.Node>) -> Type:
+  Saw.if(Nat.is_gt(vsize(OState.Cfg.ph(cfg), info, cv), OState.Cfg.cceil(cfg)), cfg, t, info, cv, w)
 
 # the view with message T's line
 def grown(+s: OState.St) -> List<&2, ONode.Node>:
   List.append(&2, ONode.Node, OState.St.view(s), [ONode.Node{0n, OState.St.t(s)}])
 
+# the compaction view with message T's line
+def cgrown(+s: OState.St) -> List<&2, ONode.Node>:
+  List.append(&2, ONode.Node, OState.St.cview(s), [ONode.Node{0n, OState.St.t(s)}])
+
 # a batch runs (or goes on) at this message: still shrinking, or past ceil
 def batch(+cfg: OState.Cfg, +s: OState.St) -> Bool:
   Bool.or(OState.St.shrink(s), Nat.is_gt(vsize(OState.Cfg.ph(cfg), OState.St.info(s), grown(s)), OState.Cfg.ceil(cfg)))
 
-# message T arrives: the chat after it, and the batch's merged parents
-def msg(+cfg: OState.Cfg, +s: OState.St) -> OState.St & List<&2, ONode.Node>:
-  msg.go(batch(cfg, s), cfg, inc(OState.St.t(s)), OState.St.info(s), grown(s), List.append(&2, ONode.Node, OState.St.cview(s), [ONode.Node{0n, OState.St.t(s)}]), OState.St.ready(s), OState.St.busy(s))
-
-# the index with its lowest bit flipped (no high zero bit kept)
-def flip(bs: List<&2, Bool>) -> List<&2, Bool>:
-  match bs:
+# the compaction view after a batch that merged ms: restarted from the new
+# view w, fitted down to cfloor; after a batch that merged nothing, the
+# sawtooth of the compaction view with the message's line, cv
+def Restart(ms: List<&2, ONode.Node>, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +w: List<&2, ONode.Node>, +cv: List<&2, ONode.Node>, +c: List<&2, ONode.Node>) -> Type:
+  match ms:
     case Nil{}:
-      [True{}]
-    case h <> t:
-      match h:
-        case False{}:
-          True{} <> t
-        case True{}:
-          match t:
-            case Nil{}:
-              Nil{}
-            case x <> r:
-              False{} <> x <> r
-
-# the other half of n's parent
-def sibling(n: ONode.Node) -> ONode.Node:
-  match n:
-    case ONode.Node{l, i}:
-      ONode.Node{l, flip(i)}
-
-# a before b: by level, then index
-def before(a: ONode.Node, b: ONode.Node) -> Bool:
-  match a b:
-    case ONode.Node{+la, ia} ONode.Node{+lb, ib}:
-      Bool.or(Nat.is_lt(la, lb), Bool.and(Nat.is_eq(la, lb), Nat.is_lt(OBits.Bits.val(ia), OBits.Bits.val(ib))))
-
-def ins.at(here: Bool, dup: Bool, +x: ONode.Node, +h: ONode.Node, t: List<&2, ONode.Node>, rec: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match here dup:
-    case True{} _:
-      x <> h <> t
-    case False{} True{}:
-      h <> t
-    case False{} False{}:
-      h <> rec
-
-# x into the sorted xs, once
-def ins(xs: List<&2, ONode.Node>, +x: ONode.Node) -> List<&2, ONode.Node>:
-  match xs:
-    case Nil{}:
-      [x]
-    case +h <> +t:
-      ins.at(before(x, h), same(x, h), x, h, t, ins(t, x))
-
-def ready.if(go: Bool, +p: ONode.Node, rs: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  match go:
-    case False{}:
-      rs
-    case True{}:
-      ins(rs, p)
-
-# n is built: its parent is ready once its sibling is built and it is not
-def ready_note(+info: OInfo.Info, +n: ONode.Node, rs: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
-  ready.if(Bool.and(OInfo.Info.built(info, sibling(n)), Bool.not(OInfo.Info.built(info, parent(n)))), parent(n), rs)
-
-def build.go(+cfg: OState.Cfg, +n: ONode.Node, +info: OInfo.Info, s: OState.St) -> OState.St:
-  match s:
-    case OState.St{+t, i0, view, shrink, cview, ready, busy}:
-      OState.St{t, info, view, shrink, fitc(cfg, t, info, cview), ready_note(info, n, busy_del(ready, n)), busy_del(busy, n)}
-
-# node n is built, size bytes: its size is noted, the compaction view keeps
-# its sawtooth, n is no longer ready nor busy, its parent may be ready
-def build(+cfg: OState.Cfg, +s: OState.St, +n: ONode.Node, +size: Nat) -> OState.St:
-  build.go(cfg, n, OInfo.Info.set(OState.St.info(s), n, size), s)
+      Saw(cfg, t, info, cv, c)
+    case h <> r:
+      Fitted(OFit.Last{}, t, info, OState.Cfg.cfloor(cfg), OState.Cfg.ph(cfg), w, c)
