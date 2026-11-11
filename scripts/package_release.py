@@ -97,7 +97,7 @@ REQUIRED_FILES = (
     "models.bundled.json",
     "mcp-services.bundled.json",
     "eukhe-runtime/pyproject.toml",
-    # The hash-locked kernel venv requirements the bootstrap installs.
+    # Eukhe's package lock: what a kernel installs on demand, with hashes.
     "eukhe-runtime/requirements-kernel.txt",
     "eukhe-runtime/src/rlm/repl.py",
 )

@@ -365,15 +365,15 @@ pub fn closing_block(custom_prompt: Option<&SourcedPrompt>) -> Option<&'static s
         .then(|| layers::CRITICAL_LAYER.trim())
 }
 
+/// The kernel's packages, within the prompt budget (`budget_tests`): the
+/// import names of Eukhe's lock and the command that locks any other.
 fn packages_section() -> String {
-    use crate::kernel::bootstrap::default_rlm_extra_import_labels;
-    let mut lines = vec![format!(
-        "Pre-installed Python packages: {}.",
-        default_rlm_extra_import_labels().join(", ")
-    )];
-    lines
-        .push("Install more with `uv pip install <pkg>` (the venv has no pip module).".to_string());
-    lines.join("\n")
+    let [rest @ .., (_, last)] = crate::kernel::LOCKED_PACKAGES;
+    let rest: Vec<&str> = rest.iter().map(|(_, import)| *import).collect();
+    format!(
+        "Python packages: importing {} or {last} installs its locked version. For any other, run `eukhe kernel lock <pkg>` in bash first.",
+        rest.join(", ")
+    )
 }
 
 fn context_files_section(context_files: &[(String, String)]) -> String {
@@ -586,7 +586,7 @@ mod tests {
         assert!(tail.contains("Working directory: /w"));
         assert!(tail.contains("<skills>\n"));
         assert!(tail.contains("Recursive agent depth: 0 (root)"));
-        assert!(tail.contains("Pre-installed Python packages: requests, httpx,"));
+        assert!(tail.contains("Python packages: importing requests, httpx,"));
     }
 
     /// A chat-memory session's prompt (`OptChat` §3.3, §5): the memory layer

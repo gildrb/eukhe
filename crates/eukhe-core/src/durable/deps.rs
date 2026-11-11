@@ -315,7 +315,7 @@ pub struct SessionConfig {
     /// A resumed conversation with a namespace snapshot prewarms regardless.
     pub prewarm_kernel: bool,
     /// The kernel interpreter; `None` resolves the `EUKHE_KERNEL_PYTHON`
-    /// override or the auto-bootstrapped `~/.eukhe` kernel venv. Tests set
+    /// override or Eukhe's pinned Python (`~/.eukhe/kernel`). Tests set
     /// this checkout's runtime so no test touches the user's home.
     pub kernel_python: Option<PathBuf>,
     /// How long the host keeps the session open.

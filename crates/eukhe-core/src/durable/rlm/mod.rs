@@ -191,9 +191,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     history::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
-    // A kernel that cannot start is never booted: a failed local build
-    // would leave a broken venv the next open's probe could not tell from
-    // an out-of-date one.
+    // A kernel that cannot start (its Python could not be fetched) is
+    // never booted.
     let kernel_usable = deps.kernel_unavailable.is_none();
     deps.add_service(Box::new(move |opened: OpenedSession| {
         async move {

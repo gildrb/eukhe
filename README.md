@@ -6,12 +6,12 @@ Coding agent with a memory of all things. εὐχή: a wish, a prayer.
 
 ```sh
 curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64); rerun to update
-eukhe kernel install                       # one time: the Python kernel (needs uv); until then sessions have no ipython tool
 ```
 
 - Nix: `nix run github:gildrb/eukhe`
 - Home Manager: `programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)
 - Source: `cargo build --release --locked -p eukhe-cli`
+- Python kernel: nothing to install. The first kernel start fetches Eukhe's pinned Python (CPython 3.14.10, about 50 MB, once); `eukhe kernel install` fetches it ahead of time, for offline use.
 
 ## Use
 

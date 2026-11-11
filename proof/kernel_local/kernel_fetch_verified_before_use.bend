@@ -4,20 +4,21 @@ import Base
 import ../../bend/kernel_local.bend as KL
 import ../../laws/kernel_local.bend as KernelLocal
 
-def pk.fetch_verified_before_use(f: KL.Found, s: KL.Setup) -> {KL.acts.verified(KL.plan(f, s), True{}) == True{} : Bool}:
-  match f s:
-    case KL.Current{} KL.Local{}:
+def KernelLocal.kernel_fetch_verified_before_use(uv, python, env):
+  match uv python env:
+    case True{} True{} True{}:
       {==}
-    case KL.Current{} KL.Install{}:
+    case True{} True{} False{}:
       {==}
-    case KL.Skills{} KL.Local{}:
+    case True{} False{} True{}:
       {==}
-    case KL.Skills{} KL.Install{}:
+    case True{} False{} False{}:
       {==}
-    case KL.Stale{} KL.Local{}:
+    case False{} True{} True{}:
       {==}
-    case KL.Stale{} KL.Install{}:
+    case False{} True{} False{}:
       {==}
-
-def KernelLocal.kernel_fetch_verified_before_use(f, s):
-  pk.fetch_verified_before_use(f, s)
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
+      {==}

@@ -19,7 +19,8 @@ fn agents_without_a_terminal_refuses_instead_of_running_print_mode() {
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("EUKHE_CODING_AGENT_DIR", dir.path().join("agent"))
         .env("EUKHE_DAEMON_SOCKET", dir.path().join("d.sock"))
-        .env("EUKHE_KERNEL_VENV", dir.path().join("venv"))
+        .env("EUKHE_KERNEL_DIR", dir.path().join("kernel"))
+        .env("EUKHE_OFFLINE", "1")
         .stdin(Stdio::null())
         .output()
         .expect("run eukhe agents");

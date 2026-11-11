@@ -1,4 +1,4 @@
-//! Cross-process bootstrap lock for the kernel venv, ported from
+//! Cross-process bootstrap lock for the kernel toolchain's setup, ported from
 //! `utils/dir-lock.ts`: a `link(2)`-published lock file whose owner is a
 //! live pid; stale locks are renamed aside, verified, then reclaimed.
 //!
@@ -19,7 +19,10 @@ use std::path::{Path, PathBuf};
 use eukhe_bend::wire::{Reader, Writer, NAT_MAX};
 use eukhe_bend::{Entry, Error};
 
-use super::venv::{BOOTSTRAP_LOCK_NAME, BOOTSTRAP_LOCK_RETRY_MS};
+/// The suffix of the lock file beside the directory it guards.
+const BOOTSTRAP_LOCK_NAME: &str = ".bootstrap.lock";
+/// How long a waiter sleeps between attempts.
+const BOOTSTRAP_LOCK_RETRY_MS: u64 = 100;
 
 /// The infix of an attempt's candidate file name.
 const CANDIDATE_INFIX: &str = ".candidate-";
@@ -279,7 +282,8 @@ pub(crate) fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAt
     })
 }
 
-/// Serialize concurrent bootstraps across processes on the same venv.
+/// Serialize concurrent setups across processes: the lock file is `base`'s
+/// path with [`BOOTSTRAP_LOCK_NAME`] appended.
 pub(crate) async fn acquire_bootstrap_lock(venv: &Path) -> anyhow::Result<impl Drop> {
     let lock_dir = venv.with_file_name(format!(
         "{}{}",

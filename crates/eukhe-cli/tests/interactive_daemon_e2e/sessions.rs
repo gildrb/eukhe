@@ -325,12 +325,14 @@ async fn tui_kernel_unavailable_is_a_notification_shown_once_and_no_session_entr
     // The client keeps the notification's marker in the agent dir the
     // daemon serves.
     std::env::set_var("EUKHE_CODING_AGENT_DIR", &agent_dir);
-    // No interpreter override and no kernel venv: the kernel cannot start.
-    let no_venv = dir.path().join("no-kernel-venv");
+    // No interpreter override, no fetched Python and offline: the kernel
+    // cannot start.
+    let no_kernel = dir.path().join("no-kernel");
     let supervisor = spawn_supervisor_with(dir.path(), |command| {
         command
             .env_remove("EUKHE_KERNEL_PYTHON")
-            .env("EUKHE_KERNEL_VENV", &no_venv);
+            .env("EUKHE_KERNEL_DIR", &no_kernel)
+            .env("EUKHE_OFFLINE", "1");
     });
     std::fs::write(
         dir.path().join("script.json"),

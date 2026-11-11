@@ -74,8 +74,10 @@ fn provision() -> PathBuf {
         "--locked",
         "--group",
         "kernel",
+        "--group",
+        "dev",
         "--python",
-        "3.11",
+        "3.14",
     ])
     .arg("--project")
     .arg(&runtime)

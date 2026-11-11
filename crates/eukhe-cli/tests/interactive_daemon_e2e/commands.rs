@@ -185,7 +185,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         "15000",
     );
     // The supervisor's sessions prewarm on this checkout's runtime, never
-    // the user's `~/.eukhe` kernel venv.
+    // the user's `~/.eukhe/kernel`.
     std::env::set_var(
         "EUKHE_KERNEL_PYTHON",
         crate::eukhe::kernel_runtime::kernel_python(),

@@ -1,20 +1,25 @@
 # eukhe: the proof of LAW kernel_plan_exact
+# The plan of each of the eight things a setup can find computes.
 
 import Base
 import ../../bend/kernel_local.bend as KL
 import ../../laws/kernel_local.bend as KernelLocal
 
-def KernelLocal.kernel_plan_exact(f, s):
-  match f s:
-    case KL.Current{} KL.Local{}:
+def KernelLocal.kernel_plan_exact(uv, python, env):
+  match uv python env:
+    case True{} True{} True{}:
       {==}
-    case KL.Current{} KL.Install{}:
+    case True{} True{} False{}:
       {==}
-    case KL.Skills{} KL.Local{}:
+    case True{} False{} True{}:
       {==}
-    case KL.Skills{} KL.Install{}:
+    case True{} False{} False{}:
       {==}
-    case KL.Stale{} KL.Local{}:
+    case False{} True{} True{}:
       {==}
-    case KL.Stale{} KL.Install{}:
+    case False{} True{} False{}:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
       {==}

@@ -427,7 +427,8 @@ fn rpc_fresh_session_without_a_kernel_counts_no_message() {
         |command, home| {
             command
                 .env_remove("EUKHE_KERNEL_PYTHON")
-                .env("EUKHE_KERNEL_VENV", home.join("no-kernel-venv"));
+                .env("EUKHE_KERNEL_DIR", home.join("no-kernel"))
+                .env("EUKHE_OFFLINE", "1");
         },
     );
     let response = client.request(&json!({ "type": "get_state" }));

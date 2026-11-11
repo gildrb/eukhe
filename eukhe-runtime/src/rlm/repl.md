@@ -119,6 +119,28 @@ in `linecache` under `<cell-N>`, so tracebacks show the offending source line.
 Tracebacks are plain `traceback` formatting with the runtime's own frames
 stripped, keeping cell and library frames; no colors, no decoration.
 
+## Packages
+
+The runtime imports only the standard library. A package installs on demand
+and only from a lock (`rlm/pip.py`): the host passes its uv
+(`EUKHE_KERNEL_UV`), Eukhe's lock (`EUKHE_KERNEL_LOCK`), the project's lock
+(`EUKHE_KERNEL_PROJECT_LOCK`) and the project's package directory
+(`EUKHE_KERNEL_PROJECT_PACKAGES`). The last finder of `sys.meta_path`
+installs a locked distribution the first time a cell, a skill, the runtime
+or a project module imports its top-level module (`uv pip install
+--require-hashes`, the locks as constraints), then the import goes on; an
+import inside the standard library or an installed package installs nothing.
+Eukhe's packages go into the kernel env, a project lock's into the project's
+directory at the end of `sys.path`. A `ModuleNotFoundError` of a module no
+lock names ends with the command that locks it (`eukhe kernel lock <name>`).
+
+A cell that does not parse as Python runs each `%pip <args>` line (at any
+indentation) as a call: `%pip install <name>...` installs the locked version
+of each name (it refuses a name no lock holds, another version, a path or a
+URL); `%pip list`, `show`, `freeze` and `check` are uv's. No other IPython
+syntax exists (`!cmd`, `%timeit`, `?obj`): the runtime is Eukhe's own, not
+IPython.
+
 ## Interrupt
 
 `{"type":"interrupt"}` raises `KeyboardInterrupt` in the running cell. Without

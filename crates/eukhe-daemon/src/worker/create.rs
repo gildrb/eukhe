@@ -618,7 +618,7 @@ impl Worker {
         // sessions.
         config.prewarm_kernel = true;
         // This crate's tests run this checkout's runtime, never the user's
-        // `~/.eukhe` kernel venv.
+        // `~/.eukhe/kernel`.
         #[cfg(test)]
         {
             config.kernel_python =

@@ -28,10 +28,11 @@ use crate::kernel::transport::{KernelTransport, KernelWrapper, PathMapError};
 /// Numbers each spawned kernel's orphan journal within this host process.
 static NEXT_ORPHAN_JOURNAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// What one start runs: the host interpreter it resolved, or the
-/// transport's wrapper.
+/// What one start runs: the host interpreter it resolved (`None` for the
+/// session's own interpreter, which runs as it is), or the transport's
+/// wrapper.
 enum Launch<'a> {
-    Local(std::path::PathBuf),
+    Local(std::path::PathBuf, Option<crate::kernel::KernelPython>),
     Wrapped(&'a KernelWrapper),
 }
 
@@ -220,28 +221,31 @@ impl Inner {
     }
 
     /// The Python interpreter this kernel runs on: the explicit option when
-    /// present, else the auto-bootstrapped kernel venv.
+    /// present (run as it is), else Eukhe's pinned Python, fetched first
+    /// when it is absent
+    /// ([`crate::kernel::bootstrap::ensure_kernel_python`]).
     async fn resolve_python(
         self: &Arc<Self>,
         options: &KernelStartOptions,
-    ) -> anyhow::Result<std::path::PathBuf> {
+    ) -> anyhow::Result<(std::path::PathBuf, Option<crate::kernel::KernelPython>)> {
         if let Some(python) = &self.options.python {
-            return Ok(python.clone());
+            return Ok((python.clone(), None));
         }
         if let Some(cached) = lock(&self.resolved_python).clone() {
-            return Ok(cached);
+            return Ok((cached.python.clone(), Some(cached)));
         }
         let progress = options.on_bootstrap_progress.clone();
         let skills = self.options.python_skills.clone();
-        let python = crate::kernel::bootstrap::ensure_kernel_python(
+        let kernel = crate::kernel::bootstrap::ensure_kernel_python(
             crate::kernel::bootstrap::EnsureKernelPythonOptions {
                 python_skills: skills,
                 on_progress: progress,
             },
+            self.options.cwd.as_deref(),
         )
         .await?;
-        *lock(&self.resolved_python) = Some(python.clone());
-        Ok(python)
+        *lock(&self.resolved_python) = Some(kernel.clone());
+        Ok((kernel.python.clone(), Some(kernel)))
     }
 
     /// Perform the startup: resolve the interpreter, spawn `python -m rlm.repl`,
@@ -266,7 +270,7 @@ impl Inner {
         // bootstrap is for a local kernel only.
         let launch = match &self.options.transport {
             KernelTransport::Local => match self.resolve_python(options).await {
-                Ok(python) => Launch::Local(python),
+                Ok((python, kernel)) => Launch::Local(python, kernel),
                 Err(error) => {
                     if self.start_stale(self.current_generation()) {
                         // Never touch a newer start's state.
@@ -292,7 +296,7 @@ impl Inner {
 
         let cwd = self.options.cwd.clone();
         let (command, orphan_reap, program) = match &launch {
-            Launch::Local(python) => {
+            Launch::Local(python, kernel) => {
                 // bash.py journals its process groups under this pid into
                 // the kernel's own journal so the host can reap them if the
                 // runtime dies without running its shutdown hook.
@@ -306,6 +310,9 @@ impl Inner {
                     &self.options.env,
                     &self.options.kept_credentials,
                 );
+                if let Some(kernel) = kernel {
+                    kernel.apply_env(&mut env);
+                }
                 env.insert(
                     "EUKHE_KERNEL_OWNER_PID".to_string(),
                     std::process::id().to_string(),
@@ -315,12 +322,12 @@ impl Inner {
                     orphan_journal.to_string_lossy().into_owned(),
                 );
                 let mut command = tokio::process::Command::new(python);
-                // `-P` (Python >= 3.11, the runtime's floor): the working
-                // directory is not prepended to `sys.path`, so a project's
-                // own `rlm/`, `json.py`, ... cannot shadow the runtime or
-                // the stdlib. `rlm.repl` appends the cwd at the END of
-                // `sys.path` after boot, so cells still import project-only
-                // modules; cells run with `cwd` as their working dir.
+                // `-P`: the working directory is not prepended to
+                // `sys.path`, so a project's own `rlm/`, `json.py`, ...
+                // cannot shadow the runtime or the stdlib. `rlm.repl`
+                // appends the cwd at the END of `sys.path` after boot, so
+                // cells still import project-only modules; cells run with
+                // `cwd` as their working dir.
                 command.args(["-P", "-m", "rlm.repl"]);
                 if let Some(cwd) = &cwd {
                     command.current_dir(cwd);
@@ -394,9 +401,10 @@ impl Inner {
             Err(error) => {
                 // Fail a pending start promptly instead of riding out the
                 // ready timeout. The interpreter itself failed to launch, so
-                // the memoized runtime-ready result is stale: drop it so a
-                // startup retry re-probes (and rebuilds when the probe fails).
-                crate::kernel::bootstrap::invalidate_runtime_probe_cache();
+                // the resolved interpreter is stale: drop it so a startup
+                // retry looks at the toolchain again (and sets up what is
+                // gone).
+                lock(&self.resolved_python).take();
                 self.append_diagnostic(&format!("spawn error: {error}"));
                 {
                     let mut g = lock(&self.guarded);
@@ -425,10 +433,9 @@ impl Inner {
                     // Never tear down a newer start's kernel.
                     return Err(error);
                 }
-                // The child died or never reached ready, so the memoized
-                // runtime-ready result is stale: drop it and let a startup
-                // retry re-probe (and rebuild the venv when the probe fails).
-                crate::kernel::bootstrap::invalidate_runtime_probe_cache();
+                // The child died or never reached ready: a startup retry
+                // resolves the interpreter again.
+                lock(&self.resolved_python).take();
                 let can_retry_startup = lock(&self.guarded).state != KernelState::Shutdown;
                 // Only the call that performed the cleanup may resurrect to
                 // idle; a concurrent kill()/teardown owns the state otherwise.
@@ -448,9 +455,8 @@ impl Inner {
             return Err(anyhow!("{startup_error}"));
         }
         if protocol != REPL_PROTOCOL_VERSION as i64 {
-            // A stale runtime passed a memoized probe's key but speaks the
-            // wrong protocol: the memo is stale, so a retry re-probes.
-            crate::kernel::bootstrap::invalidate_runtime_probe_cache();
+            // Only a session's own interpreter can run another runtime:
+            // every other kernel gets this build's on `PYTHONPATH`.
             return Err(anyhow!(
                 "Kernel runtime speaks protocol {protocol}, expected {REPL_PROTOCOL_VERSION}. \
                  Update eukhe-runtime in the kernel Python (EUKHE_KERNEL_PYTHON) to match this eukhe."

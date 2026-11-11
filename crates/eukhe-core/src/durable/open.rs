@@ -248,7 +248,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     ));
     let loaded = load_session_resources(&config, &settings, &manager).await?;
     let kernel_unavailable =
-        kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager);
+        kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager).await;
     let deps = Arc::new(HostDeps::new(
         &config,
         ResolvedServices {

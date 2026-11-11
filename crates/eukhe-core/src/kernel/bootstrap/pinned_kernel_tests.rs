@@ -1,10 +1,12 @@
-//! A session whose kernel is missing. A venv that is not current: the
-//! ipython tool answers with the install command, and the other tools run
-//! (the model's laws `kernel_missing_names_install` and
-//! `kernel_missing_spares_tools` in `laws/kernel_local.bend`; this test
-//! runs the real session). No venv at all: the session offers no ipython
-//! tool and reports a notification naming the install, which a client
-//! shows once per install state; the session itself gets no entry.
+//! A session and the pinned Python its kernel runs on, without network
+//! (the fetch itself, the pinned version on a machine with other Pythons,
+//! and the locked package installs run against the real binary in
+//! `crates/eukhe-cli/tests/packaged_layout_e2e.rs`). A machine that has not
+//! fetched the Python and is offline: the session offers no ipython tool
+//! and reports one notification saying the fetch failed. A fetch that fails
+//! between the open and the first call: the ipython tool answers with the
+//! failed fetch, and the other tools run (the model's laws on a failed
+//! setup in `laws/kernel_local.bend`; these tests run the real session).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -15,12 +17,12 @@ use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxResponseStep,
 };
-use eukhe_types::pi_ai::{JsonObject, Message, StopReason};
+use eukhe_types::pi_ai::{JsonObject, Message, StopReason, UserContent};
 use serde_json::{json, Value};
 
-use super::{KernelUnavailable, KERNEL_ENV_LOCK, KERNEL_INSTALL_COMMAND};
+use super::{KERNEL_ENV_LOCK, KERNEL_FETCH_FAILED, KERNEL_INSTALL_COMMAND};
 use crate::durable::compaction::auxiliary_model::show_notice_row;
-use crate::durable::rlm::kernel_unavailable_notice::{notice_text, KERNEL_UNAVAILABLE_CUSTOM_TYPE};
+use crate::durable::rlm::kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE;
 use crate::durable::rlm::tests::{
     cx, entries, result_text, results, settle, submit, text, Fixture,
 };
@@ -54,6 +56,32 @@ impl KernelEnv {
         }
         Self(old)
     }
+}
+
+/// The tests' own kernel interpreter (built before a test moves `HOME`).
+fn tests_python() -> OsString {
+    SessionConfig::new("agent", "work", "session", SessionStorage::Memory)
+        .kernel_python
+        .expect("the tests' kernel python")
+        .into_os_string()
+}
+
+/// The kernel env of an offline machine that never fetched the Python: a
+/// new `HOME` (an empty `~/.eukhe/kernel`), no override, `EUKHE_OFFLINE`.
+fn offline_machine(home: &Path) -> KernelEnv {
+    tests_python();
+    std::fs::create_dir_all(home).expect("the fresh HOME");
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .into_os_string();
+    KernelEnv::set(vec![
+        ("HOME", Some(home.as_os_str().to_owned())),
+        ("EUKHE_KERNEL_DIR", None),
+        ("EUKHE_KERNEL_PYTHON", None),
+        ("XDG_DATA_HOME", None),
+        ("EUKHE_OFFLINE", Some(OsString::from("1"))),
+        ("EUKHE_PACKAGE_DIR", Some(checkout)),
+    ])
 }
 
 /// The tool names and the prompt sections in force at each model request.
@@ -161,14 +189,6 @@ async fn open_and_ask(
     (offered, shown)
 }
 
-/// The checkout's directory holding `eukhe-runtime/`: the runtime is
-/// found whether or not the test binary runs inside the checkout.
-fn checkout_package_dir() -> OsString {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .into_os_string()
-}
-
 /// A model step that calls `tool` with `arguments`.
 fn call(tool: &str, id: &str, arguments: Value) -> FauxResponseStep {
     let Value::Object(arguments) = arguments else {
@@ -188,72 +208,35 @@ fn call(tool: &str, id: &str, arguments: Value) -> FauxResponseStep {
     .into()
 }
 
-/// A session whose kernel venv is not current and cannot be set up from
-/// local files (its path is a file, so the local build fails before it
-/// runs uv). Regression: a session's first ipython call downloaded Python
-/// and the kernel packages; now the ipython tool answers with the install
-/// command, and the other tools run.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_missing_kernel_names_the_install_and_spares_the_other_tools() {
-    let _env_lock = KERNEL_ENV_LOCK.lock().await;
-    let fixture = Fixture::new();
-    let venv = fixture.dir.path().join("kernel-venv");
-    std::fs::write(&venv, "").expect("the venv path as a file");
-    let _env = KernelEnv::set(vec![
-        ("EUKHE_KERNEL_VENV", Some(venv.into_os_string())),
-        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
-        ("EUKHE_KERNEL_PYTHON", None),
-    ]);
-    fixture.faux.set_responses(vec![
-        call("bash", "call-0", json!({ "script": "echo 1" })),
-        call("ipython", "call-1", json!({ "code": "print('ran')" })),
-        call("ipython", "call-2", json!({ "code": "print('ran')" })),
-        call("bash", "call-3", json!({ "script": "echo 2" })),
-        text("done"),
-    ]);
-    let session = fixture
-        .open_configured(|config| config.kernel_python = None)
-        .await;
-    let id = submit(&session, "go").await;
-    settle(&session, id).await;
-    let answers: Vec<&str> = results(&entries(&session).await)
-        .iter()
-        .map(|result| {
-            if result_text(result).contains(KERNEL_INSTALL_COMMAND) {
-                "install"
-            } else if result.is_error {
-                "error"
-            } else {
-                "ran"
-            }
-        })
-        .collect();
-    session.close(cx()).await.expect("close");
-    assert_eq!(answers, ["ran", "install", "install", "ran"]);
+/// Is `notice` the notification of a fetch that failed because the
+/// machine is offline.
+fn is_offline_notice(notice: &str) -> bool {
+    notice.starts_with(&format!(
+        "The Python kernel cannot start: {KERNEL_FETCH_FAILED}: EUKHE_OFFLINE is set and uv {} is not fetched yet.",
+        super::pinned_uv_version()
+    )) && notice.contains(&format!("CPython {}", super::pinned_python_version()))
+        && notice.contains(KERNEL_INSTALL_COMMAND)
+        && notice.ends_with(
+            "This session has no `ipython` tool; the other tools work. The next session tries the fetch again.",
+        )
 }
 
 /// Regression (Local Studio): a session whose kernel cannot start offered
-/// the ipython tool, so the model's first call was a cell that could only
-/// answer with the install command. Now the probe at open finds no kernel
-/// venv: the model is offered no ipython tool and its prompt says the
-/// session has no Python REPL. The user is told by a notification naming
-/// the install, once per install state (omp's first-launch warning): at
-/// the first interactive session, not the second, not once the venv
-/// appears, and once more at the first session after it is gone again. A
-/// reopened session does not show it again either, and a headless run
-/// (print, json, rpc: no notification surface) neither shows it nor uses
-/// it up.
+/// the ipython tool. The kernel's Python is fetched on its own, so the
+/// only machine without a kernel is one that never fetched it and is
+/// offline: there the model is offered no ipython tool, its prompt says
+/// the session has no Python REPL, and the user is told by a notification
+/// saying the fetch failed, once per state: at the first interactive
+/// session, not a reopened one, not the second, not once a kernel works,
+/// and once more at the first session after it is gone again. A headless
+/// run (print, json, rpc) neither shows it nor uses it up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kernel_that_cannot_start_is_not_offered_and_notified_once() {
+async fn offline_without_the_python_is_not_offered_and_notified_once() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
+    let python = tests_python();
     let fixture = Fixture::new();
-    let venv = fixture.dir.path().join("kernel-venv");
-    let _env = KernelEnv::set(vec![
-        ("EUKHE_KERNEL_VENV", Some(venv.clone().into_os_string())),
-        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
-        ("EUKHE_KERNEL_PYTHON", None),
-    ]);
-    let notice = notice_text(&KernelUnavailable::NotInstalled(venv.clone()));
+    let home = fixture.dir.path().join("home");
+    let _env = offline_machine(&home);
     let seen = Seen::default();
     // A fresh session of the fixture's install: its own id and storage.
     let fresh = |n: u8| {
@@ -271,49 +254,50 @@ async fn a_kernel_that_cannot_start_is_not_offered_and_notified_once() {
 
     let headless = open_and_ask(&fixture, &seen, Host::Headless, fresh(0)).await;
     assert_eq!(headless, (false, None));
-    let first = open_and_ask(&fixture, &seen, Host::Interactive, fresh(1)).await;
-    assert_eq!(first, (false, Some(notice.clone())));
+    let (offered, shown) = open_and_ask(&fixture, &seen, Host::Interactive, fresh(1)).await;
+    assert!(!offered);
+    assert!(shown.as_deref().is_some_and(is_offline_notice), "{shown:?}");
     let reopened = open_and_ask(&fixture, &seen, Host::Interactive, fresh(1)).await;
     assert_eq!(reopened, (false, None));
     let second = open_and_ask(&fixture, &seen, Host::Interactive, fresh(2)).await;
     assert_eq!(second, (false, None));
+    assert!(
+        !home.join(".eukhe").join("kernel").join("uv").exists(),
+        "an offline machine fetches nothing"
+    );
 
-    std::fs::create_dir(&venv).expect("a venv appears");
-    let installed = open_and_ask(&fixture, &seen, Host::Interactive, fresh(3)).await;
-    assert_eq!(installed, (true, None));
+    std::env::set_var("EUKHE_KERNEL_PYTHON", &python);
+    let usable = open_and_ask(&fixture, &seen, Host::Interactive, fresh(3)).await;
+    assert_eq!(usable, (true, None));
 
-    std::fs::remove_dir(&venv).expect("the venv is gone again");
-    let lost = open_and_ask(&fixture, &seen, Host::Interactive, fresh(4)).await;
-    assert_eq!(lost, (false, Some(notice)));
+    std::env::remove_var("EUKHE_KERNEL_PYTHON");
+    let (offered, lost) = open_and_ask(&fixture, &seen, Host::Interactive, fresh(4)).await;
+    assert!(!offered);
+    assert!(lost.as_deref().is_some_and(is_offline_notice), "{lost:?}");
     let after = open_and_ask(&fixture, &seen, Host::Interactive, fresh(5)).await;
     assert_eq!(after, (false, None));
 }
 
-/// Regression: the notice was a `kernel_unavailable` row the open wrote
-/// into the first session of an install without the kernel, so that
-/// session was not empty before the user typed anything (the TUI hid its
-/// start banner, `/tree` opened an empty panel instead of saying "No
-/// entries in session", rpc `get_state` counted one message). The open
-/// writes no row; the session reports the notification instead.
+/// The open writes no notice row into a new session of an offline machine
+/// without the Python (the row made the TUI hide its start banner, `/tree`
+/// open an empty panel, rpc `get_state` count one message); the session
+/// reports the notification instead.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_new_session_without_a_kernel_holds_no_notice_row() {
+async fn a_new_session_without_the_python_holds_no_notice_row() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
     let fixture = Fixture::new();
-    let venv = fixture.dir.path().join("kernel-venv");
-    let _env = KernelEnv::set(vec![
-        ("EUKHE_KERNEL_VENV", Some(venv.clone().into_os_string())),
-        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
-        ("EUKHE_KERNEL_PYTHON", None),
-    ]);
+    let home = fixture.dir.path().join("home");
+    let _env = offline_machine(&home);
     let session = fixture
         .open_configured(|config| config.kernel_python = None)
         .await;
-    assert_eq!(
-        session.deps().kernel_unavailable_notice(),
-        Some(notice_text(&KernelUnavailable::NotInstalled(venv)))
-    );
+    let notice = session.deps().kernel_unavailable_notice();
     let rows = notices(&session).await;
     session.close(cx()).await.expect("close");
+    assert!(
+        notice.as_deref().is_some_and(is_offline_notice),
+        "{notice:?}"
+    );
     assert_eq!(rows, Vec::new());
 }
 
@@ -324,13 +308,10 @@ async fn a_new_session_without_a_kernel_holds_no_notice_row() {
 async fn a_session_stored_with_the_notice_row_still_opens() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
     let fixture = Fixture::new();
-    let venv = fixture.dir.path().join("kernel-venv");
-    let _env = KernelEnv::set(vec![
-        ("EUKHE_KERNEL_VENV", Some(venv.clone().into_os_string())),
-        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
-        ("EUKHE_KERNEL_PYTHON", None),
-    ]);
-    let stored = notice_text(&KernelUnavailable::NotInstalled(venv));
+    let home = fixture.dir.path().join("home");
+    let _env = offline_machine(&home);
+    let stored =
+        "The Python kernel is not installed, so this session has no `ipython` tool.".to_owned();
     let session = fixture
         .open_configured(|config| config.kernel_python = None)
         .await;
@@ -352,31 +333,63 @@ async fn a_session_stored_with_the_notice_row_still_opens() {
     let rows = notices(&session).await;
     session.close(cx()).await.expect("close");
     assert_eq!(rows.len(), 1, "the stored row, and no new one: {rows:?}");
-    assert_eq!(
-        rows[0].content,
-        Some(eukhe_types::pi_ai::UserContent::Text(stored))
-    );
+    assert_eq!(rows[0].content, Some(UserContent::Text(stored)));
     assert!(rows[0].display && !rows[0].input);
 }
 
-/// A working kernel is offered with no notice, even with no kernel venv:
-/// the `EUKHE_KERNEL_PYTHON` override, or the session's own interpreter
-/// (both the tests' kernel), starts it.
+/// A fetch that fails between the open and the first call (the session
+/// opened with a kernel; the machine then has none and is offline): the
+/// ipython tool answers with the failed fetch and the command that
+/// retries it, and the other tools run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_working_kernel_is_offered_without_a_notice() {
+async fn a_failed_fetch_answers_the_ipython_tool_and_spares_the_other_tools() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
-    let python = SessionConfig::new("agent", "work", "session", SessionStorage::Memory)
-        .kernel_python
-        .expect("the tests' kernel python");
+    let python = tests_python();
     let fixture = Fixture::new();
-    let _env = KernelEnv::set(vec![
-        (
-            "EUKHE_KERNEL_VENV",
-            Some(fixture.dir.path().join("kernel-venv").into_os_string()),
-        ),
-        ("EUKHE_PACKAGE_DIR", Some(checkout_package_dir())),
-        ("EUKHE_KERNEL_PYTHON", Some(python.into_os_string())),
+    let home = fixture.dir.path().join("home");
+    let _env = offline_machine(&home);
+    std::env::set_var("EUKHE_KERNEL_PYTHON", &python);
+    fixture.faux.set_responses(vec![
+        call("bash", "call-0", json!({ "script": "echo 1" })),
+        call("ipython", "call-1", json!({ "code": "print('ran')" })),
+        call("ipython", "call-2", json!({ "code": "print('ran')" })),
+        call("bash", "call-3", json!({ "script": "echo 2" })),
+        text("done"),
     ]);
+    let session = fixture
+        .open_configured(|config| config.kernel_python = None)
+        .await;
+    std::env::remove_var("EUKHE_KERNEL_PYTHON");
+    let id = submit(&session, "go").await;
+    settle(&session, id).await;
+    let answers: Vec<&str> = results(&entries(&session).await)
+        .iter()
+        .map(|result| {
+            let text = result_text(result);
+            if text.contains(KERNEL_FETCH_FAILED) && text.contains(KERNEL_INSTALL_COMMAND) {
+                "fetch failed"
+            } else if result.is_error {
+                "error"
+            } else {
+                "ran"
+            }
+        })
+        .collect();
+    session.close(cx()).await.expect("close");
+    assert_eq!(answers, ["ran", "fetch failed", "fetch failed", "ran"]);
+}
+
+/// A working kernel is offered with no notice on a machine without the
+/// pinned Python: the `EUKHE_KERNEL_PYTHON` override, or the session's own
+/// interpreter (both the tests' kernel), starts it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_named_interpreter_is_offered_without_a_notice() {
+    let _env_lock = KERNEL_ENV_LOCK.lock().await;
+    let python = tests_python();
+    let fixture = Fixture::new();
+    let home = fixture.dir.path().join("home");
+    let _env = offline_machine(&home);
+    std::env::set_var("EUKHE_KERNEL_PYTHON", python);
     let seen = Seen::default();
     let overridden = open_and_ask(&fixture, &seen, Host::Interactive, |config| {
         config.kernel_python = None;
