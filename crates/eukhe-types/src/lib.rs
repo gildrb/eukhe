@@ -32,7 +32,6 @@ pub mod session;
 pub mod shell;
 pub mod skill_blocks;
 pub mod slash_commands;
-pub mod token_estimate;
 pub mod usage;
 pub mod workflow;
 
