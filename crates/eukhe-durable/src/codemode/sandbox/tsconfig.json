@@ -1,0 +1,18 @@
+{
+  // The VM glue runs in rquickjs (QuickJS, ES2024, no DOM). noUncheckedIndexedAccess is off:
+  // host.ts looks Date's methods up by computed name (date.d.ts), and those exist.
+  // exactOptionalPropertyTypes is off: a descriptor read back gives `enumerable: boolean |
+  // undefined`, and prelude.ts redefines properties with it.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024", "esnext.iterator"],
+    "types": [],
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true
+  },
+  "files": ["host.ts", "prelude.ts", "protocol.d.ts", "date.d.ts", "script.d.ts"]
+}

@@ -29,9 +29,13 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::super::types::{CodemodeCallTarget, CodemodeOutputItem, TextOrigin};
 
 /// The VM's glue: deterministic clock, timezone, and randomness, and the
-/// bridge encoding.
+/// bridge encoding. Generated from `host.ts` by `make embedded-js` (never
+/// hand-edited). Its bytes are part of the sandbox fingerprint: a change
+/// makes a script started before it fail instead of resuming.
 pub(super) const HOST_SOURCE: &str = include_str!("host.js");
-/// pi-codemode's prelude, unchanged.
+/// pi-codemode's prelude, unchanged. Generated from `prelude.ts` by
+/// `make embedded-js` (never hand-edited; in the fingerprint like
+/// `HOST_SOURCE`); `protocol.d.ts` types what it exchanges with this module.
 pub(super) const PRELUDE_SOURCE: &str = include_str!("prelude.js");
 
 /// Promise jobs run between two `stop` polls while draining the job queue.
