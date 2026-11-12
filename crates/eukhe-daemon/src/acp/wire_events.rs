@@ -1,12 +1,14 @@
 //! Daemon session-event mapping: the TS `acpUpdatesForSessionEvent` port
 //! for the wire shapes a daemon worker streams (`message_start/update/end`,
-//! `tool_execution_*`, `bash_*`, `compaction_end`, `goal_update`, ...): the
+//! `tool_execution_*`, `bash_*`, `compaction_end`, `goal_update`,
+//! `loop_update`, ...): the
 //! ACP frames the daemon worker's session events produce.
 //!
 //! Events with no ACP counterpart (`turn_end`, `auto_retry_*`,
 //! `agent_begin/end`, `session_action_update`) map to nothing, exactly like
 //! the TS switch's default arm.
 
+use eukhe_types::budget::BudgetReport;
 use serde::Deserialize as _;
 use serde_json::{json, Value};
 
@@ -14,7 +16,7 @@ use super::meta::{eukhe_meta, EukheCompactionMeta, EukheSessionMeta};
 use super::types::{AcpSessionUpdate, AcpToolKind, AcpToolStatus, TextBlock};
 
 /// The model-facing Python REPL tool.
-const IPYTHON_TOOL_NAME: &str = "ipython";
+const PYTHON_TOOL_NAME: &str = "python";
 
 /// Correlates streamed chunks with their owning assistant message (the
 /// daemon stream carries the delta on `assistantMessageEvent`) and bash
@@ -222,12 +224,12 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 .unwrap_or_default()
                 .to_string();
             let args = event.get("args").cloned().unwrap_or(Value::Null);
-            let cell = if tool_name == IPYTHON_TOOL_NAME {
+            let cell = if tool_name == PYTHON_TOOL_NAME {
                 args.get("code").and_then(Value::as_str).map(str::to_string)
             } else {
                 None
             };
-            let title = if tool_name == IPYTHON_TOOL_NAME {
+            let title = if tool_name == PYTHON_TOOL_NAME {
                 "Python cell".to_string()
             } else {
                 tool_name.clone()
@@ -254,7 +256,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let text = tool_result_text(event.get("result"));
-            let rich = ipython_rich_output(event.get("result"));
+            let rich = python_rich_output(event.get("result"));
             let update = AcpSessionUpdate::ToolCallUpdate {
                 tool_call_id,
                 status: Some(if is_error {
@@ -265,7 +267,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 content: text.map(|text| vec![super::types::ToolCallContent::new(text)]),
                 meta: rich.map(|rich| {
                     eukhe_meta(&EukheSessionMeta {
-                        ipython: Some(rich),
+                        python: Some(rich),
                         ..Default::default()
                     })
                 }),
@@ -330,6 +332,23 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 meta: None,
             }]
         }
+        // The session's budget rides the namespaced meta like the goal; a
+        // session without a budget (`budget: null`) has nothing to show.
+        "budget_update" => {
+            let report = event
+                .get("budget")
+                .filter(|budget| !budget.is_null())
+                .and_then(|budget| BudgetReport::deserialize(budget).ok());
+            report
+                .map(|budget| AcpSessionUpdate::SessionInfoUpdate {
+                    meta: eukhe_meta(&EukheSessionMeta {
+                        budget: Some(budget),
+                        ..Default::default()
+                    }),
+                })
+                .into_iter()
+                .collect()
+        }
         "goal_update" => {
             let goal = event.get("goal");
             vec![AcpSessionUpdate::SessionInfoUpdate {
@@ -354,6 +373,22 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                     ..Default::default()
                 }),
             }]
+        }
+        "loop_update" => {
+            // The whole status rides the meta; an event without a readable
+            // one has nothing to publish.
+            let status = event
+                .get("loop")
+                .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
+            match status {
+                Some(status) => vec![AcpSessionUpdate::SessionInfoUpdate {
+                    meta: eukhe_meta(&EukheSessionMeta {
+                        r#loop: Some(status),
+                        ..Default::default()
+                    }),
+                }],
+                None => Vec::new(),
+            }
         }
         "compaction_end" => {
             let result = event.get("result");
@@ -456,7 +491,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 }),
             }]
         }
-        "ipython_sent_agent_message" => {
+        "python_sent_agent_message" => {
             let message = event.get("message");
             vec![AcpSessionUpdate::SessionInfoUpdate {
                 meta: eukhe_meta(&EukheSessionMeta {
@@ -539,7 +574,7 @@ fn base64_byte_length(data: &str) -> u64 {
 }
 
 /// TS `ipythonRichOutput`: media rides the namespaced meta.
-fn ipython_rich_output(result: Option<&Value>) -> Option<Value> {
+fn python_rich_output(result: Option<&Value>) -> Option<Value> {
     let details = result?.get("details")?;
     let attachments = details
         .get("attachments")
@@ -676,7 +711,7 @@ mod tests {
     #[test]
     fn goal_update_maps_to_the_namespaced_goal_meta() {
         // TS acp-events.ts `case "goal_update"`: the GoalState fields the
-        // meta carries, nothing else.
+        // meta carries, nothing else (its tokens are the goal's own).
         let mut state = WireMappingState::default();
         let updates = wire_updates(
             &json!({
@@ -709,6 +744,77 @@ mod tests {
     }
 
     #[test]
+    fn budget_update_maps_to_the_namespaced_budget_meta() {
+        // The whole report rides `_meta.com.eukhe.budget`; a session
+        // without a budget maps to nothing.
+        let report = json!({
+            "sessionId": "s1",
+            "agentSessionId": "s1",
+            "limits": { "tokens": 200_000, "timeMs": 600_000 },
+            "free": { "costMicros": 0, "tokens": 198_500, "timeMs": 240_000, "toolCalls": 0, "requests": 0 },
+            "held": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "spent": { "costMicros": 0, "tokens": 1_500, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "lent": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "over": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+            "phase": "wrap_up",
+            "short": "time",
+            "deadlineMs": 1_800_000_000_000_u64,
+        });
+        let mut state = WireMappingState::default();
+        let updates: Vec<Value> = [report.clone(), Value::Null]
+            .into_iter()
+            .flat_map(|budget| {
+                wire_updates(
+                    &json!({ "type": "budget_update", "budget": budget }),
+                    &mut state,
+                )
+            })
+            .map(|update| serde_json::to_value(&update).unwrap())
+            .collect();
+        assert_eq!(
+            updates,
+            [json!({
+                "sessionUpdate": "session_info_update",
+                "_meta": { "com.eukhe": { "budget": report } },
+            })]
+        );
+    }
+
+    /// A `loop_update` publishes the whole loop status under the
+    /// namespaced `loop` meta.
+    #[test]
+    fn loop_update_maps_to_the_namespaced_loop_meta() {
+        let mut state = WireMappingState::default();
+        let status = json!({
+            "phase": { "state": "judging" },
+            "iteration": 2,
+            "remaining": 8,
+            "condition": { "command": "test -f done", "until": true },
+            "prompt": "fix it",
+            "failures": 0,
+            "lastCheck": { "iteration": 1, "evidence": { "kind": "exited", "code": 1 } },
+            "limit": { "kind": "iterations", "iterations": 10 },
+            "startedAtMs": 5,
+            "verdict": 1,
+        });
+        let updates = wire_updates(
+            &json!({ "type": "loop_update", "loop": status }),
+            &mut state,
+        );
+        let frames: Vec<Value> = updates
+            .iter()
+            .map(|update| serde_json::to_value(update).unwrap())
+            .collect();
+        assert_eq!(
+            frames,
+            [json!({
+                "sessionUpdate": "session_info_update",
+                "_meta": { "com.eukhe": { "loop": status } },
+            })]
+        );
+    }
+
+    #[test]
     fn user_messages_and_lifecycle_events_map_to_nothing() {
         let mut state = WireMappingState::default();
         for event_type in [
@@ -734,7 +840,7 @@ mod tests {
             &json!({
                 "type": "tool_execution_start",
                 "toolCallId": "call-1",
-                "toolName": "ipython",
+                "toolName": "python",
                 "args": { "code": "print(1)" },
             }),
             &mut state,
@@ -937,11 +1043,11 @@ mod tests {
     }
 
     #[test]
-    fn ipython_sent_agent_message_maps_the_target_fallback() {
+    fn python_sent_agent_message_maps_the_target_fallback() {
         let mut state = WireMappingState::default();
         let updates = wire_updates(
             &json!({
-                "type": "ipython_sent_agent_message",
+                "type": "python_sent_agent_message",
                 "toolCallId": "t7",
                 "message": {
                     "id": "agentmsg_1",
@@ -966,7 +1072,7 @@ mod tests {
         );
         let updates = wire_updates(
             &json!({
-                "type": "ipython_sent_agent_message",
+                "type": "python_sent_agent_message",
                 "toolCallId": "t8",
                 "message": {
                     "id": "agentmsg_2",

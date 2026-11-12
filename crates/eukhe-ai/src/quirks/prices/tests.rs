@@ -258,7 +258,8 @@ fn only_claude_models_keep_the_1h_cache_write_price_of_anthropic() {
         ("minimax-cn", 3),
         ("opencode", 3),
         ("opencode-go", 3),
-        ("vercel-ai-gateway", 228),
+        ("vercel-ai-gateway", 227),
+        ("zai", 4),
     ]
     .into_iter()
     .map(|(provider, count)| (provider.to_owned(), count))

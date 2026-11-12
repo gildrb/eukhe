@@ -140,6 +140,7 @@ fn a_parked_failure_is_never_retried() {
         FailureFacts::of(&parked),
         Some(FailureFacts {
             parked: true,
+            budget: false,
             limit: false,
             status: Some(429),
             kind: Some(StreamFailureKind::RateLimit),
@@ -147,6 +148,32 @@ fn a_parked_failure_is_never_retried() {
         })
     );
     assert!(!is_retryable_assistant_error(&parked));
+}
+
+/// A request a budget refused carries the typed marker: no retry and no
+/// overflow recovery sends it again, even when its text names a transient
+/// failure and an overflow.
+#[test]
+fn a_budget_refusal_is_never_retried_or_an_overflow() {
+    let mut refused = failure(
+        "Budget ledger failed: 503 Service Unavailable, prompt is too long",
+        &serde_json::json!({ "kind": "server_error", "status": 503 }),
+    );
+    if let Some(diagnostics) = refused.diagnostics.as_mut() {
+        diagnostics.push(AssistantMessageDiagnostic {
+            kind: BUDGET_REFUSAL_DIAGNOSTIC.to_owned(),
+            timestamp: 0,
+            error: None,
+            details: None,
+        });
+    }
+    assert_eq!(
+        (
+            is_retryable_assistant_error(&refused),
+            crate::utils::overflow::is_context_overflow(&refused, None)
+        ),
+        (false, false)
+    );
 }
 
 /// The HTTP layer's refusal of a long server wait is never retried

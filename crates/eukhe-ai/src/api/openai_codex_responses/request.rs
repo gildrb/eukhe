@@ -166,10 +166,11 @@ pub(crate) fn build_request_body(
                 }),
             );
         }
-    } else if model.reasoning {
-        // Thinking off: the lowest
-        // offered effort goes out as a requested effort, with its summary;
-        // `none` alone.
+    } else if model.reasoning && options.disable_reasoning {
+        // Thinking turned off by the caller: the lowest offered effort goes
+        // out as a requested effort, with its summary; `none` alone. A
+        // request that names no level and does not turn reasoning off
+        // sends no `reasoning`.
         if let Some(effort) = reasoning_off_effort(model) {
             let reasoning = if effort == "none" {
                 json!({ "effort": effort })

@@ -208,13 +208,39 @@ mod tests {
             .is_err_and(|error| error.text.starts_with("Usage: /autonomous [status|off]")));
     }
 
+    /// v0.10.67's text: the run's own turns, tokens and time against its
+    /// limits (12, 80,000 and 30 minutes unless given); a session budget
+    /// changes none of them.
     #[test]
     fn autonomous_status_format() {
-        let state = crate::autonomous::create_autonomous_runtime_state(None, None);
-        let status = crate::autonomous::autonomous_status(&state);
-        let text = format_autonomous_status(&status);
-        assert!(text.starts_with("[autonomous-status: off]"));
-        assert!(text.contains("Continuations: 0/3. Turns: 0/12. Tokens: 0/80,000."));
-        assert!(text.contains("Time: 0s/1,800s. Gates: none. Subagent keep-alive: 25m."));
+        let off = crate::autonomous::create_autonomous_runtime_state(None, None);
+        let mut limited = crate::autonomous::create_autonomous_runtime_state(
+            Some(&AgentAutonomousConfig {
+                max_turns: Some(1),
+                timeout_ms: Some(UNLIMITED_AUTONOMOUS_LIMIT),
+                ..AgentAutonomousConfig::default()
+            }),
+            None,
+        );
+        limited.turns_used = 2;
+        limited.tokens_used = 1_500;
+        let budget = eukhe_types::budget::BudgetReport {
+            limits: eukhe_types::budget::BudgetLimits {
+                requests: Some(5),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let status = |state, budget| {
+            format_autonomous_status(&crate::autonomous::autonomous_status(state, budget))
+        };
+        assert_eq!(
+            [status(&limited, Some(budget)), status(&off, None)],
+            [
+                "[autonomous-status: off]\n\nContinuations: 0/3. Turns: 2/1. Tokens: 1,500/80,000. Time: 0s/unlimited. Gates: none. Subagent keep-alive: 25m.",
+                "[autonomous-status: off]\n\nContinuations: 0/3. Turns: 0/12. Tokens: 0/80,000. Time: 0s/1,800s. Gates: none. Subagent keep-alive: 25m.",
+            ]
+            .map(str::to_owned)
+        );
     }
 }

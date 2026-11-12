@@ -140,6 +140,36 @@ pub(crate) async fn entries(conversation: &Conversation) -> Vec<EntryRecord> {
     page.items.into_iter().rev().collect()
 }
 
+/// The user inputs of `conversation`, oldest first: each text with the
+/// loop iteration that sent it (`None`: not the loop's).
+pub(crate) async fn loop_sends(conversation: &Conversation) -> Vec<(String, Option<u64>)> {
+    use eukhe_durable::entries::{UserData, USER_ENTRY};
+    use eukhe_durable::types::EntryData;
+    use eukhe_types::input_origin::InputOrigin;
+    use eukhe_types::pi_ai::{Message, UserContent};
+    entries(conversation)
+        .await
+        .into_iter()
+        .filter(|entry| entry.kind == USER_ENTRY.kind())
+        .filter_map(|entry| {
+            let iteration = match UserData::decode(entry.data.as_ref())
+                .expect("the user entry")
+                .origin
+            {
+                InputOrigin::Loop { iteration } => Some(iteration),
+                _ => None,
+            };
+            match entry.model.as_ref()?.first()? {
+                Message::User(message) => match &message.content {
+                    UserContent::Text(text) => Some((text.clone(), iteration)),
+                    UserContent::Blocks(_) => None,
+                },
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// The entry kinds of the conversation, oldest first.
 pub(crate) async fn kinds(conversation: &Conversation) -> Vec<String> {
     entries(conversation)

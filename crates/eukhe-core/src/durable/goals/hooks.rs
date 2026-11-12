@@ -3,30 +3,43 @@
 //!
 //! - `before_request`: an active goal whose conversation's last run ended in
 //!   a terminal provider failure fails (old `finish_for_terminal_message` at
-//!   the failed turn and the restore-resurrection guard): a failed run ends
-//!   without a final answer, so the next generation of the conversation
-//!   settles it.
-//! - `after_response`: every settled response spends the goal and autonomous
-//!   budgets once per generation; a goal crossing its budget turns
-//!   `budget_limited` and steers the run with the budget-limit context.
+//!   the failed turn and the restore-resurrection guard), or turns
+//!   `budget_limited` when the session's budget refused the request: a
+//!   failed run ends without a final answer, so the next generation of the
+//!   conversation settles it.
 //! - `before_request`: also forces the tool of the topmost forced-call
 //!   Director the model did not call yet (`stream.forceTool`).
+//! - `after_response`: every settled response spends the goal's and the
+//!   autonomous run's limits once per generation (the goal: input and
+//!   output tokens; the run: one turn and its input, output and
+//!   cache-write tokens); a goal crossing its token budget turns
+//!   `budget_limited` and steers the run with the budget-limit context,
+//!   so the run goes on and wraps up. The run's own limits are soft:
+//!   `on_yield` checks them between continuations, so the turn that
+//!   crosses one completes.
 //! - `after_response`: also counts the response to a forced request: a
 //!   call of the tool makes the forced call; the miss that fails the
 //!   generation removes the layer and records the failure in a display row.
 //! - `on_yield`: at a final answer the Director stack decides
-//!   (`crate::durable::directors`): an active goal mints one continuation;
-//!   otherwise an enabled autonomous run consults its gates and limits;
-//!   reminders lead the continuation, or stay on the stack when no
-//!   continuation comes; a forced call not made yet continues the run
-//!   forced. Queued user input and unsettled RLM children hold the
-//!   continuation (the queued run or the child's report run reaches its
-//!   own final answer). An aborted run never reaches `on_yield`.
+//!   (`crate::durable::directors`): an active goal mints one continuation,
+//!   or turns `budget_limited` and yields when the session's budget admits
+//!   no more work; otherwise an enabled autonomous run consults its gates
+//!   and limits (its own and the session's budget); reminders
+//!   lead the continuation, or stay on the stack when no continuation
+//!   comes; a forced call not made yet continues the run forced. Queued
+//!   user input and unsettled RLM children hold the continuation (the
+//!   queued run or the child's report run reaches its own final answer).
+//!   An aborted run never reaches `on_yield`.
+//! - `on_truncated`: the display row of a final answer that hit the output
+//!   limit and that the stop Directors kept as it is (`eukhe.output_limit`:
+//!   the Harness's warning, shown after the answer, never model context).
 //!
-//! Every decision is recorded in `eukhe.goal.loop` keyed by the generation
-//! task, in the same commit as its goal, autonomous and stack changes, so a
-//! rerun after a crash repeats the decision instead of charging the goal
-//! twice.
+//! The goal and the autonomous run count their own tokens, turns and time
+//! (as v0.10.67 did); a budget the user set (`crate::durable::budget`) is
+//! another, hard limit. Every decision is recorded in `eukhe.goal.loop`
+//! keyed by the generation task, in the same commit as its goal,
+//! autonomous and stack changes, so a rerun after a crash repeats the
+//! decision.
 
 use std::sync::{Arc, PoisonError};
 
@@ -41,6 +54,7 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryDraft, EntryRecord, ScanOrder, SubmissionId, TaskId};
+use eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
@@ -53,12 +67,12 @@ use super::docs::{
     GOAL_DOC, LOOP_DOC,
 };
 use super::host::GoalsHost;
-use super::ops::{goal_context, submit_goal_context, user_input_queued};
+use super::ops::{budget_report, goal_context, submit_goal_context, user_input_queued};
 use super::state::{
-    accounted, compared, failed, mint, owns_continuation_wakeup, paused, served, spends_budget,
-    stall_check, stamp, terminal_provider_failure, Last, Stall, UsageOutcome,
+    accounted, budget_limited, compared, ended, mint, owns_continuation_wakeup, paused, run_end,
+    served, spends_limits, stall_check, stamp, Last, RunEnd, Stall, UsageOutcome,
 };
-use crate::autonomous::{now_millis, AutonomousRuntimeState};
+use crate::autonomous::{now_millis, AutonomousRuntimeState, SessionBudget};
 use crate::durable::children::{has_unsettled_children, WorkLedger};
 use crate::durable::directors::{
     DirectorLimits, DirectorState, End, Layer, LayerKind, Loop, RunLoop, Verdict, DIRECTORS_DOC,
@@ -66,7 +80,7 @@ use crate::durable::directors::{
 };
 use crate::durable::entries::custom_entry_draft;
 use crate::durable::workflow::unsettled_runs;
-use crate::goals::{GoalContextKind, GoalState, GoalStatus};
+use crate::goals::{GoalContextKind, GoalState, GoalStatus, GoalTokens};
 
 /// How many of the newest entries the failed-run check reads.
 const RECENT_ENTRIES: usize = 16;
@@ -127,16 +141,27 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                 }
                 .boxed()
             })),
+            on_truncated: Some(Arc::new(|warning: &str, _: &HookApi, _: &Context| {
+                let row = custom_entry_draft(
+                    OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE,
+                    UserContent::Text(warning.to_owned()),
+                    /*display*/ true,
+                    None,
+                    now_millis(),
+                );
+                async move { Ok(Some(row?)) }.boxed()
+            })),
             after_tools: None,
             pending_work: None,
         },
     )
 }
 
-/// The newest assistant entry among `entries` (newest first) when it is a
-/// terminal provider failure of another generation settled after the goal's
-/// last write: the run it ended failed the goal.
-fn stale_failure(entries: &[EntryRecord], current: TaskId, goal: &GoalState) -> Option<String> {
+/// How the run of the newest assistant entry among `entries` (newest
+/// first) ended, when that entry is a terminal provider failure of another
+/// generation settled after the goal's last write: the run it ended failed
+/// the goal, or a budget refusal limited it.
+fn stale_failure(entries: &[EntryRecord], current: TaskId, goal: &GoalState) -> Option<RunEnd> {
     let entry = entries
         .iter()
         .find(|entry| entry.kind == ASSISTANT_ENTRY.kind())?;
@@ -152,12 +177,13 @@ fn stale_failure(entries: &[EntryRecord], current: TaskId, goal: &GoalState) -> 
     {
         return None;
     }
-    terminal_provider_failure(message)
+    run_end(message)
 }
 
 impl GoalsHost {
-    /// Fail an active goal whose conversation's last run ended in a
-    /// terminal provider failure.
+    /// Settle an active goal whose conversation's last run ended in a
+    /// terminal provider failure: it fails, or turns `budget_limited` when
+    /// the session's budget refused the request.
     async fn settle_failed_run(&self, api: &HookApi, cx: &Context) -> SessionResult<()> {
         let conversation_id = api.conversation_id();
         let Some(goal) = read_doc(api, &GOAL_DOC, conversation_id, cx).await? else {
@@ -179,8 +205,8 @@ impl GoalsHost {
             .commit(
                 move |tx| async move {
                     let (draft, goal) = open_doc(&tx, &GOAL_DOC, conversation_id).await?;
-                    let error = stale_failure(&entries, current, &goal);
-                    if let Some(next) = error.and_then(|error| failed(&goal, Some(&error))) {
+                    let end = stale_failure(&entries, current, &goal);
+                    if let Some(next) = end.and_then(|end| ended(&goal, &end)) {
                         write_doc(&draft, &stamp(next, now_millis()))?;
                     }
                     Ok(())
@@ -191,14 +217,16 @@ impl GoalsHost {
     }
 
     /// Account one settled response against the goal and the autonomous
-    /// run, once per generation.
+    /// run, once per generation: the goal's input and output tokens (a
+    /// goal crossing its token budget turns `budget_limited` and steers the
+    /// run with the budget-limit context); the run's turn and tokens.
     async fn account_response(
         &self,
         message: &AssistantMessage,
         api: &HookApi,
         cx: &Context,
     ) -> SessionResult<()> {
-        if !spends_budget(message.stop_reason) {
+        if !spends_limits(message.stop_reason) {
             return Ok(());
         }
         let conversation_id = api.conversation_id();
@@ -214,7 +242,7 @@ impl GoalsHost {
         let conversation = self.conversation(conversation_id, cx).await?;
         let task_id = api.task_id();
         let usage = message.usage;
-        let budget_limited = conversation
+        let limited = conversation
             .commit(
                 move |tx| async move {
                     let now = now_millis();
@@ -222,11 +250,6 @@ impl GoalsHost {
                         open_doc(&tx, &LOOP_DOC, conversation_id).await?;
                     let goal = if goal_active {
                         Some(open_doc(&tx, &GOAL_DOC, conversation_id).await?)
-                    } else {
-                        None
-                    };
-                    let autonomous = if autonomous_enabled {
-                        Some(open_doc(&tx, &AUTONOMOUS_DOC, conversation_id).await?)
                     } else {
                         None
                     };
@@ -245,13 +268,22 @@ impl GoalsHost {
                             UsageOutcome::BudgetReached(next) => {
                                 let written = stamp(next, now);
                                 write_doc(&draft, &written)?;
-                                row = Some(goal_context(&written, GoalContextKind::BudgetLimit)?.1);
+                                row = Some(
+                                    goal_context(
+                                        &written,
+                                        GoalTokens::of(&written),
+                                        GoalContextKind::BudgetLimit,
+                                    )?
+                                    .1,
+                                );
                                 crossed = Some(written);
                             }
                             UsageOutcome::Ignored => {}
                         }
                     }
-                    if let Some((draft, mut state)) = autonomous {
+                    if autonomous_enabled {
+                        let (draft, mut state) =
+                            open_doc(&tx, &AUTONOMOUS_DOC, conversation_id).await?;
                         state.account(&usage);
                         write_doc(&draft, &state)?;
                     }
@@ -265,12 +297,15 @@ impl GoalsHost {
                 cx,
             )
             .await?;
-        // The budget-limit wrap-up steer (old `_shouldStopAfterTurn`'s budget
-        // arm): the steering boundary places it next.
-        if let Some(goal) = budget_limited {
+        // The budget-limit wrap-up steer: the steering boundary places it
+        // next, so the run goes on with it and wraps up.
+        if let Some(goal) = limited {
             if let Some(goal_id) = goal.goal_id.clone() {
-                let (text, _) =
-                    goal_context(&served(&goal, now_millis()), GoalContextKind::BudgetLimit)?;
+                let (text, _) = goal_context(
+                    &served(&goal, now_millis()),
+                    GoalTokens::of(&goal),
+                    GoalContextKind::BudgetLimit,
+                )?;
                 submit_goal_context(
                     &conversation,
                     format!("goal:{goal_id}:budget-limit"),
@@ -351,6 +386,8 @@ impl GoalsHost {
                 None => break ledger.count(),
             }
         };
+        // What the session's budget admits now.
+        let budget = SessionBudget::of(budget_report(&self.budget).await?.as_ref());
         let mut decided = None;
         loop {
             let limits = (self.limits)();
@@ -381,12 +418,24 @@ impl GoalsHost {
                     work,
                     limits.stall_steps,
                 );
-                if let Judged::NeedAutonomous =
-                    judge(&state.stack, &goal, &autonomous, None, check, now_millis())?
-                {
+                let session = SessionTerms { budget };
+                if let Judged::NeedAutonomous = judge(
+                    &state.stack,
+                    &goal,
+                    &autonomous,
+                    None,
+                    check,
+                    session,
+                    now_millis(),
+                )? {
                     let mut runtime = autonomous.to_runtime();
-                    let decision =
-                        decide(&mut runtime, answer.stop_reason, self.gates.as_ref()).await;
+                    let decision = decide(
+                        &mut runtime,
+                        answer.stop_reason,
+                        self.gates.as_ref(),
+                        budget,
+                    )
+                    .await;
                     decided = Some(AutonomousDecided {
                         before: autonomous,
                         runtime,
@@ -403,6 +452,7 @@ impl GoalsHost {
                     decided: decided.clone(),
                     limits,
                     work,
+                    session: SessionTerms { budget },
                 },
                 cx,
             )
@@ -521,6 +571,12 @@ struct Seen {
     autonomous: Option<AutonomousDocState>,
 }
 
+/// The session's budget as a step sees it: what it admits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SessionTerms {
+    budget: SessionBudget,
+}
+
 /// The verdicts of one step, top layer first, and what they write.
 #[derive(Debug, Default, PartialEq)]
 struct Pass {
@@ -545,6 +601,9 @@ struct Pass {
     /// Written whatever the loop does: the goal the progress check paused,
     /// and the notice row that tells the user why.
     goal_paused: Option<(GoalState, EntryDraft)>,
+    /// Written whatever the loop does: the goal the session's budget
+    /// stopped (`budget_limited`).
+    goal_limited: Option<GoalState>,
 }
 
 /// The goal's progress check at a step: its verdict, and the count of
@@ -646,9 +705,11 @@ fn begin(
 /// The verdict of each layer of `stack` (bottom first), top first, down to
 /// the first one that decides (not Defer, not Leave), from the session
 /// state:
-/// - Goal: an active goal mints a continuation (Again), or yields when its
-///   progress check stops it (the goal pauses); a paused, budget-limited,
-///   complete or failed goal yields; a cleared goal leaves.
+/// - Goal: an active goal mints a continuation (Again) showing its own
+///   tokens, or yields when the session's budget admits no more
+///   work (the goal turns `budget_limited`) or its progress check stops it
+///   (the goal pauses); a paused, budget-limited, complete or failed goal
+///   yields; a cleared goal leaves.
 /// - Autonomous: defers to a goal that drives continuations; leaves when
 ///   disabled; else its gates and limits continue (Again) or stop (Yield).
 /// - Reminder: its text leads the continuation (Lead): it leaves with the
@@ -662,16 +723,22 @@ fn judge(
     autonomous: &AutonomousDocState,
     decided: Option<&AutonomousDecided>,
     check: GoalCheck,
+    session: SessionTerms,
     now: u64,
 ) -> SessionResult<Judged> {
     let mut pass = Pass::default();
     for layer in stack.iter().rev() {
         let verdict = match &layer.kind {
             LayerKind::Goal => match goal.status {
-                GoalStatus::Active => match (check.stall, mint(goal)) {
+                GoalStatus::Active => match (session.budget, check.stall, mint(goal)) {
                     // An active goal without an objective drives nothing.
-                    (_, None) => Verdict::Leave,
-                    (Stall::Stop { stalls }, Some(_)) => {
+                    (_, _, None) => Verdict::Leave,
+                    (SessionBudget::Short(short), _, Some(_)) => {
+                        pass.goal_limited =
+                            budget_limited(goal, short).map(|state| stamp(state, now));
+                        Verdict::Yield
+                    }
+                    (SessionBudget::Working, Stall::Stop { stalls }, Some(_)) => {
                         let reason = format!(
                             "No progress: {stalls} goal continuations in a row made no tool call with a new result"
                         );
@@ -693,9 +760,13 @@ fn judge(
                         pass.goal_stall = Some(check.stall);
                         Verdict::Yield
                     }
-                    (Stall::Go { stalls }, Some(state)) => {
+                    (SessionBudget::Working, Stall::Go { stalls }, Some(state)) => {
                         let written = stamp(state, now);
-                        let (text, row) = goal_context(&written, GoalContextKind::Continuation)?;
+                        let (text, row) = goal_context(
+                            &written,
+                            GoalTokens::of(&written),
+                            GoalContextKind::Continuation,
+                        )?;
                         // The model reads why the next continuations count.
                         let text = if stalls == 0 {
                             text
@@ -804,6 +875,8 @@ struct StepInput {
     limits: DirectorLimits,
     /// The session's work now ([`WorkLedger::count`]).
     work: u64,
+    /// The session's budget at the step.
+    session: SessionTerms,
 }
 
 /// What a step's commit did.
@@ -841,6 +914,7 @@ async fn commit_step(
                     decided,
                     limits,
                     work,
+                    session,
                 } = step;
                 let now = now_millis();
                 let (loop_draft, mut loop_state) =
@@ -876,6 +950,7 @@ async fn commit_step(
                     &autonomous_state,
                     decided.as_ref(),
                     check,
+                    session,
                     now,
                 )?;
                 let pass = match judged {
@@ -915,6 +990,9 @@ async fn commit_step(
                 if let (Some((paused, row)), Some((draft, _))) = (pass.goal_paused, &goal) {
                     write_doc(draft, &paused)?;
                     notice = Some(row);
+                }
+                if let (Some(limited), Some((draft, _))) = (pass.goal_limited, &goal) {
+                    write_doc(draft, &limited)?;
                 }
                 let mut row = None;
                 let outcome = match (ticked.end, pass.continuation) {
@@ -995,6 +1073,20 @@ mod tests {
         }
     }
 
+    /// The session terms of a budget that admits work.
+    fn working() -> SessionTerms {
+        SessionTerms {
+            budget: SessionBudget::Working,
+        }
+    }
+
+    fn check() -> GoalCheck {
+        GoalCheck {
+            stall: Stall::Go { stalls: 0 },
+            cap: crate::durable::directors::DEFAULT_STALL_STEPS,
+        }
+    }
+
     /// `judge` of `stack` with no goal and no autonomous run.
     fn judged(stack: &[Layer]) -> Judged {
         judge(
@@ -1002,13 +1094,58 @@ mod tests {
             &GoalState::default(),
             &AutonomousDocState::initial(),
             None,
-            GoalCheck {
-                stall: Stall::Go { stalls: 0 },
-                cap: crate::durable::directors::DEFAULT_STALL_STEPS,
-            },
+            check(),
+            working(),
             0,
         )
         .expect("judge")
+    }
+
+    /// An active goal of a session whose budget admits no more work turns
+    /// `budget_limited` and yields: no continuation, the reason names the
+    /// dimension that ran short.
+    #[test]
+    fn a_spent_budget_limits_the_active_goal() {
+        let goal = GoalState {
+            status: GoalStatus::Active,
+            goal_id: Some("g1".to_owned()),
+            objective: Some("ship it".to_owned()),
+            ..GoalState::default()
+        };
+        let stack = [Layer {
+            kind: LayerKind::Goal,
+            budget: 5,
+        }];
+        let judged = judge(
+            &stack,
+            &goal,
+            &AutonomousDocState::initial(),
+            None,
+            check(),
+            SessionTerms {
+                budget: SessionBudget::Short(Some(eukhe_types::budget::BudgetDimension::Tokens)),
+            },
+            7,
+        )
+        .expect("judge");
+        assert_eq!(
+            judged,
+            Judged::Pass(Box::new(Pass {
+                verdicts: vec![Verdict::Yield],
+                goal_limited: Some(stamp(
+                    GoalState {
+                        status: GoalStatus::BudgetLimited,
+                        last_reason: Some(
+                            "Budget exhausted (tokens): add budget (/budget add), then /goal resume"
+                                .to_owned()
+                        ),
+                        ..goal
+                    },
+                    7
+                )),
+                ..Pass::default()
+            }))
+        );
     }
 
     #[test]

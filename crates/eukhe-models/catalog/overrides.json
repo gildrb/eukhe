@@ -1,0 +1,146 @@
+{
+  "providers": {
+    "amazon-bedrock": {
+      "modelsDev": "amazon-bedrock",
+      "routes": [
+        { "npm": null, "idPrefix": "eu.", "api": "bedrock-converse-stream", "baseUrl": "https://bedrock-runtime.eu-central-1.amazonaws.com" },
+        { "npm": null, "api": "bedrock-converse-stream", "baseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com" }
+      ]
+    },
+    "anthropic": {
+      "modelsDev": "anthropic",
+      "routes": [{ "api": "anthropic-messages", "baseUrl": "https://api.anthropic.com" }]
+    },
+    "azure-openai-responses": {
+      "modelsDev": "azure",
+      "include": "^(gpt-|o1|o3|o4|codex|chatgpt)",
+      "routes": [{ "npm": null, "api": "azure-openai-responses", "baseUrl": "" }]
+    },
+    "cerebras": {
+      "modelsDev": "cerebras",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.cerebras.ai/v1" }]
+    },
+    "cloudflare-ai-gateway": {
+      "modelsDev": "cloudflare-ai-gateway",
+      "routes": [
+        { "npm": "@ai-sdk/anthropic", "api": "anthropic-messages", "baseUrl": "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/anthropic", "stripPrefix": "anthropic/", "dotsToDashes": true },
+        { "npm": "@ai-sdk/openai", "api": "openai-responses", "baseUrl": "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/openai", "stripPrefix": "openai/" },
+        { "npm": null, "api": "openai-completions", "baseUrl": "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/compat" }
+      ]
+    },
+    "cloudflare-workers-ai": {
+      "modelsDev": "cloudflare-workers-ai",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1" }]
+    },
+    "deepseek": {
+      "modelsDev": "deepseek",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.deepseek.com" }]
+    },
+    "fireworks": {
+      "modelsDev": "fireworks-ai",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.fireworks.ai/inference/v1" }]
+    },
+    "github-copilot": {
+      "modelsDev": "github-copilot",
+      "routes": [
+        { "npm": "@ai-sdk/anthropic", "api": "anthropic-messages", "baseUrl": "https://api.individual.githubcopilot.com" },
+        { "npm": "@ai-sdk/openai", "api": "openai-responses", "baseUrl": "https://api.individual.githubcopilot.com" },
+        { "npm": null, "api": "openai-completions", "baseUrl": "https://api.individual.githubcopilot.com" }
+      ]
+    },
+    "google": {
+      "modelsDev": "google",
+      "routes": [{ "api": "google-generative-ai", "baseUrl": "https://generativelanguage.googleapis.com/v1beta" }]
+    },
+    "google-vertex": {
+      "modelsDev": "google-vertex",
+      "routes": [{ "npm": null, "api": "google-vertex", "baseUrl": "https://{location}-aiplatform.googleapis.com" }]
+    },
+    "groq": {
+      "modelsDev": "groq",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.groq.com/openai/v1" }]
+    },
+    "huggingface": {
+      "modelsDev": "huggingface",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://router.huggingface.co/v1" }]
+    },
+    "kimi-coding": {
+      "modelsDev": "kimi-code-plan-global",
+      "routes": [{ "api": "anthropic-messages", "baseUrl": "https://api.kimi.com/coding" }]
+    },
+    "minimax": {
+      "modelsDev": "minimax",
+      "routes": [{ "api": "anthropic-messages", "baseUrl": "https://api.minimax.io/anthropic" }]
+    },
+    "minimax-cn": {
+      "modelsDev": "minimax-cn",
+      "routes": [{ "api": "anthropic-messages", "baseUrl": "https://api.minimaxi.com/anthropic" }]
+    },
+    "mistral": {
+      "modelsDev": "mistral",
+      "routes": [{ "api": "mistral-conversations", "baseUrl": "https://api.mistral.ai" }]
+    },
+    "moonshotai": {
+      "modelsDev": "moonshotai",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.moonshot.ai/v1" }]
+    },
+    "moonshotai-cn": {
+      "modelsDev": "moonshotai-cn",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.moonshot.cn/v1" }]
+    },
+    "openai": {
+      "modelsDev": "openai",
+      "routes": [{ "api": "openai-responses", "baseUrl": "https://api.openai.com/v1" }]
+    },
+    "opencode": {
+      "modelsDev": "opencode",
+      "routes": [
+        { "npm": "@ai-sdk/anthropic", "api": "anthropic-messages", "baseUrl": "https://opencode.ai/zen" },
+        { "npm": "@ai-sdk/openai", "api": "openai-responses", "baseUrl": "https://opencode.ai/zen/v1" },
+        { "npm": "@ai-sdk/google", "api": "google-generative-ai", "baseUrl": "https://opencode.ai/zen/v1" },
+        { "api": "openai-completions", "baseUrl": "https://opencode.ai/zen/v1" }
+      ]
+    },
+    "opencode-go": {
+      "modelsDev": "opencode-go",
+      "routes": [
+        { "npm": "@ai-sdk/anthropic", "api": "anthropic-messages", "baseUrl": "https://opencode.ai/zen/go" },
+        { "npm": "@ai-sdk/openai", "api": "openai-responses", "baseUrl": "https://opencode.ai/zen/go/v1" },
+        { "npm": null, "api": "openai-completions", "baseUrl": "https://opencode.ai/zen/go/v1" }
+      ]
+    },
+    "openrouter": {
+      "modelsDev": "openrouter",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://openrouter.ai/api/v1" }]
+    },
+    "vercel-ai-gateway": {
+      "modelsDev": "vercel",
+      "routes": [{ "api": "anthropic-messages", "baseUrl": "https://ai-gateway.vercel.sh" }]
+    },
+    "xai": {
+      "modelsDev": "xai",
+      "routes": [{ "api": "openai-responses", "baseUrl": "https://api.x.ai/v1" }]
+    },
+    "xiaomi": {
+      "modelsDev": "xiaomi",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.xiaomimimo.com/v1" }]
+    },
+    "xiaomi-token-plan-ams": {
+      "modelsDev": "xiaomi-token-plan-ams",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://token-plan-ams.xiaomimimo.com/v1" }]
+    },
+    "xiaomi-token-plan-cn": {
+      "modelsDev": "xiaomi-token-plan-cn",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1" }]
+    },
+    "xiaomi-token-plan-sgp": {
+      "modelsDev": "xiaomi-token-plan-sgp",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1" }]
+    },
+    "zai": {
+      "modelsDev": "zai-coding-plan",
+      "routes": [{ "api": "openai-completions", "baseUrl": "https://api.z.ai/api/coding/paas/v4" }]
+    }
+  },
+  "models": {}
+}

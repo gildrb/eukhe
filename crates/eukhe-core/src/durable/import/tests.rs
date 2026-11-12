@@ -81,7 +81,7 @@ fn assistant(id: &str, parent: Option<&str>, text: &str, second: u32) -> Value {
 fn tool_call(id: &str, parent: Option<&str>, call_id: &str, second: u32) -> Value {
     base(
         json!({"type": "message", "message": assistant_message(
-            &json!([{"type": "toolCall", "id": call_id, "name": "ipython",
+            &json!([{"type": "toolCall", "id": call_id, "name": "python",
                 "arguments": {"code": "1 + 1"}}]),
             "toolUse",
             second,
@@ -95,7 +95,7 @@ fn tool_call(id: &str, parent: Option<&str>, call_id: &str, second: u32) -> Valu
 fn tool_result(id: &str, parent: Option<&str>, call_id: &str, second: u32) -> Value {
     base(
         json!({"type": "message", "message": {"role": "toolResult", "toolCallId": call_id,
-            "toolName": "ipython", "content": [{"type": "text", "text": "2"}],
+            "toolName": "python", "content": [{"type": "text", "text": "2"}],
             "details": {"cell": 1}, "isError": false, "timestamp": u64::from(second) * 1000}}),
         id,
         parent,
@@ -351,7 +351,7 @@ async fn a_tool_result_without_a_tool_name_takes_its_calls_name() {
             _ => None,
         })
         .collect();
-    assert_eq!(names, ["ipython", ""]);
+    assert_eq!(names, ["python", ""]);
     harness.close(&cx()).await.unwrap();
 }
 

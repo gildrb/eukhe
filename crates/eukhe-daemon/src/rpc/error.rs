@@ -51,7 +51,7 @@ pub enum RpcSessionError {
     /// The composition root could not open the session.
     #[error(transparent)]
     Engine(#[from] RpcEngineError),
-    /// The goal read, the settle, or the event pump attach failed.
+    /// The goal or loop read, the settle, or the event pump attach failed.
     #[error(transparent)]
     Session(#[from] SessionError),
 }
@@ -161,6 +161,12 @@ pub(crate) enum RpcCommandError {
     Lifecycle(#[from] RpcSessionError),
     #[error(transparent)]
     Session(#[from] SessionError),
+    /// The session's budget ledger refused or failed.
+    #[error(transparent)]
+    Budget(#[from] eukhe_core::durable::budget::BudgetError),
+    /// A budget ledger call on the blocking pool did not finish.
+    #[error("the budget ledger call did not finish: {0}")]
+    BudgetTask(#[from] tokio::task::JoinError),
 }
 
 impl RpcCommandError {

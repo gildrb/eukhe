@@ -50,6 +50,10 @@ pub(super) struct RefreshState {
     pub(super) controllers: IndexMap<String, AbortController>,
 }
 
+/// Wraps a provider row as a collection registers it
+/// ([`Models::layer_new_providers`]).
+pub type ProviderLayer = Arc<dyn Fn(Provider) -> Provider + Send + Sync>;
+
 pub(super) struct ModelsInner {
     pub(super) providers: Mutex<IndexMap<String, Arc<Provider>>>,
     pub(super) credentials: Arc<dyn CredentialStore>,
@@ -58,6 +62,8 @@ pub(super) struct ModelsInner {
     pub(super) refresh: Mutex<RefreshState>,
     /// Per-provider publication serialization: the TS publication chains.
     pub(super) publication_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The layer every newly registered provider id goes through.
+    pub(super) new_provider_layer: Mutex<Option<ProviderLayer>>,
 }
 
 /// Runtime collection of providers plus auth application and request
@@ -91,6 +97,7 @@ pub fn create_models(options: CreateModelsOptions) -> Models {
                 .unwrap_or_else(default_provider_auth_context),
             refresh: Mutex::new(RefreshState::default()),
             publication_locks: Mutex::new(HashMap::new()),
+            new_provider_layer: Mutex::new(None),
         }),
     }
 }
@@ -120,11 +127,27 @@ impl Models {
         lock(&self.inner.publication_locks)
     }
 
-    /// Upsert/replace by `provider.id`. Provider ids are unique.
+    /// Upsert/replace by `provider.id`. Provider ids are unique. A provider
+    /// under an id the collection does not hold yet first goes through the
+    /// layer of [`Models::layer_new_providers`]; replacing a held id (a
+    /// wrapper re-wrapping its own rows) does not.
     pub fn set_provider(&self, provider: Provider) {
         self.supersede_provider_refresh(&provider.id);
-        self.providers_lock()
-            .insert(provider.id.clone(), Arc::new(provider));
+        let layer = lock(&self.inner.new_provider_layer).clone();
+        let mut providers = self.providers_lock();
+        let provider = match layer {
+            Some(layer) if !providers.contains_key(&provider.id) => layer(provider),
+            Some(_) | None => provider,
+        };
+        providers.insert(provider.id.clone(), Arc::new(provider));
+    }
+
+    /// Wrap every provider registered from now on under a new id with
+    /// `layer` (the rows already held are the caller's to wrap): a
+    /// collection whose rows all pass a gate keeps that true for providers
+    /// that join it later. A second layer replaces the first.
+    pub fn layer_new_providers(&self, layer: ProviderLayer) {
+        *lock(&self.inner.new_provider_layer) = Some(layer);
     }
 
     pub fn delete_provider(&self, id: &str) {

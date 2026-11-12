@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
 use super::{ConnectionSink, OutboundFrame, Worker, WorkerConfig};
-use crate::durable_test_support::wait_busy;
+use crate::durable_test_support::{loop_sends, wait_busy};
 use crate::journal::{WorkerRecoveryJournal, WorkerRecoveryRecord};
 
 const DEADLINE: Duration = Duration::from_secs(20);
@@ -1010,4 +1010,79 @@ async fn resolving_an_unknown_id_fails_clearly() {
         Some("resolve_unknown_effect requires resolution \"ran\" or \"notRun\"")
     );
     assert_eq!(listed(&worker).await, [effect]);
+}
+
+/// The shown conversation's loop status and the loop's sends.
+async fn loop_of(
+    worker: &Worker,
+) -> (
+    eukhe_types::loop_mode::LoopStatus,
+    Vec<(String, Option<u64>)>,
+) {
+    let hosted = worker.session.get().expect("a hosted session");
+    let main = hosted.main().expect("main conversation");
+    let status = eukhe_core::durable::loop_mode::loop_status(
+        hosted.harness(),
+        main.id(),
+        &BACKGROUND_CONTEXT,
+    )
+    .await
+    .expect("the loop status");
+    (status, loop_sends(&main).await)
+}
+
+/// A `compact` that cuts a loop's turn holds the loop across the
+/// compaction: the loop is not paused, and the cut turn is sent again as
+/// the same iteration. The user's `abort` of that turn pauses it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compact_sends_a_cut_loop_turn_again_and_abort_pauses_the_loop() {
+    use eukhe_types::loop_mode::LoopPhase;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(
+        dir.path(),
+        json!({ "responses": [
+            { "text": "cut", "delayMs": 600_000 },
+            { "text": "resent", "delayMs": 600_000 },
+        ] }),
+    )
+    .await;
+    let looped = worker
+        .dispatch("prompt", &json!({ "message": "/loop 3 go" }))
+        .await;
+    assert!(looped.success, "/loop: {looped:?}");
+    wait_requests(&worker, 1).await;
+    wait_busy(&worker, true).await;
+    // Nothing before the cut turn to summarize: the compaction skips, and
+    // the held loop takes its turn up again all the same.
+    let compacted = worker.dispatch("compact", &json!({})).await;
+    assert_eq!(
+        compacted.error.as_deref(),
+        Some(crate::compaction::durable::TOO_SHORT_TO_COMPACT),
+        "{compacted:?}"
+    );
+    wait_requests(&worker, 2).await;
+    let resent = vec![("go".to_owned(), Some(1)), ("go".to_owned(), Some(1))];
+    let (status, sends) = loop_of(&worker).await;
+    assert_eq!(
+        (status.state.phase, status.state.iteration),
+        (LoopPhase::Turn, 1)
+    );
+    assert_eq!(sends, resent);
+
+    let aborted = worker.dispatch("abort", &json!({})).await;
+    assert!(aborted.success, "abort: {aborted:?}");
+    let deadline = Instant::now() + DEADLINE;
+    let (status, sends) = loop {
+        let (status, sends) = loop_of(&worker).await;
+        if status.state.phase == LoopPhase::Paused {
+            break (status, sends);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the abort never paused the loop: {status:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert_eq!(status.state.iteration, 1);
+    assert_eq!(sends, resent);
 }

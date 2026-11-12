@@ -9,7 +9,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_bend::rules::headless::{ExitCause, ExitFacts, Primary, RunEnd};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
+use eukhe_core::durable::acceptance::{
+    acceptance_exit_code, acceptance_state, format_acceptance_status, seed_acceptance,
+};
+use eukhe_core::durable::goals::{
+    autonomous_state, budget_report, configure_autonomous, seed_initial_goal,
+};
 use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{
     classify_session_command, execute_session_command, EukheSession, SessionCommandError,
@@ -65,6 +70,10 @@ enum HeadlessModeError {
     SystemPrompt(#[source] serde_json::Error),
     #[error("appended system prompt input: {0}")]
     AppendedSystemPrompt(#[source] serde_json::Error),
+    /// The read of the session's budget at the end of a run did not
+    /// finish.
+    #[error("the session's budget could not be read: {0}")]
+    BudgetReport(#[source] tokio::task::JoinError),
     /// The session resolved no model: a run with prompts must fail loudly.
     #[error(
         "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
@@ -266,6 +275,14 @@ async fn daemon_acp_create(
     if let Some(autonomous) = &config.autonomous {
         create_config["autonomous"] = serde_json::json!(autonomous_runtime_config(autonomous));
     }
+    // The `--budget-*` limits: the budget of the session this create
+    // starts (a reopened session that has one keeps its own).
+    if let Some(budget) = config.budget {
+        create_config["budget"] = serde_json::json!(budget);
+    }
+    if let Some(acceptance) = &config.acceptance {
+        create_config["acceptance"] = serde_json::json!(acceptance);
+    }
     // Verification seam (the interactive mode's contract): a scripted daemon
     // session from a script FILE path. The product never sets it.
     if let Some(script) = std::env::var_os("EUKHE_FAUX_SCRIPT") {
@@ -304,6 +321,7 @@ async fn rpc_mode_main(options: &RunOptions) -> Result<i32, HeadlessModeError> {
             .initial_goal
             .as_ref()
             .map(|goal| (goal.objective.clone(), goal.token_budget.map(u64::from))),
+        acceptance: config.acceptance.clone(),
     })
     .await
     .map_err(HeadlessModeError::Rpc)
@@ -514,8 +532,8 @@ async fn run_prompts(
     if !facts.command_failed {
         (facts.run, run_detail) = watch.last_run(opened, cx).await?;
         // Text mode prints the primary (a settled answer to stdout) and the
-        // trailing compaction outcomes to stderr; a failed primary's text
-        // goes to stderr in both modes.
+        // trailing compaction outcomes and warnings to stderr; a failed
+        // primary's text goes to stderr in both modes.
         let result = select_terminal_result(&conversation, cx).await?;
         if let Some(primary) = &result.primary {
             facts.primary = primary.kind();
@@ -540,15 +558,39 @@ async fn run_prompts(
                 facts.compaction_failed = true;
             }
         }
+        if !json_mode {
+            for warning in result.warnings {
+                eprintln!("{warning}");
+            }
+        }
         // The TS print-mode autonomous contract applies to both output
-        // modes.
+        // modes; the run's limits are its own and the session budget's.
         let autonomous = autonomous_state(harness, conversation.id(), cx).await?;
-        if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
+        let report = budget_report(&session.budget()).await?;
+        if let Some(stderr) = autonomous_exit_stderr(&autonomous.status(report)) {
             eprintln!("{stderr}");
             facts.autonomous_failed = true;
         }
     }
     watch.finish().await;
+    // The session's budget as the run leaves it: one stderr line in both
+    // modes, and in json mode the report as the stream's last
+    // `budget_update`.
+    let gate = session.budget();
+    let budget = tokio::task::spawn_blocking(move || gate.report())
+        .await
+        .map_err(HeadlessModeError::BudgetReport)?;
+    if let Some(report) = budget {
+        eprintln!(
+            "{}",
+            eukhe_tui::budget_text::report_detail(&report, eukhe_tui::budget_text::now_ms(), " · ")
+        );
+        if json_mode {
+            print_event(&SessionEvent::BudgetUpdate {
+                budget: Some(report),
+            });
+        }
+    }
     let exit = eukhe_bend::rules::headless::exit(&facts).map_err(HeadlessModeError::Exit)?;
     match exit.cause {
         // The run's failure text, unless the failed primary already
@@ -569,7 +611,15 @@ async fn run_prompts(
         | ExitCause::CompactionFailed
         | ExitCause::AutonomousFailed => {}
     }
-    Ok(i32::from(exit.code))
+    // "Done" is a claim: with acceptance checks the run exits 0 only when
+    // each is confirmed on the final state (`laws/verify.bend`); the label
+    // goes to stderr in both modes.
+    let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
+    if !acceptance.checks.is_empty() {
+        eprintln!("{}", format_acceptance_status(&acceptance));
+    }
+    let code = acceptance_exit_code(harness, conversation.id(), u64::from(exit.code), cx).await?;
+    Ok(i32::try_from(code).unwrap_or(1))
 }
 
 /// The prompt loop: each prompt, then the wait for quiescence.
@@ -585,20 +635,27 @@ async fn drive_prompts(
     let config = &options.config;
     let quiescent = || wait_quiescent(opened, watch, config.wait_limit, cx);
     // The CLI autonomous flags enable the run on the main conversation (no
-    // status row, as TS `createAgentSession({ autonomous })`); a run without
-    // flags keeps the session's state (`/autonomous` rewrites it live).
+    // status row, as TS `createAgentSession({ autonomous })`) with its own
+    // limits; a run without flags keeps the session's state
+    // (`/autonomous` rewrites it live).
     if let Some(autonomous) = &config.autonomous {
         configure_autonomous(
             harness,
+            &session.budget(),
             conversation.id(),
             autonomous_runtime_config(autonomous),
             cx,
         )
         .await?;
     }
-    // The CLI `--goal` seed: a fresh conversation starts the goal and
-    // queues its continuation; a resumed or already-seeded one keeps its
-    // persisted goal.
+    // The CLI `--accept-*` checks: this run counts as done only when each
+    // passes on the final state.
+    if let Some(acceptance) = &config.acceptance {
+        seed_acceptance(harness, conversation.id(), acceptance, &opened.cwd, cx).await?;
+    }
+    // The CLI `--goal` seed: a fresh conversation starts the goal (with
+    // its own token budget) and queues its continuation; a resumed or
+    // already-seeded one keeps its persisted goal.
     if let Some(goal) = &config.initial_goal {
         seed_initial_goal(
             harness,

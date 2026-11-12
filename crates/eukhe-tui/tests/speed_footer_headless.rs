@@ -279,6 +279,7 @@ fn streamed_message(text: &str, timestamp: i64) -> Value {
 
 fn options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

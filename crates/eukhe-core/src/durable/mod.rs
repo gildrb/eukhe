@@ -5,9 +5,11 @@
 //! `extension(deps: &Arc<HostDeps>) -> Arc<Extension>`; `registry` installs
 //! them in order.
 
+pub mod acceptance;
 mod admission_gate;
 pub mod bounded_output;
 pub mod branch_summary;
+pub mod budget;
 pub mod children;
 mod codemode;
 pub mod compaction;
@@ -23,6 +25,7 @@ mod fork;
 pub mod goals;
 mod import;
 pub mod jobs;
+pub mod loop_mode;
 mod main_conversation;
 pub mod messages;
 mod models;

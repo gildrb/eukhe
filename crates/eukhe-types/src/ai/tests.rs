@@ -81,7 +81,7 @@ fn assistant_message_roundtrip_and_unknown_fields() {
 #[test]
 fn tool_result_message_roundtrip() {
     assert_roundtrip::<ToolResultMessage>(
-        r#"{"toolCallId":"c1","toolName":"ipython","content":[{"type":"text","text":"out"}],"details":{"durationMs":3},"isError":false,"timestamp":4}"#,
+        r#"{"toolCallId":"c1","toolName":"python","content":[{"type":"text","text":"out"}],"details":{"durationMs":3},"isError":false,"timestamp":4}"#,
     );
 }
 

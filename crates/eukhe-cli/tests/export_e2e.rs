@@ -140,6 +140,7 @@ async fn tui_export_surface() {
         .to_string();
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.0.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -232,10 +233,10 @@ async fn tui_export_surface() {
     // `state.tools` in the live-session export).
     let tools = data["tools"].as_array().expect("tools section");
     assert!(
-        tools.iter().any(|tool| tool["name"] == "ipython"
+        tools.iter().any(|tool| tool["name"] == "python"
             && tool["description"].is_string()
             && tool["parameters"].is_object()),
-        "ipython contract in export tools: {data}"
+        "python contract in export tools: {data}"
     );
     // No custom tool ran: the pre-render section is omitted, not null.
     assert!(

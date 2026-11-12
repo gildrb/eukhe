@@ -11,6 +11,7 @@ members = [
     "crates/eukhe-durable",
     "crates/eukhe-models",
     "crates/eukhe-docs",
+    "crates/eukhe-budget",
     "crates/eukhe-shell",
     "crates/eukhe-tiny",
     "crates/eukhe-tiny-onnx",
@@ -54,6 +55,7 @@ tracing = { version = "0.1", features = ["attributes"] }
 eukhe-types = { path = "crates/eukhe-types" }
 eukhe-tokens = { path = "crates/eukhe-tokens" }
 eukhe-bend = { path = "crates/eukhe-bend" }
+eukhe-budget = { path = "crates/eukhe-budget" }
 eukhe-chord = { path = "crates/eukhe-chord" }
 eukhe-ai = { path = "crates/eukhe-ai" }
 eukhe-durable = { path = "crates/eukhe-durable" }

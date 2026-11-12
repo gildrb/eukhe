@@ -12,6 +12,7 @@ import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_aws_text.bend as ffi_aws_text
 import ./ffi_bound.bend as ffi_bound
+import ./ffi_budget.bend as ffi_budget
 import ./ffi_cache_marks.bend as ffi_cache_marks
 import ./ffi_call_lift.bend as ffi_call_lift
 import ./ffi_catalog_union.bend as ffi_catalog_union
@@ -68,6 +69,7 @@ import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_kin.bend as ffi_kin
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
+import ./ffi_loop.bend as ffi_loop
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_model_name.bend as ffi_model_name
@@ -121,6 +123,7 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_verify.bend as ffi_verify
 import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
@@ -360,6 +363,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_worker.ffi(input)
     case 454:
       ffi_once.ffi(input)
+    case 456:
+      ffi_loop.ffi(input)
+    case 457:
+      ffi_budget.ffi(input)
+    case 458:
+      ffi_verify.ffi(input)
     case _:
       W.err("unknown entry")
 

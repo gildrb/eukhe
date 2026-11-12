@@ -60,6 +60,50 @@ export type Queue = { queuedCount: number; steering: QueueItem[]; followUps: Que
 
 export type ContextUsage = { tokens: number; contextWindow: number; percent?: number };
 
+/** Why a loop ended (eukhe-types `LoopEnd`). */
+export type LoopEnd =
+  | "satisfied"
+  | "check_broke"
+  | "out_of_turns"
+  | "out_of_time"
+  | "turns_failed"
+  | "out_of_budget"
+  | "stopped";
+
+/** Where a loop is (eukhe-types `LoopPhase`). */
+export type LoopPhase =
+  | { state: "off" | "armed" | "turn" | "judging" | "paused" }
+  | { state: "ended"; end: LoopEnd };
+
+/** What one run of the condition command showed (eukhe-types `LoopEvidence`). */
+export type LoopEvidence =
+  | { kind: "exited"; code: number }
+  | { kind: "no_status" | "timed_out" | "spawn_failed" | "cancelled" };
+
+/** A session's `/loop` (eukhe-types `LoopStatus`): `loop_update` and `state.loop`. */
+export type LoopStatus = {
+  phase: LoopPhase;
+  /** The iterations started (the first turn is 1). */
+  iteration: number;
+  /** The automatic iterations left; absent with no count. */
+  remaining?: number;
+  /** The deadline, in milliseconds since the epoch; absent with no span. */
+  deadlineMs?: number;
+  /** `until`: the loop stops once the command succeeds; else once it fails. */
+  condition?: { command: string; until: boolean };
+  prompt: string;
+  failures: number;
+  /** The last evidence, and the iteration it was read after. */
+  lastCheck?: { iteration: number; evidence: LoopEvidence };
+  /** The bound given at `/loop`. */
+  limit?: { kind: "iterations"; iterations: number } | { kind: "duration"; durationMs: number };
+  startedAtMs?: number;
+  /** The verdict of `lastCheck` on the stop condition: 0 confirmed, 1 refuted, 2 broken, 3 unjudged. */
+  verdict?: 0 | 1 | 2 | 3;
+  /** The last line the loop reported (its start, its end). */
+  message?: string;
+};
+
 /** The daemon's AgentConnectionState (`get_connection_state`). */
 export type AgentState = {
   cwd?: string;
@@ -79,6 +123,7 @@ export type AgentState = {
   scopedModels?: { model: ModelRef }[];
   contextUsage?: ContextUsage;
   goal?: unknown;
+  loop?: LoopStatus | null;
   [key: string]: unknown;
 };
 
@@ -99,7 +144,7 @@ export type PromptProgress = { processed: number; total: number; cache: number; 
 
 export type StreamUpdate = { type: string; delta?: string };
 
-/** The 27 SessionEvent types the reducer folds. */
+/** The 29 SessionEvent types the reducer folds. */
 export type SessionEvent =
   | { type: "agent_start" }
   | { type: "agent_end" }
@@ -152,6 +197,8 @@ export type SessionEvent =
   | { type: "service_tier_changed"; serviceTier: string }
   | { type: "session_action_update"; actions: Queue }
   | { type: "goal_update"; goal: unknown }
+  | { type: "loop_update"; loop: LoopStatus }
+  | { type: "budget_update"; budget: unknown }
   | { type: "chat_turn_wait"; waiting: boolean }
   | { type: "memory_update"; update: unknown }
   | { type: "bash_start"; command: string }
@@ -159,7 +206,7 @@ export type SessionEvent =
   | { type: "bash_end"; errorMessage?: string }
   | { type: "refine_complete" }
   | { type: "refine_failed"; error: string }
-  | { type: "ipython_sent_agent_message" };
+  | { type: "python_sent_agent_message" };
 
 /** `effects`: every effect of the step, by name (read, write, exec, net, outside, protected, secret). */
 export type ApprovalRequest = {

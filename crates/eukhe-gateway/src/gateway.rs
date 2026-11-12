@@ -1180,13 +1180,16 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
+            | SessionEvent::LoopUpdate { .. }
+            | SessionEvent::BudgetUpdate { .. }
+            | SessionEvent::AcceptanceUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }
             | SessionEvent::BashEnd { .. }
             | SessionEvent::RefineComplete { .. }
             | SessionEvent::RefineFailed { .. }
-            | SessionEvent::IpythonSentAgentMessage { .. } => {}
+            | SessionEvent::PythonSentAgentMessage { .. } => {}
         }
         if let Some(answer) = answer(event) {
             self.relay_answer(answer).await;

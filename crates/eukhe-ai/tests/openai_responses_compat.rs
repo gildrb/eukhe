@@ -246,12 +246,13 @@ async fn sets_strict_mode_explicitly_for_cloudflare_openai_responses_tools() {
     );
 }
 
-/// Thinking off sends the model's disable mode: `none` for `OpenAI`'s
-/// GPT-5.6 generation (`none-effort`), else the lowest effort the model
-/// offers (`lowest-effort`), also on hosts without the explicit `none`
-/// (GitHub Copilot) and on xAI.
+/// Thinking off (the caller turns reasoning off) sends the model's disable
+/// mode: `none` for `OpenAI`'s GPT-5.6 generation (`none-effort`), else the
+/// lowest effort the model offers (`lowest-effort`), also on hosts without
+/// the explicit `none` (GitHub Copilot) and on xAI. A request that names no
+/// effort and does not turn reasoning off sends no `reasoning`.
 #[tokio::test]
-async fn sends_the_off_effort_when_no_reasoning_is_requested() {
+async fn sends_the_off_effort_when_thinking_is_off() {
     for (provider, model_id, effort) in [
         ("openai", "gpt-5.1", "low"),
         ("openai", "gpt-5.2", "low"),
@@ -272,7 +273,10 @@ async fn sends_the_off_effort_when_no_reasoning_is_requested() {
         ("xai", "grok-4.3", "low"),
     ] {
         let model = model(provider, model_id);
-        let (request, _) = run(
+        let mut off = ProviderStreamOptions::default();
+        off.extra.insert("disableReasoning".to_owned(), json!(true));
+        let (request, _) = run(&model, &sys_hi_context(), off, done_response()).await;
+        let (unset, _) = run(
             &model,
             &sys_hi_context(),
             ProviderStreamOptions::default(),
@@ -283,6 +287,11 @@ async fn sends_the_off_effort_when_no_reasoning_is_requested() {
         let reasoning = &request.body["reasoning"];
         assert_eq!(reasoning["effort"], json!(effort), "{provider}/{model_id}");
         assert!(reasoning.get("summary").is_none(), "{provider}/{model_id}");
+        assert!(
+            unset.body.get("reasoning").is_none(),
+            "{provider}/{model_id}: {}",
+            unset.body
+        );
     }
 }
 
@@ -540,6 +549,76 @@ async fn sends_max_output_tokens_by_default() {
     let (request, _) = run(&gpt_5_4(), &sys_hi_context(), options, done_response()).await;
 
     assert_eq!(request.body["max_output_tokens"], json!(1024));
+}
+
+/// A Responses request asks for at most 64000 output tokens
+/// (`OPENAI_MAX_OUTPUT_TOKENS`) and never more than the model's max; a
+/// local backend takes the model's whole max.
+#[tokio::test]
+async fn holds_max_output_tokens_under_the_host_ceiling() {
+    let hosted = gpt_5_4();
+    let local = with_fields(&hosted, &json!({ "baseUrl": "http://127.0.0.1:8000/v1" }));
+    let mut sent = Vec::new();
+    for model in [&hosted, &local] {
+        let mut options = ProviderStreamOptions::default();
+        options.stream.max_tokens = Some(hosted.max_tokens + 1);
+        let (request, _) = run(model, &sys_hi_context(), options, done_response()).await;
+        sent.push(request.body["max_output_tokens"].clone());
+    }
+
+    assert!(hosted.max_tokens > 64_000, "{}", hosted.max_tokens);
+    assert_eq!(sent, [json!(64_000), json!(hosted.max_tokens)]);
+}
+
+/// The bundled catalog's Responses models whose max passes the ceiling
+/// (models.dev: `openai/gpt-5.6` 128000, `xai/grok-build-0.1` 256000) ask
+/// their hosts for 64000 output tokens when the caller sets no cap.
+#[tokio::test]
+async fn bundled_catalog_models_take_the_host_ceiling() {
+    let catalog: JsonValue = serde_json::from_str(include_str!(
+        "../../eukhe-models/tests/fixtures/catalog.v1.json"
+    ))
+    .expect("catalog fixture");
+    let mut sent = Vec::new();
+    for (provider, id) in [("openai", "gpt-5.6"), ("xai", "grok-build-0.1")] {
+        let entry = catalog["models"]
+            .as_array()
+            .expect("catalog models")
+            .iter()
+            .find(|entry| entry["provider"] == provider && entry["id"] == id)
+            .unwrap_or_else(|| panic!("the catalog has {provider}/{id}"))
+            .clone();
+        let model: Model = serde_json::from_value(entry).expect("catalog model");
+        assert!(
+            model.max_tokens > 64_000,
+            "{provider}/{id}: {}",
+            model.max_tokens
+        );
+        let (fetch, captured) = mock_fetch(vec![done_response()]);
+        let mut options = SimpleStreamOptions::default();
+        options.stream.request.api_key = Some("sk-test-key".to_owned());
+        options.stream.request.fetch = Some(fetch);
+        let _ = stream_simple_openai_responses(&model, &sys_hi_context(), options)
+            .result()
+            .await;
+        let request = captured
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first()
+            .cloned()
+            .expect("captured request");
+        sent.push((
+            format!("{provider}/{id}"),
+            request.body["max_output_tokens"].clone(),
+        ));
+    }
+    assert_eq!(
+        sent,
+        [
+            ("openai/gpt-5.6".to_owned(), json!(64_000)),
+            ("xai/grok-build-0.1".to_owned(), json!(64_000)),
+        ]
+    );
 }
 
 #[tokio::test]

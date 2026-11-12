@@ -291,6 +291,7 @@ fn command_options(
     provider_auth: Option<eukhe_tui::provider_auth::ProviderAuthCommandsHandle>,
 ) -> eukhe_tui::interactive::InteractiveOptions {
     eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.to_path_buf(),
         cwd: dir.to_path_buf(),

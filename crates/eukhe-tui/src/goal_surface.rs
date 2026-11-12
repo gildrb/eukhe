@@ -3,7 +3,7 @@
 //! the tray goal label (`getTrayGoalLabel`/`formatGoalElapsed`). Pure
 //! state and formatting; the session view owns the transcript rows.
 
-use eukhe_types::goal::{empty_goal_state, GoalState, GoalStatus};
+use eukhe_types::goal::{empty_goal_state, GoalState, GoalStatus, GoalTokens};
 
 /// The announcement dedupe snapshot (TS `goalAnnouncementSnapshot`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +78,7 @@ pub fn format_goal_status(goal: &GoalState, columns: usize) -> String {
         },
         GoalStatus::BudgetLimited => {
             // TS `formatGoalUsage`: the compiled core's usage line.
-            let usage_text = eukhe_bend::rules::goal_text::usage(goal)
+            let usage_text = eukhe_bend::rules::goal_text::usage(goal, GoalTokens::of(goal))
                 .map(|usage| format!(" ({usage})"))
                 .unwrap_or_default();
             let prefix = format!("Goal budget limited{usage_text}");
@@ -122,7 +122,7 @@ fn goal_detail_suffix(value: &str, prefix_width: usize, columns: usize) -> Strin
 }
 
 /// `truncateToWidth` over unstyled text with the default `...` ellipsis.
-fn truncate_plain(text: &str, width: usize) -> String {
+pub(crate) fn truncate_plain(text: &str, width: usize) -> String {
     let line: crate::Line = vec![crate::Span::raw(text.to_string())];
     crate::width::truncate_line(&line, width, crate::glyphs::ELLIPSIS)
         .iter()

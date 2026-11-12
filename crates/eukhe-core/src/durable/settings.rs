@@ -516,7 +516,7 @@ fn load(
 ///   and unanswered is sent again under its idempotency key.
 ///
 /// eukhe has no tool-execution setting: the Harness default applies (each
-/// tool's own execution mode still serializes `ipython`).
+/// tool's own execution mode still serializes `python`).
 #[must_use]
 pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
     let stream = ConversationStreamOptions {

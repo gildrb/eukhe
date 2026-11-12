@@ -298,9 +298,15 @@ impl Supervisor {
             "skills",
             "promptTemplates",
             "autonomous",
+            "acceptance",
             // The family a subagent inherited at spawn: a respawned child
             // keeps the values it started from.
             "cvarFamily",
+            // The create's budget: the worker makes it the session's before
+            // the create answers, so no request of the session goes out
+            // without its reservation; a respawn replays it (a session that
+            // has a budget keeps its own).
+            "budget",
         ] {
             if let Some(value) = config_object.and_then(|config| config.get(key)) {
                 durable_rest.insert(key.to_string(), value.clone());

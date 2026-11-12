@@ -54,7 +54,7 @@ use serde_json::Value;
 
 /// Which agent-message side a row renders: the received notice of the
 /// transcript custom-message rows (TS `AgentMessageComponent`), or the
-/// sent/queued receipts of the ipython cell output (TS
+/// sent/queued receipts of the python cell output (TS
 /// `renderSentAgentMessages`). The variants carry no label of their own:
 /// the operator's 2026-09-25 arrow directive folds the direction word into
 /// the viewer-relative arrow (received `down`, sent/queued `up`) that renders
@@ -63,9 +63,9 @@ use serde_json::Value;
 pub enum AgentMessageDirection {
     /// The transcript custom-message rows (this chat received the mail).
     Received,
-    /// A delivered receipt in ipython cell output.
+    /// A delivered receipt in python cell output.
     Sent,
-    /// An undelivered receipt in ipython cell output.
+    /// An undelivered receipt in python cell output.
     Queued,
 }
 
@@ -77,7 +77,7 @@ pub(crate) const AGENT_MESSAGE_LABEL: &str = "Agent message";
 /// One agent-message summary row:
 /// `mail Agent message * <arrow> <counterpart>` plus the guttered body when
 /// expanded (TS `AgentMessageComponent` for received rows; the sent/queued
-/// directions feed the ipython cell receipt rows). The `mail` mail envelope
+/// directions feed the python cell receipt rows). The `mail` mail envelope
 /// is the row's icon -- a sanctioned divergence (Kevin directive 2026-09-24)
 /// from the TS `*` diamond; the TS side is expected to adopt the same
 /// glyph. The collapsed row carries no body preview (the operator's
@@ -210,7 +210,9 @@ pub fn custom_message_entries(
                 }]
             }
         }
-        CustomType::ModelPromptError | CustomType::KernelUnavailable => vec![ChatEntry::Status {
+        CustomType::ModelPromptError
+        | CustomType::KernelUnavailable
+        | CustomType::OutputLimitNotice => vec![ChatEntry::Status {
             text,
             kind: crate::chat::StatusKind::Warning,
         }],
@@ -564,6 +566,26 @@ mod tests {
         }
     }
 
+    /// A loop's end line (`eukhe.loop`, display-only) shows like the
+    /// director notices: the generic panel under its type label.
+    #[test]
+    fn the_loop_notice_renders_the_generic_panel() {
+        let text = "Loop condition `test -f done` is now satisfied. Loop mode disabled.";
+        assert_eq!(
+            decoded(&json!({
+                "role": "custom",
+                "customType": "eukhe.loop",
+                "content": text,
+                "display": true,
+                "details": { "end": "satisfied" },
+            })),
+            vec![ChatEntry::CustomPanel(Box::new(CustomPanelRow {
+                custom_type: "eukhe.loop".to_string(),
+                content: text.to_string(),
+            }))]
+        );
+    }
+
     #[test]
     fn agent_message_decodes_counterpart_and_body() {
         let entries = decoded(&json!({
@@ -813,7 +835,7 @@ mod tests {
         let entries = decoded(&json!({
             "role": "custom",
             "customType": "kernel_unavailable",
-            "content": "The Python kernel is not installed, so this session has no `ipython` tool; the other tools work.",
+            "content": "The Python kernel is not installed, so this session has no `python` tool; the other tools work.",
             "display": true,
         }));
         assert!(
@@ -826,6 +848,26 @@ mod tests {
         );
     }
 
+    /// The row after an answer that hit the output limit and was kept as
+    /// it is: a warning status line with the row's text.
+    #[test]
+    fn output_limit_row_is_a_warning_status_line() {
+        let text =
+            "Response hit the elpis/qwen3.8-27b output limit (4096 tokens) and was truncated.";
+        let entries = decoded(&json!({
+            "role": "custom",
+            "customType": "eukhe.output_limit",
+            "content": text,
+            "display": true,
+        }));
+        assert_eq!(
+            entries,
+            vec![ChatEntry::Status {
+                text: text.to_owned(),
+                kind: crate::chat::StatusKind::Warning,
+            }]
+        );
+    }
     #[test]
     fn shell_completion_decodes_details() {
         let entries = decoded(&json!({

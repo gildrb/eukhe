@@ -15,7 +15,7 @@ use super::{PauseView, Wake};
 use crate::durable::children::PauseAction;
 use crate::durable::rlm::kernel_test_lock;
 use crate::durable::rlm::tests::{
-    entries, gated_cell, ipython, live_output, result_text, results, settle, submit, text,
+    entries, gated_cell, live_output, python, result_text, results, settle, submit, text,
     wait_for_live_output, Fixture,
 };
 use crate::durable::EukheSession;
@@ -77,7 +77,7 @@ async fn a_pause_finishes_the_running_call_holds_the_next_request_and_keeps_mess
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("gate");
     fixture.faux.set_responses(vec![
-        ipython("c1", &gated_cell(&gate, "6 * 7")),
+        python("c1", &gated_cell(&gate, "6 * 7")),
         text("done"),
     ]);
     let session = fixture.open_configured(|_| {}).await;

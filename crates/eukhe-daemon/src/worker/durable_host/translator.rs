@@ -470,7 +470,10 @@ impl EventTranslator {
     /// [`Self::translate`], the batch's task failures are known up front, so a
     /// faulted tool's `tool_execution_end` and a faulted compaction's
     /// `compaction_end` carry their failure message although the durable
-    /// events list failures after those ends.
+    /// events list failures after those ends. A retried attempt's
+    /// `message_end` goes out before its `auto_retry_start` although the
+    /// durable events list the retry wait first: the attempt ends the
+    /// message it streamed, never a second one.
     pub fn translate_batch(&mut self, events: &[AgentEvent]) -> Vec<SessionEvent> {
         for event in events {
             if let AgentEvent::TaskFailed {
@@ -492,7 +495,25 @@ impl EventTranslator {
         }
         self.failures_prescanned = true;
         let mut frames = Vec::new();
-        for event in run_start_first(events) {
+        let mut ordered = run_start_first(events);
+        // The durable runtime commits a retried attempt's entry with its
+        // retry wait and lists the wait (live progress) ahead of the entry.
+        let retry = ordered
+            .iter()
+            .position(|event| matches!(event, AgentEvent::AutoRetryStart { .. }));
+        let attempt_end = retry.and_then(|retry| {
+            ordered[retry..]
+                .iter()
+                .position(|event| {
+                    matches!(event, AgentEvent::MessageEnd { entry }
+                        if entry.kind.as_str() == ASSISTANT_ENTRY.kind())
+                })
+                .map(|offset| retry + offset)
+        });
+        if let (Some(retry), Some(attempt_end)) = (retry, attempt_end) {
+            ordered[retry..=attempt_end].rotate_left(1);
+        }
+        for event in ordered {
             frames.extend(self.translate(event));
         }
         // A failure the batch did not report belongs to no later frame.
@@ -660,13 +681,16 @@ impl EventTranslator {
                 | SessionEvent::SessionActionUpdate { .. }
                 | SessionEvent::GoalUpdate { .. }
                 | SessionEvent::UnknownEffectsUpdate { .. }
+                | SessionEvent::LoopUpdate { .. }
+                | SessionEvent::BudgetUpdate { .. }
+                | SessionEvent::AcceptanceUpdate { .. }
                 | SessionEvent::MemoryUpdate { .. }
                 | SessionEvent::BashStart { .. }
                 | SessionEvent::BashOutput { .. }
                 | SessionEvent::BashEnd { .. }
                 | SessionEvent::RefineComplete { .. }
                 | SessionEvent::RefineFailed { .. }
-                | SessionEvent::IpythonSentAgentMessage { .. } => {}
+                | SessionEvent::PythonSentAgentMessage { .. } => {}
             }
         }
     }
@@ -741,8 +765,8 @@ impl EventTranslator {
         out: &mut Vec<SessionEvent>,
     ) {
         self.flush_into(out);
-        // The failed attempt's partial is gone; the next attempt starts a
-        // new message.
+        // A failed attempt that left no entry: its partial is gone, and
+        // the next attempt starts a new message.
         self.mirror.partial = None;
         self.mirror.retry = Some(MirrorRetry {
             attempt,

@@ -1,6 +1,6 @@
 //! A `codemode` script survives a worker kill between its nested calls.
 //!
-//! The model calls `codemode` with [`SCRIPT`]: an `ipython` cell that
+//! The model calls `codemode` with [`SCRIPT`]: an `python` cell that
 //! appends a line to the `marker` file (replay-unsafe: it must never run
 //! again), then a `read` of the `held.fifo` named pipe (replay-safe), then
 //! a `read` of a plain file. The pipe holds the second call in flight until
@@ -20,7 +20,7 @@ pub const TAG: &str = "[codemode]";
 /// The script. Every path is relative to the session's cwd, so the script
 /// is the same text in every world and its result can be compared across
 /// worlds.
-pub const SCRIPT: &str = r#"const marked = await tools.ipython({ code: "with open('marker', 'a') as f:\n    f.write('run\\n')\nprint('marked')" });
+pub const SCRIPT: &str = r#"const marked = await tools.python({ code: "with open('marker', 'a') as f:\n    f.write('run\\n')\nprint('marked')" });
 const held = await tools.read({ path: "held.fifo" });
 const plain = await tools.read({ path: "plain.txt" });
 return { marked, held, plain };"#;

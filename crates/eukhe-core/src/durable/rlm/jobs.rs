@@ -1,4 +1,4 @@
-//! Detached `ipython` cells: the detached cell of one conversation's
+//! Detached `python` cells: the detached cell of one conversation's
 //! kernel, and the `jobs.*` kernel host requests over the session's work
 //! (ADR 0010).
 //!

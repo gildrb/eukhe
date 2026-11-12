@@ -221,7 +221,7 @@ impl Lane {
 
 fn tool_call(code: &str) -> Value {
     json!({ "content": [
-        { "type": "toolCall", "name": "ipython", "arguments": { "code": code } },
+        { "type": "toolCall", "name": "python", "arguments": { "code": code } },
     ] })
 }
 

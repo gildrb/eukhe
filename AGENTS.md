@@ -13,10 +13,10 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   - Never skip hooks (`--no-verify`).
   - `scripts/toolchain.env` pins the Bend and Lean releases.
   - Nightly, a systemd user timer runs `scripts/ci_nightly.sh run`: full gate (`make ci-local`, < 30 min: every test, nextest profile `nightly`, and the doctests; `bend PROOF.bend --verdict`) on origin/main. A test failing once then passing is flaky: named in the summary, not red; failing twice is red. Green only: starts `eukhe-release.yml` for that commit, which releases `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`. Red releases nothing; `make nightly-status` shows why.
-  - `make catalog-pin` moves `scripts/release/catalog-pin.json` to the catalog repo's newest commit; review the diff, commit it.
+  - `make catalog-pin` moves `scripts/release/catalog-pin.json` (the MCP services) to the catalog repo's newest commit; `make models-dev-pin` moves the models.dev snapshot (`crates/eukhe-models/catalog`) to models.dev's newest commit and regenerates the catalog fixture. Review the diff, commit it.
   - The release's Linux builds run in `ghcr.io/gildrb/eukhe-build:jammy-<date>` (`scripts/release/Dockerfile`), pinned by digest in `eukhe-release.yml`; to move the toolchain, edit the Dockerfile, `gh workflow run build-image.yml -f tag=jammy-<YYYYMMDD>`, and pin the digest its merge job prints.
 - `site/` is the website (eukhe.com, `site/README.md`), apart from eukhe but for its build reading the repository's files (`README.md` and what it links to). Its own toolchain (npm), laws (`site/LAWS.bend`, `site/LAWS.lock`) and check (`make site-check`); no gate, hook, nightly run or release runs it, and eukhe's `LAWS.lock` and proofs never hold its files. Deploy only by hand: `make site-deploy`.
-- Prime Intellect stays only as a third-party service: provider `prime-inference`, `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`, catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Every product name is eukhe.
+- Prime Intellect stays only as a third-party service: provider `prime-inference`, `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`, catalog repo `PrimeIntellect-ai/prime-agent-catalog` (MCP services only). Every product name is eukhe.
 - Product text never names another agent harness (omp, oh-my-pi, pi, Codex, Claude Code, …) and never compares eukhe with one. Those names belong only in README.md's Credits and in THIRD-PARTY-NOTICES. The rule covers `spec/`, laws and their comments, code comments, docs, help text and commit messages. Say what eukhe does. Wrong: "exactly-once effects, an intent journal per effect (omp has none: its --restore re-runs an interrupted batch)". Right: "exactly-once effects: an intent journal per effect".
 
 ## Style and structure
@@ -36,6 +36,16 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Native RPITIT trait methods with explicit `Send` bounds (`fn foo(&self) -> impl Future<Output = T> + Send;`), not `#[async_trait]`.
 - No single-use helper methods.
 - Instrument async work at the definition (`#[tracing::instrument(...)]`), not `.instrument(...)` at call sites.
+
+## Writing
+
+Dense, telegraphic; only what the reader needs to act on. Cut flattery, history, restated rules. One fact once; lists over prose; example over explanation. README: every line answers "does the reader need this?"; order tagline, Install (one command first), Use (first commands, then --help), one section per differentiator (≤3 bullets), Components (one line each), Limitations, Credits, License; cut settings, flags, internals, paths users never touch, what --help shows; dev setup in AGENTS.md; tables only to compare. No · separators.
+
+- Say what Eukhe does for the reader; never explain a dependency's concepts (Eukhe doesn't explain what Bend laws or theorems are).
+- No negatives: never tell the reader what they don't need to do; list only steps that exist.
+- No comparisons to other products outside Credits.
+- None of the patterns in https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing.
+- Show user-facing text (README, eukhe.com) to the user before pushing.
 
 ## Change hygiene
 
@@ -79,7 +89,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 
 - `make check`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and the doctests (`cargo test --workspace --doc`; never plain `cargo test`: one process for every test breaks tests that rely on process-wide state, such as the privacy token map), the runtime tests, the release build.
 - Before a push: the pre-push hook passes; never bypass hooks. The full gate (`make ci-local`) runs nightly and gates the release.
-- `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs`, `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled model catalog. Built-in catalog = its union with the bundled snapshot (`eukhe-models` `effective.rs`; laws: `laws/catalog_union.bend`). `eukhe-models` adds transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`). `scripts/generate-catalog-fixture.py` refreshes `crates/eukhe-models/tests/fixtures/catalog.v1.json`.
+- `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs`, `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled model catalog. Built-in catalog = its union with the bundled snapshot (`eukhe-models` `effective.rs`; laws: `laws/catalog_union.bend`): `scripts/release/models_dev.py` maps the pinned models.dev snapshot (`crates/eukhe-models/catalog/models-dev.json` + `.pin.json`) through `overrides.json` (provider routes, per-model fixes) into the models the compiled catalog lacks; never fetched at runtime. `eukhe-models` adds transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`). `scripts/generate-catalog-fixture.py` refreshes `crates/eukhe-models/tests/fixtures/catalog.v1.json` (`models_dev.py check` fails when it drifts).
 
 ## Crates
 
@@ -95,11 +105,12 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |`eukhe-durable`|Durable Harness, storage, conversations|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-tokens`, `eukhe-ai`|
 |`eukhe-models`|Built-in model catalog (bundled snapshot ∪ compiled catalog), transport pinning|`eukhe-types`, `eukhe-bend`, `eukhe-ai`|
 |`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|`eukhe-types`, `eukhe-bend`|
+|`eukhe-budget`|Budgets as hard guarantees: the durable ledger of a task's budget (money, tokens, work time, tool calls), one file per session shared by the session tree under a file lock; reserve before spending, settle after, carve for a child, charge in full what a crash left open; every decision from the compiled core (`rules::budget`)|`eukhe-types`, `eukhe-bend`|
 |`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`, `eukhe-bend`|
 |`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, shared worker per model and its election, worker client, role-based model selection|`eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tiny-onnx`|Tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-chord`, `eukhe-tokens`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
-|`eukhe-sdk`|In-process embedding facade: the engine's session types re-exported, plus `prompt`, `watch` (a conversation's event stream), `available_models`, `new_session_id`|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
+|`eukhe-sdk`|In-process embedding facade: the engine's session types re-exported, plus `prompt`, `watch` (a conversation's event stream), `available_models`, `new_session_id`, and a session's budget (`set_budget`, `add_budget`, `budget_report`, `watch_budget`, `audit_budget`)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`|
 |`eukhe-daemon`|Supervisor, workers, wire protocol; the `eukhe-daemon` binary is the whole engine image (`supervisor`, `worker`, `tiny-worker`)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-tokens`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 |`eukhe-client`|Daemon-wire client for frontends: supervisor connection and events, direct worker link, build order and replacement verdict (`daemon_build`), saved sessions, the daemon launcher seam and the process launcher (`launcher`: a supervisor command started detached, the replacement verdict applied), the daemon socket path (`paths`)|`eukhe-types`, `eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tui`|Terminal UI|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-tokens`, `eukhe-client`|

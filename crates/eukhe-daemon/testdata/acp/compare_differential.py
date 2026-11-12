@@ -59,7 +59,7 @@ def normalize_frame(direction, frame, sequence_index):
             elif kind == "tool_call_update":
                 shape["status"] = update.get("status")
                 shape["has_content"] = "content" in update
-                shape["has_ipython_meta"] = "ipython" in meta
+                shape["has_python_meta"] = "python" in meta
             elif kind == "session_info_update":
                 # Compaction, goal, and refinement payloads: presence and
                 # status are structural; usage counts and summary text are

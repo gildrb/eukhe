@@ -9,5 +9,5 @@ def Facts.facts_cap_stops_never_shrinks(caller, mm, needs, w, p, s, f, h1):
     case Some{x}:
       {==}
     case None{}:
-      %Equal.sym(Bool, Facts.cap_unknown(None{}, mm, needs, Fx.Win{w, p, s, f, True{}}), False{}, h1) : {Fx.cap.none(_, mm, Fx.Win{w, p, s, f, True{}}) == Some{mm} : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Facts.cap_left_out(None{}, needs), False{}, h1) : {Fx.cap.none(_, mm, Fx.Win{w, p, s, f, True{}}) == Some{mm} : Maybe<&2, Nat>}
       {==}

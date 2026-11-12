@@ -55,6 +55,9 @@ pub struct Reconstructed {
     /// feeds the first frame's tray row without a stats round-trip.
     /// `None` clears the tray display.
     pub context_usage: Option<crate::chrome::ContextUsage>,
+    /// The session's budget (`state.budget`), when it has one: the
+    /// status line's budget segment from the first frame.
+    pub budget: Option<eukhe_types::budget::BudgetReport>,
     /// Session display name.
     pub session_name: Option<String>,
     /// Session id of the persisted session file.
@@ -71,6 +74,12 @@ pub struct Reconstructed {
     /// The session's ledger of effects whose outcome a restart could not
     /// tell (`state.unknownEffects`; absent when empty).
     pub unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
+    /// The session's `/loop` (`state.loop`), when the snapshot reports
+    /// one.
+    pub loop_status: Option<eukhe_types::loop_mode::LoopStatus>,
+    /// The acceptance of the session's task (`state.acceptance`), when the
+    /// snapshot reports one.
+    pub acceptance: Option<eukhe_types::acceptance::AcceptanceState>,
     pub last_event_sequence: u64,
     /// Whether the attach supplied the resume cursor (the event
     /// sequence AND the generation): the reconstruction collapses an
@@ -546,6 +555,15 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     let goal = state
         .and_then(|state| state.get("goal"))
         .and_then(|goal| serde_json::from_value::<eukhe_types::goal::GoalState>(goal.clone()).ok());
+    let loop_status = state
+        .and_then(|state| state.get("loop"))
+        .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
+    let acceptance = state
+        .and_then(|state| state.get("acceptance"))
+        .and_then(|acceptance| {
+            serde_json::from_value::<eukhe_types::acceptance::AcceptanceState>(acceptance.clone())
+                .ok()
+        });
     let queued = match state.and_then(|state| state.get("sessionActions")) {
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
         None => crate::queued::QueuedMessages::default(),
@@ -559,6 +577,11 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         .and_then(|state| state.get("serviceTier"))
         .and_then(Value::as_str)
         .map(str::to_string);
+    // No budget is `null` or absent; the report is whole in every
+    // `budget_update` after it.
+    let budget = state
+        .and_then(|state| state.get("budget"))
+        .and_then(|budget| eukhe_types::budget::BudgetReport::deserialize(budget).ok());
     let last_user_prompt_ms = snapshot
         .messages
         .iter()
@@ -578,11 +601,14 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         model_provider,
         thinking_suffix,
         context_usage,
+        budget,
         session_name,
         session_id,
         event_generation,
         goal,
         unknown_effects,
+        loop_status,
+        acceptance,
         last_event_sequence,
         cursor_present,
         queued,

@@ -25,7 +25,47 @@ fn is_alias(id: &str) -> bool {
         || id[id.len() - 8..].parse::<u32>().is_err()
 }
 
-/// Exact reference match: canonical provider/id, provider/id split, or an
+/// Model ids a provider's catalog once carried that now name another of
+/// its models: `(provider, id, the model id it names)`. Cloudflare AI
+/// Gateway's Claude route listed the dotted spellings of the Claude ids;
+/// the gateway serves them under the dashed ids, which its catalog now
+/// carries alone, so a dotted id a user typed or saved names the dashed
+/// model.
+const MODEL_ID_ALIASES: [(&str, &str, &str); 8] = [
+    (CLOUDFLARE, "claude-fable-5.1", "claude-fable-5-1"),
+    (CLOUDFLARE, "claude-haiku-4.5", "claude-haiku-4-5"),
+    (CLOUDFLARE, "claude-opus-4.5", "claude-opus-4-5"),
+    (CLOUDFLARE, "claude-opus-4.6", "claude-opus-4-6"),
+    (CLOUDFLARE, "claude-opus-4.7", "claude-opus-4-7"),
+    (CLOUDFLARE, "claude-opus-4.8", "claude-opus-4-8"),
+    (CLOUDFLARE, "claude-sonnet-4.5", "claude-sonnet-4-5"),
+    (CLOUDFLARE, "claude-sonnet-4.6", "claude-sonnet-4-6"),
+];
+const CLOUDFLARE: &str = "cloudflare-ai-gateway";
+
+/// The model id `provider`'s alias `id` names ([`MODEL_ID_ALIASES`]);
+/// `None` when `id` is no alias of `provider`. Both compare without case.
+#[must_use]
+pub fn model_id_alias(provider: &str, id: &str) -> Option<&'static str> {
+    let id = id.trim();
+    MODEL_ID_ALIASES
+        .iter()
+        .find(|(of, alias, _)| of.eq_ignore_ascii_case(provider) && alias.eq_ignore_ascii_case(id))
+        .map(|(_, _, target)| *target)
+}
+
+/// The model of `models` that `provider`'s alias `id` names.
+fn aliased_model<'a>(
+    provider: &str,
+    id: &str,
+    mut models: impl Iterator<Item = &'a Model>,
+) -> Option<&'a Model> {
+    let target = model_id_alias(provider, id)?;
+    models.find(|model| model.provider.eq_ignore_ascii_case(provider) && model.id == target)
+}
+
+/// Exact reference match: canonical provider/id, provider/id split (an
+/// alias of the provider included, [`MODEL_ID_ALIASES`]), or an
 /// unambiguous bare id.
 #[must_use]
 pub fn find_exact_model_reference_match<'a, I>(
@@ -68,6 +108,9 @@ where
             }
             if provider_matches.len() > 1 {
                 return None;
+            }
+            if let Some(model) = aliased_model(provider, model_id, available_models.clone()) {
+                return Some(model);
             }
         }
     }
@@ -193,13 +236,17 @@ struct ParsedModelResult<'a> {
 }
 
 /// `model:level` parsing; colon-suffixed ids (`OpenRouter` `:exacto`) fall
-/// through when the suffix is not a valid level.
+/// through when the suffix is not a valid level. `provider`: the provider
+/// every candidate belongs to, whose retired thinking-variant ids and
+/// aliases resolve to their model, and whose ids match only exactly
+/// ([`fuzzy_exact`]).
 fn parse_model_pattern<'a>(
     pattern: &str,
     available_models: &'a [Model],
     strict: bool,
+    provider: Option<&str>,
 ) -> ParsedModelResult<'a> {
-    if let Some(exact) = fuzzy_exact(pattern, available_models) {
+    if let Some(exact) = fuzzy_exact(pattern, available_models, provider) {
         return ParsedModelResult {
             model: Some(exact),
             thinking_level: None,
@@ -216,7 +263,7 @@ fn parse_model_pattern<'a>(
     let prefix = &pattern[..last_colon];
     let suffix = &pattern[last_colon + 1..];
     if is_valid_thinking_level(suffix) {
-        let result = parse_model_pattern(prefix, available_models, strict);
+        let result = parse_model_pattern(prefix, available_models, strict, provider);
         if result.model.is_some() {
             return ParsedModelResult {
                 model: result.model,
@@ -233,7 +280,7 @@ fn parse_model_pattern<'a>(
             warning: None,
         };
     }
-    let result = parse_model_pattern(prefix, available_models, strict);
+    let result = parse_model_pattern(prefix, available_models, strict, provider);
     if result.model.is_some() {
         return ParsedModelResult {
             model: result.model,
@@ -246,10 +293,43 @@ fn parse_model_pattern<'a>(
     result
 }
 
-/// Exact match first, then fuzzy (`tryMatchModel`).
-fn fuzzy_exact<'a>(pattern: &str, available_models: &'a [Model]) -> Option<&'a Model> {
-    find_exact_model_reference_match(pattern, available_models)
-        .or_else(|| fuzzy_match_model(pattern, available_models))
+/// Exact match first, then a retired thinking variant of `provider`
+/// (`X-thinking` names `X` when no model carries the id itself) or an
+/// alias of `provider` ([`MODEL_ID_ALIASES`]), then fuzzy
+/// (`tryMatchModel`). A selector that names a provider (`provider`, or a
+/// `provider/` prefix naming a provider of `available_models`) resolves
+/// exactly or not at all: a fuzzy match inside a provider runs another
+/// model than the one named (`openrouter/anthropic/claude-opus-4` would
+/// run `anthropic/claude-opus-4.8:batch`).
+fn fuzzy_exact<'a>(
+    pattern: &str,
+    available_models: &'a [Model],
+    provider: Option<&str>,
+) -> Option<&'a Model> {
+    if let Some(exact) = find_exact_model_reference_match(pattern, available_models) {
+        return Some(exact);
+    }
+    if let Some(provider) = provider {
+        return thinking_variant(provider, pattern, available_models)
+            .or_else(|| aliased_model(provider, pattern, available_models.iter()));
+    }
+    let names_a_provider = pattern.split_once('/').is_some_and(|(prefix, _)| {
+        available_models
+            .iter()
+            .any(|model| model.provider.eq_ignore_ascii_case(prefix.trim()))
+    });
+    if names_a_provider {
+        return None;
+    }
+    fuzzy_match_model(pattern, available_models)
+}
+
+/// The logical model of `provider` a thinking-variant id names.
+fn thinking_variant<'a>(provider: &str, id: &str, models: &'a [Model]) -> Option<&'a Model> {
+    let logical = eukhe_tokens::thinking_variant_logical_id(provider, id.trim())?;
+    models.iter().find(|model| {
+        model.provider.eq_ignore_ascii_case(provider) && model.id.eq_ignore_ascii_case(&logical)
+    })
 }
 
 /// The models a glob (`?*[]` patterns, globset defaults) matches, as
@@ -303,7 +383,7 @@ pub fn resolve_model_scope_from_models(
             }
             continue;
         }
-        let parsed = parse_model_pattern(pattern, available_models, false);
+        let parsed = parse_model_pattern(pattern, available_models, false, None);
         if let Some(warning) = &parsed.warning {
             eprintln!("Warning: {warning}");
         }
@@ -335,7 +415,11 @@ pub struct ResolveCliModelResult {
 }
 
 /// Resolve one model from `--provider`/`--model` flags against the full
-/// catalog (not just auth-configured models).
+/// catalog (not just auth-configured models). A selector that names a
+/// provider (`--provider`, or a `provider/` prefix) resolves to that
+/// provider's model of the id, its retired thinking variant or its alias
+/// ([`MODEL_ID_ALIASES`]), else to "not found": never to another model
+/// of the provider, nor to an id the catalog does not have.
 #[must_use]
 pub fn resolve_cli_model(
     cli_provider: Option<&str>,
@@ -417,7 +501,7 @@ pub fn resolve_cli_model(
     };
     // Scope to the candidate slice for pattern parsing.
     let candidate_refs: Vec<Model> = candidates.into_iter().cloned().collect();
-    let parsed = parse_model_pattern(&pattern, &candidate_refs, true);
+    let parsed = parse_model_pattern(&pattern, &candidate_refs, true, provider.as_deref());
     if let Some(model) = parsed.model {
         return ResolveCliModelResult {
             model: Some(model.clone()),
@@ -440,31 +524,12 @@ pub fn resolve_cli_model(
             result.model = Some(model);
             return result;
         }
-        let fallback = parse_model_pattern(cli_model, all_models, true);
+        let fallback = parse_model_pattern(cli_model, all_models, true, None);
         if fallback.model.is_some() {
             return ResolveCliModelResult {
                 model: fallback.model.cloned(),
                 thinking_level: fallback.thinking_level,
                 warning: fallback.warning,
-                error: None,
-            };
-        }
-    }
-
-    if let Some(provider) = &provider {
-        if let Some(fallback_model) = build_fallback_model(provider, &pattern, all_models) {
-            let fallback_warning = match parsed.warning {
-                Some(warning) => format!(
-                    "{warning} Model \"{pattern}\" not found for provider \"{provider}\". Using custom model id."
-                ),
-                None => format!(
-                    "Model \"{pattern}\" not found for provider \"{provider}\". Using custom model id."
-                ),
-            };
-            return ResolveCliModelResult {
-                model: Some(fallback_model),
-                thinking_level: None,
-                warning: Some(fallback_warning),
                 error: None,
             };
         }
@@ -895,7 +960,7 @@ mod tests {
         assert_eq!(exact.map(|m| m.id.as_str()), Some("claude-sonnet-4-5"));
         // Bare id matches uniquely.
         assert_eq!(
-            fuzzy_exact("claude-sonnet", &catalog).map(|m| m.id.as_str()),
+            fuzzy_exact("claude-sonnet", &catalog, None).map(|m| m.id.as_str()),
             Some("claude-sonnet-4-5")
         );
         // Aliases beat dated versions in fuzzy matching.
@@ -934,13 +999,204 @@ mod tests {
         let unknown = resolve_cli_model(Some("nope"), "x", &catalog);
         assert!(unknown.error.unwrap().contains("Unknown provider"));
 
+        // An id the provider does not carry is not found: no model runs
+        // under an id the catalog does not have.
         let missing = resolve_cli_model(Some("anthropic"), "missing-model", &catalog);
-        // Falls back to the provider template with a warning.
+        assert!(missing.model.is_none());
         assert_eq!(
-            missing.model.as_ref().map(|m| m.id.as_str()),
-            Some("missing-model")
+            missing.error.as_deref(),
+            Some(
+                "Model \"anthropic/missing-model\" not found. Use \"eukhe model list\" to see available models."
+            )
         );
-        assert!(missing.warning.unwrap().contains("Using custom model id"));
+    }
+
+    /// A selector that names a provider (`--provider`, or a `provider/`
+    /// prefix) resolves to the model of that id or to "not found": never
+    /// to a model whose id or name contains it (`OpenRouter`'s
+    /// `anthropic/claude-opus-4` is not `anthropic/claude-opus-4.8:batch`,
+    /// `qwen/qwen3-235b-a22b` not its `-thinking-2507`, Codex's
+    /// `gpt-5.3-codex` not `gpt-5.3-codex-spark`), with or without a level.
+    #[test]
+    fn a_selector_naming_a_provider_resolves_exactly_or_not_at_all() {
+        let mut catalog = catalog();
+        for (provider, id) in [
+            ("openrouter", "anthropic/claude-opus-4.8:batch"),
+            ("openrouter", "qwen/qwen3-235b-a22b-2507"),
+            ("openrouter", "qwen/qwen3-235b-a22b-thinking-2507"),
+            ("openai-codex", "gpt-5.3-codex-spark"),
+            ("openai-codex", "gpt-5.4-codex"),
+        ] {
+            catalog.push(model(provider, id, id));
+        }
+        for (provider, selector, display) in [
+            (
+                Some("openrouter"),
+                "anthropic/claude-opus-4",
+                "openrouter/anthropic/claude-opus-4",
+            ),
+            (
+                None,
+                "openrouter/anthropic/claude-opus-4",
+                "openrouter/anthropic/claude-opus-4",
+            ),
+            (
+                Some("openrouter"),
+                "anthropic/claude-opus-4:high",
+                "openrouter/anthropic/claude-opus-4:high",
+            ),
+            (
+                Some("openrouter"),
+                "qwen/qwen3-235b-a22b",
+                "openrouter/qwen/qwen3-235b-a22b",
+            ),
+            (
+                None,
+                "openrouter/qwen/qwen3-235b-a22b",
+                "openrouter/qwen/qwen3-235b-a22b",
+            ),
+            (
+                Some("openai-codex"),
+                "gpt-5.3-codex",
+                "openai-codex/gpt-5.3-codex",
+            ),
+            (
+                None,
+                "openai-codex/gpt-5.3-codex",
+                "openai-codex/gpt-5.3-codex",
+            ),
+        ] {
+            let resolved = resolve_cli_model(provider, selector, &catalog);
+            assert_eq!(
+                (resolved.model.map(|model| model.id), resolved.error),
+                (
+                    None,
+                    Some(format!(
+                        "Model \"{display}\" not found. Use \"eukhe model list\" to see available models."
+                    ))
+                ),
+                "{provider:?} {selector}"
+            );
+        }
+        // The ids the catalog has still resolve, a level suffix included.
+        let resolved = |provider: Option<&str>, selector: &str| {
+            let result = resolve_cli_model(provider, selector, &catalog);
+            (result.model.map(|model| model.id), result.thinking_level)
+        };
+        assert_eq!(
+            resolved(Some("openrouter"), "anthropic/claude-opus-4.8:batch"),
+            (Some("anthropic/claude-opus-4.8:batch".to_owned()), None)
+        );
+        assert_eq!(
+            resolved(None, "openai-codex/gpt-5.3-codex-spark:high"),
+            (
+                Some("gpt-5.3-codex-spark".to_owned()),
+                Some(ModelThinkingLevel::High)
+            )
+        );
+        // A selector naming no provider keeps the shorthand match.
+        assert_eq!(
+            resolved(None, "claude-sonnet"),
+            (Some("claude-sonnet-4-5".to_owned()), None)
+        );
+    }
+
+    /// Cloudflare AI Gateway's 8 dotted Claude ids, which its catalog once
+    /// listed, name its compiled dashed models: as `--provider` + `--model`,
+    /// as a `provider/id` selector (with a level), and as a reference. The
+    /// dotted id is no alias on another provider.
+    #[test]
+    fn cloudflare_dotted_claude_ids_name_the_dashed_models() {
+        const DOTTED: [(&str, &str); 8] = [
+            ("claude-fable-5.1", "claude-fable-5-1"),
+            ("claude-haiku-4.5", "claude-haiku-4-5"),
+            ("claude-opus-4.5", "claude-opus-4-5"),
+            ("claude-opus-4.6", "claude-opus-4-6"),
+            ("claude-opus-4.7", "claude-opus-4-7"),
+            ("claude-opus-4.8", "claude-opus-4-8"),
+            ("claude-sonnet-4.5", "claude-sonnet-4-5"),
+            ("claude-sonnet-4.6", "claude-sonnet-4-6"),
+        ];
+        const PROVIDER: &str = "cloudflare-ai-gateway";
+        assert_eq!(
+            MODEL_ID_ALIASES.to_vec(),
+            DOTTED
+                .iter()
+                .map(|(dotted, dashed)| (PROVIDER, *dotted, *dashed))
+                .collect::<Vec<_>>()
+        );
+        let catalog = eukhe_models::transports::compiled_models();
+        let named =
+            |model: Option<&Model>| model.map(|model| (model.provider.clone(), model.id.clone()));
+        for (dotted, dashed) in DOTTED {
+            let want = Some((PROVIDER.to_owned(), dashed.to_owned()));
+            assert!(
+                !catalog
+                    .iter()
+                    .any(|model| model.provider == PROVIDER && model.id == dotted),
+                "{dotted} is no catalog id"
+            );
+            let flagged = resolve_cli_model(Some(PROVIDER), dotted, catalog);
+            assert_eq!(named(flagged.model.as_ref()), want, "--model {dotted}");
+            assert_eq!(flagged.thinking_level, None);
+            let selector = resolve_cli_model(None, &format!("{PROVIDER}/{dotted}:high"), catalog);
+            assert_eq!(
+                named(selector.model.as_ref()),
+                want,
+                "{PROVIDER}/{dotted}:high"
+            );
+            assert_eq!(selector.thinking_level, Some(ModelThinkingLevel::High));
+            let reference =
+                find_exact_model_reference_match(&format!("{PROVIDER}/{dotted}"), catalog);
+            assert_eq!(named(reference), want, "reference {dotted}");
+            let elsewhere = resolve_cli_model(Some("anthropic"), dotted, catalog);
+            assert!(elsewhere.model.is_none(), "anthropic/{dotted}");
+        }
+    }
+
+    /// A provider's retired thinking-variant id (`X-thinking`) selects its
+    /// logical model `X`, with or without a level suffix; a model that
+    /// carries the id itself wins.
+    #[test]
+    fn thinking_variant_selectors_resolve_to_the_logical_model() {
+        let mut catalog = catalog();
+        catalog.push(model("vercel-ai-gateway", "alibaba/qwen3-max", "Qwen3 Max"));
+        catalog.push(model(
+            "vercel-ai-gateway",
+            "alibaba/qwen3-max-preview",
+            "Qwen3 Max Preview",
+        ));
+        let resolved = |pattern: &str, catalog: &[Model]| {
+            let result = resolve_cli_model(Some("vercel-ai-gateway"), pattern, catalog);
+            (
+                result.model.map(|model| model.id),
+                result.thinking_level,
+                result.warning,
+            )
+        };
+        assert_eq!(
+            resolved("alibaba/qwen3-max-thinking", &catalog),
+            (Some("alibaba/qwen3-max".to_owned()), None, None)
+        );
+        assert_eq!(
+            resolved("alibaba/qwen3-max-thinking:high", &catalog),
+            (
+                Some("alibaba/qwen3-max".to_owned()),
+                Some(ModelThinkingLevel::High),
+                None
+            )
+        );
+        catalog.push(model(
+            "vercel-ai-gateway",
+            "alibaba/qwen3-max-thinking",
+            "Qwen3 Max Thinking",
+        ));
+        assert_eq!(
+            resolved("alibaba/qwen3-max-thinking", &catalog)
+                .0
+                .as_deref(),
+            Some("alibaba/qwen3-max-thinking")
+        );
     }
 
     #[test]

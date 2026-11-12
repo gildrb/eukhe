@@ -83,7 +83,7 @@ type St is Data:
 # and `n` became optional, so every zoom@1 call is a zoom@2 call as
 # stored.
 def table() -> List<&2, Fam>:
-  [Fam{"bash", "1", []}, Fam{"read", "1", []}, Fam{"write", "1", []}, Fam{"edit", "hl.1", []}, Fam{"grep", "1", []}, Fam{"glob", "1", []}, Fam{"ipython", "1", []}, Fam{"dyn", "1", []}, Fam{"zoom", "2", [Step{"1", "2", []}]}, Fam{"date", "1", []}, Fam{"remote", "1", []}]
+  [Fam{"bash", "1", []}, Fam{"read", "1", []}, Fam{"write", "1", []}, Fam{"edit", "hl.1", []}, Fam{"grep", "1", []}, Fam{"glob", "1", []}, Fam{"python", "1", []}, Fam{"dyn", "1", []}, Fam{"zoom", "2", [Step{"1", "2", []}]}, Fam{"date", "1", []}, Fam{"remote", "1", []}]
 
 # Lookups
 # -------

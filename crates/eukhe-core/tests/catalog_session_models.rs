@@ -11,26 +11,26 @@ use std::collections::HashSet;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::auth::AuthStorage;
-use eukhe_core::durable::{create_models, resolve_session_model, ModelRequest};
+use eukhe_core::durable::{create_models, resolve_session_model, ModelRequest, ModelsError};
 use eukhe_core::models::{resolve_cli_model, ModelRegistry};
 use eukhe_core::settings::{Settings, SettingsManager};
 
-/// A model of each kind the compiled catalog lacks: a route the provider
-/// does not implement (Xiaomi token plan over `anthropic-messages`), the
-/// provider's own route (Codex, Cloudflare's dotted Claude ids, xAI), ids
-/// with slashes and colons (Fireworks, `OpenRouter`, Bedrock), an id
-/// another model's id extends (`OpenRouter`'s `anthropic/claude-opus-4` beside
-/// `anthropic/claude-opus-4.8:batch`), and a provider only the snapshot
-/// has (`azure-openai-responses`).
+/// A model of each kind the compiled catalog lacks: the provider's own
+/// routes (Cloudflare's Claude route and its compat route for `vendor/model`
+/// ids, xAI Responses), ids with slashes and colons (Fireworks,
+/// `OpenRouter`, Bedrock), an id that extends a compiled model's id
+/// (`OpenRouter`'s `anthropic/claude-fable-5.2` beside the compiled
+/// `anthropic/claude-fable-5`), and a provider only the bundled catalog has
+/// (`azure-openai-responses`).
 const SNAPSHOT_ONLY: [(&str, &str); 9] = [
-    ("xiaomi-token-plan-ams", "mimo-v2-flash"),
-    ("openai-codex", "gpt-5.1"),
-    ("cloudflare-ai-gateway", "claude-opus-4.6"),
+    ("cloudflare-ai-gateway", "claude-haiku-5-5"),
+    ("cloudflare-ai-gateway", "alibaba/qwen3-max"),
     ("xai", "grok-4.20-0309-reasoning"),
-    ("fireworks", "accounts/fireworks/models/kimi-k2p6"),
-    ("openrouter", "inclusionai/ling-3.0-flash-fin:free"),
-    ("openrouter", "anthropic/claude-opus-4"),
-    ("amazon-bedrock", "deepseek.r1-v1:0"),
+    ("fireworks", "accounts/fireworks/models/kimi-k3p1-pro"),
+    ("openrouter", "baidu/ernie-5.5-flash-preview:free"),
+    ("openrouter", "anthropic/claude-fable-5.2"),
+    ("amazon-bedrock", "us.moonshotai.kimi-k3.1"),
+    ("opencode-go", "kimi-k3.1-pro"),
     ("azure-openai-responses", "gpt-5"),
 ];
 
@@ -155,6 +155,92 @@ async fn every_listed_model_resolves_in_a_session() {
                 resolved.model.model_id.as_str()
             ),
             (provider, id)
+        );
+    }
+}
+
+/// A requested model resolves exactly in a session or is not found: ids
+/// the catalog lacks never run as another model of the provider (an id
+/// that other ids extend) or under the provider's template, and
+/// Cloudflare's dotted Claude ids, which the catalog no longer lists, run
+/// as the dashed models their aliases name.
+#[tokio::test]
+async fn requested_models_resolve_exactly_or_are_not_found() {
+    let package = tempfile::tempdir().expect("package dir");
+    let agent = tempfile::tempdir().expect("agent dir");
+    listed_models(package.path(), agent.path());
+    let session = create_models(agent.path());
+    let catalog: HashSet<(String, String)> = session
+        .models
+        .get_models(None)
+        .into_iter()
+        .map(|model| (model.provider, model.id))
+        .collect();
+    let settings = SettingsManager::in_memory(&Settings::default());
+    let resolve = |provider: &str, id: &str| {
+        let request = ModelRequest {
+            provider: Some(provider.to_owned()),
+            pattern: id.to_owned(),
+        };
+        let models = &session.models;
+        let settings = &settings;
+        async move {
+            resolve_session_model(models, settings, Some(&request), None, &BACKGROUND_CONTEXT)
+                .await
+                .map(|resolved| {
+                    resolved.map(|resolved| (resolved.model.provider, resolved.model.model_id))
+                })
+        }
+    };
+
+    for (provider, id, extended) in [
+        (
+            "openrouter",
+            "anthropic/claude-opus-4",
+            "anthropic/claude-opus-4.8:batch",
+        ),
+        (
+            "openrouter",
+            "qwen/qwen3-235b-a22b",
+            "qwen/qwen3-235b-a22b-thinking-2507",
+        ),
+        ("openai-codex", "gpt-5.3-codex", "gpt-5.3-codex-spark"),
+    ] {
+        let key = |id: &str| (provider.to_owned(), id.to_owned());
+        assert!(
+            !catalog.contains(&key(id)),
+            "{provider}/{id} is no catalog model"
+        );
+        assert!(catalog.contains(&key(extended)), "{provider}/{extended} is");
+        match resolve(provider, id).await {
+            Err(ModelsError::Requested(error)) => assert_eq!(
+                error,
+                format!(
+                    "Model \"{provider}/{id}\" not found. Use \"eukhe model list\" to see available models."
+                )
+            ),
+            other => panic!("{provider}/{id}: {other:?}"),
+        }
+    }
+
+    for (dotted, dashed) in [
+        ("claude-fable-5.1", "claude-fable-5-1"),
+        ("claude-haiku-4.5", "claude-haiku-4-5"),
+        ("claude-opus-4.5", "claude-opus-4-5"),
+        ("claude-opus-4.6", "claude-opus-4-6"),
+        ("claude-opus-4.7", "claude-opus-4-7"),
+        ("claude-opus-4.8", "claude-opus-4-8"),
+        ("claude-sonnet-4.5", "claude-sonnet-4-5"),
+        ("claude-sonnet-4.6", "claude-sonnet-4-6"),
+    ] {
+        let provider = "cloudflare-ai-gateway";
+        assert!(!catalog.contains(&(provider.to_owned(), dotted.to_owned())));
+        assert_eq!(
+            resolve(provider, dotted)
+                .await
+                .unwrap_or_else(|error| panic!("{provider}/{dotted}: {error}")),
+            Some((provider.to_owned(), dashed.to_owned())),
+            "{provider}/{dotted}"
         );
     }
 }

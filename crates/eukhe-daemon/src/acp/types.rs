@@ -88,10 +88,11 @@ pub enum AcpToolKind {
 
 impl AcpToolKind {
     /// The TS kind map: the model-facing tool is the Python REPL; bash is the
-    /// secondary escape hatch.
+    /// secondary escape hatch. `ipython` is the REPL's name in sessions
+    /// stored before it became `python`.
     pub fn of_tool(tool_name: &str) -> AcpToolKind {
         match tool_name {
-            "ipython" | "bash" => AcpToolKind::Execute,
+            "python" | "ipython" | "bash" => AcpToolKind::Execute,
             "read" => AcpToolKind::Read,
             "edit" | "write" => AcpToolKind::Edit,
             "grep" | "glob" => AcpToolKind::Search,
@@ -440,6 +441,7 @@ mod tests {
 
     #[test]
     fn tool_kind_map_matches_the_ts_map() {
+        assert_eq!(AcpToolKind::of_tool("python"), AcpToolKind::Execute);
         assert_eq!(AcpToolKind::of_tool("ipython"), AcpToolKind::Execute);
         assert_eq!(AcpToolKind::of_tool("bash"), AcpToolKind::Execute);
         assert_eq!(AcpToolKind::of_tool("read"), AcpToolKind::Read);

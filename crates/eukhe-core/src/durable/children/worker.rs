@@ -49,6 +49,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::assign::{assign, child_busy, Assignment};
+use super::budget::relend;
 use super::host::{
     ChildMessageKind, PauseAction, RlmChildCommandRequest, RlmChildPauseRequest,
     RlmChildPromptRequest, RlmSubagentHost,
@@ -653,6 +654,8 @@ async fn assign_call(
                     label: None,
                     phase: None,
                     report: ReportMode::Inbox,
+                    budget: None,
+                    accept: None,
                 },
                 details: Some(details.clone()),
                 user_entries: handed.entries.clone(),
@@ -741,6 +744,9 @@ async fn forward_call(
         .await?;
     } else {
         let call_id = api.call_id().to_owned();
+        // A worker whose task ended (its report is still owed) gave its
+        // budget back: it joins this session's account again first.
+        relend(&children.services.budget, &row.session_id).await?;
         children
             .services
             .host

@@ -124,21 +124,18 @@ def re.w_rcfg(c: RnRecovery.RCfg, rest: String) -> String:
     case RnRecovery.RCfg{long, leak, redirect, repeat}:
       Wr.put_nat(long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest))))
 
-# `Stuck`: 0 a length stop, 1 a leak, 2 calls (the rounds before), 3 an
-# empty reply, 4 a length stop with no text (window, catalog, prompt,
-# output, cuttable, lower)
+# `Stuck`: 0 a length stop (window, catalog, prompt, output, cuttable,
+# lower), 1 a leak, 2 calls (the rounds before), 3 an empty reply
 def re.w_stuck(s: RnDecision.Stuck, rest: String) -> String:
   match s:
-    case RnDecision.Truncated{}:
-      Wr.put_nat(0n, rest)
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+      Wr.put_nat(0n, Wr.put_nat(window, Wr.put_nat(catalog, Wr.put_nat(prompt, Wr.put_nat(out, Wr.put_bool(cuttable, Wr.put_bool(lower, rest)))))))
     case RnDecision.Leaked{}:
       Wr.put_nat(1n, rest)
     case RnDecision.Repeats{before}:
       Wr.put_nat(2n, Wr.put_nat(before, rest))
     case RnDecision.Emptied{}:
       Wr.put_nat(3n, rest)
-    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
-      Wr.put_nat(4n, Wr.put_nat(window, Wr.put_nat(catalog, Wr.put_nat(prompt, Wr.put_nat(out, Wr.put_bool(cuttable, Wr.put_bool(lower, rest)))))))
 
 # the recovery the note counts: 0 none, 1 length, 2 leak, 3 redirect,
 # 4 empty
@@ -496,16 +493,14 @@ def re.r_stuck.tag(d: Wr.Dec<Nat>) -> Wr.Dec<RnDecision.Stuck>:
     case Wr.Got{t, s}:
       match t:
         case 0n:
-          Wr.Got{RnDecision.Truncated{}, s}
+          re.r_stuck.window(Wr.get_nat(s))
         case 1n:
           Wr.Got{RnDecision.Leaked{}, s}
         case 2n:
           re.r_stuck.before(Wr.get_nat(s))
         case 3n:
           Wr.Got{RnDecision.Emptied{}, s}
-        case 4n:
-          re.r_stuck.window(Wr.get_nat(s))
-        case 5n+u:
+        case 4n+u:
           Wr.Bad{}
     case Wr.Bad{}:
       Wr.Bad{}

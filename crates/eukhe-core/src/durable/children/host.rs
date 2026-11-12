@@ -9,6 +9,8 @@
 //! same key and must observe the first call's effect, never a second one.
 
 use crate::child_workspace::{Handback, WorkspaceMode};
+use crate::durable::acceptance::describe;
+use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckVerdict};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{ImageContent, Usage};
 use futures::future::BoxFuture;
@@ -62,6 +64,11 @@ pub struct RlmChildSpawnRequest {
     /// unpinned model falls back to `workerModel`, then the parent's model
     /// (never `subagentDefaultModel`).
     pub worker: bool,
+    /// The checks the child's task starts with (`rlm.spawn`'s `accept`):
+    /// the parent is their owner, so the child's worker cannot change
+    /// them. The host puts them in the child's create config, which sets
+    /// them before the child's first run. `None`: the child has no checks.
+    pub acceptance: Option<AcceptanceSeed>,
 }
 
 /// The created (or, on a repeated key, the previously created) child.
@@ -211,6 +218,9 @@ pub struct RlmChildObservation {
     /// The child's run is paused ([`RlmChildOutcome::paused`]): the watch
     /// does not count this wait toward its stall clock.
     pub paused: bool,
+    /// The verdict of the child's acceptance on its final state, once its
+    /// run settled ([`RlmChildOutcome::acceptance`]).
+    pub acceptance: Option<RlmChildVerdict>,
 }
 
 /// A child's `get_run_outcome` reply: its run state and its progress
@@ -238,6 +248,113 @@ pub struct RlmChildOutcome {
     /// due; `false` from a worker of an older binary.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub paused: bool,
+    /// The verdict of the child's acceptance on its final state, read by
+    /// the child's harness from its acceptance (never from the child's
+    /// words); set once its run settled (answered or failed) and only
+    /// when its task carries checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<RlmChildVerdict>,
+}
+
+/// What a child's acceptance says about its final state: the label, how
+/// many of its checks were confirmed on that state, and how each other
+/// check ended. The child's harness reads it from the child's acceptance;
+/// the child's own words never make it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RlmChildVerdict {
+    /// The label of the child's result on its final state.
+    pub label: AcceptanceLabel,
+    /// The checks confirmed on that state.
+    pub confirmed: usize,
+    /// The checks the child's task carries.
+    pub checks: usize,
+    /// One line per check not confirmed on that state: what it asks and
+    /// how it ended.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open: Vec<String>,
+}
+
+impl RlmChildVerdict {
+    /// The verdict of `state`; `None` when the task has no checks.
+    #[must_use]
+    pub fn of(state: &AcceptanceState) -> Option<Self> {
+        if state.checks.is_empty() {
+            return None;
+        }
+        let mut confirmed = 0;
+        let mut open = Vec::new();
+        for check in &state.checks {
+            let what = describe(&check.spec);
+            match &check.result {
+                Some(result) if result.at != state.state => open.push(format!(
+                    "{what}: stale ({} on an earlier state)",
+                    result.verdict.slug()
+                )),
+                Some(result) if result.verdict == CheckVerdict::Confirmed => confirmed += 1,
+                Some(result) => open.push(format!(
+                    "{what}: {}: {}",
+                    result.verdict.slug(),
+                    result.summary
+                )),
+                None => open.push(format!("{what}: not judged")),
+            }
+        }
+        Some(Self {
+            label: state.label,
+            confirmed,
+            checks: state.checks.len(),
+            open,
+        })
+    }
+
+    /// The verdict of a child that got `checks` checks and has not ended:
+    /// unverified, nothing confirmed yet.
+    #[must_use]
+    pub fn pending(checks: usize) -> Self {
+        Self {
+            label: AcceptanceLabel::Unverified,
+            confirmed: 0,
+            checks,
+            open: Vec::new(),
+        }
+    }
+
+    /// `<label> (<k>/<n> checks confirmed on its final state)`.
+    #[must_use]
+    pub fn headline(&self) -> String {
+        format!(
+            "{} ({}/{} checks confirmed on its final state)",
+            self.label.slug(),
+            self.confirmed,
+            self.checks
+        )
+    }
+
+    /// The headline, then the checks not confirmed, on one line.
+    #[must_use]
+    pub fn summary(&self) -> String {
+        if self.open.is_empty() {
+            return self.headline();
+        }
+        format!(
+            "{}; not confirmed: {}",
+            self.headline(),
+            self.open.join("; ")
+        )
+    }
+
+    /// The verdict as a report to the parent: the headline, then one line
+    /// per check not confirmed.
+    #[must_use]
+    pub fn text(&self) -> String {
+        let mut lines = vec![format!(
+            "Acceptance, checked by the harness on the child's final state: {}",
+            self.headline()
+        )];
+        lines.extend(self.open.iter().map(|line| format!("- {line}")));
+        lines.join("\n")
+    }
 }
 
 /// The largest final answer a child's outcome carries, in bytes.

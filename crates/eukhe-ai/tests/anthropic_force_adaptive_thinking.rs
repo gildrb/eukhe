@@ -122,17 +122,6 @@ async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding_k3
 }
 
 #[tokio::test]
-async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding_kimi_for_coding_highspeed(
-) {
-    uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding(
-        "kimi-for-coding-highspeed",
-        ThinkingLevel::Medium,
-        "medium",
-    )
-    .await;
-}
-
-#[tokio::test]
 async fn allows_built_in_adaptive_models_to_opt_out_with_compat_force_adaptive_thinking_false() {
     let model = builtin_model(
         "anthropic",

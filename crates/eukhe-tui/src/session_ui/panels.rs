@@ -4,9 +4,9 @@
 
 use super::{
     key_event_to_id, mpsc, paused_heartbeat_count, picker_viewport_rows, tray_goal_label,
-    AgentView, AgentsUpdate, BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate,
-    DaemonCommand, DockFocusSource, FactoryUpdate, GoalPanel, HeartbeatsUpdate, InfoContent,
-    InfoPanelAction, KeyEvent, Map, Result, SessionUi, Value,
+    tray_loop_label, AgentView, AgentsUpdate, BashActivityUpdate, ChatViewUpdate,
+    CommandCatalogUpdate, DaemonCommand, DockFocusSource, FactoryUpdate, GoalPanel,
+    HeartbeatsUpdate, InfoContent, InfoPanelAction, KeyEvent, Map, Result, SessionUi, Value,
 };
 
 pub(crate) struct ActivityUpdates {
@@ -176,6 +176,10 @@ impl SessionUi {
         // them; terminal states carry no row). The token budget lives
         // inside the goal panel the row opens, not on the bar.
         let goal_label = tray_goal_label(&self.goal_view.goal);
+        // The loop's label reads the clock: a duration limit counts down
+        // on every dock refresh.
+        let loop_label =
+            tray_loop_label(&self.loop_view.status, crate::agents_view_state::now_ms());
         // The dock's bash indicator counts only runs actively running
         // right now (operator scoping): finished runs stay as rows inside
         // the bash view, never in the indicator. The feed is the
@@ -216,6 +220,7 @@ impl SessionUi {
             workflow_runs: crate::workflow_view::running_runs(&self.workflow_lane.runs),
             workflow_group: self.workflow_activity_supported(),
             goal_label,
+            loop_label,
             selected: self.activity_group,
             focused: self.subagents_focused,
         }

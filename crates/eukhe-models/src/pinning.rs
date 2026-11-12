@@ -280,14 +280,18 @@ mod tests {
     #[test]
     fn supplemental_transports_pin_without_headers() {
         let payload = json!({"schemaVersion": 1, "models": [
-            catalog_entry("grok-x", "openai-completions", "xai", "https://api.x.ai/v1"),
-            catalog_entry("mimo-x", "anthropic-messages", "xiaomi", "https://api.xiaomimimo.com/anthropic"),
-            catalog_entry("grok-y", "openai-completions", "xai", "https://elsewhere.example"),
+            catalog_entry("gpt-x", "azure-openai-responses", "azure-openai-responses", ""),
+            catalog_entry(
+                "gpt-y",
+                "azure-openai-responses",
+                "azure-openai-responses",
+                "https://elsewhere.example",
+            ),
         ]});
         let models = parse_provider_model_catalog(&payload, &PinnedTemplates::from_compiled())
             .expect("pinned");
         let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
-        assert_eq!(ids, vec!["grok-x", "mimo-x"]);
+        assert_eq!(ids, vec!["gpt-x"]);
         assert!(models.iter().all(|model| model.headers.is_none()));
     }
 }

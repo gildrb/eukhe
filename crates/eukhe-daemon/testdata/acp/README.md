@@ -28,9 +28,9 @@ the process exit code and stderr.
 - `cancel`: `session/cancel` mid-turn. The prompt resolves
   `{stopReason: "cancelled"}` with no boundary frames after the streamed
   chunks.
-- `tool_call`: a turn that calls the ipython tool (`6*7`). Shows the
+- `tool_call`: a turn that calls the python tool (`6*7`). Shows the
   `tool_call` / `tool_call_update` shapes including the `content` wrapper
-  and the ipython rich-output `_meta` on results that carry attachments.
+  and the python rich-output `_meta` on results that carry attachments.
 - `compact_command`: two turns, then `/compact`. The session is too short
   to compact, so the observable parity is the namespaced `compaction: {}`
   update (the TS `compaction_end` with an undefined result) followed by the
@@ -110,7 +110,7 @@ networked box.
 chunk streams, and mid-turn goal-usage updates) and compares the protocol
 envelopes only. Use it for scenarios where the two model runs legally
 diverge in their tool usage (`goal_command`: one run answered directly,
-the other ran several ipython cells; `autonomous_limit`: one run wrote
+the other ran several python cells; `autonomous_limit`: one run wrote
 the essay with tool calls, the other without — both sequences are
 correct protocol behavior). The goal and autonomous frames themselves are
 locked field-by-field by the offline e2e tests. All other scenarios

@@ -157,3 +157,34 @@ fn chat_owns_its_model_with_provider_and_model_set() {
         row(ModelRole::Speech, RoleSource::Default, None)
     );
 }
+
+/// A saved model of a dotted Cloudflare Claude id (`defaultModel`
+/// `claude-opus-4.5`) is the dashed model the alias names; another
+/// provider's id stays as written.
+#[test]
+fn a_saved_alias_names_the_model_it_aliases() {
+    let chat = role_model(
+        &cvars(&[
+            ("defaultProvider", json!("cloudflare-ai-gateway")),
+            ("defaultModel", json!("claude-opus-4.5")),
+        ]),
+        ModelRole::Chat,
+    );
+    assert_eq!(
+        chat.selector.as_deref(),
+        Some("cloudflare-ai-gateway/claude-opus-4.5")
+    );
+    assert_eq!(
+        chat.provider_model(),
+        Some(("cloudflare-ai-gateway", "claude-opus-4-5"))
+    );
+    assert_eq!(
+        row(
+            ModelRole::Chat,
+            RoleSource::Own,
+            Some("anthropic/claude-opus-4.5")
+        )
+        .provider_model(),
+        Some(("anthropic", "claude-opus-4.5"))
+    );
+}

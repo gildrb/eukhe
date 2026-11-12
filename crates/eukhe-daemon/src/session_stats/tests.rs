@@ -210,7 +210,7 @@ fn row_count_counts_text_thinking_and_tool_calls() {
         "content": [
             { "type": "text", "text": "123" },
             { "type": "thinking", "thinking": "456789" },
-            { "type": "toolCall", "name": "123", "arguments": { "code": "x = 1" } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": "x = 1" } },
         ],
     });
     let arguments = u64::from(Encoding::O200kBase.count(r#"{"code":"x = 1"}"#));

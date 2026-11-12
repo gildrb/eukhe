@@ -197,8 +197,8 @@ impl Worker {
     }
 
     /// `wait_for_headless_completion`: settle the headless run first (the
-    /// same idle wait), then answer the autonomous-run accounting snapshot
-    /// of the main conversation.
+    /// same idle wait), then answer the autonomous-run status of the main
+    /// conversation, with the session's budget it ran under.
     pub(crate) async fn handle_wait_for_headless_completion(
         &self,
         payload: &Value,
@@ -215,17 +215,19 @@ impl Worker {
             Ok(main) => main,
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
-        match eukhe_core::durable::goals::autonomous_state(
-            hosted.harness(),
-            main.id(),
-            &BACKGROUND_CONTEXT,
-        )
-        .await
-        {
-            Ok(state) => response_success(
+        let cx = &BACKGROUND_CONTEXT;
+        let status = async {
+            let state =
+                eukhe_core::durable::goals::autonomous_state(hosted.harness(), main.id(), cx)
+                    .await?;
+            let budget = eukhe_core::durable::goals::budget_report(&hosted.deps().budget).await?;
+            Ok::<_, eukhe_durable::session::SessionError>(state.status(budget))
+        };
+        match status.await {
+            Ok(status) => response_success(
                 None,
                 COMMAND,
-                Some(serde_json::to_value(state.status()).unwrap_or(Value::Null)),
+                Some(serde_json::to_value(status).unwrap_or(Value::Null)),
             ),
             Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }

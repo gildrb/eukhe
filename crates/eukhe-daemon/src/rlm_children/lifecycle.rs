@@ -71,6 +71,10 @@ impl SupervisorChildSessionsInner {
         // task derives it, so a rerun finds the same child); `None` lets
         // the worker mint one.
         requested_session_id: Option<&str>,
+        // The checks the child's task starts with, its parent their owner:
+        // the child's worker sets them from the create config before its
+        // first run.
+        acceptance: Option<&eukhe_types::acceptance::AcceptanceSeed>,
     ) -> Result<CreatedChild> {
         let mut config = json!({
             "cwd": cwd,
@@ -95,6 +99,9 @@ impl SupervisorChildSessionsInner {
         }
         if let Some(request_id) = spawned_by_request_id {
             config["spawnedByRequestId"] = json!(request_id);
+        }
+        if let Some(acceptance) = acceptance {
+            config["acceptance"] = serde_json::to_value(acceptance)?;
         }
         if let Some(script) = &identity.child_script {
             config["script"] = json!(script);

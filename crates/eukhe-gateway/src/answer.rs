@@ -93,13 +93,16 @@ pub(crate) fn answer(event: &SessionEvent) -> Option<Answer> {
         | SessionEvent::SessionActionUpdate { .. }
         | SessionEvent::GoalUpdate { .. }
         | SessionEvent::UnknownEffectsUpdate { .. }
+        | SessionEvent::LoopUpdate { .. }
+        | SessionEvent::BudgetUpdate { .. }
+        | SessionEvent::AcceptanceUpdate { .. }
         | SessionEvent::MemoryUpdate { .. }
         | SessionEvent::BashStart { .. }
         | SessionEvent::BashOutput { .. }
         | SessionEvent::BashEnd { .. }
         | SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
-        | SessionEvent::IpythonSentAgentMessage { .. } => {
+        | SessionEvent::PythonSentAgentMessage { .. } => {
             writer.tag(3);
         }
     }

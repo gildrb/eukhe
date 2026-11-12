@@ -1,15 +1,21 @@
-# the walk, the length note and the round note with every number at its
-# largest, and a 15-digit field refused
-call 0,TTTT
-call 0,FFFF
-call 1,{MAX},{MAX},{MAX},{MAX},
-call 1,{MAX},0,{MAX},{MAX},
-call 2,{MAX},{MAX},
-call 2,{MAX},0,
-call 2,{MAX},99999999999990,
-call 2,{MAX},99999999999998,
-refuse 1,{LONG},0,1,3,
-refuse 2,{MAX},{LONG},
+# the walk (a cut reply with every number of its window at its largest:
+# the window test sums the prompt and the output; one that ran out with
+# no compaction to make, and one in an unknown window, both dropped) and
+# the round note with every number at its largest, and a 15-digit field
+# refused
+call 0,TTTT{MAX},{MAX},{MAX},{MAX},T
+call 0,TTFF{MAX},{MAX},{MAX},99999999999998,T
+call 0,TTFF{MAX},{MAX},{MAX},99999999999998,F
+call 0,TTFF0,{MAX},{MAX},{MAX},F
+call 0,TFFF{MAX},{MAX},{MAX},99999999999998,F
+call 0,FFFF0,0,0,0,F
+call 1,{MAX},{MAX},
+call 1,{MAX},0,
+call 1,{MAX},99999999999990,
+call 1,{MAX},99999999999998,
+refuse 0,TTFF{LONG},0,0,0,T
+refuse 0,TTFF{MAX},{MAX},{MAX},{LONG},T
+refuse 1,{MAX},{LONG},
 # adversary 6 (stop): a round note with a 15-digit max is refused, its
 # digits never folded past 2^48-1
-refuse 2,{LONG},1,
+refuse 1,{LONG},1,

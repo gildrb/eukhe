@@ -9,7 +9,7 @@ fn theme() -> Theme {
 fn cell_card(code: &str, details: Value, is_error: bool, partial: bool) -> ToolCallCard {
     ToolCallCard {
         id: "toolu_1".into(),
-        name: "ipython".into(),
+        name: "python".into(),
         args: json!({ "code": code }),
         started: true,
         result: Some(super::super::ToolResultView {
@@ -55,6 +55,29 @@ fn done_cell_summary_line() {
         text.contains("ok python - print('visual parity ok') - ^ 1 v 1 lines - 2ms"),
         "got: {text}"
     );
+}
+
+/// A session stored before the tool became `python` names its cells
+/// `ipython`: they render as the same Python cell card.
+#[test]
+fn a_stored_ipython_cell_renders_as_the_python_card() {
+    let card = with_text(
+        cell_card(
+            "print(1)",
+            json!({ "status": "ok", "durationMs": 2 }),
+            false,
+            false,
+        ),
+        "1\n",
+    );
+    let stored = ToolCallCard {
+        name: "ipython".into(),
+        ..card.clone()
+    };
+    let render_all = |card: &ToolCallCard| {
+        crate::tool_card::render_tool_card(card, 0, Detail::All, &theme(), 100, true)
+    };
+    assert_eq!(render_all(&stored), render_all(&card));
 }
 
 #[test]
@@ -307,7 +330,7 @@ fn image_cell_card() -> ToolCallCard {
     let png = base64::engine::general_purpose::STANDARD.encode(bytes);
     ToolCallCard {
         id: "toolu_1".into(),
-        name: "ipython".into(),
+        name: "python".into(),
         args: json!({ "code": "display(img)" }),
         started: true,
         result: Some(super::super::ToolResultView {

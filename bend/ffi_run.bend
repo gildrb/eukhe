@@ -286,16 +286,14 @@ def get_rcfg(s: String) -> W.Dec<MRecovery.RCfg>:
 
 def put_stuck(x: MDecision.Stuck, rest: String) -> String:
   match x:
-    case MDecision.Truncated{}:
-      W.put_nat(0n, rest)
+    case MDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+      W.put_nat(0n, W.put_nat(window, W.put_nat(catalog, W.put_nat(prompt, W.put_nat(out, W.put_bool(cuttable, W.put_bool(lower, rest)))))))
     case MDecision.Leaked{}:
       W.put_nat(1n, rest)
     case MDecision.Repeats{before}:
       W.put_nat(2n, W.put_nat(before, rest))
     case MDecision.Emptied{}:
       W.put_nat(3n, rest)
-    case MDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
-      W.put_nat(4n, W.put_nat(window, W.put_nat(catalog, W.put_nat(prompt, W.put_nat(out, W.put_bool(cuttable, W.put_bool(lower, rest)))))))
 
 def get_stuck.c2.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
@@ -304,45 +302,45 @@ def get_stuck.c2.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c4.f5(window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c0.f5(window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{lower, r}:
       W.Got{MDecision.Thought{window, catalog, prompt, out, cuttable, lower}, r}
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c4.f4(window: Nat, catalog: Nat, prompt: Nat, out: Nat, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c0.f4(window: Nat, catalog: Nat, prompt: Nat, out: Nat, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{cuttable, r}:
-      get_stuck.c4.f5(window, catalog, prompt, out, cuttable, W.get_bool(r))
+      get_stuck.c0.f5(window, catalog, prompt, out, cuttable, W.get_bool(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c4.f3(window: Nat, catalog: Nat, prompt: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c0.f3(window: Nat, catalog: Nat, prompt: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{out, r}:
-      get_stuck.c4.f4(window, catalog, prompt, out, W.get_bool(r))
+      get_stuck.c0.f4(window, catalog, prompt, out, W.get_bool(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c4.f2(window: Nat, catalog: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c0.f2(window: Nat, catalog: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{prompt, r}:
-      get_stuck.c4.f3(window, catalog, prompt, W.get_nat(r))
+      get_stuck.c0.f3(window, catalog, prompt, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c4.f1(window: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c0.f1(window: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{catalog, r}:
-      get_stuck.c4.f2(window, catalog, W.get_nat(r))
+      get_stuck.c0.f2(window, catalog, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c4.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c0.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{window, r}:
-      get_stuck.c4.f1(window, W.get_nat(r))
+      get_stuck.c0.f1(window, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -351,7 +349,7 @@ def get_stuck.tag(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
     case W.Got{n, r}:
       match n:
         case 0n:
-          W.Got{MDecision.Truncated{}, r}
+          get_stuck.c0.f0(W.get_nat(r))
         case 1n+p0:
           match p0:
             case 0n:
@@ -365,11 +363,7 @@ def get_stuck.tag(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
                     case 0n:
                       W.Got{MDecision.Emptied{}, r}
                     case 1n+p3:
-                      match p3:
-                        case 0n:
-                          get_stuck.c4.f0(W.get_nat(r))
-                        case 1n+p4:
-                          W.Bad{}
+                      W.Bad{}
     case W.Bad{}:
       W.Bad{}
 

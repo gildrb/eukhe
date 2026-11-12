@@ -74,7 +74,7 @@ fn answer_for(prompt: &str) -> String {
     format!("answer to {}", tag(prompt))
 }
 
-/// The script: a summary for the summarizer; for a turn, a quick `ipython`
+/// The script: a summary for the summarizer; for a turn, a quick `python`
 /// call first when tagged [`TOOL`], an answer held on the turn's own gate
 /// when tagged [`BUSY`], one overflow error for the first request of a
 /// turn tagged [`OVERFLOW`] that still carries an earlier answer, else the
@@ -100,7 +100,7 @@ fn script(request: &mock_llm::Request, overflowed: &AtomicBool) -> Reply {
             } else if prompt.contains(TOOL) {
                 Reply::tool_call(
                     format!("call-{}", tag(prompt)),
-                    "ipython",
+                    "python",
                     json!({ "code": "print(6 * 7)" }),
                 )
             } else if prompt.contains(BUSY) {

@@ -58,7 +58,7 @@ impl ConfirmPanel {
     }
 
     /// The Yes/No confirm of a step that may run (a `bash` step, an
-    /// `ipython` cell): every line of `message` shows whole and wrapped,
+    /// `python` cell): every line of `message` shows whole and wrapped,
     /// none trimmed or dropped, so the user reads exactly what runs; Enter
     /// alone answers No.
     pub fn approval(title: &str, message: &str) -> Self {

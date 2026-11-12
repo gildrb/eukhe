@@ -256,6 +256,7 @@ fn serve_supervisor(listener: &UnixListener, worker_socket: &Path, died: &Atomic
 
 fn options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

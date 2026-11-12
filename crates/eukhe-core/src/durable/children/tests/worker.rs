@@ -9,7 +9,7 @@ use eukhe_types::pi_ai::ImageContent;
 use super::*;
 use crate::durable::children::host::ChildMessageKind;
 
-fn call_tool(name: &str) -> FauxResponseStep {
+pub(super) fn call_tool(name: &str) -> FauxResponseStep {
     call_tool_with(name, JsonObject::new())
 }
 
@@ -23,7 +23,7 @@ fn call_tool_with(name: &str, arguments: JsonObject) -> FauxResponseStep {
     )))
 }
 
-async fn say(opened: &Opened, text: &str) {
+pub(super) async fn say(opened: &Opened, text: &str) {
     say_content(opened, UserContent::Text(text.to_owned())).await;
 }
 

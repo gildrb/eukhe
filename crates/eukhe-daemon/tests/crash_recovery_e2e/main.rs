@@ -12,7 +12,7 @@
 //!   the next turn logs after it.
 //!
 //! States: the model streaming (the reply held mid-stream), a slow tool
-//! call (an `ipython` cell waiting on a release file), a threshold
+//! call (an `python` cell waiting on a release file), a threshold
 //! compaction (the summarizer held), the chat-memory compactor (a tree
 //! line's summarizer held), and a `codemode` script between its nested
 //! calls (`codemode.rs`). The provider is a scripted OpenAI-compatible
@@ -342,7 +342,7 @@ fn attach(client: &mut WireClient, session_id: &str) {
 }
 
 /// The mock's script. A turn tagged [`HOLD_STREAM`] streams its answer
-/// held on [`STREAM_GATE`]; one tagged [`SLOW_TOOL`] calls `ipython` with a
+/// held on [`STREAM_GATE`]; one tagged [`SLOW_TOOL`] calls `python` with a
 /// cell that logs its run and waits for the release file, then answers
 /// after the tool; one tagged by `tool_once` makes that module's calls
 /// first. Summarizer calls hold on [`SUMMARIZER_GATE`]; tree-line calls
@@ -381,7 +381,7 @@ fn script(request: &Request, release: &Path) -> Reply {
                     runs = runs.to_string_lossy(),
                     release = release.to_string_lossy(),
                 );
-                Reply::tool_call(format!("call-{prompt}"), "ipython", json!({ "code": code }))
+                Reply::tool_call(format!("call-{prompt}"), "python", json!({ "code": code }))
             } else if request.prompt.contains(HOLD_STREAM) {
                 Reply::text(answer_for(&prompt)).held(STREAM_GATE)
             } else {

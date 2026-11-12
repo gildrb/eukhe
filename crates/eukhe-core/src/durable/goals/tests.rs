@@ -1,7 +1,8 @@
 //! The goal extension on a real Harness with faux models: goal
 //! continuation and completion, durable counters across a reopen, the
 //! autonomous limits and gates, the goal failure at empty replies, the
-//! budget steer, and aborts.
+//! goal's and the autonomous run's own limits, the session's budget, and
+//! aborts.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -29,7 +30,7 @@ use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{EntryRecord, Storage, SubmissionStatus};
 use eukhe_types::pi_ai::{
-    AssistantMessage, JsonObject, Message, StopReason, UserContent, UserContentBlock,
+    AssistantMessage, JsonObject, Message, StopReason, ToolChoice, UserContent, UserContentBlock,
 };
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -38,16 +39,18 @@ use tokio::sync::watch;
 
 use super::docs::{read_doc, AUTONOMOUS_DOC, GOAL_DOC};
 use super::{
-    goal_state, goals_extension, set_autonomous, start_goal, watch_goal_updates, AutonomousChange,
-    AutonomousStop,
+    goal_state, goals_extension, resume_goal, set_autonomous, start_goal, watch_goal_updates,
+    AutonomousChange, AutonomousStop,
 };
 use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateConfig, ChildProcessResult, GateCommandRunner,
 };
+use crate::durable::budget::{wrap_models_with_budget, BudgetGate};
 use crate::durable::directors::{DirectorLimits, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
+use eukhe_types::budget::{BudgetLimits, BudgetReport};
 use eukhe_types::input_origin::{AutonomousNudge, InputOrigin};
 
 fn cx() -> &'static Context {
@@ -92,12 +95,20 @@ pub(crate) struct Setup {
     gates: Arc<ScriptedGates>,
     /// The Director stack's limits each step reads.
     pub(crate) limits: Arc<Mutex<DirectorLimits>>,
+    /// The session's budget: every model request passes it (none until a
+    /// test gives the session a budget).
+    pub(crate) budget: Arc<BudgetGate>,
+    /// The agent directory of the budget's ledger.
+    _agent_dir: tempfile::TempDir,
 }
 
 pub(crate) fn setup() -> Setup {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(faux.provider.clone());
+    let agent_dir = tempfile::tempdir().expect("tempdir");
+    let budget = BudgetGate::side(agent_dir.path(), "session");
+    wrap_models_with_budget(&models, &budget);
     let registry = create_registry();
     let cell = HarnessCell::default();
     let requests = HostRequestRegistry::default();
@@ -107,6 +118,7 @@ pub(crate) fn setup() -> Setup {
     registry
         .install(goals_extension(
             cell.clone(),
+            Arc::clone(&budget),
             Arc::clone(&gates) as Arc<dyn GateCommandRunner>,
             Arc::new(move || *read.lock().unwrap_or_else(PoisonError::into_inner)),
             &requests,
@@ -124,6 +136,8 @@ pub(crate) fn setup() -> Setup {
         requests,
         gates,
         limits,
+        budget,
+        _agent_dir: agent_dir,
     }
 }
 
@@ -206,6 +220,11 @@ impl Setup {
             signal: None,
         })
         .await
+    }
+
+    /// The session budget's report.
+    pub(crate) fn report(&self) -> Option<BudgetReport> {
+        self.budget.report()
     }
 }
 
@@ -394,22 +413,33 @@ async fn a_goal_continues_with_its_context_until_completed() {
     assert_eq!(goal.status, GoalStatus::Complete);
     assert!(!goal.is_active());
     assert_eq!(goal.continuations_used, 2);
-    assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
-    // Every response while the goal was active spent its budget; the final
-    // "done" came after the completion.
-    let answers = assistants(&entries);
-    let spent: u64 = answers[..answers.len() - 1]
-        .iter()
-        .map(|message| message.usage.input + message.usage.output)
-        .sum();
-    assert_eq!(goal.tokens_used, spent);
+    assert_eq!(
+        goal.last_reason.as_deref(),
+        Some("Goal achieved (unverified: no acceptance checks)")
+    );
+    // The goal counts its own tokens (input and output of its responses);
+    // its token budget puts nothing on the session's budget.
+    assert!(goal.tokens_used > 0, "{goal:?}");
+    assert_eq!(goal.token_budget, Some(1_000_000));
+    assert_eq!(setup.report(), None);
     assert_eq!(setup.faux.get_pending_response_count(), 0);
 
     let got = setup
         .host_request("goal.get", json!({ "type": "goal.get" }))
         .await
         .expect("goal.get succeeds");
-    assert_eq!(got["goal"]["status"], "complete");
+    assert_eq!(
+        (
+            &got["goal"]["status"],
+            &got["goal"]["token_budget"],
+            &got["goal"]["tokens_used"]
+        ),
+        (
+            &json!("complete"),
+            &json!(1_000_000),
+            &json!(goal.tokens_used)
+        )
+    );
     let error = setup
         .host_request("goal.create", json!({ "objective": 3 }))
         .await
@@ -501,13 +531,18 @@ async fn goal_create_refuses_while_a_goal_is_active_and_complete_needs_a_goal() 
         .host_request("goal.create", json!({ "objective": "one" }))
         .await
         .expect("goal.create succeeds");
+    // A refused goal puts nothing on the session's budget.
     let error = setup
-        .host_request("goal.create", json!({ "objective": "two" }))
+        .host_request(
+            "goal.create",
+            json!({ "objective": "two", "token_budget": 5 }),
+        )
         .await
         .expect_err("an active goal refuses");
     assert!(error
         .to_string()
         .starts_with("cannot create a new goal because this thread already has an active goal"));
+    assert_eq!(setup.report(), None);
     let error = setup
         .host_request(
             "goal.create",
@@ -576,7 +611,6 @@ async fn goal_counters_survive_a_reopen_mid_continuation() {
         .expect("the continuation's request is sent");
     let before = stored_goal(&harness, &root).await;
     assert_eq!(before.continuations_used, 1);
-    assert!(before.tokens_used > 0);
     // A crash mid-continuation: the Harness closes with the run in flight.
     harness.close(cx()).await.expect("close");
     setup.cell.clear();
@@ -585,7 +619,6 @@ async fn goal_counters_survive_a_reopen_mid_continuation() {
     let reopened = stored_goal(&harness, &root).await;
     assert_eq!(reopened.goal_id, before.goal_id);
     assert_eq!(reopened.continuations_used, 1);
-    assert_eq!(reopened.tokens_used, before.tokens_used);
     assert_eq!(reopened.created_at, before.created_at);
     setup
         .faux
@@ -612,6 +645,7 @@ async fn no_continuation_after_an_abort() {
         .expect("goal.create succeeds");
     set_autonomous(
         &harness,
+        &setup.budget,
         root.id(),
         AutonomousChange::On(AgentAutonomousConfig::default()),
         cx(),
@@ -720,9 +754,11 @@ async fn autonomous_runs_continue_until_their_continuation_limit() {
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     let status = set_autonomous(
         &harness,
+        &setup.budget,
         root.id(),
         AutonomousChange::On(AgentAutonomousConfig {
             max_continuations: Some(2),
+            max_turns: Some(10),
             ..AgentAutonomousConfig::default()
         }),
         cx(),
@@ -731,6 +767,9 @@ async fn autonomous_runs_continue_until_their_continuation_limit() {
     .expect("autonomous on");
     assert!(status.enabled);
     assert_eq!(status.limits.max_continuations, 2);
+    // The run's limits are its own: nothing goes on the session's budget.
+    assert_eq!(status.limits.max_turns, 10);
+    assert_eq!(status.budget, None);
     setup.faux.set_responses(vec![
         answer("a"),
         answer("b"),
@@ -757,13 +796,11 @@ async fn autonomous_runs_continue_until_their_continuation_limit() {
         .expect("read")
         .expect("exists");
     assert_eq!(state.continuations_used, 2);
-    assert_eq!(state.turns_used, 3);
-    let spent: u64 = assistants(&entries)
-        .iter()
-        .map(|message| message.usage.input + message.usage.output + message.usage.cache_write)
-        .sum();
-    assert_eq!(state.tokens_used, spent);
     assert_eq!(state.last_stop, Some(AutonomousStop::MaxContinuations));
+    // The run counted its three turns; the session has no budget.
+    assert_eq!(state.turns_used, 3);
+    assert!(state.tokens_used > 0, "{state:?}");
+    assert_eq!(setup.report(), None);
     assert_eq!(setup.faux.get_pending_response_count(), 1);
     // The `/autonomous` row.
     let rows: Vec<_> = entries
@@ -771,6 +808,140 @@ async fn autonomous_runs_continue_until_their_continuation_limit() {
         .filter(|entry| entry.kind == CUSTOM_ENTRY.kind())
         .collect();
     assert_eq!(rows.len(), 1);
+    harness.close(cx()).await.expect("close");
+}
+
+/// What the faux provider saw of a request: whether it allowed tools, and
+/// the text of its last message when that is a user message.
+type Saw = Arc<Mutex<Vec<(bool, String)>>>;
+
+/// A response that records what the request looked like, then answers
+/// `text`.
+fn seeing(seen: &Saw, text: &str) -> FauxResponseStep {
+    let seen = Arc::clone(seen);
+    let text = text.to_owned();
+    FauxResponseStep::factory(move |context, options, _, _| {
+        let tools = options.is_none_or(|options| options.tool_choice != Some(ToolChoice::None));
+        let last = match context.messages().last() {
+            Some(Message::User(message)) => user_text(&message.content),
+            _ => String::new(),
+        };
+        seen.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((tools, last));
+        Ok(faux_assistant_message(
+            text.as_str(),
+            FauxAssistantMessageOptions::default(),
+        ))
+    })
+}
+
+/// A call of a tool that does not exist: the turn goes on with its error.
+fn missing_tool_call() -> FauxResponseStep {
+    faux_assistant_message(
+        faux_tool_call("nope", JsonObject::new(), Some("call-nope".to_owned())),
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::ToolUse),
+            ..FauxAssistantMessageOptions::default()
+        },
+    )
+    .into()
+}
+
+/// `--autonomous-max-turns 1` (the ACP `autonomous_limit` capture): the
+/// prompt's one answer is the run's one turn, and the run stops at
+/// `maxTurns` with no continuation and no other request. No side request
+/// and no budget is involved: the run counts its own turns.
+#[tokio::test]
+async fn autonomous_max_turns_one_answers_once_and_stops() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    set_autonomous(
+        &harness,
+        &setup.budget,
+        root.id(),
+        AutonomousChange::On(AgentAutonomousConfig {
+            max_turns: Some(1),
+            ..AgentAutonomousConfig::default()
+        }),
+        cx(),
+    )
+    .await
+    .expect("autonomous on");
+    let seen = Saw::default();
+    setup
+        .faux
+        .set_responses(vec![seeing(&seen, "a river essay"), answer("unused")]);
+
+    submit(&root, "Write a 100-word essay about rivers.").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    assert_eq!(user_origins(&entries(&root).await), vec![InputOrigin::User]);
+    let state = read_doc(&harness, &AUTONOMOUS_DOC, root.id(), cx())
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(
+        (state.turns_used, state.last_stop),
+        (1, Some(AutonomousStop::MaxTurns))
+    );
+    assert_eq!(
+        *seen.lock().unwrap_or_else(PoisonError::into_inner),
+        vec![(true, "Write a 100-word essay about rivers.".to_owned())]
+    );
+    assert_eq!(setup.report(), None);
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
+    harness.close(cx()).await.expect("close");
+}
+
+/// `maxTurns` is soft, as in v0.10.67: the run counts each settled
+/// response of the agent, and checks the limit only between
+/// continuations, so a turn that makes more requests than the limit runs
+/// to its own final answer (with its tools), and the run then stops at
+/// `maxTurns` with no continuation.
+#[tokio::test]
+async fn autonomous_max_turns_lets_the_turn_that_crosses_it_finish() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    set_autonomous(
+        &harness,
+        &setup.budget,
+        root.id(),
+        AutonomousChange::On(AgentAutonomousConfig {
+            max_turns: Some(2),
+            ..AgentAutonomousConfig::default()
+        }),
+        cx(),
+    )
+    .await
+    .expect("autonomous on");
+    let seen = Saw::default();
+    setup.faux.set_responses(vec![
+        missing_tool_call(),
+        missing_tool_call(),
+        seeing(&seen, "what is done"),
+        answer("unused"),
+    ]);
+
+    submit(&root, "go").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    assert_eq!(user_origins(&entries(&root).await), vec![InputOrigin::User]);
+    let state = read_doc(&harness, &AUTONOMOUS_DOC, root.id(), cx())
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(
+        (state.turns_used, state.last_stop),
+        (3, Some(AutonomousStop::MaxTurns))
+    );
+    // The third request is the turn's own, with its tools and no notice.
+    assert_eq!(
+        *seen.lock().unwrap_or_else(PoisonError::into_inner),
+        vec![(true, String::new())]
+    );
+    assert_eq!(setup.report(), None);
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
     harness.close(cx()).await.expect("close");
 }
 
@@ -795,6 +966,7 @@ async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     set_autonomous(
         &harness,
+        &setup.budget,
         root.id(),
         AutonomousChange::On(AgentAutonomousConfig {
             gates: Some(AgentAutonomousGateConfig {
@@ -890,6 +1062,10 @@ async fn empty_replies_are_retried_and_then_fail_the_goal() {
     harness.close(cx()).await.expect("close");
 }
 
+/// The goal's token budget is its own and soft (as v0.10.67): a final
+/// answer that crosses it turns the goal `budget_limited` and steers the
+/// run with the budget-limit context, which the model answers; then the
+/// run ends (a budget-limited goal mints no continuation).
 #[tokio::test]
 async fn a_budget_crossing_steers_the_budget_limit_context() {
     let setup = setup();
@@ -926,6 +1102,159 @@ async fn a_budget_crossing_steers_the_budget_limit_context() {
     assert_eq!(goal.tokens_used, first.usage.input + first.usage.output);
     assert_eq!(goal_contexts(&entries).len(), 1);
     assert_eq!(setup.faux.get_pending_response_count(), 1);
+    harness.close(cx()).await.expect("close");
+}
+
+/// A goal that crosses its token budget in the middle of a turn (a
+/// response with a tool call) is nudged, not cut: the budget-limit context
+/// is steered into the run's next request, which keeps its tools, and the
+/// run goes on to the model's own final answer. The goal's budget puts no
+/// limit on the session's budget; a later run works as usual and
+/// `/goal resume` keeps the goal limited.
+#[tokio::test]
+async fn a_goal_crossing_its_token_budget_mid_turn_is_nudged_and_the_run_goes_on() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    setup
+        .host_request(
+            "goal.create",
+            json!({ "objective": "small", "token_budget": 1 }),
+        )
+        .await
+        .expect("goal.create succeeds");
+    assert_eq!(setup.report(), None);
+    let seen = Saw::default();
+    setup.faux.set_responses(vec![
+        missing_tool_call(),
+        seeing(&seen, "what is done"),
+        seeing(&seen, "a later answer"),
+        answer("unused"),
+    ]);
+
+    submit(&root, "work").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    let goal = stored_goal(&harness, &root).await;
+    assert_eq!(
+        (
+            goal.status,
+            goal.last_reason.as_deref(),
+            goal.last_error.as_deref()
+        ),
+        (
+            GoalStatus::BudgetLimited,
+            Some("Reached 1 token goal budget"),
+            None
+        )
+    );
+    let first = &assistants(&entries(&root).await)[0];
+    assert_eq!(goal.tokens_used, first.usage.input + first.usage.output);
+    assert_eq!(
+        user_origins(&entries(&root).await),
+        vec![
+            InputOrigin::User,
+            InputOrigin::Goal {
+                context: GoalContextKind::BudgetLimit
+            }
+        ]
+    );
+    submit(&root, "again").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+    let seen = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert!(seen[0].0, "the nudged request keeps its tools");
+    assert!(
+        seen[0].1.starts_with(
+            "[goal: budget-limit]\n\nThe active thread goal has reached its token budget."
+        ),
+        "{seen:?}"
+    );
+    assert_eq!(seen[1], (true, "again".to_owned()));
+    let texts = user_texts(&entries(&root).await);
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    let still = resume_goal(&harness, &setup.budget, root.id(), cx())
+        .await
+        .expect("resume");
+    assert_eq!(
+        (still.status, still.last_reason.as_deref()),
+        (
+            GoalStatus::BudgetLimited,
+            Some("Goal token budget already reached")
+        )
+    );
+    assert_eq!(setup.report(), None);
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
+    harness.close(cx()).await.expect("close");
+}
+
+/// An active goal whose session budget ran short at a final answer turns
+/// `budget_limited` and yields; `/goal resume` keeps it there until budget
+/// is added, then it continues.
+#[tokio::test]
+async fn a_short_budget_limits_the_goal_until_budget_is_added() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    setup
+        .budget
+        .set(BudgetLimits {
+            requests: Some(2),
+            ..BudgetLimits::default()
+        })
+        .expect("the budget is set");
+    setup
+        .host_request("goal.create", json!({ "objective": "two steps" }))
+        .await
+        .expect("goal.create succeeds");
+    // The first answer continues the goal; the second request does not fit
+    // as work and is the final answer.
+    setup
+        .faux
+        .set_responses(vec![answer("a"), answer("b"), answer("unused")]);
+
+    submit(&root, "work").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    assert_eq!(
+        user_origins(&entries(&root).await),
+        vec![
+            InputOrigin::User,
+            InputOrigin::Goal {
+                context: GoalContextKind::Continuation,
+            },
+        ]
+    );
+    let limited = stored_goal(&harness, &root).await;
+    assert_eq!(
+        (limited.status, limited.last_reason.as_deref()),
+        (
+            GoalStatus::BudgetLimited,
+            Some("Budget exhausted (requests): add budget (/budget add), then /goal resume")
+        )
+    );
+    let still = resume_goal(&harness, &setup.budget, root.id(), cx())
+        .await
+        .expect("resume");
+    assert_eq!(still.status, GoalStatus::BudgetLimited);
+
+    setup
+        .budget
+        .add(eukhe_types::budget::BudgetAmounts {
+            requests: 2,
+            ..eukhe_types::budget::BudgetAmounts::default()
+        })
+        .expect("budget is added");
+    setup
+        .faux
+        .set_responses(vec![finish_call(), answer("done")]);
+    let resumed = resume_goal(&harness, &setup.budget, root.id(), cx())
+        .await
+        .expect("resume");
+    assert_eq!(resumed.status, GoalStatus::Active);
+    harness.wait_for_idle(cx()).await.expect("idle");
+    assert_eq!(
+        stored_goal(&harness, &root).await.status,
+        GoalStatus::Complete
+    );
     harness.close(cx()).await.expect("close");
 }
 
@@ -1047,17 +1376,31 @@ async fn an_eukhe_session_installs_the_goal_hooks_and_host_requests() {
     })
     .await
     .expect("goal.create succeeds");
-    faux.set_responses(vec![answer("spent"), answer("wrapping up")]);
+    // The goal's token budget is its own: the session has no budget. Its
+    // first response reaches it; the budget-limit context is steered into
+    // the run's next request, which keeps its tools.
+    assert_eq!(session.budget().report(), None);
+    let seen = Saw::default();
+    faux.set_responses(vec![
+        missing_tool_call(),
+        seeing(&seen, "wrapping up"),
+        answer("unused"),
+    ]);
 
     submit(session.root(), "work").await;
     session.harness().wait_for_idle(cx()).await.expect("idle");
 
-    let texts = user_texts(&entries(session.root()).await);
-    assert_eq!(texts.len(), 2, "{texts:?}");
-    assert!(texts[1].starts_with("[goal: budget-limit]"));
     let goal = goal_state(session.harness(), session.root().id(), cx())
         .await
         .expect("goal");
     assert_eq!(goal.status, GoalStatus::BudgetLimited);
+    let texts = user_texts(&entries(session.root()).await);
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert!(texts[1].starts_with("[goal: budget-limit]"));
+    let seen = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(seen[0].0, "the nudged request keeps its tools");
+    assert_eq!(seen[0].1, texts[1]);
+    assert_eq!(faux.get_pending_response_count(), 1);
     session.close(cx()).await.expect("close");
 }

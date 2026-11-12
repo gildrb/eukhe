@@ -277,7 +277,7 @@ mod tests {
         let lines = [
             r#"{"type":"session","timestamp":"2026-10-01T10:00:00.000Z","rlmDepth":0}"#,
             r#"{"type":"message","timestamp":"2026-10-01T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"fix the bug"}]}}"#,
-            r#"{"type":"message","timestamp":"2026-10-01T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"looking"},{"type":"toolCall","id":"1","name":"ipython","arguments":{}}]}}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"looking"},{"type":"toolCall","id":"1","name":"python","arguments":{}}]}}"#,
             r#"{"type":"message","timestamp":"2026-10-01T10:00:03.000Z","message":{"role":"toolResult","content":[{"type":"text","text":"noise"}]}}"#,
             r#"{"type":"message","timestamp":"2026-10-01T10:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"fixed in a.rs"}]}}"#,
             r#"{"type":"agent_status","timestamp":"2026-10-01T10:00:05.000Z"}"#,

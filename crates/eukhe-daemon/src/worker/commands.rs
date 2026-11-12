@@ -77,6 +77,10 @@ impl Worker {
             "get_messages" => self.handle_get_messages(),
             "get_session_header" => self.handle_get_session_header(),
             "get_session_stats" => self.handle_get_session_stats(),
+            "get_budget" => self.handle_get_budget().await,
+            "set_budget" => self.handle_set_budget(payload).await,
+            "add_budget" => self.handle_add_budget(payload).await,
+            "audit_budget" => self.handle_audit_budget().await,
             "get_model_catalog" => self.handle_get_model_catalog(),
             "get_queue" => self.handle_get_queue(),
             "clear_queue" => self.handle_clear_queue().await,
@@ -84,6 +88,8 @@ impl Worker {
             "get_run_outcome" => self.handle_get_run_outcome().await,
             "get_unknown_effects" => self.handle_get_unknown_effects().await,
             "resolve_unknown_effect" => self.handle_resolve_unknown_effect(payload).await,
+            "set_acceptance" => self.handle_set_acceptance(payload).await,
+            "get_acceptance" => self.handle_get_acceptance().await,
             "get_connection_state" => self.handle_get_connection_state(),
             "get_mcp_connections" => self.handle_get_mcp_connections().await,
             "set_mcp_static_token" => self.handle_set_mcp_static_token(payload).await,
@@ -738,8 +744,9 @@ impl Worker {
             return;
         };
         self.stop_memory_updates();
-        // The session closed: its state tree forwarder stops.
+        // The session closed: its state tree and budget forwarders stop.
         self.follow_state_tree(None);
+        self.follow_budget(None);
         // Closing begins before the abort: the abort withdraws the queued
         // inputs (a child's report), and their owners must leave them to
         // the reopened session, not start a run on this closing one.

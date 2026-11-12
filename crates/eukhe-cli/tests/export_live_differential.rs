@@ -376,18 +376,18 @@ fn differential_live_export_matches_ts_binary() {
     // The tools section: the session's registered tool contract, equal in
     // both products (TS `state.tools` vs the Rust engine registry).
     assert_eq!(ts_data["tools"], rs_data["tools"], "tools section");
-    let ipython_registered = ts_data["tools"]
+    let python_registered = ts_data["tools"]
         .as_array()
         .expect("tools array")
         .iter()
         .any(|tool| {
-            tool["name"] == "ipython"
+            tool["name"] == "python"
                 && tool["description"].is_string()
                 && tool["parameters"].is_object()
         });
     assert!(
-        ipython_registered,
-        "ipython contract in tools: {}",
+        python_registered,
+        "python contract in tools: {}",
         ts_data["tools"]
     );
 

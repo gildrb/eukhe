@@ -67,7 +67,7 @@ fn run(home: &Path, script: &Value) -> (Option<i32>, Vec<Value>, String) {
 }
 
 fn call(id: &str, code: &str) -> Value {
-    json!({ "content": [{ "type": "toolCall", "name": "ipython", "id": id, "arguments": { "code": code } }],
+    json!({ "content": [{ "type": "toolCall", "name": "python", "id": id, "arguments": { "code": code } }],
             "stopReason": "toolUse" })
 }
 

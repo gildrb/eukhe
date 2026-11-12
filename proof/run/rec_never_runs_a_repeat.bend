@@ -91,13 +91,6 @@ def again_pos(same: Nat, +last: Nat, +h: Nat) -> {RnRecovery.below(0n, RnRecover
 # No call runs a repeat
 # ---------------------
 
-def same_long(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.long(u, RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
-  match u:
-    case True{}:
-      ok
-    case False{}:
-      ok
-
 def same_leak(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.leak(u, RnRecovery.Rk.leaks(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
   match u:
     case True{}:
@@ -147,8 +140,6 @@ def same_ran(+rc: RnRecovery.RCfg, fresh: Bool, u: Bool, kept: Bool, +m: Nat, +h
 
 def same_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.go(rc, o, k, row, same, last))), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}:
   match o:
-    case RnRecovery.Long{}:
-      same_long(RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
     case RnRecovery.Leak{rebuilt, +h, kept}:
       match rebuilt:
         case True{}:

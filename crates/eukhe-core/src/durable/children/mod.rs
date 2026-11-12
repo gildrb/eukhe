@@ -9,6 +9,7 @@
 //! still running at the crash is delivered exactly once.
 
 mod assign;
+mod budget;
 mod commands;
 mod depth;
 mod host;
@@ -25,6 +26,7 @@ mod wire;
 mod work;
 mod worker;
 
+pub use budget::{reconcile, relend};
 pub use pause::{PauseView, RunPause, Wake};
 pub use worker::{
     list_workers, pause_own_tree, pause_workers, watch_workers, worker_session_command,
@@ -50,9 +52,10 @@ pub use host::{
     RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
     RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
     RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity,
-    RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
+    RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
+    RlmSpawnCapacity, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
 };
+pub(crate) use registry::children_verdicts;
 pub use registry::{
     has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,
 };
@@ -64,6 +67,7 @@ pub use wire::{
 };
 pub use work::WorkLedger;
 
+use super::budget::BudgetGate;
 use super::deps::{
     HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing, SessionShape,
 };
@@ -109,6 +113,8 @@ pub(crate) struct ChildrenConfig {
     pub(crate) closing: SessionClosing,
     pub(crate) shape: SessionShape,
     pub(crate) pause: Arc<RunPause>,
+    /// The session's budget: a child's allotment is carved out of it.
+    pub(crate) budget: Arc<BudgetGate>,
 }
 
 impl Children {
@@ -122,6 +128,7 @@ impl Children {
             semantic_edges: config.semantic_edges,
             closing: config.closing,
             settings: config.settings,
+            budget: config.budget,
             polled: std::sync::Mutex::default(),
         });
         let task = child_task(&services);
@@ -172,6 +179,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         closing: deps.closing.clone(),
         shape: deps.shape,
         pause: Arc::clone(&deps.run_pause),
+        budget: Arc::clone(&deps.budget),
     })
     .install(&deps.host_requests)
 }

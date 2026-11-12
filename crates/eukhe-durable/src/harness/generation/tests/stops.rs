@@ -1,10 +1,10 @@
 //! The Directors at a candidate stop (laws/stop.bend): a reply with no
-//! tool call that hit the output limit in the middle of its text, or that
-//! has no text, never ends the run as its answer; any other reply stands,
-//! whatever it says, as does one that stops while the session owns
-//! running work. Each test is a faux script whose stop ended the run before
-//! the Directors and now goes on to its end. The round cap's note tells the
-//! model the tool rounds left once few remain.
+//! tool call and no text never ends the run as its answer; any other
+//! whole reply stands, whatever it says, as does one that stops while the
+//! session owns running work. A reply that hit the output limit in the
+//! middle of its text, with room left in the window, is kept as the answer
+//! (laws/stop/cut.bend). The round cap's note tells the model the tool
+//! rounds left once few remain.
 
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ fn setup_with_pending(pending: bool) -> ChatSetup {
 
 /// The Rust side of laws `stop_stand_answers_once`,
 /// `stop_stand_sends_no_request` (laws/stop.bend): a stop the walk lets
-/// stand (`stop::walk` None) with text is read as the answer
+/// stand (`stop::walk` `Pick::Stands`) with text is read as the answer
 /// (`Reply::Text`, no note, no cause). The run ends after its one request
 /// with exactly one assistant message, that answer, with no error, and
 /// sends no further request once it settled: the scripted second reply
@@ -103,42 +103,48 @@ async fn an_answer_while_work_runs_is_a_pause_that_stands() {
     assert_eq!(setup.faux.get_pending_response_count(), 1);
 }
 
-/// The length note of `attempt` for a reply whose text the 7-token limit
-/// cut (the faux provider counts the reply's tokens in `o200k_base`), the
-/// `row`th in a row.
-fn cut_note(attempt: u64, row: u32) -> String {
-    user(&format!(
-        "Harness note, attempt {attempt}: your previous reply hit the 7-token output limit \
-         before it finished, so the harness did not take its cut text as your answer. Reason \
-         only about the next step, then call its tool. For a large answer (a file, a document, \
-         a long text), write a minimal working version first, then extend it with further \
-         edits in this turn. Length note {row} of 3."
-    ))
-}
+/// Replies the output limit cut in the middle of their text: plain text,
+/// and text with tool-call markup the cut left unreadable.
+const CUT: [&str; 2] = [
+    "Here is the whole plan: first",
+    "I will look.\n<tool_call>{\"name\": \"tick\", \"argum",
+];
 
+/// The Rust side of laws `stop_cut_text_stands_with_room` and
+/// `stop_cut_kept_answers_once` (laws/stop/cut.bend: a truncated turn that
+/// delivered text is kept while the window has room). Regression
+/// (v0.10.67): the harness failed such a reply ("did not take the cut text
+/// as the answer") and asked again with a note. The run ends after its one
+/// request: its one assistant message keeps the cut text and the stop
+/// reason length, with no error, whatever else the text holds, and no
+/// request with a note follows (the scripted second reply stays unused).
 #[tokio::test]
-async fn a_reply_cut_at_the_output_limit_is_not_the_answer_and_the_run_goes_on() {
-    let setup = setup_with_pending(false);
-    let requests = Seen::default();
-    let cut = "Here is the whole plan: first";
-    setup.faux.set_responses(vec![
-        reply(&requests, vec![faux_text(cut)], StopReason::Length),
-        reply(&requests, vec![faux_text("Done.")], StopReason::Stop),
-    ]);
-    assert_eq!(
-        (settle(&setup).await, seen(&requests)),
-        (
+async fn a_reply_cut_at_the_output_limit_with_room_in_the_window_is_kept_as_the_answer() {
+    for cut in CUT {
+        let setup = setup_with_pending(false);
+        let requests = Seen::default();
+        setup.faux.set_responses(vec![
+            reply(&requests, vec![faux_text(cut)], StopReason::Length),
+            reply(&requests, vec![faux_text("unused")], StopReason::Stop),
+        ]);
+        assert_eq!(
             (
-                (SubmissionStatus::Done, None, None),
-                vec![
-                    user(ASK),
-                    format!("assistant:{cut}"),
-                    "assistant:Done.".to_owned()
-                ]
+                settle_stops(&setup).await,
+                seen(&requests),
+                setup.faux.get_pending_response_count()
             ),
-            vec![user(ASK), cut_note(2, 1)]
-        )
-    );
+            (
+                (
+                    (SubmissionStatus::Done, None, None),
+                    vec![user(ASK), format!("assistant:{cut}")],
+                    vec![(StopReason::Length, None)]
+                ),
+                vec![user(ASK)],
+                1
+            ),
+            "{cut}"
+        );
+    }
 }
 
 #[tokio::test]

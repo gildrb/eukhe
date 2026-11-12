@@ -169,6 +169,7 @@ impl EntryData for UserData {
         match &self.origin {
             InputOrigin::User => Ok(None),
             InputOrigin::Goal { .. }
+            | InputOrigin::Loop { .. }
             | InputOrigin::Autonomous { .. }
             | InputOrigin::Director
             | InputOrigin::QuotaResume
@@ -207,6 +208,13 @@ pub static RESET_ENTRY: Entry = Entry::builtin("pi.reset");
 /// `head` the first kept entry. Written by compaction tasks, directly or
 /// through a write submission.
 pub static COMPACTION_ENTRY: Entry<CompactionData> = Entry::builtin("pi.compaction");
+
+/// A reply taken out of model context and kept in the transcript: `edits`
+/// omit the assistant entry it follows; no `model`, no `data`. Written by
+/// generation after a reply cut at the output limit that the stop walk
+/// drops (laws/stop/cut.bend: such a turn leaves the model's context and
+/// stays on the branch).
+pub static DROP_ENTRY: Entry = Entry::builtin("pi.drop");
 
 #[cfg(test)]
 mod tests {
@@ -311,6 +319,7 @@ mod tests {
             TOOL_RESULT_ENTRY.kind(),
             RESET_ENTRY.kind(),
             COMPACTION_ENTRY.kind(),
+            DROP_ENTRY.kind(),
         ];
         assert_eq!(
             kinds,
@@ -320,7 +329,8 @@ mod tests {
                 "pi.system",
                 "pi.tool-result",
                 "pi.reset",
-                "pi.compaction"
+                "pi.compaction",
+                "pi.drop"
             ]
         );
         let data = r#"{"diagnostics":[{"severity":"warn","code":"truncated","message":"truncated"},{"severity":"info","message":"ok"}]}"#;

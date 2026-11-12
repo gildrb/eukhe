@@ -8,8 +8,9 @@ use std::pin::Pin;
 use sha2::{Digest, Sha256};
 
 use super::{
-    now_millis, AgentAutonomousGateFailure, AutonomousDecision, AutonomousDecisionReason,
-    AutonomousGateResult, AutonomousLimitReason, AutonomousRuntimeState, GitWorktreeSnapshot,
+    autonomous_limit_reason, now_millis, AgentAutonomousGateFailure, AutonomousDecision,
+    AutonomousDecisionReason, AutonomousGateResult, AutonomousRuntimeState, GitWorktreeSnapshot,
+    SessionBudget,
 };
 
 /// Output cap for gate results surfaced in continuation text.
@@ -82,11 +83,13 @@ pub struct ChildProcessResult {
 }
 
 /// Decide whether an assistant turn should be followed by a continuation:
-/// gates first (a pass stops the run), then the budget limits.
+/// gates first (a pass stops the run), then the limits: the run's own
+/// (continuations, turns, tokens, time) and the session's `budget`.
 pub async fn should_autonomously_continue(
     state: &mut AutonomousRuntimeState,
     stop_reason: Option<eukhe_types::ai::StopReason>,
     gates: &dyn GateCommandRunner,
+    budget: SessionBudget,
 ) -> AutonomousDecision {
     use eukhe_types::ai::StopReason;
     if !state.enabled
@@ -99,7 +102,7 @@ pub async fn should_autonomously_continue(
         };
     }
     let gate_result = refresh_autonomous_quality_gates(state, gates).await;
-    let limit_reason = autonomous_limit_reason_now(state);
+    let limit_reason = autonomous_limit_reason(state, budget, now_millis());
     match gate_result {
         Some(AutonomousGateResult::Passed) => AutonomousDecision {
             should_continue: false,
@@ -131,10 +134,6 @@ pub async fn should_autonomously_continue(
             reason: AutonomousDecisionReason::MissingTerminalEvidence,
         },
     }
-}
-
-fn autonomous_limit_reason_now(state: &AutonomousRuntimeState) -> Option<AutonomousLimitReason> {
-    super::autonomous_limit_reason(state, now_millis())
 }
 
 /// Run the configured gates when enabled; `None` when no gates apply.
@@ -505,6 +504,16 @@ mod tests {
         AutonomousDecisionReason,
     };
     use eukhe_types::ai::StopReason;
+    use eukhe_types::budget::BudgetDimension;
+
+    /// The decision under a session budget that admits work.
+    async fn consult(
+        state: &mut AutonomousRuntimeState,
+        stop_reason: StopReason,
+        gates: &dyn GateCommandRunner,
+    ) -> AutonomousDecision {
+        should_autonomously_continue(state, Some(stop_reason), gates, SessionBudget::Working).await
+    }
 
     fn config(enabled: bool) -> AgentAutonomousConfig {
         AgentAutonomousConfig {
@@ -557,25 +566,42 @@ mod tests {
     #[tokio::test]
     async fn decisions_without_gates() {
         let mut state = create_autonomous_runtime_state(Some(&config(true)), None);
-        let decision =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &ok_gates()).await;
+        let decision = consult(&mut state, StopReason::Stop, &ok_gates()).await;
         assert!(decision.should_continue);
         assert_eq!(
             decision.reason,
             AutonomousDecisionReason::MissingTerminalEvidence
         );
         // Error and aborted turns never continue.
-        let stopped =
-            should_autonomously_continue(&mut state, Some(StopReason::Error), &ok_gates()).await;
+        let stopped = consult(&mut state, StopReason::Error, &ok_gates()).await;
         assert!(!stopped.should_continue);
-        let aborted =
-            should_autonomously_continue(&mut state, Some(StopReason::Aborted), &ok_gates()).await;
+        let aborted = consult(&mut state, StopReason::Aborted, &ok_gates()).await;
         assert!(!aborted.should_continue);
         // Disabled state never continues.
         state.enabled = false;
-        let disabled =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &ok_gates()).await;
+        let disabled = consult(&mut state, StopReason::Stop, &ok_gates()).await;
         assert!(!disabled.should_continue);
+    }
+
+    /// A session budget that admits no more work stops a run without gates
+    /// at its limit.
+    #[tokio::test]
+    async fn a_spent_budget_stops_the_run() {
+        let mut state = create_autonomous_runtime_state(Some(&config(true)), None);
+        let decision = should_autonomously_continue(
+            &mut state,
+            Some(StopReason::Stop),
+            &ok_gates(),
+            SessionBudget::Short(Some(BudgetDimension::Tokens)),
+        )
+        .await;
+        assert_eq!(
+            decision,
+            AutonomousDecision {
+                should_continue: false,
+                reason: AutonomousDecisionReason::LimitReached,
+            }
+        );
     }
 
     #[tokio::test]
@@ -593,9 +619,7 @@ mod tests {
             None,
         );
         // Failing gate -> continue with gate_failed.
-        let failed =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &failing_gates())
-                .await;
+        let failed = consult(&mut state, StopReason::Stop, &failing_gates()).await;
         assert!(failed.should_continue);
         assert_eq!(failed.reason, AutonomousDecisionReason::GateFailed);
         let failure = state.last_gate_failure.clone().unwrap();
@@ -604,21 +628,16 @@ mod tests {
         assert_eq!(failure.exit_text, "exited with code 1");
         assert_eq!(failure.output, "boom");
         // Passing gate -> stop with not_needed.
-        let passed =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &ok_gates()).await;
+        let passed = consult(&mut state, StopReason::Stop, &ok_gates()).await;
         assert!(!passed.should_continue);
         assert_eq!(passed.reason, AutonomousDecisionReason::NotNeeded);
         // The pass reset the retry counter, so this failure starts a fresh
         // retry window.
-        let failed_again =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &failing_gates())
-                .await;
+        let failed_again = consult(&mut state, StopReason::Stop, &failing_gates()).await;
         assert!(failed_again.should_continue);
         assert_eq!(failed_again.reason, AutonomousDecisionReason::GateFailed);
         // Without a pass in between, the next failure exhausts the window.
-        let exhausted =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &failing_gates())
-                .await;
+        let exhausted = consult(&mut state, StopReason::Stop, &failing_gates()).await;
         assert!(!exhausted.should_continue);
         assert_eq!(exhausted.reason, AutonomousDecisionReason::LimitReached);
     }
@@ -640,13 +659,12 @@ mod tests {
         // Same snapshot on every consult: the first failure records it, the
         // next consult must not re-run the gate.
         let runner = failing_gates();
-        let failed =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &runner).await;
+        let failed = consult(&mut state, StopReason::Stop, &runner).await;
         assert!(failed.should_continue);
         assert_eq!(state.last_gate_failure.as_ref().unwrap().attempt, 1);
         let mut runner = failing_gates();
         runner.snapshots = vec![state.last_gate_failure_snapshot.clone()];
-        let held = should_autonomously_continue(&mut state, Some(StopReason::Stop), &runner).await;
+        let held = consult(&mut state, StopReason::Stop, &runner).await;
         assert!(held.should_continue);
         let failure = state.last_gate_failure.as_ref().unwrap();
         assert_eq!(failure.attempt, 2);
@@ -658,8 +676,7 @@ mod tests {
             .output
             .starts_with("The autonomous gate was not rerun"));
         // Past the retry window the held failure exhausts the run.
-        let exhausted =
-            should_autonomously_continue(&mut state, Some(StopReason::Stop), &runner).await;
+        let exhausted = consult(&mut state, StopReason::Stop, &runner).await;
         assert!(!exhausted.should_continue);
         assert_eq!(exhausted.reason, AutonomousDecisionReason::LimitReached);
     }

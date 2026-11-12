@@ -327,6 +327,12 @@ fn openai_completions_compat_properties() -> Properties {
             )),
         ),
         (
+            "clampOutputToModelMax",
+            optional_boolean(desc(
+                "Whether the host takes an output cap up to the model's maxTokens. When false the cap is at most 64000. Default: true for a local backend (a local server's provider id, or a base URL on this machine or a private network), else false.",
+            )),
+        ),
+        (
             "requiresToolResultName",
             optional_boolean(desc(
                 "Whether tool results require the name field. Default: auto-detected from URL.",
@@ -411,6 +417,15 @@ fn openai_completions_compat_properties() -> Properties {
             Type::optional(Type::string_with(desc(
                 "Sent as thinking.keep next to an enabled thinking object of the deepseek thinking format (Moonshot Kimi preserved thinking: \"all\" keeps the reasoning of every earlier turn). Default: not sent.",
             ))),
+        ),
+        (
+            "reasoningDisableMode",
+            Type::optional(Type::union_with(
+                literals(&["openrouter-enabled-false"]),
+                desc(
+                    "How a thinking-off request of the openai thinking format turns reasoning off: \"openrouter-enabled-false\" sends reasoning.enabled false. Default: the off or lowest offered reasoning_effort, sent only when reasoning_effort is supported.",
+                ),
+            )),
         ),
         (
             "thinkingTokenBudgetField",

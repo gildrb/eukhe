@@ -24,8 +24,10 @@
 //! stalled after `subagentStallMs`.
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::acceptance::acceptance_state;
 use eukhe_core::durable::children::{
-    unsettled_children, RlmChildOutcome, RlmChildRunState, RLM_CHILD_ANSWER_MAX_BYTES,
+    unsettled_children, RlmChildOutcome, RlmChildRunState, RlmChildVerdict,
+    RLM_CHILD_ANSWER_MAX_BYTES,
 };
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
 use eukhe_core::durable::workflow::unsettled_runs;
@@ -68,7 +70,7 @@ impl Worker {
         let pending_jobs =
             children.count + runs.count + kernel_background_jobs(hosted.deps(), main.id());
         let job_progress = kernel_job_progress(hosted.deps(), main.id()).await;
-        let state = {
+        let mut state = {
             let mut core = self
                 .core
                 .lock()
@@ -111,8 +113,22 @@ impl Worker {
                 ),
                 answer,
                 paused: hosted.deps().run_pause.view().paused,
+                acceptance: None,
             }
         };
+        // A settled run carries the verdict of its acceptance on the final
+        // state (a parent's checks of this child), read from the durable
+        // acceptance, never from the answer.
+        if matches!(
+            state.state,
+            RlmChildRunState::Answered { .. } | RlmChildRunState::Failed { .. }
+        ) {
+            state.acceptance =
+                match acceptance_state(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await {
+                    Ok(acceptance) => RlmChildVerdict::of(&acceptance),
+                    Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+                };
+        }
         match serde_json::to_value(&state) {
             Ok(data) => response_success(None, COMMAND, Some(data)),
             Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
@@ -343,6 +359,8 @@ mod tests {
             active: None,
             goal: serde_json::Value::Null,
             unknown_effects: Vec::new(),
+            loop_status: None,
+            acceptance: serde_json::Value::Null,
             workers: Vec::new(),
             paused: false,
         });

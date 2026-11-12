@@ -395,6 +395,7 @@ impl eukhe_tui::client_settings::ClientSettings for HubSettings {
 
 fn options(socket: PathBuf, settings: Arc<HubSettings>) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

@@ -1,0 +1,14 @@
+# step: a judging loop with its iteration, count, deadline, failures... at
+# {MAX} reads refuting evidence and starts iteration {MAX} + 1 (10^14,
+# below 2^48-1); `/loop` with a span of {MAX} ms at clock {MAX} sets the
+# deadline 2 * {MAX} (below 2^48-1: the largest sum the entry forms);
+# `/loop` with a count of {MAX}; a failed turn with {MAX} failures; a
+# prompt adopted at iteration {MAX}
+call 0,3,{MAX},1,{MAX},1,{MAX},1,4,true2,ab2,1,{MAX},0,{MAX},5,{MAX},0,1,F0,T
+call 0,0,0,0,0,0,0,0,0,0,2,{MAX},1,4,true1,2,ab{MAX},
+call 0,0,0,0,0,0,0,0,0,0,1,{MAX},0,0,{MAX},
+call 0,2,{MAX},0,0,0,2,ab{MAX},0,4,{MAX},1,F{MAX},T
+call 0,1,{MAX},0,0,0,0,{MAX},0,3,2,ab
+# verdict: an exit status of {MAX}; one digit past the wire is refused
+call 1,T0,{MAX},
+refuse 1,T0,{LONG},

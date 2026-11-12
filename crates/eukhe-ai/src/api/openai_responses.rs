@@ -20,7 +20,9 @@ use super::openai_responses_shared::{
 use super::openai_sdk::{
     stream_failure_of, OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions,
 };
-use super::simple_options::{build_base_options, resolve_sampling_params};
+use super::simple_options::{
+    build_base_options, clamps_output_to_model_max, openai_output_cap, resolve_sampling_params,
+};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::{clamp_thinking_level, get_supported_thinking_levels, thinking_level_map};
@@ -188,6 +190,10 @@ fn get_prompt_cache_options(
 pub struct OpenAIResponsesOptions {
     /// `reasoningEffort`.
     pub reasoning_effort: Option<ThinkingLevel>,
+    /// `disableReasoning`: the caller turned reasoning off. Only then does
+    /// a request without an effort send the model's disable effort
+    /// ([`insert_reasoning_off`]).
+    pub disable_reasoning: bool,
     /// `reasoningSummary` (`"auto" | "detailed" | "concise" | null`).
     pub reasoning_summary: Option<String>,
     /// `serviceTier`: the raw `service_tier` value (`null` is sent as is).
@@ -205,6 +211,10 @@ impl OpenAIResponsesOptions {
             reasoning_effort: extra
                 .get("reasoningEffort")
                 .and_then(|value| serde_json::from_value(value.clone()).ok()),
+            disable_reasoning: extra
+                .get("disableReasoning")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false),
             reasoning_summary: extra
                 .get("reasoningSummary")
                 .and_then(JsonValue::as_str)
@@ -353,6 +363,8 @@ fn build_params(
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
         if compat.supports_max_output_tokens && !omit_unsupported_fields {
+            let max_tokens =
+                openai_output_cap(model, max_tokens, clamps_output_to_model_max(model));
             params.insert(
                 "max_output_tokens".to_owned(),
                 json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
@@ -391,7 +403,7 @@ fn build_params(
         let quirks = Quirks::of(model);
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else {
+        } else if api.disable_reasoning {
             insert_reasoning_off(model, &mut params);
         }
         if model_facts::flag(quirks.encrypted_reasoning(), false) {
@@ -814,6 +826,9 @@ pub fn stream_simple(
         if clamped != ModelThinkingLevel::Off {
             extra.insert("reasoningEffort".to_owned(), json!(clamped.as_str()));
         }
+    }
+    if options.disable_reasoning {
+        extra.insert("disableReasoning".to_owned(), json!(true));
     }
     stream(
         model,

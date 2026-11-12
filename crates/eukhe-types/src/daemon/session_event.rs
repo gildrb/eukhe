@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{MemoryUpdate, SessionActionSnapshot};
+use crate::acceptance::AcceptanceState;
 use crate::ai::{ServiceTier, UserContentBlock};
+use crate::budget::BudgetReport;
 use crate::effects::UnknownEffect;
 use crate::goal::GoalState;
+use crate::loop_mode::LoopStatus;
 use crate::output::OmittedOutput;
 use crate::pi_ai::PromptProgress;
 use crate::session::AgentMessage;
@@ -151,6 +154,21 @@ pub enum SessionEvent {
     UnknownEffectsUpdate {
         effects: Vec<UnknownEffect>,
     },
+    /// The session's `/loop` changed: its whole status.
+    LoopUpdate {
+        r#loop: LoopStatus,
+    },
+    /// The session's budget changed: set, added to, a reservation made or
+    /// settled, an allotment lent to or returned by a child. `None`: the
+    /// session has no budget.
+    BudgetUpdate {
+        budget: Option<BudgetReport>,
+    },
+    /// The conversation's acceptance changed: its checks, a verdict, a
+    /// claim, or the label of the result.
+    AcceptanceUpdate {
+        acceptance: AcceptanceState,
+    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -188,7 +206,7 @@ pub enum SessionEvent {
         error: String,
     },
     /// The Python kernel sent an agent message after its cell settled.
-    IpythonSentAgentMessage {
+    PythonSentAgentMessage {
         tool_call_id: String,
         message: Value,
     },
@@ -220,13 +238,16 @@ impl SessionEvent {
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
             | Self::UnknownEffectsUpdate { .. }
+            | Self::LoopUpdate { .. }
+            | Self::BudgetUpdate { .. }
+            | Self::AcceptanceUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }
             | Self::BashOutput { .. }
             | Self::BashEnd { .. }
             | Self::RefineComplete { .. }
             | Self::RefineFailed { .. }
-            | Self::IpythonSentAgentMessage { .. } => None,
+            | Self::PythonSentAgentMessage { .. } => None,
         }
     }
 }
@@ -349,7 +370,7 @@ mod tests {
     #[test]
     fn lifecycle_and_message_events_roundtrip() {
         let assistant = r#"{"role":"assistant","content":[{"type":"text","text":"hi"}],"api":"a","provider":"p","model":"m","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}"#;
-        let result = r#"{"role":"toolResult","toolCallId":"c","toolName":"ipython","content":[{"type":"text","text":"1"}],"isError":false,"timestamp":2}"#;
+        let result = r#"{"role":"toolResult","toolCallId":"c","toolName":"python","content":[{"type":"text","text":"1"}],"isError":false,"timestamp":2}"#;
         rt::<SessionEvent>(r#"{"type":"agent_start"}"#);
         rt::<SessionEvent>(&format!(
             r#"{{"type":"agent_end","messages":[{assistant}]}}"#
@@ -372,7 +393,7 @@ mod tests {
     #[test]
     fn tool_retry_and_compaction_events_roundtrip() {
         rt::<SessionEvent>(
-            r#"{"type":"tool_execution_end","toolCallId":"c","toolName":"ipython","result":{"content":[{"type":"text","text":"1"}],"details":null},"isError":false}"#,
+            r#"{"type":"tool_execution_end","toolCallId":"c","toolName":"python","result":{"content":[{"type":"text","text":"1"}],"details":null},"isError":false}"#,
         );
         rt::<SessionEvent>(
             r#"{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"delayMs":200,"errorMessage":"e","reason":"backup","backupModel":"p/m"}"#,
@@ -396,6 +417,20 @@ mod tests {
         // `at` is an f64: a fractional value keeps its JSON number form.
         rt::<SessionEvent>(
             r#"{"type":"unknown_effects_update","effects":[{"id":"tool:c1","kind":"tool","what":"bash: make deploy","at":1700000000000.5,"resolution":"ran"},{"id":"job:7","kind":"job","what":"cargo build","at":1700000000001.5}]}"#,
+        );
+    }
+
+    /// `loop_update` carries the whole loop status under `loop`.
+    #[test]
+    fn loop_update_roundtrips() {
+        rt::<SessionEvent>(
+            r#"{"type":"loop_update","loop":{"phase":{"state":"off"},"iteration":0,"prompt":"","failures":0}}"#,
+        );
+        rt::<SessionEvent>(
+            r#"{"type":"loop_update","loop":{"phase":{"state":"judging"},"iteration":2,"remaining":8,"deadlineMs":90000,"condition":{"command":"test -f done","until":true},"prompt":"fix it","failures":1,"lastCheck":{"iteration":1,"evidence":{"kind":"exited","code":1}},"limit":{"kind":"iterations","iterations":10},"startedAtMs":5,"verdict":1,"message":"Loop mode enabled."}}"#,
+        );
+        rt::<SessionEvent>(
+            r#"{"type":"loop_update","loop":{"phase":{"state":"ended","end":"out_of_time"},"iteration":4,"prompt":"fix it","failures":0,"limit":{"kind":"duration","durationMs":600000},"startedAtMs":5}}"#,
         );
     }
 }

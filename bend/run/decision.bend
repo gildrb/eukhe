@@ -308,21 +308,21 @@ def decide.round(+l: Lim, +count: Nat, stops: Bool, reset: Bool) -> End:
   +fin = fin.of(stops, reset)
   End.ph(fin, count, RnState.St.ph(RnStep.tools(Lim.cfg(l), fin, Lim.r(l, count), 0n, 0n, 0n, 0n)))
 
-# a stuck reply as `recover` reads it (`Stuck`): a length stop with text
-# (the stop walk's LengthStop), leaked calls that the harness could not
-# rebuild (MarkupStop), calls that would make 1 + before rounds in a row
-# with the same calls and results, no text (EmptyStop), a length stop
-# with no text (LengthStop: the model still reasoned) with the facts its
-# ladder reads: the model's context window (0: unknown) and catalog max
-# output, the reply's prompt and output tokens, whether a compaction can
-# run (compaction on, a cut, the generation has not compacted) and
-# whether a thinking level below the agent's exists
+# a stuck reply as `recover` reads it (`Stuck`): a length stop the stop
+# walk's LengthStop continues (no text: the model still reasoned; or text
+# with the window run out and a compaction to make) with the facts its
+# ladder reads: the model's context window (0: unknown, which counts as
+# run out) and catalog max output, the reply's prompt
+# and output tokens, whether a compaction can run (compaction on, a cut,
+# the generation has not compacted) and whether a thinking level below
+# the agent's exists; leaked calls that the harness could not rebuild
+# (MarkupStop); calls that would make 1 + before rounds in a row with the
+# same calls and results; no text (EmptyStop)
 type Stuck is Data:
-  Truncated{}
+  Thought{window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, lower: Bool}
   Leaked{}
   Repeats{before: Nat}
   Emptied{}
-  Thought{window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, lower: Bool}
 
 # what a recovery does with it (`Act`): the calls run, a retry with the
 # row-th note of the recovery in a row, the run fails on the model, the
@@ -364,28 +364,24 @@ def Help.of(d: RnRecovery.Dec) -> Help:
 # round, which ran them `before` rounds in a row
 def Stuck.out(s: Stuck) -> RnRecovery.Out:
   match s:
-    case Truncated{}:
-      RnRecovery.Long{}
+    case Thought{+window, +catalog, +prompt, +out, cuttable, lower}:
+      RnRecovery.Think{RnRecovery.full(window, catalog, prompt, out, cuttable), lower}
     case Leaked{}:
       RnRecovery.Leak{False{}, 0n, False{}}
     case Repeats{before}:
       RnRecovery.Ran{0n, True{}}
     case Emptied{}:
       RnRecovery.Empty{}
-    case Thought{+window, +catalog, +prompt, +out, cuttable, lower}:
-      RnRecovery.Think{Bool.and(cuttable, RnRecovery.bound(window, catalog, prompt, out)), lower}
 
 def Stuck.same(s: Stuck) -> Nat:
   match s:
-    case Truncated{}:
+    case Thought{window, catalog, prompt, out, cuttable, lower}:
       0n
     case Leaked{}:
       0n
     case Repeats{before}:
       before
     case Emptied{}:
-      0n
-    case Thought{window, catalog, prompt, out, cuttable, lower}:
       0n
 
 # what a recovery does with a stuck reply, after the request whose note

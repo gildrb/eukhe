@@ -161,21 +161,29 @@ async fn sends_qwen_thinking_fields() {
     }
 }
 
+/// The `qwen` dialect's level is the `enable_thinking` toggle alone: no
+/// `reasoning_effort` rides along, even where the model takes one
+/// elsewhere (the reference's Alibaba token plan on the same endpoint).
 #[tokio::test]
-async fn sends_qwen_reasoning_effort() {
+async fn sends_no_qwen_reasoning_effort() {
     for (provider, model_id) in qwen_reasoning_effort_model_cases() {
         let payload = simple_payload(&find_model(provider, model_id), ThinkingLevel::High).await;
 
         assert_eq!(
+            payload.get("enable_thinking"),
+            Some(&json!(true)),
+            "{provider}/{model_id}"
+        );
+        assert_eq!(
             payload.get("reasoning_effort"),
-            Some(&json!("high")),
+            None,
             "{provider}/{model_id}"
         );
     }
 }
 
 #[tokio::test]
-async fn sends_qwen3_8_xhigh_reasoning_effort() {
+async fn qwen3_8_xhigh_sends_the_toggle_alone() {
     for (provider, model_id) in qwen38_model_cases() {
         let payload = simple_payload(&find_model(provider, model_id), ThinkingLevel::Xhigh).await;
 
@@ -186,7 +194,7 @@ async fn sends_qwen3_8_xhigh_reasoning_effort() {
         );
         assert_eq!(
             payload.get("reasoning_effort"),
-            Some(&json!("xhigh")),
+            None,
             "{provider}/{model_id}"
         );
         assert_eq!(payload.get("thinking"), None, "{provider}/{model_id}");

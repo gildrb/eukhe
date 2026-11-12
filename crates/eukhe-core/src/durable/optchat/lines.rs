@@ -169,8 +169,13 @@ fn user_input_line(message: &Message, origin: &InputOrigin) -> SessionResult<Opt
         return Ok(None);
     }
     Ok(match origin {
-        InputOrigin::User => Some((Kind::User, text, user_images(&user.content))),
-        InputOrigin::Goal { .. }
+        InputOrigin::User | InputOrigin::Loop { iteration: 1 } => {
+            Some((Kind::User, text, user_images(&user.content)))
+        }
+        // A repeat of the loop's prompt says nothing new; harness nudges
+        // are not logged.
+        InputOrigin::Loop { .. }
+        | InputOrigin::Goal { .. }
         | InputOrigin::Autonomous { .. }
         | InputOrigin::Director
         | InputOrigin::QuotaResume
@@ -293,7 +298,8 @@ fn classify_custom(custom_type: &str) -> CustomRow {
         | "session_slash_command_result"
         | "anthropic_subscription_warning_shown"
         | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE
-        | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE => CustomRow::State,
+        | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE
+        | eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => CustomRow::State,
         _ => CustomRow::Report,
     }
 }

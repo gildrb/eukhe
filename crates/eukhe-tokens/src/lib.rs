@@ -23,5 +23,6 @@ pub use policy::{
     AutoLevel, ImageDetail, ImageSize, ImageTokenization, ModelRef, ModelTokenizer, PatchSizing,
     ThinkingReplayTokens, base64_image_size, billed_image_tokens, image_tokens,
     resolve_image_tokenization, resolve_model_tokenizer, resolve_thinking_replay_tokens,
+    thinking_variant_logical_id,
 };
 pub use utok::Encoding;

@@ -204,6 +204,7 @@ fn options(
     keybindings: eukhe_tui::keybindings::KeybindingsManager,
 ) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

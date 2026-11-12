@@ -2,9 +2,9 @@
 //! (the fetch itself, the pinned version on a machine with other Pythons,
 //! and the locked package installs run against the real binary in
 //! `crates/eukhe-cli/tests/packaged_layout_e2e.rs`). A machine that has not
-//! fetched the Python and is offline: the session offers no ipython tool
+//! fetched the Python and is offline: the session offers no python tool
 //! and reports one notification saying the fetch failed. A fetch that fails
-//! between the open and the first call: the ipython tool answers with the
+//! between the open and the first call: the python tool answers with the
 //! failed fetch, and the other tools run (the model's laws on a failed
 //! setup in `laws/kernel_local.bend`; these tests run the real session).
 
@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
@@ -151,7 +152,7 @@ enum Host {
 }
 
 /// One open of the fixture's session with one model turn: whether the
-/// model was offered `ipython` (its request's tools, checked against the
+/// model was offered `python` (its request's tools, checked against the
 /// agent's), and the notification `host` showed. No open leaves a
 /// kernel-unavailable row in the session.
 async fn open_and_ask(
@@ -172,7 +173,7 @@ async fn open_and_ask(
     let id = submit(&session, "list the files here").await;
     settle(&session, id).await;
     let agent = session.main().agent(cx()).await.expect("agent");
-    let offered = agent.tools.iter().any(|tool| tool.name == "ipython");
+    let offered = agent.tools.iter().any(|tool| tool.name == "python");
     let rows = notices(&session).await;
     session.close(cx()).await.expect("close");
     assert_eq!(rows, Vec::new(), "the notice is no session entry");
@@ -181,9 +182,9 @@ async fn open_and_ask(
         .unwrap_or_else(PoisonError::into_inner)
         .pop()
         .expect("one model request");
-    assert_eq!(tools.iter().any(|tool| tool == "ipython"), offered);
+    assert_eq!(tools.iter().any(|tool| tool == "python"), offered);
     assert_eq!(
-        prompt.contains("This session has no Python REPL (`ipython` tool)"),
+        prompt.contains("This session has no Python REPL (`python` tool)"),
         !offered
     );
     (offered, shown)
@@ -217,14 +218,14 @@ fn is_offline_notice(notice: &str) -> bool {
     )) && notice.contains(&format!("CPython {}", super::pinned_python_version()))
         && notice.contains(KERNEL_INSTALL_COMMAND)
         && notice.ends_with(
-            "This session has no `ipython` tool; the other tools work. The next session tries the fetch again.",
+            "This session has no `python` tool; the other tools work. The next session tries the fetch again.",
         )
 }
 
 /// Regression (Local Studio): a session whose kernel cannot start offered
-/// the ipython tool. The kernel's Python is fetched on its own, so the
+/// the python tool. The kernel's Python is fetched on its own, so the
 /// only machine without a kernel is one that never fetched it and is
-/// offline: there the model is offered no ipython tool, its prompt says
+/// offline: there the model is offered no python tool, its prompt says
 /// the session has no Python REPL, and the user is told by a notification
 /// saying the fetch failed, once per state: at the first interactive
 /// session, not a reopened one, not the second, not once a kernel works,
@@ -311,7 +312,7 @@ async fn a_session_stored_with_the_notice_row_still_opens() {
     let home = fixture.dir.path().join("home");
     let _env = offline_machine(&home);
     let stored =
-        "The Python kernel is not installed, so this session has no `ipython` tool.".to_owned();
+        "The Python kernel is not installed, so this session has no `python` tool.".to_owned();
     let session = fixture
         .open_configured(|config| config.kernel_python = None)
         .await;
@@ -339,10 +340,10 @@ async fn a_session_stored_with_the_notice_row_still_opens() {
 
 /// A fetch that fails between the open and the first call (the session
 /// opened with a kernel; the machine then has none and is offline): the
-/// ipython tool answers with the failed fetch and the command that
+/// python tool answers with the failed fetch and the command that
 /// retries it, and the other tools run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_fetch_answers_the_ipython_tool_and_spares_the_other_tools() {
+async fn a_failed_fetch_answers_the_python_tool_and_spares_the_other_tools() {
     let _env_lock = KERNEL_ENV_LOCK.lock().await;
     let python = tests_python();
     let fixture = Fixture::new();
@@ -351,8 +352,8 @@ async fn a_failed_fetch_answers_the_ipython_tool_and_spares_the_other_tools() {
     std::env::set_var("EUKHE_KERNEL_PYTHON", &python);
     fixture.faux.set_responses(vec![
         call("bash", "call-0", json!({ "script": "echo 1" })),
-        call("ipython", "call-1", json!({ "code": "print('ran')" })),
-        call("ipython", "call-2", json!({ "code": "print('ran')" })),
+        call("python", "call-1", json!({ "code": "print('ran')" })),
+        call("python", "call-2", json!({ "code": "print('ran')" })),
         call("bash", "call-3", json!({ "script": "echo 2" })),
         text("done"),
     ]);
@@ -399,4 +400,78 @@ async fn a_named_interpreter_is_offered_without_a_notice() {
     std::env::remove_var("EUKHE_KERNEL_PYTHON");
     let configured = open_and_ask(&fixture, &seen, Host::Interactive, |_| {}).await;
     assert_eq!(configured, (true, None));
+}
+
+/// The open's wait on the first fetch (paused time, a stand-in fetch): a
+/// fetch whose first download is answered holds the open only until that
+/// answer, not for the download or [`super::OPEN_FETCH_WAIT`], and goes on
+/// after the open (a fresh install started each CLI run 2 s late).
+#[tokio::test(start_paused = true)]
+async fn an_online_fetch_holds_the_open_only_until_its_first_answer() {
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let (done, fetched) = tokio::sync::oneshot::channel();
+    let fetch = tokio::spawn({
+        let reached = Arc::clone(&reached);
+        async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            reached.notify_one();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let _ = done.send(());
+            anyhow::Ok(())
+        }
+    });
+    let start = tokio::time::Instant::now();
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert_eq!(verdict, None);
+    assert_eq!(start.elapsed(), Duration::from_millis(150));
+    fetched.await.expect("the fetch goes on after the open");
+}
+
+/// An offline machine's fetch fails before any answer: that failure is the
+/// open's verdict, as soon as it fails. One that fails right after its
+/// first answer, before the open looked, is still the verdict.
+#[tokio::test(start_paused = true)]
+async fn a_fetch_that_fails_before_the_open_looked_is_the_verdict() {
+    let reached = tokio::sync::Notify::new();
+    let fetch = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        Err::<(), _>(anyhow::anyhow!("dns error: no answer"))
+    });
+    let start = tokio::time::Instant::now();
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert_eq!(start.elapsed(), Duration::from_millis(40));
+    assert!(
+        matches!(&verdict, Some(super::KernelUnavailable::FetchFailed(reason))
+            if reason.starts_with(KERNEL_FETCH_FAILED) && reason.contains("dns error: no answer")),
+        "{verdict:?}"
+    );
+
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let fetch = tokio::spawn({
+        let reached = Arc::clone(&reached);
+        async move {
+            reached.notify_one();
+            Err::<(), _>(anyhow::anyhow!("does not match its pinned sha256"))
+        }
+    });
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert!(
+        matches!(&verdict, Some(super::KernelUnavailable::FetchFailed(reason)) if reason.contains("sha256")),
+        "{verdict:?}"
+    );
+}
+
+/// A fetch that neither fails nor gets an answer of its own (uv installing
+/// the Python) holds the open for [`super::OPEN_FETCH_WAIT`] at most.
+#[tokio::test(start_paused = true)]
+async fn a_silent_fetch_holds_the_open_for_the_wait_at_most() {
+    let reached = tokio::sync::Notify::new();
+    let fetch = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        anyhow::Ok(())
+    });
+    let start = tokio::time::Instant::now();
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert_eq!(verdict, None);
+    assert_eq!(start.elapsed(), super::OPEN_FETCH_WAIT);
 }

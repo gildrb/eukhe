@@ -458,7 +458,7 @@ pub fn preview_python_code(code: &str) -> CodePreview {
     CodePreview::python(String::new())
 }
 
-/// Preview an ipython cell: %%bash cells preview as bash, the rest as python.
+/// Preview an python cell: %%bash cells preview as bash, the rest as python.
 #[must_use]
 pub fn preview_ipython_code(code: &str) -> CodePreview {
     let trimmed = js_trim_end(code);

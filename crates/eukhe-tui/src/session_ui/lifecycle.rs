@@ -6,9 +6,9 @@ use super::{
     attach_data_from_response, create_session, mpsc, reconstruct, resume_hint_from_stats,
     ActivityUpdates, AgentView, BTreeMap, ChatEntry, CompactionAbortNote, Context, DaemonClient,
     DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions, LoaderTokenTracker,
-    Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote, ReattachOutcome,
-    RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi, Value,
-    EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
+    LoopView, Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote,
+    ReattachOutcome, RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi,
+    Value, EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::activity::TurnPhase;
 
@@ -77,6 +77,7 @@ impl SessionUi {
             script_path: options.script_path.clone(),
             model_selection: options.model_selection.clone(),
             models: options.models.clone(),
+            launch_budget: options.budget,
             model_catalog: options.model_catalog.clone(),
             model_configured_providers: options.model_configured_providers.clone(),
             model_recent_models: options.model_recent_models.clone(),
@@ -110,11 +111,13 @@ impl SessionUi {
             pending_queue: None,
             queue_selection: crate::queued::QueueSelection::default(),
             context: None,
+            budget: None,
             list_rows: Vec::new(),
             turn_active: false,
             turn_ends_seen: 0,
             last_prompt_turn_end: 0,
             streaming_index: None,
+            adopted_index: None,
             working_tokens: LoaderTokenTracker::default(),
             turn_error_shown: false,
             run_open: false,
@@ -161,6 +164,7 @@ impl SessionUi {
             dictation_takes: 0,
             dictation_updates: activity_updates.dictation,
             memory: None,
+            verification: None,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,
@@ -187,6 +191,7 @@ impl SessionUi {
             ctrl_c_hint_until: None,
             goal_view: GoalView::new(),
             unknown_effects: Vec::new(),
+            loop_view: LoopView::default(),
             notes,
             compaction_abort_notes,
             prompt_orders: orders_tx,
@@ -219,6 +224,26 @@ impl SessionUi {
             .attach_session(&active_session_id, DockFold::FirstFrame)
             .await
             .with_context(|| format!("attaching session {active_session_id}"))?;
+        // `--budget-*` on an attach: no create carries the limits, so a
+        // session without a budget gets them here (its `budget_update`
+        // moves the status line); one that has a budget keeps its own,
+        // as a reopened session does.
+        if let (SessionSelection::Attach(_), Some(limits), None) =
+            (&options.session, options.budget, &session.budget)
+        {
+            session
+                .bounded_request(
+                    Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                    DaemonCommand::SetBudget {
+                        id: None,
+                        active_session_id: session.active_session_id.clone(),
+                        limits,
+                        rest: Map::default(),
+                    },
+                )
+                .await
+                .context("setting the session's budget")?;
+        }
         // The scope-back reopen's restore lands AFTER the attach: the
         // attach's rebind reset clears the focus, so the reopen's own
         // restore must survive it.
@@ -457,7 +482,7 @@ impl SessionUi {
         self.user_bash_running = resync_bash.snap_running;
         self.resync_bash = Some(resync_bash);
         // The session's kernel cannot start (the state's
-        // `kernelUnavailable` text: no `ipython` tool, and the fix): this
+        // `kernelUnavailable` text: no `python` tool, and the fix): this
         // view says so once per install state, as a notification, never
         // into the session; the next rebuild shows it the same way, as a
         // warning row of this view.
@@ -614,6 +639,7 @@ impl SessionUi {
         // or compaction settles): the rebuild re-syncs it into the chrome
         // exactly like the other reconstructed session fields.
         self.context = reconstructed.context_usage;
+        self.budget = reconstructed.budget;
         self.last_assistant_text = reconstructed
             .chat
             .iter()
@@ -632,7 +658,14 @@ impl SessionUi {
         self.pending_open_message = reconstructed.open_message;
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
         self.unknown_effects = reconstructed.unknown_effects;
+        self.loop_view
+            .seed(reconstructed.loop_status.unwrap_or_default());
+        self.verification = reconstructed
+            .acceptance
+            .as_ref()
+            .and_then(crate::status_line::Verification::of);
         self.streaming_index = None;
+        self.adopted_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
         // mounted session, and an end owed by the detached session's stream
@@ -818,6 +851,7 @@ impl SessionUi {
                 .pending_open_message
                 .take()
                 .filter(|index| view.resume_streaming_entry(*index));
+            self.adopted_index = self.streaming_index;
         }
         // The latest prompt's end rows that only this view holds follow
         // the stored transcript: a same-session rebuild never wipes how
@@ -861,7 +895,9 @@ impl SessionUi {
         view.queue_selected = None;
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
+        view.chrome.budget.clone_from(&self.budget);
         view.chrome.memory = self.memory;
+        view.chrome.verification = self.verification;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;
         // the goal state itself carries over (seeded at attach).

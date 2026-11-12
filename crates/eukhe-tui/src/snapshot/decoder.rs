@@ -3,6 +3,7 @@
 //! update), the loader-note partial decode, and the message helpers (moved
 //! with their concern).
 use super::{assistant_value_to_entries, ChatEntry};
+use eukhe_types::acceptance::AcceptanceState;
 use eukhe_types::ai::{AssistantMessage, ServiceTier, StopReason, UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::daemon::{
@@ -11,6 +12,7 @@ use eukhe_types::daemon::{
 };
 use eukhe_types::effects::UnknownEffect;
 use eukhe_types::goal::GoalState;
+use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 
 /// One session event decoded for the transcript.
@@ -121,6 +123,17 @@ pub enum TurnUpdate {
     /// outcome a restart could not tell changed (the whole ledger, oldest
     /// first; the session view owns the notices and `/effects`).
     UnknownEffectsUpdate(Vec<UnknownEffect>),
+    /// `loop_update`: the session's `/loop` changed (the session view
+    /// owns the status line label).
+    LoopUpdate(LoopStatus),
+    /// `budget_update`: the session's budget changed (a reservation, a
+    /// settlement, added budget, a phase change); `None` is no budget.
+    /// Moves the status line's budget segment only.
+    BudgetUpdate(Option<Box<eukhe_types::budget::BudgetReport>>),
+    /// `acceptance_update`: the acceptance of the session's task changed
+    /// (its checks, a verdict, a claim, the label); the status line's
+    /// verification segment shows it.
+    AcceptanceUpdate(AcceptanceState),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -358,6 +371,10 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::UnknownEffectsUpdate { effects } => {
             TurnUpdate::UnknownEffectsUpdate(effects.clone())
         }
+        SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
+        SessionEvent::BudgetUpdate { budget } => {
+            TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
+        }
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,
@@ -388,9 +405,12 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             error_message: error_message.clone(),
             run: run.clone(),
         },
+        SessionEvent::AcceptanceUpdate { acceptance } => {
+            TurnUpdate::AcceptanceUpdate(acceptance.clone())
+        }
         SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
-        | SessionEvent::IpythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
+        | SessionEvent::PythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
     }
 }
 

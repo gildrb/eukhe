@@ -8,13 +8,6 @@ import ../../laws/run/model.bend as Run
 # A stuck reply always gets help
 # ------------------------------
 
-def help_long(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.long(u, n, same, last, r))) == True{} : Bool}:
-  match u:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
 def help_leak(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.leak(u, n, same, last, r))) == True{} : Bool}:
   match u:
     case True{}:
@@ -55,8 +48,6 @@ def help_think(s: Bool, u: Bool, l: Bool, -n: Nat, -same: Nat, -last: Nat, -r: R
 
 def help_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.go(rc, o, k, row, same, last)))) == True{} : Bool}:
   match o:
-    case RnRecovery.Long{}:
-      help_long(RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last})
     case RnRecovery.Leak{rebuilt, +h, kept}:
       match rebuilt:
         case True{}:

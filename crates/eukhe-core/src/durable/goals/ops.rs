@@ -6,6 +6,11 @@
 //! a request id (a rerun never queues it twice), and its `goal_context` row
 //! is a display/audit [`CUSTOM_ENTRY`] without model (the user entry the
 //! submission or the `on_yield` continuation appends carries the text).
+//!
+//! A goal's token budget is its own (soft: the response that reaches it
+//! limits the goal); the tokens a context shows are the goal's.
+
+use std::sync::Arc;
 
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
@@ -15,16 +20,19 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, DocumentReader, EntryDraft, TypedEntryDraft};
+use eukhe_types::budget::BudgetReport;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 
 use super::docs::{open_doc, read_doc, write_doc, GOAL_DOC};
 use super::state::{completed, mint, new_goal, paused, resumed, served, stamp};
-use crate::autonomous::now_millis;
+use crate::autonomous::{now_millis, SessionBudget};
+use crate::durable::budget::BudgetGate;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::goals::{
     create_goal_context_message, is_persisted_goal_state, normalize_goal_state,
-    stale_active_goal_failure, GoalContextKind, GoalState, GoalStatus, GOAL_STATE_CUSTOM_TYPE,
+    stale_active_goal_failure, validate_goal_budget, validate_goal_objective, GoalContextKind,
+    GoalState, GoalStatus, GoalTokens, GOAL_STATE_CUSTOM_TYPE,
 };
 
 /// The served goal of `conversation_id` (the empty state when none): its
@@ -44,16 +52,31 @@ pub async fn goal_state(
     Ok(served(&stored, now_millis()))
 }
 
-/// The text of a goal context of `kind` and its display/audit row.
+/// The session budget's report (`None`: no budget), read on a blocking
+/// thread.
+///
+/// # Errors
+///
+/// The read did not finish (the runtime is shutting down).
+pub async fn budget_report(budget: &Arc<BudgetGate>) -> SessionResult<Option<BudgetReport>> {
+    let gate = Arc::clone(budget);
+    tokio::task::spawn_blocking(move || gate.report())
+        .await
+        .map_err(SessionError::other)
+}
+
+/// The text of a goal context of `kind` (showing the goal's tokens) and
+/// its display/audit row.
 ///
 /// # Errors
 ///
 /// The goal has no objective, or the details do not encode.
 pub(crate) fn goal_context(
     state: &GoalState,
+    tokens: GoalTokens,
     kind: GoalContextKind,
 ) -> SessionResult<(String, EntryDraft)> {
-    let message = create_goal_context_message(state, kind)
+    let message = create_goal_context_message(state, tokens, kind)
         .map_err(|error| SessionError::error(format!("{error:#}")))?;
     let text = message.content.text();
     let draft = CUSTOM_ENTRY.draft(&TypedEntryDraft {
@@ -90,10 +113,14 @@ pub(crate) async fn conversation_of(
         })
 }
 
+/// A goal context a change appends: its kind (its text shows the written
+/// goal's tokens).
+pub(crate) type ContextOf = GoalContextKind;
+
 /// Apply `change` to the goal in one commit: `change` maps the current goal
-/// to the next one (`None` writes nothing) and an optional context kind
-/// whose row is appended. Returns the written (or unchanged) goal and the
-/// context text.
+/// to the next one (`None` writes nothing) and an optional context whose
+/// row is appended. Returns the written (or unchanged) goal and the context
+/// text.
 ///
 /// # Errors
 ///
@@ -104,7 +131,7 @@ pub(crate) async fn update_goal<F>(
     cx: &Context,
 ) -> SessionResult<(GoalState, Option<String>)>
 where
-    F: FnOnce(&GoalState, u64) -> SessionResult<Option<(GoalState, Option<GoalContextKind>)>>
+    F: FnOnce(&GoalState, u64) -> SessionResult<Option<(GoalState, Option<ContextOf>)>>
         + Send
         + 'static,
 {
@@ -121,7 +148,8 @@ where
                 write_doc(&draft, &written)?;
                 let mut text = None;
                 if let Some(kind) = context {
-                    let (context_text, row) = goal_context(&written, kind)?;
+                    let (context_text, row) =
+                        goal_context(&written, GoalTokens::of(&written), kind)?;
                     tx.append_entry(conversation_id, row).await?;
                     text = Some(context_text);
                 }
@@ -211,8 +239,9 @@ pub async fn withdraw_queued_goal_contexts(
     Ok(())
 }
 
-/// `/goal <objective>`: start a goal (replacing any previous one) and submit
-/// its first continuation context as a follow-up.
+/// `/goal [--budget <tokens>] <objective>`: start a goal (replacing any
+/// previous one) with its own token budget and submit its first
+/// continuation context as a follow-up.
 ///
 /// # Errors
 ///
@@ -224,6 +253,9 @@ pub async fn start_goal(
     token_budget: Option<u64>,
     cx: &Context,
 ) -> SessionResult<GoalState> {
+    let invalid = |error: anyhow::Error| SessionError::error(format!("{error:#}"));
+    validate_goal_objective(objective).map_err(invalid)?;
+    let token_budget = validate_goal_budget(token_budget).map_err(invalid)?;
     let conversation = conversation_of(harness, conversation_id, cx).await?;
     withdraw_queued_goal_contexts(harness, conversation_id, cx).await?;
     let objective = objective.to_owned();
@@ -273,21 +305,25 @@ pub async fn pause_goal(
 }
 
 /// `/goal resume`: resume a paused or budget-limited goal; an active result
-/// submits its continuation context as a follow-up.
+/// submits its continuation context as a follow-up. A goal stays budget
+/// limited when its own token budget is reached or while the session's
+/// `budget` admits no work.
 ///
 /// # Errors
 ///
 /// Read, commit, or submission failures.
 pub async fn resume_goal(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     cx: &Context,
 ) -> SessionResult<GoalState> {
     let conversation = conversation_of(harness, conversation_id, cx).await?;
+    let standing = SessionBudget::of(budget_report(budget).await?.as_ref());
     let (goal, text) = update_goal(
         &conversation,
-        |current, _| {
-            Ok(resumed(current).map(|goal| {
+        move |current, _| {
+            Ok(resumed(current, standing).map(|goal| {
                 let context =
                     (goal.status == GoalStatus::Active).then_some(GoalContextKind::Continuation);
                 (goal, context)
@@ -335,7 +371,7 @@ pub async fn continue_goal_after_compaction(
     withdraw_queued_goal_contexts(harness, conversation_id, cx).await?;
     let (goal, text) = update_goal(
         &conversation,
-        |current, _| Ok(mint(current).map(|next| (next, Some(GoalContextKind::Continuation)))),
+        move |current, _| Ok(mint(current).map(|next| (next, Some(GoalContextKind::Continuation)))),
         cx,
     )
     .await?;
@@ -385,8 +421,43 @@ pub async fn clear_goal(
     Ok(cleared.load(std::sync::atomic::Ordering::SeqCst))
 }
 
-/// `goal.complete()` / completion: complete the goal; `None` when there is
-/// no goal.
+/// How the acceptance verifier ends the claim of a goal
+/// (`crate::durable::acceptance`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ClaimEnd {
+    /// Every acceptance check is confirmed on the final state: the goal
+    /// completes with this reason.
+    Complete(String),
+    /// The claim was not verified: an active goal pauses with this reason.
+    Pause(String),
+}
+
+/// End the claim of the goal of `conversation_id` inside `tx`, the
+/// verifier's commit: a verified claim completes the goal, any other end
+/// pauses an active goal. With no goal nothing is written.
+///
+/// # Errors
+///
+/// Transaction failures.
+pub(crate) async fn end_claimed_goal(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    end: &ClaimEnd,
+) -> SessionResult<()> {
+    let now = now_millis();
+    let (draft, current) = open_doc(tx, &GOAL_DOC, conversation_id).await?;
+    let next = match end {
+        ClaimEnd::Complete(reason) => completed(&current, reason),
+        ClaimEnd::Pause(reason) => paused(&current, reason),
+    };
+    if let Some(next) = next {
+        write_doc(&draft, &stamp(next, now))?;
+    }
+    Ok(())
+}
+
+/// The owner's completion of the goal (no claim, no acceptance check):
+/// complete the goal; `None` when there is no goal.
 ///
 /// # Errors
 ///
@@ -397,7 +468,7 @@ pub async fn complete_goal(
 ) -> SessionResult<Option<GoalState>> {
     let (goal, _) = update_goal(
         conversation,
-        |current, _| Ok(completed(current).map(|goal| (goal, None))),
+        |current, _| Ok(completed(current, "Goal achieved").map(|goal| (goal, None))),
         cx,
     )
     .await?;
@@ -405,8 +476,8 @@ pub async fn complete_goal(
 }
 
 /// The CLI `--goal` seed: start the goal only on a conversation that has no
-/// transcript yet and no goal (old `seed_initial_goal`). Returns whether the
-/// seed landed.
+/// transcript yet and no goal (old `seed_initial_goal`). Returns whether
+/// the seed landed.
 ///
 /// # Errors
 ///

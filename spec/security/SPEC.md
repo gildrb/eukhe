@@ -72,7 +72,7 @@ labels on data, and confinement of the programs an agent runs.
 
 |Area|What it decides today|Where|
 |---|---|---|
-|effects and the auto set|A `bash` step or `ipython` cell has a set of effects (read, write, exec, net, outside, protected, secret); it runs unasked only when all are in `shell.autoEffects`. Default: all seven, so by default nothing asks.|`bend/tools.bend` §4, `bend/runners.bend`, `crates/eukhe-types/src/shell.rs`, `crates/eukhe-core/src/settings/cvar/table.rs:1219`|
+|effects and the auto set|A `bash` step or `python` cell has a set of effects (read, write, exec, net, outside, protected, secret); it runs unasked only when all are in `shell.autoEffects`. Default: all seven, so by default nothing asks.|`bend/tools.bend` §4, `bend/runners.bend`, `crates/eukhe-types/src/shell.rs`, `crates/eukhe-core/src/settings/cvar/table.rs:1219`|
 |path policy|A path is judged at its real location: Secret, Protected, Inside, Outside; a loop is never Inside; writes with no yes leave every secret as it was. Shell and document tools share it.|`bend/path_policy.bend`, `laws/path_policy/` (64 laws), `crates/eukhe-types/src/path_policy.rs`, `crates/eukhe-core/src/durable/path_policy.rs`|
 |approval route|A question goes up the chain of sessions to the first client that answers; above the root it is unanswered, a denial. The phone gateway shows no question: its rule answers at once (a protected write is refused, every other step runs).|`bend/approvals.bend`, `laws/approvals/` (33)|
 |runners|Every tool that runs code goes through the gate (`gate_covers_every_runner`); main's roster is read-only tools plus worker tools.|`bend/runners.bend`, `laws/runners.bend`|

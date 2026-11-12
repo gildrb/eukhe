@@ -1,5 +1,5 @@
 # harness (spec): a stored tool call lifted to the current dialect of its
-# family (area call_lift), as omp² states it ("version everything the
+# family (area call_lift), as the harness design states it ("version everything the
 # model sees": every call is stamped `family@rev`; old calls lift into the
 # current dialect so histories stay coherent across model switches;
 # replay at the same rev is byte-stable), restated without the code of

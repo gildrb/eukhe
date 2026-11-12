@@ -235,6 +235,7 @@ fn spawn_request(name: &str, prompt: &str) -> RlmChildSpawnRequest {
         parent_task_id: "1".to_string(),
         workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
         worker: false,
+        acceptance: None,
     }
 }
 

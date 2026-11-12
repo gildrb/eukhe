@@ -1096,6 +1096,17 @@ impl SessionUi {
             TurnUpdate::UnknownEffectsUpdate(effects) => {
                 self.apply_unknown_effects(effects, view);
             }
+            TurnUpdate::LoopUpdate(status) => {
+                self.apply_loop_update(status, view);
+            }
+            TurnUpdate::BudgetUpdate(budget) => {
+                self.budget = budget.map(|report| *report);
+                view.chrome.budget.clone_from(&self.budget);
+            }
+            TurnUpdate::AcceptanceUpdate(acceptance) => {
+                self.verification = crate::status_line::Verification::of(&acceptance);
+                view.chrome.verification = self.verification;
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }
@@ -1204,6 +1215,7 @@ impl SessionUi {
     /// snapshot adopted a reply that had already finished): it stops
     /// streaming, so it settles.
     fn end_open_message(&mut self, view: &mut AgentView) {
+        self.adopted_index = None;
         if let Some(index) = self.streaming_index.take() {
             view.end_streaming_entry(index);
         }
@@ -1258,9 +1270,25 @@ impl SessionUi {
             self.last_assistant_text = Some(text);
         }
         let has_tool_calls = !tool_calls.is_empty();
-        // A message_start always opens a new streaming message (the engine
-        // emits one per provider call); later frames update it in place.
-        if starts_message {
+        // A message_start opens a new streaming message (the engine emits
+        // one per provider call); later frames update it in place. An
+        // entry still streaming at that start never got its message_end:
+        // the starting message takes its place, so the chat never keeps
+        // the rows of a message that did not end beside the next one. The
+        // reply an attach adopted settles where it is instead: it may have
+        // finished before the attach cursor.
+        let adopted = starts_message
+            && self
+                .adopted_index
+                .take()
+                .is_some_and(|index| self.streaming_index == Some(index));
+        if starts_message
+            && (adopted
+                || !matches!(
+                    self.streaming_index.and_then(|index| view.chat.get(index)),
+                    Some(ChatEntry::Assistant(open)) if open.streaming
+                ))
+        {
             self.end_open_message(view);
         }
         match self.streaming_index {

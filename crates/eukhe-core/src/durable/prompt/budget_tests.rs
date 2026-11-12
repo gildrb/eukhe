@@ -66,7 +66,7 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
 
 /// A session whose kernel cannot start (its Python is not fetched and the
 /// machine is offline) sends no larger a
-/// prompt than one whose kernel can: it drops the `ipython` schema and the
+/// prompt than one whose kernel can: it drops the `python` schema and the
 /// kernel's package list, and says it has no Python REPL.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unavailable_kernel_does_not_grow_the_prompt() {
@@ -183,7 +183,7 @@ async fn default_root_request(kernel: Kernel) -> (usize, String) {
         .take()
         .expect("the request was captured");
     assert_eq!(
-        tools.iter().any(|tool| tool.name == "ipython"),
+        tools.iter().any(|tool| tool.name == "python"),
         kernel == Kernel::Available
     );
     // Each tool's schema as the transcript declares it to the provider:

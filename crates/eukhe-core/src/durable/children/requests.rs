@@ -6,7 +6,7 @@
 //! (`rlm.rename` lives in [`super::rename`]).
 
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
@@ -22,12 +22,17 @@ use eukhe_durable::types::{
     ConversationId, DocumentObserverExt, TaskId, TaskOptions, TaskOutcome, TaskOwnership,
     TaskState, TaskStatus, ROOT_CONVERSATION_ID,
 };
+use eukhe_types::acceptance::{AcceptanceSeed, CheckSpec};
+use eukhe_types::budget::BudgetLimits;
 use futures::FutureExt;
 use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
 
+use super::budget::{allot, give_back, named_budget, Allotment};
 use super::depth::read_max_depth_override;
-use super::host::{ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmSubagentHost};
+use super::host::{
+    ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmChildVerdict, RlmSubagentHost,
+};
 use super::notice::{rlm_child_label, DELETED_BY_PARENT};
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
 use super::registry::{
@@ -246,6 +251,13 @@ pub(super) struct SpawnKwargs {
     /// The workflow phase the child serves.
     pub(super) phase: Option<String>,
     pub(super) report: ReportMode,
+    /// The budget the spawn names for the child (`budget`), carved out of
+    /// the parent's account; `None`: the child draws from the parent's
+    /// account as a shared member (it joins at its open).
+    pub(super) budget: Option<BudgetLimits>,
+    /// The checks the child's task starts with, this parent their owner
+    /// (`accept`, `accept_intent`, `accept_returns`); `None`: no checks.
+    pub(super) accept: Option<AcceptanceSeed>,
 }
 
 /// Unsupported keys are rejected with the sorted key list; name, model, and
@@ -265,6 +277,10 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
             "label",
             "phase",
             "report",
+            "budget",
+            "accept",
+            "accept_intent",
+            "accept_returns",
         ],
     )?;
     let why = optional_string_kwarg(&kwargs, "why", OPERATION)?.map(str::to_owned);
@@ -297,6 +313,8 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         Some("silent") => ReportMode::Silent,
         Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
     };
+    let budget = named_budget(&kwargs, OPERATION)?;
+    let accept = spawn_acceptance(&kwargs, OPERATION)?;
     Ok(SpawnKwargs {
         why,
         name,
@@ -306,7 +324,119 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         label,
         phase,
         report,
+        budget,
+        accept,
     })
+}
+
+/// The keys a check of `kind` takes (the `CheckSpec` wire shape); `None`
+/// for a kind that is no check.
+fn check_keys(kind: &str) -> Option<&'static [&'static str]> {
+    let keys: &'static [&'static str] = match kind {
+        "command" => &["kind", "command", "expect", "timeoutMs", "protect"],
+        "judge" => &["kind", "condition", "evidence", "model"],
+        "until" => &["kind", "command", "timeoutMs"],
+        "intent" => &["kind", "model"],
+        _ => return None,
+    };
+    Some(keys)
+}
+
+/// One check of `accept`: a `CheckSpec` object. A kernel's `snake_case`
+/// `timeout_ms` reads as the wire's `timeoutMs`; an unknown key, an
+/// unknown kind, or a check with no command or condition is refused.
+fn spawn_check(index: usize, item: &Value, operation: &str) -> anyhow::Result<CheckSpec> {
+    let what = format!("{operation} accept[{index}]");
+    let Value::Object(fields) = item else {
+        bail!("{what} must be a check object, e.g. {{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}");
+    };
+    let fields: Map<String, Value> = fields
+        .iter()
+        .map(|(key, value)| {
+            let key = if key == "timeout_ms" {
+                "timeoutMs"
+            } else {
+                key.as_str()
+            };
+            (key.to_owned(), value.clone())
+        })
+        .collect();
+    let kind = fields
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let Some(keys) = check_keys(&kind) else {
+        bail!("{what} kind must be \"command\", \"judge\", \"until\" or \"intent\"");
+    };
+    if let Some(key) = fields.keys().find(|key| !keys.contains(&key.as_str())) {
+        bail!(
+            "{what} has the unknown key {key:?}; a {kind} check takes {}",
+            keys.join(", ")
+        );
+    }
+    let check: CheckSpec = serde_json::from_value(Value::Object(fields))
+        .map_err(|error| anyhow!("{what} is not a {kind} check: {error}"))?;
+    let blank = match &check {
+        CheckSpec::Command { command, .. } | CheckSpec::Until { command, .. } => {
+            command.trim().is_empty().then_some("a command")
+        }
+        CheckSpec::Judge { condition, .. } => condition.trim().is_empty().then_some("a condition"),
+        CheckSpec::Intent { .. } => None,
+    };
+    if let Some(missing) = blank {
+        bail!("{what} needs {missing}");
+    }
+    Ok(check)
+}
+
+/// The checks `accept` (a list of `CheckSpec` objects), `accept_intent`
+/// (whether the intent check joins them; default true) and
+/// `accept_returns` (the most returns in a row to the child's worker)
+/// give the child's task; `None` without `accept`.
+fn spawn_acceptance(
+    kwargs: &Map<String, Value>,
+    operation: &str,
+) -> anyhow::Result<Option<AcceptanceSeed>> {
+    let given = |key: &str| kwargs.get(key).filter(|value| !value.is_null());
+    let Some(accept) = given("accept") else {
+        if let Some(key) = ["accept_intent", "accept_returns"]
+            .into_iter()
+            .find(|key| given(key).is_some())
+        {
+            bail!("{operation} {key} needs accept (the child's acceptance checks)");
+        }
+        return Ok(None);
+    };
+    let Value::Array(items) = accept else {
+        bail!("{operation} accept must be a list of checks, e.g. [{{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}]");
+    };
+    let checks = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| spawn_check(index, item, operation))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let intent = match given("accept_intent") {
+        None => true,
+        Some(Value::Bool(intent)) => *intent,
+        Some(_) => bail!("{operation} accept_intent must be a bool"),
+    };
+    let max_returns =
+        match given("accept_returns") {
+            None => None,
+            Some(value) => Some(value.as_u64().ok_or_else(|| {
+                anyhow!("{operation} accept_returns must be a non-negative integer")
+            })?),
+        };
+    let seed = AcceptanceSeed {
+        checks,
+        max_returns,
+        intent,
+    };
+    if seed.specs().is_empty() {
+        bail!("{operation} accept names no check: give a check, or leave accept_intent true");
+    }
+    Ok(Some(seed))
 }
 
 /// The spawn-name-unavailability error (TS
@@ -372,11 +502,13 @@ async fn run_batch(children: Arc<Children>, call: HostCall) -> anyhow::Result<Va
     Ok(json!({ "handles": handles }))
 }
 
-/// One admitted spawn: its name, label, phase, and task input.
+/// One admitted spawn: its name, label, phase, named budget, and task
+/// input.
 type Admitted = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<BudgetLimits>,
     ChildTaskInput,
 );
 
@@ -389,9 +521,13 @@ type Admitted = (
 /// this session's not-yet-visible children) against
 /// `subagentMaxConcurrency`. The name checks, that decision, and the rows
 /// land atomically, so parallel same-name spawns cannot both admit and a
-/// batch is all-or-nothing. `forward_cursor` (main's `worker_assign`): the
-/// user messages the task carries are handed over in the same commit
-/// ([`super::worker`]).
+/// batch is all-or-nothing. A child whose spawn names a budget is carved
+/// that allotment out of the session's account in the same commit, all of
+/// the batch or none ([`super::budget`]): a batch that does not fit is
+/// refused, and no such child starts without its allotment. A child that
+/// names none carves nothing. `forward_cursor` (main's
+/// `worker_assign`): the user messages the task carries are handed over
+/// in the same commit ([`super::worker`]).
 pub(super) async fn admit_spawns(
     children: &Arc<Children>,
     call: &HostCall,
@@ -451,6 +587,7 @@ pub(super) async fn admit_spawns(
                 spec.kwargs.name,
                 spec.kwargs.label,
                 spec.kwargs.phase,
+                spec.kwargs.budget,
                 ChildTaskInput {
                     prompt: spec.prompt,
                     model: spec.kwargs.model,
@@ -465,6 +602,7 @@ pub(super) async fn admit_spawns(
                     details: spec.details,
                     user_entries: spec.user_entries,
                     worker: spec.worker,
+                    accept: spec.kwargs.accept,
                 },
             )
         })
@@ -472,7 +610,12 @@ pub(super) async fn admit_spawns(
     let task = children.task.as_definition_ref();
     let parent_session_id = children.services.parent_session_id.clone();
     let started_at = now_ms();
-    let task_ids = api
+    let gate = Arc::clone(&children.services.budget);
+    // What the commit carved out of this session's budget: it returns
+    // when the commit does not land.
+    let carved = Arc::new(Mutex::new(Vec::new()));
+    let taken = Arc::clone(&carved);
+    let committed = api
         .commit(
             move |tx| async move {
                 let state = tx_children(&tx, conversation_id).await?;
@@ -508,7 +651,8 @@ pub(super) async fn admit_spawns(
                     batch_names.push(name);
                 }
                 let mut task_ids = Vec::with_capacity(admitted.len());
-                for (name, label, phase, input) in admitted {
+                let mut allotments = Vec::with_capacity(admitted.len());
+                for (name, label, phase, budget, input) in admitted {
                     let task_id = tx
                         .create_task(
                             task.clone(),
@@ -555,19 +699,53 @@ pub(super) async fn admit_spawns(
                         answer: None,
                         task: None,
                         worker: input.worker,
+                        acceptance: input
+                            .accept
+                            .as_ref()
+                            .map(|seed| RlmChildVerdict::pending(seed.specs().len())),
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
+                    if let Some(limits) = budget {
+                        allotments.push(Allotment {
+                            session_id: row.session_id,
+                            limits,
+                        });
+                    }
                     task_ids.push(task_id);
                 }
                 if let Some(cursor) = forward_cursor {
                     super::worker::tx_hand_over(&tx, conversation_id, cursor).await?;
                 }
+                // Each named allotment leaves the account here, all of the
+                // batch or none, before the commit that starts the
+                // children: a refusal admits nothing, and no such child
+                // starts without its allotment on disk.
+                let allotted = allot(&gate, allotments).await?;
+                *taken.lock().unwrap_or_else(PoisonError::into_inner) = allotted;
                 Ok(task_ids)
             },
             &cx(),
         )
-        .await
-        .map_err(|error| anyhow!("{error}"))?;
+        .await;
+    let task_ids = match committed {
+        Ok(task_ids) => task_ids,
+        Err(error) => {
+            // No child was admitted: what the commit carved returns now
+            // (after a failure here, at this session's next open).
+            let carved =
+                std::mem::take(&mut *carved.lock().unwrap_or_else(PoisonError::into_inner));
+            for child in carved {
+                if let Err(failure) = give_back(&children.services.budget, &child).await {
+                    tracing::warn!(
+                        %child,
+                        error = %failure,
+                        "returning the allotment of a spawn that was not admitted"
+                    );
+                }
+            }
+            return Err(anyhow!("{error}"));
+        }
+    };
     // Every task is admitted; a child whose create fails reports its own
     // error (the batch's other children stay admitted and listed).
     let mut handles = Vec::with_capacity(task_ids.len());
@@ -843,6 +1021,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
             tool_use_count: None,
             replied_since_task: None,
             handback: row.handback.as_ref().map(HandbackOutcome::text),
+            acceptance: row.acceptance.as_ref().map(RlmChildVerdict::summary),
         };
     }
     RlmChildResult {
@@ -857,6 +1036,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
         tool_use_count: None,
         replied_since_task: None,
         handback: row.handback.as_ref().map(HandbackOutcome::text),
+        acceptance: row.acceptance.as_ref().map(RlmChildVerdict::summary),
     }
 }
 
@@ -1113,7 +1293,7 @@ async fn stopped(stop: Option<&AbortSignal>) {
 }
 
 /// Whether the stop of the cell `call` runs is an abort of its turn: the
-/// `ipython` call carries an abort request's mark (a closing session signals
+/// `python` call carries an abort request's mark (a closing session signals
 /// the call without marking it, and a restart's mark is no abort request).
 async fn turn_aborted(harness: &Harness, call: &HostCall) -> anyhow::Result<bool> {
     let Some(api) = &call.call else {

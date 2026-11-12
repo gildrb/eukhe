@@ -3,17 +3,51 @@
 # the laws' entry on every input (sex.exact)
 
 import Base
-import ../../../bend/stop.bend as S
 import ../../../bend/ffi_stop.bend as FS
 import ../../../bend/wire.bend as Wr
 import ../../../laws/stop.bend as Stop
 import ../../../laws/stop/entry.bend as StopEntry
 import ../base.bend as LAStop
 
+def sex.cuttable(+c: Bool, +t: Bool, +b: Bool, +p: Bool, +w: Nat, +ca: Nat, +pr: Nat, +o: Nat, d: Wr.Dec<Bool>) -> {FS.get_walk.cuttable(c, t, b, p, w, ca, pr, o, d) == StopEntry.st.r_walk.cuttable(c, t, b, p, w, ca, pr, o, d) : Wr.Dec<FS.Ask>}:
+  match d:
+    case Wr.Got{cu, r}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def sex.out(+c: Bool, +t: Bool, +b: Bool, +p: Bool, +w: Nat, +ca: Nat, +pr: Nat, d: Wr.Dec<Nat>) -> {FS.get_walk.out(c, t, b, p, w, ca, pr, d) == StopEntry.st.r_walk.out(c, t, b, p, w, ca, pr, d) : Wr.Dec<FS.Ask>}:
+  match d:
+    case Wr.Got{o, r}:
+      sex.cuttable(c, t, b, p, w, ca, pr, o, Wr.get_bool(r))
+    case Wr.Bad{}:
+      {==}
+
+def sex.prompt(+c: Bool, +t: Bool, +b: Bool, +p: Bool, +w: Nat, +ca: Nat, d: Wr.Dec<Nat>) -> {FS.get_walk.prompt(c, t, b, p, w, ca, d) == StopEntry.st.r_walk.prompt(c, t, b, p, w, ca, d) : Wr.Dec<FS.Ask>}:
+  match d:
+    case Wr.Got{pr, r}:
+      sex.out(c, t, b, p, w, ca, pr, Wr.get_nat(r))
+    case Wr.Bad{}:
+      {==}
+
+def sex.catalog(+c: Bool, +t: Bool, +b: Bool, +p: Bool, +w: Nat, d: Wr.Dec<Nat>) -> {FS.get_walk.catalog(c, t, b, p, w, d) == StopEntry.st.r_walk.catalog(c, t, b, p, w, d) : Wr.Dec<FS.Ask>}:
+  match d:
+    case Wr.Got{ca, r}:
+      sex.prompt(c, t, b, p, w, ca, Wr.get_nat(r))
+    case Wr.Bad{}:
+      {==}
+
+def sex.window(+c: Bool, +t: Bool, +b: Bool, +p: Bool, d: Wr.Dec<Nat>) -> {FS.get_walk.window(c, t, b, p, d) == StopEntry.st.r_walk.window(c, t, b, p, d) : Wr.Dec<FS.Ask>}:
+  match d:
+    case Wr.Got{w, r}:
+      sex.catalog(c, t, b, p, w, Wr.get_nat(r))
+    case Wr.Bad{}:
+      {==}
+
 def sex.pending(+c: Bool, +t: Bool, +b: Bool, d: Wr.Dec<Bool>) -> {FS.get_walk.pending(c, t, b, d) == StopEntry.st.r_walk.pending(c, t, b, d) : Wr.Dec<FS.Ask>}:
   match d:
     case Wr.Got{p, r}:
-      {==}
+      sex.window(c, t, b, p, Wr.get_nat(r))
     case Wr.Bad{}:
       {==}
 
@@ -38,34 +72,6 @@ def sex.walk(d: Wr.Dec<Bool>) -> {FS.get_walk(d) == StopEntry.st.r_walk.cut(d) :
     case Wr.Bad{}:
       {==}
 
-def sex.cap(+a: Nat, +t: Nat, +w: Nat, d: Wr.Dec<Nat>) -> {FS.get_cut.cap(a, t, w, d) == StopEntry.st.r_note.cap(a, t, w, d) : Wr.Dec<FS.Ask>}:
-  match d:
-    case Wr.Got{k, r}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def sex.row(+a: Nat, +t: Nat, d: Wr.Dec<Nat>) -> {FS.get_cut.row(a, t, d) == StopEntry.st.r_note.row(a, t, d) : Wr.Dec<FS.Ask>}:
-  match d:
-    case Wr.Got{w, r}:
-      sex.cap(a, t, w, Wr.get_nat(r))
-    case Wr.Bad{}:
-      {==}
-
-def sex.tokens(+a: Nat, d: Wr.Dec<Nat>) -> {FS.get_cut(a, d) == StopEntry.st.r_note.tokens(a, d) : Wr.Dec<FS.Ask>}:
-  match d:
-    case Wr.Got{t, r}:
-      sex.row(a, t, Wr.get_nat(r))
-    case Wr.Bad{}:
-      {==}
-
-def sex.note(d: Wr.Dec<Nat>) -> {FS.get_note(d) == StopEntry.st.r_note.attempt(d) : Wr.Dec<FS.Ask>}:
-  match d:
-    case Wr.Got{a, r}:
-      sex.tokens(a, Wr.get_nat(r))
-    case Wr.Bad{}:
-      {==}
-
 def sex.done(+m: Nat, d: Wr.Dec<Nat>) -> {FS.get_rounds.done(m, d) == StopEntry.st.r_rounds.done(m, d) : Wr.Dec<FS.Ask>}:
   match d:
     case Wr.Got{n, r}:
@@ -87,10 +93,8 @@ def sex.tag(d: Wr.Dec<Nat>) -> {FS.get_ask.tag(d) == StopEntry.st.r_ask.tag(d) :
         case 0n:
           sex.walk(Wr.get_bool(r))
         case 1n:
-          sex.note(Wr.get_nat(r))
-        case 2n:
           sex.rounds(Wr.get_nat(r))
-        case 3n+k:
+        case 2n+k:
           {==}
     case Wr.Bad{}:
       {==}

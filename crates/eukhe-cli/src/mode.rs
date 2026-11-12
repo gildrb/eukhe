@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use eukhe_core::durable::SessionHost;
 use eukhe_core::resources::SystemPromptInput;
+use eukhe_types::acceptance::{AcceptanceSeed, CheckSpec};
 
 use crate::args::{Args, AutonomousConfig, Mode};
 
@@ -71,7 +72,35 @@ impl AppMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitialGoal {
     pub objective: String,
+    /// `--goal-token-budget`: the goal's own token budget.
     pub token_budget: Option<u32>,
+}
+
+/// The acceptance checks the `--accept-*` flags ask for: each command
+/// must exit 0, each condition goes to the judge with the output of the
+/// `--accept-evidence` commands, and the intent judge joins them unless
+/// `--accept-no-intent`; `None` without a check and `--accept-intent`.
+fn acceptance_seed(parsed: &Args) -> Option<AcceptanceSeed> {
+    let commands = parsed.accept_cmds.iter().map(|command| CheckSpec::Command {
+        command: command.clone(),
+        expect: 0,
+        timeout_ms: None,
+        protect: Vec::new(),
+    });
+    let conditions = parsed
+        .accept_judges
+        .iter()
+        .map(|condition| CheckSpec::Judge {
+            condition: condition.clone(),
+            evidence: parsed.accept_evidence.clone(),
+            model: None,
+        });
+    let checks: Vec<CheckSpec> = commands.chain(conditions).collect();
+    (!checks.is_empty() || parsed.accept_intent).then(|| AcceptanceSeed {
+        checks,
+        max_returns: parsed.accept_returns.map(u64::from),
+        intent: !parsed.accept_no_intent,
+    })
 }
 
 /// The default `--wait-limit-ms`: one hour.
@@ -105,6 +134,12 @@ pub struct RuntimeConfig {
     pub autonomous: Option<AutonomousConfig>,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
+    /// The `--budget-*` limits: the budget of the session this run starts
+    /// (`None`: no flag was given, the session gets no budget).
+    pub budget: Option<eukhe_types::budget::BudgetLimits>,
+    /// The acceptance checks of `--accept-cmd` and `--accept-judge`: the
+    /// run counts as done only when each passes on the final state.
+    pub acceptance: Option<AcceptanceSeed>,
     /// How long print/json mode waits for the session to go quiescent
     /// (background jobs and subagents settled) after a turn ends.
     pub wait_limit: std::time::Duration,
@@ -325,6 +360,8 @@ pub fn runtime_config_from_args(
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
+        budget: (!parsed.budget.is_unlimited()).then_some(parsed.budget),
+        acceptance: acceptance_seed(parsed),
         wait_limit: std::time::Duration::from_millis(
             parsed.wait_limit_ms.unwrap_or(DEFAULT_WAIT_LIMIT_MS),
         ),
@@ -334,6 +371,38 @@ pub fn runtime_config_from_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn seed_of(args: &[&str]) -> Option<AcceptanceSeed> {
+        let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        acceptance_seed(&crate::args::parse_args(&args))
+    }
+
+    /// The intent judge joins the `--accept-*` checks unless
+    /// `--accept-no-intent`; `--accept-intent` alone verifies by intent;
+    /// no flag sets no checks.
+    #[test]
+    fn acceptance_flags_seed_the_checks_with_the_intent_judge() {
+        let command = CheckSpec::Command {
+            command: "true".to_owned(),
+            expect: 0,
+            timeout_ms: None,
+            protect: Vec::new(),
+        };
+        assert_eq!(
+            seed_of(&["-p", "--accept-cmd", "true", "go"]).map(|seed| seed.specs()),
+            Some(vec![command.clone(), CheckSpec::intent()])
+        );
+        assert_eq!(
+            seed_of(&["-p", "--accept-cmd", "true", "--accept-no-intent", "go"])
+                .map(|seed| seed.specs()),
+            Some(vec![command])
+        );
+        assert_eq!(
+            seed_of(&["-p", "--accept-intent", "go"]).map(|seed| seed.specs()),
+            Some(vec![CheckSpec::intent()])
+        );
+        assert_eq!(seed_of(&["-p", "go"]), None);
+    }
 
     /// `--system-prompt-file ./missing.md` is an error, never the path as
     /// prompt text.
@@ -361,6 +430,39 @@ mod tests {
                 "--system-prompt-file ./missing.md: cannot read {}: {io_error}",
                 path.display()
             )
+        );
+    }
+
+    /// The `--budget-*` flags are the run's budget; without one the run
+    /// sets none.
+    #[test]
+    fn budget_flags_become_the_budget_of_the_run() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let budget = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+            runtime_config_from_args(
+                &crate::args::parse_args(&args),
+                cwd.path().to_path_buf(),
+                cwd.path().join("agent"),
+                None,
+                AppMode::Print,
+            )
+            .expect("runtime config")
+            .budget
+        };
+        assert_eq!(
+            [
+                budget(&["--budget-tokens", "200k", "--budget-time", "10m"]),
+                budget(&["-p", "hello"]),
+            ],
+            [
+                Some(eukhe_types::budget::BudgetLimits {
+                    tokens: Some(200_000),
+                    time_ms: Some(600_000),
+                    ..Default::default()
+                }),
+                None,
+            ]
         );
     }
 }

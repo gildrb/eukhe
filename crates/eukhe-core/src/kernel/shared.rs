@@ -334,7 +334,7 @@ impl CellJob {
     }
 }
 
-/// The durable tool call (`ipython` invocation) that runs a kernel cell.
+/// The durable tool call (`python` invocation) that runs a kernel cell.
 pub type KernelCallContext = Arc<dyn eukhe_durable::harness::types::ToolExecutionApi>;
 
 /// A typed request from Python code running in the kernel to the host.

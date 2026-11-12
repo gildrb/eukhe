@@ -171,8 +171,8 @@ mod tests {
         assert_eq!(&models[1..], transports::compiled_models());
     }
 
-    /// The pinned catalog snapshot has no Claude Haiku 5.5; the compiled
-    /// catalog has it. With that snapshot bundled, the model is still in
+    /// The bundled catalog carries no model the compiled catalog has,
+    /// Claude Haiku 5.5 among them. With it bundled, the model is still in
     /// the built-in catalog, as the compiled catalog defines it.
     #[test]
     fn a_bundle_without_a_compiled_model_keeps_it() {

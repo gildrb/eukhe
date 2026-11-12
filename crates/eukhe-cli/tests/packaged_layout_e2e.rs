@@ -180,7 +180,7 @@ impl Sandbox {
     }
 }
 
-/// The turn script: one ipython cell that proves the kernel runs, then the
+/// The turn script: one python cell that proves the kernel runs, then the
 /// closing text turn.
 fn kernel_boot_script(receipt: &Path) -> serde_json::Value {
     let cell = format!(
@@ -189,7 +189,7 @@ fn kernel_boot_script(receipt: &Path) -> serde_json::Value {
     );
     serde_json::json!({
         "responses": [
-            { "content": [ { "type": "toolCall", "name": "ipython", "arguments": {
+            { "content": [ { "type": "toolCall", "name": "python", "arguments": {
                 "code": cell,
             } } ] },
             // The next assistant message echoes the request's system prompt:
@@ -221,7 +221,7 @@ fn run_json_turn(
 }
 
 /// A packaged session boots the kernel with the exe-adjacent layout and no
-/// `EUKHE_PACKAGE_DIR`: the ipython cell runs through the staged binary, the
+/// `EUKHE_PACKAGE_DIR`: the python cell runs through the staged binary, the
 /// bundled skills resolve from the staged `skills/` directory, and the
 /// staged version manifest reports the pinned version.
 #[test]
@@ -249,7 +249,7 @@ fn packaged_session_boots_kernel_without_eukhe_package_dir() {
     command.env("EUKHE_KERNEL_PYTHON", &kernel_python);
     let (stdout, stderr, code) = run_json_turn(&mut command, &script);
     assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
-    // The ipython tool result carried the cell output.
+    // The python tool result carried the cell output.
     assert!(
         stdout.contains("KERNEL_BOOT_OK"),
         "kernel cell output missing; stdout: {stdout}\nstderr: {stderr}"
@@ -311,13 +311,13 @@ fn packaged_binary_reports_manifest_version() {
 
 /// Regression (Local Studio, whose app bundle ships the binary without the
 /// sidecar): a packaged session with no `eukhe-runtime/` offered the
-/// ipython tool, and the model's first call was a cell that could only
-/// fail. Now the session offers no ipython tool (the request's prompt says
+/// python tool, and the model's first call was a cell that could only
+/// fail. Now the session offers no python tool (the request's prompt says
 /// there is no Python REPL). The notice naming the runtime directory is a
 /// notification of the interactive client: a json run stores no row for
 /// it and prints nothing about it.
 #[test]
-fn missing_sidecar_session_offers_no_ipython() {
+fn missing_sidecar_session_offers_no_python() {
     let _guard = serial_lock();
     let dir = tempfile::TempDir::new().expect("stage dir");
     let staged = dir.path();
@@ -330,8 +330,8 @@ fn missing_sidecar_session_offers_no_ipython() {
     let (stdout, stderr, code) = run_json_turn(&mut command, &script);
     assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
     assert!(
-        stdout.contains("This session has no Python REPL (`ipython` tool)"),
-        "the prompt must say there is no ipython tool; stdout: {stdout}"
+        stdout.contains("This session has no Python REPL (`python` tool)"),
+        "the prompt must say there is no python tool; stdout: {stdout}"
     );
     let stored = stored_text(&sessions);
     assert!(
@@ -1120,12 +1120,12 @@ fn path_without_python(dir: &Path) -> PathBuf {
     bin
 }
 
-/// One turn whose ipython cell is `code`, through the packaged binary:
+/// One turn whose python cell is `code`, through the packaged binary:
 /// its stdout (the JSON events, which carry the cell's output) and stderr.
 fn run_cell(command: &mut Command, code: &str) -> (String, String) {
     let script = serde_json::json!({
         "responses": [
-            { "content": [ { "type": "toolCall", "name": "ipython", "arguments": { "code": code } } ] },
+            { "content": [ { "type": "toolCall", "name": "python", "arguments": { "code": code } } ] },
             { "text": "done" },
         ],
     });
@@ -1304,13 +1304,13 @@ fn offline_with_the_python_fetched_runs_a_cell() {
 }
 
 /// Offline without the Python: the fetch fails, so the session offers no
-/// ipython tool (its prompt says there is no Python REPL); the notice
+/// python tool (its prompt says there is no Python REPL); the notice
 /// saying the fetch failed is the interactive client's notification, so a
 /// json run stores no row and prints nothing about it. `kernel install`
 /// fails naming the failed fetch. No download happens, so this runs
 /// without `--ignored`.
 #[test]
-fn offline_without_the_python_offers_no_ipython_and_says_the_fetch_failed() {
+fn offline_without_the_python_offers_no_python_tool_and_says_the_fetch_failed() {
     let _guard = serial_lock();
     let dir = tempfile::TempDir::new().expect("stage dir");
     let staged = dir.path();
@@ -1323,8 +1323,8 @@ fn offline_without_the_python_offers_no_ipython_and_says_the_fetch_failed() {
     let (stdout, stderr, code) = run_json_turn(&mut command, &script);
     assert_eq!(code, Some(0), "stdout: {stdout}\nstderr: {stderr}");
     assert!(
-        stdout.contains("This session has no Python REPL (`ipython` tool)"),
-        "the prompt must say there is no ipython tool; stdout: {stdout}"
+        stdout.contains("This session has no Python REPL (`python` tool)"),
+        "the prompt must say there is no python tool; stdout: {stdout}"
     );
     let stored = stored_text(&sessions);
     assert!(

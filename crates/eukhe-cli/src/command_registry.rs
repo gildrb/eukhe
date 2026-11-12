@@ -45,6 +45,17 @@ impl CommandSpec {
     }
 }
 
+/// The options of `budget set` and `budget add`.
+const BUDGET_AMOUNT_OPTIONS: [&str; 7] = [
+    "--account <account>   daemon (the default) or a session id",
+    "--cost <USD>          Dollars (1.50 or $1.50)",
+    "--tokens <N>          Tokens (200000, 200k, 1.5m)",
+    "--time <DURATION>     A duration (90s, 10m, 2h)",
+    "--tool-calls <N>      Tool calls",
+    "--requests <N>        Model requests",
+    "--json                Print JSON",
+];
+
 /// All public command specs, in registry order.
 pub const COMMAND_SPECS: &[CommandSpec] = &[
     CommandSpec::new(&["help"], "help [command]", "Show command help"),
@@ -291,6 +302,64 @@ has `list_models`; a provider without one fails without sending a request.",
     )
     .options(&["--json  Print JSON"]),
     CommandSpec::new(
+        &["budget"],
+        "budget <show|set|add|audit> [--account <account>]",
+        "Read or change a budget account",
+    )
+    .description(
+        "An account is the budget a task tree spends from: a session's (its id), or the daemon's \
+(`daemon`, the default), which every provider request that belongs to no task spends from (the \
+shared chat's compactor, `eukhe chat`, `eukhe provider`, the tiny-model commands). A session \
+that runs in the daemon is changed through it; otherwise the command writes the ledger file.",
+    ),
+    CommandSpec::new(
+        &["budget", "show"],
+        "budget show [--account <account>] [--json]",
+        "Show an account's budget",
+    )
+    .description(
+        "Prints what is used of each limit, the time left until the deadline, the deadline, and \
+what the account is told to do (wrap up, exhausted).",
+    )
+    .options(&[
+        "--account <account>  daemon (the default) or a session id",
+        "--json               Print JSON",
+    ]),
+    CommandSpec::new(
+        &["budget", "set"],
+        "budget set [--account <account>] [--cost <USD>] [--tokens <N>] [--time <DURATION>] [--tool-calls <N>] [--requests <N>]",
+        "Give an account without a budget its budget",
+    )
+    .description(
+        "A dimension without its option has no limit. --time sets a deadline that long from now. \
+An account that has a budget keeps it: add to it instead.",
+    )
+    .options(&BUDGET_AMOUNT_OPTIONS),
+    CommandSpec::new(
+        &["budget", "add"],
+        "budget add [--account <account>] [--cost <USD>] [--tokens <N>] [--time <DURATION>] [--tool-calls <N>] [--requests <N>]",
+        "Add to an account's budget",
+    )
+    .description(
+        "Raises each named limit (--time moves the deadline later), repays an overrun first, \
+and lets every agent of the account work again. An account without a budget gets the amounts \
+as its budget.",
+    )
+    .options(&BUDGET_AMOUNT_OPTIONS),
+    CommandSpec::new(
+        &["budget", "audit"],
+        "budget audit [--account <account>] [--json]",
+        "Replay an account's ledger",
+    )
+    .description(
+        "Replays every record of the ledger through the compiled core and adds up the settled \
+spends against the total it reports: `ledger exact` or where it stops adding up.",
+    )
+    .options(&[
+        "--account <account>  daemon (the default) or a session id",
+        "--json               Print JSON",
+    ]),
+    CommandSpec::new(
         &["session"],
         "session export <file> [output]",
         "Manage saved sessions",
@@ -452,7 +521,7 @@ way a local model gets installed.",
         "Fetch the kernel's Python now, check it, or lock a package for the project",
     )
     .description(
-        "The Python kernel (the ipython tool) runs on one pinned CPython, the same on every machine. \
+        "The Python kernel (the python tool) runs on one pinned CPython, the same on every machine. \
 Eukhe fetches it into ~/.eukhe/kernel by itself the first time a kernel starts (its own pinned uv, \
 then the Python; each download is checked against its pinned sha256), so nothing has to be \
 installed: `kernel install` does that fetch now (before going offline) and prints each stage; a \
@@ -572,6 +641,49 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
                 "--goal-token-budget <NUMBER>",
                 "Set a positive token budget for --goal",
             ),
+            (
+                "--accept-cmd <COMMAND>",
+                "Acceptance check: the run is done only if this command exits 0 on the final state (repeatable)",
+            ),
+            (
+                "--accept-judge <CONDITION>",
+                "Acceptance check: an independent judge decides this condition from evidence (repeatable)",
+            ),
+            (
+                "--accept-evidence <COMMAND>",
+                "A command whose output the --accept-judge judge reads (repeatable; default: git status and diff)",
+            ),
+            (
+                "--accept-returns <NUMBER>",
+                "How often a failed or broken check goes back to the agent before the run ends failed or unverified (default 3)",
+            ),
+            (
+                "--accept-intent",
+                "Verify the run by the intent judge: it reads your messages and decides whether the final state meets what they ask for (on with any --accept-* check)",
+            ),
+            (
+                "--accept-no-intent",
+                "Verify by the --accept-cmd/--accept-judge checks only, without the intent judge",
+            ),
+        ],
+    },
+    OptionGroup {
+        heading: "Budget options",
+        options: &[
+            (
+                "--budget-cost <USD>",
+                "Limit what the session and its subagents spend, in dollars (1.50 or $1.50)",
+            ),
+            (
+                "--budget-tokens <N>",
+                "Limit their tokens (200000, 200k, 1.5m)",
+            ),
+            (
+                "--budget-time <DURATION>",
+                "Give them a deadline this long from now (90s, 10m, 2h)",
+            ),
+            ("--budget-tool-calls <N>", "Limit their tool calls"),
+            ("--budget-requests <N>", "Limit their model requests"),
         ],
     },
     OptionGroup {

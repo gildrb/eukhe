@@ -30,6 +30,7 @@ use crate::direct_transport::{
     supervisor_supports_direct, DirectLink, TICKET_TIMEOUT_MS,
 };
 
+mod budget;
 mod errors;
 #[cfg(test)]
 mod tests;

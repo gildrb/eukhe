@@ -230,6 +230,16 @@ impl Worker {
                 .as_ref()
                 .map(|view| view.unknown_effects.clone())
                 .unwrap_or_default(),
+            r#loop: core
+                .view
+                .as_ref()
+                .and_then(|view| view.loop_status.clone())
+                .unwrap_or_default(),
+            budget: core.budget.clone(),
+            acceptance: core
+                .view
+                .as_ref()
+                .map_or(Value::Null, |view| view.acceptance.clone()),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,
@@ -809,6 +819,8 @@ mod tests {
             active: None,
             goal: Value::Null,
             unknown_effects: Vec::new(),
+            loop_status: None,
+            acceptance: Value::Null,
             workers: Vec::new(),
             paused: false,
         });

@@ -159,6 +159,7 @@ fn options(socket: PathBuf, agent_dir: &Path, dictation: Dictation) -> Interacti
     )
     .expect("write binds.cfg");
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

@@ -49,7 +49,6 @@ use super::cache_breakpoints::{excess_breakpoints_error, placed_marks};
 use super::lazy::lazy_stream;
 use super::simple_options::{adjust_max_tokens_for_thinking, build_base_options, clamp_reasoning};
 use super::ProviderStreams;
-use crate::models::adaptive_thinking;
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{
     append_assistant_message_diagnostic, error_name, AssistantMessageDiagnostic, ErrorObject,
@@ -435,7 +434,7 @@ fn build_command_input(
     if let Some(temperature) = options.stream.temperature {
         inference_config.insert("temperature".to_owned(), temperature.into());
     }
-    let tool_config = convert::convert_tool_config(
+    let mut tool_config = convert::convert_tool_config(
         &get_current_tools(messages),
         options.tool_choice.as_ref(),
         crate::api::constrained_sampling::StrictSupport {
@@ -444,6 +443,29 @@ fn build_command_input(
         },
     )
     .map_err(|error| BedrockFailure::Thrown(error.into()))?;
+    let mut fields = convert::build_additional_model_request_fields(model, options);
+    // Bedrock rejects thinking beside a forced tool choice (`any`, `tool`).
+    // A prefix-bound model thinks adaptively even with no thinking field,
+    // so its forced choice becomes `auto`; any other model keeps the
+    // forced choice and sends no additional model fields. Thinking that is
+    // explicitly disabled leaves both as they are.
+    if let Some(config) = tool_config.as_mut().and_then(JsonValue::as_object_mut) {
+        let forced = config
+            .get("toolChoice")
+            .and_then(JsonValue::as_object)
+            .is_some_and(|choice| choice.contains_key("any") || choice.contains_key("tool"));
+        let thinking_disabled = fields
+            .as_ref()
+            .and_then(|fields| fields.pointer("/thinking/type"))
+            .is_some_and(|kind| kind == "disabled");
+        if forced && !thinking_disabled {
+            if prefix_bound(model) {
+                config.insert("toolChoice".to_owned(), serde_json::json!({ "auto": {} }));
+            } else {
+                fields = None;
+            }
+        }
+    }
 
     let mut input = JsonObject::new();
     input.insert("modelId".to_owned(), model.id.clone().into());
@@ -458,7 +480,7 @@ fn build_command_input(
     if let Some(tool_config) = tool_config {
         input.insert("toolConfig".to_owned(), tool_config);
     }
-    if let Some(fields) = convert::build_additional_model_request_fields(model, options) {
+    if let Some(fields) = fields {
         input.insert("additionalModelRequestFields".to_owned(), fields);
     }
     if let Some(metadata) = &options.request_metadata {
@@ -715,14 +737,23 @@ pub fn stream(
     target
 }
 
-/// Whether a `streamSimple` request of `model` with `reasoning` uses
-/// Claude's manual extended thinking, under which Claude rejects a forced
-/// tool choice; adaptive thinking does not.
-pub(crate) fn manual_thinking(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
-    model.reasoning
-        && reasoning.is_some()
-        && convert::is_anthropic_claude_model(model)
-        && !adaptive_thinking(model)
+/// Whether `model` is prefix-bound (the rulebook's `thinking_block_binding`:
+/// Claude Opus, Sonnet and Haiku 5.5, Fable 5): it thinks adaptively even
+/// when a request sends no thinking field.
+fn prefix_bound(model: &Model) -> bool {
+    crate::quirks::Quirks::of(model).thinking_block_binding() == Some(true)
+}
+
+/// Whether a `streamSimple` request of `model` with `reasoning` sends its
+/// forced tool choice (`any`, `tool`): a prefix-bound model's becomes
+/// `auto` unless its thinking is explicitly disabled (thinking off on a
+/// model of the rulebook's `disabled_thinking`); any other model keeps it
+/// and drops its thinking fields instead ([`build_command_input`]).
+pub(crate) fn keeps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
+    !prefix_bound(model)
+        || (model.reasoning
+            && reasoning.is_none()
+            && crate::quirks::Quirks::of(model).disabled_thinking() == Some(true))
 }
 
 /// Maps provider-neutral [`SimpleStreamOptions`] to Bedrock options (TS
@@ -737,26 +768,12 @@ pub fn stream_simple(
 ) -> AssistantMessageEventStream {
     let mut base = build_base_options(model, context, Some(&options), None);
     let mut extra = JsonObject::new();
-    // Claude rejects a forced tool choice (`any`, `tool`) under manual
-    // extended thinking, so such a request omits it, with a warning;
-    // adaptive thinking accepts it.
-    let manual = manual_thinking(model, options.reasoning);
-    let tool_choice = options
-        .tool_choice
-        .as_ref()
-        .and_then(|choice| match choice {
-            ToolChoice::Auto => Some(JsonValue::from("auto")),
-            ToolChoice::None => Some(JsonValue::from("none")),
-            ToolChoice::Required | ToolChoice::Tool(_) if manual => {
-                tracing::warn!(
-                    model = %model.id,
-                    "manual extended thinking rejects a forced tool choice: the request omits it"
-                );
-                None
-            }
-            ToolChoice::Required => Some(JsonValue::from("any")),
-            ToolChoice::Tool(name) => Some(serde_json::json!({ "type": "tool", "name": name })),
-        });
+    let tool_choice = options.tool_choice.as_ref().map(|choice| match choice {
+        ToolChoice::Auto => JsonValue::from("auto"),
+        ToolChoice::None => JsonValue::from("none"),
+        ToolChoice::Required => JsonValue::from("any"),
+        ToolChoice::Tool(name) => serde_json::json!({ "type": "tool", "name": name }),
+    });
     if let Some(tool_choice) = tool_choice {
         extra.insert("toolChoice".to_owned(), tool_choice);
     }

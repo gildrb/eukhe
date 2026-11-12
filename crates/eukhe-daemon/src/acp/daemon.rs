@@ -10,8 +10,9 @@
 //! with the live outstanding-subagent count, terminal frame after the RLM
 //! family settles, stop reason) mirrors the TS captures, and the stop
 //! sequence cancels the outstanding children (TS #1612).
-//! The daemon worker's `goal_update` session events surface through the
-//! wire mapping (`wire_events.rs`), and the autonomous accounting rides the
+//! The daemon worker's `goal_update` and `loop_update` session events
+//! surface through the wire mapping (`wire_events.rs`), and the autonomous
+//! accounting rides the
 //! `wait_for_headless_completion` response into the completion envelope
 //! and the stop reason (TS `waitForHeadlessCompletion` + `acpStopReason`).
 //!
@@ -1317,6 +1318,21 @@ async fn prompt_turn(
         producer.finish_prompt(turn_id).await;
         if truncated {
             let stop_reason = types::AcpStopReason::MaxTokens;
+            return jsonrpc::response(
+                &id,
+                &serde_json::to_value(types::AcpStopReasonResponse { stop_reason })
+                    .expect("serializes"),
+            );
+        }
+        // A turn the session's budget stopped (its request did not fit)
+        // ended at that limit: its stop reason (the budget short in tokens:
+        // `max_tokens`; else `max_turn_requests`).
+        let budget_stop =
+            fetch_autonomous_status(link, &hosted_daemon_session_id, CompletionWait::Run)
+                .await
+                .ok()
+                .and_then(|status| meta::budget_stop_reason(status.budget.as_ref()));
+        if let Some(stop_reason) = budget_stop {
             return jsonrpc::response(
                 &id,
                 &serde_json::to_value(types::AcpStopReasonResponse { stop_reason })

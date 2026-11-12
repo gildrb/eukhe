@@ -99,6 +99,7 @@ fn write_faux_script(dir: &Path, replies: &[&str]) -> PathBuf {
 
 fn chat_options(socket: PathBuf, cwd: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd,

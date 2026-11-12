@@ -5,9 +5,8 @@
 //!   `thread_goal_state` row's payload). Rewindable: a fork starts from the
 //!   goal as of its fork entry (the old "goal state follows the branch cut").
 //! - `eukhe.goal.loop`: continuation bookkeeping that makes the hooks
-//!   idempotent across a crash rerun (the last accounted generation and the
-//!   last `on_yield` decision, both keyed by the generation task), and the
-//!   goal's progress check.
+//!   idempotent across a crash rerun (the last `on_yield` decision, keyed
+//!   by the generation task), and the goal's progress check.
 //! - `eukhe.autonomous`: the autonomous run state (see `autonomous.rs`).
 
 use std::sync::Arc;
@@ -94,20 +93,20 @@ pub static AUTONOMOUS_DOC: ConversationDoc<AutonomousDocState> = match Conversat
 };
 
 /// `eukhe.goal.loop`: what the hooks already decided, keyed by the asking
-/// generation task, so a rerun after a crash repeats the decision instead of
-/// charging the goal again.
+/// generation task, so a rerun after a crash repeats the decision.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GoalLoopState {
-    /// The generation whose settled response was last accounted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub accounted: Option<TaskId>,
     /// The last `on_yield` decision.
     #[serde(default, rename = "yield", skip_serializing_if = "Option::is_none")]
     pub yield_record: Option<YieldRecord>,
     /// The goal's progress check at its last continuation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<GoalProgress>,
+    /// The last generation whose response the goal and the autonomous run
+    /// counted: a rerun counts it once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accounted: Option<TaskId>,
 }
 
 /// The goal's progress check at its last continuation: whose it is (the
@@ -217,7 +216,8 @@ mod tests {
     }
 
     /// A version 2 record of the removed no-progress backoff loads: the
-    /// migration drops it, so the rerun decides again.
+    /// migration drops it, so the rerun decides again; its `accounted`
+    /// generation stays.
     #[test]
     fn a_wait_record_of_the_removed_backoff_is_dropped() {
         let old = r#"{"accounted":7,"yield":{"taskId":7,"outcome":{"type":"wait","until":20000}}}"#;
@@ -225,8 +225,7 @@ mod tests {
             migrated(old, 2),
             GoalLoopState {
                 accounted: Some(TaskId::from_number(7)),
-                yield_record: None,
-                progress: None,
+                ..GoalLoopState::default()
             }
         );
     }
@@ -235,7 +234,6 @@ mod tests {
     #[test]
     fn a_version_2_continuation_is_kept() {
         let state = GoalLoopState {
-            accounted: None,
             yield_record: Some(YieldRecord {
                 task_id: TaskId::from_number(7),
                 outcome: YieldOutcome::Continue {
@@ -246,6 +244,7 @@ mod tests {
                 },
             }),
             progress: None,
+            accounted: None,
         };
         let text = serde_json::to_string(&state).expect("encode");
         assert_eq!(migrated(&text, 2), state);

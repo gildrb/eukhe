@@ -4,6 +4,7 @@
 
 use eukhe_types::input_origin::{ChildExit, ChildFailure, InputOrigin, Report};
 
+use super::host::RlmChildVerdict;
 use super::registry::HandbackOutcome;
 use crate::agent_messaging::sanitize_message_header_value;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,10 @@ pub(crate) enum ChildReport {
         last_assistant_text_preview: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         handback: Option<HandbackOutcome>,
+        /// The verdict of the child's acceptance on its final state, when
+        /// its parent gave it checks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acceptance: Option<RlmChildVerdict>,
     },
     /// The child's run failed. `failure` is absent on a report checkpointed
     /// before failures were typed.
@@ -46,6 +51,10 @@ pub(crate) enum ChildReport {
         error: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         handback: Option<HandbackOutcome>,
+        /// The verdict of the child's acceptance on its final state, when
+        /// its parent gave it checks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acceptance: Option<RlmChildVerdict>,
     },
 }
 
@@ -59,15 +68,17 @@ impl ChildReport {
 
     /// The follow-up text: `[child-exited: cancelled|no-reply child:<name>]`
     /// or `[child-failed: <failure> child:<name>]` with the reason,
-    /// preview, or error as the body, then the workspace hand-back.
+    /// preview, or error as the body, then the verdict of the child's
+    /// acceptance, then the workspace hand-back.
     pub(crate) fn text(&self) -> String {
-        let (body, handback) = match self {
+        let (body, acceptance, handback) = match self {
             Self::Cancelled {
                 reason, handback, ..
-            } => (reason.clone().unwrap_or_default(), handback),
+            } => (reason.clone().unwrap_or_default(), None, handback),
             Self::CompletedWithoutReply {
                 last_assistant_text_preview,
                 handback,
+                acceptance,
                 ..
             } => (
                 last_assistant_text_preview
@@ -75,11 +86,20 @@ impl ChildReport {
                     .filter(|preview| !preview.is_empty())
                     .map(|preview| format!("Last assistant text: {preview}"))
                     .unwrap_or_default(),
+                acceptance.as_ref(),
                 handback,
             ),
             Self::Failed {
-                error, handback, ..
-            } => (error.clone(), handback),
+                error,
+                handback,
+                acceptance,
+                ..
+            } => (error.clone(), acceptance.as_ref(), handback),
+        };
+        let body = match acceptance {
+            None => body,
+            Some(verdict) if body.is_empty() => verdict.text(),
+            Some(verdict) => format!("{body}\n\n{}", verdict.text()),
         };
         let body = match handback {
             None => body,
@@ -137,6 +157,7 @@ mod tests {
             session_name: "f20-worker".to_owned(),
             last_assistant_text_preview: Some("done with the task".to_owned()),
             handback: None,
+            acceptance: None,
         };
         assert_eq!(
             report.text(),
@@ -176,6 +197,7 @@ mod tests {
             }),
             error: "429 usage limit".to_owned(),
             handback: None,
+            acceptance: None,
         };
         assert_eq!(
             report.text(),

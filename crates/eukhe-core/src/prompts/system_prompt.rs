@@ -239,11 +239,11 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     let tools: Vec<&str> = options
         .selected_tools
         .clone()
-        .unwrap_or_else(|| vec!["ipython"]);
-    let has_ipython = tools.contains(&"ipython");
-    let has_file_access = has_ipython || tools.contains(&"bash");
+        .unwrap_or_else(|| vec!["python"]);
+    let has_python = tools.contains(&"python");
+    let has_file_access = has_python || tools.contains(&"bash");
 
-    if has_ipython {
+    if has_python {
         segments.push(PromptSegment::dynamic_segment(
             "packages",
             "kernel bootstrap defaults",
@@ -265,7 +265,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         ));
     }
 
-    if has_ipython {
+    if has_python {
         let mcp = format_generic_mcp_guidance(&options.generic_mcp_servers);
         if !mcp.is_empty() {
             segments.push(PromptSegment::dynamic_segment(
@@ -276,7 +276,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         }
     }
 
-    let role = session_role_section(options, has_ipython);
+    let role = session_role_section(options, has_python);
     if !role.is_empty() {
         segments.push(PromptSegment::dynamic_segment(
             "session-role",
@@ -336,7 +336,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     segments.push(PromptSegment::dynamic_segment(
         "environment",
         "session configuration",
-        environment_section(options, has_ipython),
+        environment_section(options, has_python),
     ));
 
     let assembled = segments
@@ -392,7 +392,7 @@ fn context_files_section(context_files: &[(String, String)]) -> String {
     lines.join("\n")
 }
 
-fn environment_section(options: &BuildSystemPromptOptions, has_ipython: bool) -> String {
+fn environment_section(options: &BuildSystemPromptOptions, has_python: bool) -> String {
     let cwd = options.cwd.replace('\\', "/");
     // A chat-memory session keeps volatile content out of the cached prompt
     // (the date changes daily); `date(id)` gives the time of any message.
@@ -405,8 +405,8 @@ fn environment_section(options: &BuildSystemPromptOptions, has_ipython: bool) ->
         Some(true) => lines.push(format!(
             "Images: `read` shows a PNG or JPEG{}. \
              An image stays in context for the rest of the session: measure layout in code, and look at one screenshot per check, clipped to the part it checks.",
-            if has_ipython {
-                "; `await attach_image.run(path)` in `ipython` resizes a larger one"
+            if has_python {
+                "; `await attach_image.run(path)` in `python` resizes a larger one"
             } else {
                 ""
             }
@@ -417,7 +417,7 @@ fn environment_section(options: &BuildSystemPromptOptions, has_ipython: bool) ->
     lines.join("\n")
 }
 
-fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -> String {
+fn session_role_section(options: &BuildSystemPromptOptions, has_python: bool) -> String {
     let depth = options.rlm_depth.unwrap_or(0);
     let mut lines = vec![format!(
         "Recursive agent depth: {depth}{}",
@@ -429,9 +429,9 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
                 .to_string(),
         );
     }
-    if !has_ipython {
+    if !has_python {
         lines.push(
-            "This session has no Python REPL (`ipython` tool): the programmatic tools described above are unavailable here."
+            "This session has no Python REPL (`python` tool): the programmatic tools described above are unavailable here."
                 .to_string(),
         );
     }
@@ -443,7 +443,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
             "You are a child agent spawned by {}. Task prompts are labeled `[task from parent]`.",
             options.rlm_parent_agent.unwrap_or("your parent agent")
         ));
-        if has_ipython {
+        if has_python {
             lines.push(
                 "When a task calls for an answer, send it with `await agent_message.send(message, receiver_role=\"parent\")`: that message is your hand-back; not every message or task needs a reply. Keep going until the task is closed, every acceptance criterion met; if truly blocked, the reply names what you tried and the exact blocker. A plan, a promise of further work, or a question tools can answer never ends your turn.".to_string(),
             );
