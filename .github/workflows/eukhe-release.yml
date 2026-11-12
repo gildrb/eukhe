@@ -32,8 +32,10 @@
 # services from the commit pinned in scripts/release/catalog-pin.json,
 # hash-checked;
 # builds set SOURCE_DATE_EPOCH and remap the workspace and cargo home
-# paths; crates are fetched first and the build itself runs offline
-# (--frozen); publish attests build provenance for every release asset.
+# paths; crates are fetched first (registry crates checked against the
+# Cargo.lock checksums, the crossterm fork at its locked commit) and the
+# build itself runs offline (--frozen); publish attests build provenance
+# for every release asset.
 name: eukhe-release
 
 on:
@@ -188,8 +190,9 @@ jobs:
             echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
             echo "RUSTFLAGS=--remap-path-prefix=${GITHUB_WORKSPACE}=/eukhe --remap-path-prefix=${HOME}/.cargo=/cargo -C link-arg=-Wl,--build-id"
           } >> "${GITHUB_ENV}"
-      # Network stops here: every crate is fetched and checked against the
-      # Cargo.lock checksums, then the build runs offline (--frozen).
+      # Network stops here: every crate is fetched (registry crates checked
+      # against the Cargo.lock checksums, the crossterm fork checked out at
+      # its locked commit), then the build runs offline (--frozen).
       - name: Fetch dependencies (locked, checksummed)
         run: cargo fetch --locked --target "${TARGET}"
       - name: Build (release, frozen, offline)

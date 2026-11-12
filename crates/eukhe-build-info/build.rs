@@ -19,7 +19,7 @@
 //! 3. Neither: `src.<hash>`, a hash of the build inputs.
 //!
 //! The build inputs are the files cargo compiles from: [`INPUTS`] (the
-//! workspace manifest, lockfile and toolchain, `crates/`, `vendor/`),
+//! workspace manifest, lockfile and toolchain, and `crates/`),
 //! without `target` and `node_modules` dirs. The script reruns when one
 //! of them changes, so each changed build gets its own id; a release (one
 //! commit, one version) always gets the same id.
@@ -40,13 +40,7 @@ const RELEASE_ENV: &str = "EUKHE_RELEASE_VERSION";
 /// The suffix Nix's `self.dirtyRev` carries.
 const NIX_DIRTY_SUFFIX: &str = "-dirty";
 /// The build inputs, relative to the workspace root.
-const INPUTS: [&str; 5] = [
-    "Cargo.toml",
-    "Cargo.lock",
-    "rust-toolchain.toml",
-    "crates",
-    "vendor",
-];
+const INPUTS: [&str; 4] = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates"];
 /// Directories under the inputs that hold no build input.
 const SKIPPED_DIRS: [&str; 2] = ["target", "node_modules"];
 

@@ -56,6 +56,7 @@ Dense, telegraphic; only what the reader needs to act on. Cut flattery, history,
 
 - One logical change per commit or PR.
 - Dependency changes regenerate `Cargo.lock` in the same change. A new dependency needs a reason; `make deny` stays clean.
+- crossterm comes from the fork `gildrb/crossterm` (branch `eukhe-<version>`, its `PATCHES.md`), pinned by commit in the root `Cargo.toml` `[patch.crates-io]`, the only git source `deny.toml` allows. A crossterm change is a commit there with its test and a `PATCHES.md` entry, then a new tag (`eukhe-<version>-<n>`) and a bumped `rev` here, with `Cargo.lock` and the hash in `nix/source.nix`.
 - A change that forces edits across many crate internals: fix the boundary instead.
 
 ## Tests

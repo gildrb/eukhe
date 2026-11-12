@@ -15,7 +15,7 @@
 //! Real-pty e2e for the kitty-probe window's early-typing contract: on a
 //! silent (never-answering) terminal the probe holds the process-global
 //! event-reader lock for its answer window, and keys typed inside the
-//! window park until the probe settles. The vendored crossterm patch
+//! window park until the probe settles. The crossterm fork's patch
 //! (`read_supports_keyboard_enhancement_raw`) holds that lock only for
 //! short looks, so the app reader interleaves and early typing delivers
 //! while the probe listens. This e2e is the differential oracle with

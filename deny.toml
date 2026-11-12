@@ -56,8 +56,10 @@ skip = []
 skip-tree = []
 
 [sources]
-# Everything must come from crates.io or vendored path dependencies.
+# Everything comes from crates.io, except crossterm: the workspace patches it
+# with its fork (root Cargo.toml [patch.crates-io], pinned by commit), the
+# one git source allowed.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = ["https://github.com/gildrb/crossterm"]

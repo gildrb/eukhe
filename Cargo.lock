@@ -370,6 +370,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 [[package]]
 name = "crossterm"
 version = "0.28.1"
+source = "git+https://github.com/gildrb/crossterm?rev=817fdaaf98cc87e023841759e8b47891e3335312#817fdaaf98cc87e023841759e8b47891e3335312"
 dependencies = [
  "bitflags 2.13.2",
  "crossterm_winapi",
