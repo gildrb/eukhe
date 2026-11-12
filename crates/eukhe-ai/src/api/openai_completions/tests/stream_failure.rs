@@ -126,6 +126,7 @@ fn prime_inference_compat(cache_control_format: Option<CacheControlFormat>) -> R
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
         thinking_keep: None,
+        reasoning_disable_mode: None,
         supports_thinking_token_budget: Some(false),
         thinking_token_budget_field: None,
         supports_strict_mode: false,

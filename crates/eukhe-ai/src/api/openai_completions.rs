@@ -64,6 +64,9 @@ pub struct OpenAICompletionsOptions {
     /// `{ type: "function", function: { name } }`.
     pub tool_choice: Option<JsonValue>,
     pub reasoning_effort: Option<ThinkingLevel>,
+    /// `disableReasoning`: the caller turned reasoning off
+    /// ([`SimpleStreamOptions::disable_reasoning`]).
+    pub disable_reasoning: bool,
     /// Token budgets per thinking level. Used with
     /// `compat.thinkingTokenBudgetField`/`supportsThinkingTokenBudget` or a
     /// `{ "$var": "thinking.budget" }` chat-template value.
@@ -105,10 +108,12 @@ impl OpenAICompletionsOptions {
         let tool_choice = options.extra.get("toolChoice").cloned();
         let reasoning_effort = extra_option(&options, "reasoningEffort")?;
         let thinking_budgets = extra_option(&options, "thinkingBudgets")?;
+        let disable_reasoning = extra_option(&options, "disableReasoning")?.unwrap_or(false);
         Ok(Self {
             stream: options.stream,
             tool_choice,
             reasoning_effort,
+            disable_reasoning,
             thinking_budgets,
         })
     }
@@ -618,6 +623,7 @@ pub fn stream_simple(
                 }
             }),
             reasoning_effort,
+            disable_reasoning: options.disable_reasoning,
             thinking_budgets: options.thinking_budgets,
         },
     )

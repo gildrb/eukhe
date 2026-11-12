@@ -70,6 +70,8 @@ fn request_options(
             ..StreamOptions::default()
         },
         reasoning: reasoning(thinking),
+        // `memory.thinking` off turns the call's reasoning off.
+        disable_reasoning: matches!(thinking, ModelThinkingLevel::Off),
         thinking_budgets,
         ..SimpleStreamOptions::default()
     }

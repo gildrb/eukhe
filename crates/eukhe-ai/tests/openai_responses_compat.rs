@@ -246,12 +246,13 @@ async fn sets_strict_mode_explicitly_for_cloudflare_openai_responses_tools() {
     );
 }
 
-/// Thinking off sends the model's disable mode: `none` for `OpenAI`'s
-/// GPT-5.6 generation (`none-effort`), else the lowest effort the model
-/// offers (`lowest-effort`), also on hosts without the explicit `none`
-/// (GitHub Copilot) and on xAI.
+/// Thinking off (the caller turns reasoning off) sends the model's disable
+/// mode: `none` for `OpenAI`'s GPT-5.6 generation (`none-effort`), else the
+/// lowest effort the model offers (`lowest-effort`), also on hosts without
+/// the explicit `none` (GitHub Copilot) and on xAI. A request that names no
+/// effort and does not turn reasoning off sends no `reasoning`.
 #[tokio::test]
-async fn sends_the_off_effort_when_no_reasoning_is_requested() {
+async fn sends_the_off_effort_when_thinking_is_off() {
     for (provider, model_id, effort) in [
         ("openai", "gpt-5.1", "low"),
         ("openai", "gpt-5.2", "low"),
@@ -272,7 +273,10 @@ async fn sends_the_off_effort_when_no_reasoning_is_requested() {
         ("xai", "grok-4.3", "low"),
     ] {
         let model = model(provider, model_id);
-        let (request, _) = run(
+        let mut off = ProviderStreamOptions::default();
+        off.extra.insert("disableReasoning".to_owned(), json!(true));
+        let (request, _) = run(&model, &sys_hi_context(), off, done_response()).await;
+        let (unset, _) = run(
             &model,
             &sys_hi_context(),
             ProviderStreamOptions::default(),
@@ -283,6 +287,11 @@ async fn sends_the_off_effort_when_no_reasoning_is_requested() {
         let reasoning = &request.body["reasoning"];
         assert_eq!(reasoning["effort"], json!(effort), "{provider}/{model_id}");
         assert!(reasoning.get("summary").is_none(), "{provider}/{model_id}");
+        assert!(
+            unset.body.get("reasoning").is_none(),
+            "{provider}/{model_id}: {}",
+            unset.body
+        );
     }
 }
 

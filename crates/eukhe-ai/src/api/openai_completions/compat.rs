@@ -7,7 +7,8 @@ use crate::types::{IndexMap, KnownProvider};
 
 use crate::types::{
     CacheControlFormat, ChatTemplateKwargValue, MaxTokensField, Model, ModelCompat,
-    OpenAICompletionsCompat, SessionAffinityFormat, ThinkingFormat, ThinkingTokenBudgetField,
+    OpenAICompletionsCompat, ReasoningDisableMode, SessionAffinityFormat, ThinkingFormat,
+    ThinkingTokenBudgetField,
 };
 
 /// TS `ResolvedOpenAICompletionsCompat`: every setting resolved except the
@@ -36,6 +37,9 @@ pub(crate) struct ResolvedCompat {
     pub(crate) zai_tool_stream: bool,
     /// `thinking.keep` sent with an enabled `deepseek`-format `thinking`.
     pub(crate) thinking_keep: Option<String>,
+    /// How thinking off turns reasoning off in the `openai` format; `None`:
+    /// the off or lowest offered `reasoning_effort`.
+    pub(crate) reasoning_disable_mode: Option<ReasoningDisableMode>,
     pub(crate) supports_thinking_token_budget: Option<bool>,
     pub(crate) thinking_token_budget_field: Option<ThinkingTokenBudgetField>,
     pub(crate) supports_strict_mode: bool,
@@ -127,6 +131,7 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
         thinking_keep: None,
+        reasoning_disable_mode: None,
         supports_thinking_token_budget: Some(false),
         thinking_token_budget_field: None,
         // OpenAI compatibility alone does not imply strict JSON-schema tool support.
@@ -195,6 +200,7 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .unwrap_or(detected.chat_template_args),
         zai_tool_stream: compat.zai_tool_stream.unwrap_or(detected.zai_tool_stream),
         thinking_keep: compat.thinking_keep.clone(),
+        reasoning_disable_mode: compat.reasoning_disable_mode,
         supports_thinking_token_budget: compat
             .supports_thinking_token_budget
             .or(detected.supports_thinking_token_budget),

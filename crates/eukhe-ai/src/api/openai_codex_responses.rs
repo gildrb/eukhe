@@ -121,6 +121,8 @@ mod test_clock {
 pub(crate) struct CodexOptions {
     pub stream: StreamOptions,
     pub reasoning_effort: Option<JsonValue>,
+    /// `disableReasoning`: the caller turned reasoning off.
+    pub disable_reasoning: bool,
     pub reasoning_summary: Option<JsonValue>,
     pub service_tier: Option<JsonValue>,
     pub text_verbosity: Option<JsonValue>,
@@ -141,6 +143,10 @@ impl CodexOptions {
         Self {
             temperature: stream.temperature,
             reasoning_effort: take("reasoningEffort"),
+            disable_reasoning: extra
+                .get("disableReasoning")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false),
             reasoning_summary: take("reasoningSummary"),
             service_tier,
             text_verbosity: take("textVerbosity"),
@@ -557,6 +563,9 @@ pub fn stream_simple(
             "reasoningEffort".into(),
             JsonValue::String(reasoning_effort.as_str().to_owned()),
         );
+    }
+    if options.disable_reasoning {
+        extra.insert("disableReasoning".into(), JsonValue::Bool(true));
     }
 
     stream(

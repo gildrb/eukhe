@@ -183,7 +183,7 @@ fn build_params(
     if model.reasoning {
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else {
+        } else if api.disable_reasoning {
             insert_reasoning_off(model, &mut params);
         }
     }
@@ -396,6 +396,9 @@ pub fn stream_simple(
         if clamped != ModelThinkingLevel::Off {
             extra.insert("reasoningEffort".to_owned(), json!(clamped.as_str()));
         }
+    }
+    if options.disable_reasoning {
+        extra.insert("disableReasoning".to_owned(), json!(true));
     }
     stream(
         model,

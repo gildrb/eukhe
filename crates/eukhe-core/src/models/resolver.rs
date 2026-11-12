@@ -193,13 +193,16 @@ struct ParsedModelResult<'a> {
 }
 
 /// `model:level` parsing; colon-suffixed ids (`OpenRouter` `:exacto`) fall
-/// through when the suffix is not a valid level.
+/// through when the suffix is not a valid level. `provider`: the provider
+/// every candidate belongs to, whose retired thinking-variant ids resolve
+/// to their logical model.
 fn parse_model_pattern<'a>(
     pattern: &str,
     available_models: &'a [Model],
     strict: bool,
+    provider: Option<&str>,
 ) -> ParsedModelResult<'a> {
-    if let Some(exact) = fuzzy_exact(pattern, available_models) {
+    if let Some(exact) = fuzzy_exact(pattern, available_models, provider) {
         return ParsedModelResult {
             model: Some(exact),
             thinking_level: None,
@@ -216,7 +219,7 @@ fn parse_model_pattern<'a>(
     let prefix = &pattern[..last_colon];
     let suffix = &pattern[last_colon + 1..];
     if is_valid_thinking_level(suffix) {
-        let result = parse_model_pattern(prefix, available_models, strict);
+        let result = parse_model_pattern(prefix, available_models, strict, provider);
         if result.model.is_some() {
             return ParsedModelResult {
                 model: result.model,
@@ -233,7 +236,7 @@ fn parse_model_pattern<'a>(
             warning: None,
         };
     }
-    let result = parse_model_pattern(prefix, available_models, strict);
+    let result = parse_model_pattern(prefix, available_models, strict, provider);
     if result.model.is_some() {
         return ParsedModelResult {
             model: result.model,
@@ -246,10 +249,27 @@ fn parse_model_pattern<'a>(
     result
 }
 
-/// Exact match first, then fuzzy (`tryMatchModel`).
-fn fuzzy_exact<'a>(pattern: &str, available_models: &'a [Model]) -> Option<&'a Model> {
+/// Exact match first, then a retired thinking variant of `provider`
+/// (`X-thinking` names `X` when no model carries the id itself), then
+/// fuzzy (`tryMatchModel`).
+fn fuzzy_exact<'a>(
+    pattern: &str,
+    available_models: &'a [Model],
+    provider: Option<&str>,
+) -> Option<&'a Model> {
     find_exact_model_reference_match(pattern, available_models)
+        .or_else(|| {
+            provider.and_then(|provider| thinking_variant(provider, pattern, available_models))
+        })
         .or_else(|| fuzzy_match_model(pattern, available_models))
+}
+
+/// The logical model of `provider` a thinking-variant id names.
+fn thinking_variant<'a>(provider: &str, id: &str, models: &'a [Model]) -> Option<&'a Model> {
+    let logical = eukhe_tokens::thinking_variant_logical_id(provider, id.trim())?;
+    models.iter().find(|model| {
+        model.provider.eq_ignore_ascii_case(provider) && model.id.eq_ignore_ascii_case(&logical)
+    })
 }
 
 /// The models a glob (`?*[]` patterns, globset defaults) matches, as
@@ -303,7 +323,7 @@ pub fn resolve_model_scope_from_models(
             }
             continue;
         }
-        let parsed = parse_model_pattern(pattern, available_models, false);
+        let parsed = parse_model_pattern(pattern, available_models, false, None);
         if let Some(warning) = &parsed.warning {
             eprintln!("Warning: {warning}");
         }
@@ -417,7 +437,7 @@ pub fn resolve_cli_model(
     };
     // Scope to the candidate slice for pattern parsing.
     let candidate_refs: Vec<Model> = candidates.into_iter().cloned().collect();
-    let parsed = parse_model_pattern(&pattern, &candidate_refs, true);
+    let parsed = parse_model_pattern(&pattern, &candidate_refs, true, provider.as_deref());
     if let Some(model) = parsed.model {
         return ResolveCliModelResult {
             model: Some(model.clone()),
@@ -440,7 +460,7 @@ pub fn resolve_cli_model(
             result.model = Some(model);
             return result;
         }
-        let fallback = parse_model_pattern(cli_model, all_models, true);
+        let fallback = parse_model_pattern(cli_model, all_models, true, None);
         if fallback.model.is_some() {
             return ResolveCliModelResult {
                 model: fallback.model.cloned(),
@@ -895,7 +915,7 @@ mod tests {
         assert_eq!(exact.map(|m| m.id.as_str()), Some("claude-sonnet-4-5"));
         // Bare id matches uniquely.
         assert_eq!(
-            fuzzy_exact("claude-sonnet", &catalog).map(|m| m.id.as_str()),
+            fuzzy_exact("claude-sonnet", &catalog, None).map(|m| m.id.as_str()),
             Some("claude-sonnet-4-5")
         );
         // Aliases beat dated versions in fuzzy matching.
@@ -941,6 +961,51 @@ mod tests {
             Some("missing-model")
         );
         assert!(missing.warning.unwrap().contains("Using custom model id"));
+    }
+
+    /// A provider's retired thinking-variant id (`X-thinking`) selects its
+    /// logical model `X`, with or without a level suffix; a model that
+    /// carries the id itself wins.
+    #[test]
+    fn thinking_variant_selectors_resolve_to_the_logical_model() {
+        let mut catalog = catalog();
+        catalog.push(model("vercel-ai-gateway", "alibaba/qwen3-max", "Qwen3 Max"));
+        catalog.push(model(
+            "vercel-ai-gateway",
+            "alibaba/qwen3-max-preview",
+            "Qwen3 Max Preview",
+        ));
+        let resolved = |pattern: &str, catalog: &[Model]| {
+            let result = resolve_cli_model(Some("vercel-ai-gateway"), pattern, catalog);
+            (
+                result.model.map(|model| model.id),
+                result.thinking_level,
+                result.warning,
+            )
+        };
+        assert_eq!(
+            resolved("alibaba/qwen3-max-thinking", &catalog),
+            (Some("alibaba/qwen3-max".to_owned()), None, None)
+        );
+        assert_eq!(
+            resolved("alibaba/qwen3-max-thinking:high", &catalog),
+            (
+                Some("alibaba/qwen3-max".to_owned()),
+                Some(ModelThinkingLevel::High),
+                None
+            )
+        );
+        catalog.push(model(
+            "vercel-ai-gateway",
+            "alibaba/qwen3-max-thinking",
+            "Qwen3 Max Thinking",
+        ));
+        assert_eq!(
+            resolved("alibaba/qwen3-max-thinking", &catalog)
+                .0
+                .as_deref(),
+            Some("alibaba/qwen3-max-thinking")
+        );
     }
 
     #[test]

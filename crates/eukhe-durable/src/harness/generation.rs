@@ -765,6 +765,8 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         .insert(resend::IDEMPOTENCY_KEY_HEADER.to_owned(), Some(key));
     options.stream.session_id = Some(provider_session);
     options.reasoning = reasoning(thinking_level);
+    // Thinking off is the caller turning reasoning off.
+    options.disable_reasoning = matches!(thinking_level, ModelThinkingLevel::Off);
     // eukhe addition: the leading prompt's shared prefix ends a cache mark
     // of its own, the same in every session.
     options.stream.system_cache_breakpoint =

@@ -15,10 +15,19 @@ use openai_responses_support::{mock_fetch, CapturedRequest, MockResponse};
 use serde_json::json;
 
 async fn capture(id: &str, reasoning: Option<ThinkingLevel>) -> CapturedRequest {
+    capture_with(id, reasoning, false).await
+}
+
+async fn capture_with(
+    id: &str,
+    reasoning: Option<ThinkingLevel>,
+    disable_reasoning: bool,
+) -> CapturedRequest {
     let model = OPENROUTER_MODELS.get(id).expect("catalog model").clone();
     let (fetch, captured) = mock_fetch(vec![MockResponse::sse("data: [DONE]\n\n")]);
     let mut options = SimpleStreamOptions {
         reasoning,
+        disable_reasoning,
         ..SimpleStreamOptions::default()
     };
     options.stream.request.api_key = Some("or-key".to_owned());
@@ -82,10 +91,14 @@ async fn sends_chat_models_to_responses_with_the_reasoning_summary() {
     }
 }
 
+/// Thinking off (the caller turns reasoning off) sends
+/// `reasoning: {enabled: false}`; a request that names no level and does
+/// not turn reasoning off sends no `reasoning`.
 #[tokio::test]
 async fn turns_reasoning_off_with_enabled_false() {
     for id in ["openai/gpt-5.4", "~anthropic/claude-haiku-latest"] {
-        let request = capture(id, None).await;
+        let request = capture_with(id, None, true).await;
+        let unset = capture(id, None).await;
         assert_eq!(
             request.url, "https://openrouter.ai/api/v1/responses",
             "{id}"
@@ -95,5 +108,6 @@ async fn turns_reasoning_off_with_enabled_false() {
             json!({ "enabled": false }),
             "{id}"
         );
+        assert_eq!(unset.body.get("reasoning"), None, "{id}");
     }
 }

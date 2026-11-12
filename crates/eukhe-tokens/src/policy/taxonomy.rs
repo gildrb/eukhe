@@ -136,6 +136,9 @@ struct SuffixRule {
     suffix: String,
     /// The effort tier the suffix names; only its presence matters here.
     effort: Option<String>,
+    /// The suffix marks a thinking variant (`X-thinking` of `X`).
+    #[serde(default)]
+    thinking: bool,
     except_bare_prefix: Option<String>,
 }
 
@@ -402,6 +405,62 @@ fn find_identity_override(provider: &str, bare_model: &str) -> Option<&'static I
     }
 }
 
+/// The longest declared suffix `subject` (a lowercased id) ends in, effort
+/// suffixes only when `effort_only`; the first of equally long ones wins.
+fn longest_suffix_rule(subject: &str, effort_only: bool) -> Option<&'static SuffixRule> {
+    let subject_bare = bare_of(subject);
+    RULES
+        .collapse
+        .suffixes
+        .iter()
+        .filter(|rule| !effort_only || rule.effort.is_some())
+        .filter(|rule| subject.ends_with(rule.suffix.as_str()))
+        .filter(|rule| {
+            rule.except_bare_prefix
+                .as_deref()
+                .is_none_or(|except| !subject_bare.starts_with(except))
+        })
+        .fold(None, |best: Option<&SuffixRule>, rule| match best {
+            Some(held) if held.suffix.len() >= rule.suffix.len() => Some(held),
+            _ => Some(rule),
+        })
+}
+
+/// The reviewed effort family that lists `lower` (a lowercased id) as an
+/// alias on `lower_provider`.
+fn effort_family(lower_provider: &str, lower: &str) -> Option<&'static EffortFamily> {
+    RULES.collapse.effort_families.iter().find(|family| {
+        family.provider == lower_provider && family.aliases.iter().any(|alias| alias == lower)
+    })
+}
+
+/// `model` up to byte `end` of its lowercased form; a non-ASCII id whose
+/// lowercase changes length falls back to the lowercased bytes.
+fn id_prefix<'a>(model: &'a str, lower: &str, end: usize) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
+    model
+        .get(..end)
+        .filter(|_| model.len() == lower.len())
+        .map_or_else(|| Cow::Owned(lower[..end].to_owned()), Cow::Borrowed)
+}
+
+/// The logical model a thinking-variant id names: `X` for `X-thinking`
+/// when the longest declared suffix of the id marks a thinking variant.
+/// `None` for a reviewed effort-family alias, an effort suffix or no
+/// suffix. A selector naming a retired thinking variant resolves to it.
+#[must_use]
+pub fn thinking_variant_logical_id<'a>(
+    provider: &str,
+    model: &'a str,
+) -> Option<std::borrow::Cow<'a, str>> {
+    let lower = model.to_lowercase();
+    if effort_family(&provider.to_lowercase(), &lower).is_some() {
+        return None;
+    }
+    let rule = longest_suffix_rule(&lower, false).filter(|rule| rule.thinking)?;
+    Some(id_prefix(model, &lower, lower.len() - rule.suffix.len()))
+}
+
 /// The logical id after collapsing a declared thinking or effort suffix
 /// (the effort it names does not change identity).
 fn collapse_variant_id<'a>(provider: &str, model: &'a str) -> std::borrow::Cow<'a, str> {
@@ -409,40 +468,11 @@ fn collapse_variant_id<'a>(provider: &str, model: &'a str) -> std::borrow::Cow<'
     let collapse = &RULES.collapse;
     let lower = model.to_lowercase();
     let lower_provider = provider.to_lowercase();
-    if let Some(family) = collapse
-        .effort_families
-        .iter()
-        .find(|family| family.provider == lower_provider && family.aliases.contains(&lower))
-    {
+    if let Some(family) = effort_family(&lower_provider, &lower) {
         return Cow::Owned(family.logical.clone());
     }
-    // Byte offsets come from the lowercased id; a non-ASCII id whose
-    // lowercase changes length falls back to the lowercased bytes.
-    let prefix = |end: usize| -> Cow<'a, str> {
-        model
-            .get(..end)
-            .filter(|_| model.len() == lower.len())
-            .map_or_else(|| Cow::Owned(lower[..end].to_owned()), Cow::Borrowed)
-    };
-    let longest_suffix = |subject: &str, effort_only: bool| {
-        let subject_bare = bare_of(subject);
-        collapse
-            .suffixes
-            .iter()
-            .filter(|rule| !effort_only || rule.effort.is_some())
-            .filter(|rule| subject.ends_with(rule.suffix.as_str()))
-            .filter(|rule| {
-                rule.except_bare_prefix
-                    .as_deref()
-                    .is_none_or(|except| !subject_bare.starts_with(except))
-            })
-            // The first of equally long suffixes wins.
-            .fold(None, |best: Option<&SuffixRule>, rule| match best {
-                Some(held) if held.suffix.len() >= rule.suffix.len() => Some(held),
-                _ => Some(rule),
-            })
-    };
-    if let Some(rule) = longest_suffix(&lower, false) {
+    let prefix = |end: usize| id_prefix(model, &lower, end);
+    if let Some(rule) = longest_suffix_rule(&lower, false) {
         return prefix(lower.len() - rule.suffix.len());
     }
     for lane in &collapse.lanes {
@@ -458,7 +488,7 @@ fn collapse_variant_id<'a>(provider: &str, model: &'a str) -> std::borrow::Cow<'
             continue;
         }
         // The lane wraps effort tiers only; thinking variants never lane.
-        let Some(rule) = longest_suffix(trimmed, true) else {
+        let Some(rule) = longest_suffix_rule(trimmed, true) else {
             continue;
         };
         let base = prefix(trimmed.len() - rule.suffix.len());
@@ -679,6 +709,22 @@ mod tests {
         assert_eq!(
             collapse_variant_id("openai", "gpt-5.5-high-fast"),
             "gpt-5.5-high-fast"
+        );
+    }
+
+    /// Only a thinking suffix names a thinking variant; the logical id
+    /// keeps the selector's spelling.
+    #[test]
+    fn thinking_variants_name_their_logical_model() {
+        assert_eq!(
+            thinking_variant_logical_id("vercel-ai-gateway", "alibaba/Qwen3-Max-Thinking")
+                .as_deref(),
+            Some("alibaba/Qwen3-Max")
+        );
+        assert_eq!(thinking_variant_logical_id("openai", "gpt-5.5-high"), None);
+        assert_eq!(
+            thinking_variant_logical_id("vercel-ai-gateway", "alibaba/qwen3-max"),
+            None
         );
     }
 

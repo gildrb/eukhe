@@ -96,6 +96,8 @@ struct QueryCall {
     context: Option<Arc<str>>,
     model: Option<String>,
     thinking: Option<ThinkingLevel>,
+    /// The call asked for thinking `off`: its reasoning is turned off.
+    thinking_off: bool,
     max_bytes: Option<u64>,
 }
 
@@ -199,13 +201,13 @@ fn read_calls(data: &Value) -> anyhow::Result<Vec<QueryCall>> {
             };
             let thinking = optional_text(call, "thinking", index)?;
             let thinking =
-                normalize_requested_rlm_subagent_thinking_level(thinking.as_deref(), "rlm.query")?
-                    .and_then(ThinkingLevel::parse);
+                normalize_requested_rlm_subagent_thinking_level(thinking.as_deref(), "rlm.query")?;
             Ok(QueryCall {
                 prompt,
                 context,
                 model: optional_text(call, "model", index)?,
-                thinking,
+                thinking: thinking.and_then(ThinkingLevel::parse),
+                thinking_off: thinking == Some("off"),
                 max_bytes: positive(
                     call.get("max_bytes"),
                     &format!("{REQUEST} call {index}: max_bytes"),
@@ -354,6 +356,7 @@ async fn run_call(
     let abort = AbortOnDrop(AbortController::new());
     let options = SimpleStreamOptions {
         reasoning: call.thinking,
+        disable_reasoning: call.thinking_off,
         thinking_budgets: runtime.deps.settings.manager().get_thinking_budgets(),
         ..SimpleStreamOptions::default()
     };

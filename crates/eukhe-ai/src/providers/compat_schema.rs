@@ -419,6 +419,15 @@ fn openai_completions_compat_properties() -> Properties {
             ))),
         ),
         (
+            "reasoningDisableMode",
+            Type::optional(Type::union_with(
+                literals(&["openrouter-enabled-false"]),
+                desc(
+                    "How a thinking-off request of the openai thinking format turns reasoning off: \"openrouter-enabled-false\" sends reasoning.enabled false. Default: the off or lowest offered reasoning_effort, sent only when reasoning_effort is supported.",
+                ),
+            )),
+        ),
+        (
             "thinkingTokenBudgetField",
             Type::optional(thinking_token_budget_field(desc(
                 "Top-level request field used to cap reasoning tokens from thinkingBudgets. Reasoning and the answer share max_tokens on these endpoints. \"thinking_token_budget\" is vLLM, \"thinking_budget\" is Qwen, DashScope, or SGLang, and \"thinking_budget_tokens\" is llama.cpp. Off by default and not set on the generated catalog.",
