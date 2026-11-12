@@ -3,7 +3,7 @@
 //! what a failed request is charged, when a request is stopped, what the
 //! agent is told, and which tool calls run.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use eukhe_ai::api::{FetchDeferredFn, StreamSimpleFn};
@@ -50,6 +50,14 @@ fn fixed_clock() -> u64 {
     NOW_MS
 }
 
+/// The ledger clock of the moving fixtures: [`NOW_MS`] until a test moves
+/// it. One test uses it.
+static MOVING_MS: AtomicU64 = AtomicU64::new(NOW_MS);
+
+fn moving_clock() -> u64 {
+    MOVING_MS.load(Ordering::SeqCst)
+}
+
 /// What the provider received with one request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Received {
@@ -85,6 +93,8 @@ enum Answer {
 enum Clock {
     Real,
     Fixed,
+    /// [`moving_clock`].
+    Moving,
 }
 
 impl Fixture {
@@ -122,10 +132,14 @@ impl Fixture {
         std::fs::create_dir_all(&agent_dir).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
         let settings = Arc::new(EukheSettings::new(cwd, &agent_dir));
+        let ledger = Ledger::of(&agent_dir.join("budgets"), "session");
         let gate = match clock {
             Clock::Real => BudgetGate::open(&agent_dir, "session", None, settings),
-            Clock::Fixed => Arc::new(BudgetGate {
-                ledger: Ledger::of(&agent_dir.join("budgets"), "session").with_clock(fixed_clock),
+            Clock::Fixed | Clock::Moving => Arc::new(BudgetGate {
+                ledger: ledger.with_clock(match clock {
+                    Clock::Fixed | Clock::Real => fixed_clock,
+                    Clock::Moving => moving_clock,
+                }),
                 settings: Some(settings),
                 reports: watch::Sender::new(None),
                 keep: Mutex::default(),
@@ -876,6 +890,137 @@ async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
             (45_000, 20_000, Some(std::time::Duration::from_secs(160))),
             (120_000, 20_000),
             (120_000, 120_000),
+        )
+    );
+}
+
+/// The answer, the budget's report after it and the final answer's
+/// notice when an agent's work turn of a 3-minute budget is stopped at its
+/// granted time (135 s: 45 s kept), on a ledger clock the stop moves:
+/// `streamed`, after it streamed text; else before any content.
+async fn stopped_at_the_deadline(
+    streamed: bool,
+) -> (
+    Vec<AssistantContentBlock>,
+    Option<BudgetReport>,
+    Option<String>,
+) {
+    MOVING_MS.store(NOW_MS, Ordering::SeqCst);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let notice = Arc::new(Mutex::new(None));
+    let row: StreamSimpleFn = {
+        let notice = Arc::clone(&notice);
+        Arc::new(move |_model, context, options: SimpleStreamOptions| {
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            let mut live = AssistantMessage {
+                content: Vec::new(),
+                ..message("", Usage::default())
+            };
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                let signal = options
+                    .stream
+                    .request
+                    .signal
+                    .expect("the gate's stop signal");
+                tokio::spawn(async move {
+                    let started = tokio::time::Instant::now();
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::Start { partial });
+                    if streamed {
+                        live.content.push(faux_text("Running"));
+                        sink.push_partial(&live, |partial| AssistantMessageEvent::TextStart {
+                            content_index: 0,
+                            partial,
+                        });
+                    }
+                    signal.cancelled().await;
+                    // The ledger's clock moves with the stop.
+                    let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap();
+                    MOVING_MS.fetch_add(elapsed, Ordering::SeqCst);
+                    sink.push(AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: AssistantMessage {
+                            stop_reason: StopReason::Aborted,
+                            ..live
+                        },
+                    });
+                    sink.end(None);
+                });
+            } else {
+                *notice.lock().unwrap() = context.messages().last().and_then(|last| match last {
+                    Message::User(UserMessage {
+                        content: UserContent::Text(text),
+                        ..
+                    }) => Some(text.clone()),
+                    Message::User(_)
+                    | Message::System(_)
+                    | Message::Assistant(_)
+                    | Message::ToolResult(_) => None,
+                });
+                let answer = message("wrapped up", Usage::default());
+                sink.push(AssistantMessageEvent::Start {
+                    partial: Partial::new(answer.clone()),
+                });
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: answer,
+                });
+                sink.end(None);
+            }
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Moving);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let reply = fixture.send(agent("build it")).await;
+    let notice = notice.lock().unwrap().clone();
+    (reply.content, fixture.gate.report(), notice)
+}
+
+/// B6, B10: a work turn stopped at the granted time the deadline cut has
+/// used up the time for work: before its final answer the agent is in
+/// `WrapUp`, short of time, as when work is refused for time, whether the
+/// turn streamed or not; the final answer is told so. Before, the agent
+/// stayed Working and the run did not end budget-limited.
+#[tokio::test(start_paused = true)]
+async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
+    let limits = BudgetLimits {
+        time_ms: Some(180_000),
+        ..BudgetLimits::default()
+    };
+    let wrapping_up = BudgetReport {
+        free: BudgetAmounts {
+            time_ms: 45_000,
+            ..BudgetAmounts::default()
+        },
+        phase: BudgetPhase::WrapUp,
+        short: Some(BudgetDimension::Time),
+        deadline_ms: Some(NOW_MS + 180_000),
+        ..report(limits)
+    };
+    let notice = "[budget] The time budget of this task is used up for work: 45s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    assert_eq!(
+        (
+            stopped_at_the_deadline(false).await,
+            stopped_at_the_deadline(true).await,
+        ),
+        (
+            (
+                vec![faux_text("wrapped up")],
+                Some(wrapping_up.clone()),
+                Some(notice.to_owned()),
+            ),
+            (
+                vec![faux_text("Running"), faux_text("wrapped up")],
+                Some(wrapping_up),
+                Some(notice.to_owned()),
+            ),
         )
     );
 }

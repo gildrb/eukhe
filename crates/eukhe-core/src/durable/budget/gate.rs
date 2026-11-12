@@ -358,10 +358,22 @@ struct Granted {
 }
 
 /// An agent turn that work no longer fits, on its way to be sent as its
-/// final answer: its input tokens and its `provider/model` label.
+/// final answer: its input tokens, its `provider/model` label, and the
+/// work it asked for when the deadline cut its granted time.
 struct Finale {
     input: u64,
     target: String,
+    again: Option<Again>,
+}
+
+/// The work a turn asked for (its reserve and its offers), asked again
+/// when the turn is stopped at a granted time the deadline cut: what is
+/// left for work is then below a request's floor, so the ledger refuses
+/// it for time and moves the agent to `WrapUp`, as a turn refused for time
+/// (B6).
+struct Again {
+    keep: BudgetAmounts,
+    offers: Vec<BudgetAmounts>,
 }
 
 /// What a sent request is, for what its stop at its granted time does.
@@ -807,6 +819,9 @@ impl<O: GatedOptions> Request<O> {
                 .collect();
             (Use::Side, self.gate.keep(), side)
         };
+        // What an agent turn asks again when it is stopped at a granted
+        // time the deadline cut.
+        let asked = agent_turn.then(|| offered.clone());
         let reserved = self
             .gate
             .reserve(
@@ -817,7 +832,7 @@ impl<O: GatedOptions> Request<O> {
                 REQUEST_MIN_MS,
             )
             .await;
-        let granted = match reserved {
+        let (granted, again) = match reserved {
             Ok(None) => return self.pass(&context, options).await,
             Err(error) => {
                 return self.refuse(notices::ledger_failed("the request was not sent", &error))
@@ -837,13 +852,17 @@ impl<O: GatedOptions> Request<O> {
                         });
                     }
                 }
-                Granted {
+                let again = asked
+                    .filter(|offers| reservation.amount.time_ms < offers[reservation.index].time_ms)
+                    .map(|offers| Again { keep, offers });
+                let granted = Granted {
                     id: reservation.id,
                     amount: reservation.amount,
                     use_,
                     report,
                     context,
-                }
+                };
+                (granted, again)
             }
             Ok(Some(Reserved::Refused { refusal, report })) => {
                 let short = notices::short_label(refusal, &report);
@@ -851,7 +870,11 @@ impl<O: GatedOptions> Request<O> {
                     return self.refuse(notices::request_refused(short));
                 }
                 // An agent turn: its final answer, from what the reserve kept.
-                let finale = Finale { input, target };
+                let finale = Finale {
+                    input,
+                    target,
+                    again: None,
+                };
                 return self
                     .final_answer(context, options, &tokenizer, finale, Opened::No, |cap| {
                         notices::wrap_up_text(short, &report, cap)
@@ -860,7 +883,11 @@ impl<O: GatedOptions> Request<O> {
             }
         };
         let turn = if agent_turn {
-            Turn::Work(Finale { input, target })
+            Turn::Work(Finale {
+                input,
+                target,
+                again,
+            })
         } else {
             Turn::Side
         };
@@ -868,15 +895,65 @@ impl<O: GatedOptions> Request<O> {
             let Stopped {
                 context,
                 options,
-                finale,
+                mut finale,
                 opened,
                 report,
             } = stopped;
-            let short = BudgetDimension::Time.label();
+            let (short, report) = self
+                .stopped_short(&finale.target, finale.again.take(), report)
+                .await;
             self.final_answer(context, options, &tokenizer, finale, opened, |cap| {
                 notices::wrap_up_text(short, &report, cap)
             })
             .await;
+        }
+    }
+
+    /// What the final answer of a work turn stopped at its granted time is
+    /// told: the dimension the agent is short in and the budget. A turn
+    /// whose granted time the deadline cut asks for its work `again`,
+    /// which the ledger refuses for time: the agent is in `WrapUp`, short of
+    /// time, before its final answer.
+    async fn stopped_short(
+        &self,
+        target: &str,
+        again: Option<Again>,
+        report: BudgetReport,
+    ) -> (&'static str, BudgetReport) {
+        let time = BudgetDimension::Time.label();
+        let Some(Again { keep, offers }) = again else {
+            return (time, report);
+        };
+        let asked = self
+            .gate
+            .reserve(
+                Use::Work,
+                format!("model:{target}"),
+                keep,
+                offers,
+                REQUEST_MIN_MS,
+            )
+            .await;
+        match asked {
+            Ok(Some(Reserved::Refused { refusal, report })) => {
+                (notices::short_label(refusal, &report), report)
+            }
+            // Budget was added since the turn was granted: work fits again,
+            // but the turn is cut. The grant goes back unspent.
+            Ok(Some(Reserved::Granted {
+                reservation,
+                report,
+            })) => {
+                Held::start(&self.gate, reservation.id, reservation.amount, Use::Work)
+                    .settle(BudgetAmounts::default())
+                    .await;
+                (time, self.gate.reports.borrow().clone().unwrap_or(report))
+            }
+            Ok(None) => (time, report),
+            Err(error) => {
+                tracing::warn!(%error, "the stopped turn's work was not asked again");
+                (time, report)
+            }
         }
     }
 
@@ -894,7 +971,12 @@ impl<O: GatedOptions> Request<O> {
         opened: Opened,
         notice: impl Fn(u64) -> String,
     ) {
-        let Finale { input, target } = finale;
+        // The work it asked for was asked again, if at all, before.
+        let Finale {
+            input,
+            target,
+            again: _,
+        } = finale;
         let max_output = self.max_output();
         let mut final_caps: Vec<u64> = Vec::with_capacity(4);
         for cap in [FINAL_CAP, FINAL_CAP / 2, FINAL_CAP / 4, FINAL_MIN_CAP] {
