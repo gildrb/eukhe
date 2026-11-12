@@ -71,6 +71,9 @@ pub struct ChromeState {
     /// session: the status line's `mem` segment. `None` (unknown, or a
     /// session without chat memory) renders no gauge.
     pub memory: Option<crate::memory_block::MemoryGauge>,
+    /// The acceptance of the session's task as the status line's
+    /// verification segment reads it; `None` (no checks) renders none.
+    pub verification: Option<crate::status_line::Verification>,
     /// The model's thinking level (wire name), shown after the model (TS
     /// `getModelContextLabel`); `None` for a model without reasoning.
     pub thinking_suffix: Option<String>,

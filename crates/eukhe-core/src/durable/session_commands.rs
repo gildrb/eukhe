@@ -1,5 +1,5 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, `/autonomous`, `/remind`, `/force`, `/dynamic-workflow`,
+//! `/goal`, `/accept`, `/autonomous`, `/remind`, `/force`, `/dynamic-workflow`,
 //! `/autoresearch`, and `/loop`, including the `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //! On main (`sessionShape` `main-worker`) `/goal` and `/autonomous` run on
@@ -21,6 +21,10 @@ use eukhe_types::pi_ai::UserContent;
 use eukhe_types::slash_commands::SlashCommandRegistry;
 use serde_json::{json, Value};
 
+use super::acceptance::{
+    acceptance_state, format_acceptance_status, parse_accept_command, set_acceptance,
+    AcceptCommand, ACCEPT_USAGE,
+};
 use super::children::worker_session_command;
 use super::deps::SessionShape;
 use super::directors::{push_director, DirectorLimits, Layer};
@@ -44,6 +48,7 @@ use crate::slash_command_args::{
     GoalCommand, SlashArgsRefusal,
 };
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
+use eukhe_types::acceptance::{owner_checks, AcceptanceState, CheckSpec};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::workflow::WorkflowSize;
 
@@ -63,6 +68,9 @@ pub enum SessionCommandError {
     /// `/force` without a tool, or a `--tries` that is no count.
     #[error("Usage: /force <tool> [--tries <n>]")]
     ForceUsage,
+    /// `/accept` arguments that name no check.
+    #[error("{ACCEPT_USAGE}")]
+    AcceptUsage,
     /// The compiled core refused `/goal` or `/autonomous` arguments.
     #[error(transparent)]
     SlashArgs(#[from] SlashArgsRefusal),
@@ -163,6 +171,7 @@ pub enum SessionCommandName {
     Compact,
     Refine,
     Goal,
+    Accept,
     Autonomous,
     Remind,
     Force,
@@ -172,7 +181,7 @@ pub enum SessionCommandName {
 }
 
 impl SessionCommandName {
-    /// The command's name as typed (`compact`, `refine`, `goal`,
+    /// The command's name as typed (`compact`, `refine`, `goal`, `accept`,
     /// `autonomous`, `remind`, `force`, `dynamic-workflow`, `autoresearch`,
     /// `loop`).
     #[must_use]
@@ -181,6 +190,7 @@ impl SessionCommandName {
             Self::Compact => "compact",
             Self::Refine => "refine",
             Self::Goal => "goal",
+            Self::Accept => "accept",
             Self::Autonomous => "autonomous",
             Self::Remind => "remind",
             Self::Force => "force",
@@ -197,6 +207,7 @@ impl SessionCommandName {
             "compact" => Some(Self::Compact),
             "refine" => Some(Self::Refine),
             "goal" => Some(Self::Goal),
+            "accept" => Some(Self::Accept),
             "autonomous" => Some(Self::Autonomous),
             "remind" => Some(Self::Remind),
             "force" => Some(Self::Force),
@@ -227,6 +238,8 @@ pub struct SessionCommandOutcome {
     pub compaction: Option<TaskId<CompactionResult>>,
     /// `/goal`: the resulting goal.
     pub goal: Option<GoalState>,
+    /// `/accept`: the resulting acceptance.
+    pub acceptance: Option<AcceptanceState>,
     /// `/autonomous`: the resulting status.
     pub autonomous: Option<AgentAutonomousStatus>,
     /// `/dynamic-workflow`: the size of the workflow it asked for.
@@ -276,7 +289,7 @@ pub async fn execute_session_command(
     }
     let result = match command.name {
         // Main's directors drive the work, and the work runs on its worker.
-        SessionCommandName::Goal | SessionCommandName::Autonomous
+        SessionCommandName::Goal | SessionCommandName::Accept | SessionCommandName::Autonomous
             if session.deps().shape == SessionShape::Main =>
         {
             execute_on_worker(session, conversation, command, cx).await
@@ -287,6 +300,9 @@ pub async fn execute_session_command(
         SessionCommandName::Refine => execute_refine(session, conversation, command, cx).await,
         SessionCommandName::Goal => {
             execute_goal(session, conversation, command, &mut outcome, cx).await
+        }
+        SessionCommandName::Accept => {
+            execute_accept(session, conversation, command, &mut outcome, cx).await
         }
         SessionCommandName::Autonomous => {
             execute_autonomous(session, conversation, command, &mut outcome, cx).await
@@ -649,6 +665,67 @@ async fn execute_goal(
         }
     };
     outcome.goal = Some(state);
+    append_rows(
+        conversation,
+        vec![result_row(command, text, Visibility::Shown)],
+        cx,
+    )
+    .await
+}
+
+fn is_intent(spec: &CheckSpec) -> bool {
+    matches!(spec, CheckSpec::Intent { .. })
+}
+
+/// `/accept`: the acceptance checks of the conversation, as its owner:
+/// status, a check added to the current ones, the intent judge on or off,
+/// the cap of returns, clear.
+/// Any change starts a new revision: every check has to pass again.
+async fn execute_accept(
+    session: &EukheSession,
+    conversation: &Conversation,
+    command: &SessionCommand,
+    outcome: &mut SessionCommandOutcome,
+    cx: &Context,
+) -> Result<(), SessionCommandError> {
+    let asked = parse_accept_command(&command.args).ok_or(SessionCommandError::AcceptUsage)?;
+    let harness = session.harness();
+    let id = conversation.id();
+    let cwd = &session.deps().cwd;
+    let current = acceptance_state(harness, id, cx).await?;
+    let specs = |state: &AcceptanceState| -> Vec<CheckSpec> {
+        state
+            .checks
+            .iter()
+            .map(|check| check.spec.clone())
+            .collect()
+    };
+    let state = match asked {
+        AcceptCommand::Status => current,
+        AcceptCommand::Clear => set_acceptance(harness, id, Vec::new(), None, cwd, cx).await?,
+        AcceptCommand::Returns(max_returns) => {
+            set_acceptance(harness, id, specs(&current), Some(max_returns), cwd, cx).await?
+        }
+        AcceptCommand::Add(check) => {
+            // The first check brings the intent judge; later ones keep
+            // whether it is there, and it stays last.
+            let all = specs(&current);
+            let intent = all.is_empty() || all.iter().any(is_intent);
+            let mut checks: Vec<CheckSpec> =
+                all.into_iter().filter(|spec| !is_intent(spec)).collect();
+            checks.push(check);
+            set_acceptance(harness, id, owner_checks(checks, intent), None, cwd, cx).await?
+        }
+        AcceptCommand::Intent(on) => {
+            let checks: Vec<CheckSpec> = specs(&current)
+                .into_iter()
+                .filter(|spec| !is_intent(spec))
+                .collect();
+            set_acceptance(harness, id, owner_checks(checks, on), None, cwd, cx).await?
+        }
+    };
+    let text = format_acceptance_status(&state);
+    outcome.acceptance = Some(state);
     append_rows(
         conversation,
         vec![result_row(command, text, Visibility::Shown)],

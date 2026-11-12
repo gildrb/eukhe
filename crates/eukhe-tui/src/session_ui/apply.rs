@@ -1103,6 +1103,10 @@ impl SessionUi {
                 self.budget = budget.map(|report| *report);
                 view.chrome.budget.clone_from(&self.budget);
             }
+            TurnUpdate::AcceptanceUpdate(acceptance) => {
+                self.verification = crate::status_line::Verification::of(&acceptance);
+                view.chrome.verification = self.verification;
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

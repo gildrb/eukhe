@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
+use eukhe_core::durable::acceptance::acceptance_state;
 use eukhe_core::durable::cvar_agent::{run_cvar_line, CvarLineScope};
 use eukhe_core::durable::goals::goal_state;
 use eukhe_core::durable::loop_mode::{
@@ -153,6 +154,7 @@ async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandErro
     let meta = read_session_meta(harness, &cx).await?;
     let goal = goal_state(harness, main.id(), &cx).await?;
     let loop_mode = loop_status(harness, main.id(), &cx).await?;
+    let acceptance = acceptance_state(harness, main.id(), &cx).await?;
     let settings = deps.settings.manager();
 
     let mut object = serde_json::Map::new();
@@ -198,6 +200,7 @@ async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandErro
     );
     object.insert("goal".to_string(), serde_json::to_value(goal)?);
     object.insert("loop".to_string(), serde_json::to_value(loop_mode)?);
+    object.insert("acceptance".to_string(), serde_json::to_value(acceptance)?);
     Ok(ResponseData::Present(Value::Object(object)))
 }
 

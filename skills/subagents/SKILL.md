@@ -20,7 +20,7 @@ No row fits: do it here.
 
 ## Query instead
 
-A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.query_batch([...])` for many. No child, briefing or transcript: the answer is a Python value; print only what you need. Keep long material (files, logs, this conversation through `history` or `chat`) in variables, slice it in code, query each slice, combine the values. Spawn only when the work needs tools, its own loop or a hand-back.
+A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.query_batch([...])` for many. No child, briefing or transcript: the answer is a Python value; print only what you need. Keep long material (files, logs, this conversation through `history` or `chat`) in variables, slice it in code, query each slice, combine the values.
 
 ## Spawn
 
@@ -28,7 +28,8 @@ A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.q
 2. Brief fully: goal, exact paths and facts, constraints, what done means. A child never sees this conversation.
 3. Ask for a compact hand-back: the answer, decisions and paths, not transcripts. Bulky output goes to a file; the reply names it.
 4. Pass `why` and a short unique `name`; keep the handle. Children that edit one tree in parallel get `workspace="isolated"`.
-5. Several children: one `rlm.spawn_batch` call.
+5. When done is checkable, pass `accept` checks; trust the harness's verdict over the child's words.
+6. Several children: one `rlm.spawn_batch` call.
 
 ## Collect
 

@@ -10,12 +10,14 @@ use std::sync::Arc;
 use eukhe_ai::providers::faux_script::FauxScriptError;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::autonomous::AgentAutonomousConfig;
+use eukhe_core::durable::acceptance::seed_acceptance;
 use eukhe_core::durable::cvar_agent::CvarAgent;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
     McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
+use eukhe_types::acceptance::AcceptanceSeed;
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde_json::{json, Value};
@@ -109,6 +111,9 @@ pub(crate) struct CreateParams {
     /// The create config's autonomous flags (TS `createAgentSession`
     /// applies them to the startup session).
     pub(crate) autonomous: Option<AgentAutonomousConfig>,
+    /// The create config's acceptance checks (the CLI's `--accept-*`
+    /// flags, a client's `acceptance`): the session's owner sets them.
+    pub(crate) acceptance: Option<AcceptanceSeed>,
     /// The family a spawned child inherits (the create config's
     /// `cvarFamily`: its parent's effective family, root first).
     pub(crate) cvar_family: Option<Vec<eukhe_core::settings::cvar::AgentLayer>>,
@@ -209,6 +214,10 @@ impl CreateParams {
             None | Some(Value::Null) => None,
             Some(value) => Some(field("autonomous", value)?),
         };
+        let acceptance = match payload.get("acceptance") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(field("acceptance", value)?),
+        };
         let cvar_family = match payload.get("cvarFamily") {
             None | Some(Value::Null) => None,
             Some(value) => Some(field("cvarFamily", value)?),
@@ -250,6 +259,7 @@ impl CreateParams {
             spawned_by_request_id: text(Some(payload), "spawnedByRequestId"),
             prompt,
             autonomous,
+            acceptance,
             cvar_family,
             budget,
             stored_work: if payload.get("interruptedRun").is_some() {
@@ -893,6 +903,12 @@ impl Worker {
                 return Err(fail(error.to_string()));
             }
         }
+        if let Some(acceptance) = &params.acceptance {
+            if let Err(error) = seed_checks(&hosted, acceptance, cx).await {
+                let _ = hosted.close(cx).await;
+                return Err(fail(error.to_string()));
+            }
+        }
         Ok(hosted)
     }
 
@@ -1130,6 +1146,19 @@ async fn reconfigure_main(
         change.thinking_level = FieldChange::Set(thinking);
     }
     main.configure(change, cx).await?;
+    Ok(())
+}
+
+/// The create config's acceptance checks on the main conversation, set
+/// as its owner: a session that already carries exactly these checks
+/// keeps them and their verdicts (a reopened session).
+async fn seed_checks(
+    hosted: &HostedSession,
+    seed: &AcceptanceSeed,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    let main = hosted.main()?;
+    seed_acceptance(hosted.harness(), main.id(), seed, &hosted.deps().cwd, cx).await?;
     Ok(())
 }
 

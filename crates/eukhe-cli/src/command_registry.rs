@@ -641,6 +641,30 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
                 "--goal-token-budget <NUMBER>",
                 "Limit the session's budget to this many tokens for --goal",
             ),
+            (
+                "--accept-cmd <COMMAND>",
+                "Acceptance check: the run is done only if this command exits 0 on the final state (repeatable)",
+            ),
+            (
+                "--accept-judge <CONDITION>",
+                "Acceptance check: an independent judge decides this condition from evidence (repeatable)",
+            ),
+            (
+                "--accept-evidence <COMMAND>",
+                "A command whose output the --accept-judge judge reads (repeatable; default: git status and diff)",
+            ),
+            (
+                "--accept-returns <NUMBER>",
+                "How often a failed or broken check goes back to the agent before the run ends failed or unverified (default 3)",
+            ),
+            (
+                "--accept-intent",
+                "Verify the run by the intent judge: it reads your messages and decides whether the final state meets what they ask for (on with any --accept-* check)",
+            ),
+            (
+                "--accept-no-intent",
+                "Verify by the --accept-cmd/--accept-judge checks only, without the intent judge",
+            ),
         ],
     },
     OptionGroup {

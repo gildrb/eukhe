@@ -123,6 +123,7 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_verify.bend as ffi_verify
 import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
@@ -366,6 +367,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_loop.ffi(input)
     case 457:
       ffi_budget.ffi(input)
+    case 458:
+      ffi_verify.ffi(input)
     case _:
       W.err("unknown entry")
 

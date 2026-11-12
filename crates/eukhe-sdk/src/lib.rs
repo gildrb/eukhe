@@ -52,6 +52,13 @@
 //!   session works again), [`budget_report`] reads what is free, held,
 //!   spent and lent and the time left, [`watch_budget`] follows every
 //!   change, and [`audit_budget`] replays the budget's ledger.
+//! - [`set_acceptance`] sets the acceptance checks of a conversation's
+//!   task as its owner (pass [`owner_checks`] of the explicit
+//!   [`CheckSpec`]s to add the intent check);
+//!   [`acceptance_state`] reads its [`AcceptanceState`] (its
+//!   [`AcceptanceLabel`]: verified, failed or unverified), and
+//!   [`watch_acceptance_updates`] streams every change. An
+//!   [`AcceptanceSeed`] is the checks a session starts with.
 //! - [`context`] holds the [`Context`](context::Context) every engine call
 //!   takes; [`BACKGROUND_CONTEXT`](context::BACKGROUND_CONTEXT) never
 //!   cancels.
@@ -67,6 +74,9 @@ use tokio::sync::mpsc;
 
 pub use eukhe_ai::models::Models;
 pub use eukhe_chord::context;
+pub use eukhe_core::durable::acceptance::{
+    acceptance_state, set_acceptance, watch_acceptance_updates, AcceptanceUpdates,
+};
 pub use eukhe_core::durable::budget::{BudgetError, BudgetGate};
 pub use eukhe_core::durable::{
     create_models, open_session, EukheSession, ModelRequest, OpenError, SessionConfig,
@@ -77,6 +87,9 @@ pub use eukhe_durable::harness::effects::{
 };
 pub use eukhe_durable::harness::{
     AgentEvent, AgentEventBatch, AgentEventStream, Conversation, SnapshotEvent,
+};
+pub use eukhe_types::acceptance::{
+    owner_checks, AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckSpec,
 };
 pub use eukhe_types::budget;
 pub use eukhe_types::daemon::BudgetAudit;

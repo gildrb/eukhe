@@ -98,6 +98,9 @@ pub(crate) struct ShownView {
     /// The served loop (`loop_update` payload); `None` until the loop
     /// watch read it.
     pub(crate) loop_status: Option<LoopStatus>,
+    /// The served acceptance (`acceptance_update` payload); `Null` while
+    /// the conversation has no checks and no claim.
+    pub(crate) acceptance: Value,
     /// Main's workers (summary `workers`), in creation order.
     pub(crate) workers: Vec<SessionWorker>,
     /// This session's run is paused (summary `isPaused`).
@@ -233,6 +236,7 @@ impl EventBridge {
                 goal: Value::Null,
                 unknown_effects: Vec::new(),
                 loop_status: None,
+                acceptance: Value::Null,
                 workers: Vec::new(),
                 paused: shape.pause.view().paused,
             });
@@ -269,6 +273,13 @@ impl EventBridge {
             cx.clone(),
         )));
         bridge.tasks.push(tokio::spawn(loop_loop(
+            harness.clone(),
+            epoch,
+            conversation_id,
+            sink.clone(),
+            cx.clone(),
+        )));
+        bridge.tasks.push(tokio::spawn(acceptance_loop(
             harness.clone(),
             epoch,
             conversation_id,
@@ -549,6 +560,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::UnknownEffectsUpdate { .. }
             | SessionEvent::LoopUpdate { .. }
             | SessionEvent::BudgetUpdate { .. }
+            | SessionEvent::AcceptanceUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }
@@ -672,6 +684,49 @@ async fn loop_loop(
             &mut core,
             &sink.events,
             SessionEvent::LoopUpdate { r#loop: status },
+        );
+    }
+}
+
+/// The conversation's acceptance on the core (state `acceptance`): each
+/// change lands on the view and goes out as `acceptance_update`. A
+/// conversation with no checks and no claim shows `Null` and says nothing.
+async fn acceptance_loop(
+    harness: Harness,
+    epoch: u64,
+    conversation_id: ConversationId,
+    sink: BridgeSink,
+    cx: Context,
+) {
+    let mut updates = match eukhe_core::durable::acceptance::watch_acceptance_updates(
+        &harness,
+        conversation_id,
+        &cx,
+    ) {
+        Ok(updates) => updates,
+        Err(error) => {
+            eprintln!("eukhe-daemon worker: acceptance updates unavailable: {error}");
+            return;
+        }
+    };
+    while let Some(acceptance) = updates.next().await {
+        let mut core = lock(&sink.core);
+        let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+            return;
+        };
+        let wire = if acceptance.checks.is_empty() && !acceptance.claimed {
+            Value::Null
+        } else {
+            json!(acceptance)
+        };
+        if view.acceptance == wire {
+            continue;
+        }
+        view.acceptance = wire;
+        crate::worker::emit_event_locked(
+            &mut core,
+            &sink.events,
+            SessionEvent::AcceptanceUpdate { acceptance },
         );
     }
 }

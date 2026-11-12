@@ -1,0 +1,28 @@
+# act: the owner's Assign at the cap of checks and past it (refused, never
+# built), a claim, the verifier's Record with every number at its largest
+# (on a missing index, then on the first check)
+call 0,0,0,64,{MAX},1,1,0,{MAX},T{MAX},
+call 0,0,0,{MAX},{MAX},0,F{MAX},
+call 0,1,1,{MAX},1,1,3,{MAX},F{MAX},
+call 0,2,2,{MAX},{MAX},3,{MAX},{MAX},1,0,F{MAX},
+call 0,2,2,{MAX},0,0,{MAX},{MAX},2,1,0,{MAX},0,T{MAX},
+# advance: the state, the cap and the tries at their largest; a cap of 0
+call 1,{MAX},{MAX},{MAX},2,1,0,{MAX},1,1,{MAX},T{MAX},
+call 1,{MAX},0,{MAX},1,1,1,{MAX},T{MAX},
+call 1,{MAX},{MAX},{MAX},1,1,1,{MAX},T0,
+# label and exit
+call 2,{MAX},2,1,0,{MAX},0,
+call 3,{MAX},{MAX},1,1,0,{MAX},
+call 3,0,{MAX},1,1,1,{MAX},
+# the verdicts of evidence
+call 4,{MAX},T0,{MAX},
+call 4,{MAX},F4,
+call 5,0,{MAX},
+call 6,4,
+# whether a final answer is a claim
+call 7,FTFFF
+call 7,TTTTT
+refuse 0,0,0,{LONG},0,0,F0,
+refuse 2,{LONG},0,
+refuse 7,
+refuse 8,

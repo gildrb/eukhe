@@ -16,6 +16,7 @@ use super::docs::{read_doc, GOAL_DOC};
 use super::ops::{budget_report, conversation_of, goal_state, limit_goal_tokens, update_goal};
 use super::state::{completed, new_goal};
 use crate::autonomous::GateCommandRunner;
+use crate::durable::acceptance::{claim, Claimed};
 use crate::durable::budget::BudgetGate;
 use crate::durable::children::WorkLedger;
 use crate::durable::directors::{push_director, DirectorLimits, Layer};
@@ -117,18 +118,51 @@ impl GoalsHost {
                 serde_json::to_value(goal_host_response(&goal, self.tokens().await?, false))?
             }
             GoalRequest::Complete => {
-                let (goal, _) = update_goal(
-                    &conversation,
-                    |current, _| match completed(current) {
-                        Some(goal) => Ok(Some((goal, None))),
-                        None => Err(SessionError::error(
-                            "cannot complete goal because this thread has no goal",
-                        )),
-                    },
-                    &cx,
-                )
-                .await?;
-                serde_json::to_value(goal_host_response(&goal, self.tokens().await?, true))?
+                let harness = self.harness.require()?;
+                let current = goal_state(&harness, conversation.id(), &cx).await?;
+                if completed(&current, "").is_none() {
+                    anyhow::bail!("cannot complete goal because this thread has no goal");
+                }
+                // "Done" is the worker's claim. With acceptance checks it
+                // waits for the verifier's verdict at the final answer;
+                // with none it stands, labelled unverified.
+                match claim(&harness, &conversation, &cx).await? {
+                    Claimed::Unchecked => {
+                        let (goal, _) = update_goal(
+                            &conversation,
+                            |current, _| match completed(
+                                current,
+                                "Goal achieved (unverified: no acceptance checks)",
+                            ) {
+                                Some(goal) => Ok(Some((goal, None))),
+                                None => Err(SessionError::error(
+                                    "cannot complete goal because this thread has no goal",
+                                )),
+                            },
+                            &cx,
+                        )
+                        .await?;
+                        serde_json::to_value(goal_host_response(&goal, self.tokens().await?, true))?
+                    }
+                    Claimed::Pending { checks } => {
+                        let mut response = serde_json::to_value(goal_host_response(
+                            &current,
+                            self.tokens().await?,
+                            false,
+                        ))?;
+                        if let Some(fields) = response.as_object_mut() {
+                            fields.insert(
+                                "acceptance".to_owned(),
+                                serde_json::json!({
+                                    "status": "pending",
+                                    "checks": checks,
+                                    "message": format!("Completion claimed, not yet verified. The harness runs the {checks} acceptance check(s) of this task when your turn ends: the goal completes only if every check passes on the final state, and a failed check comes back to you with its evidence. End your turn now."),
+                                }),
+                            );
+                        }
+                        response
+                    }
+                }
             }
             GoalRequest::DirectorsPush => serde_json::to_value(
                 push_director(

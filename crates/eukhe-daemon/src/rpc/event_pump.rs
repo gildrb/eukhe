@@ -9,6 +9,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::Context;
+use eukhe_core::durable::acceptance::watch_acceptance_updates;
 use eukhe_core::durable::budget::BudgetGate;
 use eukhe_core::durable::goals::watch_goal_updates;
 use eukhe_core::durable::loop_mode::watch_loop_updates;
@@ -46,6 +47,7 @@ pub(crate) struct EventPump {
     goals: JoinHandle<()>,
     loops: JoinHandle<()>,
     budgets: JoinHandle<()>,
+    acceptance: JoinHandle<()>,
 }
 
 /// The change gate of the `goal_update`, `loop_update` and `budget_update`
@@ -121,6 +123,18 @@ impl EventPump {
             outputs.clone(),
             Arc::clone(last_budget),
         ));
+        // The acceptance: the watch's first value is the state at attach
+        // (`get_state` answers it); every change after it is a frame.
+        let mut changes = watch_acceptance_updates(session.harness(), conversation_id, cx)?;
+        let acceptance_outputs = outputs.clone();
+        let acceptance = tokio::spawn(async move {
+            if changes.next().await.is_none() {
+                return;
+            }
+            while let Some(acceptance) = changes.next().await {
+                acceptance_outputs.write_events([SessionEvent::AcceptanceUpdate { acceptance }]);
+            }
+        });
         Ok(Self {
             stream,
             translation,
@@ -128,6 +142,7 @@ impl EventPump {
             goals,
             loops,
             budgets,
+            acceptance,
         })
     }
 
@@ -147,6 +162,7 @@ impl EventPump {
         self.goals.abort();
         self.loops.abort();
         self.budgets.abort();
+        self.acceptance.abort();
     }
 }
 

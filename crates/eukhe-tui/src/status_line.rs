@@ -1,9 +1,10 @@
 //! The status line under the prompt (omp `statusLine`, ascii preset,
 //! transparent): the model and its thinking level, the cwd, the git
 //! branch, then the segments that show only while they carry something
-//! (a hint, the session name and spend, the session's budget, the detail
-//! level, the chat memory's `mem` gauge, live activity); the context
-//! usage sits on the right.
+//! (a hint, the session name and spend, the session's budget, the
+//! verification of the task's acceptance checks, the detail level, the
+//! chat memory's `mem` gauge, live activity); the context usage sits on
+//! the right.
 //!
 //! The `mem` gauge is the only place the chat memory's compactor shows
 //! its progress (its live updates never make transcript rows): `mem
@@ -23,6 +24,7 @@ use crate::git_placement::GitPlacement;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::line_width;
 use crate::{Line, Span};
+use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceState, CheckVerdict};
 use eukhe_types::budget::BudgetPhase;
 
 /// The widest the path segment's text gets (omp `path.maxLength`).
@@ -115,6 +117,9 @@ pub fn render_status_line(
     }
     if let Some(depth) = state.tray_depth.filter(|depth| *depth > 0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("depth {depth}"))]);
+    }
+    if let Some(verification) = state.verification {
+        segments.push(verification_segment(verification, theme));
     }
     if let Some(memory) = &state.memory {
         segments.push(vec![theme.fg(ThemeColor::Dim, memory.text())]);
@@ -230,6 +235,73 @@ fn fit(segments: &mut Vec<Line>, yielding: Yielding, room: usize, separator: usi
             segments.remove(index);
         }
     }
+}
+
+/// The acceptance of the session's task as the verification segment
+/// reads it (`state.acceptance`, then each `acceptance_update`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Verification {
+    /// The label of the result on the session's state now.
+    pub label: AcceptanceLabel,
+    /// A claim of "done" waits for its verdict.
+    pub checking: bool,
+    /// The checks confirmed on the session's state now.
+    pub confirmed: usize,
+    /// The checks of the task.
+    pub total: usize,
+}
+
+impl Verification {
+    /// The segment's reading of `state`; `None` when the task has no
+    /// checks. A verdict counts only when it judged the state now.
+    #[must_use]
+    pub fn of(state: &AcceptanceState) -> Option<Self> {
+        if state.checks.is_empty() {
+            return None;
+        }
+        let confirmed = state
+            .checks
+            .iter()
+            .filter(|check| {
+                check.result.as_ref().is_some_and(|result| {
+                    result.verdict == CheckVerdict::Confirmed && result.at == state.state
+                })
+            })
+            .count();
+        Some(Self {
+            label: state.label,
+            checking: state.claimed,
+            confirmed,
+            total: state.checks.len(),
+        })
+    }
+}
+
+/// The verification segment: `ok verified 2/2` green, `x failed 1/2` red,
+/// `checking... 1/2` while a claim waits for its verdict, else
+/// `unverified 0/2`; the count is the checks confirmed on the state now.
+fn verification_segment(verification: Verification, theme: &Theme) -> Line {
+    let (tone, label) = if verification.checking {
+        (
+            ThemeColor::Accent,
+            format!("checking{}", crate::glyphs::ELLIPSIS),
+        )
+    } else {
+        match verification.label {
+            AcceptanceLabel::Verified => (
+                ThemeColor::Success,
+                format!("{} verified", crate::glyphs::OK),
+            ),
+            AcceptanceLabel::Failed => {
+                (ThemeColor::Error, format!("{} failed", crate::glyphs::FAIL))
+            }
+            AcceptanceLabel::Unverified => (ThemeColor::Muted, "unverified".to_owned()),
+        }
+    };
+    vec![theme.fg(
+        tone,
+        format!("{label} {}/{}", verification.confirmed, verification.total),
+    )]
 }
 
 /// `[M] <model>`, the service-tier badge, and the thinking level in the

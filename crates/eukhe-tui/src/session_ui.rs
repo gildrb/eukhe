@@ -465,6 +465,10 @@ pub(crate) struct SessionUi {
     /// `memory_update` reported the view's size for this session (the
     /// status line's `mem` segment); `None` until then.
     memory: Option<crate::memory_block::MemoryGauge>,
+    /// The acceptance of the session's task (`state.acceptance`, then
+    /// each `acceptance_update`): the status line's verification
+    /// segment; `None` while the task has no checks.
+    verification: Option<crate::status_line::Verification>,
     /// The current Python `bash()` registry snapshot from the owning kernel.
     bash_activities: Value,
     /// Monotonic id of the latest issued kernel-bash list request; a late

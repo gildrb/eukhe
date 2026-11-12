@@ -377,6 +377,10 @@ pub struct AgentConnectionState {
     /// session without one.
     #[serde(default)]
     pub budget: Option<crate::budget::BudgetReport>,
+    /// The conversation's acceptance (`acceptance_update` payload); `Null`
+    /// while it has no checks and no claim.
+    #[serde(default)]
+    pub acceptance: Value,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]

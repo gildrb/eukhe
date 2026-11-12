@@ -110,6 +110,7 @@ class RLMChildResult:
     tool_use_count: int | None
     replied_since_task: bool | None
     handback: str | None = None
+    acceptance: str | None = None
 
 
 def _spawn_handle_from_payload(payload: Any) -> RLMSpawnHandle:
@@ -189,6 +190,9 @@ async def spawn(
     thinking: str | None = None,
     workspace: str | None = None,
     budget: dict[str, Any] | None = None,
+    accept: list[dict[str, Any]] | None = None,
+    accept_intent: bool | None = None,
+    accept_returns: int | None = None,
 ) -> RLMSpawnHandle:
     """Spawn a recursive Eukhe child and return once its task is admitted.
 
@@ -211,6 +215,17 @@ async def spawn(
     one the child draws from this task's budget, which the whole tree shares; the
     reserve this agent keeps for its final answer stays out of its reach. A spawn
     whose budget does not fit is refused.
+    ``accept``: the child's acceptance checks, this agent their owner (the child
+    cannot change them): a list of ``{"kind": "command", "command": "pytest -q",
+    "expect": 0, "timeout_ms"?: int, "protect"?: [paths]}``,
+    ``{"kind": "judge", "condition": str, "evidence"?: [commands], "model"?: str}``
+    or ``{"kind": "until", "command": str, "timeout_ms"?: int}``. The child's
+    "done" counts only when the harness confirms every check on its final state;
+    its report and ``collect()`` carry the verdict (``verified``, ``failed`` or
+    ``unverified``). ``accept_intent`` (default True with ``accept``) adds the
+    intent check: an independent judge decides from the child's task whether its
+    final state meets it. ``accept_returns``: the most times in a row a refuted
+    "done" goes back to the child before it ends failed.
     """
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
@@ -225,16 +240,36 @@ async def spawn(
         kwargs["workspace"] = workspace
     if budget is not None:
         kwargs["budget"] = budget
+    if accept is not None:
+        kwargs["accept"] = accept
+    if accept_intent is not None:
+        kwargs["accept_intent"] = accept_intent
+    if accept_returns is not None:
+        kwargs["accept_returns"] = accept_returns
     # Wire type stays "rlm.run" so kernels and hosts of different versions stay compatible.
     payload = await host_request("rlm.run", {"prompt": prompt, "kwargs": kwargs})
     return _spawn_handle_from_payload(payload)
+
+
+_SPAWN_TASK_KWARGS = (
+    "name",
+    "why",
+    "model",
+    "thinking",
+    "workspace",
+    "budget",
+    "accept",
+    "accept_intent",
+    "accept_returns",
+)
 
 
 async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     """Spawn several recursive Eukhe children together, all or none.
 
     Each task is a dict ``{"prompt": str, "name": str, "why": str, "model"?: str,
-    "thinking"?: str, "workspace"?: str, "budget"?: dict}`` with the same rules as :func:`spawn`. The batch admits
+    "thinking"?: str, "workspace"?: str, "budget"?: dict, "accept"?: list[dict], "accept_intent"?: bool,
+    "accept_returns"?: int}`` with the same rules as :func:`spawn`. The batch admits
     atomically: when a task has no allowed ``why``, or the batch would exceed
     the family's running-subagent cap (``subagentMaxConcurrency``), nothing is
     spawned and the call fails (for the cap with ``subagent concurrency limit
@@ -247,7 +282,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     for task in tasks:
         if not isinstance(task, dict):
             raise TypeError(f"each task must be a dict, got {type(task).__name__}")
-        unknown = sorted(set(task) - {"prompt", "name", "why", "model", "thinking", "workspace", "budget"})
+        unknown = sorted(set(task) - {"prompt", *_SPAWN_TASK_KWARGS})
         if unknown:
             raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
         prompt = task.get("prompt")
@@ -255,11 +290,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
             raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
         if "name" not in task:
             raise TypeError("each task needs a name")
-        kwargs = {
-            key: task[key]
-            for key in ("name", "why", "model", "thinking", "workspace", "budget")
-            if task.get(key) is not None
-        }
+        kwargs = {key: task[key] for key in _SPAWN_TASK_KWARGS if task.get(key) is not None}
         entries.append({"prompt": prompt, "kwargs": kwargs})
     payload = await host_request("rlm.run_batch", {"tasks": entries})
     handles = payload.get("handles")
@@ -443,6 +474,7 @@ def _child_result_from_payload(payload: Any) -> RLMChildResult:
         tool_use_count=_optional_int("tool_use_count"),
         replied_since_task=replied,
         handback=_optional_str("handback"),
+        acceptance=_optional_str("acceptance"),
     )
 
 
@@ -688,9 +720,21 @@ class _RLMNamespace:
         thinking: str | None = None,
         workspace: str | None = None,
         budget: dict[str, Any] | None = None,
+        accept: list[dict[str, Any]] | None = None,
+        accept_intent: bool | None = None,
+        accept_returns: int | None = None,
     ) -> RLMSpawnHandle:
         return await spawn(
-            prompt, name=name, why=why, model=model, thinking=thinking, workspace=workspace, budget=budget
+            prompt,
+            name=name,
+            why=why,
+            model=model,
+            thinking=thinking,
+            workspace=workspace,
+            budget=budget,
+            accept=accept,
+            accept_intent=accept_intent,
+            accept_returns=accept_returns,
         )
 
     async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:

@@ -3,6 +3,7 @@
 //! update), the loader-note partial decode, and the message helpers (moved
 //! with their concern).
 use super::{assistant_value_to_entries, ChatEntry};
+use eukhe_types::acceptance::AcceptanceState;
 use eukhe_types::ai::{AssistantMessage, ServiceTier, StopReason, UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::daemon::{
@@ -129,6 +130,10 @@ pub enum TurnUpdate {
     /// settlement, added budget, a phase change); `None` is no budget.
     /// Moves the status line's budget segment only.
     BudgetUpdate(Option<Box<eukhe_types::budget::BudgetReport>>),
+    /// `acceptance_update`: the acceptance of the session's task changed
+    /// (its checks, a verdict, a claim, the label); the status line's
+    /// verification segment shows it.
+    AcceptanceUpdate(AcceptanceState),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -400,6 +405,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             error_message: error_message.clone(),
             run: run.clone(),
         },
+        SessionEvent::AcceptanceUpdate { acceptance } => {
+            TurnUpdate::AcceptanceUpdate(acceptance.clone())
+        }
         SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
         | SessionEvent::IpythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,

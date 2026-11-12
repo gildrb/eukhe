@@ -77,6 +77,9 @@ pub struct Reconstructed {
     /// The session's `/loop` (`state.loop`), when the snapshot reports
     /// one.
     pub loop_status: Option<eukhe_types::loop_mode::LoopStatus>,
+    /// The acceptance of the session's task (`state.acceptance`), when the
+    /// snapshot reports one.
+    pub acceptance: Option<eukhe_types::acceptance::AcceptanceState>,
     pub last_event_sequence: u64,
     /// Whether the attach supplied the resume cursor (the event
     /// sequence AND the generation): the reconstruction collapses an
@@ -555,6 +558,12 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     let loop_status = state
         .and_then(|state| state.get("loop"))
         .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
+    let acceptance = state
+        .and_then(|state| state.get("acceptance"))
+        .and_then(|acceptance| {
+            serde_json::from_value::<eukhe_types::acceptance::AcceptanceState>(acceptance.clone())
+                .ok()
+        });
     let queued = match state.and_then(|state| state.get("sessionActions")) {
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
         None => crate::queued::QueuedMessages::default(),
@@ -599,6 +608,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         goal,
         unknown_effects,
         loop_status,
+        acceptance,
         last_event_sequence,
         cursor_present,
         queued,

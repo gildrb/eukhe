@@ -139,6 +139,7 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
                         progress: Some(7),
                         answer: None,
                         paused: false,
+                        acceptance: None,
                     })
                     .unwrap(),
                 ),
@@ -228,6 +229,7 @@ fn spawn_request() -> RlmChildSpawnRequest {
         parent_task_id: "7".to_owned(),
         workspace: WorkspaceMode::Shared,
         worker: false,
+        acceptance: None,
     }
 }
 

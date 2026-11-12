@@ -168,6 +168,8 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "set_budget",
     "add_budget",
     "audit_budget",
+    "set_acceptance",
+    "get_acceptance",
 ];
 
 /// Parsed client command envelope.
@@ -912,6 +914,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::ResolveUnknownEffect {
             active_session_id, ..
         }
+        | DaemonCommand::SetAcceptance {
+            active_session_id, ..
+        }
+        | DaemonCommand::GetAcceptance {
+            active_session_id, ..
+        }
         | DaemonCommand::GetSystemPrompt {
             active_session_id, ..
         }
@@ -1131,6 +1139,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
         DaemonCommand::GetUnknownEffects { .. } => "get_unknown_effects",
         DaemonCommand::ResolveUnknownEffect { .. } => "resolve_unknown_effect",
+        DaemonCommand::SetAcceptance { .. } => "set_acceptance",
+        DaemonCommand::GetAcceptance { .. } => "get_acceptance",
         DaemonCommand::GetSystemPrompt { .. } => "get_system_prompt",
         DaemonCommand::GetChatView { .. } => "get_chat_view",
         DaemonCommand::GetMemory { .. } => "get_memory",

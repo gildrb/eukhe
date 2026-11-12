@@ -8,6 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use eukhe_core::durable::acceptance::{acceptance_state, set_acceptance};
 use eukhe_core::durable::budget::BudgetError;
 use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
 use eukhe_durable::entries::USER_ENTRY;
@@ -24,6 +25,7 @@ use super::reads::{
     agent_model, context_messages, history_entries, last_assistant_text, main_agent, rpc_context,
 };
 use super::session::RpcEngineRequest;
+use crate::acceptance_commands::AcceptanceRequest;
 use crate::session_export::durable::export_html as export_session_html;
 use crate::state_getters::{context_usage, ContextMeter};
 use crate::worker::durable_host::meta::set_session_name as persist_session_name;
@@ -47,6 +49,8 @@ pub(crate) async fn handle(
         "get_fork_messages" => get_fork_messages(state).await,
         "get_last_assistant_text" => get_last_assistant_text(state).await,
         "set_session_name" => set_session_name(state, payload).await,
+        "set_acceptance" => set_acceptance_checks(state, payload).await,
+        "get_acceptance" => read_acceptance(state).await,
         "get_messages" => get_messages(state).await,
         "export_html" => export_html(state, payload).await,
         "get_session_stats" => get_session_stats(state).await,
@@ -291,6 +295,39 @@ async fn set_session_name(
             name: Some(name.to_string()),
         }]);
     Ok(ResponseData::Absent)
+}
+
+/// `set_acceptance { checks?, maxReturns?, intent? }`: set the checks of
+/// the main conversation's task as its owner (the explicit checks, then
+/// the intent check unless `intent` is false) and answer the new
+/// `AcceptanceState`.
+async fn set_acceptance_checks(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
+    let (specs, max_returns) = AcceptanceRequest::parse(payload)?.specs();
+    // Serialize with any whole-session replacement: the checks land on
+    // the live session, never on a retired one.
+    let _lease = state.session.replacement_lease().await;
+    let session = state.session.session().await;
+    let acceptance = set_acceptance(
+        session.harness(),
+        session.main().id(),
+        specs,
+        max_returns,
+        &session.deps().cwd,
+        &rpc_context(),
+    )
+    .await?;
+    Ok(ResponseData::Present(serde_json::to_value(acceptance)?))
+}
+
+/// `get_acceptance`: the main conversation's `AcceptanceState`.
+async fn read_acceptance(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
+    let session = state.session.session().await;
+    let acceptance =
+        acceptance_state(session.harness(), session.main().id(), &rpc_context()).await?;
+    Ok(ResponseData::Present(serde_json::to_value(acceptance)?))
 }
 
 /// `get_messages` (TS `session.state.messages`): the main conversation's

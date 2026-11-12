@@ -47,6 +47,7 @@ const GATED: &[(&str, &str, usize, &str)] = &[
     ("crates/eukhe-cli/src/headless_session.rs", "SettingsSummarizer::in_process(", 1, "SettingsSummarizer::for_session(the session whose chat it compacts)"),
     ("crates/eukhe-cli/src/provider_command.rs", "create_models(", 1, DAEMON),
     ("crates/eukhe-cli/src/tiny_command.rs", "create_models(", 1, DAEMON),
+    ("crates/eukhe-core/src/durable/acceptance/evidence.rs", ".complete_simple(", 1, SESSION),
     ("crates/eukhe-core/src/durable/admission_gate.rs", ".set_provider(", 1, REWRAP),
     ("crates/eukhe-core/src/durable/budget/rows.rs", ".set_provider(", 1, "the budget gate itself (wrap_models_with_budget)"),
     ("crates/eukhe-core/src/durable/compaction/autorefine.rs", ".complete_simple(", 1, SESSION),

@@ -605,6 +605,14 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "audit_budget",
         r#"{"type": "audit_budget", "activeSessionId": "sess"}"#,
     ),
+    (
+        "set_acceptance",
+        r#"{"type": "set_acceptance", "activeSessionId": "sess", "checks": [{"kind": "command", "command": "true"}]}"#,
+    ),
+    (
+        "get_acceptance",
+        r#"{"type": "get_acceptance", "activeSessionId": "sess"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -655,6 +663,8 @@ fn known_command_types_match_the_ts_list() {
                     | "set_budget"
                     | "add_budget"
                     | "audit_budget"
+                    | "set_acceptance"
+                    | "get_acceptance"
             ),
             "unexpected non-TS command type: {extra}"
         );

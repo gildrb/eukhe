@@ -39,7 +39,7 @@ pub use ops::{
     import_legacy_goal, pause_goal, resume_goal, seed_initial_goal, start_goal,
     withdraw_queued_goal_contexts, StartedGoal,
 };
-pub(crate) use ops::{conversation_of, user_input_queued};
+pub(crate) use ops::{conversation_of, end_claimed_goal, user_input_queued, ClaimEnd};
 pub use state::{
     creation_elapsed_seconds, owns_continuation_wakeup, served, terminal_provider_failure,
 };

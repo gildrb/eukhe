@@ -30,6 +30,7 @@
     clippy::struct_excessive_bools,
     clippy::struct_field_names
 )]
+pub(crate) mod acceptance_commands;
 pub mod acp;
 pub mod agent_message_broadcast;
 pub(crate) mod agent_message_delivery;

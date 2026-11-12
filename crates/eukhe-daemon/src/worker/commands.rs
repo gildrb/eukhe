@@ -88,6 +88,8 @@ impl Worker {
             "get_run_outcome" => self.handle_get_run_outcome().await,
             "get_unknown_effects" => self.handle_get_unknown_effects().await,
             "resolve_unknown_effect" => self.handle_resolve_unknown_effect(payload).await,
+            "set_acceptance" => self.handle_set_acceptance(payload).await,
+            "get_acceptance" => self.handle_get_acceptance().await,
             "get_connection_state" => self.handle_get_connection_state(),
             "get_mcp_connections" => self.handle_get_mcp_connections().await,
             "set_mcp_static_token" => self.handle_set_mcp_static_token(payload).await,

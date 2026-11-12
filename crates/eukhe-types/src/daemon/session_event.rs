@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{MemoryUpdate, SessionActionSnapshot};
+use crate::acceptance::AcceptanceState;
 use crate::ai::{ServiceTier, UserContentBlock};
 use crate::budget::BudgetReport;
 use crate::effects::UnknownEffect;
@@ -163,6 +164,11 @@ pub enum SessionEvent {
     BudgetUpdate {
         budget: Option<BudgetReport>,
     },
+    /// The conversation's acceptance changed: its checks, a verdict, a
+    /// claim, or the label of the result.
+    AcceptanceUpdate {
+        acceptance: AcceptanceState,
+    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -234,6 +240,7 @@ impl SessionEvent {
             | Self::UnknownEffectsUpdate { .. }
             | Self::LoopUpdate { .. }
             | Self::BudgetUpdate { .. }
+            | Self::AcceptanceUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }
             | Self::BashOutput { .. }

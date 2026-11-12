@@ -402,7 +402,10 @@ async fn a_goal_continues_with_its_context_until_completed() {
     assert_eq!(goal.status, GoalStatus::Complete);
     assert!(!goal.is_active());
     assert_eq!(goal.continuations_used, 2);
-    assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
+    assert_eq!(
+        goal.last_reason.as_deref(),
+        Some("Goal achieved (unverified: no acceptance checks)")
+    );
     // The goal's token budget is the session budget's token limit; what the
     // goal shows is the budget's spend.
     let report = setup.report().expect("the goal gave the session a budget");

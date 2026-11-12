@@ -52,9 +52,10 @@ pub use host::{
     RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
     RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
     RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity,
-    RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
+    RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
+    RlmSpawnCapacity, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
 };
+pub(crate) use registry::children_verdicts;
 pub use registry::{
     has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,
 };

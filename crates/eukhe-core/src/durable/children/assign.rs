@@ -101,6 +101,7 @@ pub(crate) async fn assign(
                 details: assignment.details,
                 user_entries: assignment.user_entries,
                 worker: row.worker,
+                accept: None,
             };
             let task_id = tx
                 .create_task(

@@ -260,6 +260,8 @@ pub enum Entry {
     Loop = 456,
     /// `bend/ffi_budget.bend`: a call.
     Budget = 457,
+    /// `bend/ffi_verify.bend`: a call.
+    Verify = 458,
 }
 
 impl Entry {
@@ -392,6 +394,7 @@ impl Entry {
         Entry::Once,
         Entry::Loop,
         Entry::Budget,
+        Entry::Verify,
     ];
 
     /// The id `bend/core.bend` dispatches on.

@@ -22,6 +22,7 @@ use eukhe_durable::types::{
     ConversationId, DocumentObserverExt, TaskId, TaskOptions, TaskOutcome, TaskOwnership,
     TaskState, TaskStatus, ROOT_CONVERSATION_ID,
 };
+use eukhe_types::acceptance::{AcceptanceSeed, CheckSpec};
 use eukhe_types::budget::BudgetLimits;
 use futures::FutureExt;
 use serde_json::{json, Map, Value};
@@ -29,7 +30,9 @@ use tokio::sync::Notify;
 
 use super::budget::{allot, give_back, named_budget, Allotment};
 use super::depth::read_max_depth_override;
-use super::host::{ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmSubagentHost};
+use super::host::{
+    ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmChildVerdict, RlmSubagentHost,
+};
 use super::notice::{rlm_child_label, DELETED_BY_PARENT};
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
 use super::registry::{
@@ -252,6 +255,9 @@ pub(super) struct SpawnKwargs {
     /// the parent's account; `None`: the child draws from the parent's
     /// account as a shared member (it joins at its open).
     pub(super) budget: Option<BudgetLimits>,
+    /// The checks the child's task starts with, this parent their owner
+    /// (`accept`, `accept_intent`, `accept_returns`); `None`: no checks.
+    pub(super) accept: Option<AcceptanceSeed>,
 }
 
 /// Unsupported keys are rejected with the sorted key list; name, model, and
@@ -272,6 +278,9 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
             "phase",
             "report",
             "budget",
+            "accept",
+            "accept_intent",
+            "accept_returns",
         ],
     )?;
     let why = optional_string_kwarg(&kwargs, "why", OPERATION)?.map(str::to_owned);
@@ -305,6 +314,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
     };
     let budget = named_budget(&kwargs, OPERATION)?;
+    let accept = spawn_acceptance(&kwargs, OPERATION)?;
     Ok(SpawnKwargs {
         why,
         name,
@@ -315,7 +325,118 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         phase,
         report,
         budget,
+        accept,
     })
+}
+
+/// The keys a check of `kind` takes (the `CheckSpec` wire shape); `None`
+/// for a kind that is no check.
+fn check_keys(kind: &str) -> Option<&'static [&'static str]> {
+    let keys: &'static [&'static str] = match kind {
+        "command" => &["kind", "command", "expect", "timeoutMs", "protect"],
+        "judge" => &["kind", "condition", "evidence", "model"],
+        "until" => &["kind", "command", "timeoutMs"],
+        "intent" => &["kind", "model"],
+        _ => return None,
+    };
+    Some(keys)
+}
+
+/// One check of `accept`: a `CheckSpec` object. A kernel's `snake_case`
+/// `timeout_ms` reads as the wire's `timeoutMs`; an unknown key, an
+/// unknown kind, or a check with no command or condition is refused.
+fn spawn_check(index: usize, item: &Value, operation: &str) -> anyhow::Result<CheckSpec> {
+    let what = format!("{operation} accept[{index}]");
+    let Value::Object(fields) = item else {
+        bail!("{what} must be a check object, e.g. {{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}");
+    };
+    let fields: Map<String, Value> = fields
+        .iter()
+        .map(|(key, value)| {
+            let key = if key == "timeout_ms" {
+                "timeoutMs"
+            } else {
+                key.as_str()
+            };
+            (key.to_owned(), value.clone())
+        })
+        .collect();
+    let kind = fields
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let Some(keys) = check_keys(&kind) else {
+        bail!("{what} kind must be \"command\", \"judge\", \"until\" or \"intent\"");
+    };
+    if let Some(key) = fields.keys().find(|key| !keys.contains(&key.as_str())) {
+        bail!(
+            "{what} has the unknown key {key:?}; a {kind} check takes {}",
+            keys.join(", ")
+        );
+    }
+    let check: CheckSpec = serde_json::from_value(Value::Object(fields))
+        .map_err(|error| anyhow!("{what} is not a {kind} check: {error}"))?;
+    let blank = match &check {
+        CheckSpec::Command { command, .. } | CheckSpec::Until { command, .. } => {
+            command.trim().is_empty().then_some("a command")
+        }
+        CheckSpec::Judge { condition, .. } => condition.trim().is_empty().then_some("a condition"),
+        CheckSpec::Intent { .. } => None,
+    };
+    if let Some(missing) = blank {
+        bail!("{what} needs {missing}");
+    }
+    Ok(check)
+}
+
+/// The checks `accept` (a list of `CheckSpec` objects), `accept_intent`
+/// (whether the intent check joins them; default true) and
+/// `accept_returns` (the most returns in a row to the child's worker)
+/// give the child's task; `None` without `accept`.
+fn spawn_acceptance(
+    kwargs: &Map<String, Value>,
+    operation: &str,
+) -> anyhow::Result<Option<AcceptanceSeed>> {
+    let given = |key: &str| kwargs.get(key).filter(|value| !value.is_null());
+    let Some(accept) = given("accept") else {
+        if let Some(key) = ["accept_intent", "accept_returns"]
+            .into_iter()
+            .find(|key| given(key).is_some())
+        {
+            bail!("{operation} {key} needs accept (the child's acceptance checks)");
+        }
+        return Ok(None);
+    };
+    let Value::Array(items) = accept else {
+        bail!("{operation} accept must be a list of checks, e.g. [{{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}]");
+    };
+    let checks = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| spawn_check(index, item, operation))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let intent = match given("accept_intent") {
+        None => true,
+        Some(Value::Bool(intent)) => *intent,
+        Some(_) => bail!("{operation} accept_intent must be a bool"),
+    };
+    let max_returns =
+        match given("accept_returns") {
+            None => None,
+            Some(value) => Some(value.as_u64().ok_or_else(|| {
+                anyhow!("{operation} accept_returns must be a non-negative integer")
+            })?),
+        };
+    let seed = AcceptanceSeed {
+        checks,
+        max_returns,
+        intent,
+    };
+    if seed.specs().is_empty() {
+        bail!("{operation} accept names no check: give a check, or leave accept_intent true");
+    }
+    Ok(Some(seed))
 }
 
 /// The spawn-name-unavailability error (TS
@@ -481,6 +602,7 @@ pub(super) async fn admit_spawns(
                     details: spec.details,
                     user_entries: spec.user_entries,
                     worker: spec.worker,
+                    accept: spec.kwargs.accept,
                 },
             )
         })
@@ -577,6 +699,10 @@ pub(super) async fn admit_spawns(
                         answer: None,
                         task: None,
                         worker: input.worker,
+                        acceptance: input
+                            .accept
+                            .as_ref()
+                            .map(|seed| RlmChildVerdict::pending(seed.specs().len())),
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
                     if let Some(limits) = budget {
@@ -895,6 +1021,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
             tool_use_count: None,
             replied_since_task: None,
             handback: row.handback.as_ref().map(HandbackOutcome::text),
+            acceptance: row.acceptance.as_ref().map(RlmChildVerdict::summary),
         };
     }
     RlmChildResult {
@@ -909,6 +1036,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
         tool_use_count: None,
         replied_since_task: None,
         handback: row.handback.as_ref().map(HandbackOutcome::text),
+        acceptance: row.acceptance.as_ref().map(RlmChildVerdict::summary),
     }
 }
 

@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_bend::rules::headless::{ExitCause, ExitFacts, Primary, RunEnd};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_core::durable::acceptance::{
+    acceptance_exit_code, acceptance_state, format_acceptance_status, seed_acceptance,
+};
 use eukhe_core::durable::goals::{
     autonomous_state, budget_report, configure_autonomous, seed_initial_goal,
 };
@@ -277,6 +280,9 @@ async fn daemon_acp_create(
     if let Some(budget) = config.budget {
         create_config["budget"] = serde_json::json!(budget);
     }
+    if let Some(acceptance) = &config.acceptance {
+        create_config["acceptance"] = serde_json::json!(acceptance);
+    }
     // Verification seam (the interactive mode's contract): a scripted daemon
     // session from a script FILE path. The product never sets it.
     if let Some(script) = std::env::var_os("EUKHE_FAUX_SCRIPT") {
@@ -315,6 +321,7 @@ async fn rpc_mode_main(options: &RunOptions) -> Result<i32, HeadlessModeError> {
             .initial_goal
             .as_ref()
             .map(|goal| (goal.objective.clone(), goal.token_budget.map(u64::from))),
+        acceptance: config.acceptance.clone(),
     })
     .await
     .map_err(HeadlessModeError::Rpc)
@@ -599,7 +606,15 @@ async fn run_prompts(
         | ExitCause::CompactionFailed
         | ExitCause::AutonomousFailed => {}
     }
-    Ok(i32::from(exit.code))
+    // "Done" is a claim: with acceptance checks the run exits 0 only when
+    // each is confirmed on the final state (`laws/verify.bend`); the label
+    // goes to stderr in both modes.
+    let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
+    if !acceptance.checks.is_empty() {
+        eprintln!("{}", format_acceptance_status(&acceptance));
+    }
+    let code = acceptance_exit_code(harness, conversation.id(), u64::from(exit.code), cx).await?;
+    Ok(i32::try_from(code).unwrap_or(1))
 }
 
 /// The prompt loop: each prompt, then the wait for quiescence.
@@ -627,6 +642,11 @@ async fn drive_prompts(
             cx,
         )
         .await?;
+    }
+    // The CLI `--accept-*` checks: this run counts as done only when each
+    // passes on the final state.
+    if let Some(acceptance) = &config.acceptance {
+        seed_acceptance(harness, conversation.id(), acceptance, &opened.cwd, cx).await?;
     }
     // The CLI `--goal` seed: a fresh conversation starts the goal (its
     // token budget goes on the session's budget) and queues its

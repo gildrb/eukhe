@@ -67,6 +67,7 @@ pub mod tool_call;
 pub mod tool_result;
 pub mod tool_surface;
 pub mod tui_color;
+pub mod verify;
 pub mod wait;
 pub mod wait_any;
 pub mod worker;
