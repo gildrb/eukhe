@@ -2,8 +2,6 @@ EUKHE
 ABOUT
 2026
 
-~*~ εὐχή: a wish, a prayer ~*~
-
 # ABOUT EUKHE
 
 Eukhe is a harness and embeddable core for agents that work toward a

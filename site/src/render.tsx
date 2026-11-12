@@ -146,7 +146,7 @@ const globalCss = [
   `.w2{display:inline-block;width:calc(2 * var(--cw));overflow:hidden;vertical-align:top}`,
 ].join("");
 
-/** The favicon: the header's cursor, one block, in each theme's `primary`. */
+/** The favicon: the cursor after the page's name, one block, in each theme's `primary`. */
 export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect x="9" y="4" width="14" height="24"/></svg>\n`;
 
 /** The first screen, as client.ts would paint it on any screen (paint.ts). */
@@ -269,7 +269,7 @@ function Page({
       </head>
       <body {...stylex.props(styles.body)}>
         <main {...stylex.props(styles.main)}>
-          <Markdown source={doc.markdown} back={doc !== home} />
+          <Markdown source={doc.markdown} header={doc !== home} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div
@@ -375,7 +375,7 @@ sandbox: use it in trusted repositories only.
 ## How to read this site
 
 - [Home page as Markdown](${origin}/index.md) (also \`Accept: text/markdown\` on ${origin}/):
-  Eukhe's README, with the site's header and epigraphs
+  Eukhe's README, with the site's epigraphs
 - [About](${origin}/about.md), [Contact](${origin}/contact.md), [Privacy](${origin}/privacy.md)
 - [Source](https://github.com/gildrb/eukhe), MIT license
 
@@ -408,8 +408,6 @@ function folderDoc(folder: string, paths: readonly string[]): Doc {
       folder.toUpperCase(),
       "2026",
       "",
-      "~*~ εὐχή: a wish, a prayer ~*~",
-      "",
       `# ${folder}`,
       "",
       ...sorted.map((child) => `- [${child}](/${folder}${child})`),
@@ -427,15 +425,15 @@ function folderDoc(folder: string, paths: readonly string[]): Doc {
 export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
   // The editor's files: the home page, the other pages, then eukhe's files.
   const editor = [
-    { path: "index.md", text: source, plain: false, back: false },
+    { path: "index.md", text: source, plain: false, header: false },
     ...docs.map((doc) => ({
       path: `${doc.path.slice(1)}.md`,
       text: doc.markdown,
       plain: false,
-      back: true,
+      header: true,
     })),
-    ...files.map((file) => ({ ...file, back: false })),
-  ].map((file) => editorFile(file.path, file.text, file.plain, file.back));
+    ...files.map((file) => ({ ...file, header: false })),
+  ].map((file) => editorFile(file.path, file.text, file.plain, file.header));
   // A page opens the editor on its own file: that file first (client.ts orders them the same way).
   const first = (path: string) => {
     const own = editor.filter((file) => file.path === path);

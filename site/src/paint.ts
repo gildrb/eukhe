@@ -101,7 +101,7 @@ const greekLetter = /[\u0370-\u03FF\u1F00-\u1FFF]/u;
 const latinLetter = /[A-Za-z\u00C0-\u024F]/u;
 
 /**
- * A line of Ancient Greek (an epigraph, the header's numerals): Greek letters and no Latin ones.
+ * A line of Ancient Greek (an epigraph): Greek letters and no Latin ones.
  * The page and the editor mark it `lang="grc" translate="no"`, so a browser neither takes the
  * page for Greek nor offers to translate it.
  */

@@ -2,8 +2,6 @@ EUKHE
 CONTACT
 2026
 
-~*~ εὐχή: a wish, a prayer ~*~
-
 # CONTACT
 
 Eukhe is made by Gil Rodrigues. The best way to reach him is by email

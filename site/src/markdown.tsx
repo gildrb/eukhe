@@ -10,9 +10,8 @@ import { colors, type } from "./tokens.stylex.ts";
  * `[data-l]` span (the vim cursor in `client.ts` counts on them). Left of a line, its number.
  */
 type Line =
-  | { $: "Header"; text: string; first: boolean; back: boolean }
-  | { $: "Motto"; text: string }
-  | { $: "Heading"; marker: string; text: string }
+  | { $: "Header"; text: string; first: boolean }
+  | { $: "Heading"; marker: string; text: string; title: boolean }
   | { $: "Quote"; text: string }
   | { $: "Fence"; text: string }
   | { $: "Code"; text: string }
@@ -24,29 +23,31 @@ type Line =
 type Entry = { n: number; line: Line };
 
 /**
- * The lines before the first blank one are the header, the next text line the motto; then
- * Markdown: headings, `>` quotes, fences, tables, text.
+ * Markdown: headings, `>` quotes, fences, tables, text. `header`: the site's own pages (all but the
+ * home page) start with a header, the lines before the first blank one, whose first line (the
+ * page's name) links home. A page without one (the home page: eukhe's README) is named by its
+ * first `# ` heading.
  */
-/** `back`: the first header line links home (every page but the home page). */
-function classify(source: string, plain: boolean, back: boolean): Entry[] {
+function classify(source: string, plain: boolean, header: boolean): Entry[] {
   const lines = source.split("\n");
   if (plain) return lines.map((text, index): Entry => ({ n: index + 1, line: { $: "Raw", text } }));
-  const headerEnd = lines.indexOf("");
-  const motto = lines.findIndex((text, index) => index > headerEnd && text !== "");
+  const headerEnd = header ? lines.indexOf("") : 0;
+  let named = header;
   let fenced = false;
   return lines.map((text, index): Entry => {
     const n = index + 1;
-    if (index < headerEnd)
-      return { n, line: { $: "Header", text, first: index === 0, back: back && index === 0 } };
-    if (index === motto) return { n, line: { $: "Motto", text } };
+    if (index < headerEnd) return { n, line: { $: "Header", text, first: index === 0 } };
     if (text.startsWith("```")) {
       fenced = !fenced;
       return { n, line: { $: "Fence", text } };
     }
     if (fenced) return { n, line: { $: "Code", text } };
     const heading = /^(#{1,6} )(.*)$/.exec(text);
-    if (heading?.[1] !== undefined && heading[2] !== undefined)
-      return { n, line: { $: "Heading", marker: heading[1], text: heading[2] } };
+    if (heading?.[1] !== undefined && heading[2] !== undefined) {
+      const title = !named && heading[1] === "# ";
+      if (title) named = true;
+      return { n, line: { $: "Heading", marker: heading[1], text: heading[2], title } };
+    }
     if (text.startsWith("> ")) return { n, line: { $: "Quote", text: text.slice(2) } };
     if (text.startsWith("|")) return { n, line: { $: "Table", text } };
     return { n, line: { $: "Text", text } };
@@ -115,36 +116,36 @@ function tableRow(text: string): ComponentChildren {
     .map((cell) => (cell === "|" ? <span {...stylex.props(styles.muted)}>|</span> : cell));
 }
 
+/** After the page's name: without the script, the blinking cursor of a terminal; with it, the vim cursor. */
+function deco(): ComponentChildren {
+  return <span aria-hidden="true" data-deco="" {...stylex.props(styles.deco)} />;
+}
+
 function content(item: Line): ComponentChildren {
   switch (item.$) {
     case "Header":
       return item.first
         ? [
             <h1 {...stylex.props(styles.title)}>
-              {item.back ? (
-                <a href="/" {...stylex.props(styles.link)}>
-                  {item.text}
-                </a>
-              ) : (
-                item.text
-              )}
+              <a href="/" {...stylex.props(styles.link)}>
+                {item.text}
+              </a>
             </h1>,
-            // Without the script: the blinking cursor of a terminal. With it, the vim cursor.
-            <span aria-hidden="true" data-deco="" {...stylex.props(styles.deco)} />,
+            deco(),
           ]
         : item.text;
-    case "Motto":
     case "Text":
       return inline(item.text);
     case "Heading": {
       // The page name is the <h1>; `#` sections are <h2>, deeper ones <h3>.
-      const Tag = item.marker.length === 2 ? "h2" : "h3";
-      return (
+      const Tag = item.title ? "h1" : item.marker.length === 2 ? "h2" : "h3";
+      const heading = (
         <Tag {...stylex.props(styles.heading)}>
           <span {...stylex.props(styles.muted)}>{item.marker}</span>
           {item.text}
         </Tag>
       );
+      return item.title ? [heading, deco()] : heading;
     }
     case "Quote":
       return [<span {...stylex.props(styles.muted)}>{"> "}</span>, inline(item.text)];
@@ -339,14 +340,13 @@ function lineRuns(item: Line): Run[] {
   switch (item.$) {
     case "Header": {
       const to = cellCount(item.text);
-      return item.back
+      return item.first
         ? [
             { from: 0, to, hl: "title" },
             { from: 0, to, hl: "link", href: "/" },
           ]
         : [{ from: 0, to, hl: "title" }];
     }
-    case "Motto":
     case "Text":
       return inlineRuns(item.text, 0);
     case "Heading": {
@@ -394,10 +394,10 @@ export function editorFile(
   path: string,
   source: string,
   plain: boolean,
-  back: boolean,
+  header: boolean,
 ): EditorFile {
   const text = source.replace(/\n$/, "");
-  const entries = classify(text, plain, back);
+  const entries = classify(text, plain, header);
   return {
     path,
     lines: text.split("\n"),
@@ -407,8 +407,8 @@ export function editorFile(
 }
 
 /** The page (and the 404 page) as Markdown, for phones and browsers without the script. */
-export function Markdown({ source, back }: { source: string; back: boolean }) {
-  const entries = classify(source.replace(/\n$/, ""), false, back);
+export function Markdown({ source, header }: { source: string; header: boolean }) {
+  const entries = classify(source.replace(/\n$/, ""), false, header);
   const headerChars = Math.max(
     0,
     ...entries.map((entry) => (entry.line.$ === "Header" ? entry.line.text.length + 2 : 0)),

@@ -2,8 +2,6 @@ EUKHE
 PRIVACY
 2026
 
-~*~ εὐχή: a wish, a prayer ~*~
-
 # PRIVACY
 
 ## THIS SITE
