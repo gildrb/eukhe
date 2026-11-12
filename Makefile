@@ -131,12 +131,14 @@ RUNTIME_DIR ?=
 RUNTIME_FLAG = $(if $(RUNTIME_DIR),--runtime-dir $(RUNTIME_DIR),)
 
 # Bundled catalog assets (catalog spec §3.2 layer 2): generated at build
-# time, never committed. The release workflow fetches the catalog commit
-# pinned in scripts/release/catalog-pin.json and checks each file's sha256
-# (`--network`). The local dry-runs default to the offline fixture snapshot
-# (it passes the full packer gates: >= 42 transport tuples, >= 68 services);
-# CATALOG_ASSETS_MODE=network switches them to the pinned fetch for
-# packaging parity.
+# time, never committed. The models asset is always made offline from the
+# pinned models.dev snapshot in crates/eukhe-models/catalog
+# (scripts/release/models_dev.py). The release workflow fetches the MCP
+# services at the catalog commit pinned in scripts/release/catalog-pin.json
+# and checks its sha256 (`--network`). The local dry-runs default to the
+# synthetic services fixture (it passes the full packer gates: >= 20
+# transport tuples, >= 68 services); CATALOG_ASSETS_MODE=network switches
+# them to the pinned fetch for packaging parity.
 CATALOG_ASSETS_DIR = target/catalog-assets
 CATALOG_ASSETS_MODE ?= fixture
 CATALOG_ASSETS_FLAG = --catalog-assets $(CATALOG_ASSETS_DIR)
@@ -176,17 +178,26 @@ RELEASE_CARGO_BUILD = SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" RUSTFLAGS=
 catalog-assets:
 	python3 scripts/release/bundle_catalog.py generate --network --out $(CATALOG_ASSETS_DIR)
 
-# Offline asset generation: the synthetic full-gate fixture snapshot.
+# Offline asset generation: the synthetic full-gate services fixture.
 catalog-assets-fixture:
 	python3 scripts/release/bundle_catalog.py generate --fixture --out $(CATALOG_ASSETS_DIR)
 
 # Move the catalog pin (scripts/release/catalog-pin.json) to the catalog
 # repo's current CATALOG_REF (default main): resolves the commit, fetches
-# both files at it, runs the full validation gates, and records the commit
-# and both sha256. Review the diff before committing it.
+# the services file at it, runs the full validation gates, and records the
+# commit and its sha256. Review the diff before committing it.
 CATALOG_REF ?= main
 catalog-pin:
 	python3 scripts/release/bundle_catalog.py pin --ref $(CATALOG_REF)
+
+# Move the models.dev snapshot (crates/eukhe-models/catalog) to MODELS_DEV_REF
+# (default main; needs git and bun): builds models.dev's v1 API at that
+# commit, rewrites the snapshot and its pin (commit, date, sha256), and
+# regenerates the catalog fixture. Review the diff before committing it.
+MODELS_DEV_REF ?= main
+models-dev-pin:
+	python3 scripts/release/models_dev.py refresh --commit $(MODELS_DEV_REF)
+	python3 scripts/generate-catalog-fixture.py
 
 release-dry-run:
 	$(RELEASE_CARGO_BUILD)
@@ -215,13 +226,15 @@ package:
 	python3 scripts/release/bundle_catalog.py generate --$(CATALOG_ASSETS_MODE) --out $(CATALOG_ASSETS_DIR)
 	python3 scripts/package_release.py $(RELEASE_PACKAGE_FLAGS) $(CATALOG_ASSETS_FLAG)
 
-# Bundled-catalog gates (scripts/release/test_catalog_assets.py): the
-# offline fixture passes the full packer validation, the packer hard-fails
-# on missing/invalid assets, network mode is verified against a local HTTP
-# server (including the pinned-sha256 check), and the assets land in the
-# tarball layout the binary expects.
+# Bundled-catalog gates (scripts/release/test_catalog_assets.py and
+# test_models_dev.py): the offline fixture passes the full packer
+# validation, the packer hard-fails on missing/invalid assets, network mode
+# is verified against a local HTTP server (including the pinned-sha256
+# check), the assets land in the tarball layout the binary expects, and the
+# models.dev mapping and its committed fixture agree.
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
+	python3 scripts/release/test_models_dev.py
 
 # Eukhe's package lock: eukhe-runtime/uv.lock (the `kernel` group, resolved
 # for the pinned Python of eukhe-runtime/kernel-toolchain.json) exported to
@@ -285,4 +298,4 @@ site-check:
 site-deploy:
 	cd site && npm ci --no-audit --no-fund && npm run deploy
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick site-check site-deploy
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick site-check site-deploy

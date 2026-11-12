@@ -178,9 +178,9 @@ fn catalog_fields(model: &Value) -> Value {
         .into()
 }
 
-/// The pinned catalog snapshot (the eukhe-models parity fixture) has no
-/// Claude Haiku 5.5; the compiled catalog has it. With that snapshot as
-/// the install's bundled catalog, the `/model` list of an Anthropic login
+/// The bundled catalog (the eukhe-models parity fixture) carries no model
+/// the compiled catalog has, Claude Haiku 5.5 among them. With it as the
+/// install's bundled catalog, the `/model` list of an Anthropic login
 /// still has the model, as the compiled catalog defines it.
 #[test]
 fn a_bundle_without_a_compiled_model_still_lists_it() {
