@@ -7,9 +7,12 @@
 #   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate
 #                                 (< 1 min): rustfmt, the crate layering
 #                                 (scripts/check_crate_layers.py), the
-#                                 secrets scan of the staged diff, and
-#                                 clippy on the crates the staged change
-#                                 touches.
+#                                 secrets scan of the staged diff, the
+#                                 embedded JavaScript against its
+#                                 TypeScript sources (when the staged
+#                                 change touches a .ts or .js file under
+#                                 crates/), and clippy on the crates the
+#                                 staged change touches.
 #   scripts/ci_local.sh pre-push  the pre-push gate (< 5 min), on the pushed
 #                                 commits (PRE_COMMIT_FROM_REF..
 #                                 PRE_COMMIT_TO_REF, from prek), in this
@@ -17,7 +20,8 @@
 #                                 clippy and the unit tests (nextest profile
 #                                 pre-push: no e2e suite) of the crates they
 #                                 touch, the proofs their Bend change can
-#                                 reach (scripts/bend_proofs.py), and the
+#                                 reach (scripts/bend_proofs.py), the
+#                                 embedded JavaScript (as in fast), and the
 #                                 laws against LAWS.lock. No lock: every
 #                                 worktree pushes at any time.
 #   scripts/ci_local.sh full      `make ci-local`, the nightly gate
@@ -31,9 +35,9 @@
 #
 # Each gate prints its name; a failed gate prints `ci-<mode>: gate <name>
 # FAILED` and the script stops with its exit code. The full gate runs the
-# Rust lane (clippy, tests) and the other lane (secrets, deny, laws,
-# runtime tests, dashboard UI) at the same time; the second lane's log
-# prints when it ends.
+# Rust lane (clippy, tests) and the other lane (secrets, deny, laws, the
+# embedded JavaScript, runtime tests, dashboard UI) at the same time; the
+# second lane's log prints when it ends.
 #
 # A failed test runs once more (.config/nextest.toml, retries = 1): a pass
 # then is flaky, named as `  flaky: <test>`, and does not fail the gate (the
@@ -233,6 +237,26 @@ tests_touched() {
   clean_env cargo nextest run "${SELECTED[@]}" "${targets[@]}" --locked --profile pre-push --no-tests=pass
 }
 
+# The embedded JavaScript against its TypeScript sources (`make
+# embedded-js-check`: crates/eukhe-dashboard/ui/scripts/embedded-js.ts),
+# when a change touches a .ts or .js file under crates/, a tsconfig.json
+# there, or the dashboard UI's locked packages (the generator's tools).
+embedded_js() {
+  local path old p hit=1
+  while IFS=$'\t' read -r path old; do
+    for p in "${path}" "${old}"; do
+      case "${p}" in
+        crates/*.ts | crates/*.js | crates/*/tsconfig.json | crates/eukhe-dashboard/ui/package-lock.json) hit=0 ;;
+      esac
+    done
+  done <<<"$1"
+  if (( hit )); then
+    echo "embedded js skipped: no TypeScript source or generated file changed"
+    return 0
+  fi
+  make --no-print-directory embedded-js-check
+}
+
 # The proofs a Bend change can reach (scripts/bend_proofs.py: the proof
 # files whose import closure holds a changed file), from the commit $2.
 proofs() {
@@ -350,6 +374,7 @@ side_lane() {
   gate laws laws
   gate runtime-test make --no-print-directory runtime-test
   gate nix-test make --no-print-directory nix-test
+  gate "embedded js" make --no-print-directory embedded-js-check
   gate dashboard-ui dashboard_ui
 }
 
@@ -359,6 +384,7 @@ case "${mode}" in
     gate fmt cargo fmt --all --check
     gate "crate layers" python3 scripts/check_crate_layers.py .
     gate secrets secrets_staged
+    gate "embedded js" embedded_js "$(change_rows --cached)"
     gate "clippy (touched crates)" clippy_touched "$(change_rows --cached)"
     ;;
   full)
@@ -367,7 +393,7 @@ case "${mode}" in
     # worktree's path is the same every night). clean_env passes it on.
     export CARGO_INCREMENTAL=0
     start=${SECONDS}
-    gate tools check_tools cargo cargo-nextest uv npm python3 cargo-deny jq
+    gate tools check_tools cargo cargo-nextest uv node npm python3 cargo-deny jq
     gate "bend version" check_bend
     gate "lean version" check_lean
     gate fmt cargo fmt --all --check
@@ -390,7 +416,7 @@ case "${mode}" in
     wait "${side}"
     side_rc=$?
     set -e
-    echo "==> ci-full: secrets, deny, laws, runtime-test, nix-test, dashboard-ui log"
+    echo "==> ci-full: secrets, deny, laws, runtime-test, nix-test, embedded js, dashboard-ui log"
     cat "${log}"
     rm -f "${log}"
     echo "ci-full: $((SECONDS - start))s"
@@ -427,6 +453,7 @@ case "${mode}" in
     fi
     gate "clippy (touched crates)" clippy_touched "${rows}"
     gate proofs proofs "${rows}" "${base}"
+    gate "embedded js" embedded_js "${rows}"
     gate "laws lock" laws_lock "${rows}"
     gate "tests (touched crates)" tests_touched "${rows}"
     ;;

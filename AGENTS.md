@@ -24,6 +24,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Crates are prefixed `eukhe-`; one owned area per crate. `eukhe-types` is the only shared vocabulary crate. Dependency direction: Crates table. Minimal public APIs; no god-modules.
 - Private modules, explicit public crate API; internals `pub(crate)`.
 - Rust and TypeScript files under 2,000 lines, tests included. Split by responsibility; move related tests with extracted code. Bend files: a file past 1,000 lines of laws, proofs or code becomes a folder (the layout above); `LAWS.bend` and `PROOF.bend` hold only imports, at any length.
+- No hand-written JavaScript. The scripts eukhe embeds (`include_str!`, the dashboard's `public/` scripts) are TypeScript sources with the generated JavaScript committed beside them, never hand-edited: `make embedded-js` regenerates it, `make embedded-js-check` fails on a type error or a stale file (the list: `crates/eukhe-dashboard/ui/scripts/embedded-js.ts`). Vendored third-party scripts stay as shipped.
 - Name modules for what they own, never `utils`/`common`. Follow existing structure: `crates/eukhe-core/src/kernel/manager/` (`mod.rs` connects `execution.rs`, `requests.rs`, `teardown.rs`); `crates/eukhe-core/src/cron/store/` (`heartbeat.rs`, `jobs.rs`, `session_artifacts.rs`).
 - Inline format args: `format!("{x}")`.
 - Collapse `if` statements (clippy::collapsible_if).

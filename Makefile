@@ -13,12 +13,15 @@ check:
 # The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
 # here. ci-fast is the pre-commit gate (< 1 min): rustfmt, the crate
 # layering (scripts/check_crate_layers.py), the secrets scan of the staged
-# diff (when gitleaks is installed), clippy on the crates the staged change
+# diff (when gitleaks is installed), the embedded JavaScript against its
+# TypeScript sources (embedded-js-check, when the staged change touches a
+# .ts or .js file under crates/), clippy on the crates the staged change
 # touches (scripts/ci_pr_crates.py). The pre-push gate
 # (< 5 min) checks the pushed commits: rustfmt, their secrets scan, clippy
 # and the unit tests (nextest profile pre-push, .config/nextest.toml: no
 # e2e suite) of the crates they touch, the proofs their Bend change can
-# reach (scripts/bend_proofs.py), the laws against LAWS.lock. ci-local is
+# reach (scripts/bend_proofs.py), the embedded JavaScript, the laws against
+# LAWS.lock. ci-local is
 # the full gate (< 30 min): every test (nextest profile nightly) and `bend
 # PROOF.bend --verdict`; the nightly run (scripts/ci_nightly.sh, a systemd
 # user timer) runs it on origin/main and starts the release only when it
@@ -77,6 +80,25 @@ bend-core:
 
 bend-core-check:
 	BEND_BIN="$$(scripts/pinned_bend.sh)" && export BEND_BIN && python3 scripts/bend_core.py check
+
+# The JavaScript the crates embed (include_str!) and the dashboard's
+# public/ scripts are generated from TypeScript sources and committed; the
+# list is in crates/eukhe-dashboard/ui/scripts/embedded-js.ts.
+# embedded-js type-checks the sources and regenerates every file;
+# embedded-js-check fails on a type or lint error in a source and when a
+# committed file differs from what its source generates. Run embedded-js
+# after every change to a source (then dashboard-ui for a public/ one).
+# Both use the dashboard UI's locked packages (oxc, oxlint).
+EMBEDDED_JS_DEPS = crates/eukhe-dashboard/ui/node_modules/.package-lock.json
+
+$(EMBEDDED_JS_DEPS): crates/eukhe-dashboard/ui/package-lock.json
+	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund
+
+embedded-js: $(EMBEDDED_JS_DEPS)
+	cd crates/eukhe-dashboard/ui && node scripts/embedded-js.ts generate
+
+embedded-js-check: $(EMBEDDED_JS_DEPS)
+	cd crates/eukhe-dashboard/ui && node scripts/embedded-js.ts check
 
 # The token blocks of crates/eukhe-dashboard/ui/src/tokens.stylex.ts, as
 # the compiled core writes them from bend/tokens.bend (run bend-core first).
@@ -298,4 +320,4 @@ site-check:
 site-deploy:
 	cd site && npm ci --no-audit --no-fund && npm run deploy
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick site-check site-deploy
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui bench-build bench bench-quick site-check site-deploy

@@ -1,0 +1,46 @@
+{
+  "$schema": "../node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc"],
+  "categories": { "correctness": "error" },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+    "typescript/consistent-type-definitions": ["error", "type"],
+    "typescript/ban-ts-comment": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    // Unused locals and parameters are the compiler's (noUnusedLocals, noUnusedParameters): a
+    // script's top-level functions are its API, used by what the host runs after it.
+    "no-unused-vars": "off"
+  },
+  "overrides": [
+    {
+      // The VM glue evaluates to a function: the whole script is one expression (vm.rs `setup`).
+      // It captures built-ins before a script can replace them and calls them with an explicit
+      // `this`; it turns any thrown or printed value into text with String(); and `run` hands
+      // the script's promise both handlers, keeping nothing of the result.
+      "files": ["**/codemode/sandbox/*.ts"],
+      "rules": {
+        "no-unused-expressions": "off",
+        "typescript/unbound-method": "off",
+        "typescript/no-base-to-string": "off",
+        "typescript/no-floating-promises": "off"
+      }
+    },
+    {
+      // install: skipWaiting() settles once the worker activates; the event waits for nothing.
+      "files": ["**/public-src/sw/sw.ts"],
+      "rules": { "typescript/no-floating-promises": "off" }
+    },
+    {
+      // copyToClipboard catches every error itself: its promise never rejects.
+      "files": ["**/export-html/template.ts"],
+      "rules": {
+        "typescript/no-floating-promises": [
+          "error",
+          { "allowForKnownSafeCalls": [{ "from": "file", "name": "copyToClipboard" }] }
+        ]
+      }
+    }
+  ]
+}
