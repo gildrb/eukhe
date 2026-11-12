@@ -1,10 +1,22 @@
 {
   description = "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Only the checks use it (the Home Manager module's evaluation and
+    # build); a flake that takes eukhe as an input never fetches it.
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      home-manager,
+    }:
     let
       inherit (nixpkgs) lib;
       # The release targets this nixpkgs still evaluates.
@@ -18,6 +30,15 @@
       # archive URL and SRI hash per system. Empty `assets` (no release in
       # the current layout yet) builds every system from source.
       release = lib.importJSON ./nix/release.json;
+      checks = import ./nix/checks.nix {
+        inherit
+          self
+          nixpkgs
+          home-manager
+          lib
+          systems
+          ;
+      };
     in
     {
       packages = forAllSystems (
@@ -52,8 +73,8 @@
 
       # The build inputs of the source package plus the tools the gates
       # (scripts/ci_local.sh) and the tiny-model worker need at run time.
-      # Rust is nixpkgs' rustc (rust-toolchain.toml pins the same
-      # release). Lean (bend --verdict) is not here:
+      # Rust is nixpkgs' rustc, which checks.eval holds to the version
+      # rust-toolchain.toml pins. Lean (bend --verdict) is not here:
       # scripts/toolchain.env pins a Lean release nixpkgs does not carry.
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
@@ -84,6 +105,8 @@
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
+
+      checks = forAllSystems (pkgs: checks pkgs);
 
       overlays.default = final: _prev: {
         eukhe = self.packages.${final.stdenv.hostPlatform.system}.default;
