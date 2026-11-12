@@ -416,7 +416,7 @@ const WAIT_AND_KILL: &str = "results = await rlm.collect(\"kid\", timeout_ms=600
 
 fn tool_call(code: &str) -> Value {
     json!({ "content": [
-        { "type": "toolCall", "name": "ipython", "arguments": { "code": code } },
+        { "type": "toolCall", "name": "python", "arguments": { "code": code } },
     ] })
 }
 

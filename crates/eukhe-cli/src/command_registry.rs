@@ -521,7 +521,7 @@ way a local model gets installed.",
         "Fetch the kernel's Python now, check it, or lock a package for the project",
     )
     .description(
-        "The Python kernel (the ipython tool) runs on one pinned CPython, the same on every machine. \
+        "The Python kernel (the python tool) runs on one pinned CPython, the same on every machine. \
 Eukhe fetches it into ~/.eukhe/kernel by itself the first time a kernel starts (its own pinned uv, \
 then the Python; each download is checked against its pinned sha256), so nothing has to be \
 installed: `kernel install` does that fetch now (before going offline) and prints each stage; a \

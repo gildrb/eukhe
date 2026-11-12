@@ -490,14 +490,14 @@ mod tests {
     #[test]
     fn repeated_same_tool_calls_pair_by_index() {
         let messages = vec![
-            assistant_with_tool_calls(&[("c1", "ipython", "a"), ("c2", "ipython", "b")]),
-            tool_result("first output", "ipython", false, "c1"),
-            tool_result("second output", "ipython", true, "c2"),
+            assistant_with_tool_calls(&[("c1", "python", "a"), ("c2", "python", "b")]),
+            tool_result("first output", "python", false, "c1"),
+            tool_result("second output", "python", true, "c2"),
         ];
         let expected = [
-            "[Assistant tool calls]: #1 ipython(code=\"a\"); #2 ipython(code=\"b\")",
-            "[Tool result (ipython) #1]: first output",
-            "[Tool result (ipython, error) #2]: second output",
+            "[Assistant tool calls]: #1 python(code=\"a\"); #2 python(code=\"b\")",
+            "[Tool result (python) #1]: first output",
+            "[Tool result (python, error) #2]: second output",
         ]
         .join("\n\n");
         assert_eq!(serialize_conversation(&messages), expected);
@@ -510,11 +510,11 @@ mod tests {
     fn orphan_tool_result_falls_back_to_the_name_only_label() {
         let messages = vec![
             assistant_with_tool_calls(&[("c1", "bash", "ls")]),
-            tool_result("orphan output", "ipython", false, "tc-orphan"),
+            tool_result("orphan output", "python", false, "tc-orphan"),
         ];
         let expected = [
             "[Assistant tool calls]: #1 bash(code=\"ls\")",
-            "[Tool result (ipython)]: orphan output",
+            "[Tool result (python)]: orphan output",
         ]
         .join("\n\n");
         assert_eq!(serialize_conversation(&messages), expected);

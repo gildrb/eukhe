@@ -698,7 +698,7 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
         ...session,
         notes: note(session, "error", `Refinement failed: ${event.error}`, now),
       };
-    case "ipython_sent_agent_message":
+    case "python_sent_agent_message":
       return {
         ...session,
         notes: note(session, "note", "The Python kernel sent the agent a message.", now),

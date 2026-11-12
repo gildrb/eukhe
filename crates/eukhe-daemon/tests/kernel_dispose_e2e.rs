@@ -182,7 +182,7 @@ impl Client {
     }
 }
 
-/// A faux script whose single turn runs one ipython cell that writes a
+/// A faux script whose single turn runs one python cell that writes a
 /// receipt: the turn proves the session built and its kernel executed
 /// real code (the create-time prewarm alone is not enough evidence).
 /// `cell_tail` runs in the same cell after the receipt write.
@@ -201,7 +201,7 @@ fn write_faux_script(dir: &Path, cell_tail: &str) -> PathBuf {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": {
+                    { "type": "toolCall", "name": "python", "arguments": {
                         "code": cell,
                     } },
                 ] },

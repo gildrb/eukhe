@@ -1,4 +1,4 @@
-//! Python syntax highlighting for expanded ipython cells, a display-side
+//! Python syntax highlighting for expanded python cells, a display-side
 //! port of the TS `highlightCode("python")` path (the highlight.js python
 //! grammar through cli-highlight's theme mapping). Cell-level scope coloring
 //! only: cli-highlight's parent-scope wrap is invisible once a child token
@@ -17,7 +17,7 @@ use crate::{Line, Span};
 /// The resolved `syntax*` theme colors the scopes render with (TS
 /// `buildCliHighlightTheme`'s mapping of the highlight.js token classes to
 /// the theme's `syntax*` keys). Shared by every surface that renders
-/// highlighted code (the expanded ipython cell, the fenced markdown block).
+/// highlighted code (the expanded python cell, the fenced markdown block).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SyntaxPalette {
     pub keyword: Style,

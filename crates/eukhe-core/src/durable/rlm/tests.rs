@@ -1,4 +1,4 @@
-//! `eukhe.rlm` on a durable Harness: the `ipython` tool streaming to the
+//! `eukhe.rlm` on a durable Harness: the `python` tool streaming to the
 //! live observers, abort, crash recovery with a revived namespace, and host
 //! requests routed with the call context. These run a real Python kernel
 //! built from this checkout's runtime.
@@ -77,7 +77,7 @@ impl Fixture {
     }
 
     /// Open with `configure` applied to the config last. The session's
-    /// approver approves every question (an `ipython` cell asks unless
+    /// approver approves every question (an `python` cell asks unless
     /// `exec` is in the auto set).
     pub(crate) async fn open_configured(
         &self,
@@ -118,13 +118,13 @@ impl Fixture {
     }
 }
 
-pub(crate) fn ipython(call_id: &str, code: &str) -> FauxResponseStep {
+pub(crate) fn python(call_id: &str, code: &str) -> FauxResponseStep {
     let Value::Object(arguments) = json!({ "code": code }) else {
         unreachable!("an object literal");
     };
     faux_assistant_message(
         vec![faux_tool_call(
-            "ipython",
+            "python",
             arguments.into_iter().collect::<JsonObject>(),
             Some(call_id.to_owned()),
         )],
@@ -293,7 +293,7 @@ pub(crate) async fn wait_for_live_output(live: &LiveOutput, output: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipython_result() {
+async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_python_result() {
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("gate");
@@ -303,7 +303,7 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
     );
     fixture
         .faux
-        .set_responses(vec![ipython("c1", &code), text("done")]);
+        .set_responses(vec![python("c1", &code), text("done")]);
     let session = fixture.open().await;
     let live = live_output(&session).await;
     let id = submit(&session, "go").await;
@@ -311,7 +311,7 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
     wait_for_live_output(&live, "streamed\n").await;
     // The durable slot says the call runs; its output is never stored.
     let slot = first_slot(&session).await.expect("a running slot");
-    assert_eq!((slot.name.as_str(), slot.output), ("ipython", None));
+    assert_eq!((slot.name.as_str(), slot.output), ("python", None));
     std::fs::write(&gate, "").expect("open the gate");
 
     assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
@@ -340,7 +340,7 @@ async fn a_call_that_showed_startup_stages_publishes_running_before_its_output()
     let code = gated_cell(&gate, "None");
     fixture
         .faux
-        .set_responses(vec![ipython("c1", &code), text("done")]);
+        .set_responses(vec![python("c1", &code), text("done")]);
     let session = fixture.open().await;
     let live = live_output(&session).await;
     let id = submit(&session, "go").await;
@@ -378,7 +378,7 @@ async fn long_cell_output_keeps_its_end_and_spills_the_whole_to_an_artifact() {
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
-        ipython(
+        python(
             "c1",
             "for i in range(5000):\n    print(i)\nraise ValueError('the end')",
         ),
@@ -418,7 +418,7 @@ async fn a_huge_result_value_reaches_the_artifact_whole() {
     let fixture = Fixture::new();
     fixture
         .faux
-        .set_responses(vec![ipython("c1", "'a' * 1_500_000 + 'z'"), text("done")]);
+        .set_responses(vec![python("c1", "'a' * 1_500_000 + 'z'"), text("done")]);
     let session = fixture.open().await;
     let id = submit(&session, "go").await;
     assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
@@ -442,7 +442,7 @@ async fn a_huge_result_value_reaches_the_artifact_whole() {
 async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
-    fixture.faux.set_responses(vec![ipython(
+    fixture.faux.set_responses(vec![python(
         "c1",
         "import time\nprint('started', flush=True)\ntime.sleep(120)",
     )]);
@@ -471,7 +471,7 @@ async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
     // The interrupt left the kernel idle: the next cell runs at once.
     fixture
         .faux
-        .set_responses(vec![ipython("c2", "print(20 + 22)"), text("done")]);
+        .set_responses(vec![python("c2", "print(20 + 22)"), text("done")]);
     let next = submit(&session, "again").await;
     assert_eq!(settle(&session, next).await, SubmissionStatus::Done);
     let all = results(&entries(&session).await);
@@ -486,7 +486,7 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
-        ipython("c1", "import os\nx = 41\nprint(os.getpid())"),
+        python("c1", "import os\nx = 41\nprint(os.getpid())"),
         text("set"),
     ]);
     let session = fixture.open().await;
@@ -519,11 +519,11 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     .await;
 
     fixture.faux.set_responses(vec![
-        ipython(
+        python(
             "c2",
             "import time\nprint('started', flush=True)\ntime.sleep(120)",
         ),
-        ipython("c3", "print(x + 1)"),
+        python("c3", "print(x + 1)"),
         text("done"),
     ]);
     let live = live_output(&session).await;
@@ -558,7 +558,7 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     // interrupted answer holds only what is durable.
     assert_eq!(
         result_text(&results[1]),
-        "<harness>\n[error] Tool ipython was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
+        "<harness>\n[error] Tool python was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
     );
     assert_eq!(results[2].tool_call_id, "c3");
     assert_eq!(result_text(&results[2]), "42\n");
@@ -590,7 +590,7 @@ async fn host_requests_reach_their_handlers_with_the_running_tool_call() {
     let code = "import rlm, json\nprobe = await rlm.host_request('test.probe', {'n': 1})\ninfo = await rlm.host_request('model.info')\nprint(json.dumps([probe, info['provider'], info['id']]))";
     fixture
         .faux
-        .set_responses(vec![ipython("c1", code), text("done")]);
+        .set_responses(vec![python("c1", code), text("done")]);
     let session = fixture.open().await;
     let seen: Arc<Mutex<Vec<SeenCall>>> = Arc::default();
     let record = Arc::clone(&seen);
@@ -645,7 +645,7 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
     })
     .to_string();
     fixture.faux.set_responses(vec![
-        ipython("c1", code),
+        python("c1", code),
         // The refinement planner's request, made by the after_tools hook.
         text(&proposal),
         text("done"),
@@ -753,7 +753,7 @@ async fn kernel_bash_activity_reaches_the_booted_kernel() {
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
-        ipython("c1", "handle = bash('sleep 30')\nprint(handle.pid > 0)"),
+        python("c1", "handle = bash('sleep 30')\nprint(handle.pid > 0)"),
         text("done"),
     ]);
     let session = fixture.open().await;
@@ -895,7 +895,7 @@ fn process_alive(pid: i32) -> bool {
 }
 
 /// The daemon's prewarm (TS `prewarmIpythonKernel`): a top-level session
-/// that asks for it boots its kernel at open with no `ipython` call, so a
+/// that asks for it boots its kernel at open with no `python` call, so a
 /// compaction with no tool use still lands the hidden `ipython_state`
 /// notice (the `kernel_prewarm` contract on the durable pool).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1084,7 +1084,7 @@ async fn a_cell_past_the_blocking_budget_detaches_and_its_end_settles_the_job() 
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("gate");
     fixture.faux.set_responses(vec![
-        ipython("c1", &gated_cell(&gate, "print('finished')\n6 * 7")),
+        python("c1", &gated_cell(&gate, "print('finished')\n6 * 7")),
         text("the cell runs on as a job"),
     ]);
     let (session, mut settled) = open_with_budget(&fixture).await;
@@ -1138,7 +1138,7 @@ async fn a_waited_job_is_delivered_by_the_wait_alone() {
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("gate");
     fixture.faux.set_responses(vec![
-        ipython("c1", &gated_cell(&gate, "print('finished')")),
+        python("c1", &gated_cell(&gate, "print('finished')")),
         text("the cell runs on as a job"),
     ]);
     let (session, mut settled) = open_with_budget(&fixture).await;
@@ -1205,8 +1205,8 @@ async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the
     let fixture = Fixture::new();
     let gate = fixture.dir.path().join("never-opened");
     fixture.faux.set_responses(vec![
-        ipython("c1", &gated_cell(&gate, "")),
-        ipython("c2", "print('second')"),
+        python("c1", &gated_cell(&gate, "")),
+        python("c2", "print('second')"),
         text("both returned"),
     ]);
     let (session, mut settled) = open_with_budget(&fixture).await;
@@ -1234,7 +1234,7 @@ async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the
 
     fixture
         .faux
-        .set_responses(vec![ipython("c3", "print(20 + 22)"), text("done")]);
+        .set_responses(vec![python("c3", "print(20 + 22)"), text("done")]);
     let next = submit(&session, "again").await;
     assert_eq!(settle(&session, next).await, SubmissionStatus::Done);
     let all = results(&entries(&session).await);

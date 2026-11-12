@@ -249,7 +249,7 @@ async fn each_restore_notice_shows_once_across_reconnects() {
         serde_json::json!({
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": "x = 41\nclass Boom:\n    def __reduce__(self):\n        return (eval, ('1/0',))\ny = Boom()" } },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": "x = 41\nclass Boom:\n    def __reduce__(self):\n        return (eval, ('1/0',))\ny = Boom()" } },
                 ] },
                 { "text": "x is set" },
             ],

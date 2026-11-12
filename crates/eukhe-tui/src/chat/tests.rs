@@ -425,10 +425,10 @@ fn code_block_indent_rides_the_render_calls() {
 }
 
 #[test]
-fn ipython_card_done_line() {
+fn python_card_done_line() {
     let card = ToolCallCard {
         id: "toolu_1".into(),
-        name: "ipython".into(),
+        name: "python".into(),
         args: serde_json::json!({ "code": "print('visual parity ok')" }),
         started: true,
         result: Some(ToolResultView {

@@ -1601,7 +1601,7 @@ import ./proof/child_env/env_ffi_spelled.bend as PEnvFfiSpelled
 import ./proof/child_env/env_ffi_spec_example.bend as PEnvFfiSpecExample
 import ./proof/runners/base.bend as LARunners
 import ./proof/runners/gate_covers_every_runner.bend as PGateCoversEveryRunner
-import ./proof/runners/ipython_gated_each_call.bend as PIpythonGatedEachCall
+import ./proof/runners/python_gated_each_call.bend as PPythonGatedEachCall
 import ./proof/runners/cell_runs_only_within_or_approved.bend as PCellRunsOnlyWithinOrApproved
 import ./proof/runners/cell_within_runs_unasked.bend as PCellWithinRunsUnasked
 import ./proof/runners/cell_approved_runs.bend as PCellApprovedRuns

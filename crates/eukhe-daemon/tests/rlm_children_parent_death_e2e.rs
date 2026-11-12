@@ -312,7 +312,7 @@ fn write_parent_script(dir: &Path, first_cell: &str) -> PathBuf {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": first_cell } },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": first_cell } },
                 ] },
                 { "text": "spawn turn done" },
             ],

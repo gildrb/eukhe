@@ -70,23 +70,23 @@ fn with_image(mut card: ToolCallCard) -> ToolCallCard {
     card
 }
 
-fn ipython_cases() -> Vec<(&'static str, ToolCallCard)> {
+fn python_cases() -> Vec<(&'static str, ToolCallCard)> {
     let code = json!({ "code": "for i in range(3):\n    print(f'line {i}')" });
     let ok = json!({ "status": "ok", "durationMs": 3 });
     let long_code = json!({
         "code": "values = [compute_something_rather_long(index, factor=2) for index in range(100)]\nprint(values)"
     });
     vec![
-        ("ipython queued", card("ipython", code.clone(), &Phase::Queued, "", Value::Null)),
-        ("ipython queued no code", card("ipython", json!({}), &Phase::Queued, "", Value::Null)),
-        ("ipython running", card("ipython", code.clone(), &Phase::Running, "", json!({ "status": "ok" }))),
-        ("ipython running output", card("ipython", code.clone(), &Phase::Running, "line 0\n", json!({ "status": "ok" }))),
-        ("ipython done", card("ipython", code.clone(), &Phase::Done, "line 0\nline 1\n\nline 2\n", ok.clone())),
-        ("ipython done no output", card("ipython", json!({ "code": "x = 1" }), &Phase::Done, "", ok.clone())),
+        ("python queued", card("python", code.clone(), &Phase::Queued, "", Value::Null)),
+        ("python queued no code", card("python", json!({}), &Phase::Queued, "", Value::Null)),
+        ("python running", card("python", code.clone(), &Phase::Running, "", json!({ "status": "ok" }))),
+        ("python running output", card("python", code.clone(), &Phase::Running, "line 0\n", json!({ "status": "ok" }))),
+        ("python done", card("python", code.clone(), &Phase::Done, "line 0\nline 1\n\nline 2\n", ok.clone())),
+        ("python done no output", card("python", json!({ "code": "x = 1" }), &Phase::Done, "", ok.clone())),
         (
-            "ipython error traceback",
+            "python error traceback",
             card(
-                "ipython",
+                "python",
                 json!({ "code": "print('before')\nraise ValueError('boom')" }),
                 &Phase::Error,
                 "before\nTraceback (most recent call last):\n  File \"<cell>\", line 2\nValueError: boom",
@@ -94,24 +94,24 @@ fn ipython_cases() -> Vec<(&'static str, ToolCallCard)> {
             ),
         ),
         (
-            "ipython error summary",
+            "python error summary",
             card(
-                "ipython",
+                "python",
                 json!({ "code": "raise ValueError('boom')" }),
                 &Phase::Error,
                 "",
                 json!({ "status": "error", "error": { "ename": "ValueError", "evalue": "boom" } }),
             ),
         ),
-        ("ipython error stderr", card("ipython", json!({ "code": "fail()" }), &Phase::Error, "stderr says no\nsecond", json!({}))),
-        ("ipython aborted", card("ipython", code, &Phase::Done, "line 0\n", json!({ "status": "aborted", "durationMs": 40 }))),
-        ("ipython bash cell", card("ipython", json!({ "code": "%%bash\necho hi\nls -la" }), &Phase::Done, "hi\n", json!({ "status": "ok", "durationMs": 8 }))),
-        ("ipython magic", card("ipython", json!({ "code": "!ls -la\nx = 1\nprint(x)" }), &Phase::Done, "1\n", ok.clone())),
-        ("ipython long", card("ipython", long_code, &Phase::Done, &format!("[{}]", "0, 2, 4, 6, 8, 10, 12, 14, 16, 18, ".repeat(6)), ok.clone())),
+        ("python error stderr", card("python", json!({ "code": "fail()" }), &Phase::Error, "stderr says no\nsecond", json!({}))),
+        ("python aborted", card("python", code, &Phase::Done, "line 0\n", json!({ "status": "aborted", "durationMs": 40 }))),
+        ("python bash cell", card("python", json!({ "code": "%%bash\necho hi\nls -la" }), &Phase::Done, "hi\n", json!({ "status": "ok", "durationMs": 8 }))),
+        ("python magic", card("python", json!({ "code": "!ls -la\nx = 1\nprint(x)" }), &Phase::Done, "1\n", ok.clone())),
+        ("python long", card("python", long_code, &Phase::Done, &format!("[{}]", "0, 2, 4, 6, 8, 10, 12, 14, 16, 18, ".repeat(6)), ok.clone())),
         (
-            "ipython sent messages",
+            "python sent messages",
             card(
-                "ipython",
+                "python",
                 json!({ "code": "await agent_message.send(\"Ping.\", receiver_role=\"parent\")" }),
                 &Phase::Done,
                 "",
@@ -133,11 +133,11 @@ fn ipython_cases() -> Vec<(&'static str, ToolCallCard)> {
                 }),
             ),
         ),
-        ("ipython images", with_image(card("ipython", json!({ "code": "display(img)" }), &Phase::Done, "shown", ok))),
+        ("python images", with_image(card("python", json!({ "code": "display(img)" }), &Phase::Done, "shown", ok))),
         (
-            "ipython background exit",
+            "python background exit",
             card(
-                "ipython",
+                "python",
                 json!({ "code": "h = bash('sleep 0.1')" }),
                 &Phase::Done,
                 "",
@@ -145,9 +145,9 @@ fn ipython_cases() -> Vec<(&'static str, ToolCallCard)> {
             ),
         ),
         (
-            "ipython background running",
+            "python background running",
             card(
-                "ipython",
+                "python",
                 json!({ "code": "h = bash('sleep 0.1')" }),
                 &Phase::Done,
                 "",
@@ -155,9 +155,9 @@ fn ipython_cases() -> Vec<(&'static str, ToolCallCard)> {
             ),
         ),
         (
-            "ipython bash dominated",
+            "python bash dominated",
             card(
-                "ipython",
+                "python",
                 json!({ "code": "r = await sh(\"\"\"\ncd crates/eukhe-tui\ncargo test -p eukhe-tui\n\"\"\")\nprint(r.output)" }),
                 &Phase::Done,
                 "ok\n",
@@ -361,7 +361,7 @@ fn generic_cases() -> Vec<(&'static str, ToolCallCard)> {
 fn render_matrix() -> String {
     let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
     let mut out = String::new();
-    let cases = ipython_cases()
+    let cases = python_cases()
         .into_iter()
         .chain(bash_cases())
         .chain(generic_cases());

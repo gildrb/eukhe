@@ -1,7 +1,7 @@
 //! The post-compaction kernel-state notice (`ipython_state`).
 //!
 //! A compaction rebuilds the model context from the session file, but the
-//! Python kernel behind the `ipython` tool survives it with its namespace
+//! Python kernel behind the `python` tool survives it with its namespace
 //! intact. After every compaction that commits while a kernel is running,
 //! the session appends a hidden `ipython_state` custom row that tells the
 //! model exactly that: which names are still defined, what the

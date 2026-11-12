@@ -208,7 +208,7 @@ pub struct QuotaPark {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WaitingOn {
-    /// Running session jobs (detached `ipython` cells and `bash` tool
+    /// Running session jobs (detached `python` cells and `bash` tool
     /// scripts), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jobs: Vec<WaitingJob>,
@@ -388,7 +388,7 @@ pub struct AgentConnectionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_usage: Option<Value>,
     /// Why the session's Python kernel cannot start, with the fix: the
-    /// session offers no `ipython` tool. A top-level session carries it
+    /// session offers no `python` tool. A top-level session carries it
     /// while that holds; the interactive client shows it as a
     /// notification once per install state ([`crate::kernel_notice`]).
     /// Never a session entry.

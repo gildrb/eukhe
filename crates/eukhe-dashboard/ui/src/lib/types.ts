@@ -206,7 +206,7 @@ export type SessionEvent =
   | { type: "bash_end"; errorMessage?: string }
   | { type: "refine_complete" }
   | { type: "refine_failed"; error: string }
-  | { type: "ipython_sent_agent_message" };
+  | { type: "python_sent_agent_message" };
 
 /** `effects`: every effect of the step, by name (read, write, exec, net, outside, protected, secret). */
 export type ApprovalRequest = {

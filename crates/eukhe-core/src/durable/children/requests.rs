@@ -1293,7 +1293,7 @@ async fn stopped(stop: Option<&AbortSignal>) {
 }
 
 /// Whether the stop of the cell `call` runs is an abort of its turn: the
-/// `ipython` call carries an abort request's mark (a closing session signals
+/// `python` call carries an abort request's mark (a closing session signals
 /// the call without marking it, and a restart's mark is no abort request).
 async fn turn_aborted(harness: &Harness, call: &HostCall) -> anyhow::Result<bool> {
     let Some(api) = &call.call else {

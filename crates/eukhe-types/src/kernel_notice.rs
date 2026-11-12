@@ -1,6 +1,6 @@
 //! The marker of the kernel-unavailable notification.
 //!
-//! A session whose Python kernel cannot start offers no `ipython` tool
+//! A session whose Python kernel cannot start offers no `python` tool
 //! (eukhe-core `durable::rlm::kernel_unavailable_notice`) and reports why
 //! in its connection state
 //! ([`crate::daemon::AgentConnectionState::kernel_unavailable`]). The

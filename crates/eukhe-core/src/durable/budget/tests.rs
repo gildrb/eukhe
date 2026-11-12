@@ -1174,7 +1174,7 @@ fn a_notice_shows_what_is_left_in_each_limited_dimension() {
             notices::remaining(&BudgetReport::default())
         ),
         (
-            "[budget] This task has a budget: $0.0123, 12.3k tokens, 1m 20s, 7 tool calls, 3 requests. Nothing can be spent past it: plan your work to fit. In the ipython kernel `await budget.status()` returns what is left.".to_owned(),
+            "[budget] This task has a budget: $0.0123, 12.3k tokens, 1m 20s, 7 tool calls, 3 requests. Nothing can be spent past it: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.".to_owned(),
             "[budget] Low: $2.50, 2.3M tokens, 1 tool call, 1 request. Another step of the last size does not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.".to_owned(),
             "no limit".to_owned()
         )

@@ -15,7 +15,7 @@ use eukhe_types::pi_ai::{Message, TextContent, UserContent, UserContentBlock};
 use futures::FutureExt;
 
 use super::{
-    entries, ipython, kernel_test_lock, result_text, results, settle, submit, text, Fixture,
+    entries, kernel_test_lock, python, result_text, results, settle, submit, text, Fixture,
 };
 
 /// A faux step answering `reply` that keeps the request's messages.
@@ -47,7 +47,7 @@ async fn a_query_answers_the_cell_as_a_value_and_leaves_no_entry() {
     let seen = Arc::default();
     let code = "ctx = 'alpha ' * 10\nr = await rlm.query('summarize', ctx)\nprint(len(r), r, r.truncated, r.model)\nprint([e.kind for e in history.entries()])";
     fixture.faux.set_responses(vec![
-        ipython("c1", code),
+        python("c1", code),
         answering("short answer", &seen),
         text("done"),
     ]);
@@ -148,7 +148,7 @@ async fn a_batch_never_runs_more_queries_than_the_cap() {
         }))
     };
     let code = "rs = await rlm.query_batch([{'prompt': f'q{i}', 'context': 'shared'} for i in range(6)])\nprint([str(r) for r in rs])";
-    let mut steps = vec![ipython("c1", code)];
+    let mut steps = vec![python("c1", code)];
     steps.extend((0..6).map(|_| step()));
     steps.push(text("done"));
     fixture.faux.set_responses(steps);
@@ -175,7 +175,7 @@ async fn a_batch_over_the_budget_is_refused_with_its_text() {
     let code = "try:\n    await rlm.query('summarize', 'x' * 20)\nexcept rlm.RLMQueryError as error:\n    print(error)\ntry:\n    chat.view()\nexcept RuntimeError as error:\n    print(error)";
     fixture
         .faux
-        .set_responses(vec![ipython("c1", code), text("done")]);
+        .set_responses(vec![python("c1", code), text("done")]);
     let session = fixture.open().await;
 
     let id = submit(&session, "go").await;

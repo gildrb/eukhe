@@ -235,7 +235,7 @@ fn call(name: &str, arguments: &Value) -> Value {
 fn step(text: &str, code: &str) -> Value {
     json!({ "content": [
         { "type": "text", "text": text },
-        { "type": "toolCall", "name": "ipython", "arguments": { "code": code } },
+        { "type": "toolCall", "name": "python", "arguments": { "code": code } },
     ] })
 }
 

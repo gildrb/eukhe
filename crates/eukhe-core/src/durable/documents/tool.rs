@@ -217,7 +217,7 @@ fn image_refusal(image: &ReadImage<'_>, model: Option<&Model>) -> Option<String>
         .unwrap_or_default();
     Some(format!(
         "Not attached: over the read limit of {max_width}x{max_height} pixels and {} KB. \
-         `print(await attach_image.run({path:?}))` in `ipython` resizes it into context.",
+         `print(await attach_image.run({path:?}))` in `python` resizes it into context.",
         max_bytes / 1024
     ))
 }
@@ -293,7 +293,7 @@ mod tests {
         let text_only = model(vec![Modality::Text], None);
         let over = |limits: &str| {
             Some(format!(
-                "Not attached: over the read limit of {limits}. `print(await attach_image.run(\"/w/shot.png\"))` in `ipython` resizes it into context."
+                "Not attached: over the read limit of {limits}. `print(await attach_image.run(\"/w/shot.png\"))` in `python` resizes it into context."
             ))
         };
         assert_eq!(

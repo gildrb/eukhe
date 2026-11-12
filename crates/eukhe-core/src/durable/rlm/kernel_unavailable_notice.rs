@@ -7,7 +7,7 @@
 //! `stat`s, no network) or starts the fetch. Only when the kernel
 //! definitively cannot start (the `eukhe-runtime/` directory is missing,
 //! or the pinned Python is not on disk and the fetch failed: the machine is
-//! offline) does the session offer no `ipython` tool, so the model never
+//! offline) does the session offer no `python` tool, so the model never
 //! spends a call on a cell that can only fail; its system prompt says the
 //! session has no Python REPL. Every open probes again: once the machine
 //! is online, the next open fetches the Python and offers the tool.
@@ -60,10 +60,10 @@ pub fn notice_text(unavailable: &KernelUnavailable) -> String {
     match unavailable {
         KernelUnavailable::FetchFailed(reason) => format!(
             "The Python kernel cannot start: {reason}\n\
-             This session has no `ipython` tool; the other tools work. The next session tries the fetch again."
+             This session has no `python` tool; the other tools work. The next session tries the fetch again."
         ),
         KernelUnavailable::RuntimeMissing(reason) => format!(
-            "The Python kernel cannot start: {reason}. This session has no `ipython` tool; the other tools work. \
+            "The Python kernel cannot start: {reason}. This session has no `python` tool; the other tools work. \
              With eukhe-runtime/ in place, open the session again."
         ),
     }

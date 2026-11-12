@@ -99,7 +99,7 @@ fn cached_prefix_is_stable_across_sessions() {
         cwd: "/first/cwd".to_string(),
         model_prompt_extras: Some("model guidance."),
         skills: sorted_bundled_skills(),
-        selected_tools: Some(vec!["ipython"]),
+        selected_tools: Some(vec!["python"]),
         ..Default::default()
     };
     let first = system_prompt_breakdown(&options);
@@ -741,7 +741,7 @@ fn generic_mcp_skill_renders_in_the_prompt_inventory() {
     let mut options = BuildSystemPromptOptions {
         cwd: "/w".to_string(),
         skills: sorted_bundled_skills(),
-        selected_tools: Some(vec!["ipython"]),
+        selected_tools: Some(vec!["python"]),
         ..Default::default()
     };
     let breakdown = system_prompt_breakdown(&options);

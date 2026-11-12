@@ -17,7 +17,7 @@
 //! cell): the chat-memory compactor yields to them (H3.1), and the cap
 //! bounds how many slots one session's queries hold, so another session's
 //! request waits behind at most that many (H3.4). Each call's usage counts
-//! into the calling `ipython` call's usage, hence the session's. An answer
+//! into the calling `python` call's usage, hence the session's. An answer
 //! cut by `max_bytes` is cut at a character boundary the core picks
 //! (`rlm_query::cut`).
 
@@ -113,7 +113,7 @@ pub(super) fn register(runtime: &Arc<RlmRuntime>) {
         serve(runtime, |runtime, call| {
             async move {
                 let api = call.call.clone().ok_or_else(|| {
-                    anyhow!("rlm.query runs inside an ipython cell: this request has no running cell to count its usage on")
+                    anyhow!("rlm.query runs inside an python cell: this request has no running cell to count its usage on")
                 })?;
                 query_batch(runtime, api, &call.data).await
             }

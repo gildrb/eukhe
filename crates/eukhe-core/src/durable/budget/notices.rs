@@ -181,7 +181,7 @@ pub(super) fn remaining(report: &BudgetReport) -> String {
 /// The notice of a budget that was set or added to.
 pub(super) fn set_text(report: &BudgetReport) -> String {
     format!(
-        "[budget] This task has a budget: {}. Nothing can be spent past it: plan your work to fit. In the ipython kernel `await budget.status()` returns what is left.",
+        "[budget] This task has a budget: {}. Nothing can be spent past it: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.",
         remaining(report)
     )
 }

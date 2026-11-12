@@ -481,7 +481,7 @@ impl SessionUi {
         self.user_bash_running = resync_bash.snap_running;
         self.resync_bash = Some(resync_bash);
         // The session's kernel cannot start (the state's
-        // `kernelUnavailable` text: no `ipython` tool, and the fix): this
+        // `kernelUnavailable` text: no `python` tool, and the fix): this
         // view says so once per install state, as a notification, never
         // into the session; the next rebuild shows it the same way, as a
         // warning row of this view.

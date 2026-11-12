@@ -1189,7 +1189,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::BashEnd { .. }
             | SessionEvent::RefineComplete { .. }
             | SessionEvent::RefineFailed { .. }
-            | SessionEvent::IpythonSentAgentMessage { .. } => {}
+            | SessionEvent::PythonSentAgentMessage { .. } => {}
         }
         if let Some(answer) = answer(event) {
             self.relay_answer(answer).await;

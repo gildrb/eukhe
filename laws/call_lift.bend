@@ -134,7 +134,7 @@ law call_lift_table_example:
 # rev and its steps, as bend/call_lift.bend ships them. A new family, a rev
 # bump or a new step changes this constant, and so needs a law change.
 def cl_shipped_table() -> List<&2, Cl.Fam>:
-  [Cl.Fam{"bash", "1", []}, Cl.Fam{"read", "1", []}, Cl.Fam{"write", "1", []}, Cl.Fam{"edit", "hl.1", []}, Cl.Fam{"grep", "1", []}, Cl.Fam{"glob", "1", []}, Cl.Fam{"ipython", "1", []}, Cl.Fam{"dyn", "1", []}, Cl.Fam{"zoom", "2", [Cl.Step{"1", "2", []}]}, Cl.Fam{"date", "1", []}, Cl.Fam{"remote", "1", []}]
+  [Cl.Fam{"bash", "1", []}, Cl.Fam{"read", "1", []}, Cl.Fam{"write", "1", []}, Cl.Fam{"edit", "hl.1", []}, Cl.Fam{"grep", "1", []}, Cl.Fam{"glob", "1", []}, Cl.Fam{"python", "1", []}, Cl.Fam{"dyn", "1", []}, Cl.Fam{"zoom", "2", [Cl.Step{"1", "2", []}]}, Cl.Fam{"date", "1", []}, Cl.Fam{"remote", "1", []}]
 
 # LAW call_lift_table_exact (R2, R4): the shipped table is exactly the frozen
 # one above: its families in order, each current rev, each step and its ops

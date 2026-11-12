@@ -396,7 +396,7 @@ fn subagents_without_a_budget_draw_from_their_parents_one_account() {
     .unwrap();
     let script = json!({
         "responses": [
-            { "content": [{ "type": "toolCall", "name": "ipython", "arguments": { "code": SPAWN_TWO } }] },
+            { "content": [{ "type": "toolCall", "name": "python", "arguments": { "code": SPAWN_TWO } }] },
             { "text": "spawn turn done" },
             { "text": "reports seen" },
         ],

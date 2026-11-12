@@ -567,7 +567,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::BashEnd { .. }
             | SessionEvent::RefineComplete { .. }
             | SessionEvent::RefineFailed { .. }
-            | SessionEvent::IpythonSentAgentMessage { .. } => None,
+            | SessionEvent::PythonSentAgentMessage { .. } => None,
         })
         .collect()
 }
