@@ -32,6 +32,7 @@ mod tests;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use eukhe_budget::{
@@ -90,6 +91,10 @@ pub struct BudgetGate {
     /// request before its first): the least its next turn asks first, as
     /// its context only grows.
     turn: Mutex<BudgetAmounts>,
+    /// Whether the agent's last delivered reply is its final answer from
+    /// the reserve: set when a final answer ends with its text, cleared
+    /// when a work turn ends.
+    final_answered: AtomicBool,
 }
 
 /// What the agent's steps actually spent, as this process saw them.
@@ -199,6 +204,7 @@ impl BudgetGate {
             deferred: Mutex::new(HashMap::new()),
             steps: Mutex::default(),
             turn: Mutex::new(FIRST_TURN),
+            final_answered: AtomicBool::new(false),
         })
     }
 
@@ -345,6 +351,14 @@ impl BudgetGate {
     #[must_use]
     pub fn keep(&self) -> BudgetAmounts {
         *self.keep.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether the agent's last delivered reply is its final answer from
+    /// the reserve: a final answer ended with its text (stop or length)
+    /// and no work turn ended after it, as this process saw them.
+    #[must_use]
+    pub fn final_answer_delivered(&self) -> bool {
+        self.final_answered.load(Ordering::Relaxed)
     }
 
     /// The agent's largest step as actually spent (zero before its

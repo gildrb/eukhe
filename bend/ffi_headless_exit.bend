@@ -2,18 +2,20 @@
 # exit code of a headless run (bend/headless_exit.bend; Rust: eukhe-bend
 # rules/headless.rs `exit`). Grammar: crates/eukhe-bend/WIRE.md.
 #
-#   request  command failed, gave up (a Bool each); the run: 0 no run |
-#            1 answered | 2 unanswered, then the reason; the primary
-#            entry: 0 nothing | 1 answer | 2 unfinished | 3 provider
-#            error | 4 aborted | 5 slash ok | 6 slash failed; compaction
-#            failed, autonomous failed (a Bool each)
+#   request  command failed (a Bool); the wait: 0 quiet | 1 gave up |
+#            2 budget deadline; the run: 0 no run | 1 answered | 2
+#            unanswered, then the reason; the primary entry: 0 nothing |
+#            1 answer | 2 unfinished | 3 provider error | 4 aborted | 5
+#            slash ok | 6 slash failed | 7 budget refused; compaction
+#            failed, autonomous failed, budget answered (a Bool each)
 #   reason   0 model error | 1 run limit | 2 no model | 3 forced tool |
 #            4 faulted | 5 aborted | 6 reset | 7 stale | 8 withdrawn |
-#            9 other
+#            9 other | 10 budget refused
 #   reply    the code (Nat), then the cause: 0 answered | 1 command
 #            failed | 2 gave up | 3 run failed, then the reason | 4
 #            provider error | 5 aborted | 6 unfinished | 7 slash failed |
-#            8 compaction failed | 9 autonomous failed
+#            8 compaction failed | 9 autonomous failed | 10 budget
+#            limited | 11 budget unanswered
 #
 # Malformed input, or input left after the request, answers
 # `E headless_exit: malformed request`, never a default.
@@ -25,6 +27,21 @@ import ./headless_exit.bend as Hx
 
 # Requests
 # --------
+
+def get_wait(r: W.Dec<Nat>) -> W.Dec<Hx.Wait>:
+  match r:
+    case W.Got{t, s}:
+      match t:
+        case 0n:
+          W.Got{Hx.Quiet{}, s}
+        case 1n:
+          W.Got{Hx.GaveUp{}, s}
+        case 2n:
+          W.Got{Hx.BudgetDeadline{}, s}
+        case 3n+u:
+          W.Bad{}
+    case W.Bad{}:
+      W.Bad{}
 
 def get_reason(r: W.Dec<Nat>) -> W.Dec<Hx.Reason>:
   match r:
@@ -50,7 +67,9 @@ def get_reason(r: W.Dec<Nat>) -> W.Dec<Hx.Reason>:
           W.Got{Hx.Withdrawn{}, s}
         case 9n:
           W.Got{Hx.Other{}, s}
-        case 10n+u:
+        case 10n:
+          W.Got{Hx.BudgetRefused{}, s}
+        case 11n+u:
           W.Bad{}
     case W.Bad{}:
       W.Bad{}
@@ -95,50 +114,59 @@ def get_primary(r: W.Dec<Nat>) -> W.Dec<Hx.Primary>:
           W.Got{Hx.PSlashOk{}, s}
         case 6n:
           W.Got{Hx.PSlashFailed{}, s}
-        case 7n+u:
+        case 7n:
+          W.Got{Hx.PBudgetRefused{}, s}
+        case 8n+u:
           W.Bad{}
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.auto(cf: Bool, gu: Bool, run: Hx.Run, p: Hx.Primary, c: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
+def get_facts.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
+  match d:
+    case W.Got{ba, s}:
+      W.Got{Hx.Facts{cf, w, run, p, c, a, ba}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_facts.auto(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{a, s}:
-      W.Got{Hx.Facts{cf, gu, run, p, c, a}, s}
+      get_facts.budget(cf, w, run, p, c, a, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.comp(cf: Bool, gu: Bool, run: Hx.Run, p: Hx.Primary, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
+def get_facts.comp(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{c, s}:
-      get_facts.auto(cf, gu, run, p, c, W.get_bool(s))
+      get_facts.auto(cf, w, run, p, c, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.primary(cf: Bool, gu: Bool, run: Hx.Run, d: W.Dec<Hx.Primary>) -> W.Dec<Hx.Facts>:
+def get_facts.primary(cf: Bool, w: Hx.Wait, run: Hx.Run, d: W.Dec<Hx.Primary>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{p, s}:
-      get_facts.comp(cf, gu, run, p, W.get_bool(s))
+      get_facts.comp(cf, w, run, p, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.run(cf: Bool, gu: Bool, d: W.Dec<Hx.Run>) -> W.Dec<Hx.Facts>:
+def get_facts.run(cf: Bool, w: Hx.Wait, d: W.Dec<Hx.Run>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{run, s}:
-      get_facts.primary(cf, gu, run, get_primary(W.get_nat(s)))
+      get_facts.primary(cf, w, run, get_primary(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.gave_up(cf: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
+def get_facts.wait(cf: Bool, d: W.Dec<Hx.Wait>) -> W.Dec<Hx.Facts>:
   match d:
-    case W.Got{gu, s}:
-      get_facts.run(cf, gu, get_run(W.get_nat(s)))
+    case W.Got{w, s}:
+      get_facts.run(cf, w, get_run(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
 def get_facts.command(d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{cf, s}:
-      get_facts.gave_up(cf, W.get_bool(s))
+      get_facts.wait(cf, get_wait(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
@@ -171,6 +199,8 @@ def put_reason(r: Hx.Reason, rest: String) -> String:
       W.put_nat(8n, rest)
     case Hx.Other{}:
       W.put_nat(9n, rest)
+    case Hx.BudgetRefused{}:
+      W.put_nat(10n, rest)
 
 def put_cause(c: Hx.Cause, rest: String) -> String:
   match c:
@@ -194,6 +224,10 @@ def put_cause(c: Hx.Cause, rest: String) -> String:
       W.put_nat(8n, rest)
     case Hx.CAutonomousFailed{}:
       W.put_nat(9n, rest)
+    case Hx.CBudgetLimited{}:
+      W.put_nat(10n, rest)
+    case Hx.CBudgetUnanswered{}:
+      W.put_nat(11n, rest)
 
 # the spelling of an exit: its code, then its cause
 def put_verdict(v: Hx.Verdict, rest: String) -> String:

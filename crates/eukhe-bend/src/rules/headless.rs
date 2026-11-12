@@ -84,6 +84,10 @@ pub enum Unanswered {
     Stale,
     Withdrawn,
     Other,
+    /// The budget refused the run's request: the run's failure is the
+    /// budget refusal on its terminal entry (set by the runtime, never
+    /// read from a reason).
+    BudgetRefused,
 }
 
 impl Unanswered {
@@ -118,11 +122,12 @@ impl Unanswered {
             Unanswered::Stale => 7,
             Unanswered::Withdrawn => 8,
             Unanswered::Other => 9,
+            Unanswered::BudgetRefused => 10,
         }
     }
 
     fn read(reader: &mut Reader<'_>) -> Result<Self, WireError> {
-        Ok(match reader.tag_of(10, "an unanswered reason")? {
+        Ok(match reader.tag_of(11, "an unanswered reason")? {
             0 => Unanswered::ModelError,
             1 => Unanswered::RunLimit,
             2 => Unanswered::NoModel,
@@ -132,7 +137,9 @@ impl Unanswered {
             6 => Unanswered::Reset,
             7 => Unanswered::Stale,
             8 => Unanswered::Withdrawn,
-            _ => Unanswered::Other,
+            9 => Unanswered::Other,
+            // `tag_of` answers a tag below 11: this is 10.
+            _ => Unanswered::BudgetRefused,
         })
     }
 }
@@ -162,6 +169,20 @@ pub enum Primary {
     SlashOk,
     /// A slash command that failed.
     SlashFailed,
+    /// A request the budget refused or stopped (its error carries the
+    /// budget-refusal diagnostic).
+    BudgetRefused,
+}
+
+/// How the settle wait ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    /// Nothing ran that could wake the session.
+    Quiet,
+    /// The wait gave up at its limit.
+    GaveUp,
+    /// The wait ended at the time budget's deadline.
+    BudgetDeadline,
 }
 
 /// The facts of a finished headless run.
@@ -173,8 +194,8 @@ pub enum Primary {
 pub struct ExitFacts {
     /// A session command prompt failed.
     pub command_failed: bool,
-    /// The settle wait gave up at its limit.
-    pub gave_up: bool,
+    /// How the settle wait ended.
+    pub wait: Wait,
     /// The last run's settlement.
     pub run: RunEnd,
     /// The terminal transcript entry.
@@ -183,6 +204,9 @@ pub struct ExitFacts {
     pub compaction_failed: bool,
     /// An autonomous turn failed.
     pub autonomous_failed: bool,
+    /// The agent's budget phase is wrap-up or exhausted and its last
+    /// reply is its final answer from the reserve, delivered.
+    pub budget_answered: bool,
 }
 
 /// Why a headless run exits as it does.
@@ -198,6 +222,10 @@ pub enum ExitCause {
     SlashFailed,
     CompactionFailed,
     AutonomousFailed,
+    /// The budget ended the run after its final answer from the reserve.
+    BudgetLimited,
+    /// The budget ended the run before a final answer was delivered.
+    BudgetUnanswered,
 }
 
 /// The exit of a headless run: the process code and its cause.
@@ -214,7 +242,11 @@ pub struct Exit {
 /// A compiled-core failure or a malformed reply (an inconsistent build).
 pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
     let mut request = Writer::new();
-    request.bool(facts.command_failed).bool(facts.gave_up);
+    request.bool(facts.command_failed).tag(match facts.wait {
+        Wait::Quiet => 0,
+        Wait::GaveUp => 1,
+        Wait::BudgetDeadline => 2,
+    });
     match facts.run {
         RunEnd::NoRun => request.tag(0),
         RunEnd::Answered => request.tag(1),
@@ -229,16 +261,18 @@ pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
             Primary::Aborted => 4,
             Primary::SlashOk => 5,
             Primary::SlashFailed => 6,
+            Primary::BudgetRefused => 7,
         })
         .bool(facts.compaction_failed)
-        .bool(facts.autonomous_failed);
+        .bool(facts.autonomous_failed)
+        .bool(facts.budget_answered);
     let reply = call(Entry::HeadlessExit, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let code = u8::try_from(reader.nat()?).map_err(|_| WireError::Malformed {
         at: 0,
         expected: "an exit code",
     })?;
-    let cause = match reader.tag_of(10, "an exit cause")? {
+    let cause = match reader.tag_of(12, "an exit cause")? {
         0 => ExitCause::Answered,
         1 => ExitCause::CommandFailed,
         2 => ExitCause::GaveUp,
@@ -248,7 +282,10 @@ pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
         6 => ExitCause::Unfinished,
         7 => ExitCause::SlashFailed,
         8 => ExitCause::CompactionFailed,
-        _ => ExitCause::AutonomousFailed,
+        9 => ExitCause::AutonomousFailed,
+        10 => ExitCause::BudgetLimited,
+        // `tag_of` answers a tag below 12: this is 11.
+        _ => ExitCause::BudgetUnanswered,
     };
     reader.end()?;
     Ok(Exit { code, cause })
@@ -324,11 +361,12 @@ mod tests {
 
     const ANSWERED: ExitFacts = ExitFacts {
         command_failed: false,
-        gave_up: false,
+        wait: Wait::Quiet,
         run: RunEnd::Answered,
         primary: Primary::Answer,
         compaction_failed: false,
         autonomous_failed: false,
+        budget_answered: false,
     };
 
     fn failed(cause: ExitCause) -> Exit {
@@ -356,11 +394,12 @@ mod tests {
     fn a_failed_command_exits_one_before_everything() {
         let facts = ExitFacts {
             command_failed: true,
-            gave_up: true,
+            wait: Wait::GaveUp,
             run: RunEnd::Unanswered(Unanswered::ModelError),
             primary: Primary::ProviderError,
             compaction_failed: true,
             autonomous_failed: true,
+            budget_answered: true,
         };
         assert_eq!(exit(&facts).unwrap(), failed(ExitCause::CommandFailed));
     }
@@ -368,8 +407,9 @@ mod tests {
     #[test]
     fn a_give_up_exits_one_before_the_run() {
         let facts = ExitFacts {
-            gave_up: true,
+            wait: Wait::GaveUp,
             run: RunEnd::Unanswered(Unanswered::Faulted),
+            budget_answered: true,
             ..ANSWERED
         };
         assert_eq!(exit(&facts).unwrap(), failed(ExitCause::GaveUp));
@@ -448,6 +488,81 @@ mod tests {
             ..ANSWERED
         };
         assert_eq!(exit(&facts).unwrap(), failed(ExitCause::AutonomousFailed));
+    }
+
+    /// The budget ended the run after its final answer from the reserve:
+    /// the wait at the deadline, a run and a terminal entry the budget
+    /// refused are no failure, and the run is budget-limited. Without that
+    /// answer each of them exits 1 as budget-unanswered.
+    #[test]
+    fn a_used_up_budget_exits_by_its_final_answer() {
+        let deadline = ExitFacts {
+            wait: Wait::BudgetDeadline,
+            ..ANSWERED
+        };
+        let refused = ExitFacts {
+            run: RunEnd::Unanswered(Unanswered::BudgetRefused),
+            primary: Primary::BudgetRefused,
+            ..ANSWERED
+        };
+        let answered = |facts: ExitFacts| ExitFacts {
+            budget_answered: true,
+            ..facts
+        };
+        let limited = Exit {
+            code: 0,
+            cause: ExitCause::BudgetLimited,
+        };
+        assert_eq!(
+            [
+                exit(&answered(deadline)).unwrap(),
+                exit(&answered(refused)).unwrap(),
+                exit(&answered(ANSWERED)).unwrap(),
+                exit(&deadline).unwrap(),
+                exit(&refused).unwrap(),
+            ],
+            [
+                limited,
+                limited,
+                limited,
+                failed(ExitCause::BudgetUnanswered),
+                failed(ExitCause::BudgetUnanswered),
+            ]
+        );
+    }
+
+    /// The final answer from the reserve hides no other failure.
+    #[test]
+    fn a_final_answer_from_the_reserve_keeps_other_failures() {
+        let at_deadline = ExitFacts {
+            wait: Wait::BudgetDeadline,
+            budget_answered: true,
+            ..ANSWERED
+        };
+        assert_eq!(
+            [
+                exit(&ExitFacts {
+                    run: RunEnd::Unanswered(Unanswered::ModelError),
+                    ..at_deadline
+                })
+                .unwrap(),
+                exit(&ExitFacts {
+                    primary: Primary::ProviderError,
+                    ..at_deadline
+                })
+                .unwrap(),
+                exit(&ExitFacts {
+                    compaction_failed: true,
+                    ..at_deadline
+                })
+                .unwrap(),
+            ],
+            [
+                failed(ExitCause::RunFailed(Unanswered::ModelError)),
+                failed(ExitCause::ProviderError),
+                failed(ExitCause::CompactionFailed),
+            ]
+        );
     }
 
     #[test]

@@ -148,6 +148,7 @@ impl Fixture {
                 deferred: Mutex::default(),
                 steps: Mutex::default(),
                 turn: Mutex::new(FIRST_TURN),
+                final_answered: std::sync::atomic::AtomicBool::new(false),
             }),
         };
         let notices = Arc::new(Mutex::new(Vec::new()));
@@ -1504,6 +1505,30 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
                 text: notice.to_owned(),
             }]
         )
+    );
+}
+
+/// The gate knows whether the agent's last delivered reply is its final
+/// answer from the reserve (print mode's exit reads it): set by the final
+/// answer, cleared by a work turn after added budget.
+#[tokio::test]
+async fn the_gate_knows_the_final_answer_was_the_last_reply() {
+    let fixture = Fixture::new();
+    fixture.gate.set(tokens(4_000)).unwrap();
+    let before = fixture.gate.final_answer_delivered();
+    fixture.request(agent("build it")).await;
+    let answered = fixture.gate.final_answer_delivered();
+    fixture
+        .gate
+        .add(BudgetAmounts {
+            tokens: 100_000,
+            ..BudgetAmounts::default()
+        })
+        .unwrap();
+    fixture.request(agent("build it")).await;
+    assert_eq!(
+        (before, answered, fixture.gate.final_answer_delivered()),
+        (false, true, false)
     );
 }
 

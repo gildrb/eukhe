@@ -4104,6 +4104,10 @@ import ./proof/headless_exit/headless_exit_transcript_before_flags.bend as PHead
 import ./proof/headless_exit/headless_exit_unfailed_run_neutral.bend as PHeadlessExitUnfailedRunNeutral
 import ./proof/headless_exit/headless_exit_unfinished_fails.bend as PHeadlessExitUnfinishedFails
 import ./proof/headless_exit/headless_exit_zero_iff_no_failure.bend as PHeadlessExitZeroIffNoFailure
+import ./proof/headless_exit/headless_exit_budget_limited_zero.bend as PHeadlessExitBudgetLimitedZero
+import ./proof/headless_exit/headless_exit_budget_unanswered_fails.bend as PHeadlessExitBudgetUnansweredFails
+import ./proof/headless_exit/headless_exit_budget_keeps_other_failures.bend as PHeadlessExitBudgetKeepsOtherFailures
+import ./proof/headless_exit/headless_exit_budget_example.bend as PHeadlessExitBudgetExample
 import ./proof/thread/base.bend as LAThread
 import ./proof/thread/base/request.bend as LAThreadRequest
 import ./proof/thread/thread_log_one.bend as PThreadLogOne

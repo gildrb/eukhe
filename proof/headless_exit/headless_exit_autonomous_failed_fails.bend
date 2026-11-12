@@ -7,22 +7,22 @@ import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 import ./base.bend as LAHeadlessExit
 
+# below the transcript, a failed autonomous turn leaves code 1
+def hx.auto_flags(c: Bool, -ba: Bool) -> {Hx.code(Hx.by_flags(c, True{}, ba)) == 1n : Nat}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 # whatever the terminal entry and the compaction, a failed autonomous turn
 # leaves code 1
-def hx.auto_fails(p: Hx.Primary, c: Bool) -> {Hx.code(Hx.by_primary(p, c, True{})) == 1n : Nat}:
+def hx.auto_fails(p: Hx.Primary, +c: Bool, +ba: Bool) -> {Hx.code(Hx.by_primary(p, c, True{}, ba)) == 1n : Nat}:
   match p:
     case Hx.PNothing{}:
-      match c:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
+      hx.auto_flags(c, ba)
     case Hx.PAnswer{}:
-      match c:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
+      hx.auto_flags(c, ba)
     case Hx.PUnfinished{}:
       {==}
     case Hx.PProviderError{}:
@@ -30,13 +30,15 @@ def hx.auto_fails(p: Hx.Primary, c: Bool) -> {Hx.code(Hx.by_primary(p, c, True{}
     case Hx.PAborted{}:
       {==}
     case Hx.PSlashOk{}:
-      match c:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
+      hx.auto_flags(c, ba)
     case Hx.PSlashFailed{}:
       {==}
+    case Hx.PBudgetRefused{}:
+      match ba:
+        case True{}:
+          hx.auto_flags(c, True{})
+        case False{}:
+          {==}
 
-def HeadlessExit.headless_exit_autonomous_failed_fails(cf, gu, r, p, c):
-  LAHeadlessExit.hx.facts_fail(cf, gu, r, p, c, True{}, LAHeadlessExit.hx.run_fails(r, p, c, True{}, hx.auto_fails(p, c)))
+def HeadlessExit.headless_exit_autonomous_failed_fails(cf, w, r, p, c, ba):
+  LAHeadlessExit.hx.facts_fail(cf, w, r, p, c, True{}, ba, LAHeadlessExit.hx.run_fails(r, p, c, True{}, ba, hx.auto_fails(p, c, ba)))

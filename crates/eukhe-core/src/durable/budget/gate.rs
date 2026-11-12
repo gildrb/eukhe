@@ -30,6 +30,7 @@
 //! fits in no way is not sent: its stream ends with an error that carries
 //! the typed budget refusal, which no retry policy re-issues.
 
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
@@ -1195,6 +1196,18 @@ impl<O: GatedOptions> Request<O> {
                             message
                         }
                     };
+                    // The agent's last delivered reply: its final answer
+                    // when one ended with its text, a work turn's else.
+                    let answered = match turn {
+                        Turn::Final(_) => {
+                            Some(matches!(reason, DoneReason::Stop | DoneReason::Length))
+                        }
+                        Turn::Work(_) => Some(false),
+                        Turn::Side => None,
+                    };
+                    if let Some(answered) = answered {
+                        self.gate.final_answered.store(answered, Ordering::Relaxed);
+                    }
                     (
                         actual_spend(&message.usage),
                         Some(AssistantMessageEvent::Done { reason, message }),

@@ -7,7 +7,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_bend::rules::headless::{ExitCause, ExitFacts, Primary, RunEnd};
+use eukhe_bend::rules::headless::{Exit, ExitCause, ExitFacts, Primary, RunEnd, Unanswered, Wait};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::acceptance::{
     acceptance_exit_code, acceptance_state, format_acceptance_status, seed_acceptance,
@@ -25,6 +25,7 @@ use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
+use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
@@ -503,15 +504,43 @@ async fn run_prompts(
     if let Some(events) = events {
         events.finish().await;
     }
+    let exit = run_exit(opened, &conversation, watch, ended?, options, cx).await?;
+    // "Done" is a claim: with acceptance checks the run exits 0 only when
+    // each is confirmed on the final state (`laws/verify.bend`); the label
+    // goes to stderr in both modes.
+    let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
+    if !acceptance.checks.is_empty() {
+        eprintln!("{}", format_acceptance_status(&acceptance));
+    }
+    let code = acceptance_exit_code(harness, conversation.id(), u64::from(exit.code), cx).await?;
+    Ok(i32::try_from(code).unwrap_or(1))
+}
+
+/// The exit of a run whose prompt loop ended as `ended`: gather the facts
+/// (the last run, the terminal result, the compaction outcomes, the
+/// autonomous state), print the result and the failures, the budget line,
+/// and ask the compiled core for the code and its cause (`headless_exit`).
+async fn run_exit(
+    opened: &HeadlessSession,
+    conversation: &Conversation,
+    watch: RunWatch,
+    ended: PromptsEnd,
+    options: &RunOptions,
+    cx: &Context,
+) -> Result<Exit, HeadlessModeError> {
+    let session = &opened.session;
+    let harness = session.harness();
+    let json_mode = options.app_mode == AppMode::Json;
     let mut facts = ExitFacts {
         command_failed: false,
-        gave_up: false,
+        wait: Wait::Quiet,
         run: RunEnd::NoRun,
         primary: Primary::Nothing,
         compaction_failed: false,
         autonomous_failed: false,
+        budget_answered: false,
     };
-    match ended? {
+    match ended {
         PromptsEnd::Completed => {}
         // The rejected prompt wait (TS print-mode's catch): the raw command
         // error on stderr, no terminal selection.
@@ -520,18 +549,23 @@ async fn run_prompts(
             facts.command_failed = true;
         }
         PromptsEnd::GaveUp { work, limit } => {
-            match limit {
-                Limit::Wait => eprintln!(
-                    "eukhe: stopped waiting after {} ms (--wait-limit-ms); still running: {}",
-                    options.config.wait_limit.as_millis(),
-                    still_running(&work)
-                ),
-                Limit::BudgetDeadline => eprintln!(
-                    "eukhe: stopped waiting at the time budget's deadline; still running: {}",
-                    still_running(&work)
-                ),
-            }
-            facts.gave_up = true;
+            facts.wait = match limit {
+                Limit::Wait => {
+                    eprintln!(
+                        "eukhe: stopped waiting after {} ms (--wait-limit-ms); still running: {}",
+                        options.config.wait_limit.as_millis(),
+                        still_running(&work)
+                    );
+                    Wait::GaveUp
+                }
+                Limit::BudgetDeadline => {
+                    eprintln!(
+                        "eukhe: stopped waiting at the time budget's deadline; still running: {}",
+                        still_running(&work)
+                    );
+                    Wait::BudgetDeadline
+                }
+            };
         }
     }
     let mut run_detail = None;
@@ -541,7 +575,7 @@ async fn run_prompts(
         // Text mode prints the primary (a settled answer to stdout) and the
         // trailing compaction outcomes and warnings to stderr; a failed
         // primary's text goes to stderr in both modes.
-        let result = select_terminal_result(&conversation, cx).await?;
+        let result = select_terminal_result(conversation, cx).await?;
         if let Some(primary) = &result.primary {
             facts.primary = primary.kind();
             match primary.failure() {
@@ -556,6 +590,13 @@ async fn run_prompts(
                 // out before it reaches stdout (JSON keeps the raw bytes).
                 None => println!("{}", crate::sanitize::text(&primary.stdout_text())),
             }
+        }
+        // A run that failed on the budget's refusal of its request ends on
+        // that refusal: the budget refused the run.
+        if facts.primary == Primary::BudgetRefused
+            && facts.run == RunEnd::Unanswered(Unanswered::ModelError)
+        {
+            facts.run = RunEnd::Unanswered(Unanswered::BudgetRefused);
         }
         for outcome in result.compaction_outcomes {
             if !json_mode {
@@ -582,23 +623,57 @@ async fn run_prompts(
     watch.finish().await;
     // The session's budget as the run leaves it: one stderr line in both
     // modes, and in json mode the report as the stream's last
-    // `budget_update`.
+    // `budget_update`. The budget ended the run after the agent's final
+    // answer when its phase left work and that answer, from the reserve,
+    // is the agent's last delivered reply.
     let gate = session.budget();
-    let budget = tokio::task::spawn_blocking(move || gate.report())
-        .await
-        .map_err(HeadlessModeError::BudgetReport)?;
+    let (budget, final_answer) =
+        tokio::task::spawn_blocking(move || (gate.report(), gate.final_answer_delivered()))
+            .await
+            .map_err(HeadlessModeError::BudgetReport)?;
+    facts.budget_answered = final_answer
+        && budget.as_ref().is_some_and(|report| match report.phase {
+            BudgetPhase::Working => false,
+            BudgetPhase::WrapUp | BudgetPhase::Exhausted => true,
+        });
+    let exit = eukhe_bend::rules::headless::exit(&facts).map_err(HeadlessModeError::Exit)?;
+    // The state the line and the update carry: the budget ended the run
+    // after its final answer.
+    let state = match exit.cause {
+        ExitCause::BudgetLimited => Some(BUDGET_LIMITED),
+        ExitCause::Answered
+        | ExitCause::CommandFailed
+        | ExitCause::GaveUp
+        | ExitCause::RunFailed(_)
+        | ExitCause::ProviderError
+        | ExitCause::Aborted
+        | ExitCause::Unfinished
+        | ExitCause::SlashFailed
+        | ExitCause::CompactionFailed
+        | ExitCause::AutonomousFailed
+        | ExitCause::BudgetUnanswered => None,
+    };
     if let Some(report) = budget {
-        eprintln!(
-            "{}",
-            eukhe_tui::budget_text::report_detail(&report, eukhe_tui::budget_text::now_ms(), " · ")
-        );
+        let detail =
+            eukhe_tui::budget_text::report_detail(&report, eukhe_tui::budget_text::now_ms(), " · ");
+        match state {
+            Some(state) => eprintln!("{detail} · {state}"),
+            None => eprintln!("{detail}"),
+        }
         if json_mode {
-            print_event(&SessionEvent::BudgetUpdate {
+            let event = SessionEvent::BudgetUpdate {
                 budget: Some(report),
-            });
+            };
+            match (state, serde_json::to_value(&event)) {
+                (None, _) => print_event(&event),
+                (Some(state), Ok(mut line)) => {
+                    line["state"] = state.into();
+                    println!("{line}");
+                }
+                (Some(_), Err(error)) => eprintln!("a session event does not serialize: {error}"),
+            }
         }
     }
-    let exit = eukhe_bend::rules::headless::exit(&facts).map_err(HeadlessModeError::Exit)?;
     match exit.cause {
         // The run's failure text, unless the failed primary already
         // printed it.
@@ -609,6 +684,9 @@ async fn run_prompts(
         ),
         ExitCause::Unfinished => eprintln!("eukhe: the run ended without a final answer"),
         ExitCause::CompactionFailed if json_mode => eprintln!("eukhe: compaction failed"),
+        ExitCause::BudgetUnanswered => {
+            eprintln!("eukhe: the budget ended the run before a final answer was delivered");
+        }
         ExitCause::Answered
         | ExitCause::CommandFailed
         | ExitCause::GaveUp
@@ -616,18 +694,16 @@ async fn run_prompts(
         | ExitCause::Aborted
         | ExitCause::SlashFailed
         | ExitCause::CompactionFailed
-        | ExitCause::AutonomousFailed => {}
+        | ExitCause::AutonomousFailed
+        | ExitCause::BudgetLimited => {}
     }
-    // "Done" is a claim: with acceptance checks the run exits 0 only when
-    // each is confirmed on the final state (`laws/verify.bend`); the label
-    // goes to stderr in both modes.
-    let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
-    if !acceptance.checks.is_empty() {
-        eprintln!("{}", format_acceptance_status(&acceptance));
-    }
-    let code = acceptance_exit_code(harness, conversation.id(), u64::from(exit.code), cx).await?;
-    Ok(i32::try_from(code).unwrap_or(1))
+    Ok(exit)
 }
+
+/// The state of a run the budget ended after the agent's final answer from
+/// its reserve: on the budget's stderr line and in json mode's last
+/// `budget_update` (`state`).
+const BUDGET_LIMITED: &str = "budget-limited";
 
 /// The prompt loop: each prompt, then the wait for quiescence.
 async fn drive_prompts(
