@@ -9,10 +9,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use eukhe_ai::api::{FetchDeferredFn, StreamSimpleFn};
 use eukhe_ai::models::{create_models, CreateModelsOptions, Models, ModelsSimpleStreamOptions};
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxModelDefinition,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_provider, faux_text, faux_thinking, faux_tool_call,
+    FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderHandle, FauxResponseStep,
+    RegisterFauxProviderOptions,
 };
 use eukhe_ai::types::{DeferredFetchOptions, SimpleStreamOptions};
+use eukhe_ai::utils::assistant_message_frame::{
+    reduce_assistant_message_frames, AssistantMessageFrameEncoder,
+};
 use eukhe_ai::utils::context_tokens::{context_tokens, model_tokenizer};
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::overflow::is_context_overflow;
@@ -24,10 +28,11 @@ use eukhe_types::budget::{
     BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport,
 };
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, Context as PiContext, DeferredHandle, DoneReason,
-    ErrorReason, Message, ModelCost, ModelCostTier, Partial, StopReason, Tool, ToolChoice, Usage,
-    UserContent, UserMessage,
+    AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context as PiContext,
+    DeferredHandle, DoneReason, ErrorReason, Message, ModelCost, ModelCostTier, Partial,
+    StopReason, Tool, ToolChoice, Usage, UserContent, UserMessage,
 };
+use futures::StreamExt as _;
 use tempfile::TempDir;
 use tokio::sync::watch;
 
@@ -772,6 +777,233 @@ async fn a_work_turn_stopped_at_its_granted_time_gives_the_final_answer() {
             None,
             message("wrapped up", Usage::default()).content,
             Some(std::time::Duration::from_millis(60_000)),
+            2,
+            Some(Received {
+                max_tokens: Some(2_048),
+                tool_choice: Some(ToolChoice::None),
+                last: Some(notice.to_owned()),
+            }),
+        )
+    );
+}
+
+/// The block an event of a stream is about.
+fn block_of(event: &AssistantMessageEvent) -> Option<usize> {
+    match event {
+        AssistantMessageEvent::TextStart { content_index, .. }
+        | AssistantMessageEvent::TextDelta { content_index, .. }
+        | AssistantMessageEvent::TextEnd { content_index, .. }
+        | AssistantMessageEvent::ThinkingStart { content_index, .. }
+        | AssistantMessageEvent::ThinkingDelta { content_index, .. }
+        | AssistantMessageEvent::ThinkingEnd { content_index, .. }
+        | AssistantMessageEvent::ToolCallStart { content_index, .. }
+        | AssistantMessageEvent::ToolCallDelta { content_index, .. }
+        | AssistantMessageEvent::ToolCallEnd { content_index, .. } => Some(*content_index),
+        AssistantMessageEvent::Start { .. }
+        | AssistantMessageEvent::PromptProgress { .. }
+        | AssistantMessageEvent::Done { .. }
+        | AssistantMessageEvent::Error { .. } => None,
+    }
+}
+
+/// Time: a work turn stopped at its granted time after it streamed content
+/// (thinking, a whole tool call, open text) gives the final answer in the
+/// same message: what streamed stays and its open text is closed, the
+/// final answer's blocks follow it, and the agent's message, which its
+/// tools run from, holds no tool call of the cut turn. The final answer is
+/// sent with the turn's context, no tools and the wrap-up notice. Before,
+/// the turn ended with the budget's error and the run had no answer.
+#[tokio::test(start_paused = true)]
+async fn a_work_turn_stopped_after_it_streamed_gives_the_final_answer_after_it() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let call = faux_tool_call("probe", serde_json::Map::new(), Some("call-1".to_owned()));
+    let row: StreamSimpleFn = {
+        let received = Arc::clone(&received);
+        let call = call.clone();
+        Arc::new(move |_model, context, options: SimpleStreamOptions| {
+            received.lock().unwrap().push(Received {
+                max_tokens: options.stream.max_tokens,
+                tool_choice: options.tool_choice.clone(),
+                last: context.messages().last().and_then(|last| match last {
+                    Message::User(UserMessage {
+                        content: UserContent::Text(text),
+                        ..
+                    }) => Some(text.clone()),
+                    Message::User(_)
+                    | Message::System(_)
+                    | Message::Assistant(_)
+                    | Message::ToolResult(_) => None,
+                }),
+            });
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            let mut live = AssistantMessage {
+                content: Vec::new(),
+                ..message("", Usage::default())
+            };
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                // The work turn: it streams, then waits until stopped.
+                let signal = options
+                    .stream
+                    .request
+                    .signal
+                    .expect("the gate's stop signal");
+                let AssistantContentBlock::ToolCall(tool_call) = call.clone() else {
+                    panic!("a tool call");
+                };
+                let call = call.clone();
+                tokio::spawn(async move {
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::Start { partial });
+                    live.content.push(faux_thinking(""));
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ThinkingStart {
+                        content_index: 0,
+                        partial,
+                    });
+                    live.content[0] = faux_thinking("Plan the build.");
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ThinkingDelta {
+                        content_index: 0,
+                        delta: "Plan the build.".to_owned(),
+                        partial,
+                    });
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ThinkingEnd {
+                        content_index: 0,
+                        content: "Plan the build.".to_owned(),
+                        partial,
+                    });
+                    live.content.push(call);
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ToolCallStart {
+                        content_index: 1,
+                        partial,
+                    });
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ToolCallEnd {
+                        content_index: 1,
+                        tool_call,
+                        partial,
+                    });
+                    live.content.push(faux_text(""));
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::TextStart {
+                        content_index: 2,
+                        partial,
+                    });
+                    live.content[2] = faux_text("Running the probe");
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::TextDelta {
+                        content_index: 2,
+                        delta: "Running the probe".to_owned(),
+                        partial,
+                    });
+                    signal.cancelled().await;
+                    sink.push(AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: AssistantMessage {
+                            stop_reason: StopReason::Aborted,
+                            ..live
+                        },
+                    });
+                    sink.end(None);
+                });
+            } else {
+                sink.push_partial(&live, |partial| AssistantMessageEvent::Start { partial });
+                live.content.push(faux_text(""));
+                sink.push_partial(&live, |partial| AssistantMessageEvent::TextStart {
+                    content_index: 0,
+                    partial,
+                });
+                live.content[0] = faux_text("wrapped up");
+                sink.push_partial(&live, |partial| AssistantMessageEvent::TextDelta {
+                    content_index: 0,
+                    delta: "wrapped up".to_owned(),
+                    partial,
+                });
+                sink.push_partial(&live, |partial| AssistantMessageEvent::TextEnd {
+                    content_index: 0,
+                    content: "wrapped up".to_owned(),
+                    partial,
+                });
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: live,
+                });
+                sink.end(None);
+            }
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let events: Vec<AssistantMessageEvent> = fixture
+        .models
+        .stream_simple(
+            &fixture.faux.get_model(),
+            agent("build it"),
+            ModelsSimpleStreamOptions::from(SimpleStreamOptions::default()),
+        )
+        .events()
+        .collect()
+        .await;
+    // The consumer's frames replay into one message: one start, every
+    // block where its events say.
+    let mut encoder = AssistantMessageFrameEncoder::new();
+    let frames: Vec<_> = events
+        .iter()
+        .filter_map(|event| encoder.encode(event).unwrap())
+        .collect();
+    let shown = reduce_assistant_message_frames(&frames)
+        .unwrap()
+        .map(|message| message.content);
+    let answer = match events.last() {
+        Some(AssistantMessageEvent::Done { message, .. }) => Some(message.content.clone()),
+        Some(_) | None => None,
+    };
+    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let received = received.lock().unwrap().clone();
+    assert_eq!(
+        (
+            events
+                .iter()
+                .map(|event| (event.type_name(), block_of(event)))
+                .collect::<Vec<_>>(),
+            shown,
+            answer,
+            received.len(),
+            received.last().cloned(),
+        ),
+        (
+            vec![
+                ("start", None),
+                ("thinking_start", Some(0)),
+                ("thinking_delta", Some(0)),
+                ("thinking_end", Some(0)),
+                ("toolcall_start", Some(1)),
+                ("toolcall_end", Some(1)),
+                ("text_start", Some(2)),
+                ("text_delta", Some(2)),
+                // Closed at the stop.
+                ("text_end", Some(2)),
+                // The final answer, after what streamed.
+                ("text_start", Some(3)),
+                ("text_delta", Some(3)),
+                ("text_end", Some(3)),
+                ("done", None),
+            ],
+            Some(vec![
+                faux_thinking("Plan the build."),
+                call,
+                faux_text("Running the probe"),
+                faux_text("wrapped up"),
+            ]),
+            // No tool call: none of the cut turn runs.
+            Some(vec![
+                faux_thinking("Plan the build."),
+                faux_text("Running the probe"),
+                faux_text("wrapped up"),
+            ]),
             2,
             Some(Received {
                 max_tokens: Some(2_048),

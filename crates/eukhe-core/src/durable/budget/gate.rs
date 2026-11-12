@@ -17,8 +17,10 @@
 //! Work leaves the worst case of the agent's final answer free. An agent
 //! turn that work no longer fits is sent as the final answer instead: the
 //! same context, the wrap-up notice as its last message, no tools; so is
-//! an agent turn stopped at its granted time before it streamed content.
-//! A request that is not an agent turn (a title,
+//! an agent turn stopped at its granted time. One stopped after it
+//! streamed content keeps what streamed in the agent's message (its open
+//! text closed, its tool calls never run) and the final answer's content
+//! follows it there. A request that is not an agent turn (a title,
 //! a classifier, a compaction, a memory or side question) is a side
 //! request: it leaves the reserve of the agent's last turn, holds and is
 //! charged no model request (it is no turn of the agent), and when it
@@ -42,9 +44,9 @@ use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_tokens::Tokenizer;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetReport};
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent, DeferredHandle,
-    DoneReason, ErrorReason, JsonValue, Message, Model, ModelCost, Partial, ServiceTier,
-    StopReason, ToolChoice, TranscriptContext, Usage, UserContent, UserMessage,
+    AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
+    DeferredHandle, DoneReason, ErrorReason, JsonValue, Message, Model, ModelCost, Partial,
+    ServiceTier, StopReason, ToolChoice, TranscriptContext, Usage, UserContent, UserMessage,
 };
 use futures::StreamExt as _;
 
@@ -345,26 +347,317 @@ struct Finale {
 enum Turn {
     /// A side request: it ends with the budget's error.
     Side,
-    /// An agent's work turn: stopped before it streamed content, it is
-    /// sent again as its final answer.
+    /// An agent's work turn: stopped, it is sent again as its final answer.
     Work(Finale),
     /// An agent's final answer: it ends with the budget's error.
     Final(Opened),
 }
 
-/// Whether the consumer already holds the start of the agent's message (a
-/// stopped work turn's): its final answer then streams into that message
-/// without a start of its own.
-#[derive(Debug, Clone, Copy)]
+/// What the consumer already holds of the agent's message when its final
+/// answer is sent.
 enum Opened {
+    /// Nothing: the final answer's message is the agent's.
     No,
+    /// The start of a stopped work turn's message, without content: the
+    /// final answer streams into it without a start of its own.
     Yes,
+    /// A stopped work turn's message with the content it streamed: the
+    /// final answer's blocks follow it.
+    Streamed(Box<Streamed>),
 }
 
-/// A work turn stopped at its granted time before it streamed content, on
-/// its way to be sent again as the agent's final answer: its context and
-/// options, whether the consumer holds its message's start, and the
-/// budget as it was left.
+/// The blocks of a work turn's stream as the consumer saw them start and
+/// end.
+#[derive(Default)]
+struct Seen {
+    /// How many blocks started: the consumer's message holds that many.
+    count: usize,
+    /// The blocks started and not ended, in the order they started.
+    open: Vec<usize>,
+}
+
+impl Seen {
+    fn see(&mut self, event: &AssistantMessageEvent) {
+        match event {
+            AssistantMessageEvent::TextStart { content_index, .. }
+            | AssistantMessageEvent::ThinkingStart { content_index, .. }
+            | AssistantMessageEvent::ToolCallStart { content_index, .. } => {
+                self.count = self.count.max(content_index + 1);
+                self.open.push(*content_index);
+            }
+            AssistantMessageEvent::TextEnd { content_index, .. }
+            | AssistantMessageEvent::ThinkingEnd { content_index, .. }
+            | AssistantMessageEvent::ToolCallEnd { content_index, .. } => {
+                self.open.retain(|open| open != content_index);
+            }
+            AssistantMessageEvent::Start { .. }
+            | AssistantMessageEvent::PromptProgress { .. }
+            | AssistantMessageEvent::TextDelta { .. }
+            | AssistantMessageEvent::ThinkingDelta { .. }
+            | AssistantMessageEvent::ToolCallDelta { .. }
+            | AssistantMessageEvent::Done { .. }
+            | AssistantMessageEvent::Error { .. } => {}
+        }
+    }
+}
+
+/// The message of a work turn stopped after it streamed content, which the
+/// consumer holds: the final answer's events are rebased into it, its
+/// block `i` at `offset + i`, on the work turn's own live partial.
+struct Streamed {
+    /// The work turn's live message, shared with the consumer.
+    partial: Partial,
+    /// What `partial` holds: the streamed blocks, then the final answer's.
+    shown: AssistantMessage,
+    /// How many blocks streamed.
+    offset: usize,
+}
+
+impl Streamed {
+    /// The stopped work turn's message `partial` of the `seen` blocks: its
+    /// open text and thinking end as they streamed (pushed to `sink`); an
+    /// open tool call stays unfinished (no event ends a call without
+    /// completing it), and no tool call of it is ever run.
+    fn cut(partial: Partial, seen: Seen, sink: &AssistantMessageEventStream) -> Self {
+        let mut shown = partial.snapshot();
+        if shown.content.len() > seen.count {
+            // Blocks the provider made and never told: the consumer has
+            // none of them.
+            shown.content.truncate(seen.count);
+            partial.replace(&shown);
+        }
+        for content_index in seen.open {
+            let end = match shown.content.get(content_index) {
+                Some(AssistantContentBlock::Text(text)) => AssistantMessageEvent::TextEnd {
+                    content_index,
+                    content: text.text.clone(),
+                    partial: partial.clone(),
+                },
+                Some(AssistantContentBlock::Thinking(thinking)) => {
+                    AssistantMessageEvent::ThinkingEnd {
+                        content_index,
+                        content: thinking.thinking.clone(),
+                        partial: partial.clone(),
+                    }
+                }
+                Some(AssistantContentBlock::ToolCall(_)) | None => continue,
+            };
+            sink.push(end);
+        }
+        Streamed {
+            partial,
+            offset: seen.count,
+            shown,
+        }
+    }
+
+    /// The final answer's `event` as an event of the stopped turn's
+    /// message: its block rebased past the streamed ones, on that
+    /// message's partial.
+    fn follow(&mut self, mut event: AssistantMessageEvent) -> AssistantMessageEvent {
+        let offset = self.offset;
+        let shown = &mut self.shown;
+        let answer = match &mut event {
+            AssistantMessageEvent::PromptProgress { partial, .. } => {
+                partial.read(|answer| follow_fields(shown, answer));
+                partial
+            }
+            AssistantMessageEvent::TextDelta {
+                content_index,
+                partial,
+                ..
+            }
+            | AssistantMessageEvent::ThinkingDelta {
+                content_index,
+                partial,
+                ..
+            }
+            | AssistantMessageEvent::ToolCallDelta {
+                content_index,
+                partial,
+                ..
+            } => {
+                partial.read(|answer| follow_block(shown, answer, offset, *content_index));
+                *content_index += offset;
+                partial
+            }
+            AssistantMessageEvent::TextStart {
+                content_index,
+                partial,
+            }
+            | AssistantMessageEvent::TextEnd {
+                content_index,
+                partial,
+                ..
+            }
+            | AssistantMessageEvent::ThinkingStart {
+                content_index,
+                partial,
+            }
+            | AssistantMessageEvent::ThinkingEnd {
+                content_index,
+                partial,
+                ..
+            }
+            | AssistantMessageEvent::ToolCallStart {
+                content_index,
+                partial,
+            }
+            | AssistantMessageEvent::ToolCallEnd {
+                content_index,
+                partial,
+                ..
+            } => {
+                partial.read(|answer| follow_all(shown, answer, offset));
+                *content_index += offset;
+                partial
+            }
+            // No block: nothing to rebase.
+            AssistantMessageEvent::Start { .. }
+            | AssistantMessageEvent::Done { .. }
+            | AssistantMessageEvent::Error { .. } => return event,
+        };
+        answer.clone_from(&self.partial);
+        self.partial.publish(&self.shown, &event);
+        event
+    }
+
+    /// The final answer's `message` as the agent's whole message: the text
+    /// and thinking that streamed before the stop, then its own content.
+    /// The stopped turn's tool calls are left out: they never run.
+    fn finish(&self, mut message: AssistantMessage) -> AssistantMessage {
+        let answer = std::mem::take(&mut message.content);
+        message.content = self.shown.content[..self.offset]
+            .iter()
+            .filter(|block| match block {
+                AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => true,
+                AssistantContentBlock::ToolCall(_) => false,
+            })
+            .cloned()
+            .chain(answer)
+            .collect();
+        message
+    }
+}
+
+/// Make `shown`'s fields but its content those of the final answer's
+/// message `answer`.
+fn follow_fields(shown: &mut AssistantMessage, answer: &AssistantMessage) {
+    let AssistantMessage {
+        content: _,
+        api,
+        provider,
+        model,
+        response_model,
+        response_id,
+        provider_thinking_level,
+        thinking_level,
+        diagnostics,
+        usage,
+        stop_reason,
+        deferred,
+        error_message,
+        raw_stop_reason,
+        end_turn,
+        timestamp,
+        duration_ms,
+        timing,
+    } = answer;
+    shown.api.clone_from(api);
+    shown.provider.clone_from(provider);
+    shown.model.clone_from(model);
+    shown.response_model.clone_from(response_model);
+    shown.response_id.clone_from(response_id);
+    shown
+        .provider_thinking_level
+        .clone_from(provider_thinking_level);
+    shown.thinking_level.clone_from(thinking_level);
+    shown.diagnostics.clone_from(diagnostics);
+    shown.usage.clone_from(usage);
+    shown.stop_reason.clone_from(stop_reason);
+    shown.deferred.clone_from(deferred);
+    shown.error_message.clone_from(error_message);
+    shown.raw_stop_reason.clone_from(raw_stop_reason);
+    shown.end_turn.clone_from(end_turn);
+    shown.timestamp.clone_from(timestamp);
+    shown.duration_ms.clone_from(duration_ms);
+    shown.timing.clone_from(timing);
+}
+
+/// Make `shown` follow `answer` after a change to its block `index` only
+/// (a delta): that block grows by what it gained.
+fn follow_block(
+    shown: &mut AssistantMessage,
+    answer: &AssistantMessage,
+    offset: usize,
+    index: usize,
+) {
+    let grown = match (
+        shown.content.get_mut(offset + index),
+        answer.content.get(index),
+    ) {
+        (Some(AssistantContentBlock::Text(target)), Some(AssistantContentBlock::Text(source))) => {
+            grow(&mut target.text, &source.text);
+            target.text_signature.clone_from(&source.text_signature);
+            true
+        }
+        (
+            Some(AssistantContentBlock::Thinking(target)),
+            Some(AssistantContentBlock::Thinking(source)),
+        ) => {
+            grow(&mut target.thinking, &source.thinking);
+            target
+                .thinking_signature
+                .clone_from(&source.thinking_signature);
+            true
+        }
+        (
+            Some(AssistantContentBlock::ToolCall(target)),
+            Some(AssistantContentBlock::ToolCall(source)),
+        ) => {
+            target.clone_from(source);
+            true
+        }
+        (
+            Some(
+                AssistantContentBlock::Text(_)
+                | AssistantContentBlock::Thinking(_)
+                | AssistantContentBlock::ToolCall(_),
+            )
+            | None,
+            Some(_) | None,
+        ) => false,
+    };
+    if grown {
+        follow_fields(shown, answer);
+    } else {
+        follow_all(shown, answer, offset);
+    }
+}
+
+/// Make `shown` the streamed blocks, then `answer` whole.
+fn follow_all(shown: &mut AssistantMessage, answer: &AssistantMessage, offset: usize) {
+    shown.content.truncate(offset);
+    shown.content.extend(answer.content.iter().cloned());
+    follow_fields(shown, answer);
+}
+
+/// Append the part of `source` past `target`; copy it whole when `target`
+/// is not a prefix of it.
+fn grow(target: &mut String, source: &str) {
+    match source.strip_prefix(target.as_str()) {
+        Some(suffix) => target.push_str(suffix),
+        None => source.clone_into(target),
+    }
+}
+
+/// A work turn stopped at its granted time, on its way to be sent again as
+/// the agent's final answer: its context and options, what the consumer
+/// holds of its message, and the budget as it was left. The final answer
+/// is sent with the stopped turn's context, without what streamed: a cut
+/// response is no message a provider takes back (its thinking unsigned,
+/// its tool call without a result), and the final answer's reserve was
+/// counted for that context.
 struct Stopped<O> {
     context: TranscriptContext,
     options: O,
@@ -644,14 +937,15 @@ impl<O: GatedOptions> Request<O> {
     /// a response at its usage, a deferred one when its fetch ends, a
     /// request its provider never started at one request, one that failed
     /// after it started at what the provider reported (whole when it
-    /// reported nothing). A work turn stopped at its granted time before
-    /// it streamed content ends nothing: it comes back as [`Stopped`].
+    /// reported nothing). A work turn stopped at its granted time ends
+    /// nothing: it comes back as [`Stopped`], its streamed text and
+    /// thinking closed.
     async fn send(
         &self,
         granted: Granted,
         tokenizer: &Tokenizer,
         mut options: O,
-        turn: Turn,
+        mut turn: Turn,
     ) -> Option<Stopped<O>> {
         let Granted {
             id,
@@ -692,8 +986,9 @@ impl<O: GatedOptions> Request<O> {
         // The live message of the response, from the provider's `Start`:
         // without one the provider never began to answer.
         let mut started: Option<Partial> = None;
-        // Whether a content block reached the consumer.
+        // Whether a content block reached the consumer, and which.
         let mut content = false;
+        let mut seen = Seen::default();
         let end = loop {
             let event = tokio::select! {
                 biased;
@@ -715,14 +1010,14 @@ impl<O: GatedOptions> Request<O> {
                 AssistantMessageEvent::Start { partial } => {
                     started = Some(partial.clone());
                     match turn {
-                        Turn::Final(Opened::Yes) => {}
+                        Turn::Final(Opened::Yes | Opened::Streamed(_)) => {}
                         Turn::Side | Turn::Work(_) | Turn::Final(Opened::No) => {
                             self.sink.push(AssistantMessageEvent::Start { partial });
                         }
                     }
                 }
-                AssistantMessageEvent::PromptProgress { .. } => self.sink.push(event),
-                AssistantMessageEvent::TextStart { .. }
+                AssistantMessageEvent::PromptProgress { .. }
+                | AssistantMessageEvent::TextStart { .. }
                 | AssistantMessageEvent::TextDelta { .. }
                 | AssistantMessageEvent::TextEnd { .. }
                 | AssistantMessageEvent::ThinkingStart { .. }
@@ -731,8 +1026,16 @@ impl<O: GatedOptions> Request<O> {
                 | AssistantMessageEvent::ToolCallStart { .. }
                 | AssistantMessageEvent::ToolCallDelta { .. }
                 | AssistantMessageEvent::ToolCallEnd { .. } => {
-                    content = true;
-                    self.sink.push(event);
+                    content |= !matches!(event, AssistantMessageEvent::PromptProgress { .. });
+                    match &mut turn {
+                        Turn::Final(Opened::Streamed(streamed)) => {
+                            self.sink.push(streamed.follow(event));
+                        }
+                        Turn::Side | Turn::Work(_) | Turn::Final(Opened::No | Opened::Yes) => {
+                            seen.see(&event);
+                            self.sink.push(event);
+                        }
+                    }
                 }
             }
         };
@@ -756,10 +1059,18 @@ impl<O: GatedOptions> Request<O> {
                     | DoneReason::ToolUse
                     | DoneReason::Deferred,
                     _,
-                ) => (
-                    actual_spend(&message.usage),
-                    Some(AssistantMessageEvent::Done { reason, message }),
-                ),
+                ) => {
+                    let message = match &turn {
+                        Turn::Final(Opened::Streamed(streamed)) => streamed.finish(message),
+                        Turn::Side | Turn::Work(_) | Turn::Final(Opened::No | Opened::Yes) => {
+                            message
+                        }
+                    };
+                    (
+                        actual_spend(&message.usage),
+                        Some(AssistantMessageEvent::Done { reason, message }),
+                    )
+                }
             },
             End::Failed(last) => {
                 let spend = match &started {
@@ -783,20 +1094,25 @@ impl<O: GatedOptions> Request<O> {
                 if timed_out {
                     held.settle(spend).await;
                     return match (turn, unstopped) {
-                        // Nothing of its answer streamed: the turn is sent
-                        // again as the final answer, from what the reserve
-                        // kept.
-                        (Turn::Work(finale), Some(options)) if !content => Some(Stopped {
-                            context,
-                            options,
-                            finale,
-                            opened: if started.is_some() {
-                                Opened::Yes
-                            } else {
-                                Opened::No
-                            },
-                            report: self.gate.reports.borrow().clone().unwrap_or(report),
-                        }),
+                        // The turn is sent again as the final answer, from
+                        // what the reserve kept, into the message the
+                        // consumer holds.
+                        (Turn::Work(finale), Some(options)) => {
+                            let opened = match started {
+                                Some(partial) if content => Opened::Streamed(Box::new(
+                                    Streamed::cut(partial, seen, &self.sink),
+                                )),
+                                Some(_) => Opened::Yes,
+                                None => Opened::No,
+                            };
+                            Some(Stopped {
+                                context,
+                                options,
+                                finale,
+                                opened,
+                                report: self.gate.reports.borrow().clone().unwrap_or(report),
+                            })
+                        }
                         (Turn::Work(_) | Turn::Side | Turn::Final(_), _) => {
                             self.refuse(notices::REQUEST_STOPPED.to_owned());
                             None
