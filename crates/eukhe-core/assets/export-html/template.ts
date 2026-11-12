@@ -1358,7 +1358,7 @@
                 let paramsHtml = '';
                 for (const [name, prop] of Object.entries(properties)) {
                   const isRequired = required.includes(name);
-                  const typeStr = prop.type || 'any';
+                  const typeStr = (Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type) || 'any';
                   const reqLabel = isRequired ? '<span class="tool-param-required">required</span>' : '<span class="tool-param-optional">optional</span>';
                   paramsHtml += `<div class="tool-param"><span class="tool-param-name">${escapeHtml(name)}</span> <span class="tool-param-type">${escapeHtml(typeStr)}</span> ${reqLabel}`;
                   if (prop.description) {

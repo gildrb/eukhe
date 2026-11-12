@@ -1873,6 +1873,13 @@ export const live: SessionExportData = {
           "offset": {
             "type": "integer",
             "description": "First line."
+          },
+          "encoding": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The text encoding."
           }
         },
         "required": [

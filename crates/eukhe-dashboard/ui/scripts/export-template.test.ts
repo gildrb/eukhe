@@ -154,3 +154,11 @@ describe("the JSONL download is the header and the entries as exported", () => {
     );
   });
 });
+
+test("a parameter's JSON-schema type list reads as alternatives", async () => {
+  const params = texts(await render(live), ".tool-param");
+  expect(params.find((text) => text.startsWith("encoding "))).toContain(
+    "encoding string | null optional",
+  );
+  expect(params.find((text) => text.startsWith("offset "))).toContain("offset integer optional");
+});

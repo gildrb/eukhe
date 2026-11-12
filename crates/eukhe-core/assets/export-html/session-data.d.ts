@@ -387,8 +387,8 @@ type ToolParametersSchema = JsonObject &
 
 /** One property schema of a tool's parameters (any JSON schema object). */
 type ToolParameterSchema = JsonObject & {
-  /** A JSON-schema type name, as template.ts reads it (a schema may also give a list of them). */
-  type?: string;
+  /** A JSON-schema type: one name, or a list of names. */
+  type?: string | string[];
   description?: string;
 };
 

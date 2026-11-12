@@ -322,6 +322,7 @@ fn live_tools() -> Vec<Value> {
                 "properties": {
                     "path": { "type": "string", "description": "The file." },
                     "offset": { "type": "integer", "description": "First line." },
+                    "encoding": { "type": ["string", "null"], "description": "The text encoding." },
                 },
                 "required": ["path"],
             },
