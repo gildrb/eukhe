@@ -91,10 +91,10 @@ deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
 	cargo deny --all-features --workspace check advisories bans licenses sources
 
-# Lints the one workflow file (.github/workflows/eukhe-release.yml).
+# Lints the workflow files (.github/workflows/).
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
-	actionlint .github/workflows/eukhe-release.yml
+	actionlint .github/workflows/eukhe-release.yml .github/workflows/build-image.yml
 
 # GLIBC baseline gate (eukhe-release.yml's build-linux job): a
 # GNU/Linux artifact must not require symbols above GLIBC_2.35, the Ubuntu
