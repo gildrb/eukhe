@@ -687,7 +687,7 @@ async fn a_request_is_stopped_at_its_granted_time() {
 }
 
 /// Time: an agent's work turn leaves its final answer's time free (180 s
-/// budget, 120 s kept), so it is stopped at 60 s; stopped before it
+/// budget, 45 s kept: B14), so it is stopped at 135 s; stopped before it
 /// streamed content, it goes on as the final answer on the same stream,
 /// with no tools and the wrap-up notice. Before, it ended with the budget's
 /// error and the run had no answer.
@@ -776,13 +776,106 @@ async fn a_work_turn_stopped_at_its_granted_time_gives_the_final_answer() {
         (
             None,
             message("wrapped up", Usage::default()).content,
-            Some(std::time::Duration::from_millis(60_000)),
+            Some(std::time::Duration::from_secs(135)),
             2,
             Some(Received {
                 max_tokens: Some(2_048),
                 tool_choice: Some(ToolChoice::None),
                 last: Some(notice.to_owned()),
             }),
+        )
+    );
+}
+
+/// What a budget of `budget_ms` keeps for the final answer at the agent's
+/// first work request, which answers after `first_ms`, and at its next,
+/// which never answers, and when that one is stopped: the ledger's clock
+/// stands still, so at the budget less what it keeps.
+async fn kept_for_the_final_answer(
+    budget_ms: u64,
+    first_ms: u64,
+) -> (u64, u64, Option<std::time::Duration>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aborted_at = Arc::new(Mutex::new(None));
+    let row: StreamSimpleFn = {
+        let aborted_at = Arc::clone(&aborted_at);
+        Arc::new(move |_model, _context, options: SimpleStreamOptions| {
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            let answer = message("done", Usage::default());
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            let aborted_at = Arc::clone(&aborted_at);
+            let signal = options.stream.request.signal;
+            tokio::spawn(async move {
+                sink.push(AssistantMessageEvent::Start {
+                    partial: Partial::new(answer.clone()),
+                });
+                match call {
+                    0 => tokio::time::sleep(std::time::Duration::from_millis(first_ms)).await,
+                    1 => {
+                        // The second work request answers only when stopped.
+                        let started = tokio::time::Instant::now();
+                        signal.expect("the gate's stop signal").cancelled().await;
+                        *aborted_at.lock().unwrap() = Some(started.elapsed());
+                        sink.push(AssistantMessageEvent::Error {
+                            reason: ErrorReason::Aborted,
+                            error: AssistantMessage {
+                                stop_reason: StopReason::Aborted,
+                                ..answer
+                            },
+                        });
+                        sink.end(None);
+                        return;
+                    }
+                    // Its final answer.
+                    2.. => {}
+                }
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: answer,
+                });
+                sink.end(None);
+            });
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(budget_ms),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    fixture.send(agent("look around")).await;
+    let first = fixture.gate.keep().time_ms;
+    fixture.send(agent("build it")).await;
+    let next = fixture.gate.keep().time_ms;
+    let stopped = *aborted_at.lock().unwrap();
+    (first, next, stopped)
+}
+
+/// B14: the final answer's time reserve is proportionate. A 3-minute
+/// budget keeps a quarter of it (45 s) at first and, once a request took
+/// 10 s, twice that but at least 20 s, so the next work request is
+/// stopped at 160 s; a 10-minute budget keeps 120 s at most, and after a
+/// 70 s request still 120 s. (A 10-minute budget's stalled request meets
+/// the stream's idle deadline first: only its reserves are compared.)
+/// Before, every budget kept 120 s: a 3-minute budget wrapped up after a
+/// minute of work.
+#[tokio::test(start_paused = true)]
+async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
+    let reserves = |(first, next, _): (u64, u64, Option<std::time::Duration>)| (first, next);
+    assert_eq!(
+        (
+            kept_for_the_final_answer(180_000, 10_000).await,
+            reserves(kept_for_the_final_answer(600_000, 10_000).await),
+            reserves(kept_for_the_final_answer(600_000, 70_000).await),
+        ),
+        (
+            (45_000, 20_000, Some(std::time::Duration::from_secs(160))),
+            (120_000, 20_000),
+            (120_000, 120_000),
         )
     );
 }
@@ -1596,6 +1689,7 @@ fn every_offer_is_its_requests_worst_case() {
         price_multiplier: 2.0,
         output_extra: 8_000,
         max_output: 64_000,
+        final_ms: 120_000,
     };
     let input = 150_000;
     let ladder = vec![16_384, 8_192, 4_096, 2_048, 1_024];

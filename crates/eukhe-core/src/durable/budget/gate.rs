@@ -1,5 +1,5 @@
 //! The chat-request side of a task's budget (spec/README.md B1, B2, B3,
-//! B6, B7): a request reserves its worst case in the agent's account before
+//! B6, B7, B14): a request reserves its worst case in the agent's account before
 //! it goes out and settles what it spent when its stream ends.
 //!
 //! The gate rides INNERMOST, under provider admission and the provider
@@ -14,7 +14,9 @@
 //! down to [`MIN_CAP`]); the ledger clips each offer's time to what is left
 //! before the deadline, and the first offer that fits is sent, with that
 //! cap, and stopped at its granted time when the budget has a deadline.
-//! Work leaves the worst case of the agent's final answer free. An agent
+//! Work leaves the worst case of the agent's final answer free, its time
+//! in proportion to the time budget and to the agent's longest model
+//! request ([`final_time_ms`]). An agent
 //! turn that work no longer fits is sent as the final answer instead: the
 //! same context, the wrap-up notice as its last message, no tools; so is
 //! an agent turn stopped at its granted time. One stopped after it
@@ -68,14 +70,31 @@ const TOOL_RESERVE: u64 = 4096;
 const FINAL_CAP: u64 = 2048;
 /// The smallest output cap a final answer is offered with.
 const FINAL_MIN_CAP: u64 = 256;
-/// How long a final answer may run.
+/// The longest a final answer may run (B14).
 const FINAL_TIME_MS: u64 = 120_000;
+/// The least time kept for a final answer once one of the agent's model
+/// requests ended (B14).
+const FINAL_MIN_TIME_MS: u64 = 20_000;
 /// How long a request without a timeout of its own may run.
 pub(super) const DEFAULT_DEADLINE_MS: u64 = 600_000;
 
+/// How long the agent's final answer may run, and so the time its reserve
+/// keeps (B14): [`FINAL_TIME_MS`] at most, a quarter of the time budget
+/// `budget_ms` at most, and twice the agent's longest model request
+/// `longest_ms` at most but never below [`FINAL_MIN_TIME_MS`] once one
+/// ended.
+fn final_time_ms(budget_ms: Option<u64>, longest_ms: Option<u64>) -> u64 {
+    let capped = budget_ms.map_or(FINAL_TIME_MS, |budget| FINAL_TIME_MS.min(budget / 4));
+    match longest_ms {
+        Some(longest) => capped.min(longest.saturating_mul(2)).max(FINAL_MIN_TIME_MS),
+        None => capped,
+    }
+}
+
 /// What bounds the spend of a request to one model: its prices, the
-/// multiplier of the service tier it asks for, and how far the provider's
-/// output may pass the cap the request names.
+/// multiplier of the service tier it asks for, how far the provider's
+/// output may pass the cap the request names, and how long the agent's
+/// final answer may run.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct CostFacts<'a> {
     pub cost: &'a ModelCost,
@@ -86,6 +105,8 @@ pub(super) struct CostFacts<'a> {
     pub output_extra: u64,
     /// The model's largest output: no response passes it, whatever the cap.
     pub max_output: u64,
+    /// How long the agent's final answer may run ([`final_time_ms`]).
+    pub final_ms: u64,
 }
 
 impl CostFacts<'_> {
@@ -118,7 +139,7 @@ impl CostFacts<'_> {
         self.amount(
             input.saturating_add(response).saturating_add(TOOL_RESERVE),
             FINAL_CAP,
-            FINAL_TIME_MS,
+            self.final_ms,
         )
     }
 }
@@ -722,9 +743,17 @@ impl<O: GatedOptions> Request<O> {
         }
     }
 
-    /// What bounds the spend of this request with `options`.
+    /// What bounds the spend of this request with `options`; the final
+    /// answer's time from the budget as last read and the agent's longest
+    /// model request (B14).
     fn cost_facts(&self, options: &O) -> CostFacts<'_> {
         let model = &self.model;
+        let budget_ms = self
+            .gate
+            .reports
+            .borrow()
+            .as_ref()
+            .and_then(|report| report.limits.time_ms);
         CostFacts {
             cost: &model.cost,
             price_multiplier: options
@@ -733,6 +762,7 @@ impl<O: GatedOptions> Request<O> {
                 .unwrap_or(1.0),
             output_extra: options.output_extra(model),
             max_output: self.max_output(),
+            final_ms: final_time_ms(budget_ms, self.gate.longest_request_ms()),
         }
     }
 
@@ -884,7 +914,7 @@ impl<O: GatedOptions> Request<O> {
         let facts = self.cost_facts(&options);
         let answers = final_caps
             .iter()
-            .map(|cap| facts.amount(input, *cap, FINAL_TIME_MS))
+            .map(|cap| facts.amount(input, *cap, facts.final_ms))
             .collect();
         let answered = self
             .gate
@@ -974,6 +1004,7 @@ impl<O: GatedOptions> Request<O> {
             });
         }
         let held = Held::start(&self.gate, id, amount, use_);
+        let sent = tokio::time::Instant::now();
         let mut events = (self.inner)(model, &context, options).events();
         let stop = async {
             match stop_after {
@@ -1060,6 +1091,16 @@ impl<O: GatedOptions> Request<O> {
                     | DoneReason::Deferred,
                     _,
                 ) => {
+                    // One of the agent's own requests ended with its
+                    // response: its final answer's time follows it (B14).
+                    match &turn {
+                        Turn::Work(_) | Turn::Final(_) => {
+                            let ms = sent.elapsed().as_millis();
+                            self.gate
+                                .request_ended(u64::try_from(ms).unwrap_or(u64::MAX));
+                        }
+                        Turn::Side => {}
+                    }
                     let message = match &turn {
                         Turn::Final(Opened::Streamed(streamed)) => streamed.finish(message),
                         Turn::Side | Turn::Work(_) | Turn::Final(Opened::No | Opened::Yes) => {

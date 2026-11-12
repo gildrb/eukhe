@@ -70,7 +70,8 @@ pub struct BudgetGate {
     /// `<provider>/<handle id>`): it settles when its fetch ends.
     deferred: Mutex<HashMap<String, Held>>,
     /// The agent's steps as actually spent: what a grant's `low` (the Low
-    /// notice) is judged against.
+    /// notice) is judged against, and its longest model request, which
+    /// its final answer's time reserve follows.
     steps: Mutex<Steps>,
 }
 
@@ -83,6 +84,11 @@ struct Steps {
     largest: BudgetAmounts,
     /// When its last work request started (Unix ms).
     started_ms: Option<u64>,
+    /// The longest wall time of one of its own model requests (work or
+    /// its final answer) that ended with its response, from when it was
+    /// sent, on the clock that stops a request at its granted time;
+    /// `None` before the first (B14).
+    longest_request_ms: Option<u64>,
 }
 
 impl BudgetGate {
@@ -323,6 +329,25 @@ impl BudgetGate {
         if let Some(started) = steps.started_ms.replace(now_ms) {
             steps.largest.time_ms = steps.largest.time_ms.max(now_ms.saturating_sub(started));
         }
+    }
+
+    /// One of the agent's own model requests ended with its response
+    /// `ms` after it was sent.
+    fn request_ended(&self, ms: u64) {
+        let mut steps = self.steps.lock().unwrap_or_else(PoisonError::into_inner);
+        let longest = steps
+            .longest_request_ms
+            .map_or(ms, |longest| longest.max(ms));
+        steps.longest_request_ms = Some(longest);
+    }
+
+    /// The longest of the agent's own model requests that ended with
+    /// their response; `None` before the first (B14).
+    fn longest_request_ms(&self) -> Option<u64> {
+        self.steps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .longest_request_ms
     }
 
     /// A work request or tool call of the agent spent `spend`.
