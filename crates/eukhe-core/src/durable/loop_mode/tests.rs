@@ -296,7 +296,7 @@ async fn a_loop_repeats_until_its_condition_command_succeeds() {
     let check = nth_run(3);
     let shown = lab.run(&format!("/loop 10 --until '{check}' fix it")).await;
     assert!(
-        shown.starts_with("Loop mode enabled. Limited to 10 iterations. 10 of 10 iterations remaining. Continuing until `"),
+        shown.starts_with("Loop mode enabled. Limited to 10 repeats after the first turn (11 turns at most). 10 of 10 repeats remaining. Continuing until `"),
         "{shown}"
     );
     assert!(
@@ -422,7 +422,7 @@ async fn an_armed_loop_repeats_the_next_prompt_of_the_user() {
     let shown = lab.run("/loop 1").await;
     assert_eq!(
         shown,
-        "Loop mode enabled. Limited to 1 iteration. 1 of 1 iteration remaining. Your next prompt will repeat after each turn. Esc suspends the ongoing loop; /loop again to disable."
+        "Loop mode enabled. Limited to 1 repeat after the first turn (2 turns at most). 1 of 1 repeat remaining. Your next prompt will repeat after each turn. Esc suspends the ongoing loop; /loop again to disable."
     );
     assert_eq!(lab.status().await.state.phase, LoopPhase::Armed);
     lab.session
@@ -838,7 +838,7 @@ async fn the_status_says_why_the_loop_still_runs() {
     );
     assert_eq!(
         lab.run("/loop --status").await,
-        "Loop: running iteration 2, 4 of 5 iterations remaining, until `test -f done` succeeds, last check after iteration 1: exit 1"
+        "Loop: running iteration 2, 4 of 5 repeats remaining, until `test -f done` succeeds, last check after iteration 1: exit 1"
     );
     std::fs::write(project(lab.dir.path()).join("done"), "").expect("done");
     release.send_replace(true);
