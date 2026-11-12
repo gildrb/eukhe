@@ -1,5 +1,5 @@
 # durable (spec): the lifecycle of a durable task (area task_life) as
-# pi-durable states it (spec §5.1-§5.5), restated without the rules of
+# the upstream durable task log states it (spec §5.1-§5.5), restated without the rules of
 # bend/task_life.bend:
 # the legal transitions (by transition, then by state), the resume map,
 # the two join policies, abort marks and the reach of a cascade, a

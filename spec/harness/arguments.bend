@@ -1,4 +1,4 @@
-# harness (spec): charitable argument repair (omp ADR 0020), restated
+# harness (spec): charitable argument repair (an upstream design record), restated
 # without the repair code (bend/arg_repair.bend). The laws of area
 # arg_repair (laws/arg_repair.bend) state that the code refines it. A
 # spec: the shipped code never calls it.

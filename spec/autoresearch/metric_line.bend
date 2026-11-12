@@ -1,6 +1,6 @@
 # autoresearch (spec): what a METRIC line of a benchmark's output is: the
 # text its parts spell, which parts are well formed, and how many
-# significant digits its value has. Grammar (oh-my-pi's regex
+# significant digits its value has. Grammar (the upstream regex
 # ^METRIC\s+([\w.µ-]+)=(\S+)\s*$, its value narrowed to plain decimals):
 #
 #   "METRIC" sp name "=" ["-"] int ["." frac] trail

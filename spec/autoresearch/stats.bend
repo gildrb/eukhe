@@ -1,5 +1,5 @@
 # autoresearch (spec): the confidence of a segment, by arithmetic on
-# numbers (oh-my-pi state.ts `computeConfidence`, `sortedMedian`): how
+# numbers (upstream `computeConfidence`, `sortedMedian`): how
 # far the best is from the baseline in units of the median absolute
 # deviation (MAD) of the segment's metrics,
 #
