@@ -9,8 +9,10 @@
 //! an account is one call of the compiled core: [`reserve`] before
 //! anything is spent, [`settle`] after (a crash's open hold is settled at
 //! its held amount), [`carve`] and [`close`] for a child given its own
-//! budget, [`fund`] when budget or time is added. Rust (eukhe-budget)
-//! keeps the account on disk and gathers the amounts; it decides nothing.
+//! budget, [`fund`] when budget or time is added. [`share_start`] (entry
+//! `bend/ffi_budget_share.bend`) picks the offer a reservation of an agent
+//! sharing its account starts from. Rust (eukhe-budget) keeps the account
+//! on disk and gathers the amounts; it decides nothing.
 //!
 //! Every number crosses the wire, so each must stay within
 //! [`NAT_MAX`](crate::wire::NAT_MAX): a caller keeps its amounts, durations
@@ -412,6 +414,58 @@ pub fn fund(n: Ask, acct: &Acct) -> Result<Acct, Error> {
         },
         get_acct,
     )
+}
+
+/// The place among `want` and then `less` (0: `want`) that a reservation
+/// of an agent drawing from a shared account starts from
+/// (`bend/budget_share.bend`, entry `bend/ffi_budget_share.bend`; laws
+/// `laws/budget_share.bend`). `n` is the number of the account's Working
+/// agents that hold nothing, the asker among them (0 counts as 1). For
+/// work and a side request: the first offer that fits `free` by `until`
+/// with `base` and `keep` (as [`reserve`] tests it) and is within the
+/// agent's share, in money and in tokens at most what is free past `base`
+/// and `keep` divided by `n`; when none that fits is, the last offer that
+/// fits. A final answer is not shared: the first offer that fits. When no
+/// offer fits, 0. Reserving the offers from that place on is granted
+/// exactly when reserving all of them would be.
+///
+/// # Errors
+///
+/// A number past the wire, or a failure of the compiled core.
+// The core's request, field for field (bend/ffi_budget_share.bend):
+// bundling them would only restate the wire.
+#[allow(clippy::too_many_arguments)]
+pub fn share_start(
+    n: u64,
+    use_: Use,
+    base: Ask,
+    keep: Ask,
+    want: Ask,
+    less: &[Ask],
+    free: Amt,
+    now: u64,
+    until: u64,
+) -> Result<usize, Error> {
+    let mut request = Writer::new();
+    request.nat(n).tag(match use_ {
+        Use::Work => 0,
+        Use::Final => 1,
+        Use::Side => 2,
+    });
+    put_ask(&mut request, base);
+    put_ask(&mut request, keep);
+    put_ask(&mut request, want);
+    request.count(less.len());
+    for offer in less {
+        put_ask(&mut request, *offer);
+    }
+    put_amt(&mut request, free);
+    request.nat(now).nat(until);
+    let reply = call(Entry::BudgetShare, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let place = reader.count()?;
+    reader.end()?;
+    Ok(place)
 }
 
 #[cfg(test)]
@@ -833,5 +887,57 @@ mod tests {
     fn a_number_past_the_wire_is_an_error_not_a_stop() {
         let acct = funded(amt(u64::MAX, 0, 0, 0), 0);
         assert!(settle(0, Amt::default(), &acct).is_err());
+    }
+
+    /// The bench of `budget_share_example`: 12 free in money and 120 in
+    /// tokens, each agent keeping (2, 20) for its own answer, offering
+    /// (8, 80), (4, 40), (2, 20), (1, 10), one call and one request each.
+    fn share_of(n: u64, use_: Use, free: Amt) -> usize {
+        let offer = |cost, tok| ask_of(amt(cost, tok, 1, 1), 10);
+        share_start(
+            n,
+            use_,
+            Ask::default(),
+            ask_of(amt(2, 20, 0, 0), 0),
+            offer(8, 80),
+            &[offer(4, 40), offer(2, 20), offer(1, 10)],
+            free,
+            0,
+            1000,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn four_agents_each_start_from_the_first_offer_within_a_quarter() {
+        // a share of (10, 100) / 4 = (2, 25): (2, 20) is the first within
+        assert_eq!(share_of(4, Use::Work, amt(12, 120, 10, 10)), 2);
+        // with one sibling, (5, 50): (4, 40)
+        assert_eq!(share_of(2, Use::Side, amt(12, 120, 10, 10)), 1);
+    }
+
+    #[test]
+    fn with_no_offer_within_the_share_the_smallest_that_fits_is_taken() {
+        // (10, 100) / 20 = (0, 5): none is within, (1, 10) fits
+        assert_eq!(share_of(20, Use::Work, amt(12, 120, 10, 10)), 3);
+    }
+
+    #[test]
+    fn with_no_offer_that_fits_the_start_is_the_wanted_one() {
+        assert_eq!(share_of(4, Use::Work, amt(1, 120, 10, 10)), 0);
+    }
+
+    #[test]
+    fn a_final_answer_is_not_shared() {
+        assert_eq!(share_of(4, Use::Final, amt(12, 120, 10, 10)), 0);
+    }
+
+    #[test]
+    fn a_lone_agent_starts_from_the_first_offer_that_fits() {
+        assert_eq!(share_of(1, Use::Work, amt(12, 120, 10, 10)), 0);
+        // n = 0 counts the asker alone
+        assert_eq!(share_of(0, Use::Work, amt(12, 120, 10, 10)), 0);
+        // alone, (8, 80) is past what is free: the first that fits, (4, 40)
+        assert_eq!(share_of(1, Use::Work, amt(7, 120, 10, 10)), 1);
     }
 }

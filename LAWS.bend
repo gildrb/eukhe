@@ -215,4 +215,5 @@ import ./laws/loop/model.bend as Loop
 import ./laws/loop/history.bend as LoopHistory
 import ./laws/loop/entry.bend as LoopEntry
 import ./laws/budget.bend as Budget
+import ./laws/budget_share.bend as BudgetShare
 import ./laws/verify.bend as Verify
