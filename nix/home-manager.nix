@@ -66,7 +66,9 @@ in
         activation says so). A setting chosen in eukhe (the model, a role's
         model, the thinking level, `/set --global`) is saved in
         ~/.eukhe/config.cfg, which sets over this file: a declared key is the
-        default until it is chosen in eukhe.
+        default until it is chosen in eukhe. The declared settings pass
+        through the Nix store, which every user can read: keep credentials
+        out (`eukhe login` keeps them in ~/.eukhe/auth.json).
       '';
     };
 
@@ -74,7 +76,13 @@ in
       type = lib.types.attrsOf lib.types.path;
       default = { };
       example = lib.literalExpression ''{ "AGENTS.md" = ./AGENTS.md; "themes/dusk.json" = ./dusk.json; }'';
-      description = "Files linked into ~/.eukhe, by relative path.";
+      description = ''
+        Files linked into ~/.eukhe, by relative path: `AGENTS.md` (the rules
+        of every session), `themes/<name>.json`, `models.json` (custom
+        models). They are linked from the Nix store, which every user can
+        read: a `models.json` names a key by its environment variable or a
+        `!command`, never the key itself.
+      '';
     };
 
     daemon.enable = lib.mkEnableOption ''
