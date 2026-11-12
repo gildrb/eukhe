@@ -21,7 +21,7 @@ type Doc = { path: string; title: string; description: string; markdown: string 
 
 const home: Doc = {
   path: "/",
-  title: "Eukhe: a harness and embeddable core for agents",
+  title: "Eukhe (εὐχή: a wish, a prayer)",
   description: `${summary}. ${install}`,
   markdown: source,
 };
