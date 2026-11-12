@@ -21,7 +21,6 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 - Nix: `nix run github:gildrb/eukhe`
 - Home Manager: `programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)
 - Source: `cargo build --release --locked -p eukhe-cli`
-- Python kernel: nothing to install. The first kernel start fetches Eukhe's pinned Python (CPython 3.14.10, about 50 MB, once); `eukhe kernel install` fetches it ahead of time, for offline use.
 
 ## Use
 
