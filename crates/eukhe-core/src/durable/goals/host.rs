@@ -23,7 +23,7 @@ use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::{goal_host_response, validate_goal_budget, GoalStatus, GoalTokens};
 
 /// The services of the goal extension: the session's Harness and budget
-/// gate (the wrap-up of a run whose limit was reached goes through it),
+/// gate (what the session's budget admits at a step and at a resume),
 /// the runner of autonomous quality gates, the Director stack's limits
 /// (read at each step: the settings can change), and the work of each
 /// conversation the goal's progress check counts (a cache of what the

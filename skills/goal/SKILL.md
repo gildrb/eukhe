@@ -8,12 +8,12 @@ description: Manage the persistent thread goal the harness keeps you working on 
 ## Start
 
 - Create a goal only when the user (or system or developer instructions) asks for a persistent goal: `await goal.create("ship the release notes")`. Never infer one from an ordinary task.
-- Pass `token_budget` only when the user names a budget. It limits the tokens of the whole session's budget (a budget that already limits tokens keeps its limit); when the budget runs out the goal turns budget-limited.
+- Pass `token_budget` only when the user names a budget.
 - A pending goal (active, paused, budget-limited) refuses `create`; the error says what the user can do. A completed or failed goal is replaced.
 
 ## Work
 
-- `await goal.get()` shows the objective, status, and the session budget's token use and remaining tokens.
+- `await goal.get()` shows the objective, status, usage and remaining tokens.
 - `await goal.remind(text)`: text that leads the next continuation (a note to your future self).
 - `await goal.force_tool(tool, tries=1)`: the next requests must call `tool`; after `1 + tries` misses the run fails.
 

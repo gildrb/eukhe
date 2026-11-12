@@ -8,17 +8,15 @@
 //!   failed run ends without a final answer, so the next generation of the
 //!   conversation settles it.
 //! - `before_request`: also forces the tool of the topmost forced-call
-//!   Director the model did not call yet (`stream.forceTool`), and makes
-//!   the request the agent's final answer (the session's budget gate sends
-//!   it with the wrap-up notice and no tools: `BudgetGate::wrap_next`)
-//!   once the goal reached its token budget in this run.
+//!   Director the model did not call yet (`stream.forceTool`).
 //! - `after_response`: every settled response spends the goal's and the
 //!   autonomous run's limits once per generation (the goal: input and
 //!   output tokens; the run: one turn and its input, output and
-//!   cache-write tokens); the response that reaches the goal's token
-//!   budget turns it `budget_limited` and the rest of the run wraps up.
-//!   The run's own limits are soft: `on_yield` checks them between
-//!   continuations, so the turn that crosses one completes.
+//!   cache-write tokens); a goal crossing its token budget turns
+//!   `budget_limited` and steers the run with the budget-limit context,
+//!   so the run goes on and wraps up. The run's own limits are soft:
+//!   `on_yield` checks them between continuations, so the turn that
+//!   crosses one completes.
 //! - `after_response`: also counts the response to a forced request: a
 //!   call of the tool makes the forced call; the miss that fails the
 //!   generation removes the layer and records the failure in a display row.
@@ -49,7 +47,7 @@ use eukhe_chord::context::Context;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::hook;
 use eukhe_durable::harness::types::{
-    GenerationHooks, HookApi, HookRegistration, RequestMessages, YieldContinuation,
+    GenerationHooks, HookApi, HookRegistration, RequestMessages, WhenBusy, YieldContinuation,
 };
 use eukhe_durable::harness::{
     Conversation, ConversationEntryQuery, ForcedToolError, GENERATION_TASK, LIVE_DOC,
@@ -65,14 +63,14 @@ use futures::FutureExt;
 
 use super::autonomous::{decide, AutonomousDocState, AutonomousYield};
 use super::docs::{
-    open_doc, read_doc, write_doc, GoalProgress, GoalWrap, YieldOutcome, YieldRecord,
-    AUTONOMOUS_DOC, GOAL_DOC, LOOP_DOC,
+    open_doc, read_doc, write_doc, GoalProgress, YieldOutcome, YieldRecord, AUTONOMOUS_DOC,
+    GOAL_DOC, LOOP_DOC,
 };
 use super::host::GoalsHost;
-use super::ops::{budget_report, goal_context, user_input_queued};
+use super::ops::{budget_report, goal_context, submit_goal_context, user_input_queued};
 use super::state::{
     accounted, budget_limited, compared, ended, mint, owns_continuation_wakeup, paused, run_end,
-    spends_limits, stall_check, stamp, Last, RunEnd, Stall, UsageOutcome,
+    served, spends_limits, stall_check, stamp, Last, RunEnd, Stall, UsageOutcome,
 };
 use crate::autonomous::{now_millis, AutonomousRuntimeState, SessionBudget};
 use crate::durable::children::{has_unsettled_children, WorkLedger};
@@ -106,7 +104,6 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                 let cx = cx.clone();
                 async move {
                     host.settle_failed_run(&api, &cx).await?;
-                    host.wrap_request(&api, &cx).await?;
                     let forced = read_doc(&api, &DIRECTORS_DOC, api.conversation_id(), &cx)
                         .await?
                         .and_then(|state: DirectorState| state.forced_tool());
@@ -219,47 +216,10 @@ impl GoalsHost {
             .await
     }
 
-    /// The first input of the conversation's live run (`None` without one).
-    async fn run_input(&self, api: &HookApi, cx: &Context) -> SessionResult<Option<SubmissionId>> {
-        Ok(read_doc(api, &LIVE_DOC, api.conversation_id(), cx)
-            .await?
-            .and_then(|live| live.run)
-            .and_then(|run| run.inputs.first().copied()))
-    }
-
-    /// Tell the session's budget gate whether this request is the agent's
-    /// final answer: the goal reached its token budget in this run. Set
-    /// before every request, so it never outlives the run.
-    async fn wrap_request(&self, api: &HookApi, cx: &Context) -> SessionResult<()> {
-        let conversation_id = api.conversation_id();
-        let goal = read_doc(api, &GOAL_DOC, conversation_id, cx)
-            .await?
-            .unwrap_or_default();
-        let wrap = if goal.status == GoalStatus::BudgetLimited {
-            let wrapped = read_doc(api, &LOOP_DOC, conversation_id, cx)
-                .await?
-                .and_then(|state| state.goal_wrap);
-            let input = self.run_input(api, cx).await?;
-            wrapped
-                .filter(|wrap| wrap.input == input && wrap.goal_id == goal.goal_id)
-                .map(|_| {
-                    format!(
-                        "The goal's token budget is reached ({} of {} tokens)",
-                        goal.tokens_used,
-                        goal.token_budget.unwrap_or(0)
-                    )
-                })
-        } else {
-            None
-        };
-        self.budget.wrap_next(wrap);
-        Ok(())
-    }
-
     /// Account one settled response against the goal and the autonomous
-    /// run, once per generation: the goal's input and output tokens (the
-    /// response that reaches its token budget turns it `budget_limited`
-    /// and wraps up the rest of this run); the run's turn and tokens.
+    /// run, once per generation: the goal's input and output tokens (a
+    /// goal crossing its token budget turns `budget_limited` and steers the
+    /// run with the budget-limit context); the run's turn and tokens.
     async fn account_response(
         &self,
         message: &AssistantMessage,
@@ -279,29 +239,44 @@ impl GoalsHost {
         if !goal_active && !autonomous_enabled {
             return Ok(());
         }
-        let input = self.run_input(api, cx).await?;
+        let conversation = self.conversation(conversation_id, cx).await?;
         let task_id = api.task_id();
         let usage = message.usage;
-        self.conversation(conversation_id, cx)
-            .await?
+        let limited = conversation
             .commit(
                 move |tx| async move {
+                    let now = now_millis();
                     let (loop_draft, mut loop_state) =
                         open_doc(&tx, &LOOP_DOC, conversation_id).await?;
+                    let goal = if goal_active {
+                        Some(open_doc(&tx, &GOAL_DOC, conversation_id).await?)
+                    } else {
+                        None
+                    };
                     if loop_state.accounted == Some(task_id) {
-                        return Ok(());
+                        // A rerun: report a crossing this generation already
+                        // made, so its steer is (re)submitted.
+                        return Ok(goal
+                            .map(|(_, goal)| goal)
+                            .filter(|goal| goal.status == GoalStatus::BudgetLimited));
                     }
-                    let now = now_millis();
-                    if goal_active {
-                        let (draft, goal) = open_doc(&tx, &GOAL_DOC, conversation_id).await?;
+                    let mut crossed = None;
+                    let mut row = None;
+                    if let Some((draft, goal)) = goal {
                         match accounted(&goal, &usage) {
                             UsageOutcome::Accounted(next) => write_doc(&draft, &stamp(next, now))?,
                             UsageOutcome::BudgetReached(next) => {
-                                loop_state.goal_wrap = Some(GoalWrap {
-                                    input,
-                                    goal_id: next.goal_id.clone(),
-                                });
-                                write_doc(&draft, &stamp(next, now))?;
+                                let written = stamp(next, now);
+                                write_doc(&draft, &written)?;
+                                row = Some(
+                                    goal_context(
+                                        &written,
+                                        GoalTokens::of(&written),
+                                        GoalContextKind::BudgetLimit,
+                                    )?
+                                    .1,
+                                );
+                                crossed = Some(written);
                             }
                             UsageOutcome::Ignored => {}
                         }
@@ -313,11 +288,36 @@ impl GoalsHost {
                         write_doc(&draft, &state)?;
                     }
                     loop_state.accounted = Some(task_id);
-                    write_doc(&loop_draft, &loop_state)
+                    write_doc(&loop_draft, &loop_state)?;
+                    if let Some(row) = row {
+                        tx.append_entry(conversation_id, row).await?;
+                    }
+                    Ok(crossed)
                 },
                 cx,
             )
-            .await
+            .await?;
+        // The budget-limit wrap-up steer: the steering boundary places it
+        // next, so the run goes on with it and wraps up.
+        if let Some(goal) = limited {
+            if let Some(goal_id) = goal.goal_id.clone() {
+                let (text, _) = goal_context(
+                    &served(&goal, now_millis()),
+                    GoalTokens::of(&goal),
+                    GoalContextKind::BudgetLimit,
+                )?;
+                submit_goal_context(
+                    &conversation,
+                    format!("goal:{goal_id}:budget-limit"),
+                    GoalContextKind::BudgetLimit,
+                    text,
+                    WhenBusy::Steer,
+                    cx,
+                )
+                .await?;
+            }
+        }
+        Ok(())
     }
 
     /// The Director stack's step at a final answer; `Some` continues the

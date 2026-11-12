@@ -263,14 +263,13 @@ pub fn goal_host_response(
     }
 }
 
-/// The goal continuation/objective-updated message (custom type,
-/// display=true), with the session budget's `tokens`.
+/// The goal continuation/budget/objective message (custom type,
+/// display=true), with the goal's `tokens`.
 ///
 /// # Errors
 ///
-/// Returns an error when the goal has no objective, for the retired
-/// budget-limit kind, or when the goal context details cannot be
-/// serialized.
+/// Returns an error when the goal has no objective, or when the goal context
+/// details cannot be serialized.
 pub fn create_goal_context_message(
     goal: &GoalState,
     tokens: GoalTokens,
@@ -279,14 +278,7 @@ pub fn create_goal_context_message(
     let Some(objective) = &goal.objective else {
         anyhow::bail!("Cannot create goal context without an objective.");
     };
-    let prompt_kind = match kind {
-        GoalContextKind::Continuation => goal_text::Prompt::Continuation,
-        GoalContextKind::ObjectiveUpdated => goal_text::Prompt::ObjectiveUpdated,
-        GoalContextKind::BudgetLimit => {
-            anyhow::bail!("The budget-limit goal context is retired: the session budget's wrap-up notice replaces it.")
-        }
-    };
-    let prompt = goal_text::prompt(goal, tokens, prompt_kind);
+    let prompt = goal_text::prompt(goal, tokens, kind);
     let text = format!("[goal: {}]\n\n{prompt}", kind.label());
     Ok(eukhe_types::session::CustomMessage {
         custom_type: GOAL_CONTEXT_CUSTOM_TYPE.to_string(),
@@ -424,7 +416,16 @@ mod tests {
         assert!(text.contains("- status: active"));
         assert!(text.contains("- remaining tokens: 600"));
         assert!(text.contains("await goal.complete()"));
-        // The objective-updated prompt.
+        // Budget-limit and objective-updated prompts.
+        let budget =
+            create_goal_context_message(&goal, tokens(), GoalContextKind::BudgetLimit).unwrap();
+        let UserContent::Text(budget_text) = &budget.content else {
+            panic!("expected text content");
+        };
+        assert!(budget_text.starts_with(
+            "[goal: budget-limit]\n\nThe active thread goal has reached its token budget."
+        ));
+        assert!(budget_text.contains("status: budget_limited"));
         let updated =
             create_goal_context_message(&goal, tokens(), GoalContextKind::ObjectiveUpdated)
                 .unwrap();

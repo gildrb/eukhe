@@ -7,8 +7,8 @@
 #            token budget's digits (Maybe<String>), the tokens used and the
 #            seconds used (digits, String each)
 #   request  a question, its tag then its fields:
-#            0 prompt: the kind (0 continuation | 1 objective updated),
-#              the goal
+#            0 prompt: the kind (0 continuation | 1 budget limit |
+#              2 objective updated), the goal
 #            1 usage: the goal
 #            2 host: the goal, whether the completion report is asked (Bool)
 #   reply    prompt: the text (String); usage: Maybe<String>;
@@ -127,8 +127,10 @@ def get_kind.tag(t: Nat, s: String) -> W.Dec<Req>:
     case 0n:
       get_prompt(Gt.KContinuation{}, get_goal(s))
     case 1n:
+      get_prompt(Gt.KBudgetLimit{}, get_goal(s))
+    case 2n:
       get_prompt(Gt.KObjectiveUpdated{}, get_goal(s))
-    case 2n+u:
+    case 3n+u:
       W.Bad{}
 
 def get_kind(r: W.Dec<Nat>) -> W.Dec<Req>:

@@ -17,8 +17,7 @@ async def get() -> dict[str, Any]:
 
     Returns a dict with `goal` (None when no goal is set), `remaining_tokens`,
     and `completion_budget_report`. The `goal` dict carries the objective,
-    status, the session budget's token limit and token spend, and the elapsed
-    time.
+    status, token budget, and token/elapsed-time usage.
     """
     return await host_request("goal.get")
 
@@ -30,8 +29,7 @@ async def create(objective: str, token_budget: int | None = None) -> dict[str, A
     a completed or errored goal is replaced. Only create a goal when the user
     or system/developer instructions explicitly ask for a persistent
     long-running goal. Set `token_budget` only when an explicit token budget is
-    requested: it limits the tokens of the session's budget (a budget that
-    already limits tokens keeps its limit).
+    requested.
     """
     if not isinstance(objective, str):
         raise TypeError(f"objective must be str, got {type(objective).__name__}")

@@ -498,13 +498,16 @@ fn acp_compact_command_publishes_the_compaction_meta_and_end_turn() {
 }
 
 #[test]
-fn acp_goal_command_publishes_goal_meta_and_its_budget_limits_it() {
-    // `/goal --budget 5` gives the goal its own soft token budget: the goal
-    // starts (its meta frame is active), its first answer is sent whatever
-    // its size, and the usage accounting of that answer crosses the budget,
-    // so the goal turns budget_limited (its meta showing the tokens it
-    // counted) and mints no continuation: the prompt ends with end_turn.
-    let script = json!({ "engine": "faux", "responses": ["GOAL-PROGRESS", "unused"] });
+fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
+    // `/goal` start schedules its continuation as the turn's model segment:
+    // the goal meta frame precedes the streamed answer, and the usage
+    // accounting publishes a second goal frame after the message settles.
+    // The tiny budget bounds the goal loop the worker turn loop hosts (the
+    // continuation loop runs inside the same session/prompt request): the
+    // crossing turn's budget-limit steer is the second model segment, and
+    // the budget_limited goal settles the prompt with end_turn instead of
+    // looping forever.
+    let script = json!({ "engine": "faux", "responses": ["GOAL-PROGRESS", "WRAP-UP"] });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
@@ -542,8 +545,9 @@ fn acp_goal_command_publishes_goal_meta_and_its_budget_limits_it() {
             &json!(0)
         )
     );
-    // The usage update follows the settled answer; its frame may follow
-    // the response.
+    // A usage update follows the settled message: the tiny budget crosses
+    // at the first turn, so the goal is budget_limited before the wrap-up
+    // steer segment runs.
     let limited = match goals.iter().find(|goal| goal["status"] == "budget_limited") {
         Some(goal) => goal.clone(),
         None => goal_of(&client.wait_frame(TIMEOUT, |frame| {
@@ -554,12 +558,16 @@ fn acp_goal_command_publishes_goal_meta_and_its_budget_limits_it() {
         limited["tokensUsed"].as_u64().unwrap_or(0) > 5,
         "the goal counted its answer: {limited}"
     );
+    // The budget-limit wrap-up steer ran as the prompt's second model
+    // segment (its streamed answer is the second scripted response; the
+    // faux pacing may split one answer into chunks, so the joined text
+    // carries the observable contract).
     let streamed: String = updates
         .iter()
         .filter_map(|update| update["params"]["update"]["content"]["text"].as_str())
         .collect();
     assert!(streamed.contains("GOAL-PROGRESS"), "updates: {updates:?}");
-    assert!(!streamed.contains("unused"), "updates: {updates:?}");
+    assert!(streamed.contains("WRAP-UP"), "updates: {updates:?}");
     assert_eq!(
         prompt_response["result"],
         json!({ "stopReason": "end_turn" })

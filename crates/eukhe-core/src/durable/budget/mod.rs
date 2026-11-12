@@ -64,10 +64,6 @@ pub struct BudgetGate {
     settings: Option<Arc<EukheSettings>>,
     reports: watch::Sender<Option<BudgetReport>>,
     keep: Mutex<BudgetAmounts>,
-    /// The goal limit that makes this agent's next turns its final answer
-    /// (why, for the wrap-up notice): set by the goal extension before
-    /// each request ([`Self::wrap_next`]).
-    wrap: Mutex<Option<String>>,
     told: Mutex<notices::Told>,
     notices: OnceLock<notices::NoticeSink>,
     /// The open reservation of each deferred response (by
@@ -161,7 +157,6 @@ impl BudgetGate {
             settings,
             reports: watch::Sender::new(None),
             keep: Mutex::new(BudgetAmounts::default()),
-            wrap: Mutex::new(None),
             told: Mutex::new(notices::Told::default()),
             notices: OnceLock::new(),
             deferred: Mutex::new(HashMap::new()),
@@ -295,23 +290,6 @@ impl BudgetGate {
     #[must_use]
     pub fn keep(&self) -> BudgetAmounts {
         *self.keep.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Whether this agent's next turn is its final answer because its goal
-    /// reached its token budget in this run (`reason` names it): the gate sends it with
-    /// the wrap-up notice and no tools, from the final-answer reserve when
-    /// the session has a budget. `None`: its turns are work. The goal
-    /// extension sets it before every request of the agent.
-    pub fn wrap_next(&self, reason: Option<String>) {
-        *self.wrap.lock().unwrap_or_else(PoisonError::into_inner) = reason;
-    }
-
-    /// The run limit that makes this agent's turns its final answer.
-    fn wrap(&self) -> Option<String> {
-        self.wrap
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
     }
 
     /// The agents of the account and the agent above each one.

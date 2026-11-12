@@ -157,10 +157,19 @@ def gtb.objective_updated(g: Gt.Goal) -> {Gt.objective_updated(g) == GoalText.gt
       %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
       {==}
 
+def gtb.budget_limit(g: Gt.Goal) -> {Gt.budget_limit(g) == GoalText.gt_budget_limit(g) : String}:
+  match g:
+    case Gt.Goal{s, +o, +b, u, t}:
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective(o), gtb.objective(o)) : {Gt.budget_limit.of(_, u, Gt.budget_text(b), t) == GoalText.gt_budget_limit.of(GoalText.gt_objective(o), u, GoalText.gt_budget_text(b), t) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.budget_limit.of(GoalText.gt_objective(o), u, _, t) == GoalText.gt_budget_limit.of(GoalText.gt_objective(o), u, GoalText.gt_budget_text(b), t) : String}
+      {==}
+
 def gtb.prompt(k: Gt.Prompt, g: Gt.Goal) -> {Gt.prompt(k, g) == GoalText.gt_prompt(k, g) : String}:
   match k:
     case Gt.KContinuation{}:
       gtb.continuation(g)
+    case Gt.KBudgetLimit{}:
+      gtb.budget_limit(g)
     case Gt.KObjectiveUpdated{}:
       gtb.objective_updated(g)
 

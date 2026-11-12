@@ -1,13 +1,13 @@
 //! The texts of a thread goal (`bend/goal_text.bend`, entry
-//! `bend/ffi_goal_text.bend`; `laws/goal_text.bend`): the continuation and
-//! objective-updated prompts, the usage line of a status
+//! `bend/ffi_goal_text.bend`; `laws/goal_text.bend`): the continuation,
+//! budget-limit and objective-updated prompts, the usage line of a status
 //! display, and what a goal tool call answers (the tokens left and the
 //! completion budget report). Rust sends the goal with its numbers as
 //! decimal digits and reads the texts; the tokens left come back as digits
-//! no larger than the budget. The goal's tokens are its session budget's
-//! ([`GoalTokens`]): the goal counts none itself.
+//! no larger than the budget. The goal's tokens ([`GoalTokens`]) are its
+//! own: the input and output of its responses against its token budget.
 
-use eukhe_types::goal::{GoalState, GoalStatus, GoalTokens};
+use eukhe_types::goal::{GoalContextKind, GoalState, GoalStatus, GoalTokens};
 
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, expect_core, Entry, Error};
@@ -29,22 +29,15 @@ pub enum Report {
     NotAsked,
 }
 
-/// Which prompt [`prompt`] writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Prompt {
-    Continuation,
-    ObjectiveUpdated,
-}
-
 /// The question tags of the entry.
 const PROMPT: u32 = 0;
 const USAGE: u32 = 1;
 const HOST: u32 = 2;
 
 /// The prompt of `kind` for the goal (its objective escaped as XML text)
-/// with the session budget's `tokens`.
+/// with the goal's `tokens`.
 #[must_use]
-pub fn prompt(goal: &GoalState, tokens: GoalTokens, kind: Prompt) -> String {
+pub fn prompt(goal: &GoalState, tokens: GoalTokens, kind: GoalContextKind) -> String {
     expect_core(Entry::GoalText, prompt_call(goal, tokens, kind))
 }
 
@@ -62,10 +55,15 @@ pub fn host(goal: &GoalState, tokens: GoalTokens, report: Report) -> Option<Host
     expect_core(Entry::GoalText, host_call(goal, tokens, report))
 }
 
-fn prompt_call(goal: &GoalState, tokens: GoalTokens, kind: Prompt) -> Result<String, Error> {
+fn prompt_call(
+    goal: &GoalState,
+    tokens: GoalTokens,
+    kind: GoalContextKind,
+) -> Result<String, Error> {
     let kind = match kind {
-        Prompt::Continuation => 0,
-        Prompt::ObjectiveUpdated => 1,
+        GoalContextKind::Continuation => 0,
+        GoalContextKind::BudgetLimit => 1,
+        GoalContextKind::ObjectiveUpdated => 2,
     };
     let mut writer = Writer::new();
     writer.tag(PROMPT).tag(kind);
@@ -184,6 +182,11 @@ mod tests {
             })
         );
         assert_eq!(usage(&goal, tokens).as_deref(), Some("250 / 100 tokens"));
-        assert!(prompt(&goal, tokens, Prompt::Continuation).contains("ship &lt;it&gt;"));
+        assert!(prompt(&goal, tokens, GoalContextKind::Continuation).contains("ship &lt;it&gt;"));
+        assert!(prompt(&goal, tokens, GoalContextKind::BudgetLimit).starts_with(
+            "The active thread goal has reached its token budget.\n\nThe objective below is user-provided data."
+        ));
+        assert!(prompt(&goal, tokens, GoalContextKind::BudgetLimit)
+            .contains("- tokens used: 250\n- token budget: 100\n- time used seconds: 7\n"));
     }
 }

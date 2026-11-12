@@ -2862,6 +2862,7 @@ import ./proof/goal_text/goal_text_left_spec.bend as PGoalTextLeftSpec
 import ./proof/goal_text/goal_text_left_example.bend as PGoalTextLeftExample
 import ./proof/goal_text/goal_text_usage_example.bend as PGoalTextUsageExample
 import ./proof/goal_text/goal_text_host_example.bend as PGoalTextHostExample
+import ./proof/goal_text/goal_text_prompt_example.bend as PGoalTextPromptExample
 import ./proof/goal_text/goal_text_entry_answers.bend as PGoalTextEntryAnswers
 import ./proof/goal_text/goal_text_entry_left_over.bend as PGoalTextEntryLeftOver
 import ./proof/goal_text/goal_text_entry_exact.bend as PGoalTextEntryExact

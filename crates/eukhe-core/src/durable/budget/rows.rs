@@ -33,10 +33,9 @@ use crate::durable::rlm::now_millis;
 const CLASSIFY_OUTPUT_CAP: u64 = 1024;
 
 /// The stream of one chat request of `gate`'s agent: `inner`'s own stream
-/// when the session has no budget (one `stat`) and no limit of the agent's
-/// run makes its turn the final answer, else the gated request's. Must be
-/// called inside a tokio runtime (the provider contract runs every request
-/// on one).
+/// when the session has no budget (one `stat`), else the gated request's.
+/// Must be called inside a tokio runtime (the provider contract runs every
+/// request on one).
 fn gated<O: GatedOptions>(
     gate: &Arc<BudgetGate>,
     inner: &Row<O>,
@@ -44,7 +43,7 @@ fn gated<O: GatedOptions>(
     context: &TranscriptContext,
     options: O,
 ) -> AssistantMessageEventStream {
-    if !gate.ledger.exists() && gate.wrap().is_none() {
+    if !gate.ledger.exists() {
         return inner(model, context, options);
     }
     let outer = AssistantMessageEventStream::new();

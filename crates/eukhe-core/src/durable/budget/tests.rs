@@ -101,7 +101,6 @@ impl Fixture {
                 settings: Some(settings),
                 reports: watch::Sender::new(None),
                 keep: Mutex::default(),
-                wrap: Mutex::default(),
                 told: Mutex::default(),
                 notices: OnceLock::new(),
                 deferred: Mutex::default(),
@@ -370,50 +369,6 @@ async fn a_side_request_is_no_turn_of_the_agent() {
             true
         )
     );
-}
-
-/// A limit of the agent's run (the goal's token budget reached in it)
-/// makes its next turn the final answer: no tools, the limit's
-/// notice last, the final answer's cap; without a budget nothing is
-/// reserved, with one it is the final answer's reservation and the phase
-/// stays. Side requests and turns after the limit is cleared are as usual.
-#[tokio::test]
-async fn an_agent_turn_after_a_run_limit_is_its_final_answer() {
-    let fixture = Fixture::new();
-    let notice = "[limit] The goal's token budget is reached (5 of 1 tokens). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
-    let wrapped = Received {
-        max_tokens: Some(2_048),
-        tool_choice: Some(ToolChoice::None),
-        last: Some(notice.to_owned()),
-    };
-    fixture.gate.wrap_next(Some(
-        "The goal's token budget is reached (5 of 1 tokens)".to_owned(),
-    ));
-    fixture.request(agent("go")).await;
-    fixture.request(chat("name this session")).await;
-    assert_eq!(
-        (fixture.received(), fixture.gate.report()),
-        (
-            vec![
-                wrapped.clone(),
-                Received {
-                    max_tokens: None,
-                    tool_choice: None,
-                    last: Some("name this session".to_owned()),
-                }
-            ],
-            None
-        )
-    );
-    fixture.gate.set(tokens(100_000)).unwrap();
-    let reply = fixture.request(agent("go")).await;
-    assert_eq!(reply.error_message, None);
-    assert_eq!(fixture.received()[2], wrapped);
-    assert_eq!(fixture.gate.phase(), Some(BudgetPhase::Working));
-    fixture.gate.wrap_next(None);
-    fixture.request(agent("go")).await;
-    assert_eq!(fixture.received()[3].tool_choice, None);
-    assert!(fixture.gate.audit().unwrap().exact());
 }
 
 /// B2: a request that fits only with a reduced cap is sent with that cap.

@@ -107,21 +107,6 @@ pub(crate) struct GoalLoopState {
     /// counted: a rerun counts it once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accounted: Option<TaskId>,
-    /// The run in which the goal reached its token budget: the rest of
-    /// that run is its final answer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal_wrap: Option<GoalWrap>,
-}
-
-/// The run (its first input) and the goal whose token budget was reached
-/// in it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct GoalWrap {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input: Option<SubmissionId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal_id: Option<String>,
 }
 
 /// The goal's progress check at its last continuation: whose it is (the
@@ -260,7 +245,6 @@ mod tests {
             }),
             progress: None,
             accounted: None,
-            goal_wrap: None,
         };
         let text = serde_json::to_string(&state).expect("encode");
         assert_eq!(migrated(&text, 2), state);

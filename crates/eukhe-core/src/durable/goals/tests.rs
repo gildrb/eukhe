@@ -15,7 +15,7 @@ use eukhe_ai::providers::faux::{
 };
 use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_durable::entries::USER_ENTRY;
+use eukhe_durable::entries::{ASSISTANT_ENTRY, USER_ENTRY};
 use eukhe_durable::env::{NativeExecutionEnv, NativeExecutionEnvOptions};
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::{create_registry, Registry};
@@ -322,6 +322,17 @@ pub(crate) fn user_texts(entries: &[EntryRecord]) -> Vec<String> {
         .filter(|entry| entry.kind == USER_ENTRY.kind())
         .filter_map(|entry| match entry.model.as_ref()?.first()? {
             Message::User(message) => Some(user_text(&message.content)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn assistants(entries: &[EntryRecord]) -> Vec<AssistantMessage> {
+    entries
+        .iter()
+        .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
+        .filter_map(|entry| match entry.model.as_ref()?.first()? {
+            Message::Assistant(message) => Some(message.clone()),
             _ => None,
         })
         .collect()
@@ -1051,14 +1062,57 @@ async fn empty_replies_are_retried_and_then_fail_the_goal() {
     harness.close(cx()).await.expect("close");
 }
 
-/// The goal's token budget is its own and soft (as v0.10.67): it puts no
-/// limit on the session's budget, its first response is sent whatever its
-/// size, the response that reaches the budget turns the goal
-/// `budget_limited`, and the rest of that run is its final answer (the
-/// limit's notice, no tools). A later run of the conversation works as
-/// usual, and `/goal resume` keeps the goal limited.
+/// The goal's token budget is its own and soft (as v0.10.67): a final
+/// answer that crosses it turns the goal `budget_limited` and steers the
+/// run with the budget-limit context, which the model answers; then the
+/// run ends (a budget-limited goal mints no continuation).
 #[tokio::test]
-async fn a_spent_token_budget_limits_the_goal() {
+async fn a_budget_crossing_steers_the_budget_limit_context() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    setup
+        .host_request(
+            "goal.create",
+            json!({ "objective": "small", "token_budget": 1 }),
+        )
+        .await
+        .expect("goal.create succeeds");
+    setup.faux.set_responses(vec![
+        answer("spent"),
+        answer("wrapping up"),
+        answer("unused"),
+    ]);
+
+    submit(&root, "work").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    let entries = entries(&root).await;
+    let texts = user_texts(&entries);
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert!(texts[1].starts_with(
+        "[goal: budget-limit]\n\nThe active thread goal has reached its token budget."
+    ));
+    let goal = stored_goal(&harness, &root).await;
+    assert_eq!(goal.status, GoalStatus::BudgetLimited);
+    assert_eq!(
+        goal.last_reason.as_deref(),
+        Some("Reached 1 token goal budget")
+    );
+    let first = &assistants(&entries)[0];
+    assert_eq!(goal.tokens_used, first.usage.input + first.usage.output);
+    assert_eq!(goal_contexts(&entries).len(), 1);
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
+    harness.close(cx()).await.expect("close");
+}
+
+/// A goal that crosses its token budget in the middle of a turn (a
+/// response with a tool call) is nudged, not cut: the budget-limit context
+/// is steered into the run's next request, which keeps its tools, and the
+/// run goes on to the model's own final answer. The goal's budget puts no
+/// limit on the session's budget; a later run works as usual and
+/// `/goal resume` keeps the goal limited.
+#[tokio::test]
+async fn a_goal_crossing_its_token_budget_mid_turn_is_nudged_and_the_run_goes_on() {
     let setup = setup();
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     setup
@@ -1093,21 +1147,31 @@ async fn a_spent_token_budget_limits_the_goal() {
             None
         )
     );
-    assert!(goal.tokens_used >= 1, "{goal:?}");
-    assert_eq!(user_origins(&entries(&root).await), vec![InputOrigin::User]);
-    // A later run is no wrap-up.
+    let first = &assistants(&entries(&root).await)[0];
+    assert_eq!(goal.tokens_used, first.usage.input + first.usage.output);
+    assert_eq!(
+        user_origins(&entries(&root).await),
+        vec![
+            InputOrigin::User,
+            InputOrigin::Goal {
+                context: GoalContextKind::BudgetLimit
+            }
+        ]
+    );
     submit(&root, "again").await;
     harness.wait_for_idle(cx()).await.expect("idle");
     let seen = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
     assert_eq!(seen.len(), 2, "{seen:?}");
-    assert!(!seen[0].0, "the final answer has no tools");
+    assert!(seen[0].0, "the nudged request keeps its tools");
     assert!(
-        seen[0]
-            .1
-            .starts_with("[limit] The goal's token budget is reached ("),
+        seen[0].1.starts_with(
+            "[goal: budget-limit]\n\nThe active thread goal has reached its token budget."
+        ),
         "{seen:?}"
     );
     assert_eq!(seen[1], (true, "again".to_owned()));
+    let texts = user_texts(&entries(&root).await);
+    assert_eq!(texts.len(), 3, "{texts:?}");
     let still = resume_goal(&harness, &setup.budget, root.id(), cx())
         .await
         .expect("resume");
@@ -1313,8 +1377,8 @@ async fn an_eukhe_session_installs_the_goal_hooks_and_host_requests() {
     .await
     .expect("goal.create succeeds");
     // The goal's token budget is its own: the session has no budget. Its
-    // first response reaches it; the run's next request, through the
-    // session's own budget gate, is the final answer without tools.
+    // first response reaches it; the budget-limit context is steered into
+    // the run's next request, which keeps its tools.
     assert_eq!(session.budget().report(), None);
     let seen = Saw::default();
     faux.set_responses(vec![
@@ -1330,15 +1394,13 @@ async fn an_eukhe_session_installs_the_goal_hooks_and_host_requests() {
         .await
         .expect("goal");
     assert_eq!(goal.status, GoalStatus::BudgetLimited);
+    let texts = user_texts(&entries(session.root()).await);
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert!(texts[1].starts_with("[goal: budget-limit]"));
     let seen = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
     assert_eq!(seen.len(), 1, "{seen:?}");
-    assert!(!seen[0].0, "the final answer has no tools");
-    assert!(
-        seen[0]
-            .1
-            .starts_with("[limit] The goal's token budget is reached ("),
-        "{seen:?}"
-    );
+    assert!(seen[0].0, "the nudged request keeps its tools");
+    assert_eq!(seen[0].1, texts[1]);
     assert_eq!(faux.get_pending_response_count(), 1);
     session.close(cx()).await.expect("close");
 }

@@ -44,8 +44,6 @@ impl GoalStatus {
 #[serde(rename_all = "snake_case")]
 pub enum GoalContextKind {
     Continuation,
-    /// Retired: only rows written before the session budget's wrap-up
-    /// notice replaced the goal's budget-limit prompt carry it.
     BudgetLimit,
     ObjectiveUpdated,
 }
