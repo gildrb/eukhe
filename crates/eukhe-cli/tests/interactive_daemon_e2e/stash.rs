@@ -1109,6 +1109,8 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
 #[tokio::test]
 async fn tui_dispatches_declared_editor_keybindings() {
     use crossterm::event::{KeyCode, KeyModifiers};
+    /// The session name the hold gate sets once it holds the turn's request.
+    const HELD: &str = "request held at the gate";
 
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -1126,13 +1128,6 @@ async fn tui_dispatches_declared_editor_keybindings() {
     // ends it -- no streaming pace or clock the loaded box may outrun.
     let gate = dir.path().join("hold.sock");
     let gate_listener = tokio::net::UnixListener::bind(&gate).expect("bind the hold gate");
-    let held = tokio::spawn(async move {
-        let (held, _) = gate_listener
-            .accept()
-            .await
-            .expect("the held turn's request reaches the gate");
-        held
-    });
     let script = serde_json::json!({
         "engine": "faux",
         "responses": [
@@ -1140,8 +1135,52 @@ async fn tui_dispatches_declared_editor_keybindings() {
             { "text": "the final answer that the abort must never deliver", "holdUntilReleased": gate },
         ],
     });
-    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let script_path = dir.path().join("script.json");
+    let session = create_session_via_daemon(
+        &supervisor.socket,
+        &script_path,
+        &script,
+        dir.path(),
+        &session_dir,
+    )
+    .await;
+    // "Waiting - " renders when the turn starts, before its provider
+    // request reaches the gate; an interrupt in that window aborts the
+    // turn before the request exists. So the gate, once it holds the
+    // request, names the session from a second client, and the plan sends
+    // the interrupt only after the status line shows that name.
+    let (namer, _namer_events) =
+        eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
+            .await
+            .expect("connect the gate's client");
+    eukhe_client::saved_sessions::attach(
+        &namer,
+        &session,
+        eukhe_types::daemon::DaemonClientKind::Watch,
+    )
+    .await
+    .expect("the gate's client attaches");
+    let held_session = session.clone();
+    let held = tokio::spawn(async move {
+        let (held, _) = gate_listener
+            .accept()
+            .await
+            .expect("the held turn's request reaches the gate");
+        namer
+            .request_ok(DaemonCommand::SetSessionName {
+                id: None,
+                active_session_id: held_session,
+                name: HELD.to_string(),
+                worker_token: None,
+                rest: serde_json::Map::default(),
+            })
+            .await
+            .expect("the gate names the session");
+        namer.close();
+        held
+    });
     let mut options = base_options(&supervisor, dir.path(), &session_dir);
+    options.session = eukhe_tui::interactive::SessionSelection::Attach(session.clone());
     // The exact load path the CLI uses: the fixture binds the two
     // no-default-key actions.
     options.keybindings = eukhe_tui::keybindings::KeybindingsManager::create(&agent_dir);
@@ -1166,6 +1205,7 @@ async fn tui_dispatches_declared_editor_keybindings() {
             // interrupt key lands.
             eukhe_tui::interactive::HeadlessStep::Submit("start the slow turn".to_string()),
             wait_render("Waiting - "),
+            wait_render(HELD),
             key(
                 KeyCode::Char('i'),
                 KeyModifiers::CONTROL | KeyModifiers::ALT,
@@ -1190,7 +1230,7 @@ async fn tui_dispatches_declared_editor_keybindings() {
         .await
         .expect("interactive run");
     let rendered = outcome.frames.join("\n");
-    for status in ["Press Ctrl+C again to exit", "started session"] {
+    for status in [HELD, "Press Ctrl+C again to exit", "started session"] {
         assert!(
             rendered.contains(status),
             "the {status:?} row rendered:\n{rendered}"
