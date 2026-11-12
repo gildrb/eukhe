@@ -66,16 +66,25 @@ fn is_node_modules(name: &str, skip_node_modules: bool) -> bool {
 /// ([`IgnoreRule::Everything`], a prefix that is empty for the root, else
 /// ends in `/`): a broken rule can only ignore more paths, never fewer.
 /// The compiled core decides which paths the rules ignore, one directory
-/// listing per call.
+/// listing per call, given only the rules that can decide a path of that
+/// listing ([`IgnoreMatcher::ignored`]).
 pub(crate) struct IgnoreMatcher {
     rules: Vec<IgnoreRule>,
+    /// Per rule, the prefix of every path it can decide (its nested ignore
+    /// file's directory), or `None`: any path.
+    scopes: Vec<Option<String>>,
     diagnostics: Vec<ResourceDiagnostic>,
 }
+
+/// The characters with a meaning in a glob: a prefix with none of them
+/// matches only itself.
+const GLOB_SPECIAL: [char; 7] = ['*', '?', '[', ']', '{', '}', '\\'];
 
 impl IgnoreMatcher {
     pub(crate) fn new() -> Self {
         Self {
             rules: Vec::new(),
+            scopes: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -102,9 +111,7 @@ impl IgnoreMatcher {
                         ),
                         path: Some(ignore_path.display().to_string()),
                     });
-                    self.rules.push(IgnoreRule::Everything {
-                        prefix: prefix.clone(),
-                    });
+                    self.push_everything(&prefix);
                     continue;
                 }
             };
@@ -132,20 +139,26 @@ impl IgnoreMatcher {
         }
         let anchored = glob.contains('/');
         let Err(error) = expect_core(Entry::Glob, glob::check(glob)) else {
+            // An anchored glob that starts with its directory's prefix,
+            // which holds no special character, matches only paths that
+            // start with the prefix (a `**` after it keeps its `/`).
+            let scoped = !prefix.is_empty()
+                && anchored
+                && glob.starts_with(prefix)
+                && !prefix.contains(GLOB_SPECIAL);
             self.rules.push(IgnoreRule::Glob {
                 pattern: glob.to_string(),
                 anchored,
                 negated,
                 dir_only,
             });
+            self.scopes.push(scoped.then(|| prefix.to_string()));
             return;
         };
         let effect = if negated {
             "it is not used"
         } else {
-            self.rules.push(IgnoreRule::Everything {
-                prefix: prefix.to_string(),
-            });
+            self.push_everything(prefix);
             "every path under its directory is ignored"
         };
         self.diagnostics.push(ResourceDiagnostic::Warning {
@@ -154,11 +167,22 @@ impl IgnoreMatcher {
         });
     }
 
+    /// The rule that ignores every path that starts with `prefix`.
+    fn push_everything(&mut self, prefix: &str) {
+        self.rules.push(IgnoreRule::Everything {
+            prefix: prefix.to_string(),
+        });
+        self.scopes
+            .push((!prefix.is_empty()).then(|| prefix.to_string()));
+    }
+
     /// Per root-relative path (`true`: a directory; the TS side passes
     /// trailing-slash paths), whether it is ignored. One core call for
-    /// the whole listing; none when no rule is set.
+    /// the whole listing, with the rules that can decide one of its paths
+    /// ([`IgnoreMatcher::deciding`]); none when no rule can.
     pub(crate) fn ignored(&self, entries: &[(String, bool)]) -> Vec<bool> {
-        if self.rules.is_empty() {
+        let rules = self.deciding(entries);
+        if rules.is_empty() {
             return vec![false; entries.len()];
         }
         let entries: Vec<IgnoreEntry<'_>> = entries
@@ -168,7 +192,24 @@ impl IgnoreMatcher {
                 is_dir: *is_dir,
             })
             .collect();
-        expect_core(Entry::Glob, glob::ignored(&self.rules, &entries))
+        expect_core(Entry::Glob, glob::ignored(&rules, &entries))
+    }
+
+    /// The rules, in order, that can decide one of the paths of
+    /// `entries`: a rule decides a path only when it matches it, so a rule
+    /// scoped to a prefix none of them starts with (a sibling directory's
+    /// ignore file) changes no answer and costs the core a match per path.
+    fn deciding(&self, entries: &[(String, bool)]) -> Vec<IgnoreRule> {
+        self.rules
+            .iter()
+            .zip(&self.scopes)
+            .filter(|(_, scope)| {
+                scope
+                    .as_deref()
+                    .is_none_or(|scope| entries.iter().any(|(path, _)| path.starts_with(scope)))
+            })
+            .map(|(rule, _)| rule.clone())
+            .collect()
     }
 }
 
@@ -563,4 +604,112 @@ pub(crate) fn collect_ancestor_agents_skill_dirs(start_dir: &Path) -> Vec<PathBu
         dir = parent.to_path_buf();
     }
     dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(path: &Path) {
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("the directories");
+        std::fs::write(path, "").expect("the file");
+    }
+
+    /// Ignore files of sibling directories, as a walk adds them: each
+    /// listing goes to the core with only the rules that can decide one of
+    /// its paths, and every answer is the one all the rules give. A root
+    /// rule, a nested `/` line (the unanchored directory name) and the
+    /// rules of a directory whose name is a glob are never left out.
+    #[test]
+    fn a_listing_gets_only_the_rules_that_can_decide_its_paths() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let root = dir.path();
+        let ignore = |dir: &str, text: &str| {
+            std::fs::create_dir_all(root.join(dir)).expect("the directory");
+            std::fs::write(root.join(dir).join(".gitignore"), text).expect("the ignore file");
+        };
+        ignore("", "*.tmp\n");
+        ignore("a", "*.log\n!keep.log\nbuild/\n**/tmp\n/\n");
+        ignore("a[b]", "*.md\n");
+        ignore("c", "x/**\n");
+        for file in [
+            "a/one.log",
+            "a/keep.log",
+            "a/build/f",
+            "a/tmp/f",
+            "a/SKILL.md",
+            "ab/one.md",
+            "ab/two.tmp",
+            "a[b]/two.md",
+            "c/x/y",
+            "c/x.md",
+            "d/one.tmp",
+            "d/a/two.md",
+        ] {
+            write(&root.join(file));
+        }
+        let mut matcher = IgnoreMatcher::new();
+        matcher.add_rules(root, root);
+        let mut ignored = Vec::new();
+        let mut sent = Vec::new();
+        for sub in ["a", "a[b]", "ab", "c", "c/x", "d", "d/a"] {
+            let dir = root.join(sub);
+            matcher.add_rules(&dir, root);
+            let entries: Vec<(String, bool)> = read_entries_sorted(&dir)
+                .into_iter()
+                .filter(|entry| !entry.name.starts_with('.'))
+                .map(|entry| (path_relative(root, &entry.path), classify(&entry.path).0))
+                .collect();
+            let every: Vec<IgnoreEntry<'_>> = entries
+                .iter()
+                .map(|(path, is_dir)| IgnoreEntry {
+                    path,
+                    is_dir: *is_dir,
+                })
+                .collect();
+            let answers = matcher.ignored(&entries);
+            assert_eq!(
+                answers,
+                expect_core(Entry::Glob, glob::ignored(&matcher.rules, &every)),
+                "{sub}"
+            );
+            ignored.extend(
+                entries
+                    .iter()
+                    .zip(answers)
+                    .filter(|(_, ignored)| *ignored)
+                    .map(|((path, _), _)| path.clone()),
+            );
+            sent.push((sub, matcher.deciding(&entries).len(), matcher.rules.len()));
+        }
+        // `a[b]/*.md` is a glob of `ab/`, so it ignores `ab/one.md`, not
+        // `a[b]/two.md`; `a/`'s `/` line ignores every `a`.
+        assert_eq!(
+            ignored,
+            [
+                "a/build",
+                "a/one.log",
+                "a/tmp",
+                "ab/one.md",
+                "ab/two.tmp",
+                "c/x/y",
+                "d/a",
+                "d/one.tmp",
+            ]
+        );
+        // All 8 rules once `c/` is read; `c/x` gets the root's, `a/`'s `/`
+        // line, `a[b]/`'s and `c/`'s.
+        assert_eq!(
+            sent,
+            [
+                ("a", 6, 6),
+                ("a[b]", 3, 7),
+                ("ab", 3, 7),
+                ("c", 4, 8),
+                ("c/x", 4, 8),
+                ("d", 3, 8),
+                ("d/a", 3, 8),
+            ]
+        );
+    }
 }
