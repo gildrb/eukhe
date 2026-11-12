@@ -146,8 +146,8 @@ const globalCss = [
   `.w2{display:inline-block;width:calc(2 * var(--cw));overflow:hidden;vertical-align:top}`,
 ].join("");
 
-/** The favicon: the cursor after the page's name, one block, in each theme's `primary`. */
-export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect x="9" y="4" width="14" height="24"/></svg>\n`;
+/** The favicon: a square, in each theme's `primary`. */
+export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect x="4" y="4" width="24" height="24"/></svg>\n`;
 
 /** The first screen, as client.ts would paint it on any screen (paint.ts). */
 type Screen = {
