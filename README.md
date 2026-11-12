@@ -29,7 +29,7 @@ eukhe --help  # all commands
 
 Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
 
-## What it does
+## Capabilities
 
 - Budgets: `/budget set cost=5 time=2h` caps a task and its subagents at $5 and 2 hours. Caps cover money, tokens, tool calls, model requests and time. The agent is told when a budget runs low and still gives a final answer when it runs out.
 - Checks: `/accept cmd cargo test` makes the task done only when `cargo test`, run by Eukhe on the final result, passes. The agent cannot set, change or skip a check. A failed check returns to the agent with its output.
@@ -40,7 +40,7 @@ Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash co
 - Background sessions: a daemon runs them. The terminal, `eukhe dashboard` (browser) and `eukhe gateway` (Signal) attach to the same sessions.
 - Embedding: [`eukhe-sdk`](crates/eukhe-sdk/) runs sessions inside a Rust program, and [`eukhe-client`](crates/eukhe-client/) connects one to the daemon. Rust only, not on crates.io, API unstable.
 
-# Limitations
+## Limitations
 
 ```
 - No sandbox: model-written code runs with the user's permissions.
