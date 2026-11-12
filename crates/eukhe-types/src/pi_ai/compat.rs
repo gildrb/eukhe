@@ -54,6 +54,17 @@ string_enum! {
     }
 }
 
+string_enum! {
+    /// How a thinking-off request of the `openai` thinking format turns
+    /// reasoning off on OpenAI-compatible completions APIs, in place of the
+    /// lowest offered `reasoning_effort`.
+    pub enum ReasoningDisableMode {
+        /// `reasoning: {enabled: false}` (`OpenCode` Go's `LongCat`: a
+        /// reasoning switch without effort tiers).
+        OpenRouterEnabledFalse => "openrouter-enabled-false",
+    }
+}
+
 /// Compatibility settings for OpenAI-compatible completions APIs. Overrides
 /// URL-based auto-detection for custom providers.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -114,6 +125,11 @@ pub struct OpenAICompletionsCompat {
     /// keeps the reasoning of every earlier turn). Default: not sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_keep: Option<String>,
+    /// How a thinking-off request of the `openai` thinking format turns
+    /// reasoning off. Default: the model's `off` effort, else its lowest
+    /// offered effort (sent only where `reasoning_effort` is supported).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_disable_mode: Option<ReasoningDisableMode>,
     /// Top-level request field used to cap reasoning tokens from `thinkingBudgets`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_token_budget_field: Option<ThinkingTokenBudgetField>,

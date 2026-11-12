@@ -3,7 +3,7 @@
 use eukhe_ai::providers::all::{get_builtin_models, get_builtin_providers};
 use eukhe_types::pi_ai::Model;
 
-const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 14] = [
+const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 13] = [
     "anthropic/claude-fable-5",
     "anthropic/claude-haiku-5-5",
     "anthropic/claude-opus-4-8",
@@ -12,7 +12,6 @@ const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 14] = [
     "cloudflare-ai-gateway/claude-fable-5",
     "kimi-coding/kimi-for-coding",
     "kimi-coding/k3",
-    "kimi-coding/kimi-for-coding-highspeed",
     "opencode/claude-opus-4-8",
     "opencode/claude-opus-5",
     "vercel-ai-gateway/anthropic/claude-opus-4.8",

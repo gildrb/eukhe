@@ -170,8 +170,9 @@ pub enum Directive {
     BetweenToolsThinking,
     /// Anthropic Messages and Bedrock: thinking off is an explicit
     /// `thinking.type: disabled` even on an adaptive model (Claude Haiku
-    /// 5.5). No rule: an adaptive model's thinking off omits `thinking`
-    /// and pins the lowest effort.
+    /// 5.5; the `opencode-go` host turns it off, so Haiku 5.5 there takes
+    /// the adaptive form). No rule: an adaptive model's thinking off omits
+    /// `thinking` and pins the lowest effort.
     DisabledThinking,
     /// Bedrock: the model takes `cachePoint` blocks (prompt caching).
     PromptCaching,

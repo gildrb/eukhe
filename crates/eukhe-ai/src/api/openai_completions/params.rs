@@ -17,7 +17,8 @@ use crate::models::{get_supported_thinking_levels, thinking_level_map};
 use crate::types::{
     AssistantContentBlock, CacheControlFormat, CacheRetention, ChatTemplateKwargValue,
     ChatTemplateVar, JsonObject, JsonValue, MaxTokensField, Message, Model, ModelThinkingLevel,
-    ThinkingFormat, ThinkingLevel, ThinkingTokenBudgetField, TranscriptContext,
+    ReasoningDisableMode, ThinkingFormat, ThinkingLevel, ThinkingTokenBudgetField,
+    TranscriptContext,
 };
 use crate::utils::diagnostics::Thrown;
 use crate::utils::provider_env::get_provider_env_value;
@@ -319,14 +320,9 @@ fn apply_thinking_format(
             }
         }
         ThinkingFormat::Qwen => {
+            // The Qwen dialect's level is the toggle alone: no
+            // `reasoning_effort` rides along (its template reads none).
             insert(params, "enable_thinking", json!(effort.is_some()));
-            if let Some(effort) = effort.filter(|_| compat.supports_reasoning_effort) {
-                insert(
-                    params,
-                    "reasoning_effort",
-                    json!(mapped_effort_or_default(model, effort)),
-                );
-            }
         }
         ThinkingFormat::QwenChatTemplate => {
             insert(
@@ -478,9 +474,11 @@ fn apply_thinking_format(
 
 /// The OpenAI-style `reasoning_effort` fallback branches of `buildParams`.
 /// Without an effort, only a request whose caller turned reasoning off
-/// (`disabled`) sends the model's disable effort: its `off` entry when that
-/// names an effort, else the lowest effort it offers. A request that names
-/// no level and does not turn reasoning off sends no effort.
+/// (`disabled`) sends the model's disable control: `reasoning: {enabled:
+/// false}` under the `openrouter-enabled-false` disable mode, else its `off`
+/// entry when that names an effort, else the lowest effort it offers. A
+/// request that names no level and does not turn reasoning off sends no
+/// effort.
 fn apply_openai_reasoning_effort(
     model: &Model,
     effort: Option<ThinkingLevel>,
@@ -488,6 +486,13 @@ fn apply_openai_reasoning_effort(
     compat: &ResolvedCompat,
     params: &mut JsonObject,
 ) {
+    if effort.is_none()
+        && disabled
+        && compat.reasoning_disable_mode == Some(ReasoningDisableMode::OpenRouterEnabledFalse)
+    {
+        insert(params, "reasoning", json!({ "enabled": false }));
+        return;
+    }
     if !compat.supports_reasoning_effort {
         return;
     }

@@ -5,8 +5,9 @@
 mod anthropic_support;
 
 use anthropic_support::{builtin_model, capture_simple_payload};
+use eukhe_ai::models::{clamp_thinking_level, get_supported_thinking_levels};
 use eukhe_ai::types::SimpleStreamOptions;
-use eukhe_types::pi_ai::ThinkingLevel;
+use eukhe_types::pi_ai::{ModelThinkingLevel, ThinkingLevel};
 use serde_json::{json, Value as JsonValue};
 
 /// The `thinking` and `output_config` fields `stream_simple` sends for the
@@ -54,7 +55,8 @@ async fn adaptive_thinking_display_rides_on_claude_4_7_and_later_only() {
 /// Thinking off on an adaptive-only Claude model (Opus/Sonnet 4.6 and
 /// later) omits `thinking`, which the API reads as adaptive, and pins the
 /// lowest effort. Haiku 5.5 takes an explicit `disabled` (its compat
-/// `disabledThinking`), and a budget model keeps `disabled`.
+/// `disabledThinking`) except on `OpenCode` Go, and a budget model keeps
+/// `disabled`.
 #[tokio::test]
 async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
     let low = [JsonValue::Null, json!({ "effort": "low" })];
@@ -65,6 +67,7 @@ async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
             wire("github-copilot", "claude-opus-4.7", None).await,
             wire("cloudflare-ai-gateway", "claude-sonnet-5", None).await,
             wire("vercel-ai-gateway", "anthropic/claude-opus-4.8", None).await,
+            wire("opencode-go", "claude-haiku-5-5", None).await,
             wire("opencode", "claude-haiku-5-5", None).await,
             wire("github-copilot", "claude-haiku-5.5", None).await,
             wire("anthropic", "claude-sonnet-4-5", None).await,
@@ -73,10 +76,86 @@ async fn thinking_off_on_adaptive_only_claude_pins_the_lowest_effort() {
             low.clone(),
             low.clone(),
             low.clone(),
+            low.clone(),
             low,
             disabled.clone(),
             disabled.clone(),
             disabled,
+        ]
+    );
+}
+
+/// `OpenCode` Go's Claude Haiku 5.5 offers efforts up to `xhigh`: `max`
+/// runs at `xhigh`.
+#[test]
+fn opencode_go_claude_haiku_5_5_tops_out_at_xhigh() {
+    let model = builtin_model("opencode-go", "claude-haiku-5-5", &json!({}));
+    assert_eq!(
+        clamp_thinking_level(&model, ModelThinkingLevel::Max),
+        ModelThinkingLevel::Xhigh
+    );
+}
+
+/// Kimi For Coding `HighSpeed` does not think: it offers no level, so every
+/// level runs as thinking off, an explicit `disabled`.
+#[tokio::test]
+async fn kimi_for_coding_highspeed_offers_no_thinking_level() {
+    let id = "kimi-for-coding-highspeed";
+    let model = builtin_model("kimi-coding", id, &json!({}));
+    assert_eq!(
+        get_supported_thinking_levels(&model),
+        [ModelThinkingLevel::Off]
+    );
+    assert_eq!(
+        wire("kimi-coding", id, None).await,
+        [json!({ "type": "disabled" }), JsonValue::Null]
+    );
+}
+
+/// Vercel AI Gateway's Qwen3 235B and Qwen3 Coder models think on a
+/// budget; thinking off is an explicit `disabled`.
+#[tokio::test]
+async fn vercel_qwen3_235b_and_coder_think_on_a_budget() {
+    let budget = json!({ "type": "enabled", "budget_tokens": 2048, "display": "summarized" });
+    for id in [
+        "alibaba/qwen-3-235b",
+        "alibaba/qwen3-coder",
+        "alibaba/qwen3-coder-30b-a3b",
+        "alibaba/qwen3-coder-next",
+    ] {
+        assert_eq!(
+            [
+                wire("vercel-ai-gateway", id, Some(ThinkingLevel::Low)).await,
+                wire("vercel-ai-gateway", id, None).await,
+            ],
+            [
+                [budget.clone(), JsonValue::Null],
+                [json!({ "type": "disabled" }), JsonValue::Null],
+            ],
+            "{id}"
+        );
+    }
+}
+
+/// Cloudflare AI Gateway's Claude Fable 5.1 takes per-message effort and
+/// binds signed thinking to its prefix: a level sends
+/// `thinking.block_binding`.
+#[tokio::test]
+async fn cloudflare_claude_fable_5_1_binds_thinking_to_its_prefix() {
+    assert_eq!(
+        wire(
+            "cloudflare-ai-gateway",
+            "claude-fable-5-1",
+            Some(ThinkingLevel::High)
+        )
+        .await,
+        [
+            json!({
+                "type": "adaptive",
+                "display": "summarized",
+                "block_binding": { "prefix_mismatch_behavior": "drop_block" },
+            }),
+            json!({ "effort": "high" }),
         ]
     );
 }

@@ -381,6 +381,53 @@ async fn opencode_go_minimax_m3_sends_chat_completions_reasoning_effort() {
     .await;
 }
 
+/// `OpenCode` Go's `LongCat` has a reasoning switch, not effort tiers: off
+/// turns it off with `reasoning: {enabled: false}` (disable mode
+/// `openrouter-enabled-false`), never a lowest effort, and a level sends
+/// no effort.
+#[tokio::test]
+async fn opencode_go_longcat_turns_reasoning_off_with_enabled_false() {
+    let id = "longcat-2.5-preview-free";
+    assert_rows(
+        &[("opencode-go", id, "off")],
+        |_| json!({ "reasoning": { "enabled": false } }),
+    )
+    .await;
+    let rows: Vec<(&str, &str, &str)> = THINKING_LEVELS
+        .iter()
+        .chain(&["unset"])
+        .map(|level_name| ("opencode-go", id, *level_name))
+        .collect();
+    assert_rows(&rows, |_| json!({})).await;
+}
+
+/// `OpenRouter`'s Qwen3 14B and 32B, `DeepSeek` V3.2 and GLM 5 (V) Turbo do
+/// not reason: no level, off included, sends a reasoning control.
+#[tokio::test]
+async fn openrouter_models_without_reasoning_send_no_reasoning_control() {
+    let ids = [
+        "qwen/qwen3-14b",
+        "qwen/qwen3-32b",
+        "deepseek/deepseek-v3.2",
+        "z-ai/glm-5-turbo",
+        "z-ai/glm-5v-turbo",
+    ];
+    let reasoning: Vec<&str> = ids
+        .into_iter()
+        .filter(|id| model("openrouter", id).reasoning)
+        .collect();
+    assert!(reasoning.is_empty(), "reasoning models: {reasoning:?}");
+    let rows: Vec<(&str, &str, &str)> = ids
+        .iter()
+        .flat_map(|id| {
+            ["off", "high"]
+                .into_iter()
+                .map(move |level_name| ("openrouter", *id, level_name))
+        })
+        .collect();
+    assert_rows(&rows, |_| json!({})).await;
+}
+
 /// The output-cap field `payload` carries, if any.
 fn cap_field(payload: &JsonValue) -> Option<&'static str> {
     ["max_tokens", "max_completion_tokens"]
