@@ -71,7 +71,13 @@ pub(crate) fn run(mode: Mode) -> i32 {
         }
     };
     match runtime.block_on(update(running, install.as_ref())) {
-        Ok(()) => 0,
+        Ok(installed) => {
+            // Outside the runtime: the daemon probe runs one of its own.
+            if let Some(note) = installed.as_deref().and_then(daemon_note) {
+                println!("{note}");
+            }
+            0
+        }
         Err(error) => {
             eprintln!("Error: {error:#}");
             1
@@ -101,7 +107,9 @@ fn is_newer(running: &str, latest: &str) -> bool {
     relation(running, latest) == Relation::Newer
 }
 
-async fn update(running: &str, install: Option<&Installer>) -> Result<()> {
+/// Checks for, and with an install, installs the newest release; returns
+/// the version it installed.
+async fn update(running: &str, install: Option<&Installer>) -> Result<Option<String>> {
     let Some(platform) = PLATFORM else {
         bail!("no eukhe release ships for this platform (releases: darwin-arm64, linux-x64, linux-arm64)");
     };
@@ -121,18 +129,15 @@ async fn update(running: &str, install: Option<&Installer>) -> Result<()> {
     println!("Latest release:  {}", latest.version);
     if !is_newer(running, &latest.version) {
         println!("eukhe is up to date");
-        return Ok(());
+        return Ok(None);
     }
     let Some(install) = install else {
         println!("Update available: run \"eukhe update\"");
-        return Ok(());
+        return Ok(None);
     };
     apply(&releases, &latest, platform, install).await?;
     println!("Updated eukhe {running} -> {}", latest.version);
-    if let Some(note) = daemon_note(&latest.version) {
-        println!("{note}");
-    }
-    Ok(())
+    Ok(Some(latest.version))
 }
 
 /// Download, check, unpack, switch, prune.

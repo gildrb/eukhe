@@ -302,6 +302,17 @@ fn check_prints_both_versions() {
 fn an_update_installs_the_new_payload_and_switches_the_launcher() {
     let install = Install::new();
     let stub = Stub::start(release(NEW, None, None));
+    // A listener on the daemon socket: the daemon note probes it after the
+    // update (regression: the probe ran inside the update's runtime and
+    // panicked).
+    let daemon =
+        std::os::unix::net::UnixListener::bind(install.base().join("daemon.sock")).unwrap();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in daemon.incoming() {
+            held.extend(stream.ok());
+        }
+    });
     let name = format!("eukhe-{NEW}-{PLATFORM}.tar.gz");
     let sum = sha256(&tarball(NEW));
     let new_payload = install.root().join(format!("eukhe-{NEW}"));
