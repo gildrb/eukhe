@@ -41,11 +41,7 @@ type SessionExportData = {
  * `cwd` only).
  */
 type SessionHeader = {
-  /**
-   * Always "session"; optional here because `downloadSessionJson` writes `{ type: 'header',
-   * ...header }`, as if a header could lack one.
-   */
-  type?: "session";
+  type: "session";
   version?: number;
   id: string;
   /** ISO-8601. */

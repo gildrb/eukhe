@@ -132,3 +132,25 @@ test("tool-call arguments of the wrong kind show as invalid, not as text", async
   expect(reads.find((text) => text.includes("path must be a string"))).toContain("[invalid arg]");
   expect(reads.find((text) => text.includes("~/project/src/main.rs"))).toContain(":10-14");
 });
+
+describe("the JSONL download is the header and the entries as exported", () => {
+  test.each([
+    ["legacy", legacy],
+    ["durable", durable],
+    ["live", live],
+  ])("%s", async (_name, data) => {
+    const window = await render(data);
+    let downloaded: unknown;
+    window.URL.createObjectURL = (object) => {
+      downloaded = object;
+      return "blob:session";
+    };
+    const button = window.document.querySelector(".download-json-btn");
+    if (!(button instanceof window.HTMLButtonElement)) throw new Error("no download button");
+    button.click();
+    if (!(downloaded instanceof window.Blob)) throw new Error("nothing downloaded");
+    expect((await downloaded.text()).split("\n")).toEqual(
+      [data.header, ...data.entries].map((row) => JSON.stringify(row)),
+    );
+  });
+});

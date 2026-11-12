@@ -1007,7 +1007,7 @@
       window.downloadSessionJson = function() {
         const lines = [];
         if (header) {
-          lines.push(JSON.stringify({ type: 'header', ...header }));
+          lines.push(JSON.stringify(header));
         }
         for (const entry of entries) {
           lines.push(JSON.stringify(entry));
