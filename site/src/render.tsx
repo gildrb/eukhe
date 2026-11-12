@@ -146,8 +146,10 @@ const globalCss = [
   `.w2{display:inline-block;width:calc(2 * var(--cw));overflow:hidden;vertical-align:top}`,
 ].join("");
 
-/** The favicon: a square, in each theme's `primary`. */
-export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect x="4" y="4" width="24" height="24"/></svg>\n`;
+/** The favicon: a square that fills the canvas, in each theme's `primary`. */
+export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect width="32" height="32"/></svg>\n`;
+/** Where pages link the favicon: the version changes with it, so browsers drop the one they cached. */
+export const faviconHref = "/favicon.svg?v=2";
 
 /** The first screen, as client.ts would paint it on any screen (paint.ts). */
 type Screen = {
@@ -238,7 +240,7 @@ function Page({
         <meta name="description" content={doc.description} />
         <meta name="theme-color" media="(prefers-color-scheme: dark)" content={palette.bg.dark} />
         <meta name="theme-color" media="(prefers-color-scheme: light)" content={palette.bg.light} />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="icon" type="image/svg+xml" href={faviconHref} />
         {doc === missing ? null : <link rel="canonical" href={url} />}
         <link
           rel="alternate"
