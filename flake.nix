@@ -36,6 +36,8 @@
           # to compile. Otherwise the same layout built from source.
           default = if release.assets ? ${system} then eukhe-prebuilt else eukhe-from-source;
           eukhe = self.packages.${system}.default;
+          # The gates' pinned Bend (scripts/toolchain.env), for the dev shell.
+          bend = pkgs.callPackage ./nix/bend.nix { };
         }
         // lib.optionalAttrs (release.assets ? ${system}) { inherit eukhe-prebuilt; }
       );
@@ -48,8 +50,11 @@
         };
       });
 
-      # The build inputs of the source package plus the tools the suites
-      # and the tiny-model worker need at run time.
+      # The build inputs of the source package plus the tools the gates
+      # (scripts/ci_local.sh) and the tiny-model worker need at run time.
+      # Rust is nixpkgs' rustc (rust-toolchain.toml pins the same
+      # release). Lean (bend --verdict) is not here:
+      # scripts/toolchain.env pins a Lean release nixpkgs does not carry.
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.eukhe-from-source ];
@@ -58,14 +63,27 @@
             pkgs.rustc
             pkgs.clippy
             pkgs.rustfmt
+            pkgs.cargo-nextest
+            pkgs.cargo-deny
+            self.packages.${pkgs.stdenv.hostPlatform.system}.bend
             pkgs.uv
+            pkgs.nodejs
             pkgs.git
+            pkgs.gitleaks
+            pkgs.actionlint
+            pkgs.prek
             pkgs.jq
+            pkgs.nixfmt
             pkgs.onnxruntime
-          ];
+          ]
+          # Bend compiles its C with clang, and so does the compiled core's
+          # build script when the C compiler cannot.
+          ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.clang ];
           env.ORT_DYLIB_PATH = "${lib.getLib pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
         };
       });
+
+      formatter = forAllSystems (pkgs: pkgs.nixfmt);
 
       overlays.default = final: _prev: {
         eukhe = self.packages.${final.stdenv.hostPlatform.system}.default;
