@@ -577,7 +577,7 @@ def rp.job_later(+ms: Nat, +gap: Nat) -> {R.live.pending(Nat.is_eq(ms, 0n), ms, 
     case 1n+k:
       {==}
 
-# the step is the spec's step (law deferred_step_exact)
+# the step is the spec's step (a lemma of law deferred_run_exact)
 def rp.job_step(+fails: Nat, +budget: Nat, +job: R.Job, +got: R.Got) -> {R.step(fails, budget, job, got) == Retry.rs.job_step(fails, budget, job, got) : R.Step}:
   match job:
     case R.NoJob{}:

@@ -19,7 +19,9 @@ import ../preview_shapes.bend as PreviewShapes
 # incident table by laws/incident_shapes.bend (incident_shapes_table). The
 # tui's tables (laws/image_marker_shapes.bend, arg_token_shapes.bend,
 # autolink_shapes.bend, preview_shapes.bend) have no table law (no source
-# outside eukhe's code holds them): their `_example` laws anchor them, and
+# outside eukhe's code holds them): their example laws (image_marker_shapes_example,
+# arg_token_shapes_example, and the autolink_shapes and preview_shapes laws whose
+# names end in example) anchor them, and
 # their table facts are proof lemmas of this entry's proofs.
 #
 # R1: a shape id is a Nat, each table a range of ids from its base: 0-99

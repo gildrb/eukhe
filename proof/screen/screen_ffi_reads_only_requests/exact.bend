@@ -1,6 +1,6 @@
 # eukhe: the screen entry's decoders read only spelled values that fit:
 # whatever a decoder of bend/ffi_screen.bend reads is the laws' spelling
-# (laws/screen.bend `screen_spell_*`) of what it read, then its rest, and
+# (laws/screen/interface.bend `screen_spell_*`) of what it read, then its rest, and
 # fits the wire (sx.req for a request), tag by tag with the wire's
 # exactness laws (an unknown tag is Bad), list by list with an item loop
 # that carries the input spelled up to its item (sx.*.loop).

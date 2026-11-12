@@ -353,6 +353,7 @@ law path_judge_guards_secret_ancestor:
 # secrets_kept_without_yes (no write without a yes lands on a secret,
 # whatever the auto set holds) is gone with secrets_need_yes: an auto set
 # may hold the secret effect; the store laws of gate.bend pin each write.
+# waive L11-phantom: the note records a law the user removed, by its old name
 
 # LAW path_judge_secret_example: anchor and witness: with the secret /3/5, /3/5 is Secret and
 # holds a secret, its parent /3 is Protected and holds one, its sibling /3/7

@@ -53,12 +53,12 @@ def qor.cons(+l: Nat, +t: Nat, +d: Nat, +v: Nat, +rest: List<&2, Nat>, ml: Maybe
   match ml:
     case None{}:
       Unit{}
-    case Some{L}:
+    case Some{ly}:
       match mr:
         case None{}:
           Unit{}
         case Some{rs}:
-          qor.step(l, t, d, v, rest, L, rs, qor.lay(l, L, el), ih)
+          qor.step(l, t, d, v, rest, ly, rs, qor.lay(l, ly, el), ih)
 
 def qor.rules(xs: List<&2, Nat>) -> qor.RL(xs, FQ.rules(xs)):
   match xs:

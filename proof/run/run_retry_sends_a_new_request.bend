@@ -17,7 +17,7 @@ def eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
 # ---- retry ----
 
 # proof_retry: the H4.7 retry laws of LAWS.bend about the requests of
-# bend/run.bend.
+# bend/run/request.bend.
 #
 # - retry_sends_a_new_request: an invariant of the requests (Ok), by
 #   induction on the inputs. Every request the run cut is behind the

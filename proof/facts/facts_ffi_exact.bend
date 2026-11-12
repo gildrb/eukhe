@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW facts_ffi_exact
 # The entry's decoder reads every input as the laws' reader does, stage by
 # stage (fe.*: the entry's seq chains against the laws' readers); its
-# decisions are the laws' decisions (the laws of laws/facts.bend), and it
+# decisions are the laws' decisions (the laws of laws/facts/), and it
 # spells the reply as the laws' speller does.
 
 import Base

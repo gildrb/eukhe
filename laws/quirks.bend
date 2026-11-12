@@ -35,7 +35,8 @@ import ./base.bend as LawsBase
 # Every input is free: any known directives, rules, queries and text;
 # every number that fits the wire.
 # R1 is quirks_open_answers (the reply's spelling) with the verdict laws
-# quirks_verdicts_count, _heard, _fine, _clash and _first (each verdict
+# quirks_verdicts_count, quirks_verdict_heard, quirks_verdict_fine,
+# quirks_verdict_clash and quirks_verdict_first (each verdict
 # by its properties, which fix it), and quirks_rejected_run; R2 is
 # quirks_faults_iff_rejected; R3 is quirks_lookup_answers and
 # quirks_lookup_exact, with quirks_any_at_found and quirks_any_at_witness

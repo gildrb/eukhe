@@ -3,8 +3,9 @@
 # interface adds; crates/eukhe-tui/src/command_paths.rs builds it). A
 # line is the text after the leading '/', as char codes; a word is the
 # text between two spaces (code 32). A path is a list of names: a
-# command, a subcommand, an argument. laws/command.bend states
-# the laws; bend/ffi_command.bend is the entry of the compiled core.
+# command, a subcommand, an argument. laws/command/ (paths.bend, named.bend,
+# whole.bend, entry.bend) states the laws; bend/ffi_command.bend is the entry
+# of the compiled core.
 #
 # The table is flat: one entry per declared path, in menu order. An
 # entry names its path (canonical, lowercase), the aliases of its last

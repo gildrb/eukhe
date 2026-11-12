@@ -14,7 +14,7 @@ import ../base/wire.bend as LWire
 
 # The proofs of the codec laws of LAWS.bend section documents (F11, F4):
 # the entries bend/ffi_doc_seen.bend and bend/ffi_doc_lines.bend read
-# back every request whose numbers fit the wire (lemmas fsv_, fln_, on
+# back every request whose numbers fit the wire (lemmas fsv_*, fln_*, on
 # the wire laws and wr_and_l / wr_and_r of section wire).
 
 # ==== seen codec ====

@@ -1,4 +1,4 @@
-# eukhe: lemmas of the screen entry's spelled laws (laws/screen.bend
+# eukhe: lemmas of the screen entry's spelled laws (laws/screen/interface.bend
 # `screen_spell_*`): the laws' spellings are the entry's encoders
 # (scsp.req), a request that fits reads back with any rest after it
 # (scsp.rt), and the entry's answer is the spelled reply of the model's

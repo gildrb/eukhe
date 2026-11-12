@@ -1,6 +1,6 @@
 # eukhe: exactness of the request decoder of bend/ffi_aux_fallback.bend:
 # whatever a decoder reads is the grammar's spelling of what it read
-# (laws/aux_fallback.bend afw_spell_*), then its rest, and every number of
+# (laws/aux_fallback/wire.bend afw_spell_*), then its rest, and every number of
 # it fits the wire (used by afw_reads_only_requests and
 # afw_malformed_unless_request)
 

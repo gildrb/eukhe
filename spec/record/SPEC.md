@@ -132,6 +132,8 @@ journal replay laws.
 
 ## 5. Core sketch
 
+waive L11-phantom: planned files; the record pillar is spec-only
+(spec/PILLARS.md) and none of its Bend files is built yet.
 `bend/record.bend`, `bend/replay.bend`, `bend/audit.bend`:
 
 ```
