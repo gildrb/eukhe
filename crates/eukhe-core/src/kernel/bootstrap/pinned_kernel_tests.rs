@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_tool_call, FauxAssistantMessageOptions,
@@ -399,4 +400,78 @@ async fn a_named_interpreter_is_offered_without_a_notice() {
     std::env::remove_var("EUKHE_KERNEL_PYTHON");
     let configured = open_and_ask(&fixture, &seen, Host::Interactive, |_| {}).await;
     assert_eq!(configured, (true, None));
+}
+
+/// The open's wait on the first fetch (paused time, a stand-in fetch): a
+/// fetch whose first download is answered holds the open only until that
+/// answer, not for the download or [`super::OPEN_FETCH_WAIT`], and goes on
+/// after the open (a fresh install started each CLI run 2 s late).
+#[tokio::test(start_paused = true)]
+async fn an_online_fetch_holds_the_open_only_until_its_first_answer() {
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let (done, fetched) = tokio::sync::oneshot::channel();
+    let fetch = tokio::spawn({
+        let reached = Arc::clone(&reached);
+        async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            reached.notify_one();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let _ = done.send(());
+            anyhow::Ok(())
+        }
+    });
+    let start = tokio::time::Instant::now();
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert_eq!(verdict, None);
+    assert_eq!(start.elapsed(), Duration::from_millis(150));
+    fetched.await.expect("the fetch goes on after the open");
+}
+
+/// An offline machine's fetch fails before any answer: that failure is the
+/// open's verdict, as soon as it fails. One that fails right after its
+/// first answer, before the open looked, is still the verdict.
+#[tokio::test(start_paused = true)]
+async fn a_fetch_that_fails_before_the_open_looked_is_the_verdict() {
+    let reached = tokio::sync::Notify::new();
+    let fetch = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        Err::<(), _>(anyhow::anyhow!("dns error: no answer"))
+    });
+    let start = tokio::time::Instant::now();
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert_eq!(start.elapsed(), Duration::from_millis(40));
+    assert!(
+        matches!(&verdict, Some(super::KernelUnavailable::FetchFailed(reason))
+            if reason.starts_with(KERNEL_FETCH_FAILED) && reason.contains("dns error: no answer")),
+        "{verdict:?}"
+    );
+
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let fetch = tokio::spawn({
+        let reached = Arc::clone(&reached);
+        async move {
+            reached.notify_one();
+            Err::<(), _>(anyhow::anyhow!("does not match its pinned sha256"))
+        }
+    });
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert!(
+        matches!(&verdict, Some(super::KernelUnavailable::FetchFailed(reason)) if reason.contains("sha256")),
+        "{verdict:?}"
+    );
+}
+
+/// A fetch that neither fails nor gets an answer of its own (uv installing
+/// the Python) holds the open for [`super::OPEN_FETCH_WAIT`] at most.
+#[tokio::test(start_paused = true)]
+async fn a_silent_fetch_holds_the_open_for_the_wait_at_most() {
+    let reached = tokio::sync::Notify::new();
+    let fetch = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        anyhow::Ok(())
+    });
+    let start = tokio::time::Instant::now();
+    let verdict = super::open_fetch_verdict(fetch, &reached, super::OPEN_FETCH_WAIT).await;
+    assert_eq!(verdict, None);
+    assert_eq!(start.elapsed(), super::OPEN_FETCH_WAIT);
 }

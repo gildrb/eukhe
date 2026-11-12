@@ -247,10 +247,18 @@ fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) ->
         models_store: None,
         auth_context,
     });
-    let builtins = catalog::with_catalog_models(
-        builtin_providers(),
-        crate::models::ModelRegistry::built_in_catalog_models(),
-    );
+    // The built-in catalog (the bundled snapshot's union with the compiled
+    // catalog, resolved once per process) resolves on a thread of its own
+    // while the compiled providers are made.
+    let (providers, catalog) = std::thread::scope(|scope| {
+        let catalog = scope.spawn(crate::models::ModelRegistry::built_in_catalog_models);
+        let providers = builtin_providers();
+        let catalog = catalog
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        (providers, catalog)
+    });
+    let builtins = catalog::with_catalog_models(providers, catalog);
     let (providers, diagnostics) =
         compose::compose_providers(builtins, &agent_dir.join("models.json"));
     for provider in providers {

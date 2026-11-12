@@ -164,7 +164,8 @@ pub async fn lock_project_packages(
         bail!("name at least one package to lock");
     }
     let runtime_lock = super::runtime_lock_file()?;
-    let toolchain = toolchain::ensure(&runtime_lock, report).await?;
+    let unwatched: toolchain::Reached = std::sync::Arc::new(|| {});
+    let toolchain = toolchain::ensure(&runtime_lock, report, &unwatched).await?;
     let project_lock = project_lock_path(cwd);
     let kernel_dir = toolchain::KernelDir::resolve()?;
     let token = uuid::Uuid::new_v4();

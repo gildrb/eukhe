@@ -27,6 +27,7 @@ pub(crate) mod toolchain;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -46,10 +47,12 @@ pub const KERNEL_INSTALL_COMMAND: &str = "eukhe kernel install";
 pub(crate) const KERNEL_FETCH_FAILED: &str = "Eukhe could not fetch its Python kernel";
 /// The start of the error of an `EUKHE_KERNEL_PYTHON` that is not a file.
 pub(crate) const KERNEL_OVERRIDE_MISSING: &str = "EUKHE_KERNEL_PYTHON points to";
-/// How long a session's open waits for the fetch it starts: an offline
-/// machine fails well within it (no route, no DNS answer), and the session
-/// then offers no `python` tool; a fetch still running after it goes on
-/// in the background, and the first cell waits for it.
+/// How long at most a session's open waits for the fetch it starts: an
+/// offline machine fails well within it (no route, no DNS answer), and the
+/// session then offers no `python` tool. The open stops waiting as soon as
+/// the fetch's first download is answered (the machine is online) or after
+/// this wait; the fetch goes on in the background, and the first cell
+/// waits for it.
 const OPEN_FETCH_WAIT: Duration = Duration::from_secs(2);
 
 /// The packages of Eukhe's lock the prompt offers, as `(distribution,
@@ -291,7 +294,8 @@ pub async fn ensure_kernel_python(
         return named_kernel(python, python_path);
     }
     let lock = runtime_lock_file()?;
-    let toolchain = toolchain::ensure(&lock, &|message| options.report(message))
+    let unwatched: toolchain::Reached = Arc::new(|| {});
+    let toolchain = toolchain::ensure(&lock, &|message| options.report(message), &unwatched)
         .await
         .map_err(|error| fetch_failure(&error))?;
     pinned_kernel(toolchain, lock, python_path, cwd)
@@ -345,11 +349,12 @@ pub enum KernelUnavailable {
 /// The probe a session runs at open: `Some` only when the kernel cannot
 /// start. A machine that has the pinned toolchain answers from a few
 /// `stat`s. One that lacks it starts the fetch here: a fetch that fails
-/// within [`OPEN_FETCH_WAIT`] (an offline machine) leaves the session
-/// without the `python` tool; one that is still running goes on in the
-/// background and the session's first cell waits for it, showing its
-/// stages. An `EUKHE_KERNEL_PYTHON` override is the user's choice and not
-/// judged here: `None`.
+/// before it reaches the network (an offline machine), within
+/// [`OPEN_FETCH_WAIT`], leaves the session without the `python` tool; one
+/// that reached the network or is still running goes on in the background
+/// and the session's first cell waits for it, showing its stages. An
+/// `EUKHE_KERNEL_PYTHON` override is the user's choice and not judged
+/// here: `None`.
 pub async fn kernel_unavailable() -> Option<KernelUnavailable> {
     if override_python().is_some() {
         return None;
@@ -361,16 +366,42 @@ pub async fn kernel_unavailable() -> Option<KernelUnavailable> {
     if matches!(toolchain::ready(&lock), Ok(Some(_))) {
         return None;
     }
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let on_reached: toolchain::Reached = {
+        let reached = Arc::clone(&reached);
+        Arc::new(move || reached.notify_one())
+    };
     let fetch = tokio::spawn(async move {
-        toolchain::ensure(&lock, &|message| tracing::info!("{message}")).await
+        toolchain::ensure(&lock, &|message| tracing::info!("{message}"), &on_reached).await
     });
-    match tokio::time::timeout(OPEN_FETCH_WAIT, fetch).await {
-        Ok(Ok(Err(error))) => Some(KernelUnavailable::FetchFailed(format!(
+    open_fetch_verdict(fetch, &reached, OPEN_FETCH_WAIT).await
+}
+
+/// The open's verdict on the fetch it started: the fetch's failure, when
+/// it fails before `reached` (its first download answered) and within
+/// `wait`; else `None`, and the fetch goes on in the background (the
+/// dropped handle leaves the task running). A fetch that has failed by the
+/// time it is seen to have reached is still the verdict.
+async fn open_fetch_verdict<T>(
+    fetch: tokio::task::JoinHandle<anyhow::Result<T>>,
+    reached: &tokio::sync::Notify,
+    wait: Duration,
+) -> Option<KernelUnavailable> {
+    let settled = tokio::time::timeout(wait, async {
+        tokio::select! {
+            biased;
+            joined = fetch => Some(joined),
+            () = reached.notified() => None,
+        }
+    })
+    .await;
+    match settled {
+        Ok(Some(Ok(Err(error)))) => Some(KernelUnavailable::FetchFailed(format!(
             "{:#}",
             fetch_failure(&error)
         ))),
-        // Fetched, or still fetching (the dropped handle leaves the task
-        // running), or the fetch task was cancelled with its runtime.
-        Ok(Ok(Ok(_)) | Err(_)) | Err(_) => None,
+        // Fetched, online, still fetching, or the fetch task was cancelled
+        // with its runtime.
+        Ok(Some(Ok(Ok(_)) | Err(_)) | None) | Err(_) => None,
     }
 }

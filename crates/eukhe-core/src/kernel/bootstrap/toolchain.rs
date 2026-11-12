@@ -18,7 +18,7 @@ use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
@@ -273,8 +273,11 @@ impl Drop for StageEnd {
 /// The toolchain for the package lock `lock`, set up when any of it is
 /// absent: the pinned uv and the pinned interpreter are fetched (each
 /// checked against its pinned sha256 before use), the env is made from
-/// local files. `report` gets each stage. One setup runs at a time across
-/// processes; a caller that waits for another's reports that one's stages.
+/// local files. `report` gets each stage; `reached` is called when a
+/// download Eukhe makes itself (the uv archive) has its first answer, a
+/// redirect or a success: the machine is online. One setup runs at a time
+/// across processes; a caller that waits for another's reports that one's
+/// stages.
 ///
 /// # Errors
 ///
@@ -284,6 +287,7 @@ impl Drop for StageEnd {
 pub(crate) async fn ensure(
     lock: &Path,
     report: &(dyn Fn(&str) + Send + Sync),
+    reached: &Reached,
 ) -> anyhow::Result<Toolchain> {
     let dir = KernelDir::resolve()?;
     let env = dir.env(lock)?;
@@ -298,7 +302,7 @@ pub(crate) async fn ensure(
                 let what = format!("uv {}", pin().uv.version);
                 stage(report, &format!("Fetching {what} for the Python kernel..."));
                 refuse_offline(&what)?;
-                fetch_uv(&dir).await?;
+                fetch_uv(&dir, reached).await?;
             }
             SetupStep::FetchPython => {
                 let what = format!("Python {}", pin().python.version);
@@ -357,10 +361,27 @@ async fn wait_for_setup_lock(
     }
 }
 
-async fn download(url: &str) -> anyhow::Result<Vec<u8>> {
+/// Called when a download is first answered by a server ([`ensure`]).
+pub(crate) type Reached = Arc<dyn Fn() + Send + Sync>;
+
+/// The most redirects a download follows (reqwest's default).
+const MAX_REDIRECTS: usize = 10;
+
+/// The body at `url`; `reached` is called at each redirect and once the
+/// server answered with a success status, before the body is read.
+async fn download(url: &str, reached: &Reached) -> anyhow::Result<Vec<u8>> {
+    let on_redirect = Arc::clone(reached);
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            on_redirect();
+            if attempt.previous().len() > MAX_REDIRECTS {
+                attempt.error("too many redirects")
+            } else {
+                attempt.follow()
+            }
+        }))
         .build()
         .context("building the HTTP client")?;
     let response = client
@@ -369,6 +390,7 @@ async fn download(url: &str) -> anyhow::Result<Vec<u8>> {
         .await
         .and_then(reqwest::Response::error_for_status)
         .with_context(|| format!("downloading {url}"))?;
+    reached();
     let body = response
         .bytes()
         .await
@@ -378,7 +400,7 @@ async fn download(url: &str) -> anyhow::Result<Vec<u8>> {
 
 /// Download the pinned uv release archive, check it against its pinned
 /// sha256, then unpack its `uv` into the kernel directory.
-async fn fetch_uv(dir: &KernelDir) -> anyhow::Result<()> {
+async fn fetch_uv(dir: &KernelDir, reached: &Reached) -> anyhow::Result<()> {
     let uv = &pin().uv;
     let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
     let target = uv_target().ok_or_else(|| anyhow!("Eukhe pins no uv build for {os} {arch}"))?;
@@ -390,7 +412,7 @@ async fn fetch_uv(dir: &KernelDir) -> anyhow::Result<()> {
         .url
         .replace("{version}", &uv.version)
         .replace("{target}", target);
-    let archive = download(&url).await?;
+    let archive = download(&url, reached).await?;
     let actual = format!("{:x}", Sha256::digest(&archive));
     if actual != *pinned {
         bail!("{url} does not match its pinned sha256 (pinned {pinned}, got {actual}); nothing was unpacked");
@@ -636,6 +658,47 @@ mod tests {
         let error = unpack_uv(&archive(&[("uv-x/uvx", b"other")])?, &dest)
             .expect_err("no uv in the archive");
         assert_eq!(error.to_string(), "the uv archive holds no `uv` file");
+        Ok(())
+    }
+
+    /// A download is reached at its first answer, the redirect: a server
+    /// that redirects and then never answers the redirected request still
+    /// tells the open the machine is online.
+    #[tokio::test]
+    async fn a_download_is_reached_at_its_redirect() -> anyhow::Result<()> {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let redirect = format!(
+            "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:{port}/asset\r\ncontent-length: 0\r\n\r\n"
+        );
+        let server = tokio::spawn(async move {
+            let mut held = Vec::new();
+            loop {
+                let (mut stream, _) = listener.accept().await.expect("a connection");
+                let mut request = [0_u8; 1024];
+                let read = stream.read(&mut request).await.expect("the request");
+                if request[..read].starts_with(b"GET /uv ") {
+                    stream
+                        .write_all(redirect.as_bytes())
+                        .await
+                        .expect("the redirect is sent");
+                }
+                // The redirected request gets no answer.
+                held.push(stream);
+            }
+        });
+        let reached = Arc::new(tokio::sync::Notify::new());
+        let on_reached: Reached = {
+            let reached = Arc::clone(&reached);
+            Arc::new(move || reached.notify_one())
+        };
+        let url = format!("http://127.0.0.1:{port}/uv");
+        tokio::select! {
+            downloaded = download(&url, &on_reached) => panic!("the asset is never answered: {downloaded:?}"),
+            () = reached.notified() => {}
+        }
+        server.abort();
         Ok(())
     }
 }

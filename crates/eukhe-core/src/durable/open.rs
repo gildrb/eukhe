@@ -215,64 +215,83 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         EukheSettings::with_agent(&config.cwd, &config.agent_dir, config.cvar_agent.clone())
     });
     let manager = settings.manager();
-    // A caller-supplied collection (the faux-script seams) may serve several
-    // sessions (the daemon worker's script across replacements), so the
-    // session wraps a session-local collection over its provider rows: the
-    // rows' request state (the script queue) stays shared, while this
-    // session's wrappers never reach another session's requests.
-    let models = if let Some(models) = &config.models {
-        session_local_models(models)
-    } else {
-        let loaded = create_models(&config.agent_dir);
-        // Each bad models.json entry shows on the settings-error row.
-        settings.report(loaded.diagnostics.into_iter().map(|message| SettingsError {
-            scope: SettingsScope::Global,
-            message,
-        }));
-        loaded.models
-    };
-    // The session's semantic-edge recorder (the ACP request-id ledger) at
-    // the TS locations (`semanticEdgeLedgerPath`): a spawned child's in its
-    // RLM session dir (the dir its storage `<child-dir>/<session-id>/`
-    // sits in), a top-level session's in its session artifact dir
-    // (`<sessions>/../session-artifacts/<session-id>/`, the dir a
-    // `<sessions>/<session-id>` storage maps to). A memory storage keeps
-    // the recorder in memory-only mode (ids still mint and ride the wire).
     let parent = config.role.parent.clone();
-    let ledger_path = storage_dir.as_deref().and_then(|dir| {
-        observe::semantic_edges::semantic_edge_ledger_path(
-            parent.as_ref().and(dir.parent()),
-            session_artifact_dir_for_log(dir).as_deref(),
-        )
-    });
-    let semantic_edges = Arc::new(observe::semantic_edges::SemanticEdgeRecorder::open(
-        observe::semantic_edges::SemanticEdgeIdentity {
-            session_id: config.session_id.clone(),
-            ledger_path,
-            parent_session_id: parent.as_ref().map(|parent| parent.session_id.clone()),
-            spawned_by_request_id: parent
-                .as_ref()
-                .and_then(|parent| parent.spawned_by_request_id.clone()),
-        },
-    ));
-    let loaded = load_session_resources(&config, &settings, &manager).await?;
-    let kernel_unavailable =
-        kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager).await;
-    // The session's budget: a child's ledger takes what its parent lent
-    // it, and what a crash left reserved is charged before anything spends.
-    let gate = {
-        let agent_dir = config.agent_dir.clone();
-        let session_id = config.session_id.clone();
-        let parent = parent.as_ref().map(|parent| parent.session_id.clone());
-        let settings = Arc::clone(&settings);
-        tokio::task::spawn_blocking(move || {
-            BudgetGate::open(&agent_dir, &session_id, parent.as_deref(), settings)
-        })
-        .await
-        .map_err(|error| {
-            OpenError::Resources(anyhow::anyhow!("opening the budget ledger failed: {error}"))
-        })?
+    let loading = async {
+        // The resources load on a blocking thread while the models are
+        // made here; the settings errors keep their order (models.json's,
+        // then `mcpServers`').
+        let (mcp_errors, resources) = load_session_resources(&config, &manager);
+        // A caller-supplied collection (the faux-script seams) may serve
+        // several sessions (the daemon worker's script across
+        // replacements), so the session wraps a session-local collection
+        // over its provider rows: the rows' request state (the script
+        // queue) stays shared, while this session's wrappers never reach
+        // another session's requests.
+        let models = if let Some(models) = &config.models {
+            session_local_models(models)
+        } else {
+            let loaded = create_models(&config.agent_dir);
+            // Each bad models.json entry shows on the settings-error row.
+            settings.report(loaded.diagnostics.into_iter().map(|message| SettingsError {
+                scope: SettingsScope::Global,
+                message,
+            }));
+            loaded.models
+        };
+        // Each `mcpServers` entry that does not parse goes on the session's
+        // settings error row.
+        settings.report(mcp_errors);
+        // The session's semantic-edge recorder (the ACP request-id ledger)
+        // at the TS locations (`semanticEdgeLedgerPath`): a spawned child's
+        // in its RLM session dir (the dir its storage
+        // `<child-dir>/<session-id>/` sits in), a top-level session's in its
+        // session artifact dir (`<sessions>/../session-artifacts/<session-id>/`,
+        // the dir a `<sessions>/<session-id>` storage maps to). A memory
+        // storage keeps the recorder in memory-only mode (ids still mint and
+        // ride the wire).
+        let ledger_path = storage_dir.as_deref().and_then(|dir| {
+            observe::semantic_edges::semantic_edge_ledger_path(
+                parent.as_ref().and(dir.parent()),
+                session_artifact_dir_for_log(dir).as_deref(),
+            )
+        });
+        let semantic_edges = Arc::new(observe::semantic_edges::SemanticEdgeRecorder::open(
+            observe::semantic_edges::SemanticEdgeIdentity {
+                session_id: config.session_id.clone(),
+                ledger_path,
+                parent_session_id: parent.as_ref().map(|parent| parent.session_id.clone()),
+                spawned_by_request_id: parent
+                    .as_ref()
+                    .and_then(|parent| parent.spawned_by_request_id.clone()),
+            },
+        ));
+        let loaded = loaded_resources(resources).await?;
+        // The session's budget: a child's ledger takes what its parent lent
+        // it, and what a crash left reserved is charged before anything
+        // spends.
+        let gate = {
+            let agent_dir = config.agent_dir.clone();
+            let session_id = config.session_id.clone();
+            let parent = parent.as_ref().map(|parent| parent.session_id.clone());
+            let settings = Arc::clone(&settings);
+            tokio::task::spawn_blocking(move || {
+                BudgetGate::open(&agent_dir, &session_id, parent.as_deref(), settings)
+            })
+            .await
+            .map_err(|error| {
+                OpenError::Resources(anyhow::anyhow!("opening the budget ledger failed: {error}"))
+            })?
+        };
+        Ok::<_, OpenError>((models, semantic_edges, loaded, gate))
     };
+    // The kernel probe can wait on the network (the first fetch of the
+    // pinned Python, until its first answer): it starts first and runs
+    // beside the loading above, not after it.
+    let (kernel_unavailable, loading) = tokio::join!(
+        kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager),
+        loading,
+    );
+    let (models, semantic_edges, loaded, gate) = loading?;
     let deps = Arc::new(HostDeps::new(
         &config,
         ResolvedServices {
@@ -559,12 +578,17 @@ struct SessionResources {
 }
 
 /// Skills, context files, `SYSTEM.md`, and MCP gating, loaded as the old
-/// engine's `create_session` loads them.
-async fn load_session_resources(
+/// engine's `create_session` loads them, on a blocking thread that starts
+/// here; the caller awaits it with [`loaded_resources`]. The settings errors
+/// of the `mcpServers` entries that do not parse come back for the caller
+/// to report in its order.
+fn load_session_resources(
     config: &SessionConfig,
-    settings: &EukheSettings,
     manager: &SettingsManager,
-) -> Result<SessionResources, OpenError> {
+) -> (
+    Vec<SettingsError>,
+    tokio::task::JoinHandle<Result<SessionResources, OpenError>>,
+) {
     // Each `mcpServers` entry that does not parse goes on the session's
     // settings error row, with the scope of the document that declares it:
     // Project when only the project declares it, else Global (the global
@@ -577,27 +601,26 @@ async fn load_session_resources(
             .as_ref()
             .is_some_and(|servers| servers.contains_key(name))
     };
-    settings.report(
-        mcp_diagnostics
-            .into_iter()
-            .map(|diagnostic| crate::settings::SettingsError {
-                scope: if declares(manager.project_settings(), &diagnostic.name)
-                    && !declares(manager.global_settings(), &diagnostic.name)
-                {
-                    crate::settings::SettingsScope::Project
-                } else {
-                    crate::settings::SettingsScope::Global
-                },
-                message: diagnostic.to_string(),
-            }),
-    );
+    let mcp_errors = mcp_diagnostics
+        .into_iter()
+        .map(|diagnostic| SettingsError {
+            scope: if declares(manager.project_settings(), &diagnostic.name)
+                && !declares(manager.global_settings(), &diagnostic.name)
+            {
+                SettingsScope::Project
+            } else {
+                SettingsScope::Global
+            },
+            message: diagnostic.to_string(),
+        })
+        .collect();
     let trust = manager.project_trust().clone();
     let cwd = config.cwd.clone();
     let agent_dir = config.agent_dir.clone();
     let prompt = config.prompt.clone();
     let shared_mcp = config.mcp.clone();
     let mcp_login = config.mcp_login.clone();
-    tokio::task::spawn_blocking(move || {
+    let loading = tokio::task::spawn_blocking(move || {
         let (skill_overrides, persistent_servers, built_mcp) =
             crate::mcp::McpManager::prompt_gating(user_servers, &agent_dir);
         let mut extra_builtin_skill_overrides = prompt.extra_builtin_skill_overrides.clone();
@@ -648,9 +671,15 @@ async fn load_session_resources(
             mcp,
             python_skills: kernel_skills.admitted,
         })
-    })
-    .await
-    .map_err(|error| {
+    });
+    (mcp_errors, loading)
+}
+
+/// The resources [`load_session_resources`] loads.
+async fn loaded_resources(
+    loading: tokio::task::JoinHandle<Result<SessionResources, OpenError>>,
+) -> Result<SessionResources, OpenError> {
+    loading.await.map_err(|error| {
         OpenError::Resources(anyhow::anyhow!("resource loading task failed: {error}"))
     })?
 }
