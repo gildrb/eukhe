@@ -60,7 +60,7 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Eukhe agent harness (prebuilt)";
+    description = "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";

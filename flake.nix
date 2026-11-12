@@ -44,6 +44,7 @@
         default = {
           type = "app";
           program = lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          meta.description = "Run eukhe";
         };
       });
 
