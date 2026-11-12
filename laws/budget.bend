@@ -38,10 +38,12 @@ import ./base.bend as LawsBase
 #     (B6).
 # R4: after granted work or a granted side request, its agent's final
 #     answer within its reserve is granted (B6); the grant says the
-#     budget runs low exactly when two steps of the size of the agent's
-#     largest recent step as spent (`step`: this one and one more),
-#     started now, with the reserves, would not fit what was free before
-#     the grant by the deadline, whichever offer was granted (B7).
+#     budget runs low exactly when two steps (`step`: per dimension the
+#     larger of the agent's largest recent step as actually spent and the
+#     smallest hold its work can be granted, in amount and in time; this
+#     one and one more), started now, with the reserves, would not fit
+#     what was free before the grant by the deadline, whichever offer was
+#     granted, so a grant not low funds one more step of that size (B7).
 # R5: a settlement charges exactly the actual spend, once: the hold is
 #     gone, the other holds stay, what was not spent is free again, the
 #     budget of the account is conserved, and a spend within the hold
@@ -486,14 +488,15 @@ law budget_side_refused_keeps_phase:
   for g: {B.reserve(B.Side{}, p, id, now, base, keep, step, want, less, a) == B.Refused{w, p2} : B.Grant}
   {p2 == p : B.Phase}
 
-# LAW budget_low_by_steps (R4): a grant is low exactly when two steps of
-# the agent's largest recent step as spent (this one and one more),
-# started now, with the reserves above and, for work and a side request,
-# the agent's own reserve, would not fit what was free before the grant
-# by the deadline
+# LAW budget_low_by_steps (R4): a grant is low exactly when two steps
+# (`step`: per dimension the larger of the agent's largest recent step as
+# actually spent and the smallest hold its work can be granted; this one
+# and one more), started now, with the reserves above and, for work and a
+# side request, the agent's own reserve, would not fit what was free
+# before the grant by the deadline
 # EXCLUDES: a low budget judged against the hold, which fills what is
-#   free, so every grant is low; a first step (no step spent yet) told
-#   its budget runs low; low never told; told only once nothing fits
+#   free, so every grant is low; a zero step told its budget runs low;
+#   low never told; told only once nothing fits
 law budget_low_by_steps:
   for +use: B.Use
   for +p: B.Phase
@@ -546,13 +549,60 @@ law budget_low_by_spend:
 # LAW budget_low_steps_example (R4): anchor: at 100 ms, work of
 # (16,16,1,1) for 50 ms with reserves above and its own of (2,2,0,0) and
 # (2,2,0,1) for 10 ms each, on 20 free in every dimension until 1000: its
-# hold fills what is free, yet with a largest step of (1,1,0,0)
-# for 10 ms it is not low, nor with no step spent yet; with a largest
-# step of (9,1,1,1) for 10 ms (two of them and the reserves past 20) it
-# is low
-# EXCLUDES: a low budget judged against the hold, a first step told low
+# hold fills what is free, yet with a step (per dimension the larger of
+# the agent's largest recent step as actually spent and the smallest hold
+# its work can be granted) of (1,1,0,0) for 10 ms it is not low, nor with
+# a zero step; with a step of (9,1,1,1) for 10 ms (two of them and the
+# reserves past 20) it is low
+# EXCLUDES: a low budget judged against the hold, a zero step told low
 law budget_low_steps_example:
   {[FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,1,1,0,0,10,16,16,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,0,0,0,0,0,16,16,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,9,1,1,1,10,16,16,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,")] == ["0,0,16,16,1,1,50,4,4,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,16,16,1,1,1000,F", "0,0,16,16,1,1,50,4,4,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,16,16,1,1,1000,F", "0,0,16,16,1,1,50,4,4,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,16,16,1,1,1000,T"] : List<&2, String>}
+
+# LAW budget_not_low_funds_next (R4): a work grant that is not low funds
+# one more step of its size: after it, its actual spend `act` within
+# `step` in every spent dimension settled, the same agent's next work
+# under an id not held, in a phase that admits work, with the same
+# reserves (`base`, `keep`), asked by `now` plus the step's time and
+# whose last offer is within `step` (in amount and in time), is granted.
+# Premises, each needed: the first is work (a final answer leaves no
+# reserve of its own); the spend within `step` (a larger spend can take
+# the room); the phase admits work (WrapUp refuses it); the id not held
+# (a held id is refused); the same reserves (larger ones can take the
+# room); asked by now plus the step's time (later, the deadline can
+# pass); the last offer within `step` (a larger offer need not fit). Not
+# needed: the next request's own `step`, that it comes after `now`, the
+# offer granted the first time.
+# EXCLUDES: a Low notice never told before the wrap-up (a grant not low
+#   followed by a refused step of its size); low judged by one step, by
+#   the amounts only (not the time) or without the reserves; a settlement
+#   that keeps part of the hold or charges more than the spend
+law budget_not_low_funds_next:
+  for +p: B.Phase
+  for +id: Nat
+  for +now: Nat
+  for +base: B.Ask
+  for +keep: B.Ask
+  for +step: B.Ask
+  for +want: B.Ask
+  for +less: List<&2, B.Ask>
+  for +a: B.Acct
+  for +i: Nat
+  for +c: B.Ask
+  for +a2: B.Acct
+  for +act: B.Amt
+  for +p2: B.Phase
+  for +id2: Nat
+  for +now2: Nat
+  for +step2: B.Ask
+  for +want2: B.Ask
+  for +less2: List<&2, B.Ask>
+  for g: {B.reserve(B.Work{}, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, False{}} : B.Grant}
+  for spent: {S.le(B.Ask{act, 0n}, step) == True{} : Bool}
+  for ok: {S.allows(p2, B.Work{}) == True{} : Bool}
+  for fresh: {S.has(id2, S.holds(B.settle(id, act, a2))) == False{} : Bool}
+  for soon: {Nat.is_le(now2, Nat.add(now, S.ms(step))) == True{} : Bool}
+  for small: {S.le(S.last(less2, want2), step) == True{} : Bool}
+  {S.granted(B.reserve(B.Work{}, p2, id2, now2, base, keep, step2, want2, less2, B.settle(id, act, a2))) == True{} : Bool}
 
 # LAW budget_final_reserve_kept (R4): after granted work, a final answer
 # of the same agent within that work's reserve, under an id not held,

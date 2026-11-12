@@ -28,11 +28,11 @@
 #   answer and side requests are admitted from then on), a final answer
 #   moves it to Exhausted (nothing is admitted) and a side request leaves
 #   the phase as it was. A grant is low (the agent's budget runs low)
-#   when two steps of the size of the agent's largest recent step
-#   (`step`, as actually spent: this one and one more), started now, with
-#   the reserves, would not fit what was free before the grant by the
-#   deadline; never for an agent that has not finished a step (`step`
-#   zero).
+#   when two steps (`step`: per dimension the larger of the agent's
+#   largest recent step as actually spent and the smallest hold its work
+#   can be granted, in amount and in time; this one and one more),
+#   started now, with the reserves, would not fit what was free before
+#   the grant by the deadline; never when `step` is zero.
 # settle: the actual spend replaces the hold; what was not spent is free
 #   again. An id that is not held changes nothing.
 # carve: a child given its own budget: the allotment leaves the parent's
@@ -287,9 +287,11 @@ def low.of(l: Maybe<&2, Dim>) -> Bool:
     case Some{d}:
       True{}
 
-# the grant of the offer picked: low when two steps of the agent's
-# largest recent step (step: this one and one more), started now, with
-# the reserves, would not fit what was free before it by the deadline
+# the grant of the offer picked: low when two steps (step: per dimension
+# the larger of the agent's largest recent step as actually spent and the
+# smallest hold its work can be granted; this one and one more), started
+# now, with the reserves, would not fit what was free before it by the
+# deadline
 def reserve.pick(p: Pick, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +step: Ask, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
   match p:
     case Fit{i, +c}:
@@ -313,9 +315,10 @@ def reserve.open(ok: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: 
     case False{}:
       Refused{Stopped{}, phase}
 
-# the reservation, by an agent in phase `phase` at time `now` whose
-# largest recent step is `step`, of the first of want and then less that
-# fits, under id. Refusal order: the
+# the reservation, by an agent in phase `phase` at time `now` whose step
+# is `step` (per dimension the larger of its largest recent step as
+# actually spent and the smallest hold its work can be granted), of the
+# first of want and then less that fits, under id. Refusal order: the
 # phase, an id already held, no offer fits.
 def reserve(+use: Use, +phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +step: Ask, +want: Ask, less: List<&2, Ask>, a: Acct) -> Grant:
   match a:

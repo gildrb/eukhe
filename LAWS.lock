@@ -433,6 +433,7 @@
     "laws/budget.bend::budget_low_by_spend": "19facb949a8165dfa8efc770d44e1d40c1fd744af840f9a40b4285f9e102e5e4",
     "laws/budget.bend::budget_low_by_steps": "703524e205b1aad6cb1bbb7de416781abd5fbe2b92037e9063dbeebbeb4db5d1",
     "laws/budget.bend::budget_low_steps_example": "6a08a89ea2adca4e7bc3bfec95e525241ee55a58dd7ce9b234f6f1a393de1cd7",
+    "laws/budget.bend::budget_not_low_funds_next": "3a16dfdd86e4d82bbf3a6768ff7d131b02b6d756a1b8c886de406cdfa7fa57cb",
     "laws/budget.bend::budget_recover_charges_in_full": "8c9b12548505711912c07df924534fd3aa688c49f65135b5b18d0273f2ac0685",
     "laws/budget.bend::budget_refuse_held": "cd8d41e977e17fb20fb5ce7dde2b08c559dc695f796fda03eaaa6e62ddc3bbcb",
     "laws/budget.bend::budget_refuse_short": "fc643f543780bf90293aed94cc9429bc739465c013403202b623f1ea708abb9f",
@@ -4229,7 +4230,7 @@
   },
   "spec_files": {
     "spec/PILLARS.md": "b713acc7123ec05d5d9e083a84dbda8c8b8c5cd92a5ce7708e9996d567e62986",
-    "spec/README.md": "340c55e34fde45cf1552833dfae553e9d1e9a3fe1803b3507b3b34a84fdce133",
+    "spec/README.md": "7a3a584ffe54d6ea261371f681eea7feea499ab6f1802130e79eddff0d7a905c",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
