@@ -7,7 +7,7 @@ Eukhe (εὐχή, Greek for wish) is a harness and embeddable core for agents th
 - Checks: commands that decide when the work is done, such as `cargo test` or `bend PROOF.bend --verdict`.
 - Report: what was done, and which checks passed.
 
-[Why?](PHILOSOPHY.md).
+[Why?](PHILOSOPHY.md)
 
 ## Install
 
