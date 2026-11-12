@@ -146,10 +146,10 @@ const globalCss = [
   `.w2{display:inline-block;width:calc(2 * var(--cw));overflow:hidden;vertical-align:top}`,
 ].join("");
 
-/** The favicon: a square that fills the canvas, in each theme's `primary`. */
-export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect width="32" height="32"/></svg>\n`;
+/** The favicon: a block in the Temple of Hephaestus's proportion (9 : 4), the full width of the canvas, in each theme's primary. */
+export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect y="10" width="36" height="16"/></svg>\n`;
 /** Where pages link the favicon: the version changes with it, so browsers drop the one they cached. */
-export const faviconHref = "/favicon.svg?v=2";
+export const faviconHref = "/favicon.svg?v=3";
 
 /** The first screen, as client.ts would paint it on any screen (paint.ts). */
 type Screen = {
