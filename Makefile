@@ -85,10 +85,13 @@ bend-core-check:
 # public/ scripts are generated from TypeScript sources and committed; the
 # list is in crates/eukhe-dashboard/ui/scripts/embedded-js.ts.
 # embedded-js type-checks the sources and regenerates every file;
-# embedded-js-check fails on a type or lint error in a source and when a
-# committed file differs from what its source generates. Run embedded-js
-# after every change to a source (then dashboard-ui for a public/ one).
-# Both use the dashboard UI's locked packages (oxc, oxlint).
+# embedded-js-check fails on a type or lint error in a source, when a
+# committed file differs from what its source generates, and when the
+# export template's tests fail (they render the exporters' data,
+# crates/eukhe-core/assets/export-html/fixtures.ts, which the eukhe-core
+# test export_html::fixtures keeps current). Run embedded-js after every
+# change to a source (then dashboard-ui for a public/ one).
+# Both use the dashboard UI's locked packages (oxc, oxlint, vitest).
 EMBEDDED_JS_DEPS = crates/eukhe-dashboard/ui/node_modules/.package-lock.json
 
 $(EMBEDDED_JS_DEPS): crates/eukhe-dashboard/ui/package-lock.json
@@ -98,7 +101,7 @@ embedded-js: $(EMBEDDED_JS_DEPS)
 	cd crates/eukhe-dashboard/ui && node scripts/embedded-js.ts generate
 
 embedded-js-check: $(EMBEDDED_JS_DEPS)
-	cd crates/eukhe-dashboard/ui && node scripts/embedded-js.ts check
+	cd crates/eukhe-dashboard/ui && node scripts/embedded-js.ts check && npx vp test run scripts/
 
 # The token blocks of crates/eukhe-dashboard/ui/src/tokens.stylex.ts, as
 # the compiled core writes them from bend/tokens.bend (run bend-core first).

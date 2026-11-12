@@ -27,5 +27,11 @@
       "react-dom/*": ["./node_modules/preact/compat/*"]
     }
   },
-  "include": ["src", "lint", "scripts", "vite.config.ts"]
+  "include": [
+    "src",
+    "lint",
+    "scripts",
+    "vite.config.ts",
+    "../../eukhe-core/assets/export-html/session-data.d.ts"
+  ]
 }

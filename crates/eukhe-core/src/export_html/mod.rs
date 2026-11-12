@@ -30,6 +30,8 @@ use eukhe_types::session::FileEntry;
 use self::theme::export_theme;
 
 pub mod ansi_to_html;
+#[cfg(test)]
+mod fixtures;
 mod theme;
 pub mod tool_render;
 

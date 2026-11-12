@@ -12,7 +12,7 @@
 // non-null `!`, no enum, namespace or parameter property.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseSync, transformSync, Visitor, type ESTree } from "vite/rolldown/utils";
 
 /** A TypeScript source and the JavaScript generated from it, relative to the repository. */
@@ -46,6 +46,13 @@ const SOURCES: Source[] = [
     js: "crates/eukhe-dashboard/ui/public/sw.js",
   },
 ];
+
+/**
+ * TypeScript checked with the source in its directory but generating nothing: the export
+ * template's fixtures, which the eukhe-core test `export_html::fixtures` writes from what the
+ * exporters produce, so a Rust change the template's types do not accept fails here.
+ */
+const CHECKED = ["crates/eukhe-core/assets/export-html/fixtures.ts"];
 
 /** A byte range of the source left out of the output. */
 type Cut = { start: number; end: number };
@@ -213,9 +220,13 @@ function checkErasure(source: Source, ts: string, js: string): void {
   );
 }
 
-/** Type-checks and lints `sources` against the tsconfig.json next to each. */
+/** Type-checks and lints `sources` against the tsconfig.json next to each, with the files of
+ * `CHECKED` beside them. */
 function typeCheck(sources: Source[]): void {
   const bin = join(UI, "node_modules/.bin");
+  const checked = CHECKED.filter((path) =>
+    sources.some((source) => dirname(source.ts) === dirname(path)),
+  );
   execFileSync(
     join(bin, "oxlint"),
     [
@@ -225,6 +236,7 @@ function typeCheck(sources: Source[]): void {
       "-c",
       join(UI, "scripts/embedded-js.oxlintrc.json"),
       ...sources.map((source) => source.ts),
+      ...checked,
     ],
     {
       cwd: ROOT,

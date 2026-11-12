@@ -11,5 +11,5 @@
     "noUnusedParameters": true,
     "noEmit": true
   },
-  "files": ["template.ts", "session-data.d.ts", "vendor.d.ts", "dom.d.ts", "view.d.ts", "es.d.ts"]
+  "files": ["template.ts", "session-data.d.ts", "vendor.d.ts", "dom.d.ts", "view.d.ts", "es.d.ts", "fixtures.ts"]
 }

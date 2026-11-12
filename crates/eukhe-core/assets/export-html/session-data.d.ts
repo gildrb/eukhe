@@ -392,15 +392,17 @@ type UsageCost = { input: number; output: number; cacheRead: number; cacheWrite:
 type ExportTool = { readonly name: string; readonly description: string; readonly parameters: ToolParametersSchema };
 
 /**
- * A tool's JSON schema, as far as the template reads it: an object schema's `properties` and
- * `required`, or a schema without `properties`. Any JSON schema object fits.
+ * A tool's JSON schema (any JSON schema object), with what the template reads: an object
+ * schema's `properties` and `required`, or a schema without `properties`.
  */
-type ToolParametersSchema =
-  | { readonly properties: { readonly [name: string]: ToolParameterSchema }; readonly required?: string[] }
-  | { readonly properties?: undefined; readonly required?: string[] };
+type ToolParametersSchema = JsonObject &
+  (
+    | { readonly properties: { readonly [name: string]: ToolParameterSchema }; readonly required?: string[] }
+    | { readonly properties?: undefined; readonly required?: string[] }
+  );
 
 /** One property schema of a tool's parameters (any JSON schema object). */
-type ToolParameterSchema = {
+type ToolParameterSchema = JsonObject & {
   /** A JSON-schema type name, as template.ts reads it (a schema may also give a list of them). */
   type?: string;
   description?: string;
