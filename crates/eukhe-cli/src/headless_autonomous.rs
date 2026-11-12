@@ -1,13 +1,14 @@
 //! The autonomous run of headless print/json/rpc runs -- the verifier and
 //! eval composition surface. CLI autonomous flags enable the run on the
-//! session's main conversation (TS `runtimeAutonomousConfigFromArgs`); the
-//! durable `eukhe.goals` extension accounts usage, runs the gate commands,
-//! and drives continuations. A stop surfaces only through the process exit
-//! code and its stderr line (the TS print-mode contract, `print-mode.ts`).
+//! session's main conversation (TS `runtimeAutonomousConfigFromArgs`) with
+//! its own turn, token and time limits; the durable `eukhe.goals`
+//! extension counts them, runs the gate commands and drives
+//! continuations. A stop surfaces only through the process exit code and
+//! its stderr line (the TS print-mode contract, `print-mode.ts`).
 
 use eukhe_core::autonomous::{
-    autonomous_limit_reason, autonomous_status, describe_autonomous_limit,
-    latest_autonomous_gate_attempt, now_millis, AgentAutonomousConfig, AutonomousRuntimeState,
+    describe_autonomous_limit, latest_autonomous_gate_attempt, now_millis, AgentAutonomousConfig,
+    AgentAutonomousStatus,
 };
 
 use crate::args::AutonomousConfig;
@@ -36,11 +37,11 @@ pub fn autonomous_runtime_config(config: &AutonomousConfig) -> AgentAutonomousCo
 /// The TS print-mode exit contract: stderr text when the run must exit
 /// non-zero -- a configured gate still failing (after its retry window, or
 /// with an autonomous limit reached), or an autonomous run without gates
-/// that stopped before terminal evidence.
-pub fn autonomous_exit_stderr(state: &AutonomousRuntimeState) -> Option<String> {
-    let status = autonomous_status(state);
+/// that stopped before terminal evidence. The limits are the run's own
+/// and the session's budget the status carries.
+pub fn autonomous_exit_stderr(status: &AgentAutonomousStatus) -> Option<String> {
     let now = now_millis();
-    let limit = autonomous_limit_reason(state, now);
+    let limit = status.limit_reason(now);
     if let Some(failure) = status
         .last_gate_failure
         .as_ref()
@@ -50,13 +51,13 @@ pub fn autonomous_exit_stderr(state: &AutonomousRuntimeState) -> Option<String> 
             .map(|reason| {
                 format!(
                     "; autonomous limit reached: {}",
-                    describe_autonomous_limit(&status, reason, now)
+                    describe_autonomous_limit(status, reason, now)
                 )
             })
             .unwrap_or_default();
         return Some(format!(
             "Autonomous quality gate still failing after attempt {}/{}: {}{}",
-            latest_autonomous_gate_attempt(&status),
+            latest_autonomous_gate_attempt(status),
             status.gates.max_retries,
             failure.exit_text,
             limit_text
@@ -66,7 +67,7 @@ pub fn autonomous_exit_stderr(state: &AutonomousRuntimeState) -> Option<String> 
         if let Some(reason) = limit {
             return Some(format!(
                 "Autonomous run stopped before terminal evidence; {}",
-                describe_autonomous_limit(&status, reason, now)
+                describe_autonomous_limit(status, reason, now)
             ));
         }
     }
@@ -77,13 +78,20 @@ pub fn autonomous_exit_stderr(state: &AutonomousRuntimeState) -> Option<String> 
 mod tests {
     use super::*;
     use eukhe_core::autonomous::{
-        add_autonomous_continuation, create_autonomous_runtime_state, AgentAutonomousGateFailure,
+        add_autonomous_continuation, autonomous_status, create_autonomous_runtime_state,
+        AgentAutonomousGateFailure,
+    };
+    use eukhe_types::budget::{
+        BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport,
     };
 
     #[test]
     fn a_disabled_run_exits_clean() {
         let state = create_autonomous_runtime_state(None, None);
-        assert_eq!(autonomous_exit_stderr(&state), None);
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, None)),
+            None
+        );
     }
 
     #[test]
@@ -93,12 +101,57 @@ mod tests {
             ..AutonomousConfig::default()
         });
         let mut state = create_autonomous_runtime_state(Some(&config), None);
-        assert_eq!(autonomous_exit_stderr(&state), None);
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, None)),
+            None
+        );
         add_autonomous_continuation(&mut state);
-        let stderr = autonomous_exit_stderr(&state).expect("the limit stops the run");
-        assert!(
-            stderr.starts_with("Autonomous run stopped before terminal evidence; "),
-            "{stderr}"
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, None)).as_deref(),
+            Some("Autonomous run stopped before terminal evidence; maxContinuations reached (1/1)")
+        );
+    }
+
+    /// `--autonomous-max-turns` is the run's own count of its responses.
+    #[test]
+    fn a_gateless_run_at_max_turns_names_the_limit() {
+        let mut state = create_autonomous_runtime_state(
+            Some(&autonomous_runtime_config(&AutonomousConfig {
+                max_turns: Some(2),
+                ..AutonomousConfig::default()
+            })),
+            None,
+        );
+        state.turns_used = 2;
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, None)).as_deref(),
+            Some("Autonomous run stopped before terminal evidence; maxTurns reached (2/2)")
+        );
+    }
+
+    /// A session budget set by the user that ran short stops the run too.
+    #[test]
+    fn a_gateless_run_whose_budget_ran_short_names_the_budget() {
+        let state = create_autonomous_runtime_state(
+            Some(&autonomous_runtime_config(&AutonomousConfig::default())),
+            None,
+        );
+        let budget = BudgetReport {
+            limits: BudgetLimits {
+                requests: Some(2),
+                ..BudgetLimits::default()
+            },
+            spent: BudgetAmounts {
+                requests: 2,
+                ..BudgetAmounts::default()
+            },
+            phase: BudgetPhase::WrapUp,
+            short: Some(BudgetDimension::Requests),
+            ..BudgetReport::default()
+        };
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, Some(budget))).as_deref(),
+            Some("Autonomous run stopped before terminal evidence; the session's requests budget is used up")
         );
     }
 
@@ -120,10 +173,9 @@ mod tests {
             exit_text: "exit 1".to_owned(),
             output: String::new(),
         });
-        let stderr = autonomous_exit_stderr(&state).expect("the gate still fails");
-        assert!(
-            stderr.starts_with("Autonomous quality gate still failing after attempt 1/2: exit 1"),
-            "{stderr}"
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, None)).as_deref(),
+            Some("Autonomous quality gate still failing after attempt 1/2: exit 1")
         );
     }
 }

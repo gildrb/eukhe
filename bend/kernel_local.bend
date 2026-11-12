@@ -1,101 +1,223 @@
-# kernel_local: the kernel setup and the bootstrap lock's leftovers
-# (crates/eukhe-core/src/kernel/bootstrap: setup.rs, venv.rs,
-# dir_lock.rs). The setup's plan, the sweep's verdict on each leftover and
-# the lock attempt's verdict run as this code (entry
-# bend/ffi_kernel_local.bend); laws/kernel_local.bend states the laws;
-# proof/kernel_local/ proves them.
+# kernel_local: the kernel setup, the session's tools while the kernel is
+# missing, and the bootstrap lock's leftovers
+# (crates/eukhe-core/src/kernel/bootstrap: setup.rs, mod.rs, dir_lock.rs).
+# The setup's plan, the sweep's verdict on each leftover and the lock
+# attempt's verdict run as this code (entry bend/ffi_kernel_local.bend);
+# laws/kernel_local.bend states the laws; proof/kernel_local/ proves them.
 
 import Base
 
 # Part 1: the setup
 # -----------------
-
-# what the setup may fetch: a session (Local) or `eukhe kernel install`
-type Setup is Data:
-  Local{}
-  Install{}
-
-# the kernel venv the setup finds
-type Found is Data:
-  Current{}
-  Skills{}
-  Stale{}
+# The kernel runs on one pinned standalone CPython. Eukhe fetches it
+# itself, with a pinned uv release that it also fetches itself, into its
+# own directory, on the first kernel use. The setup looks at three things
+# in that directory: the pinned uv, the pinned CPython and the kernel env,
+# each there (True) or not. A session and `eukhe kernel install` run the
+# same setup.
 
 # one action of a setup, in order
 type Act is Data:
-  # a uv command that may download; hashed: uv checks each file it gets
-  # against a pinned hash before it installs the file
-  Fetch{hashed: Bool}
-  # a uv command that uses local files only (--offline)
-  Offline{}
-  # uv pip check of the built venv
-  Check{}
+  # the pinned uv release archive is downloaded; hashed: the archive is
+  # checked against the pinned sha256 before it is unpacked
+  FetchUv{hashed: Bool}
+  # `uv python install` of the pinned version from the pinned download
+  # list; hashed: uv checks the archive against the pinned sha256 before
+  # it installs it
+  FetchPython{hashed: Bool}
+  # `uv venv --offline`: the kernel env from local files only, never the
+  # network
+  MakeEnv{}
   # the kernel starts
   Run{}
 
-# a build: the Python install, the venv, the hash-locked requirements, the
-# runtime from its local directory, then the check
-def build(s: Setup) -> List<&2, Act>:
-  match s:
-    case Local{}:
-      [Offline{}, Offline{}, Offline{}, Offline{}, Check{}, Run{}]
-    case Install{}:
-      [Fetch{True{}}, Offline{}, Fetch{True{}}, Offline{}, Check{}, Run{}]
-
-# the actions of a setup that finds f
-def plan(f: Found, s: Setup) -> List<&2, Act>:
-  match f:
-    case Current{}:
+def plan.env(env: Bool) -> List<&2, Act>:
+  match env:
+    case True{}:
       [Run{}]
-    case Skills{}:
-      [Offline{}, Run{}]
-    case Stale{}:
-      build(s)
+    case False{}:
+      [MakeEnv{}, Run{}]
 
-# does an action of the list fetch
+def plan.python(python: Bool, rest: List<&2, Act>) -> List<&2, Act>:
+  match python:
+    case True{}:
+      rest
+    case False{}:
+      FetchPython{True{}} <> rest
+
+def plan.uv(uv: Bool, rest: List<&2, Act>) -> List<&2, Act>:
+  match uv:
+    case True{}:
+      rest
+    case False{}:
+      FetchUv{True{}} <> rest
+
+# the actions of a setup that finds the pinned uv, the pinned CPython and
+# the kernel env (True: it is there)
+def plan(uv: Bool, python: Bool, env: Bool) -> List<&2, Act>:
+  plan.uv(uv, plan.python(python, plan.env(env)))
+
+# does an action of the list fetch (use the network)
 def acts.fetching(xs: List<&2, Act>) -> Bool:
   match xs:
     case Nil{}:
       False{}
-    case Fetch{h} <> rest:
+    case FetchUv{h} <> rest:
       True{}
-    case Offline{} <> rest:
-      acts.fetching(rest)
-    case Check{} <> rest:
+    case FetchPython{h} <> rest:
+      True{}
+    case MakeEnv{} <> rest:
       acts.fetching(rest)
     case Run{} <> rest:
       acts.fetching(rest)
 
-# does the kernel start
-def acts.runs(xs: List<&2, Act>) -> Bool:
+# does an action of the list fetch the pinned uv
+def acts.fetches_uv(xs: List<&2, Act>) -> Bool:
   match xs:
     case Nil{}:
       False{}
-    case Fetch{h} <> rest:
-      acts.runs(rest)
-    case Offline{} <> rest:
-      acts.runs(rest)
-    case Check{} <> rest:
-      acts.runs(rest)
-    case Run{} <> rest:
+    case FetchUv{h} <> rest:
       True{}
+    case FetchPython{h} <> rest:
+      acts.fetches_uv(rest)
+    case MakeEnv{} <> rest:
+      acts.fetches_uv(rest)
+    case Run{} <> rest:
+      acts.fetches_uv(rest)
 
-# every fetch is hashed, and the kernel starts only when a check came
-# after the last fetch (clean: no fetch since the last check)
-def acts.verified(xs: List<&2, Act>, +clean: Bool) -> Bool:
+# does an action of the list fetch the pinned CPython
+def acts.fetches_python(xs: List<&2, Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case FetchUv{h} <> rest:
+      acts.fetches_python(rest)
+    case FetchPython{h} <> rest:
+      True{}
+    case MakeEnv{} <> rest:
+      acts.fetches_python(rest)
+    case Run{} <> rest:
+      acts.fetches_python(rest)
+
+# does an action of the list make the kernel env
+def acts.makes_env(xs: List<&2, Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case FetchUv{h} <> rest:
+      acts.makes_env(rest)
+    case FetchPython{h} <> rest:
+      acts.makes_env(rest)
+    case MakeEnv{} <> rest:
+      True{}
+    case Run{} <> rest:
+      acts.makes_env(rest)
+
+# every fetch is hashed: what it fetched is checked against its pinned
+# sha256 before it is unpacked or installed
+def acts.verified(xs: List<&2, Act>) -> Bool:
   match xs:
     case Nil{}:
       True{}
-    case Fetch{h} <> rest:
-      Bool.and(h, acts.verified(rest, False{}))
-    case Offline{} <> rest:
-      acts.verified(rest, clean)
-    case Check{} <> rest:
-      acts.verified(rest, True{})
+    case FetchUv{h} <> rest:
+      Bool.and(h, acts.verified(rest))
+    case FetchPython{h} <> rest:
+      Bool.and(h, acts.verified(rest))
+    case MakeEnv{} <> rest:
+      acts.verified(rest)
     case Run{} <> rest:
-      Bool.and(clean, acts.verified(rest, clean))
+      acts.verified(rest)
 
-# Part 2: the bootstrap lock's leftovers
+# every action runs with what it uses there: uv fetches the CPython, uv
+# makes the env from the CPython, the kernel starts on the env and its
+# CPython (uv, python, env: what is there before the first action; a
+# fetch or the env's making puts its thing there)
+def acts.ready(xs: List<&2, Act>, +uv: Bool, +python: Bool, +env: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case FetchUv{h} <> rest:
+      acts.ready(rest, True{}, python, env)
+    case FetchPython{h} <> rest:
+      Bool.and(uv, acts.ready(rest, uv, True{}, env))
+    case MakeEnv{} <> rest:
+      Bool.and(Bool.and(uv, python), acts.ready(rest, uv, python, True{}))
+    case Run{} <> rest:
+      Bool.and(Bool.and(python, env), acts.ready(rest, uv, python, env))
+
+# is the list empty
+def acts.none(xs: List<&2, Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      False{}
+
+# the kernel starts as the last action and at no other
+def acts.ends_started(xs: List<&2, Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case FetchUv{h} <> rest:
+      acts.ends_started(rest)
+    case FetchPython{h} <> rest:
+      acts.ends_started(rest)
+    case MakeEnv{} <> rest:
+      acts.ends_started(rest)
+    case Run{} <> rest:
+      acts.none(rest)
+
+# Part 2: the session's tools
+# ---------------------------
+
+type Kernel is Data:
+  Up{}
+  # a step of the setup failed (a fetch, e.g. offline): the error names it
+  Missing{}
+
+def start.ran(ok: Bool) -> Kernel:
+  match ok:
+    case True{}:
+      Up{}
+    case False{}:
+      Missing{}
+
+def start.all(all: Bool, ok: Bool) -> Kernel:
+  match all:
+    case True{}:
+      Up{}
+    case False{}:
+      start.ran(ok)
+
+# the kernel after a setup that finds uv, python and env (True: it is
+# there); ok: every step the setup ran worked. With all three there no
+# step runs, so none fails
+def start(uv: Bool, python: Bool, env: Bool, ok: Bool) -> Kernel:
+  start.all(Bool.and(uv, Bool.and(python, env)), ok)
+
+# a tool call: the python tool, or any other tool (by its number)
+type Call is Data:
+  Python{}
+  Other{n: Nat}
+
+type Answer is Data:
+  # the tool ran
+  Ran{}
+  # the tool answered with the setup step that failed (the failed fetch)
+  NamesFailed{}
+
+def answer(t: Call, k: Kernel) -> Answer:
+  match t:
+    case Python{}:
+      match k:
+        case Up{}:
+          Ran{}
+        case Missing{}:
+          NamesFailed{}
+    case Other{n}:
+      Ran{}
+
+# Part 3: the bootstrap lock's leftovers
 # --------------------------------------
 
 type Owner is Data:
@@ -181,6 +303,18 @@ def lock.of(s: Seen) -> Lock:
     case NoOwner{age}:
       lock.age(age)
 
+# the attempt's own candidates left after it ends
+def own_left(e: End) -> Nat:
+  match e:
+    case Got{}:
+      0n
+    case Busy{}:
+      0n
+    case Freed{}:
+      0n
+    case Crash{}:
+      1n
+
 # does the sweep keep the file: a live attempt's leftover or another file
 def keep(l: Left) -> Bool:
   match l:
@@ -256,10 +390,11 @@ def lefts.live(ls: List<&2, Left>) -> Nat:
 # Requests
 # --------
 
-# what Rust asks: the plan of a setup that finds f, the sweep's verdict
-# on each leftover beside the lock, the verdict of a lock attempt
+# what Rust asks: the plan of a setup that finds the pinned uv, the pinned
+# CPython and the kernel env (True: it is there), the sweep's verdict on
+# each leftover beside the lock, the verdict of a lock attempt
 type Ask is Data:
-  AskPlan{found: Found, setup: Setup}
+  AskPlan{uv: Bool, python: Bool, env: Bool}
   AskSweep{files: List<&2, Left>}
   AskLock{seen: Seen}
 
@@ -270,60 +405,3 @@ def keeps(ls: List<&2, Left>) -> List<&2, Bool>:
       Nil{}
     case +l <> rest:
       keep(l) <> keeps(rest)
-
-type Answer is Data:
-  # the tool ran
-  Ran{}
-  # the tool answered with the install command
-  NamesInstall{}
-
-# a tool call: the ipython tool, or any other tool (by its number)
-type KlTool is Data:
-  Python{}
-  Other{n: Nat}
-
-type Kernel is Data:
-  Up{}
-  # the setup failed: the error names `eukhe kernel install`
-  Missing{}
-
-def answer(t: KlTool, k: Kernel) -> Answer:
-  match t:
-    case Python{}:
-      match k:
-        case Up{}:
-          Ran{}
-        case Missing{}:
-          NamesInstall{}
-    case Other{n}:
-      Ran{}
-
-# the kernel after a setup that finds f; ok: the sync or the build worked
-def start(f: Found, ok: Bool) -> Kernel:
-  match f:
-    case Current{}:
-      Up{}
-    case Skills{}:
-      match ok:
-        case True{}:
-          Up{}
-        case False{}:
-          Missing{}
-    case Stale{}:
-      match ok:
-        case True{}:
-          Up{}
-        case False{}:
-          Missing{}
-
-# the attempt's own candidates left after it ends
-def own_left(e: End) -> Nat:
-  match e:
-    case Got{}:
-      0n
-    case Busy{}:
-      0n
-    case Freed{}:
-      0n
-    case Crash{}:
-      1n

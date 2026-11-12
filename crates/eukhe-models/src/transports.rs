@@ -46,45 +46,13 @@ pub fn compiled_models() -> &'static [Model] {
 }
 
 /// The transports the client implements that the pi-ai compiled catalog
-/// carries no entry for: the `(provider, api, baseUrl)` tuples the eukhe
-/// model catalog (`catalog.v1.json`) selects outside pi-ai's own provider
-/// tables. Template-less (no request headers): pinning keeps the catalog's
-/// entries on these transports, and the catalog still cannot introduce
-/// any other.
-pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 8] = [
-    (
-        "amazon-bedrock",
-        "bedrock-converse-stream",
-        "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
-    ),
-    (
-        "amazon-bedrock",
-        "bedrock-converse-stream",
-        "https://bedrock-runtime.ap-southeast-2.amazonaws.com",
-    ),
-    ("azure-openai-responses", "azure-openai-responses", ""),
-    ("xai", "openai-completions", "https://api.x.ai/v1"),
-    (
-        "xiaomi",
-        "anthropic-messages",
-        "https://api.xiaomimimo.com/anthropic",
-    ),
-    (
-        "xiaomi-token-plan-ams",
-        "anthropic-messages",
-        "https://token-plan-ams.xiaomimimo.com/anthropic",
-    ),
-    (
-        "xiaomi-token-plan-cn",
-        "anthropic-messages",
-        "https://token-plan-cn.xiaomimimo.com/anthropic",
-    ),
-    (
-        "xiaomi-token-plan-sgp",
-        "anthropic-messages",
-        "https://token-plan-sgp.xiaomimimo.com/anthropic",
-    ),
-];
+/// carries no entry for: the `(provider, api, baseUrl)` tuples the bundled
+/// model catalog (`models.bundled.json`) selects outside pi-ai's own
+/// provider tables. Template-less (no request headers): pinning keeps the
+/// catalog's entries on these transports, and the catalog still cannot
+/// introduce any other.
+pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 1] =
+    [("azure-openai-responses", "azure-openai-responses", "")];
 
 /// Distinct compiled `(provider, api, baseUrl)` tuples: the compiled
 /// catalog's, then [`SUPPLEMENTAL_TRANSPORTS`] (Prime Inference excluded —

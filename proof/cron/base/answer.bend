@@ -82,6 +82,8 @@ def crw.back(b: CS.Back, +rest: String) -> {FC.put_back(b, rest) == Cron.spell_b
       %crw.mnat(m, rest) : {Wr.put_nat(1n, FC.put_status(st, FC.put_mnat(m, rest))) == Wr.put_nat(1n, Cron.spell_status(st, _)) : String}
       %crw.status(st, FC.put_mnat(m, rest)) : {Wr.put_nat(1n, FC.put_status(st, FC.put_mnat(m, rest))) == Wr.put_nat(1n, _) : String}
       {==}
+    case CS.Refire{}:
+      {==}
 
 # a status, a next run and a count, as both write them
 def crw.snk(+st: Cr.Status, +n: CS.Next, +k: Nat, +rest: String) -> {FC.put_status(st, FC.put_next(n, Wr.put_nat(k, rest))) == Cron.spell_status(st, Cron.spell_next(n, Wr.put_nat(k, rest))) : String}:

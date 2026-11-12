@@ -199,8 +199,8 @@ pub struct CompactionPolicy {
     /// How far below the blocking threshold background compaction starts.
     pub background: BackgroundMargin,
     /// Where the threshold check gets the input tokens of a request (the
-    /// window check and the cut). Stored policies without the field use
-    /// the local estimate.
+    /// window check and the cut). Stored policies without the field count
+    /// locally.
     #[serde(default)]
     pub token_count: ThresholdTokens,
 }
@@ -210,12 +210,16 @@ pub struct CompactionPolicy {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ThresholdTokens {
-    /// The local estimate of the context (no provider request).
+    /// The reading model's tokenizer counts the context locally (no
+    /// provider request). Stored as `estimate`, its name from when the
+    /// local count was a characters-per-token estimate, so builds before
+    /// and after read each other's policies.
     #[default]
-    Estimate,
+    #[serde(rename = "estimate")]
+    Local,
     /// The provider's own token counter (`count_tokens`): one more provider
     /// request per preparation. When the provider has no counter or the
-    /// count fails, the harness logs it and uses the local estimate.
+    /// count fails, the harness logs it and counts locally.
     Provider,
 }
 
@@ -302,6 +306,10 @@ pub struct HarnessSettings {
     /// Tool rounds one run may make; at the cap the run fails (H4).
     /// Default 250; `0` takes the default.
     pub max_tool_rounds: Option<u32>,
+    /// The times a model request a restart found sent and unanswered is
+    /// sent again, under the same idempotency key, before its run ends
+    /// with an error (spec O7). Default 2; `0` sends it again never.
+    pub request_resends: Option<u32>,
     /// Scrub outbound request text of a remote provider (harness/privacy).
     /// Default false (opt-in).
     pub privacy_anonymize_remote: Option<bool>,
@@ -325,6 +333,9 @@ pub struct Settings {
     pub context_retention_ms: f64,
     pub document_retention_ms: f64,
     pub max_tool_rounds: NonZeroU32,
+    /// The times a model request a restart found sent and unanswered is
+    /// sent again (`HarnessSettings::request_resends`).
+    pub request_resends: u32,
     /// Scrub outbound request text of a remote provider (harness/privacy).
     pub privacy_anonymize_remote: bool,
     /// Free-text phrases a remote provider must not see.

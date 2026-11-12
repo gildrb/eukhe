@@ -1,22 +1,27 @@
 # eukhe: the proof of LAW kernel_plan_read_by_rust
 #
-# Six closed cases (venv found x setup): Rust's reader computes on each plan.
+# Eight closed cases (uv x CPython x env there or not): Rust's reader
+# computes on each plan.
 
 import Base
 import ../../bend/kernel_local.bend as KL
 import ../../laws/kernel_local.bend as KernelLocal
 
-def KernelLocal.kernel_plan_read_by_rust(f, s):
-  match f s:
-    case KL.Current{} KL.Local{}:
+def KernelLocal.kernel_plan_read_by_rust(uv, python, env):
+  match uv python env:
+    case True{} True{} True{}:
       {==}
-    case KL.Current{} KL.Install{}:
+    case True{} True{} False{}:
       {==}
-    case KL.Skills{} KL.Local{}:
+    case True{} False{} True{}:
       {==}
-    case KL.Skills{} KL.Install{}:
+    case True{} False{} False{}:
       {==}
-    case KL.Stale{} KL.Local{}:
+    case False{} True{} True{}:
       {==}
-    case KL.Stale{} KL.Install{}:
+    case False{} True{} False{}:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
       {==}

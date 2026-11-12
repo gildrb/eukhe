@@ -1,6 +1,6 @@
 //! The runners of code: the registry a session installs against the
 //! compiled core's (`bend/runners.bend` `registry`, entry
-//! `bend/ffi_runners.bend`), and the `ipython` gate on a real kernel.
+//! `bend/ffi_runners.bend`), and the `python` gate on a real kernel.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -14,17 +14,17 @@ use serde_json::json;
 use super::{Gate, Runner};
 use crate::durable::rlm::kernel_test_lock;
 use crate::durable::rlm::tests::{
-    entries, ipython, result_text, results, settle, submit, text, Fixture,
+    entries, python, result_text, results, settle, submit, text, Fixture,
 };
 use crate::durable::{EukheSession, SessionRole, ShellApprovalSink};
 use crate::memory::{Memory, ResponseStarted, Summarizer, SummarizerFuture};
 
 /// What a denied cell's call says.
 const DENIED: &str =
-    "ipython did not run (exec): the user denied it. Do not try it again unless the user asks for it.";
+    "python did not run (exec): the user denied it. Do not try it again unless the user asks for it.";
 
 /// What an unanswered cell's call says.
-const UNANSWERED: &str = "ipython did not run (exec): it needs the user's approval, and no client \
+const UNANSWERED: &str = "python did not run (exec): it needs the user's approval, and no client \
 answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is \
 read, write, exec, net, outside, protected or secret; or use read-only steps.";
 
@@ -74,7 +74,7 @@ impl Summarizer for NoModel {
 
 /// The real registry of a session without and with chat memory is the
 /// compiled core's one registry (`registry`, whose laws
-/// `gate_covers_every_runner` and `ipython_gated_each_call` pin it): chat
+/// `gate_covers_every_runner` and `python_gated_each_call` pin it): chat
 /// memory adds no tool, so a subagent offers its parent's tool list.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_registry_is_its_model() {
@@ -160,7 +160,7 @@ async fn the_tool_surface_follows_role_and_shape() {
     );
 }
 
-/// One `ipython` call of `code` under `auto`, answered by `asker`: its
+/// One `python` call of `code` under `auto`, answered by `asker`: its
 /// result and every question the session asked.
 async fn call(
     fixture: &Fixture,
@@ -176,7 +176,7 @@ async fn call(
     .expect("settings");
     fixture
         .faux
-        .set_responses(vec![ipython("c1", code), text("done")]);
+        .set_responses(vec![python("c1", code), text("done")]);
     let questions: Arc<Mutex<Vec<ShellApprovalRequest>>> = Arc::default();
     let seen = Arc::clone(&questions);
     let sink: ShellApprovalSink = Arc::new(move |request: ShellApprovalRequest| {
@@ -204,7 +204,7 @@ async fn call(
     (all.remove(0), questions)
 }
 
-/// Regression (audit C1): an `ipython` cell ran unasked whatever the auto
+/// Regression (audit C1): an `python` cell ran unasked whatever the auto
 /// set. Now, with `read` only and no client, and with a client that
 /// denies, the cell does not run (its marker file stays absent) and the
 /// model reads why; with `exec` in the auto set it runs, unasked.

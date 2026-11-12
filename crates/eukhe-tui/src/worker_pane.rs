@@ -105,6 +105,10 @@ pub struct WorkerPane {
     view: Box<AgentView>,
     /// The assistant entry the next streamed frame updates.
     streaming_index: Option<usize>,
+    /// The snapshot's in-flight reply the attach adopted as
+    /// `streaming_index`: at the next `message_start` it settles where it is
+    /// instead of giving the starting message its place.
+    adopted_index: Option<usize>,
 }
 
 impl WorkerPane {
@@ -127,6 +131,7 @@ impl WorkerPane {
             attach: Attach::Pending(Vec::new()),
             view,
             streaming_index: None,
+            adopted_index: None,
         }
     }
 
@@ -154,7 +159,12 @@ impl WorkerPane {
             Attach::Live { .. } | Attach::Failed(_) => Vec::new(),
         };
         self.view.chat = rebuilt.chat;
-        self.streaming_index = None;
+        // The snapshot's in-flight reply stays the open streaming message:
+        // the frames that follow continue it in place, never as a copy.
+        self.streaming_index = rebuilt
+            .open_message
+            .filter(|index| self.view.resume_streaming_entry(*index));
+        self.adopted_index = self.streaming_index;
         self.view.working = None;
         if rebuilt.turn_running {
             self.loader(TurnPhase::Requesting);
@@ -203,6 +213,8 @@ impl WorkerPane {
                 message,
                 streaming,
                 stream_event,
+                // The pane shows no token count.
+                output_tokens: _,
             } => self.assistant(&message, streaming, stream_event.as_ref()),
             TurnUpdate::ToolExecutionStart {
                 tool_call_id,
@@ -229,9 +241,9 @@ impl WorkerPane {
                 self.tool_result(&tool_call_id, ToolResultView::new(&result, is_error), false);
                 self.loader(TurnPhase::Requesting);
             }
-            TurnUpdate::TurnEnded { .. } => self.streaming_index = None,
+            TurnUpdate::TurnEnded { .. } => self.end_open_message(),
             TurnUpdate::Idle => {
-                self.streaming_index = None;
+                self.end_open_message();
                 self.view.stop_loader();
             }
             TurnUpdate::SessionInfoChanged { .. }
@@ -244,11 +256,25 @@ impl WorkerPane {
             | TurnUpdate::PromptProgress(_)
             | TurnUpdate::MemoryUpdate(_)
             | TurnUpdate::GoalUpdate(_)
+            | TurnUpdate::UnknownEffectsUpdate(_)
+            | TurnUpdate::LoopUpdate(_)
+            | TurnUpdate::BudgetUpdate(_)
+            | TurnUpdate::AcceptanceUpdate(_)
             | TurnUpdate::QueueUpdated(_)
             | TurnUpdate::BashStart { .. }
             | TurnUpdate::BashOutput { .. }
             | TurnUpdate::BashEnd { .. }
             | TurnUpdate::StatusUpdate => {}
+        }
+    }
+
+    /// The open message ends without its final frame (the attach's
+    /// snapshot adopted a reply that had already finished): it stops
+    /// streaming, so it settles.
+    fn end_open_message(&mut self) {
+        self.adopted_index = None;
+        if let Some(index) = self.streaming_index.take() {
+            self.view.end_streaming_entry(index);
         }
     }
 
@@ -262,8 +288,24 @@ impl WorkerPane {
         stream_event: Option<&StreamUpdate>,
     ) {
         let (blocks, tool_calls) = crate::snapshot::assistant_message_parts(message);
-        if matches!(stream_event, Some(StreamUpdate::Start)) {
-            self.streaming_index = None;
+        // An entry still streaming at a message_start never got its
+        // message_end: the starting message takes its place (see
+        // `SessionUi::apply_assistant_message`); the reply the attach
+        // adopted settles where it is.
+        let starts = matches!(stream_event, Some(StreamUpdate::Start));
+        let adopted = starts
+            && self
+                .adopted_index
+                .take()
+                .is_some_and(|index| self.streaming_index == Some(index));
+        if starts
+            && (adopted
+                || !matches!(
+                    self.streaming_index.and_then(|index| self.view.chat.get(index)),
+                    Some(ChatEntry::Assistant(open)) if open.streaming
+                ))
+        {
+            self.end_open_message();
         }
         let error = if streaming {
             None

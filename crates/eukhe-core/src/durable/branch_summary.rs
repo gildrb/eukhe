@@ -1,13 +1,13 @@
 //! Branch summarization for tree navigation: the entry collection, the
-//! summarizer request and its window estimate, and the final summary text.
+//! summarizer request and its counted size, and the final summary text.
 //! Port of core/compaction/branch-summarization.ts.
 
 use std::collections::HashSet;
 
+use eukhe_tokens::{MessageParts, Tokenizer};
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage, FileEntry};
-use eukhe_types::token_estimate::estimate_text_tokens;
 
-use crate::durable::compaction::summary_request::{estimate_tokens, summarizer_request_tokens};
+use crate::durable::compaction::summary_request::summarizer_request_tokens;
 use crate::durable::compaction::utils::{
     compute_file_lists, extract_file_ops_from_message, format_file_operations,
     serialize_conversation, FileOperations, SUMMARIZATION_SYSTEM_PROMPT,
@@ -146,10 +146,15 @@ fn get_message_from_entry(entry: &FileEntry) -> Option<AgentMessage> {
     }
 }
 
-/// Prepare entries under a token budget: newest-to-oldest until the budget
-/// is hit. File ops are collected from ALL entries (cumulative tracking).
+/// Prepare entries under a token budget, each message counted with the
+/// summarizer model's `tokenizer`: newest-to-oldest until the budget is
+/// hit. File ops are collected from ALL entries (cumulative tracking).
 #[must_use]
-pub fn prepare_branch_entries(entries: &[FileEntry], token_budget: u64) -> BranchPreparation {
+pub fn prepare_branch_entries(
+    tokenizer: &Tokenizer,
+    entries: &[FileEntry],
+    token_budget: u64,
+) -> BranchPreparation {
     let mut file_ops = FileOperations::default();
     // Cumulative tracking from prior branch summaries (never hooked ones).
     for entry in entries {
@@ -171,7 +176,7 @@ pub fn prepare_branch_entries(entries: &[FileEntry], token_budget: u64) -> Branc
             continue;
         };
         extract_file_ops_from_message(&message, &mut file_ops);
-        let tokens = estimate_tokens(&message);
+        let tokens = tokenizer.count_message(&MessageParts::from_agent(&message));
         if token_budget > 0 && total_tokens + tokens > token_budget {
             // Compaction/branch summaries squeeze in under 90% budget.
             let boundary = matches!(
@@ -198,15 +203,17 @@ const BRANCH_SUMMARY_PREAMBLE: &str = "The user explored a different conversatio
 
 const BRANCH_SUMMARY_PROMPT: &str = "Create a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.";
 
-/// Build the branch-summary request messages for the model.
+/// Build the branch-summary request messages for the model whose
+/// `tokenizer` counts the slice.
 #[must_use]
 pub fn build_branch_summary_request(
+    tokenizer: &Tokenizer,
     entries: &[FileEntry],
     token_budget: u64,
     custom_instructions: Option<&str>,
     replace_instructions: bool,
 ) -> (Vec<AgentMessage>, BranchPreparation) {
-    let preparation = prepare_branch_entries(entries, token_budget);
+    let preparation = prepare_branch_entries(tokenizer, entries, token_budget);
     let messages = if preparation.messages.is_empty() {
         Vec::new()
     } else {
@@ -260,22 +267,23 @@ pub const DEFAULT_BRANCH_RESERVE_TOKENS: u64 = 16_384;
 /// The summarizer call cap (TS `maxTokens: 2048`).
 pub(crate) const BRANCH_SUMMARY_MAX_TOKENS: u64 = 2048;
 
-/// Estimate the context window the branch-summary request needs (TS
-/// #2411's `estimateBranchSummaryRequestTokens`), using the same
-/// entry-slicing budget and prompt builder as the wire call, so the
-/// estimate cannot drift from the request. `context_window` is the window
-/// of the model the session would run the summary on (the fallback): a
-/// resolved auxiliary model must hold two things — the request body
-/// (the summary call builds: the system prompt, the serialized
-/// branch inside its `<conversation>` wrapper, and the completion
-/// budget) and the reserve the branch call subtracts from its window —
-/// the larger of the two decides whether the model fits. A branch that
-/// slices to nothing issues no wire request, but a window at or below the
-/// reserve would slice with a non-positive budget that
+/// The context window the branch-summary request needs (TS #2411's
+/// `estimateBranchSummaryRequestTokens`), counted with the `tokenizer` of
+/// the model asked about, using the same entry-slicing budget and prompt
+/// builder as the wire call, so the count cannot drift from the request.
+/// `context_window` is the window of the model the session would run the
+/// summary on (the fallback): a resolved auxiliary model must hold two
+/// things — the request body (the summary call builds: the system prompt,
+/// the serialized branch inside its `<conversation>` wrapper, and the
+/// completion budget) and the reserve the branch call subtracts from its
+/// window — the larger of the two decides whether the model fits. A
+/// branch that slices to nothing issues no wire request, but a window at
+/// or below the reserve would slice with a non-positive budget that
 /// [`prepare_branch_entries`] treats as unlimited, so the empty-slice
 /// shape still requires a window above the reserve.
 #[must_use]
-pub fn estimate_branch_summary_request_tokens(
+pub fn branch_summary_request_tokens(
+    tokenizer: &Tokenizer,
     entries: &[FileEntry],
     context_window: u64,
     reserve_tokens: u64,
@@ -291,6 +299,7 @@ pub fn estimate_branch_summary_request_tokens(
     };
     let token_budget = window.saturating_sub(reserve_tokens);
     let (request, _) = build_branch_summary_request(
+        tokenizer,
         entries,
         token_budget,
         custom_instructions,
@@ -299,8 +308,8 @@ pub fn estimate_branch_summary_request_tokens(
     if request.is_empty() {
         return reserve_tokens.saturating_add(1);
     }
-    let system_prompt_tokens = estimate_text_tokens(SUMMARIZATION_SYSTEM_PROMPT);
-    let prompt_tokens = summarizer_request_tokens(&request);
+    let system_prompt_tokens = tokenizer.count_text(SUMMARIZATION_SYSTEM_PROMPT);
+    let prompt_tokens = summarizer_request_tokens(tokenizer, &request);
     // The completion budget and the input-slice reserve are separate
     // draws on the same window, so the larger of the two decides whether
     // the model fits.
@@ -359,30 +368,36 @@ mod tests {
 
     #[test]
     fn preparation_respects_budget_and_keeps_boundaries() {
+        let tokenizer = Tokenizer::unknown_model();
         let mut entries = Vec::new();
         for i in 0..10 {
             entries.push(entry(
                 &format!("e{i}"),
                 None,
-                user(&format!("message {i} with padding")),
+                user(&format!("{i}{}", " the".repeat(6))),
             ));
         }
-        // Each 22-char message estimates to 7 tokens at 3.5 chars per
-        // token (6 at chars/4): a 7-token budget keeps only the newest one
-        // before the walk breaks, and a 6-token budget keeps nothing.
-        let preparation = prepare_branch_entries(&entries, 7);
+        // Each message is 7 tokens (the digit and six ` the`): a 7-token
+        // budget keeps only the newest one before the walk breaks, and a
+        // 6-token budget keeps nothing.
+        let preparation = prepare_branch_entries(&tokenizer, &entries, 7);
         assert_eq!(preparation.messages.len(), 1);
-        let tight = prepare_branch_entries(&entries, 6);
+        let tight = prepare_branch_entries(&tokenizer, &entries, 6);
         assert_eq!(tight.messages.len(), 0);
-        let unlimited = prepare_branch_entries(&entries, 0);
+        let unlimited = prepare_branch_entries(&tokenizer, &entries, 0);
         assert_eq!(unlimited.messages.len(), 10);
     }
 
     #[test]
     fn request_and_finalize() {
         let entries = vec![entry("e0", None, user("explore the widget"))];
-        let (messages, preparation) =
-            build_branch_summary_request(&entries, 0, Some("focus on x"), false);
+        let (messages, preparation) = build_branch_summary_request(
+            &Tokenizer::unknown_model(),
+            &entries,
+            0,
+            Some("focus on x"),
+            false,
+        );
         assert_eq!(messages.len(), 1);
         match &messages[0] {
             AgentMessage::User(user) => {
@@ -429,17 +444,20 @@ mod tests {
         }
     }
 
-    /// The window estimate mirrors the summary call's slicing and
-    /// prompt exactly (TS #2411's `estimateBranchSummaryRequestTokens`).
+    /// The window count mirrors the summary call's slicing and prompt
+    /// exactly (TS #2411's `estimateBranchSummaryRequestTokens`).
     #[test]
-    fn branch_window_estimate_shapes() {
-        // An entry too large for the window's slice budget: no wire request
-        // is issued, but the estimate still requires a window above the
-        // reserve (a window at or below it would slice with a non-positive
-        // budget that `prepare_branch_entries` treats as unlimited).
-        let big = vec![entry("e0", None, user(&"x".repeat(100_000)))];
+    fn branch_window_count_shapes() {
+        let tokenizer = Tokenizer::unknown_model();
+        // An entry too large for the window's slice budget (10,000 tokens
+        // past 20,000 - 16,384): no wire request is issued, but the count
+        // still requires a window above the reserve (a window at or below
+        // it would slice with a non-positive budget that
+        // `prepare_branch_entries` treats as unlimited).
+        let big = vec![entry("e0", None, user(&" the".repeat(10_000)))];
         assert_eq!(
-            estimate_branch_summary_request_tokens(
+            branch_summary_request_tokens(
+                &tokenizer,
                 &big,
                 20_000,
                 DEFAULT_BRANCH_RESERVE_TOKENS,
@@ -448,18 +466,20 @@ mod tests {
             ),
             DEFAULT_BRANCH_RESERVE_TOKENS + 1
         );
-        // A fitting branch estimates the request body (system prompt +
+        // A fitting branch counts the request body (system prompt +
         // serialized branch + completion budget) and the reserve draw; the
-        // larger of the two wins, so a bigger reserve grows the estimate.
+        // larger of the two wins, so a bigger reserve grows the count.
         let entries = vec![entry("e0", None, user("explore the widget"))];
-        let big_reserve = estimate_branch_summary_request_tokens(
+        let big_reserve = branch_summary_request_tokens(
+            &tokenizer,
             &entries,
             200_000,
             DEFAULT_BRANCH_RESERVE_TOKENS,
             Some("focus on x"),
             false,
         );
-        let small_reserve = estimate_branch_summary_request_tokens(
+        let small_reserve = branch_summary_request_tokens(
+            &tokenizer,
             &entries,
             200_000,
             100,
@@ -467,17 +487,17 @@ mod tests {
             false,
         );
         assert!(big_reserve > small_reserve);
-        // A window that slices entries away shrinks the request the model
-        // must hold, so the estimate shrinks with it.
+        // A window that slices entries away (60,000 tokens each) shrinks
+        // the request the model must hold, so the count shrinks with it.
         let wide = vec![
-            entry("e0", None, user(&"y".repeat(400_000))),
-            entry("e1", Some("e0"), user(&"y".repeat(400_000))),
-            entry("e2", Some("e1"), user(&"y".repeat(400_000))),
+            entry("e0", None, user(&" the".repeat(60_000))),
+            entry("e1", Some("e0"), user(&" the".repeat(60_000))),
+            entry("e2", Some("e1"), user(&" the".repeat(60_000))),
         ];
         let big_window =
-            estimate_branch_summary_request_tokens(&wide, 200_000, 16_384, None, false);
+            branch_summary_request_tokens(&tokenizer, &wide, 200_000, 16_384, None, false);
         let small_window =
-            estimate_branch_summary_request_tokens(&wide, 100_000, 16_384, None, false);
+            branch_summary_request_tokens(&tokenizer, &wide, 100_000, 16_384, None, false);
         assert!(big_window > small_window);
     }
 }

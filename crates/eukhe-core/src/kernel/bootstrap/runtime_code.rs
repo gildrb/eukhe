@@ -1,6 +1,7 @@
 //! The runtime bootstrap code injected into each kernel right after start or
 //! restore: binds the `rlm`, `bash`, `jobs`, document (`read`, `write`, `edit`, `grep`, `glob`),
-//! and MCP surfaces and pre-imports every
+//! and MCP surfaces, `budget` (`await budget.status()`: the `budget.status`
+//! host request) and pre-imports every
 //! Python skill (from `core/tools/ipython.ts`'s `buildRlmBootstrapCode`).
 
 use super::KernelPythonSkill;
@@ -49,15 +50,25 @@ try:
     history = _eukhe_rlm_module.history
     from rlm.fs import edit, glob, grep, read, write
     import rlm.mcp as mcp
+
+    class _EukheBudget:
+        async def status(self):
+            """This task's budget: None without one, else its limits and what is free, held, spent and lent."""
+            return await _eukhe_rlm_module.host_request("budget.status")
+
+        def __repr__(self):
+            return "<budget: await budget.status()>"
+
+    budget = _EukheBudget()
 except Exception as _eukhe_rlm_error:
     _EUKHE_RLM_IMPORT_ERROR = str(_eukhe_rlm_error)
 
     class _EukheMissingRlm:
         def _raise_missing(self):
             raise RuntimeError(
-                "eukhe-runtime is not installed in this kernel. "
-                "Run `eukhe kernel install` to install it again, or set "
-                "EUKHE_KERNEL_PYTHON to a kernel environment with eukhe-runtime installed. "
+                "The Eukhe runtime (the rlm package) cannot be imported in this kernel; "
+                "the host puts it on PYTHONPATH, so a PYTHONPATH or EUKHE_KERNEL_PYTHON "
+                "of your own may hide it. "
                 f"Import error: {_EUKHE_RLM_IMPORT_ERROR}"
             )
 
@@ -110,10 +121,19 @@ except Exception as _eukhe_rlm_error:
 
     def glob(pattern, path="."):
         rlm._raise_missing()
+
+    class _EukheMissingBudget:
+        async def status(self):
+            rlm._raise_missing()
+
+    budget = _EukheMissingBudget()
+
+# Bound on every start, like the Python skills: never snapshotted.
+_EUKHE_BOOTSTRAP_NAMES = frozenset({"budget"})
 "#;
 
 /// The code the session injects right after kernel start/restore: binds the
-/// `rlm`, `bash`, and MCP surfaces, imports every Python skill (wrapping
+/// `rlm`, `bash`, `budget`, and MCP surfaces, imports every Python skill (wrapping
 /// callable ones, replacing broken imports with a stub that raises, and
 /// recording the skill names in `_EUKHE_BOOTSTRAP_NAMES`, which the runtime's
 /// snapshot never saves: the bootstrap re-creates them on every start), and —
@@ -190,7 +210,7 @@ def _eukhe_wrap_skill_module(module):
     return wrapped
 
 _EUKHE_SKILL_IMPORT_ERRORS = {{}}
-_EUKHE_BOOTSTRAP_NAMES = frozenset({imports_json})
+_EUKHE_BOOTSTRAP_NAMES = frozenset({imports_json}) | {{"budget"}}
 
 for _eukhe_skill_name in {imports_json}:
     try:

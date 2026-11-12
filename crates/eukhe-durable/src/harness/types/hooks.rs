@@ -24,7 +24,9 @@ use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::entries::CompactionSummary;
 use crate::session::SessionResult;
 use crate::tasks::TaskRuntimeBackend;
-use crate::types::{ConversationId, DocumentReader, EntryId, EntryRecord, JsonObject, TaskId};
+use crate::types::{
+    ConversationId, DocumentReader, EntryDraft, EntryId, EntryRecord, JsonObject, TaskId,
+};
 
 /// A hook's decision: `None` keeps the default (TS `T | undefined`); an error
 /// is the hook's throw.
@@ -161,6 +163,13 @@ pub type AfterResponseHook =
 pub type OnYieldHook = Arc<
     dyn Fn(&AssistantMessage, &HookApi, &Context) -> HookFuture<YieldContinuation> + Send + Sync,
 >;
+/// A reply that hit the output limit and that the run keeps as its answer
+/// (laws/stop/cut.bend): the display row that shows `warning`, the
+/// harness's text of what happened, to the user. The harness appends the
+/// row after the answer, in the answer's commit; an implementation builds
+/// the row and writes nothing itself.
+pub type OnTruncatedHook =
+    Arc<dyn Fn(&str, &HookApi, &Context) -> HookFuture<EntryDraft> + Send + Sync>;
 /// After every tool of the round is terminal: `(assistant, results)`.
 pub type AfterToolsHook =
     Arc<dyn Fn(EntryId, &[EntryId], &HookApi, &Context) -> HookDone + Send + Sync>;
@@ -186,6 +195,9 @@ pub struct GenerationHooks {
     /// A final answer; the first `continue` appends a user message and
     /// continues the run.
     pub on_yield: Option<OnYieldHook>,
+    /// A final answer that hit the output limit, kept as it is: each
+    /// handler's display row of the harness's warning follows the answer.
+    pub on_truncated: Option<OnTruncatedHook>,
     /// After every tool of the round is terminal; `results` are the round's
     /// result entries in call order.
     pub after_tools: Option<AfterToolsHook>,
@@ -202,6 +214,7 @@ impl fmt::Debug for GenerationHooks {
             .field("before_request", &self.before_request.is_some())
             .field("after_response", &self.after_response.is_some())
             .field("on_yield", &self.on_yield.is_some())
+            .field("on_truncated", &self.on_truncated.is_some())
             .field("after_tools", &self.after_tools.is_some())
             .field("pending_work", &self.pending_work.is_some())
             .finish()

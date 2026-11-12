@@ -508,13 +508,15 @@ fn load(
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
 ///   compaction policy; `compaction.providerTokenCount` -> where its
 ///   window check gets the request's input tokens (the provider's own
-///   counter when on, else the local estimate).
+///   counter when on, else the session model's tokenizer, locally).
 /// - `steeringMode` / `followUpMode` -> the queue modes.
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
+/// - `retry.maxResends` -> the times a model request a restart found sent
+///   and unanswered is sent again under its idempotency key.
 ///
 /// eukhe has no tool-execution setting: the Harness default applies (each
-/// tool's own execution mode still serializes `ipython`).
+/// tool's own execution mode still serializes `python`).
 #[must_use]
 pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
     let stream = ConversationStreamOptions {
@@ -548,7 +550,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             token_count: Some(if manager.get_compaction_provider_token_count() {
                 ThresholdTokens::Provider
             } else {
-                ThresholdTokens::Estimate
+                ThresholdTokens::Local
             }),
         }),
         progress: None,
@@ -558,6 +560,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         context_retention_ms: None,
         document_retention_ms: None,
         max_tool_rounds: Some(manager.get_max_tool_rounds()),
+        request_resends: Some(manager.get_retry_max_resends()),
         privacy_anonymize_remote: Some(manager.get_privacy_anonymize_remote()),
         privacy_terms: Some(manager.get_privacy_terms()),
     }
@@ -637,7 +640,7 @@ mod tests {
         assert_eq!(resolved.steering_mode, QueueMode::All);
         assert_eq!(resolved.follow_up_mode, QueueMode::OneAtATime);
         assert_eq!(resolved.stream, ConversationStreamOptions::default());
-        assert_eq!(resolved.compaction.token_count, ThresholdTokens::Estimate);
+        assert_eq!(resolved.compaction.token_count, ThresholdTokens::Local);
     }
 
     #[test]

@@ -1,20 +1,20 @@
 //! Request construction: TS `getCacheControl`, `getBetaFeatures`,
-//! `buildParams`, `convertMessages`, `insertThinkingLevelMessages`,
+//! `buildParams`, `convertMessages`, the per-message effort plan,
 //! `convertTools`, and the content/tool helpers they use.
 
 use std::borrow::Borrow;
 use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
-    ModelThinkingLevel, ProviderEnv, ThinkingLevel, Tool, ToolResultMessage, UserContent,
-    UserContentBlock,
+    AnthropicDisabledThinking, AssistantContentBlock, CacheRetention, JsonObject, JsonValue,
+    Message, Model, ModelThinkingLevel, ProviderEnv, ThinkingLevel, Tool, ToolResultMessage,
+    UserContent, UserContentBlock,
 };
 use serde_json::json;
 
 use super::{
-    billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
-    CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
+    adaptive_only_thinking, billing, get_anthropic_compat, model_compat, AnthropicOptions,
+    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
 use crate::api::cache_breakpoints::{
     has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
@@ -26,6 +26,7 @@ use crate::api::simple_options::thinking_budget_for_level;
 use crate::api::tool_result_content::sent_blocks;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
+use crate::quirks::Quirks;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -199,10 +200,19 @@ pub(crate) fn is_anthropic_effort(value: &str) -> bool {
     matches!(value, "low" | "medium" | "high" | "xhigh" | "max")
 }
 
+/// What a reply of a per-message-effort model records in
+/// `providerThinkingLevel` when its request left no effort in force;
+/// otherwise it records the effort.
+pub(crate) const NO_EFFORT: &str = "none";
+
+/// A reply of the managed provider whose request recorded its effort
+/// controls: its wire index and the effort it left in force (`None`: none).
+type EffortRecord = (usize, Option<String>);
+
 /// TS `ConvertedAnthropicMessages`.
 struct ConvertedMessages {
     messages: Vec<JsonValue>,
-    assistant_levels: Vec<(usize, String)>,
+    assistant_levels: Vec<EffortRecord>,
 }
 
 /// Settings of [`convert_messages`].
@@ -233,7 +243,7 @@ fn convert_messages(
     settings: &ConvertSettings<'_>,
 ) -> Result<ConvertedMessages, Thrown> {
     let mut params: Vec<JsonValue> = Vec::new();
-    let mut assistant_levels: Vec<(usize, String)> = Vec::new();
+    let mut assistant_levels: Vec<EffortRecord> = Vec::new();
     let mut pending_system: Vec<JsonValue> = Vec::new();
     let mut index = 0;
     while index < transformed.len() {
@@ -386,11 +396,12 @@ fn convert_messages(
                 if let (Some(managed), Some(level)) =
                     (settings.managed_provider, &message.provider_thinking_level)
                 {
-                    if message.api == "anthropic-messages"
-                        && message.provider == managed
-                        && is_anthropic_effort(level)
-                    {
-                        assistant_levels.push((message_index, level.clone()));
+                    if message.api == "anthropic-messages" && message.provider == managed {
+                        if is_anthropic_effort(level) {
+                            assistant_levels.push((message_index, Some(level.clone())));
+                        } else if level == NO_EFFORT {
+                            assistant_levels.push((message_index, None));
+                        }
                     }
                 }
             }
@@ -442,28 +453,163 @@ fn convert_messages(
     })
 }
 
-/// TS `insertThinkingLevelMessages`.
-fn insert_thinking_level_messages(
-    converted: ConvertedMessages,
-    active_effort: &str,
-) -> Vec<JsonValue> {
-    let mut messages = Vec::with_capacity(converted.messages.len() + 1);
-    for (index, message) in converted.messages.into_iter().enumerate() {
-        if let Some((_, effort)) = converted
-            .assistant_levels
-            .iter()
-            .find(|(level_index, _)| *level_index == index)
-        {
-            messages.push(
-                json!({ "role": "system", "content": [], "output_config": { "effort": effort } }),
-            );
+/// The effort plan: the request's effort controls.
+struct EffortPlan {
+    /// Top-level `output_config.effort`: byte-stable across a conversation,
+    /// the first recorded request's effort, or this request's when none is
+    /// recorded.
+    top_level: Option<String>,
+    /// Per-message effort controls: the wire index each goes before, and
+    /// its effort.
+    inserts: Vec<(usize, String)>,
+    /// The effort in force after this request: what its reply records.
+    tail: Option<String>,
+}
+
+/// Plans the effort controls: top-level effort stays the first
+/// recorded request's, every recorded change replays as a per-message
+/// control before the reply of the request that made it, and this request's
+/// own change (`current`) goes last.
+fn plan_effort_controls(
+    messages: &[JsonValue],
+    records: &[EffortRecord],
+    current: Option<&str>,
+) -> EffortPlan {
+    let top_level = match records.first() {
+        Some((_, first)) => first.clone(),
+        None => current.map(str::to_owned),
+    };
+    let mut tail = top_level.clone();
+    let mut inserts: Vec<(usize, String)> = Vec::new();
+    let change = |index: usize, effort: &str, inserts: &mut Vec<(usize, String)>| match inserts
+        .iter_mut()
+        .find(|(at, _)| *at == index)
+    {
+        Some(existing) => effort.clone_into(&mut existing.1),
+        None => inserts.push((index, effort.to_owned())),
+    };
+    for (index, recorded) in records {
+        if let Some(recorded) = recorded {
+            if tail.as_deref() != Some(recorded.as_str()) {
+                change(
+                    effort_insert_index(messages, *index),
+                    recorded,
+                    &mut inserts,
+                );
+                tail = Some(recorded.clone());
+            }
         }
-        messages.push(message);
     }
-    messages.push(
-        json!({ "role": "system", "content": [], "output_config": { "effort": active_effort } }),
-    );
-    messages
+    if let Some(current) = current {
+        if tail.as_deref() != Some(current) {
+            change(
+                effort_insert_index(messages, messages.len()),
+                current,
+                &mut inserts,
+            );
+            tail = Some(current.to_owned());
+        }
+    }
+    EffortPlan {
+        top_level,
+        inserts,
+        tail,
+    }
+}
+
+/// The slot of an effort control for the
+/// reply that lands at `end`: before the turn's user message, where
+/// Anthropic applies it to that reply, or at `end` when the request
+/// continues a tool loop, so it never lands between a `tool_use` and its
+/// `tool_result`.
+fn effort_insert_index(messages: &[JsonValue], end: usize) -> usize {
+    for index in (0..end).rev() {
+        let message = &messages[index];
+        match message.get("role").and_then(JsonValue::as_str) {
+            Some("assistant") => return end,
+            Some("user") if !is_tool_results(message) => return index,
+            _ => {}
+        }
+    }
+    end
+}
+
+/// Whether a wire `user` message carries tool results only (the wire form
+/// of `toolResult` messages).
+fn is_tool_results(message: &JsonValue) -> bool {
+    message
+        .get("content")
+        .and_then(JsonValue::as_array)
+        .is_some_and(|blocks| {
+            !blocks.is_empty()
+                && blocks.iter().all(|block| {
+                    block.get("type").and_then(JsonValue::as_str) == Some("tool_result")
+                })
+        })
+}
+
+/// Whether the history forbids `disabled` thinking: Anthropic rejects a
+/// per-message effort control with thinking off, and `disabled` above
+/// `high` effort; both outlive a thinking toggle.
+fn effort_controls_block_disabled_thinking(
+    messages: &[JsonValue],
+    records: &[EffortRecord],
+) -> bool {
+    let plan = plan_effort_controls(messages, records, None);
+    !plan.inserts.is_empty() || matches!(plan.top_level.as_deref(), Some("xhigh" | "max"))
+}
+
+/// The wire messages with the planned effort controls spliced in.
+fn insert_effort_controls(
+    messages: Vec<JsonValue>,
+    mut inserts: Vec<(usize, String)>,
+) -> Vec<JsonValue> {
+    if inserts.is_empty() {
+        return messages;
+    }
+    inserts.sort_by_key(|(index, _)| *index);
+    let control = |effort: String| json!({ "role": "system", "content": [], "output_config": { "effort": effort } });
+    let mut wire = Vec::with_capacity(messages.len() + inserts.len());
+    let mut pending = inserts.into_iter().peekable();
+    for (index, message) in messages.into_iter().enumerate() {
+        while let Some((_, effort)) = pending.next_if(|(at, _)| *at == index) {
+            wire.push(control(effort));
+        }
+        wire.push(message);
+    }
+    wire.extend(pending.map(|(_, effort)| control(effort)));
+    wire
+}
+
+/// For a per-message-effort model: the request's own
+/// `thinking` (before the prefix binding) and the effort it asks for.
+fn per_message_effort_thinking(
+    options: &AnthropicOptions,
+    disabled_thinking: Option<AnthropicDisabledThinking>,
+    display: &str,
+    messages: &[JsonValue],
+    records: &[EffortRecord],
+) -> (Option<JsonValue>, Option<String>) {
+    match options.thinking_enabled {
+        Some(true) => (
+            Some(json!({ "type": "adaptive", "display": display })),
+            options.effort.clone().filter(|effort| !effort.is_empty()),
+        ),
+        Some(false) => match disabled_thinking {
+            Some(AnthropicDisabledThinking::Disabled)
+                if !effort_controls_block_disabled_thinking(messages, records) =>
+            {
+                (Some(json!({ "type": "disabled" })), None)
+            }
+            Some(AnthropicDisabledThinking::BetweenTools) => {
+                (Some(json!({ "type": "between_tools" })), None)
+            }
+            // Adaptive-only models cannot turn thinking off: an omitted
+            // `thinking` is adaptive, so off pins the lowest effort.
+            Some(AnthropicDisabledThinking::Disabled) | None => (None, Some("low".to_owned())),
+        },
+        None => (None, None),
+    }
 }
 
 /// Keywords Anthropic strict tool use rejects for the whole request.
@@ -594,6 +740,7 @@ fn get_beta_features(
     messages: &[Message],
     is_oauth_token: bool,
     native_tool_changes: bool,
+    thinking_binding: bool,
     options: &AnthropicOptions,
 ) -> Vec<String> {
     let mut configured: Option<Option<String>> = None;
@@ -653,6 +800,9 @@ fn get_beta_features(
     }
     if compat.and_then(|compat| compat.supports_mid_convo_effort) == Some(true) {
         features.push(MID_CONVERSATION_OUTPUT_CONFIG_BETA.into());
+    }
+    // The binding beta follows the body's `thinking.block_binding`.
+    if thinking_binding {
         features.push(THINKING_BINDING_CONTROLS_BETA.into());
     }
     if native_tool_changes {
@@ -661,7 +811,9 @@ fn get_beta_features(
     dedupe(features)
 }
 
-/// TS `buildParams`.
+/// TS `buildParams`; also returns what the reply of a per-message-effort
+/// model records in `providerThinkingLevel` (the effort the request left in
+/// force, or [`NO_EFFORT`]); `None` for other models.
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
 /// optional marks take the slots left, in this order
@@ -675,7 +827,7 @@ pub(crate) fn build_params(
     messages: &[Message],
     is_oauth_token: bool,
     options: &AnthropicOptions,
-) -> Result<JsonObject, Thrown> {
+) -> Result<(JsonObject, Option<String>), Thrown> {
     let cache_control = get_cache_control(
         model,
         options.stream.cache_retention,
@@ -741,19 +893,60 @@ pub(crate) fn build_params(
             }),
         },
     )?;
-    let active_effort = options.effort.clone().unwrap_or_else(|| "high".to_owned());
+    let display = options
+        .thinking_display
+        .clone()
+        .unwrap_or_else(|| "summarized".to_owned());
+    // A per-message-effort model: the request's own
+    // thinking and effort, the prefix binding, then the effort plan.
+    let mut effort_thinking: Option<JsonValue> = None;
+    let mut effort_plan: Option<EffortPlan> = None;
+    let wire_messages = if mid_convo_effort {
+        let records = &converted.assistant_levels;
+        let (mut thinking, current) = per_message_effort_thinking(
+            options,
+            model_compat.and_then(|compat| compat.disabled_thinking),
+            &display,
+            &converted.messages,
+            records,
+        );
+        let binding = model_compat
+            .and_then(|compat| compat.supports_thinking_binding_controls)
+            .unwrap_or(true);
+        if binding {
+            let bound = thinking.get_or_insert_with(|| json!({ "type": "adaptive" }));
+            if matches!(bound["type"].as_str(), Some("adaptive" | "enabled")) {
+                bound["block_binding"] = json!({ "prefix_mismatch_behavior": "drop_block" });
+            }
+        }
+        let mut plan = plan_effort_controls(&converted.messages, records, current.as_deref());
+        // `between_tools` is a 400 at `xhigh`/`max` effort, and the effort in
+        // force outlives a thinking toggle: the default adaptive request
+        // accepts every effort.
+        if thinking
+            .as_ref()
+            .is_some_and(|thinking| thinking["type"] == "between_tools")
+            && matches!(plan.top_level.as_deref(), Some("xhigh" | "max"))
+        {
+            thinking = None;
+        }
+        let inserts = std::mem::take(&mut plan.inserts);
+        effort_thinking = thinking;
+        effort_plan = Some(plan);
+        insert_effort_controls(converted.messages, inserts)
+    } else {
+        converted.messages
+    };
     let betas = get_beta_features(
         model,
         messages,
         is_oauth_token,
         native_tool_changes,
+        effort_thinking
+            .as_ref()
+            .is_some_and(|thinking| thinking.get("block_binding").is_some()),
         options,
     );
-    let wire_messages = if mid_convo_effort {
-        insert_thinking_level_messages(converted, &active_effort)
-    } else {
-        converted.messages
-    };
 
     let tool_cache_control = cache_control
         .as_ref()
@@ -846,28 +1039,35 @@ pub(crate) fn build_params(
         );
     }
 
-    let display = options
-        .thinking_display
-        .clone()
-        .unwrap_or_else(|| "summarized".to_owned());
-    if mid_convo_effort {
-        params.insert(
-            "thinking".into(),
-            json!({
-                "type": "adaptive",
-                "display": display,
-                "block_binding": { "prefix_mismatch_behavior": "drop_block" },
-            }),
-        );
-        params.insert("output_config".into(), json!({ "effort": "high" }));
-    } else if model.reasoning {
+    let recorded_effort = if let Some(plan) = effort_plan {
+        if let Some(thinking) = effort_thinking {
+            params.insert("thinking".into(), thinking);
+        }
+        if let Some(effort) = &plan.top_level {
+            params.insert("output_config".into(), json!({ "effort": effort }));
+        }
+        Some(plan.tail.unwrap_or_else(|| NO_EFFORT.to_owned()))
+    } else {
+        None
+    };
+    if !mid_convo_effort && model.reasoning {
+        let quirks = Quirks::of(model);
         if options.thinking_enabled == Some(true) {
             if adaptive_thinking(model) {
-                params.insert(
-                    "thinking".into(),
-                    json!({ "type": "adaptive", "display": display }),
-                );
-                if let Some(effort) = options.effort.as_ref().filter(|effort| !effort.is_empty()) {
+                // `display` only where the model takes
+                // it (Claude 4.7 and later; 4.6 rejects it with a 400).
+                let mut thinking = json!({ "type": "adaptive" });
+                if quirks.thinking_display() == Some(true) {
+                    thinking["display"] = display.into();
+                }
+                params.insert("thinking".into(), thinking);
+                // `adaptive`: the thinking tag is the only control
+                // (MiniMax), no effort.
+                if let Some(effort) = options
+                    .effort
+                    .as_ref()
+                    .filter(|effort| !effort.is_empty() && *effort != ADAPTIVE_TAG_EFFORT)
+                {
                     params.insert("output_config".into(), json!({ "effort": effort }));
                 }
             } else {
@@ -881,12 +1081,31 @@ pub(crate) fn build_params(
                     "thinking".into(),
                     json!({ "type": "enabled", "budget_tokens": budget, "display": display }),
                 );
+                // Budget thinking with an effort (Opus 4.5): the level rides
+                // along as the effort.
+                if let Some(effort) = options
+                    .effort
+                    .as_ref()
+                    .filter(|effort| !effort.is_empty() && quirks.budget_effort() == Some(true))
+                {
+                    params.insert("output_config".into(), json!({ "effort": effort }));
+                }
             }
-        } else if options.thinking_enabled == Some(false)
-            && thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
+        } else if options.thinking_enabled == Some(false) {
+            if quirks.between_tools_thinking() == Some(true) {
+                // Sonnet 5.5 rejects `disabled`; `between_tools` is
+                // its lowest setting and pins no effort.
+                params.insert("thinking".into(), json!({ "type": "between_tools" }));
+            } else if adaptive_only_thinking(model) && quirks.disabled_thinking() != Some(true) {
+                // An adaptive-only model rejects `disabled`; an
+                // omitted `thinking` is adaptive, so the lowest effort is
+                // pinned.
+                params.insert("output_config".into(), json!({ "effort": "low" }));
+            } else if thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
                 != Some(&None)
-        {
-            params.insert("thinking".into(), json!({ "type": "disabled" }));
+            {
+                params.insert("thinking".into(), json!({ "type": "disabled" }));
+            }
         }
     }
 
@@ -926,7 +1145,7 @@ pub(crate) fn build_params(
         );
     }
 
-    Ok(params)
+    Ok((params, recorded_effort))
 }
 
 #[cfg(test)]

@@ -327,6 +327,12 @@ fn openai_completions_compat_properties() -> Properties {
             )),
         ),
         (
+            "clampOutputToModelMax",
+            optional_boolean(desc(
+                "Whether the host takes an output cap up to the model's maxTokens. When false the cap is at most 64000. Default: true for a local backend (a local server's provider id, or a base URL on this machine or a private network), else false.",
+            )),
+        ),
+        (
             "requiresToolResultName",
             optional_boolean(desc(
                 "Whether tool results require the name field. Default: auto-detected from URL.",
@@ -404,6 +410,21 @@ fn openai_completions_compat_properties() -> Properties {
             optional_boolean(desc_default(
                 "Whether z.ai supports top-level tool_stream for streaming tool call deltas.",
                 false,
+            )),
+        ),
+        (
+            "thinkingKeep",
+            Type::optional(Type::string_with(desc(
+                "Sent as thinking.keep next to an enabled thinking object of the deepseek thinking format (Moonshot Kimi preserved thinking: \"all\" keeps the reasoning of every earlier turn). Default: not sent.",
+            ))),
+        ),
+        (
+            "reasoningDisableMode",
+            Type::optional(Type::union_with(
+                literals(&["openrouter-enabled-false"]),
+                desc(
+                    "How a thinking-off request of the openai thinking format turns reasoning off: \"openrouter-enabled-false\" sends reasoning.enabled false. Default: the off or lowest offered reasoning_effort, sent only when reasoning_effort is supported.",
+                ),
             )),
         ),
         (
@@ -577,6 +598,13 @@ pub fn openai_responses_compat_schema() -> TSchema {
 }
 
 fn anthropic_messages_compat_properties() -> Properties {
+    let mut properties = anthropic_messages_request_properties();
+    properties.extend(anthropic_messages_conversation_properties());
+    properties
+}
+
+/// Request-shape settings (tools, caching, sampling, thinking format).
+fn anthropic_messages_request_properties() -> Properties {
     vec![
         (
             "supportsEagerToolInputStreaming",
@@ -642,11 +670,33 @@ fn anthropic_messages_compat_properties() -> Properties {
                 false,
             )),
         ),
+    ]
+}
+
+/// Conversation-level controls (per-message effort, thinking binding, mid-conversation
+/// messages, fallbacks).
+fn anthropic_messages_conversation_properties() -> Properties {
+    vec![
         (
             "supportsMidConvoEffort",
             optional_boolean(desc_default(
-                "Whether the exact model transport supports effort-only system messages and thinking binding controls.",
+                "Whether the exact model transport supports effort-only system messages (per-message output_config effort controls).",
                 false,
+            )),
+        ),
+        (
+            "supportsThinkingBindingControls",
+            optional_boolean(desc(
+                "Whether the exact model binds signed thinking to its conversation prefix: requests send thinking.block_binding and the thinking-binding-controls beta. Default: supportsMidConvoEffort.",
+            )),
+        ),
+        (
+            "disabledThinking",
+            Type::optional(Type::union_with(
+                literals(&["disabled", "between-tools"]),
+                desc(
+                    "What a thinking-off request of a supportsMidConvoEffort model sends: \"disabled\" sends thinking.type disabled (when no effort control in the history forbids it), \"between-tools\" sends thinking.type between_tools. When omitted, thinking stays adaptive at the lowest effort (low).",
+                ),
             )),
         ),
         (

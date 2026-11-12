@@ -14,9 +14,16 @@
 //! matches uncoalesced streaming. The parked frame is built from the current
 //! partial when it flushes ([`EventTranslator::flush`], the worker's 50 ms
 //! timer).
+//!
+//! A `message_update` carries the partial's output tokens counted with its
+//! model's tokenizer (`outputTokens`) when the worker recounted: at a block
+//! end, a whole-message change, a message's last update and its first
+//! update with output, and otherwise at most every
+//! [`OUTPUT_COUNT_INTERVAL`]. The tokenizer caches its fragment counts, so
+//! a recount pays only for the block still growing.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
 use eukhe_core::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
@@ -34,6 +41,7 @@ use eukhe_durable::harness::{
 use eukhe_durable::types::{
     EntryId, EntryRecord, SubmissionId, SubmissionRecord, SubmissionState, TaskId, WriteSubmission,
 };
+use eukhe_tokens::{ModelRef, Part, Tokenizer};
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock};
 use eukhe_types::daemon::{
     CompactionReason as WireCompactionReason, CompactionResult, ErrorSeverity, Failover,
@@ -49,6 +57,9 @@ use super::wire_messages::{
 
 /// Result text of a tool that ended without a result entry or a known failure.
 const NO_RESULT_TEXT: &str = "Tool execution ended without a result";
+
+/// The least time between two output counts of a streaming message.
+const OUTPUT_COUNT_INTERVAL: Duration = Duration::from_millis(250);
 
 /// How streamed `message_update` frames go out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +249,12 @@ pub struct EventTranslator {
     /// The content indices of the streaming message whose block end
     /// (`text_end`, ...) went out.
     ended_blocks: Vec<usize>,
+    /// When the streaming message's output tokens were last counted (the
+    /// count's end), and the count; `None` makes the next update count.
+    counted: Option<(Instant, u64)>,
+    /// The least time between two output counts of a streaming message:
+    /// [`OUTPUT_COUNT_INTERVAL`].
+    count_interval: Duration,
     /// A generation failure since the last turn boundary.
     turn_error: Option<String>,
     /// Where the current turn's messages start in `run_messages`.
@@ -380,6 +397,8 @@ impl EventTranslator {
             mode,
             parked: None,
             ended_blocks: Vec::new(),
+            counted: None,
+            count_interval: OUTPUT_COUNT_INTERVAL,
             turn_error: None,
             turn_from: 0,
             summaries: Vec::new(),
@@ -451,7 +470,10 @@ impl EventTranslator {
     /// [`Self::translate`], the batch's task failures are known up front, so a
     /// faulted tool's `tool_execution_end` and a faulted compaction's
     /// `compaction_end` carry their failure message although the durable
-    /// events list failures after those ends.
+    /// events list failures after those ends. A retried attempt's
+    /// `message_end` goes out before its `auto_retry_start` although the
+    /// durable events list the retry wait first: the attempt ends the
+    /// message it streamed, never a second one.
     pub fn translate_batch(&mut self, events: &[AgentEvent]) -> Vec<SessionEvent> {
         for event in events {
             if let AgentEvent::TaskFailed {
@@ -473,7 +495,25 @@ impl EventTranslator {
         }
         self.failures_prescanned = true;
         let mut frames = Vec::new();
-        for event in run_start_first(events) {
+        let mut ordered = run_start_first(events);
+        // The durable runtime commits a retried attempt's entry with its
+        // retry wait and lists the wait (live progress) ahead of the entry.
+        let retry = ordered
+            .iter()
+            .position(|event| matches!(event, AgentEvent::AutoRetryStart { .. }));
+        let attempt_end = retry.and_then(|retry| {
+            ordered[retry..]
+                .iter()
+                .position(|event| {
+                    matches!(event, AgentEvent::MessageEnd { entry }
+                        if entry.kind.as_str() == ASSISTANT_ENTRY.kind())
+                })
+                .map(|offset| retry + offset)
+        });
+        if let (Some(retry), Some(attempt_end)) = (retry, attempt_end) {
+            ordered[retry..=attempt_end].rotate_left(1);
+        }
+        for event in ordered {
             frames.extend(self.translate(event));
         }
         // A failure the batch did not report belongs to no later frame.
@@ -640,13 +680,17 @@ impl EventTranslator {
                 | SessionEvent::ServiceTierChanged { .. }
                 | SessionEvent::SessionActionUpdate { .. }
                 | SessionEvent::GoalUpdate { .. }
+                | SessionEvent::UnknownEffectsUpdate { .. }
+                | SessionEvent::LoopUpdate { .. }
+                | SessionEvent::BudgetUpdate { .. }
+                | SessionEvent::AcceptanceUpdate { .. }
                 | SessionEvent::MemoryUpdate { .. }
                 | SessionEvent::BashStart { .. }
                 | SessionEvent::BashOutput { .. }
                 | SessionEvent::BashEnd { .. }
                 | SessionEvent::RefineComplete { .. }
                 | SessionEvent::RefineFailed { .. }
-                | SessionEvent::IpythonSentAgentMessage { .. } => {}
+                | SessionEvent::PythonSentAgentMessage { .. } => {}
             }
         }
     }
@@ -721,8 +765,8 @@ impl EventTranslator {
         out: &mut Vec<SessionEvent>,
     ) {
         self.flush_into(out);
-        // The failed attempt's partial is gone; the next attempt starts a
-        // new message.
+        // A failed attempt that left no entry: its partial is gone, and
+        // the next attempt starts a new message.
         self.mirror.partial = None;
         self.mirror.retry = Some(MirrorRetry {
             attempt,
@@ -822,8 +866,30 @@ impl EventTranslator {
     /// called by the worker's 50 ms timer and at stream end.
     pub fn flush(&mut self) -> Option<SessionEvent> {
         let parked = self.parked.take()?;
+        let output_tokens = self.output_tokens(&parked);
         let partial = self.mirror.partial.as_ref()?;
-        update_frame(partial, parked)
+        update_frame(partial, parked, output_tokens)
+    }
+
+    /// The partial's output tokens for the frame of `update`: counted at a
+    /// block end or whole-message change, else when the last count ended
+    /// [`OUTPUT_COUNT_INTERVAL`] ago, or was none or zero (the first frame
+    /// with output carries its count: a view times its first token by
+    /// it); `None` between. The interval runs from a count's end, so a
+    /// count that takes long (a very large partial) still leaves it free
+    /// between two counts.
+    fn output_tokens(&mut self, update: &StreamUpdate) -> Option<u64> {
+        let partial = self.mirror.partial.as_ref()?;
+        let due = !is_parkable(update)
+            || self
+                .counted
+                .is_none_or(|(at, tokens)| tokens == 0 || at.elapsed() >= self.count_interval);
+        if !due {
+            return None;
+        }
+        let tokens = partial_output_tokens(partial);
+        self.counted = Some((Instant::now(), tokens));
+        Some(tokens)
     }
 
     #[must_use]
@@ -841,6 +907,7 @@ impl EventTranslator {
         self.mirror = ConversationMirror::from_snapshot(snapshot);
         self.parked = None;
         self.ended_blocks.clear();
+        self.counted = None;
         self.turn_error = None;
         self.summaries.clear();
         // A snapshot replaces the conversation's state: an episode it
@@ -915,6 +982,7 @@ impl EventTranslator {
         out.extend(start_frame(message));
         self.mirror.partial = Some(message.clone());
         self.ended_blocks.clear();
+        self.counted = None;
     }
 
     fn message_update(
@@ -950,8 +1018,11 @@ impl EventTranslator {
             }
             if parks {
                 self.park(update);
-            } else if let Some(partial) = &self.mirror.partial {
-                out.extend(update_frame(partial, update));
+            } else {
+                let output_tokens = self.output_tokens(&update);
+                if let Some(partial) = &self.mirror.partial {
+                    out.extend(update_frame(partial, update, output_tokens));
+                }
             }
         }
     }
@@ -1006,6 +1077,8 @@ impl EventTranslator {
                 .and_then(<[Message]>::first)
                 .and_then(Message::as_assistant);
             if let Some(message) = message {
+                // The message's last update carries its count.
+                self.counted = None;
                 self.flush_into(out);
                 if self.mode == CoalesceMode::Immediate {
                     self.complete_stream(message, out);
@@ -1431,12 +1504,46 @@ fn start_frame(message: &AssistantMessage) -> Option<SessionEvent> {
     })
 }
 
-/// `message_update` carrying the full partial and its stream update.
-fn update_frame(partial: &AssistantMessage, update: StreamUpdate) -> Option<SessionEvent> {
+/// `message_update` carrying the full partial, its stream update and, when
+/// counted, its output tokens.
+fn update_frame(
+    partial: &AssistantMessage,
+    update: StreamUpdate,
+    output_tokens: Option<u64>,
+) -> Option<SessionEvent> {
     Some(SessionEvent::MessageUpdate {
         message: assistant_wire_message(partial)?,
         assistant_message_event: update,
+        output_tokens,
     })
+}
+
+/// Output tokens of a streaming partial under its model's tokenizer: its
+/// text, visible thinking (a redacted block's payload is not text the
+/// model wrote) and tool calls (name and JSON arguments).
+fn partial_output_tokens(partial: &AssistantMessage) -> u64 {
+    let tokenizer = Tokenizer::for_model(ModelRef {
+        id: &partial.model,
+        provider: &partial.provider,
+        api: &partial.api,
+    });
+    let parts: Vec<Part<'_>> = partial
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            AssistantContentBlock::Text(text) => Some(Part::Text(&text.text)),
+            AssistantContentBlock::Thinking(thinking) => {
+                (thinking.redacted != Some(true)).then_some(Part::Text(&thinking.thinking))
+            }
+            AssistantContentBlock::ToolCall(call) => Some(Part::ToolCall {
+                name: &call.name,
+                arguments: serde_json::to_string(&call.arguments)
+                    .unwrap_or_default()
+                    .into(),
+            }),
+        })
+        .collect();
+    tokenizer.count_parts(&parts)
 }
 
 /// One text content block.

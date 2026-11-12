@@ -12,7 +12,9 @@
 # worktree pushes at any time. The full gate runs nightly
 # (scripts/ci_nightly.sh).
 # Skip rule: a push that changes only Markdown files in docs/ or at the
-# repository root does not run the gate (the `exclude` below).
+# repository root, or only files of site/ (the website: its own toolchain,
+# laws and check, `make site-check`), does not run the gate (the `exclude`
+# below).
 default_install_hook_types: [pre-commit, pre-push]
 repos:
   - repo: local
@@ -29,6 +31,6 @@ repos:
         entry: nice -n 10 scripts/ci_local.sh pre-push
         language: system
         pass_filenames: false
-        exclude: '^(docs/.*|[^/]+)\.md$'
+        exclude: '^((docs/.*|[^/]+)\.md|site/.*)$'
         verbose: true
         stages: [pre-push]

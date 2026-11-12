@@ -13,19 +13,23 @@ import ../../laws/kernel_local.bend as KernelLocal
 import ../base/wire.bend as LWire
 import ./base.bend as LKL
 
-def ka.plan(f: KL.Found, s: KL.Setup) -> {FKL.ffi(KernelLocal.spell_ask(KL.AskPlan{f, s})) == KernelLocal.spell_answer(KL.AskPlan{f, s}) : String}:
-  match f s:
-    case KL.Current{} KL.Local{}:
+def ka.plan(uv: Bool, python: Bool, env: Bool) -> {FKL.ffi(KernelLocal.spell_ask(KL.AskPlan{uv, python, env})) == KernelLocal.spell_answer(KL.AskPlan{uv, python, env}) : String}:
+  match uv python env:
+    case True{} True{} True{}:
       {==}
-    case KL.Current{} KL.Install{}:
+    case True{} True{} False{}:
       {==}
-    case KL.Skills{} KL.Local{}:
+    case True{} False{} True{}:
       {==}
-    case KL.Skills{} KL.Install{}:
+    case True{} False{} False{}:
       {==}
-    case KL.Stale{} KL.Local{}:
+    case False{} True{} True{}:
       {==}
-    case KL.Stale{} KL.Install{}:
+    case False{} True{} False{}:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
       {==}
 
 def ka.lock(x: KL.Seen, fits: {KernelLocal.ask_fits(KL.AskLock{x}) == True{} : Bool}) -> {FKL.ffi(KernelLocal.spell_ask(KL.AskLock{x})) == KernelLocal.spell_answer(KL.AskLock{x}) : String}:
@@ -59,8 +63,8 @@ def ka.sweep(ls: List<&2, KL.Left>, fits: {KernelLocal.ask_fits(KL.AskSweep{ls})
 
 def KernelLocal.kernel_ffi_answers(a, fits):
   match a:
-    case KL.AskPlan{f, s}:
-      ka.plan(f, s)
+    case KL.AskPlan{uv, python, env}:
+      ka.plan(uv, python, env)
     case KL.AskSweep{ls}:
       ka.sweep(ls, fits)
     case KL.AskLock{x}:

@@ -205,6 +205,7 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
 
 fn child_options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),
@@ -278,6 +279,7 @@ impl eukhe_tui::client_auth::ClientAuthCommands for ScriptedClientAuth {
 
 fn mcp_child_options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         client_auth: Some(eukhe_tui::client_auth::ClientAuthCommandsHandle(Arc::new(
             ScriptedClientAuth,
@@ -378,6 +380,7 @@ impl ProviderAuthCommands for ScriptedModelPickerAuth {
 /// scripted provider-auth hook.
 fn model_sign_in_child_options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         model_catalog: vec![unauthenticated_catalog_model()],
         provider_auth: Some(ProviderAuthCommandsHandle(Arc::new(

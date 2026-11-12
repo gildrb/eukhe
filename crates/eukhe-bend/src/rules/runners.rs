@@ -42,7 +42,7 @@ pub enum Covered {
     Ungated,
     /// Each step asks unless within the auto set (`bash`).
     EachStep,
-    /// Each call asks unless within the auto set (`ipython`).
+    /// Each call asks unless within the auto set (`python`).
     EachCall,
 }
 

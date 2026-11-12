@@ -509,13 +509,13 @@ law call_lift_preserves_unmapped:
 # The stamps `family@rev` the eukhe tools write in their results' details:
 # bash@1 (crates/eukhe-core/src/durable/shell.rs:60); read@1, write@1,
 # edit@hl.1, grep@1, glob@1 (crates/eukhe-core/src/durable/documents/
-# contract.rs:70-74); ipython@1 (crates/eukhe-core/src/durable/rlm/
+# contract.rs:70-74); python@1 (crates/eukhe-core/src/durable/rlm/
 # tool.rs:87); dyn@1 (crates/eukhe-core/src/durable/tool_surface/
 # mod.rs:42); zoom@2, date@1 (crates/eukhe-core/src/durable/optchat/
 # tools.rs:28-29); remote@1 (crates/eukhe-core/src/durable/rlm/
 # remote.rs:33). Each as a call at that rev with no arguments.
 def rust_stamps() -> List<&2, Cl.Call>:
-  [Cl.Call{"bash", "1", []}, Cl.Call{"read", "1", []}, Cl.Call{"write", "1", []}, Cl.Call{"edit", "hl.1", []}, Cl.Call{"grep", "1", []}, Cl.Call{"glob", "1", []}, Cl.Call{"ipython", "1", []}, Cl.Call{"dyn", "1", []}, Cl.Call{"zoom", "2", []}, Cl.Call{"date", "1", []}, Cl.Call{"remote", "1", []}]
+  [Cl.Call{"bash", "1", []}, Cl.Call{"read", "1", []}, Cl.Call{"write", "1", []}, Cl.Call{"edit", "hl.1", []}, Cl.Call{"grep", "1", []}, Cl.Call{"glob", "1", []}, Cl.Call{"python", "1", []}, Cl.Call{"dyn", "1", []}, Cl.Call{"zoom", "2", []}, Cl.Call{"date", "1", []}, Cl.Call{"remote", "1", []}]
 
 def is_current(l: Cl.Lift) -> Bool:
   match l:
@@ -680,7 +680,7 @@ law call_lift_refines_spec:
 # rev and its steps, as bend/call_lift.bend ships them. A new family, a rev
 # bump or a new step changes this constant, and so needs a law change.
 def cl_shipped_table() -> List<&2, Cl.Fam>:
-  [Cl.Fam{"bash", "1", []}, Cl.Fam{"read", "1", []}, Cl.Fam{"write", "1", []}, Cl.Fam{"edit", "hl.1", []}, Cl.Fam{"grep", "1", []}, Cl.Fam{"glob", "1", []}, Cl.Fam{"ipython", "1", []}, Cl.Fam{"dyn", "1", []}, Cl.Fam{"zoom", "2", [Cl.Step{"1", "2", []}]}, Cl.Fam{"date", "1", []}, Cl.Fam{"remote", "1", []}]
+  [Cl.Fam{"bash", "1", []}, Cl.Fam{"read", "1", []}, Cl.Fam{"write", "1", []}, Cl.Fam{"edit", "hl.1", []}, Cl.Fam{"grep", "1", []}, Cl.Fam{"glob", "1", []}, Cl.Fam{"python", "1", []}, Cl.Fam{"dyn", "1", []}, Cl.Fam{"zoom", "2", [Cl.Step{"1", "2", []}]}, Cl.Fam{"date", "1", []}, Cl.Fam{"remote", "1", []}]
 
 # LAW call_lift_table_exact (R2, R4): the shipped table is exactly the frozen
 # one above: its families in order, each current rev, each step and its ops

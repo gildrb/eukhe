@@ -115,38 +115,40 @@ async fn sends_thinking_type_disabled_for_budget_based_reasoning_models_when_thi
     assert_eq!(payload.get("output_config"), None);
 }
 
+/// An adaptive-only model rejects `disabled`; thinking off omits
+/// `thinking` and pins the lowest effort.
 #[tokio::test]
-async fn sends_thinking_type_disabled_for_adaptive_reasoning_models_when_thinking_is_off() {
+async fn pins_the_lowest_effort_for_adaptive_reasoning_models_when_thinking_is_off() {
     let payload = capture_simple_payload(
         &builtin_model("anthropic", "claude-opus-4-6", &json!({})),
         SimpleStreamOptions::default(),
     )
     .await;
 
+    assert_eq!(payload.get("thinking"), None);
     assert_eq!(
-        payload.get("thinking"),
-        Some(&json!({ "type": "disabled" }))
+        payload.get("output_config"),
+        Some(&json!({ "effort": "low" }))
     );
-    assert_eq!(payload.get("output_config"), None);
 }
 
 #[tokio::test]
-async fn sends_thinking_type_disabled_for_claude_opus_4_8_when_thinking_is_off() {
+async fn pins_the_lowest_effort_for_claude_opus_4_8_when_thinking_is_off() {
     let payload = capture_simple_payload(
         &builtin_model("anthropic", "claude-opus-4-8", &json!({})),
         SimpleStreamOptions::default(),
     )
     .await;
 
+    assert_eq!(payload.get("thinking"), None);
     assert_eq!(
-        payload.get("thinking"),
-        Some(&json!({ "type": "disabled" }))
+        payload.get("output_config"),
+        Some(&json!({ "effort": "low" }))
     );
-    assert_eq!(payload.get("output_config"), None);
 }
 
 #[tokio::test]
-async fn omits_thinking_type_disabled_for_claude_fable_5_when_thinking_is_off() {
+async fn pins_the_lowest_effort_for_claude_fable_5_when_thinking_is_off() {
     let payload = capture_simple_payload(
         &builtin_model("anthropic", "claude-fable-5", &json!({})),
         SimpleStreamOptions::default(),
@@ -154,7 +156,10 @@ async fn omits_thinking_type_disabled_for_claude_fable_5_when_thinking_is_off() 
     .await;
 
     assert_eq!(payload.get("thinking"), None);
-    assert_eq!(payload.get("output_config"), None);
+    assert_eq!(
+        payload.get("output_config"),
+        Some(&json!({ "effort": "low" }))
+    );
 }
 
 #[tokio::test]

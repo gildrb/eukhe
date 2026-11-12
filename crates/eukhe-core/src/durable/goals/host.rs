@@ -15,19 +15,23 @@ use serde_json::Value;
 use super::ops::{conversation_of, goal_state, update_goal};
 use super::state::{completed, new_goal};
 use crate::autonomous::GateCommandRunner;
+use crate::durable::acceptance::{claim, Claimed};
+use crate::durable::budget::BudgetGate;
 use crate::durable::children::WorkLedger;
 use crate::durable::directors::{push_director, DirectorLimits, Layer};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
-use crate::goals::{goal_host_response, GoalStatus};
+use crate::goals::{goal_host_response, validate_goal_budget, GoalStatus, GoalTokens};
 
-/// The services of the goal extension: the session's Harness, the runner
-/// of autonomous quality gates, the Director stack's limits (read at each
-/// step: the settings can change), and the work of each conversation the
-/// goal's progress check counts (a cache of what the transcript shows: a
-/// new process reads the transcript again).
+/// The services of the goal extension: the session's Harness and budget
+/// gate (what the session's budget admits at a step and at a resume),
+/// the runner of autonomous quality gates, the Director stack's limits
+/// (read at each step: the settings can change), and the work of each
+/// conversation the goal's progress check counts (a cache of what the
+/// transcript shows: a new process reads the transcript again).
 #[derive(Clone)]
 pub(crate) struct GoalsHost {
     pub(crate) harness: HarnessCell,
+    pub(crate) budget: Arc<BudgetGate>,
     pub(crate) gates: Arc<dyn GateCommandRunner>,
     pub(crate) limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
     pub(crate) work: Arc<Mutex<HashMap<ConversationId, WorkLedger>>>,
@@ -70,10 +74,8 @@ impl GoalsHost {
         let response = match request {
             GoalRequest::Get => {
                 let harness = self.harness.require()?;
-                serde_json::to_value(goal_host_response(
-                    &goal_state(&harness, conversation.id(), &cx).await?,
-                    false,
-                ))?
+                let goal = goal_state(&harness, conversation.id(), &cx).await?;
+                serde_json::to_value(goal_host_response(&goal, GoalTokens::of(&goal), false))?
             }
             GoalRequest::Create => {
                 let record = call.data.as_object().cloned().unwrap_or_default();
@@ -86,6 +88,7 @@ impl GoalsHost {
                         anyhow::anyhow!("goal.create token_budget must be an integer when provided")
                     })?),
                 };
+                let token_budget = validate_goal_budget(token_budget)?;
                 let objective = objective.to_owned();
                 let (goal, _) = update_goal(
                     &conversation,
@@ -100,21 +103,58 @@ impl GoalsHost {
                     &cx,
                 )
                 .await?;
-                serde_json::to_value(goal_host_response(&goal, false))?
+                serde_json::to_value(goal_host_response(&goal, GoalTokens::of(&goal), false))?
             }
             GoalRequest::Complete => {
-                let (goal, _) = update_goal(
-                    &conversation,
-                    |current, _| match completed(current) {
-                        Some(goal) => Ok(Some((goal, None))),
-                        None => Err(SessionError::error(
-                            "cannot complete goal because this thread has no goal",
-                        )),
-                    },
-                    &cx,
-                )
-                .await?;
-                serde_json::to_value(goal_host_response(&goal, true))?
+                let harness = self.harness.require()?;
+                let current = goal_state(&harness, conversation.id(), &cx).await?;
+                if completed(&current, "").is_none() {
+                    anyhow::bail!("cannot complete goal because this thread has no goal");
+                }
+                // "Done" is the worker's claim. With acceptance checks it
+                // waits for the verifier's verdict at the final answer;
+                // with none it stands, labelled unverified.
+                match claim(&harness, &conversation, &cx).await? {
+                    Claimed::Unchecked => {
+                        let (goal, _) = update_goal(
+                            &conversation,
+                            |current, _| match completed(
+                                current,
+                                "Goal achieved (unverified: no acceptance checks)",
+                            ) {
+                                Some(goal) => Ok(Some((goal, None))),
+                                None => Err(SessionError::error(
+                                    "cannot complete goal because this thread has no goal",
+                                )),
+                            },
+                            &cx,
+                        )
+                        .await?;
+                        serde_json::to_value(goal_host_response(
+                            &goal,
+                            GoalTokens::of(&goal),
+                            true,
+                        ))?
+                    }
+                    Claimed::Pending { checks } => {
+                        let mut response = serde_json::to_value(goal_host_response(
+                            &current,
+                            GoalTokens::of(&current),
+                            false,
+                        ))?;
+                        if let Some(fields) = response.as_object_mut() {
+                            fields.insert(
+                                "acceptance".to_owned(),
+                                serde_json::json!({
+                                    "status": "pending",
+                                    "checks": checks,
+                                    "message": format!("Completion claimed, not yet verified. The harness runs the {checks} acceptance check(s) of this task when your turn ends: the goal completes only if every check passes on the final state, and a failed check comes back to you with its evidence. End your turn now."),
+                                }),
+                            );
+                        }
+                        response
+                    }
+                }
             }
             GoalRequest::DirectorsPush => serde_json::to_value(
                 push_director(

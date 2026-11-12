@@ -14,6 +14,7 @@ use eukhe_types::pi_ai::ModelThinkingLevel;
 use futures::future::BoxFuture;
 use serde_json::Value;
 
+use super::budget::BudgetGate;
 use super::children::RlmSubagentHost;
 use super::settings::EukheSettings;
 use crate::cron::rlm_heartbeat::KernelCronWiring;
@@ -205,10 +206,10 @@ impl From<ModelRef> for ModelRequest {
 /// never gate the compaction.
 pub type SummaryDeltaSink = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// Receives an agent message the kernel reports after its `ipython` cell
+/// Receives an agent message the kernel reports after its `python` cell
 /// settled (TS `onLateSentAgentMessage`), with the id of the tool call that
 /// ran the cell. The daemon worker surfaces it as the
-/// `ipython_sent_agent_message` session event.
+/// `python_sent_agent_message` session event.
 pub type LateAgentMessageSink =
     Arc<dyn Fn(&str, crate::kernel::shared::KernelSentAgentMessage) + Send + Sync>;
 
@@ -218,7 +219,7 @@ pub type LateAgentMessageSink =
 pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 
 /// Receives every job of this session that settled after its call stopped
-/// blocking the turn (a detached `ipython` cell, ADR 0010). The daemon
+/// blocking the turn (a detached `python` cell, ADR 0010). The daemon
 /// worker admits it through its one job-settled wake; `None` drops it.
 pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
 
@@ -315,7 +316,7 @@ pub struct SessionConfig {
     /// A resumed conversation with a namespace snapshot prewarms regardless.
     pub prewarm_kernel: bool,
     /// The kernel interpreter; `None` resolves the `EUKHE_KERNEL_PYTHON`
-    /// override or the auto-bootstrapped `~/.eukhe` kernel venv. Tests set
+    /// override or Eukhe's pinned Python (`~/.eukhe/kernel`). Tests set
     /// this checkout's runtime so no test touches the user's home.
     pub kernel_python: Option<PathBuf>,
     /// How long the host keeps the session open.
@@ -459,8 +460,12 @@ pub struct HostCall {
     pub data: Value,
     /// Source of the cell that sent the request, when attributable.
     pub cell_source_code: Option<String>,
-    /// The `ipython` tool call running the cell; `None` outside a tool call.
+    /// The `python` tool call running the cell; `None` outside a tool call.
     pub call: Option<Arc<dyn ToolExecutionApi>>,
+    /// The stop signal of the cell `call` runs (its abort, see
+    /// [`crate::kernel::shared::ExecuteOptions::signal`]) when that cell
+    /// sent the request; `None` otherwise.
+    pub signal: Option<crate::kernel::cancellation::AbortSignal>,
 }
 
 /// Handles one kernel host request type; the value reaches the Python caller.
@@ -500,6 +505,9 @@ pub struct OpenedSession {
     /// move made another conversation the main).
     pub main: Conversation,
     pub deps: Arc<HostDeps>,
+    /// What the open does with the run its storage left unfinished
+    /// ([`SessionConfig::stored_work`]).
+    pub stored_work: StoredWork,
 }
 
 /// Stops a service; awaited by `EukheSession::close` before the Harness
@@ -552,7 +560,7 @@ pub struct HostDeps {
     pub kernel_python: Option<PathBuf>,
     /// Why the kernel cannot start, probed at open
     /// ([`super::rlm::kernel_unavailable_notice`]); `Some` means no
-    /// `ipython` tool this session.
+    /// `python` tool this session.
     pub kernel_unavailable: Option<crate::kernel::KernelUnavailable>,
     /// [`SessionConfig::host`].
     pub host: SessionHost,
@@ -592,6 +600,9 @@ pub struct HostDeps {
     /// The pause of this session's run (a worker tree's `pause_workers` /
     /// `resume_workers` with `ownRun`).
     pub run_pause: Arc<super::children::RunPause>,
+    /// The session's budget: every provider request and tool call of the
+    /// session passes it (a pass-through while the session has no budget).
+    pub budget: Arc<BudgetGate>,
 }
 
 /// A barrier through a commit observer's queue.
@@ -609,6 +620,7 @@ pub(crate) struct ResolvedServices {
     pub python_skills: Vec<KernelPythonSkill>,
     pub semantic_edges: Arc<super::observe::semantic_edges::SemanticEdgeRecorder>,
     pub kernel_unavailable: Option<crate::kernel::KernelUnavailable>,
+    pub budget: Arc<BudgetGate>,
 }
 
 impl HostDeps {
@@ -642,7 +654,7 @@ impl HostDeps {
             host: config.host,
             kernel_python: config.kernel_python.clone(),
             kernel_unavailable: services.kernel_unavailable,
-            harness,
+            harness: harness.clone(),
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),
@@ -650,11 +662,12 @@ impl HostDeps {
             optchat: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
-            jobs: super::jobs::JobTable::default(),
+            jobs: super::jobs::JobTable::new(harness),
             state_tree: OnceLock::new(),
             tool_surface: super::tool_surface::ToolSurface::default(),
             auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices::default(),
             semantic_edges: services.semantic_edges,
+            budget: services.budget,
         }
     }
 
@@ -682,6 +695,21 @@ impl HostDeps {
         if let Some(barrier) = self.compaction_barrier.get() {
             barrier().await;
         }
+    }
+
+    /// The kernel-unavailable notification of this session, for a client
+    /// that shows notifications
+    /// ([`super::rlm::kernel_unavailable_notice`]): why the kernel cannot
+    /// start and the fix, in a top-level session (a child has no client
+    /// of its own to tell). `None` while the kernel is usable.
+    #[must_use]
+    pub fn kernel_unavailable_notice(&self) -> Option<String> {
+        if !self.role.is_root() {
+            return None;
+        }
+        self.kernel_unavailable
+            .as_ref()
+            .map(super::rlm::kernel_unavailable_notice::notice_text)
     }
 
     /// Begin closing: from here on the session's background work submits

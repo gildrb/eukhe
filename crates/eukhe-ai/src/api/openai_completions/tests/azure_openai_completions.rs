@@ -153,14 +153,40 @@ async fn clamps_thinking_levels_the_deployment_does_not_accept() {
     );
 }
 
+/// The openai dialect disables reasoning by the lowest offered effort (the
+/// `lowest-effort` disable mode), never by `DeepSeek`'s thinking field. Only
+/// the caller's thinking off is the disable: a request without a level that
+/// does not turn reasoning off sends no effort.
 #[tokio::test]
-async fn sends_no_reasoning_effort_when_no_thinking_level_is_requested() {
+async fn sends_the_lowest_offered_effort_when_thinking_is_off() {
     let azure = azure_provider();
+    let (request, requests) = request_options(azure_env(&[]));
+    let options = SimpleStreamOptions {
+        stream: StreamOptions {
+            request,
+            ..StreamOptions::default()
+        },
+        disable_reasoning: true,
+        ..SimpleStreamOptions::default()
+    };
+    collect((azure.stream_simple)(
+        &deep_seek_model(),
+        &sys_context(),
+        options,
+    ))
+    .await;
+    let off = params(recorded(&requests).pop());
     let (request, _) = azure_stream_simple(&azure, &deep_seek_model(), azure_env(&[]), None).await;
-    let params = params(request);
+    let unset = params(request);
 
-    assert_eq!(params.get("reasoning_effort"), None);
-    assert_eq!(params.get("thinking"), None);
+    assert_eq!(
+        [off.get("reasoning_effort"), off.get("thinking")],
+        [Some(&json!("low")), None]
+    );
+    assert_eq!(
+        [unset.get("reasoning_effort"), unset.get("thinking")],
+        [None, None]
+    );
 }
 
 #[tokio::test]

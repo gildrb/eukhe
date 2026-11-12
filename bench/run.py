@@ -125,16 +125,14 @@ def ensure_venv():
     stamp.touch()
 
 
-def ensure_kernel_venv(eukhe):
-    """A kernel venv every eukhe run shares: a fresh HOME has none, and a session never downloads one."""
-    kv = settings.path("kernel_venv")
-    stamp = kv / ".bench-ready"
-    if stamp.exists() or ((kv / "bin/python").exists() and "EUKHE_BENCH_KERNEL_VENV" in os.environ):
+def ensure_kernel(eukhe):
+    """A kernel directory every eukhe run shares: each run has a fresh HOME, which would fetch the pinned Python again."""
+    kd = settings.path("kernel_dir")
+    stamp = kd / ".bench-ready"
+    if stamp.exists():
         return
-    if "EUKHE_BENCH_KERNEL_VENV" in os.environ:
-        raise SystemExit(f"bench: no kernel venv at {kv}")
     home = data() / "kernel-home"
-    env = {**base_env(home), "PATH": f"{eukhe.parent}:{os.environ['PATH']}", "EUKHE_KERNEL_VENV": str(kv),
+    env = {**base_env(home), "PATH": f"{eukhe.parent}:{os.environ['PATH']}", "EUKHE_KERNEL_DIR": str(kd),
            "EUKHE_CODING_AGENT_DIR": str(home / ".eukhe"), "EUKHE_DAEMON_SOCKET": str(home / "run/daemon.sock")}
     try:
         rc = subprocess.run([str(eukhe), "kernel", "install"], env=env).returncode
@@ -170,7 +168,7 @@ def prepare(tools):
         ensure_venv()
         ensure_fixtures()
         if "eukhe" in tools:
-            ensure_kernel_venv(settings.binary("eukhe"))
+            ensure_kernel(settings.binary("eukhe"))
 
 
 # ---------------------------------------------------------------- one run
@@ -200,7 +198,7 @@ def eukhe_setup(home, model, spec):
     env["PATH"] = f"{settings.binary('eukhe').parent}:{env['PATH']}"
     env["EUKHE_CODING_AGENT_DIR"] = str(agent)
     env["EUKHE_DAEMON_SOCKET"] = str(home / "run/daemon.sock")
-    env["EUKHE_KERNEL_VENV"] = str(settings.path("kernel_venv"))
+    env["EUKHE_KERNEL_DIR"] = str(settings.path("kernel_dir"))
     return env
 
 

@@ -784,8 +784,7 @@ fn two_client_builds_do_not_replace_each_other() {
 }
 
 /// Run a discovery command against the renamed daemon's socket (the way
-/// the user's own default socket is targeted); its JSON report, unwrapped
-/// to the `services` array.
+/// the user's own default socket is targeted); its JSON report.
 fn run_discovery(root: &Path, socket: &Path, args: &[&str]) -> (Value, Option<i32>) {
     let mut command = Command::new(cli_binary());
     command.args(args).stdin(Stdio::null());
@@ -799,8 +798,7 @@ fn run_discovery(root: &Path, socket: &Path, args: &[&str]) -> (Value, Option<i3
             String::from_utf8_lossy(&output.stderr)
         )
     });
-    let rows = report.get("services").cloned().unwrap_or(report);
-    (rows, output.status.code())
+    (report, output.status.code())
 }
 
 /// `status` and `shutdown --force` find a renamed daemon (its process name

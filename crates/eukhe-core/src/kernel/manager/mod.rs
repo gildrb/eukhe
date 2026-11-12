@@ -480,7 +480,7 @@ impl std::fmt::Debug for ReplKernelManager {
 pub(crate) struct Inner {
     options: KernelManagerOptions,
     freshness_stat_probe: std::sync::atomic::AtomicBool,
-    resolved_python: Mutex<Option<std::path::PathBuf>>,
+    resolved_python: Mutex<Option<crate::kernel::KernelPython>>,
     guarded: Mutex<Guarded>,
     child: Mutex<Option<ChildHandle>>,
     /// Serializes `execute()` calls — the runtime runs one request at a time.

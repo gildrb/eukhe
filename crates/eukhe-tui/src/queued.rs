@@ -84,9 +84,11 @@ fn internal_origin(origin: &InputOrigin) -> Option<InternalPromptOrigin> {
             report: Report::ChildExited { .. } | Report::ChildFailed { .. },
         } => Some(InternalPromptOrigin::ChildStatus),
         InputOrigin::Goal { .. }
+        | InputOrigin::Loop { .. }
         | InputOrigin::Autonomous { .. }
         | InputOrigin::Director
         | InputOrigin::QuotaResume
+        | InputOrigin::CompactionResume
         | InputOrigin::Report {
             report: Report::BashDone { .. } | Report::JobSettled { .. },
         } => Some(InternalPromptOrigin::Other),

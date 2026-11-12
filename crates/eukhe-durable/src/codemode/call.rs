@@ -18,8 +18,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_chord::context::{AbortSignal, Context};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
+use eukhe_tokens::Tokenizer;
 use eukhe_types::pi_ai::{JsonObject as PiJsonObject, TextContent, UserContentBlock};
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
@@ -294,6 +296,12 @@ pub(super) async fn execute(
 ) -> SessionResult<ToolExecutionResult> {
     let parsed = parse_codemode_source(source).map_err(|error| SessionError::error(error.0))?;
     let agent = api.agent(&cx).await?;
+    // The model reads the result: its tokenizer counts the output budget.
+    let tokenizer = agent
+        .model
+        .as_ref()
+        .and_then(|model| api.models().get_model(&model.provider, &model.model_id))
+        .map_or_else(Tokenizer::unknown_model, |model| model_tokenizer(&model));
     let tools: Vec<StartTool> = agent
         .callable
         .iter()
@@ -412,7 +420,7 @@ pub(super) async fn execute(
             rerun,
         } => (start, journal, rerun),
     };
-    let call = CodemodeCall::new(options, api, cx, start, journal, rerun);
+    let call = CodemodeCall::new(options, api, cx, tokenizer, start, journal, rerun);
     call.execute(&parsed.code).await
 }
 
@@ -425,6 +433,8 @@ struct CodemodeCall {
     options: Arc<CodemodeToolOptions>,
     api: Arc<dyn ToolExecutionApi>,
     cx: Context,
+    /// The tokenizer of the model that reads the result.
+    tokenizer: Arc<Tokenizer>,
     start: Arc<CodemodeStart>,
     /// The journal as this attempt found it; replay delivers exactly these.
     replayed: Vec<JournalEntry>,
@@ -488,6 +498,7 @@ impl CodemodeCall {
         options: Arc<CodemodeToolOptions>,
         api: Arc<dyn ToolExecutionApi>,
         cx: Context,
+        tokenizer: Arc<Tokenizer>,
         start: CodemodeStart,
         journal: CodemodeJournal,
         rerun: bool,
@@ -507,6 +518,7 @@ impl CodemodeCall {
             options,
             api,
             cx,
+            tokenizer,
             start: Arc::new(start),
             replay_index,
             journal_length: journal.entries.len() as u64,
@@ -1465,6 +1477,7 @@ impl CodemodeCall {
                 max_output_tokens: self.start.max_output_tokens,
                 calls: &details.calls,
                 limits: OUTPUT_LIMITS,
+                tokenizer: Arc::clone(&self.tokenizer),
             },
             &files,
         )

@@ -1,66 +1,78 @@
-# eukhe
+# Eukhe
 
-Coding agent with a memory of all things. εὐχή: a wish, a prayer.
+The harness for the AGI era.
+
+Eukhe (εὐχή, Greek for wish): you give it the goal and the limits (money, time, tokens). It reaches the goal within them and reports truthfully what it did. [Why](PHILOSOPHY.md).
 
 ## Install
 
 ```sh
 curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64); rerun to update
-eukhe kernel install                       # one time: the Python kernel (needs uv); until then sessions have no ipython tool
 ```
 
 - Nix: `nix run github:gildrb/eukhe`
 - Home Manager: `programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)
-- Source: `cargo build --release --locked -p eukhe-cli`
 
 ## Use
 
 ```sh
 cd /path/to/project
-eukhe            # start; run /login at the first start
-eukhe agents     # find and open sessions
-eukhe gateway    # chat with the session from Signal on your phone
-eukhe dashboard  # open the session in a browser
+eukhe         # start; /login on the first run
+eukhe agents  # find and open sessions
+eukhe --help  # all commands
 ```
 
-`eukhe --help` lists the commands. In a session, type `/` for the slash commands.
+Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
 
-## Memory
+## Budgets
 
-> γραμμάτων τε συνθέσεις, μνήμην ἁπάντων, μουσομήτορ᾽ ἐργάνην.
-> And the joining of letters: memory of all things, the Muses' mother, a worker. (Aeschylus, Prometheus Bound 460-461)
+- `/budget set cost=5 time=2h`: the task and all its subagents spend at most $5 and finish within 2 hours.
+- Never exceeded, in money, tokens, tool calls, model requests or time.
+- When the budget runs low the agent is told. When it runs out the agent still gives its final answer.
 
-- Each session keeps an append-only log. Nothing is deleted.
-- A turn sends the newest messages verbatim and a view of the older ones: one-line summaries the agent can open back to the full text.
+## Verified completion
 
-## Agents
+- `/accept cmd cargo test`: the task counts as done only when `cargo test`, run by Eukhe on the final result, passes.
+- The agent can't set, change or skip a check.
+- Each result is labelled verified, failed or unverified. A failed check goes back to the agent with its output.
 
-- `@name message`: send a message to an agent. `/agents`: list them.
+## Crash safety
 
-## Laws
+- Kill Eukhe at any point, even with `kill -9`, then reopen the session: it picks up where it stopped.
+- No effect runs twice, and nothing is reported done that didn't run.
 
-- The rules of eukhe are [Bend 2](https://github.com/bendlang/bend) models, compiled into the binary. `LAWS.bend` states their laws; `PROOF.bend` proves them. See [spec/README.md](spec/README.md).
+## Loop
 
-```sh
-bend PROOF.bend  # check every law
-```
+- `/loop 20 --until 'cargo test' fix the failing tests`: the prompt is sent again after every turn until `cargo test` passes, 20 repeats have run, or you stop it.
+- Only the command's exit code decides. Esc pauses the loop, and it survives a restart.
 
 ## Components
 
-- [Eukhe RLM](spec/rlm/) forks Prime Agent's REPL subagents: every spawn must say why.
-- [Eukhe Memory](spec/memory/) is OptChat, split into one thread per session.
-- [Eukhe Hierarchy](spec/agents/) keeps agents in a tree: each talks only to its parent and children.
+- `eukhe`: the coding agent in your terminal.
+- Daemon: runs sessions in the background. `eukhe` starts it, and the terminal, dashboard and gateway attach to it.
+- Dashboard: `eukhe dashboard` opens your sessions in a browser.
+- Gateway: `eukhe gateway` lets you chat with a session from Signal on your phone.
+- [`eukhe-sdk`](crates/eukhe-sdk/): runs sessions inside your Rust program.
+- [`eukhe-client`](crates/eukhe-client/): connects your Rust program to the daemon's sessions.
+- `python` tool: a Python REPL for the agent that keeps its state between calls.
+- Memory: a long session never loses a message. Older ones become one-line summaries the agent can open back up.
+- RLM: the agent works over the whole conversation from Python and starts subagents from code.
+- Autoresearch: `/autoresearch <goal>` improves a number you can measure, such as speed or size, and keeps only changes the benchmark confirms.
 
 ## Limitations
 
-- Runs model-written Python and shell with your permissions. No sandbox. Trusted repositories only.
+- Runs model-written code with your permissions. No sandbox. Trusted repositories only.
 - No Windows.
+- Checks judge the final result, not how the agent reached it.
+- The SDK crates are Rust only and not on crates.io. Their API may change with any release.
 
 ## Credits
 
 - Fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), built on Mario Zechner's [pi](https://github.com/earendil-works/pi).
 - Victor Taelin: the chat memory design, OptChat, and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem).
-- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools and the harness design.
+- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools, the tokenizers and the harness design.
+- Sander Land's [ctok](https://github.com/sanderland/ctok): the Claude tokenizer vocabulary.
+- [models.dev](https://github.com/anomalyco/models.dev): the model catalog.
 - Not affiliated with Prime Intellect, Victor Taelin or Earendil.
 - Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 

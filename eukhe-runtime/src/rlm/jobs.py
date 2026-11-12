@@ -1,7 +1,7 @@
 """The agent's own work, and the one blocking wait on it.
 
 Work that outlives its call's blocking budget keeps running as a job: a
-detached ``ipython`` cell or ``bash`` tool script. Besides those, the agent's
+detached ``python`` cell or ``bash`` tool script. Besides those, the agent's
 work is this kernel's ``bash()`` handles and its subagents.
 
 ``await jobs.wait()`` blocks until the first of that work settles and returns
@@ -31,7 +31,9 @@ _MESSAGE_TEXT = "A message arrived for this session; it follows this result."
 # A wait asked for no length: the host caps it.
 _UNBOUNDED_MS = 2**53
 
-# rlm.collect statuses as job states
+# A subagent's status (`rlm.collect`: queued, running, done, error,
+# cancelled; the `rlm.list_subagents` roster: running, completed, error,
+# cancelled) as a job state
 _CHILD_STATES = {
     "queued": "running",
     "running": "running",
@@ -47,8 +49,9 @@ class Job:
     """One piece of the agent's work: ``kind`` is ``cell`` or ``shell`` (a
     job of the session), ``bash`` (a ``bash()`` handle of this kernel),
     ``child`` (a subagent) or ``message`` (an input that ended a wait);
-    ``state`` is ``running`` or how it settled; ``output`` is the settled
-    work's output (``None`` while it runs)."""
+    ``state`` is ``running`` or how it settled (``ok``, ``error``,
+    ``aborted``, ``killed``; a cancelled subagent is ``aborted``);
+    ``output`` is the settled work's output (``None`` while it runs)."""
 
     id: str
     kind: str

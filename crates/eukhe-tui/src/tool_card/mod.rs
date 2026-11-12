@@ -154,7 +154,8 @@ pub fn render_tool_card(
     show_images: bool,
 ) -> Vec<Line> {
     match card.name.as_str() {
-        "ipython" => ipython::render(card, frame, detail, theme, width, show_images),
+        // `ipython`: the REPL's name in sessions stored before `python`.
+        "python" | "ipython" => ipython::render(card, frame, detail, theme, width, show_images),
         "bash" => bash::render(card, frame, detail, theme, width, show_images),
         "worker_assign" | "worker_forward" => worker::render(card, frame, theme, width),
         _ => generic::render(card, frame, detail, theme, width, show_images),

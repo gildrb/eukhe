@@ -35,15 +35,6 @@ def below_eq(+n: Nat, +m: Nat, h: {Nat.is_eq(n, m) == True{} : Bool}) -> {RnReco
     case 1n+p 1n+q:
       below_eq(p, q, h)
 
-# a length note under the cap makes a row of at most the cap, within the
-# cap of the length notes (one more for the last rung of rec.think)
-def cap_long(+rc: RnRecovery.RCfg, u: Bool, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, e: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == u : Bool}, ok: {RnRecovery.Rk.capped(rc, k, row) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.rec.long(u, RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last}))) == True{} : Bool}:
-  match u:
-    case True{}:
-      below_up(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc), e)
-    case False{}:
-      ok
-
 # a length stop with no text: a compaction keeps the row, a note under the
 # cap and the last rung (the row is the cap) end within cap + 1
 def cap_think(+rc: RnRecovery.RCfg, s: Bool, u: Bool, lower: Bool, q: Bool, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, e: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == u : Bool}, eq: {Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == q : Bool}, ok: {RnRecovery.Rk.capped(rc, k, row) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.rec.think(s, u, Bool.and(lower, q), RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last}))) == True{} : Bool}:
@@ -90,8 +81,6 @@ def cap_empty(+rc: RnRecovery.RCfg, u: Bool, +k: RnRecovery.Rk, +row: Nat, +same
 
 def cap_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.Rk.capped(rc, k, row) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.rec.go(rc, o, k, row, same, last))) == True{} : Bool}:
   match o:
-    case RnRecovery.Long{}:
-      cap_long(rc, RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), k, row, same, last, {==}, ok)
     case RnRecovery.Leak{rebuilt, +h, kept}:
       match rebuilt:
         case True{}:

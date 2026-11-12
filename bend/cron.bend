@@ -21,7 +21,9 @@
 # that the laws can speak of it: `runs`, the processes that run the job
 # now (a process runs a claimed dispatch until it records the result, its
 # pass unwinds, or it dies); `starts`, the occurrences that started, the
-# newest first; `hist`, the results the job counted, the newest first.
+# newest first (a recovery that fires a one-shot again withdraws its
+# start: its next fire is the same fire, under the same request id);
+# `hist`, the results the job counted, the newest first.
 #
 # Events: a process makes a job, claims the due jobs, recovers claims,
 # finishes a run (good, failed, or skipped), unwinds its pass, dies; the
@@ -238,10 +240,16 @@ def take(+p: Nat, +c: Nat, j: Job) -> Job:
 def clears(+p: Nat, +o: Nat, rs: List<&2, Nat>, dead: List<&2, Nat>) -> Bool:
   Bool.or(Bool.and(Nat.is_eq(o, p), Bool.not(has(p, rs))), has(o, dead))
 
-def recover.end(once: Bool, i: Nat, s: Sched, nx: Maybe<&2, Nat>, k: Nat, rs: List<&2, Nat>, ss: List<&2, Nat>, h: List<&2, Mark>) -> Job:
+# an active job whose claim is cleared: a one-shot is fired again under
+# its original request id (its counted results stay): it stays active, due
+# at the occurrence x started, its start withdrawn, so the next claim pass
+# claims and fires it once more; a repeating job keeps its next run
+def recover.end(once: Bool, i: Nat, s: Sched, nx: Maybe<&2, Nat>, k: Nat, x: Claim, rs: List<&2, Nat>, ss: List<&2, Nat>, h: List<&2, Mark>) -> Job:
   match once:
     case True{}:
-      Job{i, s, Finished{}, None{}, k, None{}, rs, ss, h}
+      match x:
+        case Claim{oc, o}:
+          Job{i, s, Active{}, Some{oc}, k, None{}, rs, Nil{}, h}
     case False{}:
       Job{i, s, Active{}, nx, k, None{}, rs, ss, h}
 
@@ -252,7 +260,7 @@ def recover.go(b: Bool, i: Nat, +s: Sched, st: Status, nx: Maybe<&2, Nat>, k: Na
     case True{}:
       match st:
         case Active{}:
-          recover.end(is_once(s), i, s, nx, k, rs, ss, h)
+          recover.end(is_once(s), i, s, nx, k, x, rs, ss, h)
         case Paused{}:
           Job{i, s, Paused{}, nx, k, None{}, rs, ss, h}
         case Finished{}:
@@ -260,7 +268,7 @@ def recover.go(b: Bool, i: Nat, +s: Sched, st: Status, nx: Maybe<&2, Nat>, k: Na
         case Cancelled{}:
           Job{i, s, Cancelled{}, nx, k, None{}, rs, ss, h}
 
-# the claim it clears ends its run: an active one-shot is finished
+# the claim it clears ends its run: an active one-shot is fired again
 def recover(+p: Nat, +dead: List<&2, Nat>, j: Job) -> Job:
   match j:
     case Job{i, +s, st, nx, k, cl, +rs, ss, h}:

@@ -6,7 +6,7 @@
 //! The provider is a scripted OpenAI-compatible mock that enforces the
 //! window itself: any request over it gets the provider's context-overflow
 //! error, so "no overflow" is the provider's verdict, not the client's
-//! estimate. Over the whole run: no compaction fails, no turn stalls (each
+//! local count. Over the whole run: no compaction fails, no turn stalls (each
 //! settles while the session or the provider keeps making progress), no
 //! request overflows except the one the script injects (which the session
 //! recovers from by compacting), the durable transcript holds every
@@ -74,7 +74,7 @@ fn answer_for(prompt: &str) -> String {
     format!("answer to {}", tag(prompt))
 }
 
-/// The script: a summary for the summarizer; for a turn, a quick `ipython`
+/// The script: a summary for the summarizer; for a turn, a quick `python`
 /// call first when tagged [`TOOL`], an answer held on the turn's own gate
 /// when tagged [`BUSY`], one overflow error for the first request of a
 /// turn tagged [`OVERFLOW`] that still carries an earlier answer, else the
@@ -100,7 +100,7 @@ fn script(request: &mock_llm::Request, overflowed: &AtomicBool) -> Reply {
             } else if prompt.contains(TOOL) {
                 Reply::tool_call(
                     format!("call-{}", tag(prompt)),
-                    "ipython",
+                    "python",
                     json!({ "code": "print(6 * 7)" }),
                 )
             } else if prompt.contains(BUSY) {
@@ -203,7 +203,8 @@ fn compaction_soak_300_turns() {
     )
     .expect("models.json");
     let socket = dir.path().join("daemon.sock");
-    let _supervisor = Supervisor::start(&socket, &agent_dir, &dir.path().join("supervisor.log"));
+    let _supervisor =
+        Supervisor::start(&socket, &agent_dir, &dir.path().join("supervisor.log"), &[]);
     let mut client = WireClient::connect(&socket);
     let create = |client: &mut WireClient, sessions: &std::path::Path| {
         let created = client.request(

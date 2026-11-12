@@ -8,6 +8,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use eukhe_core::durable::acceptance::{acceptance_state, set_acceptance};
+use eukhe_core::durable::budget::BudgetError;
 use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
 use eukhe_durable::entries::USER_ENTRY;
 use eukhe_durable::harness::types::ContextOptions;
@@ -23,8 +25,9 @@ use super::reads::{
     agent_model, context_messages, history_entries, last_assistant_text, main_agent, rpc_context,
 };
 use super::session::RpcEngineRequest;
+use crate::acceptance_commands::AcceptanceRequest;
 use crate::session_export::durable::export_html as export_session_html;
-use crate::state_getters::context_usage;
+use crate::state_getters::{context_usage, ContextMeter};
 use crate::worker::durable_host::meta::set_session_name as persist_session_name;
 use crate::worker::durable_host::wire_messages::transcript_messages;
 
@@ -46,6 +49,8 @@ pub(crate) async fn handle(
         "get_fork_messages" => get_fork_messages(state).await,
         "get_last_assistant_text" => get_last_assistant_text(state).await,
         "set_session_name" => set_session_name(state, payload).await,
+        "set_acceptance" => set_acceptance_checks(state, payload).await,
+        "get_acceptance" => read_acceptance(state).await,
         "get_messages" => get_messages(state).await,
         "export_html" => export_html(state, payload).await,
         "get_session_stats" => get_session_stats(state).await,
@@ -188,7 +193,8 @@ async fn clone(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
 /// The shared fork tail (the caller holds the replacement lease): settle
 /// the running turn, then a persisted session forks into a new storage
 /// directory the connection switches onto (TS forks into a new session
-/// file); an in-memory session forks its main conversation in place and
+/// file), which draws from the forked session's budget; an in-memory
+/// session forks its main conversation in place (its budget stays) and
 /// the pump follows the new main.
 async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), RpcCommandError> {
     let cx = rpc_context();
@@ -216,14 +222,27 @@ async fn fork_at(state: &Arc<RpcState>, point: ForkPoint) -> Result<(), RpcComma
         &cx,
     )
     .await?;
+    let source = session.budget().agent().to_owned();
     drop(session);
-    Ok(state
+    state
         .session
         .replace_locked(RpcEngineRequest::Open {
             session_path: forked_dir,
             reuse_lease: false,
         })
-        .await?)
+        .await?;
+    // The fork is a shared member of the source's account, below it; the
+    // read after the join publishes its budget (`budget_update`).
+    let fork = state.session.session().await.budget();
+    tokio::task::spawn_blocking(move || match fork.ledger().join(&source) {
+        Ok(_) | Err(BudgetError::NoBudget(_) | BudgetError::AlreadyOpen(_)) => {
+            drop(fork.report());
+            Ok(())
+        }
+        Err(error) => Err(error),
+    })
+    .await??;
+    Ok(())
 }
 
 /// `get_fork_messages` (TS `getUserMessagesForForking`): the user
@@ -276,6 +295,39 @@ async fn set_session_name(
             name: Some(name.to_string()),
         }]);
     Ok(ResponseData::Absent)
+}
+
+/// `set_acceptance { checks?, maxReturns?, intent? }`: set the checks of
+/// the main conversation's task as its owner (the explicit checks, then
+/// the intent check unless `intent` is false) and answer the new
+/// `AcceptanceState`.
+async fn set_acceptance_checks(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
+    let (specs, max_returns) = AcceptanceRequest::parse(payload)?.specs();
+    // Serialize with any whole-session replacement: the checks land on
+    // the live session, never on a retired one.
+    let _lease = state.session.replacement_lease().await;
+    let session = state.session.session().await;
+    let acceptance = set_acceptance(
+        session.harness(),
+        session.main().id(),
+        specs,
+        max_returns,
+        &session.deps().cwd,
+        &rpc_context(),
+    )
+    .await?;
+    Ok(ResponseData::Present(serde_json::to_value(acceptance)?))
+}
+
+/// `get_acceptance`: the main conversation's `AcceptanceState`.
+async fn read_acceptance(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
+    let session = state.session.session().await;
+    let acceptance =
+        acceptance_state(session.harness(), session.main().id(), &rpc_context()).await?;
+    Ok(ResponseData::Present(serde_json::to_value(acceptance)?))
 }
 
 /// `get_messages` (TS `session.state.messages`): the main conversation's
@@ -405,9 +457,11 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, RpcCom
     {
         object.extend(counts);
     }
-    let context_window = agent_model(session, &agent).map_or(0, |model| model.context_window);
-    if context_window > 0 {
-        session_stats["contextUsage"] = context_usage(&view, context_window);
+    if let Some(meter) = agent_model(session, &agent)
+        .as_ref()
+        .and_then(ContextMeter::of_model)
+    {
+        session_stats["contextUsage"] = context_usage(&view, &meter);
     }
     Ok(ResponseData::Present(session_stats))
 }

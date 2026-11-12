@@ -415,6 +415,7 @@ async fn rlm_children_key_the_roster_by_parent_path_and_child_id() {
             parent_task_id: "1".to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
             worker: false,
+            acceptance: None,
         })
         .await
         .expect("spawn child");

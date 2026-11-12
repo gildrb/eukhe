@@ -625,7 +625,8 @@ fn print_mode_provider_retry_recovers_the_answer() {
 
 /// An overflow with nothing compactable ends the run on the provider error
 /// (pi-durable keeps the error turn): stderr carries the error, then the
-/// skip warning row, exit 1.
+/// skip warning row that names the oversized turn and its remedies (the
+/// compaction dead-end warning), exit 1.
 #[test]
 fn print_mode_overflow_skip_surfaces_the_warning_row() {
     let home = isolated_home();
@@ -641,7 +642,7 @@ fn print_mode_overflow_skip_surfaces_the_warning_row() {
     assert!(stdout.is_empty(), "stdout: {stdout}");
     assert_eq!(
         stderr,
-        "prompt is too long: 213462 tokens > 200000 maximum\nAuto-compaction skipped: Session is too short to compact -- try again once it grows\n"
+        "prompt is too long: 213462 tokens > 200000 maximum\nAuto-compaction skipped: The most recent turn alone is too large to reduce further; shrink it (e.g. clear large tool output) or switch to a larger-context model.\n"
     );
 }
 
@@ -882,7 +883,7 @@ fn print_mode_json_streams_the_message_update_deltas() {
 }
 
 /// An answer that settles before the 100 ms partial throttle commits its
-/// last changes still streams to its end (omp print json emits every
+/// last changes still streams to its end (print json emits every
 /// `message_update`): the `message_start` partial plus the `text_delta`s
 /// rebuild the answer, a `text_end` closes the block, then the settled
 /// `message_end`.
@@ -936,7 +937,7 @@ fn print_mode_json_streams_a_fast_answer_start_to_end() {
     );
 }
 
-/// The threshold compaction (pi-durable's pre-request check): once a turn's
+/// The threshold compaction (the pre-request check): once a turn's
 /// context crossed the reserve headroom, the next run compacts before its
 /// first request, so the `compaction_start`/`compaction_end` pair with the
 /// `threshold` reason, the client-facing result, and `willRetry: false`
@@ -954,22 +955,28 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     // threshold while its own request stays inside the window: the
     // blocking threshold is 24k window - 10k reserve = 14k tokens. The
     // thresholds read the context the last turn reached, as the provider
-    // counted it (the faux provider estimates usage from the serialized
-    // context): the ~5k-token seed turn stays below it, the ~11k-token
-    // crossing message takes the crossing turn (~16k) past it without
-    // putting its request past the window (which would compact inside the
-    // crossing run), and the next run compacts before its first request.
+    // counted it (the faux provider counts the serialized context with
+    // o200k_base): the seed turn stays below it, the ~12k-token crossing
+    // message (one token per " history") takes the crossing turn past it
+    // without putting its request past the window (which would compact
+    // inside the crossing run), and the next run compacts before its
+    // first request. That window's summarizer input budget is its floor
+    // (3k tokens), so the summary runs one call per window: the seed turn,
+    // the crossing message alone (clamped to the budget), and the crossing
+    // reply.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [
             {"text": "seed reply"},
             {"text": "crossing reply"},
             {"text": "the compaction summary"},
+            {"text": "the compaction summary"},
+            {"text": "the compaction summary"},
             {"text": "after reply"},
         ]
     });
     let first = "seed turn".to_string();
-    let second = format!("crossing turn {}", "x".repeat(44_000));
+    let second = format!("crossing turn {}", "history ".repeat(12_000));
     let third = "after the crossing".to_string();
     let (stdout, stderr, code) = run_in_home(
         home.path(),

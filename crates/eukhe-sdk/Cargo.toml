@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Embed the Eukhe session engine in-process"
+description = "Run Eukhe sessions inside your own process"
 
 [dependencies]
 # The engine the facade opens: sessions, their config and models.
@@ -19,7 +19,9 @@ eukhe-chord.workspace = true
 eukhe-types.workspace = true
 anyhow.workspace = true
 futures.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+# The event channel and the budget watch (`sync`); the budget ledger's
+# file IO runs on the blocking pool (`rt`).
+tokio = { workspace = true, features = ["rt", "sync"] }
 # New session ids (UUIDv7, the engine's session id form).
 uuid = { version = "1", features = ["v7"] }
 

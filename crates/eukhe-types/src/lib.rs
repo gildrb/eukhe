@@ -13,14 +13,20 @@
 //! typed value, serialize it back, and require the re-parsed JSON to equal the
 //! original parsed JSON.
 
+pub mod acceptance;
 pub mod ai;
+pub mod budget;
 pub mod custom_type;
 pub mod cvar;
 pub mod daemon;
+pub mod effects;
 pub mod goal;
+pub mod heartbeat_command;
 pub mod incident;
 pub mod input_origin;
 pub mod job;
+pub mod kernel_notice;
+pub mod loop_mode;
 pub mod model_roles;
 pub mod output;
 pub mod path_policy;
@@ -30,7 +36,6 @@ pub mod session;
 pub mod shell;
 pub mod skill_blocks;
 pub mod slash_commands;
-pub mod token_estimate;
 pub mod usage;
 pub mod workflow;
 

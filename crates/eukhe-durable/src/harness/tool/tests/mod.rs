@@ -8,6 +8,7 @@ mod lifetime;
 pub(crate) mod nested_support;
 mod nested_tools;
 mod nested_tools_restart;
+mod probe;
 mod recovery;
 mod results;
 mod round;

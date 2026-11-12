@@ -11,13 +11,15 @@ use super::OpenAICompletionsOptions;
 use crate::api::cache_breakpoints::placed_marks;
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::simple_options::{
-    clamp_thinking_budget_to_answer_room, resolve_sampling_params, thinking_budget_for_level,
+    clamp_thinking_budget_to_answer_room, openai_output_cap, resolve_sampling_params,
+    thinking_budget_for_level,
 };
-use crate::models::thinking_level_map;
+use crate::models::{get_supported_thinking_levels, thinking_level_map};
 use crate::types::{
     AssistantContentBlock, CacheControlFormat, CacheRetention, ChatTemplateKwargValue,
     ChatTemplateVar, JsonObject, JsonValue, MaxTokensField, Message, Model, ModelThinkingLevel,
-    ThinkingFormat, ThinkingLevel, ThinkingTokenBudgetField, TranscriptContext,
+    ReasoningDisableMode, ThinkingFormat, ThinkingLevel, ThinkingTokenBudgetField,
+    TranscriptContext,
 };
 use crate::utils::diagnostics::Thrown;
 use crate::utils::provider_env::get_provider_env_value;
@@ -139,6 +141,7 @@ pub(crate) fn build_params(
     }
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
+        let max_tokens = openai_output_cap(model, max_tokens, compat.clamp_output_to_model_max);
         match compat.max_tokens_field {
             // Deprecated by OpenAI, but some OpenAI-compatible providers only accept max_tokens.
             MaxTokensField::MaxTokens => insert(&mut params, "max_tokens", json!(max_tokens)),
@@ -295,15 +298,19 @@ fn apply_thinking_format(
     let effort = options.reasoning_effort;
     match compat.thinking_format {
         ThinkingFormat::Zai => {
-            insert(
-                params,
-                "thinking",
-                if effort.is_some() {
-                    json!({ "type": "enabled", "clear_thinking": false })
-                } else {
-                    json!({ "type": "disabled" })
-                },
-            );
+            // Thinking on is the bare `{type: enabled}` (plus `keep` where
+            // the model keeps earlier thinking); Z.AI's `clear_thinking`
+            // flag is not sent.
+            let thinking = if effort.is_some() {
+                let mut thinking = json!({ "type": "enabled" });
+                if let Some(keep) = &compat.thinking_keep {
+                    thinking["keep"] = json!(keep);
+                }
+                thinking
+            } else {
+                json!({ "type": "disabled" })
+            };
+            insert(params, "thinking", thinking);
             if let Some(effort) = effort.filter(|_| compat.supports_reasoning_effort) {
                 let value = match level_map(model, effort.into()) {
                     None => Some(effort.as_str()),
@@ -315,14 +322,9 @@ fn apply_thinking_format(
             }
         }
         ThinkingFormat::Qwen => {
+            // The Qwen dialect's level is the toggle alone: no
+            // `reasoning_effort` rides along (its template reads none).
             insert(params, "enable_thinking", json!(effort.is_some()));
-            if let Some(effort) = effort.filter(|_| compat.supports_reasoning_effort) {
-                insert(
-                    params,
-                    "reasoning_effort",
-                    json!(mapped_effort_or_default(model, effort)),
-                );
-            }
         }
         ThinkingFormat::QwenChatTemplate => {
             insert(
@@ -366,7 +368,13 @@ fn apply_thinking_format(
         }
         ThinkingFormat::Deepseek => {
             if effort.is_some() {
-                insert(params, "thinking", json!({ "type": "enabled" }));
+                // `thinkingKeep` rides the enabled thinking object
+                // (Moonshot Kimi K2.6 preserved thinking).
+                let mut thinking = json!({ "type": "enabled" });
+                if let Some(keep) = &compat.thinking_keep {
+                    thinking["keep"] = json!(keep);
+                }
+                insert(params, "thinking", thinking);
             } else if level_map(model, ModelThinkingLevel::Off) != Some(None) {
                 insert(params, "thinking", json!({ "type": "disabled" }));
             }
@@ -405,7 +413,15 @@ fn apply_thinking_format(
             }
             // TS: the ant-ling branch requires an effort; without one the
             // OpenAI-style fallback branches apply.
-            None => apply_openai_reasoning_effort(model, None, compat, params),
+            None => {
+                apply_openai_reasoning_effort(
+                    model,
+                    None,
+                    options.disable_reasoning,
+                    compat,
+                    params,
+                );
+            }
         },
         ThinkingFormat::Together => {
             insert(params, "reasoning", json!({ "enabled": effort.is_some() }));
@@ -434,27 +450,51 @@ fn apply_thinking_format(
         ThinkingFormat::OpenAI => {
             // eukhe addition: a self-hosted Qwen template thinks by default,
             // so state the level explicitly unless `off` is mapped.
-            if level_map(model, ModelThinkingLevel::Off).is_none()
-                && is_custom_qwen_template_model(model)
-            {
+            let template_toggle = level_map(model, ModelThinkingLevel::Off).is_none()
+                && is_custom_qwen_template_model(model);
+            if template_toggle {
                 insert(
                     params,
                     "chat_template_kwargs",
                     json!({ "enable_thinking": effort.is_some() }),
                 );
             }
-            apply_openai_reasoning_effort(model, effort, compat, params);
+            // The template toggle is that model's off control (the qwen
+            // dialect: off sends the toggle and no effort).
+            if effort.is_some() || !template_toggle {
+                apply_openai_reasoning_effort(
+                    model,
+                    effort,
+                    options.disable_reasoning,
+                    compat,
+                    params,
+                );
+            }
         }
     }
 }
 
 /// The OpenAI-style `reasoning_effort` fallback branches of `buildParams`.
+/// Without an effort, only a request whose caller turned reasoning off
+/// (`disabled`) sends the model's disable control: `reasoning: {enabled:
+/// false}` under the `openrouter-enabled-false` disable mode, else its `off`
+/// entry when that names an effort, else the lowest effort it offers. A
+/// request that names no level and does not turn reasoning off sends no
+/// effort.
 fn apply_openai_reasoning_effort(
     model: &Model,
     effort: Option<ThinkingLevel>,
+    disabled: bool,
     compat: &ResolvedCompat,
     params: &mut JsonObject,
 ) {
+    if effort.is_none()
+        && disabled
+        && compat.reasoning_disable_mode == Some(ReasoningDisableMode::OpenRouterEnabledFalse)
+    {
+        insert(params, "reasoning", json!({ "enabled": false }));
+        return;
+    }
     if !compat.supports_reasoning_effort {
         return;
     }
@@ -466,11 +506,24 @@ fn apply_openai_reasoning_effort(
                 json!(mapped_effort_or_default(model, effort)),
             );
         }
-        None => {
-            if let Some(Some(off)) = level_map(model, ModelThinkingLevel::Off) {
-                insert(params, "reasoning_effort", json!(off));
+        None if !disabled => {}
+        None => match level_map(model, ModelThinkingLevel::Off) {
+            Some(Some(off)) => insert(params, "reasoning_effort", json!(off)),
+            Some(None) => {}
+            // The `lowest-effort` disable mode: a model with no `off` entry
+            // sends its lowest offered effort.
+            None => {
+                if let Some(lowest) = get_supported_thinking_levels(model)
+                    .into_iter()
+                    .find(|level| *level != ModelThinkingLevel::Off)
+                {
+                    let value = level_map(model, lowest)
+                        .flatten()
+                        .unwrap_or_else(|| lowest.as_str());
+                    insert(params, "reasoning_effort", json!(value));
+                }
             }
-        }
+        },
     }
 }
 

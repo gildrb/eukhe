@@ -162,7 +162,7 @@ def hu.ended_apply(st: Cr.Status, op: CB.Op, +p: CS.Plan, +nx: Maybe<&2, Nat>, +
       match op:
         case CB.OTake{c, d, n, r}:
           h => h
-        case CB.ORecover{c}:
+        case CB.ORecover{c, at}:
           match c:
             case True{}:
               h => h
@@ -188,7 +188,7 @@ def hu.ended_apply(st: Cr.Status, op: CB.Op, +p: CS.Plan, +nx: Maybe<&2, Nat>, +
       match op:
         case CB.OTake{c, d, n, r}:
           h => h
-        case CB.ORecover{c}:
+        case CB.ORecover{c, at}:
           match c:
             case True{}:
               h => h

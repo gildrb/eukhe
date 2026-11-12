@@ -33,6 +33,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from . import factory as factory_module
+from . import pip as pip_module
 from .bash import _kill_live_handles
 
 PROTOCOL_VERSION = 3
@@ -184,7 +185,7 @@ async def host_request(data: dict[str, Any]) -> dict[str, Any]:
     future: asyncio.Future[dict[str, Any]] = _loop.create_future()
     _pending_host[rid] = future
     try:
-        _send({"event": "host_request", "id": rid, "data": data})
+        _send({"event": "host_request", "id": rid, "cell": _current_cell.get(), "data": data})
         return await future
     finally:
         _pending_host.pop(rid, None)
@@ -236,7 +237,7 @@ def host_request_sync(data: dict[str, Any]) -> dict[str, Any]:
     with _sync_lock:
         _pending_host_sync[rid] = waiter
     try:
-        _send({"event": "host_request", "id": rid, "data": data})
+        _send({"event": "host_request", "id": rid, "cell": _current_cell.get(), "data": data})
         waiter.done.wait()
     finally:
         with _sync_lock:
@@ -634,6 +635,8 @@ def _error_event(cell_id: str, exc: BaseException) -> dict[str, Any]:
     else:
         te.stack = stack
         lines = list(te.format())
+    if isinstance(exc, ModuleNotFoundError) and exc.name:
+        lines.append(pip_module.missing_module_hint(exc.name))
     return {
         "event": "error",
         "id": cell_id,
@@ -655,9 +658,19 @@ def _interrupt_event(cell_id: str, exc: BaseException) -> dict[str, Any]:
 
 
 def _compile_cell(code: str, filename: str) -> tuple[list[types.CodeType], bool]:
-    """Compile a cell; a trailing expression compiles separately in eval mode."""
+    """Compile a cell; a trailing expression compiles separately in eval mode.
+
+    A cell that does not parse as Python runs its ``%pip`` lines as calls."""
     linecache.cache[filename] = (len(code), None, code.splitlines(keepends=True), filename)
-    tree = ast.parse(code, filename)
+    try:
+        tree = ast.parse(code, filename)
+    except SyntaxError:
+        expanded = pip_module.expand_magics(code)
+        if expanded is None:
+            raise
+        code = expanded
+        linecache.cache[filename] = (len(code), None, code.splitlines(keepends=True), filename)
+        tree = ast.parse(code, filename)
     trailing: ast.Expression | None = None
     if tree.body and isinstance(tree.body[-1], ast.Expr):
         trailing = ast.Expression(tree.body.pop().value)
@@ -2009,6 +2022,8 @@ def main() -> None:
     cwd = os.getcwd()
     if cwd not in sys.path:
         sys.path.append(cwd)
+    # A locked package installs itself the first time own code imports it.
+    pip_module.install_import_hook()
 
     _loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_loop)

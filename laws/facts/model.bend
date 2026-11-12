@@ -18,8 +18,7 @@ import ../../bend/facts.bend as Fx
 # laws/model_facts.bend).
 #
 # Requirements (stated in the header of bend/facts.bend and the Rust doc
-# comments its functions name; omp at c28b3e3 no longer has these code
-# paths in this shape, so the ported Rust is the source), each with the
+# comments its functions name; the Rust is the source), each with the
 # laws that state it:
 #   S6.10.1 a wire API decides a fact only from the rulebook's answer, the
 #     model's compat flag or the user's setting: adaptive thinking is the
@@ -45,9 +44,9 @@ import ../../bend/facts.bend as Fx
 #     facts_price_no_row_none); the shipped rows give the old multipliers
 #     (facts_tier_price_openai_oracle, facts_tier_price_codex_oracle)
 #   S6.10.5 the Bedrock reasoning fields of the rulebook's shape
-#     (facts_reasoning_exact); that the rulebook gives each catalog model
-#     the shape of the old name checks is the Rust test
-#     `the_reasoning_shape_is_the_rulebook_answer_of_the_old_name_checks`
+#     (facts_reasoning_exact); that the rulebook gives Claude's shape to
+#     exactly the catalog models of the old Claude name check is the Rust
+#     test `the_claude_shape_is_the_rulebook_answer_of_the_old_name_check`
 #     (crates/eukhe-ai/src/api/bedrock_converse_stream/convert/facts_tests.rs),
 #     not a law here: no Bend def reads rulebook.json
 #   A1 the output cap: the wish, shrunk only on a real window conflict,
@@ -410,6 +409,7 @@ law facts_fit_saturated_budget:
   for +hf: {Nat.is_le(f, mm) == True{} : Bool}
   {Fx.fit(base, mm, b1, a, Fx.Win{w, p, s, f, st}) == Fx.fit(base, mm, b2, a, Fx.Win{w, p, s, f, st}) : Fx.Fit}
 
+
 # LAW facts_fit_answer_room: the thinking budget never starves the answer: when the ceiling holds
 # the answer's tokens a, the budget plus a is at most the ceiling
 # EXCLUDES: a reply that spends its whole output cap on thinking (stop
@@ -456,16 +456,14 @@ def cap_room(win: Fx.Win) -> Nat:
     case Fx.Win{w, p, s, f, st}:
       Nat.max(f, Nat.sub(w, Nat.add(p, s)))
 
-# the max is unknown: no caller's cap, a wire API that does not need the
-# field, a known window the catalog's max does not go past
-def cap_unknown(caller: Maybe<&2, Nat>, mm: Nat, needs: Bool, win: Fx.Win) -> Bool:
+# the cap is left out: no caller's cap, and a host whose rule leaves the
+# default cap out (needs false)
+def cap_left_out(caller: Maybe<&2, Nat>, needs: Bool) -> Bool:
   match caller:
     case Some{x}:
       False{}
     case None{}:
-      match win:
-        case Fx.Win{+w, p, s, f, st}:
-          Bool.and(Bool.not(needs), Bool.and(Nat.is_lt(0n, w), Nat.is_le(w, mm)))
+      Bool.not(needs)
 
 def cap_present(m: Maybe<&2, Nat>) -> Bool:
   match m:
@@ -474,36 +472,44 @@ def cap_present(m: Maybe<&2, Nat>) -> Bool:
     case None{}:
       False{}
 
-# LAW facts_cap_keeps_the_want: without a window conflict, the request carries its wish: the
-# caller's cap, else the catalog's max
-# EXCLUDES: a made-up default cap (16384) or any cap below the catalog's
-#   max while the window has room (a reasoning model cut short: stop
-#   reason length, thinking only); a shrink with no conflict
+# LAW facts_cap_keeps_the_want: without a window conflict, a request whose cap is not left out
+# (a caller's cap, or a host that takes the default cap) carries its wish:
+# the caller's cap, else the catalog's max, a max at or past the window
+# included
+# EXCLUDES: a default cap other than the catalog's max (a fixed 16384) or
+#   any cap below the catalog's max while the window has room (a reasoning
+#   model cut short: stop reason length, thinking only); a max at or past
+#   the window left out; a shrink with no conflict
 law facts_cap_keeps_the_want:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
   for +needs: Bool
   for +win: Fx.Win
-  for h1: {cap_unknown(caller, mm, needs, win) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   for h2: {cap_conflict(cap_want(caller, mm), win) == False{} : Bool}
   {Fx.cap(caller, mm, needs, win) == Some{cap_want(caller, mm)} : Maybe<&2, Nat>}
 
-# LAW facts_cap_shrinks_on_conflict: on a real window conflict, the cap is the room the window leaves
-# after the prompt and the safety, at least the floor
+# LAW facts_cap_shrinks_on_conflict: on a real window conflict, the cap of a request whose cap is
+# not left out is the room the window leaves after the prompt and the
+# safety, at least the floor; a catalog max at or past the window
+# included: it is sent, shrunk to the room
 # EXCLUDES: a request past the window (the provider refuses it), a shrink
-#   to less than the room, a shrink below the floor
+#   to less than the room, a shrink below the floor, a max at or past the
+#   window left out instead of shrunk to the room
 law facts_cap_shrinks_on_conflict:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
   for +needs: Bool
   for +win: Fx.Win
-  for h1: {cap_unknown(caller, mm, needs, win) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   for h2: {cap_conflict(cap_want(caller, mm), win) == True{} : Bool}
   {Fx.cap(caller, mm, needs, win) == Some{cap_room(win)} : Maybe<&2, Nat>}
 
-# LAW facts_cap_never_below_floor: a cap the window shrinks is at least the floor
+# LAW facts_cap_never_below_floor: a cap the window shrinks (of a request whose cap is not left
+# out) is at least the floor; no cap counts as 0
 # EXCLUDES: a cap of 0 (or below the floor) for a prompt that fills the
-#   window
+#   window; a max at or past the window left out where the floor is above
+#   0
 law facts_cap_never_below_floor:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
@@ -513,14 +519,15 @@ law facts_cap_never_below_floor:
   for +s: Nat
   for +f: Nat
   for +st: Bool
-  for h1: {cap_unknown(caller, mm, needs, Fx.Win{w, p, s, f, st}) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   for h2: {cap_conflict(cap_want(caller, mm), Fx.Win{w, p, s, f, st}) == True{} : Bool}
   {Nat.is_le(f, Maybe.default(&2, Nat, Fx.cap(caller, mm, needs, Fx.Win{w, p, s, f, st}), 0n)) == True{} : Bool}
 
 # LAW facts_cap_stops_never_shrinks: a model that ends its output at the window itself is never
-# shrunk: the request carries its wish whatever the prompt
+# shrunk: a request whose cap is not left out carries its wish whatever
+# the prompt, a catalog max at or past the window included
 # EXCLUDES: a shrink of a model the provider stops at the window (Claude
-#   4.5+ on the Claude API)
+#   4.5+ on the Claude API); its max at or past the window left out
 law facts_cap_stops_never_shrinks:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
@@ -529,43 +536,64 @@ law facts_cap_stops_never_shrinks:
   for +p: Nat
   for +s: Nat
   for +f: Nat
-  for h1: {cap_unknown(caller, mm, needs, Fx.Win{w, p, s, f, True{}}) == False{} : Bool}
+  for h1: {cap_left_out(caller, needs) == False{} : Bool}
   {Fx.cap(caller, mm, needs, Fx.Win{w, p, s, f, True{}}) == Some{cap_want(caller, mm)} : Maybe<&2, Nat>}
 
-# LAW facts_cap_omits_unknown: with an unknown max (no caller's cap, a wire API that does not need
-# the field, a catalog max at or past the window) the field is omitted:
-# the provider's own max applies
-# EXCLUDES: a made-up cap sent for a model whose max the catalog does not
-#   know (a models.json model without maxTokens)
-law facts_cap_omits_unknown:
+# LAW facts_cap_omits_only_the_default: a host whose rule leaves the default cap out (needs false)
+# omits only the default: its request carries a cap exactly when the
+# caller gave one, whatever the catalog's max and the window facts
+# EXCLUDES: the catalog's max sent to such a host (OpenRouter); a default
+#   left out only for some max or window (a max at or past the window) and
+#   sent for the others; a caller's cap dropped with the default
+law facts_cap_omits_only_the_default:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
-  for +needs: Bool
   for +win: Fx.Win
-  for h: {cap_unknown(caller, mm, needs, win) == True{} : Bool}
-  {Fx.cap(caller, mm, needs, win) == None{} : Maybe<&2, Nat>}
+  {cap_present(Fx.cap(caller, mm, False{}, win)) == cap_present(caller) : Bool}
 
-# LAW facts_cap_needs_never_omits: a wire API that needs the field (Anthropic Messages, Bedrock
-# Claude) always carries a cap
-# EXCLUDES: a request the provider refuses for a missing max_tokens
+# LAW facts_cap_omission_ignores_window_and_max: whether a request carries a cap never depends on the
+# catalog's max or the window facts: two requests with the same caller's
+# cap and the same needs both carry a cap or both carry none
+# EXCLUDES: a default cap left out when the catalog's max is at or past
+#   the window and sent when it is below; a cap left out for an unknown
+#   window (0) or a prompt that fills the window
+law facts_cap_omission_ignores_window_and_max:
+  for +caller: Maybe<&2, Nat>
+  for +needs: Bool
+  for +mm1: Nat
+  for +win1: Fx.Win
+  for +mm2: Nat
+  for +win2: Fx.Win
+  {cap_present(Fx.cap(caller, mm1, needs, win1)) == cap_present(Fx.cap(caller, mm2, needs, win2)) : Bool}
+
+# LAW facts_cap_needs_never_omits: a request to a host that takes the default cap (needs true)
+# always carries a cap
+# EXCLUDES: a request without max_tokens that the provider refuses
+#   (Anthropic Messages, Bedrock Claude) or cuts at its own small default
+#   (a local server)
 law facts_cap_needs_never_omits:
   for +caller: Maybe<&2, Nat>
   for +mm: Nat
   for +win: Fx.Win
   {cap_present(Fx.cap(caller, mm, True{}, win)) == True{} : Bool}
 
-# LAW facts_cap_example: anchor: the user's case and its neighbours at small scale: a catalog max
-# at the window without a caller's cap is omitted; a max far below the
-# window is sent whole; a long prompt shrinks it to the room; a model that
-# stops at the window is not shrunk; a wire API that needs the field
-# shrinks a max at the window
+# LAW facts_cap_example: anchor: the user's case and its neighbours at small scale. A host
+# that leaves the default cap out carries none, with a catalog max at the
+# window and with one far below it. A host that takes the default cap: a
+# max far below the window is sent whole; a long prompt shrinks it to the
+# room; a model that stops at the window is not shrunk; a max at the
+# window is sent, shrunk to the room, after a long prompt and after a
+# short one (the user's case). A caller's cap is sent to a host that
+# leaves the default cap out, here shrunk to the floor
 # EXCLUDES: a spec that is wrong on the cases the Rust tests pin
 law facts_cap_example:
   {Fx.cap(None{}, 64n, False{}, Fx.Win{64n, 30n, 4n, 1n, False{}}) == None{} : Maybe<&2, Nat>} &
-  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == Some{20n} : Maybe<&2, Nat>} &
-  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 90n, 4n, 1n, False{}}) == Some{6n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == None{} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == Some{20n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 90n, 4n, 1n, False{}}) == Some{6n} : Maybe<&2, Nat>} &
   {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 90n, 4n, 1n, True{}}) == Some{20n} : Maybe<&2, Nat>} &
   {Fx.cap(None{}, 64n, True{}, Fx.Win{64n, 30n, 4n, 1n, False{}}) == Some{30n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 64n, True{}, Fx.Win{64n, 3n, 4n, 1n, False{}}) == Some{57n} : Maybe<&2, Nat>} &
   {Fx.cap(Some{8n}, 64n, False{}, Fx.Win{64n, 99n, 4n, 1n, False{}}) == Some{1n} : Maybe<&2, Nat>}
 
 # LAW facts_aux_cap_within (the Nat range): : the compactor's cap is the thinking budget plus the
@@ -765,11 +793,12 @@ law facts_tier_price_codex_oracle:
 # (S6.10.5) The Bedrock reasoning fields are the rulebook's shape
 # ----------------------------------------------------------------
 # Rust reads the rulebook's `bedrock_reasoning` (the shape a family of
-# rulebook.json names: `claude`, `gpt`, `gpt-oss`) and the map's entry of
-# the level; the model decides the fields. The model's terms,
-# independently: a level's rank (minimal 0 .. max 5); GPT sends the
-# map's wire value, else the larger of low (2) and the rank plus one; gpt-oss
-# sends the smaller of high (4) and that default, never reading the map.
+# rulebook.json names: `claude`, `gpt`) and the map's entry of the level;
+# the model decides the fields (effort mode sends `reasoning.effort`,
+# every other reasoning model Anthropic's thinking block). The model's
+# terms, independently: a level's rank (minimal 0 .. max 5); GPT sends the
+# map's wire value, else the larger of low (2) and the rank plus one; a
+# model of no shape or of Claude's sends the thinking block.
 
 def reasoning_spec.rank(l: Fx.ELv) -> Nat:
   match l:
@@ -796,51 +825,36 @@ def reasoning_spec.wire(e: Maybe<&2, Maybe<&2, Nat>>, d: Nat) -> Nat:
     case Some{w}:
       Maybe.default(&2, Nat, w, d)
 
+def reasoning_spec.shaped(x: Fx.Shape, e: Maybe<&2, Maybe<&2, Nat>>, +l: Fx.ELv) -> Fx.RFields:
+  match x:
+    case Fx.SGpt{}:
+      Fx.RNested{reasoning_spec.wire(e, reasoning_spec.gpt(l))}
+    case Fx.SClaude{}:
+      Fx.RThinking{}
+
 def reasoning_spec(s: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, +l: Fx.ELv) -> Fx.RFields:
   match s:
-    case None{}:
-      Fx.RNone{}
     case Some{x}:
-      match x:
-        case Fx.SClaude{}:
-          Fx.RClaude{}
-        case Fx.SGpt{}:
-          Fx.RNested{reasoning_spec.wire(e, reasoning_spec.gpt(l))}
-        case Fx.SGptOss{}:
-          Fx.RFlat{Nat.min(4n, reasoning_spec.gpt(l))}
+      reasoning_spec.shaped(x, e, l)
+    case None{}:
+      Fx.RThinking{}
 
-# LAW facts_reasoning_exact: the Bedrock reasoning fields are exactly: none with no shape, Claude's for Claude, GPT's nested effort (the map's wire value, else low at minimal and low, then medium, high, xhigh, max), gpt-oss's flat effort (low at minimal and low, medium, high at high, xhigh and max; the map unread)
-# EXCLUDES: a shape read as another; the map read for gpt-oss or ignored for
-#   GPT; xhigh or max sent flat; a GPT level collapsed to high; a null entry
-#   sent as a wire string
+# LAW facts_reasoning_exact: the Bedrock reasoning fields are exactly: GPT's nested effort (the map's wire value, else low at minimal and low, then medium, high, xhigh, max); Anthropic's thinking block for Claude and for a model of no shape
+# EXCLUDES: a shape read as another; the map ignored for GPT; a GPT level
+#   collapsed to high; a null entry sent as a wire string; a reasoning
+#   model of no shape sent no reasoning field
 law facts_reasoning_exact:
   for s: Maybe<&2, Fx.Shape>
   for e: Maybe<&2, Maybe<&2, Nat>>
   for +l: Fx.ELv
   {Fx.reasoning(s, e, l) == reasoning_spec(s, e, l) : Fx.RFields}
 
-# LAW facts_reasoning_example: anchor, one per former branch of the Bedrock code: Claude (`anthropic.claude-opus-4-7`); gpt-oss (`openai.gpt-oss-120b`) sends low at minimal and high at xhigh, whatever its map; GPT (`openai.gpt-5.4`) sends xhigh and max as named, its map's string first, the default at a null entry; no shape (`amazon.nova-pro-v1:0`) sends nothing
-# EXCLUDES: a spec that is wrong on the cases the old Rust tests pinned
+# LAW facts_reasoning_example: anchor: Claude (`anthropic.claude-opus-4-7`) sends the thinking block; GPT (`openai.gpt-5.4`) sends xhigh and max as named, its map's string first, the default at a null entry; no shape (`amazon.nova-2-lite-v1:0`, `openai.gpt-oss-120b-1:0`) sends the thinking block
+# EXCLUDES: a spec that is wrong on the cases the Rust tests pin
 law facts_reasoning_example:
-  {Fx.reasoning(Some{Fx.SClaude{}}, None{}, Fx.EHigh{}) == Fx.RClaude{} : Fx.RFields} &
-  {Fx.reasoning(Some{Fx.SGptOss{}}, None{}, Fx.EMinimal{}) == Fx.RFlat{2n} : Fx.RFields} &
-  {Fx.reasoning(Some{Fx.SGptOss{}}, Some{Some{0n}}, Fx.EXhigh{}) == Fx.RFlat{4n} : Fx.RFields} &
+  {Fx.reasoning(Some{Fx.SClaude{}}, None{}, Fx.EHigh{}) == Fx.RThinking{} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, None{}, Fx.EXhigh{}) == Fx.RNested{5n} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, None{}, Fx.EMax{}) == Fx.RNested{6n} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, Some{Some{0n}}, Fx.EHigh{}) == Fx.RNested{0n} : Fx.RFields} &
   {Fx.reasoning(Some{Fx.SGpt{}}, Some{None{}}, Fx.EMinimal{}) == Fx.RNested{2n} : Fx.RFields} &
-  {Fx.reasoning(None{}, Some{Some{0n}}, Fx.EHigh{}) == Fx.RNone{} : Fx.RFields} &
-  {Fx.shape.old(True{}, True{}, True{}) == Some{Fx.SClaude{}} : Maybe<&2, Fx.Shape>} &
-  {Fx.shape.old(False{}, True{}, True{}) == Some{Fx.SGptOss{}} : Maybe<&2, Fx.Shape>}
-
-# LAW facts_bedrock_reasoning_oracle: for every model the old name checks place (a name with "claude",
-# "gpt-oss", "gpt-"), the fields of the shape the rulebook gives it are the fields the old code sent
-# EXCLUDES: the shape data ordered differently from the old checks (gpt-oss
-#   read as GPT, Claude as GPT), the effort tables changed by the move
-law facts_bedrock_reasoning_oracle:
-  for cl: Bool
-  for oss: Bool
-  for gpt: Bool
-  for e: Maybe<&2, Maybe<&2, Nat>>
-  for +l: Fx.ELv
-  {Fx.reasoning.old(cl, oss, gpt, e, l) == Fx.reasoning(Fx.shape.old(cl, oss, gpt), e, l) : Fx.RFields}
+  {Fx.reasoning(None{}, Some{Some{0n}}, Fx.EMinimal{}) == Fx.RThinking{} : Fx.RFields}

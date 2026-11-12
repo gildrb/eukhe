@@ -1,5 +1,5 @@
 {
-  description = "eukhe: coding agent with a memory of all things";
+  description = "The harness for the AGI era: an agent core proven with Bend, plugged into any product through its SDK";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

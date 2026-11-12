@@ -14,7 +14,6 @@ use std::time::Duration;
 use anyhow::{bail, Context as _};
 use eukhe_bend::rules::autoresearch::{Direction, Mode, Status};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_durable::harness::Harness;
 use eukhe_durable::types::ConversationId;
 use futures::FutureExt;
 use serde_json::Value;
@@ -154,7 +153,7 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
         Some(api) => api.conversation_id(),
         None => deps.harness.root().context("the Harness is closed")?.id(),
     };
-    follow_mode(&deps.harness.require()?, conversation, &reply).await?;
+    follow_mode(deps, conversation, &reply).await?;
     Ok(reply.value)
 }
 
@@ -163,12 +162,13 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
 /// autonomous run is on; stop it when the mode is off and the run on is
 /// the autoresearch one.
 pub(crate) async fn follow_mode(
-    harness: &Harness,
+    deps: &Arc<HostDeps>,
     conversation: ConversationId,
     reply: &Reply,
 ) -> anyhow::Result<()> {
     let cx = BACKGROUND_CONTEXT.clone();
-    let current = autonomous_state(harness, conversation, &cx).await?;
+    let harness = deps.harness.require()?;
+    let current = autonomous_state(&harness, conversation, &cx).await?;
     let ours = current.enabled && current.continuation_prompt == CONTINUATION;
     let change = match reply.mode {
         Mode::On if reply.started && !current.enabled => Some(AutonomousChange::On(continuation())),
@@ -176,7 +176,7 @@ pub(crate) async fn follow_mode(
         Mode::On | Mode::Off => None,
     };
     if let Some(change) = change {
-        set_autonomous(harness, conversation, change, &cx).await?;
+        set_autonomous(&harness, &deps.budget, conversation, change, &cx).await?;
     }
     Ok(())
 }
@@ -187,8 +187,8 @@ pub(crate) async fn follow_mode(
 const UNBOUNDED: u64 = (1 << 53) - 1;
 
 /// The autonomous run of the loop: the Lab's iteration cap and mode end
-/// it, so its own limits are the largest a durable document holds (about
-/// 285,000 years of timeout), never reached first.
+/// it, so its own limits are unbounded (its continuations the largest a
+/// durable document holds; it puts no limit on the session's budget).
 fn continuation() -> AgentAutonomousConfig {
     AgentAutonomousConfig {
         enabled: Some(true),

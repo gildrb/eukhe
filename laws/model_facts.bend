@@ -120,24 +120,17 @@ def mf.shape(s: Maybe<&2, Fx.Shape>, rest: String) -> String:
           Wr.put_nat(1n, rest)
         case Fx.SGpt{}:
           Wr.put_nat(2n, rest)
-        case Fx.SGptOss{}:
-          Wr.put_nat(3n, rest)
 
 def spell_reasoning(s: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, l: Fx.ELv) -> String:
   Wr.put_nat(4n, mf.shape(s, mf.ent(e, mf.elv(l, ""))))
 
-# the reply Rust reads: 0 none | 1 Claude | 2 then the nested effort | 3
-# then the flat effort
+# the reply Rust reads: 1 the thinking block | 2 then the nested effort
 def mf.rfields(f: Fx.RFields) -> String:
   match f:
-    case Fx.RNone{}:
-      Wr.put_nat(0n, "")
-    case Fx.RClaude{}:
+    case Fx.RThinking{}:
       Wr.put_nat(1n, "")
     case Fx.RNested{e}:
       Wr.put_nat(2n, Wr.put_nat(e, ""))
-    case Fx.RFlat{e}:
-      Wr.put_nat(3n, Wr.put_nat(e, ""))
 
 # every number Rust writes fits the wire
 def mf.ans_fits(a: If.Ans) -> Bool:
@@ -266,8 +259,8 @@ law model_facts_ffi_price:
   {FMF.ffi(spell_price(rows, m, t)) == mf.mnat(Fx.price(rows, m, t), "") : String}
 
 # LAW model_facts_ffi_reasoning: a reasoning request answers the model's Bedrock reasoning fields for the shape, the map's entry and the level
-# EXCLUDES: the shape, the entry or the level misread; the nested and flat
-#   efforts swapped in the reply; Claude's fields answered as none
+# EXCLUDES: the shape, the entry or the level misread; the nested effort
+#   answered as the thinking block or the other way round
 law model_facts_ffi_reasoning:
   for +s: Maybe<&2, Fx.Shape>
   for +e: Maybe<&2, Maybe<&2, Nat>>
@@ -286,13 +279,12 @@ law model_facts_ffi_example:
   {FMF.ffi("4,") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String} &
   {FMF.ffi("0,1,Fx") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String}
 
-# LAW model_facts_ffi_reasoning_example: anchor: the bytes Rust sends and reads for the Bedrock reasoning fields: Claude; gpt-oss at xhigh sends the flat high; GPT at max with no entry the nested max, at high with the map's string the nested code 0; no shape sends nothing; a shape past gpt-oss is refused
+# LAW model_facts_ffi_reasoning_example: anchor: the bytes Rust sends and reads for the Bedrock reasoning fields: Claude sends the thinking block; GPT at max with no entry the nested max, at high with the map's string the nested code 0; no shape sends the thinking block; a shape past GPT is refused
 # EXCLUDES: a codec that reads the shape, entry and level in another order
 #   than Rust writes them, or replies in another form than Rust reads
 law model_facts_ffi_reasoning_example:
   {FMF.ffi("4,1,0,3,") == "1," : String} &
-  {FMF.ffi("4,3,0,4,") == "3,4," : String} &
   {FMF.ffi("4,2,0,5,") == "2,6," : String} &
   {FMF.ffi("4,2,1,1,0,3,") == "2,0," : String} &
-  {FMF.ffi("4,0,1,0,0,") == "0," : String} &
-  {FMF.ffi("4,4,0,0,") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String}
+  {FMF.ffi("4,0,1,0,0,") == "1," : String} &
+  {FMF.ffi("4,3,0,0,") == SCon{'E', SCon{' ', "model facts: malformed request"}} : String}

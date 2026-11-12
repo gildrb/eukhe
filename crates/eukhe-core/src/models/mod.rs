@@ -9,6 +9,7 @@ pub mod allowlist;
 pub(crate) mod custom;
 pub mod image_model_routing;
 pub(crate) mod prime_inference;
+pub(crate) mod reference;
 pub(crate) mod registry;
 pub(crate) mod resolver;
 pub mod roles;
@@ -23,7 +24,7 @@ pub use prime_inference::{
 pub use resolver::{
     build_fallback_model, failover_candidates, find_exact_model_reference_match,
     find_initial_model, find_preferred_default_model, initial_model_unavailable_message,
-    resolve_cli_model, resolve_default, resolve_model_scope_from_models, saved_default_facts,
-    saved_default_miss, DefaultMiss, DefaultResolution, InitialModelOptions, ResolveCliModelResult,
-    SavedDefaultFacts, ScopedModel,
+    model_id_alias, resolve_cli_model, resolve_default, resolve_model_scope_from_models,
+    saved_default_facts, saved_default_miss, DefaultMiss, DefaultResolution, InitialModelOptions,
+    ResolveCliModelResult, SavedDefaultFacts, ScopedModel,
 };

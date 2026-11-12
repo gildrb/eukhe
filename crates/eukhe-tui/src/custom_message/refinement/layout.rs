@@ -38,7 +38,7 @@ impl Output {
     /// One expanded-content row set on the branch grammar: the first row
     /// carries the dim branch (`BRANCH`) gutter hanging off the event's
     /// header, every continuation row the three-space indent -- both after
-    /// the one-column chat margin (the same geometry the expanded ipython
+    /// the one-column chat margin (the same geometry the expanded python
     /// cell code and the agent-message body use).
     fn branch_text<'a>(
         &mut self,

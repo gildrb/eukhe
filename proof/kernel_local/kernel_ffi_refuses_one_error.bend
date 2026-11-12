@@ -28,8 +28,8 @@ def kfr.end(e: KL.End) -> {LawsBase.wire_opens_err(FKL.put_end(e, "")) == False{
 # no answer to a request opens with 'E'
 def kfr.answer(a: KL.Ask) -> {LawsBase.wire_opens_err(FKL.answer(a)) == False{} : Bool}:
   match a:
-    case KL.AskPlan{f, s}:
-      +xs = KL.plan(f, s)
+    case KL.AskPlan{uv, python, env}:
+      +xs = KL.plan(uv, python, env)
       Wire.wire_nat_not_err(List.length(&2, KL.Act, xs), FKL.put_acts.items(xs, ""))
     case KL.AskSweep{ls}:
       +bs = KL.keeps(ls)

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The kernel runtime's hash-locked requirements (eukhe-runtime/requirements-kernel.txt).
+"""Eukhe's kernel package lock (eukhe-runtime/requirements-kernel.txt).
 
-The kernel venv bootstrap installs this export of `eukhe-runtime/uv.lock`
-with `uv pip install --require-hashes --only-binary :all:`, then the runtime
-itself with `--no-deps --no-index --no-build-isolation`. This module is the
+A kernel installs a package of this export of `eukhe-runtime/uv.lock` the
+first time a cell imports it, with `uv pip install --require-hashes
+--only-binary :all:` and the file as constraints. This module is the
 offline gate over that file: every entry is an exact `name==version` pin
 carrying sha256 hashes (no editable, path, URL, or option lines that could
 point uv at an unpinned source), and — with `uv.lock` beside it — every pin

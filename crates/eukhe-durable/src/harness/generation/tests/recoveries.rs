@@ -549,11 +549,11 @@ async fn a_reply_with_stop_reason_stop_runs_its_tool_calls() {
     );
 }
 
-/// The `truncated` result of a call of `tick` in a reply of 4 output
-/// tokens.
+/// The `truncated` result of a call of `tick` in a reply of 5 output
+/// tokens (the faux provider's `o200k_base` count of its two calls).
 fn truncated(id: &str) -> String {
     format!(
-        "result:{id}:true:<harness>\n[error] Tool tick was not run: the reply hit the 4-token \
+        "result:{id}:true:<harness>\n[error] Tool tick was not run: the reply hit the 5-token \
          output limit, so its arguments may be cut. Make the call again with complete \
          arguments. For large content, write a minimal version first, then extend it with \
          edits.\n</harness>"

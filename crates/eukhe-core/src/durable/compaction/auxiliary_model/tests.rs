@@ -62,7 +62,7 @@ impl Setup {
             &self.notices,
             "compaction summary",
             &model("session-model", "faux", 8_000),
-            required_context_tokens,
+            |_| required_context_tokens,
         )
     }
 }
@@ -101,7 +101,7 @@ fn the_session_fallback_keeps_the_merged_headers() {
         &setup.notices,
         "compaction summary",
         &model("session-model", "prime-inference", 8_000),
-        None,
+        |_| None,
     );
     assert_eq!(summary(&routed), ("session-model", None, None));
     let headers = routed.headers.expect("the fallback keeps merged headers");
@@ -192,6 +192,54 @@ fn too_small_window_falls_back_and_a_fitting_one_routes() {
     assert_eq!(
         summary(&setup.resolve(Some(1_000))),
         ("aux-model", Some("aux-key"), None)
+    );
+}
+
+/// The request is counted with the tokenizer of the auxiliary model the
+/// window check asks about. A history of 200,000 CJK characters, which
+/// 3.5 characters per token put at 57,143 tokens and so within the
+/// auxiliary window (128000), is counted past it: the routing falls back
+/// instead of failing over-limit on the wire.
+#[test]
+fn a_cjk_history_counted_past_the_auxiliary_window_falls_back() {
+    let setup = Setup::new(&serde_json::json!({ "auxiliaryModel": "testaux/aux-model" }));
+    let cjk: String = (0..200_000u32)
+        .filter_map(|i| char::from_u32(0x4E00 + (i * 7919 % 0x5200)))
+        .collect();
+    let history = [eukhe_types::session::AgentMessage::User(
+        eukhe_types::ai::UserMessage {
+            content: eukhe_types::ai::UserContent::Text(cjk),
+            timestamp: 0,
+            rest: serde_json::Map::default(),
+        },
+    )];
+    let mut asked = None;
+    let routed = resolve_auxiliary_model(
+        &setup.context,
+        &setup.models,
+        &setup.notices,
+        "compaction summary",
+        &model("session-model", "faux", 8_000),
+        |model| {
+            asked = Some(model.id.clone());
+            Some(
+                crate::durable::compaction::summary_request::summary_request_tokens(
+                    &eukhe_ai::utils::context_tokens::model_tokenizer(model),
+                    &history,
+                    &[],
+                    false,
+                    None,
+                    None,
+                    None,
+                    1_000,
+                ),
+            )
+        },
+    );
+    let notice = "The auxiliaryModel setting \"testaux/aux-model\" was not used for the compaction summary: its context window is too small for the request. The session model faux/session-model ran it.";
+    assert_eq!(
+        (summary(&routed), asked.as_deref()),
+        (("session-model", None, Some(notice)), Some("aux-model"))
     );
 }
 

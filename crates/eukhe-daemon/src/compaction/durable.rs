@@ -4,20 +4,29 @@
 //! of the conversation. The `compaction_start`/`compaction_end` frames come
 //! from the event translator (the task's `pi.live` status), not from here.
 
+use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_core::durable::compaction::compaction_summary_text;
 use eukhe_core::durable::HostDeps;
 use eukhe_durable::entries::COMPACTION_ENTRY;
+use eukhe_durable::errors::ConversationBusy;
 use eukhe_durable::harness::agent::resolve_settings;
-use eukhe_durable::harness::compaction::{estimate_context, select_cut};
-use eukhe_durable::harness::types::{CompactionResult, ContextView};
+use eukhe_durable::harness::compaction::{context_tokens, select_cut};
+use eukhe_durable::harness::types::{
+    CompactionResult, ContextView, ConversationAbortOptions, InputSubmissionDraft, WhenBusy,
+};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, LiveState, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::SubmissionState;
 use eukhe_durable::types::{
     DocumentReaderExt, EntryId, EntryRecord, TaskId, TaskOutcome, WriteSubmission,
 };
+use eukhe_tokens::Tokenizer;
+use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::pi_ai::UserContent;
+
+use crate::worker::durable_host::bridge::{inbox_previews, QueuedInput};
 
 /// The skip of a session with no history before the keep window (TS
 /// `CompactionSkippedError`).
@@ -81,25 +90,29 @@ pub(crate) async fn run_manual_compaction(
     if already_compacted(&view) {
         return Err(ManualCompactionError::Skipped(ALREADY_COMPACTED));
     }
-    let window = conversation
+    let model = conversation
         .agent(cx)
         .await
         .map_err(|error| ManualCompactionError::session(&error))?
         .model
-        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id))
-        .map_or(0, |model| model.context_window);
+        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id));
+    let window = model.as_ref().map_or(0, |model| model.context_window);
+    let tokenizer = model
+        .as_ref()
+        .map_or_else(Tokenizer::unknown_model, model_tokenizer);
     let policy = resolve_settings(Some(&deps.settings.harness())).compaction;
-    if select_cut(&view, &policy, window).is_none() {
+    if select_cut(&view, &policy, window, &tokenizer).is_none() {
         return Err(ManualCompactionError::Skipped(TOO_SHORT_TO_COMPACT));
     }
     let task = conversation
         .compact(instructions, cx)
         .await
         .map_err(|error| ManualCompactionError::session(&error))?;
-    // The context estimate before the summary (TS `tokensBefore`), over the
-    // view read above: computed after the task commit, so the
-    // `compaction_start` frame never waits on it.
-    let tokens_before = estimate_context(&view, &[]);
+    // The context size before the summary (TS `tokensBefore`), counted
+    // over the view read above with the session model's tokenizer:
+    // computed after the task commit, so the `compaction_start` frame
+    // never waits on it.
+    let tokens_before = context_tokens(&view, &[], &tokenizer);
     let settled = harness
         .wait_for_task(task, cx)
         .await
@@ -219,6 +232,70 @@ pub(crate) async fn abort_compactions(
         harness.abort_task(*task, cx).await?;
     }
     Ok(tasks)
+}
+
+/// The auto-continue prompt: the input
+/// that resumes a turn a manual compaction interrupted when nothing queued
+/// drives it.
+pub(crate) const AUTO_CONTINUE_PROMPT: &str = "Resume the user's latest intent. Re-read kept recent messages above the summary to confirm the latest request. If it supersedes earlier plans in the summary, follow it. If no work remains, say so briefly; do not invent work.";
+
+/// Abort the running turn of `conversation` for a manual compaction and
+/// answer the inputs queued behind it. The abort withdraws them, but a
+/// compaction keeps the queues: the caller submits them
+/// again once the compaction ended (`resubmit_queued`).
+///
+/// # Errors
+///
+/// The `pi.inbox` read or the abort fails.
+pub(crate) async fn interrupt_turn(
+    harness: &Harness,
+    conversation: &Conversation,
+    cx: &Context,
+) -> SessionResult<Vec<QueuedInput>> {
+    let queued = inbox_previews(harness, conversation.id(), cx).await?;
+    conversation
+        .abort(ConversationAbortOptions::default(), cx)
+        .await?;
+    Ok(queued)
+}
+
+/// Whether a manual compaction that interrupted a turn resumes it: one
+/// that compacted, or was skipped as a no-op (too short, already
+/// compacted); a cancel or a failure leaves the turn stopped.
+pub(crate) fn resumes_interrupted_turn(
+    outcome: &Result<eukhe_types::daemon::CompactionResult, ManualCompactionError>,
+) -> bool {
+    matches!(outcome, Ok(_) | Err(ManualCompactionError::Skipped(_)))
+}
+
+/// Resume the turn a manual compaction interrupted with the
+/// auto-continue prompt. Queued input drives the resume instead: the
+/// prompt is admitted only on
+/// an idle conversation with nothing queued, so the resubmitted inputs, a
+/// goal continuation, or a prompt sent during the compaction take the
+/// session first. Answers whether the prompt was admitted.
+///
+/// # Errors
+///
+/// The admission fails for another reason than a busy conversation.
+pub(crate) async fn submit_auto_continue(
+    conversation: &Conversation,
+    cx: &Context,
+) -> SessionResult<bool> {
+    let draft = InputSubmissionDraft {
+        request_id: None,
+        content: UserContent::Text(AUTO_CONTINUE_PROMPT.to_owned()),
+        when_busy: Some(WhenBusy::Reject),
+        origin: InputOrigin::CompactionResume,
+        entry: None,
+    };
+    match conversation.submit(draft, cx).await {
+        Ok(_) => Ok(true),
+        Err(SessionError::Other(inner)) if inner.downcast_ref::<ConversationBusy>().is_some() => {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]

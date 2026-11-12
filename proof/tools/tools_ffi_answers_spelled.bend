@@ -3,8 +3,7 @@
 # PROOF: the entry's segment codes are the spec's (tas.codes), so the
 # spec's spelling of a path is the entry's put_req (tas.req) and its fit
 # the entry's (tas.fits); the entry answers it with put_names of
-# Tl.resolve, the walk is the spec's reach (tas.walk, by induction on the
-# segments) and put_names spells the names as the spec does (tas.names).
+# Tl.resolve, and put_names spells the names as the spec does (tas.names).
 
 import Base
 import ../../bend/ffi_tools.bend as FTl
@@ -45,32 +44,6 @@ def tas.fits(+gs: List<&2, Tl.Seg>, fits: {Tools.tools_req_fits(gs) == True{} : 
   %Equal.sym(List<&2, Nat>, FTl.codes(gs), Tools.tools_seg_codes(gs), tas.codes(gs)) : {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, _)), LawsBase.wire_nats_fit(Tools.tools_seg_codes(gs))) == True{} : Bool}
   fits
 
-# the reach from no names is no names
-def tas.none(gs: List<&2, Tl.Seg>) -> {Tools.tools_reach(gs, None{}) == None{} : Maybe<&2, List<&2, Nat>>}:
-  match gs:
-    case Nil{}:
-      {==}
-    case g <> rest:
-      tas.none(rest)
-
-# the walk is the spec's reach
-def tas.walk(gs: List<&2, Tl.Seg>, at: List<&2, Nat>) -> {Tl.walk(gs, at) == Tools.tools_reach(gs, Some{at}) : Maybe<&2, List<&2, Nat>>}:
-  match gs:
-    case Nil{}:
-      {==}
-    case g <> rest:
-      match g:
-        case Tl.Name{n}:
-          tas.walk(rest, n <> at)
-        case Tl.Here{}:
-          tas.walk(rest, at)
-        case Tl.Up{}:
-          match at:
-            case Nil{}:
-              Equal.sym(Maybe<&2, List<&2, Nat>>, Tools.tools_reach(rest, None{}), None{}, tas.none(rest))
-            case a <> above:
-              tas.walk(rest, above)
-
 # the entry spells the names as the spec does
 def tas.names(m: Maybe<&2, List<&2, Nat>>) -> {FTl.put_names(m, "") == Tools.tools_spell_names(m) : String}:
   match m:
@@ -82,8 +55,7 @@ def tas.names(m: Maybe<&2, List<&2, Nat>>) -> {FTl.put_names(m, "") == Tools.too
 
 # the entry's reply to a path read whole is the spec's answer
 def tas.names_resolve(+gs: List<&2, Tl.Seg>) -> {FTl.put_names(Tl.resolve(gs), "") == Tools.tools_spell_answer(gs) : String}:
-  %tas.walk(gs, Nil{}) : {FTl.put_names(Tl.walk(gs, Nil{}), "") == Tools.tools_spell_names(_) : String}
-  tas.names(Tl.walk(gs, Nil{}))
+  tas.names(Tl.resolve(gs))
 
 # the entry reads its own spelling of a path back whole (the round trip)
 # and answers put_names of Tl.resolve

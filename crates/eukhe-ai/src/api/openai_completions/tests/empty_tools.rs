@@ -151,28 +151,31 @@ async fn sends_explicit_max_tokens() {
     assert_eq!(params.get("max_completion_tokens"), Some(&json!(1234)));
 }
 
+/// The prompt is 8,000 `x`: 1,000 `o200k_base` tokens, padded by a tenth
+/// and one message's 16 framing tokens to 1,116; the cap is the room under
+/// the 8,900-token window after it and 64 tokens of headway.
 #[tokio::test]
 async fn clamps_default_max_tokens_to_remaining_context() {
-    let model = gpt_4o_mini_completions(&json!({ "contextWindow": 10000, "maxTokens": 8000 }));
+    let model = gpt_4o_mini_completions(&json!({ "contextWindow": 8900, "maxTokens": 8000 }));
     let ctx = context(json!({
         "messages": [{ "role": "user", "content": "x".repeat(8000), "timestamp": 1 }],
     }));
     let params = simple_payload(&model, &ctx, None).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(7720)));
 }
 
 #[tokio::test]
 async fn clamps_explicit_max_tokens_to_remaining_context() {
-    let model = gpt_4o_mini_completions(&json!({ "contextWindow": 10000, "maxTokens": 8000 }));
+    let model = gpt_4o_mini_completions(&json!({ "contextWindow": 8900, "maxTokens": 8000 }));
     let ctx = context(json!({
         "messages": [{ "role": "user", "content": "x".repeat(8000), "timestamp": 1 }],
     }));
-    let params = simple_payload(&model, &ctx, Some(7000)).await;
+    let params = simple_payload(&model, &ctx, Some(7800)).await;
 
     assert_eq!(params.get("max_tokens"), None);
-    assert_eq!(params.get("max_completion_tokens"), Some(&json!(3618)));
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(7720)));
 }
 
 /// eukhe addition: a custom model on a loopback OpenAI-compatible server
@@ -203,11 +206,44 @@ async fn loopback_custom_models_omit_the_store_field() {
     assert_eq!(params.get("store"), Some(&json!(false)));
 }
 
-/// eukhe addition: a reasoning model on a loopback server sends its system
-/// prompt as `system` — vLLM/SGLang reject the `developer` role with a 400
-/// ("Supported message roles: system, user, assistant, tool").
+/// A Qwen-family model sends no `store` on any host (a Qwen model counts as
+/// a non-standard host): a self-hosted server with a strict request schema
+/// rejects the field with a 400.
 #[tokio::test]
-async fn loopback_reasoning_models_send_the_system_role() {
+async fn qwen_models_omit_the_store_field_on_any_host() {
+    let qwen = gpt_4o_mini_completions(&json!({
+        "id": "qwen3.8-27b",
+        "name": "Qwen3.8 27B",
+        "provider": "elpis",
+        "baseUrl": "https://server.example.ts.net/v1",
+    }));
+    let other = gpt_4o_mini_completions(&json!({
+        "id": "gemma-3-27b",
+        "name": "Gemma 3 27B",
+        "provider": "elpis",
+        "baseUrl": "https://server.example.ts.net/v1",
+    }));
+    assert_eq!(
+        [
+            simple_payload(&qwen, &hi_context(), None)
+                .await
+                .get("store")
+                .cloned(),
+            simple_payload(&other, &hi_context(), None)
+                .await
+                .get("store")
+                .cloned(),
+        ],
+        [None, Some(json!(false))]
+    );
+}
+
+/// A reasoning model on a self-hosted server sends its system prompt as
+/// `system`, on any address: vLLM/SGLang reject the `developer` role with
+/// a 400 ("Supported message roles: system, user, assistant, tool"), and
+/// only the `OpenAI` host takes it.
+#[tokio::test]
+async fn self_hosted_reasoning_models_send_the_system_role() {
     let system_role = |base_url: &str| {
         let model = gpt_4o_mini_completions(&json!({
             "provider": "local",
@@ -223,17 +259,20 @@ async fn loopback_reasoning_models_send_the_system_role() {
         }
     };
     assert_eq!(
-        system_role("http://127.0.0.1:18020/v1").await,
-        json!("system")
-    );
-    assert_eq!(
-        system_role("http://localhost:18020/v1").await,
-        json!("system")
-    );
-    // A non-loopback standard endpoint keeps the detected developer role.
-    assert_eq!(
-        system_role("http://10.0.0.7:18020/v1").await,
-        json!("developer")
+        [
+            system_role("http://127.0.0.1:18020/v1").await,
+            system_role("http://localhost:18020/v1").await,
+            system_role("http://10.0.0.7:18020/v1").await,
+            system_role("https://server.example.ts.net/v1").await,
+            system_role("https://api.openai.com/v1").await,
+        ],
+        [
+            json!("system"),
+            json!("system"),
+            json!("system"),
+            json!("system"),
+            json!("developer"),
+        ]
     );
 }
 
@@ -259,9 +298,11 @@ async fn uses_conservative_openai_compatible_fields_for_cloudflare_ai_gateway_co
 
     let params = request.json();
     assert_eq!(params["messages"][0]["role"], json!("system"));
-    assert_eq!(params.get("max_tokens"), Some(&json!(1234)));
-    assert_eq!(params.get("max_completion_tokens"), None);
-    assert_eq!(params.get("reasoning_effort"), None);
+    // Cloudflare is not a `max_tokens` host.
+    assert_eq!(params.get("max_completion_tokens"), Some(&json!(1234)));
+    assert_eq!(params.get("max_tokens"), None);
+    // Workers AI takes `reasoning_effort`.
+    assert_eq!(params.get("reasoning_effort"), Some(&json!("high")));
     assert_eq!(params.get("store"), None);
 
     assert_eq!(

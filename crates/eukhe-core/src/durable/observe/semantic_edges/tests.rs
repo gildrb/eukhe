@@ -330,3 +330,46 @@ async fn turn_requests_carry_both_headers_and_settle_by_stop_reason() {
         ]
     );
 }
+
+/// A call that already carries an `Idempotency-Key` (an exactly-once
+/// request's, the same on every send) keeps it; the request-id header is
+/// still the minted id.
+#[tokio::test]
+async fn a_keyed_call_keeps_its_idempotency_key() {
+    let (identity, _dir) = identity("session-k");
+    let recorder = Arc::new(SemanticEdgeRecorder::open(identity));
+    let (captured, stop_fn) = capturing_stream_fn(vec![terminal_event(StopReason::Stop)]);
+    let mut options = ProviderStreamOptions::default();
+    options.stream.request.headers = Some(
+        [(
+            IDEMPOTENCY_KEY_HEADER.to_string(),
+            Some("request-key".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let stream = wrap_stream_fn(Arc::clone(&recorder), stop_fn)(
+        &test_model(),
+        &TranscriptContext::from_normalized_messages(Vec::new()),
+        options,
+    );
+    stream.result().await;
+    let headers = captured.lock().unwrap()[0]
+        .stream
+        .request
+        .headers
+        .clone()
+        .expect("the wrapped call carries headers");
+    assert_eq!(
+        headers
+            .get(IDEMPOTENCY_KEY_HEADER)
+            .and_then(|value| value.as_deref()),
+        Some("request-key")
+    );
+    assert_eq!(
+        headers
+            .get(MODEL_REQUEST_ID_HEADER)
+            .and_then(|value| value.as_deref()),
+        recorder.last_turn_request_id().as_deref()
+    );
+}

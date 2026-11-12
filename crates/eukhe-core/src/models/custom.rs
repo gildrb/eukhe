@@ -418,14 +418,22 @@ impl ProviderConfig {
                     "cacheWrite": cost.cache_write.unwrap_or(0.0),
                 }),
             );
-            // Without `maxTokens` the window is the model's only known
-            // limit: the output cap rule then omits the field and the
-            // provider's own max applies (no made-up cap).
-            let context_window = definition.context_window.unwrap_or(128_000);
-            object.insert("contextWindow".to_owned(), json!(context_window));
+            // A limit the definition leaves out is the limit of the
+            // built-in catalog model the id names, else the default.
+            let reference = super::reference::limits(&definition.id);
+            object.insert(
+                "contextWindow".to_owned(),
+                json!(definition
+                    .context_window
+                    .or(reference.map(|limits| limits.context_window))
+                    .unwrap_or(128_000)),
+            );
             object.insert(
                 "maxTokens".to_owned(),
-                json!(definition.max_tokens.unwrap_or(context_window)),
+                json!(definition
+                    .max_tokens
+                    .or(reference.map(|limits| limits.max_tokens))
+                    .unwrap_or(16_384)),
             );
             if let Some(headers) = definition.headers.as_ref().filter(|h| !h.is_empty()) {
                 object.insert("headers".to_owned(), json!(headers));
@@ -761,6 +769,9 @@ mod tests {
         );
     }
 
+    /// A definition whose id names no catalog model takes the default
+    /// limits (a 128000 window, 16384 output tokens) and stays
+    /// catalog-like: only a configured value is explicit.
     #[test]
     fn parses_custom_models_with_defaults() {
         let config = provider(
@@ -768,18 +779,52 @@ mod tests {
                 "baseUrl": "http://localhost:11434",
                 "apiKey": "none",
                 "api": "openai-completions",
-                "models": [ { "id": "llama3", "name": "Llama 3" }, { "id": "bare" } ]
+                "models": [ { "id": "house-chat", "name": "House Chat" }, { "id": "bare" } ]
             } } }"#,
         );
         let models = config.custom_models("ollama", None).unwrap();
-        assert_eq!(models[0].id, "llama3");
+        assert_eq!(models[0].id, "house-chat");
         assert_eq!(models[0].base_url, "http://localhost:11434");
-        assert_eq!(models[0].context_window, 128_000);
-        // A custom model that omits `maxTokens` takes its context window
-        // (the only limit it declares) and stays catalog-like: only a
-        // configured value is explicit.
-        assert_eq!(models[1].max_tokens, 128_000);
+        assert_eq!(
+            (models[1].context_window, models[1].max_tokens),
+            (128_000, 16_384)
+        );
         assert!(!config.configures_max_tokens("bare"));
+    }
+
+    /// Regression (user report: a local `qwen3.8-27b` without `maxTokens`
+    /// sent no output cap, the server cut every reply at its own default
+    /// of 4096): a definition whose id names a built-in catalog model
+    /// takes the limits it leaves out from that model; a configured limit
+    /// wins.
+    #[test]
+    fn a_custom_model_takes_the_limits_it_leaves_out_from_the_catalog_model_of_its_id() {
+        let catalog = crate::models::ModelRegistry::built_in_catalog_models()
+            .iter()
+            .find(|model| !model.id.starts_with('@'))
+            .unwrap();
+        let reference = crate::models::reference::limits(&catalog.id).unwrap();
+        let config = provider(&format!(
+            r#"{{ "providers": {{ "local": {{
+                "baseUrl": "http://vllm.example.test:8000/v1", "apiKey": "none",
+                "api": "openai-completions",
+                "models": [ {{ "id": "{id}" }}, {{ "id": "[Local] {id}", "maxTokens": 777 }} ]
+            }} }} }}"#,
+            id = catalog.id
+        ));
+        let limits: Vec<(u64, u64)> = config
+            .custom_models("local", None)
+            .unwrap()
+            .iter()
+            .map(|model| (model.context_window, model.max_tokens))
+            .collect();
+        assert_eq!(
+            limits,
+            [
+                (reference.context_window, reference.max_tokens),
+                (reference.context_window, 777)
+            ]
+        );
     }
 
     /// TS `thinkingLevelMap: modelDef.thinkingLevelMap`: a model

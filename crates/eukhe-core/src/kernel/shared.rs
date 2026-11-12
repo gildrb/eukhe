@@ -335,7 +335,7 @@ impl CellJob {
     }
 }
 
-/// The durable tool call (`ipython` invocation) that runs a kernel cell.
+/// The durable tool call (`python` invocation) that runs a kernel cell.
 pub type KernelCallContext = Arc<dyn eukhe_durable::harness::types::ToolExecutionApi>;
 
 /// A typed request from Python code running in the kernel to the host.
@@ -349,15 +349,17 @@ pub struct HostRequestPayload {
 
 /// One host request as a [`KernelHostDispatch`] receives it: the request
 /// type, the payload with `cellSourceCode` merged in when known, the cell
-/// source on its own, and the durable call running the requesting cell
+/// source on its own, the durable call running the requesting cell
 /// (`None` when no cell is active, e.g. a detached task after its cell
-/// settled).
+/// settled), and that cell's stop signal ([`ExecuteOptions::signal`]) when
+/// the cell itself (its code or a task it created) sent the request.
 #[derive(Clone)]
 pub struct KernelHostRequest {
     pub request_type: String,
     pub data: Value,
     pub cell_source_code: Option<String>,
     pub call: Option<KernelCallContext>,
+    pub signal: Option<crate::kernel::cancellation::AbortSignal>,
 }
 
 /// Answers kernel host requests per request, looking the handler up at

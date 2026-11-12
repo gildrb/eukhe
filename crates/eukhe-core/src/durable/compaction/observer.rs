@@ -58,6 +58,12 @@ use crate::durable::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
 /// the retried request fit (TS `_checkCompaction` text).
 pub const OVERFLOW_RECOVERY_FAILED: &str = "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.";
 
+/// The reported skip of a run that ended on a context overflow with
+/// nothing to cut: its newest turn alone does not fit, so the user must
+/// shrink it or switch models (the compaction dead-end warning, naming
+/// both remedies).
+pub const OVERFLOW_TURN_TOO_LARGE: &str = "Auto-compaction skipped: The most recent turn alone is too large to reduce further; shrink it (e.g. clear large tool output) or switch to a larger-context model.";
+
 static OUTCOMES_DOC: ConversationDoc<OutcomesState> = match ConversationDoc::define(
     DocDefinition {
         kind: "eukhe.compaction.outcomes",
@@ -264,7 +270,8 @@ fn overflow_ends_run(entry: &EntryRecord, publication: &CommitPublication) -> bo
 /// The reported outcome of a run that ended on a context overflow: the
 /// failed-recovery row when the run already compacted for an overflow
 /// (pi-durable retries once), else the skip row when compaction is enabled
-/// (nothing to cut). Disabled compaction reports nothing.
+/// (nothing to cut: the newest turn alone overflows). Disabled compaction
+/// reports nothing.
 async fn report_overflow(
     runtime: &Arc<CompactionRuntime>,
     conversation_id: ConversationId,
@@ -293,10 +300,7 @@ async fn report_overflow(
         )
     } else {
         (
-            format!(
-                "Auto-compaction skipped: {}",
-                skip_message(&conversation, &cx).await
-            ),
+            OVERFLOW_TURN_TOO_LARGE.to_owned(),
             CompactionOutcomeKind::Skipped,
         )
     };

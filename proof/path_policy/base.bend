@@ -77,37 +77,6 @@ def pp.ids_same(xs: List<&2, Nat>, ys: List<&2, Nat>) -> {Tl.ids.eq(xs, ys) == P
           %pp.ids_same(xr, yr) : {Bool.and(Nat.is_eq(x, y), Tl.ids.eq(xr, yr)) == Bool.and(Nat.is_eq(x, y), _) : Bool}
           {==}
 
-# under is the spec's pp_at_or_above
-def pp.under_spec(+p: List<&2, Nat>, at: List<&2, Nat>) -> {Pp.under(p, at) == PathPolicy.pp_at_or_above(p, at) : Bool}:
-  match at:
-    case Nil{}:
-      pp.ids_same(p, Nil{})
-    case +x <> +r:
-      %pp.ids_same(p, x <> r) : {Bool.or(Tl.ids.eq(p, x <> r), Pp.under(p, r)) == Bool.or(_, PathPolicy.pp_at_or_above(p, r)) : Bool}
-      %pp.under_spec(p, r) : {Bool.or(Tl.ids.eq(p, x <> r), Pp.under(p, r)) == Bool.or(Tl.ids.eq(p, x <> r), _) : Bool}
-      {==}
-
-# any_under is the spec's pp_under_any
-def pp.any_under_spec(ps: List<&2, List<&2, Nat>>, +at: List<&2, Nat>) -> {Pp.any_under(ps, at) == PathPolicy.pp_under_any(ps, at) : Bool}:
-  match ps:
-    case Nil{}:
-      {==}
-    case +p <> rest:
-      %pp.under_spec(p, at) : {Bool.or(Pp.under(p, at), Pp.any_under(rest, at)) == Bool.or(_, PathPolicy.pp_under_any(rest, at)) : Bool}
-      %pp.any_under_spec(rest, at) : {Bool.or(Pp.under(p, at), Pp.any_under(rest, at)) == Bool.or(Pp.under(p, at), _) : Bool}
-      {==}
-
-# any_ancestor is the spec's pp_above_any
-def pp.any_ancestor_spec(ps: List<&2, List<&2, Nat>>, +at: List<&2, Nat>) -> {Pp.any_ancestor(ps, at) == PathPolicy.pp_above_any(ps, at) : Bool}:
-  match ps:
-    case Nil{}:
-      {==}
-    case +p <> rest:
-      %pp.under_spec(at, p) : {Bool.or(Bool.and(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p))), Pp.any_ancestor(rest, at)) == Bool.or(Bool.and(_, Bool.not(PathPolicy.pp_same(at, p))), PathPolicy.pp_above_any(rest, at)) : Bool}
-      %pp.ids_same(at, p) : {Bool.or(Bool.and(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p))), Pp.any_ancestor(rest, at)) == Bool.or(Bool.and(Pp.under(at, p), Bool.not(_)), PathPolicy.pp_above_any(rest, at)) : Bool}
-      %pp.any_ancestor_spec(rest, at) : {Bool.or(Bool.and(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p))), Pp.any_ancestor(rest, at)) == Bool.or(Bool.and(Pp.under(at, p), Bool.not(Tl.ids.eq(at, p))), _) : Bool}
-      {==}
-
 # the class picked is a secret exactly when the secret test holds
 def pp.pick_secret(s: Bool, p: Bool, i: Bool) -> {Pp.Cls.secret(Pp.cls.pick(s, p, i)) == s : Bool}:
   match s:
@@ -124,10 +93,10 @@ def pp.pick_secret(s: Bool, p: Bool, i: Bool) -> {Pp.Cls.secret(Pp.cls.pick(s, p
             case False{}:
               {==}
 
-# the class of a real path is a secret exactly when a secret entry of the
-# policy is at or above it
-def pp.class_of_secret(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +at: List<&2, Nat>) -> {Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, at)) == PathPolicy.pp_under_any(se, at) : Bool}:
-  Equal.trans(Bool, Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, at)), Pp.any_under(se, at), PathPolicy.pp_under_any(se, at), pp.pick_secret(Pp.any_under(se, at), Pp.protects(Pp.Pol{ro, ru, se}, at), Pp.any_under(ro, at)), pp.any_under_spec(se, at))
+# the class of a real path is a secret exactly when the model's secret
+# test holds
+def pp.class_of_secret(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +at: List<&2, Nat>) -> {Pp.Cls.secret(Pp.class_of(Pp.Pol{ro, ru, se}, at)) == Pp.any_under(se, at) : Bool}:
+  pp.pick_secret(Pp.any_under(se, at), Pp.protects(Pp.Pol{ro, ru, se}, at), Pp.any_under(ro, at))
 
 # 6. The entry, spelled
 # ---------------------
@@ -203,7 +172,5 @@ def pp.cls_eq(c: Pp.Cls) -> {FPp.cls(c) == PathPolicy.pp_cls_tag(c) : Nat}:
 
 # the entry's reply to the model's judgment is the spec's spelled answer
 def pp.reply_spec(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, +at: List<&2, Nat>, +l: Bool) -> {FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") == PathPolicy.pp_spell_answer(FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}) : String}:
-  %pp.cls_eq(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}))) : {FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") == Wr.put_nat(_, Wr.put_bool(Bool.or(PathPolicy.pp_under_any(se, at), PathPolicy.pp_above_any(se, at)), "")) : String}
-  %pp.any_under_spec(se, at) : {FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") == Wr.put_nat(FPp.cls(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}))), Wr.put_bool(Bool.or(_, PathPolicy.pp_above_any(se, at)), "")) : String}
-  %pp.any_ancestor_spec(se, at) : {FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") == Wr.put_nat(FPp.cls(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}))), Wr.put_bool(Bool.or(Pp.any_under(se, at), _), "")) : String}
+  %pp.cls_eq(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}))) : {FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") == Wr.put_nat(_, Wr.put_bool(Pp.Judged.holds(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l})), "")) : String}
   {==}

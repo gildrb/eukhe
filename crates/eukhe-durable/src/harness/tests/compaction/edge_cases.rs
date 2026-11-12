@@ -22,17 +22,17 @@ use crate::errors::StorageError;
 use crate::harness::events::{watch_events, AgentEvent};
 use crate::harness::live::{CompactionStatus, LiveState, LIVE_DOC};
 use crate::harness::tests::chat_support::open_chat;
-use crate::harness::tests::chat_support::{all_entries, chat_setup, wait_for};
+use crate::harness::tests::chat_support::{all_entries, chat_setup, text_of, wait_for};
 use crate::harness::tests::support::{add_hooks, add_section, compaction_task, context};
 use crate::harness::tests::task_support::deferred;
 use crate::harness::types::{
     AgentChange, BackgroundMargin, CompactionDecision, CompactionHooks, CompactionPolicy,
-    CompactionReason, CompactionResult, FieldChange, ModelRef, ThresholdTokens,
+    CompactionReason, CompactionResult, ContextOptions, FieldChange, ModelRef, ThresholdTokens,
 };
 use crate::harness::usage::{UsageState, USAGE_DOC};
 use crate::session::tests::support::ControlledStorage;
 use crate::session::SessionEnd;
-use crate::types::{Storage, SubmissionStatus, TaskId, TaskOutcome};
+use crate::types::{ContextEditAction, Storage, SubmissionStatus, TaskId, TaskOutcome};
 
 fn task_id(id: crate::types::TaskId) -> TaskId<CompactionResult> {
     TaskId::from_number(id.get())
@@ -244,11 +244,11 @@ async fn fails_an_overflow_run_with_its_text_when_its_compaction_is_aborted_dire
     }
 }
 
-/// A length stop is no overflow: it starts no compaction. Its cut text is
-/// not the answer either (the `LengthStop` Director): the run asks again,
-/// and the next reply answers.
+/// A length stop is no overflow: it starts no compaction. With text and
+/// room left in the window it is the run's answer (the `LengthStop`
+/// Director lets it stand): the run sends no further request.
 #[tokio::test]
-async fn treats_a_length_stop_as_a_cut_reply_not_an_overflow() {
+async fn treats_a_length_stop_with_room_in_the_window_as_the_answer_not_an_overflow() {
     let chat = open(OpenOptions::default()).await;
     history(&chat).await;
     chat.set_policy(CompactionPolicy {
@@ -259,14 +259,254 @@ async fn treats_a_length_stop_as_a_cut_reply_not_an_overflow() {
         error_message: Some(OVERFLOW.to_owned()),
         ..with_stop("cut short", StopReason::Length)
     });
+    chat.faux.agent(with_stop("unused", StopReason::Stop));
+    let requests = chat.faux.agent_requests().len();
+    let input = submit(&chat, "go").await;
+    assert_eq!(
+        (
+            input.wait(context()).await.unwrap().state.status(),
+            chat.faux.agent_requests().len() - requests,
+            chat.faux.summary_requests().len()
+        ),
+        (SubmissionStatus::Done, 1, 0)
+    );
+    chat.harness.close(context()).await.unwrap();
+}
+
+/// A length stop with text that ran into the context window (a
+/// 9000-token window; its prompt and 600 output tokens within 8192 of it,
+/// below the catalog max of 900) is not kept: the window is what ran out,
+/// so the run compacts and sends the request again, with no note (law
+/// `stop_cut_full_compacts`). The cut reply fails with its reason and is
+/// not sent again; the next reply answers.
+#[tokio::test]
+async fn compacts_when_a_length_stop_with_text_ran_into_the_window() {
+    let chat = open(OpenOptions {
+        context_window: Some(9_000),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(CompactionPolicy {
+        enabled: true,
+        ..MANUAL
+    });
+    let cut = text("plan", 600);
+    chat.faux.agent(with_stop(cut.as_str(), StopReason::Length));
+    chat.faux.summary(summary("SUMMARY"));
     chat.faux.agent(with_stop("done", StopReason::Stop));
     let input = submit(&chat, "go").await;
     assert_eq!(
         input.wait(context()).await.unwrap().state.status(),
         SubmissionStatus::Done
     );
-    assert!(chat.faux.summary_requests().is_empty());
+    let retry = chat.faux.last_agent_messages();
+    let stops: Vec<_> = all_entries(&chat.root, context())
+        .await
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry.model.iter().flatten())
+        .filter_map(Message::as_assistant)
+        .rev()
+        .take(2)
+        .map(|message| (message.stop_reason, message.error_message.clone()))
+        .collect();
+    assert_eq!(
+        (
+            chat.faux.summary_requests().len(),
+            user_text(
+                retry
+                    .iter()
+                    .rev()
+                    .find(|message| matches!(message, Message::User(_)))
+            ),
+            retry
+                .iter()
+                .any(|message| text_of(Some(message)).as_deref() == Some(cut.as_str())),
+            stops
+        ),
+        (
+            1,
+            "go".to_owned(),
+            false,
+            vec![
+                (StopReason::Stop, None),
+                (
+                    StopReason::Error,
+                    Some(
+                        "The model ran out of the context window before it finished its \
+                         answer; the harness compacts the context and asks again"
+                            .to_owned()
+                    )
+                )
+            ]
+        )
+    );
     chat.harness.close(context()).await.unwrap();
+}
+
+/// A length stop with text in a window that is unknown (0) compacts and
+/// sends the request again, as one that ran into a known window does: an
+/// unknown window counts as exhausted (law
+/// `stop_cut_unknown_window_never_kept`), so the cut reply is never kept as
+/// the answer there. The cut reply fails with its reason; the next reply
+/// answers.
+#[tokio::test]
+async fn compacts_when_a_length_stop_with_text_has_an_unknown_window() {
+    let chat = open(OpenOptions {
+        context_window: Some(0),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(CompactionPolicy {
+        enabled: true,
+        ..MANUAL
+    });
+    chat.faux.agent(with_stop("cut short", StopReason::Length));
+    chat.faux.summary(summary("SUMMARY"));
+    chat.faux.agent(with_stop("done", StopReason::Stop));
+    let input = submit(&chat, "go").await;
+    assert_eq!(
+        input.wait(context()).await.unwrap().state.status(),
+        SubmissionStatus::Done
+    );
+    let stops: Vec<_> = all_entries(&chat.root, context())
+        .await
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry.model.iter().flatten())
+        .filter_map(Message::as_assistant)
+        .rev()
+        .take(2)
+        .map(|message| (message.stop_reason, message.error_message.clone()))
+        .collect();
+    assert_eq!(
+        (chat.faux.summary_requests().len(), stops),
+        (
+            1,
+            vec![
+                (StopReason::Stop, None),
+                (
+                    StopReason::Error,
+                    Some(
+                        "The model ran out of the context window before it finished its \
+                         answer; the harness compacts the context and asks again"
+                            .to_owned()
+                    )
+                )
+            ]
+        )
+    );
+    chat.harness.close(context()).await.unwrap();
+}
+
+/// A length stop with text whose window ran out (a 9000-token window, its
+/// prompt and 600 output tokens within 8192 of it, below the catalog max
+/// of 900), or is unknown (0), when no compaction can run (compaction off)
+/// is dropped: the turn leaves the model's context, stays on the branch
+/// and the run ends with no notice (law `stop_cut_dropped_ends_the_run`).
+/// The run ends after its one request with no compaction; the cut reply
+/// stays in the transcript, its stop reason length and no error, followed
+/// by the `pi.drop` entry that omits it from the model's context; the
+/// context and the next turn's request leave it out.
+#[tokio::test]
+async fn drops_a_length_stop_with_text_whose_window_ran_out_when_no_compaction_can_run() {
+    for window in [9_000, 0] {
+        let chat = open(OpenOptions {
+            context_window: Some(window),
+            ..OpenOptions::default()
+        })
+        .await;
+        history(&chat).await;
+        chat.set_policy(MANUAL);
+        let cut = text("plan", 600);
+        chat.faux.agent(with_stop(cut.as_str(), StopReason::Length));
+        chat.faux.agent(with_stop("done", StopReason::Stop));
+        let requests = chat.faux.agent_requests().len();
+        let input = submit(&chat, "go").await;
+        let status = input.wait(context()).await.unwrap().state.status();
+        let sent = chat.faux.agent_requests().len() - requests;
+        let entries = all_entries(&chat.root, context()).await.unwrap();
+        let tail: Vec<_> = entries[entries.len() - 2..]
+            .iter()
+            .map(|entry| {
+                let reply = entry
+                    .model
+                    .iter()
+                    .flatten()
+                    .find_map(Message::as_assistant)
+                    .map(|message| {
+                        (
+                            message.stop_reason,
+                            message.error_message.clone(),
+                            text_of(entry.model.as_deref().and_then(<[Message]>::first)),
+                        )
+                    });
+                let omits: Vec<_> = entry
+                    .edits
+                    .iter()
+                    .flatten()
+                    .filter(|edit| matches!(edit.action, ContextEditAction::Omit))
+                    .map(|edit| edit.target)
+                    .collect();
+                (entry.kind.clone(), reply, omits)
+            })
+            .collect();
+        let cut_id = entries[entries.len() - 2].id;
+        let in_context = chat
+            .root
+            .context(context(), ContextOptions::default())
+            .await
+            .unwrap()
+            .messages
+            .iter()
+            .any(|message| text_of(Some(message)).as_deref() == Some(cut.as_str()));
+        assert_eq!(
+            (
+                status,
+                sent,
+                chat.faux.summary_requests().len(),
+                tail,
+                in_context
+            ),
+            (
+                SubmissionStatus::Done,
+                1,
+                0,
+                vec![
+                    (
+                        "pi.assistant".to_owned(),
+                        Some((StopReason::Length, None, Some(cut.clone()))),
+                        vec![]
+                    ),
+                    ("pi.drop".to_owned(), None, vec![cut_id]),
+                ],
+                false
+            ),
+            "window {window}"
+        );
+        let input = submit(&chat, "more").await;
+        assert_eq!(
+            input.wait(context()).await.unwrap().state.status(),
+            SubmissionStatus::Done
+        );
+        let next = chat.faux.last_agent_messages();
+        assert_eq!(
+            (
+                user_text(
+                    next.iter()
+                        .rev()
+                        .find(|message| matches!(message, Message::User(_)))
+                ),
+                next.iter()
+                    .any(|message| text_of(Some(message)).as_deref() == Some(cut.as_str()))
+            ),
+            ("more".to_owned(), false),
+            "window {window}"
+        );
+        chat.harness.close(context()).await.unwrap();
+    }
 }
 
 /// A length stop with no text that ran into the context window (a
@@ -680,7 +920,7 @@ async fn treats_silent_overflow_as_an_ordinary_answer(responses: Vec<AssistantMe
         reserve_tokens: -100_000.0,
         keep_recent_tokens: 150.0,
         background: BackgroundMargin::Tokens(0.0),
-        token_count: ThresholdTokens::Estimate,
+        token_count: ThresholdTokens::Local,
     });
     for response in responses {
         chat.faux.agent(response);
@@ -728,7 +968,7 @@ async fn a_length_stop_that_fills_a_window_too_small_to_compact_fails_with_its_r
         reserve_tokens: -100_000.0,
         keep_recent_tokens: 150.0,
         background: BackgroundMargin::Tokens(0.0),
-        token_count: ThresholdTokens::Estimate,
+        token_count: ThresholdTokens::Local,
     });
     chat.faux.agent(with_stop("", StopReason::Length));
     let input = submit(&chat, "go").await;

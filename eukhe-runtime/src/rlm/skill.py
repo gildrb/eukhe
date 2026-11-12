@@ -8,11 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-import tyro
-
 
 async def run_cli(func: Callable[..., Any], prog: str | None = None) -> None:
     """Parse CLI arguments for a skill function and print a non-None result."""
+    import tyro
+
     result = tyro.cli(func, prog=prog)
     if inspect.isawaitable(result):
         result = await result

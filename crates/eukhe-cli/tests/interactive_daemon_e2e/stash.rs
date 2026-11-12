@@ -41,6 +41,7 @@ async fn tui_prompt_stash_round_trips_across_in_place_switch() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),
@@ -182,6 +183,7 @@ async fn tui_prompt_stash_survives_the_agents_view_handoff() {
     let prompt_stash: std::sync::Arc<std::sync::Mutex<eukhe_tui::prompt_stash::PromptStashStore>> =
         std::sync::Arc::default();
     let make_options = || eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),
@@ -340,6 +342,7 @@ async fn tui_prompt_stash_restores_a_pasted_image_with_the_draft() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),
@@ -457,6 +460,7 @@ async fn tui_ctrl_s_stashes_and_restores_the_prompt_draft() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),
@@ -610,6 +614,7 @@ async fn tui_ctrl_s_stash_keeps_a_held_draft_and_reports_the_empty_editor() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),
@@ -763,6 +768,7 @@ async fn tui_ctrl_s_stash_is_remappable_via_keybindings_json() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),
@@ -916,6 +922,7 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         provider_auth: None,
         socket_path: supervisor.socket.clone(),

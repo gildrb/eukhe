@@ -2,8 +2,8 @@
 //! by crates that read session files in different representations
 //! (eukhe-daemon's wire-shaped session store, eukhe-core's typed session manager).
 //! Port of `calculateContextTokens` / `getAssistantUsage` from the TS core
-//! (compaction + agent-session). The token estimate from text is
-//! [`crate::token_estimate`].
+//! (compaction + agent-session). Token counts of text come from the
+//! model's real tokenizer (`eukhe-tokens`).
 
 use serde_json::Value;
 

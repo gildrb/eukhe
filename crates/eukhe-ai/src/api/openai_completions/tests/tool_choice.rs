@@ -205,10 +205,12 @@ pub(super) async fn simple_payload(
     payload.unwrap_or_else(|| panic!("no payload was built: {:?}", message.error_message))
 }
 
-/// TS `captureSimpleParams(model, reasoning)`.
+/// TS `captureSimpleParams(model, reasoning)`. `None` is thinking off: the
+/// caller turns reasoning off (`disable_reasoning`).
 async fn capture_simple_params(model: &Model, reasoning: Option<ThinkingLevel>) -> JsonValue {
     let options = SimpleStreamOptions {
         reasoning,
+        disable_reasoning: reasoning.is_none(),
         ..simple_options()
     };
     simple_payload(model, &ctx("Hi", None, None), options).await
@@ -410,7 +412,7 @@ async fn keeps_normal_reasoning_effort_for_groq_models_without_compat_mapping() 
 
 #[tokio::test]
 async fn enables_tool_stream_for_supported_z_ai_models_with_tools() {
-    let model = catalog_model("zai", "glm-5.2");
+    let model = catalog_model("zai", "glm-5.2-highspeed");
     let params = simple_payload(
         &model,
         &ctx("Call ping with ok=true", Some(ping_tools()), None),
@@ -423,7 +425,7 @@ async fn enables_tool_stream_for_supported_z_ai_models_with_tools() {
 
 #[test]
 fn stores_z_ai_tool_stream_support_in_model_compat_metadata() {
-    for id in ["glm-4.7", "glm-4.7", "glm-5-turbo", "glm-5.2"] {
+    for id in ["glm-5.2-highspeed", "glm-5.3-flash", "glm-5.3-highspeed"] {
         assert_eq!(
             compat_json(&catalog_model("zai", id))["zaiToolStream"],
             json!(true),
@@ -434,25 +436,23 @@ fn stores_z_ai_tool_stream_support_in_model_compat_metadata() {
 
 #[test]
 fn stores_z_ai_effort_metadata() {
-    for model_id in ["glm-5.2", "glm-5.2-highspeed"] {
-        let model = catalog_model("zai", model_id);
-        assert_eq!(compat_json(&model)["supportsReasoningEffort"], json!(true));
-        assert_eq!(
-            model_json(&model)["thinkingLevelMap"],
-            json!({
-                "off": "none",
-                "minimal": null,
-                "low": null,
-                "medium": null,
-                "high": "high",
-                "xhigh": null,
-                "max": "max",
-            })
-        );
-    }
+    let model = catalog_model("zai", "glm-5.2-highspeed");
+    assert_eq!(compat_json(&model)["supportsReasoningEffort"], json!(true));
+    assert_eq!(
+        model_json(&model)["thinkingLevelMap"],
+        json!({
+            "off": "none",
+            "minimal": null,
+            "low": null,
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": "max",
+        })
+    );
 
-    for provider in ["zai", "zai-coding-cn"] {
-        let glm53 = catalog_model(provider, "glm-5.3");
+    for (provider, id) in [("zai", "glm-5.3-highspeed"), ("zai-coding-cn", "glm-5.3")] {
+        let glm53 = catalog_model(provider, id);
         assert_eq!(compat_json(&glm53)["supportsReasoningEffort"], json!(true));
         assert_eq!(
             model_json(&glm53)["thinkingLevelMap"],
@@ -471,7 +471,7 @@ fn stores_z_ai_effort_metadata() {
 
 #[tokio::test]
 async fn maps_z_ai_glm_5_2_thinking_levels_to_reasoning_effort() {
-    let model = catalog_model("zai", "glm-5.2");
+    let model = catalog_model("zai", "glm-5.2-highspeed");
     let cases = [
         (ThinkingLevel::Low, "high"),
         (ThinkingLevel::Medium, "high"),
@@ -483,10 +483,7 @@ async fn maps_z_ai_glm_5_2_thinking_levels_to_reasoning_effort() {
         let params =
             simple_payload(&model, &ctx("Hi", None, None), simple_reasoning(reasoning)).await;
 
-        assert_eq!(
-            params["thinking"],
-            json!({ "type": "enabled", "clear_thinking": false })
-        );
+        assert_eq!(params["thinking"], json!({ "type": "enabled" }));
         assert_eq!(params["reasoning_effort"], json!(effort));
     }
 }
@@ -513,7 +510,7 @@ pub(super) fn assert_match_object(actual: &JsonValue, expected: &JsonValue) {
 
 #[tokio::test]
 async fn preserves_z_ai_thinking_when_replaying_reasoning_content() {
-    let model = catalog_model("zai", "glm-5.2");
+    let model = catalog_model("zai", "glm-5.2-highspeed");
     let context = context(json!({
         "messages": [
             { "role": "user", "content": "Read README.md", "timestamp": 1 },
@@ -521,7 +518,7 @@ async fn preserves_z_ai_thinking_when_replaying_reasoning_content() {
                 "role": "assistant",
                 "api": "openai-completions",
                 "provider": "zai",
-                "model": "glm-5.2",
+                "model": "glm-5.2-highspeed",
                 "content": [
                     { "type": "thinking", "thinking": "prior reasoning", "thinkingSignature": "reasoning_content" },
                     { "type": "toolCall", "id": "call_1", "name": "read", "arguments": { "path": "README.md" } },
@@ -553,15 +550,12 @@ async fn preserves_z_ai_thinking_when_replaying_reasoning_content() {
         replayed_assistant,
         &json!({ "reasoning_content": "prior reasoning" }),
     );
-    assert_eq!(
-        params["thinking"],
-        json!({ "type": "enabled", "clear_thinking": false })
-    );
+    assert_eq!(params["thinking"], json!({ "type": "enabled" }));
 }
 
 #[tokio::test]
 async fn omits_z_ai_glm_5_2_reasoning_effort_when_thinking_is_off() {
-    let model = catalog_model("zai", "glm-5.2");
+    let model = catalog_model("zai", "glm-5.2-highspeed");
     let params = simple_payload(&model, &ctx("Hi", None, None), simple_options()).await;
 
     assert_eq!(params["thinking"], json!({ "type": "disabled" }));
@@ -570,7 +564,7 @@ async fn omits_z_ai_glm_5_2_reasoning_effort_when_thinking_is_off() {
 
 #[tokio::test]
 async fn respects_explicit_z_ai_tool_stream_compat_override() {
-    let base_model = catalog_model("zai", "glm-5.2");
+    let base_model = catalog_model("zai", "glm-5.2-highspeed");
     let mut value = model_json(&base_model);
     let mut compat = compat_json(&base_model);
     if !compat.is_object() {
@@ -591,7 +585,7 @@ async fn respects_explicit_z_ai_tool_stream_compat_override() {
 
 #[tokio::test]
 async fn omits_tool_stream_when_no_tools_are_provided() {
-    let model = catalog_model("zai", "glm-5.2");
+    let model = catalog_model("zai", "glm-5.2-highspeed");
     let params = simple_payload(&model, &ctx("Hi", None, None), simple_options()).await;
 
     assert!(params.get("tool_stream").is_none());
@@ -611,7 +605,7 @@ async fn maps_non_standard_provider_finish_reason_values_to_stop_reason_error() 
             },
         }),
     ];
-    let model = catalog_model("zai", "glm-5.2");
+    let model = catalog_model("zai", "glm-5.2-highspeed");
     let (_, _, response) =
         run_simple(&model, &ctx("Hi", None, None), simple_options(), chunks).await;
 

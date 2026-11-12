@@ -28,7 +28,7 @@ use serde_json::{json, Map, Value};
 use crate::protocol::{response_failure, response_success, DaemonOutbound, DaemonResponse};
 use crate::worker::{EventPump, HostedSession, OutboundFrame, SessionSlot};
 
-const SIDE_QUESTION_INSTRUCTION: &str = "The user asked this via `/btw` — a temporary side thread cloned from the main conversation to answer a question without interrupting the main work. Tools (including `ipython`) are deactivated in this side thread and return an error if called; answer using only the conversation context above. The user may send follow-up side questions. Nothing here is added to the main session, so don't start or plan main-session work from this thread.";
+const SIDE_QUESTION_INSTRUCTION: &str = "The user asked this via `/btw` — a temporary side thread cloned from the main conversation to answer a question without interrupting the main work. Tools (including `python`) are deactivated in this side thread and return an error if called; answer using only the conversation context above. The user may send follow-up side questions. Nothing here is added to the main session, so don't start or plan main-session work from this thread.";
 
 /// The deactivated-tool answer a side-thread tool call reads.
 const SIDE_QUESTION_TOOL_BLOCKED: &str =
@@ -506,6 +506,7 @@ async fn run_side_question(
     loop {
         let mut options = SimpleStreamOptions {
             reasoning: reasoning(agent.thinking_level),
+            disable_reasoning: matches!(agent.thinking_level, ModelThinkingLevel::Off),
             ..SimpleStreamOptions::default()
         };
         options.stream.request.signal = Some(signal.clone());
@@ -962,7 +963,7 @@ mod tests {
         let mut receiver = harness.pump.subscribe();
         let call = faux_assistant_message(
             vec![faux_tool_call(
-                "ipython",
+                "python",
                 serde_json::Map::new(),
                 Some("call-1".to_string()),
             )],
@@ -1018,7 +1019,7 @@ mod tests {
             faux_assistant_message(
                 vec![
                     faux_text(text),
-                    faux_tool_call("ipython", serde_json::Map::new(), Some(text.to_string())),
+                    faux_tool_call("python", serde_json::Map::new(), Some(text.to_string())),
                 ],
                 FauxAssistantMessageOptions {
                     stop_reason: Some(StopReason::ToolUse),

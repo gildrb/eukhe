@@ -7,7 +7,8 @@ use crate::types::{IndexMap, KnownProvider};
 
 use crate::types::{
     CacheControlFormat, ChatTemplateKwargValue, MaxTokensField, Model, ModelCompat,
-    OpenAICompletionsCompat, SessionAffinityFormat, ThinkingFormat, ThinkingTokenBudgetField,
+    OpenAICompletionsCompat, ReasoningDisableMode, SessionAffinityFormat, ThinkingFormat,
+    ThinkingTokenBudgetField,
 };
 
 /// TS `ResolvedOpenAICompletionsCompat`: every setting resolved except the
@@ -23,6 +24,9 @@ pub(crate) struct ResolvedCompat {
     pub(crate) supports_usage_in_streaming: bool,
     pub(crate) supports_finish_reason: bool,
     pub(crate) max_tokens_field: MaxTokensField,
+    /// The host takes an output cap up to the model's max; else at most
+    /// 64000.
+    pub(crate) clamp_output_to_model_max: bool,
     pub(crate) requires_tool_result_name: bool,
     pub(crate) requires_assistant_after_tool_result: bool,
     pub(crate) requires_thinking_as_text: bool,
@@ -31,6 +35,11 @@ pub(crate) struct ResolvedCompat {
     pub(crate) chat_template_kwargs: IndexMap<String, ChatTemplateKwargValue>,
     pub(crate) chat_template_args: IndexMap<String, ChatTemplateKwargValue>,
     pub(crate) zai_tool_stream: bool,
+    /// `thinking.keep` sent with an enabled `deepseek`-format `thinking`.
+    pub(crate) thinking_keep: Option<String>,
+    /// How thinking off turns reasoning off in the `openai` format; `None`:
+    /// the off or lowest offered `reasoning_effort`.
+    pub(crate) reasoning_disable_mode: Option<ReasoningDisableMode>,
     pub(crate) supports_thinking_token_budget: Option<bool>,
     pub(crate) thinking_token_budget_field: Option<ThinkingTokenBudgetField>,
     pub(crate) supports_strict_mode: bool,
@@ -80,7 +89,7 @@ pub(crate) fn is_custom_qwen_template_model(model: &Model) -> bool {
 }
 
 /// Whether `model`'s id starts with one of `prefixes`.
-fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
+pub(crate) fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
     prefixes.is_some_and(|prefixes| {
         prefixes
             .iter()
@@ -91,7 +100,10 @@ fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
 /// The settings the quirks rulebook gives the model's host (provider id,
 /// else base URL); a setting no rule gives takes the standard
 /// OpenAI-compatible default. Used as the base when `model.compat` is not
-/// set; explicit entries override.
+/// set; explicit entries override. The `developer` role is no such
+/// default: only a host the rulebook names takes it (the `OpenAI` host
+/// and the `OpenRouter` prefixes), so a self-hosted server on any address
+/// gets its system prompt as `system`.
 pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
     let quirks = Quirks::of(model);
     let session_affinity_format = quirks
@@ -100,13 +112,14 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
     ResolvedCompat {
         supports_store: quirks.store().unwrap_or(true),
         supports_developer_role: id_has_prefix(model, quirks.developer_role_prefixes())
-            || quirks.developer_role().unwrap_or(true),
+            || quirks.developer_role().unwrap_or(false),
         supports_reasoning_effort: quirks.reasoning_effort().unwrap_or(true),
         supports_usage_in_streaming: true,
         supports_finish_reason: true,
         max_tokens_field: quirks
             .max_tokens_field()
             .unwrap_or(MaxTokensField::MaxCompletionTokens),
+        clamp_output_to_model_max: crate::api::simple_options::clamps_output_to_model_max(model),
         requires_tool_result_name: false,
         requires_assistant_after_tool_result: false,
         requires_thinking_as_text: false,
@@ -117,6 +130,8 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
         chat_template_kwargs: IndexMap::new(),
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
+        thinking_keep: None,
+        reasoning_disable_mode: None,
         supports_thinking_token_budget: Some(false),
         thinking_token_budget_field: None,
         // OpenAI compatibility alone does not imply strict JSON-schema tool support.
@@ -159,6 +174,9 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .supports_finish_reason
             .unwrap_or(detected.supports_finish_reason),
         max_tokens_field: compat.max_tokens_field.unwrap_or(detected.max_tokens_field),
+        clamp_output_to_model_max: compat
+            .clamp_output_to_model_max
+            .unwrap_or(detected.clamp_output_to_model_max),
         requires_tool_result_name: compat
             .requires_tool_result_name
             .unwrap_or(detected.requires_tool_result_name),
@@ -181,6 +199,8 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .clone()
             .unwrap_or(detected.chat_template_args),
         zai_tool_stream: compat.zai_tool_stream.unwrap_or(detected.zai_tool_stream),
+        thinking_keep: compat.thinking_keep.clone(),
+        reasoning_disable_mode: compat.reasoning_disable_mode,
         supports_thinking_token_budget: compat
             .supports_thinking_token_budget
             .or(detected.supports_thinking_token_budget),

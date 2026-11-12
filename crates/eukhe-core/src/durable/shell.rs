@@ -99,7 +99,7 @@ impl Approver for SinkApprover {
 }
 
 /// A refusal of the approval gate as the model reads it, for every runner
-/// the gate covers (a `bash` step, an `ipython` cell, a document tool's
+/// the gate covers (a `bash` step, an `python` cell, a document tool's
 /// access): what failed and the step the model takes next, rendered as
 /// `<what failed>. <next step>.`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -279,7 +279,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
 }
 
 /// The auto set of the `shell.autoEffects` setting, for every runner of
-/// code the gate covers (the `bash` steps, the `ipython` cells). The
+/// code the gate covers (the `bash` steps, the `python` cells). The
 /// setting admits only the grantable effect names; a name it holds that
 /// names no grantable effect is skipped.
 pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {
@@ -356,22 +356,29 @@ async fn execute(
             )))
         }
         Wait::Detached => {
-            abort_unless_detached.0 = None;
             let id = JobId::new(format!("shell-{}", uuid::Uuid::new_v4().simple()))
                 .map_err(|error| SessionError::error(error.to_string()))?;
+            // The job's start is durable before its detach is reported: a
+            // script whose start is not recorded is stopped by the guard,
+            // never left running unrecorded.
+            let record = deps
+                .jobs
+                .record_start(id.clone(), JobKind::Shell, script.to_owned())
+                .await?;
+            abort_unless_detached.0 = None;
             let job = {
                 let shown = transcript.shown();
-                let job = deps.jobs.start(JobSpec {
-                    id: id.clone(),
-                    kind: JobKind::Shell,
-                    label: script.to_owned(),
-                    truncation: api.truncation(),
-                    written: shown.bounded.bytes(),
-                    kill: {
-                        let task = running.abort_handle();
-                        Box::new(move |_| task.abort())
+                let job = deps.jobs.start(
+                    record,
+                    JobSpec {
+                        truncation: api.truncation(),
+                        written: shown.bounded.bytes(),
+                        kill: {
+                            let task = running.abort_handle();
+                            Box::new(move |_| task.abort())
+                        },
                     },
-                });
+                );
                 let _ = transcript.job.set(job.clone());
                 job
             };

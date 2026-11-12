@@ -65,8 +65,8 @@ def kr.bool(+s: String) -> kr.BoolOk(s, Wr.get_bool(s)):
 # the request a with rest after it
 def kr.sp(a: KL.Ask, rest: String) -> String:
   match a:
-    case KL.AskPlan{f, s}:
-      Wr.put_nat(0n, KernelLocal.spell_found(f, KernelLocal.spell_setup(s, rest)))
+    case KL.AskPlan{uv, python, env}:
+      Wr.put_nat(0n, Wr.put_bool(uv, Wr.put_bool(python, Wr.put_bool(env, rest))))
     case KL.AskSweep{+ls}:
       Wr.put_nat(1n, Wr.put_nat(List.length(&2, KL.Left, ls), KernelLocal.spell_lefts(ls, rest)))
     case KL.AskLock{x}:
@@ -74,7 +74,7 @@ def kr.sp(a: KL.Ask, rest: String) -> String:
 
 def kr.sp_ask(a: KL.Ask) -> {kr.sp(a, "") == KernelLocal.spell_ask(a) : String}:
   match a:
-    case KL.AskPlan{f, s}:
+    case KL.AskPlan{uv, python, env}:
       {==}
     case KL.AskSweep{ls}:
       {==}
@@ -88,66 +88,26 @@ def kr.AskOk(s: String, r: Wr.Dec<KL.Ask>) -> Type:
     case Wr.Bad{}:
       Unit
 
-# The plan: the venv found, the setup
+# The plan: the uv, the CPython and the env, each there or not
 
-def kr.FoundOk(s: String, r: Wr.Dec<KL.Found>) -> Type:
+def kr.plan_env(-s: String, -s1: String, -s2: String, -s3: String, -u: Bool, -p: Bool, e0: {s == Wr.put_nat(0n, s1) : String}, e1: {s1 == Wr.put_bool(u, s2) : String}, e2: {s2 == Wr.put_bool(p, s3) : String}, r: Wr.Dec<Bool>, h: kr.BoolOk(s3, r)) -> kr.AskOk(s, FKL.get_plan.env(u, p, r)):
   match r:
-    case Wr.Got{f, rest}:
-      {s == KernelLocal.spell_found(f, rest) : String}
-    case Wr.Bad{}:
-      Unit
-
-def kr.found(-s: String, r: Wr.Dec<Nat>, h: kr.NatOk(s, r)) -> kr.FoundOk(s, FKL.get_found.go(r)):
-  match r:
-    case Wr.Got{t, s1}:
-      match t:
-        case 0n:
-          (e, fit) = h
-          e
-        case 1n:
-          (e, fit) = h
-          e
-        case 2n:
-          (e, fit) = h
-          e
-        case 3n+p:
-          Unit{}
+    case Wr.Got{e, s4}:
+      ((%h : {s == Wr.put_nat(0n, Wr.put_bool(u, Wr.put_bool(p, _))) : String}; %e2 : {s == Wr.put_nat(0n, Wr.put_bool(u, _)) : String}; %e1 : {s == Wr.put_nat(0n, _) : String}; e0), {==})
     case Wr.Bad{}:
       Unit{}
 
-def kr.SetupOk(s: String, r: Wr.Dec<KL.Setup>) -> Type:
+def kr.plan_python(-s: String, -s1: String, -s2: String, -u: Bool, e0: {s == Wr.put_nat(0n, s1) : String}, e1: {s1 == Wr.put_bool(u, s2) : String}, r: Wr.Dec<Bool>, h: kr.BoolOk(s2, r)) -> kr.AskOk(s, FKL.get_plan.python(u, r)):
   match r:
-    case Wr.Got{x, rest}:
-      {s == KernelLocal.spell_setup(x, rest) : String}
-    case Wr.Bad{}:
-      Unit
-
-def kr.setup(-s: String, r: Wr.Dec<Nat>, h: kr.NatOk(s, r)) -> kr.SetupOk(s, FKL.get_setup.go(r)):
-  match r:
-    case Wr.Got{t, s1}:
-      match t:
-        case 0n:
-          (e, fit) = h
-          e
-        case 1n:
-          (e, fit) = h
-          e
-        case 2n+p:
-          Unit{}
+    case Wr.Got{p, +s3}:
+      kr.plan_env(s, s1, s2, s3, u, p, e0, e1, h, Wr.get_bool(s3), kr.bool(s3))
     case Wr.Bad{}:
       Unit{}
 
-def kr.plan_setup(-s: String, -s1: String, -f: KL.Found, -s2: String, e0: {s == Wr.put_nat(0n, s1) : String}, e1: {s1 == KernelLocal.spell_found(f, s2) : String}, r: Wr.Dec<KL.Setup>, h: kr.SetupOk(s2, r)) -> kr.AskOk(s, FKL.get_plan.setup(f, r)):
+def kr.plan(-s: String, -s1: String, e0: {s == Wr.put_nat(0n, s1) : String}, r: Wr.Dec<Bool>, h: kr.BoolOk(s1, r)) -> kr.AskOk(s, FKL.get_plan.uv(r)):
   match r:
-    case Wr.Got{x, s3}:
-      ((%h : {s == Wr.put_nat(0n, KernelLocal.spell_found(f, _)) : String}; %e1 : {s == Wr.put_nat(0n, _) : String}; e0), {==})
-    case Wr.Bad{}:
-      Unit{}
-
-def kr.plan(-s: String, -s1: String, e0: {s == Wr.put_nat(0n, s1) : String}, r: Wr.Dec<KL.Found>, h: kr.FoundOk(s1, r)) -> kr.AskOk(s, FKL.get_plan.found(r)):
-  match r:
-    case Wr.Got{f, +s2}:
-      kr.plan_setup(s, s1, f, s2, e0, h, FKL.get_setup.go(Wr.get_nat(s2)), kr.setup(s2, Wr.get_nat(s2), kr.nat(s2)))
+    case Wr.Got{u, +s2}:
+      kr.plan_python(s, s1, s2, u, e0, h, Wr.get_bool(s2), kr.bool(s2))
     case Wr.Bad{}:
       Unit{}
 
@@ -336,7 +296,7 @@ def kr.ask(-s: String, r: Wr.Dec<Nat>, h: kr.NatOk(s, r)) -> kr.AskOk(s, FKL.get
       match t:
         case 0n:
           (e0, f0) = h
-          kr.plan(s, s1, e0, FKL.get_found.go(Wr.get_nat(s1)), kr.found(s1, Wr.get_nat(s1), kr.nat(s1)))
+          kr.plan(s, s1, e0, Wr.get_bool(s1), kr.bool(s1))
         case 1n:
           (e0, f0) = h
           kr.sweep(s, s1, e0, Wr.get_nat(s1), kr.nat(s1))

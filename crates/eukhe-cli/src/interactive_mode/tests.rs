@@ -1,5 +1,5 @@
 //! The interactive-mode unit battery (moved with its concern): the session
-//! flag mapping, the continue-recent view target, the onboarding gate and
+//! flag mapping, the continue-recent startup session, the onboarding gate and
 //! settings sink, and the startup fork/select contracts.
 
 use super::*;
@@ -17,9 +17,8 @@ fn session_flags_map_to_selections() {
         session_selection(&session, Some(session_dir.as_path())),
         SessionSelection::New
     );
-    // `--continue` never maps to a resume: the continue-recent launch
-    // resolves its candidate through the agents view (see
-    // `continue_recent_view`) or falls through to a fresh session.
+    // `--continue` resolves before this mapping
+    // (`continue_startup_selection`): the flag alone maps nowhere here.
     session.continue_recent = true;
     assert_eq!(
         session_selection(&session, Some(session_dir.as_path())),
@@ -73,153 +72,112 @@ fn run_options_for_continue(dir: &std::path::Path) -> RunOptions {
     }
 }
 
-/// A saved session file the cwd-scoped scans resolve: a legacy header
-/// line (id + cwd).
-fn seed_saved_session(
-    session_dir: &std::path::Path,
-    id: &str,
-    cwd: &std::path::Path,
-) -> std::path::PathBuf {
-    use std::io::Write;
-    std::fs::create_dir_all(session_dir).expect("sessions dir");
-    let path = session_dir.join(format!("{id}.jsonl"));
-    let mut file = std::fs::File::create(&path).expect("create session file");
-    let header = serde_json::json!({
-        "type": "session", "id": id,
-        "cwd": cwd.display().to_string(),
-        "timestamp": "2024-01-01T00:00:00.000Z", "version": 3,
-    });
-    writeln!(file, "{header}").expect("write header");
-    path
+/// Push every file of a durable storage to `at`: the listing's recency
+/// is the newest file time of the storage.
+fn touch_storage(dir: &std::path::Path, at: std::time::SystemTime) {
+    for entry in std::fs::read_dir(dir).expect("read storage dir") {
+        let path = entry.expect("storage entry").path();
+        if path.is_file() {
+            std::fs::File::options()
+                .append(true)
+                .open(&path)
+                .expect("open storage file")
+                .set_modified(at)
+                .expect("set mtime");
+        }
+    }
 }
 
-/// `--continue` surfaces the newest saved session for the cwd as the
-/// preselected agents-view target, never as a direct resume.
+/// P1: `--continue` reopens the newest saved session of the cwd (TS
+/// `SessionManager.continueRecent`). Sessions live in durable
+/// `<sessions>/<id>/` storages; another cwd's newer session never wins.
 #[test]
-fn continue_recent_targets_the_newest_saved_session_for_the_cwd() {
+fn continue_reopens_the_newest_durable_session_for_the_cwd() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let session_dir = agent_dir.join("sessions");
-    seed_saved_session(&session_dir, "old0000000000000000000000000001", dir.path());
-    // The newest file: written last, matching cwd.
-    let candidate =
-        seed_saved_session(&session_dir, "newest00000000000000000000000001", dir.path());
-    // A session from another cwd must never be the candidate.
-    let other_cwd = tempfile::TempDir::new().expect("other cwd");
-    seed_saved_session(
-        &session_dir,
-        "foreign0000000000000000000000001",
-        other_cwd.path(),
-    );
+    let cwd = dir.path().join("project");
+    let other = dir.path().join("other");
+    let session_dir = dir.path().join("sessions");
+    std::fs::create_dir_all(&cwd).expect("cwd");
+    std::fs::create_dir_all(&other).expect("other cwd");
+    std::fs::create_dir_all(&session_dir).expect("sessions dir");
+    // Forks are durable storages of their cwd; the legacy sources go, so
+    // only durable storages remain to pick from.
+    let (source, id) = seed_session(&session_dir, &cwd, "first question");
+    let older = fork(&fork_options(&cwd, &session_dir), &id);
+    let newer = fork(&fork_options(&cwd, &session_dir), &id);
+    std::fs::remove_file(source).expect("drop the legacy source");
+    let (source, id) = seed_session(&session_dir, &other, "elsewhere");
+    let foreign = fork(&fork_options(&other, &session_dir), &id);
+    std::fs::remove_file(source).expect("drop the legacy source");
+    let now = std::time::SystemTime::now();
+    touch_storage(&older, now + std::time::Duration::from_mins(1));
+    touch_storage(&newer, now + std::time::Duration::from_mins(2));
+    touch_storage(&foreign, now + std::time::Duration::from_mins(3));
 
-    // Same mtime granularity as the write: nudge the candidate forward.
-    let future = std::time::SystemTime::now() + std::time::Duration::from_mins(1);
-    let handle = std::fs::File::options()
-        .append(true)
-        .open(&candidate)
-        .expect("open candidate");
-    handle.set_modified(future).expect("nudge mtime");
-
-    let mut options = run_options_for_continue(dir.path());
+    let mut options = fork_options(&cwd, &session_dir);
     options.session.continue_recent = true;
-    options.session.session_dir = Some(session_dir);
-    let view = continue_recent_view(&options, false).expect("candidate resolves");
     assert_eq!(
-        view.session_id, "newest00000000000000000000000001",
-        "the newest saved session for the cwd is the preselected row"
+        continue_startup_selection(&options).expect("continue resolves"),
+        Some(SessionSelection::Resume(newer.clone()))
     );
-    assert!(
-        view.notice.contains("newest00000000000000000000000001"),
-        "the notice names the candidate: {}",
-        view.notice
-    );
-    assert!(
-        candidate.exists(),
-        "resolution only reads the candidate file"
-    );
+    // The whole launch opens it as the startup session.
+    let tui = build_tui_options(
+        &options,
+        dir.path().join("d.sock"),
+        std::sync::Arc::default(),
+    )
+    .expect("build the launch");
+    assert_eq!(tui.session, SessionSelection::Resume(newer));
 }
 
 /// Without a saved session for the cwd, `--continue` falls through to the
-/// fresh-session run (TS `continueRecent`'s own fallback).
+/// fresh-session run (TS `continueRecent`'s own fallback); an explicit
+/// `--resume` selector or `--no-session` owns the selection first (the TS
+/// flag order), and a launch without the flag never continues.
 #[test]
-fn continue_recent_without_a_candidate_opens_a_fresh_session() {
+fn continue_falls_back_and_defers_to_resume_and_no_session() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let session_dir = agent_dir.join("sessions");
-    // Only a foreign-cwd session exists: no candidate for this cwd.
-    let other_cwd = tempfile::TempDir::new().expect("other cwd");
-    seed_saved_session(
-        &session_dir,
-        "foreign0000000000000000000000001",
-        other_cwd.path(),
-    );
+    let cwd = dir.path().join("project");
+    let other = dir.path().join("other");
+    let session_dir = dir.path().join("sessions");
+    std::fs::create_dir_all(&cwd).expect("cwd");
+    std::fs::create_dir_all(&other).expect("other cwd");
+    std::fs::create_dir_all(&session_dir).expect("sessions dir");
+    seed_session(&session_dir, &other, "elsewhere");
 
-    let mut options = run_options_for_continue(dir.path());
+    let mut options = fork_options(&cwd, &session_dir);
     options.session.continue_recent = true;
-    options.session.session_dir = Some(session_dir);
-    assert!(
-        continue_recent_view(&options, false).is_none(),
-        "no candidate: the launch opens a fresh session, not the view"
+    assert_eq!(
+        continue_startup_selection(&options).expect("continue resolves"),
+        None,
+        "only another cwd's session: a fresh session"
     );
-}
-
-/// An explicit `--resume` selector or `--no-session` owns the selection
-/// first (the TS flag order): `--continue` never shadows them with the
-/// agents view.
-#[test]
-fn continue_recent_defers_to_resume_and_no_session() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let session_dir = agent_dir.join("sessions");
-    seed_saved_session(&session_dir, "newest00000000000000000000000001", dir.path());
-
-    let mut options = run_options_for_continue(dir.path());
-    options.session.session_dir = Some(session_dir);
-    options.session.continue_recent = true;
+    seed_session(&session_dir, &cwd, "here");
     assert!(
-        continue_recent_view(&options, false).is_some(),
-        "a bare --continue opens the view preselected on the candidate"
+        continue_startup_selection(&options)
+            .expect("continue resolves")
+            .is_some(),
+        "a session of the cwd continues"
     );
     options.session.resume = Some("named-session".to_string());
-    assert!(
-        continue_recent_view(&options, false).is_none(),
+    assert_eq!(
+        continue_startup_selection(&options).expect("continue resolves"),
+        None,
         "an explicit --resume selector wins over --continue"
     );
     options.session.resume = None;
     options.session.no_session = true;
-    assert!(
-        continue_recent_view(&options, false).is_none(),
+    assert_eq!(
+        continue_startup_selection(&options).expect("continue resolves"),
+        None,
         "--no-session owns the launch: nothing to continue"
     );
-}
-
-/// A pending onboarding keeps the startup (the first-run notice owns the
-/// launch), and a non-continue launch never opens the view.
-#[test]
-fn continue_recent_view_gates_on_onboarding_and_the_flag() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let session_dir = agent_dir.join("sessions");
-    seed_saved_session(&session_dir, "newest00000000000000000000000001", dir.path());
-
-    let mut options = run_options_for_continue(dir.path());
-    options.session.session_dir = Some(session_dir);
-    assert!(
-        continue_recent_view(&options, false).is_none(),
-        "a non-continue launch never opens the agents view through this path"
-    );
-    options.session.continue_recent = true;
-    assert!(
-        continue_recent_view(&options, true).is_none(),
-        "a pending onboarding keeps the first-run startup"
-    );
-    assert!(
-        continue_recent_view(&options, false).is_some(),
-        "a completed onboarding opens the view preselected on the candidate"
+    options.session.no_session = false;
+    options.session.continue_recent = false;
+    assert_eq!(
+        continue_startup_selection(&options).expect("continue resolves"),
+        None,
+        "no --continue: nothing to continue"
     );
 }
 
@@ -422,6 +380,42 @@ fn build_tui_options_reads_code_block_indent_settings() {
     )
     .expect("options");
     assert_eq!(options.code_block_indent, "  ");
+}
+
+/// `--budget-*` rides the create of the session the launch starts and of
+/// every session the run creates; a session that exists and is opened
+/// later (from the agents view, by `/resume`) keeps its own budget.
+#[test]
+fn the_launch_budget_is_for_the_sessions_this_run_starts() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::create_dir_all(dir.path().join("agent")).expect("agent dir");
+    let limits = eukhe_types::budget::BudgetLimits {
+        cost_micros: Some(2_000_000),
+        ..Default::default()
+    };
+    let mut options = run_options_for_continue(dir.path());
+    options.config.budget = Some(limits);
+    let base = build_tui_options(
+        &options,
+        dir.path().join("d.sock"),
+        std::sync::Arc::default(),
+    )
+    .expect("options");
+    let later = |selection: SessionSelection| later_session_options(&base, selection).budget;
+    assert_eq!(
+        (
+            base.create_config()["budget"].clone(),
+            later(SessionSelection::New),
+            later(SessionSelection::Resume("/sessions/saved".into())),
+            later(SessionSelection::Attach("a1b2c3".to_string())),
+        ),
+        (
+            serde_json::json!({ "costMicros": 2_000_000 }),
+            Some(limits),
+            None,
+            None,
+        )
+    );
 }
 
 /// A legacy session with one user/assistant exchange, written as the
@@ -671,22 +665,25 @@ fn a_fork_launch_never_opens_the_agents_view() {
     let mut options = run_options_for_continue(std::path::Path::new("/does/not/matter"));
     options.agents_view_requested = true;
     assert!(
-        should_open_agents_view(&options, /*onboarding_pending*/ false, /*continue_view*/ false,),
+        should_open_agents_view(&options, /*onboarding_pending*/ false),
         "an explicit agents request still opens the view"
     );
     options.session.resume_bare = true;
     assert!(
-        should_open_agents_view(&options, /*onboarding_pending*/ false, /*continue_view*/ false,),
+        should_open_agents_view(&options, /*onboarding_pending*/ false),
         "a bare --resume still opens the view"
     );
     options.session.resume_bare = false;
     options.session.fork = Some("source".to_string());
     assert!(
-        !should_open_agents_view(&options, /*onboarding_pending*/ false, /*continue_view*/ false,),
+        !should_open_agents_view(&options, /*onboarding_pending*/ false),
         "a fork opens its target, never the agents view"
     );
+    options.session.fork = None;
+    options.agents_view_requested = false;
+    options.session.continue_recent = true;
     assert!(
-        should_open_agents_view(&options, /*onboarding_pending*/ false, /*continue_view*/ true,),
-        "a --continue with a saved candidate still opens the view"
+        !should_open_agents_view(&options, /*onboarding_pending*/ false),
+        "--continue opens its session, never the agents view"
     );
 }

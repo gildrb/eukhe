@@ -379,8 +379,8 @@ pub const COMPACTION_AGENT_CALLABLE: Decl = Decl {
 /// compaction window check (a request past the window waits for its
 /// compaction; the thresholds read the provider's count of the last turn
 /// either way). This adds one request to the provider per
-/// generation. A provider without a counter, or a failed count, uses the
-/// local estimate, and the Harness logs it.
+/// generation. A provider without a counter, or a failed count, counts
+/// locally with the model's tokenizer, and the Harness logs it.
 pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {
     id: "compaction.providerTokenCount",
     ty: CvarType::Bool,
@@ -515,6 +515,18 @@ pub const RETRY_MAX_RETRIES: Decl = Decl {
     persist: true,
     replicate: false,
     init: Init::Nat(3),
+};
+
+/// The Harness's `DEFAULT_REQUEST_RESENDS`: the times a model request a
+/// restart found sent and unanswered is sent again, under the same
+/// idempotency key, before its run ends with an error.
+pub const RETRY_MAX_RESENDS: Decl = Decl {
+    id: "retry.maxResends",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(2),
 };
 
 /// The Harness's `DEFAULT_RETRY_POLICY.base_delay_ms`.
@@ -1406,6 +1418,7 @@ pub const DECLS: &[Decl] = &[
     BRANCH_SUMMARY_SKIP_PROMPT,
     RETRY_ENABLED,
     RETRY_MAX_RETRIES,
+    RETRY_MAX_RESENDS,
     RETRY_BASE_DELAY_MS,
     RETRY_FAILOVER_ENABLED,
     RETRY_FAILOVER_MAX_RETRIES,

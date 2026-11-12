@@ -502,11 +502,11 @@ fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
     // `/goal` start schedules its continuation as the turn's model segment:
     // the goal meta frame precedes the streamed answer, and the usage
     // accounting publishes a second goal frame after the message settles.
-    // The tiny budget bounds the goal loop the worker turn loop
-    // hosts (TS parity: the continuation loop runs inside the same
-    // session/prompt request): the crossing turn's budget-limit steer is
-    // the second model segment, and the budget_limited goal settles the
-    // prompt with end_turn instead of looping forever.
+    // The tiny budget bounds the goal loop the worker turn loop hosts (the
+    // continuation loop runs inside the same session/prompt request): the
+    // crossing turn's budget-limit steer is the second model segment, and
+    // the budget_limited goal settles the prompt with end_turn instead of
+    // looping forever.
     let script = json!({ "engine": "faux", "responses": ["GOAL-PROGRESS", "WRAP-UP"] });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
@@ -524,26 +524,40 @@ fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
 
-    let goal_frames: Vec<&Value> = updates
+    let goal_of = |frame: &Value| update_meta(frame)["goal"].clone();
+    let goals: Vec<Value> = updates
         .iter()
-        .filter(|update| {
-            let meta = &update["params"]["update"]["_meta"]["com.eukhe"];
-            meta.get("goal").is_some_and(|value| !value.is_null())
-        })
+        .map(goal_of)
+        .filter(|goal| !goal.is_null())
         .collect();
-    assert!(!goal_frames.is_empty(), "updates: {updates:?}");
-    let first = &goal_frames[0]["params"]["update"]["_meta"]["com.eukhe"]["goal"];
-    assert_eq!(first["status"], "active");
-    assert_eq!(first["objective"], "reply with exactly: GOAL-PROGRESS");
-    assert_eq!(first["tokenBudget"], 5);
-    assert_eq!(first["tokensUsed"], 0);
-    // A usage update follows the settled message: the tiny budget
-    // crosses at the first turn, so the goal is budget_limited before
-    // the wrap-up steer segment runs.
-    assert!(goal_frames.len() >= 2, "goal frames: {goal_frames:?}");
-    let second = &goal_frames[1]["params"]["update"]["_meta"]["com.eukhe"]["goal"];
-    assert_eq!(second["status"], "budget_limited");
-    assert!(second["tokensUsed"].as_u64().unwrap_or(0) > 0);
+    assert!(!goals.is_empty(), "updates: {updates:?}");
+    assert_eq!(
+        (
+            &goals[0]["status"],
+            &goals[0]["objective"],
+            &goals[0]["tokenBudget"],
+            &goals[0]["tokensUsed"]
+        ),
+        (
+            &json!("active"),
+            &json!("reply with exactly: GOAL-PROGRESS"),
+            &json!(5),
+            &json!(0)
+        )
+    );
+    // A usage update follows the settled message: the tiny budget crosses
+    // at the first turn, so the goal is budget_limited before the wrap-up
+    // steer segment runs.
+    let limited = match goals.iter().find(|goal| goal["status"] == "budget_limited") {
+        Some(goal) => goal.clone(),
+        None => goal_of(&client.wait_frame(TIMEOUT, |frame| {
+            update_meta(frame)["goal"]["status"] == "budget_limited"
+        })),
+    };
+    assert!(
+        limited["tokensUsed"].as_u64().unwrap_or(0) > 5,
+        "the goal counted its answer: {limited}"
+    );
     // The budget-limit wrap-up steer ran as the prompt's second model
     // segment (its streamed answer is the second scripted response; the
     // faux pacing may split one answer into chunks, so the joined text
@@ -562,9 +576,10 @@ fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
 
 #[test]
 fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
-    // A one-token budget is exhausted by the first turn: the driver stops
-    // with the token limit, the completion envelope carries the autonomous
-    // accounting, and the stop reason is `max_tokens`.
+    // `--autonomous-max-tokens 1` is the run's own soft limit: the first
+    // turn runs and spends more than one token, the run stops at its token
+    // limit between continuations, the completion envelope carries the
+    // autonomous accounting, and the stop reason is `max_tokens`.
     let script = json!({ "engine": "faux", "responses": ["an answer"] });
     let mut client = AcpChild::spawn(
         &[

@@ -13,16 +13,19 @@
 # per-job actions.
 
 import Base
+import ./cron.bend as Cr
 import ./cron_store.bend as CS
 
 # one record of the jobs file
 type Row is Data:
   Row{sess: Nat, file: Nat, hb: Bool, f: CS.Fact}
 
-# a per-job decision; `r` is the next match of a rule (Rust's arithmetic)
+# a per-job decision; `r` is the next match of a rule (Rust's arithmetic);
+# a recovery's `at` is the occurrence of the job's cleared claim record
+# (its `scheduledFor`), the next run of a job fired again
 type Op is Data:
   OTake{claimed: Bool, due: Nat, now: Nat, r: Nat}
-  ORecover{cleared: Bool}
+  ORecover{cleared: Bool, at: Nat}
   OFinish{u: Nat, ran: Bool, failed: Bool, now: Nat, r: Nat}
   OCancel{}
   OResume{now: Nat, r: Nat}
@@ -70,7 +73,7 @@ def took(t: CS.Took, +r: Nat, f: CS.Fact) -> CS.Fact:
         case CS.Fact{st, p, nx, k}:
           CS.Fact{st, p, next_at(n, r), k}
 
-def back(b: CS.Back, f: CS.Fact) -> CS.Fact:
+def back(b: CS.Back, +at: Nat, f: CS.Fact) -> CS.Fact:
   match b:
     case CS.Kept{}:
       f
@@ -78,6 +81,10 @@ def back(b: CS.Back, f: CS.Fact) -> CS.Fact:
       match f:
         case CS.Fact{st, p, nx, k}:
           CS.Fact{st2, p, nx2, k}
+    case CS.Refire{}:
+      match f:
+        case CS.Fact{st, p, nx, k}:
+          CS.Fact{Cr.Active{}, p, Some{at}, k}
 
 def fin(x: CS.Fin, +r: Nat, f: CS.Fact) -> CS.Fact:
   match x:
@@ -126,8 +133,8 @@ def apply(op: Op, +f: CS.Fact) -> CS.Fact:
   match op:
     case OTake{c, d, n, r}:
       took(CS.take(f, c, d, n), r, f)
-    case ORecover{c}:
-      back(CS.recover(f, c), f)
+    case ORecover{c, at}:
+      back(CS.recover(f, c), at, f)
     case OFinish{u, a, b, n, r}:
       fin(CS.finish(u, f, a, b, n), r, f)
     case OCancel{}:

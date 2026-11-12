@@ -15,6 +15,7 @@ pub(crate) mod tests;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::utils::validation::{validate_tool_arguments, ValidationError};
+use eukhe_bend::rules::once::{self, Mode, Policy, Record, Seen, Verdict};
 use eukhe_bend::rules::tool_call::{
     self as effect, AbortCause, Attempt, Begin, CallJournal, Enter, Intent, Recover, Replay, Stop,
 };
@@ -22,8 +23,10 @@ use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, JsonObject as PiJsonObject, JsonValue as PiJsonValue, Message, ToolCall,
+    AssistantContentBlock, JsonObject as PiJsonObject, JsonValue as PiJsonValue, Message,
+    TextContent, ToolCall, UserContentBlock,
 };
+use eukhe_types::platform::kill_point::kill_point;
 use serde::de::Error as _;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -39,6 +42,7 @@ pub use self::nested::{NestedResultState, NESTED_RESULT_DOC};
 pub(crate) use self::result::tool_unavailable_message;
 pub use self::result::{append_tool_result, harness_error, ToolResultMeta};
 use self::result::{from_slot, ToolEnding};
+use super::effects::{note_unknown, EffectKind, UnknownEffect};
 use super::live::{
     clear_progress, finish_slot, is_nested_slot, remove_nested_slots, tool_slot, SlotProgress,
     LIVE_DOC,
@@ -46,7 +50,7 @@ use super::live::{
 use super::output::Truncation;
 use super::types::{
     OutputRetain, ToolCallParent, ToolControl, ToolExecutionResult, ToolHookCall, ToolHooks,
-    ToolRegistration, ToolReplay,
+    ToolProbe, ToolRegistration, ToolReplay,
 };
 use super::usage::{record_usage, UsageBucket};
 use crate::entries::ASSISTANT_ENTRY;
@@ -64,6 +68,14 @@ use crate::types::{
 /// text at "may have partially run").
 const INTERRUPTED_NEXT_STEP: &str =
     "Check the state it changes (files, processes, jobs) before you run it again.";
+
+/// The kind of effect a call is, as its kill points and its id in the
+/// effects ledger spell it: a call of a probed tool writes files.
+const EFFECT_TOOL: &str = "tool";
+const EFFECT_WRITE: &str = "write";
+
+/// The most chars of a call's arguments its ledger entry shows.
+const NOTED_ARGUMENT_CHARS: usize = 120;
 
 /// A model-issued call, read from its assistant entry, or a nested call a
 /// running tool made through `execute_tool()`, whose call the input carries
@@ -102,6 +114,12 @@ pub enum ToolTaskCheckpoint {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         repairs: Vec<Repair>,
         replay: ToolReplay,
+        /// What a call of a probed tool recorded, durably before it
+        /// changed anything, of the change it was about to make
+        /// ([`ToolExecutionApi::probe`](super::types::ToolExecutionApi::probe));
+        /// `None` before that, and again once a recovery runs the call anew.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        probe: Option<JsonValue>,
     },
 }
 
@@ -272,6 +290,7 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
         arguments: args.clone(),
         repairs: repairs.clone(),
         replay: tool.replay.unwrap_or(ToolReplay::Unsafe),
+        probe: None,
     };
     // A nested slot shows the arguments the call runs with, which repair,
     // hooks, and coercion may have changed. Compared with the input, which
@@ -298,6 +317,7 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
             &cx,
         )
         .await?;
+    kill_point(effect_of(&tool).1, "intended");
     run(&runtime, &input, &call, &tool, args, repairs, journal, &cx).await
 }
 
@@ -320,13 +340,18 @@ fn begin_slot(slot: &Draft, begin: Begin, changed: Option<JsonValue>) -> Session
     Ok(())
 }
 
-/// Recovery after intent asks the effect gate: rerun only when the stored
-/// and the current policy both say `safe`, else settle interrupted.
+/// Recovery after intent. A call of a probed tool asks its probe what the
+/// world shows of the change it was making, and the compiled core what a
+/// resumed run does with it (`bend/once.bend`): adopt a change that
+/// landed, run again one that never will, settle interrupted one nobody
+/// can tell. Any other call asks the effect gate: rerun only when the
+/// stored and the current policy both say `safe`, else settle interrupted.
 async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let ToolTaskCheckpoint::Execute {
         arguments,
         repairs,
         replay,
+        probe: record,
     } = task.checkpoint
     else {
         return Err(SessionError::error(
@@ -339,54 +364,76 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
         Some(call) => offered(resolve_tool(&runtime, &input, &call.name, &cx).await?),
         None => None,
     };
-    let (call, tool) = match effect::recover(call, policy(replay), tool) {
-        Recover::Rerun { call, tool } => {
-            // The rerun reports from scratch; its journal clears what the interrupted attempt published.
-            let conversation_id = runtime.conversation_id();
-            let task_id = runtime.task_id().erase();
-            let (journal, begin) = CallJournal::open(Attempt::Rerun);
-            runtime
-                .commit(
-                    move |tx, _current| async move {
-                        let live = tx.doc(&LIVE_DOC, conversation_id).await?;
-                        if let Some(slot) = tool_slot(&live, task_id)? {
-                            begin_slot(&slot, begin, None)?;
-                        }
-                        Ok(None)
-                    },
-                    &cx,
-                )
-                .await?;
-            return run(
-                &runtime, &input, &call, &tool, arguments, repairs, journal, &cx,
-            )
-            .await;
+    let probe = tool.as_ref().and_then(|(tool, _)| tool.probe.clone());
+    let (call, tool) = match (call, tool, probe) {
+        (Some(call), Some((tool, _)), Some(probe)) => {
+            match probed(&probe, record, Mode::Resume).await {
+                Verdict::Launch => (call, tool),
+                Verdict::Adopt => {
+                    let result = landed(&call);
+                    return complete(&runtime, &input, &call, result, &cx).await;
+                }
+                Verdict::Interrupt => {
+                    return interrupt(&runtime, &input, &call, Some(&tool), &cx).await
+                }
+                Verdict::Abandon | Verdict::Skip | Verdict::Settled => {
+                    return Err(inconsistent_verdict())
+                }
+            }
         }
-        Recover::Interrupted { call, tool } => (call, tool),
-        Recover::Missing => return Err(missing(&input)),
+        (call, tool, _unprobed) => match effect::recover(call, policy(replay), tool) {
+            Recover::Rerun { call, tool } => (call, tool),
+            Recover::Interrupted { call, tool } => {
+                return interrupt(&runtime, &input, &call, tool.as_deref(), &cx).await
+            }
+            Recover::Missing => return Err(missing(&input)),
+        },
     };
-    let retain = retain_of(tool.as_deref());
-    let message = format!(
-        "Tool {} was interrupted and may have partially run. {INTERRUPTED_NEXT_STEP}",
-        call.name
-    );
-    // `failed` records cancellation intent, so the call's owned conversations, left unsupervised, are aborted.
-    let ending = ToolEnding::Failed {
-        message: message.clone(),
-    };
-    settle(
-        &runtime,
-        &input,
-        &call,
-        ending,
-        move |slot| from_slot(slot, retain, "interrupted", &message),
-        &cx,
-        None,
+    // The rerun reports from scratch; its journal clears what the interrupted attempt published.
+    let conversation_id = runtime.conversation_id();
+    let task_id = runtime.task_id().erase();
+    let (journal, begin) = CallJournal::open(Attempt::Rerun);
+    runtime
+        .commit(
+            move |tx, current| async move {
+                let live = tx.doc(&LIVE_DOC, conversation_id).await?;
+                if let Some(slot) = tool_slot(&live, task_id)? {
+                    begin_slot(&slot, begin, None)?;
+                }
+                // The rerun records its own probe: the last attempt's change never landed.
+                Ok(match current.checkpoint {
+                    ToolTaskCheckpoint::Execute {
+                        arguments,
+                        repairs,
+                        replay,
+                        probe: Some(_),
+                    } => Some(NextTaskState::Running {
+                        checkpoint: ToolTaskCheckpoint::Execute {
+                            arguments,
+                            repairs,
+                            replay,
+                            probe: None,
+                        },
+                    }),
+                    ToolTaskCheckpoint::Execute { probe: None, .. } | ToolTaskCheckpoint::Call => {
+                        None
+                    }
+                })
+            },
+            &cx,
+        )
+        .await?;
+    run(
+        &runtime, &input, &call, &tool, arguments, repairs, journal, &cx,
     )
     .await
 }
 
-/// The abort handler asks the effect gate how the call settles.
+/// The abort handler asks the effect gate how the call settles. A call a
+/// restart cut after its intent, when its caller ended with the restart,
+/// asks its tool's probe and the compiled core what a stopped run does
+/// with it: adopt a change that landed, report not started one that never
+/// will, else report it interrupted.
 async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let call = read_call(&runtime, &task.input, &cx).await?;
     let tool = match &call {
@@ -399,28 +446,51 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
         Some(TaskAbortReason::Restart) => AbortCause::Restart,
         None => AbortCause::Requested,
     };
-    let intent = match task.checkpoint {
-        ToolTaskCheckpoint::Call => Intent::Unrecorded,
-        ToolTaskCheckpoint::Execute { .. } => Intent::Recorded,
+    let (intent, record) = match task.checkpoint {
+        ToolTaskCheckpoint::Call => (Intent::Unrecorded, None),
+        ToolTaskCheckpoint::Execute { probe, .. } => (Intent::Recorded, probe),
     };
-    let (call, code, message) = match effect::stop(call, cause, intent) {
+    let (call, code, message, noted) = match effect::stop(call, cause, intent) {
         Stop::Aborted(call) => {
             let message = format!("Tool {} was aborted", call.name);
-            (call, "aborted", message)
+            (call, "aborted", message, None)
         }
         Stop::Interrupted(call) => {
-            let message = format!(
-                "Tool {} was interrupted by a restart and may have partially run. {INTERRUPTED_NEXT_STEP}",
-                call.name
-            );
-            (call, "interrupted", message)
+            let verdict = match tool.as_ref().and_then(|tool| tool.probe.as_ref()) {
+                Some(probe) => probed(probe, record, Mode::Stop).await,
+                None => Verdict::Interrupt,
+            };
+            match verdict {
+                Verdict::Adopt => {
+                    let result = landed(&call);
+                    return complete(&runtime, &task.input, &call, result, &cx).await;
+                }
+                Verdict::Abandon => {
+                    let message = format!(
+                        "Tool {} did not run: a restart ended its caller before its change landed",
+                        call.name
+                    );
+                    (call, "abandoned", message, None)
+                }
+                Verdict::Interrupt => {
+                    let message = format!(
+                        "Tool {} was interrupted by a restart and may have partially run. {INTERRUPTED_NEXT_STEP}",
+                        call.name
+                    );
+                    let noted = unknown(&runtime, &call, tool.as_deref())?;
+                    (call, "interrupted", message, Some(noted))
+                }
+                Verdict::Launch | Verdict::Skip | Verdict::Settled => {
+                    return Err(inconsistent_verdict())
+                }
+            }
         }
         Stop::Abandoned(call) => {
             let message = format!(
                 "Tool {} was not started: its caller ended with a restart",
                 call.name
             );
-            (call, "abandoned", message)
+            (call, "abandoned", message, None)
         }
         Stop::Missing => return Err(missing(&task.input)),
     };
@@ -430,10 +500,117 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
         &call,
         ToolEnding::Aborted,
         move |slot| from_slot(slot, retain, code, &message),
+        noted,
         &cx,
         None,
     )
     .await
+}
+
+/// What a restart of the run (`mode`) does with a call of a probed tool
+/// whose intent holds `record`: its journal is intended and started, the
+/// tool's `probe` says what the world shows of its change (no record: the
+/// call never got to its change, but nothing on record says so), and the
+/// compiled core decides (`eukhe_bend::rules::once`).
+async fn probed(probe: &ToolProbe, record: Option<JsonValue>, mode: Mode) -> Verdict {
+    let seen = match record {
+        Some(record) => probe(record).await,
+        None => Seen::Dark,
+    };
+    let (_, verdict) = once::restart(
+        [Record::Intended, Record::Started],
+        mode,
+        Policy::Never,
+        seen,
+    );
+    verdict
+}
+
+/// The error of a verdict the core never gives a started call (an
+/// inconsistent build).
+fn inconsistent_verdict() -> SessionError {
+    SessionError::error(
+        "A started tool call is adopted, run again, interrupted or not started at a restart",
+    )
+}
+
+/// The result of a probed call whose change landed before a restart cut
+/// it: it ran, though its own result died with the process.
+fn landed(call: &ToolCall) -> ToolExecutionResult {
+    let text = format!(
+        "Tool {} was cut by a restart after its change landed: what it wrote holds the new \
+         content. Its own result was lost; read what it changed for the details.",
+        call.name
+    );
+    ToolExecutionResult {
+        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        ..ToolExecutionResult::default()
+    }
+}
+
+/// Settle a call a restart cut and nobody can tell the outcome of: its
+/// result says it was interrupted, and the effects ledger notes it in the
+/// same commit. `failed` records cancellation intent, so the call's owned
+/// conversations, left unsupervised, are aborted.
+async fn interrupt(
+    runtime: &Runtime,
+    input: &ToolTaskInput,
+    call: &ToolHookCall,
+    tool: Option<&ToolRegistration>,
+    cx: &Context,
+) -> SessionResult<()> {
+    let retain = retain_of(tool);
+    let message = format!(
+        "Tool {} was interrupted and may have partially run. {INTERRUPTED_NEXT_STEP}",
+        call.name
+    );
+    let ending = ToolEnding::Failed {
+        message: message.clone(),
+    };
+    let noted = unknown(runtime, call, tool)?;
+    settle(
+        runtime,
+        input,
+        call,
+        ending,
+        move |slot| from_slot(slot, retain, "interrupted", &message),
+        Some(noted),
+        cx,
+        None,
+    )
+    .await
+}
+
+/// The ledger's record of a call a restart settled interrupted: the tool
+/// (no longer offered: a plain tool call) and a short form of its
+/// arguments.
+fn unknown(
+    runtime: &Runtime,
+    call: &ToolHookCall,
+    tool: Option<&ToolRegistration>,
+) -> SessionResult<UnknownEffect> {
+    let (kind, name) = tool.map_or((EffectKind::Tool, EFFECT_TOOL), effect_of);
+    let arguments = PiJsonValue::Object(call.arguments.clone()).to_string();
+    let what = match arguments.char_indices().nth(NOTED_ARGUMENT_CHARS) {
+        Some((cut, _)) => format!("{} {}…", call.name, &arguments[..cut]),
+        None => format!("{} {arguments}", call.name),
+    };
+    Ok(UnknownEffect {
+        id: format!("{name}:{}", call.id),
+        kind,
+        what,
+        at: runtime.now()?,
+        resolution: None,
+    })
+}
+
+/// The effect a call of `tool` is, and the name its kill points and ledger
+/// id spell it with.
+fn effect_of(tool: &ToolRegistration) -> (EffectKind, &'static str) {
+    match tool.probe {
+        Some(_) => (EffectKind::Write, EFFECT_WRITE),
+        None => (EffectKind::Tool, EFFECT_TOOL),
+    }
 }
 
 /// The gate's policy of a tool's replay.
@@ -601,7 +778,8 @@ fn invalid(error: &ToolArgumentError) -> ToolExecutionResult {
     harness_error("invalid_arguments", &error.to_string())
 }
 
-/// Settle a call that never executed with the Harness's own `result`.
+/// Settle a call with the Harness's own `result`: a call that never
+/// executed, or one whose change a restart found landed.
 async fn complete(
     runtime: &Runtime,
     input: &ToolTaskInput,
@@ -615,6 +793,7 @@ async fn complete(
         call,
         ToolEnding::Completed,
         |_| result,
+        None,
         cx,
         None,
     )
@@ -678,6 +857,25 @@ async fn before_tool(
     Ok((args, block))
 }
 
+/// Abort every nested call the call `task_id` owns and answer their ids,
+/// lowest first.
+async fn abort_nested_calls(
+    runtime: &Runtime,
+    task_id: TaskId,
+    cx: &Context,
+) -> SessionResult<Vec<TaskId>> {
+    // A crash in between leaves the call in `execute`: a safe rerun reattaches to the calls, an interruption ends here.
+    let index = match runtime.snapshot(&NESTED_CALLS_DOC, task_id, cx).await? {
+        Some(index) => from_json::<NestedCalls>(&JsonValue::Object(index))?,
+        None => NestedCalls::default(),
+    };
+    let mut nested_ids: Vec<TaskId> = index.calls.into_values().collect();
+    nested_ids.sort_unstable();
+    // Mark them all before waiting for any: one may run until a sibling is cancelled.
+    futures::future::try_join_all(nested_ids.iter().map(|id| runtime.abort_owned(*id, cx))).await?;
+    Ok(nested_ids)
+}
+
 /// Commit the tool's terminal state and mark its slot done. A model-issued
 /// call appends its result entry and ends with the entry ID; a nested call
 /// writes its result to the caller's `NestedResultDoc`, records its usage,
@@ -688,13 +886,20 @@ async fn before_tool(
 /// progress board in this process (read, and taken off the board only once
 /// the settle committed), else what an earlier version committed to its
 /// slot. After a crash a call has no progress on the board: its partial
-/// live output is lost, and an interruption reports what is durable.
+/// live output is lost, and an interruption reports what is durable. An
+/// effect a restart left unknown (`noted`) enters the effects ledger in
+/// the same commit.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the call, how it ended, its result, its ledger note, and its timing"
+)]
 async fn settle<B>(
     runtime: &Runtime,
     input: &ToolTaskInput,
     call: &ToolHookCall,
     ending: ToolEnding,
     build: B,
+    noted: Option<UnknownEffect>,
     cx: &Context,
     duration_ms: Option<u64>,
 ) -> SessionResult<()>
@@ -703,15 +908,7 @@ where
 {
     let conversation_id = runtime.conversation_id();
     let task_id = runtime.task_id().erase();
-    // A crash in between leaves the call in `execute`: a safe rerun reattaches to the calls, an interruption ends here.
-    let index = match runtime.snapshot(&NESTED_CALLS_DOC, task_id, cx).await? {
-        Some(index) => from_json::<NestedCalls>(&JsonValue::Object(index))?,
-        None => NestedCalls::default(),
-    };
-    let mut nested_ids: Vec<TaskId> = index.calls.into_values().collect();
-    nested_ids.sort_unstable();
-    // Mark them all before waiting for any: one may run until a sibling is cancelled.
-    futures::future::try_join_all(nested_ids.iter().map(|id| runtime.abort_owned(*id, cx))).await?;
+    let nested_ids = abort_nested_calls(runtime, task_id, cx).await?;
     let input = input.clone();
     let call = call.clone();
     let clock = runtime.clone();
@@ -728,6 +925,9 @@ where
                     (None, None) => None,
                 };
                 let result = build(progress.as_ref());
+                if let Some(effect) = &noted {
+                    note_unknown(&tx, conversation_id, effect).await?;
+                }
                 let settled = match &input {
                     ToolTaskInput::Nested { parent, key, .. } => {
                         let nested = nested_result(task_id, &result, duration_ms);

@@ -113,8 +113,8 @@ law color_light_orange_example:
 # Rgb(c, c, c) has luminance 10000 lin(c) (units of 1/100000000), the three
 # channel weights sum to one (WCAG 2.x relative luminance:
 # https://www.w3.org/TR/WCAG22/#dfn-relative-luminance)
-# EXCLUDES: weights that do not sum to one, an offset folded into the
-#   luminance, a gray read from one channel or a channel mean that rounds
+# EXCLUDES: weights that do not sum to one (a gray darker or lighter than
+#   its linear channel), an offset folded into the luminance
 law color_lum_grey:
   for +c: U32
   {Co.lum(Co.Rgb{c, c, c}) == (10000 * Co.lin(c) : U32) : U32}
@@ -128,10 +128,9 @@ law color_lum_order:
   {Bool.and(U32.is_le(Co.lum(Co.Rgb{0, 0, c}), Co.lum(Co.Rgb{c, 0, 0})), U32.is_le(Co.lum(Co.Rgb{c, 0, 0}), Co.lum(Co.Rgb{0, c, 0}))) == True{} : Bool}
 
 # LAW color_lum_rises: the luminance never falls where no linear channel falls: for every two
-# colors whose red, green and blue each linearize at least as high in the
-# second, the second's luminance is at least the first's; with
-# color_lin_rises, raising any channel of a color (0 to 255) never lowers
-# its luminance
+# colors (any U32 channels) whose red, green and blue each linearize at
+# least as high in the second, the second's luminance is at least the
+# first's
 # EXCLUDES: a negative weight, a term that falls as its channel rises, a
 #   sum or product that wraps past 2^32
 law color_lum_rises:
@@ -145,6 +144,25 @@ law color_lum_rises:
   for hg: {U32.is_le(Co.lin(g), Co.lin(g2)) == True{} : Bool}
   for hb: {U32.is_le(Co.lin(b), Co.lin(b2)) == True{} : Bool}
   {U32.is_le(Co.lum(Co.Rgb{r, g, b}), Co.lum(Co.Rgb{r2, g2, b2})) == True{} : Bool}
+
+# LAW color_lum_weights: a color's luminance weighs its linear channels as WCAG 2.x does
+# (https://www.w3.org/TR/WCAG22/#dfn-relative-luminance: L = 0.2126 R +
+# 0.7152 G + 0.0722 B): for every color (r, g, b), 10000 times its
+# luminance is 2126 times the luminance of the gray (r, r, r), plus 7152
+# times that of (g, g, g), plus 722 times that of (b, b, b), on naturals
+# (no wrap). With color_lum_grey (a gray's luminance is 10000 lin(c)) and
+# color_lin_low/high (lin is the sRGB transfer function) this fixes the
+# luminance of every color: 2126 lin(r) + 7152 lin(g) + 722 lin(b) units
+# of 1/100000000
+# EXCLUDES: other weights that sum to one and keep green > red > blue
+#   (Rec. 601's 0.299, 0.587, 0.114), swapped channels, a luminance that
+#   is not the weighted sum of its channels (a cross term, a maximum, a
+#   channel left out)
+law color_lum_weights:
+  for +r: U32
+  for +g: U32
+  for +b: U32
+  {Nat.mul(U32.to_nat(Co.lum(Co.Rgb{r, g, b})), 10000n) == Nat.add(Nat.add(Nat.mul(U32.to_nat(Co.lum(Co.Rgb{r, r, r})), 2126n), Nat.mul(U32.to_nat(Co.lum(Co.Rgb{g, g, g})), 7152n)), Nat.mul(U32.to_nat(Co.lum(Co.Rgb{b, b, b})), 722n)) : Nat}
 
 # LAW color_lum_wcag_example: anchors from the WCAG 2.x relative luminance
 # (https://www.w3.org/TR/WCAG22/#dfn-relative-luminance, computed with the
@@ -343,7 +361,8 @@ def th.contrast_exact(+a: Co.Rgb, +b: Co.Rgb, +num: U32, +den: U32) -> Bool:
 # LAW color_contrast_exact_wide: past terms of 40 the contrast test is exact for every U32 ratio:
 # (L_dark + 0.05)·num <= (L_light + 0.05)·den on naturals
 # EXCLUDES: contrast arithmetic that wraps, drops a carry or a partial
-#   product past 2^32 (the old mul64 carry bug class)
+#   product past 2^32 (a product split at 2^16 that drops the carry of its
+#   partial products)
 law color_contrast_exact_wide:
   for +a: Co.Rgb
   for +b: Co.Rgb

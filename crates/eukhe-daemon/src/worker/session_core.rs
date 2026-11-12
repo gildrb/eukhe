@@ -27,6 +27,13 @@ pub(crate) struct SessionCore {
     pub(crate) anthropic_warning_shown: bool,
     /// When the session was created here (ISO), for the summary.
     pub(crate) created_at: Option<String>,
+    /// The session's budget as the last `budget_update` carried it (the
+    /// attach snapshot's `state.budget`); `None` without a budget.
+    pub(crate) budget: Option<eukhe_types::budget::BudgetReport>,
+    /// Which budget forwarder writes `budget`: each follow of a session's
+    /// budget takes the next number, and a forwarder of an earlier one
+    /// stops.
+    pub(crate) budget_epoch: u64,
     /// The shown conversation's event mirror; `None` before `create`.
     pub(crate) view: Option<ShownView>,
     /// The shown conversation's durable view, installed with `view`: the
@@ -119,6 +126,8 @@ impl SessionCore {
             session_name: None,
             anthropic_warning_shown: false,
             created_at: None,
+            budget: None,
+            budget_epoch: 0,
             cwd: String::new(),
             view: None,
             durable: None,

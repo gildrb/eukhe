@@ -46,16 +46,16 @@
 #     cure fails the run; the note is never logged (decide.rs `retry_note`,
 #     note.rs).
 # H4.8: a stuck model gets a recovery, each with a cap (decide.rs
-#     `recover`; the laws are in laws/run/recover.bend): a length stop
-#     with text gets length notes 1 to `long`, then the run fails (the
-#     requirement's retry cap of an incomplete reply); leaked tool
+#     `recover`; the laws are in laws/run/recover.bend): leaked tool
 #     calls the harness could not rebuild get leak notes 1 to `leak`, then
 #     the run fails; calls that would make `repeat` rounds in a row with the
 #     same calls and the same results do not run (the requirement's loop
 #     guard threshold) and get redirect notes 1 to `redirect`,
 #     then the run fails; calls below that run; a user message ends the
 #     row. A recovery's retry is a noted retry (H4.7). An empty reply and a
-#     length stop with no text: R4 and R7 of laws/stop.bend.
+#     length stop the stop walk continues (its ladder: length notes 1 to
+#     `long`, the requirement's retry cap of an incomplete reply): R4 and
+#     R7 of laws/stop.bend; a cut reply with text: R10 of laws/stop.bend.
 # H4.9: the decisions Rust calls make the decisions above from Rust's
 #     counters: what follows a reply (H4.1, H4.4, H4.7; an overflow
 #     compacts once a generation, when a cut exists, else the run fails);
@@ -856,9 +856,11 @@ law rec_repeat_redirects:
   for under: {RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Loops{}, 1n+RnRecovery.Rk.loops(k, row), same, last}} : RnRecovery.Dec}
 
+
 # LAW rec_redo_is_noted: a recovery's retry is a noted error, so its request ends with the
 # note of the next attempt (run_cut_names_the_request): it never sends
 # the request again (run_retry_sends_a_new_request)
 law rec_redo_is_noted:
   for -pass: RnState.Reply
   {RnRecovery.Act.reply(RnRecovery.Redo{}, pass) == RnState.Error{False{}, True{}} : RnState.Reply}
+

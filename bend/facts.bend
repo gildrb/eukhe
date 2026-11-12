@@ -14,7 +14,8 @@
 #    Google budget held inside the model's range (an unordered budget rule
 #    is refused, never clamped), the output cap of a request (the
 #    caller's cap or the catalog's max, shrunk only on a real conflict
-#    with the context window, omitted only when the max is unknown), the
+#    with the context window, left out only without a caller's cap for a
+#    host whose rule leaves the default cap out), the
 #    fit of a budget on top of the answer cap, and the answer room of an
 #    auxiliary call. The Rust caller saturates every
 #    budget, cap and size at the wire's largest Nat (10^14-1, below the
@@ -22,10 +23,9 @@
 #    its inputs or above `top`, so a run never meets the runtime's Nat
 #    bound and every answer fits the wire.
 # 3. Oracles: the code that held the facts before (the old Bedrock budget
-#    table, the old tier prices, the shape of the old Bedrock name checks),
-#    as functions, for the laws that say the data gives the same answers
-#    (the old Bedrock effort rule is a laws-side oracle:
-#    laws/facts/model.bend effort_old).
+#    table, the old tier prices), as functions, for the laws that say the
+#    data gives the same answers (the old Bedrock effort rule is a
+#    laws-side oracle: laws/facts/model.bend effort_old).
 
 import Base
 import ./infer.bend as If
@@ -210,16 +210,11 @@ def gbudget(rule: Maybe<&2, Budgets>, c: Customs, l: Lv) -> GB:
 # --------------
 
 # the context window facts of a request: the window (0: unknown), the
-# estimated prompt, the safety margin, the floor of a shrunk cap, and
+# prompt's local count, the safety margin, the floor of a shrunk cap, and
 # whether the model ends its output at the window itself (the rulebook's
 # `stops_output_at_window`)
 type Win is Data:
   Win{window: Nat, prompt: Nat, safety: Nat, floor: Nat, stops: Bool}
-
-def Win.window(w: Win) -> Nat:
-  match w:
-    case Win{n, p, s, f, st}:
-      n
 
 # the window w is below p + s + x, decided without forming the sum: the
 # window below the prompt, the rest below the safety, or the room left
@@ -245,11 +240,9 @@ def cap.shrink(+x: Nat, win: Win) -> Nat:
     case Win{+w, +p, +s, +f, st}:
       cap.fit(Bool.and(Bool.not(st), Bool.and(Nat.is_lt(0n, w), cap.over(w, p, s, x))), x, w, p, s, f)
 
-# the catalog's max mm says nothing beyond a known window w: the max is
-# unknown
-def cap.unknown(+w: Nat, +mm: Nat) -> Bool:
-  Bool.and(Nat.is_lt(0n, w), Nat.is_le(w, mm))
-
+# the default cap of a request without a caller's cap: the catalog's max
+# mm, after the window; none when the host leaves the default cap out
+# (omit)
 def cap.none(omit: Bool, +mm: Nat, win: Win) -> Maybe<&2, Nat>:
   match omit:
     case True{}:
@@ -258,15 +251,18 @@ def cap.none(omit: Bool, +mm: Nat, win: Win) -> Maybe<&2, Nat>:
       Some{cap.shrink(mm, win)}
 
 # the output cap of a request (`build_base_options`): the caller's cap,
-# else the catalog's max mm, after the window; none (the field omitted,
-# the provider's own max applies) only without a caller's cap, for a
-# wire API that does not need the field (needs), when the max is unknown
+# else the catalog's max mm, after the window. needs: the request carries
+# a default cap (the catalog's max) when the caller gave none; false only
+# for a host whose rulebook rule leaves the default cap out (the
+# rulebook's `default_output_cap` false: OpenRouter). The field is left
+# out only then, whatever the max and the window; a caller's cap is always
+# sent
 def cap(caller: Maybe<&2, Nat>, +mm: Nat, needs: Bool, +win: Win) -> Maybe<&2, Nat>:
   match caller:
     case Some{x}:
       Some{cap.shrink(x, win)}
     case None{}:
-      cap.none(Bool.and(Bool.not(needs), cap.unknown(Win.window(win), mm)), mm, win)
+      cap.none(Bool.not(needs), mm, win)
 
 # a response ceiling and the thinking budget under it
 type Fit is Data:
@@ -307,7 +303,7 @@ def fit.cap(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat) -> Nat:
 
 # the budget b fitted under the thinking ceiling
 # (`adjust_max_tokens_for_thinking`): the ceiling through the output cap
-# (a thinking request needs its cap), then the budget capped so that a
+# (a thinking request always carries its ceiling), then the budget capped so that a
 # tokens stay for the answer
 def fit(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat, win: Win) -> Fit:
   +m = cap.shrink(fit.cap(base, mm, b), win)
@@ -401,23 +397,21 @@ def effort(+m: EMap, +l: ELv) -> Nat:
   effort.of(EMap.at(m, l), l)
 
 # Bedrock reasoning fields. The rulebook's `bedrock_reasoning` names the
-# request shape of a model on Bedrock: Claude's thinking fields, OpenAI
-# GPT's nested `reasoning.effort`, or gpt-oss's flat `reasoning_effort`
-# (none: the request sends no reasoning field).
+# request shape of a model on Bedrock: Claude's, or the nested
+# `reasoning.effort` of the effort-mode models (OpenAI GPT, Grok 4.6+,
+# Kimi K3); a model no rule names takes Anthropic's thinking block like
+# Claude (the default: budget thinking mode).
 type Shape is Data:
   SClaude{}
   SGpt{}
-  SGptOss{}
 
-# the reasoning fields a Bedrock request sends: none; Claude's (Rust builds
-# them: adaptive or budget thinking); a nested effort; a flat effort. An
+# the reasoning fields a Bedrock request sends: Anthropic's thinking block
+# (Rust builds it: adaptive or budget thinking) or a nested effort. An
 # effort is a wire value: 0 the map's own string, 2 low, 3 medium, 4
 # high, 5 xhigh, 6 max
 type RFields is Data:
-  RNone{}
-  RClaude{}
+  RThinking{}
   RNested{e: Nat}
-  RFlat{e: Nat}
 
 # GPT's default effort of a level: each level its own, minimal as low
 def gpt.default(l: ELv) -> Nat:
@@ -448,61 +442,22 @@ def gpt.of(e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> Nat:
     case None{}:
       gpt.default(l)
 
-# gpt-oss's effort: low, medium and high only (minimal as low, xhigh and
-# max as high); the map is not read
-def oss.effort(l: ELv) -> Nat:
-  match l:
-    case EMinimal{}:
-      2n
-    case ELow{}:
-      2n
-    case EMedium{}:
-      3n
-    case EHigh{}:
-      4n
-    case EXhigh{}:
-      4n
-    case EMax{}:
-      4n
-
 def reasoning.at(x: Shape, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
   match x:
     case SClaude{}:
-      RClaude{}
+      RThinking{}
     case SGpt{}:
       RNested{gpt.of(e, l)}
-    case SGptOss{}:
-      RFlat{oss.effort(l)}
 
-# the reasoning fields of a Bedrock request: the rulebook's shape s (none
-# when no rule applies), the map's entry e of the request's level l
+# the reasoning fields of a Bedrock request: the rulebook's shape s (the
+# thinking block when no rule applies), the map's entry e of the request's
+# level l
 def reasoning(s: Maybe<&2, Shape>, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
   match s:
     case None{}:
-      RNone{}
+      RThinking{}
     case Some{x}:
       reasoning.at(x, e, l)
-
-def shape.old.rest(oss: Bool, gpt: Bool) -> Maybe<&2, Shape>:
-  match oss:
-    case True{}:
-      Some{SGptOss{}}
-    case False{}:
-      match gpt:
-        case True{}:
-          Some{SGpt{}}
-        case False{}:
-          None{}
-
-# the shape the rulebook gives a model of the old predicates (the shipped
-# families of rulebook.json; a Rust test sweeps the catalog for it): the
-# first predicate that holds, in the old order
-def shape.old(cl: Bool, oss: Bool, gpt: Bool) -> Maybe<&2, Shape>:
-  match cl:
-    case True{}:
-      Some{SClaude{}}
-    case False{}:
-      shape.old.rest(oss, gpt)
 
 # the budget-based Claude table of the Bedrock code, before the rulebook
 # held it (the level is clamped to high already)
@@ -630,68 +585,3 @@ def price.old.codex(m: Nat, t: Nat) -> Nat:
               price.old.g(m)
             case 1n+c:
               100n
-
-# `OPENAI_GPT_EFFORT` of the Bedrock code
-def reasoning.old.table(l: ELv) -> Nat:
-  match l:
-    case EMinimal{}:
-      2n
-    case ELow{}:
-      2n
-    case EMedium{}:
-      3n
-    case EHigh{}:
-      4n
-    case EXhigh{}:
-      5n
-    case EMax{}:
-      6n
-
-def reasoning.old.gpt(e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> Nat:
-  match e:
-    case Some{w}:
-      match w:
-        case Some{v}:
-          v
-        case None{}:
-          reasoning.old.table(l)
-    case None{}:
-      reasoning.old.table(l)
-
-# `OPENAI_GPT_OSS_EFFORT` of the Bedrock code
-def reasoning.old.oss(l: ELv) -> Nat:
-  match l:
-    case EMinimal{}:
-      2n
-    case ELow{}:
-      2n
-    case EMedium{}:
-      3n
-    case EHigh{}:
-      4n
-    case EXhigh{}:
-      4n
-    case EMax{}:
-      4n
-
-def reasoning.old.rest(oss: Bool, gpt: Bool, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
-  match oss:
-    case True{}:
-      RFlat{reasoning.old.oss(l)}
-    case False{}:
-      match gpt:
-        case True{}:
-          RNested{reasoning.old.gpt(e, l)}
-        case False{}:
-          RNone{}
-
-# the Bedrock reasoning fields before the rulebook held the shape: a name
-# with "claude" (cl) sends Claude's fields; else a name with "gpt-oss"
-# (oss) the flat effort; else a name with "gpt-" (gpt) the nested effort;
-# else none (`build_additional_model_request_fields`)
-def reasoning.old(cl: Bool, oss: Bool, gpt: Bool, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
-  match cl:
-    case True{}:
-      RClaude{}
-    case False{}:
-      reasoning.old.rest(oss, gpt, e, l)

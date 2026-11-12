@@ -1,5 +1,5 @@
 //! Jobs: everything that runs long is one [`Job`]. A
-//! user bash is a job from its start; an `ipython` cell or a `bash` tool
+//! user bash is a job from its start; an `python` cell or a `bash` tool
 //! script becomes one when its call outlives the blocking budget (ADR
 //! 0010). A job counts its output
 //! under the session's output cap, reports exactly one end, and has a kill.
@@ -19,7 +19,11 @@
 //!
 //! The session's [`JobTable`] holds its jobs. The table commits the start
 //! and the end of each job (never its output) as a session document, so
-//! the session state tree holds one node per running job ([`tree`]). A
+//! the session state tree holds one node per running job ([`tree`]). The
+//! start is durable before the job starts ([`JobTable::record_start`]
+//! answers the [`StartRecord`] that [`JobTable::start`] takes): a job is
+//! never launched, nor its detach reported, without it; and a job a crash
+//! cut is reported interrupted at the next open, never run again. A
 //! rewind of the session sends the kill to every running job that started
 //! after its target entry ([`stop_orphans`]), in the order of the entry
 //! commits the table sees; the system prompt shows the running jobs of the
@@ -30,7 +34,7 @@ mod delivery;
 mod tests;
 mod tree;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::Poll;
@@ -40,15 +44,19 @@ use eukhe_bend::rules::wait_any::Target;
 use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{Entry, Stepper};
 use eukhe_durable::harness::Truncation;
+use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{
     CommitChange, CommitPublication, ConversationId, EntryId, InputSubmission, Seq, SubmissionId,
     SubmissionState,
 };
 use eukhe_types::job::JobId;
+use eukhe_types::platform::kill_point::kill_point;
 use tokio::sync::{mpsc, watch};
 
+use crate::durable::HarnessCell;
+
 pub use delivery::JobResult;
-use tree::JobRecord;
+use tree::JobEnded;
 pub use tree::{
     install, running_jobs_section, stop_orphans, Orphans, JOB_DOC_KIND,
     JOB_RECORD_FAILED_CUSTOM_TYPE,
@@ -60,7 +68,7 @@ const ENDED_HISTORY: usize = 16;
 /// What runs as a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobKind {
-    /// An `ipython` cell whose call detached.
+    /// An `python` cell whose call detached.
     Cell,
     /// A user bash command (`!`, `execute_bash`, `execute_bash_and_wait`).
     UserBash,
@@ -275,12 +283,19 @@ fn rewind_kills(target: Option<Seq>, jobs: &[Job]) -> Result<Vec<bool>, eukhe_be
 /// with [`Job::record`].
 pub type KillSwitch = Box<dyn Fn(&Job) + Send + Sync>;
 
-/// A job to start ([`JobTable::start`]).
-pub struct JobSpec {
-    pub id: JobId,
-    pub kind: JobKind,
+/// The durable start of one job ([`JobTable::record_start`]): its node is
+/// committed. [`JobTable::start`] takes it, so no job starts before its
+/// start record is durable.
+#[must_use = "a recorded job is started with `JobTable::start`"]
+pub struct StartRecord {
+    id: JobId,
+    kind: JobKind,
     /// What runs, for people: the command of a bash.
-    pub label: String,
+    label: String,
+}
+
+/// How a recorded job runs ([`JobTable::start`]).
+pub struct JobSpec {
     /// The output cap (default on; [`Truncation::Off`] is the opt-out).
     pub truncation: Truncation,
     /// The output bytes the run wrote before it became a job (a cell or a
@@ -297,14 +312,14 @@ struct JobInner {
     started: Instant,
     /// The commit of the last entry the table saw when the job started
     /// (`None`: no entry since the session opened). A rewind decides from
-    /// it, not from the job's node, which the writer commits later.
+    /// it, not from the job's node.
     after: Option<Seq>,
     /// The cap in bytes; `None` keeps all.
     cap: Option<u64>,
     state: watch::Sender<JobState>,
     kill: KillSwitch,
     /// The table's tree writer, which records the end.
-    records: mpsc::UnboundedSender<JobRecord>,
+    records: mpsc::UnboundedSender<JobEnded>,
     /// Where the job's result goes once it settles ([`delivery`]).
     slot: Mutex<delivery::Slot>,
     /// The table's pulse, moved by every change a wait may act on.
@@ -362,9 +377,9 @@ impl Job {
             changed
         });
         if let Some(end) = ended {
-            // A closed writer means the session closed; the next open
-            // retires the job's node.
-            let _ = self.inner.records.send(JobRecord::End {
+            // A closed writer means the session closed: its end is not
+            // durable, so the next open reports the job interrupted.
+            let _ = self.inner.records.send(JobEnded {
                 id: self.inner.id.clone(),
                 end,
             });
@@ -500,9 +515,14 @@ struct EntryOrder {
 pub struct JobTable {
     jobs: Mutex<VecDeque<Job>>,
     entries: Mutex<EntryOrder>,
-    records: mpsc::UnboundedSender<JobRecord>,
+    records: mpsc::UnboundedSender<JobEnded>,
     /// The writer's end of `records`, until the session opens.
-    queue: Mutex<Option<mpsc::UnboundedReceiver<JobRecord>>>,
+    queue: Mutex<Option<mpsc::UnboundedReceiver<JobEnded>>>,
+    /// The session's Harness, which commits each start record.
+    harness: HarnessCell,
+    /// The jobs this process recorded (from before their start record
+    /// commits): the node of one is never a job of an earlier process.
+    recorded: Mutex<HashSet<JobId>>,
     /// Moved by every change a `jobs.wait` acts on: a job's delivery or
     /// end, an input queued or placed.
     pulse: Arc<watch::Sender<u64>>,
@@ -512,31 +532,60 @@ pub struct JobTable {
     queued: Mutex<HashMap<SubmissionId, ConversationId>>,
 }
 
-impl Default for JobTable {
-    fn default() -> Self {
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl JobTable {
+    /// The jobs of the session whose Harness `harness` holds once it opens.
+    #[must_use]
+    pub fn new(harness: HarnessCell) -> Self {
         let (records, queue) = mpsc::unbounded_channel();
         Self {
             jobs: Mutex::new(VecDeque::new()),
             entries: Mutex::default(),
             records,
             queue: Mutex::new(Some(queue)),
+            harness,
+            recorded: Mutex::default(),
             pulse: Arc::new(watch::channel(0).0),
             queued: Mutex::default(),
         }
     }
-}
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
+    /// Commit the start record of the job `id` (its node), awaited: the
+    /// kill points `job:intended` and `job:started` follow it, before the
+    /// caller launches anything or reports a detach.
+    ///
+    /// # Errors
+    ///
+    /// The session is not open, or the commit failed: the job must not
+    /// start.
+    #[tracing::instrument(skip_all, fields(job = %id))]
+    pub async fn record_start(
+        &self,
+        id: JobId,
+        kind: JobKind,
+        label: String,
+    ) -> SessionResult<StartRecord> {
+        let harness = self.harness.require()?;
+        lock(&self.recorded).insert(id.clone());
+        tree::commit_start(&harness, &id, kind, &label).await?;
+        // One record holds both: the job is intended and started at once.
+        kill_point("job", "intended");
+        kill_point("job", "started");
+        Ok(StartRecord { id, kind, label })
+    }
 
-impl JobTable {
-    /// Start a job: it runs until its owner records its end.
-    pub fn start(&self, spec: JobSpec) -> Job {
+    /// This process recorded the job `id`.
+    fn recorded(&self, id: &JobId) -> bool {
+        lock(&self.recorded).contains(id)
+    }
+
+    /// Start the recorded job: it runs until its owner records its end.
+    pub fn start(&self, record: StartRecord, spec: JobSpec) -> Job {
+        let StartRecord { id, kind, label } = record;
         let JobSpec {
-            id,
-            kind,
-            label,
             truncation,
             written,
             kill,
@@ -547,9 +596,9 @@ impl JobTable {
         let (state, _) = watch::channel(JobState::START);
         let job = Job {
             inner: Arc::new(JobInner {
-                id: id.clone(),
+                id,
                 kind,
-                label: label.clone(),
+                label,
                 started: Instant::now(),
                 after: lock(&self.entries).last,
                 cap,
@@ -560,7 +609,6 @@ impl JobTable {
                 pulse: Arc::clone(&self.pulse),
             }),
         };
-        let _ = self.records.send(JobRecord::Start { id, kind, label });
         job.record(JobEvent::Output(written));
         let mut jobs = lock(&self.jobs);
         while jobs.len() >= ENDED_HISTORY {
@@ -640,8 +688,8 @@ impl JobTable {
     /// the target, and sends the kill to every other one; the compiled Bend
     /// core decides which (the model's `kills`, `bend/ffi_job_rewind.bend`).
     /// The order comes from the commits the table saw, not from the job
-    /// nodes, which the writer commits later. An entry the table did not
-    /// see was committed before the session opened, so before every job.
+    /// nodes. An entry the table did not see was committed before the
+    /// session opened, so before every job.
     /// The jobs it sent the kill to, oldest first.
     pub fn rewind_to(&self, target: Option<EntryId>) -> Vec<Job> {
         let target = target.and_then(|entry| lock(&self.entries).commits.get(&entry).copied());
@@ -691,7 +739,7 @@ impl JobTable {
         }
     }
 
-    fn take_queue(&self) -> Option<mpsc::UnboundedReceiver<JobRecord>> {
+    fn take_queue(&self) -> Option<mpsc::UnboundedReceiver<JobEnded>> {
         lock(&self.queue).take()
     }
 }

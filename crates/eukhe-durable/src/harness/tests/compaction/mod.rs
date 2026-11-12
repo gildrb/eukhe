@@ -47,10 +47,17 @@ use crate::harness::{Conversation, Harness};
 use crate::storage::MemoryStorage;
 use crate::types::{AnyTaskRecord, ConversationId, Storage, SubmissionStatus, TaskId, TaskOutcome};
 
-/// Text of about `tokens` estimated tokens, starting with `label`.
+/// Text of exactly `tokens` `o200k_base` tokens (the faux model's
+/// tokenizer: the catalog names none), starting with `label`: each ` the`
+/// is its own pre-token and one token, and four characters, the faux
+/// provider's token.
 pub(super) fn text(label: &str, tokens: usize) -> String {
-    let fill = (tokens * 4).saturating_sub(label.len() + 1);
-    format!("{label} {}", "x".repeat(fill))
+    let label_tokens =
+        usize::try_from(eukhe_tokens::Encoding::O200kBase.count(label)).unwrap_or(usize::MAX);
+    format!(
+        "{label}{}",
+        " the".repeat(tokens.saturating_sub(label_tokens))
+    )
 }
 
 /// One provider request the script answered.
@@ -255,7 +262,7 @@ pub(super) const MANUAL: CompactionPolicy = CompactionPolicy {
     reserve_tokens: 1000.0,
     keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(0.0),
-    token_count: ThresholdTokens::Estimate,
+    token_count: ThresholdTokens::Local,
 };
 
 /// Background threshold at 500 and blocking threshold at 1500 tokens of a
@@ -265,7 +272,7 @@ pub(super) const BACKGROUND: CompactionPolicy = CompactionPolicy {
     reserve_tokens: 500.0,
     keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(1000.0),
-    token_count: ThresholdTokens::Estimate,
+    token_count: ThresholdTokens::Local,
 };
 
 /// Blocking threshold at 600 tokens of a 1000-token window, no background
@@ -276,7 +283,7 @@ pub(super) const BLOCKING: CompactionPolicy = CompactionPolicy {
     reserve_tokens: 400.0,
     keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(0.0),
-    token_count: ThresholdTokens::Estimate,
+    token_count: ThresholdTokens::Local,
 };
 
 /// A chat over the scripted model.

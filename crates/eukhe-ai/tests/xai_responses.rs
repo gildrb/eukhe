@@ -367,6 +367,32 @@ async fn uses_responses_for_grok_4_3() {
     );
 }
 
+/// `api.x.ai` rejects `reasoning.summary`: an effort goes out alone (the
+/// xAI host turns `supportsReasoningSummary` off).
+#[tokio::test]
+async fn sends_no_reasoning_summary_to_xai() {
+    for (id, effort) in [
+        ("grok-4.3", "low"),
+        ("grok-4.5", "medium"),
+        ("grok-4.7", "xhigh"),
+    ] {
+        let captured = capture_request(
+            &xai(id),
+            hello_context(),
+            ResponsesOptions {
+                reasoning_effort: Some(effort),
+                ..ResponsesOptions::NONE
+            },
+        )
+        .await;
+        assert_eq!(
+            captured.body["reasoning"],
+            json!({ "effort": effort }),
+            "{id}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn uses_pis_user_agent_by_default_for_responses_requests() {
     let (fetch, captured) = mock_fetch(vec![completed_response()]);

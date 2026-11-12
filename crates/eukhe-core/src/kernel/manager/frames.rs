@@ -244,7 +244,7 @@ impl Gate {
                     return Admission::Fail(ProtocolFault::NotUtf8);
                 };
                 match parse_event(line) {
-                    Ok(Event::HostRequest { id, data }) => {
+                    Ok(Event::HostRequest { id, data, origin }) => {
                         let fresh = if self.fresh(&id) { Id::Fresh } else { Id::Seen };
                         let kind = data
                             .as_object()
@@ -258,7 +258,9 @@ impl Gate {
                             None => Typed::Unnamed,
                         };
                         match frames::admit(self.max, fresh, Length::Bytes(bytes.len()), typed) {
-                            Verdict::Serve => Admission::Serve(Event::HostRequest { id, data }),
+                            Verdict::Serve => {
+                                Admission::Serve(Event::HostRequest { id, data, origin })
+                            }
                             verdict => self.refuse(verdict, id, kind),
                         }
                     }
@@ -408,6 +410,7 @@ mod tests {
                 Admission::Serve(Event::HostRequest {
                     id: "h2".into(),
                     data: serde_json::json!({"type": "a"}),
+                    origin: crate::kernel::protocol::RequestOrigin::Unstated,
                 }),
                 Admission::Refuse {
                     id: "h3".into(),

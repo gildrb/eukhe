@@ -187,7 +187,7 @@ async fn streams_each_entry_form_through_models() {
             {
                 "content": [
                     { "type": "text", "text": "calling" },
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": "1 + 1" }, "id": "call-1" },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": "1 + 1" }, "id": "call-1" },
                     { "type": "toolCall", "name": "noop", "id": "call-2" },
                 ],
             },
@@ -208,7 +208,7 @@ async fn streams_each_entry_form_through_models() {
         (
             vec![
                 faux_text("calling"),
-                faux_tool_call("ipython", code, Some("call-1".to_owned())),
+                faux_tool_call("python", code, Some("call-1".to_owned())),
                 faux_tool_call("noop", JsonObject::new(), Some("call-2".to_owned())),
             ],
             StopReason::ToolUse,
@@ -527,14 +527,16 @@ async fn hold_until_released_without_a_listener_fails_the_request() {
 
 #[tokio::test(start_paused = true)]
 async fn tokens_per_second_paces_streaming() {
-    // 40 characters = 10 tokens; at 10 tokens per second the stream takes
-    // one second of (paused) time.
+    // 20 times " x" is 20 tokens of the faux model's tokenizer
+    // (`o200k_base`), however the stream chunks it: a chunk is a multiple
+    // of 4 characters, so whole " x" pairs, each one token. At 20 tokens
+    // per second the stream takes one second of (paused) time.
     let (models, faux) = scripted(&json!({
-        "tokensPerSecond": 10,
-        "responses": ["a".repeat(40)],
+        "tokensPerSecond": 20,
+        "responses": [" x".repeat(20)],
     }));
     let started = tokio::time::Instant::now();
     let message = complete(&models, &faux).await;
-    assert_eq!(message.content, vec![faux_text("a".repeat(40))]);
+    assert_eq!(message.content, vec![faux_text(" x".repeat(20))]);
     assert_eq!(started.elapsed(), Duration::from_secs(1));
 }

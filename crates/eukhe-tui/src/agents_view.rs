@@ -1375,7 +1375,7 @@ async fn run_agents_view_surface(
         });
     }
     // Opening another session than the chat the view was entered from
-    // leaves that chat (omp disposes the session `/resume` leaves): a
+    // leaves that chat (as `/resume` leaves the session it came from): a
     // switch, so its worker is released once idle. Fire-and-forget like
     // the unsubscribe: the handoff parks this connection for the flow.
     if let Some(left) = mode.left_return_chat() {

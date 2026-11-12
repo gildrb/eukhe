@@ -121,16 +121,86 @@ def edited_spec(x: CS.Edit, n: Nat, r: Rest) -> Rest:
         case Rest{i, s, rs, ss, h}:
           Rest{i, Cr.Every{n}, rs, ss, h}
 
+# The fires
+# ---------
+
+# the occurrences a job started, the newest first
+def starts_spec(j: Cr.Job) -> List<&2, Nat>:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+      ss
+
+# a claim pass
+def take_spec(e: Cr.Ev) -> Bool:
+  match e:
+    case Cr.Take{p}:
+      True{}
+    case _:
+      False{}
+
+# the claim of occurrence x a claim pass of p puts on record: p's; no
+# other event puts one
+def fired_by_spec(e: Cr.Ev, +x: Nat) -> Maybe<&2, Cr.Claim>:
+  match e:
+    case Cr.Take{p}:
+      Some{Cr.Claim{x, p}}
+    case _:
+      None{}
+
+# p may clear the claim of o: its own claim it no longer runs (p is not in
+# the runs rs), or the claim of a dead process
+def clears_spec(+p: Nat, +o: Nat, rs: List<&2, Nat>, dead: List<&2, Nat>) -> Bool:
+  Bool.or(Bool.and(Nat.is_eq(o, p), Bool.not(CronTerms.has_spec(p, rs))), CronTerms.has_spec(o, dead))
+
+# the rest of a job after a recovery whose verdict on its claim is b (the
+# claim cleared or not), the job of status st and schedule s: a cleared
+# claim of an active one-shot fires it again under its original request
+# id, its start withdrawn (its next fire is the same fire); every other
+# rest stays
+def withdrawn_spec(b: Bool, st: Cr.Status, s: Cr.Sched, r: Rest) -> Rest:
+  match b:
+    case False{}:
+      r
+    case True{}:
+      match st:
+        case Cr.Active{}:
+          match s:
+            case Cr.Once{d}:
+              match r:
+                case Rest{i, s2, rs, ss, h}:
+                  Rest{i, s2, rs, Nil{}, h}
+            case Cr.Every{n}:
+              r
+        case Cr.Paused{}:
+          r
+        case Cr.Finished{}:
+          r
+        case Cr.Cancelled{}:
+          r
+
+# the rest of job j after a recovery of p with the dead processes dead: a
+# job with no claim keeps it; a claim of o is cleared as clears_spec says
+def recovered_spec(+p: Nat, +dead: List<&2, Nat>, j: Cr.Job) -> Rest:
+  match j:
+    case Cr.Job{+i, +s, st, nx, k, cl, +rs, +ss, +h}:
+      match cl:
+        case None{}:
+          Rest{i, s, rs, ss, h}
+        case Some{x}:
+          match x:
+            case Cr.Claim{oc, o}:
+              withdrawn_spec(clears_spec(p, o, rs, dead), st, s, Rest{i, s, rs, ss, h})
+
 # Laws
 # ----
 
-# LAW cron_holds_keep_rest (D2.2): for every job, the model's cancel, pause, stop and delete, and its recovery by any process whoever is dead, leave the rest of the job as it was: its id, its schedule, its runs, the occurrences it started and the results it counted
-# EXCLUDES: a cancel, pause, stop, delete or recovery that drops or adds a run, a start or a result counted, or changes the job's id or schedule
+# LAW cron_holds_keep_rest (D2.2): for every job, the model's cancel, pause, stop and delete, and its recovery by any process whoever is dead, leave the rest of the job as it was: its id, its schedule, its runs, the occurrences it started and the results it counted; except that a recovery which clears the claim of an active one-shot (fired again) withdraws its occurrences started
+# EXCLUDES: a cancel, pause, stop, delete or recovery that drops or adds a run or a result counted, or changes the job's id or schedule; a recovery that drops a start of any job but a one-shot fired again, or keeps the start of a one-shot fired again
 law cron_holds_keep_rest:
   for +p: Nat
   for +dead: List<&2, Nat>
   for +j: Cr.Job
-  {rest_spec(Cr.cancel(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.pause(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.stop(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.delete(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.recover(p, dead, j)) == rest_spec(j) : Rest}
+  {rest_spec(Cr.cancel(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.pause(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.stop(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.delete(j)) == rest_spec(j) : Rest} & {rest_spec(Cr.recover(p, dead, j)) == recovered_spec(p, dead, j) : Rest}
 
 # LAW cron_take_starts_claim (D2.2): for every process, clock and job, the model's claim step (Cr.take) starts an occurrence exactly when it puts a claim on record of a job that had none: then the claim's owner joins the runs and its occurrence the occurrences started (the newest first); in every other case the runs and the occurrences started stay; the id, the schedule and the results counted stay always
 # EXCLUDES: a claim of a due job that leaves its occurrence out of the occurrences started (the audit's: cron_fires_once held, a one-shot with no start) or its owner out of the runs, a roll or a job left alone that adds a run or a start, a claim pass that changes the results counted, the id or the schedule
@@ -190,3 +260,31 @@ law cron_edit_reschedules:
   for +k: Nat
   for +j: Cr.Job
   {rest_spec(Cr.edit(c, k, j)) == edited_spec(CronStore.edit_spec(Cron.fact_of(j, 1n+v), Some{Nat.mul(Nat.add(c, 1n+k), 1n+v)}), k, rest_spec(j)) : Rest}
+
+# LAW cron_once_refires (exactly-once fires): after a recovery of p clears the claim of an active one-shot (p's own claim it no longer runs, or a dead process's), the job is active, due again at the occurrence its claim started (the next run it was claimed at), with no claim, its failures in a row and its results counted (its run count) as they were: so the next claim pass claims it and its fire carries the original request id `<kind>:<job id>:<run count>` (the session's inbox dedupes it onto the first fire if that one was admitted); its start is withdrawn, the next fire being the same fire
+# EXCLUDES: a one-shot finished without its run (the rule this replaced), a fire again under another run count, due at another time, kept claimed (never claimed again) or with its first start kept
+law cron_once_refires:
+  for +p: Nat
+  for +dead: List<&2, Nat>
+  for +i: Nat
+  for +d: Nat
+  for +nx: Maybe<&2, Nat>
+  for +k: Nat
+  for +oc: Nat
+  for +o: Nat
+  for +rs: List<&2, Nat>
+  for +ss: List<&2, Nat>
+  for +h: List<&2, Cr.Mark>
+  for cl: {clears_spec(p, o, rs, dead) == True{} : Bool}
+  {Cr.recover(p, dead, Cr.Job{i, Cr.Once{d}, Cr.Active{}, nx, k, Some{Cr.Claim{oc, o}}, rs, ss, h}) == Cr.Job{i, Cr.Once{d}, Cr.Active{}, Some{oc}, k, None{}, rs, Nil{}, h} : Cr.Job}
+
+# LAW cron_fire_claims (one fire per claim): for every event, clock, dead processes and job, a step that starts a fire of the job (adds an occurrence x to the occurrences it started) is a claim pass of a process p, on a job with no claim on record, that puts p's claim of x on record: no fire without a claim, so a one-shot a recovery fired again fires at most once more per claim
+# EXCLUDES: a start added by a recovery, a finish, an unwind, a death or a user action; a second start while a claim stands; a start whose claim on record is not the claim pass's own of that occurrence
+law cron_fire_claims:
+  for +e: Cr.Ev
+  for +c: Nat
+  for +dead: List<&2, Nat>
+  for +j: Cr.Job
+  for +x: Nat
+  for st: {starts_spec(Cr.job(e, c, dead, j)) == x <> starts_spec(j) : List<&2, Nat>}
+  ({take_spec(e) == True{} : Bool} & ({Cr.Job.claim(j) == None{} : Maybe<&2, Cr.Claim>} & {Cr.Job.claim(Cr.job(e, c, dead, j)) == fired_by_spec(e, x) : Maybe<&2, Cr.Claim>}))

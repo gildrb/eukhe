@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """Generate and validate the bundled catalog assets for eukhe releases.
 
-Port of the TS catalog asset tool (packages/coding-agent/scripts/catalog-assets.mjs
-on the TS client's `feat/catalog-client` line) for the Rust release pipeline.
 The two assets are the client's no-cold-start layer 2 (spec §3.2):
 
-  models.bundled.json        byte-identical copy of the catalog repo's
-                             models/catalog.v1.json ({schemaVersion, models})
-  mcp-services.bundled.json  byte-identical copy of plugins/catalog.v2.json
-                             ({version, counts, entries})
+  models.bundled.json        Eukhe's model catalog ({schemaVersion, models}),
+                             mapped from the pinned models.dev snapshot in
+                             crates/eukhe-models/catalog (models_dev.py)
+  mcp-services.bundled.json  byte-identical copy of the catalog repo's
+                             plugins/catalog.v2.json ({version, counts, entries})
 
-They are generated at BUILD time and never committed: `--catalog-dir` copies
-from a local catalog checkout, the network mode fetches the catalog repo at
-the commit pinned in catalog-pin.json for CI/packaging, and `--fixture` emits
-a synthetic snapshot that still passes the full validation gates so offline
-builds work end to end.
+They are generated at BUILD time and never committed. The models asset is
+made offline in every mode, from the committed snapshot and its overrides.
+The MCP services asset comes from the source mode: `--catalog-dir` copies
+it from a local catalog checkout, the network mode fetches the catalog repo
+at the commit pinned in catalog-pin.json for CI/packaging, and `--fixture`
+emits a synthetic service list that still passes the full validation gates
+so offline builds work end to end.
 
 Validation (the release packer runs the same functions before packing):
   models   schemaVersion == 1, models is an array, and at least
@@ -24,15 +25,15 @@ Validation (the release packer runs the same functions before packing):
 Usage:
     python3 scripts/release/bundle_catalog.py generate \
         [--catalog-dir DIR | --network | --fixture] [--out DIR] [--pin FILE] \
-        [--models-url URL] [--mcp-services-url URL] [--allow-small-fixture]
+        [--mcp-services-url URL] [--allow-small-fixture]
     python3 scripts/release/bundle_catalog.py verify [--out DIR] [--allow-small-fixture]
     python3 scripts/release/bundle_catalog.py pin [--ref REF] [--pin FILE]
 
 Network mode fetches `raw.githubusercontent.com/<repository>/<commit>/<path>`
-for the pinned commit and fails unless each body matches the pinned sha256
-(also for --models-url / --mcp-services-url overrides). `pin` resolves REF
-(default main) to a commit, fetches and validates both files at that commit,
-and rewrites the pin file. Fetches read GITHUB_TOKEN / PRIME_CATALOG_REPO_TOKEN
+for the pinned commit and fails unless the body matches the pinned sha256
+(also for a --mcp-services-url override). `pin` resolves REF (default main)
+to a commit, fetches and validates the services file at that commit, and
+rewrites the pin file. Fetches read GITHUB_TOKEN / PRIME_CATALOG_REPO_TOKEN
 (optional Bearer, sent to GitHub URLs only; the catalog repo is public), abort
 after 5 s, refuse redirects, and cap responses at MAX_REMOTE_CATALOG_BYTES.
 """
@@ -45,7 +46,6 @@ import json
 import math
 import os
 import re
-import shutil
 import sys
 import tempfile
 import time
@@ -54,24 +54,26 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import models_dev  # same release-scripts directory
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 # The two bundled asset names (spec §3.2; TS bundledCatalogFiles).
 BUNDLED_CATALOG_FILES = ("models.bundled.json", "mcp-services.bundled.json")
 
-# Release-gate minimums (spec §3.2/§3.9). The shipped TS tool still carries
-# MIN_BUNDLED_MCP_SERVICES = 20 from before the service count grew; this port
-# uses the verified current contract: >= 42 transport tuples, >= 68 services.
-MIN_MODEL_TRANSPORT_TUPLES = 42
+# Release-gate minimums (spec §3.2/§3.9): the models asset carries the
+# models.dev models the compiled catalog lacks, over 29 distinct transport
+# tuples at the pinned snapshot (the gate catches a truncated asset), and
+# the verified services contract.
+MIN_MODEL_TRANSPORT_TUPLES = 20
 MIN_MCP_SERVICES = 68
 
-# The catalog repo pin: repository, commit, and the sha256 of each source
+# The catalog repo pin: repository, commit, and the sha256 of the services
 # file at that commit. `pin` rewrites it; network mode never fetches a
 # moving ref.
 CATALOG_PIN = Path(__file__).resolve().parent / "catalog-pin.json"
 RAW_BASE_URL = "https://raw.githubusercontent.com"
 GITHUB_API_URL = "https://api.github.com"
-MODELS_SOURCE = "models/catalog.v1.json"
 MCP_SERVICES_SOURCE = "plugins/catalog.v2.json"
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -404,110 +406,8 @@ def validate_bundled_catalog_dir(directory, allow_small_fixture: bool = False) -
 
 
 # --------------------------------------------------------------------------
-# Fixture: a synthetic snapshot that passes the FULL gates (offline builds)
+# Fixture: synthetic MCP services that pass the FULL gates (offline builds)
 # --------------------------------------------------------------------------
-
-# Compiled transport tuples of the shipped registry (43 distinct
-# (provider, api, baseUrl) triples across 32 providers; the registry pins to
-# eukhe-models' compiled transports: the eukhe-ai catalog plus
-# crates/eukhe-models/src/transports.rs SUPPLEMENTAL_TRANSPORTS). Fixture
-# models use real tuples so they survive runtime transport pinning; nothing
-# here can introduce a transport the client does not implement.
-FIXTURE_TRANSPORT_TUPLES = [
-    ("amazon-bedrock", "bedrock-converse-stream", "https://bedrock-runtime.ap-northeast-1.amazonaws.com"),
-    ("amazon-bedrock", "bedrock-converse-stream", "https://bedrock-runtime.ap-southeast-2.amazonaws.com"),
-    ("amazon-bedrock", "bedrock-converse-stream", "https://bedrock-runtime.eu-central-1.amazonaws.com"),
-    ("amazon-bedrock", "bedrock-converse-stream", "https://bedrock-runtime.us-east-1.amazonaws.com"),
-    ("anthropic", "anthropic-messages", "https://api.anthropic.com"),
-    ("azure-openai-responses", "azure-openai-responses", ""),
-    ("cerebras", "openai-completions", "https://api.cerebras.ai/v1"),
-    ("cloudflare-ai-gateway", "anthropic-messages", "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/anthropic"),
-    ("cloudflare-ai-gateway", "openai-responses", "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/openai"),
-    ("cloudflare-workers-ai", "openai-completions", "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1"),
-    ("deepseek", "openai-completions", "https://api.deepseek.com"),
-    ("fireworks", "anthropic-messages", "https://api.fireworks.ai/inference"),
-    ("github-copilot", "anthropic-messages", "https://api.individual.githubcopilot.com"),
-    ("github-copilot", "openai-completions", "https://api.individual.githubcopilot.com"),
-    ("github-copilot", "openai-responses", "https://api.individual.githubcopilot.com"),
-    ("google", "google-generative-ai", "https://generativelanguage.googleapis.com/v1beta"),
-    ("google-vertex", "google-vertex", "https://{location}-aiplatform.googleapis.com"),
-    ("groq", "openai-completions", "https://api.groq.com/openai/v1"),
-    ("huggingface", "openai-completions", "https://router.huggingface.co/v1"),
-    ("kimi-coding", "anthropic-messages", "https://api.kimi.com/coding"),
-    ("minimax", "anthropic-messages", "https://api.minimax.io/anthropic"),
-    ("minimax-cn", "anthropic-messages", "https://api.minimaxi.com/anthropic"),
-    ("mistral", "mistral-conversations", "https://api.mistral.ai"),
-    ("moonshotai", "openai-completions", "https://api.moonshot.ai/v1"),
-    ("moonshotai-cn", "openai-completions", "https://api.moonshot.cn/v1"),
-    ("openai", "openai-responses", "https://api.openai.com/v1"),
-    ("openai-codex", "openai-codex-responses", "https://chatgpt.com/backend-api"),
-    ("opencode", "anthropic-messages", "https://opencode.ai/zen"),
-    ("opencode", "google-generative-ai", "https://opencode.ai/zen/v1"),
-    ("opencode", "openai-completions", "https://opencode.ai/zen/v1"),
-    ("opencode", "openai-responses", "https://opencode.ai/zen/v1"),
-    ("opencode-go", "anthropic-messages", "https://opencode.ai/zen/go"),
-    ("opencode-go", "openai-completions", "https://opencode.ai/zen/go/v1"),
-    ("opencode-go", "openai-responses", "https://opencode.ai/zen/go/v1"),
-    ("openrouter", "openai-completions", "https://openrouter.ai/api/v1"),
-    ("prime-inference", "openai-completions", "https://api.pinference.ai/api/v1"),
-    ("vercel-ai-gateway", "anthropic-messages", "https://ai-gateway.vercel.sh"),
-    ("xai", "openai-completions", "https://api.x.ai/v1"),
-    ("xiaomi", "anthropic-messages", "https://api.xiaomimimo.com/anthropic"),
-    ("xiaomi-token-plan-ams", "anthropic-messages", "https://token-plan-ams.xiaomimimo.com/anthropic"),
-    ("xiaomi-token-plan-cn", "anthropic-messages", "https://token-plan-cn.xiaomimimo.com/anthropic"),
-    ("xiaomi-token-plan-sgp", "anthropic-messages", "https://token-plan-sgp.xiaomimimo.com/anthropic"),
-    ("zai", "openai-completions", "https://api.z.ai/api/coding/paas/v4")
-]
-
-
-def fixture_model(provider: str, api: str, base_url: str, index: int, **extra) -> dict:
-    model = {
-        "id": f"fixture-{provider}-{index}",
-        "name": f"Fixture {provider} model {index}",
-        "api": api,
-        "provider": provider,
-        "baseUrl": base_url,
-        "reasoning": False,
-        "input": ["text"],
-        "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
-        "contextWindow": 128000,
-        "maxTokens": 4096,
-    }
-    model.update(extra)
-    return model
-
-
-def fixture_models() -> list:
-    """One model per compiled transport tuple, plus optional-field exercises.
-
-    Every entry matches the strict model schema (spec §1.1): the optional
-    fields (thinkingLevelMap, featured, compat) follow the documented shapes
-    so the runtime's deny_unknown_fields parse succeeds.
-    """
-    models = []
-    for index, (provider, api, base_url) in enumerate(FIXTURE_TRANSPORT_TUPLES):
-        models.append(fixture_model(provider, api, base_url, index))
-    # Reasoning model with an explicit thinking level map (off explicitly
-    # unsupported: hidden + clamped away; xhigh/max absent: provider default).
-    models.append(fixture_model(
-        "anthropic", "anthropic-messages", "https://api.anthropic.com", 100,
-        id="fixture-anthropic-reasoning", name="Fixture Claude (reasoning)",
-        reasoning=True, input=["text", "image"], featured=True,
-        thinkingLevelMap={"off": None, "low": "low", "medium": "medium", "high": "high"},
-    ))
-    # openai-completions compat surface (maxTokensField + thinkingFormat).
-    models.append(fixture_model(
-        "deepseek", "openai-completions", "https://api.deepseek.com", 101,
-        id="fixture-deepseek-compat", name="Fixture DeepSeek (compat)",
-        compat={"maxTokensField": "max_tokens", "thinkingFormat": "deepseek"},
-    ))
-    # openai-responses compat surface (sendSessionIdHeader, long cache).
-    models.append(fixture_model(
-        "openai", "openai-responses", "https://api.openai.com/v1", 102,
-        id="fixture-openai-responses-compat", name="Fixture OpenAI (responses compat)",
-        compat={"sendSessionIdHeader": False, "supportsLongCacheRetention": True},
-    ))
-    return models
 
 
 def fixture_service(index: int, transport_kind: str, auth_strategy: str,
@@ -691,18 +591,23 @@ def fixture_counts(entries: list) -> dict:
     return counts
 
 
+def models_body() -> str:
+    """The models asset: the pinned models.dev snapshot mapped through its
+    overrides (models_dev.py). The same bytes in every source mode."""
+    return models_dev.bundled_catalog_text()
+
+
 def fixture_catalog_bodies() -> dict:
-    """The two synthetic asset bodies (2-space JSON, trailing newline — the
-    TS fixture formatting)."""
+    """The offline asset bodies: the models asset and the synthetic MCP
+    services (2-space JSON, trailing newline — the TS fixture formatting)."""
     services = fixture_mcp_services()
-    models = {"schemaVersion": 1, "models": fixture_models()}
     plugins = {
         "version": 2,
         "counts": fixture_counts(services),
         "entries": services,
     }
     return {
-        "models.bundled.json": json.dumps(models, indent=2) + "\n",
+        "models.bundled.json": models_body(),
         "mcp-services.bundled.json": json.dumps(plugins, indent=2) + "\n",
     }
 
@@ -711,11 +616,8 @@ def fixture_catalog_bodies() -> dict:
 # Source modes
 # --------------------------------------------------------------------------
 
-def catalog_source_paths(catalog_dir: Path) -> dict:
-    return {
-        "models.bundled.json": catalog_dir / MODELS_SOURCE,
-        "mcp-services.bundled.json": catalog_dir / MCP_SERVICES_SOURCE,
-    }
+def catalog_source_path(catalog_dir: Path) -> Path:
+    return catalog_dir / MCP_SERVICES_SOURCE
 
 
 def bundled_targets(out_dir: Path) -> dict:
@@ -796,7 +698,7 @@ def catalog_text(body: bytes) -> str:
 
 def load_catalog_pin(path: Path) -> dict:
     """The validated pin file: repository, 40-hex commit, and the sha256 of
-    exactly the two source files."""
+    exactly the services file."""
     try:
         pin = json.loads(Path(path).read_text())
     except (OSError, ValueError) as error:
@@ -808,9 +710,8 @@ def load_catalog_pin(path: Path) -> dict:
     if not isinstance(pin["commit"], str) or not _COMMIT_RE.match(pin["commit"]):
         fail(f"catalog pin {path}: commit must be a full 40-hex sha")
     files = pin["files"]
-    if not isinstance(files, dict) or set(files) != {MODELS_SOURCE, MCP_SERVICES_SOURCE}:
-        fail(f"catalog pin {path}: files must list exactly "
-             f"{MODELS_SOURCE} and {MCP_SERVICES_SOURCE}")
+    if not isinstance(files, dict) or set(files) != {MCP_SERVICES_SOURCE}:
+        fail(f"catalog pin {path}: files must list exactly {MCP_SERVICES_SOURCE}")
     for source, digest in files.items():
         if not isinstance(digest, str) or not _SHA256_RE.match(digest):
             fail(f"catalog pin {path}: {source} needs a 64-hex sha256")
@@ -846,33 +747,28 @@ def generate_bundled_catalog_assets(options) -> dict:
     ) if chosen]
     if len(modes) > 1:
         fail(f"pick one source mode ({', '.join(modes)} are mutually exclusive)")
+    # The services body comes first: a failed fetch or a missing file leaves
+    # both targets as they were (a fresh models file beside the previous
+    # services file would pack together).
     if options.fixture:
-        for name, body in fixture_catalog_bodies().items():
-            targets[name].write_text(body)
+        mcp_body = fixture_catalog_bodies()["mcp-services.bundled.json"]
     elif options.catalog_dir is not None:
-        sources = catalog_source_paths(Path(options.catalog_dir))
-        for name, source in sources.items():
-            if not source.is_file():
-                fail(f"catalog checkout missing {source}; pass a valid --catalog-dir")
-            shutil.copyfile(source, targets[name])
+        source = catalog_source_path(Path(options.catalog_dir))
+        if not source.is_file():
+            fail(f"catalog checkout missing {source}; pass a valid --catalog-dir")
+        mcp_body = source.read_text()
     else:
-        # Network mode is the default for CI/packaging: fetch both files at
-        # the pinned commit, check each against its pinned sha256, and write
-        # the bodies verbatim. Both bodies are fetched and verified BEFORE
-        # either target is replaced: a failed MCP fetch must not leave a
-        # mixed snapshot (a fresh models file beside the previous services
-        # file would pack together).
+        # Network mode is the default for CI/packaging: fetch the services
+        # file at the pinned commit, check it against its pinned sha256, and
+        # write the body verbatim.
         pin = load_catalog_pin(options.pin)
-        model_body = fetch_pinned(
-            options.models_url
-            or pinned_url(pin["repository"], pin["commit"], MODELS_SOURCE),
-            "model", pin["files"][MODELS_SOURCE])
         mcp_body = fetch_pinned(
             options.mcp_services_url
             or pinned_url(pin["repository"], pin["commit"], MCP_SERVICES_SOURCE),
             "MCP service", pin["files"][MCP_SERVICES_SOURCE])
-        targets["models.bundled.json"].write_text(model_body)
-        targets["mcp-services.bundled.json"].write_text(mcp_body)
+    model_body = models_body()
+    targets["models.bundled.json"].write_text(model_body)
+    targets["mcp-services.bundled.json"].write_text(mcp_body)
     allow_small = options.allow_small_fixture or options.fixture
     result = validate_bundled_catalog_dir(out_dir, allow_small_fixture=allow_small)
     result["outDir"] = str(out_dir)
@@ -880,8 +776,8 @@ def generate_bundled_catalog_assets(options) -> dict:
 
 
 def bump_catalog_pin(options) -> dict:
-    """Resolve --ref to a commit, fetch both files at it, run the full
-    validation gates, and rewrite the pin with the commit and both sha256."""
+    """Resolve --ref to a commit, fetch the services file at it, run the full
+    validation gates, and rewrite the pin with the commit and its sha256."""
     repository = load_catalog_pin(options.pin)["repository"]
     commit_info = json.loads(fetch_bytes(
         f"{GITHUB_API_URL}/repos/{repository}/commits/"
@@ -889,22 +785,18 @@ def bump_catalog_pin(options) -> dict:
     commit = commit_info.get("sha") if isinstance(commit_info, dict) else None
     if not isinstance(commit, str) or not _COMMIT_RE.match(commit):
         fail(f"GitHub returned no commit sha for {repository}@{options.ref}")
-    bodies = {
-        source: fetch_bytes(pinned_url(repository, commit, source), source)
-        for source in (MODELS_SOURCE, MCP_SERVICES_SOURCE)
-    }
+    body = fetch_bytes(pinned_url(repository, commit, MCP_SERVICES_SOURCE),
+                       MCP_SERVICES_SOURCE)
     with tempfile.TemporaryDirectory() as scratch:
         scratch_dir = Path(scratch)
         targets = bundled_targets(scratch_dir)
-        targets["models.bundled.json"].write_text(catalog_text(bodies[MODELS_SOURCE]))
-        targets["mcp-services.bundled.json"].write_text(
-            catalog_text(bodies[MCP_SERVICES_SOURCE]))
+        targets["models.bundled.json"].write_text(models_body())
+        targets["mcp-services.bundled.json"].write_text(catalog_text(body))
         result = validate_bundled_catalog_dir(scratch_dir)
     pin = {
         "repository": repository,
         "commit": commit,
-        "files": {source: hashlib.sha256(body).hexdigest()
-                  for source, body in bodies.items()},
+        "files": {MCP_SERVICES_SOURCE: hashlib.sha256(body).hexdigest()},
     }
     Path(options.pin).write_text(json.dumps(pin, indent=2) + "\n")
     result["pin"] = pin
@@ -920,14 +812,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--out", dest="out_dir", default=None,
                         help="asset output directory (default: target/catalog-assets)")
     parser.add_argument("--catalog-dir", default=None,
-                        help="copy from a local prime-agent-catalog checkout")
+                        help="copy the MCP services from a local "
+                             "prime-agent-catalog checkout")
     parser.add_argument("--network", action="store_true",
                         help="fetch the pinned catalog commit (CI/packaging default)")
     parser.add_argument("--fixture", action="store_true",
-                        help="emit the synthetic full-gate snapshot (offline builds)")
-    parser.add_argument("--models-url", default=None,
-                        help="override the model catalog URL (body still "
-                             "checked against the pinned sha256)")
+                        help="emit the synthetic full-gate services (offline builds)")
     parser.add_argument("--mcp-services-url", default=None,
                         help="override the MCP service catalog URL (body still "
                              "checked against the pinned sha256)")

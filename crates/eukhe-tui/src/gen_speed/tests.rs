@@ -139,7 +139,7 @@ fn the_clock_runs_prefill_progress_decode_and_the_exact_summary() {
         Some(&SpeedPhase::Prefill {
             since: start,
             progress: None,
-            uncached_estimate: None,
+            uncached: None,
         })
     );
     assert_eq!(
@@ -225,33 +225,37 @@ fn without_stream_marks_the_summary_uses_the_client_clock() {
     );
 }
 
-#[test]
-fn the_next_prefill_estimates_the_uncached_prompt_and_a_failure_shows_nothing() {
+#[tokio::test]
+async fn the_next_prefill_counts_the_uncached_prompt_and_a_failure_shows_nothing() {
     let start = Instant::now();
     let mut clock = SpeedClock::default();
+    // Before the first response nothing shows the added prompt: no count
+    // runs.
+    assert!(clock.prompt_added(|| 7).is_none());
     clock.request_started(start);
     clock.settled(
         &message("toolUse", usage(10, 0, 0, 120), Some(timing(100, 200))),
         start,
     );
-    // A tool result of 2,000 characters before the next request, and 400
-    // after it starts: 120 output tokens plus ceil(2,400 / 3.5) = 686
-    // (chars/4 made 720 in all).
-    clock.prompt_added(2000);
+    // A tool result of 600 tokens before the next request: 120 output
+    // tokens plus 600.
+    let result = clock.prompt_added(|| 600).expect("a count runs");
     clock.request_started(start);
-    clock.prompt_added(400);
-    assert_eq!(
-        clock.phase(),
-        Some(&SpeedPhase::Prefill {
-            since: start,
-            progress: None,
-            uncached_estimate: Some(806),
+    result.await.expect("the count finishes");
+    assert_eq!(clock.phase().unwrap().text(start), "prefill 0.0s (720 tok)");
+    // A prompt added after the request started: while its count runs the
+    // prefill shows no total, then the total with it.
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let pending = clock
+        .prompt_added(move || {
+            gate.recv().expect("released");
+            86
         })
-    );
-    assert_eq!(
-        clock.phase().unwrap().text(start),
-        "prefill 0.0s (~806 tok)"
-    );
+        .expect("a count runs");
+    assert_eq!(clock.phase().unwrap().text(start), "prefill 0.0s");
+    release.send(()).expect("the count waits");
+    pending.await.expect("the count finishes");
+    assert_eq!(clock.phase().unwrap().text(start), "prefill 0.0s (806 tok)");
 
     clock.settled(&message("error", usage(0, 0, 0, 0), None), start);
     assert_eq!(clock.phase(), None);

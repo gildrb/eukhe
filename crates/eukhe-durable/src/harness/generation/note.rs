@@ -20,7 +20,6 @@ use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde::{Deserialize, Serialize};
 
 use super::decide::{LEAK_NOTES, LENGTH_NOTES, REDIRECT_NOTES};
-use super::stop::{note_text, Note};
 
 /// What went wrong with a noted reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,10 +49,6 @@ pub enum NoteCause {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lowered: Option<ModelThinkingLevel>,
     },
-    /// The reply hit the output limit (`tokens`, as in `Length`) in the
-    /// middle of its text, with no tool call (`LengthStop`): its cut text is
-    /// not the answer. `row`: the length notes in a row.
-    Cut { tokens: u64, row: u32 },
     /// The reply wrote tool calls as `markup` text that the harness could
     /// not rebuild, for `reason`. `row`: the leak notes in a row.
     Leaked {
@@ -101,7 +96,7 @@ impl NoteCause {
     /// (this note included); None for a note of no recovery.
     pub(crate) fn recovery(&self) -> Option<(Recovery, u32)> {
         match self {
-            Self::Length { row, .. } | Self::Cut { row, .. } => Some((Recovery::Length, *row)),
+            Self::Length { row, .. } => Some((Recovery::Length, *row)),
             Self::Leaked { row, .. } => Some((Recovery::Leak, *row)),
             Self::Redirect { row, .. } => Some((Recovery::Redirect, *row)),
             Self::NoAnswer { row } => Some((Recovery::Empty, *row)),
@@ -136,7 +131,6 @@ impl RetryNote {
             NoteCause::Length { lowered, .. } => *lowered,
             NoteCause::Repeated { .. }
             | NoteCause::NoAnswer { .. }
-            | NoteCause::Cut { .. }
             | NoteCause::Leaked { .. }
             | NoteCause::Redirect { .. }
             | NoteCause::Stalled { .. } => None,
@@ -146,9 +140,8 @@ impl RetryNote {
     /// The text of the note: the last user message of the request, before
     /// the soft prompt of a forced call. The compiled core writes it
     /// (`eukhe_bend::rules::retry_note`, laws `retry_note_opens_with_attempt`
-    /// and `retry_note_ffi_answers`; the stop Directors' reminders
-    /// `bend/stop.bend`, law `stop_note_names_the_attempt`); the
-    /// host quotes a repeated line (`{:?}`), gives each recovery's cap, and
+    /// and `retry_note_ffi_answers`); the host quotes a repeated line
+    /// (`{:?}`), gives each recovery's cap, and
     /// saturates a count past the wire's bound.
     ///
     /// # Panics
@@ -159,14 +152,6 @@ impl RetryNote {
         let quoted;
         let listed;
         let cause = match &self.cause {
-            NoteCause::Cut { tokens, row } => {
-                let note = Note {
-                    tokens: *tokens,
-                    row: *row,
-                    cap: LENGTH_NOTES,
-                };
-                return note_text(self.attempt, note);
-            }
             NoteCause::Repeated { period, line } => {
                 quoted = format!("{line:?}");
                 Cause::Repeated {

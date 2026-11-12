@@ -4,11 +4,11 @@
 
 use super::*;
 
-/// The live wire shape that broke the ipython card: a provider announces
+/// The live wire shape that broke the python card: a provider announces
 /// the tool call before the function name streams in (the openai-style
 /// toolcall-start frame carries the block unnamed), so the first
 /// `message_update` frame has an empty `name`. The card must not freeze
-/// on that frame -- the named frame routes it to the ipython renderer and
+/// on that frame -- the named frame routes it to the python renderer and
 /// the collapsed line shows the code preview, not the raw arguments
 /// JSON.
 #[test]
@@ -22,17 +22,17 @@ fn unnamed_streamed_tool_call_renders_code_once_named() {
     apply_streamed_tool_card(
         &mut view,
         "call-1",
-        "ipython",
+        "python",
         &json!({ "code": "fibonacci(23)" }),
     );
     let card = card_of(&view).expect("the named frame creates the card");
-    assert_eq!(card.name, "ipython");
+    assert_eq!(card.name, "python");
     assert!(card.args.get("code").is_some(), "args stream into the card");
     let rows = rendered_card_text(&view);
     assert!(
         rows.iter()
             .any(|row| row.contains("python") && row.contains("fibonacci(23)")),
-        "the ipython card renders the code preview: {rows:?}"
+        "the python card renders the code preview: {rows:?}"
     );
     assert!(
         rows.iter()
@@ -201,13 +201,13 @@ fn existing_card_refreshes_name_and_args_from_latest_frame() {
         args: Value::Null,
         ..Default::default()
     })));
-    apply_streamed_tool_card(&mut view, "call-1", "ipython", &json!({ "code": "x = 1" }));
+    apply_streamed_tool_card(&mut view, "call-1", "python", &json!({ "code": "x = 1" }));
     let card = card_of(&view).expect("the streamed frame finds the card");
-    assert_eq!(card.name, "ipython");
+    assert_eq!(card.name, "python");
     assert_eq!(card.args.get("code"), Some(&json!("x = 1")));
 }
 
-/// `tool_execution_start` reports the actual tool name ("ipython" on
+/// `tool_execution_start` reports the actual tool name ("python" on
 /// the wire today); it backfills a card still unnamed and creates the
 /// card when the message frames have not arrived yet.
 #[test]
@@ -222,18 +222,18 @@ fn tool_execution_start_reports_the_tool_name() {
     apply_tool_execution_start(
         &mut view,
         "call-1",
-        "ipython",
+        "python",
         json!({ "code": "print('hi')" }),
     );
     let card = card_of(&view).expect("the start event finds the card");
-    assert_eq!(card.name, "ipython");
+    assert_eq!(card.name, "python");
     assert!(card.started, "the start event marks execution started");
 
     let mut fresh = test_view();
     apply_tool_execution_start(
         &mut fresh,
         "call-2",
-        "ipython",
+        "python",
         json!({ "code": "fibonacci(23)" }),
     );
     let rows = rendered_card_text(&fresh);
@@ -318,7 +318,7 @@ fn a_bulk_replay_settles_the_last_pending_card_for_a_reused_id() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "calling twice" },
-                { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "1"} },
+                { "type": "toolCall", "id": "dup", "name": "python", "arguments": {"code": "1"} },
             ],
             "timestamp": 1,
         })),
@@ -326,14 +326,14 @@ fn a_bulk_replay_settles_the_last_pending_card_for_a_reused_id() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "again" },
-                { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "2"} },
+                { "type": "toolCall", "id": "dup", "name": "python", "arguments": {"code": "2"} },
             ],
             "timestamp": 2,
         })),
         msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "the second run" }],
             "isError": false,
             "timestamp": 3,
@@ -365,14 +365,14 @@ fn an_interleaved_replay_pairs_results_in_arrival_order() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "first" },
-                { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "1"} },
+                { "type": "toolCall", "id": "dup", "name": "python", "arguments": {"code": "1"} },
             ],
             "timestamp": 1,
         })),
         msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "the first run" }],
             "isError": false,
             "timestamp": 2,
@@ -381,14 +381,14 @@ fn an_interleaved_replay_pairs_results_in_arrival_order() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "second" },
-                { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "2"} },
+                { "type": "toolCall", "id": "dup", "name": "python", "arguments": {"code": "2"} },
             ],
             "timestamp": 3,
         })),
         msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "the second run" }],
             "isError": false,
             "timestamp": 4,
@@ -468,14 +468,14 @@ fn a_leftover_settle_keeps_its_own_orphan_card() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "first" },
-                { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "1"} },
+                { "type": "toolCall", "id": "dup", "name": "python", "arguments": {"code": "1"} },
             ],
             "timestamp": 1,
         })),
         msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "the first run" }],
             "isError": false,
             "timestamp": 2,
@@ -483,7 +483,7 @@ fn a_leftover_settle_keeps_its_own_orphan_card() {
         msg(json!({
             "role": "toolResult",
             "toolCallId": "dup",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "the leftover" }],
             "isError": false,
             "timestamp": 3,
@@ -492,7 +492,7 @@ fn a_leftover_settle_keeps_its_own_orphan_card() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "second" },
-                { "type": "toolCall", "id": "dup", "name": "ipython", "arguments": {"code": "2"} },
+                { "type": "toolCall", "id": "dup", "name": "python", "arguments": {"code": "2"} },
             ],
             "timestamp": 4,
         })),

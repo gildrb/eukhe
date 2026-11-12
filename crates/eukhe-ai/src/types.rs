@@ -415,6 +415,12 @@ pub struct SimpleStreamOptions {
     /// Provider-neutral tool selection. When `None`, adapters use provider-specific behavior.
     pub tool_choice: Option<ToolChoice>,
     pub reasoning: Option<ThinkingLevel>,
+    /// TS `disableReasoning`: the caller turned reasoning off (thinking
+    /// level `off`). Only such a request sends a model's explicit disable
+    /// effort (its `off` entry, or the lowest effort it offers) in the
+    /// `OpenAI` dialects; a request that names no level and does not turn
+    /// reasoning off sends no effort there.
+    pub disable_reasoning: bool,
     /// Ask a capable provider to return a durable handle and continue asynchronously.
     pub deferred: Option<DeferredRequest>,
     /// Custom token budgets for thinking levels (token-based providers only).

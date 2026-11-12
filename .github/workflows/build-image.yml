@@ -1,0 +1,66 @@
+# The release toolchain image ghcr.io/gildrb/eukhe-build:jammy-<date>
+# (scripts/release/Dockerfile): built by hand, once per toolchain change,
+# never by a release. Each architecture builds on its native runner and
+# pushes jammy-<date>-<arch>; merge joins them into the multi-arch tag and
+# prints its digest, which eukhe-release.yml's build-linux job pins.
+#
+#   gh workflow run build-image.yml -f tag=jammy-<YYYYMMDD>
+name: build-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The image tag (jammy-<YYYYMMDD>)
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runs-on: ubuntu-24.04
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Log in to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+      - name: Build and push jammy-<date>-${{ matrix.arch }} (prints the installed packages)
+        run: scripts/release/build_image.sh push "${TAG}"
+
+  merge:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Log in to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+      - name: The multi-arch tag (prints the digest to pin)
+        run: scripts/release/build_image.sh merge "${TAG}"

@@ -2,7 +2,8 @@
 //! (harness/goal/etc.) and their settle/exit waits.
 
 use super::frames::Refusal;
-use super::{anyhow, json, lock, Arc, Duration, HostRequestPayload, Inner, Value};
+use super::{anyhow, json, lock, ActiveExecution, Arc, Duration, HostRequestPayload, Inner, Value};
+use crate::kernel::protocol::RequestOrigin;
 use crate::kernel::shared::{host_request_unavailable, CellJob, KernelHostRequest};
 use crate::kernel::transport::KernelTransport;
 
@@ -71,12 +72,17 @@ impl Drop for BlockingWait {
 impl Inner {
     /// Run one host request the gate served (`frames.rs`) on its handler
     /// and send its one reply over the protocol.
-    pub(crate) fn start_host_request(self: &Arc<Self>, request_id: String, data: Value) {
+    pub(crate) fn start_host_request(
+        self: &Arc<Self>,
+        request_id: String,
+        data: Value,
+        origin: RequestOrigin,
+    ) {
         let inner = Arc::clone(self);
         let held = BlockingWait::of(self, &data);
         let task = tokio::spawn(async move {
             let _held = held;
-            let result = inner.handle_host_request(&data).await;
+            let result = inner.handle_host_request(&data, &origin).await;
             inner.send_host_reply(&request_id, result).await;
         });
         let mut g = lock(&self.guarded);
@@ -118,7 +124,11 @@ impl Inner {
         }
     }
 
-    async fn handle_host_request(&self, data: &Value) -> anyhow::Result<Value> {
+    async fn handle_host_request(
+        &self,
+        data: &Value,
+        origin: &RequestOrigin,
+    ) -> anyhow::Result<Value> {
         let Some(obj) = data.as_object() else {
             return Err(anyhow!("host request payload must be an object"));
         };
@@ -132,17 +142,29 @@ impl Inner {
         // scheduling cell goes idle, so fall back to that last cell's source.
         // The durable call context only rides an active execution whose call
         // has not settled: a settled call's API rejects every operation, and
-        // a detached cell's call settled at the blocking budget.
-        let (cell_source_code, call) = {
+        // a detached cell's call settled at the blocking budget. The cell's
+        // stop signal rides with its call, and only on a request the cell
+        // sent itself (its code or a task it created): a task an earlier
+        // cell left running is not stopped with this cell. A runtime that
+        // names no sender is taken to be the executing cell.
+        let (cell_source_code, call, signal) = {
             let g = lock(&self.guarded);
             let active = g.active_execution.as_ref();
+            let attached = active
+                .filter(|e| !e.opts.job.as_ref().is_some_and(CellJob::is_detached))
+                .filter(|e| e.opts.call.is_some());
+            let sent_by_it = |e: &&Arc<ActiveExecution>| match origin {
+                RequestOrigin::Unstated => true,
+                RequestOrigin::Cell(cell) => cell.as_deref() == Some(e.request_id.as_str()),
+            };
             (
                 active
                     .map(|e| cap_cell_source(&e.code))
                     .or_else(|| g.last_cell_code.as_deref().map(cap_cell_source)),
-                active
-                    .filter(|e| !e.opts.job.as_ref().is_some_and(CellJob::is_detached))
-                    .and_then(|e| e.opts.call.clone()),
+                attached.and_then(|e| e.opts.call.clone()),
+                attached
+                    .filter(sent_by_it)
+                    .and_then(|e| e.opts.signal.clone()),
             )
         };
         let mut payload = obj.clone();
@@ -177,6 +199,7 @@ impl Inner {
                     data: Value::Object(payload),
                     cell_source_code,
                     call,
+                    signal,
                 })
                 .await?
         } else {

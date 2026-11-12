@@ -2,17 +2,17 @@
 # the Directors' stops do, stated over the entries Rust calls
 # (bend/ffi_run.bend: `decide.recover`, decide.rs `recover`, and
 # `decide.reply`, decide.rs `after_reply`) and over the recoveries'
-# helpers other areas' laws read (bend/run/recovery.bend). R4, R5 (the
-# cap of the length notes of a cut reply with text), R7 and R9 are the
-# requirements of laws/stop.bend.
+# helpers other areas' laws read (bend/run/recovery.bend). R4, R7 and R9
+# are the requirements of laws/stop.bend.
 #
 # The note Rust passes back: `recover` answers Redoes{n} or Lowers{n};
 # Rust ends the next request with the note of that row (generation.rs:
 # NoteCause::NoAnswer{row} for an empty reply, NoteCause::Length{row}
-# for a length stop with no text) and asks `recover` about that request's
-# reply with the note's recovery and row (note.rs `NoteCause::recovery`:
-# Empty or Length, the row). The laws below feed each help's row back
-# that way. The caps come from the requirement: EMPTY_STOP_MAX_RETRIES = 3
+# for a length stop LengthStop continues) and asks `recover` about that
+# request's reply with the note's recovery and row (note.rs
+# `NoteCause::recovery`: Empty or Length, the row). The laws below feed
+# each help's row back that way. The caps come from the requirement:
+# EMPTY_STOP_MAX_RETRIES = 3
 # (the 1st to 3rd empty stop get a reminder, the 4th ends the turn; any
 # other reply resets the count).
 
@@ -41,7 +41,7 @@ def empty_note(k: RnRecovery.Rk) -> Bool:
     case RnRecovery.Empties{}:
       True{}
 
-# the note is a length note (NoteCause::Length or Cut)
+# the note is a length note (NoteCause::Length)
 def length_note(k: RnRecovery.Rk) -> Bool:
   match k:
     case RnRecovery.Free{}:
@@ -93,17 +93,18 @@ def ladder_end(lower: Bool, n: Nat) -> List<&2, RnDecision.Help>:
     case False{}:
       [RnDecision.Quits{}]
 
-# Rust's request for the recovery of a cut reply with text after `row`
-# length notes in a row (decide.rs `recover`, entry.rs `Ask` tag 5: the
-# caps length, leak, redirect, repeat; the stuck reply, 0 a length stop
-# with text; the note's recovery, 1 a length note; the row), spelled with
-# the wire primitives
-def cut_ask(long: Nat, leak: Nat, redirect: Nat, repeat: Nat, row: Nat) -> String:
-  Wr.put_nat(5n, Wr.put_nat(long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(row, ""))))))))
+# Rust's request for the recovery of a length stop with no compaction to
+# make and no lower level after `row` length notes in a row (decide.rs
+# `recover`, entry.rs `Ask` tag 5: the caps length, leak, redirect,
+# repeat; the stuck reply, 0 a length stop with its window w, catalog
+# cap c, prompt p and output o, not cuttable, no lower level; the note's
+# recovery, 1 a length note; the row), spelled with the wire primitives
+def think_ask(long: Nat, leak: Nat, redirect: Nat, repeat: Nat, w: Nat, c: Nat, p: Nat, o: Nat, row: Nat) -> String:
+  Wr.put_nat(5n, Wr.put_nat(long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, Wr.put_nat(0n, Wr.put_nat(w, Wr.put_nat(c, Wr.put_nat(p, Wr.put_nat(o, Wr.put_bool(False{}, Wr.put_bool(False{}, Wr.put_nat(1n, Wr.put_nat(row, ""))))))))))))))
 
 # every Nat of that request fits the wire
-def cut_fits(long: Nat, leak: Nat, redirect: Nat, repeat: Nat, row: Nat) -> Bool:
-  Bool.and(Bool.and(LawsBase.wire_fits(long), Bool.and(LawsBase.wire_fits(leak), Bool.and(LawsBase.wire_fits(redirect), LawsBase.wire_fits(repeat)))), LawsBase.wire_fits(row))
+def think_fits(long: Nat, leak: Nat, redirect: Nat, repeat: Nat, w: Nat, c: Nat, p: Nat, o: Nat, row: Nat) -> Bool:
+  Bool.and(Bool.and(LawsBase.wire_fits(long), Bool.and(LawsBase.wire_fits(leak), Bool.and(LawsBase.wire_fits(redirect), LawsBase.wire_fits(repeat)))), Bool.and(Bool.and(Bool.and(LawsBase.wire_fits(w), LawsBase.wire_fits(c)), Bool.and(LawsBase.wire_fits(p), LawsBase.wire_fits(o))), LawsBase.wire_fits(row)))
 
 # the reply is tool calls
 def is_calls(q: RnState.Reply) -> Bool:
@@ -191,53 +192,41 @@ law stop_empty_capped_at_three:
   for +x: Nat
   {RnDecision.decide.recover(rc, RnDecision.Emptied{}, RnRecovery.Empties{}, 3n+x) == RnDecision.Quits{} : RnDecision.Help}
 
-# Laws: the length notes of a cut reply with text (R5)
-# ----------------------------------------------------
+# Laws: a length stop (R7)
+# ------------------------
+# A length stop here is one that LengthStop continues (laws/stop.bend R7,
+# R10): with no text, or with text at a full window.
 
-# LAW stop_cut_notes_follow_the_cap (R5): under any caps (`long` length
-# notes, any other caps), after a request whose note is no length note
-# (any row), cut replies with text, each request carrying the length note
-# the help before made, get length notes 1 to `long`, then the run fails
-# (the requirement: `Attempt #1/3` to `#3/3`, then the turn ends)
-# EXCLUDES: a cap other than the configured one (a fixed cap of 1 or 3
-#   that ignores `long`), a row that skips, repeats or does not start at
-#   1 after another note, a cut reply that fails the run before its cap
-#   or is retried past it
-law stop_cut_notes_follow_the_cap:
-  for +rc: RnRecovery.RCfg
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for other: {length_note(k) == False{} : Bool}
-  {climb(1n+RnRecovery.RCfg.long(rc), rc, RnDecision.Truncated{}, RnDecision.decide.recover(rc, RnDecision.Truncated{}, k, row)) == ups(RnRecovery.RCfg.long(rc), 0n, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}
-
-# LAW stop_cut_entry_follows_the_cap (R5, R6): on the wire (the shipped
-# entry, bend/ffi_run.bend), Rust's request for a cut reply with text
-# after k length notes in a row answers, under a length cap past k (k + 1
-# + x, any x, any other caps), a retry with length note k + 1 (`1,<k+1>,`),
-# and under a length cap of k the failure (`2,`); every Nat of both
-# requests within the wire
-# EXCLUDES: an entry that answers a fixed cap, misreads the cap, the row
-#   or the reply's kind, or answers another note than the next
-law stop_cut_entry_follows_the_cap:
+# LAW stop_think_entry_follows_the_cap (R6, R7): on the wire (the shipped
+# entry, bend/ffi_run.bend), Rust's request for a length stop with no
+# compaction to make and no lower level (any window, catalog cap, prompt
+# and output) after k length notes in a row answers, under a length cap
+# past k (k + 1 + x, any x, any other caps), a retry with length note
+# k + 1 (`1,<k+1>,`), and under a length cap of k the failure (`2,`);
+# every Nat of both requests within the wire
+# EXCLUDES: an entry that answers a fixed cap, misreads the cap, the row,
+#   the window's facts or the reply's kind, or answers another note than
+#   the next
+law stop_think_entry_follows_the_cap:
   for +k: Nat
   for +x: Nat
   for +le: Nat
   for +re: Nat
   for +rp: Nat
-  for fa: {cut_fits(1n+Nat.add(x, k), le, re, rp, k) == True{} : Bool}
-  for fb: {cut_fits(k, le, re, rp, k) == True{} : Bool}
-  {[FRn.ffi(cut_ask(1n+Nat.add(x, k), le, re, rp, k)), FRn.ffi(cut_ask(k, le, re, rp, k))] == [Wr.put_nat(1n, Wr.put_nat(1n+k, "")), Wr.put_nat(2n, "")] : List<&2, String>}
-
-# Laws: a length stop with no text (R7)
-# -------------------------------------
+  for +w: Nat
+  for +c: Nat
+  for +p: Nat
+  for +o: Nat
+  for fa: {think_fits(1n+Nat.add(x, k), le, re, rp, w, c, p, o, k) == True{} : Bool}
+  for fb: {think_fits(k, le, re, rp, w, c, p, o, k) == True{} : Bool}
+  {[FRn.ffi(think_ask(1n+Nat.add(x, k), le, re, rp, w, c, p, o, k)), FRn.ffi(think_ask(k, le, re, rp, w, c, p, o, k))] == [Wr.put_nat(1n, Wr.put_nat(1n+k, "")), Wr.put_nat(2n, "")] : List<&2, String>}
 
 # LAW stop_think_ladder_climbs (R7): under any caps (`long` length notes),
 # with no compaction to run (cuttable false; any window, catalog cap,
 # prompt and output), after a request whose note is no length note (any
-# row), length stops with no text, each request carrying the length note
-# the help before made, get length notes 1 to `long`, then, when a level
-# below the agent's exists, note long + 1 one level lower, then the run
-# fails
+# row), length stops, each request carrying the length note the help
+# before made, get length notes 1 to `long`, then, when a level below the
+# agent's exists, note long + 1 one level lower, then the run fails
 # EXCLUDES: a ladder that skips or repeats a note, fails the run before
 #   its last rung, lowers the level before the notes run out or more than
 #   once, never fails the run, or does not start at note 1 after another
@@ -255,11 +244,11 @@ law stop_think_ladder_climbs:
   {climb(1n+RnRecovery.RCfg.long(rc), rc, RnDecision.Thought{w, c, p, o, False{}, lower}, RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, o, False{}, lower}, k, row)) == ups(RnRecovery.RCfg.long(rc), 0n, ladder_end(lower, RnRecovery.RCfg.long(rc))) : List<&2, RnDecision.Help>}
 
 # LAW stop_think_compacts_when_window_ran_out (R7, spec S7): a length stop
-# with no text whose window ran out (the window is known, the output is
-# below the model's catalog max output, and prompt + output + 8192 tokens
-# reach the window; 8192: twice CONTEXT_SAFETY_TOKENS 4096 of eukhe-ai
-# simple_options.rs, the error of the prompt's estimate) and that can
-# compact compacts, after any note of any row, under any caps
+# whose known window ran out (the output is below the model's catalog
+# max output, and prompt + output + 8192 tokens reach the window; 8192:
+# twice CONTEXT_SAFETY_TOKENS 4096 of eukhe-ai simple_options.rs, the
+# error of the prompt's estimate) and that can compact compacts, after
+# any note of any row, under any caps
 # EXCLUDES: a retry at the same output cap while the window is what ran
 #   out (the 3 identical retries of v0.10.59), a margin smaller than the
 #   requirement's
@@ -277,12 +266,14 @@ law stop_think_compacts_when_window_ran_out:
   {RnDecision.decide.recover(rc, RnDecision.Thought{1n+w, c, p, o, True{}, lower}, k, row) == RnDecision.Compacts{} : RnDecision.Help}
 
 # LAW stop_think_unknown_window_or_catalog_cut (R7, spec S7): with the
-# window unknown (0), or the output at or past the catalog max output
-# (the catalog cap, not the window, stopped the reply), a length stop with
-# no text that could compact gets what it gets with no compaction to run
-# (stop_think_ladder_climbs), after any note, under any caps
-# EXCLUDES: a compaction when the window is unknown, or when the catalog
-#   cap stopped the reply
+# window unknown (0: it counts as run out, there is no evidence it had
+# room), a length stop that can compact compacts; with a known window and
+# the output at or past the catalog max output (the catalog cap, not the
+# window, stopped the reply), one that could compact gets what it gets
+# with no compaction to run (stop_think_ladder_climbs); after any note,
+# under any caps
+# EXCLUDES: a length note where an unknown window may have run out; a
+#   compaction when the catalog cap stopped the reply
 law stop_think_unknown_window_or_catalog_cut:
   for +rc: RnRecovery.RCfg
   for +w: Nat
@@ -293,11 +284,11 @@ law stop_think_unknown_window_or_catalog_cut:
   for +lower: Bool
   for +k: RnRecovery.Rk
   for +row: Nat
-  {RnDecision.decide.recover(rc, RnDecision.Thought{0n, c, p, o, True{}, lower}, k, row) == RnDecision.decide.recover(rc, RnDecision.Thought{0n, c, p, o, False{}, lower}, k, row) : RnDecision.Help} &
-  {RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, Nat.add(c, x), True{}, lower}, k, row) == RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, Nat.add(c, x), False{}, lower}, k, row) : RnDecision.Help}
+  {RnDecision.decide.recover(rc, RnDecision.Thought{0n, c, p, o, True{}, lower}, k, row) == RnDecision.Compacts{} : RnDecision.Help} &
+  {RnDecision.decide.recover(rc, RnDecision.Thought{1n+w, c, p, Nat.add(c, x), True{}, lower}, k, row) == RnDecision.decide.recover(rc, RnDecision.Thought{1n+w, c, p, Nat.add(c, x), False{}, lower}, k, row) : RnDecision.Help}
 
 # LAW stop_think_room_left_never_compacts (R7, spec S7): when prompt +
-# output + 8192 tokens stay below the window, a length stop with no text
+# output + 8192 tokens stay below the window, a length stop
 # that could compact gets what it gets with no compaction to run, after
 # any note, under any caps
 # EXCLUDES: a compaction while the window still had room (the output cap

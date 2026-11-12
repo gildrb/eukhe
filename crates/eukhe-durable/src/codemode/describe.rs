@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
+use eukhe_tokens::Tokenizer;
 use indexmap::IndexMap;
 use serde_json::json;
 
@@ -17,8 +18,6 @@ use crate::harness::types::ToolRegistration;
 /// Default token budget of the tool declarations in the `codemode`
 /// section, as in the coding agent.
 pub const DEFAULT_CODEMODE_INLINE_BUDGET: usize = 3000;
-/// Characters per token when estimating the cost of a tool section.
-const CHARS_PER_TOKEN: usize = 4;
 
 const DESCRIPTION_INTRO: &str = "Run JavaScript that calls other tools. `code` is raw JavaScript (not JSON, no fence), an async function body in a QuickJS sandbox: top-level `await`/`return` work; no Node, file system, network or timers.
 - `await tools.<name>({ ...args })` resolves to a string, or to the object its declaration returns (also on failure: check its fields); otherwise a failure rejects with an Error. Calls still running at script end are cancelled.
@@ -192,12 +191,14 @@ fn select_catalog<'g>(groups: &'g [Group<'_>], budget: usize) -> HashSet<&'g str
 
 /// The `codemode` section: `tools` (the callable tools the model does not
 /// have as its own), grouped by namespace, with their declarations as far
-/// as the budget (tokens) allows. `None` without such tools.
+/// as the budget (tokens of the request model's `tokenizer`) allows.
+/// `None` without such tools.
 #[must_use]
 pub fn codemode_section(
     tools: &[Arc<ToolRegistration>],
     namespaces: &[CodemodeNamespace],
     budget: usize,
+    tokenizer: &Tokenizer,
 ) -> Option<String> {
     if tools.is_empty() {
         return None;
@@ -218,7 +219,7 @@ pub fn codemode_section(
             entries: Vec::new(),
         });
         let section = render_tool_section(tool);
-        let cost = utf16_len(&section).div_ceil(CHARS_PER_TOKEN);
+        let cost = usize::try_from(tokenizer.count_text(&section)).unwrap_or(usize::MAX);
         group.entries.push(Entry {
             name: tool.name.clone(),
             section,
@@ -372,7 +373,13 @@ mod tests {
     #[test]
     fn section_lists_groups_in_order() {
         assert_eq!(
-            codemode_section(&tools(), &namespaces(), DEFAULT_CODEMODE_INLINE_BUDGET).as_deref(),
+            codemode_section(
+                &tools(),
+                &namespaces(),
+                DEFAULT_CODEMODE_INLINE_BUDGET,
+                &Tokenizer::unknown_model()
+            )
+            .as_deref(),
             Some(concat!(
                 "Tools scripts can call besides yours (`await tools.<name>(args)`):\n\n",
                 "### `read`\nRead a file.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: { [key: string]: unknown; }): Promise<string>; };\n```\n\n",
@@ -387,7 +394,7 @@ mod tests {
     #[test]
     fn section_without_budget_lists_no_tools() {
         assert_eq!(
-            codemode_section(&tools(), &namespaces(), 0).as_deref(),
+            codemode_section(&tools(), &namespaces(), 0, &Tokenizer::unknown_model()).as_deref(),
             Some(concat!(
                 "Tools scripts can call besides yours (`await tools.<name>(args)`):\n\n",
                 "Some tools are not listed: find them with `searchTools()`.\n\n",
@@ -395,7 +402,10 @@ mod tests {
                 "## GitHub (tools not listed)\nGitHub tools.",
             ))
         );
-        assert_eq!(codemode_section(&[], &namespaces(), 100), None);
+        assert_eq!(
+            codemode_section(&[], &namespaces(), 100, &Tokenizer::unknown_model()),
+            None
+        );
     }
 
     fn entry(name: &str, cost: usize) -> Entry {
@@ -429,14 +439,19 @@ mod tests {
         assert_eq!(select_catalog(&groups, 3), HashSet::from(["a2"]));
     }
 
+    /// A section costs its counted tokens: a budget of exactly the short
+    /// tool's section lists it and not the long one.
     #[test]
     fn some_tools_not_listed() {
+        let tokenizer = Tokenizer::unknown_model();
         let tools = vec![
             tool("gh-a", "A"),
             tool("gh-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B"),
         ];
+        let short = usize::try_from(tokenizer.count_text(&render_tool_section(&tools[0])))
+            .expect("a small count");
         let namespaces = vec![namespace("GitHub", None, "gh-")];
-        let section = codemode_section(&tools, &namespaces, 40).expect("section");
+        let section = codemode_section(&tools, &namespaces, short, &tokenizer).expect("section");
         assert_eq!(
             section,
             "Tools scripts can call besides yours (`await tools.<name>(args)`):\n\n## GitHub (some tools not listed)\n\n### `gh_a` (`gh-a`)\nA\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { gh_a(args: { [key: string]: unknown; }): Promise<string>; };\n```"

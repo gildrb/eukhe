@@ -114,6 +114,15 @@ pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
     Quirks::of(model).bedrock_reasoning() == Some(Shape::Claude)
 }
 
+/// Whether a reasoning request of `model` sends a thinking budget: a
+/// reasoning model neither adaptive nor of the rulebook's effort shape
+/// (`gpt`), Claude or not (the budget path).
+pub(crate) fn budget_thinking(model: &Model) -> bool {
+    model.reasoning
+        && !adaptive_thinking(model)
+        && Quirks::of(model).bedrock_reasoning() != Some(Shape::Gpt)
+}
+
 /// TS `supportsPromptCaching`: the quirks rulebook's `prompt_caching` for
 /// the model; a model the rulebook does not name caches only with
 /// `AWS_BEDROCK_FORCE_CACHE=1`.
@@ -582,15 +591,45 @@ fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool 
     model_id.starts_with("us-gov.") || model_id.starts_with("arn:aws-us-gov:")
 }
 
+/// The fields of a reasoning model with thinking off. A model that takes
+/// the explicit disabled form
+/// (the rulebook's `disabled_thinking`: Claude Haiku 5.5) sends it with
+/// the lowest effort. A prefix-bound model thinks adaptively when no
+/// thinking field is sent, so it still binds its signed thinking with no
+/// other fields. Every other model sends nothing.
+fn thinking_off_fields(model: &Model, options: &BedrockOptions) -> Option<JsonValue> {
+    let quirks = Quirks::of(model);
+    if quirks.disabled_thinking() == Some(true) {
+        return Some(json!({
+            "thinking": { "type": "disabled" },
+            "output_config": { "effort": "low" },
+        }));
+    }
+    // GovCloud Bedrock rejects the block binding.
+    let bound = !is_gov_cloud_bedrock_target(model, options)
+        && model_facts::flag(quirks.thinking_block_binding(), false);
+    bound.then(|| {
+        json!({
+            "thinking": {
+                "type": "adaptive",
+                "block_binding": { "prefix_mismatch_behavior": "drop_block" },
+            },
+            "anthropic_beta": [THINKING_BINDING_CONTROLS_BETA],
+        })
+    })
+}
+
 /// TS `buildAdditionalModelRequestFields`.
 pub(crate) fn build_additional_model_request_fields(
     model: &Model,
     options: &BedrockOptions,
 ) -> Option<JsonValue> {
-    let reasoning = options.reasoning?;
     if !model.reasoning {
         return None;
     }
+    let Some(reasoning) = options.reasoning else {
+        return thinking_off_fields(model, options);
+    };
     let fields = model_facts::reasoning(
         Quirks::of(model).bedrock_reasoning(),
         map_entry(model, ModelThinkingLevel::from(reasoning)),
@@ -604,16 +643,11 @@ pub(crate) fn build_additional_model_request_fields(
         GptEffort::Xhigh => "xhigh".to_owned(),
         GptEffort::Max => "max".to_owned(),
     };
-    match fields {
-        ReasoningFields::None => return None,
-        ReasoningFields::Nested(effort) => {
-            return Some(json!({ "reasoning": { "effort": gpt_effort(effort) } }));
-        }
-        ReasoningFields::Flat(effort) => {
-            return Some(json!({ "reasoning_effort": gpt_effort(effort) }));
-        }
-        ReasoningFields::Claude => {}
+    if let ReasoningFields::Nested(effort) = fields {
+        return Some(json!({ "reasoning": { "effort": gpt_effort(effort) } }));
     }
+    // Anthropic's thinking block: Claude's, and every other reasoning model
+    // the rulebook gives no effort shape (budget thinking is the default).
     // GovCloud Bedrock rejects the Claude thinking.display field and block
     // binding.
     let is_gov_cloud = is_gov_cloud_bedrock_target(model, options);
@@ -629,11 +663,15 @@ pub(crate) fn build_additional_model_request_fields(
     let adaptive = adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
+        let quirks = Quirks::of(model);
         let use_block_binding =
-            !is_gov_cloud && model_facts::flag(Quirks::of(model).thinking_block_binding(), false);
+            !is_gov_cloud && model_facts::flag(quirks.thinking_block_binding(), false);
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
-        if let Some(display) = display {
+        // `display` goes only where the model takes it (the rulebook's
+        // `thinking_display`: adaptive Claude 4.7 and later; Opus 4.6 does
+        // not).
+        if let Some(display) = display.filter(|_| quirks.thinking_display() == Some(true)) {
             thinking.insert("display".to_owned(), display.as_str().into());
         }
         if use_block_binding {
@@ -666,7 +704,8 @@ pub(crate) fn build_additional_model_request_fields(
             thinking.insert("display".to_owned(), display.as_str().into());
         }
         result.insert("thinking".to_owned(), JsonValue::Object(thinking));
-        if options.interleaved_thinking.unwrap_or(true) {
+        // Only a caller's explicit `interleavedThinking` adds the beta.
+        if options.interleaved_thinking == Some(true) {
             result.insert(
                 "anthropic_beta".to_owned(),
                 json!(["interleaved-thinking-2025-05-14"]),

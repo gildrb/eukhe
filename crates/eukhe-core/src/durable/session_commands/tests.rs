@@ -13,6 +13,7 @@ use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::{EntryRecord, TaskOutcome};
+use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceState, CheckSpec};
 use eukhe_types::pi_ai::{Message, UserContent};
 use serde_json::{json, Value};
 
@@ -234,9 +235,11 @@ fn classify_recognizes_only_session_commands() {
         SessionCommandName::Compact,
         SessionCommandName::Refine,
         SessionCommandName::Goal,
+        SessionCommandName::Accept,
         SessionCommandName::Autonomous,
         SessionCommandName::Remind,
         SessionCommandName::Force,
+        SessionCommandName::Loop,
     ] {
         assert_eq!(SessionCommandName::from_name(name.as_str()), Some(name));
     }
@@ -818,6 +821,95 @@ async fn a_forced_call_never_made_fails_once_and_the_next_ask_is_not_forced() {
             .await
             .expect("read"),
         DirectorState::default()
+    );
+    fixture.close().await;
+}
+
+/// `/accept`: the owner sets, shows and clears the conversation's
+/// acceptance checks; each change is a new revision, and arguments that
+/// name no check answer the usage and change nothing.
+#[tokio::test]
+async fn accept_sets_shows_and_clears_the_checks() {
+    let fixture = open(&[]).await;
+    let command_check = CheckSpec::Command {
+        command: "cargo test".to_owned(),
+        expect: 0,
+        timeout_ms: None,
+        protect: Vec::new(),
+    };
+    let judge_check = CheckSpec::Judge {
+        condition: "the README names the flag".to_owned(),
+        evidence: Vec::new(),
+        model: None,
+    };
+
+    let empty = fixture.run("/accept").await;
+    fixture.run("/accept cmd cargo test").await;
+    fixture.run("/accept judge the README names the flag").await;
+    let capped = fixture.run("/accept returns 1").await;
+    let usage = fixture.run("/accept cmd").await;
+    let shown = fixture.run("/accept status").await;
+    let cleared = fixture.run("/accept clear").await;
+
+    assert_eq!(
+        empty.acceptance.map(|state| (state.label, state.checks)),
+        Some((AcceptanceLabel::Unverified, Vec::new()))
+    );
+    let specs = |state: &AcceptanceState| -> Vec<CheckSpec> {
+        state
+            .checks
+            .iter()
+            .map(|check| check.spec.clone())
+            .collect()
+    };
+    let capped = capped.acceptance.expect("the acceptance");
+    assert_eq!(
+        (capped.revision, capped.max_returns, specs(&capped)),
+        (3, 1, vec![command_check, judge_check, CheckSpec::intent()])
+    );
+    assert_eq!(failed(&usage).as_deref(), Some(ACCEPT_USAGE));
+    assert_eq!(shown.acceptance, Some(capped));
+    assert_eq!(
+        cleared
+            .acceptance
+            .map(|state| (state.revision, state.label, state.checks)),
+        Some((4, AcceptanceLabel::Unverified, Vec::new()))
+    );
+    let judged = "Acceptance: unverified (revision 3, returns 0 of 1).\n1. command `cargo test` (expect exit 0): not judged\n2. judge: the README names the flag: not judged\n3. intent: what the user's messages ask for now holds on the final state: not judged";
+    assert_eq!(
+        fixture.command_rows().await,
+        vec![
+            echo("/accept"),
+            result(
+                "/accept",
+                "Acceptance: unverified (no acceptance checks).",
+                true
+            ),
+            echo("/accept cmd cargo test"),
+            result(
+                "/accept cmd cargo test",
+                "Acceptance: unverified (revision 1, returns 0 of 3).\n1. command `cargo test` (expect exit 0): not judged\n2. intent: what the user's messages ask for now holds on the final state: not judged",
+                true
+            ),
+            echo("/accept judge the README names the flag"),
+            result(
+                "/accept judge the README names the flag",
+                "Acceptance: unverified (revision 2, returns 0 of 3).\n1. command `cargo test` (expect exit 0): not judged\n2. judge: the README names the flag: not judged\n3. intent: what the user's messages ask for now holds on the final state: not judged",
+                true
+            ),
+            echo("/accept returns 1"),
+            result("/accept returns 1", judged, true),
+            echo("/accept cmd"),
+            failure("/accept cmd", ACCEPT_USAGE),
+            echo("/accept status"),
+            result("/accept status", judged, true),
+            echo("/accept clear"),
+            result(
+                "/accept clear",
+                "Acceptance: unverified (no acceptance checks).",
+                true
+            ),
+        ]
     );
     fixture.close().await;
 }

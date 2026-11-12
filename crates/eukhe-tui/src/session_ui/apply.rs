@@ -1,6 +1,8 @@
 //! The apply concern: the streamed-event pump -- client events, turn
 //! updates, assistant/tool rows, and compaction aborts.
-use eukhe_types::token_estimate::{chars_to_tokens, text_chars, ESTIMATED_IMAGE_CHARS};
+use std::sync::Arc;
+
+use eukhe_tokens::{ModelRef, Tokenizer};
 
 use super::bash::BashSettled;
 use super::{
@@ -40,7 +42,66 @@ pub(crate) enum AbortFailed {
     SideQuestion(#[source] anyhow::Error),
 }
 
+/// A backgrounded interrupt's outcome for the UI loop.
+#[derive(Debug)]
+pub(crate) enum InterruptNote {
+    /// An abort request failed: its transcript note.
+    Failed(AbortFailed),
+    /// The user's own parked messages an Escape interrupt withdrew from
+    /// the queue of `active_session_id`, oldest first: they return to the
+    /// editor.
+    Withdrawn {
+        active_session_id: String,
+        texts: Vec<String>,
+    },
+}
+
+/// What an interrupt does with the messages parked behind the turn it
+/// aborts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParkedOnInterrupt {
+    /// They deliver behind the aborted turn (`abort_and_send_queued`).
+    Deliver,
+    /// The user's own messages return to the editor instead of starting a
+    /// turn the user just stopped (Escape); internal prompts deliver as
+    /// before.
+    ReturnToEditor,
+}
+
+/// The model the session's next request reads with, owned so a count can
+/// run off the UI thread.
+struct SessionModel {
+    id: String,
+    provider: String,
+    api: String,
+}
+
+impl SessionModel {
+    /// Its tokenizer, resolved on the counting thread (a family's first
+    /// use decodes its vocabulary). A model the tray does not name yet
+    /// counts in the default `o200k_base`.
+    fn tokenizer(&self) -> Arc<Tokenizer> {
+        Tokenizer::for_model(ModelRef {
+            id: &self.id,
+            provider: &self.provider,
+            api: &self.api,
+        })
+    }
+}
+
 impl SessionUi {
+    /// The session's model (the tray's; its catalog entry names the wire).
+    fn session_model(&self, view: &AgentView) -> SessionModel {
+        SessionModel {
+            id: view.chrome.model_id.clone().unwrap_or_default(),
+            provider: view.chrome.model_provider.clone().unwrap_or_default(),
+            api: self
+                .current_model_entry(view)
+                .map(|entry| entry.model.api.clone())
+                .unwrap_or_default(),
+        }
+    }
+
     /// Abort the active turn off the UI loop (TS `interruptOrClearInput`
     /// fires `void abortAndSendQueued()` when streaming, schema 29): the
     /// daemon aborts the run and the queue keeps flowing behind the
@@ -49,14 +110,63 @@ impl SessionUi {
     /// abort when the abort leaves nothing queued. A daemon without the
     /// schema-29 capability gets the plain abort (TS
     /// `supportsServerCapability` + the `isUnknownDaemonCommandError`
-    /// catch, both arms of TS `abortAndSendQueued`). The request never
+    /// catch, both arms of TS `abortAndSendQueued`). With
+    /// [`ParkedOnInterrupt::ReturnToEditor`] the user's parked messages
+    /// leave the queue first (newest first, so every earlier index stays
+    /// valid) and the withdrawn ones come back as an
+    /// [`InterruptNote::Withdrawn`]; one the queue no longer holds as
+    /// shown is not withdrawn and delivers as before. The request never
     /// blocks key handling, and a failure surfaces later as a transcript
     /// note.
-    pub(crate) fn abort_turn(&self) {
+    pub(crate) fn abort_turn(&self, parked: ParkedOnInterrupt, view: &AgentView) {
         let client = self.client.clone();
         let active_session_id = self.active_session_id.clone();
         let notes = self.notes.clone();
+        let returned: Vec<(crate::queued::QueueLane, usize, String)> = match parked {
+            ParkedOnInterrupt::Deliver => Vec::new(),
+            ParkedOnInterrupt::ReturnToEditor => [
+                (crate::queued::QueueLane::Steering, &view.queued.steering),
+                (crate::queued::QueueLane::FollowUp, &view.queued.follow_ups),
+            ]
+            .into_iter()
+            .flat_map(|(lane, items)| {
+                items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| {
+                        matches!(item.origin, eukhe_types::input_origin::InputOrigin::User)
+                    })
+                    .map(move |(index, item)| (lane, index, item.text.clone()))
+            })
+            .collect(),
+        };
         tokio::spawn(async move {
+            let mut withdrawn = Vec::new();
+            for (lane, index, text) in returned.into_iter().rev() {
+                let deleted = client
+                    .request_ok(DaemonCommand::MutateQueuedMessage {
+                        id: None,
+                        active_session_id: active_session_id.clone(),
+                        lane: Value::String(lane.wire_name().to_string()),
+                        index: index as u64,
+                        expected_text: text.clone(),
+                        mutation: serde_json::json!({ "type": "delete" }),
+                        rest: Map::default(),
+                    })
+                    .await;
+                if deleted
+                    .is_ok_and(|data| data.get("status").and_then(Value::as_str) == Some("applied"))
+                {
+                    withdrawn.push(text);
+                }
+            }
+            if !withdrawn.is_empty() {
+                withdrawn.reverse();
+                let _ = notes.send(InterruptNote::Withdrawn {
+                    active_session_id: active_session_id.clone(),
+                    texts: withdrawn,
+                });
+            }
             let mut result = if client.supports_server_capability("abort_and_send_queued") {
                 client
                     .request_ok(DaemonCommand::AbortAndSendQueued {
@@ -87,7 +197,7 @@ impl SessionUi {
                     .await;
             }
             if let Err(error) = result {
-                let _ = notes.send(AbortFailed::Turn(error));
+                let _ = notes.send(InterruptNote::Failed(AbortFailed::Turn(error)));
             }
         });
     }
@@ -148,9 +258,51 @@ impl SessionUi {
         self.settle_compaction_loader(view);
     }
 
-    /// Apply one background note (a failed abort request) to the transcript.
-    pub(crate) fn apply_background_note(&mut self, failure: &AbortFailed, view: &mut AgentView) {
-        self.note(&failure.to_string(), view);
+    /// Apply one background interrupt note: a failed abort request's
+    /// transcript note, or the withdrawn parked messages, which go back
+    /// into the editor ahead of the draft (oldest first, blank-line
+    /// separated) --
+    /// only while the view still holds the session they were parked in.
+    pub(crate) fn apply_background_note(&mut self, note: InterruptNote, view: &mut AgentView) {
+        match note {
+            InterruptNote::Failed(failure) => self.note(&failure.to_string(), view),
+            InterruptNote::Withdrawn {
+                active_session_id,
+                texts,
+            } => {
+                if active_session_id != self.active_session_id {
+                    return;
+                }
+                let draft = view.editor.get_text();
+                let combined = texts
+                    .iter()
+                    .map(String::as_str)
+                    .chain(std::iter::once(draft.as_str()))
+                    .filter(|text| !text.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                view.editor.set_text(&combined);
+                // Each withdrawn prompt was owed a turn end of its own that
+                // never comes now; a run that already ended waited only on
+                // them, so the busy state ends here (the `Idle` rule).
+                self.last_prompt_turn_end = self
+                    .last_prompt_turn_end
+                    .saturating_sub(texts.len() as u64)
+                    .max(self.turn_ends_seen);
+                if self.turn_active
+                    && !self.run_open
+                    && self.prompt_in_flight == 0
+                    && self.turn_ends_seen >= self.last_prompt_turn_end
+                {
+                    self.turn_active = false;
+                    view.retry = None;
+                    if !compaction_runs(view) {
+                        Self::stop_loader(view);
+                    }
+                }
+                self.dirty = true;
+            }
+        }
     }
 
     /// A compaction succeeded and the durable transcript was rebuilt (it
@@ -475,6 +627,7 @@ impl SessionUi {
                 self.run_open = true;
                 self.run_rounds = 0;
                 self.run_awaits_turn = true;
+                self.run_interrupted = false;
                 self.retry_popped_attempt = None;
                 self.begin_request(view);
             }
@@ -484,7 +637,10 @@ impl SessionUi {
                 self.begin_request(view);
             }
             TurnUpdate::UserMessage(text) => {
-                self.speed_clock.prompt_added(text_chars(&text));
+                let model = self.session_model(view);
+                let prompt = text.clone();
+                self.speed_clock
+                    .prompt_added(move || model.tokenizer().count_text(&prompt));
                 // A prompt that lands in an open run starts a turn this
                 // view may have missed the start of (it attached after
                 // the run's `turn_start`, before the prompt was stored):
@@ -592,12 +748,19 @@ impl SessionUi {
                 message,
                 streaming,
                 stream_event,
+                output_tokens,
             } => {
                 // A next attempt's message: the retry wait is over.
                 if matches!(stream_event, Some(eukhe_types::daemon::StreamUpdate::Start)) {
                     self.retry_popped_attempt = None;
                 }
-                self.apply_assistant_message(&message, streaming, stream_event.as_ref(), view);
+                self.apply_assistant_message(
+                    &message,
+                    streaming,
+                    stream_event.as_ref(),
+                    output_tokens,
+                    view,
+                );
             }
             TurnUpdate::ToolExecutionStart {
                 tool_call_id,
@@ -645,17 +808,13 @@ impl SessionUi {
                 is_error,
             } => {
                 // The result goes into the next request's prompt.
-                self.speed_clock.prompt_added(
-                    result
-                        .content
-                        .iter()
-                        .map(|block| match block {
-                            eukhe_types::ai::UserContentBlock::Text(text) => text_chars(&text.text),
-                            eukhe_types::ai::UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
-                            eukhe_types::ai::UserContentBlock::Raw(_) => 0,
-                        })
-                        .sum(),
-                );
+                let model = self.session_model(view);
+                let content = result.content.clone();
+                self.speed_clock.prompt_added(move || {
+                    model
+                        .tokenizer()
+                        .count_parts(&eukhe_tokens::ai_blocks(&content))
+                });
                 // The landed-result gate keeps the loader safe: after the
                 // interrupt delivers the parked queue, a late end frame from
                 // the aborted run must not rewrite the new turn's activity
@@ -673,7 +832,7 @@ impl SessionUi {
                 // Only the engine's own turn_end clears the busy state:
                 // trailing `agent_end` frames from the previous turn must
                 // not cancel a turn admitted in between (prompt queueing).
-                self.streaming_index = None;
+                self.end_open_message(view);
                 self.turn_ends_seen += 1;
                 self.turn_active = false;
                 // The request ended: the compactor's work of this
@@ -694,9 +853,8 @@ impl SessionUi {
                 // turn; so does a turn the engine reported nothing for (a
                 // restarted worker ends its interrupted turn that way and
                 // resumes it): whether the turn ended without a reply is
-                // known only when the run ends owing it (`Idle`), as omp
-                // settles a turn's end only once it knows no re-run follows
-                // (event-controller.ts:1917-1929).
+                // known only when the run ends owing it (`Idle`): a turn's end
+                // settles only once it is known that no re-run follows.
                 self.run_awaits_turn =
                     matches!(outcome, TurnOutcome::Continues | TurnOutcome::Unreported);
                 match outcome {
@@ -881,6 +1039,7 @@ impl SessionUi {
                 }
             }
             TurnUpdate::Idle => {
+                self.end_open_message(view);
                 // A run that made no model request (stopped while it
                 // prepared or waited) never sends the `turn_end` its
                 // prompt's admission counts on: its end stands in for it.
@@ -890,11 +1049,22 @@ impl SessionUi {
                 // A run that ends owing its answering turn (none came, or
                 // its last turn called tools and the next never did) ended
                 // without a reply: the chat says so, like the rebuild of
-                // its stored transcript. A run that made no request stored
-                // no prompt for a rebuild to fold, so only this view holds
-                // the row.
+                // its stored transcript. A run this client interrupted
+                // ended by that abort instead (the engine settles a run
+                // aborted during its tools with no aborted message of its
+                // own; the chat closes such a run with one, rendered
+                // "Operation aborted"). A run
+                // that made no request stored no prompt for a rebuild to
+                // fold, so only this view holds the row.
                 if self.run_open && self.run_awaits_turn && !self.turn_error_shown {
-                    let row = crate::snapshot::no_reply_row();
+                    let row = if self.run_interrupted {
+                        crate::snapshot::aborted_row(crate::chat::live_abort_text(
+                            view.retry.as_ref().map_or(0, |retry| retry.attempt),
+                            view.working_since.map(|since| since.elapsed().as_secs()),
+                        ))
+                    } else {
+                        crate::snapshot::no_reply_row()
+                    };
                     if self.run_rounds == 0 {
                         self.carried_rows.push(row.clone());
                     }
@@ -902,6 +1072,7 @@ impl SessionUi {
                 }
                 self.run_open = false;
                 self.run_awaits_turn = false;
+                self.run_interrupted = false;
                 self.retry_popped_attempt = None;
                 // The run is over unless a later prompt of this client is
                 // still owed its turn (admitted in between, or traveling).
@@ -921,6 +1092,20 @@ impl SessionUi {
             }
             TurnUpdate::GoalUpdate(goal) => {
                 self.apply_goal_update(goal, view);
+            }
+            TurnUpdate::UnknownEffectsUpdate(effects) => {
+                self.apply_unknown_effects(effects, view);
+            }
+            TurnUpdate::LoopUpdate(status) => {
+                self.apply_loop_update(status, view);
+            }
+            TurnUpdate::BudgetUpdate(budget) => {
+                self.budget = budget.map(|report| *report);
+                view.chrome.budget.clone_from(&self.budget);
+            }
+            TurnUpdate::AcceptanceUpdate(acceptance) => {
+                self.verification = crate::status_line::Verification::of(&acceptance);
+                view.chrome.verification = self.verification;
             }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
@@ -996,11 +1181,11 @@ impl SessionUi {
 
     /// TS `interruptOrClearInput`'s abort ladder, shared by the Ctrl+C and
     /// Escape interrupts: a compacting session aborts the compaction run,
-    /// a streaming turn aborts through `abort_and_send_queued` (schema 29),
-    /// and a running user bash aborts alongside. The side-question abort
-    /// stays at the call sites -- the two keys dispose of its pane
-    /// differently.
-    pub(super) fn interrupt_running_work(&self, view: &AgentView) {
+    /// a streaming turn aborts through `abort_and_send_queued` (schema 29;
+    /// `parked` says what becomes of the messages parked behind it), and a
+    /// running user bash aborts alongside. The side-question abort stays
+    /// at the call sites -- the two keys dispose of its pane differently.
+    pub(super) fn interrupt_running_work(&mut self, view: &AgentView, parked: ParkedOnInterrupt) {
         if view.compaction.is_some() {
             // The compaction loader is up (TS `isAgentCompacting()`):
             // the interrupt cancels the compaction run only -- the agent
@@ -1011,8 +1196,12 @@ impl SessionUi {
             // TS shows no transient abort hint: the aborted turn's own
             // assistant row carries the interrupt (the red "Operation
             // aborted" error row inside the message component), so
-            // nothing is noted here.
-            self.abort_turn();
+            // nothing is noted here. The open run's end knows it was
+            // stopped (the `Idle` row).
+            if self.run_open {
+                self.run_interrupted = true;
+            }
+            self.abort_turn(parked, view);
         }
         // A running user-bash command aborts the same way (TS
         // `interruptOrClearInput` fires `void abortBash()`): the settled
@@ -1022,14 +1211,26 @@ impl SessionUi {
         }
     }
 
+    /// The open message ends without its final frame (an attach's
+    /// snapshot adopted a reply that had already finished): it stops
+    /// streaming, so it settles.
+    fn end_open_message(&mut self, view: &mut AgentView) {
+        self.adopted_index = None;
+        if let Some(index) = self.streaming_index.take() {
+            view.end_streaming_entry(index);
+        }
+    }
+
     /// Apply an assistant message frame: an open streaming message is
     /// updated in place; otherwise the message expands into a chat component
-    /// plus a card per tool call.
+    /// plus a card per tool call. `output_tokens` is the worker's count of
+    /// the streamed output on the frames it counted at.
     fn apply_assistant_message(
         &mut self,
         message: &eukhe_types::ai::AssistantMessage,
         streaming: bool,
         stream_event: Option<&eukhe_types::daemon::StreamUpdate>,
+        output_tokens: Option<u64>,
         view: &mut AgentView,
     ) {
         if let Some(event) = stream_event {
@@ -1044,28 +1245,18 @@ impl SessionUi {
             if starts_message {
                 self.working_tokens.start_message();
             }
-            let content_chars: u64 = blocks
-                .iter()
-                .map(|block| match block {
-                    MessageBlock::Text(text) | MessageBlock::Thinking(text) => text_chars(text),
-                })
-                .sum();
             let current = self
                 .working_tokens
-                .apply_streaming(usage_output, content_chars);
+                .apply_streaming(usage_output, output_tokens);
             if let Some(working) = &mut view.working {
                 working.tokens = working.tokens.max(current);
             }
             // This message's own output so far, tool-call arguments
             // included: the provider's count when it streams one, else the
-            // content at the one token estimate.
-            let tool_chars: u64 = tool_calls
-                .iter()
-                .map(|(_, name, args)| text_chars(name) + text_chars(&args.to_string()))
-                .sum();
+            // worker's count of the streamed content.
             self.speed_clock.streamed(
                 std::time::Instant::now(),
-                usage_output.max(chars_to_tokens(content_chars + tool_chars)),
+                self.working_tokens.streaming_tokens(),
             );
         } else {
             self.working_tokens.settle(usage_output);
@@ -1079,10 +1270,26 @@ impl SessionUi {
             self.last_assistant_text = Some(text);
         }
         let has_tool_calls = !tool_calls.is_empty();
-        // A message_start always opens a new streaming message (the engine
-        // emits one per provider call); later frames update it in place.
-        if starts_message {
-            self.streaming_index = None;
+        // A message_start opens a new streaming message (the engine emits
+        // one per provider call); later frames update it in place. An
+        // entry still streaming at that start never got its message_end:
+        // the starting message takes its place, so the chat never keeps
+        // the rows of a message that did not end beside the next one. The
+        // reply an attach adopted settles where it is instead: it may have
+        // finished before the attach cursor.
+        let adopted = starts_message
+            && self
+                .adopted_index
+                .take()
+                .is_some_and(|index| self.streaming_index == Some(index));
+        if starts_message
+            && (adopted
+                || !matches!(
+                    self.streaming_index.and_then(|index| view.chat.get(index)),
+                    Some(ChatEntry::Assistant(open)) if open.streaming
+                ))
+        {
+            self.end_open_message(view);
         }
         match self.streaming_index {
             Some(index) => {

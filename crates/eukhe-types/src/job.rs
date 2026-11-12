@@ -1,6 +1,6 @@
 //! The one job primitive (ADR 0010): work a session started that settles
 //! after the call that started it stopped blocking the turn. A detached
-//! `ipython` cell (its call outlived the runtime's blocking budget) and a
+//! `python` cell (its call outlived the runtime's blocking budget) and a
 //! background kernel `bash()` handle are both jobs; each settles through one
 //! [`JobSettled`] row, which wakes an idle session or steers a busy one.
 
@@ -77,6 +77,10 @@ pub enum CellStatus {
     /// The cell ignored a cancel's interrupt past the grace, so its kernel
     /// was killed: its effects are unknown (ADR 0011).
     Killed,
+    /// The job's process died with the worker that ran it (a crash or a
+    /// restart): it may have partly run, its output is lost, and it is
+    /// never run again (exactly-once effects: interrupted).
+    Interrupted,
 }
 
 impl CellStatus {
@@ -88,6 +92,7 @@ impl CellStatus {
             Self::Error => "error",
             Self::Aborted => "aborted",
             Self::Killed => "killed",
+            Self::Interrupted => "interrupted",
         }
     }
 }
@@ -121,7 +126,7 @@ impl BashStopper {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum JobSettled {
-    /// A detached `ipython` cell ended; `output` is its whole projection,
+    /// A detached `python` cell ended; `output` is its whole projection,
     /// bounded once by the producer (ADR 0009).
     Cell {
         job: JobId,

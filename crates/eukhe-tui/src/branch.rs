@@ -2,7 +2,7 @@
 //! of an expansion hangs off its event's header row on a dim
 //! branch (`BRANCH`) gutter, and every following row sits at the
 //! four-column continuation indent (the one-column chat margin plus the
-//! gutter's three columns) -- the same geometry the expanded ipython cell
+//! gutter's three columns) -- the same geometry the expanded python cell
 //! code (TS `renderCode`) and the received agent-message body use.
 //!
 //! Expandable chat bodies render on this grammar (TS #2779's shared

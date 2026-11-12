@@ -234,6 +234,83 @@ async fn a_later_heartbeat_fire_replaces_the_queued_one() {
     );
 }
 
+/// A follow-up heartbeat due while a turn streams queues behind the turn
+/// (like any follow-up prompt) instead of being skipped: the fire is a run once
+/// queued and never waits out the turn, a later fire while it still waits
+/// coalesces into it (a skip, nothing new queued), and the turn's end
+/// delivers it once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_follow_up_heartbeat_due_mid_turn_is_delivered_once_after_the_turn() {
+    let (_dir, worker) = created_worker(
+        SESSION,
+        json!([{ "text": "held", "delayMs": 3_000 }, "ack"]),
+    )
+    .await;
+    let prompt = worker
+        .dispatch(
+            "prompt",
+            &json!({ "activeSessionId": SESSION, "message": "work" }),
+        )
+        .await;
+    assert!(prompt.success, "{prompt:?}");
+    wait_busy(&worker, true).await;
+    let job = job_for(
+        &worker,
+        "hb-1",
+        "print hello world",
+        Some(DeliveryMode::FollowUp),
+    );
+    let hooks = Arc::clone(&worker.scheduled.hooks);
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), hooks.run_job(&job))
+        .await
+        .expect("the fire never waits out the turn")
+        .expect("fire");
+    assert_eq!(outcome, None, "a fire queued behind the turn is a run");
+    assert_eq!(
+        worker_inbox(&worker).await,
+        vec![("followUp".to_owned(), HEARTBEAT_TEXT.to_owned())]
+    );
+    let mut later = job.clone();
+    later.run_count = 1;
+    assert_eq!(
+        hooks.run_job(&later).await.expect("later fire"),
+        Some("skipped"),
+        "the still-queued fire stands for the later one"
+    );
+    assert_eq!(
+        worker_inbox(&worker).await.len(),
+        1,
+        "one queued fire per job"
+    );
+
+    // The turn ends; the queued fire runs as its own turn, once.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let answered = worker_entries(&worker)
+            .await
+            .iter()
+            .filter(|entry| entry.kind == "pi.assistant")
+            .count();
+        let idle = !lock(&worker.core).is_busy();
+        if answered == 2 && idle {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the queued heartbeat was never answered"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let rows = worker_rows(&worker, "eukhe.custom").await;
+    let heartbeats: Vec<&Value> = rows
+        .iter()
+        .filter(|row| row["customType"] == "heartbeat_prompt")
+        .collect();
+    assert_eq!(heartbeats.len(), 1, "delivered once: {rows:?}");
+    assert_eq!(heartbeats[0]["content"], json!(HEARTBEAT_TEXT));
+    assert!(worker_inbox(&worker).await.is_empty());
+}
+
 /// The kernel mutation hook withdraws a dropped heartbeat's queued fire
 /// (TS `removeQueuedHeartbeatFollowUp`) and re-arms the scheduler.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -149,6 +149,7 @@ fn attach_data() -> Value {
 
 fn options(socket: PathBuf, screen_mode: ScreenMode) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

@@ -148,10 +148,9 @@ fn effort_call(map: [MapEntry; 6], level: Level) -> Result<Effort, Error> {
 pub enum Shape {
     /// Claude's thinking fields (adaptive or budget thinking).
     Claude,
-    /// `OpenAI` GPT: a nested `reasoning.effort`.
+    /// A nested `reasoning.effort` (`OpenAI` GPT and the other effort-mode
+    /// models).
     Gpt,
-    /// gpt-oss: a flat `reasoning_effort` of low, medium or high.
-    GptOss,
 }
 
 /// An effort the GPT reasoning fields send.
@@ -169,19 +168,16 @@ pub enum GptEffort {
 /// The reasoning fields of a Bedrock request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReasoningFields {
-    /// No reasoning field.
-    None,
-    /// Claude's thinking fields (the caller builds them).
-    Claude,
+    /// Anthropic's thinking block (the caller builds it: adaptive or
+    /// budget thinking).
+    Thinking,
     /// `reasoning: { effort }`.
     Nested(GptEffort),
-    /// `reasoning_effort`.
-    Flat(GptEffort),
 }
 
 /// The reasoning fields of a Bedrock request at `level` for a model of
-/// rulebook shape `shape` (`None`: no rule applies) whose thinking-level
-/// map has `entry` at the level.
+/// rulebook shape `shape` (`None`: no rule applies, the thinking block)
+/// whose thinking-level map has `entry` at the level.
 #[must_use]
 pub fn reasoning(shape: Option<Shape>, entry: MapEntry, level: Level) -> ReasoningFields {
     expect_core(Entry::ModelFacts, reasoning_call(shape, entry, level))
@@ -197,17 +193,14 @@ fn reasoning_call(
         None => 0,
         Some(Shape::Claude) => 1,
         Some(Shape::Gpt) => 2,
-        Some(Shape::GptOss) => 3,
     });
     put_entry(&mut request, entry);
     request.tag(level_tag(level));
     let reply = call(Entry::ModelFacts, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let fields = match reader.nat()? {
-        0 => ReasoningFields::None,
-        1 => ReasoningFields::Claude,
+        1 => ReasoningFields::Thinking,
         2 => ReasoningFields::Nested(gpt_effort(reader.nat()?)?),
-        3 => ReasoningFields::Flat(gpt_effort(reader.nat()?)?),
         _ => {
             return Err(WireError::Malformed {
                 at: 0,
@@ -292,7 +285,8 @@ mod tests {
     use super::*;
 
     /// The reasoning fields of each shape come from the compiled core:
-    /// GPT's map string first, its own xhigh; gpt-oss capped at high.
+    /// GPT's map string first, its own xhigh; Claude and no shape the
+    /// thinking block.
     #[test]
     fn the_bedrock_reasoning_fields_come_from_the_compiled_core() {
         use MapEntry::{Missing, Null, Wire};
@@ -302,16 +296,12 @@ mod tests {
                 reasoning(Some(Shape::Claude), Missing, Level::Max),
                 reasoning(Some(Shape::Gpt), Wire, Level::Minimal),
                 reasoning(Some(Shape::Gpt), Null, Level::Xhigh),
-                reasoning(Some(Shape::GptOss), Wire, Level::Max),
-                reasoning(Some(Shape::GptOss), Missing, Level::Minimal),
             ],
             [
-                ReasoningFields::None,
-                ReasoningFields::Claude,
+                ReasoningFields::Thinking,
+                ReasoningFields::Thinking,
                 ReasoningFields::Nested(GptEffort::Mapped),
                 ReasoningFields::Nested(GptEffort::Xhigh),
-                ReasoningFields::Flat(GptEffort::High),
-                ReasoningFields::Flat(GptEffort::Low),
             ]
         );
     }

@@ -154,6 +154,7 @@ fn run_boot_plan(steps: Vec<HeadlessStep>) -> eukhe_tui::interactive::Interactiv
 
 fn options(socket: PathBuf) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

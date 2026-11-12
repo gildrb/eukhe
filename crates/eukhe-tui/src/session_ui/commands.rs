@@ -989,6 +989,11 @@ impl SessionUi {
                 }
                 self.handle_reload_command(view)?;
             }
+            // `/heartbeat ...` (TS `handleHeartbeatCommand`): view, set,
+            // pause, resume or clear this session's own heartbeat.
+            "heartbeat" => {
+                self.handle_heartbeat_command(&resolved.args, view).await;
+            }
             // `/heartbeats` (TS `showHeartbeatManager`): the inline
             // management view over the session-scoped heartbeat catalog --
             // this session's and its RLM children's user and agent
@@ -1002,6 +1007,18 @@ impl SessionUi {
                     return Ok(());
                 }
                 self.open_heartbeats_view(view);
+            }
+            // `/effects [ran|not-run <id>]`: the session's interrupted
+            // effects whose outcome is unknown, and settling one after
+            // looking at the world.
+            "effects" => {
+                self.handle_effects_command(sub, &resolved.args, view).await;
+            }
+            // `/budget [set|add <key=value>.. | audit]`: the session's
+            // budget -- its report line, a new budget, added budget, or
+            // the ledger's audit; the daemon owns the ledger.
+            "budget" => {
+                self.handle_budget_command(&resolved.args, text, view).await;
             }
             other => {
                 self.note(

@@ -524,15 +524,14 @@ fn unmarked(mut body: serde_json::Value) -> serde_json::Value {
     body
 }
 
-/// The Anthropic body of `request` without marks, and its messages up to
-/// the request's own end: without the trailing message that sets the
-/// request's thinking effort (it ends every request).
+/// The Anthropic body of `request` without marks, and its messages. The
+/// request's thinking effort is in the body (`output_config.effort`): no
+/// reply in these histories records an effort, so no message carries one.
 async fn wire(request: &Captured) -> (serde_json::Value, Vec<serde_json::Value>) {
     let mut body =
         unmarked(crate::durable::open::tests::anthropic_body(&request.0, &request.1).await);
-    let mut messages = body["messages"].as_array().expect("messages").clone();
-    let effort = messages.pop().expect("the effort message");
-    assert_eq!(effort["role"], "system");
+    let messages = body["messages"].as_array().expect("messages").clone();
+    assert!(messages.iter().all(|message| message["role"] != "system"));
     body.as_object_mut().expect("body").remove("messages");
     (body, messages)
 }
@@ -644,4 +643,186 @@ async fn the_review_continues_the_sessions_request() {
     let shared = review_wire.len() - 1;
     assert_eq!(next_wire.len(), shared + 1);
     assert_eq!(next_wire[..shared], review_wire[..shared]);
+}
+
+/// The provider's window in the oversized-prompt test, counted as one
+/// token per character of the request: a provider whose tokenizer counts
+/// the text at four times the session model's local count.
+const PROVIDER_WINDOW: usize = 128_000;
+
+/// One request the counting provider answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Counted {
+    /// A summarizer request.
+    summary: bool,
+    /// Past [`PROVIDER_WINDOW`]: answered with a context overflow.
+    overflow: bool,
+    /// Its conversation was clamped to the summarizer's budget.
+    clamped: bool,
+}
+
+/// A faux step that answers like a provider whose tokenizer counts every
+/// request character as a token: past [`PROVIDER_WINDOW`] a context
+/// overflow, else the summary for a summarizer request, else `reply`.
+fn counting_provider(log: &Arc<Mutex<Vec<Counted>>>, reply: &str) -> FauxResponseStep {
+    let (log, reply) = (Arc::clone(log), reply.to_owned());
+    FauxResponseStep::factory(move |context, _, _, _| {
+        let wire: Vec<String> = context
+            .messages()
+            .iter()
+            .map(|message| serde_json::to_string(message).expect("message json"))
+            .collect();
+        let tokens: usize = wire.iter().map(|json| json.chars().count()).sum();
+        let counted = Counted {
+            summary: wire
+                .iter()
+                .any(|json| json.contains("You are a context summarization assistant")),
+            overflow: tokens > PROVIDER_WINDOW,
+            clamped: wire
+                .iter()
+                .any(|json| json.contains("more characters truncated]")),
+        };
+        log.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(counted);
+        Ok(if counted.overflow {
+            faux_assistant_message(
+                vec![faux_text("")],
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(StopReason::Error),
+                    error_message: Some(format!(
+                        "prompt is too long: {tokens} tokens > {PROVIDER_WINDOW} maximum"
+                    )),
+                    ..FauxAssistantMessageOptions::default()
+                },
+            )
+        } else if counted.summary {
+            stop_message("the summary")
+        } else {
+            stop_message(&reply)
+        })
+    })
+}
+
+/// The text of every `compaction_outcome` row of `session`, oldest first.
+async fn compaction_outcome_rows(session: &EukheSession) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = session
+            .root()
+            .entries(ConversationEntryQuery::default(), 64, cursor, cx())
+            .await
+            .unwrap();
+        rows.extend(
+            page.items
+                .into_iter()
+                .filter_map(|entry| {
+                    crate::durable::entries::CUSTOM_ENTRY
+                        .narrow(entry)
+                        .expect("custom data")
+                })
+                .map(|entry| entry.data().clone())
+                .filter(|data| {
+                    data.custom_type == crate::durable::messages::COMPACTION_OUTCOME_CUSTOM_TYPE
+                })
+                .filter_map(|data| match data.content {
+                    Some(UserContent::Text(text)) => Some(text),
+                    Some(UserContent::Blocks(_)) | None => None,
+                }),
+        );
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    rows.reverse();
+    rows
+}
+
+/// An oversized prompt the provider counts past its window while the local
+/// count does not (41,000 times " the": 41,000 tokens of `o200k_base` in
+/// 164,000 characters, each a token to the provider; more than the
+/// 40,000-token keep window, so a compaction can cut before it, and its
+/// failed turn's usage stays under the background threshold) ends its run
+/// on the overflow with a skip row that names the oversized turn and the
+/// way out (the compaction dead-end warning). The next prompt's overflow
+/// compaction summarizes the oversized message: the whole of it fits the
+/// summarizer's input budget by the local count and overflows the
+/// summarizer too, so what was sent halves and the message is clamped to
+/// it, and the retried request is answered. The session stays usable
+/// without a new one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_oversized_prompt_leaves_the_session_usable() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        r#"{"compaction":{"enabled":true}}"#,
+    )
+    .expect("settings file");
+    let log: Arc<Mutex<Vec<Counted>>> = Arc::default();
+    fixture.faux.set_responses(
+        (0..16)
+            .map(|_| counting_provider(&log, "small reply"))
+            .collect(),
+    );
+    let session = fixture.open().await;
+    let mut statuses = Vec::new();
+    for prompt in [
+        " the".repeat(41_000),
+        "Reply with exactly: SMALL1-OK".to_owned(),
+        "Reply with exactly: SMALL2-OK".to_owned(),
+    ] {
+        let input = fixture.submit(&session, &prompt).await;
+        statuses.push(input.wait(cx()).await.unwrap().state.status());
+        session.root().wait_for_idle(cx()).await.unwrap();
+    }
+    let rows = compaction_outcome_rows(&session).await;
+    session.close(cx()).await.unwrap();
+
+    assert_eq!(
+        statuses,
+        vec![
+            SubmissionStatus::Unanswered,
+            SubmissionStatus::Done,
+            SubmissionStatus::Done
+        ]
+    );
+    assert_eq!(
+        rows,
+        vec![super::observer::OVERFLOW_TURN_TOO_LARGE.to_owned()]
+    );
+    // The two prompts overflow; the second's compaction sends the whole
+    // oversized message, which overflows the summarizer too, then the
+    // message clamped to the halved budget, which fits. Every request
+    // after it (the retry, the third prompt, and the bookkeeping the
+    // compaction arms) fits.
+    let log = log.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    let agent_overflow = Counted {
+        summary: false,
+        overflow: true,
+        clamped: false,
+    };
+    assert_eq!(
+        log[..4],
+        [
+            agent_overflow,
+            agent_overflow,
+            Counted {
+                summary: true,
+                overflow: true,
+                clamped: false,
+            },
+            Counted {
+                summary: true,
+                overflow: false,
+                clamped: true,
+            },
+        ],
+        "requests: {log:?}"
+    );
+    assert!(
+        log[4..].iter().all(|request| !request.overflow),
+        "requests: {log:?}"
+    );
 }

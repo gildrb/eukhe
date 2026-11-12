@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of laws/run/recover.bend share: what
-# decide.recover does with a length stop with text, leaked calls and a
-# repeat, each row fed back (rr.*); the row lemmas of the stop area's
-# proofs (LR.str.*) do the arithmetic
+# decide.recover does with leaked calls and a repeat, each row fed back
+# (rr.*); the row lemmas of the stop area's proofs (LR.str.*) do the
+# arithmetic
 
 import Base
 import ../../../bend/run/state.bend as RnState
@@ -9,68 +9,6 @@ import ../../../bend/run/recovery.bend as RnRecovery
 import ../../../bend/run/decision.bend as RnDecision
 import ../../../laws/run/recover.bend as RunRecover
 import ../../stop/base/recover.bend as LR
-
-# long: under the cap, the next note
-def rr.long_under(+q: Nat, +j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j) == RnDecision.Redoes{1n+j} : RnDecision.Help}:
-  %Equal.sym(Bool, RnRecovery.below(j, 1n+Nat.add(q, j)), True{}, LR.str.below_add(q, j)) : {RnDecision.Help.of(RnRecovery.rec.long(_, j, 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, j, 0n, 0n})) == RnDecision.Redoes{1n+j} : RnDecision.Help}
-  {==}
-
-# long: at the cap, or past it, the run fails
-def rr.long_past(+j: Nat, +x: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, Nat.add(j, x)) == RnDecision.Quits{} : RnDecision.Help}:
-  %Equal.sym(Bool, RnRecovery.below(Nat.add(j, x), j), False{}, LR.str.past(j, x)) : {RnDecision.Help.of(RnRecovery.rec.long(_, Nat.add(j, x), 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, Nat.add(j, x), 0n, 0n})) == RnDecision.Quits{} : RnDecision.Help}
-  {==}
-
-def rr.long_cap(+j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j) == RnDecision.Quits{} : RnDecision.Help}:
-  %Equal.sym(Bool, RnRecovery.below(j, j), False{}, LR.str.below_refl(j)) : {RnDecision.Help.of(RnRecovery.rec.long(_, j, 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, j, 0n, 0n})) == RnDecision.Quits{} : RnDecision.Help}
-  {==}
-
-# long: from j notes with m under the cap, m notes, then the run fails
-def rr.long_go(m: Nat, +j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RunRecover.helps(1n+m, RnRecovery.RCfg{Nat.add(m, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, RnDecision.decide.recover(RnRecovery.RCfg{Nat.add(m, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j)) == RunRecover.notes_then_quit(m, j) : List<&2, RnDecision.Help>}:
-  match m:
-    case 0n:
-      %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j), RnDecision.Quits{}, rr.long_cap(j, le, re, rp)) : {RunRecover.helps(1n, RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, _) == RunRecover.notes_then_quit(0n, j) : List<&2, RnDecision.Help>}
-      {==}
-    case 1n++q:
-      %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j), RnDecision.Redoes{1n+j}, rr.long_under(q, j, le, re, rp)) : {RunRecover.helps(2n+q, RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, _) == RunRecover.notes_then_quit(1n+q, j) : List<&2, RnDecision.Help>}
-      %LR.str.add_succ(q, j) : {RnDecision.Redoes{1n+j} <> RunRecover.helps(1n+q, RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, RnDecision.decide.recover(RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 1n+j)) == RnDecision.Redoes{1n+j} <> RunRecover.notes_then_quit(q, 1n+j) : List<&2, RnDecision.Help>}
-      %rr.long_go(q, 1n+j, le, re, rp) : {RnDecision.Redoes{1n+j} <> RunRecover.helps(1n+q, RnRecovery.RCfg{Nat.add(q, 1n+j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, RnDecision.decide.recover(RnRecovery.RCfg{Nat.add(q, 1n+j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 1n+j)) == RnDecision.Redoes{1n+j} <> _ : List<&2, RnDecision.Help>}
-      {==}
-
-# long: a note of another recovery counts no long note
-def rr.long_first(k: RnRecovery.Rk, +row: Nat, long: Nat, +le: Nat, +re: Nat, +rp: Nat, other: {RunRecover.long_note(k) == False{} : Bool}) -> {RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, k, row) == RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n) : RnDecision.Help}:
-  match k:
-    case RnRecovery.Free{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n+z:
-          {==}
-    case RnRecovery.Longs{}:
-      LR.str.absurd_t({RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, row) == RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n) : RnDecision.Help}, other)
-    case RnRecovery.Leaks{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n+z:
-          {==}
-    case RnRecovery.Loops{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n+z:
-          {==}
-    case RnRecovery.Empties{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n+z:
-          {==}
-
-# long: after a note that is no long note, notes 1 to the cap, then the run fails
-def rr.long_part(+k: RnRecovery.Rk, +row: Nat, +long: Nat, +le: Nat, +re: Nat, +rp: Nat, other: {RunRecover.long_note(k) == False{} : Bool}) -> {RunRecover.helps(1n+long, RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, k, row)) == RunRecover.notes_then_quit(long, 0n) : List<&2, RnDecision.Help>}:
-  %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, k, row), RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n), rr.long_first(k, row, long, le, re, rp, other)) : {RunRecover.helps(1n+long, RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, _) == RunRecover.notes_then_quit(long, 0n) : List<&2, RnDecision.Help>}
-  %LR.str.add_zero(long) : {RunRecover.helps(1n+long, RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, RnDecision.decide.recover(RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n)) == RunRecover.notes_then_quit(long, 0n) : List<&2, RnDecision.Help>}
-  rr.long_go(long, 0n, le, re, rp)
 
 # leak: under the cap, the next note
 def rr.leak_under(+q: Nat, +j: Nat, +l0: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{l0, 1n+Nat.add(q, j), re, rp}, RnDecision.Leaked{}, RnRecovery.Leaks{}, j) == RnDecision.Redoes{1n+j} : RnDecision.Help}:

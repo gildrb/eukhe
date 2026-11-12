@@ -614,16 +614,6 @@ law wfw_malformed_unless_request:
   exs rest: String
   {(s, wfw_req_fits(q)) == (wfw_spell_req(q, rest), True{}) : String & Bool}
 
-# LAW wfw_reader_unknown_decision: the Bend reader of a reply (FW.get_admit, which FW.ffi and
-# production never run) refuses a decision tag of 5 or more. It says nothing about Rust's own
-# reader (globals.rs `decide`): no law ties the two
-# EXCLUDES: a Bend reader that reads an unknown decision tag as a known one
-#   (its round trip laws hold all the same)
-law wfw_reader_unknown_decision:
-  for +n: Nat
-  for +rest: String
-  {FW.get_admit(Wr.put_nat(5n+n, rest)) == Wr.Bad{} : Wr.Dec<W.Admit>}
-
 # LAW wfw_ffi_tags_example: anchor: the bytes Rust sends and reads: a new call (no prior,
 # key 7, no rows) spawns while an agent is left (3 then the pool 1 taken,
 # 2 left) and is refused when none is (4); a row of key 7 failed then

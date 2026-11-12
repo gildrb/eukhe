@@ -33,11 +33,17 @@ impl RoleModel {
     /// The selector as `(provider, model id)`, split at the first `/` (a
     /// provider name has none; a model id may). A selector without `/`
     /// names no provider: `("", selector)`, which no catalog model has.
+    /// An alias of the provider ([`super::model_id_alias`]) is the id of
+    /// the model it names.
     #[must_use]
     pub fn provider_model(&self) -> Option<(&str, &str)> {
-        self.selector
-            .as_deref()
-            .map(|selector| selector.split_once('/').unwrap_or(("", selector)))
+        self.selector.as_deref().map(|selector| {
+            let (provider, id) = selector.split_once('/').unwrap_or(("", selector));
+            (
+                provider,
+                super::resolver::model_id_alias(provider, id).unwrap_or(id),
+            )
+        })
     }
 }
 

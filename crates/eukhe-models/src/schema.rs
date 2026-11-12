@@ -1,4 +1,4 @@
-//! The strict `models/catalog.v1.json` schema.
+//! The strict `catalog.v1` model catalog schema (`models.bundled.json`).
 //!
 //! Ported from `parseModelCatalog` + `CatalogModelSchema` in
 //! `packages/ai/src/model-catalog.ts`:

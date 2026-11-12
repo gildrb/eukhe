@@ -1682,11 +1682,35 @@ class ReplTest(unittest.TestCase):
         while request.get("event") != "host_request":
             request = self.repl.read_event()
         self.assertEqual(request["data"], {"type": "demo", "value": 7})
+        self.assertEqual(request["cell"], "hr")
         envelope = {"status": "ok", "result": {"status": "weird", "answer": 42}}
         self.repl.send({"type": "host_reply", "id": request["id"], "data": envelope})
         events = self.repl.until_done("hr")
         self.assertEqual(one(events, "result")["text"], repr(envelope))
         self.assertEqual(one(events, "done")["status"], "ok")
+
+    def test_host_request_names_the_cell_whose_task_sent_it(self):
+        self.repl.execute(
+            "spawner",
+            "\n".join(
+                [
+                    "import asyncio",
+                    "from rlm.repl import host_request",
+                    "gate = asyncio.Event()",
+                    "async def later():",
+                    "    await gate.wait()",
+                    "    return await host_request({'type': 'demo'})",
+                    "pending = asyncio.create_task(later())",
+                ]
+            ),
+        )
+        self.repl.send({"type": "execute", "id": "opener", "code": "gate.set()\nawait pending"})
+        request = self.repl.read_event()
+        while request.get("event") != "host_request":
+            request = self.repl.read_event()
+        self.assertEqual(request["cell"], "spawner")
+        self.repl.send({"type": "host_reply", "id": request["id"], "data": {"status": "ok", "result": {}}})
+        self.assertEqual(one(self.repl.until_done("opener"), "done")["status"], "ok")
 
     def test_typed_host_request_unwraps_exact_handler_result(self):
         code = "\n".join(

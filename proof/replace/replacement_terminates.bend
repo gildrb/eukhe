@@ -13,10 +13,10 @@ import ./base.bend as LA
 # proof_replace: the replacement laws of LAWS.bend section supervisor (D1), on the
 # model bend/replace.bend.
 #
-# - replace_never_downgrades: a start replaces the daemon only with a build
-#   of a higher rank (`pr.replace_older`), and the rank order is transitive
-#   (`pr.lt_trans`), so the daemon after a start is below no daemon before
-#   it (`pr.rising`).
+# - replace_never_downgrades_spec: a start replaces the daemon only with a
+#   build of a higher rank (`pr.replace_older`), and the rank order is
+#   transitive (`pr.lt_trans`), so the daemon after a start is below no
+#   daemon before it (`pr.rising` in its proof).
 # - replacement_terminates: each replacement moves the daemon to a build of
 #   bs of a higher rank, so the count of the builds of bs above the daemon
 #   falls by one at least (`pr.above_strict`); the first daemon has at most

@@ -172,12 +172,12 @@ impl Worker {
         // session.getContextUsage()` in every attach snapshot, so the
         // client's first frame reads the tray's context usage off the
         // snapshot instead of blocking on a `get_session_stats`
-        // round-trip. The same mirror estimate `get_session_stats` serves:
+        // round-trip. The same mirror count `get_session_stats` serves:
         // `None` without a model context window.
         let context_usage = mirror
-            .zip(crate::state_getters::model_context_window(model.as_ref()))
-            .map(|(mirror, window)| {
-                crate::state_getters::mirror_context_usage(&mirror.entries, window)
+            .zip(crate::state_getters::ContextMeter::of_wire(model.as_ref()))
+            .map(|(mirror, meter)| {
+                crate::state_getters::mirror_context_usage(&mirror.entries, &meter)
             });
         AgentConnectionState {
             is_streaming: core.is_busy(),
@@ -225,9 +225,28 @@ impl Worker {
                 .view
                 .as_ref()
                 .map_or(Value::Null, |view| view.goal.clone()),
+            unknown_effects: core
+                .view
+                .as_ref()
+                .map(|view| view.unknown_effects.clone())
+                .unwrap_or_default(),
+            r#loop: core
+                .view
+                .as_ref()
+                .and_then(|view| view.loop_status.clone())
+                .unwrap_or_default(),
+            budget: core.budget.clone(),
+            acceptance: core
+                .view
+                .as_ref()
+                .map_or(Value::Null, |view| view.acceptance.clone()),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,
+            kernel_unavailable: self
+                .session
+                .get()
+                .and_then(|hosted| hosted.deps().kernel_unavailable_notice()),
         }
     }
 
@@ -607,7 +626,7 @@ pub(crate) fn session_summary(
         .map(crate::util::iso_from_unix_ms)
         .or_else(|| core.created_at.clone());
     // The pinned agents block's live fields: the running tool, the retry
-    // wait, and the context use (the attach snapshot's estimate).
+    // wait, and the context use (the attach snapshot's count).
     let current_tool = mirror
         .and_then(|mirror| mirror.tools.first())
         .map(|tool| CurrentTool {
@@ -623,10 +642,8 @@ pub(crate) fn session_summary(
             error: retry.error.clone(),
         });
     let context_usage = mirror
-        .zip(crate::state_getters::model_context_window(model.as_ref()))
-        .map(|(mirror, window)| {
-            crate::state_getters::mirror_context_usage(&mirror.entries, window)
-        });
+        .zip(crate::state_getters::ContextMeter::of_wire(model.as_ref()))
+        .map(|(mirror, meter)| crate::state_getters::mirror_context_usage(&mirror.entries, &meter));
     SessionSummary {
         id: core.active_session_id.clone(),
         lifecycle: active_lifecycle(&core.runtime_kind, messages == 0, streaming).to_string(),
@@ -776,6 +793,7 @@ mod tests {
             content: eukhe_types::pi_ai::UserContent::Text(text.to_owned()),
             entry: None,
             origin,
+            request: None,
         }
     }
 
@@ -800,6 +818,9 @@ mod tests {
             inbox,
             active: None,
             goal: Value::Null,
+            unknown_effects: Vec::new(),
+            loop_status: None,
+            acceptance: Value::Null,
             workers: Vec::new(),
             paused: false,
         });
@@ -920,7 +941,7 @@ mod tests {
                     retry_at: crate::util::iso_from_unix_ms(8_000),
                     error: "overloaded".to_string(),
                 }),
-                Some(crate::state_getters::mirror_context_usage(&[], 1_000)),
+                Some(json!({ "tokens": 0, "contextWindow": 1_000, "percent": 0.0 })),
             )
         );
     }

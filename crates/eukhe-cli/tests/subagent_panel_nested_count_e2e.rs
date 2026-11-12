@@ -220,6 +220,7 @@ async fn spawn_prompted(
             parent_task_id: index.to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
             worker: false,
+            acceptance: None,
         })
         .await
         .expect("spawn child");

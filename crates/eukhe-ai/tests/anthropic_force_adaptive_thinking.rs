@@ -49,9 +49,11 @@ async fn sends_adaptive_thinking_payload_when_compat_force_adaptive_thinking_is_
     )
     .await;
 
+    // `display` goes only to adaptive Claude 4.7 and later (the models
+    // that accept it).
     assert_eq!(
         payload.get("thinking"),
-        Some(&json!({ "type": "adaptive", "display": "summarized" }))
+        Some(&json!({ "type": "adaptive" }))
     );
     assert_eq!(
         payload.get("output_config"),
@@ -88,9 +90,10 @@ async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding(
     )
     .await;
 
+    // Kimi rejects `display`.
     assert_eq!(
         payload.get("thinking"),
-        Some(&json!({ "type": "adaptive", "display": "summarized" }))
+        Some(&json!({ "type": "adaptive" }))
     );
     assert_eq!(
         payload.get("output_config"),
@@ -119,17 +122,6 @@ async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding_k3
 }
 
 #[tokio::test]
-async fn uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding_kimi_for_coding_highspeed(
-) {
-    uses_adaptive_thinking_effort_without_a_token_budget_for_kimi_coding(
-        "kimi-for-coding-highspeed",
-        ThinkingLevel::Medium,
-        "medium",
-    )
-    .await;
-}
-
-#[tokio::test]
 async fn allows_built_in_adaptive_models_to_opt_out_with_compat_force_adaptive_thinking_false() {
     let model = builtin_model(
         "anthropic",
@@ -142,17 +134,19 @@ async fn allows_built_in_adaptive_models_to_opt_out_with_compat_force_adaptive_t
     assert_eq!(payload.get("output_config"), None);
 }
 
+/// An adaptive model rejects `thinking: {type: disabled}`; off omits
+/// `thinking` and pins the lowest effort.
 #[tokio::test]
-async fn preserves_thinking_type_disabled_when_reasoning_is_off_regardless_of_override() {
+async fn omits_thinking_and_pins_the_lowest_effort_when_reasoning_is_off_under_the_override() {
     let payload = capture_simple_payload(
         &make_custom_model(Some(json!({ "forceAdaptiveThinking": true }))),
         SimpleStreamOptions::default(),
     )
     .await;
 
+    assert_eq!(payload.get("thinking"), None);
     assert_eq!(
-        payload.get("thinking"),
-        Some(&json!({ "type": "disabled" }))
+        payload.get("output_config"),
+        Some(&json!({ "effort": "low" }))
     );
-    assert_eq!(payload.get("output_config"), None);
 }

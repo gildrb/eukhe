@@ -734,7 +734,9 @@ impl SessionUi {
                 })
                 .await
             {
-                let _ = notes.send(super::AbortFailed::Bash(error));
+                let _ = notes.send(super::InterruptNote::Failed(super::AbortFailed::Bash(
+                    error,
+                )));
             }
         });
     }

@@ -38,6 +38,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde_json::{json, Value};
 
+mod budget;
 mod report_delivery;
 mod silent;
 mod watch;
@@ -50,10 +51,11 @@ use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildCommandRequest,
     RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildListing, RlmChildObservation,
     RlmChildPauseRequest, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
-    RlmSpawnCapacity, RlmSubagentHost, RunPause,
+    RlmChildSpawnRequest, RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest,
+    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RunPause,
 };
 use crate::child_workspace::Handback;
+use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{
     HarnessCell, HostCall, HostRequestRegistry, SessionClosing, SessionShape,
 };
@@ -113,6 +115,8 @@ struct FakeState {
     paused: HashSet<String>,
     /// Typed session commands run on children, in order.
     commands: Vec<RlmChildCommandRequest>,
+    /// The verdict of each child's acceptance its settled runs report.
+    verdicts: HashMap<String, RlmChildVerdict>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -204,6 +208,7 @@ impl RlmSubagentHost for FakeHost {
                                 progress,
                                 answer: fake.answers.get(&request.session_id).cloned(),
                                 paused: fake.paused.contains(&request.session_id),
+                                acceptance: fake.verdicts.get(&request.session_id).cloned(),
                             });
                         }
                     }
@@ -221,6 +226,7 @@ impl RlmSubagentHost for FakeHost {
                     progress: None,
                     answer: None,
                     paused: false,
+                    acceptance: None,
                 }))
         })
     }
@@ -479,6 +485,8 @@ struct Setup {
     now: Option<Clock>,
     /// The session settings (every default unless a test sets them).
     settings: Arc<EukheSettings>,
+    /// The session's budget gate (no budget unless a test sets one).
+    budget: Arc<BudgetGate>,
 }
 
 fn setup() -> Setup {
@@ -491,6 +499,13 @@ fn setup() -> Setup {
         reports: Arc::new(Mutex::new(Vec::new())),
         now: None,
         settings: default_settings(),
+        // An agent directory that does not exist: no ledger, no budget.
+        budget: BudgetGate::open(
+            std::path::Path::new("/nonexistent/eukhe-children-tests"),
+            PARENT_SESSION_ID,
+            None,
+            default_settings(),
+        ),
     }
 }
 
@@ -529,6 +544,7 @@ fn spawn_batch_tool(
                     data,
                     cell_source_code: None,
                     call: Some(api),
+                    signal: None,
                 })
                 .await;
                 let text = match reply {
@@ -563,6 +579,7 @@ fn spawn_tool(requests: HostRequestRegistry) -> Arc<Extension> {
                     data: json!({ "prompt": PROMPT, "kwargs": { "why": "parallel" } }),
                     cell_source_code: None,
                     call: Some(api),
+                    signal: None,
                 })
                 .await;
                 let text = match reply {
@@ -606,6 +623,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         closing: closing.clone(),
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(cell.clone())),
+        budget: Arc::clone(&setup.budget),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
     let held = Arc::new(HeldSpawn::default());
@@ -756,6 +774,7 @@ async fn handle(opened: &Opened, request_type: &str, data: Value) -> anyhow::Res
         data,
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
 }
@@ -1051,6 +1070,7 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
             data: json!({ "targets": [target], "timeout_ms": 30_000 }),
             cell_source_code: None,
             call: None,
+            signal: None,
         }))
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1318,6 +1338,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         closing: SessionClosing::default(),
         shape: SessionShape::Single,
         pause: Arc::new(RunPause::new(HarnessCell::default())),
+        budget: Arc::clone(&setup.budget),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1326,6 +1347,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
             data: json!({ "prompt": PROMPT, "kwargs": kwargs }),
             cell_source_code: None,
             call: None,
+            signal: None,
         })
     };
     // The compiled core (entry 431) refuses at the bound; a spawn without
@@ -1361,6 +1383,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         closing: SessionClosing::default(),
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(HarnessCell::default())),
+        budget: Arc::clone(&setup.budget),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1368,6 +1391,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         data: json!({ "prompt": PROMPT, "kwargs": { "colour": "red" } }),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .unwrap_err();
@@ -1376,6 +1400,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         data: json!({ "prompt": PROMPT }),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .unwrap_err();
@@ -1846,6 +1871,359 @@ fn a_run_outcome_without_progress_decodes() {
             progress: None,
             answer: None,
             paused: false,
+            acceptance: None,
         }
     );
+}
+
+// ---------------------------------------------------------------------------
+// A parent's acceptance checks on its child
+// ---------------------------------------------------------------------------
+
+/// A check runner that answers every check with exit 0.
+#[derive(Default)]
+struct PassingChecks {
+    commands: Mutex<Vec<String>>,
+}
+
+impl crate::autonomous::GateCommandRunner for PassingChecks {
+    fn run_gate(
+        &self,
+        command: &str,
+        _timeout_ms: u64,
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = anyhow::Result<crate::autonomous::ChildProcessResult>> + Send + '_>,
+    > {
+        lock(&self.commands).push(command.to_owned());
+        Box::pin(async {
+            Ok(crate::autonomous::ChildProcessResult {
+                status: Some(0),
+                stdout: "2 passed".to_owned(),
+                ..crate::autonomous::ChildProcessResult::default()
+            })
+        })
+    }
+}
+
+/// A judge with no answer (the child's checks here are commands only).
+struct NoJudge;
+
+impl crate::durable::acceptance::Judge for NoJudge {
+    fn judge(
+        &self,
+        _request: crate::durable::acceptance::JudgeRequest,
+        _cx: &Context,
+    ) -> BoxFuture<'_, crate::durable::acceptance::JudgeReply> {
+        async { crate::durable::acceptance::JudgeReply::Unavailable("no judge".to_owned()) }.boxed()
+    }
+}
+
+/// A child tool: `drop_checks` asks `acceptance.set` with no checks (the
+/// worker's attempt to drop its parent's checks) and records the reply;
+/// `work` is an effect.
+fn child_tools(requests: HostRequestRegistry, replies: Arc<Mutex<Vec<String>>>) -> Arc<Extension> {
+    let parameters = || -> TSchema { Type::object(Vec::<(String, TSchema)>::new()) };
+    let drop_checks = define_tool(ToolRegistration::new(
+        "drop_checks",
+        "Drop the acceptance checks",
+        parameters(),
+        move |_args, api, _cx| {
+            let handler = requests
+                .get("acceptance.set")
+                .expect("acceptance.set is registered");
+            let replies = Arc::clone(&replies);
+            async move {
+                let reply = handler(HostCall {
+                    data: json!({ "type": "acceptance.set", "checks": [] }),
+                    cell_source_code: None,
+                    call: Some(api),
+                    signal: None,
+                })
+                .await;
+                let text = match reply {
+                    Ok(value) => value.to_string(),
+                    Err(error) => format!("error: {error:#}"),
+                };
+                lock(&replies).push(text.clone());
+                Ok(ToolExecutionResult {
+                    output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+                    ..ToolExecutionResult::default()
+                })
+            }
+        },
+    ));
+    let work = define_tool(ToolRegistration::new(
+        "work",
+        "Fix the test",
+        parameters(),
+        |_args, _api, _cx| async {
+            Ok(ToolExecutionResult {
+                output: Some(vec![UserContentBlock::Text(TextContent::new("fixed"))]),
+                ..ToolExecutionResult::default()
+            })
+        },
+    ));
+    define_extension(Extension {
+        tools: vec![drop_checks, work],
+        ..Extension::named("test.child_tools")
+    })
+}
+
+fn call_tool(name: &str) -> FauxResponseStep {
+    FauxResponseStep::Message(Box::new(faux_assistant_message(
+        faux_tool_call(name, JsonObject::new(), None),
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::ToolUse),
+            ..FauxAssistantMessageOptions::default()
+        },
+    )))
+}
+
+/// V-child: a parent's `accept` gives its child acceptance checks with
+/// the parent as their owner. The spawn hands them to the host for the
+/// child's create config, which sets them (`seed_acceptance`, as the
+/// daemon's worker create does) before the child's first run; the
+/// child's worker cannot drop them; the child's harness reads the verdict
+/// from the child's acceptance, and the parent's `children_verdicts`, its
+/// report and `rlm.collect` carry that verdict. A bad check fails the
+/// spawn with an error naming the kwarg.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
+    use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceSeed, CheckSpec};
+
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+
+    // A check of no known shape fails the spawn, naming the kwarg.
+    let refused = spawn_batch_turn(
+        &opened,
+        &setup,
+        json!([{ "prompt": PROMPT, "kwargs": {
+            "why": "parallel", "name": "broken",
+            "accept": [{ "kind": "command", "cmd": "pytest -q" }],
+        } }]),
+    )
+    .await;
+    assert!(
+        refused.starts_with("error: rlm.spawn accept[0] has the unknown key \"cmd\""),
+        "{refused}"
+    );
+    let refused = spawn_batch_turn(
+        &opened,
+        &setup,
+        json!([{ "prompt": PROMPT, "kwargs": {
+            "why": "parallel", "name": "broken", "accept_returns": 2,
+        } }]),
+    )
+    .await;
+    assert!(
+        refused.starts_with("error: rlm.spawn accept_returns needs accept"),
+        "{refused}"
+    );
+    assert!(host.spawn_keys().is_empty());
+
+    // The parent spawns a child with one command check and no intent
+    // check; the host gets them for the child's create config.
+    let spawned = spawn_batch_turn(
+        &opened,
+        &setup,
+        json!([{ "prompt": PROMPT, "kwargs": {
+            "why": "parallel", "name": "fixer",
+            "accept": [{ "kind": "command", "command": "pytest -q", "timeout_ms": 60000 }],
+            "accept_intent": false, "accept_returns": 1,
+        } }]),
+    )
+    .await;
+    assert!(!spawned.starts_with("error:"), "{spawned}");
+    let check = CheckSpec::Command {
+        command: "pytest -q".to_owned(),
+        expect: 0,
+        timeout_ms: Some(60_000),
+        protect: Vec::new(),
+    };
+    let seed = AcceptanceSeed {
+        checks: vec![check.clone()],
+        max_returns: Some(1),
+        intent: false,
+    };
+    let spawn = lock(&host.state).spawns[0].clone();
+    assert_eq!(spawn.acceptance.as_ref(), Some(&seed));
+    let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap()
+        .children
+        .values()
+        .last()
+        .cloned()
+        .expect("the spawn admitted a child");
+    assert_eq!(
+        super::children_verdicts(&opened.harness, ROOT_CONVERSATION_ID, cx())
+            .await
+            .unwrap(),
+        ["child fixer: unverified (0/1 checks confirmed on its final state); it has not ended yet"]
+    );
+
+    // The child's session: the create config's checks are set before its
+    // first run, with the parent as their owner.
+    let config: AcceptanceSeed =
+        serde_json::from_value(serde_json::to_value(&spawn.acceptance).unwrap()).unwrap();
+    let child_faux = faux_provider(RegisterFauxProviderOptions::default());
+    let child_models = create_models(CreateModelsOptions::default());
+    child_models.set_provider(child_faux.provider.clone());
+    let child_cell = HarnessCell::default();
+    let child_requests = HostRequestRegistry::default();
+    let checks = Arc::new(PassingChecks::default());
+    let replies = Arc::new(Mutex::new(Vec::new()));
+    let dir = tempfile::tempdir().unwrap();
+    let registry = create_registry();
+    registry
+        .install(crate::durable::acceptance::acceptance_extension(
+            child_cell.clone(),
+            Arc::clone(&checks) as Arc<dyn crate::autonomous::GateCommandRunner>,
+            Arc::new(NoJudge),
+            dir.path().to_path_buf(),
+            &child_requests,
+            None,
+        ))
+        .unwrap();
+    registry
+        .install(child_tools(child_requests.clone(), Arc::clone(&replies)))
+        .unwrap();
+    let child = Harness::open(
+        Arc::new(MemoryStorage::new()),
+        HarnessOptions::new(child_models, Arc::new(registry)),
+        cx(),
+    )
+    .await
+    .unwrap();
+    let child_root = child
+        .root(
+            RootOptions {
+                agent: Some(AgentChange {
+                    model: FieldChange::Set(ModelRef {
+                        provider: "faux".to_owned(),
+                        model_id: "faux-1".to_owned(),
+                    }),
+                    ..AgentChange::default()
+                }),
+                ..RootOptions::default()
+            },
+            cx(),
+        )
+        .await
+        .unwrap();
+    child_cell.set(child.clone(), child_root.clone());
+    assert!(crate::durable::acceptance::seed_acceptance(
+        &child,
+        child_root.id(),
+        &config,
+        dir.path(),
+        cx()
+    )
+    .await
+    .unwrap());
+    let set = crate::durable::acceptance::acceptance_state(&child, child_root.id(), cx())
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            set.checks
+                .iter()
+                .map(|item| item.spec.clone())
+                .collect::<Vec<_>>(),
+            set.max_returns,
+            set.revision
+        ),
+        (vec![check.clone()], 1, 1)
+    );
+
+    // The child's worker tries to drop its checks, works, and claims done.
+    child_faux.set_responses(vec![
+        call_tool("drop_checks"),
+        call_tool("work"),
+        answer("fixed"),
+    ]);
+    let submission = child_root
+        .submit(
+            InputSubmissionDraft {
+                request_id: None,
+                content: UserContent::Text("[task from parent]\n\nFix the flaky test".to_owned()),
+                when_busy: None,
+                origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
+            },
+            cx(),
+        )
+        .await
+        .unwrap();
+    submission.wait(cx()).await.unwrap();
+    child.wait_for_idle(cx()).await.unwrap();
+    let refusals = lock(&replies).clone();
+    assert_eq!(refusals.len(), 1);
+    assert!(
+        refusals[0].contains("only the task's owner sets its acceptance checks"),
+        "{refusals:?}"
+    );
+    let judged = crate::durable::acceptance::acceptance_state(&child, child_root.id(), cx())
+        .await
+        .unwrap();
+    assert_eq!(
+        (judged.revision, judged.checks.len(), judged.label),
+        (1, 1, AcceptanceLabel::Verified)
+    );
+    assert_eq!(lock(&checks.commands).clone(), ["pytest -q"]);
+    // The child's harness reads the verdict from its acceptance.
+    let verdict = RlmChildVerdict::of(&judged).expect("the child has checks");
+    assert_eq!(
+        verdict,
+        RlmChildVerdict {
+            label: AcceptanceLabel::Verified,
+            confirmed: 1,
+            checks: 1,
+            open: Vec::new(),
+        }
+    );
+    child.close(cx()).await.unwrap();
+
+    // The child settles with that verdict: the parent reads it.
+    lock(&host.state)
+        .verdicts
+        .insert(row.session_id.clone(), verdict);
+    setup.faux.append_responses(vec![answer("noted")]);
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("fixed".to_owned()),
+        },
+        None,
+    );
+    let task_id = row.task_id;
+    eventually(|| async {
+        row_of(&opened.harness, task_id)
+            .await
+            .is_some_and(|row| row.settled)
+    })
+    .await;
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        super::children_verdicts(&opened.harness, ROOT_CONVERSATION_ID, cx())
+            .await
+            .unwrap(),
+        ["child fixer: verified (1/1 checks confirmed on its final state)"]
+    );
+    let reports = user_texts(&opened.root, "[child-exited: no-reply child:fixer]").await;
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].ends_with(
+            "Last assistant text: fixed\n\nAcceptance, checked by the harness on the child's final state: verified (1/1 checks confirmed on its final state)"
+        ),
+        "{reports:?}"
+    );
+    let collected = handle(&opened, "rlm.collect", json!({})).await.unwrap();
+    assert_eq!(
+        collected["results"][0]["acceptance"],
+        json!("verified (1/1 checks confirmed on its final state)")
+    );
+    opened.harness.close(cx()).await.unwrap();
 }

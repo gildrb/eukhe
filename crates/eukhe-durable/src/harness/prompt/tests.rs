@@ -212,6 +212,7 @@ fn input() -> PromptInput {
             cwd: None,
             callable: Vec::new(),
         }),
+        tokenizer: eukhe_tokens::Tokenizer::unknown_model(),
         env: None,
         shown: IndexMap::new(),
         read: Arc::new(NoDocuments),

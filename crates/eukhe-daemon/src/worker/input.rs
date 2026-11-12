@@ -22,6 +22,7 @@ use super::durable_host::suspended::WithdrawnInput;
 use super::{HostedSession, RunAdmission, Worker};
 use crate::agent_message_delivery::{AgentMessageDelivery, Recipient, RecipientRun};
 use crate::compaction::durable::ManualCompactionError;
+use crate::compaction::{CompactionManager, RunningTurn};
 use crate::error_chain::ErrorChain;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
@@ -199,6 +200,52 @@ fn unsettled_text(state: &eukhe_durable::types::SubmissionState) -> String {
         .to_owned()
 }
 
+/// The `/compact [instructions]` run: the echo row, then the `compact`
+/// command's manual compaction with its frame pair (the loader's
+/// `compaction_start` carries the instructions; a skip ends with its
+/// warning, a cancel with its aborted end). A skip or a cancel succeeds:
+/// the end frame is the one report (a cancel shows one `Compaction
+/// cancelled` error) and the command stays out of the editor. A failure
+/// records the
+/// `Command failed: <e>` result row and answers the error. The caller
+/// passed the run gate (`admission`).
+async fn compact_session_command(
+    compaction: &CompactionManager,
+    hosted: &HostedSession,
+    main: &Conversation,
+    session_command: &eukhe_core::durable::SessionCommand,
+    running_turn: RunningTurn,
+    admission: &RunAdmission,
+) -> Result<(), String> {
+    let cx = &BACKGROUND_CONTEXT;
+    eukhe_core::durable::commit_session_command_echo(main, session_command, cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    let instructions = (!session_command.args.is_empty()).then(|| session_command.args.clone());
+    let outcome = match compaction
+        .compact(instructions, running_turn, admission)
+        .await
+    {
+        Ok(_) | Err(ManualCompactionError::Skipped(_) | ManualCompactionError::Aborted) => Ok(()),
+        Err(error @ ManualCompactionError::Failed(_)) => {
+            let message = error.to_string();
+            match eukhe_core::durable::commit_session_command_failure(
+                main,
+                session_command,
+                &message,
+                cx,
+            )
+            .await
+            {
+                Ok(()) => Err(message),
+                Err(commit) => Err(commit.to_string()),
+            }
+        }
+    };
+    hosted.events_delivered().await;
+    outcome
+}
+
 impl Worker {
     /// Admit one input on the hosted session's main conversation.
     ///
@@ -241,6 +288,14 @@ impl Worker {
             content: request.content(),
             entry,
             origin: request.origin.clone(),
+            // The sender's own key when it gave one (a retried send then
+            // delivers once), else one minted for this hold.
+            request: Some(
+                request
+                    .request_id
+                    .clone()
+                    .unwrap_or_else(|| format!("held:{}", uuid::Uuid::new_v4())),
+            ),
         };
         if let Err(error) =
             super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
@@ -303,11 +358,14 @@ impl Worker {
             }
         }
         // Typed session commands (`/compact`, `/goal`, ...) run on the
-        // session instead of becoming model input.
+        // session instead of becoming model input. The follow-up key
+        // queues a `/compact` behind a running turn.
         if images.is_empty() && custom_row.is_none() {
             if let Some(session_command) = eukhe_core::durable::classify_session_command(message) {
+                let queue_behind_turn =
+                    payload.get("streamingBehavior").and_then(Value::as_str) == Some("followUp");
                 return self
-                    .run_session_command(&hosted, command, &session_command)
+                    .run_session_command(&hosted, command, &session_command, queue_behind_turn)
                     .await;
             }
         }
@@ -392,11 +450,13 @@ impl Worker {
     /// Run one typed session command on the main conversation. The answer
     /// settles with the command (TS `_executeSelectedSessionCommand` awaits
     /// it): no turn runs, so the ack is the client's completion signal.
+    /// `queue_behind_turn`: the prompt came with the follow-up key.
     async fn run_session_command(
         &self,
         hosted: &Arc<HostedSession>,
         command: &str,
         session_command: &eukhe_core::durable::SessionCommand,
+        queue_behind_turn: bool,
     ) -> DaemonResponse {
         let session = match hosted.session() {
             Ok(session) => session,
@@ -405,7 +465,7 @@ impl Worker {
         let main = session.main();
         if session_command.name == eukhe_core::durable::SessionCommandName::Compact {
             return self
-                .run_compact_command(hosted, &main, command, session_command)
+                .run_compact_command(hosted, &main, command, session_command, queue_behind_turn)
                 .await;
         }
         let outcome = eukhe_core::durable::execute_session_command(
@@ -430,45 +490,75 @@ impl Worker {
         }
     }
 
-    /// `/compact [instructions]`: the echo row, then the `compact`
-    /// command's manual compaction with its frame pair (the loader's
-    /// `compaction_start` carries the instructions; a skip ends with its
-    /// warning). A skip answers success: TS's queued-command catch arm
-    /// stays silent, the warning end is the report. An abort or failure
-    /// records the `Command failed: <e>` result row and answers the error.
+    /// `/compact [instructions]`. Sent with the follow-up key
+    /// (`queue_behind_turn`) while a turn runs, it waits for the turn to
+    /// yield and never touches it ("Queued compaction for when the agent
+    /// yields"): a `prompt` answers at once with
+    /// `compactionQueued` and the compaction runs in the background once
+    /// the conversation is idle; a `prompt_and_wait` answers once it ran.
+    /// Otherwise it runs now, interrupting a
+    /// running turn and resuming it after ([`RunningTurn::Interrupt`]).
     async fn run_compact_command(
         &self,
         hosted: &Arc<HostedSession>,
         main: &Conversation,
         command: &str,
         session_command: &eukhe_core::durable::SessionCommand,
+        queue_behind_turn: bool,
     ) -> DaemonResponse {
-        let cx = &BACKGROUND_CONTEXT;
-        if let Err(error) =
-            eukhe_core::durable::commit_session_command_echo(main, session_command, cx).await
-        {
-            return response_failure(None, command, &error.to_string(), None);
+        let busy = self.core.lock().unwrap().is_busy();
+        if !(busy && queue_behind_turn) {
+            // A compaction is work a stop interrupts: it holds the run
+            // gate until it ends.
+            let admission = RunAdmission::enter(&self.core).await;
+            return match compact_session_command(
+                &self.compaction,
+                hosted,
+                main,
+                session_command,
+                RunningTurn::Interrupt,
+                &admission,
+            )
+            .await
+            {
+                Ok(()) => response_success(None, command, None),
+                Err(error) => response_failure(None, command, &error, None),
+            };
         }
-        let instructions = (!session_command.args.is_empty()).then(|| session_command.args.clone());
-        let response = match self.compaction.compact(instructions).await {
-            Ok(_) | Err(ManualCompactionError::Skipped(_)) => response_success(None, command, None),
-            Err(error @ (ManualCompactionError::Aborted | ManualCompactionError::Failed(_))) => {
-                let message = error.to_string();
-                match eukhe_core::durable::commit_session_command_failure(
-                    main,
-                    session_command,
-                    &message,
-                    cx,
-                )
+        let (compaction, core, hosted, main, session_command) = (
+            self.compaction.clone(),
+            Arc::clone(&self.core),
+            Arc::clone(hosted),
+            main.clone(),
+            session_command.clone(),
+        );
+        let queued = async move {
+            main.wait_for_idle(&BACKGROUND_CONTEXT)
                 .await
-                {
-                    Ok(()) => response_failure(None, command, &message, None),
-                    Err(commit) => response_failure(None, command, &commit.to_string(), None),
-                }
-            }
+                .map_err(|error| error.to_string())?;
+            let admission = RunAdmission::enter(&core).await;
+            compact_session_command(
+                &compaction,
+                &hosted,
+                &main,
+                &session_command,
+                RunningTurn::Keep,
+                &admission,
+            )
+            .await
         };
-        hosted.events_delivered().await;
-        response
+        if command == "prompt_and_wait" {
+            return match queued.await {
+                Ok(()) => response_success(None, command, None),
+                Err(error) => response_failure(None, command, &error, None),
+            };
+        }
+        tokio::spawn(async move {
+            if let Err(error) = queued.await {
+                eprintln!("eukhe-daemon: the queued /compact failed: {error}");
+            }
+        });
+        response_success(None, command, Some(json!({ "compactionQueued": true })))
     }
 
     pub(crate) async fn handle_queue(

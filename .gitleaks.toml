@@ -12,7 +12,20 @@ paths = [
 ]
 
 [[allowlists]]
-description = "LAWS.lock: law names (some contain 'secret') with content hashes, not credentials"
+description = "LAWS.lock (eukhe's, and the site's site/LAWS.lock): law names (some contain 'secret') with content hashes, not credentials"
 paths = [
-  '''^LAWS\.lock$''',
+  '''^(site/)?LAWS\.lock$''',
+]
+
+[[allowlists]]
+description = "eukhe-tokens catalog tests: (provider, model id) pairs such as \"xai-oauth\", \"grok-4.20-0309-non-reasoning\" that generic-api-key reads as keys"
+paths = [
+  '''^crates/eukhe-tokens/tests/fixtures/reference_(model_tokenizers|image_rules)\.json$''',
+  '''^crates/eukhe-tokens/src/policy/image_tests\.rs$''',
+]
+
+[[allowlists]]
+description = "The commit that added those catalog fixtures under their first file names (renamed to reference_* later): the same (provider, model id) pairs, not credentials"
+commits = [
+  "25dbe1d842732dffe83311db747b7cd2e976a9f7",
 ]

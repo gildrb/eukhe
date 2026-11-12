@@ -44,6 +44,17 @@ pub struct Pace {
 }
 
 impl Pace {
+    /// A pace whose `chars` characters all arrived and all show (a
+    /// message the screen already holds whole when its pace starts).
+    /// Outside the model, which starts every pace empty.
+    #[must_use]
+    pub fn caught_up(chars: usize) -> Self {
+        Pace {
+            recv: chars,
+            shown: chars,
+        }
+    }
+
     /// The characters that arrived.
     #[must_use]
     pub fn recv(self) -> usize {

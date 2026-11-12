@@ -273,7 +273,7 @@ impl KernelPool {
         let harness = deps.harness.clone();
         drop(deps);
         tokio::spawn(async move {
-            // A failed boot surfaces on the next ipython call's ensure().
+            // A failed boot surfaces on the next python call's ensure().
             if kernel.provisioner.ensure(None, None).await.is_err() {
                 return;
             }
@@ -443,12 +443,14 @@ impl KernelHostDispatch for RegistryDispatch {
             data,
             cell_source_code,
             call,
+            signal,
         } = request;
         if let Some(handler) = self.registry.get(&request_type) {
             return handler(HostCall {
                 data,
                 cell_source_code,
                 call,
+                signal,
             });
         }
         if let Some(handler) = self

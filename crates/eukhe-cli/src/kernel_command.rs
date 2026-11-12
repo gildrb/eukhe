@@ -1,11 +1,15 @@
-//! `eukhe kernel install [--check]`: install the Python kernel's
-//! environment (a uv-managed Python and the hash-locked kernel packages)
-//! once. This command is the only path that downloads them; a session
-//! uses the installed kernel and never downloads. `--check` reports the
-//! state without network.
+//! `eukhe kernel install [--check]` and `eukhe kernel lock <requirement>...`.
+//!
+//! The kernel runs on one pinned Python that Eukhe fetches itself the
+//! first time a kernel is needed, so `install` is never required: it does
+//! the same fetch now (before going offline, or to show its progress in a
+//! setup script). `--check` reports the state on disk without network.
+//! `lock` adds packages to the project's lock, the only way a kernel
+//! installs a package outside Eukhe's own lock.
 
 use eukhe_core::kernel::{
-    install_kernel_python, kernel_install_state, EnsureKernelPythonOptions, KernelInstallState,
+    ensure_kernel_python, kernel_state, lock_project_packages, pinned_python_version,
+    unused_kernel_venv, EnsureKernelPythonOptions, KernelFetchState,
 };
 
 use crate::config::APP_NAME;
@@ -16,40 +20,57 @@ pub fn run_kernel_command(args: &[String]) -> i32 {
     match args.as_slice() {
         ["install"] => install(),
         ["install", "--check"] => check(),
+        ["lock", requirements @ ..]
+            if !requirements.is_empty() && requirements.iter().all(|arg| !arg.starts_with('-')) =>
+        {
+            lock(requirements)
+        }
         _ => {
-            eprintln!("Error: Usage: {APP_NAME} kernel install [--check]");
+            eprintln!(
+                "Error: Usage: {APP_NAME} kernel install [--check] | {APP_NAME} kernel lock <requirement>..."
+            );
             eprintln!("Run \"eukhe help kernel\" for usage.");
             2
         }
     }
 }
 
-/// Prints the kernel state; exit 0 only when a session can start the
-/// kernel as it is.
+fn async_runtime() -> Option<tokio::runtime::Runtime> {
+    match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => Some(runtime),
+        Err(error) => {
+            eprintln!("Error: cannot start the async runtime: {error}");
+            None
+        }
+    }
+}
+
+/// Each stage of a fetch, as a line on stdout.
+fn progress() -> EnsureKernelPythonOptions {
+    EnsureKernelPythonOptions {
+        python_skills: Vec::new(),
+        on_progress: Some(std::sync::Arc::new(|message: &str| println!("{message}"))),
+    }
+}
+
+/// Prints `ready: <python> (Python <version>)` and exits 0 when a kernel
+/// starts at once; `not fetched: ...` and exits 1 when the first kernel
+/// start (or `eukhe kernel install`) has to fetch the Python first. No
+/// network request.
 fn check() -> i32 {
-    match kernel_install_state() {
-        Ok(KernelInstallState::Override(python)) => {
-            println!(
-                "EUKHE_KERNEL_PYTHON is set: the kernel uses {} and eukhe installs nothing",
-                python.display()
-            );
+    let cwd = std::env::current_dir().ok();
+    match kernel_state(cwd.as_deref()) {
+        Ok(KernelFetchState::Ready(kernel)) => {
+            println!("ready: {}", kernel.describe());
             0
         }
-        Ok(KernelInstallState::Installed(python)) => {
-            println!("installed: {}", python.display());
-            0
-        }
-        Ok(KernelInstallState::OutOfDate(venv)) => {
+        Ok(KernelFetchState::NotFetched) => {
             println!(
-                "out of date: {} is not for this build; a session sets it up again from local files if it can, else run `{APP_NAME} kernel install`",
-                venv.display()
-            );
-            1
-        }
-        Ok(KernelInstallState::Missing(venv)) => {
-            println!(
-                "not installed: run `{APP_NAME} kernel install` (it goes in {})",
-                venv.display()
+                "not fetched: Python {} is fetched at the first kernel start, or now with `{APP_NAME} kernel install`",
+                pinned_python_version()
             );
             1
         }
@@ -60,25 +81,60 @@ fn check() -> i32 {
     }
 }
 
-/// Installs the kernel environment; an installed one is kept as it is.
+/// Fetches what is absent of the pinned toolchain; one that is all there
+/// is kept as it is. Each stage is a line on stdout; the last line is
+/// `ready: <python> (Python <version>)`.
 fn install() -> i32 {
-    if let Ok(KernelInstallState::Installed(python)) = kernel_install_state() {
-        println!("already installed: {}", python.display());
-        return 0;
-    }
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
+    let Some(runtime) = async_runtime() else {
+        return 1;
+    };
+    let cwd = std::env::current_dir().ok();
+    match runtime.block_on(ensure_kernel_python(progress(), cwd.as_deref())) {
+        Ok(kernel) => {
+            if let Some(old) = unused_kernel_venv() {
+                println!(
+                    "unused: {} (the kernel env of earlier versions) can be deleted",
+                    old.display()
+                );
+            }
+            println!("ready: {}", kernel.describe());
+            0
+        }
         Err(error) => {
-            eprintln!("Error: cannot start the async runtime: {error}");
+            eprintln!("Error: {error:#}");
+            1
+        }
+    }
+}
+
+/// Adds the requirements to the lock of the project in the current
+/// directory.
+fn lock(requirements: &[&str]) -> i32 {
+    let Some(runtime) = async_runtime() else {
+        return 1;
+    };
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(error) => {
+            eprintln!("Error: cannot read the current directory: {error}");
             return 1;
         }
     };
-    match runtime.block_on(install_kernel_python(EnsureKernelPythonOptions::default())) {
-        Ok(python) => {
-            println!("installed: {}", python.display());
+    let requirements: Vec<String> = requirements.iter().map(ToString::to_string).collect();
+    let report = |message: &str| println!("{message}");
+    match runtime.block_on(lock_project_packages(&cwd, &requirements, &report)) {
+        Ok(change) if change.added.is_empty() => {
+            println!(
+                "already locked: nothing to add to {}",
+                change.lock.display()
+            );
+            0
+        }
+        Ok(change) => {
+            for package in &change.added {
+                println!("locked: {package}");
+            }
+            println!("wrote {}", change.lock.display());
             0
         }
         Err(error) => {

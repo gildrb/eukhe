@@ -22,7 +22,7 @@
 //!       "content": [
 //!         { "type": "thinking", "thinking": "..." },
 //!         { "type": "text", "text": "..." },
-//!         { "type": "toolCall", "name": "ipython", "arguments": { "code": "1" }, "id": "call-1" }
+//!         { "type": "toolCall", "name": "python", "arguments": { "code": "1" }, "id": "call-1" }
 //!       ],
 //!       "stopReason": "toolUse",
 //!       "errorMessage": "...",

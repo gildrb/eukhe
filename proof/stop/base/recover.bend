@@ -1,7 +1,7 @@
 # eukhe: lemmas of the proofs of laws/stop/recover.bend: the model's row
 # test (`below`) against Nat's order, `recover` at the rungs of the
-# ladder (str.think_*), at the notes of a cut reply with text (str.cut_*),
-# the window test (str.bound_*), the reply of each act
+# ladder (str.think_*), the window test (str.bound_*), the reply of each
+# act
 # (str.never_answers), and a row of kept rounds (str.rep_*).
 
 import Base
@@ -271,81 +271,41 @@ def str.think_first(k: RnRecovery.Rk, +row: Nat, long: Nat, +le: Nat, +re: Nat, 
         case 1n++q:
           {==}
 
-# The length notes of a cut reply with text
-# -----------------------------------------
-
-# under the cap: the next length note
-def str.cut_under(+q: Nat, +j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j) == RnDecision.Redoes{1n+j} : RnDecision.Help}:
-  %Equal.sym(Bool, RnRecovery.below(j, 1n+Nat.add(q, j)), True{}, str.below_add(q, j)) : {RnDecision.Help.of(RnRecovery.rec.long(_, j, 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, j, 0n, 0n})) == RnDecision.Redoes{1n+j} : RnDecision.Help}
-  {==}
-
-# at the cap: the run fails
-def str.cut_quit(+j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j) == RnDecision.Quits{} : RnDecision.Help}:
-  %Equal.sym(Bool, RnRecovery.below(j, j), False{}, str.below_refl(j)) : {RnDecision.Help.of(RnRecovery.rec.long(_, j, 0n, 0n, RnRecovery.Rec{RnRecovery.Longs{}, j, 0n, 0n})) == RnDecision.Quits{} : RnDecision.Help}
-  {==}
-
-# from j notes in a row, m under the cap remain: m notes, then the failure
-def str.cut_climb(m: Nat, +j: Nat, +le: Nat, +re: Nat, +rp: Nat) -> {StopRecover.climb(1n+m, RnRecovery.RCfg{Nat.add(m, j), le, re, rp}, RnDecision.Truncated{}, RnDecision.decide.recover(RnRecovery.RCfg{Nat.add(m, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j)) == StopRecover.ups(m, j, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}:
-  match m:
-    case 0n:
-      %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j), RnDecision.Quits{}, str.cut_quit(j, le, re, rp)) : {StopRecover.climb(1n, RnRecovery.RCfg{j, le, re, rp}, RnDecision.Truncated{}, _) == [RnDecision.Quits{}] : List<&2, RnDecision.Help>}
-      {==}
-    case 1n++q:
-      %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, j), RnDecision.Redoes{1n+j}, str.cut_under(q, j, le, re, rp)) : {StopRecover.climb(2n+q, RnRecovery.RCfg{1n+Nat.add(q, j), le, re, rp}, RnDecision.Truncated{}, _) == StopRecover.ups(1n+q, j, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}
-      %str.add_succ(q, j) : {RnDecision.Redoes{1n+j} <> StopRecover.climb(1n+q, RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnDecision.decide.recover(RnRecovery.RCfg{_, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 1n+j)) == RnDecision.Redoes{1n+j} <> StopRecover.ups(q, 1n+j, [RnDecision.Quits{}]) : List<&2, RnDecision.Help>}
-      %str.cut_climb(q, 1n+j, le, re, rp) : {RnDecision.Redoes{1n+j} <> StopRecover.climb(1n+q, RnRecovery.RCfg{Nat.add(q, 1n+j), le, re, rp}, RnDecision.Truncated{}, RnDecision.decide.recover(RnRecovery.RCfg{Nat.add(q, 1n+j), le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 1n+j)) == RnDecision.Redoes{1n+j} <> _ : List<&2, RnDecision.Help>}
-      {==}
-
-# after a note that is no length note, a cut reply gets what it gets
-# after no length note
-def str.cut_first(k: RnRecovery.Rk, +row: Nat, long: Nat, +le: Nat, +re: Nat, +rp: Nat, other: {StopRecover.length_note(k) == False{} : Bool}) -> {RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, k, row) == RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n) : RnDecision.Help}:
-  match k:
-    case RnRecovery.Free{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n++q:
-          {==}
-    case RnRecovery.Longs{}:
-      str.absurd_t({RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, row) == RnDecision.decide.recover(RnRecovery.RCfg{long, le, re, rp}, RnDecision.Truncated{}, RnRecovery.Longs{}, 0n) : RnDecision.Help}, other)
-    case RnRecovery.Leaks{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n++q:
-          {==}
-    case RnRecovery.Loops{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n++q:
-          {==}
-    case RnRecovery.Empties{}:
-      match long:
-        case 0n:
-          {==}
-        case 1n++q:
-          {==}
-
 # The window test
 # ---------------
 
 def str.bound_true(+w: Nat, +c: Nat, +p: Nat, +o: Nat, below: {Nat.is_lt(o, c) == True{} : Bool}, reach: {Nat.is_le(1n+w, Nat.add(Nat.add(p, o), 8192n)) == True{} : Bool}) -> {RnRecovery.bound(1n+w, c, p, o) == True{} : Bool}:
-  %Equal.sym(Bool, Nat.is_lt(o, c), True{}, below) : {Bool.and(Nat.is_lt(0n, 1n+w), Bool.and(_, Nat.is_le(1n+w, Nat.add(Nat.add(p, o), 8192n)))) == True{} : Bool}
-  %Equal.sym(Bool, Nat.is_le(1n+w, Nat.add(Nat.add(p, o), 8192n)), True{}, reach) : {Bool.and(True{}, Bool.and(True{}, _)) == True{} : Bool}
+  %Equal.sym(Bool, Nat.is_lt(o, c), True{}, below) : {Bool.or(Nat.is_eq(1n+w, 0n), Bool.and(_, Nat.is_le(1n+w, Nat.add(Nat.add(p, o), 8192n)))) == True{} : Bool}
+  %Equal.sym(Bool, Nat.is_le(1n+w, Nat.add(Nat.add(p, o), 8192n)), True{}, reach) : {Bool.or(Nat.is_eq(1n+w, 0n), Bool.and(True{}, _)) == True{} : Bool}
   {==}
 
-def str.bound_cut(+w: Nat, +c: Nat, +p: Nat, +x: Nat) -> {RnRecovery.bound(w, c, p, Nat.add(c, x)) == False{} : Bool}:
-  match w:
-    case 0n:
+# a known window whose reply reached the catalog cap did not run out
+def str.bound_cut(+w: Nat, +c: Nat, +p: Nat, +x: Nat) -> {RnRecovery.bound(1n+w, c, p, Nat.add(c, x)) == False{} : Bool}:
+  %Equal.sym(Bool, Nat.is_lt(Nat.add(c, x), c), False{}, str.add_not_lt(c, x)) : {Bool.or(Nat.is_eq(1n+w, 0n), Bool.and(_, Nat.is_le(1n+w, Nat.add(Nat.add(p, Nat.add(c, x)), 8192n)))) == False{} : Bool}
+  {==}
+
+def str.and_false(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
+  match a:
+    case True{}:
       {==}
-    case 1n++v:
-      %Equal.sym(Bool, Nat.is_lt(Nat.add(c, x), c), False{}, str.add_not_lt(c, x)) : {Bool.and(Nat.is_lt(0n, 1n+v), Bool.and(_, Nat.is_le(1n+v, Nat.add(Nat.add(p, Nat.add(c, x)), 8192n)))) == False{} : Bool}
+    case False{}:
       {==}
 
+# nothing is below 0
+def str.lt_zero(+a: Nat, e: {Nat.is_lt(a, 0n) == True{} : Bool}) -> {False{} == True{} : Bool}:
+  match a:
+    case 0n:
+      e
+    case 1n++q:
+      e
+
 def str.bound_room(+w: Nat, +c: Nat, +p: Nat, +o: Nat, room: {Nat.is_lt(Nat.add(Nat.add(p, o), 8192n), w) == True{} : Bool}) -> {RnRecovery.bound(w, c, p, o) == False{} : Bool}:
-  %Equal.sym(Bool, Nat.is_le(w, Nat.add(Nat.add(p, o), 8192n)), False{}, str.lt_not_le(Nat.add(Nat.add(p, o), 8192n), w, room)) : {Bool.and(Nat.is_lt(0n, w), Bool.and(Nat.is_lt(o, c), _)) == False{} : Bool}
-  str.and_and_false(Nat.is_lt(0n, w), Nat.is_lt(o, c))
+  match w:
+    case 0n:
+      str.absurd({RnRecovery.bound(0n, c, p, o) == False{} : Bool}, str.lt_zero(Nat.add(Nat.add(p, o), 8192n), room))
+    case 1n++v:
+      %Equal.sym(Bool, Nat.is_le(1n+v, Nat.add(Nat.add(p, o), 8192n)), False{}, str.lt_not_le(Nat.add(Nat.add(p, o), 8192n), 1n+v, room)) : {Bool.or(Nat.is_eq(1n+v, 0n), Bool.and(Nat.is_lt(o, c), _)) == False{} : Bool}
+      str.and_false(Nat.is_lt(o, c))
 
 # a window that did not run out: `recover` is the one with no compaction
 def str.no_shrink(+rc: RnRecovery.RCfg, +w: Nat, +c: Nat, +p: Nat, +o: Nat, +lower: Bool, +k: RnRecovery.Rk, +row: Nat, no: {RnRecovery.bound(w, c, p, o) == False{} : Bool}) -> {RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, o, True{}, lower}, k, row) == RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, o, False{}, lower}, k, row) : RnDecision.Help}:

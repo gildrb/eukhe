@@ -34,6 +34,19 @@ pub(crate) fn no_reply_row() -> ChatEntry {
     }
 }
 
+/// The row of a run the user stopped before its turn answered (an abort
+/// during the tools): the aborted-message row shape, carrying `text`
+/// (`crate::chat::live_abort_text`).
+pub(crate) fn aborted_row(text: String) -> ChatEntry {
+    ChatEntry::Assistant(Box::new(AssistantMessage {
+        blocks: Vec::new(),
+        has_tool_calls: false,
+        streaming: false,
+        error: Some(text),
+        aborted: true,
+    }))
+}
+
 /// Whether the transcript's newest turn may still run: the attach
 /// snapshot's run is open (`isStreaming`), or the transcript was fetched
 /// without that state (the post-compaction re-fetch).

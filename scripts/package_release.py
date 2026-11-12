@@ -30,7 +30,7 @@ the tarball and binaries.json. No network publishing happens here.
 
 `--catalog-assets <dir>` supplies the generated bundled catalog assets
 (scripts/release/bundle_catalog.py generates them); the packer hard-fails
-without VALIDATED assets (version gates + >= 42 transport tuples + >= 68
+without VALIDATED assets (version gates + >= 20 transport tuples + >= 68
 services).
 """
 
@@ -97,7 +97,7 @@ REQUIRED_FILES = (
     "models.bundled.json",
     "mcp-services.bundled.json",
     "eukhe-runtime/pyproject.toml",
-    # The hash-locked kernel venv requirements the bootstrap installs.
+    # Eukhe's package lock: what a kernel installs on demand, with hashes.
     "eukhe-runtime/requirements-kernel.txt",
     "eukhe-runtime/src/rlm/repl.py",
 )
@@ -235,7 +235,7 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
             {
                 "name": "eukhe",
                 "version": version,
-                "description": "eukhe: coding agent with a memory of all things",
+                "description": "The harness for the AGI era: an agent core proven with Bend, plugged into any product through its SDK",
                 "bin": {"eukhe": binary_name},
             },
             indent=2,

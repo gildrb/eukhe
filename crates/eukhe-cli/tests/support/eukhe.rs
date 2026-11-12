@@ -24,7 +24,7 @@ pub fn eukhe_command() -> Command {
 /// The environment every test `eukhe` (and the daemon it starts) gets, for
 /// a command that runs a binary passed in as a path. Its sessions prewarm
 /// kernels on this checkout's runtime: without the interpreter they would
-/// bootstrap the user's `~/.eukhe/kernel-venv`.
+/// fetch Eukhe's pinned Python into the user's `~/.eukhe/kernel`.
 pub fn eukhe_env(command: &mut Command) -> &mut Command {
     command.env("EUKHE_KERNEL_PYTHON", kernel_runtime::kernel_python())
 }

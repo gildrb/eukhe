@@ -25,9 +25,15 @@ eukhe-models = { path = "../eukhe-models" }
 eukhe-durable.workspace = true
 eukhe-ai.workspace = true
 eukhe-chord.workspace = true
+# The summarizer model's tokenizer: the summary requests' sizes for the
+# auxiliary-model routing and the branch summary's slice.
+eukhe-tokens.workspace = true
 eukhe-docs = { path = "../eukhe-docs" }
 # The `bash` tool's in-process interpreter and approval gate.
 eukhe-shell.workspace = true
+# The ledger of a session's budget: every provider request and tool call
+# reserves there before it runs and settles after (`durable::budget`).
+eukhe-budget.workspace = true
 # S9 local tiny models: the role resolution, the worker client, the
 # title/judge/translate prompts (`tiny` module).
 eukhe-tiny = { path = "../eukhe-tiny" }
@@ -52,6 +58,11 @@ getrandom = "0.3"
 url = "2"
 toml.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# kernel/bootstrap/toolchain: the pinned uv release is a `.tar.gz`; Eukhe
+# unpacks its one file itself (no `tar` program is asked of the machine).
+# MIT OR Apache-2.0, both.
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
 unicode-normalization = "0.1"
 serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize"] }
 ignore = "0.4"

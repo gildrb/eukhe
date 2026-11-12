@@ -10,16 +10,19 @@ use std::sync::Arc;
 use eukhe_ai::providers::faux_script::FauxScriptError;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::autonomous::AgentAutonomousConfig;
+use eukhe_core::durable::acceptance::seed_acceptance;
 use eukhe_core::durable::cvar_agent::CvarAgent;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
     McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
+use eukhe_types::acceptance::AcceptanceSeed;
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde_json::{json, Value};
 
+use super::budget::{apply_create_budget, CreateBudget};
 use super::durable_host::{self, meta, HostRequest, HostedSession};
 use super::{emit_worker_event_with, paths, response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
@@ -108,9 +111,15 @@ pub(crate) struct CreateParams {
     /// The create config's autonomous flags (TS `createAgentSession`
     /// applies them to the startup session).
     pub(crate) autonomous: Option<AgentAutonomousConfig>,
+    /// The create config's acceptance checks (the CLI's `--accept-*`
+    /// flags, a client's `acceptance`): the session's owner sets them.
+    pub(crate) acceptance: Option<AcceptanceSeed>,
     /// The family a spawned child inherits (the create config's
     /// `cvarFamily`: its parent's effective family, root first).
     pub(crate) cvar_family: Option<Vec<eukhe_core::settings::cvar::AgentLayer>>,
+    /// What the create does to the session's budget before its first
+    /// turn: the create config's `budget` limits it.
+    pub(crate) budget: CreateBudget,
     /// A run the supervisor ended (the create carries `interruptedRun`)
     /// stops at the open instead of resuming.
     pub(crate) stored_work: eukhe_core::durable::StoredWork,
@@ -205,9 +214,17 @@ impl CreateParams {
             None | Some(Value::Null) => None,
             Some(value) => Some(field("autonomous", value)?),
         };
+        let acceptance = match payload.get("acceptance") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(field("acceptance", value)?),
+        };
         let cvar_family = match payload.get("cvarFamily") {
             None | Some(Value::Null) => None,
             Some(value) => Some(field("cvarFamily", value)?),
+        };
+        let budget = match payload.get("budget") {
+            None | Some(Value::Null) => CreateBudget::Keep,
+            Some(value) => CreateBudget::Set(field("budget", value)?),
         };
         Ok(Self {
             session_path,
@@ -242,7 +259,9 @@ impl CreateParams {
             spawned_by_request_id: text(Some(payload), "spawnedByRequestId"),
             prompt,
             autonomous,
+            acceptance,
             cvar_family,
+            budget,
             stored_work: if payload.get("interruptedRun").is_some() {
                 eukhe_core::durable::StoredWork::Stop
             } else {
@@ -401,8 +420,25 @@ impl Worker {
             core.created.then(|| self.summary_locked(&core))
         };
         if let Some(summary) = existing_summary {
-            // Idempotent re-create after a supervisor restart or respawn.
+            // Idempotent re-create after a supervisor restart or respawn:
+            // a budget the create names applies to a session without one.
             self.rebind_herdr_reporter(payload);
+            let applied = match (
+                CreateParams::parse(payload, &self.config.agent_dir),
+                self.session.get(),
+            ) {
+                (Ok(params), Some(hosted)) => apply_create_budget(&hosted, &params.budget).await,
+                (Ok(_), None) => Ok(()),
+                (Err(error), _) => Err(error.to_string()),
+            };
+            if let Err(error) = applied {
+                return response_failure(
+                    None,
+                    "create",
+                    &format!("the session's budget was not set: {error}"),
+                    None,
+                );
+            }
             return response_success(
                 None,
                 "create",
@@ -618,7 +654,7 @@ impl Worker {
         // sessions.
         config.prewarm_kernel = true;
         // This crate's tests run this checkout's runtime, never the user's
-        // `~/.eukhe` kernel venv.
+        // `~/.eukhe/kernel`.
         #[cfg(test)]
         {
             config.kernel_python =
@@ -637,7 +673,9 @@ impl Worker {
                     .get_memory_chat()
                     .then_some(None)
             }
-            Some(scripted) => scripted.chat_memory_summarizer().map(Some),
+            Some(scripted) => scripted
+                .chat_memory_summarizer(&self.config.agent_dir, &config.session_id)
+                .map(Some),
         };
         if let (Some(summarizer), true) = (memory_summarizer, config.role.has_chat_memory()) {
             config.memory = Some(self.chat_memory(&config.session_id, summarizer).await?);
@@ -670,7 +708,7 @@ impl Worker {
             );
         }));
         // An agent message the kernel reports after its cell settled (TS
-        // `ipython_sent_agent_message`; the ACP adapter maps it to the
+        // `python_sent_agent_message`; the ACP adapter maps it to the
         // namespaced `_meta.agentMessage` update).
         let late_core = Arc::clone(&self.core);
         let late_events = Arc::clone(&self.events);
@@ -678,7 +716,7 @@ impl Worker {
             emit_worker_event_with(
                 &late_core,
                 &late_events,
-                SessionEvent::IpythonSentAgentMessage {
+                SessionEvent::PythonSentAgentMessage {
                     tool_call_id: tool_call_id.to_owned(),
                     message: message.to_json(),
                 },
@@ -754,15 +792,19 @@ impl Worker {
                 return Ok(memory.clone());
             }
         }
+        // The compactor works for this session's chat: its requests pass
+        // the session's budget.
         let summarizer: Arc<dyn eukhe_core::memory::Summarizer> =
             match (scripted, self.supervisor_admission()) {
                 (Some(scripted), _) => Arc::new(scripted),
-                (None, Some(admission)) => Arc::new(eukhe_core::memory::SettingsSummarizer::new(
-                    agent_dir, admission,
-                )),
-                (None, None) => Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
-                    agent_dir,
-                )),
+                (None, Some(admission)) => Arc::new(
+                    eukhe_core::memory::SettingsSummarizer::new(agent_dir, admission)
+                        .for_session(session_id),
+                ),
+                (None, None) => Arc::new(
+                    eukhe_core::memory::SettingsSummarizer::in_process(agent_dir)
+                        .for_session(session_id),
+                ),
             };
         let memory = eukhe_core::memory::Memory::open(chat.clone(), summarizer).await?;
         *opened = Some((chat, memory.clone()));
@@ -846,8 +888,23 @@ impl Worker {
                 return Err(fail(error.to_string()));
             }
         }
+        // The create's budget is the session's before its first turn (and
+        // before the autonomous limits, which fill only the dimensions it
+        // leaves unlimited). A budget that cannot be applied fails the
+        // create: the session would spend without the limit its creator
+        // gave it.
+        if let Err(error) = apply_create_budget(&hosted, &params.budget).await {
+            let _ = hosted.close(cx).await;
+            return Err(fail(format!("the session's budget was not set: {error}")));
+        }
         if let Some(autonomous) = &params.autonomous {
             if let Err(error) = enable_autonomous(&hosted, autonomous, cx).await {
+                let _ = hosted.close(cx).await;
+                return Err(fail(error.to_string()));
+            }
+        }
+        if let Some(acceptance) = &params.acceptance {
+            if let Err(error) = seed_checks(&hosted, acceptance, cx).await {
                 let _ = hosted.close(cx).await;
                 return Err(fail(error.to_string()));
             }
@@ -952,11 +1009,26 @@ impl Worker {
         // a subagent or a scripted session) reports its progress live.
         self.follow_memory_updates(hosted.deps().memory.as_ref());
         self.follow_state_tree(Some(&hosted));
+        self.follow_budget(Some(&hosted));
         self.watch_harness_end(&hosted);
         if let Some(previous) = self.session.replace(hosted) {
             if let Err(error) = previous.close(cx).await {
                 eprintln!("eukhe-daemon worker: closing the replaced session failed: {error}");
             }
+        }
+        // Decode the session model's vocabulary now, off the core lock
+        // (once per process and encoding; tens of milliseconds in a
+        // release build): the first count would otherwise pay it on the
+        // first prompt's path, under the core lock its summary holds.
+        let model = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            super::model_metadata(&core, &self.session)
+        };
+        if let Some(meter) = crate::state_getters::ContextMeter::of_wire(model.as_ref()) {
+            let _ = tokio::task::spawn_blocking(move || meter.tokenizer.count_text("warm")).await;
         }
         let mut core = self
             .core
@@ -1077,10 +1149,24 @@ async fn reconfigure_main(
     Ok(())
 }
 
+/// The create config's acceptance checks on the main conversation, set
+/// as its owner: a session that already carries exactly these checks
+/// keeps them and their verdicts (a reopened session).
+async fn seed_checks(
+    hosted: &HostedSession,
+    seed: &AcceptanceSeed,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    let main = hosted.main()?;
+    seed_acceptance(hosted.harness(), main.id(), seed, &hosted.deps().cwd, cx).await?;
+    Ok(())
+}
+
 /// The create config's autonomous flags on the main conversation (TS
 /// `createAgentSession` parity, the rpc startup seed's rule): enable with
-/// the given limits unless the session already runs autonomously (a
-/// reopened session keeps its counters).
+/// the given limits (the turn, token and time limits on the session's
+/// budget) unless the session already runs autonomously (a reopened
+/// session keeps its state).
 async fn enable_autonomous(
     hosted: &HostedSession,
     config: &AgentAutonomousConfig,
@@ -1093,7 +1179,14 @@ async fn enable_autonomous(
     {
         // The startup flags set the state only (no `autonomous_status`
         // row, TS `createAgentSession({ autonomous })`).
-        configure_autonomous(hosted.harness(), main.id(), config.clone(), cx).await?;
+        configure_autonomous(
+            hosted.harness(),
+            &hosted.deps().budget,
+            main.id(),
+            config.clone(),
+            cx,
+        )
+        .await?;
     }
     Ok(())
 }

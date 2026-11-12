@@ -216,7 +216,7 @@ fn child_responses(receipts_dir: &Path) -> Value {
     let cell = child_cell(receipts_dir);
     let reply = json!([
         { "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": { "code": cell } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": cell } },
         ] },
         { "text": "kid turn done" },
     ]);
@@ -308,6 +308,7 @@ async fn spawn_settled_child(
             parent_task_id: index.to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
             worker: false,
+            acceptance: None,
         })
         .await
         .expect("spawn the child");
@@ -661,7 +662,7 @@ fn record_cell(request: &str, name: &str, receipts_dir: &Path) -> String {
 fn cell_turn(code: &str) -> Value {
     json!([
         { "content": [
-            { "type": "toolCall", "name": "ipython", "arguments": { "code": code } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": code } },
         ] },
         { "text": "cell turn done" },
     ])
@@ -703,7 +704,7 @@ async fn family_edges_never_cross_families_end_to_end() {
         "parent-a",
         &json!([
             { "content": [
-                { "type": "toolCall", "name": "ipython", "arguments": { "code": parent_a_cell } },
+                { "type": "toolCall", "name": "python", "arguments": { "code": parent_a_cell } },
             ] },
             { "text": "parent-a turn done" },
             { "text": "parent-a turn done" },

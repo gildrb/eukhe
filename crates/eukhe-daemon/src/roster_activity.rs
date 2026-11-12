@@ -269,7 +269,8 @@ mod tests {
             "agent_start",
             "agent_end",
             "goal_update",
-            "ipython_sent_agent_message",
+            "loop_update",
+            "python_sent_agent_message",
         ] {
             cases.push((
                 event_type.to_string(),

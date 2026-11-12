@@ -302,6 +302,116 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
     drop(supervisor);
 }
 
+/// Regression (the v0.10.67 harness: tui/startup-pong, slash/tree,
+/// cli/rpc): in the first session of an install without the Python
+/// kernel the open wrote a `kernel_unavailable` row into the session, so
+/// the new session was not empty: the start banner (version, model, cwd)
+/// was gone, `/tree` opened an empty panel instead of saying "No entries
+/// in session", and the state counted one message. The kernel's absence
+/// is a notification of the interactive client (the Python warning goes
+/// to the UI's startup notifications), shown
+/// once per install state: the first TUI shows it beside the banner and
+/// the session stays empty; a second TUI on a second session of the same
+/// install shows nothing.
+#[tokio::test]
+async fn tui_kernel_unavailable_is_a_notification_shown_once_and_no_session_entry() {
+    const NOTICE: &str = "Warning: The Python kernel";
+    const BANNER: &str = "eukhe v0.0.0";
+    const EMPTY_TREE: &str = "No entries in session";
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    // The client keeps the notification's marker in the agent dir the
+    // daemon serves.
+    std::env::set_var("EUKHE_CODING_AGENT_DIR", &agent_dir);
+    // No interpreter override, no fetched Python and offline: the kernel
+    // cannot start.
+    let no_kernel = dir.path().join("no-kernel");
+    let supervisor = spawn_supervisor_with(dir.path(), |command| {
+        command
+            .env_remove("EUKHE_KERNEL_PYTHON")
+            .env("EUKHE_KERNEL_DIR", &no_kernel)
+            .env("EUKHE_OFFLINE", "1");
+    });
+    std::fs::write(
+        dir.path().join("script.json"),
+        serde_json::json!({ "responses": [{ "text": "unused" }] }).to_string(),
+    )
+    .expect("write script");
+    let tree = || eukhe_tui::interactive::HeadlessStep::Submit("/tree".to_string());
+    let wait = |needle: &str| eukhe_tui::interactive::HeadlessStep::WaitRender {
+        needle: needle.to_string(),
+        timeout_ms: 15_000,
+    };
+
+    // Run one: the first session of the install.
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![wait(NOTICE), tree(), wait(EMPTY_TREE)],
+        width: 100,
+        height: 30,
+    };
+    let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run one");
+    let rendered = outcome.frames.join("\n");
+    let noticed = outcome
+        .frames
+        .iter()
+        .find(|frame| frame.contains(NOTICE))
+        .unwrap_or_else(|| panic!("the first TUI shows the notification:\n{rendered}"));
+    assert!(
+        noticed.contains(BANNER),
+        "the new session keeps its start banner beside the notification:\n{noticed}"
+    );
+    assert!(
+        rendered.contains(EMPTY_TREE),
+        "/tree finds the new session empty:\n{rendered}"
+    );
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
+        .await
+        .expect("connect supervisor");
+    let state = client
+        .request_ok(DaemonCommand::GetState {
+            id: None,
+            active_session_id: outcome.active_session_id.clone(),
+            rest: serde_json::Map::default(),
+        })
+        .await
+        .expect("get_state");
+    client.close();
+    assert_eq!(
+        state.get("messageCount"),
+        Some(&serde_json::json!(0)),
+        "the new session counts no message: {state}"
+    );
+    assert!(
+        !storage_contains(&session_dir.join(&outcome.session_id), "kernel_unavailable"),
+        "the session stores no kernel-unavailable row"
+    );
+
+    // Run two: a second session of the same install, a new TUI.
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![tree(), wait(EMPTY_TREE)],
+        width: 100,
+        height: 30,
+    };
+    let second = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run two");
+    assert_ne!(second.session_id, outcome.session_id, "a second session");
+    let rendered = second.frames.join("\n");
+    assert!(
+        rendered.contains(EMPTY_TREE) && rendered.contains(BANNER),
+        "the second session is as empty, with its banner:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("The Python kernel"),
+        "the notification shows once per install state:\n{rendered}"
+    );
+    drop(supervisor);
+}
+
 /// The idle-session event repaint regression: a daemon event that lands on
 /// an attached, idle TUI (a `session_info_changed` rename from a second
 /// wire client) must repaint the frame on its own — TS `handleEvent`'s
@@ -481,6 +591,7 @@ async fn tui_two_back_to_back_submits_reach_the_daemon_in_order() {
     std::fs::write(&script_path, script.to_string()).expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -600,6 +711,7 @@ async fn tui_submit_outlived_by_switch_stays_silent_on_the_new_session() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -717,6 +829,7 @@ async fn tui_headless_done_with_a_turn_settling_parks_the_closed_input_channel()
     std::fs::write(&script_path, script.to_string()).expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -868,6 +981,7 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
     });
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),

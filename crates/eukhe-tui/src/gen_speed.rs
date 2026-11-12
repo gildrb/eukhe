@@ -7,11 +7,13 @@
 //! what the provider reported: the usage and the stream marks
 //! (`ResponseTiming`) on the settled message.
 
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eukhe_types::ai::{AssistantMessage, StopReason, Usage};
 use eukhe_types::pi_ai::{PromptProgress, ResponseTiming};
-use eukhe_types::token_estimate::chars_to_tokens;
+use tokio::task::JoinHandle;
 
 /// The decode rate shows after this much decode time; before it, the rate
 /// of the first deltas is noise.
@@ -137,6 +139,41 @@ impl ResponseSpeed {
     }
 }
 
+/// The prompt the session added since the last response (the user's text,
+/// tool results), its tokens counted off the UI thread.
+#[derive(Debug, Default)]
+struct AddedPrompt {
+    /// Tokens of the counts that finished.
+    tokens: AtomicU64,
+    /// Counts still running.
+    pending: AtomicUsize,
+}
+
+/// The prompt tokens the cache likely does not hold for a request: the
+/// last response's output and the prompt the session added since, counted
+/// with the session model's tokenizer.
+#[derive(Debug, Clone)]
+pub struct UncachedPrompt {
+    last_output: u64,
+    added: Arc<AddedPrompt>,
+}
+
+impl UncachedPrompt {
+    /// The tokens, once every count of the added prompt finished.
+    #[must_use]
+    pub fn tokens(&self) -> Option<u64> {
+        (self.added.pending.load(Ordering::Acquire) == 0)
+            .then(|| self.last_output + self.added.tokens.load(Ordering::Acquire))
+    }
+}
+
+/// Equal when they show the same: both still counting, or the same tokens.
+impl PartialEq for UncachedPrompt {
+    fn eq(&self, other: &Self) -> bool {
+        self.tokens() == other.tokens()
+    }
+}
+
 /// Where the model request of the turn is, for the status line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpeedPhase {
@@ -145,18 +182,16 @@ pub enum SpeedPhase {
         since: Instant,
         /// The server's own progress through the prompt (llama.cpp).
         progress: Option<PromptProgress>,
-        /// The prompt tokens the cache likely does not hold: the last
-        /// response's output and what the session added since, at the one
-        /// token estimate ([`chars_to_tokens`]). `None` before the first
-        /// response.
-        uncached_estimate: Option<u64>,
+        /// The prompt tokens the cache likely does not hold; `None` before
+        /// the first response.
+        uncached: Option<UncachedPrompt>,
     },
     /// Tokens stream.
     Decode {
         since: Instant,
         first_token: Instant,
         /// Output tokens so far: the provider's count when it streams one,
-        /// else the content at the one token estimate.
+        /// else the worker's count of the streamed content.
         tokens: u64,
     },
     /// The last response settled.
@@ -175,16 +210,16 @@ impl SpeedPhase {
             Self::Prefill {
                 since,
                 progress: None,
-                uncached_estimate,
+                uncached,
             } => {
                 let elapsed = format!(
                     "{:.1}s",
                     now.saturating_duration_since(*since).as_secs_f64()
                 );
-                match uncached_estimate {
+                match uncached.as_ref().and_then(UncachedPrompt::tokens) {
                     Some(tokens) => format!(
-                        "prefill {elapsed} (~{} tok)",
-                        crate::status_line::format_count(*tokens)
+                        "prefill {elapsed} ({} tok)",
+                        crate::status_line::format_count(tokens)
                     ),
                     None => format!("prefill {elapsed}"),
                 }
@@ -212,9 +247,8 @@ impl SpeedPhase {
 #[derive(Debug, Default)]
 pub(crate) struct SpeedClock {
     phase: Option<SpeedPhase>,
-    /// Prompt characters (UTF-16 code units) the session added since the
-    /// last response (the user's text, tool results).
-    added_chars: u64,
+    /// The prompt the session added since the last response.
+    added: Arc<AddedPrompt>,
     /// The output tokens of the last response; `None` before the first.
     last_output: Option<u64>,
 }
@@ -231,26 +265,30 @@ impl SpeedClock {
         self.phase = Some(SpeedPhase::Prefill {
             since: now,
             progress: None,
-            uncached_estimate: self
-                .last_output
-                .map(|output| output + chars_to_tokens(self.added_chars)),
+            uncached: self.last_output.map(|last_output| UncachedPrompt {
+                last_output,
+                added: Arc::clone(&self.added),
+            }),
         });
     }
 
-    /// The session added `chars` characters (UTF-16 code units) of prompt
-    /// (user text, a tool result) for the next request.
-    pub(crate) fn prompt_added(&mut self, chars: u64) {
-        self.added_chars = self.added_chars.saturating_add(chars);
-        if let (
-            Some(SpeedPhase::Prefill {
-                uncached_estimate: Some(estimate),
-                ..
-            }),
-            Some(output),
-        ) = (&mut self.phase, self.last_output)
-        {
-            *estimate = output + chars_to_tokens(self.added_chars);
-        }
+    /// The session added prompt (user text, a tool result) for the next
+    /// request; `count` gives its tokens. The count runs on the blocking
+    /// pool, never on the UI thread (a pasted megabyte takes milliseconds
+    /// to tokenize); the prefill shows the total once every count is in.
+    /// Before the first response nothing shows the added prompt: no count
+    /// runs (`None`).
+    pub(crate) fn prompt_added(
+        &mut self,
+        count: impl FnOnce() -> u64 + Send + 'static,
+    ) -> Option<JoinHandle<()>> {
+        self.last_output?;
+        let added = Arc::clone(&self.added);
+        added.pending.fetch_add(1, Ordering::AcqRel);
+        Some(tokio::task::spawn_blocking(move || {
+            added.tokens.fetch_add(count(), Ordering::AcqRel);
+            added.pending.fetch_sub(1, Ordering::AcqRel);
+        }))
     }
 
     /// The server reported its progress through the prompt.
@@ -282,7 +320,7 @@ impl SpeedClock {
     /// and stream marks, else from what the client saw. A failed or
     /// aborted response shows nothing.
     pub(crate) fn settled(&mut self, message: &AssistantMessage, now: Instant) {
-        self.added_chars = 0;
+        self.added = Arc::default();
         self.last_output = Some(message.usage.output);
         let sample = match message.stop_reason {
             StopReason::Error | StopReason::Aborted => None,

@@ -89,6 +89,11 @@ pub enum Back {
         status: Status,
         next: Option<u64>,
     },
+    /// An active one-shot whose claim was cleared is fired again: it stays
+    /// active, due at the occurrence of its cleared claim record (its
+    /// `scheduledFor`), with its run count kept, so the next claim pass
+    /// fires it under its original request id.
+    Refire,
 }
 
 /// What a job becomes: its status, next run and failures in a row.
@@ -490,13 +495,14 @@ pub fn recover_all(slots: &[Slot], claims: &[Hold]) -> Swept {
             let n = reader.count()?;
             let jobs = (0..n)
                 .map(|_| {
-                    Ok(match reader.tag_of(2, "a recovery")? {
+                    Ok(match reader.tag_of(3, "a recovery")? {
                         0 => Back::Kept,
-                        // `tag_of` answers a tag below 2: this is 1.
-                        _ => Back::Interrupted {
+                        1 => Back::Interrupted {
                             status: get_status(reader)?,
                             next: get_time(reader)?,
                         },
+                        // `tag_of` answers a tag below 3: this is 2.
+                        _ => Back::Refire,
                     })
                 })
                 .collect::<Result<_, Error>>()?;
@@ -706,6 +712,32 @@ mod tests {
                     ],
                 },
             )
+        );
+    }
+
+    /// A recovery that clears the claim of an active one-shot (this
+    /// process's own, its pass unwound) fires it again: the core answers
+    /// `Refire`, and the claim record goes.
+    #[test]
+    fn a_recovered_one_shot_is_fired_again() {
+        let once = Fact {
+            status: Status::Active,
+            plan: Plan::Once,
+            next: None,
+            streak: 0,
+        };
+        assert_eq!(
+            recover_all(
+                &[Slot { key: 0, fact: once }],
+                &[Hold::Held {
+                    key: Some(0),
+                    who: Who::Mine { running: false },
+                }],
+            ),
+            Swept {
+                keep: vec![false],
+                jobs: vec![Back::Refire],
+            }
         );
     }
 }

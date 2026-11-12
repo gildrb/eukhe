@@ -29,6 +29,8 @@ mod paste_tests;
 #[cfg(test)]
 mod path_key_tests;
 mod selection;
+#[cfg(test)]
+mod table_rebuild_tests;
 mod text_ops;
 mod text_utils;
 mod wrap;
@@ -252,8 +254,9 @@ impl Editor {
 
     /// Replace the argument completions below one command path on the
     /// installed provider (TS `command.getArgumentCompletions`, e.g. the
-    /// `/tier` tier choices). A change rebuilds the command table, so an
-    /// open menu (its rows are places in the old table) drops.
+    /// `/tier` tier choices). A change rebuilds the command table; an
+    /// open slash menu reads its rows again from the new table and stays
+    /// open (`refresh_open_slash_menu`).
     pub fn set_autocomplete_argument_completions(
         &mut self,
         path: &'static str,
@@ -263,8 +266,8 @@ impl Editor {
             .autocomplete_provider
             .as_mut()
             .is_some_and(|provider| provider.set_argument_completions(path, items));
-        if changed && self.autocomplete.take().is_some() {
-            self.emit(EditorEvent::AutocompleteToggled(false));
+        if changed {
+            self.refresh_open_slash_menu();
         }
     }
 
@@ -281,21 +284,18 @@ impl Editor {
     /// Replace the provider's `skill:` commands (TS
     /// `setupAutocompleteProvider` rebuilds the command list with the
     /// session's skills; this port swaps the list on the installed
-    /// provider). The open dropdown -- if any -- drops, because its rows
-    /// came from the old catalog (TS `setAutocompleteProvider` cancels
-    /// too), but a PARKED request stays: the host loop materializes it
-    /// against the new provider, so a `/` typed while the catalog
-    /// refresh was still in flight still opens its menu (Cursor thread:
-    /// the swap must not eat the parked request).
+    /// provider). The catalog lands whenever its fetch answers, so a
+    /// menu may be open by then: it stays open and reads its rows again
+    /// from the new catalog (`refresh_open_slash_menu`). A PARKED
+    /// request stays too: the host loop materializes it against the new
+    /// provider, so a `/` typed while the catalog refresh was still in
+    /// flight still opens its menu (Cursor thread: the swap must not eat
+    /// the parked request).
     pub fn set_autocomplete_skill_commands(&mut self, skills: Vec<SlashCommandEntry>) {
-        let was_showing = self.autocomplete.is_some();
-        self.autocomplete = None;
-        if was_showing {
-            self.emit(EditorEvent::AutocompleteToggled(false));
-        }
         if let Some(provider) = self.autocomplete_provider.as_mut() {
             provider.set_skill_commands(skills);
         }
+        self.refresh_open_slash_menu();
     }
 
     /// Replace the provider's agent-family `@name` completions. An open

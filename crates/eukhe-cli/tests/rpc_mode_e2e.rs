@@ -132,6 +132,17 @@ impl RpcChild {
     /// provider entry + key to pass the registry's configured-auth gate,
     /// the same shape the daemon harness seeds).
     fn spawn_seeded(args: &[&str], script: &Value, models: Option<Value>) -> RpcChild {
+        Self::spawn_configured(args, script, models, |_, _| {})
+    }
+
+    /// [`RpcChild::spawn_seeded`] with `configure` applied to the command
+    /// last (its environment, given the child's home).
+    fn spawn_configured(
+        args: &[&str],
+        script: &Value,
+        models: Option<Value>,
+        configure: impl FnOnce(&mut std::process::Command, &std::path::Path),
+    ) -> RpcChild {
         let shared_lane = LaneHold::shared();
         let home = tempfile::TempDir::new().unwrap();
         if let Some(models) = models {
@@ -139,7 +150,8 @@ impl RpcChild {
             std::fs::create_dir_all(&agent_dir).unwrap();
             std::fs::write(agent_dir.join("models.json"), models.to_string()).unwrap();
         }
-        let mut child = eukhe_command()
+        let mut command = eukhe_command();
+        command
             .args(args)
             .env("HOME", home.path())
             .env("EUKHE_CODING_AGENT_DIR", home.path().join("agent"))
@@ -147,9 +159,9 @@ impl RpcChild {
             .current_dir(home.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("binary present");
+            .stderr(Stdio::piped());
+        configure(&mut command, home.path());
+        let mut child = command.spawn().expect("binary present");
         let stdin = child.stdin.take().expect("stdin piped");
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");
@@ -398,6 +410,34 @@ fn rpc_get_state_answers_the_fresh_session() {
         "--no-session keeps the session in memory (no sessionFile key)"
     );
     assert!(data["sessionId"].is_string());
+    client.drain_stderr();
+}
+
+/// Regression: in the first session of an install without the Python
+/// kernel the open wrote a `kernel_unavailable` row, so a fresh session
+/// answered `messageCount: 1` (eukhe-v0.10.67: 0). The kernel's absence
+/// is a notification of the interactive client (its startup notifications),
+/// never a session entry: rpc mode counts no message.
+#[test]
+fn rpc_fresh_session_without_a_kernel_counts_no_message() {
+    let mut client = RpcChild::spawn_configured(
+        &["--mode", "rpc", "--no-session"],
+        &turn_script(&json!(["unused"])),
+        None,
+        |command, home| {
+            command
+                .env_remove("EUKHE_KERNEL_PYTHON")
+                .env("EUKHE_KERNEL_DIR", home.join("no-kernel"))
+                .env("EUKHE_OFFLINE", "1");
+        },
+    );
+    let response = client.request(&json!({ "type": "get_state" }));
+    assert_eq!(response["success"], true, "the response: {response}");
+    assert_eq!(
+        response["data"]["messageCount"], 0,
+        "the state: {}",
+        response["data"]
+    );
     client.drain_stderr();
 }
 
@@ -1111,6 +1151,12 @@ fn rpc_sigterm_during_replacement_exits_promptly() {
     client.spawn_stderr = None;
 }
 
+/// A faux context window whose summarizer input budget (0.8 of the window
+/// less the output reserves)
+/// holds a whole 10 MiB corpus (about 3M estimated tokens), so its history
+/// summary is one summarizer call.
+const CORPUS_CONTEXT_WINDOW: u64 = 8_000_000;
+
 /// A deterministic large session fixture in the corpus row schema (the
 /// bench generator's exact row shapes: the session header, the base
 /// harness-digest rows, then user -> assistant(tool call) -> toolResult
@@ -1192,7 +1238,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                     ],
                     "toolCalls": [{
                         "id": call_id,
-                        "name": "ipython",
+                        "name": "python",
                         "arguments": { "code": format!("print('corpus {turn}')") },
                     }],
                     "api": "openai-completions",
@@ -1217,7 +1263,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                 "message": {
                     "role": "toolResult",
                     "toolCallId": call_id,
-                    "toolName": "ipython",
+                    "toolName": "python",
                     "content": [{ "type": "text", "text": format!("corpus {turn}\n[0, 1, 2]\n") }],
                     "isError": false,
                     "timestamp": 1_789_584_016_603_i64 + turn as i64,
@@ -1545,7 +1591,10 @@ fn rpc_compact_flush_is_bounded_against_a_stalled_reader() {
         // The faux harness's response budget is finite (repeat-last is a
         // daemon-seam key the CLI harness ignores): the split-turn cut
         // makes two concurrent summarizer calls, so the script queues
-        // one response each.
+        // one response each. The window holds the whole corpus in one
+        // summarizer input budget, so the history summary is one call
+        // rather than one per window.
+        "contextWindow": CORPUS_CONTEXT_WINDOW,
         "responses": [
             { "text": "corpus history summary: the scale corpus ran" },
             { "text": "corpus turn-prefix summary: the final marker" },
@@ -1608,10 +1657,9 @@ fn rpc_prompt_admitted_compact_frames_flush_after_the_response() {
     let fixture = home.path().join("sess").join("fixture.jsonl");
     write_corpus_fixture(&fixture, 10);
     let script = json!({
-        // The faux harness's response budget is finite (repeat-last is a
-        // daemon-seam key the CLI harness ignores): the split-turn cut
-        // makes two concurrent summarizer calls, so the script queues
-        // one response each.
+        // As in the stalled-reader test: two concurrent summarizer calls,
+        // one response each, the corpus inside one summarizer window.
+        "contextWindow": CORPUS_CONTEXT_WINDOW,
         "responses": [
             { "text": "corpus history summary: the scale corpus ran" },
             { "text": "corpus turn-prefix summary: the final marker" },

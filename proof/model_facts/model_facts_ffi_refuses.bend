@@ -24,14 +24,10 @@ def mfx.mnat_ok(m: Maybe<&2, Nat>) -> {LawsBase.wire_opens_err(FMF.put_mnat(m)) 
 
 def mfx.rfields_ok(f: Fx.RFields) -> {LawsBase.wire_opens_err(FMF.put_rfields(f)) == False{} : Bool}:
   match f:
-    case Fx.RNone{}:
-      Wire.wire_nat_not_err(0n, "")
-    case Fx.RClaude{}:
+    case Fx.RThinking{}:
       Wire.wire_nat_not_err(1n, "")
     case Fx.RNested{e}:
       Wire.wire_nat_not_err(2n, Wr.put_nat(e, ""))
-    case Fx.RFlat{e}:
-      Wire.wire_nat_not_err(3n, Wr.put_nat(e, ""))
 
 # no decision opens with 'E'
 def mfx.answer_ok(q: FMF.Req) -> {LawsBase.wire_opens_err(FMF.answer(q)) == False{} : Bool}:

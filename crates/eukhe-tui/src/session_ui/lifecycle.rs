@@ -6,9 +6,9 @@ use super::{
     attach_data_from_response, create_session, mpsc, reconstruct, resume_hint_from_stats,
     ActivityUpdates, AgentView, BTreeMap, ChatEntry, CompactionAbortNote, Context, DaemonClient,
     DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions, LoaderTokenTracker,
-    Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote, ReattachOutcome,
-    RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi, Value,
-    EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
+    LoopView, Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote,
+    ReattachOutcome, RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi,
+    Value, EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::activity::TurnPhase;
 
@@ -36,7 +36,7 @@ impl SessionUi {
     pub(crate) async fn open(
         client: DaemonClient,
         options: &InteractiveOptions,
-        notes: mpsc::UnboundedSender<super::AbortFailed>,
+        notes: mpsc::UnboundedSender<super::InterruptNote>,
         compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,
         prompt_notes: mpsc::UnboundedSender<PromptSubmitNote>,
         reload_notes: mpsc::UnboundedSender<ReloadNote>,
@@ -77,6 +77,7 @@ impl SessionUi {
             script_path: options.script_path.clone(),
             model_selection: options.model_selection.clone(),
             models: options.models.clone(),
+            launch_budget: options.budget,
             model_catalog: options.model_catalog.clone(),
             model_configured_providers: options.model_configured_providers.clone(),
             model_recent_models: options.model_recent_models.clone(),
@@ -103,26 +104,31 @@ impl SessionUi {
             pasted_images: BTreeMap::default(),
             next_image_marker_id: 1,
             pending_snapshot: None,
+            pending_open_message: None,
             pending_model: None,
             pending_model_provider: None,
             pending_thinking_suffix: None,
             pending_queue: None,
             queue_selection: crate::queued::QueueSelection::default(),
             context: None,
+            budget: None,
             list_rows: Vec::new(),
             turn_active: false,
             turn_ends_seen: 0,
             last_prompt_turn_end: 0,
             streaming_index: None,
+            adopted_index: None,
             working_tokens: LoaderTokenTracker::default(),
             turn_error_shown: false,
             run_open: false,
             run_rounds: 0,
             run_awaits_turn: false,
+            run_interrupted: false,
             session_closed: false,
             resynced_phase: None,
             rebuild_keeps_clock: false,
             carried_rows: Vec::new(),
+            kernel_notice: None,
             maybe_sent: None,
             last_user_text: None,
             retry_popped_attempt: None,
@@ -158,6 +164,7 @@ impl SessionUi {
             dictation_takes: 0,
             dictation_updates: activity_updates.dictation,
             memory: None,
+            verification: None,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,
@@ -183,6 +190,8 @@ impl SessionUi {
             dirty: true,
             ctrl_c_hint_until: None,
             goal_view: GoalView::new(),
+            unknown_effects: Vec::new(),
+            loop_view: LoopView::default(),
             notes,
             compaction_abort_notes,
             prompt_orders: orders_tx,
@@ -215,6 +224,26 @@ impl SessionUi {
             .attach_session(&active_session_id, DockFold::FirstFrame)
             .await
             .with_context(|| format!("attaching session {active_session_id}"))?;
+        // `--budget-*` on an attach: no create carries the limits, so a
+        // session without a budget gets them here (its `budget_update`
+        // moves the status line); one that has a budget keeps its own,
+        // as a reopened session does.
+        if let (SessionSelection::Attach(_), Some(limits), None) =
+            (&options.session, options.budget, &session.budget)
+        {
+            session
+                .bounded_request(
+                    Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                    DaemonCommand::SetBudget {
+                        id: None,
+                        active_session_id: session.active_session_id.clone(),
+                        limits,
+                        rest: Map::default(),
+                    },
+                )
+                .await
+                .context("setting the session's budget")?;
+        }
         // The scope-back reopen's restore lands AFTER the attach: the
         // attach's rebind reset clears the focus, so the reopen's own
         // restore must survive it.
@@ -452,6 +481,21 @@ impl SessionUi {
         };
         self.user_bash_running = resync_bash.snap_running;
         self.resync_bash = Some(resync_bash);
+        // The session's kernel cannot start (the state's
+        // `kernelUnavailable` text: no `python` tool, and the fix): this
+        // view says so once per install state, as a notification, never
+        // into the session; the next rebuild shows it the same way, as a
+        // warning row of this view.
+        if let Some(notice) = state
+            .and_then(|state| state.get("kernelUnavailable"))
+            .and_then(Value::as_str)
+        {
+            if eukhe_types::platform::agent_dir()
+                .is_none_or(|dir| eukhe_types::kernel_notice::first_showing(&dir))
+            {
+                self.kernel_notice = Some(notice.to_string());
+            }
+        }
         // The snapshot holds every stored message: a restore notice this
         // view showed before stays out of the rebuilt transcript, and
         // the record takes the notices it shows only once the attach
@@ -480,7 +524,7 @@ impl SessionUi {
         // captured previous id (the detach must target the OLD address,
         // not the id the pane just adopted). Leaving one session for
         // another (`/new`, `/resume`) says so: the left session's worker
-        // is released once idle (omp disposes the session it leaves).
+        // is released once idle (a left session is not kept running).
         if !previous.is_empty() && previous != self.active_session_id {
             let _ = self
                 .bounded_request(
@@ -595,6 +639,7 @@ impl SessionUi {
         // or compaction settles): the rebuild re-syncs it into the chrome
         // exactly like the other reconstructed session fields.
         self.context = reconstructed.context_usage;
+        self.budget = reconstructed.budget;
         self.last_assistant_text = reconstructed
             .chat
             .iter()
@@ -610,8 +655,17 @@ impl SessionUi {
             });
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
+        self.pending_open_message = reconstructed.open_message;
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
+        self.unknown_effects = reconstructed.unknown_effects;
+        self.loop_view
+            .seed(reconstructed.loop_status.unwrap_or_default());
+        self.verification = reconstructed
+            .acceptance
+            .as_ref()
+            .and_then(crate::status_line::Verification::of);
         self.streaming_index = None;
+        self.adopted_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
         // mounted session, and an end owed by the detached session's stream
@@ -790,6 +844,14 @@ impl SessionUi {
             for entry in items {
                 view.push_entry(entry);
             }
+            // The snapshot's in-flight reply stays the open streaming
+            // message: the frames that follow continue it in place
+            // instead of opening a second copy of it below.
+            self.streaming_index = self
+                .pending_open_message
+                .take()
+                .filter(|index| view.resume_streaming_entry(*index));
+            self.adopted_index = self.streaming_index;
         }
         // The latest prompt's end rows that only this view holds follow
         // the stored transcript: a same-session rebuild never wipes how
@@ -797,6 +859,9 @@ impl SessionUi {
         for row in &self.carried_rows {
             view.push_entry(row.clone());
         }
+        // The interrupted effects nobody settled yet stay in sight on
+        // every rebuilt transcript.
+        self.push_open_effects_notice(view);
         // The rebuild re-registers the live tool cards the way TS
         // `restoreStreamingMessageFromSnapshot` does (the resumed turn's
         // streamed calls re-enter the pending map): a post-reconnect
@@ -830,7 +895,9 @@ impl SessionUi {
         view.queue_selected = None;
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
+        view.chrome.budget.clone_from(&self.budget);
         view.chrome.memory = self.memory;
+        view.chrome.verification = self.verification;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;
         // the goal state itself carries over (seeded at attach).
@@ -934,6 +1001,14 @@ impl SessionUi {
         // first-turn growth never passes through here, so a new chat's
         // splash scrolls away exactly like TS).
         view.splash_suppressed = !view.chat.is_empty();
+        // The kernel-unavailable notification follows the splash decision:
+        // it is no transcript content, so a new session keeps its header.
+        if let Some(notice) = self.kernel_notice.take() {
+            view.push_entry(ChatEntry::Status {
+                text: format!("Warning: {notice}"),
+                kind: crate::chat::StatusKind::Warning,
+            });
+        }
         self.dirty = true;
     }
 

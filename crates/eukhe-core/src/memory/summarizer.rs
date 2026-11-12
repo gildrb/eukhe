@@ -26,6 +26,7 @@
 //! failure cap still builds the node, so a turn never waits forever).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use eukhe_ai::api::simple_options::aux_output_cap;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
@@ -39,6 +40,7 @@ use futures::StreamExt;
 
 use super::compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 use crate::admission::{local_admission, AdmissionHandle, AdmissionRequest, QueuedNotice};
+use crate::durable::budget::{wrap_models_with_budget, BudgetGate};
 use crate::models::roles::{role_model, role_table};
 
 /// The `session_id` of every compactor request: providers key prompt-cache
@@ -70,6 +72,8 @@ fn request_options(
             ..StreamOptions::default()
         },
         reasoning: reasoning(thinking),
+        // `memory.thinking` off turns the call's reasoning off.
+        disable_reasoning: matches!(thinking, ModelThinkingLevel::Off),
         thinking_budgets,
         ..SimpleStreamOptions::default()
     }
@@ -90,18 +94,34 @@ impl Drop for AbortOnDrop {
 pub struct SettingsSummarizer {
     agent_dir: PathBuf,
     admission: AdmissionHandle,
+    /// The budget every request passes: the daemon's account (the
+    /// compactor of the shared chat, which works for no task) unless
+    /// [`Self::for_session`] names the session it compacts for.
+    budget: Arc<BudgetGate>,
 }
 
 impl SettingsSummarizer {
     /// Resolve against the settings, auth and models of `agent_dir`, and
     /// take every request's slot from `admission` (a daemon's supervisor
-    /// registry).
+    /// registry). Its requests pass the daemon's budget account
+    /// ([`BudgetGate::daemon`]) until [`Self::for_session`].
     #[must_use]
     pub fn new(agent_dir: PathBuf, admission: AdmissionHandle) -> SettingsSummarizer {
         SettingsSummarizer {
+            budget: BudgetGate::daemon(&agent_dir),
             agent_dir,
             admission,
         }
+    }
+
+    /// This compactor working for the session `session_id` (the session
+    /// whose chat it compacts): every request it sends passes that
+    /// session's budget (a pass-through while the session has none), like
+    /// the session's own requests.
+    #[must_use]
+    pub fn for_session(mut self, session_id: &str) -> SettingsSummarizer {
+        self.budget = BudgetGate::side(&self.agent_dir, session_id);
+        self
     }
 
     /// [`Self::new`] with this process's in-process authority, under the
@@ -122,17 +142,22 @@ impl Summarizer for SettingsSummarizer {
     fn complete(&self, context: Context, mut started: ResponseStarted) -> SummarizerFuture {
         let agent_dir = self.agent_dir.clone();
         let admission = self.admission.clone();
+        let budget = self.budget.clone();
         Box::pin(async move {
             // Resolution reads settings and auth from disk and may refresh
             // an OAuth token with a blocking request: off the executor.
             let resolve_target = || {
                 let agent_dir = agent_dir.clone();
+                let budget = budget.clone();
                 async move {
-                    tokio::task::spawn_blocking(move || resolve(&agent_dir))
+                    let target = tokio::task::spawn_blocking(move || resolve(&agent_dir))
                         .await
                         .map_err(|error| {
                             anyhow::anyhow!("compactor model resolution failed: {error}")
-                        })?
+                        })??;
+                    // The collection is this call's own: gate its rows.
+                    wrap_models_with_budget(&target.models, &budget);
+                    anyhow::Ok(target)
                 }
             };
             let mut target = resolve_target().await?;

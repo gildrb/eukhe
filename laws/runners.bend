@@ -79,10 +79,10 @@ law gate_covers_every_runner:
   for runs: {Ru.runs(t) == True{} : Bool}
   {Ru.gated(t) == True{} : Bool}
 
-# LAW ipython_gated_each_call: the `ipython` tool runs code that may run a program, and the gate
+# LAW python_gated_each_call: the `python` tool runs code that may run a program, and the gate
 # covers each of its calls
-law ipython_gated_each_call:
-  {Ru.find(Ru.registry(), "ipython") == Some{Ru.ToolReg{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.ToolReg>}
+law python_gated_each_call:
+  {Ru.find(Ru.registry(), "python") == Some{Ru.ToolReg{"python", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.ToolReg>}
 
 # LAW cell_runs_only_within_or_approved: a gated call runs only when its caps are within the auto set or the
 # user approves it
@@ -192,7 +192,7 @@ def worker_tool(+t: Ru.ToolReg) -> Bool:
   named_in(Ru.ToolReg.name(t), worker_names())
 
 # LAW main_roster_read_or_workers: every tool of main's roster (the `main-worker` shape, with or without chat memory) runs no code of its own and is a read-only tool (read, grep, glob, zoom, date) or a worker tool (worker_assign, worker_forward, worker_status)
-# EXCLUDES: main offered a tool that runs a program (ipython, bash,
+# EXCLUDES: main offered a tool that runs a program (python, bash,
 #   codemode), edits a file (edit), reaches more tools (dyn) or spawns
 #   (workflow)
 law main_roster_read_or_workers:
@@ -223,7 +223,7 @@ law worker_tools_main_only:
 
 # LAWS (G4, compiled core): the runners of code run as the compiled model
 # (bend/ffi_runners.bend over bend/runners.bend; Rust:
-# crates/eukhe-bend/src/rules/runners.rs, called by the `ipython` tool's
+# crates/eukhe-bend/src/rules/runners.rs, called by the `python` tool's
 # gate and the registry test). Each law is an open claim about FRu.ffi,
 # the function the core runs, stated with spec spellers built only from
 # the wire primitives of bend/wire.bend.
@@ -379,7 +379,7 @@ law runners_ffi_example:
   {FRu.ffi("1,1,2,1,0,1,") == "T1,1," : String} &
   {FRu.ffi("1,1,2,1,0,0,") == "F1,1," : String} &
   {FRu.ffi("1,1,2,1,0,2,F") == "T1,0," : String} &
-  {FRu.ffi("2,") == "13,7,ipython1,2,2,4,zoom0,0,4,date0,0,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
+  {FRu.ffi("2,") == "13,6,python1,2,2,4,zoom0,0,4,date0,0,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
   {FRu.ffi("3,T") == "8,4,zoom0,0,4,date0,0,13,worker_assign0,0,14,worker_forward0,0,13,worker_status0,0,4,read0,0,4,grep0,0,4,glob0,0," : String} &
   {FRu.ffi("1,1,2,1,0,3,") == malformed() : String}
 
@@ -389,7 +389,7 @@ law runners_ffi_example:
 # is pinned by laws stated from the requirement (bend/runners.bend header,
 # crates/eukhe-core/src/durable/registry.rs): R3 by runners_within_sound /
 # _complete, R4 by the cell_* laws, R5 by runners_registry_names /
-# _quiet, ipython_gated_each_call, bash_gated_each_step, R6 by
+# _quiet, python_gated_each_call, bash_gated_each_step, R6 by
 # runners_main_names and the main_roster_* laws.
 #
 # R3: a call runs unasked exactly when each of its caps is a grantable
@@ -398,11 +398,11 @@ law runners_ffi_example:
 #     client it does not ask and ends unanswered; a client that gives no
 #     answer was asked and the call ends unanswered; a yes runs it,
 #     approved, a no refuses it, denied (both asked).
-# R5: a session installs, in order: `ipython` (caps exec, gated at each
+# R5: a session installs, in order: `python` (caps exec, gated at each
 #     call), `zoom` and `date` (with or without chat memory), `workflow`,
 #     `read`, `edit`, `grep`, `glob`, `bash` (caps 0 to 6, gated at each
 #     step), `dyn`, `codemode`, `pi.codemode.models.classify`,
-#     `pi.codemode.models.generateImages` (each of these but `ipython` and
+#     `pi.codemode.models.generateImages` (each of these but `python` and
 #     `bash` runs no code of its own: no caps, ungated).
 # R6: main (a root in the `main-worker` shape) installs, in order: `zoom`
 #     and `date` only with chat memory, then `worker_assign`,
@@ -459,17 +459,17 @@ law runners_within_complete:
 # in this order (the R5 list; crates/eukhe-core/src/durable/registry.rs)
 # EXCLUDES: a tool lost, added, renamed or moved
 law runners_registry_names:
-  {ru_names(Ru.registry()) == ["ipython", "zoom", "date", "workflow", "read", "edit", "grep", "glob", "bash", "dyn", "codemode", "pi.codemode.models.classify", "pi.codemode.models.generateImages"] : List<&2, String>}
+  {ru_names(Ru.registry()) == ["python", "zoom", "date", "workflow", "read", "edit", "grep", "glob", "bash", "dyn", "codemode", "pi.codemode.models.classify", "pi.codemode.models.generateImages"] : List<&2, String>}
 
 # LAW runners_registry_quiet (R5): every tool a session installs other than
-# `ipython` and `bash` runs no code of its own: no caps, ungated
+# `python` and `bash` runs no code of its own: no caps, ungated
 # EXCLUDES: a tool given caps or a gate it does not have (a spurious ask),
 #   a tool that runs code past the gate
 law runners_registry_quiet:
   for +i: Nat
   for +t: Ru.ToolReg
   for at: {List.get(&2, Ru.ToolReg, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.ToolReg>}
-  for other: {named_in(Ru.ToolReg.name(t), ["ipython", "bash"]) == False{} : Bool}
+  for other: {named_in(Ru.ToolReg.name(t), ["python", "bash"]) == False{} : Bool}
   {quiet(t) == True{} : Bool}
 
 # LAW bash_gated_each_step (R5): the `bash` tool has the caps 0 to 6 and the
@@ -639,6 +639,7 @@ def read_req(s: String) -> Wr.Dec<FRu.Req>:
 def ru_plain(n: String) -> Ru.ToolReg:
   Ru.ToolReg{n, Nil{}, Ru.Ungated{}}
 
+
 # R6: main's roster, with chat memory or without
 def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
   match chat:
@@ -649,7 +650,7 @@ def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
 
 # R5: every tool a session installs
 def ru_registry() -> List<&2, Ru.ToolReg>:
-  [Ru.ToolReg{"ipython", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
+  [Ru.ToolReg{"python", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
 
 # the reply R3-R6 give a request
 def ru_reply(q: FRu.Req) -> String:

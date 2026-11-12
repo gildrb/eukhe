@@ -41,7 +41,9 @@ pub const JUDGE_OPEN: &str = "Answer:";
 /// New tokens a judgment may take (one label).
 pub const JUDGE_MAX_TOKENS: u32 = 8;
 
-/// The fewest and most new tokens a translation may take.
+/// The fewest and most new tokens a translation may take. Between them a
+/// translation may take two new tokens per source character: a ceiling
+/// against a runaway reply, not a count of the translation's tokens.
 pub const TRANSLATE_MIN_TOKENS: u32 = 64;
 pub const TRANSLATE_MAX_TOKENS: u32 = 2_048;
 
@@ -226,7 +228,7 @@ pub fn language_name(language: &str) -> &str {
 /// at the first line end: what follows is no part of the translation.
 #[must_use]
 pub fn translate_request(language: &str, text: &str) -> ChatRequest {
-    let estimate = u32::try_from(text.chars().count())
+    let ceiling = u32::try_from(text.chars().count())
         .unwrap_or(u32::MAX)
         .saturating_mul(2)
         .saturating_add(TRANSLATE_MIN_TOKENS);
@@ -246,7 +248,7 @@ pub fn translate_request(language: &str, text: &str) -> ChatRequest {
         )],
         prefill: format!("{name}:"),
         stop,
-        max_tokens: estimate.min(TRANSLATE_MAX_TOKENS),
+        max_tokens: ceiling.min(TRANSLATE_MAX_TOKENS),
     }
 }
 

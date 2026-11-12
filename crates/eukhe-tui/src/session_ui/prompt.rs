@@ -61,9 +61,19 @@ pub(crate) struct PromptSubmitNote {
     /// the second and last attempt -- the inline path's
     /// `rebind_available`).
     pub(crate) rebind_available: bool,
-    /// The settled request: admitted/queued on `Ok`; the daemon error
-    /// otherwise.
-    pub(crate) result: Result<(), anyhow::Error>,
+    /// The settled request: what the daemon accepted on `Ok`; the daemon
+    /// error otherwise.
+    pub(crate) result: Result<SubmitAccepted, anyhow::Error>,
+}
+
+/// What the daemon answered an accepted submit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SubmitAccepted {
+    /// Admitted or queued as input, or a session command that ran.
+    Admitted,
+    /// A `/compact` sent with the follow-up key while a turn runs: the
+    /// daemon runs it once the turn yields (a queued compaction).
+    CompactionQueued,
 }
 
 /// One queued prompt round trip for the submit worker (the ordered channel
@@ -96,7 +106,7 @@ pub(crate) struct PromptOrder {
 
 impl PromptOrder {
     /// The settled outcome of this order's round trip.
-    fn settled(self, result: Result<(), anyhow::Error>) -> PromptSubmitNote {
+    fn settled(self, result: Result<SubmitAccepted, anyhow::Error>) -> PromptSubmitNote {
         PromptSubmitNote {
             active_session_id: self.active_session_id,
             session_id: self.session_id,
@@ -741,8 +751,8 @@ impl SessionUi {
         // The re-attach window expired (TS terminal close) with the session
         // unreachable: the submit tries once more, since the supervisor
         // reopens the session from storage once it can (a session outlives
-        // a failure it could not write through, like omp's, whose next
-        // entry retries the write: session-manager.ts:1954-1960). Only a
+        // a failure it could not write through: its next entry retries the
+        // write). Only a
         // failed attempt keeps the session closed: nothing dispatches, the
         // error row surfaces the cause, and the draft returns to the editor
         // (TS keeps the input buffer on a failed submit).
@@ -945,7 +955,13 @@ impl SessionUi {
                             eukhe_client::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS,
                         )
                         .await
-                        .map(|_| ())
+                        .map(|data| {
+                            if data["compactionQueued"] == true {
+                                SubmitAccepted::CompactionQueued
+                            } else {
+                                SubmitAccepted::Admitted
+                            }
+                        })
                 });
                 let cap = Duration::from_millis(UI_REQUEST_TIMEOUT_MS);
                 if let Ok(result) = tokio::time::timeout(cap, &mut request).await {
@@ -969,7 +985,7 @@ impl SessionUi {
                     "timed out after {UI_REQUEST_TIMEOUT_MS}ms waiting for the Eukhe daemon response"
                 )
             })
-            .and_then(|result| result.map(|_| ()));
+            .and_then(|result| result.map(|_| SubmitAccepted::Admitted));
             let _ = notes.send(order.settled(result));
         }
     }
@@ -1043,7 +1059,12 @@ impl SessionUi {
             return Ok(());
         }
         match note.result {
-            Ok(()) => {
+            Ok(accepted) => {
+                // The status note for a `/compact` queued behind the
+                // running turn.
+                if accepted == SubmitAccepted::CompactionQueued {
+                    self.note("Queued compaction for when the agent yields", view);
+                }
                 // The daemon can stream the complete turn before the ACK
                 // reaches this channel. In that case turn_end already owns
                 // the idle state; re-arming it would strand WaitIdle until

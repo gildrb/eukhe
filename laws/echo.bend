@@ -9,10 +9,13 @@ import ../bend/ffi_echo.bend as FEc
 # only the C boundary (crates/eukhe-bend lib.rs tests: text in, text out, a
 # state kept in the Bend heap between calls). Every input is free.
 #
-# E1: the call answers its input, unchanged, the empty text too. The Bend
-#     call is pinned by echo_ffi_identity; the bytes across the C boundary
-#     (a multi-byte char, a large input) no Bend law can see: crates/eukhe-bend
-#     lib.rs `echo_round_trips` and `echo_round_trips_a_large_input` check them.
+# E1: the call answers its input, unchanged, the empty text too. No Bend
+#     law states E1: the Bend call (FEc.ffi) is the identity by its
+#     definition, so any law of it is its unfolding (definitional) and an
+#     example of it rests on that unfolding; the bytes across the C boundary
+#     (a multi-byte char, the empty text, a large input) no Bend law can
+#     see. E1 is tested, not proven: crates/eukhe-bend lib.rs
+#     `echo_round_trips` and `echo_round_trips_a_large_input`.
 # E2: the stepper's open reads its input as a decimal U32 (Base `U32.read`):
 #     a count k answers k in decimal (Base `U32.show`); any other input
 #     answers the error form "echo: open wants a decimal U32".
@@ -54,16 +57,6 @@ def ec_before(evs: List<&2, String>, i: Nat) -> String:
 # Laws
 # ----
 
-# LAW echo_ffi_identity (E1): the Bend call answers every text unchanged, the empty text too.
-# The code is the identity, so the proof is one unfold; the law is here to say so: without
-# it, a call that answers "(null)" for the empty text passes every other law (a blind
-# adversary's program). It says nothing of the C boundary's bytes (the Rust tests)
-# EXCLUDES: a Bend call that drops, adds, replaces or reorders a char, or answers a
-#   placeholder for the empty text
-law echo_ffi_identity:
-  for s: String
-  {FEc.ffi(s) == s : String}
-
 # LAW echo_stepper_counts (E2, E3): an open whose input reads as the
 # decimal U32 k (Base `U32.read`), fed any events evs, replies first k in
 # decimal (Base `U32.show`), then to the i-th event (from 0) the number
@@ -96,12 +89,10 @@ law echo_stepper_refused:
   {List.get(&2, String, ec_feed(evs, FEc.open(input)), 0n) == Some{"E echo: open wants a decimal U32"} : Maybe<&2, String>} &
   {List.get(&2, String, ec_feed(evs, FEc.open(input)), 1n+i) == ec_if_event(List.get(&2, String, evs, i), "E echo: the open was refused") : Maybe<&2, String>}
 
-# LAW echo_example (E1-E3): anchor: Rust's vectors (crates/eukhe-bend lib.rs):
-# a text with multi-byte chars calls back as itself; an open of 5 then the
-# events é and 😀 answer 5, "6 " and "7 é"; an open of five is refused and
-# so is its step
+# LAW echo_example (E2, E3): anchor: Rust's vectors (crates/eukhe-bend lib.rs):
+# an open of 5 then the events é and 😀 answer 5, "6 " and "7 é"; an open
+# of five is refused and so is its step
 # EXCLUDES: a spec that drifts from the Rust tests
 law echo_example:
-  {[FEc.ffi("hello"), FEc.ffi("ação 漢 😀 ")] == ["hello", "ação 漢 😀 "] : List<&2, String>} &
   {ec_feed(["é", "😀"], FEc.open("5")) == ["5", "6 ", "7 é"] : List<&2, String>} &
   {ec_feed(["x"], FEc.open("five")) == ["E echo: open wants a decimal U32", "E echo: the open was refused"] : List<&2, String>}

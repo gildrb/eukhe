@@ -16,6 +16,9 @@ pub enum InputOrigin {
     User,
     /// A goal context the goal engine submitted.
     Goal { context: GoalContextKind },
+    /// An iteration of `/loop`: the loop's prompt, sent as iteration
+    /// `iteration` (the first turn is 1).
+    Loop { iteration: u64 },
     /// An autonomous-mode continuation.
     Autonomous { nudge: AutonomousNudge },
     /// A continuation a Director layer added (a forced tool call that the
@@ -23,6 +26,9 @@ pub enum InputOrigin {
     Director,
     /// The marker that resumes a session the provider quota parked.
     QuotaResume,
+    /// The prompt that resumes a turn a manual compaction interrupted
+    /// (the auto-continue prompt).
+    CompactionResume,
     /// A report of work outside this conversation.
     Report { report: Report },
 }
@@ -158,7 +164,7 @@ pub enum Report {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stopped_by: Option<BashStopper>,
     },
-    /// A detached `ipython` cell settled.
+    /// A detached `python` cell settled.
     JobSettled { job: JobId, status: CellStatus },
 }
 

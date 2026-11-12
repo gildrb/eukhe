@@ -479,6 +479,10 @@ impl SupervisorChildSessionsInner {
     }
 }
 
+/// The `abort` field of a parent's cancel of its RLM child: the child's
+/// worker also kills the session's background jobs.
+pub(crate) const RLM_CANCEL: &str = "rlmCancel";
+
 mod durable_host;
 mod first_prompt;
 mod lifecycle;

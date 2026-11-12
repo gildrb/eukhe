@@ -3,9 +3,11 @@
 // sidebar status word, the document title, the badge and announcements.
 // No DOM, no clock reads: callers pass `now`.
 
+import { loopEndNote } from "./loop.ts";
 import type {
   AgentState,
   Cursor,
+  LoopStatus,
   Message,
   ModelRef,
   OpenReply,
@@ -17,9 +19,8 @@ import type {
 } from "./types.ts";
 import type { fmt as Fmt } from "./format.ts";
 
-// The one token estimate (eukhe-types `token_estimate`, 7/2 chars per
-// token); a Rust test in eukhe-dashboard pins this value to it.
-const CHARS_PER_TOKEN = 3.5;
+// The live rate shows once this much decode time has passed; before it,
+// the rate of the first deltas is noise.
 const LIVE_RATE_AFTER_MS = 250;
 const BASH_TAIL_CHARS = 64_000;
 const NOTE_LIMIT = 200;
@@ -53,7 +54,10 @@ export type Turn = {
   prefill: PromptProgress | null;
   prefillAt: number;
   stream: "thinking" | "writing" | null;
-  deltaChars: number;
+  // The open reply's output tokens so far, as the daemon counted them with
+  // the model's tokenizer (`message_update.outputTokens`), and when.
+  streamedTokens: number;
+  streamedAt: number;
   deltaStartAt: number;
   retry: {
     attempt: number;
@@ -111,6 +115,8 @@ export type Session = {
   last: Speed | null;
   bash: { command: string; output: string; startedAt: number } | null;
   goal: unknown;
+  /** The session's `/loop`: `state.loop`, then every `loop_update`. */
+  loop: LoopStatus | null;
   serviceTier: string | null;
   memory: { stamp: number; last: unknown };
   notes: Note[];
@@ -156,7 +162,8 @@ function freshTurn(now: number): Turn {
     prefill: null,
     prefillAt: 0,
     stream: null,
-    deltaChars: 0,
+    streamedTokens: 0,
+    streamedAt: 0,
     deltaStartAt: 0,
     retry: null,
     compacting: null,
@@ -206,6 +213,7 @@ export function openSession(reply: OpenReply, previous: Session | null, now: num
     cursor: reply.cursor ?? (keep ? previous.cursor : null),
     queue: state.sessionActions ?? EMPTY_QUEUE,
     goal: state.goal ?? null,
+    loop: state.loop ?? null,
     serviceTier: state.serviceTier ?? null,
   };
   if (!keep) {
@@ -279,12 +287,14 @@ function lastFromMessages(messages: Message[]): Speed | null {
   return null;
 }
 
-/** Live decode estimate (chars / CHARS_PER_TOKEN), once 250ms of deltas came in. */
-export function liveRate(turn: Turn, now: number): number | null {
-  if (!turn.deltaStartAt || turn.deltaChars <= 0) return null;
-  const elapsed = now - turn.deltaStartAt;
+/** Live decode rate: the daemon's exact count of the open reply's output
+ * tokens over the time from its first delta to that count, once the count
+ * covers 250ms of deltas. */
+export function liveRate(turn: Turn): number | null {
+  if (!turn.deltaStartAt || turn.streamedTokens <= 0) return null;
+  const elapsed = turn.streamedAt - turn.deltaStartAt;
   if (elapsed < LIVE_RATE_AFTER_MS) return null;
-  return turn.deltaChars / CHARS_PER_TOKEN / (elapsed / 1000);
+  return turn.streamedTokens / (elapsed / 1000);
 }
 
 /** Prefill throughput and ETA from `prompt_progress`. */
@@ -310,16 +320,22 @@ function reconcilePending(pending: Pending[], message: Message): Pending[] {
   return [...pending.slice(0, index), ...pending.slice(index + 1)];
 }
 
-function onStreamUpdate(turn: Turn, update: StreamUpdate | undefined, now: number): Turn {
-  if (!update) return turn;
+function onStreamUpdate(
+  turn: Turn,
+  update: StreamUpdate | undefined,
+  outputTokens: number | undefined,
+  now: number,
+): Turn {
+  const counted =
+    outputTokens === undefined ? turn : { ...turn, streamedTokens: outputTokens, streamedAt: now };
+  if (!update) return counted;
   switch (update.type) {
     case "text_delta":
     case "thinking_delta":
     case "toolcall_delta": {
       const stream = update.type === "thinking_delta" ? "thinking" : "writing";
       const next: Turn = {
-        ...turn,
-        deltaChars: turn.deltaChars + (update.delta ?? "").length,
+        ...counted,
         deltaStartAt: turn.deltaStartAt || now,
         firstTokenAt: turn.firstTokenAt || now,
         stream,
@@ -328,7 +344,7 @@ function onStreamUpdate(turn: Turn, update: StreamUpdate | undefined, now: numbe
       return next;
     }
     default:
-      return turn;
+      return counted;
   }
 }
 
@@ -391,7 +407,8 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
           prefill: null,
           prefillAt: 0,
           stream: null,
-          deltaChars: 0,
+          streamedTokens: 0,
+          streamedAt: 0,
           deltaStartAt: 0,
           log: log(turn, { at: now, kind: "turn" }),
         },
@@ -424,8 +441,9 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
           ...session,
           live: message,
           turn: onStreamUpdate(
-            { ...turn, deltaChars: 0, deltaStartAt: 0, stream: null },
+            { ...turn, streamedTokens: 0, streamedAt: 0, deltaStartAt: 0, stream: null },
             event.assistantMessageEvent,
+            undefined,
             now,
           ),
         };
@@ -443,7 +461,7 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
       return {
         ...session,
         live: event.message,
-        turn: onStreamUpdate(turn, event.assistantMessageEvent, now),
+        turn: onStreamUpdate(turn, event.assistantMessageEvent, event.outputTokens, now),
       };
     case "message_end": {
       const { message } = event;
@@ -638,6 +656,15 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
       return { ...session, queue: event.actions };
     case "goal_update":
       return { ...session, goal: event.goal };
+    case "loop_update": {
+      // A loop that ends here leaves one note of why; a replayed end does not.
+      const end = session.loop?.phase.state === "ended" ? null : loopEndNote(event.loop);
+      return {
+        ...session,
+        loop: event.loop,
+        notes: end ? note(session, end.kind, end.text, now) : session.notes,
+      };
+    }
     case "chat_turn_wait":
       return {
         ...session,
@@ -671,7 +698,7 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
         ...session,
         notes: note(session, "error", `Refinement failed: ${event.error}`, now),
       };
-    case "ipython_sent_agent_message":
+    case "python_sent_agent_message":
       return {
         ...session,
         notes: note(session, "note", "The Python kernel sent the agent a message.", now),
@@ -838,7 +865,7 @@ export function derivePhase(
   if (turn.running && turn.chatWait)
     return phase("memory", "Waiting for memory", { running: true });
   if (turn.running && turn.stream === "writing") {
-    const rate = liveRate(turn, now);
+    const rate = liveRate(turn);
     return phase("writing", rate ? `Writing ${fmt.rate(rate)}` : "Writing", {
       running: true,
       announce: "Writing",

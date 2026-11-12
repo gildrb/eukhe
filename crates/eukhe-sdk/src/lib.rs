@@ -1,4 +1,4 @@
-//! Embed the Eukhe session engine in-process.
+//! Run Eukhe sessions inside your own process.
 //!
 //! A host that runs sessions in its own process (no daemon, no wire) opens
 //! them here. The facade is thin: the engine's own types are re-exported
@@ -39,8 +39,26 @@
 //! - [`prompt`] submits user text to a conversation and waits until the
 //!   conversation is idle again.
 //! - [`watch`] streams a conversation's committed events.
+//! - [`unknown_effects`] lists a conversation's interrupted effects whose
+//!   outcome a restart could not tell, [`resolve_unknown_effect`] settles
+//!   one after the host checked the world, and [`watch_unknown_effects`]
+//!   follows the ledger (its current state first, then every change).
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
+//! - [`set_budget`] gives a session a [`budget`]: limits on money, tokens,
+//!   tool calls and model requests, and a wall-clock deadline, that
+//!   nothing the session or the agents beneath it spend can pass.
+//!   [`add_budget`] adds to it (time moves the deadline; an exhausted
+//!   session works again), [`budget_report`] reads what is free, held,
+//!   spent and lent and the time left, [`watch_budget`] follows every
+//!   change, and [`audit_budget`] replays the budget's ledger.
+//! - [`set_acceptance`] sets the acceptance checks of a conversation's
+//!   task as its owner (pass [`owner_checks`] of the explicit
+//!   [`CheckSpec`]s to add the intent check);
+//!   [`acceptance_state`] reads its [`AcceptanceState`] (its
+//!   [`AcceptanceLabel`]: verified, failed or unverified), and
+//!   [`watch_acceptance_updates`] streams every change. An
+//!   [`AcceptanceSeed`] is the checks a session starts with.
 //! - [`context`] holds the [`Context`](context::Context) every engine call
 //!   takes; [`BACKGROUND_CONTEXT`](context::BACKGROUND_CONTEXT) never
 //!   cancels.
@@ -56,15 +74,28 @@ use tokio::sync::mpsc;
 
 pub use eukhe_ai::models::Models;
 pub use eukhe_chord::context;
+pub use eukhe_core::durable::acceptance::{
+    acceptance_state, set_acceptance, watch_acceptance_updates, AcceptanceUpdates,
+};
+pub use eukhe_core::durable::budget::{BudgetError, BudgetGate};
 pub use eukhe_core::durable::{
     create_models, open_session, EukheSession, ModelRequest, OpenError, SessionConfig,
     SessionModels, SessionStorage,
 };
+pub use eukhe_durable::harness::effects::{
+    EffectKind, EffectResolution, UnknownEffect, UnknownEffectUpdates,
+};
 pub use eukhe_durable::harness::{
     AgentEvent, AgentEventBatch, AgentEventStream, Conversation, SnapshotEvent,
 };
+pub use eukhe_types::acceptance::{
+    owner_checks, AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckSpec,
+};
+pub use eukhe_types::budget;
+pub use eukhe_types::daemon::BudgetAudit;
 pub use eukhe_types::pi_ai::Model;
 
+use budget::{BudgetAmounts, BudgetLimits, BudgetReport};
 use context::Context;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 
@@ -126,6 +157,149 @@ pub async fn watch(
         futures::future::ready(Ok(())).boxed()
     }))?;
     Ok(Events { stream, batches })
+}
+
+/// The ledger of `conversation`'s interrupted effects whose outcome a
+/// restart could not tell, oldest first, open and resolved.
+///
+/// # Errors
+///
+/// The ledger cannot be read (the session closed, `cx` cancelled).
+pub async fn unknown_effects(
+    session: &EukheSession,
+    conversation: &Conversation,
+    cx: &Context,
+) -> anyhow::Result<Vec<UnknownEffect>> {
+    Ok(eukhe_durable::harness::effects::read_unknown_effects(
+        session.harness(),
+        conversation.id(),
+        cx,
+    )
+    .await?)
+}
+
+/// Settle `conversation`'s open unknown effect `id` as `resolution`: the
+/// effect as resolved, or `None` when the ledger holds no open effect of
+/// that id (never noted, or settled already).
+///
+/// # Errors
+///
+/// The commit fails (the session closed, `cx` cancelled).
+pub async fn resolve_unknown_effect(
+    session: &EukheSession,
+    conversation: &Conversation,
+    id: &str,
+    resolution: EffectResolution,
+    cx: &Context,
+) -> anyhow::Result<Option<UnknownEffect>> {
+    let conversation_id = conversation.id();
+    let id = id.to_owned();
+    Ok(session
+        .harness()
+        .commit(
+            move |tx| async move {
+                eukhe_durable::harness::effects::resolve_unknown(
+                    &tx,
+                    conversation_id,
+                    &id,
+                    resolution,
+                )
+                .await
+            },
+            cx,
+        )
+        .await?)
+}
+
+/// Follow `conversation`'s ledger: the current ledger first, then the
+/// ledger after every change (an effect noted or resolved). Dropping the
+/// stream stops it.
+///
+/// # Errors
+///
+/// The session's harness cannot attach the watch (closed).
+pub fn watch_unknown_effects(
+    session: &EukheSession,
+    conversation: &Conversation,
+    cx: &Context,
+) -> anyhow::Result<UnknownEffectUpdates> {
+    Ok(eukhe_durable::harness::effects::watch_unknown_effects(
+        session.harness(),
+        conversation.id(),
+        cx,
+    )?)
+}
+
+/// Give `session` the budget `limits`; answers the budget's state. A
+/// dimension without a limit is unlimited. Set it before the session's
+/// first prompt: nothing is spent past a budget from the moment it is set.
+///
+/// # Errors
+///
+/// The session already has a budget (the [`BudgetError`] `AlreadyOpen`:
+/// add to it with [`add_budget`]), or its ledger cannot be written.
+pub async fn set_budget(
+    session: &EukheSession,
+    limits: BudgetLimits,
+) -> anyhow::Result<BudgetReport> {
+    let gate = session.budget();
+    Ok(tokio::task::spawn_blocking(move || gate.set(limits)).await??)
+}
+
+/// Add `amounts` to `session`'s budget; answers the budget's state. A
+/// session that used its budget up works again; a session without a
+/// budget gets `amounts` as its budget.
+///
+/// # Errors
+///
+/// The session's budget comes from a parent session (the [`BudgetError`]
+/// `NotRoot`: add to the parent's), the sum is too large, or the ledger
+/// cannot be written.
+pub async fn add_budget(
+    session: &EukheSession,
+    amounts: BudgetAmounts,
+) -> anyhow::Result<BudgetReport> {
+    let gate = session.budget();
+    Ok(tokio::task::spawn_blocking(move || gate.add(amounts)).await??)
+}
+
+/// The state of `session`'s budget: its limits and what is free, held,
+/// spent and lent to child sessions. `None`: the session has no budget.
+///
+/// # Errors
+///
+/// The read did not finish (the runtime is shutting down).
+pub async fn budget_report(session: &EukheSession) -> anyhow::Result<Option<BudgetReport>> {
+    let gate = session.budget();
+    Ok(tokio::task::spawn_blocking(move || gate.report()).await?)
+}
+
+/// Follow `session`'s budget: the receiver holds the budget's state and
+/// changes with every reservation, settlement, allotment to a child and
+/// added budget, so a host can show it and react (add budget when the
+/// phase leaves [`budget::BudgetPhase::Working`]).
+#[must_use]
+pub fn watch_budget(session: &EukheSession) -> tokio::sync::watch::Receiver<Option<BudgetReport>> {
+    session.budget().watch()
+}
+
+/// Audit `session`'s budget: every record of its ledger replayed, and the
+/// settled spends added up against the total the budget reports.
+///
+/// # Errors
+///
+/// The session has no budget (the [`BudgetError`] `NoBudget`), or its
+/// ledger does not read.
+pub async fn audit_budget(session: &EukheSession) -> anyhow::Result<BudgetAudit> {
+    let gate = session.budget();
+    let audit = tokio::task::spawn_blocking(move || gate.audit()).await??;
+    Ok(BudgetAudit {
+        records: audit.records,
+        settled: audit.settled,
+        spent: audit.spent,
+        exact: audit.exact(),
+        first_mismatch: audit.first_mismatch,
+    })
 }
 
 /// A conversation's event stream (see [`watch`]).

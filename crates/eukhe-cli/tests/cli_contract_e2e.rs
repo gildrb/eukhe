@@ -20,7 +20,8 @@
 //! The CLI's output contract, end to end against the real binary:
 //! exit-code classes (0 success, 1 operational, 2 usage), help discovery
 //! (`help` wins over version and validation), the `--json` shapes, the
-//! piped-table format, and the quiet closed-stdout exit.
+//! piped-table format (space-padded like on a terminal), and the quiet
+//! closed-stdout exit.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -32,6 +33,11 @@ fn cli_binary() -> PathBuf {
 /// Run the CLI with its state pinned to a fixture agent dir: no daemon,
 /// no network (offline), stdout and stderr captured separately.
 fn run(args: &[&str], agent_dir: &Path) -> Output {
+    command(args, agent_dir).output().expect("run the CLI")
+}
+
+/// The CLI command [`run`] runs, for a test that drives the process itself.
+fn command(args: &[&str], agent_dir: &Path) -> Command {
     let mut command = Command::new(cli_binary());
     command
         .args(args)
@@ -54,7 +60,7 @@ fn run(args: &[&str], agent_dir: &Path) -> Output {
     ] {
         command.env_remove(key);
     }
-    command.output().expect("run the CLI")
+    command
 }
 
 fn stdout(output: &Output) -> String {
@@ -182,25 +188,86 @@ fn empty_results_are_silent_success_or_plain_zero_lines() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stdout(&output), "No background services.\n");
     assert_eq!(stderr(&output), "");
+    // `doctor`, `doctor --fix` and `shutdown` say it the same way.
+    for args in [&["doctor"] as &[&str], &["doctor", "--fix"], &["shutdown"]] {
+        let output = run(args, fixture.path());
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+        assert_eq!(stdout(&output), "No background services.\n", "{args:?}");
+    }
 }
 
+/// Piped management tables keep the terminal's space-padded columns: no
+/// tabs, the header padded to its column.
 #[test]
-fn status_json_keys_the_list_by_noun() {
-    let fixture = Fixture::new("status-json");
-    let output = run(&["status", "--json"], fixture.path());
-    assert_eq!(output.status.code(), Some(0));
-    let parsed: serde_json::Value =
-        serde_json::from_str(stdout(&output).trim()).expect("one JSON document");
-    let services = parsed
-        .get("services")
-        .and_then(serde_json::Value::as_array)
-        .expect("services array");
-    assert_eq!(
-        services.len(),
-        0,
-        "a fixture state root holds no daemons: {parsed}"
+fn piped_tables_stay_space_padded() {
+    let fixture = Fixture::new("piped-tables");
+    let tiny = run(&["tiny-models"], fixture.path());
+    assert_eq!(tiny.status.code(), Some(0), "{}", stderr(&tiny));
+    let tiny_out = stdout(&tiny);
+    assert!(
+        !tiny_out.contains('\t'),
+        "piped tiny-models must not use tabs:\n{tiny_out}"
     );
-    assert_eq!(stderr(&output), "");
+    let header = tiny_out.lines().next().unwrap_or_default();
+    assert!(
+        header.starts_with("ID  "),
+        "space-padded header: {header:?}"
+    );
+    assert!(
+        tiny_out.lines().any(|line| line.starts_with("kokoro ")),
+        "a row splits on spaces:\n{tiny_out}"
+    );
+
+    // A stale socket file nobody listens on: `doctor` lists it as a row.
+    let socket = fixture.path().join("daemon.sock");
+    drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind the stale socket"));
+    let doctor = run(&["doctor"], fixture.path());
+    assert_eq!(doctor.status.code(), Some(0), "{}", stderr(&doctor));
+    let doctor_out = stdout(&doctor);
+    assert!(
+        !doctor_out.contains('\t'),
+        "piped doctor must not use tabs:\n{doctor_out}"
+    );
+    assert!(
+        doctor_out.starts_with("socket  "),
+        "space-padded header:\n{doctor_out}"
+    );
+    assert!(doctor_out.contains("orphan-file"), "{doctor_out}");
+}
+
+/// `status --json` and `doctor --json` print the services as a top-level
+/// array (no wrapping object), each row with its pid and status.
+#[test]
+fn status_and_doctor_json_are_the_service_array() {
+    let fixture = Fixture::new("status-json");
+    for command in ["status", "doctor"] {
+        let output = run(&[command, "--json"], fixture.path());
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        assert_eq!(stdout(&output).trim(), "[]", "{command} --json");
+        assert_eq!(stderr(&output), "");
+    }
+
+    // A stale socket file: one row, its fields at the top level of the row.
+    let socket = fixture.path().join("daemon.sock");
+    drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind the stale socket"));
+    for command in ["status", "doctor"] {
+        let output = run(&[command, "--json"], fixture.path());
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(stdout(&output).trim()).expect("a JSON array of services");
+        assert_eq!(rows.len(), 1, "{command} --json: {rows:?}");
+        assert_eq!(rows[0]["status"], "orphan-file", "{command} --json");
+        assert_eq!(
+            rows[0]["socketPath"],
+            socket.to_string_lossy().as_ref(),
+            "{command} --json"
+        );
+    }
 }
 
 #[test]
@@ -247,6 +314,67 @@ fn a_json_usage_failure_exits_2() {
     let parsed: serde_json::Value =
         serde_json::from_str(stderr(&output).trim()).expect("one JSON error document");
     assert_eq!(parsed["reason"], "invalid_arguments");
+}
+
+/// `tiny-models` names its models dir on stdout, after the table, as part
+/// of the listing.
+#[test]
+fn tiny_models_names_its_dir_on_stdout() {
+    let fixture = Fixture::new("tiny-models-dir");
+    let output = run(&["tiny-models"], fixture.path());
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.lines()
+            .last()
+            .is_some_and(|line| line.starts_with("Models dir: ")),
+        "the models dir ends stdout:\n{out}"
+    );
+    assert_eq!(stderr(&output), "");
+}
+
+/// Ctrl+C is how the foreground dashboard stops: a clean exit 0 on
+/// SIGINT.
+#[test]
+fn the_dashboard_stops_cleanly_on_ctrl_c() {
+    use std::io::{BufRead, BufReader};
+    use std::time::{Duration, Instant};
+
+    let fixture = Fixture::new("dashboard-sigint");
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free port")
+        .port()
+        .to_string();
+    let mut child = command(&["dashboard", "--no-open", "--port", &port], fixture.path())
+        .spawn()
+        .expect("start the dashboard");
+    // The URL on stdout means the server is listening.
+    let mut url = String::new();
+    BufReader::new(child.stdout.take().expect("dashboard stdout"))
+        .read_line(&mut url)
+        .expect("read the dashboard URL");
+    assert!(url.contains("#token="), "dashboard URL: {url:?}");
+    // The Ctrl+C handler is installed right after the URL prints; a short
+    // pause keeps the signal from beating it.
+    std::thread::sleep(Duration::from_millis(500));
+    let kill = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(kill.success());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll the dashboard") {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("the dashboard did not stop within 20 s of SIGINT");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(status.code(), Some(0), "Ctrl+C must exit 0");
 }
 
 #[test]

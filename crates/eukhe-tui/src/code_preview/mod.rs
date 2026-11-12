@@ -1,4 +1,4 @@
-//! Code-preview extraction for tool-call cards (`ipython` collapsed line).
+//! Code-preview extraction for tool-call cards (`python` collapsed line).
 //!
 //! Faithful port of `packages/coding-agent/src/core/tools/code-preview.ts`,
 //! `code-preview-python` and `ipython-cell-code.ts`. The eukhe-tui dependency

@@ -219,7 +219,7 @@ def mfo.elv.go(+x: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(x) == d : Wr.Dec<Nat>
 def mfo.elv(+x: String) -> mfo.ELv(x, FMF.get_elv(Wr.get_nat(x))):
   mfo.elv.go(x, Wr.get_nat(x), {==})
 
-# a shape: 0 none | 1 Claude | 2 GPT | 3 gpt-oss
+# a shape: 0 none | 1 Claude | 2 GPT
 def mfo.Shape(x: String, d: Wr.Dec<Maybe<&2, Fx.Shape>>) -> Type:
   match d:
     case Wr.Got{sh, r}:
@@ -235,9 +235,7 @@ def mfo.shape.tag(-x: String, t: Nat, -x0: String, en: {x == Wr.put_nat(t, x0) :
       en
     case 2n:
       en
-    case 3n:
-      en
-    case 4n+k:
+    case 3n+k:
       Unit{}
 
 def mfo.shape.go(+x: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(x) == d : Wr.Dec<Nat>}) -> mfo.Shape(x, FMF.get_shape(d)):

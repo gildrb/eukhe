@@ -11,6 +11,7 @@ use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::session::SessionResult;
+use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
 
@@ -37,7 +38,13 @@ impl Worker {
             "prompt_and_wait" => self.handle_prompt(payload, true).await,
             "steer" => self.handle_queue(payload, WhenBusy::Steer).await,
             "follow_up" => self.handle_queue(payload, WhenBusy::FollowUp).await,
-            "abort" => self.handle_abort(AbortQueue::Suspend).await,
+            "abort" => {
+                let response = self.handle_abort(AbortQueue::Suspend).await;
+                if payload.get(crate::rlm_children::RLM_CANCEL) == Some(&Value::Bool(true)) {
+                    self.kill_background_jobs();
+                }
+                response
+            }
             "abort_and_send_queued" => self.handle_abort(AbortQueue::Send).await,
             "abort_and_clear_queue" => self.handle_abort(AbortQueue::Clear).await,
             "pause_workers" => self.handle_pause_workers(payload, PauseAction::Pause).await,
@@ -70,11 +77,19 @@ impl Worker {
             "get_messages" => self.handle_get_messages(),
             "get_session_header" => self.handle_get_session_header(),
             "get_session_stats" => self.handle_get_session_stats(),
+            "get_budget" => self.handle_get_budget().await,
+            "set_budget" => self.handle_set_budget(payload).await,
+            "add_budget" => self.handle_add_budget(payload).await,
+            "audit_budget" => self.handle_audit_budget().await,
             "get_model_catalog" => self.handle_get_model_catalog(),
             "get_queue" => self.handle_get_queue(),
             "clear_queue" => self.handle_clear_queue().await,
             "get_last_assistant_text" => self.handle_get_last_assistant_text(),
             "get_run_outcome" => self.handle_get_run_outcome().await,
+            "get_unknown_effects" => self.handle_get_unknown_effects().await,
+            "resolve_unknown_effect" => self.handle_resolve_unknown_effect(payload).await,
+            "set_acceptance" => self.handle_set_acceptance(payload).await,
+            "get_acceptance" => self.handle_get_acceptance().await,
             "get_connection_state" => self.handle_get_connection_state(),
             "get_mcp_connections" => self.handle_get_mcp_connections().await,
             "set_mcp_static_token" => self.handle_set_mcp_static_token(payload).await,
@@ -149,7 +164,7 @@ impl Worker {
             "factory_activity" => self.handle_factory_activity(payload).await,
             "workflow_activity" => self.handle_workflow_activity().await,
             "workflow_cancel" => self.handle_workflow_cancel(payload).await,
-            "execute_bash" => self.handle_execute_bash(payload),
+            "execute_bash" => self.handle_execute_bash(payload).await,
             "execute_bash_and_wait" => self.handle_execute_bash_and_wait(payload).await,
             "abort_bash" => self.handle_abort_bash(),
             "list_kernel_bash" | "tail_kernel_bash" | "kill_kernel_bash" => {
@@ -270,6 +285,17 @@ impl Worker {
         }
     }
 
+    /// A parent cancelled this RLM child: its background jobs (detached
+    /// shells and cells, with their process trees) end with its run, through
+    /// each job's own kill. A child that settles on its own keeps them.
+    fn kill_background_jobs(&self) {
+        if let Some(hosted) = self.session.get() {
+            for job in hosted.deps().jobs.jobs() {
+                job.kill();
+            }
+        }
+    }
+
     /// Abort the main conversation's run. Durable `abort` withdraws the
     /// queued inputs; the worker keeps them per `queue`: suspended (shown,
     /// resubmitted by `resume_queue` or the next steered prompt), sent
@@ -332,14 +358,16 @@ impl Worker {
                         state.held = taken;
                         (state, Vec::new())
                     } else {
-                        let taken = taken.iter().map(WithdrawnInput::queued).collect();
+                        // They stay in the store until they are submitted
+                        // again: a crash before then loses none, and their
+                        // request ids make a repeat deliver each once.
+                        state.suspended.clone_from(&taken);
                         (state, taken)
                     }
                 }
                 AbortQueue::Clear => {
                     let mut taken = std::mem::take(&mut state.suspended);
                     taken.append(&mut state.held);
-                    let taken = taken.iter().map(WithdrawnInput::queued).collect();
                     (state, taken)
                 }
             }
@@ -354,13 +382,27 @@ impl Worker {
             AbortQueue::Suspend => None,
             AbortQueue::Send => {
                 if let Some(admission) = &admission {
-                    if let Err(error) = resubmit(&hosted, cleared, admission).await {
+                    if let Err(error) = resubmit(&hosted, cleared.clone(), admission).await {
+                        return response_failure(None, command, &error.to_string(), None);
+                    }
+                    if let Err(error) =
+                        mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
+                            state.suspended.retain(|input| !cleared.contains(input));
+                            (state, ())
+                        })
+                        .await
+                    {
                         return response_failure(None, command, &error.to_string(), None);
                     }
                 }
                 None
             }
-            AbortQueue::Clear => Some(lane_texts(&cleared)),
+            AbortQueue::Clear => Some(lane_texts(
+                &cleared
+                    .iter()
+                    .map(WithdrawnInput::queued)
+                    .collect::<Vec<_>>(),
+            )),
         };
         hosted.events_delivered().await;
         response_success(None, command, data)
@@ -493,14 +535,14 @@ impl Worker {
             },
             "cost": cost,
         });
-        // The tray's context usage, the estimate the attach snapshot
-        // carries; omitted without a model context window (TS sessions
-        // without a model).
-        if let Some(window) = crate::state_getters::model_context_window(
+        // The tray's context usage, the count the attach snapshot carries;
+        // omitted without a model context window (TS sessions without a
+        // model).
+        if let Some(meter) = crate::state_getters::ContextMeter::of_wire(
             super::model_metadata(&core, &self.session).as_ref(),
         ) {
             stats["contextUsage"] =
-                crate::state_getters::mirror_context_usage(&mirror.entries, window);
+                crate::state_getters::mirror_context_usage(&mirror.entries, &meter);
         }
         response_success(None, "get_session_stats", Some(stats))
     }
@@ -702,8 +744,9 @@ impl Worker {
             return;
         };
         self.stop_memory_updates();
-        // The session closed: its state tree forwarder stops.
+        // The session closed: its state tree and budget forwarders stop.
         self.follow_state_tree(None);
+        self.follow_budget(None);
         // Closing begins before the abort: the abort withdraws the queued
         // inputs (a child's report), and their owners must leave them to
         // the reopened session, not start a run on this closing one.
@@ -860,20 +903,22 @@ impl AbortQueue {
     }
 }
 
-/// Submit `inputs` again on the main conversation, in order. The caller
-/// passed the run gate (`_admission`).
+/// Submit the withdrawn `inputs` again on the main conversation, in order,
+/// each under its request id: a resubmission a crash repeated (the store
+/// still held the inputs) dedupes onto the one admitted before it. The
+/// caller passed the run gate (`_admission`).
 async fn resubmit(
     hosted: &HostedSession,
-    inputs: Vec<QueuedInput>,
+    inputs: Vec<WithdrawnInput>,
     _admission: &RunAdmission,
 ) -> SessionResult<()> {
     let main = hosted.main()?;
     for input in inputs {
         main.submit(
             InputSubmissionDraft {
-                request_id: None,
+                request_id: input.request,
                 content: input.content,
-                when_busy: Some(match input.mode {
+                when_busy: Some(match QueuedMode::from(input.mode) {
                     QueuedMode::Steer => WhenBusy::Steer,
                     QueuedMode::FollowUp => WhenBusy::FollowUp,
                 }),
@@ -975,10 +1020,15 @@ pub(crate) enum WithdrawnList {
 }
 
 /// Drain one withdrawn list back into the conversation: the inputs leave
-/// the durable store and resubmit, in order. `false` when the list was
-/// empty. The resubmission happens inside the mutation gate and before
-/// the store clears, so a crash mid-resume leaves the inputs in the
-/// store (re-drained on the next resume), never lost silently.
+/// the durable store and resubmit, in order, each under its request id.
+/// `false` when the list was empty. The resubmission happens inside the
+/// mutation gate and before the store clears, so a crash mid-resume leaves
+/// the inputs in the store (re-drained on the next resume), never lost
+/// silently, and a re-drained input dedupes onto its first resubmission.
+/// An input is resubmitted only while its delivery is still owed
+/// ([`still_owed`]): a queue edit stashes inputs before it withdraws them,
+/// so after a crash the store may name one that was never withdrawn (it is
+/// still queued, or it ran since); it only leaves the store.
 pub(crate) async fn drain_withdrawn(
     hosted: &HostedSession,
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
@@ -1004,14 +1054,16 @@ pub(crate) async fn drain_withdrawn(
     } {
         return Ok(false);
     }
-    let drained: Vec<QueuedInput> = match list {
-        WithdrawnList::Suspended => current
-            .suspended
-            .iter()
-            .map(WithdrawnInput::queued)
-            .collect(),
-        WithdrawnList::Held => current.held.iter().map(WithdrawnInput::queued).collect(),
-    };
+    let main = hosted.main()?;
+    let mut drained = Vec::new();
+    for input in match list {
+        WithdrawnList::Suspended => &current.suspended,
+        WithdrawnList::Held => &current.held,
+    } {
+        if still_owed(hosted, input).await? {
+            drained.push(input.clone());
+        }
+    }
     // The inputs stay in the store until they are resubmitted, so a wait
     // at a quiesced gate loses nothing.
     let admission = RunAdmission::enter(core).await;
@@ -1027,7 +1079,7 @@ pub(crate) async fn drain_withdrawn(
             held: Vec::new(),
         },
     };
-    let main = hosted.main()?;
+
     write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT).await?;
     {
         let mut core = core
@@ -1037,6 +1089,23 @@ pub(crate) async fn drain_withdrawn(
         super::emit_action_update_locked(&mut core, events);
     }
     Ok(true)
+}
+
+/// Whether the withdrawn `input` still owes its delivery: it has no
+/// submission of its own (a held admission), or its submission was
+/// withdrawn from the queue before it was placed. A submission still
+/// queued, placed, answered or ended otherwise was delivered, or will be.
+async fn still_owed(hosted: &HostedSession, input: &WithdrawnInput) -> SessionResult<bool> {
+    let Some(id) = input.id else {
+        return Ok(true);
+    };
+    let Some(submission) = hosted.harness().submission(id, &BACKGROUND_CONTEXT).await? else {
+        return Ok(true);
+    };
+    let state = submission.status(&BACKGROUND_CONTEXT).await?.state;
+    Ok(state.status() == SubmissionStatus::Unanswered
+        && state.entry().is_none()
+        && state.reason() == Some("aborted"))
 }
 
 /// Resubmit the abort-suspended inputs on the main conversation; `false`

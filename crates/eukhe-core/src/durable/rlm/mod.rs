@@ -1,4 +1,4 @@
-//! The `eukhe.rlm` extension: the `ipython` tool backed by one Python kernel
+//! The `eukhe.rlm` extension: the `python` tool backed by one Python kernel
 //! per conversation, and the kernel host requests the session answers
 //! (`rlm_heartbeat.*`, `mcp.*`, `model.info`, `compact.*`, `refine.*`,
 //! `rlm.query_batch`, `history.*`, `chat.*`, plus the embedding's extra
@@ -67,7 +67,7 @@ pub use self::activity::{
 };
 pub use self::boundary::{BoundaryState, PendingRefine, BOUNDARY_DOC};
 pub use self::refine::{refine_now, RefineRequest};
-pub use self::tool::{ipython_parameters, IPYTHON_TOOL_NAME};
+pub use self::tool::{python_parameters, PYTHON_TOOL_NAME};
 
 /// The extension name.
 pub const RLM_EXTENSION: &str = "eukhe.rlm";
@@ -165,7 +165,7 @@ pub(crate) fn background() -> Context {
     eukhe_chord::context::BACKGROUND_CONTEXT.clone()
 }
 
-/// The `eukhe.rlm` extension of a session: the `ipython` tool (none when
+/// The `eukhe.rlm` extension of a session: the `python` tool (none when
 /// the kernel cannot start, [`HostDeps::kernel_unavailable`]), the
 /// run-boundary refinement hook, and the RLM host-request handlers (registered
 /// into `deps.host_requests` now). At open it prewarms the main
@@ -191,9 +191,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     history::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
-    // A kernel that cannot start is never booted: a failed local build
-    // would leave a broken venv the next open's probe could not tell from
-    // an out-of-date one.
+    // A kernel that cannot start (its Python could not be fetched) is
+    // never booted.
     let kernel_usable = deps.kernel_unavailable.is_none();
     deps.add_service(Box::new(move |opened: OpenedSession| {
         async move {
@@ -211,10 +210,10 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     if refine_allowed {
         hooks.push(refine::refine_hook(&runtime));
     }
-    // No `ipython` tool when the kernel cannot start
+    // No `python` tool when the kernel cannot start
     // ([`kernel_unavailable_notice`]): the model is never offered it.
     let tools = if kernel_usable {
-        vec![tool::ipython_tool(&runtime)]
+        vec![tool::python_tool(&runtime)]
     } else {
         Vec::new()
     };

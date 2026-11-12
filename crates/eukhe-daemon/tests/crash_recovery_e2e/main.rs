@@ -12,7 +12,7 @@
 //!   the next turn logs after it.
 //!
 //! States: the model streaming (the reply held mid-stream), a slow tool
-//! call (an `ipython` cell waiting on a release file), a threshold
+//! call (an `python` cell waiting on a release file), a threshold
 //! compaction (the summarizer held), the chat-memory compactor (a tree
 //! line's summarizer held), and a `codemode` script between its nested
 //! calls (`codemode.rs`). The provider is a scripted OpenAI-compatible
@@ -47,6 +47,11 @@ mod wire_client;
 mod bash_tool;
 mod cases;
 mod codemode;
+mod fire;
+mod job;
+mod queue_edit;
+mod request;
+mod tool_once;
 
 use isolated_supervisor::Supervisor;
 use mock_llm::{Logged, MockLlm, Reply, Request, RequestKind, Served};
@@ -96,11 +101,20 @@ struct World {
     session_dir: PathBuf,
     socket: PathBuf,
     mock: MockLlm,
+    /// What every supervisor of the world adds to its environment (and its
+    /// workers inherit).
+    env: Vec<(String, String)>,
     supervisor: Option<Supervisor>,
 }
 
 impl World {
     fn new(context_window: u64, settings: &Value) -> World {
+        World::with_env(context_window, settings, &[])
+    }
+
+    /// A world whose daemon processes run with `env` added to their
+    /// environment (a kill point, `EUKHE_TEST_KILL_AT`).
+    fn with_env(context_window: u64, settings: &Value, env: &[(&str, String)]) -> World {
         let dir = tempfile::tempdir().expect("temp dir");
         let agent_dir = dir.path().join("agent");
         let session_dir = agent_dir.join("sessions");
@@ -124,6 +138,10 @@ impl World {
             session_dir,
             socket,
             mock,
+            env: env
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), value.clone()))
+                .collect(),
             supervisor: None,
         };
         world.start_supervisor();
@@ -135,6 +153,7 @@ impl World {
             &self.socket,
             &self.agent_dir,
             &self.dir.path().join("supervisor.log"),
+            &self.env,
         ));
     }
 
@@ -323,10 +342,11 @@ fn attach(client: &mut WireClient, session_id: &str) {
 }
 
 /// The mock's script. A turn tagged [`HOLD_STREAM`] streams its answer
-/// held on [`STREAM_GATE`]; one tagged [`SLOW_TOOL`] calls `ipython` with a
+/// held on [`STREAM_GATE`]; one tagged [`SLOW_TOOL`] calls `python` with a
 /// cell that logs its run and waits for the release file, then answers
-/// after the tool. Summarizer calls hold on [`SUMMARIZER_GATE`]; tree-line
-/// calls hold on [`NODE_GATE`].
+/// after the tool; one tagged by `tool_once` makes that module's calls
+/// first. Summarizer calls hold on [`SUMMARIZER_GATE`]; tree-line calls
+/// hold on [`NODE_GATE`].
 fn script(request: &Request, release: &Path) -> Reply {
     match request.kind {
         RequestKind::Summarizer => {
@@ -335,7 +355,9 @@ fn script(request: &Request, release: &Path) -> Reply {
         RequestKind::MemoryNode => Reply::text("A padded user message.").held(NODE_GATE),
         RequestKind::Turn => {
             let prompt = prompt_tag(&request.prompt);
-            if request.after_tool {
+            if let Some(reply) = tool_once::reply(request, &prompt, release) {
+                reply
+            } else if request.after_tool {
                 // The call after the tool answers the prompt its call
                 // id names.
                 let call = request.tool_results.last().expect("a tool result");
@@ -359,7 +381,7 @@ fn script(request: &Request, release: &Path) -> Reply {
                     runs = runs.to_string_lossy(),
                     release = release.to_string_lossy(),
                 );
-                Reply::tool_call(format!("call-{prompt}"), "ipython", json!({ "code": code }))
+                Reply::tool_call(format!("call-{prompt}"), "python", json!({ "code": code }))
             } else if request.prompt.contains(HOLD_STREAM) {
                 Reply::text(answer_for(&prompt)).held(STREAM_GATE)
             } else {

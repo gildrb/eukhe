@@ -40,7 +40,7 @@ pub fn notice_content(errors: &UnavailablePythonSkills) -> String {
     }
     lines.push(String::new());
     lines.push(
-        "Their shell command forms fail the same way. Fix the import error first (for example install the missing dependency with `uv pip install <pkg>` or reinstall the skill into the kernel venv), or use another approach.".to_string(),
+        "Their shell command forms fail the same way. Fix the import error first (a missing package of no lock: add it to the project's with `eukhe kernel lock <pkg>`), or use another approach.".to_string(),
     );
     lines.join("\n")
 }
@@ -88,7 +88,7 @@ mod tests {
         };
         assert_eq!(
             content,
-            "[python-skills-unavailable]\n\nThese installed Python skill modules failed to import into the Python kernel, so calling them raises an error:\n- lookup: No module named 'lookup'\n- edit: boom\n\nTheir shell command forms fail the same way. Fix the import error first (for example install the missing dependency with `uv pip install <pkg>` or reinstall the skill into the kernel venv), or use another approach."
+            "[python-skills-unavailable]\n\nThese installed Python skill modules failed to import into the Python kernel, so calling them raises an error:\n- lookup: No module named 'lookup'\n- edit: boom\n\nTheir shell command forms fail the same way. Fix the import error first (a missing package of no lock: add it to the project's with `eukhe kernel lock <pkg>`), or use another approach."
         );
     }
 }

@@ -111,6 +111,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     set_autonomous(
         &harness,
+        &setup.budget,
         root.id(),
         AutonomousChange::On(AgentAutonomousConfig {
             max_continuations: Some(3),
@@ -580,6 +581,79 @@ async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entr
             .await
             .expect("read"),
         DirectorState::default()
+    );
+    harness.close(cx()).await.expect("close");
+}
+
+/// The display row of a kept truncated answer. The stop Directors let a
+/// reply that hit the output limit stand when it has text and the window
+/// has room (laws/stop/cut.bend: such a turn is kept with a warning).
+/// Regression (v0.10.67): the reply was failed and asked again with a
+/// note. The run ends after its one request; the answer keeps
+/// its text and the stop reason length, with no error; one warning row
+/// with the output-limit text follows it, shown to the user and never
+/// model context.
+#[tokio::test]
+async fn a_kept_truncated_answer_is_followed_by_one_warning_row() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    let cut = "Here is the whole plan: first";
+    let truncated: AssistantMessage = faux_assistant_message(
+        cut,
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::Length),
+            ..FauxAssistantMessageOptions::default()
+        },
+    );
+    setup
+        .faux
+        .set_responses(vec![truncated.into(), answer("unused")]);
+
+    submit(&root, "go").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    // The transcript after the user's input: the answer, then its row.
+    let shown: Vec<_> = entries(&root)
+        .await
+        .into_iter()
+        .filter_map(|entry| {
+            let answer = entry
+                .model
+                .as_deref()
+                .and_then(<[Message]>::first)
+                .and_then(Message::as_assistant)
+                .map(|message| (message.stop_reason, message.error_message.clone()));
+            let in_context = entry.model.is_some();
+            let row = CUSTOM_ENTRY
+                .narrow(entry)
+                .expect("eukhe.custom data")
+                .map(|row| row.data().clone());
+            (answer.is_some() || row.is_some()).then_some((answer, row, in_context))
+        })
+        .collect();
+    assert_eq!(
+        (shown, setup.faux.get_pending_response_count()),
+        (
+            vec![
+                (Some((StopReason::Length, None)), None, true),
+                (
+                    None,
+                    Some(CustomEntryData {
+                        custom_type: "eukhe.output_limit".to_owned(),
+                        content: Some(UserContent::Text(
+                            "Response hit the faux/faux-1 output limit (7 tokens) and was truncated."
+                                .to_owned()
+                        )),
+                        display: true,
+                        details: None,
+                        input: false,
+                        origin: None,
+                    }),
+                    false
+                ),
+            ],
+            1
+        )
     );
     harness.close(cx()).await.expect("close");
 }

@@ -14,32 +14,19 @@ import ./model.bend as RunModel
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
 # What Rust calls is decide.recover (decide.rs `recover`): the stuck
-# reply as Rust reads it (a length stop with text, leaked calls it could
-# not rebuild, calls with the rounds in a row before them as repeat.rs
-# counts them, an empty reply, a length stop with no text), the caps, and
-# the recovery and row the request's note counts (note.rs
+# reply as Rust reads it (a length stop the stop walk continues, with its
+# window's facts; leaked calls it could not rebuild; calls with the
+# rounds in a row before them as repeat.rs counts them; an empty reply),
+# the caps, and the recovery and row the request's note counts (note.rs
 # `NoteCause::recovery`). Rust ends the next request with the note of the
 # row a help names and asks about that request's reply with that note's
 # recovery and row; the laws below feed each help's row back that way.
-# An empty reply and a length stop with no text: laws/stop/recover.bend.
+# An empty reply and a length stop: laws/stop/recover.bend.
 # The recoveries' model Rec (Rec.step, Rec.run of
 # bend/run/recovery.bend), which decide.recover reads one reply with, is
 # stated after them.
 
-# the note is a length, a leak or a redirect note
-def long_note(k: RnRecovery.Rk) -> Bool:
-  match k:
-    case RnRecovery.Free{}:
-      False{}
-    case RnRecovery.Longs{}:
-      True{}
-    case RnRecovery.Leaks{}:
-      False{}
-    case RnRecovery.Loops{}:
-      False{}
-    case RnRecovery.Empties{}:
-      False{}
-
+# the note is a leak or a redirect note
 def leak_note(k: RnRecovery.Rk) -> Bool:
   match k:
     case RnRecovery.Free{}:
@@ -94,24 +81,6 @@ def notes_then_quit(m: Nat, +j: Nat) -> List<&2, RnDecision.Help>:
       [RnDecision.Quits{}]
     case 1n+q:
       RnDecision.Redoes{1n+j} <> notes_then_quit(q, 1n+j)
-
-# LAW rec_length_notes_then_fails (H4.8): under any caps (`long` length
-# notes), after a request whose note is no length note (no note, or a
-# note of another recovery, of any row), length stops with text, each
-# request carrying the length note the help before made, get length notes
-# 1 to `long`, then the run fails; and after a length note of row `long`
-# or more (a row a stored note may hold) a length stop fails the run
-# EXCLUDES: a length stop retried forever, a cap off by one either way, a
-#   row that does not grow or does not start at 1 after another note, a
-#   run that fails before the cap, an answer cut by the length cap taken
-law rec_length_notes_then_fails:
-  for +rc: RnRecovery.RCfg
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +x: Nat
-  for other: {long_note(k) == False{} : Bool}
-  {helps(1n+RnRecovery.RCfg.long(rc), rc, RnDecision.Truncated{}, RnRecovery.Longs{}, RnDecision.decide.recover(rc, RnDecision.Truncated{}, k, row)) == notes_then_quit(RnRecovery.RCfg.long(rc), 0n) : List<&2, RnDecision.Help>} &
-  {RnDecision.decide.recover(rc, RnDecision.Truncated{}, RnRecovery.Longs{}, Nat.add(RnRecovery.RCfg.long(rc), x)) == RnDecision.Quits{} : RnDecision.Help}
 
 # LAW rec_leak_notes_then_fails (H4.8): under any caps (`leak` leak
 # notes), after a request whose note is no leak note (any row), leaked
@@ -238,7 +207,8 @@ law rec_never_runs_a_repeat:
   {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Rec.run(rc, os)), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}
 
 # LAW rec_stuck_gets_help: the harness never just watches a stuck model: a stuck reply (a
-# length stop with no answer, leaked tool calls, tool calls) always gets
+# length stop the stop walk continues, leaked tool calls, tool calls, a
+# reply with no text) always gets
 # an act that does something: its calls run (no repeat), a retry with a
 # note, an answer, or the end of the run. It is never passed on as it is
 law rec_stuck_gets_help:

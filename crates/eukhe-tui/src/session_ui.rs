@@ -7,11 +7,13 @@ mod agents;
 mod apply;
 mod auth;
 mod bash;
+mod budget;
 mod chat_view;
 mod commands;
 mod copy_export;
 mod cvar;
 mod dictation;
+mod effects;
 mod factory;
 mod heartbeats;
 mod keys;
@@ -29,7 +31,7 @@ mod workers;
 mod workflows;
 
 pub(crate) use agents::AgentsUpdate;
-pub(crate) use apply::{AbortFailed, CompactionAbortNote};
+pub(crate) use apply::{AbortFailed, CompactionAbortNote, InterruptNote, ParkedOnInterrupt};
 use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome, SwitchScope};
 pub(crate) use bash::BashActivityUpdate;
 use bash::{ResyncBash, SideBashRun};
@@ -87,6 +89,7 @@ use crate::info_commands;
 use crate::info_panel::{InfoContent, InfoPanelAction};
 use crate::interactive::{InteractiveOptions, ModelSelection, SessionSelection};
 use crate::keys::key_event_to_id;
+use crate::loop_surface::{tray_loop_label, LoopView};
 use crate::model_picker::{CurrentModel, ModelPicker, ModelPickerOptions, ModelSelectionApplied};
 use crate::prompt_stash::PromptStash;
 use crate::provider_auth::{AuthSelectorAction, AuthSelectorKind};
@@ -173,6 +176,9 @@ pub(crate) struct SessionUi {
     /// create into the session's scoped list, so a `/new` session keeps
     /// the scope.
     models: Option<Vec<String>>,
+    /// The `--budget-*` limits carried into every fresh root session's
+    /// `create` config: a `/new` session starts under the same budget.
+    launch_budget: Option<eukhe_types::budget::BudgetLimits>,
     /// The model catalog for the `/model` picker: a startup snapshot from
     /// the composition root (the bundled fallback), replaced by the
     /// daemon's `get_model_catalog` response once it lands.
@@ -264,6 +270,9 @@ pub(crate) struct SessionUi {
     heartbeat_updates: mpsc::UnboundedSender<HeartbeatsUpdate>,
     /// Snapshot chat entries to fold into the view on the next rebuild.
     pending_snapshot: Option<Vec<ChatEntry>>,
+    /// The snapshot's open streaming message (its chat index), adopted as
+    /// `streaming_index` on the next rebuild.
+    pending_open_message: Option<usize>,
     /// Snapshot labels (model) for the next rebuild.
     pending_model: Option<String>,
     /// Snapshot model provider for the next rebuild (the attach state's
@@ -280,6 +289,9 @@ pub(crate) struct SessionUi {
     queue_selection: crate::queued::QueueSelection,
     /// Context usage refreshed from `get_session_stats`.
     context: Option<crate::chrome::ContextUsage>,
+    /// The session's budget: the attach snapshot's `state.budget`, then
+    /// every `budget_update` and `/budget` reply; `None` without one.
+    budget: Option<eukhe_types::budget::BudgetReport>,
     /// Rows of the most recent `/list` (for `/switch <n>`).
     list_rows: Vec<Value>,
     pub(crate) turn_active: bool,
@@ -290,6 +302,11 @@ pub(crate) struct SessionUi {
     last_prompt_turn_end: u64,
     /// The chat index of the assistant message still streaming.
     streaming_index: Option<usize>,
+    /// The chat index of the attach snapshot's in-flight reply the last
+    /// rebuild adopted as `streaming_index`: at the next `message_start` it
+    /// settles where it is (the reply may have finished before the attach
+    /// cursor) instead of giving the starting message its place.
+    adopted_index: Option<usize>,
     /// The loader's token accounting (TS `AgentActivityTracker`), reported
     /// monotonically within a run.
     working_tokens: LoaderTokenTracker,
@@ -309,6 +326,10 @@ pub(crate) struct SessionUi {
     /// called tools. A run that ends owing one ended without a reply and
     /// says so.
     run_awaits_turn: bool,
+    /// This client interrupted the open run (Escape or Ctrl+C): a run that
+    /// then ends owing its answering turn ended by that abort, and says
+    /// so instead of "without a reply".
+    run_interrupted: bool,
     /// The session closed under this view (`session_closed`): a late
     /// prompt ack re-arms nothing. A re-attach clears it.
     session_closed: bool,
@@ -325,6 +346,10 @@ pub(crate) struct SessionUi {
     /// stored anything): a same-session rebuild folds them back after the
     /// stored transcript, so a rebuild never wipes how the turn ended.
     carried_rows: Vec<ChatEntry>,
+    /// The kernel-unavailable notification the latest attach is the first
+    /// to show ([`eukhe_types::kernel_notice`]): the next rebuild pushes
+    /// it as a warning row of this view.
+    kernel_notice: Option<String>,
     /// The lost submit's prompt text and row: the turn may still run, and
     /// when its user message shows the row retires.
     maybe_sent: Option<(String, ChatEntry)>,
@@ -445,6 +470,10 @@ pub(crate) struct SessionUi {
     /// `memory_update` reported the view's size for this session (the
     /// status line's `mem` segment); `None` until then.
     memory: Option<crate::memory_block::MemoryGauge>,
+    /// The acceptance of the session's task (`state.acceptance`, then
+    /// each `acceptance_update`): the status line's verification
+    /// segment; `None` while the task has no checks.
+    verification: Option<crate::status_line::Verification>,
     /// The current Python `bash()` registry snapshot from the owning kernel.
     bash_activities: Value,
     /// Monotonic id of the latest issued kernel-bash list request; a late
@@ -516,9 +545,15 @@ pub(crate) struct SessionUi {
     /// The session's thread-goal view state (current `goal_update` state,
     /// announcement dedupe, tray label bookkeeping).
     pub(crate) goal_view: GoalView,
-    /// Notes surfacing from background tasks (the async abort result) into
-    /// the UI loop.
-    notes: mpsc::UnboundedSender<AbortFailed>,
+    /// The session's ledger of effects whose outcome a restart could not
+    /// tell (`unknown_effects_update`), oldest first.
+    pub(crate) unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
+    /// The session's `/loop` view state (the current `loop_update`
+    /// status the status line's loop label reads).
+    pub(crate) loop_view: LoopView,
+    /// Notes surfacing from background tasks (the async abort result, the
+    /// parked messages an Escape withdrew) into the UI loop.
+    notes: mpsc::UnboundedSender<InterruptNote>,
     /// Compaction-abort outcomes from the backgrounded request (the abort
     /// supervision's UI recovery): a failed abort clears the stuck loader.
     compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,

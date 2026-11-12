@@ -19,12 +19,20 @@
 //! (TS `promptHeartbeat` / `createHeartbeatPromptMessage`), plain cron jobs
 //! as a follow-up prompt (TS queues a busy session's scheduled prompt as a
 //! follow-up). The submission's request id is `<kind>:<job id>:<run
-//! count>`: a fire repeated after a crash (the store had not yet recorded
-//! the run) dedupes onto the admitted one instead of running twice. A later
-//! heartbeat fire withdraws the still-queued earlier one (the TS
-//! `heartbeat:<id>` queue key). The fire settles when its submission
-//! settles, so the store's run bookkeeping (`lastRunAt`/`runCount`) keeps
-//! the TS record-after-run timing.
+//! count>`: a fire repeated after a crash dedupes onto the admitted one
+//! instead of running twice.
+//! A fire is repeated when the store had not yet recorded its run: a
+//! recovery that clears the claim of a dead process (or of this process's
+//! unwound pass) fires an active one-shot again under its original id (it
+//! stays active, due at its claim's occurrence, its run count kept), so a
+//! one-shot claimed but never run still runs once, and one whose fire was
+//! admitted runs once too. Kill points (kind `fire`): `intended` once the
+//! claim is on record, `started` just before the fire is admitted,
+//! `finished` once its result is on record. A later heartbeat fire
+//! withdraws the still-queued earlier one (the TS `heartbeat:<id>` queue
+//! key). The fire settles when its submission settles, so the store's run
+//! bookkeeping (`lastRunAt`/`runCount`) keeps the TS record-after-run
+//! timing.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -34,6 +42,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::platform::kill_point::kill_point;
 use serde_json::{json, Value};
 
 use eukhe_core::cron::rlm_heartbeat::{KernelCronBinding, KernelCronWiring};
@@ -43,12 +52,12 @@ use eukhe_core::cron::store::{
     SessionBinding,
 };
 use eukhe_core::cron::{
-    is_heartbeat_cron_job, normalize_heartbeat_delivery_mode, normalize_heartbeat_schedule,
-    should_defer_heartbeat_cron_job, AgentCronJob, DeliveryMode, HeartbeatSessionActivity,
-    JobSource, JobStatus,
+    is_heartbeat_cron_job, normalize_heartbeat_delivery_mode, should_defer_heartbeat_cron_job,
+    AgentCronJob, DeliveryMode, HeartbeatSessionActivity, JobSource, JobStatus,
 };
+use eukhe_types::heartbeat_command::normalize_heartbeat_schedule;
 
-use crate::agent_message_ingest::withdraw_queued;
+use crate::agent_message_ingest::{any_queued, withdraw_queued};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::{meta, session_exists, storage_for_path};
 use crate::worker::{submit_input, InputRequest, SessionCore, SessionSlot, Worker};
@@ -180,6 +189,18 @@ impl QueueHooks {
         }
     }
 
+    /// Whether a fire of `job` still waits in the session's inbox.
+    async fn has_queued_fire(&self, job: &AgentCronJob) -> anyhow::Result<bool> {
+        let Some(hosted) = self.session.get() else {
+            return Ok(false);
+        };
+        let prefix = fire_request_prefix(job);
+        any_queued(hosted.harness(), &hosted.main()?, |request_id| {
+            request_id.starts_with(&prefix)
+        })
+        .await
+    }
+
     /// The fire's input: a heartbeat's `heartbeat_prompt` row and lane, or
     /// a plain cron job's or a quota wake's follow-up prompt.
     fn fire_request(job: &AgentCronJob) -> InputRequest {
@@ -232,9 +253,17 @@ impl AgentCronSchedulerHooks for QueueHooks {
             self.cancel_jobs_for_dead_target(job)?;
             return Ok(Some("skipped"));
         }
-        if should_defer_heartbeat_cron_job(job, &self.activity()) {
+        let activity = self.activity();
+        if should_defer_heartbeat_cron_job(job, &activity) {
             return Ok(Some("skipped"));
         }
+        // A follow-up heartbeat due while a turn streams queues behind the
+        // turn and is delivered when it ends, like any follow-up prompt. Its
+        // fire is a run once queued, as a prompt queued while streaming
+        // resolves once queued: the scheduler never waits out the turn.
+        let queued_behind_turn = is_heartbeat_cron_job(job)
+            && job.delivery_mode == Some(DeliveryMode::FollowUp)
+            && activity.is_streaming;
         {
             let core = lock(&self.core);
             if !core.created || core.shutdown_requested || job.status != JobStatus::Active {
@@ -251,13 +280,25 @@ impl AgentCronSchedulerHooks for QueueHooks {
         // (`promptHeartbeat`/`promptUntilAccepted` carry `resumeIfIdle:
         // true`): a fire on a post-abort session is a resume site.
         crate::worker::resubmit_suspended(&hosted, &self.core, &self.events).await?;
-        // The TS `heartbeat:<id>` queue key: a later fire replaces the
-        // queued one instead of stacking.
-        self.remove_queued_heartbeat_follow_up(job).await;
+        if queued_behind_turn {
+            // At most one queued fire per job: a fire still waiting stands
+            // for this one, which delivers nothing of its own (a skip).
+            if self.has_queued_fire(job).await? {
+                return Ok(Some("skipped"));
+            }
+        } else {
+            // The TS `heartbeat:<id>` queue key: a later fire replaces the
+            // queued one instead of stacking.
+            self.remove_queued_heartbeat_follow_up(job).await;
+        }
         let request = Self::fire_request(job);
+        kill_point("fire", "started");
         let handle =
             submit_input(&hosted.main()?, &request, &admission, &BACKGROUND_CONTEXT).await?;
         drop(admission);
+        if queued_behind_turn {
+            return Ok(None);
+        }
         match tokio::time::timeout(
             std::time::Duration::from_millis(FIRE_SETTLE_TIMEOUT_MS),
             handle.wait(&BACKGROUND_CONTEXT),

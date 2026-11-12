@@ -606,6 +606,63 @@ async fn clamps_minimal_reasoning_effort_to_low() {
     }
 }
 
+/// Thinking off (the caller turns reasoning off) on Codex sends the lowest
+/// offered effort with its summary (the lowest-effort disable mode; the
+/// Codex models never send `none` as the off effort), also for a map whose
+/// `off` is `none`. A request that names no effort and does not turn
+/// reasoning off sends no `reasoning`.
+#[tokio::test]
+async fn sends_the_lowest_effort_with_its_summary_when_thinking_is_off() {
+    let cases = [
+        (
+            get_builtin_model("openai-codex", "gpt-6-luna").expect("catalog model"),
+            json!({ "effort": "low", "summary": "auto" }),
+        ),
+        (
+            get_builtin_model("openai-codex", "gpt-6-sol").expect("catalog model"),
+            json!({ "effort": "low", "summary": "auto" }),
+        ),
+        (
+            model_with(
+                json!({ "id": "gpt-5.5", "name": "gpt-5.5", "thinkingLevelMap": { "off": "none", "minimal": null } }),
+            ),
+            json!({ "effort": "low", "summary": "auto" }),
+        ),
+    ];
+    for (model, expected) in cases {
+        let _isolation = isolate().await;
+        let (fetch, calls) = completed_fetch();
+        stream(
+            &model,
+            &say_hello(),
+            provider_options(sse_options(fetch), json!({ "disableReasoning": true })),
+        )
+        .result()
+        .await;
+        let (fetch, unset_calls) = completed_fetch();
+        stream(
+            &model,
+            &say_hello(),
+            provider_options(sse_options(fetch), json!({})),
+        )
+        .result()
+        .await;
+
+        assert_eq!(
+            last_body(&calls.calls())["reasoning"],
+            expected,
+            "{}",
+            model.id
+        );
+        assert_eq!(
+            last_body(&unset_calls.calls()).get("reasoning"),
+            None,
+            "{}",
+            model.id
+        );
+    }
+}
+
 #[tokio::test]
 async fn uses_the_client_sent_service_tier_when_codex_echoes_default() {
     for (model_id, service_tier, multiplier) in [

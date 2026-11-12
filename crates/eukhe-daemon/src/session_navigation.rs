@@ -39,7 +39,7 @@ use serde_json::{json, Value};
 
 use crate::lease::canonical_session_path;
 use crate::protocol::{response_failure, response_success, DaemonErrorInfo, DaemonResponse};
-use crate::worker::{CreateParams, HostedSession, SessionCore, SessionSlot, Worker};
+use crate::worker::{CreateBudget, CreateParams, HostedSession, SessionCore, SessionSlot, Worker};
 
 /// A prepared replacement (TS `SessionManager.open` +
 /// `assertSessionCwdExists`): the create parameters the replacement opens
@@ -61,6 +61,8 @@ pub(crate) struct SessionNavigation {
 
 /// The live identity a replacement keeps.
 struct LiveIdentity {
+    /// The live session's id: the source a fork draws its budget from.
+    session_id: String,
     cwd: String,
     storage_dir: Option<PathBuf>,
     rlm_depth: u32,
@@ -91,6 +93,7 @@ impl SessionNavigation {
         };
         let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(LiveIdentity {
+            session_id: core.session_id.clone(),
             cwd: core.cwd.clone(),
             storage_dir: hosted.storage_dir().map(Path::to_path_buf),
             rlm_depth: core.rlm_depth,
@@ -159,7 +162,8 @@ impl SessionNavigation {
     /// `fork`'s prepare phase for a persisted session (TS
     /// `AgentSessionRuntime.fork` onto the branched session file): the
     /// fork already written at `forked` replaces the live session, in the
-    /// live cwd, keeping the live RLM identity.
+    /// live cwd, keeping the live RLM identity and drawing from the live
+    /// session's budget (a shared member of its account).
     #[allow(clippy::result_large_err)] // the error is the wire response itself
     pub(crate) fn prepare_fork(
         &self,
@@ -170,8 +174,11 @@ impl SessionNavigation {
         let live = self.live(COMMAND)?;
         let session_dir = sessions_dir_of(Some(&forked), agent_dir)
             .map_err(|error| response_failure(None, COMMAND, &error.to_string(), None))?;
+        let source = live.session_id.clone();
+        let mut params = replacement_params(live, Some(forked), false, session_dir, None);
+        params.budget = CreateBudget::Share { source };
         Ok(PreparedReplacement {
-            params: replacement_params(live, Some(forked), false, session_dir, None),
+            params,
             agent_cwd: None,
         })
     }
@@ -369,8 +376,9 @@ fn publish_import_copy(source: &Path, destination: &Path) -> anyhow::Result<()> 
 
 /// The create parameters of a replacement: the target, in `cwd` (else the
 /// live cwd), keeping the live RLM identity and prompt inputs; no explicit
-/// model, thinking level, name, scoped-model patterns, or autonomous flags
-/// (the session's own state wins).
+/// model, thinking level, name, scoped-model patterns, autonomous flags or
+/// budget (the session's own state wins: a child's replacement draws from
+/// its parent's budget as the child did).
 fn replacement_params(
     live: LiveIdentity,
     session_path: Option<PathBuf>,
@@ -379,6 +387,7 @@ fn replacement_params(
     cwd: Option<String>,
 ) -> CreateParams {
     CreateParams {
+        acceptance: None,
         session_path,
         no_session,
         name: None,
@@ -402,6 +411,7 @@ fn replacement_params(
         prompt: live.prompt,
         autonomous: None,
         cvar_family: Some(live.cvar_family),
+        budget: CreateBudget::Keep,
         // A replacement (`/new`, `/resume`, a fork) resumes what its
         // storage holds.
         stored_work: eukhe_core::durable::StoredWork::Resume,

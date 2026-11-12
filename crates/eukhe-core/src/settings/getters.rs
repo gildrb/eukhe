@@ -513,6 +513,13 @@ impl SettingsManager {
         self.cvars().nat(&table::RETRY_MAX_RETRIES)
     }
 
+    /// `retry.maxResends`: the times a model request a restart found sent
+    /// and unanswered is sent again before its run ends with an error.
+    #[must_use]
+    pub fn get_retry_max_resends(&self) -> u32 {
+        saturating_u32(self.cvars().nat(&table::RETRY_MAX_RESENDS))
+    }
+
     /// `retry.baseDelayMs`.
     #[must_use]
     pub fn get_retry_base_delay_ms(&self) -> u64 {

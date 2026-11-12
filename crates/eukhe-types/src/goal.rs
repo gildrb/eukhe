@@ -4,6 +4,10 @@
 //! the goal engine (validation, accounting, continuation prompts) lives in
 //! eukhe-core. Field shape is the TS `GoalState` (camelCase, optional keys
 //! omitted).
+//!
+//! A goal counts its own tokens (the input and output of its responses)
+//! against its token budget; the session's budget (`crate::budget`) is
+//! another, hard limit.
 
 use serde::{Deserialize, Serialize};
 
@@ -67,8 +71,11 @@ pub struct GoalState {
     pub goal_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub objective: Option<String>,
+    /// The goal's token budget: soft, checked after each response; the
+    /// response that reaches it limits the goal.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_budget: Option<u64>,
+    /// The input and output tokens of the goal's responses while active.
     pub tokens_used: u64,
     pub time_used_seconds: u64,
     pub continuations_used: u64,
@@ -115,6 +122,26 @@ impl GoalState {
     }
 }
 
+/// The tokens a goal shows: what its responses spent and its token budget.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GoalTokens {
+    /// The tokens the goal's responses spent.
+    pub used: u64,
+    /// The goal's token budget.
+    pub budget: Option<u64>,
+}
+
+impl GoalTokens {
+    /// The tokens of `goal`.
+    #[must_use]
+    pub fn of(goal: &GoalState) -> Self {
+        Self {
+            used: goal.tokens_used,
+            budget: goal.token_budget,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,16 +150,16 @@ mod tests {
     /// `noProgressStreak` and `noProgressTurnMs`: it still loads, and the
     /// old keys are ignored.
     #[test]
-    fn a_goal_with_the_removed_no_progress_keys_still_loads() {
-        let old = r#"{"active":true,"status":"active","goalId":"g1","objective":"ship it","tokensUsed":40,"timeUsedSeconds":12,"continuationsUsed":2,"createdAt":1000,"noProgressStreak":1,"noProgressTurnMs":2000,"updatedAt":3000}"#;
+    fn a_goal_with_removed_keys_still_loads() {
+        let old = r#"{"active":true,"status":"budget_limited","goalId":"g1","objective":"ship it","tokenBudget":50,"tokensUsed":40,"timeUsedSeconds":12,"continuationsUsed":2,"createdAt":1000,"noProgressStreak":1,"noProgressTurnMs":2000,"updatedAt":3000}"#;
         let goal: GoalState = serde_json::from_str(old).expect("old goal");
         assert_eq!(
             goal,
             GoalState {
-                status: GoalStatus::Active,
+                status: GoalStatus::BudgetLimited,
                 goal_id: Some("g1".to_owned()),
                 objective: Some("ship it".to_owned()),
-                token_budget: None,
+                token_budget: Some(50),
                 tokens_used: 40,
                 time_used_seconds: 12,
                 continuations_used: 2,
@@ -140,6 +167,13 @@ mod tests {
                 updated_at: Some(3000),
                 last_reason: None,
                 last_error: None,
+            }
+        );
+        assert_eq!(
+            GoalTokens::of(&goal),
+            GoalTokens {
+                used: 40,
+                budget: Some(50)
             }
         );
     }

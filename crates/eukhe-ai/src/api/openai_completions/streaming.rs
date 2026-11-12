@@ -1,5 +1,8 @@
 //! Chunk-to-event translation of the streaming loop in TS `stream`: block
-//! bookkeeping, usage parsing, and stop-reason mapping.
+//! bookkeeping, usage parsing, stop-reason mapping, and the reasoning a
+//! model leaked into its content.
+
+mod leaked_thinking;
 
 use std::collections::HashMap;
 
@@ -20,6 +23,8 @@ use crate::utils::diagnostics::{thrown, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::json_stringify;
 use crate::utils::json_parse::{parse_streaming_json_object, parse_tool_call_arguments};
+
+use self::leaked_thinking::{LeakedThinkingScanner, Scanned};
 
 /// `customInput` of a streaming custom (grammar) tool call.
 #[derive(Debug, Clone)]
@@ -150,6 +155,16 @@ pub(crate) struct StreamState<'a> {
     streamed_reasoning_details: Option<Vec<JsonValue>>,
     /// eukhe addition: the `service_tier` the provider reports on its chunks.
     pub(crate) response_service_tier: Option<String>,
+    /// Splits reasoning the model leaked into `delta.content` out of the
+    /// visible text. Absent on the official `OpenAI` endpoint, which never
+    /// leaks.
+    leaked_thinking: Option<LeakedThinkingScanner>,
+    /// The stream carried a reasoning field: reasoning tags in its content
+    /// repeat that reasoning.
+    has_reasoning_field: bool,
+    /// The leading text block was reasoning behind a template-prefilled
+    /// opener: it ended empty, and its text went on as thinking.
+    reprojected_leading_text: bool,
 }
 
 impl<'a> StreamState<'a> {
@@ -172,6 +187,13 @@ impl<'a> StreamState<'a> {
             scratch: HashMap::new(),
             streamed_reasoning_details: None,
             response_service_tier: None,
+            leaked_thinking: (!(model.provider == "openai"
+                && (model.base_url.is_empty()
+                    || url::Url::parse(&model.base_url)
+                        .is_ok_and(|url| url.host_str() == Some("api.openai.com")))))
+            .then(LeakedThinkingScanner::new),
+            has_reasoning_field: false,
+            reprojected_leading_text: false,
         }
     }
 
@@ -268,7 +290,7 @@ impl<'a> StreamState<'a> {
         index
     }
 
-    fn ensure_thinking_block(&mut self, thinking_signature: &str) -> usize {
+    fn ensure_thinking_block(&mut self, thinking_signature: Option<&str>) -> usize {
         if let Some(index) = self.thinking_block {
             return index;
         }
@@ -276,7 +298,7 @@ impl<'a> StreamState<'a> {
             .content
             .push(AssistantContentBlock::Thinking(ThinkingContent {
                 thinking: String::new(),
-                thinking_signature: Some(thinking_signature.to_owned()),
+                thinking_signature: thinking_signature.map(str::to_owned),
                 redacted: None,
             }));
         let index = self.output.content.len() - 1;
@@ -286,6 +308,65 @@ impl<'a> StreamState<'a> {
             partial,
         });
         index
+    }
+
+    fn append_text(&mut self, delta: &str) {
+        let index = self.ensure_text_block();
+        if let AssistantContentBlock::Text(text) = &mut self.output.content[index] {
+            text.text.push_str(delta);
+        }
+        self.emit(|partial| AssistantMessageEvent::TextDelta {
+            content_index: index,
+            delta: delta.to_owned(),
+            partial,
+        });
+    }
+
+    fn append_thinking(&mut self, thinking_signature: Option<&str>, delta: &str) {
+        let index = self.ensure_thinking_block(thinking_signature);
+        if let AssistantContentBlock::Thinking(thinking) = &mut self.output.content[index] {
+            thinking.thinking.push_str(delta);
+        }
+        self.emit(|partial| AssistantMessageEvent::ThinkingDelta {
+            content_index: index,
+            delta: delta.to_owned(),
+            partial,
+        });
+    }
+
+    /// Content the leaked-reasoning scanner split, in stream order. Leaked
+    /// reasoning is unsigned thinking; in a stream that also carries a
+    /// reasoning field it repeats the field and is dropped.
+    fn append_scanned(&mut self, pieces: Vec<Scanned>) {
+        for piece in pieces {
+            match piece {
+                Scanned::Text(text) => self.append_text(&text),
+                Scanned::Thinking(_) if self.has_reasoning_field => {}
+                Scanned::Thinking(thinking) => self.append_thinking(None, &thinking),
+                // A bare close tag: text that is all the reply so far was
+                // reasoning; any other bare close is a stray tag.
+                // The stream's blocks only grow, so the text block ends
+                // empty and its text goes on as the thinking block.
+                Scanned::ImpliedClose => {
+                    let [AssistantContentBlock::Text(text)] = self.output.content.as_mut_slice()
+                    else {
+                        continue;
+                    };
+                    if text.text.trim().is_empty() {
+                        continue;
+                    }
+                    let reasoning = std::mem::take(&mut text.text);
+                    self.text_block = None;
+                    self.reprojected_leading_text = true;
+                    self.emit(|partial| AssistantMessageEvent::TextEnd {
+                        content_index: 0,
+                        content: String::new(),
+                        partial,
+                    });
+                    self.append_thinking(None, &reasoning);
+                }
+            }
+        }
     }
 
     fn new_custom_input(&self, name: &str) -> CustomInput {
@@ -475,22 +556,6 @@ impl<'a> StreamState<'a> {
             return Ok(());
         };
 
-        if let Some(content) = delta
-            .get("content")
-            .and_then(JsonValue::as_str)
-            .filter(|content| !content.is_empty())
-        {
-            let index = self.ensure_text_block();
-            if let AssistantContentBlock::Text(text) = &mut self.output.content[index] {
-                text.text.push_str(content);
-            }
-            self.emit(|partial| AssistantMessageEvent::TextDelta {
-                content_index: index,
-                delta: content.to_owned(),
-                partial,
-            });
-        }
-
         // Some endpoints return reasoning in reasoning_content (llama.cpp) or
         // reasoning; use the first non-empty field to avoid duplication.
         let reasoning = ["reasoning_content", "reasoning", "reasoning_text"]
@@ -502,6 +567,22 @@ impl<'a> StreamState<'a> {
                     .filter(|value| !value.is_empty())
                     .map(|value| (field, value))
             });
+        self.has_reasoning_field |= reasoning.is_some();
+
+        if let Some(content) = delta
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .filter(|content| !content.is_empty())
+        {
+            match &mut self.leaked_thinking {
+                Some(scanner) => {
+                    let pieces = scanner.feed(content);
+                    self.append_scanned(pieces);
+                }
+                None => self.append_text(content),
+            }
+        }
+
         if let Some((field, reasoning_delta)) = reasoning {
             // A host that signs `reasoning` as `reasoning_content` (rulebook
             // `reasoning_content_signature`).
@@ -512,15 +593,7 @@ impl<'a> StreamState<'a> {
             } else {
                 field
             };
-            let index = self.ensure_thinking_block(thinking_signature);
-            if let AssistantContentBlock::Thinking(thinking) = &mut self.output.content[index] {
-                thinking.thinking.push_str(reasoning_delta);
-            }
-            self.emit(|partial| AssistantMessageEvent::ThinkingDelta {
-                content_index: index,
-                delta: reasoning_delta.to_owned(),
-                partial,
-            });
+            self.append_thinking(Some(thinking_signature), reasoning_delta);
         }
 
         if let Some(tool_calls) = delta
@@ -540,7 +613,7 @@ impl<'a> StreamState<'a> {
                 if !is_openai_reasoning_detail(detail) {
                     continue;
                 }
-                self.ensure_thinking_block("");
+                self.ensure_thinking_block(Some(""));
                 // Keep provider replay data in the signature slot. OpenRouter
                 // streams reasoning_details as deltas: consecutive
                 // text/summary deltas merge; encrypted entries stay discrete.
@@ -614,8 +687,16 @@ impl<'a> StreamState<'a> {
     ///
     /// Grammar tool input that changed after it was closed.
     pub(crate) fn finish_blocks(&mut self) -> Result<(), Thrown> {
+        // The content the scanner held back: a tail that could have grown
+        // into a reasoning tag, an unterminated reasoning section.
+        if let Some(scanner) = &mut self.leaked_thinking {
+            let pieces = scanner.flush();
+            self.append_scanned(pieces);
+        }
         for index in 0..self.output.content.len() {
             match &self.output.content[index] {
+                // The re-projected leading text block already ended.
+                AssistantContentBlock::Text(_) if index == 0 && self.reprojected_leading_text => {}
                 AssistantContentBlock::Text(text) => {
                     let content = text.text.clone();
                     self.emit(|partial| AssistantMessageEvent::TextEnd {
@@ -674,6 +755,10 @@ impl<'a> StreamState<'a> {
                     });
                 }
             }
+        }
+        // The settled message holds no trace of the re-projected block.
+        if self.reprojected_leading_text {
+            self.output.content.remove(0);
         }
         Ok(())
     }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import unittest
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -50,6 +51,45 @@ class JobsApiTest(unittest.TestCase):
         )
         self.assertEqual(listed[0].output, "BUILD-OK\n")
         self.assertIsNone(listed[1].output)
+
+    def test_lists_a_cancelled_subagent_as_an_aborted_job(self) -> None:
+        # The roster row of a child whose run was cancelled (Esc on the cell
+        # that waited on it) reads `cancelled`.
+        child = {
+            "rlm_child_id": "child-1",
+            "session_name": "worker",
+            "session_dir": "/tmp/worker",
+            "status": "cancelled",
+            "duration_ms": 2400,
+        }
+        host_request = _host({"jobs.list": {"jobs": []}, "rlm.list_subagents": {"subagents": [child]}})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            listed = asyncio.run(rlm_module.jobs.list())
+
+        self.assertEqual(listed, [rlm_module.Job("child-1", "child", "aborted", 2400)])
+        self.assertTrue(listed[0].settled)
+
+    def test_cancel_of_a_running_subagent_returns_it_aborted(self) -> None:
+        # jobs.cancel deletes the child; the deleted row of a child that
+        # was running reads `cancelled`.
+        deleted = {
+            "rlm_child_id": "child-1",
+            "session_name": "worker",
+            "session_dir": "/tmp/worker",
+            "status": "cancelled",
+            "duration_ms": 2400,
+        }
+        host_request = _host({"rlm.delete_subagent": {"subagent": deleted, "outcome": "deleted"}})
+        handle = rlm_module.RLMSpawnHandle(
+            rlm_child_id="child-1", name="worker", session_dir=Path("/tmp/worker"), model="stub/stub-1"
+        )
+
+        with patch.object(rlm_module, "host_request", host_request):
+            job = asyncio.run(rlm_module.jobs.cancel(handle))
+
+        host_request.assert_awaited_once_with("rlm.delete_subagent", {"target": "child-1"})
+        self.assertEqual(job, rlm_module.Job("child-1", "child", "aborted", 2400))
 
     def test_wait_on_all_work_returns_the_first_settled_job(self) -> None:
         host_request = _host({"jobs.wait": {"end": "job", "job": _settled()}})

@@ -1,4 +1,4 @@
-//! Detached `ipython` cells: the detached cell of one conversation's
+//! Detached `python` cells: the detached cell of one conversation's
 //! kernel, and the `jobs.*` kernel host requests over the session's work
 //! (ADR 0010).
 //!
@@ -38,13 +38,14 @@ impl CellJobSettle {
     /// Hand how the cell ended to its job's delivery (a watching wait, or
     /// the notice through `sink`), then end the job: a cell that ran to
     /// its end or raised exits (0 or 1); an aborted or killed one is
-    /// killed.
+    /// killed (a live cell is never interrupted: that status is a stale
+    /// job's at a restart).
     pub(crate) fn settle(self, status: CellStatus, output: String, sink: Option<&JobSettledSink>) {
         self.job.settle(JobResult { status, output }, sink);
         self.job.record(match status {
             CellStatus::Ok => JobEvent::Exited(0),
             CellStatus::Error => JobEvent::Exited(1),
-            CellStatus::Aborted | CellStatus::Killed => JobEvent::Killed,
+            CellStatus::Aborted | CellStatus::Killed | CellStatus::Interrupted => JobEvent::Killed,
         });
     }
 }

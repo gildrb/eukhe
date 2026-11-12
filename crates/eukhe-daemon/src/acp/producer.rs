@@ -158,7 +158,7 @@ impl UpdateProducer {
             ..Default::default()
         };
         // Merge with any namespace payload the update already carries
-        // (e.g. ipython rich output): correlation fields are stamped onto
+        // (e.g. python rich output): correlation fields are stamped onto
         // the delivered frame, never dropped.
         let meta = value
             .as_object_mut()

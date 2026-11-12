@@ -1,0 +1,25 @@
+[package]
+name = "eukhe-budget"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Budgets as hard guarantees: the durable ledger of a task tree's budget (money, tokens, tool calls, model requests, a wall-clock deadline), every decision made by the compiled Bend core."
+
+[dependencies]
+# The wire vocabulary of a budget (limits, amounts, report) and the model
+# prices and usage a request's worst case and actual spend are read from.
+eukhe-types.workspace = true
+# The compiled Bend core: every change of an account (reserve, settle,
+# carve, close, fund) is decided by bend/budget.bend.
+eukhe-bend.workspace = true
+# The ledger's records are JSON lines.
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

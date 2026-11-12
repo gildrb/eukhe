@@ -78,6 +78,7 @@ impl Fixture {
             &self.store,
             &self.locks(),
             &Open,
+            &Unwitnessed,
             &self.path(name),
             name,
             content,
@@ -112,6 +113,7 @@ impl Fixture {
             inner: LockedWriter {
                 lock_dir: &locks,
                 gate: &Open,
+                witness: &Unwitnessed,
                 faults,
             },
             changed: changed.iter().map(|name| self.path(name)).collect(),
@@ -305,6 +307,7 @@ fn the_gate_judges_a_link_by_its_target_and_a_refusal_writes_nothing() {
         &fixture.store,
         &fixture.locks(),
         &gate,
+        &Unwitnessed,
         &top.join("link"),
         "link",
         "{\"shell\":{\"autoEffects\":[\"exec\"]}}",
@@ -361,6 +364,7 @@ fn path_lock_serializes_read_modify_write() {
                         Publish::Replace {
                             base: read.as_bytes(),
                         },
+                        &Unwitnessed,
                         &NoFaults,
                     )
                     .unwrap();
@@ -483,6 +487,116 @@ fn a_publish_never_replaces_bytes_another_program_wrote_meanwhile() {
     );
     assert!(fixture.edit(&stamp_line, &NoFaults, &[]).is_err());
     assert_eq!(fixture.read("b.txt"), Some(both.to_owned()));
+}
+
+/// A file a witness was told of: its name, base, next, and its bytes on
+/// disk when the witness was told.
+type Witnessed = (String, Option<String>, Option<String>, Option<String>);
+
+/// A [`Witness`] that keeps each call's changes.
+#[derive(Default)]
+struct Ledger {
+    calls: Mutex<Vec<Vec<Witnessed>>>,
+}
+
+impl Witness for Ledger {
+    fn changing(&self, changes: &[Change<'_>]) -> std::io::Result<()> {
+        let text =
+            |bytes: Option<&[u8]>| bytes.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
+        let call = changes
+            .iter()
+            .map(|change| {
+                (
+                    change
+                        .real
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                    text(change.base),
+                    text(change.next),
+                    std::fs::read_to_string(change.real).ok(),
+                )
+            })
+            .collect();
+        self.calls.lock().unwrap().push(call);
+        Ok(())
+    }
+}
+
+/// An edit tells its witness every change before any lands, then the
+/// change a rebase makes before that lands; a write tells its one change.
+#[test]
+fn a_witness_hears_of_each_change_before_it_lands() {
+    let fixture = Fixture::new();
+    let original = "one\ntwo\nthree\nfour\n";
+    for name in ["a.txt", "b.txt"] {
+        std::fs::write(fixture.path(name), original).unwrap();
+    }
+    let payload = ["a.txt", "b.txt"]
+        .map(|name| format!("{}\nPUT 4.=4:\n+FOUR", fixture.header(name)))
+        .join("\n");
+    let stamper = Stamper {
+        name: "b.txt",
+        times: 1,
+        stamps: Mutex::new(0),
+    };
+    let ledger = Ledger::default();
+    let locks = fixture.locks();
+    let writer = LockedWriter {
+        lock_dir: &locks,
+        gate: &Open,
+        witness: &ledger,
+        faults: &stamper,
+    };
+    apply_hashline(
+        &payload,
+        &HashlineOptions {
+            cwd: fixture.dir.path(),
+            home: None,
+            enforce_seen_lines: true,
+        },
+        &fixture.store,
+        &writer,
+    )
+    .unwrap();
+    write_file(
+        &fixture.store,
+        &locks,
+        &Open,
+        &ledger,
+        &fixture.path("c.txt"),
+        "c.txt",
+        "new\n",
+        Base::Seen,
+    )
+    .unwrap();
+    let row = |name: &str, base: Option<&str>, next: Option<&str>, then: Option<&str>| {
+        (
+            name.to_owned(),
+            base.map(str::to_owned),
+            next.map(str::to_owned),
+            then.map(str::to_owned),
+        )
+    };
+    let edited = "one\ntwo\nthree\nFOUR\n";
+    let other_program = "one\n# stamp 1\ntwo\nthree\nfour\n";
+    assert_eq!(
+        ledger.calls.into_inner().unwrap(),
+        vec![
+            vec![
+                row("a.txt", Some(original), Some(edited), Some(original)),
+                row("b.txt", Some(original), Some(edited), Some(original)),
+            ],
+            vec![row(
+                "b.txt",
+                Some(other_program),
+                Some("one\n# stamp 1\ntwo\nthree\nFOUR\n"),
+                Some(other_program)
+            )],
+            vec![row("c.txt", None, Some("new\n"), None)],
+        ]
+    );
 }
 
 /// A file another program changes again before every rename is refused
@@ -684,7 +798,15 @@ fn a_create_publish_never_replaces() {
     let fixture = Fixture::new();
     let target = fixture.path("b.txt");
     std::fs::write(&target, "theirs\n").unwrap();
-    let error = publish(&target, b"mine\n", None, Publish::Create, &NoFaults).unwrap_err();
+    let error = publish(
+        &target,
+        b"mine\n",
+        None,
+        Publish::Create,
+        &Unwitnessed,
+        &NoFaults,
+    )
+    .unwrap_err();
     let PublishError::Io(error) = error else {
         panic!("a create never meets other bytes: {error}");
     };

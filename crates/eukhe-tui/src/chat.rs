@@ -1,5 +1,5 @@
 //! Transcript component rendering: status rows, the user-message block,
-//! assistant messages (markdown text, dense dim thinking, and their
+//! assistant messages (markdown text, dense italic thinking, and their
 //! error rows), and the working loader line. Ports the TS chat
 //! components' row geometry (`user-message.ts` Box 2x1 on
 //! `userMessageBg`, `loader.ts` `Loader` + `agent-activity.ts` labels);
@@ -413,7 +413,8 @@ pub fn render_user_block(
 
 /// One assistant message: its leading blank row when `lead` asks for one
 /// and the message renders anything, then its visible blocks flush
-/// against each other (text as `mdBody` markdown, thinking as dim dense
+/// against each other (text as `mdBody` markdown, thinking as dense
+/// italic `thinkingText`
 /// rows) except the one blank row before a settled reply's text when
 /// thinking leads it, then its error row set off by one blank row.
 pub fn render_assistant(
@@ -568,7 +569,8 @@ pub(crate) fn render_markdown_block(
     out
 }
 
-/// The thinking block: markdown with every style collapsed to `dim`,
+/// The thinking block: markdown with every style collapsed to the
+/// thinking style (`thinkingText`, italic),
 /// dense -- the blank rows markdown puts between its blocks are dropped,
 /// so each paragraph starts on the row after the previous one.
 fn render_thinking_block(
@@ -596,7 +598,7 @@ fn render_thinking_block(
         let mut row: Line = vec![Span::raw(" ")];
         row.extend(line);
         // TS pads with unstyled spaces after the row's closing reset (see
-        // render_markdown_block); padding never carries the dim content color.
+        // render_markdown_block); padding never carries the thinking style.
         out.push(pad_to(row, width, Style::default()));
     }
     out

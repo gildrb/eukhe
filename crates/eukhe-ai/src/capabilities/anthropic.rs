@@ -61,7 +61,7 @@ pub(crate) async fn count_tokens(
         },
         ..AnthropicOptions::default()
     };
-    let params = build_params(
+    let (params, _) = build_params(
         model,
         context.messages(),
         is_oauth_token(key),

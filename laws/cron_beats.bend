@@ -102,8 +102,10 @@ law cron_heartbeat_replaces_example:
 # (crates/eukhe-core/src/cron/store/): a claim pass (state.rs) leaves a
 # job it keeps and writes only the next run of a job it rolls or claims; a
 # recovery (state.rs) writes the status and next run of an interrupted
-# job; a finish (jobs.rs `record_dispatch_result`) leaves an untouched job
-# and writes the status, next run and failures in a row of a job that ran
+# job, and of a job fired again (active, its next run `at`: the occurrence
+# of its cleared claim record); a finish (jobs.rs
+# `record_dispatch_result`) leaves an untouched job and writes the status,
+# next run and failures in a row of a job that ran
 # or skipped; a cancel, pause, stop or delete (jobs.rs, heartbeat.rs,
 # rlm_heartbeat.rs) leaves a job already done and writes the status and
 # next run of a cut one; a resume writes the status, next run and failures
@@ -142,12 +144,14 @@ def took_sets_spec(t: CS.Took, r: Nat) -> Sets:
     case CS.Claimed{n}:
       SNext{next_run_spec(n, r)}
 
-def back_sets_spec(b: CS.Back) -> Sets:
+def back_sets_spec(b: CS.Back, at: Nat) -> Sets:
   match b:
     case CS.Kept{}:
       SKeep{}
     case CS.Interrupted{st, nx}:
       SStNext{st, nx}
+    case CS.Refire{}:
+      SStNext{Cr.Active{}, Some{at}}
 
 def fin_sets_spec(x: CS.Fin, r: Nat) -> Sets:
   match x:
@@ -187,8 +191,8 @@ def sets_spec(op: CB.Op, +f: CS.Fact) -> Sets:
   match op:
     case CB.OTake{c, d, n, r}:
       took_sets_spec(CronStore.take_spec(f, c, d, n), r)
-    case CB.ORecover{c}:
-      back_sets_spec(CronStore.recover_spec(f, c))
+    case CB.ORecover{c, at}:
+      back_sets_spec(CronStore.recover_spec(f, c), at)
     case CB.OFinish{u, a, b, n, r}:
       fin_sets_spec(CronStore.finish_spec(u, f, a, b, n), r)
     case CB.OCancel{}:

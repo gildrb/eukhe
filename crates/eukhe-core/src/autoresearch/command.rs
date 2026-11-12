@@ -43,14 +43,14 @@ pub(crate) async fn execute(
     cx: &Context,
 ) -> Result<String, AutoresearchCommandError> {
     let failed = AutoresearchCommandError::Lab;
-    let lab = of(session.deps());
-    let harness = session.harness();
+    let deps = session.deps();
+    let lab = of(deps);
     let id = conversation.id();
     match args.trim() {
         "" | "status" => Ok(status_text(&lab.snapshot().await.map_err(failed)?)),
         "off" => {
             let reply = lab.set_mode(Mode::Off).await.map_err(failed)?;
-            follow_mode(harness, id, &reply).await.map_err(failed)?;
+            follow_mode(deps, id, &reply).await.map_err(failed)?;
             Ok("Autoresearch mode off: the loop stops after this turn.".to_owned())
         }
         "clear" => {
@@ -60,7 +60,7 @@ pub(crate) async fn execute(
                 mode: Mode::Off,
                 started: false,
             };
-            follow_mode(harness, id, &reply).await.map_err(failed)?;
+            follow_mode(deps, id, &reply).await.map_err(failed)?;
             Ok(format!(
                 "Autoresearch session closed; its log moved to {}.",
                 aside.display()
@@ -73,7 +73,7 @@ pub(crate) async fn execute(
                 mode: Mode::On,
                 started: true,
             };
-            follow_mode(harness, id, &reply).await.map_err(failed)?;
+            follow_mode(deps, id, &reply).await.map_err(failed)?;
             let branch = begun.branch.line();
             let text = if begun.configured {
                 format!(

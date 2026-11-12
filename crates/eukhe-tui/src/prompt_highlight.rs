@@ -83,6 +83,44 @@ pub(crate) fn char_slice(text: &str, start: usize, end: usize) -> &str {
     &text[byte_at_char(text, start)..byte_at_char(text, end)]
 }
 
+/// A stretch of a text the argument-token shapes are asked about: where
+/// it starts in the text (in bytes and in chars) and its text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TokenWindow<'t> {
+    byte: usize,
+    char: usize,
+    text: &'t str,
+}
+
+/// The stretches of `text` an argument token can lie in: of each line, the
+/// rest from its first `@` or `--` on. Every option of the token shapes
+/// opens with `@` or `--` and reads no line feed (`laws/arg_token_shapes.bend`
+/// R1, R2), none looks behind its start, and the separator's lookahead finds
+/// white space at a line feed as it finds the end at a stretch end, so the
+/// left-to-right fits of the whole text are those of these stretches in
+/// turn. The core reads only them: a long pasted prompt costs core work
+/// only on the lines that can hold a token, not on every char it holds.
+fn token_windows(text: &str) -> Vec<TokenWindow<'_>> {
+    let mut windows = Vec::new();
+    let (mut byte, mut char) = (0, 0);
+    for line in text.split('\n') {
+        if let Some(lead) = [line.find('@'), line.find("--")]
+            .into_iter()
+            .flatten()
+            .min()
+        {
+            windows.push(TokenWindow {
+                byte: byte + lead,
+                char: char + line[..lead].chars().count(),
+                text: &line[lead..],
+            });
+        }
+        byte += line.len() + 1;
+        char += line.chars().count() + 1;
+    }
+    windows
+}
+
 /// TS `findArgTokens`: the token spans of `text` at or after `from_index`,
 /// each needing a whitespace boundary before it. Char offsets.
 pub fn find_arg_tokens(
@@ -96,15 +134,19 @@ pub fn find_arg_tokens(
         ArgTokenShape::Plain
     };
     let mut spans = Vec::new();
-    for (start, end) in shape.char_spans(text) {
-        if start < from_index || !has_token_boundary(text, byte_at_char(text, start)) {
-            continue;
+    for window in token_windows(text) {
+        for (start, end) in shape.char_spans(window.text) {
+            if window.char + start < from_index
+                || !has_token_boundary(text, window.byte + byte_at_char(window.text, start))
+            {
+                continue;
+            }
+            spans.push(ArgTokenSpan {
+                start: window.char + start,
+                end: window.char + end,
+                color: token_color(char_slice(window.text, start, end)),
+            });
         }
-        spans.push(ArgTokenSpan {
-            start,
-            end,
-            color: token_color(char_slice(text, start, end)),
-        });
     }
     spans
 }
@@ -637,6 +679,82 @@ mod tests {
             3,
             "the early @-token is skipped, the flag still highlights"
         );
+    }
+
+    /// A pasted prompt costs core work only where a token can lie: a 2 MB
+    /// line without `@` or `--` gives the core nothing to read, and of a
+    /// mixed text the core reads only each token line's rest from its first
+    /// `@` or `--`.
+    #[test]
+    fn arg_tokens_ask_the_core_only_about_token_lines() {
+        let paste = "alpha12 beta-33 gamma ".repeat(100_000);
+        assert_eq!(token_windows(&paste), Vec::new());
+        assert_eq!(find_arg_tokens(&paste, 0, true), Vec::new());
+
+        let text = format!("{paste}\n前 see @a.rs now\n\nx -- y\ntail");
+        let second = (paste.len() + 1, paste.chars().count() + 1);
+        let fourth = (
+            second.0 + "前 see @a.rs now\n\n".len(),
+            second.1 + "前 see @a.rs now\n\n".chars().count(),
+        );
+        assert_eq!(
+            token_windows(&text),
+            vec![
+                TokenWindow {
+                    byte: second.0 + "前 see ".len(),
+                    char: second.1 + "前 see ".chars().count(),
+                    text: "@a.rs now",
+                },
+                TokenWindow {
+                    byte: fourth.0 + 2,
+                    char: fourth.1 + 2,
+                    text: "-- y",
+                },
+            ]
+        );
+    }
+
+    /// The fits read line by line are the fits of the whole text: tokens on
+    /// later lines, a quoted path over spaces hiding an `@` inside it, a
+    /// separator at a line end, CR line ends, wide chars before a token, a
+    /// backslash before a line feed, and `from_index` past a line.
+    #[test]
+    fn arg_tokens_by_line_match_the_whole_text_reading() {
+        let texts = [
+            "",
+            "\n\n",
+            "fix @Cargo.toml --quiet now\nthen @src/lib.rs -- x --\n--\n@",
+            "a@\"x @b\" @c\nq @\"open --flag\n--v2-x\t@d|e",
+            "前 @路径 --flag\r\n后@x @y\r\n-- \r\n",
+            "@a\\\n@b\\ c --\n",
+        ];
+        for text in texts {
+            for (shape, include_bare_separator) in [
+                (ArgTokenShape::Plain, false),
+                (ArgTokenShape::WithSeparator, true),
+            ] {
+                for from_index in [0, 5, 30] {
+                    let whole: Vec<ArgTokenSpan> = shape
+                        .char_spans(text)
+                        .into_iter()
+                        .filter(|&(start, _)| {
+                            start >= from_index
+                                && has_token_boundary(text, byte_at_char(text, start))
+                        })
+                        .map(|(start, end)| ArgTokenSpan {
+                            start,
+                            end,
+                            color: token_color(char_slice(text, start, end)),
+                        })
+                        .collect();
+                    assert_eq!(
+                        find_arg_tokens(text, from_index, include_bare_separator),
+                        whole,
+                        "{text:?} from {from_index}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

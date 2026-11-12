@@ -1,18 +1,18 @@
 //! The built-in model catalog in a session: every model `eukhe model list`
-//! lists resolves and streams in a session, as omp's one `ModelRegistry`
-//! serves both its model list and `--model` resolution.
+//! lists resolves and streams in a session: one model registry serves
+//! both the model list and `--model` resolution.
 //!
 //! The list is the registry's built-in catalog (`crate::models::registry`:
-//! the bundled snapshot's union with the compiled catalog). The pi-ai
+//! the bundled snapshot's union with the compiled catalog). The `eukhe_ai`
 //! providers carry the compiled catalog only, so each model of the
 //! snapshot its provider lacks joins that provider here, and a provider
 //! only the snapshot has (`azure-openai-responses`) joins as a provider of
 //! its own: stored-credential auth (no environment key names it), and
 //! models.json composes over it like over any built-in provider. A model
-//! the provider has keeps its compiled entry. A joined model whose api the
-//! provider does not implement (the snapshot routes the Xiaomi token plans'
-//! older models over `anthropic-messages`) streams through that api's
-//! built-in implementation.
+//! the provider has keeps its compiled entry (the bundled snapshot carries
+//! none: it is made of the models.dev models the compiled catalog lacks).
+//! A joined model whose api the provider does not implement streams
+//! through that api's built-in implementation.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -64,7 +64,7 @@ pub(super) fn with_catalog_models(
     layered
 }
 
-/// The pi-ai form of a registry catalog model (the same JSON shape).
+/// The `eukhe_ai` form of a registry catalog model (the same JSON shape).
 fn session_model(model: &eukhe_types::ai::Model) -> Result<Model, serde_json::Error> {
     serde_json::to_value(model).and_then(serde_json::from_value)
 }

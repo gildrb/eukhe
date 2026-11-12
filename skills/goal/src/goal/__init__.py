@@ -42,14 +42,31 @@ async def create(objective: str, token_budget: int | None = None) -> dict[str, A
 
 
 async def complete() -> dict[str, Any]:
-    """Mark the existing thread goal achieved.
+    """Claim the existing thread goal achieved.
 
     Use only when the objective has actually been achieved and no required
     work remains — not because the budget is nearly exhausted or because you
     are stopping work. Pause, resume, and budget-limit transitions are
     controlled by the user and the host.
+
+    Without acceptance checks the goal completes at once (labelled
+    unverified). With checks the result carries `acceptance` with `status`
+    `pending`: the goal stays active, the harness runs the checks when your
+    turn ends, and the goal completes only if every check passes on the final
+    state. A failed check comes back as your next input with its evidence.
     """
     return await host_request("goal.complete")
+
+
+async def acceptance() -> dict[str, Any]:
+    """Read the acceptance checks of this task and their last verdicts.
+
+    Returns a dict with `label` (`verified`, `failed` or `unverified`),
+    `checks` (each with its `spec` and, once judged, its `result`: `verdict`,
+    `summary`, `evidence`), `claimed`, `tries` and `maxReturns`. The task's
+    owner sets the checks; you cannot change or skip them.
+    """
+    return await host_request("acceptance.get")
 
 
 async def remind(text: str) -> dict[str, Any]:

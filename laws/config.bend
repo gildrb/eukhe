@@ -602,6 +602,7 @@ law trust_untrusted_withholds_guarded:
 #   on a name that only starts like a rule's
 law trust_table_example:
   {Cf.classify(["retry", "maxRetries"]) == Cf.Hit{"retry.maxRetries", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
+  {Cf.classify(["retry", "maxResends"]) == Cf.Hit{"retry.maxResends", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
   {Cf.classify(["retry", "failover", "maxRetries"]) == Cf.Hit{"retry.failover.maxRetries", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
   {Cf.classify(["retry", "failover", "enabled"]) == Cf.Hit{"retry", Cf.Proj{Cf.Pref{}}} : Cf.Hit} &
   {Cf.classify(["mcpServers", "github", "url"]) == Cf.Hit{"mcpServers", Cf.Proj{Cf.Credential{}}} : Cf.Hit} &
@@ -888,6 +889,7 @@ def cf_rule(p: List<&2, String>, c: Cf.Class) -> Cf.Rule:
 def cf_rules() -> List<&2, Cf.Rule>:
   [
     cf_rule(["retry", "maxRetries"], Cf.Limit{}),
+    cf_rule(["retry", "maxResends"], Cf.Limit{}),
     cf_rule(["retry", "failover", "maxRetries"], Cf.Limit{}),
     cf_rule(["onboardingShown"], Cf.Pref{}),
     cf_rule(["onboardingCompleted"], Cf.Pref{}),
@@ -1232,6 +1234,7 @@ law only_guarded_exact:
 law trust_table_example_orig:
   {Cf.rules() == cf_rules() : List<&2, Cf.Rule>} &
   {Cf.classify(["retry", "maxRetries"]) == Cf.Hit{"retry.maxRetries", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
+  {Cf.classify(["retry", "maxResends"]) == Cf.Hit{"retry.maxResends", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
   {Cf.classify(["retry", "failover", "maxRetries"]) == Cf.Hit{"retry.failover.maxRetries", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
   {Cf.classify(["retry", "failover", "enabled"]) == Cf.Hit{"retry", Cf.Proj{Cf.Pref{}}} : Cf.Hit} &
   {Cf.classify(["mcpServers", "github", "url"]) == Cf.Hit{"mcpServers", Cf.Proj{Cf.Credential{}}} : Cf.Hit} &

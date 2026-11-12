@@ -14,6 +14,7 @@ use eukhe_chord::json::{copy_json, from_json, JsonObject, JsonValue};
 use eukhe_types::pi_ai::{
     JsonObject as PiJsonObject, JsonValue as PiJsonValue, TextContent, Usage, UserContentBlock,
 };
+use eukhe_types::platform::kill_point::kill_point;
 use futures::future::{BoxFuture, Shared};
 use futures::FutureExt;
 
@@ -22,7 +23,10 @@ use super::nested::{
     NestedResultState, NESTED_RESULT_DOC,
 };
 use super::result::{bound_content, tool_diagnostic, truncated, ToolEnding};
-use super::{settle, Repair, Runtime, ToolTaskInput, ToolTaskResult};
+use super::{
+    effect_of, settle, Repair, Runtime, ToolTaskCheckpoint, ToolTaskInput, ToolTaskResult,
+    EFFECT_TOOL, EFFECT_WRITE,
+};
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::env::{ExecutionEnv, ShellOutputSkip, ShellOutputWindow};
 use crate::harness::live::SlotProgress;
@@ -37,7 +41,7 @@ use crate::harness::types::{
 };
 use crate::harness::usage::add_usage;
 use crate::session::{DocumentWatch, SessionError, SessionResult};
-use crate::tasks::{AnyTask, SettledTask};
+use crate::tasks::{AnyTask, NextTaskState, SettledTask};
 use crate::types::{
     AnyTaskRecord, ConversationId, DocumentObserver, DocumentReader, DocumentReaderExt, EntryId,
     TaskId, TaskOptions, TaskOwnership,
@@ -318,6 +322,45 @@ impl ToolExecutionApi for ToolInvocation {
         self.runtime.backend().memo_or_store(name, candidate, cx)
     }
 
+    /// The record replaces the probe of the call's intent checkpoint, so
+    /// the recovery of this attempt reads it; a write starts only once it
+    /// is durable (the `write` kill point `started`).
+    fn probe(&self, record: JsonValue, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
+        if let Err(error) = self.reporting.report(|| ()) {
+            return futures::future::ready(Err(error)).boxed();
+        }
+        let committed = self.runtime.commit(
+            move |_tx, current| async move {
+                let ToolTaskCheckpoint::Execute {
+                    arguments,
+                    repairs,
+                    replay,
+                    probe: _,
+                } = current.checkpoint
+                else {
+                    return Err(SessionError::error(
+                        "A tool call records a probe only after its intent",
+                    ));
+                };
+                Ok(Some(NextTaskState::Running {
+                    checkpoint: ToolTaskCheckpoint::Execute {
+                        arguments,
+                        repairs,
+                        replay,
+                        probe: Some(record),
+                    },
+                }))
+            },
+            cx,
+        );
+        async move {
+            committed.await?;
+            kill_point(EFFECT_WRITE, "started");
+            Ok(())
+        }
+        .boxed()
+    }
+
     fn create_task_erased(
         &self,
         task: AnyTask,
@@ -527,6 +570,10 @@ pub(super) async fn run(
                 env,
                 resumes: tool.replay == Some(ToolReplay::Safe),
             });
+            if tool.probe.is_none() {
+                // A probed call starts once its probe is durable (`probe`).
+                kill_point(EFFECT_TOOL, "started");
+            }
             let started = Instant::now();
             let executed = (tool.execute)(PiJsonValue::Object(args), api, cx.clone()).await;
             duration_ms = Some(elapsed_ms(started));
@@ -596,12 +643,16 @@ pub(super) async fn run(
             call,
             ending,
             move |_| settled,
+            None,
             cx,
             duration_ms,
         )
         .await
     }
     .await;
+    if settled.is_ok() {
+        kill_point(effect_of(tool).1, "finished");
+    }
     for waiter in pending {
         let _gone = waiter.send(settled.clone());
     }

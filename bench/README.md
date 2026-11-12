@@ -31,7 +31,7 @@ paid model calls, so CI never runs it.
 
 ## Run
 
-Needs `uv` (makes the bench venv and the eukhe kernel), `git`, `bwrap`, `chromium` for `ui_cards`/`measure`,
+Needs `uv` (makes the bench venv), `git`, `bwrap`, `chromium` for `ui_cards`/`measure`,
 `omp` to compare, and logins in `~/.eukhe/auth.json` (anthropic; zai for the glm tasks).
 
     make bench-quick                              # build, then crm once with claude-haiku-5-5
@@ -50,7 +50,7 @@ diffs and `summary.json` go to `<dir>/results/<label>/<task>/<run>/`. Labels are
 | `--eukhe` | `EUKHE_BENCH_EUKHE` | `target/release/eukhe` of this checkout |
 | `--omp` | `EUKHE_BENCH_OMP` | `omp` on PATH |
 | `--model` | `EUKHE_BENCH_MODEL` | each task's own (`opus`, `glm` or `haiku`) |
-| `--kernel-venv` | `EUKHE_BENCH_KERNEL_VENV` | `<dir>/kernel-venv`, made by `eukhe kernel install` in a throwaway HOME |
+| `--kernel-dir` | `EUKHE_BENCH_KERNEL_DIR` | `<dir>/kernel`, fetched by `eukhe kernel install` in a throwaway HOME |
 | `--venv` | `EUKHE_BENCH_VENV` | `<dir>/venv` (Python 3.14 + Playwright): the agents' `python3` and the graders' |
 | `--auth` | `EUKHE_BENCH_AUTH` | `~/.eukhe/auth.json` |
 | `--models` | `EUKHE_BENCH_MODELS` | `~/.eukhe/models.json` (optional) |

@@ -545,17 +545,19 @@ def fs.gb(rule: Maybe<&2, Fx.Budgets>, c: Fx.Customs, +l: Fx.Lv) -> Fx.GB:
 def fs.aux(c: Fx.Customs, d: Fx.Budgets, +a: Nat, +top: Nat) -> Nat:
   Nat.min(Nat.add(fs.budget(c, d, Fx.High{}), a), top)
 
-# the output cap: none when the max is unknown (facts_cap_omits_unknown),
-# else the wish through the window
-def fs.cap.at(unknown: Bool, caller: Maybe<&2, Nat>, +mm: Nat, +win: Fx.Win) -> Maybe<&2, Nat>:
-  match unknown:
+# the output cap: none when it is left out (no caller's cap, a host that
+# leaves the default cap out: facts_cap_omits_only_the_default), else the
+# wish through the window (facts_cap_keeps_the_want,
+# facts_cap_shrinks_on_conflict)
+def fs.cap.at(out: Bool, caller: Maybe<&2, Nat>, +mm: Nat, +win: Fx.Win) -> Maybe<&2, Nat>:
+  match out:
     case True{}:
       None{}
     case False{}:
       Some{fs.shrink(Facts.cap_want(caller, mm), win)}
 
 def fs.cap(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win) -> Maybe<&2, Nat>:
-  fs.cap.at(Facts.cap_unknown(caller, mm, needs, win), caller, mm, win)
+  fs.cap.at(Facts.cap_left_out(caller, needs), caller, mm, win)
 
 # Speller
 # -------
@@ -619,7 +621,8 @@ def fs.spec(s: String) -> String:
 # EXCLUDES: a budget, a fit, a Google budget, an aux cap or an output cap
 #   other than the laws' on any request (the default over the user's
 #   budget, a ceiling past the model's cap, an unordered rule clamped, a
-#   cap made up for an unknown max); a reply in another spelling; a value
+#   default cap left out for a max at or past the window); a reply in
+#   another spelling; a value
 #   for an input that is no request (an unknown tag, a short field, a
 #   15-digit number) or for a request with input left over; another
 #   error text

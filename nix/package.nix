@@ -60,7 +60,7 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Coding agent with a memory of all things (prebuilt)";
+    description = "Eukhe agent harness (prebuilt)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";

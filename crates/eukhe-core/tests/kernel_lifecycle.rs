@@ -29,7 +29,7 @@ use eukhe_core::kernel::bootstrap::{build_rlm_bootstrap_code, KernelPythonSkill}
 use eukhe_core::kernel::manager::{KernelStartOptions, ReplKernelManager};
 use eukhe_core::kernel::shared::{
     ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelBashCommands, KernelManagerOptions,
-    KernelShutdownOptions, KernelSnapshotConfig,
+    KernelShutdownOptions, KernelSnapshotConfig, StreamName,
 };
 use eukhe_core::kernel::state_snapshot::{manifest_path_in, snapshot_path_in};
 
@@ -627,7 +627,8 @@ async fn graceful_shutdown_flushes_the_final_snapshot() {
         .expect("shutdown");
 }
 
-/// Run `code` and abort it once it has started (its first stdout chunk),
+/// Run `code` and abort it once it has started (its first complete stdout
+/// line has arrived; stderr chunks neither count nor land in the text),
 /// returning the settled result, its forwarded stdout, and how long the
 /// abort took to settle it.
 async fn execute_then_abort(
@@ -640,9 +641,15 @@ async fn execute_then_abort(
     let on_stream: eukhe_core::kernel::shared::StreamCallback = {
         let started = std::sync::Arc::clone(&started);
         let stdout = std::sync::Arc::clone(&stdout);
-        std::sync::Arc::new(move |chunk: &str, _stream| {
-            stdout.lock().expect("stdout lock").push_str(chunk);
-            started.notify_one();
+        std::sync::Arc::new(move |chunk: &str, stream| {
+            if stream != StreamName::Stdout {
+                return;
+            }
+            let mut text = stdout.lock().expect("stdout lock");
+            text.push_str(chunk);
+            if text.contains('\n') {
+                started.notify_one();
+            }
         })
     };
     let run = manager.execute(
@@ -706,7 +713,7 @@ async fn abort_stops_any_cell_and_the_next_cell_runs_at_once() {
         .lines()
         .next()
         .and_then(|line| line.parse().ok())
-        .expect("child pid printed");
+        .unwrap_or_else(|| panic!("child pid printed, got stdout {stdout:?}"));
     tokio::time::timeout(
         Duration::from_secs(5),
         eukhe_core::platform::process::wait_for_exit(child),

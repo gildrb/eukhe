@@ -8,18 +8,19 @@ import ../../bend/run/recovery.bend as RnRecovery
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
 # The recoveries of bend/run/recovery.bend (Rec; requirement H4.8 of
-# laws/run/model.bend, whose laws state each step): a length stop with its
-# text cut (Long) and tool calls leaked as text that were not rebuilt
-# (Leak{False, ..}) are retried with a note that counts that recovery's
-# notes in a row, until its cap (RCfg.long, RCfg.leak) is reached; then
-# the run fails. A Redo is a noted error, so its retry ends its request
-# with a new note (H4.7). These laws follow a whole row of the same stuck
-# reply on the model Rec.step, from any row j of that recovery's notes,
-# under every configuration, the model's other fields (same, last) kept.
-# A row that starts after no note or another recovery's note, and a cap
-# of 0, are stated on the decision Rust calls (decide.recover) by
-# laws/run/recover.bend: rec_length_notes_then_fails,
-# rec_leak_notes_then_fails.
+# laws/run/model.bend, whose laws state each step): a length stop the
+# stop walk continues, with no compaction to make and no level below the
+# agent's (Think{False, False}), and tool calls leaked as text that were
+# not rebuilt (Leak{False, ..}) are retried with a note that counts that
+# recovery's notes in a row, until its cap (RCfg.long, RCfg.leak) is
+# reached; then the run fails. A Redo is a noted error, so its retry ends
+# its request with a new note (H4.7). These laws follow a whole row of
+# the same stuck reply on the model Rec.step, from any row j of that
+# recovery's notes, under every configuration, the model's other fields
+# (same, last) kept. A row that starts after no note or another
+# recovery's note, and a cap of 0, are stated on the decision Rust calls
+# (decide.recover) by laws/stop/recover.bend (stop_think_ladder_climbs)
+# and laws/run/recover.bend (rec_leak_notes_then_fails).
 
 # the decisions on n replies o in a row, from the recoveries r, in order
 def rec_row(+rc: RnRecovery.RCfg, +o: RnRecovery.Out, n: Nat, r: RnRecovery.Rec) -> List<&2, RnRecovery.Dec>:
@@ -42,9 +43,10 @@ def rec_notes_then_quit(m: Nat, +k: RnRecovery.Rk, +j: Nat, +same: Nat, +last: N
 
 # LAW rec_length_notes_then_quit (A2, H4.8): under a cap of j + m length notes
 # (any leak, redirect and repeat caps), after a request whose note is
-# length note j, m + 1 length stops in a row are retried m times, with
-# length notes j + 1, ..., j + m, then the run fails at the cap: exactly the
-# cap's notes in a row, counted one by one (same and last kept)
+# length note j, m + 1 length stops in a row with no compaction to make
+# and no lower level are retried m times, with length notes j + 1, ...,
+# j + m, then the run fails at the cap: exactly the cap's notes in a row,
+# counted one by one (same and last kept)
 # EXCLUDES: a length row that never grows or restarts (length stops retried
 #   forever), that grows by more than one a note, a cap reached early or
 #   late, a retry after the cap, another note than a length note
@@ -56,7 +58,7 @@ law rec_length_notes_then_quit:
   for +m: Nat
   for +same: Nat
   for +last: Nat
-  {rec_row(RnRecovery.RCfg{Nat.add(m, j), lk, rd, rp}, RnRecovery.Long{}, 1n+m, RnRecovery.Rec{RnRecovery.Longs{}, j, same, last}) == rec_notes_then_quit(m, RnRecovery.Longs{}, j, same, last) : List<&2, RnRecovery.Dec>}
+  {rec_row(RnRecovery.RCfg{Nat.add(m, j), lk, rd, rp}, RnRecovery.Think{False{}, False{}}, 1n+m, RnRecovery.Rec{RnRecovery.Longs{}, j, same, last}) == rec_notes_then_quit(m, RnRecovery.Longs{}, j, same, last) : List<&2, RnRecovery.Dec>}
 
 # LAW rec_leak_notes_then_quit (A2, H4.8): under a cap of j + m leak notes (any
 # length, redirect and repeat caps), after a request whose note is leak note

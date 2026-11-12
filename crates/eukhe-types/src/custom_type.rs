@@ -11,6 +11,11 @@ use crate::slash_commands::{
 /// crashed past the restart budget. Display-only, never model context.
 pub const WORKER_RESTART_NOTICE_CUSTOM_TYPE: &str = "eukhe.worker_restart";
 
+/// The `customType` of the row a session shows after an answer that hit
+/// the output limit and was kept as it is: the answer is truncated.
+/// Display-only, never model context.
+pub const OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE: &str = "eukhe.output_limit";
+
 /// The type of one custom message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomType {
@@ -35,7 +40,9 @@ pub enum CustomType {
     /// The one outcome row of a provider retry episode.
     ProviderRetryOutcome,
     ModelPromptError,
-    /// The session's Python kernel cannot start: no `ipython` tool.
+    /// The session's Python kernel cannot start: no `python` tool. No
+    /// open writes this row any more (the client shows a notification,
+    /// [`crate::kernel_notice`]); sessions stored with one keep it.
     KernelUnavailable,
     /// The echo of a session slash command.
     SessionSlashCommand,
@@ -43,6 +50,8 @@ pub enum CustomType {
     /// The supervisor ended the turn: its worker stopped responding or
     /// crashed past the restart budget.
     WorkerRestartNotice,
+    /// The answer above hit the output limit and is truncated.
+    OutputLimitNotice,
     /// A type without a dedicated row.
     Other(String),
 }
@@ -69,6 +78,7 @@ impl CustomType {
             SESSION_SLASH_COMMAND_CUSTOM_TYPE => Self::SessionSlashCommand,
             SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => Self::SessionSlashCommandResult,
             WORKER_RESTART_NOTICE_CUSTOM_TYPE => Self::WorkerRestartNotice,
+            OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Self::OutputLimitNotice,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -94,6 +104,7 @@ impl CustomType {
             Self::SessionSlashCommand => SESSION_SLASH_COMMAND_CUSTOM_TYPE,
             Self::SessionSlashCommandResult => SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
             Self::WorkerRestartNotice => WORKER_RESTART_NOTICE_CUSTOM_TYPE,
+            Self::OutputLimitNotice => OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE,
             Self::Other(other) => other,
         }
     }
@@ -123,6 +134,7 @@ mod tests {
             CustomType::SessionSlashCommand,
             CustomType::SessionSlashCommandResult,
             CustomType::WorkerRestartNotice,
+            CustomType::OutputLimitNotice,
             CustomType::Other("autonomous_status".to_owned()),
         ];
         for custom_type in types {

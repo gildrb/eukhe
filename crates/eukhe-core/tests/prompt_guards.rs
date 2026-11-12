@@ -71,7 +71,7 @@ const DYNAMIC_ONLY_MARKERS: &[&str] = &[
     "Enabled generic MCP servers:",
     "# Project Context",
     "# Additional Guidance",
-    "Pre-installed Python packages:",
+    "Python packages: importing",
     "You are a child agent spawned by",
 ];
 
@@ -99,7 +99,7 @@ fn cached_prefix_is_stable_across_sessions() {
         cwd: "/first/cwd".to_string(),
         model_prompt_extras: Some("model guidance."),
         skills: sorted_bundled_skills(),
-        selected_tools: Some(vec!["ipython"]),
+        selected_tools: Some(vec!["python"]),
         ..Default::default()
     };
     let first = system_prompt_breakdown(&options);
@@ -137,7 +137,7 @@ fn cached_prefix_is_stable_across_sessions() {
     assert!(first_tail.contains("Working directory: /first/cwd"));
     assert!(first_tail.contains("Recursive agent depth: 0 (root)"));
     assert!(first_tail.contains("<skills>\n"));
-    assert!(first_tail.contains("Pre-installed Python packages:"));
+    assert!(first_tail.contains("Python packages: importing"));
     let second_tail = &second.assembled[second.cached_prefix_len..];
     assert!(second_tail.contains("/completely/different"));
     assert!(second_tail.contains("Enabled generic MCP servers: `github`, `slack`."));
@@ -741,7 +741,7 @@ fn generic_mcp_skill_renders_in_the_prompt_inventory() {
     let mut options = BuildSystemPromptOptions {
         cwd: "/w".to_string(),
         skills: sorted_bundled_skills(),
-        selected_tools: Some(vec!["ipython"]),
+        selected_tools: Some(vec!["python"]),
         ..Default::default()
     };
     let breakdown = system_prompt_breakdown(&options);

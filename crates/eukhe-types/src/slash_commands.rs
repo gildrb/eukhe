@@ -14,15 +14,17 @@ use std::collections::HashMap;
 use crate::model_roles::ModelRole;
 
 /// Session-executed commands (their behavior lives in the session engine).
-pub const SESSION_SLASH_COMMAND_NAMES: [&str; 8] = [
+pub const SESSION_SLASH_COMMAND_NAMES: [&str; 10] = [
     "compact",
     "refine",
     "goal",
+    "accept",
     "autonomous",
     "remind",
     "force",
     "dynamic-workflow",
     "autoresearch",
+    "loop",
 ];
 
 /// Durable row custom types (TS core/messages.ts): the command echo and its
@@ -151,6 +153,19 @@ const AUTORESEARCH_SUBCOMMANDS: &[Subcommand] = &[
     },
 ];
 
+const EFFECTS_SUBCOMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "ran",
+        description: "Settle an interrupted effect as one that ran",
+        usage: Some("<id>"),
+    },
+    Subcommand {
+        name: "not-run",
+        description: "Settle an interrupted effect as one that did not run",
+        usage: Some("<id>"),
+    },
+];
+
 const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "settings", description: "Open settings menu", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role; /model --all <provider/model> sets the model of every role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role|--all]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
@@ -167,6 +182,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "system-prompt", description: "Show the exact system prompt sent to the model", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "logs", description: "Show where daemon and client logs are saved", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "context", description: "Show token, cost, and context usage for agent and sub-agents", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &["usage"], takes_argument: false, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "budget", description: "Show, set or add to this session's budget", execution: SlashCommandExecution::Client, argument_hint: Some("[set|add cost= tokens= time= calls= requests= | audit]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "changelog", description: "Show changelog entries", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "hotkeys", description: "Show all keyboard shortcuts", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "fork", description: "Create a new fork from a previous user message", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
@@ -180,10 +196,12 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "compact", description: "Compact the session context; optional instructions focus the summary", execution: SlashCommandExecution::Session, argument_hint: Some("[instructions]"), aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "refine", description: "Refine continual harness prompt notes, skills, subagents, and memory", execution: SlashCommandExecution::Session, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "goal", description: "Set or view a persistent goal; supports pause, resume, and clear", execution: SlashCommandExecution::Session, argument_hint: Some("[objective]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "accept", description: "Set or view the acceptance checks that must pass before a task is reported done", execution: SlashCommandExecution::Session, argument_hint: Some("[status|clear|cmd <command>|judge <condition>|until <command>|returns <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "autonomous", description: "Set or view autonomous mode with an optional budget", execution: SlashCommandExecution::Session, argument_hint: Some("[status|off|on [--max-continuations <n>] [--max-turns <n>] [--max-tokens <n>] [--timeout-ms <n>] [--gate <command>]]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "remind", description: "Put a reminder on the Director stack; its text leads the next continuation", execution: SlashCommandExecution::Session, argument_hint: Some("<text>"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "force", description: "Force the next requests to call a tool until the model calls it", execution: SlashCommandExecution::Session, argument_hint: Some("<tool> [--tries <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "dynamic-workflow", description: "Plan and run a multi-agent workflow script for a request", execution: SlashCommandExecution::Session, argument_hint: Some("[--size small|medium|large] <request>"), aliases: &["workflow"], takes_argument: true, subcommands: DYNAMIC_WORKFLOW_SUBCOMMANDS, subcommand_optional: true },
+    BuiltinSlashCommand { name: "loop", description: "Toggle loop mode: the prompt is sent again after every turn. Bound it with a count or a duration, or gate it with --until '<cmd>' / --while '<cmd>': the command's exit status decides whether the next iteration runs. Esc suspends the loop; /loop --stop ends it", execution: SlashCommandExecution::Session, argument_hint: Some("[count|duration] [--while|--until '<cmd>'] [prompt]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "autoresearch", description: "Run an autonomous experiment loop toward a goal: benchmark, keep only improvements", execution: SlashCommandExecution::Session, argument_hint: Some("<goal>|off|status|clear"), aliases: &[], takes_argument: true, subcommands: AUTORESEARCH_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "workflows", description: "Show this session's dynamic workflow runs: phases, agents, logs", execution: SlashCommandExecution::Client, argument_hint: Some("[size]"), aliases: &[], takes_argument: false, subcommands: WORKFLOWS_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "rlm-max-depth", description: "Set/view the per-chat persistent RLM max depth immediately; never interrupts or queues the running turn", execution: SlashCommandExecution::Client, argument_hint: Some("[<int> [--global]]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
@@ -197,6 +215,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "factory", description: "Show or set the agent factory opt-in gate (off by default)", execution: SlashCommandExecution::Client, argument_hint: Some("[on|off|status]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "pause", description: "Pause this session's worker: its running model request and tool calls finish, nothing new starts (any message or /resume wakes it)", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "resume", description: "Resume the paused worker; without one, open the agents view, or resume a session by id or path", execution: SlashCommandExecution::Client, argument_hint: Some("[id|path]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "effects", description: "List the interrupted effects whose outcome is unknown, or settle one after checking", execution: SlashCommandExecution::Client, argument_hint: Some("[ran|not-run <id>]"), aliases: &[], takes_argument: false, subcommands: EFFECTS_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "reload", description: "Reload keybindings, skills, prompts, and themes", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "speed", description: "Toggle footer readout of model output tok/sec (latest response and session average)", execution: SlashCommandExecution::Client, argument_hint: Some("[on|off]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "quit", description: "Quit Eukhe", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
@@ -408,6 +427,30 @@ mod tests {
             );
         }
     }
+
+    /// `/budget` runs in the client and takes its words as one argument.
+    #[test]
+    fn budget_is_a_client_command_with_an_argument() {
+        let registry = SlashCommandRegistry::builtin();
+        assert_eq!(
+            (
+                registry.parse("/budget set cost=2 tokens=200k"),
+                registry
+                    .get("budget")
+                    .map(|command| (command.execution, command.takes_argument)),
+            ),
+            (
+                Some(ResolvedSlashCommand {
+                    name: "budget",
+                    original_name: "budget".to_string(),
+                    is_alias: false,
+                    args: "set cost=2 tokens=200k".to_string(),
+                }),
+                Some((SlashCommandExecution::Client, true)),
+            )
+        );
+    }
+
     #[test]
     fn edit_distance_counts_substitutions() {
         assert_eq!(edit_distance("abc", "abc"), 0);

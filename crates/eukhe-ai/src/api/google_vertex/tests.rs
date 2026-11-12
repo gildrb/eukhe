@@ -364,7 +364,7 @@ async fn disables_gemini_2_5_thinking_when_reasoning_is_omitted() {
     let payload = capture("gemini-2.5-flash", &json!({}), None, None).await;
     assert_eq!(
         payload["config"]["thinkingConfig"],
-        json!({ "thinkingBudget": 0 })
+        json!({ "includeThoughts": false, "thinkingBudget": 0 })
     );
 }
 

@@ -240,6 +240,55 @@ fn optional_segments_show_only_while_they_carry_something() {
     assert_eq!(text(&line), " [M] mock - [D] eukhe - details");
 }
 
+/// The session's loop label leads the activity segments, a paused one
+/// in the warning tone; it is no group, so a focused dock never bands
+/// it.
+#[test]
+fn the_loop_label_leads_the_activity_segments() {
+    let theme = theme();
+    let dock = |paused: bool| ActivityDock {
+        bash_running: 1,
+        loop_label: Some(crate::loop_surface::LoopLabel {
+            text: "Loop running 7/10".to_string(),
+            paused,
+        }),
+        selected: ActivityGroup::Subagents,
+        focused: paused,
+        ..ActivityDock::default()
+    };
+    let running = activity_segments(&dock(false), &theme);
+    assert_eq!(
+        running.iter().map(text).collect::<Vec<_>>(),
+        ["Loop running 7/10", "1 shell"]
+    );
+    assert_eq!(
+        running[0][0].style.fg,
+        theme.fg_style(ThemeColor::CustomMessageLabel).fg
+    );
+    let paused = activity_segments(&dock(true), &theme);
+    assert_eq!(
+        paused.iter().map(text).collect::<Vec<_>>(),
+        [
+            "Loop running 7/10",
+            "0 subagents",
+            "0 heartbeats",
+            "1 shell"
+        ]
+    );
+    assert_eq!(
+        paused[0][0].style.fg,
+        theme.fg_style(ThemeColor::Warning).fg
+    );
+    let band = theme.selection_row_style();
+    assert_eq!(
+        paused
+            .iter()
+            .map(|segment| segment[0].style.bg == band.bg)
+            .collect::<Vec<_>>(),
+        [false, true, false, false]
+    );
+}
+
 #[test]
 fn activity_segments_show_live_counts_only_until_focused() {
     let theme = theme();
@@ -405,4 +454,158 @@ fn the_title_and_the_speed_yield_before_the_fixed_segments() {
             "{width}: {row:?}"
         );
     }
+}
+
+/// The budget segment sits after the spend and reads the report's line:
+/// dim while the budget admits work, the warning tone in wrap-up, the
+/// error tone when exhausted.
+#[test]
+fn the_budget_segment_follows_the_spend_in_the_tone_of_its_phase() {
+    use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
+    let theme = theme();
+    let row = |phase: BudgetPhase, short: Option<BudgetDimension>| {
+        let state = ChromeState {
+            cost_usd: Some(0.126),
+            budget: Some(BudgetReport {
+                limits: BudgetLimits {
+                    cost_micros: Some(2_000_000),
+                    tool_calls: Some(50),
+                    ..BudgetLimits::default()
+                },
+                spent: BudgetAmounts {
+                    cost_micros: 420_000,
+                    tool_calls: 12,
+                    ..BudgetAmounts::default()
+                },
+                phase,
+                short,
+                ..BudgetReport::default()
+            }),
+            context: None,
+            git: None,
+            ..base()
+        };
+        let line = render_status_line(&state, Detail::Overview, &theme, 120);
+        let tone = line
+            .iter()
+            .find(|span| span.content.starts_with("budget: "))
+            .map(|span| span.style.fg);
+        (text(&line), tone)
+    };
+    assert_eq!(
+        [
+            row(BudgetPhase::Working, None),
+            row(BudgetPhase::WrapUp, Some(BudgetDimension::Cost)),
+            row(BudgetPhase::Exhausted, Some(BudgetDimension::ToolCalls)),
+        ],
+        [
+            (
+                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls".to_string(),
+                Some(theme.fg_style(ThemeColor::Dim).fg),
+            ),
+            (
+                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls - wrap-up"
+                    .to_string(),
+                Some(theme.fg_style(ThemeColor::Warning).fg),
+            ),
+            (
+                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls - exhausted (tool calls)"
+                    .to_string(),
+                Some(theme.fg_style(ThemeColor::Error).fg),
+            ),
+        ]
+    );
+}
+
+/// The verification segment shows only while the task has acceptance
+/// checks: the label in its tone, `checking...` while a claim waits, and
+/// the checks confirmed on the state now (a verdict on an older state
+/// does not count).
+#[test]
+fn verification_segment_shows_the_label() {
+    use eukhe_types::acceptance::{AcceptanceCheck, CheckResult, CheckSpec};
+    let theme = theme();
+    let check = |verdict: CheckVerdict, at: u64| AcceptanceCheck {
+        spec: CheckSpec::intent(),
+        protected: Vec::new(),
+        result: Some(CheckResult {
+            verdict,
+            at,
+            summary: String::new(),
+            evidence: String::new(),
+            judged_at: 0,
+        }),
+    };
+    let failed = AcceptanceState {
+        label: AcceptanceLabel::Failed,
+        state: 7,
+        checks: vec![
+            check(CheckVerdict::Confirmed, 7),
+            check(CheckVerdict::Refuted, 7),
+            check(CheckVerdict::Confirmed, 3),
+        ],
+        ..AcceptanceState::default()
+    };
+    let render = |acceptance: &AcceptanceState| {
+        let state = ChromeState {
+            verification: Verification::of(acceptance),
+            context: None,
+            git: None,
+            ..base()
+        };
+        render_status_line(&state, Detail::Overview, &theme, 120)
+    };
+    let tone = |line: &Line, needle: &str| {
+        line.iter()
+            .find(|span| span.content == needle)
+            .unwrap_or_else(|| panic!("missing span {needle:?}"))
+            .style
+            .fg
+    };
+
+    let line = render(&failed);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - x failed 1/3");
+    assert_eq!(
+        tone(&line, "x failed 1/3"),
+        theme.fg_style(ThemeColor::Error).fg
+    );
+
+    let checking = AcceptanceState {
+        claimed: true,
+        ..failed.clone()
+    };
+    let line = render(&checking);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - checking... 1/3");
+    assert_eq!(
+        tone(&line, "checking... 1/3"),
+        theme.fg_style(ThemeColor::Accent).fg
+    );
+
+    let verified = AcceptanceState {
+        label: AcceptanceLabel::Verified,
+        checks: vec![check(CheckVerdict::Confirmed, 7); 2],
+        ..failed.clone()
+    };
+    let line = render(&verified);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - ok verified 2/2");
+    assert_eq!(
+        tone(&line, "ok verified 2/2"),
+        theme.fg_style(ThemeColor::Success).fg
+    );
+
+    let unverified = AcceptanceState {
+        label: AcceptanceLabel::Unverified,
+        ..failed
+    };
+    let line = render(&unverified);
+    assert_eq!(text(&line), " [M] mock - [D] eukhe - unverified 1/3");
+    assert_eq!(
+        tone(&line, "unverified 1/3"),
+        theme.fg_style(ThemeColor::Muted).fg
+    );
+
+    // No checks: no segment.
+    assert_eq!(Verification::of(&AcceptanceState::default()), None);
+    let line = render(&AcceptanceState::default());
+    assert_eq!(text(&line), " [M] mock - [D] eukhe");
 }

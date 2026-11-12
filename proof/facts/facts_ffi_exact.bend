@@ -12,10 +12,11 @@ import ../../laws/facts/model.bend as Facts
 import ../../laws/facts/entry.bend as FactsEntry
 import ./facts_cap_keeps_the_want.bend as PCapKeeps
 import ./facts_cap_shrinks_on_conflict.bend as PCapShrinks
-import ./facts_cap_omits_unknown.bend as PCapOmits
+import ./facts_cap_omits_only_the_default.bend as PCapOmits
 import ./facts_aux_cap_within.bend as PAuxWithin
 import ./base.bend as LA
 import ./facts_ffi_exact/model.bend as FEM
+import ../base/logic/logic.bend as LLogicLogic
 
 # Reading: the single fields
 # --------------------------
@@ -535,22 +536,42 @@ def fe.aux(+c: Fx.Customs, +d: Fx.Budgets, +a: Nat, +top: Nat) -> {Fx.aux(c, d, 
   %fe.budget(c, d, Fx.High{}) : {Fx.aux(c, d, a, top) == Nat.min(Nat.add(_, a), top) : Nat}
   Facts.facts_aux_cap_within(Fx.budget(c, d, Fx.High{}), a, top)
 
-def fe.cap_conf(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win, h1: {Facts.cap_unknown(caller, mm, needs, win) == False{} : Bool}, c: Bool, e: {Facts.cap_conflict(Facts.cap_want(caller, mm), win) == c : Bool}) -> {Fx.cap(caller, mm, needs, win) == Some{FactsEntry.fs.shrink.at(c, Facts.cap_want(caller, mm), win)} : Maybe<&2, Nat>}:
+def fe.cap_conf(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win, h1: {Facts.cap_left_out(caller, needs) == False{} : Bool}, c: Bool, e: {Facts.cap_conflict(Facts.cap_want(caller, mm), win) == c : Bool}) -> {Fx.cap(caller, mm, needs, win) == Some{FactsEntry.fs.shrink.at(c, Facts.cap_want(caller, mm), win)} : Maybe<&2, Nat>}:
   match c:
     case True{}:
       Facts.facts_cap_shrinks_on_conflict(caller, mm, needs, win, h1, e)
     case False{}:
       Facts.facts_cap_keeps_the_want(caller, mm, needs, win, h1, e)
 
-def fe.cap_at(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win, u: Bool, e: {Facts.cap_unknown(caller, mm, needs, win) == u : Bool}) -> {Fx.cap(caller, mm, needs, win) == FactsEntry.fs.cap.at(u, caller, mm, win) : Maybe<&2, Nat>}:
+# a cap that is not present is none
+def fe.absent(m: Maybe<&2, Nat>, e: {Facts.cap_present(m) == False{} : Bool}) -> {m == None{} : Maybe<&2, Nat>}:
+  match m:
+    case Some{x}:
+      LLogicLogic.pf.absurd_tf({Some{x} == None{} : Maybe<&2, Nat>}, e)
+    case None{}:
+      {==}
+
+# a cap that is left out (e) is none
+def fe.cap_out(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win, e: {Facts.cap_left_out(caller, needs) == True{} : Bool}) -> {Fx.cap(caller, mm, needs, win) == None{} : Maybe<&2, Nat>}:
+  match caller needs:
+    case Some{+x} True{}:
+      LLogicLogic.pq.absurdF({Fx.cap(Some{x}, mm, True{}, win) == None{} : Maybe<&2, Nat>}, e)
+    case Some{+x} False{}:
+      LLogicLogic.pq.absurdF({Fx.cap(Some{x}, mm, False{}, win) == None{} : Maybe<&2, Nat>}, e)
+    case None{} True{}:
+      LLogicLogic.pq.absurdF({Fx.cap(None{}, mm, True{}, win) == None{} : Maybe<&2, Nat>}, e)
+    case None{} False{}:
+      fe.absent(Fx.cap(None{}, mm, False{}, win), Facts.facts_cap_omits_only_the_default(None{}, mm, win))
+
+def fe.cap_at(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win, u: Bool, e: {Facts.cap_left_out(caller, needs) == u : Bool}) -> {Fx.cap(caller, mm, needs, win) == FactsEntry.fs.cap.at(u, caller, mm, win) : Maybe<&2, Nat>}:
   match u:
     case True{}:
-      Facts.facts_cap_omits_unknown(caller, mm, needs, win, e)
+      fe.cap_out(caller, mm, needs, win, e)
     case False{}:
       fe.cap_conf(caller, mm, needs, win, e, Facts.cap_conflict(Facts.cap_want(caller, mm), win), {==})
 
 def fe.cap(+caller: Maybe<&2, Nat>, +mm: Nat, +needs: Bool, +win: Fx.Win) -> {Fx.cap(caller, mm, needs, win) == FactsEntry.fs.cap(caller, mm, needs, win) : Maybe<&2, Nat>}:
-  fe.cap_at(caller, mm, needs, win, Facts.cap_unknown(caller, mm, needs, win), {==})
+  fe.cap_at(caller, mm, needs, win, Facts.cap_left_out(caller, needs), {==})
 
 # Spelling
 # --------

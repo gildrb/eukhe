@@ -12,8 +12,8 @@
 //!
 //! An operation of a capability the model's provider lacks fails with
 //! [`CapabilityError::Unsupported`]. It never falls back to another provider
-//! or to the local token estimate: a caller that wants the estimate asks for
-//! it (`utils::estimate`).
+//! or to a local count: a caller that wants the local count asks for it
+//! (`utils::context_tokens`, the model's real tokenizer).
 //!
 //! The operations run through [`Models`](crate::models::Models), which
 //! resolves the provider's auth like a chat request

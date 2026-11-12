@@ -169,6 +169,10 @@ def crv.back_head(b: CS.Back, j: Cr.Job, +x: Nat, +u: Nat, +rest: List<&2, CronF
       match j:
         case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
           {==}
+    case CS.Refire{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          {==}
 
 def crv.rows_pick(b: Bool, +j: Cr.Job, +t: List<&2, Cr.Rec>, +hs: List<&2, CF.Hold>, +u: Nat, +x: Nat, eq: {Nat.is_eq(CronFileView.id_of(j), x) == b : Bool}, ih: {CronFileView.row_at(x, CronFileView.recover_rows(t, CronFile.recover_js_spec(CronFileView.slots_of(t, u), hs), u)) == crv.mrow(x, LCfd.cfd.first(x, t), hs, u) : Maybe<&2, CronFileView.FRow>}) -> {CronFileView.row_at.pick(b, CronFileView.back_row(CronStore.recover_spec(Cron.fact_of(j, u), CronFile.cleared_spec(CronFileView.id_of(j), hs)), j, u), CronFileView.row_at(x, CronFileView.recover_rows(t, CronFile.recover_js_spec(CronFileView.slots_of(t, u), hs), u))) == crv.mrow(x, LCfd.cfd.first.pick(b, j, LCfd.cfd.first(x, t)), hs, u) : Maybe<&2, CronFileView.FRow>}:
   match b:
@@ -199,6 +203,10 @@ def crv.raw_back(b: CS.Back, j: Cr.Job, +u: Nat, rest: List<&2, CronFileView.FRo
         case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
           {==}
     case CS.Interrupted{st2, m}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+          {==}
+    case CS.Refire{}:
       match j:
         case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
           {==}
@@ -380,6 +388,10 @@ def crv.row_back(b: CS.Back, +cl: Bool, j: Cr.Job, +u: Nat) -> {CronFileView.bac
       match j:
         case Cr.Job{i, s, st, nx, k, c, rs, ss, h}:
           {==}
+    case CS.Refire{}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, c, rs, ss, h}:
+          {==}
 
 def crv.kept_back(b: CS.Back, +p: Nat, +dead: List<&2, Nat>, j: Cr.Job, +u: Nat) -> {crv.kept_j(p, dead, j, u) == LCfd.cfd.pcl(Cron.back_view(b, Cron.cleared_of(p, dead, j), j, u)) : List<&2, Cr.Claim>}:
   match b:
@@ -388,6 +400,10 @@ def crv.kept_back(b: CS.Back, +p: Nat, +dead: List<&2, Nat>, j: Cr.Job, +u: Nat)
         case Cr.Job{i, s, st, nx, k, c, rs, ss, h}:
           {==}
     case CS.Interrupted{st2, m}:
+      match j:
+        case Cr.Job{i, s, st, nx, k, c, rs, ss, h}:
+          {==}
+    case CS.Refire{}:
       match j:
         case Cr.Job{i, s, st, nx, k, c, rs, ss, h}:
           {==}

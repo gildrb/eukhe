@@ -1,12 +1,13 @@
 // Boot: the theme, the link (frames folded into the session), the route
-// (which chat is bound), the 4 Hz tick while a turn runs, the document
-// title and the notifications, then the app.
+// (which chat is bound), the 4 Hz tick while a turn runs or a loop's time
+// counts down, the document title and the notifications, then the app.
 
 import "./global.css";
 import { render } from "preact";
 import { App } from "./components/App.tsx";
 import { applyTheme, reloadState } from "./lib/actions.ts";
 import { fmt } from "./lib/format.ts";
+import { loopCountsDown } from "./lib/loop.ts";
 import { connect, onFrame, onReady } from "./lib/link.ts";
 import { chatHref, currentRoute, navigate } from "./lib/router.ts";
 import { addApproval, approvalSettled, bind, opening, refreshSessions } from "./lib/session.ts";
@@ -113,7 +114,9 @@ store.subscribe(attend);
 
 setInterval(() => {
   if (document.hidden) return;
-  if (derivePhase(store.get(), Date.now(), fmt).running) store.set({ tick: Date.now() });
+  const state = store.get();
+  if (derivePhase(state, Date.now(), fmt).running || loopCountsDown(state.session?.loop ?? null))
+    store.set({ tick: Date.now() });
 }, TICK_MS);
 
 // ----------------------------------------------------------------- boot --

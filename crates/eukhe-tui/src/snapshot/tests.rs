@@ -1231,7 +1231,7 @@ fn transcript_replay_completes_tool_cards() {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "calling" },
-                { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {"code": "1"} },
+                { "type": "toolCall", "id": "call-1", "name": "python", "arguments": {"code": "1"} },
             ],
             "provider": "faux", "model": "faux-1",
             "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
@@ -1240,7 +1240,7 @@ fn transcript_replay_completes_tool_cards() {
         json!({
             "role": "toolResult",
             "toolCallId": "call-1",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "42" }],
             "details": { "durationMs": 3, "status": "ok" },
             "isError": false,
@@ -1249,7 +1249,7 @@ fn transcript_replay_completes_tool_cards() {
         json!({
             "role": "toolResult",
             "toolCallId": "orphan",
-            "toolName": "ipython",
+            "toolName": "python",
             "content": [{ "type": "text", "text": "no card" }],
             "isError": false,
             "timestamp": 4,
@@ -1295,7 +1295,7 @@ fn transcript_replay_keeps_pending_cards_without_results() {
         json!({
             "role": "assistant",
             "content": [
-                { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {} },
+                { "type": "toolCall", "id": "call-1", "name": "python", "arguments": {} },
             ],
             "provider": "faux", "model": "faux-1",
             "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
@@ -1318,7 +1318,7 @@ fn push_message_completes_pending_tool_card() {
     reconstructed.push_message(&msg(json!({
         "role": "assistant",
         "content": [
-            { "type": "toolCall", "id": "call-1", "name": "ipython", "arguments": {} },
+            { "type": "toolCall", "id": "call-1", "name": "python", "arguments": {} },
         ],
         "provider": "faux", "model": "faux-1",
         "usage": { "input": 10, "output": 2 }, "stopReason": "toolUse",
@@ -1327,7 +1327,7 @@ fn push_message_completes_pending_tool_card() {
     reconstructed.push_message(&msg(json!({
         "role": "toolResult",
         "toolCallId": "call-1",
-        "toolName": "ipython",
+        "toolName": "python",
         "content": [{ "type": "text", "text": "out" }],
         "isError": true,
         "timestamp": 3,
@@ -1642,6 +1642,62 @@ fn goal_update_decodes_the_goal_payload() {
     assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
 }
 
+/// A `loop_update` event decodes to the wire loop status (the session
+/// view owns the status line label).
+#[test]
+fn loop_update_decodes_the_loop_status() {
+    let update = event_to_update(&event(json!({
+        "type": "loop_update",
+        "loop": {
+            "phase": { "state": "turn" },
+            "iteration": 3,
+            "remaining": 7,
+            "condition": { "command": "test -f done", "until": true },
+            "prompt": "fix it",
+            "failures": 0,
+            "limit": { "kind": "iterations", "iterations": 10 },
+            "startedAtMs": 5
+        }
+    })));
+    assert_eq!(update, TurnUpdate::LoopUpdate(running_loop()));
+}
+
+/// The loop the loop fixtures carry: the third turn of ten, until
+/// `test -f done`.
+fn running_loop() -> eukhe_types::loop_mode::LoopStatus {
+    use eukhe_types::loop_mode::{LoopCondition, LoopLimit, LoopPhase, LoopState, LoopStatus};
+    LoopStatus {
+        state: LoopState {
+            phase: LoopPhase::Turn,
+            iteration: 3,
+            remaining: Some(7),
+            condition: Some(LoopCondition {
+                command: "test -f done".to_string(),
+                until: true,
+            }),
+            prompt: "fix it".to_string(),
+            ..LoopState::default()
+        },
+        limit: Some(LoopLimit::Iterations { iterations: 10 }),
+        started_at_ms: Some(5),
+        ..LoopStatus::default()
+    }
+}
+
+/// The attach snapshot's `state.loop` rehydrates with the session; a
+/// snapshot without one (an older daemon) reports none.
+#[test]
+fn attach_snapshot_carries_the_loop_status() {
+    let mut attach = slim_attach();
+    let reconstructed =
+        reconstruct(&attach_data_from_response(attach.clone()).unwrap()).expect("reconstructs");
+    assert_eq!(reconstructed.loop_status, None);
+    attach["snapshot"]["state"]["loop"] = json!(running_loop());
+    let reconstructed =
+        reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
+    assert_eq!(reconstructed.loop_status, Some(running_loop()));
+}
+
 /// The attach snapshot's `state.goal` rehydrates with the session (TS
 /// `snapshot.ts: goal: session.goalState`); a null goal stays absent.
 #[test]
@@ -1692,6 +1748,164 @@ fn attach_snapshot_carries_the_goal_state() {
     assert_eq!(goal.objective.as_deref(), Some("keep shipping"));
 }
 
+/// An `unknown_effects_update` event decodes to the whole ledger it
+/// carries.
+#[test]
+fn unknown_effects_update_decodes_the_ledger() {
+    let update = event_to_update(&event(json!({
+        "type": "unknown_effects_update",
+        "effects": [
+            { "id": "tool:c1", "kind": "tool", "what": "bash: make deploy", "at": 5.0 },
+            { "id": "job:7", "kind": "job", "what": "cargo build", "at": 6.0, "resolution": "ran" }
+        ]
+    })));
+    let effect = |id: &str, kind, what: &str, at, resolution| eukhe_types::effects::UnknownEffect {
+        id: id.to_owned(),
+        kind,
+        what: what.to_owned(),
+        at,
+        resolution,
+    };
+    assert_eq!(
+        update,
+        TurnUpdate::UnknownEffectsUpdate(vec![
+            effect(
+                "tool:c1",
+                eukhe_types::effects::EffectKind::Tool,
+                "bash: make deploy",
+                5.0,
+                None
+            ),
+            effect(
+                "job:7",
+                eukhe_types::effects::EffectKind::Job,
+                "cargo build",
+                6.0,
+                Some(eukhe_types::effects::EffectResolution::Ran)
+            ),
+        ])
+    );
+}
+
+/// The attach snapshot's `state.unknownEffects` rehydrates the ledger; a
+/// state without it holds none.
+#[test]
+fn attach_snapshot_carries_the_unknown_effects() {
+    let attach = |extra: Value| {
+        let mut state = json!({
+            "activeSessionId": "abc123def456",
+            "cwd": "/tmp",
+            "sessionId": "0199-sess",
+            "isStreaming": false,
+            "isCompacting": false,
+            "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
+        });
+        overlay(&mut state, extra);
+        let data = attach_data_from_response(json!({
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+            "activeSessionId": "abc123def456",
+            "snapshot": {
+                "activeSessionId": "abc123def456",
+                "summary": { "id": "abc123def456", "cwd": "/tmp" },
+                "state": state,
+                "messages": [],
+                "lastEventSequence": 3,
+            },
+            "lastEventSequence": 3
+        }))
+        .unwrap();
+        reconstruct(&data).expect("reconstructs").unknown_effects
+    };
+    assert_eq!(
+        attach(json!({
+            "unknownEffects": [{ "id": "tool:c1", "kind": "tool", "what": "bash: deploy", "at": 5.0 }]
+        })),
+        vec![eukhe_types::effects::UnknownEffect {
+            id: "tool:c1".to_owned(),
+            kind: eukhe_types::effects::EffectKind::Tool,
+            what: "bash: deploy".to_owned(),
+            at: 5.0,
+            resolution: None,
+        }]
+    );
+    assert_eq!(attach(json!({})), Vec::new());
+}
+
+/// A `budget_update` decodes to its report, a null one to no budget; the
+/// attach snapshot's `state.budget` reconstructs the same report, and a
+/// state without one reconstructs none.
+#[test]
+fn the_budget_rides_its_update_and_the_attach_snapshot() {
+    let wire_report = json!({
+        "sessionId": "0199-sess",
+        "limits": { "costMicros": 2_000_000 },
+        "free": { "costMicros": 1_580_000, "tokens": 0, "timeMs": 0, "toolCalls": 0 },
+        "spent": { "costMicros": 420_000, "tokens": 0, "timeMs": 0, "toolCalls": 0 },
+        "phase": "wrap_up",
+        "short": "cost",
+    });
+    let report = eukhe_types::budget::BudgetReport {
+        session_id: "0199-sess".to_string(),
+        limits: eukhe_types::budget::BudgetLimits {
+            cost_micros: Some(2_000_000),
+            ..Default::default()
+        },
+        free: eukhe_types::budget::BudgetAmounts {
+            cost_micros: 1_580_000,
+            ..Default::default()
+        },
+        spent: eukhe_types::budget::BudgetAmounts {
+            cost_micros: 420_000,
+            ..Default::default()
+        },
+        phase: eukhe_types::budget::BudgetPhase::WrapUp,
+        short: Some(eukhe_types::budget::BudgetDimension::Cost),
+        ..Default::default()
+    };
+    let attached = |budget: &Value| {
+        let attach = json!({
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+            "activeSessionId": "abc123def456",
+            "snapshot": {
+                "activeSessionId": "abc123def456",
+                "summary": { "id": "abc123def456", "cwd": "/tmp" },
+                "state": {
+                    "activeSessionId": "abc123def456",
+                    "cwd": "/tmp",
+                    "sessionId": "0199-sess",
+                    "isStreaming": false,
+                    "isCompacting": false,
+                    "budget": budget,
+                    "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
+                },
+                "messages": [],
+                "lastEventSequence": 3,
+                "lastEventCursor": { "generation": "g-1", "sequence": 3 }
+            },
+            "lastEventSequence": 3
+        });
+        reconstruct(&attach_data_from_response(attach).unwrap())
+            .expect("reconstructs")
+            .budget
+    };
+    assert_eq!(
+        (
+            event_to_update(&event(
+                json!({ "type": "budget_update", "budget": wire_report })
+            )),
+            event_to_update(&event(json!({ "type": "budget_update", "budget": null }))),
+            attached(&wire_report),
+            attached(&Value::Null),
+        ),
+        (
+            TurnUpdate::BudgetUpdate(Some(Box::new(report.clone()))),
+            TurnUpdate::BudgetUpdate(None),
+            Some(report),
+            None,
+        )
+    );
+}
+
 /// The tray's context usage rides the attach snapshot's state: the
 /// reconstruct hands it to the rebuild that follows every attach.
 #[test]
@@ -1732,7 +1946,7 @@ fn image_heavy_tool_result(payload: &str) -> serde_json::Value {
     json!({
         "role": "toolResult",
         "toolCallId": "call-img",
-        "toolName": "ipython",
+        "toolName": "python",
         "content": [
             { "type": "text", "text": "Loaded 1 image(s) into context: /tmp/shot.png" },
             { "type": "image", "data": payload, "mimeType": "image/png" }
@@ -1747,7 +1961,7 @@ fn elided_image_tool_result(elided_bytes: u64, width: u64, height: u64) -> serde
     json!({
         "role": "toolResult",
         "toolCallId": "call-img",
-        "toolName": "ipython",
+        "toolName": "python",
         "content": [
             { "type": "text", "text": "Loaded 1 image(s) into context: /tmp/shot.png" },
             {

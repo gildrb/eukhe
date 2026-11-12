@@ -54,8 +54,9 @@ import ../base.bend as LawsBase
 # A2  (H4.8 of laws/run/model.bend) a recovery's cap counts only its own
 #     notes in a row: rec_length_notes_then_quit, rec_leak_notes_then_quit
 #     (recover.bend: the model's rows from any row); a row that restarts
-#     after another recovery's note: rec_length_notes_then_fails,
-#     rec_leak_notes_then_fails (laws/run/recover.bend, on decide.recover)
+#     after another recovery's note: stop_think_ladder_climbs
+#     (laws/stop/recover.bend), rec_leak_notes_then_fails
+#     (laws/run/recover.bend, on decide.recover)
 
 # (S8) The interface
 # ------------------
@@ -350,6 +351,7 @@ law all_comm_example:
 # EXCLUDES: an all_comm that is always True
 law all_comm_rejects_example:
   {Bool.or(all_comm([Sc.Blk{0n, Sc.Final{}, 0n}]), all_comm([Sc.Blk{0n, Sc.Comm{}, 0n}, Sc.Blk{1n, Sc.Active{}, 0n}])) == False{} : Bool}
+
 
 # ---- screen: the entry ----
 

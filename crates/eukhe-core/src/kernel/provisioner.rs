@@ -894,9 +894,9 @@ fn startup_failure_is_retryable(error: &anyhow::Error) -> bool {
         "provisioner disposed",
         "provisioner killed",
         "aborted",
-        crate::kernel::bootstrap::KERNEL_NOT_INSTALLED,
-        crate::kernel::bootstrap::KERNEL_INSTALL_FAILED,
-        "EUKHE_KERNEL_PYTHON points to a Python",
+        crate::kernel::bootstrap::KERNEL_FETCH_FAILED,
+        crate::kernel::bootstrap::KERNEL_OVERRIDE_MISSING,
+        "the eukhe-runtime kernel runtime directory was not found",
         "Failed to initialize rlm runtime",
         "Update eukhe-runtime in the kernel Python",
         "Kernel start superseded",
@@ -1200,10 +1200,7 @@ async fn start_kernel(
             }
         }
         Ok(bootstrap) => {
-            // The kernel booted but its runtime did not initialize: the venv
-            // is the prime suspect, so drop the memoized runtime-ready result
-            // and let the next start re-probe (and rebuild when broken).
-            crate::kernel::bootstrap::invalidate_runtime_probe_cache();
+            // The kernel booted but its runtime did not initialize.
             let details = [bootstrap.stderr.clone()]
                 .into_iter()
                 .chain(bootstrap.error.iter().map(|e| e.traceback.join("\n")))
@@ -1568,7 +1565,7 @@ mod tests {
             "Python execution aborted"
         )));
         assert!(!startup_failure_is_retryable(&anyhow!(
-            "EUKHE_KERNEL_PYTHON points to a Python missing a current eukhe-runtime: /bad"
+            "EUKHE_KERNEL_PYTHON points to /bad, which is not a file"
         )));
         assert!(!startup_failure_is_retryable(&anyhow!(
             "Kernel runtime speaks protocol 2, expected 3. \

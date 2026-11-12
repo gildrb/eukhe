@@ -54,6 +54,17 @@ string_enum! {
     }
 }
 
+string_enum! {
+    /// How a thinking-off request of the `openai` thinking format turns
+    /// reasoning off on OpenAI-compatible completions APIs, in place of the
+    /// lowest offered `reasoning_effort`.
+    pub enum ReasoningDisableMode {
+        /// `reasoning: {enabled: false}` (`OpenCode` Go's `LongCat`: a
+        /// reasoning switch without effort tiers).
+        OpenRouterEnabledFalse => "openrouter-enabled-false",
+    }
+}
+
 /// Compatibility settings for OpenAI-compatible completions APIs. Overrides
 /// URL-based auto-detection for custom providers.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -78,6 +89,11 @@ pub struct OpenAICompletionsCompat {
     /// Which field to use for max tokens. Default: auto-detected from URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_field: Option<MaxTokensField>,
+    /// Whether the host takes an output cap up to the model's `maxTokens`.
+    /// False: the cap is at most 64000.
+    /// Default: true for a local backend, else false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clamp_output_to_model_max: Option<bool>,
     /// Whether tool results require the `name` field. Default: auto-detected from URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requires_tool_result_name: Option<bool>,
@@ -109,6 +125,16 @@ pub struct OpenAICompletionsCompat {
     /// Whether z.ai supports top-level `tool_stream: true`. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zai_tool_stream: Option<bool>,
+    /// Sent as `thinking.keep` next to an enabled `thinking` object of the
+    /// `deepseek` thinking format (Moonshot Kimi preserved thinking: `"all"`
+    /// keeps the reasoning of every earlier turn). Default: not sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_keep: Option<String>,
+    /// How a thinking-off request of the `openai` thinking format turns
+    /// reasoning off. Default: the model's `off` effort, else its lowest
+    /// offered effort (sent only where `reasoning_effort` is supported).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_disable_mode: Option<ReasoningDisableMode>,
     /// Top-level request field used to cap reasoning tokens from `thinkingBudgets`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_token_budget_field: Option<ThinkingTokenBudgetField>,
@@ -205,6 +231,17 @@ string_enum! {
     }
 }
 
+string_enum! {
+    /// What a thinking-off request of an adaptive Anthropic model sends.
+    pub enum AnthropicDisabledThinking {
+        /// `thinking: {type: "disabled"}` (Haiku 5.5; refused above `high`
+        /// effort or once per-message effort controls are in the history).
+        Disabled => "disabled",
+        /// `thinking: {type: "between_tools"}` (Sonnet 5.5).
+        BetweenTools => "between-tools",
+    }
+}
+
 /// A model Anthropic accepts in `fallbacks`, with local pricing metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnthropicAllowedFallbackModel {
@@ -244,9 +281,20 @@ pub struct AnthropicMessagesCompat {
     /// Whether the provider supports Anthropic strict tool schemas. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_strict_tools: Option<bool>,
-    /// Whether effort-only system messages and thinking binding controls are supported. Default: false.
+    /// Whether per-message effort controls (`role: "system"` messages with
+    /// `output_config`) are supported. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_mid_convo_effort: Option<bool>,
+    /// Whether the model binds signed thinking to its conversation prefix:
+    /// requests send `thinking.block_binding` and the binding beta.
+    /// Default: `supportsMidConvoEffort`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_thinking_binding_controls: Option<bool>,
+    /// What a thinking-off request of a `supportsMidConvoEffort` model sends.
+    /// Default: no `thinking` field (or adaptive with the prefix binding) at
+    /// the lowest effort, for models that cannot turn thinking off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled_thinking: Option<AnthropicDisabledThinking>,
     /// Whether system-role messages are accepted inside the conversation. Default: false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_mid_convo_system_messages: Option<bool>,

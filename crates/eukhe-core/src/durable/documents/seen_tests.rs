@@ -14,7 +14,7 @@ use eukhe_durable::harness::{OutputLimits, Truncation};
 use serde_json::json;
 
 use super::contract::Function;
-use super::requests::{perform, Performed};
+use super::requests::{perform, Caller, Performed};
 use super::tool::bounded;
 use super::DocumentsHost;
 use crate::durable::bounded_output::BoundedOutput;
@@ -63,7 +63,7 @@ async fn call(
         dir.to_path_buf(),
         dir,
         args,
-        None,
+        Caller::Kernel(None),
         &BACKGROUND_CONTEXT,
     )
     .await

@@ -10,7 +10,6 @@
 //! re-implements resolution or parsing, so the two sides cannot drift.
 
 use std::io::Write as _;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
@@ -298,28 +297,34 @@ fn listing_row(machine: &MachineListing, name_width: usize) -> String {
     )
 }
 
-/// Resolve the kernel Python (bootstrapping the venv on first use), the
-/// same interpreter the factory gate lives in.
-fn resolve_kernel_python() -> Result<PathBuf, FactoryDispatchError> {
+/// Resolve the kernel Python (Eukhe's pinned interpreter, fetched first
+/// when it is absent), the same interpreter the factory gate lives in.
+fn resolve_kernel_python() -> Result<eukhe_core::kernel::KernelPython, FactoryDispatchError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(FactoryDispatchError::Runtime)?;
+    let cwd = std::env::current_dir().ok();
     runtime
         .block_on(eukhe_core::kernel::ensure_kernel_python(
             eukhe_core::kernel::EnsureKernelPythonOptions::default(),
+            cwd.as_deref(),
         ))
         .map_err(FactoryDispatchError::KernelPython)
 }
 
 /// Drive one `rlm.factory.cli_dispatch` payload through the kernel Python.
 fn dispatch_via_kernel(
-    python: &std::path::Path,
+    kernel: &eukhe_core::kernel::KernelPython,
     payload: &Value,
 ) -> Result<Value, FactoryDispatchError> {
-    let mut child = Command::new(python);
+    let mut env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    kernel.apply_env(&mut env);
+    let mut child = Command::new(&kernel.python);
     child
         .args(["-c", CLI_DISPATCH_RUNNER])
+        .env_clear()
+        .envs(env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

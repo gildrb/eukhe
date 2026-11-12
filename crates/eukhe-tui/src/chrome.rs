@@ -54,6 +54,10 @@ pub struct ChromeState {
     /// whole-file spend plus every subagent descendant's -- the same
     /// number the agents view bills the row).
     pub cost_usd: Option<f64>,
+    /// The session's budget, when it has one (the attach snapshot's
+    /// `state.budget`, then every `budget_update`): the status line's
+    /// `budget:` segment beside the spend.
+    pub budget: Option<eukhe_types::budget::BudgetReport>,
     /// Context usage: tokens and window (the status line's right side).
     pub context: Option<ContextUsage>,
     /// Where the cwd sits in git, from the background probe; `None`
@@ -67,6 +71,9 @@ pub struct ChromeState {
     /// session: the status line's `mem` segment. `None` (unknown, or a
     /// session without chat memory) renders no gauge.
     pub memory: Option<crate::memory_block::MemoryGauge>,
+    /// The acceptance of the session's task as the status line's
+    /// verification segment reads it; `None` (no checks) renders none.
+    pub verification: Option<crate::status_line::Verification>,
     /// The model's thinking level (wire name), shown after the model (TS
     /// `getModelContextLabel`); `None` for a model without reasoning.
     pub thinking_suffix: Option<String>,
@@ -183,6 +190,10 @@ pub struct ActivityDock {
     /// panel); `None` unless the goal is actively being pursued (a
     /// completed or idle goal carries no dock segment).
     pub goal_label: Option<String>,
+    /// The session's `/loop` label (`Loop running 7/10 until: test -f
+    /// done`-style); `None` unless a loop is on. Not a group: it opens
+    /// nothing, so the arrows never land on it.
+    pub loop_label: Option<crate::loop_surface::LoopLabel>,
     pub selected: ActivityGroup,
     pub focused: bool,
 }

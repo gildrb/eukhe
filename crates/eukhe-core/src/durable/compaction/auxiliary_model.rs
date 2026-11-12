@@ -254,14 +254,16 @@ pub(crate) fn settle<T>(
 /// Decide where a summarizer pass runs, with the checks in their order:
 /// the selector (unset or the session model keeps the session), then
 /// `allowedModels`, then `find` (the resolver's own lookups: catalog, key,
-/// collection), then the context window against `required_context_tokens`
-/// (a known window smaller than the request falls back; an unknown window
-/// or an unknown request keeps the route). `find` runs only when the gate
-/// asks for the lookups.
+/// collection), then the context window against the request's size,
+/// `required_context_tokens` of the found model (its tokenizer counts the
+/// request; `None`: unknown) (a known window smaller than the request
+/// falls back; an unknown window or an unknown request keeps the route).
+/// `find` runs only when the gate asks for the lookups, and the request
+/// is counted only for a found model.
 pub fn decide_auxiliary_route<T>(
     selector: &AuxiliarySelector,
     allowlist: Option<&[String]>,
-    required_context_tokens: Option<u64>,
+    required_context_tokens: impl FnOnce(&T) -> Option<u64>,
     find: impl FnOnce(&str) -> Result<Found<T>, FallbackReason>,
 ) -> AuxiliaryRoute<T> {
     let allowed = match selector {
@@ -273,10 +275,17 @@ pub fn decide_auxiliary_route<T>(
     let (name, reason) = match gate(selector, allowed) {
         Gate::Session => return AuxiliaryRoute::Session,
         Gate::Fallback(name, reason) => (name, reason),
-        Gate::Lookup(name) => match settle(find(name), required_context_tokens) {
-            Ok(model) => return AuxiliaryRoute::Routed(model),
-            Err(reason) => (name, reason),
-        },
+        Gate::Lookup(name) => {
+            let found = find(name);
+            let required = found
+                .as_ref()
+                .ok()
+                .and_then(|found| required_context_tokens(&found.model));
+            match settle(found, required) {
+                Ok(model) => return AuxiliaryRoute::Routed(model),
+                Err(reason) => (name, reason),
+            }
+        }
     };
     AuxiliaryRoute::Fallback {
         selector: name.to_owned(),
@@ -401,7 +410,8 @@ pub struct AuxiliaryResolution {
 /// registry's searchable set), the model's key, and the session's model
 /// collection `models` (which owns provider overrides).
 /// `required_context_tokens` is the size of the request the pass will
-/// issue (`None` when unknown).
+/// issue, counted with the tokenizer of the model it is asked about
+/// (`None` when unknown).
 ///
 /// The session fallback resolves its merged headers through the same
 /// registry the session's own requests use, so it ships the stored team
@@ -413,7 +423,7 @@ pub fn resolve_auxiliary_model(
     notices: &AuxiliaryNotices,
     purpose: &str,
     session_model: &Model,
-    required_context_tokens: Option<u64>,
+    required_context_tokens: impl FnOnce(&Model) -> Option<u64>,
 ) -> AuxiliaryResolution {
     let settings = crate::settings::SettingsManager::create(&context.cwd, &context.agent_dir);
     let role = role_model(settings.cvars(), ModelRole::Auxiliary);
@@ -428,7 +438,9 @@ pub fn resolve_auxiliary_model(
     let route = decide_auxiliary_route(
         &selector,
         settings.get_allowed_models().as_deref(),
-        required_context_tokens,
+        |(model, _, _): &(Model, Option<String>, Option<BTreeMap<String, String>>)| {
+            required_context_tokens(model)
+        },
         |selector| {
             let model = registry
                 .get_rlm_searchable_models()

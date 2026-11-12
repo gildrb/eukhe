@@ -194,6 +194,55 @@ law path_resolves_inside:
   for inside: {Tl.stays(segs, 0n) == True{} : Bool}
   {Maybe.is_some(&2, List<&2, Nat>, Tl.resolve(segs)) == True{} : Bool}
 
+# Which names a path reaches (S7.6: `..` goes up one segment; `.` and an
+# empty segment do not move; a path above its root is refused, never
+# clamped). Together the four laws below decide Tl.resolve on every path:
+# dropping each `.` and each name followed by `..` leaves a path of names
+# only (path_names_plain), or one that begins with `..` (path_up_at_root,
+# where the path before it is empty).
+
+# the path of the names ns, in order
+def tools_name_path(ns: List<&2, Nat>) -> List<&2, Tl.Seg>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case n <> rest:
+      Tl.Name{n} <> tools_name_path(rest)
+
+# LAW path_up_cancels: a name followed by `..`, anywhere in a path, changes nothing: the path
+# resolves as without the two
+# EXCLUDES: `..` that keeps the name, goes two levels up, or drops the
+#   root-most name instead of the deepest
+law path_up_cancels:
+  for +pre: List<&2, Tl.Seg>
+  for +n: Nat
+  for +post: List<&2, Tl.Seg>
+  {Tl.resolve(List.append(&2, Tl.Seg, pre, Tl.Name{n} <> Tl.Up{} <> post)) == Tl.resolve(List.append(&2, Tl.Seg, pre, post)) : Maybe<&2, List<&2, Nat>>}
+
+# LAW path_here_drops: a `.`, anywhere in a path, changes nothing: the path resolves as without it
+# EXCLUDES: `.` read as a name, as `..`, or as the end of the path
+law path_here_drops:
+  for +pre: List<&2, Tl.Seg>
+  for +post: List<&2, Tl.Seg>
+  {Tl.resolve(List.append(&2, Tl.Seg, pre, Tl.Here{} <> post)) == Tl.resolve(List.append(&2, Tl.Seg, pre, post)) : Maybe<&2, List<&2, Nat>>}
+
+# LAW path_names_plain: a path of names only reaches those names, deepest (last) first
+# EXCLUDES: names root first, a name dropped, repeated or changed
+law path_names_plain:
+  for +ns: List<&2, Nat>
+  {Tl.resolve(tools_name_path(ns)) == Some{List.reverse(&2, Nat, ns)} : Maybe<&2, List<&2, Nat>>}
+
+# LAW path_up_at_root: `..` where a path has reached its root (the segments before it resolve to
+# the root) goes above it: the path is refused, whatever follows
+# EXCLUDES: `..` at the root clamped to the root, skipped, or read as a
+#   name; a path that goes above its root answered because later names
+#   bring it back under
+law path_up_at_root:
+  for +pre: List<&2, Tl.Seg>
+  for +post: List<&2, Tl.Seg>
+  for root: {Tl.resolve(pre) == Some{Nil{}} : Maybe<&2, List<&2, Nat>>}
+  {Tl.resolve(List.append(&2, Tl.Seg, pre, Tl.Up{} <> post)) == None{} : Maybe<&2, List<&2, Nat>>}
+
 # LAW tools_ffi_request_round_trip (compiled core, S7): the path entry's decoder (FTl.get_req, bend/ffi_tools.bend) reads back the segments of a path as the entry's own encoder FTl.put_req writes them (every count and code of FTl.codes within the wire), and leaves what follows untouched; the spelling Rust writes is pinned by tools_ffi_answers_spelled and tools_ffi_tags_example, not here
 # EXCLUDES: a decoder that misreads, drops, reorders or shifts a segment
 #   the encoder wrote, or eats the input after the request (a code drift
@@ -207,15 +256,15 @@ law tools_ffi_request_round_trip:
 # The path entry, spelled
 # -----------------------
 # The round trip above reads and writes through the entry's own encoder
-# (FTl.put_req, FTl.codes), and path_rejects_escape and path_resolves_inside
-# say whether a path resolves but not which names it reaches: a segment
-# code drift both sides share (Up and Here swapped, a name offset) or a
-# walk that drops a name passes them. The laws below spell the request and
-# the reply with the wire primitives as Rust writes and reads them
+# (FTl.put_req, FTl.codes): a segment code drift both sides share (Up and
+# Here swapped, a name offset) passes it. The laws below spell the request
+# and the reply with the wire primitives as Rust writes and reads them
 # (crates/eukhe-docs/src/url.rs `resolve`): the segment codes as a wire
 # list of Nats (0 Up `..`, 1 Here `.` or empty, 2 + n the name at segment
-# index n); the reply is 0 when the path goes above its root, else 1 then
-# the names it reaches, deepest first, as a wire list of Nats.
+# index n); the reply to a path is the model's resolution (Tl.resolve,
+# whose names the path laws above and path_resolve_spec pin): 0 when the
+# path goes above its root, else 1 then the names it reaches, deepest
+# first, as a wire list of Nats.
 
 # the code Rust writes for a segment
 def tools_seg_code(g: Tl.Seg) -> Nat:
@@ -243,38 +292,6 @@ def tools_req_fits(gs: List<&2, Tl.Seg>) -> Bool:
   +cs = tools_seg_codes(gs)
   Bool.and(LawsBase.wire_fits(List.length(&2, Nat, cs)), LawsBase.wire_nats_fit(cs))
 
-# `..` from the names at: one up, or above the root at the root
-def tools_up(at: List<&2, Nat>) -> Maybe<&2, List<&2, Nat>>:
-  match at:
-    case Nil{}:
-      None{}
-    case x <> above:
-      Some{above}
-
-# one segment taken from the names reached so far (deepest first, None
-# once the path went above its root): a name goes one below, `.` stays,
-# `..` goes one up, and `..` at the root goes above it
-def tools_seg_step(m: Maybe<&2, List<&2, Nat>>, g: Tl.Seg) -> Maybe<&2, List<&2, Nat>>:
-  match m:
-    case None{}:
-      None{}
-    case Some{at}:
-      match g:
-        case Tl.Name{n}:
-          Some{n <> at}
-        case Tl.Here{}:
-          Some{at}
-        case Tl.Up{}:
-          tools_up(at)
-
-# the names the segments reach from m, one segment after the other
-def tools_reach(gs: List<&2, Tl.Seg>, m: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
-  match gs:
-    case Nil{}:
-      m
-    case g <> rest:
-      tools_reach(rest, tools_seg_step(m, g))
-
 # the reply as Rust reads it: 0 above the root, else 1 then the names
 def tools_spell_names(m: Maybe<&2, List<&2, Nat>>) -> String:
   match m:
@@ -283,18 +300,18 @@ def tools_spell_names(m: Maybe<&2, List<&2, Nat>>) -> String:
     case Some{xs}:
       Wr.put_nat(1n, LawsBase.wire_spell_nats(xs, ""))
 
-# the spelled reply to a request: the names the path reaches from the root
+# the spelled reply to a request: the model's resolution of the path
 def tools_spell_answer(gs: List<&2, Tl.Seg>) -> String:
-  tools_spell_names(tools_reach(gs, Some{Nil{}}))
+  tools_spell_names(Tl.resolve(gs))
 
 # LAW tools_ffi_answers_spelled: a path spelled as Rust writes it, every count and code within
-# the wire, is answered as Rust reads it: 0 when a `..` goes above the
-# root, else 1 then the names it reaches, deepest first (a name goes one
-# below, `.` stays, `..` goes one up)
+# the wire, is answered as Rust reads it: 0 when the model's resolution
+# (Tl.resolve) goes above the root, else 1 then the names it reaches,
+# deepest first
 # EXCLUDES: a request or reply tag drift both sides of the Bend entry share
 #   (Up and Here swapped, a name offset other than 2, the reply tags
-#   swapped), a walk that drops, reorders or keeps a name `..` leaves, a
-#   path clamped at its root instead of refused
+#   swapped), names spelled root first, an entry that answers another walk
+#   than the model's (a path clamped at its root)
 law tools_ffi_answers_spelled:
   for +gs: List<&2, Tl.Seg>
   for fits: {tools_req_fits(gs) == True{} : Bool}

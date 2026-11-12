@@ -77,7 +77,7 @@ mod tests {
     use crate::gate::Open;
     use crate::store::{digest, file_hash};
     use crate::testing::Rng;
-    use crate::{Documents, EditStore};
+    use crate::{Documents, EditStore, Unwitnessed};
 
     /// A journal in memory, shared by the "processes" of one session.
     #[derive(Default)]
@@ -173,11 +173,21 @@ mod tests {
         }
         let header = view.rendered.lines().next().unwrap().to_owned();
         let edited = first
-            .edit(&cwd, &format!("{header}\nPUT 2.=2:\n+TWO"), &Open)
+            .edit(
+                &cwd,
+                &format!("{header}\nPUT 2.=2:\n+TWO"),
+                &Open,
+                &Unwitnessed,
+            )
             .unwrap();
         let tag = edited.files[0].tag.clone().unwrap();
         let second = process()
-            .edit(&cwd, &format!("[a.txt#{tag}]\nPUT 3.=3:\n+THREE"), &Open)
+            .edit(
+                &cwd,
+                &format!("[a.txt#{tag}]\nPUT 3.=3:\n+THREE"),
+                &Open,
+                &Unwitnessed,
+            )
             .map(|outcome| outcome.files.len())
             .map_err(|error| error.to_string());
         let after = std::fs::read_to_string(cwd.join("a.txt")).unwrap();
@@ -187,6 +197,7 @@ mod tests {
                 &cwd,
                 &format!("[a.txt#{}]\nPUT 1.=1:\n+UNO", file_hash("uno\ndos\ntres\n")),
                 &Open,
+                &Unwitnessed,
             )
             .map(|outcome| outcome.files.len())
             .map_err(|error| error.to_string().contains("never displayed"));

@@ -416,7 +416,7 @@ const WAIT_AND_KILL: &str = "results = await rlm.collect(\"kid\", timeout_ms=600
 
 fn tool_call(code: &str) -> Value {
     json!({ "content": [
-        { "type": "toolCall", "name": "ipython", "arguments": { "code": code } },
+        { "type": "toolCall", "name": "python", "arguments": { "code": code } },
     ] })
 }
 
@@ -546,6 +546,359 @@ fn spawn_message_wait_and_kill_a_subagent() {
         kid_reports(&client.messages(&parent.active)),
         Vec::<String>::new()
     );
+}
+
+/// Whether a process runs `sleep {secs}` (each test sleeps its own span,
+/// long enough to outlive it, so it finds only its own child's).
+fn kid_sleeping(secs: u32) -> bool {
+    let listing = std::process::Command::new("ps")
+        .args(["-eo", "args="])
+        .output()
+        .expect("run ps");
+    let sleep = format!("sleep {secs}");
+    String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .any(|args| args.trim() == sleep)
+}
+
+/// The child's script: one `bash` step that touches `marker`, then sleeps
+/// `secs`.
+fn sleeping_kid(lane: &Lane, marker: &Path, secs: u32) -> PathBuf {
+    lane.script(
+        "child",
+        &json!([
+            { "content": [{
+                "type": "toolCall",
+                "id": "call-1",
+                "name": "bash",
+                "arguments": {
+                    "script": format!("touch {} && sleep {secs}", marker.display()),
+                },
+            }] },
+            { "text": "kid woke up" },
+        ]),
+    )
+}
+
+/// The roster status of `kid`.
+fn kid_status(client: &mut Client, parent: &str) -> Option<Value> {
+    client
+        .rlm_children(parent)
+        .into_iter()
+        .find(|child| child["sessionName"] == "kid")
+        .map(|kid| kid["status"].clone())
+}
+
+/// Esc on a parent whose cell waits on its child in `rlm.collect` reaches
+/// the child it waits on (an aborted wait cancels the agents it
+/// awaited): the child's run stops with its
+/// `sleep`, the roster reads it cancelled, no report wakes the parent, and
+/// the parent's next prompt runs.
+#[test]
+fn aborting_a_parent_waiting_in_collect_cancels_the_child() {
+    const SLEEP_SECS: u32 = 1793;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "wait",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+            )),
+            { "text": "after the abort" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent.active, "message": "spawn and wait" }),
+    );
+    wait_until(Duration::from_mins(2), "the kid's sleep", || {
+        (sleeping.exists() && kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+
+    // Esc on the parent while its cell waits on the kid.
+    client.request(
+        "abort",
+        &json!({ "type": "abort", "activeSessionId": parent.active }),
+    );
+    client.wait_idle(&parent.active);
+    wait_until(Duration::from_secs(60), "the kid cancelled", || {
+        (kid_status(&mut client, &parent.active)? == "cancelled" && !kid_sleeping(SLEEP_SECS))
+            .then_some(())
+    });
+
+    // The parent answers its next prompt, and no report of the cancelled
+    // kid woke it.
+    client.run_turn(&parent.active, "what now?");
+    let messages = client.messages(&parent.active);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("after the abort"),
+        "{messages:?}"
+    );
+    assert_eq!(kid_reports(&messages), Vec::<String>::new());
+}
+
+/// A child whose `bash` step outlived its blocking budget keeps it as a
+/// background job after its turn: Esc on the parent waiting on it cancels
+/// the child, and the cancel kills that job's process too (a cancelled
+/// subagent's own jobs end with it).
+#[test]
+fn aborting_a_parent_waiting_in_collect_kills_the_child_s_background_job() {
+    const SLEEP_SECS: u32 = 1795;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "wait",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+            )),
+            { "text": "after the abort" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent.active, "message": "spawn and wait" }),
+    );
+    wait_until(Duration::from_mins(2), "the kid's sleep", || {
+        (sleeping.exists() && kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+    // Past the 30-second blocking budget the step is a background job and
+    // the kid's turn ends without it.
+    let kid = wait_until(Duration::from_secs(30), "the kid worker", || {
+        client
+            .roster()
+            .into_iter()
+            .find(|row| row["sessionName"] == "kid" && row["runtimeKind"] == "subagent")
+    });
+    let kid_active = kid["activeSessionId"].as_str().expect("kid id").to_owned();
+    wait_until(Duration::from_mins(2), "the kid's turn to end", || {
+        client.wait_idle(&kid_active);
+        client
+            .messages(&kid_active)
+            .iter()
+            .any(|message| message_text(message) == "kid woke up")
+            .then_some(())
+    });
+    assert!(kid_sleeping(SLEEP_SECS), "the background job ended early");
+
+    client.request(
+        "abort",
+        &json!({ "type": "abort", "activeSessionId": parent.active }),
+    );
+    client.wait_idle(&parent.active);
+    wait_until(
+        Duration::from_secs(60),
+        "the kid's background job killed",
+        || (!kid_sleeping(SLEEP_SECS)).then_some(()),
+    );
+    client.run_turn(&parent.active, "what now?");
+    let messages = client.messages(&parent.active);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("after the abort"),
+        "{messages:?}"
+    );
+}
+
+/// The body of the cell after the cancel: every read the parent has of the
+/// cancelled `kid` (the job list, the roster, a collect snapshot, a wait
+/// on it), then `jobs.cancel`, which deletes it, and the roster again.
+const READ_CANCELLED_KID: &str = "listed = [[job.kind, job.state] for job in await jobs.list() if job.kind == \"child\"]\nroster = await rlm.list_subagents()\nsnapshot = await rlm.collect(\"kid\")\nwaited = await jobs.wait(roster[0], timeout_s=5)\ndeleted = await jobs.cancel(roster[0])\nrecord({\"jobs\": listed, \"roster\": [[row.session_name, row.status] for row in roster], \"collect\": [[r.status, r.settled] for r in snapshot], \"waited\": [waited.kind, waited.state], \"deleted\": [deleted.kind, deleted.state], \"after\": [row.session_name for row in await rlm.list_subagents()]})";
+
+/// The child an aborted wait cancelled stays in the parent's roster, its
+/// status `cancelled` (the status a cancelled agent job reports), and the
+/// parent's next cell reads it: `jobs.list()` lists the child `aborted`,
+/// the roster and `rlm.collect` read it cancelled and settled, a wait on
+/// it returns at once (a cancelled agent is settled for every waiter), and
+/// `jobs.cancel` deletes it.
+#[test]
+fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
+    const SLEEP_SECS: u32 = 1796;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "wait",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+            )),
+            tool_call(&lane.cell("read", READ_CANCELLED_KID)),
+            { "text": "read the kid" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent.active, "message": "spawn and wait" }),
+    );
+    wait_until(Duration::from_mins(2), "the kid's sleep", || {
+        (sleeping.exists() && kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+    client.request(
+        "abort",
+        &json!({ "type": "abort", "activeSessionId": parent.active }),
+    );
+    client.wait_idle(&parent.active);
+    wait_until(Duration::from_secs(60), "the kid cancelled", || {
+        (kid_status(&mut client, &parent.active)? == "cancelled" && !kid_sleeping(SLEEP_SECS))
+            .then_some(())
+    });
+
+    client.run_turn(&parent.active, "list the jobs");
+    assert_eq!(
+        lane.receipt("read"),
+        json!({
+            "jobs": [["child", "aborted"]],
+            "roster": [["kid", "cancelled"]],
+            "collect": [["cancelled", true]],
+            "waited": ["child", "aborted"],
+            "deleted": ["child", "aborted"],
+            "after": [],
+        })
+    );
+    let messages = client.messages(&parent.active);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("read the kid"),
+        "{messages:?}"
+    );
+}
+
+/// `jobs.cancel` on a running child deletes it: the delete aborts the
+/// child's run, so the deleted row the host answers with reads
+/// `cancelled`, and the job comes back `aborted`.
+#[test]
+fn cancelling_a_running_child_as_a_job_returns_it_aborted() {
+    const SLEEP_SECS: u32 = 1797;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "kill",
+                &format!(
+                    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nwhile not os.path.exists({:?}):\n    await asyncio.sleep(0.05)\njob = await jobs.cancel(handle)\nrecord({{\"job\": [job.kind, job.state], \"after\": [row.session_name for row in await rlm.list_subagents()]}})",
+                    sleeping.display().to_string()
+                ),
+            )),
+            { "text": "killed the kid" },
+            { "text": "noted" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.run_turn(&parent.active, "spawn and kill");
+    assert_eq!(
+        lane.receipt("kill"),
+        json!({ "job": ["child", "aborted"], "after": [] })
+    );
+    wait_until(Duration::from_secs(60), "the kid's sleep to end", || {
+        (!kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+}
+
+/// A wait an earlier cell left running in a task is not the aborted
+/// cell's: Esc on a later cell leaves the child that task waits on running
+/// (an abort ends only the waits of the cancelled run).
+#[test]
+fn aborting_a_later_cell_leaves_a_background_wait_s_child_running() {
+    const SLEEP_SECS: u32 = 1794;
+    let lane = Lane::new();
+    let sleeping = lane.path().join("kid-sleeping");
+    let holding = lane.path().join("parent-holding");
+    let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "watch",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nasync def watch():\n    while not (await rlm.collect(handle, timeout_ms=1000))[0].settled:\n        pass\nwatcher = asyncio.create_task(watch())\nrecord({\"id\": handle.rlm_child_id})",
+            )),
+            { "text": "watching" },
+            tool_call(&lane.cell(
+                "hold",
+                &format!(
+                    "open({:?}, \"w\").write(\"held\")\nawait asyncio.sleep(600)",
+                    holding.display().to_string()
+                ),
+            )),
+            { "text": "after the abort" },
+        ]),
+    );
+    let _daemon = lane.supervisor();
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
+
+    client.run_turn(&parent.active, "spawn and watch");
+    lane.receipt("watch");
+    wait_until(Duration::from_mins(2), "the kid's sleep", || {
+        (sleeping.exists() && kid_sleeping(SLEEP_SECS)).then_some(())
+    });
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent.active, "message": "hold" }),
+    );
+    wait_until(Duration::from_mins(2), "the holding cell", || {
+        holding.exists().then_some(())
+    });
+    // The watcher's one-second waits now start while the holding cell runs.
+    std::thread::sleep(Duration::from_secs(3));
+
+    client.request(
+        "abort",
+        &json!({ "type": "abort", "activeSessionId": parent.active }),
+    );
+    client.wait_idle(&parent.active);
+    std::thread::sleep(Duration::from_secs(5));
+    assert_eq!(
+        kid_status(&mut client, &parent.active),
+        Some(json!("running"))
+    );
+    assert!(kid_sleeping(SLEEP_SECS), "the abort reached the kid");
+    client.run_turn(&parent.active, "what now?");
+    let messages = client.messages(&parent.active);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("after the abort"),
+        "{messages:?}"
+    );
+
+    // Stop the kid through the surface built for it, so its sleep ends.
+    let kid = client
+        .rlm_children(&parent.active)
+        .into_iter()
+        .find(|child| child["sessionName"] == "kid")
+        .expect("the kid row");
+    client.request(
+        "cancel",
+        &json!({ "type": "cancel_rlm_child", "activeSessionId": parent.active, "childId": kid["id"] }),
+    );
+    wait_until(Duration::from_secs(60), "the kid's sleep to end", || {
+        (!kid_sleeping(SLEEP_SECS)).then_some(())
+    });
 }
 
 /// How the daemon restarts.

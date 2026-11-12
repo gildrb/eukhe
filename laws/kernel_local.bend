@@ -8,36 +8,45 @@ import ./base.bend as LawsBase
 
 # ---- kernel_local ----
 
-# LAWS (K1): the kernel environment is local. A session never downloads;
-# `eukhe kernel install` is the only download, and it checks every file
-# against its hash before the kernel uses it; a missing kernel never
-# blocks the other tools; a bootstrap lock candidate never outlives its
-# attempt. The setup's plan, the sweep's verdicts and the lock attempt's
-# verdict run as bend/kernel_local.bend (`plan`, `keeps`, `attempt` of
-# `lock.of`) through the entry bend/ffi_kernel_local.bend; PROOF.bend
-# proves the laws (as KernelLocal.<law>) with the lemmas of
-# proof/kernel_local/.
+# LAWS (K1): the kernel environment is Eukhe's own. The kernel runs on
+# one pinned CPython that Eukhe fetches itself, with a pinned uv that it
+# also fetches itself, into its own directory, on the first kernel use:
+# no install step is asked of the user, and a session and `eukhe kernel
+# install` run the same setup. Every fetch is checked against its pinned
+# sha256 before what it fetched is used; once uv and the CPython are
+# there the kernel works offline; a missing kernel never blocks the other
+# tools; a bootstrap lock candidate never outlives its attempt. The
+# setup's plan, the sweep's verdicts and the lock attempt's verdict run as
+# bend/kernel_local.bend (`plan`, `keeps`, `attempt` of `lock.of`) through
+# the entry bend/ffi_kernel_local.bend; PROOF.bend proves the laws (as
+# KernelLocal.<law>) with the lemmas of proof/kernel_local/.
 #
-# Requirements (crates/eukhe-core/src/kernel/bootstrap: setup.rs,
-# venv.rs, venv/tests.rs, dir_lock.rs, mod.rs):
-# R1 (K1.1): a session (every path but `eukhe kernel install`) never
-#   downloads (setup.rs `KernelSetup::Local`).
-# R2 (K1.1): `eukhe kernel install` downloads only to rebuild a venv that
-#   is missing or not this build's, and then only the Python install and
-#   the hash-locked requirements, each checked against its pinned hash; the
-#   venv and the runtime always come from local files (venv.rs
-#   `venv_build_commands`; venv/tests.rs
-#   `venv_builds_only_from_the_hash_locked_runtime_source`).
-# R3 (K1.1): the kernel starts only after `uv pip check` of the venv built
-#   since the last download, and every setup ends with the kernel started
-#   (setup.rs `SetupStep::Build`).
-# R4 (K1.1): Rust's plan reader (setup.rs `step_of`, `fetch_of`) reads
-#   every plan, as the step the found venv calls for: a current venv starts
-#   as it is, a venv with stale skills syncs them, a stale venv is rebuilt.
-# R5 (K1.2): a missing kernel never blocks another tool, and the ipython
-#   tool answers with the install command. Not modelled in Bend: the Rust
-#   test crates/eukhe-core/src/kernel/bootstrap/missing_kernel_tests.rs runs
-#   the real session (tested, not proven).
+# Requirements (crates/eukhe-core/src/kernel/bootstrap: setup.rs, mod.rs,
+# pinned_kernel_tests.rs, dir_lock.rs):
+# R1 (K1.1): the setup asks nothing of the user: a session and `eukhe
+#   kernel install` run the same plan, which fetches the pinned uv and the
+#   pinned CPython exactly when they are not there and makes the kernel env
+#   exactly when it is not there; once the uv and the CPython are there no
+#   setup downloads, so the kernel works offline (setup.rs `setup_steps`;
+#   test `the_steps_come_from_the_compiled_core`).
+# R2 (K1.1): every fetch is checked against its pinned sha256 before what
+#   it fetched is unpacked or installed; the env is made from local files
+#   only (`uv venv --offline`).
+# R3 (K1.1): every action runs with what it uses already there (the
+#   CPython is fetched by a uv that is there, the env is made by a uv and
+#   from a CPython that are there, the kernel starts on an env and a
+#   CPython that are there), and every setup ends with the kernel started,
+#   once, as its last action.
+# R4 (K1.1): Rust's plan reader (setup.rs `steps_of`) reads every plan, as
+#   the steps for what is not there, in order: the uv fetch, the CPython
+#   fetch, the env's making; it refuses (not a plan) a fetch that is not
+#   hashed, a plan that does not end with the start or starts before its
+#   end, and a step out of order or twice (test
+#   `a_reply_that_is_not_a_plan_is_malformed`).
+# R5 (K1.2): a missing kernel (a step of the setup failed, e.g. a fetch
+#   while offline) never blocks another tool, and the python tool answers
+#   with the failed step (mod.rs `KERNEL_FETCH_FAILED`; the test
+#   pinned_kernel_tests.rs runs the real session).
 # R6 (K1.3): the sweep answers one verdict per file beside the lock, in
 #   order: it removes an attempt's candidate or a stale lock renamed aside
 #   whose owner is dead, and keeps a live owner's leftover and every other
@@ -62,298 +71,365 @@ import ./base.bend as LawsBase
 
 # (K1.1) The setup
 # ----------------
-# Every input is free: any venv found, either setup.
+# crates/eukhe-core/src/kernel/bootstrap/setup.rs `setup_steps`. Every
+# input is free: the pinned uv, the pinned CPython and the kernel env are
+# each there (True) or not.
 
-# LAW kernel_session_never_downloads (R1): a session (any path but `eukhe kernel install`) fetches nothing,
-# whatever kernel venv it finds
-law kernel_session_never_downloads:
-  for f: KL.Found
-  {KL.acts.fetching(KL.plan(f, KL.Local{})) == False{} : Bool}
+# LAW kernel_offline_once_fetched (R1): a setup that finds the pinned uv and the pinned CPython fetches nothing,
+# whether the kernel env is there or not: once they are fetched, the kernel works offline
+law kernel_offline_once_fetched:
+  for env: Bool
+  {KL.acts.fetching(KL.plan(True{}, True{}, env)) == False{} : Bool}
 
-# LAW kernel_download_only_on_install (R1): a setup that fetches is `eukhe kernel install`
-law kernel_download_only_on_install:
-  for f: KL.Found
-  for s: KL.Setup
-  for fetches: {KL.acts.fetching(KL.plan(f, s)) == True{} : Bool}
-  {s == KL.Install{} : KL.Setup}
+# LAW kernel_downloads_only_absent (R1): a setup downloads exactly when the pinned uv or the pinned
+# CPython is not there; with both there it uses local files only
+# EXCLUDES: a setup that downloads with the uv and the CPython there (no
+#   offline use), a setup that starts without fetching an absent uv or
+#   CPython
+law kernel_downloads_only_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.fetching(KL.plan(uv, python, env)) == Bool.not(Bool.and(uv, python)) : Bool}
 
-# LAW kernel_fetch_verified_before_use (R3): every fetch is checked against a pinned hash, and the kernel starts
-# only after a check of the venv that came after the last fetch
+# LAW kernel_uv_fetched_iff_absent (R1): the setup fetches the pinned uv exactly when it is not there: nothing
+# is asked of the user, and a uv that is there is not fetched again
+law kernel_uv_fetched_iff_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.fetches_uv(KL.plan(uv, python, env)) == Bool.not(uv) : Bool}
+
+# LAW kernel_python_fetched_iff_absent (R1): the setup fetches the pinned CPython exactly when it is not there:
+# nothing is asked of the user, and a CPython that is there is not fetched again
+law kernel_python_fetched_iff_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.fetches_python(KL.plan(uv, python, env)) == Bool.not(python) : Bool}
+
+# LAW kernel_env_made_iff_absent (R1): the setup makes the kernel env exactly when it is not there
+law kernel_env_made_iff_absent:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.makes_env(KL.plan(uv, python, env)) == Bool.not(env) : Bool}
+
+# LAW kernel_fetch_verified_before_use (R2): every fetch of every setup is checked against its pinned sha256
+# before what it fetched is unpacked or installed
 law kernel_fetch_verified_before_use:
-  for f: KL.Found
-  for s: KL.Setup
-  {KL.acts.verified(KL.plan(f, s), True{}) == True{} : Bool}
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.verified(KL.plan(uv, python, env)) == True{} : Bool}
 
-# LAW kernel_setup_runs (R3): every setup ends with the kernel started: no setup is a no-op
-law kernel_setup_runs:
-  for f: KL.Found
-  for s: KL.Setup
-  {KL.acts.runs(KL.plan(f, s)) == True{} : Bool}
+# LAW kernel_setup_uses_only_present (R3): every action of a setup runs with what it uses already there: the
+# CPython is fetched by a uv that is there, the env is made by a uv and from a CPython that are there,
+# and the kernel starts on an env and a CPython that are there
+law kernel_setup_uses_only_present:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.ready(KL.plan(uv, python, env), uv, python, env) == True{} : Bool}
 
-# a venv that must be built again: missing, or its runtime not this build's
-def kl_must_build(f: KL.Found) -> Bool:
-  match f:
-    case KL.Current{}:
-      False{}
-    case KL.Skills{}:
-      False{}
-    case KL.Stale{}:
-      True{}
+# LAW kernel_setup_ends_started (R3): every setup ends with the kernel start, once: no setup is a no-op, and
+# none starts the kernel before its last action
+law kernel_setup_ends_started:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {KL.acts.ends_started(KL.plan(uv, python, env)) == True{} : Bool}
 
-# LAW kernel_install_downloads_only_stale (R2): `eukhe kernel install` fetches exactly when the venv it finds
-# must be built again (missing or stale); a current venv, or one whose skills
-# alone are stale, installs from local files
-# EXCLUDES: an install that downloads to sync skills or to start a current
-#   venv, an install of a stale venv that builds offline only
-law kernel_install_downloads_only_stale:
-  for f: KL.Found
-  {KL.acts.fetching(KL.plan(f, KL.Install{})) == kl_must_build(f) : Bool}
-
-# How a build command may get its files, as Rust's plan reader reads it
-# (setup.rs `Fetch`): local files only (--offline), or a download whose
-# every file uv checks against a pinned hash
-type KlFetch is Data:
-  KlOffline{}
-  KlDownload{}
-
-# The step Rust's plan reader makes of a plan (setup.rs `SetupStep`):
-# start the kernel as it is; sync the skills; build the venv with four
-# commands (the Python install, the venv, the hash-locked requirements,
-# the runtime), each getting its files as its KlFetch says
+# The step Rust's plan reader makes of an action before the start
+# (setup.rs `SetupStep`)
 type KlStep is Data:
-  KlUse{}
-  KlSync{}
-  KlBuild{python: KlFetch, venv: KlFetch, reqs: KlFetch, runtime: KlFetch}
+  KlFetchUv{}
+  KlFetchPython{}
+  KlMakeEnv{}
 
-# setup.rs `fetch_of`: a build command is local only (Offline) or a
-# hash-checked fetch (Fetch{True}); any other action there is no plan
-def kl_fetch_of(x: KL.Act) -> Maybe<&2, KlFetch>:
+# setup.rs `steps_of`, per action before the last: a hashed fetch or the
+# env's making is a step; an unhashed fetch or a start there is no plan
+def kl_step_of(x: KL.Act) -> Maybe<&2, KlStep>:
   match x:
-    case KL.Fetch{h}:
+    case KL.FetchUv{h}:
       match h:
         case True{}:
-          Some{KlDownload{}}
+          Some{KlFetchUv{}}
         case False{}:
           None{}
-    case KL.Offline{}:
-      Some{KlOffline{}}
-    case KL.Check{}:
-      None{}
+    case KL.FetchPython{h}:
+      match h:
+        case True{}:
+          Some{KlFetchPython{}}
+        case False{}:
+          None{}
+    case KL.MakeEnv{}:
+      Some{KlMakeEnv{}}
     case KL.Run{}:
       None{}
 
 def kl_is_run(x: KL.Act) -> Bool:
   match x:
-    case KL.Fetch{h}:
+    case KL.FetchUv{h}:
       False{}
-    case KL.Offline{}:
+    case KL.FetchPython{h}:
       False{}
-    case KL.Check{}:
+    case KL.MakeEnv{}:
       False{}
     case KL.Run{}:
       True{}
 
-def kl_is_check(x: KL.Act) -> Bool:
-  match x:
-    case KL.Fetch{h}:
-      False{}
-    case KL.Offline{}:
-      False{}
-    case KL.Check{}:
-      True{}
-    case KL.Run{}:
-      False{}
+# setup.rs `place`: where a step stands in a setup
+def kl_place(s: KlStep) -> Nat:
+  match s:
+    case KlFetchUv{}:
+      0n
+    case KlFetchPython{}:
+      1n
+    case KlMakeEnv{}:
+      2n
 
-def kl_is_offline(x: KL.Act) -> Bool:
-  match x:
-    case KL.Fetch{h}:
-      False{}
-    case KL.Offline{}:
+# every step stands before the next one (setup.rs `steps_of`: each pair
+# of neighbours in place order)
+def kl_ordered.next(more: List<&2, KlStep>, x: KlStep) -> Bool:
+  match more:
+    case Nil{}:
       True{}
-    case KL.Check{}:
-      False{}
-    case KL.Run{}:
-      False{}
+    case +y <> rest:
+      Bool.and(Nat.is_lt(kl_place(x), kl_place(y)), kl_ordered.next(rest, y))
 
-def kl_guard(ok: Bool, m: Maybe<&2, KlStep>) -> Maybe<&2, KlStep>:
+def kl_ordered(xs: List<&2, KlStep>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      kl_ordered.next(rest, x)
+
+def kl_guard(ok: Bool, m: Maybe<&2, List<&2, KlStep>>) -> Maybe<&2, List<&2, KlStep>>:
   match ok:
     case True{}:
       m
     case False{}:
       None{}
 
-# a build of four commands Rust accepts
-def kl_build_of(p: KL.Act, v: KL.Act, r: KL.Act, t: KL.Act) -> Maybe<&2, KlStep>:
-  do Maybe<&2, KlStep>:
-    fp : KlFetch <- kl_fetch_of(p)
-    fv : KlFetch <- kl_fetch_of(v)
-    fr : KlFetch <- kl_fetch_of(r)
-    ft : KlFetch <- kl_fetch_of(t)
-    return KlBuild{fp, fv, fr, ft}
-
-# setup.rs `step_of`, by the plan's length: [Run] is Use, [Offline, Run]
-# is SyncSkills, [four build commands, Check, Run] is Build; any other plan
-# is "not a plan" (None)
-def kl_rust_step.six(p: KL.Act, v: KL.Act, r: KL.Act, t: KL.Act, +c: KL.Act, +g: KL.Act, more: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
-  match more:
-    case Nil{}:
-      kl_guard(Bool.and(kl_is_check(c), kl_is_run(g)), kl_build_of(p, v, r, t))
-    case x <> rest:
+def kl_steps.cons(m: Maybe<&2, KlStep>, r: Maybe<&2, List<&2, KlStep>>) -> Maybe<&2, List<&2, KlStep>>:
+  match m:
+    case None{}:
       None{}
+    case Some{s}:
+      match r:
+        case None{}:
+          None{}
+        case Some{ss}:
+          Some{s <> ss}
 
-def kl_rust_step.five(p: KL.Act, v: KL.Act, r: KL.Act, t: KL.Act, c: KL.Act, more: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
+# the steps of x and the actions after it: the last action must be the
+# start, every one before it a step
+def kl_steps.go(more: List<&2, KL.Act>, +x: KL.Act) -> Maybe<&2, List<&2, KlStep>>:
   match more:
     case Nil{}:
+      kl_guard(kl_is_run(x), Some{Nil{}})
+    case y <> rest:
+      kl_steps.cons(kl_step_of(x), kl_steps.go(rest, y))
+
+def kl_steps.ordered(r: Maybe<&2, List<&2, KlStep>>) -> Maybe<&2, List<&2, KlStep>>:
+  match r:
+    case None{}:
       None{}
-    case g <> rest:
-      kl_rust_step.six(p, v, r, t, c, g, rest)
+    case Some{+ss}:
+      kl_guard(kl_ordered(ss), Some{ss})
 
-def kl_rust_step.four(p: KL.Act, v: KL.Act, r: KL.Act, t: KL.Act, more: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
-  match more:
-    case Nil{}:
-      None{}
-    case c <> rest:
-      kl_rust_step.five(p, v, r, t, c, rest)
-
-def kl_rust_step.three(p: KL.Act, v: KL.Act, r: KL.Act, more: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
-  match more:
-    case Nil{}:
-      None{}
-    case t <> rest:
-      kl_rust_step.four(p, v, r, t, rest)
-
-def kl_rust_step.two(+p: KL.Act, +v: KL.Act, more: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
-  match more:
-    case Nil{}:
-      kl_guard(Bool.and(kl_is_offline(p), kl_is_run(v)), Some{KlSync{}})
-    case r <> rest:
-      kl_rust_step.three(p, v, r, rest)
-
-def kl_rust_step.one(+p: KL.Act, more: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
-  match more:
-    case Nil{}:
-      kl_guard(kl_is_run(p), Some{KlUse{}})
-    case v <> rest:
-      kl_rust_step.two(p, v, rest)
-
-def kl_rust_step(xs: List<&2, KL.Act>) -> Maybe<&2, KlStep>:
+# setup.rs `steps_of`: the steps a plan describes, or "not a plan" (None):
+# the empty plan, a plan that does not end with the start, a start or an
+# unhashed fetch before the end, a step out of order or twice
+def kl_rust_steps(xs: List<&2, KL.Act>) -> Maybe<&2, List<&2, KlStep>>:
   match xs:
     case Nil{}:
       None{}
-    case p <> rest:
-      kl_rust_step.one(p, rest)
+    case x <> rest:
+      kl_steps.ordered(kl_steps.go(rest, x))
 
-# how a build's Python install and its hash-locked requirements get their
-# files under a setup (venv/tests.rs
-# `venv_builds_only_from_the_hash_locked_runtime_source`: no --offline
-# under install, --offline in a session)
-def kl_may_download(s: KL.Setup) -> KlFetch:
-  match s:
-    case KL.Local{}:
-      KlOffline{}
-    case KL.Install{}:
-      KlDownload{}
+# the steps a setup must run for what it finds (True: it is there), as
+# setup.rs test `the_steps_come_from_the_compiled_core` lists them: what
+# is not there is fetched or made, in order, and nothing else
+def kl_steps(uv: Bool, python: Bool, env: Bool) -> List<&2, KlStep>:
+  match uv python env:
+    case True{} True{} True{}:
+      []
+    case True{} True{} False{}:
+      [KlMakeEnv{}]
+    case True{} False{} True{}:
+      [KlFetchPython{}]
+    case True{} False{} False{}:
+      [KlFetchPython{}, KlMakeEnv{}]
+    case False{} True{} True{}:
+      [KlFetchUv{}]
+    case False{} True{} False{}:
+      [KlFetchUv{}, KlMakeEnv{}]
+    case False{} False{} True{}:
+      [KlFetchUv{}, KlFetchPython{}]
+    case False{} False{} False{}:
+      [KlFetchUv{}, KlFetchPython{}, KlMakeEnv{}]
 
-# the step the venv found calls for (setup.rs `Found`, `SetupStep`): a
-# current venv starts as it is, stale skills are synced, a stale venv is
-# built; the venv and the runtime commands of a build always carry
-# --offline (the same test)
-def kl_step(f: KL.Found, +s: KL.Setup) -> KlStep:
-  match f:
-    case KL.Current{}:
-      KlUse{}
-    case KL.Skills{}:
-      KlSync{}
-    case KL.Stale{}:
-      KlBuild{kl_may_download(s), KlOffline{}, kl_may_download(s), KlOffline{}}
-
-# LAW kernel_plan_read_by_rust (R2, R4): Rust's plan reader (setup.rs `step_of`) reads the plan of every
-# setup, as the step the venv found calls for: a current venv starts as it
-# is, a venv with stale skills syncs them, a stale venv is built with the
-# Python install and the hash-locked requirements downloading under
-# `eukhe kernel install` and offline in a session, and the venv and the
-# runtime always offline (the commands of venv/tests.rs
-# `venv_builds_only_from_the_hash_locked_runtime_source`)
-# EXCLUDES: a plan Rust refuses (the setup stops on "not a plan"), a plan
-#   read as another step (a build of a current venv, a sync of a stale
-#   one), a download of the venv or the runtime, an install that builds
-#   Python or the locked packages offline, a fetch that is not hash-checked
+# LAW kernel_plan_read_by_rust (R1, R4): Rust's plan reader (setup.rs `steps_of`) reads the plan of every
+# setup, as the steps for what it finds not there: the uv fetch when the
+# uv is not there, then the CPython fetch when the CPython is not there,
+# then the env's making when the env is not there, every fetch hashed,
+# then the start (the steps of setup.rs test
+# `the_steps_come_from_the_compiled_core`)
+# EXCLUDES: a plan Rust refuses (the setup stops on "not a plan"), a step
+#   for something that is there (a fetch again, no offline use), a missing
+#   step for something that is not, steps out of order, a fetch that is
+#   not hash-checked
 law kernel_plan_read_by_rust:
-  for f: KL.Found
-  for s: KL.Setup
-  {kl_rust_step(KL.plan(f, s)) == Some{kl_step(f, s)} : Maybe<&2, KlStep>}
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  {kl_rust_steps(KL.plan(uv, python, env)) == Some{kl_steps(uv, python, env)} : Maybe<&2, List<&2, KlStep>>}
 
 # The setup's predicates, by their meaning
 # ----------------------------------------
-# The laws above read the model's predicates acts.fetching, acts.runs and
-# acts.verified; these state what each means, by where the actions stand
-# in the list (pre ++ [x] ++ post), not by a recursion over it.
+# The laws above read the model's predicates acts.fetching, acts.verified,
+# acts.ready and acts.ends_started; these state what each means, by where
+# the actions stand in the list (pre ++ [x] ++ post), not by a recursion
+# over it.
 
-# LAW kernel_fetching_finds_a_fetch (R1, R2): a list with a fetch anywhere in it fetches
+# a fetch: of the uv or of the CPython
+def kl_is_fetch(x: KL.Act) -> Bool:
+  match x:
+    case KL.FetchUv{h}:
+      True{}
+    case KL.FetchPython{h}:
+      True{}
+    case KL.MakeEnv{}:
+      False{}
+    case KL.Run{}:
+      False{}
+
+# LAW kernel_fetching_finds_a_fetch (R1): a list with a fetch anywhere in it fetches
 # EXCLUDES: a fetching test that misses a fetch (so that
-#   kernel_session_never_downloads holds of a session that downloads)
+#   kernel_offline_once_fetched holds of a setup that downloads)
 law kernel_fetching_finds_a_fetch:
   for pre: List<&2, KL.Act>
-  for h: Bool
+  for x: KL.Act
   for post: List<&2, KL.Act>
-  {KL.acts.fetching(List.append(&2, KL.Act, pre, KL.Fetch{h} <> post)) == True{} : Bool}
+  for fetch: {kl_is_fetch(x) == True{} : Bool}
+  {KL.acts.fetching(List.append(&2, KL.Act, pre, x <> post)) == True{} : Bool}
 
-# LAW kernel_fetching_means_a_fetch (R2): a list that fetches has a fetch in it
+# LAW kernel_fetching_means_a_fetch (R1): a list that fetches has a fetch in it
 # EXCLUDES: a fetching test true of a plan with no download (so that
-#   kernel_install_downloads_only_stale holds of an offline install)
+#   kernel_downloads_only_absent holds of a setup that never fetches)
 law kernel_fetching_means_a_fetch:
   for +xs: List<&2, KL.Act>
   for fetches: {KL.acts.fetching(xs) == True{} : Bool}
   exs pre: List<&2, KL.Act>
-  exs h: Bool
+  exs x: KL.Act
   exs post: List<&2, KL.Act>
-  {xs == List.append(&2, KL.Act, pre, KL.Fetch{h} <> post) : List<&2, KL.Act>}
+  {xs == List.append(&2, KL.Act, pre, x <> post) : List<&2, KL.Act>} & {kl_is_fetch(x) == True{} : Bool}
 
-# LAW kernel_runs_means_a_run (R3): a list that runs has the kernel's start in it
-# EXCLUDES: a runs test true of a plan that never starts the kernel (so
-#   that kernel_setup_runs holds of a no-op setup)
-law kernel_runs_means_a_run:
-  for +xs: List<&2, KL.Act>
-  for runs: {KL.acts.runs(xs) == True{} : Bool}
-  exs pre: List<&2, KL.Act>
-  exs post: List<&2, KL.Act>
-  {xs == List.append(&2, KL.Act, pre, KL.Run{} <> post) : List<&2, KL.Act>}
-
-# LAW kernel_verified_fetches_hashed (R2): in a list that is verified (from the start, nothing
-# fetched yet), every fetch is hash-checked
-# EXCLUDES: a verified test that passes a fetch with no hash check
-law kernel_verified_fetches_hashed:
-  for pre: List<&2, KL.Act>
-  for +h: Bool
-  for post: List<&2, KL.Act>
-  for ok: {KL.acts.verified(List.append(&2, KL.Act, pre, KL.Fetch{h} <> post), True{}) == True{} : Bool}
-  {h == True{} : Bool}
-
-# some action of the list is the check
-def kl_has_check(xs: List<&2, KL.Act>) -> Bool:
+# some action of the list is the start
+def kl_has_run(xs: List<&2, KL.Act>) -> Bool:
   match xs:
     case Nil{}:
       False{}
     case x <> t:
-      Bool.or(kl_is_check(x), kl_has_check(t))
+      match x:
+        case KL.FetchUv{h}:
+          kl_has_run(t)
+        case KL.FetchPython{h}:
+          kl_has_run(t)
+        case KL.MakeEnv{}:
+          kl_has_run(t)
+        case KL.Run{}:
+          True{}
 
-# LAW kernel_verified_checks_between (R3): in a list that is verified (from the start), a check lies
-# between every fetch and every start of the kernel after it
-# EXCLUDES: a verified test that passes a start on files fetched since the
-#   last check (unchecked packages run)
-law kernel_verified_checks_between:
+# LAW kernel_runs_means_a_run (R3): a list that ends started has the kernel's start as its last action, and
+# no start before it
+# EXCLUDES: an ends-started test true of a plan that never starts the
+#   kernel (so that kernel_setup_ends_started holds of a no-op setup), or
+#   that starts it before its last action
+law kernel_runs_means_a_run:
+  for +xs: List<&2, KL.Act>
+  for ends: {KL.acts.ends_started(xs) == True{} : Bool}
+  exs pre: List<&2, KL.Act>
+  {xs == List.append(&2, KL.Act, pre, [KL.Run{}]) : List<&2, KL.Act>} & {kl_has_run(pre) == False{} : Bool}
+
+# what a fetch's archive is checked by: True when it is hash-checked (an
+# action that fetches nothing has nothing to check)
+def kl_hashed(x: KL.Act) -> Bool:
+  match x:
+    case KL.FetchUv{h}:
+      h
+    case KL.FetchPython{h}:
+      h
+    case KL.MakeEnv{}:
+      True{}
+    case KL.Run{}:
+      True{}
+
+# LAW kernel_verified_fetches_hashed (R2): in a list that is verified, every fetch is hash-checked
+# EXCLUDES: a verified test that passes a fetch with no hash check
+law kernel_verified_fetches_hashed:
+  for pre: List<&2, KL.Act>
+  for +x: KL.Act
+  for post: List<&2, KL.Act>
+  for ok: {KL.acts.verified(List.append(&2, KL.Act, pre, x <> post)) == True{} : Bool}
+  {kl_hashed(x) == True{} : Bool}
+
+# some action of the list is the CPython fetch
+def kl_has_fetch_python(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          kl_has_fetch_python(t)
+        case KL.FetchPython{h}:
+          True{}
+        case KL.MakeEnv{}:
+          kl_has_fetch_python(t)
+        case KL.Run{}:
+          kl_has_fetch_python(t)
+
+# some action of the list is the env's making
+def kl_has_make_env(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          kl_has_make_env(t)
+        case KL.FetchPython{h}:
+          kl_has_make_env(t)
+        case KL.MakeEnv{}:
+          True{}
+        case KL.Run{}:
+          kl_has_make_env(t)
+
+# LAW kernel_ready_starts_on_present (R3): in a list that is ready from what is there before it (uv,
+# python, env), every start of the kernel comes after the CPython is there (it was there, or the CPython
+# fetch comes before the start) and after the env is there (it was there, or its making comes before)
+# EXCLUDES: a ready test that passes a start on a CPython or an env that
+#   is not there (fetched or made after the start, or never)
+law kernel_ready_starts_on_present:
   for a: List<&2, KL.Act>
-  for h: Bool
-  for +b: List<&2, KL.Act>
-  for c: List<&2, KL.Act>
-  for ok: {KL.acts.verified(List.append(&2, KL.Act, a, KL.Fetch{h} <> List.append(&2, KL.Act, b, KL.Run{} <> c)), True{}) == True{} : Bool}
-  {kl_has_check(b) == True{} : Bool}
+  for +uv: Bool
+  for +python: Bool
+  for +env: Bool
+  for b: List<&2, KL.Act>
+  for ok: {KL.acts.ready(List.append(&2, KL.Act, a, KL.Run{} <> b), uv, python, env) == True{} : Bool}
+  {Bool.or(python, kl_has_fetch_python(a)) == True{} : Bool} & {Bool.or(env, kl_has_make_env(a)) == True{} : Bool}
 
 # (K1.2) The session's tools
 # --------------------------
-# R5 is Rust's: crates/eukhe-core/src/kernel/bootstrap/mod.rs
-# `format_setup_failure` and the ipython tool (durable/rlm/tool.rs); the
-# test missing_kernel_tests.rs runs the session. No Bend code decides it.
+# R5: crates/eukhe-core/src/kernel/bootstrap/mod.rs (the failed step's
+# message, `KERNEL_FETCH_FAILED`) and the python tool
+# (durable/rlm/tool.rs); the laws kernel_missing_spares_tools,
+# kernel_missing_names_failed_step, kernel_start_exact and
+# kernel_answer_exact below state the model's part; the test
+# pinned_kernel_tests.rs runs the real session.
 
 # (K1.3) The bootstrap lock
 # -------------------------
@@ -481,22 +557,6 @@ law kernel_lock_frees_stale:
 
 # Spellers: the request
 
-def spell_found(f: KL.Found, rest: String) -> String:
-  match f:
-    case KL.Current{}:
-      Wr.put_nat(0n, rest)
-    case KL.Skills{}:
-      Wr.put_nat(1n, rest)
-    case KL.Stale{}:
-      Wr.put_nat(2n, rest)
-
-def spell_setup(s: KL.Setup, rest: String) -> String:
-  match s:
-    case KL.Local{}:
-      Wr.put_nat(0n, rest)
-    case KL.Install{}:
-      Wr.put_nat(1n, rest)
-
 def spell_left.kind(k: KL.FileKind, rest: String) -> String:
   match k:
     case KL.Cand{}:
@@ -543,8 +603,8 @@ def spell_seen(x: KL.Seen, rest: String) -> String:
 # the request Rust writes for a
 def spell_ask(a: KL.Ask) -> String:
   match a:
-    case KL.AskPlan{f, s}:
-      Wr.put_nat(0n, spell_found(f, spell_setup(s, "")))
+    case KL.AskPlan{uv, python, env}:
+      Wr.put_nat(0n, Wr.put_bool(uv, Wr.put_bool(python, Wr.put_bool(env, ""))))
     case KL.AskSweep{+ls}:
       Wr.put_nat(1n, Wr.put_nat(List.length(&2, KL.Left, ls), spell_lefts(ls, "")))
     case KL.AskLock{x}:
@@ -553,7 +613,7 @@ def spell_ask(a: KL.Ask) -> String:
 # every number of a fits the wire
 def ask_fits(a: KL.Ask) -> Bool:
   match a:
-    case KL.AskPlan{f, s}:
+    case KL.AskPlan{uv, python, env}:
       True{}
     case KL.AskSweep{ls}:
       LawsBase.wire_fits(List.length(&2, KL.Left, ls))
@@ -576,11 +636,11 @@ def ask_fits(a: KL.Ask) -> Bool:
 
 def spell_act(x: KL.Act, rest: String) -> String:
   match x:
-    case KL.Fetch{h}:
+    case KL.FetchUv{h}:
       Wr.put_nat(0n, Wr.put_bool(h, rest))
-    case KL.Offline{}:
-      Wr.put_nat(1n, rest)
-    case KL.Check{}:
+    case KL.FetchPython{h}:
+      Wr.put_nat(1n, Wr.put_bool(h, rest))
+    case KL.MakeEnv{}:
       Wr.put_nat(2n, rest)
     case KL.Run{}:
       Wr.put_nat(3n, rest)
@@ -616,8 +676,8 @@ def spell_end(e: KL.End, rest: String) -> String:
 # of K1.1 and K1.3 pin
 def spell_answer(a: KL.Ask) -> String:
   match a:
-    case KL.AskPlan{f, s}:
-      +xs = KL.plan(f, s)
+    case KL.AskPlan{uv, python, env}:
+      +xs = KL.plan(uv, python, env)
       Wr.put_nat(List.length(&2, KL.Act, xs), spell_acts(xs, ""))
     case KL.AskSweep{ls}:
       +bs = KL.keeps(ls)
@@ -649,29 +709,33 @@ law kernel_ffi_refuses_one_error:
   for bad: {LawsBase.wire_opens_err(FKL.ffi(s)) == True{} : Bool}
   {FKL.ffi(s) == Wr.err("kernel_local: malformed request") : String}
 
-# LAW kernel_ffi_example (R9): anchor: the strings Rust sends: the install's plan of a stale venv, a sweep of three files, a lock naming no owner 30001 ms old, a lock of a live owner; a request with input left over is refused
+# LAW kernel_ffi_example (R9): anchor: the strings Rust sends: the plan of a first kernel use (nothing there), the plan of a setup that finds everything, a sweep of three files, a lock naming no owner 30001 ms old, a lock of a live owner; a request with input left over is refused
 law kernel_ffi_example:
-  {FKL.ffi("0,2,1,") == "6,0,T1,0,T1,2,3," : String} &
+  {FKL.ffi("0,FFF") == "4,0,T1,T2,3," : String} &
+  {FKL.ffi("0,TTT") == "1,3," : String} &
   {FKL.ffi("1,3,0,T0,F2,F") == "3,TFT" : String} &
   {FKL.ffi("2,3,1,30001,") == "2," : String} &
   {FKL.ffi("2,2,T") == "1," : String} &
   {LawsBase.wire_opens_err(FKL.ffi("2,2,Tx")) == True{} : Bool}
 
-# LAW kernel_missing_spares_tools: a missing kernel never blocks another tool: it runs whatever the
-# setup found and whether the setup worked
+# LAW kernel_missing_spares_tools (R5): a missing kernel never blocks another tool: it runs whatever the
+# setup found and whether its steps worked
 law kernel_missing_spares_tools:
   for n: Nat
-  for f: KL.Found
+  for uv: Bool
+  for python: Bool
+  for env: Bool
   for ok: Bool
-  {KL.answer(KL.Other{n}, KL.start(f, ok)) == KL.Ran{} : KL.Answer}
+  {KL.answer(KL.Other{n}, KL.start(uv, python, env, ok)) == KL.Ran{} : KL.Answer}
 
-# LAW kernel_missing_names_install: when the setup of a venv that is not current fails, the ipython
-# tool answers with the install command
-law kernel_missing_names_install:
-  for f: KL.Found
-  for failed: {KL.start(f, False{}) == KL.Missing{} : KL.Kernel}
-  {KL.answer(KL.Python{}, KL.start(f, False{})) == KL.NamesInstall{} : KL.Answer}
-
+# LAW kernel_missing_names_failed_step (R5): when a step of the setup failed (the uv, the CPython or the env
+# was not there, and its fetch or making failed, e.g. offline), the python tool answers with the failed step
+law kernel_missing_names_failed_step:
+  for uv: Bool
+  for python: Bool
+  for env: Bool
+  for absent: {Bool.and(uv, Bool.and(python, env)) == False{} : Bool}
+  {KL.answer(KL.Python{}, KL.start(uv, python, env, False{})) == KL.NamesFailed{} : KL.Answer}
 def start_spec.ok(ok: Bool) -> KL.Kernel:
   match ok:
     case True{}:
@@ -679,57 +743,199 @@ def start_spec.ok(ok: Bool) -> KL.Kernel:
     case False{}:
       KL.Missing{}
 
-# the kernel after a setup that finds f: up when the venv is current or
-# the sync or build worked, missing otherwise
-def start_spec(f: KL.Found, ok: Bool) -> KL.Kernel:
-  match f:
-    case KL.Current{}:
-      KL.Up{}
-    case KL.Skills{}:
-      start_spec.ok(ok)
-    case KL.Stale{}:
+# the kernel after a setup: up when the uv, the CPython and the env were
+# all there (no step ran, so none failed) or the steps it ran worked;
+# missing otherwise
+def start_spec(uv: Bool, python: Bool, env: Bool, ok: Bool) -> KL.Kernel:
+  match uv:
+    case True{}:
+      match python:
+        case True{}:
+          match env:
+            case True{}:
+              KL.Up{}
+            case False{}:
+              start_spec.ok(ok)
+        case False{}:
+          start_spec.ok(ok)
+    case False{}:
       start_spec.ok(ok)
 
-# LAW kernel_start_exact: the kernel is up after a setup that finds a current venv or whose sync or build worked, and missing only when the sync or build of a venv that is not current failed
+# LAW kernel_start_exact (R5): the kernel is up after a setup that finds the uv, the CPython and the env all there, or whose steps worked, and missing only when a step of a setup that found one of them not there failed
 law kernel_start_exact:
-  for f: KL.Found
+  for uv: Bool
+  for python: Bool
+  for env: Bool
   for ok: Bool
-  {KL.start(f, ok) == start_spec(f, ok) : KL.Kernel}
+  {KL.start(uv, python, env, ok) == start_spec(uv, python, env, ok) : KL.Kernel}
 
-# a tool's answer: only the ipython tool on a missing kernel names the
-# install; every other call runs
-def answer_spec(t: KL.KlTool, k: KL.Kernel) -> KL.Answer:
+# a tool's answer: only the python tool on a missing kernel names the
+# failed step; every other call runs
+def answer_spec(t: KL.Call, k: KL.Kernel) -> KL.Answer:
   match t:
     case KL.Python{}:
       match k:
         case KL.Up{}:
           KL.Ran{}
         case KL.Missing{}:
-          KL.NamesInstall{}
+          KL.NamesFailed{}
     case KL.Other{n}:
       KL.Ran{}
 
-# LAW kernel_answer_exact: the ipython tool runs on an up kernel and names the install on a missing one; every other tool runs either way
+# LAW kernel_answer_exact (R5): the python tool runs on an up kernel and names the failed step on a missing one; every other tool runs either way
 law kernel_answer_exact:
-  for t: KL.KlTool
+  for t: KL.Call
   for k: KL.Kernel
   {KL.answer(t, k) == answer_spec(t, k) : KL.Answer}
 
-# some action fetches
+# some action fetches: the uv fetch or the CPython fetch
 def fetching_spec(xs: List<&2, KL.Act>) -> Bool:
   match xs:
     case Nil{}:
       False{}
     case x <> t:
       match x:
-        case KL.Fetch{h}:
+        case KL.FetchUv{h}:
           True{}
-        case KL.Offline{}:
-          fetching_spec(t)
-        case KL.Check{}:
+        case KL.FetchPython{h}:
+          True{}
+        case KL.MakeEnv{}:
           fetching_spec(t)
         case KL.Run{}:
           fetching_spec(t)
+
+# some action is the uv fetch
+def fetches_uv_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          True{}
+        case KL.FetchPython{h}:
+          fetches_uv_spec(t)
+        case KL.MakeEnv{}:
+          fetches_uv_spec(t)
+        case KL.Run{}:
+          fetches_uv_spec(t)
+
+# some action is the CPython fetch
+def fetches_python_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          fetches_python_spec(t)
+        case KL.FetchPython{h}:
+          True{}
+        case KL.MakeEnv{}:
+          fetches_python_spec(t)
+        case KL.Run{}:
+          fetches_python_spec(t)
+
+# some action is the env's making
+def makes_env_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          makes_env_spec(t)
+        case KL.FetchPython{h}:
+          makes_env_spec(t)
+        case KL.MakeEnv{}:
+          True{}
+        case KL.Run{}:
+          makes_env_spec(t)
+
+# every fetch, of the uv or of the CPython, is hashed
+def verified_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          match h:
+            case True{}:
+              verified_spec(t)
+            case False{}:
+              False{}
+        case KL.FetchPython{h}:
+          match h:
+            case True{}:
+              verified_spec(t)
+            case False{}:
+              False{}
+        case KL.MakeEnv{}:
+          verified_spec(t)
+        case KL.Run{}:
+          verified_spec(t)
+
+# every action finds what it uses there, given what is there before the
+# first one (uv, python, env): the uv fetch uses nothing and puts the uv
+# there; the CPython fetch uses the uv and puts the CPython there; the
+# env's making uses the uv and the CPython and puts the env there; the
+# start uses the CPython and the env
+def ready_spec(xs: List<&2, KL.Act>, +uv: Bool, +python: Bool, +env: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          ready_spec(t, True{}, python, env)
+        case KL.FetchPython{h}:
+          match uv:
+            case True{}:
+              ready_spec(t, True{}, True{}, env)
+            case False{}:
+              False{}
+        case KL.MakeEnv{}:
+          match uv:
+            case True{}:
+              match python:
+                case True{}:
+                  ready_spec(t, True{}, True{}, True{})
+                case False{}:
+                  False{}
+            case False{}:
+              False{}
+        case KL.Run{}:
+          match python:
+            case True{}:
+              match env:
+                case True{}:
+                  ready_spec(t, uv, True{}, True{})
+                case False{}:
+                  False{}
+            case False{}:
+              False{}
+
+# the list is not empty, its last action is the start, and no action
+# before the last is
+def ends_started_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.FetchUv{h}:
+          ends_started_spec(t)
+        case KL.FetchPython{h}:
+          ends_started_spec(t)
+        case KL.MakeEnv{}:
+          ends_started_spec(t)
+        case KL.Run{}:
+          match t:
+            case Nil{}:
+              True{}
+            case y <> u:
+              False{}
 
 # an attempt leaves a candidate of its own only when its process died in it
 def own_left_spec(e: KL.End) -> Nat:
@@ -743,53 +949,14 @@ def own_left_spec(e: KL.End) -> Nat:
     case KL.Crash{}:
       1n
 
-# some action starts the kernel
-def runs_spec(xs: List<&2, KL.Act>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case x <> t:
-      match x:
-        case KL.Fetch{h}:
-          runs_spec(t)
-        case KL.Offline{}:
-          runs_spec(t)
-        case KL.Check{}:
-          runs_spec(t)
-        case KL.Run{}:
-          True{}
-
-# every fetch is hashed, and every start comes after a check that follows
-# the last fetch before it (clean: no fetch since the last check)
-def verified_spec(xs: List<&2, KL.Act>, clean: Bool) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case x <> t:
-      match x:
-        case KL.Fetch{h}:
-          match h:
-            case True{}:
-              verified_spec(t, False{})
-            case False{}:
-              False{}
-        case KL.Offline{}:
-          verified_spec(t, clean)
-        case KL.Check{}:
-          verified_spec(t, True{})
-        case KL.Run{}:
-          match clean:
-            case True{}:
-              verified_spec(t, True{})
-            case False{}:
-              False{}
-
-# LAW kernel_terms_exact: the model's predicates mean what the laws above read them as: a list fetches when some action is a fetch, runs when some action is the start, is verified when every fetch is hashed and every start follows a check after the last fetch; an attempt leaves its own candidate only when its process died inside it
+# LAW kernel_terms_exact: the model's predicates mean what the laws above read them as: a list fetches when some action is the uv fetch or the CPython fetch, fetches the uv, fetches the CPython or makes the env when some action is that one, is verified when every fetch is hashed, is ready when every action finds what it uses there, ends started when its last action is the start and no other is; an attempt leaves its own candidate only when its process died inside it
 law kernel_terms_exact:
   for xs: List<&2, KL.Act>
-  for c: Bool
+  for uv: Bool
+  for python: Bool
+  for env: Bool
   for e: KL.End
-  {KL.acts.fetching(xs) == fetching_spec(xs) : Bool} & {KL.acts.runs(xs) == runs_spec(xs) : Bool} & {KL.acts.verified(xs, c) == verified_spec(xs, c) : Bool} & {KL.own_left(e) == own_left_spec(e) : Nat}
+  {KL.acts.fetching(xs) == fetching_spec(xs) : Bool} & {KL.acts.fetches_uv(xs) == fetches_uv_spec(xs) : Bool} & {KL.acts.fetches_python(xs) == fetches_python_spec(xs) : Bool} & {KL.acts.makes_env(xs) == makes_env_spec(xs) : Bool} & {KL.acts.verified(xs) == verified_spec(xs) : Bool} & {KL.acts.ready(xs, uv, python, env) == ready_spec(xs, uv, python, env) : Bool} & {KL.acts.ends_started(xs) == ends_started_spec(xs) : Bool} & {KL.own_left(e) == own_left_spec(e) : Nat}
 
 # 1 for a leftover of a dead attempt: a candidate or a set-aside lock of a
 # dead owner

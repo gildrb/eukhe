@@ -123,7 +123,7 @@ fn graceful_shutdown(socket: &Path) {
 }
 
 /// Spawn the real supervisor binary over a hermetic agent dir whose
-/// settings declare the fixture echo server, a hermetic kernel venv, and
+/// settings declare the fixture echo server, a hermetic kernel dir, and
 /// no ambient provider credentials.
 fn spawn_supervisor(dir: &Path) -> Supervisor {
     let socket = dir.join("daemon.sock");
@@ -145,7 +145,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     .expect("write settings");
     let mut command = eukhe_command();
     daemon_mode_args(&mut command, &socket, &agent_dir)
-        .env("EUKHE_KERNEL_VENV", dir.join("kernel-venv"))
+        .env("EUKHE_KERNEL_DIR", dir.join("kernel"))
         .env("EUKHE_OFFLINE", "1");
     scrub_provider_keys(&mut command)
         .env_remove("PRIME_TEAM_ID")
@@ -162,6 +162,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
 /// login/logout argument arms answer through the same client path).
 fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::InteractiveOptions {
     eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.to_path_buf(),
         cwd: dir.to_path_buf(),

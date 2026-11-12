@@ -3,13 +3,16 @@
 //! update), the loader-note partial decode, and the message helpers (moved
 //! with their concern).
 use super::{assistant_value_to_entries, ChatEntry};
+use eukhe_types::acceptance::AcceptanceState;
 use eukhe_types::ai::{AssistantMessage, ServiceTier, StopReason, UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::daemon::{
     BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover, MemoryUpdate,
     SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
+use eukhe_types::effects::UnknownEffect;
 use eukhe_types::goal::GoalState;
+use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 
 /// One session event decoded for the transcript.
@@ -32,6 +35,9 @@ pub enum TurnUpdate {
         message: Box<AssistantMessage>,
         streaming: bool,
         stream_event: Option<StreamUpdate>,
+        /// The worker's count of the streamed output so far, on the
+        /// `message_update` frames it counted at.
+        output_tokens: Option<u64>,
     },
     /// `tool_execution_start`: a tool call began executing.
     ToolExecutionStart {
@@ -113,6 +119,21 @@ pub enum TurnUpdate {
     /// `goal_update`: the session goal state changed (the session view
     /// owns announcement and tray rendering).
     GoalUpdate(GoalState),
+    /// `unknown_effects_update`: the session's ledger of effects whose
+    /// outcome a restart could not tell changed (the whole ledger, oldest
+    /// first; the session view owns the notices and `/effects`).
+    UnknownEffectsUpdate(Vec<UnknownEffect>),
+    /// `loop_update`: the session's `/loop` changed (the session view
+    /// owns the status line label).
+    LoopUpdate(LoopStatus),
+    /// `budget_update`: the session's budget changed (a reservation, a
+    /// settlement, added budget, a phase change); `None` is no budget.
+    /// Moves the status line's budget segment only.
+    BudgetUpdate(Option<Box<eukhe_types::budget::BudgetReport>>),
+    /// `acceptance_update`: the acceptance of the session's task changed
+    /// (its checks, a verdict, a claim, the label); the status line's
+    /// verification segment shows it.
+    AcceptanceUpdate(AcceptanceState),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -193,6 +214,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
                 message: Box::new(message.clone()),
                 streaming: true,
                 stream_event: assistant_message_event.clone(),
+                output_tokens: None,
             },
             // Custom rows arrive as a message_start + message_end pair
             // carrying the same payload; only the start adds the row.
@@ -224,11 +246,13 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::MessageUpdate {
             message,
             assistant_message_event,
+            output_tokens,
         } => match message {
             AgentMessage::Assistant(message) => TurnUpdate::AssistantMessage {
                 message: Box::new(message.clone()),
                 streaming: true,
                 stream_event: Some(assistant_message_event.clone()),
+                output_tokens: *output_tokens,
             },
             AgentMessage::User(_)
             | AgentMessage::ToolResult(_)
@@ -242,6 +266,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
                 message: Box::new(message.clone()),
                 streaming: false,
                 stream_event: None,
+                output_tokens: None,
             },
             // A user or custom row renders from its message_start twin.
             AgentMessage::User(_)
@@ -343,6 +368,13 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             TurnUpdate::QueueUpdated(queued_messages(actions))
         }
         SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
+        SessionEvent::UnknownEffectsUpdate { effects } => {
+            TurnUpdate::UnknownEffectsUpdate(effects.clone())
+        }
+        SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
+        SessionEvent::BudgetUpdate { budget } => {
+            TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
+        }
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,
@@ -373,9 +405,12 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             error_message: error_message.clone(),
             run: run.clone(),
         },
+        SessionEvent::AcceptanceUpdate { acceptance } => {
+            TurnUpdate::AcceptanceUpdate(acceptance.clone())
+        }
         SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
-        | SessionEvent::IpythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
+        | SessionEvent::PythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
     }
 }
 

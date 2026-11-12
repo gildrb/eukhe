@@ -45,6 +45,7 @@ pub(super) fn spawn_collect_hold_tool(
                     data: json!({ "prompt": PROMPT, "kwargs": { "why": "isolate" } }),
                     cell_source_code: None,
                     call: Some(api.clone()),
+                    signal: None,
                 })
                 .await
                 .unwrap();
@@ -53,6 +54,7 @@ pub(super) fn spawn_collect_hold_tool(
                     data: targets.clone(),
                     cell_source_code: None,
                     call: None,
+                    signal: None,
                 })
                 .await
                 .unwrap();
@@ -75,6 +77,7 @@ pub(super) fn spawn_collect_hold_tool(
                                 data: targets.clone(),
                                 cell_source_code: None,
                                 call: Some(api.clone()),
+                                signal: None,
                             })
                             .await
                             .unwrap();

@@ -288,6 +288,28 @@ fn supports_mid_convo_effort(model: &Model) -> bool {
     model_compat(model).and_then(|compat| compat.supports_mid_convo_effort) == Some(true)
 }
 
+/// The ladder value of a model whose `thinking.type: adaptive` tag is the
+/// whole thinking control (MiniMax): no `output_config.effort` rides with
+/// it (the ladder value `"adaptive"`).
+pub(crate) const ADAPTIVE_TAG_EFFORT: &str = "adaptive";
+
+/// Whether `model` takes the adaptive tag alone: an adaptive model whose
+/// ladder maps every level it names to [`ADAPTIVE_TAG_EFFORT`].
+fn adaptive_tag_only(model: &Model) -> bool {
+    thinking_level_map(model).is_some_and(|map| {
+        let mut values = map.values().flatten().peekable();
+        values.peek().is_some() && values.all(|value| value == ADAPTIVE_TAG_EFFORT)
+    })
+}
+
+/// Whether `model` is adaptive-only (Claude
+/// Opus/Sonnet 4.6 and later, Fable/Mythos 5): adaptive thinking that an
+/// omitted `thinking` field turns on, so thinking off omits it and pins
+/// the lowest effort. A model of the adaptive tag alone is not.
+pub(crate) fn adaptive_only_thinking(model: &Model) -> bool {
+    adaptive_thinking(model) && !adaptive_tag_only(model)
+}
+
 /// TS `mergeHeaders` (`Object.assign`: case-sensitive keys, a repeated key
 /// keeps its first position) after `{ "User-Agent": getPiUserAgent() }`.
 fn merge_client_headers(sources: &[Option<&ProviderHeaders>]) -> ProviderHeaders {
@@ -445,7 +467,7 @@ impl StreamFailure {
     }
 }
 
-fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> AssistantMessage {
+fn empty_output(model: &Model) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -453,7 +475,7 @@ fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> Assis
         model: model.id.clone(),
         response_model: None,
         response_id: None,
-        provider_thinking_level,
+        provider_thinking_level: None,
         thinking_level: None,
         diagnostics: None,
         usage: Usage::default(),
@@ -470,7 +492,7 @@ fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> Assis
 
 /// A stream that fails before the request starts.
 fn error_stream(model: &Model, message: String) -> AssistantMessageEventStream {
-    let mut output = empty_output(model, None);
+    let mut output = empty_output(model);
     output.stop_reason = StopReason::Error;
     output.error_message = Some(message);
     let stream = AssistantMessageEventStream::new();
@@ -515,9 +537,7 @@ pub fn stream_anthropic(
     let model = model.clone();
     let target = stream.clone();
     tokio::spawn(async move {
-        let provider_thinking_level = supports_mid_convo_effort(&model)
-            .then(|| options.effort.clone().unwrap_or_else(|| "high".to_owned()));
-        let mut output = empty_output(&model, provider_thinking_level);
+        let mut output = empty_output(&model);
         let result = run(&model, &normalized, &options, &mut output, &target).await;
         let signal = options.stream.request.signal.as_ref();
         match result {
@@ -621,8 +641,11 @@ async fn run(
             },
         )
     };
-    let mut params = params::build_params(model, context.messages(), is_oauth, options)
-        .map_err(StreamFailure::plain)?;
+    let (mut params, recorded_effort) =
+        params::build_params(model, context.messages(), is_oauth, options)
+            .map_err(StreamFailure::plain)?;
+    // The effort controls this request leaves in force, replayed by the next.
+    output.provider_thinking_level = recorded_effort;
     if let Some(on_payload) = &request.on_payload {
         let next = on_payload(JsonValue::Object(params.clone()), model)
             .await
@@ -770,6 +793,9 @@ pub fn stream_simple(
             },
             thinking_enabled: Some(adjusted.thinking_budget > 0),
             thinking_budget_tokens: Some(adjusted.thinking_budget),
+            // Sent beside the budget only by a budget-effort model (the
+            // rulebook's `budget_effort`).
+            effort: Some(map_thinking_level_to_effort(model, reasoning)),
             tool_choice,
             ..AnthropicOptions::default()
         },

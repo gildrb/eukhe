@@ -49,7 +49,22 @@ const fn entry(budgets: [i64; 4], level: ResolvedGoogleThinkingLevel) -> i64 {
     }
 }
 
-/// The old Gemini API budget rule (no custom budgets).
+/// The default ladder: the budgets sent for a Google budget
+/// model with no Gemini 2.5 table (deep research, Gemini before 2.5 such
+/// as `gemini-2.5-computer-use`'s legacy line, the `-latest` aliases).
+const LADDER: [i64; 4] = [1024, 2048, 8192, 16384];
+
+/// Whether `model` takes the default ladder (no Gemini 2.5 table).
+fn takes_the_ladder(model: &Model) -> bool {
+    let id = model.id.to_lowercase();
+    id.starts_with("deep-research-")
+        || id == "gemini-flash-latest"
+        || id == "gemini-flash-lite-latest"
+        || old_gemini_major(model).is_some_and(|major| major < 3)
+}
+
+/// The Gemini API budget rule (no custom budgets): the old 2.5 tables,
+/// the default ladder for the other budget models.
 fn old_generative_ai_budget(model: &Model, level: ResolvedGoogleThinkingLevel) -> i64 {
     let budgets: [i64; 4] = if model.id.contains("2.5-pro") {
         [128, 2048, 8192, 32768]
@@ -57,6 +72,8 @@ fn old_generative_ai_budget(model: &Model, level: ResolvedGoogleThinkingLevel) -
         [512, 2048, 8192, 24576]
     } else if model.id.contains("2.5-flash") {
         [128, 2048, 8192, 24576]
+    } else if takes_the_ladder(model) {
+        LADDER
     } else {
         return -1;
     };
@@ -69,6 +86,8 @@ fn old_vertex_budget(model: &Model, level: ResolvedGoogleThinkingLevel) -> i64 {
         [128, 2048, 8192, 32768]
     } else if model.id.contains("2.5-flash") {
         [128, 2048, 8192, 24576]
+    } else if takes_the_ladder(model) {
+        LADDER
     } else {
         return -1;
     };
@@ -113,20 +132,25 @@ fn the_thinking_format_is_the_rulebook_answer_of_the_old_rule_up_to_gemini_3() {
             "gemini-3-nano",
         ],
     );
-    let differences: Vec<(String, bool)> = catalog
+    let mut differences: Vec<(String, bool)> = catalog
         .iter()
         .chain(&crafted)
         .filter(|model| old_uses_level(model) != uses_google_thinking_level(model))
         .map(|model| (model.id.clone(), uses_google_thinking_level(model)))
         .collect();
+    differences.sort();
+    differences.dedup();
     // Gemini 4 and every Gemini 3 model take `thinkingLevel` now; the old
-    // regex stopped at major 3 Pro/Flash.
+    // regex stopped at major 3 Pro/Flash. The `-latest` aliases take
+    // `thinkingBudget`.
     assert_eq!(
         differences,
         vec![
+            ("gemini-3-nano".to_owned(), true),
             ("gemini-4-pro".to_owned(), true),
             ("gemini-4.1-flash".to_owned(), true),
-            ("gemini-3-nano".to_owned(), true),
+            ("gemini-flash-latest".to_owned(), false),
+            ("gemini-flash-lite-latest".to_owned(), false),
         ]
     );
 }
@@ -200,7 +224,7 @@ fn vertex_flash_lite_takes_the_flash_lite_minimum() {
 fn a_custom_budget_stays_inside_the_range_of_the_model() {
     let template = &catalog()[0];
     let lite = renamed(template, &["gemini-2.5-flash-lite"]).remove(0);
-    let other = renamed(template, &["gemini-2.0-flash"]).remove(0);
+    let other = renamed(template, &["learnlm-2.0-flash"]).remove(0);
     let custom = ThinkingBudgets {
         minimal: Some(64),
         low: Some(4096),

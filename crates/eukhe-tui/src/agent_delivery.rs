@@ -55,7 +55,8 @@ pub(crate) fn steer_when_streaming(summary: &Value) -> Option<StreamingBehavior>
 /// TS `createAgentsViewResumeConfig` + `resolveAgentsViewOpenCwd`
 /// (:225-236 + :493-504): the base create config with the saved
 /// session's cwd removed -- or overridden with `fallback_cwd` (and its
-/// notice) when the saved directory no longer exists.
+/// notice) when the saved directory no longer exists. The launch budget
+/// stays out: a saved agent resumed to take a message keeps its own.
 #[must_use]
 pub(crate) fn resume_config_for(
     base: &Value,
@@ -63,6 +64,9 @@ pub(crate) fn resume_config_for(
     summary: &Value,
 ) -> (Value, Option<String>) {
     let mut config = base.clone();
+    if let Some(object) = config.as_object_mut() {
+        object.remove("budget");
+    }
     let saved_cwd = summary
         .get("cwd")
         .and_then(Value::as_str)
@@ -185,9 +189,15 @@ mod tests {
         );
     }
 
+    /// The launch budget never rides a resume: the saved agent keeps its
+    /// own.
     #[test]
     fn the_resume_config_drops_an_existing_cwd_and_overrides_a_missing_one() {
-        let base = json!({ "cwd": "/view", "sessionDir": "/sessions" });
+        let base = json!({
+            "cwd": "/view",
+            "sessionDir": "/sessions",
+            "budget": { "costMicros": 2_000_000 },
+        });
         let dir = tempfile::TempDir::new().expect("temp dir");
         let existing = json!({ "cwd": dir.path().to_string_lossy() });
         assert_eq!(

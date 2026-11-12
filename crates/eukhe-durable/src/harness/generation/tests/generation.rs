@@ -987,9 +987,22 @@ async fn forwards_stream_options_and_the_thinking_level() {
     let seen = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
     let first = seen[0].as_ref().unwrap();
     assert_eq!(first.stream.request.timeout_ms, Some(1234.0));
+    // Every send also carries its request's idempotency key, scoped to the
+    // provider session (resend.rs); the configured headers come with it.
+    let key_of = |headers: &mut IndexMap<String, Option<String>>| {
+        let key = headers
+            .shift_remove(super::super::resend::IDEMPOTENCY_KEY_HEADER)
+            .flatten()
+            .expect("every send carries an idempotency key");
+        let scope = format!("{},{session_id}", session_id.chars().count());
+        assert!(key.starts_with(&scope), "{key} is not scoped to {scope}");
+        key
+    };
+    let mut first_headers = first.stream.request.headers.clone().unwrap();
+    let first_key = key_of(&mut first_headers);
     let mut expected_headers = IndexMap::new();
     expected_headers.insert("x-test".to_owned(), Some("1".to_owned()));
-    assert_eq!(first.stream.request.headers, Some(expected_headers));
+    assert_eq!(first_headers, expected_headers);
     assert_eq!(first.reasoning, Some(ThinkingLevel::High));
     assert_eq!(
         first.stream.session_id.as_deref(),
@@ -1003,7 +1016,10 @@ async fn forwards_stream_options_and_the_thinking_level() {
         second.stream.session_id.as_deref(),
         Some(session_id.as_str())
     );
-    assert_eq!(second.stream.request.headers, None);
+    let mut second_headers = second.stream.request.headers.clone().unwrap();
+    let second_key = key_of(&mut second_headers);
+    assert!(second_headers.is_empty(), "{second_headers:?}");
+    assert_ne!(first_key, second_key, "two requests never share a key");
     harness.close(context()).await.unwrap();
 }
 
@@ -1236,7 +1252,7 @@ fn resolves_settings_over_the_built_in_defaults() {
             reserve_tokens: 16384.0,
             keep_recent_tokens: 20000.0,
             background: BackgroundMargin::Tokens(32768.0),
-            token_count: ThresholdTokens::Estimate,
+            token_count: ThresholdTokens::Local,
         }
     );
     assert_eq!(

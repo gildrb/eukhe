@@ -4,9 +4,12 @@
 use std::path::Path;
 use std::sync::{Arc, PoisonError};
 
+use eukhe_ai::utils::context_tokens::message_tokens;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_durable::harness::compaction::estimate_context;
-use eukhe_durable::harness::types::ContextOptions;
+use eukhe_durable::harness::compaction::context_tokens;
+use eukhe_durable::harness::types::{ContextOptions, ContextView};
+use eukhe_tokens::{Encoding, ModelRef, Tokenizer};
+use eukhe_types::pi_ai::Message;
 use serde_json::{json, Value};
 
 use crate::worker::{Worker, WorkerConfig};
@@ -76,6 +79,7 @@ async fn get_connection_state_matches_the_ts_shape() {
         "sessionActions",
         "compactionCount",
         "goal",
+        "loop",
         "scopedModels",
         "activeToolNames",
     ] {
@@ -87,6 +91,42 @@ async fn get_connection_state_matches_the_ts_shape() {
     assert_eq!(
         response.error.as_deref(),
         Some("Session is still initializing")
+    );
+}
+
+/// The connection state carries the session's loop: off on a fresh
+/// session; `/loop 3` arms it, and the status the `loop_update` event
+/// announced is the one the state serves.
+#[tokio::test]
+async fn the_connection_state_carries_the_loop() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), ack_script()).await;
+    let data = get(&worker, "get_connection_state", &json!({})).await;
+    assert_eq!(
+        data["loop"],
+        json!(eukhe_types::loop_mode::LoopStatus::default())
+    );
+
+    let mut frames = worker.events.subscribe();
+    let armed = worker
+        .dispatch("prompt", &json!({ "message": "/loop 3" }))
+        .await;
+    assert!(armed.success, "/loop 3 failed: {armed:?}");
+    let announced = loop {
+        let frame = frames.recv().await.expect("the event pump stays open");
+        if frame.outbound_type != "session_event" {
+            continue;
+        }
+        let payload: Value = serde_json::from_slice(&frame.payload).expect("frame json");
+        let event = &payload["event"];
+        if event["type"] == "loop_update" && event["loop"]["phase"]["state"] == "armed" {
+            break event.clone();
+        }
+    };
+    let data = get(&worker, "get_connection_state", &json!({})).await;
+    assert_eq!(
+        announced,
+        json!({ "type": "loop_update", "loop": data["loop"] })
     );
 }
 
@@ -127,7 +167,7 @@ async fn get_context_tree_matches_the_ts_root_node() {
 }
 
 /// The attach snapshot's state carries the tray's context usage (TS
-/// `createAgentConnectionState`'s `contextUsage`), the same estimate
+/// `createAgentConnectionState`'s `contextUsage`), the same count
 /// `get_session_stats` serves and `get_context_tree` derives through the
 /// Harness, so the client's first frame needs no stats round-trip.
 #[tokio::test]
@@ -165,15 +205,43 @@ async fn the_attach_state_carries_the_stats_context_usage() {
     assert_eq!(tree["contextUsage"], state_usage);
 }
 
+/// The attach snapshot's connection state as wire JSON.
+fn connection_state(worker: &Worker) -> Value {
+    let core = worker.core.lock().unwrap_or_else(PoisonError::into_inner);
+    serde_json::to_value(worker.connection_state_locked(&core)).expect("state")
+}
+
+/// The main conversation's context as the Harness derives it.
+async fn main_context(worker: &Worker) -> ContextView {
+    worker
+        .hosted("get_context_tree")
+        .expect("hosted")
+        .main()
+        .expect("main conversation")
+        .context(&BACKGROUND_CONTEXT, ContextOptions::default())
+        .await
+        .expect("context")
+}
+
+/// The tokenizer of a wire model (`state.model`).
+fn wire_tokenizer(model: &Value) -> std::sync::Arc<Tokenizer> {
+    let field = |key: &str| model[key].as_str().unwrap_or_default();
+    Tokenizer::for_model(ModelRef {
+        id: field("id"),
+        provider: field("provider"),
+        api: field("api"),
+    })
+}
+
 /// The context usage the TUI shows (the attach snapshot's
-/// `state.contextUsage`, off the event mirror) is the estimate the
-/// compaction threshold reads ([`estimate_context`]) of the context the
-/// Harness derives, as one whole object. The failed answer leaves no usage
-/// anchor, so the estimate covers the system prompt and the prompt at the
-/// one token estimate (the shown usage was chars/4 over the shown rows,
-/// without the system prompt).
+/// `state.contextUsage`, off the event mirror) is the count the
+/// compaction threshold reads ([`context_tokens`]) of the context the
+/// Harness derives, under the session model's tokenizer, as one whole
+/// object. The failed answer leaves no usage anchor, so the count covers
+/// the system prompt and the prompt (the shown usage was once chars/4
+/// over the shown rows, without the system prompt).
 #[tokio::test]
-async fn the_shown_context_usage_is_the_compaction_threshold_estimate() {
+async fn the_shown_context_usage_is_the_compaction_threshold_count() {
     let dir = tempfile::tempdir().expect("tempdir");
     let script = json!({
         "modelId": "faux-1",
@@ -183,24 +251,14 @@ async fn the_shown_context_usage_is_the_compaction_threshold_estimate() {
     worker
         .dispatch(
             "prompt_and_wait",
-            &json!({ "message": "estimate the size of this prompt" }),
+            &json!({ "message": "count the size of this prompt" }),
         )
         .await;
-    let shown = {
-        let core = worker.core.lock().unwrap_or_else(PoisonError::into_inner);
-        serde_json::to_value(worker.connection_state_locked(&core)).expect("state")["contextUsage"]
-            .clone()
-    };
-    let view = worker
-        .hosted("get_context_tree")
-        .expect("hosted")
-        .main()
-        .expect("main conversation")
-        .context(&BACKGROUND_CONTEXT, ContextOptions::default())
-        .await
-        .expect("context");
-    let tokens = estimate_context(&view, &[]);
-    assert!(tokens > 0, "the prompt is estimated: {view:?}");
+    let state = connection_state(&worker);
+    let shown = &state["contextUsage"];
+    let view = main_context(&worker).await;
+    let tokens = context_tokens(&view, &[], &wire_tokenizer(&state["model"]));
+    assert!(tokens > 0, "the prompt is counted: {view:?}");
     let window = shown["contextWindow"].as_u64().expect("context window");
     #[expect(
         clippy::cast_precision_loss,
@@ -208,9 +266,54 @@ async fn the_shown_context_usage_is_the_compaction_threshold_estimate() {
     )]
     let percent = tokens as f64 / window as f64 * 100.0;
     assert_eq!(
-        shown,
+        *shown,
         json!({ "tokens": tokens, "contextWindow": window, "percent": percent })
     );
+}
+
+/// The M5 report: a 1,000,000-token Claude Haiku 5.5 session whose prompt
+/// is 1,200,000 CJK characters, answered by a failed turn (no usage). The
+/// provider counted 2,526,991 tokens for the reported text; the footer
+/// showed 34.9% (characters / 3.5). The footer shows the prompt counted
+/// with the session model's tokenizer (Claude 5 Sonnet's) plus the system
+/// prompt: past the window, as the provider's refusal said.
+#[tokio::test]
+async fn the_footer_counts_a_cjk_prompt_with_the_session_models_tokenizer() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let script = json!({
+        "modelId": "claude-haiku-5-5",
+        "contextWindow": 1_000_000,
+        "responses": [{ "stopReason": "error", "errorMessage": "prompt is too long" }],
+    });
+    let worker = created_worker(dir.path(), script).await;
+    let prompt: String = (0..1_200_000u64)
+        .filter_map(|i| u32::try_from(0x4E00 + i * 7919 % 0x5200).ok())
+        .filter_map(char::from_u32)
+        .collect();
+    worker
+        .dispatch("prompt_and_wait", &json!({ "message": prompt }))
+        .await;
+    let state = connection_state(&worker);
+    let tokenizer = wire_tokenizer(&state["model"]);
+    assert_eq!(tokenizer.encoding(), Encoding::ClaudeV5Sonnet);
+    let system: u64 = main_context(&worker)
+        .await
+        .messages
+        .iter()
+        .filter(|message| matches!(message, Message::System(_)))
+        .map(|message| message_tokens(&tokenizer, message))
+        .sum();
+    let tokens = system + u64::from(Encoding::ClaudeV5Sonnet.count(&prompt));
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the wire percent is a JS double"
+    )]
+    let percent = tokens as f64 / 1_000_000.0 * 100.0;
+    assert_eq!(
+        state["contextUsage"],
+        json!({ "tokens": tokens, "contextWindow": 1_000_000, "percent": percent })
+    );
+    assert!(percent > 200.0, "{percent}");
 }
 
 /// `get_commands` / `get_resource_snapshot`: the TS loader shapes over the

@@ -61,6 +61,7 @@ async fn call(
         data: json!({"type": request_type, "cwd": cwd, "args": args}),
         cell_source_code: None,
         call: None,
+        signal: None,
     })
     .await
     .unwrap()

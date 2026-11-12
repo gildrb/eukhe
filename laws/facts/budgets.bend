@@ -98,12 +98,13 @@ law core_facts_req_example:
 
 # LAW core_facts_cap_example (R1): anchor: a cap request is its tag, the caller's cap, the
 # catalog's max, needs, then the window facts, as `api/simple_options.rs`
-# writes them; a catalog max at the window of a wire API that does not
-# need the field answers none (0), one far below the window its own max
+# writes them; without a caller's cap, a host that leaves the default cap
+# out (needs F) answers none (0), one that takes it (needs T) with a
+# catalog max far below the window answers that max
 # EXCLUDES: a vacuous core_facts_cap, fields in another order than Rust's,
 #   none and a cap swapped in the reply
 law core_facts_cap_example:
-  {FFx.put_req(FFx.Cap{None{}, 64n, False{}, Fx.Win{64n, 30n, 4n, 1n, False{}}}, "") == "5,0,64,F64,30,4,1,F" : String} & {FFx.ffi("5,0,64,F64,30,4,1,F") == "0," : String} & {FFx.ffi("5,0,20,F100,10,4,1,F") == "1,20," : String}
+  {FFx.put_req(FFx.Cap{None{}, 64n, False{}, Fx.Win{64n, 30n, 4n, 1n, False{}}}, "") == "5,0,64,F64,30,4,1,F" : String} & {FFx.ffi("5,0,64,F64,30,4,1,F") == "0," : String} & {FFx.ffi("5,0,20,T100,10,4,1,F") == "1,20," : String}
 
 # LAW core_facts_reply_example (R2): anchor: a Google budget is 0 dynamic, 1 then the tokens, 2
 # unordered; a fit is the ceiling, then the budget

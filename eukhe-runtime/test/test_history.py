@@ -21,9 +21,9 @@ class HistoryTest(unittest.TestCase):
                         2,
                         "assistant",
                         "",
-                        tool_calls=[{"id": "c1", "name": "ipython", "arguments": {"code": "x = 1"}}],
+                        tool_calls=[{"id": "c1", "name": "python", "arguments": {"code": "x = 1"}}],
                     ),
-                    _entry(3, "tool_result", "ok", tool_call_id="c1", tool_name="ipython", is_error=False),
+                    _entry(3, "tool_result", "ok", tool_call_id="c1", tool_name="python", is_error=False),
                 ],
                 "next": None,
             },
@@ -40,10 +40,10 @@ class HistoryTest(unittest.TestCase):
                     id=2,
                     kind="assistant",
                     text="",
-                    tool_calls=(rlm_module.ToolCall("c1", "ipython", {"code": "x = 1"}),),
+                    tool_calls=(rlm_module.ToolCall("c1", "python", {"code": "x = 1"}),),
                 ),
                 rlm_module.HistoryEntry(
-                    id=3, kind="tool_result", text="ok", tool_call_id="c1", tool_name="ipython", is_error=False
+                    id=3, kind="tool_result", text="ok", tool_call_id="c1", tool_name="python", is_error=False
                 ),
             ],
         )

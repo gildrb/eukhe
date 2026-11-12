@@ -154,6 +154,11 @@ pub struct InteractiveOptions {
     /// registry into the session's scoped list (Alt+M cycling, the
     /// picker's scoped view). `None` leaves the scope unset.
     pub models: Option<Vec<String>>,
+    /// The `--budget-*` limits: they ride the create config's `budget`
+    /// field of every root session this run creates or reopens (a
+    /// session that already has a budget keeps its own). `None` sets no
+    /// budget.
+    pub budget: Option<eukhe_types::budget::BudgetLimits>,
     /// Create without a session file (`--no-session`).
     pub no_session: bool,
     pub session: SessionSelection,
@@ -243,6 +248,7 @@ impl std::fmt::Debug for InteractiveOptions {
             .field("script_path", &self.script_path)
             .field("model_selection", &self.model_selection)
             .field("models", &self.models)
+            .field("budget", &self.budget)
             .field("model_catalog", &self.model_catalog)
             .field("no_session", &self.no_session)
             .field("session", &self.session)
@@ -294,13 +300,21 @@ impl InteractiveOptions {
         if let Some(models) = &self.models {
             config["models"] = json!(models);
         }
-        if let SessionSelection::NewChild {
-            parent_session_file,
-            rlm_depth,
-        } = &self.session
-        {
-            config["parentSessionPath"] = json!(parent_session_file.to_string_lossy());
-            config["rlmDepth"] = json!(rlm_depth);
+        match &self.session {
+            SessionSelection::NewChild {
+                parent_session_file,
+                rlm_depth,
+            } => {
+                config["parentSessionPath"] = json!(parent_session_file.to_string_lossy());
+                config["rlmDepth"] = json!(rlm_depth);
+            }
+            // The launch budget rides a root session's create; a child's
+            // budget is carved from its parent's.
+            SessionSelection::New | SessionSelection::Attach(_) | SessionSelection::Resume(_) => {
+                if let Some(budget) = self.budget {
+                    config["budget"] = json!(budget);
+                }
+            }
         }
         config
     }

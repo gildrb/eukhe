@@ -25,7 +25,9 @@ use super::openai_responses_shared::{
     ConvertResponsesToolsOptions, GrammarToolInputProperties, OpenAIResponsesStreamOptions,
 };
 use super::openai_sdk::{OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions};
-use super::simple_options::{build_base_options, resolve_sampling_params};
+use super::simple_options::{
+    build_base_options, clamps_output_to_model_max, openai_output_cap, resolve_sampling_params,
+};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::clamp_thinking_level;
@@ -155,6 +157,7 @@ fn build_params(
     params.insert("store".to_owned(), json!(false));
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
+        let max_tokens = openai_output_cap(model, max_tokens, clamps_output_to_model_max(model));
         params.insert(
             "max_output_tokens".to_owned(),
             json!(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
@@ -180,7 +183,7 @@ fn build_params(
     if model.reasoning {
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else {
+        } else if api.disable_reasoning {
             insert_reasoning_off(model, &mut params);
         }
     }
@@ -393,6 +396,9 @@ pub fn stream_simple(
         if clamped != ModelThinkingLevel::Off {
             extra.insert("reasoningEffort".to_owned(), json!(clamped.as_str()));
         }
+    }
+    if options.disable_reasoning {
+        extra.insert("disableReasoning".to_owned(), json!(true));
     }
     stream(
         model,

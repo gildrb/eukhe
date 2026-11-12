@@ -120,6 +120,36 @@ impl AgentView {
         }
     }
 
+    /// Continue the assistant entry at `index` as the open streaming
+    /// message: a transcript rebuilt mid-message (an attach while the
+    /// reply streams) holds the in-flight partial, and the frames that
+    /// follow update it in place. It stays live for them, and the text it
+    /// already holds shows whole: only what arrives later paces. `false`
+    /// when no assistant entry sits at `index`.
+    pub fn resume_streaming_entry(&mut self, index: usize) -> bool {
+        let Some(ChatEntry::Assistant(message)) = self.chat.get_mut(index) else {
+            return false;
+        };
+        message.streaming = true;
+        let shown = visible_chars(message, self.pace_detail);
+        self.paces
+            .insert(index, crate::pace::Pace::caught_up(shown));
+        self.mark_entry_stale(index);
+        true
+    }
+
+    /// The open message at `index` ends without its final frame (the next
+    /// message starts, or the turn or run ends): it stops streaming, so
+    /// it settles once its pace shows all of it.
+    pub fn end_streaming_entry(&mut self, index: usize) {
+        if let Some(ChatEntry::Assistant(message)) = self.chat.get_mut(index) {
+            if message.streaming {
+                message.streaming = false;
+                self.mark_entry_stale(index);
+            }
+        }
+    }
+
     /// Whether the pace of the entry at `index` has all its text on
     /// screen (an entry never paced has).
     pub(super) fn pace_drained(&self, index: usize) -> bool {

@@ -151,6 +151,7 @@ pub enum Event {
     HostRequest {
         id: String,
         data: Value,
+        origin: RequestOrigin,
     },
     Error {
         id: Option<String>,
@@ -162,6 +163,16 @@ pub enum Event {
         id: String,
         fields: Value,
     },
+}
+
+/// The cell a `host_request` frame names as its sender (its `cell` field).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestOrigin {
+    /// The frame has no `cell` field (a runtime that predates it).
+    Unstated,
+    /// The id of the cell whose code, or an asyncio task it created, sent
+    /// the request; `None` from outside every cell (a user thread).
+    Cell(Option<String>),
 }
 
 impl Event {
@@ -281,7 +292,15 @@ pub fn parse_event(line: &str) -> Result<Event, ProtocolLineError> {
         "host_request" => {
             let rid = id("id")
                 .ok_or_else(|| ProtocolLineError::HostRequestWithoutId { line: clipped() })?;
-            Ok(Event::HostRequest { id: rid, data })
+            let origin = match obj.get("cell") {
+                None => RequestOrigin::Unstated,
+                Some(cell) => RequestOrigin::Cell(cell.as_str().map(str::to_string)),
+            };
+            Ok(Event::HostRequest {
+                id: rid,
+                data,
+                origin,
+            })
         }
         "error" => Ok(Event::Error {
             id: id("id"),
@@ -508,7 +527,8 @@ mod tests {
             parse_event(r#"{"event":"host_request","id":"hr1"}"#).unwrap(),
             Event::HostRequest {
                 id: "hr1".into(),
-                data: Value::Null
+                data: Value::Null,
+                origin: RequestOrigin::Unstated,
             }
         );
         assert_eq!(
@@ -519,6 +539,23 @@ mod tests {
             Event::HostRequest {
                 id: "hr1".into(),
                 data: json!({"reason": "agent_message.send"}),
+                origin: RequestOrigin::Unstated,
+            }
+        );
+        assert_eq!(
+            parse_event(r#"{"event":"host_request","id":"hr1","cell":"c1","data":{}}"#).unwrap(),
+            Event::HostRequest {
+                id: "hr1".into(),
+                data: json!({}),
+                origin: RequestOrigin::Cell(Some("c1".into())),
+            }
+        );
+        assert_eq!(
+            parse_event(r#"{"event":"host_request","id":"hr1","cell":null,"data":{}}"#).unwrap(),
+            Event::HostRequest {
+                id: "hr1".into(),
+                data: json!({}),
+                origin: RequestOrigin::Cell(None),
             }
         );
     }

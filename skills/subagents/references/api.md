@@ -8,14 +8,22 @@ Each session builds a tree of agents, starting at depth 0. An agent below the de
 
 ## Spawn
 
-- `rlm.spawn(prompt: str, *, name: str, why: str, model: str | None = None, thinking: str | None = None, workspace: str | None = None) -> RLMSpawnHandle`: spawns one child; returns at once.
+- `rlm.spawn(prompt: str, *, name: str, why: str, model: str | None = None, thinking: str | None = None, workspace: str | None = None, budget: dict | None = None, accept: list[dict] | None = None, accept_intent: bool | None = None, accept_returns: int | None = None) -> RLMSpawnHandle`: spawns one child; returns at once.
   - `why`: required; one of `"parallel"` (independent tasks run at once), `"isolate"` (the work would bloat this context; only a compact result comes back), `"tools"` (the task needs a tool set or instructions that conflict with this agent's), `"user"` (the user asked for a subagent). A missing or other value is refused with the rule and the four values.
   - `name`: short, descriptive, unique among the child's siblings.
   - `model`, `thinking`: inherited from the parent when not given.
   - `workspace`: `"shared"` (default) works in the parent's directory; `"isolated"` gives the child a copy-on-write copy of the parent's workspace whose changes come back when it ends (conflicts are reported).
+  - `budget`: a budget of the child's own, a dict with any of `cost_usd`, `tokens`, `time_s`, `tool_calls`, `requests`: it leaves this task's budget at the spawn, and what the child did not spend returns when the child ends. Without `budget` the child draws from this task's budget, shared by the whole tree; it can never take the reserve this agent keeps for its final answer. With a budget on this task, a named budget must cover every dimension the task's budget limits (`time_s` left out: what is left before the deadline). A spawn whose budgets do not fit is refused with `Budget: the children's allotments do not fit what is left (<dimension>)` and spawns nothing. `await budget.status()` returns what this task's budget has left (`None` without a budget).
+  - `accept`: the child's acceptance checks, set before its first run with you as their owner; the child can read them, never change them. Each is one of:
+    - `{"kind": "command", "command": "pytest -q", "expect": 0, "timeout_ms"?: int, "protect"?: [paths]}`: confirmed when the command exits with `expect` (default 0) and no `protect` file changed.
+    - `{"kind": "judge", "condition": str, "evidence"?: [commands], "model"?: str}`: an independent judge decides the condition from the output of the other checks and the `evidence` commands.
+    - `{"kind": "until", "command": str, "timeout_ms"?: int}`: a command that exits 0 once the condition holds.
+    The child's "done" counts only when the harness confirms every check on its final state; a refuted one goes back to the child with its evidence. The child's report and `rlm.collect` carry the verdict the harness read (`verified`, `failed` or `unverified`, with `k/n` checks confirmed), never the child's own claim. A bad check, an unknown key or kind, or `accept_intent`/`accept_returns` without `accept` fails the spawn with an error naming the kwarg.
+  - `accept_intent`: with `accept`, default `True`: the intent check joins them (an independent judge decides from the child's task whether its final state meets it). `accept=[]` with the default gives the intent check only.
+  - `accept_returns`: the most times in a row a refuted "done" goes back to the child before it ends failed (default 3).
   - The result never arrives as a return value; it arrives as an agent message. To block until it does, pass the handle to `await jobs.wait(handle)` (or call `await jobs.wait()` for the first of all running work); never poll.
   - Refused when the caller is at the depth limit or the family's running-subagent cap (`subagentMaxConcurrency`) is full.
-- `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: each dict `{prompt, name, why, model?, thinking?, workspace?}` as in `rlm.spawn`. All or none admit: a batch that would exceed the cap fails with `subagent concurrency limit N is already full`.
+- `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: each dict `{prompt, name, why, model?, thinking?, workspace?, budget?, accept?, accept_intent?, accept_returns?}` as in `rlm.spawn`. All or none admit: a batch that would exceed the cap fails with `subagent concurrency limit N is already full`, one whose allotments do not fit the budget with the budget refusal.
 - `rlm.find_models(query: str = "", limit: int = 8) -> list[RLMModel]`: models backed by active credentials; pass `selector` as `model`.
 
 ## Query (a sub-model call over data)
@@ -49,7 +57,7 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 ## Track and collect
 
 - `rlm.list_subagents() -> list[RLMSubagent]`: direct children; rows carry live activity (current activity, tool use count, duration, answer preview, latest progress note). Use after a kernel restart or compaction to get handles back.
-- `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error) without steering them. `timeout_ms=0`: non-blocking snapshot; a positive timeout (at most 30 minutes) blocks this call until the children settle or the deadline passes.
+- `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error, and `acceptance`: the verdict of a child spawned with `accept`) without steering them. `timeout_ms=0`: non-blocking snapshot; a positive timeout (at most 30 minutes) blocks this call until the children settle or the deadline passes.
 - `rlm.progress_note(message: str) -> dict`: a child reports brief in-flight progress to its parent (at most 512 characters, about one note per 10 seconds); the parent sees it without a reply.
 - `rlm.rename(new_name: str, *, session_id=None) -> str`: renames this session (omit `session_id`) or a direct child (spawn handle, `list_subagents()` row, or session id; never the child's name). Names stay unique among siblings.
 - `rlm.delete_subagent(target: str | RLMSubagent | RLMSpawnHandle) -> RLMSubagent`: deletes one direct child. Only when it is idle and its context is no longer needed.
@@ -57,7 +65,7 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 ## Types
 
 - `RLMSpawnHandle`: `rlm_child_id: str`, `name: str`, `session_dir: Path`, `model: str` (provider/model).
-- `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "error"]`, plus the live activity fields.
+- `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "error", "cancelled"]`, plus the live activity fields. `cancelled`: the child's run was stopped before it answered (Esc on the cell that waited on it, or a cancel); the row stays until the child is deleted, and `jobs.list()` shows it as `aborted`.
 - `RLMModel`: `provider: str`, `id: str`, `name: str`, `selector: str` (the exact string to spawn the model).
 
 ## Patterns

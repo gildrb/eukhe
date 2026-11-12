@@ -156,6 +156,24 @@ pub enum Directive {
     AdaptiveThinking,
     /// Bedrock: the adaptive model takes `thinking.block_binding`.
     ThinkingBlockBinding,
+    /// Anthropic Messages: adaptive thinking takes `thinking.display`
+    /// (Claude 4.7 and later; Claude 4.6 and other adaptive models reject
+    /// it). No rule: it does not. Budget thinking always takes it.
+    ThinkingDisplay,
+    /// Anthropic Messages: budget thinking (`thinking.type: enabled`) also
+    /// carries the level as `output_config.effort` (Claude Opus 4.5, GLM
+    /// 5.2 and later). No rule: it does not.
+    BudgetEffort,
+    /// Anthropic Messages: thinking off is `thinking.type: between_tools`,
+    /// the model's lowest setting (Claude Sonnet 5.5 rejects `disabled`).
+    /// No rule: it is not.
+    BetweenToolsThinking,
+    /// Anthropic Messages and Bedrock: thinking off is an explicit
+    /// `thinking.type: disabled` even on an adaptive model (Claude Haiku
+    /// 5.5; the `opencode-go` host turns it off, so Haiku 5.5 there takes
+    /// the adaptive form). No rule: an adaptive model's thinking off omits
+    /// `thinking` and pins the lowest effort.
+    DisabledThinking,
     /// Bedrock: the model takes `cachePoint` blocks (prompt caching).
     PromptCaching,
     /// `OpenAI` Responses: the model takes the explicit prompt-cache controls
@@ -193,7 +211,8 @@ pub enum Directive {
     /// inside.
     GoogleMultimodalFunctionResponse,
     /// Bedrock: the request shape of the model's reasoning fields
-    /// (`claude`, `gpt`, `gpt-oss`); no rule: no reasoning field.
+    /// (`claude`, `gpt`: a nested `reasoning.effort`); no rule:
+    /// Anthropic's thinking block (budget thinking).
     BedrockReasoning,
     /// openai-completions: the longest tool-call id the host accepts, in
     /// UTF-16 units (a longer id is cut to it). No rule: no limit.
@@ -221,6 +240,31 @@ pub enum Directive {
     /// so the output cap is never shrunk to fit the window. No rule: it
     /// does not.
     StopsOutputAtWindow,
+    /// `OpenAI` Responses: the host accepts `reasoning.summary` (`api.x.ai`
+    /// rejects it). No rule: it
+    /// does.
+    ReasoningSummary,
+    /// `OpenAI` Responses (and its Azure and Codex dialects): thinking off
+    /// sends `reasoning.effort: "none"` (the `none-effort` disable mode, the
+    /// GPT-5.6 generation on `OpenAI`). No rule: off sends the lowest effort
+    /// the model offers (`lowest-effort`).
+    ReasoningOffNone,
+    /// A request without a caller's cap carries the model's max as its
+    /// output cap. `false`: the host leaves that default out, so each of
+    /// its upstreams applies its own max; a caller's cap is still sent. No
+    /// rule: it does.
+    DefaultOutputCap,
+    /// Model id prefixes that carry the default output cap on this host
+    /// even when `default_output_cap` is false (Kimi derives its rate
+    /// limits from the cap).
+    DefaultOutputCapPrefixes,
+    /// `OpenAI`-family wire APIs: the host takes an output cap up to the
+    /// model's max. `false`: at most 64000. No rule: a local backend does,
+    /// any other host does not.
+    ClampOutputToModelMax,
+    /// Model id prefixes whose output cap goes up to the model's max on
+    /// this host even when `clamp_output_to_model_max` is false.
+    ClampOutputToModelMaxPrefixes,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -246,6 +290,10 @@ impl Directive {
         Self::QwenChatTemplate,
         Self::AdaptiveThinking,
         Self::ThinkingBlockBinding,
+        Self::ThinkingDisplay,
+        Self::BudgetEffort,
+        Self::BetweenToolsThinking,
+        Self::DisabledThinking,
         Self::PromptCaching,
         Self::ExplicitCacheBreakpoints,
         Self::GoogleThinkingLevel,
@@ -264,6 +312,12 @@ impl Directive {
         Self::EncryptedReasoning,
         Self::ReasoningContentSignature,
         Self::StopsOutputAtWindow,
+        Self::ReasoningSummary,
+        Self::ReasoningOffNone,
+        Self::DefaultOutputCap,
+        Self::DefaultOutputCapPrefixes,
+        Self::ClampOutputToModelMax,
+        Self::ClampOutputToModelMaxPrefixes,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -295,6 +349,10 @@ impl Directive {
             Self::QwenChatTemplate => "qwen_chat_template",
             Self::AdaptiveThinking => "adaptive_thinking",
             Self::ThinkingBlockBinding => "thinking_block_binding",
+            Self::ThinkingDisplay => "thinking_display",
+            Self::BudgetEffort => "budget_effort",
+            Self::BetweenToolsThinking => "between_tools_thinking",
+            Self::DisabledThinking => "disabled_thinking",
             Self::PromptCaching => "prompt_caching",
             Self::ExplicitCacheBreakpoints => "explicit_cache_breakpoints",
             Self::GoogleThinkingLevel => "google_thinking_level",
@@ -313,6 +371,12 @@ impl Directive {
             Self::EncryptedReasoning => "encrypted_reasoning",
             Self::ReasoningContentSignature => "reasoning_content_signature",
             Self::StopsOutputAtWindow => "stops_output_at_window",
+            Self::ReasoningSummary => "reasoning_summary",
+            Self::ReasoningOffNone => "reasoning_off_none",
+            Self::DefaultOutputCap => "default_output_cap",
+            Self::DefaultOutputCapPrefixes => "default_output_cap_prefixes",
+            Self::ClampOutputToModelMax => "clamp_output_to_model_max",
+            Self::ClampOutputToModelMaxPrefixes => "clamp_output_to_model_max_prefixes",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -359,6 +423,10 @@ impl Directive {
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
             | Self::ThinkingBlockBinding
+            | Self::ThinkingDisplay
+            | Self::BudgetEffort
+            | Self::BetweenToolsThinking
+            | Self::DisabledThinking
             | Self::PromptCaching
             | Self::ExplicitCacheBreakpoints
             | Self::GoogleThinkingLevel
@@ -376,7 +444,13 @@ impl Directive {
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
             | Self::ReasoningContentSignature
-            | Self::StopsOutputAtWindow => None,
+            | Self::StopsOutputAtWindow
+            | Self::ReasoningSummary
+            | Self::ReasoningOffNone
+            | Self::DefaultOutputCap
+            | Self::DefaultOutputCapPrefixes
+            | Self::ClampOutputToModelMax
+            | Self::ClampOutputToModelMaxPrefixes => None,
         }
     }
 
@@ -395,6 +469,10 @@ impl Directive {
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
             | Self::ThinkingBlockBinding
+            | Self::ThinkingDisplay
+            | Self::BudgetEffort
+            | Self::BetweenToolsThinking
+            | Self::DisabledThinking
             | Self::PromptCaching
             | Self::ExplicitCacheBreakpoints
             | Self::GoogleThinkingLevel
@@ -408,10 +486,15 @@ impl Directive {
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
             | Self::ReasoningContentSignature
-            | Self::StopsOutputAtWindow => ValueKind::Bool,
-            Self::DeveloperRolePrefixes | Self::AnthropicCacheControlPrefixes => {
-                ValueKind::Prefixes
-            }
+            | Self::StopsOutputAtWindow
+            | Self::ReasoningSummary
+            | Self::ReasoningOffNone
+            | Self::DefaultOutputCap
+            | Self::ClampOutputToModelMax => ValueKind::Bool,
+            Self::DeveloperRolePrefixes
+            | Self::AnthropicCacheControlPrefixes
+            | Self::DefaultOutputCapPrefixes
+            | Self::ClampOutputToModelMaxPrefixes => ValueKind::Prefixes,
             Self::MaxTokensField => ValueKind::MaxTokensField,
             Self::ThinkingFormat => ValueKind::ThinkingFormat,
             Self::SessionAffinityFormat => ValueKind::SessionAffinityFormat,
@@ -445,7 +528,7 @@ pub enum ValueKind {
     /// A `thinkingBudgets` object with all four levels set, each level at
     /// least the one before it (`minimal` ≤ `low` ≤ `medium` ≤ `high`).
     ThinkingBudgets,
-    /// A Bedrock reasoning shape: `claude`, `gpt` or `gpt-oss`.
+    /// A Bedrock reasoning shape: `claude` or `gpt`.
     BedrockReasoning,
     /// A [`Dialect`] wire string that implements the capability, or `false`.
     Endpoint(Capability),
@@ -493,7 +576,6 @@ impl ValueKind {
             Self::BedrockReasoning => match raw.as_str()? {
                 "claude" => Some(Value::BedrockReasoning(model_facts::Shape::Claude)),
                 "gpt" => Some(Value::BedrockReasoning(model_facts::Shape::Gpt)),
-                "gpt-oss" => Some(Value::BedrockReasoning(model_facts::Shape::GptOss)),
                 _ => None,
             },
             Self::Endpoint(capability) => match raw {
@@ -1691,10 +1773,58 @@ impl<'a> Quirks<'a> {
         self.flag(Directive::StopsOutputAtWindow)
     }
 
+    /// [`Directive::DefaultOutputCap`].
+    #[must_use]
+    pub fn default_output_cap(&self) -> Option<bool> {
+        self.flag(Directive::DefaultOutputCap)
+    }
+
+    /// [`Directive::DefaultOutputCapPrefixes`].
+    #[must_use]
+    pub fn default_output_cap_prefixes(&self) -> Option<&'static [String]> {
+        self.prefixes(Directive::DefaultOutputCapPrefixes)
+    }
+
+    /// [`Directive::ClampOutputToModelMax`].
+    #[must_use]
+    pub fn clamp_output_to_model_max(&self) -> Option<bool> {
+        self.flag(Directive::ClampOutputToModelMax)
+    }
+
+    /// [`Directive::ClampOutputToModelMaxPrefixes`].
+    #[must_use]
+    pub fn clamp_output_to_model_max_prefixes(&self) -> Option<&'static [String]> {
+        self.prefixes(Directive::ClampOutputToModelMaxPrefixes)
+    }
+
     /// [`Directive::ThinkingBlockBinding`].
     #[must_use]
     pub fn thinking_block_binding(&self) -> Option<bool> {
         self.flag(Directive::ThinkingBlockBinding)
+    }
+
+    /// [`Directive::ThinkingDisplay`].
+    #[must_use]
+    pub fn thinking_display(&self) -> Option<bool> {
+        self.flag(Directive::ThinkingDisplay)
+    }
+
+    /// [`Directive::BudgetEffort`].
+    #[must_use]
+    pub fn budget_effort(&self) -> Option<bool> {
+        self.flag(Directive::BudgetEffort)
+    }
+
+    /// [`Directive::BetweenToolsThinking`].
+    #[must_use]
+    pub fn between_tools_thinking(&self) -> Option<bool> {
+        self.flag(Directive::BetweenToolsThinking)
+    }
+
+    /// [`Directive::DisabledThinking`].
+    #[must_use]
+    pub fn disabled_thinking(&self) -> Option<bool> {
+        self.flag(Directive::DisabledThinking)
     }
 
     /// [`Directive::PromptCaching`].
@@ -1819,6 +1949,18 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn encrypted_reasoning(&self) -> Option<bool> {
         self.flag(Directive::EncryptedReasoning)
+    }
+
+    /// [`Directive::ReasoningSummary`].
+    #[must_use]
+    pub fn reasoning_summary(&self) -> Option<bool> {
+        self.flag(Directive::ReasoningSummary)
+    }
+
+    /// [`Directive::ReasoningOffNone`].
+    #[must_use]
+    pub fn reasoning_off_none(&self) -> Option<bool> {
+        self.flag(Directive::ReasoningOffNone)
     }
 
     /// [`Directive::ReasoningContentSignature`].

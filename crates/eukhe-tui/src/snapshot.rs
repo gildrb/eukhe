@@ -55,6 +55,9 @@ pub struct Reconstructed {
     /// feeds the first frame's tray row without a stats round-trip.
     /// `None` clears the tray display.
     pub context_usage: Option<crate::chrome::ContextUsage>,
+    /// The session's budget (`state.budget`), when it has one: the
+    /// status line's budget segment from the first frame.
+    pub budget: Option<eukhe_types::budget::BudgetReport>,
     /// Session display name.
     pub session_name: Option<String>,
     /// Session id of the persisted session file.
@@ -68,6 +71,15 @@ pub struct Reconstructed {
     /// The session's goal state (`state.goal`), when the snapshot reports
     /// one (TS `snapshot.ts: goal: session.goalState`).
     pub goal: Option<eukhe_types::goal::GoalState>,
+    /// The session's ledger of effects whose outcome a restart could not
+    /// tell (`state.unknownEffects`; absent when empty).
+    pub unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
+    /// The session's `/loop` (`state.loop`), when the snapshot reports
+    /// one.
+    pub loop_status: Option<eukhe_types::loop_mode::LoopStatus>,
+    /// The acceptance of the session's task (`state.acceptance`), when the
+    /// snapshot reports one.
+    pub acceptance: Option<eukhe_types::acceptance::AcceptanceState>,
     pub last_event_sequence: u64,
     /// Whether the attach supplied the resume cursor (the event
     /// sequence AND the generation): the reconstruction collapses an
@@ -100,6 +112,11 @@ pub struct Reconstructed {
     /// conversation's newest message does not settle its turn (an
     /// answer, a blank reply or an abort does).
     pub turn_running: bool,
+    /// The chat index of the open streaming message: the run is open and
+    /// the snapshot's newest message is the in-flight assistant reply the
+    /// daemon appends to the attach (`message_update`s continue it), with
+    /// visible content and no failure.
+    pub open_message: Option<usize>,
 }
 
 impl Reconstructed {
@@ -446,7 +463,7 @@ pub(crate) fn state_session_id(state: &Value) -> &str {
 ///
 /// # Errors
 ///
-/// The state's `sessionActions` does not decode.
+/// The state's `sessionActions` or `unknownEffects` does not decode.
 pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Error> {
     let snapshot = &attach.snapshot;
     let flag = |name: &str| {
@@ -490,6 +507,27 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
             TurnTail::Ended
         },
     );
+    // The daemon appends the streaming assistant message to the attach
+    // (worker `attach`: later `message_update`s continue it): while the
+    // run is open, the newest message's entry is the open one. Its
+    // entries come last, so its message entry is the newest one; a
+    // message without visible content has no entry yet (its first frame
+    // opens one), and a failed or aborted message already ended.
+    let open_message = match snapshot.messages.last() {
+        Some(AgentMessage::Assistant(assistant))
+            if run_open
+                && !matches!(
+                    assistant.stop_reason,
+                    eukhe_types::ai::StopReason::Error | eukhe_types::ai::StopReason::Aborted
+                )
+                && !assistant_message_parts(assistant).0.is_empty() =>
+        {
+            messages
+                .iter()
+                .rposition(|entry| matches!(entry, ChatEntry::Assistant(_)))
+        }
+        _ => None,
+    };
     let state = Some(&snapshot.state);
     let (model_id, model_provider) = state
         .and_then(|state| state.get("model"))
@@ -517,15 +555,33 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     let goal = state
         .and_then(|state| state.get("goal"))
         .and_then(|goal| serde_json::from_value::<eukhe_types::goal::GoalState>(goal.clone()).ok());
+    let loop_status = state
+        .and_then(|state| state.get("loop"))
+        .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
+    let acceptance = state
+        .and_then(|state| state.get("acceptance"))
+        .and_then(|acceptance| {
+            serde_json::from_value::<eukhe_types::acceptance::AcceptanceState>(acceptance.clone())
+                .ok()
+        });
     let queued = match state.and_then(|state| state.get("sessionActions")) {
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
         None => crate::queued::QueuedMessages::default(),
+    };
+    let unknown_effects = match state.and_then(|state| state.get("unknownEffects")) {
+        Some(effects) => Vec::<eukhe_types::effects::UnknownEffect>::deserialize(effects)?,
+        None => Vec::new(),
     };
 
     let service_tier = state
         .and_then(|state| state.get("serviceTier"))
         .and_then(Value::as_str)
         .map(str::to_string);
+    // No budget is `null` or absent; the report is whole in every
+    // `budget_update` after it.
+    let budget = state
+        .and_then(|state| state.get("budget"))
+        .and_then(|budget| eukhe_types::budget::BudgetReport::deserialize(budget).ok());
     let last_user_prompt_ms = snapshot
         .messages
         .iter()
@@ -545,10 +601,14 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         model_provider,
         thinking_suffix,
         context_usage,
+        budget,
         session_name,
         session_id,
         event_generation,
         goal,
+        unknown_effects,
+        loop_status,
+        acceptance,
         last_event_sequence,
         cursor_present,
         queued,
@@ -557,6 +617,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         run_open,
         compacting,
         turn_running,
+        open_message,
     })
 }
 
@@ -606,7 +667,7 @@ pub use tool_fold::{
 mod tool_fold;
 
 pub use turn_end::TurnTail;
-pub(crate) use turn_end::{failure_row, no_reply_row};
+pub(crate) use turn_end::{aborted_row, failure_row, no_reply_row};
 use turn_end::{TurnBoundary, TurnFold};
 mod turn_end;
 

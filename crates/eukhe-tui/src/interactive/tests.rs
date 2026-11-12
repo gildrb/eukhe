@@ -101,6 +101,7 @@ fn a_lost_recovery_relaunches_after_its_first_failed_connect() {
 
 fn options(selection: ModelSelection) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: PathBuf::from("/tmp/unused.sock"),
         cwd: PathBuf::from("/tmp"),
@@ -165,6 +166,37 @@ fn create_config_binds_a_new_child_to_its_parent() {
             "parentSessionPath": "/x/p.jsonl",
             "rlmDepth": 2
         })
+    );
+}
+
+/// The launch budget rides a root session's create, never a child's (a
+/// child's budget is carved from its parent's).
+#[test]
+fn create_config_carries_the_budget_of_a_root_session_only() {
+    let mut opts = options(ModelSelection::default());
+    opts.budget = Some(eukhe_types::budget::BudgetLimits {
+        cost_micros: Some(2_000_000),
+        tool_calls: Some(50),
+        ..Default::default()
+    });
+    let root = opts.create_config();
+    opts.session = SessionSelection::NewChild {
+        parent_session_file: "/x/p.jsonl".into(),
+        rlm_depth: 1,
+    };
+    assert_eq!(
+        [root, opts.create_config()],
+        [
+            json!({
+                "cwd": "/tmp",
+                "budget": { "costMicros": 2_000_000, "toolCalls": 50 }
+            }),
+            json!({
+                "cwd": "/tmp",
+                "parentSessionPath": "/x/p.jsonl",
+                "rlmDepth": 1
+            }),
+        ]
     );
 }
 

@@ -1,6 +1,6 @@
 # eukhe harness
 
-Model tools: `ipython` (a persistent CPython REPL; top-level `await` works), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell whose steps that write files, run programs, or use the network wait for the user's approval). Every other tool is a programmatic tool: an async function in the REPL.
+Model tools: `python` (a persistent CPython REPL), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell whose steps that write files, run programs, or use the network wait for the user's approval). Every other tool is a programmatic tool: an async function in the REPL.
 
 Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the harness, not the user.
 

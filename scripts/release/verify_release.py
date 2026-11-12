@@ -99,7 +99,7 @@ def main() -> int:
             if member.uid != 0 or member.gid != 0 or member.mtime != 0:
                 fail(f"tarball entry {member.name!r} is not deterministic "
                      f"(uid={member.uid} gid={member.gid} mtime={member.mtime})")
-        # The kernel venv bootstrap installs only this hash-locked file.
+        # A kernel installs Eukhe's packages only from this hash-locked file.
         lock_member = f"eukhe-runtime/{RUNTIME_LOCK_FILE}"
         if lock_member not in {member.name for member in members}:
             fail(f"tarball is missing the kernel runtime lock {lock_member!r}")

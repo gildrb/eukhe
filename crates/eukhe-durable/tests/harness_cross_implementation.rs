@@ -31,6 +31,18 @@
 //!   jobs) before you run it again.", LAWS.bend H7), edited in the
 //!   same way, with the token counts of the answer that follows it; TS's
 //!   text ends at "may have partially run".
+//! - In both `-resumed` fixtures, the restart that settles the interrupted
+//!   call also lists it in the conversation's `eukhe.effects` ledger
+//!   (document 13, an effect whose outcome is unknown: spec O9), so every
+//!   later id is one higher than TS's; and the second generation's
+//!   `request` checkpoint records its send (`sends`, the exactly-once
+//!   request) as its stream starts. Both are edited in like the above; a
+//!   fresh crash is compared less its send record ([`without_sends`]).
+//! - Every faux `usage` (both answers and the summed `pi.provider`
+//!   document, in all four fixtures) holds eukhe's faux counts, edited in
+//!   after TS wrote them: `o200k_base` tokens of the serialized prompt and
+//!   answer (first answer 43 in / 7 out, resume answer 105 in / 5 out). TS's
+//!   faux counts 4 characters per token (48/6 and 110/7).
 //!
 //! The final state is `{ toolRuns, context, storage }`: how often `probe` ran
 //! during the resume (TS does not rerun an `unsafe` call: 0), the root's
@@ -544,8 +556,76 @@ fn without_progress(files: Vec<(String, String)>) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The record of a model request's send that eukhe commits as its stream
+/// starts (`sends` in the generation's `request` checkpoint: the request is
+/// an exactly-once effect, spec O9): TS keeps no such record. Drops each
+/// such task record and its write in its commit, whose later writes move
+/// up one ordinal.
+fn without_sends(files: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut dropped: Vec<(u64, u64, u64)> = Vec::new();
+    let mut files: Vec<(String, String)> = files
+        .into_iter()
+        .map(|(name, text)| {
+            if !name.starts_with("task-") {
+                return (name, text);
+            }
+            let kept: String = text
+                .split_inclusive('\n')
+                .filter(|line| {
+                    if !line.contains("\"sends\":") {
+                        return true;
+                    }
+                    let record: serde_json::Value = serde_json::from_str(line).unwrap();
+                    dropped.push((
+                        record["seq"].as_u64().unwrap(),
+                        record["payload"]["value"]["id"].as_u64().unwrap(),
+                        record["ordinal"].as_u64().unwrap(),
+                    ));
+                    false
+                })
+                .collect();
+            (name, kept)
+        })
+        .collect();
+    for (name, text) in &mut files {
+        if name != "main.jsonl" {
+            continue;
+        }
+        let mut kept = String::with_capacity(text.len());
+        for line in text.split_inclusive('\n') {
+            let seq = serde_json::from_str::<serde_json::Value>(line).unwrap()["seq"].as_u64();
+            let mut line = line.to_owned();
+            for &(at, task, ordinal) in &dropped {
+                if seq != Some(at) {
+                    continue;
+                }
+                let write =
+                    format!("{{\"type\":\"task.sidecar\",\"id\":{task},\"ordinal\":{ordinal}}}");
+                line = if line.contains(&format!("{write},")) {
+                    line.replacen(&format!("{write},"), "", 1)
+                } else {
+                    line.replacen(&format!(",{write}"), "", 1)
+                };
+                let mut later = ordinal + 1;
+                while line.contains(&format!("\"ordinal\":{later}}}")) {
+                    line = line.replacen(
+                        &format!("\"ordinal\":{later}}}"),
+                        &format!("\"ordinal\":{}}}", later - 1),
+                        1,
+                    );
+                    later += 1;
+                }
+            }
+            kept.push_str(&line);
+        }
+        *text = kept;
+    }
+    files
+}
+
 /// A crashed Rust process leaves the `rust-crash` fixture again (the storage
-/// the crashed TS process left), less the progress commits.
+/// the crashed TS process left), less the progress commits, and less the
+/// request's send record ([`without_sends`]).
 #[tokio::test]
 async fn crash_leaves_the_fixture_storage() {
     if let Some(directory) = std::env::var_os(CRASH_DIR_ENV) {
@@ -554,7 +634,7 @@ async fn crash_leaves_the_fixture_storage() {
     let temp = tempfile::tempdir().unwrap();
     let directory = temp.path().join("jsonl");
     crash_in_child("crash_leaves_the_fixture_storage", &directory);
-    let crashed = without_session_ids(files(&directory));
+    let crashed = without_sends(without_session_ids(files(&directory)));
     assert_same_files(
         &crashed,
         &without_progress(without_session_ids(files(&fixtures().join("rust-crash")))),

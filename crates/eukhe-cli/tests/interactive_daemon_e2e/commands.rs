@@ -27,6 +27,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
     .await;
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -185,7 +186,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         "15000",
     );
     // The supervisor's sessions prewarm on this checkout's runtime, never
-    // the user's `~/.eukhe` kernel venv.
+    // the user's `~/.eukhe/kernel`.
     std::env::set_var(
         "EUKHE_KERNEL_PYTHON",
         crate::eukhe::kernel_runtime::kernel_python(),
@@ -199,6 +200,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
     .expect("write script");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -297,6 +299,7 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
     ] });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -498,6 +501,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
     );
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -655,6 +659,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
     assert_eq!(catalog[0].model.id, "chat-plus");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -745,6 +750,7 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
     let script = serde_json::json!({ "engine": "faux", "responses": [] });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -883,6 +889,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),
@@ -1155,6 +1162,282 @@ async fn tui_compact_slower_than_the_submit_ack_cap_settles_without_a_timeout_ro
     drop(supervisor);
 }
 
+/// Esc while `/compact` summarizes cancels it with one notice, a single
+/// `Compaction cancelled` error, and never returns the command to the
+/// editor: no `Command failed` result row, no refused prompt row, no
+/// `/compact` back in the editor.
+#[tokio::test]
+async fn tui_compact_cancelled_by_esc_shows_one_notice() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    // The keep-recent cut of the loader verifier above: the second turn
+    // is kept whole, the first summarized in one summarizer call.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({ "compaction": { "keepRecentTokens": 10 } }).to_string(),
+    )
+    .expect("write settings");
+    let supervisor = spawn_supervisor(dir.path());
+    // The summarizer holds until the Esc cancels it.
+    let script = serde_json::json!({
+        "engine": "faux",
+        "responses": [
+            { "text": "history ".repeat(150) },
+            { "text": "second turn done, kept intact" },
+            { "text": "## Summary\nnever placed", "delayMs": 120_000 },
+        ],
+    });
+    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![
+            eukhe_tui::interactive::HeadlessStep::Submit("first".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::Submit(
+                "second, and please keep this second parity turn short and intact".to_string(),
+            ),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::Submit("/compact".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Compacting context".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Compaction cancelled".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::SettleIdle,
+        ],
+        width: 100,
+        height: 30,
+    };
+    let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run");
+    let rendered = outcome.frames.join("\n");
+    let last = outcome.frames.last().expect("the settled frame");
+    assert_eq!(
+        last.matches("Compaction cancelled").count(),
+        1,
+        "one cancel notice:\n{last}"
+    );
+    assert!(
+        !rendered.contains("Command failed") && !rendered.contains("rejected the prompt"),
+        "no failure row and no refused prompt row:\n{rendered}"
+    );
+    assert_eq!(
+        last.matches("/compact").count(),
+        1,
+        "only the echo row names /compact; the editor stays empty:\n{last}"
+    );
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
+    assert!(
+        transcript
+            .custom_rows("session_slash_command_result")
+            .is_empty()
+            && transcript.of_kind("pi.compaction").is_empty(),
+        "a cancelled compaction persisted no result row and no compaction: {:?}",
+        transcript.entries
+    );
+    drop(supervisor);
+}
+
+/// `/compact` sent with Enter while a reply streams interrupts the turn,
+/// compacts, then resumes it with the auto-continue prompt, so a reply
+/// arrives after the compaction (abort, compact, resume).
+#[tokio::test]
+async fn tui_compact_during_a_turn_compacts_then_resumes_the_turn() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    // The first turn is summarized, the interrupted one kept.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({ "compaction": { "keepRecentTokens": 10 } }).to_string(),
+    )
+    .expect("write settings");
+    let supervisor = spawn_supervisor(dir.path());
+    // The second reply streams far longer than the test runs, so only the
+    // compaction's abort ends it; the last response answers the resume.
+    let script = serde_json::json!({
+        "engine": "faux",
+        "tokensPerSecond": 50,
+        "repeatLastResponse": true,
+        "responses": [
+            { "text": "history ".repeat(150) },
+            { "text": format!("STREAMING-REPLY {}", "word ".repeat(5_000)) },
+            { "text": "## Summary\nthe compacted story" },
+            { "text": "RESUMED-REPLY after the compaction" },
+        ],
+    });
+    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![
+            eukhe_tui::interactive::HeadlessStep::Submit("first".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            eukhe_tui::interactive::HeadlessStep::Submit("second".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "STREAMING-REPLY".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Submit("/compact".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Context compacted".to_string(),
+                timeout_ms: 60_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "RESUMED-REPLY".to_string(),
+                timeout_ms: 60_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 60_000 },
+        ],
+        width: 100,
+        height: 30,
+    };
+    let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run");
+    assert!(
+        outcome
+            .frames
+            .iter()
+            .any(|frame| frame.contains("RESUMED-REPLY")),
+        "the resumed reply rendered:\n{}",
+        outcome.frames.join("\n")
+    );
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
+    let entries = &transcript.entries;
+    let compaction = entries
+        .iter()
+        .position(|entry| entry["kind"] == "pi.compaction");
+    let resume = entries.iter().position(|entry| {
+        entry["kind"] == "pi.user" && entry["data"]["origin"]["kind"] == "compactionResume"
+    });
+    let reply = entries.iter().position(|entry| {
+        entry["kind"] == "pi.assistant"
+            && entry["model"][0]["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("RESUMED-REPLY"))
+    });
+    assert!(
+        compaction.is_some() && compaction < resume && resume < reply,
+        "the compaction, then the auto-continue prompt, then its reply: {:?}",
+        transcript.entries
+    );
+    assert!(
+        transcript
+            .chat_texts()
+            .iter()
+            .any(|text| text.starts_with("Resume the user's latest intent.")),
+        "the resume carries the auto-continue prompt: {:?}",
+        transcript.chat_texts()
+    );
+    drop(supervisor);
+}
+
+/// `/compact` sent with the follow-up key while a turn runs never touches
+/// the turn: it is queued "for when the agent yields", so the turn ends
+/// with its whole reply and the compaction runs after it.
+#[tokio::test]
+async fn tui_follow_up_compact_during_a_turn_waits_for_the_turn_to_end() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    // A one-turn session is compactable: keep almost nothing recent.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({ "compaction": { "keepRecentTokens": 1 } }).to_string(),
+    )
+    .expect("write settings");
+    let supervisor = spawn_supervisor(dir.path());
+    // The reply streams for seconds, so `/compact` lands while it runs;
+    // the last response serves every summarizer call.
+    let script = serde_json::json!({
+        "engine": "faux",
+        "tokensPerSecond": 50,
+        "repeatLastResponse": true,
+        "responses": [
+            { "text": format!("STREAMING-REPLY {}END-OF-REPLY", "word ".repeat(300)) },
+            { "text": "## Summary\nthe queued story" },
+        ],
+    });
+    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![
+            eukhe_tui::interactive::HeadlessStep::Submit("go".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "STREAMING-REPLY".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Type("/compact".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::ALT,
+            )),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Queued compaction for when the agent yields".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Context compacted".to_string(),
+                timeout_ms: 60_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 60_000 },
+        ],
+        width: 100,
+        height: 30,
+    };
+    let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run");
+    let rendered = outcome.frames.join("\n");
+    assert!(
+        rendered.contains("Queued compaction for when the agent yields"),
+        "the queued notice rendered:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("Operation aborted") && !rendered.contains("too short to compact"),
+        "the turn ran to its end, then the compaction ran:\n{rendered}"
+    );
+    let storages = session_dirs(&session_dir);
+    assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
+    let transcript = read_transcript(&storages[0]);
+    assert!(
+        transcript
+            .chat_texts()
+            .iter()
+            .any(|text| text.starts_with("STREAMING-REPLY") && text.ends_with("END-OF-REPLY")),
+        "the turn kept its whole reply: {:?}",
+        transcript.chat_texts()
+    );
+    assert_eq!(
+        transcript.of_kind("pi.compaction").len(),
+        1,
+        "the compaction entry persisted"
+    );
+    assert!(
+        transcript
+            .of_kind("pi.user")
+            .iter()
+            .all(|entry| entry["data"]["origin"]["kind"] != "compactionResume"),
+        "nothing was interrupted, so nothing resumes: {:?}",
+        transcript.entries
+    );
+    drop(supervisor);
+}
+
 /// Session-tree verifier: two scripted turns, then `/tree` navigation back
 /// to the first user message, a fork from it, and a clone at the leaf.
 /// Exercises the full loop the TS `/tree` surface owns: the `get_session_tree`
@@ -1180,6 +1463,7 @@ async fn tui_session_tree_navigates_forks_and_clones() {
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
     let options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.socket.clone(),
         cwd: dir.path().to_path_buf(),

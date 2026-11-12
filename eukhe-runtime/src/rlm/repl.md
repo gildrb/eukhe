@@ -78,11 +78,13 @@ it within 30 seconds (a synchronous cell holding the loop).
   `ValueError` in the calling cell. `id` rides task
   context: an asyncio task spawned by a cell keeps that cell's id even after
   the cell finishes; user threads emit `null`.
-- `{"event":"host_request","id":str,"data":{...}}` — one typed request from
-  runtime code to the host; the host answers with a `host_reply` request
-  carrying the same id. `data` is subject to the same encoding cap as a
-  `display` payload: `host_request()` raises `ValueError` in the calling cell
-  instead of sending an oversized request.
+- `{"event":"host_request","id":str,"cell":str|null,"data":{...}}` — one typed
+  request from runtime code to the host; the host answers with a `host_reply`
+  request carrying the same id. `cell` names the sending cell like a `display`
+  frame's `id` (task context; `null` from a user thread): the host stops a
+  cell's waits with that cell only. `data` is subject to the same encoding cap
+  as a `display` payload: `host_request()` raises `ValueError` in the calling
+  cell instead of sending an oversized request.
 - `{"event":"error","id":str|null,"ename":str,"evalue":str,"traceback":[str,...]}`
   — `evalue` and each `traceback` entry are capped at 1,048,576 characters,
   with a trailing truncation marker, so one error event fits one frame.
@@ -116,6 +118,28 @@ created by a cell keep running between cells. Each cell's source is registered
 in `linecache` under `<cell-N>`, so tracebacks show the offending source line.
 Tracebacks are plain `traceback` formatting with the runtime's own frames
 stripped, keeping cell and library frames; no colors, no decoration.
+
+## Packages
+
+The runtime imports only the standard library. A package installs on demand
+and only from a lock (`rlm/pip.py`): the host passes its uv
+(`EUKHE_KERNEL_UV`), Eukhe's lock (`EUKHE_KERNEL_LOCK`), the project's lock
+(`EUKHE_KERNEL_PROJECT_LOCK`) and the project's package directory
+(`EUKHE_KERNEL_PROJECT_PACKAGES`). The last finder of `sys.meta_path`
+installs a locked distribution the first time a cell, a skill, the runtime
+or a project module imports its top-level module (`uv pip install
+--require-hashes`, the locks as constraints), then the import goes on; an
+import inside the standard library or an installed package installs nothing.
+Eukhe's packages go into the kernel env, a project lock's into the project's
+directory at the end of `sys.path`. A `ModuleNotFoundError` of a module no
+lock names ends with the command that locks it (`eukhe kernel lock <name>`).
+
+A cell that does not parse as Python runs each `%pip <args>` line (at any
+indentation) as a call: `%pip install <name>...` installs the locked version
+of each name (it refuses a name no lock holds, another version, a path or a
+URL); `%pip list`, `show`, `freeze` and `check` are uv's. No other IPython
+syntax exists (`!cmd`, `%timeit`, `?obj`): the runtime is Eukhe's own, not
+IPython.
 
 ## Interrupt
 

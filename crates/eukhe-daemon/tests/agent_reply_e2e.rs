@@ -327,7 +327,7 @@ fn a_child_that_reported_exits_without_waking_its_parent() {
             "engine": "faux",
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": spawn_cell() } },
+                    { "type": "toolCall", "name": "python", "arguments": { "code": spawn_cell() } },
                 ] },
                 { "text": "spawn turn done" },
                 { "text": "report seen" },
@@ -337,7 +337,7 @@ fn a_child_that_reported_exits_without_waking_its_parent() {
         Some(&json!({
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython",
+                    { "type": "toolCall", "name": "python",
                       "arguments": { "code": report_cell(&receipt) } },
                 ], "delayMs": 1_500 },
                 { "text": "kid done" },

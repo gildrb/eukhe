@@ -253,13 +253,13 @@ fn only_claude_models_keep_the_1h_cache_write_price_of_anthropic() {
     assert_eq!(claude_differences, Vec::new());
     let expected: BTreeMap<String, usize> = [
         ("amazon-bedrock", 111),
-        ("fireworks", 14),
         ("kimi-coding", 3),
         ("minimax", 3),
         ("minimax-cn", 3),
         ("opencode", 3),
-        ("opencode-go", 4),
-        ("vercel-ai-gateway", 228),
+        ("opencode-go", 3),
+        ("vercel-ai-gateway", 227),
+        ("zai", 4),
     ]
     .into_iter()
     .map(|(provider, count)| (provider.to_owned(), count))

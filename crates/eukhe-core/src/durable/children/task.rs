@@ -16,6 +16,12 @@
 //! delete owes. `bend/child.bend` models the phases (LAWS.bend H5); their
 //! decisions ([`watched_next`], [`report_step`], [`owed_on_abort`]) are
 //! the compiled core's (entry `child`).
+//!
+//! A session with a budget shares it with each child ([`super::budget`],
+//! spec B4): a child draws from its parent's account, or holds the
+//! allotment its spawn named; the prompt phase makes sure the child is in
+//! the account, and the end of the child's run (a failed spawn or prompt,
+//! the watch's last poll, an abort) gives its budget back.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -35,14 +41,16 @@ use eukhe_durable::types::{
     EntryId, SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError,
     TaskOwnership,
 };
+use eukhe_types::acceptance::AcceptanceSeed;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::UserContent;
+use eukhe_types::platform::kill_point::kill_point;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
     ChildMessageKind, RlmChildCancelRequest, RlmChildHandbackRequest, RlmChildObservation,
-    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmSubagentHost,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildVerdict,
+    RlmChildWaitRequest, RlmSubagentHost,
 };
 use super::notice::{ChildReport, DELETED_BY_PARENT};
 use super::registry::{
@@ -51,6 +59,7 @@ use super::registry::{
 };
 use super::watch::{get_report, verdict, Call, Obs, Report, Vigil, CHILD_POLL_FAILURES};
 use crate::child_workspace::WorkspaceMode;
+use crate::durable::budget::BudgetGate;
 use crate::durable::deps::SessionClosing;
 use crate::durable::observe::semantic_edges::{
     last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
@@ -86,6 +95,10 @@ pub(crate) struct ChildrenServices {
     pub(crate) closing: SessionClosing,
     /// The session settings: `subagentStallMs`, the blocking budget.
     pub(crate) settings: Arc<EukheSettings>,
+    /// The session's budget: a child draws from it (or is carved an
+    /// allotment out of it) and gives it back when the child's task ends
+    /// ([`super::budget`]).
+    pub(crate) budget: Arc<BudgetGate>,
     /// The child tasks whose watch polled since this session opened (by
     /// task id): the pause before a re-poll is this session's own.
     pub(crate) polled: Mutex<HashSet<u64>>,
@@ -143,6 +156,10 @@ pub(crate) struct ChildTaskInput {
     /// doctrine, and main's worker tools reach it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) worker: bool,
+    /// The checks the child's task starts with (`rlm.spawn`'s `accept`),
+    /// set by this parent as their owner when the child is created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) accept: Option<AcceptanceSeed>,
 }
 
 #[expect(
@@ -584,6 +601,10 @@ async fn spawn(
     cx: Context,
 ) -> SessionResult<()> {
     let row = require_row(&runtime, &task, &cx).await?;
+    // Exactly once (spec O1, O7): the task and its row are the intent; the
+    // host dedupes a repeat of the spawn on its idempotency key and the
+    // child's identity, so a spawn a restart repeats creates one child.
+    kill_point("spawn", "intended");
     let task_id = task.id.erase();
     let request = RlmChildSpawnRequest {
         idempotency_key: format!("rlm:{task_id}:spawn"),
@@ -598,8 +619,19 @@ async fn spawn(
         parent_task_id: task_id.to_string(),
         workspace: task.input.workspace.unwrap_or_default(),
         worker: task.input.worker,
+        acceptance: task.input.accept.clone(),
     };
+    kill_point("spawn", "started");
     let spawned = services.host.spawn(request).await;
+    // No child exists after a failed spawn: the allotment carved for it at
+    // admission returns whole.
+    let returned = match &spawned {
+        Ok(_) => Ok(()),
+        Err(_) => super::budget::give_back(&services.budget, &row.session_id).await,
+    };
+    if let Err(error) = returned {
+        runtime.report(error)?;
+    }
     let conversation_id = task.conversation_id;
     runtime
         .commit(
@@ -626,7 +658,9 @@ async fn spawn(
             },
             &cx,
         )
-        .await
+        .await?;
+    kill_point("spawn", "finished");
+    Ok(())
 }
 
 /// `prompt`: admit the task prompt (one retry, as the old route did). A
@@ -671,21 +705,35 @@ async fn prompt(
         details: task.input.details.clone(),
         images,
     };
-    let prompted = match services.host.prompt(request.clone()).await {
-        Ok(()) => Ok(()),
-        Err(_) => services.host.prompt(request).await,
+    // The child of a spawn draws from this session's account, or holds the
+    // allotment its admission carved. A child that gave its budget back
+    // when its last task ended (a re-task) joins the account again first;
+    // without that the prompt is not sent.
+    let lent = super::budget::relend(&services.budget, &identity.session_id).await;
+    let prompted = match lent {
+        Ok(()) => match services.host.prompt(request.clone()).await {
+            Ok(()) => Ok(()),
+            Err(_) => services.host.prompt(request).await,
+        },
+        Err(error) => Err(anyhow::Error::new(error)),
     };
     let failure = match prompted {
         Ok(()) => None,
         Err(error) => {
             let cancel = RlmChildCancelRequest {
                 idempotency_key: format!("rlm:{task_id}:cancel"),
-                session_id: identity.session_id,
+                session_id: identity.session_id.clone(),
             };
             if let Err(cancel_error) = services.host.cancel(cancel).await {
                 runtime.report(SessionError::error(format!(
                     "RLM child {task_id} cancel after a failed prompt: {cancel_error:#}"
                 )))?;
+            }
+            // The child got no task: its budget goes back.
+            if let Err(reclaim_error) =
+                super::budget::give_back(&services.budget, &identity.session_id).await
+            {
+                runtime.report(reclaim_error)?;
             }
             Some(format!("{error:#}"))
         }
@@ -720,6 +768,7 @@ async fn prompt(
                         failure: Some(ChildFailure::Undelivered),
                         error,
                         handback: None,
+                        acceptance: None,
                     }),
                     ReportMode::Silent => NextTaskState::Terminal {
                         outcome: TaskOutcome::Completed {
@@ -752,9 +801,13 @@ enum Seen {
     Failed {
         failure: ChildFailure,
         error: String,
+        acceptance: Option<RlmChildVerdict>,
     },
     /// The child's run answered.
-    Answered { answer_preview: Option<String> },
+    Answered {
+        answer_preview: Option<String>,
+        acceptance: Option<RlmChildVerdict>,
+    },
 }
 
 impl Seen {
@@ -785,9 +838,9 @@ fn gives_up(call: &Call) -> Option<Report> {
 
 /// The task's next state after the watch's poll `poll`, which ended at
 /// `now`, read `seen` and got `call` (`verdict` in `bend/child.bend`):
-/// watch on, report, or end; `row` takes the child's end. A child that
-/// answered through an agent message, and every child of a silent task,
-/// owes no notice.
+/// watch on, report, or end; `row` takes the child's end and the verdict
+/// of its acceptance. A child that answered through an agent message, and
+/// every child of a silent task, owes no notice.
 fn watched_next(
     call: Call,
     seen: Seen,
@@ -817,22 +870,33 @@ fn watched_next(
         ))
     };
     let report = match seen {
-        Seen::Answered { answer_preview } => match why {
+        Seen::Answered {
+            answer_preview,
+            acceptance,
+        } => match why {
             None | Some(Report::Completed) => {
                 row.status = ChildStatus::Done;
                 row.answer_preview.clone_from(&answer_preview);
+                if acceptance.is_some() {
+                    row.acceptance.clone_from(&acceptance);
+                }
                 ChildReport::CompletedWithoutReply {
                     session_name: row.session_name.clone(),
                     last_assistant_text_preview: answer_preview,
                     handback: row.handback.clone(),
+                    acceptance,
                 }
             }
             Some(Report::Failed | Report::Cancelled | Report::Stalled | Report::Unreachable) => {
                 return Err(misfit(why))
             }
         },
-        Seen::Failed { failure, error } => match why {
-            Some(Report::Failed) => watch_failed(row, failure, error),
+        Seen::Failed {
+            failure,
+            error,
+            acceptance,
+        } => match why {
+            Some(Report::Failed) => watch_failed(row, failure, error, acceptance),
             None
             | Some(
                 Report::Completed | Report::Cancelled | Report::Stalled | Report::Unreachable,
@@ -848,6 +912,7 @@ fn watched_next(
                     "RLM child showed no progress for {} s and was stopped",
                     stall.as_secs_f64()
                 ),
+                None,
             )
         }
         Seen::Unreached { error } if matches!(why, Some(Report::Unreachable)) => watch_failed(
@@ -856,6 +921,7 @@ fn watched_next(
             format!(
                 "RLM child could not be reached in {CHILD_POLL_FAILURES} polls in a row and was stopped: {error:#}"
             ),
+            None,
         ),
         Seen::Unsettled | Seen::Unreached { .. } => return Err(misfit(why)),
     };
@@ -870,16 +936,26 @@ fn watched_next(
 }
 
 /// The row of a child the watch ends as failed with `failure`, and the
-/// report of it.
-fn watch_failed(row: &mut ChildRow, failure: ChildFailure, error: String) -> ChildReport {
+/// report of it; `acceptance` is the verdict on the child's final state
+/// its harness read, when it read one.
+fn watch_failed(
+    row: &mut ChildRow,
+    failure: ChildFailure,
+    error: String,
+    acceptance: Option<RlmChildVerdict>,
+) -> ChildReport {
     row.status = ChildStatus::Error;
     row.error = Some(error.clone());
     row.failure = Some(failure);
+    if acceptance.is_some() {
+        row.acceptance.clone_from(&acceptance);
+    }
     ChildReport::Failed {
         session_name: row.session_name.clone(),
         failure: Some(failure),
         error,
         handback: row.handback.clone(),
+        acceptance,
     }
 }
 
@@ -991,12 +1067,20 @@ async fn watch(
             progress,
             answer: full,
             paused: _,
+            acceptance,
         }) => {
             answer = full;
             let seen = match state {
                 RlmChildRunState::Running | RlmChildRunState::Idle { .. } => Seen::Unsettled,
-                RlmChildRunState::Answered { answer_preview } => Seen::Answered { answer_preview },
-                RlmChildRunState::Failed { failure, error } => Seen::Failed { failure, error },
+                RlmChildRunState::Answered { answer_preview } => Seen::Answered {
+                    answer_preview,
+                    acceptance,
+                },
+                RlmChildRunState::Failed { failure, error } => Seen::Failed {
+                    failure,
+                    error,
+                    acceptance,
+                },
             };
             (usage, progress, seen)
         }
@@ -1039,6 +1123,16 @@ async fn watch(
     let handback = match &called {
         Some(Call::Watches(_)) => None,
         Some(Call::Reports(_) | Call::Settles(_)) | None => {
+            // The child ended: its budget goes back to this session's
+            // account (an allotment's spend becomes this session's, a
+            // shared member leaves the account), before the commit that
+            // ends the watch (a rerun gives back nothing twice; after a
+            // failure the next open asks again).
+            if let Err(error) =
+                super::budget::give_back(&services.budget, &identity.session_id).await
+            {
+                runtime.report(error)?;
+            }
             tokio::select! {
                 outcome = hand_back(services.host.as_ref(), &identity.session_id, &identity.rlm_child_id) => outcome,
                 reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
@@ -1298,6 +1392,18 @@ async fn abort(
                 "RLM child {task_id} cancel: {error:#}"
             )))?;
         }
+    }
+    // The abort ends the run of the child this task served (a task in its
+    // report phase serves none: its child ended, and may hold the budget
+    // of a later task): its budget goes back.
+    let returned = match task.checkpoint {
+        ChildCheckpoint::Spawn | ChildCheckpoint::Prompt | ChildCheckpoint::Watch { .. } => {
+            super::budget::give_back(&services.budget, &row.session_id).await
+        }
+        ChildCheckpoint::Report { .. } => Ok(()),
+    };
+    if let Err(error) = returned {
+        runtime.report(error)?;
     }
     // A spawned child not handed back yet (the watch hands back an ended
     // one) hands its workspace back now, after its run was cancelled.

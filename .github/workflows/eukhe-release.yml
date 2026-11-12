@@ -21,10 +21,16 @@
 # which starts no workflow; it is never released.
 #
 # Supply chain: every action is pinned by full commit SHA; the build jobs
-# use no cache (a poisoned cache would ride the shipped binary); apt
-# installs come from a fixed snapshot.ubuntu.com timestamp; rustup-init is
-# a pinned version checked against committed sha256; the bundled catalog
-# is the commit pinned in scripts/release/catalog-pin.json, hash-checked;
+# use no cache (a poisoned cache would ride the shipped binary); the Linux
+# build jobs run in a toolchain image pinned by its multi-arch digest
+# (ghcr.io/gildrb/eukhe-build, scripts/release/Dockerfile), so no release
+# installs a package; to rebuild it, `gh workflow run build-image.yml -f
+# tag=jammy-<YYYYMMDD>` and pin the digest its merge job prints; rustup-init is
+# a pinned version checked against committed sha256; the bundled models
+# come from the committed models.dev snapshot (sha256-pinned in
+# crates/eukhe-models/catalog/models-dev.pin.json), the bundled MCP
+# services from the commit pinned in scripts/release/catalog-pin.json,
+# hash-checked;
 # builds set SOURCE_DATE_EPOCH and remap the workspace and cargo home
 # paths; crates are fetched first and the build itself runs offline
 # (--frozen); publish attests build provenance for every release asset.
@@ -124,11 +130,11 @@ jobs:
     needs: version
     name: build-${{ matrix.target }}
     runs-on: ${{ matrix.runs-on }}
-    # The glibc 2.35 baseline (Ubuntu 22.04). buildpack-deps:jammy-curl is
-    # ubuntu:22.04 plus ca-certificates and curl, so the pinned snapshot
-    # below is reachable over verified TLS without an unpinned bootstrap.
+    # The glibc 2.35 baseline (Ubuntu 22.04): buildpack-deps:jammy-curl plus
+    # build-essential, clang, python3, git and binutils
+    # (scripts/release/Dockerfile), pinned by its multi-arch digest.
     container:
-      image: buildpack-deps:jammy-curl@sha256:6326f638affaad95fcc68973d732ecee04d8746fd1529ec113e88c76be9b3ad0
+      image: ghcr.io/gildrb/eukhe-build:jammy-20261112@sha256:d3e93c32a2bcaad63578d31d334d887ce096ee6ead21346d5cba98d53975bf11
     defaults:
       run:
         shell: bash
@@ -154,28 +160,8 @@ jobs:
       # The version the binary reports (eukhe-build-info).
       EUKHE_RELEASE_VERSION: ${{ needs.version.outputs.version }}
       TARGET: ${{ matrix.target }}
-      # The Ubuntu archive as of this instant (snapshot.ubuntu.com serves
-      # amd64 and arm64 under the same path). Move it forward by editing
-      # this value; it must not predate the container image build.
-      UBUNTU_SNAPSHOT: 20261005T000000Z
       RUSTUP_VERSION: 1.29.1
     steps:
-      - name: Install build prerequisites (Ubuntu 22.04 snapshot)
-        run: |
-          set -euo pipefail
-          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
-          for suite in jammy jammy-updates jammy-security; do
-            echo "deb https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT} ${suite} main universe"
-          done > /etc/apt/sources.list
-          # The snapshot server answers 5xx in bursts: each fetch retries
-          # with backoff, and an index that still fails stops the update
-          # here instead of as "Unable to locate package" below.
-          echo 'Acquire::Retries "10";' > /etc/apt/apt.conf.d/80-retries
-          apt-get update --error-on=any
-          # clang: the compiled Bend core (crates/eukhe-bend, c/core.c) uses
-          # `musttail`, which gcc accepts only from 15; jammy's clang 14 has
-          # it, and eukhe-bend's build.rs picks clang when cc lacks it.
-          apt-get install -y --no-install-recommends build-essential clang python3 git binutils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.version.outputs.sha }}
