@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use eukhe_ai::api::{FetchDeferredFn, StreamSimpleFn};
 use eukhe_ai::models::{create_models, CreateModelsOptions, Models, ModelsSimpleStreamOptions};
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
-    FauxResponseStep, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxModelDefinition,
+    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_ai::types::{DeferredFetchOptions, SimpleStreamOptions};
 use eukhe_ai::utils::context_tokens::{context_tokens, model_tokenizer};
@@ -88,6 +88,29 @@ impl Fixture {
     }
 
     fn build(answer: Answer, clock: Clock) -> Self {
+        Self::with_provider(answer, clock, RegisterFauxProviderOptions::default())
+    }
+
+    /// A fixture whose faux model has these prices, its largest output
+    /// 16384 tokens.
+    fn priced(cost: ModelCost) -> Self {
+        Self::with_provider(
+            Answer::Faux,
+            Clock::Real,
+            RegisterFauxProviderOptions {
+                models: Some(vec![FauxModelDefinition {
+                    id: "priced".to_owned(),
+                    cost: Some(cost),
+                    context_window: Some(1_000_000),
+                    max_tokens: Some(16_384),
+                    ..FauxModelDefinition::default()
+                }]),
+                ..RegisterFauxProviderOptions::default()
+            },
+        )
+    }
+
+    fn with_provider(answer: Answer, clock: Clock, options: RegisterFauxProviderOptions) -> Self {
         let dir = TempDir::new().unwrap();
         let agent_dir = dir.path().join("agent");
         let cwd = dir.path().join("work");
@@ -109,7 +132,7 @@ impl Fixture {
         let notices = Arc::new(Mutex::new(Vec::new()));
         let told = Arc::clone(&notices);
         gate.deliver_notices(Arc::new(move |notice| told.lock().unwrap().push(notice)));
-        let faux = faux_provider(RegisterFauxProviderOptions::default());
+        let faux = faux_provider(options);
         let models = create_models(CreateModelsOptions::default());
         let mut provider = faux.provider.clone();
         match answer {
@@ -979,6 +1002,54 @@ async fn a_tight_grant_tells_the_agent_once_that_the_budget_runs_low() {
                     "budget:session:low:-:9000:-:-:-:-".to_owned()
                 ),
             ]
+        )
+    );
+}
+
+/// The prices of a model with a long-context tier above 100k input
+/// tokens: $0.1/M input and $0.5/M output below it, five times that
+/// above.
+fn tiered_cost() -> ModelCost {
+    ModelCost {
+        input: 0.1,
+        output: 0.5,
+        cache_read: 0.01,
+        cache_write: 0.125,
+        tiers: Some(vec![ModelCostTier {
+            input: 0.5,
+            output: 2.5,
+            cache_read: 0.05,
+            cache_write: 0.625,
+            input_tokens_above: 100_000,
+        }]),
+    }
+}
+
+/// B1, B2: a small cost budget funds work. A turn of about 10k input
+/// tokens cannot reach the long-context tier, so its worst case and its
+/// final-answer reserve are priced below the tier: $0.02 holds the
+/// largest cap and leaves the reserve (about $0.0102 and $0.0041),
+/// where pricing the tier made the reserve alone pass the budget and
+/// sent the turn as the final answer.
+#[tokio::test]
+async fn a_small_cost_budget_funds_work_below_the_long_context_tier() {
+    let fixture = Fixture::priced(tiered_cost());
+    let limits = BudgetLimits {
+        cost_micros: Some(20_000),
+        ..BudgetLimits::default()
+    };
+    fixture.gate.set(limits).unwrap();
+    let task = "fix the module ".repeat(3_000);
+    fixture.request(agent(&task)).await;
+    assert_eq!(
+        (fixture.received(), fixture.gate.phase()),
+        (
+            vec![Received {
+                max_tokens: Some(16_384),
+                tool_choice: None,
+                last: Some(task),
+            }],
+            Some(BudgetPhase::Working)
         )
     );
 }

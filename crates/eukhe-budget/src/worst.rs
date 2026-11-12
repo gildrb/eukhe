@@ -2,10 +2,11 @@
 //! actually spent after it returned (spec/README.md B1, B3).
 //!
 //! A provider's charge is known only after the response: it is at most the
-//! request's input tokens at the model's highest input-side price plus the
-//! output cap at its highest output price. The ledger reserves that; the
-//! settled amount is the cost the response's usage reports, rounded up to
-//! a micro-dollar, so the ledger never charges less than the price table.
+//! request's input tokens at the highest input-side price of the pricing
+//! tiers its input can reach plus the output cap at their highest output
+//! price. The ledger reserves that; the settled amount is the cost the
+//! response's usage reports, rounded up to a micro-dollar, so the ledger
+//! never charges less than the price table.
 
 use eukhe_types::budget::{BudgetAmounts, BUDGET_AMOUNT_MAX};
 use eukhe_types::pi_ai::{ModelCost, ModelCostRates, Usage};
@@ -19,7 +20,15 @@ const LONG_CACHE_WRITE_MULTIPLIER: f64 = 2.0;
 pub struct RequestBound {
     /// An upper bound of the request's input tokens: a tokenizer's count
     /// where one is available, else an estimate scaled up by the caller.
+    /// They are charged at the worst input-side price.
     pub input_tokens: u64,
+    /// An upper bound of the input tokens the whole request is billed for
+    /// (plain, cached and written): a price tier applies only to a request
+    /// whose input passes the tier's threshold, so only the tiers whose
+    /// threshold lies below this bound are priced. Usually
+    /// `input_tokens`; the request's own input bound when only a part of
+    /// its spend is priced.
+    pub billed_input_tokens: u64,
     /// The request's output cap (`max_tokens`): the provider stops there.
     pub output_cap: u64,
     /// The price multiplier of the service tier the request asks for
@@ -56,17 +65,25 @@ fn input_rate(rates: ModelCostRates) -> f64 {
 }
 
 /// The most the request can cost, in micro-dollars: every input token at
-/// the highest input-side price of any pricing tier (plain input, cache
-/// read, cache write, 1h cache write), the whole output cap at the highest
-/// output price, times the service tier's multiplier (never below 1),
-/// plus one micro-dollar: the price table's own sum of the same terms, in
-/// another order of floating-point operations, never rounds past it.
+/// the highest input-side price (plain input, cache read, cache write, 1h
+/// cache write) of the base prices and of every tier the request can reach
+/// (the price table applies a tier when the billed input passes its
+/// threshold, and the billed input is at most `billed_input_tokens`), the
+/// whole output cap at the highest output price of the same tiers, times
+/// the service tier's multiplier (never below 1), plus one micro-dollar:
+/// the price table's own sum of the same terms, in another order of
+/// floating-point operations, never rounds past it.
 #[must_use]
 #[allow(clippy::cast_precision_loss)] // Token counts are far below 2^53.
 pub fn worst_case_cost_micros(cost: &ModelCost, bound: RequestBound) -> u64 {
     let mut input = input_rate(cost.rates());
     let mut output = cost.output;
-    for tier in cost.tiers.iter().flatten() {
+    for tier in cost
+        .tiers
+        .iter()
+        .flatten()
+        .filter(|tier| bound.billed_input_tokens > tier.input_tokens_above)
+    {
         input = input.max(input_rate(tier.rates()));
         output = output.max(tier.output);
     }
@@ -144,6 +161,7 @@ mod tests {
         let cost = cost();
         let bound = RequestBound {
             input_tokens: 250_000,
+            billed_input_tokens: 250_000,
             output_cap: 8_000,
             price_multiplier: 1.0,
         };
@@ -177,6 +195,106 @@ mod tests {
         }
     }
 
+    /// The rates the price table applies to `usage` (its tier choice,
+    /// restated: the tier of the highest threshold the billed input
+    /// passes).
+    fn table_rates(cost: &ModelCost, usage: &Usage) -> ModelCostRates {
+        let billed_input = usage.input + usage.cache_read + usage.cache_write;
+        cost.tiers
+            .iter()
+            .flatten()
+            .filter(|tier| billed_input > tier.input_tokens_above)
+            .max_by_key(|tier| tier.input_tokens_above)
+            .map_or(cost.rates(), ModelCostTier::rates)
+    }
+
+    #[test]
+    fn the_worst_case_bounds_the_price_table_at_every_input_up_to_the_bound() {
+        let cost = cost();
+        for most in [1_000, 199_999, 200_000, 200_001, 400_000] {
+            let bound = RequestBound {
+                input_tokens: most,
+                billed_input_tokens: most,
+                output_cap: 8_000,
+                price_multiplier: 1.0,
+            };
+            let worst = worst_case_cost_micros(&cost, bound);
+            for total in [1, most / 2, most] {
+                for (input, cache_read, cache_write, long) in [
+                    (total, 0, 0, 0),
+                    (0, total, 0, 0),
+                    (0, 0, total, 0),
+                    (0, 0, total, total),
+                    (
+                        total - total / 2,
+                        total / 4,
+                        total / 2 - total / 4,
+                        total / 8,
+                    ),
+                ] {
+                    for output in [0, 8_000] {
+                        let usage = Usage {
+                            input,
+                            output,
+                            cache_read,
+                            cache_write,
+                            cache_write_1h: Some(long),
+                            ..Usage::default()
+                        };
+                        let actual = micros_ceil(billed(table_rates(&cost, &usage), &usage, 2.0));
+                        assert!(
+                            actual <= worst,
+                            "usage {usage:?} costs {actual} past the worst case {worst}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A request whose input cannot reach a tier's threshold is priced at
+    /// the prices below it: an 11k-token request to a model with a
+    /// long-context tier above 100k tokens ($0.1/M input, $0.5/M output
+    /// below; $0.5/M and $2.5/M above).
+    #[test]
+    fn a_tier_the_input_cannot_reach_is_not_priced() {
+        let cost = ModelCost {
+            input: 0.1,
+            output: 0.5,
+            cache_read: 0.01,
+            cache_write: 0.125,
+            tiers: Some(vec![ModelCostTier {
+                input: 0.5,
+                output: 2.5,
+                cache_read: 0.05,
+                cache_write: 0.625,
+                input_tokens_above: 100_000,
+            }]),
+        };
+        let bound = |input| RequestBound {
+            input_tokens: input,
+            billed_input_tokens: input,
+            output_cap: 8_000,
+            price_multiplier: 1.0,
+        };
+        // 10727 input tokens at the 1h write bound ($0.2/M), 8000 output
+        // tokens at $0.5/M, and the micro-dollar of rounding slack
+        assert_eq!(
+            worst_case_cost_micros(&cost, bound(10_727)),
+            2_146 + 4_000 + 1
+        );
+        // at the threshold the tier is still out of reach; past it, it is
+        // priced ($1/M input at the 1h write bound, $2.5/M output)
+        assert_eq!(
+            worst_case_cost_micros(&cost, bound(100_000)),
+            20_000 + 4_000 + 1
+        );
+        assert_eq!(
+            worst_case_cost_micros(&cost, bound(100_001)),
+            100_001 + 20_000 + 1
+        );
+    }
+
     #[test]
     fn the_worst_case_is_exact_for_plain_input_and_a_full_output() {
         let flat = ModelCost {
@@ -190,6 +308,7 @@ mod tests {
             &flat,
             RequestBound {
                 input_tokens: 1_000,
+                billed_input_tokens: 1_000,
                 output_cap: 100,
                 price_multiplier: 1.0,
             },
@@ -210,6 +329,7 @@ mod tests {
         };
         let bound = |price_multiplier| RequestBound {
             input_tokens: 1_000_000,
+            billed_input_tokens: 1_000_000,
             output_cap: 0,
             price_multiplier,
         };

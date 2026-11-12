@@ -270,6 +270,7 @@ fn gate_classify(gate: Arc<BudgetGate>, inner: ClassifyFn) -> ClassifyFn {
                     &model.cost,
                     RequestBound {
                         input_tokens: model.context_window,
+                        billed_input_tokens: model.context_window,
                         output_cap: CLASSIFY_OUTPUT_CAP,
                         price_multiplier: 1.0,
                     },

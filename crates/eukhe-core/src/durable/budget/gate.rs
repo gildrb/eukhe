@@ -95,6 +95,7 @@ impl CostFacts<'_> {
                 self.cost,
                 RequestBound {
                     input_tokens: input,
+                    billed_input_tokens: input,
                     output_cap: output,
                     price_multiplier: self.price_multiplier,
                 },
@@ -192,6 +193,9 @@ pub(super) fn failed_spend(
             cost,
             RequestBound {
                 input_tokens: 0,
+                // the hold's tokens (input and output cap) bound the
+                // request's billed input, which picks its price tier
+                billed_input_tokens: full.tokens,
                 output_cap: missing,
                 price_multiplier: 1.0,
             },
