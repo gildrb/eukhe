@@ -5,7 +5,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use base64::Engine as _;
 use eukhe_bend::rules::semver::{series, Series};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
@@ -49,15 +50,43 @@ struct ReleaseJson {
     tag: String,
 }
 
+/// The fields of the pinned `nix/release.json` this command reads.
+#[derive(serde::Deserialize)]
+struct PinJson {
+    version: String,
+    assets: std::collections::BTreeMap<String, PinAsset>,
+}
+
+#[derive(serde::Deserialize)]
+struct PinAsset {
+    url: String,
+    /// `sha256-<base64>`.
+    hash: String,
+}
+
+/// What the pinned `nix/release.json` says of a release's tarball.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Pin {
+    /// It pins this release, with the same sha256.
+    Same,
+    /// It pins another version (named): only SHA256SUMS checks the tarball.
+    OtherVersion(String),
+    /// It could not be fetched or read (why): only SHA256SUMS checks the
+    /// tarball.
+    Unavailable(String),
+}
+
 /// The releases of one repository (`https://github.com/<repo>/releases`, or
-/// a mirror of its layout).
+/// a mirror of its layout), and the `nix/release.json` its main branch
+/// pins.
 pub(super) struct Releases {
     http: reqwest::Client,
     base: String,
+    pin: String,
 }
 
 impl Releases {
-    pub(super) fn new(base: &str, running: &str) -> Result<Self> {
+    pub(super) fn new(base: &str, pin: &str, running: &str) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(format!("eukhe/{running}"))
             .connect_timeout(CONNECT_TIMEOUT)
@@ -67,7 +96,60 @@ impl Releases {
         Ok(Self {
             http,
             base: base.trim_end_matches('/').to_string(),
+            pin: pin.to_string(),
         })
+    }
+
+    /// Checks `sha256`, the sum SHA256SUMS lists for `file` of `release`,
+    /// against the hash `nix/release.json` on main pins, as install.sh
+    /// does: a pin of this release with another hash fails; a pin of
+    /// another version, or none to fetch, leaves SHA256SUMS alone.
+    #[tracing::instrument(skip_all, fields(file))]
+    pub(super) async fn pin(&self, release: &Release, file: &str, sha256: &str) -> Result<Pin> {
+        let url = &self.pin;
+        let body = match self.get(url).await {
+            Ok(response) => match response.bytes().await {
+                Ok(body) => body,
+                Err(error) => return Ok(Pin::Unavailable(format!("cannot read {url}: {error}"))),
+            },
+            Err(error) => return Ok(Pin::Unavailable(format!("{error:#}"))),
+        };
+        let json: PinJson = match serde_json::from_slice(&body) {
+            Ok(json) => json,
+            Err(error) => {
+                return Ok(Pin::Unavailable(format!(
+                    "{url} is not a release.json: {error}"
+                )))
+            }
+        };
+        if json.version != release.version {
+            return Ok(Pin::OtherVersion(json.version));
+        }
+        let hash = json
+            .assets
+            .into_values()
+            .find(|asset| asset.url.rsplit('/').next() == Some(file))
+            .map(|asset| asset.hash)
+            .ok_or_else(|| anyhow!("{url} pins {} without a hash for {file}", release.version))?;
+        let pinned = hash
+            .strip_prefix("sha256-")
+            .and_then(|digest| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(digest)
+                    .ok()
+            })
+            .ok_or_else(|| anyhow!("{url} pins {file} with a malformed hash {hash:?}"))?;
+        let listed: Vec<u8> = (0..sha256.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&sha256[at..at + 2], 16))
+            .collect::<Result<_, _>>()
+            .with_context(|| format!("SHA256SUMS lists {file} with a malformed sum {sha256:?}"))?;
+        if pinned != listed {
+            bail!(
+                "{file}: the hash differs from {url}\n  pinned     {hash}\n  SHA256SUMS {sha256}"
+            );
+        }
+        Ok(Pin::Same)
     }
 
     /// The newest release: `latest/download/release.json`.

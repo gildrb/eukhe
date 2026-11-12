@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
+use base64::Engine as _;
 use sha2::{Digest, Sha256};
 
 const OLD: &str = "0.10.1";
@@ -122,8 +123,29 @@ fn sha256(bytes: &[u8]) -> String {
 
 /// The routes of a release `version` whose SHA256SUMS lists `sum` for the
 /// tarball (`None`: its real sum) and whose tarball route sends `sent`
-/// bytes (`None`: all).
+/// bytes (`None`: all), and a pin (`/pin/release.json`) of the tarball's
+/// real hash.
 fn release(version: &str, sum: Option<&str>, sent: Option<usize>) -> HashMap<String, Route> {
+    let digest = Sha256::digest(tarball(version));
+    let hash = base64::engine::general_purpose::STANDARD.encode(digest);
+    let mut routes = unpinned(version, sum, sent);
+    routes.insert(
+        "/pin/release.json".to_string(),
+        full(pin(version, &hash).into_bytes()),
+    );
+    routes
+}
+
+/// The `nix/release.json` of `version` pinning the tarball by `hash`
+/// (base64 sha256).
+fn pin(version: &str, hash: &str) -> String {
+    format!(
+        "{{\"version\": \"{version}\", \"tag\": \"eukhe-v{version}\", \"assets\": {{\"system\": {{\"url\": \"https://example.invalid/releases/download/eukhe-v{version}/eukhe-{version}-{PLATFORM}.tar.gz\", \"hash\": \"sha256-{hash}\"}}}}}}\n"
+    )
+}
+
+/// The release routes alone (see [`release`]).
+fn unpinned(version: &str, sum: Option<&str>, sent: Option<usize>) -> HashMap<String, Route> {
     let tag = format!("eukhe-v{version}");
     let name = format!("eukhe-{version}-{PLATFORM}.tar.gz");
     let archive = tarball(version);
@@ -201,6 +223,10 @@ impl Install {
             .env("HOME", &home)
             .env("PATH", path)
             .env("EUKHE_RELEASES_URL", releases)
+            .env(
+                "EUKHE_RELEASE_PIN_URL",
+                releases.replace("/releases", "/pin/release.json"),
+            )
             .env("EUKHE_DAEMON_SOCKET", self.base().join("daemon.sock"))
             .env("MISE_DATA_DIR", self.base().join("mise"))
             .output()
@@ -284,7 +310,7 @@ fn an_update_installs_the_new_payload_and_switches_the_launcher() {
         (
             0,
             format!(
-                "Current version: {OLD}\nLatest release:  {NEW}\nDownloading {name}\nVerified sha256 {sum}\n  payload:  {}\n  launcher: {}\nUpdated eukhe {OLD} -> {NEW}\n",
+                "Current version: {OLD}\nLatest release:  {NEW}\nDownloading {name}\nVerified sha256 {sum} against SHA256SUMS and nix/release.json\n  payload:  {}\n  launcher: {}\nUpdated eukhe {OLD} -> {NEW}\n",
                 new_payload.display(),
                 install.bin().join("eukhe").display()
             ),
@@ -345,8 +371,15 @@ fn the_newest_release_already_installed_changes_nothing() {
 #[test]
 fn a_checksum_mismatch_leaves_the_install_untouched() {
     let install = Install::new();
+    // SHA256SUMS and the pin agree on a sum the tarball does not have.
     let wrong = "0".repeat(64);
-    let stub = Stub::start(release(NEW, Some(&wrong), None));
+    let mut routes = release(NEW, Some(&wrong), None);
+    let zeros = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
+    routes.insert(
+        "/pin/release.json".to_string(),
+        full(pin(NEW, &zeros).into_bytes()),
+    );
+    let stub = Stub::start(routes);
     let before = install.tree();
     let (code, _, stderr) = install.update(&[], &stub.url());
     assert_eq!(
@@ -359,6 +392,57 @@ fn a_checksum_mismatch_leaves_the_install_untouched() {
         )
     );
     assert_eq!(install.tree(), before);
+}
+
+#[test]
+fn a_hash_other_than_the_pinned_one_leaves_the_install_untouched() {
+    let install = Install::new();
+    let mut routes = release(NEW, None, None);
+    let other = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
+    routes.insert(
+        "/pin/release.json".to_string(),
+        full(pin(NEW, &other).into_bytes()),
+    );
+    let stub = Stub::start(routes);
+    let before = install.tree();
+    let (code, _, stderr) = install.update(&[], &stub.url());
+    let url = stub.url().replace("/releases", "/pin/release.json");
+    assert_eq!(
+        (code, stderr.lines().next().map(str::to_string)),
+        (
+            1,
+            Some(format!(
+                "Error: eukhe-{NEW}-{PLATFORM}.tar.gz: the hash differs from {url}"
+            ))
+        )
+    );
+    assert_eq!(install.tree(), before);
+}
+
+#[test]
+fn without_a_pin_to_fetch_sha256sums_alone_checks_the_tarball() {
+    let install = Install::new();
+    let stub = Stub::start(unpinned(NEW, None, None));
+    let (code, stdout, stderr) = install.update(&[], &stub.url());
+    let url = stub.url().replace("/releases", "/pin/release.json");
+    assert_eq!(
+        (
+            code,
+            stdout
+                .lines()
+                .any(|line| line.ends_with(" against SHA256SUMS")),
+            stderr
+        ),
+        (
+            0,
+            true,
+            format!("warning: {url} answered HTTP 404: SHA256SUMS verification only\n")
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(install.bin().join("eukhe")).unwrap(),
+        launcher_script(&install.root().join(format!("eukhe-{NEW}")))
+    );
 }
 
 #[test]

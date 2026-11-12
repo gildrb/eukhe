@@ -18,12 +18,18 @@ use eukhe_client::daemon_build::{relation, Build, Relation};
 
 use crate::daemon_discovery::{current_state_root, discover_daemons, DaemonStatus};
 use install::{classify, launcher_dir, InstallKind, Installer, Places};
-use release::{Release, Releases, PLATFORM};
+use release::{Pin, Release, Releases, PLATFORM};
 
 /// The releases of gildrb/eukhe; `EUKHE_RELEASES_URL` names a mirror with
 /// the same layout (`latest/download/<asset>`, `download/<tag>/<asset>`).
 const RELEASES_URL: &str = "https://github.com/gildrb/eukhe/releases";
 const ENV_RELEASES_URL: &str = "EUKHE_RELEASES_URL";
+
+/// The release main pins (the Nix flake's), which install.sh also checks a
+/// tarball of the newest release against; `EUKHE_RELEASE_PIN_URL` names
+/// another copy.
+const PIN_URL: &str = "https://raw.githubusercontent.com/gildrb/eukhe/main/nix/release.json";
+const ENV_PIN_URL: &str = "EUKHE_RELEASE_PIN_URL";
 
 /// The release installer.
 const INSTALL_COMMAND: &str = "curl -fsSL https://eukhe.com/install | sh";
@@ -99,11 +105,17 @@ async fn update(running: &str, install: Option<&Installer>) -> Result<()> {
     let Some(platform) = PLATFORM else {
         bail!("no eukhe release ships for this platform (releases: darwin-arm64, linux-x64, linux-arm64)");
     };
-    let base = std::env::var(ENV_RELEASES_URL)
-        .ok()
-        .filter(|base| !base.is_empty())
-        .unwrap_or_else(|| RELEASES_URL.to_string());
-    let releases = Releases::new(&base, running)?;
+    let url = |key: &str, default: &str| {
+        std::env::var(key)
+            .ok()
+            .filter(|url| !url.is_empty())
+            .unwrap_or_else(|| default.to_string())
+    };
+    let releases = Releases::new(
+        &url(ENV_RELEASES_URL, RELEASES_URL),
+        &url(ENV_PIN_URL, PIN_URL),
+        running,
+    )?;
     let latest = releases.latest().await?;
     println!("Current version: {running}");
     println!("Latest release:  {}", latest.version);
@@ -132,13 +144,23 @@ async fn apply(
 ) -> Result<()> {
     let tarball = latest.tarball(platform);
     let sha256 = releases.checksum(latest, &tarball).await?;
+    // The download is checked against `sha256`, so a pin that agrees with
+    // it agrees with the tarball.
+    let verified = match releases.pin(latest, &tarball, &sha256).await? {
+        Pin::Same => "SHA256SUMS and nix/release.json".to_string(),
+        Pin::OtherVersion(version) => format!("SHA256SUMS (nix/release.json pins {version})"),
+        Pin::Unavailable(why) => {
+            eprintln!("warning: {why}: SHA256SUMS verification only");
+            "SHA256SUMS".to_string()
+        }
+    };
     let stage = swap::Stage::create(install, &latest.version)?;
     let archive = stage.path(&tarball);
     println!("Downloading {tarball}");
     releases
         .download(latest, &tarball, &sha256, &archive)
         .await?;
-    println!("Verified sha256 {sha256}");
+    println!("Verified sha256 {sha256} against {verified}");
     let staged = swap::unpack(&stage, &archive, &latest.version)?;
     let payload = swap::switch(&stage, &staged, install, &latest.version)?;
     println!("  payload:  {}", payload.display());
