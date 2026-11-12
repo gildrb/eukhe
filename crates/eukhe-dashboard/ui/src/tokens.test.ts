@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
-import { literalIn } from "../lint/tokens.mjs";
+import { literalIn } from "../lint/tokens.ts";
 import { darkPalette, lightPalette } from "./tokens.stylex.ts";
 
 const UI = join(import.meta.dirname, "..");

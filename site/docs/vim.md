@@ -46,7 +46,7 @@ Each place a tap opens is a browser history entry (same URL); back and forward s
 npm run bend                                              # vim/vim.bend -> src/vim.mjs (the pinned Bend)
 "$(../scripts/pinned_bend.sh)" vim/vim.bend --check-only  # type-check the core
 python3 scripts/vim-diff.py                               # diff Bend screens against real nvim (pyte)
-node scripts/vim-smoke.mjs                                # drive the core from Node
+node scripts/vim-smoke.ts                                 # drive the core from Node
 ```
 
 ## Limitations

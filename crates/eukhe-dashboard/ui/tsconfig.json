@@ -27,5 +27,5 @@
       "react-dom/*": ["./node_modules/preact/compat/*"]
     }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "lint", "vite.config.ts"]
 }

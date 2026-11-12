@@ -18,7 +18,7 @@ export default defineConfig({
     ignorePatterns: ["public/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     // eukhe/token-literals: a presentation value outside src/tokens.stylex.ts fails the check.
-    jsPlugins: ["./lint/tokens.mjs"],
+    jsPlugins: ["./lint/tokens.ts"],
     categories: { correctness: "error", suspicious: "error" },
     rules: {
       "typescript/no-explicit-any": "error",
