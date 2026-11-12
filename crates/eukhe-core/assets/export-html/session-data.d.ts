@@ -31,8 +31,6 @@ type SessionExportData = {
   systemPrompt?: string;
   /** Written by the daemon's live export only. */
   tools?: ExportTool[];
-  /** `eukhe_core::export_html::pre_render_custom_tools` output; no exporter writes it yet. */
-  renderedTools?: RenderedTools;
 };
 
 /**
@@ -390,14 +388,4 @@ type ToolParameterSchema = JsonObject & {
   /** A JSON-schema type: one name, or a list of names. */
   type?: string | string[];
   description?: string;
-};
-
-/** `renderedTools`: `eukhe_core::export_html::RenderedToolHtml` by tool-call id. */
-type RenderedTools = { [toolCallId: string]: RenderedToolHtml };
-
-/** `eukhe_core::export_html::RenderedToolHtml`. */
-type RenderedToolHtml = {
-  callHtml?: string;
-  resultHtmlCollapsed?: string;
-  resultHtmlExpanded?: string;
 };

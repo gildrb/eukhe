@@ -133,7 +133,6 @@ pub(crate) async fn read_export_data(
         leaf_id: rows.leaf_id,
         system_prompt: None,
         tools: None,
-        rendered_tools: None,
     }))
 }
 

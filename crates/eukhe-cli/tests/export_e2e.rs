@@ -238,11 +238,6 @@ async fn tui_export_surface() {
             && tool["parameters"].is_object()),
         "python contract in export tools: {data}"
     );
-    // No custom tool ran: the pre-render section is omitted, not null.
-    assert!(
-        data.get("renderedTools").is_none(),
-        "renderedTools omitted without custom-tool renders: {data}"
-    );
 
     // The JSONL branch export: the success row plus a linear session file
     // starting with the header line.

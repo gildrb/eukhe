@@ -162,3 +162,20 @@ test("a parameter's JSON-schema type list reads as alternatives", async () => {
   );
   expect(params.find((text) => text.startsWith("offset "))).toContain("offset integer optional");
 });
+
+describe("a custom tool shows its name, its arguments as JSON and its result", () => {
+  test.each([
+    ["legacy", legacy],
+    ["durable", durable],
+    ["live", live],
+  ])("%s", async (_name, data) => {
+    const window = await render(data);
+    const custom = [...window.document.querySelectorAll("#messages .tool-execution")].find(
+      (element) => element.querySelector(".tool-name")?.textContent === "my_tool",
+    );
+    expect(custom?.querySelector(".tool-output pre")?.textContent).toBe(
+      JSON.stringify({ query: "anything" }, null, 2),
+    );
+    expect(custom?.textContent).toContain("custom output");
+  });
+});
