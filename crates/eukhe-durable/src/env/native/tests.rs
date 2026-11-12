@@ -79,3 +79,20 @@ async fn keeps_inherited_stdio_open_past_the_exit_grace_period_while_a_spill_wri
         std::fs::remove_dir_all(parent).expect("remove spill dir");
     }
 }
+
+/// An entry removed between the directory scan and its `lstat` is left out
+/// of the listing instead of failing it (the read-only session view lists a
+/// live owner's directory, whose `.reclaim` temporaries are renamed away at
+/// any moment). The scan's names here include one gone by the `lstat`.
+#[tokio::test]
+async fn a_listed_entry_removed_before_its_lstat_is_left_out() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    std::fs::write(dir.path().join("doc-4.jsonl"), "").expect("write the kept entry");
+    let directory = dir.path().to_str().expect("UTF-8 temp path");
+    let names = vec!["doc-4.jsonl".to_owned(), "doc-4.jsonl.reclaim".to_owned()];
+    let infos = super::listed_entry_infos(directory, names, &BACKGROUND_CONTEXT)
+        .await
+        .expect("the listing survives the vanished entry");
+    let listed: Vec<&str> = infos.iter().map(|info| info.name.as_str()).collect();
+    assert_eq!(listed, ["doc-4.jsonl"]);
+}

@@ -2,7 +2,7 @@
 
 Pinned source of crates.io `crossterm` 0.28.1 (MIT). The only upstream source change is `src/terminal/sys/unix.rs`: the kitty/DA1 support query's answer window. See benchmark diagnostic record `1c5af0f` (`kitty-ab-diagnostic-20260925`): unanswered kitty queries starved app key reads for two seconds, and the same fix class continues here.
 
-The window bound is 250ms (instead of upstream's 2000ms), held in 10ms poll slices instead of one blocking hold: each slice parks the process-global event-reader lock for at most a slice, so the app reader interleaves and delivers input typed during the probe at its own cadence, while the probe still reads its reply through the same shared queue (a reply read on the app side is found by the probe's next slice; the parked-reply and skipped-event queues are the same shared state under the same lock). A slice timeout yields to the app reader and re-polls until the 250ms deadline — the settle time, the answer contract, the response filtering, and the queued user keys are unchanged; only the lock-hold shape changes. A poll error retries inside the same window and settles at the deadline (upstream retried without a bound, parking the lock 250ms at a time on a broken tty). Answering terminals still resolve immediately (a DA1 reply alone settles no-kitty early — the flags filter matches the primary-device-attributes reply too); a silent PTY settles at 250ms. Responses after the deadline remain filtered, but do not enable kitty on this first surface. Prefer upstreaming a configurable bounded-query API (ideally with lock-free slices) to crossterm before removing this vendor patch.
+The window bound is 250ms (instead of upstream's 2000ms), and the probe does not hold the process-global event-reader lock through it: it looks for its reply every 1ms (the reader-lock handoff below), so the app reader interleaves and delivers input typed during the probe at its own cadence, while the probe still reads its reply through the same shared queue (a reply read on the app side is found by the probe's next look; the parked-reply and skipped-event queues are the same shared state under the same lock). The settle time, the answer contract, the response filtering, and the queued user keys are unchanged; only the lock-hold shape changes. A poll error retries inside the same window and settles at the deadline (upstream retried without a bound, parking the lock 250ms at a time on a broken tty). Answering terminals still resolve immediately (a DA1 reply alone settles no-kitty early — the flags filter matches the primary-device-attributes reply too); a silent PTY settles at 250ms. Responses after the deadline remain filtered, but do not enable kitty on this first surface. Prefer upstreaming a configurable bounded-query API (ideally with lock-free slices) to crossterm before removing this vendor patch.
 
 # Additive exports for the edge-driven app reader (2026-09-28, wave-6 tui-wake-thread)
 
@@ -27,7 +27,7 @@ usable by the app's single input-reader thread:
 
 The app reader (`crates/eukhe-tui/src/input.rs`) parks on `poll_opt(None)` when its
 sequence guard holds nothing, keeps the 10ms bounded poll while the kitty-probe
-window is open (`eukhe_tui::enhanced_keys::query_in_flight`) — the probe's slices
+window is open (`eukhe_tui::enhanced_keys::query_in_flight`) — the probe's looks
 and the reader share the process-global event-reader lock, and a park would
 starve them — and its stop flag is now observed through `Waker::wake()` at
 teardown instead of a poll tick. Behavior on the wire (events, parse order,
@@ -95,3 +95,38 @@ The app keys the dedup on the stamp and strips it before any surface sees
 the event; the sequence guard stamps its reassembled split reports the
 same way. Locked by `parse.rs` `test_parse_basic_csi_u_encoded_key_code`
 and `input.rs` `raw_repeated_characters_in_one_kitty_burst_all_arrive`.
+
+# The reader-lock handoff (2026-11-12, flaky-tests lane)
+
+Under load the probe missed answers that had already arrived:
+`terminal_state_differential_e2e` failed 2-7 of 20-30 iterations with the
+flags reply and DA1 sitting in the shared event queue, while the probe
+failed to take the event-reader lock in every one of its 10ms slices. Each
+slice waited for the lock for one slice only (`poll_internal`'s
+`try_lock_for(10ms)`), and the app reader re-takes the lock in a loop of
+10ms polls: a probe that gave up just before the reader's release came back
+after the reader had re-taken it, every round of the window.
+
+`src/terminal/sys/unix.rs` `read_keyboard_enhancement_answer` now:
+
+* waits for the lock for the whole remaining window
+  (`event::try_lock_internal_event_reader_for`, now `pub(crate)`), and
+  reads the flags and DA1 under the guard it found them with;
+* never waits on the tty with the lock held: each look is a zero-timeout
+  poll (the shared queue, then what the tty already holds), then the probe
+  releases with `unlock_fair` and sleeps 1ms. Waiting a 10ms slice on the
+  tty under the lock, with the probe now parked on the lock at every app
+  release, kept typing out for whole slices at a time: under load
+  `kitty_early_typing_e2e` rendered an in-window key at 200ms (bound
+  150ms) and `kitty_verdict_time_e2e`'s raced DA1 suspend landed at 217ms.
+
+`src/event.rs` `poll_internal` and `read_internal` release with
+`unlock_fair`, so a parked probe gets the lock at the app reader's next
+release. Locked by two `unix.rs` tests, both failing on the slice probe
+every run: `a_queued_answer_reaches_the_probe_past_a_reader_that_keeps_the_lock`
+(a reader that releases the lock only to a wait that has lasted 100ms, the
+answer queued; slice-long waits never qualify) and
+`a_probe_on_a_silent_tty_never_waits_on_it_with_the_reader_locked`. The
+crate's tests need its dev-dependencies, which the workspace does not
+resolve: run them from a copy of `vendor/crossterm` outside the workspace
+(`cargo test --features event-stream --lib`).

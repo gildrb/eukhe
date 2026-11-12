@@ -35,6 +35,11 @@ const TREE_PANE: &str = "Session Tree";
 enum Act {
     /// Wait for the client's prompt carrying this text and admit it.
     Prompt(&'static str),
+    /// Wait for the client's prompt carrying this text and hold its answer
+    /// until [`Act::AdmitHeld`].
+    HoldPrompt(&'static str),
+    /// Admit the held prompt.
+    AdmitHeld,
     /// Wait for the client's request of this command type.
     Await(&'static str),
     /// One session event.
@@ -194,6 +199,11 @@ fn serve_requests(
             ),
             "attach" => write(writer, &attach_response(&id)),
             "get_session_tree" => write(writer, &tree_response(&id)),
+            // The settle barrier's read: the mock numbers no events.
+            "get_rlm_children" => write(
+                writer,
+                &response(&id, &kind, &json!({ "eventSequence": 0 })),
+            ),
             "prompt" => {}
             "mutate_queued_message" => {
                 write(
@@ -212,7 +222,7 @@ fn serve_requests(
 fn next_request(requests: &mpsc::Receiver<Request>, kind: &str) -> Request {
     loop {
         let request = requests
-            .recv_timeout(Duration::from_secs(10))
+            .recv_timeout(Duration::from_millis(BARRIER_TIMEOUT_MS))
             .unwrap_or_else(|_| panic!("the client never sent `{kind}`"));
         if request.0 == kind {
             return request;
@@ -238,15 +248,24 @@ fn serve(listener: &UnixListener, script: Vec<Act>) {
         let writer = Arc::clone(&writer);
         std::thread::spawn(move || serve_requests(stream, &writer, &requests_tx))
     };
+    let mut held = None;
     for act in script {
         match act {
-            Act::Prompt(text) => {
+            Act::Prompt(text) | Act::HoldPrompt(text) => {
                 let (_, id, command) = next_request(&requests, "prompt");
                 assert_eq!(
                     command.get("message").and_then(Value::as_str),
                     Some(text),
                     "the client's prompt"
                 );
+                if matches!(act, Act::HoldPrompt(_)) {
+                    held = Some(id);
+                } else {
+                    write(&writer, &response(&id, "prompt", &json!({})));
+                }
+            }
+            Act::AdmitHeld => {
+                let id = held.take().expect("a held prompt to admit");
                 write(&writer, &response(&id, "prompt", &json!({})));
             }
             Act::Await(kind) => {
@@ -324,10 +343,14 @@ fn run(script: Vec<Act>, steps: Vec<HeadlessStep>) -> Vec<String> {
     outcome.frames
 }
 
+/// The harness bound of a condition wait: only a wait that never holds
+/// meets it, however loaded the box.
+const BARRIER_TIMEOUT_MS: u64 = 30_000;
+
 fn wait_for(needle: &str) -> HeadlessStep {
     HeadlessStep::WaitRender {
         needle: needle.to_string(),
-        timeout_ms: 5_000,
+        timeout_ms: BARRIER_TIMEOUT_MS,
     }
 }
 
@@ -457,24 +480,69 @@ fn a_double_escape_during_a_stream_stops_it_and_the_next_prompt_sends() {
 /// runs for it.
 #[test]
 fn escape_returns_the_parked_steering_message_to_the_editor() {
+    assert_the_steering_message_returned(&escape_with_a_parked_steering_message(false));
+}
+
+/// F3 with the steering prompt's ack landing last, after the client applied
+/// the withdrawal and the stopped run's end (the ack travels apart from
+/// the session events and the interrupt note, so a loaded box can apply it
+/// there): the withdrawn message owes no turn, so the late ack must not
+/// put the view back to work -- the run settles instead of waiting
+/// forever. The daemon holds the ack until the plan's settle barrier
+/// (`prompt_and_wait`), which goes out only once the editor shows the
+/// withdrawn message and the run's events precede the ack on the wire, so
+/// the order is fixed.
+#[test]
+fn a_withdrawn_steering_message_acked_after_the_run_ended_leaves_it_idle() {
+    assert_the_steering_message_returned(&escape_with_a_parked_steering_message(true));
+}
+
+/// Park a steering message behind a stream, press Escape, and return the
+/// final frame once the run settled. With `late_ack` the daemon admits the
+/// steering prompt only once the client applied the withdrawal and the
+/// stopped run's end.
+fn escape_with_a_parked_steering_message(late_ack: bool) -> String {
     let mut script = vec![Act::Prompt(PROMPT)];
     script.extend(run_for(PROMPT));
     script.push(message_start(&assistant(&text(PARTIAL), "stop", None)));
-    script.push(Act::Prompt("steer msg"));
+    script.push(if late_ack {
+        Act::HoldPrompt("steer msg")
+    } else {
+        Act::Prompt("steer msg")
+    });
     script.push(Act::Event(queue_update(&["steer msg"])));
     script.push(Act::Await("mutate_queued_message"));
     script.push(Act::Await("abort_and_send_queued"));
     script.extend(stopped_stream());
-    let steps = vec![
+    if late_ack {
+        script.push(Act::Await("prompt_and_wait"));
+        script.push(Act::AdmitHeld);
+    }
+    // The withdrawn message reaches the editor on the client's interrupt
+    // note, which the loop can apply after the aborted stream's rows: wait
+    // for the editor to hold it and the queue strip to clear, not a window.
+    let mut steps = vec![
         wait_for(PARTIAL),
         HeadlessStep::Submit("steer msg".to_string()),
         wait_for("Steering"),
         key(KeyCode::Esc),
         wait_for(ABORTED),
-        HeadlessStep::WaitMs(500),
+        wait_for("> steer msg"),
+        HeadlessStep::WaitGone {
+            needle: "Steering".to_string(),
+            timeout_ms: BARRIER_TIMEOUT_MS,
+        },
     ];
-    let frames = run(script, steps);
-    let last = frames.last().expect("a final frame");
+    if late_ack {
+        steps.push(HeadlessStep::SubmitAndSettle {
+            text: "settle barrier".to_string(),
+            timeout_ms: BARRIER_TIMEOUT_MS,
+        });
+    }
+    run(script, steps).pop().expect("a final frame")
+}
+
+fn assert_the_steering_message_returned(last: &str) {
     assert!(
         !last.contains("Steering"),
         "the parked message left the queue:\n{last}"

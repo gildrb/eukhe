@@ -1097,6 +1097,36 @@ fn line(n: u64) -> String {
     format!("{n:06} {}", "l".repeat(NODE - 64))
 }
 
+/// Counts the steps the chat takes: an append landed, a turn got its
+/// view, the owner built lines.
+type Steps = Arc<tokio::sync::watch::Sender<u64>>;
+
+fn step(steps: &Steps) {
+    steps.send_modify(|count| *count += 1);
+}
+
+/// Fail instead of hanging when the chat stops moving. `future` takes as
+/// long as its steps do: every append and every built line is fsynced on
+/// the owner's one thread, and on a loaded disk the ~1500 fsyncs of the
+/// test below take longer than any fixed bound for a whole phase. A
+/// healthy chat never goes 30 s without a step; a hung one does.
+async fn unless_stalled<F: Future>(
+    steps: &mut tokio::sync::watch::Receiver<u64>,
+    future: F,
+) -> F::Output {
+    tokio::pin!(future);
+    loop {
+        tokio::select! {
+            output = &mut future => return output,
+            stepped = tokio::time::timeout(Duration::from_secs(30), steps.changed()) => {
+                stepped
+                    .expect("the chat takes a step")
+                    .expect("the steps are counted");
+            }
+        }
+    }
+}
+
 /// The planner's events race (H2, §3.2, §4): three handles append from
 /// their own tasks on a multi-threaded runtime while a fourth task answers
 /// the compactor's calls in bursts, newest first, and two turns wait for
@@ -1115,6 +1145,17 @@ async fn turns_wait_while_calls_finish_in_any_order() {
         dir,
     } = open().await;
     let mut updates = owner.subscribe().await.unwrap();
+    let (steps, mut stepped) = tokio::sync::watch::channel(0);
+    let steps: Steps = Arc::new(steps);
+    let mut built = owner.subscribe().await.unwrap();
+    let builds = {
+        let steps = Arc::clone(&steps);
+        tokio::spawn(async move {
+            while built.next().await.is_ok() {
+                step(&steps);
+            }
+        })
+    };
     let answers = tokio::spawn(async move {
         let mut n = 0;
         while let Some(call) = calls.recv().await {
@@ -1130,16 +1171,19 @@ async fn turns_wait_while_calls_finish_in_any_order() {
         }
     });
     let appender = |memory: Memory, from: u64| {
+        let steps = Arc::clone(&steps);
         tokio::spawn(async move {
             for id in 0..120 {
                 memory
                     .append(Kind::User, &long(from * 1000 + id))
                     .await
                     .unwrap();
+                step(&steps);
             }
         })
     };
     let turn = |memory: Memory| {
+        let steps = Arc::clone(&steps);
         tokio::spawn(async move {
             let mut views = Vec::new();
             for _ in 0..8 {
@@ -1149,6 +1193,7 @@ async fn turns_wait_while_calls_finish_in_any_order() {
                         .await
                         .unwrap(),
                 );
+                step(&steps);
             }
             views
         })
@@ -1160,21 +1205,24 @@ async fn turns_wait_while_calls_finish_in_any_order() {
     ];
     let turns = [turn(first.clone()), turn(second.clone())];
     for writer in writers {
-        within(writer).await.unwrap();
+        unless_stalled(&mut stepped, writer).await.unwrap();
     }
     let mut views = Vec::new();
     for turn in turns {
-        views.extend(within(turn).await.unwrap());
+        views.extend(unless_stalled(&mut stepped, turn).await.unwrap());
     }
     // A last turn waits for the whole view: every line is built, so the
     // view is past its ceiling (a line not due yet counts only its
     // placeholder) and every message runs a batch; once a merge is built
     // the next one merges it.
-    within(owner.settled_history(Duration::from_secs(3600), 0))
-        .await
-        .unwrap();
+    unless_stalled(
+        &mut stepped,
+        owner.settled_history(Duration::from_secs(3600), 0),
+    )
+    .await
+    .unwrap();
     loop {
-        let update = within(updates.next()).await.unwrap();
+        let update = unless_stalled(&mut stepped, updates.next()).await.unwrap();
         let merge_built = match update {
             MemoryUpdate::Summarized { lines, .. } => lines.iter().any(|line| line.count > 1),
             MemoryUpdate::Merged { .. } => false,
@@ -1184,10 +1232,16 @@ async fn turns_wait_while_calls_finish_in_any_order() {
         }
     }
     owner.append(Kind::User, &long(9999)).await.unwrap();
-    let last = within(owner.settled_history(Duration::from_secs(3600), 0))
-        .await
-        .unwrap();
+    let last = unless_stalled(
+        &mut stepped,
+        owner.settled_history(Duration::from_secs(3600), 0),
+    )
+    .await
+    .unwrap();
     let status = owner.status().await.unwrap();
+    // The step counter's subscription holds the owner too.
+    builds.abort();
+    let _ = builds.await;
     drop((owner, first, second));
     std::fs::remove_file(dir.path().join(VIEW_FILE)).unwrap();
     let reloaded = Memory::open(dir.path(), no_model()).await.unwrap();

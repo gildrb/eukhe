@@ -1069,11 +1069,15 @@ impl SessionUi {
                 // reaches this channel. In that case turn_end already owns
                 // the idle state; re-arming it would strand WaitIdle until
                 // timeout. The per-submit end watermark also keeps a prior
-                // turn's end from settling a queued later prompt.
+                // turn's end from settling a queued later prompt. The
+                // session watermark caps the submit's own: a prompt the
+                // user withdrew before its ack (Escape returns parked
+                // messages to the editor) no longer owes a turn, and its
+                // late ack must not re-arm a busy state no event clears.
                 if !self.session_closed
-                    && note
-                        .expected_turn_end
-                        .is_some_and(|expected| self.turn_ends_seen < expected)
+                    && note.expected_turn_end.is_some_and(|expected| {
+                        self.turn_ends_seen < expected.min(self.last_prompt_turn_end)
+                    })
                 {
                     self.turn_active = true;
                     // An up loader keeps its clock and phase (the run may

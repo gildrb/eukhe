@@ -4,6 +4,7 @@
 //!   cargo run -p eukhe-durable --example 24-child-tasks
 use std::collections::HashSet;
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -12,7 +13,7 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::registry::{create_registry, Registry};
-use eukhe_durable::harness::types::{Extension, HarnessOptions};
+use eukhe_durable::harness::types::{Clock, Extension, HarnessOptions};
 use eukhe_durable::harness::{Conversation, Harness, RootOptions, TaskGraphNode, TaskGraphState};
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
@@ -64,6 +65,38 @@ fn date_now() -> f64 {
         .map_or(0.0, |elapsed| elapsed.as_millis() as f64)
 }
 
+/// How long the bank takes to confirm a charge, on the Harness clock.
+const CONFIRM_MS: f64 = 100.0;
+
+/// The Harness clock, moved by hand. It starts at `Date.now()` and stands
+/// still until the example lets the bank's moment pass. TS confirms a charge
+/// on a 100 ms timer, by when its one event loop has long run the decline and
+/// the cancel; on the wall clock a busy machine could confirm a charge before
+/// either lands. On this clock the bank confirms only once the example moves
+/// it, so every run prints the same outcomes.
+#[derive(Clone)]
+struct BankClock(Arc<AtomicU64>);
+
+impl BankClock {
+    fn start() -> BankClock {
+        BankClock(Arc::new(AtomicU64::new(date_now().to_bits())))
+    }
+
+    fn now(&self) -> f64 {
+        f64::from_bits(self.0.load(Ordering::SeqCst))
+    }
+
+    /// Let `ms` pass.
+    fn advance(&self, ms: f64) {
+        self.0.store((self.now() + ms).to_bits(), Ordering::SeqCst);
+    }
+
+    fn harness_clock(&self) -> Clock {
+        let clock = self.clone();
+        Arc::new(move || clock.now())
+    }
+}
+
 /// The `status` string of an outcome, as TS prints it.
 fn status_name(status: TaskOutcomeStatus) -> &'static str {
     match status {
@@ -105,15 +138,19 @@ fn aborted<R>() -> TaskOutcome<R> {
 }
 
 // A fake bank: it declines an expired card at once, and confirms other charges after a moment.
-fn payment_task(charged: Arc<Mutex<HashSet<String>>>, console: Console) -> Payment {
+fn payment_task(
+    charged: Arc<Mutex<HashSet<String>>>,
+    console: Console,
+    clock: BankClock,
+) -> Payment {
     let charge_set = Arc::clone(&charged);
     define_task(
         TaskDefinition::new(
             "example.payment",
             1,
-            |_: &PaymentInput| {
+            move |_: &PaymentInput| {
                 Ok(PaymentState::Charge {
-                    at: date_now() + 100.0,
+                    at: clock.now() + CONFIRM_MS,
                 })
             },
             // Each payment undoes its own effect when aborted.
@@ -284,12 +321,20 @@ fn checkout_task(payment: &Payment, console: Console) -> Checkout {
     )
 }
 
-async fn open(directory: &str, registry: &Registry, cx: &Context) -> Result<Harness, BoxError> {
+async fn open(
+    directory: &str,
+    registry: &Registry,
+    clock: &BankClock,
+    cx: &Context,
+) -> Result<Harness, BoxError> {
     let storage = open_native_jsonl_storage(directory, cx, JsonlStorageOptions::default()).await?;
-    let options = HarnessOptions::new(
-        create_models(CreateModelsOptions::default()),
-        Arc::new(registry.clone()),
-    );
+    let options = HarnessOptions {
+        now: Some(clock.harness_clock()),
+        ..HarnessOptions::new(
+            create_models(CreateModelsOptions::default()),
+            Arc::new(registry.clone()),
+        )
+    };
     Ok(Harness::open(Arc::new(storage), options, cx).await?)
 }
 
@@ -345,6 +390,30 @@ fn payments_running(graph: &JsonValue, count: usize) -> Result<bool, BoxError> {
     Ok(running == count)
 }
 
+/// Wait until every card is charged and its payment runs, and return the task
+/// graph then. A payment shows as running before its charge phase runs, so
+/// both must hold.
+async fn charging(
+    harness: &Harness,
+    charged: &Mutex<HashSet<String>>,
+    cards: &[&str],
+    cx: &Context,
+) -> Result<JsonValue, BoxError> {
+    loop {
+        let graph = harness.task_graph(cx).await?;
+        let value = graph.value();
+        graph.dispose()?;
+        let all_charged = {
+            let charged = charged.lock().unwrap_or_else(PoisonError::into_inner);
+            cards.iter().all(|card| charged.contains(*card))
+        };
+        if all_charged && payments_running(&value, cards.len())? {
+            return Ok(value);
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 async fn checkout(
     root: &Conversation,
     task: &Checkout,
@@ -381,8 +450,9 @@ pub async fn run(
 ) -> Result<(), BoxError> {
     let cx: &Context = &BACKGROUND_CONTEXT;
     let console = Console::default();
+    let clock = BankClock::start();
     let charged = Arc::new(Mutex::new(HashSet::new()));
-    let payment = payment_task(Arc::clone(&charged), console.clone());
+    let payment = payment_task(Arc::clone(&charged), console.clone(), clock.clone());
     let checkout_definition = checkout_task(&payment, console.clone());
 
     let registry = create_registry();
@@ -396,7 +466,7 @@ pub async fn run(
     let storage_path = directory.path().join("session");
     let storage_path = storage_path.to_str().ok_or("temp path is not UTF-8")?;
 
-    let mut harness = open(storage_path, &registry, cx).await?;
+    let mut harness = open(storage_path, &registry, &clock, cx).await?;
     let mut root = harness.root(RootOptions::default(), cx).await?;
 
     console.log("One card is declined:");
@@ -418,24 +488,10 @@ pub async fn run(
     let cards = ["visa-5", "visa-6", "visa-7", "visa-8"];
     let id = checkout(&root, &checkout_definition, &cards, cx).await?;
     harness.resume()?;
-    // TS waits 20 ms here, by when its one event loop has charged every card. A
-    // payment shows as running before its charge phase runs, so this waits until
-    // every payment runs and every card is charged: the same tree and the same
-    // refunds on a busy machine too.
-    loop {
-        let graph = harness.task_graph(cx).await?;
-        let value = graph.value();
-        graph.dispose()?;
-        let all_charged = {
-            let charged = charged.lock().unwrap_or_else(PoisonError::into_inner);
-            cards.iter().all(|card| charged.contains(*card))
-        };
-        if all_charged && payments_running(&value, 4)? {
-            print_graph(&console, &value)?;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    // TS waits 20 ms here, by when its one event loop has charged every card;
+    // the bank's clock stands still until then, so no charge confirms first.
+    let graph = charging(&harness, &charged, &cards, cx).await?;
+    print_graph(&console, &graph)?;
     harness.abort_task(id, cx).await?;
     let settled = harness.wait_for_task(id, cx).await?;
     console.log(format!(
@@ -445,17 +501,14 @@ pub async fn run(
     console.flush(out)?;
 
     console.log("The process stops while the payments run, and a new one continues:");
-    let id = checkout(
-        &root,
-        &checkout_definition,
-        &["visa-9", "visa-10", "visa-11", "visa-12"],
-        cx,
-    )
-    .await?;
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    let cards = ["visa-9", "visa-10", "visa-11", "visa-12"];
+    let id = checkout(&root, &checkout_definition, &cards, cx).await?;
+    charging(&harness, &charged, &cards, cx).await?;
     harness.close(cx).await?;
-    harness = open(storage_path, &registry, cx).await?;
+    harness = open(storage_path, &registry, &clock, cx).await?;
     root = harness.root(RootOptions::default(), cx).await?;
+    // The bank confirms the charges the stopped process had made.
+    clock.advance(CONFIRM_MS);
     let settled = harness.wait_for_task(id, cx).await?;
     console.log(format!(
         "  checkout: {}",

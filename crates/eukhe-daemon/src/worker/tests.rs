@@ -167,6 +167,23 @@ fn latest_record(dir: &Path, journal: &str) -> WorkerRecoveryRecord {
     records.remove(0)
 }
 
+/// Poll the journal until its latest record is `operation`: the event
+/// bridge journals a run's start and end on its own task.
+async fn wait_record(dir: &Path, journal: &str, operation: &str) -> WorkerRecoveryRecord {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        let record = latest_record(dir, journal);
+        if record.operation == operation {
+            return record;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the journal never recorded {operation}: {record:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// A prompt streams the TS frame order: the run opens before its user
 /// message, the assistant streams, and `agent_end` carries the run's
 /// messages.
@@ -563,24 +580,35 @@ async fn a_crashed_run_resumes_on_the_next_create() {
     crash(&first).await;
     drop(first);
 
+    // The resumed run's request holds at the provider until the create
+    // record is read: the run is provably live then, however fast or slow
+    // the box, and dropping the held connection lets it finish.
+    let gate = dir.path().join("hold.sock");
+    let gate_listener = tokio::net::UnixListener::bind(&gate).expect("bind the hold gate");
     let second = worker(
         dir.path(),
         "second.recovery.jsonl",
-        json!({ "responses": ["done"] }),
+        json!({ "responses": [{ "text": "done", "holdUntilReleased": gate }] }),
     );
     create(&second, json!({ "cwd": cwd, "sessionPath": storage })).await;
+    let (held, _) = tokio::time::timeout(DEADLINE, gate_listener.accept())
+        .await
+        .expect("the resumed run's request reaches the gate")
+        .expect("accept the held request");
     let created = latest_record(dir.path(), "second.recovery.jsonl");
     assert!(created.busy, "the resumed run is live work: {created:?}");
     assert_eq!(created.operation, "create");
+    drop(held);
     let transcript = wait_messages(&second, |messages| {
         texts_of(messages, "assistant").contains(&"done".to_owned())
     })
     .await;
     assert_eq!(texts_of(&transcript, "user"), ["go"]);
     wait_busy(&second, false).await;
-    let ended = latest_record(dir.path(), "second.recovery.jsonl");
+    // Busy reads the durable Harness, which settles first; the bridge
+    // journals the run's end when its event stream delivers `agent_end`.
+    let ended = wait_record(dir.path(), "second.recovery.jsonl", "run_ended").await;
     assert!(!ended.busy, "the run settled: {ended:?}");
-    assert_eq!(ended.operation, "run_ended");
 }
 
 /// A Storage failure mid-run (the session's files turn unwritable, so the

@@ -231,6 +231,9 @@ fn every_exit_route_restores_the_kitty_mode() {
 #[derive(Clone)]
 enum Stage {
     Wait(&'static [u8], &'static str),
+    /// Wait until the child's raw bracket is on (the pty's line discipline
+    /// is raw): every mount arms it before its kitty probe runs.
+    RawMode,
     Write(&'static [u8]),
     /// A write racing the child's exit: it lands, or the child is
     /// already gone and there is no terminal left to take it.
@@ -251,9 +254,15 @@ fn route_stages(route: Route, known_terminal: bool) -> Vec<Stage> {
         // The known-terminal axis: the flags arm with no query at all.
         vec![Stage::wait(KITTY_FLAGS_PUSH, "the kitty flags push")]
     } else {
+        // The probe takes an answer only inside its 250ms window, which
+        // an answer written after reading the query misses on a loaded
+        // box: the harness types it ahead once the raw bracket is on (no
+        // echo), and the reply waits in the tty, or parked in crossterm's
+        // reply queue, for the probe to find.
         vec![
-            Stage::wait(KITTY_QUERY, "the kitty capability query"),
+            Stage::RawMode,
             Stage::Write(KITTY_ANSWER),
+            Stage::wait(KITTY_QUERY, "the kitty capability query"),
             Stage::wait(KITTY_FLAGS_PUSH, "the kitty flags push"),
         ]
     };
@@ -349,6 +358,7 @@ fn run_route(route: Route, known_terminal: bool) {
                     harness.drain_until_quiet(6);
                 }
             }
+            Stage::RawMode => harness.master.wait_raw_mode("the child's raw bracket"),
             Stage::Write(payload) => harness.write(payload),
             Stage::WriteAroundExit(payload) => harness.master.write_around_exit(payload),
         }
@@ -792,6 +802,30 @@ impl PtyReader {
                     "timeout waiting for {what} (needle {needle:?}); pty tail since mark:\n{text}"
                 );
             }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Drain the master until the pty's line discipline is raw (canonical
+    /// input and echo off), bounded by the same harness deadline.
+    fn wait_raw_mode(&mut self, what: &str) {
+        use nix::sys::termios::{tcgetattr, LocalFlags};
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let local = tcgetattr(&self.file)
+                .expect("read the pty's termios")
+                .local_flags;
+            if !local.intersects(LocalFlags::ICANON | LocalFlags::ECHO) {
+                return;
+            }
+            let mut buffer = [0u8; 8192];
+            if let Ok(n) = self.file.read(&mut buffer) {
+                self.output.extend_from_slice(&buffer[..n]);
+            }
+            assert!(
+                Instant::now() <= deadline,
+                "timeout waiting for {what} (local flags {local:?})"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
     }

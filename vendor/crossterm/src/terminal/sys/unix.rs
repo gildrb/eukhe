@@ -201,12 +201,7 @@ fn read_supports_keyboard_enhancement_flags() -> io::Result<bool> {
 
 #[cfg(feature = "events")]
 pub(crate) fn read_supports_keyboard_enhancement_raw() -> io::Result<bool> {
-    use crate::event::{
-        filter::{KeyboardEnhancementFlagsFilter, PrimaryDeviceAttributesFilter},
-        poll_internal, read_internal, InternalEvent,
-    };
     use std::io::Write;
-    use std::time::{Duration, Instant};
 
     // This is the recommended method for testing support for the keyboard enhancement protocol.
     // We send a query for the flags supported by the terminal and then the primary device attributes
@@ -229,56 +224,65 @@ pub(crate) fn read_supports_keyboard_enhancement_raw() -> io::Result<bool> {
         stdout.flush()?;
     }
 
-    // Prime Agent v2: the same 250ms answer window, held in short slices
-    // instead of one blocking hold. Each slice parks the shared event-reader
-    // lock for at most a slice, so the app reader interleaves and delivers
-    // early typing at its own cadence while the probe listens; a slice
-    // timeout just yields to the app reader (an unanswered query keeps
-    // waiting until the window deadline, like the 250ms hold it replaces).
-    // The parked-reply queue and the app reader's skipped-event parking are
-    // shared state guarded by the same lock, so a reply read on the app
-    // reader's side is found by the probe's next slice — the reply-filtering
-    // contract is unchanged (diagnostic 1c5af0f for the window's origin).
+    read_keyboard_enhancement_answer()
+}
+
+/// Reads the answer to the query `read_supports_keyboard_enhancement_raw`
+/// sent, within a 250ms window (diagnostic 1c5af0f for its origin).
+///
+/// The probe shares the process-global event-reader lock with the app's
+/// input reader, and each needs it without waiting on the other:
+/// - The probe never waits on the tty with the lock held. Every 1ms it
+///   takes the lock, looks for the answer in the shared queue and in what
+///   the tty already holds (a zero-timeout poll), and releases. The app
+///   reader, which waits on the tty itself, gets the lock in between and
+///   delivers early typing at its own cadence; a reply it reads lands in
+///   the same queue for the probe's next look.
+/// - The probe waits for the lock for the whole remaining window. The app
+///   reader re-takes the lock in a loop; a probe that gave up before the
+///   reader's release lost every round on a loaded box with its answer
+///   already queued. A parked probe gets the lock at the reader's next
+///   (fair) release, then reads the answer under that one guard.
+#[cfg(feature = "events")]
+fn read_keyboard_enhancement_answer() -> io::Result<bool> {
+    use crate::event::{
+        filter::{KeyboardEnhancementFlagsFilter, PrimaryDeviceAttributesFilter},
+        try_lock_internal_event_reader_for, InternalEvent,
+    };
+    use parking_lot::MappedMutexGuard;
+    use std::time::{Duration, Instant};
+
     let deadline = Instant::now() + Duration::from_millis(250);
-    let slice = Duration::from_millis(10);
+    let between_looks = Duration::from_millis(1);
+    let timed_out = || {
+        io::Error::new(
+            io::ErrorKind::Other,
+            "The keyboard enhancement status could not be read within a normal duration",
+        )
+    };
     loop {
         let leftover = deadline.saturating_duration_since(Instant::now());
         if leftover.is_zero() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "The keyboard enhancement status could not be read within a normal duration",
-            ));
+            return Err(timed_out());
         }
-        match poll_internal(Some(leftover.min(slice)), &KeyboardEnhancementFlagsFilter) {
-            Ok(true) => {
-                match read_internal(&KeyboardEnhancementFlagsFilter) {
-                    Ok(InternalEvent::KeyboardEnhancementFlags(_current_flags)) => {
-                        // Flush the PrimaryDeviceAttributes out of the event queue.
-                        read_internal(&PrimaryDeviceAttributesFilter).ok();
-                        return Ok(true);
-                    }
-                    _ => return Ok(false),
+        let mut reader = match try_lock_internal_event_reader_for(leftover) {
+            Some(reader) => reader,
+            None => return Err(timed_out()),
+        };
+        // A poll error retries inside the same window.
+        if let Ok(true) = reader.poll(Some(Duration::ZERO), &KeyboardEnhancementFlagsFilter) {
+            return match reader.read(&KeyboardEnhancementFlagsFilter) {
+                Ok(InternalEvent::KeyboardEnhancementFlags(_current_flags)) => {
+                    // Flush the PrimaryDeviceAttributes out of the event queue.
+                    reader.read(&PrimaryDeviceAttributesFilter).ok();
+                    Ok(true)
                 }
-            }
-            Ok(false) => {
-                if Instant::now() >= deadline {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "The keyboard enhancement status could not be read within a normal duration",
-                    ));
-                }
-                // Yield the reader to the app between slices.
-                std::thread::yield_now();
-            }
-            Err(_) => {
-                if Instant::now() >= deadline {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "The keyboard enhancement status could not be read within a normal duration",
-                    ));
-                }
-            }
+                _ => Ok(false),
+            };
         }
+        // The app reader, if parked on the lock, takes the next turn.
+        MappedMutexGuard::unlock_fair(reader);
+        std::thread::sleep(between_looks.min(deadline.saturating_duration_since(Instant::now())));
     }
 }
 
@@ -338,5 +342,128 @@ fn wrap_with_result(result: i32) -> io::Result<()> {
         Err(io::Error::last_os_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "events"))]
+mod tests {
+    use super::read_keyboard_enhancement_answer;
+    use crate::event::{
+        filter::KeyboardEnhancementFlagsFilter, lock_internal_event_reader,
+        read::InternalEventReader, reader_lock_wait, source::EventSource, InternalEvent,
+        KeyboardEnhancementFlags,
+    };
+    use parking_lot::{MappedMutexGuard, Mutex};
+    use serial_test::serial;
+    use std::io;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    };
+    use std::time::{Duration, Instant};
+
+    /// The app reader re-takes the event-reader lock whenever nothing is
+    /// parked on it at its release. Its worst case on a loaded box: every
+    /// release lands just after the probe's wait gave up. This reader
+    /// models that by releasing only to a single wait that has lasted
+    /// 100ms (a short wait ends before the release), well inside the
+    /// probe's 250ms window, with the probe's whole answer already queued.
+    #[test]
+    #[serial]
+    fn a_queued_answer_reaches_the_probe_past_a_reader_that_keeps_the_lock() {
+        const PATIENCE: Duration = Duration::from_millis(100);
+        let probe_done = Arc::new(AtomicBool::new(false));
+        let (held_tx, held_rx) = mpsc::channel();
+        let reader = std::thread::spawn({
+            let probe_done = Arc::clone(&probe_done);
+            move || {
+                let mut reader = lock_internal_event_reader();
+                *reader = InternalEventReader::for_test(
+                    [
+                        InternalEvent::KeyboardEnhancementFlags(
+                            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+                        ),
+                        InternalEvent::PrimaryDeviceAttributes,
+                    ],
+                    None,
+                );
+                held_tx.send(()).unwrap();
+                let (mut wait, mut since) = (0, Instant::now());
+                while !probe_done.load(Ordering::SeqCst) {
+                    let current = reader_lock_wait::current();
+                    if current == 0 || current != wait {
+                        (wait, since) = (current, Instant::now());
+                    } else if since.elapsed() >= PATIENCE {
+                        MappedMutexGuard::unlock_fair(reader);
+                        return;
+                    }
+                    std::hint::spin_loop();
+                }
+            }
+        });
+        held_rx.recv().unwrap();
+
+        let answer = read_keyboard_enhancement_answer();
+        probe_done.store(true, Ordering::SeqCst);
+        reader.join().unwrap();
+
+        assert!(
+            matches!(answer, Ok(true)),
+            "the probe missed its queued answer: {answer:?}"
+        );
+        // The probe consumed both replies, so the app never sees them.
+        assert!(!matches!(
+            lock_internal_event_reader()
+                .poll(Some(Duration::ZERO), &KeyboardEnhancementFlagsFilter),
+            Ok(true)
+        ));
+    }
+
+    /// A tty that never answers; it records how long each read was allowed
+    /// to wait.
+    struct SilentTty {
+        waits: Arc<Mutex<Vec<Option<Duration>>>>,
+    }
+
+    impl EventSource for SilentTty {
+        fn try_read(&mut self, timeout: Option<Duration>) -> io::Result<Option<InternalEvent>> {
+            self.waits.lock().push(timeout);
+            if let Some(timeout) = timeout {
+                std::thread::sleep(timeout);
+            }
+            Ok(None)
+        }
+
+        #[cfg(feature = "event-stream")]
+        fn waker(&self) -> crate::event::sys::Waker {
+            unimplemented!();
+        }
+    }
+
+    /// The app reader waits on the tty for its input; a probe that waited
+    /// on it too with the reader lock held kept the app's typing out for
+    /// that wait. On a silent tty the probe's every read is a zero-timeout
+    /// look at what has already arrived.
+    #[test]
+    #[serial]
+    fn a_probe_on_a_silent_tty_never_waits_on_it_with_the_reader_locked() {
+        let waits = Arc::new(Mutex::new(Vec::new()));
+        *lock_internal_event_reader() = InternalEventReader::for_test(
+            [],
+            Some(Box::new(SilentTty {
+                waits: Arc::clone(&waits),
+            })),
+        );
+
+        let answer = read_keyboard_enhancement_answer();
+        *lock_internal_event_reader() = InternalEventReader::for_test([], None);
+
+        assert!(answer.is_err(), "a silent tty answered: {answer:?}");
+        let waits = waits.lock();
+        assert!(!waits.is_empty(), "the probe never looked at the tty");
+        assert!(
+            waits.iter().all(|wait| *wait == Some(Duration::ZERO)),
+            "the probe waited on the tty with the reader locked: {waits:?}"
+        );
     }
 }

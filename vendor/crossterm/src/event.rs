@@ -153,13 +153,52 @@ pub(crate) fn lock_internal_event_reader() -> MappedMutexGuard<'static, Internal
         reader.get_or_insert_with(InternalEventReader::default)
     })
 }
-fn try_lock_internal_event_reader_for(
+/// Waits up to `duration` for the process-global event reader.
+///
+/// `poll_internal` and `read_internal` release the reader with
+/// `unlock_fair`, which hands it straight to a thread already parked
+/// here; a caller that gives up before the holder's release can lose
+/// every round to a holder that re-takes the lock at once (the app's
+/// input reader polls in a loop), so a caller that needs the reader
+/// within a window waits here for all of that window.
+pub(crate) fn try_lock_internal_event_reader_for(
     duration: Duration,
 ) -> Option<MappedMutexGuard<'static, InternalEventReader>> {
+    #[cfg(test)]
+    let _wait = reader_lock_wait::Wait::begin();
     Some(MutexGuard::map(
         INTERNAL_EVENT_READER.try_lock_for(duration)?,
         |reader| reader.get_or_insert_with(InternalEventReader::default),
     ))
+}
+
+/// The bounded wait for the reader lock in flight, for tests that hold
+/// the lock against it: a fresh id per wait, `0` while none waits.
+#[cfg(test)]
+pub(crate) mod reader_lock_wait {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    static CURRENT: AtomicUsize = AtomicUsize::new(0);
+
+    pub(crate) fn current() -> usize {
+        CURRENT.load(Ordering::SeqCst)
+    }
+
+    pub(crate) struct Wait;
+
+    impl Wait {
+        pub(crate) fn begin() -> Self {
+            CURRENT.store(NEXT.fetch_add(1, Ordering::SeqCst), Ordering::SeqCst);
+            Wait
+        }
+    }
+
+    impl Drop for Wait {
+        fn drop(&mut self) {
+            CURRENT.store(0, Ordering::SeqCst);
+        }
+    }
 }
 
 /// Checks if there is an [`Event`](enum.Event.html) available.
@@ -293,7 +332,11 @@ where
     } else {
         (lock_internal_event_reader(), None)
     };
-    reader.poll(timeout, filter)
+    let result = reader.poll(timeout, filter);
+    // Fair release: a thread parked on the reader (the kitty probe) gets
+    // it now, before this caller's next poll can re-take it.
+    MappedMutexGuard::unlock_fair(reader);
+    result
 }
 
 /// Reads a single `InternalEvent`.
@@ -302,7 +345,10 @@ where
     F: Filter,
 {
     let mut reader = lock_internal_event_reader();
-    reader.read(filter)
+    let result = reader.read(filter);
+    // Fair release, as in `poll_internal`.
+    MappedMutexGuard::unlock_fair(reader);
+    result
 }
 
 bitflags! {

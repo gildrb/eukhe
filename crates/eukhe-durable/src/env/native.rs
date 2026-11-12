@@ -201,6 +201,34 @@ pub(super) fn file_info_from_metadata(
     })
 }
 
+/// The `lstat` of each listed name in `directory`, in the given order. An
+/// entry removed between the scan and its `lstat` is left out, as a scan
+/// taken just after the removal would have: a reader beside a live owner
+/// (the read-only session view) lists a directory whose temporary files the
+/// owner renames away at any moment, and failing the whole listing on one
+/// of them fails the read.
+pub(super) async fn listed_entry_infos(
+    directory: &str,
+    names: Vec<String>,
+    cx: &Context,
+) -> Result<Vec<FileInfo>, FileError> {
+    let mut infos = Vec::with_capacity(names.len());
+    for name in names {
+        abort_result(cx, Some(directory))?;
+        let entry_path = paths::resolve(&[directory, name.as_str()]);
+        let target = entry_path.clone();
+        let metadata = match blocking(move || std::fs::symlink_metadata(target)).await {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(fs_error(error, "lstat", &entry_path)),
+        };
+        if let Ok(info) = file_info_from_metadata(&entry_path, &metadata) {
+            infos.push(info);
+        }
+    }
+    Ok(infos)
+}
+
 /// Lossless enough path string of an OS path, as Node decodes file names.
 fn path_string(path: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()
@@ -608,19 +636,7 @@ impl NativeExecutionEnv {
         .map_err(|error| fs_error(error, "scandir", &resolved))?;
         // libuv's scandir sorts entries with strcmp.
         names.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-        let mut infos = Vec::with_capacity(names.len());
-        for name in names {
-            abort_result(cx, Some(&resolved))?;
-            let entry_path = paths::resolve(&[&resolved, &name]);
-            let target = entry_path.clone();
-            let metadata = blocking(move || std::fs::symlink_metadata(target))
-                .await
-                .map_err(|error| fs_error(error, "lstat", &entry_path))?;
-            if let Ok(info) = file_info_from_metadata(&entry_path, &metadata) {
-                infos.push(info);
-            }
-        }
-        Ok(infos)
+        listed_entry_infos(&resolved, names, cx).await
     }
 
     async fn open_dir_reader_inner(
