@@ -72,7 +72,6 @@ Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash co
 - Victor Taelin: the chat memory design, OptChat, and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem).
 - [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools, the tokenizers and the harness design.
 - Sander Land's [ctok](https://github.com/sanderland/ctok): the Claude tokenizer vocabulary.
-- [models.dev](https://github.com/anomalyco/models.dev): the model catalog.
 - Not affiliated with Prime Intellect, Victor Taelin or Earendil.
 - Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
