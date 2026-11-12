@@ -393,7 +393,15 @@ jobs:
           name: release-notes
           path: notes
       - name: Create the GitHub release (tagged at the released commit, marked latest, the notes of the version job)
-        run: gh release create "${TAG}" release-out/* release.json --target "${HEAD_SHA}" --latest --title "${TITLE}" --notes-file notes/release-notes.md
+        # A rerun of this job after a later step failed finds the release
+        # made and goes on to the pin.
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "${TAG} is released already"
+          else
+            gh release create "${TAG}" release-out/* release.json --target "${HEAD_SHA}" --latest --title "${TITLE}" --notes-file notes/release-notes.md
+          fi
       - name: Pin the release for the Nix flake (nix/release.json on main)
         run: |
           set -euo pipefail
@@ -401,9 +409,30 @@ jobs:
           # release); the update must name the blob it replaces. The
           # commit is the workflow token's, so it starts no workflow run;
           # the version job skips it (its subject), so it is never released.
-          sha="$(gh api "repos/${GH_REPO}/contents/nix/release.json?ref=main" --jq .sha)"
-          gh api -X PUT "repos/${GH_REPO}/contents/nix/release.json" \
-            -f "message=nix: release.json for ${TAG}" \
-            -f "content=$(base64 -w0 release.json)" \
-            -f branch=main \
-            -f "sha=${sha}"
+          # A push to main between reading the blob and writing it, or a
+          # transient API error, fails one attempt: read again and retry.
+          # A rerun finds its pin made, or a newer release's, and stops.
+          for attempt in 1 2 3 4 5; do
+            if current="$(gh api "repos/${GH_REPO}/contents/nix/release.json?ref=main")"; then
+              pinned="$(jq -r .content <<< "${current}" | base64 -d | jq -r .version)"
+              if [[ "${pinned}" == "${VERSION}" ]]; then
+                echo "nix/release.json on main pins ${TAG} already"
+                exit 0
+              fi
+              if [[ "$(printf '%s\n%s\n' "${pinned}" "${VERSION}" | sort -V | tail -n 1)" == "${pinned}" ]]; then
+                echo "nix/release.json on main pins ${pinned}, newer than ${VERSION}: left as it is"
+                exit 0
+              fi
+              if gh api -X PUT "repos/${GH_REPO}/contents/nix/release.json" \
+                -f "message=nix: release.json for ${TAG}" \
+                -f "content=$(base64 -w0 release.json)" \
+                -f branch=main \
+                -f "sha=$(jq -r .sha <<< "${current}")" > /dev/null; then
+                exit 0
+              fi
+            fi
+            echo "::warning::pinning ${TAG} failed (attempt ${attempt}); retrying"
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not pin ${TAG} in nix/release.json on main; rerun this job"
+          exit 1
