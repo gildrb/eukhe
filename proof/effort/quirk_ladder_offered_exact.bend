@@ -8,7 +8,7 @@ import ../base/effort.bend as LEffort
 import ../base/fsmode.bend as LFsmode
 import ./base.bend as LA
 
-def pq.quirk_ladder_offered_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&2, Ef.LvMap>, +d: If.Defaults, +l: Ef.Lv) -> {Ef.has(If.lad.offered(True{}, explicit, rule, d), l) == If.lad.keep(l, Ef.entry(l, If.lad.chosen(explicit, rule)), If.Defaults.reasoning(d)) : Bool}:
+def pq.quirk_ladder_offered_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&2, Ef.LvMap>, +d: If.Defaults, +l: Ef.Lv) -> {Ef.has(Ef.offered(If.lad.model(True{}, explicit, rule, d)), l) == If.lad.keep(l, Ef.entry(l, If.lad.chosen(explicit, rule)), If.Defaults.reasoning(d)) : Bool}:
   +C = If.lad.chosen(explicit, rule)
   +D = If.Defaults.reasoning(d)
   +F = If.lad.fill(C, D)

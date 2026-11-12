@@ -17,31 +17,29 @@ import ../bend/image_marker_shapes.bend as IM
 # R1: id 100, a marker: the text holds `[image #`, a number (captured: the
 #     id), `]`.
 # R2: the table holds exactly this shape, at index 0, and no other.
+#
+# R1 and R2 are anchored only (image_marker_shapes_example): no source
+# outside eukhe's code states the shape (no requirement holds an
+# image-marker regex), so a law over the table would compare it with
+# itself; a law by meaning over every text needs the matcher's search
+# (bend/shape.bend seek) reasoned through for this shape, not done.
 
 # Spec helpers
 # ------------
 
-# R1
+# the marker shape written out, read by laws/shape/entry.bend
+# (sp_shape_of, area shape) for ids 100-109; no law of this area uses it
 def sp_marker() -> S.Shape:
   S.Shape{S.Anywhere{}, [S.Lit{"[image #"}, S.Cap{[S.Run{S.Cls{S.Codes{[S.Rg{48, 57}]}, False{}, False{}}, 1n, None{}}]}, S.Lit{"]"}], False{}}
 
 # Laws
 # ----
 
-# LAW image_marker_shapes_table (R1, R2): at index 0 the table holds the
-# shape R1 states, and none past it
-# EXCLUDES: a marker shape that drifts from the regex it replaced (another
-#   literal, a digit class past 0-9, a missing capture), an id shifted, a
-#   lookup that answers a shape past the last
-law image_marker_shapes_table:
-  for +i: Nat
-  {IM.shape(i) == List.get(&2, S.Shape, [sp_marker()], i) : Maybe<&2, S.Shape>}
-
-# LAW image_marker_shapes_example (R1): anchor: the marker test's text gives
-# its three ids in order, a repeated one too; ids that are no number are
-# no markers
-# EXCLUDES: a table that drifts from the marker tests
-# waive L4-examples-only: a shape is a constant, no input to leave free;
-#   image_marker_shapes_table pins it whole to its R rule
+# LAW image_marker_shapes_example (R1): anchor: the marker test's text
+# (crates/eukhe-tui/src/image_markers.rs tests) gives its three ids in
+# order, a repeated one too; ids that are no number, an empty number, a
+# number not closed by `]` and a marker in another case are no markers
+# EXCLUDES: a marker shape that drifts from the marker tests (another
+#   literal, a digit class past 0-9, a missing capture, an empty number)
 law image_marker_shapes_example:
-  {[S.all(IM.marker(), "a [image #1] b [image #2] [image #1]"), S.all(IM.marker(), "[image #x] [image #1.5]")] == [[S.Fit{2n, 12n, [Some{"1"}]}, S.Fit{15n, 25n, [Some{"2"}]}, S.Fit{26n, 36n, [Some{"1"}]}], []] : List<&2, List<&2, S.Fit>>}
+  {[S.all(IM.marker(), "a [image #1] b [image #2] [image #1]"), S.all(IM.marker(), "[image #x] [image #1.5]"), S.all(IM.marker(), "[image #] [image #12 [Image #3]"), S.all(IM.marker(), "[[image #07]]")] == [[S.Fit{2n, 12n, [Some{"1"}]}, S.Fit{15n, 25n, [Some{"2"}]}, S.Fit{26n, 36n, [Some{"1"}]}], [], [], [S.Fit{1n, 12n, [Some{"07"}]}]] : List<&2, List<&2, S.Fit>>}

@@ -10,14 +10,12 @@ import ../../bend/ffi_facts.bend as FFx
 import ../../bend/wire.bend as Wr
 import ../../laws/facts/model.bend as Facts
 import ../../laws/facts/entry.bend as FactsEntry
-import ./facts_customs_at_exact.bend as PCustomsAtExact
-import ./facts_fit_exact_caller.bend as PFitExactCaller
-import ./facts_fit_exact_model.bend as PFitExactModel
 import ./facts_cap_keeps_the_want.bend as PCapKeeps
 import ./facts_cap_shrinks_on_conflict.bend as PCapShrinks
 import ./facts_cap_omits_only_the_default.bend as PCapOmits
-import ./facts_google_budget_held.bend as PGoogleHeld
 import ./facts_aux_cap_within.bend as PAuxWithin
+import ./base.bend as LA
+import ./facts_ffi_exact/model.bend as FEM
 import ../base/logic/logic.bend as LLogicLogic
 
 # Reading: the single fields
@@ -475,10 +473,10 @@ def fe.fit(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat, +win: Fx.Win) -> {F
   match base:
     case None{}:
       %fe.shrink(mm, win) : {Fx.fit(None{}, mm, b, a, win) == Facts.budgets.fit(_, b, a) : Fx.Fit}
-      Facts.facts_fit_exact_model(mm, b, a, win)
+      FEM.fem.fit_model(mm, b, a, win)
     case Some{+x}:
       %fe.shrink(Nat.min(Nat.add(x, b), mm), win) : {Fx.fit(Some{x}, mm, b, a, win) == Facts.budgets.fit(_, b, a) : Fx.Fit}
-      Facts.facts_fit_exact_caller(x, mm, b, a, win)
+      FEM.fem.fit_caller(x, mm, b, a, win)
 
 def fe.free(m: Maybe<&2, Nat>) -> {Fx.gbudget.free(m) == FactsEntry.fs.gb.free(m) : Fx.GB}:
   match m:
@@ -516,11 +514,11 @@ def fe.high(b: Fx.Budgets) -> {Fx.Budgets.high(b) == FactsEntry.fs.high(b) : Nat
 def fe.rule(+b: Fx.Budgets, +c: Fx.Customs, +l: Fx.Lv, ok: Bool, e: {Fx.Budgets.ordered(b) == ok : Bool}) -> {Fx.gbudget.rule(ok, b, c, l) == FactsEntry.fs.gb.rule(ok, b, c, l) : Fx.GB}:
   match ok:
     case True{}:
-      %Facts.facts_customs_at_exact(c, l) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{Facts.budgets.held(Maybe.default(&2, Nat, _, FactsEntry.fs.at(b, l)), FactsEntry.fs.minimal(b), FactsEntry.fs.high(b))} : Fx.GB}
+      %LA.fg.at(c, l) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{Facts.budgets.held(Maybe.default(&2, Nat, _, FactsEntry.fs.at(b, l)), FactsEntry.fs.minimal(b), FactsEntry.fs.high(b))} : Fx.GB}
       %fe.at(b, l) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{Facts.budgets.held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), _), FactsEntry.fs.minimal(b), FactsEntry.fs.high(b))} : Fx.GB}
       %fe.minimal(b) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{Facts.budgets.held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), _, FactsEntry.fs.high(b))} : Fx.GB}
       %fe.high(b) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{Facts.budgets.held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), _)} : Fx.GB}
-      %Facts.facts_google_budget_held(b, c, l, e) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{_} : Fx.GB}
+      %FEM.fem.held(b, c, l, e) : {Fx.Tokens{Fx.gtokens(b, c, l)} == Fx.Tokens{_} : Fx.GB}
       {==}
     case False{}:
       {==}
@@ -528,7 +526,7 @@ def fe.rule(+b: Fx.Budgets, +c: Fx.Customs, +l: Fx.Lv, ok: Bool, e: {Fx.Budgets.
 def fe.gb(rule: Maybe<&2, Fx.Budgets>, +c: Fx.Customs, +l: Fx.Lv) -> {Fx.gbudget(rule, c, l) == FactsEntry.fs.gb(rule, c, l) : Fx.GB}:
   match rule:
     case None{}:
-      %Facts.facts_customs_at_exact(c, l) : {Fx.gbudget.free(Fx.Customs.at(c, l)) == FactsEntry.fs.gb.free(_) : Fx.GB}
+      %LA.fg.at(c, l) : {Fx.gbudget.free(Fx.Customs.at(c, l)) == FactsEntry.fs.gb.free(_) : Fx.GB}
       fe.free(Fx.Customs.at(c, l))
     case Some{+b}:
       %fe.ordered(b) : {Fx.gbudget.rule(Fx.Budgets.ordered(b), b, c, l) == FactsEntry.fs.gb.rule(_, b, c, l) : Fx.GB}

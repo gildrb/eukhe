@@ -4,6 +4,7 @@ import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
 import ./base.bend as LA
+import ./quirk_valid_rulebook_compiles.bend as PV
 
 def pq.or_tl(-a: Bool, -b: Bool, ha: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   %Equal.sym(Bool, a, True{}, ha) : {Bool.or(_, b) == True{} : Bool}
@@ -37,5 +38,6 @@ def pq.quirk_clash_rejected(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +a: 
   %Equal.sym(Bool, If.ambiguous(L), True{}, pq.amb_app(pre, a, mid, b, post, both)) : {Bool.and(If.known_all(L, known), Bool.not(_)) == False{} : Bool}
   LA.pq.and_f(If.known_all(L, known))
 
+# the laws' rb.clash is the model's clash (PV.pv.clash_eq)
 def Infer.quirk_clash_rejected(known, pre, a, mid, b, post, both):
-  pq.quirk_clash_rejected(known, pre, a, mid, b, post, both)
+  pq.quirk_clash_rejected(known, pre, a, mid, b, post, Equal.trans(Bool, If.clash(a, b), Infer.rb.clash(a, b), True{}, Equal.sym(Bool, Infer.rb.clash(a, b), If.clash(a, b), PV.pv.clash_eq(a, b)), both))

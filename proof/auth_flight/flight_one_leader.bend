@@ -15,24 +15,25 @@ import ./base/flights.bend as AF
 import ./base/moves.bend as MV
 
 import ../../laws/auth_flight/safety.bend as AuthFlightSafety
+import ./base/desk.bend as D
 
-def pol.board(w: Bool, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +ew: {S.af_inflight(p, cs) == w : Bool}, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, F.Loads{}}} : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(S.af_board(w, k, cs, n))):
+def pol.board(w: Bool, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +ew: {S.af_inflight(p, cs) == w : Bool}, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, F.Loads{}}} : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(D.af_board(w, k, cs, n))):
   match w:
     case True{}:
-      +q => MV.mv.le1_eq(SS.af_leaders(q, S.af_set(k, F.Waits{}, cs)), SS.af_leaders(q, cs), AF.ad.lead_set_same(q, k, F.Waits{}, cs, j, p, F.Loads{}, at, {==}), h(q))
+      +q => MV.mv.le1_eq(SS.af_leaders(q, D.af_set(k, F.Waits{}, cs)), SS.af_leaders(q, cs), AF.ad.lead_set_same(q, k, F.Waits{}, cs, j, p, F.Loads{}, at, {==}), h(q))
     case False{}:
       +q => MV.mv.lead_gain(q, k, cs, j, p, at, ew, h(q))
 
-def pol.fit(a: F.At, fd: F.Fd, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, a}} : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(S.af_found_fit(S.af_takes(a, fd), fd, k, p, cs, n))):
+def pol.fit(a: F.At, fd: F.Fd, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == Some{F.Cl{j, p, a}} : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(D.af_found_fit(S.af_takes(a, fd), fd, k, p, cs, n))):
   match a:
     case F.Loads{}:
       match fd:
         case F.LoadFresh{}:
-          +q => AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
+          +q => AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
         case F.LoadExpired{}:
           pol.board(S.af_inflight(p, cs), k, j, p, cs, n, {==}, at, h)
         case F.LoadFailed{}:
-          +q => AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
+          +q => AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
         case F.CheckFresh{}:
           h
         case F.CheckExpired{}:
@@ -52,9 +53,9 @@ def pol.fit(a: F.At, fd: F.Fd, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.LoadFailed{}:
           h
         case F.CheckFresh{}:
-          +q => AL.ad.le_trans(SS.af_leaders(q, S.af_unwait(p, S.af_cut(k, cs))), SS.af_leaders(q, S.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, S.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
+          +q => AL.ad.le_trans(SS.af_leaders(q, D.af_unwait(p, D.af_cut(k, cs))), SS.af_leaders(q, D.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, D.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
         case F.CheckExpired{}:
-          +q => MV.mv.le1_eq(SS.af_leaders(q, S.af_set(k, F.Fetches{}, cs)), SS.af_leaders(q, cs), AF.ad.lead_set_same(q, k, F.Fetches{}, cs, j, p, F.Checks{}, at, {==}), h(q))
+          +q => MV.mv.le1_eq(SS.af_leaders(q, D.af_set(k, F.Fetches{}, cs)), SS.af_leaders(q, cs), AF.ad.lead_set_same(q, k, F.Fetches{}, cs, j, p, F.Checks{}, at, {==}), h(q))
         case F.FetchOk{}:
           h
         case F.FetchFailed{}:
@@ -74,9 +75,9 @@ def pol.fit(a: F.At, fd: F.Fd, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.CheckExpired{}:
           h
         case F.FetchOk{}:
-          +q => MV.mv.le1_eq(SS.af_leaders(q, S.af_set(k, F.Stores{}, cs)), SS.af_leaders(q, cs), AF.ad.lead_set_same(q, k, F.Stores{}, cs, j, p, F.Fetches{}, at, {==}), h(q))
+          +q => MV.mv.le1_eq(SS.af_leaders(q, D.af_set(k, F.Stores{}, cs)), SS.af_leaders(q, cs), AF.ad.lead_set_same(q, k, F.Stores{}, cs, j, p, F.Fetches{}, at, {==}), h(q))
         case F.FetchFailed{}:
-          +q => AL.ad.le_trans(SS.af_leaders(q, S.af_unwait(p, S.af_cut(k, cs))), SS.af_leaders(q, S.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, S.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
+          +q => AL.ad.le_trans(SS.af_leaders(q, D.af_unwait(p, D.af_cut(k, cs))), SS.af_leaders(q, D.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, D.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
         case F.Stored{}:
           h
     case F.Stores{}:
@@ -96,7 +97,7 @@ def pol.fit(a: F.At, fd: F.Fd, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.FetchFailed{}:
           h
         case F.Stored{}:
-          +q => AL.ad.le_trans(SS.af_leaders(q, S.af_unwait(p, S.af_cut(k, cs))), SS.af_leaders(q, S.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, S.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
+          +q => AL.ad.le_trans(SS.af_leaders(q, D.af_unwait(p, D.af_cut(k, cs))), SS.af_leaders(q, D.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, D.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
     case F.Waits{}:
       match fd:
         case F.LoadFresh{}:
@@ -116,7 +117,7 @@ def pol.fit(a: F.At, fd: F.Fd, +k: Nat, -j: Nat, +p: String, +cs: List<&2, F.Cl>
         case F.Stored{}:
           h
 
-def pol.found(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(S.af_found_at(m, fd, k, cs, n))):
+def pol.found(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(D.af_found_at(m, fd, k, cs, n))):
   match m:
     case None{}:
       h
@@ -125,7 +126,7 @@ def pol.found(m: Maybe<&2, F.Cl>, +fd: F.Fd, +k: Nat, +cs: List<&2, F.Cl>, +n: N
         case F.Cl{+j, +p, +a}:
           pol.fit(a, fd, k, j, p, cs, n, at, h)
 
-def pol.unwind(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(S.af_unwind_at(m, k, cs, n))):
+def pol.unwind(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {S.af_find(k, cs) == m : Maybe<&2, F.Cl>}, h: MV.mv.Lead(F.Desk{cs, n})) -> MV.mv.Lead(SS.af_after(D.af_unwind_at(m, k, cs, n))):
   match m:
     case None{}:
       h
@@ -134,17 +135,17 @@ def pol.unwind(m: Maybe<&2, F.Cl>, +k: Nat, +cs: List<&2, F.Cl>, +n: Nat, +at: {
         case F.Cl{+j, +p, a}:
           match a:
             case F.Loads{}:
-              +q => AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
+              +q => AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
             case F.Checks{}:
-              +q => AL.ad.le_trans(SS.af_leaders(q, S.af_unwait(p, S.af_cut(k, cs))), SS.af_leaders(q, S.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, S.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
+              +q => AL.ad.le_trans(SS.af_leaders(q, D.af_unwait(p, D.af_cut(k, cs))), SS.af_leaders(q, D.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, D.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
             case F.Fetches{}:
-              +q => AL.ad.le_trans(SS.af_leaders(q, S.af_unwait(p, S.af_cut(k, cs))), SS.af_leaders(q, S.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, S.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
+              +q => AL.ad.le_trans(SS.af_leaders(q, D.af_unwait(p, D.af_cut(k, cs))), SS.af_leaders(q, D.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, D.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
             case F.Stores{}:
-              +q => AL.ad.le_trans(SS.af_leaders(q, S.af_unwait(p, S.af_cut(k, cs))), SS.af_leaders(q, S.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, S.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
+              +q => AL.ad.le_trans(SS.af_leaders(q, D.af_unwait(p, D.af_cut(k, cs))), SS.af_leaders(q, D.af_cut(k, cs)), 1n, AF.ad.lead_unwait_le(q, p, D.af_cut(k, cs)), AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q)))
             case F.Waits{}:
-              +q => AL.ad.le_trans(SS.af_leaders(q, S.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
+              +q => AL.ad.le_trans(SS.af_leaders(q, D.af_cut(k, cs)), SS.af_leaders(q, cs), 1n, AF.ad.lead_cut_le(q, k, cs), h(q))
 
-def pol.step(d: F.Desk, e: F.DEv, h: MV.mv.Lead(d)) -> MV.mv.Lead(SS.af_after(S.af_desk(d, e))):
+def pol.step(d: F.Desk, e: F.DEv, h: MV.mv.Lead(d)) -> MV.mv.Lead(SS.af_after(D.af_desk(d, e))):
   match d:
     case F.Desk{+cs, +n}:
       match e:
@@ -158,7 +159,7 @@ def pol.step(d: F.Desk, e: F.DEv, h: MV.mv.Lead(d)) -> MV.mv.Lead(SS.af_after(S.
           h
 
 def pol.step_code(+d: F.Desk, +e: F.DEv, h: MV.mv.Lead(d)) -> MV.mv.Lead(SS.af_after(F.desk.step(d, e))):
-  %Equal.sym(F.DRes, F.desk.step(d, e), S.af_desk(d, e), LAE.ae.desk(d, e)) : MV.mv.Lead(SS.af_after(_))
+  %Equal.sym(F.DRes, F.desk.step(d, e), D.af_desk(d, e), LAE.ae.desk(d, e)) : MV.mv.Lead(SS.af_after(_))
   pol.step(d, e, h)
 
 # every run keeps one leader per provider

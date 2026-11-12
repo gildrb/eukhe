@@ -256,7 +256,7 @@ enum PaintStep {
 /// Pick what reaches the terminal: the model's paint (`resync` of
 /// `present`, bend/screen.bend), run as the compiled core's paint
 /// decision (`bend/ffi_screen.bend`, laws `screen_ffi_paint` and
-/// `paint_first_passing_check`). The core reads the checks run so far
+/// `paint_picks_first_pass`). The core reads the checks run so far
 /// (`first`, the check of `frame`, then those of the redraws) and answers
 /// the paint, or asks for the next redraw, which `attempt` builds and
 /// checks. A redraw is built only when the core asks for its check: the

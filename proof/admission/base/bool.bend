@@ -3,6 +3,7 @@
 import Base
 import ../../../bend/admission.bend as Ad
 import ./logic.bend as LALogic
+import ./admission/terms.bend as AT
 
 def ad.and_ff(x: Bool, y: Bool) -> {Bool.and(x, False{}) == Bool.and(y, False{}) : Bool}:
   match x y:
@@ -40,12 +41,12 @@ def ad.not_none(-m: Maybe<&2, Ad.Cls>, e: {m == None{} : Maybe<&2, Ad.Cls>}) -> 
   %Equal.sym(Maybe<&2, Ad.Cls>, m, None{}, e) : {Bool.not(Maybe.is_some(&2, Ad.Cls, _)) == True{} : Bool}
   {==}
 
-def ad.grant_none(+l: Ad.Lim, +t: List<&2, Ad.Tk>, ed: {Ad.pick(l, t) == None{} : Maybe<&2, Ad.Cls>}, cm: {Ad.calm(t) == True{} : Bool}) -> {LALogic.ad.ok(l, t) == True{} : Bool}:
+def ad.grant_none(+l: Ad.Lim, +t: List<&2, Ad.Tk>, ed: {Ad.pick(l, t) == None{} : Maybe<&2, Ad.Cls>}, cm: {AT.calm(t) == True{} : Bool}) -> {LALogic.ad.ok(l, t) == True{} : Bool}:
   +p = Ad.pick(l, t)
-  ad.and_t(Bool.not(Maybe.is_some(&2, Ad.Cls, p)), Ad.calm(t), ad.not_none(p, ed), cm)
+  ad.and_t(Bool.not(Maybe.is_some(&2, Ad.Cls, p)), AT.calm(t), ad.not_none(p, ed), cm)
 
 # an interactive waiter: no background slot is held
-def ad.calm_hb0(-w: Nat, hb: Nat, c: {Ad.calm.n(1n+w, hb) == True{} : Bool}) -> {hb == 0n : Nat}:
+def ad.calm_hb0(-w: Nat, hb: Nat, c: {AT.calm.n(1n+w, hb) == True{} : Bool}) -> {hb == 0n : Nat}:
   match hb:
     case 0n:
       {==}

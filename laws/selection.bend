@@ -14,6 +14,45 @@ import ./base.bend as LawsBase
 # runs (bend/selection.bend `step`); PROOF.bend proves them (as
 # Selection.<law>) with the lemmas of proof/selection/. The spec helpers
 # below never call the code.
+#
+# Requirements (A: inferred from bend/selection.bend's header and the Rust
+# caller crates/eukhe-tui/src/selection.rs):
+# A1: a release copies exactly the text of the selection being made: its
+#     cells in reading order, a wide glyph once, rows joined by a newline,
+#     a line's trailing blanks dropped (sel_release_copies,
+#     sel_copy_anchor_to_head).
+# A2: a soft-wrapped block copies as one line (sel_wrap_joins; anchor
+#     sel_wrap_trailing_blanks_example).
+# A3: one selection is copied at most once (sel_release_copies_once).
+# A4: a plain click selects and copies nothing and is kept for a double
+#     click (sel_click_copies_nothing).
+# A5: a press that does not count on starts a fresh selection
+#     (sel_single_press).
+# A6: a double press picks the run of non-blank glyphs covering the cell
+#     (sel_word_bounds).
+# A7: a triple press picks the row from column 0 to the last cell of its
+#     last glyph, nothing on an empty row, and its release copies every
+#     glyph of the row (sel_line_picks_row, sel_line_empty_row,
+#     sel_line_copies_row).
+# A8: a drag moves the head to its cell kept on the rows on screen (its
+#     column, its row when on screen, else the nearest edge row), keeps the
+#     anchor (a picked word or row anchors at its end away from the head),
+#     starts no selection with no press, leaves a shown one, forgets the
+#     last press and copies nothing (laws/selection/drag.bend:
+#     sel_drag_head, sel_drag_answers).
+# A9: a drag asks for one scroll step only past an edge while a selection
+#     is being made: up above the first row on screen, down below the last
+#     (laws/selection/drag.bend: sel_drag_scrolls_up, sel_drag_scrolls_down,
+#     sel_drag_scrolls_none).
+# A10: a key, a wheel notch or a change of the content clears everything
+#     and is not spent (sel_key_clears).
+# A11: Esc clears everything and is spent exactly when the last answer
+#     showed a selection (sel_esc_spent_when_shown).
+# A12: a release's copy is one forward piece per copied row, in order
+#     (laws/selection/reply.bend: sel_release_pieces_rows).
+# A13: the stepper reads exactly the spelled inputs that fit, answers the
+#     model, refuses everything else with its exact error and keeps the
+#     state (selection_ffi_*).
 
 # Terms
 # -----
@@ -298,18 +337,25 @@ def sl_quiet(+m: M.Mode, last: Maybe<&2, M.Click>) -> M.Res:
 def sl_cleared(eat: Bool) -> M.Res:
   M.Res{M.St{M.Idle{}, None{}}, M.Out{None{}, None{}, M.PanNone{}, eat}}
 
-def sl_seen(m: M.Mode) -> Bool:
-  match m:
-    case M.Idle{}:
-      False{}
-    case M.Pressed{a}:
-      False{}
-    case M.Selecting{a, h}:
-      True{}
-    case M.Picked{r}:
-      True{}
-    case M.Shown{r}:
-      True{}
+# A11: the answer shows a selection (Rust paints the range it reads)
+def sl_shows(r: M.Res) -> Bool:
+  match r:
+    case M.Res{s, o}:
+      match o:
+        case M.Out{sel, c, p, e}:
+          match sel:
+            case None{}:
+              False{}
+            case Some{x}:
+              True{}
+
+# the mode an answer keeps
+def sl_mode(r: M.Res) -> M.Mode:
+  match r:
+    case M.Res{s, o}:
+      match s:
+        case M.St{m, l}:
+          m
 
 # Presses
 # -------
@@ -388,30 +434,25 @@ def sl_word(gs: List<&2, Nat>, at: M.Cell) -> Maybe<&2, M.Rng>:
     case M.Cell{r, x}:
       sl_word.k(sl_find(sl_runs(gs, 0n, None{}), x), r)
 
-# the cells a row's glyphs fill
-def sl_width(gs: List<&2, Nat>) -> Nat:
+# A7: the cells a row's glyphs fill: a blank one, a glyph of width w its w
+def sl_cells(gs: List<&2, Nat>) -> Nat:
   match gs:
     case Nil{}:
       0n
     case Con{g, rest}:
       match g:
         case 0n:
-          1n+sl_width(rest)
+          1n+sl_cells(rest)
         case 1n+p:
-          Nat.add(1n+p, sl_width(rest))
+          1n+Nat.add(p, sl_cells(rest))
 
-def sl_line.k(w: Nat, +r: Nat) -> Maybe<&2, M.Rng>:
-  match w:
-    case 0n:
-      None{}
-    case 1n+p:
-      Some{M.Rng{M.Cell{r, 0n}, M.Cell{r, p}}}
-
-# the row at a cell: its first to its last filled cell (none when empty)
-def sl_line(gs: List<&2, Nat>, at: M.Cell) -> Maybe<&2, M.Rng>:
-  match at:
-    case M.Cell{r, x}:
-      sl_line.k(sl_width(gs), r)
+# A7: every glyph of a row, in order, glyph j first
+def sl_glyphs(gs: List<&2, Nat>, +j: Nat) -> List<&2, SlGl>:
+  match gs:
+    case Nil{}:
+      Nil{}
+    case Con{g, rest}:
+      SlGl{j, g} <> sl_glyphs(rest, 1n+j)
 
 # the answer to a press counted n that picks `pick` (none: no selection)
 def sl_pressed(pick: Maybe<&2, M.Rng>, +at: M.Cell, t: Nat, n: Nat) -> M.Res:
@@ -424,41 +465,25 @@ def sl_pressed(pick: Maybe<&2, M.Rng>, +at: M.Cell, t: Nat, n: Nat) -> M.Res:
 # Drags
 # -----
 
-# a drag's cell with its row kept within the rows lo..hi on screen
-def sl_clamp(at: M.Cell, +lo: Nat, +hi: Nat) -> M.Cell:
-  match at:
-    case M.Cell{+r, c}:
-      M.Cell{Bool.pick(Nat, Nat.is_lt(r, lo), lo, Bool.pick(Nat, Nat.is_lt(hi, r), hi, r)), c}
-
-# one step up past the first row on screen, down past the last, else none
-def sl_pan(at: M.Cell, +lo: Nat, +hi: Nat) -> M.Pan:
-  match at:
-    case M.Cell{+r, c}:
-      Bool.pick(M.Pan, Nat.is_lt(r, lo), M.PanUp{}, Bool.pick(M.Pan, Nat.is_lt(hi, r), M.PanDown{}, M.PanNone{}))
-
-def sl_moved(+m: M.Mode, p: M.Pan) -> M.Res:
-  M.Res{M.St{m, None{}}, M.Out{sl_sel(m), None{}, p, False{}}}
-
-# a drag: the head moves to the drag's cell kept on screen, the anchor
-# stays (a picked word or row anchors at the end away from the head); a
-# drag back onto the pressed cell selects nothing; the last press is
-# forgotten
-def sl_drag(m: M.Mode, +at: M.Cell, +lo: Nat, +hi: Nat) -> M.Res:
+# A8, A9, A12: the button is down on a selection under way: a press, a
+# drag or a picked word or row (not idle, not a shown selection)
+def sl_held(m: M.Mode) -> Bool:
   match m:
     case M.Idle{}:
-      sl_quiet(M.Idle{}, None{})
-    case M.Pressed{+a}:
-      +h = sl_clamp(at, lo, hi)
-      Bool.pick(M.Res, sl_same(a, h), sl_moved(M.Pressed{a}, sl_pan(at, lo, hi)), sl_moved(M.Selecting{a, h}, sl_pan(at, lo, hi)))
+      False{}
+    case M.Pressed{a}:
+      True{}
     case M.Selecting{a, h}:
-      sl_moved(M.Selecting{a, sl_clamp(at, lo, hi)}, sl_pan(at, lo, hi))
+      True{}
     case M.Picked{r}:
-      match r:
-        case M.Rng{+s, +e}:
-          +h = sl_clamp(at, lo, hi)
-          sl_moved(M.Selecting{Bool.pick(M.Cell, sl_le(s, h), s, e), h}, sl_pan(at, lo, hi))
+      True{}
     case M.Shown{r}:
-      sl_quiet(M.Shown{r}, None{})
+      False{}
+
+# A8: a drag's answer: mode m kept, the last press forgotten, m's
+# selection shown, nothing copied, the scroll step p, not spent
+def sl_moved(+m: M.Mode, p: M.Pan) -> M.Res:
+  M.Res{M.St{m, None{}}, M.Out{sl_sel(m), None{}, p, False{}}}
 
 def sl_pan_of(r: M.Res) -> M.Pan:
   match r:
@@ -466,20 +491,6 @@ def sl_pan_of(r: M.Res) -> M.Pan:
       match o:
         case M.Out{sel, c, p, e}:
           p
-
-# a drag scrolls only in a selection being made
-def sl_drag_pan(m: M.Mode, +at: M.Cell, +lo: Nat, +hi: Nat) -> M.Pan:
-  match m:
-    case M.Idle{}:
-      M.PanNone{}
-    case M.Pressed{a}:
-      sl_pan(at, lo, hi)
-    case M.Selecting{a, h}:
-      sl_pan(at, lo, hi)
-    case M.Picked{r}:
-      sl_pan(at, lo, hi)
-    case M.Shown{r}:
-      M.PanNone{}
 
 # Releases
 # --------
@@ -623,44 +634,50 @@ law sel_word_bounds:
   for near: {Bool.and(Nat.is_le(t1, t2), Nat.is_le(Nat.sub(t2, t1), 400n)) == True{} : Bool}
   {M.step(M.St{m, Some{M.Click{at, t1, 1n}}}, M.EvPress{at, t2, gs}) == sl_pressed(sl_word(gs, at), at, t2, 2n) : M.Res}
 
-# LAW sel_line_bounds: a third press on the cell, at most 400 ms after the second, picks
-# the row: its first to its last filled cell (none on an empty row)
+# LAW sel_line_picks_row (A7): a third press on the cell of the second, at
+# most 400 ms later, on a row with glyphs (xs then a last glyph g), picks
+# the row from column 0 to the last cell of g (g starts after the cells of
+# xs: a blank fills one, a glyph of width w its w)
 # EXCLUDES: a line cut at a wide glyph, a line past the row's cells, a
-#   line of another row
-law sel_line_bounds:
+#   line of another row, a line that starts past column 0
+law sel_line_picks_row:
+  for +m: M.Mode
+  for +r: Nat
+  for +x: Nat
+  for +t1: Nat
+  for +t2: Nat
+  for +xs: List<&2, Nat>
+  for +g: Nat
+  for near: {Bool.and(Nat.is_le(t1, t2), Nat.is_le(Nat.sub(t2, t1), 400n)) == True{} : Bool}
+  {M.step(M.St{m, Some{M.Click{M.Cell{r, x}, t1, 2n}}}, M.EvPress{M.Cell{r, x}, t2, List.append(&2, Nat, xs, [g])}) == sl_pressed(Some{M.Rng{M.Cell{r, 0n}, M.Cell{r, sl_last(g, sl_cells(xs))}}}, M.Cell{r, x}, t2, 3n) : M.Res}
+
+# LAW sel_line_empty_row (A7): a third press on an empty row picks nothing
+# and is kept as the third press
+# EXCLUDES: a line picked on a row with no glyph (an empty range shown)
+law sel_line_empty_row:
   for +m: M.Mode
   for +at: M.Cell
   for +t1: Nat
   for +t2: Nat
-  for +gs: List<&2, Nat>
   for near: {Bool.and(Nat.is_le(t1, t2), Nat.is_le(Nat.sub(t2, t1), 400n)) == True{} : Bool}
-  {M.step(M.St{m, Some{M.Click{at, t1, 2n}}}, M.EvPress{at, t2, gs}) == sl_pressed(sl_line(gs, at), at, t2, 3n) : M.Res}
+  {M.step(M.St{m, Some{M.Click{at, t1, 2n}}}, M.EvPress{at, t2, Nil{}}) == sl_pressed(None{}, at, t2, 3n) : M.Res}
 
-# LAW sel_drag_moves_head: a drag moves the head of the selection being made to its cell,
-# kept within the rows on screen, and keeps the anchor (sl_drag)
-# EXCLUDES: a head on a row off screen (the dock's rows), a moved
-#   anchor, a drag that starts a selection with no press, a drag that
-#   changes a shown selection
-law sel_drag_moves_head:
+# LAW sel_line_copies_row (A7, A1): a third press on a row with glyphs,
+# then a release over that row alone, copies every glyph of the row in
+# order, its trailing blanks dropped
+# EXCLUDES: a line copy that misses the row's last glyph or a wide glyph,
+#   copies a glyph twice, or keeps trailing blanks
+law sel_line_copies_row:
   for +m: M.Mode
-  for +last: Maybe<&2, M.Click>
-  for +at: M.Cell
-  for +lo: Nat
-  for +hi: Nat
-  {M.step(M.St{m, last}, M.EvDrag{at, lo, hi}) == sl_drag(m, at, lo, hi) : M.Res}
-
-# LAW sel_scroll_past_edge: a drag asks for one scroll step only past an edge: up above the
-# first row on screen, down below the last, none inside; and only while
-# a selection is being made
-# EXCLUDES: a scroll inside the transcript, a scroll the wrong way, a
-#   scroll with no press
-law sel_scroll_past_edge:
-  for +m: M.Mode
-  for +last: Maybe<&2, M.Click>
-  for +at: M.Cell
-  for +lo: Nat
-  for +hi: Nat
-  {sl_pan_of(M.step(M.St{m, last}, M.EvDrag{at, lo, hi})) == sl_drag_pan(m, at, lo, hi) : M.Pan}
+  for +r: Nat
+  for +x: Nat
+  for +t1: Nat
+  for +t2: Nat
+  for +xs: List<&2, Nat>
+  for +g: Nat
+  for +w: M.Wrap
+  for near: {Bool.and(Nat.is_le(t1, t2), Nat.is_le(Nat.sub(t2, t1), 400n)) == True{} : Bool}
+  {sl_copied(M.step(sl_st(M.step(M.St{m, Some{M.Click{M.Cell{r, x}, t1, 2n}}}, M.EvPress{M.Cell{r, x}, t2, List.append(&2, Nat, xs, [g])})), M.EvRelease{[M.Row{w, List.append(&2, Nat, xs, [g])}]})) == Some{sl_toks(sl_keep(sl_glyphs(List.append(&2, Nat, xs, [g]), 0n), True{}), 0n)} : Maybe<&2, List<&2, SlTok>>}
 
 # LAW sel_key_clears: a key, a wheel notch or a change of the content under the selection
 # clears everything, and the input goes on to its own use
@@ -670,14 +687,15 @@ law sel_key_clears:
   for +s: M.St
   {M.step(s, M.EvKey{}) == sl_cleared(False{}) : M.Res} & {M.step(s, M.EvWheel{}) == sl_cleared(False{}) : M.Res} & {M.step(s, M.EvChanged{}) == sl_cleared(False{}) : M.Res}
 
-# LAW sel_esc_clears: Esc clears everything, and is spent exactly when a selection was on
-# screen
-# EXCLUDES: Esc that clears a selection and also aborts the run, Esc
-#   swallowed when no selection is shown
-law sel_esc_clears:
-  for +m: M.Mode
-  for +last: Maybe<&2, M.Click>
-  {M.step(M.St{m, last}, M.EvEsc{}) == sl_cleared(sl_seen(m)) : M.Res}
+# LAW sel_esc_spent_when_shown (A11): after any answer, Esc clears
+# everything and is spent exactly when that answer showed a selection (the
+# range Rust painted); at the start nothing is shown and Esc is not spent
+# EXCLUDES: Esc that clears a shown selection and also aborts the run, Esc
+#   swallowed when no selection is shown, Esc that keeps a selection
+law sel_esc_spent_when_shown:
+  for +s: M.St
+  for +e: M.Ev
+  {M.step(sl_st(M.step(s, e)), M.EvEsc{}) == sl_cleared(sl_shows(M.step(s, e))) : M.Res} & {M.step(M.start(), M.EvEsc{}) == sl_cleared(False{}) : M.Res}
 
 # ---- selection entry ----
 
@@ -895,3 +913,49 @@ law selection_ffi_open:
 # EXCLUDES: a codec in another order than the header's
 law selection_ffi_example:
   {F.step(F.Live{M.St{M.Idle{}, None{}}}, "0,3,3,1000,7,1,1,0,1,1,0,0,") == (F.Live{M.St{M.Pressed{M.Cell{3n, 3n}}, Some{M.Click{M.Cell{3n, 3n}, 1000n, 1n}}}}, "0,0,0,F") : F.St & String} & {F.step(F.Live{M.St{M.Pressed{M.Cell{3n, 3n}}, None{}}}, "1,3,6,2,9,") == (F.Live{M.St{M.Selecting{M.Cell{3n, 3n}, M.Cell{3n, 6n}}, None{}}}, "1,3,3,3,6,0,0,F") : F.St & String} & {F.step(F.Live{M.St{M.Selecting{M.Cell{3n, 3n}, M.Cell{3n, 6n}}, None{}}}, "2,1,0,7,1,1,0,1,1,0,0,") == (F.Live{M.St{M.Shown{M.Rng{M.Cell{3n, 3n}, M.Cell{3n, 6n}}}, None{}}}, "1,3,3,3,6,1,1,0,3,5,F0,F") : F.St & String} & {F.step(F.Live{M.St{M.Idle{}, None{}}}, "9,") == (F.Live{M.St{M.Idle{}, None{}}}, "E selection: malformed event") : F.St & String}
+
+# a drag's cell with its row kept within the rows lo..hi on screen
+def sl_clamp(at: M.Cell, +lo: Nat, +hi: Nat) -> M.Cell:
+  match at:
+    case M.Cell{+r, c}:
+      M.Cell{Bool.pick(Nat, Nat.is_lt(r, lo), lo, Bool.pick(Nat, Nat.is_lt(hi, r), hi, r)), c}
+
+# one step up past the first row on screen, down past the last, else none
+def sl_pan(at: M.Cell, +lo: Nat, +hi: Nat) -> M.Pan:
+  match at:
+    case M.Cell{+r, c}:
+      Bool.pick(M.Pan, Nat.is_lt(r, lo), M.PanUp{}, Bool.pick(M.Pan, Nat.is_lt(hi, r), M.PanDown{}, M.PanNone{}))
+
+# a drag: the head moves to the drag's cell kept on screen, the anchor
+# stays (a picked word or row anchors at the end away from the head); a
+# drag back onto the pressed cell selects nothing; the last press is
+# forgotten
+def sl_drag(m: M.Mode, +at: M.Cell, +lo: Nat, +hi: Nat) -> M.Res:
+  match m:
+    case M.Idle{}:
+      sl_quiet(M.Idle{}, None{})
+    case M.Pressed{+a}:
+      +h = sl_clamp(at, lo, hi)
+      Bool.pick(M.Res, sl_same(a, h), sl_moved(M.Pressed{a}, sl_pan(at, lo, hi)), sl_moved(M.Selecting{a, h}, sl_pan(at, lo, hi)))
+    case M.Selecting{a, h}:
+      sl_moved(M.Selecting{a, sl_clamp(at, lo, hi)}, sl_pan(at, lo, hi))
+    case M.Picked{r}:
+      match r:
+        case M.Rng{+s, +e}:
+          +h = sl_clamp(at, lo, hi)
+          sl_moved(M.Selecting{Bool.pick(M.Cell, sl_le(s, h), s, e), h}, sl_pan(at, lo, hi))
+    case M.Shown{r}:
+      sl_quiet(M.Shown{r}, None{})
+
+# LAW sel_drag_moves_head: a drag moves the head of the selection being made to its cell,
+# kept within the rows on screen, and keeps the anchor (sl_drag)
+# EXCLUDES: a head on a row off screen (the dock's rows), a moved
+#   anchor, a drag that starts a selection with no press, a drag that
+#   changes a shown selection
+law sel_drag_moves_head:
+  for +m: M.Mode
+  for +last: Maybe<&2, M.Click>
+  for +at: M.Cell
+  for +lo: Nat
+  for +hi: Nat
+  {M.step(M.St{m, last}, M.EvDrag{at, lo, hi}) == sl_drag(m, at, lo, hi) : M.Res}

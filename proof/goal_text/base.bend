@@ -118,7 +118,7 @@ def gtb.escape(s: String) -> {Gt.escape(s) == GoalText.gt_escape(s) : String}:
       %Equal.sym(String, Gt.escape(t), GoalText.gt_escape(t), gtb.escape(t)) : {Gt.escape.lt(Char.is_eq(c, '&'), Char.is_eq(c, '<'), Char.is_eq(c, '>'), c, _) == GoalText.gt_escape.lt(Char.is_eq(c, '&'), Char.is_eq(c, '<'), Char.is_eq(c, '>'), c, GoalText.gt_escape(t)) : String}
       gtb.esc_lt(Char.is_eq(c, '&'), Char.is_eq(c, '<'), Char.is_eq(c, '>'), c, GoalText.gt_escape(t))
 
-def gtb.objective(m: Maybe<&2, String>) -> {Gt.objective(m) == GoalText.gt_objective(m) : String}:
+def gtb.objective(m: Maybe<&2, String>) -> {Gt.objective(m) == GoalText.gt_objective_orig(m) : String}:
   match m:
     case None{}:
       {==}
@@ -142,26 +142,26 @@ def gtb.left_text(m: Maybe<&2, String>, +used: String) -> {Gt.left_text(m, used)
 def gtb.continuation(g: Gt.Goal) -> {Gt.continuation(g) == GoalText.gt_continuation(g) : String}:
   match g:
     case Gt.Goal{+s, +o, +b, +u, t}:
-      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective(o), gtb.objective(o)) : {Gt.continuation.of(_, Gt.status_name(s), u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
-      %Equal.sym(String, Gt.status_name(s), GoalText.gt_status_name(s), gtb.status_name(s)) : {Gt.continuation.of(GoalText.gt_objective(o), _, u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
-      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.continuation.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, _, Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
-      %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.continuation.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_continuation.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective_orig(o), gtb.objective(o)) : {Gt.continuation.of(_, Gt.status_name(s), u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.status_name(s), GoalText.gt_status_name(s), gtb.status_name(s)) : {Gt.continuation.of(GoalText.gt_objective_orig(o), _, u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, _, Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
       {==}
 
 def gtb.objective_updated(g: Gt.Goal) -> {Gt.objective_updated(g) == GoalText.gt_objective_updated(g) : String}:
   match g:
     case Gt.Goal{+s, +o, +b, +u, t}:
-      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective(o), gtb.objective(o)) : {Gt.objective_updated.of(_, Gt.status_name(s), u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
-      %Equal.sym(String, Gt.status_name(s), GoalText.gt_status_name(s), gtb.status_name(s)) : {Gt.objective_updated.of(GoalText.gt_objective(o), _, u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
-      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, _, Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
-      %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_objective_updated.of(GoalText.gt_objective(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective_orig(o), gtb.objective(o)) : {Gt.objective_updated.of(_, Gt.status_name(s), u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.status_name(s), GoalText.gt_status_name(s), gtb.status_name(s)) : {Gt.objective_updated.of(GoalText.gt_objective_orig(o), _, u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, _, Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
       {==}
 
 def gtb.budget_limit(g: Gt.Goal) -> {Gt.budget_limit(g) == GoalText.gt_budget_limit(g) : String}:
   match g:
     case Gt.Goal{s, +o, +b, u, t}:
-      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective(o), gtb.objective(o)) : {Gt.budget_limit.of(_, u, Gt.budget_text(b), t) == GoalText.gt_budget_limit.of(GoalText.gt_objective(o), u, GoalText.gt_budget_text(b), t) : String}
-      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.budget_limit.of(GoalText.gt_objective(o), u, _, t) == GoalText.gt_budget_limit.of(GoalText.gt_objective(o), u, GoalText.gt_budget_text(b), t) : String}
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective_orig(o), gtb.objective(o)) : {Gt.budget_limit.of(_, u, Gt.budget_text(b), t) == GoalText.gt_budget_limit.of(GoalText.gt_objective_orig(o), u, GoalText.gt_budget_text(b), t) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.budget_limit.of(GoalText.gt_objective_orig(o), u, _, t) == GoalText.gt_budget_limit.of(GoalText.gt_objective_orig(o), u, GoalText.gt_budget_text(b), t) : String}
       {==}
 
 def gtb.prompt(k: Gt.Prompt, g: Gt.Goal) -> {Gt.prompt(k, g) == GoalText.gt_prompt(k, g) : String}:
@@ -214,13 +214,13 @@ def gtb.report_of(ps: List<&2, String>) -> {Gt.report.of(ps) == GoalText.gt_repo
     case p <> rest:
       {==}
 
-def gtb.report(g: Gt.Goal) -> {Gt.report(g) == GoalText.gt_report(g) : Maybe<&2, String>}:
+def gtb.report(g: Gt.Goal) -> {Gt.report(g) == GoalText.gt_report_orig(g) : Maybe<&2, String>}:
   match g:
     case Gt.Goal{s, o, +b, +u, +t}:
       %Equal.sym(List<&2, String>, Gt.report.parts(b, u, String.eq(t, "0"), t), GoalText.gt_report.parts(b, u, String.eq(t, "0"), t), gtb.parts(b, u, String.eq(t, "0"), t)) : {Gt.report.of(_) == GoalText.gt_report.of(GoalText.gt_report.parts(b, u, String.eq(t, "0"), t)) : Maybe<&2, String>}
       gtb.report_of(GoalText.gt_report.parts(b, u, String.eq(t, "0"), t))
 
-def gtb.remaining(b: Maybe<&2, String>, +u: String) -> {Gt.remaining(b, u) == GoalText.gt_remaining(b, u) : Maybe<&2, String>}:
+def gtb.remaining(b: Maybe<&2, String>, +u: String) -> {Gt.remaining(b, u) == GoalText.gt_remaining_orig(b, u) : Maybe<&2, String>}:
   match b:
     case None{}:
       {==}
@@ -228,7 +228,7 @@ def gtb.remaining(b: Maybe<&2, String>, +u: String) -> {Gt.remaining(b, u) == Go
       %Equal.sym(String, Gt.left(x, u), GoalText.gt_left(x, u), gtb.left(x, u)) : {Some{_} == Some{GoalText.gt_left(x, u)} : Maybe<&2, String>}
       {==}
 
-def gtb.complete(s: Gt.Status) -> {Gt.complete(s) == GoalText.gt_complete(s) : Bool}:
+def gtb.complete(s: Gt.Status) -> {Gt.complete(s) == GoalText.gt_complete_orig(s) : Bool}:
   match s:
     case Gt.SIdle{}:
       {==}
@@ -268,9 +268,9 @@ def gtb.host_report(due: Bool, g: Gt.Goal) -> {Gt.host.report(due, g) == GoalTex
 def gtb.host_set(g: Gt.Goal, +ask: Bool) -> {Gt.host.set(g, ask) == GoalText.gt_host.set(g, ask) : Maybe<&2, Gt.Host>}:
   match g:
     case Gt.Goal{+s, +o, +b, +u, +t}:
-      %Equal.sym(Maybe<&2, String>, Gt.remaining(b, u), GoalText.gt_remaining(b, u), gtb.remaining(b, u)) : {Some{Gt.Host{_, Gt.host.report(Bool.and(ask, Gt.complete(s)), Gt.Goal{s, o, b, u, t})}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
-      %Equal.sym(Bool, Gt.complete(s), GoalText.gt_complete(s), gtb.complete(s)) : {Some{Gt.Host{GoalText.gt_remaining(b, u), Gt.host.report(Bool.and(ask, _), Gt.Goal{s, o, b, u, t})}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
-      %Equal.sym(Maybe<&2, String>, Gt.host.report(Bool.and(ask, GoalText.gt_complete(s)), Gt.Goal{s, o, b, u, t}), GoalText.gt_host.report(Bool.and(ask, GoalText.gt_complete(s)), Gt.Goal{s, o, b, u, t}), gtb.host_report(Bool.and(ask, GoalText.gt_complete(s)), Gt.Goal{s, o, b, u, t})) : {Some{Gt.Host{GoalText.gt_remaining(b, u), _}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+      %Equal.sym(Maybe<&2, String>, Gt.remaining(b, u), GoalText.gt_remaining_orig(b, u), gtb.remaining(b, u)) : {Some{Gt.Host{_, Gt.host.report(Bool.and(ask, Gt.complete(s)), Gt.Goal{s, o, b, u, t})}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+      %Equal.sym(Bool, Gt.complete(s), GoalText.gt_complete_orig(s), gtb.complete(s)) : {Some{Gt.Host{GoalText.gt_remaining_orig(b, u), Gt.host.report(Bool.and(ask, _), Gt.Goal{s, o, b, u, t})}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+      %Equal.sym(Maybe<&2, String>, Gt.host.report(Bool.and(ask, GoalText.gt_complete_orig(s)), Gt.Goal{s, o, b, u, t}), GoalText.gt_host.report(Bool.and(ask, GoalText.gt_complete_orig(s)), Gt.Goal{s, o, b, u, t}), gtb.host_report(Bool.and(ask, GoalText.gt_complete_orig(s)), Gt.Goal{s, o, b, u, t})) : {Some{Gt.Host{GoalText.gt_remaining_orig(b, u), _}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
       {==}
 
 def gtb.host_of(idle: Bool, g: Gt.Goal, +ask: Bool) -> {Gt.host.of(idle, g, ask) == GoalText.gt_host.of(idle, g, ask) : Maybe<&2, Gt.Host>}:
@@ -289,3 +289,105 @@ def gtb.host(g: Gt.Goal, +ask: Bool) -> {Gt.host(g, ask) == GoalText.gt_host(g, 
         case Some{x}:
           %Equal.sym(Bool, Gt.host.idle(s), GoalText.gt_host.idle(s), gtb.idle(s)) : {Gt.host.of(_, Gt.Goal{s, Some{x}, b, u, t}, ask) == GoalText.gt_host(Gt.Goal{s, Some{x}, b, u, t}, ask) : Maybe<&2, Gt.Host>}
           gtb.host_of(GoalText.gt_host.idle(s), Gt.Goal{s, Some{x}, b, u, t}, ask)
+
+def gtb.objective_orig(m: Maybe<&2, String>) -> {Gt.objective(m) == GoalText.gt_objective_orig(m) : String}:
+  match m:
+    case None{}:
+      {==}
+    case Some{o}:
+      gtb.escape(o)
+
+def gtb.budget_limit_orig(g: Gt.Goal) -> {Gt.budget_limit(g) == GoalText.gt_budget_limit(g) : String}:
+  match g:
+    case Gt.Goal{s, +o, +b, u, t}:
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective_orig(o), gtb.objective_orig(o)) : {Gt.budget_limit.of(_, u, Gt.budget_text(b), t) == GoalText.gt_budget_limit.of(GoalText.gt_objective_orig(o), u, GoalText.gt_budget_text(b), t) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.budget_limit.of(GoalText.gt_objective_orig(o), u, _, t) == GoalText.gt_budget_limit.of(GoalText.gt_objective_orig(o), u, GoalText.gt_budget_text(b), t) : String}
+      {==}
+
+def gtb.continuation_orig(g: Gt.Goal) -> {Gt.continuation(g) == GoalText.gt_continuation(g) : String}:
+  match g:
+    case Gt.Goal{+s, +o, +b, +u, t}:
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective_orig(o), gtb.objective_orig(o)) : {Gt.continuation.of(_, Gt.status_name(s), u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.status_name(s), GoalText.gt_status_name(s), gtb.status_name(s)) : {Gt.continuation.of(GoalText.gt_objective_orig(o), _, u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, _, Gt.left_text(b, u)) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_continuation.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      {==}
+
+def gtb.objective_updated_orig(g: Gt.Goal) -> {Gt.objective_updated(g) == GoalText.gt_objective_updated(g) : String}:
+  match g:
+    case Gt.Goal{+s, +o, +b, +u, t}:
+      %Equal.sym(String, Gt.objective(o), GoalText.gt_objective_orig(o), gtb.objective_orig(o)) : {Gt.objective_updated.of(_, Gt.status_name(s), u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.status_name(s), GoalText.gt_status_name(s), gtb.status_name(s)) : {Gt.objective_updated.of(GoalText.gt_objective_orig(o), _, u, Gt.budget_text(b), Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.budget_text(b), GoalText.gt_budget_text(b), gtb.budget_text(b)) : {Gt.objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, _, Gt.left_text(b, u)) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      %Equal.sym(String, Gt.left_text(b, u), GoalText.gt_left_text(b, u), gtb.left_text(b, u)) : {Gt.objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), _) == GoalText.gt_objective_updated.of(GoalText.gt_objective_orig(o), GoalText.gt_status_name(s), u, GoalText.gt_budget_text(b), GoalText.gt_left_text(b, u)) : String}
+      {==}
+
+def gtb.prompt_orig(k: Gt.Prompt, g: Gt.Goal) -> {Gt.prompt(k, g) == GoalText.gt_prompt(k, g) : String}:
+  match k:
+    case Gt.KContinuation{}:
+      gtb.continuation_orig(g)
+    case Gt.KBudgetLimit{}:
+      gtb.budget_limit_orig(g)
+    case Gt.KObjectiveUpdated{}:
+      gtb.objective_updated_orig(g)
+
+def gtb.complete_orig(s: Gt.Status) -> {Gt.complete(s) == GoalText.gt_complete_orig(s) : Bool}:
+  match s:
+    case Gt.SIdle{}:
+      {==}
+    case Gt.SActive{}:
+      {==}
+    case Gt.SPaused{}:
+      {==}
+    case Gt.SBudgetLimited{}:
+      {==}
+    case Gt.SComplete{}:
+      {==}
+    case Gt.SError{}:
+      {==}
+
+def gtb.report_orig(g: Gt.Goal) -> {Gt.report(g) == GoalText.gt_report_orig(g) : Maybe<&2, String>}:
+  match g:
+    case Gt.Goal{s, o, +b, +u, +t}:
+      %Equal.sym(List<&2, String>, Gt.report.parts(b, u, String.eq(t, "0"), t), GoalText.gt_report.parts(b, u, String.eq(t, "0"), t), gtb.parts(b, u, String.eq(t, "0"), t)) : {Gt.report.of(_) == GoalText.gt_report.of(GoalText.gt_report.parts(b, u, String.eq(t, "0"), t)) : Maybe<&2, String>}
+      gtb.report_of(GoalText.gt_report.parts(b, u, String.eq(t, "0"), t))
+
+def gtb.host_report_orig(due: Bool, g: Gt.Goal) -> {Gt.host.report(due, g) == GoalText.gt_host.report(due, g) : Maybe<&2, String>}:
+  match due:
+    case True{}:
+      gtb.report_orig(g)
+    case False{}:
+      {==}
+
+def gtb.remaining_orig(b: Maybe<&2, String>, +u: String) -> {Gt.remaining(b, u) == GoalText.gt_remaining_orig(b, u) : Maybe<&2, String>}:
+  match b:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %Equal.sym(String, Gt.left(x, u), GoalText.gt_left(x, u), gtb.left(x, u)) : {Some{_} == Some{GoalText.gt_left(x, u)} : Maybe<&2, String>}
+      {==}
+
+def gtb.host_set_orig(g: Gt.Goal, +ask: Bool) -> {Gt.host.set(g, ask) == GoalText.gt_host.set(g, ask) : Maybe<&2, Gt.Host>}:
+  match g:
+    case Gt.Goal{+s, +o, +b, +u, +t}:
+      %Equal.sym(Maybe<&2, String>, Gt.remaining(b, u), GoalText.gt_remaining_orig(b, u), gtb.remaining_orig(b, u)) : {Some{Gt.Host{_, Gt.host.report(Bool.and(ask, Gt.complete(s)), Gt.Goal{s, o, b, u, t})}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+      %Equal.sym(Bool, Gt.complete(s), GoalText.gt_complete_orig(s), gtb.complete_orig(s)) : {Some{Gt.Host{GoalText.gt_remaining_orig(b, u), Gt.host.report(Bool.and(ask, _), Gt.Goal{s, o, b, u, t})}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+      %Equal.sym(Maybe<&2, String>, Gt.host.report(Bool.and(ask, GoalText.gt_complete_orig(s)), Gt.Goal{s, o, b, u, t}), GoalText.gt_host.report(Bool.and(ask, GoalText.gt_complete_orig(s)), Gt.Goal{s, o, b, u, t}), gtb.host_report_orig(Bool.and(ask, GoalText.gt_complete_orig(s)), Gt.Goal{s, o, b, u, t})) : {Some{Gt.Host{GoalText.gt_remaining_orig(b, u), _}} == GoalText.gt_host.set(Gt.Goal{s, o, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+      {==}
+
+def gtb.host_of_orig(idle: Bool, g: Gt.Goal, +ask: Bool) -> {Gt.host.of(idle, g, ask) == GoalText.gt_host.of(idle, g, ask) : Maybe<&2, Gt.Host>}:
+  match idle:
+    case True{}:
+      {==}
+    case False{}:
+      gtb.host_set_orig(g, ask)
+
+def gtb.host_orig(g: Gt.Goal, +ask: Bool) -> {Gt.host(g, ask) == GoalText.gt_host(g, ask) : Maybe<&2, Gt.Host>}:
+  match g:
+    case Gt.Goal{+s, o, b, u, t}:
+      match o:
+        case None{}:
+          {==}
+        case Some{x}:
+          %Equal.sym(Bool, Gt.host.idle(s), GoalText.gt_host.idle(s), gtb.idle(s)) : {Gt.host.of(_, Gt.Goal{s, Some{x}, b, u, t}, ask) == GoalText.gt_host(Gt.Goal{s, Some{x}, b, u, t}, ask) : Maybe<&2, Gt.Host>}
+          gtb.host_of_orig(GoalText.gt_host.idle(s), Gt.Goal{s, Some{x}, b, u, t}, ask)

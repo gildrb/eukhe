@@ -318,14 +318,25 @@ law revive_ffi_reads:
   for got: {rv_read(s) == Some{f} : Maybe<&2, Rv.Facts>}
   {FR.ffi(s) == rv_reply(f) : String}
 
-# LAW revive_ffi_malformed_exact: every input that is not exactly one request (an unknown tag, a
-# number past the wire, input left over) gets exactly the error form 'E ',
-# then "revive: malformed request"
-# EXCLUDES: a revival on garbage, a request with input after it answered
-law revive_ffi_malformed_exact:
+# LAW revive_ffi_exact: every input the entry does not answer with the
+# error form is exactly one request Rust writes (rv_spell, the wire
+# primitives in Rust's field order) whose numbers fit the wire
+# EXCLUDES: a revival on garbage (an unknown tag, a number past the wire,
+#   a field misread), a request with input after it answered
+law revive_ffi_exact:
   for +s: String
-  for no: {rv_read(s) == None{} : Maybe<&2, Rv.Facts>}
-  {FR.ffi(s) == SCon{'E', SCon{' ', "revive: malformed request"}} : String}
+  for ok: {LawsBase.wire_opens_err(FR.ffi(s)) == False{} : Bool}
+  exs f: Rv.Facts
+  {s == rv_spell(f) : String} & {rv_fits(f) == True{} : Bool}
+
+# LAW revive_ffi_refuses: every error the entry answers, on every input, is
+# exactly the error form 'E ', then "revive: malformed request"
+# EXCLUDES: an error text that varies with the input, a second error form,
+#   a veto reply that opens like the error form
+law revive_ffi_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FR.ffi(s)) == True{} : Bool}
+  {FR.ffi(s) == Wr.err("revive: malformed request") : String}
 
 # LAW revive_veto_ages_as_model: the entry's model (Rv.veto) judges a stamp a ms old by the
 # busy-evidence model's freshness (Rv.fresh, which revive_after_refresh

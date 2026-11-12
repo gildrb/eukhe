@@ -6,11 +6,12 @@ import ./entry.bend as AuthFlightEntry
 
 # (A1) What no order of events breaks
 # -----------------------------------
-# These laws run the desk the entry steps (F.desk.step: every input string
-# steps it as the event it reads, or keeps it, laws/auth_flight/entry.bend
-# flight_step_reads and flight_step_malformed_exact) over any events, any
-# callers of any providers, in any order, from any desk or from the
-# open's empty desk.
+# Requirements A1.1, A1.4, A1.6 (table: laws/auth_flight/entry.bend).
+# These laws run the desk the entry steps (F.desk.step: an input that is
+# one event Rust writes steps it as that event, flight_step_answers; any
+# other input is refused with the desk kept, flight_step_reads_only_events
+# and flight_step_refused_keeps) over any events, any callers of any
+# providers, in any order, from any desk or from the open's empty desk.
 
 # Runs
 
@@ -178,7 +179,7 @@ def af_unwinds(e: F.DEv, +j: Nat) -> Bool:
     case F.Joiners{p}:
       False{}
 
-# LAW flight_no_caller_dropped: from any desk, after any event, every live
+# LAW flight_no_caller_dropped (A1.4): from any desk, after any event, every live
 # caller other than one that unwinds is still live or the answer ends its
 # refresh (done or failed)
 # EXCLUDES: a caller dropped without an outcome (a lost wake-up: a joiner
@@ -194,7 +195,7 @@ law flight_no_caller_dropped:
 
 # Laws: every order of events
 
-# LAW flight_one_leader: after any events in any order (any callers of
+# LAW flight_one_leader (A1.1): after any events in any order (any callers of
 # any providers), at most one live caller leads each provider's flight
 # EXCLUDES: a second leader on board (two token fetches with one
 #   single-use refresh token), a leader kept after its land
@@ -203,7 +204,7 @@ law flight_one_leader:
   for +p: String
   {Nat.is_le(af_leaders(p, AuthFlightEntry.af_cs(af_run(evs))), 1n) == True{} : Bool}
 
-# LAW flight_one_fetch_each: after any events in any order, at most one
+# LAW flight_one_fetch_each (A1.1): after any events in any order, at most one
 # live caller of each provider fetches
 # EXCLUDES: a fetch while a fetch of the same provider is in flight
 law flight_one_fetch_each:
@@ -211,7 +212,7 @@ law flight_one_fetch_each:
   for +p: String
   {Nat.is_le(af_fetchers(p, AuthFlightEntry.af_cs(af_run(evs))), 1n) == True{} : Bool}
 
-# LAW flight_no_lost_wakeup: after any events in any order, every waiting
+# LAW flight_no_lost_wakeup (A1.4): after any events in any order, every waiting
 # caller waits on its provider's flight while a live caller leads it
 # EXCLUDES: a joiner left waiting after its flight landed or its leader
 #   unwound (it would wait forever), a join of a flight nobody leads
@@ -219,7 +220,7 @@ law flight_no_lost_wakeup:
   for +evs: List<&2, F.DEv>
   {af_led_all(AuthFlightEntry.af_cs(af_run(evs)), AuthFlightEntry.af_cs(af_run(evs))) == True{} : Bool}
 
-# LAW flight_done_once: after any events, an event whose answer ends
+# LAW flight_done_once (A1.6): after any events, an event whose answer ends
 # caller k's refresh ends it exactly once; then k is no longer live, and
 # no answer to any later events names k
 # EXCLUDES: a Done twice, an act after the Done (a finished caller woken

@@ -23,7 +23,7 @@ def ad.add_succ(a: Nat, -b: Nat) -> {1n+Nat.add(a, b) == Nat.add(a, 1n+b) : Nat}
 # proof_admission_live: the live controller (Ad.Live in bend/admission.bend)
 # against the model: on any state of the model, an op of the live
 # controller on the model's live tickets gives the live tickets of the
-# model's op (LAWS.bend admission_live_step). Each part of an op commutes
+# model's op (laws/admission.bend admission_live_step). Each part of an op commutes
 # with taking the live tickets (`Laws.adl_lives`): a count, a grant, a
 # preemption, an admit (a ticket appended, numbered by the length), and a
 # ticket found, set or dropped by its number (the numbers of the live

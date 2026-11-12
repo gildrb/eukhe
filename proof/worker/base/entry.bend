@@ -1,8 +1,8 @@
 # eukhe: lemmas the entry proofs of area worker share: the entry's own
 # encoders write what the spec spellers of laws/worker.bend spell (we_*),
-# its readers read every spelled value back (wr_*: the decoder of a request,
-# and the reply readers), and its answer to a request is the spelled reply
-# of the model (we_run).
+# its readers read every spelled value back (wr_*: the decoder of a
+# request; and the laws' reply readers wk_read_verdict, wk_read_pick), and
+# its answer to a request is the spelled reply of the model (we_run).
 
 import Base
 import ../../../bend/worker.bend as Wk
@@ -202,15 +202,15 @@ def wr_req(r: FWk.Req, +rest: String, h: {Worker.wk_req_fits(r) == True{} : Bool
       %Equal.sym(Wr.Dec<Maybe<&2, String>>, FWk.get_note(s2), Wr.Got{n, rest}, wr_note(n, rest, LAWorker.wb_and_r(Worker.wk_umsgs_fit(ms), Worker.wk_note_fits(n), h2))) : {FWk.get_req.note(c, ms, _) == Wr.Got{FWk.Forward{c, ms, n}, rest} : Wr.Dec<FWk.Req>}
       {==}
 
-# a verdict that fits
-def wr_verdict(v: Wk.Verdict, +rest: String, h: {Worker.wk_verdict_fits(v) == True{} : Bool}) -> {FWk.get_verdict(Worker.wk_spell_verdict(v, rest)) == Wr.Got{v, rest} : Wr.Dec<Wk.Verdict>}:
+# a verdict that fits: the laws' reply reader reads it back
+def wr_verdict(v: Wk.Verdict, +rest: String, h: {Worker.wk_verdict_fits(v) == True{} : Bool}) -> {Worker.wk_read_verdict(Worker.wk_spell_verdict(v, rest)) == Wr.Got{v, rest} : Wr.Dec<Wk.Verdict>}:
   match v:
     case Wk.Go{}:
       {==}
     case Wk.Hold{}:
       {==}
     case Wk.Release{+xs}:
-      %Equal.sym(Wr.Dec<List<&2, Nat>>, FWk.get_nats(LawsBase.wire_spell_nats(xs, rest)), Wr.Got{xs, rest}, wr_nats(xs, rest, h)) : {FWk.get_verdict.release(_) == Wr.Got{Wk.Release{xs}, rest} : Wr.Dec<Wk.Verdict>}
+      %Equal.sym(Wr.Dec<List<&2, Nat>>, FWk.get_nats(LawsBase.wire_spell_nats(xs, rest)), Wr.Got{xs, rest}, wr_nats(xs, rest, h)) : {Worker.wk_read_verdict.release(_) == Wr.Got{Wk.Release{xs}, rest} : Wr.Dec<Wk.Verdict>}
       {==}
     case Wk.Kept{}:
       {==}
@@ -219,17 +219,17 @@ def wr_verdict(v: Wk.Verdict, +rest: String, h: {Worker.wk_verdict_fits(v) == Tr
     case Wk.Ack{}:
       {==}
 
-# a pick that fits
-def wr_pick(x: Wk.Pick, +rest: String, h: {Worker.wk_pick_fits(x) == True{} : Bool}) -> {FWk.get_pick(Worker.wk_spell_pick(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.Pick>}:
+# a pick that fits: the laws' reply reader reads it back
+def wr_pick(x: Wk.Pick, +rest: String, h: {Worker.wk_pick_fits(x) == True{} : Bool}) -> {Worker.wk_read_pick(Worker.wk_spell_pick(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Wk.Pick>}:
   match x:
     case Wk.Pick{+c, +ps, +b}:
       +hh = h
       +h2 = LAWorker.wb_and_r(LawsBase.wire_fits(c), Bool.and(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b))), hh)
       +s2 = Wr.put_str(b, rest)
       +s1 = LawsBase.wire_spell_nats(ps, s2)
-      %wr_nat(c, s1, LAWorker.wb_and_l(LawsBase.wire_fits(c), Bool.and(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b))), hh)) : {FWk.get_pick.cursor(_) == Wr.Got{Wk.Pick{c, ps, b}, rest} : Wr.Dec<Wk.Pick>}
-      %Equal.sym(Wr.Dec<List<&2, Nat>>, FWk.get_nats(s1), Wr.Got{ps, s2}, wr_nats(ps, s2, LAWorker.wb_and_l(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b)), h2))) : {FWk.get_pick.picked(c, _) == Wr.Got{Wk.Pick{c, ps, b}, rest} : Wr.Dec<Wk.Pick>}
-      %wr_str(b, rest, LAWorker.wb_and_r(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b)), h2)) : {FWk.get_pick.body(c, ps, _) == Wr.Got{Wk.Pick{c, ps, b}, rest} : Wr.Dec<Wk.Pick>}
+      %wr_nat(c, s1, LAWorker.wb_and_l(LawsBase.wire_fits(c), Bool.and(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b))), hh)) : {Worker.wk_read_pick.cursor(_) == Wr.Got{Wk.Pick{c, ps, b}, rest} : Wr.Dec<Wk.Pick>}
+      %Equal.sym(Wr.Dec<List<&2, Nat>>, FWk.get_nats(s1), Wr.Got{ps, s2}, wr_nats(ps, s2, LAWorker.wb_and_l(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b)), h2))) : {Worker.wk_read_pick.picked(c, _) == Wr.Got{Wk.Pick{c, ps, b}, rest} : Wr.Dec<Wk.Pick>}
+      %wr_str(b, rest, LAWorker.wb_and_r(Worker.wk_nats_fit(ps), LawsBase.wire_fits(String.length(b)), h2)) : {Worker.wk_read_pick.body(c, ps, _) == Wr.Got{Wk.Pick{c, ps, b}, rest} : Wr.Dec<Wk.Pick>}
       {==}
 
 # the entry on a spelled request that fits, then rest: the request is read

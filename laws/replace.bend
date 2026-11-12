@@ -7,7 +7,7 @@ import ../bend/semver.bend as Sv
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
-# The orphan entry of the compiled core (bend/ffi_orphan.bend)
+# The daemon replacement of the model (bend/replace.bend): which client start replaces the running daemon
 
 # LAW replacement_terminates: replacements stop. Client starts whose builds are all in bs (k
 # builds) replace the daemon k - 1 times at most

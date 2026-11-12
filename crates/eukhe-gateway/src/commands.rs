@@ -58,7 +58,7 @@ pub(crate) fn parse(text: &str) -> Parsed {
 }
 
 /// The `/help` text: the core's answer to a lone `/` (laws
-/// `gateway_commands_spec`, `gateway_commands_example`), so the command
+/// `gateway_commands_lone_slash`, `gateway_commands_more_example`), so the command
 /// list has one copy, in the Bend model.
 pub(crate) fn help() -> String {
     let answer = parse_call("/").and_then(|parsed| match parsed {

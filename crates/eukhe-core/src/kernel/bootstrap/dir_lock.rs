@@ -10,7 +10,9 @@
 //! core (`bend/ffi_kernel_local.bend` requests 1 and 2: `keep` and
 //! `attempt` of `lock.of` in `bend/kernel_local.bend`; laws
 //! `kernel_lock_sweep_removes_dead`, `kernel_lock_sweep_keeps_live`,
-//! `kernel_lock_judge`); this file reads the dir, the lock and the pids,
+//! `kernel_sweep_removes_dead_leftovers`, `kernel_lock_got_iff_linked`,
+//! `kernel_lock_busy_while_in_use`, `kernel_lock_frees_stale`); this file
+//! reads the dir, the lock and the pids,
 //! and does what the core answers.
 
 use std::io::Write;

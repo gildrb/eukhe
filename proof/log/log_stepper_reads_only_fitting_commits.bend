@@ -1,8 +1,10 @@
 # eukhe: the proof of LAW log_stepper_reads_only_fitting_commits
 #
-# As log_stepper_reads_only_commits (pe.bools_exact), and the count fits
-# the wire: an encoding whose count does not fit reads as no list
-# (wire_nat_too_long), not as the list decoded.
+# A list of Bools that reads gives the prefix of the input
+# (pe.bools_exact), and its count fits the wire: an encoding whose count
+# does not fit reads as no list (wire_nat_too_long), not as the list
+# decoded; input left over, no list or a refused open answers the error
+# form, which the premise refutes.
 
 import Base
 import ../../bend/log.bend as Lr

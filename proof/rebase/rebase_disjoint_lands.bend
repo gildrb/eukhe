@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW rebase_disjoint_lands
 #
-# PROOF: the rule is the spec's (rebase_refines). The edit is valid
+# PROOF: the rule is the spec's (rr.refines). The edit is valid
 # (dl.valid) and the head differs, so the replacement tries context 0
 # first (dl.first), whose window is its own lines, unanchored (dl.win0);
 # the base and the head each hold one copy, so it lands at the head's
@@ -13,7 +13,7 @@ import ../../bend/rebase.bend as R
 import ../../spec/harness/rebase.bend as RbSpec
 import ../../laws/rebase.bend as Rebase
 import ./base.bend as LR
-import ./rebase_refines.bend as PRebaseRefines
+import ./base/refines.bend as LRR
 
 # at context 0 the window of a replacement within b is its own lines
 def dl.win0(+b: List<&2, Nat>, +s: Nat, +t: Nat, +inside: {Nat.is_le(t, List.length(&2, Nat, b)) == True{} : Bool}) -> {RbSpec.window(b, s, t, 0n) == R.Win{False{}, List.take(&2, Nat, List.drop(&2, Nat, b, s), Nat.sub(t, s)), False{}, 0n, Nat.sub(t, s)} : R.Win}:
@@ -88,7 +88,7 @@ def Rebase.rebase_disjoint_lands(b, h, s, t, p, j, apart, inside, stale, once_b,
   +a = apart
   +ins = inside
   +oh = once_h
-  %Equal.sym(R.Outcome, R.rebase(b, h, l), RbSpec.rebase(b, h, l), Rebase.rebase_refines(b, h, l)) : {_ == R.Rebased{[f]} : R.Outcome}
+  %Equal.sym(R.Outcome, R.rebase(b, h, l), RbSpec.rebase(b, h, l), LRR.rr.refines(b, h, l)) : {_ == R.Rebased{[f]} : R.Outcome}
   %Equal.sym(Maybe<&2, Nat>, RbSpec.bad(l, List.length(&2, Nat, b)), None{}, dl.valid(b, s, t, p, a, ins)) : {RbSpec.rebase.of(_, RbSpec.same(b, h), b, h, l) == R.Rebased{[f]} : R.Outcome}
   %Equal.sym(Bool, RbSpec.same(b, h), False{}, stale) : {RbSpec.rebase.of(None{}, _, b, h, l) == R.Rebased{[f]} : R.Outcome}
   %Equal.sym(R.Land, RbSpec.land(b, h, R.Edit{s, t, p}, 0n), R.Lands{f}, dl.land(b, h, s, t, p, j, a, ins, once_b, oh)) : {RbSpec.crossed(RbSpec.land_all.of(_, R.Rebased{Nil{}}), List.length(&2, Nat, h)) == R.Rebased{[f]} : R.Outcome}

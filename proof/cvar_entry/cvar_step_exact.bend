@@ -11,4 +11,4 @@ import ../../laws/cvar_entry.bend as CvarEntry
 import ./base.bend as LB
 
 def CvarEntry.cvar_step_exact(bs, as, s):
-  LB.cve.key(bs, as, Wr.get_nat(s))
+  LB.cve.key_orig(bs, as, Wr.get_nat(s))

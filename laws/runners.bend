@@ -20,6 +20,56 @@ import ./base.bend as LawsBase
 # and the registry test in crates/eukhe-core/src/durable/runner/tests.rs
 # compares the real registry with the core's.
 
+# R4: the call asked
+def ru_asked(o: Ru.Out) -> Bool:
+  match o:
+    case Ru.Out{a, e}:
+      a
+
+# R4: a client is attached (it may stay silent)
+def ru_client(k: Ru.Asker) -> Bool:
+  match k:
+    case Ru.NoClient{}:
+      False{}
+    case Ru.Silent{}:
+      True{}
+    case Ru.Says{y}:
+      True{}
+
+# R4: the user said no
+def ru_says_no(k: Ru.Asker) -> Bool:
+  match k:
+    case Ru.NoClient{}:
+      False{}
+    case Ru.Silent{}:
+      False{}
+    case Ru.Says{y}:
+      Bool.not(y)
+
+# R4: the call ran unasked
+def ru_auto(e: Ru.End) -> Bool:
+  match e:
+    case Ru.Ran{h}:
+      match h:
+        case Ru.Auto{}:
+          True{}
+        case Ru.Approved{}:
+          False{}
+    case Ru.Refused{w}:
+      False{}
+
+# R4: the call was refused as denied
+def ru_denied(e: Ru.End) -> Bool:
+  match e:
+    case Ru.Ran{h}:
+      False{}
+    case Ru.Refused{w}:
+      match w:
+        case Ru.Denied{}:
+          True{}
+        case Ru.Unanswered{}:
+          False{}
+
 # LAW gate_covers_every_runner: every tool of a session's registry that runs code that may run a
 # program is gated
 law gate_covers_every_runner:
@@ -43,20 +93,38 @@ law cell_runs_only_within_or_approved:
   for ran: {Ru.ran(Ru.cell(caps, auto, a)) == True{} : Bool}
   {Bool.or(Ru.within(caps, auto), Ru.Asker.yes(a)) == True{} : Bool}
 
-# LAW cell_within_runs_unasked: a call whose caps are within the auto set runs, unasked
-law cell_within_runs_unasked:
+# LAW cell_asked (R4): a gated call asks exactly when its caps are not
+# within the auto set and a client is attached (silent or answering), for
+# every caps, auto set and asker
+# EXCLUDES: a call asked without a client, a call within the auto set
+#   asked, an asked flag lost for a silent client or a denial
+law cell_asked:
   for +caps: List<&2, Nat>
   for +auto: List<&2, Nat>
-  for a: Ru.Asker
-  for free: {Ru.within(caps, auto) == True{} : Bool}
-  {Ru.cell(caps, auto, a) == Ru.Out{False{}, Ru.Ran{Ru.Auto{}}} : Ru.Out}
+  for +a: Ru.Asker
+  {ru_asked(Ru.cell(caps, auto, a)) == Bool.and(Bool.not(Ru.within(caps, auto)), ru_client(a)) : Bool}
 
-# LAW cell_approved_runs: a call outside the auto set that the user approves runs, asked
-law cell_approved_runs:
+# LAW cell_ran_how (R4): a gated call that ran ran unasked (Auto) exactly
+# when its caps are within the auto set, else approved
+# EXCLUDES: a call outside the auto set reported as unasked, a call within
+#   it reported as approved
+law cell_ran_how:
   for +caps: List<&2, Nat>
   for +auto: List<&2, Nat>
-  for held: {Ru.within(caps, auto) == False{} : Bool}
-  {Ru.cell(caps, auto, Ru.Says{True{}}) == Ru.Out{True{}, Ru.Ran{Ru.Approved{}}} : Ru.Out}
+  for +a: Ru.Asker
+  for ran: {Ru.ran(Ru.cell(caps, auto, a)) == True{} : Bool}
+  {ru_auto(Ru.Out.end(Ru.cell(caps, auto, a))) == Ru.within(caps, auto) : Bool}
+
+# LAW cell_refused_why (R4): a gated call that did not run was denied
+# exactly when the user said no, else it ended unanswered
+# EXCLUDES: a silent client or no client reported as a denial, a no
+#   reported as unanswered
+law cell_refused_why:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for +a: Ru.Asker
+  for stopped: {Ru.ran(Ru.cell(caps, auto, a)) == False{} : Bool}
+  {ru_denied(Ru.Out.end(Ru.cell(caps, auto, a))) == ru_says_no(a) : Bool}
 
 # LAW cell_no_yes_stops: a call outside the auto set without the user's approval (a denial,
 # no answer, no client) does not run
@@ -265,130 +333,25 @@ def spell_answer(q: FRu.Req) -> String:
 def malformed() -> String:
   SCon{'E', SCon{' ', "runners: malformed request"}}
 
-# Reader: the requests, read with the wire primitives
-# ---------------------------------------------------
-
-def read_ns(s: String) -> Wr.Dec<List<&2, Nat>>:
-  Wr.get_list(~Nat, ~Wr.get_nat, s)
-
-def read_says(r: Wr.Dec<Bool>) -> Wr.Dec<Ru.Asker>:
-  match r:
-    case Wr.Got{y, s}:
-      Wr.Got{Ru.Says{y}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_asker.tag(t: Nat, s: String) -> Wr.Dec<Ru.Asker>:
-  match t:
-    case 0n:
-      Wr.Got{Ru.NoClient{}, s}
-    case 1n:
-      Wr.Got{Ru.Silent{}, s}
-    case 2n:
-      read_says(Wr.get_bool(s))
-    case 3n+u:
-      Wr.Bad{}
-
-def read_asker(r: Wr.Dec<Nat>) -> Wr.Dec<Ru.Asker>:
-  match r:
-    case Wr.Got{t, s}:
-      read_asker.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_within.auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      Wr.Got{FRu.QWithin{c, a}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_within(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{c, s}:
-      read_within.auto(c, read_ns(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cell.asker(c: List<&2, Nat>, a: List<&2, Nat>, r: Wr.Dec<Ru.Asker>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{k, s}:
-      Wr.Got{FRu.QCell{c, a, k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cell.auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      read_cell.asker(c, a, read_asker(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_cell(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{c, s}:
-      read_cell.auto(c, read_ns(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_main(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{h, s}:
-      Wr.Got{FRu.QMain{h}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def read_req.tag(t: Nat, s: String) -> Wr.Dec<FRu.Req>:
-  match t:
-    case 0n:
-      read_within(read_ns(s))
-    case 1n:
-      read_cell(read_ns(s))
-    case 2n:
-      Wr.Got{FRu.QRegistry{}, s}
-    case 3n:
-      read_main(Wr.get_bool(s))
-    case 4n+u:
-      Wr.Bad{}
-
-def read_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FRu.Req>:
-  match r:
-    case Wr.Got{t, s}:
-      read_req.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s starts with, and what follows it
-def read_req(s: String) -> Wr.Dec<FRu.Req>:
-  read_req.go(Wr.get_nat(s))
-
-def spec.end(whole: Bool, q: FRu.Req) -> String:
-  match whole:
-    case True{}:
-      spell_answer(q)
-    case False{}:
-      malformed()
-
-def spec.run(r: Wr.Dec<FRu.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      spec.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      malformed()
-
-# the reply to s: the model's decision on the request s is exactly, else
-# the error form
-def spec(s: String) -> String:
-  spec.run(read_req(s))
-
-# LAW runners_ffi_exact: on every input the entry answers the model's decision on the request the input is exactly (whether a call runs unasked; how a gated call ends; the registry), and exactly the error form "runners: malformed request" on any other input
-# EXCLUDES: a decision other than the model's (a call run unasked outside
-#   the auto set, a denial read as a yes, a tool's gate or caps changed), a
-#   default for malformed input, a request misread, input left over
-#   ignored, another error text
-law runners_ffi_exact:
+# LAW runners_ffi_reads_only_requests (R1, R2): every input the entry does
+# not answer with the error form is exactly one request Rust writes
+# (spell_req, the wire primitives in Rust's field order)
+# EXCLUDES: a default for malformed input (an unknown tag or asker tag, a
+#   missing field), input left over answered
+law runners_ffi_reads_only_requests:
   for +s: String
-  {FRu.ffi(s) == spec(s) : String}
+  for ok: {LawsBase.wire_opens_err(FRu.ffi(s)) == False{} : Bool}
+  exs q: FRu.Req
+  {s == spell_req(q, "") : String}
+
+# LAW runners_ffi_refuses (R2): every error the entry answers, on every
+# input, is exactly "runners: malformed request"
+# EXCLUDES: an error text that varies with the input, a second error form,
+#   a decision that opens like the error form
+law runners_ffi_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FRu.ffi(s)) == True{} : Bool}
+  {FRu.ffi(s) == malformed() : String}
 
 # LAW runners_ffi_answers: every request Rust writes (every number within the wire) gets the model's decision
 # EXCLUDES: a request Rust writes refused or misread (the reader and the
@@ -407,7 +370,7 @@ law runners_ffi_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FRu.ffi(spell_req(q, more)) == malformed() : String}
 
-# LAW runners_ffi_example: anchor: the strings Rust sends: caps {exec} under {read} asks, under {exec} runs unasked; a cell under {read} answered yes runs approved, unanswered and with no client is refused unanswered, denied is refused denied; the registry; main's roster with chat memory; an asker tag 3 is refused
+# LAW runners_ffi_example: anchor, strings spelled by hand from the WIRE.md grammar (no Rust test vector holds them): caps {exec} under {read} asks, under {exec} runs unasked; a cell under {read} answered yes runs approved, unanswered and with no client is refused unanswered, denied is refused denied; the registry; main's roster with chat memory; an asker tag 3 is refused
 # EXCLUDES: another spelling of a request or a reply
 law runners_ffi_example:
   {FRu.ffi("0,1,2,1,0,") == "F" : String} &
@@ -422,10 +385,12 @@ law runners_ffi_example:
 
 # ---- runners: the decision, pinned to the requirement ----
 
-# LAWS (G4, the decision): the decision the entry answers, stated with
-# spec functions written from the requirement (bend/runners.bend header,
-# crates/eukhe-core/src/durable/registry.rs), never the model's own, so
-# R1's "the model's decision" is itself pinned.
+# LAWS (G4, the decision): the model the entry answers (runners_ffi_answers)
+# is pinned by laws stated from the requirement (bend/runners.bend header,
+# crates/eukhe-core/src/durable/registry.rs): R3 by runners_within_sound /
+# _complete, R4 by the cell_* laws, R5 by runners_registry_names /
+# _quiet, python_gated_each_call, bash_gated_each_step, R6 by
+# runners_main_names and the main_roster_* laws.
 #
 # R3: a call runs unasked exactly when each of its caps is a grantable
 #     effect (0 read to 5 protected; never 6 secret) in the auto set.
@@ -455,17 +420,79 @@ def ru_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
     case y <> rest:
       Bool.or(Nat.is_eq(y, x), ru_has(rest, x))
 
-# R3: an auto set may hold effect c (0 to 5)
-def ru_grantable(c: Nat) -> Bool:
-  Nat.is_lt(c, 6n)
-
-# R3: every cap is grantable and in the auto set
-def ru_within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
-  match caps:
+# R5, R6: the names of the tools ts, in order
+def ru_names(ts: List<&2, Ru.ToolReg>) -> List<&2, String>:
+  match ts:
     case Nil{}:
-      True{}
-    case +c <> rest:
-      Bool.and(Bool.and(ru_grantable(c), ru_has(auto, c)), ru_within(rest, auto))
+      Nil{}
+    case t <> rest:
+      Ru.ToolReg.name(t) <> ru_names(rest)
+
+# Laws
+# ----
+
+# LAW runners_within_sound (R3): when a call runs unasked, each of its caps
+# is a grantable effect (below 6, never secret) in the auto set
+# EXCLUDES: a cap outside the auto set run unasked, the secret effect run
+#   unasked
+law runners_within_sound:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for +i: Nat
+  for +c: Nat
+  for free: {Ru.within(caps, auto) == True{} : Bool}
+  for at: {List.get(&2, Nat, caps, i) == Some{c} : Maybe<&2, Nat>}
+  {Bool.and(Nat.is_lt(c, 6n), ru_has(auto, c)) == True{} : Bool}
+
+# LAW runners_within_complete (R3): when a call does not run unasked, some
+# cap of it is not a grantable effect in the auto set
+# EXCLUDES: a call whose every cap is granted asked anyway
+law runners_within_complete:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for held: {Ru.within(caps, auto) == False{} : Bool}
+  exs i: Nat
+  exs c: Nat
+  {List.get(&2, Nat, caps, i) == Some{c} : Maybe<&2, Nat>} & {Bool.and(Nat.is_lt(c, 6n), ru_has(auto, c)) == False{} : Bool}
+
+# LAW runners_registry_names (R5): a session installs exactly these tools,
+# in this order (the R5 list; crates/eukhe-core/src/durable/registry.rs)
+# EXCLUDES: a tool lost, added, renamed or moved
+law runners_registry_names:
+  {ru_names(Ru.registry()) == ["python", "zoom", "date", "workflow", "read", "edit", "grep", "glob", "bash", "dyn", "codemode", "pi.codemode.models.classify", "pi.codemode.models.generateImages"] : List<&2, String>}
+
+# LAW runners_registry_quiet (R5): every tool a session installs other than
+# `python` and `bash` runs no code of its own: no caps, ungated
+# EXCLUDES: a tool given caps or a gate it does not have (a spurious ask),
+#   a tool that runs code past the gate
+law runners_registry_quiet:
+  for +i: Nat
+  for +t: Ru.ToolReg
+  for at: {List.get(&2, Ru.ToolReg, Ru.registry(), i) == Some{t} : Maybe<&2, Ru.ToolReg>}
+  for other: {named_in(Ru.ToolReg.name(t), ["python", "bash"]) == False{} : Bool}
+  {quiet(t) == True{} : Bool}
+
+# LAW bash_gated_each_step (R5): the `bash` tool has the caps 0 to 6 and the
+# gate covers each of its steps
+# EXCLUDES: a bash step run past the gate, a cap of bash lost
+law bash_gated_each_step:
+  {Ru.find(Ru.registry(), "bash") == Some{Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}} : Maybe<&2, Ru.ToolReg>}
+
+# LAW runners_main_names (R6): main installs, in order, `zoom` and `date`
+# only with chat memory, then the three worker tools, then `read`, `grep`,
+# `glob` (both values of the chat flag: the whole domain)
+# EXCLUDES: chat tools on main without chat memory, a worker tool lost, a
+#   tool moved
+law runners_main_names:
+  {[ru_names(Ru.main_roster(True{})), ru_names(Ru.main_roster(False{}))] == [["zoom", "date", "worker_assign", "worker_forward", "worker_status", "read", "grep", "glob"], ["worker_assign", "worker_forward", "worker_status", "read", "grep", "glob"]] : List<&2, List<&2, String>>}
+
+# LAW cell_within_runs_unasked: a call whose caps are within the auto set runs, unasked
+law cell_within_runs_unasked:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  for free: {Ru.within(caps, auto) == True{} : Bool}
+  {Ru.cell(caps, auto, a) == Ru.Out{False{}, Ru.Ran{Ru.Auto{}}} : Ru.Out}
 
 # R4: how a gated call goes; free: it runs unasked (R3)
 def ru_cell(free: Bool, a: Ru.Asker) -> Ru.Out:
@@ -485,13 +512,133 @@ def ru_cell(free: Bool, a: Ru.Asker) -> Ru.Out:
             case False{}:
               Ru.Out{True{}, Ru.Refused{Ru.Denied{}}}
 
+# R3: an auto set may hold effect c (0 to 5)
+def ru_grantable(c: Nat) -> Bool:
+  Nat.is_lt(c, 6n)
+
+# R3: every cap is grantable and in the auto set
+def ru_within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match caps:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(ru_grantable(c), ru_has(auto, c)), ru_within(rest, auto))
+
+# LAW runners_cell_spec: a gated call within the auto set runs unasked; outside it, no client ends unanswered unasked, a silent client unanswered asked, a yes runs approved, a no is denied
+# EXCLUDES: a call asked without a client, a silent client read as a
+#   denial or a yes, an asked flag lost, a denial that runs
+law runners_cell_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  {Ru.cell(caps, auto, a) == ru_cell(ru_within(caps, auto), a) : Ru.Out}
+
+# LAW runners_within_spec: a call runs unasked exactly when each cap is a grantable effect (0 to 5) in the auto set
+# EXCLUDES: a cap outside the auto set run unasked, the secret effect run
+#   unasked, a cap in the auto set asked
+law runners_within_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  {Ru.within(caps, auto) == ru_within(caps, auto) : Bool}
+
+def read_says(r: Wr.Dec<Bool>) -> Wr.Dec<Ru.Asker>:
+  match r:
+    case Wr.Got{y, s}:
+      Wr.Got{Ru.Says{y}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_asker.tag(t: Nat, s: String) -> Wr.Dec<Ru.Asker>:
+  match t:
+    case 0n:
+      Wr.Got{Ru.NoClient{}, s}
+    case 1n:
+      Wr.Got{Ru.Silent{}, s}
+    case 2n:
+      read_says(Wr.get_bool(s))
+    case 3n+u:
+      Wr.Bad{}
+
+def read_asker(r: Wr.Dec<Nat>) -> Wr.Dec<Ru.Asker>:
+  match r:
+    case Wr.Got{t, s}:
+      read_asker.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_cell.asker(c: List<&2, Nat>, a: List<&2, Nat>, r: Wr.Dec<Ru.Asker>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{k, s}:
+      Wr.Got{FRu.QCell{c, a, k}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_cell.auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{a, s}:
+      read_cell.asker(c, a, read_asker(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ns(s: String) -> Wr.Dec<List<&2, Nat>>:
+  Wr.get_list(~Nat, ~Wr.get_nat, s)
+
+def read_cell(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      read_cell.auto(c, read_ns(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_main(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{h, s}:
+      Wr.Got{FRu.QMain{h}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_within.auto(c: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{a, s}:
+      Wr.Got{FRu.QWithin{c, a}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_within(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      read_within.auto(c, read_ns(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_req.tag(t: Nat, s: String) -> Wr.Dec<FRu.Req>:
+  match t:
+    case 0n:
+      read_within(read_ns(s))
+    case 1n:
+      read_cell(read_ns(s))
+    case 2n:
+      Wr.Got{FRu.QRegistry{}, s}
+    case 3n:
+      read_main(Wr.get_bool(s))
+    case 4n+u:
+      Wr.Bad{}
+
+def read_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      read_req.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s starts with, and what follows it
+def read_req(s: String) -> Wr.Dec<FRu.Req>:
+  read_req.go(Wr.get_nat(s))
+
 # R5: a tool that runs no code of its own
 def ru_plain(n: String) -> Ru.ToolReg:
   Ru.ToolReg{n, Nil{}, Ru.Ungated{}}
 
-# R5: every tool a session installs
-def ru_registry() -> List<&2, Ru.ToolReg>:
-  [Ru.ToolReg{"python", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
 
 # R6: main's roster, with chat memory or without
 def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
@@ -500,6 +647,10 @@ def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
       [ru_plain("zoom"), ru_plain("date"), ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
     case False{}:
       [ru_plain("worker_assign"), ru_plain("worker_forward"), ru_plain("worker_status"), ru_plain("read"), ru_plain("grep"), ru_plain("glob")]
+
+# R5: every tool a session installs
+def ru_registry() -> List<&2, Ru.ToolReg>:
+  [Ru.ToolReg{"python", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
 
 # the reply R3-R6 give a request
 def ru_reply(q: FRu.Req) -> String:
@@ -532,31 +683,6 @@ def ru_spec.run(r: Wr.Dec<FRu.Req>) -> String:
 def ru_spec(s: String) -> String:
   ru_spec.run(read_req(s))
 
-# Laws
-# ----
-
-# LAW runners_within_spec: a call runs unasked exactly when each cap is a grantable effect (0 to 5) in the auto set
-# EXCLUDES: a cap outside the auto set run unasked, the secret effect run
-#   unasked, a cap in the auto set asked
-law runners_within_spec:
-  for +caps: List<&2, Nat>
-  for +auto: List<&2, Nat>
-  {Ru.within(caps, auto) == ru_within(caps, auto) : Bool}
-
-# LAW runners_cell_spec: a gated call within the auto set runs unasked; outside it, no client ends unanswered unasked, a silent client unanswered asked, a yes runs approved, a no is denied
-# EXCLUDES: a call asked without a client, a silent client read as a
-#   denial or a yes, an asked flag lost, a denial that runs
-law runners_cell_spec:
-  for +caps: List<&2, Nat>
-  for +auto: List<&2, Nat>
-  for a: Ru.Asker
-  {Ru.cell(caps, auto, a) == ru_cell(ru_within(caps, auto), a) : Ru.Out}
-
-# LAW runners_registry_spec: a session installs exactly the R5 tools, in order
-# EXCLUDES: a tool lost, added or moved; a caps list or gate changed
-law runners_registry_spec:
-  {Ru.registry() == ru_registry() : List<&2, Ru.ToolReg>}
-
 # LAW runners_ffi_spec: on every input the entry answers the reply R3-R5 give the request the input is exactly, and the error form on any other input
 # EXCLUDES: a decision the model computes wrong (a call run unasked
 #   outside the auto set, a denial run, a tool lost from the registry), a
@@ -564,3 +690,27 @@ law runners_registry_spec:
 law runners_ffi_spec:
   for +s: String
   {FRu.ffi(s) == ru_spec(s) : String}
+
+# LAW runners_registry_spec: a session installs exactly the R5 tools, in order
+# EXCLUDES: a tool lost, added or moved; a caps list or gate changed
+law runners_registry_spec:
+  {Ru.registry() == ru_registry() : List<&2, Ru.ToolReg>}
+
+def spec.end(whole: Bool, q: FRu.Req) -> String:
+  match whole:
+    case True{}:
+      spell_answer(q)
+    case False{}:
+      malformed()
+
+def spec.run(r: Wr.Dec<FRu.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply to s: the model's decision on the request s is exactly, else
+# the error form
+def spec(s: String) -> String:
+  spec.run(read_req(s))

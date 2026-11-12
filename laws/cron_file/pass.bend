@@ -1,5 +1,5 @@
 # eukhe: the laws of area cron_file: the passes (the store's passes over
-# the jobs file, bend/cron_file.bend, each pinned to its spec)
+# the jobs file, bend/cron_file.bend, and the spec of each)
 #
 # The cron store (crates/eukhe-core/src/cron/store/state.rs, jobs.rs)
 # reads the jobs file under its lock and asks the entry
@@ -319,24 +319,6 @@ def take_once_spec(js: List<&2, CF.Slot>, +cs: List<&2, Maybe<&2, Nat>>, ts: Lis
 # Laws
 # ----
 
-# LAW cron_file_take_exact: a claim pass of the code that runs is the spec's on every file, due time and clock
-# EXCLUDES: a job claimed while a claim record names it, a claimed job missed, a pass that skips or
-#   reorders jobs
-law cron_file_take_exact:
-  for +js: List<&2, CF.Slot>
-  for +cs: List<&2, Maybe<&2, Nat>>
-  for +d: Nat
-  for +n: Nat
-  {CF.take(js, cs, d, n) == take_all_spec(js, cs, d, n) : List<&2, CS.Took>}
-
-# LAW cron_file_recover_exact: a recovery of the code that runs is the spec's on every file
-# EXCLUDES: a live claim record dropped, a cleared one kept, a record this build cannot read dropped,
-#   an interrupted job missed
-law cron_file_recover_exact:
-  for +js: List<&2, CF.Slot>
-  for +cs: List<&2, CF.Hold>
-  {CF.recover(js, cs) == recover_all_spec(js, cs) : CF.Swept}
-
 # LAW cron_file_finish_exact: a finish step of the code that runs is the spec's on every file, clock unit, result and clock
 # EXCLUDES: a claim record other than the dispatch's dropped, two dropped, a job other than the one
 #   the dispatch names counting the result, a result counted with no claim record of the dispatch
@@ -352,8 +334,9 @@ law cron_file_finish_exact:
 # The cron store writes a user's pause, stop, delete or cancel to the file
 # under its lock, as the file stands then (no copy another process changed
 # since); the laws below are why a later pass never undoes it: a pass
-# changes only active jobs. Neither pins which active jobs a pass changes
-# (the *_exact laws above do).
+# changes only active jobs. Neither says which active jobs a pass changes
+# (cron_file_finish_exact above and cron_file_entry_answers,
+# laws/cron_file/entry.bend, do).
 
 # LAW cron_file_take_spares_held: a claim pass of the code that runs answers Keep for every job that is not active (paused, finished or cancelled), on every file, due time and clock: a later claim pass never rolls, claims or changes a job the user held or that ended
 # EXCLUDES: a cancelled, paused or finished job claimed, rolled or given a next run by a claim pass

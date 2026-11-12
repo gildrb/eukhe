@@ -13,4 +13,4 @@ import ./base.bend as LA
 
 def McpUrl.mcp_url_spec(h):
   %Equal.sym(String, Mu.bare(h), McpUrl.mu_bare(h), LA.mub.bare(h)) : {Mu.refused.at(Bool.or(String.eq(_, "localhost"), String.ends_with(_, ".localhost")), _) == McpUrl.mu_refused(h) : Bool}
-  LA.mub.refused.at(Bool.or(String.eq(McpUrl.mu_bare(h), "localhost"), String.ends_with(McpUrl.mu_bare(h), ".localhost")), McpUrl.mu_bare(h))
+  LA.mub.refused.at_orig(Bool.or(String.eq(McpUrl.mu_bare(h), "localhost"), String.ends_with(McpUrl.mu_bare(h), ".localhost")), McpUrl.mu_bare(h))

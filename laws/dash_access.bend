@@ -38,13 +38,9 @@ import ./base.bend as LawsBase
 
 # Spec helpers
 # ------------
-
-def sp_cut(x: Ac.Authority, y: Ac.Authority, b: Bool) -> Ac.Authority:
-  match b:
-    case True{}:
-      x
-    case False{}:
-      y
+# An authority is stated by how it is written (sp_spell) and what makes
+# its writing well formed (sp_well), from the words of R1; the laws say
+# the code reads exactly the well-formed writings, and no other text.
 
 # R1: a char no authority holds
 def sp_forbidden(+c: Char) -> Bool:
@@ -58,24 +54,136 @@ def sp_holds(s: String) -> Bool:
     case SCon{c, t}:
       Bool.or(sp_forbidden(c), sp_holds(t))
 
-def sp_has_colon(s: String) -> Bool:
+# s holds the char k
+def sp_has(s: String, +k: Char) -> Bool:
   match s:
     case SNil{}:
       False{}
     case SCon{c, t}:
-      Bool.or(Char.is_eq(c, ':'), sp_has_colon(t))
+      Bool.or(Char.is_eq(c, k), sp_has(t, k))
+
+# R1: every char of s is a decimal digit
+def sp_all_digits(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Char.is_digit(c), sp_all_digits(t))
+
+def sp_value.go(s: String, +acc: Nat) -> Nat:
+  match s:
+    case SNil{}:
+      acc
+    case SCon{c, t}:
+      sp_value.go(t, Nat.add(Nat.mul(10n, acc), U32.to_nat(U32.sub(Char.to_u32(c), 48))))
+
+# R1: the decimal value of the digits s after acc (no bound: the law
+# bounds it)
+def sp_value(+acc: Nat, s: String) -> Nat:
+  sp_value.go(s, acc)
+
+# R1: a port as written after its ':': an optional '+', then the digits
+type SpPort is Data:
+  SpPort{plus: Bool, digits: String}
+
+# R1: an authority as written: a host that is not bracketed, or the inside
+# of an IPv6 literal's brackets; then a port, if one is written
+type SpAuth is Data:
+  SpPlain{host: String, port: Maybe<&2, SpPort>}
+  SpBracket{inside: String, port: Maybe<&2, SpPort>}
+
+def sp_sign(plus: Bool, ds: String) -> String:
+  match plus:
+    case True{}:
+      SCon{'+', ds}
+    case False{}:
+      ds
+
+# R1: the text of a port, with its ':'
+def sp_port_text(p: Maybe<&2, SpPort>) -> String:
+  match p:
+    case None{}:
+      SNil{}
+    case Some{q}:
+      match q:
+        case SpPort{plus, ds}:
+          SCon{':', sp_sign(plus, ds)}
+
+# R1: the text of an authority
+def sp_spell(a: SpAuth) -> String:
+  match a:
+    case SpPlain{h, p}:
+      String.append(h, sp_port_text(p))
+    case SpBracket{i, p}:
+      SCon{'[', String.append(i, SCon{']', sp_port_text(p)})}
+
+# R1: its host (an IPv6 literal keeps its brackets)
+def sp_name(a: SpAuth) -> String:
+  match a:
+    case SpPlain{h, p}:
+      h
+    case SpBracket{i, p}:
+      SCon{'[', String.append(i, "]")}
+
+def sp_port_of(p: Maybe<&2, SpPort>) -> Maybe<&2, Nat>:
+  match p:
+    case None{}:
+      None{}
+    case Some{q}:
+      match q:
+        case SpPort{plus, ds}:
+          Some{sp_value(0n, ds)}
+
+# R1: its port's value, if a port is written
+def sp_port(a: SpAuth) -> Maybe<&2, Nat>:
+  match a:
+    case SpPlain{h, p}:
+      sp_port_of(p)
+    case SpBracket{i, p}:
+      sp_port_of(p)
+
+# R1: a port is one or more digits worth at most 65535
+def sp_port_ok(p: Maybe<&2, SpPort>) -> Bool:
+  match p:
+    case None{}:
+      True{}
+    case Some{q}:
+      match q:
+        case SpPort{plus, +ds}:
+          Bool.and(Bool.not(String.is_empty(ds)), Bool.and(sp_all_digits(ds), Nat.is_le(sp_value(0n, ds), 65535n)))
+
+# R1: a host that is not bracketed: not empty, not starting with '[', no
+# ':'
+def sp_plain_ok(h: String) -> Bool:
+  match h:
+    case SNil{}:
+      False{}
+    case SCon{+c, t}:
+      Bool.and(Bool.not(Char.is_eq(c, '[')), Bool.not(sp_has(SCon{c, t}, ':')))
+
+def sp_well.parts(a: SpAuth) -> Bool:
+  match a:
+    case SpPlain{h, p}:
+      Bool.and(sp_plain_ok(h), sp_port_ok(p))
+    case SpBracket{i, p}:
+      Bool.and(Bool.not(sp_has(i, ']')), sp_port_ok(p))
+
+# R1: a well-formed authority: its host as above, the inside of brackets
+# without ']', a well-formed port, and no char an authority never holds
+def sp_well(+a: SpAuth) -> Bool:
+  Bool.and(Bool.not(sp_holds(sp_spell(a))), sp_well.parts(a))
+
+# R2: s with every ASCII capital made small
+def sp_lower(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{c, t}:
+      SCon{Char.to_lower(c), sp_lower(t)}
 
 # R2: a and b are equal but for ASCII case (Rust `eq_ignore_ascii_case`)
 def sp_ci(a: String, b: String) -> Bool:
-  match a b:
-    case SNil{} SNil{}:
-      True{}
-    case SNil{} SCon{y, v}:
-      False{}
-    case SCon{x, u} SNil{}:
-      False{}
-    case SCon{x, u} SCon{y, v}:
-      Bool.and(Char.is_eq(Char.to_lower(x), Char.to_lower(y)), sp_ci(u, v))
+  LawsBase.text_same(sp_lower(a), sp_lower(b))
 
 def sp_any_ci(+n: String, xs: List<&2, String>) -> Bool:
   match xs:
@@ -84,278 +192,75 @@ def sp_any_ci(+n: String, xs: List<&2, String>) -> Bool:
     case x <> t:
       Bool.or(sp_ci(x, n), sp_any_ci(n, t))
 
-def sp_front(c: Char, m: Maybe<&2, Ac.Cut>) -> Maybe<&2, Ac.Cut>:
-  match m:
-    case None{}:
-      None{}
-    case Some{p}:
-      match p:
-        case Ac.Cut{a, b}:
-          Some{Ac.Cut{SCon{c, a}, b}}
+# R2: the host n is a loopback name or one of the allowed hosts al
+def sp_named(+n: String, al: List<&2, String>) -> Bool:
+  sp_any_ci(n, "127.0.0.1" <> "localhost" <> "[::1]" <> al)
 
-def sp_closing.at(b: Bool, c: Char, t: String, r: Maybe<&2, Ac.Cut>) -> Maybe<&2, Ac.Cut>:
+# R3: a scheme and its default port
+type SpScheme is Data:
+  SpScheme{name: String, port: Nat}
+
+# R3: the schemes and their default ports (RFC 9110 4.2.1, 4.2.2: http 80,
+# https 443)
+def sp_schemes() -> List<&2, SpScheme>:
+  [SpScheme{"http", 80n}, SpScheme{"https", 443n}]
+
+def sp_scheme.at(b: Bool, d: Nat, r: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match b:
     case True{}:
-      Some{Ac.Cut{SCon{c, SNil{}}, t}}
+      Some{d}
     case False{}:
-      sp_front(c, r)
-
-# R1: s through its first ']', and what follows
-def sp_closing(s: String) -> Maybe<&2, Ac.Cut>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{+c, +t}:
-      sp_closing.at(Char.is_eq(c, ']'), c, t, sp_closing(t))
-
-def sp_rsplit.here(b: Bool, t: String) -> Maybe<&2, Ac.Cut>:
-  match b:
-    case True{}:
-      Some{Ac.Cut{SNil{}, t}}
-    case False{}:
-      None{}
-
-def sp_rsplit.at(c: Char, t: String, r: Maybe<&2, Ac.Cut>) -> Maybe<&2, Ac.Cut>:
-  match r:
-    case Some{p}:
-      sp_front(c, Some{p})
-    case None{}:
-      sp_rsplit.here(Char.is_eq(c, ':'), t)
-
-# R1: s before and after its last ':' (Rust `rsplit_once(':')`)
-def sp_rsplit(s: String) -> Maybe<&2, Ac.Cut>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{+c, +t}:
-      sp_rsplit.at(c, t, sp_rsplit(t))
-
-def sp_clamp.at(b: Bool, x: Nat) -> Nat:
-  match b:
-    case True{}:
-      x
-    case False{}:
-      65536n
-
-# R1: a value past 65535 stays past it (65536) while digits follow
-def sp_clamp(+x: Nat) -> Nat:
-  sp_clamp.at(Nat.is_le(x, 65535n), x)
-
-def sp_dec.if(b: Bool, r: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
       r
-    case False{}:
+
+def sp_scheme.in(+sc: String, ts: List<&2, SpScheme>) -> Maybe<&2, Nat>:
+  match ts:
+    case Nil{}:
       None{}
+    case t <> rest:
+      match t:
+        case SpScheme{w, d}:
+          sp_scheme.at(sp_ci(sc, w), d, sp_scheme.in(sc, rest))
 
-# R1: the decimal value of the digits s after v, or None
-def sp_dec(s: String, +v: Nat) -> Maybe<&2, Nat>:
-  match s:
-    case SNil{}:
-      Some{v}
-    case SCon{+c, t}:
-      sp_dec.if(Char.is_digit(c), sp_dec(t, sp_clamp(Nat.add(Nat.mul(10n, v), U32.to_nat(U32.sub(Char.to_u32(c), 48))))))
+# R3: the default port of the scheme sc (any ASCII case), if it is one
+def sp_scheme(+sc: String) -> Maybe<&2, Nat>:
+  sp_scheme.in(sc, sp_schemes())
 
-def sp_u16.fit(b: Bool, v: Nat) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
-      Some{v}
-    case False{}:
-      None{}
+# R3: an `Origin` as written: scheme "://" authority
+def sp_origin_text(sc: String, a: SpAuth) -> String:
+  String.append(sc, SCon{':', SCon{'/', SCon{'/', sp_spell(a)}}})
 
-def sp_u16.val(m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match m:
-    case None{}:
-      None{}
-    case Some{+v}:
-      sp_u16.fit(Nat.is_le(v, 65535n), v)
-
-# R1: one or more digits worth at most 65535
-def sp_u16.digits(s: String) -> Maybe<&2, Nat>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{c, t}:
-      sp_u16.val(sp_dec(SCon{c, t}, 0n))
-
-def sp_u16.plus(b: Bool, c: Char, t: String) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
-      sp_u16.digits(t)
-    case False{}:
-      sp_u16.digits(SCon{c, t})
-
-# R1: a port (Rust `u16::from_str`)
-def sp_u16(s: String) -> Maybe<&2, Nat>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{+c, t}:
-      sp_u16.plus(Char.is_eq(c, '+'), c, t)
-
-def sp_ported(h: String, m: Maybe<&2, Nat>) -> Ac.Authority:
-  match m:
-    case None{}:
-      Ac.NoAuthority{}
-    case Some{n}:
-      Ac.HostPort{h, Some{n}}
-
-def sp_bracketed.rest(h: String, r: String) -> Ac.Authority:
-  match r:
-    case SNil{}:
-      Ac.HostPort{h, None{}}
-    case SCon{+d, p}:
-      sp_cut(sp_ported(h, sp_u16(p)), Ac.NoAuthority{}, Char.is_eq(d, ':'))
-
-# R1: an IPv6 literal and what follows it
-def sp_bracketed(m: Maybe<&2, Ac.Cut>) -> Ac.Authority:
-  match m:
-    case None{}:
-      Ac.NoAuthority{}
-    case Some{p}:
-      match p:
-        case Ac.Cut{h, r}:
-          sp_bracketed.rest(h, r)
-
-def sp_unbracketed.port(h: String, p: Maybe<&2, String>) -> Ac.Authority:
-  match p:
-    case None{}:
-      Ac.HostPort{h, None{}}
-    case Some{t}:
-      sp_ported(h, sp_u16(t))
-
-# R1: a host that is not bracketed must be neither empty nor hold a ':'
-def sp_unbracketed.host(+h: String, p: Maybe<&2, String>) -> Ac.Authority:
-  sp_cut(Ac.NoAuthority{}, sp_unbracketed.port(h, p), Bool.or(String.is_empty(h), sp_has_colon(h)))
-
-def sp_unbracketed(+s: String, m: Maybe<&2, Ac.Cut>) -> Ac.Authority:
-  match m:
-    case None{}:
-      sp_unbracketed.host(s, None{})
-    case Some{p}:
-      match p:
-        case Ac.Cut{h, t}:
-          sp_unbracketed.host(h, Some{t})
-
-def sp_authority.form(b: Bool, +s: String) -> Ac.Authority:
-  match b:
-    case True{}:
-      sp_bracketed(sp_closing(s))
-    case False{}:
-      sp_unbracketed(s, sp_rsplit(s))
-
-# R1: the authority s is, if any
-def sp_authority(s: String) -> Ac.Authority:
-  match s:
-    case SNil{}:
-      Ac.NoAuthority{}
-    case SCon{+c, +t}:
-      sp_cut(Ac.NoAuthority{}, sp_authority.form(Char.is_eq(c, '['), SCon{c, t}), sp_holds(SCon{c, t}))
-
-def sp_host.of(a: Ac.Authority, allowed: List<&2, String>) -> Bool:
-  match a:
-    case Ac.HostPort{+n, p}:
-      Bool.or(sp_any_ci(n, ["127.0.0.1", "localhost", "[::1]"]), sp_any_ci(n, allowed))
-    case Ac.NoAuthority{}:
-      False{}
-
-# R2: the verdict on a `Host`
-def sp_host(host: String, allowed: List<&2, String>) -> Bool:
-  sp_host.of(sp_authority(host), allowed)
-
-def sp_split3.found(m: Maybe<&2, String>, c: Char, r: Maybe<&2, Ac.Cut>) -> Maybe<&2, Ac.Cut>:
-  match m:
-    case Some{x}:
-      Some{Ac.Cut{SNil{}, x}}
-    case None{}:
-      sp_front(c, r)
-
-def sp_slashes.if(b: Bool, r: String) -> Maybe<&2, String>:
-  match b:
-    case True{}:
-      Some{r}
-    case False{}:
-      None{}
-
-# t after its leading "//", if it has one
-def sp_slashes(t: String) -> Maybe<&2, String>:
-  match t:
-    case SNil{}:
-      None{}
-    case SCon{a, u}:
-      match u:
-        case SNil{}:
-          None{}
-        case SCon{b, r}:
-          sp_slashes.if(Bool.and(Char.is_eq(a, '/'), Char.is_eq(b, '/')), r)
-
-def sp_split3.at(colon: Bool, c: Char, t: String, r: Maybe<&2, Ac.Cut>) -> Maybe<&2, Ac.Cut>:
-  match colon:
-    case True{}:
-      sp_split3.found(sp_slashes(t), c, r)
-    case False{}:
-      sp_front(c, r)
-
-# R3: s before and after its first "://" (Rust `split_once("://")`)
-def sp_split3(s: String) -> Maybe<&2, Ac.Cut>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{+c, +t}:
-      sp_split3.at(Char.is_eq(c, ':'), c, t, sp_split3(t))
-
-def sp_default.of(http: Bool, https: Bool) -> Maybe<&2, Nat>:
-  match http https:
-    case True{} True{}:
-      Some{80n}
-    case True{} False{}:
-      Some{80n}
-    case False{} True{}:
-      Some{443n}
-    case False{} False{}:
-      None{}
-
-# R3: a scheme's default port
-def sp_default(+s: String) -> Maybe<&2, Nat>:
-  sp_default.of(sp_ci(s, "http"), sp_ci(s, "https"))
-
-def sp_or(m: Maybe<&2, Nat>, d: Nat) -> Nat:
+def sp_port_or(m: Maybe<&2, Nat>, d: Nat) -> Nat:
   match m:
     case None{}:
       d
     case Some{n}:
       n
 
-def sp_match(+d: Nat, a: Ac.Authority, b: Ac.Authority) -> Bool:
-  match a b:
-    case Ac.HostPort{n, p} Ac.HostPort{m, q}:
-      Bool.and(sp_ci(n, m), Nat.is_eq(sp_or(p, d), sp_or(q, d)))
-    case Ac.HostPort{n, p} Ac.NoAuthority{}:
-      False{}
-    case Ac.NoAuthority{} Ac.HostPort{m, q}:
-      False{}
-    case Ac.NoAuthority{} Ac.NoAuthority{}:
-      False{}
+# R3: the page of a and the host b are the same site under the default
+# port d: same host but for ASCII case, same port once d fills a missing
+# one
+def sp_same_site(+d: Nat, +a: SpAuth, +b: SpAuth) -> Bool:
+  Bool.and(sp_ci(sp_name(a), sp_name(b)), Nat.is_eq(sp_port_or(sp_port(a), d), sp_port_or(sp_port(b), d)))
 
-def sp_origin.port(d: Maybe<&2, Nat>, au: String, host: String) -> Bool:
-  match d:
-    case None{}:
-      False{}
-    case Some{n}:
-      sp_match(n, sp_authority(au), sp_authority(host))
+# R3: an origin as written, against a host
+type SpOrigin is Data:
+  SpOrigin{scheme: String, page: SpAuth, host: SpAuth}
 
-def sp_origin.cut(m: Maybe<&2, Ac.Cut>, host: String) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{p}:
-      match p:
-        case Ac.Cut{sc, au}:
-          sp_origin.port(sp_default(sc), au, host)
+def sp_o_origin(w: SpOrigin) -> String:
+  match w:
+    case SpOrigin{sc, a, b}:
+      sp_origin_text(sc, a)
 
-# R3: the verdict on an `Origin` against a `Host`
-def sp_origin(origin: String, host: String) -> Bool:
-  sp_origin.cut(sp_split3(origin), host)
+def sp_o_host(w: SpOrigin) -> String:
+  match w:
+    case SpOrigin{sc, a, b}:
+      sp_spell(b)
+
+# R3: both authorities well formed, the scheme http or https
+def sp_o_ok(w: SpOrigin) -> Bool:
+  match w:
+    case SpOrigin{+sc, +a, +b}:
+      Bool.and(Maybe.is_some(&2, Nat, sp_scheme(sc)), Bool.and(sp_well(a), sp_well(b)))
 
 # R4: the spelling of a request and of its reply
 
@@ -366,12 +271,13 @@ def sp_w_req(q: FAc.Req, rest: String) -> String:
     case FAc.QOrigin{o, h}:
       Wr.put_nat(1n, Wr.put_str(o, Wr.put_str(h, rest)))
 
+# the reply Rust reads: the model's verdict (pinned by the laws above it)
 def sp_w_reply(q: FAc.Req) -> String:
   match q:
     case FAc.QHost{h, al}:
-      Wr.put_bool(sp_host(h, al), "")
+      Wr.put_bool(Ac.host_allowed(h, al), "")
     case FAc.QOrigin{o, h}:
-      Wr.put_bool(sp_origin(o, h), "")
+      Wr.put_bool(Ac.same_origin(o, h), "")
 
 # every length of xs fits the wire
 def sp_fit_strs(xs: List<&2, String>) -> Bool:
@@ -468,26 +374,65 @@ def sp_digits(ds: List<&2, PortDigit>) -> String:
 # Laws: the verdicts
 # ------------------
 
-# LAW dash_access_host_spec (R1, R2): the verdict on every `Host` and every
-# list of allowed hosts is the spec's
-# EXCLUDES: a foreign name allowed (DNS rebinding), a userinfo or path
-#   read as a host, the first ':' taken for the last, an IPv6 literal cut
-#   at a later ']', a bad or too large port accepted, a case-sensitive or
-#   prefix name test, an allowed host refused
-law dash_access_host_spec:
+# LAW dash_access_host_spelled (R1, R2): every well-formed authority (R1:
+# a host that is not bracketed, or an IPv6 literal, then an optional
+# ':' and a port of one or more digits worth at most 65535, leading zeros
+# and a '+' allowed; no '@', '/', '?', '#' or space) is allowed exactly
+# when its host is, but for ASCII case, a loopback name or an allowed
+# host, whatever its port
+# EXCLUDES: an allowed host refused (with a port, a '+', leading zeros, in
+#   capitals, bracketed), a foreign name allowed (DNS rebinding), a prefix
+#   or case-sensitive name test, a port taken for part of the host
+law dash_access_host_spelled:
+  for +a: SpAuth
+  for +al: List<&2, String>
+  for ok: {sp_well(a) == True{} : Bool}
+  {Ac.host_allowed(sp_spell(a), al) == sp_named(sp_name(a), al) : Bool}
+
+# LAW dash_access_host_only_spelled (R1, R2): every `Host` that is allowed
+# is the writing of a well-formed authority (so dash_access_host_spelled
+# gives its verdict); any other text is refused
+# EXCLUDES: a userinfo, path, query or fragment read as part of a host; the
+#   first ':' taken for the last; an IPv6 literal cut at a later ']' or
+#   followed by junk; an empty host; a ':' in a host that is not
+#   bracketed; a bad, signed-negative, empty or too large port accepted
+law dash_access_host_only_spelled:
   for +h: String
   for +al: List<&2, String>
-  {Ac.host_allowed(h, al) == sp_host(h, al) : Bool}
+  for yes: {Ac.host_allowed(h, al) == True{} : Bool}
+  exs a: SpAuth
+  {h == sp_spell(a) : String} & {sp_well(a) == True{} : Bool}
 
-# LAW dash_access_origin_spec (R1, R3): the verdict on every `Origin`
-# against every `Host` is the spec's
+# LAW dash_access_origin_spelled (R1, R3): an `Origin` written as a scheme
+# that is http or https (any ASCII case), "://" and a well-formed
+# authority matches a well-formed `Host` exactly when both hosts are the
+# same but for ASCII case and both ports are the same once the scheme's
+# default port fills a missing one
 # EXCLUDES: another site's origin matched (cross-site WebSocket
-#   hijacking), a scheme other than http/https, a default port swapped or
-#   missing, another port matched, a page path accepted
-law dash_access_origin_spec:
+#   hijacking), another port matched, a default port swapped or missing,
+#   the page's own origin refused
+law dash_access_origin_spelled:
+  for +sc: String
+  for +d: Nat
+  for +a: SpAuth
+  for +b: SpAuth
+  for scheme: {sp_scheme(sc) == Some{d} : Maybe<&2, Nat>}
+  for wa: {sp_well(a) == True{} : Bool}
+  for wb: {sp_well(b) == True{} : Bool}
+  {Ac.same_origin(sp_origin_text(sc, a), sp_spell(b)) == sp_same_site(d, a, b) : Bool}
+
+# LAW dash_access_origin_only_spelled (R1, R3): every `Origin` that
+# matches a `Host` is written as an http or https scheme, "://" and a
+# well-formed authority, and the `Host` is a well-formed authority (so
+# dash_access_origin_spelled gives the verdict); any other pair is refused
+# EXCLUDES: a scheme other than http/https (`file://`, `null`, an empty
+#   one), a page path or query accepted, a malformed `Host` matched
+law dash_access_origin_only_spelled:
   for +o: String
   for +h: String
-  {Ac.same_origin(o, h) == sp_origin(o, h) : Bool}
+  for yes: {Ac.same_origin(o, h) == True{} : Bool}
+  exs w: SpOrigin
+  {o == sp_o_origin(w) : String} & {h == sp_o_host(w) : String} & {sp_o_ok(w) == True{} : Bool}
 
 # LAW dash_access_host_long_port (R1, R2): every `Host` whose port is more
 # than 5 decimal digits, the first not 0 (so worth more than 65535), is
@@ -578,58 +523,69 @@ law dash_access_host_13_example:
 law dash_access_host_14_example:
   {Ac.host_allowed("::1", []) == False{} : Bool}
 
-# LAW dash_access_host_15_example (R1, R2): anchor: Rust's vector: the Host "localhost:65535" is allowed
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_15_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:65535" is allowed
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_15_example:
   {Ac.host_allowed("localhost:65535", []) == True{} : Bool}
 
-# LAW dash_access_host_16_example (R1, R2): anchor: Rust's vector: the Host "localhost:65536" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_16_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:65536" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_16_example:
   {Ac.host_allowed("localhost:65536", []) == False{} : Bool}
 
-# LAW dash_access_host_17_example (R1, R2): anchor: Rust's vector: the Host "localhost:000080" is allowed
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_17_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:000080" is allowed
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_17_example:
   {Ac.host_allowed("localhost:000080", []) == True{} : Bool}
 
-# LAW dash_access_host_18_example (R1, R2): anchor: Rust's vector: the Host "localhost:+80" is allowed
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_18_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:+80" is allowed
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_18_example:
   {Ac.host_allowed("localhost:+80", []) == True{} : Bool}
 
-# LAW dash_access_host_19_example (R1, R2): anchor: Rust's vector: the Host "localhost:+" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_19_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:+" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_19_example:
   {Ac.host_allowed("localhost:+", []) == False{} : Bool}
 
-# LAW dash_access_host_20_example (R1, R2): anchor: Rust's vector: the Host "localhost:" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_20_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_20_example:
   {Ac.host_allowed("localhost:", []) == False{} : Bool}
 
-# LAW dash_access_host_21_example (R1, R2): anchor: Rust's vector: the Host "localhost:-1" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_21_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:-1" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_21_example:
   {Ac.host_allowed("localhost:-1", []) == False{} : Bool}
 
-# LAW dash_access_host_22_example (R1, R2): anchor: Rust's vector, shortened: the Host "localhost:100000" (a port of six digits) is refused; longer ports: dash_access_host_long_port
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_22_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "localhost:100000" (a port of six digits) is refused; longer ports: dash_access_host_long_port
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_22_example:
   {Ac.host_allowed("localhost:100000", []) == False{} : Bool}
 
-# LAW dash_access_host_23_example (R1, R2): anchor: Rust's vector: the Host "[::1]]:80" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_23_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "[::1]]:80" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_23_example:
   {Ac.host_allowed("[::1]]:80", []) == False{} : Bool}
 
-# LAW dash_access_host_24_example (R1, R2): anchor: Rust's vector: the Host "[::1]x" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_24_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "[::1]x" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_24_example:
   {Ac.host_allowed("[::1]x", []) == False{} : Bool}
 
-# LAW dash_access_host_25_example (R1, R2): anchor: Rust's vector: the Host "a:b:80" is refused
-# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+# LAW dash_access_host_25_example (R1, R2): anchor: a port or bracket edge case per R1 (Rust `split_authority`, `u16::from_str`): the Host "a:b:80" is refused
+# EXCLUDES: a reading of this host other than Rust `split_authority` and
+#   `u16::from_str` give
 law dash_access_host_25_example:
   {Ac.host_allowed("a:b:80", ["a:b"]) == False{} : Bool}
 
@@ -645,8 +601,8 @@ law dash_access_origin_example:
 # --------------------
 
 # LAW dash_access_entry_answers (R4): the entry answers every request Rust
-# spells, every length within the wire, with the spelled verdict of the
-# spec
+# spells, every length within the wire, with the model's verdict
+# (Ac.host_allowed, Ac.same_origin: pinned by the laws above), spelled
 # EXCLUDES: a field misread, swapped or dropped; one check answered for
 #   the other; a default
 law dash_access_entry_answers:

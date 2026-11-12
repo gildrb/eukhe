@@ -2,8 +2,8 @@
 #
 # PROOF: by induction over the arguments, the sent keys and the names
 # taken generalized (rc.go): a repaired step's records are its decoding,
-# its renaming and its reading (sv.step), which are the spec's changes of
-# its out (rc.ok, with arg_repair_spec's decoding, renaming and reading);
+# its renaming and its reading (sv.step), which are the laws' changes of
+# its out (rc.ok, with base/look.bend's decoding, renaming and reading);
 # the rest's records are the rest's changes (the hypothesis).
 
 import Base
@@ -12,7 +12,7 @@ import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
 import ./base.bend as AB
 import ./base/step.bend as SV
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 
 # a verdict with its records replaced by the changes of its outs, the
 # sent keys ks given

@@ -81,33 +81,40 @@ law continuation_disjoint:
 
 # (F8) The rules, exactly
 # -----------------------
-# bend/doc_search.bend: each rule the entry runs, stated whole by a spec
-# here (helpers ds_*, which never call the code): the class, cut and
-# matches of each entry of a walk, the matches a file fetches, a page and
-# its continuation, the match limit.
-
-# the spec of a page: the items of ps after the first s, k of them
-def ds_first(ps: List<&2, Nat>, k: Nat) -> List<&2, Nat>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case x <> t:
-      match k:
-        case 0n:
-          Nil{}
-        case 1n+j:
-          x <> ds_first(t, j)
-
-def ds_window(ps: List<&2, Nat>, s: Nat, k: Nat) -> List<&2, Nat>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case x <> t:
-      match s:
-        case 0n:
-          ds_first(x <> t, k)
-        case 1n+r:
-          ds_window(t, r, k)
+# bend/doc_search.bend: the rules the entry runs, as the module's header
+# states them (crates/eukhe-docs/src/grep/mod.rs, after the requirement's
+# grep tool). Every input is free.
+#
+# A1 (page): a page of a list is the K items after the first S, in order.
+# A2 (continuation): the continuation is S + K when K is not 0 and an
+#     item follows the page; none otherwise.
+# A3 (past): the skip is past the end when the list is not empty and S is
+#     its length or more.
+# A4 (numbers): the matching files of a search are numbered 0 to T - 1 in
+#     walk order.
+# A5 (caps): a file keeps at most P matches and the search at most REM in
+#     all; a file keeps as many as it holds under both caps; the matches
+#     left after an entry are REM less those it kept.
+# A6 (classes): a file is opened only while a match is left: a file met
+#     with none left is not searched, and so is a binary or unreadable file
+#     (found only when opened); an excluded directory, a symlink or a walk
+#     error is skipped with its reason whatever is left, and every skip is
+#     skipped while a match is left. A searched file with no match is
+#     NoMatch; a matching file is shown when its number n is on the page
+#     (S <= n < S + K), else paged out; it is cut when it holds more
+#     matches than it kept, and searched in part when it is over the size
+#     limit. A skip or a file not searched is neither cut nor partial.
+# A7 (walk): a walk answers its entries in order, each with the matches
+#     left and the number of matching files met before it.
+# A8 (fetch): a file with no line range fetches one match more than it
+#     may keep (so a cut shows); a file of line ranges fetches the fewest
+#     matches, at least P + 1, that reach the last line each range needs
+#     (its end, or P + 1 lines from an open range's start), a line past
+#     MAXB + 1 counting as reached by MAXB + 1 (a file of MAXB bytes has no
+#     more lines).
+# A9 (limit): under a match limit L the page's files keep their matches
+#     one per file per round, in file order, L in all; the limit cuts when
+#     the page holds more than L.
 
 def ds_some_if(b: Bool, c: Nat) -> Maybe<&2, Nat>:
   match b:
@@ -121,31 +128,20 @@ def ds_some_if(b: Bool, c: Nat) -> Maybe<&2, Nat>:
 def ds_more(+n: Nat, +s: Nat, +k: Nat) -> Maybe<&2, Nat>:
   ds_some_if(Bool.and(Nat.is_lt(0n, k), Nat.is_lt(Nat.add(s, k), n)), Nat.add(s, k))
 
-def ds_when(b: Bool, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
-      m
-    case False{}:
-      None{}
-
-# the numbers i, i + 1, ... (t of them)
-def ds_from(t: Nat, +i: Nat) -> List<&2, Nat>:
-  match t:
-    case 0n:
-      Nil{}
-    case 1n+u:
-      i <> ds_from(u, Nat.add(1n, i))
-
-# LAW page_is_window: a page is the k items after the first s, in order
-# EXCLUDES: a page that skips other than s items, holds other than k, or
-#   reorders them (the continuation laws hold for many wrong pages)
-law page_is_window:
+# LAW page_window (A1): a page is the middle piece of the list: the first
+# s items, then the page, then the items after the first s + k are the
+# list, and the page holds k items, or those left after the skip when
+# fewer (Base's take and drop are trusted)
+# EXCLUDES: a page that skips other than s items, holds other than k (or
+#   all those left), or reorders them (the continuation laws hold for
+#   many wrong pages)
+law page_window:
   for +ps: List<&2, Nat>
   for +s: Nat
   for +k: Nat
-  {Sr.page(ps, s, k) == ds_window(ps, s, k) : List<&2, Nat>}
+  {List.append(&2, Nat, List.take(&2, Nat, ps, s), List.append(&2, Nat, Sr.page(ps, s, k), List.drop(&2, Nat, ps, Nat.add(s, k)))) == ps : List<&2, Nat>} & {List.length(&2, Nat, Sr.page(ps, s, k)) == Nat.min(k, Nat.sub(List.length(&2, Nat, ps), s)) : Nat}
 
-# LAW next_is_more: the continuation is s + k exactly when k is not 0 and an item follows the
+# LAW next_is_more (A2): the continuation is s + k exactly when k is not 0 and an item follows the
 # page, and none otherwise
 # EXCLUDES: a continuation that never comes (the continuation laws are
 #   then vacuous), one that comes at the end, one that is not s + k
@@ -155,7 +151,7 @@ law next_is_more:
   for +k: Nat
   {Sr.next(ps, s, k) == ds_more(List.length(&2, Nat, ps), s, k) : Maybe<&2, Nat>}
 
-# LAW past_is_beyond: the skip is past the end exactly when the list is not empty and the skip is
+# LAW past_is_beyond (A3): the skip is past the end exactly when the list is not empty and the skip is
 # its length or more
 # EXCLUDES: a past-the-end notice for an empty result or for a skip that
 #   still shows items, none for a skip past the end
@@ -164,48 +160,15 @@ law past_is_beyond:
   for +s: Nat
   {Sr.past(ps, s) == Bool.and(Nat.is_lt(0n, List.length(&2, Nat, ps)), Nat.is_le(List.length(&2, Nat, ps), s)) : Bool}
 
-# LAW grep_scope_pages: grep's continuation and past-the-end notice are those of its page in a scope of
-# several files, and none in a scope of one file
-# EXCLUDES: paging one file, no paging for a directory
-law grep_scope_pages:
-  for +m: Bool
-  for +ps: List<&2, Nat>
-  for +s: Nat
-  for +k: Nat
-  {(Sr.grep.next(m, ps, s, k), Sr.grep.past(m, ps, s)) == (ds_when(m, Sr.next(ps, s, k)), Bool.and(m, Sr.past(ps, s))) : Maybe<&2, Nat> & Bool}
-
-# LAW upto_counts: the matching files of a search are numbered 0 to t - 1, in walk order
-# EXCLUDES: a page of other numbers than the files found
-law upto_counts:
+# LAW upto_numbers (A4): the matching files of a search are t numbers,
+# the j-th of them j, for every j below t
+# EXCLUDES: a page of other numbers than the files found, numbers from 1,
+#   a file missing or numbered twice
+law upto_numbers:
   for +t: Nat
-  {Sr.upto(t) == ds_from(t, 0n) : List<&2, Nat>}
-
-# the spec of one entry of a walk with rem matches left and n matching
-# files before it: a file opens only while a match is left to keep; it
-# keeps at most p and at most rem; it is cut when it holds more than it
-# may keep; a matching file is shown when its number is on the page
-def ds_cls_if(b: Bool, x: Sr.Class, y: Sr.Class) -> Sr.Class:
-  match b:
-    case True{}:
-      x
-    case False{}:
-      y
-
-def ds_opens(w: Sr.Reason) -> Bool:
-  match w:
-    case Sr.Binary{}:
-      True{}
-    case Sr.Unreadable{}:
-      True{}
-    case Sr.Excluded{}:
-      False{}
-    case Sr.Link{}:
-      False{}
-    case Sr.Broken{}:
-      False{}
-
-def ds_onpage(+n: Nat, +s: Nat, +k: Nat) -> Sr.Class:
-  ds_cls_if(Bool.and(Nat.is_le(s, n), Nat.is_lt(n, Nat.add(s, k))), Sr.Shown{}, Sr.PagedOut{})
+  for +j: Nat
+  for h: {Nat.is_lt(j, t) == True{} : Bool}
+  {(List.length(&2, Nat, Sr.upto(t)), List.get(&2, Nat, Sr.upto(t), j)) == (t, Some{j}) : Nat & Maybe<&2, Nat>}
 
 def ds_bit(b: Bool) -> Nat:
   match b:
@@ -214,69 +177,157 @@ def ds_bit(b: Bool) -> Nat:
     case False{}:
       0n
 
-def ds_out(e: Sr.Ent, +p: Nat, +s: Nat, +k: Nat, +rem: Nat, +n: Nat) -> Sr.Out:
-  match e:
-    case Sr.Ent{i, f}:
-      match f:
-        case Sr.Opened{+h, big}:
-          +live = Nat.is_lt(0n, rem)
-          Sr.Out{i, ds_cls_if(live, ds_cls_if(Nat.is_eq(h, 0n), Sr.NoMatch{}, ds_onpage(n, s, k)), Sr.Unsearched{}), Bool.and(live, Nat.is_lt(Nat.min(p, rem), h)), Bool.and(live, big)}
-        case Sr.Skip{+w}:
-          Sr.Out{i, ds_cls_if(Bool.and(Nat.is_eq(rem, 0n), ds_opens(w)), Sr.Unsearched{}, Sr.Skipped{w}), False{}, False{}}
+def ds_sum(xs: List<&2, Nat>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case x <> t:
+      Nat.add(x, ds_sum(t))
 
-def ds_kept(e: Sr.Ent, +p: Nat, +rem: Nat) -> Nat:
-  match e:
-    case Sr.Ent{i, f}:
-      match f:
-        case Sr.Opened{h, big}:
-          Nat.min(h, Nat.min(p, rem))
-        case Sr.Skip{w}:
-          0n
+# the class of a matching file: shown on the page, else paged out
+def ds_on_page(b: Bool) -> Sr.Class:
+  match b:
+    case True{}:
+      Sr.Shown{}
+    case False{}:
+      Sr.PagedOut{}
 
-def ds_seen(e: Sr.Ent, +rem: Nat, +n: Nat) -> Nat:
-  match e:
-    case Sr.Ent{i, f}:
-      match f:
-        case Sr.Opened{h, big}:
-          Nat.add(ds_bit(Bool.and(Nat.is_lt(0n, rem), Nat.is_lt(0n, h))), n)
-        case Sr.Skip{w}:
-          n
+# whether an entry's class is that of a matching file (shown or paged out)
+def ds_matching(c: Sr.Class) -> Bool:
+  match c:
+    case Sr.NoMatch{}:
+      False{}
+    case Sr.Shown{}:
+      True{}
+    case Sr.PagedOut{}:
+      True{}
+    case Sr.Unsearched{}:
+      False{}
+    case Sr.Skipped{w}:
+      False{}
 
-# LAW grep_walk_spec: a walk is its first entry, as the spec classes it, then the rest of the
-# walk with the matches it kept taken off and one more matching file when it matched;
-# an empty walk has no entry
-# EXCLUDES: a wrong class (a match shown off its page, a file searched
-#   after the cap, a skip counted as not searched), a cut missed or made up,
-#   a per-file or total cap not kept, a page number that skips a file
-law grep_walk_spec:
+# how many entries of os are matching files
+def ds_matched(os: List<&2, Sr.Out>) -> Nat:
+  match os:
+    case Nil{}:
+      0n
+    case o <> t:
+      match o:
+        case Sr.Out{i, c, cut, pa}:
+          Nat.add(ds_bit(ds_matching(c)), ds_matched(t))
+
+# LAW grep_kept_caps (A5): an opened file keeps at most the matches it
+# holds, at most p and at most the rem left; a skipped entry keeps none;
+# after any entry, the matches left and those it kept add up to rem
+# EXCLUDES: a file that keeps past a cap, a skip that spends matches,
+#   matches left that drift from what was kept (lost or made up)
+law grep_kept_caps:
+  for +i: Nat
+  for +h: Nat
+  for +big: Bool
+  for +w: Sr.Reason
+  for +f: Sr.Form
+  for +p: Nat
+  for +rem: Nat
+  {Bool.and(Nat.is_le(Sr.kept(Sr.Ent{i, Sr.Opened{h, big}}, p, rem), h), Bool.and(Nat.is_le(Sr.kept(Sr.Ent{i, Sr.Opened{h, big}}, p, rem), p), Nat.is_le(Sr.kept(Sr.Ent{i, Sr.Opened{h, big}}, p, rem), rem))) == True{} : Bool} & {(Sr.kept(Sr.Ent{i, Sr.Skip{w}}, p, rem), Nat.add(Sr.kept(Sr.Ent{i, f}, p, rem), Sr.left(Sr.Ent{i, f}, p, rem))) == (0n, rem) : Nat & Nat}
+
+# LAW grep_kept_most (A5): an opened file keeps as many matches as both
+# caps let it: every count x of at most the matches it holds, at most p
+# and at most rem is at most what it keeps
+# EXCLUDES: a file that keeps fewer than it holds under the caps (a
+#   constant 0 passes grep_kept_caps)
+law grep_kept_most:
+  for +i: Nat
+  for +h: Nat
+  for +big: Bool
+  for +p: Nat
+  for +rem: Nat
+  for +x: Nat
+  for hx: {Bool.and(Nat.is_le(x, h), Bool.and(Nat.is_le(x, p), Nat.is_le(x, rem))) == True{} : Bool}
+  {Nat.is_le(x, Sr.kept(Sr.Ent{i, Sr.Opened{h, big}}, p, rem)) == True{} : Bool}
+
+# LAW grep_opened_class (A6): an opened file met with no match left is
+# not searched (neither cut nor partial); with a match left, one with no
+# match is NoMatch, one with matches is shown when its number n is on the
+# page (s <= n < s + k), else paged out; it is cut exactly when it holds
+# more matches than it kept (grep_kept_caps, grep_kept_most) and partial
+# exactly when it is over the size limit; its id is the entry's
+# EXCLUDES: a file searched after the cap, a match shown off its page or
+#   paged out on it, a cut missed or made up, a partial search not noted
+law grep_opened_class:
+  for +i: Nat
+  for +h: Nat
+  for +g: Nat
+  for +big: Bool
+  for +p: Nat
+  for +s: Nat
+  for +k: Nat
+  for +r: Nat
+  for +n: Nat
+  {Sr.out(Sr.Ent{i, Sr.Opened{h, big}}, p, s, k, 0n, n) == Sr.Out{i, Sr.Unsearched{}, False{}, False{}} : Sr.Out} & {Sr.out(Sr.Ent{i, Sr.Opened{0n, big}}, p, s, k, 1n+r, n) == Sr.Out{i, Sr.NoMatch{}, False{}, big} : Sr.Out} & {Sr.out(Sr.Ent{i, Sr.Opened{1n+g, big}}, p, s, k, 1n+r, n) == Sr.Out{i, ds_on_page(Bool.and(Nat.is_le(s, n), Nat.is_lt(n, Nat.add(s, k)))), Nat.is_lt(Sr.kept(Sr.Ent{i, Sr.Opened{1n+g, big}}, p, 1n+r), 1n+g), big} : Sr.Out}
+
+# LAW grep_skip_class (A6): a skipped entry is skipped with its reason
+# while a match is left; with none left a binary or unreadable file (the
+# walk finds those only by opening) is not searched, an excluded
+# directory, a symlink or a walk error still skipped with its reason;
+# never cut nor partial
+# EXCLUDES: a skip counted as not searched (or the reverse), a reason
+#   changed, a skip that is cut or partial
+law grep_skip_class:
+  for +i: Nat
+  for +w: Sr.Reason
+  for +p: Nat
+  for +s: Nat
+  for +k: Nat
+  for +r: Nat
+  for +n: Nat
+  {Sr.out(Sr.Ent{i, Sr.Skip{w}}, p, s, k, 1n+r, n) == Sr.Out{i, Sr.Skipped{w}, False{}, False{}} : Sr.Out} & {[Sr.out(Sr.Ent{i, Sr.Skip{Sr.Binary{}}}, p, s, k, 0n, n), Sr.out(Sr.Ent{i, Sr.Skip{Sr.Unreadable{}}}, p, s, k, 0n, n), Sr.out(Sr.Ent{i, Sr.Skip{Sr.Excluded{}}}, p, s, k, 0n, n), Sr.out(Sr.Ent{i, Sr.Skip{Sr.Link{}}}, p, s, k, 0n, n), Sr.out(Sr.Ent{i, Sr.Skip{Sr.Broken{}}}, p, s, k, 0n, n)] == [Sr.Out{i, Sr.Unsearched{}, False{}, False{}}, Sr.Out{i, Sr.Unsearched{}, False{}, False{}}, Sr.Out{i, Sr.Skipped{Sr.Excluded{}}, False{}, False{}}, Sr.Out{i, Sr.Skipped{Sr.Link{}}, False{}, False{}}, Sr.Out{i, Sr.Skipped{Sr.Broken{}}, False{}, False{}}] : List<&2, Sr.Out>}
+
+# LAW grep_seen_counts (A4, A7): the matching files met after an entry
+# are those met before it, one more exactly when the entry's class is a
+# matching file's (shown or paged out)
+# EXCLUDES: a page number that skips a file or counts a file that did not
+#   match (a skip, a file not searched, a file with no match)
+law grep_seen_counts:
   for +e: Sr.Ent
-  for +es: List<&2, Sr.Ent>
   for +p: Nat
   for +s: Nat
   for +k: Nat
   for +rem: Nat
   for +n: Nat
-  {(Sr.run(Nil{}, p, s, k, rem, n), Sr.run(e <> es, p, s, k, rem, n)) == (Nil{}, ds_out(e, p, s, k, rem, n) <> Sr.run(es, p, s, k, Nat.sub(rem, ds_kept(e, p, rem)), ds_seen(e, rem, n))) : List<&2, Sr.Out> & List<&2, Sr.Out>}
+  {Sr.seen(e, rem, n) == Nat.add(ds_matched([Sr.out(e, p, s, k, rem, n)]), n) : Nat}
 
-# the matches each entry keeps, in walk order
-def ds_keeps(es: List<&2, Sr.Ent>, +p: Nat, +rem: Nat) -> List<&2, Nat>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case +e <> rest:
-      ds_kept(e, p, rem) <> ds_keeps(rest, p, Nat.sub(rem, ds_kept(e, p, rem)))
-
-# LAW grep_keeps_spec: the matches each entry of a walk keeps: at most p of a file, at most
-# the matches left in all
-# EXCLUDES: a file that keeps more than the caps let it, or fewer than it
-#   holds under them
-law grep_keeps_spec:
+# LAW grep_run_pieces (A7): a walk is answered entry by entry: the walk es
+# ++ fs answers es, then fs with the matches es kept taken off rem and the
+# matching files es met added to n; one entry answers its own class; no
+# entry, nothing
+# EXCLUDES: entries dropped, reordered or answered twice, a walk that
+#   forgets the matches kept or the matching files met between entries
+law grep_run_pieces:
   for +es: List<&2, Sr.Ent>
+  for +fs: List<&2, Sr.Ent>
+  for +e: Sr.Ent
+  for +p: Nat
+  for +s: Nat
+  for +k: Nat
+  for +rem: Nat
+  for +n: Nat
+  {Sr.run(List.append(&2, Sr.Ent, es, fs), p, s, k, rem, n) == List.append(&2, Sr.Out, Sr.run(es, p, s, k, rem, n), Sr.run(fs, p, s, k, Nat.sub(rem, ds_sum(Sr.keeps(es, p, rem))), Nat.add(ds_matched(Sr.run(es, p, s, k, rem, n)), n))) : List<&2, Sr.Out>} & {(Sr.run(Nil{}, p, s, k, rem, n), Sr.run([e], p, s, k, rem, n)) == (Nil{}, [Sr.out(e, p, s, k, rem, n)]) : List<&2, Sr.Out> & List<&2, Sr.Out>}
+
+# LAW grep_keeps_pieces (A5, A7): the matches each entry keeps, entry by
+# entry: for es ++ fs, those of es, then those of fs with what es kept
+# taken off rem; one entry keeps its own; no entry, none
+# EXCLUDES: a cap not carried between files, a file's count dropped,
+#   reordered or doubled
+law grep_keeps_pieces:
+  for +es: List<&2, Sr.Ent>
+  for +fs: List<&2, Sr.Ent>
+  for +e: Sr.Ent
   for +p: Nat
   for +rem: Nat
-  {Sr.keeps(es, p, rem) == ds_keeps(es, p, rem) : List<&2, Nat>}
+  {Sr.keeps(List.append(&2, Sr.Ent, es, fs), p, rem) == List.append(&2, Nat, Sr.keeps(es, p, rem), Sr.keeps(fs, p, Nat.sub(rem, ds_sum(Sr.keeps(es, p, rem))))) : List<&2, Nat>} & {(Sr.keeps(Nil{}, p, rem), Sr.keeps([e], p, rem)) == (Nil{}, [Sr.kept(e, p, rem)]) : List<&2, Nat> & List<&2, Nat>}
 
-# the line a range needs reached: its end, or base lines from its start
+# A8: the last line a range needs: its end, or base lines from its start
 def ds_need(r: Sr.Range, +base: Nat) -> Nat:
   match r:
     case Sr.Range{a, z}:
@@ -286,44 +337,60 @@ def ds_need(r: Sr.Range, +base: Nat) -> Nat:
         case None{}:
           Nat.add(Nat.sub(a, 1n), base)
 
-def ds_needs(rs: List<&2, Sr.Range>, +base: Nat) -> Nat:
+# A8: a fetch of x matches reaches every range's needed line, or the line
+# after the last a file of maxb bytes can hold
+def ds_covers(rs: List<&2, Sr.Range>, +x: Nat, +base: Nat, +maxb: Nat) -> Bool:
   match rs:
     case Nil{}:
-      0n
+      True{}
     case r <> t:
-      Nat.max(ds_need(r, base), ds_needs(t, base))
+      Bool.and(Bool.or(Nat.is_le(ds_need(r, base), x), Nat.is_le(1n+maxb, x)), ds_covers(t, x, base, maxb))
 
-def ds_fetch(rs: List<&2, Sr.Range>, +p: Nat, +rem: Nat, +maxb: Nat) -> Nat:
-  match rs:
-    case Nil{}:
-      Nat.add(1n, Nat.min(p, rem))
-    case r <> t:
-      Nat.max(Nat.add(1n, p), Nat.min(ds_needs(r <> t, Nat.add(1n, p)), Nat.add(1n, maxb)))
+# LAW fetch_one_more (A8): a file of no line range fetches more matches
+# than any file may keep (so a cut shows), and at most one more than p and
+# than rem
+# EXCLUDES: a fetch that cannot show a cut, one far past what the file may
+#   keep
+law fetch_one_more:
+  for +h: Nat
+  for +big: Bool
+  for +p: Nat
+  for +rem: Nat
+  for +maxb: Nat
+  {Bool.and(Nat.is_lt(Sr.kept(Sr.Ent{0n, Sr.Opened{h, big}}, p, rem), Sr.fetch(Nil{}, p, rem, maxb)), Bool.and(Nat.is_le(Sr.fetch(Nil{}, p, rem, maxb), 1n+p), Nat.is_le(Sr.fetch(Nil{}, p, rem, maxb), 1n+rem))) == True{} : Bool}
 
-# LAW fetch_reaches: a file of no line range fetches one match more than it may keep (min(p,
-# rem) + 1); a file of line ranges fetches enough to reach the last line
-# any range needs (its end, or p + 1 lines from an open range's start),
-# at most maxb + 1, and at least p + 1
-# EXCLUDES: a fetch that cannot show a cut, one that stops before a
-#   selected line, one past what a file of maxb bytes holds
-law fetch_reaches:
+# LAW fetch_covers_ranges (A8): a file of line ranges fetches at least p +
+# 1 matches, enough to reach the line each range needs (p + 1 lines from
+# an open range's start), or past maxb
+# EXCLUDES: a fetch that stops before a selected line, one that cannot
+#   show a cut
+law fetch_covers_ranges:
+  for +r: Sr.Range
   for +rs: List<&2, Sr.Range>
   for +p: Nat
   for +rem: Nat
   for +maxb: Nat
-  {Sr.fetch(rs, p, rem, maxb) == ds_fetch(rs, p, rem, maxb) : Nat}
+  {Bool.and(Nat.is_le(1n+p, Sr.fetch(r <> rs, p, rem, maxb)), ds_covers(r <> rs, Sr.fetch(r <> rs, p, rem, maxb), 1n+p, maxb)) == True{} : Bool}
+
+# LAW fetch_least (A8): a file of line ranges fetches no more than any x
+# of at least p + 1 that reaches every range's needed line (or past maxb):
+# with fetch_covers_ranges, the fewest such
+# EXCLUDES: a fetch past what a file of maxb bytes holds, or past the last
+#   line the ranges need
+law fetch_least:
+  for +r: Sr.Range
+  for +rs: List<&2, Sr.Range>
+  for +p: Nat
+  for +rem: Nat
+  for +maxb: Nat
+  for +x: Nat
+  for hx: {Bool.and(Nat.is_le(1n+p, x), ds_covers(r <> rs, x, 1n+p, maxb)) == True{} : Bool}
+  {Nat.is_le(Sr.fetch(r <> rs, p, rem, maxb), x) == True{} : Bool}
 
 # the spec of the match limit: round r, then the rounds after it; in a
 # round each file with more than r matches gives one, in file order,
 # while the budget lasts; there are as many rounds as the most matches of
 # a file
-def ds_sum(xs: List<&2, Nat>) -> Nat:
-  match xs:
-    case Nil{}:
-      0n
-    case x <> t:
-      Nat.add(x, ds_sum(t))
-
 def ds_top(xs: List<&2, Nat>) -> Nat:
   match xs:
     case Nil{}:
@@ -507,28 +574,44 @@ law search_scope_answers:
   for h: {ds_fits([2n, roots, dirs, skip, ds_opt(lim)]) == True{} : Bool}
   {FDs.ffi(ds_spell([2n, roots, dirs, skip, ds_opt(lim)])) == ds_spell(ds_scope(roots, dirs, skip, lim)) : String}
 
-# the spec of grep's scope as the model's record: several files when the
-# path has more than one root or a directory root; then 20 matches a file
-# and the skip asked, else 200 and no skip; a page of the match limit + 1
-# files, else 20
-def ds_scope_rule(roots: Nat, dirs: Nat, +skip: Nat, lim: Maybe<&2, Nat>) -> Sr.Scope:
-  +m = Bool.or(Nat.is_lt(1n, roots), Nat.is_lt(0n, dirs))
-  Sr.Scope{m, ds_nat_if(m, 20n, 200n), ds_nat_if(m, skip, 0n), ds_page_size(lim)}
+# a field of grep's scope record
+def ds_sc_multi(sc: Sr.Scope) -> Bool:
+  match sc:
+    case Sr.Scope{m, p, s, k}:
+      m
 
-# LAW search_scope_rule: the model's scope rule (Sr.scope) of roots, dirs,
-# skip and match limit is the spec's scope: several files with more than
-# one root or a directory root, 20 matches a file and the skip asked; one
-# file: 200 and no skip; a page of the match limit + 1 files, 20 without
-# a limit
-# EXCLUDES: a rule that ignores directory roots (or any input) while the
-#   compiled entry computes the scope inline, so the model and the entry
-#   disagree
-law search_scope_rule:
+def ds_sc_rest(sc: Sr.Scope) -> List<&2, Nat>:
+  match sc:
+    case Sr.Scope{m, p, s, k}:
+      [p, s, k]
+
+# LAW search_scope_as_required: the model's scope (Sr.scope) is the
+# requirement's grep scope: several files exactly when the path has more
+# than one root or a directory root; then 20 matches a file
+# (MULTI_FILE_PER_FILE_MATCHES), else 200 (SINGLE_FILE_MATCHES); the page
+# starts at the skip asked only in a scope of several files; a page holds
+# the match limit + 1 files, 20 (DEFAULT_FILE_LIMIT) without a limit. Each
+# field is stated against the record's own `multi`
+# EXCLUDES: a rule that ignores directory roots (or any input), a cap of
+#   the other scope, a skip kept for one file, a page size off by one
+law search_scope_as_required:
   for +roots: Nat
   for +dirs: Nat
   for +skip: Nat
   for +lim: Maybe<&2, Nat>
-  {Sr.scope(roots, dirs, skip, lim) == ds_scope_rule(roots, dirs, skip, lim) : Sr.Scope}
+  {ds_sc_multi(Sr.scope(roots, dirs, skip, lim)) == Bool.or(Nat.is_lt(1n, roots), Nat.is_lt(0n, dirs)) : Bool} & {ds_sc_rest(Sr.scope(roots, dirs, skip, lim)) == [ds_nat_if(ds_sc_multi(Sr.scope(roots, dirs, skip, lim)), 20n, 200n), ds_nat_if(ds_sc_multi(Sr.scope(roots, dirs, skip, lim)), skip, 0n), ds_page_size(lim)] : List<&2, Nat>}
+
+# LAW search_one_file_no_pages: in a scope of one file (multi 0) a page
+# request [0, t, s, k, 0] answers no continuation and no past-the-end
+# notice, whatever t, s and k (the requirement: a single-file scope cannot
+# paginate), then the page
+# EXCLUDES: paging one file, a skip notice for one file
+law search_one_file_no_pages:
+  for +t: Nat
+  for +s: Nat
+  for +k: Nat
+  for h: {ds_fits([0n, t, s, k, 0n]) == True{} : Bool}
+  {FDs.ffi(ds_spell([0n, t, s, k, 0n])) == ds_spell(0n <> 0n <> Sr.page(Sr.upto(t), s, k)) : String}
 
 # the spec reader: whether s is exactly the spelling of a list of Nats,
 # nothing after it, of the shape a call (ds_call_ok), an open
@@ -626,7 +709,7 @@ def ds_read(s: String) -> Maybe<&2, List<&2, Nat>>:
   ds_whole(Wr.get_list(~Nat, ~Wr.get_nat, s))
 
 # LAW search_ffi_refuses: any input that is not exactly a call's list answers the error form
-# EXCLUDES: a default page, limit or glob for bad input, input left over
+# EXCLUDES: a default page, limit or scope for bad input, input left over
 #   read, an unknown tag or a multi of 2 taken for a call
 law search_ffi_refuses:
   for +s: String
@@ -705,8 +788,10 @@ law search_ask_fetches:
   {FDs.step(FDs.Walk{p, s, k, 1n+r, n, t, maxb}, ds_spell(ds_ask(rs))) == (FDs.Walk{p, s, k, 1n+r, n, t, maxb}, ds_spell([1n, Sr.fetch(rs, p, 1n+r, maxb)])) : FDs.St & String}
 
 # LAW search_met_answers: what a file held answers its class, cut, searched in part and the
-# matches it keeps, as the rules class the entry; the walk goes on with the
-# matches left, the matching files met and one file fewer to meet
+# matches it keeps, as the rules class the entry (grep_kept_caps,
+# grep_kept_most, grep_opened_class, grep_skip_class, grep_seen_counts
+# pin those rules); the walk goes on with the matches left, the matching
+# files met and one file fewer to meet
 # EXCLUDES: a reply that is not the rules' decision, a walk that forgets
 #   the matches kept or the matching files met
 law search_met_answers:
@@ -720,24 +805,6 @@ law search_met_answers:
   for +f: Sr.Form
   for h: {ds_fits(ds_met(f)) == True{} : Bool}
   {FDs.step(FDs.Walk{p, s, k, rem, n, t, maxb}, ds_spell(ds_met(f))) == (FDs.Walk{p, s, k, Sr.left(Sr.Ent{0n, f}, p, rem), Sr.seen(Sr.Ent{0n, f}, rem, n), Nat.sub(t, 1n), maxb}, ds_spell(ds_said(Sr.out(Sr.Ent{0n, f}, p, s, k, rem, n), Sr.kept(Sr.Ent{0n, f}, p, rem)))) : FDs.St & String}
-
-# LAW search_met_rules_spec: the rules search_met_answers names are the
-# spec's for every entry: its class, cut and part (Sr.out is ds_out), the
-# matches it keeps (Sr.kept is ds_kept), the matches left after it (rem
-# less those kept) and the matching files met after it (Sr.seen is
-# ds_seen)
-# EXCLUDES: a stepper that answers one file with a rule of its own (a
-#   class, cut or kept count that is not the spec's) while the walk's run
-#   (grep_walk_spec) keeps the spec's; matches left or files met that
-#   drift, so the next ask fetches or stops wrongly
-law search_met_rules_spec:
-  for +e: Sr.Ent
-  for +p: Nat
-  for +s: Nat
-  for +k: Nat
-  for +rem: Nat
-  for +n: Nat
-  {(Sr.out(e, p, s, k, rem, n), (Sr.kept(e, p, rem), (Sr.left(e, p, rem), Sr.seen(e, rem, n)))) == (ds_out(e, p, s, k, rem, n), (ds_kept(e, p, rem), (Nat.sub(rem, ds_kept(e, p, rem)), ds_seen(e, rem, n)))) : Sr.Out & (Nat & (Nat & Nat))}
 
 # the replies of the stepper to the files of a walk, after the reply of r
 def ds_drive(es: List<&2, Sr.Ent>, r: FDs.St & String) -> List<&2, String>:
@@ -815,7 +882,7 @@ law search_refuses_example:
 # ----------------------------------------
 # grep_accounts_every_file, grep_notes_every_gap, grep_notes_every_cut and
 # continuation_disjoint read the result through the model's account,
-# membership and no-duplicate tests; these laws pin those to specs here.
+# membership, no-duplicate and cut tests; these laws pin those tests.
 
 # how many entries of os are of class code k (ds_class), and how many
 # were searched in part
@@ -847,27 +914,41 @@ law grep_account_exact:
   for +os: List<&2, Sr.Out>
   {Sr.account(os) == Sr.Count{ds_n(os, 0n), ds_n(os, 1n), ds_n(os, 2n), ds_n(os, 3n), ds_n(os, 4n), ds_n(os, 5n), ds_n(os, 6n), ds_n(os, 7n), ds_n(os, 8n), ds_partials(os)} : Sr.Count}
 
-def ds_mem(+x: Nat, xs: List<&2, Nat>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case y <> t:
-      Bool.or(Nat.is_eq(y, x), ds_mem(x, t))
+# LAW search_list_tests_find: x is in every list that holds it (pre ++ x
+# <> post), and a list that holds some x twice has a duplicate
+# EXCLUDES: a membership test that misses an item, a no-duplicate test
+#   that misses a repeat (continuation_disjoint then vacuous)
+law search_list_tests_find:
+  for +x: Nat
+  for +pre: List<&2, Nat>
+  for +mid: List<&2, Nat>
+  for +post: List<&2, Nat>
+  {Sr.mem(x, List.append(&2, Nat, pre, x <> post)) == True{} : Bool} & {Sr.nodup(List.append(&2, Nat, pre, x <> List.append(&2, Nat, mid, x <> post))) == False{} : Bool}
 
-def ds_nodup(xs: List<&2, Nat>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case +y <> +t:
-      Bool.and(Bool.not(ds_mem(y, t)), ds_nodup(t))
-
-# LAW search_list_tests_exact: the model's membership and no-duplicate tests are the specs'
-# EXCLUDES: continuation_disjoint or grep_notes_every_cut made vacuous by a
-#   test that always answers one way
-law search_list_tests_exact:
+# LAW search_mem_exact: x is in xs only when xs holds it: xs is pre ++ x
+# <> post for some pre and post
+# EXCLUDES: a membership test that answers yes for an item not in the
+#   list (grep_notes_every_cut then vacuous)
+law search_mem_exact:
   for +x: Nat
   for +xs: List<&2, Nat>
-  {Sr.mem(x, xs) == ds_mem(x, xs) : Bool} & {Sr.nodup(xs) == ds_nodup(xs) : Bool}
+  for h: {Sr.mem(x, xs) == True{} : Bool}
+  exs pre: List<&2, Nat>
+  exs post: List<&2, Nat>
+  {xs == List.append(&2, Nat, pre, x <> post) : List<&2, Nat>}
+
+# LAW search_nodup_exact: a list has a duplicate only when some x is in it
+# twice: it is pre ++ x <> mid ++ x <> post
+# EXCLUDES: a no-duplicate test that answers no for a list of distinct
+#   items
+law search_nodup_exact:
+  for +xs: List<&2, Nat>
+  for h: {Sr.nodup(xs) == False{} : Bool}
+  exs x: Nat
+  exs pre: List<&2, Nat>
+  exs mid: List<&2, Nat>
+  exs post: List<&2, Nat>
+  {xs == List.append(&2, Nat, pre, x <> List.append(&2, Nat, mid, x <> post)) : List<&2, Nat>}
 
 # how many entries of os the notice n reports: those skipped for its
 # reason, those not searched, those searched in part
@@ -892,27 +973,25 @@ law search_note_count_exact:
   for +n: Sr.Note
   {Sr.Note.count(Sr.account(os), n) == ds_note_n(os, n) : Nat}
 
-def ds_cut_if(b: Bool, i: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
-  match b:
-    case True{}:
-      i <> rest
-    case False{}:
-      rest
-
-# the shown entries whose matches were cut, in walk order
-def ds_cuts(os: List<&2, Sr.Out>) -> List<&2, Nat>:
-  match os:
-    case Nil{}:
-      Nil{}
-    case o <> t:
-      match o:
-        case Sr.Out{i, c, cut, pa}:
-          ds_cut_if(Bool.and(Nat.is_eq(ds_class(c), 1n), cut), i, ds_cuts(t))
-
-# LAW search_cuts_exact: the files with a cut notice are exactly the shown
-# files whose matches were cut, in walk order
-# EXCLUDES: a cut notice for a file that was not cut or not shown (the
-#   converse grep_notes_every_cut does not state)
-law search_cuts_exact:
+# LAW grep_cuts_pieces: the cut notices of a result are those of its
+# entries in order: of os ++ qs those of os then those of qs; none for no
+# entry; at most one for one entry
+# EXCLUDES: cut notices reordered, doubled, or depending on other entries
+law grep_cuts_pieces:
   for +os: List<&2, Sr.Out>
-  {Sr.cuts(os) == ds_cuts(os) : List<&2, Nat>}
+  for +qs: List<&2, Sr.Out>
+  for +o: Sr.Out
+  {Sr.cuts(List.append(&2, Sr.Out, os, qs)) == List.append(&2, Nat, Sr.cuts(os), Sr.cuts(qs)) : List<&2, Nat>} & {(Sr.cuts(Nil{}), Nat.is_le(List.length(&2, Nat, Sr.cuts([o])), 1n)) == (Nil{}, True{}) : List<&2, Nat> & Bool}
+
+# LAW grep_cut_noted_exact: a file has a cut notice only when it is a
+# shown entry whose matches were cut (the converse of
+# grep_notes_every_cut)
+# EXCLUDES: a cut notice for a file that was not cut or not shown
+law grep_cut_noted_exact:
+  for +i: Nat
+  for +os: List<&2, Sr.Out>
+  for h: {Sr.mem(i, Sr.cuts(os)) == True{} : Bool}
+  exs pre: List<&2, Sr.Out>
+  exs pa: Bool
+  exs post: List<&2, Sr.Out>
+  {os == List.append(&2, Sr.Out, pre, Sr.Out{i, Sr.Shown{}, True{}, pa} <> post) : List<&2, Sr.Out>}

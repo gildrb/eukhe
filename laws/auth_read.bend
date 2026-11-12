@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # ---- auth_read ----
 
-# LAWS (A1): what a read of the auth document means to the OAuth refresh.
+# LAWS (A1, A2): what a read of the auth document means to the OAuth refresh.
 # The Rust refresh (crates/eukhe-core/src/auth/flight.rs) and the auth
 # lookup (crates/eukhe-core/src/auth/manager/lookup.rs) read the document
 # and hand the entry bend/ffi_auth_read.bend (a call) what they found
@@ -18,11 +18,20 @@ import ./base.bend as LawsBase
 # Rust only reads, fetches and writes. PROOF.bend proves the laws (as
 # AuthRead.<law>) with the lemmas of proof/auth_read/.
 #
-# The spec spells requests and reads replies with the wire primitives
-# (bend/wire.bend), never with the entry's own codec. A read credential is
-# fresh, for the model's store (bend/auth_flight.bend `Sto.fresh`), when it
-# is an OAuth credential that expires after the clock (ar_fresh); the
+# The laws spell requests (ar_spell) and read replies (ar_code) with the
+# wire primitives (bend/wire.bend); they never call the entry's own decoder
+# (get_query) or reply encoder (put_verdict). A read credential is fresh,
+# for the model's store (bend/auth_flight.bend `Sto.fresh`), when it is an
+# OAuth credential that expires after the clock (ar_fresh); the
 # `*_is_model` laws tie each verdict to the model's step on such a store.
+#
+# A1: on every request Rust writes (its clock and expiry within the wire)
+#     the entry answers the verdict on it: auth_read_answers and the
+#     `*_is_model` laws.
+# A2: the entry answers only those requests: any other input (an unknown
+#     tag, a short field, input left over) gets the one error form
+#     `E auth_read: malformed request`: auth_read_left_over,
+#     auth_read_spelled, auth_read_refuses.
 
 # Terms
 # -----
@@ -53,6 +62,12 @@ def ar_spell_read(r: F.Read) -> String:
 def ar_spell(a: F.Ask, now: Nat, r: F.Read) -> String:
   Wr.put_nat(ar_ask_tag(a), Wr.put_nat(now, ar_spell_read(r)))
 
+# a request Rust writes, as one query
+def ar_spell_q(q: F.Query) -> String:
+  match q:
+    case F.Query{a, now, r}:
+      ar_spell(a, now, r)
+
 # an OAuth credential's expiry fits the wire
 def ar_read_fits(r: F.Read) -> Bool:
   match r:
@@ -64,6 +79,12 @@ def ar_read_fits(r: F.Read) -> Bool:
       True{}
     case F.Oauth{e}:
       LawsBase.wire_fits(e)
+
+# a query whose clock and expiry fit the wire
+def ar_fits_q(q: F.Query) -> Bool:
+  match q:
+    case F.Query{a, now, r}:
+      Bool.and(ar_read_fits(r), LawsBase.wire_fits(now))
 
 # a read credential is fresh at now: it is OAuth and expires after now
 def ar_fresh(now: Nat, r: F.Read) -> Bool:
@@ -109,90 +130,6 @@ def ar_reply(a: F.Ask, +now: Nat, +r: F.Read) -> String:
       ar_pick(ar_fresh(now, r), 0n, 1n)
     case F.AskStore{}:
       ar_pick(ar_fresh(now, r), 3n, 4n)
-
-def ar_reply_q(q: F.Query) -> String:
-  match q:
-    case F.Query{a, now, r}:
-      ar_reply(a, now, r)
-
-# The reader: the requests Rust writes, as the wire primitives read them
-
-def ar_read.oauth(r: Wr.Dec<Nat>) -> Wr.Dec<F.Read>:
-  match r:
-    case Wr.Got{e, s}:
-      Wr.Got{F.Oauth{e}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ar_read.found(t: Nat, s: String) -> Wr.Dec<F.Read>:
-  match t:
-    case 0n:
-      Wr.Got{F.Unread{}, s}
-    case 1n:
-      Wr.Got{F.NoCred{}, s}
-    case 2n:
-      Wr.Got{F.NotOauth{}, s}
-    case 3n:
-      ar_read.oauth(Wr.get_nat(s))
-    case 4n+p:
-      Wr.Bad{}
-
-def ar_read.read(r: Wr.Dec<Nat>) -> Wr.Dec<F.Read>:
-  match r:
-    case Wr.Got{t, s}:
-      ar_read.found(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ar_read.query(a: F.Ask, now: Nat, r: Wr.Dec<F.Read>) -> Wr.Dec<F.Query>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{F.Query{a, now, x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ar_read.now(a: F.Ask, r: Wr.Dec<Nat>) -> Wr.Dec<F.Query>:
-  match r:
-    case Wr.Got{now, s}:
-      ar_read.query(a, now, ar_read.read(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ar_read.tag(t: Nat, s: String) -> Wr.Dec<F.Query>:
-  match t:
-    case 0n:
-      ar_read.now(F.AskLoad{}, Wr.get_nat(s))
-    case 1n:
-      ar_read.now(F.AskCheck{}, Wr.get_nat(s))
-    case 2n:
-      ar_read.now(F.AskStore{}, Wr.get_nat(s))
-    case 3n+p:
-      Wr.Bad{}
-
-def ar_read.go(r: Wr.Dec<Nat>) -> Wr.Dec<F.Query>:
-  match r:
-    case Wr.Got{t, s}:
-      ar_read.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ar_whole(whole: Bool, q: F.Query) -> Maybe<&2, F.Query>:
-  match whole:
-    case True{}:
-      Some{q}
-    case False{}:
-      None{}
-
-def ar_read.whole(r: Wr.Dec<F.Query>) -> Maybe<&2, F.Query>:
-  match r:
-    case Wr.Got{q, s}:
-      ar_whole(Wr.end(s), q)
-    case Wr.Bad{}:
-      None{}
-
-# the read to judge, when s is exactly one request
-def ar_read(s: String) -> Maybe<&2, F.Query>:
-  ar_read.whole(ar_read.go(Wr.get_nat(s)))
 
 # The replies, as Rust reads them, and the model's steps they stand for
 
@@ -290,23 +227,38 @@ law auth_read_answers:
   for fr: {ar_read_fits(r) == True{} : Bool}
   {FR.ffi(ar_spell(a, now, r)) == ar_reply(a, now, r) : String}
 
-# LAW auth_read_reads: every input that is exactly one request (as the wire
-# primitives read it) gets the verdict on it
-# EXCLUDES: a verdict on another reading of the input
-law auth_read_reads:
-  for +s: String
-  for +q: F.Query
-  for got: {ar_read(s) == Some{q} : Maybe<&2, F.Query>}
-  {FR.ffi(s) == ar_reply_q(q) : String}
+# LAW auth_read_left_over (A2): a request Rust writes followed by more input
+# answers the error form
+# EXCLUDES: the input after the request ignored, a verdict on a prefix of
+#   the input
+law auth_read_left_over:
+  for +a: F.Ask
+  for +now: Nat
+  for +r: F.Read
+  for +c: Char
+  for +t: String
+  for fnow: {LawsBase.wire_fits(now) == True{} : Bool}
+  for fr: {ar_read_fits(r) == True{} : Bool}
+  {FR.ffi(String.append(ar_spell(a, now, r), SCon{c, t})) == Wr.err("auth_read: malformed request") : String}
 
-# LAW auth_read_malformed_exact: every input that is not exactly one request
-# gets exactly the error form 'E ', then "auth_read: malformed request"
-# EXCLUDES: a guessed verdict for garbage, a request with input after it
-#   answered
-law auth_read_malformed_exact:
+# LAW auth_read_spelled (A2): every input the entry does not answer with
+# the error form is a request Rust writes, its clock and expiry within the
+# wire (so auth_read_answers pins its answer)
+# EXCLUDES: a verdict guessed for input that is no request (an unknown ask
+#   or read tag, a field cut short, a leading zero, input left over)
+law auth_read_spelled:
   for +s: String
-  for no: {ar_read(s) == None{} : Maybe<&2, F.Query>}
-  {FR.ffi(s) == SCon{'E', SCon{' ', "auth_read: malformed request"}} : String}
+  for ok: {LawsBase.wire_opens_err(FR.ffi(s)) == False{} : Bool}
+  exs q: F.Query
+  {s == ar_spell_q(q) : String} & {ar_fits_q(q) == True{} : Bool}
+
+# LAW auth_read_refuses (A2): every error the entry answers is exactly
+# `E auth_read: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law auth_read_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FR.ffi(s)) == True{} : Bool}
+  {FR.ffi(s) == Wr.err("auth_read: malformed request") : String}
 
 # LAW auth_read_load_is_model: the verdict on a load of an OAuth credential
 # directs the model's load (adv.load) on a store holding it, fresh when it

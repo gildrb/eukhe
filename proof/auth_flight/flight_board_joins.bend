@@ -6,7 +6,7 @@ import ../../laws/auth_flight/model.bend as AuthFlight
 import ./base.bend as LA
 
 # the flight a caller leads is the flight in flight
-def pf.led_lead(+s: F.Sto, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat, l: F.Leg, +f: Nat, e: {F.led(l) == Some{f} : Maybe<&2, Nat>}, g: LA.pf.Good(F.W{s, fl, ld, n}, l)) -> LA.pf.Lead(fl, ld, f):
+def pf.led_lead(+s: F.Sto, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat, l: F.Leg, +f: Nat, e: {AuthFlight.af_led(l) == Some{f} : Maybe<&2, Nat>}, g: LA.pf.Good(F.W{s, fl, ld, n}, l)) -> LA.pf.Lead(fl, ld, f):
   match l:
     case F.Load{}:
       LA.pf.none_some(Nat, LA.pf.Lead(fl, ld, f), f, e)
@@ -41,7 +41,7 @@ def pf.joins.go(+c: Nat, +fr: Bool, fl: Bool, +ld: List<&2, F.Out>, +n: Nat, +cs
       (efl, ef) = lead
       LA.auth_flight.pf.absurdF({List.get(&2, F.Leg, F.St.cs(F.step(F.St{F.W{F.Sto{c, fr}, False{}, ld, n}, cs}, F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}, efl)
 
-def pf.joins(s: F.St, inv: LA.auth_flight.pf.Inv(s), +j: Nat, +lj: F.Leg, +f: Nat, leads: {List.get(&2, F.Leg, F.St.cs(s), j) == Some{lj} : Maybe<&2, F.Leg>}, flight: {F.led(lj) == Some{f} : Maybe<&2, Nat>}, +k: Nat, +ok: Bool, boards: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}) -> {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}:
+def pf.joins(s: F.St, inv: LA.auth_flight.pf.Inv(s), +j: Nat, +lj: F.Leg, +f: Nat, leads: {List.get(&2, F.Leg, F.St.cs(s), j) == Some{lj} : Maybe<&2, F.Leg>}, flight: {AuthFlight.af_led(lj) == Some{f} : Maybe<&2, Nat>}, +k: Nat, +ok: Bool, boards: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}) -> {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}:
   match s:
     case F.St{w, +cs}:
       match w:
@@ -51,8 +51,8 @@ def pf.joins(s: F.St, inv: LA.auth_flight.pf.Inv(s), +j: Nat, +lj: F.Leg, +f: Na
               (cnt, all) = inv
               pf.joins.go(c, fr, fl, ld, n, cs, f, k, ok, pf.led_lead(F.Sto{c, fr}, fl, ld, n, lj, f, flight, LA.pf.all_get(F.W{F.Sto{c, fr}, fl, ld, n}, cs, j, lj, leads, all)), boards)
 
-def pf.flight_board_joins(+evs: List<&2, F.Ev>, +j: Nat, +lj: F.Leg, +f: Nat, leads: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), j) == Some{lj} : Maybe<&2, F.Leg>}, flight: {F.led(lj) == Some{f} : Maybe<&2, Nat>}, +k: Nat, +ok: Bool, boards: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}) -> {List.get(&2, F.Leg, F.St.cs(F.step(F.run(evs), F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}:
-  pf.joins(F.run(evs), LA.pf.inv_run(evs), j, lj, f, leads, flight, k, ok, boards)
+def pf.flight_board_joins(+evs: List<&2, F.Ev>, +j: Nat, +lj: F.Leg, +f: Nat, leads: {List.get(&2, F.Leg, F.St.cs(AuthFlight.am_run(evs)), j) == Some{lj} : Maybe<&2, F.Leg>}, flight: {AuthFlight.af_led(lj) == Some{f} : Maybe<&2, Nat>}, +k: Nat, +ok: Bool, boards: {List.get(&2, F.Leg, F.St.cs(AuthFlight.am_run(evs)), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}) -> {List.get(&2, F.Leg, F.St.cs(F.step(AuthFlight.am_run(evs), F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}:
+  pf.joins(AuthFlight.am_run(evs), LA.pf.inv_run(evs), j, lj, f, leads, flight, k, ok, boards)
 
 def AuthFlight.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards):
   pf.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards)

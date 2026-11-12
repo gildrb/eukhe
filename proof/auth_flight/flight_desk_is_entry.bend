@@ -6,4 +6,4 @@ import ../../laws/auth_flight/entry.bend as AuthFlightEntry
 import ./base/entry.bend as LAE
 
 def AuthFlightEntry.flight_desk_is_entry(d, e):
-  LAE.ae.desk(d, e)
+  LAE.ae.desk_orig(d, e)

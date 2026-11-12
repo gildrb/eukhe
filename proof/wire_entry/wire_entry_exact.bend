@@ -3,8 +3,8 @@
 # PROOF: the entry answers a value only when each field decodes and nothing
 # is left. Each decoded field is exactly its encoding before the rest
 # (wire_nat_exact, wire_u32_exact, wire_bool_exact, wire_str_exact,
-# wire_list_exact), which is the spec's spelling (wire_nat_decimal,
-# wire_u32_decimal, wire_bool_spelled, wire_str_decimal,
+# wire_list_exact), which is the spec's spelling (LAWireDec.wdec.nat,
+# LAWireDec.wdec.u32, LAWireDec.wdec.bool, wire_str_decimal,
 # wire_nats_decimal), and fits the wire (wire_nat_decoded_fits,
 # wire_str_decoded_fits; the list: web.list_fits, from
 # wire_list_reads_items and wire_nat_decoded_fits). Stage by stage, as the
@@ -21,9 +21,7 @@ import ../wire/wire_u32_exact.bend as PWireU32Exact
 import ../wire/wire_bool_exact.bend as PWireBoolExact
 import ../wire/wire_str_exact.bend as PWireStrExact
 import ../wire/wire_list_exact.bend as PWireListExact
-import ../wire/wire_nat_decimal.bend as PWireNatDecimal
-import ../wire/wire_u32_decimal.bend as PWireU32Decimal
-import ../wire/wire_bool_spelled.bend as PWireBoolSpelled
+import ../wire/base/dec.bend as LAWireDec
 import ../wire/wire_str_decimal.bend as PWireStrDecimal
 import ../wire/wire_nats_decimal.bend as PWireNatsDecimal
 import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
@@ -91,7 +89,7 @@ def wex.b(-s: String, +n: Nat, +x: U32, +s2: String,
   match d:
     case Wr.Got{+b, +s3}:
       +e3 = Equal.trans(String, s2, Wr.put_bool(b, s3), SCon{LawsBase.wire_bool_char(b), s3},
-        Wire.wire_bool_exact(s2, b, s3, ed), Wire.wire_bool_spelled(b, s3))
+        Wire.wire_bool_exact(s2, b, s3, ed), LAWireDec.wdec.bool(b, s3))
       +eq = Equal.trans(String, s, LawsBase.wire_dec(n, LawsBase.wire_dec(U32.to_nat(x), s2)), LawsBase.wire_dec(n, LawsBase.wire_dec(U32.to_nat(x), SCon{LawsBase.wire_bool_char(b), s3})), e,
         Equal.cong(String, String, z => LawsBase.wire_dec(n, LawsBase.wire_dec(U32.to_nat(x), z)), s2, SCon{LawsBase.wire_bool_char(b), s3}, e3))
       wex.a(s, n, x, b, s3, eq, fn, Wr.get_str(s3), {==}, ok)
@@ -107,7 +105,7 @@ def wex.u(-s: String, +n: Nat, +s1: String,
   match d:
     case Wr.Got{+x, +s2}:
       +e2 = Equal.trans(String, s1, Wr.put_u32(x, s2), LawsBase.wire_dec(U32.to_nat(x), s2),
-        Wire.wire_u32_exact(s1, x, s2, ed), Wire.wire_u32_decimal(x, s2))
+        Wire.wire_u32_exact(s1, x, s2, ed), LAWireDec.wdec.u32(x, s2))
       +eq = Equal.trans(String, s, LawsBase.wire_dec(n, s1), LawsBase.wire_dec(n, LawsBase.wire_dec(U32.to_nat(x), s2)), e,
         Equal.cong(String, String, z => LawsBase.wire_dec(n, z), s1, LawsBase.wire_dec(U32.to_nat(x), s2), e2))
       wex.b(s, n, x, s2, eq, fn, Wr.get_bool(s2), {==}, ok)
@@ -121,7 +119,7 @@ def wex.n(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>},
     case Wr.Got{+n, +s1}:
       +h = ed
       +e1 = Equal.trans(String, s, Wr.put_nat(n, s1), LawsBase.wire_dec(n, s1),
-        Wire.wire_nat_exact(s, n, s1, h), Wire.wire_nat_decimal(n, s1))
+        Wire.wire_nat_exact(s, n, s1, h), LAWireDec.wdec.nat(n, s1))
       wex.u(s, n, s1, e1, Wire.wire_nat_decoded_fits(s, n, s1, h), Wr.get_u32(s1), {==}, ok)
     case Wr.Bad{}:
       wex.no(s, ok)

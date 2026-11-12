@@ -12,7 +12,7 @@ import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
 import ./base.bend as AB
 import ./base/step.bend as SV
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 
 def rr.none_some(m: Maybe<&2, String>, e: {ArgRepair.ar_none(m) == True{} : Bool}) -> {Maybe.is_some(&2, String, m) == False{} : Bool}:
   match m:

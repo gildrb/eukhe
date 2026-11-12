@@ -26,7 +26,7 @@ def pq.lad_none(l: Ef.Lv, +dl: List<&2, Ef.Lv>) -> {If.lad.keep(l, Ef.entry(l, E
     case Ef.Max{}:
       {==}
 
-def pq.quirk_ladder_plain_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&2, Ef.LvMap>, +d: If.Defaults, +l: Ef.Lv) -> {Ef.has(If.lad.offered(False{}, explicit, rule, d), l) == Ef.has(If.Defaults.plain(d), l) : Bool}:
+def pq.quirk_ladder_plain_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&2, Ef.LvMap>, +d: If.Defaults, +l: Ef.Lv) -> {Ef.has(Ef.offered(If.lad.model(False{}, explicit, rule, d)), l) == Ef.has(If.Defaults.plain(d), l) : Bool}:
   +P = If.Defaults.plain(d)
   +N = Ef.LvMap.none()
   +F = If.lad.fill(N, P)

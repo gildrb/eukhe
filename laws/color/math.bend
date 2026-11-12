@@ -3,7 +3,6 @@
 import Base
 import ../../bend/color.bend as Co
 import ../../bend/ffi_color.bend as FCo
-import ../../spec/theme/color.bend as Cm
 
 # The linear channel, light or dark, the xterm-256 palette
 # --------------------------------------------------------
@@ -76,16 +75,33 @@ def th.lum(c: Co.Rgb) -> U32:
     case Co.Rgb{r, g, b}:
       (2126 * Co.lin(r) + 7152 * Co.lin(g) + 722 * Co.lin(b) : U32)
 
-# LAW color_light_spec: a color is light exactly when its WCAG relative luminance is above one
-# half, for every color; the luminance sums the linear channels as the
-# table above rounds them (1/10000), as eukhe always did, so a color within
-# about 0.0001 of one half can fall the other way than with exact WCAG
-# arithmetic
-# EXCLUDES: another weighting of the channels (Rec. 601, a plain mean), a
-#   threshold other than one half or at it
-law color_light_spec:
-  for c: Co.Rgb
-  {Co.light(c) == U32.is_gt(th.lum(c), 50000000) : Bool}
+# LAW color_light_rises: light follows the luminance: of any two colors, when the first is
+# light and the second's WCAG relative luminance (Co.lum: the laws
+# color_lum_* state it) is at least the first's, the second is light too.
+# With color_light_edge_example this is "light exactly when the luminance
+# is above one half" for every color; the luminance sums the linear
+# channels as the table above rounds them (1/10000), as eukhe always did,
+# so a color within about 0.0001 of one half can fall the other way than
+# with exact WCAG arithmetic
+# EXCLUDES: a light read from anything but the luminance (the channel sum,
+#   Rec. 601 weights, one channel), a light that falls as the luminance
+#   rises
+law color_light_rises:
+  for +a: Co.Rgb
+  for +b: Co.Rgb
+  for le: {U32.is_le(Co.lum(a), Co.lum(b)) == True{} : Bool}
+  for la: {Co.light(a) == True{} : Bool}
+  {Co.light(b) == True{} : Bool}
+
+# LAW color_light_edge_example: the two colors nearest one half: (223, 177, 169), luminance
+# 0.49999994, is dark and (78, 213, 93), luminance 0.50000010, is light.
+# No color's luminance lies between the two (an exact search of every
+# color over lin's 256 values), so with color_light_rises every color of
+# luminance at most 0.49999994 is dark and every color of at least
+# 0.50000010 is light
+# EXCLUDES: a threshold other than one half
+law color_light_edge_example:
+  {[Co.lum(Co.Rgb{223, 177, 169}), Co.lum(Co.Rgb{78, 213, 93})] == [49999994, 50000010] : List<&2, U32>} & {[Co.light(Co.Rgb{223, 177, 169}), Co.light(Co.Rgb{78, 213, 93})] == [False{}, True{}] : List<&2, Bool>}
 
 # LAW color_light_orange_example: orange (255, 165, 0) is dark: its WCAG luminance is 0.4817 (Rec.
 # 601 weights would make it 0.52, light)
@@ -188,114 +204,106 @@ def th.absd.if(ge: Bool, +a: U32, +b: U32) -> U32:
 def th.absd(+a: U32, +b: U32) -> U32:
   th.absd.if(U32.is_ge(a, b), a, b)
 
-# the distance of v to each value of xs, in order
-def th.dists(+v: U32, xs: List<&2, U32>) -> List<&2, U32>:
+# every value of ys is strictly farther from v than x is
+def th.farther(+v: U32, +x: U32, ys: List<&2, U32>) -> Bool:
+  match ys:
+    case Nil{}:
+      True{}
+    case y <> t:
+      Bool.and(U32.is_lt(th.absd(v, x), th.absd(v, y)), th.farther(v, x, t))
+
+# every value of ys is at least as far from v as x is
+def th.as_far(+v: U32, +x: U32, ys: List<&2, U32>) -> Bool:
+  match ys:
+    case Nil{}:
+      True{}
+    case y <> t:
+      Bool.and(U32.is_le(th.absd(v, x), th.absd(v, y)), th.as_far(v, x, t))
+
+# the index of the value that follows the values xs, the first of them at
+# index at
+def th.index(xs: List<&2, U32>, at: U32) -> U32:
   match xs:
     case Nil{}:
-      Nil{}
+      at
     case x <> t:
-      th.absd(v, x) <> th.dists(v, t)
+      th.index(t, (at + 1 : U32))
 
-def th.pick(c: Bool, a: U32, b: U32) -> U32:
-  match c:
-    case True{}:
-      a
-    case False{}:
-      b
-
-# the index of the first smallest distance of ds (the first is at index
-# at; best, at distance bestd, is the first smallest so far)
-def th.first_min(ds: List<&2, U32>, +at: U32, +best: U32, +bestd: U32) -> U32:
-  match ds:
-    case Nil{}:
-      best
-    case +d <> t:
-      th.first_min(t, (at + 1 : U32), th.pick(U32.is_lt(d, bestd), at, best), th.pick(U32.is_lt(d, bestd), d, bestd))
-
-# the index of the value of xs nearest v: its first smallest distance
-def th.nearest(+v: U32, xs: List<&2, U32>) -> U32:
-  th.first_min(th.dists(v, xs), 0, 0, 4294967295)
-
-# LAW color_near_spec: the nearest value is the first one at the smallest distance, for every
-# value and list
+# LAW color_near_first_nearest: near answers the index of the first value at the smallest
+# distance: for every value v and every list that holds x after values
+# all strictly farther from v than x and before values all at least as
+# far, near(v, list) is the index of x (the count of the values before
+# it). The distance of two values is the larger less the smaller
 # EXCLUDES: rounding down or up instead of to the nearest, a later value
-#   on a tie, a distance measured otherwise
-law color_near_spec:
+#   on a tie, a distance measured otherwise, an index off by one or
+#   counted from another start
+law color_near_first_nearest:
   for +v: U32
-  for xs: List<&2, U32>
-  {Co.near(v, xs) == th.nearest(v, xs) : U32}
+  for +pre: List<&2, U32>
+  for +x: U32
+  for +post: List<&2, U32>
+  for far: {th.farther(v, x, pre) == True{} : Bool}
+  for rest: {th.as_far(v, x, post) == True{} : Bool}
+  {Co.near(v, List.append(&2, U32, pre, x <> post)) == th.index(pre, 0) : U32}
 
-def th.sq(+x: U32) -> U32:
-  (x * x : U32)
+# LAW color_dist_symmetric: the distance of two colors is the same either way round, for every
+# two colors
+# EXCLUDES: a channel distance that depends on which color is the larger,
+#   a channel of one color measured against another channel of the other
+law color_dist_symmetric:
+  for +a: Co.Rgb
+  for +b: Co.Rgb
+  {Co.dist(a, b) == Co.dist(b, a) : U32}
 
-# the weighted squared distance of two colors: 299, 587 and 114 per mille
-# of the squared channel distances
-def th.dist(a: Co.Rgb, b: Co.Rgb) -> U32:
-  match a b:
-    case Co.Rgb{ar, ag, ab} Co.Rgb{br, bg, bb}:
-      (299 * th.sq(th.absd(ar, br)) + 587 * th.sq(th.absd(ag, bg)) + 114 * th.sq(th.absd(ab, bb)) : U32)
+# LAW color_dist_example: anchors of the weighted squared distance: one step of red, green
+# or blue alone weighs 299, 587 or 114 (per mille), either way round;
+# three steps of one channel weigh nine times that (the square); the
+# channels add: (1, 2, 3) from black is 299 + 587·4 + 114·9 = 3673; a color
+# is at distance 0 from itself
+# EXCLUDES: another weighting, unsquared or swapped channel distances, a
+#   channel left out
+law color_dist_example:
+  {[Co.dist(Co.Rgb{1, 0, 0}, Co.Rgb{0, 0, 0}), Co.dist(Co.Rgb{0, 1, 0}, Co.Rgb{0, 0, 0}), Co.dist(Co.Rgb{0, 0, 1}, Co.Rgb{0, 0, 0}), Co.dist(Co.Rgb{0, 0, 0}, Co.Rgb{1, 0, 0}), Co.dist(Co.Rgb{0, 0, 0}, Co.Rgb{0, 1, 0}), Co.dist(Co.Rgb{0, 0, 0}, Co.Rgb{0, 0, 1}), Co.dist(Co.Rgb{3, 0, 0}, Co.Rgb{0, 0, 0}), Co.dist(Co.Rgb{10, 20, 30}, Co.Rgb{10, 23, 30}), Co.dist(Co.Rgb{10, 20, 33}, Co.Rgb{10, 20, 30}), Co.dist(Co.Rgb{1, 2, 3}, Co.Rgb{0, 0, 0}), Co.dist(Co.Rgb{7, 8, 9}, Co.Rgb{7, 8, 9})] == [299, 587, 114, 299, 587, 114, 2691, 5283, 1026, 3673, 0] : List<&2, U32>}
 
-# every channel of c is at most 255 (a color the entries read or paint)
-def th.byte3(c: Co.Rgb) -> Bool:
-  match c:
-    case Co.Rgb{r, g, b}:
-      Bool.and(U32.is_le(r, 255), Bool.and(U32.is_le(g, 255), U32.is_le(b, 255)))
+# every gray slot from k on, n of them: the gray to256 weighs against the
+# cube color (Co.grays) is the palette's gray of that slot (index 232 + k),
+# and the slot's target (Co.gray.targets) is that gray's lightness,
+# weighted as a color's is (299, 587 and 114 of its three equal channels)
+def th.gray_slots(n: Nat, +k: U32) -> Bool:
+  match n:
+    case 0n:
+      True{}
+    case 1n+p:
+      Bool.and(Bool.and(Co.eq(Co.ansi256((232 + k : U32)), Co.Rgb{Co.at(Co.grays(), k), Co.at(Co.grays(), k), Co.at(Co.grays(), k)}), U32.is_eq(Co.at(Co.gray.targets(), k), (299 * Co.at(Co.grays(), k) + 587 * Co.at(Co.grays(), k) + 114 * Co.at(Co.grays(), k) : U32))), th.gray_slots(p, (k + 1 : U32)))
 
-# LAW color_dist_spec: the distance of two colors weighs the squared channel distances 299,
-# 587 and 114 per mille, for every two colors with channels at most 255
-# (the sum stays below 2^32 there, so the spec's U32 arithmetic is exact)
-# EXCLUDES: another weighting, unsquared or swapped channel distances
-law color_dist_spec:
-  for a: Co.Rgb
-  for b: Co.Rgb
-  for bytes: {Bool.and(th.byte3(a), th.byte3(b)) == True{} : Bool}
-  {Co.dist(a, b) == th.dist(a, b) : U32}
-
-def th.levels() -> List<&2, U32>:
-  [0, 95, 135, 175, 215, 255]
-
-def th.grays() -> List<&2, U32>:
-  [8, 18, 28, 38, 48, 58, 68, 78, 88, 98, 108, 118, 128, 138, 148, 158, 168, 178, 188, 198, 208, 218, 228, 238]
-
-def th.targets() -> List<&2, U32>:
-  [8000, 18000, 28000, 38000, 48000, 58000, 68000, 78000, 88000, 98000, 108000, 118000, 128000, 138000, 148000, 158000, 168000, 178000, 188000, 198000, 208000, 218000, 228000, 238000]
-
-def th.at(xs: List<&2, U32>, +i: U32) -> U32:
-  Maybe.default(&2, U32, List.get(&2, U32, xs, U32.to_nat(i)), 0)
-
-# the index of r g b given its nearest cube level indices and gray slot:
-# the gray (232 + slot) when the color is near-neutral (its channels spread
-# below 10) and that gray is strictly closer than the cube color, else the
-# cube color (16 + 36 ri + 6 gi + bi)
-def th.to256.of(+r: U32, +g: U32, +b: U32, +ri: U32, +gi: U32, +bi: U32, +slot: U32) -> U32:
-  +cube = {Co.Rgb{th.at(th.levels(), ri), th.at(th.levels(), gi), th.at(th.levels(), bi)} : Co.Rgb}
-  +gv = th.at(th.grays(), slot)
-  +spread = (U32.max(r, U32.max(g, b)) - U32.min(r, U32.min(g, b)) : U32)
-  th.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(th.dist(Co.Rgb{r, g, b}, Co.Rgb{gv, gv, gv}), th.dist(Co.Rgb{r, g, b}, cube))), (232 + slot : U32), (16 + 36 * ri + 6 * gi + bi : U32))
-
-# the xterm-256 index of a color: each channel's nearest cube level, the
-# gray nearest its weighted lightness (299 r + 587 g + 114 b)
-def th.to256(c: Co.Rgb) -> U32:
-  match c:
-    case Co.Rgb{+r, +g, +b}:
-      th.to256.of(r, g, b, th.nearest(r, th.levels()), th.nearest(g, th.levels()), th.nearest(b, th.levels()), th.nearest((299 * r + 587 * g + 114 * b : U32), th.targets()))
-
-# LAW color_to256_spec: the xterm-256 index of every color with channels at most 255 (the
-# colors the entries read or paint; the spec's U32 sums stay below 2^32
-# there): its nearest cube color, or its nearest gray when the color is
-# near-neutral and that gray is strictly closer
-# EXCLUDES: cube levels rounded down or up, the gray chosen for a colored
-#   color or on a tie, a gray slot off by one, cube indices in another order
-law color_to256_spec:
-  for c: Co.Rgb
-  for bytes: {th.byte3(c) == True{} : Bool}
-  {Co.to256(c) == th.to256(c) : U32}
+# LAW color_gray_slots: the 24 grays to256 chooses among are the palette's grays (indices
+# 232-255), slot by slot, and each slot's target lightness is its gray's
+# EXCLUDES: a gray or a target off by a step or a unit, a slot that answers
+#   another index than its gray's
+law color_gray_slots:
+  {th.gray_slots(24n, 0) == True{} : Bool}
 
 # LAW color_to256_example: anchors: red 250 is the cube's red (196), not 215 (160); a
 # near-neutral (160, 155, 164) is the gray 158 (247); white is 231
-# EXCLUDES: a reading of color_to256_spec the human did not mean
+# EXCLUDES: the cube's next lower red for 250, a cube color for the
+#   near-neutral, a gray for white
 law color_to256_example:
   {[Co.to256(Co.Rgb{250, 0, 0}), Co.to256(Co.Rgb{160, 155, 164}), Co.to256(Co.Rgb{255, 255, 255})] == [196, 247, 231] : List<&2, U32>} & {FCo.ffi("0,1,250,0,0,") == "1,196," : String}
+
+# LAW color_to256_edges_example: anchors at the edges of the rule: red 115, midway between the
+# cube levels 95 and 135, takes the lower (52); (4, 4, 4), as far from the
+# gray 8 as from black, is black (16: the gray must be strictly closer);
+# (13, 13, 13), its lightness 13000 midway between the grays 8 and 18,
+# takes the lower gray (232) and (15, 12, 13), lightness 13011, the gray
+# 18 (233); (160, 154, 164), nearer the gray 158 than any cube color but
+# with channels 10 apart, is not near-neutral and stays in the cube (139),
+# where (160, 155, 164) of color_to256_example, 9 apart, is the gray
+# EXCLUDES: a tie to the higher level or gray, the gray on a tie with the
+#   cube, a near-neutral bound other than 10 or a spread other than the
+#   largest channel less the smallest, a lightness weighted otherwise than
+#   299, 587, 114
+law color_to256_edges_example:
+  {[Co.to256(Co.Rgb{115, 0, 0}), Co.to256(Co.Rgb{4, 4, 4}), Co.to256(Co.Rgb{13, 13, 13}), Co.to256(Co.Rgb{15, 12, 13}), Co.to256(Co.Rgb{160, 154, 164})] == [52, 16, 232, 233, 139] : List<&2, U32>}
 
 # the contrast test with the luminances la and lb: the darker plus the
 # flare (0.05) times num, at most the lighter plus the flare times den; a
@@ -371,216 +379,37 @@ law color_contrast_exact_wide:
 law color_contrast_carry_example:
   {[Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 65536, 65537), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 65536, 65536), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 65537, 65536), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 1376256, 65536), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 1376257, 65536)] == [True{}, True{}, False{}, True{}, False{}] : List<&2, Bool>}
 
-# x is a code from lo to hi
-def th.within(+x: U32, lo: U32, hi: U32) -> Bool:
-  Bool.and(U32.is_ge(x, lo), U32.is_le(x, hi))
-
-def th.hexv.up(upper: Bool, +x: U32) -> Maybe<&2, U32>:
-  match upper:
-    case True{}:
-      Some{(x - 55 : U32)}
-    case False{}:
-      None{}
-
-def th.hexv.low(lower: Bool, +x: U32) -> Maybe<&2, U32>:
-  match lower:
-    case True{}:
-      Some{(x - 87 : U32)}
-    case False{}:
-      th.hexv.up(th.within(x, 65, 70), x)
-
-def th.hexv.dec(digit: Bool, +x: U32) -> Maybe<&2, U32>:
-  match digit:
-    case True{}:
-      Some{(x - 48 : U32)}
-    case False{}:
-      th.hexv.low(th.within(x, 97, 102), x)
-
-# the value of a hex digit: '0'-'9' (codes 48-57) are 0-9, 'a'-'f'
-# (97-102) and 'A'-'F' (65-70) are 10-15; every other char is none
-def th.hexv(c: Char) -> Maybe<&2, U32>:
-  match c:
-    case Chr{+x}:
-      th.hexv.dec(th.within(x, 48, 57), x)
-
-# LAW color_hexd_spec (R1): every char reads as a hex digit exactly as the spec says: 0-9,
-# a-f, A-F their values, every other char none
-# EXCLUDES: a char outside the three ranges read as a digit (a "#hhhhhh"
-#   read as a color), a digit's value off
-law color_hexd_spec:
-  for c: Char
-  {Co.hexd(c) == th.hexv(c) : Maybe<&2, U32>}
-
 # LAW color_hex_letters_example (R1): anchor: "#hhhhhh" and "#GGGGGG" are no colors
 # EXCLUDES: letters past f read as digits
 law color_hex_letters_example:
   {[Co.hex("#hhhhhh"), Co.hex("#GGGGGG")] == [None{}, None{}] : List<&2, Maybe<&2, Co.Rgb>>}
 
-# Every color function, exactly
-# -----------------------------
-# The laws above fix lin on 0-255 and quantization, light and contrast
-# over the luminance; these pin, for every input, the remaining color
-# functions the theme's laws and specs read (equality, lin past 255, the
-# palette past 255, the #rrggbb and index texts), each to a spec here that
-# does not call bend/color.bend.
+# Color equality
+# --------------
+# What the theme's rules compare two colors with.
 
-def th.eq3(a: Co.Rgb, b: Co.Rgb) -> Bool:
-  match a b:
-    case Co.Rgb{ar, ag, ab} Co.Rgb{br, bg, bb}:
-      Bool.and(U32.is_eq(ar, br), Bool.and(U32.is_eq(ag, bg), U32.is_eq(ab, bb)))
+# LAW color_eq_same: every color equals itself
+# EXCLUDES: an equality that never holds, one that compares a channel with
+#   another channel
+law color_eq_same:
+  for +a: Co.Rgb
+  {Co.eq(a, a) == True{} : Bool}
 
-# LAW color_eq_spec: two colors are equal exactly when their three channels are
+# LAW color_eq_sound: two colors that compare equal are the same color, channel for
+# channel
 # EXCLUDES: an equality that ignores a channel or always holds
-law color_eq_spec:
-  for a: Co.Rgb
-  for b: Co.Rgb
-  {Co.eq(a, b) == th.eq3(a, b) : Bool}
-
-# LAW color_lin_spec: the linear channel of every U32 is the table entry of its low eight
-# bits (spec/theme/color.bend)
-# EXCLUDES: a channel past 255 linearized otherwise than its low byte
-law color_lin_spec:
-  for +c: U32
-  {Co.lin(c) == Cm.lin(c) : U32}
+law color_eq_sound:
+  for +a: Co.Rgb
+  for +b: Co.Rgb
+  for same: {Co.eq(a, b) == True{} : Bool}
+  {a == b : Co.Rgb}
 
 # LAW color_past_255_example: anchors past the channel and index range: channel 384 linearizes
 # as 128 (its low byte), index 256 is the gray 248
-# EXCLUDES: a reading of color_lin_spec or color_ansi256_spec the human did
-#   not mean
+# EXCLUDES: a channel past 255 linearized as anything but its low byte at
+#   384, a gray ramp that ends at index 255
 law color_past_255_example:
   {[Co.lin(384), Co.lin(128)] == [2159, 2159] : List<&2, U32>} & {Co.ansi256(256) == Co.Rgb{248, 248, 248} : Co.Rgb}
-
-def th.join(+b: U32, hi: Maybe<&2, U32>, lo: Maybe<&2, U32>) -> Maybe<&2, U32>:
-  match hi:
-    case None{}:
-      None{}
-    case Some{x}:
-      match lo:
-        case None{}:
-          None{}
-        case Some{y}:
-          Some{(x * b + y : U32)}
-
-def th.rgb3(r: Maybe<&2, U32>, g: Maybe<&2, U32>, b: Maybe<&2, U32>) -> Maybe<&2, Co.Rgb>:
-  match r:
-    case None{}:
-      None{}
-    case Some{x}:
-      match g:
-        case None{}:
-          None{}
-        case Some{y}:
-          match b:
-            case None{}:
-              None{}
-            case Some{z}:
-              Some{Co.Rgb{x, y, z}}
-
-def th.sharp(ok: Bool, m: Maybe<&2, Co.Rgb>) -> Maybe<&2, Co.Rgb>:
-  match ok:
-    case True{}:
-      m
-    case False{}:
-      None{}
-
-def th.hex7(+h: Char, a: Char, b: Char, c: Char, d: Char, e: Char, f: Char) -> Maybe<&2, Co.Rgb>:
-  th.sharp(Char.is_eq(h, '#'), th.rgb3(th.join(16, th.hexv(a), th.hexv(b)), th.join(16, th.hexv(c), th.hexv(d)), th.join(16, th.hexv(e), th.hexv(f))))
-
-# the color text s writes: exactly '#' and six hex digits, each pair a
-# channel, high digit first; none for any other text
-def th.hex(s: String) -> Maybe<&2, Co.Rgb>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{h, s1}:
-      match s1:
-        case SNil{}:
-          None{}
-        case SCon{a, s2}:
-          match s2:
-            case SNil{}:
-              None{}
-            case SCon{b, s3}:
-              match s3:
-                case SNil{}:
-                  None{}
-                case SCon{c, s4}:
-                  match s4:
-                    case SNil{}:
-                      None{}
-                    case SCon{d, s5}:
-                      match s5:
-                        case SNil{}:
-                          None{}
-                        case SCon{e, s6}:
-                          match s6:
-                            case SNil{}:
-                              None{}
-                            case SCon{f, s7}:
-                              match s7:
-                                case SNil{}:
-                                  th.hex7(h, a, b, c, d, e, f)
-                                case SCon{g, s8}:
-                                  None{}
-
-# LAW color_hex_spec (R1): every text reads as a color exactly as the spec says
-# EXCLUDES: a text of another length or without '#' read as a color, a
-#   non-digit read, digits in another order
-law color_hex_spec:
-  for s: String
-  {Co.hex(s) == th.hex(s) : Maybe<&2, Co.Rgb>}
-
-def th.digit(ok: Bool, +x: U32, +base: U32) -> Maybe<&2, U32>:
-  match ok:
-    case True{}:
-      Some{(x - base : U32)}
-    case False{}:
-      None{}
-
-# a decimal digit, and a leading one (1-9)
-def th.decd(c: Char) -> Maybe<&2, U32>:
-  match c:
-    case Chr{+x}:
-      th.digit(th.within(x, 48, 57), x, 48)
-
-def th.decl(c: Char) -> Maybe<&2, U32>:
-  match c:
-    case Chr{+x}:
-      th.digit(th.within(x, 49, 57), x, 48)
-
-def th.cap(m: Maybe<&2, U32>) -> Maybe<&2, U32>:
-  match m:
-    case None{}:
-      None{}
-    case Some{+x}:
-      th.digit(U32.is_le(x, 255), x, 0)
-
-# the index text s writes: one to three decimal digits, no leading zero,
-# at most 255; none for any other text
-def th.num(s: String) -> Maybe<&2, U32>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{a, s1}:
-      match s1:
-        case SNil{}:
-          th.decd(a)
-        case SCon{b, s2}:
-          match s2:
-            case SNil{}:
-              th.join(10, th.decl(a), th.decd(b))
-            case SCon{c, s3}:
-              match s3:
-                case SNil{}:
-                  th.cap(th.join(10, th.join(10, th.decl(a), th.decd(b)), th.decd(c)))
-                case SCon{d, s4}:
-                  None{}
-
-# LAW color_num_spec (R1): every text reads as an index exactly as the spec says
-# EXCLUDES: a sign, a leading zero, a fourth digit or a value past 255 read
-law color_num_spec:
-  for s: String
-  {Co.num(s) == th.num(s) : Maybe<&2, U32>}
 
 def th.ansi16() -> List<&2, Co.Rgb>:
   [Co.Rgb{0, 0, 0}, Co.Rgb{128, 0, 0}, Co.Rgb{0, 128, 0}, Co.Rgb{128, 128, 0}, Co.Rgb{0, 0, 128}, Co.Rgb{128, 0, 128}, Co.Rgb{0, 128, 128}, Co.Rgb{192, 192, 192}, Co.Rgb{128, 128, 128}, Co.Rgb{255, 0, 0}, Co.Rgb{0, 255, 0}, Co.Rgb{255, 255, 0}, Co.Rgb{0, 0, 255}, Co.Rgb{255, 0, 255}, Co.Rgb{0, 255, 255}, Co.Rgb{255, 255, 255}]
@@ -630,25 +459,3 @@ law color_ansi256_low:
 # EXCLUDES: a cube level off, a gray ramp off by a step
 law color_ansi256_high:
   {th.ansi_ok(128n, 128) == True{} : Bool}
-
-def th.ansi_any.if(low: Bool, cube: Bool, +i: U32) -> Co.Rgb:
-  match low:
-    case True{}:
-      Maybe.default(&2, Co.Rgb, List.get(&2, Co.Rgb, th.ansi16(), U32.to_nat(i)), Co.Rgb{0, 0, 0})
-    case False{}:
-      match cube:
-        case True{}:
-          Co.Rgb{th.at(th.levels(), U32.div((i - 16 : U32), 36)), th.at(th.levels(), U32.mod(U32.div((i - 16 : U32), 6), 6)), th.at(th.levels(), U32.mod((i - 16 : U32), 6))}
-        case False{}:
-          Co.Rgb{(8 + (i - 232) * 10 : U32), (8 + (i - 232) * 10 : U32), (8 + (i - 232) * 10 : U32)}
-
-# the xterm-256 color of any U32 index: the ANSI-16 table below 16, the
-# cube below 232, else the gray ramp (past 255 it goes on wrapping)
-def th.ansi_any(+i: U32) -> Co.Rgb:
-  th.ansi_any.if(U32.is_lt(i, 16), U32.is_lt(i, 232), i)
-
-# LAW color_ansi256_spec: the palette color of every U32 index, the indices past 255 included
-# EXCLUDES: a palette that differs past the indices color_ansi256_low/high check
-law color_ansi256_spec:
-  for +i: U32
-  {Co.ansi256(i) == th.ansi_any(i) : Co.Rgb}

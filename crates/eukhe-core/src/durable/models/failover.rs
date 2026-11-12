@@ -47,7 +47,11 @@ pub struct ProviderFailoverPolicy {
 /// capped at `max_delay_ms`), and never less than the server's wait of
 /// that provider's last failure. Never the provider that just failed;
 /// `None` when the switches are spent or no provider may be tried
-/// (`bend/retry.bend` `next`, law `failover_exact`).
+/// (`bend/retry.bend` `next`; laws `failover_fresh_progress`,
+/// `failover_fresh_nearest`, `failover_return_backoff`,
+/// `failover_return_progress`, `failover_return_nearest`,
+/// `failover_never_twice_in_a_row` and `failover_bounded` of
+/// `laws/retry.bend`).
 #[must_use]
 pub fn next_switch(len: usize, tried: &[Tried], policy: &ProviderFailoverPolicy) -> Option<Switch> {
     let policy = Policy {

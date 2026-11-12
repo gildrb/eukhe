@@ -121,12 +121,15 @@ law cache_marks_grant:
   for +ws: List<&2, Bool>
   {Cm.grant(placed, ws) == sp_grant(placed, ws) : List<&2, Bool>}
 
-# LAW cache_marks_example (R1, R2): anchor: the vectors of the Rust tests:
-# three marks after one placed, none after four, unwanted marks skipped,
-# the error at 4 marked blocks and none at 3
-# EXCLUDES: a spec that drifts from the Rust it replaced
+# LAW cache_marks_example (R1, R2): anchor: the vectors of the Rust test
+# the_core_decides_the_cache_marks (crates/eukhe-bend/src/rules/
+# cache_marks.rs: four wanted of five after one placed, the third granted
+# skipped; no error at 3 marked blocks, the error at 4), and three more,
+# in no Rust test: three marks after one placed, none after four, unwanted
+# marks skipped
+# EXCLUDES: a code that drifts from the Rust test vectors
 law cache_marks_example:
-  {(Cm.grant(1n, [True{}, True{}, True{}, True{}]), (Cm.grant(4n, [True{}]), (Cm.grant(2n, [False{}, True{}, False{}, True{}, True{}]), (Cm.excess(3n), Cm.excess(4n))))) == ([True{}, True{}, True{}, False{}], ([False{}], ([False{}, True{}, False{}, True{}, False{}], (None{}, Some{"Too many cache breakpoints: the request marks 4 blocks, at most 3 are allowed"})))) : List<&2, Bool> & (List<&2, Bool> & (List<&2, Bool> & (Maybe<&2, String> & Maybe<&2, String>)))}
+  {(Cm.grant(1n, [True{}, False{}, True{}, True{}, True{}]), (Cm.grant(1n, [True{}, True{}, True{}, True{}]), (Cm.grant(4n, [True{}]), (Cm.grant(2n, [False{}, True{}, False{}, True{}, True{}]), (Cm.excess(3n), Cm.excess(4n)))))) == ([True{}, False{}, True{}, True{}, False{}], ([True{}, True{}, True{}, False{}], ([False{}], ([False{}, True{}, False{}, True{}, False{}], (None{}, Some{"Too many cache breakpoints: the request marks 4 blocks, at most 3 are allowed"}))))) : List<&2, Bool> & (List<&2, Bool> & (List<&2, Bool> & (List<&2, Bool> & (Maybe<&2, String> & Maybe<&2, String>))))}
 
 # Laws: the entry (R3)
 # --------------------

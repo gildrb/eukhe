@@ -4,4 +4,4 @@ import Base
 import ../../laws/launcher.bend as Launcher
 
 def Launcher.launcher_ffi_example():
-  ({==}, {==}, {==}, {==}, {==}, {==}, {==})
+  ({==}, {==}, {==}, {==}, {==}, {==})

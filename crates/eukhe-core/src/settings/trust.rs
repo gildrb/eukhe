@@ -156,7 +156,10 @@ pub(super) fn apply_project_trust(
 /// key is). Untrusted, only the preferences apply: a key that runs or
 /// installs code, routes a credential, moves where sessions live, raises a
 /// limit, or that no rule names is withheld. A global-only key
-/// (`trustedProjects`, `gateway`, `ssh`) never applies from a project. A
+/// (`trustedProjects`, `gateway`, `ssh`) never applies from a project.
+/// Every other `CvarScope::Global` cvar the model may apply is masked by
+/// the cvar layer, which reads it from the global settings alone; for it
+/// the core decides only the warning (`laws/config.bend` A1). A
 /// document the core cannot read (a key past the wire's bounds) applies
 /// nothing and is named whole.
 pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Settings, Vec<String>) {
@@ -471,5 +474,127 @@ mod tests {
             manager.settings().npm_command,
             Some(vec!["/usr/bin/npm".to_string()])
         );
+    }
+
+    /// Every cvar Rust reads from the global settings only
+    /// (`CvarScope::Global`) that the trust model does not class as
+    /// global-only, with a project value of it. The cvar layer masks a
+    /// project value of each, trusted or not; the warning is the trust
+    /// model's: an untrusted project's credentials and unknown keys are
+    /// named (by `providers` and the first name), the preferences are not
+    /// (`laws/config.bend` A1).
+    fn global_cvar_projects() -> Vec<(
+        &'static crate::settings::cvar::Decl,
+        serde_json::Value,
+        Option<&'static str>,
+    )> {
+        use crate::settings::cvar::table;
+        vec![
+            (&table::RLM_MAX_DEPTH, json!({ "rlmMaxDepth": 7 }), None),
+            (
+                &table::PROVIDER_MAX_IN_FLIGHT,
+                json!({ "providerMaxInFlight": { "anthropic": 1 } }),
+                None,
+            ),
+            (
+                &table::PROVIDER_MAX_QUEUED,
+                json!({ "providerMaxQueued": 3 }),
+                None,
+            ),
+            (
+                &table::IDLE_EVICTION_MINUTES,
+                json!({ "idleEvictionMinutes": 5 }),
+                None,
+            ),
+            (
+                &table::SESSION_ARCHIVE_MAX_AGE_DAYS,
+                json!({ "sessionArchiveMaxAgeDays": 2 }),
+                None,
+            ),
+            (
+                &table::SESSION_ARCHIVE_MAX_SESSIONS,
+                json!({ "sessionArchiveMaxSessions": 4 }),
+                None,
+            ),
+            (
+                &table::MEMORY_MODEL,
+                json!({ "memory": { "model": "planted/model" } }),
+                None,
+            ),
+            (
+                &table::MEMORY_THINKING,
+                json!({ "memory": { "thinking": "high" } }),
+                None,
+            ),
+            (
+                &table::PROVIDERS_TINY_RUNTIME_LIBRARY,
+                json!({ "providers": { "tinyRuntimeLibrary": "./planted.so" } }),
+                Some("providers"),
+            ),
+            (
+                &table::FACTORY_ENABLED,
+                json!({ "factory": { "enabled": true } }),
+                Some("factory"),
+            ),
+            (
+                &table::PRIVACY_ANONYMIZE_REMOTE,
+                json!({ "privacy": { "anonymizeRemote": true } }),
+                Some("privacy"),
+            ),
+            (
+                &table::PRIVACY_TERMS,
+                json!({ "privacy": { "terms": ["planted"] } }),
+                Some("privacy"),
+            ),
+            (
+                &table::ALLOWED_MODELS,
+                json!({ "allowedModels": ["planted/model"] }),
+                Some("allowedModels"),
+            ),
+        ]
+    }
+
+    /// A project value of a Global cvar never takes effect, trusted or
+    /// not: the cvar reads what the global settings alone give it. The
+    /// project load names exactly what the trust model withholds (an
+    /// untrusted project's credential or unknown key), and nothing for a
+    /// trusted project (eukhe v0.10.67's output, kept).
+    #[test]
+    fn global_cvars_from_a_project_never_apply() {
+        for (decl, project, named) in global_cvar_projects() {
+            for trusted in [false, true] {
+                let (root, cwd, agent_dir) = layout(None, None);
+                let global = if trusted {
+                    json!({ "trustedProjects": [root.path().display().to_string()] })
+                } else {
+                    json!({})
+                };
+                std::fs::write(agent_dir.join("settings.json"), global.to_string()).unwrap();
+                let alone = SettingsManager::create(&cwd, &agent_dir);
+                write_project(&cwd, &project);
+                let manager = SettingsManager::create(&cwd, &agent_dir);
+
+                assert_eq!(
+                    manager.cvars().value(decl),
+                    alone.cvars().value(decl),
+                    "{} from a {} project",
+                    decl.id,
+                    if trusted { "trusted" } else { "untrusted" }
+                );
+                let expected = match (trusted, named) {
+                    (false, Some(name)) => vec![(
+                        SettingsScope::Project,
+                        format!(
+                            "Project is not trusted: ignored project settings {name}. To allow \
+                             them, add {} to trustedProjects in {}.",
+                            cwd.canonicalize().unwrap().display(),
+                            agent_dir.join("settings.json").display()
+                        ),
+                    )],
+                    _ => Vec::new(),
+                };
+                assert_eq!(errors(&manager), expected, "{} trusted: {trusted}", decl.id);
+            }
+        }
     }
 }

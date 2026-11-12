@@ -120,53 +120,8 @@ def sp_cerebras() -> Tp.Pat:
 def sp_calm_pats() -> List<&2, Tp.Pat>:
   [Tp.Pat{True{}, [sp_s("throttling error:", []), sp_s("service unavailable:", [])]}, sp_anywhere(["rate limit", "too many requests"])]
 
-def sp_is_error(s: O.Stop) -> Bool:
-  match s:
-    case O.SError{}:
-      True{}
-    case O.SStop{}:
-      False{}
-    case O.SLength{}:
-      False{}
-    case O.SOther{}:
-      False{}
-
-# R1: an error message that reads as an overflow: not empty, nothing calm
-# found, and an overflow pattern found (or Cerebras' at the start, from
-# Cerebras)
-def sp_message(+msg: String, +provider: String) -> Bool:
-  +f = TextPat.sp_fold(msg)
-  Bool.and(Bool.not(String.is_empty(msg)), Bool.and(Bool.not(TextPat.sp_any(f, sp_calm_pats())), Bool.or(TextPat.sp_any(f, sp_overflow_pats()), Bool.and(String.eq(provider, "cerebras"), TextPat.sp_any(f, [sp_cerebras()])))))
-
-# R3: the usage of a stop that says the input filled the window
-def sp_usage(s: O.Stop, +window: Nat, +used: Nat, output: Nat) -> Bool:
-  match s:
-    case O.SStop{}:
-      Bool.and(Nat.is_lt(0n, window), Nat.is_lt(window, used))
-    case O.SLength{}:
-      Bool.and(Nat.is_lt(0n, window), Bool.and(Nat.is_eq(output, 0n), Nat.is_le(Nat.sub(window, Nat.div(window, 100n)), used)))
-    case O.SOther{}:
-      False{}
-    case O.SError{}:
-      False{}
-
-# R1, R3: whether the reply is an overflow
-def sp_overflow(+st: O.Stop, msg: String, provider: String, window: Nat, input: Nat, cache_read: Nat, output: Nat) -> Bool:
-  Bool.or(Bool.and(sp_is_error(st), sp_message(msg, provider)), sp_usage(st, window, Nat.add(input, cache_read), output))
-
-# R4: whether a length stop is recoverable
-def sp_recoverable(s: O.Stop, +desired: Nat, output: Nat) -> Bool:
-  match s:
-    case O.SLength{}:
-      Bool.and(Nat.is_lt(0n, desired), Nat.is_lt(output, desired))
-    case O.SStop{}:
-      False{}
-    case O.SOther{}:
-      False{}
-    case O.SError{}:
-      False{}
-
-# R5: the spelling of a request and of its reply
+# R5: the spelling of a request and of its reply (the reply spells the
+# decision of O.overflow and O.recoverable, which the laws above pin)
 
 def sp_w_stop(s: O.Stop, rest: String) -> String:
   match s:
@@ -189,9 +144,9 @@ def sp_w_req(q: FO.Req, rest: String) -> String:
 def sp_w_reply(q: FO.Req) -> String:
   match q:
     case FO.QOverflow{st, m, p, w, i, c, o}:
-      Wr.put_bool(sp_overflow(st, m, p, w, i, c, o), "")
+      Wr.put_bool(O.overflow(st, m, p, w, i, c, o), "")
     case FO.QRecoverable{st, d, o}:
-      Wr.put_bool(sp_recoverable(st, d, o), "")
+      Wr.put_bool(O.recoverable(st, d, o), "")
 
 # every number and length of the request fits the wire
 def sp_fit_req(q: FO.Req) -> Bool:
@@ -204,42 +159,88 @@ def sp_fit_req(q: FO.Req) -> Bool:
 # Laws: the decision
 # ------------------
 
-# LAW overflow_decides (R1-R3): whether every reply is an overflow, for
-# every stop, message, provider, window and usage, is the spec's
-# EXCLUDES: a pattern dropped or changed, a case-sensitive search, a calm
-#   message read as an overflow, the Cerebras pattern for another provider
-#   or away from the start, an empty message searched, cache reads left
-#   out of the usage, a window of 0 used, a silent overflow at the window
-#   itself, a 99% bound off by one, a length stop with output read as full
-law overflow_decides:
-  for +st: O.Stop
+# LAW overflow_error_reply (R1, R3): an error reply is an overflow exactly
+# when its message reads as one (O.message_overflow, pinned by the
+# message laws below), whatever the window and the usage
+# EXCLUDES: an error reply read as an overflow from its usage, an error
+#   reply whose message is not searched
+law overflow_error_reply:
   for +msg: String
   for +provider: String
   for +window: Nat
   for +input: Nat
   for +cache_read: Nat
   for +output: Nat
-  {O.overflow(st, msg, provider, window, input, cache_read, output) == sp_overflow(st, msg, provider, window, input, cache_read, output) : Bool}
+  {O.overflow(O.SError{}, msg, provider, window, input, cache_read, output) == O.message_overflow(msg, provider) : Bool}
 
-# LAW overflow_recoverable (R4): whether every length stop is recoverable
-# is the spec's
-# EXCLUDES: a stop other than length recovered, an output at the limit
-#   recovered, a limit of 0 read as a limit
-law overflow_recoverable:
-  for +st: O.Stop
-  for +desired: Nat
-  for +output: Nat
-  {O.recoverable(st, desired, output) == sp_recoverable(st, desired, output) : Bool}
-
-# LAW overflow_message_decides (R1, R2): whether every message reads as an
-# overflow from every provider is the spec's
-# EXCLUDES: an error message tested another way than the reply's (a
-#   pattern, the calm test, the fold or Cerebras' provider dropped or
-#   changed only in the message test)
-law overflow_message_decides:
+# LAW overflow_stop_reply (R3): a stop reply is an overflow exactly when
+# there is a window (not 0) and its input and cache reads together pass
+# it, whatever its message
+# EXCLUDES: cache reads left out of the usage, a window of 0 used, a
+#   silent overflow at the window itself, a stop reply's message searched
+law overflow_stop_reply:
   for +msg: String
   for +provider: String
-  {O.message_overflow(msg, provider) == sp_message(msg, provider) : Bool}
+  for +window: Nat
+  for +input: Nat
+  for +cache_read: Nat
+  for +output: Nat
+  {O.overflow(O.SStop{}, msg, provider, window, input, cache_read, output) == Bool.and(Nat.is_lt(0n, window), Nat.is_lt(window, Nat.add(input, cache_read))) : Bool}
+
+# LAW overflow_length_reply (R3): a length reply is an overflow exactly
+# when there is a window (not 0), there is no output, and the input and
+# cache reads fall short of the window by at most a hundredth of it (100
+# times the shortfall is at most the window: the reads are at least 99%
+# of the window, compared exactly, as Rust's `input >= window * 0.99`),
+# whatever its message
+# EXCLUDES: a 99% bound off by one (rounded the wrong way), a bound
+#   computed from the input alone, a length stop with output read as full,
+#   a window of 0 used
+law overflow_length_reply:
+  for +msg: String
+  for +provider: String
+  for +window: Nat
+  for +input: Nat
+  for +cache_read: Nat
+  for +output: Nat
+  {O.overflow(O.SLength{}, msg, provider, window, input, cache_read, output) == Bool.and(Nat.is_lt(0n, window), Bool.and(Nat.is_eq(output, 0n), Nat.is_le(Nat.mul(Nat.sub(window, Nat.add(input, cache_read)), 100n), window))) : Bool}
+
+# LAW overflow_other_reply (R3): a reply that stopped otherwise (a tool use,
+# an abort) is never an overflow
+# EXCLUDES: a tool-use reply read as an overflow from its usage or message
+law overflow_other_reply:
+  for +msg: String
+  for +provider: String
+  for +window: Nat
+  for +input: Nat
+  for +cache_read: Nat
+  for +output: Nat
+  {O.overflow(O.SOther{}, msg, provider, window, input, cache_read, output) == False{} : Bool}
+
+# LAW overflow_recoverable_length (R4): a length stop is recoverable exactly
+# when its output stayed below the intended output limit (so a limit of 0
+# never is)
+# EXCLUDES: an output at the limit recovered, a limit of 0 read as a limit
+law overflow_recoverable_length:
+  for +desired: Nat
+  for +output: Nat
+  {O.recoverable(O.SLength{}, desired, output) == Nat.is_lt(output, desired) : Bool}
+
+# LAW overflow_recoverable_other (R4): no stop other than length is
+# recoverable, whatever the limit and the output
+# EXCLUDES: a stop, tool-use or error reply recovered as a length stop
+law overflow_recoverable_other:
+  for desired: Nat
+  for output: Nat
+  {O.recoverable(O.SStop{}, desired, output) == False{} : Bool} & {O.recoverable(O.SOther{}, desired, output) == False{} : Bool} & {O.recoverable(O.SError{}, desired, output) == False{} : Bool}
+
+# LAW overflow_message_empty (R1): an empty message is no overflow, from
+# every provider
+# EXCLUDES: an empty error message read as an overflow (Cerebras' or any
+#   pattern matching nothing)
+law overflow_message_empty:
+  for +provider: String
+  {O.message_overflow("", provider) == False{} : Bool}
 
 # LAW overflow_message_found (R1, R2): a message is an overflow, from every
 # provider, when its folded text holds, anywhere, a part that matches an
@@ -278,17 +279,42 @@ law overflow_message_calm:
   for hc: {TextPat.sp_any(TextPat.sp_fold(msg), sp_calm_pats()) == True{} : Bool}
   {O.message_overflow(msg, provider) == False{} : Bool}
 
-# LAW overflow_message_example (R1, R2): anchor: short messages of the Rust
-# tests (the text around a pattern is overflow_message_found's): z.ai (two
-# spellings, folded case), a crash, a calm throttling message, Cerebras'
-# bodyless 400 only for Cerebras
+# LAW overflow_message_needs_pattern (R1, R2): a message in whose folded
+# text no overflow pattern is found, and that is not from Cerebras with
+# Cerebras' pattern at its start, is no overflow
+# EXCLUDES: a pattern added to the table (a message read as an overflow
+#   that no regex of the Rust matches), the Cerebras pattern used for
+#   another provider
+law overflow_message_needs_pattern:
+  for +msg: String
+  for +provider: String
+  for ho: {TextPat.sp_any(TextPat.sp_fold(msg), sp_overflow_pats()) == False{} : Bool}
+  for hx: {Bool.and(String.eq(provider, "cerebras"), TextPat.sp_any(TextPat.sp_fold(msg), [sp_cerebras()])) == False{} : Bool}
+  {O.message_overflow(msg, provider) == False{} : Bool}
+
+# LAW overflow_message_cerebras (R1, R2): a non-empty message from Cerebras
+# whose folded text starts with Cerebras' bodyless 400/413 pattern, and
+# holds no calm pattern, is an overflow
+# EXCLUDES: Cerebras' pattern dropped, looked for case-sensitively, or
+#   tested for another provider name
+law overflow_message_cerebras:
+  for +msg: String
+  for hn: {String.is_empty(msg) == False{} : Bool}
+  for hc: {TextPat.sp_any(TextPat.sp_fold(msg), sp_calm_pats()) == False{} : Bool}
+  for hx: {TextPat.sp_any(TextPat.sp_fold(msg), [sp_cerebras()]) == True{} : Bool}
+  {O.message_overflow(msg, "cerebras") == True{} : Bool}
+
+# LAW overflow_message_example (R1, R2): anchor: short messages (the text
+# around a pattern is overflow_message_found's): z.ai (two spellings,
+# folded case), a crash that is no overflow, a calm throttling message,
+# Cerebras' bodyless 400 only for Cerebras
 # EXCLUDES: a pattern table that drifts from the regexes it replaced
 law overflow_message_example:
   {[O.message_overflow("Prompt too long", "zai"), O.message_overflow("PROMPT exceeds max length", "zai"), O.message_overflow("model runner crashed", "ollama"), O.message_overflow("Throttling error: too many tokens", "x"), O.message_overflow("400 status code (no body)", "cerebras"), O.message_overflow("400 status code (no body)", "opencode-go")] == [True{}, True{}, False{}, False{}, True{}, False{}] : List<&2, Bool>}
 
-# LAW overflow_message_context_example (R1, R2): anchor: the context-length
-# messages of the Rust tests, cut to the pattern: Together AI, a proxy, DS4
-# with commas
+# LAW overflow_message_context_example (R1, R2): anchor: context-length
+# messages cut to the pattern, of providers crates/eukhe-ai/src/utils/
+# overflow.rs:6-8 names: Together AI, a proxy, DS4 with commas
 # EXCLUDES: a pattern table that drifts from the regexes it replaced
 law overflow_message_context_example:
   {[O.message_overflow("input (5 tokens) is longer than the model's context length (2 tokens)", "x"), O.message_overflow("exceeds model's maximum context length (26)", "x"), O.message_overflow("prompt has 5,958 tokens, but the configured context size is 2,560 tokens", "x")] == [True{}, True{}, True{}] : List<&2, Bool>}
@@ -305,7 +331,7 @@ law overflow_usage_example:
 
 # LAW overflow_entry_answers (R5): the entry answers every request Rust
 # spells, every number and length within the wire, with the spelled answer
-# of the spec
+# of the rules (bend/overflow.bend, pinned by the laws above)
 # EXCLUDES: the fields read in another order, a stop read as another, a
 #   default
 law overflow_entry_answers:

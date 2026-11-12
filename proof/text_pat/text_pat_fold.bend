@@ -1,7 +1,8 @@
 # eukhe: the proof of LAW text_pat_fold
 #
-# PROOF: char by char, the code's choice is the spec's in each of the cases of its
-# three tests (LA.tpb.fold).
+# PROOF: char by char, each answer of the code's three tests (capital,
+# Kelvin sign, long s) is the CaseFolding.txt rows' answer; no code is both
+# the Kelvin sign and the long s (LA.tpb.fold).
 
 import Base
 import ../../bend/text_pat.bend as Tp

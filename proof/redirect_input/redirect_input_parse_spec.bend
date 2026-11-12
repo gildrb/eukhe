@@ -12,4 +12,4 @@ import ../../laws/redirect_input.bend as RedirectInput
 import ./base.bend as LA
 
 def RedirectInput.redirect_input_parse_spec(s):
-  LA.rib.parse(s)
+  LA.rib.parse_orig(s)

@@ -5,4 +5,4 @@ import Base
 import ../../laws/approvals/desk.bend as ApprovalsDesk
 
 def ApprovalsDesk.approvals_desk_terms_exact():
-  ({==}, {==}, {==}, {==})
+  ({==}, {==}, {==}, {==}, {==})

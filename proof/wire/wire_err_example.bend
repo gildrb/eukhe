@@ -3,8 +3,5 @@
 import Base
 import ../../laws/wire.bend as Wire
 
-# Replies
-# -------
-
-def Wire.wire_err_example(text):
+def Wire.wire_err_example():
   {==}

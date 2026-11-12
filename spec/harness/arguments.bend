@@ -1,7 +1,10 @@
-# harness (spec): charitable argument repair (an upstream design record), restated
-# without the repair code (bend/arg_repair.bend). The laws of area
-# arg_repair (laws/arg_repair.bend) state that the code refines it. A
-# spec: the shipped code never calls it.
+# harness (spec): charitable argument repair: the
+# requirement S1-S5 and the words the laws of area arg_repair
+# (laws/arg_repair.bend, laws/arg_repair/coerce.bend) state it with: a
+# call's sent keys, a key's decoding, the first text a list gives a key,
+# the first declared argument of a name, the name a key read is read as.
+# No law equals the repair to a function of this file: each law states one
+# property of the shipped repair. A spec: the shipped code never calls it.
 #
 # S1: a sent key in a JSON string (Rust: its decoding, up to 3 layers) is
 #     read as its decoding, unless that is the key itself or another sent
@@ -68,6 +71,19 @@ def decoding(+ks: List<&2, String>, +k: String, m: Maybe<&2, String>) -> Maybe<&
     case Some{+p}:
       decoding.keep(Bool.or(String.eq(p, k), member(p, ks)), p)
 
+def key_read.of(dm: Maybe<&2, String>, k: String) -> String:
+  match dm:
+    case None{}:
+      k
+    case Some{p}:
+      p
+
+# S1: the key an argument is read as, ks the call's sent keys
+def key_read(+ks: List<&2, String>, a: Ar.Arg) -> String:
+  match a:
+    case Ar.Arg{+k, p, v}:
+      key_read.of(decoding(ks, k, p), k)
+
 def first_text.at(hit: Bool, x: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
   match hit:
     case True{}:
@@ -117,6 +133,56 @@ def is_some(m: Maybe<&2, Ar.Prop>) -> Bool:
       False{}
     case Some{p}:
       True{}
+
+def name_of.at(dec: Bool, al: Maybe<&2, String>, k: String) -> String:
+  match dec:
+    case True{}:
+      k
+    case False{}:
+      match al:
+        case None{}:
+          k
+        case Some{c}:
+          c
+
+# S2: the name a key read k is read as when the call is repaired: k when
+# it is declared or no alias names it, else its first alias's canonical
+# name
+def name_of(+ps: List<&2, Ar.Prop>, +als: List<&2, Ar.KV>, +k: String) -> String:
+  name_of.at(is_some(declared(k, ps)), first_text(k, als), k)
+
+# S2: the names the arguments are read as, in order
+def names(+ps: List<&2, Ar.Prop>, +als: List<&2, Ar.KV>, +ks: List<&2, String>, xs: List<&2, Ar.Arg>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case a <> t:
+      name_of(ps, als, key_read(ks, a)) <> names(ps, als, ks, t)
+
+# S3: no name of ns is one before it (taken: the names before them)
+def fresh(ns: List<&2, String>, +taken: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case +n <> t:
+      Bool.and(Bool.not(member(n, taken)), fresh(t, n <> taken))
+
+# S5: records
+# -----------
+
+def renamed(same: Bool, k: String, c: String) -> List<&2, Ar.Record>:
+  match same:
+    case True{}:
+      Nil{}
+    case False{}:
+      [Ar.RAlias{k, c}]
+
+def read_rec(c: String, v: Ar.Val, to: Maybe<&2, Ar.To>) -> List<&2, Ar.Record>:
+  match to:
+    case None{}:
+      Nil{}
+    case Some{x}:
+      [Ar.RCoerce{c, v, x}]
 
 def name.own(dec: Bool, closed: Bool, +k: String, ps: List<&2, Ar.Prop>) -> Ar.Named:
   match dec:
@@ -178,9 +244,6 @@ def name(sc: Ar.Schema, d: Ar.Dialect, +k: String) -> Ar.Named:
     case Ar.Dialect{als, +rs}:
       name.refused(first_text(k, rs), sc, als, rs, k)
 
-# S4: values
-# ----------
-
 def kind.of(t: String, s: Bool, b: Bool, i: Bool, n: Bool, o: Bool, a: Bool) -> Ar.Ty:
   match s:
     case True{}:
@@ -212,33 +275,39 @@ def kind.of(t: String, s: Bool, b: Bool, i: Bool, n: Bool, o: Bool, a: Bool) -> 
 def kind(+t: String) -> Ar.Ty:
   kind.of(t, String.eq(t, "string"), String.eq(t, "boolean"), String.eq(t, "integer"), String.eq(t, "number"), String.eq(t, "object"), String.eq(t, "array"))
 
-# Unicode White_Space (Rust `char::is_whitespace`)
-def white.code(+x: U32) -> Bool:
-  Bool.or(Bool.and(U32.is_ge(x, 9), U32.is_le(x, 13)), Bool.or(U32.is_eq(x, 32), Bool.or(U32.is_eq(x, 133), Bool.or(U32.is_eq(x, 160), Bool.or(U32.is_eq(x, 5760), Bool.or(Bool.and(U32.is_ge(x, 8192), U32.is_le(x, 8202)), Bool.or(U32.is_eq(x, 8232), Bool.or(U32.is_eq(x, 8233), Bool.or(U32.is_eq(x, 8239), Bool.or(U32.is_eq(x, 8287), U32.is_eq(x, 12288)))))))))))
-
-def white(c: Char) -> Bool:
-  match c:
-    case Chr{+x}:
-      white.code(x)
-
-def lead.at(w: Bool, c: Char, t: String, r: String) -> String:
-  match w:
+def bool_word(b: Bool) -> String:
+  match b:
     case True{}:
-      r
+      "true"
     case False{}:
-      SCon{c, t}
+      "false"
 
-# s without leading White_Space
-def lead(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      lead.at(white(c), c, t, lead(t))
+def lone.at(b: Bool) -> Maybe<&2, Ar.To>:
+  match b:
+    case True{}:
+      Some{Ar.TOne{}}
+    case False{}:
+      None{}
 
-# s without leading and trailing White_Space (Rust `str::trim`)
-def trimmed(s: String) -> String:
-  String.reverse(lead(String.reverse(lead(s))))
+def lone(it: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
+  match it:
+    case None{}:
+      None{}
+    case Some{t}:
+      lone.at(String.eq(t, "string"))
+
+def read_arr(sh: Ar.Shape, it: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
+  match sh:
+    case Ar.SPlain{}:
+      lone(it)
+    case Ar.SBrace{o}:
+      lone(it)
+    case Ar.SBracket{a}:
+      match a:
+        case True{}:
+          Some{Ar.TArr{}}
+        case False{}:
+          None{}
 
 def small.at(up: Bool, x: U32) -> U32:
   match up:
@@ -257,6 +326,34 @@ def small(s: String) -> String:
         case Chr{+x}:
           SCon{Chr{small.at(Bool.and(U32.is_ge(x, 65), U32.is_le(x, 90)), x)}, small(t)}
 
+def lead.at(w: Bool, c: Char, t: String, r: String) -> String:
+  match w:
+    case True{}:
+      r
+    case False{}:
+      SCon{c, t}
+
+# Unicode White_Space (Rust `char::is_whitespace`)
+def white.code(+x: U32) -> Bool:
+  Bool.or(Bool.and(U32.is_ge(x, 9), U32.is_le(x, 13)), Bool.or(U32.is_eq(x, 32), Bool.or(U32.is_eq(x, 133), Bool.or(U32.is_eq(x, 160), Bool.or(U32.is_eq(x, 5760), Bool.or(Bool.and(U32.is_ge(x, 8192), U32.is_le(x, 8202)), Bool.or(U32.is_eq(x, 8232), Bool.or(U32.is_eq(x, 8233), Bool.or(U32.is_eq(x, 8239), Bool.or(U32.is_eq(x, 8287), U32.is_eq(x, 12288)))))))))))
+
+def white(c: Char) -> Bool:
+  match c:
+    case Chr{+x}:
+      white.code(x)
+
+# s without leading White_Space
+def lead(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +t}:
+      lead.at(white(c), c, t, lead(t))
+
+# s without leading and trailing White_Space (Rust `str::trim`)
+def trimmed(s: String) -> String:
+  String.reverse(lead(String.reverse(lead(s))))
+
 def truth.of(yes: Bool, no: Bool) -> Maybe<&2, Ar.To>:
   match yes:
     case True{}:
@@ -272,6 +369,13 @@ def truth.of(yes: Bool, no: Bool) -> Maybe<&2, Ar.To>:
 def truth(+w: String) -> Maybe<&2, Ar.To>:
   truth.of(member(w, ["true", "yes", "on", "1"]), member(w, ["false", "no", "off", "0"]))
 
+def read_bool(m: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
+  match m:
+    case None{}:
+      None{}
+    case Some{s}:
+      truth(small(trimmed(s)))
+
 def digit(c: Char) -> Bool:
   match c:
     case Chr{+x}:
@@ -283,6 +387,36 @@ def all_digits(s: String) -> Bool:
       True{}
     case SCon{c, t}:
       Bool.and(digit(c), all_digits(t))
+
+def integer.in(ok: Bool, text: String) -> Maybe<&2, Ar.To>:
+  match ok:
+    case True{}:
+      Some{Ar.TNum{text}}
+    case False{}:
+      None{}
+
+# canonical digits a no larger than b
+def not_above(+a: String, +b: String) -> Bool:
+  +la = String.length(a)
+  +lb = String.length(b)
+  Bool.or(Nat.is_lt(la, lb), Bool.and(Nat.is_eq(la, lb), String.is_le(a, b)))
+
+def integer.minus.at(zero: Bool, +c: String) -> Maybe<&2, Ar.To>:
+  match zero:
+    case True{}:
+      integer.in(True{}, "0")
+    case False{}:
+      integer.in(not_above(c, "9223372036854775808"), SCon{'-', c})
+
+def integer.minus(+c: String) -> Maybe<&2, Ar.To>:
+  integer.minus.at(String.eq(c, "0"), c)
+
+def integer.signed(neg: Bool, +c: String) -> Maybe<&2, Ar.To>:
+  match neg:
+    case True{}:
+      integer.minus(c)
+    case False{}:
+      integer.in(not_above(c, "9223372036854775807"), c)
 
 def nozero.at(z: Bool, c: Char, t: String, r: String) -> String:
   match z:
@@ -308,36 +442,6 @@ def plain_digits.fin(s: String) -> String:
 # digits without leading zeros; `0` for none
 def plain_digits(s: String) -> String:
   plain_digits.fin(nozero(s))
-
-# canonical digits a no larger than b
-def not_above(+a: String, +b: String) -> Bool:
-  +la = String.length(a)
-  +lb = String.length(b)
-  Bool.or(Nat.is_lt(la, lb), Bool.and(Nat.is_eq(la, lb), String.is_le(a, b)))
-
-def integer.in(ok: Bool, text: String) -> Maybe<&2, Ar.To>:
-  match ok:
-    case True{}:
-      Some{Ar.TNum{text}}
-    case False{}:
-      None{}
-
-def integer.minus.at(zero: Bool, +c: String) -> Maybe<&2, Ar.To>:
-  match zero:
-    case True{}:
-      integer.in(True{}, "0")
-    case False{}:
-      integer.in(not_above(c, "9223372036854775808"), SCon{'-', c})
-
-def integer.minus(+c: String) -> Maybe<&2, Ar.To>:
-  integer.minus.at(String.eq(c, "0"), c)
-
-def integer.signed(neg: Bool, +c: String) -> Maybe<&2, Ar.To>:
-  match neg:
-    case True{}:
-      integer.minus(c)
-    case False{}:
-      integer.in(not_above(c, "9223372036854775807"), c)
 
 def integer.body.at(ok: Bool, neg: Bool, d: String) -> Maybe<&2, Ar.To>:
   match ok:
@@ -368,13 +472,6 @@ def integer(s: String) -> Maybe<&2, Ar.To>:
     case SCon{+c, t}:
       integer.lead(Char.is_eq(c, '-'), Char.is_eq(c, '+'), c, t)
 
-def read_bool(m: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
-  match m:
-    case None{}:
-      None{}
-    case Some{s}:
-      truth(small(trimmed(s)))
-
 def read_int(m: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
   match m:
     case None{}:
@@ -401,33 +498,6 @@ def read_obj(sh: Ar.Shape) -> Maybe<&2, Ar.To>:
           None{}
     case Ar.SBracket{a}:
       None{}
-
-def lone.at(b: Bool) -> Maybe<&2, Ar.To>:
-  match b:
-    case True{}:
-      Some{Ar.TOne{}}
-    case False{}:
-      None{}
-
-def lone(it: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
-  match it:
-    case None{}:
-      None{}
-    case Some{t}:
-      lone.at(String.eq(t, "string"))
-
-def read_arr(sh: Ar.Shape, it: Maybe<&2, String>) -> Maybe<&2, Ar.To>:
-  match sh:
-    case Ar.SPlain{}:
-      lone(it)
-    case Ar.SBrace{o}:
-      lone(it)
-    case Ar.SBracket{a}:
-      match a:
-        case True{}:
-          Some{Ar.TArr{}}
-        case False{}:
-          None{}
 
 def read_str(k: Ar.Ty, it: Maybe<&2, String>, text: Maybe<&2, String>, num: Maybe<&2, String>, sh: Ar.Shape) -> Maybe<&2, Ar.To>:
   match k:
@@ -463,13 +533,6 @@ def text_of(k: Ar.Ty, text: String) -> Maybe<&2, Ar.To>:
     case Ar.KOther{}:
       None{}
 
-def bool_word(b: Bool) -> String:
-  match b:
-    case True{}:
-      "true"
-    case False{}:
-      "false"
-
 def read_val(+k: Ar.Ty, it: Maybe<&2, String>, v: Ar.Val) -> Maybe<&2, Ar.To>:
   match v:
     case Ar.VNull{}:
@@ -499,8 +562,15 @@ def read(p: Maybe<&2, Ar.Prop>, v: Ar.Val) -> Maybe<&2, Ar.To>:
             case Some{t}:
               read_val(kind(t), it, v)
 
-# S3, S5: the call
-# ----------------
+def take.ok(same: Bool, +c: String, +to: Maybe<&2, Ar.To>, pre: List<&2, Ar.Record>, +k: String, v: Ar.Val) -> Ar.Step:
+  Ar.StepOk{Ar.Out{c, to}, List.append(&2, Ar.Record, pre, List.append(&2, Ar.Record, renamed(same, k, c), read_rec(c, v, to))), Ar.Seen{c, k}}
+
+def take.free(f: Maybe<&2, String>, +c: String, ps: List<&2, Ar.Prop>, pre: List<&2, Ar.Record>, +k: String, +v: Ar.Val) -> Ar.Step:
+  match f:
+    case Some{x}:
+      Ar.StepNo{Ar.Ambiguous{c, x, k}}
+    case None{}:
+      take.ok(String.eq(c, k), c, read(declared(c, ps), v), pre, k, v)
 
 # the key sent first for the name c among the names taken
 def taken.at(hit: Bool, x: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
@@ -518,30 +588,6 @@ def taken(+c: String, ss: List<&2, Ar.Seen>) -> Maybe<&2, String>:
       match s:
         case Ar.Seen{+n, k}:
           taken.at(String.eq(c, n), k, taken(c, t))
-
-def renamed(same: Bool, k: String, c: String) -> List<&2, Ar.Record>:
-  match same:
-    case True{}:
-      Nil{}
-    case False{}:
-      [Ar.RAlias{k, c}]
-
-def read_rec(c: String, v: Ar.Val, to: Maybe<&2, Ar.To>) -> List<&2, Ar.Record>:
-  match to:
-    case None{}:
-      Nil{}
-    case Some{x}:
-      [Ar.RCoerce{c, v, x}]
-
-def take.ok(same: Bool, +c: String, +to: Maybe<&2, Ar.To>, pre: List<&2, Ar.Record>, +k: String, v: Ar.Val) -> Ar.Step:
-  Ar.StepOk{Ar.Out{c, to}, List.append(&2, Ar.Record, pre, List.append(&2, Ar.Record, renamed(same, k, c), read_rec(c, v, to))), Ar.Seen{c, k}}
-
-def take.free(f: Maybe<&2, String>, +c: String, ps: List<&2, Ar.Prop>, pre: List<&2, Ar.Record>, +k: String, +v: Ar.Val) -> Ar.Step:
-  match f:
-    case Some{x}:
-      Ar.StepNo{Ar.Ambiguous{c, x, k}}
-    case None{}:
-      take.ok(String.eq(c, k), c, read(declared(c, ps), v), pre, k, v)
 
 def take.named(n: Ar.Named, ps: List<&2, Ar.Prop>, ss: List<&2, Ar.Seen>, pre: List<&2, Ar.Record>, +k: String, v: Ar.Val) -> Ar.Step:
   match n:
@@ -570,13 +616,6 @@ def take(sc: Ar.Schema, d: Ar.Dialect, +ks: List<&2, String>, ss: List<&2, Ar.Se
     case Ar.Arg{+k, m, v}:
       take.decoded(sc, d, ss, k, decoding(ks, k, m), v)
 
-def walk.next(st: Ar.Step, ss: List<&2, Ar.Seen>) -> List<&2, Ar.Seen>:
-  match st:
-    case Ar.StepOk{o, r, s}:
-      s <> ss
-    case Ar.StepNo{x}:
-      ss
-
 def walk.cons(st: Ar.Step, rest: Ar.Verdict) -> Ar.Verdict:
   match st:
     case Ar.StepOk{o, r, s}:
@@ -587,6 +626,13 @@ def walk.cons(st: Ar.Step, rest: Ar.Verdict) -> Ar.Verdict:
           Ar.Rejected{x}
     case Ar.StepNo{x}:
       Ar.Rejected{x}
+
+def walk.next(st: Ar.Step, ss: List<&2, Ar.Seen>) -> List<&2, Ar.Seen>:
+  match st:
+    case Ar.StepOk{o, r, s}:
+      s <> ss
+    case Ar.StepNo{x}:
+      ss
 
 def walk(args: List<&2, Ar.Arg>, +sc: Ar.Schema, +d: Ar.Dialect, +ks: List<&2, String>, +ss: List<&2, Ar.Seen>) -> Ar.Verdict:
   match args:

@@ -384,7 +384,7 @@ def cve.table(+s: String) -> {FCv.get_table(s) == CvarEntry.cvs_read_table(s) : 
 def cve.run(q: FCv.Xreq) -> {FCv.ffi.run(q) == CvarEntry.cvs_expand.run(q) : String}:
   match q:
     case FCv.Xreq{+as, +cs}:
-      %PAE.pxx.expand(cs, as) : {FCv.put_exp(Cv.expand(cs, as), "") == CvarEntry.cvs_spell_exp(_, "") : String}
+      %PAE.pxx.expand_orig(cs, as) : {FCv.put_exp(Cv.expand(cs, as), "") == CvarEntry.cvs_spell_exp(_, "") : String}
       cve.exp(Cv.expand(cs, as), "")
 
 def cve.whole(q: FCv.Xreq, b: Bool) -> {FCv.ffi.whole(q, b) == CvarEntry.cvs_expand.end(b, q) : String}:
@@ -428,7 +428,44 @@ def cve.key(+bs: List<&2, Cv.KeyBind>, +as: List<&2, Cv.Alias>, d: Wr.Dec<Nat>) 
     case Wr.Got{+k, s}:
       match s:
         case SNil{}:
-          %PBP.pxb.press(bs, k, as) : {(FCv.Table{bs, as}, FCv.put_exp(Cv.press(bs, k, as), "")) == (FCv.Table{bs, as}, CvarEntry.cvs_spell_exp(_, "")) : FCv.St & String}
+          %PBP.pxb.press_orig(bs, k, as) : {(FCv.Table{bs, as}, FCv.put_exp(Cv.press(bs, k, as), "")) == (FCv.Table{bs, as}, CvarEntry.cvs_spell_exp(_, "")) : FCv.St & String}
+          %cve.exp(Cv.press(bs, k, as), "") : {(FCv.Table{bs, as}, FCv.put_exp(Cv.press(bs, k, as), "")) == (FCv.Table{bs, as}, _) : FCv.St & String}
+          {==}
+        case SCon{c, t}:
+          {==}
+    case Wr.Bad{}:
+      {==}
+
+def cve.run_orig(q: FCv.Xreq) -> {FCv.ffi.run(q) == CvarEntry.cvs_expand.run(q) : String}:
+  match q:
+    case FCv.Xreq{+as, +cs}:
+      %PAE.pxx.expand_orig(cs, as) : {FCv.put_exp(Cv.expand(cs, as), "") == CvarEntry.cvs_spell_exp(_, "") : String}
+      cve.exp(Cv.expand(cs, as), "")
+
+def cve.whole_orig(q: FCv.Xreq, b: Bool) -> {FCv.ffi.whole(q, b) == CvarEntry.cvs_expand.end(b, q) : String}:
+  match b:
+    case True{}:
+      cve.run_orig(q)
+    case False{}:
+      {==}
+
+def cve.go_orig(d: Wr.Dec<FCv.Xreq>) -> {FCv.ffi.go(d) == CvarEntry.cvs_expand.go(d) : String}:
+  match d:
+    case Wr.Got{q, s}:
+      cve.whole_orig(q, Wr.end(s))
+    case Wr.Bad{}:
+      {==}
+
+def cve.ffi_orig(+s: String) -> {FCv.ffi(s) == CvarEntry.cvs_expand(s) : String}:
+  %cve.xreq(s) : {FCv.ffi.go(FCv.get_xreq(s)) == CvarEntry.cvs_expand.go(_) : String}
+  cve.go_orig(FCv.get_xreq(s))
+
+def cve.key_orig(+bs: List<&2, Cv.KeyBind>, +as: List<&2, Cv.Alias>, d: Wr.Dec<Nat>) -> {FCv.step.key(bs, as, d) == CvarEntry.cvs_step.go(bs, as, d) : FCv.St & String}:
+  match d:
+    case Wr.Got{+k, s}:
+      match s:
+        case SNil{}:
+          %PBP.pxb.press_orig(bs, k, as) : {(FCv.Table{bs, as}, FCv.put_exp(Cv.press(bs, k, as), "")) == (FCv.Table{bs, as}, CvarEntry.cvs_spell_exp(_, "")) : FCv.St & String}
           %cve.exp(Cv.press(bs, k, as), "") : {(FCv.Table{bs, as}, FCv.put_exp(Cv.press(bs, k, as), "")) == (FCv.Table{bs, as}, _) : FCv.St & String}
           {==}
         case SCon{c, t}:

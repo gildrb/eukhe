@@ -11,6 +11,9 @@ import ./base/admission/le.bend as LAAdmissionLe
 import ./base/bool.bend as LABool
 import ./base/logic.bend as LALogic
 import ./base/nat.bend as LANat
+import ./base/admission/terms.bend as AT
+import ./base/admission/bridge.bend as LBr
+import ./base/admission/count.bend as PC
 
 def ad.add_one(n: Nat) -> {1n+n == Nat.add(n, 1n) : Nat}:
   match n:
@@ -42,14 +45,14 @@ def ad.pick_room(r: Bool, -wi: Nat, -hi: Nat, -wb: Nat, -c: Ad.Cls, e: {Ad.pick.
       %e : LALogic.ad.BD(Maybe.is_some(&2, Ad.Cls, _), {False{} == True{} : Bool}, Unit)
       Unit{}
 
-def ad.within_room(l: Ad.Lim, -n: Nat, rm: {Ad.room(l, n) == True{} : Bool}) -> {Ad.within(l, 1n+n) == True{} : Bool}:
+def ad.within_room(l: Ad.Lim, -n: Nat, rm: {Ad.room(l, n) == True{} : Bool}) -> {AT.within(l, 1n+n) == True{} : Bool}:
   match l:
     case Ad.Unl{}:
       {==}
     case Ad.Cap{p}:
       rm
 
-def ad.within_of(l: Ad.Lim, +g: Nat, +m: Nat, lg: {Ad.le(g, 1n+m) == True{} : Bool}, rm: {Ad.room(l, m) == True{} : Bool}) -> {Ad.within(l, g) == True{} : Bool}:
+def ad.within_of(l: Ad.Lim, +g: Nat, +m: Nat, lg: {Ad.le(g, 1n+m) == True{} : Bool}, rm: {Ad.room(l, m) == True{} : Bool}) -> {AT.within(l, g) == True{} : Bool}:
   match l:
     case Ad.Unl{}:
       {==}
@@ -85,12 +88,12 @@ def ad.cap_tr(-w: Bool, -g: Nat, -a: Nat, -b: Nat, e: {a == b : Nat}, ih: {Bool.
   %e : {Bool.or(w, Ad.le(g, _)) == True{} : Bool}
   ih
 
-def ad.cap_stay(+l: Ad.Lim, +t: List<&2, Ad.Tk>) -> {Bool.or(Ad.within(l, Ad.held(t)), Ad.le(Ad.held(t), Ad.held(t))) == True{} : Bool}:
-  %Equal.sym(Bool, Ad.le(Ad.held(t), Ad.held(t)), True{}, LAAdmissionLe.ad.le_refl(Ad.held(t))) : {Bool.or(Ad.within(l, Ad.held(t)), _) == True{} : Bool}
-  LABool.ad.or_t(Ad.within(l, Ad.held(t)))
+def ad.cap_stay(+l: Ad.Lim, +t: List<&2, Ad.Tk>) -> {Bool.or(AT.within(l, Ad.held(t)), Ad.le(Ad.held(t), Ad.held(t))) == True{} : Bool}:
+  %Equal.sym(Bool, Ad.le(Ad.held(t), Ad.held(t)), True{}, LAAdmissionLe.ad.le_refl(Ad.held(t))) : {Bool.or(AT.within(l, Ad.held(t)), _) == True{} : Bool}
+  LABool.ad.or_t(AT.within(l, Ad.held(t)))
 
 # grants happen only into free slots
-def ad.cap_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +ed: {Ad.pick(l, t) == d : Maybe<&2, Ad.Cls>}) -> {Bool.or(Ad.within(l, Ad.held(Ad.grant.go(n, d, l, t))), Ad.le(Ad.held(Ad.grant.go(n, d, l, t)), Ad.held(t))) == True{} : Bool}:
+def ad.cap_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +ed: {Ad.pick(l, t) == d : Maybe<&2, Ad.Cls>}) -> {Bool.or(AT.within(l, Ad.held(Ad.grant.go(n, d, l, t))), Ad.le(Ad.held(Ad.grant.go(n, d, l, t)), Ad.held(t))) == True{} : Bool}:
   match n d:
     case 0n _:
       ad.cap_stay(l, t)
@@ -99,7 +102,7 @@ def ad.cap_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>
     case 1n+f Some{+c}:
       +t2 = Ad.mark(c, t)
       +g = Ad.held(Ad.grant.go(f, Ad.pick(l, t2), l, t2))
-      +w = Ad.within(l, g)
+      +w = AT.within(l, g)
       +rm = ad.pick_room(Ad.room(l, Ad.held(t)), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t), Ad.cnt(Ad.Holding{}, Ad.Ia{}, t), Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t), c, ed)
       +ih = ad.cap_tr(w, g, Ad.held(t2), 1n+Ad.held(t), ad.held_mark(t, c, ad.nz_of(l, t, c, ed)), ad.cap_grant(f, Ad.pick(l, t2), l, t2, {==}))
       ad.or_tl(w, Ad.le(g, Ad.held(t)), ad.or_elim(w, Ad.le(g, 1n+Ad.held(t)), ih, lg => ad.within_of(l, g, Ad.held(t), lg, rm)))
@@ -157,10 +160,10 @@ def ad.held_end(+ts: List<&2, Ad.Tk>, +k: Nat, c: Ad.Cls, s: Ad.Sts, +e: {Ad.get
     case _ Ad.Ended{}:
       LALogic.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
 
-def ad.cap_id(+l: Ad.Lim, +n: Nat) -> {Bool.or(Ad.within(l, n), Ad.le(Nat.add(n, 0n), n)) == True{} : Bool}:
-  %Equal.sym(Nat, Nat.add(n, 0n), n, LANat.ad.add_zero(n)) : {Bool.or(Ad.within(l, n), Ad.le(_, n)) == True{} : Bool}
-  %Equal.sym(Bool, Ad.le(n, n), True{}, LAAdmissionLe.ad.le_refl(n)) : {Bool.or(Ad.within(l, n), _) == True{} : Bool}
-  LABool.ad.or_t(Ad.within(l, n))
+def ad.cap_id(+l: Ad.Lim, +n: Nat) -> {Bool.or(AT.within(l, n), Ad.le(Nat.add(n, 0n), n)) == True{} : Bool}:
+  %Equal.sym(Nat, Nat.add(n, 0n), n, LANat.ad.add_zero(n)) : {Bool.or(AT.within(l, n), Ad.le(_, n)) == True{} : Bool}
+  %Equal.sym(Bool, Ad.le(n, n), True{}, LAAdmissionLe.ad.le_refl(n)) : {Bool.or(AT.within(l, n), _) == True{} : Bool}
+  LABool.ad.or_t(AT.within(l, n))
 
 def ad.cap_add(-w: Bool, +g: Nat, +h: Nat, f: Nat, ih: {Bool.or(w, Ad.le(g, h)) == True{} : Bool}) -> {Bool.or(w, Ad.le(Nat.add(g, f), Nat.add(h, f))) == True{} : Bool}:
   match f:
@@ -174,51 +177,51 @@ def ad.cap_add(-w: Bool, +g: Nat, +h: Nat, f: Nat, ih: {Bool.or(w, Ad.le(g, h)) 
       ad.cap_add(w, g, h, p, ih)
 
 # a grant after an op that freed f slots
-def ad.cap_after(+l: Ad.Lim, +t2: List<&2, Ad.Tk>, +ts: List<&2, Ad.Tk>, +f: Nat, e: {Nat.add(Ad.held(t2), f) == Ad.held(ts) : Nat}) -> {Bool.or(Ad.within(l, Ad.held(Ad.grant(l, t2))), Ad.le(Nat.add(Ad.held(Ad.grant(l, t2)), f), Ad.held(ts))) == True{} : Bool}:
+def ad.cap_after(+l: Ad.Lim, +t2: List<&2, Ad.Tk>, +ts: List<&2, Ad.Tk>, +f: Nat, e: {Nat.add(Ad.held(t2), f) == Ad.held(ts) : Nat}) -> {Bool.or(AT.within(l, Ad.held(Ad.grant(l, t2))), Ad.le(Nat.add(Ad.held(Ad.grant(l, t2)), f), Ad.held(ts))) == True{} : Bool}:
   +g = Ad.held(Ad.grant(l, t2))
-  %e : {Bool.or(Ad.within(l, g), Ad.le(Nat.add(g, f), _)) == True{} : Bool}
-  ad.cap_add(Ad.within(l, g), g, Ad.held(t2), f, ad.cap_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, {==}))
+  %e : {Bool.or(AT.within(l, g), Ad.le(Nat.add(g, f), _)) == True{} : Bool}
+  ad.cap_add(AT.within(l, g), g, Ad.held(t2), f, ad.cap_grant(Ad.waits(t2), Ad.pick(l, t2), l, t2, {==}))
 
-def ad.cap_keep(+l: Ad.Lim, +hi: Nat, +hb: Nat) -> {Bool.or(Ad.within(l, Nat.add(hi, 0n)), Ad.le(Nat.add(Nat.add(hi, 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
-  %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Bool.or(Ad.within(l, _), Ad.le(Nat.add(_, hb), Nat.add(hi, hb))) == True{} : Bool}
-  %Equal.sym(Bool, Ad.le(Nat.add(hi, hb), Nat.add(hi, hb)), True{}, LAAdmissionLe.ad.le_refl(Nat.add(hi, hb))) : {Bool.or(Ad.within(l, hi), _) == True{} : Bool}
-  LABool.ad.or_t(Ad.within(l, hi))
+def ad.cap_keep(+l: Ad.Lim, +hi: Nat, +hb: Nat) -> {Bool.or(AT.within(l, Nat.add(hi, 0n)), Ad.le(Nat.add(Nat.add(hi, 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
+  %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Bool.or(AT.within(l, _), Ad.le(Nat.add(_, hb), Nat.add(hi, hb))) == True{} : Bool}
+  %Equal.sym(Bool, Ad.le(Nat.add(hi, hb), Nat.add(hi, hb)), True{}, LAAdmissionLe.ad.le_refl(Nat.add(hi, hb))) : {Bool.or(AT.within(l, hi), _) == True{} : Bool}
+  LABool.ad.or_t(AT.within(l, hi))
 
 def ad.room_z(-l: Ad.Lim, +hi: Nat, er: {Ad.room(l, hi) == True{} : Bool}) -> {Ad.room(l, Nat.add(hi, 0n)) == True{} : Bool}:
   %Equal.sym(Nat, Nat.add(hi, 0n), hi, LANat.ad.add_zero(hi)) : {Ad.room(l, _) == True{} : Bool}
   er
 
-def ad.cap_ia0(+l: Ad.Lim, +hi: Nat, +hb: Nat, r: Bool, u: Bool, er: {Ad.room(l, hi) == r : Bool}) -> {Bool.or(Ad.within(l, Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(r, u)}), hi), 0n)), Ad.le(Nat.add(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(r, u)}), hi), 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
+def ad.cap_ia0(+l: Ad.Lim, +hi: Nat, +hb: Nat, r: Bool, u: Bool, er: {Ad.room(l, hi) == r : Bool}) -> {Bool.or(AT.within(l, Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(r, u)}), hi), 0n)), Ad.le(Nat.add(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(r, u)}), hi), 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
   match r u:
     case True{} _:
-      ad.or_tl(Ad.within(l, 1n+Nat.add(hi, 0n)), Ad.le(1n+Nat.add(Nat.add(hi, 0n), hb), Nat.add(hi, hb)), ad.within_room(l, Nat.add(hi, 0n), ad.room_z(l, hi, er)))
+      ad.or_tl(AT.within(l, 1n+Nat.add(hi, 0n)), Ad.le(1n+Nat.add(Nat.add(hi, 0n), hb), Nat.add(hi, hb)), ad.within_room(l, Nat.add(hi, 0n), ad.room_z(l, hi, er)))
     case False{} True{}:
       ad.cap_keep(l, hi, hb)
     case False{} False{}:
       ad.cap_keep(l, hi, hb)
 
-def ad.cap_ia1(+l: Ad.Lim, +hi: Nat, +hb: Nat, u: Bool) -> {Bool.or(Ad.within(l, Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(False{}, u)}), hi), 0n)), Ad.le(Nat.add(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(False{}, u)}), hi), 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
+def ad.cap_ia1(+l: Ad.Lim, +hi: Nat, +hb: Nat, u: Bool) -> {Bool.or(AT.within(l, Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(False{}, u)}), hi), 0n)), Ad.le(Nat.add(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(False{}, u)}), hi), 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
   match u:
     case True{}:
       ad.cap_keep(l, hi, hb)
     case False{}:
       ad.cap_keep(l, hi, hb)
 
-def ad.cap_ia(+l: Ad.Lim, +q: Nat, wi: Nat, +hi: Nat, +hb: Nat) -> {Bool.or(Ad.within(l, Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))}), hi), 0n)), Ad.le(Nat.add(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))}), hi), 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
+def ad.cap_ia(+l: Ad.Lim, +q: Nat, wi: Nat, +hi: Nat, +hb: Nat) -> {Bool.or(AT.within(l, Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))}), hi), 0n)), Ad.le(Nat.add(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))}), hi), 0n), hb), Nat.add(hi, hb))) == True{} : Bool}:
   match wi:
     case 0n:
       ad.cap_ia0(l, hi, hb, Ad.room(l, hi), Ad.le(q, 0n), {==})
     case 1n+w:
       ad.cap_ia1(l, hi, hb, Ad.le(q, 1n+w))
 
-def ad.cap_bg0(+l: Ad.Lim, +hb: Nat, r: Bool, er: {Ad.room(l, hb) == r : Bool}) -> {Bool.or(Ad.within(l, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(r)}), hb)), Ad.le(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(r)}), hb), 0n), hb)) == True{} : Bool}:
+def ad.cap_bg0(+l: Ad.Lim, +hb: Nat, r: Bool, er: {Ad.room(l, hb) == r : Bool}) -> {Bool.or(AT.within(l, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(r)}), hb)), Ad.le(Nat.add(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(r)}), hb), 0n), hb)) == True{} : Bool}:
   match r:
     case True{}:
-      ad.or_tl(Ad.within(l, 1n+hb), Ad.le(1n+Nat.add(hb, 0n), hb), ad.within_room(l, hb, er))
+      ad.or_tl(AT.within(l, 1n+hb), Ad.le(1n+Nat.add(hb, 0n), hb), ad.within_room(l, hb, er))
     case False{}:
       ad.cap_id(l, hb)
 
-def ad.cap_bg(+l: Ad.Lim, hi: Nat, wi: Nat, wb: Nat, +hb: Nat) -> {Bool.or(Ad.within(l, Nat.add(hi, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(hi), Bool.and(Ad.isz(wi), Bool.and(Ad.isz(wb), Ad.room(l, Nat.add(hi, hb))))))}), hb))), Ad.le(Nat.add(Nat.add(hi, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(hi), Bool.and(Ad.isz(wi), Bool.and(Ad.isz(wb), Ad.room(l, Nat.add(hi, hb))))))}), hb)), 0n), Nat.add(hi, hb))) == True{} : Bool}:
+def ad.cap_bg(+l: Ad.Lim, hi: Nat, wi: Nat, wb: Nat, +hb: Nat) -> {Bool.or(AT.within(l, Nat.add(hi, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(hi), Bool.and(Ad.isz(wi), Bool.and(Ad.isz(wb), Ad.room(l, Nat.add(hi, hb))))))}), hb))), Ad.le(Nat.add(Nat.add(hi, Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(hi), Bool.and(Ad.isz(wi), Bool.and(Ad.isz(wb), Ad.room(l, Nat.add(hi, hb))))))}), hb)), 0n), Nat.add(hi, hb))) == True{} : Bool}:
   match hi:
     case 1n+a:
       ad.cap_id(l, Nat.add(1n+a, hb))
@@ -233,7 +236,7 @@ def ad.cap_bg(+l: Ad.Lim, hi: Nat, wi: Nat, wb: Nat, +hb: Nat) -> {Bool.or(Ad.wi
             case 0n:
               ad.cap_bg0(l, hb, Ad.room(l, hb), {==})
 
-def ad.cap_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, e: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}) -> {Bool.or(Ad.within(Ad.St.lim(Ad.collect.at(mb, l, q, ts, k)), Ad.held(Ad.St.ts(Ad.collect.at(mb, l, q, ts, k)))), Ad.le(Nat.add(Ad.held(Ad.St.ts(Ad.collect.at(mb, l, q, ts, k))), 0n), Ad.held(ts))) == True{} : Bool}:
+def ad.cap_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, e: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}) -> {Bool.or(AT.within(Admission.adm_lim(Ad.collect.at(mb, l, q, ts, k)), Ad.held(Admission.adm_ts(Ad.collect.at(mb, l, q, ts, k)))), Ad.le(Nat.add(Ad.held(Admission.adm_ts(Ad.collect.at(mb, l, q, ts, k))), 0n), Ad.held(ts))) == True{} : Bool}:
   match mb:
     case None{}:
       ad.cap_id(l, Ad.held(ts))
@@ -241,7 +244,7 @@ def ad.cap_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
       ad.cap_id(l, Ad.held(ts))
     case Some{Ad.Tk{+c, Ad.Granted{}}}:
       +t2 = Ad.put(ts, k, Ad.Held{})
-      %Equal.sym(Nat, Ad.held(t2), Ad.held(ts), ad.held_col(ts, k, c, e)) : {Bool.or(Ad.within(l, _), Ad.le(Nat.add(_, 0n), Ad.held(ts))) == True{} : Bool}
+      %Equal.sym(Nat, Ad.held(t2), Ad.held(ts), ad.held_col(ts, k, c, e)) : {Bool.or(AT.within(l, _), Ad.le(Nat.add(_, 0n), Ad.held(ts))) == True{} : Bool}
       ad.cap_id(l, Ad.held(ts))
     case Some{Ad.Tk{c, Ad.Held{}}}:
       ad.cap_id(l, Ad.held(ts))
@@ -250,7 +253,7 @@ def ad.cap_col(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
     case Some{Ad.Tk{c, Ad.Ended{}}}:
       ad.cap_id(l, Ad.held(ts))
 
-def ad.cap_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, e: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}) -> {Bool.or(Ad.within(Ad.St.lim(Ad.release.at(mb, l, q, ts, k)), Ad.held(Ad.St.ts(Ad.release.at(mb, l, q, ts, k)))), Ad.le(Nat.add(Ad.held(Ad.St.ts(Ad.release.at(mb, l, q, ts, k))), Ad.freed.at(mb, True{})), Ad.held(ts))) == True{} : Bool}:
+def ad.cap_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, e: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}) -> {Bool.or(AT.within(Admission.adm_lim(Ad.release.at(mb, l, q, ts, k)), Ad.held(Admission.adm_ts(Ad.release.at(mb, l, q, ts, k)))), Ad.le(Nat.add(Ad.held(Admission.adm_ts(Ad.release.at(mb, l, q, ts, k))), AT.freed.at(mb, True{})), Ad.held(ts))) == True{} : Bool}:
   match mb:
     case None{}:
       ad.cap_id(l, Ad.held(ts))
@@ -263,12 +266,12 @@ def ad.cap_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
       ad.cap_after(l, t2, ts, 1n, Equal.trans(Nat, Nat.add(Ad.held(t2), 1n), 1n+Ad.held(t2), Ad.held(ts), Equal.sym(Nat, 1n+Ad.held(t2), Nat.add(Ad.held(t2), 1n), ad.add_one(Ad.held(t2))), ad.held_end(ts, k, c, Ad.Held{}, e, {==})))
     case Some{Ad.Tk{+c, Ad.Preempted{}}}:
       +t2 = Ad.put(ts, k, Ad.Ended{})
-      %Equal.sym(Nat, Ad.held(t2), Ad.held(ts), ad.held_same(ts, k, c, Ad.Preempted{}, e, {==})) : {Bool.or(Ad.within(l, _), Ad.le(Nat.add(_, 0n), Ad.held(ts))) == True{} : Bool}
+      %Equal.sym(Nat, Ad.held(t2), Ad.held(ts), ad.held_same(ts, k, c, Ad.Preempted{}, e, {==})) : {Bool.or(AT.within(l, _), Ad.le(Nat.add(_, 0n), Ad.held(ts))) == True{} : Bool}
       ad.cap_id(l, Ad.held(ts))
     case Some{Ad.Tk{c, Ad.Ended{}}}:
       ad.cap_id(l, Ad.held(ts))
 
-def ad.cap_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, e: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}) -> {Bool.or(Ad.within(Ad.St.lim(Ad.leave.at(mb, l, q, ts, k)), Ad.held(Ad.St.ts(Ad.leave.at(mb, l, q, ts, k)))), Ad.le(Nat.add(Ad.held(Ad.St.ts(Ad.leave.at(mb, l, q, ts, k))), Ad.freed.at(mb, False{})), Ad.held(ts))) == True{} : Bool}:
+def ad.cap_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, e: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}) -> {Bool.or(AT.within(Admission.adm_lim(Ad.leave.at(mb, l, q, ts, k)), Ad.held(Admission.adm_ts(Ad.leave.at(mb, l, q, ts, k)))), Ad.le(Nat.add(Ad.held(Admission.adm_ts(Ad.leave.at(mb, l, q, ts, k))), AT.freed.at(mb, False{})), Ad.held(ts))) == True{} : Bool}:
   match mb:
     case None{}:
       ad.cap_id(l, Ad.held(ts))
@@ -287,7 +290,7 @@ def ad.cap_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
 
 # an interactive admit on a capped provider: the preemption frees every
 # background slot
-def ad.cap_pre(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(Ad.within(l, Ad.held(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}]))), Ad.le(Nat.add(Ad.held(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}])), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)), Ad.held(ts))) == True{} : Bool}:
+def ad.cap_pre(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(AT.within(l, Ad.held(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}]))), Ad.le(Nat.add(Ad.held(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}])), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)), Ad.held(ts))) == True{} : Bool}:
   +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
   +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
   +hb = Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)
@@ -296,19 +299,19 @@ def ad.cap_pre(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(Ad.within(
   +t1 = Ad.preempt(ts)
   +t2 = List.append(&2, Ad.Tk, t1, [x])
   +b = Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), hi)
-  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), b, LAAdmissionHit.ad.app_pre(Ad.Holding{}, ts, x)) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), hb), Nat.add(hi, hb))) == True{} : Bool}
-  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), 0n, Equal.trans(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, t1), 0n, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Bg{}, t1, x, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st))), LAAdmissionHit.ad.pre_hb(ts))) : {Bool.or(Ad.within(l, Nat.add(b, _)), Ad.le(Nat.add(Nat.add(b, _), hb), Nat.add(hi, hb))) == True{} : Bool}
+  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), b, LAAdmissionHit.ad.app_pre(Ad.Holding{}, ts, x)) : {Bool.or(AT.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), hb), Nat.add(hi, hb))) == True{} : Bool}
+  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), 0n, Equal.trans(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, t1), 0n, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Bg{}, t1, x, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st))), LAAdmissionHit.ad.pre_hb(ts))) : {Bool.or(AT.within(l, Nat.add(b, _)), Ad.le(Nat.add(Nat.add(b, _), hb), Nat.add(hi, hb))) == True{} : Bool}
   ad.cap_ia(l, q, wi, hi, hb)
 
 # an interactive admit: an unlimited provider holds any number of slots
-def ad.cap_ia_on(l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(Ad.within(l, Ad.held(Ad.admit.ia(l, q, ts))), Ad.le(Nat.add(Ad.held(Ad.admit.ia(l, q, ts)), Ad.freed.ia(l, Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts))), Ad.held(ts))) == True{} : Bool}:
+def ad.cap_ia_on(l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(AT.within(l, Ad.held(Ad.admit.ia(l, q, ts))), Ad.le(Nat.add(Ad.held(Ad.admit.ia(l, q, ts)), AT.freed.ia(l, Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts))), Ad.held(ts))) == True{} : Bool}:
   match l:
     case Ad.Unl{}:
       {==}
     case Ad.Cap{+p}:
       ad.cap_pre(Ad.Cap{p}, q, ts)
 
-def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)), Ad.held(Ad.St.ts(Ad.step(s, o)))), Ad.le(Nat.add(Ad.held(Ad.St.ts(Ad.step(s, o))), Ad.freed(s, o)), Ad.held(Ad.St.ts(s)))) == True{} : Bool}:
+def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(AT.within(Admission.adm_lim(Ad.step(s, o)), Ad.held(Admission.adm_ts(Ad.step(s, o)))), Ad.le(Nat.add(Ad.held(Admission.adm_ts(Ad.step(s, o))), AT.freed(s, o)), Ad.held(Admission.adm_ts(s)))) == True{} : Bool}:
   match s:
     case Ad.St{+l, +q, +ts}:
       match o:
@@ -323,8 +326,8 @@ def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)),
           +y = {Ad.Tk{Ad.Bg{}, st} : Ad.Tk}
           +t2 = List.append(&2, Ad.Tk, ts, [y])
           +b = Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, y), hb)
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), hi, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Ia{}, ts, y, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), 0n), Nat.add(hi, hb))) == True{} : Bool}
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), b, LAAdmissionCnt.ad.cnt_app(Ad.Holding{}, Ad.Bg{}, ts, y)) : {Bool.or(Ad.within(l, Nat.add(hi, _)), Ad.le(Nat.add(Nat.add(hi, _), 0n), Nat.add(hi, hb))) == True{} : Bool}
+          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), hi, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Ia{}, ts, y, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))) : {Bool.or(AT.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), 0n), Nat.add(hi, hb))) == True{} : Bool}
+          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), b, LAAdmissionCnt.ad.cnt_app(Ad.Holding{}, Ad.Bg{}, ts, y)) : {Bool.or(AT.within(l, Nat.add(hi, _)), Ad.le(Nat.add(Nat.add(hi, _), 0n), Nat.add(hi, hb))) == True{} : Bool}
           ad.cap_bg(l, hi, wi, wb, hb)
         case Ad.Collect{+k}:
           ad.cap_col(Ad.get(ts, k), l, q, ts, k, {==})
@@ -335,5 +338,16 @@ def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)),
         case Ad.Limit{+l2, q2}:
           ad.cap_after(l2, ts, ts, 0n, LANat.ad.add_zero(Ad.held(ts)))
 
+# the law, over the laws' counts, from the proof's predicate, over the
+# model's counts
+def cap.br(+L: Ad.Lim, +A1: Nat, -A2: Nat, +F1: Nat, -F2: Nat, +B1: Nat, -B2: Nat, ea: {A1 == A2 : Nat}, eb: {A1 == A2 : Nat}, ef: {F1 == F2 : Nat}, ec: {B1 == B2 : Nat}, h: {Bool.or(AT.within(L, A1), Ad.le(Nat.add(A1, F1), B1)) == True{} : Bool}) -> {Bool.or(Admission.adm_within(L, A2), Nat.is_le(Nat.add(A2, F2), B2)) == True{} : Bool}:
+  %ea : {Bool.or(Admission.adm_within(L, _), Nat.is_le(Nat.add(A2, F2), B2)) == True{} : Bool}
+  %eb : {Bool.or(Admission.adm_within(L, A1), Nat.is_le(Nat.add(_, F2), B2)) == True{} : Bool}
+  %ef : {Bool.or(Admission.adm_within(L, A1), Nat.is_le(Nat.add(A1, _), B2)) == True{} : Bool}
+  %ec : {Bool.or(Admission.adm_within(L, A1), Nat.is_le(Nat.add(A1, F1), _)) == True{} : Bool}
+  %LBr.br.within(L, A1) : {Bool.or(_, Nat.is_le(Nat.add(A1, F1), B1)) == True{} : Bool}
+  %PC.pac.le(Nat.add(A1, F1), B1) : {Bool.or(AT.within(L, A1), _) == True{} : Bool}
+  h
+
 def Admission.admission_capacity(s, o):
-  capacity(s, o)
+  cap.br(Admission.adm_lim(Ad.step(s, o)), Ad.held(Admission.adm_ts(Ad.step(s, o))), Admission.ads_busy(Admission.adm_ts(Ad.step(s, o))), AT.freed(s, o), Admission.adm_freed(s, o), Ad.held(Admission.adm_ts(s)), Admission.ads_busy(Admission.adm_ts(s)), LBr.br.busy(Admission.adm_ts(Ad.step(s, o))), LBr.br.busy(Admission.adm_ts(Ad.step(s, o))), LBr.br.freed(s, o), LBr.br.busy(Admission.adm_ts(s)), capacity(s, o))

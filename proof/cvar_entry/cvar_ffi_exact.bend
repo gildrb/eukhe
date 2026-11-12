@@ -11,4 +11,4 @@ import ../../laws/cvar_entry.bend as CvarEntry
 import ./base.bend as LB
 
 def CvarEntry.cvar_ffi_exact(s):
-  LB.cve.ffi(s)
+  LB.cve.ffi_orig(s)

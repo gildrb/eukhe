@@ -1,8 +1,5 @@
 # eukhe: the laws of area command
 
-import Base
-import ../../bend/command.bend as Cmd
-
 # ---- commands ----
 
 # LAWS (slash commands): the path a
@@ -11,8 +8,10 @@ import ../../bend/command.bend as Cmd
 # bend/command.bend and its entry bend/ffi_command.bend (the Rust code,
 # crates/eukhe-tui/src/command_paths.rs, builds the table from the
 # registry of crates/eukhe-types/src/slash_commands.rs and the argument
-# lists, and asks the entry). The proofs are proof/<law>.bend, imported
-# from PROOF.bend; shared lemmas in proof/base.bend.
+# lists, and asks the entry). The proofs are proof/command/<law>.bend,
+# imported from PROOF.bend; shared lemmas in proof/command/base.bend and
+# proof/command/base/. The laws of the keys on a selected row stand in
+# laws/command/named.bend (they hold for every spelling of a line).
 #
 #   R1  a declared path typed in full runs itself, never its parent; a
 #       bare path with children and no default opens its menu
@@ -25,25 +24,32 @@ import ../../bend/command.bend as Cmd
 #   R4  a first word that names no command is the interface's own (a
 #       typo note, or a prompt)       command_stray_is_not_a_command
 #   R5  the menu below a path: exactly its children whose name or alias
-#       starts with the typed word (any case), in table order; never the
-#       path itself or a deeper path  command_menu_lists_children
+#       starts with the typed word (any case), in table order, each once;
+#       never the path itself or a deeper path
+#                                     command_menu_opens_below_path,
+#                                     command_menu_rows_listed
 #   R6  the first word's menu is the command names (the interface's
 #       fuzzy ranking)                command_menu_names_first_word
 #   R7  no menu below argument text or an unknown word
 #                                     command_menu_shut_off_path
 #   R8  Tab on a row completes it (a space after it when it has children
 #       or expects text) and opens its children
-#                                     command_tab_completes_row
+#                                     command_tab_row_completes (named.bend)
 #   R9  Enter on a row typed in full submits a path that runs bare, else
 #       opens its children; on a row typed in part it completes the row,
 #       then descends into its children, waits for its text, or submits
-#                                     command_enter_on_row
+#                                     command_enter_row_typed_in_full,
+#                                     command_enter_row_typed_in_part
+#                                     (named.bend)
 #   R10 Enter with no row submits the line, unless it is a bare path with
-#       no default (its menu opens)   command_enter_without_row
+#       no default (its menu opens)   command_enter_without_row_submits,
+#                                     command_enter_without_row_opens
 #   R11 Tab with no row opens the menu of the line
 #                                     command_tab_without_row
 #   R12 a selected row that is not a child of the typed path is ignored
-#                                     command_stale_row_ignored
+#                                     command_stale_row_ignored,
+#                                     command_row_not_child_ignored
+#                                     (named.bend)
 #   R13 the user's bug (/memory + space + model + Enter ran /memory):
 #       closed examples               command_memory_model_example,
 #                                     command_memory_model_keys_example
@@ -57,7 +63,8 @@ import ../../bend/command.bend as Cmd
 #       menu; rows and keys act on a line with any spacing as on its
 #       single-spaced form, and Enter keeps the line as typed
 #                                     command_space_*, command_menu_space_*,
-#                                     command_*_row_any_spacing
+#                                     command_stale_row_any_spacing, and the
+#                                     row laws of named.bend (any line)
 #   R16 a selected row below argument text, an unknown word or a stray
 #       first word is ignored         command_row_ignored_off_path
 #
@@ -65,6 +72,9 @@ import ../../bend/command.bend as Cmd
 # interface's), the descriptions and usage hints the menu shows (the
 # registry's), and the suggestion for an unknown word (the interface's
 # edit distance over the children of the path the model names).
+
+import Base
+import ../../bend/command.bend as Cmd
 
 # Spec helpers
 # ------------
@@ -341,86 +351,55 @@ def cmd_ended.of(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +p: List<&2, List
 def cmd_ended(+t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>) -> Cmd.Res:
   cmd_ended.of(cmd_lookup(t, p), t, p)
 
-def cmd_rows.at(b: Bool, i: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
-  match b:
-    case True{}:
-      i <> rest
-    case False{}:
-      rest
-
-# the places (from i) of the children of q whose last name or an alias
-# starts with x
-def cmd_rows(t: List<&2, Cmd.Ent>, +i: Nat, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>) -> List<&2, Nat>:
-  match t:
+# n is one of xs
+def cmd_nat_in(+n: Nat, xs: List<&2, Nat>) -> Bool:
+  match xs:
     case Nil{}:
-      Nil{}
-    case Con{Cmd.Ent{+p, a, r, f, g}, rest}:
-      cmd_rows.at(Bool.and(cmd_is_kid(q, p), Bool.or(cmd_prefix(x, cmd_last(p)), cmd_prefix_in(x, a))), i, cmd_rows(rest, 1n+i, q, x))
+      False{}
+    case Con{x, rest}:
+      Bool.or(Nat.is_eq(x, n), cmd_nat_in(n, rest))
 
-def cmd_space_if(b: Bool, l: List<&2, Nat>) -> List<&2, Nat>:
-  match b:
-    case True{}:
-      List.append(&2, Nat, l, [32n])
-    case False{}:
-      l
+def cmd_listed.of(m: Maybe<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{Cmd.Ent{+p, a, r, f, g}}:
+      Bool.and(cmd_is_kid(q, p), Bool.or(cmd_prefix(x, cmd_last(p)), cmd_prefix_in(x, a)))
 
-def cmd_tab.at(+k: Bool, g: Bool, l: List<&2, Nat>) -> Cmd.Out:
-  Cmd.Out{cmd_space_if(Bool.or(k, g), l), k, False{}}
+# place i of t holds a child of q whose last name, or one of whose
+# aliases, starts with x
+def cmd_listed(t: List<&2, Cmd.Ent>, i: Nat, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>) -> Bool:
+  cmd_listed.of(List.get(&2, Cmd.Ent, t, i), q, x)
 
-# Tab on the row e: its path, a space after it when it has children or
-# expects text; its children's menu opens when it has children
-def cmd_tab(+t: List<&2, Cmd.Ent>, e: Cmd.Ent) -> Cmd.Out:
-  match e:
-    case Cmd.Ent{+p, a, r, f, g}:
-      cmd_tab.at(cmd_has_kid(t, p), g, cmd_render(p))
+# the places xs rise from lo: each is lo or more, and below the next
+def cmd_rising(xs: List<&2, Nat>, +lo: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, rest}:
+      Bool.and(Nat.is_le(lo, x), cmd_rising(rest, 1n+x))
 
-def cmd_enter.fresh(k: Bool, g: Bool, l: List<&2, Nat>) -> Cmd.Out:
-  match k:
-    case True{}:
-      Cmd.Out{List.append(&2, Nat, l, [32n]), True{}, False{}}
-    case False{}:
-      match g:
-        case True{}:
-          Cmd.Out{List.append(&2, Nat, l, [32n]), False{}, False{}}
-        case False{}:
-          Cmd.Out{l, False{}, True{}}
+# the menu m lists children of q (some of them, or none)
+def cmd_lists_kids(m: Cmd.Menu, +q: List<&2, List<&2, Nat>>) -> Bool:
+  match m:
+    case Cmd.Names{}:
+      False{}
+    case Cmd.Kids{x, xs}:
+      cmd_path_eq(x, q)
+    case Cmd.Shut{}:
+      False{}
 
-def cmd_enter.typed(d: Bool, l: List<&2, Nat>, line: List<&2, Nat>) -> Cmd.Out:
-  match d:
-    case True{}:
-      Cmd.Out{line, False{}, True{}}
-    case False{}:
-      Cmd.Out{List.append(&2, Nat, l, [32n]), True{}, False{}}
-
-def cmd_enter.at(full: Bool, +k: Bool, r: Bool, g: Bool, l: List<&2, Nat>, line: List<&2, Nat>) -> Cmd.Out:
-  match full:
-    case True{}:
-      cmd_enter.typed(Bool.or(r, Bool.not(k)), l, line)
-    case False{}:
-      cmd_enter.fresh(k, g, l)
-
-# Enter on the row e with the typed word w on the line: typed in full
-# (its last name or an alias, any case), it is submitted when it runs
-# bare (a default, or no child), else its children's menu opens; typed
-# in part, it completes and descends into its children, waits for the
-# text it expects, or is submitted
-def cmd_enter(+t: List<&2, Cmd.Ent>, e: Cmd.Ent, +w: List<&2, Nat>, line: List<&2, Nat>) -> Cmd.Out:
-  match e:
-    case Cmd.Ent{+p, +a, r, f, g}:
-      cmd_enter.at(Bool.or(cmd_eq(cmd_lower(w), cmd_last(p)), cmd_in(cmd_lower(w), a)), cmd_has_kid(t, p), r, g, cmd_render(p), line)
-
-# Enter with no row, after the line resolves to r: a bare path with no
-# default opens its menu (a space after it); anything else is submitted
-def cmd_enter_bare(r: Cmd.Res, line: List<&2, Nat>) -> Cmd.Out:
+# the answer r is a bare path whose menu opens
+def cmd_opens(r: Cmd.Res) -> Bool:
   match r:
-    case Cmd.Runs{q, x}:
-      Cmd.Out{line, False{}, True{}}
+    case Cmd.Runs{q, a}:
+      False{}
     case Cmd.Opens{q}:
-      Cmd.Out{List.append(&2, Nat, cmd_render(q), [32n]), True{}, False{}}
+      True{}
     case Cmd.Unknown{q, w}:
-      Cmd.Out{line, False{}, True{}}
+      False{}
     case Cmd.NoCmd{}:
-      Cmd.Out{line, False{}, True{}}
+      False{}
 
 def cmd_row.of(m: Maybe<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>) -> Bool:
   match m:
@@ -567,20 +546,41 @@ law command_memory_model_keys_example:
 # Laws: menus
 # -----------
 
-# LAW command_menu_lists_children: the menu below a declared path lists
-# exactly its children whose last name or an alias starts with the typed
-# word (any case), by their places in the table, in table order
+# LAW command_menu_opens_below_path (R5): in a well-formed table, the line
+# of a declared path, a space and a last word p (no space in it, maybe
+# empty) shows a menu of children of that path
 # EXCLUDES: a menu that closes after the space (the old /memory + space),
-#   one that lists the path itself, a grandchild, a sibling, a child the
-#   word does not start, or drops one
-law command_menu_lists_children:
+#   the command names or a parent's or sibling's children after a declared
+#   path
+law command_menu_opens_below_path:
   for +t: List<&2, Cmd.Ent>
   for +q: List<&2, List<&2, Nat>>
   for +p: List<&2, Nat>
   for ok: {cmd_wf(t) == True{} : Bool}
   for on: {cmd_path(t, q) == True{} : Bool}
   for word: {cmd_spaceless(p) == True{} : Bool}
-  {Cmd.menu(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p]))) == Cmd.Kids{q, cmd_rows(t, 0n, q, cmd_lower(p))} : Cmd.Menu}
+  {cmd_lists_kids(Cmd.menu(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p]))), q) == True{} : Bool}
+
+# LAW command_menu_rows_listed (R5, R23): in every table, on every line
+# that ends in a space and a last word p (no space in it, maybe empty)
+# whose menu lists children of a path q, the menu lists place i exactly
+# when place i of the table holds a child of q whose last name, or one of
+# whose aliases, starts with p in lowercase; and the places rise from 0
+# (table order, each place once)
+# EXCLUDES: a menu that lists the path itself, a grandchild, a sibling, a
+#   child p does not start, a place past the table, a place twice or out
+#   of table order; one that drops a child p starts, or one p starts once
+#   p is typed in capitals
+law command_menu_rows_listed:
+  for +t: List<&2, Cmd.Ent>
+  for +pre: List<&2, Nat>
+  for +p: List<&2, Nat>
+  for +q: List<&2, List<&2, Nat>>
+  for +xs: List<&2, Nat>
+  for +i: Nat
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for kids: {Cmd.menu(t, List.append(&2, Nat, pre, 32n <> p)) == Cmd.Kids{q, xs} : Cmd.Menu}
+  {(cmd_nat_in(i, xs), cmd_rising(xs, 0n)) == (cmd_listed(t, i, q, cmd_lower(p)), True{}) : Bool & Bool}
 
 # LAW command_menu_names_first_word: while the first word is typed, the
 # menu is the command names (the interface ranks them)
@@ -613,56 +613,32 @@ law command_menu_shut_off_path:
 # Laws: keys
 # ----------
 
-# LAW command_tab_completes_row: Tab on a row that is a child of the
-# typed path completes it (its canonical path), a space after it when it
-# has children or expects text, and opens its children; it never
-# submits
-# EXCLUDES: Tab that completes without opening the next level (/mem Tab
-#   left the menu shut), Tab that submits, one that keeps the typed
-#   prefix
-law command_tab_completes_row:
-  for +t: List<&2, Cmd.Ent>
-  for +q: List<&2, List<&2, Nat>>
-  for +p: List<&2, Nat>
-  for +i: Nat
-  for +e: Cmd.Ent
-  for ok: {cmd_wf(t) == True{} : Bool}
-  for on: {cmd_walks(t, q) == True{} : Bool}
-  for word: {cmd_spaceless(p) == True{} : Bool}
-  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
-  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
-  {Cmd.key(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p])), Cmd.Row{i}, Cmd.Tab{}) == cmd_tab(t, e) : Cmd.Out}
-
-# LAW command_enter_on_row: Enter on a row that is a child of the typed
-# path: typed in full, a path that runs bare is submitted as typed and
-# any other opens its children; typed in part, the row completes and
-# descends into its children (no submit), waits for the text it expects
-# (no submit), or is submitted
-# EXCLUDES: Enter on /memory mo that runs /memory, Enter on /mem that
-#   runs /memory before its subcommand is chosen, Enter that submits a
-#   bare path with no default
-law command_enter_on_row:
-  for +t: List<&2, Cmd.Ent>
-  for +q: List<&2, List<&2, Nat>>
-  for +p: List<&2, Nat>
-  for +i: Nat
-  for +e: Cmd.Ent
-  for ok: {cmd_wf(t) == True{} : Bool}
-  for on: {cmd_walks(t, q) == True{} : Bool}
-  for word: {cmd_spaceless(p) == True{} : Bool}
-  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
-  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
-  {Cmd.key(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p])), Cmd.Row{i}, Cmd.Enter{}) == cmd_enter(t, e, p, cmd_render(List.append(&2, List<&2, Nat>, q, [p]))) : Cmd.Out}
-
-# LAW command_enter_without_row: Enter with no row submits the line as
-# typed, unless it resolves to a bare path with no default: then the
-# line becomes that path and a space, and its menu opens
-# EXCLUDES: Enter that submits a path that needs a choice, Enter that
-#   rewrites a line it submits
-law command_enter_without_row:
+# LAW command_enter_without_row_submits (R10): Enter with no row submits
+# the line unchanged and opens no menu, whenever the line does not resolve
+# to a bare path whose menu opens (it runs, it is unknown below a path,
+# or it names no command), in every table
+# EXCLUDES: Enter that rewrites or drops a line it submits, Enter that
+#   opens a menu instead of submitting a line that runs, an unknown word
+#   or a typo kept from the interface (`/memory x`, `/memroy`)
+law command_enter_without_row_submits:
   for +t: List<&2, Cmd.Ent>
   for +line: List<&2, Nat>
-  {Cmd.key(t, line, Cmd.NoRow{}, Cmd.Enter{}) == cmd_enter_bare(Cmd.resolve(t, line), line) : Cmd.Out}
+  for runs: {cmd_opens(Cmd.resolve(t, line)) == False{} : Bool}
+  {Cmd.key(t, line, Cmd.NoRow{}, Cmd.Enter{}) == Cmd.Out{line, False{}, True{}} : Cmd.Out}
+
+# LAW command_enter_without_row_opens (R10): Enter with no row on a line
+# that resolves to a bare path q whose menu opens (no default) submits
+# nothing: the line becomes q's canonical path and a space, and q's menu
+# opens, in every table
+# EXCLUDES: Enter that submits a path that waits for a choice (bare
+#   /memory with no default), one that keeps the typed spelling, leaves no
+#   space for the next word, or opens no menu
+law command_enter_without_row_opens:
+  for +t: List<&2, Cmd.Ent>
+  for +line: List<&2, Nat>
+  for +q: List<&2, List<&2, Nat>>
+  for opens: {Cmd.resolve(t, line) == Cmd.Opens{q} : Cmd.Res}
+  {Cmd.key(t, line, Cmd.NoRow{}, Cmd.Enter{}) == Cmd.Out{List.append(&2, Nat, cmd_render(q), [32n]), True{}, False{}} : Cmd.Out}
 
 # LAW command_tab_without_row: Tab with no row keeps the line and opens
 # its menu
@@ -773,46 +749,6 @@ law command_menu_space_gap:
   for on: {cmd_path(t, q) == True{} : Bool}
   {Cmd.menu(t, List.append(&2, Nat, cmd_render(q), 32n <> 32n <> line)) == Cmd.menu(t, List.append(&2, Nat, cmd_render(q), 32n <> line)) : Cmd.Menu}
 
-# LAW command_tab_row_any_spacing: Tab on a row that is a child of the
-# typed path completes it as on the single-spaced line
-# (command_tab_completes_row), whatever spaces lead the line or stand
-# between its words
-# EXCLUDES: `/memory  mo` + Tab that keeps the line or completes another
-#   path
-law command_tab_row_any_spacing:
-  for +t: List<&2, Cmd.Ent>
-  for +q: List<&2, List<&2, Nat>>
-  for +p: List<&2, Nat>
-  for +gs: List<&2, Nat>
-  for +i: Nat
-  for +e: Cmd.Ent
-  for ok: {cmd_wf(t) == True{} : Bool}
-  for on: {cmd_walks(t, q) == True{} : Bool}
-  for word: {cmd_spaceless(p) == True{} : Bool}
-  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
-  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
-  {Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.Row{i}, Cmd.Tab{}) == cmd_tab(t, e) : Cmd.Out}
-
-# LAW command_enter_row_any_spacing: Enter on a row that is a child of
-# the typed path acts as on the single-spaced line
-# (command_enter_on_row), whatever the spacing; a line it submits as
-# typed keeps its spaces
-# EXCLUDES: `/memory  mo` + Enter that runs /memory, or submits a
-#   rewritten line
-law command_enter_row_any_spacing:
-  for +t: List<&2, Cmd.Ent>
-  for +q: List<&2, List<&2, Nat>>
-  for +p: List<&2, Nat>
-  for +gs: List<&2, Nat>
-  for +i: Nat
-  for +e: Cmd.Ent
-  for ok: {cmd_wf(t) == True{} : Bool}
-  for on: {cmd_walks(t, q) == True{} : Bool}
-  for word: {cmd_spaceless(p) == True{} : Bool}
-  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
-  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
-  {Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.Row{i}, Cmd.Enter{}) == cmd_enter(t, e, p, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs)) : Cmd.Out}
-
 # LAW command_stale_row_any_spacing: a selected place that holds no child
 # of the typed path acts as no row, whatever the spacing
 # EXCLUDES: a stale selection on a loosely typed line that completes or
@@ -842,3 +778,170 @@ law command_spacing_example:
 # EXCLUDES: a vacuous law whose premises no table, path or word meets
 law command_premises_witness:
   {Bool.and(cmd_wf(cmd_example_table()), Bool.and(cmd_path(cmd_example_table(), [cmd_example_memory()]), cmd_walks(cmd_example_table(), [cmd_example_memory()]))) == True{} : Bool} & {(cmd_free(cmd_example_table(), [cmd_example_memory()]), cmd_free(cmd_example_table(), [cmd_example_goal()])) == (False{}, True{}) : Bool & Bool} & {Bool.and(cmd_typed([120n]), Bool.and(cmd_all_spaceless([[120n], []]), cmd_spaceless([109n]))) == True{} : Bool} & {cmd_spaceless([109n, 32n]) == False{} : Bool} & {cmd_takes(cmd_example_table(), [cmd_example_memory()], cmd_lower([88n])) == False{} : Bool} & {cmd_is_kid([cmd_example_memory()], cmd_ent_path(Cmd.Ent{[cmd_example_memory(), cmd_example_view()], [], True{}, True{}, False{}})) == True{} : Bool} & {cmd_row(cmd_example_table(), 9n, [cmd_example_memory()]) == False{} : Bool}
+
+# Enter with no row, after the line resolves to r: a bare path with no
+# default opens its menu (a space after it); anything else is submitted
+def cmd_enter_bare(r: Cmd.Res, line: List<&2, Nat>) -> Cmd.Out:
+  match r:
+    case Cmd.Runs{q, x}:
+      Cmd.Out{line, False{}, True{}}
+    case Cmd.Opens{q}:
+      Cmd.Out{List.append(&2, Nat, cmd_render(q), [32n]), True{}, False{}}
+    case Cmd.Unknown{q, w}:
+      Cmd.Out{line, False{}, True{}}
+    case Cmd.NoCmd{}:
+      Cmd.Out{line, False{}, True{}}
+
+def cmd_enter.fresh(k: Bool, g: Bool, l: List<&2, Nat>) -> Cmd.Out:
+  match k:
+    case True{}:
+      Cmd.Out{List.append(&2, Nat, l, [32n]), True{}, False{}}
+    case False{}:
+      match g:
+        case True{}:
+          Cmd.Out{List.append(&2, Nat, l, [32n]), False{}, False{}}
+        case False{}:
+          Cmd.Out{l, False{}, True{}}
+
+def cmd_enter.typed(d: Bool, l: List<&2, Nat>, line: List<&2, Nat>) -> Cmd.Out:
+  match d:
+    case True{}:
+      Cmd.Out{line, False{}, True{}}
+    case False{}:
+      Cmd.Out{List.append(&2, Nat, l, [32n]), True{}, False{}}
+
+def cmd_enter.at(full: Bool, +k: Bool, r: Bool, g: Bool, l: List<&2, Nat>, line: List<&2, Nat>) -> Cmd.Out:
+  match full:
+    case True{}:
+      cmd_enter.typed(Bool.or(r, Bool.not(k)), l, line)
+    case False{}:
+      cmd_enter.fresh(k, g, l)
+
+# Enter on the row e with the typed word w on the line: typed in full
+# (its last name or an alias, any case), it is submitted when it runs
+# bare (a default, or no child), else its children's menu opens; typed
+# in part, it completes and descends into its children, waits for the
+# text it expects, or is submitted
+def cmd_enter(+t: List<&2, Cmd.Ent>, e: Cmd.Ent, +w: List<&2, Nat>, line: List<&2, Nat>) -> Cmd.Out:
+  match e:
+    case Cmd.Ent{+p, +a, r, f, g}:
+      cmd_enter.at(Bool.or(cmd_eq(cmd_lower(w), cmd_last(p)), cmd_in(cmd_lower(w), a)), cmd_has_kid(t, p), r, g, cmd_render(p), line)
+
+def cmd_space_if(b: Bool, l: List<&2, Nat>) -> List<&2, Nat>:
+  match b:
+    case True{}:
+      List.append(&2, Nat, l, [32n])
+    case False{}:
+      l
+
+def cmd_tab.at(+k: Bool, g: Bool, l: List<&2, Nat>) -> Cmd.Out:
+  Cmd.Out{cmd_space_if(Bool.or(k, g), l), k, False{}}
+
+# Tab on the row e: its path, a space after it when it has children or
+# expects text; its children's menu opens when it has children
+def cmd_tab(+t: List<&2, Cmd.Ent>, e: Cmd.Ent) -> Cmd.Out:
+  match e:
+    case Cmd.Ent{+p, a, r, f, g}:
+      cmd_tab.at(cmd_has_kid(t, p), g, cmd_render(p))
+
+# LAW command_enter_without_row: Enter with no row submits the line as
+# typed, unless it resolves to a bare path with no default: then the
+# line becomes that path and a space, and its menu opens
+# EXCLUDES: Enter that submits a path that needs a choice, Enter that
+#   rewrites a line it submits
+law command_enter_without_row:
+  for +t: List<&2, Cmd.Ent>
+  for +line: List<&2, Nat>
+  {Cmd.key(t, line, Cmd.NoRow{}, Cmd.Enter{}) == cmd_enter_bare(Cmd.resolve(t, line), line) : Cmd.Out}
+
+# LAW command_tab_completes_row: Tab on a row that is a child of the
+# typed path completes it (its canonical path), a space after it when it
+# has children or expects text, and opens its children; it never
+# submits
+# EXCLUDES: Tab that completes without opening the next level (/mem Tab
+#   left the menu shut), Tab that submits, one that keeps the typed
+#   prefix
+law command_tab_completes_row:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +i: Nat
+  for +e: Cmd.Ent
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
+  {Cmd.key(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p])), Cmd.Row{i}, Cmd.Tab{}) == cmd_tab(t, e) : Cmd.Out}
+
+# LAW command_enter_on_row: Enter on a row that is a child of the typed
+# path: typed in full, a path that runs bare is submitted as typed and
+# any other opens its children; typed in part, the row completes and
+# descends into its children (no submit), waits for the text it expects
+# (no submit), or is submitted
+# EXCLUDES: Enter on /memory mo that runs /memory, Enter on /mem that
+#   runs /memory before its subcommand is chosen, Enter that submits a
+#   bare path with no default
+law command_enter_on_row:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +i: Nat
+  for +e: Cmd.Ent
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
+  {Cmd.key(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p])), Cmd.Row{i}, Cmd.Enter{}) == cmd_enter(t, e, p, cmd_render(List.append(&2, List<&2, Nat>, q, [p]))) : Cmd.Out}
+
+# LAW command_enter_row_any_spacing: Enter on a row that is a child of
+# the typed path acts as on the single-spaced line
+# (command_enter_on_row), whatever the spacing; a line it submits as
+# typed keeps its spaces
+# EXCLUDES: `/memory  mo` + Enter that runs /memory, or submits a
+#   rewritten line
+law command_enter_row_any_spacing:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +gs: List<&2, Nat>
+  for +i: Nat
+  for +e: Cmd.Ent
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
+  {Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.Row{i}, Cmd.Enter{}) == cmd_enter(t, e, p, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs)) : Cmd.Out}
+
+def cmd_rows.at(b: Bool, i: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match b:
+    case True{}:
+      i <> rest
+    case False{}:
+      rest
+
+# the places (from i) of the children of q whose last name or an alias
+# starts with x
+def cmd_rows(t: List<&2, Cmd.Ent>, +i: Nat, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>) -> List<&2, Nat>:
+  match t:
+    case Nil{}:
+      Nil{}
+    case Con{Cmd.Ent{+p, a, r, f, g}, rest}:
+      cmd_rows.at(Bool.and(cmd_is_kid(q, p), Bool.or(cmd_prefix(x, cmd_last(p)), cmd_prefix_in(x, a))), i, cmd_rows(rest, 1n+i, q, x))
+
+# LAW command_menu_lists_children: the menu below a declared path lists
+# exactly its children whose last name or an alias starts with the typed
+# word (any case), by their places in the table, in table order
+# EXCLUDES: a menu that closes after the space (the old /memory + space),
+#   one that lists the path itself, a grandchild, a sibling, a child the
+#   word does not start, or drops one
+law command_menu_lists_children:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_path(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  {Cmd.menu(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p]))) == Cmd.Kids{q, cmd_rows(t, 0n, q, cmd_lower(p))} : Cmd.Menu}

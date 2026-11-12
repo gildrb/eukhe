@@ -1,10 +1,10 @@
 //! The separators an edited file persists with (model `bend/doc_lines.bend`
-//! `plan`, laws `persist_plan_refines` and `persist_weaves_carry` in
-//! `laws/doc_lines.bend`, F4): after each line but the last, the
-//! ending of the file line it came from, else the separator written before
-//! it. [`plan`] is the whole decision over runs, one call of the compiled
-//! Bend core (`bend/ffi_doc_lines.bend`); `FileRead::persist`
-//! (`patcher.rs`) builds the runs and writes the bytes.
+//! `plan`, laws `persist_plan_refines`, `edit_puts_new_lines` and
+//! `persist_keeps_one_ending` in `laws/doc_lines.bend`, F4): after each
+//! line but the last, the ending of the file line it came from, else the
+//! separator written before it. [`plan`] is the whole decision over runs,
+//! one call of the compiled Bend core (`bend/ffi_doc_lines.bend`);
+//! `FileRead::persist` (`patcher.rs`) builds the runs and writes the bytes.
 
 use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::{expect_core, Entry};

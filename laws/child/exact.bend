@@ -1,5 +1,6 @@
-# eukhe: the laws of area child: the watch's verdict (K1) and the child
-# entry (K2) pinned whole to an independent spec
+# eukhe: the laws of area child: the child entry (K2) on requests spelled
+# from the wire primitives, answered from the laws' own rules (K1's verdict
+# of the watch, ChildActed, ChildMove, ChildAbort)
 
 import Base
 import ../../bend/child.bend as Ch
@@ -28,14 +29,24 @@ import ./entry.bend as ChildEntry
 #     child with no progress keeps its token, has e ms fewer left (none
 #     left: it owes Stalled) and its tries back to full; a failed poll with
 #     one try left or none owes Unreachable, else it has e ms fewer left
-#     (none left: Stalled) and one try fewer.
+#     (none left: Stalled) and one try fewer. K1 is carried, for every
+#     request within the wire, by child_ffi_answers below (its answer is
+#     K1's verdict, ch_look_spec) and, for every clock and elapsed ms, by
+#     the laws of laws/child/model.bend (child_settled_child_ends_the_watch,
+#     child_token_is_progress, child_other_token_is_progress,
+#     child_progress_is_not_a_stall, child_quiet_poll_spends_time,
+#     child_failed_poll_spends_try_and_time).
 # K2: on every input that is exactly one request the entry answers the
 #     decision spelled; on any other input exactly the error form naming
 #     the first part that does not read ("child: bad request", "child:
 #     unknown request", "child: bad settings", "child: bad clock", "child:
 #     bad elapsed ms", "child: bad poll", "child: bad mode", "child: bad
 #     fate", "child: bad id", "child: bad phase", "child: bad delete flag")
-#     or, after a whole request, "child: input left over".
+#     or, after a whole request, "child: input left over". K2 is carried by
+#     the requirement laws of laws/child/entry.bend (child_entry_answers_spelled,
+#     child_entry_left_over, child_entry_reads_only_requests,
+#     child_entry_errors_named, child_entry_bad_* and child_entry_unknown_*)
+#     and child_ffi_answers below.
 
 # The watch's verdict (K1)
 # ------------------------
@@ -107,19 +118,6 @@ def ch_look_spec(cfg: Ch.Cfg, w: Ch.W, e: Nat, o: Ch.Obs) -> Ch.Next:
           Ch.Owe{Ch.Failed{}}
         case Ch.Gone{}:
           Ch.Owe{Ch.Failed{}}
-
-# LAW child_look_exact (K1): the watch's verdict on one poll (which child_task_call and the clock laws read) is K1's verdict, for every setting, clock, elapsed ms and poll
-# EXCLUDES: a stall before the clock runs out or after, a failed poll
-#   that never ends the watch or ends it a try early, a successful poll
-#   that keeps the failed polls counted, progress read from an unchanged
-#   or absent token, a clock not refilled to the settings, a settled child
-#   watched on or reported as another end
-law child_look_exact:
-  for +cfg: Ch.Cfg
-  for +w: Ch.W
-  for +e: Nat
-  for o: Ch.Obs
-  {Ch.look(cfg, w, e, o) == ch_look_spec(cfg, w, e, o) : Ch.Next}
 
 # The wire (spellers over the primitives of bend/wire.bend)
 # --------------------------------------------------------
@@ -479,8 +477,8 @@ def ch_read_ph(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Ph>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-# The reply (K2)
-# --------------
+# The reply (K2), as the proof of child_ffi_answers reads it
+# ----------------------------------------------------------
 
 def ch_spec.verdict.fin(whole: Bool, +c: Ch.Cfg, +w: Ch.W, +e: Nat, o: Ch.Obs, m: Ch.Mode) -> String:
   match whole:
@@ -588,16 +586,6 @@ def ch_spec.go(r: Wr.Dec<Nat>) -> String:
 # error form naming the first part that does not read
 def ch_spec(s: String) -> String:
   ch_spec.go(Wr.get_nat(s))
-
-# LAW child_ffi_exact (K2): on every input the child entry answers the decision on the request the input is exactly (the watch's call: K1's verdict as the task's mode acts on it; the report phase's move; the abort's phase), spelled; on any other input exactly the error form naming the first part that does not read, or the input left over
-# EXCLUDES: a decision other than the rules' (a lost or invented report, a
-#   stall early or late, a resubmission under the same id), a codec that
-#   drops, swaps or misreads a field, a default for malformed input, an
-#   unknown tag read as a known one, input left over ignored, another
-#   error text
-law child_ffi_exact:
-  for +s: String
-  {FCh.ffi(s) == ch_spec(s) : String}
 
 # LAW child_ffi_answers (K2): every request Rust writes (every number within the wire) gets the decision on it
 # EXCLUDES: a request Rust writes refused or misread

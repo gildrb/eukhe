@@ -9,6 +9,7 @@ import ../../bend/skill_load.bend as Sl
 import ../../laws/slash_suggest.bend as SlashSuggest
 import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/base.bend as LawsBase
+import ../base/staging.bend as LStg
 
 # The spec's row: the distances from a to each suffix of b, longest first
 def ssb.srow(+a: String, b: String) -> List<&2, Nat>:
@@ -97,106 +98,131 @@ def ssb.dist(+a: String, +b: String) -> {Ss.dist(a, b) == SlashSuggest.sp_lev(a,
   %Equal.sym(List<&2, Nat>, Ss.row(a, b), ssb.srow(a, b), ssb.row(a, b)) : {Ss.head(_) == SlashSuggest.sp_lev(a, b) : Nat}
   ssb.head(a, b)
 
-# Choices
-# -------
+# Nat comparisons
+# ---------------
 
-def ssb.keep(b: Bool, +d: Nat, j: Nat, e: Nat) -> {Ss.near.keep(b, d, Ss.Near{j, e}) == SlashSuggest.sp_first.won(b, j, e, d) : Ss.Near}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def ssb.near(+d: Nat, m: Maybe<&2, Ss.Near>) -> {Ss.near.of(d, m) == SlashSuggest.sp_first.of(d, m) : Ss.Near}:
-  match m:
-    case None{}:
-      {==}
-    case Some{n}:
-      match n:
-        case Ss.Near{j, +e}:
-          ssb.keep(Nat.is_lt(e, d), d, j, e)
-
-# the code's nearest candidate is the spec's
-def ssb.nearest(+w: String, cs: List<&2, String>) -> {Ss.nearest(w, cs) == SlashSuggest.sp_first(w, cs) : Maybe<&2, Ss.Near>}:
-  match cs:
-    case Nil{}:
-      {==}
-    case +x <> +t:
-      %Equal.sym(Maybe<&2, Ss.Near>, Ss.nearest(w, t), SlashSuggest.sp_first(w, t), ssb.nearest(w, t)) : {Some{Ss.near.of(Ss.dist(w, x), _)} == Some{SlashSuggest.sp_first.of(SlashSuggest.sp_lev(w, x), SlashSuggest.sp_first(w, t))} : Maybe<&2, Ss.Near>}
-      %Equal.sym(Nat, Ss.dist(w, x), SlashSuggest.sp_lev(w, x), ssb.dist(w, x)) : {Some{Ss.near.of(_, SlashSuggest.sp_first(w, t))} == Some{SlashSuggest.sp_first.of(SlashSuggest.sp_lev(w, x), SlashSuggest.sp_first(w, t))} : Maybe<&2, Ss.Near>}
-      %Equal.sym(Ss.Near, Ss.near.of(SlashSuggest.sp_lev(w, x), SlashSuggest.sp_first(w, t)), SlashSuggest.sp_first.of(SlashSuggest.sp_lev(w, x), SlashSuggest.sp_first(w, t)), ssb.near(SlashSuggest.sp_lev(w, x), SlashSuggest.sp_first(w, t))) : {Some{_} == Some{SlashSuggest.sp_first.of(SlashSuggest.sp_lev(w, x), SlashSuggest.sp_first(w, t))} : Maybe<&2, Ss.Near>}
-      {==}
-
-def ssb.utf8.at(a: Bool, b: Bool, c: Bool) -> {Sl.utf8.code(a, b, c) == SlashSuggest.sp_pick(a, 1n, SlashSuggest.sp_pick(b, 2n, SlashSuggest.sp_pick(c, 3n, 4n))) : Nat}:
-  match a b c:
-    case True{} _ _:
-      {==}
-    case False{} True{} _:
-      {==}
-    case False{} False{} True{}:
-      {==}
-    case False{} False{} False{}:
-      {==}
-
-def ssb.utf8(c: Char) -> {Sl.utf8(c) == SlashSuggest.sp_utf8(c) : Nat}:
-  match c:
-    case Chr{+x}:
-      ssb.utf8.at(U32.is_lt(x, 128), U32.is_lt(x, 2048), U32.is_lt(x, 65536))
-
-def ssb.add_zero(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
-  match n:
-    case 0n:
-      {==}
-    case 1n++p:
-      %Equal.sym(Nat, Nat.add(p, 0n), p, ssb.add_zero(p)) : {1n+_ == 1n+p : Nat}
-      {==}
-
-def ssb.add_succ(a: Nat, +b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+def ssb.eq_refl(a: Nat) -> {Nat.is_eq(a, a) == True{} : Bool}:
   match a:
     case 0n:
       {==}
-    case 1n++p:
-      %Equal.sym(Nat, Nat.add(p, 1n+b), 1n+Nat.add(p, b), ssb.add_succ(p, b)) : {1n+_ == 1n+1n+Nat.add(p, b) : Nat}
-      {==}
+    case 1n+p:
+      ssb.eq_refl(p)
 
-# b + (u + n) == (u + b) + n
-def ssb.swap(b: Nat, +u: Nat, +n: Nat) -> {Nat.add(b, Nat.add(u, n)) == Nat.add(Nat.add(u, b), n) : Nat}:
-  match b:
-    case 0n:
-      %Equal.sym(Nat, Nat.add(u, 0n), u, ssb.add_zero(u)) : {Nat.add(u, n) == Nat.add(_, n) : Nat}
+# b < a: a is not at most b
+def ssb.lt_nle(a: Nat, b: Nat, h: {Nat.is_lt(b, a) == True{} : Bool}) -> {Nat.is_le(a, b) == False{} : Bool}:
+  match a b:
+    case 0n 0n:
+      LStg.stg.absurdF({Nat.is_le(0n, 0n) == False{} : Bool}, h)
+    case 0n 1n+q:
+      LStg.stg.absurdF({Nat.is_le(0n, 1n+q) == False{} : Bool}, h)
+    case 1n+p 0n:
       {==}
-    case 1n++p:
-      %Equal.sym(Nat, Nat.add(u, 1n+p), 1n+Nat.add(u, p), ssb.add_succ(u, p)) : {1n+Nat.add(p, Nat.add(u, n)) == Nat.add(_, n) : Nat}
-      %Equal.sym(Nat, Nat.add(p, Nat.add(u, n)), Nat.add(Nat.add(u, p), n), ssb.swap(p, u, n)) : {1n+_ == 1n+Nat.add(Nat.add(u, p), n) : Nat}
-      {==}
+    case 1n+p 1n+q:
+      ssb.lt_nle(p, q, h)
 
-# the code's byte count after n is n plus the spec's
-def ssb.bytes(s: String, +n: Nat) -> {Sl.bytes(s, n) == Nat.add(SlashSuggest.sp_bytes(s), n) : Nat}:
-  match s:
-    case SNil{}:
+# b < a: a is not b
+def ssb.lt_ne(a: Nat, b: Nat, h: {Nat.is_lt(b, a) == True{} : Bool}) -> {Nat.is_eq(a, b) == False{} : Bool}:
+  match a b:
+    case 0n 0n:
+      LStg.stg.absurdF({Nat.is_eq(0n, 0n) == False{} : Bool}, h)
+    case 0n 1n+q:
       {==}
-    case SCon{+c, +t}:
-      %Equal.sym(Nat, Sl.bytes(t, Nat.add(Sl.utf8(c), n)), Nat.add(SlashSuggest.sp_bytes(t), Nat.add(Sl.utf8(c), n)), ssb.bytes(t, Nat.add(Sl.utf8(c), n))) : {_ == Nat.add(Nat.add(SlashSuggest.sp_utf8(c), SlashSuggest.sp_bytes(t)), n) : Nat}
-      %Equal.sym(Nat, Sl.utf8(c), SlashSuggest.sp_utf8(c), ssb.utf8(c)) : {Nat.add(SlashSuggest.sp_bytes(t), Nat.add(_, n)) == Nat.add(Nat.add(SlashSuggest.sp_utf8(c), SlashSuggest.sp_bytes(t)), n) : Nat}
-      ssb.swap(SlashSuggest.sp_bytes(t), SlashSuggest.sp_utf8(c), n)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      ssb.lt_ne(p, q, h)
 
-def ssb.limit.inner(b: Bool, +q: Nat) -> {Ss.min.of(b, q, 2n) == SlashSuggest.sp_pick(b, q, 2n) : Nat}:
-  match b:
+# b is not below a: a is at most b
+def ssb.nlt_le(a: Nat, b: Nat, h: {Nat.is_lt(b, a) == False{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      LStg.stg.absurd({Nat.is_le(1n+p, 0n) == True{} : Bool}, h)
+    case 1n+p 1n+q:
+      ssb.nlt_le(p, q, h)
+
+# e <= 2 <= q: e <= q
+def ssb.trans2(e: Nat, q: Nat, h1: {Nat.is_le(e, 2n) == True{} : Bool}, h2: {Nat.is_le(2n, q) == True{} : Bool}) -> {Nat.is_le(e, q) == True{} : Bool}:
+  match e q:
+    case 0n 0n:
+      {==}
+    case 0n 1n+r:
+      {==}
+    case 1n 0n:
+      LStg.stg.absurdF({Nat.is_le(1n, 0n) == True{} : Bool}, h2)
+    case 1n 1n:
+      LStg.stg.absurdF({Nat.is_le(1n, 1n) == True{} : Bool}, h2)
+    case 1n 2n+r:
+      {==}
+    case 2n r:
+      h2
+    case 3n+p r:
+      LStg.stg.absurdF({Nat.is_le(3n+p, r) == True{} : Bool}, h1)
+
+# q < 2 < e: e is not at most q
+def ssb.over2(q: Nat, e: Nat, h1: {Nat.is_le(e, 2n) == False{} : Bool}, h2: {Nat.is_le(2n, q) == False{} : Bool}) -> {False{} == Nat.is_le(e, q) : Bool}:
+  match q e:
+    case 0n 0n:
+      LStg.stg.absurd({False{} == Nat.is_le(0n, 0n) : Bool}, h1)
+    case 0n 1n+p:
+      {==}
+    case 1n 0n:
+      LStg.stg.absurd({False{} == Nat.is_le(0n, 1n) : Bool}, h1)
+    case 1n 1n:
+      LStg.stg.absurd({False{} == Nat.is_le(1n, 1n) : Bool}, h1)
+    case 1n 2n:
+      LStg.stg.absurd({False{} == Nat.is_le(2n, 1n) : Bool}, h1)
+    case 1n 3n+p:
+      {==}
+    case 2n f:
+      LStg.stg.absurd({False{} == Nat.is_le(f, 2n) : Bool}, h2)
+    case 3n+r f:
+      LStg.stg.absurd({False{} == Nat.is_le(f, 3n+r) : Bool}, h2)
+
+# The limit
+# ---------
+
+def ssb.or_f(x: Bool) -> {x == Bool.or(x, False{}) : Bool}:
+  match x:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def ssb.limit.at(s: Bool, +q: Nat) -> {Ss.limit.of(s, q) == SlashSuggest.sp_pick(s, 1n, SlashSuggest.sp_pick(Nat.is_le(2n, q), q, 2n)) : Nat}:
-  match s:
+def ssb.ok.both(+e: Nat, +q: Nat, d: Bool, ed: {Nat.is_le(e, 2n) == d : Bool}, h2: {Nat.is_le(2n, q) == True{} : Bool}) -> {Nat.is_le(e, q) == Bool.or(d, Nat.is_le(e, q)) : Bool}:
+  match d:
+    case True{}:
+      ssb.trans2(e, q, ed, h2)
+    case False{}:
+      {==}
+
+def ssb.ok.two(+e: Nat, +q: Nat, d: Bool, ed: {Nat.is_le(e, 2n) == d : Bool}, h2: {Nat.is_le(2n, q) == False{} : Bool}) -> {d == Bool.or(d, Nat.is_le(e, q)) : Bool}:
+  match d:
     case True{}:
       {==}
     case False{}:
-      ssb.limit.inner(Nat.is_le(2n, q), q)
+      ssb.over2(q, e, ed, h2)
 
-# the code's limit is the spec's
-def ssb.limit(+n: Nat) -> {Ss.limit(n) == SlashSuggest.sp_limit(n) : Nat}:
-  ssb.limit.at(Nat.is_le(n, 3n), Nat.div(n, 3n))
+def ssb.ok.big(+e: Nat, +q: Nat, c: Bool, ec: {Nat.is_le(2n, q) == c : Bool}) -> {Nat.is_le(e, Ss.min.of(c, q, 2n)) == Bool.or(Nat.is_le(e, 2n), Nat.is_le(e, q)) : Bool}:
+  match c:
+    case True{}:
+      ssb.ok.both(e, q, Nat.is_le(e, 2n), {==}, ec)
+    case False{}:
+      ssb.ok.two(e, q, Nat.is_le(e, 2n), {==}, ec)
+
+def ssb.ok.at(s: Bool, +e: Nat, +q: Nat) -> {Nat.is_le(e, Ss.limit.of(s, q)) == Bool.or(Bool.and(s, Nat.is_le(e, 1n)), Bool.and(Bool.not(s), Bool.or(Nat.is_le(e, 2n), Nat.is_le(e, q)))) : Bool}:
+  match s:
+    case True{}:
+      ssb.or_f(Nat.is_le(e, 1n))
+    case False{}:
+      ssb.ok.big(e, q, Nat.is_le(2n, q), {==})
+
+# R3: e edits are within the code's limit exactly when the laws' sp_ok says so
+def ssb.ok(+e: Nat, +n: Nat) -> {Nat.is_le(e, Ss.limit(n)) == SlashSuggest.sp_ok(e, n) : Bool}:
+  ssb.ok.at(Nat.is_le(n, 3n), e, Nat.div(n, 3n))
 
 # the code's fit test of names is the doc_commit spec's
 def ssb.fits(xs: List<&2, String>) -> {SlashSuggest.sp_fit_strs(xs) == DocCommit.sp_fit_strs(xs) : Bool}:

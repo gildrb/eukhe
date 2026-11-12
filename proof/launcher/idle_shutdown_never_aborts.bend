@@ -5,7 +5,7 @@ import ../../bend/launcher.bend as La
 import ../../laws/launcher.bend as Launcher
 import ../base/logic/logic.bend as LLogicLogic
 
-# (D1) idle_shutdown_never_aborts
+# (A5) idle_shutdown_never_aborts
 # -------------------------------
 
 # a closed gate holds no run
@@ -201,7 +201,7 @@ def ps.open_inv(bs: List<&2, Bool>) -> ps.Inv(La.open(bs)):
     case b <> t:
       (Unit{}, ps.open_inv(t))
 
-def ps.aborted_zero(s: La.St, g: ps.Good(s)) -> {La.St.aborted(s) == 0n : Nat}:
+def ps.aborted_zero(s: La.St, g: ps.Good(s)) -> {Launcher.la_aborted(s) == 0n : Nat}:
   match s:
     case La.St{ws, a, d}:
       match d:
@@ -211,7 +211,7 @@ def ps.aborted_zero(s: La.St, g: ps.Good(s)) -> {La.St.aborted(s) == 0n : Nat}:
           (ea, inv) = g
           ea
 
-def ps.idle_shutdown_never_aborts(+bs: List<&2, Bool>, +ops: List<&2, La.Op>) -> {La.St.aborted(La.run(bs, ops)) == 0n : Nat}:
+def ps.idle_shutdown_never_aborts(+bs: List<&2, Bool>, +ops: List<&2, La.Op>) -> {Launcher.la_aborted(La.run(bs, ops)) == 0n : Nat}:
   ps.aborted_zero(La.run(bs, ops), ps.go_good(ops, La.St{La.open(bs), 0n, False{}}, ({==}, ps.open_inv(bs))))
 
 def Launcher.idle_shutdown_never_aborts(bs, ops):

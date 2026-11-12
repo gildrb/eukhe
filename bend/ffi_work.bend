@@ -26,8 +26,8 @@
 # A malformed event, or one with input left over, answers the wire's error
 # form and keeps the ledger; an open with input opens the refused state,
 # which answers every step with the error form; a malformed call answers
-# the error form. laws/progress.bend (work_entry_*, prior_entry_*) pins
-# the entry. Pure: no IO, no @unsafe.
+# the error form. laws/work.bend (work_entry_*, prior_entry_*) pins the
+# entry. Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W

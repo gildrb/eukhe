@@ -119,7 +119,17 @@ def pd.ends_eq(-d1: Dr.Dec, -d2: Dr.Dec, e: {d1 == d2 : Dr.Dec}, +n: Nat, +s: Li
   %Equal.sym(Dr.Dec, d1, d2, e) : {Dr.ended(Dr.settle(_, n, s, vs, cap)) == True{} : Bool}
   h
 
-def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, LRun.ends):
+# a loop whose end field holds an outcome has ended
+def pd.stopped_ends(l: Dr.Loop, h: {Director.dir_running(l) == False{} : Bool}) -> {Dr.ended(l) == True{} : Bool}:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          LLogicLogic.pt.absurd({Dr.ended(Dr.Loop{n, s, None{}}) == True{} : Bool}, h)
+        case Some{o}:
+          {==}
+
+def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, ends):
   match l:
     case Dr.Loop{+n, +s, e}:
       match e:
@@ -131,7 +141,7 @@ def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, LRun.ends):
           +E = Dr.decide.go(s, vs, r, True{})
           +eo = Equal.trans(Dr.Out, Dr.Dec.out(D), Dr.Dec.out(E), Dr.Dec.out(Dr.decide.go(s, Df, r, False{})), Equal.sym(Dr.Out, Dr.Dec.out(E), Dr.Dec.out(D), pd.out_stay(s, vs, r)), Equal.cong(Dr.Dec, Dr.Out, d => Dr.Dec.out(d), E, Dr.decide.go(s, Df, r, False{}), pd.defer_as(s, vs, r, False{})))
           +ek = Equal.cong(Dr.Dec, List<&2, Dr.Layer>, d => Dr.Dec.stack(d), E, Dr.decide.go(s, Df, r, True{}), pd.defer_as(s, vs, r, True{}))
-          +ends2 = pd.ends_eq(D, Dr.decide.go(s, L, r, False{}), LA.pd.leave_as(s, vs, r, False{}), n, s, L, cap, LRun.ends)
+          +ends2 = pd.ends_eq(D, Dr.decide.go(s, L, r, False{}), LA.pd.leave_as(s, vs, r, False{}), n, s, L, cap, pd.stopped_ends(Dr.settle(Dr.decide(s, L, cap), n, s, L, cap), ends))
           pd.settle_end(Dr.decide(s, vs, cap), Dr.decide(s, Df, cap), n, s, vs, Df, L, cap, eo, ek, ends2)
         case Some{x}:
           {==}

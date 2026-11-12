@@ -1,5 +1,5 @@
 # eukhe: the proof of LAW optchat_entry_covers
-# A spelled open opens the laws' open (LAO.oo.opened), whose views tile
+# A spelled open opens the open's model (LAO.oo.opened), whose views tile
 # the chat when the loaded view does (LAO.oo.covers). Each input keeps
 # that: garbage keeps the chat, a refused stepper holds none, and a whole
 # request moves the chat as the model does (LAF.oe.serve), by a model
@@ -80,8 +80,8 @@ def ec.feed(xs: List<&2, String>, +st: FOc.St, inv: Optchat.oc_covers(st)) -> Op
       ec.feed(rest, Optchat.oc_state(FOc.step(st, x)), ec.step(st, x, inv))
 
 def ec.main(+o: FOc.Open, +xs: List<&2, String>, fits: {Optchat.oc_open_fits(o) == True{} : Bool}, tiles: {Optchat.oc_tiles(Optchat.oc_view(o), 0n, Optchat.oc_t(o)) == True{} : Bool}) -> Optchat.oc_covers(Optchat.oc_feed(xs, Optchat.oc_state(FOc.open(Optchat.oc_spell_open(o))))):
-  %Equal.sym(FOc.St & String, FOc.open(Optchat.oc_spell_open(o)), Optchat.oc_open_model(o), LAO.oo.opened(o, fits)) : Optchat.oc_covers(Optchat.oc_feed(xs, Optchat.oc_state(_)))
-  ec.feed(xs, Optchat.oc_state(Optchat.oc_open_model(o)), LAO.oo.covers(o, tiles))
+  %Equal.sym(FOc.St & String, FOc.open(Optchat.oc_spell_open(o)), LAO.oo.m.open(o), LAO.oo.opened(o, fits)) : Optchat.oc_covers(Optchat.oc_feed(xs, Optchat.oc_state(_)))
+  ec.feed(xs, Optchat.oc_state(LAO.oo.m.open(o)), LAO.oo.covers(o, tiles))
 
 def Optchat.optchat_entry_covers(o, xs, fits, tiles):
   ec.main(o, xs, fits, tiles)

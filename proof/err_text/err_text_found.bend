@@ -4,7 +4,7 @@
 # (phrase_search_complete); the table, split around that phrase, is then
 # found (LA.etb.any_split), so the text holds, and so does the list split
 # around the text (LA.etb.list_split); the code's answer is the spec's
-# (err_text_decides).
+# (err_text_regex).
 
 import Base
 import ../../bend/phrase.bend as P
@@ -13,7 +13,7 @@ import ../../laws/text_pat.bend as TextPat
 import ../../laws/phrase.bend as Phrase
 import ../../laws/err_text.bend as ErrText
 import ../phrase/phrase_search_complete.bend as PPhraseSearchComplete
-import ./err_text_decides.bend as PErrTextDecides
+import ./err_text_regex.bend as PErrTextRegex
 import ./base.bend as LA
 
 # the phrase is found in the folded text
@@ -30,5 +30,5 @@ def ErrText.err_text_found(r, tp, text, tq, a, u, b, pre, st, its, en, post, hp,
   +ts = List.append(&2, String, tp, text <> tq)
   +h1 = etf.found(text, a, u, b, st, its, en, hf, hu, hs, he)
   +h2 = etf.text(r, text, pre, P.Ph{st, its, en}, post, hp, h1)
-  %Equal.sym(Bool, E.holds(r, ts), ErrText.sp_holds(r, ts), ErrText.err_text_decides(r, ts)) : {_ == True{} : Bool}
+  %Equal.sym(Bool, E.holds(r, ts), ErrText.sp_holds(r, ts), ErrText.err_text_regex(r, ts)) : {_ == True{} : Bool}
   LA.etb.list_split(tp, r, text, tq, h2)

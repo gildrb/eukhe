@@ -9,7 +9,7 @@
 //! rows (the model's law `grep_line_is_read_line`, here on the real code).
 //!
 //! Tags (`bend/doc_tags.bend`, laws `tag_names_shown_text` and
-//! `grep_tag_fates_spec`; the choice runs as the compiled core,
+//! `grep_tag_fates`; the choice runs as the compiled core,
 //! `bend/ffi_doc_tags.bend`): a file holds version 1 when grep searches it
 //! and version 2 when grep records it ([`grep_with`]'s `between`); the tag
 //! and the rows name version 1, the searched text.

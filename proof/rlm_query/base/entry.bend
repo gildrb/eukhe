@@ -21,7 +21,6 @@ import ../../wire/wire_nats_spells.bend as PWireNatsSpells
 import ../../wire/wire_list_exact.bend as PWireListExact
 import ../../wire/wire_nat_exact.bend as PWireNatExact
 import ../../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
-import ../rlm_query_text_spec.bend as PRlmQueryTextSpec
 import ./nat.bend as LN
 import ./plan.bend as LP
 import ./cut.bend as LC
@@ -66,12 +65,20 @@ def re.req_rt(q: FRq.Req, +rest: String, h: {RlmQuery.rq_fit_req(q) == True{} : 
 # Replies
 # -------
 
+# the model's refusal text is the laws' rq_text
+def re.text(f: Rq.Refusal) -> {Rq.text(f) == RlmQuery.rq_text(f) : String}:
+  match f:
+    case Rq.OverBudget{t, l, b}:
+      {==}
+    case Rq.Full{c}:
+      {==}
+
 def re.plan(p: Rq.Plan) -> {FRq.put_plan(p) == RlmQuery.rq_w_plan(p) : String}:
   match p:
     case Rq.Waves{+ws}:
       Equal.cong(String, String, z => Wr.put_nat(0n, z), Wr.put_list(~Nat, ~Wr.put_nat, ws, ""), LawsBase.wire_spell_nats(ws, ""), Wire.wire_nats_spells(ws, ""))
     case Rq.Refused{+f}:
-      Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_str(z, "")), Rq.text(f), RlmQuery.rq_text(f), RlmQuery.rlm_query_text_spec(f))
+      Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_str(z, "")), Rq.text(f), RlmQuery.rq_text(f), re.text(f))
 
 def re.trim(x: Rq.Trim) -> {FRq.put_trim(x) == RlmQuery.rq_w_trim(x) : String}:
   match x:

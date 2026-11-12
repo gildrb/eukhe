@@ -1,7 +1,8 @@
 # eukhe: the proof of LAW cron_file_entry_answers
 # Each request the laws spell reads back list by list and field by field
 # (proof/cron_file/base/wire.bend), and the entry's answer to it is the
-# laws' reply (each pass being its spec: the cron_file_*_exact laws; the
+# laws' reply (each pass being its spec: proof/cron_file/base/pass.bend and
+# cron_file_finish_exact; the
 # entry's writers write the laws' spelling).
 import Base
 import ../../bend/cron_store.bend as CS
@@ -17,8 +18,7 @@ import ../base/wire.bend as LWire
 import ./base/logic.bend as LCfl
 import ../cron/base/entry.bend as LCe
 import ./base/wire.bend as LCfw
-import ./cron_file_take_exact.bend as PTake
-import ./cron_file_recover_exact.bend as PRecover
+import ./base/pass.bend as LCfp
 import ./cron_file_finish_exact.bend as PFinish
 
 def cfa.take(+js: List<&2, CF.Slot>, +cs: List<&2, Maybe<&2, Nat>>, +d: Nat, +n: Nat, +fits: {CronFileEntry.pass_fits(CF.PassTake{js, cs, d, n}) == True{} : Bool}) -> {FF.ffi(CronFileEntry.spell_pass(CF.PassTake{js, cs, d, n})) == CronFileEntry.spell_answer(CF.PassTake{js, cs, d, n}) : String}:
@@ -34,7 +34,7 @@ def cfa.take(+js: List<&2, CF.Slot>, +cs: List<&2, Maybe<&2, Nat>>, +d: Nat, +n:
   %LCfw.cfw.keys_rt(cs, r2, LCfl.cfl.and_l(kc, tm, fb)) : {FF.run(FF.get_take.cs(js, _)) == CronFileEntry.spell_answer(CF.PassTake{js, cs, d, n}) : String}
   %LWire.pw6.nat(d, Wr.put_nat(n, ""), LCfl.cfl.and_l(LawsBase.wire_fits(d), LawsBase.wire_fits(n), ft)) : {FF.run(FF.get_take.due(js, cs, _)) == CronFileEntry.spell_answer(CF.PassTake{js, cs, d, n}) : String}
   %LWire.pw6.nat(n, "", LCfl.cfl.and_r(LawsBase.wire_fits(d), LawsBase.wire_fits(n), ft)) : {FF.run(FF.get_take.now(js, cs, d, _)) == CronFileEntry.spell_answer(CF.PassTake{js, cs, d, n}) : String}
-  %CronFile.cron_file_take_exact(js, cs, d, n) : {FF.put_tooks(CF.take(js, cs, d, n), "") == Wr.put_list(~CS.Took, ~Cron.spell_took, _, "") : String}
+  %LCfp.cfx.take(js, cs, d, n) : {FF.put_tooks(CF.take(js, cs, d, n), "") == Wr.put_list(~CS.Took, ~Cron.spell_took, _, "") : String}
   LCfw.cfw.tooks(CF.take(js, cs, d, n), "")
 
 def cfa.recover(+js: List<&2, CF.Slot>, +cs: List<&2, CF.Hold>, +fits: {CronFileEntry.pass_fits(CF.PassRecover{js, cs}) == True{} : Bool}) -> {FF.ffi(CronFileEntry.spell_pass(CF.PassRecover{js, cs})) == CronFileEntry.spell_answer(CF.PassRecover{js, cs}) : String}:
@@ -43,7 +43,7 @@ def cfa.recover(+js: List<&2, CF.Slot>, +cs: List<&2, CF.Hold>, +fits: {CronFile
   +r1 = Wr.put_list(~CF.Hold, ~CronFileEntry.spell_hold, cs, "")
   %LCfw.cfw.slots_rt(js, r1, LCfl.cfl.and_l(a, b, fits)) : {FF.run(FF.get_recover(_)) == CronFileEntry.spell_answer(CF.PassRecover{js, cs}) : String}
   %LCfw.cfw.holds_rt(cs, "", LCfl.cfl.and_r(a, b, fits)) : {FF.run(FF.get_recover.cs(js, _)) == CronFileEntry.spell_answer(CF.PassRecover{js, cs}) : String}
-  %CronFile.cron_file_recover_exact(js, cs) : {FF.put_swept(CF.recover(js, cs), "") == CronFileEntry.spell_swept(_) : String}
+  %LCfp.cfr.recover(js, cs) : {FF.put_swept(CF.recover(js, cs), "") == CronFileEntry.spell_swept(_) : String}
   %LCfw.cfw.backs(CF.recover.js(js, cs), "") : {FF.put_swept(CF.recover(js, cs), "") == CronFileEntry.spell_keeps(CF.keeps(cs), _) : String}
   {==}
 

@@ -56,16 +56,25 @@ def dp.under(-s: String, -s1: String, -y: String, -f: String -> String, e: {s ==
 
 # ---- the model ----
 
-def dp.pick(b: Bool, o: Bool) -> {Dp.content.pick(b, o) == DocPlan.content_spec.pick(b, o) : Dp.Content}:
-  match b:
-    case True{}:
+# the definition's version above the stored one by 1 + d is above it
+def dp.lt_up(stored: Nat, -d: Nat) -> {True{} == Nat.is_lt(stored, Nat.add(stored, 1n+d)) : Bool}:
+  match stored:
+    case 0n:
       {==}
-    case False{}:
-      match o:
-        case True{}:
+    case 1n+s:
+      dp.lt_up(s, d)
+
+# a stored version at or above the definition's (by d) is not below it
+def dp.not_lt_up(version: Nat, d: Nat) -> {False{} == Nat.is_lt(Nat.add(version, d), version) : Bool}:
+  match version:
+    case 0n:
+      match d:
+        case 0n:
           {==}
-        case False{}:
+        case 1n+e:
           {==}
+    case 1n+v:
+      dp.not_lt_up(v, d)
 
 def dp.put_content(c: Dp.Content) -> {FDp.put_content(c) == DocPlan.spell_content(c) : String}:
   match c:

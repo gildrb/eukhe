@@ -3,6 +3,7 @@
 import Base
 import ../../../../bend/admission.bend as Ad
 import ../logic.bend as LALogic
+import ../../../../laws/admission.bend as Admission
 
 # a grant to an interactive waiter: one waits
 def ad.pick_ia(r: Bool, wi: Nat, hi: Nat, wb: Nat, e: {Ad.pick.go(r, wi, hi, wb) == Some{Ad.Ia{}} : Maybe<&2, Ad.Cls>}) -> {Ad.isz(wi) == False{} : Bool}:
@@ -47,7 +48,7 @@ def aw.isz_bit(b: Bool, -n: Nat, e: {Ad.isz(n) == False{} : Bool}) -> {Ad.isz(Ad
     case True{}:
       {==}
 
-def aw.wait0(h: Ad.Tk, -r: List<&2, Ad.Tk>, e: {Ad.waits.ia(Some{h}) == True{} : Bool}) -> {Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, h <> r)) == False{} : Bool}:
+def aw.wait0(h: Ad.Tk, -r: List<&2, Ad.Tk>, e: {Admission.adm_waits_ia(Some{h}) == True{} : Bool}) -> {Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, h <> r)) == False{} : Bool}:
   match h:
     case Ad.Tk{Ad.Ia{}, Ad.Queued{}}:
       {==}
@@ -63,7 +64,7 @@ def aw.wait0(h: Ad.Tk, -r: List<&2, Ad.Tk>, e: {Ad.waits.ia(Some{h}) == True{} :
       LALogic.ad.absurd({Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, Ad.Tk{Ad.Bg{}, s} <> r)) == False{} : Bool}, e)
 
 # an interactive waiter is counted
-def aw.wait_cnt(t: List<&2, Ad.Tk>, w: Nat, e: {Ad.waits.ia(Ad.get(t, w)) == True{} : Bool}) -> {Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t)) == False{} : Bool}:
+def aw.wait_cnt(t: List<&2, Ad.Tk>, w: Nat, e: {Admission.adm_waits_ia(Ad.get(t, w)) == True{} : Bool}) -> {Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t)) == False{} : Bool}:
   match t w:
     case Nil{} _:
       LALogic.ad.absurd({Ad.isz(0n) == False{} : Bool}, e)

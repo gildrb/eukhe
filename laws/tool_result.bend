@@ -30,9 +30,10 @@ import ./base.bend as LawsBase
 #     wire) with the model's plan, one answer per block, reads exactly the
 #     request and nothing after it, and answers any other input with the
 #     exact error form `E tool_result: malformed request`.
-# R4: the plan is the spec's (S3): each block's answer from its kind and
-#     the flag alone (an image of an error result: the line; any other
-#     block: kept), so the entry's reply is the spec's plan, spelled.
+# R4: the plan answers each block alone, in its place: an image of an
+#     error result with exactly the line (R1), any text block and any
+#     image of a successful result Keep (R1, R2), so Rust's application
+#     of it sends R1 and R2.
 # Not pinned here: the JSON each provider builds from the blocks (the
 # Rust conversions; their regression tests pin it).
 
@@ -79,13 +80,6 @@ def sp_w_reply(q: FTr.Req) -> String:
     case FTr.Req{e, ks}:
       +p = Tr.plan(e, ks)
       Wr.put_nat(List.length(&2, Tr.Out, p), sp_w_outs(p, ""))
-
-# R4: the reply of a request by the spec: the count of blocks, then the
-# spec's plan (S3)
-def sp_w_spec_reply(q: FTr.Req) -> String:
-  match q:
-    case FTr.Req{e, +ks}:
-      Wr.put_nat(List.length(&2, Bool, ks), sp_w_outs(S.plan(e, ks), ""))
 
 # Laws: the blocks sent (R1, R2)
 # ------------------------------
@@ -210,30 +204,38 @@ law tool_result_entry_refuses:
 law tool_result_entry_example:
   {[FTr.ffi("T2,FT"), FTr.ffi("F2,FT"), FTr.ffi("T0,"), FTr.ffi("X0,"), FTr.ffi("T1,Fx")] == ["2,0,1,29,[image omitted: error result]", "2,0,0,", "0,", Wr.err("tool_result: malformed request"), Wr.err("tool_result: malformed request")] : List<&2, String>}
 
-# Laws: the plan and the entry against the spec (R4)
-# --------------------------------------------------
+# Laws: the plan (R4)
+# -------------------
 
-# LAW tool_result_plan_spec (R4): the plan is the spec's for every flag and
-# every list of blocks: each block's answer from its kind and the flag
-# alone
-# EXCLUDES: a plan that answers an image of an error result Keep (after
-#   the first image, or anywhere), a text block answered with the line, a
-#   successful result's image omitted, an answer that depends on the
-#   blocks before it
-law tool_result_plan_spec:
+# LAW tool_result_plan_error_image (R4, R1): in the plan of an error
+# result, an image is answered with exactly the line "[image omitted:
+# error result]", in its place: the blocks before it answered as they are
+# alone, then the line, then the blocks after it as they are alone
+# EXCLUDES: an image of an error result kept (after the first image, or
+#   anywhere), dropped, answered with another line, an answer that depends
+#   on the blocks around it
+law tool_result_plan_error_image:
+  for +pre: List<&2, Bool>
+  for +post: List<&2, Bool>
+  {Tr.plan(True{}, List.append(&2, Bool, pre, True{} <> post)) == List.append(&2, Tr.Out, Tr.plan(True{}, pre), Tr.Omit{S.line()} <> Tr.plan(True{}, post)) : List<&2, Tr.Out>}
+
+# LAW tool_result_plan_text_keeps (R4, R1, R2): in the plan of every
+# result, error or not, a text block is answered Keep, in its place
+# EXCLUDES: a text block answered with the line or dropped, an answer that
+#   depends on the blocks around it
+law tool_result_plan_text_keeps:
   for +err: Bool
-  for +ks: List<&2, Bool>
-  {Tr.plan(err, ks) == S.plan(err, ks) : List<&2, Tr.Out>}
+  for +pre: List<&2, Bool>
+  for +post: List<&2, Bool>
+  {Tr.plan(err, List.append(&2, Bool, pre, False{} <> post)) == List.append(&2, Tr.Out, Tr.plan(err, pre), Tr.Keep{} <> Tr.plan(err, post)) : List<&2, Tr.Out>}
 
-# LAW tool_result_entry_spec (R3, R4): the entry answers every request
-# Rust spells, the count within the wire, with the spec's plan spelled:
-# the count of blocks, then one answer per block
-# EXCLUDES: any reply other than the spec's for a request that fits (an
-#   image of an error result kept, a wrong count, another spelling)
-law tool_result_entry_spec:
-  for +q: FTr.Req
-  for h: {sp_fit_req(q) == True{} : Bool}
-  {FTr.ffi(sp_w_req(q, "")) == sp_w_spec_reply(q) : String}
+# LAW tool_result_plan_success_image (R4, R2): in the plan of a
+# successful result, an image is answered Keep, in its place
+# EXCLUDES: a successful result's image omitted or dropped
+law tool_result_plan_success_image:
+  for +pre: List<&2, Bool>
+  for +post: List<&2, Bool>
+  {Tr.plan(False{}, List.append(&2, Bool, pre, True{} <> post)) == List.append(&2, Tr.Out, Tr.plan(False{}, pre), Tr.Keep{} <> Tr.plan(False{}, post)) : List<&2, Tr.Out>}
 
 # LAW tool_result_entry_images_example (R4): anchor: error results with
 # several images (two images; a text then two images) send every image as

@@ -2,7 +2,7 @@
 # metric to beat them, and the segment's best as a property: a kept run's
 # metric that no kept run of the segment (not flagged) is better than.
 # The order of metrics is a parameter (`~cmp`): the laws of area
-# autoresearch (laws/autoresearch.bend) pass the shipped order, which
+# autoresearch (laws/autoresearch/) pass the shipped order, which
 # metric_order_exact pins to the arithmetic of ./decimal.bend. A spec: the
 # shipped code never calls it.
 
@@ -131,23 +131,6 @@ def Best(~cmp: D.Dec -> D.Dec -> Cmp, +dir: S.Dir, b: Maybe<&2, D.Dec>, +rs: Lis
     case Some{+x}:
       {has_kept(x, rs, seg) == True{} : Bool} & {none_better(~cmp, dir, x, rs, seg) == True{} : Bool}
 
-def first_kept.or(k: Maybe<&2, D.Dec>, later: Maybe<&2, D.Dec>) -> Maybe<&2, D.Dec>:
-  match k:
-    case None{}:
-      later
-    case Some{x}:
-      Some{x}
-
-# the segment's baseline: the metric of its first (oldest) kept run that
-# is not flagged, rows read oldest first; none when the segment kept no
-# such run. Rows of other segments never count.
-def first_kept(rs: List<&2, S.Row>, +seg: Nat) -> Maybe<&2, D.Dec>:
-  match rs:
-    case Nil{}:
-      None{}
-    case r <> t:
-      first_kept.or(kept(r, seg), first_kept(t, seg))
-
 def logged_count.at(here: Bool, st: Maybe<&2, S.Status>, rest: Nat) -> Nat:
   match here:
     case False{}:
@@ -169,3 +152,20 @@ def logged_count(rs: List<&2, S.Row>, +seg: Nat) -> Nat:
       0n
     case S.Row{id, sg, st, m, ms, ps, fn, fl, desc} <> t:
       logged_count.at(Nat.is_eq(sg, seg), st, logged_count(t, seg))
+
+def first_kept.or(k: Maybe<&2, D.Dec>, later: Maybe<&2, D.Dec>) -> Maybe<&2, D.Dec>:
+  match k:
+    case None{}:
+      later
+    case Some{x}:
+      Some{x}
+
+# the segment's baseline: the metric of its first (oldest) kept run that
+# is not flagged, rows read oldest first; none when the segment kept no
+# such run. Rows of other segments never count.
+def first_kept(rs: List<&2, S.Row>, +seg: Nat) -> Maybe<&2, D.Dec>:
+  match rs:
+    case Nil{}:
+      None{}
+    case r <> t:
+      first_kept.or(kept(r, seg), first_kept(t, seg))

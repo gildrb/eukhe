@@ -12,7 +12,7 @@ import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
 import ./base.bend as AB
 import ./base/step.bend as SV
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 
 # the claim about a verdict, the sent keys ks given
 def nr.KO(ps: List<&2, Ar.Prop>, als: List<&2, Ar.KV>, ks: List<&2, String>, args: List<&2, Ar.Arg>, v: Ar.Verdict) -> Bool:

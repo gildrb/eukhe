@@ -34,9 +34,9 @@ def csp.open(t: Nat) -> {FC.put_next(C.line.open(t, 0n, Nil{})) == Compactor.spe
 def csp.best(l: Nat, m: Nat, n: Nat, b: Maybe<&2, Nat>, r: C.Reply) -> {FC.put_next(FC.reply(l, m, n, b, PStep.cst.rep(r))) == Compactor.spell_next(Compactor.step_spec(C.Lst{l, m, n, Compactor.ask_best(b), Compactor.ask_bl(b), Nil{}}, r)) : String}:
   match b:
     case None{}:
-      PStep.cst.decide(l, m, n, Nil{}, r, None{}, 0n)
+      PStep.cst.decide_orig(l, m, n, Nil{}, r, None{}, 0n)
     case Some{+k}:
-      PStep.cst.decide(l, m, n, Nil{}, r, Some{Compactor.ones(k)}, k)
+      PStep.cst.decide_orig(l, m, n, Nil{}, r, Some{Compactor.ones(k)}, k)
 
 def csp.step(l: Nat, m: Nat, n: Nat, b: Maybe<&2, Nat>, r: FC.Rep) -> {FC.put_next(FC.reply(l, m, n, b, r)) == Compactor.spell_next(Compactor.step_spec(C.Lst{l, m, n, Compactor.ask_best(b), Compactor.ask_bl(b), Nil{}}, Compactor.ask_reply(PMal.cme.rep(r)))) : String}:
   match r:
@@ -69,7 +69,7 @@ def csp.after(p: C.Pend, o: C.Outcome) -> {FC.put_pend(C.Pend.after(p, o)) == Co
       csp.owed(o, k)
 
 # the entry's answer to a whole request is the spec's
-def csp.answer(q: FC.Req) -> {FC.answer(q) == Compactor.spec_answer(PMal.cme.ask(q)) : String}:
+def csp.answer(q: FC.Req) -> {FC.answer(q) == Compactor.spec_answer(PMal.cme.ask_orig(q)) : String}:
   match q:
     case FC.QOpen{t}:
       csp.open(t)
@@ -78,14 +78,14 @@ def csp.answer(q: FC.Req) -> {FC.answer(q) == Compactor.spec_answer(PMal.cme.ask
     case FC.QAfter{p, o}:
       csp.after(p, o)
 
-def csp.end(b: Bool, q: FC.Req) -> {FC.run.end(b, q) == Compactor.spec_entry(Compactor.read_ask.end(b, PMal.cme.ask(q))) : String}:
+def csp.end(b: Bool, q: FC.Req) -> {FC.run.end(b, q) == Compactor.spec_entry(Compactor.read_ask.end(b, PMal.cme.ask_orig(q))) : String}:
   match b:
     case True{}:
       csp.answer(q)
     case False{}:
       {==}
 
-def csp.run(d: Wr.Dec<FC.Req>) -> {FC.run(d) == Compactor.spec_entry(Compactor.read_ask.whole(PMal.cme.dec(d))) : String}:
+def csp.run(d: Wr.Dec<FC.Req>) -> {FC.run(d) == Compactor.spec_entry(Compactor.read_ask.whole(PMal.cme.dec_orig(d))) : String}:
   match d:
     case Wr.Got{q, s}:
       csp.end(Wr.end(s), q)
@@ -93,5 +93,5 @@ def csp.run(d: Wr.Dec<FC.Req>) -> {FC.run(d) == Compactor.spec_entry(Compactor.r
       {==}
 
 def Compactor.compactor_ffi_spec(s):
-  %Equal.sym(Wr.Dec<Compactor.Ask>, Compactor.read_ask.go(Wr.get_nat(s)), PMal.cme.dec(FC.get_req.go(Wr.get_nat(s))), PMal.cme.go(Wr.get_nat(s))) : {FC.ffi(s) == Compactor.spec_entry(Compactor.read_ask.whole(_)) : String}
+  %Equal.sym(Wr.Dec<Compactor.Ask_orig>, Compactor.read_ask.go(Wr.get_nat(s)), PMal.cme.dec_orig(FC.get_req.go(Wr.get_nat(s))), PMal.cme.go_orig(Wr.get_nat(s))) : {FC.ffi(s) == Compactor.spec_entry(Compactor.read_ask.whole(_)) : String}
   csp.run(FC.get_req.go(Wr.get_nat(s)))

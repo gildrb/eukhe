@@ -5,7 +5,7 @@
 //! directory, on the first kernel use; a session and `eukhe kernel install`
 //! run the same plan. The rule is `plan` of `bend/kernel_local.bend`, run by
 //! the compiled Bend core (`bend/ffi_kernel_local.bend`, request 0; laws
-//! `kernel_plan_exact`, `kernel_offline_once_fetched`,
+//! `kernel_plan_read_by_rust`, `kernel_offline_once_fetched`,
 //! `kernel_uv_fetched_iff_absent`, `kernel_python_fetched_iff_absent`,
 //! `kernel_env_made_iff_absent`, `kernel_fetch_verified_before_use`,
 //! `kernel_setup_uses_only_present` and `kernel_setup_ends_started` in
@@ -132,7 +132,7 @@ mod tests {
 
     /// The compiled core's plan for each of the eight things a setup can
     /// find: what is not there is fetched or made, in order, and nothing
-    /// else (law `kernel_plan_exact`).
+    /// else (law `kernel_plan_read_by_rust`).
     #[test]
     fn the_steps_come_from_the_compiled_core() {
         let have = |uv, python, env| Have { uv, python, env };

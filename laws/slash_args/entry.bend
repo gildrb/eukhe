@@ -5,13 +5,13 @@ import ../../bend/slash_args.bend as Sa
 import ../../bend/ffi_slash_args.bend as FSa
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
-import ./model.bend as SlashArgs
 
 # (D2) The entry
 # --------------
 # R10: the entry answers each request Rust writes (a tag: 0 goal, 1
 #      autonomous, 2 words, 3 objective; then the text, its length within
-#      the wire) with the spec's answer of R1-R9 spelled as below, reads
+#      the wire) with the model's answer (bend/slash_args.bend; R1-R9 are
+#      the laws of laws/slash_args/model.bend) spelled as below, reads
 #      exactly the request and nothing after it, and answers any other
 #      input (an unknown tag, a short text, input left over) with the exact
 #      error form `E slash_args: malformed request`.
@@ -109,17 +109,18 @@ def sae_auto(a: Sa.Auto) -> String:
     case Sa.AErr{e}:
       Wr.put_nat(3n, Wr.put_str(e, ""))
 
-# the spelled answer of the spec to a request
+# the spelled answer of the model to a request (the model is pinned by the
+# laws of laws/slash_args/model.bend)
 def sae_reply(q: FSa.Req) -> String:
   match q:
     case FSa.QGoal{a}:
-      sae_goal(SlashArgs.sa_goal(a))
+      sae_goal(Sa.goal(a))
     case FSa.QAuto{a}:
-      sae_auto(SlashArgs.sa_auto(a))
+      sae_auto(Sa.auto(a))
     case FSa.QWords{a}:
-      LawsBase.wire_spell_strs(SlashArgs.sa_words(a), "")
+      LawsBase.wire_spell_strs(Sa.words(a), "")
     case FSa.QObjective{a}:
-      sae_goal(SlashArgs.sa_goal.objective(a, None{}))
+      sae_goal(Sa.goal.objective(a, None{}))
 
 # the request's text fits the wire
 def sae_fits(q: FSa.Req) -> Bool:
@@ -137,7 +138,7 @@ def sae_fits(q: FSa.Req) -> Bool:
 # ----
 
 # LAW slash_args_entry_answers (R10, R11): the entry answers every request
-# Rust spells, its text within the wire, with the spec's answer spelled
+# Rust spells, its text within the wire, with the model's answer spelled
 # EXCLUDES: questions swapped, a field misread, an answer of another tag
 #   or field order, the budget's or a limit's digits dropped, words
 #   spelled without their count, a default

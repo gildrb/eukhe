@@ -486,7 +486,7 @@ fn leak_note(attempt: u64, row: u32) -> String {
     ))
 }
 
-/// Markup is never an answer (law `rec_leak_gives_up`): before, the third
+/// Markup is never an answer (law `rec_leak_notes_then_fails`): before, the third
 /// broken leak stood as the run's final answer.
 #[tokio::test]
 async fn a_broken_leaked_tool_call_is_noted_and_then_fails_the_run_after_two_notes() {

@@ -1,10 +1,10 @@
 # durable (spec): the wire of the headless_settle and headless_exit
 # entries (bend/ffi_headless_settle.bend, bend/ffi_headless_exit.bend,
 # crates/eukhe-bend/WIRE.md) restated without the entries' code: how Rust
-# spells a request, which requests fit the wire, the reply the decisions
-# of spec/durable/headless.bend spell, and the reader of a request. The
-# laws of areas headless_settle and headless_exit state that the entries
-# answer it. A spec: the shipped code never calls it.
+# spells a request, which requests fit the wire, how a decision is spelled
+# as a reply, and the reader of a request. The laws of areas
+# headless_settle and headless_exit state that the entries answer the
+# spelled decision of the core. A spec: the shipped code never calls it.
 #
 # W1: a settle request is busy (Bool), then jobs, kernel jobs, children,
 #     workflow runs and wakes (a Nat each), then unknown and limit hit
@@ -26,7 +26,6 @@ import ../../bend/headless_settle.bend as Hs
 import ../../bend/headless_exit.bend as Hx
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ./headless.bend as Sp
 
 # Settle requests and replies (W1-W2)
 # -----------------------------------
@@ -51,10 +50,6 @@ def w_settle(x: Hs.Settle, rest: String) -> String:
       Wr.put_nat(1n, rest)
     case Hs.GiveUp{}:
       Wr.put_nat(2n, rest)
-
-# the reply to a settle request: the spec's decision
-def w_settle_reply(+f: Hs.Facts) -> String:
-  w_settle(Sp.settle_spec(f), "")
 
 # The settle reader (W5)
 # ----------------------
@@ -222,10 +217,6 @@ def w_verdict(v: Hx.Verdict, rest: String) -> String:
   match v:
     case Hx.Verdict{n, c}:
       Wr.put_nat(n, w_cause(c, rest))
-
-# the reply to an exit request: the spec's exit
-def w_exit_reply(f: Hx.Facts) -> String:
-  w_verdict(Sp.exit_spec(f), "")
 
 # The exit reader (W5)
 # --------------------

@@ -3,7 +3,7 @@
 # PROOF: by evaluation.
 
 import Base
-import ../../laws/run/spec.bend as RunSpec
+import ../../laws/run/model.bend as Run
 
-def RunSpec.run_entry_example():
+def Run.run_entry_example():
   {==}

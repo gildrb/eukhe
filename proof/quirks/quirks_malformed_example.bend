@@ -4,4 +4,4 @@ import Base
 import ../../laws/quirks.bend as Quirks
 
 def Quirks.quirks_malformed_example():
-  ({==}, {==})
+  ({==}, ({==}, ({==}, {==})))

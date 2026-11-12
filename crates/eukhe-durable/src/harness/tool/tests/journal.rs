@@ -27,7 +27,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// execute returns once the call took [`BEFORE_END`] reports, while the
 /// threads go on. The settle carries exactly the bytes the call took, and
 /// every thread ends on the refusal of a settled call
-/// (`stream_settle_carries_all`, `tool_call_step_is_model`).
+/// (`stream_settle_carries_all`, `tool_call_reply_by_history`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reports_racing_the_end_from_threads_settle_exactly_what_the_call_took() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());

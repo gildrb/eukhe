@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW shape_all
 #
-# PROOF: LSe.shf2.all, place by place, the answer at each tried place by
-# shape_first_reading.
+# PROOF: LSe.shf2.all, place by place, the answer at each tried place by the
+# matcher's proof (proof/shape/base/seek.bend).
 
 import Base
 import ../../bend/shape.bend as S

@@ -777,9 +777,12 @@ def document(+ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bin
 # the writer replaces the first line that sets the cvar and drops every
 # other set of it, so the global store holds the new set once. `save`
 # puts it last; the place is the same value-wise, since only the sets of
-# one cvar compete in a layer. These defs are the model of that write for
-# the laws (laws/cvar.bend, cvar_save_*); the Rust writer does not call
-# them through an entry.
+# one cvar compete in a layer. These defs are a model of that write
+# (laws/cvar/resolution.bend, cvar_save_once); the Rust writer does not
+# call them through an entry. The laws on the written file
+# (cvar_cfg_written_reads_back, cvar_cfg_written_keeps_others) hold for
+# any global config.cfg that sets the cvar once, as the Rust writer
+# leaves it.
 
 # keep s unless it sets the dropped cvar (hit)
 def drop.at(hit: Bool, s: Bind, rest: List<&2, Bind>) -> List<&2, Bind>:

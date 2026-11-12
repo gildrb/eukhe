@@ -1,8 +1,9 @@
 //! The client-side and worker-side timing of a lost supervisor. The client
 //! (`eukhe-tui`) and the worker (`eukhe-daemon`) both read these values, so
 //! they live here. The lost-exit window derives from them in the compiled
-//! core (`eukhe-daemon` `timeouts::derived`): the law `timeouts_ordered`
-//! (`laws/supervise.bend`, D1) proves the order of the derivation.
+//! core (`eukhe-daemon` `timeouts::derived`): the law `timeouts_ffi_answers`
+//! (`laws/timeouts.bend`, A5) pins the derivation, each derived value a sum
+//! that contains the timeouts it must exceed.
 
 /// A client launcher waits this long for a spawned supervisor to greet.
 pub const DAEMON_STARTUP_TIMEOUT_MS: u64 = 30_000;

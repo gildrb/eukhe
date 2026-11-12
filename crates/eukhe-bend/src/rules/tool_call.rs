@@ -5,7 +5,7 @@
 //! The call lives in the compiled core. The Harness opens it where it
 //! journals the call's start, sends each report the tool makes and the end
 //! of its execute in the order they come, from any thread, and does what
-//! each reply says (`tool_call_step_is_model` in `laws/tool_call.bend`):
+//! each reply says (`tool_call_reply_by_history` in `laws/tool_call.bend`):
 //! a report is stored only before the end (`stream_settle_carries_all`);
 //! the end settles the call once (`stream_settles_once`), as finished,
 //! failed or cancelled. The Harness keeps what was reported.

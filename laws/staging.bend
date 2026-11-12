@@ -1,4 +1,11 @@
 # eukhe: the laws of area staging
+#
+# R1 (publish never replaces an entry at the target) is the kernel's: the
+# rename without replacement and its refusal are enforced by the Rust test
+# publish_never_replaces_an_entry_at_the_target
+# (crates/eukhe-core/src/durable/staging/tests.rs); the core only reports
+# what the rename met (see R1 in "the real rule" below). R2-R4 and R8 are
+# the laws below.
 
 import Base
 import ../bend/staging.bend as Sg
@@ -10,23 +17,6 @@ import ./base.bend as LawsBase
 # Staging, sweep and listing (bend/staging.bend): every input is free: any
 # directory entries with any names, any nodes a sweep may meet (held or
 # not, stale or not, reached or not, of any sort), any sessions directory.
-
-# LAW publish_never_overwrites: a publish to a name that an entry has fails and changes nothing:
-# a rename never replaces an existing target, not even an empty directory
-law publish_never_overwrites:
-  for +s: Nat
-  for +t: Nat
-  for +es: List<&2, Sg.Entry>
-  for taken: {Sg.has(t, es) == True{} : Bool}
-  {Sg.publish(s, t, es) == Sg.Pub{False{}, es} : Sg.Pub}
-
-# LAW publish_moves: a publish to a free name moves the storage
-law publish_moves:
-  for +s: Nat
-  for +t: Nat
-  for +es: List<&2, Sg.Entry>
-  for free: {Sg.has(t, es) == False{} : Bool}
-  {Sg.Pub.ok(Sg.publish(s, t, es)) == True{} : Bool}
 
 # LAW sweep_never_live: a sweep never removes an entry a live process holds the lock of
 law sweep_never_live:
@@ -90,92 +80,27 @@ law list_import_keeps_others:
   for ne: {Nat.is_eq(s, n) == False{} : Bool}
   {Sg.mem(n, Sg.listing(Sg.imported(s, es))) == Sg.mem(n, Sg.listing(es)) : Bool}
 
-# Spec helpers: the model's sweep (the header of bend/staging.bend)
-# -----------------------------------------------------------------
+# LAW sweep_never_other_sort (R4): a sweep never removes a storage, another directory, an entry that is no staging entry, or a staging lock file whose directory is there, whatever its lock, age and reach, in any context
+# EXCLUDES: a sweep that ignores the sort (a stale free storage or plain
+#   directory removed, a live build's lock file removed beside its
+#   directory)
+law sweep_never_other_sort:
+  for +pre: List<&2, Sg.Node>
+  for +i: Nat
+  for +h: Bool
+  for +s: Bool
+  for +o: Bool
+  for +post: List<&2, Sg.Node>
+  {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, Sg.Store{}, h, s, o} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>} & {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, Sg.Plain{}, h, s, o} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>} & {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, Sg.Other{}, h, s, o} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>} & {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, Sg.Lock{True{}}, h, s, o} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
 
-# the sorts the sweep removes: a staging directory or a tombstone (a
-# leftover), and a lock file whose staging directory is gone; never a
-# storage, another directory or anything else
-def sp_swept_sort(k: Sg.Sort) -> Bool:
-  match k:
-    case Sg.Leftover{}:
-      True{}
-    case Sg.Lock{dir}:
-      match dir:
-        case True{}:
-          False{}
-        case False{}:
-          True{}
-    case Sg.Store{}:
-      False{}
-    case Sg.Plain{}:
-      False{}
-    case Sg.Other{}:
-      False{}
-
-def sp_sweeps.go(o: Bool, h: Bool, s: Bool, k: Sg.Sort) -> Bool:
-  match o:
-    case False{}:
-      False{}
-    case True{}:
-      match h:
-        case True{}:
-          False{}
-        case False{}:
-          match s:
-            case False{}:
-              False{}
-            case True{}:
-              sp_swept_sort(k)
-
-# the sweep removes a node when the walk reaches it, no live process holds
-# it, it is stale and its sort is swept
-def sp_sweeps(n: Sg.Node) -> Bool:
-  match n:
-    case Sg.Node{i, k, h, s, o}:
-      sp_sweeps.go(o, h, s, k)
-
-def sp_sweep.go(b: Bool, +n: Sg.Node, rest: List<&2, Sg.Node>) -> List<&2, Sg.Node>:
-  match b:
-    case True{}:
-      n <> rest
-    case False{}:
-      rest
-
-# the nodes the sweep removes, in the order it meets them
-def sp_sweep(ns: List<&2, Sg.Node>) -> List<&2, Sg.Node>:
-  match ns:
-    case Nil{}:
-      Nil{}
-    case +n <> rest:
-      sp_sweep.go(sp_sweeps(n), n, sp_sweep(rest))
-
-# LAW sweep_sort_spec (D2): the sorts the sweep removes are exactly the header's: a staging
-# directory or a tombstone, and a lock file whose staging directory is gone
-# EXCLUDES: a storage, a plain directory, a lock file beside its directory
-#   or anything else swept (a sort test dropped from removes, the audit's
-#   removes = o and not h and s); a leftover or an orphan lock file kept
-law sweep_sort_spec:
-  for +k: Sg.Sort
-  {Sg.Sort.swept(k) == sp_swept_sort(k) : Bool}
-
-# LAW sweep_removes_spec (D2): the sweep removes a node exactly when the walk reaches it, no
-# live process holds it, it is stale and its sort is swept
-# EXCLUDES: removes that ignores the sort (the audit's o and not h and s:
-#   stale storages and plain directories would go), or the walk, the lock
-#   or the age; a free stale reached leftover kept
-law sweep_removes_spec:
-  for +n: Sg.Node
-  {Sg.removes(n) == sp_sweeps(n) : Bool}
-
-# LAW sweep_spec (D2): the sweep of any nodes is exactly the nodes the header's rule removes,
-# in order
-# EXCLUDES: a sweep that removes a storage, a plain directory, any other
-#   entry or a lock file beside its directory (a removes that ignores the
-#   sort), drops, duplicates or reorders removed nodes
-law sweep_spec:
-  for +ns: List<&2, Sg.Node>
-  {Sg.sweep(ns) == sp_sweep(ns) : List<&2, Sg.Node>}
+# LAW sweep_takes_leftover_sorts (R4): a free, stale, reached staging directory or tombstone, and such a staging lock file whose directory is gone, stays in its place in the sweep, in any context; the sweep of no nodes is empty
+# EXCLUDES: a leftover or an orphan lock file kept forever (the sort test
+#   wrong for the two swept sorts), a sweep that invents nodes
+law sweep_takes_leftover_sorts:
+  for +pre: List<&2, Sg.Node>
+  for +i: Nat
+  for +post: List<&2, Sg.Node>
+  {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, Sg.Leftover{}, False{}, True{}, True{}} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.Node{i, Sg.Leftover{}, False{}, True{}, True{}} <> Sg.sweep(post)) : List<&2, Sg.Node>} & {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, Sg.Lock{False{}}, False{}, True{}, True{}} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.Node{i, Sg.Lock{False{}}, False{}, True{}, True{}} <> Sg.sweep(post)) : List<&2, Sg.Node>} & {Sg.sweep(Nil{}) == Nil{} : List<&2, Sg.Node>}
 
 # ---- staging: the real rule ----
 
@@ -188,7 +113,11 @@ law sweep_spec:
 # with the lemmas of proof/staging/. The listing's laws: laws/listing.bend.
 #
 # R1: a publish moves the staged storage only when its rename without
-#     replacement met no entry at the target: an entry there stays.
+#     replacement met no entry at the target: an entry there stays. The
+#     rename and its refusal are the kernel's (Rust test
+#     publish_never_replaces_an_entry_at_the_target, staging/tests.rs);
+#     the core only reports what the rename met (taken: Taken, else
+#     Moved), a two-row table pinned on the entry by staging_entry_example.
 # R2: the sweep never removes an entry a live process holds the lock of,
 #     nor one that it, or a direct entry of it, changed within a day.
 # R3: the sweep enters every directory but a storage (main.jsonl), a
@@ -214,56 +143,6 @@ def sp_in(+c: Char, cs: String) -> Bool:
     case SCon{x, t}:
       Bool.or(Char.is_eq(c, x), sp_in(c, t))
 
-def sp_if(ok: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
-  match ok:
-    case True{}:
-      m
-    case False{}:
-      None{}
-
-# s after the prefix p, when s starts with p
-def sp_unprefix(p: String, s: String) -> Maybe<&2, String>:
-  match p:
-    case SNil{}:
-      Some{s}
-    case SCon{x, pt}:
-      match s:
-        case SNil{}:
-          None{}
-        case SCon{y, st}:
-          sp_if(Char.is_eq(x, y), sp_unprefix(pt, st))
-
-# the text before the last '.' of a text, and the text after it
-type SpCut is Data:
-  SpCut{before: String, after: String}
-
-def sp_cut.cons(c: Char, p: SpCut) -> Maybe<&2, SpCut>:
-  match p:
-    case SpCut{b, a}:
-      Some{SpCut{SCon{c, b}, a}}
-
-def sp_cut.dot(d: Bool, t: String) -> Maybe<&2, SpCut>:
-  match d:
-    case True{}:
-      Some{SpCut{SNil{}, t}}
-    case False{}:
-      None{}
-
-def sp_cut.put(r: Maybe<&2, SpCut>, d: Bool, c: Char, t: String) -> Maybe<&2, SpCut>:
-  match r:
-    case Some{p}:
-      sp_cut.cons(c, p)
-    case None{}:
-      sp_cut.dot(d, t)
-
-# w split at its last '.'
-def sp_cut(w: String) -> Maybe<&2, SpCut>:
-  match w:
-    case SNil{}:
-      None{}
-    case SCon{+c, +t}:
-      sp_cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t)
-
 # s is n lowercase hex digits
 def sp_hexn(n: Nat, s: String) -> Bool:
   match n:
@@ -275,34 +154,6 @@ def sp_hexn(n: Nat, s: String) -> Bool:
           False{}
         case SCon{c, t}:
           Bool.and(sp_in(c, "0123456789abcdef"), sp_hexn(k, t))
-
-def sp_uuid(m: Maybe<&2, String>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{s}:
-      sp_hexn(32n, s)
-
-# the part after the last '.': `import-`, `fork-` or `deleted-`, then a uuid
-def sp_tail(+a: String) -> Bool:
-  Bool.or(sp_uuid(sp_unprefix("import-", a)), Bool.or(sp_uuid(sp_unprefix("fork-", a)), sp_uuid(sp_unprefix("deleted-", a))))
-
-def sp_swept.cut(m: Maybe<&2, SpCut>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{p}:
-      match p:
-        case SpCut{b, a}:
-          Bool.and(Bool.not(String.is_empty(b)), sp_tail(a))
-
-# s is `.<target>.<label>-<uuid>`, the target not empty
-def sp_swept(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{c, t}:
-      Bool.and(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(t)))
 
 # the labels of the names Rust mints (staging.rs `staging_dir`: import and
 # fork; the daemon's saved-session delete: deleted)
@@ -324,105 +175,6 @@ def sp_label(l: SpLab) -> String:
 def sp_mint(t: String, l: SpLab, id: String) -> String:
   SCon{'.', String.append(t, SCon{'.', String.append(sp_label(l), SCon{'-', id})})}
 
-# Spec helpers: the sweep
-# -----------------------
-
-def sp_met.dir(sw: Bool, main: Bool) -> Sg.Met:
-  match sw:
-    case True{}:
-      Sg.MLeftover{}
-    case False{}:
-      match main:
-        case True{}:
-          Sg.MKeep{}
-        case False{}:
-          Sg.MDescend{}
-
-def sp_met.lock(sw: Bool, there: Bool) -> Sg.Met:
-  match sw:
-    case True{}:
-      match there:
-        case True{}:
-          Sg.MKeep{}
-        case False{}:
-          Sg.MOrphan{}
-    case False{}:
-      Sg.MKeep{}
-
-def sp_met.file(m: Maybe<&2, String>, all: List<&2, Sg.Seen>) -> Sg.Met:
-  match m:
-    case None{}:
-      Sg.MKeep{}
-    case Some{+x}:
-      sp_met.lock(sp_swept(x), LawsBase.text_has_name(x, all))
-
-def sp_met.utf(k: Sg.Form, +s: String, all: List<&2, Sg.Seen>) -> Sg.Met:
-  match k:
-    case Sg.KDir{main}:
-      sp_met.dir(sp_swept(s), main)
-    case Sg.KFile{}:
-      sp_met.file(LawsBase.text_unsuffix(".lock", s), all)
-    case Sg.KOther{}:
-      Sg.MKeep{}
-
-def sp_met.raw(k: Sg.Form) -> Sg.Met:
-  match k:
-    case Sg.KDir{main}:
-      sp_met.dir(False{}, main)
-    case Sg.KFile{}:
-      Sg.MKeep{}
-    case Sg.KOther{}:
-      Sg.MKeep{}
-
-# what the sweep does with the entry e of the listing all (R3): a
-# directory with a swept name is judged; any other directory is kept when
-# it holds main.jsonl and entered otherwise; a file `<x>.lock`, x a swept
-# name, is judged when no entry has the name x; everything else is kept
-def sp_met(e: Sg.Seen, all: List<&2, Sg.Seen>) -> Sg.Met:
-  match e:
-    case Sg.Seen{n, k}:
-      match n:
-        case Sg.Utf{s}:
-          sp_met.utf(k, s, all)
-        case Sg.Raw{}:
-          sp_met.raw(k)
-
-def sp_meet.go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> List<&2, Sg.Met>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      sp_met(e, all) <> sp_meet.go(rest, all)
-
-def sp_meet(+es: List<&2, Sg.Seen>) -> List<&2, Sg.Met>:
-  sp_meet.go(es, es)
-
-# a plain directory: no swept name, no main.jsonl (R3)
-def sp_plain.k(k: Sg.Form, sw: Bool) -> Bool:
-  match k:
-    case Sg.KDir{main}:
-      Bool.and(Bool.not(sw), Bool.not(main))
-    case Sg.KFile{}:
-      False{}
-    case Sg.KOther{}:
-      False{}
-
-def sp_plain(e: Sg.Seen) -> Bool:
-  match e:
-    case Sg.Seen{n, k}:
-      match n:
-        case Sg.Utf{s}:
-          sp_plain.k(k, sp_swept(s))
-        case Sg.Raw{}:
-          sp_plain.k(k, False{})
-
-def sp_plains(es: List<&2, Sg.Seen>) -> List<&2, Bool>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      sp_plain(e) <> sp_plains(rest)
-
 def sp_descend(m: Sg.Met) -> Bool:
   match m:
     case Sg.MKeep{}:
@@ -441,15 +193,40 @@ def sp_descends(ms: List<&2, Sg.Met>) -> List<&2, Bool>:
     case m <> rest:
       sp_descend(m) <> sp_descends(rest)
 
-# t is at least a day (86400 s) before now, a time ahead of now is fresh
-# (R2): the age now - t is at least a day
+# The age test (R2), as Rust orders times: Rust spells a time as its
+# whole seconds since the epoch, then its subsec_nanos (rule.rs
+# `put_time`: Duration::as_secs, Duration::subsec_nanos, below 10^9), and
+# std orders Durations (and SystemTimes) by the seconds, then the
+# nanoseconds (core::time::Duration derives Ord over (secs, nanos)).
+
+# a is at or before b in Rust's order of times
+def sp_time_le.by(c: Cmp, +an: Nat, +bn: Nat) -> Bool:
+  match c:
+    case LT{}:
+      True{}
+    case EQ{}:
+      Nat.is_le(an, bn)
+    case GT{}:
+      False{}
+
+def sp_time_le(a: Sg.Time, b: Sg.Time) -> Bool:
+  match a:
+    case Sg.Time{asec, an}:
+      match b:
+        case Sg.Time{bsec, bn}:
+          sp_time_le.by(Nat.cmp(asec, bsec), an, bn)
+
+# the time a day after t: t + Duration::from_secs(86400) (whole seconds:
+# the nanoseconds stay, no carry)
+def sp_day_after(t: Sg.Time) -> Sg.Time:
+  match t:
+    case Sg.Time{ts, tn}:
+      Sg.Time{Nat.add(ts, 86400n), tn}
+
+# t is at least a day before now: a day after t is at or before now (a
+# time ahead of now is fresh)
 def sp_old(+now: Sg.Time, t: Sg.Time) -> Bool:
-  match now:
-    case Sg.Time{+ns, nn}:
-      match t:
-        case Sg.Time{ts, tn}:
-          +d = Nat.add(ts, 86400n)
-          Bool.or(Nat.is_lt(d, ns), Bool.and(Nat.is_eq(d, ns), Nat.is_le(tn, nn)))
+  sp_time_le(sp_day_after(t), now)
 
 # every time of ts is at least a day before now
 def sp_all_old(+now: Sg.Time, ts: List<&2, Sg.Time>) -> Bool:
@@ -458,38 +235,6 @@ def sp_all_old(+now: Sg.Time, ts: List<&2, Sg.Time>) -> Bool:
       True{}
     case t <> rest:
       Bool.and(sp_old(now, t), sp_all_old(now, rest))
-
-def sp_judge.free(c: Sg.Cand, l: Sg.Lock) -> Sg.Plan:
-  match c:
-    case Sg.CDir{}:
-      match l:
-        case Sg.LHeld{}:
-          Sg.PKeep{}
-        case Sg.LFree{}:
-          Sg.PRmDirLock{}
-        case Sg.LAbsent{}:
-          Sg.PRmDir{}
-    case Sg.CLock{}:
-      match l:
-        case Sg.LHeld{}:
-          Sg.PKeep{}
-        case Sg.LFree{}:
-          Sg.PRmFile{}
-        case Sg.LAbsent{}:
-          Sg.PKeep{}
-
-def sp_judge.go(old: Bool, c: Sg.Cand, l: Sg.Lock) -> Sg.Plan:
-  match old:
-    case True{}:
-      sp_judge.free(c, l)
-    case False{}:
-      Sg.PKeep{}
-
-# the plan for a judged entry (R2, R4): held or touched within a day: keep;
-# else a directory goes with its lock file (when one is there), an orphan
-# lock file goes (when it is still there)
-def sp_judge(c: Sg.Cand, l: Sg.Lock, +now: Sg.Time, own: Sg.Time, inner: List<&2, Sg.Time>) -> Sg.Plan:
-  sp_judge.go(sp_all_old(now, own <> inner), c, l)
 
 # a plan removes something
 def sp_removes(p: Sg.Plan) -> Bool:
@@ -535,13 +280,6 @@ def sp_probed(c: Sg.Cand, l: Sg.Lock) -> Bool:
           True{}
         case Sg.LAbsent{}:
           False{}
-
-def sp_moved(v: Sg.Verdict) -> Bool:
-  match v:
-    case Sg.Moved{}:
-      True{}
-    case Sg.Taken{}:
-      False{}
 
 # Spec helpers: the wire
 # ----------------------
@@ -746,38 +484,74 @@ def sp_fit_req(r: FSg.Req) -> Bool:
     case FSg.Rows{os}:
       sp_fit_obss(os)
 
-# Laws: publish (R1)
-# ------------------
-
-# LAW publish_settles (R1): a publish is taken exactly when its rename without replacement
-# met an entry at the target, and moved otherwise
-# EXCLUDES: a publish reported moved over an entry it did not replace (or
-#   the reverse), a constant verdict
-law publish_settles:
-  for +b: Bool
-  {sp_moved(Sg.settle(b)) == Bool.not(b) : Bool}
-
-# LAW publish_settle_refines (R1): the verdict of a rename that met the entries es of the
-# parent is the model's publish: moved exactly when the model moves
-# EXCLUDES: a real verdict that differs from the model the laws
-#   publish_never_overwrites and publish_moves are about
-law publish_settle_refines:
-  for +s: Nat
-  for +t: Nat
-  for +es: List<&2, Sg.Entry>
-  {sp_moved(Sg.settle(Sg.has(t, es))) == Sg.Pub.ok(Sg.publish(s, t, es)) : Bool}
-
 # Laws: the sweep (R2, R3, R4)
 # ----------------------------
 
-# LAW meet_exact (R3): the sweep's class of every entry of a listing is the spec's, in order
-# EXCLUDES: a storage entered, a symlink followed, a leftover entered or
-#   kept, a staging name misread (another label, an uppercase or short
-#   uuid, an empty target), a lock file judged beside its directory or a
-#   Raw name judged, an entry lost, added or moved
-law meet_exact:
+# LAW meet_leftover_minted (R3): the sweep judges an entry of a listing as a staging directory or a tombstone only when it is a directory named as Rust mints such a name: `.<target>.<label>-<uuid>` (sp_mint), the target not empty, the label import, fork or deleted, the uuid 32 lowercase hex digits
+# EXCLUDES: a storage, a plain directory, a file, a symlink, a name that is
+#   not UTF-8 or a near miss (another label, an uppercase or short uuid, an
+#   empty target, no leading dot) judged and so removed when old
+law meet_leftover_minted:
   for +es: List<&2, Sg.Seen>
-  {Sg.meet(es) == sp_meet(es) : List<&2, Sg.Met>}
+  for +k: Nat
+  for judged: {List.get(&2, Sg.Met, Sg.meet(es), k) == Some{Sg.MLeftover{}} : Maybe<&2, Sg.Met>}
+  exs t: String
+  exs l: SpLab
+  exs id: String
+  exs m: Bool
+  {List.get(&2, Sg.Seen, es, k) == Some{Sg.Seen{Sg.Utf{sp_mint(t, l, id)}, Sg.KDir{m}}} : Maybe<&2, Sg.Seen>} & {String.is_empty(t) == False{} : Bool} & {sp_hexn(32n, id) == True{} : Bool}
+
+# LAW meet_orphan_minted (R3): the sweep judges an entry of a listing as an orphan lock file only when it is a file named as Rust mints a staging lock file (a minted name, then `.lock`) and no entry of the listing has the minted name itself (LawsBase.text_has_name: an entry whose UTF-8 name is that text)
+# EXCLUDES: a lock file judged beside its directory (a live build's lock
+#   removed), any other file, directory or symlink judged as a lock file
+law meet_orphan_minted:
+  for +es: List<&2, Sg.Seen>
+  for +k: Nat
+  for judged: {List.get(&2, Sg.Met, Sg.meet(es), k) == Some{Sg.MOrphan{}} : Maybe<&2, Sg.Met>}
+  exs t: String
+  exs l: SpLab
+  exs id: String
+  {List.get(&2, Sg.Seen, es, k) == Some{Sg.Seen{Sg.Utf{String.append(sp_mint(t, l, id), ".lock")}, Sg.KFile{}}} : Maybe<&2, Sg.Seen>} & {String.is_empty(t) == False{} : Bool} & {sp_hexn(32n, id) == True{} : Bool} & {LawsBase.text_has_name(sp_mint(t, l, id), es) == False{} : Bool}
+
+# LAW meet_minted_anywhere (R3): a directory with a name Rust mints is judged as a staging directory or a tombstone wherever it is in a listing of any length and whatever the other entries
+# EXCLUDES: a judgment that depends on the listing's length or on the
+#   other entries (meet_minted_leftover is the listing of one entry)
+law meet_minted_anywhere:
+  for +pre: List<&2, Sg.Seen>
+  for +post: List<&2, Sg.Seen>
+  for +t: String
+  for +l: SpLab
+  for +id: String
+  for +m: Bool
+  for full: {String.is_empty(t) == False{} : Bool}
+  for u: {sp_hexn(32n, id) == True{} : Bool}
+  {List.get(&2, Sg.Met, Sg.meet(List.append(&2, Sg.Seen, pre, Sg.Seen{Sg.Utf{sp_mint(t, l, id)}, Sg.KDir{m}} <> post)), List.length(&2, Sg.Seen, pre)) == Some{Sg.MLeftover{}} : Maybe<&2, Sg.Met>}
+
+# LAW meet_orphan_anywhere (R3): the lock file of a name Rust mints, wherever it is in a listing of any length, is judged as an orphan when no entry of the listing has the minted name
+# EXCLUDES: an orphan lock file kept forever in a listing of more than
+#   one entry (meet_minted_orphan is the listing of one entry)
+law meet_orphan_anywhere:
+  for +pre: List<&2, Sg.Seen>
+  for +post: List<&2, Sg.Seen>
+  for +t: String
+  for +l: SpLab
+  for +id: String
+  for full: {String.is_empty(t) == False{} : Bool}
+  for u: {sp_hexn(32n, id) == True{} : Bool}
+  for gone: {LawsBase.text_has_name(sp_mint(t, l, id), List.append(&2, Sg.Seen, pre, Sg.Seen{Sg.Utf{String.append(sp_mint(t, l, id), ".lock")}, Sg.KFile{}} <> post)) == False{} : Bool}
+  {List.get(&2, Sg.Met, Sg.meet(List.append(&2, Sg.Seen, pre, Sg.Seen{Sg.Utf{String.append(sp_mint(t, l, id), ".lock")}, Sg.KFile{}} <> post)), List.length(&2, Sg.Seen, pre)) == Some{Sg.MOrphan{}} : Maybe<&2, Sg.Met>}
+
+# LAW meet_lock_beside_kept (R3): the lock file of a name Rust mints, wherever it is in a listing of any length, is kept (not judged) when an entry of the listing has the minted name: its directory is there
+# EXCLUDES: a live build's lock file judged, and so removed, beside its
+#   directory, in a listing of any length and order
+law meet_lock_beside_kept:
+  for +pre: List<&2, Sg.Seen>
+  for +post: List<&2, Sg.Seen>
+  for +t: String
+  for +l: SpLab
+  for +id: String
+  for there: {LawsBase.text_has_name(sp_mint(t, l, id), List.append(&2, Sg.Seen, pre, Sg.Seen{Sg.Utf{String.append(sp_mint(t, l, id), ".lock")}, Sg.KFile{}} <> post)) == True{} : Bool}
+  {List.get(&2, Sg.Met, Sg.meet(List.append(&2, Sg.Seen, pre, Sg.Seen{Sg.Utf{String.append(sp_mint(t, l, id), ".lock")}, Sg.KFile{}} <> post)), List.length(&2, Sg.Seen, pre)) == Some{Sg.MKeep{}} : Maybe<&2, Sg.Met>}
 
 # LAW meet_minted_leftover (R3): a directory with a name Rust mints for a staging directory
 # or a tombstone is judged, whatever it holds and whatever the target
@@ -814,26 +588,64 @@ law meet_minted_orphan:
 law meet_names_example:
   {Sg.meet([Sg.Seen{Sg.Utf{".s1.import-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s12.deleted-0123456789abcdef0123456789abcdef"}, Sg.KDir{True{}}}, Sg.Seen{Sg.Utf{"session-1"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{"s2"}, Sg.KDir{True{}}}, Sg.Seen{Sg.Utf{".s3.fork-0123456789abcdef0123456789abcdef.lock"}, Sg.KFile{}}, Sg.Seen{Sg.Utf{".s1.import-0123456789abcdef0123456789abcdef.lock"}, Sg.KFile{}}, Sg.Seen{Sg.Utf{".s6.import-not-a-uuid"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s7.export-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{"s8.import-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{"..import-0123456789abcdef0123456789abcdef"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s9.fork-0123456789ABCDEF0123456789ABCDEF"}, Sg.KDir{False{}}}, Sg.Seen{Sg.Utf{".s10.import-0123456789abcdef0123456789abcdef"}, Sg.KFile{}}, Sg.Seen{Sg.Utf{".s11.fork-0123456789abcdef0123456789abcdef"}, Sg.KOther{}}, Sg.Seen{Sg.Raw{}, Sg.KDir{False{}}}, Sg.Seen{Sg.Raw{}, Sg.KDir{True{}}}]) == [Sg.MLeftover{}, Sg.MLeftover{}, Sg.MDescend{}, Sg.MKeep{}, Sg.MOrphan{}, Sg.MKeep{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MDescend{}, Sg.MKeep{}, Sg.MKeep{}, Sg.MDescend{}, Sg.MKeep{}] : List<&2, Sg.Met>}
 
+# the walk may enter the entry e: a directory (symlinks are not followed:
+# a symlink is no directory) that holds no main.jsonl (no storage)
+def sp_open_dir(e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{n, k}:
+      match k:
+        case Sg.KDir{main}:
+          Bool.not(main)
+        case Sg.KFile{}:
+          False{}
+        case Sg.KOther{}:
+          False{}
+
+# the sweep judged the entry a staging directory or a tombstone
+def sp_leftover(m: Sg.Met) -> Bool:
+  match m:
+    case Sg.MLeftover{}:
+      True{}
+    case Sg.MKeep{}:
+      False{}
+    case Sg.MDescend{}:
+      False{}
+    case Sg.MOrphan{}:
+      False{}
+
+# for each entry of es with its class in ms, in order: whether the walk
+# enters it: a directory that is no storage and that the sweep does not
+# judge as a leftover
+def sp_enters(es: List<&2, Sg.Seen>, ms: List<&2, Sg.Met>) -> List<&2, Bool>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> er:
+      match ms:
+        case Nil{}:
+          Nil{}
+        case m <> mr:
+          Bool.and(sp_open_dir(e), Bool.not(sp_leftover(m))) <> sp_enters(er, mr)
+
 # LAW sweep_stays_out_real (R3): the walk enters exactly the plain directories: never a
 # storage, a symlink, a file or a leftover (sweep_stays_out, on the real
-# listing)
-# EXCLUDES: a walk into a storage or behind a symlink, a plain directory
-#   left unwalked (sweep_reaches_every_depth)
+# listing): an entry is entered exactly when it is a directory with no
+# main.jsonl that the sweep does not judge as a staging directory or a
+# tombstone. Which directories are judged so is the leftover laws':
+# exactly the names Rust mints (meet_leftover_minted, meet_minted_anywhere)
+# EXCLUDES: a walk into a storage, a leftover or behind a symlink, a plain
+#   directory left unwalked (sweep_reaches_every_depth)
 law sweep_stays_out_real:
   for +es: List<&2, Sg.Seen>
-  {sp_descends(Sg.meet(es)) == sp_plains(es) : List<&2, Bool>}
+  {sp_descends(Sg.meet(es)) == sp_enters(es, Sg.meet(es)) : List<&2, Bool>}
 
-# LAW judge_exact (R2, R4): the plan for a judged entry is the spec's
-# EXCLUDES: a held or young leftover removed, a stale free one kept, a
-#   lock file left behind or removed under a live build, a gone lock file
-#   removed, a young inner entry ignored
-law judge_exact:
-  for +c: Sg.Cand
-  for +l: Sg.Lock
+# LAW judge_gone_lock_kept (R4): an orphan lock file found gone when it is probed stays (nothing is removed), whatever the times
+# EXCLUDES: a removal planned for a lock file that is not there
+law judge_gone_lock_kept:
   for +now: Sg.Time
   for +own: Sg.Time
   for +inner: List<&2, Sg.Time>
-  {Sg.judge(c, l, now, own, inner) == sp_judge(c, l, now, own, inner) : Sg.Plan}
+  {Sg.judge(Sg.CLock{}, Sg.LAbsent{}, now, own, inner) == Sg.PKeep{} : Sg.Plan}
 
 # LAW sweep_never_live_real (R2): a judged entry a live process holds the lock of stays
 # (sweep_never_live, on the real facts)
@@ -946,8 +758,228 @@ law staging_entry_errors_example:
 law staging_entry_example:
   {FSg.ffi("0,T") == "1," : String} & {FSg.ffi("0,F") == "0," : String} & {FSg.ffi("1,2,0,43,.s1.import-0123456789abcdef0123456789abcdef0,F0,9,session-10,F") == "2,2,1," : String} & {FSg.ffi("2,0,1,200000,0,113600,0,1,50000,0,") == "2," : String} & {FSg.ffi("3,2,0,9,durable-10,T0,14,legacy-1.jsonl1,") == "2,1,9,durable-12,8,legacy-1" : String} & {FSg.ffi("4,1,0,1,a0,T1,2,/p1,30,5,") == "1,0,1,1,a30,5," : String}
 
-# LAW staging_entry_malformed_example (R8): witness: an unknown tag and input left over get the
-# error form
-# EXCLUDES: a vacuous staging_entry_exact
-law staging_entry_malformed_example:
-  {LawsBase.wire_opens_err(FSg.ffi("5,")) == True{} : Bool} & {LawsBase.wire_opens_err(FSg.ffi("0,TX")) == True{} : Bool}
+# LAW publish_never_overwrites: a publish to a name that an entry has fails and changes nothing:
+# a rename never replaces an existing target, not even an empty directory
+law publish_never_overwrites:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  for taken: {Sg.has(t, es) == True{} : Bool}
+  {Sg.publish(s, t, es) == Sg.Pub{False{}, es} : Sg.Pub}
+
+# LAW publish_moves: a publish to a free name moves the storage
+law publish_moves:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  for free: {Sg.has(t, es) == False{} : Bool}
+  {Sg.Pub.ok(Sg.publish(s, t, es)) == True{} : Bool}
+
+def sp_moved(v: Sg.Verdict) -> Bool:
+  match v:
+    case Sg.Moved{}:
+      True{}
+    case Sg.Taken{}:
+      False{}
+
+# LAW publish_settle_refines (R1): the verdict of a rename that met the entries es of the
+# parent is the model's publish: moved exactly when the model moves
+# EXCLUDES: a real verdict that differs from the model the laws
+#   publish_never_overwrites and publish_moves are about
+law publish_settle_refines:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  {sp_moved(Sg.settle(Sg.has(t, es))) == Sg.Pub.ok(Sg.publish(s, t, es)) : Bool}
+
+def sp_met.dir(sw: Bool, main: Bool) -> Sg.Met:
+  match sw:
+    case True{}:
+      Sg.MLeftover{}
+    case False{}:
+      match main:
+        case True{}:
+          Sg.MKeep{}
+        case False{}:
+          Sg.MDescend{}
+
+def sp_met.raw(k: Sg.Form) -> Sg.Met:
+  match k:
+    case Sg.KDir{main}:
+      sp_met.dir(False{}, main)
+    case Sg.KFile{}:
+      Sg.MKeep{}
+    case Sg.KOther{}:
+      Sg.MKeep{}
+
+def sp_met.lock(sw: Bool, there: Bool) -> Sg.Met:
+  match sw:
+    case True{}:
+      match there:
+        case True{}:
+          Sg.MKeep{}
+        case False{}:
+          Sg.MOrphan{}
+    case False{}:
+      Sg.MKeep{}
+
+# the text before the last '.' of a text, and the text after it
+type SpCut is Data:
+  SpCut{before: String, after: String}
+
+def sp_cut.cons(c: Char, p: SpCut) -> Maybe<&2, SpCut>:
+  match p:
+    case SpCut{b, a}:
+      Some{SpCut{SCon{c, b}, a}}
+
+def sp_cut.dot(d: Bool, t: String) -> Maybe<&2, SpCut>:
+  match d:
+    case True{}:
+      Some{SpCut{SNil{}, t}}
+    case False{}:
+      None{}
+
+def sp_cut.put(r: Maybe<&2, SpCut>, d: Bool, c: Char, t: String) -> Maybe<&2, SpCut>:
+  match r:
+    case Some{p}:
+      sp_cut.cons(c, p)
+    case None{}:
+      sp_cut.dot(d, t)
+
+# w split at its last '.'
+def sp_cut(w: String) -> Maybe<&2, SpCut>:
+  match w:
+    case SNil{}:
+      None{}
+    case SCon{+c, +t}:
+      sp_cut.put(sp_cut(t), Char.is_eq(c, '.'), c, t)
+
+def sp_if(ok: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match ok:
+    case True{}:
+      m
+    case False{}:
+      None{}
+
+# s after the prefix p, when s starts with p
+def sp_unprefix(p: String, s: String) -> Maybe<&2, String>:
+  match p:
+    case SNil{}:
+      Some{s}
+    case SCon{x, pt}:
+      match s:
+        case SNil{}:
+          None{}
+        case SCon{y, st}:
+          sp_if(Char.is_eq(x, y), sp_unprefix(pt, st))
+
+def sp_uuid(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{s}:
+      sp_hexn(32n, s)
+
+# the part after the last '.': `import-`, `fork-` or `deleted-`, then a uuid
+def sp_tail(+a: String) -> Bool:
+  Bool.or(sp_uuid(sp_unprefix("import-", a)), Bool.or(sp_uuid(sp_unprefix("fork-", a)), sp_uuid(sp_unprefix("deleted-", a))))
+
+def sp_swept.cut(m: Maybe<&2, SpCut>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      match p:
+        case SpCut{b, a}:
+          Bool.and(Bool.not(String.is_empty(b)), sp_tail(a))
+
+# s is `.<target>.<label>-<uuid>`, the target not empty
+def sp_swept(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Bool.and(Char.is_eq(c, '.'), sp_swept.cut(sp_cut(t)))
+
+def sp_met.file(m: Maybe<&2, String>, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match m:
+    case None{}:
+      Sg.MKeep{}
+    case Some{+x}:
+      sp_met.lock(sp_swept(x), LawsBase.text_has_name(x, all))
+
+def sp_met.utf(k: Sg.Form, +s: String, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match k:
+    case Sg.KDir{main}:
+      sp_met.dir(sp_swept(s), main)
+    case Sg.KFile{}:
+      sp_met.file(LawsBase.text_unsuffix(".lock", s), all)
+    case Sg.KOther{}:
+      Sg.MKeep{}
+
+# what the sweep does with the entry e of the listing all (R3): a
+# directory with a swept name is judged; any other directory is kept when
+# it holds main.jsonl and entered otherwise; a file `<x>.lock`, x a swept
+# name, is judged when no entry has the name x; everything else is kept
+def sp_met(e: Sg.Seen, all: List<&2, Sg.Seen>) -> Sg.Met:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          sp_met.utf(k, s, all)
+        case Sg.Raw{}:
+          sp_met.raw(k)
+
+def sp_meet.go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> List<&2, Sg.Met>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      sp_met(e, all) <> sp_meet.go(rest, all)
+
+def sp_meet(+es: List<&2, Sg.Seen>) -> List<&2, Sg.Met>:
+  sp_meet.go(es, es)
+
+# LAW meet_exact (R3): the sweep's class of every entry of a listing is the spec's, in order
+# EXCLUDES: a storage entered, a symlink followed, a leftover entered or
+#   kept, a staging name misread (another label, an uppercase or short
+#   uuid, an empty target), a lock file judged beside its directory or a
+#   Raw name judged, an entry lost, added or moved
+law meet_exact:
+  for +es: List<&2, Sg.Seen>
+  {Sg.meet(es) == sp_meet(es) : List<&2, Sg.Met>}
+
+# a plain directory: no swept name, no main.jsonl (R3)
+def sp_plain.k(k: Sg.Form, sw: Bool) -> Bool:
+  match k:
+    case Sg.KDir{main}:
+      Bool.and(Bool.not(sw), Bool.not(main))
+    case Sg.KFile{}:
+      False{}
+    case Sg.KOther{}:
+      False{}
+
+def sp_plain(e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{n, k}:
+      match n:
+        case Sg.Utf{s}:
+          sp_plain.k(k, sp_swept(s))
+        case Sg.Raw{}:
+          sp_plain.k(k, False{})
+
+def sp_plains(es: List<&2, Sg.Seen>) -> List<&2, Bool>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      sp_plain(e) <> sp_plains(rest)
+
+# LAW sweep_stays_out_real (R3): the walk enters exactly the plain directories: never a
+# storage, a symlink, a file or a leftover (sweep_stays_out, on the real
+# listing)
+# EXCLUDES: a walk into a storage or behind a symlink, a plain directory
+#   left unwalked (sweep_reaches_every_depth)
+law sweep_stays_out_real_orig:
+  for +es: List<&2, Sg.Seen>
+  {sp_descends(Sg.meet(es)) == sp_plains(es) : List<&2, Bool>}

@@ -348,12 +348,19 @@ def run_spell_help(x: RnDecision.Help, rest: String) -> String:
       Wr.put_nat(4n, Wr.put_nat(row, rest))
 
 # the spelled answer to request a: the value of its decision in the model
-# (bend/run/decision.bend, bend/run/state.bend), which the laws of
-# laws/run/model.bend state (run_reply_is_the_rust_rule,
-# run_prepare_is_the_rust_rule, run_compact_is_the_rust_rule,
-# run_round_is_the_rust_rule, rec_recover_is_the_rust_rule; Ended.reply by
-# run_no_answer_is_an_error and run_calls_never_answer, decide.poll by
-# run_failed_poll_is_the_job_model) and run_ffi_tags_example anchors
+# (bend/run/decision.bend, bend/run/state.bend). The decisions'
+# requirements are laws of laws/run/model.bend (decide.reply:
+# run_reply_answers_or_runs_tools, run_retry_budget,
+# run_unretryable_error_fails, run_note_budget,
+# run_deferred_polls_until_deadline, run_overflow_compacts_once;
+# Ended.reply: run_message_reply, run_no_answer_is_an_error,
+# run_calls_never_answer; decide.prepare:
+# run_prepare_follows_the_thresholds,
+# run_prepare_compacted_reads_no_threshold; decide.compact:
+# run_compact_goes_on_with_room; decide.round: run_round_control_stops,
+# run_round_capped_at_max, run_round_goes_on_below_max; decide.poll:
+# run_failed_poll_is_the_job_model) and of laws/run/recover.bend
+# (decide.recover: the rec_* laws); run_ffi_tags_example anchors the tags
 def run_spell_answer(a: FRn.Ask) -> String:
   match a:
     case FRn.AskReply{l, t, reply}:

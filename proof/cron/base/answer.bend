@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of area cron share: the model's pause in
 # minutes is the spec's table, the entry's reply writers write what the
 # laws' spellers write, and the entry's answer to every request is the
-# laws' reply (each decision being its spec: the cron_store laws).
+# laws' reply (each decision being its spec: proof/cron_store/base.bend).
 
 import Base
 import ../../../bend/cron.bend as Cr
@@ -10,15 +10,7 @@ import ../../../bend/ffi_cron.bend as FC
 import ../../../bend/wire.bend as Wr
 import ../../../laws/cron.bend as Cron
 import ../../../laws/cron_store.bend as CronStore
-import ../../cron_store/cron_take_exact.bend as PX0
-import ../../cron_store/cron_clear_exact.bend as PX1
-import ../../cron_store/cron_recover_exact.bend as PX2
-import ../../cron_store/cron_finish_exact.bend as PX3
-import ../../cron_store/cron_cancel_exact.bend as PX4
-import ../../cron_store/cron_resume_exact.bend as PX5
-import ../../cron_store/cron_halt_exact.bend as PX6
-import ../../cron_store/cron_edit_exact.bend as PX7
-import ../../cron_store/cron_make_exact.bend as PX8
+import ../../cron_store/base.bend as LCs
 import ../../cron_store/cron_open_exact.bend as PX9
 
 # Decisions
@@ -149,31 +141,31 @@ def crw.made(x: CS.Made, +rest: String) -> {FC.put_made(x, rest) == Cron.spell_m
 def cran.answer(a: CS.Ask) -> {FC.answer(a) == Cron.spell_answer(a) : String}:
   match a:
     case CS.AskTake{+f, +c, +d, +n}:
-      %CronStore.cron_take_exact(f, c, d, n) : {FC.put_took(CS.take(f, c, d, n), "") == Cron.spell_took(_, "") : String}
+      %LCs.cx.take(f, c, d, n) : {FC.put_took(CS.take(f, c, d, n), "") == Cron.spell_took(_, "") : String}
       crw.took(CS.take(f, c, d, n), "")
     case CS.AskClear{+w}:
-      %CronStore.cron_clear_exact(w) : {Wr.put_bool(CS.clear(w), "") == Wr.put_bool(_, "") : String}
+      %LCs.cx.clear(w) : {Wr.put_bool(CS.clear(w), "") == Wr.put_bool(_, "") : String}
       {==}
     case CS.AskRecover{+f, +c}:
-      %CronStore.cron_recover_exact(f, c) : {FC.put_back(CS.recover(f, c), "") == Cron.spell_back(_, "") : String}
+      %LCs.cx.recover(f, c) : {FC.put_back(CS.recover(f, c), "") == Cron.spell_back(_, "") : String}
       crw.back(CS.recover(f, c), "")
     case CS.AskFinish{+f, +r, +b, +n}:
-      %CronStore.cron_finish_exact(60000n, f, r, b, n) : {FC.put_fin(CS.finish(60000n, f, r, b, n), "") == Cron.spell_fin(_, "") : String}
+      %LCs.cx.finish(60000n, f, r, b, n) : {FC.put_fin(CS.finish(60000n, f, r, b, n), "") == Cron.spell_fin(_, "") : String}
       crw.fin(CS.finish(60000n, f, r, b, n), "")
     case CS.AskCancel{+f}:
-      %CronStore.cron_cancel_exact(f) : {FC.put_cut(CS.cancel(f), "") == Cron.spell_cut(_, "") : String}
+      %LCs.cx.cancel(f) : {FC.put_cut(CS.cancel(f), "") == Cron.spell_cut(_, "") : String}
       crw.cut(CS.cancel(f), "")
     case CS.AskResume{+f, +n}:
-      %CronStore.cron_resume_exact(f, n) : {FC.put_again(CS.resume(f, n), "") == Cron.spell_again(_, "") : String}
+      %LCs.cx.resume(f, n) : {FC.put_again(CS.resume(f, n), "") == Cron.spell_again(_, "") : String}
       crw.again(CS.resume(f, n), "")
     case CS.AskHalt{+f, +h}:
-      %CronStore.cron_halt_exact(f, h) : {FC.put_cut(CS.halt(f, h), "") == Cron.spell_cut(_, "") : String}
+      %LCs.cx.halt(f, h) : {FC.put_cut(CS.halt(f, h), "") == Cron.spell_cut(_, "") : String}
       crw.cut(CS.halt(f, h), "")
     case CS.AskEdit{+f, +m}:
-      %CronStore.cron_edit_exact(f, m) : {FC.put_edit(CS.edit(f, m), "") == Cron.spell_edit(_, "") : String}
+      %LCs.cx.edit(f, m) : {FC.put_edit(CS.edit(f, m), "") == Cron.spell_edit(_, "") : String}
       crw.edit(CS.edit(f, m), "")
     case CS.AskMake{+n}:
-      %CronStore.cron_make_exact(n) : {FC.put_made(CS.make(n), "") == Cron.spell_made(_, "") : String}
+      %LCs.cx.make(n) : {FC.put_made(CS.make(n), "") == Cron.spell_made(_, "") : String}
       crw.made(CS.make(n), "")
     case CS.AskOpen{+b}:
       %CronStore.cron_open_exact(b) : {Wr.put_bool(CS.open(b), "") == Wr.put_bool(_, "") : String}

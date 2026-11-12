@@ -16,7 +16,7 @@ import ./base.bend as LawsBase
 # session's own transcript verbatim. The count of view lines kept runs as
 # the compiled core by bend/ffi_thread.bend (eukhe-bend rules/thread.rs;
 # asked by memory/view.rs View::kept). spec/memory/thread.bend restates the
-# rule (S1-S5). Every input is free: any session, event stream, view,
+# rule (S1-S6). Every input is free: any session, event stream, view,
 # window, counts and starts.
 #
 # R1: a session's chat is exactly its own messages, in order (S1).
@@ -30,9 +30,9 @@ import ./base.bend as LawsBase
 #     within the wire) with the model's count, reads exactly the request
 #     and nothing after it, and answers any other input with the exact
 #     error form `E thread: malformed request`.
-# R6: the request is the spec's, whole: each kept view line carries the
-#     messages of its own span, the chat's count messages from its start
-#     (S6).
+# R6: the request, whole: its view lines are one per kept view span, in
+#     order, each carrying the messages of its own span, the chat's count
+#     messages from its start (S6), then the turns (R3).
 # R7: between two calls the request only grows at its end unless a
 #     compaction ran: a call under the head its view was pinned under (no
 #     compaction or reset since) sends that view, whatever a fresh render
@@ -64,12 +64,12 @@ def sp_w_reply(q: FTh.Req) -> String:
     case FTh.Req{t, v, xs}:
       Wr.put_nat(Th.history_lines(t, v, xs), "")
 
-# R5: the reply of a request by the spec: the count of leading starts
-# below through - verbatim (S5), spelled
-def sp_w_spec_reply(q: FTh.Req) -> String:
+# R4, R5: n is the count S5 asks of the request: the length of the
+# leading run of its starts below through - verbatim
+def sp_leading(q: FTh.Req, +n: Nat) -> Bool:
   match q:
     case FTh.Req{t, v, xs}:
-      Wr.put_nat(S.lead(Nat.sub(t, v), xs), "")
+      S.leading(Nat.sub(t, v), xs, n)
 
 # R7: the head a pin was rendered under
 def sp_head(p: Th.Pin) -> Nat:
@@ -96,14 +96,29 @@ def sp_inside(+n: Nat, view: List<&2, Th.Span>) -> Bool:
 # Laws: the chat (R1, R2)
 # -----------------------
 
-# LAW thread_log_chat (R1): the chat of every session over every event
-# stream is the spec's: the messages that session wrote, in order
-# EXCLUDES: a message of another session logged, a message of the
-#   session dropped or reordered, one shared chat for every session
-law thread_log_chat:
+# LAW thread_log_one (R1): a stream of one message gives that message,
+# unchanged, to the chat of the session that wrote it, and nothing to the
+# chat of any other session
+# EXCLUDES: a message of another session logged, a message of the session
+#   dropped or changed, one shared chat for every session
+law thread_log_one:
   for +s: Nat
-  for +evs: List<&2, Th.Msg>
-  {Th.log(s, evs) == S.chat(s, evs) : List<&2, Th.Msg>}
+  for +o: Nat
+  for +body: Nat
+  for other: {Nat.is_eq(o, s) == False{} : Bool}
+  {Th.log(s, [Th.Msg{s, body}]) == [Th.Msg{s, body}] : List<&2, Th.Msg>} & {Th.log(s, [Th.Msg{o, body}]) == [] : List<&2, Th.Msg>}
+
+# LAW thread_log_append (R1): the chat of two streams, one after the
+# other, is the chat of the first, then the chat of the second (with
+# thread_log_one: a session's chat is exactly its own messages, in
+# stream order)
+# EXCLUDES: a message reordered, merged, repeated or lost across a cut of
+#   the stream, a chat that depends on how the stream was cut
+law thread_log_append:
+  for +s: Nat
+  for a: List<&2, Th.Msg>
+  for +b: List<&2, Th.Msg>
+  {Th.log(s, List.append(&2, Th.Msg, a, b)) == List.append(&2, Th.Msg, Th.log(s, a), Th.log(s, b)) : List<&2, Th.Msg>}
 
 # LAW thread_request_own (R2): every message of a session's request (every
 # turn, and every message a view line summarizes) belongs to that session
@@ -162,16 +177,17 @@ law thread_history_kept:
   for asc: {S.ascending(S.view_starts(view)) == True{} : Bool}
   {S.line_starts(Th.request(s, evs, view, w)) == S.before(S.end(S.chat(s, evs), w), S.view_starts(view)) : List<&2, Nat>}
 
-# LAW thread_history_lines_spec (R4): the count of kept lines is the
-# length of the longest run of leading starts below through - verbatim
-# (0 when verbatim passes through)
+# LAW thread_history_lines_run (R4, S5): the count n of kept lines is the
+# length of the leading run of starts below end = through - verbatim (0
+# when verbatim passes through): n is at most the number of starts, each
+# of the first n starts is below end, and the next start, if any, is not
 # EXCLUDES: a start at end kept, a count that skips a start past end and
-#   goes on, a subtraction that wraps
-law thread_history_lines_spec:
+#   goes on, a count past the starts, a subtraction that wraps
+law thread_history_lines_run:
   for +t: Nat
   for +v: Nat
   for +xs: List<&2, Nat>
-  {Th.history_lines(t, v, xs) == S.lead(Nat.sub(t, v), xs) : Nat}
+  {S.leading(Nat.sub(t, v), xs, Th.history_lines(t, v, xs)) == True{} : Bool}
 
 # LAW thread_history_lines_example (R4): anchor: 10 messages, 3 verbatim:
 # end 7, lines at 0, 4, 6 kept (6 straddles end), 7 not; a window past the
@@ -192,20 +208,21 @@ law thread_request_example:
 # Laws: the request, whole (R6)
 # -----------------------------
 
-# LAW thread_request_spec (R6): every session's request over every event
-# stream, view and window is the spec's: the leading view lines that start
-# before end = T - V, each Line{start, covers} with covers the chat's count
-# messages from start on (List.take(List.drop(chat, start), count)), then
-# the turns of the chat's messages from end on
+# LAW thread_request_lines (R6, S6): the view lines of every session's
+# request are, in order, one line per leading view span that starts
+# before end = T - V, each at its span's start and covering the chat's
+# messages from that start on: count of them, or all the chat holds from
+# there when it holds fewer; no view line follows (with
+# thread_newest_verbatim: then the newest turns, verbatim)
 # EXCLUDES: a view line that covers messages from another start (the
-#   chat's first ones), a cut or padded cover, a kept line past end, a
-#   transcript off by one
-law thread_request_spec:
+#   chat's first ones), a cut or padded cover, a line of another span or
+#   at another start, a kept line past end, a line dropped
+law thread_request_lines:
   for +s: Nat
   for +evs: List<&2, Th.Msg>
   for +view: List<&2, Th.Span>
   for +w: Nat
-  {Th.request(s, evs, view, w) == S.request(s, evs, view, w) : List<&2, Th.Item>}
+  {S.lines_match(view, S.chat(s, evs), S.end(S.chat(s, evs), w), Th.request(s, evs, view, w)) == True{} : Bool}
 
 # LAW thread_request_covers_example (R6): anchor: six messages of session
 # 1, view [0..1], [2..3], 2 verbatim: end 4 keeps both lines, the second
@@ -218,27 +235,22 @@ law thread_request_covers_example:
 # Laws: the cache prefix (R7)
 # ---------------------------
 
-# LAW thread_pin_kept (R7): a call under the head its view was pinned
-# under sends that view, whatever a fresh render would give
-# EXCLUDES: a view rendered again for each run (the request's prefix
-#   rewritten between two calls with no compaction between them), the
-#   head dropped
-law thread_pin_kept:
-  for +h: Nat
-  for +view: List<&2, Th.Span>
-  for +fresh: List<&2, Th.Span>
-  {Th.pin(Th.Pin{h, view}, h, fresh) == Th.Pin{h, view} : Th.Pin}
-
-# LAW thread_pin_moved (R7): a call under a new head (a compaction or a
-# reset ran) sends the fresh render, pinned under that head
+# LAW thread_pin_new_head (R7): a call under a head other than the one
+# its pin was rendered under (a compaction or a reset ran) sends every
+# session's request over the fresh render, and pins it under the call's
+# head
 # EXCLUDES: a view kept past a compaction (the history it cut in neither
-#   the view nor the transcript), the old head kept with the new view
-law thread_pin_moved:
+#   the view nor the transcript), the old head kept with the new view (the
+#   next call re-renders and rewrites the prefix)
+law thread_pin_new_head:
   for +p: Th.Pin
   for +h: Nat
   for +fresh: List<&2, Th.Span>
+  for s: Nat
+  for evs: List<&2, Th.Msg>
+  for w: Nat
   for moved: {Nat.is_eq(sp_head(p), h) == False{} : Bool}
-  {Th.pin(p, h, fresh) == Th.Pin{h, fresh} : Th.Pin}
+  {Th.request(s, evs, sp_view(Th.pin(p, h, fresh)), w) == Th.request(s, evs, fresh, w) : List<&2, Th.Item>} & {sp_head(Th.pin(p, h, fresh)) == h : Nat}
 
 # LAW thread_request_prefix_kept (R7): two calls of session s under one
 # head h (no compaction or reset between them), the first pinning over
@@ -314,12 +326,14 @@ law thread_entry_example:
   {[FTh.ffi("5,10,3,0,4,6,"), FTh.ffi("2,5,9,"), FTh.ffi("1,10,"), FTh.ffi("2,10,3,x")] == ["3,", "0,", Wr.err("thread: malformed request"), Wr.err("thread: malformed request")] : List<&2, String>}
 
 # LAW thread_entry_spec (R4, R5): the entry answers every request Rust
-# spells, every number within the wire, with the spec's count (S5): the
-# leading starts below through - verbatim, spelled
-# EXCLUDES: any reply other than the spec's for a request that fits (a
+# spells, every number within the wire, with a count n spelled, where n is
+# the length of the leading run of the request's starts below through -
+# verbatim (S5, as sp_leading states it)
+# EXCLUDES: any reply other than that count for a request that fits (a
 #   start at end kept, a count past the first start at or after end, a
 #   subtraction that wraps, another spelling)
 law thread_entry_spec:
   for +q: FTh.Req
   for h: {sp_fit_req(q) == True{} : Bool}
-  {FTh.ffi(sp_w_req(q, "")) == sp_w_spec_reply(q) : String}
+  exs n: Nat
+  {FTh.ffi(sp_w_req(q, "")) == Wr.put_nat(n, "") : String} & {sp_leading(q, n) == True{} : Bool}

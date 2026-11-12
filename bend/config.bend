@@ -424,7 +424,13 @@ def only_guarded(items: List<&2, Item>, +k: Nat) -> Bool:
 # project knows: it is withheld from an untrusted project. A global-only
 # key never applies from a project, trusted or not. Every withheld key is
 # named once in the warning: by its rule's path (the names joined by
-# '.'), or by its first name when no rule names it.
+# '.'), or by its first name when no rule names it. Rust's cvar layer
+# reads every CvarScope::Global cvar (crates/eukhe-core/src/settings/
+# cvar/table.rs) from the global settings alone, so a project value of
+# one never takes effect whatever this model answers; for those keys
+# (rlmMaxDepth, providerMaxInFlight, memory.model, factory, privacy,
+# allowedModels, providers.tinyRuntimeLibrary, ...) the answer decides
+# only the warning (laws/config.bend A1).
 
 type Scope is Data:
   Proj{c: Class}

@@ -29,6 +29,15 @@ import ../bend/arg_token_shapes.bend as AT
 #     char or the text end comes next.
 # R3: the table holds exactly these shapes, the one of id 110 + i at index
 #     i, and no other.
+#
+# Anchored only: R1 and R2 (arg_token_shapes_example). No source
+# outside eukhe's code states the shapes (no requirement holds a token regex;
+# the TS regexes are written above each shape of bend/arg_token_shapes.bend
+# and above), so a law over the table would compare it with itself; a law
+# by meaning over every text needs the matcher's search (bend/shape.bend)
+# reasoned through for these shapes, not done. R3 (ids, none past the
+# last) is stated for the entry by laws/shape/entry.bend (area shape),
+# which reads sp_table.
 
 # Spec helpers
 # ------------
@@ -66,7 +75,9 @@ def sp_flag() -> List<&2, S.Piece>:
 def sp_separator() -> List<&2, S.Piece>:
   [S.Lit{"--"}, S.Ahead{[S.Alt{[sp_1(S.Cls{S.Space{}, False{}, False{}})], [S.End{}]}], False{}}]
 
-# R1, R2, by id from 110
+# R1, R2, by id from 110: the shapes written out, read by
+# laws/shape/entry.bend (sp_shape_of, area shape) for ids 110-119; no law
+# of this area uses it
 def sp_table() -> List<&2, S.Shape>:
   [S.Shape{S.Anywhere{}, [S.Alt{sp_quoted(), [S.Alt{sp_path(), sp_flag()}]}], False{}},
    S.Shape{S.Anywhere{}, [S.Alt{sp_quoted(), [S.Alt{sp_path(), [S.Alt{sp_flag(), sp_separator()}]}]}], False{}}]
@@ -74,21 +85,15 @@ def sp_table() -> List<&2, S.Shape>:
 # Laws
 # ----
 
-# LAW arg_token_shapes_table (R1-R3): at every index the table holds the
-# shape R1 and R2 state for its id, and none past them
-# EXCLUDES: a token shape that drifts from the TS regex (an option lost or
-#   reordered, the escape not taken first, `|` or ESC read into a path,
-#   the separator without its lookahead), ids shifted, a lookup that
-#   answers a shape past the last
-law arg_token_shapes_table:
-  for +i: Nat
-  {AT.shape(i) == List.get(&2, S.Shape, sp_table(), i) : Maybe<&2, S.Shape>}
-
 # LAW arg_token_shapes_example (R1, R2): anchor: the highlighter tests'
-# texts: a path and a flag; a bare `--` only with the separator shape; a
-# quoted path, an unclosed one (read as a plain path) and an escaped one
-# EXCLUDES: a table that drifts from the highlighter tests
+# texts (crates/eukhe-tui/src/prompt_highlight.rs tests): a path and a
+# flag; a bare `--` only with the separator shape; a quoted path, an
+# unclosed one (read as a plain path) and an escaped one; a path after a
+# space; a path then a flag
+# EXCLUDES: a token shape that drifts from the highlighter tests (an
+#   option lost or reordered, a quote or escape misread, the separator
+#   without its lookahead)
 # waive L4-examples-only: a shape is a constant, no input to leave free;
-#   arg_token_shapes_table pins it whole to its R rule
+#   no source outside eukhe states the shapes (see R1 and R2 above)
 law arg_token_shapes_example:
-  {[S.all(AT.plain(), "fix @Cargo.toml --quiet now"), S.all(AT.plain(), "x -- y"), S.all(AT.with_separator(), "x -- y"), S.all(AT.plain(), "a @\"my file\" b"), S.all(AT.plain(), "a @\"open b"), S.all(AT.plain(), "a @pa\\th b")] == [[S.Fit{4n, 15n, []}, S.Fit{16n, 23n, []}], [], [S.Fit{2n, 4n, []}], [S.Fit{2n, 12n, []}], [S.Fit{2n, 8n, []}], [S.Fit{2n, 8n, []}]] : List<&2, List<&2, S.Fit>>}
+  {[S.all(AT.plain(), "fix @Cargo.toml --quiet now"), S.all(AT.plain(), "x -- y"), S.all(AT.with_separator(), "x -- y"), S.all(AT.plain(), "a @\"my file\" b"), S.all(AT.plain(), "a @\"open b"), S.all(AT.plain(), "a @pa\\th b"), S.all(AT.plain(), "a @b"), S.all(AT.plain(), "@a --b")] == [[S.Fit{4n, 15n, []}, S.Fit{16n, 23n, []}], [], [S.Fit{2n, 4n, []}], [S.Fit{2n, 12n, []}], [S.Fit{2n, 8n, []}], [S.Fit{2n, 8n, []}], [S.Fit{2n, 4n, []}], [S.Fit{0n, 2n, []}, S.Fit{3n, 6n, []}]] : List<&2, List<&2, S.Fit>>}

@@ -17,6 +17,20 @@ import ./base.bend as LawsBase
 #     A char is a code point: one char past ASCII is one `_`. The name ""
 #     is `_`. A text is an identifier when every char stands where it may
 #     (Ci.test). Every name is free: any chars, any length.
+# R2: the entry (section below): a request is a question: tag 0 and a
+#     tool's name (a String), which the entry answers with its identifier
+#     (a String); tag 1 and a text (a String), which it answers with
+#     whether the text is an identifier (a Bool). A malformed request
+#     answers the error form "codemode_id: malformed request", input left
+#     after the request "codemode_id: input left after the request", never
+#     a default.
+#
+# Laws of R1: codemode_id_length, codemode_id_kept, codemode_id_replaced
+# (the identifier of a name, char by char; the empty name:
+# codemode_id_example), codemode_id_is_of (the test),
+# codemode_id_is_identifier, codemode_id_keeps_identifiers (anchors:
+# codemode_id_example, codemode_id_is_example, the cases of identifier.ts's
+# port).
 
 # Terms
 # -----
@@ -38,35 +52,6 @@ def mark_spec(+x: U32) -> Bool:
 # start
 def ok_spec(first: Bool, +x: U32) -> Bool:
   Bool.or(Bool.or(letter_spec(x), mark_spec(x)), Bool.and(Bool.not(first), digit_spec(x)))
-
-def fix_spec(ok: Bool, c: Char) -> Char:
-  match ok:
-    case True{}:
-      c
-    case False{}:
-      '_'
-
-# what a name ends as: `_` when no char was read (first), else nothing
-def end_spec(first: Bool) -> String:
-  match first:
-    case True{}:
-      "_"
-    case False{}:
-      ""
-
-# the identifier of s, one loop: each char kept where it may stand, else
-# `_`; first: no char read yet, so an empty name gives `_`
-def id_spec.go(s: String, first: Bool) -> String:
-  match s:
-    case SNil{}:
-      end_spec(first)
-    case SCon{c, t}:
-      match c:
-        case Chr{+x}:
-          SCon{fix_spec(ok_spec(first, x), Chr{x}), id_spec.go(t, False{})}
-
-def id_spec(s: String) -> String:
-  id_spec.go(s, True{})
 
 # every char of s may stand after the start of an identifier
 def parts_spec(s: String) -> Bool:
@@ -100,14 +85,39 @@ def req_fits(q: FCi.Req) -> Bool:
 # Laws
 # ----
 
-# LAW codemode_id_exact: the identifier of a name is the name with each char a JavaScript identifier may not hold at its place (first: letter, `_`, `$`; later: also a digit) replaced by `_`; the empty name is `_`
-# EXCLUDES: a digit kept at the start or replaced later, a non-ASCII
-#   letter kept, `$` or `_` replaced, a char dropped or added (one `_` per
-#   code point, not per UTF-16 unit or byte), another fill char, an empty
-#   identifier
-law codemode_id_exact:
-  for s: String
-  {Ci.of(s) == id_spec(s) : String}
+# LAW codemode_id_length: the identifier of a name that is not empty has as
+# many chars as the name (a char is a code point)
+# EXCLUDES: a char dropped or added, one `_` per UTF-16 unit or byte of a
+#   char past ASCII
+law codemode_id_length:
+  for c: Char
+  for t: String
+  {String.length(Ci.of(SCon{c, t})) == 1n+String.length(t) : Nat}
+
+# LAW codemode_id_kept: the char of code x after any chars a stands at the
+# same place in the identifier when a JavaScript identifier may hold it
+# there (ok_spec: first when a is empty: a letter, `_`, `$`; later: also a
+# digit), whatever chars b follow
+# EXCLUDES: a valid char replaced (a digit later, `$`, `_`), a char moved,
+#   a char read with the class of another place
+law codemode_id_kept:
+  for a: String
+  for +x: U32
+  for b: String
+  for ok: {ok_spec(String.is_empty(a), x) == True{} : Bool}
+  {String.get(Ci.of(String.append(a, SCon{Chr{x}, b})), String.length(a)) == Some{Chr{x}} : Maybe<&2, Char>}
+
+# LAW codemode_id_replaced: the char of code x after any chars a becomes `_`
+# at the same place in the identifier when a JavaScript identifier may not
+# hold it there (ok_spec), whatever chars b follow
+# EXCLUDES: a digit kept at the start, a non-ASCII letter or punctuation
+#   kept, another fill char, a char dropped instead of replaced
+law codemode_id_replaced:
+  for a: String
+  for +x: U32
+  for b: String
+  for no: {ok_spec(String.is_empty(a), x) == False{} : Bool}
+  {String.get(Ci.of(String.append(a, SCon{Chr{x}, b})), String.length(a)) == Some{'_'} : Maybe<&2, Char>}
 
 # LAW codemode_id_is_identifier: every identifier is a JavaScript identifier of ASCII chars
 # EXCLUDES: an identifier a script cannot name (empty, digit first, a
@@ -135,13 +145,14 @@ law codemode_id_example:
   {Ci.of("é") == "_" : String} &
   {Ci.of("") == "_" : String}
 
-# LAW codemode_id_is_exact: a text is an identifier exactly when it is a JavaScript identifier of ASCII chars
+# LAW codemode_id_is_of: a text is an identifier exactly when it is not
+# empty and its identifier is itself (the identifier: the R1 laws above)
 # EXCLUDES: the empty text, a digit first, a non-ASCII letter or other
 #   punctuation accepted; a valid name refused (a bare object key quoted,
 #   a valid global refused)
-law codemode_id_is_exact:
-  for s: String
-  {Ci.test(s) == ident_spec(s) : Bool}
+law codemode_id_is_of:
+  for +s: String
+  {Ci.test(s) == Bool.and(Bool.not(String.is_empty(s)), String.eq(Ci.of(s), s)) : Bool}
 
 # LAW codemode_id_is_example: anchor: the global names and keys of code mode
 # EXCLUDES: a spec that is wrong on real names
@@ -160,12 +171,10 @@ law codemode_id_is_example:
 # built only from the wire primitives of bend/wire.bend (their round
 # trips: laws/wire.bend).
 #
-# R2: a request is a question: tag 0 and a tool's name (a String), which
-#     the entry answers with its identifier (a String); tag 1 and a text
-#     (a String), which it answers with whether the text is an identifier
-#     (a Bool). A malformed request answers the error form "codemode_id:
-#     malformed request", input left after the request "codemode_id:
-#     input left after the request", never a default.
+# Laws of R2: codemode_id_ffi_answers, codemode_id_ffi_is,
+# codemode_id_ffi_exact, codemode_id_ffi_left_over,
+# codemode_id_ffi_malformed_unless_request (anchor:
+# codemode_id_ffi_example).
 
 # the identifier question: tag 0, the name, then rest
 def spell_id(name: String, rest: String) -> String:
@@ -183,20 +192,20 @@ def spell_req(q: FCi.Req, rest: String) -> String:
     case FCi.QIs{n}:
       spell_is(n, rest)
 
-# LAW codemode_id_ffi_answers: an identifier question of a name that fits the wire answers that name's identifier
+# LAW codemode_id_ffi_answers: an identifier question of a name that fits the wire answers that name's identifier (Ci.of, pinned by the R1 laws)
 # EXCLUDES: a field misread, another identifier, a reply in another
 #   spelling, the two questions swapped
 law codemode_id_ffi_answers:
   for +name: String
   for fit: {LawsBase.wire_fits(String.length(name)) == True{} : Bool}
-  {FCi.ffi(spell_id(name, "")) == Wr.put_str(id_spec(name), "") : String}
+  {FCi.ffi(spell_id(name, "")) == Wr.put_str(Ci.of(name), "") : String}
 
-# LAW codemode_id_ffi_is: an identifier test of a text that fits the wire answers whether it is an identifier
+# LAW codemode_id_ffi_is: an identifier test of a text that fits the wire answers whether it is an identifier (Ci.test, pinned by codemode_id_is_of)
 # EXCLUDES: a field misread, another answer, the two questions swapped
 law codemode_id_ffi_is:
   for +text: String
   for fit: {LawsBase.wire_fits(String.length(text)) == True{} : Bool}
-  {FCi.ffi(spell_is(text, "")) == Wr.put_bool(ident_spec(text), "") : String}
+  {FCi.ffi(spell_is(text, "")) == Wr.put_bool(Ci.test(text), "") : String}
 
 # LAW codemode_id_ffi_exact: every input the entry answers with a value (not the error form) is a spelled request
 # EXCLUDES: a default answer for a malformed request (an unknown tag, a
@@ -207,36 +216,16 @@ law codemode_id_ffi_exact:
   exs q: FCi.Req
   {s == spell_req(q, "") : String}
 
-# the request decoder fails on s: a bad tag or text
-def bad_spec.str(r: Wr.Dec<String>) -> Bool:
-  match r:
-    case Wr.Got{x, s}:
-      False{}
-    case Wr.Bad{}:
-      True{}
-
-def bad_spec.tag(t: Nat, s: String) -> Bool:
-  match t:
-    case 0n:
-      bad_spec.str(Wr.get_str(s))
-    case 1n:
-      bad_spec.str(Wr.get_str(s))
-    case 2n+u:
-      True{}
-
-def bad_spec(r: Wr.Dec<Nat>) -> Bool:
-  match r:
-    case Wr.Got{t, s}:
-      bad_spec.tag(t, s)
-    case Wr.Bad{}:
-      True{}
-
-# LAW codemode_id_ffi_malformed: an input whose tag is no question, or whose text is no encoding, answers the malformed error form
-# EXCLUDES: another error text, a default answer
-law codemode_id_ffi_malformed:
+# LAW codemode_id_ffi_malformed_unless_request: every answer but the error form "codemode_id: malformed request" comes from an input that begins with a spelled request whose text fits the wire
+# EXCLUDES: the left-over error, a default or any answer for an input that
+#   does not begin with a request (an unknown tag, a short text), the
+#   malformed error spelled with another text
+law codemode_id_ffi_malformed_unless_request:
   for +s: String
-  for bad: {bad_spec(Wr.get_nat(s)) == True{} : Bool}
-  {FCi.ffi(s) == Wr.err("codemode_id: malformed request") : String}
+  for other: {String.eq(FCi.ffi(s), Wr.err("codemode_id: malformed request")) == False{} : Bool}
+  exs q: FCi.Req
+  exs rest: String
+  {(s, req_fits(q)) == (spell_req(q, rest), True{}) : String & Bool}
 
 # LAW codemode_id_ffi_left_over: a request followed by more input answers the left-over error form
 # EXCLUDES: the input after the request ignored or read as part of the

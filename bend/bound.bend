@@ -1,5 +1,5 @@
-# bound: the bounder of a tool's output (limits 1 and
-# 2): which bytes of the output it keeps under a cap, what it counts as
+# bound: the bounder of a tool's output (requirements R1-R10 of
+# laws/bound.bend): which bytes of the output it keeps under a cap, what it counts as
 # dropped, what it stores while the output streams, and the truncation
 # notice. Rust (crates/eukhe-durable/src/harness/output.rs) moves the
 # bytes; this model decides, run as the compiled Bend core

@@ -5,12 +5,11 @@ import ../../bend/refine_plan.bend as Rp
 import ../../bend/ffi_refine_plan.bend as FRp
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
-import ./model.bend as RefinePlan
 
 # (D2) The entry
 # --------------
-# R9: the entry answers each request Rust writes with the spec's answer,
-#     reads exactly the request and nothing after it, and answers any other
+# R9: the entry answers each request spelled by the grammar below with
+#     the model's answer, reads exactly the request and nothing after it, and answers any other
 #     input with the exact error form `E refine_plan: malformed request`.
 #     A request: its tag then its fields: 0 ids: the edits; 1 plan: the
 #     options (factory opt-in, baseline given: Bools), the edits; 2 back:
@@ -266,21 +265,22 @@ def rp_w_step(x: Rp.Step, rest: String) -> String:
     case Rp.TNo{text}:
       Wr.put_nat(2n, Wr.put_str(text, rest))
 
-# the reply Rust reads: the spec's answer, spelled
+# the reply: the model's answer (pinned by the R1-R8 laws), spelled by
+# R9's reply grammar
 def rp_w_reply(q: FRp.Req) -> String:
   match q:
     case FRp.QIds{eds}:
-      rp_w_mss(RefinePlan.rp_ids(eds), "")
+      rp_w_mss(Rp.ids(eds), "")
     case FRp.QPlan{opts, eds}:
-      rp_w_plan(RefinePlan.rp_plan(opts, eds), "")
+      rp_w_plan(Rp.plan(opts, eds), "")
     case FRp.QBack{id, was}:
-      rp_w_back(RefinePlan.rp_back(id, was), "")
+      rp_w_back(Rp.back(id, was), "")
     case FRp.QNorm{summary, rationale, outcome}:
-      rp_w_texts(RefinePlan.rp_norm(summary, rationale, outcome), "")
+      rp_w_texts(Rp.norm(summary, rationale, outcome), "")
     case FRp.QScan{text}:
-      Wr.put_bool(RefinePlan.rp_incomplete(text), "")
+      Wr.put_bool(Rp.incomplete(text), "")
     case FRp.QFit{win, conv, search, plen}:
-      rp_w_step(RefinePlan.rp_fit(win, conv, search, plen), "")
+      rp_w_step(Rp.fit(win, conv, search, plen), "")
 
 # Fits: every count, length and Nat of a request within the wire
 # ---------------------------------------------------------------
@@ -354,12 +354,15 @@ def rp_fit_req(x: FRp.Req) -> Bool:
 # Laws: the entry (R9)
 # --------------------
 
-# LAW refine_plan_entry_answers (R9): the entry answers every request Rust
-# spells, every count, length and Nat within the wire, with the spec's
-# answer spelled
+# LAW refine_plan_entry_answers (R9): the entry answers every request the
+# R9 grammar spells (rp_w_req), every count, length and Nat within the
+# wire, with the model's answer (Rp.ids, Rp.plan, Rp.back, Rp.norm,
+# Rp.incomplete, Rp.fit, pinned by the R1-R8 laws) spelled by R9's reply
+# grammar (rp_w_reply; its spellers follow the grammar the entry's put_*
+# follow, and no law ties either grammar to Rust's reader or writer)
 # EXCLUDES: fields read in another order, a tag misread, a Bool fact
-#   swapped with another, an edit lost, a reply in another constructor or
-#   order, a default
+#   swapped with another, an edit lost, a default, an answer other than
+#   the model's
 law refine_plan_entry_answers:
   for +q: FRp.Req
   for fit: {rp_fit_req(q) == True{} : Bool}

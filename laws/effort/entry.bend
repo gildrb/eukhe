@@ -1,5 +1,5 @@
 # eukhe: the laws of area effort, section entry: the entry bend/ffi_effort.bend on every input, from a
-# reader, the decisions and a speller of its own, and the session (S10), pinned
+# reader, the decisions and a speller of its own
 
 import Base
 import ../../bend/effort.bend as Ef
@@ -371,13 +371,15 @@ def es.wired(explicit: Maybe<&2, Ef.LvMap>) -> Bool:
           Bool.or(es.wire(o), Bool.or(es.wire(mi), Bool.or(es.wire(lo), Bool.or(es.wire(me), Bool.or(es.wire(hi), Bool.or(es.wire(xh), es.wire(mx)))))))
 
 # a model reasons by its flag, or, a registry model (by_map), by an
-# explicit map that gives some level a wire string (quirk_ladder_reasons)
+# explicit map that gives some level a wire string (laws/infer.bend
+# quirk_ladder_flag_reasons, quirk_ladder_map_reasons,
+# quirk_ladder_reasons_only_so)
 def es.reasons(flag: Bool, bm: Bool, explicit: Maybe<&2, Ef.LvMap>) -> Bool:
   Bool.or(flag, Bool.and(bm, es.wired(explicit)))
 
 # the chosen ladder: the explicit map, else the rule's, else no entry
-# (quirk_ladder_explicit_first, quirk_ladder_rule_second,
-# quirk_ladder_default_last)
+# (laws/infer.bend quirk_ladder_explicit_decides, quirk_ladder_rule_decides,
+# quirk_ladder_default_decides)
 def es.chosen(explicit: Maybe<&2, Ef.LvMap>, rule: Maybe<&2, Ef.LvMap>) -> Ef.LvMap:
   match explicit:
     case Some{e}:
@@ -571,138 +573,3 @@ def es.spec(s: String) -> String:
 law core_effort_ffi_exact:
   for +s: String
   {FEf.ffi(s) == es.spec(s) : String}
-
-# (S10) The session, pinned
-# -------------------------
-# The session of bend/effort.bend (header §4) over the decisions above;
-# a model offers what `es.offer` keeps with the default ladders of §1
-def es.thinks() -> List<&2, Ef.Lv>:
-  [Ef.Off{}, Ef.Minimal{}, Ef.Low{}, Ef.Medium{}, Ef.High{}]
-
-# the levels the catalog model m offers
-def es.lad(m: Ef.Mdl) -> List<&2, Ef.Lv>:
-  match m:
-    case Ef.Mdl{r, map}:
-      es.offer(es.ladder(), r, map, es.thinks(), [Ef.Off{}])
-
-# l fitted to the catalog model: clamped, unchanged without one
-def es.fit(mo: Maybe<&2, Ef.Mdl>, +l: Ef.Lv) -> Ef.Lv:
-  match mo:
-    case None{}:
-      l
-    case Some{m}:
-      es.clamp(es.lad(m), l)
-
-# open: the model kept, the stored level (else the default) fitted
-def es.open(s: Ef.Sess, dflt: Ef.Lv) -> Ef.Sess:
-  match s:
-    case Ef.Sess{+mo, st}:
-      Ef.Sess{mo, Some{es.fit(mo, es.or(st, dflt))}}
-
-# a switch to m: a stored level clamped to m; no stored level stays none
-def es.switched(+m: Ef.Mdl, st: Maybe<&2, Ef.Lv>) -> Maybe<&2, Ef.Lv>:
-  match st:
-    case None{}:
-      None{}
-    case Some{l}:
-      Some{es.clamp(es.lad(m), l)}
-
-# the level a cycle step stores: the step's level, clamped as Rust's
-# `apply_thinking_level` clamps it; l when the step gives none
-def es.stepped.to(+lad: List<&2, Ef.Lv>, r: Maybe<&2, Ef.Lv>, l: Ef.Lv) -> Ef.Lv:
-  match r:
-    case None{}:
-      l
-    case Some{k}:
-      es.clamp(lad, k)
-
-# a cycle step of the stored level along the catalog model's levels; no
-# step without a catalog model or a stored level
-def es.stepped(st: Maybe<&2, Ef.Lv>, mo: Maybe<&2, Ef.Mdl>, d: Ef.Dir) -> Maybe<&2, Ef.Lv>:
-  match st:
-    case None{}:
-      None{}
-    case Some{+l}:
-      match mo:
-        case None{}:
-          Some{l}
-        case Some{+m}:
-          Some{es.stepped.to(es.lad(m), es.cycle(es.lad(m), l, d), l)}
-
-# one action: a switch sets the model and clamps the stored level to it; a
-# set stores the requested level fitted; a cycle step stores the level it
-# gives
-def es.act(a: Ef.Act, s: Ef.Sess) -> Ef.Sess:
-  match a:
-    case Ef.Switch{+m}:
-      match s:
-        case Ef.Sess{mo, st}:
-          Ef.Sess{Some{m}, es.switched(m, st)}
-    case Ef.SetLevel{k}:
-      match s:
-        case Ef.Sess{+mo, st}:
-          Ef.Sess{mo, Some{es.fit(mo, k)}}
-    case Ef.Step{d}:
-      match s:
-        case Ef.Sess{+mo, st}:
-          Ef.Sess{mo, es.stepped(st, mo, d)}
-
-# the actions in order
-def es.acts(acts: List<&2, Ef.Act>, s: Ef.Sess) -> Ef.Sess:
-  match acts:
-    case Nil{}:
-      s
-    case a <> rest:
-      es.acts(rest, es.act(a, s))
-
-# the level the runtime sends: the stored level, else off, fitted
-def es.sent(s: Ef.Sess) -> Ef.Lv:
-  match s:
-    case Ef.Sess{mo, st}:
-      es.fit(mo, es.or(st, Ef.Off{}))
-
-# the display: `default` with no stored level, else the stored level fitted
-def es.shown(s: Ef.Sess) -> Ef.Shown:
-  match s:
-    case Ef.Sess{mo, st}:
-      match st:
-        case None{}:
-          Ef.Default{}
-        case Some{l}:
-          Ef.Level{es.fit(mo, l)}
-
-# LAW effort_open_exact (S10): open keeps the model and stores the stored level, else the default, fitted to it, for every session and default
-# EXCLUDES: an open that drops the stored level for the default (or the
-#   default for off), skips the fit, or clamps to another model's levels
-law effort_open_exact:
-  for +s: Ef.Sess
-  for +dflt: Ef.Lv
-  {Ef.open(s, dflt) == es.open(s, dflt) : Ef.Sess}
-
-# LAW effort_act_exact (S10): one action on any session: a switch sets the model and clamps the stored level to it, a set stores the requested level fitted, a cycle step stores the level the step gives (the level kept when it gives none)
-# EXCLUDES: a switch that resets the level (to the clamp of off) or keeps
-#   the old model; a set or a step that keeps the old level; a step from
-#   the unclamped level or along another model's levels
-law effort_act_exact:
-  for +a: Ef.Act
-  for +s: Ef.Sess
-  {Ef.act(a, s) == es.act(a, s) : Ef.Sess}
-
-# LAW effort_run_exact (S10): a run of actions is the actions one by one, in order, from any session
-# EXCLUDES: a run that drops, repeats or reorders an action
-law effort_run_exact:
-  for +acts: List<&2, Ef.Act>
-  for +s: Ef.Sess
-  {Ef.run(acts, s) == es.acts(acts, s) : Ef.Sess}
-
-# LAW effort_sent_exact (S10): the runtime sends the stored level, else off, fitted to the model, for any session
-# EXCLUDES: a sent level unfitted, or the default instead of off
-law effort_sent_exact:
-  for +s: Ef.Sess
-  {Ef.sent(s) == es.sent(s) : Ef.Lv}
-
-# LAW effort_shown_exact (S10): the display shows `default` with no stored level, else the stored level fitted to the model, for any session
-# EXCLUDES: a display of off for no stored level, or of the unfitted level
-law effort_shown_exact:
-  for +s: Ef.Sess
-  {Ef.shown(s) == es.shown(s) : Ef.Shown}

@@ -25,13 +25,15 @@
 #
 # Kinds are opaque numbers: the Rust code numbers the distinct layers of
 # one step and maps the numbers back. Budgets, the global budget and the
-# cap are counts the Rust code saturates at 2^48-1 before it calls the
-# model; the model only lowers a budget by one and compares the cap with
-# the stack's length, so no value ever grows past its input.
+# cap are counts the Rust code saturates at the wire's largest Nat
+# (10^14-1, `eukhe_bend::wire::NAT_MAX`) before it calls the model; the
+# model only lowers a budget, or the global budget, by one and compares
+# the cap with the stack's length.
 #
-# The stack lives in the session tree (bend/tree.bend): encode writes it
-# as nodes, decode reads it back. So a rewind of the tree restores the
-# stack, and a resume reads the same stack.
+# encode spells the stack as session tree nodes (bend/tree.bend) and
+# decode reads it back. No entry calls them: the Rust code keeps the stack
+# in the rewindable eukhe.directors document
+# (crates/eukhe-core/src/durable/directors/mod.rs).
 
 import Base
 import ./tree.bend as T

@@ -1,8 +1,8 @@
 # eukhe: lemmas of the entry proofs of area family: a spelled request
-# reads back (fe.req_rt), the reply encoder spells the spec's decision
-# (fe.reply), no reply opens with 'E' (fe.answer_ok), and a decoded
-# request is spelled (fx.*: a predicate per decoder stage, carried with
-# the wire exactness laws wire_nat_exact and the list lemmas of
+# reads back (fe.req_rt), the reply encoder spells the core's decision as
+# the laws do (fe.reply), no reply opens with 'E' (fe.answer_ok), and a
+# decoded request is spelled (fx.*: a predicate per decoder stage, carried
+# with the wire exactness laws wire_nat_exact and the list lemmas of
 # proof/base/wire_strs.bend)
 
 import Base
@@ -18,8 +18,6 @@ import ../../base/wire_strs.bend as LS
 import ../../base/bool.bend as LBool
 import ../../base/logic/bool.bend as LLogicBool
 import ../../base/staging.bend as LStg
-import ../family_refusal_precedence.bend as PFamilyRefusalPrecedence
-import ../family_text_spec.bend as PFamilyTextSpec
 
 # The whys
 # --------
@@ -81,15 +79,13 @@ def fe.verdict(+d: Nat, +m: Nat, v: F.Verdict) -> {FF.put_verdict(d, m, v) == Fa
   match v:
     case F.Admit{k}:
       {==}
-    case F.Refuse{+f}:
-      %Family.family_text_spec(d, m, f) : {Wr.put_nat(1n, Wr.put_str(F.text(d, m, f), "")) == Wr.put_nat(1n, Wr.put_str(_, "")) : String}
+    case F.Refuse{f}:
       {==}
 
-# the entry's answer is the spec's decision, spelled
+# the entry's answer is the core's decision, spelled as the laws spell it
 def fe.reply(q: FF.Req) -> {FF.answer(q) == Family.fam_w_reply(q) : String}:
   match q:
     case FF.Req{+d, +m, +r, +c, +ws}:
-      %Family.family_refusal_precedence(d, m, r, c, ws) : {FF.put_verdict(d, m, F.decide(d, m, r, c, ws)) == Family.fam_w_verdict(d, m, _) : String}
       fe.verdict(d, m, F.decide(d, m, r, c, ws))
 
 def fe.verdict_ok(+d: Nat, +m: Nat, v: F.Verdict) -> {LawsBase.wire_opens_err(FF.put_verdict(d, m, v)) == False{} : Bool}:

@@ -12,7 +12,7 @@ def shue.spell(st: Fl.St) -> List<&2, Nat>:
     case Fl.Start{}:
       Nil{}
     case Fl.Mid{o, d}:
-      Shell.sh_flat_one(o, Shell.sh_flat(d))
+      Fl.one(o, Fl.flat(d))
 
 # a fold state m, if any, spells ns
 def shue.Ok(ns: List<&2, Nat>, m: Maybe<&2, Fl.St>) -> Type:
@@ -27,9 +27,9 @@ def shue.Read(ns: List<&2, Nat>, r: Maybe<&2, List<&2, List<&2, Nat>>>) -> Type:
     case None{}:
       Unit
     case Some{xss}:
-      {ns == Shell.sh_flat(xss) : List<&2, Nat>}
+      {ns == Fl.flat(xss) : List<&2, Nat>}
 
-def shue.lists(st: Fl.St) -> {Shell.sh_flat(Fl.St.lists(st)) == shue.spell(st) : List<&2, Nat>}:
+def shue.lists(st: Fl.St) -> {Fl.flat(Fl.St.lists(st)) == shue.spell(st) : List<&2, Nat>}:
   match st:
     case Fl.Start{}:
       {==}
@@ -39,7 +39,7 @@ def shue.lists(st: Fl.St) -> {Shell.sh_flat(Fl.St.lists(st)) == shue.spell(st) :
 def shue.item(n: Nat, st: Fl.St, rest: List<&2, Nat>, ih: {rest == shue.spell(st) : List<&2, Nat>}) -> shue.Ok(n <> rest, Fl.step.item(n, st)):
   match n:
     case 0n:
-      %Equal.sym(List<&2, Nat>, Shell.sh_flat(Fl.St.lists(st)), shue.spell(st), shue.lists(st)) : {0n <> rest == 0n <> _ : List<&2, Nat>}
+      %Equal.sym(List<&2, Nat>, Fl.flat(Fl.St.lists(st)), shue.spell(st), shue.lists(st)) : {0n <> rest == 0n <> _ : List<&2, Nat>}
       %ih : {0n <> rest == 0n <> _ : List<&2, Nat>}
       {==}
     case 1n+x:
@@ -69,7 +69,7 @@ def shue.fin(ns: List<&2, Nat>, m: Maybe<&2, Fl.St>, ok: shue.Ok(ns, m)) -> shue
     case None{}:
       Unit{}
     case Some{st}:
-      %Equal.sym(List<&2, Nat>, Shell.sh_flat(Fl.St.lists(st)), shue.spell(st), shue.lists(st)) : {ns == _ : List<&2, Nat>}
+      %Equal.sym(List<&2, Nat>, Fl.flat(Fl.St.lists(st)), shue.spell(st), shue.lists(st)) : {ns == _ : List<&2, Nat>}
       ok
 
 def Shell.shell_unflat_exact(ns, xss, h):

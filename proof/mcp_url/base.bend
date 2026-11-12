@@ -89,7 +89,7 @@ def mub.decs(s: String) -> {Mu.all_dec(s) == McpUrl.mu_decs(s) : Bool}:
       %Equal.sym(Bool, Mu.all_dec(t), McpUrl.mu_decs(t), mub.decs(t)) : {Bool.and(Char.is_digit(c), _) == Bool.and(Char.is_digit(c), McpUrl.mu_decs(t)) : Bool}
       {==}
 
-def mub.hex_char(c: Char) -> {Mu.is_hex(c) == McpUrl.mu_hex_char(c) : Bool}:
+def mub.hex_char(c: Char) -> {Mu.is_hex(c) == McpUrl.mu_hex_char_orig(c) : Bool}:
   match c:
     case Chr{x}:
       {==}
@@ -99,8 +99,8 @@ def mub.hexs(s: String) -> {Mu.all_hex(s) == McpUrl.mu_hexs(s) : Bool}:
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(Bool, Mu.all_hex(t), McpUrl.mu_hexs(t), mub.hexs(t)) : {Bool.and(Mu.is_hex(c), _) == Bool.and(McpUrl.mu_hex_char(c), McpUrl.mu_hexs(t)) : Bool}
-      %Equal.sym(Bool, Mu.is_hex(c), McpUrl.mu_hex_char(c), mub.hex_char(c)) : {Bool.and(_, McpUrl.mu_hexs(t)) == Bool.and(McpUrl.mu_hex_char(c), McpUrl.mu_hexs(t)) : Bool}
+      %Equal.sym(Bool, Mu.all_hex(t), McpUrl.mu_hexs(t), mub.hexs(t)) : {Bool.and(Mu.is_hex(c), _) == Bool.and(McpUrl.mu_hex_char_orig(c), McpUrl.mu_hexs(t)) : Bool}
+      %Equal.sym(Bool, Mu.is_hex(c), McpUrl.mu_hex_char_orig(c), mub.hex_char(c)) : {Bool.and(_, McpUrl.mu_hexs(t)) == Bool.and(McpUrl.mu_hex_char_orig(c), McpUrl.mu_hexs(t)) : Bool}
       {==}
 
 def mub.dval(s: String, v: U32) -> {Mu.dec(s, v) == McpUrl.mu_dval(s, v) : U32}:
@@ -178,7 +178,7 @@ def mub.part(+s: String) -> {Mu.part(s) == McpUrl.mu_part(s) : Mu.Part}:
 # IPv4
 # ----
 
-def mub.quad(p: Mu.Part, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> {Mu.quad(p, q, r, s) == McpUrl.mu_quad(p, q, r, s) : Mu.V4}:
+def mub.quad(p: Mu.Part, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> {Mu.quad(p, q, r, s) == McpUrl.mu_quad_orig(p, q, r, s) : Mu.V4}:
   match p:
     case Mu.POct{a}:
       match q:
@@ -205,11 +205,11 @@ def mub.quad(p: Mu.Part, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> {Mu.quad(p, q, r
     case Mu.PNone{}:
       {==}
 
-def mub.four(+p: String, +q: String, +r: String, +s: String) -> {Mu.quad(Mu.part(p), Mu.part(q), Mu.part(r), Mu.part(s)) == McpUrl.mu_quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}:
-  %Equal.sym(Mu.Part, Mu.part(p), McpUrl.mu_part(p), mub.part(p)) : {Mu.quad(_, Mu.part(q), Mu.part(r), Mu.part(s)) == McpUrl.mu_quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
-  %Equal.sym(Mu.Part, Mu.part(q), McpUrl.mu_part(q), mub.part(q)) : {Mu.quad(McpUrl.mu_part(p), _, Mu.part(r), Mu.part(s)) == McpUrl.mu_quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
-  %Equal.sym(Mu.Part, Mu.part(r), McpUrl.mu_part(r), mub.part(r)) : {Mu.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), _, Mu.part(s)) == McpUrl.mu_quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
-  %Equal.sym(Mu.Part, Mu.part(s), McpUrl.mu_part(s), mub.part(s)) : {Mu.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), _) == McpUrl.mu_quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+def mub.four(+p: String, +q: String, +r: String, +s: String) -> {Mu.quad(Mu.part(p), Mu.part(q), Mu.part(r), Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}:
+  %Equal.sym(Mu.Part, Mu.part(p), McpUrl.mu_part(p), mub.part(p)) : {Mu.quad(_, Mu.part(q), Mu.part(r), Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  %Equal.sym(Mu.Part, Mu.part(q), McpUrl.mu_part(q), mub.part(q)) : {Mu.quad(McpUrl.mu_part(p), _, Mu.part(r), Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  %Equal.sym(Mu.Part, Mu.part(r), McpUrl.mu_part(r), mub.part(r)) : {Mu.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), _, Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  %Equal.sym(Mu.Part, Mu.part(s), McpUrl.mu_part(s), mub.part(s)) : {Mu.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), _) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
   mub.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s))
 
 def mub.v4(ps: List<&2, String>) -> {Mu.v4.parts(ps) == McpUrl.mu_v4.parts(ps) : Mu.V4}:
@@ -447,3 +447,155 @@ def mub.refused.at(b: Bool, +s: String) -> {Mu.refused.at(b, s) == McpUrl.mu_ref
     case False{}:
       %Equal.sym(Mu.V4, Mu.v4.parts(String.split(s, '.')), McpUrl.mu_v4.parts(String.split(s, '.')), mub.v4(String.split(s, '.'))) : {Mu.after_v4(_, s) == McpUrl.mu_after(McpUrl.mu_v4.parts(String.split(s, '.')), s) : Bool}
       mub.after(McpUrl.mu_v4.parts(String.split(s, '.')), s)
+
+def mub.hex_char_orig(c: Char) -> {Mu.is_hex(c) == McpUrl.mu_hex_char_orig(c) : Bool}:
+  match c:
+    case Chr{x}:
+      {==}
+
+def mub.hexs_orig(s: String) -> {Mu.all_hex(s) == McpUrl.mu_hexs(s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Mu.all_hex(t), McpUrl.mu_hexs(t), mub.hexs_orig(t)) : {Bool.and(Mu.is_hex(c), _) == Bool.and(McpUrl.mu_hex_char_orig(c), McpUrl.mu_hexs(t)) : Bool}
+      %Equal.sym(Bool, Mu.is_hex(c), McpUrl.mu_hex_char_orig(c), mub.hex_char_orig(c)) : {Bool.and(_, McpUrl.mu_hexs(t)) == Bool.and(McpUrl.mu_hex_char_orig(c), McpUrl.mu_hexs(t)) : Bool}
+      {==}
+
+def mub.word_orig(s: String) -> {Mu.word(s) == McpUrl.mu_word(s) : Maybe<&2, U32>}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      +d = {SCon{c, t} : String}
+      %Equal.sym(String, Mu.unsigned(d), McpUrl.mu_plus(d), mub.plus(d)) : {Mu.word.digits(Bool.and(Bool.not(String.is_empty(_)), Mu.all_hex(_)), _) == McpUrl.mu_word(d) : Maybe<&2, U32>}
+      %Equal.sym(Bool, Mu.all_hex(McpUrl.mu_plus(d)), McpUrl.mu_hexs(McpUrl.mu_plus(d)), mub.hexs_orig(McpUrl.mu_plus(d))) : {Mu.word.digits(Bool.and(Bool.not(String.is_empty(McpUrl.mu_plus(d))), _), McpUrl.mu_plus(d)) == McpUrl.mu_word(d) : Maybe<&2, U32>}
+      mub.word.at(Bool.and(Bool.not(String.is_empty(McpUrl.mu_plus(d))), McpUrl.mu_hexs(McpUrl.mu_plus(d))), McpUrl.mu_plus(d))
+
+def mub.words_orig(ps: List<&2, String>) -> {Mu.words(ps) == McpUrl.mu_words(ps) : Maybe<&2, List<&2, U32>>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +t:
+      %Equal.sym(Maybe<&2, U32>, Mu.word(p), McpUrl.mu_word(p), mub.word_orig(p)) : {Mu.words.cons(_, Mu.words(t)) == McpUrl.mu_words.cons(McpUrl.mu_word(p), McpUrl.mu_words(t)) : Maybe<&2, List<&2, U32>>}
+      %Equal.sym(Maybe<&2, List<&2, U32>>, Mu.words(t), McpUrl.mu_words(t), mub.words_orig(t)) : {Mu.words.cons(McpUrl.mu_word(p), _) == McpUrl.mu_words.cons(McpUrl.mu_word(p), McpUrl.mu_words(t)) : Maybe<&2, List<&2, U32>>}
+      mub.cons(McpUrl.mu_word(p), McpUrl.mu_words(t))
+
+def mub.one.at_orig(b: Bool, ps: List<&2, String>) -> {Mu.expand.one.at(b, ps) == McpUrl.mu_one.at(b, ps) : Maybe<&2, List<&2, U32>>}:
+  match b:
+    case True{}:
+      mub.words_orig(ps)
+    case False{}:
+      {==}
+
+def mub.one_orig(+ps: List<&2, String>) -> {Mu.expand.one(ps) == McpUrl.mu_one(ps) : Maybe<&2, List<&2, U32>>}:
+  %Equal.sym(Bool, Mu.any_empty(ps), McpUrl.mu_any_empty(ps), mub.any_empty(ps)) : {Mu.expand.one.at(Bool.and(Nat.is_eq(List.length(&2, String, ps), 8n), Bool.not(_)), ps) == McpUrl.mu_one(ps) : Maybe<&2, List<&2, U32>>}
+  mub.one.at_orig(Bool.and(Nat.is_eq(List.length(&2, String, ps), 8n), Bool.not(McpUrl.mu_any_empty(ps))), ps)
+
+def mub.two.at_orig(b: Bool, +hp: List<&2, String>, +tp: List<&2, String>, +n: Nat) -> {Mu.expand.two.at(b, hp, tp, n) == McpUrl.mu_two.at(b, hp, tp, n) : Maybe<&2, List<&2, U32>>}:
+  match b:
+    case True{}:
+      %Equal.sym(Maybe<&2, List<&2, U32>>, Mu.words(hp), McpUrl.mu_words(hp), mub.words_orig(hp)) : {Mu.join3(_, Mu.zeros(Nat.sub(8n, n)), Mu.words(tp)) == McpUrl.mu_join(McpUrl.mu_words(hp), McpUrl.mu_zeros(Nat.sub(8n, n)), McpUrl.mu_words(tp)) : Maybe<&2, List<&2, U32>>}
+      %Equal.sym(Maybe<&2, List<&2, U32>>, Mu.words(tp), McpUrl.mu_words(tp), mub.words_orig(tp)) : {Mu.join3(McpUrl.mu_words(hp), Mu.zeros(Nat.sub(8n, n)), _) == McpUrl.mu_join(McpUrl.mu_words(hp), McpUrl.mu_zeros(Nat.sub(8n, n)), McpUrl.mu_words(tp)) : Maybe<&2, List<&2, U32>>}
+      %Equal.sym(List<&2, U32>, Mu.zeros(Nat.sub(8n, n)), McpUrl.mu_zeros(Nat.sub(8n, n)), mub.zeros(Nat.sub(8n, n))) : {Mu.join3(McpUrl.mu_words(hp), _, McpUrl.mu_words(tp)) == McpUrl.mu_join(McpUrl.mu_words(hp), McpUrl.mu_zeros(Nat.sub(8n, n)), McpUrl.mu_words(tp)) : Maybe<&2, List<&2, U32>>}
+      mub.join(McpUrl.mu_words(hp), McpUrl.mu_zeros(Nat.sub(8n, n)), McpUrl.mu_words(tp))
+    case False{}:
+      {==}
+
+def mub.expand.of_orig(h: Mu.Halves) -> {Mu.expand.of(h) == McpUrl.mu_expand.of(h) : Maybe<&2, List<&2, U32>>}:
+  match h:
+    case Mu.One{+a}:
+      %Equal.sym(List<&2, String>, Mu.side(a), McpUrl.mu_side(a), mub.side(a)) : {Mu.expand.one(_) == McpUrl.mu_one(McpUrl.mu_side(a)) : Maybe<&2, List<&2, U32>>}
+      mub.one_orig(McpUrl.mu_side(a))
+    case Mu.Two{+a, +b}:
+      %Equal.sym(List<&2, String>, Mu.side(a), McpUrl.mu_side(a), mub.side(a)) : {Mu.expand.two(_, Mu.side(b)) == McpUrl.mu_two(McpUrl.mu_side(a), McpUrl.mu_side(b)) : Maybe<&2, List<&2, U32>>}
+      %Equal.sym(List<&2, String>, Mu.side(b), McpUrl.mu_side(b), mub.side(b)) : {Mu.expand.two(McpUrl.mu_side(a), _) == McpUrl.mu_two(McpUrl.mu_side(a), McpUrl.mu_side(b)) : Maybe<&2, List<&2, U32>>}
+      +hp = McpUrl.mu_side(a)
+      +tp = McpUrl.mu_side(b)
+      mub.two.at_orig(Nat.is_le(Nat.add(List.length(&2, String, hp), List.length(&2, String, tp)), 7n), hp, tp, Nat.add(List.length(&2, String, hp), List.length(&2, String, tp)))
+
+def mub.expand_orig(+s: String) -> {Mu.expand(s) == McpUrl.mu_expand(s) : Maybe<&2, List<&2, U32>>}:
+  %Equal.sym(Mu.Halves, Mu.halves(s), McpUrl.mu_halves(s), mub.halves(s)) : {Mu.expand.of(_) == McpUrl.mu_expand.of(McpUrl.mu_halves(s)) : Maybe<&2, List<&2, U32>>}
+  mub.expand.of_orig(McpUrl.mu_halves(s))
+
+def mub.v6_orig(b: Bool, +s: String) -> {Mu.v6(b, s) == McpUrl.mu_v6.at(b, s) : Bool}:
+  match b:
+    case True{}:
+      %Equal.sym(Maybe<&2, List<&2, U32>>, Mu.expand(s), McpUrl.mu_expand(s), mub.expand_orig(s)) : {Mu.v6.of(_) == McpUrl.mu_v6(McpUrl.mu_expand(s)) : Bool}
+      mub.v6.of(McpUrl.mu_expand(s))
+    case False{}:
+      {==}
+
+def mub.after_orig(v: Mu.V4, +s: String) -> {Mu.after_v4(v, s) == McpUrl.mu_after(v, s) : Bool}:
+  match v:
+    case Mu.V4No{}:
+      mub.v6_orig(String.contains(s, ":"), s)
+    case Mu.V4Bad{}:
+      {==}
+    case Mu.V4Quad{a, b, c, d}:
+      {==}
+
+def mub.quad_orig(p: Mu.Part, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> {Mu.quad(p, q, r, s) == McpUrl.mu_quad_orig(p, q, r, s) : Mu.V4}:
+  match p:
+    case Mu.POct{a}:
+      match q:
+        case Mu.POct{b}:
+          match r:
+            case Mu.POct{c}:
+              match s:
+                case Mu.POct{d}:
+                  {==}
+                case Mu.PBig{}:
+                  {==}
+                case Mu.PNone{}:
+                  {==}
+            case Mu.PBig{}:
+              {==}
+            case Mu.PNone{}:
+              {==}
+        case Mu.PBig{}:
+          {==}
+        case Mu.PNone{}:
+          {==}
+    case Mu.PBig{}:
+      {==}
+    case Mu.PNone{}:
+      {==}
+
+def mub.four_orig(+p: String, +q: String, +r: String, +s: String) -> {Mu.quad(Mu.part(p), Mu.part(q), Mu.part(r), Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}:
+  %Equal.sym(Mu.Part, Mu.part(p), McpUrl.mu_part(p), mub.part(p)) : {Mu.quad(_, Mu.part(q), Mu.part(r), Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  %Equal.sym(Mu.Part, Mu.part(q), McpUrl.mu_part(q), mub.part(q)) : {Mu.quad(McpUrl.mu_part(p), _, Mu.part(r), Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  %Equal.sym(Mu.Part, Mu.part(r), McpUrl.mu_part(r), mub.part(r)) : {Mu.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), _, Mu.part(s)) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  %Equal.sym(Mu.Part, Mu.part(s), McpUrl.mu_part(s), mub.part(s)) : {Mu.quad(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), _) == McpUrl.mu_quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s)) : Mu.V4}
+  mub.quad_orig(McpUrl.mu_part(p), McpUrl.mu_part(q), McpUrl.mu_part(r), McpUrl.mu_part(s))
+
+def mub.v4_orig(ps: List<&2, String>) -> {Mu.v4.parts(ps) == McpUrl.mu_v4.parts(ps) : Mu.V4}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> t1:
+      match t1:
+        case Nil{}:
+          {==}
+        case q <> t2:
+          match t2:
+            case Nil{}:
+              {==}
+            case r <> t3:
+              match t3:
+                case Nil{}:
+                  {==}
+                case s <> t4:
+                  match t4:
+                    case Nil{}:
+                      mub.four_orig(p, q, r, s)
+                    case x <> t5:
+                      {==}
+
+def mub.refused.at_orig(b: Bool, +s: String) -> {Mu.refused.at(b, s) == McpUrl.mu_refused.at(b, s) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      %Equal.sym(Mu.V4, Mu.v4.parts(String.split(s, '.')), McpUrl.mu_v4.parts(String.split(s, '.')), mub.v4_orig(String.split(s, '.'))) : {Mu.after_v4(_, s) == McpUrl.mu_after(McpUrl.mu_v4.parts(String.split(s, '.')), s) : Bool}
+      mub.after_orig(McpUrl.mu_v4.parts(String.split(s, '.')), s)

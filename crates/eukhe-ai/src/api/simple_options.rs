@@ -393,8 +393,8 @@ pub fn adjust_max_tokens_for_thinking(
 /// The output cap of an auxiliary call (the compactor's): the `high`
 /// thinking budget (the user's, else the rulebook's default) plus
 /// [`MIN_ANSWER_TOKENS`] for the answer, so the cap minus the budget is
-/// always the answer's room (model `Fx.aux`, `laws/facts.bend`
-/// `facts_aux_cap_within`, `facts_aux_cap_answer_room`; held at
+/// always the answer's room (model `Fx.aux`, `laws/facts/model.bend`
+/// `facts_aux_keeps_answer_room`, `facts_aux_saturates_at_top`; held at
 /// [`NAT_MAX`]).
 #[must_use]
 pub fn aux_output_cap(custom_budgets: Option<&ThinkingBudgets>) -> u64 {

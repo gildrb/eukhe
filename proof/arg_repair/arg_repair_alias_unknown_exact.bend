@@ -2,7 +2,7 @@
 #
 # PROOF: the first argument's key (not decoded) has no refusal, no
 # declaration and an alias whose canonical name has no refusal and no
-# declaration (arg_repair_spec's lookups), so a closed schema reads it as
+# declaration (base/look.bend's lookups), so a closed schema reads it as
 # that name unknown (ux2.named), its step refuses with it and the declared
 # names, and a refused first step refuses the call.
 
@@ -10,7 +10,7 @@ import Base
 import ../../bend/arg_repair.bend as Ar
 import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 import ./arg_repair_refused_exact.bend as PRefusedExact
 import ./arg_repair_alias_refused_exact.bend as PAliasRefused
 

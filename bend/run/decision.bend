@@ -16,8 +16,9 @@ import ./recovery.bend as RnRecovery
 # into the counts left that the steps above read (Lim.cfg, At.a, At.n,
 # At.p, At.c, Lim.r), takes the step of the model, and reads its answer
 # back. So the code that runs is the model: every law of H4 and H4.8 is a
-# law of it. LAWS.bend (H4.9) proves that each decision is the Rust rule
-# it replaced, for every input, and that the counts left lose nothing.
+# law of it. laws/run/model.bend (H4.9) states what each decision does
+# with Rust's counters, for every input, and that the counts left lose
+# nothing.
 
 # rounds: maxToolRounds (at least 1); wait: the ms the request's
 # deferred job may run (`Limits::max_wait`); retries: retry.maxRetries;

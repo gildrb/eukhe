@@ -58,17 +58,16 @@ import ./base.bend as LawsBase
 #     notice: the text; tag 2 verify: the code, the state as Maybe<String>,
 #     the login's state; tag 3 text: the failure: 0 no code | 1 mismatch |
 #     2 provider: the error and the description as Maybe<String>; every
-#     length within the wire) with the spec's answer (clean, text, notice:
-#     the text; parse, verify: 0 pasted: the code and the state as
-#     Maybe<String> | 1 failed: the failure), reads exactly the request and
+#     length within the wire) with the model's answer (Ri.clean, Ri.parse,
+#     Ri.verify, Ri.text, Ri.notice, which the laws of R1-R5 pin; clean,
+#     text, notice: the text; parse, verify: 0 pasted: the code and the
+#     state as Maybe<String> | 1 failed: the failure), reads exactly the
+#     request and
 #     nothing after it, and answers any other input with the exact error
 #     form `E redirect_input: malformed request`.
 
 # Spec helpers
 # ------------
-
-# Clean
-# -----
 
 # x is one of xs
 def ri_in(+x: U32, xs: List<&2, U32>) -> Bool:
@@ -78,20 +77,531 @@ def ri_in(+x: U32, xs: List<&2, U32>) -> Bool:
     case y <> rest:
       Bool.or(U32.is_eq(x, y), ri_in(x, rest))
 
-# Rust's whitespace (`char::is_whitespace`, Unicode White_Space), by code
-# point
+# R1: Rust's whitespace (`char::is_whitespace`: Unicode White_Space), by
+# code point (the Unicode table, PropList.txt)
 def ri_ws() -> List<&2, U32>:
   [9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288]
 
-# c is whitespace
+# R1: c is whitespace
 def ri_space(c: Char) -> Bool:
   ri_in(Char.to_u32(c), ri_ws())
 
+# R1: c is one of U+200B, U+200C, U+200D, U+2060, U+FEFF
 def ri_zero_width(c: Char) -> Bool:
   ri_in(Char.to_u32(c), [8203, 8204, 8205, 8288, 65279])
 
+# R1: c is a wrapping char: " ' ` < > U+201C U+201D U+2018 U+2019
 def ri_wrapper(c: Char) -> Bool:
   ri_in(Char.to_u32(c), [34, 39, 96, 60, 62, 8220, 8221, 8216, 8217])
+
+# R1: c is dropped anywhere: whitespace or zero-width
+def ri_noise(+c: Char) -> Bool:
+  Bool.or(ri_space(c), ri_zero_width(c))
+
+# R1: no char of s is dropped anywhere
+def ri_quiet(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Bool.not(ri_noise(c)), ri_quiet(t))
+
+# R1: the first char of s is a wrapping char (none for the empty text)
+def ri_wrap_first(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      ri_wrapper(c)
+
+# R2, R3: the chars that shape a paste: % + & = # ? /
+def ri_marks() -> List<&2, U32>:
+  [37, 43, 38, 61, 35, 63, 47]
+
+# R2, R3: a char a value may hold as it is: no whitespace or zero-width
+# char, no wrapping char, none of % + & = # ? /
+def ri_plain_char(+c: Char) -> Bool:
+  Bool.not(Bool.or(ri_noise(c), Bool.or(ri_wrapper(c), ri_in(Char.to_u32(c), ri_marks()))))
+
+def ri_plain(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(ri_plain_char(c), ri_plain(t))
+
+# R2, R3: a value as Rust's tests generate it (URL-safe tokens): one or
+# more plain chars
+def ri_value(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      ri_plain(SCon{c, t})
+
+# R2: s holds no char of code x
+def ri_lacks(s: String, +x: U32) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Bool.not(U32.is_eq(Char.to_u32(c), x)), ri_lacks(t, x))
+
+# R2: n slashes
+def ri_slashes(n: Nat) -> String:
+  match n:
+    case 0n:
+      SNil{}
+    case 1n+m:
+      SCon{'/', ri_slashes(m)}
+
+# R5: every char of s is whitespace
+def ri_spaces(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(ri_space(c), ri_spaces(t))
+
+# R5: every char of s is a `.`
+def ri_dots(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Char.is_eq(c, '.'), ri_dots(t))
+
+# R5: the first char of s is whitespace (none for the empty text)
+def ri_space_first(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      ri_space(c)
+
+# R5: the first char of s is a `.` (none for the empty text)
+def ri_dot_first(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Char.is_eq(c, '.')
+
+# R5: the notice of a reason r, Rust's exchange_retry_notice format
+# (aeabc30d3^:crates/eukhe-core/src/auth/redirect_input.rs:202-208)
+def ri_notice_of(r: String) -> String:
+  String.append("Login did not complete: ", String.append(r, ". Paste the address again, or open the login link again and sign in."))
+
+# R6: the spelling of a request and of its reply
+
+def ri_w_ms(m: Maybe<&2, String>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_str(x, rest))
+
+def ri_w_fail(f: Ri.Fail, rest: String) -> String:
+  match f:
+    case Ri.FMissing{}:
+      Wr.put_nat(0n, rest)
+    case Ri.FMismatch{}:
+      Wr.put_nat(1n, rest)
+    case Ri.FProvider{e, d}:
+      Wr.put_nat(2n, Wr.put_str(e, ri_w_ms(d, rest)))
+
+def ri_w_answer(a: Ri.Answer) -> String:
+  match a:
+    case Ri.Pasted{c, m}:
+      Wr.put_nat(0n, Wr.put_str(c, ri_w_ms(m, "")))
+    case Ri.Failed{f}:
+      Wr.put_nat(1n, ri_w_fail(f, ""))
+
+def ri_w_req(q: FRi.Req, rest: String) -> String:
+  match q:
+    case FRi.QClean{x}:
+      Wr.put_nat(0n, Wr.put_str(x, rest))
+    case FRi.QParse{x}:
+      Wr.put_nat(1n, Wr.put_str(x, rest))
+    case FRi.QVerify{c, m, e}:
+      Wr.put_nat(2n, Wr.put_str(c, ri_w_ms(m, Wr.put_str(e, rest))))
+    case FRi.QText{f}:
+      Wr.put_nat(3n, ri_w_fail(f, rest))
+    case FRi.QNotice{x}:
+      Wr.put_nat(4n, Wr.put_str(x, rest))
+
+# the model's answer to q, spelled (R1-R5 pin the model's answers)
+def ri_w_reply(q: FRi.Req) -> String:
+  match q:
+    case FRi.QClean{x}:
+      Wr.put_str(Ri.clean(x), "")
+    case FRi.QParse{x}:
+      ri_w_answer(Ri.parse(x))
+    case FRi.QVerify{c, m, e}:
+      ri_w_answer(Ri.verify(c, m, e))
+    case FRi.QText{f}:
+      Wr.put_str(Ri.text(f), "")
+    case FRi.QNotice{x}:
+      Wr.put_str(Ri.notice(x), "")
+
+def ri_fit_str(s: String) -> Bool:
+  LawsBase.wire_fits(String.length(s))
+
+def ri_fit_ms(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{x}:
+      ri_fit_str(x)
+
+def ri_fit_fail(f: Ri.Fail) -> Bool:
+  match f:
+    case Ri.FMissing{}:
+      True{}
+    case Ri.FMismatch{}:
+      True{}
+    case Ri.FProvider{e, d}:
+      Bool.and(ri_fit_str(e), ri_fit_ms(d))
+
+# every length of the request fits the wire
+def ri_fit_req(q: FRi.Req) -> Bool:
+  match q:
+    case FRi.QClean{x}:
+      ri_fit_str(x)
+    case FRi.QParse{x}:
+      ri_fit_str(x)
+    case FRi.QVerify{c, m, e}:
+      Bool.and(ri_fit_str(c), Bool.and(ri_fit_ms(m), ri_fit_str(e)))
+    case FRi.QText{f}:
+      ri_fit_fail(f)
+    case FRi.QNotice{x}:
+      ri_fit_str(x)
+
+# Laws: the cleaned paste (R1)
+# ----------------------------
+# These four fix Ri.clean on every text: drop the noise chars one by one,
+# then the wrapping chars at either end one by one, until the text is
+# empty or neither starts nor ends with one; such a text is kept.
+
+# LAW redirect_input_clean_drops_noise (R1): a whitespace or zero-width char anywhere (the text a, the char x, the text b) changes nothing: the paste cleans as a then b
+# EXCLUDES: a whitespace or zero-width char kept, a line break inside a
+#   wrapped copy kept, a char next to it dropped too, another whitespace set
+law redirect_input_clean_drops_noise:
+  for +a: String
+  for +x: Char
+  for +b: String
+  for noise: {ri_noise(x) == True{} : Bool}
+  {Ri.clean(String.append(a, SCon{x, b})) == Ri.clean(String.append(a, b)) : String}
+
+# LAW redirect_input_clean_trims_lead (R1): a wrapping char in front of any text is dropped
+# EXCLUDES: a leading quote, backtick or angle bracket kept, a wrapping
+#   char of another set trimmed
+law redirect_input_clean_trims_lead:
+  for +w: Char
+  for +s: String
+  for wrap: {ri_wrapper(w) == True{} : Bool}
+  {Ri.clean(SCon{w, s}) == Ri.clean(s) : String}
+
+# LAW redirect_input_clean_trims_trail (R1): a wrapping char after any text is dropped
+# EXCLUDES: a trailing quote, backtick or angle bracket kept, wrappers
+#   trimmed on one end only
+law redirect_input_clean_trims_trail:
+  for +s: String
+  for +w: Char
+  for wrap: {ri_wrapper(w) == True{} : Bool}
+  {Ri.clean(String.append(s, SCon{w, SNil{}})) == Ri.clean(s) : String}
+
+# LAW redirect_input_clean_keeps (R1): a non-empty text with no whitespace or zero-width char that neither starts nor ends with a wrapping char cleans to itself
+# EXCLUDES: a wrapping char trimmed inside the text, a char of the text
+#   changed or dropped, the text cut
+law redirect_input_clean_keeps:
+  for +x: Char
+  for +t: String
+  for quiet: {ri_quiet(SCon{x, t}) == True{} : Bool}
+  for head: {ri_wrapper(x) == False{} : Bool}
+  for last: {ri_wrap_first(String.reverse(SCon{x, t})) == False{} : Bool}
+  {Ri.clean(SCon{x, t}) == SCon{x, t} : String}
+
+# Laws: the paste's code and state (R2, R3)
+# -----------------------------------------
+
+# LAW redirect_input_parse_ignores_noise (R1, R2): a whitespace or zero-width char anywhere in a paste changes nothing of its answer
+# EXCLUDES: a code or state cut at a line break of a wrapped copy, a
+#   space read into a value
+law redirect_input_parse_ignores_noise:
+  for +a: String
+  for +x: Char
+  for +b: String
+  for noise: {ri_noise(x) == True{} : Bool}
+  {Ri.parse(String.append(a, SCon{x, b})) == Ri.parse(String.append(a, b)) : Ri.Answer}
+
+# LAW redirect_input_parse_ignores_wrappers (R1, R2): a paste wrapped in a wrapping char at either end answers as the paste itself
+# EXCLUDES: a quote or angle bracket read into the code or the state
+law redirect_input_parse_ignores_wrappers:
+  for +w1: Char
+  for +s: String
+  for +w2: Char
+  for wrap1: {ri_wrapper(w1) == True{} : Bool}
+  for wrap2: {ri_wrapper(w2) == True{} : Bool}
+  {Ri.parse(SCon{w1, String.append(s, SCon{w2, SNil{}})}) == Ri.parse(s) : Ri.Answer}
+
+# The paste shapes of Rust's property test (aeabc30d3^:crates/eukhe-core/
+# src/auth/redirect_input.rs `render`: an address with the pairs in its
+# query or its fragment, a bare query, a `code#state` pair, a bare code),
+# each over every value of URL-safe chars (ri_value: one or more chars,
+# none whitespace, zero-width, wrapping or one of % + & = # ? /) and every
+# text around it that the shape allows.
+
+# LAW redirect_input_query (R2, R3): an address b (any text with no `?`), then `?code=` c `&state=` s and n trailing slashes, answers the code c and the state s, for all values c, s
+# EXCLUDES: the code or state read from the address before the query,
+#   fields swapped, a value cut or extended, a trailing slash read into
+#   the state
+law redirect_input_query:
+  for +b: String
+  for +c: String
+  for +s: String
+  for +n: Nat
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", String.append(c, String.append("&state=", String.append(s, ri_slashes(n))))))) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_query_no_state (R2, R3): an address b with no `?`, then `?code=` c, answers the code c and no state
+# EXCLUDES: a state invented (the code, the address or an empty one)
+law redirect_input_query_no_state:
+  for +b: String
+  for +c: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", c))) == Ri.Pasted{c, None{}} : Ri.Answer}
+
+# LAW redirect_input_query_no_code (R2, R3): an address b with no `?`, then `?state=` s, answers that it has no code
+# EXCLUDES: the state, the address or a default taken as the code
+law redirect_input_query_no_code:
+  for +b: String
+  for +s: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?state=", s))) == Ri.Failed{Ri.FMissing{}} : Ri.Answer}
+
+# LAW redirect_input_first_value (R3): in a query `?code=&code=` c `&code=` d (after an address b with no `?`) the code is c: an empty value is skipped and the first non-empty one taken
+# EXCLUDES: an empty code taken, the last value taken
+law redirect_input_first_value:
+  for +b: String
+  for +c: String
+  for +d: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vd: {ri_value(d) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=&code=", String.append(c, String.append("&code=", d))))) == Ri.Pasted{c, None{}} : Ri.Answer}
+
+# LAW redirect_input_plus_space (R3): a `+` in a value is a space: `?code=` c `+` d (after an address b with no `?`) answers the code c, a space, d
+# EXCLUDES: a `+` kept, dropped or read as a separator
+law redirect_input_plus_space:
+  for +b: String
+  for +c: String
+  for +d: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vd: {ri_value(d) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", String.append(c, SCon{'+', d})))) == Ri.Pasted{String.append(c, SCon{' ', d}), None{}} : Ri.Answer}
+
+# LAW redirect_input_error_wins (R3): an address b with no `?`, then `?code=` c `&error=` e `&error_description=` d, answers the provider failure e with the description d, though a code came first
+# EXCLUDES: the code taken over an OAuth error, the description lost or
+#   read from another field
+law redirect_input_error_wins:
+  for +b: String
+  for +c: String
+  for +e: String
+  for +d: String
+  for nq: {ri_lacks(b, 63) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for ve: {ri_value(e) == True{} : Bool}
+  for vd: {ri_value(d) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("?code=", String.append(c, String.append("&error=", String.append(e, String.append("&error_description=", d))))))) == Ri.Failed{Ri.FProvider{e, Some{d}}} : Ri.Answer}
+
+# LAW redirect_input_fragment (R2, R3): a scheme b (no `:` or `?`), `://`, an address h (no `?` or `#`), then `#code=` c `&state=` s answers the code c and the state s
+# EXCLUDES: the fragment of an address with a scheme and no query
+#   ignored, the address part read as parameters
+law redirect_input_fragment:
+  for +b: String
+  for +h: String
+  for +c: String
+  for +s: String
+  for nb: {Bool.and(ri_lacks(b, 58), ri_lacks(b, 63)) == True{} : Bool}
+  for nh: {Bool.and(ri_lacks(h, 63), ri_lacks(h, 35)) == True{} : Bool}
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(b, String.append("://", String.append(h, String.append("#code=", String.append(c, String.append("&state=", s))))))) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_bare_query (R2, R3): a bare query `code=` c `&state=` s answers the code c and the state s
+# EXCLUDES: a bare query read as a bare code
+law redirect_input_bare_query:
+  for +c: String
+  for +s: String
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append("code=", String.append(c, String.append("&state=", s)))) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_pair (R2): a pair c `#` s of values answers the code c and the state s
+# EXCLUDES: the pair read as one code, the state lost
+law redirect_input_pair:
+  for +c: String
+  for +s: String
+  for vc: {ri_value(c) == True{} : Bool}
+  for vs: {ri_value(s) == True{} : Bool}
+  {Ri.parse(String.append(c, SCon{'#', s})) == Ri.Pasted{c, Some{s}} : Ri.Answer}
+
+# LAW redirect_input_bare_code (R2): a value c alone answers the code c and no state
+# EXCLUDES: a bare code refused, a state invented
+law redirect_input_bare_code:
+  for +c: String
+  for vc: {ri_value(c) == True{} : Bool}
+  {Ri.parse(c) == Ri.Pasted{c, None{}} : Ri.Answer}
+
+# Laws: the state check (R4)
+# --------------------------
+
+# LAW redirect_input_verify_none (R4): a paste without a state takes the login's state e
+# EXCLUDES: a missing state refused, the code changed
+law redirect_input_verify_none:
+  for c: String
+  for e: String
+  {Ri.verify(c, None{}, e) == Ri.Pasted{c, Some{e}} : Ri.Answer}
+
+# LAW redirect_input_verify_same (R4): a paste with the login's own state e keeps it and its code
+# EXCLUDES: the login's state refused
+law redirect_input_verify_same:
+  for c: String
+  for +e: String
+  {Ri.verify(c, Some{e}, e) == Ri.Pasted{c, Some{e}} : Ri.Answer}
+
+# LAW redirect_input_verify_only_same (R4): a paste whose state s passes the check against the login's state e has s equal to e, and keeps its code c and state
+# EXCLUDES: another login's state accepted, the paste's state replaced
+law redirect_input_verify_only_same:
+  for +c: String
+  for +s: String
+  for +e: String
+  for +c2: String
+  for +m: Maybe<&2, String>
+  for ok: {Ri.verify(c, Some{s}, e) == Ri.Pasted{c2, m} : Ri.Answer}
+  {(s, (c2, m)) == (e, (c, Some{s})) : String & (String & Maybe<&2, String>)}
+
+# LAW redirect_input_verify_other (R4): a paste whose state s is not the login's state e is a state mismatch
+# EXCLUDES: another failure for a mismatch, a default
+law redirect_input_verify_other:
+  for c: String
+  for +s: String
+  for +e: String
+  for differ: {String.eq(s, e) == False{} : Bool}
+  {Ri.verify(c, Some{s}, e) == Ri.Failed{Ri.FMismatch{}} : Ri.Answer}
+
+# Laws: the texts (R5)
+# --------------------
+
+# R5's texts are anchored only (redirect_input_text_example: Rust's four
+# failure texts and two notices): no source outside eukhe's code states
+# them (no requirement states such a paste loop), and a law whose spec
+# spells the same literals the model concatenates would compare the model
+# with itself.
+
+# LAW redirect_input_notice_reason (R5): an error text w1 r d w2 (w1, w2 whitespace, d only `.`s, r empty or not starting with whitespace, not ending with `.`, and not ending with whitespace when d is empty) gives the notice of the reason r
+# EXCLUDES: whitespace or trailing dots kept, a leading dot dropped, a dot
+#   before trailing whitespace kept, dots inside the reason dropped,
+#   whitespace before the dots dropped
+law redirect_input_notice_reason:
+  for +w1: String
+  for +r: String
+  for +d: String
+  for +w2: String
+  for sp1: {ri_spaces(w1) == True{} : Bool}
+  for sp2: {ri_spaces(w2) == True{} : Bool}
+  for dd: {ri_dots(d) == True{} : Bool}
+  for head: {ri_space_first(r) == False{} : Bool}
+  for tail: {ri_dot_first(String.reverse(r)) == False{} : Bool}
+  for bare: {Bool.and(String.is_empty(d), ri_space_first(String.reverse(r))) == False{} : Bool}
+  {Ri.notice(String.append(w1, String.append(r, String.append(d, w2)))) == ri_notice_of(r) : String}
+
+# Examples (Rust's tests, aeabc30d3^:crates/eukhe-core/src/auth/
+# redirect_input.rs and the from_utf8_lossy table)
+# --------------------------------------------------------------------
+
+# LAW redirect_input_parse_example (R2, R3): anchor: Rust's address shapes
+# EXCLUDES: a parse that drifts from the shapes Rust's tests pasted
+law redirect_input_parse_example:
+  {[Ri.parse("h:1/cb?code=a%2Bb%20c&state=s%26t"), Ri.parse("h:1/cb/?code=a&state=s/#_"), Ri.parse("x://h/cb#code=a&state=s"), Ri.parse(" <h:1/cb?x=1&code=a> "), Ri.parse("state=s&code=a"), Ri.parse("  a#s\n"), Ri.parse("`a==`"), Ri.parse("x://h/cb?code=&state=s"), Ri.parse("#s"), Ri.parse("state=s"), Ri.parse("x://h/cb")] == [Ri.Pasted{"a+b c", Some{"s&t"}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a", None{}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a==", None{}}, Ri.Failed{Ri.FMissing{}}, Ri.Failed{Ri.FMissing{}}, Ri.Failed{Ri.FMissing{}}, Ri.Failed{Ri.FMissing{}}] : List<&2, Ri.Answer>}
+
+# LAW redirect_input_error_example (R3): anchor: an OAuth error wins over
+# the code and carries its description
+# EXCLUDES: a parse that drifts from Rust's error test
+law redirect_input_error_example:
+  {[Ri.parse("?code=c&error=e&error_description=d+x"), Ri.parse("error=e")] == [Ri.Failed{Ri.FProvider{"e", Some{"d x"}}}, Ri.Failed{Ri.FProvider{"e", None{}}}] : List<&2, Ri.Answer>}
+
+# LAW redirect_input_decode_example (R3): anchor: Rust's from_utf8_lossy on
+# escaped bytes: a whole char, a truncated sequence, a surrogate, a value
+# past U+10FFFF, an escape that is no escape, an escaped name
+# EXCLUDES: more or fewer U+FFFD than from_utf8_lossy's maximal subparts
+#   on these bytes
+law redirect_input_decode_example:
+  {[Ri.parse("code=%E2%82%ac"), Ri.parse("code=%E2%82x%F0"), Ri.parse("code=%ED%A0%80"), Ri.parse("code=%F4%90%80"), Ri.parse("code=%zz%4"), Ri.parse("?co%64e=a+b"), Ri.parse("code=%C3%28%C0")] == [Ri.Pasted{"\u{20AC}", None{}}, Ri.Pasted{"\u{FFFD}x\u{FFFD}", None{}}, Ri.Pasted{"\u{FFFD}\u{FFFD}\u{FFFD}", None{}}, Ri.Pasted{"\u{FFFD}\u{FFFD}\u{FFFD}", None{}}, Ri.Pasted{"%zz%4", None{}}, Ri.Pasted{"a b", None{}}, Ri.Pasted{"\u{FFFD}(\u{FFFD}", None{}}] : List<&2, Ri.Answer>}
+
+# LAW redirect_input_verify_example (R4): anchor: Rust's state checks
+# EXCLUDES: a check that drifts from Rust's state test
+law redirect_input_verify_example:
+  {[Ri.verify("c", Some{"s"}, "s"), Ri.verify("c", Some{"s"}, "t"), Ri.verify("c", None{}, "t")] == [Ri.Pasted{"c", Some{"s"}}, Ri.Failed{Ri.FMismatch{}}, Ri.Pasted{"c", Some{"t"}}] : List<&2, Ri.Answer>}
+
+# LAW redirect_input_text_example (R5): anchor: Rust's texts: the four
+# failure shapes and two notices
+# EXCLUDES: a text that drifts from Rust's Display and notice tests
+law redirect_input_text_example:
+  {[Ri.text(Ri.FMissing{}), Ri.text(Ri.FMismatch{}), Ri.text(Ri.FProvider{"e", Some{"d"}}), Ri.text(Ri.FProvider{"e", None{}}), Ri.notice(" x. \n"), Ri.notice("a .")] == ["That address has no authorization code. Paste the full address of the page your browser ended on.", "That address is from a different login attempt (state mismatch). Paste the address from the browser tab this login opened.", "The sign-in page reported an error: e (d). Open the login link again and sign in, then paste the new address.", "The sign-in page reported an error: e. Open the login link again and sign in, then paste the new address.", "Login did not complete: x. Paste the address again, or open the login link again and sign in.", "Login did not complete: a . Paste the address again, or open the login link again and sign in."] : List<&2, String>}
+
+# Laws: the entry (R6)
+# --------------------
+
+# LAW redirect_input_entry_answers (R6): the entry answers every request
+# Rust spells, every length within the wire, with the model's answer
+# (pinned by the R1-R5 laws) spelled
+# EXCLUDES: fields read in another order, a tag misread, the state and the
+#   login's state swapped, a default
+law redirect_input_entry_answers:
+  for +q: FRi.Req
+  for fit: {ri_fit_req(q) == True{} : Bool}
+  {FRi.ffi(ri_w_req(q, "")) == ri_w_reply(q) : String}
+
+# LAW redirect_input_entry_left_over (R6): a spelled request followed by
+# more input answers the error form
+# EXCLUDES: the input after the request ignored or read into a field
+law redirect_input_entry_left_over:
+  for +q: FRi.Req
+  for +c: Char
+  for +t: String
+  for fit: {ri_fit_req(q) == True{} : Bool}
+  {FRi.ffi(ri_w_req(q, SCon{c, t})) == Wr.err("redirect_input: malformed request") : String}
+
+# LAW redirect_input_entry_exact (R6): every input the entry does not answer
+# with the error form is a spelled request that fits the wire
+# EXCLUDES: an answer for input that is no request (an unknown tag, a Maybe
+#   tag past 1, a failure tag past 2, a short field, input left over)
+law redirect_input_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FRi.ffi(s)) == False{} : Bool}
+  exs q: FRi.Req
+  {s == ri_w_req(q, "") : String} & {ri_fit_req(q) == True{} : Bool}
+
+# LAW redirect_input_entry_refuses (R6): every error the entry answers is
+# exactly `E redirect_input: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law redirect_input_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FRi.ffi(s)) == True{} : Bool}
+  {FRi.ffi(s) == Wr.err("redirect_input: malformed request") : String}
+
+# LAW redirect_input_entry_example (R6): anchor: the wire strings Rust sends
+# and the replies it reads
+# EXCLUDES: another spelling of a request or of a reply
+law redirect_input_entry_example:
+  {[FRi.ffi("1,3,a#b"), FRi.ffi("2,1,c1,1,s1,t"), FRi.ffi("3,2,1,e1,1,d"), FRi.ffi("0,3, x "), FRi.ffi("1,6,code=a"), FRi.ffi("3,3,"), FRi.ffi("2,1,c2,1,s1,t"), FRi.ffi("5,"), FRi.ffi("0,1,ax")] == ["0,1,a1,1,b", "1,1,", "109,The sign-in page reported an error: e (d). Open the login link again and sign in, then paste the new address.", "1,x", "0,1,a0,", Wr.err("redirect_input: malformed request"), Wr.err("redirect_input: malformed request"), Wr.err("redirect_input: malformed request"), Wr.err("redirect_input: malformed request")] : List<&2, String>}
 
 def ri_compact.at(drop: Bool, c: Char, r: String) -> String:
   match drop:
@@ -127,75 +637,69 @@ def ri_unwrap(s: String) -> String:
 def ri_clean(s: String) -> String:
   String.reverse(ri_unwrap(String.reverse(ri_unwrap(ri_compact(s)))))
 
-# Text
-# ----
+# LAW redirect_input_clean_spec (R1): every paste cleans to the spec's
+# EXCLUDES: whitespace or a zero-width char kept, a wrapper trimmed inside
+#   the text or on one end only, another whitespace set
+law redirect_input_clean_spec:
+  for +s: String
+  {Ri.clean(s) == ri_clean(s) : String}
 
-def ri_split.at(b: Bool, c: Char, t: String, r: Maybe<&2, Ri.Cut>) -> Maybe<&2, Ri.Cut>:
-  match b:
+def ri_bad() -> Char:
+  Chr{65533}
+
+def ri_bare.state(empty: Bool, f: String) -> Maybe<&2, String>:
+  match empty:
     case True{}:
-      Some{Ri.Cut{SNil{}, t}}
-    case False{}:
-      match r:
-        case None{}:
-          None{}
-        case Some{x}:
-          match x:
-            case Ri.Cut{h, u}:
-              Some{Ri.Cut{SCon{c, h}, u}}
-
-# s split at its first `sep` (none without one)
-def ri_split(s: String, +sep: Char) -> Maybe<&2, Ri.Cut>:
-  match s:
-    case SNil{}:
       None{}
-    case SCon{+c, +t}:
-      ri_split.at(Char.is_eq(c, sep), c, t, ri_split(t, sep))
+    case False{}:
+      Some{f}
 
-def ri_scheme.at(b: Bool, t: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
+def ri_find.at(b: Bool, v: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
   match b:
     case True{}:
-      Some{String.drop(t, 2n)}
+      Some{v}
     case False{}:
       r
 
-# the text after the first `://` (none without one)
-def ri_scheme(s: String) -> Maybe<&2, String>:
-  match s:
-    case SNil{}:
+# the first non-empty value of a name
+def ri_find(+name: String, ps: List<&2, Ri.Param>) -> Maybe<&2, String>:
+  match ps:
+    case Nil{}:
       None{}
-    case SCon{+c, +t}:
-      ri_scheme.at(String.starts_with(SCon{c, t}, "://"), t, ri_scheme(t))
+    case p <> rest:
+      match p:
+        case Ri.Param{n, +v}:
+          ri_find.at(Bool.and(String.eq(n, name), Bool.not(String.is_empty(v))), v, ri_find(name, rest))
 
-def ri_slashes.at(b: Bool, c: Char, t: String, r: String) -> String:
-  match b:
-    case True{}:
-      r
-    case False{}:
-      SCon{c, t}
-
-def ri_slashes(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      ri_slashes.at(Char.is_eq(c, '/'), c, t, ri_slashes(t))
-
-# s without its trailing `/`s
-def ri_unslash(s: String) -> String:
-  String.reverse(ri_slashes(String.reverse(s)))
-
-# the text after the first `#` (empty without one)
-def ri_fragment(m: Maybe<&2, Ri.Cut>) -> String:
+def ri_get.at(m: Maybe<&2, String>, r: Maybe<&2, String>) -> Maybe<&2, String>:
   match m:
     case None{}:
-      SNil{}
-    case Some{x}:
-      match x:
-        case Ri.Cut{h, u}:
-          u
+      r
+    case Some{v}:
+      Some{v}
 
-# Decoding
-# --------
+def ri_pend(st: Ri.Pct) -> List<&2, Ri.Piece>:
+  match st:
+    case Ri.PPlain{}:
+      []
+    case Ri.PSign{}:
+      [Ri.UChar{'%'}]
+    case Ri.PDigit{h, v}:
+      [Ri.UChar{'%'}, Ri.UChar{h}]
+
+def ri_plain.next(pct: Bool) -> Ri.Pct:
+  match pct:
+    case True{}:
+      Ri.PSign{}
+    case False{}:
+      Ri.PPlain{}
+
+def ri_digit.next(m: Maybe<&2, U32>, +c: Char) -> Ri.Pct:
+  match m:
+    case None{}:
+      ri_plain.next(Char.is_eq(c, '%'))
+    case Some{w}:
+      Ri.PPlain{}
 
 def ri_hexv.at(dec: Bool, low: Bool, up: Bool, +x: U32) -> Maybe<&2, U32>:
   match dec:
@@ -221,6 +725,23 @@ def ri_hexv(c: Char) -> Maybe<&2, U32>:
     case Chr{+x}:
       ri_hexv.at(ri_within(x, 48, 57), ri_within(x, 97, 102), ri_within(x, 65, 70), x)
 
+def ri_sign.next(m: Maybe<&2, U32>, +c: Char) -> Ri.Pct:
+  match m:
+    case None{}:
+      ri_plain.next(Char.is_eq(c, '%'))
+    case Some{v}:
+      Ri.PDigit{c, v}
+
+# the state after a char
+def ri_pnext(st: Ri.Pct, +c: Char) -> Ri.Pct:
+  match st:
+    case Ri.PPlain{}:
+      ri_plain.next(Char.is_eq(c, '%'))
+    case Ri.PSign{}:
+      ri_sign.next(ri_hexv(c), c)
+    case Ri.PDigit{h, v}:
+      ri_digit.next(ri_hexv(c), c)
+
 # What a char in plain text adds: `%` nothing yet, `+` a space
 def ri_plain.out(pct: Bool, plus: Bool, c: Char) -> List<&2, Ri.Piece>:
   match pct:
@@ -233,27 +754,6 @@ def ri_plain.out(pct: Bool, plus: Bool, c: Char) -> List<&2, Ri.Piece>:
         case False{}:
           [Ri.UChar{c}]
 
-def ri_plain.next(pct: Bool) -> Ri.Pct:
-  match pct:
-    case True{}:
-      Ri.PSign{}
-    case False{}:
-      Ri.PPlain{}
-
-def ri_sign.out(m: Maybe<&2, U32>, +c: Char) -> List<&2, Ri.Piece>:
-  match m:
-    case None{}:
-      Ri.UChar{'%'} <> ri_plain.out(Char.is_eq(c, '%'), Char.is_eq(c, '+'), c)
-    case Some{v}:
-      []
-
-def ri_sign.next(m: Maybe<&2, U32>, +c: Char) -> Ri.Pct:
-  match m:
-    case None{}:
-      ri_plain.next(Char.is_eq(c, '%'))
-    case Some{v}:
-      Ri.PDigit{c, v}
-
 def ri_digit.out(m: Maybe<&2, U32>, h: Char, v: U32, +c: Char) -> List<&2, Ri.Piece>:
   match m:
     case None{}:
@@ -261,12 +761,12 @@ def ri_digit.out(m: Maybe<&2, U32>, h: Char, v: U32, +c: Char) -> List<&2, Ri.Pi
     case Some{w}:
       [Ri.UByte{U32.add(U32.mul(v, 16), w)}]
 
-def ri_digit.next(m: Maybe<&2, U32>, +c: Char) -> Ri.Pct:
+def ri_sign.out(m: Maybe<&2, U32>, +c: Char) -> List<&2, Ri.Piece>:
   match m:
     case None{}:
-      ri_plain.next(Char.is_eq(c, '%'))
-    case Some{w}:
-      Ri.PPlain{}
+      Ri.UChar{'%'} <> ri_plain.out(Char.is_eq(c, '%'), Char.is_eq(c, '+'), c)
+    case Some{v}:
+      []
 
 # what a char adds in a state: a `%` not followed by two hex digits is a
 # char, the chars after it read again as plain text
@@ -279,25 +779,6 @@ def ri_pout(st: Ri.Pct, +c: Char) -> List<&2, Ri.Piece>:
     case Ri.PDigit{h, v}:
       ri_digit.out(ri_hexv(c), h, v, c)
 
-# the state after a char
-def ri_pnext(st: Ri.Pct, +c: Char) -> Ri.Pct:
-  match st:
-    case Ri.PPlain{}:
-      ri_plain.next(Char.is_eq(c, '%'))
-    case Ri.PSign{}:
-      ri_sign.next(ri_hexv(c), c)
-    case Ri.PDigit{h, v}:
-      ri_digit.next(ri_hexv(c), c)
-
-def ri_pend(st: Ri.Pct) -> List<&2, Ri.Piece>:
-  match st:
-    case Ri.PPlain{}:
-      []
-    case Ri.PSign{}:
-      [Ri.UChar{'%'}]
-    case Ri.PDigit{h, v}:
-      [Ri.UChar{'%'}, Ri.UChar{h}]
-
 # the pieces of a text from a state: `+` a space, `%` and two hex digits a
 # byte, any other `%` a char
 def ri_units(s: String, +st: Ri.Pct) -> List<&2, Ri.Piece>:
@@ -307,8 +788,34 @@ def ri_units(s: String, +st: Ri.Pct) -> List<&2, Ri.Piece>:
     case SCon{+c, t}:
       List.append(&2, Ri.Piece, ri_pout(st, c), ri_units(t, ri_pnext(st, c)))
 
-def ri_bad() -> Char:
-  Chr{65533}
+def ri_uend(st: Ri.Utf) -> String:
+  match st:
+    case Ri.UIdle{}:
+      SNil{}
+    case Ri.UNeed{more, acc, lo, hi}:
+      SCon{ri_bad(), SNil{}}
+
+def ri_unext(s: Ri.UStep) -> Ri.Utf:
+  match s:
+    case Ri.UStep{o, n}:
+      n
+
+def ri_uout(s: Ri.UStep) -> String:
+  match s:
+    case Ri.UStep{o, n}:
+      o
+
+def ri_broken(s: Ri.UStep) -> Ri.UStep:
+  match s:
+    case Ri.UStep{o, n}:
+      Ri.UStep{SCon{ri_bad(), o}, n}
+
+def ri_cont.at(more: Nat, +v: U32) -> Ri.UStep:
+  match more:
+    case 0n:
+      Ri.UStep{SCon{Chr{v}, SNil{}}, Ri.UIdle{}}
+    case 1n+m:
+      Ri.UStep{SNil{}, Ri.UNeed{m, v, 128, 191}}
 
 def ri_lead.four.at(f0: Bool, f1: Bool, f4: Bool, b: U32) -> Ri.UStep:
   match f0:
@@ -363,18 +870,6 @@ def ri_lead.at(ascii: Bool, two: Bool, +b: U32) -> Ri.UStep:
 def ri_lead(+b: U32) -> Ri.UStep:
   ri_lead.at(U32.is_lt(b, 128), ri_within(b, 194, 223), b)
 
-def ri_cont.at(more: Nat, +v: U32) -> Ri.UStep:
-  match more:
-    case 0n:
-      Ri.UStep{SCon{Chr{v}, SNil{}}, Ri.UIdle{}}
-    case 1n+m:
-      Ri.UStep{SNil{}, Ri.UNeed{m, v, 128, 191}}
-
-def ri_broken(s: Ri.UStep) -> Ri.UStep:
-  match s:
-    case Ri.UStep{o, n}:
-      Ri.UStep{SCon{ri_bad(), o}, n}
-
 def ri_cont(ok: Bool, more: Nat, acc: U32, +b: U32) -> Ri.UStep:
   match ok:
     case True{}:
@@ -397,23 +892,6 @@ def ri_ustep(st: Ri.Utf, u: Ri.Piece) -> Ri.UStep:
         case Ri.UByte{+b}:
           ri_cont(ri_within(b, lo, hi), more, acc, b)
 
-def ri_uend(st: Ri.Utf) -> String:
-  match st:
-    case Ri.UIdle{}:
-      SNil{}
-    case Ri.UNeed{more, acc, lo, hi}:
-      SCon{ri_bad(), SNil{}}
-
-def ri_uout(s: Ri.UStep) -> String:
-  match s:
-    case Ri.UStep{o, n}:
-      o
-
-def ri_unext(s: Ri.UStep) -> Ri.Utf:
-  match s:
-    case Ri.UStep{o, n}:
-      n
-
 # the text of pieces, bytes read as UTF-8: each maximal invalid part U+FFFD
 def ri_utf(us: List<&2, Ri.Piece>, +st: Ri.Utf) -> String:
   match us:
@@ -426,9 +904,6 @@ def ri_utf(us: List<&2, Ri.Piece>, +st: Ri.Utf) -> String:
 def ri_decode(s: String) -> String:
   ri_utf(ri_units(s, Ri.PPlain{}), Ri.UIdle{})
 
-# Parameters
-# ----------
-
 def ri_param(m: Maybe<&2, Ri.Cut>, +s: String) -> Ri.Param:
   match m:
     case None{}:
@@ -437,6 +912,27 @@ def ri_param(m: Maybe<&2, Ri.Cut>, +s: String) -> Ri.Param:
       match x:
         case Ri.Cut{h, u}:
           Ri.Param{ri_decode(h), ri_decode(u)}
+
+def ri_split.at(b: Bool, c: Char, t: String, r: Maybe<&2, Ri.Cut>) -> Maybe<&2, Ri.Cut>:
+  match b:
+    case True{}:
+      Some{Ri.Cut{SNil{}, t}}
+    case False{}:
+      match r:
+        case None{}:
+          None{}
+        case Some{x}:
+          match x:
+            case Ri.Cut{h, u}:
+              Some{Ri.Cut{SCon{c, h}, u}}
+
+# s split at its first `sep` (none without one)
+def ri_split(s: String, +sep: Char) -> Maybe<&2, Ri.Cut>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{+c, +t}:
+      ri_split.at(Char.is_eq(c, sep), c, t, ri_split(t, sep))
 
 def ri_params.at(empty: Bool, +p: String, r: List<&2, Ri.Param>) -> List<&2, Ri.Param>:
   match empty:
@@ -455,30 +951,6 @@ def ri_params.go(ps: List<&2, String>) -> List<&2, Ri.Param>:
 # the parameters of a carrier, in order (empty pairs skipped)
 def ri_params(s: String) -> List<&2, Ri.Param>:
   ri_params.go(String.split(s, '&'))
-
-def ri_find.at(b: Bool, v: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
-  match b:
-    case True{}:
-      Some{v}
-    case False{}:
-      r
-
-# the first non-empty value of a name
-def ri_find(+name: String, ps: List<&2, Ri.Param>) -> Maybe<&2, String>:
-  match ps:
-    case Nil{}:
-      None{}
-    case p <> rest:
-      match p:
-        case Ri.Param{n, +v}:
-          ri_find.at(Bool.and(String.eq(n, name), Bool.not(String.is_empty(v))), v, ri_find(name, rest))
-
-def ri_get.at(m: Maybe<&2, String>, r: Maybe<&2, String>) -> Maybe<&2, String>:
-  match m:
-    case None{}:
-      r
-    case Some{v}:
-      Some{v}
 
 # a name's value: the first carrier that has one
 def ri_get(+name: String, cs: List<&2, String>) -> Maybe<&2, String>:
@@ -506,8 +978,38 @@ def ri_from_error(m: Maybe<&2, String>, +cs: List<&2, String>) -> Ri.Answer:
 def ri_from_params(+cs: List<&2, String>) -> Ri.Answer:
   ri_from_error(ri_get("error", cs), cs)
 
-# Parse
-# -----
+def ri_slashes.at(b: Bool, c: Char, t: String, r: String) -> String:
+  match b:
+    case True{}:
+      r
+    case False{}:
+      SCon{c, t}
+
+def ri_slashes_orig(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +t}:
+      ri_slashes.at(Char.is_eq(c, '/'), c, t, ri_slashes_orig(t))
+
+# s without its trailing `/`s
+def ri_unslash(s: String) -> String:
+  String.reverse(ri_slashes_orig(String.reverse(s)))
+
+def ri_bare.at(in_head: Bool, in_frag: Bool, empty: Bool, h: String, +f: String) -> Ri.Answer:
+  match in_head:
+    case True{}:
+      ri_from_params([ri_unslash(h)])
+    case False{}:
+      match in_frag:
+        case True{}:
+          ri_from_params([f])
+        case False{}:
+          match empty:
+            case True{}:
+              Ri.Failed{Ri.FMissing{}}
+            case False{}:
+              Ri.Pasted{h, ri_bare.state(String.is_empty(f), f)}
 
 def ri_key(m: Maybe<&2, Ri.Cut>) -> Bool:
   match m:
@@ -529,32 +1031,72 @@ def ri_carries.go(ps: List<&2, String>) -> Bool:
 def ri_carries(s: String) -> Bool:
   ri_carries.go(String.split(s, '&'))
 
-def ri_bare.state(empty: Bool, f: String) -> Maybe<&2, String>:
-  match empty:
-    case True{}:
-      None{}
-    case False{}:
-      Some{f}
-
-def ri_bare.at(in_head: Bool, in_frag: Bool, empty: Bool, h: String, +f: String) -> Ri.Answer:
-  match in_head:
-    case True{}:
-      ri_from_params([ri_unslash(h)])
-    case False{}:
-      match in_frag:
-        case True{}:
-          ri_from_params([f])
-        case False{}:
-          match empty:
-            case True{}:
-              Ri.Failed{Ri.FMissing{}}
-            case False{}:
-              Ri.Pasted{h, ri_bare.state(String.is_empty(f), f)}
-
 # a text without `?` or `://`: its head before the first `#`, and the
 # fragment after it
 def ri_bare(+h: String, +f: String) -> Ri.Answer:
   ri_bare.at(ri_carries(h), ri_carries(f), String.is_empty(h), h, f)
+
+def ri_described(m: Maybe<&2, String>) -> String:
+  match m:
+    case None{}:
+      SNil{}
+    case Some{d}:
+      String.concat([" (", d, ")"])
+
+def ri_dots.at(b: Bool, c: Char, t: String, r: String) -> String:
+  match b:
+    case True{}:
+      r
+    case False{}:
+      SCon{c, t}
+
+def ri_dots_orig(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +t}:
+      ri_dots.at(Char.is_eq(c, '.'), c, t, ri_dots_orig(t))
+
+# the text after the first `#` (empty without one)
+def ri_fragment(m: Maybe<&2, Ri.Cut>) -> String:
+  match m:
+    case None{}:
+      SNil{}
+    case Some{x}:
+      match x:
+        case Ri.Cut{h, u}:
+          u
+
+def ri_trim_start.at(b: Bool, c: Char, t: String, r: String) -> String:
+  match b:
+    case True{}:
+      r
+    case False{}:
+      SCon{c, t}
+
+def ri_trim_start(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +t}:
+      ri_trim_start.at(ri_space(c), c, t, ri_trim_start(t))
+
+# the reason of a failed exchange: trimmed, then its trailing `.`s dropped
+def ri_reason(s: String) -> String:
+  String.reverse(ri_dots_orig(ri_trim_start(String.reverse(ri_trim_start(s)))))
+
+# the notice of a failed token exchange
+def ri_notice(s: String) -> String:
+  String.concat(["Login did not complete: ", ri_reason(s), ". Paste the address again, or open the login link again and sign in."])
+
+def ri_parse.query(m: Maybe<&2, Ri.Cut>, rest: String) -> Ri.Answer:
+  match m:
+    case None{}:
+      ri_from_params([ri_unslash(rest), SNil{}])
+    case Some{x}:
+      match x:
+        case Ri.Cut{q, f}:
+          ri_from_params([ri_unslash(q), f])
 
 def ri_parse.hash(m: Maybe<&2, Ri.Cut>, v: String) -> Ri.Answer:
   match m:
@@ -572,14 +1114,20 @@ def ri_parse.scheme(m: Maybe<&2, String>, +v: String) -> Ri.Answer:
     case None{}:
       ri_parse.hash(ri_split(v, '#'), v)
 
-def ri_parse.query(m: Maybe<&2, Ri.Cut>, rest: String) -> Ri.Answer:
-  match m:
-    case None{}:
-      ri_from_params([ri_unslash(rest), SNil{}])
-    case Some{x}:
-      match x:
-        case Ri.Cut{q, f}:
-          ri_from_params([ri_unslash(q), f])
+def ri_scheme.at(b: Bool, t: String, r: Maybe<&2, String>) -> Maybe<&2, String>:
+  match b:
+    case True{}:
+      Some{String.drop(t, 2n)}
+    case False{}:
+      r
+
+# the text after the first `://` (none without one)
+def ri_scheme(s: String) -> Maybe<&2, String>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{+c, +t}:
+      ri_scheme.at(String.starts_with(SCon{c, t}, "://"), t, ri_scheme(t))
 
 def ri_parse.at(m: Maybe<&2, Ri.Cut>, +v: String) -> Ri.Answer:
   match m:
@@ -595,8 +1143,15 @@ def ri_parse(s: String) -> Ri.Answer:
   +v = ri_clean(s)
   ri_parse.at(ri_split(v, '?'), v)
 
-# State check and texts
-# ---------------------
+# the user-facing text of a failure
+def ri_text(f: Ri.Fail) -> String:
+  match f:
+    case Ri.FMissing{}:
+      "That address has no authorization code. Paste the full address of the page your browser ended on."
+    case Ri.FMismatch{}:
+      "That address is from a different login attempt (state mismatch). Paste the address from the browser tab this login opened."
+    case Ri.FProvider{e, d}:
+      String.concat(["The sign-in page reported an error: ", e, ri_described(d), ". Open the login link again and sign in, then paste the new address."])
 
 def ri_verify.at(same: Bool, code: String, s: String) -> Ri.Answer:
   match same:
@@ -613,153 +1168,6 @@ def ri_verify(code: String, m: Maybe<&2, String>, +expected: String) -> Ri.Answe
     case Some{+s}:
       ri_verify.at(String.eq(s, expected), code, s)
 
-def ri_described(m: Maybe<&2, String>) -> String:
-  match m:
-    case None{}:
-      SNil{}
-    case Some{d}:
-      String.concat([" (", d, ")"])
-
-# the user-facing text of a failure
-def ri_text(f: Ri.Fail) -> String:
-  match f:
-    case Ri.FMissing{}:
-      "That address has no authorization code. Paste the full address of the page your browser ended on."
-    case Ri.FMismatch{}:
-      "That address is from a different login attempt (state mismatch). Paste the address from the browser tab this login opened."
-    case Ri.FProvider{e, d}:
-      String.concat(["The sign-in page reported an error: ", e, ri_described(d), ". Open the login link again and sign in, then paste the new address."])
-
-def ri_trim_start.at(b: Bool, c: Char, t: String, r: String) -> String:
-  match b:
-    case True{}:
-      r
-    case False{}:
-      SCon{c, t}
-
-def ri_trim_start(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      ri_trim_start.at(ri_space(c), c, t, ri_trim_start(t))
-
-def ri_dots.at(b: Bool, c: Char, t: String, r: String) -> String:
-  match b:
-    case True{}:
-      r
-    case False{}:
-      SCon{c, t}
-
-def ri_dots(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      ri_dots.at(Char.is_eq(c, '.'), c, t, ri_dots(t))
-
-# the reason of a failed exchange: trimmed, then its trailing `.`s dropped
-def ri_reason(s: String) -> String:
-  String.reverse(ri_dots(ri_trim_start(String.reverse(ri_trim_start(s)))))
-
-# the notice of a failed token exchange
-def ri_notice(s: String) -> String:
-  String.concat(["Login did not complete: ", ri_reason(s), ". Paste the address again, or open the login link again and sign in."])
-
-# R6: the spelling of a request and of its reply
-
-def ri_w_ms(m: Maybe<&2, String>, rest: String) -> String:
-  match m:
-    case None{}:
-      Wr.put_nat(0n, rest)
-    case Some{x}:
-      Wr.put_nat(1n, Wr.put_str(x, rest))
-
-def ri_w_fail(f: Ri.Fail, rest: String) -> String:
-  match f:
-    case Ri.FMissing{}:
-      Wr.put_nat(0n, rest)
-    case Ri.FMismatch{}:
-      Wr.put_nat(1n, rest)
-    case Ri.FProvider{e, d}:
-      Wr.put_nat(2n, Wr.put_str(e, ri_w_ms(d, rest)))
-
-def ri_w_answer(a: Ri.Answer) -> String:
-  match a:
-    case Ri.Pasted{c, m}:
-      Wr.put_nat(0n, Wr.put_str(c, ri_w_ms(m, "")))
-    case Ri.Failed{f}:
-      Wr.put_nat(1n, ri_w_fail(f, ""))
-
-def ri_w_req(q: FRi.Req, rest: String) -> String:
-  match q:
-    case FRi.QClean{x}:
-      Wr.put_nat(0n, Wr.put_str(x, rest))
-    case FRi.QParse{x}:
-      Wr.put_nat(1n, Wr.put_str(x, rest))
-    case FRi.QVerify{c, m, e}:
-      Wr.put_nat(2n, Wr.put_str(c, ri_w_ms(m, Wr.put_str(e, rest))))
-    case FRi.QText{f}:
-      Wr.put_nat(3n, ri_w_fail(f, rest))
-    case FRi.QNotice{x}:
-      Wr.put_nat(4n, Wr.put_str(x, rest))
-
-def ri_w_reply(q: FRi.Req) -> String:
-  match q:
-    case FRi.QClean{x}:
-      Wr.put_str(ri_clean(x), "")
-    case FRi.QParse{x}:
-      ri_w_answer(ri_parse(x))
-    case FRi.QVerify{c, m, e}:
-      ri_w_answer(ri_verify(c, m, e))
-    case FRi.QText{f}:
-      Wr.put_str(ri_text(f), "")
-    case FRi.QNotice{x}:
-      Wr.put_str(ri_notice(x), "")
-
-def ri_fit_str(s: String) -> Bool:
-  LawsBase.wire_fits(String.length(s))
-
-def ri_fit_ms(m: Maybe<&2, String>) -> Bool:
-  match m:
-    case None{}:
-      True{}
-    case Some{x}:
-      ri_fit_str(x)
-
-def ri_fit_fail(f: Ri.Fail) -> Bool:
-  match f:
-    case Ri.FMissing{}:
-      True{}
-    case Ri.FMismatch{}:
-      True{}
-    case Ri.FProvider{e, d}:
-      Bool.and(ri_fit_str(e), ri_fit_ms(d))
-
-# every length of the request fits the wire
-def ri_fit_req(q: FRi.Req) -> Bool:
-  match q:
-    case FRi.QClean{x}:
-      ri_fit_str(x)
-    case FRi.QParse{x}:
-      ri_fit_str(x)
-    case FRi.QVerify{c, m, e}:
-      Bool.and(ri_fit_str(c), Bool.and(ri_fit_ms(m), ri_fit_str(e)))
-    case FRi.QText{f}:
-      ri_fit_fail(f)
-    case FRi.QNotice{x}:
-      ri_fit_str(x)
-
-# Laws: the model
-# ---------------
-
-# LAW redirect_input_clean_spec (R1): every paste cleans to the spec's
-# EXCLUDES: whitespace or a zero-width char kept, a wrapper trimmed inside
-#   the text or on one end only, another whitespace set
-law redirect_input_clean_spec:
-  for +s: String
-  {Ri.clean(s) == ri_clean(s) : String}
-
 # LAW redirect_input_parse_spec (R1-R3): every paste answers the spec's code
 # and state, or failure
 # EXCLUDES: the fragment read before the query, a carrier without its
@@ -771,100 +1179,9 @@ law redirect_input_parse_spec:
   for +s: String
   {Ri.parse(s) == ri_parse(s) : Ri.Answer}
 
-# LAW redirect_input_verify_spec (R4): every state check is the spec's
-# EXCLUDES: a missing state refused, another state accepted, the paste's
-#   state replaced by the login's
-law redirect_input_verify_spec:
-  for +c: String
-  for +m: Maybe<&2, String>
-  for +e: String
-  {Ri.verify(c, m, e) == ri_verify(c, m, e) : Ri.Answer}
-
 # LAW redirect_input_text_spec (R5): every failure's text is the spec's
 # EXCLUDES: a changed text, the description shown without its parentheses
 #   or when absent
 law redirect_input_text_spec:
   for +f: Ri.Fail
   {Ri.text(f) == ri_text(f) : String}
-
-# LAW redirect_input_notice_spec (R5): every exchange error's notice is the
-# spec's
-# EXCLUDES: whitespace or trailing dots kept, a leading dot dropped, a dot
-#   before trailing whitespace kept
-law redirect_input_notice_spec:
-  for +s: String
-  {Ri.notice(s) == ri_notice(s) : String}
-
-# LAW redirect_input_parse_example (R2, R3): anchor: Rust's address shapes
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law redirect_input_parse_example:
-  {[Ri.parse("h:1/cb?code=a%2Bb%20c&state=s%26t"), Ri.parse("h:1/cb/?code=a&state=s/#_"), Ri.parse("x://h/cb#code=a&state=s"), Ri.parse(" <h:1/cb?x=1&code=a> "), Ri.parse("state=s&code=a"), Ri.parse("  a#s\n"), Ri.parse("`a==`"), Ri.parse("x://h/cb?code=&state=s"), Ri.parse("#s"), Ri.parse("state=s"), Ri.parse("x://h/cb")] == [Ri.Pasted{"a+b c", Some{"s&t"}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a", None{}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a", Some{"s"}}, Ri.Pasted{"a==", None{}}, Ri.Failed{Ri.FMissing{}}, Ri.Failed{Ri.FMissing{}}, Ri.Failed{Ri.FMissing{}}, Ri.Failed{Ri.FMissing{}}] : List<&2, Ri.Answer>}
-
-# LAW redirect_input_error_example (R3): anchor: an OAuth error wins over
-# the code and carries its description
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law redirect_input_error_example:
-  {[Ri.parse("?code=c&error=e&error_description=d+x"), Ri.parse("error=e")] == [Ri.Failed{Ri.FProvider{"e", Some{"d x"}}}, Ri.Failed{Ri.FProvider{"e", None{}}}] : List<&2, Ri.Answer>}
-
-# LAW redirect_input_decode_example (R3): anchor: Rust's from_utf8_lossy on
-# escaped bytes: a whole char, a truncated sequence, a surrogate, a value
-# past U+10FFFF, an escape that is no escape, an escaped name
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law redirect_input_decode_example:
-  {[Ri.parse("code=%E2%82%ac"), Ri.parse("code=%E2%82x%F0"), Ri.parse("code=%ED%A0%80"), Ri.parse("code=%F4%90%80"), Ri.parse("code=%zz%4"), Ri.parse("?co%64e=a+b"), Ri.parse("code=%C3%28%C0")] == [Ri.Pasted{"\u{20AC}", None{}}, Ri.Pasted{"\u{FFFD}x\u{FFFD}", None{}}, Ri.Pasted{"\u{FFFD}\u{FFFD}\u{FFFD}", None{}}, Ri.Pasted{"\u{FFFD}\u{FFFD}\u{FFFD}", None{}}, Ri.Pasted{"%zz%4", None{}}, Ri.Pasted{"a b", None{}}, Ri.Pasted{"\u{FFFD}(\u{FFFD}", None{}}] : List<&2, Ri.Answer>}
-
-# LAW redirect_input_verify_example (R4): anchor: Rust's state checks
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law redirect_input_verify_example:
-  {[Ri.verify("c", Some{"s"}, "s"), Ri.verify("c", Some{"s"}, "t"), Ri.verify("c", None{}, "t")] == [Ri.Pasted{"c", Some{"s"}}, Ri.Failed{Ri.FMismatch{}}, Ri.Pasted{"c", Some{"t"}}] : List<&2, Ri.Answer>}
-
-# LAW redirect_input_text_example (R5): anchor: Rust's texts
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law redirect_input_text_example:
-  {[Ri.text(Ri.FProvider{"e", Some{"d"}}), Ri.notice(" x. \n"), Ri.notice("a .")] == ["The sign-in page reported an error: e (d). Open the login link again and sign in, then paste the new address.", "Login did not complete: x. Paste the address again, or open the login link again and sign in.", "Login did not complete: a . Paste the address again, or open the login link again and sign in."] : List<&2, String>}
-
-# Laws: the entry (R6)
-# --------------------
-
-# LAW redirect_input_entry_answers (R6): the entry answers every request
-# Rust spells, every length within the wire, with the spec's answer spelled
-# EXCLUDES: fields read in another order, a tag misread, the state and the
-#   login's state swapped, a default
-law redirect_input_entry_answers:
-  for +q: FRi.Req
-  for fit: {ri_fit_req(q) == True{} : Bool}
-  {FRi.ffi(ri_w_req(q, "")) == ri_w_reply(q) : String}
-
-# LAW redirect_input_entry_left_over (R6): a spelled request followed by
-# more input answers the error form
-# EXCLUDES: the input after the request ignored or read into a field
-law redirect_input_entry_left_over:
-  for +q: FRi.Req
-  for +c: Char
-  for +t: String
-  for fit: {ri_fit_req(q) == True{} : Bool}
-  {FRi.ffi(ri_w_req(q, SCon{c, t})) == Wr.err("redirect_input: malformed request") : String}
-
-# LAW redirect_input_entry_exact (R6): every input the entry does not answer
-# with the error form is a spelled request that fits the wire
-# EXCLUDES: an answer for input that is no request (an unknown tag, a Maybe
-#   tag past 1, a failure tag past 2, a short field, input left over)
-law redirect_input_entry_exact:
-  for +s: String
-  for ok: {LawsBase.wire_opens_err(FRi.ffi(s)) == False{} : Bool}
-  exs q: FRi.Req
-  {s == ri_w_req(q, "") : String} & {ri_fit_req(q) == True{} : Bool}
-
-# LAW redirect_input_entry_refuses (R6): every error the entry answers is
-# exactly `E redirect_input: malformed request`
-# EXCLUDES: an error text that varies with the input, a second error form
-law redirect_input_entry_refuses:
-  for +s: String
-  for bad: {LawsBase.wire_opens_err(FRi.ffi(s)) == True{} : Bool}
-  {FRi.ffi(s) == Wr.err("redirect_input: malformed request") : String}
-
-# LAW redirect_input_entry_example (R6): anchor: the wire strings Rust sends
-# and the replies it reads
-# EXCLUDES: another spelling of a request or of a reply
-law redirect_input_entry_example:
-  {[FRi.ffi("1,3,a#b"), FRi.ffi("2,1,c1,1,s1,t"), FRi.ffi("3,2,1,e1,1,d"), FRi.ffi("0,3, x "), FRi.ffi("1,6,code=a"), FRi.ffi("3,3,"), FRi.ffi("2,1,c2,1,s1,t"), FRi.ffi("5,"), FRi.ffi("0,1,ax")] == ["0,1,a1,1,b", "1,1,", "109,The sign-in page reported an error: e (d). Open the login link again and sign in, then paste the new address.", "1,x", "0,1,a0,", Wr.err("redirect_input: malformed request"), Wr.err("redirect_input: malformed request"), Wr.err("redirect_input: malformed request"), Wr.err("redirect_input: malformed request")] : List<&2, String>}

@@ -1,5 +1,56 @@
-# eukhe: the laws of the bounder of a tool's output (limits 1 and 2; the
+# eukhe: the laws of the bounder of a tool's output (R1-R10 below; the
 # model bend/bound.bend, the entry bend/ffi_bound.bend)
+#
+# Requirements (sources: crates/eukhe-durable/src/harness/output.rs
+# `Truncation`, `bound_output`, `OutputBuffer`; harness/tool/result.rs
+# `truncated`; the requirement's head and tail truncation). This file cited
+# "limits 1 and 2" and "(S2)" before, defined nowhere: they are R1, R2 and
+# R3-R10.
+#
+# R1: a window keeps at most the cap's bytes and at most its lines;
+#     nothing under a cap of no line or no byte.
+#       bound_window_within, bound_empty_cap_keeps_nothing
+# R2: every truncation is visible: the bytes and lines the window keeps
+#     and those counted as dropped are every byte and line of the output;
+#     an output within the cap is kept whole.
+#       bound_slice_conserves, bound_slice_keeps_window,
+#       bound_window_keeps_what_fits, bound_look_reads_window
+# R3: the window is whole lines: the most of the first lines (head) or of
+#     the last lines (tail) that fit; when not even the first line from
+#     that end fits, that line cut at the character boundary Rust gives
+#     (nothing when that cut is 0); the window lies at the start (head) or
+#     the end (tail) of the text.
+#       bound_head_keeps_most_lines, bound_head_whole_lines,
+#       bound_head_cuts_first_line, bound_tail_is_head_reversed,
+#       bound_slice_ends
+# R4: the truncation notice: none when nothing was dropped or the result
+#     no longer holds the output; else it says the output was cut at its
+#     end (head: the window kept the start) or at its start (tail).
+#       bound_notice_rule
+# R5: a stream counts the whole output: texts fed one at a time, then the
+#     stored text, read the whole output's window and counts.
+#       bound_steps_whole
+# R6: a head stores a text until its window is full and drops every text
+#     after, losing nothing its window holds.
+#       bound_head_drops_once_full, bound_head_full_keeps
+# R7: a tail's memory is bounded: it stores past twice the cap's bytes and
+#     8 only with a trim, and a trim keeps at most the margin cut Rust
+#     gives (the shortest end past the cap's bytes).
+#       bound_tail_memory, bound_look_tail_trims, bound_look_head_keeps
+# R8: a trim never cuts a later window: the window of what a tail keeps,
+#     followed by any later output, is the window of the whole output.
+#       bound_trim_keeps_later_windows
+# R9: output a shell left out (a tail only) is counted, and the stored
+#     text is cleared (no window spans the gap); a head, or a skip of no
+#     byte, changes nothing.
+#       bound_skip_tail_clears, bound_skip_keeps
+# R10: the entry bend/ffi_bound.bend answers the model on every request and
+#     event spelled on the wire, the error form on anything else, and a
+#     refused open refuses every later event.
+#       bound_ffi_slice, bound_ffi_notice, bound_ffi_malformed_exact,
+#       bound_open_answers, bound_open_refuses, bound_step_out,
+#       bound_step_skip, bound_step_look, bound_step_refuses,
+#       bound_refused_open_refuses_all, bound_entry_example
 
 import Base
 import ../bend/bound.bend as Bd
@@ -70,8 +121,23 @@ def bd_slice_bytes(s: Bd.Slice) -> Nat:
     case Bd.Slice{sp, b, l}:
       b
 
-# (S2) The window
-# ---------------
+def bd_slice_lines(s: Bd.Slice) -> Nat:
+  match s:
+    case Bd.Slice{sp, b, l}:
+      l
+
+def bd_st_stored(s: Bd.St) -> Nat:
+  match s:
+    case Bd.St{c, b, nl, o, sd}:
+      sd
+
+def bd_seen_cut(v: Bd.Seen) -> Nat:
+  match v:
+    case Bd.Seen{sp, b, l, cut}:
+      cut
+
+# The window (R1, R2, R3)
+# -----------------------
 # A cap keeps at most its bytes in at most its lines, from the start of
 # the output (head) or from its end (tail): whole lines, unless not even
 # the first line from that end fits, which is then cut at a character
@@ -106,126 +172,8 @@ def bd_rev(xs: List<&2, Nat>) -> List<&2, Nat>:
     case x <> rest:
       List.append(&2, Nat, bd_rev(rest), [x])
 
-def bd_count.pick(fits: Bool, m: Nat) -> Nat:
-  match fits:
-    case True{}:
-      1n+m
-    case False{}:
-      0n
-
-# how many of the first lines of xs, at most k, fit within b bytes
-def bd_count(xs: List<&2, Nat>, k: Nat, +b: Nat) -> Nat:
-  match xs:
-    case Nil{}:
-      0n
-    case +x <> rest:
-      match k:
-        case 0n:
-          0n
-        case 1n+j:
-          bd_count.pick(Nat.is_le(x, b), bd_count(rest, j, Nat.sub(b, x)))
-
-# the first line cut to c bytes: no line when c is 0
-def bd_cut(c: Nat) -> Bd.Win:
-  match c:
-    case 0n:
-      Bd.Win{0n, 0n}
-    case 1n+p:
-      Bd.Win{1n+p, 1n}
-
-def bd_keep.none(xs: List<&2, Nat>, c: Nat) -> Bd.Win:
-  match xs:
-    case Nil{}:
-      Bd.Win{0n, 0n}
-    case x <> rest:
-      bd_cut(c)
-
-def bd_keep.lines(m: Nat, +xs: List<&2, Nat>, c: Nat) -> Bd.Win:
-  match m:
-    case 0n:
-      bd_keep.none(xs, c)
-    case 1n++p:
-      Bd.Win{bd_total(bd_take(xs, 1n+p)), 1n+p}
-
-# the window of the lines xs (from the end the cap keeps) under k lines,
-# b bytes and the cut c: the first m lines when m of them fit (the most,
-# at most k), else the first line cut to c; nothing for no line or no byte
-def bd_keep(+xs: List<&2, Nat>, k: Nat, b: Nat, c: Nat) -> Bd.Win:
-  match k:
-    case 0n:
-      Bd.Win{0n, 0n}
-    case 1n+j:
-      match b:
-        case 0n:
-          Bd.Win{0n, 0n}
-        case 1n+q:
-          bd_keep.lines(bd_count(xs, 1n+j, 1n+q), xs, c)
-
-def bd_window.go(t: Bool, +k: Nat, +b: Nat, xs: List<&2, Nat>, hc: Nat, tc: Nat) -> Bd.Win:
-  match t:
-    case False{}:
-      bd_keep(xs, k, b, hc)
-    case True{}:
-      bd_keep(bd_rev(xs), k, b, tc)
-
-# the window of a body: of its lines from the first (head) with its head
-# cut, or from the last (tail) with its tail cut
-def bd_window(c: Bd.Cap, x: Bd.Body) -> Bd.Win:
-  match c:
-    case Bd.Cap{b, k, t}:
-      match x:
-        case Bd.Body{xs, o, hc, tc, mc}:
-          bd_window.go(t, k, b, xs, hc, tc)
-
-def bd_span(t: Bool, +len: Nat, +kept: Nat) -> Bd.Span:
-  match t:
-    case False{}:
-      Bd.Span{0n, kept}
-    case True{}:
-      Bd.Span{Nat.sub(len, kept), len}
-
-def bd_slice.of(t: Bool, +len: Nat, +n: Nat, w: Bd.Win) -> Bd.Slice:
-  match w:
-    case Bd.Win{+kb, kl}:
-      Bd.Slice{bd_span(t, len, kb), Nat.sub(len, kb), Nat.sub(n, kl)}
-
-# a whole body's slice: its window at the start (head) or the end (tail),
-# then the bytes and lines it drops
-def bd_slice(c: Bd.Cap, x: Bd.Body) -> Bd.Slice:
-  match c:
-    case Bd.Cap{+b, +k, +t}:
-      match x:
-        case Bd.Body{+xs, o, +hc, +tc, mc}:
-          bd_slice.of(t, bd_total(xs), List.length(&2, Nat, xs), bd_window(Bd.Cap{b, k, t}, Bd.Body{xs, o, hc, tc, mc}))
-
-# LAW bound_keep_exact: the window of lines is exactly the spec's: the most whole lines that fit (at most k, within b bytes), else the first line cut, nothing under no line or no byte
-# EXCLUDES: a window that skips a line, takes one past the cap, keeps a
-#   line that does not fit, cuts a line that fits or cuts at another byte
-law bound_keep_exact:
-  for +xs: List<&2, Nat>
-  for +k: Nat
-  for +b: Nat
-  for +c: Nat
-  {Bd.keep(xs, k, b, c) == bd_keep(xs, k, b, c) : Bd.Win}
-
-# LAW bound_window_exact: a body's window is its lines' window from the start under the head cut (head), or from the end under the tail cut (tail)
-# EXCLUDES: a tail that keeps the first lines, a head that keeps the last,
-#   the wrong cut, the lines read out of order
-law bound_window_exact:
-  for +c: Bd.Cap
-  for +x: Bd.Body
-  {Bd.window(c, x) == bd_window(c, x) : Bd.Win}
-
-# LAW bound_slice_exact: a whole text's slice is its window, where it lies (from the start for head, at the end for tail), and the bytes and lines left out of it
-# EXCLUDES: a window placed at the wrong end, dropped counts other than
-#   the text's bytes and lines less the window's
-law bound_slice_exact:
-  for +c: Bd.Cap
-  for +x: Bd.Body
-  {Bd.slice(c, x) == bd_slice(c, x) : Bd.Slice}
-
 # LAW bound_window_within: under cuts within the cap's bytes, a window keeps at most the cap's bytes and at most its lines
-# EXCLUDES: a window past the cap (limits 1)
+# EXCLUDES: a window past the cap (R1)
 law bound_window_within:
   for +c: Bd.Cap
   for +x: Bd.Body
@@ -234,7 +182,7 @@ law bound_window_within:
   {Nat.is_le(bd_win_bytes(Bd.window(c, x)), bd_cap_bytes(c)) == True{} : Bool} & {Nat.is_le(bd_win_lines(Bd.window(c, x)), bd_cap_lines(c)) == True{} : Bool}
 
 # LAW bound_window_keeps_what_fits: a text within the cap's bytes and lines is kept whole: every byte and every line, nothing dropped
-# EXCLUDES: a cap that drops output that fits (limits 2)
+# EXCLUDES: a cap that drops output that fits (R2)
 law bound_window_keeps_what_fits:
   for +c: Bd.Cap
   for +x: Bd.Body
@@ -244,13 +192,111 @@ law bound_window_keeps_what_fits:
   {Bd.slice(c, x) == Bd.Slice{Bd.Span{0n, bd_total(bd_body_lines(x))}, 0n, 0n} : Bd.Slice}
 
 # LAW bound_slice_conserves: under cuts within the text, the bytes kept and the bytes dropped are every byte of the text
-# EXCLUDES: a silent loss: bytes neither kept nor counted (limits 2)
+# EXCLUDES: a silent loss: bytes neither kept nor counted (R2)
 law bound_slice_conserves:
   for +c: Bd.Cap
   for +x: Bd.Body
   for hc: {Nat.is_le(bd_body_head(x), bd_total(bd_body_lines(x))) == True{} : Bool}
   for tc: {Nat.is_le(bd_body_tail(x), bd_total(bd_body_lines(x))) == True{} : Bool}
   {Nat.add(Nat.sub(bd_span_to(bd_slice_span(Bd.slice(c, x))), bd_span_from(bd_slice_span(Bd.slice(c, x)))), bd_slice_bytes(Bd.slice(c, x))) == bd_total(bd_body_lines(x)) : Nat}
+
+# LAW bound_empty_cap_keeps_nothing (R1): a cap of no line, or of no byte, keeps nothing of
+# any text, head or tail
+# EXCLUDES: a phantom line of no byte, or bytes kept in no line
+law bound_empty_cap_keeps_nothing:
+  for +b: Nat
+  for +k: Nat
+  for +t: Bool
+  for +x: Bd.Body
+  {Bd.window(Bd.Cap{b, 0n, t}, x) == Bd.Win{0n, 0n} : Bd.Win} & {Bd.window(Bd.Cap{0n, k, t}, x) == Bd.Win{0n, 0n} : Bd.Win}
+
+# LAW bound_head_keeps_most_lines (R3): a head window under a cap of some bytes keeps at least
+# every count m of the text's first lines that fits: m at most the cap's
+# lines and the text's lines, the first m lines within the cap's bytes
+# EXCLUDES: a window that stops before the most lines that fit, or skips a
+#   line that fits
+law bound_head_keeps_most_lines:
+  for +q: Nat
+  for +k: Nat
+  for +x: Bd.Body
+  for +m: Nat
+  for many: {Nat.is_le(m, k) == True{} : Bool}
+  for have: {Nat.is_le(m, List.length(&2, Nat, bd_body_lines(x))) == True{} : Bool}
+  for fit: {Nat.is_le(bd_total(bd_take(bd_body_lines(x), m)), 1n+q) == True{} : Bool}
+  {Nat.is_le(m, bd_win_lines(Bd.window(Bd.Cap{1n+q, k, False{}}, x))) == True{} : Bool}
+
+# LAW bound_head_whole_lines (R3): when the text's first line fits a cap of some bytes, a head
+# window is whole lines from the start: its bytes are the bytes of the
+# text's first lines, as many as the window's lines (with
+# bound_window_within, bound_slice_keeps_window and
+# bound_head_keeps_most_lines: the most first lines that fit, and no more)
+# EXCLUDES: a window that cuts a line that fits, a byte count off from its
+#   lines
+law bound_head_whole_lines:
+  for +q: Nat
+  for +k: Nat
+  for +y: Nat
+  for +ys: List<&2, Nat>
+  for +o: Bool
+  for +hc: Nat
+  for +tc: Nat
+  for +mc: Nat
+  for fits: {Nat.is_le(y, 1n+q) == True{} : Bool}
+  {bd_win_bytes(Bd.window(Bd.Cap{1n+q, k, False{}}, Bd.Body{y <> ys, o, hc, tc, mc})) == bd_total(bd_take(y <> ys, bd_win_lines(Bd.window(Bd.Cap{1n+q, k, False{}}, Bd.Body{y <> ys, o, hc, tc, mc})))) : Nat}
+
+# LAW bound_head_cuts_first_line (R3): when the text's first line does not fit a cap of some
+# bytes and some lines, a head window is that line cut to the head cut Rust
+# gives: c bytes in one line for a cut c of some bytes, nothing for a cut
+# of 0
+# EXCLUDES: a long first line dropped whole while a cut fits, cut at
+#   another byte, or counted as more than one line
+law bound_head_cuts_first_line:
+  for +q: Nat
+  for +j: Nat
+  for +y: Nat
+  for +ys: List<&2, Nat>
+  for +o: Bool
+  for +p: Nat
+  for +tc: Nat
+  for +mc: Nat
+  for over: {Nat.is_le(y, 1n+q) == False{} : Bool}
+  {Bd.window(Bd.Cap{1n+q, 1n+j, False{}}, Bd.Body{y <> ys, o, 1n+p, tc, mc}) == Bd.Win{1n+p, 1n} : Bd.Win} & {Bd.window(Bd.Cap{1n+q, 1n+j, False{}}, Bd.Body{y <> ys, o, 0n, tc, mc}) == Bd.Win{0n, 0n} : Bd.Win}
+
+# LAW bound_tail_is_head_reversed (R3): a tail window of a text is the head window of the text's
+# lines from the last to the first, under the tail cut: a tail keeps the
+# last lines as a head keeps the first (the head laws then pin it)
+# EXCLUDES: a tail that keeps the first lines, reads its lines out of
+#   order, or cuts with the head cut
+law bound_tail_is_head_reversed:
+  for +b: Nat
+  for +k: Nat
+  for +xs: List<&2, Nat>
+  for +o: Bool
+  for +hc: Nat
+  for +tc: Nat
+  for +mc: Nat
+  {Bd.window(Bd.Cap{b, k, True{}}, Bd.Body{xs, o, hc, tc, mc}) == Bd.window(Bd.Cap{b, k, False{}}, Bd.Body{bd_rev(xs), o, tc, hc, mc}) : Bd.Win}
+
+# LAW bound_slice_ends (R3): a head window lies at the start of the text, a tail window at its
+# end
+# EXCLUDES: a window placed at the wrong end, or inside the text
+law bound_slice_ends:
+  for +b: Nat
+  for +k: Nat
+  for +x: Bd.Body
+  {bd_span_from(bd_slice_span(Bd.slice(Bd.Cap{b, k, False{}}, x))) == 0n : Nat} & {bd_span_to(bd_slice_span(Bd.slice(Bd.Cap{b, k, True{}}, x))) == bd_total(bd_body_lines(x)) : Nat}
+
+# LAW bound_slice_keeps_window (R2): under cuts within the text, where a whole text's window
+# lies spans exactly the window's bytes, and the lines it drops and the
+# lines the window keeps are every line of the text
+# EXCLUDES: a span wider or narrower than the window, dropped lines other
+#   than the text's less the window's (a silent loss of lines)
+law bound_slice_keeps_window:
+  for +c: Bd.Cap
+  for +x: Bd.Body
+  for hc: {Nat.is_le(bd_body_head(x), bd_total(bd_body_lines(x))) == True{} : Bool}
+  for tc: {Nat.is_le(bd_body_tail(x), bd_total(bd_body_lines(x))) == True{} : Bool}
+  {Nat.sub(bd_span_to(bd_slice_span(Bd.slice(c, x))), bd_span_from(bd_slice_span(Bd.slice(c, x)))) == bd_win_bytes(Bd.window(c, x)) : Nat} & {Nat.add(bd_slice_lines(Bd.slice(c, x)), bd_win_lines(Bd.window(c, x))) == List.length(&2, Nat, bd_body_lines(x)) : Nat}
 
 # the lines a head stored up to a point of the output: whole lines, then p
 # bytes of the next line (no piece when p is 0)
@@ -276,41 +322,30 @@ law bound_head_full_keeps:
   for full: {Bool.or(Nat.is_lt(b, Nat.add(bd_total(ys), p)), Nat.is_le(k, List.length(&2, Nat, ys))) == True{} : Bool}
   {Bd.keep(List.append(&2, Nat, ys, bd_part(p)), k, b, c) == Bd.keep(List.append(&2, Nat, ys, x <> rest), k, b, c) : Bd.Win}
 
-# (S2) The notice
+# The notice (R4)
 # ---------------
+# Rust (harness/tool/result.rs `truncated`) shows a notice "Output
+# truncated." with the omitted bytes and lines and where they lie
+# (`OmittedAt::End` for At{End}, `OmittedAt::Start` for AtStart); the
+# requirement shows one only for a truncated output, of direction head or
+# tail.
 
-def bd_notice.at(t: Bool) -> Bd.At:
-  match t:
-    case False{}:
-      Bd.AtEnd{}
-    case True{}:
-      Bd.AtStart{}
-
-def bd_notice(t: Bool, d: Nat, s: Bool) -> Maybe<&2, Bd.At>:
-  match d:
-    case 0n:
-      None{}
-    case 1n+p:
-      match s:
-        case False{}:
-          None{}
-        case True{}:
-          Some{bd_notice.at(t)}
-
-# LAW bound_notice_exact: a truncation notice comes exactly when bytes were dropped and the result still holds the output: at its end under a head cap, at its start under a tail cap
+# LAW bound_notice_rule (R4): no notice when nothing was dropped, or when the result no longer
+# holds the output; else the output was cut at its end under a head cap
+# (the window kept its start) and at its start under a tail cap
 # EXCLUDES: a silent truncation, a notice for output kept whole or for an
 #   output the result no longer holds, a notice at the wrong end
-law bound_notice_exact:
+law bound_notice_rule:
   for +t: Bool
-  for +d: Nat
   for +s: Bool
-  {Bd.notice(t, d, s) == bd_notice(t, d, s) : Maybe<&2, Bd.At>}
+  for +p: Nat
+  {Bd.notice(t, 0n, s) == None{} : Maybe<&2, Bd.At>} & {Bd.notice(t, 1n+p, False{}) == None{} : Maybe<&2, Bd.At>} & {Bd.notice(False{}, 1n+p, True{}) == Some{Bd.AtEnd{}} : Maybe<&2, Bd.At>} & {Bd.notice(True{}, 1n+p, True{}) == Some{Bd.AtStart{}} : Maybe<&2, Bd.At>}
 
-# (S2) The stream
-# ---------------
+# The stream (R5-R9)
+# ------------------
 # Rust feeds an output's texts as they come; the model counts the whole
-# output and decides what Rust stores. Every text, skip and stored text
-# is free.
+# output and decides what Rust stores. Every text, skip, state and stored
+# text is free.
 
 def bd_lines(n: Nat, o: Bool) -> Nat:
   match o:
@@ -318,151 +353,6 @@ def bd_lines(n: Nat, o: Bool) -> Nat:
       n
     case True{}:
       1n+n
-
-def bd_out.tail(over: Bool) -> Bd.Act:
-  match over:
-    case True{}:
-      Bd.Trim{}
-    case False{}:
-      Bd.Store{}
-
-def bd_out.head(full: Bool, +c: Bd.Cap, +b: Nat, +nl: Nat, o: Bool, +sd: Nat, +n: Nat) -> Bd.St & Bd.Act:
-  match full:
-    case True{}:
-      (Bd.St{c, b, nl, o, sd}, Bd.Drop{})
-    case False{}:
-      (Bd.St{c, b, nl, o, Nat.add(sd, n)}, Bd.Store{})
-
-def bd_out.go(t: Bool, +c: Bd.Cap, +b: Nat, +nl: Nat, +sd: Nat, +n: Nat, +k: Nat, o: Bool) -> Bd.St & Bd.Act:
-  match t:
-    case False{}:
-      bd_out.head(Bool.or(Nat.is_lt(bd_cap_bytes(c), b), Nat.is_le(bd_cap_lines(c), nl)), c, Nat.add(b, n), Nat.add(nl, k), o, sd, n)
-    case True{}:
-      (Bd.St{c, Nat.add(b, n), Nat.add(nl, k), o, Nat.add(sd, n)}, bd_out.tail(Nat.is_lt(Nat.add(Nat.add(bd_cap_bytes(c), bd_cap_bytes(c)), 8n), Nat.add(sd, n))))
-
-# a text of n bytes and k newlines: the whole output's counts grow by it
-# and it ends inside a line or not (o); a head drops it once its window
-# is full (more bytes than the cap's, or as many newlines as its lines,
-# before it), else stores it; a tail stores it, and trims once it stores
-# more than twice the cap's bytes and 8 (twice the widest character)
-def bd_out(s: Bd.St, +n: Nat, +k: Nat, o: Bool) -> Bd.St & Bd.Act:
-  match s:
-    case Bd.St{+c, +b, +nl, op, +sd}:
-      bd_out.go(bd_cap_tail(c), c, b, nl, sd, n, k, o)
-
-def bd_skip.go(t: Bool, +c: Bd.Cap, +b: Nat, +nl: Nat, op: Bool, +sd: Nat, n: Nat, +k: Nat, o: Bool) -> Bd.St & Bool:
-  match t:
-    case False{}:
-      (Bd.St{c, b, nl, op, sd}, False{})
-    case True{}:
-      match n:
-        case 0n:
-          (Bd.St{c, b, nl, op, sd}, False{})
-        case 1n+p:
-          (Bd.St{c, Nat.add(b, 1n+p), Nat.add(nl, k), o, 0n}, True{})
-
-# output a shell left out: a tail counts it and clears what it stores; a
-# skip of no byte, or under a head, changes nothing
-def bd_skip(s: Bd.St, n: Nat, +k: Nat, o: Bool) -> Bd.St & Bool:
-  match s:
-    case Bd.St{+c, +b, +nl, op, +sd}:
-      bd_skip.go(bd_cap_tail(c), c, b, nl, op, sd, n, k, o)
-
-def bd_least(le: Bool, a: Nat, b: Nat) -> Nat:
-  match le:
-    case True{}:
-      a
-    case False{}:
-      b
-
-def bd_mline.go(more: Bool, +rs: List<&2, Nat>, +q: Nat) -> Maybe<&2, Nat>:
-  match more:
-    case True{}:
-      Some{Nat.add(bd_total(bd_take(rs, q)), 1n)}
-    case False{}:
-      None{}
-
-# the bytes from the newline of line q+1 of rs (lines from the end) to the
-# end, its newline included: none when rs has q lines or fewer
-def bd_mline(+rs: List<&2, Nat>, +q: Nat) -> Maybe<&2, Nat>:
-  bd_mline.go(Nat.is_lt(q, List.length(&2, Nat, rs)), rs, q)
-
-def bd_margin.lines(m: Maybe<&2, Nat>, +len: Nat) -> Nat:
-  match m:
-    case None{}:
-      len
-    case Some{v}:
-      v
-
-def bd_margin.go(+mc: Nat, +ml: Nat) -> Nat:
-  bd_least(Nat.is_le(mc, ml), mc, ml)
-
-# the end of a body a tail keeps stored: the shorter of its margin cut (the
-# shortest end past the cap's bytes) and its end from the newline after
-# which it holds more lines than the cap's (counting a last open line)
-def bd_margin(c: Bd.Cap, x: Bd.Body) -> Nat:
-  match c:
-    case Bd.Cap{b, k, t}:
-      match x:
-        case Bd.Body{+xs, o, hc, tc, mc}:
-          bd_margin.go(mc, bd_margin.lines(bd_mline(bd_rev(xs), bd_lines(k, o)), bd_total(xs)))
-
-def bd_look.cut(t: Bool, +c: Bd.Cap, +x: Bd.Body, +len: Nat) -> Nat:
-  match t:
-    case False{}:
-      0n
-    case True{}:
-      Nat.sub(len, bd_margin(c, x))
-
-def bd_look.of(+c: Bd.Cap, +b: Nat, +nl: Nat, +op: Bool, +x: Bd.Body, +len: Nat, w: Bd.Win) -> Bd.St & Bd.Seen:
-  match w:
-    case Bd.Win{+kb, kl}:
-      +cut = bd_look.cut(bd_cap_tail(c), c, x, len)
-      (Bd.St{c, b, nl, op, Nat.sub(len, cut)}, Bd.Seen{bd_span(bd_cap_tail(c), len, kb), Nat.sub(b, kb), Nat.sub(bd_lines(nl, op), kl), cut})
-
-# the stored text Rust sends: the window of the whole output is that
-# text's window; the output dropped its bytes and lines less the
-# window's; a head keeps the text stored, a tail keeps its margin
-def bd_look(s: Bd.St, +x: Bd.Body) -> Bd.St & Bd.Seen:
-  match s:
-    case Bd.St{+c, +b, +nl, +op, sd}:
-      bd_look.of(c, b, nl, op, x, bd_total(bd_body_lines(x)), bd_window(c, x))
-
-# LAW bound_out_exact: a text of the output is exactly: counted into the whole output, then dropped by a full head, stored by a head that is not full, stored by a tail, trimmed by a tail that stores more than twice its bytes and 8
-# EXCLUDES: a count that loses a text, a head that stores past its window
-#   or drops a text its window needs, a tail that never trims (memory
-#   grows with the output) or trims early
-law bound_out_exact:
-  for +s: Bd.St
-  for +n: Nat
-  for +k: Nat
-  for +o: Bool
-  {Bd.out(s, n, k, o) == bd_out(s, n, k, o) : Bd.St & Bd.Act}
-
-# LAW bound_skip_exact: output a shell left out is exactly: counted into a tail's output, which clears what it stores; nothing for a skip of no byte or under a head
-# EXCLUDES: skipped bytes lost from the count, a stored text kept before a
-#   skip (a window across the gap)
-law bound_skip_exact:
-  for +s: Bd.St
-  for +n: Nat
-  for +k: Nat
-  for +o: Bool
-  {Bd.skip(s, n, k, o) == bd_skip(s, n, k, o) : Bd.St & Bool}
-
-# LAW bound_margin_exact: a tail keeps stored exactly the shorter of the stored text's margin cut and its end from the newline before its last lines past the cap's
-# EXCLUDES: a trim that cuts into a later window
-law bound_margin_exact:
-  for +c: Bd.Cap
-  for +x: Bd.Body
-  {Bd.margin(c, x) == bd_margin(c, x) : Nat}
-
-# LAW bound_look_exact: the stored text Rust sends gives exactly: where its window lies, the whole output's bytes and lines less the window's, and where the stored text now starts (all of it for a head, its margin for a tail)
-# EXCLUDES: dropped counts of the stored text instead of the whole output,
-#   a trim of a head, a stored size the next text cannot grow from
-law bound_look_exact:
-  for +s: Bd.St
-  for +x: Bd.Body
-  {Bd.look(s, x) == bd_look(s, x) : Bd.St & Bd.Seen}
 
 # The step against the whole output: a stream of texts Rust stored whole
 # reads the window and the counts of that whole text
@@ -531,8 +421,249 @@ law bound_steps_whole:
   for lines: {List.length(&2, Nat, bd_body_lines(x)) == bd_lines(bd_sum_k(es), bd_last(es, False{})) : Nat}
   {bd_seen_slice(Bd.look(bd_drive(es, Bd.St{c, 0n, 0n, False{}, 0n}), x)) == Bd.slice(c, x) : Bd.Slice}
 
-# (S2) The compiled entry
-# -----------------------
+def bd_snd.act(r: Bd.St & Bd.Act) -> Bd.Act:
+  match r:
+    case (s, a):
+      a
+
+def bd_fst.look(r: Bd.St & Bd.Seen) -> Bd.St:
+  match r:
+    case (s, a):
+      s
+
+def bd_snd.look(r: Bd.St & Bd.Seen) -> Bd.Seen:
+  match r:
+    case (s, a):
+      a
+
+# what a head does with a text: drop it once its window is full, else store
+# it
+def bd_head_act(full: Bool) -> Bd.Act:
+  match full:
+    case True{}:
+      Bd.Drop{}
+    case False{}:
+      Bd.Store{}
+
+# LAW bound_head_drops_once_full (R6): after any texts of an output from the start, a head
+# drops the next text exactly when the texts before it hold more than the
+# cap's bytes or at least as many newlines as its lines (its window is
+# full: no later byte is in it, bound_head_full_keeps), and stores it
+# otherwise; a head never trims
+# EXCLUDES: a head that stores past its window (memory that grows with the
+#   output), drops a text its window still needs, or trims
+law bound_head_drops_once_full:
+  for +b: Nat
+  for +l: Nat
+  for +es: List<&2, BdText>
+  for +n: Nat
+  for +k: Nat
+  for +o: Bool
+  {bd_snd.act(Bd.out(bd_drive(es, Bd.St{Bd.Cap{b, l, False{}}, 0n, 0n, False{}, 0n}), n, k, o)) == bd_head_act(Bool.or(Nat.is_lt(b, bd_sum_n(es)), Nat.is_le(l, bd_sum_k(es)))) : Bd.Act}
+
+# a tail's answer keeps it within memory: a store leaves at most twice the
+# cap's bytes and 8 stored (st), a trim sends the stored text; a tail never
+# drops a text
+def bd_tail_within(a: Bd.Act, +st: Nat, +b: Nat) -> Bool:
+  match a:
+    case Bd.Drop{}:
+      False{}
+    case Bd.Store{}:
+      Nat.is_le(st, Nat.add(Nat.add(b, b), 8n))
+    case Bd.Trim{}:
+      True{}
+
+# LAW bound_tail_memory (R7): a tail stores every text whole (its stored bytes grow by the
+# text's), never drops one, and holds more than twice the cap's bytes and 8
+# (twice the widest character) only when it answers a trim, after which
+# Rust sends the stored text and keeps at most its margin cut
+# (bound_look_tail_trims)
+# EXCLUDES: a tail that never trims (memory grows with the output), loses
+#   a text, or drops one
+law bound_tail_memory:
+  for +b: Nat
+  for +l: Nat
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +n: Nat
+  for +k: Nat
+  for +o: Bool
+  {bd_st_stored(bd_fst.act(Bd.out(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, n, k, o))) == Nat.add(sd, n) : Nat} & {bd_tail_within(bd_snd.act(Bd.out(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, n, k, o)), Nat.add(sd, n), b) == True{} : Bool}
+
+# LAW bound_look_head_keeps (R7): a head keeps all of the stored text Rust sends: no cut, and it
+# stores the text's bytes
+# EXCLUDES: a trim of a head (its window is the start, which a cut loses)
+law bound_look_head_keeps:
+  for +b: Nat
+  for +l: Nat
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +x: Bd.Body
+  {bd_seen_cut(bd_snd.look(Bd.look(Bd.St{Bd.Cap{b, l, False{}}, bs, nl, op, sd}, x))) == 0n : Nat} & {bd_st_stored(bd_fst.look(Bd.look(Bd.St{Bd.Cap{b, l, False{}}, bs, nl, op, sd}, x))) == bd_total(bd_body_lines(x)) : Nat}
+
+# LAW bound_look_tail_trims (R7): a tail cuts the stored text Rust sends and then stores the
+# rest: the cut and the bytes stored are the text's bytes, and the bytes
+# stored are at most the body's margin cut mc (assumed, not proven here:
+# Rust gives mc as the shortest end past the cap's bytes, within the cap's
+# bytes and 4, so after a trim at most twice the cap's bytes and 8 stay)
+# EXCLUDES: a cut past the text, a stored size the next text cannot grow
+#   from, a trim that keeps more than the margin (memory past the bound)
+law bound_look_tail_trims:
+  for +b: Nat
+  for +l: Nat
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +xs: List<&2, Nat>
+  for +o: Bool
+  for +hc: Nat
+  for +tc: Nat
+  for +mc: Nat
+  {Nat.add(bd_seen_cut(bd_snd.look(Bd.look(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, Bd.Body{xs, o, hc, tc, mc}))), bd_st_stored(bd_fst.look(Bd.look(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, Bd.Body{xs, o, hc, tc, mc})))) == bd_total(xs) : Nat} & {Nat.is_le(bd_st_stored(bd_fst.look(Bd.look(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, Bd.Body{xs, o, hc, tc, mc}))), mc) == True{} : Bool}
+
+# LAW bound_look_reads_window (R2): the stored text Rust sends (part of the output: its bytes
+# and lines within the output's, its cuts within its bytes) reads its own
+# window's place, and the output's bytes and lines less the window's as
+# dropped: the window and the dropped counts are every byte and line of the
+# whole output
+# EXCLUDES: dropped counts of the stored text instead of the whole output,
+#   a window placed elsewhere than the stored text's slice
+law bound_look_reads_window:
+  for +c: Bd.Cap
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +x: Bd.Body
+  for bytes: {Nat.is_le(bd_total(bd_body_lines(x)), bs) == True{} : Bool}
+  for lines: {Nat.is_le(List.length(&2, Nat, bd_body_lines(x)), bd_lines(nl, op)) == True{} : Bool}
+  for hc: {Nat.is_le(bd_body_head(x), bd_total(bd_body_lines(x))) == True{} : Bool}
+  for tc: {Nat.is_le(bd_body_tail(x), bd_total(bd_body_lines(x))) == True{} : Bool}
+  {bd_slice_span(bd_seen_slice(Bd.look(Bd.St{c, bs, nl, op, sd}, x))) == bd_slice_span(Bd.slice(c, x)) : Bd.Span} & {Nat.add(bd_slice_bytes(bd_seen_slice(Bd.look(Bd.St{c, bs, nl, op, sd}, x))), bd_win_bytes(Bd.window(c, x))) == bs : Nat} & {Nat.add(bd_slice_lines(bd_seen_slice(Bd.look(Bd.St{c, bs, nl, op, sd}, x))), bd_win_lines(Bd.window(c, x))) == bd_lines(nl, op) : Nat}
+
+# The text after a trim (R8)
+# --------------------------
+
+# the lines of the last m bytes of a text, listed from its last line: whole
+# lines while they fit in m, then the piece of the line m ends in
+def bd_sfx.pick(fits: Bool, +r: Nat, +m: Nat, more: List<&2, Nat>) -> List<&2, Nat>:
+  match fits:
+    case True{}:
+      r <> more
+    case False{}:
+      [m]
+
+def bd_sfx(rs: List<&2, Nat>, +m: Nat) -> List<&2, Nat>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case +r <> rest:
+      match m:
+        case 0n:
+          Nil{}
+        case 1n++q:
+          bd_sfx.pick(Nat.is_le(r, 1n+q), r, 1n+q, bd_sfx(rest, Nat.sub(1n+q, r)))
+
+# the lines of the last m bytes of a text of lines xs
+def bd_kept(+xs: List<&2, Nat>, +m: Nat) -> List<&2, Nat>:
+  bd_rev(bd_sfx(bd_rev(xs), m))
+
+# p more bytes on the last line (listed from the last line)
+def bd_glue(+p: Nat, rs: List<&2, Nat>) -> List<&2, Nat>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      Nat.add(p, r) <> rest
+
+# the lines of a text of lines xs, then a later text: p bytes that go on
+# xs's last line (0 when xs ends with a newline), then the lines ys
+def bd_then(+xs: List<&2, Nat>, +p: Nat, +ys: List<&2, Nat>) -> List<&2, Nat>:
+  bd_rev(List.append(&2, Nat, bd_rev(ys), bd_glue(p, bd_rev(xs))))
+
+# every line holds a byte (a text's lines as Rust reads them: each ends
+# with its newline, or is the last line and holds a char)
+def bd_lines_pos(xs: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(Nat.is_lt(0n, x), bd_lines_pos(rest))
+
+# LAW bound_trim_keeps_later_windows (R8): under a tail cap, Rust sends the stored text (lines
+# xs, each holding a byte; its margin cut more than the cap's bytes, or at
+# least the whole text) and keeps its last bytes, as many as the stream then
+# stores; for any later output (p more bytes on the last line, then any
+# lines), the tail window of what Rust kept then the later output is the
+# tail window of the whole stored text then the later output, under the
+# same tail cut on both sides
+# EXCLUDES: a trim that cuts into a later window (a window that loses
+#   lines or bytes it should hold, or gains a cut line)
+law bound_trim_keeps_later_windows:
+  for +b: Nat
+  for +k: Nat
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +xs: List<&2, Nat>
+  for +o: Bool
+  for +hc: Nat
+  for +tc: Nat
+  for +mc: Nat
+  for +p: Nat
+  for +ys: List<&2, Nat>
+  for +o2: Bool
+  for +h2: Nat
+  for +w: Nat
+  for +m2: Nat
+  for full: {bd_lines_pos(xs) == True{} : Bool}
+  for past: {Bool.or(Nat.is_lt(b, mc), Nat.is_le(bd_total(xs), mc)) == True{} : Bool}
+  {Bd.window(Bd.Cap{b, k, True{}}, Bd.Body{bd_then(bd_kept(xs, bd_st_stored(bd_fst.look(Bd.look(Bd.St{Bd.Cap{b, k, True{}}, bs, nl, op, sd}, Bd.Body{xs, o, hc, tc, mc})))), p, ys), o2, h2, w, m2}) == Bd.window(Bd.Cap{b, k, True{}}, Bd.Body{bd_then(xs, p, ys), o2, h2, w, m2}) : Bd.Win}
+
+# The skip (R9)
+# -------------
+
+# LAW bound_skip_tail_clears (R9): output of some bytes a shell left out of a tail is counted
+# (its bytes and newlines; whether the output now ends inside a line) and
+# clears what the tail stores, answering the clear
+# EXCLUDES: skipped bytes lost from the count, a stored text kept before a
+#   skip (a window across the gap)
+law bound_skip_tail_clears:
+  for +b: Nat
+  for +l: Nat
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +p: Nat
+  for +k: Nat
+  for +o: Bool
+  {Bd.skip(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, 1n+p, k, o) == (Bd.St{Bd.Cap{b, l, True{}}, Nat.add(bs, 1n+p), Nat.add(nl, k), o, 0n}, True{}) : Bd.St & Bool}
+
+# LAW bound_skip_keeps (R9): a skip under a head (which never takes skips), or a skip of no
+# byte, changes nothing and clears nothing
+# EXCLUDES: a head that counts or clears on a skip, a stored text cleared
+#   for nothing
+law bound_skip_keeps:
+  for +b: Nat
+  for +l: Nat
+  for +bs: Nat
+  for +nl: Nat
+  for +op: Bool
+  for +sd: Nat
+  for +n: Nat
+  for +k: Nat
+  for +o: Bool
+  {Bd.skip(Bd.St{Bd.Cap{b, l, False{}}, bs, nl, op, sd}, n, k, o) == (Bd.St{Bd.Cap{b, l, False{}}, bs, nl, op, sd}, False{}) : Bd.St & Bool} & {Bd.skip(Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, 0n, k, o) == (Bd.St{Bd.Cap{b, l, True{}}, bs, nl, op, sd}, False{}) : Bd.St & Bool}
+
+# (R10) The compiled entry
+# ------------------------
 # bend/ffi_bound.bend, for every request and event that fits the wire:
 # its replies are the model's answers, spelled by the spec spellers here
 # (bd_spell over the Wr primitives, whose round trips laws/wire.bend
@@ -604,27 +735,12 @@ def bd_seen.nats(v: Bd.Seen) -> List<&2, Nat>:
     case Bd.Seen{sp, b, l, cut}:
       bd_span.nats(sp, [b, l, cut])
 
-def bd_snd.act(r: Bd.St & Bd.Act) -> Bd.Act:
-  match r:
-    case (s, a):
-      a
-
 def bd_fst.skip(r: Bd.St & Bool) -> Bd.St:
   match r:
     case (s, a):
       s
 
 def bd_snd.skip(r: Bd.St & Bool) -> Bool:
-  match r:
-    case (s, a):
-      a
-
-def bd_fst.look(r: Bd.St & Bd.Seen) -> Bd.St:
-  match r:
-    case (s, a):
-      s
-
-def bd_snd.look(r: Bd.St & Bd.Seen) -> Bd.Seen:
   match r:
     case (s, a):
       a
@@ -778,11 +894,42 @@ law bound_open_refuses:
   for no: {bd_open_of(bd_read(s)) == False{} : Bool}
   {FBd.open(s) == (FBd.Shut{}, Wr.err("bound: malformed open")) : FBd.St & String}
 
-# LAW bound_shut_refuses: the refused state answers every event with exactly the error form 'E bound: the open was refused'
-# EXCLUDES: a stream run on a made-up cap after a refused open
-law bound_shut_refuses:
-  for s: String
-  {FBd.step(FBd.Shut{}, s) == (FBd.Shut{}, Wr.err("bound: the open was refused")) : FBd.St & String}
+def bd_fst.step(r: FBd.St & String) -> FBd.St:
+  match r:
+    case (s, a):
+      s
+
+def bd_snd.step(r: FBd.St & String) -> String:
+  match r:
+    case (s, a):
+      a
+
+# the replies to the events es, stepped in order from the state st
+def bd_steps(es: List<&2, String>, +st: FBd.St) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      bd_snd.step(FBd.step(st, e)) <> bd_steps(rest, bd_fst.step(FBd.step(st, e)))
+
+# the refusal of each event of es
+def bd_refused(es: List<&2, String>) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      Wr.err("bound: the open was refused") <> bd_refused(rest)
+
+# LAW bound_refused_open_refuses_all (R10): after an open that is not a whole cap (a refused
+# open), every later event, of any input, answers exactly the error form
+# 'E bound: the open was refused'
+# EXCLUDES: a stream run on a made-up cap after a refused open, an answer
+#   to a later event that is not the refusal
+law bound_refused_open_refuses_all:
+  for +s: String
+  for +es: List<&2, String>
+  for no: {bd_open_of(bd_read(s)) == False{} : Bool}
+  {bd_steps(es, bd_fst.step(FBd.open(s))) == bd_refused(es) : List<&2, String>}
 
 # LAW bound_step_out: a text [0, bytes, newlines, open] answers the model's decision on it [0 drop | 1 store | 2 trim], and the stream goes on as the model's
 # EXCLUDES: a text read with its counts swapped, a decision or a stream
@@ -840,3 +987,156 @@ law bound_step_refuses:
 # EXCLUDES: a codec that reads other fields or writes another reply
 law bound_entry_example:
   {[FBd.ffi("10,0,5,10,0,0,5,4,7,3,4,"), FBd.ffi("10,0,5,10,1,0,5,4,7,3,4,"), FBd.ffi("4,1,1,4,1,"), FBd.ffi("4,1,0,4,0,"), FBd.ffi("4,1,2,4,1,"), FBd.ffi("4,1,1,4,1,x")] == ["4,0,3,4,1,", "4,3,7,3,1,", "1,1,", "0,", Wr.err("bound: malformed request"), Wr.err("bound: malformed request")] : List<&2, String>} & {FBd.open("3,5,10,1,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "4,0,3,1,0,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 3n, 1n, False{}, 3n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 3n, 1n, False{}, 3n}}, "4,0,30,0,1,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 33n, 1n, True{}, 33n}}, "1,2,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 33n, 1n, True{}, 33n}}, "7,2,1,5,5,6,3,30,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 33n, 1n, True{}, 6n}}, "5,28,33,28,1,27,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 3n, 1n, False{}, 3n}}, "4,0,3,1,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 6n, 2n, False{}, 6n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 101n, 2n, False{}, 101n}}, "4,0,3,1,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, False{}}, 104n, 3n, False{}, 101n}}, "1,0,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "4,0,9,1,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 9n, 1n, False{}, 9n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 200n, 0n, False{}, 200n}}, "4,0,8,0,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 208n, 0n, False{}, 208n}}, "1,1,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 200n, 0n, False{}, 200n}}, "4,0,9,0,0,") == (FBd.Run{Bd.St{Bd.Cap{100n, 10n, True{}}, 209n, 0n, False{}, 209n}}, "1,2,") : FBd.St & String} & {FBd.step(FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, "4,0,3,1,2,") == (FBd.Run{Bd.St{Bd.Cap{5n, 10n, True{}}, 0n, 0n, False{}, 0n}}, Wr.err("bound: malformed event")) : FBd.St & String}
+
+def bd_least(le: Bool, a: Nat, b: Nat) -> Nat:
+  match le:
+    case True{}:
+      a
+    case False{}:
+      b
+
+def bd_margin.go(+mc: Nat, +ml: Nat) -> Nat:
+  bd_least(Nat.is_le(mc, ml), mc, ml)
+
+def bd_margin.lines(m: Maybe<&2, Nat>, +len: Nat) -> Nat:
+  match m:
+    case None{}:
+      len
+    case Some{v}:
+      v
+
+def bd_mline.go(more: Bool, +rs: List<&2, Nat>, +q: Nat) -> Maybe<&2, Nat>:
+  match more:
+    case True{}:
+      Some{Nat.add(bd_total(bd_take(rs, q)), 1n)}
+    case False{}:
+      None{}
+
+# the bytes from the newline of line q+1 of rs (lines from the end) to the
+# end, its newline included: none when rs has q lines or fewer
+def bd_mline(+rs: List<&2, Nat>, +q: Nat) -> Maybe<&2, Nat>:
+  bd_mline.go(Nat.is_lt(q, List.length(&2, Nat, rs)), rs, q)
+
+# the end of a body a tail keeps stored: the shorter of its margin cut (the
+# shortest end past the cap's bytes) and its end from the newline after
+# which it holds more lines than the cap's (counting a last open line)
+def bd_margin(c: Bd.Cap, x: Bd.Body) -> Nat:
+  match c:
+    case Bd.Cap{b, k, t}:
+      match x:
+        case Bd.Body{+xs, o, hc, tc, mc}:
+          bd_margin.go(mc, bd_margin.lines(bd_mline(bd_rev(xs), bd_lines(k, o)), bd_total(xs)))
+
+# LAW bound_margin_exact: a tail keeps stored exactly the shorter of the stored text's margin cut and its end from the newline before its last lines past the cap's
+# EXCLUDES: a trim that cuts into a later window
+law bound_margin_exact:
+  for +c: Bd.Cap
+  for +x: Bd.Body
+  {Bd.margin(c, x) == bd_margin(c, x) : Nat}
+
+def bd_look.cut(t: Bool, +c: Bd.Cap, +x: Bd.Body, +len: Nat) -> Nat:
+  match t:
+    case False{}:
+      0n
+    case True{}:
+      Nat.sub(len, bd_margin(c, x))
+
+def bd_span(t: Bool, +len: Nat, +kept: Nat) -> Bd.Span:
+  match t:
+    case False{}:
+      Bd.Span{0n, kept}
+    case True{}:
+      Bd.Span{Nat.sub(len, kept), len}
+
+def bd_look.of(+c: Bd.Cap, +b: Nat, +nl: Nat, +op: Bool, +x: Bd.Body, +len: Nat, w: Bd.Win) -> Bd.St & Bd.Seen:
+  match w:
+    case Bd.Win{+kb, kl}:
+      +cut = bd_look.cut(bd_cap_tail(c), c, x, len)
+      (Bd.St{c, b, nl, op, Nat.sub(len, cut)}, Bd.Seen{bd_span(bd_cap_tail(c), len, kb), Nat.sub(b, kb), Nat.sub(bd_lines(nl, op), kl), cut})
+
+def bd_count.pick(fits: Bool, m: Nat) -> Nat:
+  match fits:
+    case True{}:
+      1n+m
+    case False{}:
+      0n
+
+# how many of the first lines of xs, at most k, fit within b bytes
+def bd_count(xs: List<&2, Nat>, k: Nat, +b: Nat) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case +x <> rest:
+      match k:
+        case 0n:
+          0n
+        case 1n+j:
+          bd_count.pick(Nat.is_le(x, b), bd_count(rest, j, Nat.sub(b, x)))
+
+# the first line cut to c bytes: no line when c is 0
+def bd_cut(c: Nat) -> Bd.Win:
+  match c:
+    case 0n:
+      Bd.Win{0n, 0n}
+    case 1n+p:
+      Bd.Win{1n+p, 1n}
+
+def bd_keep.none(xs: List<&2, Nat>, c: Nat) -> Bd.Win:
+  match xs:
+    case Nil{}:
+      Bd.Win{0n, 0n}
+    case x <> rest:
+      bd_cut(c)
+
+def bd_keep.lines(m: Nat, +xs: List<&2, Nat>, c: Nat) -> Bd.Win:
+  match m:
+    case 0n:
+      bd_keep.none(xs, c)
+    case 1n++p:
+      Bd.Win{bd_total(bd_take(xs, 1n+p)), 1n+p}
+
+# the window of the lines xs (from the end the cap keeps) under k lines,
+# b bytes and the cut c: the first m lines when m of them fit (the most,
+# at most k), else the first line cut to c; nothing for no line or no byte
+def bd_keep(+xs: List<&2, Nat>, k: Nat, b: Nat, c: Nat) -> Bd.Win:
+  match k:
+    case 0n:
+      Bd.Win{0n, 0n}
+    case 1n+j:
+      match b:
+        case 0n:
+          Bd.Win{0n, 0n}
+        case 1n+q:
+          bd_keep.lines(bd_count(xs, 1n+j, 1n+q), xs, c)
+
+def bd_window.go(t: Bool, +k: Nat, +b: Nat, xs: List<&2, Nat>, hc: Nat, tc: Nat) -> Bd.Win:
+  match t:
+    case False{}:
+      bd_keep(xs, k, b, hc)
+    case True{}:
+      bd_keep(bd_rev(xs), k, b, tc)
+
+# the window of a body: of its lines from the first (head) with its head
+# cut, or from the last (tail) with its tail cut
+def bd_window(c: Bd.Cap, x: Bd.Body) -> Bd.Win:
+  match c:
+    case Bd.Cap{b, k, t}:
+      match x:
+        case Bd.Body{xs, o, hc, tc, mc}:
+          bd_window.go(t, k, b, xs, hc, tc)
+
+# the stored text Rust sends: the window of the whole output is that
+# text's window; the output dropped its bytes and lines less the
+# window's; a head keeps the text stored, a tail keeps its margin
+def bd_look(s: Bd.St, +x: Bd.Body) -> Bd.St & Bd.Seen:
+  match s:
+    case Bd.St{+c, +b, +nl, +op, sd}:
+      bd_look.of(c, b, nl, op, x, bd_total(bd_body_lines(x)), bd_window(c, x))
+
+# LAW bound_look_exact: the stored text Rust sends gives exactly: where its window lies, the whole output's bytes and lines less the window's, and where the stored text now starts (all of it for a head, its margin for a tail)
+# EXCLUDES: dropped counts of the stored text instead of the whole output,
+#   a trim of a head, a stored size the next text cannot grow from
+law bound_look_exact:
+  for +s: Bd.St
+  for +x: Bd.Body
+  {Bd.look(s, x) == bd_look(s, x) : Bd.St & Bd.Seen}

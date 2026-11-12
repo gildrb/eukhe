@@ -308,7 +308,9 @@ fn plan_loaded(
 }
 
 /// Whether adoption publishes the plan. The compiled core decides
-/// (`eukhe_bend::rules::doc_plan`, law `doc_plan_publishes_exact`): every
+/// (`eukhe_bend::rules::doc_plan`, laws
+/// `doc_plan_unpublished_only_quiet_loaded` and
+/// `doc_plan_loaded_publishes_its_write`): every
 /// creation, copy, and retirement, and a loaded incarnation that writes
 /// content, which includes a migration-only base so observers of the older
 /// shape receive the new value.

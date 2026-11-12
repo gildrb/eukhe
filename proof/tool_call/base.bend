@@ -1,16 +1,16 @@
 # eukhe: lemmas the proofs of area tool_call share
 #
 # The stepper opens taking reports (tp.opened). From there, by induction
-# on the events, every reply is S2's: tp.taking while no end came,
-# tp.over after it. The journal laws then speak of S2's replies only
-# (tp.j_over, tp.s_open, tp.k_over, tp.k_open). The entry reads every
-# input as the laws' reader does (tp.read); a spelled event runs the
-# model's step (tp.spelled).
+# on the events, every reply is S2's (tp.spec, a proof-side scaffold the
+# laws do not read):
+# tp.taking while no end came, tp.over after it. The journal laws then
+# speak of S2's replies only (tp.j_over, tp.s_open, tp.k_over,
+# tp.k_open). After any events the stepper holds a call ended exactly
+# when an end came (tp.fed_taking, tp.fed_over), and one more event is
+# answered as S2 asks (tp.answer).
 #
-# The gate: a spelled question runs the model's gate (ep.spelled), and
-# the entry reads every input as the laws' reader does (ep.read). The
-# world: every history from w0 is one of seven shapes (ep.from_w0), and
-# each world law holds of every shape.
+# The world: every history from w0 is one of seven shapes (ep.from_w0),
+# and each world law holds of every shape.
 
 import Base
 import ../../bend/tool_call.bend as Tc
@@ -22,34 +22,59 @@ import ../../spec/harness/effect.bend as Sp
 # Logic
 # -----
 
-def tp.MD(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
-  match m:
-    case None{}:
-      Unit
-    case Some{x}:
-      G
+# s spelled up to a field a is s spelled up to its spelling b
+def tp.step(-F: String -> String, -s: String, -a: String, -b: String, pre: {s == F(a) : String}, e: {a == b : String}) -> {s == F(b) : String}:
+  Equal.trans(String, s, F(a), F(b), pre, Equal.cong(String, String, F, a, b, e))
 
-# None is not Some
-def tp.none_some(-A: Data, -G: Type, -r: A, h: {None{} == Some{r} : Maybe<&2, A>}) -> G:
-  %h : tp.MD(A, _, G)
+def tp.FT(b: Bool, G: Type) -> Type:
+  match b:
+    case True{}:
+      G
+    case False{}:
+      Unit
+
+# False is not True
+def tp.no(-G: Type, e: {False{} == True{} : Bool}) -> G:
+  %e : tp.FT(_, G)
   Unit{}
 
-def tp.get(-A: Data, m: Maybe<&2, A>, d: A) -> A:
-  match m:
-    case None{}:
-      d
-    case Some{x}:
-      x
+def ep.BT(b: Bool, G: Type) -> Type:
+  match b:
+    case True{}:
+      Unit
+    case False{}:
+      G
 
-# Some is injective
-def tp.some_inj(-A: Data, +a: A, +b: A, h: {Some{a} == Some{b} : Maybe<&2, A>}) -> {a == b : A}:
-  Equal.cong(Maybe<&2, A>, A, m => tp.get(A, m, a), Some{a}, Some{b}, h)
+# True is not False
+def ep.true_false(-G: Type, h: {True{} == False{} : Bool}) -> G:
+  %h : ep.BT(_, G)
+  Unit{}
+
+# S2's replies, spelled; ended: an end came before
+def tp.spec(es: List<&2, Tc.Ev>, ended: Bool) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      match e:
+        case Tc.Report{}:
+          match ended:
+            case False{}:
+              "0," <> tp.spec(rest, False{})
+            case True{}:
+              "1," <> tp.spec(rest, True{})
+        case Tc.End{t, a}:
+          match ended:
+            case False{}:
+              SCon{'2', SCon{',', ToolCall.tc_how_spec(t, a)}} <> tp.spec(rest, True{})
+            case True{}:
+              "3," <> tp.spec(rest, True{})
 
 # The stepper's replies
 # ---------------------
 
 # after the end, every reply is S2's for an ended call
-def tp.over(es: List<&2, Tc.Ev>) -> {ToolCall.tc_replies(es, FTc.Call{Tc.Ended{}}) == ToolCall.tc_spec(es, True{}) : List<&2, String>}:
+def tp.over(es: List<&2, Tc.Ev>) -> {ToolCall.tc_replies(es, FTc.Call{Tc.Ended{}}) == tp.spec(es, True{}) : List<&2, String>}:
   match es:
     case Nil{}:
       {==}
@@ -74,7 +99,7 @@ def tp.over(es: List<&2, Tc.Ev>) -> {ToolCall.tc_replies(es, FTc.Call{Tc.Ended{}
               {==}
 
 # while no end came, every reply is S2's for a running call
-def tp.taking(es: List<&2, Tc.Ev>) -> {ToolCall.tc_replies(es, FTc.Call{Tc.Taking{}}) == ToolCall.tc_spec(es, False{}) : List<&2, String>}:
+def tp.taking(es: List<&2, Tc.Ev>) -> {ToolCall.tc_replies(es, FTc.Call{Tc.Taking{}}) == tp.spec(es, False{}) : List<&2, String>}:
   match es:
     case Nil{}:
       {==}
@@ -107,15 +132,15 @@ def tp.opened(first: Bool) -> {FTc.Call{Tc.Taking{}} == ToolCall.tc_opened(first
       {==}
 
 # the stepper as opened answers S2's replies
-def tp.model(+first: Bool, +es: List<&2, Tc.Ev>) -> {ToolCall.tc_spec(es, False{}) == ToolCall.tc_replies(es, ToolCall.tc_opened(first)) : List<&2, String>}:
-  %tp.opened(first) : {ToolCall.tc_spec(es, False{}) == ToolCall.tc_replies(es, _) : List<&2, String>}
-  Equal.sym(List<&2, String>, ToolCall.tc_replies(es, FTc.Call{Tc.Taking{}}), ToolCall.tc_spec(es, False{}), tp.taking(es))
+def tp.model(+first: Bool, +es: List<&2, Tc.Ev>) -> {tp.spec(es, False{}) == ToolCall.tc_replies(es, ToolCall.tc_opened(first)) : List<&2, String>}:
+  %tp.opened(first) : {tp.spec(es, False{}) == ToolCall.tc_replies(es, _) : List<&2, String>}
+  Equal.sym(List<&2, String>, ToolCall.tc_replies(es, FTc.Call{Tc.Taking{}}), tp.spec(es, False{}), tp.taking(es))
 
 # The journal of S2's replies
 # ---------------------------
 
 # after the end, no reply journals a settle
-def tp.j_over(es: List<&2, Tc.Ev>) -> {0n == List.length(&2, String, ToolCall.tc_journaled(ToolCall.tc_spec(es, True{}))) : Nat}:
+def tp.j_over(es: List<&2, Tc.Ev>) -> {0n == List.length(&2, String, ToolCall.tc_journaled(tp.spec(es, True{}))) : Nat}:
   match es:
     case Nil{}:
       {==}
@@ -128,7 +153,7 @@ def tp.j_over(es: List<&2, Tc.Ev>) -> {0n == List.length(&2, String, ToolCall.tc
 
 # before the end, the replies journal one settle when an end comes, else
 # none
-def tp.s_open(es: List<&2, Tc.Ev>) -> {ToolCall.tc_once(ToolCall.tc_ends(es)) == List.length(&2, String, ToolCall.tc_journaled(ToolCall.tc_spec(es, False{}))) : Nat}:
+def tp.s_open(es: List<&2, Tc.Ev>) -> {ToolCall.tc_once(ToolCall.tc_ends(es)) == List.length(&2, String, ToolCall.tc_journaled(tp.spec(es, False{}))) : Nat}:
   match es:
     case Nil{}:
       {==}
@@ -149,326 +174,122 @@ def tp.le_once(b: Bool) -> {Nat.is_le(1n+ToolCall.tc_once(b), 2n) == True{} : Bo
       {==}
 
 # after the end, no report is stored, as none comes before the end
-def tp.k_over(es: List<&2, Tc.Ev>) -> {ToolCall.tc_kept(es, ToolCall.tc_spec(es, True{})) == ToolCall.tc_before_end(es, True{}) : List<&2, Bool>}:
+def tp.k_over(es: List<&2, Tc.Ev>) -> {ToolCall.tc_kept(es, tp.spec(es, True{})) == ToolCall.tc_before_end(es, True{}) : List<&2, Bool>}:
   match es:
     case Nil{}:
       {==}
     case e <> +rest:
       match e:
         case Tc.Report{}:
-          %tp.k_over(rest) : {False{} <> ToolCall.tc_kept(rest, ToolCall.tc_spec(rest, True{})) == False{} <> _ : List<&2, Bool>}
+          %tp.k_over(rest) : {False{} <> ToolCall.tc_kept(rest, tp.spec(rest, True{})) == False{} <> _ : List<&2, Bool>}
           {==}
         case Tc.End{t, a}:
           tp.k_over(rest)
 
 # before the end, every report is stored, as it comes before the end
-def tp.k_open(es: List<&2, Tc.Ev>) -> {ToolCall.tc_kept(es, ToolCall.tc_spec(es, False{})) == ToolCall.tc_before_end(es, False{}) : List<&2, Bool>}:
+def tp.k_open(es: List<&2, Tc.Ev>) -> {ToolCall.tc_kept(es, tp.spec(es, False{})) == ToolCall.tc_before_end(es, False{}) : List<&2, Bool>}:
   match es:
     case Nil{}:
       {==}
     case e <> +rest:
       match e:
         case Tc.Report{}:
-          %tp.k_open(rest) : {True{} <> ToolCall.tc_kept(rest, ToolCall.tc_spec(rest, False{})) == True{} <> _ : List<&2, Bool>}
+          %tp.k_open(rest) : {True{} <> ToolCall.tc_kept(rest, tp.spec(rest, False{})) == True{} <> _ : List<&2, Bool>}
           {==}
         case Tc.End{t, a}:
           tp.k_over(rest)
 
-# The entry
-# ---------
 
-def tp.read_aborted(t: Bool, r: Wr.Dec<Bool>) -> {ToolCall.tc_read.aborted(t, r) == FTc.get_ev.aborted(t, r) : Wr.Dec<Tc.Ev>}:
-  match r:
-    case Wr.Got{a, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
+# The stepper after a history
+# ---------------------------
 
-def tp.read_threw(r: Wr.Dec<Bool>) -> {ToolCall.tc_read.threw(r) == FTc.get_ev.threw(r) : Wr.Dec<Tc.Ev>}:
-  match r:
-    case Wr.Got{t, s}:
-      tp.read_aborted(t, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def tp.read_tag(n: Nat, s: String) -> {ToolCall.tc_read.tag(n, s) == FTc.get_ev.tag(n, s) : Wr.Dec<Tc.Ev>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      tp.read_threw(Wr.get_bool(s))
-    case 2n+p:
-      {==}
-
-# the entry reads every event as the laws' reader does
-def tp.read(r: Wr.Dec<Nat>) -> {ToolCall.tc_read.go(r) == FTc.get_ev.go(r) : Wr.Dec<Tc.Ev>}:
-  match r:
-    case Wr.Got{n, s}:
-      tp.read_tag(n, s)
-    case Wr.Bad{}:
-      {==}
-
-# a spelled event is read whole: the stepper runs the model's step
-def tp.spelled(c: Tc.C, e: Tc.Ev) -> {FTc.step.reply(Tc.step(c, e)) == FTc.step(FTc.Call{c}, ToolCall.tc_spell(e)) : FTc.St & String}:
-  match e:
-    case Tc.Report{}:
-      {==}
-    case Tc.End{t, a}:
-      match t a:
-        case True{} True{}:
-          {==}
-        case True{} False{}:
-          {==}
-        case False{} True{}:
-          {==}
-        case False{} False{}:
-          {==}
-
-# a spelled open is read whole
-def tp.open_spelled(b: Bool) -> {FTc.open.end(True{}, b) == FTc.open(ToolCall.tc_spell_open(b)) : FTc.St & String}:
+# the call the stepper holds: ended or taking reports
+def tp.cof(b: Bool) -> Tc.C:
   match b:
     case True{}:
-      {==}
+      Tc.Ended{}
     case False{}:
+      Tc.Taking{}
+
+# after the end, every event keeps the call ended
+def tp.fed_over(pre: List<&2, Tc.Ev>) -> {ToolCall.tc_fed(pre, FTc.Call{Tc.Ended{}}) == FTc.Call{Tc.Ended{}} : FTc.St}:
+  match pre:
+    case Nil{}:
       {==}
+    case e <> rest:
+      match e:
+        case Tc.Report{}:
+          tp.fed_over(rest)
+        case Tc.End{t, a}:
+          match t a:
+            case True{} True{}:
+              tp.fed_over(rest)
+            case True{} False{}:
+              tp.fed_over(rest)
+            case False{} True{}:
+              tp.fed_over(rest)
+            case False{} False{}:
+              tp.fed_over(rest)
 
-# The gate
-# --------
+# from a call taking reports, the events leave it ended exactly when an
+# end is among them
+def tp.fed_taking(pre: List<&2, Tc.Ev>) -> {ToolCall.tc_fed(pre, FTc.Call{Tc.Taking{}}) == FTc.Call{tp.cof(ToolCall.tc_ends(pre))} : FTc.St}:
+  match pre:
+    case Nil{}:
+      {==}
+    case e <> rest:
+      match e:
+        case Tc.Report{}:
+          tp.fed_taking(rest)
+        case Tc.End{t, a}:
+          match t a:
+            case True{} True{}:
+              tp.fed_over(rest)
+            case True{} False{}:
+              tp.fed_over(rest)
+            case False{} True{}:
+              tp.fed_over(rest)
+            case False{} False{}:
+              tp.fed_over(rest)
 
-def ep.BT(b: Bool, G: Type) -> Type:
+# one event, to a call ended (b) or not, is answered as S2 asks
+def tp.answer(b: Bool, e: Tc.Ev) -> {ToolCall.tc_reply(FTc.step(FTc.Call{tp.cof(b)}, ToolCall.tc_spell(e))) == ToolCall.tc_answer(b, e) : String}:
   match b:
     case True{}:
-      Unit
+      match e:
+        case Tc.Report{}:
+          {==}
+        case Tc.End{t, a}:
+          match t a:
+            case True{} True{}:
+              {==}
+            case True{} False{}:
+              {==}
+            case False{} True{}:
+              {==}
+            case False{} False{}:
+              {==}
     case False{}:
-      G
-
-# True is not False
-def ep.true_false(-G: Type, h: {True{} == False{} : Bool}) -> G:
-  %h : ep.BT(_, G)
-  Unit{}
-
-# a spelled question is read whole: the entry answers the model's gate
-def ep.spelled(+q: Tc.Gate) -> {FTc.put_go(Tc.gate(q)) == FTc.ffi(ToolCall.tc_spell_gate(q)) : String}:
-  match q:
-    case Tc.Enter{f, t}:
-      match f:
-        case True{}:
-          match t:
-            case Tc.Gone{}:
+      match e:
+        case Tc.Report{}:
+          {==}
+        case Tc.End{t, a}:
+          match t a:
+            case True{} True{}:
               {==}
-            case Tc.Offered{tr}:
-              match tr:
-                case Tc.Safe{}:
-                  {==}
-                case Tc.Unsafe{}:
-                  {==}
-        case False{}:
-          match t:
-            case Tc.Gone{}:
+            case True{} False{}:
               {==}
-            case Tc.Offered{tr}:
-              match tr:
-                case Tc.Safe{}:
-                  {==}
-                case Tc.Unsafe{}:
-                  {==}
-    case Tc.Recover{f, p, t}:
-      match f:
-        case True{}:
-          match p:
-            case Tc.Safe{}:
-              match t:
-                case Tc.Gone{}:
-                  {==}
-                case Tc.Offered{tr}:
-                  match tr:
-                    case Tc.Safe{}:
-                      {==}
-                    case Tc.Unsafe{}:
-                      {==}
-            case Tc.Unsafe{}:
-              match t:
-                case Tc.Gone{}:
-                  {==}
-                case Tc.Offered{tr}:
-                  match tr:
-                    case Tc.Safe{}:
-                      {==}
-                    case Tc.Unsafe{}:
-                      {==}
-        case False{}:
-          match p:
-            case Tc.Safe{}:
-              match t:
-                case Tc.Gone{}:
-                  {==}
-                case Tc.Offered{tr}:
-                  match tr:
-                    case Tc.Safe{}:
-                      {==}
-                    case Tc.Unsafe{}:
-                      {==}
-            case Tc.Unsafe{}:
-              match t:
-                case Tc.Gone{}:
-                  {==}
-                case Tc.Offered{tr}:
-                  match tr:
-                    case Tc.Safe{}:
-                      {==}
-                    case Tc.Unsafe{}:
-                      {==}
-    case Tc.Stop{f, x, i}:
-      match f:
-        case True{}:
-          match x:
-            case True{}:
-              match i:
-                case True{}:
-                  {==}
-                case False{}:
-                  {==}
-            case False{}:
-              match i:
-                case True{}:
-                  {==}
-                case False{}:
-                  {==}
-        case False{}:
-          match x:
-            case True{}:
-              match i:
-                case True{}:
-                  {==}
-                case False{}:
-                  {==}
-            case False{}:
-              match i:
-                case True{}:
-                  {==}
-                case False{}:
-                  {==}
-
-# The entry reads every gate question as the laws' reader does
-
-def ep.rd_replay_tag(n: Nat, s: String) -> {ToolCall.tc_rg_replay.tag(n, s) == FTc.get_replay.tag(n, s) : Wr.Dec<Tc.Replay>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n+p:
-      {==}
-
-def ep.rd_replay(r: Wr.Dec<Nat>) -> {ToolCall.tc_rg_replay.go(r) == FTc.get_replay.go(r) : Wr.Dec<Tc.Replay>}:
-  match r:
-    case Wr.Got{n, s}:
-      ep.rd_replay_tag(n, s)
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_offered(r: Wr.Dec<Tc.Replay>) -> {ToolCall.tc_rg_now.offered(r) == FTc.get_now.offered(r) : Wr.Dec<Tc.Now>}:
-  match r:
-    case Wr.Got{p, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_off(+s: String) -> {ToolCall.tc_rg_now.offered(ToolCall.tc_rg_replay(s)) == FTc.get_now.offered(FTc.get_replay(s)) : Wr.Dec<Tc.Now>}:
-  %ep.rd_replay(Wr.get_nat(s)) : {ToolCall.tc_rg_now.offered(ToolCall.tc_rg_replay(s)) == FTc.get_now.offered(_) : Wr.Dec<Tc.Now>}
-  ep.rd_offered(ToolCall.tc_rg_replay(s))
-
-def ep.rd_now_tag(n: Nat, +s: String) -> {ToolCall.tc_rg_now.tag(n, s) == FTc.get_now.tag(n, s) : Wr.Dec<Tc.Now>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      ep.rd_off(s)
-    case 2n+p:
-      {==}
-
-def ep.rd_now(r: Wr.Dec<Nat>) -> {ToolCall.tc_rg_now.go(r) == FTc.get_now.go(r) : Wr.Dec<Tc.Now>}:
-  match r:
-    case Wr.Got{n, s}:
-      ep.rd_now_tag(n, s)
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_enter(f: Bool, d: Wr.Dec<Tc.Now>) -> {ToolCall.tc_rg.enter(f, d) == FTc.get_gate.enter(f, d) : Wr.Dec<Tc.Gate>}:
-  match d:
-    case Wr.Got{t, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_recover(f: Bool, p: Tc.Replay, d: Wr.Dec<Tc.Now>) -> {ToolCall.tc_rg.recover(f, p, d) == FTc.get_gate.recover(f, p, d) : Wr.Dec<Tc.Gate>}:
-  match d:
-    case Wr.Got{t, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_stored(+f: Bool, d: Wr.Dec<Tc.Replay>) -> {ToolCall.tc_rg.stored(f, d) == FTc.get_gate.stored(f, d) : Wr.Dec<Tc.Gate>}:
-  match d:
-    case Wr.Got{+p, +s}:
-      %ep.rd_now(Wr.get_nat(s)) : {ToolCall.tc_rg.recover(f, p, ToolCall.tc_rg_now(s)) == FTc.get_gate.recover(f, p, _) : Wr.Dec<Tc.Gate>}
-      ep.rd_recover(f, p, ToolCall.tc_rg_now(s))
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_intent(f: Bool, x: Bool, d: Wr.Dec<Bool>) -> {ToolCall.tc_rg.intent(f, x, d) == FTc.get_gate.intent(f, x, d) : Wr.Dec<Tc.Gate>}:
-  match d:
-    case Wr.Got{i, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_restart(+f: Bool, d: Wr.Dec<Bool>) -> {ToolCall.tc_rg.restart(f, d) == FTc.get_gate.restart(f, d) : Wr.Dec<Tc.Gate>}:
-  match d:
-    case Wr.Got{x, s}:
-      ep.rd_intent(f, x, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def ep.rd_found(n: Nat, r: Wr.Dec<Bool>) -> {ToolCall.tc_rg.found(n, r) == FTc.get_gate.found(n, r) : Wr.Dec<Tc.Gate>}:
-  match n:
-    case 0n:
-      match r:
-        case Wr.Got{+f, +s}:
-          %ep.rd_now(Wr.get_nat(s)) : {ToolCall.tc_rg.enter(f, ToolCall.tc_rg_now(s)) == FTc.get_gate.enter(f, _) : Wr.Dec<Tc.Gate>}
-          ep.rd_enter(f, ToolCall.tc_rg_now(s))
-        case Wr.Bad{}:
-          {==}
-    case 1n:
-      match r:
-        case Wr.Got{+f, +s}:
-          %ep.rd_replay(Wr.get_nat(s)) : {ToolCall.tc_rg.stored(f, ToolCall.tc_rg_replay(s)) == FTc.get_gate.stored(f, _) : Wr.Dec<Tc.Gate>}
-          ep.rd_stored(f, ToolCall.tc_rg_replay(s))
-        case Wr.Bad{}:
-          {==}
-    case 2n:
-      match r:
-        case Wr.Got{f, s}:
-          ep.rd_restart(f, Wr.get_bool(s))
-        case Wr.Bad{}:
-          {==}
-    case 3n+p:
-      {==}
-
-# the entry reads every gate question as the laws' reader does
-def ep.read(r: Wr.Dec<Nat>) -> {ToolCall.tc_rg.go(r) == FTc.get_gate.go(r) : Wr.Dec<Tc.Gate>}:
-  match r:
-    case Wr.Got{n, s}:
-      ep.rd_found(n, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
+            case False{} True{}:
+              {==}
+            case False{} False{}:
+              {==}
 
 # The world
 # ---------
 # From w0, every history reaches one of seven shapes (ep.step: the world
 # after one event of a shape is the shape after it; ep.run: by induction
-# on the events). Each world law holds of every shape (ep.early, ep.once,
-# ep.settles), and a history without a commit stays at w0 (ep.inert).
+# on the events). Each world law holds of every shape (ep.early, ep.once),
+# and a history without a commit stays at w0 (ep.inert).
 
 # The worlds a history reaches
 type Shape is Data:
@@ -840,24 +661,6 @@ def ep.early(s: Shape) -> {Sp.early(embed(s)) == 0n : Nat}:
 
 # every shape ran at most once, or recorded a safe intent
 def ep.once(s: Shape) -> {Bool.or(Sp.safe_intent(embed(s)), Nat.is_le(Sp.effects(embed(s)), 1n)) == True{} : Bool}:
-  match s:
-    case ShA{}:
-      {==}
-    case ShB{}:
-      {==}
-    case ShCU{r}:
-      {==}
-    case ShCS{r, n}:
-      {==}
-    case ShD0{}:
-      {==}
-    case ShDU{}:
-      {==}
-    case ShDS{n}:
-      {==}
-
-# every shape settled at most once
-def ep.settles(s: Shape) -> {Nat.is_le(Sp.settles(embed(s)), 1n) == True{} : Bool}:
   match s:
     case ShA{}:
       {==}

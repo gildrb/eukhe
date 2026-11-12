@@ -1,9 +1,10 @@
 # harness (spec): the wire of the call_lift entry (bend/ffi_call_lift.bend,
-# crates/eukhe-bend/WIRE.md) restated without the entry's code: how Rust
-# spells a request, which requests fit the wire, the reply the lifts of
-# spec/harness/lift.bend spell, and the reader of a request. The laws of
-# area call_lift state that the entry answers it. A spec: the shipped
-# code never calls it.
+# crates/eukhe-bend/WIRE.md) spelled with the wire's writers only
+# (bend/wire.bend put_nat, put_str, put_list): how Rust spells a request,
+# which requests fit the wire, and the reply that spells the lifts of the
+# calls (bend/call_lift.bend lift, whose laws are laws/call_lift.bend).
+# The laws of area call_lift state that the entry answers it. A spec: the
+# shipped code never calls it.
 #
 # W1: a request is the count of the calls, then each call: its family,
 #     its rev, then its argument names (a list of strings).
@@ -12,13 +13,11 @@
 #     rev, the arguments (count, then each: 0 kept, the index, the name |
 #     1 added, the name, the JSON) and the receipts (count, then each:
 #     0 renamed or 1 clashed, from, to | 2 filled, the name).
-# W3: anything else is no request.
 
 import Base
 import ../../bend/call_lift.bend as Cl
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ./lift.bend as Sp
 
 # Requests (W1)
 # -------------
@@ -106,60 +105,14 @@ def w_lift(l: Cl.Lift, rest: String) -> String:
     case Cl.Lifted{r, a, rs}:
       Wr.put_nat(3n, Wr.put_str(r, w_args(a, w_receipts(rs, rest))))
 
-# the spec's lifts of the calls by the shipped table, one after another
+# the lifts of the calls by the shipped table, one after another
 def w_lifts(cs: List<&2, Cl.Call>, rest: String) -> String:
   match cs:
     case Nil{}:
       rest
     case Con{c, more}:
-      w_lift(Sp.lift_spec(Cl.table(), c), w_lifts(more, rest))
+      w_lift(Cl.lift(Cl.table(), c), w_lifts(more, rest))
 
 # the reply to a request: the count of the calls, then their lifts
 def w_reply(+cs: List<&2, Cl.Call>) -> String:
   Wr.put_nat(List.length(&2, Cl.Call, cs), w_lifts(cs, ""))
-
-# The reader (W3)
-# ---------------
-
-def r_call.keys(f: String, r: String, d: Wr.Dec<List<&2, String>>) -> Wr.Dec<Cl.Call>:
-  match d:
-    case Wr.Got{ks, s}:
-      Wr.Got{Cl.Call{f, r, ks}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_call.rev(f: String, d: Wr.Dec<String>) -> Wr.Dec<Cl.Call>:
-  match d:
-    case Wr.Got{r, s}:
-      r_call.keys(f, r, Wr.get_list(~String, ~Wr.get_str, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_call.fam(d: Wr.Dec<String>) -> Wr.Dec<Cl.Call>:
-  match d:
-    case Wr.Got{f, s}:
-      r_call.rev(f, Wr.get_str(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a call at the start of s, read with the wire's decoders
-def r_call(s: String) -> Wr.Dec<Cl.Call>:
-  r_call.fam(Wr.get_str(s))
-
-def r_whole.end(b: Bool, cs: List<&2, Cl.Call>) -> Maybe<&2, List<&2, Cl.Call>>:
-  match b:
-    case True{}:
-      Some{cs}
-    case False{}:
-      None{}
-
-def r_whole(d: Wr.Dec<List<&2, Cl.Call>>) -> Maybe<&2, List<&2, Cl.Call>>:
-  match d:
-    case Wr.Got{cs, +s}:
-      r_whole.end(Wr.end(s), cs)
-    case Wr.Bad{}:
-      None{}
-
-# the request s spells whole, with nothing after it
-def read(s: String) -> Maybe<&2, List<&2, Cl.Call>>:
-  r_whole(Wr.get_list(~Cl.Call, ~r_call, s))

@@ -16,9 +16,9 @@ import ../../base/optchat.bend as LOptchat
 
 # ---- cover ----
 
-# proof_cover: the coverage laws of LAWS.bend (view_covers, cview_covers,
-# message_appends, message_merges_nothing, merge_is_one_pair,
-# merge_covers). A merge replaces a sibling pair by its parent, which
+# proof_cover: the coverage laws of laws/optchat.bend (view_covers,
+# cview_covers, merge_is_one_pair, merge_covers). A merge replaces a
+# sibling pair by its parent, which
 # covers the same messages; a fit is a chain of merges; a message appends
 # the line of message T at T; so every event keeps both views tiling 0..T.
 

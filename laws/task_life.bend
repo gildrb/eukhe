@@ -7,6 +7,7 @@ import ../bend/submission.bend as Sb
 import ../bend/wire.bend as Wr
 import ../spec/durable/task_life.bend as Sp
 import ../spec/durable/task_life_wire.bend as SpW
+import ./base.bend as LawsBase
 
 # (T1) The lifecycle of a durable task
 # ------------------------------------
@@ -14,9 +15,12 @@ import ../spec/durable/task_life_wire.bend as SpW
 # (eukhe-bend rules/task_life.rs; asked by the eukhe-durable scheduler,
 # harness/scheduler/life.rs, for every task transition it writes, the
 # resume of a stored state, the failFast check of a wait, and every abort
-# mark). spec/durable/task_life.bend restates pi-durable's rules (S1-S8)
-# without the code. Every input is free: any state, transition, handle,
-# policy, mark and list.
+# mark). spec/durable/task_life.bend restates the durable task rules (S1-S8)
+# and names the terms the laws use (a state's checkpoint and outcome, the
+# i-th flag of a list, a count, a mark's rank); no spec helper decides a
+# transition. Every input is free: any state, transition, handle, policy,
+# mark and list. (The source of these rules is the durable task scheduler
+# spec §5.1-§5.5 and the Rust host.)
 #
 # R1: a transition gives the state of S1-S4 or refuses it with the reason
 #     (terminal: ended; completing: held; a commit or handover of a task
@@ -30,20 +34,71 @@ import ../spec/durable/task_life_wire.bend as SpW
 #     and any input that is not exactly one request (an unknown tag, a
 #     malformed field, input left over) with exactly the error form
 #     `E task_life: malformed request`.
+# A1: a join reads the i-th failed flag as unset when the failed list is
+#     shorter than the live list (Rust sends both of one length; the
+#     rules stay total on any pair of lists).
 
 # Laws: the transitions (R1)
 # --------------------------
 
-# LAW task_life_step_refines_spec (R1): every transition of every state is
-# the spec's, by transition first
-# EXCLUDES: a held task reserved or re-settled, a pending or waiting task
-#   committing or handed back, an outcome made terminal while owned work
-#   holds it (or held when none does), a checkpoint or outcome handle
-#   swapped for another, a refusal with another reason
-law task_life_step_refines_spec:
+# LAW task_life_live_steps (R1, S2, S4): a live task without an outcome
+# (pending, running or waiting at checkpoint c) is reserved to run at c;
+# an outcome the scheduler writes for it is held (completing) when owned
+# work holds it, else terminal, the same outcome either way; a finalize
+# of it is refused: not held
+# EXCLUDES: a reservation at another checkpoint or into another state, a
+#   settle that drops or swaps the outcome or ignores the hold, a live task
+#   finalized or refused for another reason
+law task_life_live_steps:
   for +s: Tl.St
-  for +e: Tl.Ev
-  {Tl.step(s, e) == Sp.step_spec(s, e) : Result<&2, &2, Tl.Why, Tl.St>}
+  for +c: Nat
+  for +o: Tl.Outcome
+  for h: Bool
+  for live: {Sp.st_cp(s) == Some{c} : Maybe<&2, Nat>}
+  {Tl.step(s, Tl.Reserve{}) == Done{Tl.Running{c}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(s, Tl.Settle{o, True{}}) == Done{Tl.Completing{o}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(s, Tl.Settle{o, False{}}) == Done{Tl.Terminal{o}} : Result<&2, &2, Tl.Why, Tl.St>} & {Tl.step(s, Tl.Finalize{h}) == Fail{Tl.NotHeld{}} : Result<&2, &2, Tl.Why, Tl.St>}))
+
+# LAW task_life_only_running_commits (R1, S3): a live task that holds no
+# outcome and is not running (pending or waiting) neither commits nor is
+# handed back: both are refused as not running
+# EXCLUDES: a pending or waiting task committing a checkpoint, a wait or an
+#   outcome, a waiting task requeued, another refusal reason
+law task_life_only_running_commits:
+  for +s: Tl.St
+  for n: Tl.Next
+  for h: Bool
+  for live: {Sp.st_out(s) == None{} : Maybe<&2, Tl.Outcome>}
+  for idle: {Sp.is_running(s) == False{} : Bool}
+  {Tl.step(s, Tl.Commit{n, h}) == Fail{Tl.NotRunning{}} : Result<&2, &2, Tl.Why, Tl.St>} & {Tl.step(s, Tl.Requeue{}) == Fail{Tl.NotRunning{}} : Result<&2, &2, Tl.Why, Tl.St>}
+
+# LAW task_life_running_commits (R1, S3, S4): a running task at checkpoint
+# c commits the state it names: a checkpoint d (running at d), a wait
+# (waiting at d with its policy), an outcome (held when owned work holds
+# it, else terminal, the same outcome); handed back, it is pending at its
+# own checkpoint c
+# EXCLUDES: a commit that keeps the old checkpoint, drops or swaps the
+#   policy or the outcome, ignores the hold; a handover at another
+#   checkpoint or into another state
+law task_life_running_commits:
+  for +c: Nat
+  for +d: Nat
+  for p: Tl.Policy
+  for +o: Tl.Outcome
+  for +h: Bool
+  {Tl.step(Tl.Running{c}, Tl.Commit{Tl.NRun{d}, h}) == Done{Tl.Running{d}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Running{c}, Tl.Commit{Tl.NWait{d, p}, h}) == Done{Tl.Waiting{d, p}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Running{c}, Tl.Commit{Tl.NEnd{o}, True{}}) == Done{Tl.Completing{o}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Running{c}, Tl.Commit{Tl.NEnd{o}, False{}}) == Done{Tl.Terminal{o}} : Result<&2, &2, Tl.Why, Tl.St>} & {Tl.step(Tl.Running{c}, Tl.Requeue{}) == Done{Tl.Pending{c}} : Result<&2, &2, Tl.Why, Tl.St>})))
+
+# LAW task_life_held_steps (R1, S2, S4): a task holding outcome o runs no
+# code and takes no other outcome: a reservation, a commit, a handover
+# and a settle are refused as held; a finalize keeps o held when owned
+# work still holds it, else makes o itself terminal
+# EXCLUDES: a held task reserved, committed, requeued or re-settled, a
+#   finalize that ends a task owned work still holds or writes another
+#   outcome, another refusal reason
+law task_life_held_steps:
+  for +o: Tl.Outcome
+  for n: Tl.Next
+  for q: Tl.Outcome
+  for +h: Bool
+  {Tl.step(Tl.Completing{o}, Tl.Reserve{}) == Fail{Tl.Held{}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Completing{o}, Tl.Commit{n, h}) == Fail{Tl.Held{}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Completing{o}, Tl.Requeue{}) == Fail{Tl.Held{}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Completing{o}, Tl.Settle{q, h}) == Fail{Tl.Held{}} : Result<&2, &2, Tl.Why, Tl.St>} & ({Tl.step(Tl.Completing{o}, Tl.Finalize{True{}}) == Done{Tl.Completing{o}} : Result<&2, &2, Tl.Why, Tl.St>} & {Tl.step(Tl.Completing{o}, Tl.Finalize{False{}}) == Done{Tl.Terminal{o}} : Result<&2, &2, Tl.Why, Tl.St>}))))
 
 # LAW task_life_terminal_absorbs (S1): a terminal task refuses every
 # transition as ended, and resume keeps it
@@ -84,36 +139,94 @@ law task_life_resume_keeps_checkpoint:
   for +s: Tl.St
   {Sp.st_cp(Sp.resumed(Tl.resume(s))) == Sp.st_cp(s) : Maybe<&2, Nat>} & {Sp.st_out(Sp.resumed(Tl.resume(s))) == Sp.st_out(s) : Maybe<&2, Tl.Outcome>} & {Sp.is_running(Sp.resumed(Tl.resume(s))) == False{} : Bool}
 
-# LAW task_life_resume_exact (S5): the resume of every state is the spec's,
-# the failFast check included
-# EXCLUDES: an allSettled wait checked as failFast, a failFast wait not
-#   checked again after a restart, a policy changed
-law task_life_resume_exact:
+# LAW task_life_resume_moves_only_running (R2, S5): resume leaves every
+# state that is not running exactly as it was (a wait keeps its policy),
+# and puts a running task at checkpoint c back to pending at c
+# EXCLUDES: a wait turned pending or its policy changed, a pending task
+#   made a wait, a held outcome finalized by a restart, a running task made
+#   a wait or put at another checkpoint
+law task_life_resume_moves_only_running:
   for +s: Tl.St
-  {Tl.resume(s) == Sp.resume_spec(s) : Tl.St & Bool}
+  for +c: Nat
+  for idle: {Sp.is_running(s) == False{} : Bool}
+  {Sp.resumed(Tl.resume(s)) == s : Tl.St} & {Sp.resumed(Tl.resume(Tl.Running{c})) == Tl.Pending{c} : Tl.St}
+
+# LAW task_life_resume_rechecks_fail_fast (R2, S5): resume asks for the
+# failFast check of every waiting task whose policy is failFast
+# EXCLUDES: a failFast wait not checked again after a restart (its failed
+#   peers never abort the rest)
+law task_life_resume_rechecks_fail_fast:
+  for +c: Nat
+  {Sp.recheck(Tl.resume(Tl.Waiting{c, Tl.FailFast{}})) == True{} : Bool}
+
+# LAW task_life_resume_rechecks_only_fail_fast (R2, S5): resume asks for
+# the failFast check only of a waiting task whose policy is failFast
+# EXCLUDES: an allSettled wait, a pending, running, held or terminal task
+#   checked as failFast
+law task_life_resume_rechecks_only_fail_fast:
+  for +s: Tl.St
+  for yes: {Sp.recheck(Tl.resume(s)) == True{} : Bool}
+  exs c: Nat
+  {s == Tl.Waiting{c, Tl.FailFast{}} : Tl.St}
 
 # Laws: join (R3)
 # ---------------
 
-# LAW task_life_join_fail_fast (S6): a failFast wait may run once no
-# awaited task is live; after a failure it marks each live awaited task
-# that did not fail, and nothing before one
-# EXCLUDES: a wait resumed while an awaited task is live, the failed task
-#   aborted over its own outcome, an ended task marked, marks without a
-#   failure, a mark dropped or out of order
-law task_life_join_fail_fast:
+# LAW task_life_join_may_run (R3, S6): under either policy, a waiting task
+# may run exactly when none of its awaited tasks is live (no live flag is
+# set), and the join gives one mark per awaited task
+# EXCLUDES: a wait resumed while an awaited task is live, a wait kept
+#   blocked once none is, a mark dropped or added
+law task_life_join_may_run:
+  for +p: Tl.Policy
   for +live: List<&2, Bool>
   for +failed: List<&2, Bool>
-  {Tl.join(Tl.FailFast{}, live, failed) == Sp.join_ff_spec(live, failed) : Bool & List<&2, Bool>}
+  {Sp.may_run(Tl.join(p, live, failed)) == Nat.is_eq(Sp.count(live), 0n) : Bool} & {List.length(&2, Bool, Sp.marks(Tl.join(p, live, failed))) == List.length(&2, Bool, live) : Nat}
 
-# LAW task_life_join_all_settled (S6): an allSettled wait may run once no
-# awaited task is live, and marks nothing
-# EXCLUDES: an allSettled wait that aborts its peers after a failure, or
-#   resumes before every awaited task ended
-law task_life_join_all_settled:
+# LAW task_life_join_marks_live_unfailed (R3, S6, A1): under either
+# policy, the join marks awaited task i only when task i is live and did
+# not fail
+# EXCLUDES: an ended task marked, the failed task aborted over its own
+#   outcome, a mark shifted to another task
+law task_life_join_marks_live_unfailed:
+  for +p: Tl.Policy
   for +live: List<&2, Bool>
   for +failed: List<&2, Bool>
-  {Tl.join(Tl.AllSettled{}, live, failed) == Sp.join_as_spec(live, failed) : Bool & List<&2, Bool>}
+  for +i: Nat
+  for hit: {Sp.at(Sp.marks(Tl.join(p, live, failed)), i) == True{} : Bool}
+  {Sp.at(live, i) == True{} : Bool} & {Sp.at(failed, i) == False{} : Bool}
+
+# LAW task_life_join_all_settled_quiet (R3, S6): an allSettled wait marks
+# no awaited task, whatever failed
+# EXCLUDES: an allSettled wait that aborts its peers after a failure
+law task_life_join_all_settled_quiet:
+  for live: List<&2, Bool>
+  for failed: List<&2, Bool>
+  {Sp.count(Sp.marks(Tl.join(Tl.AllSettled{}, live, failed))) == 0n : Nat}
+
+# LAW task_life_join_fail_fast_quiet (R3, S6): a failFast wait marks no
+# awaited task while none of them failed
+# EXCLUDES: marks without a failure (peers aborted for nothing)
+law task_life_join_fail_fast_quiet:
+  for live: List<&2, Bool>
+  for +failed: List<&2, Bool>
+  for none: {Sp.count(failed) == 0n : Nat}
+  {Sp.count(Sp.marks(Tl.join(Tl.FailFast{}, live, failed))) == 0n : Nat}
+
+# LAW task_life_join_fail_fast_aborts (R3, S6, A1): once some awaited task
+# j failed, a failFast wait marks every awaited task i that is live and
+# did not fail
+# EXCLUDES: a live peer left running after a failure, only the peers after
+#   (or before) the failed one marked
+law task_life_join_fail_fast_aborts:
+  for +live: List<&2, Bool>
+  for +failed: List<&2, Bool>
+  for +i: Nat
+  for j: Nat
+  for one: {Sp.at(failed, j) == True{} : Bool}
+  for up: {Sp.at(live, i) == True{} : Bool}
+  for ok: {Sp.at(failed, i) == False{} : Bool}
+  {Sp.at(Sp.marks(Tl.join(Tl.FailFast{}, live, failed)), i) == True{} : Bool}
 
 # Laws: abort marks (R4)
 # ----------------------
@@ -127,18 +240,63 @@ law task_life_mark_merge:
   for +b: Tl.Mark
   {Tl.merge(a, b) == Sp.merge_spec(a, b) : Tl.Mark}
 
-# LAW task_life_abort_reaches_owned (S8): a cascade marks exactly each live
-# foreground task its owner's walk reached, only below a live owner with
-# intent, with the owner's reason merged in; every other task keeps its
-# mark
-# EXCLUDES: a background or ended task marked, a task marked below an owner
-#   without intent or a terminal one, a restart reason passed on by a
-#   failed or requesting owner, a reached live task missed, rows reordered
-law task_life_abort_reaches_owned:
+# LAW task_life_cascade_keeps_others (R4, S8): a cascade answers, at every
+# position i that holds no live foreground reached task (an ended or
+# background task, or past the last reached task), that task's own mark
+# (nothing past the last), whatever the owner
+# EXCLUDES: a background or ended task marked, a mark added past the
+#   reached tasks, rows reordered
+law task_life_cascade_keeps_others:
   for +s: Tl.St
   for +m: Tl.Mark
   for +rs: List<&2, Tl.Row>
-  {Tl.cascade(s, m, rs) == Sp.cascade_spec(s, m, rs) : List<&2, Tl.Mark>}
+  for +i: Nat
+  for idle: {Sp.hit_at(rs, i) == False{} : Bool}
+  {List.get(&2, Tl.Mark, Tl.cascade(s, m, rs), i) == Sp.row_mark(List.get(&2, Tl.Row, rs, i)) : Maybe<&2, Tl.Mark>}
+
+# LAW task_life_cascade_needs_intent (R4, S8): an owner without
+# cancellation intent (terminal, or live with no mark and no outcome other
+# than completed) leaves every reached task's mark as it was
+# EXCLUDES: a task marked below a terminal owner, or below a live owner
+#   that neither was marked nor failed
+law task_life_cascade_needs_intent:
+  for +s: Tl.St
+  for +m: Tl.Mark
+  for +rs: List<&2, Tl.Row>
+  for calm: {Bool.or(Sp.is_terminal(s), Bool.and(Nat.is_eq(Sp.mark_rank(m), 0n), Bool.not(Sp.bad_end(s)))) == True{} : Bool}
+  {Tl.cascade(s, m, rs) == Sp.own_marks(rs) : List<&2, Tl.Mark>}
+
+# LAW task_life_cascade_request (R4, S8): below a live owner that holds a
+# request mark, or holds an outcome other than completed, every reached
+# live foreground task gets a request mark
+# EXCLUDES: a requesting or failed owner passing a restart mark (or none),
+#   a reached live task missed
+law task_life_cascade_request:
+  for +s: Tl.St
+  for +m: Tl.Mark
+  for +rs: List<&2, Tl.Row>
+  for +i: Nat
+  for k: Tl.Mark
+  for row: {List.get(&2, Tl.Row, rs, i) == Some{Tl.Row{True{}, False{}, k}} : Maybe<&2, Tl.Row>}
+  for live: {Sp.is_terminal(s) == False{} : Bool}
+  for why: {Bool.or(Nat.is_eq(Sp.mark_rank(m), 2n), Sp.bad_end(s)) == True{} : Bool}
+  {List.get(&2, Tl.Mark, Tl.cascade(s, m, rs), i) == Some{Tl.Request{}} : Maybe<&2, Tl.Mark>}
+
+# LAW task_life_cascade_restart (R4, S7, S8): below a live owner abandoned
+# after a restart (its restart mark) that holds no outcome other than
+# completed, every reached live foreground task's mark becomes the
+# stronger (merge_spec) of its own and restart
+# EXCLUDES: a restart reason upgraded to a request, a reached task's
+#   request downgraded to restart, a reached live task missed
+law task_life_cascade_restart:
+  for +s: Tl.St
+  for +rs: List<&2, Tl.Row>
+  for +i: Nat
+  for +k: Tl.Mark
+  for row: {List.get(&2, Tl.Row, rs, i) == Some{Tl.Row{True{}, False{}, k}} : Maybe<&2, Tl.Row>}
+  for live: {Sp.is_terminal(s) == False{} : Bool}
+  for calm: {Sp.bad_end(s) == False{} : Bool}
+  {List.get(&2, Tl.Mark, Tl.cascade(s, Tl.Restart{}, rs), i) == Some{Sp.merge_spec(k, Tl.Restart{})} : Maybe<&2, Tl.Mark>}
 
 # Laws: submissions (R5)
 # ----------------------
@@ -183,38 +341,24 @@ law task_life_entry_answers:
   for fit: {SpW.fit_req(q) == True{} : Bool}
   {FTl.ffi(SpW.w_req(q, "")) == SpW.w_reply(q) : String}
 
-# LAW task_life_entry_reads (R6): the laws' reader reads every spelled
-# request that fits the wire back whole, so task_life_entry_malformed_exact
-# refuses only what Rust never writes
-# EXCLUDES: a reader (and so an entry) that refuses a request Rust writes
-law task_life_entry_reads:
-  for +q: FTl.Req
-  for fit: {SpW.fit_req(q) == True{} : Bool}
-  {SpW.read(SpW.w_req(q, "")) == Some{q} : Maybe<&2, FTl.Req>}
-
-# LAW task_life_entry_read_answers (R6): every input the laws' reader
-# reads as exactly one request is answered with the rules' decision on
-# that request, spelled as Rust reads it; with
-# task_life_entry_malformed_exact this fixes the entry's answer to every
-# input
-# EXCLUDES: an input the entry reads otherwise than the wire's grammar (a
-#   field skipped or read into another, a tag of another request), a
-#   reply other than the rules' decision, an answer that depends on more
-#   than the request read
-law task_life_entry_read_answers:
+# LAW task_life_entry_exact (R6): every input the entry does not answer
+# with the error form is exactly one request spelled as Rust spells it,
+# every handle and count within the wire, with nothing after it
+# EXCLUDES: an answer for input that is no request (an unknown tag, a
+#   malformed field, a list cut short, input left over), a request read
+#   in another field order
+law task_life_entry_exact:
   for +s: String
-  for +q: FTl.Req
-  for got: {SpW.read(s) == Some{q} : Maybe<&2, FTl.Req>}
-  {FTl.ffi(s) == SpW.w_reply(q) : String}
+  for ok: {LawsBase.wire_opens_err(FTl.ffi(s)) == False{} : Bool}
+  exs q: FTl.Req
+  {s == SpW.w_req(q, "") : String} & {SpW.fit_req(q) == True{} : Bool}
 
-# LAW task_life_entry_malformed_exact (R6): every input that is not exactly
-# one request (an unknown tag, a malformed field, input left over) gets
-# exactly the error form 'E ', then "task_life: malformed request"
-# EXCLUDES: a decision made on input that is no request, another error
-#   text, a default
-law task_life_entry_malformed_exact:
+# LAW task_life_entry_refuses (R6): every error the entry answers is
+# exactly `E task_life: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law task_life_entry_refuses:
   for +s: String
-  for no: {SpW.read(s) == None{} : Maybe<&2, FTl.Req>}
+  for bad: {LawsBase.wire_opens_err(FTl.ffi(s)) == True{} : Bool}
   {FTl.ffi(s) == Wr.err("task_life: malformed request") : String}
 
 # LAW task_life_entry_example (R6): anchor: the strings Rust sends and the

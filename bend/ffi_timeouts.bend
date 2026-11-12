@@ -1,5 +1,5 @@
 # ffi_timeouts: the compiled Bend core's entry for the supervisor's
-# timeouts (bend/supervise.bend section Timeouts). Rust
+# timeouts (the base values: bend/supervise.bend section Timeouts). Rust
 # `eukhe_daemon::timeouts::derived` calls it once through
 # `eukhe_bend::call` and keeps the answer for the process.
 #
@@ -189,7 +189,8 @@ def fits(n: Nat) -> Bool:
 # back, None once it is past the wire. Every sum adds two values that fit
 # (each below 10^14, the sum below 2^48 - 1), and the product doubles or
 # adds a value that fits, so no step passes the runtime's Nat range,
-# whatever the base values (the laws' derivation, Su.Tm, sums them whole).
+# whatever the base values (the laws' derivation, laws/timeouts.bend
+# tw_values, sums them whole).
 
 def fit.put(ok: Bool, n: Nat) -> Maybe<&2, Nat>:
   match ok:
@@ -247,7 +248,7 @@ def times(+x: Nat, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
     case Some{y}:
       times.go(x, x, y)
 
-# the derived values, in reply order (the order of Su.Tm's derivation)
+# the derived values, in reply order (Rust's `timeouts::Derived` fields)
 def derived(t: Su.Tm) -> List<&2, Maybe<&2, Nat>>:
   match t:
     case Su.Tm{snap, host, +kstep, kterm, kverify, harness, wterm, wverify, +margin, refresh, boot, relaunch, startup, check, slack, k, bmax, loop, qanswer}:

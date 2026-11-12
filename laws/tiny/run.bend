@@ -1,14 +1,41 @@
 # eukhe: the laws of area tiny, section run: the run of one process's
 # election and of a started worker's seat (bend/tiny.bend section 4), R7
-# and R5 of laws/tiny/elect.bend, and its stepper entry
-# (bend/ffi_tiny_run.bend)
+# and R5 of laws/tiny/elect.bend (stated there in full), and its stepper
+# entry (bend/ffi_tiny_run.bend)
+#
+# R7 (the run, whatever the order of the outcomes): an outcome the run
+#     does not wait for does nothing and leaves the run as it is; an
+#     ended run does nothing [tiny_run_waits]; a run uses only a worker
+#     that answered with its tag, shuts down only a worker of another
+#     tag, launches only on a socket with no live worker [tiny_run_safe];
+#     launches and shuts down at most once [tiny_run_at_most_once]; ends
+#     once [tiny_run_ends_once]; a seat binds only under the lock
+#     [tiny_seat_under_lock]; a need's run gets what the worker model's
+#     need gets [tiny_run_is_model]; what each awaited outcome decides:
+#     the R1-R4, R6 laws of laws/tiny/elect.bend. Anchor:
+#     tiny_run_example.
+# R5 (the entry): an open Rust spells starts the model's run and answers
+#     its first reply [tiny_run_entry_open]; an outcome Rust spells steps
+#     the model's run (Tn.step_run) and answers its reply, in any state
+#     [tiny_run_entry_answers] and over any history
+#     [tiny_run_entry_history]; the entry decides only on spelled input
+#     [tiny_run_entry_open_exact, tiny_run_entry_exact]; other input gets
+#     the exact error, keeping the run [tiny_run_entry_open_refuses,
+#     tiny_run_entry_refuses]; a refused open stays refused
+#     [tiny_run_entry_refused_stays]. Anchors: tiny_run_entry_example,
+#     tiny_run_fits_example (the premises are satisfiable). The reply
+#     spelling sp_w_do (with sp_w_got, sp_w_why) is the wire contract with
+#     its one reader, crates/eukhe-tiny/src/election.rs `read_do`: a table
+#     whose every row cites the reader's arm that decides it (the tag Rust
+#     maps to that decision), so the table is external, not a copy of the
+#     entry's encoder (bend/ffi_tiny_run.bend); a tag Rust reads as
+#     another decision breaks the row.
 
 import Base
 import ../../bend/ffi_tiny_run.bend as FTr
 import ../../bend/tiny.bend as Tn
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
-import ./elect.bend as TinyElect
 
 # The spelling of an outcome, an open and a reply, from the wire
 # primitives (R5): a probe is its tag (Pong: then its tag text); an
@@ -40,27 +67,31 @@ def sp_w_heard(h: Tn.Heard) -> Nat:
     case Tn.Dropped{}:
       3n
 
+# what a need got, as read_do reads it (election.rs `read_do`, the tag of
+# "what a need got")
 def sp_w_got(g: Tn.Got) -> Nat:
   match g:
     case Tn.Started{}:
-      0n
+      0n  # election.rs:223 0 => Got::Started
     case Tn.Joined{}:
-      1n
+      1n  # election.rs:224 1 => Got::Joined
     case Tn.Replaced{}:
-      2n
+      2n  # election.rs:225 2.. => Got::Replaced
 
+# why a need failed, as read_do reads it (election.rs `read_do`, the tag of
+# "why a need failed")
 def sp_w_why(w: Tn.Why) -> Nat:
   match w:
     case Tn.WhyIo{}:
-      0n
+      0n  # election.rs:228 0 => Why::Io
     case Tn.WhyProtocol{}:
-      1n
+      1n  # election.rs:229 1 => Why::Protocol
     case Tn.WhyMistagged{}:
-      2n
+      2n  # election.rs:230 2 => Why::Mistagged
     case Tn.WhyVacant{}:
-      3n
+      3n  # election.rs:231 3 => Why::Vacant
     case Tn.WhySpawn{}:
-      4n
+      4n  # election.rs:232 4.. => Why::Spawn
 
 def sp_w_launch(l: Tn.Launch) -> Nat:
   match l:
@@ -89,29 +120,31 @@ def sp_w_open(o: FTr.Open, rest: String) -> String:
     case FTr.OSeat{}:
       Wr.put_nat(1n, rest)
 
-# the reply Rust reads
+# the reply Rust reads: each row the arm of election.rs `read_do` that
+# reads it as that decision (the tag of "what to do next", then the
+# decision's field, then the end of the reply)
 def sp_w_do(d: Tn.Do) -> String:
   match d:
     case Tn.DoPing{}:
-      Wr.put_nat(0n, "")
+      Wr.put_nat(0n, "")  # election.rs:219 0 => Do::Ping
     case Tn.DoShutdown{}:
-      Wr.put_nat(1n, "")
+      Wr.put_nat(1n, "")  # election.rs:220 1 => Do::Shutdown
     case Tn.DoLaunch{}:
-      Wr.put_nat(2n, "")
+      Wr.put_nat(2n, "")  # election.rs:221 2 => Do::Launch
     case Tn.DoUse{g}:
-      Wr.put_nat(3n, Wr.put_nat(sp_w_got(g), ""))
+      Wr.put_nat(3n, Wr.put_nat(sp_w_got(g), ""))  # election.rs:222 3 => Do::Use(got)
     case Tn.DoFail{w}:
-      Wr.put_nat(4n, Wr.put_nat(sp_w_why(w), ""))
+      Wr.put_nat(4n, Wr.put_nat(sp_w_why(w), ""))  # election.rs:227 4 => Do::Fail(why)
     case Tn.DoLock{}:
-      Wr.put_nat(5n, "")
+      Wr.put_nat(5n, "")  # election.rs:234 5 => Do::Lock
     case Tn.DoAdopt{}:
-      Wr.put_nat(6n, "")
+      Wr.put_nat(6n, "")  # election.rs:235 6 => Do::Adopt
     case Tn.DoTake{}:
-      Wr.put_nat(7n, "")
+      Wr.put_nat(7n, "")  # election.rs:236 7 => Do::Take
     case Tn.DoFault{}:
-      Wr.put_nat(8n, "")
+      Wr.put_nat(8n, "")  # election.rs:237 8 => Do::Fault
     case Tn.DoNothing{}:
-      Wr.put_nat(9n, "")
+      Wr.put_nat(9n, "")  # election.rs:238 9.. => Do::Nothing
 
 def sp_w_dos(ds: List<&2, Tn.Do>) -> List<&2, String>:
   match ds:
@@ -165,9 +198,6 @@ def sp_fit_open(o: FTr.Open) -> Bool:
 # The run (R7)
 # ------------
 
-def sp_r(+m: String, ph: Tn.Phase, d: Tn.Do) -> Tn.Run & Tn.Do:
-  (Tn.Run{m, ph}, d)
-
 # what an open starts: a need pings, a seat takes the lock
 def sp_open(o: FTr.Open) -> Tn.Run & Tn.Do:
   match o:
@@ -175,130 +205,6 @@ def sp_open(o: FTr.Open) -> Tn.Run & Tn.Do:
       (Tn.Run{m, Tn.Probing{}}, Tn.DoPing{})
     case FTr.OSeat{}:
       (Tn.Run{"", Tn.Locking{}}, Tn.DoLock{})
-
-def sp_by_elect(+m: String, a: Tn.Act) -> Tn.Run & Tn.Do:
-  match a:
-    case Tn.Join{}:
-      sp_r(m, Tn.Over{}, Tn.DoUse{Tn.Joined{}})
-    case Tn.Replace{}:
-      sp_r(m, Tn.Shutting{}, Tn.DoShutdown{})
-    case Tn.Start{}:
-      sp_r(m, Tn.Launching{Tn.First{}}, Tn.DoLaunch{})
-    case Tn.Broken{}:
-      sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhyIo{}})
-
-def sp_by_shut(+m: String, x: Tn.Shut) -> Tn.Run & Tn.Do:
-  match x:
-    case Tn.Down{}:
-      sp_r(m, Tn.Launching{Tn.Again{}}, Tn.DoLaunch{})
-    case Tn.Spoke{}:
-      sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhyProtocol{}})
-    case Tn.Cut{}:
-      sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhyIo{}})
-
-def sp_by_check(+m: String, g: Tn.Got, c: Tn.Check) -> Tn.Run & Tn.Do:
-  match c:
-    case Tn.Serving{}:
-      sp_r(m, Tn.Over{}, Tn.DoUse{g})
-    case Tn.Mistagged{}:
-      sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhyMistagged{}})
-    case Tn.Vacant{}:
-      sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhyVacant{}})
-    case Tn.Faulty{}:
-      sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhyIo{}})
-
-def sp_by_seat(+m: String, x: Tn.Seat) -> Tn.Run & Tn.Do:
-  match x:
-    case Tn.Adopt{}:
-      sp_r(m, Tn.Over{}, Tn.DoAdopt{})
-    case Tn.Take{}:
-      sp_r(m, Tn.Over{}, Tn.DoTake{})
-    case Tn.Fault{}:
-      sp_r(m, Tn.Over{}, Tn.DoFault{})
-
-# what a run of tag m in phase ph makes of outcome s: the outcome the
-# phase waits for decides by R1-R4, R6; any other does nothing
-def sp_step(+m: String, ph: Tn.Phase, s: Tn.Seen) -> Tn.Run & Tn.Do:
-  match ph:
-    case Tn.Probing{}:
-      match s:
-        case Tn.Pinged{p}:
-          sp_by_elect(m, TinyElect.sp_elect(p, m))
-        case Tn.ShutHeard{h}:
-          sp_r(m, Tn.Probing{}, Tn.DoNothing{})
-        case Tn.Came{l}:
-          sp_r(m, Tn.Probing{}, Tn.DoNothing{})
-        case Tn.NoSpawn{}:
-          sp_r(m, Tn.Probing{}, Tn.DoNothing{})
-        case Tn.Locked{}:
-          sp_r(m, Tn.Probing{}, Tn.DoNothing{})
-    case Tn.Shutting{}:
-      match s:
-        case Tn.Pinged{p}:
-          sp_r(m, Tn.Shutting{}, Tn.DoNothing{})
-        case Tn.ShutHeard{h}:
-          sp_by_shut(m, TinyElect.sp_shut(h))
-        case Tn.Came{l}:
-          sp_r(m, Tn.Shutting{}, Tn.DoNothing{})
-        case Tn.NoSpawn{}:
-          sp_r(m, Tn.Shutting{}, Tn.DoNothing{})
-        case Tn.Locked{}:
-          sp_r(m, Tn.Shutting{}, Tn.DoNothing{})
-    case Tn.Launching{f}:
-      match s:
-        case Tn.Pinged{p}:
-          sp_r(m, Tn.Launching{f}, Tn.DoNothing{})
-        case Tn.ShutHeard{h}:
-          sp_r(m, Tn.Launching{f}, Tn.DoNothing{})
-        case Tn.Came{l}:
-          sp_r(m, Tn.Checking{TinyElect.sp_launched(l, f)}, Tn.DoPing{})
-        case Tn.NoSpawn{}:
-          sp_r(m, Tn.Over{}, Tn.DoFail{Tn.WhySpawn{}})
-        case Tn.Locked{}:
-          sp_r(m, Tn.Launching{f}, Tn.DoNothing{})
-    case Tn.Checking{g}:
-      match s:
-        case Tn.Pinged{p}:
-          sp_by_check(m, g, TinyElect.sp_confirm(p, m))
-        case Tn.ShutHeard{h}:
-          sp_r(m, Tn.Checking{g}, Tn.DoNothing{})
-        case Tn.Came{l}:
-          sp_r(m, Tn.Checking{g}, Tn.DoNothing{})
-        case Tn.NoSpawn{}:
-          sp_r(m, Tn.Checking{g}, Tn.DoNothing{})
-        case Tn.Locked{}:
-          sp_r(m, Tn.Checking{g}, Tn.DoNothing{})
-    case Tn.Locking{}:
-      match s:
-        case Tn.Pinged{p}:
-          sp_r(m, Tn.Locking{}, Tn.DoNothing{})
-        case Tn.ShutHeard{h}:
-          sp_r(m, Tn.Locking{}, Tn.DoNothing{})
-        case Tn.Came{l}:
-          sp_r(m, Tn.Locking{}, Tn.DoNothing{})
-        case Tn.NoSpawn{}:
-          sp_r(m, Tn.Locking{}, Tn.DoNothing{})
-        case Tn.Locked{}:
-          sp_r(m, Tn.Seating{}, Tn.DoPing{})
-    case Tn.Seating{}:
-      match s:
-        case Tn.Pinged{p}:
-          sp_by_seat(m, TinyElect.sp_bind(p))
-        case Tn.ShutHeard{h}:
-          sp_r(m, Tn.Seating{}, Tn.DoNothing{})
-        case Tn.Came{l}:
-          sp_r(m, Tn.Seating{}, Tn.DoNothing{})
-        case Tn.NoSpawn{}:
-          sp_r(m, Tn.Seating{}, Tn.DoNothing{})
-        case Tn.Locked{}:
-          sp_r(m, Tn.Seating{}, Tn.DoNothing{})
-    case Tn.Over{}:
-      sp_r(m, Tn.Over{}, Tn.DoNothing{})
-
-def sp_step_r(x: Tn.Run, s: Tn.Seen) -> Tn.Run & Tn.Do:
-  match x:
-    case Tn.Run{m, ph}:
-      sp_step(m, ph, s)
 
 # the entry's state and reply for a run and what Rust does next
 def sp_reply(r: Tn.Run & Tn.Do) -> FTr.St & String:
@@ -339,6 +245,14 @@ def tr_raw(ins: List<&2, String>, r: FTr.St & String) -> List<&2, String>:
     case i <> t:
       (st, out) = r
       out <> tr_raw(t, FTr.step(st, i))
+
+# x once for each input of ins
+def tr_each(ins: List<&2, String>, +x: String) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case i <> t:
+      x <> tr_each(t, x)
 
 # what the uses of ds got, in order
 def tr_used(ds: List<&2, Tn.Do>) -> List<&2, Tn.Got>:
@@ -651,28 +565,72 @@ def tr_seat(ss: List<&2, Tn.Seen>, +x: Tn.Run, +held: Bool) -> Bool:
     case +s <> t:
       Bool.and(tr_seat_ok(held, s, tr_do(Tn.step_run(x, s))), tr_seat(t, tr_run(Tn.step_run(x, s)), Bool.or(held, tr_is_lock(s))))
 
+def tr_is_heard(s: Tn.Seen) -> Bool:
+  match s:
+    case Tn.ShutHeard{h}:
+      True{}
+    case Tn.Pinged{p}:
+      False{}
+    case Tn.Came{l}:
+      False{}
+    case Tn.NoSpawn{}:
+      False{}
+    case Tn.Locked{}:
+      False{}
+
+# s is the end of a launch: the worker came up, or the launch failed
+def tr_is_launched(s: Tn.Seen) -> Bool:
+  match s:
+    case Tn.Came{l}:
+      True{}
+    case Tn.NoSpawn{}:
+      True{}
+    case Tn.Pinged{p}:
+      False{}
+    case Tn.ShutHeard{h}:
+      False{}
+    case Tn.Locked{}:
+      False{}
+
+# the outcome s is what a run in phase ph waits for (R7, the Phase
+# comments of bend/tiny.bend): the first ping, the shutdown's answer, the
+# end of the launch, the ping after the start, the bind lock, the ping
+# under the lock; an ended run waits for nothing
+def tr_awaits(ph: Tn.Phase, +s: Tn.Seen) -> Bool:
+  match ph:
+    case Tn.Probing{}:
+      tr_is_ping(s)
+    case Tn.Shutting{}:
+      tr_is_heard(s)
+    case Tn.Launching{f}:
+      tr_is_launched(s)
+    case Tn.Checking{g}:
+      tr_is_ping(s)
+    case Tn.Locking{}:
+      tr_is_lock(s)
+    case Tn.Seating{}:
+      tr_is_ping(s)
+    case Tn.Over{}:
+      False{}
+
 # Laws: the run (R7)
 # ------------------
 
-# LAW tiny_run_step_is_model (R7): in every phase, each outcome makes the
-# run's next phase and what Rust does next exactly as the spec's table
+# LAW tiny_run_waits (R7): in every phase of a run of any tag m, an
+# outcome the phase does not wait for (tr_awaits) does nothing and leaves
+# the run exactly as it was, its tag and what its start got included; an
+# ended run (Over) waits for nothing, so every outcome leaves it ended
+# and does nothing
 # EXCLUDES: an outcome the phase does not wait for acted on (a ping
-#   answered twice, a late shutdown answer that launches again); a run
-#   that forgets its tag or what its start got; a launch after a failed
-#   one; a seat that pings before the lock
-law tiny_run_step_is_model:
+#   answered twice, a late shutdown answer that launches again, a late
+#   launch after the check); a run revived by a late outcome; a run that
+#   forgets its tag or what its start got while it waits
+law tiny_run_waits:
   for +m: String
   for +ph: Tn.Phase
   for +s: Tn.Seen
-  {Tn.step_run(Tn.Run{m, ph}, s) == sp_step(m, ph, s) : Tn.Run & Tn.Do}
-
-# LAW tiny_run_opens (R7): a need's run pings first with its tag kept; a
-# seat run takes the bind lock first
-# EXCLUDES: a need that launches unasked, a seat that pings or binds
-#   before it holds the lock
-law tiny_run_opens:
-  for +m: String
-  {Tn.need(m) == sp_open(FTr.ONeed{m}) : Tn.Run & Tn.Do} & {Tn.seat() == sp_open(FTr.OSeat{}) : Tn.Run & Tn.Do}
+  for idle: {tr_awaits(ph, s) == False{} : Bool}
+  {Tn.step_run(Tn.Run{m, ph}, s) == (Tn.Run{m, ph}, Tn.DoNothing{}) : Tn.Run & Tn.Do}
 
 # LAW tiny_run_safe (R7): from any state, whatever outcomes come in any
 # order, a run uses only a connection its own tag answered, shuts down
@@ -704,14 +662,6 @@ law tiny_run_ends_once:
   for +x: Tn.Run
   for +ss: List<&2, Tn.Seen>
   {tr_once(ss, x, False{}) == True{} : Bool}
-
-# LAW tiny_run_ended_does_nothing (R7): an ended run does nothing,
-# whatever comes
-# EXCLUDES: a run revived by a late outcome
-law tiny_run_ended_does_nothing:
-  for +m: String
-  for +s: Tn.Seen
-  {Tn.step_run(Tn.Run{m, Tn.Over{}}, s) == (Tn.Run{m, Tn.Over{}}, Tn.DoNothing{}) : Tn.Run & Tn.Do}
 
 # LAW tiny_seat_under_lock (R6, R7): a seat run, whatever outcomes come
 # in any order, pings only once it got the bind lock, seats only on a
@@ -777,23 +727,31 @@ law tiny_run_entry_open_refuses:
   for bad: {LawsBase.wire_opens_err(tr_snd(FTr.open(s))) == True{} : Bool}
   {FTr.open(s) == (FTr.Refused{}, Wr.err("tiny_run: malformed open")) : FTr.St & String}
 
-# LAW tiny_run_entry_shut (R5): a refused open answers every step with
-# exactly `E tiny_run: the open was refused`
-# EXCLUDES: a refused stepper that launches or serves
-law tiny_run_entry_shut:
+# LAW tiny_run_entry_refused_stays (R5): after an open the entry refuses
+# (answered `E tiny_run: malformed open`), every later input, whatever it
+# is, answers exactly `E tiny_run: the open was refused`: a refused run
+# never steps, launches or serves
+# EXCLUDES: a refused stepper revived by a later input (one that reads a
+#   spelled outcome as a step of some default run), another error text
+law tiny_run_entry_refused_stays:
   for +s: String
-  {FTr.step(FTr.Refused{}, s) == (FTr.Refused{}, Wr.err("tiny_run: the open was refused")) : FTr.St & String}
+  for bad: {LawsBase.wire_opens_err(tr_snd(FTr.open(s))) == True{} : Bool}
+  for +ins: List<&2, String>
+  {tr_raw(ins, FTr.open(s)) == Wr.err("tiny_run: malformed open") <> tr_each(ins, Wr.err("tiny_run: the open was refused")) : List<&2, String>}
 
 # LAW tiny_run_entry_answers (R5, R7): in any state, every outcome Rust
-# spells (its tag text within the wire) moves the run as the spec's
-# table and answers the spelled reply
+# spells (its tag text within the wire) moves the shipped stepper to the
+# model's next run (Tn.step_run, whose every step the R1-R4, R6 laws of
+# laws/tiny/elect.bend and tiny_run_waits pin) and answers that step's
+# reply spelled by sp_w_do (the Do table of bend/ffi_tiny_run.bend's
+# header; the raw strings Rust reads are tiny_run_entry_example's)
 # EXCLUDES: a field misread, swapped or dropped; a state other than the
-#   spec's; a reply in another spelling
+#   model's; a reply other than the model's
 law tiny_run_entry_answers:
   for +x: Tn.Run
   for +e: Tn.Seen
   for h: {sp_fit_seen(e) == True{} : Bool}
-  {FTr.step(FTr.Live{x}, sp_w_seen(e, "")) == sp_reply(sp_step_r(x, e)) : FTr.St & String}
+  {FTr.step(FTr.Live{x}, sp_w_seen(e, "")) == sp_reply(Tn.step_run(x, e)) : FTr.St & String}
 
 # LAW tiny_run_entry_exact (R5): in any state, every input the entry does
 # not answer with the error form is a spelled outcome that fits the wire

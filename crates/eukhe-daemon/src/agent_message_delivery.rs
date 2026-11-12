@@ -208,8 +208,8 @@ impl AgentMessageDelivery {
 
     /// The receipt of the admitted message, by whether the recipient was
     /// running when it arrived: the landing is the compiled Bend core's
-    /// (`eukhe_bend::rules::kin::land`, law `kin_wake`); a woken parked
-    /// recipient arrives here idle.
+    /// (`eukhe_bend::rules::kin::land`, anchor `kin_land_table_example`); a
+    /// woken parked recipient arrives here idle.
     pub(crate) fn receipt(&self, run: RecipientRun) -> Value {
         use eukhe_bend::rules::kin::{land, Landing, TargetState};
         let timestamp = crate::util::now_iso();

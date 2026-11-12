@@ -6,7 +6,7 @@ import ../bend/ffi_gateway_commands.bend as FGc
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 import ./gateway_answer.bend as GatewayAnswer
-import ./slash_suggest.bend as SlashSuggest
+import ../bend/slash_suggest.bend as Ss
 import ./doc_commit.bend as DocCommit
 
 # (D1) What one phone text message means to the Signal gateway
@@ -17,7 +17,10 @@ import ./doc_commit.bend as DocCommit
 # free: any text, any list of session command names.
 #
 # R1: the words of the text are Rust's `split_whitespace` words (split at
-#     the Unicode White_Space chars, none empty).
+#     the Unicode White_Space chars, none empty). The laws state it by
+#     writing every text as its whitespace runs and words
+#     (GatewayAnswer.GaText, well formed: GatewayAnswer.ga_well): every
+#     string is the spelling of one such text.
 # R2: no words, or a first word that is not `/` then a name of ASCII
 #     letters, digits, `-` and `_` only (the empty name too), is a prompt.
 # R3: the name is read with its ASCII letters lowercased; a name among the
@@ -49,6 +52,7 @@ import ./doc_commit.bend as DocCommit
 #     text; a prompt), reads exactly the request and nothing after it, and
 #     answers any other input with the exact error form
 #     `E gateway_commands: malformed request`.
+
 
 # Spec helpers
 # ------------
@@ -99,132 +103,6 @@ def gc_in(+n: String, xs: List<&2, String>) -> Bool:
     case x <> t:
       Bool.or(String.eq(n, x), gc_in(n, t))
 
-def gc_index.at(here: Bool, i: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match here:
-    case True{}:
-      Some{i}
-    case False{}:
-      later
-
-# R4: the index of the first of xs equal to n, counted from i
-def gc_index(+n: String, xs: List<&2, String>, +i: Nat) -> Maybe<&2, Nat>:
-  match xs:
-    case Nil{}:
-      None{}
-    case x <> t:
-      gc_index.at(String.eq(n, x), i, gc_index(n, t, 1n+i))
-
-# R4: the command at index i without arguments
-def gc_bare(i: Nat) -> Maybe<&2, Gc.Cmd>:
-  match i:
-    case 0n:
-      Some{Gc.CHelp{}}
-    case 1n:
-      Some{Gc.CSessions{}}
-    case 2n:
-      None{}
-    case 3n:
-      Some{Gc.CLatest{}}
-    case 4n:
-      Some{Gc.CNew{}}
-    case 5n:
-      Some{Gc.CStop{}}
-    case 6n:
-      Some{Gc.CStatus{}}
-    case 7n:
-      Some{Gc.CMemory{}}
-    case 8n:
-      Some{Gc.CModel{None{}}}
-    case 9n:
-      Some{Gc.CReasoning{None{}}}
-    case 10n+u:
-      None{}
-
-# R4: `/model` with the one argument a: `all` is the all-roles listing,
-# any other a a switch
-def gc_model_one(all: Bool, a: String) -> Maybe<&2, Gc.Cmd>:
-  match all:
-    case True{}:
-      Some{Gc.CModelAll{None{}}}
-    case False{}:
-      Some{Gc.CModel{Some{a}}}
-
-# R4: the command at index i with the one argument a
-def gc_one(i: Nat, +a: String) -> Maybe<&2, Gc.Cmd>:
-  match i:
-    case 0n:
-      None{}
-    case 1n:
-      None{}
-    case 2n:
-      Some{Gc.CUse{a}}
-    case 3n:
-      None{}
-    case 4n:
-      None{}
-    case 5n:
-      None{}
-    case 6n:
-      None{}
-    case 7n:
-      None{}
-    case 8n:
-      gc_model_one(String.eq(a, "all"), a)
-    case 9n:
-      Some{Gc.CReasoning{Some{a}}}
-    case 10n+u:
-      None{}
-
-# R4: `/model` with the two arguments `all` (when all) and n
-def gc_model_two(all: Bool, n: String) -> Maybe<&2, Gc.Cmd>:
-  match all:
-    case True{}:
-      Some{Gc.CModelAll{Some{n}}}
-    case False{}:
-      None{}
-
-# R4: the command at index i with the two arguments a and b
-def gc_two(i: Nat, a: String, b: String) -> Maybe<&2, Gc.Cmd>:
-  match i:
-    case 0n:
-      None{}
-    case 1n:
-      None{}
-    case 2n:
-      None{}
-    case 3n:
-      None{}
-    case 4n:
-      None{}
-    case 5n:
-      None{}
-    case 6n:
-      None{}
-    case 7n:
-      None{}
-    case 8n:
-      gc_model_two(String.eq(a, "all"), b)
-    case 9n:
-      None{}
-    case 10n+u:
-      None{}
-
-# R4: the command at index i given args, when they are its own
-def gc_command(i: Nat, args: List<&2, String>) -> Maybe<&2, Gc.Cmd>:
-  match args:
-    case Nil{}:
-      gc_bare(i)
-    case a <> t:
-      match t:
-        case Nil{}:
-          gc_one(i, a)
-        case b <> u:
-          match u:
-            case Nil{}:
-              gc_two(i, a, b)
-            case c <> v:
-              None{}
-
 def gc_keep(b: Bool, l: String, rest: List<&2, String>) -> List<&2, String>:
   match b:
     case True{}:
@@ -252,85 +130,88 @@ def gc_listing(ls: List<&2, String>) -> String:
     case l <> t:
       String.append(l, String.append("\n", gc_listing(t)))
 
-# R6: no command starts with n
-def gc_far(+n: String, m: Maybe<&2, Nat>) -> String:
-  match m:
-    case None{}:
-      String.concat(["No command /", n, ". Not sent to the agent.\n", gc_help()])
-    case Some{j}:
-      String.concat(["No command /", n, ". Did you mean /", gc_at(gc_names(), j), "?\nNot sent to the agent. Send / for all commands."])
-
-def gc_listed(+n: String, ls: List<&2, String>) -> String:
-  match ls:
-    case Nil{}:
-      gc_far(n, SlashSuggest.sp_suggest(n, gc_names()))
-    case l <> t:
-      gc_listing(l <> t)
-
-# R6: the answer to the name n alone
-def gc_suggest(n: String) -> String:
-  match n:
-    case SNil{}:
-      gc_help()
-    case SCon{+c, +t}:
-      gc_listed(SCon{c, t}, gc_starting(SCon{c, t}, gc_names(), gc_lines()))
-
-def gc_unknown(+n: String, args: List<&2, String>) -> Gc.Out:
-  match args:
-    case Nil{}:
-      Gc.OAnswer{gc_suggest(n)}
-    case a <> t:
-      Gc.OPrompt{}
-
-# R5
-def gc_exact(m: Maybe<&2, Gc.Cmd>, i: Nat) -> Gc.Out:
-  match m:
-    case None{}:
-      Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), i))}
-    case Some{c}:
-      Gc.OCommand{c}
-
-def gc_found(+n: String, args: List<&2, String>, m: Maybe<&2, Nat>) -> Gc.Out:
-  match m:
-    case None{}:
-      gc_unknown(n, args)
-    case Some{+i}:
-      gc_exact(gc_command(i, args), i)
-
-# R3: a session command or not
-def gc_decide(session: Bool, +n: String, args: List<&2, String>) -> Gc.Out:
-  match session:
-    case True{}:
-      Gc.OPrompt{}
-    case False{}:
-      gc_found(n, args, gc_index(n, gc_names(), 0n))
-
-def gc_word.at(cmd: Bool, +name: String, args: List<&2, String>, sess: List<&2, String>) -> Gc.Out:
-  match cmd:
-    case True{}:
-      +n = String.to_lower(name)
-      gc_decide(gc_in(n, sess), n, args)
-    case False{}:
-      Gc.OPrompt{}
-
-# R2: the first word w
-def gc_word(w: String, args: List<&2, String>, sess: List<&2, String>) -> Gc.Out:
+# R2: w is `/` then a name of command chars
+def gc_slash(w: String) -> Bool:
   match w:
     case SNil{}:
-      Gc.OPrompt{}
-    case SCon{c, +name}:
-      gc_word.at(Bool.and(Char.is_eq(c, '/'), gc_name(name)), name, args, sess)
+      False{}
+    case SCon{c, n}:
+      Bool.and(Char.is_eq(c, '/'), gc_name(n))
 
-def gc_parse.at(ws: List<&2, String>, sess: List<&2, String>) -> Gc.Out:
+# R2: the first of the words ws is `/` then a name of command chars
+def gc_slash_first(ws: List<&2, String>) -> Bool:
   match ws:
     case Nil{}:
-      Gc.OPrompt{}
-    case w <> args:
-      gc_word(w, args, sess)
+      False{}
+    case w <> rest:
+      gc_slash(w)
 
-# R1-R7: what text means, given the session command names sess
-def gc_parse(text: String, sess: List<&2, String>) -> Gc.Out:
-  gc_parse.at(GatewayAnswer.ga_split(text), sess)
+# R4: the commands that take no argument, k = 0..6: their index in
+# gc_names / gc_lines and the command
+def gc_plain_has(k: Nat) -> Bool:
+  match k:
+    case 0n:
+      True{}
+    case 1n:
+      True{}
+    case 2n:
+      True{}
+    case 3n:
+      True{}
+    case 4n:
+      True{}
+    case 5n:
+      True{}
+    case 6n:
+      True{}
+    case 7n+u:
+      False{}
+
+def gc_plain_at(k: Nat) -> Nat:
+  match k:
+    case 0n:
+      0n
+    case 1n:
+      1n
+    case 2n:
+      3n
+    case 3n:
+      4n
+    case 4n:
+      5n
+    case 5n:
+      6n
+    case 6n:
+      7n
+    case 7n+u:
+      0n
+
+def gc_plain_cmd(k: Nat) -> Gc.Cmd:
+  match k:
+    case 0n:
+      Gc.CHelp{}
+    case 1n:
+      Gc.CSessions{}
+    case 2n:
+      Gc.CLatest{}
+    case 3n:
+      Gc.CNew{}
+    case 4n:
+      Gc.CStop{}
+    case 5n:
+      Gc.CStatus{}
+    case 6n:
+      Gc.CMemory{}
+    case 7n+u:
+      Gc.CHelp{}
+
+# R4: an optional argument as words
+def gc_opt(m: Maybe<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{a}:
+      [a]
 
 # R8: the spelling of a request and of its reply
 
@@ -384,7 +265,7 @@ def gc_w_out(o: Gc.Out) -> String:
 def gc_w_reply(q: FGc.Req) -> String:
   match q:
     case FGc.QParse{t, ns}:
-      gc_w_out(gc_parse(t, ns))
+      gc_w_out(Gc.parse(t, ns))
 
 # every number and length of the request fits the wire
 def gc_fit_req(q: FGc.Req) -> Bool:
@@ -395,41 +276,344 @@ def gc_fit_req(q: FGc.Req) -> Bool:
 # Laws: the meaning of a message
 # ------------------------------
 
-# LAW gateway_commands_spec (R1-R7): what every text means, given every
-# list of session command names, is the spec's
-# EXCLUDES: words split at ASCII spaces only, a path or a sentence taken
-#   for a command, a name with other chars accepted, a case-sensitive
-#   name, a session command answered by the gateway, an argument count
-#   ignored or checked for the wrong command, `/use` losing its argument,
-#   `/model` or `/reasoning` losing or inventing its optional argument,
-#   `/model all` taken for a switch to a model named `all`, `/model all N`
-#   losing N or taken for another word than `all`, a usage line of
-#   another command, an unknown name with more words answered, a listing
-#   out of order or missing a starting command, a near miss named past the
-#   slash_suggest limit, a missing help text after a far miss
-law gateway_commands_spec:
-  for +text: String
+# LAW gateway_commands_prompt (R1, R2): every text (written as its
+# whitespace runs and words) with no words, or whose first word is not `/`
+# then a name of ASCII letters, digits, `-` and `_`, is a prompt, for
+# every list of session command names
+# EXCLUDES: a path or a sentence taken for a command, a name with other
+#   chars accepted, words split at ASCII spaces only
+law gateway_commands_prompt:
+  for +t: GatewayAnswer.GaText
   for +sess: List<&2, String>
-  {Gc.parse(text, sess) == gc_parse(text, sess) : Gc.Out}
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for first: {gc_slash_first(GatewayAnswer.ga_words_of(t)) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OPrompt{} : Gc.Out}
 
-# LAW gateway_commands_example (R1-R7): anchor: Rust's vectors, short: a
-# command, a lone `/`, a prefix, a near miss, `/use 3`, `/use` alone, a
-# path, an unknown name with words, a session command, an uppercase name,
-# a far miss, a blank text, a prefix of three commands, extra spaces;
-# `/model` and `/reasoning` with no argument, one argument and two, an
-# uppercase `/Reasoning`, the prefix `/m` of memory and model; `/model all`
-# alone, with N, with two more words, and `/model ALL N` (only the word
-# `all` as written)
-# EXCLUDES: a spec that drifts from the Rust it replaced
+# LAW gateway_commands_session (R3): `/` then a name whose ASCII-lowercased
+# form is among the session command names is a prompt, with every words
+# after it
+# EXCLUDES: a session command answered by the gateway, a case-sensitive
+#   session name
+law gateway_commands_session:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +args: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> args : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for ses: {gc_in(String.to_lower(name), sess) == True{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OPrompt{} : Gc.Out}
+
+# LAW gateway_commands_plain (R3, R4): `/` then a name whose
+# ASCII-lowercased form is the k-th command that takes no argument (help,
+# sessions, latest, new, stop, status, memory) and no session command, with
+# no other word, is that command
+# EXCLUDES: a case-sensitive name, a command taken for another, a session
+#   name preferred to no session name
+law gateway_commands_plain:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +k: Nat
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for few: {gc_plain_has(k) == True{} : Bool}
+  for cmd: {String.to_lower(name) == gc_at(gc_names(), gc_plain_at(k)) : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{gc_plain_cmd(k)} : Gc.Out}
+
+# LAW gateway_commands_plain_usage (R3, R5): the same command name with
+# one word or more after it answers `Usage: ` and its line
+# EXCLUDES: an argument count ignored, a usage line of another command,
+#   the message sent to the agent
+law gateway_commands_plain_usage:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +k: Nat
+  for +a: String
+  for +more: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> (a <> more) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for few: {gc_plain_has(k) == True{} : Bool}
+  for cmd: {String.to_lower(name) == gc_at(gc_names(), gc_plain_at(k)) : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), gc_plain_at(k)))} : Gc.Out}
+
+# LAW gateway_commands_use (R4): `/use` (any ASCII case, no session
+# command) with exactly one word a after it is `/use` with a as written
+# EXCLUDES: `/use` losing or changing its argument
+law gateway_commands_use:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}, a] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "use" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CUse{a}} : Gc.Out}
+
+# LAW gateway_commands_use_usage (R5): `/use` with no word or two or more
+# after it answers its usage line
+# EXCLUDES: `/use` without its argument taken as a command, extra words
+#   dropped
+law gateway_commands_use_usage:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +args: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> args : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "use" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  for count: {Nat.is_eq(List.length(&2, String, args), 1n) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 2n))} : Gc.Out}
+
+# LAW gateway_commands_model_list (R4): `/model` (any ASCII case, no session
+# command) alone lists the models
+# EXCLUDES: `/model` inventing an argument
+law gateway_commands_model_list:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "model" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CModel{None{}}} : Gc.Out}
+
+# LAW gateway_commands_model_switch (R4): `/model` with exactly one word a
+# after it, a not `all` as written, switches to a as written
+# EXCLUDES: `/model N` losing N, a switch to a model named `all`
+law gateway_commands_model_switch:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}, a] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "model" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  for other: {String.eq(a, "all") == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CModel{Some{a}}} : Gc.Out}
+
+# LAW gateway_commands_model_all (R4): `/model all` (the word `all` as
+# written) lists the models for the all-roles model
+# EXCLUDES: `/model all` taken for a switch to a model named `all`
+law gateway_commands_model_all:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}, "all"] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "model" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CModelAll{None{}}} : Gc.Out}
+
+# LAW gateway_commands_model_all_set (R4): `/model all n` sets n, as
+# written, as the model of every role
+# EXCLUDES: `/model all N` losing N or taken as a switch
+law gateway_commands_model_all_set:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +n: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}, "all", n] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "model" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CModelAll{Some{n}}} : Gc.Out}
+
+# LAW gateway_commands_model_usage_pair (R5): `/model a b` with a not `all`
+# as written answers the usage line of `/model`
+# EXCLUDES: two arguments taken for a switch, `ALL` taken for `all`
+law gateway_commands_model_usage_pair:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +b: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}, a, b] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "model" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  for other: {String.eq(a, "all") == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 8n))} : Gc.Out}
+
+# LAW gateway_commands_model_usage_long (R5): `/model` with three words or
+# more after it answers its usage line
+# EXCLUDES: extra words after `/model all N` dropped
+law gateway_commands_model_usage_long:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +b: String
+  for +c: String
+  for +more: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> (a <> (b <> (c <> more))) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "model" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 8n))} : Gc.Out}
+
+# LAW gateway_commands_reasoning (R4): `/reasoning` (any ASCII case, no
+# session command) with no word after it shows the level, with one word
+# sets it as written
+# EXCLUDES: `/reasoning` losing or inventing its argument
+law gateway_commands_reasoning:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +m: Maybe<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> gc_opt(m) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "reasoning" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CReasoning{m}} : Gc.Out}
+
+# LAW gateway_commands_reasoning_usage (R5): `/reasoning` with two words or
+# more after it answers its usage line
+# EXCLUDES: extra words dropped
+law gateway_commands_reasoning_usage:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +b: String
+  for +more: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> (a <> (b <> more)) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "reasoning" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 9n))} : Gc.Out}
+
+# LAW gateway_commands_lone_slash (R6, R7): a lone `/` (the empty name not a
+# session command) answers the help text
+# EXCLUDES: a missing or partial help text, a lone `/` sent to the agent
+law gateway_commands_lone_slash:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', SNil{}}] : List<&2, String>}
+  for own: {gc_in("", sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{gc_help()} : Gc.Out}
+
+# LAW gateway_commands_listing (R6): `/` then a nonempty name that is no
+# command and no session command, alone, when command names start with
+# its ASCII-lowercased form, answers their lines in order, each on its own
+# line, then `Send one of these. Send / for all commands.`
+# EXCLUDES: a listing out of order or missing a starting command, a
+#   case-sensitive prefix
+law gateway_commands_listing:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +c: Char
+  for +n: String
+  for +l: String
+  for +ls: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', SCon{c, n}}] : List<&2, String>}
+  for nm: {gc_name(SCon{c, n}) == True{} : Bool}
+  for own: {gc_in(String.to_lower(SCon{c, n}), sess) == False{} : Bool}
+  for none: {gc_in(String.to_lower(SCon{c, n}), gc_names()) == False{} : Bool}
+  for pre: {gc_starting(String.to_lower(SCon{c, n}), gc_names(), gc_lines()) == l <> ls : List<&2, String>}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{gc_listing(l <> ls)} : Gc.Out}
+
+# LAW gateway_commands_near (R6): the same name, when no command name
+# starts with it and the slash_suggest suggestion over the 10 names picks
+# the j-th, answers `No command /<name>. Did you mean /<j-th name>?` and
+# `Not sent to the agent. Send / for all commands.` on a second line
+# EXCLUDES: a near miss named past the slash_suggest pick, a near miss sent
+#   to the agent
+law gateway_commands_near:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +c: Char
+  for +n: String
+  for +j: Nat
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', SCon{c, n}}] : List<&2, String>}
+  for nm: {gc_name(SCon{c, n}) == True{} : Bool}
+  for own: {gc_in(String.to_lower(SCon{c, n}), sess) == False{} : Bool}
+  for none: {gc_in(String.to_lower(SCon{c, n}), gc_names()) == False{} : Bool}
+  for pre: {gc_starting(String.to_lower(SCon{c, n}), gc_names(), gc_lines()) == Nil{} : List<&2, String>}
+  for sug: {Ss.suggest(String.to_lower(SCon{c, n}), gc_names()) == Some{j} : Maybe<&2, Nat>}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.concat(["No command /", String.to_lower(SCon{c, n}), ". Did you mean /", gc_at(gc_names(), j), "?\nNot sent to the agent. Send / for all commands."])} : Gc.Out}
+
+# LAW gateway_commands_far (R6, R7): the same name, when no command name
+# starts with it and slash_suggest picks none, answers `No command
+# /<name>. Not sent to the agent.` and the help text on the next lines
+# EXCLUDES: a missing help text after a far miss
+law gateway_commands_far:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +c: Char
+  for +n: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', SCon{c, n}}] : List<&2, String>}
+  for nm: {gc_name(SCon{c, n}) == True{} : Bool}
+  for own: {gc_in(String.to_lower(SCon{c, n}), sess) == False{} : Bool}
+  for none: {gc_in(String.to_lower(SCon{c, n}), gc_names()) == False{} : Bool}
+  for pre: {gc_starting(String.to_lower(SCon{c, n}), gc_names(), gc_lines()) == Nil{} : List<&2, String>}
+  for sug: {Ss.suggest(String.to_lower(SCon{c, n}), gc_names()) == None{} : Maybe<&2, Nat>}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.concat(["No command /", String.to_lower(SCon{c, n}), ". Not sent to the agent.\n", gc_help()])} : Gc.Out}
+
+# LAW gateway_commands_unknown_words (R6): `/` then a name that is no
+# command and no session command, followed by one word or more, is a
+# prompt
+# EXCLUDES: an unknown name with more words answered by the gateway
+law gateway_commands_unknown_words:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +more: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> (a <> more) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  for none: {gc_in(String.to_lower(name), gc_names()) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OPrompt{} : Gc.Out}
+
+# LAW gateway_commands_example (R1-R7): anchor: the vectors of Rust's tests
+# the_core_parses_phone_messages and
+# model_and_reasoning_parse_with_and_without_arguments
+# (crates/eukhe-gateway/src/commands.rs), with Rust's session command names
+# (eukhe-types SESSION_SLASH_COMMAND_NAMES)
+# EXCLUDES: a code that drifts from the Rust test vectors
 law gateway_commands_example:
-  {[Gc.parse("/help", []), Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/hlep", []), Gc.parse("/use 3", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/compact", ["compact"]), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/model", []), Gc.parse("/model 2", []), Gc.parse("/model 2 3", []), Gc.parse("/Reasoning", []), Gc.parse("/reasoning high", []), Gc.parse("/reasoning low extra", []), Gc.parse("/m", []), Gc.parse("/model all", []), Gc.parse("/model all 3", []), Gc.parse("/model all 3 4", []), Gc.parse("/model ALL 3", [])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CModelAll{None{}}}, Gc.OCommand{Gc.CModelAll{Some{"3"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}] : List<&2, Gc.Out>}
+  {[Gc.parse("/help", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/dynamic-workflow --size large review the repo", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/compact", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/use 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/hlep", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model 2", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning high", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model 2 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning low extra", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all 3 4", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OCommand{Gc.CModelAll{None{}}}, Gc.OCommand{Gc.CModelAll{Some{"3"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}] : List<&2, Gc.Out>}
+
+# LAW gateway_commands_more_example (R1-R7): anchor, in no Rust test: a
+# lone `/`, a prefix, `/use` alone, a path, an unknown name with words, an
+# uppercase name, a far miss, a blank text, a prefix of three commands,
+# extra spaces, `/stop` with a word, an uppercase `/Reasoning`, the prefix
+# `/m` of memory and model, `/model ALL 3` (only the word `all` as written)
+# EXCLUDES: a code that drifts from these vectors
+law gateway_commands_more_example:
+  {[Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/Reasoning", []), Gc.parse("/m", []), Gc.parse("/model ALL 3", [])] == [Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}] : List<&2, Gc.Out>}
 
 # Laws: the entry (R8)
 # --------------------
 
 # LAW gateway_commands_entry_answers (R8): the entry answers every request
 # Rust spells, every length within the wire, with the spelled meaning of
-# the spec
+# the model Gc.parse (pinned by the laws of R1-R7 above)
 # EXCLUDES: the text and the session names swapped, a session name
 #   dropped, command tags in another order, `/use` without its argument,
 #   `/model all` spelled as `/model`, an answer spelled as a prompt, a
@@ -475,3 +659,4 @@ law gateway_commands_entry_refuses:
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law gateway_commands_entry_example:
   {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,"), FGc.ffi("10,/model all0,"), FGc.ffi("12,/model all 30,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,91,Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "0,10,0,", "0,10,1,1,3"] : List<&2, String>}
+

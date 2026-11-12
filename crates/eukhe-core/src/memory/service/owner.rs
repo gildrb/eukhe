@@ -65,7 +65,7 @@ pub(super) enum Command {
         build: u64,
     },
     /// Node `part`'s call number `build` ended; `input` is the node's input,
-    /// which the failure cap cuts (H1.5).
+    /// which the failure cap cuts (laws/compactor.bend R10).
     Built {
         part: Part,
         build: u64,

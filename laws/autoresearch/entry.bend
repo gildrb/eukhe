@@ -286,11 +286,13 @@ law autoresearch_entry_exact:
   for +i: String
   ar_answered(s, i)
 
-# LAW autoresearch_entry_open: the open with no input opens the empty
-# state (no experiment, no run, mode Off) and answers T
-# EXCLUDES: an open that starts with a stale experiment or run
-law autoresearch_entry_open:
-  {FAr.open("") == (FAr.Live{ArS.St.empty()}, "T") : FAr.St & String}
+# LAW autoresearch_entry_open_example: anchor: the open with no input answers T
+# and opens the state with no experiment (no configuration), segment 0,
+# the mode Off, no ended run and no pending run
+# EXCLUDES: an open that starts with a stale experiment or run, the mode
+# On, a segment other than 0
+law autoresearch_entry_open_example:
+  {FAr.open("") == (FAr.Live{ArS.St{None{}, 0n, ArS.Off{}, Nil{}, None{}}}, "T") : FAr.St & String}
 
 # LAW autoresearch_entry_open_malformed_exact: an open with any input
 # opens the refused state and answers exactly `E autoresearch: malformed
@@ -308,20 +310,6 @@ law autoresearch_entry_shut:
   for +i: String
   {FAr.step(FAr.Refused{}, i) == (FAr.Refused{}, Wr.err("autoresearch: the open was refused")) : FAr.St & String}
 
-# LAW metric_show_spec: every decimal a refusal names (a metric not
-# better than the best kept, and that best) prints as the value's
-# spelling in the METRIC grammar (spec/autoresearch/metric_line.bend
-# value_text): 0 for zero; else its sign, the digits before the point (0
-# when there are none) and, at a scale above 0, the point and the last
-# scale digits, zeros first: 3, -12.5, 0.005 (the step laws pass the
-# shipped printer to spec/autoresearch/step.bend; metric_print_round_trip
-# reads its text back)
-# EXCLUDES: another spelling of the right value (01.5, 1.50, .5, +1.5), the
-# point at the wrong place, a zero lost after the point, a sign lost
-law metric_show_spec:
-  for +d: ArD.Dec
-  {ArD.show(d) == SL.value_text(d) : String}
-
 def ar_state(r: FAr.St & String) -> FAr.St:
   (st, reply) = r
   st
@@ -329,6 +317,22 @@ def ar_state(r: FAr.St & String) -> FAr.St:
 def ar_reply_of(r: FAr.St & String) -> String:
   (st, reply) = r
   reply
+
+# LAW autoresearch_refusal_keeps_state: X2's "a refused log changes
+# nothing", on the shipped entry: for every live state s and every input,
+# a reply that is a refusal (tag 1, then the refusal's text t) leaves the
+# stepper at Live{s}, the state before the request, so the next request is
+# answered as if the refused one never came
+# EXCLUDES: an entry that resets, drops or advances the state on a
+# refusal (a refused log or start that still appends a row, abandons or
+# logs the pending run, moves the segment, sets the mode, or reopens the
+# empty state)
+law autoresearch_refusal_keeps_state:
+  for +s: ArS.St
+  for +i: String
+  for +t: String
+  for refused: {ar_reply_of(FAr.step(FAr.Live{s}, i)) == Wr.put_nat(1n, Wr.put_str(t, "")) : String}
+  {ar_state(FAr.step(FAr.Live{s}, i)) == FAr.Live{s} : FAr.St}
 
 # the stepper's replies to the requests qs, spelled, in order
 def ar_replies(qs: List<&2, FAr.Q>, +st: FAr.St) -> List<&2, String>:
@@ -388,3 +392,17 @@ law autoresearch_step_is_model:
 # EXCLUDES: an entry that answers other bytes than the grammar's
 law autoresearch_entry_example:
   {ar_reply_of(FAr.open("")) == "T" : String} & {ar_replies([FAr.QEv{ArS.Begin{1n}}, FAr.QEv{ArS.Init{ArS.Cfg{"n", "g", "ms", "", ArS.Lower{}, [], [], [], Some{2n}}, False{}, True{}}}, FAr.QEv{ArS.Begin{1n}}, FAr.QEv{ArS.Line{"METRIC ms=1.5"}}, FAr.QEv{ArS.Finish{False{}, 0n, False{}}}, FAr.QEv{ArS.Log{ArS.Keep{}, "d", None{}, 0n}}, FAr.QSnap{}], ar_state(FAr.open(""))) == ["1,63,autoresearch: no experiment yet; call autoresearch.init() first", "0,0,F", "0,0,F", "0,0,F", "0,0,F", "0,1,F", "1,1,n1,g2,ms0,0,0,0,0,1,2,0,0,1,1,0,1,0,FT1,F2,1,5,1,0,TF1,d0,1,F2,1,5,1,1,F2,1,5,1,1,0,"] : List<&2, String>} & {[ar_reply_of(FAr.step(ar_state(FAr.open("")), "8,")), ar_reply_of(FAr.step(ar_state(FAr.open("")), "7,x")), ar_reply_of(FAr.step(FAr.Refused{}, "7,"))] == [ar_malformed(), ar_malformed(), Wr.err("autoresearch: the open was refused")] : List<&2, String>}
+
+# LAW metric_show_spec: every decimal a refusal names (a metric not
+# better than the best kept, and that best) prints as the value's
+# spelling in the METRIC grammar (spec/autoresearch/metric_line.bend
+# value_text): 0 for zero; else its sign, the digits before the point (0
+# when there are none) and, at a scale above 0, the point and the last
+# scale digits, zeros first: 3, -12.5, 0.005 (the step laws pass the
+# shipped printer to spec/autoresearch/step.bend; metric_print_round_trip
+# reads its text back)
+# EXCLUDES: another spelling of the right value (01.5, 1.50, .5, +1.5), the
+# point at the wrong place, a zero lost after the point, a sign lost
+law metric_show_spec:
+  for +d: ArD.Dec
+  {ArD.show(d) == SL.value_text(d) : String}

@@ -1,25 +1,45 @@
 # eukhe: the proof of LAW headless_settle_done_iff_quiet
 #
-# PROOF: the decision is the spec's (headless_settle_refines_spec), and
-# the spec stops exactly when quiet, whatever the limit (hs.finished_pick).
+# PROOF: case analysis on the facts in the order the model reads them: a
+# busy conversation, a nonzero count or an unknown read makes the model
+# pending, so it never stops (hs.stays), and makes the run not
+# quiet; with none of them the model stops and the run is quiet.
 
 import Base
 import ../../bend/headless_settle.bend as Hs
 import ../../spec/durable/headless.bend as Sp
 import ../../laws/headless_settle.bend as HeadlessSettle
-import ./headless_settle_refines_spec.bend as PHeadlessSettleRefinesSpec
-
-def hs.finished_pick(q: Bool, l: Bool) -> {HeadlessSettle.finished(Sp.settle_spec.pick(q, l)) == q : Bool}:
-  match q:
-    case True{}:
-      {==}
-    case False{}:
-      match l:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
+import ./base.bend as LAHeadlessSettle
 
 def HeadlessSettle.headless_settle_done_iff_quiet(f):
-  %Equal.sym(Hs.Settle, Hs.settle(f), Sp.settle_spec(f), HeadlessSettle.headless_settle_refines_spec(f)) : {HeadlessSettle.finished(_) == Sp.quiet(f) : Bool}
-  hs.finished_pick(Sp.quiet(f), Sp.limit_hit(f))
+  match f:
+    case Hs.Facts{b, j, k, c, w, x, u, l}:
+      match b:
+        case True{}:
+          LAHeadlessSettle.hs.stays(l)
+        case False{}:
+          match j:
+            case 1n+p:
+              LAHeadlessSettle.hs.stays(l)
+            case 0n:
+              match k:
+                case 1n+p:
+                  LAHeadlessSettle.hs.stays(l)
+                case 0n:
+                  match c:
+                    case 1n+p:
+                      LAHeadlessSettle.hs.stays(l)
+                    case 0n:
+                      match w:
+                        case 1n+p:
+                          LAHeadlessSettle.hs.stays(l)
+                        case 0n:
+                          match x:
+                            case 1n+p:
+                              LAHeadlessSettle.hs.stays(l)
+                            case 0n:
+                              match u:
+                                case True{}:
+                                  LAHeadlessSettle.hs.stays(l)
+                                case False{}:
+                                  {==}

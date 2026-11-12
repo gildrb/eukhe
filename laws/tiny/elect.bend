@@ -1,10 +1,8 @@
 # eukhe: the laws of area tiny, section elect: the choices of one
 # process's election and of a started worker's seat (bend/tiny.bend
-# section 3); the requirements R1-R7 of the election
-
-import Base
-import ../../bend/tiny.bend as Tn
-import ../base.bend as LawsBase
+# section 3), each stated as the step of the run (Tn.step_run, bend/tiny.bend
+# section 4, the step the stepper bend/ffi_tiny_run.bend answers) on the
+# outcome its phase waits for; the requirements R1-R7 of the election
 
 # (S9) One process's election
 # ---------------------------
@@ -14,22 +12,37 @@ import ../base.bend as LawsBase
 # any tag, any launch tag, any answer to a shutdown, any start and
 # launch, any outcomes in any order, from any state of a run.
 #
+# Sources: crates/eukhe-tiny/src/election.rs (`Met` and `probe`: which
+# ping outcome is which probe; `ensure`, `failure`, `seat`: what Rust
+# does with each reply) and worker.rs `bind`; the requirement: a worker
+# is live for a process exactly when its pong carries the process's launch
+# tag, compared as strings; a pong of another tag is shut down and
+# replaced. Eukhe reads a socket that fails otherwise or answers out of
+# protocol as an IO error, never as an absent worker (R1, R4, R6).
+#
 # R1: a worker that answers with the process's tag (the same text, char
 #     by char) is joined; one with another tag is replaced; with no
 #     worker (no socket, a refused one, or one that hangs up on the ping)
 #     the process starts one; a socket that fails otherwise or speaks out
 #     of protocol is an IO error, never a join or a start.
+#     [tiny_run_own_tag_used, tiny_run_other_tag_replaced,
+#     tiny_run_no_worker, tiny_run_socket_fails, tiny_elect_is_worker_model]
 # R2: a shutdown answered with bye, or cut by the worker's own exit, lets
 #     the start go on; another answer is out of protocol; another failure
-#     is an IO error.
+#     is an IO error. [tiny_run_shutdown_answered]
 # R3: a start the process made gets Started (first worker) or Replaced
 #     (replacement) when its worker bound the socket, Joined when another
-#     worker took the socket first.
+#     worker took the socket first. [tiny_run_launch_ended,
+#     tiny_run_own_tag_used, tiny_run_is_model]
 # R4: after a start, only a worker with the process's tag is used; another
 #     tag or no worker fails the start; a failing socket is an IO error.
+#     [tiny_run_own_tag_used, tiny_run_other_tag_replaced,
+#     tiny_run_no_worker, tiny_run_socket_fails]
 # R6: a started worker leaves a live worker of any tag in place (it is
 #     adopted), takes a socket with no live worker, and fails on a socket
 #     that fails otherwise or speaks out of protocol.
+#     [tiny_seat_adopts_live, tiny_run_no_worker, tiny_run_socket_fails,
+#     tiny_seat_under_lock]
 # R7: a run decides, from each outcome Rust reports, what Rust does next:
 #     a need pings first; its ping decides by R1 (join: use the
 #     connection; replace: shut the worker down; start: launch); a
@@ -42,99 +55,22 @@ import ../base.bend as LawsBase
 #     a run uses only a worker that answered with its tag, shuts down
 #     only a worker of another tag, launches only on a socket with no
 #     live worker, launches and shuts down at most once, ends once, and
-#     a seat binds only under the lock.
+#     a seat binds only under the lock. [the laws above;
+#     laws/tiny/run.bend: tiny_run_waits, tiny_run_safe,
+#     tiny_run_at_most_once, tiny_run_ends_once, tiny_seat_under_lock,
+#     tiny_run_is_model; the anchor tiny_run_example; a need's and a
+#     seat's first reply: tiny_run_entry_open]
 # R5: the entry answers each open and outcome Rust writes with the run of
 #     R7, reads exactly it and nothing after it, and answers any other
 #     input with the exact error form, keeping the run.
+#     [laws/tiny/run.bend: tiny_run_entry_*]
+
+import Base
+import ../../bend/tiny.bend as Tn
+import ../base.bend as LawsBase
 
 # Spec helpers
 # ------------
-
-def sp_pong(b: Bool, j: Tn.Act, r: Tn.Act) -> Tn.Act:
-  match b:
-    case True{}:
-      j
-    case False{}:
-      r
-
-# R1
-def sp_elect(p: Tn.Probe, +m: String) -> Tn.Act:
-  match p:
-    case Tn.Missing{}:
-      Tn.Start{}
-    case Tn.Unreachable{}:
-      Tn.Broken{}
-    case Tn.Pong{t}:
-      sp_pong(LawsBase.text_same(t, m), Tn.Join{}, Tn.Replace{})
-    case Tn.Odd{}:
-      Tn.Broken{}
-    case Tn.Garbled{}:
-      Tn.Broken{}
-    case Tn.Hung{}:
-      Tn.Start{}
-
-# R2
-def sp_shut(h: Tn.Heard) -> Tn.Shut:
-  match h:
-    case Tn.Bye{}:
-      Tn.Down{}
-    case Tn.Other{}:
-      Tn.Spoke{}
-    case Tn.Eof{}:
-      Tn.Down{}
-    case Tn.Dropped{}:
-      Tn.Cut{}
-
-# R3
-def sp_launched(l: Tn.Launch, f: Tn.Fresh) -> Tn.Got:
-  match l:
-    case Tn.Adopted{}:
-      Tn.Joined{}
-    case Tn.Bound{}:
-      match f:
-        case Tn.First{}:
-          Tn.Started{}
-        case Tn.Again{}:
-          Tn.Replaced{}
-
-def sp_check(b: Bool) -> Tn.Check:
-  match b:
-    case True{}:
-      Tn.Serving{}
-    case False{}:
-      Tn.Mistagged{}
-
-# R4
-def sp_confirm(p: Tn.Probe, +m: String) -> Tn.Check:
-  match p:
-    case Tn.Missing{}:
-      Tn.Vacant{}
-    case Tn.Unreachable{}:
-      Tn.Faulty{}
-    case Tn.Pong{t}:
-      sp_check(LawsBase.text_same(t, m))
-    case Tn.Odd{}:
-      Tn.Faulty{}
-    case Tn.Garbled{}:
-      Tn.Faulty{}
-    case Tn.Hung{}:
-      Tn.Vacant{}
-
-# R6
-def sp_bind(p: Tn.Probe) -> Tn.Seat:
-  match p:
-    case Tn.Missing{}:
-      Tn.Take{}
-    case Tn.Unreachable{}:
-      Tn.Fault{}
-    case Tn.Pong{t}:
-      Tn.Adopt{}
-    case Tn.Odd{}:
-      Tn.Fault{}
-    case Tn.Garbled{}:
-      Tn.Fault{}
-    case Tn.Hung{}:
-      Tn.Take{}
 
 # what a need of the worker model gets from a choice whose start bound
 def sp_need(a: Tn.Act) -> List<&2, Tn.Got>:
@@ -148,51 +84,112 @@ def sp_need(a: Tn.Act) -> List<&2, Tn.Got>:
     case Tn.Broken{}:
       Nil{}
 
-# Laws: the choices
-# -----------------
+# Laws: what a ping decides (R1, R4, R6)
+# --------------------------------------
+# Each law below is about the run's step (Tn.step_run) of a run of launch
+# tag m (any text) in the phase that waits for a ping: the first ping of
+# a need (Probing), the check after a start that got g (Checking{g}), the
+# ping under the bind lock of a seat run (Seating).
 
-# LAW tiny_elect_spec (R1): the first choice of a process is the spec's:
-# join its tag, replace another tag, start with no worker, an IO error on
-# a failing socket
-# EXCLUDES: tags compared by prefix, length or case; a hung-up worker
-#   taken for an error, or a failing socket for a missing worker; a
-#   worker of another tag joined
-law tiny_elect_spec:
-  for +p: Tn.Probe
+# LAW tiny_run_own_tag_used (R1, R4): a ping that a worker answers with
+# the run's own launch tag m (the very same text) is used and ends the
+# run: on a need's first ping the need joins that worker (DoUse Joined);
+# on the check after a start that got g, the need is served with g
+# EXCLUDES: restart churn (a worker of the process's own tag shut down or
+#   started over); a started worker of the right tag not used; a check
+#   that reports another outcome than the start's
+law tiny_run_own_tag_used:
   for +m: String
-  {Tn.elect(p, m) == sp_elect(p, m) : Tn.Act}
+  for +g: Tn.Got
+  {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Pong{m}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoUse{Tn.Joined{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Pong{m}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoUse{g}) : Tn.Run & Tn.Do}
 
-# LAW tiny_shut_spec (R2): what a shutdown's answer means
-# EXCLUDES: a start on top of a worker that answered out of protocol; an
-#   error for a worker that exited on its own meanwhile
-law tiny_shut_spec:
-  for +h: Tn.Heard
-  {Tn.shut(h) == sp_shut(h) : Tn.Shut}
+# LAW tiny_run_other_tag_replaced (R1, R4): a ping that a worker answers
+# with a tag t that is not the run's launch tag m (any other string, the
+# type's own equality) is never used: on a need's first ping the run
+# shuts that worker down (and then waits for its answer); on the check
+# after a start the start fails as mistagged
+# EXCLUDES: a stale worker of another tag served (tags compared by prefix,
+#   by length, case-folded, or not at all); a mistagged worker after a
+#   start taken for a success or for a vacant socket
+law tiny_run_other_tag_replaced:
+  for +m: String
+  for +t: String
+  for +g: Tn.Got
+  for ne: {t != m : String}
+  {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Pong{t}}) == (Tn.Run{m, Tn.Shutting{}}, Tn.DoShutdown{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Pong{t}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyMistagged{}}) : Tn.Run & Tn.Do}
 
-# LAW tiny_launched_spec (R3): what a need that started a worker got
+# LAW tiny_run_no_worker (R1, R4, R6): a ping that shows no worker (no
+# socket or a refused one: Missing; a connection closed or failed on the
+# ping: Hung) makes a need's first ping launch a first worker, fails the
+# check after a start as vacant, and makes a seat run take the socket
+# EXCLUDES: a hung-up worker taken for an IO error or for a live one; a
+#   need that fails instead of starting a worker; a start reported a
+#   success with no worker there; a seat that leaves a free socket
+law tiny_run_no_worker:
+  for +m: String
+  for +g: Tn.Got
+  {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Missing{}}) == (Tn.Run{m, Tn.Launching{Tn.First{}}}, Tn.DoLaunch{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Hung{}}) == (Tn.Run{m, Tn.Launching{Tn.First{}}}, Tn.DoLaunch{}) : Tn.Run & Tn.Do} &
+  {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Missing{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyVacant{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Hung{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyVacant{}}) : Tn.Run & Tn.Do} &
+  {Tn.step_run(Tn.Run{m, Tn.Seating{}}, Tn.Pinged{Tn.Missing{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoTake{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Seating{}}, Tn.Pinged{Tn.Hung{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoTake{}) : Tn.Run & Tn.Do}
+
+# LAW tiny_run_socket_fails (R1, R4, R6): a ping whose connect failed
+# otherwise (Unreachable), or that a worker answered with another reply
+# (Odd) or with no line of the protocol (Garbled), ends a need's run as
+# an IO error, on the first ping and on the check after a start, and
+# ends a seat run as a fault
+# EXCLUDES: a failing socket taken for a missing worker (a second worker
+#   started beside a live one that answers out of protocol), for a live
+#   worker (joined or adopted), or reported as another failure
+law tiny_run_socket_fails:
+  for +m: String
+  for +g: Tn.Got
+  {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Unreachable{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Odd{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Probing{}}, Tn.Pinged{Tn.Garbled{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do} &
+  {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Unreachable{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Odd{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Checking{g}}, Tn.Pinged{Tn.Garbled{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do} &
+  {Tn.step_run(Tn.Run{m, Tn.Seating{}}, Tn.Pinged{Tn.Unreachable{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFault{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Seating{}}, Tn.Pinged{Tn.Odd{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFault{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Seating{}}, Tn.Pinged{Tn.Garbled{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFault{}) : Tn.Run & Tn.Do}
+
+# LAW tiny_seat_adopts_live (R6, R7): a seat run (any tag m) that gets
+# the bind lock pings the socket, and a ping that a worker of any tag t
+# answers leaves that worker in place (adopted) and ends the seat
+# EXCLUDES: a seat that never pings once it holds the lock; a live worker
+#   of another build replaced by a started one (its socket removed: two
+#   workers fighting over one socket)
+law tiny_seat_adopts_live:
+  for +m: String
+  for +t: String
+  {Tn.step_run(Tn.Run{m, Tn.Locking{}}, Tn.Locked{}) == (Tn.Run{m, Tn.Seating{}}, Tn.DoPing{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Seating{}}, Tn.Pinged{Tn.Pong{t}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoAdopt{}) : Tn.Run & Tn.Do}
+
+# Laws: a shutdown's answer and a launch (R2, R3)
+# -----------------------------------------------
+
+# LAW tiny_run_shutdown_answered (R2): in a need's run (any tag m) that
+# shut a worker of another tag down, an answer bye or the connection
+# closed by the worker's own exit (Eof) launches a replacement; another
+# answer fails the need as out of protocol; any other failure of the
+# connection (Dropped) as an IO error
+# EXCLUDES: a start on top of a worker that answered the shutdown out of
+#   protocol; an error for a worker that exited on its own meanwhile; a
+#   replacement launched as a first worker (reported Started)
+law tiny_run_shutdown_answered:
+  for +m: String
+  {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Bye{}}) == (Tn.Run{m, Tn.Launching{Tn.Again{}}}, Tn.DoLaunch{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Eof{}}) == (Tn.Run{m, Tn.Launching{Tn.Again{}}}, Tn.DoLaunch{}) : Tn.Run & Tn.Do} &
+  {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Other{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyProtocol{}}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Shutting{}}, Tn.ShutHeard{Tn.Dropped{}}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhyIo{}}) : Tn.Run & Tn.Do}
+
+# LAW tiny_run_launch_ended (R3, R7): a launch that ended pings again and
+# carries what the start got into the check: a first worker that bound
+# the socket Started, a replacement that bound it Replaced, a worker
+# that found another one on the socket first (adopted) Joined, whichever
+# start it was (f); a launch that failed fails the need (any tag m)
 # EXCLUDES: a replacement reported as a first start, an adopted worker
-#   reported as started by this process
-law tiny_launched_spec:
-  for +f: Tn.Fresh
-  for +l: Tn.Launch
-  {Tn.launched(f, l) == sp_launched(l, f) : Tn.Got}
-
-# LAW tiny_confirm_spec (R4): after a start only a worker with the
-# process's tag is used
-# EXCLUDES: a stale worker of another tag used after a start; a vacant
-#   socket taken for a running worker
-law tiny_confirm_spec:
-  for +p: Tn.Probe
+#   reported as started by this process; a launch used without the check
+#   ping; a failed launch launched again or reported as another failure
+law tiny_run_launch_ended:
   for +m: String
-  {Tn.confirm(p, m) == sp_confirm(p, m) : Tn.Check}
+  for +f: Tn.Fresh
+  {Tn.step_run(Tn.Run{m, Tn.Launching{Tn.First{}}}, Tn.Came{Tn.Bound{}}) == (Tn.Run{m, Tn.Checking{Tn.Started{}}}, Tn.DoPing{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Launching{Tn.Again{}}}, Tn.Came{Tn.Bound{}}) == (Tn.Run{m, Tn.Checking{Tn.Replaced{}}}, Tn.DoPing{}) : Tn.Run & Tn.Do} &
+  {Tn.step_run(Tn.Run{m, Tn.Launching{f}}, Tn.Came{Tn.Adopted{}}) == (Tn.Run{m, Tn.Checking{Tn.Joined{}}}, Tn.DoPing{}) : Tn.Run & Tn.Do} & {Tn.step_run(Tn.Run{m, Tn.Launching{f}}, Tn.NoSpawn{}) == (Tn.Run{m, Tn.Over{}}, Tn.DoFail{Tn.WhySpawn{}}) : Tn.Run & Tn.Do}
 
-# LAW tiny_bind_spec (R6): a started worker adopts a live worker of any
-# tag and binds only a socket with no live worker
-# EXCLUDES: two workers bound on one socket; a live worker's socket
-#   removed; a failing socket taken for a free one
-law tiny_bind_spec:
-  for +p: Tn.Probe
-  {Tn.bind(p) == sp_bind(p) : Tn.Seat}
+# Laws: the worker model (R1, R3)
+# -------------------------------
 
 # LAW tiny_elect_is_worker_model (R1, R3): a process's choice, with its
 # start bound, is what the worker model's need gets: with a worker of tag

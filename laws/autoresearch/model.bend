@@ -4,7 +4,47 @@
 # autoresearch/dec), one step on the state (autoresearch/step), the
 # state's metrics (autoresearch/state, autoresearch/stats), or a history
 # of steps from the empty state (the host replays its event log so). The
-# entry's laws (laws/autoresearch/entry.bend) tie the stepper to them.
+# step's refusals and what each event keeps are in
+# laws/autoresearch/events.bend, histories in laws/autoresearch/history.bend;
+# the entry's laws (laws/autoresearch/entry.bend) tie the stepper to them.
+#
+# Requirements. Stated (spec/README.md:60-61):
+# X1: only an improvement is kept, and every improvement is: a keep is
+#   accepted exactly when the run passed, its parsed metric is strictly
+#   better than the best unflagged keep of the current segment, and it
+#   stayed in scope or is justified; the baseline is the first such keep;
+#   the best never gets worse.
+# X2: at most one pending run; every started run is logged or abandoned; a
+#   refused log changes nothing; the iteration cap stops the loop; the
+#   logged metric is the parsed one.
+# Inferred (the requirement where a rule above is unclear):
+# A1: the order of metrics is the numeric order of their values.
+# A2: a METRIC line (the regex ^METRIC\s+([\w.µ-]+)=(\S+)\s*$, the value
+#   narrowed to plain decimals) is read with its exact name and value, and
+#   nothing else is read as one.
+# A3: a refusal prints a metric as the one canonical spelling of its value.
+# A4: an init is refused, in this order, for a metric name no METRIC line
+#   can carry, a cap below 1, a missing harness (first init or new
+#   segment), a new metric or direction on the same segment; an accepted
+#   init sets the configuration and the mode On, abandons the pending run
+#   and opens the next segment only for a new segment of an experiment.
+# A5: a start needs an experiment and the next id (1 + the runs started
+#   so far); it abandons the pending run and starts the new one with no
+#   output.
+# A6: output and end reach only a running run; a METRIC line sets that
+#   metric of the run, the last value per name (a later value replaces an
+#   earlier one); an end marks the run passed exactly when it exited 0 and
+#   did not time out (exitCode === 0 && !killed).
+# A7: a log needs a finished pending run; crash only for a failed run,
+#   checks_failed only for a passed one, discard always; each refusal
+#   names its cause; a keep commits, every other log resets.
+# A8: a flag needs a reason and a logged run, flags exactly that run, and
+#   flags stay; flagged runs never count in baseline, best or confidence.
+# A9: the logged count (and so the cap) is per segment, flagged runs
+#   included; an ended row is never rewritten (but its flag) or dropped.
+# A10: confidence is |best - baseline| / MAD of the segment's unflagged
+#   logged metrics, in tenths, capped; none below 3 metrics.
+# A11: the stepper entry answers exactly the model, garbage the one error.
 
 import Base
 import ../../bend/autoresearch/dec.bend as ArD
@@ -120,16 +160,6 @@ def ar_count_runs(rs: List<&2, ArS.Row>) -> Nat:
       0n
     case r <> t:
       1n+ar_count_runs(t)
-
-# how many runs started: the ended ones and the pending one
-def ar_started(s: ArS.St) -> Nat:
-  match s:
-    case ArS.St{c, seg, mode, runs, pend}:
-      match pend:
-        case None{}:
-          ar_count_runs(runs)
-        case Some{p}:
-          1n+ar_count_runs(runs)
 
 # the event is a log, a flag, a start
 def ar_is_log(e: ArS.Ev) -> Bool:
@@ -284,6 +314,73 @@ law metric_print_round_trip:
   for fit: {Nat.is_le(SL.dlen(ArD.Dec.ds(d)), 15n) == True{} : Bool}
   {ArL.metric(String.append("METRIC ", String.append(name, SCon{'=', ArD.show(d)}))) == Some{ArL.Kv{name, d}} : Maybe<&2, ArL.Kv>}
 
+# the text a METRIC line's value parts spell after `=`: the sign, the
+# integer digits, then the point and the fraction's digits when there is
+# one (spec/autoresearch/metric_line.bend)
+def ar_value_text(p: ArL.Parts) -> String:
+  match p:
+    case ArL.Parts{sp, name, neg, int, frac, trail}:
+      SL.spell_sign(neg, SL.spell_ds(int, SL.spell_frac(frac, "")))
+
+# some digit of ds is not 0
+def ar_some_nz(ds: List<&2, Nat>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> t:
+      Bool.or(Nat.is_ne(d, 0n), ar_some_nz(t))
+
+# an integer part with no leading 0: 0 alone, or a first digit that is
+# not 0
+def ar_int_canon(int: List<&2, Nat>) -> Bool:
+  match int:
+    case Nil{}:
+      False{}
+    case d <> t:
+      match d:
+        case 0n:
+          match t:
+            case Nil{}:
+              True{}
+            case e <> u:
+              False{}
+        case 1n+k:
+          True{}
+
+# no fraction, or one whose last digit is not 0
+def ar_frac_canon(frac: Maybe<&2, List<&2, Nat>>) -> Bool:
+  match frac:
+    case None{}:
+      True{}
+    case Some{fs}:
+      SD.last_nz(fs)
+
+# the value parts follow the grammar and spell the value canonically: an
+# integer part with no leading 0, a fraction (if any) with no trailing 0,
+# and a sign only before a value that is not 0
+def ar_canon_parts(p: ArL.Parts) -> Bool:
+  match p:
+    case ArL.Parts{sp, name, neg, +int, +frac, trail}:
+      Bool.and(Bool.and(SL.nonempty_ds(int), SD.digits_ok(int)), Bool.and(SL.frac_ok(frac), Bool.and(ar_int_canon(int), Bool.and(ar_frac_canon(frac), Bool.or(Bool.not(neg), ar_some_nz(List.append(&2, Nat, int, SL.frac_of(frac))))))))
+
+# LAW metric_print_canonical: every canonical decimal (a refusal names
+# only parsed metrics, which are canonical: metric_line_reads) prints as
+# the one canonical spelling of its value in the METRIC grammar: value
+# parts of the grammar (spec/autoresearch/metric_line.bend) with no
+# leading 0 before the point (0 alone when the value is below 1), no
+# trailing 0 after it, a `-` only before a value that is not 0, worth the
+# decimal by arithmetic (spec/autoresearch/decimal.bend). A value has one
+# such spelling, so the text is fixed; with metric_print_round_trip it
+# reads back as the decimal
+# EXCLUDES: another spelling of the right value (01.5, 1.50, .5, +1.5,
+# -0), the point at the wrong place, a zero lost after the point (0.05
+# as 0.5), a sign lost, digits of another value
+law metric_print_canonical:
+  for +d: ArD.Dec
+  for c: {SD.Canon(d) == True{} : Bool}
+  exs p: ArL.Parts
+  {ArD.show(d) == ar_value_text(p) : String} & {ar_canon_parts(p) == True{} : Bool} & {SD.same(d, SL.raw(p)) == True{} : Bool}
+
 # LAW metric_line_example: anchor: lines a benchmark prints
 # EXCLUDES: a parser that misses one of the cases below
 law metric_line_example:
@@ -309,54 +406,6 @@ law metric_last_wins:
 
 # A run's output
 # --------------
-
-def ar_put(kvs: List<&2, ArL.Kv>, m: Maybe<&2, ArL.Kv>) -> List<&2, ArL.Kv>:
-  match m:
-    case None{}:
-      kvs
-    case Some{ArL.Kv{n, d}}:
-      ArS.put(kvs, n, d)
-
-# LAW line_sets_metric: a line of a running run's output sets the metric
-# it reports, if it is a METRIC line, and changes nothing else
-# EXCLUDES: a non-METRIC line that changes a metric, a metric lost, a
-# line that touches another run, the configuration or the mode
-law line_sets_metric:
-  for +c: Maybe<&2, ArS.Cfg>
-  for +seg: Nat
-  for +mode: ArS.Mode
-  for +runs: List<&2, ArS.Row>
-  for +id: Nat
-  for +kvs: List<&2, ArL.Kv>
-  for +t: String
-  {ArP.step(ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, kvs, None{}}}}, ArS.Line{t}) == ArS.Took{ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, ar_put(kvs, ArL.metric(t)), None{}}}}, ArS.Nothing{}, False{}} : ArS.Res}
-
-def ar_exit_ok(neg: Bool, code: Nat, timeout: Bool) -> Bool:
-  match neg:
-    case True{}:
-      False{}
-    case False{}:
-      match timeout:
-        case True{}:
-          False{}
-        case False{}:
-          Nat.is_eq(code, 0n)
-
-# LAW finish_marks_passed: a running run that ends is finished, passed
-# exactly when it exited 0 and did not time out; nothing else changes
-# EXCLUDES: a timed-out or failing run marked passed, a passing run
-# marked failed, metrics dropped at the end
-law finish_marks_passed:
-  for +c: Maybe<&2, ArS.Cfg>
-  for +seg: Nat
-  for +mode: ArS.Mode
-  for +runs: List<&2, ArS.Row>
-  for +id: Nat
-  for +kvs: List<&2, ArL.Kv>
-  for +neg: Bool
-  for +code: Nat
-  for +timeout: Bool
-  {ArP.step(ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, kvs, None{}}}}, ArS.Finish{neg, code, timeout}) == ArS.Took{ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, kvs, Some{ar_exit_ok(neg, code, timeout)}}}}, ArS.Nothing{}, False{}} : ArS.Res}
 
 def ar_running(s: ArS.St) -> Bool:
   match s:
@@ -517,26 +566,9 @@ def ar_logged(s: ArS.St, st: ArS.Status, desc: String, s2: ArS.St) -> Type:
         case Some{p}:
           {ar_runs(s2) == ArS.snoc(runs, [ar_row(c, seg, p, Some{st}, desc)]) : List<&2, ArS.Row>} & {ar_pend(s2) == None{} : Maybe<&2, ArS.Pend>} & {ar_cfg(s2) == c : Maybe<&2, ArS.Cfg>} & {ar_seg(s2) == seg : Nat}
 
-# LAW log_records: an accepted log appends the pending run's row with the
-# status and description, and its metric is the primary metric its
-# output printed (the model never supplies it); no run is pending after
-# it; the configuration and segment stay
-# EXCLUDES: a model-supplied metric logged, a lost or rewritten earlier
-# row, a run still pending after its log, a log that moves the segment
-law log_records:
-  for +s: ArS.St
-  for +st: ArS.Status
-  for +desc: String
-  for +why: Maybe<&2, String>
-  for +devs: Nat
-  for +s2: ArS.St
-  for +eff: ArS.Eff
-  for +stop: Bool
-  for ok: {ArP.step(s, ArS.Log{st, desc, why, devs}) == ArS.Took{s2, eff, stop} : ArS.Res}
-  ar_logged(s, st, desc, s2)
-
 # the step accepted the log of the pending run with status st and effect
-# eff, its row appended as log_records says
+# eff: its row appended (ar_row), no run pending, the configuration and
+# segment kept
 def ar_accepts(+s: ArS.St, st: ArS.Status, desc: String, r: ArS.Res, eff: ArS.Eff) -> Type:
   match r:
     case ArS.Took{s2, e, stop}:
@@ -689,20 +721,6 @@ law cap_stops:
 # Starts, inits, segments
 # -----------------------
 
-# LAW start_abandons: an accepted start has the next run's id; the run it
-# starts is the only pending one, with no metrics; the pending run before
-# it, if any, ends as an abandoned row (no status); nothing else changes
-# EXCLUDES: two pending runs, a lost pending run, a reused or skipped id,
-# a start that keeps the old run's metrics
-law start_abandons:
-  for +s: ArS.St
-  for +n: Nat
-  for +s2: ArS.St
-  for +eff: ArS.Eff
-  for +stop: Bool
-  for ok: {ArP.step(s, ArS.Begin{n}) == ArS.Took{s2, eff, stop} : ArS.Res}
-  {n == 1n+ar_started(s) : Nat} & {s2 == ArS.St{ar_cfg(s), ar_seg(s), ar_mode(s), ArS.snoc(ar_runs(s), ar_gone(s)), Some{ArS.Pend{n, Nil{}, None{}}}} : ArS.St}
-
 def ar_no_cfg(s: ArS.St) -> Bool:
   match s:
     case ArS.St{c, seg, mode, runs, pend}:
@@ -754,23 +772,6 @@ def ar_bump(s: ArS.St, e: ArS.Ev) -> Nat:
       0n
     case ArS.SetMode{m}:
       0n
-
-# LAW init_sets: an accepted init has a metric name a METRIC line can
-# spell and a cap of at least 1; it sets the configuration and the mode
-# On, abandons the pending run, and opens the next segment only for a
-# new segment of an existing experiment
-# EXCLUDES: a metric no line can report, a cap of 0, a pending run kept
-# across an init, a segment moved without new_segment
-law init_sets:
-  for +s: ArS.St
-  for +c: ArS.Cfg
-  for +fresh: Bool
-  for +harness: Bool
-  for +s2: ArS.St
-  for +eff: ArS.Eff
-  for +stop: Bool
-  for ok: {ArP.step(s, ArS.Init{c, fresh, harness}) == ArS.Took{s2, eff, stop} : ArS.Res}
-  {Bool.and(Bool.and(SL.nonempty(ArS.Cfg.metric(c)), SL.all_name(ArS.Cfg.metric(c))), ar_cap_ok(ArS.Cfg.max(c))) == True{} : Bool} & {s2 == ArS.St{Some{c}, Nat.add(ar_seg(s), ar_bump(s, ArS.Init{c, fresh, harness})), ArS.On{}, ArS.snoc(ar_runs(s), ar_gone(s)), None{}} : ArS.St}
 
 def ar_dir_eq(a: ArS.Dir, b: ArS.Dir) -> Bool:
   match a b:
@@ -967,8 +968,43 @@ law confidence_exact:
   for wf: {ar_rows_wf(ar_runs(s)) == True{} : Bool}
   {ArT.St.confidence(s) == SS.confidence(ar_vals(ar_runs(s), ar_seg(s)), ArS.St.baseline(s), ArS.St.best(s)) : Maybe<&2, Nat>}
 
-# The whole step
-# --------------
+def ar_put(kvs: List<&2, ArL.Kv>, m: Maybe<&2, ArL.Kv>) -> List<&2, ArL.Kv>:
+  match m:
+    case None{}:
+      kvs
+    case Some{ArL.Kv{n, d}}:
+      ArS.put(kvs, n, d)
+
+# LAW line_sets_metric: a line of a running run's output sets the metric
+# it reports, if it is a METRIC line, and changes nothing else
+# EXCLUDES: a non-METRIC line that changes a metric, a metric lost, a
+# line that touches another run, the configuration or the mode
+law line_sets_metric:
+  for +c: Maybe<&2, ArS.Cfg>
+  for +seg: Nat
+  for +mode: ArS.Mode
+  for +runs: List<&2, ArS.Row>
+  for +id: Nat
+  for +kvs: List<&2, ArL.Kv>
+  for +t: String
+  {ArP.step(ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, kvs, None{}}}}, ArS.Line{t}) == ArS.Took{ArS.St{c, seg, mode, runs, Some{ArS.Pend{id, ar_put(kvs, ArL.metric(t)), None{}}}}, ArS.Nothing{}, False{}} : ArS.Res}
+
+# LAW init_sets: an accepted init has a metric name a METRIC line can
+# spell and a cap of at least 1; it sets the configuration and the mode
+# On, abandons the pending run, and opens the next segment only for a
+# new segment of an existing experiment
+# EXCLUDES: a metric no line can report, a cap of 0, a pending run kept
+# across an init, a segment moved without new_segment
+law init_sets:
+  for +s: ArS.St
+  for +c: ArS.Cfg
+  for +fresh: Bool
+  for +harness: Bool
+  for +s2: ArS.St
+  for +eff: ArS.Eff
+  for +stop: Bool
+  for ok: {ArP.step(s, ArS.Init{c, fresh, harness}) == ArS.Took{s2, eff, stop} : ArS.Res}
+  {Bool.and(Bool.and(SL.nonempty(ArS.Cfg.metric(c)), SL.all_name(ArS.Cfg.metric(c))), ar_cap_ok(ArS.Cfg.max(c))) == True{} : Bool} & {s2 == ArS.St{Some{c}, Nat.add(ar_seg(s), ar_bump(s, ArS.Init{c, fresh, harness})), ArS.On{}, ArS.snoc(ar_runs(s), ar_gone(s)), None{}} : ArS.St}
 
 # LAW step_refines_spec: every event on every state answers exactly what
 # spec/autoresearch/step.bend restates from the requirements: the same

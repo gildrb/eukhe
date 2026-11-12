@@ -7,6 +7,72 @@ import ../bend/wire.bend as Wr
 import ../bend/semver.bend as Sv
 import ./base.bend as LawsBase
 
+# Requirements
+# ------------
+# R stated, A inferred. R1 is bend/semver.bend's header (its sections 1-6
+# are R1.1-R1.6), R2 bend/ffi_semver.bend's header with the replies Rust
+# decodes (crates/eukhe-bend/src/rules/semver.rs, Release and Series).
+# Each line names the laws that state it; *_example laws are anchors.
+#
+# R1    eukhe's release versions: the release script
+#       (crates/eukhe-build-info/src/bin/eukhe-next-version.rs) and the
+#       build script's check of EUKHE_RELEASE_VERSION.
+# R1.1  A number is written in decimal, most significant digit first, no
+#       leading zero, its digits '0' to '9', and read back only so:
+#       semver_show_value, semver_roundtrip, semver_parse_exact,
+#       semver_digit_only.
+# R1.2  A version is major.minor.patch: three numbers, two dots, nothing
+#       else: semver_show_value, semver_roundtrip, semver_parse_exact
+#       (anchors semver_parse_patch_example, semver_parse_two_fields_example).
+# R1.3  The order: major first, then minor, then patch, each by its value
+#       (SemVer 2.0.0 section 11, less a `v` prefix and prerelease cases):
+#       semver_le_refl, semver_le_antisym, semver_le_trans, semver_le_total,
+#       semver_le_exact, semver_lt_exact.
+# R1.4  The tag of v is `eukhe-v` then v written, its release's title
+#       `Eukhe v` then v written; no other text names a version:
+#       semver_tag_roundtrip, semver_tag_strip_spelled,
+#       semver_tag_strip_exact, semver_tag_ver_exact; the title as the
+#       entry writes it: semver_ffi_release.
+# R1.5  The series of a version X.Y.Z is X.Y, the versions from X.Y.0 up to
+#       X.(Y+1).0: semver_in_series_order. The next release of the series
+#       is X.Y.P, P 1 + the highest patch among the version tags of the
+#       series, 0 without one; other tags change nothing:
+#       semver_next_in_series, semver_next_newer (P is above every patch of
+#       the series), semver_next_no_skip (P - 1 is one of them when P > 0;
+#       with the two before: P is 1 + the highest, 0 without one),
+#       semver_fresh_series, semver_other_series, semver_next_not_tagged,
+#       semver_next_tag_new.
+# R1.6  A release: the workspace version is X.Y.0 and the next release of
+#       X.Y is newer than every version tag; else there is none:
+#       semver_release_refuses_unparsed_workspace,
+#       semver_release_refuses_patch_workspace, semver_release_is_next,
+#       semver_release_newest, semver_release_blocked (these five together:
+#       a release exactly then, and it is that next release),
+#       semver_release_progress.
+# R2    The entry of the compiled core (section entry).
+# R2.1  The release question answers 3, the release's version, tag and
+#       title; else why there is none: 0 the workspace version is no
+#       version, 1 it is no series start, 2 the next release and the
+#       version tags it is not newer than, in their order:
+#       semver_ffi_release, semver_ffi_release_unparsed,
+#       semver_ffi_release_patch, semver_ffi_release_behind (anchors
+#       semver_ffi_release_example, semver_ffi_behind_example,
+#       semver_ffi_why_example).
+# R2.2  The series question answers 0 (the release version is no version),
+#       1 (it is not of the workspace's series, or the workspace version is
+#       no version) or 2 (it is): semver_ffi_series (anchor
+#       semver_ffi_series_example).
+# R2.3  A request whose read texts hold 7 digits in a row is refused before
+#       the unary model reads it: semver_ffi_release_long,
+#       semver_ffi_series_long (anchor semver_ffi_long_example).
+# R2.4  Every other input answers the error form: semver_ffi_exact,
+#       semver_ffi_exact_fits, semver_ffi_left_over,
+#       semver_ffi_left_over_spelled, semver_ffi_malformed_unless_request
+#       (anchors semver_ffi_errors_example, semver_ffi_error_example,
+#       semver_ffi_malformed_example).
+# A1    (area replace, stated here) A version number of 15 digits or more
+#       never ranks: replace_rank_in_range.
+
 # ---- release ----
 
 # LAWS (R1): eukhe's release versions. Each law is an open claim about
@@ -115,11 +181,6 @@ law semver_other_series:
   for other: {Sv.Rel.ofs(s, t) == False{} : Bool}
   {Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) == Sv.Rel.next(s, List.append(&2, String, xs, ys)) : Sv.Ver}
 
-# LAW semver_title: the release of v is titled `Eukhe v` ++ show(v)
-law semver_title:
-  for v: Sv.Ver
-  {Sv.Rel.title(v) == String.append("Eukhe v", Sv.Ver.show(v)) : String}
-
 # LAW semver_tag_roundtrip: the tag of v names v
 law semver_tag_roundtrip:
   for v: Sv.Ver
@@ -196,170 +257,130 @@ law semver_parse_exact:
   for h: {Sv.Ver.parse(s) == Some{v} : Maybe<&2, Sv.Ver>}
   {s == Sv.Ver.show(v) : String}
 
-# LAW semver_in_series_exact: a version is of the series of another when both majors and both minors are equal
-# EXCLUDES: a series check that ignores the major or the minor, or reads
-#   the patch
-law semver_in_series_exact:
-  for a1: Nat
-  for b1: Nat
-  for c1: Nat
-  for a2: Nat
-  for b2: Nat
-  for c2: Nat
-  {Sv.Ver.in_series(Sv.Ver{a1, b1, c1}, Sv.Ver{a2, b2, c2}) == Bool.and(Nat.is_eq(a1, a2), Nat.is_eq(b1, b2)) : Bool}
-
-# The next patch, by the spec: the highest patch among the version tags
-# of the series a.b (Nat.max of Base), plus one; 0 when there is none.
-
-def top_spec.keep(hit: Bool, +p: Nat, acc: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match hit:
-    case True{}:
-      match acc:
-        case None{}:
-          Some{p}
-        case Some{q}:
-          Some{Nat.max(p, q)}
-    case False{}:
-      acc
-
-def top_spec.add(m: Maybe<&2, Sv.Ver>, +a: Nat, +b: Nat, acc: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match m:
-    case None{}:
-      acc
-    case Some{v}:
-      match v:
-        case Sv.Ver{x, y, p}:
-          top_spec.keep(Bool.and(Nat.is_eq(a, x), Nat.is_eq(b, y)), p, acc)
-
-def top_spec(+a: Nat, +b: Nat, tags: List<&2, String>) -> Maybe<&2, Nat>:
-  match tags:
-    case Nil{}:
-      None{}
-    case t <> r:
-      top_spec.add(Sv.Tag.ver(t), a, b, top_spec(a, b, r))
-
-def next_spec(m: Maybe<&2, Nat>) -> Nat:
-  match m:
-    case None{}:
-      0n
-    case Some{p}:
-      1n+p
-
-# LAW semver_next_exact: the next release of the series a.b is a.b.(1 + the highest patch of its tags), a.b.0 without one
-# EXCLUDES: a next release that skips a patch or repeats one, reads the
-#   tags of another series, or keeps the workspace version's patch (the
-#   laws of the order and of newness alone let a release skip ahead)
-law semver_next_exact:
+# LAW semver_in_series_order: v is of the series of X.Y.Z exactly when v
+# is X.Y.0 or newer and older than X.(Y+1).0: the series is that interval
+# of the order (semver_le_exact, semver_lt_exact)
+# EXCLUDES: a series test that ignores the major or the minor, reads the
+#   patch, or takes X.(Y+1).0 in
+law semver_in_series_order:
   for +a: Nat
   for +b: Nat
   for c: Nat
+  for +v: Sv.Ver
+  {Sv.Ver.in_series(Sv.Ver{a, b, c}, v) == Bool.and(Sv.Ver.le(Sv.Ver{a, b, 0n}, v), Sv.Ver.lt(v, Sv.Ver{a, 1n+b, 0n})) : Bool}
+
+# LAW semver_next_in_series: the next release of the series of s, with any
+# tags, is a version of that series
+# EXCLUDES: a next release of another series (0.11.0 or 1.0.0 for the
+#   workspace version 0.10.0), which the laws of newness let pass
+law semver_next_in_series:
+  for +s: Sv.Ver
+  for tags: List<&2, String>
+  {Sv.Ver.in_series(s, Sv.Rel.next(s, tags)) == True{} : Bool}
+
+# LAW semver_next_no_skip: a next release X.Y.(p+1) skips no patch: a tag
+# of the list names X.Y.p
+# EXCLUDES: a next release that skips a patch (0.10.5 after the tag
+#   eukhe-v0.10.3), counts on from the workspace version's patch or from a
+#   tag of another series, or starts a series without tags past 0
+#   (semver_next_newer alone lets each pass)
+law semver_next_no_skip:
+  for +s: Sv.Ver
   for +tags: List<&2, String>
-  {Sv.Rel.next(Sv.Ver{a, b, c}, tags) == Sv.Ver{a, b, next_spec(top_spec(a, b, tags))} : Sv.Ver}
+  for +x: Nat
+  for +y: Nat
+  for +p: Nat
+  for nx: {Sv.Rel.next(s, tags) == Sv.Ver{x, y, 1n+p} : Sv.Ver}
+  exs xs: List<&2, String>
+  exs t: String
+  exs ys: List<&2, String>
+  {tags == List.append(&2, String, xs, t <> ys) : List<&2, String>} & {Sv.Tag.ver(t) == Some{Sv.Ver{x, y, p}} : Maybe<&2, Sv.Ver>}
 
-# every tag that names a version names one older than n
-def newest_spec.of(m: Maybe<&2, Sv.Ver>, +n: Sv.Ver) -> Bool:
-  match m:
-    case None{}:
-      True{}
-    case Some{v}:
-      Sv.Ver.lt(v, n)
-
-def newest_spec(+n: Sv.Ver, tags: List<&2, String>) -> Bool:
-  match tags:
-    case Nil{}:
-      True{}
-    case t <> r:
-      Bool.and(newest_spec.of(Sv.Tag.ver(t), n), newest_spec(n, r))
-
-def release_rule.newest(ok: Bool, n: Sv.Ver) -> Maybe<&2, Sv.Ver>:
-  match ok:
-    case True{}:
-      Some{n}
-    case False{}:
-      None{}
-
-def release_rule.at(+a: Nat, +b: Nat, c: Nat, +tags: List<&2, String>) -> Maybe<&2, Sv.Ver>:
-  match c:
-    case 0n:
-      +n = {Sv.Ver{a, b, next_spec(top_spec(a, b, tags))} : Sv.Ver}
-      release_rule.newest(newest_spec(n, tags), n)
-    case 1n+z:
-      None{}
-
-def release_rule(m: Maybe<&2, Sv.Ver>, +tags: List<&2, String>) -> Maybe<&2, Sv.Ver>:
-  match m:
-    case None{}:
-      None{}
-    case Some{v}:
-      match v:
-        case Sv.Ver{a, b, c}:
-          release_rule.at(a, b, c, tags)
-
-# LAW semver_release_exact: a commit releases exactly when its workspace version is X.Y.0 and the next release is newer than every version tag
-# EXCLUDES: no release where one is due (semver_release_newest and the
-#   refusals only bound the release from one side), a release past a
-#   newer tag
-law semver_release_exact:
+# LAW semver_release_is_next: a release from the workspace version X.Y.0 is
+# the next release of X.Y
+# EXCLUDES: a release that is not the series' next one (a patch skipped or
+#   repeated, another series, the workspace version itself), which
+#   semver_release_newest lets pass when it is newer than every tag
+law semver_release_is_next:
   for c: String
+  for +a: Nat
+  for +b: Nat
   for +tags: List<&2, String>
-  {Sv.Rel.release(c, tags) == release_rule(Sv.Ver.parse(c), tags) : Maybe<&2, Sv.Ver>}
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 0n}} : Maybe<&2, Sv.Ver>}
+  for +r: Sv.Ver
+  for rel: {Sv.Rel.release(c, tags) == Some{r} : Maybe<&2, Sv.Ver>}
+  {r == Sv.Rel.next(Sv.Ver{a, b, 0n}, tags) : Sv.Ver}
 
-# The decimal writer of the spec, independent of the model: a number's
-# text is the text of the number before it with its last digit raised,
-# a 9 becoming 0 and carrying left. It works on the text written last
-# digit first, so the carry walks from the head.
+# LAW semver_release_blocked: a workspace version X.Y.0 gives no release
+# only when a tag names the next release of X.Y or a newer version
+# EXCLUDES: no release where one is due (semver_release_newest and the
+#   refusals bound the release from one side only): a release held back by
+#   a tag older than it, or by text that names no version
+law semver_release_blocked:
+  for c: String
+  for +a: Nat
+  for +b: Nat
+  for +tags: List<&2, String>
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 0n}} : Maybe<&2, Sv.Ver>}
+  for none: {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
+  exs xs: List<&2, String>
+  exs t: String
+  exs ys: List<&2, String>
+  exs v: Sv.Ver
+  {tags == List.append(&2, String, xs, t <> ys) : List<&2, String>} & ({Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>} & {Sv.Ver.le(Sv.Rel.next(Sv.Ver{a, b, 0n}, tags), v) == True{} : Bool})
 
-def dec_pick(b: Bool, yes: Char, no: Char) -> Char:
-  match b:
-    case True{}:
-      yes
-    case False{}:
-      no
+# Decimal numerals, by the definition of positional notation: a digit is
+# a char of code 48 to 57 ('0' to '9' in ASCII, and in Unicode after it;
+# Base's Char.is_digit), of value its code less 48; a numeral is digits
+# read most significant first (Horner's rule), with no leading zero.
 
-# the digit after c ('0' to '8'); any other char stays
-def dec_succ(+c: Char) -> Char:
-  dec_pick(Char.is_eq(c, '0'), '1', dec_pick(Char.is_eq(c, '1'), '2', dec_pick(Char.is_eq(c, '2'), '3', dec_pick(Char.is_eq(c, '3'), '4', dec_pick(Char.is_eq(c, '4'), '5', dec_pick(Char.is_eq(c, '5'), '6', dec_pick(Char.is_eq(c, '6'), '7', dec_pick(Char.is_eq(c, '7'), '8', dec_pick(Char.is_eq(c, '8'), '9', c)))))))))
+# the value of a digit char
+def num_digit(c: Char) -> Nat:
+  Nat.sub(U32.to_nat(Char.to_u32(c)), 48n)
 
-# the digit c raised: a 9 becomes 0 and the raised rest follows it;
-# any other digit becomes the next one and the rest stays
-def dec_raise_at(nine: Bool, c: Char, r: String, raised: String) -> String:
-  match nine:
-    case True{}:
-      SCon{'0', raised}
-    case False{}:
-      SCon{dec_succ(c), r}
-
-# the text, last digit first, of the number after the one s writes
-def dec_raise(s: String) -> String:
+# the value of the digits s written after digits of value acc
+def num_val(s: String, acc: Nat) -> Nat:
   match s:
     case SNil{}:
-      SCon{'1', SNil{}}
-    case SCon{+c, +r}:
-      dec_raise_at(Char.is_eq(c, '9'), c, r, dec_raise(r))
+      acc
+    case SCon{c, t}:
+      num_val(t, Nat.add(num_digit(c), Nat.mul(acc, 10n)))
 
-# n in decimal, most significant digit first, no leading zero
-def dec_spec(n: Nat) -> String:
-  match n:
-    case 0n:
-      SCon{'0', SNil{}}
-    case 1n+p:
-      String.reverse(dec_raise(String.reverse(dec_spec(p))))
+# every char of s is a digit
+def num_digits(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Char.is_digit(c), num_digits(t))
 
-# LAW semver_show_decimal: a version is written as its three numbers in decimal, most
-# significant digit first, joined by dots
+# s is not empty, and starts with no '0' unless it is "0"
+def num_lead(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Bool.or(Bool.not(Char.is_eq(c, '0')), String.is_empty(t))
+
+# s is the decimal numeral of n (n has one: digits, no leading zero, of
+# value n)
+def numeral(+s: String, n: Nat) -> Bool:
+  Bool.and(num_digits(s), Bool.and(num_lead(s), Nat.is_eq(num_val(s, 0n), n)))
+
+# LAW semver_show_value: a written version is the numerals of its major,
+# minor and patch, joined by two dots
 # EXCLUDES: digits written in reverse ("0.01.24" for 0.10.42) by a writer
-# that its reader undoes, which semver_roundtrip alone lets pass; a
-# leading zero; fields in another order or with another separator
-law semver_show_decimal:
-  for a: Nat
-  for b: Nat
-  for c: Nat
-  {Sv.Ver.show(Sv.Ver{a, b, c}) == String.append(dec_spec(a), SCon{'.', String.append(dec_spec(b), SCon{'.', dec_spec(c)})}) : String}
-
-# LAW semver_dec_spec_example: the spec's writer is decimal: 109 is "109"
-# EXCLUDES: a spec writer that is wrong past one digit or past a carry
-law semver_dec_spec_example:
-  {dec_spec(109n) == "109" : String}
+#   its reader undoes (semver_roundtrip alone lets it pass), a leading
+#   zero, a digit char off by one or out of '0' to '9', fields in another
+#   order or with another separator
+law semver_show_value:
+  for +a: Nat
+  for +b: Nat
+  for +c: Nat
+  exs x: String
+  exs y: String
+  exs z: String
+  {Sv.Ver.show(Sv.Ver{a, b, c}) == String.append(x, SCon{'.', String.append(y, SCon{'.', z})}) : String} & {Bool.and(numeral(x, a), Bool.and(numeral(y, b), numeral(z, c))) == True{} : Bool}
 
 # The rank of a version, read by semver.bend's reader (the spec): the text
 # before the first '-' read as a version X.Y.Z (Sv.Ver.parse: decimal
@@ -426,13 +447,14 @@ law replace_rank_in_range:
 # texts, any tags, in any order.
 
 # The reply specs below read model functions that laws pin, for every
-# input, to spec text: Sv.Rel.release (semver_release_exact), Sv.Rel.next
-# (semver_next_exact), Sv.Ver.parse (semver_parse_exact, semver_roundtrip,
-# semver_show_decimal), Sv.Tag.ver and Sv.Tag.strip (semver_tag_ver_exact,
-# semver_tag_roundtrip, semver_tag_strip_exact, semver_tag_strip_spelled),
-# Sv.Ver.le and Sv.Ver.lt (semver_le_exact, semver_lt_exact),
-# Sv.Ver.in_series (semver_in_series_exact), and the digit test of
-# Sv.Sym.of (semver_digit_exact).
+# input: Sv.Rel.release (the semver_release_* laws), Sv.Rel.next (the
+# semver_next_* laws), Sv.Ver.parse (semver_parse_exact,
+# semver_roundtrip), Sv.Ver.show (semver_show_value), Sv.Tag.ver and
+# Sv.Tag.strip (semver_tag_ver_exact, semver_tag_roundtrip,
+# semver_tag_strip_exact, semver_tag_strip_spelled), Sv.Ver.le and
+# Sv.Ver.lt (semver_le_exact, semver_lt_exact), Sv.Ver.in_series
+# (semver_in_series_order), and the digit test of Sv.Sym.of
+# (semver_digit_only, semver_roundtrip).
 
 # Spec spellers
 # -------------
@@ -455,71 +477,64 @@ def spell_req(q: FSv.Req) -> String:
     case FSv.QSeries{w, r}:
       spell_series(w, r)
 
-# a version's text, written by the spec's decimal writer
-def show_spec(v: Sv.Ver) -> String:
-  match v:
-    case Sv.Ver{a, b, c}:
-      String.append(dec_spec(a), SCon{'.', String.append(dec_spec(b), SCon{'.', dec_spec(c)})})
-
 # a release: tag 3, its version, its tag `eukhe-v<version>`, its title
 # `Eukhe v<version>`
-def spell_rel(+v: Sv.Ver) -> String:
-  +t = show_spec(v)
+def spell_rel(v: Sv.Ver) -> String:
+  +t = Sv.Ver.show(v)
   Wr.put_nat(3n, Wr.put_str(t, Wr.put_str(String.append("eukhe-v", t), Wr.put_str(String.append("Eukhe v", t), ""))))
 
-# the version tags among ts that n is not newer than, in their order
-def newer_spec.pick(le: Bool, t: String, rest: List<&2, String>) -> List<&2, String>:
-  match le:
+# the tag t names n or a version newer than n (n is not newer than it)
+def behind_spec.of(m: Maybe<&2, Sv.Ver>, +n: Sv.Ver) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{v}:
+      Sv.Ver.le(n, v)
+
+def behind_spec(+n: Sv.Ver, t: String) -> Bool:
+  behind_spec.of(Sv.Tag.ver(t), n)
+
+# every tag of ts names n or a newer version
+def behind_all(+n: Sv.Ver, ts: List<&2, String>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case t <> r:
+      Bool.and(behind_spec(n, t), behind_all(n, r))
+
+def behind_count.add(b: Bool, k: Nat) -> Nat:
+  match b:
+    case True{}:
+      1n+k
+    case False{}:
+      k
+
+# how many tags of ts name n or a newer version
+def behind_count(+n: Sv.Ver, ts: List<&2, String>) -> Nat:
+  match ts:
+    case Nil{}:
+      0n
+    case t <> r:
+      behind_count.add(behind_spec(n, t), behind_count(n, r))
+
+def pick_spec.at(m: Bool, t: String, rest: List<&2, String>) -> List<&2, String>:
+  match m:
     case True{}:
       t <> rest
     case False{}:
       rest
 
-def newer_spec.keep(m: Maybe<&2, Sv.Ver>, +n: Sv.Ver, t: String, rest: List<&2, String>) -> List<&2, String>:
-  match m:
-    case None{}:
-      rest
-    case Some{v}:
-      newer_spec.pick(Sv.Ver.le(n, v), t, rest)
-
-def newer_spec(+n: Sv.Ver, ts: List<&2, String>) -> List<&2, String>:
+# the tags of ts a mask ms keeps: a subsequence of ts, in its order
+def pick_spec(ts: List<&2, String>, ms: List<&2, Bool>) -> List<&2, String>:
   match ts:
     case Nil{}:
       Nil{}
-    case +t <> r:
-      newer_spec.keep(Sv.Tag.ver(t), n, t, newer_spec(n, r))
-
-# why the workspace version X.Y.c gives no release: not X.Y.0 (tag 1), or
-# the next release X.Y.P is not newer than every version tag (tag 2, its
-# version, the tags it is not newer than)
-def why_spec.patch(a: Nat, b: Nat, c: Nat, +ts: List<&2, String>) -> String:
-  match c:
-    case 0n:
-      +n = Sv.Rel.next(Sv.Ver{a, b, 0n}, ts)
-      Wr.put_nat(2n, Wr.put_str(show_spec(n), spell_tags(newer_spec(n, ts), "")))
-    case 1n+z:
-      Wr.put_nat(1n, "")
-
-# why there is no release: the workspace version is no version (tag 0), ...
-def why_spec(m: Maybe<&2, Sv.Ver>, +ts: List<&2, String>) -> String:
-  match m:
-    case None{}:
-      Wr.put_nat(0n, "")
-    case Some{v}:
-      match v:
-        case Sv.Ver{a, b, c}:
-          why_spec.patch(a, b, c, ts)
-
-def release_spec.of(r: Maybe<&2, Sv.Ver>, c: String, +ts: List<&2, String>) -> String:
-  match r:
-    case Some{v}:
-      spell_rel(v)
-    case None{}:
-      why_spec(Sv.Ver.parse(c), ts)
-
-# the reply to the release question: the release, else why there is none
-def release_spec(+c: String, +ts: List<&2, String>) -> String:
-  release_spec.of(Sv.Rel.release(c, ts), c, ts)
+    case t <> r:
+      match ms:
+        case Nil{}:
+          Nil{}
+        case m <> mr:
+          pick_spec.at(m, t, pick_spec(r, mr))
 
 def series_spec.in(b: Bool) -> String:
   match b:
@@ -555,25 +570,39 @@ def digit_spec.of(y: Sv.Sym) -> Bool:
     case Sv.Other{}:
       False{}
 
-# s starts with n digits
-def run_spec(n: Nat, s: String) -> Bool:
-  match n:
-    case 0n:
-      True{}
-    case 1n+m:
-      match s:
-        case SNil{}:
-          False{}
-        case SCon{c, t}:
-          Bool.and(digit_spec.of(Sv.Sym.of(c)), run_spec(m, t))
-
-# s holds 7 digits in a row
-def seven_spec(s: String) -> Bool:
+# for each char of s, whether the model reads it as a digit
+def seven_spec.marks(s: String) -> List<&2, Bool>:
   match s:
     case SNil{}:
+      Nil{}
+    case SCon{c, t}:
+      digit_spec.of(Sv.Sym.of(c)) <> seven_spec.marks(t)
+
+# one pass that counts down: `need` more digits in a row make a run of 7;
+# a digit takes one off (the last one answers yes), any other char starts
+# the count again at 7, and the end of the text answers no
+def seven_spec.go(ds: List<&2, Bool>, need: Nat) -> Bool:
+  match ds:
+    case Nil{}:
       False{}
-    case SCon{+c, +t}:
-      Bool.or(run_spec(7n, SCon{c, t}), seven_spec(t))
+    case d <> t:
+      match d:
+        case False{}:
+          seven_spec.go(t, 7n)
+        case True{}:
+          match need:
+            case 0n:
+              True{}
+            case 1n+m:
+              match m:
+                case 0n:
+                  True{}
+                case 1n+k:
+                  seven_spec.go(t, 1n+k)
+
+# s holds 7 digits in a row: a count of the digits in a row reaches 7
+def seven_spec(s: String) -> Bool:
+  seven_spec.go(seven_spec.marks(s), 7n)
 
 def seven_tag.of(m: Maybe<&2, String>) -> Bool:
   match m:
@@ -612,17 +641,67 @@ def series_fits(w: String, r: String) -> Bool:
 def long_err() -> String:
   Wr.err("semver: a version number of more than 6 digits")
 
-# LAW semver_ffi_release: the release question answers the model's release, else why there is none
-# EXCLUDES: a reply that is not the model's (another version, tag or title,
-#   a swapped reason, a lost or invented tag in the list of newer tags, tags
-#   in another order), a release when the model has none, a field of the
-#   request lost, swapped or misread
+# LAW semver_ffi_release: a release question whose workspace version and
+# tags give the release r (Sv.Rel.release) answers 3, r's version, its tag
+# `eukhe-v<version>` and its title `Eukhe v<version>`
+# EXCLUDES: another version, tag or title (the title of R1.4 dropped or
+#   reworded), the release of another request, a field of the request
+#   lost, swapped or misread
 law semver_ffi_release:
   for +c: String
   for +ts: List<&2, String>
   for fit: {release_fits(c, ts) == True{} : Bool}
   for few: {Bool.or(seven_spec(c), seven_tags(ts)) == False{} : Bool}
-  {FSv.ffi(spell_release(c, ts)) == release_spec(c, ts) : String}
+  for +r: Sv.Ver
+  for rel: {Sv.Rel.release(c, ts) == Some{r} : Maybe<&2, Sv.Ver>}
+  {FSv.ffi(spell_release(c, ts)) == spell_rel(r) : String}
+
+# LAW semver_ffi_release_unparsed: a release question whose workspace
+# version is no version answers 0
+# EXCLUDES: a release, or another reason (1 or 2), for a broken workspace
+#   version
+law semver_ffi_release_unparsed:
+  for +c: String
+  for +ts: List<&2, String>
+  for fit: {release_fits(c, ts) == True{} : Bool}
+  for few: {Bool.or(seven_spec(c), seven_tags(ts)) == False{} : Bool}
+  for unparsed: {Sv.Ver.parse(c) == None{} : Maybe<&2, Sv.Ver>}
+  {FSv.ffi(spell_release(c, ts)) == Wr.put_nat(0n, "") : String}
+
+# LAW semver_ffi_release_patch: a release question whose workspace version
+# is X.Y.(1+z), no series start, answers 1
+# EXCLUDES: a release, or another reason (0 or 2), for a workspace version
+#   that is no series start
+law semver_ffi_release_patch:
+  for +c: String
+  for +ts: List<&2, String>
+  for fit: {release_fits(c, ts) == True{} : Bool}
+  for few: {Bool.or(seven_spec(c), seven_tags(ts)) == False{} : Bool}
+  for +a: Nat
+  for +b: Nat
+  for +z: Nat
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 1n+z}} : Maybe<&2, Sv.Ver>}
+  {FSv.ffi(spell_release(c, ts)) == Wr.put_nat(1n, "") : String}
+
+# LAW semver_ffi_release_behind: a release question whose workspace version
+# X.Y.0 gives no release answers 2, the next release of X.Y, and the
+# version tags that release is not newer than, in their order: the tags a
+# mask of the list keeps, each naming the next release or a newer version,
+# as many as the tags of the list that do
+# EXCLUDES: a tag lost, repeated or invented in the list, a tag listed that
+#   names an older version or no version, tags in another order, another
+#   next release, another reason (0 or 1)
+law semver_ffi_release_behind:
+  for +c: String
+  for +ts: List<&2, String>
+  for fit: {release_fits(c, ts) == True{} : Bool}
+  for few: {Bool.or(seven_spec(c), seven_tags(ts)) == False{} : Bool}
+  for +a: Nat
+  for +b: Nat
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 0n}} : Maybe<&2, Sv.Ver>}
+  for none: {Sv.Rel.release(c, ts) == None{} : Maybe<&2, Sv.Ver>}
+  exs ms: List<&2, Bool>
+  {FSv.ffi(spell_release(c, ts)) == Wr.put_nat(2n, Wr.put_str(Sv.Ver.show(Sv.Rel.next(Sv.Ver{a, b, 0n}, ts)), spell_tags(pick_spec(ts, ms), ""))) : String} & {Bool.and(behind_all(Sv.Rel.next(Sv.Ver{a, b, 0n}, ts), pick_spec(ts, ms)), Nat.is_eq(List.length(&2, String, pick_spec(ts, ms)), behind_count(Sv.Rel.next(Sv.Ver{a, b, 0n}, ts), ts))) == True{} : Bool}
 
 # LAW semver_ffi_release_long: a release question whose read texts hold 7 digits in a row is refused
 # EXCLUDES: a slow or stopped evaluation (the unary model on a huge number),
@@ -760,11 +839,14 @@ law semver_ffi_error_example:
 #
 # With the laws above, every input of the entry has one answer: an input
 # that is a spelled request that fits (then nothing) answers the reply
-# laws (semver_ffi_release, semver_ffi_release_long, semver_ffi_series,
+# laws (a release question: semver_ffi_release when the model releases,
+# else semver_ffi_release_unparsed, semver_ffi_release_patch or
+# semver_ffi_release_behind as its workspace version reads, or
+# semver_ffi_release_long; a series question: semver_ffi_series or
 # semver_ffi_series_long); one followed by more input answers the
 # left-over error; any other input answers the malformed error. The
 # model's helpers the reply specs read (the order, the tag reader, the
-# digit test of the 7-digit refusal) are pinned to spec text below.
+# digit test of the 7-digit refusal) are pinned below.
 
 # LAW semver_ffi_left_over: a request Rust spells that fits, followed by more
 # input, answers exactly the left-over error
@@ -791,18 +873,17 @@ law semver_lt_exact:
   for +c2: Nat
   {Sv.Ver.lt(Sv.Ver{a1, b1, c1}, Sv.Ver{a2, b2, c2}) == Bool.or(Nat.is_lt(a1, a2), Bool.and(Nat.is_eq(a1, a2), Bool.or(Nat.is_lt(b1, b2), Bool.and(Nat.is_eq(b1, b2), Nat.is_lt(c1, c2))))) : Bool}
 
-# c is one of the ten decimal digit chars
-def digit_char_spec(+c: Char) -> Bool:
-  Bool.or(Char.is_eq(c, '0'), Bool.or(Char.is_eq(c, '1'), Bool.or(Char.is_eq(c, '2'), Bool.or(Char.is_eq(c, '3'), Bool.or(Char.is_eq(c, '4'), Bool.or(Char.is_eq(c, '5'), Bool.or(Char.is_eq(c, '6'), Bool.or(Char.is_eq(c, '7'), Bool.or(Char.is_eq(c, '8'), Char.is_eq(c, '9'))))))))))
-
-# LAW semver_digit_exact: the model reads a char as a digit exactly when it is
-# one of '0' to '9'
-# EXCLUDES: a digit test that misses a digit or takes another char (a
-#   7-digit refusal of `1.2.3a5678`, or a 7-digit run let through), which the
-#   spec of the refusal reads through Sv.Sym.of
-law semver_digit_exact:
+# LAW semver_digit_only: the model reads a char as a digit only when it is
+# that digit's char as the writer writes it (Sv.Dig.chr: '0' to '9' by
+# semver_show_value; semver_roundtrip has the reader read each of them)
+# EXCLUDES: another char (a letter, a sign, a space, '/' or ':') read as a
+#   digit: a 7-digit refusal of `1.2.3a5678`, or a version read from a text
+#   that is none
+law semver_digit_only:
   for +c: Char
-  {digit_spec.of(Sv.Sym.of(c)) == digit_char_spec(c) : Bool}
+  for d: Sv.Dig
+  for h: {Sv.Sym.of(c) == Sv.Digit{d} : Sv.Sym}
+  {c == Sv.Dig.chr(d) : Char}
 
 # LAW semver_tag_strip_spelled: the model strips `eukhe-v` from every text
 # that starts with it, and keeps what follows
@@ -823,8 +904,9 @@ law semver_tag_strip_exact:
   {t == String.append("eukhe-v", r) : String}
 
 # LAW semver_tag_ver_exact: a text names a version only when it is that
-# version's tag, `eukhe-v` then the version in decimal (with
-# semver_tag_roundtrip: the tag reader and the tag writer are the spec's)
+# version's tag, `eukhe-v` then the version written (with
+# semver_tag_roundtrip and semver_show_value: the tag reader reads exactly
+# the tags `eukhe-v` then a version in decimal)
 # EXCLUDES: a tag reader that reads `v1.2.3`, `eukhe-v0.10.03` or
 #   `eukhe-v0.10.3-main.4` as a version (a release held back or moved by a
 #   text that is no tag)
@@ -832,4 +914,4 @@ law semver_tag_ver_exact:
   for +t: String
   for +v: Sv.Ver
   for h: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
-  {t == String.append("eukhe-v", show_spec(v)) : String}
+  {t == String.append("eukhe-v", Sv.Ver.show(v)) : String}

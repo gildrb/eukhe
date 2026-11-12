@@ -1,10 +1,11 @@
 # durable (spec): the two decisions of a headless run (`eukhe -p`,
-# `--mode json`, `--mode rpc`), restated without the rules of
+# `--mode json`, `--mode rpc`), stated without the rules of
 # bend/headless_settle.bend and bend/headless_exit.bend: when the run may
 # stop waiting for the work its turn started (area headless_settle), and
 # its process exit code (area headless_exit). spec/durable/headless_wire.bend
-# holds the wire of the two entries. The laws of the two areas state that
-# the rules refine it. A spec: the shipped code never calls it.
+# holds the wire of the two entries. The laws of the two areas state Q1-Q2
+# and E1-E2 over the facts, one property at a time, with the helpers
+# below. A spec: the shipped code never calls it.
 #
 # Q1: the run is quiet when the main conversation neither runs nor holds
 #     queued input, every count of pending work (session jobs, kernel
@@ -25,8 +26,8 @@ import Base
 import ../../bend/headless_settle.bend as Hs
 import ../../bend/headless_exit.bend as Hx
 
-# Settle (Q1-Q2)
-# --------------
+# Settle (Q1)
+# -----------
 
 # Q1: nothing runs, nothing is pending, nothing is unknown
 def quiet(f: Hs.Facts) -> Bool:
@@ -34,29 +35,8 @@ def quiet(f: Hs.Facts) -> Bool:
     case Hs.Facts{b, j, k, c, w, x, u, l}:
       Bool.and(Bool.not(b), Bool.and(Nat.is_eq(j, 0n), Bool.and(Nat.is_eq(k, 0n), Bool.and(Nat.is_eq(c, 0n), Bool.and(Nat.is_eq(w, 0n), Bool.and(Nat.is_eq(x, 0n), Bool.not(u)))))))
 
-# the wait limit elapsed
-def limit_hit(f: Hs.Facts) -> Bool:
-  match f:
-    case Hs.Facts{b, j, k, c, w, x, u, l}:
-      l
-
-def settle_spec.pick(q: Bool, l: Bool) -> Hs.Settle:
-  match q:
-    case True{}:
-      Hs.Finished{}
-    case False{}:
-      match l:
-        case True{}:
-          Hs.GiveUp{}
-        case False{}:
-          Hs.Waiting{}
-
-# Q2: finished when quiet; else give up at the limit; else wait
-def settle_spec(+f: Hs.Facts) -> Hs.Settle:
-  settle_spec.pick(quiet(f), limit_hit(f))
-
-# Exit (E1-E2)
-# ------------
+# Exit (E1)
+# ---------
 
 # a cause, when its failure holds
 def when(b: Bool, c: Hx.Cause) -> Maybe<&2, Hx.Cause>:
@@ -118,61 +98,3 @@ def primary_cause(p: Hx.Primary) -> Maybe<&2, Hx.Cause>:
       None{}
     case Hx.PSlashFailed{}:
       Some{Hx.CSlashFailed{}}
-
-# the first failure of the list, else answered
-def first(xs: List<&2, Maybe<&2, Hx.Cause>>) -> Hx.Cause:
-  match xs:
-    case Nil{}:
-      Hx.CAnswered{}
-    case Con{m, rest}:
-      match m:
-        case None{}:
-          first(rest)
-        case Some{c}:
-          c
-
-# the failures in the order of E1
-def failures(f: Hx.Facts) -> List<&2, Maybe<&2, Hx.Cause>>:
-  match f:
-    case Hx.Facts{cf, gu, run, p, c, a}:
-      [when(cf, Hx.CCommandFailed{}), when(gu, Hx.CGaveUp{}), run_cause(run), primary_cause(p), when(c, Hx.CCompactionFailed{}), when(a, Hx.CAutonomousFailed{})]
-
-# E1: the cause of the exit
-def cause_spec(f: Hx.Facts) -> Hx.Cause:
-  first(failures(f))
-
-# the run answered
-def answered(c: Hx.Cause) -> Bool:
-  match c:
-    case Hx.CAnswered{}:
-      True{}
-    case Hx.CCommandFailed{}:
-      False{}
-    case Hx.CGaveUp{}:
-      False{}
-    case Hx.CRunFailed{r}:
-      False{}
-    case Hx.CProviderError{}:
-      False{}
-    case Hx.CAborted{}:
-      False{}
-    case Hx.CUnfinished{}:
-      False{}
-    case Hx.CSlashFailed{}:
-      False{}
-    case Hx.CCompactionFailed{}:
-      False{}
-    case Hx.CAutonomousFailed{}:
-      False{}
-
-def code_spec(b: Bool) -> Nat:
-  match b:
-    case True{}:
-      0n
-    case False{}:
-      1n
-
-# E1-E2: the exit: the code of the cause, and the cause
-def exit_spec(f: Hx.Facts) -> Hx.Verdict:
-  +c = cause_spec(f)
-  Hx.Verdict{code_spec(answered(c)), c}

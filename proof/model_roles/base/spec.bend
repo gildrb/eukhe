@@ -9,7 +9,6 @@ import ../../../bend/wire.bend as Wr
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../../laws/model_roles.bend as ModelRoles
-import ../own_is_field.bend as POwnIsField
 import ../../wire/wire_list_spells_items.bend as PWireListSpellsItems
 
 # Requests
@@ -160,6 +159,38 @@ def mrb.src(c: Mr.Choice, r: Mr.Role, all: Mr.Choice, -rest: String) -> {FMr.put
         case Mr.Dictation{}:
           {==}
 
+# the code's own setting of a role is the laws-side field accessor's
+def mrb.own(o: Mr.Owns, r: Mr.Role) -> {Mr.own(o, r) == ModelRoles.mr_own(o, r) : Mr.Choice}:
+  match o:
+    case Mr.Owns{chat, memory, auxiliary, image, subagent, worker, gateway, query, titles, judge, translate, speech, dictation}:
+      match r:
+        case Mr.Chat{}:
+          {==}
+        case Mr.Memory{}:
+          {==}
+        case Mr.Auxiliary{}:
+          {==}
+        case Mr.Image{}:
+          {==}
+        case Mr.Subagent{}:
+          {==}
+        case Mr.Worker{}:
+          {==}
+        case Mr.Gateway{}:
+          {==}
+        case Mr.Query{}:
+          {==}
+        case Mr.Titles{}:
+          {==}
+        case Mr.Judge{}:
+          {==}
+        case Mr.Translate{}:
+          {==}
+        case Mr.Speech{}:
+          {==}
+        case Mr.Dictation{}:
+          {==}
+
 # the rows of the roles rs, spelled by the item writer, are the spec's rows
 def mrb.rows(rs: List<&2, Mr.Role>, +o: Mr.Owns, +all: Mr.Choice, +rest: String) -> {LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(rs, o, all), rest) == ModelRoles.mrs_w_rows(rs, o, all, rest) : String}:
   match rs:
@@ -167,7 +198,7 @@ def mrb.rows(rs: List<&2, Mr.Role>, +o: Mr.Owns, +all: Mr.Choice, +rest: String)
       {==}
     case +r <> +t:
       %mrb.rows(t, o, all, rest) : {Wr.put_nat(FMr.role_tag(r), FMr.put_src(Mr.source(r, Mr.own(o, r), all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) == Wr.put_nat(ModelRoles.mrs_tag(r), ModelRoles.mrs_w_src(ModelRoles.mrs_src(r, ModelRoles.mr_own(o, r), all), _)) : String}
-      %ModelRoles.own_is_field(o, r) : {Wr.put_nat(FMr.role_tag(r), FMr.put_src(Mr.source(r, Mr.own(o, r), all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) == Wr.put_nat(ModelRoles.mrs_tag(r), ModelRoles.mrs_w_src(ModelRoles.mrs_src(r, _, all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) : String}
+      %mrb.own(o, r) : {Wr.put_nat(FMr.role_tag(r), FMr.put_src(Mr.source(r, Mr.own(o, r), all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) == Wr.put_nat(ModelRoles.mrs_tag(r), ModelRoles.mrs_w_src(ModelRoles.mrs_src(r, _, all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) : String}
       %mrb.src(Mr.own(o, r), r, all, LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest)) : {Wr.put_nat(FMr.role_tag(r), FMr.put_src(Mr.source(r, Mr.own(o, r), all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) == Wr.put_nat(ModelRoles.mrs_tag(r), _) : String}
       %mrb.tag(r) : {Wr.put_nat(FMr.role_tag(r), FMr.put_src(Mr.source(r, Mr.own(o, r), all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) == Wr.put_nat(_, FMr.put_src(Mr.source(r, Mr.own(o, r), all), LawsBase.wire_put_items(~Mr.Row, ~FMr.put_row, Mr.rows(t, o, all), rest))) : String}
       {==}

@@ -149,14 +149,23 @@ def qp.dir(r: If.Rule) -> {If.Rule.dir(r) == Quirks.qs_dir(r) : Nat}:
     case If.Rule{l, t, d, v}:
       {==}
 
-# the spec's verdicts compile exactly when the model compiles
-def qp.all_fine(rs: List<&2, If.Rule>, +known: List<&2, Nat>) -> {Quirks.qs_all_fine(rs, known) == If.compiles(known, rs) : Bool}:
+# every verdict fine, as the spec's scan folds it: every directive known,
+# no rule clashes with a later one
+def qp.all_fine_spec(rs: List<&2, If.Rule>, +known: List<&2, Nat>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> +rest:
+      Bool.and(Bool.and(Quirks.qs_mem(known, Quirks.qs_dir(r)), Maybe.is_none(&2, Nat, Quirks.qs_partner(rest, r, 0n))), qp.all_fine_spec(rest, known))
+
+# the spec's scan compiles exactly when the model compiles
+def qp.all_fine(rs: List<&2, If.Rule>, +known: List<&2, Nat>) -> {qp.all_fine_spec(rs, known) == If.compiles(known, rs) : Bool}:
   match rs:
     case Nil{}:
       {==}
     case +r <> +rest:
-      %Equal.sym(Bool, Maybe.is_none(&2, Nat, Quirks.qs_partner(rest, r, 0n)), Bool.not(If.clashes(r, rest)), qp.partner_none(rest, r, 0n)) : {Bool.and(Bool.and(Quirks.qs_mem(known, Quirks.qs_dir(r)), _), Quirks.qs_all_fine(rest, known)) == If.compiles(known, r <> rest) : Bool}
-      %Equal.sym(Bool, Quirks.qs_all_fine(rest, known), If.compiles(known, rest), qp.all_fine(rest, known)) : {Bool.and(Bool.and(Quirks.qs_mem(known, Quirks.qs_dir(r)), Bool.not(If.clashes(r, rest))), _) == If.compiles(known, r <> rest) : Bool}
+      %Equal.sym(Bool, Maybe.is_none(&2, Nat, Quirks.qs_partner(rest, r, 0n)), Bool.not(If.clashes(r, rest)), qp.partner_none(rest, r, 0n)) : {Bool.and(Bool.and(Quirks.qs_mem(known, Quirks.qs_dir(r)), _), qp.all_fine_spec(rest, known)) == If.compiles(known, r <> rest) : Bool}
+      %Equal.sym(Bool, qp.all_fine_spec(rest, known), If.compiles(known, rest), qp.all_fine(rest, known)) : {Bool.and(Bool.and(Quirks.qs_mem(known, Quirks.qs_dir(r)), Bool.not(If.clashes(r, rest))), _) == If.compiles(known, r <> rest) : Bool}
       %qp.dir(r) : {Bool.and(Bool.and(Quirks.qs_mem(known, _), Bool.not(If.clashes(r, rest))), If.compiles(known, rest)) == If.compiles(known, r <> rest) : Bool}
       %qp.mem(known, If.Rule.dir(r)) : {Bool.and(Bool.and(_, Bool.not(If.clashes(r, rest))), If.compiles(known, rest)) == If.compiles(known, r <> rest) : Bool}
       qp.and4(If.elem(known, If.Rule.dir(r)), If.known_all(rest, known), If.clashes(r, rest), If.ambiguous(rest))
@@ -175,8 +184,8 @@ def qp.verdict_fine(k: Bool, c: Maybe<&2, Nat>) -> {If.Verdict.fine(If.verdict(k
         case Some{j}:
           {==}
 
-# the entry's verdicts are all fine exactly when the spec's are
-def qp.fine_all(rs: List<&2, If.Rule>, +known: List<&2, Nat>, +i: Nat) -> {If.fine_all(If.verdicts.go(rs, known, i)) == Quirks.qs_all_fine(rs, known) : Bool}:
+# the entry's verdicts are all fine exactly when the spec's scan is
+def qp.fine_all(rs: List<&2, If.Rule>, +known: List<&2, Nat>, +i: Nat) -> {If.fine_all(If.verdicts.go(rs, known, i)) == qp.all_fine_spec(rs, known) : Bool}:
   match rs:
     case Nil{}:
       {==}
@@ -275,49 +284,6 @@ def qp.rules(rs: List<&2, If.Rule>) -> {FQ.rules(Quirks.qs_flat(rs)) == Some{rs}
           %Equal.sym(Maybe<&2, If.Lay>, FQ.lay(Quirks.qs_lay(l)), Some{l}, qp.lay_flat(l)) : {FQ.rules.cons(_, t, d, v, Some{rest}) == Some{If.Rule{l, t, d, v} <> rest} : Maybe<&2, List<&2, If.Rule>>}
           {==}
 
-def qp.lay_read(n: Nat) -> {FQ.lay(n) == Quirks.read_lay(n) : Maybe<&2, If.Lay>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n+p:
-      {==}
-
-def qp.cons_read(m: Maybe<&2, If.Lay>, t: Nat, d: Nat, v: Nat, r: Maybe<&2, List<&2, If.Rule>>) -> {FQ.rules.cons(m, t, d, v, r) == Quirks.read_rules.cons(m, t, d, v, r) : Maybe<&2, List<&2, If.Rule>>}:
-  match m:
-    case None{}:
-      {==}
-    case Some{l}:
-      match r:
-        case None{}:
-          {==}
-        case Some{rs}:
-          {==}
-
-# the entry reads rules as the spec's reader does
-def qp.rules_read(xs: List<&2, Nat>) -> {FQ.rules(xs) == Quirks.read_rules(xs) : Maybe<&2, List<&2, If.Rule>>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case +l <> a:
-      match a:
-        case Nil{}:
-          {==}
-        case +t <> b:
-          match b:
-            case Nil{}:
-              {==}
-            case +d <> c:
-              match c:
-                case Nil{}:
-                  {==}
-                case +v <> +rest:
-                  %qp.rules_read(rest) : {FQ.rules(l <> t <> d <> v <> rest) == Quirks.read_rules.cons(Quirks.read_lay(l), t, d, v, _) : Maybe<&2, List<&2, If.Rule>>}
-                  %qp.lay_read(l) : {FQ.rules(l <> t <> d <> v <> rest) == Quirks.read_rules.cons(_, t, d, v, FQ.rules(rest)) : Maybe<&2, List<&2, If.Rule>>}
-                  qp.cons_read(FQ.lay(l), t, d, v, FQ.rules(rest))
 
 # a lookup's answer, spelled
 def qp.ans(a: If.Ans) -> {FQ.put_ans(a, "") == Quirks.spell_ans(a) : String}:

@@ -214,12 +214,61 @@ def inv_init(+cfg: RnState.Cfg) -> InvS(cfg, RnState.init(cfg), 0n):
 
 # The decisions Rust calls (H4.9)
 # --------------------------------
-# rk.*: the lemmas of the laws of LAWS.bend (H4.9) and of
-# rec_recover_is_the_rust_rule: each decision of bend/run.bend that
-# Rust calls is the rule decide.rs wrote (the counts left are exact,
-# by induction on the counts and the limits), the counts left lose
-# nothing (m - (m - x) = x for x <= m), and the core's cap changes no
-# decision.
+# rk.*: lemmas of the decision laws of laws/run/model.bend (H4.9). rk.r_*
+# is the step after a reply over Rust's counters as they grow, a
+# proof-side characterization of decide.reply (rk.reply_rule: the counts
+# left are exact, by induction on the counts and the limits) that the
+# laws on decide.reply are read from; the counts left lose nothing
+# (m - (m - x) = x for x <= m), and the core's cap changes no decision.
+
+def rk.r_wait(waits: Bool) -> RnDecision.Then:
+  match waits:
+    case True{}:
+      RnDecision.DoPoll{}
+    case False{}:
+      RnDecision.DoLate{}
+
+def rk.r_noted(left: Bool) -> RnDecision.Then:
+  match left:
+    case True{}:
+      RnDecision.DoNote{}
+    case False{}:
+      RnDecision.DoFail{}
+
+def rk.r_retry(left: Bool) -> RnDecision.Then:
+  match left:
+    case True{}:
+      RnDecision.DoRetry{}
+    case False{}:
+      RnDecision.DoFail{}
+
+def rk.r_over(compacts: Bool) -> RnDecision.Then:
+  match compacts:
+    case True{}:
+      RnDecision.DoCompact{}
+    case False{}:
+      RnDecision.DoFail{}
+
+def rk.r_reply(l: RnDecision.Lim, t: RnDecision.At, reply: RnState.Reply) -> RnDecision.Then:
+  match l:
+    case RnDecision.Lim{rounds, wait, retries, most}:
+      match t:
+        case RnDecision.At{attempt, +notes, waited, compacted}:
+          match reply:
+            case RnState.Plain{}:
+              RnDecision.DoAnswer{}
+            case RnState.Calls{}:
+              RnDecision.DoTools{}
+            case RnState.Deferred{}:
+              rk.r_wait(Nat.is_lt(waited, wait))
+            case RnState.Error{retryable, noted}:
+              match noted:
+                case True{}:
+                  rk.r_noted(Nat.is_lt(notes, most))
+                case False{}:
+                  rk.r_retry(Bool.and(retryable, Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)))
+            case RnState.Overflow{cut}:
+              rk.r_over(Bool.and(cut, Bool.not(compacted)))
 
 def rk.BD(b: Bool, t: Type, f: Type) -> Type:
   match b:
@@ -228,7 +277,7 @@ def rk.BD(b: Bool, t: Type, f: Type) -> Type:
     case False{}:
       f
 
-def rk.wait(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +w: Nat, +x: Nat) -> {RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.call(cfg, RnState.Deferred{}, r, c, a, n, Nat.sub(w, x)))) == Run.rust.wait(Nat.is_lt(x, w)) : RnDecision.Then}:
+def rk.wait(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +w: Nat, +x: Nat) -> {RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.call(cfg, RnState.Deferred{}, r, c, a, n, Nat.sub(w, x)))) == rk.r_wait(Nat.is_lt(x, w)) : RnDecision.Then}:
   match w x:
     case 0n 0n:
       {==}
@@ -239,7 +288,7 @@ def rk.wait(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +w: Nat, +x: 
     case 1n+v 1n+y:
       rk.wait(cfg, r, c, a, n, v, y)
 
-def rk.notes(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x: Nat) -> {RnDecision.Then.ph(True{}, RnState.St.ph(RnStep.note(cfg, r, c, a, Nat.sub(m, x), p))) == Run.rust.noted(Nat.is_lt(x, m)) : RnDecision.Then}:
+def rk.notes(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x: Nat) -> {RnDecision.Then.ph(True{}, RnState.St.ph(RnStep.note(cfg, r, c, a, Nat.sub(m, x), p))) == rk.r_noted(Nat.is_lt(x, m)) : RnDecision.Then}:
   match m x:
     case 0n 0n:
       {==}
@@ -250,7 +299,7 @@ def rk.notes(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x:
     case 1n+v 1n+y:
       rk.notes(cfg, r, c, a, p, v, y)
 
-def rk.retry(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.retry(cfg, True{}, r, c, Nat.sub(m, x), n, p))) == Run.rust.retry(Nat.is_lt(x, m)) : RnDecision.Then}:
+def rk.retry(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.retry(cfg, True{}, r, c, Nat.sub(m, x), n, p))) == rk.r_retry(Nat.is_lt(x, m)) : RnDecision.Then}:
   match m x:
     case 0n 0n:
       {==}
@@ -261,7 +310,7 @@ def rk.retry(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x:
     case 1n+v 1n+y:
       rk.retry(cfg, r, c, n, p, v, y)
 
-def rk.over(+cfg: RnState.Cfg, +r: Nat, +a: Nat, +n: Nat, +p: Nat, +compacted: Bool, +cut: Bool) -> {RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.call(cfg, RnState.Overflow{cut}, r, RnDecision.c.of(compacted), a, n, p))) == Run.rust.over(Bool.and(cut, Bool.not(compacted))) : RnDecision.Then}:
+def rk.over(+cfg: RnState.Cfg, +r: Nat, +a: Nat, +n: Nat, +p: Nat, +compacted: Bool, +cut: Bool) -> {RnDecision.Then.ph(False{}, RnState.St.ph(RnStep.call(cfg, RnState.Overflow{cut}, r, RnDecision.c.of(compacted), a, n, p))) == rk.r_over(Bool.and(cut, Bool.not(compacted))) : RnDecision.Then}:
   match compacted cut:
     case True{} True{}:
       {==}
@@ -272,7 +321,7 @@ def rk.over(+cfg: RnState.Cfg, +r: Nat, +a: Nat, +n: Nat, +p: Nat, +compacted: B
     case False{} False{}:
       {==}
 
-def rk.run_reply_is_the_rust_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) -> {RnDecision.decide.reply(l, t, reply) == Run.rust.after_reply(l, t, reply) : RnDecision.Then}:
+def rk.reply_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) -> {RnDecision.decide.reply(l, t, reply) == rk.r_reply(l, t, reply) : RnDecision.Then}:
   match l:
     case RnDecision.Lim{+rounds, +wait, +retries, +most}:
       match t:
@@ -295,6 +344,113 @@ def rk.run_reply_is_the_rust_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply:
             case RnState.Overflow{cut}:
               rk.over(RnState.Cfg{rounds, wait, retries, most}, 0n, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), Nat.sub(most, notes), Nat.sub(wait, waited), compacted, cut)
 
+# the rules read as the laws' then_if
+def rk.retry_if(+b: Bool) -> {rk.r_retry(b) == Run.then_if(b, RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.noted_if(+b: Bool) -> {rk.r_noted(b) == Run.then_if(b, RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.wait_if(+b: Bool) -> {rk.r_wait(b) == Run.then_if(b, RnDecision.DoPoll{}, RnDecision.DoLate{}) : RnDecision.Then}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# a noted reply notes while the notes last (run_note_budget,
+# run_message_reply, rec_redo_retries_with_a_note)
+def rk.note_budget(+l: RnDecision.Lim, +t: RnDecision.At, +retryable: Bool) -> {RnDecision.decide.reply(l, t, RnState.Error{retryable, True{}}) == Run.then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}:
+  match l:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+          Equal.trans(RnDecision.Then, RnDecision.decide.reply(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{retryable, True{}}), rk.r_reply(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{retryable, True{}}), Run.then_if(Nat.is_lt(notes, most), RnDecision.DoNote{}, RnDecision.DoFail{}), rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{retryable, True{}}), rk.noted_if(Nat.is_lt(notes, most)))
+
+# How a round ends
+# ----------------
+# rk.r_round: how a round ends over the rounds Rust counted (count), a
+# proof-side characterization of decide.round (rk.round_rule) that the
+# round laws are read from
+
+def rk.r_next(goes: Bool, reset: Bool, count: Nat) -> RnDecision.End:
+  match goes:
+    case True{}:
+      match reset:
+        case True{}:
+          RnDecision.EndReset{}
+        case False{}:
+          RnDecision.EndNext{1n+count}
+    case False{}:
+      RnDecision.EndCapped{}
+
+def rk.r_round(l: RnDecision.Lim, +count: Nat, stops: Bool, reset: Bool) -> RnDecision.End:
+  match l:
+    case RnDecision.Lim{rounds, wait, retries, most}:
+      match stops:
+        case True{}:
+          RnDecision.EndStop{}
+        case False{}:
+          rk.r_next(Nat.is_lt(1n+count, rounds), reset, count)
+
+def rk.lt_pred(+m: Nat, +x: Nat) -> {Nat.is_lt(x, Nat.sub(m, 1n)) == Nat.is_lt(1n+x, m) : Bool}:
+  match m:
+    case 0n:
+      match x:
+        case 0n:
+          {==}
+        case 1n+y:
+          {==}
+    case 1n+v:
+      match v:
+        case 0n:
+          {==}
+        case 1n+u:
+          {==}
+
+def rk.round_t(+cfg: RnState.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, +m: Nat, +x: Nat) -> {RnDecision.End.ph(RnState.Resets{}, k, RnState.St.ph(RnStep.round(cfg, True{}, Nat.sub(m, x), c, a, n, p))) == rk.r_next(Nat.is_lt(x, m), True{}, k) : RnDecision.End}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.round_t(cfg, c, a, n, p, k, v, y)
+
+def rk.round_f(+cfg: RnState.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, +m: Nat, +x: Nat) -> {RnDecision.End.ph(RnState.Goes{}, k, RnState.St.ph(RnStep.round(cfg, False{}, Nat.sub(m, x), c, a, n, p))) == rk.r_next(Nat.is_lt(x, m), False{}, k) : RnDecision.End}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.round_f(cfg, c, a, n, p, k, v, y)
+
+def rk.round_rule(+l: RnDecision.Lim, +count: Nat, +stops: Bool, +reset: Bool) -> {RnDecision.decide.round(l, count, stops, reset) == rk.r_round(l, count, stops, reset) : RnDecision.End}:
+  match l:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+      match stops reset:
+        case True{} reset:
+          {==}
+        case False{} True{}:
+          %rk.lt_pred(rounds, count) : {RnDecision.End.ph(RnState.Resets{}, count, RnState.St.ph(RnStep.round(RnState.Cfg{rounds, wait, retries, most}, True{}, Nat.sub(Nat.sub(rounds, 1n), count), 0n, 0n, 0n, 0n))) == rk.r_next(_, True{}, count) : RnDecision.End}
+          rk.round_t(RnState.Cfg{rounds, wait, retries, most}, 0n, 0n, 0n, 0n, count, Nat.sub(rounds, 1n), count)
+        case False{} False{}:
+          %rk.lt_pred(rounds, count) : {RnDecision.End.ph(RnState.Goes{}, count, RnState.St.ph(RnStep.round(RnState.Cfg{rounds, wait, retries, most}, False{}, Nat.sub(Nat.sub(rounds, 1n), count), 0n, 0n, 0n, 0n))) == rk.r_next(_, False{}, count) : RnDecision.End}
+          rk.round_f(RnState.Cfg{rounds, wait, retries, most}, 0n, 0n, 0n, 0n, count, Nat.sub(rounds, 1n), count)
+
 def rk.eq0(+w: Nat, +x: Nat) -> {Bool.not(Nat.is_lt(x, w)) == Nat.is_eq(Nat.sub(w, x), 0n) : Bool}:
   match w x:
     case 0n 0n:
@@ -306,7 +462,7 @@ def rk.eq0(+w: Nat, +x: Nat) -> {Bool.not(Nat.is_lt(x, w)) == Nat.is_eq(Nat.sub(
     case 1n+v 1n+y:
       rk.eq0(v, y)
 
-def rk.later(+b: Bool, +left: Nat, +gap: Nat) -> {Run.rust.later(Run.rust.wait(b)) == R.Step.act(R.live.pending(Bool.not(b), left, gap)) : R.Act}:
+def rk.later(+b: Bool, +left: Nat, +gap: Nat) -> {Run.rust.later(rk.r_wait(b)) == R.Step.act(R.live.pending(Bool.not(b), left, gap)) : R.Act}:
   match b:
     case True{}:
       {==}

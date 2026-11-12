@@ -8,9 +8,14 @@ import ../../laws/wait.bend as WaitLaws
 import ../../laws/wire.bend as Wire
 import ../../laws/base.bend as LawsBase
 
+import ../wire/wire_nat_exact.bend as PWireNatExact
+import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
+import ../wire/wire_bool_exact.bend as PWireBoolExact
+import ../wire/wire_nat_not_err.bend as PWireNatNotErr
+
 # ---- wait ----
 
-# proof_wait: the wait laws of LAWS.bend (H6): a wait ends exactly once,
+# proof_wait: the wait laws of spec/README.md D4: a wait ends exactly once,
 # no later than its deadline or its cancel, and with the event when the
 # event comes first. Each lemma speaks of an open wait whose deadline
 # passes on the (m + 1)-th tick (`pw.up` names that deadline in ticks
@@ -68,60 +73,53 @@ def pw.over(xs: List<&2, Wt.Sig>) -> {Nil{} == Wt.go(xs, Wt.Over{}) : List<&2, W
 
 # The stepper (bend/ffi_wait_race.bend)
 # -------------------------------------
-# The stepper reads every input as the laws' readers do (`ww.read`,
-# `ww.read_dl`); a spelled poll runs the model's poll (`ws.spelled`),
-# whose signals, wait after and spelled ends are the laws' (`ws.sigs`,
-# `ws.after`, `ws.ends`). Over any polls, the stepper's wait is the
+# Whatever the stepper's decoders read is the laws' spelling of it, then
+# its rest (`wr.*`: each Nat by wire_nat_exact and wire_nat_decoded_fits,
+# each Bool by wire_bool_exact). A spelled poll runs the model's poll
+# (`ws.spelled`), whose signals and spelled ends are the laws'
+# (`ws.sigs`, `ws.ends`). Over any polls, the stepper's wait is the
 # model's wait after their signals (`ws.feed`), and its replies are the
 # model's run cut at each poll (`ws.model`).
 
-def ww.late(w: Bool, c: Bool, r: Wr.Dec<Bool>) -> {WaitLaws.ww_read.late(w, c, r) == FWt.get_ready.late(w, c, r) : Wr.Dec<Wt.Polled>}:
-  match r:
-    case Wr.Got{l, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
+# s spelled up to a field a is s spelled up to its spelling b
+def wr.step(-F: String -> String, -s: String, -a: String, -b: String, pre: {s == F(a) : String}, e: {a == b : String}) -> {s == F(b) : String}:
+  Equal.trans(String, s, F(a), F(b), pre, Equal.cong(String, String, F, a, b, e))
 
-def ww.cancel(w: Bool, r: Wr.Dec<Bool>) -> {WaitLaws.ww_read.cancel(w, r) == FWt.get_ready.cancel(w, r) : Wr.Dec<Wt.Polled>}:
-  match r:
-    case Wr.Got{c, s}:
-      ww.late(w, c, Wr.get_bool(s))
+# a Nat read from s: s is its spelling, then the rest, and it fits
+def wr.Nat(s: String, d: Wr.Dec<Nat>) -> Type:
+  match d:
+    case Wr.Got{n, r}:
+      {s == Wr.put_nat(n, r) : String} & {LawsBase.wire_fits(n) == True{} : Bool}
     case Wr.Bad{}:
-      {==}
+      Unit
 
-# the entry reads every poll as the laws' reader does
-def ww.read(r: Wr.Dec<Bool>) -> {WaitLaws.ww_read.go(r) == FWt.get_ready.go(r) : Wr.Dec<Wt.Polled>}:
-  match r:
-    case Wr.Got{w, s}:
-      ww.cancel(w, Wr.get_bool(s))
+def wr.nat.go(+s: String, d: Wr.Dec<Nat>, +ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> wr.Nat(s, d):
+  match d:
+    case Wr.Got{+n, +r}:
+      (Wire.wire_nat_exact(s, n, r, ed), Wire.wire_nat_decoded_fits(s, n, r, ed))
     case Wr.Bad{}:
-      {==}
+      Unit{}
 
-def ww.some(r: Wr.Dec<Nat>) -> {WaitLaws.ww_read_dl.some(r) == FWt.get_dl.some(r) : Wr.Dec<Maybe<&2, Nat>>}:
-  match r:
-    case Wr.Got{d, s}:
-      {==}
+def wr.nat(+s: String) -> wr.Nat(s, Wr.get_nat(s)):
+  wr.nat.go(s, Wr.get_nat(s), {==})
+
+# a Bool read from s: s is its spelling, then the rest
+def wr.Bool(s: String, d: Wr.Dec<Bool>) -> Type:
+  match d:
+    case Wr.Got{b, r}:
+      {s == Wr.put_bool(b, r) : String}
     case Wr.Bad{}:
-      {==}
+      Unit
 
-def ww.tag(t: Nat, s: String) -> {WaitLaws.ww_read_dl.tag(t, s) == FWt.get_dl.tag(t, s) : Wr.Dec<Maybe<&2, Nat>>}:
-  match t:
-    case 0n:
-      {==}
-    case 1n+q:
-      match q:
-        case 0n:
-          ww.some(Wr.get_nat(s))
-        case 1n+p:
-          {==}
-
-# the entry reads every open as the laws' reader does
-def ww.read_dl(r: Wr.Dec<Nat>) -> {WaitLaws.ww_read_dl.go(r) == FWt.get_dl.go(r) : Wr.Dec<Maybe<&2, Nat>>}:
-  match r:
-    case Wr.Got{t, s}:
-      ww.tag(t, s)
+def wr.bool.go(+s: String, d: Wr.Dec<Bool>, +ed: {Wr.get_bool(s) == d : Wr.Dec<Bool>}) -> wr.Bool(s, d):
+  match d:
+    case Wr.Got{+b, +r}:
+      Wire.wire_bool_exact(s, b, r, ed)
     case Wr.Bad{}:
-      {==}
+      Unit{}
+
+def wr.bool(+s: String) -> wr.Bool(s, Wr.get_bool(s)):
+  wr.bool.go(s, Wr.get_bool(s), {==})
 
 def ww.MD(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
   match m:
@@ -166,16 +164,6 @@ def ws.app_assoc(-A: Data, xs: List<&2, A>, +ys: List<&2, A>, +zs: List<&2, A>) 
       %ws.app_assoc(A, rest, ys, zs) : {x <> List.append(&2, A, List.append(&2, A, rest, ys), zs) == x <> _ : List<&2, A>}
       {==}
 
-# The model's poll, as the laws spell it
-# ---------------------------------------
-
-def ws.when(b: Bool, x: Wt.Sig, rest: List<&2, Wt.Sig>) -> {WaitLaws.ww_sig(b, x, rest) == Wt.sig.when(b, x, rest) : List<&2, Wt.Sig>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
 # a poll's signals are the laws'
 def ws.sigs(r: Wt.Polled) -> {WaitLaws.ww_sigs(r) == Wt.sigs(r) : List<&2, Wt.Sig>}:
   match r:
@@ -198,14 +186,6 @@ def ws.sigs(r: Wt.Polled) -> {WaitLaws.ww_sigs(r) == Wt.sigs(r) : List<&2, Wt.Si
         case False{} False{} False{}:
           {==}
 
-# the wait after signals is the laws'
-def ws.after(xs: List<&2, Wt.Sig>, w: Wt.W) -> {WaitLaws.ww_after(xs, w) == Wt.after(xs, w) : Wt.W}:
-  match xs:
-    case Nil{}:
-      {==}
-    case s <> rest:
-      ws.after(rest, Wt.next(w, s))
-
 def ws.pair(+n: Nat, e: Wt.End, +x: String) -> {(1n+n, WaitLaws.ww_spell_end(e, x)) == (1n+n, FWt.put_end(e, x)) : Nat & String}:
   match e:
     case Wt.Arrived{}:
@@ -227,6 +207,11 @@ def ws.items(es: List<&2, Wt.End>) -> {(List.length(&2, Wt.End, es), WaitLaws.ww
 def ws.ends(es: List<&2, Wt.End>) -> {WaitLaws.ww_spell_ends(es) == FWt.put_ends(es) : String}:
   %ws.items(es) : {WaitLaws.ww_spell_ends(es) == Wr.put_list.fin(_) : String}
   {==}
+
+# a spelled reply of ends is no error form
+def wr.ends_ok(+es: List<&2, Wt.End>) -> {LawsBase.wire_opens_err(FWt.put_ends(es)) == False{} : Bool}:
+  %ws.ends(es) : {LawsBase.wire_opens_err(_) == False{} : Bool}
+  Wire.wire_nat_not_err(List.length(&2, Wt.End, es), WaitLaws.ww_spell_ends.items(es))
 
 # a spelled poll is read whole: the stepper runs the model's poll
 def ws.spelled(w: Wt.W, r: Wt.Polled) -> {FWt.step.reply(Wt.race(w, r)) == FWt.step(FWt.Live{w}, WaitLaws.ww_spell(r)) : FWt.St & String}:
@@ -252,11 +237,10 @@ def ws.spelled(w: Wt.W, r: Wt.Polled) -> {FWt.step.reply(Wt.race(w, r)) == FWt.s
 
 # one spelled poll moves the wait as the model does and answers the
 # spelled ends of the model's walk
-def ws.step(+w: Wt.W, +r: Wt.Polled) -> {(FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == FWt.step(FWt.Live{w}, WaitLaws.ww_spell(r)) : FWt.St & String}:
-  %ws.spelled(w, r) : {(FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == _ : FWt.St & String}
-  %ws.sigs(r) : {(FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == (FWt.Live{Wt.after(_, w)}, FWt.put_ends(Wt.go(_, w))) : FWt.St & String}
-  %ws.after(WaitLaws.ww_sigs(r), w) : {(FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == (FWt.Live{_}, FWt.put_ends(Wt.go(WaitLaws.ww_sigs(r), w))) : FWt.St & String}
-  %ws.ends(Wt.go(WaitLaws.ww_sigs(r), w)) : {(FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == (FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(r), w)}, _) : FWt.St & String}
+def ws.step(+w: Wt.W, +r: Wt.Polled) -> {(FWt.Live{Wt.after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == FWt.step(FWt.Live{w}, WaitLaws.ww_spell(r)) : FWt.St & String}:
+  %ws.spelled(w, r) : {(FWt.Live{Wt.after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == _ : FWt.St & String}
+  %ws.sigs(r) : {(FWt.Live{Wt.after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == (FWt.Live{Wt.after(_, w)}, FWt.put_ends(Wt.go(_, w))) : FWt.St & String}
+  %ws.ends(Wt.go(WaitLaws.ww_sigs(r), w)) : {(FWt.Live{Wt.after(WaitLaws.ww_sigs(r), w)}, WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(r), w))) == (FWt.Live{Wt.after(WaitLaws.ww_sigs(r), w)}, _) : FWt.St & String}
   {==}
 
 # a spelled deadline that fits is read whole
@@ -278,7 +262,7 @@ def ws.opened(+dl: Maybe<&2, Nat>, fits: {LawsBase.wire_mfits(dl) == True{} : Bo
 # -------------------------------
 
 # an ended wait stays ended
-def ws.over(xs: List<&2, Wt.Sig>) -> {Wt.Over{} == WaitLaws.ww_after(xs, Wt.Over{}) : Wt.W}:
+def ws.over(xs: List<&2, Wt.Sig>) -> {Wt.Over{} == Wt.after(xs, Wt.Over{}) : Wt.W}:
   match xs:
     case Nil{}:
       {==}
@@ -286,7 +270,7 @@ def ws.over(xs: List<&2, Wt.Sig>) -> {Wt.Over{} == WaitLaws.ww_after(xs, Wt.Over
       ws.over(rest)
 
 # a walk that reported an end leaves the wait ended
-def ws.ended(xs: List<&2, Wt.Sig>, w: Wt.W, -e: Wt.End, -t: List<&2, Wt.End>, h: {Wt.go(xs, w) == e <> t : List<&2, Wt.End>}) -> {Wt.Over{} == WaitLaws.ww_after(xs, w) : Wt.W}:
+def ws.ended(xs: List<&2, Wt.Sig>, w: Wt.W, -e: Wt.End, -t: List<&2, Wt.End>, h: {Wt.go(xs, w) == e <> t : List<&2, Wt.End>}) -> {Wt.Over{} == Wt.after(xs, w) : Wt.W}:
   match xs:
     case Nil{}:
       ws.nil_cons({Wt.Over{} == w : Wt.W}, e, t, h)
@@ -320,7 +304,7 @@ def ws.ended(xs: List<&2, Wt.Sig>, w: Wt.W, -e: Wt.End, -t: List<&2, Wt.End>, h:
                       ws.ended(rest, Wt.Open{Some{q}}, e, t, h)
 
 # a run that reported an end leaves the wait ended
-def ws.run_ended(dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>, -e: Wt.End, -t: List<&2, Wt.End>, h: {Wt.run(dl, xs) == e <> t : List<&2, Wt.End>}) -> {Wt.Over{} == WaitLaws.ww_after(xs, Wt.start(dl)) : Wt.W}:
+def ws.run_ended(dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>, -e: Wt.End, -t: List<&2, Wt.End>, h: {Wt.run(dl, xs) == e <> t : List<&2, Wt.End>}) -> {Wt.Over{} == Wt.after(xs, Wt.start(dl)) : Wt.W}:
   match dl:
     case None{}:
       ws.ended(xs, Wt.Open{None{}}, e, t, h)
@@ -333,17 +317,17 @@ def ws.run_ended(dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>, -e: Wt.End, -t: List<
 
 # the walk over xs then ys: the ends over xs, then over ys from the wait
 # after xs
-def ws.go_app(xs: List<&2, Wt.Sig>, +ys: List<&2, Wt.Sig>, +w: Wt.W) -> {List.append(&2, Wt.End, Wt.go(xs, w), Wt.go(ys, WaitLaws.ww_after(xs, w))) == Wt.go(List.append(&2, Wt.Sig, xs, ys), w) : List<&2, Wt.End>}:
+def ws.go_app(xs: List<&2, Wt.Sig>, +ys: List<&2, Wt.Sig>, +w: Wt.W) -> {List.append(&2, Wt.End, Wt.go(xs, w), Wt.go(ys, Wt.after(xs, w))) == Wt.go(List.append(&2, Wt.Sig, xs, ys), w) : List<&2, Wt.End>}:
   match xs:
     case Nil{}:
       {==}
     case +s <> +rest:
-      %ws.go_app(rest, ys, Wt.next(w, s)) : {List.append(&2, Wt.End, List.append(&2, Wt.End, Wt.out(w, s), Wt.go(rest, Wt.next(w, s))), Wt.go(ys, WaitLaws.ww_after(rest, Wt.next(w, s)))) == List.append(&2, Wt.End, Wt.out(w, s), _) : List<&2, Wt.End>}
-      ws.app_assoc(Wt.End, Wt.out(w, s), Wt.go(rest, Wt.next(w, s)), Wt.go(ys, WaitLaws.ww_after(rest, Wt.next(w, s))))
+      %ws.go_app(rest, ys, Wt.next(w, s)) : {List.append(&2, Wt.End, List.append(&2, Wt.End, Wt.out(w, s), Wt.go(rest, Wt.next(w, s))), Wt.go(ys, Wt.after(rest, Wt.next(w, s)))) == List.append(&2, Wt.End, Wt.out(w, s), _) : List<&2, Wt.End>}
+      ws.app_assoc(Wt.End, Wt.out(w, s), Wt.go(rest, Wt.next(w, s)), Wt.go(ys, Wt.after(rest, Wt.next(w, s))))
 
 # the run over xs then ys: the run over xs, then the walk over ys from the
 # wait after xs
-def ws.run_app(+dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>, +ys: List<&2, Wt.Sig>) -> {List.append(&2, Wt.End, Wt.run(dl, xs), Wt.go(ys, WaitLaws.ww_after(xs, Wt.start(dl)))) == Wt.run(dl, List.append(&2, Wt.Sig, xs, ys)) : List<&2, Wt.End>}:
+def ws.run_app(+dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>, +ys: List<&2, Wt.Sig>) -> {List.append(&2, Wt.End, Wt.run(dl, xs), Wt.go(ys, Wt.after(xs, Wt.start(dl)))) == Wt.run(dl, List.append(&2, Wt.Sig, xs, ys)) : List<&2, Wt.End>}:
   match dl:
     case None{}:
       ws.go_app(xs, ys, Wt.Open{None{}})
@@ -366,7 +350,7 @@ def ws.flat_app(xs: List<&2, Wt.Polled>, +ys: List<&2, Wt.Polled>) -> {List.appe
       ws.app_assoc(Wt.Sig, WaitLaws.ww_sigs(p), WaitLaws.ww_flat(rest), WaitLaws.ww_flat(ys))
 
 # the wait after xs then ys
-def ws.after_app(xs: List<&2, Wt.Sig>, -ys: List<&2, Wt.Sig>, w: Wt.W) -> {WaitLaws.ww_after(ys, WaitLaws.ww_after(xs, w)) == WaitLaws.ww_after(List.append(&2, Wt.Sig, xs, ys), w) : Wt.W}:
+def ws.after_app(xs: List<&2, Wt.Sig>, -ys: List<&2, Wt.Sig>, w: Wt.W) -> {Wt.after(ys, Wt.after(xs, w)) == Wt.after(List.append(&2, Wt.Sig, xs, ys), w) : Wt.W}:
   match xs:
     case Nil{}:
       {==}
@@ -375,17 +359,17 @@ def ws.after_app(xs: List<&2, Wt.Sig>, -ys: List<&2, Wt.Sig>, w: Wt.W) -> {WaitL
 
 # the stepper sent spelled polls holds the model's wait after their
 # signals
-def ws.feed(ps: List<&2, Wt.Polled>, +w: Wt.W) -> {FWt.Live{WaitLaws.ww_after(WaitLaws.ww_flat(ps), w)} == WaitLaws.ww_feed(ps, FWt.Live{w}) : FWt.St}:
+def ws.feed(ps: List<&2, Wt.Polled>, +w: Wt.W) -> {FWt.Live{Wt.after(WaitLaws.ww_flat(ps), w)} == WaitLaws.ww_feed(ps, FWt.Live{w}) : FWt.St}:
   match ps:
     case Nil{}:
       {==}
     case +p <> +rest:
-      %ws.step(w, p) : {FWt.Live{WaitLaws.ww_after(WaitLaws.ww_flat(p <> rest), w)} == WaitLaws.ww_feed(rest, WaitLaws.ww_state(_)) : FWt.St}
-      %ws.after_app(WaitLaws.ww_sigs(p), WaitLaws.ww_flat(rest), w) : {FWt.Live{_} == WaitLaws.ww_feed(rest, FWt.Live{WaitLaws.ww_after(WaitLaws.ww_sigs(p), w)}) : FWt.St}
-      ws.feed(rest, WaitLaws.ww_after(WaitLaws.ww_sigs(p), w))
+      %ws.step(w, p) : {FWt.Live{Wt.after(WaitLaws.ww_flat(p <> rest), w)} == WaitLaws.ww_feed(rest, WaitLaws.ww_state(_)) : FWt.St}
+      %ws.after_app(WaitLaws.ww_sigs(p), WaitLaws.ww_flat(rest), w) : {FWt.Live{_} == WaitLaws.ww_feed(rest, FWt.Live{Wt.after(WaitLaws.ww_sigs(p), w)}) : FWt.St}
+      ws.feed(rest, Wt.after(WaitLaws.ww_sigs(p), w))
 
 # the walk over ys after the run over xs, as ww_new cuts it
-def ws.pick(+dl: Maybe<&2, Nat>, +xs: List<&2, Wt.Sig>, r: List<&2, Wt.End>, +ys: List<&2, Wt.Sig>, h: {Wt.run(dl, xs) == r : List<&2, Wt.End>}) -> {Wt.go(ys, WaitLaws.ww_after(xs, Wt.start(dl))) == WaitLaws.ww_new.go(r, List.append(&2, Wt.End, r, Wt.go(ys, WaitLaws.ww_after(xs, Wt.start(dl))))) : List<&2, Wt.End>}:
+def ws.pick(+dl: Maybe<&2, Nat>, +xs: List<&2, Wt.Sig>, r: List<&2, Wt.End>, +ys: List<&2, Wt.Sig>, h: {Wt.run(dl, xs) == r : List<&2, Wt.End>}) -> {Wt.go(ys, Wt.after(xs, Wt.start(dl))) == WaitLaws.ww_new.go(r, List.append(&2, Wt.End, r, Wt.go(ys, Wt.after(xs, Wt.start(dl))))) : List<&2, Wt.End>}:
   match r:
     case Nil{}:
       {==}
@@ -398,6 +382,6 @@ def ws.pick(+dl: Maybe<&2, Nat>, +xs: List<&2, Wt.Sig>, r: List<&2, Wt.End>, +ys
 def ws.model(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Polled>, +p: Wt.Polled, fits: {LawsBase.wire_mfits(dl) == True{} : Bool}) -> {WaitLaws.ww_reply(FWt.step(WaitLaws.ww_feed(pre, WaitLaws.ww_opened(dl)), WaitLaws.ww_spell(p))) == WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, pre, p)) : String}:
   %ws.opened(dl, fits) : {WaitLaws.ww_reply(FWt.step(WaitLaws.ww_feed(pre, _), WaitLaws.ww_spell(p))) == WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, pre, p)) : String}
   %ws.feed(pre, Wt.start(dl)) : {WaitLaws.ww_reply(FWt.step(_, WaitLaws.ww_spell(p))) == WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, pre, p)) : String}
-  %ws.step(WaitLaws.ww_after(WaitLaws.ww_flat(pre), Wt.start(dl)), p) : {WaitLaws.ww_reply(_) == WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, pre, p)) : String}
-  %ws.run_app(dl, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)) : {WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(p), WaitLaws.ww_after(WaitLaws.ww_flat(pre), Wt.start(dl)))) == WaitLaws.ww_spell_ends(WaitLaws.ww_new.go(Wt.run(dl, WaitLaws.ww_flat(pre)), _)) : String}
-  Equal.cong(List<&2, Wt.End>, String, es => WaitLaws.ww_spell_ends(es), Wt.go(WaitLaws.ww_sigs(p), WaitLaws.ww_after(WaitLaws.ww_flat(pre), Wt.start(dl))), WaitLaws.ww_new.go(Wt.run(dl, WaitLaws.ww_flat(pre)), List.append(&2, Wt.End, Wt.run(dl, WaitLaws.ww_flat(pre)), Wt.go(WaitLaws.ww_sigs(p), WaitLaws.ww_after(WaitLaws.ww_flat(pre), Wt.start(dl))))), ws.pick(dl, WaitLaws.ww_flat(pre), Wt.run(dl, WaitLaws.ww_flat(pre)), WaitLaws.ww_sigs(p), {==}))
+  %ws.step(Wt.after(WaitLaws.ww_flat(pre), Wt.start(dl)), p) : {WaitLaws.ww_reply(_) == WaitLaws.ww_spell_ends(WaitLaws.ww_new(dl, pre, p)) : String}
+  %ws.run_app(dl, WaitLaws.ww_flat(pre), WaitLaws.ww_sigs(p)) : {WaitLaws.ww_spell_ends(Wt.go(WaitLaws.ww_sigs(p), Wt.after(WaitLaws.ww_flat(pre), Wt.start(dl)))) == WaitLaws.ww_spell_ends(WaitLaws.ww_new.go(Wt.run(dl, WaitLaws.ww_flat(pre)), _)) : String}
+  Equal.cong(List<&2, Wt.End>, String, es => WaitLaws.ww_spell_ends(es), Wt.go(WaitLaws.ww_sigs(p), Wt.after(WaitLaws.ww_flat(pre), Wt.start(dl))), WaitLaws.ww_new.go(Wt.run(dl, WaitLaws.ww_flat(pre)), List.append(&2, Wt.End, Wt.run(dl, WaitLaws.ww_flat(pre)), Wt.go(WaitLaws.ww_sigs(p), Wt.after(WaitLaws.ww_flat(pre), Wt.start(dl))))), ws.pick(dl, WaitLaws.ww_flat(pre), Wt.run(dl, WaitLaws.ww_flat(pre)), WaitLaws.ww_sigs(p), {==}))

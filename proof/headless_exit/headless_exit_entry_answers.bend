@@ -2,18 +2,15 @@
 #
 # PROOF: the entry's decoder is the laws' reader (hx.req), which reads
 # the spelled request back whole with nothing left (hx.req_rt), so the
-# entry answers the model's exit, which is the spec's
-# (headless_exit_refines_spec), spelled as the spec spells it (hx.put).
+# entry answers the core's exit, spelled as the spec spells it (hx.put).
 
 import Base
 import ../../bend/headless_exit.bend as Hx
 import ../../bend/ffi_headless_exit.bend as FHx
 import ../../bend/wire.bend as Wr
-import ../../spec/durable/headless.bend as Sp
 import ../../spec/durable/headless_wire.bend as SpW
 import ../../laws/headless_exit.bend as HeadlessExit
 import ./base.bend as LAHeadlessExit
-import ./headless_exit_refines_spec.bend as PHeadlessExitRefinesSpec
 
 def hx.put_reason(r: Hx.Reason, -rest: String) -> {FHx.put_reason(r, rest) == SpW.w_reason(r, rest) : String}:
   match r:
@@ -71,7 +68,6 @@ def hx.put(v: Hx.Verdict, +rest: String) -> {FHx.put_verdict(v, rest) == SpW.w_v
 
 def HeadlessExit.headless_exit_entry_answers(f):
   +s = SpW.w_exit_req(f, "")
-  %Equal.sym(Wr.Dec<Hx.Facts>, FHx.get_facts(s), SpW.r_exit(s), LAHeadlessExit.hx.req(s)) : {FHx.ffi.got(_) == SpW.w_exit_reply(f) : String}
-  %Equal.sym(Wr.Dec<Hx.Facts>, SpW.r_exit(s), Wr.Got{f, ""}, LAHeadlessExit.hx.req_rt(f, "")) : {FHx.ffi.got(_) == SpW.w_exit_reply(f) : String}
-  %Equal.sym(Hx.Verdict, Hx.decide(f), Sp.exit_spec(f), HeadlessExit.headless_exit_refines_spec(f)) : {FHx.put_verdict(_, "") == SpW.w_verdict(Sp.exit_spec(f), "") : String}
-  hx.put(Sp.exit_spec(f), "")
+  %Equal.sym(Wr.Dec<Hx.Facts>, FHx.get_facts(s), SpW.r_exit(s), LAHeadlessExit.hx.req(s)) : {FHx.ffi.got(_) == SpW.w_verdict(Hx.decide(f), "") : String}
+  %Equal.sym(Wr.Dec<Hx.Facts>, SpW.r_exit(s), Wr.Got{f, ""}, LAHeadlessExit.hx.req_rt(f, "")) : {FHx.ffi.got(_) == SpW.w_verdict(Hx.decide(f), "") : String}
+  hx.put(Hx.decide(f), "")

@@ -334,7 +334,7 @@ enum Move {
 }
 
 /// The one report rule (`owe.next` in `bend/child.bend`, run by the
-/// compiled Bend core; `child_report_move`): the move of the report phase
+/// compiled Bend core; `child_ffi_answers`): the move of the report phase
 /// whose report had `withdrawn` submissions withdrawn, when its current
 /// submission has `fate` (`None`: not submitted). It submits again only
 /// once it saw its submission withdrawn, so at most one submission of the
@@ -413,7 +413,7 @@ enum Phase {
 }
 
 /// The report an abort of the task at `checkpoint` hands on (`cut.ph` in
-/// `bend/child.bend`, run by the compiled Bend core; `child_abort_rule`):
+/// `bend/child.bend`, run by the compiled Bend core; `child_ffi_answers`):
 /// the report phase's, under its request ids, or the cancelled report a
 /// delete of the running child `row` owes.
 fn owed_on_abort(

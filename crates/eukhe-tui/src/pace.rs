@@ -6,7 +6,7 @@
 //! the backlog when that is more. The screen never shows text that did
 //! not arrive, and never shows less than before. A frame runs as the Bend
 //! model, one call of the compiled core (`bend/ffi_screen.bend`, law
-//! `screen_ffi_pace`).
+//! `screen_ffi_answers_spelled`).
 
 use eukhe_bend::wire::NAT_MAX;
 use eukhe_bend::Entry;
@@ -79,7 +79,8 @@ impl Pace {
     ///
     /// Each count goes to the core saturated at the wire's largest Nat
     /// ([`NAT_MAX`], some 10^14): a lag or a minimum at the cap reveals as
-    /// one past every backlog would (law `pace_lag_at_cap`), and a message
+    /// one past every backlog would (law `pace_reveal_formula`: the share
+    /// `b / (1 + lag)` of a backlog `b` is 0 for every lag at least `b`), and a message
     /// never holds 10^14 characters, so `recv` and `more` stay exact.
     pub fn frame(&mut self, rate: PaceRate, more: usize) {
         let cap = |n: usize| u64::try_from(n).map_or(NAT_MAX, |n| n.min(NAT_MAX));

@@ -7,8 +7,8 @@
 # (nm_words_line), and the walk over them (nm_walk_line). For keys: the
 # words of pre, a space and a last word (nm_words_last), the menu and the
 # key of such a line through the walk of pre's words (nm_menu_pre,
-# nm_key_pre), the key at a walk state as cmd_key_at (nm_key_row), and a
-# line that is not blank never walks back to the root (nm_off_pre).
+# nm_key_pre), and a line that is not blank never walks back to the root
+# (nm_off_pre); the keys on a selected row: proof/command/base/keys.bend.
 # Lemma names: nm_.
 
 import Base
@@ -378,54 +378,7 @@ def nm_key_pre(+t: List<&2, Cmd.Ent>, +pre: List<&2, Nat>, +p: List<&2, Nat>, se
   %Equal.sym(List<&2, List<&2, Nat>> & List<&2, Nat>, Cmd.cut(List.append(&2, List<&2, Nat>, ws, [p])), (ws, p), LA.cb_cut(ws, p)) : {Cmd.key.cut(_, t, L, sel, k) == Cmd.key.at(Cmd.walk(ws, t, Cmd.Top{}), t, L, p, sel, k) : Cmd.Out}
   {==}
 
-# no row: the model's key.bare is cmd_key_bare
-def nm_bare(k: Cmd.Press, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>) -> {Cmd.key.bare(k, t, line) == CommandNamed.cmd_key_bare(t, line, k) : Cmd.Out}:
-  match k:
-    case Cmd.Tab{}:
-      {==}
-    case Cmd.Enter{}:
-      PCommandEnterWithoutRow.kewr_enter(Cmd.resolve(t, line), line)
-
-def nm_kid(b: Bool, c: Cmd.Ent, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List<&2, Nat>, k: Cmd.Press) -> {Cmd.key.row(Cmd.row.kid(b, c), k, t, line, p) == CommandNamed.cmd_key_kid(b, c, t, line, p, k) : Cmd.Out}:
-  match b:
-    case True{}:
-      match k:
-        case Cmd.Tab{}:
-          PCommandTabCompletesRow.tcr_pick(c, t, line, p)
-        case Cmd.Enter{}:
-          PCommandEnterOnRow.eor_pick(c, t, line, p)
-    case False{}:
-      nm_bare(k, t, line)
-
-def nm_row_of(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +line: List<&2, Nat>, +p: List<&2, Nat>, k: Cmd.Press) -> {Cmd.key.row(Cmd.row.of(m, q), k, t, line, p) == CommandNamed.cmd_key_row(m, t, q, line, p, k) : Cmd.Out}:
-  match m:
-    case None{}:
-      nm_bare(k, t, line)
-    case Some{c}:
-      match c:
-        case Cmd.Ent{+pp, +a, +r, +f, +g}:
-          +E = {Cmd.Ent{pp, a, r, f, g} : Cmd.Ent}
-          %LA.cb_kid(q, pp) : {Cmd.key.row(Cmd.row.kid(Cmd.kid(q, pp), E), k, t, line, p) == CommandNamed.cmd_key_kid(_, E, t, line, p, k) : Cmd.Out}
-          nm_kid(Cmd.kid(q, pp), E, t, line, p, k)
-
-# the row of the selection at q is cmd_key_at
-def nm_key_row(sel: Cmd.Sel, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +line: List<&2, Nat>, +p: List<&2, Nat>, k: Cmd.Press) -> {Cmd.key.row(Cmd.row(sel, t, q), k, t, line, p) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}:
-  match sel:
-    case Cmd.NoRow{}:
-      nm_bare(k, t, line)
-    case Cmd.Row{+i}:
-      nm_row_of(List.get(&2, Cmd.Ent, t, i), t, q, line, p, k)
-
-# the path of a children menu, and which menus list children
-def nm_kq(m: Cmd.Menu) -> List<&2, List<&2, Nat>>:
-  match m:
-    case Cmd.Names{}:
-      Nil{}
-    case Cmd.Kids{q, xs}:
-      q
-    case Cmd.Shut{}:
-      Nil{}
-
+# which menus list children
 def nm_is_kids(m: Cmd.Menu) -> Bool:
   match m:
     case Cmd.Names{}:
@@ -434,26 +387,6 @@ def nm_is_kids(m: Cmd.Menu) -> Bool:
       True{}
     case Cmd.Shut{}:
       False{}
-
-# a shut menu is no children menu
-def nm_shut_kids(-q: List<&2, List<&2, Nat>>, -xs: List<&2, Nat>, h: {Cmd.Shut{} == Cmd.Kids{q, xs} : Cmd.Menu}) -> {False{} == True{} : Bool}:
-  Equal.cong(Cmd.Menu, Bool, m => nm_is_kids(m), Cmd.Shut{}, Cmd.Kids{q, xs}, h)
-
-# a walk state whose menu lists the children of q: the key acts on q
-def nm_key_kids(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List<&2, Nat>, sel: Cmd.Sel, k: Cmd.Press, +q: List<&2, List<&2, Nat>>, -xs: List<&2, Nat>, h: {Cmd.menu.at(s, t, p) == Cmd.Kids{q, xs} : Cmd.Menu}) -> {Cmd.key.at(s, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}:
-  match s:
-    case Cmd.Top{}:
-      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Top{}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
-    case Cmd.Walk{+q0, e}:
-      +eq = Equal.cong(Cmd.Menu, List<&2, List<&2, Nat>>, m => nm_kq(m), Cmd.Kids{q0, Cmd.items(t, 0n, q0, Cmd.lows(p))}, Cmd.Kids{q, xs}, h)
-      %Equal.sym(List<&2, List<&2, Nat>>, q0, q, eq) : {Cmd.key.row(Cmd.row(sel, t, _), k, t, line, p) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}
-      nm_key_row(sel, t, q, line, p, k)
-    case Cmd.Rest{q0, ws}:
-      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Rest{q0, ws}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
-    case Cmd.OffPath{q0, x}:
-      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.OffPath{q0, x}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
-    case Cmd.Stray{}:
-      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Stray{}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
 
 # the root state
 def nm_top(s: Cmd.St) -> Bool:
@@ -872,3 +805,71 @@ def nm_named_miss(e: Cmd.Ent, -x: List<&2, Nat>, -s: List<&2, Nat>) -> {CommandN
   match e:
     case Cmd.Ent{p, a, r, f, g}:
       {==}
+
+# no row: the model's key.bare is cmd_key_bare
+def nm_bare(k: Cmd.Press, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>) -> {Cmd.key.bare(k, t, line) == CommandNamed.cmd_key_bare(t, line, k) : Cmd.Out}:
+  match k:
+    case Cmd.Tab{}:
+      {==}
+    case Cmd.Enter{}:
+      PCommandEnterWithoutRow.kewr_enter(Cmd.resolve(t, line), line)
+
+def nm_kid(b: Bool, c: Cmd.Ent, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List<&2, Nat>, k: Cmd.Press) -> {Cmd.key.row(Cmd.row.kid(b, c), k, t, line, p) == CommandNamed.cmd_key_kid(b, c, t, line, p, k) : Cmd.Out}:
+  match b:
+    case True{}:
+      match k:
+        case Cmd.Tab{}:
+          PCommandTabCompletesRow.tcr_pick(c, t, line, p)
+        case Cmd.Enter{}:
+          PCommandEnterOnRow.eor_pick(c, t, line, p)
+    case False{}:
+      nm_bare(k, t, line)
+
+def nm_row_of(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +line: List<&2, Nat>, +p: List<&2, Nat>, k: Cmd.Press) -> {Cmd.key.row(Cmd.row.of(m, q), k, t, line, p) == CommandNamed.cmd_key_row(m, t, q, line, p, k) : Cmd.Out}:
+  match m:
+    case None{}:
+      nm_bare(k, t, line)
+    case Some{c}:
+      match c:
+        case Cmd.Ent{+pp, +a, +r, +f, +g}:
+          +E = {Cmd.Ent{pp, a, r, f, g} : Cmd.Ent}
+          %LA.cb_kid(q, pp) : {Cmd.key.row(Cmd.row.kid(Cmd.kid(q, pp), E), k, t, line, p) == CommandNamed.cmd_key_kid(_, E, t, line, p, k) : Cmd.Out}
+          nm_kid(Cmd.kid(q, pp), E, t, line, p, k)
+
+# the row of the selection at q is cmd_key_at
+def nm_key_row(sel: Cmd.Sel, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +line: List<&2, Nat>, +p: List<&2, Nat>, k: Cmd.Press) -> {Cmd.key.row(Cmd.row(sel, t, q), k, t, line, p) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}:
+  match sel:
+    case Cmd.NoRow{}:
+      nm_bare(k, t, line)
+    case Cmd.Row{+i}:
+      nm_row_of(List.get(&2, Cmd.Ent, t, i), t, q, line, p, k)
+
+# the path of a children menu, and which menus list children
+def nm_kq(m: Cmd.Menu) -> List<&2, List<&2, Nat>>:
+  match m:
+    case Cmd.Names{}:
+      Nil{}
+    case Cmd.Kids{q, xs}:
+      q
+    case Cmd.Shut{}:
+      Nil{}
+
+# a shut menu is no children menu
+def nm_shut_kids(-q: List<&2, List<&2, Nat>>, -xs: List<&2, Nat>, h: {Cmd.Shut{} == Cmd.Kids{q, xs} : Cmd.Menu}) -> {False{} == True{} : Bool}:
+  Equal.cong(Cmd.Menu, Bool, m => nm_is_kids(m), Cmd.Shut{}, Cmd.Kids{q, xs}, h)
+
+# a walk state whose menu lists the children of q: the key acts on q
+def nm_key_kids(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List<&2, Nat>, sel: Cmd.Sel, k: Cmd.Press, +q: List<&2, List<&2, Nat>>, -xs: List<&2, Nat>, h: {Cmd.menu.at(s, t, p) == Cmd.Kids{q, xs} : Cmd.Menu}) -> {Cmd.key.at(s, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}:
+  match s:
+    case Cmd.Top{}:
+      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Top{}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
+    case Cmd.Walk{+q0, e}:
+      +eq = Equal.cong(Cmd.Menu, List<&2, List<&2, Nat>>, m => nm_kq(m), Cmd.Kids{q0, Cmd.items(t, 0n, q0, Cmd.lows(p))}, Cmd.Kids{q, xs}, h)
+      %Equal.sym(List<&2, List<&2, Nat>>, q0, q, eq) : {Cmd.key.row(Cmd.row(sel, t, _), k, t, line, p) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}
+      nm_key_row(sel, t, q, line, p, k)
+    case Cmd.Rest{q0, ws}:
+      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Rest{q0, ws}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
+    case Cmd.OffPath{q0, x}:
+      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.OffPath{q0, x}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))
+    case Cmd.Stray{}:
+      LLogicLogic.cb_absurd({Cmd.key.at(Cmd.Stray{}, t, line, p, sel, k) == CommandNamed.cmd_key_at(t, q, line, p, sel, k) : Cmd.Out}, nm_shut_kids(q, xs, h))

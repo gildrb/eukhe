@@ -29,51 +29,6 @@ def rm.polls(cfg: RnState.Cfg) -> Nat:
     case RnState.Cfg{cap, polls, retries, notes}:
       polls
 
-def rm.retries(cfg: RnState.Cfg) -> Nat:
-  match cfg:
-    case RnState.Cfg{cap, polls, retries, notes}:
-      retries
-
-def rm.notes(cfg: RnState.Cfg) -> Nat:
-  match cfg:
-    case RnState.Cfg{cap, polls, retries, notes}:
-      notes
-
-# a run starts preparing its first request, with max(cap, 1) - 1 rounds
-# left after the one it makes, one compaction, and every retry, note and
-# ms of a generation
-def rm.init(cfg: RnState.Cfg) -> RnState.St:
-  match cfg:
-    case RnState.Cfg{cap, polls, retries, notes}:
-      RnState.St{RnState.Prepare{}, Nat.sub(cap, 1n), 1n, retries, notes, polls}
-
-# preparation: a context over the blocking threshold (an overflow) with a
-# cut waits for a compaction while the generation has one left, and spends
-# it; else the request goes out, with the job's whole time
-def rm.prepare.over(+cfg: RnState.Cfg, cut: Bool, r: Nat, c: Nat, a: Nat, n: Nat) -> RnState.St:
-  match cut:
-    case True{}:
-      match c:
-        case 1n+d:
-          RnState.St{RnState.Compact{False{}}, r, d, a, n, rm.polls(cfg)}
-        case 0n:
-          RnState.St{RnState.Call{}, r, 0n, a, n, rm.polls(cfg)}
-    case False{}:
-      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
-
-def rm.prepare(+cfg: RnState.Cfg, reply: RnState.Reply, r: Nat, c: Nat, a: Nat, n: Nat) -> RnState.St:
-  match reply:
-    case RnState.Overflow{cut}:
-      rm.prepare.over(cfg, cut, r, c, a, n)
-    case RnState.Plain{}:
-      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
-    case RnState.Calls{}:
-      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
-    case RnState.Deferred{}:
-      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
-    case RnState.Error{retryable, noted}:
-      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
-
 # an error: a noted one retries with a note while notes are left and
 # spends one, retryable or not; one that is not noted retries while it is
 # retryable and retries are left and spends one; a retry prepares the
@@ -144,6 +99,43 @@ def rm.compact(+cfg: RnState.Cfg, got: RnState.Got, over: Bool, r: Nat, c: Nat, 
     case RnState.Broke{}:
       RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p}
 
+# preparation: a context over the blocking threshold (an overflow) with a
+# cut waits for a compaction while the generation has one left, and spends
+# it; else the request goes out, with the job's whole time
+def rm.prepare.over(+cfg: RnState.Cfg, cut: Bool, r: Nat, c: Nat, a: Nat, n: Nat) -> RnState.St:
+  match cut:
+    case True{}:
+      match c:
+        case 1n+d:
+          RnState.St{RnState.Compact{False{}}, r, d, a, n, rm.polls(cfg)}
+        case 0n:
+          RnState.St{RnState.Call{}, r, 0n, a, n, rm.polls(cfg)}
+    case False{}:
+      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
+
+def rm.prepare(+cfg: RnState.Cfg, reply: RnState.Reply, r: Nat, c: Nat, a: Nat, n: Nat) -> RnState.St:
+  match reply:
+    case RnState.Overflow{cut}:
+      rm.prepare.over(cfg, cut, r, c, a, n)
+    case RnState.Plain{}:
+      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
+    case RnState.Calls{}:
+      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
+    case RnState.Deferred{}:
+      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
+    case RnState.Error{retryable, noted}:
+      RnState.St{RnState.Call{}, r, c, a, n, rm.polls(cfg)}
+
+def rm.notes(cfg: RnState.Cfg) -> Nat:
+  match cfg:
+    case RnState.Cfg{cap, polls, retries, notes}:
+      notes
+
+def rm.retries(cfg: RnState.Cfg) -> Nat:
+  match cfg:
+    case RnState.Cfg{cap, polls, retries, notes}:
+      retries
+
 # a round ends: a control stops the run, uncounted; else the round
 # counts: with no round left the cap fails the run; else a queued reset
 # ends it (answered) with one round less; else the next generation
@@ -203,6 +195,25 @@ def rm.step(+cfg: RnState.Cfg, s: RnState.St, e: RnState.Ev) -> RnState.St:
             case RnState.Go{reply, fin, got}:
               rm.tools(cfg, fin, r, c, a, n, p)
 
+# LAW run_step_exact (H4): one input to any state, under any configuration, is the machine's step: an ended run stays; an abort ends a live run; preparation, a reply, a compaction's end and a round's end each move the phase and spend or renew the limits as rm.step says
+# EXCLUDES: a step that fails on the model whatever the input, a limit
+#   spent twice or not at all, the job's time not renewed by a retry, a
+#   round that renews the limits without counting itself, a reply read
+#   in a phase that does not read it
+law run_step_exact:
+  for +cfg: RnState.Cfg
+  for +s: RnState.St
+  for +e: RnState.Ev
+  {RnStep.step(cfg, s, e) == rm.step(cfg, s, e) : RnState.St}
+
+# a run starts preparing its first request, with max(cap, 1) - 1 rounds
+# left after the one it makes, one compaction, and every retry, note and
+# ms of a generation
+def rm.init(cfg: RnState.Cfg) -> RnState.St:
+  match cfg:
+    case RnState.Cfg{cap, polls, retries, notes}:
+      RnState.St{RnState.Prepare{}, Nat.sub(cap, 1n), 1n, retries, notes, polls}
+
 # the run after evs: each input a step, in order, from the start
 def rm.run.go(evs: List<&2, RnState.Ev>, +cfg: RnState.Cfg, s: RnState.St) -> RnState.St:
   match evs:
@@ -214,11 +225,15 @@ def rm.run.go(evs: List<&2, RnState.Ev>, +cfg: RnState.Cfg, s: RnState.St) -> Rn
 def rm.run(+cfg: RnState.Cfg, evs: List<&2, RnState.Ev>) -> RnState.St:
   rm.run.go(evs, cfg, rm.init(cfg))
 
-# The requests (H4.7)
-# -------------------
-# The requests of a run: the version of its logged context, the attempt of
-# its generation, the note its next request carries (0: none), and what it
-# sent and cut, newest first.
+# LAW run_fold_exact (H4): the run after any inputs, under any configuration, is the machine's: rm.step on each input, in order, from the start rm.init
+# EXCLUDES: a run that answers St{Failed{Model{}}, ...} for every input
+#   (run_ends, run_rounds_capped, run_rounds_fail_at_cap and
+#   run_polls_need_defers all pass it), a run that skips, reorders or
+#   repeats an input, or starts from other limits
+law run_fold_exact:
+  for +cfg: RnState.Cfg
+  for evs: List<&2, RnState.Ev>
+  {RnStep.run(cfg, evs) == rm.run(cfg, evs) : RnState.St}
 
 def rm.ph(s: RnState.St) -> RnState.Ph:
   match s:
@@ -319,30 +334,6 @@ def rm.reqs.go(evs: List<&2, RnState.Ev>, +cfg: RnState.Cfg, +s: RnState.St, t: 
 
 def rm.reqs(+cfg: RnState.Cfg, evs: List<&2, RnState.Ev>) -> RnRequest.Reqs:
   rm.reqs.go(evs, cfg, rm.init(cfg), RnRequest.Reqs{0n, 1n, 0n, Nil{}})
-
-# Laws
-# ----
-
-# LAW run_step_exact (H4): one input to any state, under any configuration, is the machine's step: an ended run stays; an abort ends a live run; preparation, a reply, a compaction's end and a round's end each move the phase and spend or renew the limits as rm.step says
-# EXCLUDES: a step that fails on the model whatever the input, a limit
-#   spent twice or not at all, the job's time not renewed by a retry, a
-#   round that renews the limits without counting itself, a reply read
-#   in a phase that does not read it
-law run_step_exact:
-  for +cfg: RnState.Cfg
-  for +s: RnState.St
-  for +e: RnState.Ev
-  {RnStep.step(cfg, s, e) == rm.step(cfg, s, e) : RnState.St}
-
-# LAW run_fold_exact (H4): the run after any inputs, under any configuration, is the machine's: rm.step on each input, in order, from the start rm.init
-# EXCLUDES: a run that answers St{Failed{Model{}}, ...} for every input
-#   (run_ends, run_rounds_capped, run_rounds_fail_at_cap and
-#   run_polls_need_defers all pass it), a run that skips, reorders or
-#   repeats an input, or starts from other limits
-law run_fold_exact:
-  for +cfg: RnState.Cfg
-  for evs: List<&2, RnState.Ev>
-  {RnStep.run(cfg, evs) == rm.run(cfg, evs) : RnState.St}
 
 # LAW run_reqs_exact (H4.7): the requests of the run after any inputs, under any configuration, are exactly the ones its steps make: each request sent when preparation ends in a call, each request cut by a noted error, the attempt and note of the next request, the context version
 # EXCLUDES: requests that log nothing (an empty log passes

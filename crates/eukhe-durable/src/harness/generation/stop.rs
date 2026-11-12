@@ -174,8 +174,8 @@ pub(crate) fn walk(facts: Facts) -> Pick {
 }
 
 /// The note that ends a request after `done` tool rounds of the run's
-/// `max` (`maxToolRounds`): the rounds left, once few remain (law
-/// `stop_rounds_exact`).
+/// `max` (`maxToolRounds`): the rounds left, once few remain (laws
+/// `stop_rounds_quiet_while_many_left`, `stop_rounds_note_near_the_cap`).
 pub(crate) fn rounds_note(max: u32, done: u32) -> Option<String> {
     ask(
         |w| {

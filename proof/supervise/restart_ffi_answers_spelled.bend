@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW restart_ffi_answers_spelled
-# The entry's reader reads back the request Rust writes (LAE.rse.rt),
-# nothing is left, and the entry answers as the laws spell the model's
-# decision (LAE.rse.answer).
+# The entry's decoder reads the spelled request back with nothing after it
+# (LAE.rse.rt); the entry then answers the model's decision, spelled as
+# the laws spell it (LAE.rse.answer).
 
 import Base
 import ../../bend/ffi_supervise.bend as FS

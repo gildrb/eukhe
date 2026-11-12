@@ -3,7 +3,7 @@
 import Base
 import ../../bend/stop.bend as Stop
 import ../../bend/run/recovery.bend as RnRecovery
-import ../../laws/run/model.bend as Run
+import ../../laws/run/recover.bend as Run
 import ./base.bend as LA
 
 # Every recovery stops at its cap

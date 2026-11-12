@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW cron_beats_step_exact
 # A new job's facts are make_spec's; the user's stop the code applies is
 # halt_spec's stop, on the `/heartbeat` records of the session alone; a
-# decision is cron_beats_decide_exact; a rebind counts the kept record
+# decision is the spec's (LCb.de.on); a rebind counts the kept record
 # down where the spec counts the index up (bs.keep_at: the kept record is
 # at index k + i; bs.past: past it no record is kept).
 
@@ -11,7 +11,7 @@ import ../../bend/cron_store.bend as CS
 import ../../bend/cron_beats.bend as CB
 import ../../laws/cron_store.bend as CronStore
 import ../../laws/cron_beats.bend as CronBeats
-import ./cron_beats_decide_exact.bend as PDecide
+import ./base.bend as LCb
 
 # Numbers
 # -------
@@ -255,7 +255,7 @@ def CronBeats.cron_beats_step_exact(a, rs):
     case CB.AJob{s, file, p, at}:
       {==}
     case CB.AOn{i, op}:
-      CronBeats.cron_beats_decide_exact(i, op, rs)
+      LCb.de.on(i, op, rs)
     case CB.ARebind{+s, +file, +keep}:
       %bs.add_zero(keep) : {CB.stop_but(s, keep, CB.relabel(s, file, rs)) == CronBeats.rebound_spec(rs, s, file, _, 0n) : List<&2, CB.Row>}
       bs.keep_at(rs, keep, s, file, 0n)

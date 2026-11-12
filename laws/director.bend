@@ -8,8 +8,56 @@ import ./base.bend as LawsBase
 
 # (S5) The Director stack
 # -----------------------
-# the model in bend/director.bend. Every verdict is
-# free: each layer of each step says what the adversary picks.
+# The model in bend/director.bend, which the Rust code runs as the
+# compiled core (crates/eukhe-core/src/durable/directors/stack.rs
+# `Loop::tick`, entry bend/ffi_director.bend). Every verdict is free:
+# each layer of each step says what the adversary picks. Requirements
+# (stack.rs `Verdict` and `Loop::tick` doc comments, the header of
+# bend/director.bend; they are eukhe's own):
+#
+# R1: the top layer decides first. A layer that says Defer, or has no
+#     verdict, stays where it is and the next layer down decides; a layer
+#     that says Unstack is removed and the next layer down decides. The
+#     first layer with another verdict decides; verdicts past the stack's
+#     last layer are never read.
+# R2: Yield stops the loop and hands back to the user; Abort stops it
+#     with a failure. The deciding layer and the layers below it stay as
+#     they are.
+# R3: Again goes on and costs the deciding layer one unit of its budget;
+#     with no budget left it yields instead, nothing spent.
+# R4: Stack{p} puts p right on top of the deciding layer (under the
+#     layers above it that stay) and goes on; it costs the deciding layer
+#     one unit; with no budget left it yields instead, nothing spent,
+#     nothing pushed. A stack that holds cap layers already (every layer
+#     counted, those above the deciding one too) has no room: the step
+#     fails, the unit spent, nothing pushed.
+# R5: Lead (a reminder) leaves with the continuation it leads: when the
+#     step goes on it leaves, when the step ends the loop it stays. Either
+#     way the next layer down decides.
+# R6: with no layer left to decide (every layer deferred, left or had no
+#     verdict) the loop hands back to the user.
+# R7: the loop has a global budget of steps: a step that goes on costs
+#     exactly one step, a step that ends the loop costs none. A continue
+#     with no step left ends the loop handed back, with the stack that
+#     step leaves (the unit spent, a pushed layer pushed, a layer that
+#     leads staying; the Rust test
+#     `the_global_budget_hands_back_whatever_the_layers_say` pins the
+#     spent unit).
+# R8: an ended loop stays as it ended, whatever the layers say
+#     (dir_ended_stays_any_outcome, dir_ffi_ended_stays_any_outcome).
+# R9: the loop ends after at most n + 1 steps of a global budget n
+#     (dir_loop_ends).
+# R10: no step grows the stack past its cap (dir_stack_bounded,
+#     dir_loop_stack_bounded).
+# R11: a run of steps is those steps, one after another, first first.
+# R12: the entry answers each request Rust writes with the loop after
+#     the step, spelled in Rust's grammar (crates/eukhe-bend/WIRE.md), and
+#     any other input with the exact error forms (the entry section).
+# A1: Dr.encode/Dr.decode, the model's spelling of the stack as session
+#     tree nodes, read back what they write (dir_resume_restores). No
+#     entry calls them: Rust keeps the stack in the rewindable
+#     eukhe.directors document (crates/eukhe-core/src/durable/directors/
+#     mod.rs), whose resume and rewind the Rust tests check, unproven.
 
 # LAW dir_stack_bounded: a decision never grows the stack past its cap
 law dir_stack_bounded:
@@ -27,219 +75,302 @@ law dir_loop_stack_bounded:
   for fits: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(l)), cap) == True{} : Bool}
   {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.run(vss, cap, l))), cap) == True{} : Bool}
 
-# LAW dir_loop_ends: the loop ends (hands back or fails) after at most n + 1 steps,
-# with n its global budget, whatever every layer says: no Director keeps
-# the loop going for ever
+# the outcome o stops the loop: a hand back or a failure
+def dir_stops(o: Dr.Out) -> Bool:
+  match o:
+    case Dr.Cont{}:
+      False{}
+    case Dr.Hand{}:
+      True{}
+    case Dr.Failed{}:
+      True{}
+
+# the loop l has stopped: its end field holds a hand back or a failure
+def dir_stopped(l: Dr.Loop) -> Bool:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          False{}
+        case Some{o}:
+          dir_stops(o)
+
+# the loop l still runs: its end field holds no outcome
+def dir_running(l: Dr.Loop) -> Bool:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          True{}
+        case Some{o}:
+          False{}
+
+# LAW dir_loop_ends (R9): a running loop with global budget n, after n + 1
+# steps, has stopped: its end field holds a hand back or a failure (never
+# a continue, never no outcome), whatever every layer says and whatever
+# the cap and the stack: no Director keeps the loop going for ever
+# EXCLUDES: a loop that runs past its global budget, a step that ends the
+#   loop without an outcome or with a continue, an ended loop the model's
+#   own `ended` test misreads (the law reads the end field, not Dr.ended)
 law dir_loop_ends:
   for +n: Nat
   for +s: List<&2, Dr.Layer>
   for +vss: List<&2, List<&2, Dr.Verdict>>
   for +cap: Nat
   for long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}
-  {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
+  {dir_stopped(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
 
-# LAW dir_end_is_final: an ended loop stays as it ended
-law dir_end_is_final:
+# LAW dir_ended_stays_any_outcome (R8): a loop that has ended, with any outcome
+# (continue, hand back or failure), any steps left and any stack, is left
+# by a step exactly as it ended, whatever the cap and whatever every
+# layer says
+# EXCLUDES: an ended loop (of any outcome, a continue included) revived as
+#   running, a step or a unit charged, a layer pushed, left or changed, the
+#   outcome rewritten
+law dir_ended_stays_any_outcome:
   for +cap: Nat
-  for +l: Dr.Loop
-  for done: {Dr.ended(l) == True{} : Bool}
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +o: Dr.Out
   for vs: List<&2, Dr.Verdict>
-  {Dr.tick(cap, l, vs) == l : Dr.Loop}
+  {Dr.tick(cap, Dr.Loop{n, s, Some{o}}, vs) == Dr.Loop{n, s, Some{o}} : Dr.Loop}
 
-# LAW dir_resume_restores: a resume reads back the stack the tree holds, exactly
+# LAW dir_resume_restores (A1): the model's tree spelling of a stack reads back
+# as that stack (Dr.decode of Dr.encode), exactly. A model-only claim: no
+# entry calls Dr.encode or Dr.decode, and the Rust code resumes the stack
+# from the eukhe.directors document, which this law does not cover
 law dir_resume_restores:
   for +s: List<&2, Dr.Layer>
   {Dr.decode(Dr.encode(s)) == s : List<&2, Dr.Layer>}
 
-# The rule, verdict by verdict (bend/director.bend `decide.go`): one
-# decision of the stack (top first) on the verdicts (top first), with room
-# telling whether the whole stack holds fewer than cap layers and stay
-# telling whether the loop ends (a layer that leads stays) or goes on (it
-# leaves). Together these laws give every decision exactly.
+# The step, verdict by verdict
+# ----------------------------
+# Each law below takes a running loop whose stack is the layers a above
+# the deciding layer above the layers b, and verdicts that give each
+# layer of a its verdict of va (one each, in order, each Defer or Unstack),
+# the deciding layer its verdict, and then anything (vr, never read). A
+# Lead is read by the lead laws further down (R5): with them, and with
+# dir_step_no_verdict_defers for a stack longer than its verdicts, these
+# laws give every step of a running loop.
 
-# the decision d with the layer l put back on top of its stack
-def dir_on_top(+l: Dr.Layer, d: Dr.Dec) -> Dr.Dec:
-  match d:
-    case Dr.Dec{o, s}:
-      Dr.Dec{o, l <> s}
+# R1: a verdict that passes the decision to the next layer down and
+# leaves no doubt whether its layer stays: Defer (it stays), Unstack (it
+# goes)
+def dir_passes(v: Dr.Verdict) -> Bool:
+  match v:
+    case Dr.Defer{}:
+      True{}
+    case Dr.Again{}:
+      False{}
+    case Dr.Yield{}:
+      False{}
+    case Dr.Stack{p}:
+      False{}
+    case Dr.Unstack{}:
+      True{}
+    case Dr.Abort{}:
+      False{}
+    case Dr.Lead{}:
+      False{}
 
-# LAW dir_go_empty: with no layer left, the loop hands back with an empty stack
-law dir_go_empty:
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(Nil{}, vs, room, stay) == Dr.Dec{Dr.Hand{}, Nil{}} : Dr.Dec}
+# R1: every verdict of vs passes
+def dir_all_pass(vs: List<&2, Dr.Verdict>) -> Bool:
+  match vs:
+    case Nil{}:
+      True{}
+    case v <> rest:
+      Bool.and(dir_passes(v), dir_all_pass(rest))
 
-# LAW dir_go_unjudged: a layer with no verdict defers: it stays on top of the decision of
-# the layers below, which have no verdict either
-law dir_go_unjudged:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(l <> rest, Nil{}, room, stay) == dir_on_top(l, Dr.decide.go(rest, Nil{}, room, stay)) : Dr.Dec}
+# R1: the layers of a that stay, each saying its verdict of va (in
+# order): a layer that says Unstack is gone, every other one stays where it
+# is
+def dir_stayers(a: List<&2, Dr.Layer>, va: List<&2, Dr.Verdict>) -> List<&2, Dr.Layer>:
+  match a:
+    case Nil{}:
+      Nil{}
+    case l <> t:
+      match va:
+        case Nil{}:
+          l <> t
+        case v <> vt:
+          match v:
+            case Dr.Defer{}:
+              l <> dir_stayers(t, vt)
+            case Dr.Again{}:
+              l <> dir_stayers(t, vt)
+            case Dr.Yield{}:
+              l <> dir_stayers(t, vt)
+            case Dr.Stack{p}:
+              l <> dir_stayers(t, vt)
+            case Dr.Unstack{}:
+              dir_stayers(t, vt)
+            case Dr.Abort{}:
+              l <> dir_stayers(t, vt)
+            case Dr.Lead{}:
+              l <> dir_stayers(t, vt)
 
-# LAW dir_go_defer: a Defer stays on top of the decision of the layers below
-law dir_go_defer:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(l <> rest, Dr.Defer{} <> vs, room, stay) == dir_on_top(l, Dr.decide.go(rest, vs, room, stay)) : Dr.Dec}
+# R3, R4: the verdicts that ask the loop to go on at the cost of a unit
+def dir_asks_a_step(v: Dr.Verdict) -> Bool:
+  match v:
+    case Dr.Defer{}:
+      False{}
+    case Dr.Again{}:
+      True{}
+    case Dr.Yield{}:
+      False{}
+    case Dr.Stack{p}:
+      True{}
+    case Dr.Unstack{}:
+      False{}
+    case Dr.Abort{}:
+      False{}
+    case Dr.Lead{}:
+      False{}
 
-# LAW dir_go_leave: an Unstack removes the layer; the layers below decide
-law dir_go_leave:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(l <> rest, Dr.Unstack{} <> vs, room, stay) == Dr.decide.go(rest, vs, room, stay) : Dr.Dec}
-
-# LAW dir_go_lead_stays: a Lead stays when the loop ends: it stays on top of the decision of
-# the layers below
-law dir_go_lead_stays:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  {Dr.decide.go(l <> rest, Dr.Lead{} <> vs, room, True{}) == dir_on_top(l, Dr.decide.go(rest, vs, room, True{})) : Dr.Dec}
-
-# LAW dir_go_lead_leaves: a Lead leaves when the loop goes on; the layers below decide
-law dir_go_lead_leaves:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  {Dr.decide.go(l <> rest, Dr.Lead{} <> vs, room, False{}) == Dr.decide.go(rest, vs, room, False{}) : Dr.Dec}
-
-# LAW dir_go_yield: a Yield hands back; the stack stays as it is
-law dir_go_yield:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(l <> rest, Dr.Yield{} <> vs, room, stay) == Dr.Dec{Dr.Hand{}, l <> rest} : Dr.Dec}
-
-# LAW dir_go_abort: an Abort fails; the stack stays as it is
-law dir_go_abort:
-  for +l: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(l <> rest, Dr.Abort{} <> vs, room, stay) == Dr.Dec{Dr.Failed{}, l <> rest} : Dr.Dec}
-
-# LAW dir_go_again: an Again with budget goes on and costs the layer one unit
-law dir_go_again:
-  for +k: Nat
-  for +b: Nat
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(Dr.Layer{k, 1n+b} <> rest, Dr.Again{} <> vs, room, stay) == Dr.Dec{Dr.Cont{}, Dr.Layer{k, b} <> rest} : Dr.Dec}
-
-# LAW dir_go_again_spent: an Again with no budget left hands back; the stack stays
-law dir_go_again_spent:
-  for +k: Nat
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(Dr.Layer{k, 0n} <> rest, Dr.Again{} <> vs, room, stay) == Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest} : Dr.Dec}
-
-# LAW dir_go_push: a Stack with budget and room puts the new layer on top, goes on,
-# and costs the layer one unit
-law dir_go_push:
-  for +k: Nat
-  for +b: Nat
-  for +n: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +stay: Bool
-  {Dr.decide.go(Dr.Layer{k, 1n+b} <> rest, Dr.Stack{n} <> vs, True{}, stay) == Dr.Dec{Dr.Cont{}, n <> Dr.Layer{k, b} <> rest} : Dr.Dec}
-
-# LAW dir_go_push_full: a Stack with budget and no room fails; it still costs the layer
-# one unit, and the layers above the deciding one are gone
-law dir_go_push_full:
-  for +k: Nat
-  for +b: Nat
-  for +n: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +stay: Bool
-  {Dr.decide.go(Dr.Layer{k, 1n+b} <> rest, Dr.Stack{n} <> vs, False{}, stay) == Dr.Dec{Dr.Failed{}, Dr.Layer{k, b} <> rest} : Dr.Dec}
-
-# LAW dir_go_push_spent: a Stack with no budget left hands back; nothing is pushed
-law dir_go_push_spent:
-  for +k: Nat
-  for +n: Dr.Layer
-  for +rest: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +room: Bool
-  for +stay: Bool
-  {Dr.decide.go(Dr.Layer{k, 0n} <> rest, Dr.Stack{n} <> vs, room, stay) == Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest} : Dr.Dec}
-
-# LAW dir_room: the room of a decision: the whole stack (every layer, those above
-# the deciding one too) holds fewer than cap layers. A cap the Rust code
-# saturates (at the wire's largest Nat) leaves room for every stack.
-law dir_room:
-  for +s: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +cap: Nat
-  for +stay: Bool
-  {Dr.decide.as(s, vs, cap, stay) == Dr.decide.go(s, vs, Nat.is_lt(List.length(&2, Dr.Layer, s), cap), stay) : Dr.Dec}
-
-# LAW dir_decide_goes_on: a decision of the loop is the one where a layer that leads leaves
-law dir_decide_goes_on:
-  for +s: List<&2, Dr.Layer>
-  for vs: List<&2, Dr.Verdict>
-  for +cap: Nat
-  {Dr.decide(s, vs, cap) == Dr.decide.as(s, vs, cap, False{}) : Dr.Dec}
-
-# The loop, step by step (with dir_end_is_final, every tick exactly)
-
-# LAW dir_tick_goes_on: a continue with a step left goes on, one step fewer, with the
-# decision's stack (a layer that leads left with it)
-law dir_tick_goes_on:
-  for +cap: Nat
+# LAW dir_step_undecided (R1, R6): a running loop whose every layer says Defer or
+# Unstack (one verdict a layer, in order, any verdicts after them) ends
+# handed back with its steps left; the layers that said Unstack are gone,
+# the others stay in order
+# EXCLUDES: no deciding layer read as a continue or a failure; an Unstack
+#   kept, a Defer dropped, layers reordered; a verdict past the stack
+#   read; a step charged for a hand back
+law dir_step_undecided:
   for +n: Nat
   for +s: List<&2, Dr.Layer>
-  for +vs: List<&2, Dr.Verdict>
-  for +t: List<&2, Dr.Layer>
-  for go: {Dr.decide(s, vs, cap) == Dr.Dec{Dr.Cont{}, t} : Dr.Dec}
-  {Dr.tick(cap, Dr.Loop{1n+n, s, None{}}, vs) == Dr.Loop{n, t, None{}} : Dr.Loop}
-
-# LAW dir_tick_out_of_steps: a continue with no step left yields; a layer that leads stays
-law dir_tick_out_of_steps:
+  for +va: List<&2, Dr.Verdict>
+  for +vr: List<&2, Dr.Verdict>
   for +cap: Nat
-  for +s: List<&2, Dr.Layer>
-  for +vs: List<&2, Dr.Verdict>
-  for go: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Cont{} : Dr.Out}
-  {Dr.tick(cap, Dr.Loop{0n, s, None{}}, vs) == Dr.Loop{0n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Hand{}}} : Dr.Loop}
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, s), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  {Dr.tick(cap, Dr.Loop{n, s, None{}}, List.append(&2, Dr.Verdict, va, vr)) == Dr.Loop{n, dir_stayers(s, va), Some{Dr.Hand{}}} : Dr.Loop}
 
-# LAW dir_tick_hands_back: a hand back ends the loop with its steps left; a layer that leads
-# stays
-law dir_tick_hands_back:
+# LAW dir_step_no_verdict_defers (R1): a layer with no verdict defers: one more Defer after
+# the verdicts changes no step, of any loop
+# EXCLUDES: a missing verdict read as Again, Yield, Unstack or any verdict
+#   but Defer; a short verdict list refused or misaligned
+law dir_step_no_verdict_defers:
   for +cap: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, List.append(&2, Dr.Verdict, vs, [Dr.Defer{}])) : Dr.Loop}
+
+# LAW dir_step_yield (R1, R2): a running loop whose deciding layer says Yield ends
+# handed back with its steps left; the layers above it that said Unstack are
+# gone, the others stay; the deciding layer and those below stay as they
+# are
+# EXCLUDES: a Yield that goes on, fails, charges a step or a unit, drops
+#   or reorders a layer; a decision by a layer below a deciding one
+law dir_step_yield:
   for +n: Nat
-  for +s: List<&2, Dr.Layer>
-  for +vs: List<&2, Dr.Verdict>
-  for h: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Hand{} : Dr.Out}
-  {Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Hand{}}} : Dr.Loop}
-
-# LAW dir_tick_fails: a failure ends the loop with its steps left; a layer that leads
-# stays
-law dir_tick_fails:
+  for +a: List<&2, Dr.Layer>
+  for +d: Dr.Layer
+  for +b: List<&2, Dr.Layer>
+  for +va: List<&2, Dr.Verdict>
+  for +vr: List<&2, Dr.Verdict>
   for +cap: Nat
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  {Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, d <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Yield{} <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, dir_stayers(a, va), d <> b), Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_step_abort (R1, R2): a running loop whose deciding layer says Abort ends failed
+# with its steps left; the layers above it that said Unstack are gone, the
+# others stay; the deciding layer and those below stay as they are
+# EXCLUDES: an Abort read as a hand back or a continue, a step or a unit
+#   charged, a layer dropped or reordered
+law dir_step_abort:
   for +n: Nat
-  for +s: List<&2, Dr.Layer>
-  for +vs: List<&2, Dr.Verdict>
-  for f: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Failed{} : Dr.Out}
-  {Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Failed{}}} : Dr.Loop}
+  for +a: List<&2, Dr.Layer>
+  for +d: Dr.Layer
+  for +b: List<&2, Dr.Layer>
+  for +va: List<&2, Dr.Verdict>
+  for +vr: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  {Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, d <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Abort{} <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, dir_stayers(a, va), d <> b), Some{Dr.Failed{}}} : Dr.Loop}
+
+# LAW dir_step_spent (R1, R3, R4): a running loop whose deciding layer has no budget left
+# and says Again or Stack ends handed back with its steps left; nothing is
+# spent or pushed; the layers above it that said Unstack are gone, the
+# others stay
+# EXCLUDES: a budget that goes below zero or is ignored (a continue on no
+#   budget), a layer pushed on no budget, a spent budget read as a failure
+law dir_step_spent:
+  for +n: Nat
+  for +a: List<&2, Dr.Layer>
+  for +k: Nat
+  for +b: List<&2, Dr.Layer>
+  for +va: List<&2, Dr.Verdict>
+  for +v: Dr.Verdict
+  for +vr: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  for asks: {dir_asks_a_step(v) == True{} : Bool}
+  {Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, Dr.Layer{k, 0n} <> b), None{}}, List.append(&2, Dr.Verdict, va, v <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, dir_stayers(a, va), Dr.Layer{k, 0n} <> b), Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_step_again (R1, R3, R7): a running loop with a step left whose deciding layer
+# has budget and says Again goes on: it costs the loop exactly one step
+# and the deciding layer exactly one unit; the layers above it that said
+# Unstack are gone, the others stay; nothing else changes
+# EXCLUDES: an Again that costs no unit or two, charges another layer,
+#   costs no step, ends the loop, or drops, adds or reorders a layer
+law dir_step_again:
+  for +m: Nat
+  for +a: List<&2, Dr.Layer>
+  for +k: Nat
+  for +c: Nat
+  for +b: List<&2, Dr.Layer>
+  for +va: List<&2, Dr.Verdict>
+  for +vr: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  {Dr.tick(cap, Dr.Loop{1n+m, List.append(&2, Dr.Layer, a, Dr.Layer{k, 1n+c} <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Again{} <> vr)) == Dr.Loop{m, List.append(&2, Dr.Layer, dir_stayers(a, va), Dr.Layer{k, c} <> b), None{}} : Dr.Loop}
+
+# LAW dir_step_push (R1, R4, R7): a running loop with a step left whose deciding layer
+# has budget and says Stack{p}, its whole stack holding fewer than cap
+# layers, goes on with p right on top of the deciding layer: it costs the
+# loop exactly one step and the deciding layer exactly one unit; the
+# layers above it that said Unstack are gone, the others stay above p
+# EXCLUDES: a push past the cap or refused below it, room counted on part
+#   of the stack, p put on the very top or under the deciding layer, a
+#   push that costs no unit or no step, a pushed layer changed
+law dir_step_push:
+  for +m: Nat
+  for +a: List<&2, Dr.Layer>
+  for +k: Nat
+  for +c: Nat
+  for +b: List<&2, Dr.Layer>
+  for +p: Dr.Layer
+  for +va: List<&2, Dr.Verdict>
+  for +vr: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  for room: {Nat.is_lt(List.length(&2, Dr.Layer, List.append(&2, Dr.Layer, a, Dr.Layer{k, 1n+c} <> b)), cap) == True{} : Bool}
+  {Dr.tick(cap, Dr.Loop{1n+m, List.append(&2, Dr.Layer, a, Dr.Layer{k, 1n+c} <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Stack{p} <> vr)) == Dr.Loop{m, List.append(&2, Dr.Layer, dir_stayers(a, va), p <> Dr.Layer{k, c} <> b), None{}} : Dr.Loop}
+
+# LAW dir_step_push_full (R1, R4): a running loop whose deciding layer has budget and says
+# Stack{p}, its whole stack holding cap layers or more, ends failed with
+# its steps left: nothing is pushed, the deciding layer's unit is spent;
+# the layers above it that said Unstack are gone, the others stay
+# EXCLUDES: a push past the cap, a full stack read as a hand back or a
+#   continue, a step charged for the failure
+law dir_step_push_full:
+  for +n: Nat
+  for +a: List<&2, Dr.Layer>
+  for +k: Nat
+  for +c: Nat
+  for +b: List<&2, Dr.Layer>
+  for +p: Dr.Layer
+  for +va: List<&2, Dr.Verdict>
+  for +vr: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}
+  for pass: {dir_all_pass(va) == True{} : Bool}
+  for full: {Nat.is_lt(List.length(&2, Dr.Layer, List.append(&2, Dr.Layer, a, Dr.Layer{k, 1n+c} <> b)), cap) == False{} : Bool}
+  {Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, Dr.Layer{k, 1n+c} <> b), None{}}, List.append(&2, Dr.Verdict, va, Dr.Stack{p} <> vr)) == Dr.Loop{n, List.append(&2, Dr.Layer, dir_stayers(a, va), Dr.Layer{k, c} <> b), Some{Dr.Failed{}}} : Dr.Loop}
 
 # A reminder leaves only with the continuation it leads
 
@@ -269,22 +400,32 @@ def dir_leads(vs: List<&2, Dr.Verdict>, +w: Dr.Verdict) -> List<&2, Dr.Verdict>:
     case v <> rest:
       dir_lead_as(v, w) <> dir_leads(rest, w)
 
-# LAW dir_lead_leaves_with_the_continuation: a step that goes on is the step where every layer that leads
+# LAW dir_lead_leaves_with_the_continuation (R5): a step that goes on (the
+# step where every layer that leads would leave leaves the loop running:
+# its end field holds no outcome) is that step: every layer that leads
 # leaves
+# EXCLUDES: a reminder that stays although the loop goes on (it would
+#   lead the next continuation twice), a step that goes on read through
+#   the model's own `ended` test (the premise reads the end field)
 law dir_lead_leaves_with_the_continuation:
   for +cap: Nat
   for +l: Dr.Loop
   for +vs: List<&2, Dr.Verdict>
-  for on: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
+  for on: {dir_running(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
   {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{})) : Dr.Loop}
 
-# LAW dir_lead_stays_when_the_loop_ends: a step that ends the loop is the step where every layer that leads
-# stays (defers): a reminder never leaves without its continuation
+# LAW dir_lead_stays_when_the_loop_ends (R5): a step that ends the loop
+# (the step where every layer that leads would leave leaves an outcome in
+# the loop's end field) is the step where every layer that leads stays
+# (defers): a reminder never leaves without its continuation
+# EXCLUDES: a reminder dropped by a step that hands back or fails (its
+#   continuation lost), a step that ends read through the model's own
+#   `ended` test (the premise reads the end field)
 law dir_lead_stays_when_the_loop_ends:
   for +cap: Nat
   for +l: Dr.Loop
   for +vs: List<&2, Dr.Verdict>
-  for ends: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
+  for ends: {dir_running(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
   {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Defer{})) : Dr.Loop}
 
 # LAW dir_lead_goes_example: anchor: a reminder over a goal with budget leads the goal's
@@ -295,6 +436,41 @@ law dir_lead_goes_example:
 # LAW dir_lead_stays_example: anchor: a reminder over a goal that yields stays for the next run
 law dir_lead_stays_example:
   {Dr.tick(4n, Dr.Loop{3n, [Dr.Layer{2n, 0n}, Dr.Layer{0n, 5n}], None{}}, [Dr.Lead{}, Dr.Yield{}]) == Dr.Loop{3n, [Dr.Layer{2n, 0n}, Dr.Layer{0n, 5n}], Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_step_out_of_steps (R5, R7): with no step left, a step that would go on (with one
+# step left, every layer that leads reading as Defer, it gives the loop
+# 0 steps left, the stack t, still running) ends the loop handed back with
+# that stack t: what the step does to the stack stands (a unit spent, a
+# layer pushed), and a layer that leads stays
+# EXCLUDES: a continue on no step left (the global budget ignored or gone
+#   below zero), an out-of-steps end read as a failure, a reminder that
+#   leaves without its continuation, a stack rolled back or changed
+#   otherwise than the step would change it
+law dir_step_out_of_steps:
+  for +cap: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for +t: List<&2, Dr.Layer>
+  for on: {Dr.tick(cap, Dr.Loop{1n, s, None{}}, dir_leads(vs, Dr.Defer{})) == Dr.Loop{0n, t, None{}} : Dr.Loop}
+  {Dr.tick(cap, Dr.Loop{0n, s, None{}}, vs) == Dr.Loop{0n, t, Some{Dr.Hand{}}} : Dr.Loop}
+
+# The loop's run
+# --------------
+
+# LAW dir_run_step_by_step (R11): a run of no step leaves the loop as it is, and a run of
+# the steps xs and then one more step vs is the step vs (Dr.tick) on the
+# loop the run of xs leaves: so a run takes its steps one at a time, first
+# step first, from the loop it starts from
+# EXCLUDES: a run that drops, repeats, reorders or invents steps or
+#   verdicts (the run that aborts at once, `run(vss, cap, l) = tick(cap, l,
+#   [Abort{}])`, passes dir_loop_ends and dir_loop_stack_bounded), a run
+#   that ignores the loop it starts from
+law dir_run_step_by_step:
+  for +xs: List<&2, List<&2, Dr.Verdict>>
+  for +vs: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for +l: Dr.Loop
+  {(Dr.run(Nil{}, cap, l), Dr.run(List.append(&2, List<&2, Dr.Verdict>, xs, [vs]), cap, l)) == (l, Dr.tick(cap, Dr.run(xs, cap, l), vs)) : Dr.Loop & Dr.Loop}
 
 # ---- director_entry ----
 
@@ -380,24 +556,6 @@ law dir_ffi_is_tick:
   for +vs: List<&2, Dr.Verdict>
   for h: {dir_req_fits(FDr.Req{c, l, vs}) == True{} : Bool}
   {FDr.ffi(FDr.put_req(FDr.Req{c, l, vs}, "")) == FDr.put_loop(Dr.tick(c, l, vs), "") : String}
-
-# LAW dir_ffi_malformed: a malformed request answers the error form, never a loop
-# EXCLUDES: a default loop for input the decoder refuses
-law dir_ffi_malformed:
-  for +s: String
-  for h: {FDr.get_req(s) == Wr.Bad{} : Wr.Dec<FDr.Req>}
-  {FDr.ffi(s) == Wr.err("director: malformed request") : String}
-
-# LAW dir_ffi_left_over: a request with input left over answers the error form
-# EXCLUDES: a reply to a request followed by anything (a second request
-#   glued on, a truncated encoding read as a shorter one)
-law dir_ffi_left_over:
-  for +s: String
-  for +q: FDr.Req
-  for +r: String
-  for h: {FDr.get_req(s) == Wr.Got{q, r} : Wr.Dec<FDr.Req>}
-  for e: {String.is_empty(r) == False{} : Bool}
-  {FDr.ffi(s) == Wr.err("director: input left over") : String}
 
 # LAW dir_req_fits_example: witness: a request fits (the premise of the laws above can hold)
 law dir_req_fits_example:
@@ -504,6 +662,23 @@ law dir_ffi_answers_spelled:
   for fits: {dir_req_fits(q) == True{} : Bool}
   {FDr.ffi(dir_spell_req(q, "")) == dir_spell_answer(q) : String}
 
+# LAW dir_ffi_ended_stays_any_outcome (R8, R12): a request spelled by the grammar, every
+# number within the wire, whose loop has ended with any outcome (end tag
+# 1, then outcome 0, 1 or 2), whatever the cap, steps left, stack and
+# verdicts, is answered with the grammar's spelling of that same loop,
+# unchanged
+# EXCLUDES: an entry that revives an ended loop (a continue included) as
+#   running, charges a step or a unit, pushes, drops or changes a layer, or
+#   spells another outcome
+law dir_ffi_ended_stays_any_outcome:
+  for +c: Nat
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +o: Dr.Out
+  for +vs: List<&2, Dr.Verdict>
+  for fits: {dir_req_fits(FDr.Req{c, Dr.Loop{n, s, Some{o}}, vs}) == True{} : Bool}
+  {FDr.ffi(dir_spell_req(FDr.Req{c, Dr.Loop{n, s, Some{o}}, vs}, "")) == dir_spell_loop(Dr.Loop{n, s, Some{o}}, "") : String}
+
 # LAW dir_ffi_left_over_spelled: a spelled request that fits, followed by any more input, answers
 # the error form "director: input left over"
 # EXCLUDES: trailing input ignored, read as part of the request, or
@@ -593,339 +768,67 @@ law dir_ffi_malformed_unless_request:
 law dir_ffi_tags_example:
   {[FDr.ffi("4,3,2,1,0,0,5,0,2,6,1,"), FDr.ffi("4,3,2,1,0,0,5,0,2,6,2,"), FDr.ffi("1,3,1,0,5,0,1,3,1,1,"), FDr.ffi("4,3,0,1,2,1,1,"), FDr.ffi("4,3,0,0,1,7,"), FDr.ffi("4,3,0,2,0,"), FDr.ffi("4,3,0,1,3,0,"), FDr.ffi("4,3,0,0,0,x")] == ["2,1,0,4,0,", "3,2,1,0,0,5,1,1,", "3,1,0,4,1,2,", "3,0,1,2,", Wr.err("director: malformed request"), Wr.err("director: malformed request"), Wr.err("director: malformed request"), Wr.err("director: input left over")] : List<&2, String>}
 
-
-# The entry, independently of bend/ffi_director.bend and of the model's
-# functions: a reader of the request grammar (the header of
-# bend/ffi_director.bend, crates/eukhe-bend/WIRE.md) built from the wire
-# primitives, the loop step as the laws above state it, and a speller of
-# the loop after it from the wire primitives.
-
-# a layer: its kind, then its budget
-def dirr.layer.b(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Layer>:
-  match r:
-    case Wr.Got{b, s}:
-      Wr.Got{Dr.Layer{k, b}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.layer.k(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Layer>:
-  match r:
-    case Wr.Got{k, s}:
-      dirr.layer.b(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.layer(s: String) -> Wr.Dec<Dr.Layer>:
-  dirr.layer.k(Wr.get_nat(s))
-
-# a verdict: 0 Defer | 1 Again | 2 Yield | 3 Stack, then a layer | 4 Unstack
-# | 5 Abort | 6 Lead
-def dirr.verdict.stack(r: Wr.Dec<Dr.Layer>) -> Wr.Dec<Dr.Verdict>:
-  match r:
-    case Wr.Got{l, s}:
-      Wr.Got{Dr.Stack{l}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.verdict.tag(t: Nat, s: String) -> Wr.Dec<Dr.Verdict>:
-  match t:
-    case 0n:
-      Wr.Got{Dr.Defer{}, s}
-    case 1n:
-      Wr.Got{Dr.Again{}, s}
-    case 2n:
-      Wr.Got{Dr.Yield{}, s}
-    case 3n:
-      dirr.verdict.stack(dirr.layer(s))
-    case 4n:
-      Wr.Got{Dr.Unstack{}, s}
-    case 5n:
-      Wr.Got{Dr.Abort{}, s}
-    case 6n:
-      Wr.Got{Dr.Lead{}, s}
-    case 7n+x:
-      Wr.Bad{}
-
-def dirr.verdict.go(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Verdict>:
-  match r:
-    case Wr.Got{t, s}:
-      dirr.verdict.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.verdict(s: String) -> Wr.Dec<Dr.Verdict>:
-  dirr.verdict.go(Wr.get_nat(s))
-
-# how a loop ended: 0 (running) | 1, then 0 Cont | 1 Hand | 2 Failed
-def dirr.end.out(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Dr.Out>>:
-  match t:
-    case 0n:
-      Wr.Got{Some{Dr.Cont{}}, s}
-    case 1n:
-      Wr.Got{Some{Dr.Hand{}}, s}
-    case 2n:
-      Wr.Got{Some{Dr.Failed{}}, s}
-    case 3n+x:
-      Wr.Bad{}
-
-def dirr.end.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Dr.Out>>:
-  match r:
-    case Wr.Got{t, s}:
-      dirr.end.out(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.end.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Dr.Out>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      dirr.end.some(Wr.get_nat(s))
-    case 2n+x:
-      Wr.Bad{}
-
-def dirr.end(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Dr.Out>>:
-  match r:
-    case Wr.Got{t, s}:
-      dirr.end.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a loop: the global budget left, the stack (a list of layers, top
-# first), how it ended
-def dirr.loop.end(n: Nat, st: List<&2, Dr.Layer>, r: Wr.Dec<Maybe<&2, Dr.Out>>) -> Wr.Dec<Dr.Loop>:
-  match r:
-    case Wr.Got{e, s}:
-      Wr.Got{Dr.Loop{n, st, e}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.loop.stack(n: Nat, r: Wr.Dec<List<&2, Dr.Layer>>) -> Wr.Dec<Dr.Loop>:
-  match r:
-    case Wr.Got{st, s}:
-      dirr.loop.end(n, st, dirr.end(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.loop(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Loop>:
-  match r:
-    case Wr.Got{n, s}:
-      dirr.loop.stack(n, Wr.get_list(~Dr.Layer, ~dirr.layer, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a request: the cap, the loop, the verdicts (a list, top first)
-def dirr.req.vs(c: Nat, l: Dr.Loop, r: Wr.Dec<List<&2, Dr.Verdict>>) -> Wr.Dec<FDr.Req>:
-  match r:
-    case Wr.Got{vs, s}:
-      Wr.Got{FDr.Req{c, l, vs}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.req.loop(c: Nat, r: Wr.Dec<Dr.Loop>) -> Wr.Dec<FDr.Req>:
-  match r:
-    case Wr.Got{l, s}:
-      dirr.req.vs(c, l, Wr.get_list(~Dr.Verdict, ~dirr.verdict, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dirr.req(r: Wr.Dec<Nat>) -> Wr.Dec<FDr.Req>:
-  match r:
-    case Wr.Got{c, s}:
-      dirr.req.loop(c, dirr.loop(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s starts with, and what follows it
-def dirr.read(s: String) -> Wr.Dec<FDr.Req>:
-  dirr.req(Wr.get_nat(s))
-
-# an Again of l above the layers rest (dir_go_again, dir_go_again_spent)
-def dirs.again(l: Dr.Layer, +rest: List<&2, Dr.Layer>) -> Dr.Dec:
-  match l:
-    case Dr.Layer{k, b}:
-      match b:
-        case 0n:
-          Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest}
-        case 1n+c:
-          Dr.Dec{Dr.Cont{}, Dr.Layer{k, c} <> rest}
-
-# a Stack of n by l above the layers rest, room telling whether the whole
-# stack holds fewer than cap layers (dir_go_push, dir_go_push_full,
-# dir_go_push_spent)
-def dirs.push(l: Dr.Layer, +n: Dr.Layer, +rest: List<&2, Dr.Layer>, room: Bool) -> Dr.Dec:
-  match l:
-    case Dr.Layer{k, b}:
-      match b:
-        case 0n:
-          Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest}
-        case 1n+c:
-          match room:
-            case True{}:
-              Dr.Dec{Dr.Cont{}, n <> Dr.Layer{k, c} <> rest}
-            case False{}:
-              Dr.Dec{Dr.Failed{}, Dr.Layer{k, c} <> rest}
-
-# a Lead of l over the decision d of the layers below: on top when the
-# loop ends (stay), gone when it goes on (dir_go_lead_stays,
-# dir_go_lead_leaves)
-def dirs.lead(stay: Bool, +l: Dr.Layer, d: Dr.Dec) -> Dr.Dec:
-  match stay:
-    case True{}:
-      dir_on_top(l, d)
-    case False{}:
-      d
-
-# one decision, verdict by verdict, as the laws dir_go_* state it
-def dirs.go(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, +stay: Bool) -> Dr.Dec:
-  match s:
-    case Nil{}:
-      Dr.Dec{Dr.Hand{}, Nil{}}
-    case +l <> +rest:
-      match vs:
-        case Nil{}:
-          dir_on_top(l, dirs.go(rest, Nil{}, room, stay))
-        case v <> vr:
-          match v:
-            case Dr.Defer{}:
-              dir_on_top(l, dirs.go(rest, vr, room, stay))
-            case Dr.Again{}:
-              dirs.again(l, rest)
-            case Dr.Yield{}:
-              Dr.Dec{Dr.Hand{}, l <> rest}
-            case Dr.Stack{n}:
-              dirs.push(l, n, rest, room)
-            case Dr.Unstack{}:
-              dirs.go(rest, vr, room, stay)
-            case Dr.Abort{}:
-              Dr.Dec{Dr.Failed{}, l <> rest}
-            case Dr.Lead{}:
-              dirs.lead(stay, l, dirs.go(rest, vr, room, stay))
-
-# a decision with room for cap layers (dir_room): a push needs the whole
-# stack to hold fewer than cap layers
-def dirs.decide(+s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, +stay: Bool) -> Dr.Dec:
-  dirs.go(s, vs, Nat.is_lt(List.length(&2, Dr.Layer, s), cap), stay)
-
-def dirs.stack(d: Dr.Dec) -> List<&2, Dr.Layer>:
-  match d:
-    case Dr.Dec{o, t}:
-      t
-
-# a continue with n steps left: with a step left the loop goes on with the
-# decision's stack t (dir_tick_goes_on); with none it yields, a layer that
-# leads staying (dir_tick_out_of_steps)
-def dirs.on(n: Nat, t: List<&2, Dr.Layer>, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat) -> Dr.Loop:
-  match n:
-    case 0n:
-      Dr.Loop{0n, dirs.stack(dirs.decide(s, vs, cap, True{})), Some{Dr.Hand{}}}
-    case 1n+m:
-      Dr.Loop{m, t, None{}}
-
-# the loop after the decision d of the stack s on vs (made as the loop
-# goes on, dir_decide_goes_on), with n steps left: dirs.on, then
-# dir_tick_hands_back, dir_tick_fails
-def dirs.settle(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat) -> Dr.Loop:
-  match d:
-    case Dr.Dec{o, t}:
-      match o:
-        case Dr.Cont{}:
-          dirs.on(n, t, s, vs, cap)
-        case Dr.Hand{}:
-          Dr.Loop{n, dirs.stack(dirs.decide(s, vs, cap, True{})), Some{Dr.Hand{}}}
-        case Dr.Failed{}:
-          Dr.Loop{n, dirs.stack(dirs.decide(s, vs, cap, True{})), Some{Dr.Failed{}}}
-
-# one loop step: an ended loop stays as it ended (dir_end_is_final); a
-# running one settles the decision of its stack
-def dirs.tick(+cap: Nat, l: Dr.Loop, vs: List<&2, Dr.Verdict>) -> Dr.Loop:
-  match l:
-    case Dr.Loop{n, +s, e}:
-      match e:
-        case Some{x}:
-          Dr.Loop{n, s, Some{x}}
-        case None{}:
-          +w = vs
-          dirs.settle(dirs.decide(s, w, cap, False{}), n, s, w, cap)
-
-# the loop after the step, as the Rust Reader reads it: the budget left,
-# the stack (each layer its kind, then its budget), the end (0 | 1, then
-# 0 Cont | 1 Hand | 2 Failed)
-def dirs.layer(l: Dr.Layer, rest: String) -> String:
-  match l:
-    case Dr.Layer{k, b}:
-      Wr.put_nat(k, Wr.put_nat(b, rest))
-
-def dirs.end(e: Maybe<&2, Dr.Out>, rest: String) -> String:
-  match e:
-    case None{}:
-      Wr.put_nat(0n, rest)
-    case Some{o}:
-      match o:
-        case Dr.Cont{}:
-          Wr.put_nat(1n, Wr.put_nat(0n, rest))
-        case Dr.Hand{}:
-          Wr.put_nat(1n, Wr.put_nat(1n, rest))
-        case Dr.Failed{}:
-          Wr.put_nat(1n, Wr.put_nat(2n, rest))
-
-def dirs.loop(l: Dr.Loop, rest: String) -> String:
-  match l:
-    case Dr.Loop{n, st, e}:
-      Wr.put_nat(n, Wr.put_list(~Dr.Layer, ~dirs.layer, st, dirs.end(e, rest)))
-
-def dirs.whole(done: Bool, q: FDr.Req) -> String:
-  match done:
-    case True{}:
-      match q:
-        case FDr.Req{c, l, vs}:
-          dirs.loop(dirs.tick(c, l, vs), "")
-    case False{}:
-      Wr.err("director: input left over")
-
-def dirs.run(r: Wr.Dec<FDr.Req>) -> String:
-  match r:
-    case Wr.Got{q, s}:
-      dirs.whole(Wr.end(s), q)
-    case Wr.Bad{}:
-      Wr.err("director: malformed request")
-
-# the reply to the input s
-def dirs.spec(s: String) -> String:
-  dirs.run(dirr.read(s))
-
-# LAW dir_ffi_exact: on every input the entry answers the loop after one step (as the laws above state the step: an ended loop stays; a running one settles its stack's decision, verdict by verdict) of the request the input starts with, spelled as the Rust Reader reads it, when nothing follows the request; "director: input left over" when something does; "director: malformed request" when the input starts with no request
-# EXCLUDES: a step other than the laws' (a verdict misread, an ended loop
-#   stepped, a cap or a budget off by one), a reply in another spelling, a
-#   loop answered for an input that is no request (an unknown tag, a list
-#   cut short, a 15-digit number) or for a request with input left over,
-#   another error text
-law dir_ffi_exact:
-  for +s: String
-  {FDr.ffi(s) == dirs.spec(s) : String}
-
-# The loop's run, step by step
-# ----------------------------
-# Dr.run (the loop over the verdicts of each step, which dir_loop_ends and
-# dir_loop_stack_bounded read) folds the steps; the laws above pin each
-# step. This one pins the run, for every loop, to the spec's step.
-
-# the spec's run: the spec's step (dirs.tick) on the verdicts of each
-# step of vss, first step first, from the loop l
-def dirs.steps(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, l: Dr.Loop) -> Dr.Loop:
-  match vss:
-    case Nil{}:
-      l
-    case vs <> rest:
-      dirs.steps(rest, cap, dirs.tick(cap, l, vs))
-
-# LAW dir_run_exact (S5): on every loop and cap, the loop's run over the verdicts of every step is the spec's step on each step's verdicts, one at a time, first step first
-# EXCLUDES: a run that drops, repeats, reorders or invents steps or
-#   verdicts (the run that aborts at once, `run(vss, cap, l) = tick(cap, l,
-#   [Abort{}])`, which passed dir_loop_ends and dir_loop_stack_bounded), a
-#   run that ignores the loop it starts from or steps an ended loop
-law dir_run_exact:
-  for vss: List<&2, List<&2, Dr.Verdict>>
+# LAW dir_end_is_final: an ended loop stays as it ended
+law dir_end_is_final:
   for +cap: Nat
   for +l: Dr.Loop
-  {Dr.run(vss, cap, l) == dirs.steps(vss, cap, l) : Dr.Loop}
+  for done: {Dr.ended(l) == True{} : Bool}
+  for vs: List<&2, Dr.Verdict>
+  {Dr.tick(cap, l, vs) == l : Dr.Loop}
+
+# LAW dir_tick_out_of_steps: a continue with no step left yields; a layer that leads stays
+law dir_tick_out_of_steps:
+  for +cap: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for go: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Cont{} : Dr.Out}
+  {Dr.tick(cap, Dr.Loop{0n, s, None{}}, vs) == Dr.Loop{0n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_tick_hands_back: a hand back ends the loop with its steps left; a layer that leads
+# stays
+law dir_tick_hands_back:
+  for +cap: Nat
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for h: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Hand{} : Dr.Out}
+  {Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Hand{}}} : Dr.Loop}
+
+# LAW dir_tick_fails: a failure ends the loop with its steps left; a layer that leads
+# stays
+law dir_tick_fails:
+  for +cap: Nat
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vs: List<&2, Dr.Verdict>
+  for f: {Dr.Dec.out(Dr.decide(s, vs, cap)) == Dr.Failed{} : Dr.Out}
+  {Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, Dr.Dec.stack(Dr.decide.as(s, vs, cap, True{})), Some{Dr.Failed{}}} : Dr.Loop}
+
+# LAW dir_loop_ends: the loop ends (hands back or fails) after at most n + 1 steps,
+# with n its global budget, whatever every layer says: no Director keeps
+# the loop going for ever
+law dir_loop_ends_orig:
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vss: List<&2, List<&2, Dr.Verdict>>
+  for +cap: Nat
+  for long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}
+  {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
+
+# LAW dir_lead_leaves_with_the_continuation: a step that goes on is the step where every layer that leads
+# leaves
+law dir_lead_leaves_with_the_continuation_orig:
+  for +cap: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  for on: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
+  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{})) : Dr.Loop}
+
+# LAW dir_lead_stays_when_the_loop_ends: a step that ends the loop is the step where every layer that leads
+# stays (defers): a reminder never leaves without its continuation
+law dir_lead_stays_when_the_loop_ends_orig:
+  for +cap: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  for ends: {Dr.ended(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == True{} : Bool}
+  {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Defer{})) : Dr.Loop}

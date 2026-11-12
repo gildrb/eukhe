@@ -1,28 +1,12 @@
-# theme_rules (spec): the meaning of the theme model's helpers that the
-# laws of area theme read (laws/theme.bend, section "The rules' helpers,
-# pinned"): which candidate advertises a name, the color a value paints,
-# the contrast pairs of the shipped themes and when a table is legible,
-# and when its status colors are distinct. A spec: the shipped code never
-# calls it.
+# theme_rules (spec): token k of a color table, as the laws of area theme
+# read the shipped tables (laws/theme.bend: theme_legible_sound,
+# th.apart), and the color a value paints (spec/theme/model.bend). A
+# spec: the shipped code never calls it.
 
 import Base
 import ../../bend/color.bend as Co
 import ../../bend/theme/file.bend as TFile
-import ../../bend/theme/name.bend as TName
 import ../../bend/theme/bundled.bend as TBundled
-
-# Names
-# -----
-
-# some valid candidate of src advertises exactly the name n
-def has(src: List<&2, TName.Cand>, +n: String) -> Bool:
-  match src:
-    case Nil{}:
-      False{}
-    case Con{c, rest}:
-      match c:
-        case TName.Cand{nm, v, id}:
-          Bool.or(Bool.and(v, String.eq(nm, n)), has(rest, n))
 
 # Values
 # ------
@@ -51,6 +35,19 @@ def get(xs: List<&2, Co.Rgb>, k: Nat) -> Co.Rgb:
     case Con{x, t} 1n+p:
       get(t, p)
 
+# the pair p meets its contrast in the table xs
+def meets(+xs: List<&2, Co.Rgb>, p: TBundled.Duo) -> Bool:
+  match p:
+    case TBundled.Duo{fg, bg, num, den}:
+      Co.contrast_ge(get(xs, fg), get(xs, bg), num, den)
+
+def all_meet(+xs: List<&2, Co.Rgb>, ps: List<&2, TBundled.Duo>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case Con{p, rest}:
+      Bool.and(meets(xs, p), all_meet(xs, rest))
+
 # the contrast every ink token needs: the text tokens (text, foreground,
 # mdBody, muted, dim, thinkingText, toolTitle, toolOutput, mdHeading,
 # mdLink, mdLinkUrl, mdCode, mdCodeBlock, mdQuote, mdListBullet, success,
@@ -73,29 +70,9 @@ def pairs() -> List<&2, TBundled.Duo>:
   TBundled.Duo{3n, 57n, 3, 1}, TBundled.Duo{24n, 57n, 3, 1}, TBundled.Duo{26n, 57n, 3, 1}, TBundled.Duo{27n, 57n, 3, 1},
   TBundled.Duo{42n, 57n, 3, 1}, TBundled.Duo{43n, 57n, 3, 1}, TBundled.Duo{47n, 57n, 3, 1}]
 
-# the pair p meets its contrast in the table xs
-def meets(+xs: List<&2, Co.Rgb>, p: TBundled.Duo) -> Bool:
-  match p:
-    case TBundled.Duo{fg, bg, num, den}:
-      Co.contrast_ge(get(xs, fg), get(xs, bg), num, den)
-
-def all_meet(+xs: List<&2, Co.Rgb>, ps: List<&2, TBundled.Duo>) -> Bool:
-  match ps:
-    case Nil{}:
-      True{}
-    case Con{p, rest}:
-      Bool.and(meets(xs, p), all_meet(xs, rest))
-
 # every pair meets its contrast in the table xs
 def legible(+xs: List<&2, Co.Rgb>) -> Bool:
   all_meet(xs, pairs())
-
-def idxs(xs: List<&2, Co.Rgb>) -> List<&2, U32>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{x, rest}:
-      Co.to256(x) <> idxs(rest)
 
 def notin(+x: U32, ys: List<&2, U32>) -> Bool:
   match ys:
@@ -111,6 +88,13 @@ def distinct(xs: List<&2, U32>) -> Bool:
       True{}
     case Con{+x, +rest}:
       Bool.and(notin(x, rest), distinct(rest))
+
+def idxs(xs: List<&2, Co.Rgb>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{x, rest}:
+      Co.to256(x) <> idxs(rest)
 
 # the status colors accent (0), success (4), warning (6) and error (5) of
 # the table xs are pairwise distinct as a 256-color terminal paints them

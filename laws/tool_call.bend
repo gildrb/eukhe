@@ -18,6 +18,27 @@ import ../spec/harness/effect.bend as Sp
 # settles), or nothing. It keeps the reports' content; it journals only
 # what the replies say. Every law holds for every event order: the
 # events are free, a report after the end and a second end included.
+#
+# Requirements (sources: this header and section S3 below;
+# crates/eukhe-durable/src/harness/tool.rs and tool/invocation.rs, the
+# Harness and its `ToolEnding`; the grammar and error forms of
+# bend/ffi_tool_call.bend's header, crates/eukhe-bend/WIRE.md;
+# spec/harness/effect.bend E1-E5; spec/README.md row H1):
+# S2: before the execute's end, every report is stored and the end
+#     settles the call: finished when it returned, failed when it threw,
+#     cancelled when it threw on an abort (`ToolEnding`); after the end,
+#     every report is refused and another end does nothing. An open
+#     journals the start of a first attempt, the clear of a rerun.
+# S3: speculation, then effect (E1-E5 of spec/harness/effect.bend).
+# A1: a step input that is not exactly the spelling of one event (a bad
+#     tag, a short or bad Bool, input left over) answers exactly the error
+#     form `E tool_call: malformed event` and keeps the call.
+# A2: an open input that is not exactly the spelling of one Bool answers
+#     exactly `E tool_call: malformed open` and opens the refused state,
+#     which answers every step with exactly `E tool_call: the open was
+#     refused`: it stores nothing and settles nothing.
+# A3: a gate input that is not exactly the spelling of one question
+#     answers exactly `E tool_call: malformed gate`.
 
 # Spellers: the bytes the Harness sends and reads, from the wire's
 # primitives
@@ -65,9 +86,11 @@ def tc_open_spec(first: Bool) -> String:
     case False{}:
       "1,"
 
-# how an execute that threw or not, its signal aborted or not, settles:
-# 0 finished (it returned), 1 failed (it threw), 2 cancelled (it threw on
-# an abort: the abort handler settles)
+# how an execute that threw or not, its signal aborted or not, settles
+# (S2; the Harness's `ToolEnding`, crates/eukhe-durable/src/harness/tool/
+# invocation.rs, read from crates/eukhe-bend/src/rules/tool_call.rs
+# `ending`): 0 finished (it returned), 1 failed (it threw), 2 cancelled
+# (it threw on an abort: the abort handler settles)
 def tc_how_spec(t: Bool, a: Bool) -> String:
   match t a:
     case False{} False{}:
@@ -79,27 +102,32 @@ def tc_how_spec(t: Bool, a: Bool) -> String:
     case True{} False{}:
       "1,"
 
-# the reply S2 asks for each event, spelled; ended: an end came before.
-# Before the end: a report is stored (0), the end settles (2, then how).
-# After it: a report is refused (1), another end does nothing (3).
-def tc_spec(es: List<&2, Tc.Ev>, ended: Bool) -> List<&2, String>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
+# the reply S2 asks for the event e, spelled, given whether an end came
+# before it (ended). Before the end (S2): a report is stored (0), the end
+# settles (2, then how). After it (S2): a report is refused (1), another
+# end does nothing (3).
+def tc_answer(ended: Bool, e: Tc.Ev) -> String:
+  match ended:
+    case False{}:
       match e:
         case Tc.Report{}:
-          match ended:
-            case False{}:
-              "0," <> tc_spec(rest, False{})
-            case True{}:
-              "1," <> tc_spec(rest, True{})
+          "0,"
         case Tc.End{t, a}:
-          match ended:
-            case False{}:
-              SCon{'2', SCon{',', tc_how_spec(t, a)}} <> tc_spec(rest, True{})
-            case True{}:
-              "3," <> tc_spec(rest, True{})
+          SCon{'2', SCon{',', tc_how_spec(t, a)}}
+    case True{}:
+      match e:
+        case Tc.Report{}:
+          "1,"
+        case Tc.End{t, a}:
+          "3,"
+
+# the stepper st after the events es, spelled, one after the other
+def tc_fed(es: List<&2, Tc.Ev>, st: FTc.St) -> FTc.St:
+  match es:
+    case Nil{}:
+      st
+    case e <> rest:
+      tc_fed(rest, tc_state(FTc.step(st, tc_spell(e))))
 
 # a reply that journals the call's settle: tag 2
 def tc_settles(r: String) -> Bool:
@@ -185,20 +213,22 @@ def tc_before_end(es: List<&2, Tc.Ev>, +ended: Bool) -> List<&2, Bool>:
         case Tc.End{t, a}:
           tc_before_end(rest, True{})
 
-# LAW tool_call_step_is_model: the stepper opened for a first attempt or
-# a rerun and sent any events, in any order, answers each as S2 asks:
-# before the execute's end every report is stored and the end settles the
+# LAW tool_call_reply_by_history (S2): the stepper opened for a first
+# attempt or a rerun and sent any events pre, in any order, answers any
+# next event e as S2 asks given only whether an end of the execute is
+# among pre: before any end a report is stored and the end settles the
 # call, finished when it returned, failed when it threw, cancelled when it
-# threw on an abort; after the end every report is refused and another
-# end does nothing
+# threw on an abort; after an end a report is refused and another end
+# does nothing
 # EXCLUDES: a report lost or refused while the call runs, a report stored
 # after the settle, a second settle, a settle before the end, a settle as
 # another ending (an abort settled as a failure, a throw as finished), a
 # stepper whose state drifts after some order of events
-law tool_call_step_is_model:
+law tool_call_reply_by_history:
   for +first: Bool
-  for +es: List<&2, Tc.Ev>
-  {tc_replies(es, tc_opened(first)) == tc_spec(es, False{}) : List<&2, String>}
+  for +pre: List<&2, Tc.Ev>
+  for +e: Tc.Ev
+  {tc_reply(FTc.step(tc_fed(pre, tc_opened(first)), tc_spell(e))) == tc_answer(tc_ends(pre), e) : String}
 
 # LAW tool_call_open_exact: an open journals the start of a first attempt
 # and the clear of a rerun
@@ -208,10 +238,13 @@ law tool_call_open_exact:
   for +first: Bool
   {tc_reply(FTc.open(tc_spell_open(first))) == tc_open_spec(first) : String}
 
-# LAW stream_journals_two: a tool call journals at most two records: its
-# start (or a rerun's clear) and one settle; no report is journaled, in
-# any order of events
-# EXCLUDES: a progress record (a report journaled), a second settle
+# LAW stream_journals_two (S2): the call's journal as tc_journal counts it
+# (the open's record, then every reply tagged 2, a settle) holds at most
+# two records, in any order of events: the start (or a rerun's clear) and
+# at most one settle; that a report is stored and never settles is
+# tool_call_reply_by_history's
+# EXCLUDES: a second settle (a late end, an end after a report after the
+#   end)
 law stream_journals_two:
   for +first: Bool
   for +es: List<&2, Tc.Ev>
@@ -239,120 +272,70 @@ law stream_settle_carries_all:
   for +es: List<&2, Tc.Ev>
   {tc_kept(es, tc_replies(es, tc_opened(first))) == tc_before_end(es, False{}) : List<&2, Bool>}
 
-# The entry: the laws' reader, from the wire's primitives
+# The entry's error forms (A1-A3)
 
-def tc_read.aborted(t: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Ev>:
-  match r:
-    case Wr.Got{a, s}:
-      Wr.Got{Tc.End{t, a}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+def tc_bad_event() -> String:
+  SCon{'E', SCon{' ', "tool_call: malformed event"}}
 
-def tc_read.threw(r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Ev>:
-  match r:
-    case Wr.Got{t, s}:
-      tc_read.aborted(t, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
+def tc_bad_open() -> String:
+  SCon{'E', SCon{' ', "tool_call: malformed open"}}
 
-def tc_read.tag(n: Nat, s: String) -> Wr.Dec<Tc.Ev>:
-  match n:
-    case 0n:
-      Wr.Got{Tc.Report{}, s}
-    case 1n:
-      tc_read.threw(Wr.get_bool(s))
-    case 2n+p:
-      Wr.Bad{}
+def tc_refused() -> String:
+  SCon{'E', SCon{' ', "tool_call: the open was refused"}}
 
-def tc_read.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Ev>:
-  match r:
-    case Wr.Got{n, s}:
-      tc_read.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
+# the replies of the stepper st to the inputs xs, whatever their bytes,
+# in order
+def tc_raw_replies(xs: List<&2, String>, +st: FTc.St) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +x <> rest:
+      tc_reply(FTc.step(st, x)) <> tc_raw_replies(rest, tc_state(FTc.step(st, x)))
 
-def tc_read.end(whole: Bool, e: Tc.Ev) -> Maybe<&2, Tc.Ev>:
-  match whole:
-    case True{}:
-      Some{e}
-    case False{}:
-      None{}
+# one refusal per input of xs
+def tc_refusals(xs: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      tc_refused() <> tc_refusals(rest)
 
-def tc_read.whole(d: Wr.Dec<Tc.Ev>) -> Maybe<&2, Tc.Ev>:
-  match d:
-    case Wr.Got{e, s}:
-      tc_read.end(Wr.end(s), e)
-    case Wr.Bad{}:
-      None{}
-
-# the event s is, when s is exactly one event
-def tc_read(s: String) -> Maybe<&2, Tc.Ev>:
-  tc_read.whole(tc_read.go(Wr.get_nat(s)))
-
-def tc_read_open.end(whole: Bool, b: Bool) -> Maybe<&2, Bool>:
-  match whole:
-    case True{}:
-      Some{b}
-    case False{}:
-      None{}
-
-def tc_read_open.whole(d: Wr.Dec<Bool>) -> Maybe<&2, Bool>:
-  match d:
-    case Wr.Got{b, s}:
-      tc_read_open.end(Wr.end(s), b)
-    case Wr.Bad{}:
-      None{}
-
-# the open s is, when s is exactly one Bool
-def tc_read_open(s: String) -> Maybe<&2, Bool>:
-  tc_read_open.whole(Wr.get_bool(s))
-
-# LAW tool_call_entry_reads: in every state, an input the laws' reader
-# reads as exactly one event is answered as that event spelled
-# EXCLUDES: an input read otherwise by the entry than by the wire's grammar
-law tool_call_entry_reads:
+# LAW tool_call_entry_reads_only_events (S2, A1): in every state of a call, a step whose reply is not exactly the error form 'E ' + "tool_call: malformed event" was sent exactly the spelling of one event (whose reply is then S2's, tool_call_reply_by_history)
+# EXCLUDES: a bad tag, a short or bad Bool or input left over read as an
+#   event (a garbage end that settles the call, a garbage report stored),
+#   another error text
+law tool_call_entry_reads_only_events:
   for +c: Tc.C
   for +i: String
-  for +e: Tc.Ev
-  for got: {tc_read(i) == Some{e} : Maybe<&2, Tc.Ev>}
-  {FTc.step(FTc.Call{c}, i) == FTc.step(FTc.Call{c}, tc_spell(e)) : FTc.St & String}
+  for other: {String.eq(tc_reply(FTc.step(FTc.Call{c}, i)), tc_bad_event()) == False{} : Bool}
+  exs e: Tc.Ev
+  {i == tc_spell(e) : String}
 
-# LAW tool_call_entry_malformed_exact: in every state, an input the laws'
-# reader does not read as exactly one event (a bad tag, a short or bad
-# Bool, input left over) keeps the call and answers exactly the error form
-# 'E ' + "tool_call: malformed event"
-# EXCLUDES: a guessed event (a garbage end that settles the call, a
-# garbage report stored), a call moved by garbage, another error text
-law tool_call_entry_malformed_exact:
+# LAW tool_call_entry_malformed_keeps (A1): in every state of a call, a step answered with the error form 'E ' + "tool_call: malformed event" keeps the call as it was
+# EXCLUDES: a call moved by garbage (ended by it, or taking reports again)
+law tool_call_entry_malformed_keeps:
   for +c: Tc.C
   for +i: String
-  for no: {tc_read(i) == None{} : Maybe<&2, Tc.Ev>}
-  {FTc.step(FTc.Call{c}, i) == (FTc.Call{c}, SCon{'E', SCon{' ', "tool_call: malformed event"}}) : FTc.St & String}
+  for bad: {String.eq(tc_reply(FTc.step(FTc.Call{c}, i)), tc_bad_event()) == True{} : Bool}
+  {tc_state(FTc.step(FTc.Call{c}, i)) == FTc.Call{c} : FTc.St}
 
-# LAW tool_call_entry_open_reads: an open input the laws' reader reads as
-# exactly one Bool opens as that Bool spelled
-# EXCLUDES: an open read otherwise by the entry than by the wire's grammar
-law tool_call_entry_open_reads:
+# LAW tool_call_entry_open_reads_only_bools (S2, A2): an open whose reply is not exactly the error form 'E ' + "tool_call: malformed open" was sent exactly the spelling of one Bool (whose record is then tool_call_open_exact's)
+# EXCLUDES: a default attempt for garbage, input left over after the Bool
+#   read past, another error text
+law tool_call_entry_open_reads_only_bools:
   for +i: String
-  for +b: Bool
-  for got: {tc_read_open(i) == Some{b} : Maybe<&2, Bool>}
-  {FTc.open(i) == FTc.open(tc_spell_open(b)) : FTc.St & String}
+  for other: {String.eq(tc_reply(FTc.open(i)), tc_bad_open()) == False{} : Bool}
+  exs b: Bool
+  {i == tc_spell_open(b) : String}
 
-# LAW tool_call_entry_open_malformed_exact: an open input the laws' reader
-# does not read as exactly one Bool opens the refused state and answers
-# exactly the error form 'E ' + "tool_call: malformed open"
-# EXCLUDES: a default attempt (a start journaled for garbage)
-law tool_call_entry_open_malformed_exact:
+# LAW tool_call_malformed_open_shuts (A2): after an open answered with the error form 'E ' + "tool_call: malformed open", the stepper answers every later input, whatever its bytes, with exactly the error form 'E ' + "tool_call: the open was refused": it stores nothing and settles nothing
+# EXCLUDES: a call that never opened storing a report or journaling a
+#   settle, a refused stepper that opens later
+law tool_call_malformed_open_shuts:
   for +i: String
-  for no: {tc_read_open(i) == None{} : Maybe<&2, Bool>}
-  {FTc.open(i) == (FTc.Refused{}, SCon{'E', SCon{' ', "tool_call: malformed open"}}) : FTc.St & String}
-
-# LAW tool_call_entry_shut: a refused open answers every step with exactly
-# the error form 'E ' + "tool_call: the open was refused"
-# EXCLUDES: a refused stepper that stores a report or settles a call
-law tool_call_entry_shut:
-  for +i: String
-  {FTc.step(FTc.Refused{}, i) == (FTc.Refused{}, SCon{'E', SCon{' ', "tool_call: the open was refused"}}) : FTc.St & String}
+  for xs: List<&2, String>
+  for bad: {String.eq(tc_reply(FTc.open(i)), tc_bad_open()) == True{} : Bool}
+  {tc_raw_replies(xs, tc_state(FTc.open(i))) == tc_refusals(xs) : List<&2, String>}
 
 # LAW tool_call_entry_example: anchor: the bytes the Harness sends and the
 # replies: opens of a first attempt, a rerun, garbage; on a first attempt
@@ -425,136 +408,6 @@ def tc_spell_go(g: Tc.Go) -> String:
       "5,"
     case Tc.Abandoned{}:
       "6,"
-
-# The laws' reader of a gate question, from the wire's primitives
-
-def tc_rg_replay.tag(n: Nat, s: String) -> Wr.Dec<Tc.Replay>:
-  match n:
-    case 0n:
-      Wr.Got{Tc.Safe{}, s}
-    case 1n:
-      Wr.Got{Tc.Unsafe{}, s}
-    case 2n+p:
-      Wr.Bad{}
-
-def tc_rg_replay.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Replay>:
-  match r:
-    case Wr.Got{n, s}:
-      tc_rg_replay.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg_replay(s: String) -> Wr.Dec<Tc.Replay>:
-  tc_rg_replay.go(Wr.get_nat(s))
-
-def tc_rg_now.offered(r: Wr.Dec<Tc.Replay>) -> Wr.Dec<Tc.Now>:
-  match r:
-    case Wr.Got{p, s}:
-      Wr.Got{Tc.Offered{p}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg_now.tag(n: Nat, s: String) -> Wr.Dec<Tc.Now>:
-  match n:
-    case 0n:
-      Wr.Got{Tc.Gone{}, s}
-    case 1n:
-      tc_rg_now.offered(tc_rg_replay(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def tc_rg_now.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Now>:
-  match r:
-    case Wr.Got{n, s}:
-      tc_rg_now.tag(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg_now(s: String) -> Wr.Dec<Tc.Now>:
-  tc_rg_now.go(Wr.get_nat(s))
-
-def tc_rg.enter(f: Bool, r: Wr.Dec<Tc.Now>) -> Wr.Dec<Tc.Gate>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{Tc.Enter{f, t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg.recover(f: Bool, p: Tc.Replay, r: Wr.Dec<Tc.Now>) -> Wr.Dec<Tc.Gate>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{Tc.Recover{f, p, t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg.stored(f: Bool, r: Wr.Dec<Tc.Replay>) -> Wr.Dec<Tc.Gate>:
-  match r:
-    case Wr.Got{p, s}:
-      tc_rg.recover(f, p, tc_rg_now(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg.intent(f: Bool, x: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Gate>:
-  match r:
-    case Wr.Got{i, s}:
-      Wr.Got{Tc.Stop{f, x, i}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg.restart(f: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Gate>:
-  match r:
-    case Wr.Got{x, s}:
-      tc_rg.intent(f, x, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg.found(n: Nat, r: Wr.Dec<Bool>) -> Wr.Dec<Tc.Gate>:
-  match n:
-    case 0n:
-      match r:
-        case Wr.Got{f, s}:
-          tc_rg.enter(f, tc_rg_now(s))
-        case Wr.Bad{}:
-          Wr.Bad{}
-    case 1n:
-      match r:
-        case Wr.Got{f, s}:
-          tc_rg.stored(f, tc_rg_replay(s))
-        case Wr.Bad{}:
-          Wr.Bad{}
-    case 2n:
-      match r:
-        case Wr.Got{f, s}:
-          tc_rg.restart(f, Wr.get_bool(s))
-        case Wr.Bad{}:
-          Wr.Bad{}
-    case 3n+p:
-      Wr.Bad{}
-
-def tc_rg.go(r: Wr.Dec<Nat>) -> Wr.Dec<Tc.Gate>:
-  match r:
-    case Wr.Got{n, s}:
-      tc_rg.found(n, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def tc_rg.end(whole: Bool, q: Tc.Gate) -> Maybe<&2, Tc.Gate>:
-  match whole:
-    case True{}:
-      Some{q}
-    case False{}:
-      None{}
-
-def tc_rg.whole(d: Wr.Dec<Tc.Gate>) -> Maybe<&2, Tc.Gate>:
-  match d:
-    case Wr.Got{q, s}:
-      tc_rg.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      None{}
-
-# the gate question s is, when s is exactly one
-def tc_read_gate(s: String) -> Maybe<&2, Tc.Gate>:
-  tc_rg.whole(tc_rg.go(Wr.get_nat(s)))
 
 # The world of one call, run with the shipped gate (E5)
 
@@ -667,33 +520,19 @@ law tool_call_gate_is_spec:
   for +q: Tc.Gate
   {FTc.ffi(tc_spell_gate(q)) == tc_spell_go(Sp.gate_spec(q)) : String}
 
-# LAW tool_call_gate_spelled_reads: the laws' reader reads every spelled
-# gate question back whole, so tool_call_gate_malformed_exact refuses only
-# what Rust never writes
-# EXCLUDES: a reader (and so an entry) that refuses a question Rust writes
-law tool_call_gate_spelled_reads:
-  for +q: Tc.Gate
-  {tc_read_gate(tc_spell_gate(q)) == Some{q} : Maybe<&2, Tc.Gate>}
+# the error form of a gate input that is not exactly one question (A3)
+def tc_bad_gate() -> String:
+  SCon{'E', SCon{' ', "tool_call: malformed gate"}}
 
-# LAW tool_call_gate_reads: an input the laws' reader reads as exactly one
-# gate question is answered as that question spelled
-# EXCLUDES: an input read otherwise by the entry than by the wire's grammar
-law tool_call_gate_reads:
+# LAW tool_call_gate_reads_only_questions (E1-E4, A3): a gate answer that is not exactly the error form 'E ' + "tool_call: malformed gate" answers exactly the spelling of one gate question (whose answer is then tool_call_gate_is_spec's)
+# EXCLUDES: a guessed question (garbage, a short field or input left over
+#   that runs or settles a call), an unknown tag answered, another error
+#   text
+law tool_call_gate_reads_only_questions:
   for +i: String
-  for +q: Tc.Gate
-  for got: {tc_read_gate(i) == Some{q} : Maybe<&2, Tc.Gate>}
-  {FTc.ffi(i) == FTc.ffi(tc_spell_gate(q)) : String}
-
-# LAW tool_call_gate_malformed_exact: an input the laws' reader does not
-# read as exactly one gate question (a bad tag, a short or bad field,
-# input left over) answers exactly the error form 'E ' + "tool_call:
-# malformed gate"
-# EXCLUDES: a guessed question (garbage that runs or settles a call),
-# another error text
-law tool_call_gate_malformed_exact:
-  for +i: String
-  for no: {tc_read_gate(i) == None{} : Maybe<&2, Tc.Gate>}
-  {FTc.ffi(i) == SCon{'E', SCon{' ', "tool_call: malformed gate"}} : String}
+  for other: {String.eq(FTc.ffi(i), tc_bad_gate()) == False{} : Bool}
+  exs q: Tc.Gate
+  {i == tc_spell_gate(q) : String}
 
 # LAW execute_after_committed (E1, E5): in every history of a call, its
 # effect runs (a run, or a rerun) only while a committed assistant entry
@@ -724,14 +563,6 @@ law uncommitted_drop_inert:
 law effect_once:
   for +es: List<&2, Sp.Ev>
   {Bool.or(Sp.safe_intent(ef_run(es, Sp.w0())), Nat.is_le(Sp.effects(ef_run(es, Sp.w0())), 1n)) == True{} : Bool}
-
-# LAW effect_settles_once (E1-E5): across every crash, resume and abort, a
-# call settles at most once
-# EXCLUDES: a second result for one call (a rerun after the settle, an
-# abort after the end, an interrupted answer after a finished one)
-law effect_settles_once:
-  for +es: List<&2, Sp.Ev>
-  {Nat.is_le(Sp.settles(ef_run(es, Sp.w0())), 1n) == True{} : Bool}
 
 # LAW tool_call_gate_example: anchor: the bytes the Harness sends and the
 # replies (the Rust tests' cases: a first run, a tool no longer offered,

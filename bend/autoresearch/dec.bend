@@ -5,9 +5,9 @@
 # (autoresearch/line.bend) answers the canonical form only: no leading
 # zero digit, no trailing zero after the point, zero is Dec{False{}, [], 0}.
 # Order and printing work on digits, never on one number, so no metric can
-# push a Nat past the runtime's bound. laws/autoresearch.bend pins the
-# order against the arithmetic of spec/autoresearch/decimal.bend. Pure: no
-# IO, no @unsafe.
+# push a Nat past the runtime's bound. laws/autoresearch/model.bend pins
+# the order against the arithmetic of spec/autoresearch/decimal.bend. Pure:
+# no IO, no @unsafe.
 
 import Base
 

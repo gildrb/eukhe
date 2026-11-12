@@ -667,3 +667,243 @@ def fs.run(+q: FFx.Req, +rest: String, fits: {FactsBudgets.core_facts_req_fits(q
   %fs.req(q, rest) : {FFx.ffi(_) == FFx.ffi.done(Wr.end(rest), q) : String}
   %pc.f_req(q, rest, fits) : {FFx.ffi.go(_) == FFx.ffi.done(Wr.end(rest), q) : String}
   {==}
+
+# Bool
+# ----
+
+# a or b false: a false
+def fb.or_fl(+a: Bool, +b: Bool, +h: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      LLogicLogic.pf.absurd_tf({True{} == False{} : Bool}, h)
+
+# a or b false: b false
+def fb.or_fr(+a: Bool, +b: Bool, +h: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case False{}:
+      h
+    case True{}:
+      LLogicLogic.pf.absurd_tf({b == False{} : Bool}, h)
+
+def fb.and_false_r(+a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+def fb.and_true_r(+a: Bool) -> {Bool.and(a, True{}) == a : Bool}:
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+def fb.and_comm(+a: Bool, +b: Bool) -> {Bool.and(a, b) == Bool.and(b, a) : Bool}:
+  match a b:
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case True{} True{}:
+      {==}
+
+def fb.and_tt(+a: Bool, +b: Bool, +ea: {a == True{} : Bool}, +eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  match a:
+    case False{}:
+      LLogicLogic.pf.absurd_ft({Bool.and(False{}, b) == True{} : Bool}, ea)
+    case True{}:
+      eb
+
+# x false and x true: anything
+def fb.clash(-A: Type, x: Bool, f: {x == False{} : Bool}, t: {x == True{} : Bool}) -> A:
+  match x:
+    case False{}:
+      LLogicLogic.pf.absurd_ft(A, t)
+    case True{}:
+      LLogicLogic.pf.absurd_tf(A, f)
+
+# Budget rules (the facts_google_* laws)
+# --------------------------------------
+
+def fg.p1(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +h: {Facts.rule_falls(mi, lo, me, hi) == False{} : Bool}) -> {Nat.is_le(mi, lo) == True{} : Bool}:
+  pf.not_lt_le(lo, mi, fb.or_fl(Nat.is_lt(lo, mi), Bool.or(Nat.is_lt(me, lo), Nat.is_lt(hi, me)), h))
+
+def fg.p2(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +h: {Facts.rule_falls(mi, lo, me, hi) == False{} : Bool}) -> {Nat.is_le(lo, me) == True{} : Bool}:
+  +r = fb.or_fr(Nat.is_lt(lo, mi), Bool.or(Nat.is_lt(me, lo), Nat.is_lt(hi, me)), h)
+  pf.not_lt_le(me, lo, fb.or_fl(Nat.is_lt(me, lo), Nat.is_lt(hi, me), r))
+
+def fg.p3(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +h: {Facts.rule_falls(mi, lo, me, hi) == False{} : Bool}) -> {Nat.is_le(me, hi) == True{} : Bool}:
+  +r = fb.or_fr(Nat.is_lt(lo, mi), Bool.or(Nat.is_lt(me, lo), Nat.is_lt(hi, me)), h)
+  pf.not_lt_le(hi, me, fb.or_fr(Nat.is_lt(me, lo), Nat.is_lt(hi, me), r))
+
+# a rule that never falls has minimal at most high
+def fg.mh(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +h: {Facts.rule_falls(mi, lo, me, hi) == False{} : Bool}) -> {Nat.is_le(mi, hi) == True{} : Bool}:
+  pf.le_trans(mi, lo, hi, fg.p1(mi, lo, me, hi, h), pf.le_trans(lo, me, hi, fg.p2(mi, lo, me, hi, h), fg.p3(mi, lo, me, hi, h)))
+
+# a rule that never falls is ordered: its Google budget is gtokens
+def fg.tokens(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +c: Fx.Customs, +l: Fx.Lv, +h: {Facts.rule_falls(mi, lo, me, hi) == False{} : Bool}) -> {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Tokens{Fx.gtokens(Fx.Budgets{mi, lo, me, hi}, c, l)} : Fx.GB}:
+  +o = fb.and_tt(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), fg.p1(mi, lo, me, hi, h), fb.and_tt(Nat.is_le(lo, me), Nat.is_le(me, hi), fg.p2(mi, lo, me, hi, h), fg.p3(mi, lo, me, hi, h)))
+  %Equal.sym(Bool, Fx.Budgets.ordered(Fx.Budgets{mi, lo, me, hi}), True{}, o) : {Fx.gbudget.rule(_, Fx.Budgets{mi, lo, me, hi}, c, l) == Fx.Tokens{Fx.gtokens(Fx.Budgets{mi, lo, me, hi}, c, l)} : Fx.GB}
+  {==}
+
+# the model reads the user's budget of the level as the laws do
+def fg.at(+c: Fx.Customs, +l: Fx.Lv) -> {Fx.Customs.at(c, l) == Facts.customs_spec(c, l) : Maybe<&2, Nat>}:
+  match c:
+    case Fx.Customs{mi, lo, me, hi}:
+      match l:
+        case Fx.Minimal{}:
+          {==}
+        case Fx.Low{}:
+          {==}
+        case Fx.Medium{}:
+          {==}
+        case Fx.High{}:
+          {==}
+
+# x inside lo..hi is held as it is
+def fg.kept.hi(+g: Bool, +x: Nat, +hi: Nat, +eg: {Nat.is_lt(hi, x) == g : Bool}, +b: {Nat.is_le(x, hi) == True{} : Bool}) -> {Fx.clamp.hi(g, x, hi) == x : Nat}:
+  match g:
+    case True{}:
+      fb.clash({Fx.clamp.hi(True{}, x, hi) == x : Nat}, Nat.is_le(x, hi), LNat.pi.lt_nle(hi, x, eg), b)
+    case False{}:
+      {==}
+
+def fg.kept.lo(+c: Bool, +x: Nat, +lo: Nat, +hi: Nat, +ec: {Nat.is_lt(x, lo) == c : Bool}, +a: {Nat.is_le(lo, x) == True{} : Bool}, +b: {Nat.is_le(x, hi) == True{} : Bool}) -> {Fx.clamp.lo(c, x, lo, hi) == x : Nat}:
+  match c:
+    case True{}:
+      fb.clash({Fx.clamp.lo(True{}, x, lo, hi) == x : Nat}, Nat.is_le(lo, x), LNat.pi.lt_nle(x, lo, ec), a)
+    case False{}:
+      fg.kept.hi(Nat.is_lt(hi, x), x, hi, {==}, b)
+
+def fg.kept(+x: Nat, +lo: Nat, +hi: Nat, +a: {Nat.is_le(lo, x) == True{} : Bool}, +b: {Nat.is_le(x, hi) == True{} : Bool}) -> {Fx.clamp(x, lo, hi) == x : Nat}:
+  fg.kept.lo(Nat.is_lt(x, lo), x, lo, hi, {==}, a, b)
+
+# the Google budget of a rule that never falls, with the user's budget n
+# of the level, is the clamp of n
+def fg.user.t(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +c: Fx.Customs, +l: Fx.Lv, +n: Nat, +u: {Facts.customs_spec(c, l) == Some{n} : Maybe<&2, Nat>}) -> {Fx.Tokens{Fx.gtokens(Fx.Budgets{mi, lo, me, hi}, c, l)} == Fx.Tokens{Fx.clamp(n, mi, hi)} : Fx.GB}:
+  +ua = Equal.trans(Maybe<&2, Nat>, Fx.Customs.at(c, l), Facts.customs_spec(c, l), Some{n}, fg.at(c, l), u)
+  %Equal.sym(Maybe<&2, Nat>, Fx.Customs.at(c, l), Some{n}, ua) : {Fx.Tokens{Fx.clamp(Maybe.default(&2, Nat, _, Fx.Budgets.at(Fx.Budgets{mi, lo, me, hi}, l)), mi, hi)} == Fx.Tokens{Fx.clamp(n, mi, hi)} : Fx.GB}
+  {==}
+
+def fg.user(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, +c: Fx.Customs, +l: Fx.Lv, +n: Nat, +h: {Facts.rule_falls(mi, lo, me, hi) == False{} : Bool}, +u: {Facts.customs_spec(c, l) == Some{n} : Maybe<&2, Nat>}) -> {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Tokens{Fx.clamp(n, mi, hi)} : Fx.GB}:
+  Equal.trans(Fx.GB, Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l), Fx.Tokens{Fx.gtokens(Fx.Budgets{mi, lo, me, hi}, c, l)}, Fx.Tokens{Fx.clamp(n, mi, hi)}, fg.tokens(mi, lo, me, hi, c, l, h), fg.user.t(mi, lo, me, hi, c, l, n, u))
+
+# Tokens of equal budgets are equal
+def fg.tok(+x: Nat, +y: Nat, +e: {x == y : Nat}) -> {Fx.Tokens{x} == Fx.Tokens{y} : Fx.GB}:
+  %e : {Fx.Tokens{x} == Fx.Tokens{_} : Fx.GB}
+  {==}
+
+# Answer room (facts_room_*, facts_fit_budget_*)
+# ----------------------------------------------
+
+# the smaller of b and x is b or x
+def fr.mm(+b: Nat, +x: Nat) -> {Bool.or(Nat.is_eq(Nat.min(b, x), b), Nat.is_eq(Nat.min(b, x), x)) == True{} : Bool}:
+  match b x:
+    case 0n x:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      fr.mm(p, q)
+
+# a at most m: min(b, m - a) is b, or a plus it is m
+def fr.cut(+b: Nat, +m: Nat, +a: Nat, +h: {Nat.is_le(a, m) == True{} : Bool}) -> {Bool.or(Nat.is_eq(Nat.min(b, Nat.sub(m, a)), b), Nat.is_eq(Nat.add(a, Nat.min(b, Nat.sub(m, a))), m)) == True{} : Bool}:
+  match m a:
+    case 0n 0n:
+      fr.mm(b, 0n)
+    case 1n+q 0n:
+      fr.mm(b, 1n+q)
+    case 0n 1n+p:
+      LLogicLogic.pf.absurd_ft({Bool.or(Nat.is_eq(Nat.min(b, Nat.sub(0n, 1n+p)), b), Nat.is_eq(Nat.add(1n+p, Nat.min(b, Nat.sub(0n, 1n+p))), 0n)) == True{} : Bool}, h)
+    case 1n+q 1n+p:
+      fr.cut(b, q, p, h)
+
+# Price rows (facts_tier_price_model_row_first, facts_price_*)
+# -----------------------------------------------------------
+
+# a row hits the model's lookup exactly when it is a row of the model for the tier
+def fp.hit_m(+r: Fx.PRow, +m: Nat, +t: Nat) -> {Fx.PRow.hit(r, m, t, True{}) == Facts.row_of_model(r, m, t) : Bool}:
+  match r:
+    case Fx.PRow{rm, rt, k}:
+      match rm:
+        case None{}:
+          fb.and_false_r(Nat.is_eq(rt, t))
+        case Some{x}:
+          fb.and_comm(Nat.is_eq(rt, t), Nat.is_eq(x, m))
+
+# a row hits the every-model lookup exactly when it is a row of every model for the tier
+def fp.hit_a(+r: Fx.PRow, +m: Nat, +t: Nat) -> {Fx.PRow.hit(r, m, t, False{}) == Facts.row_of_all(r, t) : Bool}:
+  match r:
+    case Fx.PRow{rm, rt, k}:
+      match rm:
+        case None{}:
+          fb.and_true_r(Nat.is_eq(rt, t))
+        case Some{x}:
+          fb.and_false_r(Nat.is_eq(rt, t))
+
+def fp.pick_f(+x: Bool, +ex: {x == False{} : Bool}, +r: Fx.PRow, +later: Maybe<&2, Nat>) -> {Fx.price.pick(x, r, later) == later : Maybe<&2, Nat>}:
+  match x:
+    case False{}:
+      {==}
+    case True{}:
+      LLogicLogic.pf.absurd_tf({Fx.price.pick(True{}, r, later) == later : Maybe<&2, Nat>}, ex)
+
+def fp.pick_t(+x: Bool, +ex: {x == True{} : Bool}, +r: Fx.PRow, +later: Maybe<&2, Nat>) -> {Fx.price.pick(x, r, later) == Some{Fx.PRow.mult(r)} : Maybe<&2, Nat>}:
+  match x:
+    case True{}:
+      {==}
+    case False{}:
+      LLogicLogic.pf.absurd_ft({Fx.price.pick(False{}, r, later) == Some{Fx.PRow.mult(r)} : Maybe<&2, Nat>}, ex)
+
+# no row of the model: the model's lookup finds nothing
+def fp.none_m(+rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat, +h: {Facts.rows_of_model(rows, m, t) == False{} : Bool}) -> {Fx.price.find(rows, m, t, True{}) == None{} : Maybe<&2, Nat>}:
+  match rows:
+    case Nil{}:
+      {==}
+    case r <> more:
+      +hr = Equal.trans(Bool, Fx.PRow.hit(r, m, t, True{}), Facts.row_of_model(r, m, t), False{}, fp.hit_m(r, m, t), fb.or_fl(Facts.row_of_model(r, m, t), Facts.rows_of_model(more, m, t), h))
+      Equal.trans(Maybe<&2, Nat>, Fx.price.pick(Fx.PRow.hit(r, m, t, True{}), r, Fx.price.find(more, m, t, True{})), Fx.price.find(more, m, t, True{}), None{}, fp.pick_f(Fx.PRow.hit(r, m, t, True{}), hr, r, Fx.price.find(more, m, t, True{})), fp.none_m(more, m, t, fb.or_fr(Facts.row_of_model(r, m, t), Facts.rows_of_model(more, m, t), h)))
+
+# no row of every model: the every-model lookup finds nothing
+def fp.none_a(+rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat, +h: {Facts.rows_of_all(rows, t) == False{} : Bool}) -> {Fx.price.find(rows, m, t, False{}) == None{} : Maybe<&2, Nat>}:
+  match rows:
+    case Nil{}:
+      {==}
+    case r <> more:
+      +hr = Equal.trans(Bool, Fx.PRow.hit(r, m, t, False{}), Facts.row_of_all(r, t), False{}, fp.hit_a(r, m, t), fb.or_fl(Facts.row_of_all(r, t), Facts.rows_of_all(more, t), h))
+      Equal.trans(Maybe<&2, Nat>, Fx.price.pick(Fx.PRow.hit(r, m, t, False{}), r, Fx.price.find(more, m, t, False{})), Fx.price.find(more, m, t, False{}), None{}, fp.pick_f(Fx.PRow.hit(r, m, t, False{}), hr, r, Fx.price.find(more, m, t, False{})), fp.none_a(more, m, t, fb.or_fr(Facts.row_of_all(r, t), Facts.rows_of_all(more, t), h)))
+
+# the model's lookup finds the first row of the model for the tier
+def fp.first_m(+pre: List<&2, Fx.PRow>, +post: List<&2, Fx.PRow>, +m: Nat, +t: Nat, +k: Nat, +h: {Facts.rows_of_model(pre, m, t) == False{} : Bool}) -> {Fx.price.find(List.append(&2, Fx.PRow, pre, Fx.PRow{Some{m}, t, k} <> post), m, t, True{}) == Some{k} : Maybe<&2, Nat>}:
+  match pre:
+    case Nil{}:
+      +hit = fb.and_tt(Nat.is_eq(t, t), Nat.is_eq(m, m), LNat.child.pc.eq_refl(t), LNat.child.pc.eq_refl(m))
+      fp.pick_t(Fx.PRow.hit(Fx.PRow{Some{m}, t, k}, m, t, True{}), hit, Fx.PRow{Some{m}, t, k}, Fx.price.find(post, m, t, True{}))
+    case r <> more:
+      +X = List.append(&2, Fx.PRow, more, Fx.PRow{Some{m}, t, k} <> post)
+      +hr = Equal.trans(Bool, Fx.PRow.hit(r, m, t, True{}), Facts.row_of_model(r, m, t), False{}, fp.hit_m(r, m, t), fb.or_fl(Facts.row_of_model(r, m, t), Facts.rows_of_model(more, m, t), h))
+      Equal.trans(Maybe<&2, Nat>, Fx.price.pick(Fx.PRow.hit(r, m, t, True{}), r, Fx.price.find(X, m, t, True{})), Fx.price.find(X, m, t, True{}), Some{k}, fp.pick_f(Fx.PRow.hit(r, m, t, True{}), hr, r, Fx.price.find(X, m, t, True{})), fp.first_m(more, post, m, t, k, fb.or_fr(Facts.row_of_model(r, m, t), Facts.rows_of_model(more, m, t), h)))
+
+# the every-model lookup finds the first row of every model for the tier
+def fp.first_a(+pre: List<&2, Fx.PRow>, +post: List<&2, Fx.PRow>, +m: Nat, +t: Nat, +k: Nat, +h: {Facts.rows_of_all(pre, t) == False{} : Bool}) -> {Fx.price.find(List.append(&2, Fx.PRow, pre, Fx.PRow{None{}, t, k} <> post), m, t, False{}) == Some{k} : Maybe<&2, Nat>}:
+  match pre:
+    case Nil{}:
+      +hit = fb.and_tt(Nat.is_eq(t, t), True{}, LNat.child.pc.eq_refl(t), {==})
+      fp.pick_t(Fx.PRow.hit(Fx.PRow{None{}, t, k}, m, t, False{}), hit, Fx.PRow{None{}, t, k}, Fx.price.find(post, m, t, False{}))
+    case r <> more:
+      +X = List.append(&2, Fx.PRow, more, Fx.PRow{None{}, t, k} <> post)
+      +hr = Equal.trans(Bool, Fx.PRow.hit(r, m, t, False{}), Facts.row_of_all(r, t), False{}, fp.hit_a(r, m, t), fb.or_fl(Facts.row_of_all(r, t), Facts.rows_of_all(more, t), h))
+      Equal.trans(Maybe<&2, Nat>, Fx.price.pick(Fx.PRow.hit(r, m, t, False{}), r, Fx.price.find(X, m, t, False{})), Fx.price.find(X, m, t, False{}), Some{k}, fp.pick_f(Fx.PRow.hit(r, m, t, False{}), hr, r, Fx.price.find(X, m, t, False{})), fp.first_a(more, post, m, t, k, fb.or_fr(Facts.row_of_all(r, t), Facts.rows_of_all(more, t), h)))
+
+def fp.or_some(+a: Maybe<&2, Nat>, +k: Nat, +ea: {a == Some{k} : Maybe<&2, Nat>}, +b: Maybe<&2, Nat>) -> {Fx.price.or(a, b) == Some{k} : Maybe<&2, Nat>}:
+  %Equal.sym(Maybe<&2, Nat>, a, Some{k}, ea) : {Fx.price.or(_, b) == Some{k} : Maybe<&2, Nat>}
+  {==}
+
+def fp.or_none(+a: Maybe<&2, Nat>, +ea: {a == None{} : Maybe<&2, Nat>}, +b: Maybe<&2, Nat>) -> {Fx.price.or(a, b) == b : Maybe<&2, Nat>}:
+  %Equal.sym(Maybe<&2, Nat>, a, None{}, ea) : {Fx.price.or(_, b) == b : Maybe<&2, Nat>}
+  {==}

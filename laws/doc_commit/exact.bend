@@ -1,101 +1,20 @@
-# eukhe: the laws of area doc_commit, section exact: the move and the
-# reply of an edit pinned whole to a spec (laws/doc_commit.bend states
-# them only through membership premises and the files reported applied)
+# eukhe: the laws of area doc_commit, section exact: the reply of an edit
+# pinned whole (laws/doc_commit.bend states it only through the files
+# reported applied)
+#
+# F1: an edit of many files writes nothing when one file changed since it
+#     was staged; otherwise it publishes the files in order and stops at
+#     the first publish that fails; the reply calls a file applied exactly
+#     when its new content landed.
+# F9: a publish lands, lands with a warning (the directory sync failed, or
+#     a move could not remove its source), or fails; the reply keeps that
+#     warning.
+# R3: the reply of an edit is an error exactly when a publish failed and
+#     none landed.
 
 import Base
 import ../../bend/doc_commit.bend as Cm
 import ../doc_commit.bend as DocCommit
-
-# (F5) A move, whole
-# ------------------
-# move_never_overwrites and move_moves take the model's has as given, and
-# read the files after a move only through has and get: a has that is
-# always False made both vacuous (an MV over an existing file passed), and
-# a rename that deleted every other file passed. Every input is free: any
-# files with any names and contents, any source and destination names.
-
-# F5: some file is named n
-def sp_has(+n: Nat, es: List<&2, Cm.Entry>) -> Bool:
-  match es:
-    case Nil{}:
-      False{}
-    case e <> rest:
-      match e:
-        case Cm.Entry{m, g}:
-          Bool.or(Nat.is_eq(m, n), sp_has(n, rest))
-
-def sp_get.of(b: Bool, g: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
-      Some{g}
-    case False{}:
-      rest
-
-# F5: the content of the first file named n (none when no file is)
-def sp_get(+n: Nat, es: List<&2, Cm.Entry>) -> Maybe<&2, Nat>:
-  match es:
-    case Nil{}:
-      None{}
-    case e <> rest:
-      match e:
-        case Cm.Entry{m, g}:
-          sp_get.of(Nat.is_eq(m, n), g, sp_get(n, rest))
-
-def sp_name(b: Bool, +t: Nat, m: Nat) -> Nat:
-  match b:
-    case True{}:
-      t
-    case False{}:
-      m
-
-# F5: every file named s takes the name t, in place, with its content;
-# every other file is kept as it was
-def sp_rename(+s: Nat, +t: Nat, es: List<&2, Cm.Entry>) -> List<&2, Cm.Entry>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      match e:
-        case Cm.Entry{+m, g}:
-          Cm.Entry{sp_name(Nat.is_eq(m, s), t, m), g} <> sp_rename(s, t, rest)
-
-def sp_move.of(taken: Bool, +s: Nat, +t: Nat, es: List<&2, Cm.Entry>) -> Cm.Mv:
-  match taken:
-    case True{}:
-      Cm.Mv{False{}, es}
-    case False{}:
-      Cm.Mv{True{}, sp_rename(s, t, es)}
-
-# F5: MV s t: refused, the files unchanged, when a file is named t;
-# otherwise done, with the files renamed
-def sp_move(+s: Nat, +t: Nat, +es: List<&2, Cm.Entry>) -> Cm.Mv:
-  sp_move.of(sp_has(t, es), s, t, es)
-
-# LAW move_tests_exact (F5): a file named n is there exactly when some
-# file has that name, and the content of n is the content of the first
-# file so named (none when no file is)
-# EXCLUDES: a has that is always False (move_never_overwrites and
-#   move_moves vacuous: an MV over an existing file) or always True; a has
-#   or get that reads only one file; a get that answers another file's
-#   content, the last match, or a content for a missing name
-law move_tests_exact:
-  for +n: Nat
-  for +es: List<&2, Cm.Entry>
-  {Cm.has(n, es) == sp_has(n, es) : Bool} & {Cm.get(n, es) == sp_get(n, es) : Maybe<&2, Nat>}
-
-# LAW move_exact (F5): MV s t over the files es is refused, every file
-# kept, when a file is named t; otherwise it is done, every file named s
-# now named t with its content in its place, every other file kept as it
-# was
-# EXCLUDES: a has that is always False (MV over an existing file); a
-#   rename that deletes, adds, reorders or changes another file, drops
-#   the moved file's content, or renames only one of several files named
-#   s; a refused move that changes the files; a done move reported refused
-law move_exact:
-  for +s: Nat
-  for +t: Nat
-  for +es: List<&2, Cm.Entry>
-  {Cm.move(s, t, es) == sp_move(s, t, es) : Cm.Mv}
 
 # (F1, F9) The reply of an edit, whole
 # ------------------------------------
@@ -104,18 +23,30 @@ law move_exact:
 # landed publish's warning (Applied{False} for Landed{True}) passed. The
 # spec reads the reply off the fates of the model's files (sp_fates of
 # laws/doc_commit.bend: each published until the first failure, the rest
-# untried), as R3 reads the real one off its fates. Every input is free:
-# any files, changed or not, each an update or a move, with any fault.
+# untried), as R3 reads the real one off its fates. F1's two cases are two
+# laws over the shapes of the input, so no law decides "some file changed"
+# with a fold of its own: a changed file anywhere in the edit
+# (edit_reply_conflict: pre, the changed file, post, all free), and an
+# edit none of whose files changed (edit_reply_exact: the files built from
+# any ops and faults, each unchanged, by sp_clean). Together they cover
+# every edit. Every other input is free: any files, each an update or a
+# move, with any fault.
 
-# F1: some file changed since the edit staged it
-def sp_changed(fs: List<&2, Cm.Doc>) -> Bool:
-  match fs:
+# a file of an edit that did not change since it was staged: its op and
+# its fault
+type SpFile is Data:
+  SpFile{op: Cm.Op, fault: Cm.Fault}
+
+# the files of an edit none of whose files changed since it was staged:
+# one per op and fault, in order
+def sp_clean(ds: List<&2, SpFile>) -> List<&2, Cm.Doc>:
+  match ds:
     case Nil{}:
-      False{}
-    case f <> rest:
-      match f:
-        case Cm.Doc{k, c, x}:
-          Bool.or(c, sp_changed(rest))
+      Nil{}
+    case d <> rest:
+      match d:
+        case SpFile{k, x}:
+          Cm.Doc{k, False{}, x} <> sp_clean(rest)
 
 # F9: whether a landed publish carries a warning
 def sp_warned(w: Cm.Warn) -> Bool:
@@ -198,27 +129,68 @@ def sp_reply.if(b: Bool, fs: List<&2, Cm.Fate>) -> Cm.Reply:
 def sp_reply.fates(+fs: List<&2, Cm.Fate>) -> Cm.Reply:
   sp_reply.if(sp_rejects(fs), fs)
 
-def sp_reply.pick(c: Bool, +fs: List<&2, Cm.Doc>) -> Cm.Reply:
-  match c:
-    case True{}:
-      Cm.Rejected{}
-    case False{}:
-      sp_reply.fates(DocCommit.sp_fates(fs))
+# LAW edit_reply_conflict (F1): an edit one of whose files changed since the edit staged it, wherever
+# that file is among the others and whatever they are, is an error and
+# writes nothing
+# EXCLUDES: a conflict missed after the first file or before the last; an
+#   answer, or a partial write, after a conflict
+law edit_reply_conflict:
+  for +pre: List<&2, Cm.Doc>
+  for +k: Cm.Op
+  for +x: Cm.Fault
+  for +post: List<&2, Cm.Doc>
+  {Cm.reply(List.append(&2, Cm.Doc, pre, Cm.Doc{k, True{}, x} <> post)) == Cm.Rejected{} : Cm.Reply}
 
-# F1, F9: the reply of an edit: an error when a file changed since it was
-# staged (nothing was written); otherwise R3 on the files' fates
-def sp_reply(+fs: List<&2, Cm.Doc>) -> Cm.Reply:
-  sp_reply.pick(sp_changed(fs), fs)
-
-# LAW edit_reply_exact (F1, F9): the reply of an edit is an error when a
-# file changed since the edit staged it, or when the first publish failed
-# so none landed; otherwise it reports each file applied, with its
-# publish's warning, when its publish landed, and not written otherwise
-# (its publish failed, or one before it did)
+# LAW edit_reply_exact (F1, F9): the reply of an edit none of whose files changed since it was
+# staged (any ops, any faults, in any order) is an error when the first
+# publish failed so none landed; otherwise it reports each file applied,
+# with its publish's warning, when its publish landed, and not written
+# otherwise (its publish failed, or one before it did). (A changed file:
+# edit_reply_conflict.)
 # EXCLUDES: a lost warning (Landed{w} reported Applied{False}) or an
-#   invented one; an answer after a conflict or after nothing landed; an
-#   error after a file landed; a file reported applied that failed or was
-#   never tried, or the reverse; a report dropped, added or reordered
+#   invented one; an answer after nothing landed; an error after a file
+#   landed; a file reported applied that failed or was never tried, or
+#   the reverse; a report dropped, added or reordered; an unchanged edit
+#   rejected
 law edit_reply_exact:
-  for +fs: List<&2, Cm.Doc>
-  {Cm.reply(fs) == sp_reply(fs) : Cm.Reply}
+  for +ds: List<&2, SpFile>
+  {Cm.reply(sp_clean(ds)) == sp_reply.fates(DocCommit.sp_fates(sp_clean(ds))) : Cm.Reply}
+
+def sp_get.of(b: Bool, g: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match b:
+    case True{}:
+      Some{g}
+    case False{}:
+      rest
+
+# F5: the content of the first file named n (none when no file is)
+def sp_get(+n: Nat, es: List<&2, Cm.Entry>) -> Maybe<&2, Nat>:
+  match es:
+    case Nil{}:
+      None{}
+    case e <> rest:
+      match e:
+        case Cm.Entry{m, g}:
+          sp_get.of(Nat.is_eq(m, n), g, sp_get(n, rest))
+
+# F5: some file is named n
+def sp_has(+n: Nat, es: List<&2, Cm.Entry>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      match e:
+        case Cm.Entry{m, g}:
+          Bool.or(Nat.is_eq(m, n), sp_has(n, rest))
+
+# LAW move_tests_exact (F5): a file named n is there exactly when some
+# file has that name, and the content of n is the content of the first
+# file so named (none when no file is)
+# EXCLUDES: a has that is always False (move_never_overwrites and
+#   move_moves vacuous: an MV over an existing file) or always True; a has
+#   or get that reads only one file; a get that answers another file's
+#   content, the last match, or a content for a missing name
+law move_tests_exact:
+  for +n: Nat
+  for +es: List<&2, Cm.Entry>
+  {Cm.has(n, es) == sp_has(n, es) : Bool} & {Cm.get(n, es) == sp_get(n, es) : Maybe<&2, Nat>}

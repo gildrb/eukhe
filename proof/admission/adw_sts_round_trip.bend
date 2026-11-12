@@ -3,8 +3,9 @@
 import Base
 import ../../bend/admission.bend as Ad
 import ../../laws/admission.bend as Admission
+import ../../laws/admission/wire.bend as AdmissionWire
 
-def Admission.adw_sts_round_trip(s, rest):
+def AdmissionWire.adw_sts_round_trip(s, rest):
   match s:
     case Ad.Queued{}:
       {==}

@@ -13,4 +13,4 @@ import ../../laws/package_source/entry.bend as PackageSourceEntry
 import ./base.bend as LA
 
 def PackageSource.package_source_local_spec(s):
-  LA.psb.local(s)
+  LA.psb.local_orig(s)

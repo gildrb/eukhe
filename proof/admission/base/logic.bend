@@ -2,11 +2,12 @@
 
 import Base
 import ../../../bend/admission.bend as Ad
+import ./admission/terms.bend as AT
 
 # ---- admission ----
 
-# proof_admission: the admission laws of LAWS.bend (rule H3 of
-# LAWS.bend) over the model in admission.bend.
+# proof_admission: the admission laws of laws/admission.bend (rule H3 of
+# its header) over the model in bend/admission.bend.
 
 # Logic
 # -----
@@ -64,7 +65,7 @@ def ad.mis(m: Maybe<&2, Ad.Cls>, c: Ad.Cls) -> Bool:
 # ------------------------------------------------------------------
 
 def ad.ok.n(+l: Ad.Lim, +hi: Nat, +wi: Nat, +hb: Nat, +wb: Nat) -> Bool:
-  Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), wi, hi, wb))), Ad.calm.n(wi, hb))
+  Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), wi, hi, wb))), AT.calm.n(wi, hb))
 
 def ad.ok(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> Bool:
   ad.ok.n(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts), Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts))

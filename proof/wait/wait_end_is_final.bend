@@ -8,7 +8,7 @@ import ./base.bend as LA
 # No later than the deadline or the cancel
 # ----------------------------------------
 
-def pw.bound(pre: List<&2, Wt.Sig>, +post: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>, stop: {Wt.stops(LA.pw.up(l), pre) == True{} : Bool}) -> {Wt.go(List.append(&2, Wt.Sig, pre, post), Wt.Open{l}) == Wt.go(pre, Wt.Open{l}) : List<&2, Wt.End>}:
+def pw.bound(pre: List<&2, Wt.Sig>, +post: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>, stop: {WaitLaws.ww_stops(LA.pw.up(l), pre) == True{} : Bool}) -> {Wt.go(List.append(&2, Wt.Sig, pre, post), Wt.Open{l}) == Wt.go(pre, Wt.Open{l}) : List<&2, Wt.End>}:
   match pre:
     case Nil{}:
       match l:
@@ -39,7 +39,7 @@ def pw.bound(pre: List<&2, Wt.Sig>, +post: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>,
                 case 1n+q:
                   pw.bound(rest, post, Some{q}, stop)
 
-def wait_end_is_final(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Sig>, +post: List<&2, Wt.Sig>, stop: {Wt.stops(dl, pre) == True{} : Bool}) -> {Wt.run(dl, List.append(&2, Wt.Sig, pre, post)) == Wt.run(dl, pre) : List<&2, Wt.End>}:
+def wait_end_is_final(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Sig>, +post: List<&2, Wt.Sig>, stop: {WaitLaws.ww_stops(dl, pre) == True{} : Bool}) -> {Wt.run(dl, List.append(&2, Wt.Sig, pre, post)) == Wt.run(dl, pre) : List<&2, Wt.End>}:
   match dl:
     case None{}:
       pw.bound(pre, post, None{}, stop)

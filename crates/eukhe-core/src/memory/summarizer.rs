@@ -21,7 +21,9 @@
 //! preemption is a pause inside one model call, never a failure or an
 //! end of the call: the compactor's [`super::CALL_DEADLINE`] bounds each
 //! model call, its waits for a slot and its preemptions included, so a
-//! call preempted without end fails at the deadline (LAWS.bend H1.5, H2).
+//! call preempted without end fails at the deadline (the deadline is this
+//! crate's; laws/compactor.bend R2: the failure ends the call, H2 R10: the
+//! failure cap still builds the node, so a turn never waits forever).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

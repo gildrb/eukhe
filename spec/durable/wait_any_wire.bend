@@ -1,9 +1,11 @@
 # durable (spec): the wire of the wait_any entry
 # (bend/ffi_wait_any.bend, crates/eukhe-bend/WIRE.md) restated without the
 # entry's code: how Rust spells a request, which requests fit the wire,
-# the reply the decisions of spec/durable/wait_any.bend spell, and the
-# reader of a request. The laws of area wait_any state that the entry
-# answers it. A spec: the shipped code never calls it.
+# and how a reply spells the model's decision (bend/wait_any.bend, whose
+# answers the laws of area wait_any pin as properties). The laws state
+# that the entry answers every spelled request with its spelled reply,
+# and that any input it answers without the error form is a spelled
+# request. A spec: the shipped code never calls it.
 #
 # W1: a request is its tag, then its fields: 0 a poll: named, the cancel
 #     fired, the cap passed (a Bool each), the targets (a list of Nats:
@@ -16,14 +18,14 @@
 #     wait for | 3 capped | 4 cancelled; for a step, the watchers, the
 #     phase and the deliveries made (a Nat each); for a timeout, the
 #     seconds.
-# W3: anything else is no request.
+# W3: anything else is no request: the entry answers it with the error
+#     form `E wait_any: malformed request`.
 
 import Base
 import ../../bend/wait_any.bend as Wa
 import ../../bend/ffi_wait_any.bend as FWa
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ./wait_any.bend as WaSpec
 
 # Codes (W1)
 # ----------
@@ -105,8 +107,8 @@ def fit(q: FWa.Req) -> Bool:
     case FWa.QTimeout{a}:
       fit_asked(a)
 
-# Replies (W2): the spec's decisions
-# ----------------------------------
+# Replies (W2): a decision, spelled
+# ---------------------------------
 
 def w_pick(p: Wa.Pick) -> String:
   match p:
@@ -128,199 +130,12 @@ def w_out(o: Wa.Out) -> String:
         case Wa.D{w, p}:
           Wr.put_nat(w, Wr.put_nat(c_phase(p), Wr.put_nat(k, "")))
 
-# the reply to a request: the spec's decision, spelled
+# the reply to a request: the model's decision, spelled
 def w_reply(q: FWa.Req) -> String:
   match q:
     case FWa.QPoll{n, c, l, ts}:
-      w_pick(WaSpec.poll(n, c, l, ts))
+      w_pick(Wa.poll(n, c, l, ts))
     case FWa.QStep{k, d, e}:
-      w_out(WaSpec.step(k, d, e))
+      w_out(Wa.step(k, d, e))
     case FWa.QTimeout{a}:
-      Wr.put_nat(WaSpec.timeout(a), "")
-
-# The reader (W3)
-# ---------------
-
-def r_tgt(n: Nat) -> Maybe<&2, Wa.Tgt>:
-  match n:
-    case 0n:
-      Some{Wa.Runs{}}
-    case 1n:
-      Some{Wa.Unread{}}
-    case 2n:
-      Some{Wa.Read{}}
-    case 3n+u:
-      None{}
-
-def r_tgts.cons(t: Maybe<&2, Wa.Tgt>, r: Maybe<&2, List<&2, Wa.Tgt>>) -> Maybe<&2, List<&2, Wa.Tgt>>:
-  match t:
-    case None{}:
-      None{}
-    case Some{x}:
-      match r:
-        case None{}:
-          None{}
-        case Some{xs}:
-          Some{x <> xs}
-
-def r_tgts(ns: List<&2, Nat>) -> Maybe<&2, List<&2, Wa.Tgt>>:
-  match ns:
-    case Nil{}:
-      Some{Nil{}}
-    case Con{n, rest}:
-      r_tgts.cons(r_tgt(n), r_tgts(rest))
-
-def r_phase(n: Nat) -> Maybe<&2, Wa.Phase>:
-  match n:
-    case 0n:
-      Some{Wa.Live{}}
-    case 1n:
-      Some{Wa.Kept{}}
-    case 2n:
-      Some{Wa.Sent{}}
-    case 3n+u:
-      None{}
-
-def r_ev(n: Nat) -> Maybe<&2, Wa.Ev>:
-  match n:
-    case 0n:
-      Some{Wa.Watch{}}
-    case 1n:
-      Some{Wa.Unwatch{}}
-    case 2n:
-      Some{Wa.Settles{}}
-    case 3n:
-      Some{Wa.Taken{}}
-    case 4n+u:
-      None{}
-
-def r_poll.ok(n: Bool, c: Bool, l: Bool, ts: Maybe<&2, List<&2, Wa.Tgt>>, s: String) -> Wr.Dec<FWa.Req>:
-  match ts:
-    case Some{xs}:
-      Wr.Got{FWa.QPoll{n, c, l, xs}, s}
-    case None{}:
-      Wr.Bad{}
-
-def r_poll.ts(n: Bool, c: Bool, l: Bool, x: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{ns, s}:
-      r_poll.ok(n, c, l, r_tgts(ns), s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_poll.late(n: Bool, c: Bool, x: Wr.Dec<Bool>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{l, s}:
-      r_poll.ts(n, c, l, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_poll.cancel(n: Bool, x: Wr.Dec<Bool>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{c, s}:
-      r_poll.late(n, c, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_poll(x: Wr.Dec<Bool>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{n, s}:
-      r_poll.cancel(n, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_step.ok(k: Bool, w: Nat, p: Maybe<&2, Wa.Phase>, e: Maybe<&2, Wa.Ev>, s: String) -> Wr.Dec<FWa.Req>:
-  match p:
-    case None{}:
-      Wr.Bad{}
-    case Some{ph}:
-      match e:
-        case None{}:
-          Wr.Bad{}
-        case Some{ev}:
-          Wr.Got{FWa.QStep{k, Wa.D{w, ph}, ev}, s}
-
-def r_step.ev(k: Bool, w: Nat, p: Nat, x: Wr.Dec<Nat>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{e, s}:
-      r_step.ok(k, w, r_phase(p), r_ev(e), s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_step.phase(k: Bool, w: Nat, x: Wr.Dec<Nat>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{p, s}:
-      r_step.ev(k, w, p, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_step.watchers(k: Bool, x: Wr.Dec<Nat>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{w, s}:
-      r_step.phase(k, w, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_step(x: Wr.Dec<Bool>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{k, s}:
-      r_step.watchers(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_timeout.secs(x: Wr.Dec<Nat>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{t, s}:
-      Wr.Got{FWa.QTimeout{Some{t}}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_timeout(x: Wr.Dec<Nat>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{FWa.QTimeout{None{}}, s}
-        case 1n:
-          r_timeout.secs(Wr.get_nat(s))
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_req.tag(x: Wr.Dec<Nat>) -> Wr.Dec<FWa.Req>:
-  match x:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          r_poll(Wr.get_bool(s))
-        case 1n:
-          r_step(Wr.get_bool(s))
-        case 2n:
-          r_timeout(Wr.get_nat(s))
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a request at the start of s, read with the wire's decoders
-def r_req(s: String) -> Wr.Dec<FWa.Req>:
-  r_req.tag(Wr.get_nat(s))
-
-def r_whole.end(e: Bool, q: FWa.Req) -> Maybe<&2, FWa.Req>:
-  match e:
-    case True{}:
-      Some{q}
-    case False{}:
-      None{}
-
-def r_whole(d: Wr.Dec<FWa.Req>) -> Maybe<&2, FWa.Req>:
-  match d:
-    case Wr.Got{q, +s}:
-      r_whole.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      None{}
-
-# the request s spells whole, with nothing after it
-def read_req(s: String) -> Maybe<&2, FWa.Req>:
-  r_whole(r_req(s))
+      Wr.put_nat(Wa.timeout(a), "")

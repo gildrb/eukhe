@@ -2,15 +2,13 @@
 #
 # PROOF: the spelled request reads back whole with nothing left
 # (gateway_commands_entry_reads), so the entry answers the code's parse,
-# which is the spec's (gateway_commands_spec), spelled by the spec's tags
-# (gca.out, case by case).
+# spelled by the laws' tags (gca.out, case by case).
 
 import Base
 import ../../bend/gateway_commands.bend as Gc
 import ../../bend/ffi_gateway_commands.bend as FGc
 import ../../bend/wire.bend as Wr
 import ../../laws/gateway_commands.bend as GatewayCommands
-import ./gateway_commands_spec.bend as PGatewayCommandsSpec
 import ./gateway_commands_entry_reads.bend as PGatewayCommandsEntryReads
 
 def gca.arg(m: Maybe<&2, String>) -> {FGc.put_arg(m) == GatewayCommands.gc_w_arg(m) : String}:
@@ -61,8 +59,7 @@ def gca.out(o: Gc.Out) -> {FGc.put_out(o) == GatewayCommands.gc_w_out(o) : Strin
 def gca.reply(q: FGc.Req) -> {FGc.answer(q) == GatewayCommands.gc_w_reply(q) : String}:
   match q:
     case FGc.QParse{+t, +ns}:
-      %Equal.sym(Gc.Out, Gc.parse(t, ns), GatewayCommands.gc_parse(t, ns), GatewayCommands.gateway_commands_spec(t, ns)) : {FGc.put_out(_) == GatewayCommands.gc_w_out(GatewayCommands.gc_parse(t, ns)) : String}
-      gca.out(GatewayCommands.gc_parse(t, ns))
+      gca.out(Gc.parse(t, ns))
 
 def GatewayCommands.gateway_commands_entry_answers(q, h):
   %Equal.sym(Wr.Dec<FGc.Req>, FGc.get_req(GatewayCommands.gc_w_req(q, "")), Wr.Got{q, ""}, GatewayCommands.gateway_commands_entry_reads(q, "", h)) : {FGc.ffi.got(_) == GatewayCommands.gc_w_reply(q) : String}

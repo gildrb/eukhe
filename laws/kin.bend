@@ -11,20 +11,23 @@ import ../spec/agents/kin.bend as KinSpec
 # ------------------------------
 # bend/kin.bend, run as the compiled core by bend/ffi_kin.bend (eukhe-bend
 # rules/kin.rs; asked by the daemon's agent messaging before it routes a
-# message). The spec is spec/agents/kin.bend (K1-K4).
+# message). spec/agents/kin.bend states the rule (K1-K4) and the edge
+# test (has_edge), admission (admits) and names (mentions).
 # Every input is free: any sender, target, columns of edges and state.
 #
-# R1: the decision on a message is the spec's (K1-K3): an agent messages
-#     only its parent and its own children, never itself; the code refines
-#     the spec.
-# R2: the landing is the spec's (K4): busy queues, idle delivers, parked
-#     wakes then delivers; every landing ends in the target's inbox.
+# R1: the decision on a message is the one K1-K3 state: an agent messages
+#     only its parent and its own children, never itself; a message to
+#     itself is refused as such, one to no kin as not kin, and the parent
+#     relation is named when both edges hold.
+# R2: the landing is the one K4 states: busy queues, idle delivers, parked
+#     wakes then delivers (no landing drops the message: the type Landing
+#     has no drop).
 # R3: the entry answers each request Rust writes (tag 0: the sender, the
 #     target, the children and the parents as List<String>; tag 1: the
-#     state; every length within the wire) with the decision (0 then the
-#     relation | 1 then the refusal's text) or the landing, reads exactly
-#     the request and nothing after it, and answers any other input with
-#     the exact error form `E kin: malformed request`.
+#     state; every length within the wire) with the core's decision (0
+#     then the relation | 1 then the refusal's text) or landing, reads
+#     exactly the request and nothing after it, and answers any other
+#     input with the exact error form `E kin: malformed request`.
 
 # Spec helpers
 # ------------
@@ -97,10 +100,10 @@ def kin_w_verdict(v: K.Verdict) -> String:
 
 def kin_w_reply(q: FK.Req) -> String:
   match q:
-    case FK.QAdmit{+s, +t, +cs, +ps}:
-      kin_w_verdict(KinSpec.verdict(s, t, cs, ps))
+    case FK.QAdmit{s, t, cs, ps}:
+      kin_w_verdict(K.decide(s, t, cs, ps))
     case FK.QLand{st}:
-      Wr.put_nat(kin_land_code(KinSpec.lands(st)), "")
+      Wr.put_nat(kin_land_code(K.land(st)), "")
 
 # every length of xs fits the wire
 def kin_fit_strs(xs: List<&2, String>) -> Bool:
@@ -121,18 +124,33 @@ def kin_fit_req(q: FK.Req) -> Bool:
 # Laws: the decision (R1)
 # -----------------------
 
-# LAW kin_refines_spec (A3, R1, K1-K3): the decision on every message is
-# the spec's: itself refused first, then a parent, then a child, else
-# refused
-# EXCLUDES: a parent and a child swapped, a child named when the parent
-#   link holds too, the edge columns paired in another way, a refusal
-#   other than the spec's
-law kin_refines_spec:
+# LAW kin_parent_first (A3, R1, K3): a message to another agent t that
+# the edge from the sender s to t links (spec has_edge: t is s's parent)
+# is admitted as to the parent, also when the edge from t to s holds too
+# EXCLUDES: a child named when the parent link holds too, a message to
+#   the parent refused, the edge read the other way round
+law kin_parent_first:
   for +s: String
   for +t: String
   for +cs: List<&2, String>
   for +ps: List<&2, String>
-  {K.decide(s, t, cs, ps) == KinSpec.verdict(s, t, cs, ps) : K.Verdict}
+  for other: {String.eq(s, t) == False{} : Bool}
+  for up: {KinSpec.has_edge(cs, ps, s, t) == True{} : Bool}
+  {K.decide(s, t, cs, ps) == K.Admit{K.Parent{}} : K.Verdict}
+
+# LAW kin_not_kin_refused (A3, R1, K3): a message to another agent that
+# the spec does not admit (no edge either way: spec admits false) is
+# refused as not kin
+# EXCLUDES: a refusal to no kin named as a self message, a sibling or
+#   another tree refused with another text
+law kin_not_kin_refused:
+  for +s: String
+  for +t: String
+  for +cs: List<&2, String>
+  for +ps: List<&2, String>
+  for other: {String.eq(s, t) == False{} : Bool}
+  for no: {KinSpec.admits(s, t, cs, ps) == False{} : Bool}
+  {K.decide(s, t, cs, ps) == K.Refuse{K.NotKin{}} : K.Verdict}
 
 # LAW kin_admit_iff (A3, R1, K2, K3): a message is admitted exactly when
 # the sender is not the target and a direct edge links them, either way
@@ -194,32 +212,34 @@ law kin_text_spec:
   for +f: K.Refusal
   {K.text(f) == kin_text(f) : String}
 
-# LAW kin_example (A3, R1): anchor: the tree root -> a, root -> b,
-# a -> c: a child to its parent, a parent to its child, a sibling, a
-# grandchild to its grandparent, a message to itself, another tree, an
-# edge past the shorter column
-# EXCLUDES: a spec that drifts from the Rust it calls
+# LAW kin_example (A3, R1): anchor: the tree and messages of Rust's test
+# `the_core_decides_who_may_message_whom` (crates/eukhe-bend/src/rules/
+# kin.rs; root named r): root -> a, root -> b, a -> c and y -> x: a child
+# to its parent, a parent to its child, a sibling, a grandchild to its
+# grandparent, a message to itself, another tree; and an edge past the
+# shorter column
+# EXCLUDES: a decision other than the one that Rust test reads
 law kin_example:
   {[K.decide("a", "r", ["a", "b", "c"], ["r", "r", "a"]), K.decide("r", "a", ["a", "b", "c"], ["r", "r", "a"]), K.decide("a", "b", ["a", "b", "c"], ["r", "r", "a"]), K.decide("c", "r", ["a", "b", "c"], ["r", "r", "a"]), K.decide("a", "a", ["a", "b", "c"], ["r", "r", "a"]), K.decide("x", "a", ["a", "b", "c", "x"], ["r", "r", "a", "y"]), K.decide("c", "a", ["a", "b", "c"], ["r", "r"])] == [K.Admit{K.Parent{}}, K.Admit{K.Child{}}, K.Refuse{K.NotKin{}}, K.Refuse{K.NotKin{}}, K.Refuse{K.SelfMessage{}}, K.Refuse{K.NotKin{}}, K.Refuse{K.NotKin{}}] : List<&2, K.Verdict>}
 
 # Laws: the landing (R2)
 # ----------------------
 
-# LAW kin_wake (A3, R2, K4): a busy target queues the message, an idle one
-# takes it at once, a parked one is woken and then takes it: every state
-# ends with the message in the target's inbox, never dropped
+# LAW kin_land_table_example (A3, R2, K4): anchor: the landing of every
+# state, as Rust's test `the_core_lands_a_message_in_every_state`
+# (crates/eukhe-bend/src/rules/kin.rs) reads it: busy queues, idle
+# delivers, parked wakes then delivers
 # EXCLUDES: a parked target left asleep with the message, a busy target
-#   interrupted, a message dropped
-law kin_wake:
-  for +st: K.State
-  {K.land(st) == KinSpec.lands(st) : K.Landing} & {KinSpec.in_inbox(K.land(st)) == True{} : Bool}
+#   interrupted, an idle target woken
+law kin_land_table_example:
+  {[K.land(K.Busy{}), K.land(K.Idle{}), K.land(K.Parked{})] == [K.Queue{}, K.Deliver{}, K.WakeThenDeliver{}] : List<&2, K.Landing>}
 
 # Laws: the entry (R3)
 # --------------------
 
 # LAW kin_entry_answers (A3, R3): the entry answers every request Rust
-# spells, every length within the wire, with the spec's decision or
-# landing spelled
+# spells, every length within the wire, with the core's decision or
+# landing spelled (kin_w_reply)
 # EXCLUDES: fields read in another order, the children and the parents
 #   swapped, an edge lost, one request answered for the other, a default
 law kin_entry_answers:

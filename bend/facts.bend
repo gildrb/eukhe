@@ -22,8 +22,10 @@
 #    runtime's 2^48-1) before the call; no def here forms a value above
 #    its inputs or above `top`, so a run never meets the runtime's Nat
 #    bound and every answer fits the wire.
-# 3. Oracles: the code that held the facts before, as functions, for the
-#    laws that say the data gives the same answers.
+# 3. Oracles: the code that held the facts before (the old Bedrock budget
+#    table, the old tier prices), as functions, for the laws that say the
+#    data gives the same answers (the old Bedrock effort rule is a
+#    laws-side oracle: laws/facts/model.bend effort_old).
 
 import Base
 import ./infer.bend as If
@@ -457,53 +459,6 @@ def reasoning(s: Maybe<&2, Shape>, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFi
     case Some{x}:
       reasoning.at(x, e, l)
 
-def is_xhigh(l: ELv) -> Bool:
-  match l:
-    case EXhigh{}:
-      True{}
-    case EMinimal{}:
-      False{}
-    case ELow{}:
-      False{}
-    case EMedium{}:
-      False{}
-    case EHigh{}:
-      False{}
-    case EMax{}:
-      False{}
-
-def effort.old.at(hit: Bool, +m: EMap, +l: ELv) -> Nat:
-  match hit:
-    case True{}:
-      5n
-    case False{}:
-      effort(m, l)
-
-# the effort before: a model on the native-xhigh id list (native) sends
-# xhigh at xhigh before its map is read
-def effort.old(native: Bool, +m: EMap, +l: ELv) -> Nat:
-  effort.old.at(Bool.and(native, is_xhigh(l)), m, l)
-
-def native_ok.e(e: Maybe<&2, Maybe<&2, Nat>>) -> Bool:
-  match e:
-    case Some{w}:
-      match w:
-        case Some{v}:
-          Nat.is_eq(v, 5n)
-        case None{}:
-          False{}
-    case None{}:
-      False{}
-
-# the catalog's promise for a native-xhigh model: its map sends xhigh at
-# xhigh
-def native_ok(native: Bool, m: EMap) -> Bool:
-  match native:
-    case True{}:
-      native_ok.e(EMap.at(m, EXhigh{}))
-    case False{}:
-      True{}
-
 # the budget-based Claude table of the Bedrock code, before the rulebook
 # held it (the level is clamped to high already)
 def budget.old(c: Customs, l: Lv) -> Nat:
@@ -577,11 +532,6 @@ def price.or(first: Maybe<&2, Nat>, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
 def price(+rows: List<&2, PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
   price.or(price.find(rows, m, t, True{}), price.find(rows, m, t, False{}))
 
-# the cost of base under the multiplier p, in hundredths
-# (`apply_service_tier_pricing`): no row leaves the base price
-def tier_cost(+base: Nat, p: Maybe<&2, Nat>) -> Nat:
-  Nat.mul(base, Maybe.default(&2, Nat, p, 100n))
-
 # the shipped OpenAI rows (openai over openai-responses, and over
 # openai-completions)
 def prices.openai() -> List<&2, PRow>:
@@ -635,13 +585,3 @@ def price.old.codex(m: Nat, t: Nat) -> Nat:
               price.old.g(m)
             case 1n+c:
               100n
-
-# the rate of a 1h cache write, in hundredths: a row's multiplier (in
-# hundredths) of the input rate, else the model's own cache write rate
-# (`calculate_cost`); never a price borrowed from another provider
-def rate_1h(row: Maybe<&2, Nat>, +input: Nat, +write: Nat) -> Nat:
-  match row:
-    case Some{k}:
-      Nat.div(Nat.mul(input, k), 100n)
-    case None{}:
-      write

@@ -2,15 +2,16 @@
 # a crash go, and how the sessions directory is listed
 # (crates/eukhe-core/src/durable/staging.rs, discovery.rs).
 #
-# The file holds two things. First the model (Publish, Sweep, Listing):
-# names are interned Nats and the facts are bits, the abstraction the first
-# laws are about. Then the real rule (from "The real rule" on), which the
-# compiled core runs (bend/ffi_staging.bend) on the facts the Rust gathers:
-# real names, entry types, lock probes, modification times, cwds. The laws
-# of laws/staging.bend tie the real rule to the model.
+# The file holds two things. First the model (Sweep, Listing): names are
+# interned Nats and the facts are bits, the abstraction the first laws are
+# about. Then the real rule (from "The real rule" on), which the compiled
+# core runs (bend/ffi_staging.bend) on the facts the Rust gathers: real
+# names, entry types, lock probes, modification times, cwds. The laws of
+# laws/staging.bend tie the real rule to the model.
 #
-# Publish: a storage built in a staging directory moves to its target
-# name only when no entry has that name; an entry there stays as it was.
+# Publish (the real rule only): a storage built in a staging directory
+# moves to its target name by a rename without replacement; the kernel
+# refuses it when an entry has that name, and that entry stays as it was.
 #
 # Sweep: the sweep walks every directory under its roots, except a
 # storage (it holds main.jsonl), a symlink and a leftover. A node is one
@@ -27,58 +28,6 @@
 # `<stem>/`, and then that directory is the session.
 
 import Base
-
-# Publish
-# -------
-
-# a directory entry: its name and what it holds
-type Entry is Data:
-  Entry{name: Nat, tag: Nat}
-
-def has(+n: Nat, es: List<&2, Entry>) -> Bool:
-  match es:
-    case Nil{}:
-      False{}
-    case e <> rest:
-      match e:
-        case Entry{m, t}:
-          Bool.or(Nat.is_eq(m, n), has(n, rest))
-
-def rename.put(+t: Nat, +m: Nat, g: Nat, rest: List<&2, Entry>, b: Bool) -> List<&2, Entry>:
-  match b:
-    case True{}:
-      Entry{t, g} <> rest
-    case False{}:
-      Entry{m, g} <> rest
-
-# the entries after the entry s takes the name t
-def rename(+s: Nat, +t: Nat, es: List<&2, Entry>) -> List<&2, Entry>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      match e:
-        case Entry{+m, g}:
-          rename.put(t, m, g, rename(s, t, rest), Nat.is_eq(m, s))
-
-# what a publish did: whether it moved, and the entries after it
-type Pub is Data:
-  Pub{ok: Bool, es: List<&2, Entry>}
-
-def Pub.ok(p: Pub) -> Bool:
-  match p:
-    case Pub{ok, es}:
-      ok
-
-def publish.go(+s: Nat, +t: Nat, taken: Bool, es: List<&2, Entry>) -> Pub:
-  match taken:
-    case True{}:
-      Pub{False{}, es}
-    case False{}:
-      Pub{True{}, rename(s, t, es)}
-
-def publish(+s: Nat, +t: Nat, +es: List<&2, Entry>) -> Pub:
-  publish.go(s, t, has(t, es), es)
 
 # Sweep
 # -----
@@ -577,3 +526,52 @@ def judge.go(old: Bool, c: Cand, l: Lock) -> Plan:
 # modification time and those of its direct entries (none for a lock file)
 def judge(c: Cand, l: Lock, +now: Time, own: Time, inner: List<&2, Time>) -> Plan:
   judge.go(stale_all(now, own <> inner), c, l)
+
+# a directory entry: its name and what it holds
+type Entry is Data:
+  Entry{name: Nat, tag: Nat}
+
+# what a publish did: whether it moved, and the entries after it
+type Pub is Data:
+  Pub{ok: Bool, es: List<&2, Entry>}
+
+def has(+n: Nat, es: List<&2, Entry>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      match e:
+        case Entry{m, t}:
+          Bool.or(Nat.is_eq(m, n), has(n, rest))
+
+def rename.put(+t: Nat, +m: Nat, g: Nat, rest: List<&2, Entry>, b: Bool) -> List<&2, Entry>:
+  match b:
+    case True{}:
+      Entry{t, g} <> rest
+    case False{}:
+      Entry{m, g} <> rest
+
+# the entries after the entry s takes the name t
+def rename(+s: Nat, +t: Nat, es: List<&2, Entry>) -> List<&2, Entry>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      match e:
+        case Entry{+m, g}:
+          rename.put(t, m, g, rename(s, t, rest), Nat.is_eq(m, s))
+
+def publish.go(+s: Nat, +t: Nat, taken: Bool, es: List<&2, Entry>) -> Pub:
+  match taken:
+    case True{}:
+      Pub{False{}, es}
+    case False{}:
+      Pub{True{}, rename(s, t, es)}
+
+def publish(+s: Nat, +t: Nat, +es: List<&2, Entry>) -> Pub:
+  publish.go(s, t, has(t, es), es)
+
+def Pub.ok(p: Pub) -> Bool:
+  match p:
+    case Pub{ok, es}:
+      ok

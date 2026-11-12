@@ -628,14 +628,14 @@ def tfe.at(b: Bool, -c: Tk.Col, -later: Maybe<&2, Tk.Col>) -> {Maybe.or(&2, Tk.C
     case False{}:
       {==}
 
-def tfe.go(+t: Tk.Tone, xs: List<&2, Tk.Entry>) -> {Tk.find(t, xs) == Tokens.find_spec(t, xs) : Maybe<&2, Tk.Col>}:
+def tfe.go(+t: Tk.Tone, xs: List<&2, Tk.Entry>) -> {Tk.find(t, xs) == Tokens.find_spec_orig(t, xs) : Maybe<&2, Tk.Col>}:
   match xs:
     case Nil{}:
       {==}
     case Tk.Entry{+k, +c} <> +rest:
-      %Equal.sym(Maybe<&2, Tk.Col>, Tk.find(t, rest), Tokens.find_spec(t, rest), tfe.go(t, rest)) : {Maybe.or(&2, Tk.Col, Tk.hit(Tk.Tone.eq(k, t), c), _) == Tokens.find_spec(t, Tk.Entry{k, c} <> rest) : Maybe<&2, Tk.Col>}
-      %Equal.sym(Bool, Tk.Tone.eq(k, t), Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)), tfe.eq(k, t)) : {Maybe.or(&2, Tk.Col, Tk.hit(_, c), Tokens.find_spec(t, rest)) == Tokens.find_spec(t, Tk.Entry{k, c} <> rest) : Maybe<&2, Tk.Col>}
-      tfe.at(Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)), c, Tokens.find_spec(t, rest))
+      %Equal.sym(Maybe<&2, Tk.Col>, Tk.find(t, rest), Tokens.find_spec_orig(t, rest), tfe.go(t, rest)) : {Maybe.or(&2, Tk.Col, Tk.hit(Tk.Tone.eq(k, t), c), _) == Tokens.find_spec_orig(t, Tk.Entry{k, c} <> rest) : Maybe<&2, Tk.Col>}
+      %Equal.sym(Bool, Tk.Tone.eq(k, t), Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)), tfe.eq(k, t)) : {Maybe.or(&2, Tk.Col, Tk.hit(_, c), Tokens.find_spec_orig(t, rest)) == Tokens.find_spec_orig(t, Tk.Entry{k, c} <> rest) : Maybe<&2, Tk.Col>}
+      tfe.at(Nat.is_eq(Tokens.idx_spec(k), Tokens.idx_spec(t)), c, Tokens.find_spec_orig(t, rest))
 
 def Tokens.tokens_find_exact(t, xs):
   tfe.go(t, xs)

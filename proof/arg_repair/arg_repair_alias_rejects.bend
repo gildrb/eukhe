@@ -12,7 +12,7 @@ import ../../bend/arg_repair.bend as Ar
 import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
 import ./base.bend as AB
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 
 def ba.is_no(n: Ar.Named) -> Bool:
   match n:

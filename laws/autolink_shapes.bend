@@ -48,6 +48,15 @@ import ../bend/autolink_shapes.bend as AL
 #     its last char, and nothing after the rounds makes them go back).
 # R4: the table holds exactly these shapes, the one of id 120 + i at index
 #     i, and no other.
+#
+# Anchored only: R1-R3 (autolink_shapes_link_example,
+# autolink_shapes_backpedal_example, autolink_shapes_fixture_example). No
+# source outside eukhe's code holds marked 18.0.7's regexes, so a law over
+# the table would compare it with itself; a law by meaning over every text
+# needs the matcher's search (bend/shape.bend) reasoned through for these
+# shapes, not done. The requirement's marked fixtures are the outside table
+# the anchors follow. R4 (ids, none past the last) is stated for the entry by
+# laws/shape/entry.bend (area shape), which reads sp_table.
 
 # Spec helpers
 # ------------
@@ -97,7 +106,9 @@ def sp_plain() -> S.Cls:
 def sp_punct() -> S.Cls:
   sp_in([sp_r(33), sp_r(34), sp_r(39), sp_r(41), sp_r(42), sp_r(44), sp_r(46), sp_r(58), sp_r(59), sp_r(63), sp_r(95), sp_r(126)])
 
-# R1-R3, by id from 120
+# R1-R3, by id from 120: the shapes written out, read by
+# laws/shape/entry.bend (sp_shape_of, area shape) for ids 120-129; no law
+# of this area uses it
 def sp_table() -> List<&2, S.Shape>:
   [S.Shape{S.AtStart{}, [S.Lit{"<"}, S.Cap{[S.Alt{[sp_1(sp_in([S.Rg{65, 90}, S.Rg{97, 122}])), S.Run{sp_in([sp_r(43), S.Rg{45, 46}, S.Rg{48, 57}, S.Rg{65, 90}, S.Rg{97, 122}]), 1n, Some{31n}}, S.Lit{":"}, sp_any(sp_not(List.append(&2, S.Rg, sp_white(), [S.Rg{0, 32}, sp_r(60), sp_r(62)])))], [sp_some(sp_in([sp_r(33), S.Rg{35, 39}, S.Rg{42, 43}, S.Rg{45, 57}, sp_r(61), sp_r(63), S.Rg{65, 90}, S.Rg{94, 126}])), S.Cap{[S.Lit{"@"}]}, sp_1(sp_alnum()), sp_tail(), S.Many{[S.Lit{"."}, sp_1(sp_alnum()), sp_tail()], 1n}, sp_no_dash()]}]}, S.Lit{">"}], False{}},
    S.Shape{S.AtStart{}, [S.Alt{[S.Cap{[S.Alt{[S.Alt{[S.Fold{"http"}, S.Opt{[S.Fold{"s"}]}], [S.Fold{"ftp"}]}, S.Lit{"://"}], [S.Lit{"www."}]}]}, sp_1(sp_label()), sp_any(sp_not(List.append(&2, S.Rg, sp_white(), [sp_r(60)])))], [sp_some(sp_in([sp_r(43), S.Rg{45, 46}, S.Rg{48, 57}, S.Rg{65, 90}, sp_r(95), S.Rg{97, 122}])), S.Cap{[S.Lit{"@"}]}, sp_some(sp_label_()), S.Many{[S.Lit{"."}, sp_any(sp_label_()), sp_1(sp_alnum())], 1n}, sp_no_dash()]}], False{}},
@@ -106,30 +117,36 @@ def sp_table() -> List<&2, S.Shape>:
 # Laws
 # ----
 
-# LAW autolink_shapes_table (R1-R4): at every index the table holds the
-# shape R1-R3 state for its id, and none past them
-# EXCLUDES: a link shape that drifts from marked's regex (an option lost or
-#   reordered, a class widened, a lost `(?![-_])` or `(?!$)`, a backpedal
-#   round that splits a run), ids shifted, a lookup that answers a shape
-#   past the last
-law autolink_shapes_table:
-  for +i: Nat
-  {AL.shape(i) == List.get(&2, S.Shape, sp_table(), i) : Maybe<&2, S.Shape>}
-
 # LAW autolink_shapes_link_example (R1, R2): anchor: the renderer tests'
 # angle url and angle email (the `@` captured), a bare url read up to the
 # space (its trailing `.` still in), a bare email and a `www.` link
-# EXCLUDES: a table that drifts from the renderer tests
+# EXCLUDES: a link shape that drifts from the renderer tests
 # waive L4-examples-only: a shape is a constant, no input to leave free;
-#   autolink_shapes_table pins it whole to its R rule
+#   no source outside eukhe states the shapes (see R1-R3 above)
 law autolink_shapes_link_example:
   {[S.first([AL.angle()], "<https://angle.dev/a> y"), S.first([AL.angle()], "<foo.bar@example.org>"), S.first([AL.bare()], "https://x.dev/pull/182. now"), S.first([AL.bare()], "foo.bar+baz@example.com ok"), S.first([AL.bare()], "www.example.com/path")] == [Some{S.Found{0n, S.Fit{0n, 21n, [Some{"https://angle.dev/a"}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 21n, [Some{"foo.bar@example.org"}, Some{"@"}]}}}, Some{S.Found{0n, S.Fit{0n, 23n, [Some{"https://"}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 23n, [None{}, Some{"@"}]}}}, Some{S.Found{0n, S.Fit{0n, 20n, [Some{"www."}, None{}]}}}] : List<&2, Maybe<&2, S.Found>>}
 
 # LAW autolink_shapes_backpedal_example (R3): anchor: the renderer tests'
 # trailing punctuation: a final `.` and `,` are left out, a balanced paren
 # group is kept and a lone final `)` left out
-# EXCLUDES: a table that drifts from the renderer tests
+# EXCLUDES: a backpedal that drifts from the renderer tests
 # waive L4-examples-only: a shape is a constant, no input to leave free;
-#   autolink_shapes_table pins it whole to its R rule
+#   no source outside eukhe states the shapes (see R1-R3 above)
 law autolink_shapes_backpedal_example:
   {[S.first([AL.backpedal()], "https://x.dev/pull/182."), S.first([AL.backpedal()], "https://x.dev/a(b))"), S.first([AL.backpedal()], "https://x.dev/page,")] == [Some{S.Found{0n, S.Fit{0n, 22n, []}}}, Some{S.Found{0n, S.Fit{0n, 18n, []}}}, Some{S.Found{0n, S.Fit{0n, 18n, []}}}] : List<&2, Maybe<&2, S.Found>>}
+
+# LAW autolink_shapes_fixture_example (R1-R3): anchor: the requirement's
+# marked fixture `autolinks`: its source `<https://x.test/a> <me@example.com>
+# www.example.com https://example.com/a_(b).` lexes to an angle url link
+# `<https://x.test/a>`, an angle email link `<me@example.com>`, a `www.`
+# link `www.example.com` (ended by the space) and a url link
+# `https://example.com/a_(b)`, the final `.` text: the angle shape reads
+# each angle link whole from its `<` (target captured, the `@` too), the
+# bare shape reads the `www.` link to the space and the url to the end,
+# and the backpedal leaves the final `.` out and keeps `_` and `(b)`
+# EXCLUDES: a link shape that drifts from the fixture (a `_` or a paren
+# group cut, the final `.` kept, an angle link cut at its `@`)
+# waive L4-examples-only: a shape is a constant, no input to leave free;
+#   no source outside eukhe states the shapes (see R1-R3 above)
+law autolink_shapes_fixture_example:
+  {[S.first([AL.angle()], "<https://x.test/a> <me@example.com> www.example.com https://example.com/a_(b)."), S.first([AL.angle()], "<me@example.com> www.example.com https://example.com/a_(b)."), S.first([AL.bare()], "www.example.com https://example.com/a_(b)."), S.first([AL.bare()], "https://example.com/a_(b)."), S.first([AL.backpedal()], "https://example.com/a_(b).")] == [Some{S.Found{0n, S.Fit{0n, 18n, [Some{"https://x.test/a"}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 16n, [Some{"me@example.com"}, Some{"@"}]}}}, Some{S.Found{0n, S.Fit{0n, 15n, [Some{"www."}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 26n, [Some{"https://"}, None{}]}}}, Some{S.Found{0n, S.Fit{0n, 25n, []}}}] : List<&2, Maybe<&2, S.Found>>}

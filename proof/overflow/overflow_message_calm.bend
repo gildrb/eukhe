@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW overflow_message_calm
 #
-# PROOF: the code's message test is the spec's (LA.ovb.message), whose
+# PROOF: the code's message test is its strict form (LA.ovb.message), whose
 # second conjunct is false when a calm pattern is found.
 
 import Base
@@ -34,5 +34,5 @@ def omc.calm(c: Bool, e: Bool, -o: Bool, hc: {c == True{} : Bool}) -> {Bool.and(
 
 def Overflow.overflow_message_calm(msg, provider, hc):
   +f = TextPat.sp_fold(msg)
-  %Equal.sym(Bool, O.message_overflow(msg, provider), Overflow.sp_message(msg, provider), LA.ovb.message(msg, provider)) : {_ == False{} : Bool}
+  %Equal.sym(Bool, O.message_overflow(msg, provider), LA.ovb.strict(msg, provider), LA.ovb.message(msg, provider)) : {_ == False{} : Bool}
   omc.calm(TextPat.sp_any(f, Overflow.sp_calm_pats()), String.is_empty(msg), Bool.or(TextPat.sp_any(f, Overflow.sp_overflow_pats()), Bool.and(String.eq(provider, "cerebras"), TextPat.sp_any(f, [Overflow.sp_cerebras()]))), hc)

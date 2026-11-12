@@ -16,9 +16,12 @@ import ../spec/harness/arguments.bend as ArgSpec
 # `fs.*` request). Every input is free: any schema, dialect, sent keys,
 # decodings and values.
 #
-# R1: the verdict on every call is the spec's (spec/harness/arguments.bend
-#     S1-S5): the keys, the refusals in argument order, the values read,
-#     the records.
+# R1: keys follow S1-S3 of spec/harness/arguments.bend: an argument's key
+#     is read as its decoding when kept (S1) and named by S2; a call whose
+#     every key read, sent alone, is repaired and whose names are distinct
+#     is repaired, each out the name and the value read; the first
+#     argument, in order, refused alone or named as an earlier one refuses
+#     the call (S3).
 # R2: every change gives exactly one record, in order, and nothing changes
 #     without one: an argument's key decoded (S1), its key read as another
 #     name, its value read as the declared type; nothing else is recorded.
@@ -37,13 +40,13 @@ import ../spec/harness/arguments.bend as ArgSpec
 #     first such argument names it: refused with the dialect's first hint
 #     for it, unknown with the declared names in order. An open schema
 #     keeps an unknown key (R4).
-# R7: a value is read as its declared type exactly when the spec's S4
-#     spells it, and only as that type: a boolean for `boolean`, a number
-#     for `integer` and `number`, a string for `string`, the object for
-#     `object`, an array for `array`.
+# R7: a value is read as its declared type exactly as S4 spells it
+#     (laws/arg_repair/coerce.bend), and only as that type: a boolean for
+#     `boolean`, a number for `integer` and `number`, a string for
+#     `string`, the object for `object`, an array for `array`.
 # R8: the entry answers each request Rust writes (the grammar of
 #     bend/ffi_arg_repair.bend; every length within the wire) with the
-#     spec's verdict spelled, reads exactly the request and nothing after
+#     model's verdict spelled, reads exactly the request and nothing after
 #     it, and answers any other input with the exact error form
 #     `E arg_repair: malformed request`.
 # R9: an alias's canonical name is admitted as that name sent would be: a
@@ -374,6 +377,45 @@ def ar_typed(p: Maybe<&2, Ar.Prop>, r: Maybe<&2, Ar.To>) -> Bool:
     case Some{t}:
       ar_typed.read(p, t)
 
+# R1: an argument's key read, sent alone with its value: what S2 says of
+# it with no other argument
+def ar_alone(sc: Ar.Schema, d: Ar.Dialect, +ks: List<&2, String>, a: Ar.Arg) -> Ar.Verdict:
+  match a:
+    case Ar.Arg{+k, +p, +v}:
+      Ar.repair(sc, d, [Ar.Arg{ArgSpec.key_read(ks, Ar.Arg{k, p, v}), None{}, v}])
+
+def ar_alone_ok(+sc: Ar.Schema, +d: Ar.Dialect, +ks: List<&2, String>, xs: List<&2, Ar.Arg>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case a <> t:
+      Bool.and(Bool.not(ar_rejected(ar_alone(sc, d, ks, a))), ar_alone_ok(sc, d, ks, t))
+
+# R1: the arguments xs are admitted: each key read, sent alone, is
+# repaired, and no two are read as the same name (S2, S3)
+def ar_admitted(sc: Ar.Schema, d: Ar.Dialect, +ks: List<&2, String>, +xs: List<&2, Ar.Arg>) -> Bool:
+  match sc:
+    case Ar.Schema{+ps, +cl}:
+      match d:
+        case Ar.Dialect{+als, +rs}:
+          Bool.and(ar_alone_ok(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks, xs), ArgSpec.fresh(ArgSpec.names(ps, als, ks, xs), Nil{}))
+
+# R1: the outs S1, S2 and S4 give: per argument, the name its key read is
+# read as and its value read as that name's declared type
+def ar_outs(+ps: List<&2, Ar.Prop>, +als: List<&2, Ar.KV>, +ks: List<&2, String>, xs: List<&2, Ar.Arg>) -> List<&2, Ar.Out>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case a <> t:
+      match a:
+        case Ar.Arg{+k, +p, +v}:
+          +c = ArgSpec.name_of(ps, als, ArgSpec.key_read(ks, Ar.Arg{k, p, v}))
+          Ar.Out{c, Ar.coerce(ArgSpec.declared(c, ps), v)} <> ar_outs(ps, als, ks, t)
+
+# R1: arguments pre, then b, then mid, then a, then post
+def ar_cat(pre: List<&2, Ar.Arg>, b: Ar.Arg, mid: List<&2, Ar.Arg>, a: Ar.Arg, post: List<&2, Ar.Arg>) -> List<&2, Ar.Arg>:
+  List.append(&2, Ar.Arg, List.append(&2, Ar.Arg, pre, b <> mid), a <> post)
+
 # Fixtures: the Rust tests' schemas and dialects
 # ----------------------------------------------
 
@@ -532,10 +574,12 @@ def ar_w_verdict(v: Ar.Verdict) -> String:
         case Ar.Ambiguous{c, f, k}:
           Wr.put_nat(1n, Wr.put_nat(2n, Wr.put_str(c, Wr.put_str(f, Wr.put_str(k, "")))))
 
+# R8: the reply of a request: the model's verdict (pinned by the R1-R7
+# laws), spelled
 def ar_w_reply(q: FAr.Req) -> String:
   match q:
     case FAr.Req{sc, d, xs}:
-      ar_w_verdict(ArgSpec.repair(sc, d, xs))
+      ar_w_verdict(Ar.repair(sc, d, xs))
 
 def ar_fit_ms(m: Maybe<&2, String>) -> Bool:
   match m:
@@ -608,16 +652,67 @@ def ar_fit_req(q: FAr.Req) -> Bool:
 # Laws: the decision (R1-R7)
 # --------------------------
 
-# LAW arg_repair_spec (R1): the verdict on every call is the spec's
-# EXCLUDES: a key decoded though the decoding is sent too, a refused key
-#   read as an alias, an alias read over a declared key, an unknown key kept
-#   by a closed schema, refusals out of argument order, a value read as
-#   another type, records out of order
-law arg_repair_spec:
+# LAW arg_repair_outs (R1): a repaired call has, per sent argument in
+# order, the out named as S2 names its key read (S1: its decoding when
+# kept) and holding its value read as that name's declared type
+# EXCLUDES: a key decoded though its decoding is sent too, an alias read
+#   over a declared key, a later alias's name, an out out of order, a value
+#   read for another name's type
+law arg_repair_outs:
+  for +ps: List<&2, Ar.Prop>
+  for +cl: Bool
+  for +als: List<&2, Ar.KV>
+  for +rs: List<&2, Ar.KV>
+  for +args: List<&2, Ar.Arg>
+  for +os: List<&2, Ar.Out>
+  for +recs: List<&2, Ar.Record>
+  for ok: {Ar.repair(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, args) == Ar.Repaired{os, recs} : Ar.Verdict}
+  {os == ar_outs(ps, als, ArgSpec.sent_keys(args), args) : List<&2, Ar.Out>}
+
+# LAW arg_repair_repairs (R1): a call whose arguments are admitted (each
+# key read, sent alone, repaired; no two read as the same name) is repaired
+# EXCLUDES: a valid call refused, two arguments' admission mixed up
+law arg_repair_repairs:
   for +sc: Ar.Schema
   for +d: Ar.Dialect
   for +args: List<&2, Ar.Arg>
-  {Ar.repair(sc, d, args) == ArgSpec.repair(sc, d, args) : Ar.Verdict}
+  for ok: {ar_admitted(sc, d, ArgSpec.sent_keys(args), args) == True{} : Bool}
+  {ar_rejected(Ar.repair(sc, d, args)) == False{} : Bool}
+
+# LAW arg_repair_first_refusal (R1, R6, R9): after admitted arguments, an
+# argument whose key read, sent alone, is refused refuses the call just so,
+# whatever follows it
+# EXCLUDES: a refusal of a later argument reported first, a refusal that
+#   depends on the arguments before it
+law arg_repair_first_refusal:
+  for +sc: Ar.Schema
+  for +d: Ar.Dialect
+  for +pre: List<&2, Ar.Arg>
+  for +a: Ar.Arg
+  for +post: List<&2, Ar.Arg>
+  for +x: Ar.Refusal
+  for ok: {ar_admitted(sc, d, ArgSpec.sent_keys(List.append(&2, Ar.Arg, pre, a <> post)), pre) == True{} : Bool}
+  for no: {ar_alone(sc, d, ArgSpec.sent_keys(List.append(&2, Ar.Arg, pre, a <> post)), a) == Ar.Rejected{x} : Ar.Verdict}
+  {Ar.repair(sc, d, List.append(&2, Ar.Arg, pre, a <> post)) == Ar.Rejected{x} : Ar.Verdict}
+
+# LAW arg_repair_ambiguous (R1): after admitted arguments pre, b, mid, an
+# argument a admitted alone and read as the name b is read as refuses the
+# call as ambiguous: that name, b's key read, a's key read
+# EXCLUDES: two arguments for one name passed, the later key named first
+law arg_repair_ambiguous:
+  for +ps: List<&2, Ar.Prop>
+  for +cl: Bool
+  for +als: List<&2, Ar.KV>
+  for +rs: List<&2, Ar.KV>
+  for +pre: List<&2, Ar.Arg>
+  for +b: Ar.Arg
+  for +mid: List<&2, Ar.Arg>
+  for +a: Ar.Arg
+  for +post: List<&2, Ar.Arg>
+  for ok: {ar_admitted(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), List.append(&2, Ar.Arg, pre, b <> mid)) == True{} : Bool}
+  for oa: {ar_alone_ok(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), [a]) == True{} : Bool}
+  for same: {ArgSpec.names(ps, als, ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), [a]) == ArgSpec.names(ps, als, ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), [b]) : List<&2, String>}
+  {Ar.repair(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ar_cat(pre, b, mid, a, post)) == Ar.Rejected{Ar.Ambiguous{ArgSpec.name_of(ps, als, ArgSpec.key_read(ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), a)), ArgSpec.key_read(ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), b), ArgSpec.key_read(ArgSpec.sent_keys(ar_cat(pre, b, mid, a, post)), a)}} : Ar.Verdict}
 
 # LAW arg_repair_recorded (R2): the records of every repaired call are
 # exactly its changes, in order: one per decoded key, per key read as
@@ -760,6 +855,28 @@ law arg_repair_alias_unknown_exact:
   for cd: {ArgSpec.declared(c, ps) == None{} : Maybe<&2, Ar.Prop>}
   {Ar.repair(Ar.Schema{ps, True{}}, Ar.Dialect{als, rs}, Ar.Arg{k, None{}, v} <> t) == Ar.Rejected{Ar.Unknown{c, ArgSpec.declared_names(ps)}} : Ar.Verdict}
 
+# LAW arg_repair_alias_chain_exact (R9): an open schema's first argument
+# whose key (not decoded, not refused) is an undeclared alias of a name no
+# refusal names that is not declared and is itself an alias (a chain) is
+# unknown as that name: the name and the declared names in order
+# EXCLUDES: an alias chain followed one link, or the alias passed as sent
+law arg_repair_alias_chain_exact:
+  for +ps: List<&2, Ar.Prop>
+  for +als: List<&2, Ar.KV>
+  for +rs: List<&2, Ar.KV>
+  for +k: String
+  for +c: String
+  for +e: String
+  for +v: Ar.Val
+  for +t: List<&2, Ar.Arg>
+  for nr: {ArgSpec.first_text(k, rs) == None{} : Maybe<&2, String>}
+  for nd: {ArgSpec.declared(k, ps) == None{} : Maybe<&2, Ar.Prop>}
+  for al: {ArgSpec.first_text(k, als) == Some{c} : Maybe<&2, String>}
+  for cr: {ArgSpec.first_text(c, rs) == None{} : Maybe<&2, String>}
+  for cd: {ArgSpec.declared(c, ps) == None{} : Maybe<&2, Ar.Prop>}
+  for ca: {ArgSpec.first_text(c, als) == Some{e} : Maybe<&2, String>}
+  {Ar.repair(Ar.Schema{ps, False{}}, Ar.Dialect{als, rs}, Ar.Arg{k, None{}, v} <> t) == Ar.Rejected{Ar.Unknown{c, ArgSpec.declared_names(ps)}} : Ar.Verdict}
+
 # LAW arg_repair_alias_rejects (R9): a call with an argument, anywhere,
 # whose key (decoded) is an undeclared alias of a refused name, or of a
 # name a closed schema does not declare, is refused
@@ -785,16 +902,6 @@ law arg_repair_idempotent_any:
   for +rs: List<&2, Ar.Record>
   for ok: {Ar.repair(sc, d, args) == Ar.Repaired{os, rs} : Ar.Verdict}
   {Ar.repair(sc, d, ar_after(args, os)) == Ar.Repaired{ar_kept(os), Nil{}} : Ar.Verdict}
-
-# LAW arg_repair_coerce_spec (R7): every value is read as the spec's S4
-# reads it, for every declared argument
-# EXCLUDES: a boolean word in another case set, padding not trimmed, an
-#   integer past i64 or with a sign doubled, a lone string wrapped for
-#   items of another type, `[...]` text wrapped instead of read
-law arg_repair_coerce_spec:
-  for +p: Maybe<&2, Ar.Prop>
-  for +v: Ar.Val
-  {Ar.coerce(p, v) == ArgSpec.read(p, v) : Maybe<&2, Ar.To>}
 
 # LAW arg_repair_coerce_typed (R7): a value is read only as its declared
 # argument's type
@@ -846,7 +953,8 @@ law arg_repair_scalar_example:
 # --------------------
 
 # LAW arg_repair_entry_answers (R8): the entry answers every request Rust
-# spells, every length within the wire, with the spec's verdict spelled
+# spells, every length within the wire, with the model's verdict spelled
+# (bend/arg_repair.bend's, whose answers the R1-R7 laws pin)
 # EXCLUDES: fields read in another order, the aliases and the refused keys
 #   swapped, a value tag misread, a record or an out lost, a default
 law arg_repair_entry_answers:
@@ -888,3 +996,24 @@ law arg_repair_entry_refuses:
 # EXCLUDES: another spelling of a request or of a reply
 law arg_repair_entry_example:
   {[FAr.ffi("3,4,path1,6,string0,4,case1,7,boolean0,4,skip1,7,integer0,T1,9,file_path4,path1,10,old_string21,send a hashline patch3,9,file_path0,3,1,4,a.rs0,0,4,case0,3,1,5,False0,0,4,skip0,3,1,3, 3 0,0,"), FAr.ffi("0,F0,0,1,4,text0,3,0,0,0,"), FAr.ffi("0,T0,0,1,4,text0,0,"), FAr.ffi("0,F0,0,0,x"), FAr.ffi("0,F0,0,1,4,text0,6,")] == ["0,3,4,path0,4,case1,0,F4,skip1,1,1,33,0,9,file_path4,path1,4,case1,4,skip", "0,1,4,text0,0,", "1,1,4,text0,", Wr.err("arg_repair: malformed request"), Wr.err("arg_repair: malformed request")] : List<&2, String>}
+
+# LAW arg_repair_spec (R1): the verdict on every call is the spec's
+# EXCLUDES: a key decoded though the decoding is sent too, a refused key
+#   read as an alias, an alias read over a declared key, an unknown key kept
+#   by a closed schema, refusals out of argument order, a value read as
+#   another type, records out of order
+law arg_repair_spec:
+  for +sc: Ar.Schema
+  for +d: Ar.Dialect
+  for +args: List<&2, Ar.Arg>
+  {Ar.repair(sc, d, args) == ArgSpec.repair(sc, d, args) : Ar.Verdict}
+
+# LAW arg_repair_coerce_spec (R7): every value is read as the spec's S4
+# reads it, for every declared argument
+# EXCLUDES: a boolean word in another case set, padding not trimmed, an
+#   integer past i64 or with a sign doubled, a lone string wrapped for
+#   items of another type, `[...]` text wrapped instead of read
+law arg_repair_coerce_spec:
+  for +p: Maybe<&2, Ar.Prop>
+  for +v: Ar.Val
+  {Ar.coerce(p, v) == ArgSpec.read(p, v) : Maybe<&2, Ar.To>}

@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW rebase_result_applies
 #
-# PROOF: the rule is the spec's (rebase_refines), so it is enough that
+# PROOF: the rule is the spec's (rr.refines), so it is enough that
 # every answer of the spec is good (ap.Good): a head that is the base
 # (rb.same_eq) takes valid edits that replay themselves (rb.pairs_refl);
 # else each landed edit sits at the head's one copy of its window, so the
@@ -15,7 +15,7 @@ import ../../bend/rebase.bend as R
 import ../../spec/harness/rebase.bend as RbSpec
 import ../../laws/rebase.bend as Rebase
 import ./base.bend as LR
-import ./rebase_refines.bend as PRebaseRefines
+import ./base/refines.bend as LRR
 
 # what a landing of e says
 def ap.LG(+b: List<&2, Nat>, +h: List<&2, Nat>, +e: R.Edit, l: R.Land) -> Type:
@@ -163,6 +163,6 @@ def ap.of(+b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>, c: Maybe<
           ap.crossed(b, h, es, RbSpec.land_all(es, b, h, 0n), ap.all(es, b, h, 0n))
 
 def Rebase.rebase_result_applies(b, h, es, fs, got):
-  +eq = Equal.trans(R.Outcome, RbSpec.rebase(b, h, es), R.rebase(b, h, es), R.Rebased{fs}, Equal.sym(R.Outcome, R.rebase(b, h, es), RbSpec.rebase(b, h, es), Rebase.rebase_refines(b, h, es)), got)
+  +eq = Equal.trans(R.Outcome, RbSpec.rebase(b, h, es), R.rebase(b, h, es), R.Rebased{fs}, Equal.sym(R.Outcome, R.rebase(b, h, es), RbSpec.rebase(b, h, es), LRR.rr.refines(b, h, es)), got)
   %eq : ap.Good(b, h, es, _)
   ap.of(b, h, es, RbSpec.bad(es, List.length(&2, Nat, b)), {==}, RbSpec.same(b, h), {==})

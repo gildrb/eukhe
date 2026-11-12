@@ -56,6 +56,228 @@ import ./base.bend as LawsBase
 # Spec helpers
 # ------------
 
+# R4: the dotted quad of octets a, b, c, d, each in decimal (Base Nat.show)
+def mu_quad(a: Nat, b: Nat, c: Nat, d: Nat) -> String:
+  String.append(Nat.show(a), SCon{'.', String.append(Nat.show(b), SCon{'.', String.append(Nat.show(c), SCon{'.', Nat.show(d)})})})
+
+# R4: 2^n
+def mu_pow2(n: Nat) -> Nat:
+  match n:
+    case 0n:
+      1n
+    case 1n+p:
+      Nat.mul(2n, mu_pow2(p))
+
+# R4: the first two octets a, b lie in the block of network o1.o2.0.0 with
+# prefix length len (8 to 16): their first len bits are the network's
+def mu_block(+a: Nat, +b: Nat, o1: Nat, +o2: Nat, +len: Nat) -> Bool:
+  +k = mu_pow2(Nat.sub(16n, len))
+  Bool.and(Nat.is_eq(a, o1), Bool.or(Nat.is_le(len, 8n), Nat.is_eq(Nat.div(b, k), Nat.div(o2, k))))
+
+# R4: the blocks R4 refuses, as RFC 6890's special-purpose address registry
+# (section 2.2.2) lists them: 0.0.0.0/8 this network (RFC 1122), 10.0.0.0/8
+# private-use (RFC 1918), 127.0.0.0/8 loopback (RFC 1122), 169.254.0.0/16
+# link local (RFC 3927), 172.16.0.0/12 and 192.168.0.0/16 private-use (RFC
+# 1918)
+def mu_v4_reserved(+a: Nat, +b: Nat) -> Bool:
+  Bool.or(mu_block(a, b, 0n, 0n, 8n), Bool.or(mu_block(a, b, 10n, 0n, 8n), Bool.or(mu_block(a, b, 127n, 0n, 8n), Bool.or(mu_block(a, b, 169n, 254n, 16n), Bool.or(mu_block(a, b, 172n, 16n, 12n), mu_block(a, b, 192n, 168n, 16n))))))
+
+# R6: the char of a hex digit (lowercase)
+def mu_hex_char(d: Nat) -> Char:
+  match d:
+    case 0n:
+      '0'
+    case 1n:
+      '1'
+    case 2n:
+      '2'
+    case 3n:
+      '3'
+    case 4n:
+      '4'
+    case 5n:
+      '5'
+    case 6n:
+      '6'
+    case 7n:
+      '7'
+    case 8n:
+      '8'
+    case 9n:
+      '9'
+    case 10n:
+      'a'
+    case 11n:
+      'b'
+    case 12n:
+      'c'
+    case 13n:
+      'd'
+    case 14n:
+      'e'
+    case 15n+p:
+      'f'
+
+# R6: a byte as two hex digits (a 16-bit word is two of them)
+def mu_hex2(+n: Nat) -> String:
+  SCon{mu_hex_char(Nat.div(n, 16n)), SCon{mu_hex_char(Nat.mod(n, 16n)), SNil{}}}
+
+# R7: no char of s is c
+def mu_lacks(s: String, +c: Char) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{x, t}:
+      Bool.and(Bool.not(Char.is_eq(x, c)), mu_lacks(t, c))
+
+# R8: the spelling of a request and its reply
+def mu_w_req(h: String, rest: String) -> String:
+  Wr.put_str(h, rest)
+
+# the model's verdict on h, spelled (the laws of R1-R7 pin the verdict)
+def mu_w_reply(h: String) -> String:
+  Wr.put_bool(Mu.refused(h), "")
+
+# Laws: the check (R1-R7)
+# -----------------------
+# R5's malformed addresses, R6's ::, ::1 and IPv4-mapped ranges, and the
+# IPv6 addresses that pass are anchored only (mcp_url_refuses_example,
+# mcp_url_passes_example): a law over printed words would have to check
+# every 16-bit word one by one.
+
+# LAW mcp_url_open_bracket (R1): a `[` before any host changes nothing of its verdict
+# EXCLUDES: a leading bracket kept, only one leading bracket dropped
+law mcp_url_open_bracket:
+  for +h: String
+  {Mu.refused(SCon{'[', h}) == Mu.refused(h) : Bool}
+
+# LAW mcp_url_close_bracket (R1): a `]` after any host changes nothing of its verdict
+# EXCLUDES: a trailing bracket kept, only one trailing bracket dropped
+law mcp_url_close_bracket:
+  for +h: String
+  {Mu.refused(String.append(h, "]")) == Mu.refused(h) : Bool}
+
+# LAW mcp_url_case (R1): two hosts that differ in one char only, the two chars no bracket and the same once ASCII-lowercased (Base Char.to_lower), get the same verdict
+# EXCLUDES: a case-sensitive check (`LOCALHOST` or `FE80::1` passed), a
+#   lowercasing that changes other chars
+law mcp_url_case:
+  for +a: String
+  for +u: Char
+  for +l: Char
+  for +b: String
+  for same: {Char.to_lower(u) == Char.to_lower(l) : Char}
+  for nu: {Bool.or(Char.is_eq(u, '['), Char.is_eq(u, ']')) == False{} : Bool}
+  for nl: {Bool.or(Char.is_eq(l, '['), Char.is_eq(l, ']')) == False{} : Bool}
+  {Mu.refused(String.append(a, SCon{u, b})) == Mu.refused(String.append(a, SCon{l, b})) : Bool}
+
+# LAW mcp_url_localhost (R2): every host that ends with `.localhost` is refused, whatever comes before it
+# EXCLUDES: only `localhost` itself refused, a subdomain of localhost
+#   passed, the suffix matched case-sensitively after brackets
+law mcp_url_localhost:
+  for +x: String
+  {Mu.refused(String.append(x, ".localhost")) == True{} : Bool}
+
+# LAW mcp_url_v4_table (R3, R4, R7): a dotted quad a.b.c.d of octets (each 0-255, in decimal) is refused exactly when a.b lies in one of R4's RFC 6890 blocks (mu_v4_reserved)
+# EXCLUDES: a wrong range bound (172.15 or 172.32 refused, 172.31
+#   passed), a missing block, a public address refused, the third or
+#   fourth octet read into the decision, an octet misread
+law mcp_url_v4_table:
+  for +a: Nat
+  for +b: Nat
+  for +c: Nat
+  for +d: Nat
+  for oct: {Bool.and(Nat.is_le(a, 255n), Bool.and(Nat.is_le(b, 255n), Bool.and(Nat.is_le(c, 255n), Nat.is_le(d, 255n)))) == True{} : Bool}
+  {Mu.refused(mu_quad(a, b, c, d)) == mu_v4_reserved(a, b) : Bool}
+
+# LAW mcp_url_v6_link_local (R5, R6): a host whose first word (four hex digits, then `:`) lies in fe80::/10 (RFC 4291 section 2.5.6: bytes fe, then 80 + k, k below 2^6) is refused, whatever follows the `:`
+# EXCLUDES: fe80::/10 passed, a narrower range (fe80::/16 only), the
+#   first word read past its `:`
+law mcp_url_v6_link_local:
+  for +k: Nat
+  for +rest: String
+  for blk: {Nat.is_lt(k, 64n) == True{} : Bool}
+  {Mu.refused(String.append(mu_hex2(254n), String.append(mu_hex2(Nat.add(128n, k)), SCon{':', rest}))) == True{} : Bool}
+
+# LAW mcp_url_v6_unique_local (R5, R6): a host whose first word (four hex digits, then `:`) lies in fc00::/7 (RFC 4193 section 3.1: bytes fc + i, i below 2, then any byte j) is refused, whatever follows the `:`
+# EXCLUDES: fc00::/7 passed, fd00::/8 only
+law mcp_url_v6_unique_local:
+  for +i: Nat
+  for +j: Nat
+  for +rest: String
+  for blk: {Bool.and(Nat.is_lt(i, 2n), Nat.is_le(j, 255n)) == True{} : Bool}
+  {Mu.refused(String.append(mu_hex2(Nat.add(252n, i)), String.append(mu_hex2(j), SCon{':', rest}))) == True{} : Bool}
+
+# LAW mcp_url_name_passes (R7): a lowercase host with no `[`, `]` or `:`, that is not `localhost` and does not end with `.localhost`, and whose `.`-separated parts are not exactly four, passes
+# EXCLUDES: a public name refused (a name read as an address, a default
+#   refusal)
+law mcp_url_name_passes:
+  for +x: String
+  for plain: {Bool.and(mu_lacks(x, '['), Bool.and(mu_lacks(x, ']'), mu_lacks(x, ':'))) == True{} : Bool}
+  for lower: {String.to_lower(x) == x : String}
+  for named: {Bool.or(String.eq(x, "localhost"), String.ends_with(x, ".localhost")) == False{} : Bool}
+  for parts: {Nat.is_eq(List.length(&2, String, String.split(x, '.')), 4n) == False{} : Bool}
+  {Mu.refused(x) == False{} : Bool}
+
+# Examples
+# --------
+
+# LAW mcp_url_refuses_example (R1-R6): anchor: hosts Rust refused, and the
+# mapped loopback the fix refuses
+# EXCLUDES: a spec that drifts from the Rust it replaced
+law mcp_url_refuses_example:
+  {[Mu.refused("localhost"), Mu.refused("LocalHost"), Mu.refused("a.localhost"), Mu.refused("127.0.0.1"), Mu.refused("10.0.0.5"), Mu.refused("0.0.0.0"), Mu.refused("172.16.1.2"), Mu.refused("192.168.0.1"), Mu.refused("169.254.1.1"), Mu.refused("999.1.1.1"), Mu.refused("[::1]"), Mu.refused("[::]"), Mu.refused("[fe80::1]"), Mu.refused("[fc00::1]"), Mu.refused("[fd12::1]"), Mu.refused("[zz::1]"), Mu.refused("[::ffff:7f00:1]")] == [True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}] : List<&2, Bool>}
+
+# LAW mcp_url_passes_example (R3-R7): anchor: hosts Rust passed
+# EXCLUDES: a spec that drifts from the Rust it replaced
+law mcp_url_passes_example:
+  {[Mu.refused("mcp.linear.app"), Mu.refused("8.8.8.8"), Mu.refused("172.32.0.1"), Mu.refused("[2606:4700::6810:85e5]"), Mu.refused("[2001:db8::1]"), Mu.refused("x.999.1.1"), Mu.refused("+8.8.8.8"), Mu.refused("[::ffff:808:808]")] == [False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}] : List<&2, Bool>}
+
+# Laws: the entry (R8)
+# --------------------
+
+# LAW mcp_url_entry_answers (R8): the entry answers every host Rust
+# spells, its length within the wire, with the model's verdict (pinned by
+# the laws of R1-R7)
+# EXCLUDES: another verdict, a verdict spelled otherwise, a default
+law mcp_url_entry_answers:
+  for +h: String
+  for fit: {LawsBase.wire_fits(String.length(h)) == True{} : Bool}
+  {FMu.ffi(mu_w_req(h, "")) == mu_w_reply(h) : String}
+
+# LAW mcp_url_entry_exact (R8): every input the entry does not answer with
+# the error form is a spelled host that fits the wire
+# EXCLUDES: a verdict on input that is no request (a short host, input
+#   left over)
+law mcp_url_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FMu.ffi(s)) == False{} : Bool}
+  exs h: String
+  {s == mu_w_req(h, "") : String} & {LawsBase.wire_fits(String.length(h)) == True{} : Bool}
+
+# LAW mcp_url_entry_refuses (R8): every error the entry answers is exactly
+# `E mcp_url: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law mcp_url_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FMu.ffi(s)) == True{} : Bool}
+  {FMu.ffi(s) == Wr.err("mcp_url: malformed request") : String}
+
+# LAW mcp_url_entry_left_over (R8): a spelled host followed by more input
+# answers the error form
+# EXCLUDES: the input after the request ignored or read into the host
+law mcp_url_entry_left_over:
+  for +h: String
+  for +c: Char
+  for +t: String
+  for fit: {LawsBase.wire_fits(String.length(h)) == True{} : Bool}
+  {FMu.ffi(mu_w_req(h, SCon{c, t})) == Wr.err("mcp_url: malformed request") : String}
+
+# LAW mcp_url_entry_example (R8): anchor: the wire strings Rust sends and
+# the replies it reads; input left over and a malformed request
+# EXCLUDES: another spelling of a request or of a reply
+law mcp_url_entry_example:
+  {[FMu.ffi("9,127.0.0.1"), FMu.ffi("7,8.8.8.8"), FMu.ffi("7,8.8.8.8x"), FMu.ffi("x")] == ["T", "F", Wr.err("mcp_url: malformed request"), Wr.err("mcp_url: malformed request")] : List<&2, String>}
+
 # R1, R3, R5: s without all its leading chars ch
 def mu_lead.at(b: Bool, c: Char, t: String, r: String) -> String:
   match b:
@@ -94,6 +316,35 @@ def mu_trail(s: String, +ch: Char) -> String:
 def mu_bare(h: String) -> String:
   String.to_lower(mu_trail(mu_lead(h, '['), ']'))
 
+# R4: x is in lo..hi
+def mu_in(+x: U32, lo: U32, hi: U32) -> Bool:
+  Bool.and(U32.is_ge(x, lo), U32.is_le(x, hi))
+
+# R4: the refused ranges, by the first two octets
+def mu_private(+a: U32, +b: U32) -> Bool:
+  Bool.or(Bool.or(U32.is_eq(a, 127), Bool.or(U32.is_eq(a, 10), U32.is_eq(a, 0))), Bool.or(Bool.and(U32.is_eq(a, 172), mu_in(b, 16, 31)), Bool.or(Bool.and(U32.is_eq(a, 192), U32.is_eq(b, 168)), Bool.and(U32.is_eq(a, 169), U32.is_eq(b, 254)))))
+
+def mu_any_empty(ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> t:
+      Bool.or(String.is_empty(p), mu_any_empty(t))
+
+# R5: every char is a hex digit (codes 48-57, 97-102: after R1, no
+#     uppercase letter is left)
+def mu_hex_char_orig(c: Char) -> Bool:
+  match c:
+    case Chr{+x}:
+      Bool.or(Bool.and(U32.is_ge(x, 48), U32.is_le(x, 57)), Bool.and(U32.is_ge(x, 97), U32.is_le(x, 102)))
+
+def mu_hexs(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(mu_hex_char_orig(c), mu_hexs(t))
+
 def mu_plus.at(b: Bool, c: Char, t: String) -> String:
   match b:
     case True{}:
@@ -108,36 +359,6 @@ def mu_plus(s: String) -> String:
       SNil{}
     case SCon{+c, t}:
       mu_plus.at(Char.is_eq(c, '+'), c, t)
-
-# R3: every char is a decimal digit (codes 48-57)
-def mu_decs(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      True{}
-    case SCon{c, t}:
-      Bool.and(Char.is_digit(c), mu_decs(t))
-
-# R5: every char is a hex digit (codes 48-57, 97-102: after R1, no
-#     uppercase letter is left)
-def mu_hex_char(c: Char) -> Bool:
-  match c:
-    case Chr{+x}:
-      Bool.or(Bool.and(U32.is_ge(x, 48), U32.is_le(x, 57)), Bool.and(U32.is_ge(x, 97), U32.is_le(x, 102)))
-
-def mu_hexs(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      True{}
-    case SCon{c, t}:
-      Bool.and(mu_hex_char(c), mu_hexs(t))
-
-# R3: the value of decimal digits after v
-def mu_dval(s: String, v: U32) -> U32:
-  match s:
-    case SNil{}:
-      v
-    case SCon{c, t}:
-      mu_dval(t, U32.add(U32.mul(v, 10), U32.sub(Char.to_u32(c), 48)))
 
 # R5: the value of a hex digit: a decimal digit's code less 48, a letter's
 #     code less 87 (a is 10)
@@ -160,120 +381,6 @@ def mu_hval(s: String, v: U32) -> U32:
       v
     case SCon{c, t}:
       mu_hval(t, U32.add(U32.mul(v, 16), mu_hdigit(c)))
-
-# R3: a part of significant digits g, by its digit count
-def mu_sig.ten(b: Bool) -> Mu.Part:
-  match b:
-    case True{}:
-      Mu.PBig{}
-    case False{}:
-      Mu.PNone{}
-
-def mu_sig.mid(b: Bool, +g: String) -> Mu.Part:
-  match b:
-    case True{}:
-      Mu.PBig{}
-    case False{}:
-      mu_sig.ten(Bool.and(Nat.is_eq(String.length(g), 10n), String.is_le(g, "4294967295")))
-
-def mu_sig.val(b: Bool, v: U32) -> Mu.Part:
-  match b:
-    case True{}:
-      Mu.POct{v}
-    case False{}:
-      Mu.PBig{}
-
-def mu_sig.short(b: Bool, +g: String) -> Mu.Part:
-  match b:
-    case True{}:
-      +v = mu_dval(g, 0)
-      mu_sig.val(U32.is_le(v, 255), v)
-    case False{}:
-      mu_sig.mid(Nat.is_le(String.length(g), 9n), g)
-
-def mu_sig(+g: String) -> Mu.Part:
-  mu_sig.short(Nat.is_le(String.length(g), 3n), g)
-
-def mu_part.at(b: Bool, d: String) -> Mu.Part:
-  match b:
-    case True{}:
-      mu_sig(mu_lead(d, '0'))
-    case False{}:
-      Mu.PNone{}
-
-# R3
-def mu_part(s: String) -> Mu.Part:
-  +d = mu_plus(s)
-  mu_part.at(Bool.and(Bool.not(String.is_empty(d)), mu_decs(d)), d)
-
-# R4: read the parts in order; the first that is no octet decides
-def mu_quad.d(a: U32, b: U32, c: U32, s: Mu.Part) -> Mu.V4:
-  match s:
-    case Mu.POct{d}:
-      Mu.V4Quad{a, b, c, d}
-    case Mu.PBig{}:
-      Mu.V4Bad{}
-    case Mu.PNone{}:
-      Mu.V4No{}
-
-def mu_quad.c(a: U32, b: U32, r: Mu.Part, s: Mu.Part) -> Mu.V4:
-  match r:
-    case Mu.POct{c}:
-      mu_quad.d(a, b, c, s)
-    case Mu.PBig{}:
-      Mu.V4Bad{}
-    case Mu.PNone{}:
-      Mu.V4No{}
-
-def mu_quad.b(a: U32, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> Mu.V4:
-  match q:
-    case Mu.POct{b}:
-      mu_quad.c(a, b, r, s)
-    case Mu.PBig{}:
-      Mu.V4Bad{}
-    case Mu.PNone{}:
-      Mu.V4No{}
-
-def mu_quad(p: Mu.Part, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> Mu.V4:
-  match p:
-    case Mu.POct{a}:
-      mu_quad.b(a, q, r, s)
-    case Mu.PBig{}:
-      Mu.V4Bad{}
-    case Mu.PNone{}:
-      Mu.V4No{}
-
-# R4: exactly four parts
-def mu_v4.parts(ps: List<&2, String>) -> Mu.V4:
-  match ps:
-    case Nil{}:
-      Mu.V4No{}
-    case p <> t1:
-      match t1:
-        case Nil{}:
-          Mu.V4No{}
-        case q <> t2:
-          match t2:
-            case Nil{}:
-              Mu.V4No{}
-            case r <> t3:
-              match t3:
-                case Nil{}:
-                  Mu.V4No{}
-                case s <> t4:
-                  match t4:
-                    case Nil{}:
-                      mu_quad(mu_part(p), mu_part(q), mu_part(r), mu_part(s))
-                    case x <> t5:
-                      Mu.V4No{}
-
-# R4: x is in lo..hi
-def mu_in(+x: U32, lo: U32, hi: U32) -> Bool:
-  Bool.and(U32.is_ge(x, lo), U32.is_le(x, hi))
-
-# R4: the refused ranges, by the first two octets
-def mu_private(+a: U32, +b: U32) -> Bool:
-  Bool.or(Bool.or(U32.is_eq(a, 127), Bool.or(U32.is_eq(a, 10), U32.is_eq(a, 0))), Bool.or(Bool.and(U32.is_eq(a, 172), mu_in(b, 16, 31)), Bool.or(Bool.and(U32.is_eq(a, 192), U32.is_eq(b, 168)), Bool.and(U32.is_eq(a, 169), U32.is_eq(b, 254)))))
 
 # R5: a word
 def mu_word.sig(b: Bool, g: String) -> Maybe<&2, U32>:
@@ -318,6 +425,35 @@ def mu_words(ps: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
     case p <> t:
       mu_words.cons(mu_word(p), mu_words(t))
 
+def mu_one.at(b: Bool, ps: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
+  match b:
+    case True{}:
+      mu_words(ps)
+    case False{}:
+      None{}
+
+def mu_one(+ps: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
+  mu_one.at(Bool.and(Nat.is_eq(List.length(&2, String, ps), 8n), Bool.not(mu_any_empty(ps))), ps)
+
+# R5: a side's parts
+def mu_side(s: String) -> List<&2, String>:
+  match s:
+    case SNil{}:
+      Nil{}
+    case SCon{c, t}:
+      String.split(SCon{c, t}, ':')
+
+def mu_join(a: Maybe<&2, List<&2, U32>>, z: List<&2, U32>, b: Maybe<&2, List<&2, U32>>) -> Maybe<&2, List<&2, U32>>:
+  match a:
+    case None{}:
+      None{}
+    case Some{x}:
+      match b:
+        case None{}:
+          None{}
+        case Some{y}:
+          Some{List.append(&2, U32, x, List.append(&2, U32, z, y))}
+
 # R5: n zero words
 def mu_zeros(n: Nat) -> List<&2, U32>:
   match n:
@@ -326,12 +462,23 @@ def mu_zeros(n: Nat) -> List<&2, U32>:
     case 1n+p:
       0 <> mu_zeros(p)
 
-def mu_any_empty(ps: List<&2, String>) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> t:
-      Bool.or(String.is_empty(p), mu_any_empty(t))
+def mu_two.at(b: Bool, hp: List<&2, String>, tp: List<&2, String>, n: Nat) -> Maybe<&2, List<&2, U32>>:
+  match b:
+    case True{}:
+      mu_join(mu_words(hp), mu_zeros(Nat.sub(8n, n)), mu_words(tp))
+    case False{}:
+      None{}
+
+def mu_two(+hp: List<&2, String>, +tp: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
+  +n = Nat.add(List.length(&2, String, hp), List.length(&2, String, tp))
+  mu_two.at(Nat.is_le(n, 7n), hp, tp, n)
+
+def mu_expand.of(h: Mu.Halves) -> Maybe<&2, List<&2, U32>>:
+  match h:
+    case Mu.One{a}:
+      mu_one(mu_side(a))
+    case Mu.Two{a, b}:
+      mu_two(mu_side(a), mu_side(b))
 
 def mu_halves.push(c: Char, h: Mu.Halves) -> Mu.Halves:
   match h:
@@ -354,53 +501,6 @@ def mu_halves(s: String) -> Mu.Halves:
       Mu.One{SNil{}}
     case SCon{+c, +t}:
       mu_halves.at(Bool.and(Char.is_eq(c, ':'), String.starts_with(t, ":")), c, t, mu_halves(t))
-
-# R5: a side's parts
-def mu_side(s: String) -> List<&2, String>:
-  match s:
-    case SNil{}:
-      Nil{}
-    case SCon{c, t}:
-      String.split(SCon{c, t}, ':')
-
-def mu_join(a: Maybe<&2, List<&2, U32>>, z: List<&2, U32>, b: Maybe<&2, List<&2, U32>>) -> Maybe<&2, List<&2, U32>>:
-  match a:
-    case None{}:
-      None{}
-    case Some{x}:
-      match b:
-        case None{}:
-          None{}
-        case Some{y}:
-          Some{List.append(&2, U32, x, List.append(&2, U32, z, y))}
-
-def mu_two.at(b: Bool, hp: List<&2, String>, tp: List<&2, String>, n: Nat) -> Maybe<&2, List<&2, U32>>:
-  match b:
-    case True{}:
-      mu_join(mu_words(hp), mu_zeros(Nat.sub(8n, n)), mu_words(tp))
-    case False{}:
-      None{}
-
-def mu_two(+hp: List<&2, String>, +tp: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
-  +n = Nat.add(List.length(&2, String, hp), List.length(&2, String, tp))
-  mu_two.at(Nat.is_le(n, 7n), hp, tp, n)
-
-def mu_one.at(b: Bool, ps: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
-  match b:
-    case True{}:
-      mu_words(ps)
-    case False{}:
-      None{}
-
-def mu_one(+ps: List<&2, String>) -> Maybe<&2, List<&2, U32>>:
-  mu_one.at(Bool.and(Nat.is_eq(List.length(&2, String, ps), 8n), Bool.not(mu_any_empty(ps))), ps)
-
-def mu_expand.of(h: Mu.Halves) -> Maybe<&2, List<&2, U32>>:
-  match h:
-    case Mu.One{a}:
-      mu_one(mu_side(a))
-    case Mu.Two{a, b}:
-      mu_two(mu_side(a), mu_side(b))
 
 # R5: the eight words; None when malformed
 def mu_expand(s: String) -> Maybe<&2, List<&2, U32>>:
@@ -475,6 +575,128 @@ def mu_after(v: Mu.V4, +s: String) -> Bool:
     case Mu.V4Quad{a, b, c, d}:
       mu_private(a, b)
 
+# R3: every char is a decimal digit (codes 48-57)
+def mu_decs(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Char.is_digit(c), mu_decs(t))
+
+# R3: the value of decimal digits after v
+def mu_dval(s: String, v: U32) -> U32:
+  match s:
+    case SNil{}:
+      v
+    case SCon{c, t}:
+      mu_dval(t, U32.add(U32.mul(v, 10), U32.sub(Char.to_u32(c), 48)))
+
+# R3: a part of significant digits g, by its digit count
+def mu_sig.ten(b: Bool) -> Mu.Part:
+  match b:
+    case True{}:
+      Mu.PBig{}
+    case False{}:
+      Mu.PNone{}
+
+def mu_sig.mid(b: Bool, +g: String) -> Mu.Part:
+  match b:
+    case True{}:
+      Mu.PBig{}
+    case False{}:
+      mu_sig.ten(Bool.and(Nat.is_eq(String.length(g), 10n), String.is_le(g, "4294967295")))
+
+def mu_sig.val(b: Bool, v: U32) -> Mu.Part:
+  match b:
+    case True{}:
+      Mu.POct{v}
+    case False{}:
+      Mu.PBig{}
+
+def mu_sig.short(b: Bool, +g: String) -> Mu.Part:
+  match b:
+    case True{}:
+      +v = mu_dval(g, 0)
+      mu_sig.val(U32.is_le(v, 255), v)
+    case False{}:
+      mu_sig.mid(Nat.is_le(String.length(g), 9n), g)
+
+def mu_sig(+g: String) -> Mu.Part:
+  mu_sig.short(Nat.is_le(String.length(g), 3n), g)
+
+def mu_part.at(b: Bool, d: String) -> Mu.Part:
+  match b:
+    case True{}:
+      mu_sig(mu_lead(d, '0'))
+    case False{}:
+      Mu.PNone{}
+
+# R3
+def mu_part(s: String) -> Mu.Part:
+  +d = mu_plus(s)
+  mu_part.at(Bool.and(Bool.not(String.is_empty(d)), mu_decs(d)), d)
+
+# R4: read the parts in order; the first that is no octet decides
+def mu_quad.d(a: U32, b: U32, c: U32, s: Mu.Part) -> Mu.V4:
+  match s:
+    case Mu.POct{d}:
+      Mu.V4Quad{a, b, c, d}
+    case Mu.PBig{}:
+      Mu.V4Bad{}
+    case Mu.PNone{}:
+      Mu.V4No{}
+
+def mu_quad.c(a: U32, b: U32, r: Mu.Part, s: Mu.Part) -> Mu.V4:
+  match r:
+    case Mu.POct{c}:
+      mu_quad.d(a, b, c, s)
+    case Mu.PBig{}:
+      Mu.V4Bad{}
+    case Mu.PNone{}:
+      Mu.V4No{}
+
+def mu_quad.b(a: U32, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> Mu.V4:
+  match q:
+    case Mu.POct{b}:
+      mu_quad.c(a, b, r, s)
+    case Mu.PBig{}:
+      Mu.V4Bad{}
+    case Mu.PNone{}:
+      Mu.V4No{}
+
+def mu_quad_orig(p: Mu.Part, q: Mu.Part, r: Mu.Part, s: Mu.Part) -> Mu.V4:
+  match p:
+    case Mu.POct{a}:
+      mu_quad.b(a, q, r, s)
+    case Mu.PBig{}:
+      Mu.V4Bad{}
+    case Mu.PNone{}:
+      Mu.V4No{}
+
+# R4: exactly four parts
+def mu_v4.parts(ps: List<&2, String>) -> Mu.V4:
+  match ps:
+    case Nil{}:
+      Mu.V4No{}
+    case p <> t1:
+      match t1:
+        case Nil{}:
+          Mu.V4No{}
+        case q <> t2:
+          match t2:
+            case Nil{}:
+              Mu.V4No{}
+            case r <> t3:
+              match t3:
+                case Nil{}:
+                  Mu.V4No{}
+                case s <> t4:
+                  match t4:
+                    case Nil{}:
+                      mu_quad_orig(mu_part(p), mu_part(q), mu_part(r), mu_part(s))
+                    case x <> t5:
+                      Mu.V4No{}
+
 def mu_refused.at(named: Bool, +s: String) -> Bool:
   match named:
     case True{}:
@@ -487,16 +709,6 @@ def mu_refused(h: String) -> Bool:
   +s = mu_bare(h)
   mu_refused.at(Bool.or(String.eq(s, "localhost"), String.ends_with(s, ".localhost")), s)
 
-# R8: the spelling of a request and its reply
-def mu_w_req(h: String, rest: String) -> String:
-  Wr.put_str(h, rest)
-
-def mu_w_reply(h: String) -> String:
-  Wr.put_bool(mu_refused(h), "")
-
-# Laws: the check
-# ---------------
-
 # LAW mcp_url_spec (R1-R7): whether every host is refused is the spec's
 # EXCLUDES: brackets kept, a case-sensitive host, `localhost` passed, a
 #   quad of other parts or with a part past 255 passed, a part past u32
@@ -507,59 +719,3 @@ def mu_w_reply(h: String) -> String:
 law mcp_url_spec:
   for +h: String
   {Mu.refused(h) == mu_refused(h) : Bool}
-
-# LAW mcp_url_refuses_example (R1-R6): anchor: hosts Rust refused, and the
-# mapped loopback the fix refuses
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law mcp_url_refuses_example:
-  {[Mu.refused("localhost"), Mu.refused("LocalHost"), Mu.refused("a.localhost"), Mu.refused("127.0.0.1"), Mu.refused("10.0.0.5"), Mu.refused("0.0.0.0"), Mu.refused("172.16.1.2"), Mu.refused("192.168.0.1"), Mu.refused("169.254.1.1"), Mu.refused("999.1.1.1"), Mu.refused("[::1]"), Mu.refused("[::]"), Mu.refused("[fe80::1]"), Mu.refused("[fc00::1]"), Mu.refused("[fd12::1]"), Mu.refused("[zz::1]"), Mu.refused("[::ffff:7f00:1]")] == [True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}, True{}] : List<&2, Bool>}
-
-# LAW mcp_url_passes_example (R3-R7): anchor: hosts Rust passed
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law mcp_url_passes_example:
-  {[Mu.refused("mcp.linear.app"), Mu.refused("8.8.8.8"), Mu.refused("172.32.0.1"), Mu.refused("[2606:4700::6810:85e5]"), Mu.refused("[2001:db8::1]"), Mu.refused("x.999.1.1"), Mu.refused("+8.8.8.8"), Mu.refused("[::ffff:808:808]")] == [False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}] : List<&2, Bool>}
-
-# Laws: the entry (R8)
-# --------------------
-
-# LAW mcp_url_entry_answers (R8): the entry answers every host Rust
-# spells, its length within the wire, with the spec's verdict
-# EXCLUDES: another verdict, a verdict spelled otherwise, a default
-law mcp_url_entry_answers:
-  for +h: String
-  for fit: {LawsBase.wire_fits(String.length(h)) == True{} : Bool}
-  {FMu.ffi(mu_w_req(h, "")) == mu_w_reply(h) : String}
-
-# LAW mcp_url_entry_exact (R8): every input the entry does not answer with
-# the error form is a spelled host that fits the wire
-# EXCLUDES: a verdict on input that is no request (a short host, input
-#   left over)
-law mcp_url_entry_exact:
-  for +s: String
-  for ok: {LawsBase.wire_opens_err(FMu.ffi(s)) == False{} : Bool}
-  exs h: String
-  {s == mu_w_req(h, "") : String} & {LawsBase.wire_fits(String.length(h)) == True{} : Bool}
-
-# LAW mcp_url_entry_refuses (R8): every error the entry answers is exactly
-# `E mcp_url: malformed request`
-# EXCLUDES: an error text that varies with the input, a second error form
-law mcp_url_entry_refuses:
-  for +s: String
-  for bad: {LawsBase.wire_opens_err(FMu.ffi(s)) == True{} : Bool}
-  {FMu.ffi(s) == Wr.err("mcp_url: malformed request") : String}
-
-# LAW mcp_url_entry_left_over (R8): a spelled host followed by more input
-# answers the error form
-# EXCLUDES: the input after the request ignored or read into the host
-law mcp_url_entry_left_over:
-  for +h: String
-  for +c: Char
-  for +t: String
-  for fit: {LawsBase.wire_fits(String.length(h)) == True{} : Bool}
-  {FMu.ffi(mu_w_req(h, SCon{c, t})) == Wr.err("mcp_url: malformed request") : String}
-
-# LAW mcp_url_entry_example (R8): anchor: the wire strings Rust sends and
-# the replies it reads; input left over and a malformed request
-# EXCLUDES: another spelling of a request or of a reply
-law mcp_url_entry_example:
-  {[FMu.ffi("9,127.0.0.1"), FMu.ffi("7,8.8.8.8"), FMu.ffi("7,8.8.8.8x"), FMu.ffi("x")] == ["T", "F", Wr.err("mcp_url: malformed request"), Wr.err("mcp_url: malformed request")] : List<&2, String>}

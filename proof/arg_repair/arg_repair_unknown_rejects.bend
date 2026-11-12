@@ -11,7 +11,7 @@ import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
 import ./base.bend as AB
 import ./base/step.bend as SV
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 
 def ru.or_l(b1: Bool, -b2: Bool, e1: {b1 == False{} : Bool}, eb: {Bool.or(b1, b2) == True{} : Bool}) -> {b2 == True{} : Bool}:
   match b1:

@@ -16,5 +16,5 @@ import ../cvar/alias_expand_exact.bend as PAE
 def CvarEntry.cvar_ffi_spelled(as, cs, h):
   %LB.cve.put_xreq(as, cs, "") : {FCv.ffi(_) == CvarEntry.cvs_spell_exp(Cvar.spec_expand(cs, as), "") : String}
   %Equal.sym(String, FCv.ffi(FCv.put_xreq(FCv.Xreq{as, cs}, "")), FCv.put_exp(Cv.expand(cs, as), ""), Cvar.cvar_ffi_is_expand(as, cs, h)) : {_ == CvarEntry.cvs_spell_exp(Cvar.spec_expand(cs, as), "") : String}
-  %PAE.pxx.expand(cs, as) : {FCv.put_exp(Cv.expand(cs, as), "") == CvarEntry.cvs_spell_exp(_, "") : String}
+  %PAE.pxx.expand_orig(cs, as) : {FCv.put_exp(Cv.expand(cs, as), "") == CvarEntry.cvs_spell_exp(_, "") : String}
   LB.cve.exp(Cv.expand(cs, as), "")

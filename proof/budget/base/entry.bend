@@ -1,8 +1,8 @@
 # eukhe: lemmas of the entry proofs of area budget (bend/ffi_budget.bend):
 # a spelled request that fits reads back (be.req_rt: each decoder reads its
 # spelling field by field with wire_nat_round_trip, a list by the generic
-# list laws wire_list_spells_items, wire_nat_decimal and
-# wire_list_reads_items), the answer is the model's decision spelled
+# list laws wire_list_spells_items and wire_list_reads_items, with
+# put_nat == wire_dec by LAWireDec.wdec.nat), the answer is the model's decision spelled
 # (be.reply: each encoder is the spec's spelling), no answer opens with 'E'
 # (be.answer_ok), and an answer that opens with 'E' is the one error form
 # (be.refuse)
@@ -16,7 +16,7 @@ import ../../../laws/wire.bend as Wire
 import ../../../laws/budget.bend as Budget
 import ../../base/wire.bend as LWire
 import ../../wire/wire_nat_not_err.bend as PWireNatNotErr
-import ../../wire/wire_nat_decimal.bend as PWireNatDecimal
+import ../../wire/base/dec.bend as LAWireDec
 import ../../wire/wire_list_reads_items.bend as PWireListReadsItems
 import ../../wire/wire_list_spells_items.bend as PWireListSpellsItems
 
@@ -127,7 +127,7 @@ def be.asks(+xs: List<&2, B.Ask>, +rest: String, fc: {LawsBase.wire_fits(List.le
   +n = List.length(&2, B.Ask, xs)
   +s1 = LawsBase.wire_put_items(~B.Ask, ~Budget.sp_w_ask, xs, rest)
   %Equal.sym(String, Wr.put_list(~B.Ask, ~Budget.sp_w_ask, xs, rest), LawsBase.wire_dec(n, s1), Wire.wire_list_spells_items(~B.Ask, ~Budget.sp_w_ask, xs, rest)) : {Wr.Got{xs, rest} == Wr.get_list(~B.Ask, ~FBg.get_ask, _) : Wr.Dec<List<&2, B.Ask>>}
-  %Wire.wire_nat_decimal(n, s1) : {Wr.Got{xs, rest} == Wr.get_list(~B.Ask, ~FBg.get_ask, _) : Wr.Dec<List<&2, B.Ask>>}
+  %LAWireDec.wdec.nat(n, s1) : {Wr.Got{xs, rest} == Wr.get_list(~B.Ask, ~FBg.get_ask, _) : Wr.Dec<List<&2, B.Ask>>}
   %Equal.sym(Wr.Dec<List<&2, B.Ask>>, Wr.get_list(~B.Ask, ~FBg.get_ask, Wr.put_nat(n, s1)), LawsBase.wire_read_list(~B.Ask, ~FBg.get_ask, Wr.put_nat(n, s1)), Wire.wire_list_reads_items(~B.Ask, ~FBg.get_ask, Wr.put_nat(n, s1))) : {Wr.Got{xs, rest} == _ : Wr.Dec<List<&2, B.Ask>>}
   %be.nat(n, s1, fc) : {Wr.Got{xs, rest} == LawsBase.wire_read_list.count(~B.Ask, ~FBg.get_ask, _) : Wr.Dec<List<&2, B.Ask>>}
   be.ask_items(xs, rest, fx)
@@ -156,7 +156,7 @@ def be.holds(+hs: List<&2, B.Hold>, +rest: String, fc: {LawsBase.wire_fits(List.
   +n = List.length(&2, B.Hold, hs)
   +s1 = LawsBase.wire_put_items(~B.Hold, ~Budget.sp_w_hold, hs, rest)
   %Equal.sym(String, Wr.put_list(~B.Hold, ~Budget.sp_w_hold, hs, rest), LawsBase.wire_dec(n, s1), Wire.wire_list_spells_items(~B.Hold, ~Budget.sp_w_hold, hs, rest)) : {Wr.Got{hs, rest} == Wr.get_list(~B.Hold, ~FBg.get_hold, _) : Wr.Dec<List<&2, B.Hold>>}
-  %Wire.wire_nat_decimal(n, s1) : {Wr.Got{hs, rest} == Wr.get_list(~B.Hold, ~FBg.get_hold, _) : Wr.Dec<List<&2, B.Hold>>}
+  %LAWireDec.wdec.nat(n, s1) : {Wr.Got{hs, rest} == Wr.get_list(~B.Hold, ~FBg.get_hold, _) : Wr.Dec<List<&2, B.Hold>>}
   %Equal.sym(Wr.Dec<List<&2, B.Hold>>, Wr.get_list(~B.Hold, ~FBg.get_hold, Wr.put_nat(n, s1)), LawsBase.wire_read_list(~B.Hold, ~FBg.get_hold, Wr.put_nat(n, s1)), Wire.wire_list_reads_items(~B.Hold, ~FBg.get_hold, Wr.put_nat(n, s1))) : {Wr.Got{hs, rest} == _ : Wr.Dec<List<&2, B.Hold>>}
   %be.nat(n, s1, fc) : {Wr.Got{hs, rest} == LawsBase.wire_read_list.count(~B.Hold, ~FBg.get_hold, _) : Wr.Dec<List<&2, B.Hold>>}
   be.hold_items(hs, rest, fh)

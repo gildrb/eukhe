@@ -83,58 +83,37 @@ def pdw.key(+k: Dm.Key, +rest: String, h: {DefaultModel.dmw_key_fits(k) == True{
 
 # ---- default_model_open ----
 
-# the code's key equality is the spec's
-def pdm.key_eq_spec(a: Dm.Key, b: Dm.Key) -> {Dm.Key.eq(a, b) == DefaultModel.dms.key_eq(a, b) : Bool}:
-  match a b:
-    case Dm.K{am, Dm.NotInCatalog{}} Dm.K{bm, Dm.NotInCatalog{}}:
-      {==}
-    case Dm.K{am, Dm.NotInCatalog{}} Dm.K{bm, Dm.NoCredentials{}}:
-      {==}
-    case Dm.K{am, Dm.NotInCatalog{}} Dm.K{bm, Dm.NotInScope{}}:
-      {==}
-    case Dm.K{am, Dm.NoCredentials{}} Dm.K{bm, Dm.NotInCatalog{}}:
-      {==}
-    case Dm.K{am, Dm.NoCredentials{}} Dm.K{bm, Dm.NoCredentials{}}:
-      {==}
-    case Dm.K{am, Dm.NoCredentials{}} Dm.K{bm, Dm.NotInScope{}}:
-      {==}
-    case Dm.K{am, Dm.NotInScope{}} Dm.K{bm, Dm.NotInCatalog{}}:
-      {==}
-    case Dm.K{am, Dm.NotInScope{}} Dm.K{bm, Dm.NoCredentials{}}:
-      {==}
-    case Dm.K{am, Dm.NotInScope{}} Dm.K{bm, Dm.NotInScope{}}:
-      {==}
+# t when b is True, f when False
+def pdm.BD(b: Bool, t: Type, f: Type) -> Type:
+  match b:
+    case True{}:
+      t
+    case False{}:
+      f
 
-# the code's membership is the spec's
-def pdm.listed_spec(ks: List<&2, Dm.Key>, +k: Dm.Key) -> {Dm.listed(ks, k) == DefaultModel.dms.listed(ks, k) : Bool}:
-  match ks:
-    case Nil{}:
-      {==}
-    case x <> rest:
-      %pdm.key_eq_spec(x, k) : {Bool.or(Dm.Key.eq(x, k), Dm.listed(rest, k)) == Bool.or(_, DefaultModel.dms.listed(rest, k)) : Bool}
-      %pdm.listed_spec(rest, k) : {Bool.or(Dm.Key.eq(x, k), Dm.listed(rest, k)) == Bool.or(Dm.Key.eq(x, k), _) : Bool}
-      {==}
+# False is not True
+def pdm.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
+  %e : pdm.BD(_, A, Unit)
+  Unit{}
 
-# the code's "runs on the saved default" is the spec's
-def pdm.on_saved_spec(r: Dm.Run) -> {Dm.on_saved(r) == DefaultModel.dms.on_saved(r) : Bool}:
+# G when the session runs on the saved default, nothing otherwise
+def pdm.RunIf(r: Dm.Run, G: Type) -> Type:
   match r:
     case Dm.On{p}:
       match p:
         case Dm.Saved{}:
-          {==}
+          G
         case Dm.Other{n}:
-          {==}
+          Unit
     case Dm.Idle{}:
-      {==}
+      Unit
 
-# the code's first failed check is the spec's
-def pdm.why_spec(cat: Bool, key: Bool) -> {Dm.why(cat, key) == DefaultModel.dms.why(cat, key) : Dm.Reason}:
-  match cat:
-    case False{}:
-      {==}
-    case True{}:
-      match key:
-        case False{}:
-          {==}
-        case True{}:
-          {==}
+# an idle session does not run on the saved default
+def pdm.idle_not_saved(-G: Type, e: {Dm.Idle{} == Dm.On{Dm.Saved{}} : Dm.Run}) -> G:
+  %e : pdm.RunIf(_, G)
+  Unit{}
+
+# a session on another model does not run on the saved default
+def pdm.other_not_saved(-G: Type, -n: Nat, e: {Dm.On{Dm.Other{n}} == Dm.On{Dm.Saved{}} : Dm.Run}) -> G:
+  %e : pdm.RunIf(_, G)
+  Unit{}

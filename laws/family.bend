@@ -12,21 +12,27 @@ import ../spec/rlm/family.bend as FamSpec
 # bend/family.bend, run as the compiled core by bend/ffi_family.bend
 # (eukhe-bend rules/family.rs; asked by eukhe-core
 # durable/children/requests.rs for rlm.spawn, rlm.spawn_batch, the
-# workflow tool's agent() and the factory's states). The spec is
-# spec/rlm/family.bend (S1-S5).
+# workflow tool's agent() and the factory's states). spec/rlm/family.bend
+# states the rule (S1-S5) and its parts (the reasons, the first bad why,
+# the depth and cap tests, admission).
 # Every input is free: any depth, bound, running count, cap and whys.
 #
-# R1: the decision on a batch is the spec's (S1-S5): the code refines it.
+# R1: the decision on a batch is the one S1-S5 state: admitted exactly
+#     when S1-S4 hold, the child one level deeper; else refused for the
+#     first rule it breaks (S5), naming the first bad why's index or the
+#     cap.
 # R2: the texts of the refusals: the depth and cap texts Rust wrote before
 #     the move (requests.rs `admit_spawns`, `concurrency_limit_full`)
-#     byte for byte; the reason text names the task's index, the rule and
-#     the four values.
+#     byte for byte (Rust's test vectors, crates/eukhe-bend/src/rules/
+#     family.rs and crates/eukhe-core/src/durable/children/tests.rs); each
+#     text names its values: the depth after `RLM_DEPTH=`, the bound after
+#     `RLM_MAX_DEPTH=`, the cap, the task's index, then the rule.
 # R3: the entry answers each request Rust writes (the depth, the bound,
 #     the running count, the cap, then the whys as List<String>; every
-#     number and length within the wire) with the decision (0 then the
-#     child's depth | 1 then the refusal's text), reads exactly the request
-#     and nothing after it, and answers any other input with the exact
-#     error form `E family: malformed request`.
+#     number and length within the wire) with the core's decision (0 then
+#     the child's depth | 1 then the refusal's text), reads exactly the
+#     request and nothing after it, and answers any other input with the
+#     exact error form `E family: malformed request`.
 
 # Spec helpers
 # ------------
@@ -39,19 +45,11 @@ def fam_admitted(v: F.Verdict) -> Bool:
     case F.Refuse{f}:
       False{}
 
-# R2: the reason rule, as Rust's callers read it
+# R2: the reason rule, as Rust's tests read it after the index
+# (crates/eukhe-core/src/durable/children/tests.rs `rule`,
+# crates/eukhe-bend/src/rules/family.rs)
 def fam_rule() -> String:
   "why must be \"parallel\" (independent tasks run at once), \"isolate\" (the work would bloat this context; only a compact result comes back), \"tools\" (the task needs a tool set or instructions that conflict with this agent's) or \"user\" (the user asked for a subagent); otherwise do the work in this loop"
-
-# R2: the text of a refusal at depth d under the bound m
-def fam_text(+d: Nat, +m: Nat, f: F.Refusal) -> String:
-  match f:
-    case F.DepthLimit{}:
-      String.append("RLM recursion depth limit reached (RLM_DEPTH=", String.append(Nat.show(d), String.append(", RLM_MAX_DEPTH=", String.append(Nat.show(m), ")"))))
-    case F.FamilyFull{c}:
-      String.append("subagent concurrency limit ", String.append(Nat.show(c), " is already full"))
-    case F.NoReason{i}:
-      String.append("rlm.spawn task ", String.append(Nat.show(i), String.append(" has no allowed why: ", fam_rule())))
 
 # R3: the spelling of a request and of its reply
 
@@ -72,12 +70,12 @@ def fam_w_verdict(+d: Nat, +m: Nat, v: F.Verdict) -> String:
     case F.Admit{k}:
       Wr.put_nat(0n, Wr.put_nat(k, ""))
     case F.Refuse{f}:
-      Wr.put_nat(1n, Wr.put_str(fam_text(d, m, f), ""))
+      Wr.put_nat(1n, Wr.put_str(F.text(d, m, f), ""))
 
 def fam_w_reply(q: FF.Req) -> String:
   match q:
     case FF.Req{+d, +m, +r, +c, +ws}:
-      fam_w_verdict(d, m, FamSpec.verdict(d, m, r, c, ws))
+      fam_w_verdict(d, m, F.decide(d, m, r, c, ws))
 
 def fam_fit_strs(ws: List<&2, String>) -> Bool:
   match ws:
@@ -94,19 +92,6 @@ def fam_fit_req(q: FF.Req) -> Bool:
 
 # Laws: the decision (R1)
 # -----------------------
-
-# LAW family_refusal_precedence (R1, S5): the decision on every batch is
-# the spec's: a missing reason first, then the depth, then the cap
-# EXCLUDES: the cap checked before the depth or the reasons, the depth
-#   checked before the reasons, another index for a missing reason,
-#   another cap named, another child depth
-law family_refusal_precedence:
-  for +d: Nat
-  for +m: Nat
-  for +r: Nat
-  for +c: Nat
-  for +ws: List<&2, String>
-  {F.decide(d, m, r, c, ws) == FamSpec.verdict(d, m, r, c, ws) : F.Verdict}
 
 # LAW family_admit_iff (R1, S1-S4): a batch is admitted exactly when every
 # why is a reason, the caller is below the bound and the batch fits the cap
@@ -150,7 +135,7 @@ law family_refuse_at_depth:
 # LAW family_cap_bound (R1, S3): an admitted batch fits the cap with the
 # family's running subagents
 # EXCLUDES: a batch admitted when only its first spawn fits, the running
-#   count left out, a cap of 0 read as full
+#   count left out
 law family_cap_bound:
   for +d: Nat
   for +m: Nat
@@ -190,32 +175,83 @@ law family_why_required:
   for e: {FamSpec.first_bad(ws, 0n) == Some{i} : Maybe<&2, Nat>}
   {F.decide(d, m, r, c, ws) == F.Refuse{F.NoReason{i}} : F.Verdict}
 
-# LAW family_text_spec (R2): every refusal text is the spec's
-# EXCLUDES: a changed depth or cap text, the depth and bound swapped
-law family_text_spec:
+# LAW family_cap_refusal_names_cap (R1, S3, S5): a batch whose whys are
+# all reasons (spec first_bad: none), from a caller below the bound, that
+# does not fit the cap (spec cap_ok: false) is refused as full, naming the
+# cap c
+# EXCLUDES: a full family refused for the depth or a reason, another
+#   number named as the cap (the running count, the batch size)
+law family_cap_refusal_names_cap:
   for +d: Nat
   for +m: Nat
-  for +f: F.Refusal
-  {F.text(d, m, f) == fam_text(d, m, f) : String}
+  for +r: Nat
+  for +c: Nat
+  for +ws: List<&2, String>
+  for ok: {FamSpec.first_bad(ws, 0n) == None{} : Maybe<&2, Nat>}
+  for below: {Nat.is_le(m, d) == False{} : Bool}
+  for full: {FamSpec.cap_ok(r, c, List.length(&2, String, ws)) == False{} : Bool}
+  {F.decide(d, m, r, c, ws) == F.Refuse{F.FamilyFull{c}} : F.Verdict}
+
+# LAW family_text_depth_names (R2): the depth text is one fixed run of
+# words a (the same for every value; its words: family_text_example,
+# Rust's vector), then the depth d after `RLM_DEPTH=`, then the bound m
+# after `RLM_MAX_DEPTH=`, closed by `)`, for every d and m
+# EXCLUDES: the depth and the bound swapped, a value left out or
+#   miscounted, another label, words that change with the values
+law family_text_depth_names:
+  exs a: String
+  for +d: Nat
+  for +m: Nat
+  {F.text(d, m, F.DepthLimit{}) == String.append(a, String.append("RLM_DEPTH=", String.append(Nat.show(d), String.append(", RLM_MAX_DEPTH=", String.append(Nat.show(m), ")"))))) : String}
+
+# LAW family_text_cap_names (R2): the cap text is one fixed run of words
+# a (the same for every value; its words: family_text_example, Rust's
+# vector), then the cap c, then ` is already full`, for every c, depth
+# and bound
+# EXCLUDES: another number named as the cap (the running count, the batch
+#   size, the depth), words that change with the values
+law family_text_cap_names:
+  exs a: String
+  for +d: Nat
+  for +m: Nat
+  for +c: Nat
+  {F.text(d, m, F.FamilyFull{c}) == String.append(a, String.append(Nat.show(c), " is already full")) : String}
+
+# LAW family_text_reason_names (R2): the reason text is one fixed run of
+# words a (the same for every value; its words: family_text_example,
+# Rust's vectors), then the task's index i, then ` has no allowed why: `
+# and the rule Rust's tests read (fam_rule), for every i, depth and bound
+# EXCLUDES: another index named (counted from 1, the batch size), the
+#   rule changed or left out, words that change with the values
+law family_text_reason_names:
+  exs a: String
+  for +d: Nat
+  for +m: Nat
+  for +i: Nat
+  {F.text(d, m, F.NoReason{i}) == String.append(a, String.append(Nat.show(i), String.append(" has no allowed why: ", fam_rule()))) : String}
 
 # LAW family_example (R1, R2): anchor: Rust's tests: a spawn at depth 2
 # under the bound 2; a batch of 3 with 1 running under the cap 3; a
 # batch of 2 that fits; an empty why; a why of another case
-# EXCLUDES: a spec that drifts from the Rust it replaced
+# EXCLUDES: a decision other than S1-S5 give for these inputs
 law family_example:
   {[F.decide(2n, 2n, 0n, 0n, ["parallel"]), F.decide(0n, 2n, 1n, 3n, ["parallel", "parallel", "tools"]), F.decide(0n, 2n, 1n, 3n, ["isolate", "user"]), F.decide(2n, 2n, 0n, 0n, ["parallel", ""]), F.decide(0n, 2n, 0n, 0n, ["Parallel"])] == [F.Refuse{F.DepthLimit{}}, F.Refuse{F.FamilyFull{3n}}, F.Admit{1n}, F.Refuse{F.NoReason{1n}}, F.Refuse{F.NoReason{0n}}] : List<&2, F.Verdict>}
 
 # LAW family_text_example (R2): anchor: the texts Rust's tests read
+# (crates/eukhe-bend/src/rules/family.rs `the_core_decides_admission`,
+# crates/eukhe-core/src/durable/children/tests.rs): the depth text, the
+# cap text, the reason text for the tasks 1 and 0
 # EXCLUDES: a text that drifts from the Rust it replaced
 law family_text_example:
-  {[F.text(2n, 2n, F.DepthLimit{}), F.text(0n, 2n, F.FamilyFull{3n})] == ["RLM recursion depth limit reached (RLM_DEPTH=2, RLM_MAX_DEPTH=2)", "subagent concurrency limit 3 is already full"] : List<&2, String>}
+  {[F.text(2n, 2n, F.DepthLimit{}), F.text(0n, 2n, F.FamilyFull{3n}), F.text(2n, 2n, F.NoReason{1n}), F.text(0n, 2n, F.NoReason{0n})] == ["RLM recursion depth limit reached (RLM_DEPTH=2, RLM_MAX_DEPTH=2)", "subagent concurrency limit 3 is already full", "rlm.spawn task 1 has no allowed why: why must be \"parallel\" (independent tasks run at once), \"isolate\" (the work would bloat this context; only a compact result comes back), \"tools\" (the task needs a tool set or instructions that conflict with this agent's) or \"user\" (the user asked for a subagent); otherwise do the work in this loop", "rlm.spawn task 0 has no allowed why: why must be \"parallel\" (independent tasks run at once), \"isolate\" (the work would bloat this context; only a compact result comes back), \"tools\" (the task needs a tool set or instructions that conflict with this agent's) or \"user\" (the user asked for a subagent); otherwise do the work in this loop"] : List<&2, String>}
 
 # Laws: the entry (R3)
 # --------------------
 
 # LAW family_entry_answers (R3): the entry answers every request Rust
-# spells, every number and length within the wire, with the spec's
-# decision spelled
+# spells, every number and length within the wire, with the core's
+# decision spelled (fam_w_reply: 0 then the child's depth | 1 then the
+# refusal's text)
 # EXCLUDES: fields read in another order, the running count and the cap
 #   swapped, a why lost, a default
 law family_entry_answers:

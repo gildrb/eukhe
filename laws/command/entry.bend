@@ -1,16 +1,14 @@
 # eukhe: the laws of area command, section entry: the entry of the
 # compiled core for the slash command paths (bend/ffi_command.bend)
 
-import Base
-import ../../bend/command.bend as Cmd
-import ../../bend/ffi_command.bend as FCmd
-import ../../bend/wire.bend as Wr
-import ../base.bend as LawsBase
-
 # LAWS (R14 of laws/command/paths.bend): the entry reads every request that
 # fits back whole, answers the model, refuses input left over and
 # malformed input; every reply reads back. Each law is an open claim
 # about bend/ffi_command.bend; the proofs are proof/command/<law>.bend.
+# The reply readers of bend/ffi_command.bend (get_res, get_menu, get_out)
+# are never called by the entry; these laws pin their grammar, and no
+# law here ties them to the Rust reader of
+# crates/eukhe-tui/src/command_paths.rs.
 #
 #   R14a a request Rust spells (the grammar of the header of
 #        bend/ffi_command.bend, every count, length and place within the
@@ -26,17 +24,34 @@ import ../base.bend as LawsBase
 #                                      command_ffi_unknown_query,
 #                                      command_ffi_unknown_row,
 #                                      command_ffi_unknown_press
-#   R14e the exact strings Rust sends and reads   command_ffi_example
+#   R14e anchors: the requests of the example table of
+#        crates/eukhe-bend/tests/max_magnitude/command.txt (lines 5-6 are
+#        its resolve and menu requests) and the entry's replies to them
+#                                     command_ffi_example
 #   R14f a reply tag the reply grammar does not name reads as no reply
 #        (one spelling per answer)    command_ffi_unknown_res,
 #                                     command_ffi_unknown_menu
 #   R14g the reply readers read every reply the reply grammar spells
-#                                     command_ffi_res_reads_spelled,
+#        (the resolve reply's grammar spelling is the entry's own put_res)
+#                                     command_ffi_res_round_trip,
 #                                     command_ffi_menu_reads_spelled,
 #                                     command_ffi_out_reads_spelled
-# The requests and replies of these laws are spelled with the spec
-# spellers below and those of laws/base.bend, never with the entry's own
-# encoders.
+#   R14i every request and reply the entry's own encoders write reads
+#        back whole, the rest untouched; a request with input after it is
+#        refused                      command_ffi_round_trip,
+#                                     command_ffi_left_over,
+#                                     command_ffi_res_round_trip,
+#                                     command_ffi_menu_round_trip,
+#                                     command_ffi_out_round_trip
+# The requests and replies of R14a-R14h are spelled with the spec spellers
+# below and those of laws/base.bend, never with the entry's own encoders
+# (R14i reads those encoders back, and R14g's resolve reply is put_res).
+
+import Base
+import ../../bend/command.bend as Cmd
+import ../../bend/ffi_command.bend as FCmd
+import ../../bend/wire.bend as Wr
+import ../base.bend as LawsBase
 
 # Spec helpers
 # ------------
@@ -122,15 +137,6 @@ law command_ffi_round_trip:
   for h: {cmd_req_fits(r) == True{} : Bool}
   {FCmd.get_req(FCmd.put_req(r, rest)) == Wr.Got{r, rest} : Wr.Dec<FCmd.Req>}
 
-# LAW command_ffi_answers: the entry answers a request with the model's
-# answer about the table it carries
-# EXCLUDES: an entry that answers another question, another table, or a
-#   default
-law command_ffi_answers:
-  for +r: FCmd.Req
-  for h: {cmd_req_fits(r) == True{} : Bool}
-  {FCmd.ffi(FCmd.put_req(r, "")) == FCmd.ffi.run(r) : String}
-
 # LAW command_ffi_left_over: a request with input left over after it is
 # refused
 # EXCLUDES: trailing input read as part of a request, or ignored
@@ -141,36 +147,33 @@ law command_ffi_left_over:
   for more: {String.is_empty(rest) == False{} : Bool}
   {FCmd.ffi(FCmd.put_req(r, rest)) == Wr.err("command: input left over") : String}
 
-# LAW command_ffi_malformed: a malformed request answers the error form,
-# never an answer
-# EXCLUDES: a default answer (a run, a menu) for input the entry cannot
-#   read
-law command_ffi_malformed:
-  for +s: String
-  for bad: {FCmd.get_req(s) == Wr.Bad{} : Wr.Dec<FCmd.Req>}
-  {FCmd.ffi(s) == Wr.err("command: malformed request") : String}
-
-# LAW command_ffi_res_round_trip: every resolve reply that fits reads
-# back as itself (Rust's Reader reads the same grammar)
-# EXCLUDES: two answers with one encoding, an answer Rust misreads
+# LAW command_ffi_res_round_trip: every resolve reply that fits the wire,
+# encoded by the entry (put_res) and then any rest, reads back with the
+# reply reader of bend/ffi_command.bend as itself, the rest untouched
+# EXCLUDES: two resolve answers with one encoding, an encoding that eats
+#   into what follows it
 law command_ffi_res_round_trip:
   for +x: FCmd.ResW
   for +rest: String
   for h: {cmd_res_fits(x) == True{} : Bool}
   {FCmd.get_res(FCmd.put_res(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
 
-# LAW command_ffi_menu_round_trip: every menu reply that fits reads back
-# as itself
-# EXCLUDES: two menus with one encoding, a menu Rust misreads
+# LAW command_ffi_menu_round_trip: every menu reply that fits the wire,
+# encoded by the entry (put_menu) and then any rest, reads back with the
+# menu reader of bend/ffi_command.bend as itself, the rest untouched
+# EXCLUDES: two menus with one encoding, an encoding that eats into what
+#   follows it
 law command_ffi_menu_round_trip:
   for +x: FCmd.MenuW
   for +rest: String
   for h: {cmd_menu_fits(x) == True{} : Bool}
   {FCmd.get_menu(FCmd.put_menu(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.MenuW>}
 
-# LAW command_ffi_out_round_trip: every key reply that fits reads back as
-# itself
-# EXCLUDES: a new line, menu flag or submit flag Rust misreads
+# LAW command_ffi_out_round_trip: every key reply that fits the wire,
+# encoded by the entry (put_out) and then any rest, reads back with the
+# key reply reader of bend/ffi_command.bend as itself, the rest untouched
+# EXCLUDES: two key replies with one encoding (a line, menu flag or
+#   submit flag lost), an encoding that eats into what follows it
 law command_ffi_out_round_trip:
   for +x: FCmd.OutW
   for +rest: String
@@ -308,21 +311,8 @@ def cmd_spell_out(o: Cmd.Out) -> String:
     case Cmd.Out{l, a, b}:
       Wr.put_str(cmd_text(l), Wr.put_bool(a, Wr.put_bool(b, "")))
 
-# the replies as the wire carries them (what Rust's Reader reads): a
-# resolution, tag 0 runs (path, text), 1 opens (path), 2 unknown (path,
-# word), 3 no command
-def cmd_spell_resw(x: FCmd.ResW, rest: String) -> String:
-  match x:
-    case FCmd.RunsW{p, a}:
-      Wr.put_nat(0n, LawsBase.wire_spell_strs(p, Wr.put_str(a, rest)))
-    case FCmd.OpensW{p}:
-      Wr.put_nat(1n, LawsBase.wire_spell_strs(p, rest))
-    case FCmd.UnknownW{p, w}:
-      Wr.put_nat(2n, LawsBase.wire_spell_strs(p, Wr.put_str(w, rest)))
-    case FCmd.NoCmdW{}:
-      Wr.put_nat(3n, rest)
-
-# a menu: tag 0 the command names, 1 the children (path, places), 2 none
+# the replies as the reply grammar spells them: a menu, tag 0 the command
+# names, 1 the children (path, places), 2 none
 def cmd_spell_menuw(m: FCmd.MenuW, rest: String) -> String:
   match m:
     case FCmd.NamesW{}:
@@ -339,9 +329,8 @@ def cmd_spell_outw(o: FCmd.OutW, rest: String) -> String:
       Wr.put_str(l, Wr.put_bool(a, Wr.put_bool(b, rest)))
 
 # the spelling of the model's answer to question q about table t (the
-# model's resolve, menu and key are the spec's for every input:
-# command_resolve_spec, command_menu_spec, command_key_spec of
-# laws/command/whole.bend)
+# model's resolve, menu and key are pinned by the laws of
+# laws/command/paths.bend, named.bend and whole.bend)
 def cmd_spell_answer(+t: List<&2, Cmd.Ent>, q: FCmd.Query) -> String:
   match q:
     case FCmd.QResolve{l}:
@@ -462,17 +451,6 @@ law command_ffi_unknown_menu:
   for +rest: String
   {FCmd.get_menu(Wr.put_nat(3n+n, rest)) == Wr.Bad{} : Wr.Dec<FCmd.MenuW>}
 
-# LAW command_ffi_res_reads_spelled: the resolve reply reader reads every
-# reply the reply grammar spells back as itself, the rest untouched
-# EXCLUDES: a reader that swaps the tags or fields of a resolution (a run
-#   read as a menu, the path read as the text), so Rust and the laws read
-#   one reply apart (the round trip alone pins only the entry's own pair)
-law command_ffi_res_reads_spelled:
-  for +x: FCmd.ResW
-  for +rest: String
-  for h: {cmd_res_fits(x) == True{} : Bool}
-  {FCmd.get_res(cmd_spell_resw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
-
 # LAW command_ffi_menu_reads_spelled: the menu reply reader reads every
 # reply the reply grammar spells back as itself, the rest untouched
 # EXCLUDES: a reader that swaps the menu tags, the path and the places
@@ -493,11 +471,12 @@ law command_ffi_out_reads_spelled:
   for h: {cmd_out_fits(x) == True{} : Bool}
   {FCmd.get_out(cmd_spell_outw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
 
-# LAW command_ffi_example: anchor: the exact strings Rust sends and reads
-# for the example table: `memory model` runs memory model; the menu of
-# `memory ` lists places 1 and 2; Tab on row 0 of `mem` completes
-# `memory ` with its menu open; question tag 7, row tag 2 and key tag 5
-# are malformed
+# LAW command_ffi_example: anchor: in the spelling of the example table of
+# crates/eukhe-bend/tests/max_magnitude/command.txt (whose lines 5-6 are
+# the first two requests here), the entry's replies: `memory model` runs
+# memory model; the menu of `memory ` lists places 1 and 2; Tab on row 0
+# of `mem` completes `memory ` with its menu open; question tag 7, row tag
+# 2 and key tag 5 are malformed
 law command_ffi_example:
   {[FCmd.ffi(String.concat([cmd_example_wire_table(), "0,12,memory model"])), FCmd.ffi(String.concat([cmd_example_wire_table(), "1,7,memory "])), FCmd.ffi(String.concat([cmd_example_wire_table(), "2,3,mem1,0,0,"])), FCmd.ffi(String.concat([cmd_example_wire_table(), "7,"])), FCmd.ffi(String.concat([cmd_example_wire_table(), "2,3,mem2,0,"])), FCmd.ffi(String.concat([cmd_example_wire_table(), "2,3,mem0,5,"]))] == ["0,2,6,memory5,model0,", "1,1,6,memory2,1,2,", "7,memory TF", "E command: malformed request", "E command: malformed request", "E command: malformed request"] : List<&2, String>}
 

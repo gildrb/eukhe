@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW thread_history_kept
 #
-# PROOF: end is the log's (thread_log_chat); the turns add no line start
+# PROOF: end is the log's (thb.log_chat); the turns add no line start
 # (thk.turns, thk.app). By induction on the view (thk.view): a line that
 # starts before end is kept, as the spec keeps it; at the first line that
 # does not, the walk stops, and since the starts ascend no later start is
@@ -12,7 +12,6 @@ import ../../bend/thread.bend as Th
 import ../../spec/memory/thread.bend as S
 import ../../laws/thread.bend as Thread
 import ./base.bend as LA
-import ./thread_log_chat.bend as PThreadLogChat
 
 def thk.app(a: List<&2, Th.Item>, +b: List<&2, Th.Item>) -> {S.line_starts(List.append(&2, Th.Item, a, b)) == List.append(&2, Nat, S.line_starts(a), S.line_starts(b)) : List<&2, Nat>}:
   match a:
@@ -104,7 +103,7 @@ def Thread.thread_history_kept(s, evs, view, w, asc):
   +e = Nat.sub(List.length(&2, Th.Msg, lg), w)
   +hist = Th.lines(lg, List.take(&2, Th.Span, view, Th.history_lines.go(Th.starts(view), e)))
   +tail = Th.turns(List.drop(&2, Th.Msg, lg, e))
-  %Thread.thread_log_chat(s, evs) : {S.line_starts(Th.request(s, evs, view, w)) == S.before(S.end(_, w), S.view_starts(view)) : List<&2, Nat>}
+  %LA.thb.log_chat(s, evs) : {S.line_starts(Th.request(s, evs, view, w)) == S.before(S.end(_, w), S.view_starts(view)) : List<&2, Nat>}
   %Equal.sym(List<&2, Nat>, S.line_starts(List.append(&2, Th.Item, hist, tail)), List.append(&2, Nat, S.line_starts(hist), S.line_starts(tail)), thk.app(hist, tail)) : {_ == S.before(e, S.view_starts(view)) : List<&2, Nat>}
   %Equal.sym(List<&2, Nat>, S.line_starts(tail), Nil{}, thk.turns(List.drop(&2, Th.Msg, lg, e))) : {List.append(&2, Nat, S.line_starts(hist), _) == S.before(e, S.view_starts(view)) : List<&2, Nat>}
   %Equal.sym(List<&2, Nat>, List.append(&2, Nat, S.line_starts(hist), Nil{}), S.line_starts(hist), thk.app_nil(S.line_starts(hist))) : {_ == S.before(e, S.view_starts(view)) : List<&2, Nat>}

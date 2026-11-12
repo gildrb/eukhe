@@ -9,6 +9,7 @@ import ./pick.bend as LAAdmissionPick
 import ./release.bend as LAAdmissionRelease
 import ./room.bend as LAAdmissionRoom
 import ../logic.bend as LALogic
+import ../../../../laws/admission.bend as Admission
 
 def ad.step_ok(s: Ad.St, o: Ad.Op, +h: {LALogic.ad.okS(s) == True{} : Bool}) -> {LALogic.ad.okS(Ad.step(s, o)) == True{} : Bool}:
   match s:
@@ -27,7 +28,7 @@ def ad.step_ok(s: Ad.St, o: Ad.Op, +h: {LALogic.ad.okS(s) == True{} : Bool}) -> 
         case Ad.Limit{+l2, q2}:
           LAAdmissionPick.ad.grant_ok(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, {==}, LAAdmissionLe.ad.le_refl(Ad.waits(ts)), LAAdmissionCalm.ad.calm_of(l, ts, h))
 
-def ad.run_ok(os: List<&2, Ad.Op>, +s: Ad.St, h: {LALogic.ad.okS(s) == True{} : Bool}) -> {LALogic.ad.okS(Ad.run(os, s)) == True{} : Bool}:
+def ad.run_ok(os: List<&2, Ad.Op>, +s: Ad.St, h: {LALogic.ad.okS(s) == True{} : Bool}) -> {LALogic.ad.okS(Admission.adm_run(os, s)) == True{} : Bool}:
   match os:
     case Nil{}:
       h

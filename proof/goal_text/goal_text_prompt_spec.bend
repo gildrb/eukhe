@@ -12,4 +12,4 @@ import ../../laws/goal_text.bend as GoalText
 import ./base.bend as LA
 
 def GoalText.goal_text_prompt_spec(k, g):
-  LA.gtb.prompt(k, g)
+  LA.gtb.prompt_orig(k, g)

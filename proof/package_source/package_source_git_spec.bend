@@ -13,4 +13,4 @@ import ../../laws/package_source/entry.bend as PackageSourceEntry
 import ./base.bend as LA
 
 def PackageSource.package_source_git_spec(s):
-  LA.psb.git(s)
+  LA.psb.git_orig(s)

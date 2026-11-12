@@ -1,4 +1,26 @@
 # eukhe: the laws of area doc_plan
+#
+# LAWS (R1, R2): what a session commit writes and publishes for one staged
+# document (bend/doc_plan.bend, the port of eukhe-durable session/plans.rs
+# `plan_loaded` and `publishes`). Each law is an open claim about
+# Dp.content or Dp.publishes; PROOF.bend proves them (as DocPlan.<law>)
+# with the lemmas of proof/doc_plan/.
+#
+# Requirements (crates/eukhe-durable/src/session/plans.rs doc comments):
+# R1: a loaded incarnation whose stored version is older than its
+#     definition's writes a new base, with or without staged operations;
+#     else it writes a delta when operations are staged, and nothing when
+#     none are.
+# R2: adoption publishes a plan that retires its document, a plan with no
+#     change or a created document's change, and a loaded incarnation's
+#     plan only when it writes content (a migration-only base included).
+# R3: the entry (section below) answers each question with R1-R2, spelled
+#     as crates/eukhe-bend/WIRE.md, and any other input with its two error
+#     forms.
+# Every version, flag and change is free. R1 is stated by the arithmetic
+# of the two versions (the definition's above the stored one by 1 + d, or
+# the stored one at or above the definition's by d: every pair is one of
+# the two), not by the code's comparison.
 
 import Base
 import ../bend/doc_plan.bend as Dp
@@ -6,82 +28,71 @@ import ../bend/ffi_doc_plan.bend as FDp
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
-# LAWS (R1): what a session commit writes and publishes for one staged
-# document (bend/doc_plan.bend, the port of eukhe-durable session/plans.rs
-# `plan_loaded` and `publishes`). Each law is an open claim about
-# Dp.content or Dp.publishes; PROOF.bend proves them (as DocPlan.<law>)
-# with the lemmas of proof/doc_plan/.
-#
-# R1: a loaded incarnation whose stored version is older than its
-#     definition's writes a new base, with or without staged operations;
-#     else it writes a delta when operations are staged, and nothing when
-#     none are.
-# R2: adoption publishes a plan that retires its document, a plan with no
-#     change or a created document's change, and a loaded incarnation's
-#     plan only when it writes content.
-# Every version, flag and change is free.
-
 # Terms
 # -----
 
-def content_spec.same(ops: Bool) -> Dp.Content:
-  match ops:
-    case True{}:
-      Dp.NewDelta{}
-    case False{}:
-      Dp.Kept{}
-
-def content_spec.pick(older: Bool, ops: Bool) -> Dp.Content:
-  match older:
-    case True{}:
-      Dp.NewBase{}
-    case False{}:
-      content_spec.same(ops)
-
-# R1: a base when storage holds an older version, else a delta only for
-# staged operations
-def content_spec(+stored: Nat, +version: Nat, ops: Bool) -> Dp.Content:
-  content_spec.pick(Nat.is_lt(stored, version), ops)
-
-# the change is a loaded incarnation's
-def loaded_spec(c: Dp.Change) -> Bool:
+# R2: the plan writes content: Rust passes `content.is_some()` (plans.rs
+# `publishes`), and only Kept stores nothing (plans.rs `plan_loaded`)
+def writes(c: Dp.Content) -> Bool:
   match c:
-    case Dp.NoChange{}:
+    case Dp.Kept{}:
       False{}
-    case Dp.Fresh{}:
-      False{}
-    case Dp.OfLoaded{}:
+    case Dp.NewBase{}:
       True{}
-
-# R2: retired, not a loaded incarnation's, or writing content
-def publishes_spec(retire: Bool, c: Dp.Change, writes: Bool) -> Bool:
-  Bool.or(retire, Bool.or(Bool.not(loaded_spec(c)), writes))
+    case Dp.NewDelta{}:
+      True{}
 
 # Laws
 # ----
 
-# LAW doc_plan_content_exact: a loaded incarnation writes a new base when storage holds an older version than its definition's, else a delta when operations are staged, else nothing
-# EXCLUDES: a migration without operations that writes nothing, a delta
-#   written over an older stored shape, an empty delta, a base rewritten at
-#   the same version, `<=` for `<`
-law doc_plan_content_exact:
+# LAW doc_plan_base_when_older (R1): a loaded incarnation whose definition's version is above the stored one by any amount (version = stored + 1 + d) writes a new base, with or without staged operations
+# EXCLUDES: a migration without operations that writes nothing or a delta;
+#   a delta written over an older stored shape; a base only for a version
+#   one above
+law doc_plan_base_when_older:
   for +stored: Nat
-  for +version: Nat
+  for +d: Nat
   for ops: Bool
-  {Dp.content(stored, version, ops) == content_spec(stored, version, ops) : Dp.Content}
+  {Dp.content(stored, Nat.add(stored, 1n+d), ops) == Dp.NewBase{} : Dp.Content}
 
-# LAW doc_plan_publishes_exact: adoption publishes a plan exactly when it retires its document, has no loaded incarnation's change, or writes content
+# LAW doc_plan_delta_when_not_older (R1): a loaded incarnation stored at its definition's version or any later one (stored = version + d) with staged operations writes a delta
+# EXCLUDES: a base rewritten at the same version (`<=` for `<`) or over a
+#   newer stored version; staged operations dropped
+law doc_plan_delta_when_not_older:
+  for +version: Nat
+  for +d: Nat
+  {Dp.content(Nat.add(version, d), version, True{}) == Dp.NewDelta{} : Dp.Content}
+
+# LAW doc_plan_kept_when_not_older (R1): a loaded incarnation stored at its definition's version or any later one (stored = version + d) with no staged operations writes nothing
+# EXCLUDES: an empty delta; a base rewritten at the same version or over a
+#   newer stored version
+law doc_plan_kept_when_not_older:
+  for +version: Nat
+  for +d: Nat
+  {Dp.content(Nat.add(version, d), version, False{}) == Dp.Kept{} : Dp.Content}
+
+# LAW doc_plan_unpublished_only_quiet_loaded (R2): a plan adoption leaves unpublished is a loaded incarnation's plan that neither retires its document nor writes content
 # EXCLUDES: a creation, copy or retirement left unpublished; a loaded
-#   incarnation published without a write (a spurious notification) or
-#   left unpublished after a migration-only base
-law doc_plan_publishes_exact:
-  for retire: Bool
-  for c: Dp.Change
-  for writes: Bool
-  {Dp.publishes(retire, c, writes) == publishes_spec(retire, c, writes) : Bool}
+#   incarnation's written content left unpublished
+law doc_plan_unpublished_only_quiet_loaded:
+  for +retire: Bool
+  for +c: Dp.Change
+  for +w: Bool
+  for no: {Dp.publishes(retire, c, w) == False{} : Bool}
+  {retire == False{} : Bool} & {c == Dp.OfLoaded{} : Dp.Change} & {w == False{} : Bool}
+
+# LAW doc_plan_loaded_publishes_its_write (R1, R2): a loaded incarnation's plan that does not retire its document, without staged operations, is not published when stored at its definition's version or a later one (it writes nothing), and is published when its definition is newer (the migration-only base)
+# EXCLUDES: a spurious notification for a plan that writes nothing; a
+#   migration-only base left unpublished (observers keep the older shape)
+law doc_plan_loaded_publishes_its_write:
+  for +version: Nat
+  for +d: Nat
+  for +stored: Nat
+  for +e: Nat
+  {Dp.publishes(False{}, Dp.OfLoaded{}, writes(Dp.content(Nat.add(version, d), version, False{}))) == False{} : Bool} & {Dp.publishes(False{}, Dp.OfLoaded{}, writes(Dp.content(stored, Nat.add(stored, 1n+e), False{}))) == True{} : Bool}
 
 # LAW doc_plan_example: anchor: a migration without operations writes a base, a same-version change a delta, a quiet incarnation nothing and is not published; a creation is published
-# EXCLUDES: a spec that is wrong on the session's cases
+# EXCLUDES: a model that is wrong on the session's cases
 law doc_plan_example:
   {Dp.content(1n, 2n, False{}) == Dp.NewBase{} : Dp.Content} &
   {Dp.content(2n, 2n, True{}) == Dp.NewDelta{} : Dp.Content} &
@@ -135,13 +146,14 @@ def spell_content(c: Dp.Content) -> String:
     case Dp.NewDelta{}:
       Wr.put_nat(2n, "")
 
-# the answer R1-R3 give a question
+# the answer R3 gives a question: the model's choice (Dp.content,
+# Dp.publishes, pinned by the R1-R2 laws above), spelled
 def answer_spec(q: FDp.Req) -> String:
   match q:
     case FDp.QContent{s, v, o}:
-      spell_content(content_spec(s, v, o))
+      spell_content(Dp.content(s, v, o))
     case FDp.QPublishes{re, c, w}:
-      Wr.put_bool(publishes_spec(re, c, w), "")
+      Wr.put_bool(Dp.publishes(re, c, w), "")
 
 # every number of the question fits the wire
 def req_fits(q: FDp.Req) -> Bool:
@@ -170,7 +182,7 @@ def spell_left_over(w: LeftOver) -> String:
 # Laws
 # ----
 
-# LAW doc_plan_ffi_answers: a spelled question whose versions fit the wire answers the spelled answer of R1-R2
+# LAW doc_plan_ffi_answers (R3): a spelled question whose versions fit the wire answers the model's content or publish choice (pinned by the R1-R2 laws), spelled as R3
 # EXCLUDES: the two versions swapped, a flag misread, a change of another
 #   tag, the two questions swapped, an answer in another spelling
 law doc_plan_ffi_answers:

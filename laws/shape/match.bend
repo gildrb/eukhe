@@ -76,6 +76,16 @@ import ../../bend/shape.bend as S
 #     part is a split of its pieces, reading nothing; a negative Ahead
 #     holds where its pieces have no reading. The readings of a place are
 #     exactly the places its splits reach.
+#
+# Coverage: R4-R6 shape_split_sound and shape_split_complete pin the
+# readings of the enumeration sp_readings to the splits of R6 (both sides
+# laws-side); laws/shape/search.bend shape_first_of and shape_all prove the
+# shipped matcher answers, at every place, the first of those readings
+# whose end condition holds (R5), so R1-R6 reach the code through them.
+# The class, word-char and case helpers below (sp_cls, sp_word, sp_ch_eq,
+# sp_ws) state R1 and R2 with the same tests the code's is_in, is_word and
+# low use: a bug in those tests that the enumeration shares is not caught
+# here (open: no independent class law for the shape matcher).
 
 # Spec helpers
 # ------------
@@ -690,22 +700,6 @@ def sp_split(ws: List<&2, Part>, ps: List<&2, S.Piece>, +base: Nat, +m: Maybe<&2
 # Laws
 # ----
 
-# LAW shape_first_reading (R1-R5): at every place, for every fuel, list of
-# pieces and end condition, the matcher answers the first reading of the
-# priority-ordered list of every reading whose end condition holds
-# EXCLUDES: a run that is not longest first or gives back too much, an
-#   option skipped before it is tried, options in another order, fewer
-#   rounds tried before more, a reading whose end condition fails taken,
-#   a capture numbered or taken another way, a char of another class
-#   taken, a case fold where none is asked, a word boundary of another
-#   kind
-law shape_first_reading:
-  for +f: Nat
-  for +ps: List<&2, S.Piece>
-  for +ends: Bool
-  for +s: S.St
-  {S.at(f, ps, ends, s) == sp_answer(f, ps, ends, s) : Maybe<&2, S.St>}
-
 # LAW shape_split_sound (R4, R6): every reading of a place is a split: the
 # text from the place splits into one part per piece, each part of its
 # piece, and the split reaches the reading
@@ -733,3 +727,19 @@ law shape_split_complete:
   for +r: S.St
   for h: {sp_split(ws, ps, 0n, Some{s}) == Some{r} : Maybe<&2, S.St>}
   sp_reached(r, ps, s)
+
+# LAW shape_first_reading (R1-R5): at every place, for every fuel, list of
+# pieces and end condition, the matcher answers the first reading of the
+# priority-ordered list of every reading whose end condition holds
+# EXCLUDES: a run that is not longest first or gives back too much, an
+#   option skipped before it is tried, options in another order, fewer
+#   rounds tried before more, a reading whose end condition fails taken,
+#   a capture numbered or taken another way, a char of another class
+#   taken, a case fold where none is asked, a word boundary of another
+#   kind
+law shape_first_reading:
+  for +f: Nat
+  for +ps: List<&2, S.Piece>
+  for +ends: Bool
+  for +s: S.St
+  {S.at(f, ps, ends, s) == sp_answer(f, ps, ends, s) : Maybe<&2, S.St>}

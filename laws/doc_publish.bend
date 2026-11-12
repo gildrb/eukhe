@@ -29,8 +29,10 @@ import ./base.bend as LawsBase
 # R3: a target that holds other bytes is rebased onto, while rebases are
 #     left (S2); once they ran out it is refused (S3).
 # R4: a target that is gone is refused (S3).
-# R5: the code's step is the spec's for every number of rebases and every
-#     re-read (S1-S3).
+# R5: the code's step is the one S1-S3 state, for every number of rebases
+#     and every re-read: the run laws (R1-R4) pin each step a run takes,
+#     and the entry's answer (R6, doc_publish_entry_is_spec) pins every
+#     step on the wire.
 # R6: the entry answers each request Rust writes with the spec's step,
 #     reads exactly the request and nothing after it, and answers any other
 #     input with the exact error form `E doc_publish: malformed request`.
@@ -182,14 +184,6 @@ law doc_publish_refuses_gone:
   for r: Maybe<&2, Nat>
   for ls: List<&2, S.Reread>
   {sp_run(S.Reread{None{}, r} <> ls, n, Going{b, c}) == S.Refused{} : S.Run}
-
-# LAW doc_publish_refines_spec (R5): the code's step is the spec's after
-# every number of rebases, for every re-read
-# EXCLUDES: a step that drifts from the spec on any input
-law doc_publish_refines_spec:
-  for +n: Nat
-  for +s: Dp.Seen
-  {Dp.step(n, s) == S.step(n, s) : Dp.Step}
 
 # Laws: the entry (R6)
 # --------------------

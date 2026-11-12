@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW rebase_conflict_no_write
 #
-# PROOF: the rule is the spec's (rebase_refines). Invalid edits are a
+# PROOF: the rule is the spec's (rr.refines). Invalid edits are a
 # conflict; else the head differs, and the edit e fails at its first
 # context, its window having no copy in the head (rc.win, rc.land); a
 # failure anywhere in the list makes the whole list a conflict (rc.all,
@@ -11,7 +11,7 @@ import ../../bend/rebase.bend as R
 import ../../spec/harness/rebase.bend as RbSpec
 import ../../laws/rebase.bend as Rebase
 import ./base.bend as LR
-import ./rebase_refines.bend as PRebaseRefines
+import ./base/refines.bend as LRR
 
 def rc.win(w: R.Win, +b: List<&2, Nat>, +h: List<&2, Nat>, ls: List<&2, Nat>, +i: Nat, -next: Unit -> R.Land, gone: {RbSpec.copies(h, RbSpec.lines(w)) == Nil{} : List<&2, Nat>}) -> {RbSpec.step.win(w, b, h, ls, i, next) == R.Fails{R.Moved{i}} : R.Land}:
   match w:
@@ -64,5 +64,5 @@ def rc.of(c: Maybe<&2, Nat>, +b: List<&2, Nat>, +h: List<&2, Nat>, +l: List<&2, 
 
 def Rebase.rebase_conflict_no_write(b, h, xs, e, ys, stale, gone):
   +l = List.append(&2, R.Edit, xs, e <> ys)
-  %Equal.sym(R.Outcome, R.rebase(b, h, l), RbSpec.rebase(b, h, l), Rebase.rebase_refines(b, h, l)) : {RbSpec.is_conflict(_) == True{} : Bool}
+  %Equal.sym(R.Outcome, R.rebase(b, h, l), RbSpec.rebase(b, h, l), LRR.rr.refines(b, h, l)) : {RbSpec.is_conflict(_) == True{} : Bool}
   rc.of(RbSpec.bad(l, List.length(&2, Nat, b)), b, h, l, stale, rc.all(xs, e, ys, b, h, 0n, gone))

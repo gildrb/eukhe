@@ -337,8 +337,8 @@ pub(crate) struct Last {
 
 /// The prior check the goal's progress check compares with (`compared` in
 /// `bend/progress.bend`, the call of the compiled core's `work` entry;
-/// `laws/work.bend` `prior_entry_*`, `laws/progress.bend`
-/// `goal_compared_check`): the last check, when it was of the same run and
+/// `laws/work.bend` `prior_entry_answers`; `laws/progress.bend`
+/// `goal_entry_first_check`): the last check, when it was of the same run and
 /// the same goal; else none, and the check starts the count.
 pub(crate) fn compared(last: Option<Last>) -> Option<Prior> {
     eukhe_bend::expect_core(Entry::Work, compared_call(last))

@@ -322,7 +322,7 @@ async fn a_report_the_parent_read_never_wakes_it() {
 }
 
 /// The compiled core's report rule ends a report the parent read, under
-/// any id (`ChildMove`, law `child_report_move`).
+/// any id (`ChildMove`, law `child_ffi_answers`).
 #[test]
 fn a_read_report_ends_the_report_phase() {
     assert_eq!(

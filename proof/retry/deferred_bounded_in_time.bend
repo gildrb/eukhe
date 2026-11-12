@@ -1,68 +1,48 @@
 # eukhe: the proof of LAW deferred_bounded_in_time
+# With no ms left (0 as the job's left, or as a new job's budget) the
+# deadline test of a deferred reply cancels, and the repoll test of a
+# failed poll fails (its time-left conjunct is false): by cases on the job
+# and the reply.
 
 import Base
 import ../../bend/retry.bend as R
-import ../../laws/retry.bend as Retry
-import ../base/logic/bool.bend as LLogicBool
+import ../../laws/retry/deferred.bend as RetryDeferred
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
-def rp.late_off(a: R.Act, +left: Nat) -> {R.tally.late(a, left, False{}) == 0n : Nat}:
-  match a:
-    case R.Send{}:
-      {==}
-    case R.Poll{}:
-      {==}
-    case R.Cancel{}:
-      {==}
-    case R.Settle{}:
-      {==}
-    case R.Quit{}:
+# a failed poll whose repoll test fails is no poll
+def pb.failed(again: Bool, +failed: Nat, +left: Nat, +gap: Nat, e: {again == False{} : Bool}) -> {RetryDeferred.rs.polled(RetryDeferred.rs.step.act(R.live.failed(again, failed, left, gap))) == False{} : Bool}:
+  match again:
+    case True{}:
+      LLogicLogic.rp.absurdT({RetryDeferred.rs.polled(RetryDeferred.rs.step.act(R.live.failed(True{}, failed, left, gap))) == False{} : Bool}, e)
+    case False{}:
       {==}
 
-def rp.pending_late(over: Bool, left: Nat, +gap: Nat, e: {Nat.is_eq(left, 0n) == over : Bool}) -> {R.tally.late(R.Step.act(R.live.pending(over, left, gap)), left, True{}) == 0n : Nat}:
-  match over left:
-    case True{} l:
-      {==}
-    case False{} 0n:
-      LLogicLogic.rp.absurdT({R.late.at(0n) == 0n : Nat}, e)
-    case False{} 1n+k:
-      {==}
-
-def rp.failed_late(again: Bool, r: Bool, +failed: Nat, +fails: Nat, left: Nat, +gap: Nat, e: {Bool.and(r, Bool.and(Nat.is_lt(failed, fails), Nat.is_gt(left, 0n))) == again : Bool}) -> {R.tally.late(R.Step.act(R.live.failed(again, failed, left, gap)), left, True{}) == 0n : Nat}:
-  match again left:
-    case False{} l:
-      {==}
-    case True{} 0n:
-      LLogicLogic.rp.absurdF({R.late.at(0n) == 0n : Nat}, LLogicBool.rp.and_r(Nat.is_lt(failed, fails), False{}, LLogicBool.rp.and_r(r, Bool.and(Nat.is_lt(failed, fails), False{}), e)))
-    case True{} 1n+k:
-      {==}
-
-# a step never polls a live job with 0 ms left
-def rp.step_late(+fails: Nat, +budget: Nat, job: R.Job, g: R.Got) -> {R.tally.late(R.Step.act(R.step(fails, budget, job, g)), R.Job.left(job), R.Job.live(job)) == 0n : Nat}:
+def bounded(+fails: Nat, +budget: Nat, job: R.Job, g: R.Got, none: {RetryDeferred.rs.time(budget, job) == 0n : Nat}) -> {RetryDeferred.rs.polled(RetryDeferred.rs.step.act(R.step(fails, budget, job, g))) == False{} : Bool}:
   match job:
     case R.NoJob{}:
-      rp.late_off(R.Step.act(R.step(fails, budget, R.NoJob{}, g)), 0n)
+      match g:
+        case R.Answer{}:
+          {==}
+        case R.Later{+gap}:
+          %Equal.sym(Nat, budget, 0n, none) : {RetryDeferred.rs.polled(RetryDeferred.rs.step.act(R.live.pending(Nat.is_eq(_, 0n), _, gap))) == False{} : Bool}
+          {==}
+        case R.Broke{r, gap}:
+          match r:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
     case R.Live{+failed, +left}:
       match g:
         case R.Answer{}:
           {==}
         case R.Later{+gap}:
-          rp.pending_late(Nat.is_eq(left, 0n), left, gap, {==})
+          %Equal.sym(Nat, left, 0n, none) : {RetryDeferred.rs.polled(RetryDeferred.rs.step.act(R.live.pending(Nat.is_eq(_, 0n), _, gap))) == False{} : Bool}
+          {==}
         case R.Broke{+r, +gap}:
-          rp.failed_late(Bool.and(r, Bool.and(Nat.is_lt(failed, fails), Nat.is_gt(left, 0n))), r, failed, fails, left, gap, {==})
+          %Equal.sym(Nat, left, 0n, none) : {RetryDeferred.rs.polled(RetryDeferred.rs.step.act(R.live.failed(Bool.and(r, Bool.and(Nat.is_lt(failed, fails), Nat.is_gt(_, 0n))), failed, _, gap))) == False{} : Bool}
+          pb.failed(Bool.and(r, Bool.and(Nat.is_lt(failed, fails), Nat.is_gt(0n, 0n))), failed, 0n, gap, LA.rx.and_f(r, Bool.and(Nat.is_lt(failed, fails), Nat.is_gt(0n, 0n)), LA.rx.and_f(Nat.is_lt(failed, fails), Nat.is_gt(0n, 0n), {==})))
 
-def rp.late_go(gots: List<&2, R.Got>, +fails: Nat, +budget: Nat, +job: R.Job, +s: Nat, +l: Nat) -> {R.Tally.late(R.run.go(gots, fails, budget, job, R.Tally{s, l})) == l : Nat}:
-  match gots:
-    case Nil{}:
-      {==}
-    case +g <> +rest:
-      +x = R.tally.send(R.Step.act(R.step(fails, budget, job, g)), R.Job.live(job))
-      +y = R.tally.late(R.Step.act(R.step(fails, budget, job, g)), R.Job.left(job), R.Job.live(job))
-      Equal.trans(Nat, R.Tally.late(R.run.go(rest, fails, budget, R.Step.job(R.step(fails, budget, job, g)), R.Tally{Nat.add(s, x), Nat.add(l, y)})), Nat.add(l, y), l, rp.late_go(rest, fails, budget, R.Step.job(R.step(fails, budget, job, g)), Nat.add(s, x), Nat.add(l, y)), LA.rp.add_none(l, y, rp.step_late(fails, budget, job, g)))
-
-def bounded_in_time(+fails: Nat, +budget: Nat, gots: List<&2, R.Got>) -> {R.Tally.late(R.run(fails, budget, gots)) == 0n : Nat}:
-  rp.late_go(gots, fails, budget, R.NoJob{}, 0n, 0n)
-
-def Retry.deferred_bounded_in_time(fails, budget, gots):
-  bounded_in_time(fails, budget, gots)
+def RetryDeferred.deferred_bounded_in_time(fails, budget, job, g, none):
+  bounded(fails, budget, job, g, none)

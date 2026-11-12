@@ -1,6 +1,6 @@
 # eukhe: lemmas shared by the proofs of area aws_text: R1 the shape of a
-# region and the partition (awb.shape*, awb.w_*, awb.part_go), R2 the
-# request-id header (awb.rid_*). The prefix strip and the logic come from
+# region (awb.w_*, awb.shape_app, awb.ss_*), R2 the request-id header
+# (awb.rid_*). The prefix strip and the logic come from
 # proof/model_name/base.bend.
 
 import Base
@@ -13,9 +13,8 @@ import ../../laws/phrase.bend as Phrase
 import ../../laws/aws_text.bend as AwsText
 import ../wire/wire_bool_exact.bend as PWireBoolExact
 import ../model_name/base.bend as LA
-import ../model_name/base/decide.bend as LD
 
-# R1: the code's shape is the spec's
+# R1: the digits of a region's number
 # ----------------------------------
 
 def awb.n_true(s: String) -> {A.shape.n(s, True{}) == ModelName.sp_digits(s) : Bool}:
@@ -35,89 +34,6 @@ def awb.n_false(s: String) -> {A.shape.n(s, False{}) == AwsText.sp_digs(s) : Boo
       match x:
         case Chr{+xc}:
           LA.mnb.and2(Tp.is_dig(Chr{xc}), A.shape.n(t, True{}), ModelName.sp_digits(t), awb.n_true(t))
-
-def awb.ite4(g: Bool, +b: Bool, +c: Bool, +d: Bool, +e: Bool, eb: {b == d : Bool}, ec: {c == e : Bool}) -> {M.ite(g, u => b, v => c) == Bool.or(Bool.and(g, d), Bool.and(Bool.not(g), e)) : Bool}:
-  match g:
-    case True{}:
-      Equal.trans(Bool, b, d, Bool.or(d, False{}), eb, Equal.sym(Bool, Bool.or(d, False{}), d, LA.mnb.or_false(d)))
-    case False{}:
-      ec
-
-def awb.n_seen(seen: Bool, +e: Bool, +t: String) -> {P.pm.and(seen, w => P.pm.and(e, z => A.shape.n(t, False{}))) == Bool.and(Bool.and(seen, e), AwsText.sp_digs(t)) : Bool}:
-  match seen:
-    case True{}:
-      LA.mnb.and2(e, A.shape.n(t, False{}), AwsText.sp_digs(t), awb.n_false(t))
-    case False{}:
-      {==}
-
-def awb.w_eq(s: String, +seen: Bool) -> {A.shape.w(s, seen) == AwsText.sp_wn(s, seen) : Bool}:
-  match s:
-    case SNil{}:
-      {==}
-    case SCon{x, +t}:
-      match x:
-        case Chr{+xc}:
-          +e = U32.is_eq(xc, 45)
-          awb.ite4(P.is_word(Chr{xc}), A.shape.w(t, True{}), P.pm.and(seen, w => P.pm.and(e, z => A.shape.n(t, False{}))), AwsText.sp_wn(t, True{}), Bool.and(Bool.and(seen, e), AwsText.sp_digs(t)), awb.w_eq(t, True{}), awb.n_seen(seen, e, t))
-
-def awb.dash_go(b: Bool, +t: String) -> {A.shape.on(M.strip.go(b, u => Some{t})) == Bool.and(b, AwsText.sp_wn(t, False{})) : Bool}:
-  match b:
-    case True{}:
-      awb.w_eq(t, False{})
-    case False{}:
-      {==}
-
-def awb.shape_go(b: Bool, -pt: String, -rt: String, ih: {A.shape.on(M.strip(String.append(pt, "-"), rt)) == AwsText.sp_shape(pt, rt) : Bool}) -> {A.shape.on(M.strip.go(b, u => M.strip(String.append(pt, "-"), rt))) == Bool.and(b, AwsText.sp_shape(pt, rt)) : Bool}:
-  match b:
-    case True{}:
-      ih
-    case False{}:
-      {==}
-
-# the code's shape test is the spec's
-def awb.shape(p: String, +r: String) -> {A.shape(p, r) == AwsText.sp_shape(p, r) : Bool}:
-  match p:
-    case SNil{}:
-      match r:
-        case SNil{}:
-          {==}
-        case SCon{x, +t}:
-          match x:
-            case Chr{+xc}:
-              awb.dash_go(U32.is_eq(45, xc), t)
-    case SCon{c, +pt}:
-      match c:
-        case Chr{+cc}:
-          match r:
-            case SNil{}:
-              {==}
-            case SCon{x, +rt}:
-              match x:
-                case Chr{+xc}:
-                  awb.shape_go(U32.is_eq(cc, xc), pt, rt, awb.shape(pt, rt))
-
-def awb.shapes(ps: List<&2, String>, +r: String) -> {A.shapes(ps, r) == AwsText.sp_shapes(ps, r) : Bool}:
-  match ps:
-    case Nil{}:
-      {==}
-    case +p <> +more:
-      LA.mnb.or2(A.shape(p, r), A.shapes(more, r), AwsText.sp_shape(p, r), AwsText.sp_shapes(more, r), awb.shape(p, r), awb.shapes(more, r))
-
-def awb.pick(b: Bool, +i: Nat, -m: Maybe<&2, Nat>, -n: Maybe<&2, Nat>, e: {m == n : Maybe<&2, Nat>}) -> {A.pick(b, i, u => m) == AwsText.sp_pick(b, i, n) : Maybe<&2, Nat>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      e
-
-# the code's walk over the table is the spec's
-def awb.part_go(tab: List<&2, List<&2, String>>, +r: String, +i: Nat) -> {A.partition.go(tab, r, i) == AwsText.sp_partition.go(tab, r, i) : Maybe<&2, Nat>}:
-  match tab:
-    case Nil{}:
-      {==}
-    case +ps <> more:
-      %Equal.sym(Bool, A.shapes(ps, r), AwsText.sp_shapes(ps, r), awb.shapes(ps, r)) : {A.pick(_, i, u => A.partition.go(more, r, 1n+i)) == AwsText.sp_pick(AwsText.sp_shapes(ps, r), i, AwsText.sp_partition.go(more, r, 1n+i)) : Maybe<&2, Nat>}
-      awb.pick(AwsText.sp_shapes(ps, r), i, A.partition.go(more, r, 1n+i), AwsText.sp_partition.go(more, r, 1n+i), awb.part_go(more, r, 1n+i))
 
 # R1: the shape, sound
 # --------------------
@@ -230,64 +146,6 @@ def awb.shape_app(+p: String, w: String, +n: String, hw: {AwsText.sp_words(w) ==
       %LA.mnb.app_assoc(p, "-", y) : {A.shape.on(M.strip(String.append(p, "-"), _)) == True{} : Bool}
       %Equal.sym(Maybe<&2, String>, M.strip(String.append(p, "-"), String.append(String.append(p, "-"), y)), Some{y}, LA.mnb.strip_app(String.append(p, "-"), y)) : {A.shape.on(_) == True{} : Bool}
       awb.w_app(SCon{x, t}, n, False{}, hw, {==}, hn)
-
-# R2: the code's request-id test is the spec's
-# --------------------------------------------
-
-def awb.tail_eq(+s: String) -> {A.rid.tail(s) == Bool.or(ModelName.sp_same("-request-id", s), ModelName.sp_same("-requestid", s)) : Bool}:
-  LA.mnb.or2(M.got_all(M.strip("-request-id", s)), M.got_all(M.strip("-requestid", s)), ModelName.sp_same("-request-id", s), ModelName.sp_same("-requestid", s), LD.mnd.got_same("-request-id", s), LD.mnd.got_same("-requestid", s))
-
-def awb.rid_go(s: String, +seen: Bool) -> {A.rid.go(s, seen) == AwsText.sp_rid_m(s, seen) : Bool}:
-  match s:
-    case SNil{}:
-      {==}
-    case SCon{x, +t}:
-      match x:
-        case Chr{+xc}:
-          +u = {SCon{Chr{xc}, t} : String}
-          LA.mnb.or2(P.pm.and(seen, v => A.rid.tail(u)), P.pm.and(A.is_wd(Chr{xc}), w => A.rid.go(t, True{})), Bool.and(seen, Bool.or(ModelName.sp_same("-request-id", u), ModelName.sp_same("-requestid", u))), Bool.and(AwsText.sp_wd(Chr{xc}), AwsText.sp_rid_m(t, True{})), LA.mnb.and2(seen, A.rid.tail(u), Bool.or(ModelName.sp_same("-request-id", u), ModelName.sp_same("-requestid", u)), awb.tail_eq(u)), LA.mnb.and2(A.is_wd(Chr{xc}), A.rid.go(t, True{}), AwsText.sp_rid_m(t, True{}), awb.rid_go(t, True{})))
-
-def awb.rid_one(e1: Bool) -> {A.rid.on(M.strip.go(e1, u => None{})) == False{} : Bool}:
-  match e1:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def awb.rid_two(e1: Bool, e2: Bool, +r: String) -> {A.rid.on(M.strip.go(e1, u => M.strip.go(e2, v => Some{r}))) == Bool.and(Bool.and(e1, e2), AwsText.sp_rid_m(r, False{})) : Bool}:
-  match e1:
-    case True{}:
-      match e2:
-        case True{}:
-          awb.rid_go(r, False{})
-        case False{}:
-          {==}
-    case False{}:
-      {==}
-
-# the code's test of one name is the spec's
-def awb.is_rid(name: String) -> {A.is_rid(name) == AwsText.sp_rid(name) : Bool}:
-  match name:
-    case SNil{}:
-      {==}
-    case SCon{a, t}:
-      match a:
-        case Chr{+ac}:
-          match t:
-            case SNil{}:
-              awb.rid_one(U32.is_eq(120, ac))
-            case SCon{b, +r}:
-              match b:
-                case Chr{+bc}:
-                  awb.rid_two(U32.is_eq(120, ac), U32.is_eq(45, bc), r)
-
-def awb.rid_index(names: List<&2, String>, +i: Nat) -> {A.rid.index(names, i) == AwsText.sp_rid_index(names, i) : Maybe<&2, Nat>}:
-  match names:
-    case Nil{}:
-      {==}
-    case +n <> more:
-      %Equal.sym(Bool, A.is_rid(n), AwsText.sp_rid(n), awb.is_rid(n)) : {A.pick(_, i, u => A.rid.index(more, 1n+i)) == AwsText.sp_pick(AwsText.sp_rid(n), i, AwsText.sp_rid_index(more, 1n+i)) : Maybe<&2, Nat>}
-      awb.pick(AwsText.sp_rid(n), i, A.rid.index(more, 1n+i), AwsText.sp_rid_index(more, 1n+i), awb.rid_index(more, 1n+i))
 
 # R2: the request-id header, complete
 # -----------------------------------

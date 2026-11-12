@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW arg_repair_unknown_exact
 #
 # PROOF: the first argument's key (not decoded) has no refusal, no alias
-# and no declaration (arg_repair_spec's lookups), so a closed schema's
+# and no declaration (base/look.bend's lookups), so a closed schema's
 # step refuses it as unknown with the declared names (ux.step), and a
 # refused first step refuses the call.
 
@@ -9,7 +9,7 @@ import Base
 import ../../bend/arg_repair.bend as Ar
 import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
-import ./arg_repair_spec.bend as PSpec
+import ./base/look.bend as PSpec
 import ./arg_repair_refused_exact.bend as PRefusedExact
 
 def ux.alias(ha: Maybe<&2, String>, hp: Maybe<&2, Ar.Prop>, +ps: List<&2, Ar.Prop>, -als: List<&2, Ar.KV>, -rs: List<&2, Ar.KV>, -ss: List<&2, Ar.Seen>, -k: String, -v: Ar.Val, ea: {ha == None{} : Maybe<&2, String>}, ep: {hp == None{} : Maybe<&2, Ar.Prop>}) -> {Ar.step.named(Ar.named.alias(ha, Ar.found(hp), True{}, k, ps, als, rs), ps, ss, Nil{}, k, v) == Ar.StepNo{Ar.Unknown{k, ArgSpec.declared_names(ps)}} : Ar.Step}:

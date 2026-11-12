@@ -4,9 +4,11 @@
 //! The time check of a job (its deadline) is [`after_reply`]'s.
 //!
 //! The Bend model is `bend/retry.bend` (§4 the deferred job, §5 the
-//! stall). `laws/retry.bend` states its laws (`deferred_pays_once`,
-//! `deferred_bounded_in_time`, `deferred_failed_poll_repolls`,
-//! `stall_retry_extends`) and `PROOF.bend` proves them. A failed poll runs
+//! stall). `laws/retry/deferred.bend` states the job's laws
+//! (`deferred_pays_once`, `deferred_bounded_in_time`,
+//! `deferred_failed_poll_repolls`, `deferred_failed_poll_cancels`, ...),
+//! `laws/retry.bend` the stall's (`stall_retry_extends`,
+//! `stall_retry_doubles`), and `PROOF.bend` proves them. A failed poll runs
 //! as `decide.poll` of `bend/run/decision.bend` in the compiled core; with the time
 //! check of [`after_reply`] it is the job of §4 (laws
 //! `run_failed_poll_is_the_job_model`, `run_deferred_reply_is_the_job_model`,

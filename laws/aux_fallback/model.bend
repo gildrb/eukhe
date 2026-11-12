@@ -1,5 +1,5 @@
-# eukhe: the laws of area aux_fallback, section model: the reported substitution (M5), and the decision and a pass's
-# events of bend/aux_fallback.bend, whole
+# eukhe: the laws of area aux_fallback, section model: the reported substitution (M5): the decision
+# of a pass and the events of a session of bend/aux_fallback.bend
 
 import Base
 import ../../bend/aux_fallback.bend as Af
@@ -11,6 +11,32 @@ import ../../bend/aux_fallback.bend as Af
 # session's notices (`run`): a pass with a set selector that differs from
 # the session model and cannot be used runs on the session model, and the
 # user sees a notice row, once per purpose, selector and reason.
+#
+# Requirements (the header of bend/aux_fallback.bend; Rust
+# crates/eukhe-core/src/durable/compaction/auxiliary_model.rs
+# `decide_auxiliary_route`, `AuxiliaryNotices`; reason numbers: Rust
+# `reason_nat`):
+# M5.1: a pass's route, checked in order: an unset selector, or one that
+#   names the session model, keeps the session model; a selector
+#   allowedModels does not admit falls back (reason 0); a lookup that finds
+#   nothing usable falls back with its reason; a found model whose known
+#   window (not 0) is smaller than the request falls back (reason 5); else
+#   the pass runs on the selector's model. A fallback's key is the purpose,
+#   the selector and the reason.
+# M5.2: the lookups run only when the gate asks for them: a route the gate
+#   decided reads nothing they found.
+# M5.3: a session runs passes in order; a pass shows one event of its
+#   route: a stay on the session model, a run on the selector's model, or
+#   the substitution of the session model, with its key.
+# M5.4: the first substitution of each key in a session is followed by a
+#   notice of that key; a key the session has noticed stays quiet; there is
+#   no notice without a substitution.
+# A1 (inferred): a pass's events do not depend on the passes after it.
+# A2 (scope): Rust runs Af.gate and Af.settle (through the entry
+#   bend/ffi_aux_fallback.bend); its notices (AuxiliaryNotices::take) keep
+#   their own set of shown keys with the M5.4 rule and do not run Af.put,
+#   Af.after, Af.go or Af.run. The laws on those pin the model of the
+#   notices, not the code Rust runs.
 
 # LAW fallback_is_reported: every substitution of the session model for a set auxiliary
 # selector has a notice
@@ -27,7 +53,9 @@ law fallback_quiet_when_routed:
   for h: {Af.listed(Af.notes(Af.run(ps)), k) == True{} : Bool}
   {Af.listed(Af.subs(Af.run(ps)), k) == True{} : Bool}
 
-# LAW fallback_quiet_when_unset: an unset selector runs on the session model with no notice
+# LAW fallback_quiet_when_unset: an unset selector runs on the session model, whatever
+# allowedModels answers, the lookups found and the request's size (M5.1);
+# such a pass shows one stay and no notice by fallback_session_history
 law fallback_quiet_when_unset:
   for p: Nat
   for ok: Bool
@@ -35,7 +63,9 @@ law fallback_quiet_when_unset:
   for need: Nat
   {Af.decide(Af.Pass{p, Af.Unset{}, ok, look, need}) == Af.Session{} : Af.Route}
 
-# LAW fallback_quiet_when_same: a selector that names the session model runs on it with no notice
+# LAW fallback_quiet_when_same: a selector that names the session model runs on it, whatever
+# allowedModels answers, the lookups found and the request's size (M5.1);
+# such a pass shows one stay and no notice by fallback_session_history
 law fallback_quiet_when_same:
   for p: Nat
   for ok: Bool
@@ -43,20 +73,46 @@ law fallback_quiet_when_same:
   for need: Nat
   {Af.decide(Af.Pass{p, Af.Same{}, ok, look, need}) == Af.Session{} : Af.Route}
 
-# The Rust resolver asks the gate (Af.gate) first, runs the lookups only
-# when the gate asks for them, then settles the route (Af.settle); it
-# shows, pass by pass, the events of Af.put and keeps the keys of
-# Af.after. The laws below pin that protocol to the session's model.
-
-# LAW fallback_gate_then_settle: a pass's route is its gate settled with its lookups
-# EXCLUDES: a resolver whose two steps decide otherwise than the model
-law fallback_gate_then_settle:
+# LAW fallback_pass_refused: a set, different selector falls back with the reason 0 when
+# allowedModels does not admit it, whatever the lookups found; admitted,
+# with lookups that found nothing usable, it falls back with their reason
+# (M5.1)
+# EXCLUDES: a disallowed model run or looked up, a lookup failure run
+#   anyway, a reason replaced, purpose or selector lost from the key
+law fallback_pass_refused:
   for p: Nat
-  for sel: Af.Sel
-  for ok: Bool
+  for s: Nat
   for look: Af.Look
+  for r: Nat
   for need: Nat
-  {Af.decide(Af.Pass{p, sel, ok, look, need}) == Af.settle(Af.gate(p, sel, ok), look, need) : Af.Route}
+  {(Af.decide(Af.Pass{p, Af.Other{s}, False{}, look, need}), Af.decide(Af.Pass{p, Af.Other{s}, True{}, Af.Miss{r}, need})) == (Af.Fallback{Af.K{p, s, 0n}}, Af.Fallback{Af.K{p, s, r}}) : Af.Route & Af.Route}
+
+# LAW fallback_pass_runs: an admitted selector whose lookups found a model of window w runs
+# on it when w is unknown (0) or at least the request (M5.1)
+# EXCLUDES: a fitting model refused, an unknown window read as too small
+law fallback_pass_runs:
+  for p: Nat
+  for s: Nat
+  for +w: Nat
+  for +need: Nat
+  for fit: {Bool.or(Nat.is_eq(w, 0n), Nat.is_le(need, w)) == True{} : Bool}
+  {Af.decide(Af.Pass{p, Af.Other{s}, True{}, Af.Hit{w}, need}) == Af.Routed{} : Af.Route}
+
+# LAW fallback_pass_too_small: an admitted selector whose lookups found a model of a known
+# window smaller than the request falls back with the reason 5 (M5.1)
+# EXCLUDES: a request sent to a model too small for it, another reason
+law fallback_pass_too_small:
+  for p: Nat
+  for s: Nat
+  for +w: Nat
+  for +need: Nat
+  for small: {Nat.is_lt(1n+w, need) == True{} : Bool}
+  {Af.decide(Af.Pass{p, Af.Other{s}, True{}, Af.Hit{1n+w}, need}) == Af.Fallback{Af.K{p, s, 5n}} : Af.Route}
+
+# Rust's resolver (decide_auxiliary_route) asks the gate (Af.gate, the
+# entry's Gate request) first, runs its lookups only when the gate asks
+# for them, then settles the route (Af.settle, the Settle request). The
+# laws below pin each of the two steps on every input.
 
 # LAW fallback_known_needs_no_lookup: a gate that decided reads nothing the lookups found, so they need
 # not run
@@ -117,8 +173,11 @@ law fallback_window_small:
   for small: {Nat.is_lt(1n+w, need) == True{} : Bool}
   {Af.settle(Af.Lookup{p, s}, Af.Hit{1n+w}, need) == Af.Fallback{Af.K{p, s, 5n}} : Af.Route}
 
+# The session (a model: A2)
+# -------------------------
+
 # LAW fallback_pass_events: the events of a pass come before the events of the passes after
-# it: a session shows each pass's own events in order
+# it: a session shows each pass's own events in order (A1)
 # EXCLUDES: a pass whose shown events depend on the passes after it
 law fallback_pass_events:
   for r: Af.Route
@@ -126,196 +185,110 @@ law fallback_pass_events:
   for t: List<&2, Af.Ev>
   {Af.put(r, sh, t) == List.append(&2, Af.Ev, Af.put(r, sh, Nil{}), t) : List<&2, Af.Ev>}
 
-# The decision and a pass's events, whole
-# ---------------------------------------
-# Written from the requirement (the header of bend/aux_fallback.bend:
-# Rust `decide_auxiliary_route` and `AuxiliaryNotices::take`), never
-# calling the model: the laws above pin properties of the model; these
-# pin its every answer, so the entry's replies follow from them alone.
+# LAW fallback_listed_complete: a key that occurs in a list of keys is listed in it, wherever it
+# stands
+# EXCLUDES: a membership that misses a key (only the head read, a field
+#   compared wrong), which makes fallback_is_reported or
+#   fallback_quiet_when_routed false or vacuous
+law fallback_listed_complete:
+  for a: List<&2, Af.Key>
+  for +k: Af.Key
+  for b: List<&2, Af.Key>
+  {Af.listed(List.append(&2, Af.Key, a, k <> b), k) == True{} : Bool}
 
-# what the decision knows before the lookups: an unset selector or the
-# session model's keeps the session model; a selector allowedModels does
-# not admit falls back with the reason 0; any other is looked up
-def afs_gate(p: Nat, sel: Af.Sel, ok: Bool) -> Af.Gate:
-  match sel:
-    case Af.Unset{}:
-      Af.Known{Af.Session{}}
-    case Af.Same{}:
-      Af.Known{Af.Session{}}
-    case Af.Other{s}:
-      match ok:
-        case True{}:
-          Af.Lookup{p, s}
-        case False{}:
-          Af.Known{Af.Fallback{Af.K{p, s, 0n}}}
+# LAW fallback_listed_sound: a key listed in a list of keys occurs in it: the list is some keys,
+# then that key, then some keys
+# EXCLUDES: a membership that admits a key the list does not hold (a field
+#   ignored), which makes fallback_is_reported or
+#   fallback_quiet_when_routed vacuous
+law fallback_listed_sound:
+  for +ks: List<&2, Af.Key>
+  for +k: Af.Key
+  for h: {Af.listed(ks, k) == True{} : Bool}
+  exs a: List<&2, Af.Key>
+  exs b: List<&2, Af.Key>
+  {ks == List.append(&2, Af.Key, a, k <> b) : List<&2, Af.Key>}
 
-# a found model of window w runs a request of size need: an unknown
-# window (0), or one at least the request
-def afs_fits(+w: Nat, +need: Nat) -> Bool:
-  Bool.or(Nat.is_eq(w, 0n), Nat.is_le(need, w))
+# LAW fallback_event_keys: the substituted keys and the noticed keys of a list of events are
+# read event by event, in order: of two lists joined, the keys of the
+# first then the keys of the second; a stay or a run has none; a
+# substitution of k has the substituted key k and no noticed key; a notice
+# of k has the noticed key k and no substituted key
+# EXCLUDES: a substitution read as a notice or the reverse, keys lost,
+#   added, reordered or deduplicated
+law fallback_event_keys:
+  for +es: List<&2, Af.Ev>
+  for +fs: List<&2, Af.Ev>
+  for +k: Af.Key
+  {Af.subs(List.append(&2, Af.Ev, es, fs)) == List.append(&2, Af.Key, Af.subs(es), Af.subs(fs)) : List<&2, Af.Key>} & ({Af.notes(List.append(&2, Af.Ev, es, fs)) == List.append(&2, Af.Key, Af.notes(es), Af.notes(fs)) : List<&2, Af.Key>} & {(Af.subs([Af.Stay{}, Af.Went{}]), (Af.subs([Af.Sub{k}]), (Af.subs([Af.Note{k}]), (Af.notes([Af.Stay{}, Af.Went{}, Af.Sub{k}]), Af.notes([Af.Note{k}]))))) == (Nil{}, ([k], (Nil{}, (Nil{}, [k])))) : List<&2, Af.Key> & (List<&2, Af.Key> & (List<&2, Af.Key> & (List<&2, Af.Key> & List<&2, Af.Key>)))})
 
-def afs_hit(ok: Bool, p: Nat, s: Nat) -> Af.Route:
-  match ok:
-    case True{}:
-      Af.Routed{}
-    case False{}:
-      Af.Fallback{Af.K{p, s, 5n}}
+# the keys the passes ps fell back with, in order, each pass routed by
+# Af.decide (a pass that stays or runs adds none)
+def afh_fell(r: Af.Route, ks: List<&2, Af.Key>) -> List<&2, Af.Key>:
+  match r:
+    case Af.Session{}:
+      ks
+    case Af.Routed{}:
+      ks
+    case Af.Fallback{k}:
+      k <> ks
 
-# the route of the lookups of selector s for purpose p: nothing usable
-# falls back with its reason; a found model runs the pass when it fits,
-# else falls back with the reason 5
-def afs_found(p: Nat, s: Nat, look: Af.Look, +need: Nat) -> Af.Route:
-  match look:
-    case Af.Miss{r}:
-      Af.Fallback{Af.K{p, s, r}}
-    case Af.Hit{w}:
-      afs_hit(afs_fits(w, need), p, s)
-
-# the route: a known one, or the one the lookups give
-def afs_settle(g: Af.Gate, look: Af.Look, +need: Nat) -> Af.Route:
-  match g:
-    case Af.Known{r}:
-      r
-    case Af.Lookup{p, s}:
-      afs_found(p, s, look, need)
-
-# two keys name the same purpose, selector and reason
-def afs_same(a: Af.Key, b: Af.Key) -> Bool:
-  match a b:
-    case Af.K{ap, as1, ar} Af.K{bp, bs1, br}:
-      Bool.and(Nat.is_eq(ap, bp), Bool.and(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br)))
-
-# the session has shown k: a key of sh is k
-def afs_shown(sh: List<&2, Af.Key>, +k: Af.Key) -> Bool:
-  match sh:
+def afh_fallen(ps: List<&2, Af.Pass>) -> List<&2, Af.Key>:
+  match ps:
     case Nil{}:
-      False{}
+      Nil{}
     case x <> t:
-      Bool.or(afs_same(x, k), afs_shown(t, k))
+      afh_fell(Af.decide(x), afh_fallen(t))
 
-def afs_noted(seen: Bool, +k: Af.Key) -> List<&2, Af.Ev>:
+# M5.4: the notice of k: none when an earlier pass fell back with k
+# (seen), else one
+def afh_notice(seen: Bool, k: Af.Key) -> List<&2, Af.Ev>:
   match seen:
     case True{}:
-      [Af.Sub{k}]
+      Nil{}
     case False{}:
-      [Af.Sub{k}, Af.Note{k}]
+      [Af.Note{k}]
 
-# the events of one pass routed r, the keys sh shown before it: a stay on
-# the session model, a run on the selector's model, or the substitution,
-# then its notice when the session has not shown its key
-def afs_events(r: Af.Route, +sh: List<&2, Af.Key>) -> List<&2, Af.Ev>:
+# M5.3, M5.4: the events of a pass routed r when the passes before it
+# fell back with the keys ks: a stay, a run, or the substitution of key k
+# then its notice when no earlier pass fell back with k
+def afh_events(r: Af.Route, ks: List<&2, Af.Key>) -> List<&2, Af.Ev>:
   match r:
     case Af.Session{}:
       [Af.Stay{}]
     case Af.Routed{}:
       [Af.Went{}]
     case Af.Fallback{+k}:
-      afs_noted(afs_shown(sh, k), k)
+      Af.Sub{k} <> afh_notice(Af.listed(ks, k), k)
 
-def afs_join(seen: Bool, k: Af.Key, sh: List<&2, Af.Key>) -> List<&2, Af.Key>:
-  match seen:
-    case True{}:
-      sh
-    case False{}:
-      k <> sh
+# LAW fallback_session_history: a session that has run no pass has shown nothing; a session
+# that runs one more pass x shows the events it had shown, then x's events
+# by its route (Af.decide): a stay, a run, or the substitution of key k,
+# then a notice of k when no earlier pass of the session fell back with k
+# (M5.3, M5.4; the earlier keys recomputed from the whole history, not
+# carried)
+# EXCLUDES: a session that forgets (or never keeps) the keys it noticed, so
+#   a notice repeats; one that keeps a key it did not substitute, so a
+#   notice is lost; a notice before its substitution or after a later
+#   pass; passes out of order, dropped or repeated; a session that starts
+#   with keys shown or events
+law fallback_session_history:
+  for +ps: List<&2, Af.Pass>
+  for +x: Af.Pass
+  {Af.run(Nil{}) == Nil{} : List<&2, Af.Ev>} & {Af.run(List.append(&2, Af.Pass, ps, [x])) == List.append(&2, Af.Ev, Af.run(ps), afh_events(Af.decide(x), afh_fallen(ps))) : List<&2, Af.Ev>}
 
-# the keys shown after a pass routed r: a fallback's key joins, first,
-# when the session had not shown it
-def afs_after(r: Af.Route, +sh: List<&2, Af.Key>) -> List<&2, Af.Key>:
-  match r:
-    case Af.Session{}:
-      sh
-    case Af.Routed{}:
-      sh
-    case Af.Fallback{+k}:
-      afs_join(afs_shown(sh, k), k, sh)
-
-# the keys of the substitution events of es, in order
-def afs_subs(es: List<&2, Af.Ev>) -> List<&2, Af.Key>:
-  match es:
+# the keys ks hold no key twice
+def afh_nodup(ks: List<&2, Af.Key>) -> Bool:
+  match ks:
     case Nil{}:
-      Nil{}
-    case e <> rest:
-      match e:
-        case Af.Stay{}:
-          afs_subs(rest)
-        case Af.Went{}:
-          afs_subs(rest)
-        case Af.Sub{k}:
-          k <> afs_subs(rest)
-        case Af.Note{k}:
-          afs_subs(rest)
+      True{}
+    case k <> +t:
+      Bool.and(Bool.not(Af.listed(t, k)), afh_nodup(t))
 
-# the keys of the notice events of es, in order
-def afs_notes(es: List<&2, Af.Ev>) -> List<&2, Af.Key>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      match e:
-        case Af.Stay{}:
-          afs_notes(rest)
-        case Af.Went{}:
-          afs_notes(rest)
-        case Af.Sub{k}:
-          afs_notes(rest)
-        case Af.Note{k}:
-          k <> afs_notes(rest)
-
-# LAW fallback_terms_exact: the model's terms the laws above read mean what the spec says: listed is membership by purpose, selector and reason; subs and notes are the keys of the substitution and of the notice events, in order
-# EXCLUDES: a membership, substitution or notice reading that makes
-#   fallback_is_reported or fallback_quiet_when_routed hold vacuously
-law fallback_terms_exact:
-  for ks: List<&2, Af.Key>
-  for +k: Af.Key
-  for es: List<&2, Af.Ev>
-  for fs: List<&2, Af.Ev>
-  {Af.listed(ks, k) == afs_shown(ks, k) : Bool} & {Af.subs(es) == afs_subs(es) : List<&2, Af.Key>} & {Af.notes(fs) == afs_notes(fs) : List<&2, Af.Key>}
-
-# LAW fallback_decide_exact: the gate and the route of every pass are the spec's: an unset or same selector keeps the session model, a selector allowedModels does not admit falls back with reason 0, any other is looked up; a lookup that finds nothing usable falls back with its reason, a found model runs the pass when its window is unknown (0) or at least the request, else falls back with reason 5
-# EXCLUDES: a route or a reason the requirement does not give, for any
-#   selector, lookup, window or request size
-law fallback_decide_exact:
-  for p: Nat
-  for sel: Af.Sel
-  for ok: Bool
-  for g: Af.Gate
-  for look: Af.Look
-  for +need: Nat
-  {Af.gate(p, sel, ok) == afs_gate(p, sel, ok) : Af.Gate} & {Af.settle(g, look, need) == afs_settle(g, look, need) : Af.Route}
-
-# LAW fallback_pass_exact: the events and the shown keys of every pass are the spec's: a stay, a run on the selector's model, or the substitution then its notice when its key was not shown; the key joins the shown keys, first, when it was not shown
-# EXCLUDES: an event lost, added or reordered, a notice shown twice for a
-#   key or never, a shown key lost or added
-law fallback_pass_exact:
-  for +r: Af.Route
-  for +sh: List<&2, Af.Key>
-  {Af.put(r, sh, Nil{}) == afs_events(r, sh) : List<&2, Af.Ev>} & {Af.after(r, sh) == afs_after(r, sh) : List<&2, Af.Key>}
-
-# the route of the pass x: its gate settled with its lookups
-def afs_route(x: Af.Pass) -> Af.Route:
-  match x:
-    case Af.Pass{p, sel, ok, look, need}:
-      afs_settle(afs_gate(p, sel, ok), look, need)
-
-# the events of a session that runs the passes ps in order, the keys sh
-# shown before them: the first pass's events, then the events of the
-# passes after it with the keys shown after it
-def afs_go(ps: List<&2, Af.Pass>, +sh: List<&2, Af.Key>) -> List<&2, Af.Ev>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case +x <> rest:
-      List.append(&2, Af.Ev, afs_events(afs_route(x), sh), afs_go(rest, afs_after(afs_route(x), sh)))
-
-# LAW fallback_go_exact: the events of every session are the spec's: each pass, in order, shows the spec's events for its route and the keys shown before it, and the keys it shows carry to the passes after it; a session starts with no key shown
-# EXCLUDES: a session that never remembers (or forgets) the keys it has
-#   shown, so a notice repeats for a key already shown; one that
-#   remembers a key it did not show, so a notice is lost; passes run out
-#   of order, a pass dropped or repeated, a session that starts with keys
-#   shown
-law fallback_go_exact:
-  for ps: List<&2, Af.Pass>
-  for +sh: List<&2, Af.Key>
-  for qs: List<&2, Af.Pass>
-  {Af.go(ps, sh) == afs_go(ps, sh) : List<&2, Af.Ev>} & {Af.run(qs) == afs_go(qs, Nil{}) : List<&2, Af.Ev>}
+# LAW fallback_notice_once: a session notices each key (purpose, selector, reason) at most
+# once, whatever passes it runs (M5.4)
+# EXCLUDES: the same notice row at every compaction of a selector that
+#   cannot be used
+law fallback_notice_once:
+  for +ps: List<&2, Af.Pass>
+  {afh_nodup(Af.notes(Af.run(ps))) == True{} : Bool}

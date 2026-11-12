@@ -3,7 +3,7 @@
 # PROOF: the witnesses: hist = the request's view lines, old = the chat's
 # first end messages, new = the rest. The request appends the turns of the
 # rest of its log after its lines; the log is the spec's chat
-# (thread_log_chat) and the model's turns are the spec's (tnv.turns). View
+# (thb.log_chat) and the model's turns are the spec's (tnv.turns). View
 # lines hold no turn (tnv.no_turns). A take and a drop at one place append
 # back to the list (tnv.take_drop), and end is at most the chat's length,
 # so the take holds exactly end messages (tnv.sub_le, tnv.len_take).
@@ -13,7 +13,6 @@ import ../../bend/thread.bend as Th
 import ../../spec/memory/thread.bend as S
 import ../../laws/thread.bend as Thread
 import ./base.bend as LA
-import ./thread_log_chat.bend as PThreadLogChat
 
 def tnv.turns(ms: List<&2, Th.Msg>) -> {Th.turns(ms) == S.turns(ms) : List<&2, Th.Item>}:
   match ms:
@@ -85,7 +84,7 @@ def tnv.len_take(xs: List<&2, Th.Msg>, n: Nat, h: {Nat.is_le(n, List.length(&2, 
 def tnv.req(+s: Nat, +evs: List<&2, Th.Msg>, +view: List<&2, Th.Span>, +w: Nat) -> {Th.request(s, evs, view, w) == List.append(&2, Th.Item, Th.lines(Th.log(s, evs), List.take(&2, Th.Span, view, Th.history_lines(List.length(&2, Th.Msg, Th.log(s, evs)), w, Th.starts(view)))), S.turns(List.drop(&2, Th.Msg, S.chat(s, evs), Nat.sub(List.length(&2, Th.Msg, S.chat(s, evs)), w)))) : List<&2, Th.Item>}:
   +lg = Th.log(s, evs)
   +hist = Th.lines(lg, List.take(&2, Th.Span, view, Th.history_lines(List.length(&2, Th.Msg, lg), w, Th.starts(view))))
-  %Thread.thread_log_chat(s, evs) : {Th.request(s, evs, view, w) == List.append(&2, Th.Item, hist, S.turns(List.drop(&2, Th.Msg, _, Nat.sub(List.length(&2, Th.Msg, _), w)))) : List<&2, Th.Item>}
+  %LA.thb.log_chat(s, evs) : {Th.request(s, evs, view, w) == List.append(&2, Th.Item, hist, S.turns(List.drop(&2, Th.Msg, _, Nat.sub(List.length(&2, Th.Msg, _), w)))) : List<&2, Th.Item>}
   %tnv.turns(List.drop(&2, Th.Msg, lg, Nat.sub(List.length(&2, Th.Msg, lg), w))) : {Th.request(s, evs, view, w) == List.append(&2, Th.Item, hist, _) : List<&2, Th.Item>}
   {==}
 

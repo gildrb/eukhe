@@ -1,6 +1,7 @@
 //! The seen lines beyond one process (model `reload` in
-//! `bend/doc_seen.bend`, laws `reload_keeps_exactly_the_live_version` and
-//! `reload_sees_exactly_the_live_records` in `laws/doc_seen.bend`): each
+//! `bend/doc_seen.bend`, laws `reload_splits`, `reload_keeps_live`,
+//! `reload_drops_stale` and `reload_sees_exactly_the_live_records` in
+//! `laws/doc_seen.bend`): each
 //! time lines of a version become seen, the [`EditStore`] appends a
 //! [`SeenRecord`] to the host's [`SeenJournal`]. A later process of the same
 //! session restores, for each file it edits, the records of the text the
@@ -101,8 +102,8 @@ mod tests {
         assert_eq!(runs(&[]), Vec::new());
     }
 
-    /// The laws `reload_keeps_exactly_the_live_version` and
-    /// `reload_sees_exactly_the_live_records` on the real store: on 200
+    /// The laws `reload_splits`, `reload_keeps_live`, `reload_drops_stale`
+    /// and `reload_sees_exactly_the_live_records` on the real store: on 200
     /// logs of one file over three versions (two of them with one tag, so
     /// only the digest tells them apart), a later store restores, for the
     /// version the file holds, exactly the lines the records of that

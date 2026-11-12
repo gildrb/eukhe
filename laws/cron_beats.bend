@@ -242,13 +242,6 @@ def decide_spec(rs: List<&2, CB.Row>, i: Nat, +op: CB.Op) -> List<&2, CB.Row>:
         case 1n+q:
           r <> decide_spec(t, q, op)
 
-# LAW cron_beats_decide_exact: from any records, a per-job decision op on the i-th record changes only that record (none past the last): it keeps its session, session file, `/heartbeat` flag and plan, and takes the status, next run and failures in a row the decision's answer names (laws/cron_store.bend), as the store applies them
-law cron_beats_decide_exact:
-  for +i: Nat
-  for +op: CB.Op
-  for +rs: List<&2, CB.Row>
-  {CB.step(CB.AOn{i, op}, rs) == decide_spec(rs, i, op) : List<&2, CB.Row>}
-
 # What every action writes on every record
 # ----------------------------------------
 # The store's whole answer to each action, record by record
@@ -339,7 +332,7 @@ def beats_step_spec(a: CB.Act, rs: List<&2, CB.Row>) -> List<&2, CB.Row>:
     case CB.ALose{}:
       Nil{}
 
-# LAW cron_beats_step_exact: from any records, every store action writes exactly the spec's records: a new heartbeat of session s comes first (session s, its session file, flagged, active on its plan, first at `at`, no failures) and stops only the `/heartbeat` records of session s, every other record (another session's heartbeat, a job of another source) kept exactly; a new job of another source comes first unflagged and keeps every record; a per-job decision is cron_beats_decide_exact; a rebind of session s to session file `file` moves exactly the records of session s or of that file to both and stops exactly the moved `/heartbeat` records but the `keep`-th record, every other record kept exactly; a corrupt file leaves no record
+# LAW cron_beats_step_exact: from any records, every store action writes exactly the spec's records: a new heartbeat of session s comes first (session s, its session file, flagged, active on its plan, first at `at`, no failures) and stops only the `/heartbeat` records of session s, every other record (another session's heartbeat, a job of another source) kept exactly; a new job of another source comes first unflagged and keeps every record; a per-job decision op on the i-th record changes only that record (none past the last): it keeps its session, session file, `/heartbeat` flag and plan, and takes the status, next run and failures in a row the decision's answer names (laws/cron_store.bend), as the store applies them; a rebind of session s to session file `file` moves exactly the records of session s or of that file to both and stops exactly the moved `/heartbeat` records but the `keep`-th record, every other record kept exactly; a corrupt file leaves no record
 # EXCLUDES: a new heartbeat that stops another session's heartbeat or a job of another source, or leaves a heartbeat of its session live; a rebind that moves, stops or keeps the wrong records; an action that reorders, drops or adds a record
 law cron_beats_step_exact:
   for +a: CB.Act

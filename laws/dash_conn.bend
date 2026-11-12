@@ -7,6 +7,7 @@ import ../bend/dash.bend as Da
 import ../bend/ffi_dash.bend as FDa
 import ../bend/wire.bend as Wr
 import ./dash.bend as Dash
+import ./base.bend as LawsBase
 
 # LAWS (D1): crates/eukhe-dashboard (http.rs, bridge.rs, pairing.rs) opens
 # one stepper per socket and is an event loop with no policy: it sends each
@@ -30,45 +31,19 @@ import ./dash.bend as Dash
 # C3: a closed socket runs nothing, whatever comes.
 # C4: the entry: an open with no input is a waiting socket; an open with
 #     input is refused, and so is every step after it; a live socket
-#     answers every input that is exactly one event (the grammar of
-#     bend/ffi_dash.bend, restated by `read_ev`) with the step's verdict,
-#     spelled; any other input answers exactly `E dash: malformed event`
-#     and keeps the socket.
+#     answers every input that is exactly one event as Rust writes it
+#     (`sp_w_ev`: the tag, then the fields in Rust's order) with the
+#     step's verdict, spelled; any other input answers exactly
+#     `E dash: malformed event` and keeps the socket.
+# C5: a token rotation (the file now holds another token than the one a
+#     socket paired with) ends every socket at its next frame, and every
+#     frame after it runs nothing, whatever the file holds later; a new
+#     socket whose pairing presents an old token (any token but the one the
+#     file holds) is refused and runs nothing. Rust's comparison is
+#     pairing.rs `equal`: both tokens exist and are the same bytes.
 
 # Spec helpers
 # ------------
-
-def sp_pass.first(p: Da.Pass) -> Da.Conn & Da.Verdict:
-  match p:
-    case Da.Admit{}:
-      (Da.Paired{}, Da.VPaired{})
-    case Da.Refuse{t}:
-      (Da.Closed{}, Da.VRefuse{t})
-
-def sp_pass.later(p: Da.Pass) -> Da.Conn & Da.Verdict:
-  match p:
-    case Da.Admit{}:
-      (Da.Paired{}, Da.VRun{})
-    case Da.Refuse{t}:
-      (Da.Closed{}, Da.VRefuse{t})
-
-# C1-C3: one event of a socket
-def sp_cstep(c: Da.Conn, e: Da.CEv) -> Da.Conn & Da.Verdict:
-  match c:
-    case Da.Waiting{}:
-      match e:
-        case Da.CFirst{x, f, m}:
-          sp_pass.first(Dash.sp_gate(x, f, m))
-        case Da.CFrame{f, m}:
-          (Da.Closed{}, Da.VRefuse{Dash.sp_missing()})
-    case Da.Paired{}:
-      match e:
-        case Da.CFirst{x, f, m}:
-          (Da.Closed{}, Da.VRefuse{Dash.sp_missing()})
-        case Da.CFrame{f, m}:
-          sp_pass.later(Dash.sp_frame(f, m))
-    case Da.Closed{}:
-      (Da.Closed{}, Da.VClosed{})
 
 def cv_conn(r: Da.Conn & Da.Verdict) -> Da.Conn:
   (c, v) = r
@@ -247,6 +222,62 @@ def cv_any_live(vs: List<&2, Da.Verdict>) -> Bool:
     case +v <> t:
       Bool.or(Bool.or(cv_is_run(v), cv_is_paired(v)), cv_any_live(t))
 
+# C5: two tokens are the same bytes, in order
+def cv_bytes_same(a: List<&2, Nat>, b: List<&2, Nat>) -> Bool:
+  match a:
+    case Nil{}:
+      match b:
+        case Nil{}:
+          True{}
+        case y <> ys:
+          False{}
+    case x <> xs:
+      match b:
+        case Nil{}:
+          False{}
+        case y <> ys:
+          Bool.and(Nat.is_eq(x, y), cv_bytes_same(xs, ys))
+
+def cv_rust_match.held(a: List<&2, Nat>, m: Maybe<&2, List<&2, Nat>>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{b}:
+      cv_bytes_same(a, b)
+
+# C5: what Rust's comparison (pairing.rs `equal`) reports for the socket's
+# token p (None: its pairing presented none) against the file f: both
+# tokens exist (the file's by R2) and are the same bytes
+def cv_rust_match(p: Maybe<&2, List<&2, Nat>>, f: Da.Disk) -> Bool:
+  match p:
+    case None{}:
+      False{}
+    case Some{a}:
+      cv_rust_match.held(a, Dash.sp_stored(f))
+
+# C5: the later frames of a socket whose token is p, one per file read, as
+# Rust sends them
+def cv_frames(+p: Maybe<&2, List<&2, Nat>>, fs: List<&2, Da.Disk>) -> List<&2, Da.CEv>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> t:
+      Da.CFrame{f, cv_rust_match(p, f)} <> cv_frames(p, t)
+
+# C5: a socket as Rust drives it: its pairing presents the text t, with
+# the file g, then later frames with the files fs; its token is the one t
+# spells (R1), if any
+def cv_life(+t: String, +g: Da.Disk, fs: List<&2, Da.Disk>) -> List<&2, Da.CEv>:
+  Da.CFirst{Da.Pair{Da.Spoken{t}}, g, cv_rust_match(Dash.sp_token(t), g)} <> cv_frames(Dash.sp_token(t), fs)
+
+# every file text fits the wire
+def cv_fit_disks(fs: List<&2, Da.Disk>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case f <> t:
+      Bool.and(Dash.sp_fit_disk(f), cv_fit_disks(t))
+
 # The entry: spellers and the reader
 # ----------------------------------
 
@@ -288,146 +319,26 @@ def sp_w_verdict(v: Da.Verdict) -> String:
     case Da.VClosed{}:
       Wr.put_nat(3n, "")
 
-def rd_disk.text(r: Wr.Dec<String>) -> Wr.Dec<Da.Disk>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{Da.Holds{t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_disk(r: Wr.Dec<Nat>) -> Wr.Dec<Da.Disk>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Da.NoFile{}, s}
-        case 1n:
-          Wr.Got{Da.Unread{}, s}
-        case 2n:
-          rd_disk.text(Wr.get_str(s))
-        case 3n:
-          Wr.Got{Da.Huge{}, s}
-        case 4n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_said.spoken(r: Wr.Dec<String>) -> Wr.Dec<Da.Said>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{Da.Spoken{t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_said(r: Wr.Dec<Nat>) -> Wr.Dec<Da.Said>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          rd_said.spoken(Wr.get_str(s))
-        case 1n:
-          Wr.Got{Da.Overlong{}, s}
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_first.pair(r: Wr.Dec<Da.Said>) -> Wr.Dec<Da.First>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{Da.Pair{t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_first(r: Wr.Dec<Nat>) -> Wr.Dec<Da.First>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Da.NoText{}, s}
-        case 1n:
-          Wr.Got{Da.NotPairing{}, s}
-        case 2n:
-          rd_first.pair(rd_said(Wr.get_nat(s)))
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_ev.matches(x: Da.First, f: Da.Disk, r: Wr.Dec<Bool>) -> Wr.Dec<Da.CEv>:
-  match r:
-    case Wr.Got{m, s}:
-      Wr.Got{Da.CFirst{x, f, m}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_ev.first(x: Da.First, r: Wr.Dec<Da.Disk>) -> Wr.Dec<Da.CEv>:
-  match r:
-    case Wr.Got{f, s}:
-      rd_ev.matches(x, f, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_ev.pair(r: Wr.Dec<Da.First>) -> Wr.Dec<Da.CEv>:
-  match r:
-    case Wr.Got{x, s}:
-      rd_ev.first(x, rd_disk(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_ev.later(f: Da.Disk, r: Wr.Dec<Bool>) -> Wr.Dec<Da.CEv>:
-  match r:
-    case Wr.Got{m, s}:
-      Wr.Got{Da.CFrame{f, m}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_ev.frame(r: Wr.Dec<Da.Disk>) -> Wr.Dec<Da.CEv>:
-  match r:
-    case Wr.Got{f, s}:
-      rd_ev.later(f, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rd_ev.go(r: Wr.Dec<Nat>) -> Wr.Dec<Da.CEv>:
-  match r:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          rd_ev.pair(rd_first(Wr.get_nat(s)))
-        case 1n:
-          rd_ev.frame(rd_disk(Wr.get_nat(s)))
-        case 2n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the event s starts with, and what follows it
-def read_ev(s: String) -> Wr.Dec<Da.CEv>:
-  rd_ev.go(Wr.get_nat(s))
-
 def cs_reply(r: Da.Conn & Da.Verdict) -> FDa.St & String:
   (c, v) = r
   (FDa.Live{c}, sp_w_verdict(v))
 
-def cs.end(whole: Bool, +c: Da.Conn, e: Da.CEv) -> FDa.St & String:
-  match whole:
-    case True{}:
-      cs_reply(sp_cstep(c, e))
-    case False{}:
-      (FDa.Live{c}, sp_malformed())
+# the reply of a step
+def cs_out(r: FDa.St & String) -> String:
+  (st, out) = r
+  out
 
-def cs.run(+c: Da.Conn, r: Wr.Dec<Da.CEv>) -> FDa.St & String:
-  match r:
-    case Wr.Got{e, s}:
-      cs.end(Wr.end(s), c, e)
-    case Wr.Bad{}:
-      (FDa.Live{c}, sp_malformed())
+# the reply of a refused open
+def sp_open_refused() -> String:
+  SCon{'E', SCon{' ', "dash: the open takes no input"}}
 
-# the step of a live socket c on s: the spec's step on the event s is
-# exactly, spelled; else the error form, the socket kept
-def cspec(+c: Da.Conn, s: String) -> FDa.St & String:
-  cs.run(c, read_ev(s))
+# one reply of a refused socket per input
+def sp_shut(ins: List<&2, String>) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case i <> t:
+      SCon{'E', SCon{' ', "dash: the open was refused"}} <> sp_shut(t)
 
 # the replies of the shipped stepper to the spelled events es, from r
 def cs_feed(es: List<&2, Da.CEv>, r: FDa.St & String) -> List<&2, String>:
@@ -449,28 +360,85 @@ def cs_raw(ins: List<&2, String>, r: FDa.St & String) -> List<&2, String>:
       (st, out) = r
       out <> cs_raw(t, FDa.step(st, i))
 
-# the spec's replies to es from c, spelled
+# the model's replies to es from c, spelled
 def cs_replies(es: List<&2, Da.CEv>, +c: Da.Conn) -> List<&2, String>:
   match es:
     case Nil{}:
       Nil{}
     case +e <> t:
-      sp_w_verdict(cv_verdict(sp_cstep(c, e))) <> cs_replies(t, cv_conn(sp_cstep(c, e)))
+      sp_w_verdict(cv_verdict(Da.cstep(c, e))) <> cs_replies(t, cv_conn(Da.cstep(c, e)))
+
+# the socket after a step
+def cs_st(r: FDa.St & String) -> FDa.St:
+  (st, out) = r
+  st
+
+# the replies of the shipped stepper to the raw inputs ins, from st
+def cs_outs(ins: List<&2, String>, +st: FDa.St) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case +i <> t:
+      cs_out(FDa.step(st, i)) <> cs_outs(t, cs_st(FDa.step(st, i)))
+
+# C3: a reply that neither opens a socket nor runs a frame: `closed` as
+# Rust reads it (tag 3), or the malformed error (an input that is no event)
+def cw_quiet1(+o: String) -> Bool:
+  Bool.or(LawsBase.text_same(o, sp_w_verdict(Da.VClosed{})), LawsBase.text_same(o, sp_malformed()))
+
+def cw_quiet(os: List<&2, String>) -> Bool:
+  match os:
+    case Nil{}:
+      True{}
+    case o <> t:
+      Bool.and(cw_quiet1(o), cw_quiet(t))
+
+# C5: `closed` as Rust reads it, once per file read
+def cw_closed(fs: List<&2, Da.Disk>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case f <> t:
+      sp_w_verdict(Da.VClosed{}) <> cw_closed(t)
 
 # Laws: the socket
 # ----------------
 
-# LAW dash_conn_step_spec (C1-C3): every event, from every socket state,
-# moves the socket and answers the verdict exactly as the spec's table
-# (restates dash_gate_is_model and dash_frame_is_model over the stepper)
-# EXCLUDES: a socket opened on a text that is no token, on a file with no
-#   token, or without Rust's match; a frame that runs on a rotated,
-#   missing or damaged file; a closed socket that runs or opens; a second
-#   pairing taken; a refusal with another text
-law dash_conn_step_spec:
-  for +c: Da.Conn
-  for +e: Da.CEv
-  {Da.cstep(c, e) == sp_cstep(c, e) : Da.Conn & Da.Verdict}
+# LAW dash_conn_first_refused (C1): a waiting socket whose first frame the
+# gate refuses (laws/dash.bend R3: dash_gate_*) closes and tells the tab
+# the gate's text
+# EXCLUDES: a refused pairing that leaves the socket waiting or open; a
+#   refusal told with another text than R3's
+law dash_conn_first_refused:
+  for +x: Da.First
+  for +f: Da.Disk
+  for +m: Bool
+  for +t: String
+  for refused: {Da.gate(x, f, m) == Da.Refuse{t} : Da.Pass}
+  {Da.cstep(Da.Waiting{}, Da.CFirst{x, f, m}) == (Da.Closed{}, Da.VRefuse{t}) : Da.Conn & Da.Verdict}
+
+# LAW dash_conn_later_refused (C2): a frame of a paired socket that the
+# frame check refuses (laws/dash.bend R4: dash_frame_*) closes the socket
+# and tells the tab that text
+# EXCLUDES: a refused frame that leaves the socket paired (and runs the
+#   next one); a refusal told with another text than R4's
+law dash_conn_later_refused:
+  for +f: Da.Disk
+  for +m: Bool
+  for +t: String
+  for refused: {Da.frame(f, m) == Da.Refuse{t} : Da.Pass}
+  {Da.cstep(Da.Paired{}, Da.CFrame{f, m}) == (Da.Closed{}, Da.VRefuse{t}) : Da.Conn & Da.Verdict}
+
+# LAW dash_conn_out_of_order (C1, C2): a later frame before any pairing,
+# and a second pairing frame of a paired socket, close the socket with
+# "pairing needed", whatever the file holds and Rust reported
+# EXCLUDES: a command frame taken as a pairing; a second pairing that
+#   re-pairs or is ignored; another refusal text
+law dash_conn_out_of_order:
+  for +x: Da.First
+  for +f: Da.Disk
+  for +m: Bool
+  {Da.cstep(Da.Waiting{}, Da.CFrame{f, m}) == (Da.Closed{}, Da.VRefuse{Dash.sp_missing()}) : Da.Conn & Da.Verdict} & {Da.cstep(Da.Paired{}, Da.CFirst{x, f, m}) == (Da.Closed{}, Da.VRefuse{Dash.sp_missing()}) : Da.Conn & Da.Verdict}
 
 # LAW dash_conn_runs_only_matched (C2): from every socket state, a frame
 # runs only when Rust reported a match against the file read at that
@@ -531,16 +499,8 @@ law dash_conn_refusal_closes:
   for refused: {cv_is_refuse(cv_verdict(Da.cstep(c, e))) == True{} : Bool}
   {cv_is_closed(cv_conn(Da.cstep(c, e))) == True{} : Bool}
 
-# LAW dash_conn_closed_stays (C3): a closed socket stays closed and runs
-# nothing, whatever comes (restates dash_closed_runs_nothing)
-# EXCLUDES: a closed socket reopened by a pairing or a frame
-law dash_conn_closed_stays:
-  for +e: Da.CEv
-  {Da.cstep(Da.Closed{}, e) == (Da.Closed{}, Da.VClosed{}) : Da.Conn & Da.Verdict}
-
 # LAW dash_conn_refused_runs_nothing (C1-C3): after a refusal, from every
-# socket state, nothing runs or opens, whatever comes (restates
-# dash_rejected_runs_nothing)
+# socket state, nothing runs or opens, whatever comes
 # EXCLUDES: a refused socket that runs a later frame or pairs again
 law dash_conn_refused_runs_nothing:
   for +c: Da.Conn
@@ -562,7 +522,10 @@ law dash_conn_history:
 # Rust did not match (a rotation, by any process, since the socket's token
 # was made; another token; no token) ends the socket: it and every event
 # after it run and open nothing, whatever comes, even if the file holds
-# the token again (restates dash_rotation_ends_connections and
+# the token again. This is the core's half of a token rotation: once the
+# file holds a new token, Rust's comparison reports no match for an old
+# one (crates/eukhe-dashboard pairing.rs), and its socket ends here (with
+# Rust's comparison spelled out, at the entry: dash_rotation_ends_connections,
 # dash_rotation_rejects_old_tokens)
 # EXCLUDES: a frame run after a rotation; a socket reopened when a
 #   rotation is undone; an old token paired after a rotation
@@ -582,11 +545,12 @@ law dash_conn_unmatched_ends:
 law dash_conn_example:
   {cv_run([Da.CFirst{Da.Pair{Da.Spoken{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}}, Da.Holds{"00112233445566778899AABBCCDDEEFF00112233445566778899aabbccddeeff\n"}, True{}}, Da.CFrame{Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, True{}}, Da.CFrame{Da.Holds{"ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, False{}}, Da.CFrame{Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, True{}}], Da.Waiting{}) == [Da.VPaired{}, Da.VRun{}, Da.VRefuse{Dash.sp_wrong()}, Da.VClosed{}] : List<&2, Da.Verdict>} & {[cv_verdict(Da.cstep(Da.Waiting{}, Da.CFirst{Da.Pair{Da.Spoken{""}}, Da.NoFile{}, False{}})), cv_verdict(Da.cstep(Da.Waiting{}, Da.CFirst{Da.Pair{Da.Spoken{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeefe"}}, Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, False{}})), cv_verdict(Da.cstep(Da.Waiting{}, Da.CFirst{Da.Pair{Da.Spoken{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}}, Da.Unread{}, False{}})), cv_verdict(Da.cstep(Da.Waiting{}, Da.CFrame{Da.NoFile{}, True{}})), cv_verdict(Da.cstep(Da.Paired{}, Da.CFrame{Da.NoFile{}, True{}}))] == [Da.VRefuse{Dash.sp_missing()}, Da.VRefuse{Dash.sp_wrong()}, Da.VRefuse{Dash.sp_unset()}, Da.VRefuse{Dash.sp_missing()}, Da.VRefuse{Dash.sp_unset()}] : List<&2, Da.Verdict>}
 
-# LAW dash_conn_terms_exact: the terms of the socket laws mean what they
-# say
+# LAW dash_conn_terms_witness: anchor: each laws-side term of the socket
+# laws takes both values on some point (it is no constant answer); this
+# says nothing about the code
 # EXCLUDES: a vacuous term (one constant answer) that would make a safety
 #   law say nothing
-law dash_conn_terms_exact:
+law dash_conn_terms_witness:
   {[cv_is_run(Da.VRun{}), cv_is_run(Da.VPaired{}), cv_is_paired(Da.VPaired{}), cv_is_paired(Da.VClosed{}), cv_is_refuse(Da.VRefuse{"x"}), cv_is_refuse(Da.VRun{}), cv_is_closed(Da.Closed{}), cv_is_closed(Da.Waiting{}), cv_any_live([Da.VClosed{}, Da.VRun{}]), cv_any_live([Da.VRefuse{"x"}, Da.VClosed{}]), cv_ok([Da.VRun{}], PhWait{}), cv_ok([Da.VRefuse{"x"}, Da.VRun{}], PhWait{}), cv_ok([Da.VPaired{}, Da.VRun{}, Da.VRefuse{"x"}, Da.VClosed{}], PhWait{}), cv_matches(Da.CFrame{Da.NoFile{}, True{}}), cv_matches(Da.CFirst{Da.NoText{}, Da.NoFile{}, False{}}), cv_frame_ok(Da.Paired{}, Da.CFrame{Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, True{}}), cv_frame_ok(Da.Paired{}, Da.CFrame{Da.Unread{}, True{}}), cv_pair_ok(Da.Waiting{}, Da.CFirst{Da.Pair{Da.Spoken{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}}, Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, True{}}), cv_pair_ok(Da.Waiting{}, Da.CFirst{Da.Pair{Da.Spoken{"0g112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}}, Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, True{}})] == [True{}, False{}, True{}, False{}, True{}, False{}, True{}, False{}, True{}, False{}, False{}, False{}, True{}, True{}, False{}, True{}, False{}, True{}, False{}] : List<&2, Bool>}
 
 # Laws: the entry
@@ -606,51 +570,152 @@ law dash_conn_entry_open_refused:
   for h: {String.is_empty(s) == False{} : Bool}
   {FDa.open(s) == (FDa.Refused{}, SCon{'E', SCon{' ', "dash: the open takes no input"}}) : FDa.St & String}
 
-# LAW dash_conn_entry_shut (C4): a refused open answers every step with its
-# error form
-# EXCLUDES: a refused socket that opens or runs
-law dash_conn_entry_shut:
+# LAW dash_conn_entry_refused_stays (C4): after an open with input, every
+# step, of every input, answers the refused error form: the open's error
+# first, then one refusal per input
+# EXCLUDES: a refused socket that opens, pairs or runs later; a refused
+#   open that forgets it was refused
+law dash_conn_entry_refused_stays:
   for +s: String
-  {FDa.step(FDa.Refused{}, s) == (FDa.Refused{}, SCon{'E', SCon{' ', "dash: the open was refused"}}) : FDa.St & String}
+  for +ins: List<&2, String>
+  for h: {String.is_empty(s) == False{} : Bool}
+  {cs_raw(ins, FDa.open(s)) == sp_open_refused() <> sp_shut(ins) : List<&2, String>}
 
-# LAW dash_conn_entry_exact (C4): on every input, from every socket, the
-# entry answers the spec's step on the event the input is exactly (as the
-# wire's reader reads it), spelled; on any other input exactly the error
-# form, the socket kept
-# EXCLUDES: a field misread or swapped, a malformed event answered or
-#   moving the socket, input left over ignored, another error text
-law dash_conn_entry_exact:
-  for +c: Da.Conn
-  for +s: String
-  {FDa.step(FDa.Live{c}, s) == cspec(c, s) : FDa.St & String}
-
-# LAW dash_conn_entry_reads (C4): the reader reads back every event Rust
-# spells (every length within the wire), leaving the rest untouched
-# EXCLUDES: a reader that refuses or misreads an event Rust sends
+# LAW dash_conn_entry_reads (C4): the shipped decoder reads back every
+# event Rust spells (every length within the wire), leaving the rest
+# untouched
+# EXCLUDES: a decoder that refuses or misreads an event Rust sends (a
+#   field read in another order, a tag misnumbered)
 law dash_conn_entry_reads:
   for +e: Da.CEv
   for +rest: String
   for h: {sp_fit_ev(e) == True{} : Bool}
-  {read_ev(sp_w_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Da.CEv>}
+  {FDa.get_ev(sp_w_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Da.CEv>}
+
+# LAW dash_conn_entry_exact (C4): from every socket, every input the step
+# does not answer with the error form is exactly one event Rust spells,
+# every length within the wire
+# EXCLUDES: a verdict made on input that is no event (an unknown tag, a
+#   malformed field, input left over)
+law dash_conn_entry_exact:
+  for +c: Da.Conn
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(cs_out(FDa.step(FDa.Live{c}, s))) == False{} : Bool}
+  exs e: Da.CEv
+  {s == sp_w_ev(e, "") : String} & {sp_fit_ev(e) == True{} : Bool}
+
+# LAW dash_conn_entry_refuses (C4): from every socket, every error the step
+# answers is exactly `E dash: malformed event`, and the socket is kept
+# EXCLUDES: a malformed input that moves or closes the socket; an error
+#   text that varies with the input
+law dash_conn_entry_refuses:
+  for +c: Da.Conn
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(cs_out(FDa.step(FDa.Live{c}, s))) == True{} : Bool}
+  {FDa.step(FDa.Live{c}, s) == (FDa.Live{c}, sp_malformed()) : FDa.St & String}
 
 # LAW dash_conn_entry_answers (C4): from every socket, every event Rust
-# spells moves the socket as the spec's step does and answers its verdict
+# spells moves the socket as the model's step does (Da.cstep, whose laws
+# are the socket laws above) and answers its verdict, spelled
 # EXCLUDES: an event Rust sends refused or answered otherwise
 law dash_conn_entry_answers:
   for +c: Da.Conn
   for +e: Da.CEv
   for h: {sp_fit_ev(e) == True{} : Bool}
-  {FDa.step(FDa.Live{c}, sp_w_ev(e, "")) == cs_reply(sp_cstep(c, e)) : FDa.St & String}
+  {FDa.step(FDa.Live{c}, sp_w_ev(e, "")) == cs_reply(Da.cstep(c, e)) : FDa.St & String}
 
 # LAW dash_conn_entry_history (C4): the shipped stepper, opened as Rust
-# opens it and fed any events Rust spells, replies to each what the spec
-# decides after the events before it: every socket law holds for the
+# opens it and fed any events Rust spells, replies to each what the model
+# decides after the events before it, so every socket law holds for the
 # socket Rust drives
 # EXCLUDES: a stepper that forgets, reorders or replays an event
 law dash_conn_entry_history:
   for +es: List<&2, Da.CEv>
   for fits: {sp_fit_evs(es) == True{} : Bool}
   {cs_feed(es, FDa.open("")) == "" <> cs_replies(es, Da.Waiting{}) : List<&2, String>}
+
+# Laws: what an ended socket runs (C3, C5)
+# ----------------------------------------
+
+# LAW dash_closed_runs_nothing (C3): the shipped stepper of a closed
+# socket answers every raw input of every run with `closed` (or, for an
+# input that is no event, the malformed error): it never opens the socket
+# again and never runs a frame, whatever comes (a pairing, a matched
+# frame, a file that holds the token again, junk)
+# EXCLUDES: a closed socket reopened by a pairing or a frame; a command run
+#   for a closed socket; a closed socket that answers a refusal again
+law dash_closed_runs_nothing:
+  for +ins: List<&2, String>
+  {cw_quiet(cs_outs(ins, FDa.Live{Da.Closed{}})) == True{} : Bool}
+
+# LAW dash_rejected_runs_nothing (C1-C3): from every socket, once the
+# shipped stepper answers an input with a refusal (tag 2 and its text, as
+# Rust reads `Refuse`), the socket is closed: every later raw input of
+# every run answers `closed` (or the malformed error), so nothing opens or
+# runs for a rejected socket
+# EXCLUDES: a rejected pairing or frame that leaves the socket waiting or
+#   paired; a later frame of a rejected socket run; a rejected socket that
+#   pairs again
+law dash_rejected_runs_nothing:
+  for +c: Da.Conn
+  for +s: String
+  for +t: String
+  for +ins: List<&2, String>
+  for refused: {cs_out(FDa.step(FDa.Live{c}, s)) == Wr.put_nat(2n, Wr.put_str(t, "")) : String}
+  {cw_quiet(cs_outs(ins, cs_st(FDa.step(FDa.Live{c}, s)))) == True{} : Bool}
+
+# LAW dash_rotation_ends_connections (C2, C5): a paired socket whose token
+# is the bytes a, fed by the shipped stepper the later frames Rust sends
+# (each with the file read at that frame and Rust's comparison of a with
+# the file's token, pairing.rs `equal`), where the file at the first of
+# them holds another token b (a rotation replaced it): that frame is
+# refused with "not valid any more" and every frame after it answers
+# `closed`, whatever the file holds later (the old token again included);
+# every file text fits the wire
+# EXCLUDES: a frame run after a rotation; a rotation that leaves sockets
+#   open until they reconnect; a socket reopened when the old token comes
+#   back; a rotation told with another text
+law dash_rotation_ends_connections:
+  for +a: List<&2, Nat>
+  for +g: Da.Disk
+  for +b: List<&2, Nat>
+  for +fs: List<&2, Da.Disk>
+  for rotated: {Dash.sp_stored(g) == Some{b} : Maybe<&2, List<&2, Nat>>}
+  for other: {cv_bytes_same(a, b) == False{} : Bool}
+  for fits: {cv_fit_disks(g <> fs) == True{} : Bool}
+  {cs_feed(cv_frames(Some{a}, g <> fs), (FDa.Live{Da.Paired{}}, "")) == "" <> sp_w_verdict(Da.VRefuse{Dash.sp_wrong()}) <> cw_closed(fs) : List<&2, String>}
+
+# LAW dash_rotation_rejects_old_tokens (C1, C5): after a rotation (the
+# file g holds the token b), a new socket, opened as Rust opens it, whose
+# pairing presents a text t that spells another token a (R1: an old token,
+# or any other), with Rust's comparison of a with the file's token, is
+# refused with "not valid any more", and every later frame it sends
+# answers `closed`, whatever the file holds then (the old token again
+# included); every text fits the wire
+# EXCLUDES: a socket paired on an old token after a rotation; a refused
+#   old-token socket that runs a later frame or pairs later; the refusal
+#   told as "pairing needed" or "no pairing token"
+law dash_rotation_rejects_old_tokens:
+  for +t: String
+  for +a: List<&2, Nat>
+  for +g: Da.Disk
+  for +b: List<&2, Nat>
+  for +fs: List<&2, Da.Disk>
+  for old: {Dash.sp_token(t) == Some{a} : Maybe<&2, List<&2, Nat>>}
+  for rotated: {Dash.sp_stored(g) == Some{b} : Maybe<&2, List<&2, Nat>>}
+  for other: {cv_bytes_same(a, b) == False{} : Bool}
+  for fit: {LawsBase.wire_fits(String.length(t)) == True{} : Bool}
+  for fits: {cv_fit_disks(g <> fs) == True{} : Bool}
+  {cs_feed(cv_life(t, g, fs), FDa.open("")) == "" <> sp_w_verdict(Da.VRefuse{Dash.sp_wrong()}) <> cw_closed(fs) : List<&2, String>}
+
+# LAW dash_rotation_example (C3, C5): anchor and premise witness: the
+# current token pairs and runs; after a rotation an old token's socket is
+# refused, and a paired socket's next frame is refused, then `closed` even
+# when the old token comes back; a frame matched against the token runs;
+# the laws-side terms take both values
+# EXCLUDES: vacuous rotation premises; a spec that takes the old token
+law dash_rotation_example:
+  {[cs_feed(cv_life("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n"}, [Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}]), FDa.open("")), cs_feed(cv_life("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", Da.Holds{"ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n"}, [Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}]), FDa.open("")), cs_feed(cv_frames(Dash.sp_token("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"), [Da.Holds{"ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}, Da.Holds{"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}]), (FDa.Live{Da.Paired{}}, ""))] == [["", "0,", "1,"], ["", Wr.put_nat(2n, Wr.put_str(Dash.sp_wrong(), "")), "3,"], ["", Wr.put_nat(2n, Wr.put_str(Dash.sp_wrong(), "")), "3,"]] : List<&2, List<&2, String>>} & {[cw_quiet1("3,"), cw_quiet1("1,"), cw_quiet1(sp_malformed()), cv_bytes_same([1n, 2n], [1n, 2n]), cv_bytes_same([1n, 2n], [1n, 3n]), cv_bytes_same([1n], [1n, 2n])] == [True{}, False{}, True{}, True{}, False{}, False{}] : List<&2, Bool>}
 
 # LAW dash_conn_entry_example (C4): anchor: the bytes Rust sends and the
 # replies: a matched pairing (paired), a matched frame (runs), an unmatched

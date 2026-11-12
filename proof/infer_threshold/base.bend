@@ -104,9 +104,6 @@ def gt.at(bl: Bool, +w: Nat, +r: M.Z, m: M.Z, +t: Nat) -> {M.over.at(bl, M.limit
     case False{}:
       gt.margin(w, r, m, t)
 
-# The first request over a threshold
-# ----------------------------------
-
 def gt.nb_early(b: Bool) -> {InferThreshold.is_blocks(M.over.early(b)) == False{} : Bool}:
   match b:
     case True{}:

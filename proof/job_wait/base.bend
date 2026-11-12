@@ -1,17 +1,18 @@
-# eukhe: lemmas shared by the proofs of laws/job_wait.bend: the entry's
-# turn after a poll is the laws' (jwb.take_poll), one event in any wait is
-# the laws' step (jwb.step), the open with a spelled budget (jwb.open), a
-# final wait answers its turn forever (jwb.final), a model wait with no
-# budget left detaches whatever comes (jwb.zero), and the absurd premises.
+# eukhe: lemmas shared by the proofs of laws/job_wait.bend: the open with
+# a spelled budget (jwb.open), a final wait answers its turn forever
+# (jwb.final), a model wait with no budget left detaches whatever comes
+# (jwb.zero), a turn's reply and a wait's reply never open with 'E'
+# (jwb.take_ok, jwb.wait_ok), and the absurd premises.
 
 import Base
 import ../../bend/ffi_job_wait.bend as FJw
 import ../../bend/job.bend as M
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ../../laws/job.bend as Job
+import ../../laws/wire.bend as Wire
 import ../../laws/job_wait.bend as JobWait
 import ../base/wire.bend as LWire
+import ../wire/wire_nat_not_err.bend as PWireNatNotErr
 
 # Absurd premises
 # ---------------
@@ -28,93 +29,44 @@ def jwb.tf(-G: Type, e: {True{} == False{} : Bool}) -> G:
   %e : jwb.BB(_, G)
   Unit{}
 
-def jwb.MB(m: Maybe<&2, Bool>, G: Type) -> Type:
-  match m:
-    case None{}:
-      Unit
-    case Some{x}:
-      G
+# Replies
+# -------
 
-# None is not Some (an event read)
-def jwb.none_some(-G: Type, -x: Bool, e: {None{} == Some{x} : Maybe<&2, Bool>}) -> G:
-  %e : jwb.MB(_, G)
-  Unit{}
+# the reply of the wait after any turn is a Nat: never 'E'
+def jwb.take_ok(+l: Nat, t: M.Turn) -> {LawsBase.wire_opens_err(JobWait.jw_reply(FJw.take(l, t))) == False{} : Bool}:
+  match t:
+    case M.Waits{}:
+      Wire.wire_nat_not_err(0n, "")
+    case M.Settles{}:
+      Wire.wire_nat_not_err(1n, "")
+    case M.Detaches{}:
+      Wire.wire_nat_not_err(2n, "")
 
-def jwb.MN(m: Maybe<&2, Nat>, G: Type) -> Type:
-  match m:
-    case None{}:
-      Unit
-    case Some{x}:
-      G
-
-# None is not Some (a budget read)
-def jwb.none_some_nat(-G: Type, -x: Nat, e: {None{} == Some{x} : Maybe<&2, Nat>}) -> G:
-  %e : jwb.MN(_, G)
-  Unit{}
-
-def jwb.bool_of(m: Maybe<&2, Bool>, d: Bool) -> Bool:
-  match m:
-    case None{}:
-      d
-    case Some{x}:
-      x
-
-# Some is injective (an event read)
-def jwb.some_inj(+a: Bool, +b: Bool, e: {Some{a} == Some{b} : Maybe<&2, Bool>}) -> {a == b : Bool}:
-  Equal.cong(Maybe<&2, Bool>, Bool, m => jwb.bool_of(m, a), Some{a}, Some{b}, e)
-
-def jwb.nat_of(m: Maybe<&2, Nat>, d: Nat) -> Nat:
-  match m:
-    case None{}:
-      d
-    case Some{x}:
-      x
-
-# Some is injective (a budget read)
-def jwb.some_inj_nat(+a: Nat, +b: Nat, e: {Some{a} == Some{b} : Maybe<&2, Nat>}) -> {a == b : Nat}:
-  Equal.cong(Maybe<&2, Nat>, Nat, m => jwb.nat_of(m, a), Some{a}, Some{b}, e)
-
-# Turns
-# -----
-
-# the entry's wait after the model's poll is the laws' (the poll is
-# Job.wt_poll_spec: job_wait_poll_exact)
-def jwb.take_poll(left: Nat, d: Bool, r: Bool) -> {FJw.take(left, M.poll(d, r)) == JobWait.jw_after(left, Job.wt_poll_spec(d, r)) : FJw.St & String}:
-  match d r:
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
-# a tick in a wait with l ticks left is the laws' step
-def jwb.tick(l: Nat) -> {FJw.step.wait(FJw.Waiting{l}, False{}) == JobWait.jw_step(FJw.Waiting{l}, False{}) : FJw.St & String}:
+# the reply of a tick with l ticks left is a Nat: never 'E'
+def jwb.tick_ok(l: Nat) -> {LawsBase.wire_opens_err(JobWait.jw_reply(FJw.tick(l))) == False{} : Bool}:
   match l:
     case 0n:
-      {==}
-    case 1n++p:
-      jwb.take_poll(p, Nat.is_eq(p, 0n), False{})
+      jwb.take_ok(0n, M.poll(True{}, False{}))
+    case 1n++q:
+      jwb.take_ok(q, M.poll(Nat.is_eq(q, 0n), False{}))
 
-# one event in any wait is the laws' step
-def jwb.step(w: FJw.Wt, ready: Bool) -> {FJw.step.wait(w, ready) == JobWait.jw_step(w, ready) : FJw.St & String}:
+# the reply of one event in any wait is a Nat: never 'E'
+def jwb.wait_ok(w: FJw.Wt, ready: Bool) -> {LawsBase.wire_opens_err(JobWait.jw_reply(FJw.step.wait(w, ready))) == False{} : Bool}:
   match w:
     case FJw.Waiting{+l}:
       match ready:
         case True{}:
-          jwb.take_poll(l, Nat.is_eq(l, 0n), True{})
+          jwb.take_ok(l, M.poll(Nat.is_eq(l, 0n), True{}))
         case False{}:
-          jwb.tick(l)
+          jwb.tick_ok(l)
     case FJw.Final{t}:
       match t:
         case M.Waits{}:
-          {==}
+          Wire.wire_nat_not_err(0n, "")
         case M.Settles{}:
-          {==}
+          Wire.wire_nat_not_err(1n, "")
         case M.Detaches{}:
-          {==}
+          Wire.wire_nat_not_err(2n, "")
 
 # the open with a spelled budget that fits is the poll at rest
 def jwb.open(+b: Nat, fits: {LawsBase.wire_fits(b) == True{} : Bool}) -> {FJw.open(Wr.put_nat(b, "")) == FJw.take(b, M.poll(Nat.is_eq(b, 0n), False{})) : FJw.St & String}:

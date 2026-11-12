@@ -2,7 +2,7 @@
 #
 # PROOF: the entry's segment codes are the spec's (tas.codes), so the
 # spec's spelling of a path is the entry's put_req (tas.req) and its fit
-# the entry's (tas.fits); tools_ffi_answers answers it with put_names of
+# the entry's (tas.fits); the entry answers it with put_names of
 # Tl.resolve, and put_names spells the names as the spec does (tas.names).
 
 import Base
@@ -13,7 +13,7 @@ import ../../laws/base.bend as LawsBase
 import ../../laws/tools.bend as Tools
 import ../../laws/wire.bend as Wire
 import ../wire/wire_nats_spells.bend as PWireNatsSpells
-import ./tools_ffi_answers.bend as PToolsFfiAnswers
+import ./tools_ffi_request_round_trip.bend as PToolsFfiRequestRoundTrip
 
 # the entry's segment codes are the spec's
 def tas.code(g: Tl.Seg) -> {FTl.code(g) == Tools.tools_seg_code(g) : Nat}:
@@ -57,6 +57,12 @@ def tas.names(m: Maybe<&2, List<&2, Nat>>) -> {FTl.put_names(m, "") == Tools.too
 def tas.names_resolve(+gs: List<&2, Tl.Seg>) -> {FTl.put_names(Tl.resolve(gs), "") == Tools.tools_spell_answer(gs) : String}:
   tas.names(Tl.resolve(gs))
 
+# the entry reads its own spelling of a path back whole (the round trip)
+# and answers put_names of Tl.resolve
+def tas.answers(+gs: List<&2, Tl.Seg>, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FTl.codes(gs))), LawsBase.wire_nats_fit(FTl.codes(gs))) == True{} : Bool}) -> {FTl.ffi(FTl.put_req(gs, "")) == FTl.put_names(Tl.resolve(gs), "") : String}:
+  %Equal.sym(Wr.Dec<List<&2, Tl.Seg>>, FTl.get_req(FTl.put_req(gs, "")), Wr.Got{gs, ""}, Tools.tools_ffi_request_round_trip(gs, "", h)) : {FTl.answer(_) == FTl.put_names(Tl.resolve(gs), "") : String}
+  {==}
+
 def Tools.tools_ffi_answers_spelled(gs, fits):
   %tas.req(gs, "") : {FTl.ffi(_) == Tools.tools_spell_answer(gs) : String}
-  Equal.trans(String, FTl.ffi(FTl.put_req(gs, "")), FTl.put_names(Tl.resolve(gs), ""), Tools.tools_spell_answer(gs), Tools.tools_ffi_answers(gs, tas.fits(gs, fits)), tas.names_resolve(gs))
+  Equal.trans(String, FTl.ffi(FTl.put_req(gs, "")), FTl.put_names(Tl.resolve(gs), ""), Tools.tools_spell_answer(gs), tas.answers(gs, tas.fits(gs, fits)), tas.names_resolve(gs))

@@ -12,7 +12,7 @@ import ../../bend/wire_flat.bend as Fl
 import ../../laws/gateway_width.bend as GatewayWidth
 import ../base/list.bend as LList
 import ../base/nat.bend as LNat
-import ./layout_pads.bend as PLayoutPads
+import ./base/pads.bend as LPads
 
 # The reader
 # ----------
@@ -164,23 +164,23 @@ def gx.widths(k: Nat, +rows: List<&2, List<&2, Nat>>, +i: Nat) -> {Gw.widths(k, 
       %Equal.sym(List<&2, Nat>, Gw.widths(p, Gw.Display{}, FGw.table(rows), 1n+i), GatewayWidth.gw_sp_widths(p, rows, 1n+i), gx.widths(p, rows, 1n+i)) : {GatewayWidth.gw_sp_colw(rows, i) <> _ == GatewayWidth.gw_sp_widths(1n+p, rows, i) : List<&2, Nat>}
       {==}
 
-def gx.pads(k: Nat, +rows: List<&2, List<&2, Nat>>, +r: List<&2, Nat>, +i: Nat) -> {GatewayWidth.gw_pads(k, FGw.table(rows), FGw.cells(r), i) == GatewayWidth.gw_sp_pads(k, rows, r, i) : List<&2, Nat>}:
+def gx.pads(k: Nat, +rows: List<&2, List<&2, Nat>>, +r: List<&2, Nat>, +i: Nat) -> {LPads.gwp.pads(k, FGw.table(rows), FGw.cells(r), i) == GatewayWidth.gw_sp_pads(k, rows, r, i) : List<&2, Nat>}:
   match k:
     case 0n:
       {==}
     case 1n+p:
-      %Equal.sym(Nat, Gw.col.w(FGw.table(rows), Gw.Display{}, i), GatewayWidth.gw_sp_colw(rows, i), gx.colw(rows, i)) : {Nat.sub(_, Gw.get.w(FGw.cells(r), Gw.Display{}, i)) <> GatewayWidth.gw_pads(p, FGw.table(rows), FGw.cells(r), 1n+i) == GatewayWidth.gw_sp_pads(1n+p, rows, r, i) : List<&2, Nat>}
-      %Equal.sym(Nat, Gw.get.w(FGw.cells(r), Gw.Display{}, i), GatewayWidth.gw_sp_cell(r, i), gx.cell(r, i)) : {Nat.sub(GatewayWidth.gw_sp_colw(rows, i), _) <> GatewayWidth.gw_pads(p, FGw.table(rows), FGw.cells(r), 1n+i) == GatewayWidth.gw_sp_pads(1n+p, rows, r, i) : List<&2, Nat>}
-      %Equal.sym(List<&2, Nat>, GatewayWidth.gw_pads(p, FGw.table(rows), FGw.cells(r), 1n+i), GatewayWidth.gw_sp_pads(p, rows, r, 1n+i), gx.pads(p, rows, r, 1n+i)) : {Nat.sub(GatewayWidth.gw_sp_colw(rows, i), GatewayWidth.gw_sp_cell(r, i)) <> _ == GatewayWidth.gw_sp_pads(1n+p, rows, r, i) : List<&2, Nat>}
+      %Equal.sym(Nat, Gw.col.w(FGw.table(rows), Gw.Display{}, i), GatewayWidth.gw_sp_colw(rows, i), gx.colw(rows, i)) : {Nat.sub(_, Gw.get.w(FGw.cells(r), Gw.Display{}, i)) <> LPads.gwp.pads(p, FGw.table(rows), FGw.cells(r), 1n+i) == GatewayWidth.gw_sp_pads(1n+p, rows, r, i) : List<&2, Nat>}
+      %Equal.sym(Nat, Gw.get.w(FGw.cells(r), Gw.Display{}, i), GatewayWidth.gw_sp_cell(r, i), gx.cell(r, i)) : {Nat.sub(GatewayWidth.gw_sp_colw(rows, i), _) <> LPads.gwp.pads(p, FGw.table(rows), FGw.cells(r), 1n+i) == GatewayWidth.gw_sp_pads(1n+p, rows, r, i) : List<&2, Nat>}
+      %Equal.sym(List<&2, Nat>, LPads.gwp.pads(p, FGw.table(rows), FGw.cells(r), 1n+i), GatewayWidth.gw_sp_pads(p, rows, r, 1n+i), gx.pads(p, rows, r, 1n+i)) : {Nat.sub(GatewayWidth.gw_sp_colw(rows, i), GatewayWidth.gw_sp_cell(r, i)) <> _ == GatewayWidth.gw_sp_pads(1n+p, rows, r, i) : List<&2, Nat>}
       {==}
 
-def gx.pads_all(rs: List<&2, List<&2, Nat>>, +k: Nat, +rows: List<&2, List<&2, Nat>>) -> {GatewayWidth.gw_pads_all(FGw.table(rs), k, FGw.table(rows)) == GatewayWidth.gw_sp_pads_all(rs, k, rows) : List<&2, List<&2, Nat>>}:
+def gx.pads_all(rs: List<&2, List<&2, Nat>>, +k: Nat, +rows: List<&2, List<&2, Nat>>) -> {LPads.gwp.pads_all(FGw.table(rs), k, FGw.table(rows)) == GatewayWidth.gw_sp_pads_all(rs, k, rows) : List<&2, List<&2, Nat>>}:
   match rs:
     case Nil{}:
       {==}
     case +r <> +rest:
-      %Equal.sym(List<&2, Nat>, GatewayWidth.gw_pads(k, FGw.table(rows), FGw.cells(r), 0n), GatewayWidth.gw_sp_pads(k, rows, r, 0n), gx.pads(k, rows, r, 0n)) : {_ <> GatewayWidth.gw_pads_all(FGw.table(rest), k, FGw.table(rows)) == GatewayWidth.gw_sp_pads_all(r <> rest, k, rows) : List<&2, List<&2, Nat>>}
-      %Equal.sym(List<&2, List<&2, Nat>>, GatewayWidth.gw_pads_all(FGw.table(rest), k, FGw.table(rows)), GatewayWidth.gw_sp_pads_all(rest, k, rows), gx.pads_all(rest, k, rows)) : {GatewayWidth.gw_sp_pads(k, rows, r, 0n) <> _ == GatewayWidth.gw_sp_pads_all(r <> rest, k, rows) : List<&2, List<&2, Nat>>}
+      %Equal.sym(List<&2, Nat>, LPads.gwp.pads(k, FGw.table(rows), FGw.cells(r), 0n), GatewayWidth.gw_sp_pads(k, rows, r, 0n), gx.pads(k, rows, r, 0n)) : {_ <> LPads.gwp.pads_all(FGw.table(rest), k, FGw.table(rows)) == GatewayWidth.gw_sp_pads_all(r <> rest, k, rows) : List<&2, List<&2, Nat>>}
+      %Equal.sym(List<&2, List<&2, Nat>>, LPads.gwp.pads_all(FGw.table(rest), k, FGw.table(rows)), GatewayWidth.gw_sp_pads_all(rest, k, rows), gx.pads_all(rest, k, rows)) : {GatewayWidth.gw_sp_pads(k, rows, r, 0n) <> _ == GatewayWidth.gw_sp_pads_all(r <> rest, k, rows) : List<&2, List<&2, Nat>>}
       {==}
 
 def gx.one(xs: List<&2, Nat>, +rest: List<&2, Nat>) -> {Fl.one(xs, rest) == List.append(&2, Nat, GatewayWidth.gw_sp_marked(xs), rest) : List<&2, Nat>}:
@@ -201,9 +201,9 @@ def gx.flat(xss: List<&2, List<&2, Nat>>) -> {Fl.flat(xss) == GatewayWidth.gw_sp
       {==}
 
 def gx.reply(+rows: List<&2, List<&2, Nat>>) -> {FGw.put_lay(Gw.layout(FGw.table(rows)), "") == GatewayWidth.gw_sp_reply(rows) : String}:
-  %Equal.sym(List<&2, List<&2, Nat>>, Gw.pads.all(FGw.table(rows), Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n)), GatewayWidth.gw_pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows)), PLayoutPads.gw.pads_all(FGw.table(rows), Gw.cols(FGw.table(rows)), FGw.table(rows))) : {FGw.put_ns(Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(Fl.flat(_), "")) == GatewayWidth.gw_sp_reply(rows) : String}
-  %Equal.sym(List<&2, Nat>, Fl.flat(GatewayWidth.gw_pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows))), GatewayWidth.gw_sp_flat(GatewayWidth.gw_pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows))), gx.flat(GatewayWidth.gw_pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows)))) : {FGw.put_ns(Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(_, "")) == GatewayWidth.gw_sp_reply(rows) : String}
-  %Equal.sym(List<&2, List<&2, Nat>>, GatewayWidth.gw_pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows)), GatewayWidth.gw_sp_pads_all(rows, Nat.sub(Gw.cols(FGw.table(rows)), 1n), rows), gx.pads_all(rows, Nat.sub(Gw.cols(FGw.table(rows)), 1n), rows)) : {FGw.put_ns(Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(GatewayWidth.gw_sp_flat(_), "")) == GatewayWidth.gw_sp_reply(rows) : String}
+  %Equal.sym(List<&2, List<&2, Nat>>, Gw.pads.all(FGw.table(rows), Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n)), LPads.gwp.pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows)), LPads.gwp.all(FGw.table(rows), Gw.cols(FGw.table(rows)), FGw.table(rows))) : {FGw.put_ns(Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(Fl.flat(_), "")) == GatewayWidth.gw_sp_reply(rows) : String}
+  %Equal.sym(List<&2, Nat>, Fl.flat(LPads.gwp.pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows))), GatewayWidth.gw_sp_flat(LPads.gwp.pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows))), gx.flat(LPads.gwp.pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows)))) : {FGw.put_ns(Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(_, "")) == GatewayWidth.gw_sp_reply(rows) : String}
+  %Equal.sym(List<&2, List<&2, Nat>>, LPads.gwp.pads_all(FGw.table(rows), Nat.sub(Gw.cols(FGw.table(rows)), 1n), FGw.table(rows)), GatewayWidth.gw_sp_pads_all(rows, Nat.sub(Gw.cols(FGw.table(rows)), 1n), rows), gx.pads_all(rows, Nat.sub(Gw.cols(FGw.table(rows)), 1n), rows)) : {FGw.put_ns(Gw.widths(Gw.cols(FGw.table(rows)), Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(GatewayWidth.gw_sp_flat(_), "")) == GatewayWidth.gw_sp_reply(rows) : String}
   %Equal.sym(Nat, Gw.cols(FGw.table(rows)), GatewayWidth.gw_sp_cols(rows), gx.cols(rows)) : {FGw.put_ns(Gw.widths(_, Gw.Display{}, FGw.table(rows), 0n), FGw.put_ns(GatewayWidth.gw_sp_flat(GatewayWidth.gw_sp_pads_all(rows, Nat.sub(_, 1n), rows)), "")) == GatewayWidth.gw_sp_reply(rows) : String}
   %Equal.sym(List<&2, Nat>, Gw.widths(GatewayWidth.gw_sp_cols(rows), Gw.Display{}, FGw.table(rows), 0n), GatewayWidth.gw_sp_widths(GatewayWidth.gw_sp_cols(rows), rows, 0n), gx.widths(GatewayWidth.gw_sp_cols(rows), rows, 0n)) : {FGw.put_ns(_, FGw.put_ns(GatewayWidth.gw_sp_flat(GatewayWidth.gw_sp_pads_all(rows, Nat.sub(GatewayWidth.gw_sp_cols(rows), 1n), rows)), "")) == GatewayWidth.gw_sp_reply(rows) : String}
   {==}

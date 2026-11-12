@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW family_entry_answers
 #
-# PROOF: the spelled request reads back whole with nothing left (fe.req_rt), so the entry answers the model's decision, which is the spec's (family_refusal_precedence, family_text_spec; fe.reply).
+# PROOF: the spelled request reads back whole with nothing left (fe.req_rt), so the entry answers the core's decision, spelled as the laws spell it (fe.reply).
 
 import Base
 import ../../bend/family.bend as F

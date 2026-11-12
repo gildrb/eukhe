@@ -6,30 +6,6 @@ import ../bend/ffi_notice.bend as FNo
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
-# The rank of a version, read by semver.bend's reader (the spec): the text
-# before the first '-' read as a version X.Y.Z (Sv.Ver.parse: decimal
-# numbers without leading zeros, three of them, nothing else) whose
-# numbers have at most 14 digits; [X, Y, 0, Z] with a '-' (a prerelease),
-# [X, Y, 1, Z] without; [] for any other text. A number of 15 digits or
-# more is past the range of the compiled core's numbers (2^48 - 1): its
-# version has no rank, as text that is no version. A text of more than 64
-# chars has no rank either (no version is that long): the first 65 chars
-# of any text decide its rank, so Rust sends only those.
-
-# LAW notice_shown_once: an attach never shows a kernel restore notice again. After any
-# restores, live notices and attaches (reconnects, worker restarts), in
-# any order, each stored notice showed at most once (bend/notice.bend;
-# the host is crates/eukhe-tui/src/restore_notices.rs)
-law notice_shown_once:
-  for +evs: List<&2, No.Ev>
-  {No.once(No.run(evs)) == True{} : Bool}
-
-# LAW notice_per_restore: restore notices do not accumulate. After any events and one more
-# attach, the restore rows the view showed equal the restores
-law notice_per_restore:
-  for +evs: List<&2, No.Ev>
-  {No.total(No.run(List.append(&2, No.Ev, evs, [No.Reconnect{}]))) == No.restores(evs) : Nat}
-
 # ---- the rule (bend/notice.bend, run by bend/ffi_notice.bend) ----
 #
 # LAWS: the kernel restore notices a TUI view shows
@@ -58,6 +34,15 @@ law notice_per_restore:
 #     the rule's answer; any other input answers the error form and keeps
 #     the record; an open with input is refused, and a refused open
 #     answers every step with the error form.
+#
+# A1: Rust spells only asks whose session ids, kinds, stamps and message
+#     counts fit the wire (nt_ask_fits); the laws of the entry's answers
+#     take it as their premise.
+#
+# The laws state R6 on the model of the scenario (No.run, bend/notice.bend:
+# positions, not the rule; neither the entry nor Rust runs it) and on the
+# rule itself, driven as eukhe drives it (nt_scene); notice_real_refines
+# ties the two.
 
 # Spec helpers
 # ------------
@@ -106,6 +91,15 @@ def nt_noted(qs: List<&2, No.Ask>, +sid: String, +s: String) -> Bool:
           nt_noted(t, sid, s)
         case No.Notes{a, ms}:
           Bool.or(Bool.and(nt_eq(a, sid), nt_has(ms, s)), nt_noted(t, sid, s))
+
+# m, asked for session q, is a restore notice of the session sid whose
+# stamp a restore notice among ms holds (what a record of ms for sid hides)
+def nt_hides(+q: String, +sid: String, m: No.Msg, ms: List<&2, No.Msg>) -> Bool:
+  match m:
+    case No.Other{}:
+      False{}
+    case No.Custom{k, s}:
+      Bool.and(nt_eq(k, nt_kind()), Bool.and(nt_eq(sid, q), nt_has(ms, s)))
 
 # after the asks qs, m of session sid shows: it is no restore notice, or
 # no record of sid among qs holds its stamp
@@ -234,6 +228,14 @@ def nt_feed(ins: List<&2, String>, r: FNo.St & String) -> List<&2, String>:
     case i <> t:
       (st, out) = r
       out <> nt_feed(t, FNo.step(st, i))
+
+# the reply to each of the inputs ins after a refused open: the error form
+def nt_refused(ins: List<&2, String>) -> List<&2, String>:
+  match ins:
+    case Nil{}:
+      Nil{}
+    case i <> t:
+      Wr.err("notice: the open was refused") <> nt_refused(t)
 
 # The scenario (R6): the model's events run on the rule as eukhe runs them
 # --------
@@ -389,6 +391,30 @@ def nt_restores(evs: List<&2, No.Ev>) -> Nat:
         case No.Reconnect{}:
           nt_restores(rest)
 
+# Laws: the model of the scenario
+# -------------------------------
+
+# LAW notice_shown_once (R6): in the model of the scenario (No.run: the
+# stored notices as positions, each with whether the view's record holds
+# it and how many times it showed; a model neither the entry nor Rust runs,
+# tied to the rule by notice_real_refines), after any restores, live
+# notices and attaches in any order, each stored notice showed at most once
+# EXCLUDES: a model whose attach or live event shows again a notice its
+#   record holds (notice_real_refines would then compare the rule to a
+#   model that repeats restore rows)
+law notice_shown_once:
+  for +evs: List<&2, No.Ev>
+  {nt_once(nt_shown(No.run(evs))) == True{} : Bool}
+
+# LAW notice_per_restore (R6): in the model of the scenario (No.run), after
+# any events and one more attach, the times the stored notices showed sum
+# to the restores among the events
+# EXCLUDES: a model that loses a notice at an attach, or stores none or two
+#   for a restore
+law notice_per_restore:
+  for +evs: List<&2, No.Ev>
+  {nt_sum(nt_shown(No.run(List.append(&2, No.Ev, evs, [No.Reconnect{}])))) == nt_restores(evs) : Nat}
+
 # Laws: the rule
 # --------------
 
@@ -439,23 +465,20 @@ law notice_real_apart:
   for h: {nt_eq(sid, q) == False{} : Bool}
   {No.visible(No.record(rs, sid, ms), q, m) == No.visible(rs, q, m) : Bool}
 
-# LAW notice_real_other_shows (R3): a message of another role always shows
-# EXCLUDES: user, assistant or tool messages hidden by the record
-law notice_real_other_shows:
+# LAW notice_real_record (R1, R2, R3, R4): after the view records the
+# messages ms of session sid on any record rs, a message m of session q
+# shows exactly when it showed before and it is not a restore notice of the
+# same session (q = sid) whose stamp a restore notice among ms holds
+# EXCLUDES: a record that hides more than it was given (another stamp,
+#   another kind, another role, another session, a stamp of its own), or
+#   that forgets or reveals an earlier notice
+law notice_real_record:
   for +rs: List<&2, No.Seen>
   for +sid: String
-  {No.visible(rs, sid, No.Other{}) == True{} : Bool}
-
-# LAW notice_real_custom_shows (R3): a custom message of another kind always shows
-# EXCLUDES: custom messages of other kinds hidden because their stamp was
-#   recorded
-law notice_real_custom_shows:
-  for +rs: List<&2, No.Seen>
-  for +sid: String
-  for +k: String
-  for +s: String
-  for h: {nt_eq(k, nt_kind()) == False{} : Bool}
-  {No.visible(rs, sid, No.Custom{k, s}) == True{} : Bool}
+  for +q: String
+  for +ms: List<&2, No.Msg>
+  for +m: No.Msg
+  {No.visible(No.record(rs, sid, ms), q, m) == Bool.and(No.visible(rs, q, m), Bool.not(nt_hides(q, sid, m, ms))) : Bool}
 
 # LAW notice_real_refines (R6): the model's events run on the rule as eukhe runs them (a
 # restore stores a notice after a message of another role; a live notice
@@ -481,31 +504,6 @@ law notice_real_per_restore:
   for +evs: List<&2, No.Ev>
   {nt_sum(nt_counts(nt_scene(List.append(&2, No.Ev, evs, [No.Reconnect{}])))) == nt_restores(evs) : Nat}
 
-# LAW notice_once_exact (R6): the model's `once` holds exactly when every stored notice showed
-# at most once
-# EXCLUDES: a constant or input-ignoring No.once (notice_shown_once would
-#   then say nothing about the model)
-law notice_once_exact:
-  for +ns: List<&2, No.N>
-  {No.once(ns) == nt_once(nt_shown(ns)) : Bool}
-
-# LAW notice_total_exact (R6): the model's `total` is the sum of how many times each stored
-# notice showed
-# EXCLUDES: a No.total that counts the stored notices (List.length) or
-#   any other input-ignoring count (notice_per_restore would then say
-#   nothing about how many restore rows showed)
-law notice_total_exact:
-  for +ns: List<&2, No.N>
-  {No.total(ns) == nt_sum(nt_shown(ns)) : Nat}
-
-# LAW notice_restores_exact (R6): the model's `restores` counts the restores among the events
-# EXCLUDES: a No.restores that counts every event, or the live events or
-#   attaches (notice_per_restore would then pin the shown rows to
-#   another count)
-law notice_restores_exact:
-  for +evs: List<&2, No.Ev>
-  {No.restores(evs) == nt_restores(evs) : Nat}
-
 # Laws: the entry
 # ---------------
 
@@ -521,11 +519,17 @@ law notice_ffi_open_refused:
   for h: {String.is_empty(s) == False{} : Bool}
   {FNo.open(s) == (FNo.Shut{}, Wr.err("notice: the open takes no input")) : FNo.St & String}
 
-# LAW notice_ffi_shut (R7): a refused open answers every step with the error form
-# EXCLUDES: a refused stepper that answers a decision
-law notice_ffi_shut:
+# LAW notice_ffi_refused (R7): after an open with input, the open answers
+# its error form and every step of any sequence of inputs after it
+# answers the refused-open error form (the refused stepper never comes
+# alive)
+# EXCLUDES: a refused stepper that answers a decision, or that a later
+#   step revives (a refused state that steps to an empty record)
+law notice_ffi_refused:
   for +s: String
-  {FNo.step(FNo.Shut{}, s) == (FNo.Shut{}, Wr.err("notice: the open was refused")) : FNo.St & String}
+  for h: {String.is_empty(s) == False{} : Bool}
+  for +ins: List<&2, String>
+  {nt_feed(ins, FNo.open(s)) == Wr.err("notice: the open takes no input") <> nt_refused(ins) : List<&2, String>}
 
 # LAW notice_ffi_step (R7): an ask Rust spells answers the rule's answer, spelled, and the
 # record moves as the rule moves it

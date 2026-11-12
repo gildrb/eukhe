@@ -1,11 +1,10 @@
 # eukhe: the proof of LAW commit_entry_answers
 #
 # PROOF: the spelled request reads back whole with nothing left
-# (commit_entry_reads), so the entry answers the code's choice; each
-# choice is the spec's (commit_check_spec, commit_outcome_spec,
-# commit_answer_spec, commit_gate_spec, commit_seen_spec,
-# commit_prefix_spec, commit_sweep_spec) and each reply encoder is the
-# spec's spelling (dcw.put_*).
+# (commit_entry_reads), so the entry answers the code's choice, which is
+# the spec's reply by definition (the choices are pinned by
+# laws/doc_commit/choices.bend); each reply encoder is the spec's
+# spelling (dcw.put_*).
 
 import Base
 import ../../bend/doc_commit.bend as Cm
@@ -16,12 +15,6 @@ import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ./base.bend as LA
 import ../base/wire_dec.bend as LE
-import ./commit_check_spec.bend as PCommitCheckSpec
-import ./commit_outcome_spec.bend as PCommitOutcomeSpec
-import ./commit_answer_spec.bend as PCommitAnswerSpec
-import ./commit_gate_spec.bend as PCommitGateSpec
-import ./commit_seen_spec.bend as PCommitSeenSpec
-import ./commit_sweep_spec.bend as PCommitSweepSpec
 import ./commit_entry_reads.bend as PCommitEntryReads
 
 def dcw.put_check(c: Cm.Check) -> {FCm.put_check(c) == DocCommit.sp_w_check(c) : String}:
@@ -112,24 +105,18 @@ def dcw.put_verdict(v: Cm.Verdict) -> {FCm.put_verdict(v) == DocCommit.sp_w_verd
 def dcw.reply(q: FCm.Req) -> {FCm.answer(q) == DocCommit.sp_w_reply(q) : String}:
   match q:
     case FCm.QCheck{+ms}:
-      %DocCommit.commit_check_spec(ms) : {FCm.put_check(Cm.check(ms)) == DocCommit.sp_w_check(_) : String}
       dcw.put_check(Cm.check(ms))
     case FCm.QPublish{+p}:
-      %DocCommit.commit_outcome_spec(p) : {FCm.put_outcome(Cm.outcome(p)) == DocCommit.sp_w_outcome(_, "") : String}
       dcw.put_outcome(Cm.outcome(p))
     case FCm.QAnswer{+fs}:
-      %DocCommit.commit_answer_spec(fs) : {FCm.put_verdict(Cm.answer(fs)) == DocCommit.sp_w_verdict(_) : String}
       dcw.put_verdict(Cm.answer(fs))
     case FCm.QGate{+b, +d}:
-      %DocCommit.commit_gate_spec(b, d) : {Wr.put_nat(FCm.gate.tag(Cm.gate(b, d)), "") == DocCommit.sp_w_gate(_) : String}
       dcw.put_gate(Cm.gate(b, d))
     case FCm.QSeen{+d, +xs}:
-      %DocCommit.commit_seen_spec(d, xs) : {Wr.put_list(~String, ~Wr.put_str, Cm.seen(d, xs), "") == Wr.put_list(~String, ~Wr.put_str, _, "") : String}
       {==}
     case FCm.QPrefix{+h}:
       {==}
     case FCm.QSweep{+h, +es}:
-      %DocCommit.commit_sweep_spec(h, es) : {Wr.put_list(~Nat, ~Wr.put_nat, Cm.gone(h, es), "") == Wr.put_list(~Nat, ~Wr.put_nat, _, "") : String}
       {==}
 
 def DocCommit.commit_entry_answers(q, h):

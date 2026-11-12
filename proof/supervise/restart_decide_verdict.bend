@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW restart_decide_verdict
 #
-# PROOF: the window is the spec's (LA.ps.rs_window). The pause: the code
+# PROOF: the count is the decided budget's (step unfolds). The pause: the code
 # doubles base capped at max after every doubling (Su.backoff.go); a cap
 # x -> min(x, m) is Nat.min (ps.rs_cap); capping before a doubling caps
 # the same as after it (ps.rs_cap_dbl: past max both are max); so e capped
@@ -11,7 +11,6 @@ import Base
 import ../../bend/supervise.bend as Su
 import ../../laws/supervise.bend as Supervise
 import ../autoresearch/base/conf/nat.bend as CN
-import ./base.bend as LA
 
 def ps.rs_cap_succ(b: Bool, p: Nat, q: Nat) -> {Su.backoff.cap(b, 1n+p, 1n+q) == 1n+Su.backoff.cap(b, p, q) : Nat}:
   match b:
@@ -133,5 +132,4 @@ def ps.rs_verdict(b: Bool, +c: Su.Cfg, +n: Nat) -> {Su.verdict.put(b, c, n) == S
 def Supervise.restart_decide_verdict(c, s, g):
   match s:
     case Su.St{a, n}:
-      %LA.ps.rs_window(Su.Cfg.w(c), g, a) : {Su.verdict(c, 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a)))) == Supervise.restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, _)), c, 1n+List.length(&2, Nat, _)) : Su.Verdict}
       ps.rs_verdict(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a)))), c, 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a))))

@@ -1,7 +1,7 @@
-# eukhe: lemmas the proofs of area wait_any share: the poll and the cap;
-# what is left to deliver; the entry's decoder is the laws' reader
-# (spec/durable/wait_any_wire.bend), stage by stage; a spelled request
-# that fits reads back whole
+# eukhe: lemmas the proofs of area wait_any share: Nat facts and the cap;
+# the route; what is left to deliver (the laws' count of the code's
+# steps); a spelled request that fits reads back whole through the
+# entry's decoder
 
 import Base
 import ../../bend/wait_any.bend as Wa
@@ -9,8 +9,10 @@ import ../../bend/ffi_wait_any.bend as FWa
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
+import ../../laws/wait_any.bend as WaitAny
 import ../../spec/durable/wait_any.bend as WaSpec
 import ../../spec/durable/wait_any_wire.bend as SpW
+import ../base/staging.bend as LStg
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
@@ -93,95 +95,13 @@ def wa.min_le_r(+a: Nat, +b: Nat) -> {Nat.is_le(Nat.min(a, b), b) == True{} : Bo
     case 1n+p 1n+q:
       wa.min_le_r(p, q)
 
-# S1: the first settled target
-# ----------------------------
-
-# m with every position moved i further
-def wa.shift(+i: Nat, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match m:
-    case None{}:
-      None{}
-    case Some{j}:
-      Some{Nat.add(i, j)}
-
-def wa.shift_later(+i: Nat, m: Maybe<&2, Nat>) -> {wa.shift(1n+i, m) == wa.shift(i, WaSpec.later(m)) : Maybe<&2, Nat>}:
-  match m:
-    case None{}:
+# at most none is at most one
+def wa.le01(n: Nat, h: {Nat.is_le(n, 0n) == True{} : Bool}) -> {Nat.is_le(n, 1n) == True{} : Bool}:
+  match n:
+    case 0n:
       {==}
-    case Some{j}:
-      %wa.add_succ_r(i, j) : {Some{_} == Some{Nat.add(i, 1n+j)} : Maybe<&2, Nat>}
-      {==}
-
-def wa.shift_zero(m: Maybe<&2, Nat>) -> {wa.shift(0n, m) == m : Maybe<&2, Nat>}:
-  match m:
-    case None{}:
-      {==}
-    case Some{j}:
-      {==}
-
-def wa.first_here(+i: Nat) -> {Some{i} == wa.shift(i, Some{0n}) : Maybe<&2, Nat>}:
-  %wa.add_zero_r(i) : {Some{_} == Some{Nat.add(i, 0n)} : Maybe<&2, Nat>}
-  {==}
-
-def wa.first_on(+named: Bool, rest: List<&2, Wa.Tgt>, +i: Nat, ih: {Wa.first(rest, named, 1n+i) == wa.shift(1n+i, WaSpec.pos(rest, named)) : Maybe<&2, Nat>})
-  -> {Wa.first(rest, named, 1n+i) == wa.shift(i, WaSpec.later(WaSpec.pos(rest, named))) : Maybe<&2, Nat>}:
-  Equal.trans(Maybe<&2, Nat>, Wa.first(rest, named, 1n+i), wa.shift(1n+i, WaSpec.pos(rest, named)), wa.shift(i, WaSpec.later(WaSpec.pos(rest, named))), ih, wa.shift_later(i, WaSpec.pos(rest, named)))
-
-# the code's first settled index from i is the spec's position, moved i
-def wa.first_pos(ts: List<&2, Wa.Tgt>, +named: Bool, +i: Nat) -> {Wa.first(ts, named, i) == wa.shift(i, WaSpec.pos(ts, named)) : Maybe<&2, Nat>}:
-  match ts:
-    case Nil{}:
-      {==}
-    case Con{t, +rest}:
-      match t:
-        case Wa.Runs{}:
-          wa.first_on(named, rest, i, wa.first_pos(rest, named, 1n+i))
-        case Wa.Unread{}:
-          wa.first_here(i)
-        case Wa.Read{}:
-          match named:
-            case True{}:
-              wa.first_here(i)
-            case False{}:
-              wa.first_on(False{}, rest, i, wa.first_pos(rest, False{}, 1n+i))
-
-def wa.first0(+ts: List<&2, Wa.Tgt>, +named: Bool) -> {WaSpec.pos(ts, named) == Wa.first(ts, named, 0n) : Maybe<&2, Nat>}:
-  Equal.sym(Maybe<&2, Nat>, Wa.first(ts, named, 0n), WaSpec.pos(ts, named),
-    Equal.trans(Maybe<&2, Nat>, Wa.first(ts, named, 0n), wa.shift(0n, WaSpec.pos(ts, named)), WaSpec.pos(ts, named), wa.first_pos(ts, named, 0n), wa.shift_zero(WaSpec.pos(ts, named))))
-
-# S2: some target runs exactly when the spec counts one
-def wa.live_running(ts: List<&2, Wa.Tgt>) -> {Bool.not(Nat.is_eq(WaSpec.running(ts), 0n)) == Wa.live(ts) : Bool}:
-  match ts:
-    case Nil{}:
-      {==}
-    case Con{t, rest}:
-      match t:
-        case Wa.Runs{}:
-          {==}
-        case Wa.Unread{}:
-          wa.live_running(rest)
-        case Wa.Read{}:
-          wa.live_running(rest)
-
-# the code's last step of a poll is the spec's
-def wa.poll_of(m: Maybe<&2, Nat>, z: Bool, c: Bool, l: Bool) -> {Wa.poll.found(m, Bool.not(z), c, l) == WaSpec.poll.of(m, z, c, l) : Wa.Pick}:
-  match m:
-    case Some{i}:
-      {==}
-    case None{}:
-      match z:
-        case True{}:
-          {==}
-        case False{}:
-          match c:
-            case True{}:
-              {==}
-            case False{}:
-              match l:
-                case True{}:
-                  {==}
-                case False{}:
-                  {==}
+    case 1n+p:
+      LStg.stg.absurdF({Nat.is_le(1n+p, 1n) == True{} : Bool}, h)
 
 # S3: the route
 def wa.route_eq(watched: Bool, wake: Bool) -> {Wa.route(watched, wake) == WaSpec.route(watched, wake) : Wa.Route}:
@@ -210,18 +130,18 @@ def wa.left(d: Wa.D) -> Nat:
         case Wa.Sent{}:
           0n
 
-# a delivery state of w watchers kept for a wait, as route sends it
+# a delivery state of w watchers placed as route r says
 def wa.after_route(r: Wa.Route, +w: Nat, rest: List<&2, Wa.Ev>, +wake: Bool,
-  ih: @d: Wa.D -> {Nat.is_le(Wa.deliveries(rest, wake, d), wa.left(d)) == True{} : Bool})
-  -> {Nat.is_le(Nat.add(Wa.Out.k(Wa.deliver(r, w)), Wa.deliveries(rest, wake, Wa.Out.d(Wa.deliver(r, w)))), 1n) == True{} : Bool}:
+  ih: @d: Wa.D -> {Nat.is_le(WaitAny.wa_count(rest, wake, d), wa.left(d)) == True{} : Bool})
+  -> {Nat.is_le(Nat.add(WaSpec.out_k(Wa.deliver(r, w)), WaitAny.wa_count(rest, wake, WaSpec.out_d(Wa.deliver(r, w)))), 1n) == True{} : Bool}:
   match r:
     case Wa.ToWaiter{}:
       ih(Wa.D{w, Wa.Kept{}})
     case Wa.ToNotice{}:
       ih(Wa.D{w, Wa.Sent{}})
 
-# no events deliver more than what is left
-def wa.once_go(es: List<&2, Wa.Ev>, +wake: Bool, d: Wa.D) -> {Nat.is_le(Wa.deliveries(es, wake, d), wa.left(d)) == True{} : Bool}:
+# no events deliver more than what is left, counted on the laws' side
+def wa.once_go(es: List<&2, Wa.Ev>, +wake: Bool, d: Wa.D) -> {Nat.is_le(WaitAny.wa_count(es, wake, d), wa.left(d)) == True{} : Bool}:
   match es:
     case Nil{}:
       wa.le_zero(wa.left(d))
@@ -268,206 +188,24 @@ def wa.once_go(es: List<&2, Wa.Ev>, +wake: Bool, d: Wa.D) -> {Nat.is_le(Wa.deliv
                 case Wa.Sent{}:
                   wa.once_go(rest, wake, Wa.D{w, Wa.Sent{}})
 
-# R4: the code's deliveries are the laws' count
-# ---------------------------------------------
-
-def wa.k_eq(o: Wa.Out) -> {Wa.Out.k(o) == WaSpec.out_k(o) : Nat}:
-  match o:
-    case Wa.Out{d, k}:
-      {==}
-
-# The reader (R5)
-# ---------------
-
-def wa.tgt_eq(n: Nat) -> {FWa.tgt_of(n) == SpW.r_tgt(n) : Maybe<&2, Wa.Tgt>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n+u:
-      {==}
-
-def wa.cons_eq(t: Maybe<&2, Wa.Tgt>, r: Maybe<&2, List<&2, Wa.Tgt>>) -> {FWa.tgts.cons(t, r) == SpW.r_tgts.cons(t, r) : Maybe<&2, List<&2, Wa.Tgt>>}:
-  match t:
-    case None{}:
-      {==}
-    case Some{x}:
-      match r:
-        case None{}:
-          {==}
-        case Some{xs}:
-          {==}
-
-def wa.tgts_eq(ns: List<&2, Nat>) -> {FWa.tgts(ns) == SpW.r_tgts(ns) : Maybe<&2, List<&2, Wa.Tgt>>}:
-  match ns:
-    case Nil{}:
-      {==}
-    case Con{+n, +rest}:
-      %wa.tgt_eq(n) : {FWa.tgts.cons(FWa.tgt_of(n), FWa.tgts(rest)) == SpW.r_tgts.cons(_, SpW.r_tgts(rest)) : Maybe<&2, List<&2, Wa.Tgt>>}
-      %wa.tgts_eq(rest) : {FWa.tgts.cons(FWa.tgt_of(n), FWa.tgts(rest)) == SpW.r_tgts.cons(FWa.tgt_of(n), _) : Maybe<&2, List<&2, Wa.Tgt>>}
-      wa.cons_eq(FWa.tgt_of(n), FWa.tgts(rest))
-
-def wa.poll_ok(n: Bool, c: Bool, l: Bool, ts: Maybe<&2, List<&2, Wa.Tgt>>, s: String) -> {FWa.get_poll.ok(n, c, l, ts, s) == SpW.r_poll.ok(n, c, l, ts, s) : Wr.Dec<FWa.Req>}:
-  match ts:
-    case Some{xs}:
-      {==}
-    case None{}:
-      {==}
-
-def wa.poll_ts(+n: Bool, +c: Bool, +l: Bool, x: Wr.Dec<List<&2, Nat>>) -> {FWa.get_poll.ts(n, c, l, x) == SpW.r_poll.ts(n, c, l, x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{+ns, +s}:
-      %wa.tgts_eq(ns) : {FWa.get_poll.ok(n, c, l, FWa.tgts(ns), s) == SpW.r_poll.ok(n, c, l, _, s) : Wr.Dec<FWa.Req>}
-      wa.poll_ok(n, c, l, FWa.tgts(ns), s)
-    case Wr.Bad{}:
-      {==}
-
-def wa.poll_late(+n: Bool, +c: Bool, x: Wr.Dec<Bool>) -> {FWa.get_poll.late(n, c, x) == SpW.r_poll.late(n, c, x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{l, s}:
-      wa.poll_ts(n, c, l, Wr.get_list(~Nat, ~Wr.get_nat, s))
-    case Wr.Bad{}:
-      {==}
-
-def wa.poll_cancel(+n: Bool, x: Wr.Dec<Bool>) -> {FWa.get_poll.cancel(n, x) == SpW.r_poll.cancel(n, x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{c, s}:
-      wa.poll_late(n, c, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def wa.poll(x: Wr.Dec<Bool>) -> {FWa.get_poll(x) == SpW.r_poll(x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{n, s}:
-      wa.poll_cancel(n, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def wa.phase_eq(n: Nat) -> {FWa.phase_of(n) == SpW.r_phase(n) : Maybe<&2, Wa.Phase>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n+u:
-      {==}
-
-def wa.ev_eq(n: Nat) -> {FWa.ev_of(n) == SpW.r_ev(n) : Maybe<&2, Wa.Ev>}:
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n:
-      {==}
-    case 4n+u:
-      {==}
-
-def wa.step_ok(k: Bool, w: Nat, p: Maybe<&2, Wa.Phase>, e: Maybe<&2, Wa.Ev>, s: String) -> {FWa.get_step.ok(k, w, p, e, s) == SpW.r_step.ok(k, w, p, e, s) : Wr.Dec<FWa.Req>}:
-  match p:
-    case Some{ph}:
-      match e:
-        case Some{ev}:
-          {==}
-        case None{}:
-          {==}
-    case None{}:
-      {==}
-
-def wa.step_ev(+k: Bool, +w: Nat, +p: Nat, x: Wr.Dec<Nat>) -> {FWa.get_step.ev(k, w, p, x) == SpW.r_step.ev(k, w, p, x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{+e, +s}:
-      %wa.phase_eq(p) : {FWa.get_step.ok(k, w, FWa.phase_of(p), FWa.ev_of(e), s) == SpW.r_step.ok(k, w, _, SpW.r_ev(e), s) : Wr.Dec<FWa.Req>}
-      %wa.ev_eq(e) : {FWa.get_step.ok(k, w, FWa.phase_of(p), FWa.ev_of(e), s) == SpW.r_step.ok(k, w, FWa.phase_of(p), _, s) : Wr.Dec<FWa.Req>}
-      wa.step_ok(k, w, FWa.phase_of(p), FWa.ev_of(e), s)
-    case Wr.Bad{}:
-      {==}
-
-def wa.step_phase(+k: Bool, +w: Nat, x: Wr.Dec<Nat>) -> {FWa.get_step.phase(k, w, x) == SpW.r_step.phase(k, w, x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{p, s}:
-      wa.step_ev(k, w, p, Wr.get_nat(s))
-    case Wr.Bad{}:
-      {==}
-
-def wa.step_watchers(+k: Bool, x: Wr.Dec<Nat>) -> {FWa.get_step.watchers(k, x) == SpW.r_step.watchers(k, x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{w, s}:
-      wa.step_phase(k, w, Wr.get_nat(s))
-    case Wr.Bad{}:
-      {==}
-
-def wa.step(x: Wr.Dec<Bool>) -> {FWa.get_step(x) == SpW.r_step(x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{k, s}:
-      wa.step_watchers(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      {==}
-
-def wa.secs(x: Wr.Dec<Nat>) -> {FWa.get_timeout.ms(x) == SpW.r_timeout.secs(x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{t, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def wa.timeout(x: Wr.Dec<Nat>) -> {FWa.get_timeout(x) == SpW.r_timeout(x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          {==}
-        case 1n:
-          wa.secs(Wr.get_nat(s))
-        case 2n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-def wa.start(x: Wr.Dec<Nat>) -> {FWa.get_req.start(x) == SpW.r_req.tag(x) : Wr.Dec<FWa.Req>}:
-  match x:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          wa.poll(Wr.get_bool(s))
-        case 1n:
-          wa.step(Wr.get_bool(s))
-        case 2n:
-          wa.timeout(Wr.get_nat(s))
-        case 3n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
-# the entry reads every input as the laws' reader does
-def wa.req(+s: String) -> {FWa.get_req(s) == SpW.r_req(s) : Wr.Dec<FWa.Req>}:
-  wa.start(Wr.get_nat(s))
-
-# Read back (R5)
-# --------------
+# Read back (R5): the entry's decoder reads a spelled request
+# ------------------------------------------------------------
 
 # the target codes read back as the targets
-def wa.tgts_back(ts: List<&2, Wa.Tgt>) -> {SpW.r_tgts(SpW.c_tgts(ts)) == Some{ts} : Maybe<&2, List<&2, Wa.Tgt>>}:
+def wa.tgts_back(ts: List<&2, Wa.Tgt>) -> {FWa.tgts(SpW.c_tgts(ts)) == Some{ts} : Maybe<&2, List<&2, Wa.Tgt>>}:
   match ts:
     case Nil{}:
       {==}
     case Con{t, +rest}:
       match t:
         case Wa.Runs{}:
-          %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, SpW.r_tgts(SpW.c_tgts(rest)), Some{rest}, wa.tgts_back(rest)) : {SpW.r_tgts.cons(Some{Wa.Runs{}}, _) == Some{Wa.Runs{} <> rest} : Maybe<&2, List<&2, Wa.Tgt>>}
+          %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, FWa.tgts(SpW.c_tgts(rest)), Some{rest}, wa.tgts_back(rest)) : {FWa.tgts.cons(Some{Wa.Runs{}}, _) == Some{Wa.Runs{} <> rest} : Maybe<&2, List<&2, Wa.Tgt>>}
           {==}
         case Wa.Unread{}:
-          %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, SpW.r_tgts(SpW.c_tgts(rest)), Some{rest}, wa.tgts_back(rest)) : {SpW.r_tgts.cons(Some{Wa.Unread{}}, _) == Some{Wa.Unread{} <> rest} : Maybe<&2, List<&2, Wa.Tgt>>}
+          %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, FWa.tgts(SpW.c_tgts(rest)), Some{rest}, wa.tgts_back(rest)) : {FWa.tgts.cons(Some{Wa.Unread{}}, _) == Some{Wa.Unread{} <> rest} : Maybe<&2, List<&2, Wa.Tgt>>}
           {==}
         case Wa.Read{}:
-          %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, SpW.r_tgts(SpW.c_tgts(rest)), Some{rest}, wa.tgts_back(rest)) : {SpW.r_tgts.cons(Some{Wa.Read{}}, _) == Some{Wa.Read{} <> rest} : Maybe<&2, List<&2, Wa.Tgt>>}
+          %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, FWa.tgts(SpW.c_tgts(rest)), Some{rest}, wa.tgts_back(rest)) : {FWa.tgts.cons(Some{Wa.Read{}}, _) == Some{Wa.Read{} <> rest} : Maybe<&2, List<&2, Wa.Tgt>>}
           {==}
 
 # a target's code fits the wire
@@ -515,7 +253,7 @@ def wa.phase_fits(p: Wa.Phase) -> {LawsBase.wire_fits(SpW.c_phase(p)) == True{} 
     case Wa.Sent{}:
       {==}
 
-def wa.phase_back(p: Wa.Phase) -> {SpW.r_phase(SpW.c_phase(p)) == Some{p} : Maybe<&2, Wa.Phase>}:
+def wa.phase_back(p: Wa.Phase) -> {FWa.phase_of(SpW.c_phase(p)) == Some{p} : Maybe<&2, Wa.Phase>}:
   match p:
     case Wa.Live{}:
       {==}
@@ -536,7 +274,7 @@ def wa.ev_fits(e: Wa.Ev) -> {LawsBase.wire_fits(SpW.c_ev(e)) == True{} : Bool}:
     case Wa.Taken{}:
       {==}
 
-def wa.ev_back(e: Wa.Ev) -> {SpW.r_ev(SpW.c_ev(e)) == Some{e} : Maybe<&2, Wa.Ev>}:
+def wa.ev_back(e: Wa.Ev) -> {FWa.ev_of(SpW.c_ev(e)) == Some{e} : Maybe<&2, Wa.Ev>}:
   match e:
     case Wa.Watch{}:
       {==}
@@ -554,56 +292,56 @@ def wa.bool_rt(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.pu
   Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Wire.wire_bool_round_trip(b, rest))
 
 # a poll request that fits reads back, and the rest is untouched
-def wa.poll_rt(+n: Bool, +c: Bool, +l: Bool, +ts: List<&2, Wa.Tgt>, +rest: String, h: {LawsBase.wire_fits(List.length(&2, Wa.Tgt, ts)) == True{} : Bool}) -> {SpW.r_req(SpW.w_req(FWa.QPoll{n, c, l, ts}, rest)) == Wr.Got{FWa.QPoll{n, c, l, ts}, rest} : Wr.Dec<FWa.Req>}:
+def wa.poll_rt(+n: Bool, +c: Bool, +l: Bool, +ts: List<&2, Wa.Tgt>, +rest: String, h: {LawsBase.wire_fits(List.length(&2, Wa.Tgt, ts)) == True{} : Bool}) -> {FWa.get_req(SpW.w_req(FWa.QPoll{n, c, l, ts}, rest)) == Wr.Got{FWa.QPoll{n, c, l, ts}, rest} : Wr.Dec<FWa.Req>}:
   +cs = SpW.c_tgts(ts)
   +r4 = Wr.put_list(~Nat, ~Wr.put_nat, cs, rest)
   +r3 = Wr.put_bool(l, r4)
   +r2 = Wr.put_bool(c, r3)
   +r1 = Wr.put_bool(n, r2)
   -g = {Wr.Got{FWa.QPoll{n, c, l, ts}, rest} : Wr.Dec<FWa.Req>}
-  %wa.nat_rt(0n, r1, {==}) : {SpW.r_req.tag(_) == g : Wr.Dec<FWa.Req>}
-  %wa.bool_rt(n, r2) : {SpW.r_poll(_) == g : Wr.Dec<FWa.Req>}
-  %wa.bool_rt(c, r3) : {SpW.r_poll.cancel(n, _) == g : Wr.Dec<FWa.Req>}
-  %wa.bool_rt(l, r4) : {SpW.r_poll.late(n, c, _) == g : Wr.Dec<FWa.Req>}
-  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, r4), Wr.Got{cs, rest}, Wire.wire_list_round_trip(cs, rest, wa.list_fit(ts, h))) : {SpW.r_poll.ts(n, c, l, _) == g : Wr.Dec<FWa.Req>}
-  %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, SpW.r_tgts(cs), Some{ts}, wa.tgts_back(ts)) : {SpW.r_poll.ok(n, c, l, _, rest) == g : Wr.Dec<FWa.Req>}
+  %wa.nat_rt(0n, r1, {==}) : {FWa.get_req.start(_) == g : Wr.Dec<FWa.Req>}
+  %wa.bool_rt(n, r2) : {FWa.get_poll(_) == g : Wr.Dec<FWa.Req>}
+  %wa.bool_rt(c, r3) : {FWa.get_poll.cancel(n, _) == g : Wr.Dec<FWa.Req>}
+  %wa.bool_rt(l, r4) : {FWa.get_poll.late(n, c, _) == g : Wr.Dec<FWa.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, r4), Wr.Got{cs, rest}, Wire.wire_list_round_trip(cs, rest, wa.list_fit(ts, h))) : {FWa.get_poll.ts(n, c, l, _) == g : Wr.Dec<FWa.Req>}
+  %Equal.sym(Maybe<&2, List<&2, Wa.Tgt>>, FWa.tgts(cs), Some{ts}, wa.tgts_back(ts)) : {FWa.get_poll.ok(n, c, l, _, rest) == g : Wr.Dec<FWa.Req>}
   {==}
 
 # a step request that fits reads back, and the rest is untouched
-def wa.step_rt(+k: Bool, +w: Nat, +p: Wa.Phase, +e: Wa.Ev, +rest: String, h: {LawsBase.wire_fits(w) == True{} : Bool}) -> {SpW.r_req(SpW.w_req(FWa.QStep{k, Wa.D{w, p}, e}, rest)) == Wr.Got{FWa.QStep{k, Wa.D{w, p}, e}, rest} : Wr.Dec<FWa.Req>}:
+def wa.step_rt(+k: Bool, +w: Nat, +p: Wa.Phase, +e: Wa.Ev, +rest: String, h: {LawsBase.wire_fits(w) == True{} : Bool}) -> {FWa.get_req(SpW.w_req(FWa.QStep{k, Wa.D{w, p}, e}, rest)) == Wr.Got{FWa.QStep{k, Wa.D{w, p}, e}, rest} : Wr.Dec<FWa.Req>}:
   +r4 = Wr.put_nat(SpW.c_ev(e), rest)
   +r3 = Wr.put_nat(SpW.c_phase(p), r4)
   +r2 = Wr.put_nat(w, r3)
   +r1 = Wr.put_bool(k, r2)
   -g = {Wr.Got{FWa.QStep{k, Wa.D{w, p}, e}, rest} : Wr.Dec<FWa.Req>}
-  %wa.nat_rt(1n, r1, {==}) : {SpW.r_req.tag(_) == g : Wr.Dec<FWa.Req>}
-  %wa.bool_rt(k, r2) : {SpW.r_step(_) == g : Wr.Dec<FWa.Req>}
-  %wa.nat_rt(w, r3, h) : {SpW.r_step.watchers(k, _) == g : Wr.Dec<FWa.Req>}
-  %wa.nat_rt(SpW.c_phase(p), r4, wa.phase_fits(p)) : {SpW.r_step.phase(k, w, _) == g : Wr.Dec<FWa.Req>}
-  %wa.nat_rt(SpW.c_ev(e), rest, wa.ev_fits(e)) : {SpW.r_step.ev(k, w, SpW.c_phase(p), _) == g : Wr.Dec<FWa.Req>}
-  %Equal.sym(Maybe<&2, Wa.Phase>, SpW.r_phase(SpW.c_phase(p)), Some{p}, wa.phase_back(p)) : {SpW.r_step.ok(k, w, _, SpW.r_ev(SpW.c_ev(e)), rest) == g : Wr.Dec<FWa.Req>}
-  %Equal.sym(Maybe<&2, Wa.Ev>, SpW.r_ev(SpW.c_ev(e)), Some{e}, wa.ev_back(e)) : {SpW.r_step.ok(k, w, Some{p}, _, rest) == g : Wr.Dec<FWa.Req>}
+  %wa.nat_rt(1n, r1, {==}) : {FWa.get_req.start(_) == g : Wr.Dec<FWa.Req>}
+  %wa.bool_rt(k, r2) : {FWa.get_step(_) == g : Wr.Dec<FWa.Req>}
+  %wa.nat_rt(w, r3, h) : {FWa.get_step.watchers(k, _) == g : Wr.Dec<FWa.Req>}
+  %wa.nat_rt(SpW.c_phase(p), r4, wa.phase_fits(p)) : {FWa.get_step.phase(k, w, _) == g : Wr.Dec<FWa.Req>}
+  %wa.nat_rt(SpW.c_ev(e), rest, wa.ev_fits(e)) : {FWa.get_step.ev(k, w, SpW.c_phase(p), _) == g : Wr.Dec<FWa.Req>}
+  %Equal.sym(Maybe<&2, Wa.Phase>, FWa.phase_of(SpW.c_phase(p)), Some{p}, wa.phase_back(p)) : {FWa.get_step.ok(k, w, _, FWa.ev_of(SpW.c_ev(e)), rest) == g : Wr.Dec<FWa.Req>}
+  %Equal.sym(Maybe<&2, Wa.Ev>, FWa.ev_of(SpW.c_ev(e)), Some{e}, wa.ev_back(e)) : {FWa.get_step.ok(k, w, Some{p}, _, rest) == g : Wr.Dec<FWa.Req>}
   {==}
 
 # a timeout request that fits reads back, and the rest is untouched
-def wa.timeout_rt(+a: Maybe<&2, Nat>, +rest: String, h: {SpW.fit_asked(a) == True{} : Bool}) -> {SpW.r_req(SpW.w_req(FWa.QTimeout{a}, rest)) == Wr.Got{FWa.QTimeout{a}, rest} : Wr.Dec<FWa.Req>}:
+def wa.timeout_rt(+a: Maybe<&2, Nat>, +rest: String, h: {SpW.fit_asked(a) == True{} : Bool}) -> {FWa.get_req(SpW.w_req(FWa.QTimeout{a}, rest)) == Wr.Got{FWa.QTimeout{a}, rest} : Wr.Dec<FWa.Req>}:
   match a:
     case None{}:
       +r1 = Wr.put_nat(0n, rest)
-      %wa.nat_rt(2n, r1, {==}) : {SpW.r_req.tag(_) == Wr.Got{FWa.QTimeout{None{}}, rest} : Wr.Dec<FWa.Req>}
-      %wa.nat_rt(0n, rest, {==}) : {SpW.r_timeout(_) == Wr.Got{FWa.QTimeout{None{}}, rest} : Wr.Dec<FWa.Req>}
+      %wa.nat_rt(2n, r1, {==}) : {FWa.get_req.start(_) == Wr.Got{FWa.QTimeout{None{}}, rest} : Wr.Dec<FWa.Req>}
+      %wa.nat_rt(0n, rest, {==}) : {FWa.get_timeout(_) == Wr.Got{FWa.QTimeout{None{}}, rest} : Wr.Dec<FWa.Req>}
       {==}
     case Some{+t}:
       +r2 = Wr.put_nat(t, rest)
       +r1 = Wr.put_nat(1n, r2)
-      %wa.nat_rt(2n, r1, {==}) : {SpW.r_req.tag(_) == Wr.Got{FWa.QTimeout{Some{t}}, rest} : Wr.Dec<FWa.Req>}
-      %wa.nat_rt(1n, r2, {==}) : {SpW.r_timeout(_) == Wr.Got{FWa.QTimeout{Some{t}}, rest} : Wr.Dec<FWa.Req>}
-      %wa.nat_rt(t, rest, h) : {SpW.r_timeout.secs(_) == Wr.Got{FWa.QTimeout{Some{t}}, rest} : Wr.Dec<FWa.Req>}
+      %wa.nat_rt(2n, r1, {==}) : {FWa.get_req.start(_) == Wr.Got{FWa.QTimeout{Some{t}}, rest} : Wr.Dec<FWa.Req>}
+      %wa.nat_rt(1n, r2, {==}) : {FWa.get_timeout(_) == Wr.Got{FWa.QTimeout{Some{t}}, rest} : Wr.Dec<FWa.Req>}
+      %wa.nat_rt(t, rest, h) : {FWa.get_timeout.ms(_) == Wr.Got{FWa.QTimeout{Some{t}}, rest} : Wr.Dec<FWa.Req>}
       {==}
 
-# a spelled request that fits reads back (with the laws' reader), and the
-# rest is untouched
-def wa.req_rt(+q: FWa.Req, +rest: String, h: {SpW.fit(q) == True{} : Bool}) -> {SpW.r_req(SpW.w_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FWa.Req>}:
+# a spelled request that fits reads back through the entry's decoder,
+# and the rest is untouched
+def wa.req_rt(+q: FWa.Req, +rest: String, h: {SpW.fit(q) == True{} : Bool}) -> {FWa.get_req(SpW.w_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FWa.Req>}:
   match q:
     case FWa.QPoll{+n, +c, +l, +ts}:
       wa.poll_rt(n, c, l, ts, rest, h)

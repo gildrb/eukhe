@@ -24,9 +24,9 @@ pub(crate) enum SocketDir {
 }
 
 /// Make `dir` ready to hold daemon sockets. The verdict is the compiled
-/// core's (`eukhe_bend::rules::fsmode::socket_dir`, law `socket_dir_owned`
-/// and `fsmode_ffi_answers`): a missing dir (and its missing parents) is
-/// created with mode 0700 in one step, with no window. An existing dir,
+/// core's (`eukhe_bend::rules::fsmode::socket_dir`, laws `socket_dir_owned`,
+/// `socket_dir_write_bits` and `fsmode_ffi_answers`): a missing dir (and its
+/// missing parents) is created with mode 0700 in one step, with no window. An existing dir,
 /// and the dir after a create, must be a real directory (not a symbolic
 /// link), owned by this process's uid, with no group or other write bit.
 /// Else the bind is refused: another user could replace the socket in

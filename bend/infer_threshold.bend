@@ -14,9 +14,10 @@
 # ended), never the request about to go, which may pass them. The request
 # only has to stay within the window: one past it blocks (`due`).
 # laws/infer_threshold.bend pins `over` to `t + reserve > window` and
-# `t + reserve + margin > window`, that the first context over each
-# threshold is `first_at`'s, `due`, and the cut and the hysteresis of
-# `plan`; bend/ffi_infer_threshold.bend runs `plan` as the compiled core.
+# `t + reserve + margin > window`, the thresholds `first_at` reads
+# (`limit_at`, less the margin) to the same tests, `due`, and the cut and
+# the hysteresis of `plan`; bend/ffi_infer_threshold.bend runs `plan` as
+# the compiled core.
 # The arithmetic never adds two sizes (sizes are taken away one at a time)
 # and adds at most two wire numbers and 2 (a window and a negative reserve;
 # the walk's tokens within its budget and one size), so it stays below the

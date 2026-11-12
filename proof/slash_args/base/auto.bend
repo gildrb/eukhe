@@ -1,15 +1,159 @@
-# eukhe: lemmas of area slash_args: the `/autonomous` answer of
-# bend/slash_args.bend is the spec helper's of laws/slash_args/model.bend
-# (each option, the reads of the words by induction on them, the options
-# as `/autonomous on` takes them, the keywords)
+# eukhe: lemmas shared by the proofs of the `/autonomous` laws (area
+# slash_args)
 
 import Base
 import ../../../bend/slash_args.bend as Sa
+import ../../../bend/gateway_answer.bend as Ga
 import ../../../laws/slash_args/model.bend as SlashArgs
+import ../../base/staging.bend as LStg
+import ../base.bend as LA
 import ./text.bend as LT
 
-# Options
-# -------
+# an on word: `/autonomous` reads the options of the words after it
+def saa.on(+l: String, +k: {SlashArgs.sa_on(l) == True{} : Bool}, +ws: List<&2, String>) -> {Sa.auto.kw(String.eq(l, "status"), SlashArgs.sa_on(l), SlashArgs.sa_off(l), ws) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}:
+  %Equal.sym(Bool, String.eq(l, "status"), False{}, LA.sab.ne_on(l, "status", k, {==})) : {Sa.auto.kw(_, SlashArgs.sa_on(l), SlashArgs.sa_off(l), ws) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}
+  %Equal.sym(Bool, SlashArgs.sa_on(l), True{}, k) : {Sa.auto.kw(False{}, _, SlashArgs.sa_off(l), ws) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}
+  {==}
+
+# a `--` word's step: the flag and name are R7's (LA.sab.raw, LA.sab.name)
+def saa.flag(+x: String, t: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> {Sa.step(True{}, x, t, r1, r2) == Sa.step.known(Sa.index(SlashArgs.sa_name(SlashArgs.sa_raw(x)), Sa.flags(), 0n), x, SlashArgs.sa_raw(x), SlashArgs.sa_name(SlashArgs.sa_raw(x)), t, r1, r2) : Sa.Read}:
+  +raw = SlashArgs.sa_raw(x)
+  %Equal.sym(String, Sa.before_eq(x), raw, LA.sab.raw(x)) : {Sa.step.known(Sa.index(Sa.name.of(String.starts_with(_, "--autonomous-"), _), Sa.flags(), 0n), x, _, Sa.name.of(String.starts_with(_, "--autonomous-"), _), t, r1, r2) == Sa.step.known(Sa.index(SlashArgs.sa_name(raw), Sa.flags(), 0n), x, raw, SlashArgs.sa_name(raw), t, r1, r2) : Sa.Read}
+  %Equal.sym(String, Sa.name.of(String.starts_with(raw, "--autonomous-"), raw), SlashArgs.sa_name(raw), LA.sab.name(raw)) : {Sa.step.known(Sa.index(_, Sa.flags(), 0n), x, raw, _, t, r1, r2) == Sa.step.known(Sa.index(SlashArgs.sa_name(raw), Sa.flags(), 0n), x, raw, SlashArgs.sa_name(raw), t, r1, r2) : Sa.Read}
+  {==}
+
+# the options of the words after an on word w, x, t: x's step first
+def saa.opts(+s: String, +w: String, +x: String, +t: List<&2, String>, ws: {Sa.words(s) == w <> x <> t : List<&2, String>}, +k: {SlashArgs.sa_on(String.to_lower(w)) == True{} : Bool}, b: Bool, eb: {String.starts_with(x, "--") == b : Bool}) -> {Sa.auto(s) == Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))) : Sa.Auto}:
+  +l = String.to_lower(w)
+  +fw = Equal.trans(Sa.Read, Sa.options(x <> t), Sa.step(String.starts_with(x, "--"), x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), LA.sab.first_word(x, t, Sa.reads(t)), Equal.cong(Bool, Sa.Read, z => Sa.step(z, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), String.starts_with(x, "--"), b, eb))
+  Equal.trans(Sa.Auto, Sa.auto(s), Sa.auto.words(w <> x <> t), Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))), LA.sab.auto_ws(s, w <> x <> t, ws), Equal.trans(Sa.Auto, Sa.auto.words(w <> x <> t), Sa.auto.on(Sa.options(x <> t)), Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))), saa.on(l, k, x <> t), Equal.cong(Sa.Read, Sa.Auto, z => Sa.auto.on(z), Sa.options(x <> t), Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), fw)))
+
+def saa.after.at(e: Bool, t: String, r: String) -> {Sa.after_eq.at(e, t, r) == SlashArgs.sa_after.at(e, t, r) : String}:
+  match e:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the code's text after `=` is R7's
+def saa.after(s: String) -> {Sa.after_eq(s) == SlashArgs.sa_after(s) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(String, Sa.after_eq(t), SlashArgs.sa_after(t), saa.after(t)) : {Sa.after_eq.at(Char.is_eq(c, '='), t, _) == SlashArgs.sa_after(SCon{c, t}) : String}
+      saa.after.at(Char.is_eq(c, '='), t, SlashArgs.sa_after(t))
+
+def saa.ug.at(b: Bool, c: Char, r: String) -> {Sa.ungroup.at(b, c, r) == SlashArgs.sa_ungroup.at(b, c, r) : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the code's drop of `,` and `_` is R8's
+def saa.ungroup(s: String) -> {Sa.ungroup(s) == SlashArgs.sa_ungroup(s) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(String, Sa.ungroup(t), SlashArgs.sa_ungroup(t), saa.ungroup(t)) : {Sa.ungroup.at(Bool.or(Char.is_eq(c, ','), Char.is_eq(c, '_')), c, _) == SlashArgs.sa_ungroup(SCon{c, t}) : String}
+      saa.ug.at(Bool.or(Char.is_eq(c, ','), Char.is_eq(c, '_')), c, SlashArgs.sa_ungroup(t))
+
+def saa.alone(ws: List<&2, String>, a: Sa.Auto) -> {Sa.auto.alone(ws, a) == SlashArgs.sa_auto.alone(ws, a) : Sa.Auto}:
+  match ws:
+    case Nil{}:
+      {==}
+    case w <> t:
+      {==}
+
+def saa.gates(cmds: List<&2, String>, gated: Bool, r: Maybe<&2, String>, s: Maybe<&2, String>) -> {Sa.conf.gates(cmds, gated, r, s) == SlashArgs.sa_conf.gates(cmds, gated, r, s) : Maybe<&2, Sa.Gates>}:
+  match cmds:
+    case Nil{}:
+      match gated:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case c <> t:
+      {==}
+
+def saa.unl(m: Maybe<&2, Sa.Lim>) -> {Sa.unl(m) == SlashArgs.sa_unl(m) : Maybe<&2, Sa.Lim>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{l}:
+      {==}
+
+def saa.limits(named: Bool, +c: Maybe<&2, Sa.Lim>, +t: Maybe<&2, Sa.Lim>, +k: Maybe<&2, Sa.Lim>, +m: Maybe<&2, Sa.Lim>, g: Maybe<&2, Sa.Gates>, p: Maybe<&2, String>) -> {Sa.conf.limits(named, c, t, k, m, g, p) == SlashArgs.sa_conf.limits(named, c, t, k, m, g, p) : Sa.Conf}:
+  match named:
+    case True{}:
+      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(c), SlashArgs.sa_unl(c), saa.unl(c)) : {Sa.Conf{_, Sa.unl(t), Sa.unl(k), Sa.unl(m), g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
+      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(t), SlashArgs.sa_unl(t), saa.unl(t)) : {Sa.Conf{SlashArgs.sa_unl(c), _, Sa.unl(k), Sa.unl(m), g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
+      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(k), SlashArgs.sa_unl(k), saa.unl(k)) : {Sa.Conf{SlashArgs.sa_unl(c), SlashArgs.sa_unl(t), _, Sa.unl(m), g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
+      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(m), SlashArgs.sa_unl(m), saa.unl(m)) : {Sa.Conf{SlashArgs.sa_unl(c), SlashArgs.sa_unl(t), SlashArgs.sa_unl(k), _, g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
+      {==}
+    case False{}:
+      {==}
+
+def saa.some(-A: Data, m: Maybe<&2, A>) -> {Sa.some(A, m) == SlashArgs.sa_some(A, m) : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def saa.conf(o: Sa.Opts) -> {Sa.conf(o) == SlashArgs.sa_conf(o) : Sa.Conf}:
+  match o:
+    case Sa.Opts{+c, +t, +k, +m, +g, +d, +r, +s, +p}:
+      %Equal.sym(Bool, Sa.some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, c), saa.some(Sa.Lim, c)) : {Sa.conf.limits(Bool.or(Bool.or(_, Sa.some(Sa.Lim, t)), Bool.or(Sa.some(Sa.Lim, k), Sa.some(Sa.Lim, m))), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
+      %Equal.sym(Bool, Sa.some(Sa.Lim, t), SlashArgs.sa_some(Sa.Lim, t), saa.some(Sa.Lim, t)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), _), Bool.or(Sa.some(Sa.Lim, k), Sa.some(Sa.Lim, m))), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
+      %Equal.sym(Bool, Sa.some(Sa.Lim, k), SlashArgs.sa_some(Sa.Lim, k), saa.some(Sa.Lim, k)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(_, Sa.some(Sa.Lim, m))), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
+      %Equal.sym(Bool, Sa.some(Sa.Lim, m), SlashArgs.sa_some(Sa.Lim, m), saa.some(Sa.Lim, m)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(SlashArgs.sa_some(Sa.Lim, k), _)), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
+      %Equal.sym(Maybe<&2, Sa.Gates>, Sa.conf.gates(g, d, r, s), SlashArgs.sa_conf.gates(g, d, r, s), saa.gates(g, d, r, s)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(SlashArgs.sa_some(Sa.Lim, k), SlashArgs.sa_some(Sa.Lim, m))), c, t, k, m, _, p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
+      saa.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(SlashArgs.sa_some(Sa.Lim, k), SlashArgs.sa_some(Sa.Lim, m))), c, t, k, m, SlashArgs.sa_conf.gates(g, d, r, s), p)
+
+def saa.on_orig(r: Sa.Read) -> {Sa.auto.on(r) == SlashArgs.sa_auto.on(r) : Sa.Auto}:
+  match r:
+    case Sa.ROk{+o}:
+      %Equal.sym(Sa.Conf, Sa.conf(o), SlashArgs.sa_conf(o), saa.conf(o)) : {Sa.AOn{_} == Sa.AOn{SlashArgs.sa_conf(o)} : Sa.Auto}
+      {==}
+    case Sa.RErr{e}:
+      {==}
+
+def saa.fst(rr: Sa.Read & Sa.Read) -> {Sa.options.fst(rr) == SlashArgs.sa_options.fst(rr) : Sa.Read}:
+  (r, s) = rr
+  {==}
+
+def saa.before_at(b: Bool, c: Char, r: String) -> {Sa.before_eq.at(b, c, r) == SlashArgs.sa_before_eq.at(b, c, r) : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def saa.before(s: String) -> {Sa.before_eq(s) == SlashArgs.sa_before_eq(s) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(String, Sa.before_eq(t), SlashArgs.sa_before_eq(t), saa.before(t)) : {Sa.before_eq.at(Char.is_eq(c, '='), c, _) == SlashArgs.sa_before_eq.at(Char.is_eq(c, '='), c, SlashArgs.sa_before_eq(t)) : String}
+      saa.before_at(Char.is_eq(c, '='), c, SlashArgs.sa_before_eq(t))
+
+def saa.index_at(b: Bool, i: Nat, r: Maybe<&2, Nat>) -> {Sa.index.at(b, i, r) == SlashArgs.sa_index.at(b, i, r) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def saa.index(+n: String, xs: List<&2, String>, +i: Nat) -> {Sa.index(n, xs, i) == SlashArgs.sa_index(n, xs, i) : Maybe<&2, Nat>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      %Equal.sym(Maybe<&2, Nat>, Sa.index(n, t, 1n+i), SlashArgs.sa_index(n, t, 1n+i), saa.index(n, t, 1n+i)) : {Sa.index.at(String.eq(n, x), i, _) == SlashArgs.sa_index.at(String.eq(n, x), i, SlashArgs.sa_index(n, t, 1n+i)) : Maybe<&2, Nat>}
+      saa.index_at(String.eq(n, x), i, SlashArgs.sa_index(n, t, 1n+i))
 
 def saa.later(-A: Data, a: Maybe<&2, A>, b: Maybe<&2, A>) -> {Sa.later(A, a, b) == SlashArgs.sa_later(A, a, b) : Maybe<&2, A>}:
   match b:
@@ -44,6 +188,33 @@ def saa.read_then(a: Sa.Read, b: Sa.Read) -> {Sa.read.then(a, b) == SlashArgs.sa
     case Sa.RErr{e}:
       {==}
 
+def saa.keep_ok(+d: String) -> {Sa.keep_ok(d) == SlashArgs.sa_keep_ok(d) : Bool}:
+  %Equal.sym(Bool, Sa.positive(d), SlashArgs.sa_positive(d), LT.sab.positive(d)) : {Bool.or(String.eq(d, "0"), Bool.and(_, Bool.or(Nat.is_lt(String.length(d), 10n), Bool.and(Nat.is_eq(String.length(d), 10n), String.is_le(d, "2147483647"))))) == SlashArgs.sa_keep_ok(d) : Bool}
+  {==}
+
+def saa.opt_keep(ok: Bool, d: String) -> {Sa.opt.keep(ok, d) == SlashArgs.sa_opt.keep(ok, d) : Sa.Read}:
+  match ok:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def saa.opt_gate(+name: String, ok: Bool, d: String, retries: Bool) -> {Sa.opt.gate(name, ok, d, retries) == SlashArgs.sa_opt.gate(name, ok, d, retries) : Sa.Read}:
+  match ok:
+    case True{}:
+      match retries:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case False{}:
+      {==}
+
+def saa.value.gate(+name: String, +v: String, retries: Bool) -> {Sa.opt.gate(name, Sa.u64(Sa.ungroup(v)), Sa.ungroup(v), retries) == SlashArgs.sa_opt.gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries) : Sa.Read}:
+  %Equal.sym(String, Sa.ungroup(v), SlashArgs.sa_ungroup(v), LT.sab.ungroup(v)) : {Sa.opt.gate(name, Sa.u64(_), _, retries) == SlashArgs.sa_opt.gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries) : Sa.Read}
+  %Equal.sym(Bool, Sa.u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), LT.sab.u64(SlashArgs.sa_ungroup(v))) : {Sa.opt.gate(name, _, SlashArgs.sa_ungroup(v), retries) == SlashArgs.sa_opt.gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries) : Sa.Read}
+  saa.opt_gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries)
+
 def saa.lim_num(ok: Bool, d: String) -> {Sa.lim.num(ok, d) == SlashArgs.sa_lim.num(ok, d) : Maybe<&2, Sa.Lim>}:
   match ok:
     case True{}:
@@ -75,51 +246,9 @@ def saa.opt_lim(+name: String, m: Maybe<&2, Sa.Lim>, k: Nat) -> {Sa.opt.lim(name
         case 3n+u:
           {==}
 
-def saa.opt_gate(+name: String, ok: Bool, d: String, retries: Bool) -> {Sa.opt.gate(name, ok, d, retries) == SlashArgs.sa_opt.gate(name, ok, d, retries) : Sa.Read}:
-  match ok:
-    case True{}:
-      match retries:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
-    case False{}:
-      {==}
-
-def saa.opt_keep(ok: Bool, d: String) -> {Sa.opt.keep(ok, d) == SlashArgs.sa_opt.keep(ok, d) : Sa.Read}:
-  match ok:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def saa.keep_ok(+d: String) -> {Sa.keep_ok(d) == SlashArgs.sa_keep_ok(d) : Bool}:
-  %Equal.sym(Bool, Sa.positive(d), SlashArgs.sa_positive(d), LT.sab.positive(d)) : {Bool.or(String.eq(d, "0"), Bool.and(_, Bool.or(Nat.is_lt(String.length(d), 10n), Bool.and(Nat.is_eq(String.length(d), 10n), String.is_le(d, "2147483647"))))) == SlashArgs.sa_keep_ok(d) : Bool}
-  {==}
-
-def saa.index_at(b: Bool, i: Nat, r: Maybe<&2, Nat>) -> {Sa.index.at(b, i, r) == SlashArgs.sa_index.at(b, i, r) : Maybe<&2, Nat>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def saa.index(+n: String, xs: List<&2, String>, +i: Nat) -> {Sa.index(n, xs, i) == SlashArgs.sa_index(n, xs, i) : Maybe<&2, Nat>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case +x <> +t:
-      %Equal.sym(Maybe<&2, Nat>, Sa.index(n, t, 1n+i), SlashArgs.sa_index(n, t, 1n+i), saa.index(n, t, 1n+i)) : {Sa.index.at(String.eq(n, x), i, _) == SlashArgs.sa_index.at(String.eq(n, x), i, SlashArgs.sa_index(n, t, 1n+i)) : Maybe<&2, Nat>}
-      saa.index_at(String.eq(n, x), i, SlashArgs.sa_index(n, t, 1n+i))
-
 def saa.value.lim(+name: String, +v: String, k: Nat) -> {Sa.opt.lim(name, Sa.lim.of(String.eq(String.to_lower(v), "unlimited"), v), k) == SlashArgs.sa_opt.lim(name, SlashArgs.sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), k) : Sa.Read}:
   %Equal.sym(Maybe<&2, Sa.Lim>, Sa.lim.of(String.eq(String.to_lower(v), "unlimited"), v), SlashArgs.sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), saa.lim_of(String.eq(String.to_lower(v), "unlimited"), v)) : {Sa.opt.lim(name, _, k) == SlashArgs.sa_opt.lim(name, SlashArgs.sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), k) : Sa.Read}
   saa.opt_lim(name, SlashArgs.sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), k)
-
-def saa.value.gate(+name: String, +v: String, retries: Bool) -> {Sa.opt.gate(name, Sa.u64(Sa.ungroup(v)), Sa.ungroup(v), retries) == SlashArgs.sa_opt.gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries) : Sa.Read}:
-  %Equal.sym(String, Sa.ungroup(v), SlashArgs.sa_ungroup(v), LT.sab.ungroup(v)) : {Sa.opt.gate(name, Sa.u64(_), _, retries) == SlashArgs.sa_opt.gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries) : Sa.Read}
-  %Equal.sym(Bool, Sa.u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), LT.sab.u64(SlashArgs.sa_ungroup(v))) : {Sa.opt.gate(name, _, SlashArgs.sa_ungroup(v), retries) == SlashArgs.sa_opt.gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries) : Sa.Read}
-  saa.opt_gate(name, SlashArgs.sa_u64(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v), retries)
 
 def saa.value(k: Nat, +name: String, +v: String) -> {Sa.opt.value(k, name, v) == SlashArgs.sa_opt.value(k, name, v) : Sa.Read}:
   match k:
@@ -142,8 +271,25 @@ def saa.value(k: Nat, +name: String, +v: String) -> {Sa.opt.value(k, name, v) ==
       %Equal.sym(Bool, Sa.keep_ok(SlashArgs.sa_ungroup(v)), SlashArgs.sa_keep_ok(SlashArgs.sa_ungroup(v)), saa.keep_ok(SlashArgs.sa_ungroup(v))) : {Sa.opt.keep(_, SlashArgs.sa_ungroup(v)) == SlashArgs.sa_opt.keep(SlashArgs.sa_keep_ok(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v)) : Sa.Read}
       saa.opt_keep(SlashArgs.sa_keep_ok(SlashArgs.sa_ungroup(v)), SlashArgs.sa_ungroup(v))
 
-# Words of an option
-# ------------------
+def saa.took(empty: Bool, took: Bool, +raw: String, +k: Nat, +name: String, +x: String, r1: Sa.Read, r2: Sa.Read) -> {Sa.step.took(empty, took, raw, k, name, x, r1, r2) == SlashArgs.sa_step.took(empty, took, raw, k, name, x, r1, r2) : Sa.Read}:
+  match empty:
+    case True{}:
+      {==}
+    case False{}:
+      match took:
+        case True{}:
+          %Equal.sym(Sa.Read, Sa.opt.value(k, name, x), SlashArgs.sa_opt.value(k, name, x), saa.value(k, name, x)) : {Sa.read.then(_, r2) == SlashArgs.sa_read.then(SlashArgs.sa_opt.value(k, name, x), r2) : Sa.Read}
+          saa.read_then(SlashArgs.sa_opt.value(k, name, x), r2)
+        case False{}:
+          %Equal.sym(Sa.Read, Sa.opt.value(k, name, x), SlashArgs.sa_opt.value(k, name, x), saa.value(k, name, x)) : {Sa.read.then(_, r1) == SlashArgs.sa_read.then(SlashArgs.sa_opt.value(k, name, x), r1) : Sa.Read}
+          saa.read_then(SlashArgs.sa_opt.value(k, name, x), r1)
+
+def saa.val(v: Sa.Val, +raw: String, k: Nat, +name: String, r1: Sa.Read, r2: Sa.Read) -> {Sa.step.val(v, raw, k, name, r1, r2) == SlashArgs.sa_step.val(v, raw, k, name, r1, r2) : Sa.Read}:
+  match v:
+    case Sa.VNone{}:
+      {==}
+    case Sa.VAt{+x, took}:
+      saa.took(String.is_empty(x), took, raw, k, name, x, r1, r2)
 
 def saa.next_at(flag: Bool, w: String) -> {Sa.val.next.at(flag, w) == SlashArgs.sa_val.next.at(flag, w) : Sa.Val}:
   match flag:
@@ -167,20 +313,13 @@ def saa.val_of(eq: Bool, +tok: String, ws: List<&2, String>) -> {Sa.val.of(eq, t
     case False{}:
       saa.next(ws)
 
-def saa.before_at(b: Bool, c: Char, r: String) -> {Sa.before_eq.at(b, c, r) == SlashArgs.sa_before_eq.at(b, c, r) : String}:
-  match b:
-    case True{}:
+def saa.known(m: Maybe<&2, Nat>, +w: String, +raw: String, +name: String, +ws: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> {Sa.step.known(m, w, raw, name, ws, r1, r2) == SlashArgs.sa_step.known(m, w, raw, name, ws, r1, r2) : Sa.Read}:
+  match m:
+    case None{}:
       {==}
-    case False{}:
-      {==}
-
-def saa.before(s: String) -> {Sa.before_eq(s) == SlashArgs.sa_before_eq(s) : String}:
-  match s:
-    case SNil{}:
-      {==}
-    case SCon{+c, +t}:
-      %Equal.sym(String, Sa.before_eq(t), SlashArgs.sa_before_eq(t), saa.before(t)) : {Sa.before_eq.at(Char.is_eq(c, '='), c, _) == SlashArgs.sa_before_eq.at(Char.is_eq(c, '='), c, SlashArgs.sa_before_eq(t)) : String}
-      saa.before_at(Char.is_eq(c, '='), c, SlashArgs.sa_before_eq(t))
+    case Some{k}:
+      %Equal.sym(Sa.Val, Sa.val.of(String.contains(w, "="), w, ws), SlashArgs.sa_val.of(String.contains(w, "="), w, ws), saa.val_of(String.contains(w, "="), w, ws)) : {Sa.step.val(_, raw, k, name, r1, r2) == SlashArgs.sa_step.val(SlashArgs.sa_val.of(String.contains(w, "="), w, ws), raw, k, name, r1, r2) : Sa.Read}
+      saa.val(SlashArgs.sa_val.of(String.contains(w, "="), w, ws), raw, k, name, r1, r2)
 
 def saa.dashes(b: Bool, raw: String) -> {Sa.name.dashes(b, raw) == SlashArgs.sa_name.dashes(b, raw) : String}:
   match b:
@@ -196,38 +335,7 @@ def saa.name(b: Bool, +raw: String) -> {Sa.name.of(b, raw) == SlashArgs.sa_name.
     case False{}:
       saa.dashes(String.starts_with(raw, "--"), raw)
 
-# Steps
-# -----
-
-def saa.took(empty: Bool, took: Bool, +raw: String, +k: Nat, +name: String, +x: String, r1: Sa.Read, r2: Sa.Read) -> {Sa.step.took(empty, took, raw, k, name, x, r1, r2) == SlashArgs.sa_step.took(empty, took, raw, k, name, x, r1, r2) : Sa.Read}:
-  match empty:
-    case True{}:
-      {==}
-    case False{}:
-      match took:
-        case True{}:
-          %Equal.sym(Sa.Read, Sa.opt.value(k, name, x), SlashArgs.sa_opt.value(k, name, x), saa.value(k, name, x)) : {Sa.read.then(_, r2) == SlashArgs.sa_read.then(SlashArgs.sa_opt.value(k, name, x), r2) : Sa.Read}
-          saa.read_then(SlashArgs.sa_opt.value(k, name, x), r2)
-        case False{}:
-          %Equal.sym(Sa.Read, Sa.opt.value(k, name, x), SlashArgs.sa_opt.value(k, name, x), saa.value(k, name, x)) : {Sa.read.then(_, r1) == SlashArgs.sa_read.then(SlashArgs.sa_opt.value(k, name, x), r1) : Sa.Read}
-          saa.read_then(SlashArgs.sa_opt.value(k, name, x), r1)
-
-def saa.val(v: Sa.Val, +raw: String, k: Nat, +name: String, r1: Sa.Read, r2: Sa.Read) -> {Sa.step.val(v, raw, k, name, r1, r2) == SlashArgs.sa_step.val(v, raw, k, name, r1, r2) : Sa.Read}:
-  match v:
-    case Sa.VNone{}:
-      {==}
-    case Sa.VAt{+x, took}:
-      saa.took(String.is_empty(x), took, raw, k, name, x, r1, r2)
-
-def saa.known(m: Maybe<&2, Nat>, +w: String, +raw: String, +name: String, +ws: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> {Sa.step.known(m, w, raw, name, ws, r1, r2) == SlashArgs.sa_step.known(m, w, raw, name, ws, r1, r2) : Sa.Read}:
-  match m:
-    case None{}:
-      {==}
-    case Some{k}:
-      %Equal.sym(Sa.Val, Sa.val.of(String.contains(w, "="), w, ws), SlashArgs.sa_val.of(String.contains(w, "="), w, ws), saa.val_of(String.contains(w, "="), w, ws)) : {Sa.step.val(_, raw, k, name, r1, r2) == SlashArgs.sa_step.val(SlashArgs.sa_val.of(String.contains(w, "="), w, ws), raw, k, name, r1, r2) : Sa.Read}
-      saa.val(SlashArgs.sa_val.of(String.contains(w, "="), w, ws), raw, k, name, r1, r2)
-
-def saa.flag(+w: String, +ws: List<&2, String>, +r1: Sa.Read, +r2: Sa.Read) -> {Sa.step.flag(w, ws, r1, r2) == SlashArgs.sa_step.flag(w, ws, r1, r2) : Sa.Read}:
+def saa.flag_orig(+w: String, +ws: List<&2, String>, +r1: Sa.Read, +r2: Sa.Read) -> {Sa.step.flag(w, ws, r1, r2) == SlashArgs.sa_step.flag(w, ws, r1, r2) : Sa.Read}:
   %Equal.sym(String, Sa.before_eq(w), SlashArgs.sa_before_eq(w), saa.before(w)) : {Sa.step.known(Sa.index(Sa.name.of(String.starts_with(_, "--autonomous-"), _), Sa.flags(), 0n), w, _, Sa.name.of(String.starts_with(_, "--autonomous-"), _), ws, r1, r2) == SlashArgs.sa_step.flag(w, ws, r1, r2) : Sa.Read}
   +raw = SlashArgs.sa_before_eq(w)
   %Equal.sym(String, Sa.name.of(String.starts_with(raw, "--autonomous-"), raw), SlashArgs.sa_name.of(String.starts_with(raw, "--autonomous-"), raw), saa.name(String.starts_with(raw, "--autonomous-"), raw)) : {Sa.step.known(Sa.index(_, Sa.flags(), 0n), w, raw, _, ws, r1, r2) == SlashArgs.sa_step.flag(w, ws, r1, r2) : Sa.Read}
@@ -235,16 +343,16 @@ def saa.flag(+w: String, +ws: List<&2, String>, +r1: Sa.Read, +r2: Sa.Read) -> {
   %Equal.sym(Maybe<&2, Nat>, Sa.index(name, Sa.flags(), 0n), SlashArgs.sa_index(name, Sa.flags(), 0n), saa.index(name, Sa.flags(), 0n)) : {Sa.step.known(_, w, raw, name, ws, r1, r2) == SlashArgs.sa_step.flag(w, ws, r1, r2) : Sa.Read}
   saa.known(SlashArgs.sa_index(name, Sa.flags(), 0n), w, raw, name, ws, r1, r2)
 
-def saa.step(dash: Bool, +w: String, +ws: List<&2, String>, +r1: Sa.Read, +r2: Sa.Read) -> {Sa.step(dash, w, ws, r1, r2) == SlashArgs.sa_step(dash, w, ws, r1, r2) : Sa.Read}:
+def saa.step(dash: Bool, +w: String, +ws: List<&2, String>, +r1: Sa.Read, +r2: Sa.Read) -> {Sa.step(dash, w, ws, r1, r2) == SlashArgs.sa_step_orig(dash, w, ws, r1, r2) : Sa.Read}:
   match dash:
     case True{}:
-      saa.flag(w, ws, r1, r2)
+      saa.flag_orig(w, ws, r1, r2)
     case False{}:
       {==}
 
 def saa.reads_of(+w: String, +t: List<&2, String>, rr: Sa.Read & Sa.Read) -> {Sa.reads.of(w, t, rr) == SlashArgs.sa_reads.of(w, t, rr) : Sa.Read & Sa.Read}:
   (r1, r2) = rr
-  %Equal.sym(Sa.Read, Sa.step(String.starts_with(w, "--"), w, t, r1, r2), SlashArgs.sa_step(String.starts_with(w, "--"), w, t, r1, r2), saa.step(String.starts_with(w, "--"), w, t, r1, r2)) : {(_, r1) == (SlashArgs.sa_step(String.starts_with(w, "--"), w, t, r1, r2), r1) : Sa.Read & Sa.Read}
+  %Equal.sym(Sa.Read, Sa.step(String.starts_with(w, "--"), w, t, r1, r2), SlashArgs.sa_step_orig(String.starts_with(w, "--"), w, t, r1, r2), saa.step(String.starts_with(w, "--"), w, t, r1, r2)) : {(_, r1) == (SlashArgs.sa_step_orig(String.starts_with(w, "--"), w, t, r1, r2), r1) : Sa.Read & Sa.Read}
   {==}
 
 def saa.reads(ws: List<&2, String>) -> {Sa.reads(ws) == SlashArgs.sa_reads(ws) : Sa.Read & Sa.Read}:
@@ -255,77 +363,9 @@ def saa.reads(ws: List<&2, String>) -> {Sa.reads(ws) == SlashArgs.sa_reads(ws) :
       %Equal.sym(Sa.Read & Sa.Read, Sa.reads(t), SlashArgs.sa_reads(t), saa.reads(t)) : {Sa.reads.of(w, t, _) == SlashArgs.sa_reads.of(w, t, SlashArgs.sa_reads(t)) : Sa.Read & Sa.Read}
       saa.reads_of(w, t, SlashArgs.sa_reads(t))
 
-def saa.fst(rr: Sa.Read & Sa.Read) -> {Sa.options.fst(rr) == SlashArgs.sa_options.fst(rr) : Sa.Read}:
-  (r, s) = rr
-  {==}
-
 def saa.options(+ws: List<&2, String>) -> {Sa.options(ws) == SlashArgs.sa_options(ws) : Sa.Read}:
   %Equal.sym(Sa.Read & Sa.Read, Sa.reads(ws), SlashArgs.sa_reads(ws), saa.reads(ws)) : {Sa.options.fst(_) == SlashArgs.sa_options(ws) : Sa.Read}
   saa.fst(SlashArgs.sa_reads(ws))
-
-# The answer
-# ----------
-
-def saa.unl(m: Maybe<&2, Sa.Lim>) -> {Sa.unl(m) == SlashArgs.sa_unl(m) : Maybe<&2, Sa.Lim>}:
-  match m:
-    case None{}:
-      {==}
-    case Some{l}:
-      {==}
-
-def saa.gates(cmds: List<&2, String>, gated: Bool, r: Maybe<&2, String>, s: Maybe<&2, String>) -> {Sa.conf.gates(cmds, gated, r, s) == SlashArgs.sa_conf.gates(cmds, gated, r, s) : Maybe<&2, Sa.Gates>}:
-  match cmds:
-    case Nil{}:
-      match gated:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
-    case c <> t:
-      {==}
-
-def saa.limits(named: Bool, +c: Maybe<&2, Sa.Lim>, +t: Maybe<&2, Sa.Lim>, +k: Maybe<&2, Sa.Lim>, +m: Maybe<&2, Sa.Lim>, g: Maybe<&2, Sa.Gates>, p: Maybe<&2, String>) -> {Sa.conf.limits(named, c, t, k, m, g, p) == SlashArgs.sa_conf.limits(named, c, t, k, m, g, p) : Sa.Conf}:
-  match named:
-    case True{}:
-      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(c), SlashArgs.sa_unl(c), saa.unl(c)) : {Sa.Conf{_, Sa.unl(t), Sa.unl(k), Sa.unl(m), g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
-      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(t), SlashArgs.sa_unl(t), saa.unl(t)) : {Sa.Conf{SlashArgs.sa_unl(c), _, Sa.unl(k), Sa.unl(m), g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
-      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(k), SlashArgs.sa_unl(k), saa.unl(k)) : {Sa.Conf{SlashArgs.sa_unl(c), SlashArgs.sa_unl(t), _, Sa.unl(m), g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
-      %Equal.sym(Maybe<&2, Sa.Lim>, Sa.unl(m), SlashArgs.sa_unl(m), saa.unl(m)) : {Sa.Conf{SlashArgs.sa_unl(c), SlashArgs.sa_unl(t), SlashArgs.sa_unl(k), _, g, p} == SlashArgs.sa_conf.limits(True{}, c, t, k, m, g, p) : Sa.Conf}
-      {==}
-    case False{}:
-      {==}
-
-def saa.some(-A: Data, m: Maybe<&2, A>) -> {Sa.some(A, m) == SlashArgs.sa_some(A, m) : Bool}:
-  match m:
-    case None{}:
-      {==}
-    case Some{x}:
-      {==}
-
-def saa.conf(o: Sa.Opts) -> {Sa.conf(o) == SlashArgs.sa_conf(o) : Sa.Conf}:
-  match o:
-    case Sa.Opts{+c, +t, +k, +m, +g, +d, +r, +s, +p}:
-      %Equal.sym(Bool, Sa.some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, c), saa.some(Sa.Lim, c)) : {Sa.conf.limits(Bool.or(Bool.or(_, Sa.some(Sa.Lim, t)), Bool.or(Sa.some(Sa.Lim, k), Sa.some(Sa.Lim, m))), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
-      %Equal.sym(Bool, Sa.some(Sa.Lim, t), SlashArgs.sa_some(Sa.Lim, t), saa.some(Sa.Lim, t)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), _), Bool.or(Sa.some(Sa.Lim, k), Sa.some(Sa.Lim, m))), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
-      %Equal.sym(Bool, Sa.some(Sa.Lim, k), SlashArgs.sa_some(Sa.Lim, k), saa.some(Sa.Lim, k)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(_, Sa.some(Sa.Lim, m))), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
-      %Equal.sym(Bool, Sa.some(Sa.Lim, m), SlashArgs.sa_some(Sa.Lim, m), saa.some(Sa.Lim, m)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(SlashArgs.sa_some(Sa.Lim, k), _)), c, t, k, m, Sa.conf.gates(g, d, r, s), p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
-      %Equal.sym(Maybe<&2, Sa.Gates>, Sa.conf.gates(g, d, r, s), SlashArgs.sa_conf.gates(g, d, r, s), saa.gates(g, d, r, s)) : {Sa.conf.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(SlashArgs.sa_some(Sa.Lim, k), SlashArgs.sa_some(Sa.Lim, m))), c, t, k, m, _, p) == SlashArgs.sa_conf(Sa.Opts{c, t, k, m, g, d, r, s, p}) : Sa.Conf}
-      saa.limits(Bool.or(Bool.or(SlashArgs.sa_some(Sa.Lim, c), SlashArgs.sa_some(Sa.Lim, t)), Bool.or(SlashArgs.sa_some(Sa.Lim, k), SlashArgs.sa_some(Sa.Lim, m))), c, t, k, m, SlashArgs.sa_conf.gates(g, d, r, s), p)
-
-def saa.on(r: Sa.Read) -> {Sa.auto.on(r) == SlashArgs.sa_auto.on(r) : Sa.Auto}:
-  match r:
-    case Sa.ROk{+o}:
-      %Equal.sym(Sa.Conf, Sa.conf(o), SlashArgs.sa_conf(o), saa.conf(o)) : {Sa.AOn{_} == Sa.AOn{SlashArgs.sa_conf(o)} : Sa.Auto}
-      {==}
-    case Sa.RErr{e}:
-      {==}
-
-def saa.alone(ws: List<&2, String>, a: Sa.Auto) -> {Sa.auto.alone(ws, a) == SlashArgs.sa_auto.alone(ws, a) : Sa.Auto}:
-  match ws:
-    case Nil{}:
-      {==}
-    case w <> t:
-      {==}
 
 def saa.kw(status: Bool, on: Bool, off: Bool, +ws: List<&2, String>) -> {Sa.auto.kw(status, on, off, ws) == SlashArgs.sa_auto.kw(status, on, off, ws) : Sa.Auto}:
   match status:
@@ -335,7 +375,7 @@ def saa.kw(status: Bool, on: Bool, off: Bool, +ws: List<&2, String>) -> {Sa.auto
       match on:
         case True{}:
           %Equal.sym(Sa.Read, Sa.options(ws), SlashArgs.sa_options(ws), saa.options(ws)) : {Sa.auto.on(_) == SlashArgs.sa_auto.on(SlashArgs.sa_options(ws)) : Sa.Auto}
-          saa.on(SlashArgs.sa_options(ws))
+          saa.on_orig(SlashArgs.sa_options(ws))
         case False{}:
           match off:
             case True{}:

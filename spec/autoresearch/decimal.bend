@@ -2,7 +2,7 @@
 # by arithmetic on numbers (the code, bend/autoresearch/dec.bend, works on
 # digits): Dec{neg, ds, scale} is ±num(ds) / 10^scale. Its well-formed
 # and canonical forms. The laws of area autoresearch
-# (laws/autoresearch.bend) speak of these. A spec: the shipped code never
+# (laws/autoresearch/) speak of these. A spec: the shipped code never
 # calls it.
 
 import Base

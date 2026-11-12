@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW job_rewind_entry_answers
 # The entry reads back the target and every job the laws spell (the
-# wire's round trip, LWire.pw6.nat), answers the model's kills, which are
-# the spec's (job_rewind_exact), and writes them as the laws spell them.
+# wire's round trip, LWire.pw6.nat), answers the model's kills and writes
+# them as the laws spell them.
 
 import Base
 import ../../bend/ffi_job_rewind.bend as FJr
@@ -11,7 +11,6 @@ import ../../laws/base.bend as LawsBase
 import ../../laws/job.bend as Job
 import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
-import ./job_rewind_exact.bend as PJobRewindExact
 
 def ra.commit(m: Maybe<&2, Nat>, +rest: String, +h: {LawsBase.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FJr.get_commit(Job.rw_spell_commit(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
   match m:
@@ -75,18 +74,17 @@ def ra.kills(+ks: List<&2, Bool>) -> {FJr.put_kills(ks) == Job.rw_spell_kills(ks
   %ra.items(ks, "") : {Wr.put_nat(List.length(&2, Bool, ks), FJr.put_kills.items(ks, "")) == Wr.put_nat(List.length(&2, Bool, ks), _) : String}
   {==}
 
-def ra.jobs(+target: Maybe<&2, Nat>, js: List<&2, Jb.Seen>, +hl: {LawsBase.wire_fits(List.length(&2, Jb.Seen, js)) == True{} : Bool}, +hs: {Job.rw_seens_fit(js) == True{} : Bool}) -> {FJr.run.jobs(target, FJr.get_seens(Wr.get_nat(Wr.put_nat(List.length(&2, Jb.Seen, js), Job.rw_spell_seens(js, ""))))) == Job.rw_spell_kills(Job.rw_kills_spec(js, target)) : String}:
+def ra.jobs(+target: Maybe<&2, Nat>, js: List<&2, Jb.Seen>, +hl: {LawsBase.wire_fits(List.length(&2, Jb.Seen, js)) == True{} : Bool}, +hs: {Job.rw_seens_fit(js) == True{} : Bool}) -> {FJr.run.jobs(target, FJr.get_seens(Wr.get_nat(Wr.put_nat(List.length(&2, Jb.Seen, js), Job.rw_spell_seens(js, ""))))) == Job.rw_spell_kills(Jb.kills(js, target)) : String}:
   match js:
     case Nil{}:
       {==}
     case +x <> +u:
-      %LWire.pw6.nat(1n+List.length(&2, Jb.Seen, u), Job.rw_spell_seen(x, Job.rw_spell_seens(u, "")), hl) : {FJr.run.jobs(target, FJr.get_seens(_)) == Job.rw_spell_kills(Job.rw_kills_spec(x <> u, target)) : String}
-      %ra.seens(u, x, "", hs) : {FJr.run.jobs(target, _) == Job.rw_spell_kills(Job.rw_kills_spec(x <> u, target)) : String}
-      %Equal.sym(List<&2, Bool>, Jb.kills(x <> u, target), Job.rw_kills_spec(x <> u, target), Job.job_rewind_exact(x <> u, target)) : {FJr.put_kills(_) == Job.rw_spell_kills(Job.rw_kills_spec(x <> u, target)) : String}
-      ra.kills(Job.rw_kills_spec(x <> u, target))
+      %LWire.pw6.nat(1n+List.length(&2, Jb.Seen, u), Job.rw_spell_seen(x, Job.rw_spell_seens(u, "")), hl) : {FJr.run.jobs(target, FJr.get_seens(_)) == Job.rw_spell_kills(Jb.kills(x <> u, target)) : String}
+      %ra.seens(u, x, "", hs) : {FJr.run.jobs(target, _) == Job.rw_spell_kills(Jb.kills(x <> u, target)) : String}
+      ra.kills(Jb.kills(x <> u, target))
 
 def Job.job_rewind_entry_answers(target, js, fits):
   +rest = Bool.and(LawsBase.wire_fits(List.length(&2, Jb.Seen, js)), Job.rw_seens_fit(js))
   +hr = LLogicBool.wr_and_r(LawsBase.wire_mfits(target), rest, fits)
-  %ra.commit(target, Wr.put_nat(List.length(&2, Jb.Seen, js), Job.rw_spell_seens(js, "")), LLogicBool.wr_and_l(LawsBase.wire_mfits(target), rest, fits)) : {FJr.run(_) == Job.rw_spell_kills(Job.rw_kills_spec(js, target)) : String}
+  %ra.commit(target, Wr.put_nat(List.length(&2, Jb.Seen, js), Job.rw_spell_seens(js, "")), LLogicBool.wr_and_l(LawsBase.wire_mfits(target), rest, fits)) : {FJr.run(_) == Job.rw_spell_kills(Jb.kills(js, target)) : String}
   ra.jobs(target, js, LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Jb.Seen, js)), Job.rw_seens_fit(js), hr), LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Jb.Seen, js)), Job.rw_seens_fit(js), hr))

@@ -4,7 +4,7 @@
 //! to `/` or to the supervisor's own working directory: the tools resolve
 //! paths against the cwd, so a wrong cwd widens what they reach. The
 //! verdict is the compiled core's (`eukhe_bend::rules::fsmode::session_cwd`,
-//! `bend/fsmode.bend`, laws `cwd_is_explicit` and `fsmode_ffi_answers`).
+//! `bend/fsmode.bend`, laws `cwd_opens_only_named_dir` and `fsmode_ffi_answers`).
 
 use std::path::PathBuf;
 

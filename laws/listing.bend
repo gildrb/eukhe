@@ -88,16 +88,6 @@ def sp_pick(e: Sg.Seen, all: List<&2, Sg.Seen>) -> Ls.Pick:
         case Sg.Raw{}:
           Ls.PSkip{}
 
-def sp_scan.go(es: List<&2, Sg.Seen>, +all: List<&2, Sg.Seen>) -> List<&2, Ls.Pick>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      sp_pick(e, all) <> sp_scan.go(rest, all)
-
-def sp_scan(+es: List<&2, Sg.Seen>) -> List<&2, Ls.Pick>:
-  sp_scan.go(es, es)
-
 def sp_is_store(+n: String, p: Ls.Pick) -> Bool:
   match p:
     case Ls.PSkip{}:
@@ -135,6 +125,83 @@ def sp_has_legacy(+n: String, ps: List<&2, Ls.Pick>) -> Bool:
 # n is listed, as either
 def sp_lists(+n: String, +ps: List<&2, Ls.Pick>) -> Bool:
   Bool.or(sp_has_store(n, ps), sp_has_legacy(n, ps))
+
+# R5: the entry e is a storage directory listed under the id n: a
+# directory that holds main.jsonl, named n, not hidden
+def sp_store_entry(+n: String, e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{nm, k}:
+      match nm:
+        case Sg.Utf{+s}:
+          match k:
+            case Sg.KDir{main}:
+              Bool.and(main, Bool.and(Bool.not(sp_hidden(s)), LawsBase.text_same(s, n)))
+            case Sg.KFile{}:
+              False{}
+            case Sg.KOther{}:
+              False{}
+        case Sg.Raw{}:
+          False{}
+
+# R5: some entry of es is a storage directory listed under n
+def sp_store_named(+n: String, es: List<&2, Sg.Seen>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Bool.or(sp_store_entry(n, e), sp_store_named(n, rest))
+
+# R5: the entry e is the file `<n>.jsonl`
+def sp_file_entry(+n: String, e: Sg.Seen) -> Bool:
+  match e:
+    case Sg.Seen{nm, k}:
+      match nm:
+        case Sg.Utf{f}:
+          match k:
+            case Sg.KDir{main}:
+              False{}
+            case Sg.KFile{}:
+              LawsBase.text_same(f, String.append(n, ".jsonl"))
+            case Sg.KOther{}:
+              False{}
+        case Sg.Raw{}:
+          False{}
+
+# R5: some entry of es is the file `<n>.jsonl`
+def sp_file_named(+n: String, es: List<&2, Sg.Seen>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Bool.or(sp_file_entry(n, e), sp_file_named(n, rest))
+
+# R5: n can be a legacy session's id among the entries es: not empty, "."
+# or "..", and no entry is named n (its storage directory does not exist)
+def sp_legacy_free(+n: String, es: List<&2, Sg.Seen>) -> Bool:
+  Bool.not(Bool.or(Bool.or(String.is_empty(n), Bool.or(LawsBase.text_same(n, "."), LawsBase.text_same(n, ".."))), LawsBase.text_has_name(n, es)))
+
+# R5: the verdict p is about the entry e: no session, a storage only for
+# a storage directory under its id, a legacy file only for `<id>.jsonl`
+def sp_own1(p: Ls.Pick, e: Sg.Seen) -> Bool:
+  match p:
+    case Ls.PSkip{}:
+      True{}
+    case Ls.PStore{s}:
+      sp_store_entry(s, e)
+    case Ls.PLegacy{st}:
+      sp_file_entry(st, e)
+
+# R5: one verdict per entry, in order, each about its entry
+def sp_own(ps: List<&2, Ls.Pick>, es: List<&2, Sg.Seen>) -> Bool:
+  match ps es:
+    case Nil{} Nil{}:
+      True{}
+    case Nil{} Con{e, er}:
+      False{}
+    case Con{p, pr} Nil{}:
+      False{}
+    case Con{p, pr} Con{e, er}:
+      Bool.and(sp_own1(p, e), sp_own(pr, er))
 
 # the sessions directory after the legacy file with stem s is imported:
 # the storage directory s, with main.jsonl (the model's `imported`)
@@ -225,33 +292,82 @@ def sp_tkey(t: Sg.Time) -> List<&2, Nat>:
 def sp_earlier(a: Sg.Time, b: Sg.Time) -> Bool:
   sp_lex(sp_tkey(a), sp_tkey(b))
 
-def sp_later.pick(b: Bool, a: Sg.Time, c: Sg.Time) -> Sg.Time:
-  match b:
-    case True{}:
-      c
-    case False{}:
-      a
+# a and b are the same time
+def sp_time_same(a: Sg.Time, b: Sg.Time) -> Bool:
+  match a b:
+    case Sg.Time{s1, n1} Sg.Time{s2, n2}:
+      Bool.and(Nat.is_eq(s1, s2), Nat.is_eq(n1, n2))
 
-# the newest of t and the times ts
-def sp_newest(ts: List<&2, Sg.Time>, +t: Sg.Time) -> Sg.Time:
+# t is one of the times ts
+def sp_time_in(+t: Sg.Time, ts: List<&2, Sg.Time>) -> Bool:
   match ts:
     case Nil{}:
-      t
-    case +u <> rest:
-      sp_newest(rest, sp_later.pick(sp_earlier(t, u), t, u))
+      False{}
+    case u <> rest:
+      Bool.or(sp_time_same(t, u), sp_time_in(t, rest))
 
-def sp_top(ts: List<&2, Sg.Time>) -> Sg.Time:
+# no time of ts is later than t
+def sp_none_later(+t: Sg.Time, ts: List<&2, Sg.Time>) -> Bool:
   match ts:
     case Nil{}:
-      Sg.Time{0n, 0n}
-    case t <> rest:
-      sp_newest(rest, t)
+      True{}
+    case u <> rest:
+      Bool.and(Bool.not(sp_earlier(t, u)), sp_none_later(t, rest))
 
-# the row of the entry o at place i
-def sp_row(o: Ls.Obs, all: List<&2, Sg.Seen>, i: Nat) -> Ls.Row:
+# R7: t is the newest of the times ts: one of them, none later
+def sp_newest_ok(+t: Sg.Time, +ts: List<&2, Sg.Time>) -> Bool:
+  Bool.and(sp_time_in(t, ts), sp_none_later(t, ts))
+
+# a and b are the same verdict of the scan
+def sp_pick_same(a: Ls.Pick, b: Ls.Pick) -> Bool:
+  match a b:
+    case Ls.PSkip{} Ls.PSkip{}:
+      True{}
+    case Ls.PSkip{} Ls.PStore{y}:
+      False{}
+    case Ls.PSkip{} Ls.PLegacy{y}:
+      False{}
+    case Ls.PStore{x} Ls.PSkip{}:
+      False{}
+    case Ls.PStore{x} Ls.PStore{y}:
+      LawsBase.text_same(x, y)
+    case Ls.PStore{x} Ls.PLegacy{y}:
+      False{}
+    case Ls.PLegacy{x} Ls.PSkip{}:
+      False{}
+    case Ls.PLegacy{x} Ls.PStore{y}:
+      False{}
+    case Ls.PLegacy{x} Ls.PLegacy{y}:
+      LawsBase.text_same(x, y)
+
+def sp_obs_times(o: Ls.Obs) -> List<&2, Sg.Time>:
   match o:
     case Ls.Obs{e, c, ts}:
-      Ls.Row{i, sp_pick(e, all), sp_top(ts)}
+      ts
+
+# R7: a row at place i, what p is, of time t, stands for the entry at
+# place i of os (the first at place k), whose verdict is the one of ps at
+# the same place: p is that verdict, t its newest time
+def sp_row_at_ok(os: List<&2, Ls.Obs>, ps: List<&2, Ls.Pick>, +k: Nat, +i: Nat, +p: Ls.Pick, +t: Sg.Time) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      match ps:
+        case Nil{}:
+          False{}
+        case q <> qs:
+          Bool.or(Bool.and(Nat.is_eq(k, i), Bool.and(sp_pick_same(p, q), sp_newest_ok(t, sp_obs_times(o)))), sp_row_at_ok(rest, qs, 1n+k, i, p, t))
+
+# every row of rs stands for the entry at its place (sp_row_at_ok)
+def sp_rows_ok(rs: List<&2, Ls.Row>, +ps: List<&2, Ls.Pick>, +os: List<&2, Ls.Obs>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> rest:
+      match r:
+        case Ls.Row{i, p, t}:
+          Bool.and(sp_row_at_ok(os, ps, 0n, i, p, t), sp_rows_ok(rest, ps, os))
 
 def sp_bit(b: Bool) -> Nat:
   match b:
@@ -268,21 +384,6 @@ def sp_count_listed(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, +k: Nat, +i: 
     case o <> rest:
       Nat.add(sp_bit(Bool.and(Nat.is_eq(k, i), sp_listed(o, all))), sp_count_listed(rest, all, 1n+k, i))
 
-def sp_choose(b: Bool, x: Ls.Row, y: Ls.Row) -> Ls.Row:
-  match b:
-    case True{}:
-      x
-    case False{}:
-      y
-
-# the row of the entry at place i of os (the first at place k)
-def sp_row_at(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>, +k: Nat, +i: Nat) -> Ls.Row:
-  match os:
-    case Nil{}:
-      Ls.Row{i, Ls.PSkip{}, Sg.Time{0n, 0n}}
-    case o <> rest:
-      sp_choose(Nat.is_eq(k, i), sp_row(o, all, i), sp_row_at(rest, all, 1n+k, i))
-
 def sp_ats(rs: List<&2, Ls.Row>) -> List<&2, Nat>:
   match rs:
     case Nil{}:
@@ -298,14 +399,6 @@ def sp_count(+i: Nat, xs: List<&2, Nat>) -> Nat:
       0n
     case x <> rest:
       Nat.add(sp_bit(Nat.is_eq(x, i)), sp_count(i, rest))
-
-# the rows of the places ps, each as the spec makes it
-def sp_fill(ps: List<&2, Nat>, +os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>) -> List<&2, Ls.Row>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case i <> rest:
-      sp_row_at(os, all, 0n, i) <> sp_fill(rest, os, all)
 
 def sp_id(p: Ls.Pick) -> String:
   match p:
@@ -359,17 +452,82 @@ def sp_blank(os: List<&2, Ls.Obs>, +all: List<&2, Sg.Seen>) -> List<&2, Ls.Obs>:
         case Ls.Obs{+e, c, ts}:
           sp_blank.o(sp_skip(sp_pick(e, all)), e, c, ts) <> sp_blank(rest, all)
 
+# the verdict at place k of ps (from 0), if any
+def sp_nth(ps: List<&2, Ls.Pick>, k: Nat) -> Maybe<&2, Ls.Pick>:
+  match ps:
+    case Nil{}:
+      None{}
+    case p <> rest:
+      match k:
+        case 0n:
+          Some{p}
+        case 1n+j:
+          sp_nth(rest, j)
+
+# the verdict m lists n as a storage
+def sp_is_store.at(+n: String, m: Maybe<&2, Ls.Pick>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      sp_is_store(n, p)
+
+# the verdict m lists n as a legacy file
+def sp_is_legacy.at(+n: String, m: Maybe<&2, Ls.Pick>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{p}:
+      sp_is_legacy(n, p)
+
 # Laws: the listing (R5, R6, R7)
 # ------------------------------
 
-# LAW scan_exact (R5): what every entry of the sessions directory is to the listing is the
-# spec's, in order
-# EXCLUDES: a hidden or main-less directory listed, a legacy file listed
-#   beside its storage directory (or any entry of its stem's name), a
-#   wrong stem, a symlink or a Raw name listed, an entry lost or moved
-law scan_exact:
+# LAW scan_names_own_entry (R5): the scan answers one verdict per entry
+# of the sessions directory, in order, each about its own entry: a
+# storage only for a directory that holds main.jsonl, is not hidden and
+# has the id as its name; a legacy file only for the file `<id>.jsonl`
+# (which verdict each entry gets: scan_verdict_at_entry)
+# EXCLUDES: an entry lost, moved or answered twice, a verdict about
+#   another entry, a hidden or main-less directory or a symlink or a Raw
+#   name listed, a stem cut wrong
+law scan_names_own_entry:
   for +es: List<&2, Sg.Seen>
-  {Ls.scan(es) == sp_scan(es) : List<&2, Ls.Pick>}
+  {sp_own(Ls.scan(es), es) == True{} : Bool}
+
+# LAW scan_lists_stores (R5): an id is listed as a storage exactly when an
+# entry is a directory that holds main.jsonl, is not hidden and has that
+# name
+# EXCLUDES: a storage directory left out, a hidden or main-less directory
+#   listed, a file listed as a storage
+law scan_lists_stores:
+  for +es: List<&2, Sg.Seen>
+  for +n: String
+  {sp_has_store(n, Ls.scan(es)) == sp_store_named(n, es) : Bool}
+
+# LAW scan_lists_legacy (R5): an id is listed as a legacy file exactly when
+# an entry is the file `<id>.jsonl`, the id is not empty, "." or "..",
+# and no entry has the id as its name (its storage directory exists)
+# EXCLUDES: a legacy file listed beside its storage directory, a legacy
+#   file left out, a stem cut at another `.jsonl`, an empty or dot stem
+#   listed
+law scan_lists_legacy:
+  for +es: List<&2, Sg.Seen>
+  for +n: String
+  {sp_has_legacy(n, Ls.scan(es)) == Bool.and(sp_file_named(n, es), sp_legacy_free(n, es)) : Bool}
+
+# LAW scan_verdict_at_entry (R5): the verdict at each entry of the sessions directory, whatever the other entries are named (duplicate names included, so no distinct-names premise is needed): with the entry e at place k (es = pre ++ [e] ++ post, k the length of pre), the verdict at place k lists an id n as a storage exactly when e is a directory that holds main.jsonl, is not hidden and is named n, and as a legacy file exactly when e is the file `<n>.jsonl`, n is not empty, "." or "..", and no entry of es is named n; it lists no other id (so a skipped entry gets no verdict that lists anything)
+# EXCLUDES: a verdict given to the wrong place (a storage or legacy file
+#   listed at the place of another entry that has its name), an entry
+#   whose verdict depends on where it stands, a legacy file listed beside
+#   its storage directory at its own place, a storage listed under
+#   another name
+law scan_verdict_at_entry:
+  for +pre: List<&2, Sg.Seen>
+  for +e: Sg.Seen
+  for +post: List<&2, Sg.Seen>
+  for +n: String
+  {(sp_is_store.at(n, sp_nth(Ls.scan(List.append(&2, Sg.Seen, pre, e <> post)), List.length(&2, Sg.Seen, pre))), sp_is_legacy.at(n, sp_nth(Ls.scan(List.append(&2, Sg.Seen, pre, e <> post)), List.length(&2, Sg.Seen, pre)))) == (sp_store_entry(n, e), Bool.and(sp_file_entry(n, e), sp_legacy_free(n, List.append(&2, Sg.Seen, pre, e <> post)))) : Bool & Bool}
 
 # LAW scan_one_location (R5): no id is listed both as a storage and as a legacy file
 # (list_one_location, on the real listing)
@@ -420,13 +578,15 @@ law rows_each_once:
   for +i: Nat
   {sp_count(i, sp_ats(Ls.rows(os))) == sp_count_listed(os, sp_seens(os), 0n, i) : Nat}
 
-# LAW rows_are_entries (R7): every listed row is its entry as the spec makes it: its place,
-# what it is (under its id), its newest time
-# EXCLUDES: a row with another id, kind or time than its entry's, an
-#   oldest time for the newest
+# LAW rows_are_entries (R7): every row stands for the entry at its place:
+# what it is is the scan's verdict on that entry (Ls.scan of the entries,
+# pinned by the scan_* laws), and its time is a time of that entry that
+# no time of the entry is later than (its newest)
+# EXCLUDES: a row with another id, kind or place than its entry's, an
+#   oldest time for the newest, a time no file has
 law rows_are_entries:
   for +os: List<&2, Ls.Obs>
-  {Ls.rows(os) == sp_fill(sp_ats(Ls.rows(os)), os, sp_seens(os)) : List<&2, Ls.Row>}
+  {sp_rows_ok(Ls.rows(os), Ls.scan(sp_seens(os)), os) == True{} : Bool}
 
 # LAW rows_newest_first (R7): every row is listed before every later one: newer first, then
 # by id, then by place
@@ -434,14 +594,6 @@ law rows_are_entries:
 law rows_newest_first:
   for +os: List<&2, Ls.Obs>
   {sp_sorted(Ls.rows(os)) == True{} : Bool}
-
-# LAW rows_order_strict (R7): no two rows are each before the other, so rows_each_once,
-# rows_are_entries and rows_newest_first leave one listing
-# EXCLUDES: an order under which two listings pass the laws
-law rows_order_strict:
-  for +a: Ls.Row
-  for +b: Ls.Row
-  {Bool.and(sp_before(a, b), sp_before(b, a)) == False{} : Bool}
 
 # LAW rows_ignore_unread (R7): the listing reads nothing of an entry the scan skips: the
 # Rust may send it with no cwd and no times

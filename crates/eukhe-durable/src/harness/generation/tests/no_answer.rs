@@ -133,7 +133,7 @@ async fn a_reply_of_only_thinking_is_retried_and_then_answers() {
     assert_eq!(setup.faux.state().call_count, 2);
 }
 
-/// `EmptyStop`'s cap (3 empty notes in a row, law `stop_empty_gives_up`)
+/// `EmptyStop`'s cap (3 empty notes in a row, law `stop_empty_three_notes_then_fails`)
 /// bounds the noted retries, not `retry.maxRetries` (1 here).
 #[tokio::test]
 async fn replies_of_only_thinking_fail_the_run_after_three_empty_notes() {

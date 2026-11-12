@@ -180,14 +180,17 @@ def Means(r: Maybe<&2, L.Kv>, +p: L.Parts) -> Type:
     case Some{L.Kv{n, d}}:
       {Nat.is_le(sig(p), 15n) == True{} : Bool} & {n == L.Parts.name(p) : String} & {Dec.Canon(d) == True{} : Bool} & {Dec.same(d, raw(p)) == True{} : Bool}
 
-# The text of a decimal
-# ---------------------
-# How a refusal names a metric: the value's spelling in the grammar
-# above: zero is 0; else its sign, the digits before the point (0 when
-# there are none) and, at a scale above 0, the point and the last scale
-# digits, zeros first when there are fewer: 3, -12.5, 0.005. For a
-# canonical decimal (decimal.bend Canon) that is its one canonical
-# spelling.
+# ds without its first n digits
+def drop(n: Nat, ds: List<&2, Nat>) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      ds
+    case 1n+k:
+      match ds:
+        case Nil{}:
+          Nil{}
+        case d <> t:
+          drop(k, t)
 
 # the first n digits of ds
 def take(n: Nat, ds: List<&2, Nat>) -> List<&2, Nat>:
@@ -200,18 +203,6 @@ def take(n: Nat, ds: List<&2, Nat>) -> List<&2, Nat>:
           Nil{}
         case d <> t:
           d <> take(k, t)
-
-# ds without its first n digits
-def drop(n: Nat, ds: List<&2, Nat>) -> List<&2, Nat>:
-  match n:
-    case 0n:
-      ds
-    case 1n+k:
-      match ds:
-        case Nil{}:
-          Nil{}
-        case d <> t:
-          drop(k, t)
 
 # n zero digits
 def zeros(n: Nat) -> List<&2, Nat>:

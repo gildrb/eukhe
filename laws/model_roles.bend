@@ -6,14 +6,26 @@ import ../bend/ffi_model_roles.bend as FMr
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
+# Requirements
+# ------------
+# R1: the table answers every role once, in the role order (eukhe_types
+#     ModelRole).
+# R2: a role's own setting, when set, gives its model; only its own field
+#     is read for it.
+# R3: else the all-roles setting (`modelRoles.all`), when set, for a role
+#     that takes a chat model.
+# R4: else the role's default; speech and dictation never take the
+#     all-roles model.
+# R5-R7: the wire codec (below); R8: the entry against a spec (below).
+# A1: `/model --all n` (crates/eukhe-daemon/src/model_switch.rs
+#     handle_set_model with allRoles): every role the all-roles model
+#     reaches (crates/eukhe-core/src/models/roles.rs all_roles_reach) runs
+#     on n afterwards; every other role resolves as before the switch.
+#
 # The model roles
 # ---------------
 # bend/model_roles.bend: where the model of every model role comes from
-# (the Rust `role_table`, crates/eukhe-core/src/models/roles.rs). R1: the
-# table answers every role once, in the role order; R2: a role's own
-# setting wins; R3: else the all-roles setting (`modelRoles.all`), for a
-# role that takes a chat model; R4: else the role's default; speech and
-# dictation never take the all-roles model.
+# (the Rust `role_table`, crates/eukhe-core/src/models/roles.rs).
 
 def mr_role_eq(a: Mr.Role, b: Mr.Role) -> Bool:
   match a b:
@@ -180,10 +192,10 @@ law unset_table:
 law own_table:
   {Mr.resolve(Mr.In{Mr.Owns{Mr.Sel{1n}, Mr.Sel{2n}, Mr.Sel{3n}, Mr.Sel{4n}, Mr.Sel{5n}, Mr.Sel{6n}, Mr.Sel{7n}, Mr.Sel{8n}, Mr.Sel{9n}, Mr.Sel{10n}, Mr.Sel{11n}, Mr.Sel{12n}, Mr.Sel{13n}}, Mr.Sel{0n}}) == [Mr.Row{Mr.Chat{}, Mr.Own{1n}}, Mr.Row{Mr.Memory{}, Mr.Own{2n}}, Mr.Row{Mr.Auxiliary{}, Mr.Own{3n}}, Mr.Row{Mr.Image{}, Mr.Own{4n}}, Mr.Row{Mr.Subagent{}, Mr.Own{5n}}, Mr.Row{Mr.Worker{}, Mr.Own{6n}}, Mr.Row{Mr.Gateway{}, Mr.Own{7n}}, Mr.Row{Mr.Query{}, Mr.Own{8n}}, Mr.Row{Mr.Titles{}, Mr.Own{9n}}, Mr.Row{Mr.Judge{}, Mr.Own{10n}}, Mr.Row{Mr.Translate{}, Mr.Own{11n}}, Mr.Row{Mr.Speech{}, Mr.Own{12n}}, Mr.Row{Mr.Dictation{}, Mr.Own{13n}}] : List<&2, Mr.Row>}
 
-# The own setting of a role, pinned
-# ---------------------------------
+# The own setting of a role
+# -------------------------
 
-# the own setting of role r: the field of o named after r
+# the own setting of role r: the field of o named after r (R2)
 def mr_own(o: Mr.Owns, r: Mr.Role) -> Mr.Choice:
   match o:
     case Mr.Owns{chat, memory, auxiliary, image, subagent, worker, gateway, query, titles, judge, translate, speech, dictation}:
@@ -215,33 +227,155 @@ def mr_own(o: Mr.Owns, r: Mr.Role) -> Mr.Choice:
         case Mr.Dictation{}:
           dictation
 
-# LAW own_is_field (R2): the own setting of a role is the field of its own role, for every role and every settings: no role reads another role's setting
-# EXCLUDES: a role that falls back to another role's own setting (dictation
-#   unset reading speech's), a field swap, a set field read as unset
-law own_is_field:
+def mr_put.pick(hit: Bool, c: Mr.Choice, old: Mr.Choice) -> Mr.Choice:
+  match hit:
+    case True{}:
+      c
+    case False{}:
+      old
+
+# the setting of the field of role k after role q's own setting is set to
+# c: c when k is q, else old
+def mr_put(+q: Mr.Role, k: Mr.Role, c: Mr.Choice, old: Mr.Choice) -> Mr.Choice:
+  mr_put.pick(mr_role_eq(q, k), c, old)
+
+# the own settings o with role q's own setting set to c, every other kept
+def mr_set_own(o: Mr.Owns, +q: Mr.Role, +c: Mr.Choice) -> Mr.Owns:
+  match o:
+    case Mr.Owns{chat, memory, auxiliary, image, subagent, worker, gateway, query, titles, judge, translate, speech, dictation}:
+      Mr.Owns{mr_put(q, Mr.Chat{}, c, chat), mr_put(q, Mr.Memory{}, c, memory), mr_put(q, Mr.Auxiliary{}, c, auxiliary), mr_put(q, Mr.Image{}, c, image), mr_put(q, Mr.Subagent{}, c, subagent), mr_put(q, Mr.Worker{}, c, worker), mr_put(q, Mr.Gateway{}, c, gateway), mr_put(q, Mr.Query{}, c, query), mr_put(q, Mr.Titles{}, c, titles), mr_put(q, Mr.Judge{}, c, judge), mr_put(q, Mr.Translate{}, c, translate), mr_put(q, Mr.Speech{}, c, speech), mr_put(q, Mr.Dictation{}, c, dictation)}
+
+# LAW own_others_ignored (R2): for every settings, every all-roles setting
+# and every two different roles q and r, changing q's own setting (to any
+# setting) leaves r's row of the table unchanged: a role's source reads no
+# other role's own setting
+# EXCLUDES: a role that falls back to another role's own setting
+#   (dictation unset reading speech's), two roles' fields swapped, a role
+#   that reads a field shared with another
+law own_others_ignored:
   for o: Mr.Owns
+  for all: Mr.Choice
+  for q: Mr.Role
   for r: Mr.Role
-  {Mr.own(o, r) == mr_own(o, r) : Mr.Choice}
+  for c: Mr.Choice
+  for h: {mr_role_eq(q, r) == False{} : Bool}
+  {mr_at(Mr.resolve(Mr.In{mr_set_own(o, q, c), all}), r) == mr_at(Mr.resolve(Mr.In{o, all}), r) : Maybe<&2, Mr.Src>}
 
-# The all-roles switch (`/model --all n`, Mr.all_in)
-# --------------------------------------------------
+# The all-roles switch, as Rust runs it (A1)
+# ------------------------------------------
+# `/model --all n` (crates/eukhe-daemon/src/model_switch.rs
+# handle_set_model, allRoles true, the model saved for the chat): the
+# session switch saves the chat's own model n (`defaultModel`); Rust asks
+# the entry the request `role_sources(|_| false, true)` writes (every own
+# setting unset, the all-roles selector 0: all_roles_reach,
+# crates/eukhe-core/src/models/roles.rs) and clears the own setting of
+# every role whose row answers All (save_all_roles_model,
+# crates/eukhe-core/src/settings/manager.rs; the chat's own setting is
+# not a cleared setting, own_decl), then saves n as the all-roles setting.
+# The helpers below model those Rust steps over the table Mr.resolve
+# answers (the entry answers it encoded: mrw_answers, mrw_entry_spec).
 
-# LAW all_choice_whole_table (R3, R1): after `/model --all n`, whatever was set, every role that takes a chat model resolves to n: the chat as its own setting, every other as the all-roles setting; speech and dictation resolve as before the switch
-# EXCLUDES: an own setting of a chat role left over that shadows the
-#   all-roles model (the old "every role without its own" switch), the
-#   chat left on another model, the all-roles model sent to speech or
-#   dictation or their own setting lost
-law all_choice_whole_table:
+# every own setting unset
+def mr_unset() -> Mr.Owns:
+  Mr.Owns{Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}}
+
+def mr_reached.src(m: Maybe<&2, Mr.Src>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{s}:
+      match s:
+        case Mr.Own{k}:
+          False{}
+        case Mr.All{k}:
+          True{}
+        case Mr.Default{}:
+          False{}
+
+# A1: role r is one all_roles_reach lists: its row answers All for every
+# own setting unset and the all-roles selector 0
+def mr_reached(+r: Mr.Role) -> Bool:
+  mr_reached.src(mr_at(Mr.resolve(Mr.In{mr_unset(), Mr.Sel{0n}}), r))
+
+def mr_switched.keep(reached: Bool, mine: Mr.Choice) -> Mr.Choice:
+  match reached:
+    case True{}:
+      Mr.Unset{}
+    case False{}:
+      mine
+
+def mr_switched.chat(chat: Bool, reached: Bool, mine: Mr.Choice, +n: Nat) -> Mr.Choice:
+  match chat:
+    case True{}:
+      Mr.Sel{n}
+    case False{}:
+      mr_switched.keep(reached, mine)
+
+# A1: the own setting mine of role r after the switch to n: n for the
+# chat, unset for another reached role, else kept
+def mr_switched(+r: Mr.Role, mine: Mr.Choice, +n: Nat) -> Mr.Choice:
+  mr_switched.chat(mr_role_eq(r, Mr.Chat{}), mr_reached(r), mine, n)
+
+# A1: the own settings o after the switch to n
+def mr_switch(o: Mr.Owns, +n: Nat) -> Mr.Owns:
+  match o:
+    case Mr.Owns{chat, memory, auxiliary, image, subagent, worker, gateway, query, titles, judge, translate, speech, dictation}:
+      Mr.Owns{mr_switched(Mr.Chat{}, chat, n), mr_switched(Mr.Memory{}, memory, n), mr_switched(Mr.Auxiliary{}, auxiliary, n), mr_switched(Mr.Image{}, image, n), mr_switched(Mr.Subagent{}, subagent, n), mr_switched(Mr.Worker{}, worker, n), mr_switched(Mr.Gateway{}, gateway, n), mr_switched(Mr.Query{}, query, n), mr_switched(Mr.Titles{}, titles, n), mr_switched(Mr.Judge{}, judge, n), mr_switched(Mr.Translate{}, translate, n), mr_switched(Mr.Speech{}, speech, n), mr_switched(Mr.Dictation{}, dictation, n)}
+
+# the selector a row runs on: its own or all-roles selector, none for the
+# default
+def mr_runs(m: Maybe<&2, Mr.Src>) -> Maybe<&2, Nat>:
+  match m:
+    case None{}:
+      None{}
+    case Some{s}:
+      match s:
+        case Mr.Own{k}:
+          Some{k}
+        case Mr.All{k}:
+          Some{k}
+        case Mr.Default{}:
+          None{}
+
+# LAW all_switch_runs_n (A1): for every own settings o and every n, after
+# the switch as Rust runs it (the chat's own setting n, every role
+# all_roles_reach lists cleared, the all-roles setting n), every role
+# all_roles_reach lists runs on the selector n. Assumes the switch saves
+# the chat's own model (save "chat"); a project's own setting is outside
+# this model
+# EXCLUDES: a role the all-roles model reaches but whose own setting is
+#   left over (cleared too few roles), a reached role resolved to its
+#   default, a probe that lists a role the all-roles setting does not fill
+law all_switch_runs_n:
+  for o: Mr.Owns
+  for +n: Nat
+  for r: Mr.Role
+  for h: {mr_reached(r) == True{} : Bool}
+  {mr_runs(mr_at(Mr.resolve(Mr.In{mr_switch(o, n), Mr.Sel{n}}), r)) == Some{n} : Maybe<&2, Nat>}
+
+# LAW all_switch_keeps_others (A1): for every own settings o, every
+# all-roles setting a before the switch and every n, a role
+# all_roles_reach does not list resolves after the switch to n (as Rust
+# runs it) exactly as before it
+# EXCLUDES: the all-roles model sent to speech or dictation, their own
+#   setting cleared or lost by the switch
+law all_switch_keeps_others:
   for o: Mr.Owns
   for a: Mr.Choice
   for +n: Nat
-  {Mr.resolve(Mr.all_in(Mr.In{o, a}, n)) == [Mr.Row{Mr.Chat{}, Mr.Own{n}}, Mr.Row{Mr.Memory{}, Mr.All{n}}, Mr.Row{Mr.Auxiliary{}, Mr.All{n}}, Mr.Row{Mr.Image{}, Mr.All{n}}, Mr.Row{Mr.Subagent{}, Mr.All{n}}, Mr.Row{Mr.Worker{}, Mr.All{n}}, Mr.Row{Mr.Gateway{}, Mr.All{n}}, Mr.Row{Mr.Query{}, Mr.All{n}}, Mr.Row{Mr.Titles{}, Mr.All{n}}, Mr.Row{Mr.Judge{}, Mr.All{n}}, Mr.Row{Mr.Translate{}, Mr.All{n}}, Mr.Row{Mr.Speech{}, Mr.source(Mr.Speech{}, mr_own(o, Mr.Speech{}), a)}, Mr.Row{Mr.Dictation{}, Mr.source(Mr.Dictation{}, mr_own(o, Mr.Dictation{}), a)}] : List<&2, Mr.Row>}
+  for r: Mr.Role
+  for h: {mr_reached(r) == False{} : Bool}
+  {mr_at(Mr.resolve(Mr.In{mr_switch(o, n), Mr.Sel{n}}), r) == mr_at(Mr.resolve(Mr.In{o, a}), r) : Maybe<&2, Mr.Src>}
 
-# LAW all_choice_example (R3, R1): anchor (the user's config): the chat on 3, memory, auxiliary and the gateway on 1, titles on 2, the all-roles setting 3; `/model --all 4` puts every chat role on 4
+# LAW all_switch_example (A1): anchor: the user's config (the chat on 3;
+# memory, auxiliary and the gateway on 1; titles on 2; the all-roles
+# setting 3) plus speech on its own 12; `/model --all 4` as Rust runs it:
+# the chat on its own 4, every other chat role on the all-roles 4, speech
+# on its own 12, dictation on its default
 # EXCLUDES: a role with its own setting kept off the chosen model, a
-#   vacuous all_choice_whole_table
-law all_choice_example:
-  {Mr.resolve(Mr.all_in(Mr.In{Mr.Owns{Mr.Sel{3n}, Mr.Sel{1n}, Mr.Sel{1n}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Sel{1n}, Mr.Unset{}, Mr.Sel{2n}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}}, Mr.Sel{3n}}, 4n)) == [Mr.Row{Mr.Chat{}, Mr.Own{4n}}, Mr.Row{Mr.Memory{}, Mr.All{4n}}, Mr.Row{Mr.Auxiliary{}, Mr.All{4n}}, Mr.Row{Mr.Image{}, Mr.All{4n}}, Mr.Row{Mr.Subagent{}, Mr.All{4n}}, Mr.Row{Mr.Worker{}, Mr.All{4n}}, Mr.Row{Mr.Gateway{}, Mr.All{4n}}, Mr.Row{Mr.Query{}, Mr.All{4n}}, Mr.Row{Mr.Titles{}, Mr.All{4n}}, Mr.Row{Mr.Judge{}, Mr.All{4n}}, Mr.Row{Mr.Translate{}, Mr.All{4n}}, Mr.Row{Mr.Speech{}, Mr.Default{}}, Mr.Row{Mr.Dictation{}, Mr.Default{}}] : List<&2, Mr.Row>}
+#   vacuous all_switch_runs_n
+law all_switch_example:
+  {Mr.resolve(Mr.In{mr_switch(Mr.Owns{Mr.Sel{3n}, Mr.Sel{1n}, Mr.Sel{1n}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Sel{1n}, Mr.Unset{}, Mr.Sel{2n}, Mr.Unset{}, Mr.Unset{}, Mr.Sel{12n}, Mr.Unset{}}, 4n), Mr.Sel{4n}}) == [Mr.Row{Mr.Chat{}, Mr.Own{4n}}, Mr.Row{Mr.Memory{}, Mr.All{4n}}, Mr.Row{Mr.Auxiliary{}, Mr.All{4n}}, Mr.Row{Mr.Image{}, Mr.All{4n}}, Mr.Row{Mr.Subagent{}, Mr.All{4n}}, Mr.Row{Mr.Worker{}, Mr.All{4n}}, Mr.Row{Mr.Gateway{}, Mr.All{4n}}, Mr.Row{Mr.Query{}, Mr.All{4n}}, Mr.Row{Mr.Titles{}, Mr.All{4n}}, Mr.Row{Mr.Judge{}, Mr.All{4n}}, Mr.Row{Mr.Translate{}, Mr.All{4n}}, Mr.Row{Mr.Speech{}, Mr.Own{12n}}, Mr.Row{Mr.Dictation{}, Mr.Default{}}] : List<&2, Mr.Row>}
 
 # The wire codec of bend/ffi_model_roles.bend (grammar: that file's
 # header, crates/eukhe-bend/WIRE.md). R5: the request and every reply
@@ -641,10 +775,14 @@ law mrw_entry_refuses:
   for bad: {LawsBase.wire_opens_err(FMr.ffi(s)) == True{} : Bool}
   {FMr.ffi(s) == Wr.err("model_roles: malformed request") : String} | {FMr.ffi(s) == Wr.err("model_roles: input left over") : String}
 
-# LAW mrw_entry_spec_example (R8): anchor: speech's own model 5 and the
-# all-roles model 2: every chat role on 2, speech on its own, dictation
-# on its default; the same request with input left over
-# EXCLUDES: a spec that drifts from the Rust reader, the all-roles model
-#   sent to dictation
+# LAW mrw_entry_spec_example (R8): anchor: the request Rust writes for
+# speech's own setting and the all-roles setting (role k's own selector
+# k + 1, so speech 12; the all-roles selector 0) is the spec's spelling,
+# and the entry answers it with the spec's reply bytes: every chat role on
+# the all-roles setting, speech on its own, dictation on its default; the
+# same request with input left over
+# EXCLUDES: a spec speller that drifts from the bytes Rust writes, a reply
+#   Rust's reader refuses (an own row naming another role's selector), the
+#   all-roles model sent to dictation
 law mrw_entry_spec_example:
-  {[FMr.ffi("0,0,0,0,0,0,0,0,0,0,0,1,5,0,1,2,"), FMr.ffi("0,0,0,0,0,0,0,0,0,0,0,1,5,0,1,2,x")] == ["13,0,1,2,1,1,2,2,1,2,3,1,2,4,1,2,5,1,2,6,1,2,7,1,2,8,1,2,9,1,2,10,1,2,11,0,5,12,2,", Wr.err("model_roles: input left over")] : List<&2, String>}
+  {[mrs_w_in(Mr.In{Mr.Owns{Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Sel{12n}, Mr.Unset{}}, Mr.Sel{0n}}, ""), mrs_w_reply(Mr.In{Mr.Owns{Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Sel{12n}, Mr.Unset{}}, Mr.Sel{0n}}), FMr.ffi("0,0,0,0,0,0,0,0,0,0,0,1,12,0,1,0,"), FMr.ffi("0,0,0,0,0,0,0,0,0,0,0,1,12,0,1,0,x")] == ["0,0,0,0,0,0,0,0,0,0,0,1,12,0,1,0,", "13,0,1,0,1,1,0,2,1,0,3,1,0,4,1,0,5,1,0,6,1,0,7,1,0,8,1,0,9,1,0,10,1,0,11,0,12,12,2,", "13,0,1,0,1,1,0,2,1,0,3,1,0,4,1,0,5,1,0,6,1,0,7,1,0,8,1,0,9,1,0,10,1,0,11,0,12,12,2,", Wr.err("model_roles: input left over")] : List<&2, String>}

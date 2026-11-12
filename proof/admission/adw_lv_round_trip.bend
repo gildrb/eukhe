@@ -7,12 +7,13 @@ import ../../bend/wire.bend as Wr
 import ../../laws/admission.bend as Admission
 import ./base/wire.bend as LAWire
 import ./adw_sts_round_trip.bend as PAdwStsRoundTrip
+import ../../laws/admission/wire.bend as AdmissionWire
 
 # a sts reads back (turned around for rewriting)
 def paw.sts(+s: Ad.Sts, +rest: String) -> {Wr.Got{s, rest} == FAd.get_sts(FAd.put_sts(s, rest)) : Wr.Dec<Ad.Sts>}:
-  Equal.sym(Wr.Dec<Ad.Sts>, FAd.get_sts(FAd.put_sts(s, rest)), Wr.Got{s, rest}, Admission.adw_sts_round_trip(s, rest))
+  Equal.sym(Wr.Dec<Ad.Sts>, FAd.get_sts(FAd.put_sts(s, rest)), Wr.Got{s, rest}, AdmissionWire.adw_sts_round_trip(s, rest))
 
-def Admission.adw_lv_round_trip(t, rest, h):
+def AdmissionWire.adw_lv_round_trip(t, rest, h):
   match t:
     case Ad.Lv{+k, +c, +s}:
       +r = rest

@@ -3,7 +3,6 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../bend/infer.bend as If
 
 # ---- model_facts ----
 
@@ -14,23 +13,82 @@ import ../../bend/infer.bend as If
 # data gives the answers the code gave. Each law is an open claim about the
 # model in bend/facts.bend; PROOF.bend proves them (as Facts.<law>)
 # with the lemmas of proof/facts/. The decisions run as the compiled core
-# (entry bend/ffi_model_facts.bend, laws at the end of this file).
+# (entries bend/ffi_facts.bend, laws/facts/budgets.bend and entry.bend;
+# bend/ffi_model_facts.bend, laws/facts/adaptive.bend and
+# laws/model_facts.bend).
+#
+# Requirements (stated in the header of bend/facts.bend and the Rust doc
+# comments its functions name; the Rust is the source), each with the
+# laws that state it:
+#   S6.10.1 a wire API decides a fact only from the rulebook's answer, the
+#     model's compat flag or the user's setting: adaptive thinking is the
+#     compat flag, else the rulebook's flag with the default false
+#     (laws/facts/adaptive.bend facts_adaptive_compat_wins,
+#     facts_adaptive_else_flag); a flag is true only at a known 1, an
+#     unknown one the wire API's default (at the entry: laws/model_facts.bend
+#     model_facts_ffi_flag_known, model_facts_ffi_flag_unknown_default; the
+#     rulebook lookup: laws/infer.bend facts_rulebook_decides,
+#     facts_rulebook_default)
+#   S6.10.2 the thinking budgets stay inside the model's limits: the Google
+#     budget (facts_google_*), the room under a ceiling (facts_room_*), the
+#     fitted ceiling and budget (facts_fit_*), the auxiliary call's cap
+#     (facts_aux_*); the level request's budget (the user's over the
+#     default, xhigh and max at high) at the entry: laws/facts/entry.bend
+#     facts_ffi_exact
+#   S6.10.3 where a fact moved from code into data, the data gives the old
+#     code's answers: facts_bedrock_effort_oracle (the old Rust
+#     `old_effort`), facts_bedrock_budget_oracle
+#   S6.10.4 prices are data: the first row of the model that prices the
+#     tier, else the first row of every model, else none
+#     (facts_tier_price_model_row_first, facts_price_wide_row_next,
+#     facts_price_no_row_none); the shipped rows give the old multipliers
+#     (facts_tier_price_openai_oracle, facts_tier_price_codex_oracle)
+#   S6.10.5 the Bedrock reasoning fields of the rulebook's shape
+#     (facts_reasoning_exact); that the rulebook gives Claude's shape to
+#     exactly the catalog models of the old Claude name check is the Rust
+#     test `the_claude_shape_is_the_rulebook_answer_of_the_old_name_check`
+#     (crates/eukhe-ai/src/api/bedrock_converse_stream/convert/facts_tests.rs),
+#     not a law here: no Bend def reads rulebook.json
+#   A1 the output cap: the wish, shrunk only on a real window conflict,
+#     never below the floor, omitted only when the max is unknown
+#     (facts_cap_*)
 
-# (S6.10.1) Decisions are rulebook lookups
-# ----------------------------------------
+# (S6.10) The model's terms the entry bend/ffi_model_facts.bend calls
+# ------------------------------------------------------------------
 
-# LAW facts_adaptive_compat_first: a model's explicit compat flag decides adaptive thinking, over the
-# rulebook
-law facts_adaptive_compat_first:
-  for b: Bool
-  for a: If.Ans
-  {Fx.adaptive(Some{b}, a) == b : Bool}
+# the map's entry of a level (the projection of facts_bedrock_effort_oracle
+# and of effort_old below)
+def effort_spec.at(m: Fx.EMap, l: Fx.ELv) -> Maybe<&2, Maybe<&2, Nat>>:
+  match m:
+    case Fx.EMap{mi, lo, me, hi, xh, mx}:
+      match l:
+        case Fx.EMinimal{}:
+          mi
+        case Fx.ELow{}:
+          lo
+        case Fx.EMedium{}:
+          me
+        case Fx.EHigh{}:
+          hi
+        case Fx.EXhigh{}:
+          xh
+        case Fx.EMax{}:
+          mx
 
-# LAW facts_adaptive_rulebook_second: with no compat flag, adaptive thinking is the rulebook's answer,
-# false where no rule applies; one rule for Anthropic Messages and Bedrock
-law facts_adaptive_rulebook_second:
-  for a: If.Ans
-  {Fx.adaptive(None{}, a) == Fx.flag(a, False{}) : Bool}
+# the user's budget of a level: the field of that level (laws/facts/entry.bend
+# and the facts_google_* laws)
+def customs_spec(c: Fx.Customs, l: Fx.Lv) -> Maybe<&2, Nat>:
+  match c:
+    case Fx.Customs{mi, lo, me, hi}:
+      match l:
+        case Fx.Minimal{}:
+          mi
+        case Fx.Low{}:
+          lo
+        case Fx.Medium{}:
+          me
+        case Fx.High{}:
+          hi
 
 # (S6.10.2) Budgets stay within the model's limits
 # ------------------------------------------------
@@ -59,6 +117,108 @@ law facts_google_rule_is_the_table:
   for +l: Fx.Lv
   for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
   {Fx.gtokens(b, Fx.Customs.none(), l) == Fx.Budgets.at(b, l) : Nat}
+
+# a budget rule falls somewhere: a level's budget below the one before it
+# (low below minimal, medium below low, or high below medium)
+def rule_falls(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat) -> Bool:
+  Bool.or(Nat.is_lt(lo, mi), Bool.or(Nat.is_lt(me, lo), Nat.is_lt(hi, me)))
+
+# the rule's budget of a level, read off the rule's four fields
+def rule_at(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, l: Fx.Lv) -> Nat:
+  match l:
+    case Fx.Minimal{}:
+      mi
+    case Fx.Low{}:
+      lo
+    case Fx.Medium{}:
+      me
+    case Fx.High{}:
+      hi
+
+# LAW facts_google_unordered_refused: a budget rule that falls somewhere (a level's budget below
+# the one before it) gives no Google budget, whatever the user's budgets
+# and the level: the rule is refused, never clamped into a range it does
+# not have (Rust `u64::clamp` panicked on minimal > high)
+# EXCLUDES: a budget from a rule with no range, a panic, a rule refused
+#   only when minimal is above high (a low below minimal let through)
+law facts_google_unordered_refused:
+  for +mi: Nat
+  for +lo: Nat
+  for +me: Nat
+  for +hi: Nat
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for +falls: {rule_falls(mi, lo, me, hi) == True{} : Bool}
+  {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Unordered{} : Fx.GB}
+
+# LAW facts_google_user_kept: under a budget rule that never falls, the user's budget n of the
+# level (the field of that level of the user's budgets), inside the rule's
+# minimal..high, is the Google budget as it is
+# EXCLUDES: a user's budget ignored for the rule's, a budget inside the
+#   range moved, the user's budget of another level, an ordered rule
+#   refused
+law facts_google_user_kept:
+  for +mi: Nat
+  for +lo: Nat
+  for +me: Nat
+  for +hi: Nat
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for +n: Nat
+  for +ok: {rule_falls(mi, lo, me, hi) == False{} : Bool}
+  for +u: {customs_spec(c, l) == Some{n} : Maybe<&2, Nat>}
+  for +above: {Nat.is_le(mi, n) == True{} : Bool}
+  for +below: {Nat.is_le(n, hi) == True{} : Bool}
+  {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Tokens{n} : Fx.GB}
+
+# LAW facts_google_user_raised: under a budget rule that never falls, a user's budget of the level
+# below the rule's minimal is raised to the minimal
+# EXCLUDES: a budget below the model's minimal sent (the provider refuses
+#   it), a raise to another level's budget
+law facts_google_user_raised:
+  for +mi: Nat
+  for +lo: Nat
+  for +me: Nat
+  for +hi: Nat
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for +n: Nat
+  for +ok: {rule_falls(mi, lo, me, hi) == False{} : Bool}
+  for +u: {customs_spec(c, l) == Some{n} : Maybe<&2, Nat>}
+  for +low: {Nat.is_lt(n, mi) == True{} : Bool}
+  {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Tokens{mi} : Fx.GB}
+
+# LAW facts_google_user_lowered: under a budget rule that never falls, a user's budget of the level
+# above the rule's high is lowered to the high
+# EXCLUDES: a budget past the model's high sent, a cut to another level's
+#   budget
+law facts_google_user_lowered:
+  for +mi: Nat
+  for +lo: Nat
+  for +me: Nat
+  for +hi: Nat
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for +n: Nat
+  for +ok: {rule_falls(mi, lo, me, hi) == False{} : Bool}
+  for +u: {customs_spec(c, l) == Some{n} : Maybe<&2, Nat>}
+  for +high: {Nat.is_lt(hi, n) == True{} : Bool}
+  {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Tokens{hi} : Fx.GB}
+
+# LAW facts_google_rule_default: under a budget rule that never falls, with no user's budget of the
+# level, the Google budget is the rule's budget of the level
+# EXCLUDES: a dynamic budget for a model with a rule, another level's
+#   budget, the rule's budget moved
+law facts_google_rule_default:
+  for +mi: Nat
+  for +lo: Nat
+  for +me: Nat
+  for +hi: Nat
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for +ok: {rule_falls(mi, lo, me, hi) == False{} : Bool}
+  for +u: {customs_spec(c, l) == None{} : Maybe<&2, Nat>}
+  {Fx.gbudget(Some{Fx.Budgets{mi, lo, me, hi}}, c, l) == Fx.Tokens{rule_at(mi, lo, me, hi, l)} : Fx.GB}
 
 # LAW facts_fit_budget_under_ceiling: a fitted thinking budget is never above the response ceiling
 law facts_fit_budget_under_ceiling:
@@ -94,114 +254,128 @@ law facts_room_leaves_the_answer:
   for fits: {Nat.is_le(a, m) == True{} : Bool}
   {Nat.is_le(Nat.add(Fx.room(b, m, a), a), m) == True{} : Bool}
 
-# LAW facts_aux_cap_answer_room: an auxiliary call's cap leaves its answer room over the thinking
-# budget in use, whatever the user's budget
-law facts_aux_cap_answer_room:
+# LAW facts_room_at_most_budget: a budget capped for answer room is at most the budget
+# EXCLUDES: a room past the budget asked for (thinking the user did not
+#   allow)
+law facts_room_at_most_budget:
   for +b: Nat
+  for +m: Nat
   for +a: Nat
-  {Nat.sub(Fx.aux_cap(b, a), b) == a : Nat}
+  {Nat.is_le(Fx.room(b, m, a), b) == True{} : Bool}
 
-# LAW facts_google_unordered_refused: an unordered budget rule (a minimal, low, medium, high that falls
-# somewhere) gives no Google budget: the rule is refused, never clamped
-# into a range it does not have (Rust `u64::clamp` panicked on minimal >
-# high); EXCLUDES: a budget from a rule with no range, a panic
-law facts_google_unordered_refused:
-  for +b: Fx.Budgets
-  for c: Fx.Customs
-  for l: Fx.Lv
-  for bad: {Fx.Budgets.ordered(b) == False{} : Bool}
-  {Fx.gbudget(Some{b}, c, l) == Fx.Unordered{} : Fx.GB}
+# LAW facts_room_cut_only_for_answer: when the ceiling m holds the answer's tokens a, a budget capped
+# for answer room is the budget, or exactly fills the ceiling with the
+# answer (a plus it is m): it is cut only as far as the answer needs
+# (with facts_room_at_most_budget and facts_room_leaves_the_answer: the
+# smaller of the budget and m - a)
+# EXCLUDES: a budget cut further than the answer needs (half the room, 0)
+law facts_room_cut_only_for_answer:
+  for +b: Nat
+  for +m: Nat
+  for +a: Nat
+  for +fits: {Nat.is_le(a, m) == True{} : Bool}
+  {Bool.or(Nat.is_eq(Fx.room(b, m, a), b), Nat.is_eq(Nat.add(a, Fx.room(b, m, a)), m)) == True{} : Bool}
 
-# LAW facts_google_ordered_tokens: an ordered budget rule gives the budget gtokens (so every law on
-# gtokens holds for the Google budget)
-law facts_google_ordered_tokens:
-  for +b: Fx.Budgets
-  for c: Fx.Customs
-  for +l: Fx.Lv
-  for ok: {Fx.Budgets.ordered(b) == True{} : Bool}
-  {Fx.gbudget(Some{b}, c, l) == Fx.Tokens{Fx.gtokens(b, c, l)} : Fx.GB}
+# LAW facts_room_no_room: a ceiling below the answer's tokens leaves no room for a budget
+# EXCLUDES: a budget that takes the little room the answer has
+law facts_room_no_room:
+  for +b: Nat
+  for +m: Nat
+  for +a: Nat
+  for +h: {Nat.is_lt(m, a) == True{} : Bool}
+  {Fx.room(b, m, a) == 0n : Nat}
 
-# x held inside lo..hi: never below lo, never above hi
+# LAW facts_aux_keeps_answer_room: an auxiliary call's output cap is the level request's high budget
+# (the user's, else the default: Fx.budget at high) plus the answer's
+# tokens, whenever that sum is at most the top
+# EXCLUDES: thinking taken out of the answer's room, the low or default
+#   budget for a user's high budget, a cap cut below the top with room
+#   to spare
+law facts_aux_keeps_answer_room:
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for +a: Nat
+  for +top: Nat
+  for +fits: {Nat.is_le(Nat.add(Fx.budget(c, d, Fx.High{}), a), top) == True{} : Bool}
+  {Fx.aux(c, d, a, top) == Nat.add(Fx.budget(c, d, Fx.High{}), a) : Nat}
+
+# LAW facts_aux_saturates_at_top: and is the top when that sum passes it (Rust `saturating_add`
+# at the wire's largest Nat)
+# EXCLUDES: a cap past the top, a wrapped or reduced cap
+law facts_aux_saturates_at_top:
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for +a: Nat
+  for +top: Nat
+  for +past: {Nat.is_lt(top, Nat.add(Fx.budget(c, d, Fx.High{}), a)) == True{} : Bool}
+  {Fx.aux(c, d, a, top) == top : Nat}
+
+# x held inside lo..hi: never below lo, never above hi (laws/facts/entry.bend)
 def budgets.held(x: Nat, +lo: Nat, +hi: Nat) -> Nat:
   Nat.max(lo, Nat.min(x, hi))
-
-# LAW facts_google_budget_held: a Google budget under a rule is the user's budget of the level,
-# else the rule's, held inside the rule's minimal..high: a user's budget
-# inside the range is sent as it is; EXCLUDES: a user's budget ignored, a
-# budget moved inside the range
-law facts_google_budget_held:
-  for +b: Fx.Budgets
-  for c: Fx.Customs
-  for +l: Fx.Lv
-  for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
-  {Fx.gtokens(b, c, l) == budgets.held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), Fx.Budgets.high(b)) : Nat}
-
-# LAW facts_google_free_user: without a rule, a Google budget is the user's budget of the level
-law facts_google_free_user:
-  for c: Fx.Customs
-  for l: Fx.Lv
-  for n: Nat
-  for u: {Fx.Customs.at(c, l) == Some{n} : Maybe<&2, Nat>}
-  {Fx.gbudget(None{}, c, l) == Fx.Tokens{n} : Fx.GB}
-
-# LAW facts_google_free_dynamic: without a rule and a user's budget, the Google budget is dynamic
-law facts_google_free_dynamic:
-  for c: Fx.Customs
-  for l: Fx.Lv
-  for u: {Fx.Customs.at(c, l) == None{} : Maybe<&2, Nat>}
-  {Fx.gbudget(None{}, c, l) == Fx.Dynamic{} : Fx.GB}
 
 # LAW facts_budget_levels: the budget level of a request's level: each level keeps its own,
 # xhigh and max take high
 law facts_budget_levels:
   {[Fx.Lv.of(Fx.EMinimal{}), Fx.Lv.of(Fx.ELow{}), Fx.Lv.of(Fx.EMedium{}), Fx.Lv.of(Fx.EHigh{}), Fx.Lv.of(Fx.EXhigh{}), Fx.Lv.of(Fx.EMax{})] == [Fx.Minimal{}, Fx.Low{}, Fx.Medium{}, Fx.High{}, Fx.High{}, Fx.High{}] : List<&2, Fx.Lv>}
 
-# LAW facts_budget_user_first: the budget of a level is the user's budget of the level, over the
-# defaults
-law facts_budget_user_first:
-  for c: Fx.Customs
-  for d: Fx.Budgets
-  for +l: Fx.Lv
-  for n: Nat
-  for u: {Fx.Customs.at(c, l) == Some{n} : Maybe<&2, Nat>}
-  {Fx.budget(c, d, l) == n : Nat}
-
-# LAW facts_budget_default: without the user's budget, the budget of a level is the default
-law facts_budget_default:
-  for c: Fx.Customs
-  for d: Fx.Budgets
-  for +l: Fx.Lv
-  for u: {Fx.Customs.at(c, l) == None{} : Maybe<&2, Nat>}
-  {Fx.budget(c, d, l) == Fx.Budgets.at(d, l) : Nat}
-
 # the fit of the response ceiling m: the budget b, capped so that a
-# tokens stay for the answer
+# tokens stay for the answer (laws/facts/entry.bend)
 def budgets.fit(+m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
   Fx.Fit{m, Nat.min(b, Nat.sub(m, a))}
 
-# LAW facts_fit_exact_caller: with the caller's cap x, the thinking ceiling is x plus the budget
-# (thinking on top of the answer cap), at most the model's cap, through
-# the window; the budget is capped so that the answer keeps a tokens
-# EXCLUDES: any other ceiling or budget (the laws above only bound them);
-#   thinking taken out of the answer's cap; a budget kept whole that leaves
-#   the answer less than its tokens
-law facts_fit_exact_caller:
-  for +x: Nat
-  for +mm: Nat
-  for +b: Nat
-  for +a: Nat
-  for +win: Fx.Win
-  {Fx.fit(Some{x}, mm, b, a, win) == budgets.fit(Fx.cap.shrink(Nat.min(Nat.add(x, b), mm), win), b, a) : Fx.Fit}
+# the caller's cap of the output cap that bounds the thinking ceiling: the
+# caller's answer cap x plus the budget b, at most the model's cap mm; none
+# without a caller's cap
+def fit_caller(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat) -> Maybe<&2, Nat>:
+  match base:
+    case None{}:
+      None{}
+    case Some{x}:
+      Some{Nat.min(Nat.add(x, b), mm)}
 
-# LAW facts_fit_exact_model: without the caller's cap, the thinking ceiling is the model's cap,
-# through the window
-# EXCLUDES: a ceiling below the catalog's max with room to spare
-law facts_fit_exact_model:
+# LAW facts_fit_ceiling_is_the_cap: the thinking ceiling is the output cap (Fx.cap, facts_cap_*) of
+# a request that needs the field, whose caller's cap is the caller's
+# answer cap plus the budget, at most the model's cap (thinking on top of
+# the answer), or none without a caller's cap: one window rule for both
+# EXCLUDES: thinking taken out of the answer's cap, a ceiling past the
+#   model's cap, a second window clamp (the double clamp of the Anthropic
+#   path), a ceiling that bypasses the cap rule, a ceiling below the
+#   catalog's max with room to spare
+law facts_fit_ceiling_is_the_cap:
+  for +base: Maybe<&2, Nat>
   for +mm: Nat
   for +b: Nat
   for +a: Nat
   for +win: Fx.Win
-  {Fx.fit(None{}, mm, b, a, win) == budgets.fit(Fx.cap.shrink(mm, win), b, a) : Fx.Fit}
+  {Some{Fx.Fit.max(Fx.fit(base, mm, b, a, win))} == Fx.cap(fit_caller(base, mm, b), mm, True{}, win) : Maybe<&2, Nat>}
+
+# LAW facts_fit_budget_at_most_level: a fitted thinking budget is at most the budget asked for
+# EXCLUDES: a fitted budget grown past the level's budget
+law facts_fit_budget_at_most_level:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  for +win: Fx.Win
+  {Nat.is_le(Fx.Fit.budget(Fx.fit(base, mm, b, a, win)), b) == True{} : Bool}
+
+# LAW facts_fit_budget_cut_only_for_answer: when the ceiling holds the answer's tokens a, the fitted
+# budget is the budget asked for, or exactly fills the ceiling with the
+# answer: it is cut only as far as the answer needs (with
+# facts_fit_answer_room and facts_fit_budget_at_most_level: the smaller of
+# the budget and the ceiling minus a)
+# EXCLUDES: a budget cut further than the answer needs, a budget kept
+#   whole that leaves the answer less than its tokens (with
+#   facts_fit_answer_room)
+law facts_fit_budget_cut_only_for_answer:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  for +win: Fx.Win
+  for +h: {Nat.is_le(a, Fx.Fit.max(Fx.fit(base, mm, b, a, win))) == True{} : Bool}
+  {Bool.or(Nat.is_eq(Fx.Fit.budget(Fx.fit(base, mm, b, a, win)), b), Nat.is_eq(Nat.add(a, Fx.Fit.budget(Fx.fit(base, mm, b, a, win))), Fx.Fit.max(Fx.fit(base, mm, b, a, win)))) == True{} : Bool}
 
 # LAW facts_fit_saturated_caller (the Nat range): : a caller's cap at or above the model's cap fits as
 # no cap, so the cap Rust saturates at the wire's largest Nat (10^14-1)
@@ -235,17 +409,6 @@ law facts_fit_saturated_budget:
   for +hf: {Nat.is_le(f, mm) == True{} : Bool}
   {Fx.fit(base, mm, b1, a, Fx.Win{w, p, s, f, st}) == Fx.fit(base, mm, b2, a, Fx.Win{w, p, s, f, st}) : Fx.Fit}
 
-# LAW facts_fit_ceiling_on_the_cap: the thinking ceiling is the output cap of a request with the
-# thinking ceiling as the caller's cap: one decision
-# EXCLUDES: a second window clamp of the thinking ceiling (the double clamp
-#   of the Anthropic path), a thinking ceiling that bypasses the cap rule
-law facts_fit_ceiling_on_the_cap:
-  for base: Maybe<&2, Nat>
-  for +mm: Nat
-  for +b: Nat
-  for +a: Nat
-  for +win: Fx.Win
-  {Some{Fx.Fit.max(Fx.fit(base, mm, b, a, win))} == Fx.cap(Some{Fx.fit.cap(base, mm, b)}, mm, True{}, win) : Maybe<&2, Nat>}
 
 # LAW facts_fit_answer_room: the thinking budget never starves the answer: when the ceiling holds
 # the answer's tokens a, the budget plus a is at most the ceiling
@@ -435,7 +598,7 @@ law facts_cap_example:
 
 # LAW facts_aux_cap_within (the Nat range): : the compactor's cap is the thinking budget plus the
 # answer, at most top (Rust passes the wire's largest Nat): below top
-# the answer keeps its room exactly (facts_aux_cap_answer_room), at top
+# the answer keeps its room exactly (facts_aux_keeps_answer_room), at top
 # the cap saturates as Rust's `saturating_add` does
 law facts_aux_cap_within:
   for +b: Nat
@@ -446,15 +609,83 @@ law facts_aux_cap_within:
 # (S6.10.3) Oracles: the data gives the answers the code gave
 # -----------------------------------------------------------
 
+# The old Bedrock effort rule, as the Rust oracle `old_effort` of
+# crates/eukhe-ai/src/api/bedrock_converse_stream/convert/facts_tests.rs
+# writes it (the id list before the thinking-level map): a model on the
+# native-xhigh id list sends xhigh (5) at xhigh; else the map's wire value
+# of the level; else low (2) at minimal and low, medium (3) at medium, high
+# (4) at high, xhigh and max. e is the map's entry of the level: missing
+# (None), null (Some{None}) or a wire value.
+def effort_old.mapped(e: Maybe<&2, Maybe<&2, Nat>>, d: Nat) -> Nat:
+  match e:
+    case Some{w}:
+      match w:
+        case Some{v}:
+          v
+        case None{}:
+          d
+    case None{}:
+      d
+
+def effort_old.xhigh(native: Bool, e: Maybe<&2, Maybe<&2, Nat>>) -> Nat:
+  match native:
+    case True{}:
+      5n
+    case False{}:
+      effort_old.mapped(e, 4n)
+
+def effort_old(native: Bool, e: Maybe<&2, Maybe<&2, Nat>>, l: Fx.ELv) -> Nat:
+  match l:
+    case Fx.EMinimal{}:
+      effort_old.mapped(e, 2n)
+    case Fx.ELow{}:
+      effort_old.mapped(e, 2n)
+    case Fx.EMedium{}:
+      effort_old.mapped(e, 3n)
+    case Fx.EHigh{}:
+      effort_old.mapped(e, 4n)
+    case Fx.EXhigh{}:
+      effort_old.xhigh(native, e)
+    case Fx.EMax{}:
+      effort_old.mapped(e, 4n)
+
+# the map's entry is the wire value xhigh (5)
+def effort_old.five(e: Maybe<&2, Maybe<&2, Nat>>) -> Bool:
+  match e:
+    case Some{w}:
+      match w:
+        case Some{v}:
+          Nat.is_eq(v, 5n)
+        case None{}:
+          False{}
+    case None{}:
+      False{}
+
+# the catalog's promise for a model on the native-xhigh id list: its map
+# sends xhigh at xhigh (the Rust test
+# `a_row_without_native_xhigh_in_its_map_is_sent_high` pins the one row
+# that breaks it)
+def effort_old.kept(native: Bool, m: Fx.EMap) -> Bool:
+  match native:
+    case True{}:
+      effort_old.five(effort_spec.at(m, Fx.EXhigh{}))
+    case False{}:
+      True{}
+
 # LAW facts_bedrock_effort_oracle: the Bedrock effort from the thinking-level map is the effort of the
-# old id list, for every model whose map keeps the catalog's promise (a
-# native-xhigh model's map sends xhigh at xhigh)
+# old Rust rule (the native-xhigh id list, then the map, then the fixed
+# table: `old_effort`), at every level, for every map whose model keeps
+# the catalog's promise (on the id list: its map sends xhigh at xhigh);
+# off the id list this pins the effort of every map and level
+# EXCLUDES: a default effort other than the old table (xhigh or max sent
+#   as xhigh, minimal sent as minimal), a map's wire value ignored, a null
+#   entry sent as a value, a native-xhigh model sent high at xhigh
 law facts_bedrock_effort_oracle:
-  for native: Bool
+  for +native: Bool
   for +m: Fx.EMap
   for +l: Fx.ELv
-  for ok: {Fx.native_ok(native, m) == True{} : Bool}
-  {Fx.effort.old(native, m, l) == Fx.effort(m, l) : Nat}
+  for +ok: {effort_old.kept(native, m) == True{} : Bool}
+  {Fx.effort(m, l) == effort_old(native, effort_spec.at(m, l), l) : Nat}
 
 # LAW facts_bedrock_budget_oracle: the budget of budget-based Claude from the rulebook's default
 # budgets is the budget of the old Bedrock table, for every user budget
@@ -466,25 +697,84 @@ law facts_bedrock_budget_oracle:
 # (S6.10.4) Prices are data
 # -------------------------
 
-# LAW facts_tier_price_model_row_first: a price row of the model wins over the row of every model: the
-# gpt-5.5 priority price is a row, not an id test in code
+# a row of the model m that prices the tier t
+def row_of_model(r: Fx.PRow, +m: Nat, +t: Nat) -> Bool:
+  match r:
+    case Fx.PRow{rm, rt, k}:
+      match rm:
+        case None{}:
+          False{}
+        case Some{x}:
+          Bool.and(Nat.is_eq(x, m), Nat.is_eq(rt, t))
+
+# a row of every model that prices the tier t
+def row_of_all(r: Fx.PRow, +t: Nat) -> Bool:
+  match r:
+    case Fx.PRow{rm, rt, k}:
+      match rm:
+        case None{}:
+          Nat.is_eq(rt, t)
+        case Some{x}:
+          False{}
+
+# some row of rows is a row of the model m that prices the tier t
+def rows_of_model(rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Bool:
+  match rows:
+    case Nil{}:
+      False{}
+    case r <> more:
+      Bool.or(row_of_model(r, m, t), rows_of_model(more, m, t))
+
+# some row of rows is a row of every model that prices the tier t
+def rows_of_all(rows: List<&2, Fx.PRow>, +t: Nat) -> Bool:
+  match rows:
+    case Nil{}:
+      False{}
+    case r <> more:
+      Bool.or(row_of_all(r, t), rows_of_all(more, t))
+
+# LAW facts_tier_price_model_row_first: the first row of the model that prices the tier gives the
+# multiplier, whatever rows of every model come before it or any row comes
+# after it: the gpt-5.5 priority price is a row of the model 0, not an id
+# test in code (facts_tier_price_openai_oracle: the shipped rows)
+# EXCLUDES: a row of every model over the model's own row, a later row
+#   over an earlier one, the row's multiplier read from another row
 law facts_tier_price_model_row_first:
-  for +rows: List<&2, Fx.PRow>
+  for +pre: List<&2, Fx.PRow>
+  for +post: List<&2, Fx.PRow>
   for +m: Nat
   for +t: Nat
   for +k: Nat
-  for hit: {Fx.price.find(rows, m, t, True{}) == Some{k} : Maybe<&2, Nat>}
-  {Fx.price(rows, m, t) == Some{k} : Maybe<&2, Nat>}
+  for +first: {rows_of_model(pre, m, t) == False{} : Bool}
+  {Fx.price(List.append(&2, Fx.PRow, pre, Fx.PRow{Some{m}, t, k} <> post), m, t) == Some{k} : Maybe<&2, Nat>}
 
-# LAW facts_tier_price_no_row_base: a tier that no row prices leaves the base price (a provider that does
-# not sell the tier is not billed OpenAI's multiplier)
-law facts_tier_price_no_row_base:
+# LAW facts_price_wide_row_next: with no row of the model that prices the tier, the first row of
+# every model that prices it gives the multiplier
+# EXCLUDES: a row of another model or another tier taken, a later row of
+#   every model over an earlier one, no price where a row of every model
+#   prices the tier
+law facts_price_wide_row_next:
+  for +pre: List<&2, Fx.PRow>
+  for +post: List<&2, Fx.PRow>
+  for +m: Nat
+  for +t: Nat
+  for +k: Nat
+  for +none: {rows_of_model(List.append(&2, Fx.PRow, pre, Fx.PRow{None{}, t, k} <> post), m, t) == False{} : Bool}
+  for +first: {rows_of_all(pre, t) == False{} : Bool}
+  {Fx.price(List.append(&2, Fx.PRow, pre, Fx.PRow{None{}, t, k} <> post), m, t) == Some{k} : Maybe<&2, Nat>}
+
+# LAW facts_price_no_row_none: with no row of the model and no row of every model that prices the
+# tier, there is no multiplier (Rust bills the base price: a provider that
+# does not sell the tier is not billed another's multiplier)
+# EXCLUDES: a multiplier made up for a tier no row prices, a row of
+#   another model or another tier taken
+law facts_price_no_row_none:
   for +rows: List<&2, Fx.PRow>
   for +m: Nat
   for +t: Nat
-  for +base: Nat
-  for none: {Fx.price(rows, m, t) == None{} : Maybe<&2, Nat>}
-  {Fx.tier_cost(base, Fx.price(rows, m, t)) == Nat.mul(base, 100n) : Nat}
+  for +none: {rows_of_model(rows, m, t) == False{} : Bool}
+  for +wide: {rows_of_all(rows, t) == False{} : Bool}
+  {Fx.price(rows, m, t) == None{} : Maybe<&2, Nat>}
 
 # LAW facts_tier_price_openai_oracle: the shipped OpenAI rows give the multiplier of the old OpenAI
 # function for every model and tier
@@ -499,214 +789,6 @@ law facts_tier_price_codex_oracle:
   for m: Nat
   for t: Nat
   {Maybe.default(&2, Nat, Fx.price(Fx.prices.codex(), m, t), 100n) == Fx.price.old.codex(m, t) : Nat}
-
-# LAW facts_cache_write_1h_own_rate: a 1h cache write of a model that no row prices costs the model's own
-# cache write rate, never a price borrowed from another provider
-law facts_cache_write_1h_own_rate:
-  for +input: Nat
-  for +write: Nat
-  {Fx.rate_1h(None{}, input, write) == write : Nat}
-
-# the cost of base under the tier's multiplier p (in hundredths), in
-# hundredths of base: base times the multiplier; with no row, the base
-# price (times 100)
-def tier_cost_spec(+base: Nat, p: Maybe<&2, Nat>) -> Nat:
-  match p:
-    case Some{k}:
-      Nat.mul(base, k)
-    case None{}:
-      Nat.mul(base, 100n)
-
-# LAW facts_tier_cost_exact (S6.10.4): the cost under a tier is the base price times the row's multiplier (in hundredths), and the base price (times 100) with no row, for every base and multiplier
-# EXCLUDES: a cost that ignores the row's multiplier (tier_cost(base, p) =
-#   base * 100, which facts_tier_price_no_row_base lets through), a
-#   multiplier read as another, a cost rounded or capped
-law facts_tier_cost_exact:
-  for +base: Nat
-  for p: Maybe<&2, Nat>
-  {Fx.tier_cost(base, p) == tier_cost_spec(base, p) : Nat}
-
-# the rate of a 1h cache write, in hundredths: a row's multiplier k (in
-# hundredths) of the input rate, floor(input * k / 100); with no row, the
-# model's own cache write rate
-def rate_1h_spec(row: Maybe<&2, Nat>, +input: Nat, +write: Nat) -> Nat:
-  match row:
-    case Some{k}:
-      Nat.div(Nat.mul(input, k), 100n)
-    case None{}:
-      write
-
-# LAW facts_cache_write_1h_exact (S6.10.4): a 1h cache write costs a row's multiplier of the input rate, and with no row the model's own cache write rate, for every row, input rate and write rate
-# EXCLUDES: a row's multiplier ignored (the write rate, or the input rate,
-#   whatever the row), a multiplier applied to the write rate instead of
-#   the input rate, a rate not scaled back from hundredths
-law facts_cache_write_1h_exact:
-  for row: Maybe<&2, Nat>
-  for +input: Nat
-  for +write: Nat
-  {Fx.rate_1h(row, input, write) == rate_1h_spec(row, input, write) : Nat}
-
-# (S6.10) The model's terms the entry bend/ffi_model_facts.bend calls
-# ------------------------------------------------------------------
-
-# The model's own terms, independently: a known flag is true exactly at
-# 1, an unknown one takes the wire API's default; the effort is the map's
-# wire value at the level, else 2 (low) at minimal and low, 3 at medium, 4
-# at high, xhigh and max; the price is the first row of the model that
-# prices the tier, else the first row of every model that does, else none
-def flag_spec(a: If.Ans, d: Bool) -> Bool:
-  match a:
-    case If.Known{v}:
-      match v:
-        case 0n:
-          False{}
-        case 1n+k:
-          match k:
-            case 0n:
-              True{}
-            case 1n+j:
-              False{}
-    case If.Unknown{}:
-      d
-
-def effort_spec.dflt(l: Fx.ELv) -> Nat:
-  match l:
-    case Fx.EMinimal{}:
-      2n
-    case Fx.ELow{}:
-      2n
-    case Fx.EMedium{}:
-      3n
-    case Fx.EHigh{}:
-      4n
-    case Fx.EXhigh{}:
-      4n
-    case Fx.EMax{}:
-      4n
-
-def effort_spec.at(m: Fx.EMap, l: Fx.ELv) -> Maybe<&2, Maybe<&2, Nat>>:
-  match m:
-    case Fx.EMap{mi, lo, me, hi, xh, mx}:
-      match l:
-        case Fx.EMinimal{}:
-          mi
-        case Fx.ELow{}:
-          lo
-        case Fx.EMedium{}:
-          me
-        case Fx.EHigh{}:
-          hi
-        case Fx.EXhigh{}:
-          xh
-        case Fx.EMax{}:
-          mx
-
-def effort_spec.of(e: Maybe<&2, Maybe<&2, Nat>>, d: Nat) -> Nat:
-  match e:
-    case None{}:
-      d
-    case Some{w}:
-      Maybe.default(&2, Nat, w, d)
-
-def effort_spec(+m: Fx.EMap, +l: Fx.ELv) -> Nat:
-  effort_spec.of(effort_spec.at(m, l), effort_spec.dflt(l))
-
-def price_spec.pick(hit: Bool, k: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match hit:
-    case True{}:
-      Some{k}
-    case False{}:
-      later
-
-def price_spec.exact(+m: Nat, rm: Maybe<&2, Nat>) -> Bool:
-  match rm:
-    case None{}:
-      False{}
-    case Some{x}:
-      Nat.is_eq(x, m)
-
-def price_spec.wide(rm: Maybe<&2, Nat>) -> Bool:
-  match rm:
-    case None{}:
-      True{}
-    case Some{x}:
-      False{}
-
-# the first row of the model m that prices the tier t
-def price_spec.of_model(rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
-  match rows:
-    case Nil{}:
-      None{}
-    case r <> more:
-      match r:
-        case Fx.PRow{rm, rt, k}:
-          price_spec.pick(Bool.and(price_spec.exact(m, rm), Nat.is_eq(rt, t)), k, price_spec.of_model(more, m, t))
-
-# the first row of every model that prices the tier t
-def price_spec.of_all(rows: List<&2, Fx.PRow>, +t: Nat) -> Maybe<&2, Nat>:
-  match rows:
-    case Nil{}:
-      None{}
-    case r <> more:
-      match r:
-        case Fx.PRow{rm, rt, k}:
-          price_spec.pick(Bool.and(price_spec.wide(rm), Nat.is_eq(rt, t)), k, price_spec.of_all(more, t))
-
-def price_spec.or(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match a:
-    case None{}:
-      b
-    case Some{k}:
-      Some{k}
-
-def price_spec(+rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
-  price_spec.or(price_spec.of_model(rows, m, t), price_spec.of_all(rows, t))
-
-# LAW facts_flag_exact: a flag decision is exactly: a known answer is true only when it is 1, an unknown one takes the wire API's default
-law facts_flag_exact:
-  for a: If.Ans
-  for d: Bool
-  {Fx.flag(a, d) == flag_spec(a, d) : Bool}
-
-# LAW facts_effort_exact: the Bedrock effort is exactly the map's wire value at the level, else low at minimal and low, medium at medium, high at high, xhigh and max (a null entry takes the default too)
-law facts_effort_exact:
-  for +m: Fx.EMap
-  for +l: Fx.ELv
-  {Fx.effort(m, l) == effort_spec(m, l) : Nat}
-
-# LAW facts_price_exact: a tier's multiplier is exactly the first row of the model that prices the tier, else the first row of every model that does, else none
-law facts_price_exact:
-  for +rows: List<&2, Fx.PRow>
-  for +m: Nat
-  for +t: Nat
-  {Fx.price(rows, m, t) == price_spec(rows, m, t) : Maybe<&2, Nat>}
-
-def customs_spec(c: Fx.Customs, l: Fx.Lv) -> Maybe<&2, Nat>:
-  match c:
-    case Fx.Customs{mi, lo, me, hi}:
-      match l:
-        case Fx.Minimal{}:
-          mi
-        case Fx.Low{}:
-          lo
-        case Fx.Medium{}:
-          me
-        case Fx.High{}:
-          hi
-
-# LAW facts_customs_at_exact: the user's budget of a level is exactly the user's budget written for that level (minimal, low, medium, high), never another level's
-law facts_customs_at_exact:
-  for c: Fx.Customs
-  for l: Fx.Lv
-  {Fx.Customs.at(c, l) == customs_spec(c, l) : Maybe<&2, Nat>}
-
-# LAW facts_aux_exact: an auxiliary call's output cap is exactly the high budget (the user's, else the default) plus the answer's tokens, held at the top
-law facts_aux_exact:
-  for c: Fx.Customs
-  for d: Fx.Budgets
-  for +a: Nat
-  for +top: Nat
-  {Fx.aux(c, d, a, top) == Fx.aux_cap.within(Maybe.default(&2, Nat, customs_spec(c, Fx.High{}), Fx.Budgets.at(d, Fx.High{})), a, top) : Nat}
 
 # (S6.10.5) The Bedrock reasoning fields are the rulebook's shape
 # ----------------------------------------------------------------

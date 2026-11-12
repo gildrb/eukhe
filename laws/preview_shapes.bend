@@ -171,6 +171,13 @@ import ../bend/preview_shapes.bend as PS
 #     feed, or nothing.
 # R48: the table holds exactly these shapes, the one of id 130 + i at
 #     index i, and no other.
+#
+# R1-R48 are anchored only (the preview_shapes_*_example laws, on the
+# Rust preview tests' texts): no source outside eukhe's code states these
+# shapes (no requirement holds code-preview regexes), so a law over the
+# table would compare it with itself, and a law by meaning over every text
+# needs the matcher's search (bend/shape.bend seek) reasoned through per
+# shape, not done.
 
 # Spec helpers
 # ------------
@@ -316,7 +323,8 @@ def sp_cr() -> S.Piece:
 def sp_lf() -> S.Piece:
   sp_1(sp_in([sp_r(10)]))
 
-# R1-R47, by id from 130
+# R1-R47, by id from 130, written out; read by laws/shape/entry.bend
+# (sp_shape_of, area shape) for ids 130-199; no law of this area uses it
 def sp_table() -> List<&2, S.Shape>:
   [sp_holds([sp_some(sp_blank())]),
    sp_holds([S.Run{sp_in([sp_r(43), sp_r(47), S.Rg{48, 57}, S.Rg{65, 90}, S.Rg{97, 122}]), 80n, None{}}, S.Run{sp_in([sp_r(61)]), 0n, Some{2n}}]),
@@ -369,22 +377,12 @@ def sp_table() -> List<&2, S.Shape>:
 # Laws
 # ----
 
-# LAW preview_shapes_table (R1-R48): at every index the table holds the
-# shape R1-R47 state for its id, and none past them
-# EXCLUDES: a shape that drifts from the regex it replaced (a piece lost,
-#   added or reordered, a capture moved, another class, a shape read
-#   anywhere that must start the line, a missing end), ids shifted, a
-#   lookup that answers a shape past the last
-law preview_shapes_table:
-  for +i: Nat
-  {PS.shape(i) == List.get(&2, S.Shape, sp_table(), i) : Maybe<&2, S.Shape>}
-
 # LAW preview_shapes_redact_example (R2, R3): anchor: the redaction test's
 # 80-digit blob is a blob, and its token assignment a quoted secret whose
 # name and quote are captured
 # EXCLUDES: a table that drifts from the preview's tests
-# waive L4-examples-only: a shape is a constant, no input to leave free;
-#   preview_shapes_table pins it whole to its R rule
+# waive L4-examples-only: a shape is a constant; no outside source states
+#   it and no law by meaning is done (header): R anchored only
 law preview_shapes_redact_example:
   {[S.first([PS.blob()], "01234567890123456789012345678901234567890123456789012345678901234567890123456789"), S.first([PS.secret_quoted()], "api_token = \"abc123\" and")] == [Some{S.Found{0n, S.Fit{0n, 80n, []}}}, Some{S.Found{0n, S.Fit{0n, 20n, [Some{"api_token"}, Some{"\""}]}}}] : List<&2, Maybe<&2, S.Found>>}
 
@@ -392,16 +390,16 @@ law preview_shapes_redact_example:
 # command splits at its two `&&`, its middle part is a mutation, and the
 # npm test's command reads as its five words (each the third capture)
 # EXCLUDES: a table that drifts from the preview's tests
-# waive L4-examples-only: a shape is a constant, no input to leave free;
-#   preview_shapes_table pins it whole to its R rule
+# waive L4-examples-only: a shape is a constant; no outside source states
+#   it and no law by meaning is done (header): R anchored only
 law preview_shapes_chain_example:
   {(S.all(PS.chain_sep(), "echo start && git commit -m x && ls"), (S.first([PS.mutation()], "git commit -m x"), S.all(PS.shell_word(), "npm run test -- --watch"))) == ([S.Fit{10n, 14n, []}, S.Fit{29n, 33n, []}], (Some{S.Found{0n, S.Fit{0n, 10n, []}}}, [S.Fit{0n, 3n, [None{}, None{}, Some{"npm"}]}, S.Fit{4n, 7n, [None{}, None{}, Some{"run"}]}, S.Fit{8n, 12n, [None{}, None{}, Some{"test"}]}, S.Fit{13n, 15n, [None{}, None{}, Some{"--"}]}, S.Fit{16n, 23n, [None{}, None{}, Some{"--watch"}]}])) : List<&2, S.Fit> & (Maybe<&2, S.Found> & List<&2, S.Fit>)}
 
 # LAW preview_shapes_heredoc_example (R18, R19): anchor: the python heredoc
 # test's opener gives its delimiter and runs python
 # EXCLUDES: a table that drifts from the preview's tests
-# waive L4-examples-only: a shape is a constant, no input to leave free;
-#   preview_shapes_table pins it whole to its R rule
+# waive L4-examples-only: a shape is a constant; no outside source states
+#   it and no law by meaning is done (header): R anchored only
 law preview_shapes_heredoc_example:
   {[S.first([PS.heredoc()], "python3 <<'EOF'"), S.first([PS.python_run()], "python3 <<'EOF'")] == [Some{S.Found{0n, S.Fit{8n, 15n, [Some{"EOF"}]}}}, Some{S.Found{0n, S.Fit{0n, 7n, []}}}] : List<&2, Maybe<&2, S.Found>>}
 
@@ -409,8 +407,8 @@ law preview_shapes_heredoc_example:
 # tests' path assignment (the first of the two assignment shapes), file
 # write and bash skill call, with their captures
 # EXCLUDES: a table that drifts from the preview's tests
-# waive L4-examples-only: a shape is a constant, no input to leave free;
-#   preview_shapes_table pins it whole to its R rule
+# waive L4-examples-only: a shape is a constant; no outside source states
+#   it and no law by meaning is done (header): R anchored only
 law preview_shapes_python_example:
   {[S.first([PS.path_assign(), PS.string_assign()], "p = Path('src/a.ts')"), S.first([PS.file_op()], "p.write_text('data')"), S.first([PS.bash_call()], "await bash(\"git status --porcelain\")")] == [Some{S.Found{0n, S.Fit{0n, 20n, [Some{"p"}, Some{"'"}, Some{"src/a.ts"}]}}}, Some{S.Found{0n, S.Fit{0n, 13n, [Some{"p"}, Some{"write_text"}]}}}, Some{S.Found{0n, S.Fit{0n, 12n, [Some{"\""}]}}}] : List<&2, Maybe<&2, S.Found>>}
 
@@ -418,7 +416,7 @@ law preview_shapes_python_example:
 # lines, alone and after blank lines, end where the body starts; a longer
 # word or a quoted magic is none
 # EXCLUDES: a table that drifts from the cell tests
-# waive L4-examples-only: a shape is a constant, no input to leave free;
-#   preview_shapes_table pins it whole to its R rule
+# waive L4-examples-only: a shape is a constant; no outside source states
+#   it and no law by meaning is done (header): R anchored only
 law preview_shapes_cell_example:
   {[S.first([PS.bash_magic()], "%%bash\necho hi"), S.first([PS.bash_magic()], "\n\t\n  %%bash -l\nls"), S.first([PS.bash_magic()], "  %%bashish\n"), S.first([PS.bash_magic()], "x = '%%bash'")] == [Some{S.Found{0n, S.Fit{0n, 7n, []}}}, Some{S.Found{0n, S.Fit{0n, 15n, []}}}, None{}, None{}] : List<&2, Maybe<&2, S.Found>>}

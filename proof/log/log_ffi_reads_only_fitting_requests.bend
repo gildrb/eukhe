@@ -1,9 +1,10 @@
 # eukhe: the proof of LAW log_ffi_reads_only_fitting_requests
 #
-# As log_ffi_reads_only_requests: each decoder layer that answers Got gives
-# the prefix of the encoding (wire_nat_exact), and every Nat it decoded
-# fits the wire (wire_nat_decoded_fits); a Bad layer, an unknown tag or
-# input left over answers the error form, which the premise refutes.
+# Each decoder layer that answers Got gives the prefix of the encoding
+# (wire_nat_exact): the length, the Maybe's tag, its index; and every Nat
+# it decoded fits the wire (wire_nat_decoded_fits); a Bad layer, an
+# unknown tag or input left over answers the error form, which the
+# premise refutes.
 
 import Base
 import ../../bend/wire.bend as Wr

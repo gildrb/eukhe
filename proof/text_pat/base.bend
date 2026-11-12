@@ -9,6 +9,7 @@ import Base
 import ../../bend/text_pat.bend as Tp
 import ../../laws/base.bend as LawsBase
 import ../../laws/text_pat.bend as TextPat
+import ../shape/base/chars.bend as LQ
 
 # Logic
 # -----
@@ -65,7 +66,8 @@ def tpb.and_r(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {b == 
 # Classes
 # -------
 
-# the code's class test is the spec's
+# the code's class test is the spec's: per class the same tests, the
+# spec's read from its table rows (text_pat_class_table)
 def tpb.cls(k: Tp.Cls, x: Char) -> {Tp.is1(k, x) == TextPat.sp_cls(k, x) : Bool}:
   match k:
     case Tp.CLit{c}:
@@ -328,18 +330,31 @@ def tpb.os(s: String, +its: List<&2, Tp.It>) -> tpb.OSP(s, its, Tp.occ(s, its)):
 # Case
 # ----
 
-def tpb.fold_at(+x: U32, u: Bool, k: Bool, l: Bool) -> {Tp.fold.at(x, u, k, l) == Chr{TextPat.sp_fold_pick(x, u, k, l)} : Char}:
+# the Kelvin sign is not the char c (c is not 8490): a code equal to both
+# is impossible
+def tpb.two_codes(+x: U32, +c: U32, -G: Type, ek: {U32.is_eq(x, 8490) == True{} : Bool}, ec: {U32.is_eq(x, c) == True{} : Bool}, ne: {U32.is_eq(8490, c) == False{} : Bool}) -> G:
+  +xe = LQ.shq.eq_sound(x, 8490, ek)
+  +e = Equal.trans(Bool, U32.is_eq(8490, c), U32.is_eq(x, c), True{}, Equal.cong(U32, Bool, z => U32.is_eq(z, c), 8490, x, Equal.sym(U32, x, 8490, xe)), ec)
+  tpb.absurd(G, Equal.trans(Bool, False{}, U32.is_eq(8490, c), True{}, Equal.sym(Bool, U32.is_eq(8490, c), False{}, ne), e))
+
+# one char folded before rest: the code's three tests (capital, Kelvin
+# sign, long s) against the CaseFolding.txt rows in the file's order
+# (capitals, long s, Kelvin sign); no code is both the Kelvin sign and the
+# long s
+def tpb.fold_at(+x: U32, u: Bool, k: Bool, l: Bool, ek: {U32.is_eq(x, 8490) == k : Bool}, el: {U32.is_eq(x, 383) == l : Bool}, rest: String) -> {SCon{Tp.fold.at(x, u, k, l), rest} == String.append(TextPat.sp_case.pick(u, SCon{Chr{U32.add(x, 32)}, SNil{}}, TextPat.sp_case.pick(l, "s", TextPat.sp_case.pick(k, "k", SCon{Chr{x}, SNil{}}))), rest) : String}:
   match u k l:
     case True{} _ _:
       {==}
-    case False{} True{} _:
+    case False{} True{} True{}:
+      tpb.two_codes(x, 383, {SCon{Tp.fold.at(x, False{}, True{}, True{}), rest} == String.append(TextPat.sp_case.pick(False{}, SCon{Chr{U32.add(x, 32)}, SNil{}}, TextPat.sp_case.pick(True{}, "s", TextPat.sp_case.pick(True{}, "k", SCon{Chr{x}, SNil{}}))), rest) : String}, ek, el, {==})
+    case False{} True{} False{}:
       {==}
     case False{} False{} True{}:
       {==}
     case False{} False{} False{}:
       {==}
 
-# the code's fold is the spec's
+# the code's fold is the CaseFolding.txt rows' (text_pat_fold)
 def tpb.fold(s: String) -> {Tp.fold_str(s) == TextPat.sp_fold(s) : String}:
   match s:
     case SNil{}:
@@ -347,22 +362,27 @@ def tpb.fold(s: String) -> {Tp.fold_str(s) == TextPat.sp_fold(s) : String}:
     case SCon{c, +t}:
       match c:
         case Chr{+x}:
-          %Equal.sym(String, Tp.fold_str(t), TextPat.sp_fold(t), tpb.fold(t)) : {SCon{Tp.fold(Chr{x}), _} == SCon{Chr{TextPat.sp_fold_code(x)}, TextPat.sp_fold(t)} : String}
-          %Equal.sym(Char, Tp.fold(Chr{x}), Chr{TextPat.sp_fold_code(x)}, tpb.fold_at(x, Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), U32.is_eq(x, 8490), U32.is_eq(x, 383))) : {SCon{_, TextPat.sp_fold(t)} == SCon{Chr{TextPat.sp_fold_code(x)}, TextPat.sp_fold(t)} : String}
-          {==}
+          %Equal.sym(String, Tp.fold_str(t), TextPat.sp_fold(t), tpb.fold(t)) : {SCon{Tp.fold(Chr{x}), _} == TextPat.sp_fold(SCon{Chr{x}, t}) : String}
+          tpb.fold_at(x, Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), U32.is_eq(x, 8490), U32.is_eq(x, 383), {==}, {==}, TextPat.sp_fold(t))
 
-def tpb.lower_at(+x: U32, u: Bool, k: Bool, d: Bool, rest: String) -> {Tp.lower.at(x, u, k, d, rest) == String.append(TextPat.sp_lower_pick(x, u, k, d), rest) : String}:
+# one char lowered before rest: the code's three tests (capital, Kelvin
+# sign, capital I with dot) against the rows in code point order
+# (capitals, I with dot, Kelvin sign); no code is both
+def tpb.lower_at(+x: U32, u: Bool, k: Bool, d: Bool, ek: {U32.is_eq(x, 8490) == k : Bool}, ed: {U32.is_eq(x, 304) == d : Bool}, rest: String) -> {Tp.lower.at(x, u, k, d, rest) == String.append(TextPat.sp_case.pick(u, SCon{Chr{U32.add(x, 32)}, SNil{}}, TextPat.sp_case.pick(d, SCon{'i', SCon{Chr{775}, SNil{}}}, TextPat.sp_case.pick(k, "k", SCon{Chr{x}, SNil{}}))), rest) : String}:
   match u k d:
     case True{} _ _:
       {==}
-    case False{} True{} _:
+    case False{} True{} True{}:
+      tpb.two_codes(x, 304, {Tp.lower.at(x, False{}, True{}, True{}, rest) == String.append(TextPat.sp_case.pick(False{}, SCon{Chr{U32.add(x, 32)}, SNil{}}, TextPat.sp_case.pick(True{}, SCon{'i', SCon{Chr{775}, SNil{}}}, TextPat.sp_case.pick(True{}, "k", SCon{Chr{x}, SNil{}}))), rest) : String}, ek, ed, {==})
+    case False{} True{} False{}:
       {==}
     case False{} False{} True{}:
       {==}
     case False{} False{} False{}:
       {==}
 
-# the code's lowering is the spec's
+# the code's lowering is the UnicodeData.txt and SpecialCasing.txt rows'
+# (text_pat_lower)
 def tpb.lower(s: String) -> {Tp.lower(s) == TextPat.sp_lower(s) : String}:
   match s:
     case SNil{}:
@@ -370,8 +390,8 @@ def tpb.lower(s: String) -> {Tp.lower(s) == TextPat.sp_lower(s) : String}:
     case SCon{c, +t}:
       match c:
         case Chr{+x}:
-          %Equal.sym(String, Tp.lower(t), TextPat.sp_lower(t), tpb.lower(t)) : {Tp.lower.at(x, Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), U32.is_eq(x, 8490), U32.is_eq(x, 304), _) == String.append(TextPat.sp_lower_pick(x, TextPat.sp_in(x, 65, 90), U32.is_eq(x, 8490), U32.is_eq(x, 304)), TextPat.sp_lower(t)) : String}
-          tpb.lower_at(x, Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), U32.is_eq(x, 8490), U32.is_eq(x, 304), TextPat.sp_lower(t))
+          %Equal.sym(String, Tp.lower(t), TextPat.sp_lower(t), tpb.lower(t)) : {Tp.lower.at(x, Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), U32.is_eq(x, 8490), U32.is_eq(x, 304), _) == TextPat.sp_lower(SCon{Chr{x}, t}) : String}
+          tpb.lower_at(x, Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), U32.is_eq(x, 8490), U32.is_eq(x, 304), {==}, {==}, TextPat.sp_lower(t))
 
 # a lazy `or` is the Bool `or`
 def tpb.or_lazy(a: Bool, b: Bool) -> {Tp.pm.or(a, u => b) == Bool.or(a, b) : Bool}:
@@ -426,4 +446,131 @@ def tpb.hit(+s: String, +p: Tp.Pat) -> {Tp.hit(s, p) == TextPat.sp_any(s, [p]) :
   match p:
     case Tp.Pat{+a, +alts}:
       Equal.trans(Bool, Tp.hit.go(a, s, alts), TextPat.sp_alts(a, s, alts), Bool.or(TextPat.sp_alts(a, s, alts), False{}), tpb.alts(a, s, alts), Equal.sym(Bool, Bool.or(TextPat.sp_alts(a, s, alts), False{}), TextPat.sp_alts(a, s, alts), tpb.or_false(TextPat.sp_alts(a, s, alts))))
+
+# Patterns found (R5)
+# -------------------
+
+# the code's prefix test passes a text that begins with a matching part
+def tpb.pc(+u: String, +its: List<&2, Tp.It>, +rest: String, h: {TextPat.sp_lang(u, its) == True{} : Bool}) -> {Tp.pm(String.append(u, rest), its) == True{} : Bool}:
+  %h : tpb.CP(u, its, rest, _)
+  tpb.cp(u, its, rest)
+
+# an alternative found as the code's answer f says
+def tpb.FS(a: Bool, s: String, its: List<&2, Tp.It>, f: Bool) -> Type:
+  match f:
+    case True{}:
+      TextPat.SpFound(a, s, its)
+    case False{}:
+      Unit
+
+def tpb.fs_pm(-s: String, -its: List<&2, Tp.It>, b: Bool, sp: tpb.SP(s, its, b)) -> tpb.FS(True{}, s, its, b):
+  match b:
+    case True{}:
+      sp
+    case False{}:
+      Unit{}
+
+def tpb.fs_occ(-s: String, -its: List<&2, Tp.It>, b: Bool, os: tpb.OSP(s, its, b)) -> tpb.FS(False{}, s, its, b):
+  match b:
+    case True{}:
+      os
+    case False{}:
+      Unit{}
+
+# whatever the code answers for one alternative, a True answer is found
+def tpb.fs(a: Bool, +s: String, +its: List<&2, Tp.It>) -> tpb.FS(a, s, its, Tp.found(a, s, its)):
+  match a:
+    case True{}:
+      tpb.fs_pm(s, its, Tp.pm(s, its), tpb.sp(s, its))
+    case False{}:
+      tpb.fs_occ(s, its, Tp.occ(s, its), tpb.os(s, its))
+
+# a found alternative is True for the code's test of it
+def tpb.fc(a: Bool, +s: String, +its: List<&2, Tp.It>, h: TextPat.SpFound(a, s, its)) -> {Tp.found(a, s, its) == True{} : Bool}:
+  match a:
+    case True{}:
+      (+u, (+r, (e, l))) = h
+      %Equal.sym(String, s, String.append(u, r), e) : {Tp.pm(_, its) == True{} : Bool}
+      tpb.pc(u, its, r, l)
+    case False{}:
+      (+x, (+u, (+r, (e, l)))) = h
+      %Equal.sym(String, s, String.append(x, String.append(u, r)), e) : {Tp.occ(_, its) == True{} : Bool}
+      tpb.oc(x, u, r, its, tpb.pc(u, its, r, l))
+
+# a True answer of the code's test of a pattern's alternatives names one
+# that is found
+def tpb.HS(a: Bool, s: String, alts: List<&2, List<&2, Tp.It>>, b: Bool) -> Type:
+  match b:
+    case True{}:
+      Sigma<&1, &1, List<&2, List<&2, Tp.It>>, pre => Sigma<&1, &1, List<&2, Tp.It>, its => Sigma<&1, &1, List<&2, List<&2, Tp.It>>, post => {alts == List.append(&2, List<&2, Tp.It>, pre, its <> post) : List<&2, List<&2, Tp.It>>} & TextPat.SpFound(a, s, its)>>>
+    case False{}:
+      Unit
+
+def tpb.hs_con(-a: Bool, -s: String, +its: List<&2, Tp.It>, +more: List<&2, List<&2, Tp.It>>, f: Bool, sf: tpb.FS(a, s, its, f), b: Bool, ih: tpb.HS(a, s, more, b)) -> tpb.HS(a, s, its <> more, Tp.pm.or(f, u => b)):
+  match f:
+    case True{}:
+      (Nil{}, (its, (more, ({==}, sf))))
+    case False{}:
+      match b:
+        case True{}:
+          (+pre, (+i, (+post, (e, l)))) = ih
+          (its <> pre, (i, (post, (Equal.cong(List<&2, List<&2, Tp.It>>, List<&2, List<&2, Tp.It>>, z => its <> z, more, List.append(&2, List<&2, Tp.It>, pre, i <> post), e), l))))
+        case False{}:
+          Unit{}
+
+def tpb.hs(+a: Bool, +s: String, alts: List<&2, List<&2, Tp.It>>) -> tpb.HS(a, s, alts, Tp.hit.go(a, s, alts)):
+  match alts:
+    case Nil{}:
+      Unit{}
+    case +its <> +more:
+      tpb.hs_con(a, s, its, more, Tp.found(a, s, its), tpb.fs(a, s, its), Tp.hit.go(a, s, more), tpb.hs(a, s, more))
+
+# an alternative found, wherever it sits, makes the pattern found
+def tpb.hc(+a: Bool, +s: String, pre: List<&2, List<&2, Tp.It>>, +its: List<&2, Tp.It>, +post: List<&2, List<&2, Tp.It>>, e: {Tp.found(a, s, its) == True{} : Bool}) -> {Tp.hit.go(a, s, List.append(&2, List<&2, Tp.It>, pre, its <> post)) == True{} : Bool}:
+  match pre:
+    case Nil{}:
+      %Equal.sym(Bool, Tp.found(a, s, its), True{}, e) : {Tp.pm.or(_, u => Tp.hit.go(a, s, post)) == True{} : Bool}
+      {==}
+    case x <> +more:
+      tpb.or_rest(Tp.found(a, s, x), u => Tp.hit.go(a, s, List.append(&2, List<&2, Tp.It>, more, its <> post)), tpb.hc(a, s, more, its, post, e))
+
+# a True answer of the code's search of a list of patterns names a
+# pattern and one of its alternatives that is found
+def tpb.AS(s: String, ps: List<&2, Tp.Pat>, b: Bool) -> Type:
+  match b:
+    case True{}:
+      Sigma<&1, &1, List<&2, Tp.Pat>, pre => Sigma<&1, &1, Bool, a => Sigma<&1, &1, List<&2, List<&2, Tp.It>>, apre => Sigma<&1, &1, List<&2, Tp.It>, its => Sigma<&1, &1, List<&2, List<&2, Tp.It>>, apost => Sigma<&1, &1, List<&2, Tp.Pat>, post => {ps == List.append(&2, Tp.Pat, pre, Tp.Pat{a, List.append(&2, List<&2, Tp.It>, apre, its <> apost)} <> post) : List<&2, Tp.Pat>} & TextPat.SpFound(a, s, its)>>>>>>
+    case False{}:
+      Unit
+
+def tpb.as_con(+a: Bool, -s: String, +alts: List<&2, List<&2, Tp.It>>, +more: List<&2, Tp.Pat>, b1: Bool, h1: tpb.HS(a, s, alts, b1), b2: Bool, ih: tpb.AS(s, more, b2)) -> tpb.AS(s, Tp.Pat{a, alts} <> more, Tp.pm.or(b1, u => b2)):
+  match b1:
+    case True{}:
+      (+apre, (+its, (+apost, (e, l)))) = h1
+      (Nil{}, (a, (apre, (its, (apost, (more, (Equal.cong(List<&2, List<&2, Tp.It>>, List<&2, Tp.Pat>, z => Tp.Pat{a, z} <> more, alts, List.append(&2, List<&2, Tp.It>, apre, its <> apost), e), l)))))))
+    case False{}:
+      match b2:
+        case True{}:
+          (+pre, (+a2, (+apre, (+its, (+apost, (+post, (e, l))))))) = ih
+          (Tp.Pat{a, alts} <> pre, (a2, (apre, (its, (apost, (post, (Equal.cong(List<&2, Tp.Pat>, List<&2, Tp.Pat>, z => Tp.Pat{a, alts} <> z, more, List.append(&2, Tp.Pat, pre, Tp.Pat{a2, List.append(&2, List<&2, Tp.It>, apre, its <> apost)} <> post), e), l)))))))
+        case False{}:
+          Unit{}
+
+def tpb.asd(+s: String, ps: List<&2, Tp.Pat>) -> tpb.AS(s, ps, Tp.any(s, ps)):
+  match ps:
+    case Nil{}:
+      Unit{}
+    case p <> +more:
+      match p:
+        case Tp.Pat{+a, +alts}:
+          tpb.as_con(a, s, alts, more, Tp.hit.go(a, s, alts), tpb.hs(a, s, alts), Tp.any(s, more), tpb.asd(s, more))
+
+# a pattern found, wherever it sits, makes the list found
+def tpb.ac(+s: String, pre: List<&2, Tp.Pat>, +a: Bool, +apre: List<&2, List<&2, Tp.It>>, +its: List<&2, Tp.It>, +apost: List<&2, List<&2, Tp.It>>, +post: List<&2, Tp.Pat>, e: {Tp.hit.go(a, s, List.append(&2, List<&2, Tp.It>, apre, its <> apost)) == True{} : Bool}) -> {Tp.any(s, List.append(&2, Tp.Pat, pre, Tp.Pat{a, List.append(&2, List<&2, Tp.It>, apre, its <> apost)} <> post)) == True{} : Bool}:
+  match pre:
+    case Nil{}:
+      %Equal.sym(Bool, Tp.hit.go(a, s, List.append(&2, List<&2, Tp.It>, apre, its <> apost)), True{}, e) : {Tp.pm.or(_, u => Tp.any(s, post)) == True{} : Bool}
+      {==}
+    case p <> +more:
+      tpb.or_rest(Tp.hit(s, p), u => Tp.any(s, List.append(&2, Tp.Pat, more, Tp.Pat{a, List.append(&2, List<&2, Tp.It>, apre, its <> apost)} <> post)), tpb.ac(s, more, a, apre, its, apost, post, e))
 

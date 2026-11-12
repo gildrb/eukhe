@@ -98,16 +98,16 @@ def rib.slashes.at(+b: Bool, +c: Char, +t: String, +r: String) -> {Ri.slashes.at
     case False{}:
       {==}
 
-def rib.slashes(+s: String) -> {Ri.slashes(s) == RedirectInput.ri_slashes(s) : String}:
+def rib.slashes(+s: String) -> {Ri.slashes(s) == RedirectInput.ri_slashes_orig(s) : String}:
   match s:
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(String, Ri.slashes(t), RedirectInput.ri_slashes(t), rib.slashes(t)) : {Ri.slashes.at(Char.is_eq(c, '/'), c, t, _) == RedirectInput.ri_slashes.at(Char.is_eq(c, '/'), c, t, RedirectInput.ri_slashes(t)) : String}
-      rib.slashes.at(Char.is_eq(c, '/'), c, t, RedirectInput.ri_slashes(t))
+      %Equal.sym(String, Ri.slashes(t), RedirectInput.ri_slashes_orig(t), rib.slashes(t)) : {Ri.slashes.at(Char.is_eq(c, '/'), c, t, _) == RedirectInput.ri_slashes.at(Char.is_eq(c, '/'), c, t, RedirectInput.ri_slashes_orig(t)) : String}
+      rib.slashes.at(Char.is_eq(c, '/'), c, t, RedirectInput.ri_slashes_orig(t))
 
 def rib.unslash(+s: String) -> {Ri.unslash(s) == RedirectInput.ri_unslash(s) : String}:
-  %Equal.sym(String, Ri.slashes(String.reverse(s)), RedirectInput.ri_slashes(String.reverse(s)), rib.slashes(String.reverse(s))) : {String.reverse(_) == String.reverse(RedirectInput.ri_slashes(String.reverse(s))) : String}
+  %Equal.sym(String, Ri.slashes(String.reverse(s)), RedirectInput.ri_slashes_orig(String.reverse(s)), rib.slashes(String.reverse(s))) : {String.reverse(_) == String.reverse(RedirectInput.ri_slashes_orig(String.reverse(s))) : String}
   {==}
 
 def rib.fragment(+m: Maybe<&2, Ri.Cut>) -> {Ri.fragment(m) == RedirectInput.ri_fragment(m) : String}:
@@ -602,20 +602,101 @@ def rib.dots.at(+b: Bool, +c: Char, +t: String, +r: String) -> {Ri.dots.at(b, c,
     case False{}:
       {==}
 
-def rib.dots(+s: String) -> {Ri.dots(s) == RedirectInput.ri_dots(s) : String}:
+def rib.dots(+s: String) -> {Ri.dots(s) == RedirectInput.ri_dots_orig(s) : String}:
   match s:
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(String, Ri.dots(t), RedirectInput.ri_dots(t), rib.dots(t)) : {Ri.dots.at(Char.is_eq(c, '.'), c, t, _) == RedirectInput.ri_dots.at(Char.is_eq(c, '.'), c, t, RedirectInput.ri_dots(t)) : String}
-      rib.dots.at(Char.is_eq(c, '.'), c, t, RedirectInput.ri_dots(t))
+      %Equal.sym(String, Ri.dots(t), RedirectInput.ri_dots_orig(t), rib.dots(t)) : {Ri.dots.at(Char.is_eq(c, '.'), c, t, _) == RedirectInput.ri_dots.at(Char.is_eq(c, '.'), c, t, RedirectInput.ri_dots_orig(t)) : String}
+      rib.dots.at(Char.is_eq(c, '.'), c, t, RedirectInput.ri_dots_orig(t))
 
 def rib.reason(+s: String) -> {Ri.reason(s) == RedirectInput.ri_reason(s) : String}:
-  %Equal.sym(String, Ri.trim_start(s), RedirectInput.ri_trim_start(s), rib.trim_start(s)) : {String.reverse(Ri.dots(Ri.trim_start(String.reverse(_)))) == String.reverse(RedirectInput.ri_dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : String}
-  %Equal.sym(String, Ri.trim_start(String.reverse(RedirectInput.ri_trim_start(s))), RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))), rib.trim_start(String.reverse(RedirectInput.ri_trim_start(s)))) : {String.reverse(Ri.dots(_)) == String.reverse(RedirectInput.ri_dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : String}
-  %Equal.sym(String, Ri.dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s)))), RedirectInput.ri_dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s)))), rib.dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : {String.reverse(_) == String.reverse(RedirectInput.ri_dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : String}
+  %Equal.sym(String, Ri.trim_start(s), RedirectInput.ri_trim_start(s), rib.trim_start(s)) : {String.reverse(Ri.dots(Ri.trim_start(String.reverse(_)))) == String.reverse(RedirectInput.ri_dots_orig(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : String}
+  %Equal.sym(String, Ri.trim_start(String.reverse(RedirectInput.ri_trim_start(s))), RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))), rib.trim_start(String.reverse(RedirectInput.ri_trim_start(s)))) : {String.reverse(Ri.dots(_)) == String.reverse(RedirectInput.ri_dots_orig(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : String}
+  %Equal.sym(String, Ri.dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s)))), RedirectInput.ri_dots_orig(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s)))), rib.dots(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : {String.reverse(_) == String.reverse(RedirectInput.ri_dots_orig(RedirectInput.ri_trim_start(String.reverse(RedirectInput.ri_trim_start(s))))) : String}
   {==}
 
 def rib.notice(+s: String) -> {Ri.notice(s) == RedirectInput.ri_notice(s) : String}:
   %Equal.sym(String, Ri.reason(s), RedirectInput.ri_reason(s), rib.reason(s)) : {String.concat(["Login did not complete: ", _, ". Paste the address again, or open the login link again and sign in."]) == String.concat(["Login did not complete: ", RedirectInput.ri_reason(s), ". Paste the address again, or open the login link again and sign in."]) : String}
   {==}
+
+def rib.slashes_orig(+s: String) -> {Ri.slashes(s) == RedirectInput.ri_slashes_orig(s) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(String, Ri.slashes(t), RedirectInput.ri_slashes_orig(t), rib.slashes_orig(t)) : {Ri.slashes.at(Char.is_eq(c, '/'), c, t, _) == RedirectInput.ri_slashes.at(Char.is_eq(c, '/'), c, t, RedirectInput.ri_slashes_orig(t)) : String}
+      rib.slashes.at(Char.is_eq(c, '/'), c, t, RedirectInput.ri_slashes_orig(t))
+
+def rib.unslash_orig(+s: String) -> {Ri.unslash(s) == RedirectInput.ri_unslash(s) : String}:
+  %Equal.sym(String, Ri.slashes(String.reverse(s)), RedirectInput.ri_slashes_orig(String.reverse(s)), rib.slashes_orig(String.reverse(s))) : {String.reverse(_) == String.reverse(RedirectInput.ri_slashes_orig(String.reverse(s))) : String}
+  {==}
+
+def rib.parse.query_orig(+m: Maybe<&2, Ri.Cut>, +rest: String) -> {Ri.parse.query(m, rest) == RedirectInput.ri_parse.query(m, rest) : Ri.Answer}:
+  match m:
+    case None{}:
+      %Equal.sym(String, Ri.unslash(rest), RedirectInput.ri_unslash(rest), rib.unslash_orig(rest)) : {Ri.from_params([_, SNil{}]) == RedirectInput.ri_from_params([RedirectInput.ri_unslash(rest), SNil{}]) : Ri.Answer}
+      rib.from_params([RedirectInput.ri_unslash(rest), SNil{}])
+    case Some{+x}:
+      match x:
+        case Ri.Cut{+q, +f}:
+          %Equal.sym(String, Ri.unslash(q), RedirectInput.ri_unslash(q), rib.unslash_orig(q)) : {Ri.from_params([_, f]) == RedirectInput.ri_from_params([RedirectInput.ri_unslash(q), f]) : Ri.Answer}
+          rib.from_params([RedirectInput.ri_unslash(q), f])
+
+def rib.bare.at_orig(+in_head: Bool, +in_frag: Bool, +empty: Bool, +h: String, +f: String) -> {Ri.bare.at(in_head, in_frag, empty, h, f) == RedirectInput.ri_bare.at(in_head, in_frag, empty, h, f) : Ri.Answer}:
+  match in_head:
+    case True{}:
+      %Equal.sym(String, Ri.unslash(h), RedirectInput.ri_unslash(h), rib.unslash_orig(h)) : {Ri.from_params([_]) == RedirectInput.ri_from_params([RedirectInput.ri_unslash(h)]) : Ri.Answer}
+      rib.from_params([RedirectInput.ri_unslash(h)])
+    case False{}:
+      match in_frag:
+        case True{}:
+          rib.from_params([f])
+        case False{}:
+          match empty:
+            case True{}:
+              {==}
+            case False{}:
+              %Equal.sym(Maybe<&2, String>, Ri.bare.state(String.is_empty(f), f), RedirectInput.ri_bare.state(String.is_empty(f), f), rib.bare.state(String.is_empty(f), f)) : {Ri.Pasted{h, _} == Ri.Pasted{h, RedirectInput.ri_bare.state(String.is_empty(f), f)} : Ri.Answer}
+              {==}
+
+def rib.bare_orig(+h: String, +f: String) -> {Ri.bare(h, f) == RedirectInput.ri_bare(h, f) : Ri.Answer}:
+  %Equal.sym(Bool, Ri.carries(h), RedirectInput.ri_carries(h), rib.carries(h)) : {Ri.bare.at(_, Ri.carries(f), String.is_empty(h), h, f) == RedirectInput.ri_bare.at(RedirectInput.ri_carries(h), RedirectInput.ri_carries(f), String.is_empty(h), h, f) : Ri.Answer}
+  %Equal.sym(Bool, Ri.carries(f), RedirectInput.ri_carries(f), rib.carries(f)) : {Ri.bare.at(RedirectInput.ri_carries(h), _, String.is_empty(h), h, f) == RedirectInput.ri_bare.at(RedirectInput.ri_carries(h), RedirectInput.ri_carries(f), String.is_empty(h), h, f) : Ri.Answer}
+  rib.bare.at_orig(RedirectInput.ri_carries(h), RedirectInput.ri_carries(f), String.is_empty(h), h, f)
+
+def rib.parse.hash_orig(+m: Maybe<&2, Ri.Cut>, +v: String) -> {Ri.parse.hash(m, v) == RedirectInput.ri_parse.hash(m, v) : Ri.Answer}:
+  match m:
+    case None{}:
+      rib.bare_orig(v, SNil{})
+    case Some{+x}:
+      match x:
+        case Ri.Cut{+h, +f}:
+          rib.bare_orig(h, f)
+
+def rib.parse.scheme_orig(+m: Maybe<&2, String>, +v: String) -> {Ri.parse.scheme(m, v) == RedirectInput.ri_parse.scheme(m, v) : Ri.Answer}:
+  match m:
+    case Some{+rest}:
+      %Equal.sym(Maybe<&2, Ri.Cut>, Ri.split(rest, '#'), RedirectInput.ri_split(rest, '#'), rib.split(rest, '#')) : {Ri.from_params([Ri.fragment(_)]) == RedirectInput.ri_from_params([RedirectInput.ri_fragment(RedirectInput.ri_split(rest, '#'))]) : Ri.Answer}
+      %Equal.sym(String, Ri.fragment(RedirectInput.ri_split(rest, '#')), RedirectInput.ri_fragment(RedirectInput.ri_split(rest, '#')), rib.fragment(RedirectInput.ri_split(rest, '#'))) : {Ri.from_params([_]) == RedirectInput.ri_from_params([RedirectInput.ri_fragment(RedirectInput.ri_split(rest, '#'))]) : Ri.Answer}
+      rib.from_params([RedirectInput.ri_fragment(RedirectInput.ri_split(rest, '#'))])
+    case None{}:
+      %Equal.sym(Maybe<&2, Ri.Cut>, Ri.split(v, '#'), RedirectInput.ri_split(v, '#'), rib.split(v, '#')) : {Ri.parse.hash(_, v) == RedirectInput.ri_parse.hash(RedirectInput.ri_split(v, '#'), v) : Ri.Answer}
+      rib.parse.hash_orig(RedirectInput.ri_split(v, '#'), v)
+
+def rib.parse.at_orig(+m: Maybe<&2, Ri.Cut>, +v: String) -> {Ri.parse.at(m, v) == RedirectInput.ri_parse.at(m, v) : Ri.Answer}:
+  match m:
+    case Some{+x}:
+      match x:
+        case Ri.Cut{+h, +rest}:
+          %Equal.sym(Maybe<&2, Ri.Cut>, Ri.split(rest, '#'), RedirectInput.ri_split(rest, '#'), rib.split(rest, '#')) : {Ri.parse.query(_, rest) == RedirectInput.ri_parse.query(RedirectInput.ri_split(rest, '#'), rest) : Ri.Answer}
+          rib.parse.query_orig(RedirectInput.ri_split(rest, '#'), rest)
+    case None{}:
+      %Equal.sym(Maybe<&2, String>, Ri.scheme(v), RedirectInput.ri_scheme(v), rib.scheme(v)) : {Ri.parse.scheme(_, v) == RedirectInput.ri_parse.scheme(RedirectInput.ri_scheme(v), v) : Ri.Answer}
+      rib.parse.scheme_orig(RedirectInput.ri_scheme(v), v)
+
+def rib.parse_orig(+s: String) -> {Ri.parse(s) == RedirectInput.ri_parse(s) : Ri.Answer}:
+  %Equal.sym(String, Ri.clean(s), RedirectInput.ri_clean(s), rib.clean(s)) : {Ri.parse.at(Ri.split(_, '?'), Ri.clean(s)) == RedirectInput.ri_parse.at(RedirectInput.ri_split(RedirectInput.ri_clean(s), '?'), RedirectInput.ri_clean(s)) : Ri.Answer}
+  %Equal.sym(Maybe<&2, Ri.Cut>, Ri.split(RedirectInput.ri_clean(s), '?'), RedirectInput.ri_split(RedirectInput.ri_clean(s), '?'), rib.split(RedirectInput.ri_clean(s), '?')) : {Ri.parse.at(_, Ri.clean(s)) == RedirectInput.ri_parse.at(RedirectInput.ri_split(RedirectInput.ri_clean(s), '?'), RedirectInput.ri_clean(s)) : Ri.Answer}
+  %Equal.sym(String, Ri.clean(s), RedirectInput.ri_clean(s), rib.clean(s)) : {Ri.parse.at(RedirectInput.ri_split(RedirectInput.ri_clean(s), '?'), _) == RedirectInput.ri_parse.at(RedirectInput.ri_split(RedirectInput.ri_clean(s), '?'), RedirectInput.ri_clean(s)) : Ri.Answer}
+  rib.parse.at_orig(RedirectInput.ri_split(RedirectInput.ri_clean(s), '?'), RedirectInput.ri_clean(s))

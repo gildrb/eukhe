@@ -310,15 +310,17 @@ law cow_entry:
 # codecs), read by the laws' own reader, answered from the laws' own rule.
 #
 # C1: two contents are the same exactly when both are absent, or both are
-#     present with the same id (the equality every cow law above reads).
+#     present with the same id (the equality every cow law above reads:
+#     cow_same_means_equal, cow_equal_is_same).
 # C2: on every input that is exactly one request (the parent's, the
 #     base's and the child's content, each 0 (no file) or 1 then its id,
 #     nothing after) the entry answers the copy-on-write plan (CowPlan's
 #     rule over C1's equality): its tag (Keep 0, then T|F taken; Clash 1;
-#     Take 2; Drop 3); on any other input exactly the error form naming the
-#     first part that does not read: "sandbox: bad parent content",
-#     "sandbox: bad base content", "sandbox: bad child content", or
-#     "sandbox: input left over" (a whole request with more after it).
+#     Take 2; Drop 3) (cow_ffi_answers); on any other input exactly the
+#     error form naming the first part that does not read: "sandbox: bad
+#     parent content", "sandbox: bad base content", "sandbox: bad child
+#     content", or "sandbox: input left over" (a whole request with more
+#     after it) (the cow_entry_* laws of the section below).
 
 # the same content: both absent, or both present with the same id
 def cow_same_spec(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Bool:
@@ -331,15 +333,6 @@ def cow_same_spec(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Bool:
       False{}
     case Some{x} Some{y}:
       Nat.is_eq(x, y)
-
-# LAW cow_same_exact (C1): the model's content equality (which cow_plan, cow_plan_is_merge and the hand-back laws read) is the same content: both absent, or both present with the same id
-# EXCLUDES: an equality that calls every pair the same (every change read
-#   as none, so cow_plan holds of a plan that never takes the child's
-#   change) or calls equal contents different
-law cow_same_exact:
-  for a: Maybe<&2, Nat>
-  for b: Maybe<&2, Nat>
-  {Sb.m.eq(a, b) == cow_same_spec(a, b) : Bool}
 
 # the plan of a path: CowPlan's rule over the same content of C1
 def cow_plan_spec(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> Sb.Plan:
@@ -402,48 +395,6 @@ def cow_read_doc(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def cow_spec.end(whole: Bool, +p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> String:
-  match whole:
-    case True{}:
-      cow_spell_plan(cow_plan_spec(p, b, c))
-    case False{}:
-      cow_err("sandbox: input left over")
-
-def cow_spec.c(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{+c, s}:
-      cow_spec.end(Wr.end(s), p, b, c)
-    case Wr.Bad{}:
-      cow_err("sandbox: bad child content")
-
-def cow_spec.b(+p: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{+b, s}:
-      cow_spec.c(p, b, cow_read_doc(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      cow_err("sandbox: bad base content")
-
-def cow_spec.p(r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{+p, s}:
-      cow_spec.b(p, cow_read_doc(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      cow_err("sandbox: bad parent content")
-
-# the reply to s (C2): the plan of the request s is exactly, else the
-# error form naming the first part that does not read
-def cow_spec(s: String) -> String:
-  cow_spec.p(cow_read_doc(Wr.get_nat(s)))
-
-# LAW cow_ffi_exact (C2): on every input the hand-back entry answers the copy-on-write plan (over C1's same content) of the request the input is exactly, spelled; on any other input exactly the error form naming the first part that does not read, or the input left over
-# EXCLUDES: a plan other than the rule's (a lost change, a conflict taken,
-#   a removal written as a file), a codec that drops, swaps or misreads a
-#   content, a default for malformed input, input left over ignored,
-#   another error text
-law cow_ffi_exact:
-  for +s: String
-  {FSb.ffi(s) == cow_spec(s) : String}
-
 # LAW cow_ffi_answers (C2): every request Rust writes (every id within the wire) gets the plan of its path
 # EXCLUDES: a request Rust writes refused or misread
 law cow_ffi_answers:
@@ -476,8 +427,8 @@ law cow_req_fits_example:
 #     base content", "bad child content"), or "sandbox: input left over"
 #     when more input follows the three contents.
 # The spellers and the reader (cow_spell_doc, cow_spell_req, cow_spell_plan,
-# cow_read_doc, cow_spec, shared with the section above) are built from the
-# wire primitives of bend/wire.bend only, never from the entry's put_*/get_*.
+# cow_read_doc, shared with the section above) are built from the wire
+# primitives of bend/wire.bend only, never from the entry's put_*/get_*.
 
 # the plan of the path, spelled
 def cow_spell_answer(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> String:

@@ -23,7 +23,11 @@ def pxb.bound(bs: List<&2, Cv.KeyBind>, +k: Nat) -> {Cv.bound(bs, k) == Cvar.spe
 
 def pxb.press(+bs: List<&2, Cv.KeyBind>, +k: Nat, +as: List<&2, Cv.Alias>) -> {Cv.press(bs, k, as) == Cvar.spec_press(bs, k, as) : Cv.Exp}:
   %pxb.bound(bs, k) : {Cv.expand(Cv.bound(bs, k), as) == Cvar.spec_expand(_, as) : Cv.Exp}
-  PAE.pxx.expand(Cv.bound(bs, k), as)
+  PAE.pxx.expand_orig(Cv.bound(bs, k), as)
 
 def Cvar.bind_press_exact(bs, k, as):
   (pxb.press(bs, k, as), pxb.bound(bs, k))
+
+def pxb.press_orig(+bs: List<&2, Cv.KeyBind>, +k: Nat, +as: List<&2, Cv.Alias>) -> {Cv.press(bs, k, as) == Cvar.spec_press(bs, k, as) : Cv.Exp}:
+  %pxb.bound(bs, k) : {Cv.expand(Cv.bound(bs, k), as) == Cvar.spec_expand(_, as) : Cv.Exp}
+  PAE.pxx.expand_orig(Cv.bound(bs, k), as)

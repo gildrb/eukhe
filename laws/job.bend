@@ -12,6 +12,41 @@ import ./base.bend as LawsBase
 # the model in bend/job.bend. Every event is free:
 # any output size, exit, kill or tick, in any order; any output cap or
 # the opt-out; any budget; any job table. A tool call's journal: laws/tool_call.bend.
+# The requirements below are read from this header, the comments of
+# bend/job.bend, bend/ffi_job.bend, bend/ffi_job_rewind.bend and the Rust
+# docs of JobState::step and JobTable::rewind_to
+# (crates/eukhe-core/src/durable/jobs/mod.rs). No outside source states
+# this byte cap or the rewind kills, so the Rust docs are the source. The
+# laws of laws/job_step.bend belong to this area.
+#
+# A1: under the cap Some c a job keeps at most c bytes of its output and
+#     counts the rest as dropped; every byte that fits under the cap is kept.
+# A2: no byte is lost in silence: kept plus dropped is every byte the job
+#     wrote before it ended.
+# A3: the opt-out (None) keeps every byte.
+# A4: an exit ends a live job as exited with exactly its code, a kill as
+#     killed, both with the counts it had; the entry reports that one end.
+# A5: an ended job stays as it ended: no later output, no second end.
+# A6: output and ticks never end a job; a tick changes nothing.
+# A7: Rust holds kept plus dropped to the wire bound t: below t the bound
+#     changes nothing, output across t fills the counts to exactly t,
+#     output is only ever cut, never invented, and a job past t takes none.
+# A8: a blocking call answers once its budget of ticks passed, and when it
+#     settles it reports the job's own end (the stepper: laws/job_wait.bend).
+# A9: a rewind to a target entry stops every running job the target tree
+#     does not hold and leaves every job it holds as it was; the tree holds
+#     a job exactly when the job started before the target entry was
+#     committed: a job that started before any entry of the session is
+#     held by every target; with no target, or a target the table never
+#     saw, no job is held.
+# A10: the job entry answers, on every request Rust writes, the job after
+#     the event (`feed`) and the ends the event reported (`ends.of`).
+# A11: the job entry answers any other input with the error form naming
+#     the first part that does not read: "job: bad bound", "job: bad cap",
+#     "job: bad job", "job: bad event", or "job: input left over".
+# A12: the rewind entry answers, on every request Rust writes, one kill
+#     per job in order; any other input gets exactly the error form
+#     "job_rewind: malformed request".
 
 # LAW job_output_bounded: with a cap, a job keeps at most cap bytes of its output
 law job_output_bounded:
@@ -53,13 +88,6 @@ law job_end_is_final:
   for ended: {Jb.has_end(pre) == True{} : Bool}
   {Jb.run(cap, List.append(&2, Jb.JEv, pre, post)) == Jb.run(cap, pre) : Jb.J}
 
-# LAW job_kill_ends_now: a kill ends a live job at once, as killed, with its output kept
-law job_kill_ends_now:
-  for +cap: Maybe<&2, Nat>
-  for +k: Nat
-  for +d: Nat
-  {Jb.step(cap, Jb.Live{k, d}, Jb.Kill{}) == Jb.Ended{k, d, Jb.Killed{}} : Jb.J}
-
 # LAW call_blocks_at_most_budget: a blocking call returns once its budget of ticks passed: it never
 # blocks longer
 law call_blocks_at_most_budget:
@@ -95,18 +123,6 @@ law rewind_keeps_target_jobs:
 # job's bytes kept plus dropped held to t (t = 10^14 - 1 in the compiled
 # core: the largest Nat its wire carries). Every law below holds for every t.
 
-# an event that writes output
-def JobWrites(e: Jb.JEv) -> Bool:
-  match e:
-    case Jb.Out{n}:
-      True{}
-    case Jb.Quit{c}:
-      False{}
-    case Jb.Kill{}:
-      False{}
-    case Jb.Tick{}:
-      False{}
-
 # LAW job_feed_fits: output that fits below t is the step: nothing is cut
 law job_feed_fits:
   for +t: Nat
@@ -117,35 +133,30 @@ law job_feed_fits:
   for fits: {Nat.is_le(Nat.add(Nat.add(k, d), n), t) == True{} : Bool}
   {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{n}) : Jb.J}
 
-# LAW job_feed_no_output: an event that writes no output is the step
-law job_feed_no_output:
-  for +t: Nat
-  for +cap: Maybe<&2, Nat>
-  for j: Jb.J
-  for e: Jb.JEv
-  for quiet: {JobWrites(e) == False{} : Bool}
-  {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e) : Jb.J}
+# e2 is e itself or, when e is an output, an output of at most its bytes
+def job_part(e2: Jb.JEv, e: Jb.JEv) -> Type:
+  match e:
+    case Jb.Out{n}:
+      Sigma<&1, &1, Nat, m => {e2 == Jb.Out{m} : Jb.JEv} & {Nat.is_le(m, n) == True{} : Bool}>
+    case Jb.Quit{c}:
+      {e2 == Jb.Quit{c} : Jb.JEv}
+    case Jb.Kill{}:
+      {e2 == Jb.Kill{} : Jb.JEv}
+    case Jb.Tick{}:
+      {e2 == Jb.Tick{} : Jb.JEv}
 
-# LAW job_feed_ended: an ended job stays as it ended
-law job_feed_ended:
+# LAW job_feed_cuts_output (A7): from any job, every event the entry takes under the bound t is the
+# step on a part of that event: an exit, a kill or a tick is stepped as itself, an output as an
+# output of at most its bytes (which part: job_feed_fits, job_feed_fills, job_feed_past_bound)
+# EXCLUDES: a bound that invents output bytes, turns an event into another kind, or changes an exit
+#   code
+law job_feed_cuts_output:
   for +t: Nat
   for +cap: Maybe<&2, Nat>
-  for +k: Nat
-  for +d: Nat
-  for +x: Jb.End
-  for e: Jb.JEv
-  {Jb.feed(t, cap, Jb.Ended{k, d, x}, e) == Jb.Ended{k, d, x} : Jb.J}
-
-# LAW job_feed_is_a_step: any output is a step on a part of it, so the cap laws above hold
-# for what the Rust jobs count
-law job_feed_is_a_step:
-  for +t: Nat
-  for +cap: Maybe<&2, Nat>
-  for +k: Nat
-  for +d: Nat
-  for +n: Nat
-  exs m: Nat
-  {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{m}) : Jb.J}
+  for +j: Jb.J
+  for +e: Jb.JEv
+  exs e2: Jb.JEv
+  job_part(e2, e) & {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e2) : Jb.J}
 
 # LAW job_feed_bounded: the bytes kept plus dropped never pass t
 # EXCLUDES: a count past the compiled core's Nat range (the process stops)
@@ -176,7 +187,8 @@ law job_feed_fills:
 # bend/ffi_job.bend, bend/ffi_progress.bend, bend/ffi_sandbox.bend). Each
 # entry, on the request Rust writes (`put_req`, every number within the
 # wire), answers the encoding of the model's decision: the codec loses,
-# invents and reorders nothing, and the Rust rule is the proven model.
+# invents and reorders nothing. That Rust writes `put_req` is not proven
+# here (the Rust codec is tested, not read by these laws).
 
 def wire_job_fits(j: Jb.J) -> Bool:
   match j:
@@ -273,238 +285,14 @@ def job_spell_ends(es: List<&2, Jb.End>, rest: String) -> String:
       job_spell_end(x, job_spell_ends(t, rest))
 
 # the reply: the job after the event (`feed`), then the ends the event
-# reported: their count, then each. `feed` and `ends.of` are fixed for
-# every input by laws that read no other code: job_feed_ended,
-# job_feed_no_output, job_feed_fits, job_feed_past_bound, and
-# job_feed_is_a_step with job_feed_fills (output across t: the step on
-# exactly the bytes up to t); the step they reach by job_step_exit_exact,
-# job_kill_ends_now, job_step_tick_exact, job_step_ended_exact and, on
-# output, job_step_out_stays_live, job_step_out_counts and the kept bytes
-# of job_step_optout_keeps, job_step_out_fits, job_step_out_fills and
-# job_step_out_full (with job_terms_exact); `ends.of` by job_ends_of_exact
+# reported: their count, then each. What `feed` and `ends.of` answer is
+# fixed by the job laws: job_feed_cuts_output, job_feed_fits,
+# job_feed_fills, job_feed_past_bound and job_feed_bounded tie `feed` to
+# `step`; the job_step laws (laws/job_step.bend) fix the step and
+# `ends.of`
 def job_spell_answer(+t: Nat, +cap: Maybe<&2, Nat>, +j: Jb.J, +e: Jb.JEv) -> String:
   +es = Jb.ends.of(j, e)
   job_spell_job(Jb.feed(t, cap, j, e), Wr.put_nat(List.length(&2, Jb.End, es), job_spell_ends(es, "")))
-
-# The laws' reader of a request, part by part (each part from the decode
-# of the number that starts it)
-
-def job_read_code.lo(+hi: U32, r: Wr.Dec<U32>) -> Wr.Dec<Jb.Code>:
-  match r:
-    case Wr.Got{lo, s}:
-      Wr.Got{Jb.Code{hi, lo}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_code(r: Wr.Dec<U32>) -> Wr.Dec<Jb.Code>:
-  match r:
-    case Wr.Got{+hi, s}:
-      job_read_code.lo(hi, Wr.get_u32(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_end.code(r: Wr.Dec<Jb.Code>) -> Wr.Dec<Jb.End>:
-  match r:
-    case Wr.Got{c, s}:
-      Wr.Got{Jb.Exited{c}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_end.tag(t: Nat, s: String) -> Wr.Dec<Jb.End>:
-  match t:
-    case 0n:
-      job_read_end.code(job_read_code(Wr.get_u32(s)))
-    case 1n:
-      Wr.Got{Jb.Killed{}, s}
-    case 2n+p:
-      Wr.Bad{}
-
-def job_read_end(r: Wr.Dec<Nat>) -> Wr.Dec<Jb.End>:
-  match r:
-    case Wr.Got{t, s}:
-      job_read_end.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_live.d(+k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Jb.J>:
-  match r:
-    case Wr.Got{d, s}:
-      Wr.Got{Jb.Live{k, d}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_live(r: Wr.Dec<Nat>) -> Wr.Dec<Jb.J>:
-  match r:
-    case Wr.Got{+k, s}:
-      job_read_live.d(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_ended.x(+k: Nat, +d: Nat, r: Wr.Dec<Jb.End>) -> Wr.Dec<Jb.J>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Jb.Ended{k, d, x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_ended.d(+k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Jb.J>:
-  match r:
-    case Wr.Got{+d, s}:
-      job_read_ended.x(k, d, job_read_end(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_ended(r: Wr.Dec<Nat>) -> Wr.Dec<Jb.J>:
-  match r:
-    case Wr.Got{+k, s}:
-      job_read_ended.d(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_job.tag(t: Nat, s: String) -> Wr.Dec<Jb.J>:
-  match t:
-    case 0n:
-      job_read_live(Wr.get_nat(s))
-    case 1n:
-      job_read_ended(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def job_read_job(r: Wr.Dec<Nat>) -> Wr.Dec<Jb.J>:
-  match r:
-    case Wr.Got{t, s}:
-      job_read_job.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_ev.out(r: Wr.Dec<Nat>) -> Wr.Dec<Jb.JEv>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Jb.Out{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_ev.quit(r: Wr.Dec<Jb.Code>) -> Wr.Dec<Jb.JEv>:
-  match r:
-    case Wr.Got{c, s}:
-      Wr.Got{Jb.Quit{c}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_ev.tag(t: Nat, s: String) -> Wr.Dec<Jb.JEv>:
-  match t:
-    case 0n:
-      job_read_ev.out(Wr.get_nat(s))
-    case 1n:
-      job_read_ev.quit(job_read_code(Wr.get_u32(s)))
-    case 2n:
-      Wr.Got{Jb.Kill{}, s}
-    case 3n:
-      Wr.Got{Jb.Tick{}, s}
-    case 4n+p:
-      Wr.Bad{}
-
-def job_read_ev(r: Wr.Dec<Nat>) -> Wr.Dec<Jb.JEv>:
-  match r:
-    case Wr.Got{t, s}:
-      job_read_ev.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_cap.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_read_cap.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      job_read_cap.some(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def job_read_cap(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{t, s}:
-      job_read_cap.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def job_reads.ev(r: Wr.Dec<Jb.JEv>) -> Bool:
-  match r:
-    case Wr.Got{e, s}:
-      Wr.end(s)
-    case Wr.Bad{}:
-      False{}
-
-def job_reads.job(r: Wr.Dec<Jb.J>) -> Bool:
-  match r:
-    case Wr.Got{j, s}:
-      job_reads.ev(job_read_ev(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      False{}
-
-def job_reads.cap(r: Wr.Dec<Maybe<&2, Nat>>) -> Bool:
-  match r:
-    case Wr.Got{c, s}:
-      job_reads.job(job_read_job(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      False{}
-
-def job_reads.t(r: Wr.Dec<Nat>) -> Bool:
-  match r:
-    case Wr.Got{t, s}:
-      job_reads.cap(job_read_cap(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      False{}
-
-# s is exactly one request: a bound, a cap, a job, an event, nothing after
-def job_reads(s: String) -> Bool:
-  job_reads.t(Wr.get_nat(s))
-
-def job_why.end(whole: Bool) -> String:
-  match whole:
-    case True{}:
-      ""
-    case False{}:
-      "job: input left over"
-
-def job_why.ev(r: Wr.Dec<Jb.JEv>) -> String:
-  match r:
-    case Wr.Got{e, s}:
-      job_why.end(Wr.end(s))
-    case Wr.Bad{}:
-      "job: bad event"
-
-def job_why.job(r: Wr.Dec<Jb.J>) -> String:
-  match r:
-    case Wr.Got{j, s}:
-      job_why.ev(job_read_ev(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      "job: bad job"
-
-def job_why.cap(r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{c, s}:
-      job_why.job(job_read_job(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      "job: bad cap"
-
-def job_why.t(r: Wr.Dec<Nat>) -> String:
-  match r:
-    case Wr.Got{t, s}:
-      job_why.cap(job_read_cap(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      "job: bad bound"
-
-# why s is not one request: the first part of it that does not read, or
-# input left over after a whole request
-def job_why(s: String) -> String:
-  job_why.t(Wr.get_nat(s))
 
 # LAW job_entry_answers: on every request Rust writes (every number within the wire), the job entry answers the job after the event (`feed`: the step with the bytes kept plus dropped held to the bound) and the ends the event reported, as the laws spell them
 law job_entry_answers:
@@ -518,11 +306,67 @@ law job_entry_answers:
   for he: {wire_ev_fits(e) == True{} : Bool}
   {FJb.ffi(job_spell_req(t, cap, j, e)) == job_spell_answer(t, cap, j, e) : String}
 
-# LAW job_entry_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then the text that names the first part that does not read: "job: bad bound", "job: bad cap", "job: bad job", "job: bad event", or "job: input left over" (a whole request with more input after it)
-law job_entry_malformed_exact:
+# LAW job_entry_bad_bound (A11): an input that does not start with a number within the wire (at most
+# 14 digits, then ',') gets exactly the error form 'E job: bad bound'
+# EXCLUDES: a default bound for garbage, another text, an answer for an empty input
+law job_entry_bad_bound:
   for +s: String
-  for no: {job_reads(s) == False{} : Bool}
-  {FJb.ffi(s) == SCon{'E', SCon{' ', job_why(s)}} : String}
+  for no: @t: Nat -> @r: String -> {LawsBase.wire_fits(t) == True{} : Bool} -> {s == Wr.put_nat(t, r) : String} -> Empty
+  {FJb.ffi(s) == Wr.err("job: bad bound") : String}
+
+# LAW job_entry_bad_cap (A11): a bound within the wire followed by input that does not start with a
+# cap (0, or 1 then a number within the wire) gets exactly the error form 'E job: bad cap'
+# EXCLUDES: a cap tag past 1 read as a cap or the opt-out, a cap past the wire read, another text
+law job_entry_bad_cap:
+  for +t: Nat
+  for +r: String
+  for ht: {LawsBase.wire_fits(t) == True{} : Bool}
+  for no: @c: Maybe<&2, Nat> -> @q: String -> {LawsBase.wire_mfits(c) == True{} : Bool} -> {r == job_spell_cap(c, q) : String} -> Empty
+  {FJb.ffi(Wr.put_nat(t, r)) == Wr.err("job: bad cap") : String}
+
+# LAW job_entry_bad_job (A11): a bound and a cap within the wire followed by input that does not
+# start with a job (as job_spell_job spells it, every number within the wire) gets exactly the error
+# form 'E job: bad job'
+# EXCLUDES: a job tag past 1 or an end tag past 1 read as a job, another text
+law job_entry_bad_job:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +r: String
+  for ht: {LawsBase.wire_fits(t) == True{} : Bool}
+  for hc: {LawsBase.wire_mfits(cap) == True{} : Bool}
+  for no: @j: Jb.J -> @q: String -> {wire_job_fits(j) == True{} : Bool} -> {r == job_spell_job(j, q) : String} -> Empty
+  {FJb.ffi(Wr.put_nat(t, job_spell_cap(cap, r))) == Wr.err("job: bad job") : String}
+
+# LAW job_entry_bad_event (A11): a bound, a cap and a job within the wire followed by input that does
+# not start with an event (as job_spell_ev spells it, every number within the wire) gets exactly the
+# error form 'E job: bad event'
+# EXCLUDES: an event tag past 3 read as an event (a tick, a kill), another text
+law job_entry_bad_event:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +j: Jb.J
+  for +r: String
+  for ht: {LawsBase.wire_fits(t) == True{} : Bool}
+  for hc: {LawsBase.wire_mfits(cap) == True{} : Bool}
+  for hj: {wire_job_fits(j) == True{} : Bool}
+  for no: @e: Jb.JEv -> @q: String -> {wire_ev_fits(e) == True{} : Bool} -> {r == job_spell_ev(e, q) : String} -> Empty
+  {FJb.ffi(Wr.put_nat(t, job_spell_cap(cap, job_spell_job(j, r)))) == Wr.err("job: bad event") : String}
+
+# LAW job_entry_left_over (A11): a whole request within the wire followed by any more input gets
+# exactly the error form 'E job: input left over', not an answer
+# EXCLUDES: trailing garbage ignored (a request answered from a prefix), another text
+law job_entry_left_over:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +j: Jb.J
+  for +e: Jb.JEv
+  for +x: Char
+  for +r: String
+  for ht: {LawsBase.wire_fits(t) == True{} : Bool}
+  for hc: {LawsBase.wire_mfits(cap) == True{} : Bool}
+  for hj: {wire_job_fits(j) == True{} : Bool}
+  for he: {wire_ev_fits(e) == True{} : Bool}
+  {FJb.ffi(Wr.put_nat(t, job_spell_cap(cap, job_spell_job(j, job_spell_ev(e, SCon{x, r}))))) == Wr.err("job: input left over") : String}
 
 # LAW job_entry_example: anchor: the strings Rust sends (with a bound of 100: Rust sends the wire's largest Nat, which the proven kernel cannot unfold; below the bound the answer does not depend on it, job_feed_fits) and the replies: output under a cap, output past it, an exit with code 7, a kill, a kill after the end; output that saturates a bound of 20; and one malformed input per error text (a U32 past 2^32 - 1 is not checked here: the checker builds it word by word, see wire_u32_exact)
 law job_entry_example:
@@ -609,23 +453,6 @@ def rw_held_spec(target: Maybe<&2, Nat>, after: Maybe<&2, Nat>) -> Bool:
     case Some{t} Some{a}:
       Bool.not(Nat.is_le(t, a))
 
-# the kill a rewind sends a job: it runs and the tree does not hold it
-def rw_kill_spec(target: Maybe<&2, Nat>, s: Jb.Seen) -> Bool:
-  match s:
-    case Jb.Seen{r, a}:
-      match r:
-        case True{}:
-          Bool.not(rw_held_spec(target, a))
-        case False{}:
-          False{}
-
-def rw_kills_spec(js: List<&2, Jb.Seen>, +target: Maybe<&2, Nat>) -> List<&2, Bool>:
-  match js:
-    case Nil{}:
-      Nil{}
-    case s <> t:
-      rw_kill_spec(target, s) <> rw_kills_spec(t, target)
-
 # the table as the model's slots: the job at place k of js has the id i + k
 def rw_slots(js: List<&2, Jb.Seen>, +i: Nat) -> List<&2, Jb.Slot>:
   match js:
@@ -674,11 +501,55 @@ def rw_stopped(ss: List<&2, Jb.Slot>, ks: List<&2, Bool>) -> List<&2, Jb.Slot>:
     case s <> sr k <> kr:
       rw_stop_if(k, s) <> rw_stopped(sr, kr)
 
-# LAW job_rewind_exact: a rewind to the entry committed at target sends the kill exactly to each running job that the tree just after that entry does not hold, in order: with no target, to every running job; else to every running job that started after a commit at or past the target's (a job that started before any entry of the session is held); never to an ended job
-law job_rewind_exact:
-  for js: List<&2, Jb.Seen>
+# LAW job_rewind_kills_per_job (A9, A12): the kills of a table are the kills of its parts, in order:
+# the kills of two tables joined are the kills of the first, then those of the second (so one kill
+# per job, each decided by that job alone)
+# EXCLUDES: kills reordered, dropped, duplicated, or decided by another job of the table
+law job_rewind_kills_per_job:
+  for +xs: List<&2, Jb.Seen>
+  for +ys: List<&2, Jb.Seen>
   for +target: Maybe<&2, Nat>
-  {Jb.kills(js, target) == rw_kills_spec(js, target) : List<&2, Bool>}
+  {Jb.kills(List.append(&2, Jb.Seen, xs, ys), target) == List.append(&2, Bool, Jb.kills(xs, target), Jb.kills(ys, target)) : List<&2, Bool>}
+
+# LAW job_rewind_spares_stopped (A9): a rewind to any target never sends the kill to a job that does
+# not run
+# EXCLUDES: a kill sent to an ended job (a second end reported)
+law job_rewind_spares_stopped:
+  for +a: Maybe<&2, Nat>
+  for +target: Maybe<&2, Nat>
+  {Jb.kills([Jb.Seen{False{}, a}], target) == [False{}] : List<&2, Bool>}
+
+# LAW job_rewind_spares_presession (A9): a rewind to the entry committed at t keeps a running job that
+# started before any entry of the session
+# EXCLUDES: a rewind that kills the jobs every target tree holds
+law job_rewind_spares_presession:
+  for +t: Nat
+  {Jb.kills([Jb.Seen{True{}, None{}}], Some{t}) == [False{}] : List<&2, Bool>}
+
+# LAW job_rewind_spares_older (A9): a rewind to the entry committed at t keeps a running job that
+# started after a commit a below t (before the target entry was committed)
+# EXCLUDES: a job of the target tree killed (an off-by-one that kills a < t, a reversed order)
+law job_rewind_spares_older:
+  for +t: Nat
+  for +a: Nat
+  for before: {Nat.is_lt(a, t) == True{} : Bool}
+  {Jb.kills([Jb.Seen{True{}, Some{a}}], Some{t}) == [False{}] : List<&2, Bool>}
+
+# LAW job_rewind_kills_newer (A9): a rewind to the entry committed at t sends the kill to a running
+# job that started after a commit a at or past t (the target entry itself included)
+# EXCLUDES: an orphan job left running (an off-by-one that keeps a == t, a rewind that kills nothing)
+law job_rewind_kills_newer:
+  for +t: Nat
+  for +a: Nat
+  for after: {Nat.is_le(t, a) == True{} : Bool}
+  {Jb.kills([Jb.Seen{True{}, Some{a}}], Some{t}) == [True{}] : List<&2, Bool>}
+
+# LAW job_rewind_kills_without_target (A9): a rewind with no target (before every entry, or to an
+# entry the table never saw) sends the kill to every running job, whenever it started
+# EXCLUDES: a job kept by a rewind to before it started
+law job_rewind_kills_without_target:
+  for +a: Maybe<&2, Nat>
+  {Jb.kills([Jb.Seen{True{}, a}], None{}) == [True{}] : List<&2, Bool>}
 
 # LAW job_rewind_refines: the kills are the model's rewind: with the jobs numbered by place, the slots after the kills are `rewind` of the slots to the tree that holds exactly the jobs that started before the target entry was committed
 law job_rewind_refines:
@@ -698,109 +569,33 @@ law job_rewind_keeps_target_jobs:
   for +target: Maybe<&2, Nat>
   {Jb.kept(rw_stopped(rw_slots(js, 0n), Jb.kills(js, target)), rw_slots(js, 0n), rw_held_ids(js, target, 0n)) == True{} : Bool}
 
-# The laws' reader of a rewind request, part by part
-
-def rw_read_commit.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rw_read_commit.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      rw_read_commit.some(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def rw_read_commit(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{t, s}:
-      rw_read_commit.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rw_read_seen.after(b: Bool, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Jb.Seen>:
-  match r:
-    case Wr.Got{a, s}:
-      Wr.Got{Jb.Seen{b, a}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rw_read_seen(r: Wr.Dec<Bool>) -> Wr.Dec<Jb.Seen>:
-  match r:
-    case Wr.Got{b, s}:
-      rw_read_seen.after(b, rw_read_commit(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rw_read_seens.cons(x: Jb.Seen, r: Wr.Dec<List<&2, Jb.Seen>>) -> Wr.Dec<List<&2, Jb.Seen>>:
-  match r:
-    case Wr.Got{xs, s}:
-      Wr.Got{x <> xs, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# n more jobs after the one cur answers
-def rw_read_seens.go(n: Nat, cur: Wr.Dec<Jb.Seen>) -> Wr.Dec<List<&2, Jb.Seen>>:
-  match n:
-    case 0n:
-      match cur:
-        case Wr.Got{x, s}:
-          Wr.Got{[x], s}
-        case Wr.Bad{}:
-          Wr.Bad{}
-    case 1n+m:
-      match cur:
-        case Wr.Got{x, s}:
-          rw_read_seens.cons(x, rw_read_seens.go(m, rw_read_seen(Wr.get_bool(s))))
-        case Wr.Bad{}:
-          Wr.Bad{}
-
-def rw_read_seens(r: Wr.Dec<Nat>) -> Wr.Dec<List<&2, Jb.Seen>>:
-  match r:
-    case Wr.Got{n, s}:
-      match n:
-        case 0n:
-          Wr.Got{Nil{}, s}
-        case 1n+m:
-          rw_read_seens.go(m, rw_read_seen(Wr.get_bool(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def rw_reads.jobs(r: Wr.Dec<List<&2, Jb.Seen>>) -> Bool:
-  match r:
-    case Wr.Got{js, s}:
-      Wr.end(s)
-    case Wr.Bad{}:
-      False{}
-
-def rw_reads.target(r: Wr.Dec<Maybe<&2, Nat>>) -> Bool:
-  match r:
-    case Wr.Got{t, s}:
-      rw_reads.jobs(rw_read_seens(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      False{}
-
-# s is exactly one rewind request: a target, the jobs, nothing after
-def rw_reads(s: String) -> Bool:
-  rw_reads.target(rw_read_commit(Wr.get_nat(s)))
-
-# LAW job_rewind_entry_answers: on every request Rust writes (every number within the wire), the rewind entry answers one kill per job, in order, each as job_rewind_exact pins it
+# LAW job_rewind_entry_answers (A12): on every request Rust writes (every number within the wire),
+# the rewind entry answers the model's kills (`kills`, fixed by the job_rewind_kills_* and
+# job_rewind_spares_* laws), one per job in order, as the laws spell them
 law job_rewind_entry_answers:
   for +target: Maybe<&2, Nat>
   for +js: List<&2, Jb.Seen>
   for +fits: {rw_req_fits(target, js) == True{} : Bool}
-  {FJr.ffi(rw_spell_req(target, js)) == rw_spell_kills(rw_kills_spec(js, target)) : String}
+  {FJr.ffi(rw_spell_req(target, js)) == rw_spell_kills(Jb.kills(js, target)) : String}
 
-# LAW job_rewind_entry_malformed_exact: every input that is not exactly one rewind request gets exactly the error form 'E ', then "job_rewind: malformed request"
-law job_rewind_entry_malformed_exact:
+# LAW job_rewind_entry_exact (A12): every input the rewind entry does not answer with the error form
+# is a request Rust writes: a target and a table of jobs, every number within the wire, nothing after
+# EXCLUDES: an answer for input that is no request (a Maybe tag past 1, a bad Bool, fewer jobs than
+#   the count, input left over)
+law job_rewind_entry_exact:
   for +s: String
-  for no: {rw_reads(s) == False{} : Bool}
-  {FJr.ffi(s) == SCon{'E', SCon{' ', "job_rewind: malformed request"}} : String}
+  for ok: {LawsBase.wire_opens_err(FJr.ffi(s)) == False{} : Bool}
+  exs target: Maybe<&2, Nat>
+  exs js: List<&2, Jb.Seen>
+  {rw_req_fits(target, js) == True{} : Bool} & {s == rw_spell_req(target, js) : String}
+
+# LAW job_rewind_entry_refuses (A12): every error the rewind entry answers is exactly the error form
+# 'E job_rewind: malformed request'
+# EXCLUDES: an error text that varies with the input, a second error form
+law job_rewind_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FJr.ffi(s)) == True{} : Bool}
+  {FJr.ffi(s) == Wr.err("job_rewind: malformed request") : String}
 
 # LAW job_rewind_entry_example: anchor: the strings Rust sends and the replies: a target at commit 5 with jobs that started before any entry, after commit 4 and after commit 5; no target; an ended job and running jobs after commits 9, 4 and none; an empty table; and malformed inputs (a Maybe tag 2, input left over, nothing, fewer jobs than the count)
 law job_rewind_entry_example:
@@ -817,14 +612,9 @@ law job_rewind_entry_example:
 law job_rewind_req_fits_example:
   {rw_req_fits(Some{5n}, [Jb.Seen{True{}, None{}}, Jb.Seen{False{}, Some{9n}}]) == True{} : Bool}
 
-# LAW job_entries_malformed_witness: witness: inputs that are not one request exist for each call entry (the malformed_exact laws are not vacuous; the wait's stepper has its own in job_wait_entry_example)
-law job_entries_malformed_witness:
-  {job_reads("5,2,") == False{} : Bool} & {rw_reads("0,1,T0,x") == False{} : Bool}
-
-# The wait, poll by poll
-# ----------------------
-# The stepper of the wait (bend/ffi_job_wait.bend) answers each event with
-# `poll`; laws/job_wait.bend pins it.
+# The wait's poll terms
+# ---------------------
+# Spelling and poll terms the wait laws (laws/job_wait.bend) read.
 
 # a turn: 0 the call waits, 1 it settles, 2 it detaches
 def wt_spell_turn(t: Jb.Turn) -> String:
@@ -849,6 +639,12 @@ def wt_poll_spec(due: Bool, ready: Bool) -> Jb.Turn:
     case False{} False{}:
       Jb.Waits{}
 
+# LAW job_wait_poll_exact: one poll of a blocking wait: a passed deadline detaches, even when the job's end is ready; else a ready end settles; else the call waits
+law job_wait_poll_exact:
+  for due: Bool
+  for ready: Bool
+  {Jb.poll(due, ready) == wt_poll_spec(due, ready) : Jb.Turn}
+
 # the end an event brings, when it ends the job
 def wt_end_of(e: Jb.JEv) -> Maybe<&2, Jb.End>:
   match e:
@@ -860,18 +656,6 @@ def wt_end_of(e: Jb.JEv) -> Maybe<&2, Jb.End>:
       Some{Jb.Killed{}}
     case Jb.Tick{}:
       None{}
-
-# the ticks of budget an event spends
-def wt_ticks_of(e: Jb.JEv) -> Nat:
-  match e:
-    case Jb.Out{n}:
-      0n
-    case Jb.Quit{c}:
-      0n
-    case Jb.Kill{}:
-      0n
-    case Jb.Tick{}:
-      1n
 
 # what the call does on a turn: it detaches; it settles with the end the
 # event brought; or it goes on to its answer after the event (next)
@@ -888,11 +672,17 @@ def wt_take(t: Jb.Turn, x: Maybe<&2, Jb.End>, next: Maybe<&2, Jb.Wait>) -> Maybe
     case Jb.Detaches{}:
       Some{Jb.Detached{}}
 
-# LAW job_wait_poll_exact: one poll of a blocking wait: a passed deadline detaches, even when the job's end is ready; else a ready end settles; else the call waits
-law job_wait_poll_exact:
-  for due: Bool
-  for ready: Bool
-  {Jb.poll(due, ready) == wt_poll_spec(due, ready) : Jb.Turn}
+# the ticks of budget an event spends
+def wt_ticks_of(e: Jb.JEv) -> Nat:
+  match e:
+    case Jb.Out{n}:
+      0n
+    case Jb.Quit{c}:
+      0n
+    case Jb.Kill{}:
+      0n
+    case Jb.Tick{}:
+      1n
 
 # LAW job_wait_polls_each_event: the blocking call (the model's `wait`) is the poll at each event: the deadline is due when no tick of budget is left, the end is ready when the event ends the job; on a wait it goes on after the event, with the event's ticks spent
 law job_wait_polls_each_event:
@@ -900,8 +690,3 @@ law job_wait_polls_each_event:
   for rest: List<&2, Jb.JEv>
   for +left: Nat
   {Jb.wait(e <> rest, left) == wt_take(Jb.poll(Nat.is_eq(left, 0n), Maybe.is_some(&2, Jb.End, wt_end_of(e))), wt_end_of(e), Jb.wait(rest, Nat.sub(left, wt_ticks_of(e)))) : Maybe<&2, Jb.Wait>}
-
-# LAW job_wait_polls_at_rest: before any event the call is the poll with no end ready: it detaches when no tick of budget is left, else it waits (no answer yet)
-law job_wait_polls_at_rest:
-  for +left: Nat
-  {Jb.wait(Nil{}, left) == wt_take(Jb.poll(Nat.is_eq(left, 0n), False{}), None{}, None{}) : Maybe<&2, Jb.Wait>}

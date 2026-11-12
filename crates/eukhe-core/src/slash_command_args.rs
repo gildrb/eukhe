@@ -1,6 +1,6 @@
 //! Session slash-command arguments and status formatting for `/goal` and
 //! `/autonomous`. The arguments are the compiled core's
-//! (`eukhe_bend::rules::slash_args`, `laws/slash_args.bend`): this module
+//! (`eukhe_bend::rules::slash_args`, `laws/slash_args/`): this module
 //! maps its answers to the session's types. The status text is a port of
 //! agent-session.ts `_formatAutonomousStatus`; its strings are user-facing
 //! and byte-identical.

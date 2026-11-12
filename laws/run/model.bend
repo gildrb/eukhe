@@ -1,23 +1,93 @@
 # eukhe: the laws of area run: the run, its requests, the decisions Rust
-# calls and the recoveries (H4, H4.7, H4.9, H4.8)
+# calls and the recoveries (H4, H4.1, H4.2, H4.4, H4.7, H4.8, H4.9; the
+# entry's codec, H4.10, is laws/run/entry.bend)
+#
+# Requirements
+# ------------
+# Sources: the module docs of crates/eukhe-durable/src/harness/generation/
+# decide.rs, deferred.rs, note.rs and repeat.rs, the headers of
+# bend/run/state.bend, bend/run/request.bend and bend/run/recovery.bend,
+# and the requirement's session maintenance (the retry cap of an
+# incomplete reply, the threshold of the tool-call loop guard). Rust keeps
+# its counters as they grow
+# (Counts: attempt, notes, ms waited, compacted; Rounds); the decisions it
+# calls (decide.reply, decide.prepare, decide.compact, decide.round,
+# decide.recover, decide.poll of bend/run/decision.bend, through
+# bend/ffi_run.bend) take those counters. The run machine of
+# bend/run/step.bend (RnStep.step, RnStep.run) and the requests of
+# bend/run/request.bend (Reqs) are models: no entry runs them; the
+# decisions are built from the machine's steps.
+#
+# H4: every run ends: after bound(cfg) inputs, whatever they are, the run
+#     has ended (answered, aborted or failed); an ended run stays as it
+#     ended; an abort ends a live run at once.
+# H4.1: a message with a tool call is never the run's answer: its calls
+#     run, whatever its text and its stop reason (vLLM, llama.cpp and
+#     Ollama send the stop reason stop with tool calls); a message with
+#     text and no call answers (decide.rs `Ended::reply`).
+# H4.2: the round cap (maxToolRounds, at least 1): a run makes at most
+#     max(cap, 1) tool rounds and the cap fails it only at that round; a
+#     control (terminate, handoff) ends a round uncounted and wins over the
+#     cap and a queued reset; the cap wins over a reset; else a reset ends
+#     the run; else the next generation goes on with one more round and a
+#     generation's whole limits (decide.rs `round_end`).
+# H4.4: a deferred job is polled while the ms its request waited are below
+#     the job's ms (a poll spends one ms); at that deadline the run fails
+#     at the deadline; a failed poll polls the same job again only when the
+#     failure is retryable and fewer than retry.maxRetries polls failed in
+#     a row: the job of bend/retry.bend section 4 (deferred.rs
+#     `PollFailure::next`).
+# H4.7: a retry never resends a request it cut: a noted reply (a stream
+#     cut as repeating, a message with no text and no call, a recovery's
+#     retry) is retried with a note that names the retry's attempt and
+#     spends a note of the generation (MAX_NOTES), never a retry; a
+#     transient error retries the request it retries and spends a retry
+#     (retry.maxRetries), never a note; an error the retry policy cannot
+#     cure fails the run; the note is never logged (decide.rs `retry_note`,
+#     note.rs).
+# H4.8: a stuck model gets a recovery, each with a cap (decide.rs
+#     `recover`; the laws are in laws/run/recover.bend): leaked tool
+#     calls the harness could not rebuild get leak notes 1 to `leak`, then
+#     the run fails; calls that would make `repeat` rounds in a row with the
+#     same calls and the same results do not run (the requirement's loop
+#     guard threshold) and get redirect notes 1 to `redirect`,
+#     then the run fails; calls below that run; a user message ends the
+#     row. A recovery's retry is a noted retry (H4.7). An empty reply and a
+#     length stop the stop walk continues (its ladder: length notes 1 to
+#     `long`, the requirement's retry cap of an incomplete reply): R4 and
+#     R7 of laws/stop.bend; a cut reply with text: R10 of laws/stop.bend.
+# H4.9: the decisions Rust calls make the decisions above from Rust's
+#     counters: what follows a reply (H4.1, H4.4, H4.7; an overflow
+#     compacts once a generation, when a cut exists, else the run fails);
+#     what preparation does (spec section 8.3: a context over the blocking
+#     threshold waits for its compaction, one over the background
+#     threshold sends with a background compaction beside it, a generation
+#     that compacted reads no threshold); whether preparation goes on after
+#     the compaction it waited for (an entry goes on, a failure fails the
+#     run, nothing goes on only after a threshold compaction); how a round
+#     ends (H4.2). The counts left the model reads lose nothing of Rust's
+#     counters, and Rust's saturation of its u64 counters changes no
+#     decision.
+# H4.10: the entry (bend/ffi_run.bend) answers every request Rust writes
+#     with its decision, spelled; laws/run/entry.bend.
 
 import Base
+import ../../bend/ffi_run.bend as FRn
 import ../../bend/retry.bend as R
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/measure.bend as RnMeasure
-import ../../bend/run/recovery.bend as RnRecovery
 import ../../bend/run/request.bend as RnRequest
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../stop.bend as LawsStop
+import ../../bend/wire.bend as Wr
+import ../../bend/run/recovery.bend as RnRecovery
 
 # (H4) Every run ends
 # -------------------
-# LAWS.bend H4, the model in bend/run/: one run (one user turn)
-# through prepare, call (a request or a deferred poll), compact (an
-# overflow's or a blocking threshold one) and tools. Every input is free:
-# any model reply, any round end, any compaction result, an abort, in any
-# order.
+# The model in bend/run/: one run (one user turn) through prepare, call (a
+# request or a deferred poll), compact (an overflow's or a blocking
+# threshold one) and tools. Every input is free: any model reply, any
+# round end, any compaction result, an abort, in any order.
 
 # LAW run_ends: every run has ended (answered, aborted or failed) after bound(cfg)
 # inputs, whatever they are and whatever follows them; bound(cfg) =
@@ -121,26 +191,86 @@ law run_retry_spends_no_note:
   for +p: Nat
   {RnStep.call(cfg, RnState.Error{True{}, False{}}, r, c, 1n+b, n, p) == RnState.St{RnState.Prepare{}, r, c, b, n, RnState.Cfg.polls(cfg)} : RnState.St}
 
+# the input ends a round that no control stops: a round's end in the
+# tools phase that goes on or resets (a control's round is not counted)
+def counted_round(ph: RnState.Ph, e: RnState.Ev) -> Bool:
+  match ph:
+    case RnState.Tools{}:
+      match e:
+        case RnState.Abort{}:
+          False{}
+        case RnState.Go{reply, fin, got}:
+          match fin:
+            case RnState.Goes{}:
+              True{}
+            case RnState.Stops{}:
+              False{}
+            case RnState.Resets{}:
+              True{}
+    case RnState.Prepare{}:
+      False{}
+    case RnState.Call{}:
+      False{}
+    case RnState.Compact{over}:
+      False{}
+    case RnState.Answered{}:
+      False{}
+    case RnState.Aborted{}:
+      False{}
+    case RnState.Failed{why}:
+      False{}
+
+# r rounds left after one is spent (when spent): one fewer, never below
+# none
+def spend(spent: Bool, r: Nat) -> Nat:
+  match spent:
+    case True{}:
+      match r:
+        case 0n:
+          0n
+        case 1n+q:
+          q
+    case False{}:
+      r
+
+# LAW run_step_counts_rounds_down (H4.2): one input to any state of the
+# model, under any configuration, spends one of the rounds left exactly
+# when it ends a round that no control stops (none when none is left);
+# every other input leaves the rounds left as they are
+# EXCLUDES: a round counted twice or not at all, a control's round
+#   counted, rounds spent by a reply, a compaction or an abort, a new
+#   generation that renews the run's rounds
+law run_step_counts_rounds_down:
+  for +cfg: RnState.Cfg
+  for +s: RnState.St
+  for +e: RnState.Ev
+  {RnState.St.r(RnStep.step(cfg, s, e)) == spend(counted_round(RnState.St.ph(s), e), RnState.St.r(s)) : Nat}
+
 # (H4.7) A retry never resends a request it cut
 # ---------------------------------------------
-# LAWS.bend H4.7, the requests of bend/run/request.bend: a model decodes
-# the same request the same way (a greedy one always does), so a retry
-# after a noted reply (the stream repeated itself until the guard cut it,
-# or the reply gave no answer) ends its request with a harness note that
-# names the retry's attempt. A request is the version of its logged
-# context and the attempt its note names.
+# The model of the requests in bend/run/request.bend (Reqs), stepped with
+# the run machine: a model decodes the same request the same way (a greedy
+# one always does), so a retry after a noted reply ends its request with
+# a harness note that names the retry's attempt. A request is the version
+# of its logged context and the attempt its note names. No entry runs
+# this model: Rust builds its notes itself (decide.rs `retry_note`), so the
+# laws of this section are about the model. What Rust runs of it is the
+# decision after a noted reply (run_note_budget, run_message_reply).
 
-# LAW run_retry_sends_a_new_request: no request the run sends is equal to a request it sent before and
-# had cut: a retry after a cut sends neither the request it cut nor any
-# other one the run cut, whatever the inputs, cut after cut until the
-# notes run out
+# LAW run_retry_sends_a_new_request (H4.7): in the model of the requests,
+# after any inputs under any configuration, the log never shows a request
+# sent after a request equal to it was cut (`fresh` of
+# bend/run/request.bend): a retry after a cut sends neither the request it
+# cut nor any other one the run cut, cut after cut until the notes run out
 law run_retry_sends_a_new_request:
   for +cfg: RnState.Cfg
   for +evs: List<&2, RnState.Ev>
   {RnRequest.fresh(RnRequest.Reqs.log(RnRequest.reqs(cfg, evs))) == True{} : Bool}
 
-# LAW run_cut_names_the_request: a noted reply cuts the request the run sent, and the next request
-# carries the note of the next attempt
+# LAW run_cut_names_the_request (H4.7): in the model of the requests, a
+# noted error to the request out (the call phase) logs a cut of the
+# request its context and note name, and the next request is at attempt
+# n + 1 with the note of attempt n + 1, whatever phase follows
 law run_cut_names_the_request:
   for -retryable: Bool
   for -fin: RnState.Fin
@@ -152,120 +282,296 @@ law run_cut_names_the_request:
   for -log: List<&2, RnRequest.Sent>
   {RnRequest.Reqs.step(RnState.Call{}, RnState.Go{RnState.Error{retryable, True{}}, fin, got}, pa, RnRequest.Reqs{ctx, n, note, log}) == RnRequest.Reqs{ctx, 1n+n, 1n+n, RnRequest.Cut{RnRequest.Req{ctx, note}} <> log} : RnRequest.Reqs}
 
-# LAW run_note_is_never_logged: the note changes what the model reads, never what the run logs:
-# a request logs the same lines as its context with no note
+# LAW run_note_is_never_logged (H4.7): in the model of the requests, the
+# lines the model says the run logs of a request (`logged` of its
+# `Req.lines`) are those of its context with no note: the note changes
+# what the model reads, never what the model logs (the log of
+# generation.rs is not modelled here)
 law run_note_is_never_logged:
   for q: RnRequest.Req
   {RnRequest.logged(RnRequest.Req.lines(q)) == RnRequest.logged(RnRequest.Req.lines(RnRequest.Req{RnRequest.Req.ctx(q), 0n})) : List<&2, RnRequest.Line>}
 
-# (H4.9) The decisions Rust calls are the model's
-# -----------------------------------------------
-# LAWS.bend H4, the decisions of bend/run/decision.bend that
-# crates/eukhe-durable/src/harness/generation/decide.rs and deferred.rs
-# call through the compiled core (decide.reply, decide.prepare,
-# decide.compact, decide.round, decide.poll; decide.recover in section
-# recover). Rust keeps its counters as they grow (Counts, Rounds); each
-# decision makes the counts left of the model from them, takes the
-# model's step and reads its answer back. The helpers rust.* are the
-# rules as decide.rs and deferred.rs wrote them before the core took
-# them over, over the counts that grow. The laws prove every decision
-# equal to its rule for every input (the projection is exact), the
-# counts left lose nothing of the counts Rust keeps, they count down
-# exactly as Rust's counts grow, a failed poll and a deferred reply do
-# what the deferred job of bend/retry.bend section 4 does, and the cap
-# Rust saturates its 64-bit counts at (the wire's largest Nat, below the
-# core's Nat range) changes no decision.
+# the requests a and b name the same context and the same note
+def same_req(a: RnRequest.Req, b: RnRequest.Req) -> Bool:
+  match a b:
+    case RnRequest.Req{c, m} RnRequest.Req{d, k}:
+      Bool.and(Nat.is_eq(c, d), Nat.is_eq(m, k))
 
-# the step after a deferred reply, as `after_reply` took it: poll the
-# same job while the request waited less than the job may run
-def rust.wait(waits: Bool) -> RnDecision.Then:
-  match waits:
+# the newest request sent in xs (newest first) is q
+def sent_last_is(+q: RnRequest.Req, xs: List<&2, RnRequest.Sent>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case RnRequest.Sent{p} <> t:
+      same_req(p, q)
+    case RnRequest.Cut{p} <> t:
+      sent_last_is(q, t)
+
+# every cut of xs (newest first) names the newest request sent before it
+def cuts_name_sends(xs: List<&2, RnRequest.Sent>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case RnRequest.Sent{q} <> t:
+      cuts_name_sends(t)
+    case RnRequest.Cut{+q} <> +t:
+      Bool.and(sent_last_is(q, t), cuts_name_sends(t))
+
+# LAW run_cut_names_the_last_sent (H4.7): in the model of the requests,
+# after any inputs under any configuration, every cut in the log names
+# the request sent last before it: a noted reply cuts the request it
+# answers, never another one, and never with no request sent
+# EXCLUDES: a cut that names an older request, a request of another
+#   context or with another note, a cut logged before any request
+law run_cut_names_the_last_sent:
+  for +cfg: RnState.Cfg
+  for evs: List<&2, RnState.Ev>
+  {cuts_name_sends(RnRequest.Reqs.log(RnRequest.reqs(cfg, evs))) == True{} : Bool}
+
+# the requests sent in xs
+def sents(xs: List<&2, RnRequest.Sent>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case RnRequest.Sent{q} <> t:
+      1n+sents(t)
+    case RnRequest.Cut{q} <> t:
+      sents(t)
+
+# a step from phase pb to phase pa sends a request: preparation that ends
+# in a call
+def sends_one(pb: RnState.Ph, pa: RnState.Ph) -> Nat:
+  match pb:
+    case RnState.Prepare{}:
+      match pa:
+        case RnState.Call{}:
+          1n
+        case RnState.Prepare{}:
+          0n
+        case RnState.Compact{over}:
+          0n
+        case RnState.Tools{}:
+          0n
+        case RnState.Answered{}:
+          0n
+        case RnState.Aborted{}:
+          0n
+        case RnState.Failed{why}:
+          0n
+    case RnState.Call{}:
+      0n
+    case RnState.Compact{over}:
+      0n
+    case RnState.Tools{}:
+      0n
+    case RnState.Answered{}:
+      0n
+    case RnState.Aborted{}:
+      0n
+    case RnState.Failed{why}:
+      0n
+
+# the requests the run sends on the inputs evs from the state s
+def calls_made(evs: List<&2, RnState.Ev>, +cfg: RnState.Cfg, +s: RnState.St) -> Nat:
+  match evs:
+    case Nil{}:
+      0n
+    case +e <> rest:
+      +s2 = RnStep.step(cfg, s, e)
+      Nat.add(calls_made(rest, cfg, s2), sends_one(RnState.St.ph(s), RnState.St.ph(s2)))
+
+# LAW run_every_call_is_logged (H4.7): in the model of the requests, after
+# any inputs under any configuration, the log holds one sent request for
+# each step of the run machine that took the run from preparation into a
+# call
+# EXCLUDES: requests that log nothing (an empty log passes
+#   run_retry_sends_a_new_request), a request sent and not logged, a
+#   request logged twice or logged by a step that sends none
+law run_every_call_is_logged:
+  for +cfg: RnState.Cfg
+  for +evs: List<&2, RnState.Ev>
+  {sents(RnRequest.Reqs.log(RnRequest.reqs(cfg, evs))) == calls_made(evs, cfg, RnState.init(cfg)) : Nat}
+
+# (H4.9) The decisions Rust calls
+# -------------------------------
+# The decisions of bend/run/decision.bend that decide.rs and deferred.rs
+# call through the compiled core (bend/ffi_run.bend; laws/run/entry.bend
+# pins the codec). Each takes Rust's counters as they grow: the limits
+# (Lim: maxToolRounds, the job's ms, retry.maxRetries, MAX_NOTES) and the
+# counts of a request (At: its attempt, 1 for a generation's first
+# request and one more per retry; the noted retries so far; the ms it
+# waited; whether the generation compacted). A generation's request after
+# i transient retries and j noted retries is at attempt 1 + i + j with j
+# notes (decide.rs `retry_note`: every retry adds an attempt, a noted one
+# a note too).
+
+# x when b, else y
+def then_if(b: Bool, x: RnDecision.Then, y: RnDecision.Then) -> RnDecision.Then:
+  match b:
     case True{}:
-      RnDecision.DoPoll{}
+      x
     case False{}:
-      RnDecision.DoLate{}
+      y
 
-# a noted reply retries with a note while notes are left
-def rust.noted(left: Bool) -> RnDecision.Then:
-  match left:
-    case True{}:
-      RnDecision.DoNote{}
-    case False{}:
-      RnDecision.DoFail{}
-
-# an error that is not noted retries while it is retryable and retries
-# are left
-def rust.retry(left: Bool) -> RnDecision.Then:
-  match left:
-    case True{}:
-      RnDecision.DoRetry{}
-    case False{}:
-      RnDecision.DoFail{}
-
-# an overflow compacts when a cut exists and the generation has not
-# compacted
-def rust.over(compacts: Bool) -> RnDecision.Then:
-  match compacts:
-    case True{}:
-      RnDecision.DoCompact{}
-    case False{}:
-      RnDecision.DoFail{}
-
-# `after_reply`: the retries spent are the attempts after the first that
-# were not noted, (attempt - 1) - notes
-def rust.after_reply(l: RnDecision.Lim, t: RnDecision.At, reply: RnState.Reply) -> RnDecision.Then:
-  match l:
-    case RnDecision.Lim{rounds, wait, retries, most}:
-      match t:
-        case RnDecision.At{attempt, +notes, waited, compacted}:
-          match reply:
-            case RnState.Plain{}:
-              RnDecision.DoAnswer{}
-            case RnState.Calls{}:
-              RnDecision.DoTools{}
-            case RnState.Deferred{}:
-              rust.wait(Nat.is_lt(waited, wait))
-            case RnState.Error{retryable, noted}:
-              match noted:
-                case True{}:
-                  rust.noted(Nat.is_lt(notes, most))
-                case False{}:
-                  rust.retry(Bool.and(retryable, Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)))
-            case RnState.Overflow{cut}:
-              rust.over(Bool.and(cut, Bool.not(compacted)))
-
-# LAW run_reply_is_the_rust_rule: the step after any reply, from any counts and limits, is the one
-# `after_reply` took: the counts left that the model reads (At.a, At.n,
-# At.p, At.c) are exact
-law run_reply_is_the_rust_rule:
+# LAW run_reply_answers_or_runs_tools (H4.1): under any limits, from any
+# counts, a reply with text and no call answers the run and a reply with
+# tool calls runs its tools
+# EXCLUDES: calls taken as the answer, an answer retried or failed
+law run_reply_answers_or_runs_tools:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
-  for +reply: RnState.Reply
-  {RnDecision.decide.reply(l, t, reply) == rust.after_reply(l, t, reply) : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnState.Plain{}) == RnDecision.DoAnswer{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Calls{}) == RnDecision.DoTools{} : RnDecision.Then}
 
-# `before_request`: a generation that compacted sends its request with no
-# compaction; else a context over the blocking threshold (with a cut)
-# waits for a compaction, and one over the background threshold sends
-# with a background compaction beside it
-def rust.before_request(compacted: Bool, th: RnDecision.Th) -> RnDecision.Prepared:
-  match compacted:
-    case True{}:
-      RnDecision.Sends{False{}}
-    case False{}:
-      match th:
-        case RnDecision.Under{}:
-          RnDecision.Sends{False{}}
-        case RnDecision.Background{}:
-          RnDecision.Sends{True{}}
-        case RnDecision.Blocking{}:
-          RnDecision.Waits{}
+# LAW run_retry_budget (H4.7): under any limits, a transient error the
+# retry policy can cure, to the request after i transient retries and j
+# noted retries of its generation (attempt 1 + i + j, j notes; any ms
+# waited, compacted or not), is retried exactly while i is below
+# retry.maxRetries, else the run fails: the noted retries spend none of
+# the retries
+# EXCLUDES: a retry past retry.maxRetries, one retry too few, notes
+#   counted against the retries, a retry read as a noted retry
+law run_retry_budget:
+  for +l: RnDecision.Lim
+  for +i: Nat
+  for +j: Nat
+  for +w: Nat
+  for +c: Bool
+  {RnDecision.decide.reply(l, RnDecision.At{1n+Nat.add(j, i), j, w, c}, RnState.Error{True{}, False{}}) == then_if(Nat.is_lt(i, RnDecision.Lim.retries(l)), RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}
 
-# LAW run_prepare_is_the_rust_rule: what preparation does, for every generation and every threshold,
-# is what `before_request` did
-law run_prepare_is_the_rust_rule:
+# LAW run_unretryable_error_fails (H4.7): under any limits, from any
+# counts, an error that is not noted and that the retry policy cannot
+# cure fails the run on the model
+# EXCLUDES: a retry of an error the policy cannot cure
+law run_unretryable_error_fails:
+  for +l: RnDecision.Lim
+  for +t: RnDecision.At
+  {RnDecision.decide.reply(l, t, RnState.Error{False{}, False{}}) == RnDecision.DoFail{} : RnDecision.Then}
+
+# LAW run_note_budget (H4.7): under any limits, from any counts, a noted
+# reply (retryable or not) is retried with a note exactly while the
+# generation's noted retries are below MAX_NOTES (the limits' notes),
+# else the run fails; the transient retries spend none of the notes
+# EXCLUDES: a noted reply retried as a transient error (the request it
+#   cut sent again), a note past MAX_NOTES, one note too few, retries
+#   counted against the notes
+law run_note_budget:
+  for +l: RnDecision.Lim
+  for +t: RnDecision.At
+  for +retryable: Bool
+  {RnDecision.decide.reply(l, t, RnState.Error{retryable, True{}}) == then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
+
+# LAW run_deferred_polls_until_deadline (H4.4): under any limits, from any
+# counts, a deferred reply polls the same job while the ms its request
+# waited are below the job's ms, else the run fails at the job's deadline
+# (not on the model)
+# EXCLUDES: a poll past the deadline, a deadline one poll early, the
+#   deadline read as a failure on the model
+law run_deferred_polls_until_deadline:
+  for +l: RnDecision.Lim
+  for +t: RnDecision.At
+  {RnDecision.decide.reply(l, t, RnState.Deferred{}) == then_if(Nat.is_lt(RnDecision.At.waited(t), RnDecision.Lim.wait(l)), RnDecision.DoPoll{}, RnDecision.DoLate{}) : RnDecision.Then}
+
+# LAW run_overflow_compacts_once (H4.9): under any limits, at any attempt,
+# notes and ms waited, an overflow with a cut compacts when the generation
+# has not compacted and fails the run when it has; an overflow with no cut
+# fails the run from any counts
+# EXCLUDES: a second compaction in a generation, a compaction with no
+#   cut, an overflow retried
+law run_overflow_compacts_once:
+  for +l: RnDecision.Lim
+  for +a: Nat
+  for +j: Nat
+  for +w: Nat
+  for +t: RnDecision.At
+  {RnDecision.decide.reply(l, RnDecision.At{a, j, w, False{}}, RnState.Overflow{True{}}) == RnDecision.DoCompact{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, RnDecision.At{a, j, w, True{}}, RnState.Overflow{True{}}) == RnDecision.DoFail{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Overflow{False{}}) == RnDecision.DoFail{} : RnDecision.Then}
+
+# LAW run_message_reply (H4.1, H4.7): what follows a message that ends the
+# model's turn, read by Ended.reply and then decided by decide.reply (the
+# two calls Rust makes), under any limits and from any counts: a message
+# with a tool call runs its tools whatever its text; one with text and no
+# call answers; one with neither gave no answer and is a noted reply,
+# retried with a note while the notes last, else the run fails
+# EXCLUDES: calls with text answered, an empty message answered or
+#   retried as a transient error (the same request sent again)
+law run_message_reply:
+  for text: Bool
+  for +l: RnDecision.Lim
+  for +t: RnDecision.At
+  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{text, True{}})) == RnDecision.DoTools{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{True{}, False{}})) == RnDecision.DoAnswer{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{False{}, False{}})) == then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
+
+# LAW run_prepare_follows_the_thresholds (H4.9, spec section 8.3): a
+# context under every threshold sends its request with no compaction,
+# compacted or not; a generation that compacted sends with no compaction
+# whatever its context is over (it compacts at most once); one that has
+# not compacted sends with a background compaction beside the request
+# over the background threshold and waits for the compaction over the
+# blocking one
+# EXCLUDES: a blocking compaction after the generation compacted (a
+#   compaction loop), a request sent over the blocking threshold, a
+#   background compaction under it or never started
+law run_prepare_follows_the_thresholds:
   for +compacted: Bool
   for +th: RnDecision.Th
-  {RnDecision.decide.prepare(compacted, th) == rust.before_request(compacted, th) : RnDecision.Prepared}
+  {RnDecision.decide.prepare(compacted, RnDecision.Under{}) == RnDecision.Sends{False{}} : RnDecision.Prepared} &
+  {RnDecision.decide.prepare(True{}, th) == RnDecision.Sends{False{}} : RnDecision.Prepared} &
+  {RnDecision.decide.prepare(False{}, RnDecision.Background{}) == RnDecision.Sends{True{}} : RnDecision.Prepared} &
+  {RnDecision.decide.prepare(False{}, RnDecision.Blocking{}) == RnDecision.Waits{} : RnDecision.Prepared}
+
+# LAW run_compact_goes_on_with_room (H4.9): after the compaction preparation
+# waited for, an overflow's or a blocking threshold one: one that appended
+# its entry goes on; one that failed fails the run; one that found nothing
+# goes on exactly when it was a threshold one (the request may still fit;
+# an overflow's request overflows again)
+# EXCLUDES: preparation that goes on after a failed compaction or after
+#   an overflow's that found nothing, a threshold compaction that found
+#   nothing failing the run, an entry that fails it
+law run_compact_goes_on_with_room:
+  for +over: Bool
+  {RnDecision.decide.compact(over, RnState.Built{}) == True{} : Bool} &
+  {RnDecision.decide.compact(over, RnState.Broke{}) == False{} : Bool} &
+  {RnDecision.decide.compact(over, RnState.Kept{}) == Bool.not(over) : Bool}
+
+# LAW run_round_control_stops (H4.2): under any limits, after any rounds,
+# a round a control ends (terminate, handoff) stops the run, whether or
+# not a reset is queued and whatever the cap
+# EXCLUDES: a control that loses to a reset or to the cap, a control's
+#   round handed on
+law run_round_control_stops:
+  for +l: RnDecision.Lim
+  for +count: Nat
+  for +reset: Bool
+  {RnDecision.decide.round(l, count, True{}, reset) == RnDecision.EndStop{} : RnDecision.End}
+
+# LAW run_round_capped_at_max (H4.2): under any limits, a round no control
+# ends that makes the run's maxToolRounds-th round or a later one (count +
+# 1 rounds made, at least the limits' rounds) caps the run, whether or not
+# a reset is queued
+# EXCLUDES: a round past the cap handed on, a reset that wins over the
+#   cap
+law run_round_capped_at_max:
+  for +l: RnDecision.Lim
+  for +count: Nat
+  for +reset: Bool
+  for at: {Nat.is_le(RnDecision.Lim.rounds(l), 1n+count) == True{} : Bool}
+  {RnDecision.decide.round(l, count, False{}, reset) == RnDecision.EndCapped{} : RnDecision.End}
+
+# LAW run_round_goes_on_below_max (H4.2): under any limits, a round no
+# control ends that makes fewer than maxToolRounds rounds (count + 1 below
+# the limits' rounds) hands the run on with count + 1 rounds made, or,
+# with a reset queued, ends it with the reset
+# EXCLUDES: a cap one round early, a round handed on without counting
+#   itself or counting two, a queued reset ignored
+law run_round_goes_on_below_max:
+  for +l: RnDecision.Lim
+  for +count: Nat
+  for +below: {Nat.is_lt(1n+count, RnDecision.Lim.rounds(l)) == True{} : Bool}
+  {RnDecision.decide.round(l, count, False{}, False{}) == RnDecision.EndNext{1n+count} : RnDecision.End} &
+  {RnDecision.decide.round(l, count, False{}, True{}) == RnDecision.EndReset{} : RnDecision.End}
 
 # LAW run_prepare_compacted_reads_no_threshold: a generation that compacted reads no threshold: whatever its
 # context is over, it prepares as if under every threshold. So Rust need
@@ -274,60 +580,6 @@ law run_prepare_is_the_rust_rule:
 law run_prepare_compacted_reads_no_threshold:
   for +th: RnDecision.Th
   {RnDecision.decide.prepare(True{}, th) == RnDecision.decide.prepare(True{}, RnDecision.Under{}) : RnDecision.Prepared}
-
-# `after_compaction`: an entry goes on; a threshold compaction that
-# found nothing goes on; an overflow's that found nothing, or any that
-# failed, fails the run
-def rust.after_compaction(over: Bool, got: RnState.Got) -> Bool:
-  match over got:
-    case over RnState.Built{}:
-      True{}
-    case True{} RnState.Kept{}:
-      False{}
-    case False{} RnState.Kept{}:
-      True{}
-    case over RnState.Broke{}:
-      False{}
-
-# LAW run_compact_is_the_rust_rule: whether preparation goes on after any compaction is what
-# `after_compaction` decided
-law run_compact_is_the_rust_rule:
-  for +over: Bool
-  for +got: RnState.Got
-  {RnDecision.decide.compact(over, got) == rust.after_compaction(over, got) : Bool}
-
-# a round that the cap lets go on hands the run on with one more round,
-# unless a queued reset ends it
-def rust.next(goes: Bool, reset: Bool, count: Nat) -> RnDecision.End:
-  match goes:
-    case True{}:
-      match reset:
-        case True{}:
-          RnDecision.EndReset{}
-        case False{}:
-          RnDecision.EndNext{1n+count}
-    case False{}:
-      RnDecision.EndCapped{}
-
-# `Rounds::finish` then `RoundEnd::reset`: a control stops the run; else
-# the round after count rounds is capped at maxToolRounds
-def rust.round_end(l: RnDecision.Lim, +count: Nat, stops: Bool, reset: Bool) -> RnDecision.End:
-  match l:
-    case RnDecision.Lim{rounds, wait, retries, most}:
-      match stops:
-        case True{}:
-          RnDecision.EndStop{}
-        case False{}:
-          rust.next(Nat.is_lt(1n+count, rounds), reset, count)
-
-# LAW run_round_is_the_rust_rule: how any round ends, after any rounds, under any cap, is what
-# `Rounds::finish` and `RoundEnd::reset` decided
-law run_round_is_the_rust_rule:
-  for +l: RnDecision.Lim
-  for +count: Nat
-  for +stops: Bool
-  for +reset: Bool
-  {RnDecision.decide.round(l, count, stops, reset) == rust.round_end(l, count, stops, reset) : RnDecision.End}
 
 # LAW run_round_counts_down: a round that no control stops leaves the rounds left of the run of
 # count + 1 rounds: the model counts down as Rust counts up
@@ -562,46 +814,18 @@ law run_reply_saturates_the_attempt:
   for +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}
   {RnDecision.decide.reply(l, rust.sat_attempt(t, cap), reply) == RnDecision.decide.reply(l, t, reply) : RnDecision.Then}
 
-# maxToolRounds, the ms a deferred job may run (a poll spends 1 ms),
-# retry.maxRetries, MAX_NOTES and one
-
-# ---- recover ----
-
-# LAWS (H4.8): a stuck model gets a recovery. Each law is an open claim
-# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Run.<law>)
-# with the lemmas of proof/run/.
-
-# (H4.8) A stuck model gets a recovery, each with a cap
-# -----------------------------------------------------
-# LAWS.bend H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
-# stop the stop walk continues (its ladder: laws/stop.bend R7), tool calls
-# leaked as text, the same tool calls with the same results round after
-# round. Every reply is free, in any order. A Redo is a noted error, so
-# its retry ends its request with a new note (H4.7); the laws of H4 hold
-# for every reply, so they hold for the reply a recovery makes. A
-# recovery does not depend on the retry policy: a note is a new request,
-# not a transient error.
-
-# LAW rec_leak_rebuilt_is_calls: leaked calls that every parse and name an offered tool are rebuilt:
-# the run reads them as the same calls made as tool calls
-law rec_leak_rebuilt_is_calls:
-  for +rc: RnRecovery.RCfg
-  for +h: Nat
-  for kept: Bool
-  for r: RnRecovery.Rec
-  {RnRecovery.Rec.step(rc, RnRecovery.Leak{True{}, h, kept}, r) == RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, r) : RnRecovery.Dec}
-
-# LAW rec_leak_gives_up: after `leak` leak notes in a row, leaked calls fail the run: markup is never an answer
-law rec_leak_gives_up:
-  for +rc: RnRecovery.RCfg
-  for +h: Nat
-  for kept: Bool
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for over: {RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)) == False{} : Bool}
-  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+# LAW run_entry_example (H4.10): anchor (no coverage): the wire strings Rust writes and
+# the answers it reads, one of each request: the third empty note in a
+# row (row 3, the cap) quits, the second one (row 2) redoes with note 3;
+# a deferred reply that waited less than its job polls; a message with
+# no text and no call is a noted error; a blocking threshold waits; a
+# threshold compaction that found nothing goes on; a round below the cap
+# goes on with one more round; a failed retryable poll below the cap
+# polls again; input left over; an unknown tag
+# EXCLUDES: a field order other than Rust's, another answer spelling, an
+#   empty reply redone past its cap
+law run_entry_example:
+  {[FRn.ffi("5,3,2,2,5,3,4,3,"), FRn.ffi("5,3,2,2,5,3,4,2,"), FRn.ffi("0,250,600000,3,4,1,0,10,F2,"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("3,F1,"), FRn.ffi("4,250,600000,3,4,7,FF"), FRn.ffi("6,T2,3,"), FRn.ffi("5,3,2,2,5,3,4,3,x"), FRn.ffi("7,")] == ["2,", "1,3,", "2,", "3,FT", "0,", "T", "3,8,", "T", Wr.err("run: input left over after the request"), Wr.err("run: malformed request")] : List<&2, String>}
 
 # LAW rec_calls_run: tool calls that make fewer than `repeat` rounds in a row run: the
 # recoveries never stop a call that is not a repeat. The rounds in a row
@@ -618,19 +842,6 @@ law rec_calls_run:
   for fresh: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Exec{}, RnRecovery.Rec{RnRecovery.Free{}, 0n, RnRecovery.ran.same(kept, RnRecovery.again(same, last, h)), h}} : RnRecovery.Dec}
 
-# LAW rec_repeat_never_runs: tool calls that would make `repeat` rounds in a row with the same
-# results never run
-law rec_repeat_never_runs:
-  for +rc: RnRecovery.RCfg
-  for +h: Nat
-  for kept: Bool
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for rep: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == False{} : Bool}
-  {RnRecovery.Act.runs(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool}
-
 # LAW rec_repeat_redirects: such a repeat, under the cap, is retried with the next redirect
 # note
 law rec_repeat_redirects:
@@ -645,55 +856,6 @@ law rec_repeat_redirects:
   for under: {RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Loops{}, 1n+RnRecovery.Rk.loops(k, row), same, last}} : RnRecovery.Dec}
 
-# LAW rec_repeat_gives_up: after `redirect` redirect notes in a row, a repeat fails the run
-law rec_repeat_gives_up:
-  for +rc: RnRecovery.RCfg
-  for +h: Nat
-  for kept: Bool
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for +same: Nat
-  for +last: Nat
-  for rep: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == False{} : Bool}
-  for over: {RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)) == False{} : Bool}
-  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
-
-# LAW rec_user_breaks_the_row: a user message ends the row: after it, no call is a repeat of a
-# call before it
-law rec_user_breaks_the_row:
-  for +rc: RnRecovery.RCfg
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  for same: Nat
-  for +last: Nat
-  {RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Said{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Rec{k, row, 0n, last} : RnRecovery.Rec}
-
-# LAW rec_notes_capped: after any replies, the notes of a recovery in a row are at most
-# its cap: every recovery stops at its cap
-law rec_notes_capped:
-  for +rc: RnRecovery.RCfg
-  for +os: List<&2, RnRecovery.Out>
-  {RnRecovery.Rec.capped(rc, RnRecovery.Rec.run(rc, os)) == True{} : Bool}
-
-# LAW rec_never_runs_a_repeat: after any replies, the run has not run the same calls with the
-# same results max(repeat, 1) rounds in a row. This replaces the loop
-# guard of H4.3 (a run failed after LOOP_ROUNDS = 6 such rounds): it is
-# stronger, as no such row ever reaches `repeat` (5) rounds
-law rec_never_runs_a_repeat:
-  for +rc: RnRecovery.RCfg
-  for +os: List<&2, RnRecovery.Out>
-  {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Rec.run(rc, os)), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}
-
-# LAW rec_stuck_gets_help: the harness never just watches a stuck model: a stuck reply (a
-# length stop the stop walk continues, leaked tool calls, tool calls, a
-# reply with no text) always gets
-# an act that does something: its calls run (no repeat), a retry with a
-# note, an answer, or the end of the run. It is never passed on as it is
-law rec_stuck_gets_help:
-  for +rc: RnRecovery.RCfg
-  for o: RnRecovery.Out
-  for r: RnRecovery.Rec
-  {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, o, r)))) == True{} : Bool}
 
 # LAW rec_redo_is_noted: a recovery's retry is a noted error, so its request ends with the
 # note of the next attempt (run_cut_names_the_request): it never sends
@@ -702,89 +864,3 @@ law rec_redo_is_noted:
   for -pass: RnState.Reply
   {RnRecovery.Act.reply(RnRecovery.Redo{}, pass) == RnState.Error{False{}, True{}} : RnState.Reply}
 
-# LAW rec_quit_fails: a recovery at its cap fails the run on the model, at once
-law rec_quit_fails:
-  for +cfg: RnState.Cfg
-  for -pass: RnState.Reply
-  for +r: Nat
-  for +c: Nat
-  for +a: Nat
-  for +n: Nat
-  for +p: Nat
-  {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Quit{}, pass), r, c, a, n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p} : RnState.St}
-
-# The recovery Rust calls (decide.rs `recover`, through the compiled
-# core) is decide.recover of bend/run/decision.bend: the recoveries above (Rec.go)
-# reading the stuck reply and the note's row as Rust has them. The
-# helpers rust.* are `recover` as decide.rs wrote it: the row of each
-# recovery that the request's note counts (`NoteCause::row`), its cap,
-# and the rounds in a row of calls against REPEAT_CALLS.
-
-# the leak notes and redirect notes in a row that a note of recovery k
-# with row `row` makes (the length notes and the empty notes:
-# LawsStop.rust_long_row, LawsStop.rust_empty_row)
-def rust.leak_row(k: RnRecovery.Rk, row: Nat) -> Nat:
-  match k:
-    case RnRecovery.Free{}:
-      0n
-    case RnRecovery.Longs{}:
-      0n
-    case RnRecovery.Leaks{}:
-      row
-    case RnRecovery.Loops{}:
-      0n
-    case RnRecovery.Empties{}:
-      0n
-
-def rust.loop_row(k: RnRecovery.Rk, row: Nat) -> Nat:
-  match k:
-    case RnRecovery.Free{}:
-      0n
-    case RnRecovery.Longs{}:
-      0n
-    case RnRecovery.Leaks{}:
-      0n
-    case RnRecovery.Loops{}:
-      row
-    case RnRecovery.Empties{}:
-      0n
-
-# under the cap a retry with the next note of the recovery; at it, cap
-def rust.redo(under: Bool, row: Nat, cap: RnDecision.Help) -> RnDecision.Help:
-  match under:
-    case True{}:
-      RnDecision.Redoes{1n+row}
-    case False{}:
-      cap
-
-# calls below REPEAT_CALLS rounds in a row run; else the other act
-def rust.calls(fresh: Bool, other: RnDecision.Help) -> RnDecision.Help:
-  match fresh:
-    case True{}:
-      RnDecision.Runs{}
-    case False{}:
-      other
-
-# `recover`
-def rust.recover(rc: RnRecovery.RCfg, s: RnDecision.Stuck, +k: RnRecovery.Rk, +row: Nat) -> RnDecision.Help:
-  match rc:
-    case RnRecovery.RCfg{long, leak, redirect, repeat}:
-      match s:
-        case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
-          LawsStop.rust_think(long, k, row, window, catalog, prompt, out, cuttable, lower)
-        case RnDecision.Leaked{}:
-          rust.redo(Nat.is_lt(rust.leak_row(k, row), leak), rust.leak_row(k, row), RnDecision.Quits{})
-        case RnDecision.Repeats{before}:
-          rust.calls(Nat.is_lt(1n+before, repeat), rust.redo(Nat.is_lt(rust.loop_row(k, row), redirect), rust.loop_row(k, row), RnDecision.Quits{}))
-        case RnDecision.Emptied{}:
-          LawsStop.rust_empty(k, row)
-
-# LAW rec_recover_is_the_rust_rule: what a recovery does with any stuck reply, after any note, under
-# any caps, is what `recover` did: the code that runs is the recoveries
-# whose laws are above
-law rec_recover_is_the_rust_rule:
-  for +rc: RnRecovery.RCfg
-  for +s: RnDecision.Stuck
-  for +k: RnRecovery.Rk
-  for +row: Nat
-  {RnDecision.decide.recover(rc, s, k, row) == rust.recover(rc, s, k, row) : RnDecision.Help}

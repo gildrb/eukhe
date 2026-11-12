@@ -9,6 +9,50 @@ import ../../bend/cvar.bend as Cv
 # any declarations (duplicate ids, wrong defaults), any config.cfg, any
 # family of agents with any profiles and sets (wrong types, Global cvars,
 # undeclared ids), any alias table.
+#
+# Requirements (stated: bend/cvar.bend header, crates/eukhe-bend/src/
+# rules/cvar.rs and cvar_layers.rs, crates/eukhe-core/src/settings/cvar;
+# laws/cvar/resolution.bend, whole.bend and entry.bend cite them):
+# R1  a cvar's declaration is its first declaration; the registry keeps,
+#     of each id, its first declaration whose default has its type, in
+#     order, and nothing else.
+# R2  the registry's refusal names the first declaration it drops and why
+#     (an id declared before; else a default of the wrong type).
+# R3  values come in layers, a later layer winning: default < config.cfg
+#     < each agent of the family chain, root first, its profile, then its
+#     own sets; a subagent starts from its parent's values.
+# R4  a set counts only for a declared cvar, with a value of its type,
+#     and in an agent's layers only for a Local cvar (a Global cvar has
+#     one value per family); the verdict on a set says which rule fails.
+# R5  a toggle flips the Bool value the agent has (inherited included)
+#     and nothing else; its verdict says why it cannot.
+# R6  an agent writes (persist) or replicates exactly its sets that count
+#     of cvars with that flag, in order.
+# R7  the config sets of a settings document: per declared cvar, in the
+#     order of its first declaration, the value its source sets (the
+#     merged document for a Local cvar, the global one for a Global cvar).
+# R8  a setting written into the global config.cfg reads back: a global
+#     config.cfg that sets the cvar exactly once, to the written value
+#     (what Rust's writer replace_sets writes; Rust test
+#     run_global_replaces_the_line), gives the reload that value unless
+#     the project's config.cfg sets the cvar, which then wins
+#     (cvar_cfg_written_reads_back, cvar_cfg_project_wins); a written
+#     file with the same sets of another cvar keeps that cvar's value
+#     (cvar_cfg_written_keeps_others). The model write Cv.save leaves one
+#     set of the cvar (cvar_save_once, model only: no entry runs it).
+# R9  an expansion runs a run's alias body (the first alias of the name),
+#     in place, at every nesting depth, keeps every set and toggle, in
+#     order; a missing alias is unknown; the first error stops it
+#     (alias_expands_any_depth: on every table, whenever the unfolding
+#     ends, at any depth); an alias that runs itself is a cycle naming it
+#     (alias_self_cycle), and so is a run into a closed set of aliases
+#     each of which first runs into the set (alias_cycle_closed); any
+#     nest that never ends (it runs an alias inside itself), at any
+#     depth, on any table, is a cycle (alias_endless_is_cycle).
+# R10 a key press runs the commands of the key's first bind, else nothing.
+# R11 the entries bend/ffi_cvar.bend and bend/ffi_cvar_layers.bend answer
+#     every input as their grammar says (laws/cvar/entry.bend; R1, R2 of
+#     laws/cvar_layers.bend).
 
 # LAW cvar_registry_unique: the registry holds each id once: a second declaration is rejected
 law cvar_registry_unique:

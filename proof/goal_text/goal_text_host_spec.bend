@@ -12,4 +12,4 @@ import ../../laws/goal_text.bend as GoalText
 import ./base.bend as LA
 
 def GoalText.goal_text_host_spec(g, ask):
-  LA.gtb.host(g, ask)
+  LA.gtb.host_orig(g, ask)

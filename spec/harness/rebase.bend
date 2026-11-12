@@ -2,8 +2,11 @@
 # the rebase code (bend/rebase.bend): every copy of a window is listed and
 # counted, where the code scans and stops at the second; rule 1 compares
 # each edit with the one before, where the code carries a floor. The laws
-# of area rebase (laws/rebase.bend) state that the code refines it. A
-# spec: the shipped code never calls it.
+# of area rebase (laws/rebase.bend) read S1 (bad, valid) and S5's crossing
+# check (crossed) and the terms below from it; S4's steps (step, land)
+# follow the code's order, so no law states that the code refines it: the
+# proofs reason through it (proof/rebase/base/refines.bend). A spec: the
+# shipped code never calls it.
 #
 # Lines are ids (equal ids: equal lines); an edit replaces the base lines
 # [start, end) with its lines.

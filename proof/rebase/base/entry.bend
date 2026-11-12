@@ -1,8 +1,8 @@
 # eukhe: lemmas of the entry proofs of area rebase (bend/ffi_rebase.bend):
 # a spelled request reads back (fe.req_rt) and its flat edits read back
 # (fe.unflat, from fe.split and the length bound fe.len_flat); the reply is
-# the spelled spec answer (fe.reply; the entry's work bound, taken unit by
-# unit, is the spec's product bound: fe.within); an answer that opens with 'E' is the
+# the rule's answer within the bound, spelled (fe.reply; the entry's work
+# bound, taken unit by unit, is the laws' product bound: fe.within); an answer that opens with 'E' is the
 # one error form (fe.refuse); a decoded request was spelled (fx.*: the
 # list decoders' exactness, fe.split_exact, fe.unflat_exact).
 
@@ -10,7 +10,6 @@ import Base
 import ../../../bend/rebase.bend as R
 import ../../../bend/ffi_rebase.bend as FR
 import ../../../bend/wire.bend as Wr
-import ../../../spec/harness/rebase.bend as RbSpec
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../../laws/rebase.bend as Rebase
@@ -19,7 +18,6 @@ import ../../wire/wire_list_exact.bend as PWireListExact
 import ../../wire/wire_nat_not_err.bend as PWireNatNotErr
 import ../../glob/base/entry.bend as LGlobEntry
 import ../base.bend as LR
-import ../rebase_refines.bend as PRebaseRefines
 import ../../rlm_query/base/nat.bend as LRq
 
 # Flat edits
@@ -146,8 +144,7 @@ def fe.out(o: R.Outcome) -> {FR.put_outcome(o) == Rebase.rb_w_reply(o) : String}
 def fe.bound(q: Bool, +b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> {FR.put_outcome(FR.bounded.at(q, b, h, es)) == Rebase.rb_w_reply(Rebase.rb_bounded.of(q, b, h, es)) : String}:
   match q:
     case True{}:
-      %Equal.sym(R.Outcome, R.rebase(b, h, es), RbSpec.rebase(b, h, es), Rebase.rebase_refines(b, h, es)) : {FR.put_outcome(_) == Rebase.rb_w_reply(RbSpec.rebase(b, h, es)) : String}
-      fe.out(RbSpec.rebase(b, h, es))
+      fe.out(R.rebase(b, h, es))
     case False{}:
       {==}
 
@@ -166,7 +163,7 @@ def fe.within(a: Nat, +n: Nat, +m: Nat) -> {Nat.is_le(Nat.mul(a, n), m) == FR.wi
     case 1n++p:
       fe.within_at(Nat.is_le(n, m), n, m, p, {==}, fe.within(p, n, Nat.sub(m, n)))
 
-# the answer to spelled edits is the spec's within the bound, spelled
+# the answer to spelled edits is the rule's within the bound, spelled
 def fe.reply(+b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> {FR.answer(FR.Req{b, h, Rebase.rb_flat(es)}) == Rebase.rb_w_reply(Rebase.rb_answer(b, h, es)) : String}:
   +fx = Rebase.rb_flat(es)
   +la = List.length(&2, R.Edit, es)

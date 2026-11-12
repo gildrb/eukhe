@@ -7,5 +7,5 @@ import ../../laws/admission.bend as Admission
 import ./base/wire.bend as LAWire
 
 def Admission.adw_step_answers(x, o, h):
-  %LAWire.paw.op(o, "", h) : {FAd.step.op(x, _) == (FAd.Running{Ad.Live.step(x, o)}, FAd.put_live(Ad.Live.step(x, o), "")) : FAd.St & String}
+  %LAWire.paw.op_orig(o, "", h) : {FAd.step.op(x, _) == (FAd.Running{Ad.Live.step(x, o)}, FAd.put_live(Ad.Live.step(x, o), "")) : FAd.St & String}
   {==}

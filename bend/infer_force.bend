@@ -2,8 +2,9 @@
 # section 2, `force`, as the harness drives it: crates/eukhe-durable
 # generation.rs asks for each request's native flag, then reads its reply).
 # Attempts count from 0 (the first request). laws/infer_force.bend pins
-# both steps (`flag`, `after`) and that, driven over the replies, they are
-# `force`; bend/ffi_infer_force.bend runs them as the compiled core.
+# the steps (`flag`, `after`) by infer_force_steps: driven over the
+# replies, they are `force`; bend/ffi_infer_force.bend runs them as the
+# compiled core.
 
 import Base
 import ./infer.bend as If
