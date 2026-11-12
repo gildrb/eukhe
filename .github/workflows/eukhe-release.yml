@@ -23,8 +23,11 @@
 # Supply chain: every action is pinned by full commit SHA; the build jobs
 # use no cache (a poisoned cache would ride the shipped binary); apt
 # installs come from a fixed snapshot.ubuntu.com timestamp; rustup-init is
-# a pinned version checked against committed sha256; the bundled catalog
-# is the commit pinned in scripts/release/catalog-pin.json, hash-checked;
+# a pinned version checked against committed sha256; the bundled models
+# come from the committed models.dev snapshot (sha256-pinned in
+# crates/eukhe-models/catalog/models-dev.pin.json), the bundled MCP
+# services from the commit pinned in scripts/release/catalog-pin.json,
+# hash-checked;
 # builds set SOURCE_DATE_EPOCH and remap the workspace and cargo home
 # paths; crates are fetched first and the build itself runs offline
 # (--frozen); publish attests build provenance for every release asset.

@@ -56,12 +56,13 @@ mod tests {
             "zai" => "glm-5.3",
             "mistral" => "devstral-medium-latest",
             "minimax" | "minimax-cn" => "MiniMax-M2.7",
-            "moonshotai" | "moonshotai-cn" | "opencode" | "opencode-go" => "kimi-k2.6",
+            "moonshotai" | "moonshotai-cn" | "opencode" => "kimi-k2.6",
+            "opencode-go" => "kimi-k3",
             "huggingface" => "moonshotai/Kimi-K2.6",
-            "fireworks" => "accounts/fireworks/models/kimi-k2p6",
+            "fireworks" => "accounts/fireworks/models/kimi-k3",
             "kimi-coding" => "kimi-for-coding",
             "cloudflare-workers-ai" => "@cf/moonshotai/kimi-k2.6",
-            "cloudflare-ai-gateway" => "claude-sonnet-4.5",
+            "cloudflare-ai-gateway" => "claude-sonnet-4-5",
             "xiaomi"
             | "xiaomi-token-plan-cn"
             | "xiaomi-token-plan-ams"

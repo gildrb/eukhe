@@ -9,14 +9,16 @@
 //!   pinning) -> [`pinning`]
 //! - `packages/coding-agent/src/core/bundled-model-catalog.ts` -> [`bundled`]
 //!
-//! The packaged `models.bundled.json` (generated at build time from the
-//! catalog repo's `models/catalog.v1.json`) and the compiled pi-ai table in
-//! `eukhe-ai` (converted by [`pi_ai_model`]) are the two sources of the
-//! built-in catalog; [`ModelCatalog`] serves their union
-//! ([`effective::effective_catalog`]: no source hides a model the other
-//! has; the bundled entry wins the fields it states). Everything the
-//! catalog can do is select among transports the client compiled in; it
-//! can never introduce a transport or change what a request sends.
+//! The packaged `models.bundled.json` (generated at build time by
+//! `scripts/release/models_dev.py` from the pinned models.dev snapshot in
+//! `crates/eukhe-models/catalog`: the models.dev models the compiled
+//! catalog lacks) and the compiled pi-ai table in `eukhe-ai` (converted by
+//! [`pi_ai_model`]) are the two sources of the built-in catalog;
+//! [`ModelCatalog`] serves their union ([`effective::effective_catalog`]: no
+//! source hides a model the other has; the bundled entry wins the fields it
+//! states). Everything the catalog can do is select among transports the
+//! client compiled in; it can never introduce a transport or change what a
+//! request sends.
 //!
 //! Ownership: eukhe-models depends on eukhe-ai (compiled transport
 //! templates) and eukhe-types (shared `Model`).

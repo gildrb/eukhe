@@ -9,10 +9,10 @@
 //! only the snapshot has (`azure-openai-responses`) joins as a provider of
 //! its own: stored-credential auth (no environment key names it), and
 //! models.json composes over it like over any built-in provider. A model
-//! the provider has keeps its compiled entry. A joined model whose api the
-//! provider does not implement (the snapshot routes the Xiaomi token plans'
-//! older models over `anthropic-messages`) streams through that api's
-//! built-in implementation.
+//! the provider has keeps its compiled entry (the bundled snapshot carries
+//! none: it is made of the models.dev models the compiled catalog lacks).
+//! A joined model whose api the provider does not implement streams
+//! through that api's built-in implementation.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};

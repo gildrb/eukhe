@@ -15,22 +15,22 @@ use eukhe_core::durable::{create_models, resolve_session_model, ModelRequest};
 use eukhe_core::models::{resolve_cli_model, ModelRegistry};
 use eukhe_core::settings::{Settings, SettingsManager};
 
-/// A model of each kind the compiled catalog lacks: a route the provider
-/// does not implement (Xiaomi token plan over `anthropic-messages`), the
-/// provider's own route (Codex, Cloudflare's dotted Claude ids, xAI), ids
-/// with slashes and colons (Fireworks, `OpenRouter`, Bedrock), an id
-/// another model's id extends (`OpenRouter`'s `anthropic/claude-opus-4` beside
-/// `anthropic/claude-opus-4.8:batch`), and a provider only the snapshot
-/// has (`azure-openai-responses`).
+/// A model of each kind the compiled catalog lacks: the provider's own
+/// routes (Cloudflare's Claude route and its compat route for `vendor/model`
+/// ids, xAI Responses), ids with slashes and colons (Fireworks,
+/// `OpenRouter`, Bedrock), an id that extends a compiled model's id
+/// (`OpenRouter`'s `anthropic/claude-fable-5.2` beside the compiled
+/// `anthropic/claude-fable-5`), and a provider only the bundled catalog has
+/// (`azure-openai-responses`).
 const SNAPSHOT_ONLY: [(&str, &str); 9] = [
-    ("xiaomi-token-plan-ams", "mimo-v2-flash"),
-    ("openai-codex", "gpt-5.1"),
-    ("cloudflare-ai-gateway", "claude-opus-4.6"),
+    ("cloudflare-ai-gateway", "claude-haiku-5-5"),
+    ("cloudflare-ai-gateway", "alibaba/qwen3-max"),
     ("xai", "grok-4.20-0309-reasoning"),
-    ("fireworks", "accounts/fireworks/models/kimi-k2p6"),
-    ("openrouter", "inclusionai/ling-3.0-flash-fin:free"),
-    ("openrouter", "anthropic/claude-opus-4"),
-    ("amazon-bedrock", "deepseek.r1-v1:0"),
+    ("fireworks", "accounts/fireworks/models/kimi-k3p1-pro"),
+    ("openrouter", "baidu/ernie-5.5-flash-preview:free"),
+    ("openrouter", "anthropic/claude-fable-5.2"),
+    ("amazon-bedrock", "us.moonshotai.kimi-k3.1"),
+    ("opencode-go", "kimi-k3.1-pro"),
     ("azure-openai-responses", "gpt-5"),
 ];
 
