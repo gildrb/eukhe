@@ -113,13 +113,15 @@ pub enum Why {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Grant {
-    /// The offer at `index` is held under the id; `tight` says the same
-    /// ask, started when this one ends, would not fit what is left.
+    /// The offer at `index` is held under the id; `low` says two steps of
+    /// the agent's largest recent step (this one and one more), started
+    /// now, with the reserves, would not fit what was free before the
+    /// grant: the agent's budget runs low. Never low for a zero step.
     Granted {
         index: usize,
         ask: Ask,
         acct: Acct,
-        tight: bool,
+        low: bool,
     },
     /// Nothing is held; `phase` is the agent's phase after the refusal (it
     /// moves when no offer fits).
@@ -260,7 +262,10 @@ fn ask<T>(
 /// first of `want` and then `less` that fits what is free in `acct` and
 /// ends before its deadline, leaving `base` (the final-answer reserves of
 /// the agents above) and, for work and a side request, `keep` (the agent's
-/// own).
+/// own). `step` is the agent's largest recent step as actually spent (per
+/// dimension the largest spend of a recent step, the duration of its
+/// longest), zero before its first step finished; the grant is low when
+/// two such steps would not fit.
 ///
 /// # Errors
 ///
@@ -275,6 +280,7 @@ pub fn reserve(
     now: u64,
     base: Ask,
     keep: Ask,
+    step: Ask,
     want: Ask,
     less: &[Ask],
     acct: &Acct,
@@ -290,6 +296,7 @@ pub fn reserve(
             w.nat(id).nat(now);
             put_ask(w, base);
             put_ask(w, keep);
+            put_ask(w, step);
             put_ask(w, want);
             w.count(less.len());
             for offer in less {
@@ -302,12 +309,12 @@ pub fn reserve(
                 let index = r.count()?;
                 let ask = get_ask(r)?;
                 let acct = get_acct(r)?;
-                let tight = r.bool()?;
+                let low = r.bool()?;
                 Grant::Granted {
                     index,
                     ask,
                     acct,
-                    tight,
+                    low,
                 }
             } else {
                 let why = get_why(r)?;
@@ -435,35 +442,42 @@ mod tests {
     #[test]
     fn work_takes_the_first_offer_that_fits_and_leaves_the_reserves() {
         let acct = funded(amt(10, 10, 10, 10), 100);
-        let grant = reserve(
-            Use::Work,
-            Phase::Working,
-            7,
-            0,
-            ask_of(amt(1, 0, 0, 0), 0),
-            ask_of(amt(1, 2, 2, 0), 5),
-            ask_of(amt(9, 1, 1, 1), 10),
-            &[ask_of(amt(8, 1, 1, 1), 10)],
-            &acct,
-        )
-        .unwrap();
-        assert_eq!(
-            grant,
-            Grant::Granted {
-                index: 1,
-                ask: ask_of(amt(8, 1, 1, 1), 10),
-                acct: Acct {
-                    free: amt(2, 9, 9, 9),
-                    holds: vec![Hold {
-                        id: 7,
-                        amt: amt(8, 1, 1, 1)
-                    }],
-                    until: 100,
-                    ..Acct::default()
-                },
-                tight: true,
-            }
-        );
+        let take = |step| {
+            reserve(
+                Use::Work,
+                Phase::Working,
+                7,
+                0,
+                ask_of(amt(1, 0, 0, 0), 0),
+                ask_of(amt(1, 2, 2, 0), 5),
+                step,
+                ask_of(amt(9, 1, 1, 1), 10),
+                &[ask_of(amt(8, 1, 1, 1), 10)],
+                &acct,
+            )
+            .unwrap()
+        };
+        let granted = |low| Grant::Granted {
+            index: 1,
+            ask: ask_of(amt(8, 1, 1, 1), 10),
+            acct: Acct {
+                free: amt(2, 9, 9, 9),
+                holds: vec![Hold {
+                    id: 7,
+                    amt: amt(8, 1, 1, 1),
+                }],
+                until: 100,
+                ..Acct::default()
+            },
+            low,
+        };
+        // the hold fills what is free, yet two steps of (1,1,1,1)
+        // for 10 ms with the reserves fit what was free: not low, nor before
+        // the agent's first step
+        assert_eq!(take(ask_of(amt(1, 1, 1, 1), 10)), granted(false));
+        assert_eq!(take(Ask::default()), granted(false));
+        // two steps of 5 with the reserves of 2 are past 10: low
+        assert_eq!(take(ask_of(amt(5, 1, 1, 1), 10)), granted(true));
     }
 
     #[test]
@@ -479,6 +493,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(9, 9, 9, 9), 0),
                 &[],
                 &acct
@@ -495,6 +510,7 @@ mod tests {
                 Phase::WrapUp,
                 2,
                 0,
+                none,
                 none,
                 none,
                 ask_of(amt(1, 1, 1, 1), 0),
@@ -514,6 +530,7 @@ mod tests {
             0,
             none,
             keep,
+            none,
             ask_of(amt(10, 10, 10, 0), 0),
             &[],
             &acct,
@@ -527,6 +544,7 @@ mod tests {
                 Phase::WrapUp,
                 4,
                 0,
+                none,
                 none,
                 none,
                 ask_of(amt(1, 1, 1, 11), 0),
@@ -556,6 +574,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(9, 1, 1, 1), 0),
                 &[],
                 &acct
@@ -576,6 +595,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(8, 1, 1, 1), 0),
                 &[],
                 &acct
@@ -591,6 +611,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(9, 1, 1, 1), 0),
                 &[],
                 &acct
@@ -608,6 +629,7 @@ mod tests {
                 Phase::Exhausted,
                 4,
                 0,
+                none,
                 none,
                 none,
                 ask_of(amt(1, 1, 1, 1), 0),
@@ -635,6 +657,7 @@ mod tests {
                 900,
                 ask_of(Amt::default(), 50),
                 none,
+                none,
                 ask_of(amt(1, 1, 1, 1), 60),
                 &[],
                 &acct
@@ -653,6 +676,7 @@ mod tests {
                 1,
                 900,
                 ask_of(Amt::default(), 50),
+                none,
                 none,
                 ask_of(amt(1, 1, 1, 1), 60),
                 &[ask_of(amt(1, 1, 1, 1), 50)],

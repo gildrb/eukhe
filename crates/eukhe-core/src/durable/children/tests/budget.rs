@@ -240,6 +240,7 @@ async fn a_carved_child_that_ended_returns_what_it_left_and_its_spend() {
             Use::Work,
             "model:test/m",
             BudgetAmounts::default(),
+            BudgetAmounts::default(),
             &[cost(300_000)],
             REQUEST_MIN_MS,
         )
@@ -297,6 +298,7 @@ async fn a_shared_child_leaves_at_its_end_and_joins_again_when_tasked() {
             &worker.session_id,
             Use::Work,
             "model:test/m",
+            BudgetAmounts::default(),
             BudgetAmounts::default(),
             &[cost(300_000)],
             REQUEST_MIN_MS,

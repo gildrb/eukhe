@@ -324,11 +324,12 @@ pub(super) struct Request<O> {
     pub(super) sink: AssistantMessageEventStream,
 }
 
-/// A granted request about to go out: its reservation, the report that
-/// granted it, and the context it is sent with.
+/// A granted request about to go out: its reservation and what it is for,
+/// the report that granted it, and the context it is sent with.
 struct Granted {
     id: u64,
     amount: BudgetAmounts,
+    use_: Use,
     report: BudgetReport,
     context: TranscriptContext,
 }
@@ -471,6 +472,7 @@ impl<O: GatedOptions> Request<O> {
         let target = format!("{}/{}", model.provider, model.id);
         let (use_, keep, offered) = if agent_turn {
             self.gate.set_keep(own_keep);
+            self.gate.step_started(now_millis());
             (Use::Work, own_keep, work)
         } else {
             let side = work
@@ -505,14 +507,17 @@ impl<O: GatedOptions> Request<O> {
                 if agent_turn {
                     self.gate
                         .tell(NoticeKind::Set, &report, || notices::set_text(&report));
-                    if reservation.tight {
-                        self.gate
-                            .tell(NoticeKind::Low, &report, || notices::low_text(&report));
+                    if reservation.low {
+                        let keep = self.gate.keep();
+                        self.gate.tell(NoticeKind::Low, &report, || {
+                            notices::low_text(&report, keep)
+                        });
                     }
                 }
                 Granted {
                     id: reservation.id,
                     amount: reservation.amount,
+                    use_,
                     report,
                     context,
                 }
@@ -623,6 +628,7 @@ impl<O: GatedOptions> Request<O> {
                 let granted = Granted {
                     id: reservation.id,
                     amount: reservation.amount,
+                    use_: Use::Final,
                     report: granted,
                     context,
                 };
@@ -650,6 +656,7 @@ impl<O: GatedOptions> Request<O> {
         let Granted {
             id,
             amount,
+            use_,
             report,
             context,
         } = granted;
@@ -672,7 +679,7 @@ impl<O: GatedOptions> Request<O> {
                 None => stopper.signal(),
             });
         }
-        let held = Held::start(&self.gate, id, amount);
+        let held = Held::start(&self.gate, id, amount, use_);
         let mut events = (self.inner)(model, &context, options).events();
         let stop = async {
             match stop_after {

@@ -87,6 +87,7 @@ fn try_final(ledger: &Ledger, agent: &str, amount: BudgetAmounts) -> Result<Rese
         Use::Final,
         "model:test/m",
         BudgetAmounts::default(),
+        BudgetAmounts::default(),
         &[amount],
         0,
     )
@@ -166,6 +167,7 @@ fn a_request_is_reserved_before_it_spends_and_settles_at_its_actual_cost() {
                 Use::Work,
                 "model:test/m",
                 timed(amounts(100, 50, 0, 1), 1_000),
+                BudgetAmounts::default(),
                 &[timed(amounts(400, 200, 0, 1), 10_000)],
                 REQUEST_MIN_MS,
             )
@@ -175,7 +177,7 @@ fn a_request_is_reserved_before_it_spends_and_settles_at_its_actual_cost() {
                 id: 0,
                 index: 0,
                 amount: timed(amounts(400, 200, 0, 1), 10_000),
-                tight: false,
+                low: false,
             },
             report: held.clone(),
         }
@@ -208,6 +210,7 @@ fn a_request_past_the_remainder_goes_out_with_a_reduced_cap_or_not_at_all() {
                 Use::Work,
                 "model:test/m",
                 cost(200),
+                BudgetAmounts::default(),
                 &[cost(900), cost(800)],
                 REQUEST_MIN_MS,
             )
@@ -219,7 +222,7 @@ fn a_request_past_the_remainder_goes_out_with_a_reduced_cap_or_not_at_all() {
             id: 0,
             index: 1,
             amount: cost(800),
-            tight: true,
+            low: false,
         }
     );
     ledger.settle(0, cost(800)).unwrap();
@@ -231,6 +234,7 @@ fn a_request_past_the_remainder_goes_out_with_a_reduced_cap_or_not_at_all() {
                 Use::Work,
                 "model:test/m",
                 cost(200),
+                BudgetAmounts::default(),
                 &[cost(100), cost(1)],
                 REQUEST_MIN_MS,
             )
@@ -247,6 +251,38 @@ fn a_request_past_the_remainder_goes_out_with_a_reduced_cap_or_not_at_all() {
     );
 }
 
+/// A grant says the budget runs low when two steps of what the agent actually spent per
+/// step, with its final-answer reserve, no longer fit what was free; the
+/// size of the hold (the largest offer that fits) plays no part.
+#[test]
+fn a_grant_is_low_by_the_agents_steps_not_by_its_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = at(dir.path(), "root");
+    ledger.open_root(cost_only(1_000)).unwrap();
+    let work = |step, offer| {
+        granted(
+            ledger
+                .reserve(
+                    "root",
+                    Use::Work,
+                    "model:test/m",
+                    cost(200),
+                    step,
+                    &[offer],
+                    REQUEST_MIN_MS,
+                )
+                .unwrap(),
+        )
+    };
+    // the hold takes all but the reserve; two steps of 400 and the reserve
+    // fit the 1000 that were free
+    let first = work(cost(400), cost(800));
+    ledger.settle(first.id, cost(300)).unwrap();
+    // 700 free: two steps of 300 and the reserve do not fit
+    let second = work(cost(300), cost(100));
+    assert_eq!((first.low, second.low), (false, true));
+}
+
 #[test]
 fn at_exhaustion_only_the_final_answer_is_admitted_and_added_budget_resumes_work() {
     let dir = tempfile::tempdir().unwrap();
@@ -255,7 +291,15 @@ fn at_exhaustion_only_the_final_answer_is_admitted_and_added_budget_resumes_work
     let keep = cost(200);
     let work = |amount| {
         ledger
-            .reserve("root", Use::Work, "tool:bash", keep, &[amount], TOOL_MIN_MS)
+            .reserve(
+                "root",
+                Use::Work,
+                "tool:bash",
+                keep,
+                BudgetAmounts::default(),
+                &[amount],
+                TOOL_MIN_MS,
+            )
             .unwrap()
     };
     assert_eq!(
@@ -307,6 +351,7 @@ fn a_dimension_without_a_limit_is_never_short_and_never_counted() {
                 "root",
                 Use::Work,
                 "model:test/m",
+                BudgetAmounts::default(),
                 BudgetAmounts::default(),
                 &[timed(
                     amounts(10, 1_000_000, 1_000_000, 1_000_000),
@@ -474,6 +519,7 @@ fn a_released_child_is_charged_what_it_left_in_flight_and_draws_no_more() {
             Use::Work,
             "model:test/m",
             cost(50),
+            BudgetAmounts::default(),
             &[cost(100)],
             REQUEST_MIN_MS,
         )
@@ -529,6 +575,7 @@ fn a_shared_childs_work_never_takes_its_parents_final_answer_reserve() {
             Use::Work,
             "model:test/m",
             cost(300),
+            BudgetAmounts::default(),
             &[cost(100)],
             REQUEST_MIN_MS,
         )
@@ -545,6 +592,7 @@ fn a_shared_childs_work_never_takes_its_parents_final_answer_reserve() {
             Use::Work,
             "model:test/m",
             cost(50),
+            BudgetAmounts::default(),
             &[cost(560), cost(550)],
             REQUEST_MIN_MS,
         )
@@ -556,7 +604,7 @@ fn a_shared_childs_work_never_takes_its_parents_final_answer_reserve() {
             id: 1,
             index: 1,
             amount: cost(550),
-            tight: true,
+            low: false,
         }
     );
     kid.settle(reservation.id, cost(550)).unwrap();
@@ -608,6 +656,7 @@ fn each_agent_has_its_own_phase() {
             Use::Work,
             "tool:bash",
             cost(10),
+            BudgetAmounts::default(),
             &[cost(10)],
             TOOL_MIN_MS,
         )
@@ -628,6 +677,7 @@ fn side(ledger: &Ledger, agent: &str, keep: BudgetAmounts, amount: BudgetAmounts
             Use::Side,
             "model:test/title",
             keep,
+            BudgetAmounts::default(),
             &[amount],
             REQUEST_MIN_MS,
         )
@@ -656,6 +706,7 @@ fn a_side_request_that_does_not_fit_changes_nothing_and_the_work_goes_on() {
                 Use::Work,
                 "tool:bash",
                 keep,
+                BudgetAmounts::default(),
                 &[cost(100)],
                 TOOL_MIN_MS,
             )
@@ -688,6 +739,7 @@ fn side_requests_go_on_while_the_agent_wraps_up_leave_its_final_answer_and_stop_
                     Use::Work,
                     "tool:bash",
                     keep,
+                    BudgetAmounts::default(),
                     &[cost(150)],
                     TOOL_MIN_MS
                 )
@@ -783,7 +835,7 @@ fn a_side_request_is_clipped_to_leave_the_final_answers_time() {
             id: 0,
             index: 0,
             amount: timed(cost(100), 80_000),
-            tight: true,
+            low: false,
         }
     );
 }
@@ -817,6 +869,7 @@ fn the_deadline_clips_or_refuses_what_would_run_past_it_and_survives_a_restart()
                 Use::Work,
                 "model:test/m",
                 keep,
+                BudgetAmounts::default(),
                 &[timed(cost(100), 600_000)],
                 REQUEST_MIN_MS,
             )
@@ -829,7 +882,7 @@ fn the_deadline_clips_or_refuses_what_would_run_past_it_and_survives_a_restart()
             id: 0,
             index: 0,
             amount: timed(cost(100), 80_000),
-            tight: true,
+            low: false,
         }
     );
     ledger.settle(0, cost(40)).unwrap();
@@ -857,6 +910,7 @@ fn the_deadline_clips_or_refuses_what_would_run_past_it_and_survives_a_restart()
                     Use::Final,
                     "model:test/m",
                     keep,
+                    BudgetAmounts::default(),
                     &[timed(cost(100), 600_000)],
                     REQUEST_MIN_MS,
                 )
@@ -866,7 +920,7 @@ fn the_deadline_clips_or_refuses_what_would_run_past_it_and_survives_a_restart()
             id: 1,
             index: 0,
             amount: timed(cost(100), 40_000),
-            tight: true,
+            low: false,
         }
     );
     // the process dies and starts again: the deadline is where it was
@@ -890,6 +944,7 @@ fn the_deadline_clips_or_refuses_what_would_run_past_it_and_survives_a_restart()
                     "root",
                     Use::Final,
                     "tool:bash",
+                    BudgetAmounts::default(),
                     BudgetAmounts::default(),
                     &[timed(cost(1), 5_000)],
                     TOOL_MIN_MS,
@@ -942,6 +997,7 @@ fn added_budget_resumes_every_agent_of_the_account_and_extends_the_deadline() {
             Use::Work,
             "tool:bash",
             cost(200),
+            BudgetAmounts::default(),
             &[cost(150)],
             TOOL_MIN_MS,
         )
@@ -1007,6 +1063,7 @@ fn an_account_with_shared_members_audits_exactly_and_every_reserve_above_is_kept
                     Use::Work,
                     "model:test/m",
                     cost(100),
+                    BudgetAmounts::default(),
                     &[cost(10)],
                     REQUEST_MIN_MS,
                 )
@@ -1024,6 +1081,7 @@ fn an_account_with_shared_members_audits_exactly_and_every_reserve_above_is_kept
                     Use::Work,
                     "model:test/m",
                     BudgetAmounts::default(),
+                    BudgetAmounts::default(),
                     &[cost(781), cost(780)],
                     REQUEST_MIN_MS,
                 )
@@ -1033,7 +1091,7 @@ fn an_account_with_shared_members_audits_exactly_and_every_reserve_above_is_kept
             id: 2,
             index: 1,
             amount: cost(780),
-            tight: true,
+            low: false,
         }
     );
     // the grandchild ends with its request in flight
@@ -1081,6 +1139,7 @@ fn agents_that_reserve_at_once_never_hold_more_than_the_budget() {
                             agent,
                             Use::Final,
                             "model:test/m",
+                            BudgetAmounts::default(),
                             BudgetAmounts::default(),
                             &[cost(30), cost(7)],
                             0,
@@ -1132,6 +1191,7 @@ fn a_childs_own_budget_is_carved_with_its_deadline_and_what_it_leaves_returns() 
             Use::Work,
             "model:test/m",
             timed(amounts(100, 100, 0, 0), 10_000),
+            BudgetAmounts::default(),
             &[amounts(0, 0, 0, 1)],
             REQUEST_MIN_MS,
         )
@@ -1248,6 +1308,7 @@ fn a_childs_own_budget_is_carved_with_its_deadline_and_what_it_leaves_returns() 
                 "child",
                 Use::Work,
                 "model:test/m",
+                BudgetAmounts::default(),
                 BudgetAmounts::default(),
                 &[timed(amounts(450, 100, 1, 1), 30_000)],
                 REQUEST_MIN_MS,
@@ -1611,6 +1672,7 @@ fn a_session_without_a_budget_refuses_every_ledger_operation() {
             "nobody",
             Use::Work,
             "tool:bash",
+            BudgetAmounts::default(),
             BudgetAmounts::default(),
             &[],
             0

@@ -243,7 +243,7 @@ async fn reserve_other(
             reservation,
             report,
         })) => Ok(Some((
-            super::Held::start(gate, reservation.id, reservation.amount),
+            super::Held::start(gate, reservation.id, reservation.amount, Use::Side),
             report
                 .deadline_ms
                 .map(|_| Duration::from_millis(reservation.amount.time_ms)),

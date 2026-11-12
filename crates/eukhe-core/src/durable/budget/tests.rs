@@ -127,6 +127,7 @@ impl Fixture {
                 told: Mutex::default(),
                 notices: OnceLock::new(),
                 deferred: Mutex::default(),
+                steps: Mutex::default(),
             }),
         };
         let notices = Arc::new(Mutex::new(Vec::new()));
@@ -757,7 +758,7 @@ async fn a_work_turn_stopped_at_its_granted_time_gives_the_final_answer() {
         .unwrap();
     let reply = fixture.send(agent("build it")).await;
     // The ledger's clock stands still: the notice shows the whole budget.
-    let notice = "[budget] The time budget of this task is used up (3m 0s). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
     let received = received.lock().unwrap().clone();
     assert_eq!(
         (
@@ -825,6 +826,7 @@ async fn a_shared_child_cannot_take_its_parents_final_answer_reserve() {
             Use::Work,
             "model:turn",
             parent_keep,
+            BudgetAmounts::default(),
             &[BudgetAmounts {
                 tokens: 1,
                 ..BudgetAmounts::default()
@@ -1002,7 +1004,7 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
     // No work cap fits 4000 tokens; a final answer of 2048 does.
     fixture.gate.set(tokens(4_000)).unwrap();
     let reply = fixture.request(agent("build it")).await;
-    let notice = "[budget] The tokens budget of this task is used up (4.0k tokens). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The tokens budget of this task is used up for work: 4.0k tokens left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
     assert_eq!(
         (
             reply.error_message,
@@ -1072,14 +1074,16 @@ async fn an_exhausted_budget_sends_nothing_until_budget_is_added() {
     );
 }
 
-/// B7: the agent learns of its budget at its first request, and that it
-/// runs low once, however many grants come back tight.
+/// B7: a grant that holds whatever is free (the largest output cap that
+/// fits) is no sign that the budget runs low: the agent is told its budget
+/// and not that it runs low while two steps of what it actually spent fit
+/// many times over.
 #[tokio::test]
-async fn a_tight_grant_tells_the_agent_once_that_the_budget_runs_low() {
+async fn a_hold_that_fills_what_is_free_does_not_make_the_budget_run_low() {
     let fixture = Fixture::new();
-    // The smallest cap fits (2 * input + 8192 tokens) and another request
-    // of its size, started when it ends, would not.
-    fixture.gate.set(tokens(9_000)).unwrap();
+    // The largest cap fits (2 * input + 16384 + 7168 tokens), and another
+    // request of its size, started when it ends, would not.
+    fixture.gate.set(tokens(30_000)).unwrap();
     fixture.request(agent("build it")).await;
     fixture.request(agent("build it")).await;
     assert_eq!(
@@ -1092,18 +1096,70 @@ async fn a_tight_grant_tells_the_agent_once_that_the_budget_runs_low() {
             fixture.told()
         ),
         (
-            vec![Some(1_024), Some(1_024)],
-            vec![
-                (
-                    NoticeKind::Set,
-                    "budget:session:set:-:9000:-:-:-:-".to_owned()
-                ),
-                (
-                    NoticeKind::Low,
-                    "budget:session:low:-:9000:-:-:-:-".to_owned()
-                ),
-            ]
+            vec![Some(16_384), Some(16_384)],
+            vec![(
+                NoticeKind::Set,
+                "budget:session:set:-:30000:-:-:-:-".to_owned()
+            )]
         )
+    );
+}
+
+/// B7: the agent learns that its budget runs low, once, when two steps of
+/// the largest it actually spent (3250 tokens) and its final-answer
+/// reserve no longer fit what is left; the notice shows what it can still
+/// spend and what its final answer keeps of it.
+#[tokio::test]
+async fn the_budget_runs_low_once_two_steps_of_the_largest_spend_no_longer_fit() {
+    let row = scripted(|| {
+        vec![AssistantMessageEvent::Done {
+            reason: DoneReason::Stop,
+            message: message(
+                "done",
+                Usage {
+                    input: 250,
+                    output: 3_000,
+                    ..Usage::default()
+                },
+            ),
+        }]
+    });
+    let fixture = Fixture::build(Answer::Row(row), Clock::Real);
+    fixture.gate.set(tokens(20_000)).unwrap();
+    let set = (
+        NoticeKind::Set,
+        "budget:session:set:-:20000:-:-:-:-".to_owned(),
+    );
+    let low = (
+        NoticeKind::Low,
+        "budget:session:low:-:20000:-:-:-:-".to_owned(),
+    );
+    let mut told = Vec::new();
+    for _ in 0..4 {
+        fixture.send(agent("build it")).await;
+        told.push(fixture.told());
+    }
+    let texts: Vec<String> = fixture
+        .notices
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|notice| notice.text.clone())
+        .collect();
+    assert_eq!(
+        told,
+        vec![
+            vec![set.clone()],
+            vec![set.clone()],
+            vec![set.clone(), low.clone()],
+            vec![set, low],
+        ]
+    );
+    // 20000 tokens less two steps of 3250 spent; the request in flight
+    // holds the rest of what it may spend
+    assert!(
+        texts[1].starts_with("[budget] Low: 13.5k tokens left, of which the final answer keeps 7."),
+        "{texts:?}"
     );
 }
 
@@ -1378,18 +1434,30 @@ fn a_notice_shows_what_is_left_in_each_limited_dimension() {
             tool_calls: 1,
             requests: 1,
         },
+        held: BudgetAmounts {
+            cost_micros: 500_000,
+            tokens: 10_000,
+            ..BudgetAmounts::default()
+        },
         deadline_ms: None,
         ..report.clone()
+    };
+    let keep = BudgetAmounts {
+        cost_micros: 4_200,
+        tokens: 7_400,
+        time_ms: 120_000,
+        tool_calls: 0,
+        requests: 1,
     };
     assert_eq!(
         (
             notices::set_text(&report),
-            notices::low_text(&roomy),
+            notices::low_text(&roomy, keep),
             notices::remaining(&BudgetReport::default())
         ),
         (
             "[budget] This task has a budget: $0.0123, 12.3k tokens, 1m 20s, 7 tool calls, 3 requests. Nothing can be spent past it: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.".to_owned(),
-            "[budget] Low: $2.50, 2.3M tokens, 1 tool call, 1 request. Another step of the last size does not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.".to_owned(),
+            "[budget] Low: $3.00, 2.3M tokens, 1 tool call, 1 request left, of which the final answer keeps $0.0042, 7.4k tokens, 0 tool calls, 1 request. Two more steps of the largest size so far would not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.".to_owned(),
             "no limit".to_owned()
         )
     );

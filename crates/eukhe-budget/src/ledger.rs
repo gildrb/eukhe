@@ -79,9 +79,10 @@ pub struct Reservation {
     /// The granted offer in the dimensions the budget limits; `time_ms`:
     /// how long it may run (0 without a time limit).
     pub amount: BudgetAmounts,
-    /// The same request, started when this one ends, would not fit what
-    /// is left.
-    pub tight: bool,
+    /// Two steps of the agent's `step` (this one and one more), started
+    /// now, with the reserves, would not fit what was free before the
+    /// grant: the budget runs low. It never depends on the offer granted.
+    pub low: bool,
 }
 
 /// The answer to [`Ledger::reserve`].
@@ -362,6 +363,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 label: _,
                 now_ms,
                 keep,
+                step,
                 offers,
             } => {
                 let member = state
@@ -384,6 +386,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                     *now_ms,
                     to_ask(mask(above(state, agent), &state.limits)),
                     to_ask(mask(*keep, &state.limits)),
+                    to_ask(mask(*step, &state.limits)),
                     to_ask(mask(*want, &state.limits)),
                     &less,
                     &acct,
@@ -395,7 +398,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                         index,
                         ask,
                         acct,
-                        tight,
+                        low,
                     } => {
                         next.account = Account::from_acct(&acct, |held| {
                             if held == *id {
@@ -408,7 +411,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                         Outcome::Granted {
                             index,
                             amount: from_ask(ask),
-                            tight,
+                            low,
                         }
                     }
                     core::Grant::Refused { why, phase } => {
@@ -1091,7 +1094,9 @@ impl Ledger {
     /// reserve). With a time limit, each offer's `time_ms` is first
     /// clipped to what is left for the agent, never below `min_ms` (an
     /// offer asking less keeps its own). A side request that does not fit
-    /// changes nothing of the agent. The answer is on disk when this
+    /// changes nothing of the agent. The grant is low when two steps of
+    /// `step` (the agent's largest recent step as actually spent; zero
+    /// before its first) would not fit. The answer is on disk when this
     /// returns: spend only after a grant.
     ///
     /// # Errors
@@ -1099,12 +1104,14 @@ impl Ledger {
     /// [`LedgerError::NoBudget`], [`LedgerError::NotMember`],
     /// [`LedgerError::NoOffer`], and the file's or the core's failures:
     /// each means do not spend.
+    #[allow(clippy::too_many_arguments)] // The facts of one reservation, each its own: the core's `reserve` takes them all.
     pub fn reserve(
         &self,
         agent: &str,
         use_: Use,
         label: &str,
         keep: BudgetAmounts,
+        step: BudgetAmounts,
         offers: &[BudgetAmounts],
         min_ms: u64,
     ) -> Result<Reserved, LedgerError> {
@@ -1151,22 +1158,19 @@ impl Ledger {
                 label: label.to_owned(),
                 now_ms: now,
                 keep,
+                step,
                 offers,
             },
             now,
         )?;
         let report = locked.report(&owner, agent, now);
         Ok(match outcome {
-            Outcome::Granted {
-                index,
-                amount,
-                tight,
-            } => Reserved::Granted {
+            Outcome::Granted { index, amount, low } => Reserved::Granted {
                 reservation: Reservation {
                     id,
                     index,
                     amount,
-                    tight,
+                    low,
                 },
                 report,
             },

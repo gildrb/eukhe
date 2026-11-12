@@ -27,7 +27,12 @@
 #   fits: nothing is held, work moves the agent to WrapUp (only a final
 #   answer and side requests are admitted from then on), a final answer
 #   moves it to Exhausted (nothing is admitted) and a side request leaves
-#   the phase as it was.
+#   the phase as it was. A grant is low (the agent's budget runs low)
+#   when two steps of the size of the agent's largest recent step
+#   (`step`, as actually spent: this one and one more), started now, with
+#   the reserves, would not fit what was free before the grant by the
+#   deadline; never for an agent that has not finished a step (`step`
+#   zero).
 # settle: the actual spend replaces the hold; what was not spent is free
 #   again. An id that is not held changes nothing.
 # carve: a child given its own budget: the allotment leaves the parent's
@@ -87,10 +92,10 @@ type Why is Data:
   Held{}
   Stopped{}
 
-# The answer to a reservation: the granted offer, its place and the
-# account after it; or why not and the agent's phase after it
+# The answer to a reservation: the granted offer, its place, the account
+# after it and whether it is low; or why not and the agent's phase after it
 type Grant is Data:
-  Granted{index: Nat, ask: Ask, acct: Acct, tight: Bool}
+  Granted{index: Nat, ask: Ask, acct: Acct, low: Bool}
   Refused{why: Why, phase: Phase}
 
 # The answer to a carve
@@ -275,44 +280,47 @@ def after(k: Use, p: Phase) -> Phase:
     case Side{}:
       p
 
-def tight.of(l: Maybe<&2, Dim>) -> Bool:
+def low.of(l: Maybe<&2, Dim>) -> Bool:
   match l:
     case None{}:
       False{}
     case Some{d}:
       True{}
 
-def reserve.pick(p: Pick, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
+# the grant of the offer picked: low when two steps of the agent's
+# largest recent step (step: this one and one more), started now, with
+# the reserves, would not fit what was free before it by the deadline
+def reserve.pick(p: Pick, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +step: Ask, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
   match p:
     case Fit{i, +c}:
       match c:
         case Ask{+x, +m}:
-          +left = sub4(free, x)
-          Granted{i, Ask{x, m}, Acct{left, spent, lent, over, Hold{id, x} <> holds, until}, tight.of(lack(need(use, base, keep, Ask{x, m}), left, Nat.add(now, m), until))}
+          Granted{i, Ask{x, m}, Acct{sub4(free, x), spent, lent, over, Hold{id, x} <> holds, until}, low.of(lack(need(use, base, keep, plus(step, step)), free, now, until))}
     case NoFit{d}:
       Refused{Short{d}, after(use, phase)}
 
-def reserve.held(h: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +want: Ask, less: List<&2, Ask>, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
+def reserve.held(h: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +step: Ask, +want: Ask, less: List<&2, Ask>, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
   match h:
     case True{}:
       Refused{Held{}, phase}
     case False{}:
-      reserve.pick(pick(less, use, base, keep, free, now, until, want, 0n), use, phase, id, now, base, keep, free, spent, lent, over, holds, until)
+      reserve.pick(pick(less, use, base, keep, free, now, until, want, 0n), use, phase, id, now, base, keep, step, free, spent, lent, over, holds, until)
 
-def reserve.open(ok: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +want: Ask, less: List<&2, Ask>, +free: Amt, spent: Amt, lent: Amt, over: Amt, +holds: List<&2, Hold>, +until: Nat) -> Grant:
+def reserve.open(ok: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +step: Ask, +want: Ask, less: List<&2, Ask>, +free: Amt, spent: Amt, lent: Amt, over: Amt, +holds: List<&2, Hold>, +until: Nat) -> Grant:
   match ok:
     case True{}:
-      reserve.held(held(id, holds), use, phase, id, now, base, keep, want, less, free, spent, lent, over, holds, until)
+      reserve.held(held(id, holds), use, phase, id, now, base, keep, step, want, less, free, spent, lent, over, holds, until)
     case False{}:
       Refused{Stopped{}, phase}
 
-# the reservation, by an agent in phase `phase` at time `now`, of the
-# first of want and then less that fits, under id. Refusal order: the
+# the reservation, by an agent in phase `phase` at time `now` whose
+# largest recent step is `step`, of the first of want and then less that
+# fits, under id. Refusal order: the
 # phase, an id already held, no offer fits.
-def reserve(+use: Use, +phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +want: Ask, less: List<&2, Ask>, a: Acct) -> Grant:
+def reserve(+use: Use, +phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +step: Ask, +want: Ask, less: List<&2, Ask>, a: Acct) -> Grant:
   match a:
     case Acct{free, spent, lent, over, holds, until}:
-      reserve.open(allows(phase, use), use, phase, id, now, base, keep, want, less, free, spent, lent, over, holds, until)
+      reserve.open(allows(phase, use), use, phase, id, now, base, keep, step, want, less, free, spent, lent, over, holds, until)
 
 # Settle
 # ------

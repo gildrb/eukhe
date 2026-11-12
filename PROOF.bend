@@ -4345,7 +4345,9 @@ import ./proof/budget/budget_grant_when_fits.bend as PBudgetGrantWhenFits
 import ./proof/budget/budget_refuse_short.bend as PBudgetRefuseShort
 import ./proof/budget/budget_refuse_stopped.bend as PBudgetRefuseStopped
 import ./proof/budget/budget_refuse_held.bend as PBudgetRefuseHeld
-import ./proof/budget/budget_tight_exact.bend as PBudgetTightExact
+import ./proof/budget/budget_low_by_steps.bend as PBudgetLowBySteps
+import ./proof/budget/budget_low_by_spend.bend as PBudgetLowBySpend
+import ./proof/budget/budget_low_steps_example.bend as PBudgetLowStepsExample
 import ./proof/budget/budget_final_reserve_kept.bend as PBudgetFinalReserveKept
 import ./proof/budget/budget_side_final_reserve_kept.bend as PBudgetSideFinalReserveKept
 import ./proof/budget/budget_base_kept.bend as PBudgetBaseKept

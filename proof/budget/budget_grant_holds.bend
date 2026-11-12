@@ -10,5 +10,5 @@ import ../../bend/budget.bend as B
 import ../../spec/budget/ledger.bend as S
 import ./base/reserve.bend as BR
 
-def Budget.budget_grant_holds(use, p, id, now, base, keep, want, less, a, i, c, a2, t, g):
-  BR.br.holds(use, p, id, now, base, keep, want, less, a, i, c, a2, t, BR.br.res_is(use, p, id, now, base, keep, want, less, a, B.Granted{i, c, a2, t}, g))
+def Budget.budget_grant_holds(use, p, id, now, base, keep, step, want, less, a, i, c, a2, lo, g):
+  BR.br.holds(use, p, id, now, base, keep, step, want, less, a, i, c, a2, lo, BR.br.res_is(use, p, id, now, base, keep, step, want, less, a, B.Granted{i, c, a2, lo}, g))

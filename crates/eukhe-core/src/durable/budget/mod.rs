@@ -69,6 +69,20 @@ pub struct BudgetGate {
     /// The open reservation of each deferred response (by
     /// `<provider>/<handle id>`): it settles when its fetch ends.
     deferred: Mutex<HashMap<String, Held>>,
+    /// The agent's steps as actually spent: what a grant's `low` (the Low
+    /// notice) is judged against.
+    steps: Mutex<Steps>,
+}
+
+/// What the agent's steps actually spent, as this process saw them.
+#[derive(Debug, Default)]
+struct Steps {
+    /// Per spent dimension, the largest actual spend of one of the agent's
+    /// work requests or tool calls; `time_ms`: the longest time from the
+    /// start of one of its work requests to the start of the next.
+    largest: BudgetAmounts,
+    /// When its last work request started (Unix ms).
+    started_ms: Option<u64>,
 }
 
 impl BudgetGate {
@@ -160,6 +174,7 @@ impl BudgetGate {
             told: Mutex::new(notices::Told::default()),
             notices: OnceLock::new(),
             deferred: Mutex::new(HashMap::new()),
+            steps: Mutex::default(),
         })
     }
 
@@ -290,6 +305,37 @@ impl BudgetGate {
     #[must_use]
     pub fn keep(&self) -> BudgetAmounts {
         *self.keep.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The agent's largest step as actually spent (zero before its
+    /// first): what a grant's `low` is judged against.
+    fn step(&self) -> BudgetAmounts {
+        self.steps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .largest
+    }
+
+    /// A work request of the agent starts at `now_ms`: the time since the
+    /// last one started is the length of a step.
+    fn step_started(&self, now_ms: u64) {
+        let mut steps = self.steps.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(started) = steps.started_ms.replace(now_ms) {
+            steps.largest.time_ms = steps.largest.time_ms.max(now_ms.saturating_sub(started));
+        }
+    }
+
+    /// A work request or tool call of the agent spent `spend`.
+    fn step_spent(&self, spend: BudgetAmounts) {
+        let mut steps = self.steps.lock().unwrap_or_else(PoisonError::into_inner);
+        let largest = steps.largest;
+        steps.largest = BudgetAmounts {
+            cost_micros: largest.cost_micros.max(spend.cost_micros),
+            tokens: largest.tokens.max(spend.tokens),
+            time_ms: largest.time_ms,
+            tool_calls: largest.tool_calls.max(spend.tool_calls),
+            requests: largest.requests.max(spend.requests),
+        };
     }
 
     /// The agents of the account and the agent above each one.
@@ -441,8 +487,15 @@ impl BudgetGate {
     ) -> Result<Option<Reserved>, BudgetError> {
         let gate = Arc::clone(self);
         let reserved = tokio::task::spawn_blocking(move || {
-            gate.ledger
-                .reserve(gate.agent(), use_, &label, keep, &offers, min_ms)
+            gate.ledger.reserve(
+                gate.agent(),
+                use_,
+                &label,
+                keep,
+                gate.step(),
+                &offers,
+                min_ms,
+            )
         })
         .await
         .map_err(|error| self.task_failed(error))?;
@@ -504,12 +557,15 @@ struct Held {
     /// What the reservation holds, time aside (time is a deadline, not a
     /// spend).
     full: BudgetAmounts,
+    /// What it is for: a settled work request or tool call is a step of
+    /// the agent.
+    use_: Use,
     settled: bool,
 }
 
 impl Held {
-    /// The reservation `id` of `gate`, holding `amount`.
-    fn start(gate: &Arc<BudgetGate>, id: u64, amount: BudgetAmounts) -> Held {
+    /// The reservation `id` of `gate` for `use_`, holding `amount`.
+    fn start(gate: &Arc<BudgetGate>, id: u64, amount: BudgetAmounts, use_: Use) -> Held {
         Held {
             gate: Arc::clone(gate),
             id,
@@ -517,19 +573,25 @@ impl Held {
                 time_ms: 0,
                 ..amount
             },
+            use_,
             settled: false,
         }
     }
 
     /// Settles at `spend` on a blocking thread. A reservation that held no
     /// model request (a side request's, a tool call's) is charged none: a
-    /// side request is no turn of the agent.
+    /// side request is no turn of the agent. The spend of work is a step
+    /// of the agent; one dropped unsettled is not (its spend is unknown).
     async fn settle(mut self, mut spend: BudgetAmounts) {
         // The blocking task runs to its end even when this future is
         // dropped while it waits.
         self.settled = true;
         if self.full.requests == 0 {
             spend.requests = 0;
+        }
+        match self.use_ {
+            Use::Work => self.gate.step_spent(spend),
+            Use::Final | Use::Side => {}
         }
         let gate = Arc::clone(&self.gate);
         let id = self.id;

@@ -93,10 +93,13 @@ impl BudgetGate {
                 report,
             })) => (reservation, report),
         };
-        if reservation.tight {
-            self.tell(NoticeKind::Low, &report, || notices::low_text(&report));
+        if reservation.low {
+            let keep = self.keep();
+            self.tell(NoticeKind::Low, &report, || {
+                notices::low_text(&report, keep)
+            });
         }
-        let held = Held::start(self, reservation.id, reservation.amount);
+        let held = Held::start(self, reservation.id, reservation.amount, Use::Work);
         let outcome = if report.deadline_ms.is_none() {
             ToolOutcome::Ran(run(cx).await)
         } else {

@@ -190,6 +190,12 @@ pub enum Op {
         label: String,
         now_ms: u64,
         keep: BudgetAmounts,
+        /// The agent's largest recent step as actually spent (`time_ms`:
+        /// the duration of its longest recent step): whether the grant says the
+        /// budget runs low is judged against it. Zero before the agent's first step
+        /// and in a record written before the field.
+        #[serde(default)]
+        step: BudgetAmounts,
         offers: Vec<BudgetAmounts>,
     },
     /// After a spend: what it actually took.
@@ -243,7 +249,10 @@ pub enum Outcome {
         index: usize,
         /// `time_ms`: the granted duration.
         amount: BudgetAmounts,
-        tight: bool,
+        /// The budget runs low by the agent's steps (`Op::Reserve::step`);
+        /// false in a record written before the field.
+        #[serde(default)]
+        low: bool,
     },
     Refused {
         refusal: RefusalRecord,
