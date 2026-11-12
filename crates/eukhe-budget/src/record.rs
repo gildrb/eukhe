@@ -196,6 +196,12 @@ pub enum Op {
         /// and in a record written before the field.
         #[serde(default)]
         step: BudgetAmounts,
+        /// How many agents share what is free (spec/README.md B13): the
+        /// account's Working agents that held nothing when it was asked,
+        /// the asking one among them. A record written before the field
+        /// reads 0, which the core takes as 1: a lone agent.
+        #[serde(default)]
+        share: u64,
         offers: Vec<BudgetAmounts>,
     },
     /// After a spend: what it actually took.

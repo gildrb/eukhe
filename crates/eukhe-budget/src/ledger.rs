@@ -328,6 +328,25 @@ fn side_keep(state: &State, agent: &str, use_: Use, keep: BudgetAmounts) -> Budg
     }
 }
 
+/// How many agents share what is free when `agent` asks (B13): the asking
+/// one and every other Working member of the account that holds nothing.
+fn sharing(state: &State, agent: &str) -> u64 {
+    let waiting = state
+        .members
+        .iter()
+        .filter(|(member, at)| {
+            member.as_str() != agent
+                && at.phase == BudgetPhase::Working
+                && !state
+                    .account
+                    .holds
+                    .iter()
+                    .any(|hold| &hold.agent == *member)
+        })
+        .count();
+    u64::try_from(waiting).map_or(u64::MAX, |others| others.saturating_add(1))
+}
+
 fn use_record(use_: Use) -> UseRecord {
     match use_ {
         Use::Work => UseRecord::Work,
@@ -434,31 +453,44 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 now_ms,
                 keep,
                 step,
+                share,
                 offers,
             } => {
                 let member = state
                     .members
                     .get(agent)
                     .ok_or_else(|| LedgerError::NotMember(agent.clone()))?;
-                let (want, less) = offers.split_first().ok_or(LedgerError::NoOffer)?;
-                let less: Vec<core::Ask> = less
+                let offers: Vec<core::Ask> = offers
                     .iter()
                     .map(|offer| to_ask(mask(*offer, &state.limits)))
                     .collect();
+                let use_core = match use_ {
+                    UseRecord::Work => core::Use::Work,
+                    UseRecord::Final => core::Use::Final,
+                    UseRecord::Side => core::Use::Side,
+                };
+                let base = to_ask(mask(above(state, agent), &state.limits));
+                let keep_ask = to_ask(mask(*keep, &state.limits));
+                let (want, less) = offers.split_first().ok_or(LedgerError::NoOffer)?;
+                // The agents that share what is free each start from an
+                // offer within their share (B13).
+                let start = core::share_start(
+                    *share, use_core, base, keep_ask, *want, less, acct.free, *now_ms, acct.until,
+                )?;
+                let (want, less) = offers
+                    .get(start..)
+                    .and_then(<[core::Ask]>::split_first)
+                    .ok_or(LedgerError::NoOffer)?;
                 let grant = core::reserve(
-                    match use_ {
-                        UseRecord::Work => core::Use::Work,
-                        UseRecord::Final => core::Use::Final,
-                        UseRecord::Side => core::Use::Side,
-                    },
+                    use_core,
                     core_phase(member.phase),
                     *id,
                     *now_ms,
-                    to_ask(mask(above(state, agent), &state.limits)),
-                    to_ask(mask(*keep, &state.limits)),
+                    base,
+                    keep_ask,
                     to_ask(mask(*step, &state.limits)),
-                    to_ask(mask(*want, &state.limits)),
-                    &less,
+                    *want,
+                    less,
                     &acct,
                 )?;
                 let after = next.members.entry(agent.clone()).or_default();
@@ -479,7 +511,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                         });
                         next.next_id = id.saturating_add(1);
                         Outcome::Granted {
-                            index,
+                            index: start + index,
                             amount: from_ask(ask),
                             low,
                         }
@@ -1192,6 +1224,7 @@ impl Ledger {
         let id = state.next_id;
         let keep = side_keep(state, agent, use_, keep);
         let offers = clip_offers(state, agent, use_, keep, offers, min_ms, now);
+        let share = sharing(state, agent);
         let outcome = locked.apply(
             Op::Reserve {
                 id,
@@ -1201,6 +1234,7 @@ impl Ledger {
                 now_ms: now,
                 keep,
                 step,
+                share,
                 offers,
             },
             now,
@@ -1265,6 +1299,7 @@ impl Ledger {
             keep,
             // A step only says whether a grant runs low.
             step: BudgetAmounts::default(),
+            share: sharing(state, agent),
             offers: clip_offers(state, agent, use_, keep, offers, min_ms, now),
         };
         let (_, outcome) = step(state, &op)?;

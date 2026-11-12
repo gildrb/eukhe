@@ -702,6 +702,57 @@ fn a_side_request_without_a_reserve_of_its_own_leaves_the_agents() {
     granted(final_answer(&root, "root", cost(300)));
 }
 
+/// B13: children that share their parent's account share what is free.
+/// Before, the first child held the largest offer that fit and the last
+/// one's first request was refused (400, 400, 50, refused).
+#[test]
+fn children_sharing_an_account_each_start_within_their_share() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = at(dir.path(), "root");
+    root.open_root(cost_only(1_000)).unwrap();
+    // the parent keeps 100 for its final answer and waits in a tool call
+    // (a hold) while its children work
+    granted(
+        root.reserve(
+            "root",
+            Use::Work,
+            "tool:task",
+            cost(100),
+            BudgetAmounts::default(),
+            &[amounts(0, 0, 1, 0)],
+            TOOL_MIN_MS,
+        )
+        .unwrap(),
+    );
+    let kids = ["kid", "kid.1", "kid.2", "kid.3"].map(|kid| {
+        let ledger = at(dir.path(), kid);
+        ledger.join("root").unwrap();
+        (ledger, kid)
+    });
+    let held: Vec<BudgetAmounts> = kids
+        .iter()
+        .map(|(ledger, kid)| {
+            granted(
+                ledger
+                    .reserve(
+                        kid,
+                        Use::Work,
+                        "model:test/m",
+                        cost(20),
+                        BudgetAmounts::default(),
+                        &[cost(400), cost(200), cost(100), cost(50)],
+                        REQUEST_MIN_MS,
+                    )
+                    .unwrap(),
+            )
+            .amount
+        })
+        .collect();
+    // 880 past the reserves among four, then 680 among three, 480 among
+    // two, 280 alone: 200 each time
+    assert_eq!(held, vec![cost(200); 4]);
+}
+
 #[test]
 fn each_agent_has_its_own_phase() {
     let dir = tempfile::tempdir().unwrap();
