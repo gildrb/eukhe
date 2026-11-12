@@ -265,7 +265,7 @@ type BashExecutionMessage = {
   content?: never;
   command: string;
   output: string;
-  /** Absent when the run was cancelled or killed by a signal. */
+  /** Absent while the command is still running (Rust's doc), and on a run that never got one. */
   exitCode?: number;
   cancelled: boolean;
   /** `eukhe_types::output::OmittedOutput`. */

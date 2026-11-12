@@ -1176,13 +1176,15 @@
           }
 
           if (msg.role === 'bashExecution') {
-            const isError = msg.cancelled || (msg.exitCode !== 0 && msg.exitCode !== null);
+            // No exitCode: the command is still running (or ended without one); no exit to show.
+            const failed = msg.exitCode !== undefined && msg.exitCode !== 0;
+            const isError = msg.cancelled || failed;
             let html = `<div class="tool-execution ${isError ? 'error' : 'success'}" id="${entryDomId}">${tsHtml}`;
             html += `<div class="tool-command">$ ${escapeHtml(msg.command)}</div>`;
             if (msg.output) html += formatExpandableOutput(msg.output, 10);
             if (msg.cancelled) {
               html += '<div style="color: var(--warning)">(cancelled)</div>';
-            } else if (msg.exitCode !== 0 && msg.exitCode !== null) {
+            } else if (failed) {
               html += `<div style="color: var(--error)">(exit ${msg.exitCode})</div>`;
             }
             html += '</div>';

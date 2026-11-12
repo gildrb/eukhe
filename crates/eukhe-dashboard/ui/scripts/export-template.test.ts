@@ -63,3 +63,13 @@ describe("every producer's session renders", () => {
     expect(texts(window, "#messages > *").length).toBeGreaterThan(0);
   });
 });
+
+test("a command without an exit code shows no exit status, a failed one its code", async () => {
+  const window = await render(legacy);
+  const runs = texts(window, "#messages .tool-execution");
+  const killed = runs.find((text) => text.includes("$ kill -9"));
+  expect(killed).toBeDefined();
+  expect(killed).not.toContain("(exit");
+  expect(runs.find((text) => text.includes("$ false"))).toContain("(exit 1)");
+  expect(runs.find((text) => text.includes("$ sleep 100"))).toContain("(cancelled)");
+});
