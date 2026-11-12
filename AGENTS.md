@@ -39,13 +39,18 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 
 ## Writing
 
-Dense, telegraphic; only what the reader needs to act on. Cut flattery, history, restated rules. One fact once; lists over prose; example over explanation. README: every line answers "does the reader need this?"; order tagline, Install (one command first), Use (first commands, then --help), one section per differentiator (≤3 bullets), Components (one line each), Limitations, Credits, License; cut settings, flags, internals, paths users never touch, what --help shows; dev setup in AGENTS.md; tables only to compare. No · separators.
+Dense, telegraphic; only what the reader needs to act on. Cut flattery, history, restated rules. One fact once; lists over prose; example over explanation. README: every line answers "does the reader need this?"; order definition, Install (one command first), Use (first commands, then --help), one section per differentiator (≤3 bullets), Components (one line each), Limitations, Credits, License; cut settings, flags, internals, paths users never touch, what --help shows; dev setup in AGENTS.md; tables only to compare. Skills and AGENTS.md: rules, commands, examples; count tokens. No `·` separators.
 
-- Say what Eukhe does for the reader; never explain a dependency's concepts (Eukhe doesn't explain what Bend laws or theorems are).
+- Say what the product does for the reader; never explain a dependency's concepts (a Bend-based tool doesn't explain what laws or theorems are).
+- Voice: plain statements of fact in the third person, like HVM2's README. First sentence defines the thing: "<Name> is a <noun phrase>" (HVM2: "a massively parallel Interaction Combinator evaluator"). Then what it does, in nouns and present-tense verbs.
+- No slogans, taglines, eras, promises or superlatives; no "you"; no adverbs that vouch for the text (truly, truthfully, simply, seamlessly). A claim is measurable, checkable or linked, or it is cut.
+- State status and limits as plainly as features: unfinished parts, unsupported platforms, what it is not for.
+- The repository description, README first sentence and site title say the same thing; change them together.
 - No negatives: never tell the reader what they don't need to do; list only steps that exist.
 - No comparisons to other products outside Credits.
 - None of the patterns in https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing.
-- Show user-facing text (README, eukhe.com) to the user before pushing.
+- Delegating writing: paste this section verbatim into the brief; never paraphrase it.
+- Show user-facing text (README, website) to the user before pushing.
 
 ## Change hygiene
 

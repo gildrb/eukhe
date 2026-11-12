@@ -29,47 +29,22 @@ eukhe --help  # all commands
 
 Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
 
-## Budgets
+## What it does
 
-- `/budget set cost=5 time=2h`: the task and all its subagents spend at most $5 and finish within 2 hours.
-- Never exceeded, in money, tokens, tool calls, model requests or time.
-- When the budget runs low the agent is told. When it runs out the agent still gives its final answer.
+- Budgets: `/budget set cost=5 time=2h` caps a task and its subagents at $5 and 2 hours. Caps cover money, tokens, tool calls, model requests and time. The agent is told when a budget runs low and still gives a final answer when it runs out.
+- Checks: `/accept cmd cargo test` makes the task done only when `cargo test`, run by Eukhe on the final result, passes. The agent cannot set, change or skip a check. A failed check returns to the agent with its output.
+- Loops: `/loop 20 --until 'cargo test' fix the failing tests` resends the prompt until the command passes or 20 repeats have run.
+- Crash recovery: a killed session, `kill -9` included, resumes where it stopped. No effect runs twice.
+- Memory: a long session keeps every message. Older ones become summaries the agent can reopen.
+- Python: a REPL for the agent that keeps its state between calls and can start subagents.
+- Background sessions: a daemon runs them. The terminal, `eukhe dashboard` (browser) and `eukhe gateway` (Signal) attach to the same sessions.
+- Embedding: [`eukhe-sdk`](crates/eukhe-sdk/) runs sessions inside a Rust program, and [`eukhe-client`](crates/eukhe-client/) connects one to the daemon. Rust only, not on crates.io, API unstable.
 
-## Verified completion
+Limits:
 
-- `/accept cmd cargo test`: the task counts as done only when `cargo test`, run by Eukhe on the final result, passes.
-- The agent can't set, change or skip a check.
-- Each result is labelled verified, failed or unverified. A failed check goes back to the agent with its output.
-
-## Crash safety
-
-- Kill Eukhe at any point, even with `kill -9`, then reopen the session: it picks up where it stopped.
-- No effect runs twice, and nothing is reported done that didn't run.
-
-## Loop
-
-- `/loop 20 --until 'cargo test' fix the failing tests`: the prompt is sent again after every turn until `cargo test` passes, 20 repeats have run, or you stop it.
-- Only the command's exit code decides. Esc pauses the loop, and it survives a restart.
-
-## Components
-
-- `eukhe`: the coding agent in your terminal.
-- Daemon: runs sessions in the background. `eukhe` starts it, and the terminal, dashboard and gateway attach to it.
-- Dashboard: `eukhe dashboard` opens your sessions in a browser.
-- Gateway: `eukhe gateway` lets you chat with a session from Signal on your phone.
-- [`eukhe-sdk`](crates/eukhe-sdk/): runs sessions inside your Rust program.
-- [`eukhe-client`](crates/eukhe-client/): connects your Rust program to the daemon's sessions.
-- `python` tool: a Python REPL for the agent that keeps its state between calls.
-- Memory: a long session never loses a message. Older ones become one-line summaries the agent can open back up.
-- RLM: the agent works over the whole conversation from Python and starts subagents from code.
-- Autoresearch: `/autoresearch <goal>` improves a number you can measure, such as speed or size, and keeps only changes the benchmark confirms.
-
-## Limitations
-
-- Runs model-written code with your permissions. No sandbox. Trusted repositories only.
+- No sandbox: model-written code runs with the user's permissions.
 - No Windows.
-- Checks judge the final result, not how the agent reached it.
-- The SDK crates are Rust only and not on crates.io. Their API may change with any release.
+- A passing check can be gamed, for example by a hard-coded answer. Eukhe blocks changes to the checks, not this.
 
 ## Credits
 
