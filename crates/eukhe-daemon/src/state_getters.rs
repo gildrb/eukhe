@@ -79,8 +79,7 @@ impl Worker {
                     .unwrap_or_else(|| "main agent".to_string()),
                 core.view
                     .as_ref()
-                    .map(|view| view.translator.mirror().usage.clone())
-                    .unwrap_or_default(),
+                    .map_or_default(|view| view.translator.mirror().usage.clone()),
                 model_metadata(&core, &self.session),
                 (!core.session_id.is_empty()).then(|| core.session_id.clone()),
                 core.rlm_child_id.clone(),
@@ -578,13 +577,12 @@ async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> SessionRe
         .await?;
     let shown: IndexMap<String, String> = get_current_system_message(&view.messages)
         .and_then(|message| message.sections)
-        .map(|sections| {
+        .map_or_default(|sections| {
             sections
                 .into_iter()
                 .filter_map(|(key, value)| value.map(|value| (key, value)))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let input = PromptInput {
         conversation_id: main.id(),
         agent: Arc::clone(&agent),

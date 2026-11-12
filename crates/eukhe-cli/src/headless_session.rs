@@ -285,8 +285,7 @@ pub(crate) async fn open_headless_session(
             let dir = location.storage_dir();
             let session_id = dir
                 .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .map_or_default(|name| name.to_string_lossy().into_owned());
             let cwd =
                 stored_cwd(&location, &options.config.cwd, cwd_override.as_deref(), cx).await?;
             // A failed open's early return drops the lease (released).

@@ -184,15 +184,13 @@ pub fn logs_rows(logs_dir: &Path) -> Vec<ClientLine> {
     ];
     // A readdir failure falls through to the empty-state row (the TS catch
     // keeps rendering); dot-prefixed files stay hidden.
-    let mut files: Vec<String> = std::fs::read_dir(logs_dir)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .filter(|name| !name.starts_with('.'))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut files: Vec<String> = std::fs::read_dir(logs_dir).map_or_default(|entries| {
+        entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| !name.starts_with('.'))
+            .collect()
+    });
     files.sort();
     if files.is_empty() {
         rows.push(vec![dim("No logs written yet.")]);

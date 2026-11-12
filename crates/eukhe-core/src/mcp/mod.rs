@@ -848,8 +848,7 @@ impl McpManager {
                         .data
                         .get("query")
                         .and_then(Value::as_str)
-                        .map(str::trim)
-                        .unwrap_or_default()
+                        .map_or_default(str::trim)
                         .to_string();
                     if query.is_empty() {
                         return Err(anyhow::anyhow!(

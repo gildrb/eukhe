@@ -186,8 +186,7 @@ fn translate(args: &[String]) -> Result<(), TinyCommandError> {
                     let (models, session) = default_model(&context).await?;
                     let selector = session
                         .as_ref()
-                        .map(eukhe_core::tiny::model_selector)
-                        .unwrap_or_default();
+                        .map_or_default(eukhe_core::tiny::model_selector);
                     match eukhe_core::tiny::resolve(
                         Role::Translate,
                         &settings,

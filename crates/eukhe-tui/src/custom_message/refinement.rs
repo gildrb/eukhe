@@ -71,9 +71,7 @@ pub(crate) fn refinement_outcome_entries(
             .get("scope")
             .and_then(Value::as_str)
             .unwrap_or("local"),
-        rollback_of
-            .map(|id| format!(" - rollback of {id}"))
-            .unwrap_or_default()
+        rollback_of.map_or_default(|id| format!(" - rollback of {id}"))
     );
     vec![ChatEntry::RefinementOutcome(Box::new(
         RefinementOutcomeRow {
@@ -210,8 +208,7 @@ fn refinement_edit_row(edit: &Value, fallback_scope: &str) -> RefinementEditRow 
         let error = edit
             .get("error")
             .and_then(Value::as_str)
-            .map(|error| format!(": {error}"))
-            .unwrap_or_default();
+            .map_or_default(|error| format!(": {error}"));
         vec![LabelPart {
             text: format!("Failed to {action} {scope} {kind} `{id}`{error}"),
             color: Some(ThemeColor::Error),

@@ -541,8 +541,7 @@ impl ProviderAuthSelector {
             let mut trailing: Vec<String> = provider
                 .status
                 .as_ref()
-                .map(|status| vec![status.label.clone()])
-                .unwrap_or_default();
+                .map_or_default(|status| vec![status.label.clone()]);
             if !provider.available {
                 trailing.push(NOT_AVAILABLE_LABEL.to_string());
             }

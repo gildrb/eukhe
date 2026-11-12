@@ -117,8 +117,7 @@ pub(crate) async fn read_export_data(
     let rows = export_rows(&transcript.entries)?;
     let session_id = dir
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     let cwd = transcript.agent.cwd.unwrap_or_default();
     Ok(Some(SessionExportData {
         header: export_header(&session_id, &cwd),

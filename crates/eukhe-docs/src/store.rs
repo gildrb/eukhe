@@ -344,8 +344,7 @@ impl EditStore {
         state
             .histories
             .get(path)
-            .map(|history| history.seen_bytes.clone())
-            .unwrap_or_default()
+            .map_or_default(|history| history.seen_bytes.clone())
     }
 
     /// Union displayed lines into the most recent version matching a tag.

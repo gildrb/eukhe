@@ -174,8 +174,7 @@ pub fn close_openai_codex_websocket_sessions(session_id: Option<&str>) {
         match session_id.filter(|session_id| !session_id.is_empty()) {
             Some(session_id) => cache
                 .remove(session_id)
-                .map(|entries| entries.into_values().collect())
-                .unwrap_or_default(),
+                .map_or_default(|entries| entries.into_values().collect()),
             None => cache
                 .drain()
                 .flat_map(|(_, entries)| entries.into_values())

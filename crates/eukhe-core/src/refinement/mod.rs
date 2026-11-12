@@ -579,9 +579,7 @@ pub fn format_refinement_notice_body(result: &RefinementResult) -> String {
             .or(result.scope)
             .unwrap_or(HarnessScope::Local);
         let title = entry.map_or(edit.id.as_str(), |entry| entry.title.as_str());
-        let content = entry
-            .map(|entry| entry.content.as_str())
-            .unwrap_or_default();
+        let content = entry.map_or_default(|entry| entry.content.as_str());
         lines.push(format!(
             "- {} {} [{}] {}: {}",
             action_name(edit.action),

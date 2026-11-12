@@ -287,8 +287,7 @@ mod tests {
         .map(|args| {
             parse_args(args)
                 .err()
-                .map(|error| error.to_string())
-                .unwrap_or_default()
+                .map_or_default(|error| error.to_string())
         })
         .collect();
         assert_eq!(

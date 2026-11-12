@@ -68,8 +68,7 @@ fn reply_autocomplete_provider(
         commands.push(crate::autocomplete::SlashCommandEntry {
             name: name.to_string(),
             aliases: builtin
-                .map(|command| command.aliases.to_vec())
-                .unwrap_or_default()
+                .map_or_default(|command| command.aliases.to_vec())
                 .iter()
                 .map(ToString::to_string)
                 .collect(),

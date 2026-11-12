@@ -230,8 +230,7 @@ async fn a_cell_runs_only_within_the_auto_set_or_approved() {
     let (result, asked) = call(&fixture, &[ShellEffect::Read], Asker::Deny, &code).await;
     let request_id = asked
         .first()
-        .map(|request| request.request_id.clone())
-        .unwrap_or_default();
+        .map_or_default(|request| request.request_id.clone());
     assert!(request_id.ends_with(":cell"), "{request_id}");
     assert_eq!(
         (result_text(&result), result.is_error, asked),

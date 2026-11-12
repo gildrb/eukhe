@@ -469,8 +469,7 @@ async fn poll_access_token_once(
             _ => {
                 let description_suffix = string_field(&raw, "error_description")
                     .filter(|description| !description.is_empty())
-                    .map(|description| format!(": {description}"))
-                    .unwrap_or_default();
+                    .map_or_default(|description| format!(": {description}"));
                 OAuthDeviceCodePollResult::Failed {
                     message: format!("Device flow failed: {error}{description_suffix}"),
                 }

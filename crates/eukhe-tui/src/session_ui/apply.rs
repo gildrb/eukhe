@@ -97,8 +97,7 @@ impl SessionUi {
             provider: view.chrome.model_provider.clone().unwrap_or_default(),
             api: self
                 .current_model_entry(view)
-                .map(|entry| entry.model.api.clone())
-                .unwrap_or_default(),
+                .map_or_default(|entry| entry.model.api.clone()),
         }
     }
 

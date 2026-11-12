@@ -216,8 +216,7 @@ pub(crate) async fn read_saved_session(path: &Path, cx: &Context) -> Option<Save
         };
         let id = storage_dir
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().into_owned());
         return Some(SavedSessionInfo { id, name, role });
     }
     legacy.map(|info| SavedSessionInfo {

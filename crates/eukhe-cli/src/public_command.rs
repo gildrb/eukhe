@@ -301,7 +301,7 @@ fn get_command_path(args: &[String]) -> Vec<String> {
 }
 
 fn reject_removed_command(args: &[String]) -> PublicCommandResult {
-    let command = args.first().map(String::as_str).unwrap_or_default();
+    let command = args.first().map_or_default(String::as_str);
     let subcommand = args.get(1).map(String::as_str);
     let replacement = match (command, subcommand) {
         ("daemon", _) => Some("Run \"eukhe help\" to see the agent commands.".to_string()),

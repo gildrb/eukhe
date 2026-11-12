@@ -265,10 +265,7 @@ pub fn remove_git(
 }
 
 fn prune_empty_git_parents(target_dir: &Path, install_root: &Path) {
-    let mut current = target_dir
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
+    let mut current = target_dir.parent().map_or_default(Path::to_path_buf);
     while current.starts_with(install_root) && current != install_root {
         if !current.exists() {
             match current.parent().map(Path::to_path_buf) {

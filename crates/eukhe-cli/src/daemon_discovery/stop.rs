@@ -149,7 +149,7 @@ fn reap_reachable_daemon(socket_path: &Path, pid: Option<u32>) -> StopOutcome {
     if shutdown_daemon(socket_path, false) {
         StopOutcome::Reaped(format!(
             "stopped idle background service{}",
-            pid.map(|pid| format!(" (pid {pid})")).unwrap_or_default()
+            pid.map_or_default(|pid| format!(" (pid {pid})"))
         ))
     } else {
         StopOutcome::Skipped("shutdown request failed".to_string())
@@ -386,7 +386,7 @@ fn stop_background_service(
         }
         return StopOutcome::Reaped(format!(
             "stopped background service{}",
-            pid.map(|pid| format!(" (pid {pid})")).unwrap_or_default()
+            pid.map_or_default(|pid| format!(" (pid {pid})"))
         ));
     }
     if !probe_daemon(socket_path).reachable {

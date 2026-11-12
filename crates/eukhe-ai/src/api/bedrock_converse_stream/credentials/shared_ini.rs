@@ -322,8 +322,7 @@ pub(crate) async fn load_shared_config_files(env: &CredentialEnv<'_>) -> SharedC
     let config_file = read_cached_file(env, &config_path)
         .await
         .and_then(|text| parse_ini(&text).ok())
-        .map(|parsed| get_config_data(&parsed))
-        .unwrap_or_default();
+        .map_or_default(|parsed| get_config_data(&parsed));
     let credentials_file = read_cached_file(env, &credentials_path)
         .await
         .and_then(|text| parse_ini(&text).ok())

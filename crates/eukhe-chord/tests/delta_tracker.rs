@@ -26,8 +26,7 @@ fn read(draft: &Draft, key: impl Into<eukhe_chord::delta::Seg>) -> JsonValue {
     draft
         .get(key)
         .unwrap()
-        .map(|item| item.to_value().unwrap())
-        .unwrap_or_default()
+        .map_or_default(|item| item.to_value().unwrap())
 }
 
 fn number(draft: &Draft, key: impl Into<eukhe_chord::delta::Seg>) -> f64 {

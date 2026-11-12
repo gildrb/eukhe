@@ -373,8 +373,7 @@ pub(crate) fn enabled_message(doc: &LoopDoc) -> String {
         .state
         .condition
         .as_ref()
-        .map(|condition| format!(" Continuing {}.", describe_condition(condition)))
-        .unwrap_or_default();
+        .map_or_default(|condition| format!(" Continuing {}.", describe_condition(condition)));
     let tail = if doc.state.prompt.is_empty() {
         "Your next prompt will repeat after each turn."
     } else {
@@ -392,8 +391,7 @@ pub(crate) fn end_message(doc: &LoopDoc, end: LoopEnd) -> String {
         .state
         .condition
         .as_ref()
-        .map(|condition| quote_command(&condition.command))
-        .unwrap_or_default();
+        .map_or_default(|condition| quote_command(&condition.command));
     match end {
         LoopEnd::Stopped => "Loop mode disabled.".to_owned(),
         LoopEnd::OutOfTurns => "Loop limit reached. Loop mode disabled.".to_owned(),
@@ -418,8 +416,7 @@ pub(crate) fn end_message(doc: &LoopDoc, end: LoopEnd) -> String {
                 .as_deref()
                 .map(preview)
                 .filter(|line| !line.is_empty())
-                .map(|line| format!(": {line}"))
-                .unwrap_or_default();
+                .map_or_default(|line| format!(": {line}"));
             match doc.state.last_check.map(|check| check.evidence) {
                 Some(LoopEvidence::TimedOut) => format!(
                     "Loop condition {command} timed out after {}s. Loop mode disabled.",

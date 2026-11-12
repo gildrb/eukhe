@@ -138,14 +138,13 @@ pub(crate) fn last_assistant_text(messages: &[Value]) -> Option<String> {
         message
             .get("content")
             .and_then(Value::as_array)
-            .map(|blocks| {
+            .map_or_default(|blocks| {
                 blocks
                     .iter()
                     .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
                     .filter_map(|block| block.get("text").and_then(Value::as_str))
                     .collect::<String>()
-            })
-            .unwrap_or_default(),
+            }),
     )
 }
 

@@ -260,9 +260,7 @@ impl Supervisor {
                 }
             };
             resident.descriptor.lock().await.consecutive_failures = u64::from(failures);
-            let cause = failure
-                .map(|failure| format!(" ({failure})"))
-                .unwrap_or_default();
+            let cause = failure.map_or_default(|failure| format!(" ({failure})"));
             self.log_line(&format!(
                 "session worker {} exited unexpectedly{cause}; restarting in {}ms (failure {failures}/{RESTART_GIVE_UP_AFTER})",
                 resident.worker_id,

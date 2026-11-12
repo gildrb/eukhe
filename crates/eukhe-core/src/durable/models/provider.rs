@@ -1242,8 +1242,7 @@ fn fallback_session_file(inner: &Inner) -> String {
         .deps
         .storage_dir
         .as_ref()
-        .map(|dir| dir.display().to_string())
-        .unwrap_or_default()
+        .map_or_default(|dir| dir.display().to_string())
 }
 
 #[cfg(test)]

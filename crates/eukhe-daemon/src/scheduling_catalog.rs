@@ -889,9 +889,8 @@ impl Supervisor {
         if !succeeded {
             return outcome;
         }
-        let selector = crate::protocol::command_active_session_id(command)
-            .map(str::to_string)
-            .unwrap_or_default();
+        let selector =
+            crate::protocol::command_active_session_id(command).map_or_default(str::to_string);
         let promoted = match self.registry.resolve(&selector).await {
             Ok(resident) => self.promote_owned_worker(&resident, client_id).await,
             Err(_) => Ok(()), // the worker it answered for is gone; nothing to promote

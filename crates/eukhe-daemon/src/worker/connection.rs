@@ -1065,13 +1065,9 @@ impl Worker {
         // The shown conversation's active context (TS `session.state.messages`:
         // the compaction summary first, then the kept entries), from the same
         // mirror (and under the same lock) the event sequence advances with.
-        let mut messages: Vec<Value> = core
-            .view
-            .as_ref()
-            .map(|view| {
-                crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
-            })
-            .unwrap_or_default();
+        let mut messages: Vec<Value> = core.view.as_ref().map_or_default(|view| {
+            crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
+        });
         // A streaming assistant message is part of the attach state: the
         // client shows the in-flight partial, later `message_update`s
         // continue it.
@@ -1159,8 +1155,7 @@ impl Worker {
                 .get("env")
                 .cloned()
                 .and_then(|env| serde_json::from_value(env).ok())
-                .map(|env| crate::herdr::filter_client_env(&env))
-                .unwrap_or_default();
+                .map_or_default(|env| crate::herdr::filter_client_env(&env));
             if let Some(config) = crate::herdr::HerdrConfig::from_env(&client_env) {
                 let (active, session_ref, rlm_depth) = {
                     let core = self.core.lock().unwrap();

@@ -30,8 +30,7 @@ pub fn render(
     let output = card
         .result
         .as_ref()
-        .map(|result| result.text_output(show_images))
-        .unwrap_or_default();
+        .map_or_default(|result| result.text_output(show_images));
     let output = output.trim();
     let mut rows = vec![summary_row(card, output).element(width)];
     if detail.tool_output_expanded() {
@@ -119,8 +118,7 @@ fn call_summary(name: &str, args: &Value) -> (String, Vec<(String, ThemeColor)>)
             });
             let argument = first_string
                 .or_else(|| string_arg(args, "i"))
-                .map(first_line)
-                .unwrap_or_default();
+                .map_or_default(first_line);
             (argument.to_string(), Vec::new())
         }
     }

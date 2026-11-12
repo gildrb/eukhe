@@ -19,7 +19,7 @@ pub struct TreeNodeData {
 pub fn parse_flat_nodes(data: &Value) -> Vec<TreeNodeData> {
     data.get("flatNodes")
         .and_then(Value::as_array)
-        .map(|nodes| {
+        .map_or_default(|nodes| {
             nodes
                 .iter()
                 .filter_map(|node| {
@@ -38,7 +38,6 @@ pub fn parse_flat_nodes(data: &Value) -> Vec<TreeNodeData> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// A tree node: its data plus its children (siblings sorted by timestamp,

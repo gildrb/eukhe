@@ -925,9 +925,10 @@ impl SettingsMenu {
         for (position, (value, description)) in options[start..end].iter().enumerate() {
             let position = start + position;
             let selected = position == sub.selected;
-            let trailing: Vec<crate::menu_panel::MenuSegment> = description
-                .map(|description| vec![crate::menu_panel::MenuSegment::muted(description)])
-                .unwrap_or_default();
+            let trailing: Vec<crate::menu_panel::MenuSegment> =
+                description.map_or_default(|description| {
+                    vec![crate::menu_panel::MenuSegment::muted(description)]
+                });
             lines.push(crate::menu_panel::menu_row(
                 theme,
                 width,

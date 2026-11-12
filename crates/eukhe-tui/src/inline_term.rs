@@ -780,7 +780,7 @@ impl InlineTerminal {
                     "the cursor is on row {} col {}, expected row {row}{}",
                     got.row,
                     got.col,
-                    placed.map(|col| format!(" col {col}")).unwrap_or_default()
+                    placed.map_or_default(|col| format!(" col {col}"))
                 ));
             }
             None
@@ -1111,8 +1111,7 @@ fn fresh_screen(width: usize, rows: &[Row]) -> Vt {
 
 /// The start of a row's text, for a rejection message.
 fn excerpt(row: Option<&VtRow>) -> String {
-    row.map(VtRow::text)
-        .unwrap_or_default()
+    row.map_or_default(VtRow::text)
         .chars()
         .take(EXCERPT_CHARS)
         .collect()

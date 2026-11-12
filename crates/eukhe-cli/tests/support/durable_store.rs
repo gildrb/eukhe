@@ -13,15 +13,13 @@ use eukhe_core::durable::{read_main_transcript, SessionLocation};
 /// The durable session storages in `sessions_dir` (directories holding a
 /// `main.jsonl`), sorted by path.
 pub fn session_dirs(sessions_dir: &Path) -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(sessions_dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| path.join("main.jsonl").is_file())
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(sessions_dir).map_or_default(|entries| {
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.join("main.jsonl").is_file())
+            .collect()
+    });
     dirs.sort();
     dirs
 }

@@ -483,7 +483,7 @@ pub fn truncate_line(line: &Line, max_width: usize, ellipsis: &str) -> Line {
 }
 
 fn ellipsis_span_style(line: &Line) -> crate::style::Style {
-    line.last().map(|s| s.style).unwrap_or_default()
+    line.last().map_or_default(|s| s.style)
 }
 
 fn push_char(out: &mut Line, style: crate::style::Style, c: char) {

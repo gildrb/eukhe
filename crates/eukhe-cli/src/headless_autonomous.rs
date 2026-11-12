@@ -47,14 +47,12 @@ pub fn autonomous_exit_stderr(status: &AgentAutonomousStatus) -> Option<String> 
         .as_ref()
         .filter(|_| status.enabled && !status.gates.commands.is_empty())
     {
-        let limit_text = limit
-            .map(|reason| {
-                format!(
-                    "; autonomous limit reached: {}",
-                    describe_autonomous_limit(status, reason, now)
-                )
-            })
-            .unwrap_or_default();
+        let limit_text = limit.map_or_default(|reason| {
+            format!(
+                "; autonomous limit reached: {}",
+                describe_autonomous_limit(status, reason, now)
+            )
+        });
         return Some(format!(
             "Autonomous quality gate still failing after attempt {}/{}: {}{}",
             latest_autonomous_gate_attempt(status),

@@ -92,12 +92,11 @@ async fn ledger(harness: &Harness, conversation: ConversationId) -> Vec<UnknownE
         .snapshot(&EFFECTS_DOC, conversation, context())
         .await
         .unwrap()
-        .map(|value| {
+        .map_or_default(|value| {
             from_json::<EffectsState>(&JsonValue::Object(value))
                 .unwrap()
                 .unknown
         })
-        .unwrap_or_default()
 }
 
 /// What became of one `pwrite` call cut by a restart: its runs, its

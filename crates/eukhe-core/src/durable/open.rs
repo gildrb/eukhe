@@ -357,10 +357,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     // Follow the commits before the first one after open; the storage
     // keeps its history until the state tree takes it.
     let state_tree = match LiveStateTree::start(&harness, || {
-        jsonl
-            .as_deref()
-            .map(JsonlStorage::take_history)
-            .unwrap_or_default()
+        jsonl.as_deref().map_or_default(JsonlStorage::take_history)
     }) {
         Ok(state_tree) => Arc::new(state_tree),
         Err(error) => {

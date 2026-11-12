@@ -263,15 +263,13 @@ impl World {
     /// depth-1 session keeps no chat).
     fn session_chat(&self) -> Option<PathBuf> {
         let sessions = self.agent_dir.join("chat").join("sessions");
-        let mut dirs: Vec<PathBuf> = std::fs::read_dir(sessions)
-            .map(|entries| {
-                entries
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|path| path.is_dir())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(sessions).map_or_default(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect()
+        });
         assert!(dirs.len() <= 1, "one session chat: {dirs:?}");
         dirs.pop()
     }
@@ -279,15 +277,13 @@ impl World {
     /// Every chat-memory message line of the session's chat, in file order.
     fn chat_messages(&self) -> Vec<Value> {
         self.session_chat()
-            .map(|chat| jsonl_lines(&chat.join("main")))
-            .unwrap_or_default()
+            .map_or_default(|chat| jsonl_lines(&chat.join("main")))
     }
 
     /// Every chat-memory tree line of the session's chat, in file order.
     fn chat_tree(&self) -> Vec<Value> {
         self.session_chat()
-            .map(|chat| jsonl_lines(&chat.join("tree")))
-            .unwrap_or_default()
+            .map_or_default(|chat| jsonl_lines(&chat.join("tree")))
     }
 }
 
@@ -308,18 +304,16 @@ fn log_files(dir: &Path) -> Vec<PathBuf> {
 
 /// The lines of every `*.jsonl` file under `dir`, files in name order.
 fn jsonl_lines(dir: &Path) -> Vec<Value> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| {
-                    path.extension()
-                        .is_some_and(|extension| extension == "jsonl")
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir).map_or_default(|entries| {
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "jsonl")
+            })
+            .collect()
+    });
     files.sort();
     files
         .iter()

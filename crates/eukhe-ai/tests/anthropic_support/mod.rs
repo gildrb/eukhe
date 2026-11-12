@@ -34,9 +34,7 @@ impl CapturedRequest {
     /// The URL path (no query).
     #[must_use]
     pub fn path(&self) -> String {
-        reqwest::Url::parse(&self.url)
-            .map(|url| url.path().to_owned())
-            .unwrap_or_default()
+        reqwest::Url::parse(&self.url).map_or_default(|url| url.path().to_owned())
     }
 }
 

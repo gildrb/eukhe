@@ -92,8 +92,7 @@ pub fn engine_options(cvars: &Cvars) -> EngineOptions {
             .unwrap_or_default(),
         runtime_library: cvars
             .optional_text(&table::PROVIDERS_TINY_RUNTIME_LIBRARY)
-            .map(PathBuf::from)
-            .unwrap_or_default(),
+            .map_or_default(PathBuf::from),
     }
 }
 

@@ -369,11 +369,7 @@ impl Worker {
     ) -> SessionResult<Vec<QueuedInput>> {
         let (busy, inbox) = {
             let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
-            let inbox = core
-                .view
-                .as_ref()
-                .map(|view| view.inbox.clone())
-                .unwrap_or_default();
+            let inbox = core.view.as_ref().map_or_default(|view| view.inbox.clone());
             (core.is_busy(), inbox)
         };
         if !busy && inbox.is_empty() {

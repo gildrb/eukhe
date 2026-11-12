@@ -156,8 +156,7 @@ pub async fn mock_fetch(response: MockResponse) -> (FetchFunction, Captured) {
         let body = request
             .body()
             .and_then(reqwest::Body::as_bytes)
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned());
         *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(CapturedRequest {
             url: request.url().to_string(),
             headers: request.headers().clone(),

@@ -231,9 +231,7 @@ impl Worker {
         let session = SessionSlot::default();
         let recovery = Arc::new(Mutex::new(None));
         let roster_link = std::sync::Arc::new(crate::supervisor_link::SupervisorLink::new(
-            std::env::var_os(WORKER_SUPERVISOR_SOCKET_ENV)
-                .map(std::path::PathBuf::from)
-                .unwrap_or_default(),
+            std::env::var_os(WORKER_SUPERVISOR_SOCKET_ENV).map_or_default(std::path::PathBuf::from),
         ));
         let worker_token = std::env::var(WORKER_TOKEN_ENV).unwrap_or_default();
         let roster_delta_sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -362,8 +360,7 @@ impl Worker {
             job_notices: Mutex::new(None),
             agent_replies: Arc::new(agent_reply::AgentReplies::new(
                 std::env::var_os(WORKER_SUPERVISOR_SOCKET_ENV)
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_default(),
+                    .map_or_default(std::path::PathBuf::from),
             )),
             harness_failure: tokio::sync::watch::Sender::new(None),
             this: std::sync::OnceLock::new(),

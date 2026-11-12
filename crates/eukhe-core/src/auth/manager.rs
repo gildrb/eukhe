@@ -678,7 +678,7 @@ impl AuthStorage {
     ) -> Vec<&AuthSourceToken> {
         self.stale_auth_sources
             .get(provider)
-            .map(|stale| {
+            .map_or_default(|stale| {
                 stale
                     .iter()
                     .filter(|token| {
@@ -687,7 +687,6 @@ impl AuthStorage {
                     })
                     .collect()
             })
-            .unwrap_or_default()
     }
 
     fn is_stale(&self, provider: &str, candidate: &AuthSourceCandidate) -> bool {

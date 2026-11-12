@@ -436,15 +436,13 @@ pub(crate) fn storage_for_path(path: &Path) -> (String, PathBuf) {
     {
         let id = path
             .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|stem| stem.to_string_lossy().into_owned());
         let dir = path.with_extension("");
         (id, dir)
     } else {
         let id = path
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().into_owned());
         (id, path.to_path_buf())
     }
 }

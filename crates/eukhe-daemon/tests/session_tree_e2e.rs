@@ -117,15 +117,12 @@ impl Client {
 fn content_text(content: &serde_json::Value) -> String {
     match content.as_str() {
         Some(text) => text.to_string(),
-        None => content
-            .as_array()
-            .map(|blocks| {
-                blocks
-                    .iter()
-                    .filter_map(|b| b["text"].as_str())
-                    .collect::<String>()
-            })
-            .unwrap_or_default(),
+        None => content.as_array().map_or_default(|blocks| {
+            blocks
+                .iter()
+                .filter_map(|b| b["text"].as_str())
+                .collect::<String>()
+        }),
     }
 }
 

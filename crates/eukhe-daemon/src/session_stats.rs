@@ -201,13 +201,12 @@ fn tool_call_count(message: &Value) -> u64 {
     message
         .get("content")
         .and_then(Value::as_array)
-        .map(|blocks| {
+        .map_or_default(|blocks| {
             blocks
                 .iter()
                 .filter(|block| block.get("type").and_then(Value::as_str) == Some("toolCall"))
                 .count() as u64
         })
-        .unwrap_or_default()
 }
 
 /// Context usage (TS `getContextUsage`): the last valid assistant usage

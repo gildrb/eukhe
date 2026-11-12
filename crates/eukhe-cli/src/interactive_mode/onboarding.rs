@@ -37,13 +37,9 @@ impl StartupModelProbe {
         let all: Vec<eukhe_types::ai::Model> = registry.get_all().cloned().collect();
         let available: Vec<eukhe_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
-        let scoped = self
-            .models
-            .as_deref()
-            .map(|patterns| {
-                eukhe_core::models::resolve_model_scope_from_models(patterns, &available)
-            })
-            .unwrap_or_default();
+        let scoped = self.models.as_deref().map_or_default(|patterns| {
+            eukhe_core::models::resolve_model_scope_from_models(patterns, &available)
+        });
         // The saved chat model: the chat role's (`defaultProvider`/
         // `defaultModel`, else `modelRoles.all`).
         let chat = eukhe_core::models::roles::role_model(

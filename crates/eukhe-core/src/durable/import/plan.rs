@@ -306,14 +306,13 @@ impl<'a> Planner<'a> {
                 .as_ref()
                 .and_then(|details| details.get(key))
                 .and_then(serde_json::Value::as_array)
-                .map(|paths| {
+                .map_or_default(|paths| {
                     paths
                         .iter()
                         .filter_map(serde_json::Value::as_str)
                         .map(str::to_owned)
                         .collect()
                 })
-                .unwrap_or_default()
         };
         let typed_summary = CompactionSummary {
             summary: strip_file_list_blocks(&payload.summary),

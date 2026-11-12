@@ -760,8 +760,8 @@ fn child_ledger_session_id(ledger: &[LedgerEvent]) -> String {
 /// The child sessions the parent's spawns created: one directory per child
 /// id under the parent's session artifacts.
 fn child_dirs(agent_dir: &Path, parent_session_id: &str) -> Vec<PathBuf> {
-    std::fs::read_dir(agent_dir.join("session-artifacts").join(parent_session_id))
-        .map(|entries| {
+    std::fs::read_dir(agent_dir.join("session-artifacts").join(parent_session_id)).map_or_default(
+        |entries| {
             entries
                 .filter_map(std::result::Result::ok)
                 .map(|entry| entry.path())
@@ -772,21 +772,21 @@ fn child_dirs(agent_dir: &Path, parent_session_id: &str) -> Vec<PathBuf> {
                             .is_some_and(|name| name.to_string_lossy().starts_with("sub-"))
                 })
                 .collect()
-        })
-        .unwrap_or_default()
+        },
+    )
 }
 
 /// The spawn records of the spawn ledger.
 fn ledger_spawns(agent_dir: &Path) -> usize {
-    std::fs::read_dir(agent_dir.join(eukhe_daemon::rlm_ledger::RLM_LEDGER_DIR))
-        .map(|entries| {
+    std::fs::read_dir(agent_dir.join(eukhe_daemon::rlm_ledger::RLM_LEDGER_DIR)).map_or_default(
+        |entries| {
             entries
                 .filter_map(std::result::Result::ok)
                 .map(|entry| std::fs::read_to_string(entry.path()).unwrap_or_default())
                 .map(|content| content.matches("\"op\":\"spawn\"").count())
                 .sum()
-        })
-        .unwrap_or_default()
+        },
+    )
 }
 
 /// Exactly-once spawns (spec O1, O2, O7): the parent worker dies by

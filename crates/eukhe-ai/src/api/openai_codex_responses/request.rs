@@ -89,9 +89,8 @@ pub(crate) fn build_request_body(
         },
     )?;
 
-    let instructions = get_initial_system_message(context.messages())
-        .map(get_system_message_text)
-        .unwrap_or_default();
+    let instructions =
+        get_initial_system_message(context.messages()).map_or_default(get_system_message_text);
     let mut body = JsonObject::new();
     body.insert("model".into(), json!(model.id));
     body.insert("store".into(), json!(false));

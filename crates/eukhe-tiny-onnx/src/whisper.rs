@@ -167,7 +167,7 @@ impl Engine for WhisperEngine {
         }
         Ok(Transcript {
             text: texts.join(" "),
-            language: language.map(|(code, _)| code).unwrap_or_default(),
+            language: language.map_or_default(|(code, _)| code),
         })
     }
 

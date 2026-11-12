@@ -298,8 +298,7 @@ fn print_resume_refuses_a_foreign_lease_holder() {
     let holder_image = std::env::current_exe()
         .expect("own exe")
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     let expected = format!(
         concat!(
             "Error: This session is currently open in another instance of Eukhe ",

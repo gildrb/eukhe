@@ -615,8 +615,7 @@ async fn classify(
             let session_model = agent
                 .model
                 .as_ref()
-                .map(|model| format!("{}/{}", model.provider, model.model_id))
-                .unwrap_or_default();
+                .map_or_default(|model| format!("{}/{}", model.provider, model.model_id));
             resolve(models.clone(), session_model)
                 .await
                 .map_err(|error| SessionError::Other(Arc::from(error)))?

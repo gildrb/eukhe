@@ -40,16 +40,13 @@ fn main() {
     let fixture_path = args.next().expect("fixture path");
     let viewport_rows: usize = args.next().expect("viewport rows").parse().expect("rows");
     let width: usize = args.next().expect("width").parse().expect("width");
-    let keys: Vec<String> = args
-        .next()
-        .map(|sequence| {
-            sequence
-                .split(' ')
-                .filter(|key| !key.is_empty() && *key != "-")
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let keys: Vec<String> = args.next().map_or_default(|sequence| {
+        sequence
+            .split(' ')
+            .filter(|key| !key.is_empty() && *key != "-")
+            .map(str::to_string)
+            .collect()
+    });
     let mut fixture = String::new();
     std::fs::File::open(&fixture_path)
         .expect("fixture file")

@@ -339,8 +339,7 @@ async fn host_requests_round_trip_to_registered_handlers() {
     let message = error
         .error
         .as_ref()
-        .map(|kernel_error| kernel_error.evalue.as_str())
-        .unwrap_or_default();
+        .map_or_default(|kernel_error| kernel_error.evalue.as_str());
     assert!(
         message.contains("not available in this session"),
         "expected the TS unavailable-handler error, got stderr {:?} error {:?}",

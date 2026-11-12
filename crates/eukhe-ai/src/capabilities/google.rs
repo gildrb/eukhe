@@ -36,9 +36,8 @@ pub(crate) async fn count_tokens(
     let mut request = JsonObject::new();
     request.insert("model".into(), format!("{MODEL_PREFIX}{}", model.id).into());
     request.insert("contents".into(), convert_messages(model, context).into());
-    let system = get_initial_system_message(context.messages())
-        .map(get_system_message_text)
-        .unwrap_or_default();
+    let system =
+        get_initial_system_message(context.messages()).map_or_default(get_system_message_text);
     if !system.is_empty() {
         request.insert(
             "systemInstruction".into(),
@@ -223,14 +222,13 @@ pub(crate) async fn web_search(
     let answer: String = candidate
         .pointer("/content/parts")
         .and_then(JsonValue::as_array)
-        .map(|parts| {
+        .map_or_default(|parts| {
             parts
                 .iter()
                 .filter(|part| part.get("thought") != Some(&JsonValue::Bool(true)))
                 .filter_map(|part| part.get("text").and_then(JsonValue::as_str))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let mut sources: Vec<WebSource> = Vec::new();
     let chunks = candidate
         .pointer("/groundingMetadata/groundingChunks")

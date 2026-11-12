@@ -189,13 +189,12 @@ fn a_tool_call_past_the_budget_is_not_run_and_the_agent_still_answers() {
         .map(|event| {
             let text = event["result"]["content"]
                 .as_array()
-                .map(|blocks| {
+                .map_or_default(|blocks| {
                     blocks
                         .iter()
                         .filter_map(|block| block["text"].as_str())
                         .collect::<String>()
-                })
-                .unwrap_or_default();
+                });
             (event["isError"].as_bool().unwrap_or(false), text)
         })
         .collect();

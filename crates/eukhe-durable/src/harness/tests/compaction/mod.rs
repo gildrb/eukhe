@@ -135,8 +135,7 @@ impl Script {
         self.state()
             .agent_requests
             .last()
-            .map(|request| request.messages.clone())
-            .unwrap_or_default()
+            .map_or_default(|request| request.messages.clone())
     }
 }
 

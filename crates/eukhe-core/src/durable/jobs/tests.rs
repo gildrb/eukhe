@@ -365,8 +365,9 @@ async fn a_stale_job_is_reported_interrupted_once() {
         .snapshot(&EFFECTS_DOC, root.id(), cx)
         .await
         .expect("the ledger reads")
-        .map(|value| from_json::<EffectsState>(&JsonValue::Object(value)).expect("a ledger"))
-        .unwrap_or_default()
+        .map_or_default(|value| {
+            from_json::<EffectsState>(&JsonValue::Object(value)).expect("a ledger")
+        })
         .unknown
         .into_iter()
         .map(|effect| (effect.id, effect.kind, effect.what, effect.resolution))

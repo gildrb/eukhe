@@ -447,7 +447,7 @@ fn deep_chain_walks_and_renders() {
         .iter()
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())
         .collect();
-    let counter = text.last().map(String::as_str).unwrap_or_default();
+    let counter = text.last().map_or_default(String::as_str);
     assert!(counter.contains("(5000/5000)"), "counter: {text:?}");
 }
 

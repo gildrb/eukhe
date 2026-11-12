@@ -929,10 +929,7 @@ async fn commit_step(
                 };
                 let (directors_draft, mut state) =
                     open_doc(&tx, &DIRECTORS_DOC, conversation_id).await?;
-                let goal_state = goal
-                    .as_ref()
-                    .map(|(_, goal)| goal.clone())
-                    .unwrap_or_default();
+                let goal_state = goal.as_ref().map_or_default(|(_, goal)| goal.clone());
                 let autonomous_state = autonomous
                     .as_ref()
                     .map_or_else(AutonomousDocState::initial, |(_, state)| state.clone());

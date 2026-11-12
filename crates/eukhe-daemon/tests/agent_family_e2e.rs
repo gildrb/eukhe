@@ -245,14 +245,12 @@ fn write_faux_script(dir: &Path, name: &str, responses: &Value) -> PathBuf {
 /// The receipts-dir listing for a timeout message (what the workers
 /// actually recorded so far).
 fn receipt_listing(dir: &Path) -> String {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .filter_map(std::result::Result::ok)
-                .map(|entry| entry.file_name().to_string_lossy().to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut names: Vec<String> = std::fs::read_dir(dir).map_or_default(|entries| {
+        entries
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect()
+    });
     names.sort();
     names.join(", ")
 }

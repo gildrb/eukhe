@@ -13,7 +13,7 @@ impl SessionManager {
         if let Some(window) = &mut self.window {
             window.append_entry(entry.clone());
         }
-        let id = entry.id().map(str::to_string).unwrap_or_default();
+        let id = entry.id().map_or_default(str::to_string);
         self.file_entries.push(entry);
         if !id.is_empty() {
             self.by_id.insert(id.clone(), self.file_entries.len() - 1);

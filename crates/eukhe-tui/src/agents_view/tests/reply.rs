@@ -405,8 +405,7 @@ fn the_reply_completion_lists_session_and_view_commands() {
     let labels: Vec<String> = reply
         .editor
         .autocomplete_state()
-        .map(|state| state.items.iter().map(|item| item.label.clone()).collect())
-        .unwrap_or_default();
+        .map_or_default(|state| state.items.iter().map(|item| item.label.clone()).collect());
     assert!(
         labels.iter().any(|label| label.contains("compact")),
         "the session commands suggest: {labels:?}"

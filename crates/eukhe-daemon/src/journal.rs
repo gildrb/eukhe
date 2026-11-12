@@ -21,8 +21,7 @@ const GROUP_JOURNAL_SUFFIX: &str = ".groups.jsonl";
 pub(crate) fn group_journal_path(recovery_journal: &Path) -> PathBuf {
     let name = recovery_journal
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     let stem = name.strip_suffix(RECOVERY_JOURNAL_SUFFIX).unwrap_or(&name);
     recovery_journal.with_file_name(format!("{stem}{GROUP_JOURNAL_SUFFIX}"))
 }

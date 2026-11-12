@@ -107,8 +107,7 @@ impl MatchCandidates {
 fn match_candidates(file_path: &Path, base_dir: &Path) -> MatchCandidates {
     let name = file_path
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     let is_skill_file = name == "SKILL.md";
     let (parent_rel, parent_name, parent_full) = if is_skill_file {
         let parent = file_path.parent().unwrap_or(file_path);
@@ -117,8 +116,7 @@ fn match_candidates(file_path: &Path, base_dir: &Path) -> MatchCandidates {
             Some(
                 parent
                     .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
+                    .map_or_default(|name| name.to_string_lossy().into_owned()),
             ),
             Some(path_to_posix(parent)),
         )

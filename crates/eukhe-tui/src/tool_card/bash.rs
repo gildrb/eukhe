@@ -30,8 +30,7 @@ pub fn render(
     let output = card
         .result
         .as_ref()
-        .map(|result| result.text_output(show_images))
-        .unwrap_or_default();
+        .map_or_default(|result| result.text_output(show_images));
     let output = output.trim();
     let mut rows = vec![summary_row(card, script, output).element(width)];
     if detail.tool_output_expanded() {

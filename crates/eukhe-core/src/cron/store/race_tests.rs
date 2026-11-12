@@ -335,16 +335,13 @@ fn a_live_lock_holder_is_never_robbed() {
         .flat_map(|state| state.dispatches)
         .map(|record| record.id)
         .collect();
-    let lost_claims: Vec<String> = rival_claims
-        .as_ref()
-        .map(|claimed| {
-            claimed
-                .iter()
-                .map(|running| running.dispatch().id.clone())
-                .filter(|id| !records.contains(id))
-                .collect()
-        })
-        .unwrap_or_default();
+    let lost_claims: Vec<String> = rival_claims.as_ref().map_or_default(|claimed| {
+        claimed
+            .iter()
+            .map(|running| running.dispatch().id.clone())
+            .filter(|id| !records.contains(id))
+            .collect()
+    });
     assert!(
         lost_claims.is_empty() && successor_survived != Some(false),
         "R4: the lock was taken from its live holder: rival claims lost from the file: \

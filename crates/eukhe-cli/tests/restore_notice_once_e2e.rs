@@ -337,11 +337,7 @@ async fn each_restore_notice_shows_once_across_reconnects() {
     );
     // The last frame holds the whole inline scrollback (each transcript a
     // rebuild wrote) and the live area.
-    let transcript = outcome
-        .frames
-        .last()
-        .map(String::as_str)
-        .unwrap_or_default();
+    let transcript = outcome.frames.last().map_or_default(String::as_str);
     assert_eq!(
         transcript.matches(RESTORE_ROW).count(),
         RESTARTS,

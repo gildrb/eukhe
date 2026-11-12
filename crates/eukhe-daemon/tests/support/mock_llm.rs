@@ -327,9 +327,7 @@ fn classify(index: usize, body: Value, raw_len: usize, idempotency_key: Option<S
     let prompt_at = messages
         .iter()
         .rposition(|message| message["role"] == "user" && !is_harness_notice(message));
-    let last_user_text = prompt_at
-        .map(|at| message_text(&messages[at]))
-        .unwrap_or_default();
+    let last_user_text = prompt_at.map_or_default(|at| message_text(&messages[at]));
     let summarizer = messages
         .iter()
         .any(|message| message_text(message).contains(SUMMARIZER_MARKER));

@@ -69,8 +69,7 @@ pub(crate) fn mock_fetch(
             body: request
                 .body()
                 .and_then(reqwest::Body::as_bytes)
-                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-                .unwrap_or_default(),
+                .map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned()),
         };
         let response = handler(&recorded);
         sink.lock()

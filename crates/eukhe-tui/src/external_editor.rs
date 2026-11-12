@@ -30,8 +30,7 @@ pub(crate) fn editor_command() -> Option<String> {
 pub(crate) async fn edit(command: &str, text: &str) -> Result<Option<String>> {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_millis())
-        .unwrap_or_default();
+        .map_or_default(|since| since.as_millis());
     // The name shows in the user's editor buffer; the TS `pi-editor-*`
     // form is scrubbed per the branding rule (a deliberate deviation).
     let path = std::env::temp_dir().join(format!("eukhe-editor-{millis}.md"));

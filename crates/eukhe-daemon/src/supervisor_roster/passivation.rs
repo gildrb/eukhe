@@ -760,18 +760,15 @@ async fn stop_leaves_the_first_roster_snapshot_clean_behind_hundreds_of_seeded_r
         .handle_roster_subscribe("s1", "roster_subscribe")
         .await;
     let roster = before.data.expect("roster snapshot")["roster"].clone();
-    let family_rows = roster
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter(|entry| {
-                    entry["summary"]["rlmChildId"]
-                        .as_str()
-                        .is_some_and(|id| id.starts_with("sub-flash-"))
-                })
-                .count()
-        })
-        .unwrap_or_default();
+    let family_rows = roster.as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter(|entry| {
+                entry["summary"]["rlmChildId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("sub-flash-"))
+            })
+            .count()
+    });
     assert_eq!(
         family_rows, 300,
         "a resident root's seeded family serves to subscribers (TS parity)"
@@ -785,18 +782,15 @@ async fn stop_leaves_the_first_roster_snapshot_clean_behind_hundreds_of_seeded_r
         .handle_roster_subscribe("s2", "roster_subscribe")
         .await;
     let roster = after.data.expect("roster snapshot")["roster"].clone();
-    let family_rows = roster
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter(|entry| {
-                    entry["summary"]["rlmChildId"]
-                        .as_str()
-                        .is_some_and(|id| id.starts_with("sub-flash-"))
-                })
-                .count()
-        })
-        .unwrap_or_default();
+    let family_rows = roster.as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter(|entry| {
+                entry["summary"]["rlmChildId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("sub-flash-"))
+            })
+            .count()
+    });
     assert_eq!(
         family_rows, 0,
         "the first roster snapshot behind a departed family is clean: {roster:?}"

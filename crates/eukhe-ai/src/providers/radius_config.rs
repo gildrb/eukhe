@@ -108,8 +108,7 @@ pub fn get_radius_models_from_config(
 #[must_use]
 pub fn get_radius_models(provider_id: &str, credential: Option<&OAuthCredential>) -> Vec<Model> {
     get_radius_credential_config(credential)
-        .map(|config| get_radius_models_from_config(provider_id, &config))
-        .unwrap_or_default()
+        .map_or_default(|config| get_radius_models_from_config(provider_id, &config))
 }
 
 fn truncate_http_body(body: &str) -> String {

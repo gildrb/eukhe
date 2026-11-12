@@ -138,8 +138,7 @@ async fn run(
         let images = message
             .get("images")
             .and_then(JsonValue::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
+            .map_or_default(Vec::as_slice);
         for image in images {
             let image_url = match image.get("image_url") {
                 Some(JsonValue::String(url)) => Some(url.as_str()),

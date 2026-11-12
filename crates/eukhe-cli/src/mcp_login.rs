@@ -151,10 +151,7 @@ impl TerminalMcpAuth {
         } else {
             Ok(format!(
                 "Saved the token for {server}; verification pending{}.",
-                outcome
-                    .error
-                    .map(|error| format!(" ({error})"))
-                    .unwrap_or_default()
+                outcome.error.map_or_default(|error| format!(" ({error})"))
             ))
         }
     }

@@ -538,8 +538,7 @@ impl SessionUi {
             "side-notice-{}-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_millis())
-                .unwrap_or_default(),
+                .map_or_default(|since| since.as_millis()),
             self.side_question_counter
         );
         let turn = crate::side_question::SideQuestionTurn {
@@ -572,25 +571,21 @@ impl SessionUi {
             );
             return Ok(());
         }
-        let previous_turns: Vec<serde_json::Value> = view
-            .side_pane
-            .as_ref()
-            .map(|pane| {
+        let previous_turns: Vec<serde_json::Value> =
+            view.side_pane.as_ref().map_or_default(|pane| {
                 pane.seed_turns()
                     .into_iter()
                     .map(|(question, answer)| {
                         serde_json::json!({ "question": question, "answer": answer })
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         self.side_question_counter += 1;
         let id = format!(
             "side-{}-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_millis())
-                .unwrap_or_default(),
+                .map_or_default(|since| since.as_millis()),
             self.side_question_counter
         );
         let turn = crate::side_question::SideQuestionTurn {

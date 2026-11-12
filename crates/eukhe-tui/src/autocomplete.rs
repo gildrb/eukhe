@@ -768,8 +768,7 @@ fn autocomplete_source_tag(source_info: &serde_json::Value) -> Option<String> {
     let source = source_info
         .get("source")
         .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default();
+        .map_or_default(str::trim);
     if source == "builtin" {
         return Some("builtin".to_string());
     }

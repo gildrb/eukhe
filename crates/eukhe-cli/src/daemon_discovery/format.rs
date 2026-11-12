@@ -31,13 +31,12 @@ pub(crate) fn format_daemon_list_table(daemons: &[DaemonInfo], styling: Styling)
                 } else {
                     daemon.socket_path.display().to_string()
                 },
-                daemon.pid.map(|pid| pid.to_string()).unwrap_or_default(),
+                daemon.pid.map_or_default(|pid| pid.to_string()),
                 daemon.version.clone().unwrap_or_default(),
                 color_status(styling, daemon.status, &status_name(daemon.status)),
                 daemon
                     .session_count
-                    .map(|count| count.to_string())
-                    .unwrap_or_default(),
+                    .map_or_default(|count| count.to_string()),
                 format_uptime(daemon.uptime_seconds),
             ]
         })

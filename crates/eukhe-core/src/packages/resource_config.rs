@@ -94,13 +94,11 @@ fn scope_word(scope: SourceScope) -> &'static str {
 fn display_name(path: &Path, resource_type: ResourceType) -> String {
     let file_name = path
         .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().to_string());
     let parent_folder = path
         .parent()
         .and_then(|parent| parent.file_name())
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().to_string());
     if resource_type == ResourceType::Skills && file_name == "SKILL.md" {
         return parent_folder;
     }

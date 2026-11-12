@@ -288,8 +288,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     let guidelines = options
         .prompt_guidelines
         .as_deref()
-        .map(format_prompt_guidelines)
-        .unwrap_or_default();
+        .map_or_default(format_prompt_guidelines);
     if !guidelines.is_empty() {
         segments.push(PromptSegment::dynamic_segment(
             "additional-guidance",

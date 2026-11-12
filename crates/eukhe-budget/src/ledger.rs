@@ -1055,8 +1055,7 @@ impl Ledger {
         Ok(Locked::open(&self.account_path(&owner), false)?
             .as_ref()
             .and_then(Locked::state)
-            .map(|state| state.members.clone())
-            .unwrap_or_default())
+            .map_or_default(|state| state.members.clone()))
     }
 
     /// The children `agent` gave a budget of their own from the session's
@@ -1073,15 +1072,14 @@ impl Ledger {
         Ok(Locked::open(&self.account_path(&owner), false)?
             .as_ref()
             .and_then(Locked::state)
-            .map(|state| {
+            .map_or_default(|state| {
                 state
                     .children
                     .iter()
                     .filter(|(_, lent)| lent.agent == agent)
                     .map(|(child, _)| child.clone())
                     .collect()
-            })
-            .unwrap_or_default())
+            }))
     }
 
     /// Reserves for `agent` the first of `offers` (the wanted amount, then
@@ -1607,17 +1605,14 @@ impl Ledger {
         }
         let (_, mut locked) = self.lock()?;
         let now = (self.clock)();
-        let agents: BTreeSet<String> = locked
-            .state()
-            .map(|state| {
-                state
-                    .account
-                    .holds
-                    .iter()
-                    .map(|hold| hold.agent.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let agents: BTreeSet<String> = locked.state().map_or_default(|state| {
+            state
+                .account
+                .holds
+                .iter()
+                .map(|hold| hold.agent.clone())
+                .collect()
+        });
         if !agents.is_empty() {
             if !force {
                 return Ok(None);
@@ -1626,10 +1621,7 @@ impl Ledger {
                 locked.apply(Op::Recover { agent }, now)?;
             }
         }
-        let account = locked
-            .state()
-            .map(|state| state.account.clone())
-            .unwrap_or_default();
+        let account = locked.state().map_or_default(|state| state.account.clone());
         match locked.apply(
             Op::Return {
                 carve: lent.carve,

@@ -118,8 +118,7 @@ async fn read_via_xclip() -> Option<ClipboardImage> {
         DEFAULT_LIST_TIMEOUT,
     )
     .await
-    .map(|stdout| stdout_lines(&stdout))
-    .unwrap_or_default();
+    .map_or_default(|stdout| stdout_lines(&stdout));
     let mut candidates: Vec<String> = Vec::new();
     if let Some(preferred) = select_supported_image_mime_type(&targets) {
         candidates.push(preferred);

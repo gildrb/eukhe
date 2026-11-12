@@ -29,8 +29,7 @@ fn optional_auth(options: &ProviderRequestOptions) -> ProviderHeaders {
         .api_key
         .as_deref()
         .filter(|key| !key.is_empty())
-        .map(|key| header_source([("authorization", format!("Bearer {key}"))]))
-        .unwrap_or_default()
+        .map_or_default(|key| header_source([("authorization", format!("Bearer {key}"))]))
 }
 
 /// The auth header of a key the endpoint requires.

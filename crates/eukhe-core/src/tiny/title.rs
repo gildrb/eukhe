@@ -50,10 +50,7 @@ pub async fn generate_title(request: TitleRequest<'_>) -> Result<TitleOutcome, R
     if request.first_message.trim().is_empty() {
         return Ok(TitleOutcome::Empty);
     }
-    let session_model = request
-        .session_model
-        .map(super::model_selector)
-        .unwrap_or_default();
+    let session_model = request.session_model.map_or_default(super::model_selector);
     let settings = role_settings(request.cvars, Role::Tiny);
     let candidate = match resolve(Role::Tiny, &settings, request.home, &session_model) {
         Pick::Use(candidate) => candidate,

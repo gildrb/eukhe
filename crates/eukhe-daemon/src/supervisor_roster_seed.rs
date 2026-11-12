@@ -496,20 +496,17 @@ impl SeededRosterEntry {
         let child = Path::new(&edge.child);
         let persisted_session_id = child
             .file_stem()
-            .map(|stem| stem.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|stem| stem.to_string_lossy().to_string());
         let dirname = child
             .parent()
-            .map(|dir| dir.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|dir| dir.to_string_lossy().to_string());
         // The parent's persisted session id, by the same file-stem rule: a
         // legacy `<id>.jsonl` and the `<id>/` storage its import becomes
         // share it, so the link survives an import that happens after the
         // row was seeded (the path link names whichever existed then).
         let parent_session_id = Path::new(&edge.parent)
             .file_stem()
-            .map(|stem| stem.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|stem| stem.to_string_lossy().to_string());
         let summary = json!({
             "id": persisted_session_id,
             "lifecycle": "live",
@@ -548,8 +545,7 @@ impl SeededRosterEntry {
             .summary
             .get("sessionFile")
             .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_default();
+            .map_or_default(str::to_string);
         if hydrate_summary_display(&mut self.summary, PathBuf::from(file)).await {
             self.seeded_cwd = false;
         }
@@ -854,8 +850,7 @@ pub(crate) mod tests {
             session_dir: Some(
                 session_file
                     .parent()
-                    .map(|dir| dir.to_string_lossy().to_string())
-                    .unwrap_or_default(),
+                    .map_or_default(|dir| dir.to_string_lossy().to_string()),
             ),
             created_at: "t".to_string(),
             updated_at: "t".to_string(),

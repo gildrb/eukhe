@@ -321,8 +321,7 @@ fn ensure_operations(
     let ops = if state.replacement {
         let root = state
             .root
-            .map(|root| state.nodes[root].base.clone())
-            .unwrap_or_default();
+            .map_or_default(|root| state.nodes[root].base.clone());
         let noop = replacement_base.is_some_and(|base| *base == root);
         if noop {
             Vec::new()

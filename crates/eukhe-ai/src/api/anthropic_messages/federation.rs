@@ -313,9 +313,7 @@ async fn exchange_token(
         } else {
             String::new()
         };
-        let request_id = request_id
-            .map(|id| format!(" (request-id {id})"))
-            .unwrap_or_default();
+        let request_id = request_id.map_or_default(|id| format!(" (request-id {id})"));
         return Err(identity_error(format!(
             "Token exchange failed with status {status}{request_id}: {redacted}{hint}"
         )));

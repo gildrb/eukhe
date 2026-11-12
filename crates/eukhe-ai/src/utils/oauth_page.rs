@@ -19,8 +19,9 @@ fn render_page(title: &str, heading: &str, message: &str, details: Option<&str>)
     let message = escape_html(message);
     let details = details
         .filter(|details| !details.is_empty())
-        .map(|details| format!(r#"<div class="details">{}</div>"#, escape_html(details)))
-        .unwrap_or_default();
+        .map_or_default(|details| {
+            format!(r#"<div class="details">{}</div>"#, escape_html(details))
+        });
     let mut page = String::new();
     page.push_str(
         r#"<!doctype html>

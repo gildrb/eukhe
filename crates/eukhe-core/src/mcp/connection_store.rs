@@ -104,8 +104,7 @@ enum DiskRead {
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis() as u64)
-        .unwrap_or_default()
+        .map_or_default(|since| since.as_millis() as u64)
 }
 
 /// A structurally valid record (matching the TS `sanitizeRecord` checks).

@@ -1079,8 +1079,7 @@ impl Worker {
             .get("env")
             .cloned()
             .and_then(|env| serde_json::from_value(env).ok())
-            .map(|env| crate::herdr::filter_client_env(&env))
-            .unwrap_or_default();
+            .map_or_default(|env| crate::herdr::filter_client_env(&env));
         // A live RLM child shares the parent's pane: it never reports.
         let spawned_as_child = payload
             .get("rlmDepth")

@@ -127,7 +127,7 @@ pub(super) fn discover(
                         tool.name.clone(),
                         tool.name.replace('_', " "),
                         tool.description.clone(),
-                        own.map(|own| own.name.clone()).unwrap_or_default(),
+                        own.map_or_default(|own| own.name.clone()),
                         own.and_then(|own| own.description.clone())
                             .unwrap_or_default(),
                     ]

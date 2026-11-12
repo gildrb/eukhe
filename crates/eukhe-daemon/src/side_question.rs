@@ -214,13 +214,12 @@ impl SideQuestionManager {
         let previous_turns: Vec<SideQuestionTurn> = payload
             .get("previousTurns")
             .and_then(Value::as_array)
-            .map(|turns| {
+            .map_or_default(|turns| {
                 turns
                     .iter()
                     .filter_map(|turn| serde_json::from_value(turn.clone()).ok())
                     .collect()
-            })
-            .unwrap_or_default();
+            });
 
         let controller = AbortController::new();
         {

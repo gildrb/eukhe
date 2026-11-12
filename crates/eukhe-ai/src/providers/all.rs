@@ -80,8 +80,7 @@ pub fn get_builtin_providers() -> Vec<&'static str> {
 pub fn get_builtin_models(provider: &str) -> Vec<Model> {
     MODELS
         .get(provider)
-        .map(|models| models.values().cloned().collect())
-        .unwrap_or_default()
+        .map_or_default(|models| models.values().cloned().collect())
 }
 
 /// Generated image models of a built-in provider.
@@ -89,8 +88,7 @@ pub fn get_builtin_models(provider: &str) -> Vec<Model> {
 pub fn get_builtin_image_models(provider: &str) -> Vec<ImageModel> {
     IMAGE_MODELS
         .get(provider)
-        .map(|models| models.values().cloned().collect())
-        .unwrap_or_default()
+        .map_or_default(|models| models.values().cloned().collect())
 }
 
 /// Generated classifier models of a built-in provider.
@@ -98,8 +96,7 @@ pub fn get_builtin_image_models(provider: &str) -> Vec<ImageModel> {
 pub fn get_builtin_classifier_models(provider: &str) -> Vec<ClassifierModel> {
     CLASSIFIER_MODELS
         .get(provider)
-        .map(|models| models.values().cloned().collect())
-        .unwrap_or_default()
+        .map_or_default(|models| models.values().cloned().collect())
 }
 
 /// Generated models of every type of a built-in provider.

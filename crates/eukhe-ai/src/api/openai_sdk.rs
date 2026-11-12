@@ -574,19 +574,15 @@ pub(crate) fn stream_failure_of(
                 Some(SdkValue::Json(value)) => json_stringify(&json!({ "error": value })),
                 Some(SdkValue::Stream | SdkValue::Instance) | None => object.message.clone(),
             };
-            let headers: HashMap<String, String> = object
-                .headers
-                .clone()
-                .flatten()
-                .map(|headers| {
+            let headers: HashMap<String, String> =
+                object.headers.clone().flatten().map_or_default(|headers| {
                     headers
                         .iter()
                         .filter_map(|(name, value)| {
                             Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))
                         })
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             return ProviderError::from_http_status_body(status, &body, headers);
         }
     }

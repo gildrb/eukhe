@@ -106,8 +106,7 @@ fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
     // procfs artifact, not part of the file name.
     let name = components
         .last()
-        .map(|last| last.trim_end_matches(" (deleted)"))
-        .unwrap_or_default();
+        .map_or_default(|last| last.trim_end_matches(" (deleted)"));
     if name == "eukhe" {
         return HolderFlavor::ThisBuild;
     }
@@ -118,10 +117,7 @@ fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
         // A cargo build tree answers its profile directory
         // (`<repo>/target/<profile>/...`); anything else named `target`
         // is not evidence about this product.
-        let profile = components
-            .get(index + 1)
-            .map(String::as_str)
-            .unwrap_or_default();
+        let profile = components.get(index + 1).map_or_default(String::as_str);
         if matches!(profile, "debug" | "release" | "bench" | "test") {
             return HolderFlavor::ThisBuild;
         }

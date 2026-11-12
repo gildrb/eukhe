@@ -61,7 +61,7 @@ fn truthy(value: Option<&JsonValue>) -> bool {
 /// JS `value || ""` for a string-typed member.
 fn string_or_empty(value: Option<&JsonValue>) -> String {
     if truthy(value) {
-        value.map(js_to_string).unwrap_or_default()
+        value.map_or_default(js_to_string)
     } else {
         String::new()
     }

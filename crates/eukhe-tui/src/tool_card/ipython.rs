@@ -242,23 +242,20 @@ fn line_counts(card: &ToolCallCard, details: &IpythonDetails, code: &str) -> Opt
 
 /// The text of the result's text blocks (TS `textFromBlocks`).
 fn text_from_blocks(card: &ToolCallCard) -> String {
-    card.result
-        .as_ref()
-        .map(|result| {
-            result
-                .content
-                .iter()
-                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-                .map(|block| {
-                    block
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default()
+    card.result.as_ref().map_or_default(|result| {
+        result
+            .content
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+            .map(|block| {
+                block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
 }
 
 /// `True` when the line is a magic `!command` line (TS `MAGIC_LINE_PATTERN`).

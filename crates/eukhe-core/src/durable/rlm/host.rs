@@ -126,8 +126,7 @@ fn fallback_binding(deps: &HostDeps) -> SessionBinding {
         session_file: deps
             .storage_dir
             .as_ref()
-            .map(|dir| dir.display().to_string())
-            .unwrap_or_default(),
+            .map_or_default(|dir| dir.display().to_string()),
         cwd: deps.cwd.display().to_string(),
     }
 }
@@ -160,16 +159,13 @@ fn model_info(
         return json!({ "id": Value::Null, "provider": Value::Null, "input": [], "inputLimits": Value::Null });
     };
     let catalog = runtime.model(model);
-    let input: Vec<&'static str> = catalog
-        .as_ref()
-        .map(|catalog| {
-            catalog
-                .input
-                .iter()
-                .map(|modality| modality.as_str())
-                .collect()
-        })
-        .unwrap_or_default();
+    let input: Vec<&'static str> = catalog.as_ref().map_or_default(|catalog| {
+        catalog
+            .input
+            .iter()
+            .map(|modality| modality.as_str())
+            .collect()
+    });
     json!({
         "id": model.model_id,
         "provider": model.provider,

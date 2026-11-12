@@ -218,8 +218,7 @@ impl Editor {
                     let prefix = self
                         .autocomplete
                         .as_ref()
-                        .map(|s| s.prefix.clone())
-                        .unwrap_or_default();
+                        .map_or_default(|s| s.prefix.clone());
                     let result = self.apply_completion(&item, &prefix);
                     let completed_noop = result.lines == self.lines
                         && result.cursor_line == cl

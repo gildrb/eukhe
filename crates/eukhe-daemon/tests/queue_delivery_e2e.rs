@@ -257,10 +257,7 @@ fn serve(
     // queued items a run delivers are one user row each). Each row's
     // text, whether the provider payload carries it as a plain string or
     // as text parts.
-    let messages = body["messages"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
+    let messages = body["messages"].as_array().map_or_default(Vec::as_slice);
     let new_rows = messages
         .iter()
         .rposition(|message| message["role"] == "assistant")

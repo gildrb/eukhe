@@ -158,8 +158,7 @@ pub async fn run(
         .map(|value| from_json(&JsonValue::Object(value)))
         .transpose()?;
     let items: Vec<String> = inbox
-        .map(|inbox| inbox.items)
-        .unwrap_or_default()
+        .map_or_default(|inbox| inbox.items)
         .iter()
         .map(|item| {
             let mode = match item {

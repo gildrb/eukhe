@@ -34,8 +34,7 @@ pub fn now() -> u64 {
     u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis())
-            .unwrap_or_default(),
+            .map_or_default(|duration| duration.as_millis()),
     )
     .unwrap_or_default()
 }

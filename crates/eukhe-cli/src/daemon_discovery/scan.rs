@@ -116,12 +116,10 @@ pub(crate) fn parse_eukhe_process_ids(stdout: &str, app_name: &str) -> Vec<u32> 
         let argv0 = args.split_whitespace().next().unwrap_or("");
         let command_base = Path::new(command)
             .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().to_string());
         let argv0_base = Path::new(argv0)
             .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().to_string());
         if process_name_matches(&command_base, app_name)
             || process_name_matches(&argv0_base, app_name)
         {

@@ -245,14 +245,13 @@ fn subagent_rows(client: &mut Client, id: &str) -> Vec<Value> {
     let list = client.read_response(id);
     list["data"]["sessions"]
         .as_array()
-        .map(|sessions| {
+        .map_or_default(|sessions| {
             sessions
                 .iter()
                 .filter(|summary| summary["runtimeKind"] == "subagent")
                 .cloned()
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Spawn a child through the supervisor, observe it in the supervisor

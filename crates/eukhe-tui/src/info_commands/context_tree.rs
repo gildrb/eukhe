@@ -157,11 +157,11 @@ fn parse_context_node(value: &Value) -> ContextNode {
             let id = model.get("id").and_then(Value::as_str)?;
             Some((provider.to_string(), id.to_string()))
         }),
-        own_usage: value.get("ownUsage").map(usage_from).unwrap_or_default(),
+        own_usage: value.get("ownUsage").map_or_default(usage_from),
         own_usage_by_model: value
             .get("ownUsageByModel")
             .and_then(Value::as_array)
-            .map(|buckets| {
+            .map_or_default(|buckets| {
                 buckets
                     .iter()
                     .filter_map(|bucket| {
@@ -175,14 +175,12 @@ fn parse_context_node(value: &Value) -> ContextNode {
                         })
                     })
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
         context_usage,
         children: value
             .get("children")
             .and_then(Value::as_array)
-            .map(|children| children.iter().map(parse_context_node).collect())
-            .unwrap_or_default(),
+            .map_or_default(|children| children.iter().map(parse_context_node).collect()),
     }
 }
 

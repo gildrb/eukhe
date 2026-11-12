@@ -179,15 +179,12 @@ fn message_texts(client: &mut Client, id: &str, session_id: &str) -> Vec<String>
         .iter()
         .map(|message| match message["content"].as_str() {
             Some(text) => text.to_string(),
-            None => message["content"]
-                .as_array()
-                .map(|blocks| {
-                    blocks
-                        .iter()
-                        .filter_map(|b| b["text"].as_str())
-                        .collect::<String>()
-                })
-                .unwrap_or_default(),
+            None => message["content"].as_array().map_or_default(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|b| b["text"].as_str())
+                    .collect::<String>()
+            }),
         })
         .collect()
 }

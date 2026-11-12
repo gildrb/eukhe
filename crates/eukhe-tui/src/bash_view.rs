@@ -108,8 +108,7 @@ pub fn parse_bash_activities(data: &Value) -> Vec<BashActivity> {
                 command: row
                     .get("command")
                     .and_then(Value::as_str)
-                    .map(crate::menu_panel::scrub_controls)
-                    .unwrap_or_default(),
+                    .map_or_default(crate::menu_panel::scrub_controls),
                 pid: row
                     .get("pid")
                     .and_then(Value::as_u64)

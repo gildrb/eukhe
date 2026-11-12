@@ -200,15 +200,12 @@ async fn late_join(print: UnboundedSender<String>) -> Result<(), BoxError> {
     let view = root.view_state(context).await?;
     let value = view.value();
     let live = &value["docs"]["pi.live"];
-    let kinds: Vec<String> = value["entries"]
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|entry| entry["kind"].as_str().unwrap_or_default().to_owned())
-                .collect()
-        })
-        .unwrap_or_default();
+    let kinds: Vec<String> = value["entries"].as_array().map_or_default(|entries| {
+        entries
+            .iter()
+            .map(|entry| entry["kind"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    });
     send(
         &print,
         format!("view entries: {}", serde_json::to_string(&kinds)?),

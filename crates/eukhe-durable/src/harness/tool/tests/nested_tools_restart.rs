@@ -137,15 +137,13 @@ fn queue(setup: &ChatSetup, tool: &str) {
 }
 
 fn codes(result: Option<&NestedToolExecutionResult>) -> Vec<String> {
-    result
-        .map(|result| {
-            result
-                .diagnostics
-                .iter()
-                .filter_map(|diagnostic| diagnostic.code.clone())
-                .collect()
-        })
-        .unwrap_or_default()
+    result.map_or_default(|result| {
+        result
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.code.clone())
+            .collect()
+    })
 }
 
 async fn state_of(harness: &Harness, id: TaskId) -> serde_json::Value {

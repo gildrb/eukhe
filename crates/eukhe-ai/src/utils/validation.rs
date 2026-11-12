@@ -418,8 +418,7 @@ fn apply_schema_object_coercion<'s>(
         .get_keyword("properties")?
         .filter(|properties| properties.is_truthy());
     let defined_keys: Vec<String> = properties
-        .map(entries_of)
-        .unwrap_or_default()
+        .map_or_default(entries_of)
         .into_iter()
         .map(|(key, _)| key.into_owned())
         .collect();

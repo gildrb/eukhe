@@ -105,19 +105,17 @@ fn results(entries: &[EntryRecord]) -> Vec<ToolResultMessage> {
 }
 
 fn text(message: Option<&ToolResultMessage>) -> String {
-    message
-        .map(|message| {
-            message
-                .content
-                .iter()
-                .map(|item| match item {
-                    UserContentBlock::Text(text) => text.text.as_str(),
-                    UserContentBlock::Image(_) => "",
-                })
-                .collect::<Vec<_>>()
-                .join("|")
-        })
-        .unwrap_or_default()
+    message.map_or_default(|message| {
+        message
+            .content
+            .iter()
+            .map(|item| match item {
+                UserContentBlock::Text(text) => text.text.as_str(),
+                UserContentBlock::Image(_) => "",
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    })
 }
 
 async fn live(harness: &Harness, chat: &OpenChat) -> Option<LiveState> {

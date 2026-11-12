@@ -276,8 +276,7 @@ pub fn serialize_conversation(messages: &[AgentMessage]) -> String {
                     // lists) fall back to the name-only label.
                     let index_suffix = tool_call_indices
                         .get(&result.tool_call_id)
-                        .map(|index| format!(" #{index}"))
-                        .unwrap_or_default();
+                        .map_or_default(|index| format!(" #{index}"));
                     let label = if result.is_error {
                         format!("[Tool result ({}, error){index_suffix}]", result.tool_name)
                     } else {

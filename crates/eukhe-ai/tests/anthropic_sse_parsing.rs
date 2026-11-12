@@ -111,13 +111,12 @@ fn to_json<T: serde::Serialize>(value: &T) -> JsonValue {
 fn betas(captured: &Captured) -> Vec<String> {
     requests(captured)[0]
         .header("anthropic-beta")
-        .map(|value| {
+        .map_or_default(|value| {
             value
                 .split(',')
                 .map(|beta| beta.trim().to_owned())
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 #[tokio::test]

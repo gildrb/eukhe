@@ -313,14 +313,13 @@ fn at_prompt_start_offers_agents_ahead_of_files() {
                 .results
                 .recv()
                 .expect("the search finishes")
-                .map(|suggestions| {
+                .map_or_default(|suggestions| {
                     suggestions
                         .items
                         .into_iter()
                         .map(|item| item.value)
                         .collect()
-                })
-                .unwrap_or_default(),
+                }),
             other => panic!("expected a searching lookup, got {other:?}"),
         }
     };

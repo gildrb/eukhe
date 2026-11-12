@@ -204,7 +204,7 @@ fn generate_dpop(token_path: &str, method: &str, endpoint: &str) -> ProviderResu
     let dpop_failure = |error: DpopError| {
         ProviderFailure::credentials_final(format!("Failed to generate Dpop proof: {error}"))
     };
-    let pem = token.get("dpopKey").map(js_to_string).unwrap_or_default();
+    let pem = token.get("dpopKey").map_or_default(js_to_string);
     let body: String = pem
         .lines()
         .filter(|line| !line.starts_with("-----"))

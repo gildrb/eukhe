@@ -116,8 +116,7 @@ async fn exchange_authorization_code(
     if !response.ok() {
         let detail = error_detail(&body)
             .filter(|detail| !detail.is_empty())
-            .map(|detail| format!(": {detail}"))
-            .unwrap_or_default();
+            .map_or_default(|detail| format!(": {detail}"));
         return Err(js_error(format!(
             "OpenRouter OAuth key exchange failed (HTTP {}){detail}",
             response.status

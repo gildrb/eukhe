@@ -548,12 +548,10 @@ pub fn message_value_to_entries(message: &AgentMessage) -> Vec<ChatEntry> {
         // TS `addMessageToChat`'s user case: a text that IS a skill block
         // renders the skill-invocation card (+ the trailing argument text
         // as its own user block); every other text renders the user block.
-        AgentMessage::User(user) => user_display_text(&user.content)
-            .map(|text| {
-                crate::custom_message::skill_invocation_entries(&text)
-                    .unwrap_or_else(|| vec![ChatEntry::User { text }])
-            })
-            .unwrap_or_default(),
+        AgentMessage::User(user) => user_display_text(&user.content).map_or_default(|text| {
+            crate::custom_message::skill_invocation_entries(&text)
+                .unwrap_or_else(|| vec![ChatEntry::User { text }])
+        }),
         AgentMessage::Assistant(assistant) => assistant_value_to_entries(assistant),
         AgentMessage::Custom(custom) => crate::custom_message::custom_message_entries(
             &CustomType::parse(&custom.custom_type),

@@ -484,13 +484,12 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
                     .unwrap_or_default();
                 let tail: Vec<&str> = stderr.lines().rev().take(80).collect();
                 let artifacts: Vec<PathBuf> = std::fs::read_dir(storage.parent().unwrap())
-                    .map(|entries| {
+                    .map_or_default(|entries| {
                         entries
                             .filter_map(std::result::Result::ok)
                             .map(|e| e.path())
                             .collect()
-                    })
-                    .unwrap_or_default();
+                    });
                 panic!(
                     "marker {marker} never landed once for {name}\nsession storage {storage:?}: {transcript}\nartifacts dir: {artifacts:?}\nroster: {:?}\nsupervisor stderr tail (reversed): {tail:#?}",
                     roster_summaries(&mut client, "dump")

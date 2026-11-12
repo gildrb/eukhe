@@ -280,7 +280,7 @@ pub fn parse_prompt_blocks(
                 let text = resource.and_then(|r| r.get("text")).and_then(Value::as_str);
                 let uri = resource.and_then(|r| r.get("uri")).and_then(Value::as_str);
                 if let Some(text) = text {
-                    let uri = uri.map(|uri| format!("{uri}\n")).unwrap_or_default();
+                    let uri = uri.map_or_default(|uri| format!("{uri}\n"));
                     texts.push(format!("{uri}{text}"));
                 }
             }

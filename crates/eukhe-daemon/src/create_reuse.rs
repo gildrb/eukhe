@@ -416,9 +416,7 @@ impl Supervisor {
                 let state = self.effective_reuse_state(resident).await;
                 let detail = {
                     let last_error = resident.descriptor.lock().await.last_error.clone();
-                    last_error
-                        .map(|error| format!(": {error}"))
-                        .unwrap_or_default()
+                    last_error.map_or_default(|error| format!(": {error}"))
                 };
                 Err(anyhow!(
                     "Session \"{session_path}\" worker is {state}{detail}"

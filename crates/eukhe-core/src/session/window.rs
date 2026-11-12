@@ -405,8 +405,7 @@ impl WindowedSessionStore {
                                     message
                                         .usage
                                         .as_ref()
-                                        .map(OlderPathUsage::from_usage)
-                                        .unwrap_or_default(),
+                                        .map_or_default(OlderPathUsage::from_usage),
                                 ));
                             }
                             _ => {}

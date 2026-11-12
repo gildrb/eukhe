@@ -428,9 +428,8 @@ async fn reply_to_saved_session_resumes_and_sends() {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(200));
         }
-        texts = try_read_transcript(&storage)
-            .map(|transcript| transcript.message_texts())
-            .unwrap_or_default();
+        texts =
+            try_read_transcript(&storage).map_or_default(|transcript| transcript.message_texts());
         texts.iter().any(|text| text == "resume me")
     });
     assert!(

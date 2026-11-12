@@ -490,9 +490,7 @@ impl Worker {
             binding: Some(KernelCronBinding {
                 active_session_id,
                 session_id: session_id.to_owned(),
-                session_file: storage_dir
-                    .map(|dir| dir.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
+                session_file: storage_dir.map_or_default(|dir| dir.to_string_lossy().into_owned()),
                 cwd: cwd.to_owned(),
             }),
             mutation_hook: Some(self.scheduled.mutation_hook()),

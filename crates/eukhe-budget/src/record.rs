@@ -80,8 +80,7 @@ impl Account {
         self.holds
             .iter()
             .find(|hold| hold.id == id)
-            .map(|hold| hold.agent.clone())
-            .unwrap_or_default()
+            .map_or_default(|hold| hold.agent.clone())
     }
 
     /// What the open reservations hold.

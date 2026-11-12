@@ -81,8 +81,7 @@ pub struct SessionExportData {
 fn session_basename(session_file: &Path) -> String {
     let name = session_file
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     match name.strip_suffix(".jsonl") {
         Some(stripped) => stripped.to_string(),
         None => name,

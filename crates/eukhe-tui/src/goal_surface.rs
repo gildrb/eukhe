@@ -79,8 +79,7 @@ pub fn format_goal_status(goal: &GoalState, columns: usize) -> String {
         GoalStatus::BudgetLimited => {
             // TS `formatGoalUsage`: the compiled core's usage line.
             let usage_text = eukhe_bend::rules::goal_text::usage(goal, GoalTokens::of(goal))
-                .map(|usage| format!(" ({usage})"))
-                .unwrap_or_default();
+                .map_or_default(|usage| format!(" ({usage})"));
             let prefix = format!("Goal budget limited{usage_text}");
             match &goal.last_reason {
                 Some(reason) => format!(

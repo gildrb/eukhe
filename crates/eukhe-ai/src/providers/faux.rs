@@ -311,9 +311,7 @@ fn message_tokenizer(message: &AssistantMessage) -> Arc<Tokenizer> {
 
 /// JS `JSON.stringify` of a serializable value.
 fn json_stringify<T: serde::Serialize>(value: &T) -> String {
-    serde_json::to_value(value)
-        .map(|value| crate::utils::js::json_stringify(&value))
-        .unwrap_or_default()
+    serde_json::to_value(value).map_or_default(|value| crate::utils::js::json_stringify(&value))
 }
 
 fn user_block_to_text(block: &UserContentBlock) -> String {

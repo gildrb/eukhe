@@ -363,10 +363,6 @@ enum TagValue<'a> {
 /// Constraints of a property that its TypeScript type cannot express, as
 /// JSDoc-style tags: `@integer @minimum 1 @maximum 100 @default 20`. Empty
 /// when there are none.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one ported upstream routine mapping each JSON Schema keyword to its tag"
-)]
 fn constraint_tags(schema: &Value) -> String {
     let Value::Object(property) = schema else {
         return String::new();
@@ -381,14 +377,12 @@ fn constraint_tags(schema: &Value) -> String {
             _ => None,
         },
     };
-    let non_null: Vec<&Value> = variants
-        .map(|variants| {
-            variants
-                .iter()
-                .filter(|variant| variant.get("type") != Some(&Value::String("null".to_owned())))
-                .collect()
-        })
-        .unwrap_or_default();
+    let non_null: Vec<&Value> = variants.map_or_default(|variants| {
+        variants
+            .iter()
+            .filter(|variant| variant.get("type") != Some(&Value::String("null".to_owned())))
+            .collect()
+    });
     let mut branches = vec![property];
     if let [Value::Object(branch)] = non_null.as_slice() {
         branches.push(branch);

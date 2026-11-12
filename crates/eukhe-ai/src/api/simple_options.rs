@@ -173,9 +173,7 @@ pub fn build_base_options(
     options: Option<&SimpleStreamOptions>,
     api_key: Option<&str>,
 ) -> StreamOptions {
-    let mut base = options
-        .map(|options| options.stream.clone())
-        .unwrap_or_default();
+    let mut base = options.map_or_default(|options| options.stream.clone());
     let reasoning = options
         .and_then(|options| options.reasoning)
         .map_or(ModelThinkingLevel::Off, ModelThinkingLevel::from);

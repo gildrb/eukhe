@@ -228,8 +228,7 @@ impl Worker {
             unknown_effects: core
                 .view
                 .as_ref()
-                .map(|view| view.unknown_effects.clone())
-                .unwrap_or_default(),
+                .map_or_default(|view| view.unknown_effects.clone()),
             r#loop: core
                 .view
                 .as_ref()

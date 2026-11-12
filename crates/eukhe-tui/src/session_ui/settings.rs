@@ -324,14 +324,13 @@ impl SessionUi {
             available_thinking_levels: state
                 .get("availableThinkingLevels")
                 .and_then(Value::as_array)
-                .map(|levels| {
+                .map_or_default(|levels| {
                     levels
                         .iter()
                         .filter_map(Value::as_str)
                         .map(str::to_string)
                         .collect()
-                })
-                .unwrap_or_default(),
+                }),
             ..Default::default()
         };
         // The settings-seam reads (TS `settingsManager` getters; the theme

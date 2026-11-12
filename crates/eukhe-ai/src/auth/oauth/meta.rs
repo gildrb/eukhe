@@ -200,8 +200,7 @@ async fn mint_api_key(
     }
     let Some(api_key) = super::truthy_str(&json, "api_key") else {
         let setup = trusted_http_url(json.get("action_url"))
-            .map(|url| format!(" Complete setup at {url}"))
-            .unwrap_or_default();
+            .map_or_default(|url| format!(" Complete setup at {url}"));
         return Err(js_error(format!("Meta did not issue an API key.{setup}")));
     };
     Ok(OAuthCredential::new(

@@ -46,14 +46,12 @@ fn levels(model: &Model) -> Vec<String> {
 }
 
 fn betas(header: Option<String>) -> Vec<String> {
-    header
-        .map(|value| {
-            value
-                .split(',')
-                .map(|beta| beta.trim().to_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    header.map_or_default(|value| {
+        value
+            .split(',')
+            .map(|beta| beta.trim().to_owned())
+            .collect()
+    })
 }
 
 #[test]

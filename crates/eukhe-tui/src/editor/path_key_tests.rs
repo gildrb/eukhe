@@ -29,8 +29,7 @@ fn submitted(e: &mut Editor) -> Vec<String> {
 
 fn menu_values(e: &Editor) -> Vec<String> {
     e.autocomplete_state()
-        .map(|state| state.items.iter().map(|item| item.value.clone()).collect())
-        .unwrap_or_default()
+        .map_or_default(|state| state.items.iter().map(|item| item.value.clone()).collect())
 }
 
 fn chars(text: &str) -> Vec<&str> {

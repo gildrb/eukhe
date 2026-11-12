@@ -842,12 +842,10 @@ impl Ui {
                     };
                     let field = |key: &str| call.arguments.get(key).and_then(PiJsonValue::as_str);
                     let action = field("action").unwrap_or("undefined");
-                    let name = field("name")
-                        .map(|name| format!(" {name}"))
-                        .unwrap_or_default();
-                    let quoted = field("message")
-                        .map(|sent| format!(" {}", serde_json::to_string(sent).unwrap_or_default()))
-                        .unwrap_or_default();
+                    let name = field("name").map_or_default(|name| format!(" {name}"));
+                    let quoted = field("message").map_or_default(|sent| {
+                        format!(" {}", serde_json::to_string(sent).unwrap_or_default())
+                    });
                     self.line(self.color(33, &format!("  {} {action}{name}{quoted}", call.name)));
                 }
                 let text = text_of(message);

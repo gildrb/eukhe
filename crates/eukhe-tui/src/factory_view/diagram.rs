@@ -174,13 +174,12 @@ impl FactoryNodeState {
         let entries = value
             .get("entries")
             .and_then(Value::as_array)
-            .map(|rows| {
+            .map_or_default(|rows| {
                 rows.iter()
                     .filter_map(|entry| entry.get("status").and_then(Value::as_str))
                     .map(scrubbed)
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         Some(Self {
             status: scrubbed(value.get("status")?.as_str()?),
             entries,
@@ -193,14 +192,13 @@ impl FactoryNodeState {
             instances: value
                 .get("instances")
                 .and_then(Value::as_array)
-                .map(|instances| {
+                .map_or_default(|instances| {
                     instances
                         .iter()
                         .filter_map(|instance| instance.get("status").and_then(Value::as_str))
                         .map(scrubbed)
                         .collect()
-                })
-                .unwrap_or_default(),
+                }),
             error: value.get("error").and_then(Value::as_str).map(scrubbed),
             running: value.get("running").and_then(Value::as_u64),
             queued: value.get("queued").and_then(Value::as_u64),
@@ -402,8 +400,7 @@ pub fn format_guard(when: &Value) -> Option<String> {
     let path = object
         .get("path")
         .and_then(Value::as_str)
-        .map(|path| format!(".{path}"))
-        .unwrap_or_default();
+        .map_or_default(|path| format!(".{path}"));
     let op = object.get("op").and_then(Value::as_str).unwrap_or("eq");
     match object.get("value") {
         Some(value) => Some(format!(

@@ -237,8 +237,7 @@ fn step(entry: EntryRecord) -> Step {
         };
         let data = custom.data();
         let content = custom_entry_content(custom.entry().model.as_deref(), data)
-            .map(user_content_text)
-            .unwrap_or_default();
+            .map_or_default(user_content_text);
         let detail = |key: &str| {
             data.details
                 .as_ref()

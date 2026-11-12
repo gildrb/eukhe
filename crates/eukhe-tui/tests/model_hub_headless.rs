@@ -682,8 +682,7 @@ fn the_all_roles_model_switches_and_shows_each_roles_source() {
                         .strip_prefix(label)
                         .filter(|rest| rest.starts_with("  "))
                 })
-                .map(|rest| rest.split_whitespace().collect::<Vec<_>>().join(" "))
-                .unwrap_or_default();
+                .map_or_default(|rest| rest.split_whitespace().collect::<Vec<_>>().join(" "));
             (*label, rest)
         })
         .collect();

@@ -15,9 +15,7 @@ pub use eukhe_types::daemon::CompactionReason;
 /// The loader label (TS `startCompactionLoader`): `focus` is the truncated
 /// custom instructions, `cancel_hint` the resolved `app.clear` key text.
 fn loader_label(reason: CompactionReason, focus: Option<&str>, cancel_hint: &str) -> String {
-    let focus = focus
-        .map(|focus| format!(" (focus: {focus})"))
-        .unwrap_or_default();
+    let focus = focus.map_or_default(|focus| format!(" (focus: {focus})"));
     let label = match reason {
         CompactionReason::Manual => format!("Compacting context{focus}..."),
         CompactionReason::Overflow => "Context overflow detected, Auto-compacting...".to_string(),
@@ -230,8 +228,7 @@ pub fn render_compaction_summary(
     };
     let focus = custom_instructions
         .filter(|instructions| !instructions.is_empty())
-        .map(|instructions| format!(" - focus: {instructions}"))
-        .unwrap_or_default();
+        .map_or_default(|instructions| format!(" - focus: {instructions}"));
     let mut line: Line = vec![Span::styled(
         format!("{} Context compacted", crate::glyphs::NOTICE),
         header,

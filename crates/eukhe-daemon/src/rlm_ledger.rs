@@ -491,9 +491,8 @@ impl RlmSpawnLedger {
                         on_stack.remove(&current);
                         continue;
                     }
-                    let pending: Vec<String> = children_by_parent
-                        .get(&current)
-                        .map(|children| {
+                    let pending: Vec<String> =
+                        children_by_parent.get(&current).map_or_default(|children| {
                             children
                                 .iter()
                                 .filter(|path| {
@@ -501,8 +500,7 @@ impl RlmSpawnLedger {
                                 })
                                 .cloned()
                                 .collect()
-                        })
-                        .unwrap_or_default();
+                        });
                     if !pending.is_empty() {
                         for path in pending {
                             on_stack.insert(path.clone());
@@ -515,8 +513,7 @@ impl RlmSpawnLedger {
                     let mut total = tombstone_usage(&current);
                     for descendant in children_by_parent
                         .get(&current)
-                        .map(Vec::as_slice)
-                        .unwrap_or_default()
+                        .map_or_default(Vec::as_slice)
                     {
                         if let Some(folded) = contribution.get(descendant) {
                             total = add(total, folded.clone());

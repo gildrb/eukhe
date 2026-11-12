@@ -150,14 +150,13 @@ pub fn normalize_refinement_proposal(value: &serde_json::Value) -> RefinementPro
     let edits = record
         .and_then(|record| record.get("edits"))
         .and_then(serde_json::Value::as_array)
-        .map(|edits| {
+        .map_or_default(|edits| {
             edits
                 .iter()
                 .filter(|edit| edit.is_object())
                 .filter_map(|edit| serde_json::from_value::<RefinementEdit>(edit.clone()).ok())
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     RefinementProposal {
         summary: texts.summary,
         rationale: texts.rationale,

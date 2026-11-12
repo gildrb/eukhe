@@ -61,9 +61,9 @@ pub fn render(card: &ToolCallCard, frame: usize, theme: &Theme, width: usize) ->
     .element(width)];
     let body = match &forward {
         Some(forward) => forward.body(),
-        None => string_arg(&card.args, "note")
-            .map(|note| format!("[note from main] {note}"))
-            .unwrap_or_default(),
+        None => {
+            string_arg(&card.args, "note").map_or_default(|note| format!("[note from main] {note}"))
+        }
     };
     let mut first = true;
     for line in body.split('\n') {

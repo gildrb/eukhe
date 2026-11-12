@@ -318,8 +318,7 @@ pub fn format_agent_cron_job(job: &AgentCronJob) -> String {
     let error = job
         .last_error
         .as_ref()
-        .map(|error| format!(" error={error}"))
-        .unwrap_or_default();
+        .map_or_default(|error| format!(" error={error}"));
     let failures = if job.failure_streak > 0 {
         format!(" failures={}", job.failure_streak)
     } else {
@@ -328,13 +327,11 @@ pub fn format_agent_cron_job(job: &AgentCronJob) -> String {
     let label = job
         .label
         .as_ref()
-        .map(|label| format!(" label=\"{label}\""))
-        .unwrap_or_default();
+        .map_or_default(|label| format!(" label=\"{label}\""));
     let skipped = job
         .last_skipped_at
         .as_ref()
-        .map(|skipped| format!(" skipped={skipped}"))
-        .unwrap_or_default();
+        .map_or_default(|skipped| format!(" skipped={skipped}"));
     let status = match job.status {
         JobStatus::Active => "active",
         JobStatus::Paused => "paused",

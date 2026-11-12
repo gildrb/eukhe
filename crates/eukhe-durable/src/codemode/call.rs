@@ -100,7 +100,7 @@ fn now_ms() -> f64 {
 
 /// `JSON.stringify(value) ?? ""`.
 fn json_text(value: Option<&JsonValue>) -> String {
-    value.map(ToString::to_string).unwrap_or_default()
+    value.map_or_default(ToString::to_string)
 }
 
 fn describe_call(call: &CodemodeHostCall) -> String {
@@ -598,17 +598,12 @@ impl CodemodeCall {
                 })
                 .collect(),
             globals: self.start.globals.clone(),
-            store: self
-                .start
-                .store
-                .as_object()
-                .map(|values| {
-                    values
-                        .iter()
-                        .map(|(key, value)| (key.to_string(), value.clone()))
-                        .collect()
-                })
-                .unwrap_or_default(),
+            store: self.start.store.as_object().map_or_default(|values| {
+                values
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), value.clone()))
+                    .collect()
+            }),
             timeout_ms: remaining,
         };
         let mut run = self
@@ -1365,11 +1360,7 @@ impl CodemodeCall {
         };
         let error = match &done.outcome {
             CodemodeOutcome::Err { message, .. } => message.clone(),
-            CodemodeOutcome::Ok { .. } => done
-                .result
-                .as_ref()
-                .map(error_diagnostics)
-                .unwrap_or_default(),
+            CodemodeOutcome::Ok { .. } => done.result.as_ref().map_or_default(error_diagnostics),
         };
         if is_error && !error.is_empty() {
             row.error = Some(cut(&error, ERROR_PREVIEW_CHARS));

@@ -195,7 +195,7 @@ impl SessionUi {
         let messages: Vec<crate::user_message_selector::UserMessageItem> = data
             .get("messages")
             .and_then(Value::as_array)
-            .map(|messages| {
+            .map_or_default(|messages| {
                 messages
                     .iter()
                     .filter_map(|message| {
@@ -205,8 +205,7 @@ impl SessionUi {
                         })
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         if messages.is_empty() {
             self.note("No messages to fork from", view);
             return Ok(());
@@ -619,8 +618,7 @@ async fn describe_session_open_failure(
     .await
     .ok()
     .and_then(Result::ok)
-    .map(|data| crate::session_open_error::roster_rows(&data).to_vec())
-    .unwrap_or_default();
+    .map_or_default(|data| crate::session_open_error::roster_rows(&data).to_vec());
     // The path-keyed lookup first; the refusal's own holder id is the
     // fallback (a relative resume path can miss the canonical row).
     let holder = crate::session_open_error::holder_from_roster(&rows, &path)

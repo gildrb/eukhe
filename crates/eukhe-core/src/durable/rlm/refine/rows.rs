@@ -65,14 +65,13 @@ pub fn auto_refine_instructions(reason: &str, review: &AutoRefineReview) -> Stri
     let detail = review
         .instructions
         .as_deref()
-        .map(|instructions| {
+        .map_or_default(|instructions| {
             format!(
                 "
 
 Reviewer instructions: {instructions}"
             )
-        })
-        .unwrap_or_default();
+        });
     format!(
         "Automatic refine review triggered by {reason}. Only create/update/delete local harness entries if there is clear evidence that should help this session continue. Prefer an empty edits array over speculative or one-off memories. Do not promote anything global unless explicitly requested. Reviewer rationale: {}{detail}",
         review.rationale

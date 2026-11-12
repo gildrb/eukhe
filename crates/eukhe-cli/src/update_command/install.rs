@@ -73,8 +73,7 @@ impl Places {
             .chain(home.as_ref().map(|home| home.join(".local/bin")))
             .chain(
                 std::env::var_os("PATH")
-                    .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-                    .unwrap_or_default(),
+                    .map_or_default(|path| std::env::split_paths(&path).collect::<Vec<_>>()),
             );
         for dir in candidates {
             if !dir.as_os_str().is_empty() && !launcher_dirs.contains(&dir) {

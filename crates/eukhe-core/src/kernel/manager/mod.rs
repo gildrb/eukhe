@@ -1084,13 +1084,12 @@ impl ReplKernelManager {
                     .as_ref()
                     .and_then(|fields| fields.get("names"))
                     .and_then(Value::as_array)
-                    .map(|a| {
+                    .map_or_default(|a| {
                         a.iter()
                             .filter_map(Value::as_str)
                             .map(str::to_string)
                             .collect()
-                    })
-                    .unwrap_or_default();
+                    });
                 Some(names)
             }
             Ok(r) => {

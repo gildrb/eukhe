@@ -37,8 +37,7 @@ pub fn session_title(summary: &Value) -> String {
     let cwd_basename = get_str(summary, "cwd").map(|cwd| {
         std::path::Path::new(cwd)
             .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default()
+            .map_or_default(|name| name.to_string_lossy().to_string())
     });
     for candidate in [
         get_str(summary, "sessionName"),
@@ -47,9 +46,8 @@ pub fn session_title(summary: &Value) -> String {
         get_str(summary, "sessionId"),
         get_str(summary, "id"),
     ] {
-        let normalized = candidate
-            .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
-            .unwrap_or_default();
+        let normalized =
+            candidate.map_or_default(|text| text.split_whitespace().collect::<Vec<_>>().join(" "));
         if !normalized.is_empty() {
             return normalized;
         }

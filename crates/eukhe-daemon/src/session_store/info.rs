@@ -631,9 +631,7 @@ impl SessionScanState {
             .filter(|ms| *ms > 0)
             .or_else(|| crate::util::iso_to_unix_ms(&header.timestamp))
             .or_else(stats_mtime_ms);
-        let modified = modified_ms
-            .map(crate::util::iso_from_unix_ms)
-            .unwrap_or_default();
+        let modified = modified_ms.map_or_default(crate::util::iso_from_unix_ms);
         Some(SessionInfo {
             path: path.to_path_buf(),
             id: header.id.clone(),
@@ -669,13 +667,9 @@ impl SessionScanState {
 /// read as empty text — exactly what [`message_text`] returns for a
 /// message without content.
 pub(super) fn message_content_text(content: Option<&serde_json::value::RawValue>) -> String {
-    content
-        .map(|raw| {
-            crate::types::content_to_text(
-                &serde_json::from_str::<Value>(raw.get()).unwrap_or_default(),
-            )
-        })
-        .unwrap_or_default()
+    content.map_or_default(|raw| {
+        crate::types::content_to_text(&serde_json::from_str::<Value>(raw.get()).unwrap_or_default())
+    })
 }
 
 /// Read a borrowed raw span the way the owned-`Value` fold read it:

@@ -306,8 +306,7 @@ fn normalize(text: &str) -> String {
 fn cwd_basename(cwd: &str) -> String {
     std::path::Path::new(cwd)
         .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default()
+        .map_or_default(|name| name.to_string_lossy().to_string())
 }
 
 #[cfg(test)]

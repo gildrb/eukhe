@@ -80,13 +80,12 @@ impl McpServiceRow {
         let connection_ids = value
             .get("connectionIds")
             .and_then(Value::as_array)
-            .map(|ids| {
+            .map_or_default(|ids| {
                 ids.iter()
                     .filter_map(Value::as_str)
                     .map(str::to_string)
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         Some(McpServiceRow {
             service_id: value.get("serviceId")?.as_str()?.to_string(),
             label: value
@@ -124,14 +123,13 @@ impl McpServiceRow {
             aliases: value
                 .get("aliases")
                 .and_then(Value::as_array)
-                .map(|aliases| {
+                .map_or_default(|aliases| {
                     aliases
                         .iter()
                         .filter_map(Value::as_str)
                         .map(str::to_string)
                         .collect()
-                })
-                .unwrap_or_default(),
+                }),
             description: value
                 .get("description")
                 .and_then(Value::as_str)

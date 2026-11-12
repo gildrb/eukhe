@@ -58,8 +58,7 @@ pub(super) fn render_output(
     let blocks = card
         .result
         .as_ref()
-        .map(|result| result.content.as_slice())
-        .unwrap_or_default();
+        .map_or_default(|result| result.content.as_slice());
     let text = blocks
         .iter()
         .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))

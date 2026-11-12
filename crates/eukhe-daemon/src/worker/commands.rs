@@ -248,8 +248,7 @@ impl Worker {
         let servers: Vec<eukhe_core::mcp::AcpMcpServerConfig> = payload
             .get("servers")
             .cloned()
-            .map(|servers| serde_json::from_value(servers).unwrap_or_default())
-            .unwrap_or_default();
+            .map_or_default(|servers| serde_json::from_value(servers).unwrap_or_default());
         // The agent cannot adopt a different MCP tool list mid-run.
         let busy = self
             .core
@@ -555,13 +554,9 @@ impl Worker {
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let messages = core
-            .view
-            .as_ref()
-            .map(|view| {
-                crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
-            })
-            .unwrap_or_default();
+        let messages = core.view.as_ref().map_or_default(|view| {
+            crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
+        });
         response_success(None, "get_messages", Some(json!({ "messages": messages })))
     }
 
@@ -599,10 +594,7 @@ impl Worker {
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            core.view
-                .as_ref()
-                .map(|view| view.inbox.clone())
-                .unwrap_or_default()
+            core.view.as_ref().map_or_default(|view| view.inbox.clone())
         };
         let main_id = hosted.main().ok().map(|main| main.id());
         let mut cleared = Vec::new();

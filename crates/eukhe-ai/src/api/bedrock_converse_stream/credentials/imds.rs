@@ -295,9 +295,8 @@ async fn instance_credentials(
     if token.is_none() {
         check_v1_fallback(resolution).await?;
     }
-    let headers: Vec<(&str, String)> = token
-        .map(|token| vec![("x-aws-ec2-metadata-token", token.to_owned())])
-        .unwrap_or_default();
+    let headers: Vec<(&str, String)> =
+        token.map_or_default(|token| vec![("x-aws-ec2-metadata-token", token.to_owned())]);
     let profile = resolution
         .abortable(metadata_request(
             endpoint,

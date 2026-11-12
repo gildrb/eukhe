@@ -189,8 +189,7 @@ async fn poll_once(
 
     let error = json.get("error");
     let description = string_field(&json, "error_description")
-        .map(|description| format!(": {description}"))
-        .unwrap_or_default();
+        .map_or_default(|description| format!(": {description}"));
     Ok(match error.and_then(Value::as_str) {
         Some("authorization_pending") => OAuthDeviceCodePollResult::Pending,
         Some("slow_down") => OAuthDeviceCodePollResult::SlowDown {
@@ -209,9 +208,7 @@ async fn poll_once(
             message: format!(
                 "Kimi Code device token request failed (status {}){}",
                 response.status,
-                other
-                    .map(|error| format!(": {error}{description}"))
-                    .unwrap_or_default()
+                other.map_or_default(|error| format!(": {error}{description}"))
             ),
         },
     })
@@ -283,8 +280,7 @@ async fn refresh_token(
             || json.get("error").and_then(Value::as_str) == Some("invalid_grant")
         {
             let description = string_field(&json, "error_description")
-                .map(|description| format!(": {description}"))
-                .unwrap_or_default();
+                .map_or_default(|description| format!(": {description}"));
             return Err(js_error(format!(
                 "Kimi Code token refresh unauthorized (status {}){description}",
                 response.status

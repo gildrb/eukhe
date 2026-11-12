@@ -134,13 +134,12 @@ fn cut_at(kind: &str, point: &str, tag: &str, tool: &str) -> (World, Said) {
     assert_eq!(listed["success"], true, "get_unknown_effects: {listed}");
     let ids: Vec<&str> = listed["data"]["effects"]
         .as_array()
-        .map(|effects| {
+        .map_or_default(|effects| {
             effects
                 .iter()
                 .filter_map(|effect| effect["id"].as_str())
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let expected = match said {
         Said::Interrupted => vec![format!("{kind}:call-t1")],
         Said::Done => Vec::new(),

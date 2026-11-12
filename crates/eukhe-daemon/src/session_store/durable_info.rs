@@ -229,9 +229,7 @@ pub(crate) async fn read_durable_session_info(dir: &Path, cx: &Context) -> Optio
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
     });
-    let modified = modified_ms
-        .map(crate::util::iso_from_unix_ms)
-        .unwrap_or_default();
+    let modified = modified_ms.map_or_default(crate::util::iso_from_unix_ms);
     let usage = fold.usage();
     let model = transcript
         .agent
@@ -242,8 +240,7 @@ pub(crate) async fn read_durable_session_info(dir: &Path, cx: &Context) -> Optio
         path: dir.to_path_buf(),
         id: dir
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+            .map_or_default(|name| name.to_string_lossy().into_owned()),
         cwd: transcript.agent.cwd.unwrap_or_default(),
         name: meta
             .name
@@ -265,8 +262,7 @@ pub(crate) async fn read_durable_session_info(dir: &Path, cx: &Context) -> Optio
         created: fold
             .first_activity_ms
             .or(modified_ms)
-            .map(crate::util::iso_from_unix_ms)
-            .unwrap_or_default(),
+            .map_or_default(crate::util::iso_from_unix_ms),
         modified,
         message_count: fold.message_count,
         first_message: if fold.first_message.is_empty() {
@@ -328,8 +324,7 @@ impl TranscriptFold {
             );
         }
         let text = serde_json::to_value(message)
-            .map(|value| crate::types::content_to_text(&value["content"]))
-            .unwrap_or_default();
+            .map_or_default(|value| crate::types::content_to_text(&value["content"]));
         if matches!(message, Message::User(_)) && self.first_message.is_empty() {
             self.first_message.clone_from(&text);
         }

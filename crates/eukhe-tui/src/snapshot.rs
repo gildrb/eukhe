@@ -547,8 +547,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         .last_event_cursor
         .as_ref()
         .or(snapshot.last_event_cursor.as_ref())
-        .map(|cursor| cursor.generation.clone())
-        .unwrap_or_default();
+        .map_or_default(|cursor| cursor.generation.clone());
     // The cursor-presence gate (`view::handoff`): the handoff refuses to
     // key on a collapsed identity (an empty generation or session).
     let cursor_present = !event_generation.is_empty() && !session_id.is_empty();

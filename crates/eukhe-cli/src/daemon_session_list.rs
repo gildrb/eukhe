@@ -199,8 +199,7 @@ pub(crate) fn format_session_list_table(sessions: &[SessionSummary]) -> String {
                 session
                     .model
                     .as_ref()
-                    .map(|(provider, id)| format!("{provider}/{id}"))
-                    .unwrap_or_default(),
+                    .map_or_default(|(provider, id)| format!("{provider}/{id}")),
                 session.message_count.to_string(),
                 session.attached_clients.to_string(),
             ]

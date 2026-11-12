@@ -76,7 +76,7 @@ pub fn run_mcp_management_command(args: &[String]) -> Result<String> {
 /// [`run_mcp_management_command`] over the settings of `cwd` and
 /// `agent_dir`.
 fn run_mcp_command(args: &[String], cwd: &Path, agent_dir: &Path) -> Result<String> {
-    let action = args.first().map(String::as_str).unwrap_or_default();
+    let action = args.first().map_or_default(String::as_str);
     match action {
         "list" => {
             require_count(args, 1, "mcp list")?;

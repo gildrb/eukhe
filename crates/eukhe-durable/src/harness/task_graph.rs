@@ -453,10 +453,6 @@ fn detach_observer(views: &Weak<Inner>, mount: &SharedMount, observer: u64) {
 
 /// Derive the mount's operations from one publication, apply them, and hand
 /// the revision to every observer.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one-to-one port of the TS `advance`: task nodes, then owned conversations"
-)]
 fn advance(mount: &SharedMount, publication: &CommitPublication, cx: &Context) {
     let (value, ops, observers) = {
         let mut mounted = lock(mount);
@@ -493,8 +489,7 @@ fn advance(mount: &SharedMount, publication: &CommitPublication, cx: &Context) {
                 record,
                 previous
                     .as_ref()
-                    .map(|previous| previous.conversations.clone())
-                    .unwrap_or_default(),
+                    .map_or_default(|previous| previous.conversations.clone()),
             );
             let json = node_json(&next);
             if previous

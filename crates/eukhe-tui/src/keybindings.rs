@@ -592,22 +592,19 @@ impl KeybindingsManager {
             if actions.contains_key(key) {
                 continue;
             }
-            let ids = presses
-                .press(key)
-                .map(|commands| {
-                    commands
-                        .into_iter()
-                        .filter_map(|command| match command {
-                            Command::Action { id } => Some(id),
-                            Command::Set { .. }
-                            | Command::Toggle { .. }
-                            | Command::Alias { .. }
-                            | Command::Bind { .. }
-                            | Command::Run { .. } => None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+            let ids = presses.press(key).map_or_default(|commands| {
+                commands
+                    .into_iter()
+                    .filter_map(|command| match command {
+                        Command::Action { id } => Some(id),
+                        Command::Set { .. }
+                        | Command::Toggle { .. }
+                        | Command::Alias { .. }
+                        | Command::Bind { .. }
+                        | Command::Run { .. } => None,
+                    })
+                    .collect()
+            });
             actions.insert(key.to_string(), ids);
         }
         Self {

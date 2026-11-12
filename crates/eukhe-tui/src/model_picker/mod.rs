@@ -522,8 +522,8 @@ impl ModelPicker {
             let search = SearchQuery::new(query);
             // Each match carries its `provider/id` key and recent rank, so
             // the sort's late tiers compare without re-formatting keys.
-            let mut matches: Vec<(usize, SearchMatch, usize, String)> = search
-                .map(|search| {
+            let mut matches: Vec<(usize, SearchMatch, usize, String)> =
+                search.map_or_default(|search| {
                     self.active_indices()
                         .into_iter()
                         .filter_map(|index| {
@@ -533,8 +533,7 @@ impl ModelPicker {
                             Some((index, match_, rank, key))
                         })
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             let configured = |model: &Model| self.configured_providers.contains(&model.provider);
             let pinned =
                 |model: &Model| model.provider == PRIME_INFERENCE_PROVIDER_ID && configured(model);
@@ -707,8 +706,7 @@ impl ModelPicker {
     fn key_at(&self, index: usize) -> String {
         self.all_models
             .get(index)
-            .map(|model| Self::model_key_provider(&model.provider, &model.id))
-            .unwrap_or_default()
+            .map_or_default(|model| Self::model_key_provider(&model.provider, &model.id))
     }
 
     /// The `provider/id` key (TS `modelsAreEqual`'s format).

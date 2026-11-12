@@ -126,9 +126,7 @@ pub(crate) fn build_params(
             &strict_plan,
         )?
     };
-    let system_instruction = initial_system_message
-        .map(get_system_message_text)
-        .unwrap_or_default();
+    let system_instruction = initial_system_message.map_or_default(get_system_message_text);
     if !system_instruction.is_empty() {
         config.insert(
             "systemInstruction".into(),
@@ -658,7 +656,7 @@ fn push_tool_call(
     let tool_call = ToolCall {
         id: tool_call_id,
         name: if truthy(name_value) {
-            name_value.map(part_text).unwrap_or_default()
+            name_value.map_or_default(part_text)
         } else {
             String::new()
         },

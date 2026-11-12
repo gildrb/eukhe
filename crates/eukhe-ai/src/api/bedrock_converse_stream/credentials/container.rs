@@ -269,8 +269,7 @@ async fn from_container_metadata(resolution: &Resolution<'_>) -> ProviderResult<
     let headers: Vec<(&str, String)> = resolution
         .env
         .truthy_var(AWS_CONTAINER_AUTHORIZATION_TOKEN_ENV)
-        .map(|token| vec![("Authorization", token)])
-        .unwrap_or_default();
+        .map_or_default(|token| vec![("Authorization", token)]);
     let body = resolution
         .abortable(metadata_request(
             &endpoint,

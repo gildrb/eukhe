@@ -264,8 +264,7 @@ pub(super) fn streaming_tray_hint(
     }
     let follow_up = keybindings
         .first_key("app.message.followUp")
-        .map(|key| crate::keybindings::format_key_text(&key))
-        .unwrap_or_default();
+        .map_or_default(|key| crate::keybindings::format_key_text(&key));
     Some(format!("{follow_up} to queue message"))
 }
 

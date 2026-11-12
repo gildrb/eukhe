@@ -1329,8 +1329,7 @@ impl Supervisor {
             for edge in &edges {
                 let stem = std::path::Path::new(&edge.child)
                     .file_stem()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                    .map_or_default(|name| name.to_string_lossy().to_string());
                 if stem == selector && edge.child_id == id {
                     resolved = Some((edge.child_id.clone(), edge.child.clone()));
                     break;
@@ -1347,8 +1346,7 @@ impl Supervisor {
             for edge in &edges {
                 let stem = std::path::Path::new(&edge.child)
                     .file_stem()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                    .map_or_default(|name| name.to_string_lossy().to_string());
                 if stem == selector {
                     resolved = Some((edge.child_id.clone(), edge.child.clone()));
                     break;

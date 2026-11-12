@@ -159,8 +159,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
             state.start_assistant_message();
             event
                 .get("message")
-                .map(|message| state.unpublished_chunks(message))
-                .unwrap_or_default()
+                .map_or_default(|message| state.unpublished_chunks(message))
         }
         "message_update" => {
             if !is_assistant(event) {
@@ -176,8 +175,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 // still carry text no delta published.
                 return event
                     .get("message")
-                    .map(|message| state.unpublished_chunks(message))
-                    .unwrap_or_default();
+                    .map_or_default(|message| state.unpublished_chunks(message));
             }
             let message_id = state.message_started();
             match stream
@@ -207,8 +205,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
             }
             let chunks = event
                 .get("message")
-                .map(|message| state.unpublished_chunks(message))
-                .unwrap_or_default();
+                .map_or_default(|message| state.unpublished_chunks(message));
             state.active_assistant_message_id = None;
             chunks
         }

@@ -413,8 +413,7 @@ impl ResidentWorker {
         let session_file = descriptor.session_file.as_deref().unwrap_or_default();
         let file_stem = std::path::Path::new(session_file)
             .file_stem()
-            .map(|stem| stem.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|stem| stem.to_string_lossy().to_string());
         let name = descriptor
             .create_command
             .rest

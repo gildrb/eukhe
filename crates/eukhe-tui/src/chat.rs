@@ -230,8 +230,7 @@ pub struct WorkingState {
 #[must_use]
 pub fn live_abort_text(retry_attempt: u32, elapsed_secs: Option<u64>) -> String {
     let elapsed_suffix = elapsed_secs
-        .map(|secs| format!("{}{}", crate::glyphs::SEP, format_working_elapsed(secs)))
-        .unwrap_or_default();
+        .map_or_default(|secs| format!("{}{}", crate::glyphs::SEP, format_working_elapsed(secs)));
     if retry_attempt > 0 {
         format!(
             "Aborted after {retry_attempt} retry attempt{}{elapsed_suffix}",

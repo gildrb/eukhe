@@ -172,11 +172,7 @@ pub(crate) async fn withdraw_queued(
             AbortSubmissionResult::Aborted => withdrawn.push(Withdrawn {
                 request_id: queued.request_id,
                 lane: queued.lane,
-                text: queued
-                    .content
-                    .as_ref()
-                    .map(content_preview)
-                    .unwrap_or_default(),
+                text: queued.content.as_ref().map_or_default(content_preview),
             }),
             AbortSubmissionResult::AlreadyPlaced
             | AbortSubmissionResult::Settled

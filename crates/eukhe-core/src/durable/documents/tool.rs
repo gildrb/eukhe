@@ -213,8 +213,7 @@ fn image_refusal(image: &ReadImage<'_>, model: Option<&Model>) -> Option<String>
     }
     let path = image
         .absolute
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
+        .map_or_default(|path| path.display().to_string());
     Some(format!(
         "Not attached: over the read limit of {max_width}x{max_height} pixels and {} KB. \
          `print(await attach_image.run({path:?}))` in `python` resizes it into context.",

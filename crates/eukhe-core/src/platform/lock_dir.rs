@@ -35,8 +35,7 @@ const MIN_STALE: Duration = Duration::from_secs(2);
 fn probe_mtime() -> (i64, i64) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or_default();
+        .map_or_default(|duration| duration.as_millis() as i64);
     let seconds = (now_ms + 999).div_euclid(1000);
     (seconds, 5_000_000)
 }

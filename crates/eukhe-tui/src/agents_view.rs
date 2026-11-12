@@ -1497,8 +1497,7 @@ async fn run_agents_view_surface(
             scope_back: mode.scope_back,
             expanded_ancestors: opened
                 .as_ref()
-                .map(|row| row.expanded_ancestors.clone())
-                .unwrap_or_default(),
+                .map_or_default(|row| row.expanded_ancestors.clone()),
             selected_row_identity: opened.as_ref().map(|row| row.selected_row_identity.clone()),
             selected_key: opened.as_ref().map(|row| row.selected_key.clone()),
             opened_rlm_depth: opened.as_ref().and_then(|row| row.rlm_depth),

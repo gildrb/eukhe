@@ -316,8 +316,7 @@ fn assert_seen_lines(
     let held = snapshot.is_some();
     let runs = snapshot
         .and_then(|snapshot| snapshot.seen_lines)
-        .map(|lines| seen::runs(&lines, anchor_lines))
-        .unwrap_or_default();
+        .map_or_default(|lines| seen::runs(&lines, anchor_lines));
     let verdict = seen::check(&runs, &seen::anchors(text, anchor_lines));
     if verdict.unseen.is_empty() {
         return Ok(());

@@ -183,7 +183,7 @@ impl SessionUi {
                 .as_ref()
                 .and_then(|state| state.get("scopedModels"))
                 .and_then(Value::as_array)
-                .map(|entries| {
+                .map_or_default(|entries| {
                     entries
                         .iter()
                         .filter_map(|entry| {
@@ -194,8 +194,7 @@ impl SessionUi {
                             ))
                         })
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             return ModelPicker::new(ModelPickerOptions {
                 models: self.model_catalog.clone(),
                 current,
@@ -358,9 +357,7 @@ impl SessionUi {
             );
             return;
         }
-        let effort = effort
-            .map(|level| format!(" ({} effort)", level.wire_name()))
-            .unwrap_or_default();
+        let effort = effort.map_or_default(|level| format!(" ({} effort)", level.wire_name()));
         self.note(
             &format!("{label}: {selector}{effort}, saved globally"),
             view,
@@ -463,14 +460,13 @@ impl SessionUi {
             let configured_providers: std::collections::HashSet<String> = value
                 .get("configuredProviders")
                 .and_then(Value::as_array)
-                .map(|providers| {
+                .map_or_default(|providers| {
                     providers
                         .iter()
                         .filter_map(Value::as_str)
                         .map(str::to_string)
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             let _ = updates.send(ModelCatalogUpdate {
                 models,
                 configured_providers,
@@ -598,8 +594,7 @@ impl SessionUi {
                     let overrides = self
                         .client_settings
                         .as_ref()
-                        .map(|settings| settings.all_roles_overrides(&selector))
-                        .unwrap_or_default();
+                        .map_or_default(|settings| settings.all_roles_overrides(&selector));
                     self.note(&all_roles_note(&selector, &overrides), view);
                 }
                 self.maybe_warn_anthropic_subscription_auth_if_subscribed(Some(provider), view)

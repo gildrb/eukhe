@@ -147,8 +147,7 @@ pub fn mcp_credential_field_prompt_label(
                     token
                         .chars()
                         .next()
-                        .map(|c| c.to_ascii_lowercase())
-                        .unwrap_or_default(),
+                        .map_or_default(|c| c.to_ascii_lowercase()),
                 )
             {
                 continue;
@@ -256,8 +255,7 @@ pub fn oauth_grant_usable(
     }
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or_default();
+        .map_or_default(|since| since.as_millis() as i64);
     if *expires <= now_ms && refresh.as_deref().is_none_or(str::is_empty) {
         return Err(OAuthGrantUsabilityReason::ExpiredNoRefresh);
     }

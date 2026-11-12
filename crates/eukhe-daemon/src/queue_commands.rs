@@ -169,10 +169,7 @@ impl Worker {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             (
-                core.view
-                    .as_ref()
-                    .map(|view| view.inbox.clone())
-                    .unwrap_or_default(),
+                core.view.as_ref().map_or_default(|view| view.inbox.clone()),
                 core.suspended
                     .iter()
                     .cloned()

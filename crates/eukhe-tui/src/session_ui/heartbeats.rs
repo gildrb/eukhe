@@ -447,8 +447,7 @@ fn heartbeat_status_text(heartbeat: &Value) -> String {
         .get("schedule")
         .and_then(|schedule| schedule.get("expression"))
         .and_then(Value::as_str)
-        .map(crate::menu_panel::scrub_controls)
-        .unwrap_or_default();
+        .map_or_default(crate::menu_panel::scrub_controls);
     let mut lines = vec![
         "Heartbeat".to_string(),
         String::new(),

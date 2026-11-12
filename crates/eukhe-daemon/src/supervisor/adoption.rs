@@ -825,8 +825,7 @@ impl Supervisor {
                 || {
                     Path::new(child)
                         .parent()
-                        .map(|dir| dir.to_string_lossy().to_string())
-                        .unwrap_or_default()
+                        .map_or_default(|dir| dir.to_string_lossy().to_string())
                 },
                 str::to_string,
             );

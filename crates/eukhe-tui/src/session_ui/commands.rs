@@ -378,14 +378,13 @@ impl SessionUi {
                 let levels: Vec<String> = state
                     .get("availableThinkingLevels")
                     .and_then(Value::as_array)
-                    .map(|levels| {
+                    .map_or_default(|levels| {
                         levels
                             .iter()
                             .filter_map(Value::as_str)
                             .map(str::to_string)
                             .collect()
-                    })
-                    .unwrap_or_default();
+                    });
                 // TS `getAvailableThinkingLevels`: an "off"-only list is
                 // no thinking surface.
                 let levels: Vec<String> = if levels.len() == 1 && levels[0] == "off" {

@@ -85,8 +85,7 @@ pub fn parse_heartbeat_job(job: &Value) -> Option<HeartbeatJob> {
             .get("schedule")
             .and_then(|schedule| schedule.get("expression"))
             .and_then(Value::as_str)
-            .map(crate::menu_panel::scrub_controls)
-            .unwrap_or_default(),
+            .map_or_default(crate::menu_panel::scrub_controls),
         created_at: text("createdAt").unwrap_or_default(),
         next_run_at: text("nextRunAt"),
         last_error: text("lastError"),

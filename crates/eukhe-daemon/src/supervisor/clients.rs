@@ -153,8 +153,7 @@ impl Supervisor {
             runtime: Some(DaemonRuntimeIdentity {
                 build_id: eukhe_build_info::DAEMON_BUILD_ID.to_string(),
                 executable_path: std::env::current_exe()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
+                    .map_or_default(|p| p.to_string_lossy().to_string()),
                 entrypoint_path: None,
                 launcher_path: None,
             }),

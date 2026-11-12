@@ -37,8 +37,7 @@ impl Engine for Echo {
         let text = request
             .messages
             .last()
-            .map(|message| message.content.clone())
-            .unwrap_or_default();
+            .map_or_default(|message| message.content.clone());
         if text == CRASH {
             std::process::exit(3);
         }

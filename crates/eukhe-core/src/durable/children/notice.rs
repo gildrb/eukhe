@@ -84,8 +84,7 @@ impl ChildReport {
                 last_assistant_text_preview
                     .as_deref()
                     .filter(|preview| !preview.is_empty())
-                    .map(|preview| format!("Last assistant text: {preview}"))
-                    .unwrap_or_default(),
+                    .map_or_default(|preview| format!("Last assistant text: {preview}")),
                 acceptance.as_ref(),
                 handback,
             ),

@@ -446,9 +446,8 @@ impl<'a> Parts<'a> {
 /// call in its slot.
 fn snapshot_of(current: &Current) -> SnapshotEvent {
     let parts = Parts::of(&current.view);
-    let mut tools: Vec<ToolSlot> = parts.live("tools").map(decode).unwrap_or_default();
-    let mut nested_tools: Vec<NestedToolSlot> =
-        parts.live("nestedTools").map(decode).unwrap_or_default();
+    let mut tools: Vec<ToolSlot> = parts.live("tools").map_or_default(decode);
+    let mut nested_tools: Vec<NestedToolSlot> = parts.live("nestedTools").map_or_default(decode);
     let published = |task_id: Option<TaskId>, status: ToolSlotStatus| {
         task_id
             .filter(|_| status == ToolSlotStatus::Running)
@@ -480,10 +479,10 @@ fn snapshot_of(current: &Current) -> SnapshotEvent {
         generation: parts.live("generation").map(decode),
         tools,
         nested_tools,
-        compactions: parts.live("compactions").map(decode).unwrap_or_default(),
+        compactions: parts.live("compactions").map_or_default(decode),
         inbox: queued(parts.inbox),
-        agent: parts.agent.map(decode).unwrap_or_default(),
-        usage: parts.usage.map(decode).unwrap_or_default(),
+        agent: parts.agent.map_or_default(decode),
+        usage: parts.usage.map_or_default(decode),
     }
 }
 
@@ -1117,12 +1116,12 @@ fn translate(
     // A retired document reads as its initial value, as in a snapshot.
     if !same(now.agent, was.agent) {
         events.push(AgentEvent::AgentChanged {
-            agent: now.agent.map(decode).unwrap_or_default(),
+            agent: now.agent.map_or_default(decode),
         });
     }
     if !same(now.usage, was.usage) {
         events.push(AgentEvent::UsageChanged {
-            usage: now.usage.map(decode).unwrap_or_default(),
+            usage: now.usage.map_or_default(decode),
         });
     }
     for status in compactions {
@@ -1361,7 +1360,7 @@ fn tool_update(
     let details = (!same(slot.get("details"), previous.get("details")))
         .then(|| slot.get("details").cloned().unwrap_or(JsonValue::Null));
     let diagnostics = (!same(slot.get("diagnostics"), previous.get("diagnostics")))
-        .then(|| slot.get("diagnostics").map(decode).unwrap_or_default());
+        .then(|| slot.get("diagnostics").map_or_default(decode));
     if output.is_none() && details.is_none() && diagnostics.is_none() {
         return None;
     }

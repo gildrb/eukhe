@@ -1435,8 +1435,9 @@ async fn interrupted_jobs(
         .snapshot(&EFFECTS_DOC, session.root().id(), cx())
         .await
         .expect("the ledger reads")
-        .map(|value| from_json::<EffectsState>(&JsonValue::Object(value)).expect("a ledger"))
-        .unwrap_or_default();
+        .map_or_default(|value| {
+            from_json::<EffectsState>(&JsonValue::Object(value)).expect("a ledger")
+        });
     let unknown = ledger
         .unknown
         .into_iter()

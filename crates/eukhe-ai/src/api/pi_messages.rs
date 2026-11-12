@@ -206,8 +206,7 @@ fn create_pi_messages_response_error(
     let suffix = message.unwrap_or(body);
     let code_suffix = code
         .filter(|code| !code.is_empty())
-        .map(|code| format!(" ({code})"))
-        .unwrap_or_default();
+        .map_or_default(|code| format!(" ({code})"));
     let mut error = ErrorObject::named(
         "PiMessagesResponseError",
         format!("{status} {status_text}: {suffix}{code_suffix}"),

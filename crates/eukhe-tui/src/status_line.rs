@@ -134,8 +134,7 @@ pub fn render_status_line(
     }
     let mut right: Line = state
         .context
-        .map(|context| context_segment(context, theme))
-        .unwrap_or_default();
+        .map_or_default(|context| context_segment(context, theme));
     let inner = width.saturating_sub(2);
     if line_width(&right) + 1 > inner {
         right.clear();

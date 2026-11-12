@@ -207,8 +207,7 @@ async fn first_slot(session: &EukheSession) -> Option<ToolSlot> {
         .snapshot(&LIVE_DOC, session.root().id(), cx())
         .await
         .expect("pi.live")
-        .map(|value| from_json(&JsonValue::Object(value)).expect("pi.live decodes"))
-        .unwrap_or_default();
+        .map_or_default(|value| from_json(&JsonValue::Object(value)).expect("pi.live decodes"));
     live.tools.and_then(|tools| tools.into_iter().next())
 }
 

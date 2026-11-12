@@ -230,9 +230,7 @@ pub(crate) async fn request(
 }
 
 fn closed_error(reason: Option<&str>, socket_path: &Path) -> anyhow::Error {
-    let reason = reason
-        .map(|reason| format!(" Reason: {reason}."))
-        .unwrap_or_default();
+    let reason = reason.map_or_default(|reason| format!(" Reason: {reason}."));
     anyhow!(
         "Connection to the Eukhe daemon closed.{reason} {}",
         endpoint_details(socket_path)
@@ -808,8 +806,7 @@ fn state_snapshot_lines(snapshot: &StateTreeSnapshot) -> Vec<String> {
     }
     let mut stack: Vec<&StateTreeNode> = children
         .get(&0)
-        .map(|top| top.iter().rev().copied().collect())
-        .unwrap_or_default();
+        .map_or_default(|top| top.iter().rev().copied().collect());
     while let Some(node) = stack.pop() {
         let depth = depths.get(&node.id).copied().unwrap_or_default();
         lines.push(format!(
@@ -1244,14 +1241,12 @@ fn format_agent_cron_job(job: &Value) -> String {
     let label = job
         .get("label")
         .and_then(Value::as_str)
-        .map(|label| format!(" label=\"{}\"", crate::sanitize::line(label)))
-        .unwrap_or_default();
+        .map_or_default(|label| format!(" label=\"{}\"", crate::sanitize::line(label)));
     let next = cron_datetime(job.get("nextRunAt"));
     let last = cron_datetime(job.get("lastRunAt"));
     let skipped = job
         .get("lastSkippedAt")
-        .map(|value| format!(" skipped={}", cron_datetime(Some(value))))
-        .unwrap_or_default();
+        .map_or_default(|value| format!(" skipped={}", cron_datetime(Some(value))));
     let run_count = job
         .get("runCount")
         .and_then(Value::as_f64)
@@ -1274,8 +1269,7 @@ fn format_agent_cron_job(job: &Value) -> String {
     let error = job
         .get("lastError")
         .and_then(Value::as_str)
-        .map(|error| format!(" error={}", crate::sanitize::line(error)))
-        .unwrap_or_default();
+        .map_or_default(|error| format!(" error={}", crate::sanitize::line(error)));
     format!(
         "{id} {status}{label} next={next} last={last}{skipped} runs={run_count} schedule=\"{expression}\" prompt=\"{preview}\"{error}"
     )
