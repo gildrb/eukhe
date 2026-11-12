@@ -161,7 +161,9 @@ async fn every_listed_model_resolves_in_a_session() {
 
 /// A requested model resolves exactly in a session or is not found: ids
 /// the catalog lacks never run as another model of the provider (an id
-/// that other ids extend) or under the provider's template.
+/// that other ids extend) or under the provider's template, and
+/// Cloudflare's dotted Claude ids, which the catalog no longer lists, run
+/// as the dashed models their aliases name.
 #[tokio::test]
 async fn requested_models_resolve_exactly_or_are_not_found() {
     let package = tempfile::tempdir().expect("package dir");
@@ -219,5 +221,26 @@ async fn requested_models_resolve_exactly_or_are_not_found() {
             ),
             other => panic!("{provider}/{id}: {other:?}"),
         }
+    }
+
+    for (dotted, dashed) in [
+        ("claude-fable-5.1", "claude-fable-5-1"),
+        ("claude-haiku-4.5", "claude-haiku-4-5"),
+        ("claude-opus-4.5", "claude-opus-4-5"),
+        ("claude-opus-4.6", "claude-opus-4-6"),
+        ("claude-opus-4.7", "claude-opus-4-7"),
+        ("claude-opus-4.8", "claude-opus-4-8"),
+        ("claude-sonnet-4.5", "claude-sonnet-4-5"),
+        ("claude-sonnet-4.6", "claude-sonnet-4-6"),
+    ] {
+        let provider = "cloudflare-ai-gateway";
+        assert!(!catalog.contains(&(provider.to_owned(), dotted.to_owned())));
+        assert_eq!(
+            resolve(provider, dotted)
+                .await
+                .unwrap_or_else(|error| panic!("{provider}/{dotted}: {error}")),
+            Some((provider.to_owned(), dashed.to_owned())),
+            "{provider}/{dotted}"
+        );
     }
 }
