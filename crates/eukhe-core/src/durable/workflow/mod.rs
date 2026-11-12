@@ -59,6 +59,9 @@ pub const WORKFLOW_TOOL_NAME: &str = "workflow";
 pub const WORKFLOW_MODULE_VERSION: u32 = 2;
 
 const WORKFLOW_DESCRIPTION: &str = include_str!("../../prompts/layers/workflow.md");
+/// The workflow API the script runs on. Generated from `prelude.ts` by
+/// `make embedded-js` (never hand-edited); `script.d.ts` types the globals
+/// `globals.rs` installs.
 const PRELUDE: &str = include_str!("prelude.js");
 const NO_RUNTIME: &str =
     "dynamic workflows need the eukhe daemon: this session has no subagent runtime";
