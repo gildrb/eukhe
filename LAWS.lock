@@ -4229,7 +4229,7 @@
   },
   "spec_files": {
     "spec/PILLARS.md": "b713acc7123ec05d5d9e083a84dbda8c8b8c5cd92a5ce7708e9996d567e62986",
-    "spec/README.md": "c0201ee3a764b3c496ac49aa6ee88a1cc6024b92dd40558eaecad13a39e74c5f",
+    "spec/README.md": "340c55e34fde45cf1552833dfae553e9d1e9a3fe1803b3507b3b34a84fdce133",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
