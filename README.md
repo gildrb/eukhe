@@ -1,6 +1,6 @@
 # Eukhe
 
-Eukhe (εὐχή, Greek for wish) is a harness and embeddable core for agents that work toward a goal, within limits, until checks pass
+Eukhe (εὐχή, Greek for wish) is a harness and embeddable core for agents that work toward a goal, within limits, until checks pass.
 
 - Goal: the work to be done.
 - Limits: money, time, tokens. Never exceeded.

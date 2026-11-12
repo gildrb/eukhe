@@ -1,5 +1,5 @@
 {
-  description = "An agent harness. Runs a model toward a goal, within limits, until checks pass";
+  description = "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

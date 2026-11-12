@@ -857,9 +857,9 @@ pub fn format_top_level_help() -> String {
         })
         .collect();
     format!(
-        "{APP_NAME} - an agent harness\n\
+        "{APP_NAME} - a harness and embeddable core for agents\n\
          \n\
-         It runs a model toward a goal, within limits, until checks pass.\n\
+         They work toward a goal, within limits, until checks pass.\n\
          \n\
          Usage:\n\
          \x20 {APP_NAME} [options] [@files...] [message...]\n\

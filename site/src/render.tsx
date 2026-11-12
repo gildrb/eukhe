@@ -13,7 +13,7 @@ export const origin = "https://eukhe.com";
 
 const name = "Eukhe";
 const summary =
-  "An agent harness. Runs a model toward a goal, within limits, until checks pass";
+  "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
 const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "mail@gildrb.com" };
 
 /** A page of the site: where it is, its title and description, and its Markdown. */
@@ -21,7 +21,7 @@ type Doc = { path: string; title: string; description: string; markdown: string 
 
 const home: Doc = {
   path: "/",
-  title: "Eukhe: an agent harness",
+  title: "Eukhe: a harness and embeddable core for agents",
   description: `${summary}. ${install}`,
   markdown: source,
 };

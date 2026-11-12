@@ -6,8 +6,9 @@ ABOUT
 
 # ABOUT EUKHE
 
-Eukhe is an agent harness: it runs a model toward a goal, within limits,
-until checks pass. The name is εὐχή, Greek for wish.
+Eukhe is a harness and embeddable core for agents that work toward a
+goal, within limits, until checks pass. The name is εὐχή, Greek for
+wish.
 
 > διὸ δὴ καὶ ὄκνος τις αὐτῶν ἅπτεσθαι, μὴ εὐχὴ δοκῇ εἶναι ὁ λόγος,
 > ὦ φίλε ἑταῖρε.

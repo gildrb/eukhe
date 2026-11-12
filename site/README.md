@@ -1,6 +1,6 @@
 # site
 
-eukhe.com: the page for [Eukhe](https://github.com/gildrb/eukhe), an agent harness, set as visible Markdown in Paper Mono, in gildrb.com's colors. Preact, StyleX, strict TypeScript, Vite+, a Cloudflare Worker.
+eukhe.com: the page for [Eukhe](https://github.com/gildrb/eukhe), a harness and embeddable core for agents, set as visible Markdown in Paper Mono, in gildrb.com's colors. Preact, StyleX, strict TypeScript, Vite+, a Cloudflare Worker.
 
 It lives in `site/` of Eukhe's repository (until November 2026 it was gildrb/eukhe-site, whose history is this folder's) and is apart from Eukhe in all but one thing: its build reads the repository's files (`../README.md` and what it links to). It has its own toolchain (npm, `package-lock.json`), laws (`LAWS.bend`, `laws/`, `proof/`, `LAWS.lock`) and check; no Eukhe gate, hook or release runs it, and a broken site breaks only the site's deploy.
 

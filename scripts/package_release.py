@@ -235,7 +235,7 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
             {
                 "name": "eukhe",
                 "version": version,
-                "description": "An agent harness. Runs a model toward a goal, within limits, until checks pass",
+                "description": "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass",
                 "bin": {"eukhe": binary_name},
             },
             indent=2,
