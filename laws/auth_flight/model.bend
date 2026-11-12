@@ -456,3 +456,9 @@ law flight_after_end_served_orig:
   for +ok2: Bool
   for fresh: {F.Sto.fresh(F.W.sto(F.St.w(F.step(F.run(evs), F.Step{k, ok})))) == True{} : Bool}
   F.After(c, F.step(F.run(evs), F.Step{k, ok}), ok2)
+
+# LAW flight_new_example: anchor: a world starts with no caller, no flight in flight, none
+# landed, no fetch made, and the store holding credential 0, expired
+# EXCLUDES: a model whose runs start from a fresh store or a flight in flight
+law flight_new_example:
+  {F.St.new() == F.St{F.W{F.Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}} : F.St}

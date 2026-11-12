@@ -918,6 +918,7 @@ import ./proof/auth_flight/flight_after_end_stored.bend as PFlightAfterEndStored
 import ./proof/auth_flight/flight_after_end_served.bend as PFlightAfterEndServed
 import ./proof/auth_flight/flight_land_ends.bend as PFlightLandEnds
 import ./proof/auth_flight/flight_step_exact.bend as PFlightStepExact
+import ./proof/auth_flight/flight_new_example.bend as PFlightNewExample
 import ./proof/auth_flight/flight_store_terms_exact.bend as PFlightStoreTermsExact
 import ./proof/auth_flight/flight_step_progresses.bend as PFlightStepProgresses
 import ./proof/auth_flight/flight_waiter_led.bend as PFlightWaiterLed

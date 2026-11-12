@@ -192,6 +192,7 @@
     "laws/auth_flight/model.bend::flight_callers_get_its_outcome": "4446cf6e6ae6c6709b2e3770dfe4464970fbf57e283def9d05629ce521c43807",
     "laws/auth_flight/model.bend::flight_land_ends": "25a2a13f35473429e0fabf933fd3d0bc491b9b5a7a6520e7bcbc19cc78dcec64",
     "laws/auth_flight/model.bend::flight_landed_serves": "3979a5feb9710afee3708b3583516df8b37915458343b84d19eb1a23647fb229",
+    "laws/auth_flight/model.bend::flight_new_example": "dbcaca741a369e09c1882a4c60237485e8988be4099bebbda4bc1b986365c66a",
     "laws/auth_flight/model.bend::flight_one_fetch": "e0c997bc61d56a47c934f1a97a1afa5892f687cfc7cd4810268fce0b5a57d75c",
     "laws/auth_flight/model.bend::flight_one_flight": "87049556be228c26b516da79817494c494c0a5eba01975f6dc630009db4ef562",
     "laws/auth_flight/model.bend::flight_step_exact": "edd9622231dd95f266c4d0ef80b74c776d317dac0016effb1e1d95e88a17b4ed",
