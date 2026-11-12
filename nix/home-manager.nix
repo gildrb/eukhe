@@ -19,6 +19,9 @@ let
     ];
     text = builtins.readFile ./merge-settings.sh;
   };
+  # The NixOS system when Home Manager runs as its module (a special
+  # argument there); `null` standalone.
+  osConfig = args.osConfig or null;
   # The always-on daemon's PATH: the agent's tools run with it (a session
   # does not get the terminal's PATH).
   daemonPath = lib.concatStringsSep ":" [
@@ -146,6 +149,21 @@ in
         message = "programs.eukhe.gateway.enable needs systemd (Linux).";
       }
     ];
+
+    warnings =
+      lib.optional
+        (
+          pkgs.stdenv.hostPlatform.isLinux
+          && osConfig != null
+          && osConfig ? programs.nix-ld
+          && !osConfig.programs.nix-ld.enable
+        )
+        ''
+          programs.eukhe: the Python kernel runs on a standalone CPython that
+          eukhe fetches on first use, which needs nix-ld on NixOS: set
+          `programs.nix-ld.enable = true;` (or use the flake's
+          nixosModules.default), else the `python` tool does not start.
+        '';
 
     home.packages =
       lib.optional (cfg.package != null) cfg.package
