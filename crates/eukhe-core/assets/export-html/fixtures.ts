@@ -1123,7 +1123,7 @@ export const durable: SessionExportData = {
       "timestamp": "2026-01-01T00:00:26.000Z",
       "summary": "The session so far.\n\n<read-files>\nsrc/main.rs\n</read-files>",
       "firstKeptEntryId": "d2",
-      "tokensBefore": 0
+      "tokensBefore": 1200
     },
     {
       "type": "branch_summary",
@@ -1612,7 +1612,7 @@ export const live: SessionExportData = {
       "timestamp": "2026-01-01T00:00:26.000Z",
       "summary": "The session so far.\n\n<read-files>\nsrc/main.rs\n</read-files>",
       "firstKeptEntryId": "d2",
-      "tokensBefore": 0
+      "tokensBefore": 1200
     },
     {
       "type": "branch_summary",

@@ -11,6 +11,7 @@ use eukhe_chord::context::Context;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::types::{EntryData, EntryRecord};
 use eukhe_types::pi_ai::Message;
+use eukhe_types::usage::{calculate_context_tokens, valid_assistant_usage};
 use serde_json::{json, Map, Value};
 
 use super::compaction::compaction_summary_text;
@@ -45,7 +46,9 @@ pub fn export_header(session_id: &str, cwd: &str) -> Value {
 /// `entries` (a conversation's fork-aware history, oldest first) as
 /// session-file rows chained linearly: `id` is the durable entry id,
 /// `parentId` the previous exported row. Bookkeeping entries (`pi.system`,
-/// `pi.reset`, custom state) are skipped.
+/// `pi.reset`, custom state) are skipped. A compaction's `tokensBefore` is
+/// the context size the last assistant reply before it reported (0 when
+/// none did): the durable entry stores no count of its own.
 ///
 /// # Errors
 ///
@@ -54,14 +57,18 @@ pub fn export_rows(entries: &[EntryRecord]) -> Result<ExportRows> {
     let mut rows = Vec::new();
     let mut previous: Option<String> = None;
     let mut last_timestamp = 0;
+    let mut context_tokens = 0;
     for entry in entries {
         let timestamp = timestamp_ms(entry).unwrap_or(last_timestamp);
         last_timestamp = timestamp;
-        let Some(body) = file_entry(entry, timestamp)
+        let Some(body) = file_entry(entry, timestamp, context_tokens)
             .with_context(|| format!("exporting durable entry {}", entry.id))?
         else {
             continue;
         };
+        if let Some(usage) = body.get("message").and_then(valid_assistant_usage) {
+            context_tokens = calculate_context_tokens(&usage);
+        }
         let id = entry.id.to_string();
         let mut row = Map::new();
         if let Value::Object(body) = body {
@@ -148,7 +155,8 @@ fn iso(millis: u64) -> String {
 
 /// The session-file form of one durable entry (without `id`, `parentId`,
 /// `timestamp`), or `None` for bookkeeping entries the export skips.
-fn file_entry(entry: &EntryRecord, timestamp: u64) -> Result<Option<Value>> {
+/// `tokens_before` is a compaction's context size.
+fn file_entry(entry: &EntryRecord, timestamp: u64, tokens_before: u64) -> Result<Option<Value>> {
     let first = || {
         entry
             .model
@@ -166,7 +174,7 @@ fn file_entry(entry: &EntryRecord, timestamp: u64) -> Result<Option<Value>> {
             "type": "compaction",
             "summary": compaction_summary_text(entry)?,
             "firstKeptEntryId": entry.head.map_or_else(String::new, |head| head.to_string()),
-            "tokensBefore": 0,
+            "tokensBefore": tokens_before,
         })));
     }
     if CUSTOM_ENTRY.is(kind) {

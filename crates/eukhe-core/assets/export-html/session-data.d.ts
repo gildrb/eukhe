@@ -92,7 +92,8 @@ type ModelChangeEntry = EntryBase & { type: "model_change"; provider: string; mo
 
 /**
  * `FileEntry::Compaction` (`eukhe_types::session::CompactionEntry`), or a durable `compaction`
- * row (`summary`, `firstKeptEntryId`, and `tokensBefore` always 0).
+ * row (`summary`, `firstKeptEntryId`, and `tokensBefore`: the context size the last assistant
+ * reply before it reported).
  */
 type CompactionEntry = EntryBase & {
   type: "compaction";

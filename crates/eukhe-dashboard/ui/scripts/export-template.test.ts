@@ -73,3 +73,11 @@ test("a command without an exit code shows no exit status, a failed one its code
   expect(runs.find((text) => text.includes("$ false"))).toContain("(exit 1)");
   expect(runs.find((text) => text.includes("$ sleep 100"))).toContain("(cancelled)");
 });
+
+test("a durable compaction shows the context size before it, not 0", async () => {
+  const window = await render(durable);
+  expect(texts(window, "#messages .compaction-collapsed")).toEqual([
+    `Compacted from ${(1200).toLocaleString()} tokens`,
+  ]);
+  expect(texts(window, ".tree-compaction")).toEqual(["[compaction: 1k tokens]"]);
+});
