@@ -7,7 +7,7 @@ Eukhe (εὐχή, Greek for wish) is a harness and embeddable core for agents th
 - Checks: commands that decide when the work is done, such as `cargo test` or `bend PROOF.bend --verdict`.
 - Report: what was done, and which checks passed.
 
-[Why](PHILOSOPHY.md).
+[Why?](PHILOSOPHY.md).
 
 ## Install
 
@@ -40,11 +40,13 @@ Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash co
 - Background sessions: a daemon runs them. The terminal, `eukhe dashboard` (browser) and `eukhe gateway` (Signal) attach to the same sessions.
 - Embedding: [`eukhe-sdk`](crates/eukhe-sdk/) runs sessions inside a Rust program, and [`eukhe-client`](crates/eukhe-client/) connects one to the daemon. Rust only, not on crates.io, API unstable.
 
-Limits:
+# Limitations
 
+```
 - No sandbox: model-written code runs with the user's permissions.
 - No Windows.
 - A passing check can be gamed, for example by a hard-coded answer. Eukhe blocks changes to the checks, not this.
+```
 
 ## Credits
 
