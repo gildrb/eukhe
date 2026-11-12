@@ -627,6 +627,54 @@ fn a_shared_childs_work_never_takes_its_parents_final_answer_reserve() {
     assert_exact(&root, 9, cost(950));
 }
 
+/// B6: a side request asked by a gate that never sent a turn (a
+/// compaction's: it knows no reserve, keep 0) still leaves the reserve the
+/// agent's work recorded. Before, it took 700 of 900, and the final answer
+/// of 300 found 200.
+#[test]
+fn a_side_request_without_a_reserve_of_its_own_leaves_the_agents() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = at(dir.path(), "root");
+    root.open_root(cost_only(1_000)).unwrap();
+    let work = granted(
+        root.reserve(
+            "root",
+            Use::Work,
+            "model:test/m",
+            cost(300),
+            BudgetAmounts::default(),
+            &[cost(100)],
+            REQUEST_MIN_MS,
+        )
+        .unwrap(),
+    );
+    root.settle(work.id, cost(100)).unwrap();
+    let compaction = at(dir.path(), "root");
+    assert_eq!(
+        refused(
+            compaction
+                .reserve(
+                    "root",
+                    Use::Side,
+                    "model:test/m",
+                    BudgetAmounts::default(),
+                    BudgetAmounts::default(),
+                    &[cost(700)],
+                    REQUEST_MIN_MS,
+                )
+                .unwrap()
+        ),
+        (
+            Refusal::Short(BudgetDimension::Cost),
+            BudgetReport {
+                spent: cost(100),
+                ..fresh("root", "root", cost_only(1_000), cost(900))
+            }
+        )
+    );
+    granted(final_answer(&root, "root", cost(300)));
+}
+
 #[test]
 fn each_agent_has_its_own_phase() {
     let dir = tempfile::tempdir().unwrap();

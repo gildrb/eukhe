@@ -1120,6 +1120,22 @@ impl Ledger {
         let empty = State::default();
         let state = locked.state().unwrap_or(&empty);
         let id = state.next_id;
+        // A side request leaves the reserve the agent's turns recorded,
+        // whichever gate asks for it: one that never sent a turn (a
+        // compaction's, a memory's) knows no reserve of its own (B6).
+        let keep = match use_ {
+            Use::Side => state
+                .members
+                .get(agent)
+                .map_or(keep, |member| BudgetAmounts {
+                    cost_micros: keep.cost_micros.max(member.keep.cost_micros),
+                    tokens: keep.tokens.max(member.keep.tokens),
+                    time_ms: keep.time_ms.max(member.keep.time_ms),
+                    tool_calls: keep.tool_calls.max(member.keep.tool_calls),
+                    requests: keep.requests.max(member.keep.requests),
+                }),
+            Use::Work | Use::Final => keep,
+        };
         let offers = match state.limits.time_ms {
             Some(_) => {
                 let own = match use_ {
