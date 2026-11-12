@@ -17,6 +17,7 @@ pub use image::{
     image_tokens, resolve_image_tokenization,
 };
 pub use image_header::base64_image_size;
+pub use taxonomy::thinking_variant_logical_id;
 pub use thinking::{ThinkingReplayTokens, resolve_thinking_replay_tokens};
 pub use tokenizer::{ModelTokenizer, resolve_model_tokenizer};
 
