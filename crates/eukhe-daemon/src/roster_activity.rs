@@ -269,6 +269,7 @@ mod tests {
             "agent_start",
             "agent_end",
             "goal_update",
+            "loop_update",
             "ipython_sent_agent_message",
         ] {
             cases.push((

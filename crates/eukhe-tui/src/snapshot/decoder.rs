@@ -11,6 +11,7 @@ use eukhe_types::daemon::{
 };
 use eukhe_types::effects::UnknownEffect;
 use eukhe_types::goal::GoalState;
+use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 
 /// One session event decoded for the transcript.
@@ -121,6 +122,9 @@ pub enum TurnUpdate {
     /// outcome a restart could not tell changed (the whole ledger, oldest
     /// first; the session view owns the notices and `/effects`).
     UnknownEffectsUpdate(Vec<UnknownEffect>),
+    /// `loop_update`: the session's `/loop` changed (the session view
+    /// owns the status line label).
+    LoopUpdate(LoopStatus),
     /// `session_action_update`: the queue projection changed (a message
     /// parked behind the run, was delivered, or was cleared).
     QueueUpdated(crate::queued::QueuedMessages),
@@ -358,6 +362,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::UnknownEffectsUpdate { effects } => {
             TurnUpdate::UnknownEffectsUpdate(effects.clone())
         }
+        SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,

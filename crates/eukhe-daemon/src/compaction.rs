@@ -90,11 +90,13 @@ impl CompactionManager {
     /// frame pair, settled: the `compact` command and the `/compact`
     /// session command share it. `running_turn` decides what happens to a
     /// running turn; an interrupted one gets its queued inputs back and
-    /// resumes (see [`RunningTurn::Interrupt`]). A compaction that
-    /// compacted continues an active goal (an abort ended its in-run loop)
-    /// unless resubmitted inputs drive the next run. The caller passed the
-    /// run gate (`_admission`): the resubmissions and the resume admit
-    /// under it.
+    /// resumes (see [`RunningTurn::Interrupt`]). A loop whose turn the
+    /// interrupt cuts is held across the compaction and takes its work up
+    /// again whatever the compaction did. A compaction that compacted
+    /// continues an active goal (an abort ended its in-run loop) unless
+    /// resubmitted inputs drive the next run or a loop is on: the loop's
+    /// turn comes first. The caller passed the run gate (`_admission`):
+    /// the resubmissions and the resume admit under it.
     pub(crate) async fn compact(
         &self,
         custom_instructions: Option<String>,
@@ -113,11 +115,23 @@ impl CompactionManager {
         // settled transcript.
         let busy = self.core.lock().unwrap().is_busy();
         let interrupted = if busy && running_turn == RunningTurn::Interrupt {
-            Some(
-                interrupt_turn(hosted.harness(), &main, cx())
-                    .await
-                    .map_err(|error| ManualCompactionError::Failed(error.to_string()))?,
+            // The interrupt is the compaction's, not the user's: a loop
+            // with a turn in flight is held, not paused.
+            let held = eukhe_core::durable::loop_mode::hold_loop_for_compaction(
+                hosted.harness(),
+                &main,
+                cx(),
             )
+            .await
+            .map_err(|error| ManualCompactionError::Failed(error.to_string()))?;
+            match interrupt_turn(hosted.harness(), &main, cx()).await {
+                Ok(queued) => Some((queued, held)),
+                Err(error) => {
+                    // No compaction follows: the held loop is released here.
+                    resume_loop(&hosted, &main).await;
+                    return Err(ManualCompactionError::Failed(error.to_string()));
+                }
+            }
         } else {
             None
         };
@@ -197,12 +211,26 @@ impl CompactionManager {
                 );
             }
         }
+        // The compaction settled, whatever it did: a held loop takes its
+        // work up again, its cut turn sent again ahead of the inputs queued
+        // behind it, before the goal.
+        let loop_on = resume_loop(&hosted, &main).await;
         // However the compaction ended, the interrupted turn's queued
-        // inputs come back and drive its
-        // resume; without them an active goal's continuation or the
-        // auto-continue prompt does.
+        // inputs come back and drive its resume (the loop's own queued
+        // iteration is its cut turn, never resubmitted); without them an
+        // active goal's continuation or the auto-continue prompt does,
+        // unless a loop is on (its turn runs first, and the goal follows
+        // its answer).
         let resume = interrupted.is_some() && resumes_interrupted_turn(&outcome);
-        let queued = interrupted.unwrap_or_default();
+        let (mut queued, held) = interrupted.unwrap_or_default();
+        if held {
+            queued.retain(|input| {
+                !matches!(
+                    input.origin,
+                    eukhe_types::input_origin::InputOrigin::Loop { .. }
+                )
+            });
+        }
         let restored = !queued.is_empty();
         if restored {
             if let Err(error) = resubmit_queued(&main, queued, cx()).await {
@@ -211,7 +239,7 @@ impl CompactionManager {
                 );
             }
         }
-        if outcome.is_ok() && !restored {
+        if outcome.is_ok() && !restored && !loop_on {
             if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
                 hosted.harness(),
                 main.id(),
@@ -222,7 +250,7 @@ impl CompactionManager {
                 eprintln!("eukhe-daemon: the post-compaction goal continuation failed: {error}");
             }
         }
-        if resume && !restored {
+        if resume && !restored && !loop_on {
             if let Err(error) = submit_auto_continue(&main, cx()).await {
                 eprintln!("eukhe-daemon: the post-compaction turn resume failed: {error}");
             }
@@ -265,6 +293,27 @@ impl CompactionManager {
         match aborted {
             Ok(_) => response_success(None, "abort_compaction", None),
             Err(error) => response_failure(None, "abort_compaction", &error.to_string(), None),
+        }
+    }
+}
+
+/// After a manual compaction settled (or could not start): a loop held
+/// for it takes its work up again. Answers whether a loop is on.
+async fn resume_loop(
+    hosted: &crate::worker::HostedSession,
+    main: &eukhe_durable::harness::Conversation,
+) -> bool {
+    if let Err(error) =
+        eukhe_core::durable::loop_mode::resume_loop_after_compaction(hosted.deps(), main, cx())
+            .await
+    {
+        eprintln!("eukhe-daemon: resuming the loop after the compaction failed: {error}");
+    }
+    match eukhe_core::durable::loop_mode::loop_status(hosted.harness(), main.id(), cx()).await {
+        Ok(status) => status.state.phase.is_on(),
+        Err(error) => {
+            eprintln!("eukhe-daemon: reading the loop after the compaction failed: {error}");
+            false
         }
     }
 }

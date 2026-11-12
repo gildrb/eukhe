@@ -370,6 +370,9 @@ pub struct AgentConnectionState {
     /// `unknown_effects_update` payload), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown_effects: Vec<crate::effects::UnknownEffect>,
+    /// The session's `/loop` (off without one).
+    #[serde(default)]
+    pub r#loop: crate::loop_mode::LoopStatus,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]

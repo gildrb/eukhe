@@ -81,6 +81,8 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;
     install(optchat::extension(deps))?;
+    // The loop decides a final answer before the goal does.
+    install(super::loop_mode::extension(deps))?;
     install(goals::extension(deps))?;
     install(children::extension(deps))?;
     install(workflow::extension(deps))?;

@@ -376,7 +376,9 @@ pub(crate) fn format_count(count: u64) -> String {
     }
 }
 
-/// The live activity segments: a group renders while it counts something
+/// The live activity segments: the session's loop label first (a paused
+/// loop reads amber), then the groups. A group renders
+/// while it counts something
 /// (live subagents, heartbeats, running shells, live factory runs, the
 /// pursued goal). A focused dock renders every group, the selected one
 /// behind the selection band, so the arrows always land on a visible
@@ -394,6 +396,14 @@ fn activity_segments(dock: &ActivityDock, theme: &Theme) -> Vec<Line> {
         format!("{count} {}", if count == 1 { one } else { many })
     };
     let mut segments = Vec::new();
+    if let Some(label) = &dock.loop_label {
+        let tone = if label.paused {
+            ThemeColor::Warning
+        } else {
+            ThemeColor::CustomMessageLabel
+        };
+        segments.push(vec![theme.fg(tone, label.text.clone())]);
+    }
     for group in dock.groups() {
         let (live, spans) = match group {
             ActivityGroup::Subagents => {

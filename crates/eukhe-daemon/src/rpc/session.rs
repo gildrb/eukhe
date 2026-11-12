@@ -11,11 +11,13 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_core::durable::goals::goal_state;
+use eukhe_core::durable::loop_mode::loop_status;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::session::SessionResult;
 use eukhe_types::daemon::SessionEvent;
+use eukhe_types::loop_mode::LoopStatus;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -176,6 +178,9 @@ pub struct RpcSession {
     /// The last published `goal_update` goal (change-gated emits across
     /// pumps and replacements).
     last_goal: Arc<Mutex<GoalState>>,
+    /// The last published `loop_update` status (change-gated like the
+    /// goal).
+    last_loop: Arc<Mutex<LoopStatus>>,
     /// One replacement at a time (TS `acquireReplacementLease`): a fork
     /// racing a `switch_session` must not interleave.
     replacement: tokio::sync::Mutex<()>,
@@ -201,13 +206,18 @@ impl RpcSession {
         let initial_goal =
             goal_state(handle.session.harness(), handle.session.main().id(), &cx).await?;
         let last_goal = Arc::new(Mutex::new(initial_goal));
-        let pump = EventPump::attach(&handle.session, &outputs, &last_goal, &cx).await?;
+        let initial_loop =
+            loop_status(handle.session.harness(), handle.session.main().id(), &cx).await?;
+        let last_loop = Arc::new(Mutex::new(initial_loop));
+        let pump =
+            EventPump::attach(&handle.session, &outputs, &last_goal, &last_loop, &cx).await?;
         Ok(Self {
             handle: tokio::sync::RwLock::new(handle),
             outputs,
             factory,
             pump: tokio::sync::Mutex::new(Some(pump)),
             last_goal,
+            last_loop,
             replacement: tokio::sync::Mutex::new(()),
             signal_shutdown: CancellationToken::new(),
         })
@@ -237,8 +247,14 @@ impl RpcSession {
     ///
     /// The pump cannot attach.
     pub(crate) async fn reattach_pump(&self, session: &EukheSession) -> SessionResult<()> {
-        let pump =
-            EventPump::attach(session, &self.outputs, &self.last_goal, &rpc_context()).await?;
+        let pump = EventPump::attach(
+            session,
+            &self.outputs,
+            &self.last_goal,
+            &self.last_loop,
+            &rpc_context(),
+        )
+        .await?;
         let previous = self.pump.lock().await.replace(pump);
         if let Some(previous) = previous {
             previous.stop().await;
@@ -339,6 +355,7 @@ impl RpcSession {
             &replacement.session,
             &self.outputs,
             &self.last_goal,
+            &self.last_loop,
             &cx,
         )
         .await

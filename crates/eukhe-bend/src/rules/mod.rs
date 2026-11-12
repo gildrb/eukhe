@@ -32,6 +32,7 @@ pub mod infer_guard;
 pub mod infer_threshold;
 pub mod job_notice;
 pub mod kin;
+pub mod loop_mode;
 pub mod mcp_url;
 pub mod model_facts;
 pub mod model_name;

@@ -71,6 +71,9 @@ pub struct Reconstructed {
     /// The session's ledger of effects whose outcome a restart could not
     /// tell (`state.unknownEffects`; absent when empty).
     pub unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
+    /// The session's `/loop` (`state.loop`), when the snapshot reports
+    /// one.
+    pub loop_status: Option<eukhe_types::loop_mode::LoopStatus>,
     pub last_event_sequence: u64,
     /// Whether the attach supplied the resume cursor (the event
     /// sequence AND the generation): the reconstruction collapses an
@@ -546,6 +549,9 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     let goal = state
         .and_then(|state| state.get("goal"))
         .and_then(|goal| serde_json::from_value::<eukhe_types::goal::GoalState>(goal.clone()).ok());
+    let loop_status = state
+        .and_then(|state| state.get("loop"))
+        .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
     let queued = match state.and_then(|state| state.get("sessionActions")) {
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),
         None => crate::queued::QueuedMessages::default(),
@@ -583,6 +589,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         event_generation,
         goal,
         unknown_effects,
+        loop_status,
         last_event_sequence,
         cursor_present,
         queued,

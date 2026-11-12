@@ -1,6 +1,6 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, `/autonomous`, `/remind`, `/force`, `/dynamic-workflow`, and
-//! `/autoresearch`, including the `/refine` and `/force` argument parsing.
+//! `/goal`, `/autonomous`, `/remind`, `/force`, `/dynamic-workflow`,
+//! `/autoresearch`, and `/loop`, including the `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //! On main (`sessionShape` `main-worker`) `/goal` and `/autonomous` run on
 //! its worker, where the work runs.
@@ -72,6 +72,9 @@ pub enum SessionCommandError {
     /// The `/refine` run failed (TS `refine_failed`).
     #[error("{0:#}")]
     Refine(#[source] anyhow::Error),
+    /// `/loop` arguments did not parse, or the loop's step failed.
+    #[error(transparent)]
+    Loop(#[from] super::loop_mode::LoopCommandError),
     /// `/autoresearch` failed.
     #[error(transparent)]
     Autoresearch(#[from] AutoresearchCommandError),
@@ -165,11 +168,13 @@ pub enum SessionCommandName {
     Force,
     DynamicWorkflow,
     Autoresearch,
+    Loop,
 }
 
 impl SessionCommandName {
     /// The command's name as typed (`compact`, `refine`, `goal`,
-    /// `autonomous`, `remind`, `force`, `dynamic-workflow`, `autoresearch`).
+    /// `autonomous`, `remind`, `force`, `dynamic-workflow`, `autoresearch`,
+    /// `loop`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -181,6 +186,7 @@ impl SessionCommandName {
             Self::Force => "force",
             Self::DynamicWorkflow => "dynamic-workflow",
             Self::Autoresearch => "autoresearch",
+            Self::Loop => "loop",
         }
     }
 
@@ -196,6 +202,7 @@ impl SessionCommandName {
             "force" => Some(Self::Force),
             "dynamic-workflow" => Some(Self::DynamicWorkflow),
             "autoresearch" => Some(Self::Autoresearch),
+            "loop" => Some(Self::Loop),
             _ => None,
         }
     }
@@ -302,6 +309,26 @@ pub async fn execute_session_command(
         },
         SessionCommandName::DynamicWorkflow => {
             execute_dynamic_workflow(session, conversation, command, &mut outcome, cx).await
+        }
+        SessionCommandName::Loop => {
+            match super::loop_mode::execute_loop_command(
+                session.deps(),
+                conversation,
+                &command.args,
+                cx,
+            )
+            .await
+            {
+                Ok(text) => {
+                    append_rows(
+                        conversation,
+                        vec![result_row(command, text, Visibility::Shown)],
+                        cx,
+                    )
+                    .await
+                }
+                Err(error) => Err(error.into()),
+            }
         }
         SessionCommandName::Autoresearch => {
             match crate::autoresearch::execute_command(session, conversation, &command.args, cx)

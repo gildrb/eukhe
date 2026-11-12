@@ -169,6 +169,7 @@ impl EntryData for UserData {
         match &self.origin {
             InputOrigin::User => Ok(None),
             InputOrigin::Goal { .. }
+            | InputOrigin::Loop { .. }
             | InputOrigin::Autonomous { .. }
             | InputOrigin::Director
             | InputOrigin::QuotaResume

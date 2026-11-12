@@ -68,6 +68,7 @@ import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_kin.bend as ffi_kin
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
+import ./ffi_loop.bend as ffi_loop
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_model_name.bend as ffi_model_name
@@ -360,6 +361,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_worker.ffi(input)
     case 454:
       ffi_once.ffi(input)
+    case 456:
+      ffi_loop.ffi(input)
     case _:
       W.err("unknown entry")
 

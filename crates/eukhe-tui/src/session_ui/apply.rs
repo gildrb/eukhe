@@ -1096,6 +1096,9 @@ impl SessionUi {
             TurnUpdate::UnknownEffectsUpdate(effects) => {
                 self.apply_unknown_effects(effects, view);
             }
+            TurnUpdate::LoopUpdate(status) => {
+                self.apply_loop_update(status, view);
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

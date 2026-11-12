@@ -251,6 +251,7 @@ impl WorkerPane {
             | TurnUpdate::MemoryUpdate(_)
             | TurnUpdate::GoalUpdate(_)
             | TurnUpdate::UnknownEffectsUpdate(_)
+            | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::QueueUpdated(_)
             | TurnUpdate::BashStart { .. }
             | TurnUpdate::BashOutput { .. }

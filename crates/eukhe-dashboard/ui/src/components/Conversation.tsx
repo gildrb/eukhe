@@ -1,8 +1,8 @@
 // The conversation: turns (the user's bubble, then the assistant's
 // thinking, tools and text in order, then a meta row), the streaming
-// message, the one activity line, the approval card, pending and queued
-// messages, and "Latest" when scrolled up. It sticks to the bottom only
-// while the reader is there.
+// message, the one activity line, the loop line, the approval card,
+// pending and queued messages, and "Latest" when scrolled up. It sticks to
+// the bottom only while the reader is there.
 
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as stylex from "@stylexjs/stylex";
@@ -11,6 +11,7 @@ import type { ComponentChildren } from "preact";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dropPending, retryLast, send, unqueue } from "../lib/actions.ts";
 import { fmt } from "../lib/format.ts";
+import { loopLine } from "../lib/loop.ts";
 import { request, run } from "../lib/link.ts";
 import { answerApproval, bind } from "../lib/session.ts";
 import { store, useStore } from "../lib/store.ts";
@@ -766,6 +767,20 @@ function PendingList({ session }: { session: Session }) {
   );
 }
 
+/** The session's `/loop` while it is on: its phase, then what it counts and checks. */
+function LoopLine({ session, now }: { session: Session; now: number }) {
+  const line = loopLine(session.loop, now);
+  if (!line) return null;
+  return (
+    <p role="status" {...stylex.props(ui.small, styles.loop)}>
+      <span {...stylex.props(line.paused ? styles.loopPaused : styles.loopLead)}>{line.lead}</span>
+      {line.parts.map((part) => (
+        <span key={part}>{part}</span>
+      ))}
+    </p>
+  );
+}
+
 function Center({
   title,
   body,
@@ -889,6 +904,7 @@ export function Conversation({ routeId }: { routeId: string | null }) {
             ) : null}
           </div>
         ) : null}
+        <LoopLine session={shown} now={now} />
         {approvals.map((item) => (
           <ApprovalCard key={item.requestId} item={item} />
         ))}
@@ -1127,6 +1143,15 @@ const styles = stylex.create({
     height: space.x6,
     fontSize: type.text,
   },
+  loop: {
+    display: "flex",
+    flexWrap: "wrap",
+    columnGap: space.x4,
+    margin: 0,
+    color: colors.tertiary,
+  },
+  loopLead: { fontWeight: weight.medium, color: colors.secondary },
+  loopPaused: { fontWeight: weight.medium, color: colors.primary },
   approval: {
     display: "flex",
     flexDirection: "column",

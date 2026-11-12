@@ -93,6 +93,7 @@ pub(crate) fn answer(event: &SessionEvent) -> Option<Answer> {
         | SessionEvent::SessionActionUpdate { .. }
         | SessionEvent::GoalUpdate { .. }
         | SessionEvent::UnknownEffectsUpdate { .. }
+        | SessionEvent::LoopUpdate { .. }
         | SessionEvent::MemoryUpdate { .. }
         | SessionEvent::BashStart { .. }
         | SessionEvent::BashOutput { .. }

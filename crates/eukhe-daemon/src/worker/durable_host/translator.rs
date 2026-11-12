@@ -660,6 +660,7 @@ impl EventTranslator {
                 | SessionEvent::SessionActionUpdate { .. }
                 | SessionEvent::GoalUpdate { .. }
                 | SessionEvent::UnknownEffectsUpdate { .. }
+                | SessionEvent::LoopUpdate { .. }
                 | SessionEvent::MemoryUpdate { .. }
                 | SessionEvent::BashStart { .. }
                 | SessionEvent::BashOutput { .. }

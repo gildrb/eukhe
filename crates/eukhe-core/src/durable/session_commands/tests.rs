@@ -237,6 +237,7 @@ fn classify_recognizes_only_session_commands() {
         SessionCommandName::Autonomous,
         SessionCommandName::Remind,
         SessionCommandName::Force,
+        SessionCommandName::Loop,
     ] {
         assert_eq!(SessionCommandName::from_name(name.as_str()), Some(name));
     }

@@ -88,6 +88,7 @@ use crate::info_commands;
 use crate::info_panel::{InfoContent, InfoPanelAction};
 use crate::interactive::{InteractiveOptions, ModelSelection, SessionSelection};
 use crate::keys::key_event_to_id;
+use crate::loop_surface::{tray_loop_label, LoopView};
 use crate::model_picker::{CurrentModel, ModelPicker, ModelPickerOptions, ModelSelectionApplied};
 use crate::prompt_stash::PromptStash;
 use crate::provider_auth::{AuthSelectorAction, AuthSelectorKind};
@@ -531,6 +532,9 @@ pub(crate) struct SessionUi {
     /// The session's ledger of effects whose outcome a restart could not
     /// tell (`unknown_effects_update`), oldest first.
     pub(crate) unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
+    /// The session's `/loop` view state (the current `loop_update`
+    /// status the status line's loop label reads).
+    pub(crate) loop_view: LoopView,
     /// Notes surfacing from background tasks (the async abort result, the
     /// parked messages an Escape withdrew) into the UI loop.
     notes: mpsc::UnboundedSender<InterruptNote>,

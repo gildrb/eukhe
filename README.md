@@ -65,6 +65,7 @@ The `bend` command comes from [bendlang/bend](https://github.com/bendlang/bend).
 - [Memory](spec/memory/) never deletes a message. Each request to the model contains the newest messages in full and a one-line summary of each older one, and the agent can read the full text of any summarized message.
 - [RLM](spec/rlm/) (recursive language model) gives the agent a Python REPL in which the conversation so far is a variable. The agent starts a subagent there with a function call, and Eukhe refuses a call that gives no reason.
 - [Autoresearch](spec/autoresearch/) improves a number you can measure on your code, such as its speed or size. It runs the benchmark after each change and keeps the change only if the number improved.
+- [/loop](spec/loop/) sends a prompt again after every turn until its condition is met: `/loop 20 --until 'cargo test' fix the failing tests` keeps fixing until the command succeeds. The loop survives a restart; Esc suspends it, `/loop --stop` ends it.
 - Loop is the code behind `--autonomous` and `--goal`. It has no requirements, spec files or laws yet.
 - Planned and not built: hard budgets, verified completion, exactly-once effects, capability security, replayable record, orchestration at scale, stable SDK contract.
 - [spec/README.md](spec/README.md) also lists requirements and laws for tool calls, the tree of agents and subagents, settings and themes.

@@ -240,6 +240,55 @@ fn optional_segments_show_only_while_they_carry_something() {
     assert_eq!(text(&line), " [M] mock - [D] eukhe - details");
 }
 
+/// The session's loop label leads the activity segments, a paused one
+/// in the warning tone; it is no group, so a focused dock never bands
+/// it.
+#[test]
+fn the_loop_label_leads_the_activity_segments() {
+    let theme = theme();
+    let dock = |paused: bool| ActivityDock {
+        bash_running: 1,
+        loop_label: Some(crate::loop_surface::LoopLabel {
+            text: "Loop running 7/10".to_string(),
+            paused,
+        }),
+        selected: ActivityGroup::Subagents,
+        focused: paused,
+        ..ActivityDock::default()
+    };
+    let running = activity_segments(&dock(false), &theme);
+    assert_eq!(
+        running.iter().map(text).collect::<Vec<_>>(),
+        ["Loop running 7/10", "1 shell"]
+    );
+    assert_eq!(
+        running[0][0].style.fg,
+        theme.fg_style(ThemeColor::CustomMessageLabel).fg
+    );
+    let paused = activity_segments(&dock(true), &theme);
+    assert_eq!(
+        paused.iter().map(text).collect::<Vec<_>>(),
+        [
+            "Loop running 7/10",
+            "0 subagents",
+            "0 heartbeats",
+            "1 shell"
+        ]
+    );
+    assert_eq!(
+        paused[0][0].style.fg,
+        theme.fg_style(ThemeColor::Warning).fg
+    );
+    let band = theme.selection_row_style();
+    assert_eq!(
+        paused
+            .iter()
+            .map(|segment| segment[0].style.bg == band.bg)
+            .collect::<Vec<_>>(),
+        [false, true, false, false]
+    );
+}
+
 #[test]
 fn activity_segments_show_live_counts_only_until_focused() {
     let theme = theme();

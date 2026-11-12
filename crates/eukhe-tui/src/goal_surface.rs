@@ -122,7 +122,7 @@ fn goal_detail_suffix(value: &str, prefix_width: usize, columns: usize) -> Strin
 }
 
 /// `truncateToWidth` over unstyled text with the default `...` ellipsis.
-fn truncate_plain(text: &str, width: usize) -> String {
+pub(crate) fn truncate_plain(text: &str, width: usize) -> String {
     let line: crate::Line = vec![crate::Span::raw(text.to_string())];
     crate::width::truncate_line(&line, width, crate::glyphs::ELLIPSIS)
         .iter()
