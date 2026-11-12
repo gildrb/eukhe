@@ -38,13 +38,30 @@ pub(super) enum ToolOutcome<T> {
 }
 
 impl BudgetGate {
-    /// One tool call `label` behind the gate: reserve one call and its
-    /// blocking time (the settings' blocking budget; the ledger clips it to
-    /// what is left before the deadline), leaving the agent's final-answer
-    /// reserve free; `run` the call under `cx` when granted; settle the one
-    /// call. A budget with a deadline also cancels the call's context once
-    /// its granted time passed. A session without a budget just runs the
-    /// call.
+    /// What one tool call asks: the call and its blocking time (the
+    /// settings' blocking budget; the ledger clips it to what is left
+    /// before the deadline).
+    pub(super) fn tool_offer(&self) -> BudgetAmounts {
+        let blocking = self.settings.as_ref().map_or(0, |settings| {
+            let budget = settings.manager().get_tool_blocking_budget();
+            u64::try_from(budget.as_millis()).unwrap_or(u64::MAX)
+        });
+        BudgetAmounts {
+            tool_calls: 1,
+            time_ms: if blocking == 0 {
+                DEFAULT_TOOL_TIME_MS
+            } else {
+                blocking
+            },
+            ..BudgetAmounts::default()
+        }
+    }
+
+    /// One tool call `label` behind the gate: reserve its
+    /// [`Self::tool_offer`], leaving the agent's final-answer reserve free;
+    /// `run` the call under `cx` when granted; settle the one call. A
+    /// budget with a deadline also cancels the call's context once its
+    /// granted time passed. A session without a budget just runs the call.
     pub(super) async fn gated_call<T, F, Fut>(
         self: &Arc<Self>,
         label: String,
@@ -55,22 +72,11 @@ impl BudgetGate {
         F: FnOnce(Context) -> Fut,
         Fut: Future<Output = T>,
     {
-        let blocking = self.settings.as_ref().map_or(0, |settings| {
-            let budget = settings.manager().get_tool_blocking_budget();
-            u64::try_from(budget.as_millis()).unwrap_or(u64::MAX)
-        });
-        let blocking = if blocking == 0 {
-            DEFAULT_TOOL_TIME_MS
-        } else {
-            blocking
-        };
+        let offer = self.tool_offer();
+        let blocking = offer.time_ms;
         let one_call = BudgetAmounts {
-            tool_calls: 1,
-            ..BudgetAmounts::default()
-        };
-        let offer = BudgetAmounts {
-            time_ms: blocking,
-            ..one_call
+            time_ms: 0,
+            ..offer
         };
         let reserved = self
             .reserve(Use::Work, label, self.keep(), vec![offer], TOOL_MIN_MS)

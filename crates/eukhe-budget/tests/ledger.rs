@@ -251,6 +251,33 @@ fn a_request_past_the_remainder_goes_out_with_a_reduced_cap_or_not_at_all() {
     );
 }
 
+/// `admits` answers as `reserve` would, and writes nothing: no hold, no
+/// record, no phase moved by work that would not fit.
+#[test]
+fn admits_answers_as_a_reservation_would_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = at(dir.path(), "root");
+    ledger.open_root(cost_only(1_000)).unwrap();
+    let admits = |offer| {
+        ledger
+            .admits("root", Use::Work, cost(200), &[offer], REQUEST_MIN_MS)
+            .unwrap()
+    };
+    assert_eq!(
+        (
+            admits(cost(800)),
+            admits(cost(801)),
+            ledger.report("root").unwrap()
+        ),
+        (
+            true,
+            false,
+            Some(fresh("root", "root", cost_only(1_000), cost(1_000)))
+        )
+    );
+    assert_exact(&ledger, 1, BudgetAmounts::default());
+}
+
 /// A grant says the budget runs low when two steps of what the agent actually spent per
 /// step, with its final-answer reserve, no longer fit what was free; the
 /// size of the hold (the largest offer that fits) plays no part.

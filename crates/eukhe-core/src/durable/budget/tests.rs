@@ -39,7 +39,7 @@ use tokio::sync::watch;
 use super::gate::{offers, CostFacts, FRAMING_TOKENS};
 use super::notices::{self, Notice, NoticeKind};
 use super::tools::ToolOutcome;
-use super::{wrap_models_with_budget, BudgetGate};
+use super::{wrap_models_with_budget, BudgetGate, FIRST_TURN};
 use crate::durable::settings::EukheSettings;
 
 /// The ledger clock of the clocked fixtures: a fixed epoch ms, so a
@@ -147,6 +147,7 @@ impl Fixture {
                 notices: OnceLock::new(),
                 deferred: Mutex::default(),
                 steps: Mutex::default(),
+                turn: Mutex::new(FIRST_TURN),
             }),
         };
         let notices = Arc::new(Mutex::new(Vec::new()));
@@ -1698,7 +1699,7 @@ async fn a_session_without_a_budget_passes_requests_and_tool_calls_through() {
             fixture.received(),
             ran,
             fixture.gate.report(),
-            fixture.gate.work_allowed(),
+            fixture.gate.funds_turn(),
             fixture.told()
         ),
         (
@@ -1712,6 +1713,109 @@ async fn a_session_without_a_budget_passes_requests_and_tool_calls_through() {
             true,
             Vec::new()
         )
+    );
+}
+
+/// L4, tool calls: a budget whose tool calls are spent funds no further
+/// turn, though the agent still works (a model request still fits).
+#[tokio::test]
+async fn a_budget_with_no_tool_call_left_funds_no_further_turn() {
+    let fixture = Fixture::new();
+    fixture
+        .gate
+        .set(BudgetLimits {
+            tool_calls: Some(1),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let before = fixture.gate.funds_turn();
+    fixture.request(agent("build it")).await;
+    let ran = fixture
+        .gate
+        .gated_call("tool:probe".to_owned(), BACKGROUND_CONTEXT.clone(), |_cx| {
+            std::future::ready(7)
+        })
+        .await;
+    assert_eq!(
+        (before, ran, fixture.gate.phase(), fixture.gate.funds_turn()),
+        (true, ToolOutcome::Ran(7), Some(BudgetPhase::Working), false)
+    );
+}
+
+/// L4, model requests: once the request left is the final answer's, no
+/// further turn is funded, though the agent still works.
+#[tokio::test]
+async fn a_budget_with_only_the_final_answer_request_left_funds_no_further_turn() {
+    let fixture = Fixture::new();
+    fixture
+        .gate
+        .set(BudgetLimits {
+            requests: Some(2),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let before = fixture.gate.funds_turn();
+    fixture.request(agent("build it")).await;
+    assert_eq!(
+        (before, fixture.gate.phase(), fixture.gate.funds_turn()),
+        (true, Some(BudgetPhase::Working), false)
+    );
+}
+
+/// L4, tokens: a turn that fit only at its smallest cap leaves too little
+/// for the next turn's smallest offer and its final-answer reserve: no
+/// further turn is funded, though the agent still works.
+#[tokio::test]
+async fn a_budget_without_tokens_for_the_next_turn_funds_no_further_turn() {
+    let fixture = Fixture::new();
+    let context = agent("build it");
+    let input = fixture.input_tokens(&context);
+    fixture.gate.set(tokens(2 * input + 1_024 + 7_168)).unwrap();
+    let before = fixture.gate.funds_turn();
+    fixture.request(context).await;
+    assert_eq!(
+        (
+            before,
+            fixture.received(),
+            fixture.gate.phase(),
+            fixture.gate.funds_turn()
+        ),
+        (
+            true,
+            vec![Received {
+                max_tokens: Some(1_024),
+                tool_choice: None,
+                last: Some("build it".to_owned()),
+            }],
+            Some(BudgetPhase::Working),
+            false
+        )
+    );
+}
+
+/// L4, time: 20 s before the deadline is less than the shortest request
+/// may run, so no turn is funded; added time funds one again.
+#[tokio::test]
+async fn a_budget_without_time_for_a_request_funds_no_turn() {
+    let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(20_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let short = (fixture.gate.phase(), fixture.gate.funds_turn());
+    fixture
+        .gate
+        .add(BudgetAmounts {
+            time_ms: 180_000,
+            ..BudgetAmounts::default()
+        })
+        .unwrap();
+    assert_eq!(
+        (short, fixture.gate.funds_turn()),
+        ((Some(BudgetPhase::Working), false), true)
     );
 }
 

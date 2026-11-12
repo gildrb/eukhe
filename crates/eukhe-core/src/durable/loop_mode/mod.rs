@@ -50,14 +50,14 @@ pub const LOOP_EXTENSION: &str = "eukhe.loop";
 pub const LOOP_NOTICE_CUSTOM_TYPE: &str = "eukhe.loop";
 
 /// Whether the session's budget funds one more turn of the loop: the fact
-/// `funded` of the core's next-iteration decision. A session without a
-/// budget, or whose budget admits work for it (phase `Working`), funds
-/// it; one wrapping up or exhausted does not
-/// ([`BudgetGate::work_allowed`](super::budget::BudgetGate::work_allowed)).
-/// Reading it is ledger file IO: the loop calls it on the blocking pool.
+/// `funded` of the core's next-iteration decision
+/// ([`BudgetGate::funds_turn`](super::budget::BudgetGate::funds_turn): no
+/// budget, or one with room for a model request and a tool call past the
+/// final-answer reserve of an agent still working). Reading it is ledger
+/// file IO: the loop calls it on the blocking pool.
 fn loop_funded(deps: &HostDeps) -> Arc<dyn Fn() -> bool + Send + Sync> {
     let budget = Arc::clone(&deps.budget);
-    Arc::new(move || budget.work_allowed())
+    Arc::new(move || budget.funds_turn())
 }
 
 /// The loop extension of one session: the `pi.generation` hooks and the

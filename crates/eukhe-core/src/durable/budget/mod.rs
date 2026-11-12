@@ -34,7 +34,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use eukhe_budget::{CarveOutcome, Ledger, LedgerError, Member, ReclaimOutcome, Reserved, Use};
+use eukhe_budget::{
+    CarveOutcome, Ledger, LedgerError, Member, ReclaimOutcome, Reserved, Use, REQUEST_MIN_MS,
+    TOOL_MIN_MS,
+};
 use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport};
 use tokio::sync::watch;
 
@@ -52,6 +55,16 @@ pub type BudgetError = LedgerError;
 /// tiny-model commands. Without its ledger file they pass through, like a
 /// session without a budget.
 pub const DAEMON_ACCOUNT: &str = "daemon";
+
+/// What an agent's turn asks first before a work request of its own told
+/// the gate more: one model request, for as long as a request may run.
+const FIRST_TURN: BudgetAmounts = BudgetAmounts {
+    cost_micros: 0,
+    tokens: 0,
+    time_ms: gate::DEFAULT_DEADLINE_MS,
+    tool_calls: 0,
+    requests: 1,
+};
 
 /// The budget one agent (a session) spends from: its ledger, the report
 /// every surface watches, the final-answer reserve its last agent turn
@@ -73,6 +86,10 @@ pub struct BudgetGate {
     /// notice) is judged against, and its longest model request, which
     /// its final answer's time reserve follows.
     steps: Mutex<Steps>,
+    /// The smallest offer of the agent's last work request (one model
+    /// request before its first): the least its next turn asks first, as
+    /// its context only grows.
+    turn: Mutex<BudgetAmounts>,
 }
 
 /// What the agent's steps actually spent, as this process saw them.
@@ -181,6 +198,7 @@ impl BudgetGate {
             notices: OnceLock::new(),
             deferred: Mutex::new(HashMap::new()),
             steps: Mutex::default(),
+            turn: Mutex::new(FIRST_TURN),
         })
     }
 
@@ -198,7 +216,7 @@ impl BudgetGate {
 
     /// The budget's state as this agent sees it, read from the ledger;
     /// `None`: the session has no budget. A ledger that cannot be read is
-    /// logged and reads as `None` (the gates refuse; [`Self::work_allowed`]
+    /// logged and reads as `None` (the gates refuse; [`Self::funds_turn`]
     /// is `false`).
     #[must_use]
     pub fn report(&self) -> Option<BudgetReport> {
@@ -218,17 +236,33 @@ impl BudgetGate {
         self.report().map(|report| report.phase)
     }
 
-    /// Whether the session may start work: it has no budget, or its budget
-    /// admits work for this agent. A ledger that cannot be read admits
-    /// none.
+    /// Whether the budget funds one more turn of this agent: it has no
+    /// budget, or the compiled core would grant the agent, as work, both
+    /// the smallest offer of its last work request and one tool call
+    /// ([`Ledger::admits`]). An agent wrapping up or exhausted, or one
+    /// whose account has no tool call, model request, money, tokens or
+    /// time left for a step past its final-answer reserve, is funded no
+    /// turn. A ledger that cannot be read funds none.
+    ///
+    /// Blocking file IO.
     #[must_use]
-    pub fn work_allowed(&self) -> bool {
-        match self.read() {
-            Ok(None) => true,
-            Ok(Some(report)) => match report.phase {
-                BudgetPhase::Working => true,
-                BudgetPhase::WrapUp | BudgetPhase::Exhausted => false,
-            },
+    pub fn funds_turn(&self) -> bool {
+        let keep = self.keep();
+        let request = *self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+        let admits = |offer: BudgetAmounts, min_ms: u64| {
+            self.ledger
+                .admits(self.agent(), Use::Work, keep, &[offer], min_ms)
+        };
+        let funded = admits(request, REQUEST_MIN_MS).and_then(|funded| {
+            if funded {
+                admits(self.tool_offer(), TOOL_MIN_MS)
+            } else {
+                Ok(false)
+            }
+        });
+        match funded {
+            Ok(funded) => funded,
+            Err(LedgerError::NoBudget(_)) => true,
             Err(error) => {
                 tracing::warn!(session_id = self.agent(), %error, "the budget ledger was not read");
                 false

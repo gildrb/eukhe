@@ -30,7 +30,7 @@
 //! fits in no way is not sent: its stream ends with an error that carries
 //! the typed budget refusal, which no retry policy re-issues.
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use eukhe_ai::api::simple_options::thinking_budget_for_level;
@@ -808,6 +808,13 @@ impl<O: GatedOptions> Request<O> {
         let (use_, keep, offered) = if agent_turn {
             self.gate.set_keep(own_keep);
             self.gate.step_started(now_millis());
+            if let Some(smallest) = work.last() {
+                *self
+                    .gate
+                    .turn
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = *smallest;
+            }
             (Use::Work, own_keep, work)
         } else {
             let side = work

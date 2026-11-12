@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, FauxAssistantMessageOptions, FauxResponseStep,
+    faux_assistant_message, faux_tool_call, FauxAssistantMessageOptions, FauxResponseStep,
 };
 use eukhe_ai::providers::faux_script::{
     create_faux_script_models, parse_faux_script, FauxScriptProvider,
@@ -375,9 +375,10 @@ async fn a_count_bounds_the_automatic_iterations() {
 }
 
 /// L4: the session's budget decides whether it funds the next iteration:
-/// with a budget of three model requests, `/loop 10 go` runs three turns
-/// (one request each) and then, long before its count, ends as out of
-/// budget: no further request reaches the provider.
+/// with a budget of three model requests, `/loop 10 go` runs two turns
+/// (one request each); the request left is the final answer's, so long
+/// before its count the loop ends as out of budget: no further request
+/// reaches the provider.
 #[tokio::test]
 async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
     let lab = open(vec![
@@ -397,7 +398,7 @@ async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
         .expect("the budget is set");
     lab.run("/loop 10 go").await;
     lab.idle().await;
-    assert_eq!(lab.sent().await, sends("go", &[1, 2, 3]));
+    assert_eq!(lab.sent().await, sends("go", &[1, 2]));
     assert_eq!(
         lab.notices().await,
         vec!["Loop stopped: the budget funds no further turn. Loop mode disabled.".to_owned()]
@@ -409,8 +410,70 @@ async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
             end: LoopEnd::OutOfBudget
         }
     );
-    // No fourth request reached the provider.
-    assert_eq!(lab.provider.get_pending_response_count(), 2);
+    // No third request reached the provider.
+    assert_eq!(lab.provider.get_pending_response_count(), 3);
+    lab.close().await;
+}
+
+/// L4: a budget whose tool calls are spent funds no further turn: with a
+/// budget of one tool call, `/loop 10 go` ends as out of budget after the
+/// turn that spent it, though model requests are left, instead of sending
+/// the prompt again to a model that can run no tool.
+#[tokio::test]
+async fn a_loop_stops_when_the_budget_has_no_tool_call_left() {
+    let lab = open(vec![
+        faux_assistant_message(
+            faux_tool_call(
+                "read",
+                json!({ "i": "Reading notes", "path": "notes.txt" })
+                    .as_object()
+                    .cloned()
+                    .expect("an object"),
+                Some("call-read".to_owned()),
+            ),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..FauxAssistantMessageOptions::default()
+            },
+        )
+        .into(),
+        answer("1"),
+        answer("2"),
+        answer("3"),
+        answer("no"),
+    ])
+    .await;
+    std::fs::write(project(lab.dir.path()).join("notes.txt"), "alpha\n").expect("notes");
+    lab.session
+        .budget()
+        .set(BudgetLimits {
+            tool_calls: Some(1),
+            ..BudgetLimits::default()
+        })
+        .expect("the budget is set");
+    lab.run("/loop 10 go").await;
+    lab.idle().await;
+    assert_eq!(
+        (
+            lab.sent().await,
+            lab.notices().await,
+            lab.status().await.state.phase,
+            lab.session
+                .budget()
+                .report()
+                .map(|report| report.spent.tool_calls),
+            lab.provider.get_pending_response_count()
+        ),
+        (
+            sends("go", &[1]),
+            vec!["Loop stopped: the budget funds no further turn. Loop mode disabled.".to_owned()],
+            LoopPhase::Ended {
+                end: LoopEnd::OutOfBudget
+            },
+            Some(1),
+            3
+        )
+    );
     lab.close().await;
 }
 

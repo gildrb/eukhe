@@ -4246,7 +4246,7 @@
   },
   "spec_files": {
     "spec/PILLARS.md": "b713acc7123ec05d5d9e083a84dbda8c8b8c5cd92a5ce7708e9996d567e62986",
-    "spec/README.md": "4859a083f9024133733f431aca66b374cff77fa7c61d9bb81c4f6bc3696b3dc5",
+    "spec/README.md": "9c914f9e93e6f11682333bdfd07d9564300083e91f13975d60505a916cb91d07",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
