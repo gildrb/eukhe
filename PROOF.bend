@@ -4337,6 +4337,7 @@ import ./proof/budget/base/reserve.bend as LBudgetReserve
 import ./proof/budget/base/settle.bend as LBudgetSettle
 import ./proof/budget/base/tree.bend as LBudgetTree
 import ./proof/budget/base/entry.bend as LBudgetEntry
+import ./proof/budget/base/exact.bend as LBudgetExact
 import ./proof/budget/budget_grant_within.bend as PBudgetGrantWithin
 import ./proof/budget/budget_grant_on_time.bend as PBudgetGrantOnTime
 import ./proof/budget/budget_grant_holds.bend as PBudgetGrantHolds
@@ -4378,6 +4379,7 @@ import ./proof/budget/budget_fund_resumes.bend as PBudgetFundResumes
 import ./proof/budget/budget_entry_answers.bend as PBudgetEntryAnswers
 import ./proof/budget/budget_entry_left_over.bend as PBudgetEntryLeftOver
 import ./proof/budget/budget_entry_malformed_exact.bend as PBudgetEntryMalformedExact
+import ./proof/budget/budget_entry_exact.bend as PBudgetEntryExact
 import ./proof/budget/budget_entry_unknown_tag.bend as PBudgetEntryUnknownTag
 import ./proof/budget/budget_entry_example.bend as PBudgetEntryExample
 import ./proof/budget_share/base/arith.bend as LBudgetShareArith

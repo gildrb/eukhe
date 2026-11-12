@@ -417,6 +417,7 @@
     "laws/budget.bend::budget_close_returns": "b0ba4aa44160aba7bdce737b319a40174336ccd6c26aa7c4e7e1543a3e5de9b0",
     "laws/budget.bend::budget_close_takes_overrun": "a132a0ef8ada05b31c64b44eee1aeeda0ac3fe04d01988d66c2faa2ebe1c6421",
     "laws/budget.bend::budget_entry_answers": "7876854da3b8b785ffa622c550e5621738df9b059e4df8ca86e5258ca1e3981b",
+    "laws/budget.bend::budget_entry_exact": "a1b040678e199b558aaf6a511a5aa7d5b79832341d1be5ebbe7797db3d9f623a",
     "laws/budget.bend::budget_entry_example": "92eda407d3b548623bbc0cbec20cae81693d585383e0778145d5d8fa2231f7e1",
     "laws/budget.bend::budget_entry_left_over": "bc52d82d955bafede5b664db92beedeffd7d690966d625b81294603cdd4ea690",
     "laws/budget.bend::budget_entry_malformed_exact": "27e96088f89d9052f8d94947d86a15abca1f20440cb92af62b1545b9253389e7",
@@ -4246,7 +4247,7 @@
   },
   "spec_files": {
     "spec/PILLARS.md": "b713acc7123ec05d5d9e083a84dbda8c8b8c5cd92a5ce7708e9996d567e62986",
-    "spec/README.md": "58ad5a0d5e589b1f6a9f1dab0bae0beb64d3240bbe08eee6c34e6d25639d4b51",
+    "spec/README.md": "fe29975b2a94b64ba4d0ef9900261ffde3700b23786e1fea8eb08dcaab4b0670",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",

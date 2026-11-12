@@ -1072,6 +1072,20 @@ law budget_entry_malformed_exact:
   for bad: {LawsBase.wire_opens_err(FBg.ffi(s)) == True{} : Bool}
   {FBg.ffi(s) == Wr.err("budget: malformed request") : String}
 
+# LAW budget_entry_exact (R9): every input the entry does not answer with
+# the error form is a request Rust spells, every number and count within
+# the wire, and nothing after it
+# EXCLUDES: a decision answered on input that is no request: a request cut
+#   off before its end (a missing deadline defaulted to 0, a missing field
+#   defaulted), a number not in canonical decimal (a leading zero, more
+#   than 14 digits, no ','), a list shorter than its count, a known tag
+#   read from an unknown one
+law budget_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FBg.ffi(s)) == False{} : Bool}
+  exs q: FBg.Req
+  {s == sp_w_req(q, "") : String} & {sp_fit_req(q) == True{} : Bool}
+
 # LAW budget_entry_unknown_tag (R9): a tag past the known ones answers the
 # error form, whatever follows it: a request tag past 4 (fund), a use tag
 # past 2 (a side request), a phase tag past 2 (Exhausted) in a reserve
