@@ -34,7 +34,7 @@ use crate::durable::HarnessCell;
 
 /// The services of the loop: the session's Harness, the runner of the
 /// condition command (in the session cwd), and whether the budget funds
-/// one more turn.
+/// one more turn (blocking: ledger file IO).
 #[derive(Clone)]
 pub(crate) struct LoopHost {
     pub(crate) harness: HarnessCell,
@@ -262,10 +262,11 @@ impl LoopHost {
                 .await?
                 .is_some_and(|live| live.run.is_some());
         }
-        Ok(Facts {
-            blocked,
-            funded: (self.funded)(),
-        })
+        let funded = Arc::clone(&self.funded);
+        let funded = tokio::task::spawn_blocking(move || funded())
+            .await
+            .map_err(SessionError::other)?;
+        Ok(Facts { blocked, funded })
     }
 
     /// Run the condition command once and read its evidence: the exit

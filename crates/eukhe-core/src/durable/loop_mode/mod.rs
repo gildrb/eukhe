@@ -50,11 +50,14 @@ pub const LOOP_EXTENSION: &str = "eukhe.loop";
 pub const LOOP_NOTICE_CUSTOM_TYPE: &str = "eukhe.loop";
 
 /// Whether the session's budget funds one more turn of the loop: the fact
-/// `funded` of the core's next-iteration decision. No budget is set on a
-/// session yet, so every turn is funded; the budget pillar points this at
-/// its phase (`budget.phase() == BudgetPhase::Working`).
-fn loop_budget_ok() -> bool {
-    true
+/// `funded` of the core's next-iteration decision. A session without a
+/// budget, or whose budget admits work for it (phase `Working`), funds
+/// it; one wrapping up or exhausted does not
+/// ([`BudgetGate::work_allowed`](super::budget::BudgetGate::work_allowed)).
+/// Reading it is ledger file IO: the loop calls it on the blocking pool.
+fn loop_funded(deps: &HostDeps) -> Arc<dyn Fn() -> bool + Send + Sync> {
+    let budget = Arc::clone(&deps.budget);
+    Arc::new(move || budget.work_allowed())
 }
 
 /// The loop extension of one session: the `pi.generation` hooks and the
@@ -66,7 +69,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     loop_extension(
         deps,
         Arc::new(ShellGateRunner::new(deps.cwd.clone())),
-        Arc::new(loop_budget_ok),
+        loop_funded(deps),
     )
 }
 
@@ -96,7 +99,7 @@ fn host_of(deps: &Arc<HostDeps>) -> LoopHost {
     LoopHost {
         harness: deps.harness.clone(),
         gates: Arc::new(ShellGateRunner::new(deps.cwd.clone())),
-        funded: Arc::new(loop_budget_ok),
+        funded: loop_funded(deps),
     }
 }
 

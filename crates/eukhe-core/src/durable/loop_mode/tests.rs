@@ -17,6 +17,7 @@ use eukhe_durable::entries::{UserData, USER_ENTRY};
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::EntryData;
+use eukhe_types::budget::BudgetLimits;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::loop_mode::{
     LoopCheck, LoopCondition, LoopEnd, LoopEvidence, LoopLimit, LoopPhase, LoopState, LoopStatus,
@@ -370,6 +371,46 @@ async fn a_count_bounds_the_automatic_iterations() {
             None
         )
     );
+    lab.close().await;
+}
+
+/// L4: the session's budget decides whether it funds the next iteration:
+/// with a budget of three model requests, `/loop 10 go` runs three turns
+/// (one request each) and then, long before its count, ends as out of
+/// budget: no further request reaches the provider.
+#[tokio::test]
+async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
+    let lab = open(vec![
+        answer("1"),
+        answer("2"),
+        answer("3"),
+        answer("4"),
+        answer("no"),
+    ])
+    .await;
+    lab.session
+        .budget()
+        .set(BudgetLimits {
+            requests: Some(3),
+            ..BudgetLimits::default()
+        })
+        .expect("the budget is set");
+    lab.run("/loop 10 go").await;
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[1, 2, 3]));
+    assert_eq!(
+        lab.notices().await,
+        vec!["Loop stopped: the budget funds no further turn. Loop mode disabled.".to_owned()]
+    );
+    let status = lab.status().await;
+    assert_eq!(
+        status.state.phase,
+        LoopPhase::Ended {
+            end: LoopEnd::OutOfBudget
+        }
+    );
+    // No fourth request reached the provider.
+    assert_eq!(lab.provider.get_pending_response_count(), 2);
     lab.close().await;
 }
 
