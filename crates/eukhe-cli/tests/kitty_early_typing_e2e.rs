@@ -16,8 +16,8 @@
 //! silent (never-answering) terminal the probe holds the process-global
 //! event-reader lock for its answer window, and keys typed inside the
 //! window park until the probe settles. The vendored crossterm patch
-//! (`read_supports_keyboard_enhancement_raw`) holds that window in short
-//! poll slices, so the app reader interleaves and early typing delivers
+//! (`read_supports_keyboard_enhancement_raw`) holds that lock only for
+//! short looks, so the app reader interleaves and early typing delivers
 //! while the probe listens. This e2e is the differential oracle with
 //! served-path assertions on every class:
 //! - the probe's query bytes must appear on the wire (the probe path was
@@ -71,7 +71,7 @@ const KITTY_ANSWER: &[u8] = b"\x1b[?7u\x1b[?62;c";
 /// name below is Q-free), so the painted cell is an unambiguous render
 /// proof.
 const EARLY_KEY: &[u8] = b"Q";
-/// The differential bound: the sliced window delivers in ~3-15ms (measured
+/// The differential bound: the shared window delivers in ~3-15ms (measured
 /// p50 3.2-4.5ms); the single-hold window delivers at the ~250ms settle
 /// (a key sent at +30ms renders at ~222ms). CI load headroom keeps the
 /// green side an order of magnitude below the red side.
@@ -125,8 +125,8 @@ fn early_typing_inside_the_probe_window_renders_before_the_settle() {
     harness.assert_query_count(1);
 
     // The in-window key: 30ms after the query bytes, the single-hold window
-    // still parks it (the settle is 250ms out); the sliced window delivers
-    // it within a slice.
+    // still parks it (the settle is 250ms out); the shared window delivers
+    // it at the reader's cadence.
     EarlyTypingHarness::sleep_until(t_query + Duration::from_millis(30));
     harness.write(EARLY_KEY);
     let latency = harness

@@ -148,11 +148,18 @@ impl DifferentialHarness {
         }
     }
 
-    /// Answer the kitty query like a kitty terminal: wait for the query
-    /// and require the flags push before anything else.
+    /// Answer the kitty query like a kitty terminal and require the flags
+    /// push before anything else. The probe takes an answer only inside
+    /// its 250ms window (`enhanced_keys`), which a harness that writes the
+    /// answer after reading the query misses whenever the box is loaded;
+    /// so the answer is typed ahead. Written once the child's raw bracket
+    /// is on (every mount arms it before the probe runs, and the raw line
+    /// discipline takes the bytes without an echo), the reply waits in the
+    /// tty, or parked in crossterm's reply queue, for the probe to find.
     pub(crate) fn answer_kitty_query(&mut self) {
-        self.wait_from_start(KITTY_QUERY, "the kitty capability query");
+        self.master.wait_raw_mode("the child's raw bracket");
         self.write(KITTY_ANSWER);
+        self.wait_from_start(KITTY_QUERY, "the kitty capability query");
         self.wait_from_start(KITTY_FLAGS_PUSH, "the kitty flags push");
     }
 
@@ -305,6 +312,27 @@ impl PtyReader {
                      since mark:\n{text}"
                 );
             }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Drain the master until the pty's line discipline is raw (canonical
+    /// input and echo off), bounded by the same harness deadline.
+    pub(crate) fn wait_raw_mode(&mut self, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let lflag = Termios::capture(&self.file).lflag;
+            if lflag & (libc::ICANON | libc::ECHO) == 0 {
+                return;
+            }
+            let mut buffer = [0u8; 8192];
+            if let Ok(n) = self.file.read(&mut buffer) {
+                self.output.extend_from_slice(&buffer[..n]);
+            }
+            assert!(
+                Instant::now() <= deadline,
+                "timeout waiting for {what} (lflag {lflag:#x})"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
     }

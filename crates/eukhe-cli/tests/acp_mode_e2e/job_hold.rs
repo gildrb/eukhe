@@ -11,15 +11,24 @@ const BUDGET_MS: u64 = 300;
 
 /// A daemon-attached child whose turn starts a script that detaches, ends
 /// with a status reply, and whose wake turn (the script's settle notice)
-/// answers `woken`.
-fn spawn_job_lane() -> AcpChild {
+/// answers `woken`. The script runs until the test writes a line to the
+/// returned FIFO: it outlives the budget and the turn however loaded the
+/// box, and ends only when the test lets it.
+fn spawn_job_lane() -> (AcpChild, std::path::PathBuf) {
     let home = tempfile::TempDir::new().unwrap();
     let socket = home.path().join("daemon.sock");
+    let release = home.path().join("release.fifo");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&release)
+        .status()
+        .expect("mkfifo present");
+    assert!(made.success(), "mkfifo {}", release.display());
+    let job = format!("read -r line < '{}'; echo built", release.display());
     let script = json!({
         "engine": "faux",
         "responses": [
             { "content": [
-                { "type": "toolCall", "name": "bash", "arguments": { "script": "sleep 3; echo built" } },
+                { "type": "toolCall", "name": "bash", "arguments": { "script": job } },
             ] },
             { "text": "the build runs in the background" },
             { "text": "woken: the build finished" },
@@ -43,7 +52,7 @@ fn spawn_job_lane() -> AcpChild {
     let child = daemon_attached_command(home.path(), &socket, &["--mode", "acp"])
         .spawn()
         .expect("binary present");
-    AcpChild::wrap(child, Some(home), socket)
+    (AcpChild::wrap(child, Some(home), socket), release)
 }
 
 /// Regression (the drill's "`end_turn` at 31 s while a 45 s job ran"): the
@@ -51,14 +60,14 @@ fn spawn_job_lane() -> AcpChild {
 /// the hold, and the terminal frame and `end_turn` come after it.
 #[test]
 fn acp_prompt_holds_until_a_running_job_wakes_the_session() {
-    let mut client = spawn_job_lane();
+    let (mut client, release) = spawn_job_lane();
     let session_id = initialize_and_new_session(&mut client);
     let prompt = client.request(
         "session/prompt",
         &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "run the build" }] }),
     );
     // Readiness is the completion update itself: the turn ended, the
-    // detached script still runs.
+    // detached script still runs (it waits on the release FIFO).
     let completion = client.wait_frame(TIMEOUT, |frame| {
         let meta = update_meta(frame);
         meta["phase"] == "event" && !meta["quiescence"].is_null()
@@ -72,6 +81,13 @@ fn acp_prompt_holds_until_a_running_job_wakes_the_session() {
         (1, Some(0)),
         "one running job, no subagent: {completion}"
     );
+    // Let the script finish: its open of the FIFO is waiting for this
+    // writer, and the line ends its `read`.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&release)
+        .and_then(|mut fifo| std::io::Write::write_all(&mut fifo, b"go\n"))
+        .expect("release the job");
     // The job's wake turn drains inside the hold: its answer lands between
     // the completion and the terminal.
     let mut woken = false;

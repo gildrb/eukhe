@@ -56,11 +56,12 @@ static PREVIOUS_READER: Mutex<Option<Reader>> = Mutex::new(None);
 
 /// The bounded-poll cadence for the windows where the reader must share
 /// crossterm's process-global event-reader lock with another bounded
-/// poller: the kitty probe's 250ms answer window slices its polls at
-/// this tick (the vendored crossterm patch), so the reader keeps the
-/// same slice while that window is open -- an indefinite park would hold
-/// the lock and starve the probe's slices. Also the fallback cadence
-/// when no wake handle exists (a source that failed to open the tty).
+/// poller: the kitty probe looks for its reply every 1ms through its
+/// 250ms answer window (the vendored crossterm patch), so the reader
+/// keeps a bounded poll while that window is open -- an indefinite park
+/// would hold the lock and starve the probe's looks. Also the fallback
+/// cadence when no wake handle exists (a source that failed to open the
+/// tty).
 const POLL_TIMEOUT_MS: u64 = 10;
 
 /// Stop the running reader and join it (the external-editor handoff):
@@ -174,7 +175,7 @@ where
             // teardown wakes the park), so an idle surface costs no
             // wakeups at all. Two bounded exceptions: a held sequence's
             // own flush deadline, and the kitty probe's answer window
-            // (`query_in_flight`), whose slices must interleave with this
+            // (`query_in_flight`), whose looks must interleave with this
             // reader through crossterm's process-global event-reader lock --
             // a park would hold it and starve the probe. Without a wake
             // handle (a source that failed to open the tty) the tick

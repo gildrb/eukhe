@@ -533,9 +533,20 @@ fn rpc_parse_and_unknown_command_errors() {
 /// prompt runs alone.
 #[test]
 fn rpc_steer_and_follow_up_queue_then_abort() {
+    // The first turn's request holds at the provider on a gate this test
+    // never releases (`holdUntilReleased`): the gate's accept is the proof
+    // the request is in flight, and only the abort ends it -- no clock the
+    // loaded box may outrun.
+    let gate_dir = tempfile::TempDir::new().expect("gate dir");
+    let gate = gate_dir.path().join("hold.sock");
+    let gate_listener = std::os::unix::net::UnixListener::bind(&gate).expect("bind the hold gate");
+    let (held_tx, held_rx) = channel();
+    std::thread::spawn(move || {
+        let _ = held_tx.send(gate_listener.accept().map(|(held, _)| held));
+    });
     let script = json!({
         "responses": [
-            { "text": "slow turn", "delayMs": 5000 },
+            { "text": "slow turn", "holdUntilReleased": gate },
             { "text": "continue reply" },
             { "text": "steer answer" },
         ],
@@ -554,13 +565,15 @@ fn rpc_steer_and_follow_up_queue_then_abort() {
     let response = client.request(&json!({ "type": "prompt", "message": "go" }));
     assert_eq!(response["success"], true);
     // The response fires once the turn's run registers (TS
-    // `preflightResult` — the admission-time contract), so from here
-    // the turn is mid-LLM-call: the faux delayMs holds the stream
-    // closed for 5000ms, and the run-start steering poll (the fold
-    // window) already closed before the response. 1000ms in, both
-    // queued rows sit in the queues — nothing polls them until the
-    // turn ends.
-    std::thread::sleep(Duration::from_millis(1000));
+    // `preflightResult` — the admission-time contract). The gate's accept
+    // proves the turn is mid-LLM-call: the run-start steering poll (the
+    // fold window) closed before the request went out, so both rows
+    // queue — nothing polls them until the turn ends. The held connection
+    // stays open until the test ends: closing it would release the turn.
+    let _held = held_rx
+        .recv_timeout(TIMEOUT)
+        .expect("the first turn's request reaches the gate")
+        .expect("accept the held request");
     let steer = client.request(&json!({ "type": "steer", "message": "steer this" }));
     assert_eq!(steer["success"], true, "steer queues: {steer}");
     let follow_up = client.request(&json!({ "type": "follow_up", "message": "fu this" }));

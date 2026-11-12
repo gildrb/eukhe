@@ -47,6 +47,19 @@ impl InternalEventReader {
         self.source.as_ref().map(|source| source.waker())
     }
 
+    /// A reader with `events` already queued, reading from `source`.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        events: impl IntoIterator<Item = InternalEvent>,
+        source: Option<Box<dyn EventSource>>,
+    ) -> Self {
+        InternalEventReader {
+            events: events.into_iter().collect(),
+            source,
+            skipped_events: Vec::new(),
+        }
+    }
+
     pub(crate) fn poll<F>(&mut self, timeout: Option<Duration>, filter: &F) -> io::Result<bool>
     where
         F: Filter,

@@ -16,9 +16,10 @@
 //! The kitty query runs on a probe thread that holds no UI state: it
 //! blocks inside crossterm's terminal support check until the terminal
 //! answers (or its patched 250ms budget lapses) while the fallback timer
-//! fires on the TS schedule. The check holds its window in 10ms poll
-//! slices (the vendored crossterm patch), so the app reader interleaves
-//! and early typing delivers at its own cadence while the probe listens.
+//! fires on the TS schedule. The check never waits on the tty with
+//! crossterm's event-reader lock held: it looks for its reply every 1ms
+//! (the vendored crossterm patch), so the app reader interleaves and
+//! early typing delivers at its own cadence while the probe listens.
 //! Crossterm parks user keys in its internal event queue, so early
 //! typing is preserved; the app reader never sees protocol bytes as key
 //! input. An answer after the 150ms fallback but within the 250ms query
@@ -34,10 +35,10 @@
 //! check's implicit raw-mode bracket can race the app's own suspend
 //! bracket, so a re-query at every start carries bracket risk for no
 //! capability gain. The first-mount window is the one accepted cost: on
-//! silent terminals the probe parks the process-global event-reader
-//! lock for its window, but in 10ms slices (the vendored crossterm
-//! patch), so input typed during it delivers within a slice instead of
-//! waiting for the settle.
+//! silent terminals the probe looks for its reply for the whole window,
+//! but holds the process-global event-reader lock only for each look
+//! (the vendored crossterm patch), so input typed during it delivers at
+//! the reader's cadence instead of waiting for the settle.
 //!
 //! THE VERDICT TIME (characterized 2026-09-29; the timed contract is
 //! locked by `kitty_verdict_time_e2e`): the probe concludes at the
@@ -152,10 +153,10 @@ fn lock_modes() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// Whether the kitty probe's answer window is open. The input reader
-/// keys its bounded poll cadence on this: the probe's slices and the
+/// keys its bounded poll cadence on this: the probe's looks and the
 /// reader share crossterm's process-global event-reader lock, and the
 /// reader's indefinite park would hold it -- starving the probe's
-/// slices for the window's whole duration (the window is bounded and
+/// looks for the window's whole duration (the window is bounded and
 /// once per process, so the cadence there is the startup cost it
 /// already was).
 pub(crate) fn query_in_flight() -> bool {

@@ -346,11 +346,20 @@ pub fn update_harness_state<R>(
     scope: HarnessScope,
     update: impl FnOnce(&mut HarnessState) -> R,
 ) -> anyhow::Result<(R, PathBuf)> {
+    // This process's writers queue on `IN_PROCESS` first, without a
+    // deadline: the lock directory's retry budget below is a wall-clock
+    // bound for the other writer process's holds, and this process's own
+    // queue (each holder fsyncs the file and its directory) must not spend
+    // it -- on a loaded box eight queued writers ran it out.
+    static IN_PROCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
     std::fs::create_dir_all(harness_state_dir)?;
     let state_path = get_harness_state_path(harness_state_dir);
-    // Up to 5 s of contention: each holder fsyncs the file and its
-    // directory, which takes tens of milliseconds on some filesystems
-    // (upstream's 1 s budget failed eight queued writers here).
+    let _in_process = IN_PROCESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Up to 5 s of contention with the other process: each holder fsyncs
+    // the file and its directory, which takes tens of milliseconds on some
+    // filesystems (upstream's 1 s budget failed eight queued writers here).
     let lock = crate::platform::lock_dir::LockDir::acquire_owned_retrying(
         &state_path,
         std::time::Duration::from_secs(10),
