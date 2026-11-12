@@ -1684,6 +1684,7 @@
         if (e.key === 'Escape') {
           searchInput.value = '';
           searchQuery = '';
+          treeRendered = false;
           navigateTo(leafId, 'bottom');
         }
 

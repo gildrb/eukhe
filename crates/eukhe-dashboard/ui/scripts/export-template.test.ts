@@ -102,3 +102,17 @@ test("a custom message shows its text, from blocks too, and nothing for no conte
   expect(note).toBeDefined();
   expect(note).not.toContain("null");
 });
+
+test("Escape clears the search and the tree's filter with it", async () => {
+  const window = await render(legacy);
+  const all = texts(window, ".tree-node");
+  const search = window.document.getElementById("tree-search");
+  if (!(search instanceof window.HTMLInputElement)) throw new Error("no #tree-search input");
+  search.value = "Try again";
+  search.dispatchEvent(new window.Event("input"));
+  expect(texts(window, ".tree-node").length).toBeLessThan(all.length);
+
+  window.document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+  expect(search.value).toBe("");
+  expect(texts(window, ".tree-node")).toEqual(all);
+});
