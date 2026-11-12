@@ -2,15 +2,7 @@
 
 The harness for the AGI era.
 
-Eukhe is εὐχή, Greek for wish. You wish how the agent should do the work, and Eukhe gets it done that way.
-
-You write the wish as rules in `AGENTS.md`, as a goal and as commands that must pass. When one of those commands fails, Eukhe gives its output to the agent and runs another turn, and it repeats this until every command passes or the run reaches a limit. A session is an append-only log on disk, so it survives a crash and `eukhe --continue` reopens it.
-
-[spec/](spec/README.md) numbers what Eukhe's session log, memory, subagents and tool calls must do. A law is a theorem that the core, the part of Eukhe written in [Bend](https://bend-lang.com), meets one of those requirements. In a checkout, `bend PROOF.bend` checks the proof of every law, and the checked core is the code compiled into the binary you install.
-
-The `eukhe` command runs a coding agent on this core in your terminal. The `eukhe-sdk` Rust crate runs sessions on it inside your own process.
-
-That's Eukhe - and you need nothing else.
+Eukhe (εὐχή, Greek for wish): you give it the goal and the limits (money, time, tokens). It reaches the goal within them and reports truthfully what it did. [Why](PHILOSOPHY.md).
 
 ## Install
 
@@ -20,69 +12,67 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 
 - Nix: `nix run github:gildrb/eukhe`
 - Home Manager: `programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)
-- Source: `cargo build --release --locked -p eukhe-cli`
 
 ## Use
 
 ```sh
 cd /path/to/project
-eukhe            # start; run /login at the first start
-eukhe -p "task"  # one run, no UI; exits 0 only if the agent answered
-eukhe agents     # find and open sessions
-eukhe gateway    # chat with the session from Signal on your phone
-eukhe dashboard  # open the session in a browser
+eukhe         # start; /login on the first run
+eukhe agents  # find and open sessions
+eukhe --help  # all commands
 ```
 
-`eukhe --help` lists the commands. In a session, type `/` for the slash commands.
+Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
 
-## Wish
+## Budgets
 
-- Eukhe reads `AGENTS.md` in your project and puts it in the system prompt.
-- `eukhe --goal "objective"` starts a session that keeps running turns until the agent marks the goal complete or `--goal-token-budget` tokens are used.
-- `eukhe --autonomous --autonomous-gate "cargo test"` runs `cargo test` after each turn. If it fails, Eukhe gives the agent its output and runs another turn. The run stops when the command passes or a limit is reached; `eukhe --help` lists the limits and their defaults.
+- `/budget set cost=5 time=2h`: the task and all its subagents spend at most $5 and finish within 2 hours.
+- Never exceeded, in money, tokens, tool calls, model requests or time.
+- When the budget runs low the agent is told. When it runs out the agent still gives its final answer.
 
-## Laws
+## Verified completion
 
-- The tables in [spec/README.md](spec/README.md) number the requirements and name the laws of each. A spec file such as [`spec/durable/log.bend`](spec/durable/log.bend) restates a requirement in Bend. It calls none of the shipped code, so a law compares two separately written definitions.
-- A law is a theorem that the core does what a spec file says, and `PROOF.bend` holds a proof of every law. `LAWS.lock` holds a hash of each law and spec file, and the repository's pre-push hook rejects a push that changes one without the lock.
-- Rust does the IO and calls the compiled core wherever a requirement has a law.
+- `/accept cmd cargo test`: the task counts as done only when `cargo test`, run by Eukhe on the final result, passes.
+- The agent can't set, change or skip a check.
+- Each result is labelled verified, failed or unverified. A failed check goes back to the agent with its output.
 
-```sh
-bend PROOF.bend  # check the proof of every law
-```
+## Crash safety
 
-The `bend` command comes from [bendlang/bend](https://github.com/bendlang/bend).
+- Kill Eukhe at any point, even with `kill -9`, then reopen the session: it picks up where it stopped.
+- No effect runs twice, and nothing is reported done that didn't run.
 
-## SDK
+## Loop
 
-- [`eukhe-sdk`](crates/eukhe-sdk/) is a Rust crate that runs sessions inside your process. Its main calls are `open_session`, `prompt` and `watch`.
-- [`eukhe-client`](crates/eukhe-client/) is a Rust crate that connects to the Eukhe daemon (`eukhe --mode daemon`) over its socket. The terminal UI and the web dashboard use it.
-- A program in any language starts `eukhe --mode <json|rpc|acp>` and talks to it over stdio.
+- `/loop 20 --until 'cargo test' fix the failing tests`: the prompt is sent again after every turn until `cargo test` passes, 20 repeats have run, or you stop it.
+- Only the command's exit code decides. Esc pauses the loop, and it survives a restart.
 
 ## Components
 
-- [Durable](spec/durable/) syncs every write of the session log to disk before acknowledging it. A resumed session keeps every checkpoint and has no task left running.
-- [Memory](spec/memory/) never deletes a message. Each request to the model contains the newest messages in full and a one-line summary of each older one, and the agent can read the full text of any summarized message.
-- [RLM](spec/rlm/) (recursive language model) gives the agent a Python REPL in which the conversation so far is a variable. The agent starts a subagent there with a function call, and Eukhe refuses a call that gives no reason.
-- [Autoresearch](spec/autoresearch/) improves a number you can measure on your code, such as its speed or size. It runs the benchmark after each change and keeps the change only if the number improved.
-- [/loop](spec/loop/) sends a prompt again after every turn until its condition is met: `/loop 20 --until 'cargo test' fix the failing tests` keeps fixing until the command succeeds. The loop survives a restart; Esc suspends it, `/loop --stop` ends it.
-- [Verified](spec/verified/) treats "done" as a claim. A task can carry acceptance checks (`/accept`, `--accept-cmd`, `--accept-judge`, `--accept-intent`, the `set_acceptance` command, a parent's `spawn(accept=...)`), and they must pass on the final state before a run reports success. An independent judge reads the user's messages and decides whether the final state meets what they ask for now.
-- Loop is the code behind `--autonomous` and `--goal`. It has no requirements, spec files or laws yet.
-- Planned and not built: hard budgets, exactly-once effects, capability security, replayable record, orchestration at scale, stable SDK contract.
-- [spec/README.md](spec/README.md) also lists requirements and laws for tool calls, the tree of agents and subagents, settings and themes.
+- `eukhe`: the coding agent in your terminal.
+- Daemon: runs sessions in the background. `eukhe` starts it, and the terminal, dashboard and gateway attach to it.
+- Dashboard: `eukhe dashboard` opens your sessions in a browser.
+- Gateway: `eukhe gateway` lets you chat with a session from Signal on your phone.
+- [`eukhe-sdk`](crates/eukhe-sdk/): runs sessions inside your Rust program.
+- [`eukhe-client`](crates/eukhe-client/): connects your Rust program to the daemon's sessions.
+- `python` tool: a Python REPL for the agent that keeps its state between calls.
+- Memory: a long session never loses a message. Older ones become one-line summaries the agent can open back up.
+- RLM: the agent works over the whole conversation from Python and starts subagents from code.
+- Autoresearch: `/autoresearch <goal>` improves a number you can measure, such as speed or size, and keeps only changes the benchmark confirms.
 
 ## Limitations
 
-- Runs model-written Python and shell with your permissions. No sandbox. Trusted repositories only.
+- Runs model-written code with your permissions. No sandbox. Trusted repositories only.
 - No Windows.
-- The SDK crates (`eukhe-sdk`, `eukhe-client`) are Rust only and are not on crates.io. Their API may change with any release.
-- The proofs cover the Bend core and say nothing about what the model writes. The Bend compiler, the C shim that links the core into the binary and the Rust IO are trusted without proof ([spec/README.md](spec/README.md#trust)).
+- Checks judge the final result, not how the agent reached it.
+- The SDK crates are Rust only and not on crates.io. Their API may change with any release.
 
 ## Credits
 
 - Fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), built on Mario Zechner's [pi](https://github.com/earendil-works/pi).
 - Victor Taelin: the chat memory design, OptChat, and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem).
-- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools and the harness design.
+- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools, the tokenizers and the harness design.
+- Sander Land's [ctok](https://github.com/sanderland/ctok): the Claude tokenizer vocabulary.
+- [models.dev](https://github.com/anomalyco/models.dev): the model catalog.
 - Not affiliated with Prime Intellect, Victor Taelin or Earendil.
 - Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
