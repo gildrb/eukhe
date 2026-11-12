@@ -1645,6 +1645,47 @@ fn a_changed_record_fails_the_audit() {
     assert_eq!(audit.first_mismatch, Some(2));
 }
 
+/// The account `session_id`'s ledger as eukhe v0.10.70 wrote it (before
+/// a reservation carried the agent's step and a grant said `low`; its
+/// grants say `tight`), copied into `dir`.
+fn v0_10_70(dir: &Path, session_id: &str) -> Ledger {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/v0.10.70")
+        .join(format!("{session_id}.jsonl"));
+    std::fs::copy(fixture, dir.join(format!("{session_id}.jsonl"))).unwrap();
+    at(dir, session_id)
+}
+
+/// A time budget (grants clipped to the deadline, every one tight) and a
+/// cost budget shared with children that joined and were released.
+#[test]
+fn a_ledger_written_before_low_replays_exactly() {
+    let dir = tempfile::tempdir().unwrap();
+    let timed = v0_10_70(dir.path(), "01a1d17f-68cc-701a-9257-75b597733ec6");
+    let shared = v0_10_70(dir.path(), "01a1d199-a8d4-774b-b766-5e86763a7c9c");
+    assert_exact(&timed, 11, BudgetAmounts::default());
+    assert_exact(&shared, 35, cost(2_183));
+}
+
+#[test]
+fn a_changed_record_written_before_low_fails_the_audit() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = v0_10_70(dir.path(), "01a1d17f-68cc-701a-9257-75b597733ec6");
+    let text = std::fs::read_to_string(ledger.path()).unwrap();
+    // the tool call's grant (record 3) rewritten to a shorter duration,
+    // its state left as it was
+    let forged = text.replacen(
+        r#""amount":{"costMicros":0,"tokens":0,"timeMs":30000"#,
+        r#""amount":{"costMicros":0,"tokens":0,"timeMs":29000"#,
+        1,
+    );
+    assert_ne!(forged, text);
+    std::fs::write(ledger.path(), forged).unwrap();
+    let audit = ledger.audit().unwrap();
+    assert!(!audit.exact());
+    assert_eq!(audit.first_mismatch, Some(3));
+}
+
 #[test]
 fn a_session_without_a_budget_refuses_every_ledger_operation() {
     let dir = tempfile::tempdir().unwrap();
