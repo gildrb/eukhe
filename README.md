@@ -12,7 +12,7 @@ Eukhe (εὐχή: a wish, a prayer) is a harness and embeddable core for agents 
 ## Install
 
 ```sh
-curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64); rerun to update
+curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64)
 ```
 
 - Nix: `nix run github:gildrb/eukhe`
@@ -24,6 +24,7 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 cd /path/to/project
 eukhe         # start; /login on the first run
 eukhe agents  # find and open sessions
+eukhe update  # install the latest release
 eukhe --help  # all commands
 ```
 
