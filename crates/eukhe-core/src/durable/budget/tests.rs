@@ -874,10 +874,13 @@ async fn kept_for_the_final_answer(
 /// budget keeps a quarter of it (45 s) at first and, once a request took
 /// 10 s, twice that but at least 20 s, so the next work request is
 /// stopped at 160 s; a 10-minute budget keeps 120 s at most, and after a
-/// 70 s request still 120 s. (A 10-minute budget's stalled request meets
-/// the stream's idle deadline first: only its reserves are compared.)
-/// Before, every budget kept 120 s: a 3-minute budget wrapped up after a
-/// minute of work.
+/// 70 s request still 120 s; a 1-minute budget keeps 20 s from the start
+/// (a quarter is less); a 32-second budget keeps half of it, 16 s, from
+/// the start. (A 10-minute budget's stalled request meets the stream's
+/// idle deadline first: only its reserves are compared.) Before, every
+/// budget kept 120 s: a 3-minute budget wrapped up after a minute of work;
+/// then, before any request ended, a quarter of the budget: a 1-minute
+/// budget kept 15 s, a 32-second one 8 s.
 #[tokio::test(start_paused = true)]
 async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
     let reserves = |(first, next, _): (u64, u64, Option<std::time::Duration>)| (first, next);
@@ -886,11 +889,15 @@ async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
             kept_for_the_final_answer(180_000, 10_000).await,
             reserves(kept_for_the_final_answer(600_000, 10_000).await),
             reserves(kept_for_the_final_answer(600_000, 70_000).await),
+            reserves(kept_for_the_final_answer(60_000, 10_000).await).0,
+            reserves(kept_for_the_final_answer(32_000, 10_000).await).0,
         ),
         (
             (45_000, 20_000, Some(std::time::Duration::from_secs(160))),
             (120_000, 20_000),
             (120_000, 120_000),
+            20_000,
+            16_000,
         )
     );
 }

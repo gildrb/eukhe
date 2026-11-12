@@ -72,23 +72,22 @@ const FINAL_CAP: u64 = 2048;
 const FINAL_MIN_CAP: u64 = 256;
 /// The longest a final answer may run (B14).
 const FINAL_TIME_MS: u64 = 120_000;
-/// The least time kept for a final answer once one of the agent's model
-/// requests ended (B14).
+/// The least time kept for a final answer, before any of the agent's
+/// model requests ended as after (B14), within half the time budget.
 const FINAL_MIN_TIME_MS: u64 = 20_000;
 /// How long a request without a timeout of its own may run.
 pub(super) const DEFAULT_DEADLINE_MS: u64 = 600_000;
 
 /// How long the agent's final answer may run, and so the time its reserve
-/// keeps (B14): [`FINAL_TIME_MS`] at most, a quarter of the time budget
-/// `budget_ms` at most, and twice the agent's longest model request
-/// `longest_ms` at most but never below [`FINAL_MIN_TIME_MS`] once one
-/// ended.
+/// keeps (B14): [`FINAL_TIME_MS`], a quarter of the time budget
+/// `budget_ms` and twice the agent's longest model request `longest_ms`
+/// (once one ended) at most, but never below [`FINAL_MIN_TIME_MS`]; and
+/// never more than half the time budget.
 fn final_time_ms(budget_ms: Option<u64>, longest_ms: Option<u64>) -> u64 {
-    let capped = budget_ms.map_or(FINAL_TIME_MS, |budget| FINAL_TIME_MS.min(budget / 4));
-    match longest_ms {
-        Some(longest) => capped.min(longest.saturating_mul(2)).max(FINAL_MIN_TIME_MS),
-        None => capped,
-    }
+    let quarter = budget_ms.map_or(FINAL_TIME_MS, |budget| budget / 4);
+    let twice = longest_ms.map_or(FINAL_TIME_MS, |longest| longest.saturating_mul(2));
+    let kept = FINAL_TIME_MS.min(quarter).min(twice).max(FINAL_MIN_TIME_MS);
+    budget_ms.map_or(kept, |budget| kept.min(budget / 2))
 }
 
 /// What bounds the spend of a request to one model: its prices, the
