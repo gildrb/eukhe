@@ -348,12 +348,44 @@ impl BudgetGate {
     }
 
     /// The agent's largest step as actually spent (zero before its
-    /// first): what a grant's `low` is judged against.
+    /// first): what a side request's `low` is judged against, and the
+    /// actual part of [`Self::work_step`].
     fn step(&self) -> BudgetAmounts {
         self.steps
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .largest
+    }
+
+    /// What a work grant's `low` is judged against (B7): per dimension the
+    /// larger of the agent's largest step as actually spent and the
+    /// smallest hold its next work can be granted, a model request (the
+    /// smallest offer of its last work request; one model request before
+    /// the first) or a tool call ([`Self::tool_offer`]); in time, the
+    /// shortest such a request or call is clipped to, or what it asks when
+    /// that is less. So a grant not low funds one more step of the work
+    /// the agent asks, and it is told its budget runs low before its work
+    /// is refused.
+    fn work_step(&self) -> BudgetAmounts {
+        let actual = self.step();
+        let request = *self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+        let tool = self.tool_offer();
+        BudgetAmounts {
+            cost_micros: actual
+                .cost_micros
+                .max(request.cost_micros)
+                .max(tool.cost_micros),
+            tokens: actual.tokens.max(request.tokens).max(tool.tokens),
+            time_ms: actual
+                .time_ms
+                .max(request.time_ms.min(REQUEST_MIN_MS))
+                .max(tool.time_ms.min(TOOL_MIN_MS)),
+            tool_calls: actual
+                .tool_calls
+                .max(request.tool_calls)
+                .max(tool.tool_calls),
+            requests: actual.requests.max(request.requests).max(tool.requests),
+        }
     }
 
     /// A work request of the agent starts at `now_ms`: the time since the
@@ -544,17 +576,14 @@ impl BudgetGate {
         offers: Vec<BudgetAmounts>,
         min_ms: u64,
     ) -> Result<Option<Reserved>, BudgetError> {
+        let step = match use_ {
+            Use::Work => self.work_step(),
+            Use::Side | Use::Final => self.step(),
+        };
         let gate = Arc::clone(self);
         let reserved = tokio::task::spawn_blocking(move || {
-            gate.ledger.reserve(
-                gate.agent(),
-                use_,
-                &label,
-                keep,
-                gate.step(),
-                &offers,
-                min_ms,
-            )
+            gate.ledger
+                .reserve(gate.agent(), use_, &label, keep, step, &offers, min_ms)
         })
         .await
         .map_err(|error| self.task_failed(error))?;

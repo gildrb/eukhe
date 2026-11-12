@@ -1634,6 +1634,43 @@ async fn the_budget_runs_low_once_two_steps_of_the_largest_spend_no_longer_fit()
     );
 }
 
+/// B7: the agent is told its budget runs low before its work is refused,
+/// also when what it actually spends (300 tokens a step) is far below the
+/// smallest hold its work can be granted: a step is the larger of the two.
+/// Before, low was judged by the actual steps alone, and the turn that was
+/// refused came with no Low notice before it.
+#[tokio::test]
+async fn the_budget_runs_low_before_work_is_refused_when_a_hold_is_larger_than_a_step() {
+    let row = scripted(|| {
+        vec![AssistantMessageEvent::Done {
+            reason: DoneReason::Stop,
+            message: message(
+                "done",
+                Usage {
+                    input: 250,
+                    output: 50,
+                    ..Usage::default()
+                },
+            ),
+        }]
+    });
+    let fixture = Fixture::build(Answer::Row(row), Clock::Real);
+    fixture.gate.set(tokens(20_000)).unwrap();
+    let mut low_before_refusal = None;
+    for _ in 0..200 {
+        let low = fixture
+            .told()
+            .iter()
+            .any(|(kind, _)| *kind == NoticeKind::Low);
+        fixture.send(agent("build it")).await;
+        if fixture.gate.phase() != Some(BudgetPhase::Working) {
+            low_before_refusal = Some(low);
+            break;
+        }
+    }
+    assert_eq!(low_before_refusal, Some(true));
+}
+
 /// The prices of a model with a long-context tier above 100k input
 /// tokens: $0.1/M input and $0.5/M output below it, five times that
 /// above.
