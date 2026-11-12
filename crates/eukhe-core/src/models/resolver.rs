@@ -195,7 +195,8 @@ struct ParsedModelResult<'a> {
 /// `model:level` parsing; colon-suffixed ids (`OpenRouter` `:exacto`) fall
 /// through when the suffix is not a valid level. `provider`: the provider
 /// every candidate belongs to, whose retired thinking-variant ids resolve
-/// to their logical model.
+/// to their logical model, and whose ids match only exactly
+/// ([`fuzzy_exact`]).
 fn parse_model_pattern<'a>(
     pattern: &str,
     available_models: &'a [Model],
@@ -251,17 +252,31 @@ fn parse_model_pattern<'a>(
 
 /// Exact match first, then a retired thinking variant of `provider`
 /// (`X-thinking` names `X` when no model carries the id itself), then
-/// fuzzy (`tryMatchModel`).
+/// fuzzy (`tryMatchModel`). A selector that names a provider (`provider`, or a
+/// `provider/` prefix naming a provider of `available_models`) resolves
+/// exactly or not at all: a fuzzy match inside a provider runs another
+/// model than the one named (`openrouter/anthropic/claude-opus-4` would
+/// run `anthropic/claude-opus-4.8:batch`).
 fn fuzzy_exact<'a>(
     pattern: &str,
     available_models: &'a [Model],
     provider: Option<&str>,
 ) -> Option<&'a Model> {
-    find_exact_model_reference_match(pattern, available_models)
-        .or_else(|| {
-            provider.and_then(|provider| thinking_variant(provider, pattern, available_models))
-        })
-        .or_else(|| fuzzy_match_model(pattern, available_models))
+    if let Some(exact) = find_exact_model_reference_match(pattern, available_models) {
+        return Some(exact);
+    }
+    if let Some(provider) = provider {
+        return thinking_variant(provider, pattern, available_models);
+    }
+    let names_a_provider = pattern.split_once('/').is_some_and(|(prefix, _)| {
+        available_models
+            .iter()
+            .any(|model| model.provider.eq_ignore_ascii_case(prefix.trim()))
+    });
+    if names_a_provider {
+        return None;
+    }
+    fuzzy_match_model(pattern, available_models)
 }
 
 /// The logical model of `provider` a thinking-variant id names.
@@ -355,7 +370,11 @@ pub struct ResolveCliModelResult {
 }
 
 /// Resolve one model from `--provider`/`--model` flags against the full
-/// catalog (not just auth-configured models).
+/// catalog (not just auth-configured models). A selector that names a
+/// provider (`--provider`, or a `provider/` prefix) resolves to that
+/// provider's model of the id or its retired thinking variant, else to
+/// "not found": never to another model of the provider, nor to an id the
+/// catalog does not have.
 #[must_use]
 pub fn resolve_cli_model(
     cli_provider: Option<&str>,
@@ -466,25 +485,6 @@ pub fn resolve_cli_model(
                 model: fallback.model.cloned(),
                 thinking_level: fallback.thinking_level,
                 warning: fallback.warning,
-                error: None,
-            };
-        }
-    }
-
-    if let Some(provider) = &provider {
-        if let Some(fallback_model) = build_fallback_model(provider, &pattern, all_models) {
-            let fallback_warning = match parsed.warning {
-                Some(warning) => format!(
-                    "{warning} Model \"{pattern}\" not found for provider \"{provider}\". Using custom model id."
-                ),
-                None => format!(
-                    "Model \"{pattern}\" not found for provider \"{provider}\". Using custom model id."
-                ),
-            };
-            return ResolveCliModelResult {
-                model: Some(fallback_model),
-                thinking_level: None,
-                warning: Some(fallback_warning),
                 error: None,
             };
         }
@@ -954,13 +954,106 @@ mod tests {
         let unknown = resolve_cli_model(Some("nope"), "x", &catalog);
         assert!(unknown.error.unwrap().contains("Unknown provider"));
 
+        // An id the provider does not carry is not found: no model runs
+        // under an id the catalog does not have.
         let missing = resolve_cli_model(Some("anthropic"), "missing-model", &catalog);
-        // Falls back to the provider template with a warning.
+        assert!(missing.model.is_none());
         assert_eq!(
-            missing.model.as_ref().map(|m| m.id.as_str()),
-            Some("missing-model")
+            missing.error.as_deref(),
+            Some(
+                "Model \"anthropic/missing-model\" not found. Use \"eukhe model list\" to see available models."
+            )
         );
-        assert!(missing.warning.unwrap().contains("Using custom model id"));
+    }
+
+    /// A selector that names a provider (`--provider`, or a `provider/`
+    /// prefix) resolves to the model of that id or to "not found": never
+    /// to a model whose id or name contains it (`OpenRouter`'s
+    /// `anthropic/claude-opus-4` is not `anthropic/claude-opus-4.8:batch`,
+    /// `qwen/qwen3-235b-a22b` not its `-thinking-2507`, Codex's
+    /// `gpt-5.3-codex` not `gpt-5.3-codex-spark`), with or without a level.
+    #[test]
+    fn a_selector_naming_a_provider_resolves_exactly_or_not_at_all() {
+        let mut catalog = catalog();
+        for (provider, id) in [
+            ("openrouter", "anthropic/claude-opus-4.8:batch"),
+            ("openrouter", "qwen/qwen3-235b-a22b-2507"),
+            ("openrouter", "qwen/qwen3-235b-a22b-thinking-2507"),
+            ("openai-codex", "gpt-5.3-codex-spark"),
+            ("openai-codex", "gpt-5.4-codex"),
+        ] {
+            catalog.push(model(provider, id, id));
+        }
+        for (provider, selector, display) in [
+            (
+                Some("openrouter"),
+                "anthropic/claude-opus-4",
+                "openrouter/anthropic/claude-opus-4",
+            ),
+            (
+                None,
+                "openrouter/anthropic/claude-opus-4",
+                "openrouter/anthropic/claude-opus-4",
+            ),
+            (
+                Some("openrouter"),
+                "anthropic/claude-opus-4:high",
+                "openrouter/anthropic/claude-opus-4:high",
+            ),
+            (
+                Some("openrouter"),
+                "qwen/qwen3-235b-a22b",
+                "openrouter/qwen/qwen3-235b-a22b",
+            ),
+            (
+                None,
+                "openrouter/qwen/qwen3-235b-a22b",
+                "openrouter/qwen/qwen3-235b-a22b",
+            ),
+            (
+                Some("openai-codex"),
+                "gpt-5.3-codex",
+                "openai-codex/gpt-5.3-codex",
+            ),
+            (
+                None,
+                "openai-codex/gpt-5.3-codex",
+                "openai-codex/gpt-5.3-codex",
+            ),
+        ] {
+            let resolved = resolve_cli_model(provider, selector, &catalog);
+            assert_eq!(
+                (resolved.model.map(|model| model.id), resolved.error),
+                (
+                    None,
+                    Some(format!(
+                        "Model \"{display}\" not found. Use \"eukhe model list\" to see available models."
+                    ))
+                ),
+                "{provider:?} {selector}"
+            );
+        }
+        // The ids the catalog has still resolve, a level suffix included.
+        let resolved = |provider: Option<&str>, selector: &str| {
+            let result = resolve_cli_model(provider, selector, &catalog);
+            (result.model.map(|model| model.id), result.thinking_level)
+        };
+        assert_eq!(
+            resolved(Some("openrouter"), "anthropic/claude-opus-4.8:batch"),
+            (Some("anthropic/claude-opus-4.8:batch".to_owned()), None)
+        );
+        assert_eq!(
+            resolved(None, "openai-codex/gpt-5.3-codex-spark:high"),
+            (
+                Some("gpt-5.3-codex-spark".to_owned()),
+                Some(ModelThinkingLevel::High)
+            )
+        );
+        // A selector naming no provider keeps the shorthand match.
+        assert_eq!(
+            resolved(None, "claude-sonnet"),
+            (Some("claude-sonnet-4-5".to_owned()), None)
+        );
     }
 
     /// A provider's retired thinking-variant id (`X-thinking`) selects its

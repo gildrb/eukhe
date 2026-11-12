@@ -11,7 +11,7 @@ use std::collections::HashSet;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::auth::AuthStorage;
-use eukhe_core::durable::{create_models, resolve_session_model, ModelRequest};
+use eukhe_core::durable::{create_models, resolve_session_model, ModelRequest, ModelsError};
 use eukhe_core::models::{resolve_cli_model, ModelRegistry};
 use eukhe_core::settings::{Settings, SettingsManager};
 
@@ -156,5 +156,68 @@ async fn every_listed_model_resolves_in_a_session() {
             ),
             (provider, id)
         );
+    }
+}
+
+/// A requested model resolves exactly in a session or is not found: ids
+/// the catalog lacks never run as another model of the provider (an id
+/// that other ids extend) or under the provider's template.
+#[tokio::test]
+async fn requested_models_resolve_exactly_or_are_not_found() {
+    let package = tempfile::tempdir().expect("package dir");
+    let agent = tempfile::tempdir().expect("agent dir");
+    listed_models(package.path(), agent.path());
+    let session = create_models(agent.path());
+    let catalog: HashSet<(String, String)> = session
+        .models
+        .get_models(None)
+        .into_iter()
+        .map(|model| (model.provider, model.id))
+        .collect();
+    let settings = SettingsManager::in_memory(&Settings::default());
+    let resolve = |provider: &str, id: &str| {
+        let request = ModelRequest {
+            provider: Some(provider.to_owned()),
+            pattern: id.to_owned(),
+        };
+        let models = &session.models;
+        let settings = &settings;
+        async move {
+            resolve_session_model(models, settings, Some(&request), None, &BACKGROUND_CONTEXT)
+                .await
+                .map(|resolved| {
+                    resolved.map(|resolved| (resolved.model.provider, resolved.model.model_id))
+                })
+        }
+    };
+
+    for (provider, id, extended) in [
+        (
+            "openrouter",
+            "anthropic/claude-opus-4",
+            "anthropic/claude-opus-4.8:batch",
+        ),
+        (
+            "openrouter",
+            "qwen/qwen3-235b-a22b",
+            "qwen/qwen3-235b-a22b-thinking-2507",
+        ),
+        ("openai-codex", "gpt-5.3-codex", "gpt-5.3-codex-spark"),
+    ] {
+        let key = |id: &str| (provider.to_owned(), id.to_owned());
+        assert!(
+            !catalog.contains(&key(id)),
+            "{provider}/{id} is no catalog model"
+        );
+        assert!(catalog.contains(&key(extended)), "{provider}/{extended} is");
+        match resolve(provider, id).await {
+            Err(ModelsError::Requested(error)) => assert_eq!(
+                error,
+                format!(
+                    "Model \"{provider}/{id}\" not found. Use \"eukhe model list\" to see available models."
+                )
+            ),
+            other => panic!("{provider}/{id}: {other:?}"),
+        }
     }
 }
