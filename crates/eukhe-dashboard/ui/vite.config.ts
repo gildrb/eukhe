@@ -13,9 +13,11 @@ export default defineConfig({
   // The app is served under any path (`tailscale serve --set-path /eukhe`): every URL is relative.
   base: "./",
   publicDir: "public",
-  fmt: { ignorePatterns: ["public/**"] },
+  // public/theme.js and public/sw.js are generated from public-src/ (scripts/embedded-js.ts,
+  // which also checks the sources): the formatter leaves the sources as they are written.
+  fmt: { ignorePatterns: ["public/**", "public-src/**"] },
   lint: {
-    ignorePatterns: ["public/**"],
+    ignorePatterns: ["public/**", "public-src/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     // eukhe/token-literals: a presentation value outside src/tokens.stylex.ts fails the check.
     jsPlugins: ["./lint/tokens.ts"],
