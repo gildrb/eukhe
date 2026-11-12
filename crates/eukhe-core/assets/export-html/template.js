@@ -1216,7 +1216,7 @@
         if (entry.type === 'custom_message' && entry.display) {
           return `<div class="hook-message" id="${entryDomId}">${tsHtml}
             <div class="hook-type">[${escapeHtml(entry.customType)}]</div>
-            <div class="markdown-content">${safeMarkedParse(typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content))}</div>
+            <div class="markdown-content">${safeMarkedParse(extractContent(entry.content))}</div>
           </div>`;
         }
 

@@ -81,3 +81,24 @@ test("a durable compaction shows the context size before it, not 0", async () =>
   ]);
   expect(texts(window, ".tree-compaction")).toEqual(["[compaction: 1k tokens]"]);
 });
+
+test("a custom message shows its text, from blocks too, and nothing for no content", async () => {
+  const blocks = texts(await render(legacy), "#messages .hook-message");
+  expect(blocks.find((text) => text.includes("[blocks]"))).toContain("A note in blocks.");
+  expect(blocks.join("\n")).not.toContain('"type"');
+
+  const empty = texts(
+    await render({
+      ...durable,
+      entries: durable.entries.map((entry) =>
+        entry.type === "custom_message" && entry.customType === "note"
+          ? { ...entry, content: null }
+          : entry,
+      ),
+    }),
+    "#messages .hook-message",
+  );
+  const note = empty.find((text) => text.includes("[note]"));
+  expect(note).toBeDefined();
+  expect(note).not.toContain("null");
+});
