@@ -116,3 +116,19 @@ test("Escape clears the search and the tree's filter with it", async () => {
   expect(search.value).toBe("");
   expect(texts(window, ".tree-node")).toEqual(all);
 });
+
+test("tool-call arguments of the wrong kind show as invalid, not as text", async () => {
+  const window = await render(legacy);
+  const tree = texts(window, ".tree-node");
+  expect(tree.join("\n")).not.toContain("[object Object]");
+  expect(tree.find((text) => text.includes("[read: [invalid arg]]"))).toBeDefined();
+  expect(tree.find((text) => text.includes("[read: src/lib.rs [invalid arg]]"))).toBeDefined();
+  expect(tree.find((text) => text.includes("[read: ~/project/src/main.rs:10-14]"))).toBeDefined();
+
+  const reads = texts(window, "#messages .tool-execution");
+  const stringOffset = reads.find((text) => text.includes("src/lib.rs"));
+  expect(stringOffset).toContain("[invalid arg]");
+  expect(stringOffset).not.toContain(":10");
+  expect(reads.find((text) => text.includes("path must be a string"))).toContain("[invalid arg]");
+  expect(reads.find((text) => text.includes("~/project/src/main.rs"))).toContain(":10-14");
+});

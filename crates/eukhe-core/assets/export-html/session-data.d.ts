@@ -348,24 +348,11 @@ type ToolCall = {
   type: "toolCall";
   id: string;
   name: string;
-  /**
-   * The arguments as template.ts reads them: the product tools' declared parameter types. Not
-   * checked: a model can send any JSON object, whatever the tool's schema says.
-   */
-  arguments: ToolArguments;
+  /** Not checked: a model can send any JSON object, whatever the tool's schema says. */
+  arguments: JsonObject;
   thoughtSignature?: string;
   /** pi_ai only. */
   namespace?: string;
-};
-
-/** A tool call's arguments with the types template.ts assumes for the product tools' parameters. */
-type ToolArguments = JsonObject & {
-  path?: string;
-  file_path?: string;
-  command?: string;
-  pattern?: string;
-  offset?: number;
-  limit?: number;
 };
 
 /** `eukhe_types::pi_ai::Usage`, `eukhe_types::ai::Usage`. */

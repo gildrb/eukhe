@@ -19,7 +19,7 @@
         byId.set(entry.id, entry);
       }
 
-      const toolCallMap = new Map<string, { name: string; arguments: ToolArguments }>();
+      const toolCallMap = new Map<string, { name: string; arguments: JsonObject }>();
       for (const entry of entries) {
         if (entry.type === 'message' && entry.message.role === 'assistant') {
           const content = entry.message.content;
@@ -515,14 +515,16 @@
         return p;
       }
 
-      function formatToolCall(name: string, args: ToolArguments): string {
+      function formatToolCall(name: string, args: JsonObject): string {
         switch (name) {
           case 'read': {
-            const path = shortenPath(String(args.path || args.file_path || ''));
-            const offset = args.offset;
-            const limit = args.limit;
+            const path = shortenPath(argText(args.path || args.file_path));
+            const offset = num(args.offset);
+            const limit = num(args.limit);
             let display = path;
-            if (offset !== undefined || limit !== undefined) {
+            if (offset === null || limit === null) {
+              display += ' [invalid arg]';
+            } else if (offset !== undefined || limit !== undefined) {
               const start = offset ?? 1;
               const end = limit !== undefined ? start + limit - 1 : '';
               display += `:${start}${end ? `-${end}` : ''}`;
@@ -530,20 +532,20 @@
             return `[read: ${display}]`;
           }
           case 'write':
-            return `[write: ${shortenPath(String(args.path || args.file_path || ''))}]`;
+            return `[write: ${shortenPath(argText(args.path || args.file_path))}]`;
           case 'edit':
-            return `[edit: ${shortenPath(String(args.path || args.file_path || ''))}]`;
+            return `[edit: ${shortenPath(argText(args.path || args.file_path))}]`;
           case 'bash': {
-            const rawCmd = String(args.command || '');
+            const rawCmd = argText(args.command);
             const cmd = rawCmd.replace(/[\n\t]/g, ' ').trim().slice(0, 50);
             return `[bash: ${cmd}${rawCmd.length > 50 ? '...' : ''}]`;
           }
           case 'grep':
-            return `[grep: /${args.pattern || ''}/ in ${shortenPath(String(args.path || '.'))}]`;
+            return `[grep: /${argText(args.pattern)}/ in ${shortenPath(argText(args.path) || '.')}]`;
           case 'find':
-            return `[find: ${args.pattern || ''} in ${shortenPath(String(args.path || '.'))}]`;
+            return `[find: ${argText(args.pattern)} in ${shortenPath(argText(args.path) || '.')}]`;
           case 'ls':
-            return `[ls: ${shortenPath(String(args.path || '.'))}]`;
+            return `[ls: ${shortenPath(argText(args.path) || '.')}]`;
           default: {
             const argsStr = JSON.stringify(args).slice(0, 40);
             return `[${name}: ${argsStr}${JSON.stringify(args).length > 40 ? '...' : ''}]`;
@@ -746,6 +748,18 @@
         return null;
       }
 
+      /** A string argument for the tree's one-line summaries: '' when absent, '[invalid arg]' when not a string. */
+      function argText(value: JsonValue | undefined): string {
+        return str(value) ?? '[invalid arg]';
+      }
+
+      /** A numeric argument: the number, undefined when absent, null when not a number. */
+      function num(value: JsonValue | undefined): number | null | undefined {
+        if (typeof value === 'number') return value;
+        if (value == null) return undefined;
+        return null;
+      }
+
       function getLanguageFromPath(filePath: string): string | undefined {
         const ext = filePath.split('.').pop()?.toLowerCase();
         const extToLang: { [ext: string]: string } = {
@@ -869,14 +883,18 @@
           }
           case 'read': {
             const filePath = str(args.file_path ?? args.path);
-            const offset = args.offset;
-            const limit = args.limit;
+            const offset = num(args.offset);
+            const limit = num(args.limit);
 
             let pathHtml = filePath === null ? invalidArg : escapeHtml(shortenPath(filePath || ''));
-            if (filePath !== null && (offset !== undefined || limit !== undefined)) {
-              const startLine = offset ?? 1;
-              const endLine = limit !== undefined ? startLine + limit - 1 : '';
-              pathHtml += `<span class="line-numbers">:${startLine}${endLine ? '-' + endLine : ''}</span>`;
+            if (filePath !== null) {
+              if (offset === null || limit === null) {
+                pathHtml += ` ${invalidArg}`;
+              } else if (offset !== undefined || limit !== undefined) {
+                const startLine = offset ?? 1;
+                const endLine = limit !== undefined ? startLine + limit - 1 : '';
+                pathHtml += `<span class="line-numbers">:${startLine}${endLine ? '-' + endLine : ''}</span>`;
+              }
             }
 
             html += `<div class="tool-header"><span class="tool-name">read</span> <span class="tool-path">${pathHtml}</span></div>`;
@@ -931,10 +949,12 @@
           }
           case 'ls': {
             const dirPath = str(args.path);
-            const limit = args.limit;
+            const limit = num(args.limit);
 
             let pathHtml = dirPath === null ? invalidArg : escapeHtml(shortenPath(dirPath || '.'));
-            if (limit !== undefined) {
+            if (limit === null) {
+              pathHtml += ` ${invalidArg}`;
+            } else if (limit !== undefined) {
               pathHtml += ` <span class="line-count">(limit ${escapeHtml(String(limit))})</span>`;
             }
 

@@ -121,6 +121,26 @@ export const legacy: SessionExportData = {
           },
           {
             "type": "toolCall",
+            "id": "call-read-object-path",
+            "name": "read",
+            "arguments": {
+              "path": {
+                "file": "src/main.rs"
+              }
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-read-string-offset",
+            "name": "read",
+            "arguments": {
+              "path": "src/lib.rs",
+              "offset": "10",
+              "limit": 5
+            }
+          },
+          {
+            "type": "toolCall",
             "id": "call-write",
             "name": "write",
             "arguments": {
@@ -227,6 +247,44 @@ export const legacy: SessionExportData = {
       "type": "message",
       "message": {
         "role": "toolResult",
+        "toolCallId": "call-read-object-path",
+        "toolName": "read",
+        "content": [
+          {
+            "text": "path must be a string",
+            "type": "text"
+          }
+        ],
+        "isError": true,
+        "timestamp": 1767225605000
+      },
+      "id": "e11",
+      "parentId": "e10",
+      "timestamp": "2026-01-01T00:00:11.000Z"
+    },
+    {
+      "type": "message",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-read-string-offset",
+        "toolName": "read",
+        "content": [
+          {
+            "text": "offset must be a number",
+            "type": "text"
+          }
+        ],
+        "isError": true,
+        "timestamp": 1767225605000
+      },
+      "id": "e12",
+      "parentId": "e11",
+      "timestamp": "2026-01-01T00:00:12.000Z"
+    },
+    {
+      "type": "message",
+      "message": {
+        "role": "toolResult",
         "toolCallId": "call-write",
         "toolName": "write",
         "content": [
@@ -238,9 +296,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e11",
-      "parentId": "e10",
-      "timestamp": "2026-01-01T00:00:11.000Z"
+      "id": "e13",
+      "parentId": "e12",
+      "timestamp": "2026-01-01T00:00:13.000Z"
     },
     {
       "type": "message",
@@ -260,9 +318,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e12",
-      "parentId": "e11",
-      "timestamp": "2026-01-01T00:00:12.000Z"
+      "id": "e14",
+      "parentId": "e13",
+      "timestamp": "2026-01-01T00:00:14.000Z"
     },
     {
       "type": "message",
@@ -279,9 +337,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e13",
-      "parentId": "e12",
-      "timestamp": "2026-01-01T00:00:13.000Z"
+      "id": "e15",
+      "parentId": "e14",
+      "timestamp": "2026-01-01T00:00:15.000Z"
     },
     {
       "type": "message",
@@ -298,9 +356,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e14",
-      "parentId": "e13",
-      "timestamp": "2026-01-01T00:00:14.000Z"
+      "id": "e16",
+      "parentId": "e15",
+      "timestamp": "2026-01-01T00:00:16.000Z"
     },
     {
       "type": "message",
@@ -317,9 +375,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e15",
-      "parentId": "e14",
-      "timestamp": "2026-01-01T00:00:15.000Z"
+      "id": "e17",
+      "parentId": "e16",
+      "timestamp": "2026-01-01T00:00:17.000Z"
     },
     {
       "type": "message",
@@ -336,9 +394,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e16",
-      "parentId": "e15",
-      "timestamp": "2026-01-01T00:00:16.000Z"
+      "id": "e18",
+      "parentId": "e17",
+      "timestamp": "2026-01-01T00:00:18.000Z"
     },
     {
       "type": "message",
@@ -360,9 +418,9 @@ export const legacy: SessionExportData = {
         "isError": false,
         "timestamp": 1767225605000
       },
-      "id": "e17",
-      "parentId": "e16",
-      "timestamp": "2026-01-01T00:00:17.000Z"
+      "id": "e19",
+      "parentId": "e18",
+      "timestamp": "2026-01-01T00:00:19.000Z"
     },
     {
       "type": "message",
@@ -394,9 +452,9 @@ export const legacy: SessionExportData = {
         "stopReason": "stop",
         "timestamp": 1767225603000
       },
-      "id": "e18",
-      "parentId": "e17",
-      "timestamp": "2026-01-01T00:00:18.000Z"
+      "id": "e20",
+      "parentId": "e19",
+      "timestamp": "2026-01-01T00:00:20.000Z"
     },
     {
       "type": "message",
@@ -408,9 +466,9 @@ export const legacy: SessionExportData = {
         "cancelled": false,
         "timestamp": 1767225606000
       },
-      "id": "e19",
-      "parentId": "e18",
-      "timestamp": "2026-01-01T00:00:19.000Z"
+      "id": "e21",
+      "parentId": "e20",
+      "timestamp": "2026-01-01T00:00:21.000Z"
     },
     {
       "type": "message",
@@ -422,9 +480,9 @@ export const legacy: SessionExportData = {
         "cancelled": false,
         "timestamp": 1767225606000
       },
-      "id": "e20",
-      "parentId": "e19",
-      "timestamp": "2026-01-01T00:00:20.000Z"
+      "id": "e22",
+      "parentId": "e21",
+      "timestamp": "2026-01-01T00:00:22.000Z"
     },
     {
       "type": "message",
@@ -435,9 +493,9 @@ export const legacy: SessionExportData = {
         "cancelled": true,
         "timestamp": 1767225606000
       },
-      "id": "e21",
-      "parentId": "e20",
-      "timestamp": "2026-01-01T00:00:21.000Z"
+      "id": "e23",
+      "parentId": "e22",
+      "timestamp": "2026-01-01T00:00:23.000Z"
     },
     {
       "type": "message",
@@ -448,9 +506,9 @@ export const legacy: SessionExportData = {
         "cancelled": false,
         "timestamp": 1767225606000
       },
-      "id": "e22",
-      "parentId": "e21",
-      "timestamp": "2026-01-01T00:00:22.000Z"
+      "id": "e24",
+      "parentId": "e23",
+      "timestamp": "2026-01-01T00:00:24.000Z"
     },
     {
       "type": "message",
@@ -461,9 +519,9 @@ export const legacy: SessionExportData = {
         "display": true,
         "timestamp": 1767225607000
       },
-      "id": "e23",
-      "parentId": "e22",
-      "timestamp": "2026-01-01T00:00:23.000Z"
+      "id": "e25",
+      "parentId": "e24",
+      "timestamp": "2026-01-01T00:00:25.000Z"
     },
     {
       "type": "message",
@@ -473,9 +531,9 @@ export const legacy: SessionExportData = {
         "fromId": "e8",
         "timestamp": 1767225608000
       },
-      "id": "e24",
-      "parentId": "e23",
-      "timestamp": "2026-01-01T00:00:24.000Z"
+      "id": "e26",
+      "parentId": "e25",
+      "timestamp": "2026-01-01T00:00:26.000Z"
     },
     {
       "type": "message",
@@ -485,9 +543,9 @@ export const legacy: SessionExportData = {
         "tokensBefore": 54321,
         "timestamp": 1767225609000
       },
-      "id": "e25",
-      "parentId": "e24",
-      "timestamp": "2026-01-01T00:00:25.000Z"
+      "id": "e27",
+      "parentId": "e26",
+      "timestamp": "2026-01-01T00:00:27.000Z"
     },
     {
       "type": "compaction",
@@ -515,9 +573,9 @@ export const legacy: SessionExportData = {
           "total": 0.003
         }
       },
-      "id": "e26",
-      "parentId": "e25",
-      "timestamp": "2026-01-01T00:00:26.000Z"
+      "id": "e28",
+      "parentId": "e27",
+      "timestamp": "2026-01-01T00:00:28.000Z"
     },
     {
       "type": "branch_summary",
@@ -541,9 +599,9 @@ export const legacy: SessionExportData = {
           "total": 0.003
         }
       },
-      "id": "e27",
-      "parentId": "e26",
-      "timestamp": "2026-01-01T00:00:27.000Z"
+      "id": "e29",
+      "parentId": "e28",
+      "timestamp": "2026-01-01T00:00:29.000Z"
     },
     {
       "type": "custom",
@@ -551,9 +609,9 @@ export const legacy: SessionExportData = {
       "data": {
         "step": 2
       },
-      "id": "e28",
-      "parentId": "e27",
-      "timestamp": "2026-01-01T00:00:28.000Z"
+      "id": "e30",
+      "parentId": "e29",
+      "timestamp": "2026-01-01T00:00:30.000Z"
     },
     {
       "type": "child_usage_attributed",
@@ -587,26 +645,26 @@ export const legacy: SessionExportData = {
         }
       },
       "origin": "spawn_task",
-      "id": "e29",
-      "parentId": "e28",
-      "timestamp": "2026-01-01T00:00:29.000Z"
+      "id": "e31",
+      "parentId": "e30",
+      "timestamp": "2026-01-01T00:00:31.000Z"
     },
     {
       "type": "label",
       "targetId": "e8",
       "label": "start",
-      "id": "e30",
-      "parentId": "e29",
-      "timestamp": "2026-01-01T00:00:30.000Z"
+      "id": "e32",
+      "parentId": "e31",
+      "timestamp": "2026-01-01T00:00:32.000Z"
     },
     {
       "type": "custom_message",
       "customType": "note",
       "content": "A note in **markdown**.",
       "display": true,
-      "id": "e31",
-      "parentId": "e30",
-      "timestamp": "2026-01-01T00:00:31.000Z"
+      "id": "e33",
+      "parentId": "e32",
+      "timestamp": "2026-01-01T00:00:33.000Z"
     },
     {
       "type": "custom_message",
@@ -621,18 +679,18 @@ export const legacy: SessionExportData = {
         "source": "hook"
       },
       "display": true,
-      "id": "e32",
-      "parentId": "e31",
-      "timestamp": "2026-01-01T00:00:32.000Z"
+      "id": "e34",
+      "parentId": "e33",
+      "timestamp": "2026-01-01T00:00:34.000Z"
     },
     {
       "type": "custom_message",
       "customType": "hidden",
       "content": "Not shown.",
       "display": false,
-      "id": "e33",
-      "parentId": "e32",
-      "timestamp": "2026-01-01T00:00:33.000Z"
+      "id": "e35",
+      "parentId": "e34",
+      "timestamp": "2026-01-01T00:00:35.000Z"
     },
     {
       "type": "message",
@@ -660,9 +718,9 @@ export const legacy: SessionExportData = {
         "errorMessage": "Overloaded",
         "timestamp": 1767225611000
       },
-      "id": "e34",
+      "id": "e36",
       "parentId": "e8",
-      "timestamp": "2026-01-01T00:00:34.000Z"
+      "timestamp": "2026-01-01T00:00:36.000Z"
     },
     {
       "type": "message",
@@ -689,9 +747,9 @@ export const legacy: SessionExportData = {
         "stopReason": "aborted",
         "timestamp": 1767225612000
       },
-      "id": "e35",
-      "parentId": "e34",
-      "timestamp": "2026-01-01T00:00:35.000Z"
+      "id": "e37",
+      "parentId": "e36",
+      "timestamp": "2026-01-01T00:00:37.000Z"
     },
     {
       "type": "message",
@@ -700,12 +758,12 @@ export const legacy: SessionExportData = {
         "content": "Try again.",
         "timestamp": 1767225610000
       },
-      "id": "e36",
-      "parentId": "e33",
-      "timestamp": "2026-01-01T00:00:36.000Z"
+      "id": "e38",
+      "parentId": "e35",
+      "timestamp": "2026-01-01T00:00:38.000Z"
     }
   ],
-  "leafId": "e36"
+  "leafId": "e38"
 };
 
 export const durable: SessionExportData = {
@@ -766,490 +824,21 @@ export const durable: SessionExportData = {
           },
           {
             "type": "toolCall",
-            "id": "call-write",
-            "name": "write",
-            "arguments": {
-              "path": "src/new.rs",
-              "content": "fn main() {}\n"
-            }
-          },
-          {
-            "type": "toolCall",
-            "id": "call-edit",
-            "name": "edit",
-            "arguments": {
-              "path": "src/main.rs",
-              "edits": []
-            }
-          },
-          {
-            "type": "toolCall",
-            "id": "call-bash",
-            "name": "bash",
-            "arguments": {
-              "command": "cargo test"
-            }
-          },
-          {
-            "type": "toolCall",
-            "id": "call-grep",
-            "name": "grep",
-            "arguments": {
-              "pattern": "fn main",
-              "path": "src"
-            }
-          },
-          {
-            "type": "toolCall",
-            "id": "call-find",
-            "name": "find",
-            "arguments": {
-              "pattern": "*.rs"
-            }
-          },
-          {
-            "type": "toolCall",
-            "id": "call-ls",
-            "name": "ls",
-            "arguments": {
-              "path": "src",
-              "limit": 20
-            }
-          },
-          {
-            "type": "toolCall",
-            "id": "call-custom",
-            "name": "my_tool",
-            "arguments": {
-              "query": "anything"
-            }
-          }
-        ],
-        "api": "anthropic-messages",
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5",
-        "usage": {
-          "input": 1010,
-          "output": 202,
-          "cacheRead": 0,
-          "cacheWrite": 0,
-          "totalTokens": 1212,
-          "cost": {
-            "input": 0.001,
-            "output": 0.002,
-            "cacheRead": 0,
-            "cacheWrite": 0,
-            "total": 0.003
-          }
-        },
-        "stopReason": "toolUse",
-        "timestamp": 1767225602000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d3",
-      "parentId": "d2",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-read",
-        "toolName": "read",
-        "content": [
-          {
-            "type": "text",
-            "text": "fn main() {}"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d4",
-      "parentId": "d3",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-write",
-        "toolName": "write",
-        "content": [
-          {
-            "type": "text",
-            "text": "Wrote src/new.rs"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d5",
-      "parentId": "d4",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-edit",
-        "toolName": "edit",
-        "content": [
-          {
-            "type": "text",
-            "text": "Edited src/main.rs"
-          }
-        ],
-        "details": {
-          "diff": "-1 fn old() {}\n+1 fn main() {}"
-        },
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d6",
-      "parentId": "d5",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-bash",
-        "toolName": "bash",
-        "content": [
-          {
-            "type": "text",
-            "text": "test result: ok"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d7",
-      "parentId": "d6",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-grep",
-        "toolName": "grep",
-        "content": [
-          {
-            "type": "text",
-            "text": "src/main.rs:1:fn main() {}"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d8",
-      "parentId": "d7",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-find",
-        "toolName": "find",
-        "content": [
-          {
-            "type": "text",
-            "text": "src/main.rs"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d9",
-      "parentId": "d8",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-ls",
-        "toolName": "ls",
-        "content": [
-          {
-            "type": "text",
-            "text": "main.rs"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d10",
-      "parentId": "d9",
-      "timestamp": "2026-01-01T00:00:05.000Z",
-      "message": {
-        "role": "toolResult",
-        "toolCallId": "call-custom",
-        "toolName": "my_tool",
-        "content": [
-          {
-            "type": "text",
-            "text": "custom output"
-          },
-          {
-            "type": "image",
-            "data": "iVBORw0KGgo=",
-            "mimeType": "image/png"
-          }
-        ],
-        "isError": false,
-        "timestamp": 1767225605000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d11",
-      "parentId": "d10",
-      "timestamp": "2026-01-01T00:00:03.000Z",
-      "message": {
-        "role": "assistant",
-        "content": [
-          {
-            "type": "text",
-            "text": "All read."
-          }
-        ],
-        "api": "anthropic-messages",
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5",
-        "usage": {
-          "input": 1000,
-          "output": 200,
-          "cacheRead": 0,
-          "cacheWrite": 0,
-          "totalTokens": 1200,
-          "cost": {
-            "input": 0.001,
-            "output": 0.002,
-            "cacheRead": 0,
-            "cacheWrite": 0,
-            "total": 0.003
-          }
-        },
-        "stopReason": "stop",
-        "timestamp": 1767225603000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d12",
-      "parentId": "d11",
-      "timestamp": "2026-01-01T00:00:06.000Z",
-      "message": {
-        "role": "bashExecution",
-        "command": "ls",
-        "output": "out\n",
-        "exitCode": 0,
-        "cancelled": false,
-        "timestamp": 1767225606000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d13",
-      "parentId": "d12",
-      "timestamp": "2026-01-01T00:00:06.000Z",
-      "message": {
-        "role": "bashExecution",
-        "command": "false",
-        "output": "out\n",
-        "exitCode": 1,
-        "cancelled": false,
-        "timestamp": 1767225606000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d14",
-      "parentId": "d13",
-      "timestamp": "2026-01-01T00:00:06.000Z",
-      "message": {
-        "role": "bashExecution",
-        "command": "sleep 100",
-        "output": "out\n",
-        "cancelled": true,
-        "timestamp": 1767225606000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d15",
-      "parentId": "d14",
-      "timestamp": "2026-01-01T00:00:06.000Z",
-      "message": {
-        "role": "bashExecution",
-        "command": "kill -9 $$",
-        "output": "out\n",
-        "cancelled": false,
-        "timestamp": 1767225606000
-      }
-    },
-    {
-      "type": "custom_message",
-      "id": "d16",
-      "parentId": "d15",
-      "timestamp": "2026-01-01T00:00:07.000Z",
-      "customType": "reminder",
-      "content": [
-        {
-          "type": "text",
-          "text": "Remember the tests."
-        }
-      ],
-      "display": true
-    },
-    {
-      "type": "branch_summary",
-      "id": "d17",
-      "parentId": "d16",
-      "timestamp": "2026-01-01T00:00:08.000Z",
-      "fromId": "e8",
-      "summary": "Tried another approach."
-    },
-    {
-      "type": "compaction",
-      "id": "d18",
-      "parentId": "d17",
-      "timestamp": "2026-01-01T00:00:26.000Z",
-      "summary": "The session so far.\n\n<read-files>\nsrc/main.rs\n</read-files>",
-      "firstKeptEntryId": "d2",
-      "tokensBefore": 1200
-    },
-    {
-      "type": "branch_summary",
-      "id": "d19",
-      "parentId": "d18",
-      "timestamp": "2026-01-01T00:00:27.000Z",
-      "fromId": "e9",
-      "summary": "The other branch.",
-      "details": {
-        "modifiedFiles": []
-      },
-      "fromHook": false
-    },
-    {
-      "type": "custom_message",
-      "id": "d20",
-      "parentId": "d19",
-      "timestamp": "2026-01-01T00:00:31.000Z",
-      "customType": "note",
-      "content": [
-        {
-          "type": "text",
-          "text": "A note in **markdown**."
-        }
-      ],
-      "display": true
-    },
-    {
-      "type": "custom_message",
-      "id": "d21",
-      "parentId": "d20",
-      "timestamp": "2026-01-01T00:00:32.000Z",
-      "customType": "blocks",
-      "content": [
-        {
-          "type": "text",
-          "text": "A note in blocks."
-        }
-      ],
-      "display": true,
-      "details": {
-        "source": "hook"
-      }
-    },
-    {
-      "type": "custom_message",
-      "id": "d22",
-      "parentId": "d21",
-      "timestamp": "2026-01-01T00:00:33.000Z",
-      "customType": "hidden",
-      "content": [
-        {
-          "type": "text",
-          "text": "Not shown."
-        }
-      ],
-      "display": false
-    },
-    {
-      "type": "message",
-      "id": "d23",
-      "parentId": "d22",
-      "timestamp": "2026-01-01T00:00:10.000Z",
-      "message": {
-        "role": "user",
-        "content": "Try again.",
-        "timestamp": 1767225610000
-      }
-    }
-  ],
-  "leafId": "d23"
-};
-
-export const live: SessionExportData = {
-  "header": {
-    "type": "session",
-    "version": 3,
-    "id": "fixture",
-    "timestamp": "2026-01-01T00:00:00.000Z",
-    "cwd": "/home/user/project"
-  },
-  "entries": [
-    {
-      "type": "message",
-      "id": "d1",
-      "parentId": null,
-      "timestamp": "2026-01-01T00:00:01.000Z",
-      "message": {
-        "role": "user",
-        "content": [
-          {
-            "type": "text",
-            "text": "Read the file, please."
-          },
-          {
-            "type": "image",
-            "data": "iVBORw0KGgo=",
-            "mimeType": "image/png"
-          }
-        ],
-        "timestamp": 1767225601000
-      }
-    },
-    {
-      "type": "message",
-      "id": "d2",
-      "parentId": "d1",
-      "timestamp": "2026-01-01T00:00:02.000Z",
-      "message": {
-        "role": "assistant",
-        "content": [
-          {
-            "type": "thinking",
-            "thinking": "Reading it first."
-          },
-          {
-            "type": "text",
-            "text": "Reading it."
-          },
-          {
-            "type": "toolCall",
-            "id": "call-read",
+            "id": "call-read-object-path",
             "name": "read",
             "arguments": {
-              "path": "/home/user/project/src/main.rs",
-              "offset": 10,
+              "path": {
+                "file": "src/main.rs"
+              }
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-read-string-offset",
+            "name": "read",
+            "arguments": {
+              "path": "src/lib.rs",
+              "offset": "d4",
               "limit": 5
             }
           },
@@ -1361,6 +950,44 @@ export const live: SessionExportData = {
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
+        "toolCallId": "call-read-object-path",
+        "toolName": "read",
+        "content": [
+          {
+            "type": "text",
+            "text": "path must be a string"
+          }
+        ],
+        "isError": true,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d5",
+      "parentId": "d4",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-read-string-offset",
+        "toolName": "read",
+        "content": [
+          {
+            "type": "text",
+            "text": "offset must be a number"
+          }
+        ],
+        "isError": true,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d6",
+      "parentId": "d5",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
         "toolCallId": "call-write",
         "toolName": "write",
         "content": [
@@ -1375,8 +1002,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d5",
-      "parentId": "d4",
+      "id": "d7",
+      "parentId": "d6",
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
@@ -1397,8 +1024,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d6",
-      "parentId": "d5",
+      "id": "d8",
+      "parentId": "d7",
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
@@ -1416,8 +1043,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d7",
-      "parentId": "d6",
+      "id": "d9",
+      "parentId": "d8",
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
@@ -1435,8 +1062,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d8",
-      "parentId": "d7",
+      "id": "d10",
+      "parentId": "d9",
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
@@ -1454,8 +1081,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d9",
-      "parentId": "d8",
+      "id": "d11",
+      "parentId": "d10",
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
@@ -1473,8 +1100,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d10",
-      "parentId": "d9",
+      "id": "d12",
+      "parentId": "d11",
       "timestamp": "2026-01-01T00:00:05.000Z",
       "message": {
         "role": "toolResult",
@@ -1497,8 +1124,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d11",
-      "parentId": "d10",
+      "id": "d13",
+      "parentId": "d12",
       "timestamp": "2026-01-01T00:00:03.000Z",
       "message": {
         "role": "assistant",
@@ -1531,8 +1158,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d12",
-      "parentId": "d11",
+      "id": "d14",
+      "parentId": "d13",
       "timestamp": "2026-01-01T00:00:06.000Z",
       "message": {
         "role": "bashExecution",
@@ -1545,8 +1172,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d13",
-      "parentId": "d12",
+      "id": "d15",
+      "parentId": "d14",
       "timestamp": "2026-01-01T00:00:06.000Z",
       "message": {
         "role": "bashExecution",
@@ -1559,8 +1186,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d14",
-      "parentId": "d13",
+      "id": "d16",
+      "parentId": "d15",
       "timestamp": "2026-01-01T00:00:06.000Z",
       "message": {
         "role": "bashExecution",
@@ -1572,8 +1199,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d15",
-      "parentId": "d14",
+      "id": "d17",
+      "parentId": "d16",
       "timestamp": "2026-01-01T00:00:06.000Z",
       "message": {
         "role": "bashExecution",
@@ -1585,8 +1212,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "custom_message",
-      "id": "d16",
-      "parentId": "d15",
+      "id": "d18",
+      "parentId": "d17",
       "timestamp": "2026-01-01T00:00:07.000Z",
       "customType": "reminder",
       "content": [
@@ -1599,26 +1226,26 @@ export const live: SessionExportData = {
     },
     {
       "type": "branch_summary",
-      "id": "d17",
-      "parentId": "d16",
+      "id": "d19",
+      "parentId": "d18",
       "timestamp": "2026-01-01T00:00:08.000Z",
       "fromId": "e8",
       "summary": "Tried another approach."
     },
     {
       "type": "compaction",
-      "id": "d18",
-      "parentId": "d17",
-      "timestamp": "2026-01-01T00:00:26.000Z",
+      "id": "d20",
+      "parentId": "d19",
+      "timestamp": "2026-01-01T00:00:28.000Z",
       "summary": "The session so far.\n\n<read-files>\nsrc/main.rs\n</read-files>",
       "firstKeptEntryId": "d2",
       "tokensBefore": 1200
     },
     {
       "type": "branch_summary",
-      "id": "d19",
-      "parentId": "d18",
-      "timestamp": "2026-01-01T00:00:27.000Z",
+      "id": "d21",
+      "parentId": "d20",
+      "timestamp": "2026-01-01T00:00:29.000Z",
       "fromId": "e9",
       "summary": "The other branch.",
       "details": {
@@ -1628,9 +1255,9 @@ export const live: SessionExportData = {
     },
     {
       "type": "custom_message",
-      "id": "d20",
-      "parentId": "d19",
-      "timestamp": "2026-01-01T00:00:31.000Z",
+      "id": "d22",
+      "parentId": "d21",
+      "timestamp": "2026-01-01T00:00:33.000Z",
       "customType": "note",
       "content": [
         {
@@ -1642,9 +1269,9 @@ export const live: SessionExportData = {
     },
     {
       "type": "custom_message",
-      "id": "d21",
-      "parentId": "d20",
-      "timestamp": "2026-01-01T00:00:32.000Z",
+      "id": "d23",
+      "parentId": "d22",
+      "timestamp": "2026-01-01T00:00:34.000Z",
       "customType": "blocks",
       "content": [
         {
@@ -1659,9 +1286,9 @@ export const live: SessionExportData = {
     },
     {
       "type": "custom_message",
-      "id": "d22",
-      "parentId": "d21",
-      "timestamp": "2026-01-01T00:00:33.000Z",
+      "id": "d24",
+      "parentId": "d23",
+      "timestamp": "2026-01-01T00:00:35.000Z",
       "customType": "hidden",
       "content": [
         {
@@ -1673,8 +1300,8 @@ export const live: SessionExportData = {
     },
     {
       "type": "message",
-      "id": "d23",
-      "parentId": "d22",
+      "id": "d25",
+      "parentId": "d24",
       "timestamp": "2026-01-01T00:00:10.000Z",
       "message": {
         "role": "user",
@@ -1683,7 +1310,554 @@ export const live: SessionExportData = {
       }
     }
   ],
-  "leafId": "d23",
+  "leafId": "d25"
+};
+
+export const live: SessionExportData = {
+  "header": {
+    "type": "session",
+    "version": 3,
+    "id": "fixture",
+    "timestamp": "2026-01-01T00:00:00.000Z",
+    "cwd": "/home/user/project"
+  },
+  "entries": [
+    {
+      "type": "message",
+      "id": "d1",
+      "parentId": null,
+      "timestamp": "2026-01-01T00:00:01.000Z",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Read the file, please."
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgo=",
+            "mimeType": "image/png"
+          }
+        ],
+        "timestamp": 1767225601000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d2",
+      "parentId": "d1",
+      "timestamp": "2026-01-01T00:00:02.000Z",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Reading it first."
+          },
+          {
+            "type": "text",
+            "text": "Reading it."
+          },
+          {
+            "type": "toolCall",
+            "id": "call-read",
+            "name": "read",
+            "arguments": {
+              "path": "/home/user/project/src/main.rs",
+              "offset": 10,
+              "limit": 5
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-read-object-path",
+            "name": "read",
+            "arguments": {
+              "path": {
+                "file": "src/main.rs"
+              }
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-read-string-offset",
+            "name": "read",
+            "arguments": {
+              "path": "src/lib.rs",
+              "offset": "d4",
+              "limit": 5
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-write",
+            "name": "write",
+            "arguments": {
+              "path": "src/new.rs",
+              "content": "fn main() {}\n"
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-edit",
+            "name": "edit",
+            "arguments": {
+              "path": "src/main.rs",
+              "edits": []
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-bash",
+            "name": "bash",
+            "arguments": {
+              "command": "cargo test"
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-grep",
+            "name": "grep",
+            "arguments": {
+              "pattern": "fn main",
+              "path": "src"
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-find",
+            "name": "find",
+            "arguments": {
+              "pattern": "*.rs"
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-ls",
+            "name": "ls",
+            "arguments": {
+              "path": "src",
+              "limit": 20
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call-custom",
+            "name": "my_tool",
+            "arguments": {
+              "query": "anything"
+            }
+          }
+        ],
+        "api": "anthropic-messages",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+        "usage": {
+          "input": 1010,
+          "output": 202,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 1212,
+          "cost": {
+            "input": 0.001,
+            "output": 0.002,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0.003
+          }
+        },
+        "stopReason": "toolUse",
+        "timestamp": 1767225602000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d3",
+      "parentId": "d2",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-read",
+        "toolName": "read",
+        "content": [
+          {
+            "type": "text",
+            "text": "fn main() {}"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d4",
+      "parentId": "d3",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-read-object-path",
+        "toolName": "read",
+        "content": [
+          {
+            "type": "text",
+            "text": "path must be a string"
+          }
+        ],
+        "isError": true,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d5",
+      "parentId": "d4",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-read-string-offset",
+        "toolName": "read",
+        "content": [
+          {
+            "type": "text",
+            "text": "offset must be a number"
+          }
+        ],
+        "isError": true,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d6",
+      "parentId": "d5",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-write",
+        "toolName": "write",
+        "content": [
+          {
+            "type": "text",
+            "text": "Wrote src/new.rs"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d7",
+      "parentId": "d6",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-edit",
+        "toolName": "edit",
+        "content": [
+          {
+            "type": "text",
+            "text": "Edited src/main.rs"
+          }
+        ],
+        "details": {
+          "diff": "-1 fn old() {}\n+1 fn main() {}"
+        },
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d8",
+      "parentId": "d7",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-bash",
+        "toolName": "bash",
+        "content": [
+          {
+            "type": "text",
+            "text": "test result: ok"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d9",
+      "parentId": "d8",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-grep",
+        "toolName": "grep",
+        "content": [
+          {
+            "type": "text",
+            "text": "src/main.rs:1:fn main() {}"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d10",
+      "parentId": "d9",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-find",
+        "toolName": "find",
+        "content": [
+          {
+            "type": "text",
+            "text": "src/main.rs"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d11",
+      "parentId": "d10",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-ls",
+        "toolName": "ls",
+        "content": [
+          {
+            "type": "text",
+            "text": "main.rs"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d12",
+      "parentId": "d11",
+      "timestamp": "2026-01-01T00:00:05.000Z",
+      "message": {
+        "role": "toolResult",
+        "toolCallId": "call-custom",
+        "toolName": "my_tool",
+        "content": [
+          {
+            "type": "text",
+            "text": "custom output"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgo=",
+            "mimeType": "image/png"
+          }
+        ],
+        "isError": false,
+        "timestamp": 1767225605000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d13",
+      "parentId": "d12",
+      "timestamp": "2026-01-01T00:00:03.000Z",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "All read."
+          }
+        ],
+        "api": "anthropic-messages",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+        "usage": {
+          "input": 1000,
+          "output": 200,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 1200,
+          "cost": {
+            "input": 0.001,
+            "output": 0.002,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0.003
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1767225603000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d14",
+      "parentId": "d13",
+      "timestamp": "2026-01-01T00:00:06.000Z",
+      "message": {
+        "role": "bashExecution",
+        "command": "ls",
+        "output": "out\n",
+        "exitCode": 0,
+        "cancelled": false,
+        "timestamp": 1767225606000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d15",
+      "parentId": "d14",
+      "timestamp": "2026-01-01T00:00:06.000Z",
+      "message": {
+        "role": "bashExecution",
+        "command": "false",
+        "output": "out\n",
+        "exitCode": 1,
+        "cancelled": false,
+        "timestamp": 1767225606000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d16",
+      "parentId": "d15",
+      "timestamp": "2026-01-01T00:00:06.000Z",
+      "message": {
+        "role": "bashExecution",
+        "command": "sleep 100",
+        "output": "out\n",
+        "cancelled": true,
+        "timestamp": 1767225606000
+      }
+    },
+    {
+      "type": "message",
+      "id": "d17",
+      "parentId": "d16",
+      "timestamp": "2026-01-01T00:00:06.000Z",
+      "message": {
+        "role": "bashExecution",
+        "command": "kill -9 $$",
+        "output": "out\n",
+        "cancelled": false,
+        "timestamp": 1767225606000
+      }
+    },
+    {
+      "type": "custom_message",
+      "id": "d18",
+      "parentId": "d17",
+      "timestamp": "2026-01-01T00:00:07.000Z",
+      "customType": "reminder",
+      "content": [
+        {
+          "type": "text",
+          "text": "Remember the tests."
+        }
+      ],
+      "display": true
+    },
+    {
+      "type": "branch_summary",
+      "id": "d19",
+      "parentId": "d18",
+      "timestamp": "2026-01-01T00:00:08.000Z",
+      "fromId": "e8",
+      "summary": "Tried another approach."
+    },
+    {
+      "type": "compaction",
+      "id": "d20",
+      "parentId": "d19",
+      "timestamp": "2026-01-01T00:00:28.000Z",
+      "summary": "The session so far.\n\n<read-files>\nsrc/main.rs\n</read-files>",
+      "firstKeptEntryId": "d2",
+      "tokensBefore": 1200
+    },
+    {
+      "type": "branch_summary",
+      "id": "d21",
+      "parentId": "d20",
+      "timestamp": "2026-01-01T00:00:29.000Z",
+      "fromId": "e9",
+      "summary": "The other branch.",
+      "details": {
+        "modifiedFiles": []
+      },
+      "fromHook": false
+    },
+    {
+      "type": "custom_message",
+      "id": "d22",
+      "parentId": "d21",
+      "timestamp": "2026-01-01T00:00:33.000Z",
+      "customType": "note",
+      "content": [
+        {
+          "type": "text",
+          "text": "A note in **markdown**."
+        }
+      ],
+      "display": true
+    },
+    {
+      "type": "custom_message",
+      "id": "d23",
+      "parentId": "d22",
+      "timestamp": "2026-01-01T00:00:34.000Z",
+      "customType": "blocks",
+      "content": [
+        {
+          "type": "text",
+          "text": "A note in blocks."
+        }
+      ],
+      "display": true,
+      "details": {
+        "source": "hook"
+      }
+    },
+    {
+      "type": "custom_message",
+      "id": "d24",
+      "parentId": "d23",
+      "timestamp": "2026-01-01T00:00:35.000Z",
+      "customType": "hidden",
+      "content": [
+        {
+          "type": "text",
+          "text": "Not shown."
+        }
+      ],
+      "display": false
+    },
+    {
+      "type": "message",
+      "id": "d25",
+      "parentId": "d24",
+      "timestamp": "2026-01-01T00:00:10.000Z",
+      "message": {
+        "role": "user",
+        "content": "Try again.",
+        "timestamp": 1767225610000
+      }
+    }
+  ],
+  "leafId": "d25",
   "systemPrompt": "You are a coding agent.",
   "tools": [
     {
