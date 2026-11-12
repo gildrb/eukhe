@@ -9,6 +9,9 @@
 #   build_image.sh merge <tag>  ${IMAGE}:<tag> = the amd64 + arm64 images;
 #                               prints the multi-arch digest to pin
 #
+# The image records the archive it was built from and the packages it
+# installed, with their versions, in /usr/share/eukhe-build and in its labels
+# org.gildrb.eukhe-build.{apt-source,packages}.
 # <tag> is jammy-<YYYYMMDD>; IMAGE defaults to ghcr.io/gildrb/eukhe-build.
 # push and merge need `docker login ghcr.io` first.
 set -euo pipefail
@@ -21,7 +24,7 @@ image="${IMAGE:-ghcr.io/gildrb/eukhe-build}"
 dockerfile="$(dirname "$0")/Dockerfile"
 
 build() {
-  local arch
+  local arch source packages
   arch="$(docker version --format '{{.Server.Arch}}')"
   case "${arch}" in amd64 | arm64) ;; *) echo "unsupported architecture ${arch}" >&2; exit 1 ;; esac
   ref="${image}:${tag}-${arch}"
@@ -29,9 +32,16 @@ build() {
   # installs today. No provenance/SBOM manifests: a plain image per arch.
   docker buildx build --pull --no-cache --provenance=false --sbom=false \
     --platform "linux/${arch}" --load -t "${ref}" - < "${dockerfile}"
-  echo "${ref}: apt source $(docker run --rm "${ref}" cat /usr/share/eukhe-build/source)"
+  source="$(docker run --rm "${ref}" cat /usr/share/eukhe-build/source)"
+  packages="$(docker run --rm "${ref}" cat /usr/share/eukhe-build/packages.txt)"
+  echo "${ref}: apt source ${source}"
   echo "${ref}: installed packages"
-  docker run --rm "${ref}" cat /usr/share/eukhe-build/packages.txt
+  echo "${packages}"
+  # The same image, with the apt source and the installed packages as labels.
+  echo "FROM ${ref}" | docker buildx build --provenance=false --sbom=false \
+    --platform "linux/${arch}" --load -t "${ref}" \
+    --label "org.gildrb.eukhe-build.apt-source=${source}" \
+    --label "org.gildrb.eukhe-build.packages=${packages//$'\n'/ }" -
 }
 
 case "${mode}" in
